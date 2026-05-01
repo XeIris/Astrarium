@@ -8,8 +8,13 @@ To my knowledge, this is the only model that has accurately produced this simula
 
 > Create a realistic simulation of a black hole in HTML/CSS/JS using Three.js. Include gravitational lensing (background starlight gets distorted), the black hole appearing larger than its true size, and an accretion disc that bends with it. Allow adding planets and stars to the simulation. Add a mesh graph showing the black hole's impact on spacetime — the mesh deforms but objects rest above it, not inside it. Let the black hole's mass be adjustable so it grows accordingly. Support adding planets of different sizes, stars, and neutron stars. Make it a full simulator with as much realistic physics and good visuals as possible.
 
+## Result:
+
+<img width="2690" height="1585" alt="image" src="https://github.com/user-attachments/assets/8c890949-dd95-473c-8a56-9a6d612feed0" />
+
+
 ## Disclaimer
 
-This is not the raw initial output — it has been modularized and optimized for higher FPS. Visually, it is unchanged.
+This is not the raw initial output — it has been modularised and optimised for higher FPS. Visually, it is unchanged.
 
 This is not an absolute physics simulator. It is intended for educational purposes only.
