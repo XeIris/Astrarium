@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Black Hole Simulator</title>
+  <title>Gravitational Sandbox — Space Sim</title>
   <link rel="stylesheet" href="blackhole_sim.css">
 </head>
 <body>
@@ -12,68 +12,89 @@
 
 <div id="canvas-wrap"></div>
 
-<div class="corner tl"></div>
-<div class="corner tr"></div>
-<div class="corner bl"></div>
-<div class="corner br"></div>
+<div class="corner tl"></div><div class="corner tr"></div>
+<div class="corner bl"></div><div class="corner br"></div>
 
 <div class="hud title-block">
-  <div class="tag">SCHWARZSCHILD OBSERVATORY</div>
-  <div class="name">Black Hole Simulator</div>
-  <div class="sub">/ LIVE RAY TRACE</div>
+  <div class="tag">GRAVITATIONAL OBSERVATORY</div>
+  <div class="name" id="presetName">Black Hole Sandbox</div>
+  <div class="sub">/ REAL N-BODY · G = 4π²</div>
 </div>
 
 <div class="hud panel">
+  <h3>Scenario</h3>
+  <div class="preset-grid">
+    <button class="preset-btn active" data-preset="sandbox">Black Hole Sandbox</button>
+    <button class="preset-btn" data-preset="solar">Solar System (to scale)</button>
+    <button class="preset-btn" data-preset="threebody">Three-Body (figure-8)</button>
+    <button class="preset-btn" data-preset="binarystar">Binary Star</button>
+    <button class="preset-btn" data-preset="bhmerger">Binary BH Merger</button>
+    <button class="preset-btn" data-preset="nsmerger">Neutron Star Merger</button>
+    <button class="preset-btn" data-preset="feeding">BH Devouring a Star</button>
+  </div>
+  <div class="blurb" id="blurb"></div>
+
   <h3>Central Singularity</h3>
-  <div class="row">
+  <div class="row" id="massRow">
     <label>Mass (M☉)</label>
     <input type="range" id="mass" min="1" max="50" value="10" step="0.1">
     <span class="val" id="mass-val">10.0</span>
   </div>
-  <div class="row">
+  <div class="row" id="discRow">
     <label>Accretion Disc</label>
     <input type="range" id="disc" min="0" max="1" value="0.9" step="0.01">
     <span class="val" id="disc-val">0.90</span>
   </div>
-  <div class="row">
+  <div class="row" id="tempRow">
     <label>Disc Temp</label>
     <input type="range" id="temp" min="0" max="1" value="0.6" step="0.01">
     <span class="val" id="temp-val">0.60</span>
   </div>
 
-  <h3>View</h3>
+  <h3>View &amp; Camera</h3>
   <div class="toggle-row">
     <button class="toggle-btn active" data-view="mesh">Mesh ON</button>
     <button class="toggle-btn active" data-view="lens">Lens ON</button>
   </div>
+  <div class="toggle-row">
+    <button class="toggle-btn active" id="camOrbit">Orbit Cam</button>
+    <button class="toggle-btn" id="camFree">Free Cam</button>
+  </div>
+  <button class="ghost-btn" id="resetView">Reset View</button>
   <div class="row">
     <label>Sim Speed</label>
-    <input type="range" id="speed" min="0" max="3" value="1" step="0.05">
+    <input type="range" id="speed" min="0" max="4" value="1" step="0.05">
     <span class="val" id="speed-val">1.00</span>
+  </div>
+
+  <div class="focus-panel" id="focusPanel" style="display:none">
+    <h3>Focused Object</h3>
+    <div class="focus-name" id="focusName">—</div>
+    <button class="action-btn" id="delFocus">Delete Object</button>
   </div>
 
   <h3>Spawn Body</h3>
   <div class="add-grid">
-    <button class="add-btn" data-spawn="planet-s"><span class="sym">·</span>Small Planet</button>
-    <button class="add-btn" data-spawn="planet-l"><span class="sym">○</span>Gas Giant</button>
+    <button class="add-btn" data-spawn="planet"><span class="sym">·</span>Rocky Planet</button>
+    <button class="add-btn" data-spawn="gas-giant"><span class="sym">○</span>Gas Giant</button>
     <button class="add-btn" data-spawn="star"><span class="sym">☉</span>Star</button>
     <button class="add-btn" data-spawn="neutron"><span class="sym">◉</span>Neutron Star</button>
   </div>
   <button class="action-btn" id="clear">Clear All Bodies</button>
 
   <h3>Bodies <span id="count" style="color:var(--accent)">(0)</span></h3>
-  <div class="body-list" id="body-list"><div class="empty">— none in orbit —</div></div>
+  <div class="body-list" id="bodyList"><div class="empty">— empty —</div></div>
 </div>
 
 <div class="hud readout" id="readout">
-  <div><span class="k">r_s</span> <span class="v" id="rs">0.00</span> <span class="k">ISCO</span> <span class="v" id="isco">0.00</span></div>
+  <div><span class="k">r_s</span> <span class="v" id="rs">0.00</span> <span class="k">AU · ISCO</span> <span class="v" id="isco">0.00</span></div>
   <div><span class="k">bodies</span> <span class="v" id="bc">0</span> <span class="k">consumed</span> <span class="v" id="cc">0</span></div>
   <div><span class="k">fps</span> <span class="v" id="fps">--</span></div>
 </div>
 
 <div class="hud hint">
-  <kbd>drag</kbd> orbit camera · <kbd>scroll</kbd> zoom<br>
-  <kbd>R</kbd> reset view · <kbd>space</kbd> pause
+  <kbd>drag</kbd> look · <kbd>scroll</kbd> zoom/speed · <kbd>click</kbd> focus object<br>
+  <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly · <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove
 </div>
 
 <script type="importmap">
