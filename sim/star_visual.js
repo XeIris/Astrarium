@@ -1,0 +1,366 @@
+import * as THREE from 'three';
+import { ActivityModel, blackbodyColor, coronaColor, rotationRate } from './stellar.js';
+
+// ============================================================================
+// HIGH-FIDELITY STAR RENDERING
+// ----------------------------------------------------------------------------
+// The photosphere shader models, in one pass:
+//   · granulation — convective cells, two octaves of fBm advected in time
+//   · differential rotation — the equator laps the poles (real: Sun 25 d vs 34 d)
+//   · starspots — dark umbra + warm penumbra + bright surrounding faculae,
+//     placed at the ActivityModel's live active regions
+//   · flare ribbons — a hot, white-blue kernel over the erupting region
+//   · limb darkening — the physically correct I(μ)/I(0) = 1 − u(1 − μ) law
+//   · a chromospheric H-α rim glowing just past the limb
+// Everything is driven by mass → Teff → colour, so an M dwarf and a B star look
+// genuinely different rather than being recoloured copies.
+// ============================================================================
+
+const MAX_SPOTS = 8;
+const MAX_FLARES = 4;
+
+function photosphereMaterial(color, hotColor, limbU) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime:      { value: 0 },
+      uColor:     { value: color.clone() },
+      uHot:       { value: hotColor.clone() },
+      uPulse:     { value: 1 },
+      uLimbU:     { value: limbU },
+      uOmega:     { value: 1 },
+      uGain:      { value: 1.42 },
+      uGranScale: { value: 9 },
+      uSpots:     { value: Array.from({ length: MAX_SPOTS }, () => new THREE.Vector4()) },
+      uSpotCount: { value: 0 },
+      uFlares:    { value: Array.from({ length: MAX_FLARES }, () => new THREE.Vector4()) },
+      uFlareCount:{ value: 0 },
+    },
+    vertexShader: `
+      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+      void main(){
+        vObj = normalize(position);
+        vWN  = normalize(mat3(modelMatrix) * normal);
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWP = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      precision highp float;
+      uniform float uTime, uPulse, uLimbU, uOmega, uGranScale, uGain;
+      uniform vec3 uColor, uHot;
+      uniform vec4 uSpots[${MAX_SPOTS}];   // xyz = surface direction, w = strength
+      uniform int  uSpotCount;
+      uniform vec4 uFlares[${MAX_FLARES}]; // xyz = direction, w = amplitude
+      uniform int  uFlareCount;
+      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+
+      float hash(vec3 p){ return fract(sin(dot(p, vec3(17.1,113.5,7.9))) * 43758.5453); }
+      float noise(vec3 p){
+        vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+        return mix(mix(mix(hash(i),               hash(i+vec3(1,0,0)), f.x),
+                       mix(hash(i+vec3(0,1,0)),   hash(i+vec3(1,1,0)), f.x), f.y),
+                   mix(mix(hash(i+vec3(0,0,1)),   hash(i+vec3(1,0,1)), f.x),
+                       mix(hash(i+vec3(0,1,1)),   hash(i+vec3(1,1,1)), f.x), f.y), f.z);
+      }
+      float fbm(vec3 p){ float v=0.0, a=0.5; for(int i=0;i<5;i++){ v+=a*noise(p); p*=2.07; a*=0.5; } return v; }
+
+      // rotate a point about the Y axis
+      vec3 rotY(vec3 p, float a){ float c=cos(a), s=sin(a); return vec3(c*p.x - s*p.z, p.y, s*p.x + c*p.z); }
+
+      void main(){
+        vec3 p = normalize(vObj);
+
+        // --- differential rotation: Ω(lat) = Ω_eq (1 − 0.19 sin²lat), as on the Sun.
+        float sinLat = clamp(p.y, -1.0, 1.0);
+        float omega  = uOmega * (1.0 - 0.19 * sinLat * sinLat);
+        vec3  s      = rotY(p, -omega * uTime);   // co-rotating surface coordinate
+
+        // --- granulation: supergranules plus the fine convective cells on top.
+        // Real granules subtend ~1/1000 of the disc and are only a few percent
+        // in contrast — keep them fine and subtle or the star reads as a moon.
+        float gran  = fbm(s * uGranScale + vec3(0.0, uTime * 0.05, 0.0));
+        float cells = fbm(s * (uGranScale * 3.2) - vec3(uTime * 0.09));
+        float bright = 0.86 + (gran - 0.5) * 0.38 + (cells - 0.5) * 0.28;
+
+        // --- starspots: dark umbra, warm penumbra, bright faculae ring
+        float spotMask = 0.0, facula = 0.0;
+        for(int i=0;i<${MAX_SPOTS};i++){
+          if(i >= uSpotCount) break;
+          vec4 sp = uSpots[i];
+          float d = distance(p, sp.xyz);                 // chord distance on unit sphere
+          float rad = 0.10 + 0.26 * sp.w;
+          // ragged edge so spots aren't perfect discs
+          float wob = (fbm(p * 14.0 + float(i) * 5.0) - 0.5) * 0.10;
+          float u = 1.0 - smoothstep(rad * 0.42, rad + wob, d); // 1 in the umbra
+          spotMask = max(spotMask, u * sp.w);
+          facula   = max(facula, (1.0 - smoothstep(rad, rad * 1.55, d)) * (1.0 - u) * sp.w);
+        }
+        bright *= mix(1.0, 0.24, spotMask);
+        bright += facula * 0.35;
+
+        // --- flare ribbons over the erupting active region
+        vec3 flareGlow = vec3(0.0);
+        for(int i=0;i<${MAX_FLARES};i++){
+          if(i >= uFlareCount) break;
+          vec4 fl = uFlares[i];
+          float d = distance(p, fl.xyz);
+          float ribbon = 1.0 - smoothstep(0.06, 0.42, d);
+          // filamentary structure inside the ribbon
+          float fil = 0.55 + 0.45 * fbm(p * 26.0 + uTime * 3.0);
+          flareGlow += vec3(1.0, 0.93, 0.85) * ribbon * fil * fl.w * 2.4;
+        }
+
+        // uGain pushes the photosphere well past 1.0. A star has to CLIP to
+        // white in the core and keep its colour at the limb, otherwise it reads
+        // as a grey moon — and in the surface view it has to outshine its own
+        // daytime sky.
+        vec3 base = uColor * bright * uPulse * uGain;
+        // hot granule cores read as the star's own hotter continuum
+        base += uHot * pow(max(cells - 0.60, 0.0), 2.0) * 2.2 * uGain;
+        base += flareGlow * uGain;
+
+        // --- limb darkening: I(mu)/I(0) = 1 - u(1 - mu), mu = cos(view angle)
+        vec3 V = normalize(cameraPosition - vWP);
+        float mu = clamp(dot(normalize(vWN), V), 0.0, 1.0);
+        base *= (1.0 - uLimbU * (1.0 - mu));
+
+        // --- chromosphere: H-alpha reddening right at the limb
+        float rim = pow(1.0 - mu, 3.0);
+        base += vec3(1.0, 0.28, 0.16) * rim * 0.85 * uGain;
+
+        gl_FragColor = vec4(base, 1.0);
+      }`,
+  });
+}
+
+// Corona / aureole.
+// Drawn as a CAMERA-FACING BILLBOARD rather than a sphere shell: a shell's
+// fresnel term peaks at the shell's own limb, which puts a hard-edged bubble
+// ring in space around the star. A billboard lets the brightness fall off
+// smoothly with radius, the way a real corona does, and lets us draw radial
+// streamers in screen space.
+function coronaMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 }, uColor: { value: color.clone() },
+      uFlux: { value: 1 }, uSize: { value: 1 }, uCore: { value: 0.22 },
+    },
+    transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, depthTest: false,
+    vertexShader: `
+      uniform float uSize;
+      varying vec2 vP;
+      void main(){
+        vP = position.xy;
+        // billboard: offset in view space from the object's origin
+        vec4 centre = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        gl_Position = projectionMatrix * (centre + vec4(position.xy * uSize, 0.0, 0.0));
+      }`,
+    fragmentShader: `
+      precision highp float;
+      uniform float uTime, uFlux, uCore; uniform vec3 uColor;
+      varying vec2 vP;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+      float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+      float fbm(vec2 p){ float v=0.0,a=0.5; for(int i=0;i<4;i++){ v+=a*noise(p); p*=2.1; a*=0.5; } return v; }
+      void main(){
+        float r = length(vP);
+        if(r > 1.0) discard;
+        float ang = atan(vP.y, vP.x);
+
+        // smooth radial falloff — no hard edge anywhere
+        float glow = exp(-(r - uCore) * 5.5);
+        // a tight, bright inner aureole hugging the photosphere
+        glow += exp(-(r - uCore) * 26.0) * 1.4;
+
+        // radial streamers, slowly churning
+        float streak = fbm(vec2(ang * 3.2, r * 3.0 - uTime * 0.05));
+        glow *= 0.55 + streak * 0.95;
+
+        // fade to nothing at the quad's edge so the billboard never shows
+        glow *= 1.0 - smoothstep(0.72, 1.0, r);
+
+        float a = clamp(glow, 0.0, 4.0) * uFlux;
+        gl_FragColor = vec4(uColor * a, a * 0.5);
+      }`,
+  });
+}
+
+// A coronal mass ejection: a bright shell expanding inside a cone.
+function cmeMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: color.clone() }, uAlpha: { value: 1 },
+      uDir: { value: new THREE.Vector3(0, 1, 0) }, uWidth: { value: 0.5 }, uTime: { value: 0 },
+    },
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    vertexShader: `varying vec3 vObj;
+      void main(){ vObj = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `
+      precision highp float;
+      uniform vec3 uColor, uDir; uniform float uAlpha, uWidth, uTime;
+      varying vec3 vObj;
+      float hash(vec3 p){ return fract(sin(dot(p, vec3(17.1,113.5,7.9)))*43758.5453); }
+      float noise(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+                   mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z); }
+      float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<4;i++){v+=a*noise(p);p*=2.2;a*=0.5;} return v; }
+      void main(){
+        float c = dot(vObj, normalize(uDir));
+        float cone = smoothstep(1.0 - uWidth, 1.0 - uWidth * 0.25, c);
+        if(cone <= 0.001) discard;
+        // turbulent, filamentary plasma front
+        float n = fbm(vObj * 7.0 + uTime * 0.4);
+        float a = cone * uAlpha * (0.25 + n * 0.95);
+        gl_FragColor = vec4(uColor * a * 2.0, a * 0.8);
+      }`,
+  });
+}
+
+// A prominence: a plasma loop arcing out of the surface and back.
+function makeLoop(R, color) {
+  const curve = new THREE.CubicBezierCurve3(
+    new THREE.Vector3(-0.22 * R, 0, 0),
+    new THREE.Vector3(-0.16 * R, 0.55 * R, 0),
+    new THREE.Vector3( 0.16 * R, 0.55 * R, 0),
+    new THREE.Vector3( 0.22 * R, 0, 0),
+  );
+  const geo = new THREE.TubeGeometry(curve, 26, R * 0.035, 8, false);
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  return new THREE.Mesh(geo, mat);
+}
+
+// ---------------------------------------------------------------------------
+export function createStarVisual(b, opts) {
+  const g = new THREE.Group();
+  const R = opts.radiusScene;
+  const teff = opts.teff;
+  const photo = opts.color instanceof THREE.Color ? opts.color.clone() : blackbodyColor(teff);
+  const hot = coronaColor(teff);
+
+  // Limb darkening is stronger for cool stars, weaker for hot ones.
+  const limbU = THREE.MathUtils.clamp(0.85 - (teff - 3000) / 22000, 0.32, 0.85);
+
+  const mat = photosphereMaterial(photo, hot, limbU);
+  mat.uniforms.uOmega.value = rotationRate(b.mass) * 0.02;   // slowed for legibility
+  // cool stars have deep convection zones and coarser granules than hot ones
+  mat.uniforms.uGranScale.value = 26 + 14 * THREE.MathUtils.clamp(b.mass - 0.6, 0, 1.6);
+  const core = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 48), mat);
+  g.add(core);
+
+  // corona billboard. The quad spans ±1 and is scaled in the vertex shader, so
+  // uCore is the photosphere's radius in quad units — the glow starts exactly
+  // at the stellar limb however far away the camera is.
+  const CORONA_SPAN = 4.0;                       // in stellar radii
+  const coronaMat = coronaMaterial(hot);
+  coronaMat.uniforms.uSize.value = R * CORONA_SPAN;
+  coronaMat.uniforms.uCore.value = 1 / CORONA_SPAN;
+  const corona = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), coronaMat);
+  corona.frustumCulled = false;
+  corona.renderOrder = -1;                       // behind the photosphere
+  g.add(corona);
+
+  // prominence loop pool, one per possible concurrent flare
+  const loops = [];
+  for (let i = 0; i < MAX_FLARES; i++) {
+    const holder = new THREE.Group();
+    const loop = makeLoop(R, hot);
+    holder.add(loop);
+    holder.visible = false;
+    g.add(holder);
+    loops.push({ holder, loop });
+  }
+
+  // CME shell pool
+  const cmes = [];
+  for (let i = 0; i < 3; i++) {
+    const cm = cmeMaterial(hot);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), cm);
+    mesh.visible = false;
+    g.add(mesh);
+    cmes.push({ mesh, mat: cm });
+  }
+
+  const activity = new ActivityModel(b.mass);
+  b.activity = activity;
+
+  const _v = new THREE.Vector3();
+  const _up = new THREE.Vector3(0, 1, 0);
+  const _q = new THREE.Quaternion();
+
+  b.viz = { group: g, core, mat, corona, baseR: R, R, colorHex: photo.getHex(), isStar: true, activity };
+
+  b.viz.update = (dt, ctx) => {
+    const simDt = ctx.simDt ?? dt;
+    mat.uniforms.uTime.value += dt;
+    coronaMat.uniforms.uTime.value += dt;
+
+    activity.step(simDt);
+
+    // --- publish live starspots (rotated to their current longitude)
+    const spots = mat.uniforms.uSpots.value;
+    let sc = 0;
+    const omega = mat.uniforms.uOmega.value;
+    const t = mat.uniforms.uTime.value;
+    for (const r of activity.regions) {
+      if (sc >= MAX_SPOTS) break;
+      const om = omega * (1 - 0.19 * Math.sin(r.lat) ** 2);
+      const lon = r.lon + om * t;
+      const cl = Math.cos(r.lat);
+      // spots grow then decay over their lifetime
+      const age = r.age / r.life;
+      const s = r.strength * Math.sin(Math.min(age, 1) * Math.PI) ** 0.5;
+      spots[sc++].set(cl * Math.cos(lon), Math.sin(r.lat), cl * Math.sin(lon), s);
+    }
+    mat.uniforms.uSpotCount.value = sc;
+
+    // --- flares: shader ribbons + a prominence loop standing over the region
+    const fu = mat.uniforms.uFlares.value;
+    let fc = 0;
+    for (const l of loops) l.holder.visible = false;
+    for (const f of activity.flares) {
+      if (fc >= MAX_FLARES) break;
+      const om = omega * (1 - 0.19 * Math.sin(f.region.lat) ** 2);
+      const lon = f.region.lon + om * t;
+      const cl = Math.cos(f.region.lat);
+      _v.set(cl * Math.cos(lon), Math.sin(f.region.lat), cl * Math.sin(lon));
+      fu[fc].set(_v.x, _v.y, _v.z, f.amp * Math.min(f.energy, 2));
+
+      // stand a loop on the surface, its axis along the local vertical
+      const L = loops[fc];
+      L.holder.visible = true;
+      L.holder.position.copy(_v).multiplyScalar(R * 0.92);
+      L.holder.quaternion.copy(_q.setFromUnitVectors(_up, _v));
+      const scl = 0.7 + Math.min(f.energy, 2.5) * 0.5;
+      L.holder.scale.setScalar(scl);
+      L.loop.material.opacity = Math.min(f.amp * 0.9, 1) * 0.85;
+      fc++;
+    }
+    mat.uniforms.uFlareCount.value = fc;
+
+    // --- CMEs
+    for (let i = 0; i < cmes.length; i++) {
+      const c = activity.cmes[i];
+      const slot = cmes[i];
+      if (!c) { slot.mesh.visible = false; continue; }
+      slot.mesh.visible = true;
+      slot.mesh.scale.setScalar(c.radius * R);
+      slot.mat.uniforms.uAlpha.value = c.alpha * 0.55;
+      slot.mat.uniforms.uDir.value.copy(c.dir);
+      slot.mat.uniforms.uWidth.value = c.width;
+      slot.mat.uniforms.uTime.value += dt;
+    }
+
+    // --- brightness: slow pulsation + flare contribution
+    const pulse = 1 + Math.sin(ctx.time * 0.6 + b.id) * 0.02;
+    core.scale.setScalar(pulse);
+    mat.uniforms.uPulse.value = activity.flux;
+    coronaMat.uniforms.uFlux.value = 0.30 + (activity.flux - 1) * 1.0;
+  };
+
+  return b.viz;
+}

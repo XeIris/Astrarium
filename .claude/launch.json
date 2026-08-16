@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sim",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [".claude/serve.mjs"],
+      "port": 8777
+    }
+  ]
+}

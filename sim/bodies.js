@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { rockyTexture, gasGiantTexture, GAS_PALETTES } from './textures.js';
+import { createStarVisual } from './star_visual.js';
+import { createWorldVisual } from './world.js';
 
 // ============================================================================
 // BODY VISUALS — each factory builds a THREE.Group and attaches an
@@ -48,7 +50,7 @@ function starMaterial(colorHex) {
         float cells = fbm(p*16.0 - uTime*0.25);
         float bright = 0.55 + gran*0.7 + cells*0.25;
         // dark sunspots
-        float spot = smoothstep(0.62,0.5, fbm(p*4.0+vec3(3.0)+uTime*0.02));
+        float spot = 1.0 - smoothstep(0.5,0.62, fbm(p*4.0+vec3(3.0)+uTime*0.02));
         bright *= mix(1.0, 0.45, spot);
         vec3 base = uColor * bright * uPulse;
         // hot specks
@@ -300,10 +302,23 @@ function accrete(b, ctx, stream, dt) {
 }
 
 // ---------------------------------------------------------------------------
+// The high-fidelity star still has to be able to be eaten by a black hole, so
+// give it the same accretion stream the legacy star had and chain the updates.
+function createStarHiFi(b, opts) {
+  const viz = createStarVisual(b, opts);
+  const stream = new AccretionStream(viz.mat.uniforms.uHot.value.getHex());
+  viz.group.add(stream.points);
+  const inner = viz.update;
+  viz.update = (dt, ctx) => { inner(dt, ctx); accrete(b, ctx, stream, dt); };
+  return viz;
+}
+
 export function createBodyVisual(b, opts) {
   switch (b.type) {
     case 'bh':        return createBlackHole(b, opts);
-    case 'star':      return createStar(b, opts);
+    case 'star':      return createStarHiFi(b, opts);
+    case 'star-basic':return createStar(b, opts);
+    case 'world':     return createWorldVisual(b, opts);
     case 'neutron':   return createNeutron(b, opts);
     case 'gas-giant': return createPlanet(b, { ...opts, gas: true });
     default:          return createPlanet(b, opts);   // rocky

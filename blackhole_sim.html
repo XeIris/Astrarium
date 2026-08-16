@@ -24,6 +24,8 @@
 <div class="hud panel">
   <h3>Scenario</h3>
   <div class="preset-grid">
+    <button class="preset-btn tri" data-preset="trisolaris">☀☀☀ Trisolaris</button>
+    <button class="preset-btn tri" data-preset="trisolaris_chaos">Trisolaris — Chaotic Era</button>
     <button class="preset-btn active" data-preset="sandbox">Black Hole Sandbox</button>
     <button class="preset-btn" data-preset="solar">Solar System (to scale)</button>
     <button class="preset-btn" data-preset="threebody">Three-Body (figure-8)</button>
@@ -34,7 +36,7 @@
   </div>
   <div class="blurb" id="blurb"></div>
 
-  <h3>Central Singularity</h3>
+  <h3 id="bhPanel">Central Singularity</h3>
   <div class="row" id="massRow">
     <label>Mass (M☉)</label>
     <input type="range" id="mass" min="1" max="50" value="10" step="0.1">
@@ -51,16 +53,76 @@
     <span class="val" id="temp-val">0.60</span>
   </div>
 
+  <h3 id="starPanel">Suns</h3>
+  <div class="sun-list" id="sunList"></div>
+
+  <div id="climatePanel" style="display:none">
+    <h3>Climate <span class="clock" id="simClock">0 yr</span></h3>
+    <div class="era-badge era-stable" id="eraBadge">Stable Era</div>
+    <div class="era-desc" id="eraDesc"></div>
+    <canvas id="climateChart" class="climate-chart" width="290" height="86"></canvas>
+    <div class="chart-key">
+      <span><i style="background:#ff6a5a"></i>surface temp</span>
+      <span><i style="background:rgba(255,190,90,.8)"></i>insolation</span>
+    </div>
+    <div class="stat-grid">
+      <div><span class="k">temp</span><span class="v" id="cTemp">—</span></div>
+      <div><span class="k">flux</span><span class="v" id="cFlux">—</span></div>
+      <div><span class="k">ice</span><span class="v" id="cIce">—</span></div>
+      <div><span class="k">cloud</span><span class="v" id="cCloud">—</span></div>
+      <div><span class="k">τ response</span><span class="v" id="cTau">—</span></div>
+      <div><span class="k">range</span><span class="v" id="cExtremes">—</span></div>
+    </div>
+    <div class="row">
+      <label title="Depth of the ocean mixed layer — the planet's thermal flywheel. Shallow oceans let the temperature whip around with the orbit; deep ones damp it.">Ocean depth</label>
+      <input type="range" id="mixed" min="2" max="120" value="12" step="1">
+      <span class="val" id="mixed-val">12 m</span>
+    </div>
+    <div class="row">
+      <label title="Effective emissivity. Lower = stronger greenhouse = warmer world. 0.61 reproduces Earth.">Greenhouse ε</label>
+      <input type="range" id="greenhouse" min="0.3" max="1" value="0.61" step="0.01">
+      <span class="val" id="greenhouse-val">0.61</span>
+    </div>
+    <button class="ghost-btn" id="climateReset">Reset Climate to 15 °C</button>
+  </div>
+
   <h3>View &amp; Camera</h3>
   <div class="toggle-row">
     <button class="toggle-btn active" data-view="mesh">Mesh ON</button>
     <button class="toggle-btn active" data-view="lens">Lens ON</button>
   </div>
   <div class="toggle-row">
-    <button class="toggle-btn active" id="camOrbit">Orbit Cam</button>
-    <button class="toggle-btn" id="camFree">Free Cam</button>
+    <button class="toggle-btn active" id="camOrbit">Orbit</button>
+    <button class="toggle-btn" id="camFree">Free Fly</button>
+    <button class="toggle-btn" id="camSurface" style="display:none">On Trisolaris</button>
   </div>
   <button class="ghost-btn" id="resetView">Reset View</button>
+
+  <div id="skyRow" style="display:none">
+    <div class="row">
+      <label title="Where on the planet you are standing. High latitudes see the suns skim the horizon.">Latitude</label>
+      <input type="range" id="lat" min="-80" max="80" value="22" step="1">
+      <span class="val" id="lat-val">22°</span>
+    </div>
+    <div class="row">
+      <label title="Length of the planet's rotation period. Shorter = the suns race across the sky.">Day length</label>
+      <input type="range" id="daylen" min="0.5" max="30" value="4.06" step="0.1">
+      <span class="val" id="daylen-val">4.1 d</span>
+    </div>
+  </div>
+
+  <h3>Time</h3>
+  <div class="time-grid">
+    <button class="time-btn" data-time="sunset" title="A single sunset, at a watchable pace. One rotation ≈ 45 s.">Sunset</button>
+    <button class="time-btn" data-time="day" title="Days flick past. One rotation ≈ 8 s.">Days</button>
+    <button class="time-btn" data-time="season" title="One orbit ≈ 90 s — watch a Chaotic Era arrive.">Seasons</button>
+    <button class="time-btn" data-time="era" title="Centuries per minute — the long climate record.">Eras</button>
+  </div>
+  <div class="row">
+    <label title="Simulated years per real second.">Time scale</label>
+    <input type="range" id="timescale" min="-5" max="1.3" value="-0.46" step="0.01">
+    <span class="val" id="timescale-val">0.35 yr/s</span>
+  </div>
   <div class="row">
     <label>Sim Speed</label>
     <input type="range" id="speed" min="0" max="4" value="1" step="0.05">
@@ -94,7 +156,8 @@
 
 <div class="hud hint">
   <kbd>drag</kbd> look · <kbd>scroll</kbd> zoom/speed · <kbd>click</kbd> focus object<br>
-  <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly · <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove
+  <kbd>V</kbd> stand on the planet · <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly<br>
+  <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove
 </div>
 
 <script type="importmap">

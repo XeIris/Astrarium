@@ -3,6 +3,10 @@ import * as PHYS from './sim/physics.js';
 import { createBodyVisual } from './sim/bodies.js';
 import { GAS_PALETTES } from './sim/textures.js';
 import { PRESETS, PRESET_ORDER } from './sim/presets.js';
+import { Climate } from './sim/climate.js';
+import { createSkyPass, SurfaceObserver } from './sim/skyview.js';
+import { MAX_SUNS } from './sim/world.js';
+import { luminosity, effectiveTemp, radiusSun, blackbodyColor, spectralClass } from './sim/stellar.js';
 
 // ============================================================================
 // STATE
@@ -24,7 +28,7 @@ const state = {
   speed: 1.0,
   paused: false,
 
-  camMode: 'orbit',        // 'orbit' | 'free'
+  camMode: 'orbit',        // 'orbit' | 'free' | 'surface'
   followId: null,          // body id the orbit camera tracks
   focusId: null,           // selected body id
 
@@ -32,12 +36,19 @@ const state = {
   consumed: 0,
   nextId: 1,
   time: 0,
+  simYears: 0,             // elapsed SIMULATED time (yr) — what the climate runs on
+  homeId: null,            // the inhabited world, if the preset has one
+  climate: null,
+  exposure: 1,             // surface-view eye adaptation
+  suns: [],                // live star light sources, brightest first
 };
 
 const DOM = {};
 ['fps', 'rs', 'isco', 'bc', 'cc', 'count', 'bodyList', 'loading', 'massRow',
  'blurb', 'presetName', 'focusName', 'focusPanel', 'camOrbit', 'camFree',
- 'discRow', 'tempRow', 'speedVal'].forEach(id => DOM[id] = document.getElementById(id));
+ 'discRow', 'tempRow', 'speedVal', 'camSurface', 'climatePanel', 'eraBadge',
+ 'eraDesc', 'cTemp', 'cFlux', 'cIce', 'cCloud', 'cTau', 'cExtremes', 'climateChart',
+ 'sunList', 'simClock', 'starPanel', 'surfRow', 'skyRow', 'bhPanel'].forEach(id => DOM[id] = document.getElementById(id));
 
 // ============================================================================
 // SCENE / RENDERER / CAMERA
@@ -54,6 +65,13 @@ document.getElementById('canvas-wrap').appendChild(renderer.domElement);
 
 const ambient = new THREE.AmbientLight(0x223044, 0.6); scene.add(ambient);
 const sunLight = new THREE.PointLight(0xffffff, 2.2, 0, 0); scene.add(sunLight);
+
+// A pool of real lights, one per star, so multi-star systems cast the several
+// overlapping terminators that make a Trisolaran sky what it is.
+const starLights = Array.from({ length: MAX_SUNS }, () => {
+  const l = new THREE.PointLight(0xffffff, 0, 0, 0);
+  l.visible = false; scene.add(l); return l;
+});
 
 // ============================================================================
 // STARFIELD
@@ -195,7 +213,7 @@ const meshMat = new THREE.ShaderMaterial({
       gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0); }`,
   fragmentShader: `
     varying float vDepth; varying vec2 vPos;
-    void main(){ float r=length(vPos); float alpha=smoothstep(60.0,18.0,r)*0.30+0.04;
+    void main(){ float r=length(vPos); float alpha=(1.0-smoothstep(18.0,60.0,r))*0.30+0.04;
       float it=clamp(vDepth*0.08+0.1,0.0,1.0);
       gl_FragColor=vec4(mix(vec3(0.2,0.35,0.6),vec3(0.8,0.4,0.15),it),alpha); }`,
 });
@@ -223,9 +241,12 @@ function spawnFlash(worldPos, color, size, decay = 0.8) {
 const TRAIL_MAX = 600;
 function baseRadius(type, mass) {
   switch (type) {
-    case 'star': return 0.4 * Math.pow(Math.max(mass, 0.1), 0.22);
+    // Rendered star size now follows the real main-sequence mass–radius
+    // relation, so a 2 M☉ star is visibly bigger than a 0.85 M☉ one.
+    case 'star': return 0.34 * radiusSun(mass);
     case 'neutron': return 0.09;
     case 'gas-giant': return 0.30;
+    case 'world': return 0.13;
     case 'planet': return 0.15;
     default: return 0.2;
   }
@@ -235,6 +256,7 @@ const TYPE_DEFAULTS = {
   neutron: { mass: 1.4, color: 0xcfe8ff, glow: 0x88c4ff },
   'gas-giant': { mass: 9.5e-4, color: 0xd4a574, glow: 0x6a4828 },
   planet:  { mass: 3e-6, color: 0x6a90c0, glow: 0x3a6a9a },
+  world:   { mass: 3e-6, color: 0x6a90c0, glow: 0x3a6a9a },
   bh:      { mass: 10, color: 0x000000, glow: 0x000000 },
 };
 
@@ -261,8 +283,17 @@ function spawnBody(spec) {
     b.rs = PHYS.schwarzschild(mass);
   } else if (spec.type === 'star') {
     b.radius = PHYS.stellarRadius(mass);
+    // stellar properties derived from mass alone (see sim/stellar.js)
+    b.luminosity = spec.luminosity ?? luminosity(mass);
+    b.teff = spec.teff ?? effectiveTemp(mass);
+    b.spectral = spectralClass(b.teff);
   } else {
     b.radius = 0.0001;
+  }
+  if (spec.type === 'world') {
+    b.dayLength = spec.dayLength ?? 1 / 90;
+    b.obliquity = spec.obliquity ?? 0.35;
+    b.home = !!spec.home;
   }
 
   const radiusScene = (spec.type === 'bh')
@@ -273,14 +304,21 @@ function spawnBody(spec) {
   if (spec.type === 'bh') b.rsScene = radiusScene;
 
   const palette = spec.palette ? GAS_PALETTES[spec.palette] : null;
+  // Stars are coloured from their blackbody temperature unless a preset
+  // deliberately overrides it (the figure-eight uses colour to tell bodies apart).
+  const starColor = spec.color != null ? new THREE.Color(spec.color)
+                  : (b.teff ? blackbodyColor(b.teff) : null);
   const viz = createBodyVisual(b, {
     radiusScene,
-    color: spec.color ?? def.color,
+    color: spec.type === 'star' ? starColor : (spec.color ?? def.color),
+    teff: b.teff,
     glow: spec.glow ?? def.glow,
     seed: spec.seed,
+    obliquity: spec.obliquity,
     palette, hot: spec.hot, atmosphere: spec.atmosphere, atmColor: spec.atmColor,
     seaLevel: spec.seaLevel, rings: spec.rings, ringColor: spec.ringColor,
   });
+  if (spec.type === 'world' && spec.home) state.homeId = b.id;
   viz.group.userData.bodyId = b.id;
   viz.group.userData.baseScale = 1;
   viz.group.position.copy(b.pos).multiplyScalar(state.sceneScale);
@@ -353,6 +391,54 @@ function getHoles() {
   return state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass);
 }
 
+function getStars() {
+  return state.bodies.filter(b => b.type === 'star' && b.alive);
+}
+function getHome() {
+  return state.homeId != null ? state.bodies.find(b => b.id === state.homeId) : null;
+}
+
+// Build the per-frame sun description used by every lighting path: the world
+// shader, the sky shader and the real THREE lights. Intensity is the star's
+// flux AT THE HOME WORLD in solar constants, so the visual brightness of each
+// sun tracks the same number the climate model is integrating.
+const _sv = new THREE.Vector3();
+function updateSuns() {
+  const stars = getStars();
+  const home = getHome();
+  state.suns.length = 0;
+  for (const s of stars) {
+    const L = (s.luminosity ?? luminosity(s.mass)) * (s.activity ? s.activity.flux : 1);
+    const d = home ? Math.max(home.pos.distanceTo(s.pos), 1e-3) : 1;
+    state.suns.push({
+      body: s,
+      posScene: s.viz.group.position,
+      color: blackbodyColor(s.teff ?? effectiveTemp(s.mass)),
+      intensity: home ? L / (d * d) : L,
+      distAU: d,
+      // true angular RADIUS as rendered, for the sky pass
+      angRadius: Math.atan((s.radiusScene) / Math.max(d * state.sceneScale, 1e-4)),
+      // and the physically true one, for the readout
+      angTrue: Math.atan(PHYS.stellarRadius(s.mass) / d),
+    });
+  }
+  state.suns.sort((a, b) => b.intensity - a.intensity);
+
+  // drive the real lights
+  for (let i = 0; i < starLights.length; i++) {
+    const l = starLights[i], s = state.suns[i];
+    if (!s) { l.visible = false; continue; }
+    l.visible = true;
+    l.position.copy(s.posScene);
+    l.color.copy(s.color);
+    // a light's falloff is handled by THREE; scale by luminosity so the big
+    // star really does out-light the small one
+    l.intensity = 2.0 * Math.pow(s.body.luminosity ?? 1, 0.45);
+  }
+  // the legacy single light is only for presets with no stars (black holes)
+  sunLight.visible = state.suns.length === 0;
+}
+
 // Smallest resolved-needs timescale among bodies — the dynamical time of the
 // tightest/ fastest pair. Used to shrink the step during close encounters so a
 // fast in-spiral can't slingshot out from integration error.
@@ -386,11 +472,15 @@ function stepPhysics(simDt) {
     for (const ev of events) handleMerger(ev);
     remaining -= h;
   }
+  state.simYears += simDt;
   // commit visual positions + trails after the sub-steps
   for (const b of state.bodies) {
     b.viz.group.position.copy(b.pos).multiplyScalar(state.sceneScale);
     pushTrail(b);
   }
+  // advance the climate on the same simulated clock
+  const home = getHome();
+  if (state.climate && home) state.climate.step(simDt, home, getStars());
 }
 
 function handleMerger(ev) {
@@ -444,6 +534,8 @@ const cam = {
   yaw: 0, pitch: 0, freeSpeed: 12,
 };
 const keys = {};
+const observer = new SurfaceObserver();
+const skyPass = createSkyPass();
 function updateOrbitCam() {
   const { radius, theta, phi } = cam;
   camera.position.set(radius * Math.sin(theta) * Math.cos(phi), radius * Math.cos(theta), radius * Math.sin(theta) * Math.sin(phi)).add(cam.target);
@@ -454,7 +546,8 @@ function setFollow(body) {
   state.focusId = body ? body.id : null;
   if (body) {
     cam.target.copy(body.viz.group.position);
-    cam.radius = Math.max(body.radiusScene * 6, 4);
+    // frame the body itself — a 4-unit floor put small worlds a hundred radii away
+    cam.radius = Math.max(body.radiusScene, body.rsScene || 0) * 7;
     if (state.camMode === 'orbit') updateOrbitCam();
   }
   refreshUI();
@@ -477,6 +570,10 @@ addEventListener('mousemove', e => {
     cam.phi -= dx * 0.005;
     cam.theta = Math.max(0.05, Math.min(Math.PI - 0.05, cam.theta - dy * 0.005));
     updateOrbitCam();
+  } else if (state.camMode === 'surface') {
+    // scale the look speed with the zoom, so a narrow FOV pans slowly
+    const k = observer.fov / 62 * 0.0032;
+    observer.look(-dx * k, -dy * k);
   } else {
     cam.yaw -= dx * 0.0025; cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch - dy * 0.0025));
   }
@@ -484,6 +581,7 @@ addEventListener('mousemove', e => {
 el.addEventListener('wheel', e => {
   e.preventDefault();
   if (state.camMode === 'orbit') { cam.radius = Math.max(0.05, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001))); updateOrbitCam(); }
+  else if (state.camMode === 'surface') observer.zoom(1 + e.deltaY * 0.0012);
   else cam.freeSpeed = Math.max(0.5, cam.freeSpeed * (1 - e.deltaY * 0.001));
 }, { passive: false });
 
@@ -509,19 +607,61 @@ addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); cam.radius = state.preset.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
   if (e.code === 'Space') { e.preventDefault(); state.paused = !state.paused; }
   if (e.key === 'f' || e.key === 'F') setCamMode(state.camMode === 'orbit' ? 'free' : 'orbit');
+  if (e.key === 'v' || e.key === 'V') setCamMode(state.camMode === 'surface' ? 'orbit' : 'surface');
   if ((e.key === 'Delete' || e.key === 'Backspace') && state.focusId != null) removeBody(state.focusId);
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
 function setCamMode(mode) {
+  if (mode === 'surface' && !getHome()) mode = 'orbit';    // nowhere to stand
   if (mode === 'free' && state.camMode !== 'free') {
     // seed yaw/pitch from current look direction
     const dir = cam.target.clone().sub(camera.position).normalize();
     cam.yaw = Math.atan2(dir.x, dir.z); cam.pitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
   }
+  const wasSurface = state.camMode === 'surface';
   state.camMode = mode;
+  if (mode === 'surface') {
+    camera.near = 0.002;
+    // At system speeds the planet spins tens of times a second and the sky is a
+    // blur, so entering the surface view drops to a pace where a day is watchable.
+    if (!wasSurface) applyRegime('day');
+    // point the observer at the brightest sun so you don't start facing a wall
+    aimAtBrightestSun();
+  } else if (wasSurface) {
+    camera.near = 0.01;
+    camera.up.set(0, 1, 0);
+    camera.fov = 50;
+  }
+  camera.updateProjectionMatrix();
   DOM.camOrbit.classList.toggle('active', mode === 'orbit');
   DOM.camFree.classList.toggle('active', mode === 'free');
+  DOM.camSurface?.classList.toggle('active', mode === 'surface');
+  if (DOM.skyRow) DOM.skyRow.style.display = mode === 'surface' ? '' : 'none';
+}
+
+// Turn the observer to face whichever sun is currently brightest overhead.
+function aimAtBrightestSun() {
+  const home = getHome();
+  if (!home || !state.suns.length) return;
+  observer.update(home, camera);
+  const up = observer.up, north = observer.north;
+  const east = new THREE.Vector3().crossVectors(up, north);
+  // prefer a sun that is actually above the horizon
+  let best = null, bestScore = -Infinity;
+  for (const s of state.suns) {
+    const d = s.posScene.clone().sub(observer.eye).normalize();
+    const elev = d.dot(up);
+    const score = elev > -0.05 ? s.intensity * (elev + 0.2) : -1 + s.intensity * 1e-3;
+    if (score > bestScore) { bestScore = score; best = d; }
+  }
+  if (!best) return;
+  observer.azimuth = Math.atan2(best.dot(east), best.dot(north));
+  // If every sun is down, look at the horizon rather than at our own feet.
+  const sunElev = Math.asin(THREE.MathUtils.clamp(best.dot(up), -1, 1));
+  observer.elevation = sunElev < 0.05
+    ? 0.12
+    : THREE.MathUtils.clamp(sunElev, 0.05, 1.1);
 }
 
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
@@ -559,12 +699,51 @@ function loadPreset(key) {
   state.speed = 1;
   state.consumed = 0;
   state.focusId = state.followId = null;
+  state.simYears = 0;
+  state.homeId = null;
+  state.suns.length = 0;
 
   for (const spec of p.build()) spawnBody(spec);
 
-  // camera reset
+  // climate only exists for presets that give us a world to stand on
+  state.climate = p.climate ? new Climate(p.climate) : null;
+  if (state.climate) {
+    const home = getHome();
+    if (home) state.climate.step(1e-6, home, getStars());
+  }
+  updateSuns();
+
+  // Camera reset. In a hierarchical system the total barycentre is nowhere near
+  // the stars (the outer companion drags it ~11 AU away), so presets with a home
+  // world start the camera following that world instead of the origin.
   cam.target.set(0, 0, 0); cam.radius = p.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2;
-  setCamMode('orbit'); updateOrbitCam();
+  setCamMode('orbit');
+  if (p.focus) {
+    const f = state.bodies.find(b => b.name === p.focus);
+    if (f) { setFollow(f); cam.radius = p.camRadius; }
+  }
+  updateOrbitCam();
+  // the spacetime slab is noise in a multi-star system; restore it elsewhere
+  toggleMesh(p.mesh !== false);
+
+  // sync the time-scale slider to the preset's own pace
+  const ts = document.getElementById('timescale');
+  if (ts) {
+    ts.value = String(Math.log10(state.timeScale));
+    document.getElementById('timescale-val').textContent =
+      state.timeScale < 1 ? `${(state.timeScale * 365.25).toFixed(1)} d/s` : `${state.timeScale.toFixed(1)} yr/s`;
+  }
+  const home = getHome();
+  const dl = document.getElementById('daylen');
+  if (dl && home) {
+    dl.value = String(home.dayLength * 365.25);
+    document.getElementById('daylen-val').textContent = `${(home.dayLength * 365.25).toFixed(1)} d`;
+  }
+  const ml = document.getElementById('mixed');
+  if (ml && state.climate) {
+    ml.value = String(state.climate.mixedLayer);
+    document.getElementById('mixed-val').textContent = `${state.climate.mixedLayer.toFixed(0)} m`;
+  }
 
   // UI
   DOM.presetName.textContent = p.name;
@@ -572,6 +751,11 @@ function loadPreset(key) {
   DOM.massRow.style.display = key === 'sandbox' ? '' : 'none';
   DOM.discRow.style.display = p.lensing ? '' : 'none';
   DOM.tempRow.style.display = p.lensing ? '' : 'none';
+  if (DOM.bhPanel) DOM.bhPanel.style.display = getHoles().length ? '' : 'none';
+  if (DOM.climatePanel) DOM.climatePanel.style.display = state.climate ? '' : 'none';
+  if (DOM.starPanel) DOM.starPanel.style.display = getStars().length ? '' : 'none';
+  if (DOM.surfRow) DOM.surfRow.style.display = p.surface ? '' : 'none';
+  if (DOM.camSurface) DOM.camSurface.style.display = p.surface ? '' : 'none';
   spacetimeMesh.visible = state.showMesh;
   document.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('active', b.dataset.preset === key));
   refreshUI();
@@ -606,6 +790,109 @@ function refreshUI() {
   } else DOM.focusPanel.style.display = 'none';
 }
 
+// ----------------------------------------------------------------------------
+// CLIMATE / STAR HUD
+// ----------------------------------------------------------------------------
+function fmtYears(y) {
+  if (y < 1) return `${(y * 365.25).toFixed(1)} d`;
+  if (y < 1000) return `${y.toFixed(2)} yr`;
+  return `${(y / 1000).toFixed(2)} kyr`;
+}
+
+let hudAcc = 0;
+function updateHUD(dt) {
+  hudAcc += dt;
+  if (hudAcc < 0.1) return;
+  hudAcc = 0;
+
+  if (DOM.simClock) DOM.simClock.textContent = fmtYears(state.simYears);
+
+  // --- star readout: what each sun actually is, and how bright it is here
+  if (DOM.sunList && state.suns.length) {
+    DOM.sunList.innerHTML = state.suns.map(s => {
+      const b = s.body;
+      const cls = b.spectral ?? '';
+      const col = '#' + s.color.getHexString();
+      const flaring = b.activity && b.activity.flux > 1.05;
+      return `<div class="sun-row">
+        <span class="dot" style="background:${col};box-shadow:0 0 8px ${col}"></span>
+        <span class="sn">${b.name}</span>
+        <span class="sc">${cls} · ${b.mass.toFixed(2)} M☉ · ${Math.round(b.teff ?? 0)} K</span>
+        <span class="sf">${s.distAU.toFixed(2)} AU · ${s.intensity.toFixed(2)} S⊕${flaring ? ' <b class="flare">FLARE</b>' : ''}</span>
+      </div>`;
+    }).join('');
+  }
+
+  const cl = state.climate;
+  if (!cl || !DOM.climatePanel || DOM.climatePanel.style.display === 'none') return;
+
+  if (DOM.eraBadge) {
+    DOM.eraBadge.textContent = cl.era.label;
+    DOM.eraBadge.className = 'era-badge ' + cl.era.cls;
+  }
+  if (DOM.eraDesc) DOM.eraDesc.textContent = cl.era.desc;
+  if (DOM.cTemp) DOM.cTemp.textContent = `${cl.celsius.toFixed(1)} °C`;
+  if (DOM.cFlux) DOM.cFlux.textContent = `${cl.S.toFixed(2)} S⊕`;
+  if (DOM.cIce) DOM.cIce.textContent = `${(cl.ice * 100).toFixed(0)} %`;
+  if (DOM.cCloud) DOM.cCloud.textContent = `${(cl.clouds * 100).toFixed(0)} %`;
+  if (DOM.cTau) DOM.cTau.textContent = `${cl.tauYears.toFixed(2)} yr`;
+  if (DOM.cExtremes) {
+    DOM.cExtremes.textContent =
+      `${(cl.extremes.Tmin - 273.15).toFixed(0)} … ${(cl.extremes.Tmax - 273.15).toFixed(0)} °C`;
+  }
+  drawClimateChart();
+}
+
+// A scrolling record of insolation and temperature. The point of the chart is
+// to make the lag visible: the temperature curve is a smoothed, delayed echo of
+// the flux curve, and the delay is the ocean's thermal inertia.
+function drawClimateChart() {
+  const cv = DOM.climateChart;
+  const cl = state.climate;
+  if (!cv || !cl || cl.history.length < 2) return;
+  const ctx = cv.getContext('2d');
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const hist = cl.history;
+  const t0 = hist[0][0], t1 = hist[hist.length - 1][0];
+  const span = Math.max(t1 - t0, 1e-6);
+  let sMax = 0.5, tMin = 200, tMax = 340;
+  for (const [, S, T] of hist) { sMax = Math.max(sMax, S); tMin = Math.min(tMin, T); tMax = Math.max(tMax, T); }
+  tMin -= 6; tMax += 6;
+
+  const X = t => (t - t0) / span * w;
+  const Ys = S => h - (S / (sMax * 1.1)) * h;
+  const Yt = T => h - (T - tMin) / (tMax - tMin) * h;
+
+  // habitable band (liquid water at the surface)
+  ctx.fillStyle = 'rgba(80,200,140,0.10)';
+  const yTop = Yt(305), yBot = Yt(273);
+  ctx.fillRect(0, yTop, w, Math.max(yBot - yTop, 1));
+  ctx.strokeStyle = 'rgba(80,200,140,0.35)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, yBot); ctx.lineTo(w, yBot); ctx.stroke();
+
+  // insolation (filled)
+  ctx.beginPath();
+  ctx.moveTo(X(hist[0][0]), h);
+  for (const [t, S] of hist) ctx.lineTo(X(t), Ys(S));
+  ctx.lineTo(X(t1), h); ctx.closePath();
+  ctx.fillStyle = 'rgba(255,190,90,0.16)'; ctx.fill();
+  ctx.beginPath();
+  hist.forEach(([t, S], i) => i ? ctx.lineTo(X(t), Ys(S)) : ctx.moveTo(X(t), Ys(S)));
+  ctx.strokeStyle = 'rgba(255,190,90,0.75)'; ctx.lineWidth = 1.2; ctx.stroke();
+
+  // temperature
+  ctx.beginPath();
+  hist.forEach(([t, , T], i) => i ? ctx.lineTo(X(t), Yt(T)) : ctx.moveTo(X(t), Yt(T)));
+  ctx.strokeStyle = '#ff6a5a'; ctx.lineWidth = 1.6; ctx.stroke();
+
+  ctx.fillStyle = 'rgba(160,180,210,0.55)';
+  ctx.font = '9px ui-monospace,monospace';
+  ctx.fillText(`${fmtYears(span)} window`, 4, 10);
+  ctx.fillText(`peak ${sMax.toFixed(1)} S⊕`, 4, h - 4);
+}
+
 function bindSlider(id, key, fmt = v => v.toFixed(2), onChange) {
   const elx = document.getElementById(id), val = document.getElementById(id + '-val');
   elx.addEventListener('input', () => { state[key] = parseFloat(elx.value); val.textContent = fmt(state[key]); onChange?.(); });
@@ -627,11 +914,90 @@ document.getElementById('clear').addEventListener('click', clearBodies);
 document.getElementById('delFocus').addEventListener('click', () => { if (state.focusId != null) removeBody(state.focusId); });
 DOM.camOrbit.addEventListener('click', () => setCamMode('orbit'));
 DOM.camFree.addEventListener('click', () => setCamMode('free'));
+DOM.camSurface?.addEventListener('click', () => setCamMode('surface'));
+
+// --- surface-view controls
+const latEl = document.getElementById('lat');
+latEl?.addEventListener('input', () => {
+  observer.latitude = parseFloat(latEl.value) * Math.PI / 180;
+  document.getElementById('lat-val').textContent = `${Math.round(parseFloat(latEl.value))}°`;
+});
+const dayEl = document.getElementById('daylen');
+dayEl?.addEventListener('input', () => {
+  const days = parseFloat(dayEl.value);
+  const home = getHome();
+  if (home) home.dayLength = days / 365.25;
+  document.getElementById('daylen-val').textContent = `${days.toFixed(1)} d`;
+});
+
+// --- climate controls: the two knobs that decide whether the world lives
+const mlEl = document.getElementById('mixed');
+mlEl?.addEventListener('input', () => {
+  const v = parseFloat(mlEl.value);
+  if (state.climate) state.climate.mixedLayer = v;
+  document.getElementById('mixed-val').textContent = `${v.toFixed(0)} m`;
+});
+const ghEl = document.getElementById('greenhouse');
+ghEl?.addEventListener('input', () => {
+  const v = parseFloat(ghEl.value);
+  if (state.climate) state.climate.greenhouse = v;
+  document.getElementById('greenhouse-val').textContent = v.toFixed(2);
+});
+document.getElementById('climateReset')?.addEventListener('click', () => {
+  state.climate?.reset(288);
+});
+
+// ----------------------------------------------------------------------------
+// TIME CONTROL
+// A three-sun system has to be watched at wildly different speeds: a sunset
+// lasts minutes, an orbit lasts years, a climate era lasts centuries. One
+// linear speed control cannot serve all three, so the scale is logarithmic and
+// backed by named regimes that are computed FROM the current world's day length
+// and orbital period rather than hard-coded.
+// ----------------------------------------------------------------------------
+const tsEl = document.getElementById('timescale');
+function timeLabel(yrPerSec) {
+  if (yrPerSec < 3e-3) return `${(yrPerSec * 365.25 * 24).toFixed(2)} hr/s`;
+  if (yrPerSec < 1) return `${(yrPerSec * 365.25).toFixed(2)} d/s`;
+  return `${yrPerSec.toFixed(1)} yr/s`;
+}
+function setTimeScale(yrPerSec) {
+  state.timeScale = THREE.MathUtils.clamp(yrPerSec, 1e-5, 20);
+  if (tsEl) tsEl.value = String(Math.log10(state.timeScale));
+  const el = document.getElementById('timescale-val');
+  if (el) el.textContent = timeLabel(state.timeScale);
+}
+function applyTimeScale() {
+  if (!tsEl) return;
+  setTimeScale(Math.pow(10, parseFloat(tsEl.value)));
+}
+tsEl?.addEventListener('input', applyTimeScale);
+
+// Seconds of real time each regime should take for its characteristic event.
+const TIME_REGIMES = { sunset: 45, day: 8, season: 90, era: 120 };
+function applyRegime(name) {
+  const home = getHome();
+  const day = home?.dayLength ?? 0.011;
+  if (name === 'sunset') setTimeScale(day / TIME_REGIMES.sunset);
+  else if (name === 'day') setTimeScale(day / TIME_REGIMES.day);
+  else if (name === 'season') setTimeScale(1.69 / TIME_REGIMES.season);   // ~one orbit
+  else if (name === 'era') setTimeScale(51 / TIME_REGIMES.era);           // ~one Gamma orbit
+  document.querySelectorAll('[data-time]').forEach(b => b.classList.toggle('active', b.dataset.time === name));
+}
+document.querySelectorAll('[data-time]').forEach(b =>
+  b.addEventListener('click', () => applyRegime(b.dataset.time)));
 document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); cam.radius = state.preset.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
+
+function toggleMesh(on) {
+  state.showMesh = on;
+  spacetimeMesh.visible = on;
+  const btn = document.querySelector('[data-view="mesh"]');
+  if (btn) { btn.classList.toggle('active', on); btn.textContent = on ? 'Mesh ON' : 'Mesh OFF'; }
+}
 
 document.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => {
   const v = btn.dataset.view;
-  if (v === 'mesh') { state.showMesh = !state.showMesh; spacetimeMesh.visible = state.showMesh; btn.classList.toggle('active', state.showMesh); btn.textContent = state.showMesh ? 'Mesh ON' : 'Mesh OFF'; }
+  if (v === 'mesh') toggleMesh(!state.showMesh);
   else { state.showLens = !state.showLens; btn.classList.toggle('active', state.showLens); btn.textContent = state.showLens ? 'Lens ON' : 'Lens OFF'; }
 }));
 
@@ -665,24 +1031,32 @@ function animate() {
   if (fpsTime > 0.5) { DOM.fps.textContent = Math.round(fpsAcc / fpsCount); fpsAcc = fpsCount = fpsTime = 0; }
 
   stepPhysics(simDt);
+  updateSuns();
 
   // body visual updates
   const holes = getHoles().map(h => ({ posScene: h.viz.group.position, rsScene: h.rsScene, mass: h.mass }));
-  const ctx = { holes, camera, time: state.time, sceneScale: state.sceneScale };
+  const ctx = {
+    holes, camera, time: state.time, sceneScale: state.sceneScale,
+    simDt, suns: state.suns, climate: state.climate,
+  };
   for (const b of state.bodies) {
     if (b.type === 'bh') { b.rsScene = b.rs * state.sceneScale; b.radiusScene = b.rsScene; }
     b.viz.update(dt * (state.paused ? 0 : 1) + 0.0001, ctx); // keep shaders animating even paused-ish
   }
-  // bodies stripped down to nothing are fully consumed
+  // Bodies stripped down to nothing by accretion are fully consumed. This has
+  // to be measured against the body's ORIGINAL mass: a planet is born lighter
+  // than this threshold, and must not be deleted just for being a planet.
   for (const b of state.bodies.slice()) {
-    if (b.type !== 'bh' && b.mass <= 0.012) {
+    if (b.type !== 'bh' && b.mass0 > 0.05 && b.mass <= Math.max(0.012, b.mass0 * 0.02)) {
       spawnFlash(b.viz.group.position.clone(), 0xffcaa0, b.radiusScene * 10, 0.7);
       state.consumed++; removeBody(b.id);
     }
   }
 
   // camera follow / movement
-  if (state.camMode === 'free') updateFreeCam(dt);
+  const home = getHome();
+  if (state.camMode === 'surface' && home) observer.update(home, camera);
+  else if (state.camMode === 'free') updateFreeCam(dt);
   else {
     if (state.followId != null) {
       const fb = state.bodies.find(b => b.id === state.followId);
@@ -691,9 +1065,11 @@ function animate() {
     updateOrbitCam();
   }
 
-  // light at dominant star/bh
-  const lum = state.bodies.find(b => b.type === 'star') || holes[0] && state.bodies.find(b => b.type === 'bh');
-  if (lum) sunLight.position.copy(lum.viz.group.position);
+  // light at dominant star/bh (legacy single-light path for star-less presets)
+  if (sunLight.visible) {
+    const lum = state.bodies.find(b => b.type === 'star') || holes[0] && state.bodies.find(b => b.type === 'bh');
+    if (lum) sunLight.position.copy(lum.viz.group.position);
+  }
 
   // flashes
   for (let i = flashes.length - 1; i >= 0; i--) {
@@ -722,6 +1098,7 @@ function animate() {
   lensMaterial.uniforms.time.value += simDt;
   const useLens = state.showLens && holes.length > 0;
   if (useLens) {
+    camera.updateMatrixWorld(true);   // camMat below must match this frame
     const n = Math.min(holes.length, 2);
     for (let i = 0; i < n; i++) {
       lensMaterial.uniforms.holePos.value[i].copy(holes[i].posScene);
@@ -735,6 +1112,64 @@ function animate() {
     lensMaterial.uniforms.camPos.value.copy(camera.position);
     lensMaterial.uniforms.camMat.value.copy(camera.matrixWorld);
     lensMaterial.uniforms.fov.value = camera.fov * Math.PI / 180;
+  }
+
+  // ---- surface view: render the sky as a full-screen composite over the scene
+  if (state.camMode === 'surface' && home) {
+    const u = skyPass.material.uniforms;
+    const n = Math.min(state.suns.length, MAX_SUNS);
+    let illum = 0;
+    for (let i = 0; i < n; i++) {
+      const s = state.suns[i];
+      u.uSunDir.value[i].copy(s.posScene).sub(observer.eye).normalize();
+      u.uSunColor.value[i].copy(s.color);
+      u.uSunInt.value[i] = s.intensity;
+      u.uSunAng.value[i] = s.angRadius;
+      // horizontal illuminance from this sun: flux × cos(zenith angle)
+      illum += s.intensity * Math.max(u.uSunDir.value[i].dot(observer.up), 0);
+    }
+    u.uSunCount.value = n;
+
+    // Eye adaptation. Without it the view is either a black night or a white
+    // day: three suns of different luminosity crossing the sky span a huge
+    // dynamic range. Target exposure falls as the ground gets brighter, and the
+    // eye takes a moment to follow — so a sunrise dazzles briefly, then settles.
+    const target = THREE.MathUtils.clamp(0.32 / (0.12 + illum), 0.35, 1.9);
+    const adapt = 1 - Math.exp(-dt / 1.6);              // ~1.6 s time constant
+    state.exposure += (target - state.exposure) * adapt;
+    u.uExposure.value = state.exposure;
+    u.uUp.value.copy(observer.up);
+    u.uNorth.value.copy(observer.north);
+    u.uCamPos.value.copy(camera.position);
+    u.uCamMat.value.copy(camera.matrixWorld);
+    u.uFov.value = camera.fov * Math.PI / 180;
+    u.uAspect.value = camera.aspect;
+    u.uTime.value += dt;
+    const cl = state.climate;
+    if (cl) {
+      u.uIce.value = cl.ice;
+      u.uScorch.value = THREE.MathUtils.clamp((cl.T - 320) / 120, 0, 1);
+      u.uClouds.value = cl.clouds;
+      u.uHumidity.value = cl.humidity;
+      u.uStorm.value = cl.storm ?? 0.2;
+    }
+
+    // we are standing on the world, so don't draw it; and the spacetime slab
+    // would cut across the sky
+    const meshWas = spacetimeMesh.visible;
+    home.viz.group.visible = false;
+    spacetimeMesh.visible = false;
+
+    renderer.setRenderTarget(sceneTarget); renderer.clear();
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null); renderer.clear();
+    skyPass.material.uniforms.tScene.value = sceneTarget.texture;
+    renderer.render(skyPass.scene, skyPass.camera);
+
+    home.viz.group.visible = true;
+    spacetimeMesh.visible = meshWas;
+    updateHUD(dt);
+    return;
   }
 
   // render
@@ -752,6 +1187,7 @@ function animate() {
     renderer.setRenderTarget(null);
     renderer.render(scene, camera);
   }
+  updateHUD(dt);
 }
 
 // ============================================================================

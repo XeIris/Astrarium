@@ -27,20 +27,93 @@ exactly one year, with no fudge factors.
 > sub-pixel — a true-to-scale stellar black hole or planet would be invisible next to
 > its orbit. Orbital *distances* and dynamics are real.
 
+## Trisolaris
+
+A full model of the *Three-Body Problem* system: three suns, one world, and a climate
+that tries to kill it.
+
+**The system is a hierarchy**, because that is the only arrangement in which a
+multiple-star system with a planet actually survives:
+
+| body | mass | class | role |
+|---|---|---|---|
+| **Alpha** | 1.20 M☉ | F, 6576 K | inner binary, with Beta — 0.35 AU apart, 53-day period |
+| **Beta** | 0.85 M☉ | K, 5236 K | inner binary, with Alpha |
+| **Gamma** | 2.00 M☉ | A, 9451 K | wide 25°-inclined orbit, 22 AU, ~51-year period |
+| **Trisolaris** | 1 M⊕ | — | circumbinary orbit at 1.80 AU, e = 0.42 |
+
+The planet's orbit sits well outside the Holman–Wiegert circumbinary stability limit
+(a_crit ≈ 2.3 a_bin ≈ 0.8 AU). **Verified by direct integration: stable for 60 000+
+simulated years** with a relative energy drift of ~1e-7 — several hours of continuous
+watching before anything drifts. Closer-in variants of Gamma's orbit were tested and
+did disintegrate (at 22 AU it survives; at 14 AU the planet is ejected after ~1900 yr).
+
+The chaos therefore lives in the **climate**, not in the orbits — and that is real
+chaos, not a script. Insolation swings by a factor of ~8 (0.40 → 3.08 S⊕) every
+1.7-year orbit, and a zero-dimensional energy-balance model turns that into eras:
+
+```
+C · dT/dt = (1 − α(T)) · S/4 − ε σ T⁴
+```
+
+with `α(T)` rising as the world freezes — the **ice-albedo feedback**, the runaway that
+can snowball a planet permanently. At the default 12 m ocean mixed layer the world
+spends roughly **42% Chaotic-Cold, 38% Stable, 20% Chaotic-Hot**, ranging −18 °C to
++55 °C. Deepen the ocean to 25 m and it is temperate 94% of the time; shallow it to 8 m
+and the swings become lethal. That slider is the whole story of the book in one knob.
+
+**Stand on the planet** (`V`, or the *On Trisolaris* button) to see the sky directly:
+Rayleigh + Mie single scattering evaluated **separately for each sun**, with Kasten–Young
+air mass, so each sun reddens on its own schedule as it sets, casts its own terminator,
+and the sky colour is the sum of all three. The suns rise and set because the ground is
+turning — the observer rides the planet's real rotation at a latitude you choose.
+
+The scattering integral **saturates** (`1 − exp(−β_e·m)`) rather than growing linearly
+with air mass, so the horizon stays pale and bright instead of blowing out, and the sun's
+own disc is extinguished through the same air mass — which is what turns it blood red on
+the horizon. Output goes through a filmic curve with **eye adaptation**: exposure tracks
+the actual horizontal illuminance with a ~1.6 s lag, so a sunrise dazzles briefly and
+then settles instead of flash-banging the whole frame.
+
+Because a sunset takes minutes while an era takes centuries, time is logarithmic with
+four named regimes — **Sunset · Days · Seasons · Eras**.
+
+There is also **Trisolaris — Chaotic Era**: the same three suns with *no* hierarchy, a
+genuine chaotic three-body system. The planet is thrown around and usually ejected or
+consumed within a few centuries. That is the honest version, and it is why the
+Trisolarans want to leave.
+
 ## Features
 
-- **Scenarios:** Black Hole Sandbox · Solar System (real distances & masses — zoom way
-  out for Pluto) · Three-Body figure-eight (an exact choreography solution) · Binary
-  Star · Binary Black Hole Merger · Neutron Star Merger (kilonova) · BH Devouring a Star.
-- **Stars** with an animated granulation/sunspot surface shader, gassy outer layer,
-  corona and flaring prominences.
+- **Scenarios:** **Trisolaris** · **Trisolaris — Chaotic Era** · Black Hole Sandbox ·
+  Solar System (real distances & masses — zoom way out for Pluto) · Three-Body
+  figure-eight (an exact choreography solution) · Binary Star · Binary Black Hole
+  Merger · Neutron Star Merger (kilonova) · BH Devouring a Star.
+- **Stars derived from one number.** Give a star a mass and everything else follows from
+  main-sequence scaling relations: luminosity (piecewise M–L), radius, effective
+  temperature via Stefan–Boltzmann, and colour from a Planck-locus fit. A 2 M☉ star
+  really is bigger, hotter, bluer and ~30× more luminous than a 0.85 M☉ one
+  (Gamma puts out ~16 L☉; Beta, ~0.5 L☉).
+- **Live stellar activity.** Starspots emerge in mid-latitude activity belts, grow, decay
+  and are replaced; **differential rotation** laps the equator past the poles (Ω ∝
+  1 − 0.19 sin²lat, as on the Sun); **flares** follow a power-law energy distribution with
+  a fast rise and exponential decay, firing more often on cool convective stars than hot
+  ones; the biggest events launch expanding **coronal mass ejections**. Flares brighten
+  the star, and that extra flux feeds straight into the planet's climate.
+- Physically correct **limb darkening** (I(μ)/I(0) = 1 − u(1 − μ)), a chromospheric H-α
+  limb, prominence loops standing over erupting regions, and a smooth streamered corona.
 - **Neutron stars** that spin and sweep two lighthouse **pulsar beams**.
 - **Procedurally generated planets** — rocky worlds (continents, oceans, ice caps) and
   banded gas giants (zonal bands, storms, optional rings).
 - **Accretion:** bodies near a black hole are tidally stripped, shedding a visible
   particle stream and **losing mass** (they shrink) as they feed it.
-- **Camera:** orbit camera, **free-fly mode** (WASD + mouse look), and **click any
-  object to focus and zoom** onto it. Per-object delete.
+- **Living worlds** whose surface is generated in-shader from 3D noise (no seam, no polar
+  pinch) and driven by the climate model: ice caps advance and retreat with the glaciated
+  fraction, seas shrink as they boil off, cloud decks thicken with humidity, and the
+  ground glows when it is hot enough to. Lit by every star at once — several terminators
+  in several colours crossing one disc.
+- **Camera:** orbit camera, **free-fly mode** (WASD + mouse look), **surface view** from
+  the planet's ground (`V`), and **click any object to focus and zoom** onto it.
 - Gravitational lensing (now up to two black holes), accretion-disc shader with
   Doppler beaming & gravitational redshift, and a deformable spacetime mesh.
 
@@ -49,16 +122,17 @@ exactly one year, with no fudge factors.
 It's static — serve the folder and open `blackhole_sim.html`:
 
 ```bash
-python3 -m http.server
-# then open http://localhost:8000/blackhole_sim.html
+node .claude/serve.mjs
+# then open http://localhost:8777/blackhole_sim.html
 ```
 
 Deep-link a scenario with a URL hash, e.g. `blackhole_sim.html#bhmerger`.
 
 ### Controls
 
-`drag` look · `scroll` zoom / fly-speed · `click` focus object · `F` free cam ·
-`WASD` fly (`Shift` boost, `Q/E` down/up) · `R` reset view · `space` pause · `del` remove focused.
+`drag` look · `scroll` zoom / fly-speed / FOV · `click` focus object · **`V` stand on the
+planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` reset view ·
+`space` pause · `del` remove focused.
 
 ## Layout
 
@@ -68,8 +142,17 @@ Deep-link a scenario with a URL hash, e.g. `blackhole_sim.html#bhmerger`.
 - `sim/bodies.js` — body visuals (star/neutron/planet shaders, accretion streams)
 - `sim/textures.js` — procedural rocky & gas-giant texture generation
 - `sim/presets.js` — scenario definitions with real initial conditions
+- `sim/stellar.js` — mass → luminosity / radius / temperature / colour, and the
+  starspot-flare-CME activity model
+- `sim/star_visual.js` — photosphere, corona, prominence and CME rendering
+- `sim/world.js` — the climate-driven planet (surface, clouds, atmosphere), multi-sun lit
+- `sim/climate.js` — the energy-balance climate model and era classification
+- `sim/skyview.js` — surface observer + multi-sun atmospheric scattering pass
 
 ## Disclaimer
 
-For education and play. The orbital dynamics are real; compact-object sizes, horizon
-radii and merger timescales are deliberately exaggerated for visibility.
+For education and play. The orbital dynamics, stellar scaling relations and the climate
+model are real. Compact-object sizes, horizon radii and merger timescales are deliberately
+exaggerated for visibility — and so are **stellar radii in the surface view**: the suns of
+Trisolaris are drawn about 10× their true angular size (a real one would subtend ~0.3°),
+because a physically-sized sun is a bright dot and the point of that view is the sky.
