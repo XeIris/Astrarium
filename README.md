@@ -9,7 +9,7 @@ ready-made astrophysical scenarios.
 
 ![A 10 M☉ black hole: the accretion disc lensed over the top of the shadow and
 back under it, the photon ring at the rim, a companion star visible through the
-lensing, and the spacetime well dimpling the mesh below.](docs/preview.webp)
+lensing, and the spacetime well dimpling the mesh below.](docs/preview.png)
 
 ## Physics
 
@@ -72,12 +72,12 @@ that tries to kill it.
 **The system is a hierarchy**, because that is the only arrangement in which a
 multiple-star system with a planet actually survives:
 
-| body | mass | class | role |
-|---|---|---|---|
-| **Alpha** | 1.20 M☉ | F, 6576 K | inner binary, with Beta — 0.35 AU apart, 53-day period |
-| **Beta** | 0.85 M☉ | K, 5236 K | inner binary, with Alpha |
-| **Gamma** | 2.00 M☉ | A, 9451 K | wide 25°-inclined orbit, 22 AU, ~51-year period |
-| **Trisolaris** | 1 M⊕ | — | circumbinary orbit at 1.80 AU, e = 0.42 |
+| body                 | mass     | class     | role                                                    |
+| -------------------- | -------- | --------- | ------------------------------------------------------- |
+| **Alpha**      | 1.20 M☉ | F, 6576 K | inner binary, with Beta — 0.35 AU apart, 53-day period |
+| **Beta**       | 0.85 M☉ | K, 5236 K | inner binary, with Alpha                                |
+| **Gamma**      | 2.00 M☉ | A, 9451 K | wide 25°-inclined orbit, 22 AU, ~51-year period        |
+| **Trisolaris** | 1 M⊕    | —        | circumbinary orbit at 1.80 AU, e = 0.42                 |
 
 The planet's orbit sits well outside the Holman–Wiegert circumbinary stability limit
 (a_crit ≈ 2.3 a_bin ≈ 0.8 AU). **Verified by direct integration: stable for 60 000+
