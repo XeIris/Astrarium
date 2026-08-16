@@ -31,6 +31,61 @@ canvas { display: block; }
 }
 .panel::-webkit-scrollbar { width: 4px; }
 .panel::-webkit-scrollbar-thumb { background: var(--border-strong); }
+
+/* Scenarios live in their own panel on the left, clear of the title block. */
+.panel-left {
+  top: 92px; left: 20px; right: auto; width: 232px;
+  max-height: calc(100vh - 190px);
+}
+
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.panel-head h3 { flex: 1; margin-bottom: 10px; }
+.panel-close {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-family: var(--mono); font-size: 12px; line-height: 1; padding: 2px 4px;
+  transition: color 0.15s;
+}
+.panel-close:hover { color: var(--warn); }
+
+/* A collapsed panel leaves a tab behind so it is always one click from back. */
+.panel-tabs { top: 92px; left: 0; right: 0; }
+.panel-tab {
+  position: fixed; top: 92px;
+  background: var(--panel); color: var(--text-dim);
+  border: 1px solid var(--border); backdrop-filter: blur(10px);
+  padding: 8px 10px; font-family: var(--mono); font-size: 10px; cursor: pointer;
+  letter-spacing: 0.12em; text-transform: uppercase; transition: all 0.15s;
+}
+.panel-tab[hidden] { display: none; }
+.panel-tab:not(.tab-right) { left: 20px; }
+.panel-tab.tab-right { right: 18px; }
+.panel-tab:hover { color: var(--accent); border-color: var(--border-strong); }
+
+/* Transient message — used when the HUD hides itself, so the way back is
+   never a secret. */
+.toast {
+  position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
+  padding: 9px 16px; background: var(--panel); border: 1px solid var(--border-strong);
+  backdrop-filter: blur(10px); color: var(--text);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; z-index: 60; pointer-events: none;
+  opacity: 0; transition: opacity 0.35s;
+}
+.toast.show { opacity: 1; }
+
+/* --- imaging band selector ------------------------------------------------ */
+.band-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.band-btn {
+  padding: 7px 2px; background: transparent; border: 1px solid var(--border);
+  color: var(--text-dim); font-family: var(--mono); font-size: 9px;
+  letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s;
+}
+.band-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.band-btn.active { background: var(--accent-2); color: #000; border-color: var(--accent-2); }
+.band-note {
+  margin-top: 8px; font-size: 9.5px; line-height: 1.55; color: var(--text-dim);
+  border-left: 2px solid var(--border-strong); padding-left: 8px;
+}
 .panel h3 {
   font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
   color: var(--text-dim); margin-bottom: 10px; padding-bottom: 6px;
@@ -64,6 +119,35 @@ input[type=range]::-moz-range-thumb {
 }
 .toggle-btn:hover { color: var(--text); border-color: var(--border-strong); }
 .toggle-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+.preset-grid { display: grid; grid-template-columns: 1fr; gap: 5px; }
+.preset-btn {
+  background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+  padding: 7px 9px; font-family: var(--mono); font-size: 10px; cursor: pointer;
+  letter-spacing: 0.08em; text-align: left; transition: all 0.15s;
+}
+.preset-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.preset-btn.active { background: var(--accent-2); color: #000; border-color: var(--accent-2); }
+.blurb {
+  margin-top: 9px; font-size: 10px; line-height: 1.55; color: var(--text-dim);
+  border-left: 2px solid var(--accent-2); padding-left: 8px;
+}
+
+.ghost-btn {
+  width: 100%; background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+  padding: 7px; font-family: var(--mono); font-size: 10px; cursor: pointer;
+  letter-spacing: 0.1em; text-transform: uppercase; transition: all 0.15s; margin-bottom: 10px;
+}
+.ghost-btn:hover { color: var(--text); border-color: var(--border-strong); }
+
+.focus-panel { margin-top: 18px; border: 1px solid var(--accent-2); padding: 10px; }
+.focus-panel h3 { color: var(--accent-2); margin-bottom: 8px; }
+.focus-name { font-size: 11px; color: var(--text); margin-bottom: 8px; letter-spacing: 0.05em; }
+.focus-panel .action-btn { margin-top: 0; }
+
+.body-item.sel { background: rgba(78,168,255,0.12); }
+.body-item[data-focus] { cursor: pointer; }
+.body-item[data-focus]:hover { background: rgba(180,200,230,0.06); }
 
 .add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .add-btn {
@@ -102,9 +186,13 @@ input[type=range]::-moz-range-thumb {
 .readout .v { color: var(--accent-2); font-variant-numeric: tabular-nums; }
 
 .hint {
-  bottom: 18px; right: 20px; font-size: 10px; color: var(--text-dim);
+  /* Sits clear of the control panel while it is open, and reclaims the corner
+     when it is collapsed — otherwise it collides with the readout on the left
+     on narrower screens. */
+  bottom: 18px; right: 18px; font-size: 10px; color: var(--text-dim);
   text-align: right; line-height: 1.6; letter-spacing: 0.08em;
 }
+body.panel-open-right .hint { right: 336px; }
 .hint kbd {
   display: inline-block; padding: 1px 5px; border: 1px solid var(--border-strong);
   color: var(--text); font-family: var(--mono); font-size: 9px; margin: 0 2px;
@@ -126,3 +214,77 @@ input[type=range]::-moz-range-thumb {
   transition: opacity 0.6s;
 }
 .loading.gone { opacity: 0; pointer-events: none; }
+
+/* ==========================================================================
+   TRISOLARIS — suns, climate and the view from the ground
+   ========================================================================== */
+
+.preset-btn.tri {
+  border-color: rgba(255, 170, 70, 0.4);
+  color: #ffc98a;
+}
+.preset-btn.tri.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+/* --- the three suns ------------------------------------------------------ */
+.sun-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.sun-row {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  grid-template-areas: "dot name" ". cls" ". flux";
+  gap: 1px 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.015);
+}
+.sun-row .dot { grid-area: dot; width: 9px; height: 9px; border-radius: 50%; }
+.sun-row .sn { grid-area: name; font-size: 11px; color: var(--text); letter-spacing: 0.04em; }
+.sun-row .sc { grid-area: cls; font-size: 9.5px; color: var(--text-dim); }
+.sun-row .sf { grid-area: flux; font-size: 9.5px; color: var(--accent-2); font-variant-numeric: tabular-nums; }
+.sun-row .flare {
+  color: #000; background: #ffcc44; padding: 0 4px; margin-left: 4px;
+  font-size: 8.5px; letter-spacing: 0.1em; animation: flare-pulse 0.7s ease-in-out infinite;
+}
+@keyframes flare-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* --- climate ------------------------------------------------------------- */
+h3 .clock {
+  float: right; color: var(--accent-2); font-weight: 400;
+  letter-spacing: 0.05em; font-variant-numeric: tabular-nums;
+}
+.era-badge {
+  display: block; text-align: center; padding: 7px; margin-bottom: 4px;
+  font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+  border: 1px solid currentcolor;
+}
+.era-badge.era-stable { color: #4ee39a; }
+.era-badge.era-cold   { color: #6fb6ff; }
+.era-badge.era-freeze { color: #b9e2ff; background: rgba(120, 190, 255, 0.10); }
+.era-badge.era-hot    { color: #ffab52; }
+.era-badge.era-scorch { color: #ff5a4a; background: rgba(255, 70, 50, 0.12); }
+.era-desc { font-size: 10px; color: var(--text-dim); line-height: 1.5; margin-bottom: 10px; }
+
+.climate-chart {
+  width: 100%; height: 86px; display: block;
+  border: 1px solid var(--border); background: rgba(0, 0, 0, 0.35);
+}
+.chart-key { display: flex; gap: 12px; margin: 5px 0 10px; font-size: 9px; color: var(--text-dim); }
+.chart-key i { display: inline-block; width: 9px; height: 2px; margin-right: 4px; vertical-align: middle; }
+
+.stat-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; margin-bottom: 12px;
+}
+.stat-grid > div { display: flex; justify-content: space-between; align-items: baseline; }
+.stat-grid .k { font-size: 10px; color: var(--text-dim); }
+.stat-grid .v { font-size: 11px; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+.row label[title] { cursor: help; border-bottom: 1px dotted var(--text-dim); }
+
+.time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 12px; }
+.time-btn {
+  padding: 6px 2px; background: transparent; border: 1px solid var(--border);
+  color: var(--text-dim); font-family: var(--mono); font-size: 9.5px;
+  letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s;
+}
+.time-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.time-btn.active { background: var(--accent-2); color: #000; border-color: var(--accent-2); }
