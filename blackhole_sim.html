@@ -21,8 +21,13 @@
   <div class="sub">/ REAL N-BODY · G = 4π²</div>
 </div>
 
-<div class="hud panel">
-  <h3>Scenario</h3>
+<!-- SCENARIOS — its own panel, on the left, so the long control stack on the
+     right never has to be scrolled past to change what you are looking at. -->
+<div class="hud panel panel-left" id="scenarioPanel">
+  <div class="panel-head">
+    <h3>Scenario</h3>
+    <button class="panel-close" data-close="scenarioPanel" title="Collapse (H hides everything)">✕</button>
+  </div>
   <div class="preset-grid">
     <button class="preset-btn tri" data-preset="trisolaris">☀☀☀ Trisolaris</button>
     <button class="preset-btn tri" data-preset="trisolaris_chaos">Trisolaris — Chaotic Era</button>
@@ -35,6 +40,13 @@
     <button class="preset-btn" data-preset="feeding">BH Devouring a Star</button>
   </div>
   <div class="blurb" id="blurb"></div>
+</div>
+
+<div class="hud panel" id="controlPanel">
+  <div class="panel-head">
+    <h3>Controls</h3>
+    <button class="panel-close" data-close="controlPanel" title="Collapse (H hides everything)">✕</button>
+  </div>
 
   <h3 id="bhPanel">Central Singularity</h3>
   <div class="row" id="massRow">
@@ -85,6 +97,10 @@
     </div>
     <button class="ghost-btn" id="climateReset">Reset Climate to 15 °C</button>
   </div>
+
+  <h3>Imaging Band</h3>
+  <div class="band-grid" id="bandGrid"></div>
+  <div class="band-note" id="bandNote"></div>
 
   <h3>View &amp; Camera</h3>
   <div class="toggle-row">
@@ -148,17 +164,27 @@
   <div class="body-list" id="bodyList"><div class="empty">— empty —</div></div>
 </div>
 
+<!-- Tabs that take a collapsed panel's place, so a closed panel is always one
+     click from coming back. Hidden while the whole HUD is off. -->
+<div class="hud panel-tabs" id="panelTabs">
+  <button class="panel-tab" data-open="scenarioPanel" hidden>▸ Scenario</button>
+  <button class="panel-tab tab-right" data-open="controlPanel" hidden>Controls ◂</button>
+</div>
+
 <div class="hud readout" id="readout">
-  <div><span class="k">r_s</span> <span class="v" id="rs">0.00</span> <span class="k">AU · ISCO</span> <span class="v" id="isco">0.00</span></div>
+  <div><span class="k">band</span> <span class="v" id="bandLabel">VIS</span> <span class="k">·</span> <span class="v" id="rs">0.00</span> <span class="k">r_s AU · ISCO</span> <span class="v" id="isco">0.00</span></div>
   <div><span class="k">bodies</span> <span class="v" id="bc">0</span> <span class="k">consumed</span> <span class="v" id="cc">0</span></div>
   <div><span class="k">fps</span> <span class="v" id="fps">--</span></div>
 </div>
 
-<div class="hud hint">
+<div class="hud hint" id="hint">
   <kbd>drag</kbd> look · <kbd>scroll</kbd> zoom/speed · <kbd>click</kbd> focus object<br>
   <kbd>V</kbd> stand on the planet · <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly<br>
-  <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove
+  <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove<br>
+  <kbd>H</kbd> hide all panels · <kbd>1</kbd>–<kbd>7</kbd> imaging band
 </div>
+
+<div class="toast" id="toast"></div>
 
 <script type="importmap">
 {

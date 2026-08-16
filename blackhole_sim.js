@@ -7,6 +7,9 @@ import { Climate } from './sim/climate.js';
 import { createSkyPass, SurfaceObserver } from './sim/skyview.js';
 import { MAX_SUNS } from './sim/world.js';
 import { luminosity, effectiveTemp, radiusSun, blackbodyColor, spectralClass } from './sim/stellar.js';
+import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
+import { createPostFX } from './sim/postfx.js';
+import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
 
 // ============================================================================
 // STATE
@@ -41,6 +44,8 @@ const state = {
   climate: null,
   exposure: 1,             // surface-view eye adaptation
   suns: [],                // live star light sources, brightest first
+  band: 3,                 // imaging band index (see sim/spectrum.js)
+  hudHidden: false,
 };
 
 const DOM = {};
@@ -48,7 +53,8 @@ const DOM = {};
  'blurb', 'presetName', 'focusName', 'focusPanel', 'camOrbit', 'camFree',
  'discRow', 'tempRow', 'speedVal', 'camSurface', 'climatePanel', 'eraBadge',
  'eraDesc', 'cTemp', 'cFlux', 'cIce', 'cCloud', 'cTau', 'cExtremes', 'climateChart',
- 'sunList', 'simClock', 'starPanel', 'surfRow', 'skyRow', 'bhPanel'].forEach(id => DOM[id] = document.getElementById(id));
+ 'sunList', 'simClock', 'starPanel', 'surfRow', 'skyRow', 'bhPanel',
+ 'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs'].forEach(id => DOM[id] = document.getElementById(id));
 
 // ============================================================================
 // SCENE / RENDERER / CAMERA
@@ -61,7 +67,14 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, 1);
+// The frame is composed in linear HDR and tone mapped by sim/postfx.js, so the
+// renderer must NOT apply a curve or an sRGB transfer of its own on the way
+// into the float target — that would double-encode everything.
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
 document.getElementById('canvas-wrap').appendChild(renderer.domElement);
+
+const postfx = createPostFX(renderer);
 
 const ambient = new THREE.AmbientLight(0x223044, 0.6); scene.add(ambient);
 const sunLight = new THREE.PointLight(0xffffff, 2.2, 0, 0); scene.add(sunLight);
@@ -103,95 +116,13 @@ const starTex = makeStarTexture();
 scene.background = starTex;
 
 // ============================================================================
-// LENSING SHADER (supports up to 2 black holes)
+// LENSING / ACCRETION-DISC PASS
+// The whole general-relativistic ray marcher now lives in sim/blackhole.js.
 // ============================================================================
-const lensMaterial = new THREE.ShaderMaterial({
-  uniforms: {
-    tScene: { value: null }, tStars: { value: starTex },
-    resolution: { value: new THREE.Vector2() },
-    holePos: { value: [new THREE.Vector3(), new THREE.Vector3()] },
-    holeRs: { value: [1.0, 0.0] }, holeCount: { value: 1 },
-    camPos: { value: new THREE.Vector3() }, camMat: { value: new THREE.Matrix4() },
-    fov: { value: 0.87 }, aspect: { value: 1 },
-    discInner: { value: 3 }, discOuter: { value: 12 },
-    discIntensity: { value: 0.9 }, discTemp: { value: 0.6 }, time: { value: 0 }, enabled: { value: 1 },
-  },
-  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy,0.0,1.0); }`,
-  fragmentShader: `
-    precision highp float;
-    varying vec2 vUv;
-    uniform sampler2D tScene, tStars; uniform vec2 resolution;
-    uniform vec3 holePos[2]; uniform float holeRs[2]; uniform int holeCount;
-    uniform vec3 camPos; uniform mat4 camMat; uniform float fov, aspect;
-    uniform float discInner, discOuter, discIntensity, discTemp, time, enabled;
-    #define PI 3.14159265359
-    #define STEPS 160
-    #define MAX_DIST 400.0
-    vec3 sampleStars(vec3 d){ float u=atan(d.z,d.x)/(2.0*PI)+0.5; float v=asin(clamp(d.y,-1.0,1.0))/PI+0.5; return texture2D(tStars,vec2(u,v)).rgb; }
-    float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
-    float noise(vec2 p){ vec2 i=floor(p),f=fract(p); vec2 u=f*f*(3.0-2.0*f);
-      return mix(mix(hash(i),hash(i+vec2(1,0)),u.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),u.x),u.y); }
-    float fbm(vec2 p){ float v=0.0,a=0.5; for(int i=0;i<4;i++){v+=a*noise(p);p*=2.1;a*=0.5;} return v; }
-    vec3 bb(float t){ vec3 c=vec3(1.0,0.15,0.02),m=vec3(1.0,0.6,0.15),h=vec3(0.85,0.92,1.2);
-      return t<0.5?mix(c,m,t*2.0):mix(m,h,(t-0.5)*2.0); }
-    vec4 disc(vec3 p, vec3 rd, float rs){
-      float inner = rs*3.0, outer = rs*12.0;          // each hole carries its own disc
-      float r=length(p.xz); if(p.y>0.3||p.y<-0.3) return vec4(0.0);
-      if(r<inner||r>outer) return vec4(0.0);
-      float thick=exp(-p.y*p.y*22.0); float rn=(r-inner)/(outer-inner);
-      float bright=pow(1.0-rn,2.0)+0.1; float ang=atan(p.z,p.x);
-      vec2 uv=vec2(r*0.6, ang*3.5+r*0.3-time*0.8/max(r*0.3,0.5));
-      float n=fbm(uv)*0.7+0.3;
-      float streaks=pow(abs(sin(ang*8.0+r*2.0-time*2.0/max(r,1.0))),4.0)*0.3;
-      float dens=n+streaks; float temp=mix(0.2,1.0,(1.0-rn)*discTemp+0.3);
-      vec3 col=bb(temp); vec3 vel=normalize(vec3(-p.z,0.0,p.x));
-      float beta=clamp(sqrt(rs/(2.0*r)),0.0,0.85); float ct=dot(vel,-rd);
-      col*=pow(1.0/(1.0-beta*ct),3.5);
-      float grsh=sqrt(max(1.0-rs/max(r,rs*1.01),0.0)); col*=mix(vec3(1.0,0.6,0.3),vec3(1.0),grsh);
-      float a=dens*thick*bright*discIntensity; return vec4(col*a,clamp(a,0.0,1.0));
-    }
-    void main(){
-      vec2 ndc=vUv*2.0-1.0; ndc.x*=aspect; float f=tan(fov*0.5);
-      vec3 rl=normalize(vec3(ndc.x*f,ndc.y*f,-1.0));
-      vec3 rd=normalize((camMat*vec4(rl,0.0)).xyz);
-      vec3 pos=camPos; vec3 vel=rd; vec3 color=vec3(0.0); vec3 trans=vec3(1.0);
-      bool captured=false;
-      for(int i=0;i<STEPS;i++){
-        // gravitational deflection summed over holes; capture if inside any horizon
-        vec3 accel=vec3(0.0); float minr=MAX_DIST;
-        for(int k=0;k<2;k++){
-          if(k>=holeCount) break;
-          vec3 rv=pos-holePos[k]; float r=length(rv); minr=min(minr,r);
-          if(r<holeRs[k]){ captured=true; }
-          vec3 h=cross(rv,vel); float h2=dot(h,h);
-          accel += -1.5*holeRs[k]*h2*rv/(r*r*r*r*r);
-        }
-        if(captured) break;
-        if(minr>MAX_DIST) break;
-        float adj=clamp(minr*0.08,0.06,1.5);
-        vec3 nvel=normalize(vel+accel*adj);
-        vec3 npos=pos+nvel*adj;
-        // every black hole carries its own accretion disc in its equatorial plane
-        for(int k=0;k<2;k++){
-          if(k>=holeCount) break;
-          vec3 pl=pos-holePos[k]; vec3 npl=npos-holePos[k];
-          if(sign(pl.y)!=sign(npl.y)||abs(pl.y)<0.25){
-            float tc=abs(pl.y)<0.25?0.0:pl.y/(pl.y-npl.y);
-            vec4 d=disc(mix(pl,npl,clamp(tc,0.0,1.0)),nvel,holeRs[k]);
-            color+=trans*d.rgb; trans*=(1.0-d.a);
-          }
-        }
-        if(dot(trans,vec3(1.0))<0.01) break;
-        vel=nvel; pos=npos;
-      }
-      if(captured){ gl_FragColor=vec4(color,1.0); return; }
-      color+=trans*sampleStars(normalize(vel));
-      gl_FragColor=vec4(color,1.0);
-    }`,
-});
-const lensScene = new THREE.Scene();
-const lensCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-lensScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), lensMaterial));
+const lensPass = createBlackHolePass(starTex);
+const lensMaterial = lensPass.material;
+const lensScene = lensPass.scene;
+const lensCam = lensPass.camera;
 
 // ============================================================================
 // SPACETIME MESH (wells from holes + bodies)
@@ -244,7 +175,12 @@ function baseRadius(type, mass) {
     // Rendered star size now follows the real main-sequence mass–radius
     // relation, so a 2 M☉ star is visibly bigger than a 0.85 M☉ one.
     case 'star': return 0.34 * radiusSun(mass);
-    case 'neutron': return 0.09;
+    // A neutron star is ~12 km across sitting in an orbit millions of times
+    // wider, so its rendered size is pure exaggeration either way. It used to
+    // be 0.09 and was carried entirely by a glow sprite pasted over it; now
+    // that it has an actual lensed surface, polar caps and a magnetosphere,
+    // it needs enough pixels for any of that to be visible.
+    case 'neutron': return 0.30;
     case 'gas-giant': return 0.30;
     case 'world': return 0.13;
     case 'planet': return 0.15;
@@ -396,6 +332,19 @@ function getStars() {
 }
 function getHome() {
   return state.homeId != null ? state.bodies.find(b => b.id === state.homeId) : null;
+}
+
+// Hottest emitter in the scene, in kelvin. The multi-wavelength imaging anchors
+// its gain to this — see postfx.setSceneTemp.
+function sceneMaxTemp() {
+  let t = 0;
+  for (const b of state.bodies) {
+    if (b.type === 'star') t = Math.max(t, b.teff ?? effectiveTemp(b.mass));
+    else if (b.type === 'neutron') t = Math.max(t, 1.0e6);
+    // thin-disc peak, T ∝ M^(−1/4)
+    else if (b.type === 'bh') t = Math.max(t, 2.0e7 * Math.pow(Math.max(b.mass, 0.1), -0.25));
+  }
+  return t || 5800;
 }
 
 // Build the per-frame sun description used by every lighting path: the world
@@ -603,11 +552,20 @@ function handlePick(e) {
 }
 
 addEventListener('keydown', e => {
+  // never steal keys from a focused control (the sliders take arrows/space)
+  const tag = e.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   keys[e.code] = true;
   if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); cam.radius = state.preset.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
   if (e.code === 'Space') { e.preventDefault(); state.paused = !state.paused; }
   if (e.key === 'f' || e.key === 'F') setCamMode(state.camMode === 'orbit' ? 'free' : 'orbit');
   if (e.key === 'v' || e.key === 'V') setCamMode(state.camMode === 'surface' ? 'orbit' : 'surface');
+  if (e.key === 'h' || e.key === 'H') setHudHidden(!state.hudHidden);
+  // 1–7 select the imaging band, in spectrum order
+  if (e.code.startsWith('Digit')) {
+    const n = +e.code.slice(5);
+    if (n >= 1 && n <= BANDS.length) setBand(n - 1);
+  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && state.focusId != null) removeBody(state.focusId);
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -696,7 +654,12 @@ function loadPreset(key) {
   state.gwBoost = p.gwBoost ?? 0;
   state.lensing = p.lensing;
   state.showLens = p.lensing;
-  state.speed = 1;
+  // Sim Speed and the paused flag are USER settings, not scenario settings —
+  // they carry over. (`timeScale` does not: it is measured in simulated years
+  // per second, and a neutron-star inspiral and the solar system genuinely
+  // need values four orders of magnitude apart to be watchable at all. Speed
+  // is the dimensionless multiplier on top of it, which is what you actually
+  // set when you slow something down to look at it.)
   state.consumed = 0;
   state.focusId = state.followId = null;
   state.simYears = 0;
@@ -908,6 +871,74 @@ bindSlider('disc', 'discIntensity');
 bindSlider('temp', 'discTemp');
 bindSlider('speed', 'speed', v => v.toFixed(2));
 
+// ============================================================================
+// PANEL VISIBILITY
+// Two independent levels: individual panels collapse to a tab (✕ / the tab),
+// and H drops the entire HUD for an unobstructed view. Hiding everything is
+// only safe if the way back is discoverable, hence the toast.
+// ============================================================================
+let toastTimer = null;
+function toast(msg, ms = 2200) {
+  if (!DOM.toast) return;
+  DOM.toast.textContent = msg;
+  DOM.toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => DOM.toast.classList.remove('show'), ms);
+}
+
+const collapsed = new Set();
+function setPanelOpen(id, open) {
+  const panel = document.getElementById(id);
+  const tab = document.querySelector(`[data-open="${id}"]`);
+  if (!panel) return;
+  if (open) collapsed.delete(id); else collapsed.add(id);
+  // While the whole HUD is hidden, neither the panel nor its tab may show.
+  panel.style.display = (open && !state.hudHidden) ? '' : 'none';
+  if (tab) tab.hidden = open || state.hudHidden;
+  // the key hint sits in the bottom-right corner; give it the corner back when
+  // the control panel is not occupying it
+  if (id === 'controlPanel') {
+    document.body.classList.toggle('panel-open-right', open && !state.hudHidden);
+  }
+}
+
+document.querySelectorAll('[data-close]').forEach(btn =>
+  btn.addEventListener('click', () => setPanelOpen(btn.dataset.close, false)));
+document.querySelectorAll('[data-open]').forEach(btn =>
+  btn.addEventListener('click', () => setPanelOpen(btn.dataset.open, true)));
+// both start open — this also seeds the body class the hint's position keys off
+for (const id of ['scenarioPanel', 'controlPanel']) setPanelOpen(id, true);
+
+function setHudHidden(hidden) {
+  state.hudHidden = hidden;
+  for (const el of document.querySelectorAll('.hud')) {
+    // panels obey their own collapsed state once the HUD comes back
+    el.style.display = hidden ? 'none' : '';
+  }
+  for (const id of ['scenarioPanel', 'controlPanel']) setPanelOpen(id, !collapsed.has(id));
+  if (hidden) toast('HUD hidden — press H to restore');
+}
+
+// ============================================================================
+// IMAGING BAND
+// ============================================================================
+function setBand(i) {
+  const band = postfx.setBand(i);
+  state.band = postfx.band;
+  DOM.bandGrid?.querySelectorAll('[data-band]').forEach(b =>
+    b.classList.toggle('active', +b.dataset.band === state.band));
+  if (DOM.bandNote) DOM.bandNote.textContent = band.note;
+  if (DOM.bandLabel) DOM.bandLabel.textContent = band.short;
+}
+
+if (DOM.bandGrid) {
+  DOM.bandGrid.innerHTML = BANDS.map((b, i) =>
+    `<button class="band-btn" data-band="${i}" title="${b.note}">${b.short}</button>`).join('');
+  DOM.bandGrid.querySelectorAll('[data-band]').forEach(btn =>
+    btn.addEventListener('click', () => setBand(+btn.dataset.band)));
+}
+setBand(VISIBLE_BAND);
+
 document.querySelectorAll('[data-spawn]').forEach(btn => btn.addEventListener('click', () => spawnOrbiting(btn.dataset.spawn)));
 document.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => loadPreset(btn.dataset.preset)));
 document.getElementById('clear').addEventListener('click', clearBodies);
@@ -1010,7 +1041,7 @@ function resize() {
   renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
   const pr = renderer.getPixelRatio();
   sceneTarget.setSize(w * pr, h * pr);
-  lensMaterial.uniforms.resolution.value.set(w * pr, h * pr);
+  postfx.setSize(w * pr, h * pr);
   lensMaterial.uniforms.aspect.value = w / h;
   lensMaterial.uniforms.fov.value = camera.fov * Math.PI / 180;
 }
@@ -1032,6 +1063,7 @@ function animate() {
 
   stepPhysics(simDt);
   updateSuns();
+  postfx.setSceneTemp(sceneMaxTemp());
 
   // body visual updates
   const holes = getHoles().map(h => ({ posScene: h.viz.group.position, rsScene: h.rsScene, mass: h.mass }));
@@ -1099,15 +1131,19 @@ function animate() {
   const useLens = state.showLens && holes.length > 0;
   if (useLens) {
     camera.updateMatrixWorld(true);   // camMat below must match this frame
-    const n = Math.min(holes.length, 2);
+    const n = Math.min(holes.length, MAX_HOLES);
     for (let i = 0; i < n; i++) {
       lensMaterial.uniforms.holePos.value[i].copy(holes[i].posScene);
       lensMaterial.uniforms.holeRs.value[i] = holes[i].rsScene;
     }
     lensMaterial.uniforms.holeCount.value = n;
-    lensMaterial.uniforms.discInner.value = holes[0].rsScene * 3;
-    lensMaterial.uniforms.discOuter.value = holes[0].rsScene * 12;
     lensMaterial.uniforms.discIntensity.value = state.discIntensity;
+    lensMaterial.uniforms.discOuter.value = state.preset?.discOuter ?? 15;
+    // True peak disc temperature, for the multi-wavelength imaging. Thin-disc
+    // theory gives T_peak ∝ M^(−1/4), so a 10 M☉ hole runs at ~10⁷ K (an X-ray
+    // binary) while a supermassive one peaks in the UV. Independent of the
+    // "Disc Temp" slider, which only sets the visible-light palette.
+    lensMaterial.uniforms.discTpeakPhys.value = 2.0e7 * Math.pow(Math.max(holes[0].mass, 0.1), -0.25);
     lensMaterial.uniforms.discTemp.value = state.discTemp;
     lensMaterial.uniforms.camPos.value.copy(camera.position);
     lensMaterial.uniforms.camMat.value.copy(camera.matrixWorld);
@@ -1162,31 +1198,41 @@ function animate() {
 
     renderer.setRenderTarget(sceneTarget); renderer.clear();
     renderer.render(scene, camera);
-    renderer.setRenderTarget(null); renderer.clear();
+    // the sky composite lands in the HDR buffer, not on the screen
+    renderer.setRenderTarget(postfx.hdr); renderer.clear();
     skyPass.material.uniforms.tScene.value = sceneTarget.texture;
     renderer.render(skyPass.scene, skyPass.camera);
 
     home.viz.group.visible = true;
     spacetimeMesh.visible = meshWas;
+    // The sky pass already applies its own eye-adaptation exposure, so the
+    // tone mapper takes the frame at unity and just does the highlight roll-off
+    // and the bloom on top of it.
+    postfx.render(1.0, state.time);
     updateHUD(dt);
     return;
   }
 
-  // render
+  // ---- render: everything composes into the HDR buffer, then one tone map
   if (useLens) {
-    renderer.setRenderTarget(sceneTarget); renderer.clear();
-    for (const h of getHoles()) h.viz.group.visible = false;
-    renderer.render(scene, camera);
-    for (const h of getHoles()) h.viz.group.visible = true;
-    renderer.setRenderTarget(null); renderer.clear();
-    lensMaterial.uniforms.tScene.value = sceneTarget.texture;
+    // pass 1 — the geodesic marcher: lensed starfield + accretion disc +
+    // shadow. It traces the sky map directly, so there is no pre-rendered
+    // backdrop to feed it. (The old code rendered the whole scene into an
+    // offscreen target here for a `tScene` sampler that the shader never
+    // actually read — a full scene draw per frame, thrown away.)
+    renderer.setRenderTarget(postfx.hdr); renderer.clear();
     renderer.render(lensScene, lensCam);
+
+    // pass 2 — real geometry back on top, with depth, over the lensed image
     renderer.autoClear = false; renderer.clearDepth();
-    scene.background = null; renderer.render(scene, camera); scene.background = starTex; renderer.autoClear = true;
+    scene.background = null;
+    renderer.render(scene, camera);
+    scene.background = starTex; renderer.autoClear = true;
   } else {
-    renderer.setRenderTarget(null);
+    renderer.setRenderTarget(postfx.hdr); renderer.clear();
     renderer.render(scene, camera);
   }
+  postfx.render(1.0, state.time);
   updateHUD(dt);
 }
 

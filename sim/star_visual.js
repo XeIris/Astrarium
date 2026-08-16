@@ -27,8 +27,17 @@ function photosphereMaterial(color, hotColor, limbU) {
       uHot:       { value: hotColor.clone() },
       uPulse:     { value: 1 },
       uLimbU:     { value: limbU },
+      // physical Teff, published to the spectral imaging pass via alpha
+      uTeff:      { value: 5772 },
       uOmega:     { value: 1 },
-      uGain:      { value: 1.42 },
+      // Just past 1.0. The disc has to land ON the tone curve's shoulder, not
+      // beyond it: photograph the Sun in white light and you get an obviously
+      // limb-darkened disc with granulation and spots on it, not a uniform
+      // white circle. Overdrive it and ACES flattens every one of those
+      // features into the same clipped white — which is exactly the look this
+      // was meant to get rid of. Brightness is carried by the bloom halo and
+      // by the real lights instead.
+      uGain:      { value: 1.00 },
       uGranScale: { value: 9 },
       uSpots:     { value: Array.from({ length: MAX_SPOTS }, () => new THREE.Vector4()) },
       uSpotCount: { value: 0 },
@@ -46,7 +55,7 @@ function photosphereMaterial(color, hotColor, limbU) {
       }`,
     fragmentShader: `
       precision highp float;
-      uniform float uTime, uPulse, uLimbU, uOmega, uGranScale, uGain;
+      uniform float uTime, uPulse, uLimbU, uOmega, uGranScale, uGain, uTeff;
       uniform vec3 uColor, uHot;
       uniform vec4 uSpots[${MAX_SPOTS}];   // xyz = surface direction, w = strength
       uniform int  uSpotCount;
@@ -75,15 +84,32 @@ function photosphereMaterial(color, hotColor, limbU) {
         float omega  = uOmega * (1.0 - 0.19 * sinLat * sinLat);
         vec3  s      = rotY(p, -omega * uTime);   // co-rotating surface coordinate
 
-        // --- granulation: supergranules plus the fine convective cells on top.
-        // Real granules subtend ~1/1000 of the disc and are only a few percent
-        // in contrast — keep them fine and subtle or the star reads as a moon.
-        float gran  = fbm(s * uGranScale + vec3(0.0, uTime * 0.05, 0.0));
-        float cells = fbm(s * (uGranScale * 3.2) - vec3(uTime * 0.09));
-        float bright = 0.86 + (gran - 0.5) * 0.38 + (cells - 0.5) * 0.28;
+        // --- granulation.
+        // A real photosphere is a packed mosaic of convective CELLS: bright,
+        // roughly polygonal granule tops separated by narrow dark intergranular
+        // lanes where the cooled gas sinks. Plain fBm cannot produce that — it
+        // gives soft blobs, which is exactly what made the star read as a
+        // fluffy cartoon sun. The lanes are recovered with the ridge trick:
+        // the set where a noise field crosses its own mid-value is a thin
+        // connected network, so |n − ½| near zero IS the lane pattern.
+        float nA = fbm(s * uGranScale + vec3(0.0, uTime * 0.05, 0.0));
+        float nB = fbm(s * (uGranScale * 2.7) - vec3(uTime * 0.09));
 
-        // --- starspots: dark umbra, warm penumbra, bright faculae ring
-        float spotMask = 0.0, facula = 0.0;
+        float laneA = 1.0 - smoothstep(0.0, 0.075, abs(nA - 0.5));
+        float laneB = 1.0 - smoothstep(0.0, 0.055, abs(nB - 0.5));
+        float lanes = clamp(laneA * 0.75 + laneB * 0.55, 0.0, 1.0);
+
+        // granule interiors: bright, with a slight dome from centre to rim
+        float cellA = smoothstep(0.42, 0.72, nA);
+        float cellB = smoothstep(0.44, 0.70, nB);
+
+        // Contrast is deliberately small. Real granulation is only ~15–20%
+        // peak-to-peak; crank it and you get a golf ball.
+        float bright = 0.88 + cellA * 0.19 + cellB * 0.10 - lanes * 0.30;
+
+        // --- starspots: dark umbra, warm penumbra with radial filaments,
+        // bright faculae ring
+        float spotMask = 0.0, penumbra = 0.0, facula = 0.0;
         for(int i=0;i<${MAX_SPOTS};i++){
           if(i >= uSpotCount) break;
           vec4 sp = uSpots[i];
@@ -93,9 +119,20 @@ function photosphereMaterial(color, hotColor, limbU) {
           float wob = (fbm(p * 14.0 + float(i) * 5.0) - 0.5) * 0.10;
           float u = 1.0 - smoothstep(rad * 0.42, rad + wob, d); // 1 in the umbra
           spotMask = max(spotMask, u * sp.w);
+
+          // Penumbral filaments: the field is nearly horizontal in the
+          // penumbra, so it combs the gas into radial threads pointing at the
+          // umbra. It is the single most recognisable feature of a real spot.
+          float ring = (1.0 - smoothstep(rad * 0.85, rad * 1.35, d)) * (1.0 - u);
+          vec3  rel  = normalize(p - sp.xyz * dot(p, sp.xyz) + vec3(1e-5));
+          float comb = 0.5 + 0.5 * sin(dot(rel, normalize(cross(sp.xyz, vec3(0.0,1.0,0.001)))) * 90.0
+                                       + fbm(p * 30.0) * 6.0);
+          penumbra = max(penumbra, ring * sp.w * (0.45 + comb * 0.55));
+
           facula   = max(facula, (1.0 - smoothstep(rad, rad * 1.55, d)) * (1.0 - u) * sp.w);
         }
-        bright *= mix(1.0, 0.24, spotMask);
+        bright *= mix(1.0, 0.20, spotMask);
+        bright *= mix(1.0, 0.62, penumbra);
         bright += facula * 0.35;
 
         // --- flare ribbons over the erupting active region
@@ -110,13 +147,13 @@ function photosphereMaterial(color, hotColor, limbU) {
           flareGlow += vec3(1.0, 0.93, 0.85) * ribbon * fil * fl.w * 2.4;
         }
 
-        // uGain pushes the photosphere well past 1.0. A star has to CLIP to
-        // white in the core and keep its colour at the limb, otherwise it reads
-        // as a grey moon — and in the surface view it has to outshine its own
-        // daytime sky.
+        // The disc itself is kept near 1.0 so the tone curve still has slope
+        // left to resolve granulation and spots. What sells "blazing" is not a
+        // brighter disc — it is the hot granule cores and faculae punching far
+        // past 1.0 and lighting up the bloom pass, while the mean stays put.
         vec3 base = uColor * bright * uPulse * uGain;
         // hot granule cores read as the star's own hotter continuum
-        base += uHot * pow(max(cells - 0.60, 0.0), 2.0) * 2.2 * uGain;
+        base += uHot * pow(max(nB - 0.60, 0.0), 2.0) * 5.5 * uGain;
         base += flareGlow * uGain;
 
         // --- limb darkening: I(mu)/I(0) = 1 - u(1 - mu), mu = cos(view angle)
@@ -128,7 +165,8 @@ function photosphereMaterial(color, hotColor, limbU) {
         float rim = pow(1.0 - mu, 3.0);
         base += vec3(1.0, 0.28, 0.16) * rim * 0.85 * uGain;
 
-        gl_FragColor = vec4(base, 1.0);
+        // alpha = log-encoded true temperature for sim/spectrum.js
+        gl_FragColor = vec4(base, clamp(log(max(uTeff, 1.0)) / 25.33, 0.0, 0.98));
       }`,
   });
 }
@@ -246,6 +284,7 @@ export function createStarVisual(b, opts) {
   const limbU = THREE.MathUtils.clamp(0.85 - (teff - 3000) / 22000, 0.32, 0.85);
 
   const mat = photosphereMaterial(photo, hot, limbU);
+  mat.uniforms.uTeff.value = teff;
   mat.uniforms.uOmega.value = rotationRate(b.mass) * 0.02;   // slowed for legibility
   // cool stars have deep convection zones and coarser granules than hot ones
   mat.uniforms.uGranScale.value = 26 + 14 * THREE.MathUtils.clamp(b.mass - 0.6, 0, 1.6);
@@ -359,7 +398,11 @@ export function createStarVisual(b, opts) {
     const pulse = 1 + Math.sin(ctx.time * 0.6 + b.id) * 0.02;
     core.scale.setScalar(pulse);
     mat.uniforms.uPulse.value = activity.flux;
-    coronaMat.uniforms.uFlux.value = 0.30 + (activity.flux - 1) * 1.0;
+    // The corona billboard is now only the structured part — the streamers and
+    // the tight inner aureole. The broad soft halo it used to have to fake is
+    // produced for real by the bloom pass, so this is dialled well back to
+    // stop the two stacking into a glowing ball.
+    coronaMat.uniforms.uFlux.value = 0.15 + (activity.flux - 1) * 0.8;
   };
 
   return b.viz;

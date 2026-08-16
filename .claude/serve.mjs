@@ -16,7 +16,14 @@ createServer(async (req, res) => {
   const file = join(ROOT, normalize(p).replace(/^(\.\.[/\\])+/, ''));
   try {
     const data = await readFile(file);
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
+      // Without this the browser applies heuristic caching to responses that
+      // carry neither Last-Modified nor Cache-Control, and silently keeps
+      // serving stale ES modules after an edit — you reload, see the old
+      // shader, and go hunting for a bug that isn't there.
+      'Cache-Control': 'no-store, must-revalidate',
+    });
     res.end(data);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' });

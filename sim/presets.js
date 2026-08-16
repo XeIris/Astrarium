@@ -54,7 +54,7 @@ export const PRESETS = {
   sandbox: {
     name: 'Black Hole Sandbox',
     blurb: 'A 10 M☉ black hole with a live accretion disc & lensing. Spawn bodies and watch them orbit, get shredded, and fall in.',
-    sceneScale: 2.0, bodyScale: 1.0, camRadius: 24, lensing: true,
+    sceneScale: 2.0, bodyScale: 1.0, camRadius: 34, lensing: true,
     build() {
       const Mbh = 10, rs = 0.5;   // 0.5 AU "fat" horizon → self-consistent & visible
       const bodies = [{ type: 'bh', name: 'Singularity', mass: Mbh, rs, pos: [0, 0, 0], vel: [0, 0, 0] }];
@@ -219,7 +219,7 @@ export const PRESETS = {
   bhmerger: {
     name: 'Binary Black Hole Merger',
     blurb: 'Two stellar-mass black holes spiral together, shedding orbital energy to gravitational waves until they coalesce (à la GW150914). Inspiral rate exaggerated.',
-    sceneScale: 60, bodyScale: 1.0, camRadius: 30, lensing: true, gwBoost: 3e10, timeScale: 0.15, maxStep: 5e-5,
+    sceneScale: 60, bodyScale: 1.0, camRadius: 72, lensing: true, gwBoost: 3e10, timeScale: 0.15, maxStep: 5e-5,
     build() {
       return binary(36, 29, 0.45,
         { type: 'bh', name: 'BH-A', rs: 0.02 },
@@ -255,7 +255,7 @@ export const PRESETS = {
   feeding: {
     name: 'Black Hole Devouring a Star',
     blurb: 'A star on a plunging orbit is tidally stripped, trailing a stream of gas onto the black hole.',
-    sceneScale: 2.0, bodyScale: 1.0, camRadius: 22, lensing: true,
+    sceneScale: 2.0, bodyScale: 1.0, camRadius: 30, lensing: true, discOuter: 9,
     build() {
       // Star starts on a true (Paczyński–Wiita) circular orbit at the OUTER edge of
       // the tidal reach, so it orbits stably while accretion drag bleeds its energy

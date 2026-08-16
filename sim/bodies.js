@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { rockyTexture, gasGiantTexture, GAS_PALETTES } from './textures.js';
 import { createStarVisual } from './star_visual.js';
+import { createNeutronVisual } from './neutron_visual.js';
 import { createWorldVisual } from './world.js';
 
 // ============================================================================
@@ -114,49 +115,16 @@ function createStar(b, opts) {
 }
 
 // ---------------------------------------------------------------------------
-// NEUTRON STAR — tiny, brilliant, fast axial spin + lighthouse pulsar beams.
+// NEUTRON STAR — see sim/neutron_visual.js. Like the star, it still has to be
+// edible by a black hole, so it gets the same accretion stream chained on.
 // ---------------------------------------------------------------------------
 function createNeutron(b, opts) {
-  const g = new THREE.Group();
-  const R = opts.radiusScene;
-  const mat = new THREE.MeshBasicMaterial({ color: 0xdff0ff });
-  const core = new THREE.Mesh(new THREE.SphereGeometry(R, 24, 24), mat);
-  g.add(core);
-  const halo = glowSprite(0x99ccff, [[0, 'ff'], [0.25, '55'], [1, '00']]);
-  halo.scale.setScalar(R * 10); g.add(halo);
-
-  // spin + tilted magnetic axis carrying two opposed beams
-  const spinAxis = new THREE.Group();
-  g.add(spinAxis);
-  const magAxis = new THREE.Group();
-  magAxis.rotation.z = 0.5 + Math.random() * 0.6;  // misaligned dipole
-  spinAxis.add(magAxis);
-  const beamMat = new THREE.MeshBasicMaterial({ color: 0xbfe3ff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-  const beamLen = R * 28;
-  for (const s of [1, -1]) {
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(beamLen * 0.18, beamLen, 20, 1, true), beamMat);
-    cone.position.y = s * beamLen / 2; cone.rotation.x = s > 0 ? 0 : Math.PI;
-    magAxis.add(cone);
-  }
-
-  const stream = new AccretionStream(0x99ccff);
-  g.add(stream.points);
-
-  b.viz = { group: g, core, halo, spinAxis, magAxis, stream, baseR: R, R };
-  b.spin = b.spin ?? (8 + Math.random() * 20);  // rad/s (pulsar period exaggerated)
-  b.viz.update = (dt, ctx) => {
-    spinAxis.rotation.y += b.spin * dt;
-    // lighthouse: brightness peaks when a beam sweeps toward the camera
-    const beamDir = new THREE.Vector3(0, 1, 0).applyQuaternion(magAxis.getWorldQuaternion(new THREE.Quaternion()));
-    const toCam = ctx.camera.position.clone().sub(g.getWorldPosition(new THREE.Vector3())).normalize();
-    const align = Math.abs(beamDir.dot(toCam));
-    const flash = Math.pow(align, 8);
-    halo.material.opacity = 0.5 + flash * 1.2;
-    core.material.color.setScalar(0.85 + flash * 0.6);
-    beamMat.opacity = 0.18 + flash * 0.4;
-    accrete(b, ctx, stream, dt);
-  };
-  return b.viz;
+  const viz = createNeutronVisual(b, opts);
+  const stream = new AccretionStream(0x8fc4ff);
+  viz.group.add(stream.points);
+  const inner = viz.update;
+  viz.update = (dt, ctx) => { inner(dt, ctx); accrete(b, ctx, stream, dt); };
+  return viz;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,14 +173,26 @@ function makeRings(R, colorHex) {
 }
 
 // ---------------------------------------------------------------------------
-// BLACK HOLE marker (the lensing/disc is drawn by the screen-space shader).
+// BLACK HOLE — an empty transform, deliberately.
+// ----------------------------------------------------------------------------
+// There used to be a black sphere here, sized to r_s and drawn over the lensed
+// image. It was wrong twice over. A black hole has no surface to draw: inside
+// the horizon there is a singularity, and the horizon itself is a one-way
+// boundary, not an object. And the dark region you actually see is not the
+// horizon at all — it is the shadow cast by the photon sphere, with an
+// apparent radius of (√27/2)·r_s ≈ 2.6 r_s, so a sphere at r_s was 2.6× too
+// small and covered up the very light (the photon ring, the lensed underside
+// of the disc) that makes a black hole recognisable.
+//
+// The ray marcher in sim/blackhole.js already renders the shadow correctly, by
+// the only honest method: rays that cross the horizon return nothing. So this
+// group carries no geometry at all — just the position that physics, the
+// camera and the picker read.
 // ---------------------------------------------------------------------------
 function createBlackHole(b, opts) {
   const g = new THREE.Group();
-  const core = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), new THREE.MeshBasicMaterial({ color: 0x000000 }));
-  g.add(core);
-  b.viz = { group: g, core, baseR: 1, R: 1, isHole: true };
-  b.viz.update = (dt, ctx) => { core.scale.setScalar(b.rsScene || 1); };
+  b.viz = { group: g, core: null, baseR: 1, R: 1, isHole: true };
+  b.viz.update = () => {};
   return b.viz;
 }
 
