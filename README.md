@@ -1,4 +1,6 @@
-# Gravitational Sandbox — a real-physics space sim
+# Astrarium
+
+*A relativistic orrery.*
 
 An interactive space simulator built with Three.js. It started as a single-prompt
 black-hole renderer (gravitational lensing, accretion disc, spacetime mesh) and has
