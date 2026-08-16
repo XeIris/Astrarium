@@ -7,6 +7,10 @@ black-hole renderer (gravitational lensing, accretion disc, spacetime mesh) and 
 grown into a small N-body sandbox with real orbital mechanics and a set of
 ready-made astrophysical scenarios.
 
+![A 10 M☉ black hole: the accretion disc lensed over the top of the shadow and
+back under it, the photon ring at the rim, a companion star visible through the
+lensing, and the spacetime well dimpling the mesh below.](docs/preview.webp)
+
 ## Physics
 
 Everything runs in **astronomical units**: length in AU, mass in solar masses (M☉),
