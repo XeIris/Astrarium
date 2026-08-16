@@ -25,7 +25,38 @@ exactly one year, with no fudge factors.
 
 > Visual sizes of compact objects and horizons are exaggerated so they're not
 > sub-pixel — a true-to-scale stellar black hole or planet would be invisible next to
-> its orbit. Orbital *distances* and dynamics are real.
+> its orbit. Orbital *distances* and dynamics are always real.
+
+### True scale
+
+The **Sizes** toggle switches every body between that exaggerated stand-in and its real
+geometric radius. The Solar System preset starts in true scale, and there the bodies are
+built from measured radii: Earth is 4.26 × 10⁻⁵ AU across in a 1 AU orbit, a ratio of
+1 : 23 000, so from a camera that fits Neptune on screen it covers about a thousandth of
+a pixel.
+
+What makes that usable rather than an empty screen is the same thing that makes a real
+telescope usable. Below its resolution limit a body stops being a disc and becomes a
+**point source**: its apparent size stops shrinking — pinned at the instrument's
+point-spread function — while its brightness keeps falling as 1/r². So each body is drawn
+at its true size and, once that drops under a few pixels, cross-fades into a fixed-pixel
+glow with the correct colour and temperature. Fly toward one and the marker fades back out
+as the real sphere resolves. The geometry is never falsified; only the visibility floor is.
+
+This means a planet at true scale really is indistinguishable from a background star, which
+is honest and also inconvenient — so the **Bodies** list is the reliable way to travel. Pick
+one and the camera flies to it; its marker also gains a selection reticle so you can see
+where it is. Clicking in the viewport still works down to the marker's own footprint, and
+stops working below that, which is roughly where aiming at it stopped being possible anyway.
+
+Two numerical hazards come with a 10⁷ dynamic range, and both are handled rather than
+tolerated: the camera's near plane tracks its viewing distance (a fixed 0.01 AU near plane
+sits *outside* a true-scale Earth, clipping it away entirely), and the follow camera tracks
+its target exactly instead of smoothly once the residual is large compared to the viewing
+distance — at 6 yr/s Earth crosses most of an AU per frame while the camera sits 3 × 10⁻⁴ AU
+from it, and a fractional catch-up never arrives. Depth precision needs no special handling:
+a body hands over to its marker about an order of magnitude before the depth buffer could
+degrade below the body's own size. The derivation is in [sim/scale.js](sim/scale.js).
 
 ## Trisolaris
 
@@ -148,6 +179,8 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
 - `sim/world.js` — the climate-driven planet (surface, clouds, atmosphere), multi-sun lit
 - `sim/climate.js` — the energy-balance climate model and era classification
 - `sim/skyview.js` — surface observer + multi-sun atmospheric scattering pass
+- `sim/scale.js` — true-scale rendering: real mass–radius relations and the
+  point-source markers that keep a sub-pixel body visible
 
 ## Disclaimer
 

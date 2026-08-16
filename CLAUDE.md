@@ -65,6 +65,7 @@ Shell:
 | [sim/postfx.js](sim/postfx.js) | `createPostFX` — HDR target, spectral remap, progressive bloom, ACES composite |
 | [sim/spectrum.js](sim/spectrum.js) | `BANDS` and the temperature→band-brightness remap shader used by postfx |
 | [sim/textures.js](sim/textures.js) | seeded procedural rocky / gas-giant canvas textures |
+| [sim/scale.js](sim/scale.js) | true-scale rendering: `physicalRadiusAU` mass–radius fallbacks, and `createMarker` — the point-source glow that carries a body once its disc goes sub-pixel |
 
 ## Conventions
 
@@ -73,6 +74,18 @@ Shell:
   exaggeration belongs in `sceneScale` / `bodyScale` on the preset.
 - **Scene units ≠ AU.** `state.sceneScale` converts. Physical radii used for
   collisions live on the body in AU; rendered radii are in scene units.
+- **Rendered size goes through `renderRadius`**, never `baseRadius` directly.
+  Black holes are always their true horizon; everything else is the real radius
+  when `state.trueScale` is on and the exaggerated stand-in otherwise. A body's
+  visual bakes its radius into geometry and local offsets, so changing the size
+  convention at runtime means `rebuildVisuals()` — the physics body survives, the
+  meshes do not. `b.spec` is kept for exactly that.
+- **A true-scale body is usually sub-pixel**, and is carried by the point-source
+  marker in `sim/scale.js` rather than by any mesh. Anything that reasons about a
+  body's on-screen presence — picking, the near plane, the follow camera — has to
+  hold up when its rendered radius is 1e-5 scene units. `state.trueScale` is a
+  standing regression case for this: fly to Earth in the `solar` preset and it
+  should resolve into a sphere, not clip, jitter, or slide out of frame.
 - **Body visuals follow one contract**: a factory returns `{ group, update(dt, ctx) }`
   attached as `b.viz`, with `ctx = { holes, camera, time, sceneScale }`.
 - **Emitters publish their true temperature** (log-encoded) into the alpha of

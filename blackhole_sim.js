@@ -10,6 +10,7 @@ import { luminosity, effectiveTemp, radiusSun, blackbodyColor, spectralClass } f
 import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
 import { createPostFX } from './sim/postfx.js';
 import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
+import { physicalRadiusAU, createMarker } from './sim/scale.js';
 
 // ============================================================================
 // STATE
@@ -18,6 +19,7 @@ const state = {
   preset: null,            // active preset object
   sceneScale: 2.0,         // scene units per AU
   bodyScale: 1.0,
+  trueScale: false,        // draw bodies at their real radius (see sim/scale.js)
   timeScale: 2.0,          // sim years per real second (× speed)
   maxStep: 5e-3,           // max integrator step (yr)
   gwBoost: 0,
@@ -187,6 +189,15 @@ function baseRadius(type, mass) {
     default: return 0.2;
   }
 }
+// Rendered radius in SCENE units. Black holes are always honest — their
+// horizon is the thing you came to look at. Everything else is either the real
+// geometric radius (true scale) or the readable, exaggerated stand-in.
+function renderRadius(b, spec, mass) {
+  if (spec.type === 'bh') return b.rs * state.sceneScale;
+  if (state.trueScale && b.radius > 0) return b.radius * state.sceneScale;
+  return baseRadius(spec.type, mass) * state.bodyScale;
+}
+
 const TYPE_DEFAULTS = {
   star:    { mass: 1.0, color: 0xffe0a0, glow: 0xff8040 },
   neutron: { mass: 1.4, color: 0xcfe8ff, glow: 0x88c4ff },
@@ -195,6 +206,75 @@ const TYPE_DEFAULTS = {
   world:   { mass: 3e-6, color: 0x6a90c0, glow: 0x3a6a9a },
   bh:      { mass: 10, color: 0x000000, glow: 0x000000 },
 };
+
+// ---------------------------------------------------------------------------
+// Build (or rebuild) a body's renderable half from its stored spec. Split out
+// of spawnBody so the size convention can change at runtime — the physics body
+// keeps its position, velocity and mass; only the meshes are thrown away.
+// ---------------------------------------------------------------------------
+function attachVisual(b) {
+  const spec = b.spec, def = b.def;
+  const radiusScene = renderRadius(b, spec, b.mass0);
+  b.radiusScene = radiusScene;
+  b.contactAU = radiusScene / state.sceneScale;
+  if (spec.type === 'bh') b.rsScene = radiusScene;
+
+  const palette = spec.palette ? GAS_PALETTES[spec.palette] : null;
+  // Stars are coloured from their blackbody temperature unless a preset
+  // deliberately overrides it (the figure-eight uses colour to tell bodies apart).
+  const starColor = spec.color != null ? new THREE.Color(spec.color)
+                  : (b.teff ? blackbodyColor(b.teff) : null);
+  const viz = createBodyVisual(b, {
+    radiusScene,
+    color: spec.type === 'star' ? starColor : (spec.color ?? def.color),
+    teff: b.teff,
+    glow: spec.glow ?? def.glow,
+    seed: spec.seed,
+    obliquity: spec.obliquity,
+    palette, hot: spec.hot, atmosphere: spec.atmosphere, atmColor: spec.atmColor,
+    seaLevel: spec.seaLevel, rings: spec.rings, ringColor: spec.ringColor,
+  });
+  viz.group.userData.bodyId = b.id;
+  viz.group.userData.baseScale = 1;
+  viz.group.position.copy(b.pos).multiplyScalar(state.sceneScale);
+  scene.add(viz.group);
+
+  // Point-source marker: what keeps a true-scale body visible once its disc
+  // falls below a pixel. It lives in the scene rather than under viz.group so
+  // its size is never coupled to whatever the body's own visual does to its
+  // transform (tidal stretching, flare pulses).
+  const markerColor = spec.type === 'star'
+    ? (starColor ?? new THREE.Color(0xfff2cc))
+    : new THREE.Color(spec.color ?? def.color);
+  b.marker = createMarker({
+    color: markerColor,
+    teff: b.teff ?? 0,
+    // Emitters must stay bright enough to survive tone mapping and trip the
+    // bloom; reflectors only need to be seen.
+    gain: spec.type === 'star' ? 26 : (spec.type === 'neutron' ? 18 : 2.2),
+  });
+  scene.add(b.marker.mesh);
+}
+
+function detachVisual(b) {
+  if (b.viz) {
+    scene.remove(b.viz.group);
+    b.viz.group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+  }
+  if (b.marker) { scene.remove(b.marker.mesh); b.marker.dispose(); b.marker = null; }
+}
+
+// Swap every body between true and exaggerated size in place. Rebuilding is the
+// honest way to do this: each visual bakes its radius into geometry and into
+// local-space offsets (corona span, ring radii, prominence loops), so scaling
+// the group would leave those subtly wrong.
+function rebuildVisuals() {
+  for (const b of state.bodies) { detachVisual(b); attachVisual(b); }
+  // the follow distance was framed for the old size and is now meaningless
+  const fb = state.bodies.find(x => x.id === state.followId);
+  if (fb) cam.radius = Math.max(fb.radiusScene, fb.rsScene || 0) * 7;
+  if (state.camMode === 'orbit') updateOrbitCam();
+}
 
 function spawnBody(spec) {
   const def = TYPE_DEFAULTS[spec.type] || TYPE_DEFAULTS.planet;
@@ -224,7 +304,11 @@ function spawnBody(spec) {
     b.teff = spec.teff ?? effectiveTemp(mass);
     b.spectral = spectralClass(b.teff);
   } else {
-    b.radius = 0.0001;
+    // Planets and worlds now carry a REAL radius (AU) rather than the old
+    // 0.0001 placeholder — true-scale rendering needs it, and it also makes the
+    // collision test physical instead of arbitrary. sim/scale.js falls back to a
+    // mass–radius relation when a preset gives no measured radiusKm.
+    b.radius = physicalRadiusAU(spec.type, mass, spec.radiusKm);
   }
   if (spec.type === 'world') {
     b.dayLength = spec.dayLength ?? 1 / 90;
@@ -232,33 +316,11 @@ function spawnBody(spec) {
     b.home = !!spec.home;
   }
 
-  const radiusScene = (spec.type === 'bh')
-    ? (b.rs * state.sceneScale)
-    : baseRadius(spec.type, mass) * state.bodyScale;
-  b.radiusScene = radiusScene;
-  b.contactAU = radiusScene / state.sceneScale;
-  if (spec.type === 'bh') b.rsScene = radiusScene;
-
-  const palette = spec.palette ? GAS_PALETTES[spec.palette] : null;
-  // Stars are coloured from their blackbody temperature unless a preset
-  // deliberately overrides it (the figure-eight uses colour to tell bodies apart).
-  const starColor = spec.color != null ? new THREE.Color(spec.color)
-                  : (b.teff ? blackbodyColor(b.teff) : null);
-  const viz = createBodyVisual(b, {
-    radiusScene,
-    color: spec.type === 'star' ? starColor : (spec.color ?? def.color),
-    teff: b.teff,
-    glow: spec.glow ?? def.glow,
-    seed: spec.seed,
-    obliquity: spec.obliquity,
-    palette, hot: spec.hot, atmosphere: spec.atmosphere, atmColor: spec.atmColor,
-    seaLevel: spec.seaLevel, rings: spec.rings, ringColor: spec.ringColor,
-  });
+  // the spec is kept so the visual can be rebuilt at a different size without
+  // disturbing the physics state (see rebuildVisuals)
+  b.spec = spec; b.def = def;
+  attachVisual(b);
   if (spec.type === 'world' && spec.home) state.homeId = b.id;
-  viz.group.userData.bodyId = b.id;
-  viz.group.userData.baseScale = 1;
-  viz.group.position.copy(b.pos).multiplyScalar(state.sceneScale);
-  scene.add(viz.group);
 
   // trail — compact bodies (tight, fast inspirals) get a short, faint trail so
   // the dense loops don't obscure what's happening; everything else gets a long one.
@@ -290,8 +352,8 @@ function removeBody(id) {
   const idx = state.bodies.findIndex(b => b.id === id);
   if (idx < 0) return;
   const b = state.bodies[idx];
-  scene.remove(b.viz.group); scene.remove(b.trail);
-  b.viz.group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+  detachVisual(b);
+  scene.remove(b.trail);
   b.trail.geometry.dispose();
   state.bodies.splice(idx, 1);
   if (state.focusId === id) { state.focusId = null; state.followId = null; }
@@ -490,6 +552,18 @@ function updateOrbitCam() {
   camera.position.set(radius * Math.sin(theta) * Math.cos(phi), radius * Math.cos(theta), radius * Math.sin(theta) * Math.sin(phi)).add(cam.target);
   camera.lookAt(cam.target);
 }
+// Pick radius in scene units. Clicking works off the body's rendered disc,
+// which at true scale can be a millionth of the screen — so once a body has
+// handed over to its point-source marker, the marker's own on-screen footprint
+// becomes the target instead. Below that it is not clickable at all, which is
+// fine: the Bodies list is the reliable way to reach a distant world, and
+// aiming at a sub-pixel dot never was.
+function pickRadiusScene(b) {
+  const geometric = Math.max(b.radiusScene, b.rsScene || 0) * 1.6;
+  if (!b.marker || !b.marker.mesh.visible) return geometric;
+  return Math.max(geometric, b.marker.mesh.scale.x * 0.42);
+}
+
 function setFollow(body) {
   state.followId = body ? body.id : null;
   state.focusId = body ? body.id : null;
@@ -529,7 +603,10 @@ addEventListener('mousemove', e => {
 });
 el.addEventListener('wheel', e => {
   e.preventDefault();
-  if (state.camMode === 'orbit') { cam.radius = Math.max(0.05, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001))); updateOrbitCam(); }
+  // The zoom floor used to be 0.05 scene units — twenty times wider than a
+  // true-scale Earth, so you could never actually reach one. It now only has to
+  // stay clear of float32 denormals.
+  if (state.camMode === 'orbit') { cam.radius = Math.max(1e-6, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001))); updateOrbitCam(); }
   else if (state.camMode === 'surface') observer.zoom(1 + e.deltaY * 0.0012);
   else cam.freeSpeed = Math.max(0.5, cam.freeSpeed * (1 - e.deltaY * 0.001));
 }, { passive: false });
@@ -545,7 +622,7 @@ function handlePick(e) {
     const d = ray.distanceToPoint(wp);
     const along = wp.clone().sub(ray.origin).dot(ray.direction);
     if (along < 0) continue;
-    const hitR = Math.max(b.radiusScene, b.rsScene || 0) * 1.6;
+    const hitR = pickRadiusScene(b);
     if (d < hitR && along < bestD) { best = b; bestD = along; }
   }
   if (best) setFollow(best); else setFollow(null);
@@ -649,6 +726,11 @@ function loadPreset(key) {
   state.preset = p;
   state.sceneScale = p.sceneScale;
   state.bodyScale = p.bodyScale ?? 1;
+  state.trueScale = !!p.trueScale;
+  {
+    const sb = document.querySelector('[data-view="scale"]');
+    if (sb) { sb.classList.toggle('active', state.trueScale); sb.textContent = state.trueScale ? 'Sizes: Real' : 'Sizes: Boosted'; }
+  }
   state.timeScale = p.timeScale ?? 2;
   state.maxStep = p.maxStep ?? 5e-3;
   state.gwBoost = p.gwBoost ?? 0;
@@ -1026,9 +1108,18 @@ function toggleMesh(on) {
   if (btn) { btn.classList.toggle('active', on); btn.textContent = on ? 'Mesh ON' : 'Mesh OFF'; }
 }
 
+function setTrueScale(on) {
+  state.trueScale = on;
+  const btn = document.querySelector('[data-view="scale"]');
+  if (btn) { btn.classList.toggle('active', on); btn.textContent = on ? 'Sizes: Real' : 'Sizes: Boosted'; }
+  rebuildVisuals();
+  refreshUI();
+}
+
 document.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => {
   const v = btn.dataset.view;
   if (v === 'mesh') toggleMesh(!state.showMesh);
+  else if (v === 'scale') setTrueScale(!state.trueScale);
   else { state.showLens = !state.showLens; btn.classList.toggle('active', state.showLens); btn.textContent = state.showLens ? 'Lens ON' : 'Lens OFF'; }
 }));
 
@@ -1092,9 +1183,56 @@ function animate() {
   else {
     if (state.followId != null) {
       const fb = state.bodies.find(b => b.id === state.followId);
-      if (fb) cam.target.lerp(fb.viz.group.position, 0.2);
+      // The 0.2 lerp exists to damp the camera when you click between bodies.
+      // At true scale it breaks down: framing Earth puts the camera 3e-4 AU
+      // out while Earth itself covers most of an AU per frame at 6 yr/s, so a
+      // fractional catch-up never arrives and the target trails hopelessly
+      // behind. Smooth only while the residual is small compared to the
+      // viewing distance; past that, track exactly.
+      if (fb) {
+        const p = fb.viz.group.position;
+        if (cam.target.distanceToSquared(p) > (cam.radius * 0.25) ** 2) cam.target.copy(p);
+        else cam.target.lerp(p, 0.2);
+      }
     }
     updateOrbitCam();
+  }
+
+  // ---- near plane. A fixed 0.01 AU near plane sits outside a true-scale Earth
+  // entirely: fly up to one and it clips away before you ever see it. Tying the
+  // near plane to how far the camera actually is keeps the whole zoom range —
+  // from 40 AU down to a low pass over a planet — inside the depth buffer.
+  if (state.camMode !== 'surface') {
+    // In orbit mode the viewing distance IS cam.radius. Free-fly has no such
+    // handle, so use the gap to the nearest body's surface — that is the only
+    // thing the near plane can actually clip through.
+    let camDist = cam.radius;
+    if (state.camMode === 'free') {
+      camDist = Infinity;
+      for (const b of state.bodies) {
+        const surf = camera.position.distanceTo(b.viz.group.position) - Math.max(b.radiusScene, b.rsScene || 0);
+        if (surf < camDist) camDist = surf;
+      }
+      camDist = Number.isFinite(camDist) ? Math.max(camDist, 1e-6) : 1;
+    }
+    const near = THREE.MathUtils.clamp(camDist * 1e-3, 1e-7, 0.01);
+    // only touch the projection matrix on a real change — this runs every frame
+    if (Math.abs(Math.log(near / camera.near)) > 0.05) {
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
+  }
+
+  // ---- point-source markers. Every body gets one; it only shows itself when
+  // the body's own disc has shrunk past a few pixels, so in the exaggerated
+  // presets it is silently inert and costs one quad's worth of nothing.
+  // Not in surface view: the sky pass draws the suns itself, with real angular
+  // radii and atmospheric scattering, and a marker on top would double them.
+  for (const b of state.bodies) {
+    if (!b.marker) continue;
+    if (state.camMode === 'surface') { b.marker.mesh.visible = false; continue; }
+    b.marker.update(camera, b.viz.group.position, Math.max(b.radiusScene, b.rsScene || 0),
+                    innerHeight, b.id === state.focusId);
   }
 
   // light at dominant star/bh (legacy single-light path for star-less presets)

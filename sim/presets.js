@@ -5,8 +5,11 @@ import { luminosity, effectiveTemp } from './stellar.js';
 // PRESET SCENARIOS
 // Every spec is in REAL units: mass = M☉, pos = AU, vel = AU/yr.
 // `sceneScale` = scene units per AU (rendering only). `bodyScale` exaggerates
-// rendered body sizes (true-to-scale planets would be sub-pixel). `gwBoost`
-// accelerates gravitational-wave inspiral so mergers are watchable.
+// rendered body sizes (true-to-scale planets ARE sub-pixel — `trueScale: true`
+// draws them honestly instead and leans on the point-source markers in
+// sim/scale.js to keep them visible). `radiusKm` supplies a real physical
+// radius; without one, sim/scale.js falls back to a mass–radius relation.
+// `gwBoost` accelerates gravitational-wave inspiral so mergers are watchable.
 // ============================================================================
 
 // two-body barycentric setup orbiting in the XZ plane
@@ -66,24 +69,28 @@ export const PRESETS = {
 
   // --------------------------------------------------------------------------
   solar: {
-    name: 'Solar System (to scale)',
-    blurb: 'Real orbital distances and masses, G = 4π². Inner planets cluster on the Sun — zoom way out to reach Pluto.',
+    name: 'Solar System',
+    blurb: 'Real orbital distances, masses and body radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle "Sizes" to get the readable, exaggerated view back.',
     sceneScale: 1.0, bodyScale: 0.5, camRadius: 80, lensing: false, timeScale: 6,
+    // The one preset where the bodies are drawn at their real geometric size.
+    // See sim/scale.js for why that needs a point-source fallback to be usable.
+    trueScale: true,
     build() {
       const Ms = 1.0;
       const sun = { type: 'star', name: 'Sun', mass: Ms, color: 0xfff2cc, glow: 0xffaa33, pos: [0, 0, 0], vel: [0, 0, 0] };
-      const P = (a, m, type, name, extra) => orbiter(Ms, a, { type, name, mass: m, ...extra });
+      // a = semi-major axis (AU), m = mass (M☉), radiusKm = mean physical radius
+      const P = (a, m, radiusKm, type, name, extra) => orbiter(Ms, a, { type, name, mass: m, radiusKm, ...extra });
       return [
         sun,
-        P(0.387, 1.66e-7, 'planet', 'Mercury', { hot: true }),
-        P(0.723, 2.45e-6, 'planet', 'Venus', { hot: true, atmosphere: true, atmColor: 0xffd9a0 }),
-        P(1.000, 3.00e-6, 'planet', 'Earth', { atmosphere: true, seaLevel: 0.55 }),
-        P(1.524, 3.21e-7, 'planet', 'Mars', { hot: true }),
-        P(5.203, 9.54e-4, 'gas-giant', 'Jupiter', { palette: 'jupiter' }),
-        P(9.537, 2.86e-4, 'gas-giant', 'Saturn', { palette: 'saturn', rings: true }),
-        P(19.19, 4.37e-5, 'gas-giant', 'Uranus', { palette: 'ice' }),
-        P(30.07, 5.15e-5, 'gas-giant', 'Neptune', { palette: 'ice' }),
-        P(39.48, 6.55e-9, 'planet', 'Pluto', { hot: false }),
+        P(0.387, 1.66e-7,  2439.7, 'planet', 'Mercury', { hot: true }),
+        P(0.723, 2.45e-6,  6051.8, 'planet', 'Venus', { hot: true, atmosphere: true, atmColor: 0xffd9a0 }),
+        P(1.000, 3.00e-6,  6371.0, 'planet', 'Earth', { atmosphere: true, seaLevel: 0.55 }),
+        P(1.524, 3.21e-7,  3389.5, 'planet', 'Mars', { hot: true }),
+        P(5.203, 9.54e-4, 69911.0, 'gas-giant', 'Jupiter', { palette: 'jupiter' }),
+        P(9.537, 2.86e-4, 58232.0, 'gas-giant', 'Saturn', { palette: 'saturn', rings: true }),
+        P(19.19, 4.37e-5, 25362.0, 'gas-giant', 'Uranus', { palette: 'ice' }),
+        P(30.07, 5.15e-5, 24622.0, 'gas-giant', 'Neptune', { palette: 'ice' }),
+        P(39.48, 6.55e-9,  1188.3, 'planet', 'Pluto', { hot: false }),
       ];
     },
   },
