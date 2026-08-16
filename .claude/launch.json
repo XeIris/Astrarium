@@ -5,7 +5,8 @@
       "name": "sim",
       "runtimeExecutable": "node",
       "runtimeArgs": [".claude/serve.mjs"],
-      "port": 8777
+      "port": 8777,
+      "autoPort": true
     }
   ]
 }

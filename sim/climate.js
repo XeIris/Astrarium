@@ -55,7 +55,11 @@ export class Climate {
     this.history = [];
     this.historyMax = 900;
     this._acc = 0;
-    this.extremes = { Tmin: this.T, Tmax: this.T, Smin: 1, Smax: 1 };
+    // Seeded from the empty interval, not from 1 S⊕: step() only ever narrows
+    // these with min/max, so a seed of 1 is reported as an observed extreme on
+    // a world that never receives exactly one solar constant. Trisolaris ranges
+    // 0.40–3.08 S⊕, so Smin would read a fictitious 1.00 until the first dip.
+    this.extremes = { Tmin: this.T, Tmax: this.T, Smin: Infinity, Smax: -Infinity };
   }
 
   get heatCapacity() { return this.mixedLayer * RHO_CW; }   // J m⁻² K⁻¹
@@ -146,7 +150,14 @@ export class Climate {
 
   reset(T0 = 288) {
     this.T = T0; this.time = 0; this.history.length = 0;
-    this.extremes = { Tmin: T0, Tmax: T0, Smin: 1, Smax: 1 };
+    // Every derived quantity has to go back with it. sim/world.js reads cl.ice
+    // straight into the surface shader and the HUD reads era/clouds, so leaving
+    // these behind leaves the old run's ice caps and era badge on screen until
+    // the next step() completes.
+    this.S = 1; this.ice = 0; this.clouds = 0.4; this.humidity = 0.5;
+    this.era = ERAS.STABLE;
+    this.perStar.length = 0; this._acc = 0;
+    this.extremes = { Tmin: T0, Tmax: T0, Smin: Infinity, Smax: -Infinity };
   }
 
   get celsius() { return this.T - 273.15; }

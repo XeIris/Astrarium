@@ -53,9 +53,9 @@ const state = {
 const DOM = {};
 ['fps', 'rs', 'isco', 'bc', 'cc', 'count', 'bodyList', 'loading', 'massRow',
  'blurb', 'presetName', 'focusName', 'focusPanel', 'camOrbit', 'camFree',
- 'discRow', 'tempRow', 'speedVal', 'camSurface', 'climatePanel', 'eraBadge',
+ 'discRow', 'tempRow', 'camSurface', 'climatePanel', 'eraBadge',
  'eraDesc', 'cTemp', 'cFlux', 'cIce', 'cCloud', 'cTau', 'cExtremes', 'climateChart',
- 'sunList', 'simClock', 'starPanel', 'surfRow', 'skyRow', 'bhPanel',
+ 'sunList', 'simClock', 'starPanel', 'skyRow', 'bhPanel',
  'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs'].forEach(id => DOM[id] = document.getElementById(id));
 
 // ============================================================================
@@ -167,6 +167,13 @@ function spawnFlash(worldPos, color, size, decay = 0.8) {
   sp.position.copy(worldPos); sp.scale.setScalar(size); scene.add(sp);
   flashes.push({ sp, life: 1, size, decay });
 }
+// Each flash owns a fresh 128×128 CanvasTexture, and a merger spawns two. They
+// have to go back with the sprite or every merge leaks a pair.
+function killFlash(f) {
+  scene.remove(f.sp);
+  f.sp.material.map?.dispose();
+  f.sp.material.dispose();
+}
 
 // ============================================================================
 // BODY CREATION
@@ -256,10 +263,32 @@ function attachVisual(b) {
   scene.add(b.marker.mesh);
 }
 
+// THREE.Material.dispose() frees the material, never the textures it points at,
+// and removing an Object3D frees nothing at all. Every procedural body owns its
+// maps (rockyTexture / gasGiantTexture build a CanvasTexture each), and
+// rebuildVisuals + loadPreset run this path repeatedly in a session, so anything
+// missed here accumulates on the GPU for as long as the tab is open.
+function disposeMaterial(mat) {
+  if (!mat) return;
+  for (const v of Object.values(mat)) {
+    // scene.background is the one texture a body never owns.
+    if (v && v.isTexture && v !== starTex) v.dispose();
+  }
+  for (const u of Object.values(mat.uniforms || {})) {
+    const v = u?.value;
+    if (v && v.isTexture && v !== starTex) v.dispose();
+  }
+  mat.dispose();
+}
+
 function detachVisual(b) {
   if (b.viz) {
     scene.remove(b.viz.group);
-    b.viz.group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+    b.viz.group.traverse(o => {
+      o.geometry?.dispose?.();
+      const m = o.material;
+      if (Array.isArray(m)) m.forEach(disposeMaterial); else disposeMaterial(m);
+    });
   }
   if (b.marker) { scene.remove(b.marker.mesh); b.marker.dispose(); b.marker = null; }
 }
@@ -355,6 +384,7 @@ function removeBody(id) {
   detachVisual(b);
   scene.remove(b.trail);
   b.trail.geometry.dispose();
+  b.trail.material.dispose();
   state.bodies.splice(idx, 1);
   if (state.focusId === id) { state.focusId = null; state.followId = null; }
   refreshUI();
@@ -471,9 +501,12 @@ function dynamicStep() {
   return Math.max(tMin, 1e-8);
 }
 
+// Returns the simulated time actually integrated, which is <= simDt whenever
+// the sub-step guard trips. Callers must drive anything on the simulated clock
+// from the return value, not from what they passed in.
 function stepPhysics(simDt) {
-  if (simDt <= 0) return;
-  let remaining = simDt, guard = 0;
+  if (simDt <= 0) return 0;
+  let remaining = simDt, guard = 0, stepped = 0;
   while (remaining > 1e-12 && guard < 8000) {
     guard++;
     const h = Math.min(remaining, dynamicStep());
@@ -482,8 +515,14 @@ function stepPhysics(simDt) {
     const events = PHYS.resolveCollisions(state.bodies);
     for (const ev of events) handleMerger(ev);
     remaining -= h;
+    stepped += h;
   }
-  state.simYears += simDt;
+  // Advance the clock by what was actually integrated, not by what was asked
+  // for. During a close encounter dynamicStep() falls toward its 1e-8 floor and
+  // the guard can stop the loop having covered under a percent of simDt; adding
+  // the full simDt there would jump the clock, the climate and the shader time
+  // uniforms while the bodies had barely moved, and the deficit is never repaid.
+  state.simYears += stepped;
   // commit visual positions + trails after the sub-steps
   for (const b of state.bodies) {
     b.viz.group.position.copy(b.pos).multiplyScalar(state.sceneScale);
@@ -491,7 +530,8 @@ function stepPhysics(simDt) {
   }
   // advance the climate on the same simulated clock
   const home = getHome();
-  if (state.climate && home) state.climate.step(simDt, home, getStars());
+  if (state.climate && home) state.climate.step(stepped, home, getStars());
+  return stepped;
 }
 
 function handleMerger(ev) {
@@ -500,8 +540,31 @@ function handleMerger(ev) {
   if (surv.type === 'bh' || gone.type === 'bh') {
     const wasBH = surv.type === 'bh';
     surv.type = 'bh';
-    surv.rs = (wasBH ? (surv.rs || 0) : 0) + (gone.type === 'bh' ? gone.rs : PHYS.schwarzschild(gone.mass));
+    if (wasBH) {
+      // r_s ∝ M, so summing the two horizons is exactly the horizon of the
+      // merged mass — and it carries a preset's deliberately "fat" horizon
+      // through the merger instead of collapsing it to the true one.
+      surv.rs = (surv.rs || 0) + (gone.type === 'bh' ? gone.rs : PHYS.schwarzschild(gone.mass));
+    } else {
+      // resolveCollisions keeps the heavier body, so a star heavier than the
+      // hole survives and becomes one. Scale the absorbed horizon by the mass
+      // it now contains; taking gone.rs alone ignored the survivor's own mass.
+      surv.rs = gone.rs * (surv.mass / gone.mass);
+    }
     if (!surv.rs) surv.rs = PHYS.schwarzschild(surv.mass);
+    // The physics type changed, so the spec and the meshes have to follow it.
+    // Left alone, the lens pass would place a horizon over a star mesh, and a
+    // later true-scale toggle would rebuild it as a star again.
+    if (!wasBH) {
+      surv.spec = { ...(surv.spec || {}), type: 'bh', mass: surv.mass, rs: surv.rs };
+      surv.def = TYPE_DEFAULTS.bh;
+      // A horizon has no photosphere: leaving the star's Teff behind would keep
+      // publishing a stellar temperature into the HDR alpha and re-image the
+      // hole as a star in the non-visible bands.
+      surv.teff = undefined; surv.spectral = undefined;
+      detachVisual(surv);
+      attachVisual(surv);
+    }
     const rsS = surv.rs * state.sceneScale;
     spawnFlash(wpos, 0xffffff, rsS * 9, 1.6);             // bright ringdown burst
     spawnFlash(wpos, 0xffd2a0, rsS * 5, 0.32);            // slow lingering afterglow
@@ -581,8 +644,12 @@ let dragging = false, dragMoved = false, lastX = 0, lastY = 0, downX = 0, downY 
 const el = renderer.domElement;
 el.addEventListener('mousedown', e => { dragging = true; dragMoved = false; lastX = downX = e.clientX; lastY = downY = e.clientY; });
 addEventListener('mouseup', e => {
+  // Only interactions that began on the canvas are picks. dragMoved stays false
+  // for anything started on the HUD, so without this a slider drag or a panel
+  // click ran a pick behind the panel and cleared the focused body.
+  const wasDragging = dragging;
   dragging = false;
-  if (!dragMoved) handlePick(e);
+  if (wasDragging && !dragMoved) handlePick(e);
 });
 addEventListener('mousemove', e => {
   if (!dragging) return;
@@ -721,7 +788,7 @@ function loadPreset(key) {
   if (!p) return;
   clearBodies();
   // also remove flashes
-  for (const fl of flashes) scene.remove(fl.sp); flashes.length = 0;
+  for (const fl of flashes) killFlash(fl); flashes.length = 0;
 
   state.preset = p;
   state.sceneScale = p.sceneScale;
@@ -799,7 +866,6 @@ function loadPreset(key) {
   if (DOM.bhPanel) DOM.bhPanel.style.display = getHoles().length ? '' : 'none';
   if (DOM.climatePanel) DOM.climatePanel.style.display = state.climate ? '' : 'none';
   if (DOM.starPanel) DOM.starPanel.style.display = getStars().length ? '' : 'none';
-  if (DOM.surfRow) DOM.surfRow.style.display = p.surface ? '' : 'none';
   if (DOM.camSurface) DOM.camSurface.style.display = p.surface ? '' : 'none';
   spacetimeMesh.visible = state.showMesh;
   document.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('active', b.dataset.preset === key));
@@ -1152,7 +1218,10 @@ function animate() {
   fpsAcc += 1 / Math.max(dt, 1e-4); fpsCount++; fpsTime += dt;
   if (fpsTime > 0.5) { DOM.fps.textContent = Math.round(fpsAcc / fpsCount); fpsAcc = fpsCount = fpsTime = 0; }
 
-  stepPhysics(simDt);
+  // Everything downstream runs on the time that was integrated, so a guarded
+  // frame slows the spin, the clouds and the lens together with the bodies
+  // instead of letting them run ahead.
+  const simStepped = stepPhysics(simDt);
   updateSuns();
   postfx.setSceneTemp(sceneMaxTemp());
 
@@ -1160,7 +1229,7 @@ function animate() {
   const holes = getHoles().map(h => ({ posScene: h.viz.group.position, rsScene: h.rsScene, mass: h.mass }));
   const ctx = {
     holes, camera, time: state.time, sceneScale: state.sceneScale,
-    simDt, suns: state.suns, climate: state.climate,
+    simDt: simStepped, suns: state.suns, climate: state.climate,
   };
   for (const b of state.bodies) {
     if (b.type === 'bh') { b.rsScene = b.rs * state.sceneScale; b.radiusScene = b.rsScene; }
@@ -1244,7 +1313,7 @@ function animate() {
   // flashes
   for (let i = flashes.length - 1; i >= 0; i--) {
     const f = flashes[i]; f.life -= dt * (f.decay ?? 0.8);
-    if (f.life <= 0) { scene.remove(f.sp); flashes.splice(i, 1); continue; }
+    if (f.life <= 0) { killFlash(f); flashes.splice(i, 1); continue; }
     f.sp.scale.setScalar(f.size * (1 + (1 - f.life) * 2)); f.sp.material.opacity = f.life;
   }
 
@@ -1262,10 +1331,10 @@ function animate() {
     else wells[wc++].set(p.x - mcx, p.z - mcz, Math.min(b.mass + b.radiusScene, 6), 0);
   }
   meshMat.uniforms.wellCount.value = wc;
-  meshMat.uniforms.time.value += simDt;
+  meshMat.uniforms.time.value += simStepped;
 
   // lensing uniforms
-  lensMaterial.uniforms.time.value += simDt;
+  lensMaterial.uniforms.time.value += simStepped;
   const useLens = state.showLens && holes.length > 0;
   if (useLens) {
     camera.updateMatrixWorld(true);   // camMat below must match this frame
@@ -1378,6 +1447,11 @@ function animate() {
 // BOOT
 // ============================================================================
 resize();
-loadPreset(PRESETS[location.hash.slice(1)] ? location.hash.slice(1) : 'sandbox');
-addEventListener('hashchange', () => { if (PRESETS[location.hash.slice(1)]) loadPreset(location.hash.slice(1)); });
+// Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,
+// so opening the page at #constructor or #toString passed the truthiness test,
+// walked past loadPreset's own guard and threw on p.build() — the sim never
+// booted and the loading overlay never cleared.
+const hasPreset = k => Object.prototype.hasOwnProperty.call(PRESETS, k);
+loadPreset(hasPreset(location.hash.slice(1)) ? location.hash.slice(1) : 'sandbox');
+addEventListener('hashchange', () => { const k = location.hash.slice(1); if (hasPreset(k)) loadPreset(k); });
 setTimeout(() => { DOM.loading.classList.add('gone'); animate(); }, 400);

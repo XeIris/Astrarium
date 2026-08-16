@@ -100,6 +100,10 @@ function pullMag(source, dist) {
 // ----------------------------------------------------------------------------
 const _rel = new THREE.Vector3();
 const _vrel = new THREE.Vector3();
+// G and C are module constants, so their powers are too — hoisted out of the
+// O(n²) pair loop rather than recomputed per pair per sub-step.
+const G4 = Math.pow(G, 4);
+const C5 = Math.pow(C, 5);
 export function applyGWReaction(bodies, dt, boost) {
   const compact = bodies.filter(b => b.alive && b.emitsGW);
   for (let i = 0; i < compact.length; i++) {
@@ -117,8 +121,8 @@ export function applyGWReaction(bodies, dt, boost) {
       const m1 = a.mass, m2 = b.mass, M = m1 + m2, mu = m1 * m2 / M;
 
       // dE/dt for a circular binary: −32/5 · G⁴ m1²m2²(m1+m2) / (c⁵ r⁵)
-      const dEdt = (32 / 5) * Math.pow(G, 4) * m1 * m1 * m2 * m2 * M
-                 / (Math.pow(C, 5) * Math.pow(r, 5)) * boost;
+      const dEdt = (32 / 5) * G4 * m1 * m1 * m2 * m2 * M
+                 / (C5 * Math.pow(r, 5)) * boost;
 
       // Convert power loss into a velocity-space drag opposing relative motion.
       const vrelMag = Math.max(_vrel.length(), 1e-6);

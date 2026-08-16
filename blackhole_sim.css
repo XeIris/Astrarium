@@ -243,9 +243,9 @@ body.panel-open-right .hint { right: 336px; }
 .sun-row .sf { grid-area: flux; font-size: 9.5px; color: var(--accent-2); font-variant-numeric: tabular-nums; }
 .sun-row .flare {
   color: #000; background: #ffcc44; padding: 0 4px; margin-left: 4px;
-  font-size: 8.5px; letter-spacing: 0.1em; animation: flarePulse 0.7s ease-in-out infinite;
+  font-size: 8.5px; letter-spacing: 0.1em; animation: flare-pulse 0.7s ease-in-out infinite;
 }
-@keyframes flarePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes flare-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
 /* --- climate ------------------------------------------------------------- */
 h3 .clock {
@@ -255,7 +255,7 @@ h3 .clock {
 .era-badge {
   display: block; text-align: center; padding: 7px; margin-bottom: 4px;
   font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
-  border: 1px solid currentColor;
+  border: 1px solid currentcolor;
 }
 .era-badge.era-stable { color: #4ee39a; }
 .era-badge.era-cold   { color: #6fb6ff; }

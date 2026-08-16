@@ -82,6 +82,14 @@ const SURF_FRAG = `
 
     // Rebuild the true surface direction: keep the object-space azimuth around
     // the view axis, but replace the colatitude with the lensed one.
+    //
+    // NOTE: vObj is object space and V is world space, so this reconstruction
+    // is only correct while the mesh carries no rotation relative to world
+    // space. That holds today — b.viz.update rotates spinAxis, never core, and
+    // no obliquity tilt is applied to a neutron star the way sim/world.js tilts
+    // a rocky planet. Anything that starts rotating this group has to transform
+    // V into object space with inverse(modelMatrix) in the vertex shader first,
+    // or the far side will come into view off-axis.
     vec3 tangential = normalize(vObj - dot(vObj, V) * V + vec3(1e-6));
     vec3 pTrue = normalize(V * cosPsi + tangential * sqrt(max(1.0 - cosPsi * cosPsi, 0.0)));
 

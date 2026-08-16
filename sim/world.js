@@ -248,17 +248,33 @@ export function createWorldVisual(b, opts) {
   };
 
   b.spinPhase = 0;
+  b.cloudPhase = 0;
+
+  const TAU = Math.PI * 2;
 
   b.viz.update = (dt, ctx) => {
     const simDt = ctx.simDt ?? 0;
     // planet rotation — b.dayLength is in years
     const day = b.dayLength || 0.01;
-    b.spinPhase += (simDt / day) * Math.PI * 2;
+    // Both phases wrap. At system speeds this advances hundreds of radians per
+    // frame, and rotation.y reaches the GPU as a float32 matrix entry: once the
+    // magnitude passes ~1e5 the per-frame increment is under one ulp and the
+    // spin quantises and then stops. A rotation is exactly 2π-periodic, so
+    // wrapping is free of artefacts — but the cloud deck super-rotates at 0.985
+    // of the surface, so it needs its own accumulator rather than a scaled read
+    // of spinPhase, which would jump at every wrap.
+    b.spinPhase = (b.spinPhase + (simDt / day) * TAU) % TAU;
+    b.cloudPhase = (b.cloudPhase + (simDt / day) * TAU * 0.985) % TAU;
     surface.rotation.y = b.spinPhase;
-    clouds.rotation.y = b.spinPhase * 0.985;   // super-rotating cloud deck
+    clouds.rotation.y = b.cloudPhase;          // super-rotating cloud deck
 
     surfMat.uniforms.uTime.value += dt;
-    cloudMat.uniforms.uTime.value += dt + simDt * 40;
+    // The cloud shader feeds uTime into fbm/ridged domains, which are not
+    // periodic — wrapping it would pop the cloud field. Bound the sim-time term
+    // instead: it is a drift cue, and above a few radians per frame the deck is
+    // a blur anyway, so capping it costs nothing visually and keeps the uniform
+    // growing at real-time rates.
+    cloudMat.uniforms.uTime.value += dt + Math.min(simDt * 40, 2);
 
     const cl = ctx.climate;
     if (cl) {

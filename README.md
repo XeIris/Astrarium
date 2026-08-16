@@ -83,7 +83,7 @@ The chaos therefore lives in the **climate**, not in the orbits — and that is 
 chaos, not a script. Insolation swings by a factor of ~8 (0.40 → 3.08 S⊕) every
 1.7-year orbit, and a zero-dimensional energy-balance model turns that into eras:
 
-```
+```text
 C · dT/dt = (1 − α(T)) · S/4 − ε σ T⁴
 ```
 
