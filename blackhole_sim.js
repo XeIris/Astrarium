@@ -119,9 +119,9 @@ const backdrop = createSkyBackdrop();
 // The whole general-relativistic ray marcher now lives in sim/blackhole.js.
 // ============================================================================
 const lensPass = createBlackHolePass();
+// Both of the pass's materials share one uniforms object, so this is still the
+// single place to set hole positions, camera and disc parameters.
 const lensMaterial = lensPass.material;
-const lensScene = lensPass.scene;
-const lensCam = lensPass.camera;
 
 // Both passes carry an identical copy of the sky uniform block, so every change
 // has to reach both or the two views disagree about what the sky looks like.
@@ -1149,6 +1149,20 @@ rsEl?.addEventListener('input', () => {
   document.getElementById('renderScale-val').textContent = `${v.toFixed(2)}x`;
 });
 
+// --- lens detail: the marcher's resolution as a fraction of the display's.
+// Separate from render scale on purpose — this one leaves the star field at
+// full resolution, so it costs disc and shadow sharpness and nothing else.
+const ldEl = document.getElementById('lensScale');
+if (ldEl) {
+  ldEl.value = String(lensPass.getScale());
+  document.getElementById('lensScale-val').textContent = `${lensPass.getScale().toFixed(2)}x`;
+  ldEl.addEventListener('input', () => {
+    const v = parseFloat(ldEl.value);
+    lensPass.setScale(v);
+    document.getElementById('lensScale-val').textContent = `${v.toFixed(2)}x`;
+  });
+}
+
 document.getElementById('climateReset')?.addEventListener('click', () => {
   state.climate?.reset(288);
 });
@@ -1226,6 +1240,7 @@ function resize() {
   const pr = renderer.getPixelRatio();
   sceneTarget.setSize(w * pr, h * pr);
   postfx.setSize(w * pr, h * pr);
+  lensPass.setSize(w * pr, h * pr);
   lensMaterial.uniforms.aspect.value = w / h;
   lensMaterial.uniforms.fov.value = camera.fov * Math.PI / 180;
   backdrop.uniforms.aspect.value = w / h;
@@ -1471,8 +1486,11 @@ function animate() {
     // backdrop to feed it. (The old code rendered the whole scene into an
     // offscreen target here for a `tScene` sampler that the shader never
     // actually read — a full scene draw per frame, thrown away.)
-    renderer.setRenderTarget(postfx.hdr); renderer.clear();
-    renderer.render(lensScene, lensCam);
+    //
+    // Internally this is two passes: the geodesics and the disc are marched at
+    // state.lensScale, and the star field is evaluated over the resulting
+    // direction field at full resolution. See sim/blackhole.js.
+    lensPass.render(renderer, postfx.hdr);
 
     // pass 2 — real geometry back on top, with depth, over the lensed image
     renderer.autoClear = false; renderer.clearDepth();
