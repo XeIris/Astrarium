@@ -122,7 +122,6 @@ const COMPOSITE_FRAG = `
   varying vec2 vUv;
   uniform sampler2D tScene, tBloom;
   uniform float bloomStrength, exposure, vignette, grain, time;
-  uniform vec2 resolution;
 
   // ACES RRT+ODT, Stephen Hill's fit. Unlike the cheap Narkowicz curve this
   // keeps the characteristic hue shift as things saturate: a red-hot disc edge
@@ -222,7 +221,7 @@ export function createPostFX(renderer) {
     tScene: { value: null }, tBloom: { value: null },
     bloomStrength: { value: 0.11 }, exposure: { value: 1.0 },
     vignette: { value: 0.30 }, grain: { value: 0.012 },
-    time: { value: 0 }, resolution: { value: new THREE.Vector2() },
+    time: { value: 0 },
   });
 
   function applyBandGain() {
@@ -272,7 +271,6 @@ export function createPostFX(renderer) {
     setSize(w, h) {
       hdr.setSize(Math.max(1, w), Math.max(1, h));
       banded.setSize(Math.max(1, w), Math.max(1, h));
-      composite.uniforms.resolution.value.set(w, h);
       let mw = w, mh = h;
       for (let i = 0; i < MIPS; i++) {
         mw = Math.max(1, Math.floor(mw / 2));

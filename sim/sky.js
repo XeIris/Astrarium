@@ -356,6 +356,45 @@ uniform float uwXrb, uwBlazar;
 // that is explicitly a camera.
 #define SKY_TIERS 6
 
+// Band-weight cull threshold.
+//
+// The W table in sim/sky.js is not only a set of multipliers - it is a
+// statement about which components EXIST in a given band, and most of them do
+// not. In the visible, ten of the fifteen weights are zero or near it, and
+// every one of those components was being evaluated at full price and then
+// multiplied by nothing: three 3x3 compact-source neighbourhoods, an SNR
+// neighbourhood, and six diffuse fields carrying an fBm each.
+//
+// So the weights are read as predicates as well as gains. The branches are on
+// uniforms, which means they are perfectly coherent across the draw - every
+// invocation in the dispatch takes the same side, there is no divergence, and
+// the cost is one scalar compare. This gets BETTER as components are added,
+// because a new component is free in the bands where it does not emit.
+//
+// The threshold is set where a component can no longer survive THE DISPLAY
+// SCALE IT IS HEADING INTO, and those scales are not the same, so neither is
+// the threshold:
+//
+//   visible   goes to the ACES tone mapper in sim/postfx.js against a frame
+//             whose stars are orders of magnitude brighter. Anything under a
+//             few percent of the band peak is buried. Measured at 1280x720:
+//             culling everything below 0.03 changes 0 of 921600 pixels, and
+//             the components it drops - SNR, blazars, pulsars, XRBs and the
+//             six diffuse non-thermal fields - are most of the pass.
+//
+//   all else  goes to the log stretch in sim/spectrum.js, which fills the
+//             palette from ~0.002 and therefore LIFTS faint components rather
+//             than burying them. The floor has to sit below the smallest
+//             weight that is meant to be seen, and the tables above use 0.01
+//             (galaxies in gamma) as a deliberate "faint but present" value.
+//             Measured: 0.005 is pixel-identical in radio, infrared, X-ray and
+//             gamma, while 0.05 visibly damages all four.
+//
+// Getting this backwards is a silent, band-specific regression, which is why
+// both numbers are pinned to a measurement rather than chosen by eye.
+#define SKY_W_EPS_VIS 0.03
+#define SKY_W_EPS_LOG 0.005
+
 // ---- hashing ---------------------------------------------------------------
 // Three independent streams from one 3-vector. The star loop needs several
 // uncorrelated values per cell (position, brightness, temperature) and pulling
@@ -639,14 +678,11 @@ float sky_spike(vec2 p){
 //
 // Returned as (density multiplier, temperature bias) and folded into the star
 // loop, so a cluster is a real local excess of real stars rather than a sprite.
-vec2 sky_clusterField(vec3 dir){
+vec2 sky_clusterField(vec3 dir, float face, vec2 g){
   float boost = 0.0, bias = 0.0;
   for(int i = 0; i < 2; i++){
     float open = float(i);                    // 0 = globular, 1 = open
     float cells = mix(7.0, 11.0, open);
-    float face; vec2 fc;
-    sky_cube(dir, face, fc);
-    vec2 g = sky_toGrid(fc);
     vec2 cell = floor((g * 0.5 + 0.5) * cells);
 
     for(int oy = -1; oy <= 1; oy++){
@@ -686,12 +722,9 @@ vec2 sky_clusterField(vec3 dir){
 // the 1/sigma^2 normalisation dim it is what makes an unresolved galaxy behave
 // like a point again — the same rule sim/scale.js uses for a sub-pixel body,
 // and the one continuous expression covers both regimes.
-float sky_galaxies(vec3 dir, float w2){
+float sky_galaxies(vec3 dir, float face, vec2 g, float w2){
   float acc = 0.0;
   float cells = 9.0;
-  float face; vec2 fc;
-  sky_cube(dir, face, fc);
-  vec2 g = sky_toGrid(fc);
   vec2 cell = floor((g * 0.5 + 0.5) * cells);
 
   for(int oy = -1; oy <= 1; oy++){
@@ -727,12 +760,9 @@ float sky_galaxies(vec3 dir, float w2){
 // exactly how a gamma-ray point-source map looks: a bright galactic ridge with
 // isotropic sources sprinkled over everything else.
 float sky_compact(vec3 dir, vec3 ddx, vec3 ddy, float ga, float gb, float gc,
-                  float gdet, float w2, float cells, float seed,
+                  float gdet, float w2, float face, vec2 g, float cells, float seed,
                   float plane, float accept, float flux){
   float acc = 0.0;
-  float face; vec2 fc;
-  sky_cube(dir, face, fc);
-  vec2 g = sky_toGrid(fc);
   vec2 cell = floor((g * 0.5 + 0.5) * cells);
 
   for(int oy = -1; oy <= 1; oy++){
@@ -761,12 +791,9 @@ float sky_compact(vec3 dir, vec3 ddx, vec3 ddy, float ga, float gb, float gc,
 // Supernova remnants: expanding shells, so they are ANNULI on the sky rather
 // than points — bright edge, hollow middle, because the shell is a thin surface
 // seen through more material at its limb. Extended, hence source-plane again.
-float sky_snr(vec3 dir, float w2){
+float sky_snr(vec3 dir, float face, vec2 g, float w2){
   float acc = 0.0;
   float cells = 6.0;
-  float face; vec2 fc;
-  sky_cube(dir, face, fc);
-  vec2 g = sky_toGrid(fc);
   vec2 cell = floor((g * 0.5 + 0.5) * cells);
 
   for(int oy = -1; oy <= 1; oy++){
@@ -799,6 +826,9 @@ float sky_snr(vec3 dir, float w2){
 vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
   vec3 total = vec3(0.0);
 
+  // Cull threshold for this band's component weights - see SKY_W_EPS_VIS.
+  float wEps = uVisibleBand > 0.5 ? SKY_W_EPS_VIS : SKY_W_EPS_LOG;
+
   // Source solid angle per pixel. Clamped by SCALING THE BASIS rather than the
   // area, so the Jacobian stays consistent with the number it reports.
   //
@@ -823,21 +853,38 @@ vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
   // tiers are still resolvable as points.
   float sigma = uPsfPx * sqrt(w2);
 
+  // The cube cell decomposition, computed ONCE for the whole function.
+  //
+  // Every cell-based population below - clusters, galaxies, SNR, the three
+  // compact source classes, and the star tiers - walks a 3x3 neighbourhood on
+  // the same cube face, at a different cell count. Only the count differs, so
+  // only the cell index has to be recomputed per population; the face selection
+  // and the tangent warp are the same answer every time. Deriving them in each
+  // function cost seven evaluations of sky_cube (branchy) and sky_toGrid (an
+  // atan per axis) per pixel for one distinct result.
+  float face; vec2 fc;
+  sky_cube(dir, face, fc);
+  vec2 g = sky_toGrid(fc);                      // [-1,1] on this face
+
   float band  = sky_bandProfile(dir);
   float bulge = sky_bulgeProfile(dir);
-  float tau   = sky_dustTau(dir);
-  vec3  ext   = sky_extinction(tau);
+
+  // Dust is only worth evaluating if something in this band consumes it, and in
+  // the radio and gamma bands nothing does: extinction is unity there (see
+  // EXTINCTION), thermal dust emission is weighted to zero, and so are the
+  // reflection nebulae and the absorbed X-ray background. sky_dustTau is two
+  // fBm fields, so this is one of the larger single savings available.
+  float tau = 0.0;
+  if(uVisibleBand > 0.5 || uExtCoef > wEps || uwDustEm > wEps
+     || uwRefl > wEps || uwXrayBg > wEps) tau = sky_dustTau(dir);
+  vec3 ext = sky_extinction(tau);
 
   // ------------------------------------------------------------------ stars
   // Stars crowd toward the galactic plane for the same reason the band glows:
   // that is where the disc is. Without this the point layer sits uniformly on
   // top of a structured background and immediately reads as fake.
-  vec2 clus = sky_clusterField(dir);
+  vec2 clus = sky_clusterField(dir, face, g);
   float density = uStarDensity * (1.0 + uPlaneConc * band + clus.x);
-
-  float face; vec2 fc;
-  sky_cube(dir, face, fc);
-  vec2 g = sky_toGrid(fc);                      // [-1,1] on this face
 
   for(int t = 0; t < SKY_TIERS; t++){
     float tier  = float(t);
@@ -942,20 +989,24 @@ vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
   total += sky_emit(vec3(1.00, 0.78, 0.52), uwBulge, bul) * ext * ext;
 
   // --------------------------------------------------------------- nebulae
-  float arms = sky_arms(dir);
-
   // H II regions: ionised hydrogen around young hot stars, so they follow the
-  // arms and hug the plane. H-alpha at 656 nm is why they are red.
-  float hiiN = pow(clamp(sky_fbm(dir * 7.3 + 5.0, 4) * 1.9 - 0.62, 0.0, 1.0), 2.1);
-  float hii  = uHii * hiiN * band * arms * 0.42;
-  total += sky_emit(vec3(1.00, 0.20, 0.26), uwHii, hii) * ext;
+  // arms and hug the plane. H-alpha at 656 nm is why they are red. Gone in the
+  // X-ray and gamma bands - recombination lines have no business there.
+  if(uwHii > wEps){
+    float arms = sky_arms(dir);
+    float hiiN = pow(clamp(sky_fbm(dir * 7.3 + 5.0, 4) * 1.9 - 0.62, 0.0, 1.0), 2.1);
+    float hii  = uHii * hiiN * band * arms * 0.42;
+    total += sky_emit(vec3(1.00, 0.20, 0.26), uwHii, hii) * ext;
+  }
 
   // Reflection nebulae: starlight scattered off dust rather than emitted by it.
   // Rayleigh scattering makes them blue, and they only exist where there is
   // BOTH dust and a nearby hot star - hence the product with the dust field.
-  float reflN = pow(clamp(sky_fbm(dir * 9.1 + 71.0, 3) * 1.8 - 0.70, 0.0, 1.0), 2.0);
-  float refl  = uRefl * reflN * clamp(tau, 0.0, 1.4) * band * 0.26;
-  total += sky_emit(vec3(0.34, 0.50, 1.00), uwRefl, refl) * ext;
+  if(uwRefl > wEps){
+    float reflN = pow(clamp(sky_fbm(dir * 9.1 + 71.0, 3) * 1.8 - 0.70, 0.0, 1.0), 2.0);
+    float refl  = uRefl * reflN * clamp(tau, 0.0, 1.4) * band * 0.26;
+    total += sky_emit(vec3(0.34, 0.50, 1.00), uwRefl, refl) * ext;
+  }
 
   // ------------------------------------------------------- non-thermal sky
   // These are the components that make the non-visible bands worth switching
@@ -969,7 +1020,9 @@ vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
   // floor collapses that range into a flat wash of false colour — which is
   // exactly what a first pass at this looks like. So the profiles below are
   // sharpened and their floors are kept genuinely small.
-  float gas = sky_gasProfile(dir);
+  // The gas column feeds synchrotron and 21 cm, and nothing else here.
+  float gas = 0.0;
+  if(uwSynch > wEps || uwH21 > wEps) gas = sky_gasProfile(dir);
 
   // Synchrotron: bright plane plus a huge loop arching well out of it, which is
   // the single most recognisable feature of the low-frequency radio sky.
@@ -977,13 +1030,17 @@ vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
   // that reaches most of the way to the pole; drawn wide it stops being a
   // feature and becomes a floor under the whole frame, which is the difference
   // between a radio sky and a magenta rectangle.
-  float loop = exp(-pow(abs(length(dir - normalize(uGalNormal * 0.55 + uGalCenter * 0.83)) - 0.62) * 13.0, 2.0));
-  float synch = (gas * 2.6 + loop * 0.30 + 0.0015) * (0.55 + 0.90 * sky_fbm(dir * 3.1, 3));
-  total += sky_emit(vec3(0.0), uwSynch, synch * 0.26);
+  if(uwSynch > wEps){
+    float loop = exp(-pow(abs(length(dir - normalize(uGalNormal * 0.55 + uGalCenter * 0.83)) - 0.62) * 13.0, 2.0));
+    float synch = (gas * 2.6 + loop * 0.30 + 0.0015) * (0.55 + 0.90 * sky_fbm(dir * 3.1, 3));
+    total += sky_emit(vec3(0.0), uwSynch, synch * 0.26);
+  }
 
   // Neutral hydrogen, 21 cm: diffuse, filamentary, and everywhere along the plane.
-  float h21 = gas * (0.45 + 1.05 * sky_fbm(dir * 6.0 + 31.0, 4));
-  total += sky_emit(vec3(0.0), uwH21, h21 * 0.30);
+  if(uwH21 > wEps){
+    float h21 = gas * (0.45 + 1.05 * sky_fbm(dir * 6.0 + 31.0, 4));
+    total += sky_emit(vec3(0.0), uwH21, h21 * 0.30);
+  }
 
   // The CMB: a nearly uniform floor, plus the dipole from the observer's own
   // motion. In the microwave band it is not a background, it is the sky — so a
@@ -994,45 +1051,61 @@ vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
   // ceiling. The fBm term stands in for the primordial anisotropies, which are
   // genuinely tiny — parts in 10^5 — and are exaggerated here only enough to
   // stop the background looking like a flat fill.
-  float dipole = 1.0 + 0.16 * dot(dir, uGalEast);
-  float aniso  = 1.0 + 0.22 * (sky_fbm(dir * 12.0 + 3.0, 3) - 0.5);
-  total += sky_emit(vec3(0.0), uwCmb, dipole * aniso * 0.06);
+  if(uwCmb > wEps){
+    float dipole = 1.0 + 0.16 * dot(dir, uGalEast);
+    float aniso  = 1.0 + 0.22 * (sky_fbm(dir * 12.0 + 3.0, 3) - 0.5);
+    total += sky_emit(vec3(0.0), uwCmb, dipole * aniso * 0.06);
+  }
 
   // Thermal dust emission. Note this reuses the SAME tau that darkens the
   // visible sky: one dust distribution, absorbing in the optical and glowing in
   // the infrared, so the bright IR lanes land exactly on the black visible ones.
-  total += sky_emit(vec3(0.0), uwDustEm, tau * 0.65);
+  if(uwDustEm > wEps) total += sky_emit(vec3(0.0), uwDustEm, tau * 0.65);
 
   // Cosmic rays on interstellar gas -> pi-zero decay. Traces the gas column, so
   // it is a thinner, harder-edged ridge than the stellar band, and outside it
   // the gamma sky is very nearly empty.
-  float ridge = exp(-abs(sky_sinb(dir)) / max(uBandScaleH * 0.40, 1e-3));
-  total += sky_emit(vec3(0.0), uwPion, ridge * 0.45 + 0.0012);
+  if(uwPion > wEps){
+    float ridge = exp(-abs(sky_sinb(dir)) / max(uBandScaleH * 0.40, 1e-3));
+    total += sky_emit(vec3(0.0), uwPion, ridge * 0.45 + 0.0012);
+  }
 
   // Diffuse soft X-ray background, absorbed by the cold gas in front of it.
   // This is the one component that is DIMMER where there is more material, and
   // it is how the ROSAT all-sky map shows molecular clouds: as shadows.
-  float xbg = (0.55 + 0.35 * sky_fbm(dir * 2.6 + 9.0, 3)) * exp(-tau * 1.4);
-  total += sky_emit(vec3(0.0), uwXrayBg, xbg * 0.12);
+  if(uwXrayBg > wEps){
+    float xbg = (0.55 + 0.35 * sky_fbm(dir * 2.6 + 9.0, 3)) * exp(-tau * 1.4);
+    total += sky_emit(vec3(0.0), uwXrayBg, xbg * 0.12);
+  }
 
   // ------------------------------------------------- galaxies and compact sources
   // Galaxies are extinguished by the full dust column — the zone of avoidance
   // in the visible, and its absence in the infrared.
-  float gal = sky_galaxies(dir, w2) * uGalaxies;
-  total += sky_emit(vec3(0.86, 0.83, 0.78), uwGalaxies, gal) * ext;
+  if(uwGalaxies > wEps){
+    float gal = sky_galaxies(dir, face, g, w2) * uGalaxies;
+    total += sky_emit(vec3(0.86, 0.83, 0.78), uwGalaxies, gal) * ext;
+  }
 
-  total += sky_emit(vec3(0.0), uwSnr, sky_snr(dir, w2));
+  if(uwSnr > wEps)
+    total += sky_emit(vec3(0.0), uwSnr, sky_snr(dir, face, g, w2));
 
   // Densities chosen so the gamma sky is a ridge plus a scattering of points,
   // which is what a gamma-ray point-source catalogue actually looks like, and
   // so the X-ray sky has a handful of blazing binaries rather than a field.
+  //
+  // Three 3x3 neighbourhoods, each with a PSF projection per candidate - by
+  // some distance the most expensive thing in this function that the visible
+  // band has no use for at all.
   float cf = uStarFlux * 0.030;
-  total += sky_emit(vec3(0.0), uwPulsar,
-    sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, 13.0,  5.0, 1.0, 0.16, cf * 0.6));
-  total += sky_emit(vec3(0.0), uwXrb,
-    sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2,  9.0, 61.0, 1.0, 0.13, cf * 0.9));
-  total += sky_emit(vec3(0.0), uwBlazar,
-    sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, 11.0, 29.0, 0.0, 0.05, cf * 0.7));
+  if(uwPulsar > wEps)
+    total += sky_emit(vec3(0.0), uwPulsar,
+      sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, face, g, 13.0,  5.0, 1.0, 0.16, cf * 0.6));
+  if(uwXrb > wEps)
+    total += sky_emit(vec3(0.0), uwXrb,
+      sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, face, g,  9.0, 61.0, 1.0, 0.13, cf * 0.9));
+  if(uwBlazar > wEps)
+    total += sky_emit(vec3(0.0), uwBlazar,
+      sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, face, g, 11.0, 29.0, 0.0, 0.05, cf * 0.7));
 
   return total * uSkyGain;
 }

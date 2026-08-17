@@ -66,8 +66,20 @@ const scene  = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 100000);
 camera.position.set(0, 8, 24);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+// antialias is deliberately OFF. Nothing is ever drawn to the default
+// framebuffer except one fullscreen quad in sim/postfx.js's composite - the
+// whole frame is assembled in the non-multisampled HDR target - so MSAA here
+// only ever antialiases the edges of that quad, which are the edges of the
+// screen. It costs a multisampled backbuffer and a resolve to do nothing.
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+
+// Render scale. Every expensive pass in this sim is fullscreen, so this is a
+// straight multiplier on the entire frame cost - on a 2x display, a ratio of
+// 1.5 is 2.25x the pixels of 1.0. It defaults to 1.0 rather than following the
+// display, because the lensed pass is by far the most expensive thing here and
+// a sharper photon ring is rarely worth halving the frame rate. The slider is
+// there for screenshots, where it is worth exactly that.
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.0));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, 1);
 // The frame is composed in linear HDR and tone mapped by sim/postfx.js, so the
@@ -1127,6 +1139,16 @@ ghEl?.addEventListener('input', () => {
   if (state.climate) state.climate.greenhouse = v;
   document.getElementById('greenhouse-val').textContent = v.toFixed(2);
 });
+// --- render scale. resize() derives every target size from the pixel ratio,
+// so setting it and re-running that is the whole implementation.
+const rsEl = document.getElementById('renderScale');
+rsEl?.addEventListener('input', () => {
+  const v = parseFloat(rsEl.value);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, v));
+  resize();
+  document.getElementById('renderScale-val').textContent = `${v.toFixed(2)}x`;
+});
+
 document.getElementById('climateReset')?.addEventListener('click', () => {
   state.climate?.reset(288);
 });
