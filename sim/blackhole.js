@@ -586,6 +586,8 @@ export function createBlackHolePass() {
 
   return {
     scene: resolveScene, camera, material: resolveMaterial, uniforms,
+    // Exposed so the two passes can be timed independently — see desktop/bench.js.
+    marchScene, marchMaterial, target: mrt,
 
     /** Display-resolution size, in device pixels. */
     setSize(w, h) { vw = w; vh = h; sizeMRT(); },

@@ -1,0 +1,17 @@
+{
+  "name": "astrarium-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron shell for Astrarium. The simulation itself is unchanged — this only hosts it.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "profile": "MTL_HUD_ENABLED=1 electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
