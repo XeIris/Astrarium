@@ -24,7 +24,7 @@ used to live in `blackhole_sim.js`.
 ## 1. Why the current sky breaks
 
 `makeStarTexture(2048)` paints 9000 canvas discs into a 2048×1024 equirectangular
-texture, which `sampleStars()` in [sim/blackhole.js:138](sim/blackhole.js) point-samples with
+texture, which `sampleStars()` in [sim/blackhole.js:138](../sim/blackhole.js) point-samples with
 `texture2D`. Four distinct failures, only one of which is "resolution":
 
 **1.1 It is under-resolved before lensing even starts.**
@@ -107,7 +107,7 @@ and the repo convention is explicit that colour comes from a temperature. So has
 - Stars can finally **publish** their T into the HDR alpha channel. Right now `sampleStars()`
   returns colour with `a = 1.0` ("no temperature data"), so the whole background falls through
   `spectrum.js`'s colour-inference path. Use the flux-weighted-mean-T accumulator the disc
-  loop already uses (`tSum/tWeight` at [sim/blackhole.js:358](sim/blackhole.js)).
+  loop already uses (`tSum/tWeight` at [sim/blackhole.js:358](../sim/blackhole.js)).
 
 **Do not sample the IMF for temperature.** A magnitude-limited sky is Malmquist-biased: you
 preferentially see intrinsically luminous stars, so the naked-eye sky is dominated by hot
@@ -122,7 +122,7 @@ is both correct and prettier than a physically-naive M-dwarf-heavy field.)
 > when a star's PSF hits the minimum size, **don't shrink it further — dim it**, conserving
 > integrated flux.
 
-That is precisely the rule `createMarker` in [sim/scale.js](sim/scale.js) already uses for
+That is precisely the rule `createMarker` in [sim/scale.js](../sim/scale.js) already uses for
 sub-pixel bodies; reuse the reasoning. Compute the pixel's angular footprint from `fov`/
 resolution, and **widen it by √μ** — that is the DNGR ray-bundle filter, and it's what
 prevents the Einstein ring from becoming a shimmering mess in motion.
@@ -158,7 +158,7 @@ Ranked by visual payoff per unit of work:
 ### 2.3 Per-preset sky parameters — the cheapest realism you can buy
 
 You said this doesn't have to be Earth's sky, which is a licence, not a constraint. Put a
-small sky block on each preset in [sim/presets.js](sim/presets.js): galactic latitude/longitude of
+small sky block on each preset in [sim/presets.js](../sim/presets.js): galactic latitude/longitude of
 the system, galactocentric distance, and an environment enum. Then:
 
 - **thin disc, mid-radius** → familiar band across the sky
@@ -240,7 +240,7 @@ Two payoffs worth designing for explicitly:
 ## 4. Integration cost — the part that will bite
 
 One texture currently serves three consumers: `scene.background`, the lens pass, and the
-surface sky view in [sim/skyview.js](sim/skyview.js). Going analytic means:
+surface sky view in [sim/skyview.js](../sim/skyview.js). Going analytic means:
 
 - A shared GLSL chunk (`sim/sky.js`) included by both the lens pass and the sky pass.
 - **The no-black-hole path needs a real fullscreen sky pass**, since `scene.background = tex`

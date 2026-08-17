@@ -379,16 +379,32 @@ void main(){
   // to pixel along the entire edge of the shadow — precisely where the ring is.
   vec3 d = normalize(vel);
   vec3 ddx = dFdx(d), ddy = dFdy(d);
-  if(!captured) color += trans * skyRadiance(d, ddx, ddy);
+  vec3 skyCol = vec3(0.0);
+  if(!captured) skyCol = trans * skyRadiance(d, ddx, ddy);
+  color += skyCol;
 
   // Alpha carries the physical temperature, log-encoded, for the spectral
-  // re-imaging pass. A pixel with no emitter on it is now SKY_ALPHA rather than
+  // re-imaging pass. A pixel with no emitter on it is SKY_ALPHA rather than
   // 1.0: the sky is composited in the current band already (sim/spectrum.js
   // cannot re-image synchrotron, line emission or the CMB from a temperature),
   // so the remap must pass it through rather than infer a temperature from it.
   // 1.0 still means "infer from colour", which is what lit geometry wants.
+  //
+  // ONE ALPHA, TWO POSSIBLE SOURCES. A pixel looking through a partly
+  // transparent disc holds both, and a single channel cannot label both, so it
+  // is labelled by whichever actually DOMINATES it. Without the comparison the
+  // disc claimed the pixel on any emission at all, however faint — so the thin
+  // outer disc, contributing a few percent of the light, took the label and
+  // deleted a whole star field pixel from every non-visible band.
+  //
+  // tWeight is already the disc's luminance-weighted contribution, so the two
+  // are directly comparable. This does not make mixed pixels correct — the
+  // minority component is still dropped — and doing that properly means giving
+  // the sky its own render target. It removes the visible failure mode.
   float Tmean = tWeight > 1e-9 ? tSum / tWeight : 0.0;
-  float a = Tmean > 1.0 ? clamp(log(Tmean) / 25.33, 0.0, 0.98) : ${SKY_ALPHA};
+  float skyLum = dot(skyCol, vec3(0.2126, 0.7152, 0.0722));
+  bool discWins = Tmean > 1.0 && tWeight > skyLum;
+  float a = discWins ? clamp(log(Tmean) / 25.33, 0.0, 0.98) : ${SKY_ALPHA};
   gl_FragColor = vec4(color, a);
 }`;
 

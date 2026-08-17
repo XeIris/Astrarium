@@ -120,7 +120,6 @@ function syncSky(fn) { fn(backdrop.uniforms); fn(lensMaterial.uniforms); }
 // lensed path, where the marcher has already put the sky in the buffer.
 function drawBackdrop() {
   camera.updateMatrixWorld(true);   // camMat must match this frame's camera
-  backdrop.uniforms.camPos.value.copy(camera.position);
   backdrop.uniforms.camMat.value.copy(camera.matrixWorld);
   backdrop.uniforms.fov.value = camera.fov * Math.PI / 180;
   renderer.render(backdrop.scene, backdrop.camera);

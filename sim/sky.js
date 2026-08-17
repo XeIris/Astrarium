@@ -873,7 +873,15 @@ vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
 
           vec2 sg  = (cc + h.xy) / cells * 2.0 - 1.0;   // grid coords of the star
           vec2 sfc = sky_fromGrid(sg);
-          float pAccept = density * sky_cellWeight(sfc) * 0.62;
+          // Clamped, and the clamp is load-bearing. A cell holds at most one
+          // star, so an acceptance probability above 1 cannot deliver the extra
+          // light it claims — but the unresolved branch below would happily
+          // integrate it. In the globular environment uStarDensity is 9.0 and a
+          // cluster boost multiplies that again, so the raw figure reaches ~100
+          // and the two branches disagree by that factor. Clamping both is what
+          // keeps the LOD crossfade flux-conserving instead of stepping in
+          // brightness as a tier goes unresolved.
+          float pAccept = min(density * sky_cellWeight(sfc) * 0.62, 1.0);
           if(h2.x > pAccept) continue;
 
           vec3 sdir = sky_uncube(face, sfc);
@@ -910,7 +918,11 @@ vec3 skyRadiance(vec3 dir, vec3 ddx, vec3 ddy){
     if(diffuseMix > 0.001){
       float cellOmega = (4.0 * SKY_PI / 6.0) / (cells * cells);
       float meanT = sky_starTemp(0.45, tier);
-      float amp = diffuseMix * density * 0.62 * flux / cellOmega
+      // Same clamped acceptance as the resolved branch. cellWeight is taken at
+      // the ray's own cell rather than at each star's position — neighbouring
+      // cells differ by well under a percent, and it is the clamp that matters.
+      float pMean = min(density * sky_cellWeight(fc) * 0.62, 1.0);
+      float amp = diffuseMix * pMean * flux / cellOmega
                 * sky_starBand(meanT) * uStarGain;
       total += sky_emit(sky_blackbody(meanT), 1.0, amp);
     }
@@ -1163,7 +1175,8 @@ export function applySkyOptics(uniforms, { fov, height }) {
 const BACKDROP_FRAG = `
 precision highp float;
 varying vec2 vUv;
-uniform vec3  camPos;
+// No camPos: a sky at infinity does not care where the camera is, only where it
+// points. The ray direction comes from camMat/fov/aspect alone.
 uniform mat4  camMat;
 uniform float fov, aspect;
 
@@ -1190,7 +1203,6 @@ const BACKDROP_VERT = `
  */
 export function createSkyBackdrop() {
   const uniforms = Object.assign(skyUniforms(), {
-    camPos: { value: new THREE.Vector3() },
     camMat: { value: new THREE.Matrix4() },
     fov: { value: 0.87 },
     aspect: { value: 1 },
