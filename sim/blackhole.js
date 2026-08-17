@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SKY_GLSL, SKY_ALPHA, skyUniforms } from './sky.js';
 
 // ============================================================================
 // BLACK HOLE — general-relativistic ray marcher + volumetric accretion disc.
@@ -66,7 +67,6 @@ const FRAG = `
 precision highp float;
 varying vec2 vUv;
 
-uniform sampler2D tStars;
 uniform vec3  holePos[${MAX_HOLES}];
 uniform float holeRs[${MAX_HOLES}];
 uniform int   holeCount;
@@ -133,13 +133,10 @@ vec3 blackbody(float T){
   return pow(c, vec3(2.2));                 // sRGB fit → linear
 }
 
-// The star map is authored in sRGB; decode it before it enters a linear,
-// tone-mapped pipeline or the whole sky comes out washed and grey.
-vec3 sampleStars(vec3 d){
-  float u = atan(d.z, d.x) / (2.0 * PI) + 0.5;
-  float v = asin(clamp(d.y, -1.0, 1.0)) / PI + 0.5;
-  return pow(texture2D(tStars, vec2(u, v)).rgb, vec3(2.2));
-}
+// The sky. Procedural, resolution-free and band-aware — see sim/sky.js for why
+// a texture cannot survive this pass. It brings its own uniforms and its own
+// hash/noise/blackbody, all prefixed sky_, so nothing above collides with it.
+${SKY_GLSL}
 
 // ----------------------------------------------------------------------------
 // disc
@@ -368,13 +365,46 @@ void main(){
     pos = npos;
   }
 
-  if(!captured) color += trans * sampleStars(normalize(vel));
+  // ---- background sky
+  // These two derivatives are the whole lensing story as far as the sky is
+  // concerned. dFdx/dFdy of the OUTGOING direction span the patch of sky this
+  // pixel maps back onto: their cross product is its solid angle and carries
+  // det J, and the pair together carry the anisotropy. sim/sky.js turns that
+  // into stars that stay point-like and brighten by the magnification, with
+  // extended sources holding their surface brightness — which is what lensing
+  // actually does, and the thing a texture lookup could never reproduce.
+  //
+  // The derivatives are taken OUTSIDE the branch on purpose: dFdx/dFdy are
+  // only defined under uniform control flow, and "captured" differs from pixel
+  // to pixel along the entire edge of the shadow — precisely where the ring is.
+  vec3 d = normalize(vel);
+  vec3 ddx = dFdx(d), ddy = dFdy(d);
+  vec3 skyCol = vec3(0.0);
+  if(!captured) skyCol = trans * skyRadiance(d, ddx, ddy);
+  color += skyCol;
 
   // Alpha carries the physical temperature, log-encoded, for the spectral
-  // re-imaging pass. 1.0 is the reserved "no temperature data here" value —
-  // which is exactly right for a pixel showing only lensed background stars.
+  // re-imaging pass. A pixel with no emitter on it is SKY_ALPHA rather than
+  // 1.0: the sky is composited in the current band already (sim/spectrum.js
+  // cannot re-image synchrotron, line emission or the CMB from a temperature),
+  // so the remap must pass it through rather than infer a temperature from it.
+  // 1.0 still means "infer from colour", which is what lit geometry wants.
+  //
+  // ONE ALPHA, TWO POSSIBLE SOURCES. A pixel looking through a partly
+  // transparent disc holds both, and a single channel cannot label both, so it
+  // is labelled by whichever actually DOMINATES it. Without the comparison the
+  // disc claimed the pixel on any emission at all, however faint — so the thin
+  // outer disc, contributing a few percent of the light, took the label and
+  // deleted a whole star field pixel from every non-visible band.
+  //
+  // tWeight is already the disc's luminance-weighted contribution, so the two
+  // are directly comparable. This does not make mixed pixels correct — the
+  // minority component is still dropped — and doing that properly means giving
+  // the sky its own render target. It removes the visible failure mode.
   float Tmean = tWeight > 1e-9 ? tSum / tWeight : 0.0;
-  float a = Tmean > 1.0 ? clamp(log(Tmean) / 25.33, 0.0, 0.98) : 1.0;
+  float skyLum = dot(skyCol, vec3(0.2126, 0.7152, 0.0722));
+  bool discWins = Tmean > 1.0 && tWeight > skyLum;
+  float a = discWins ? clamp(log(Tmean) / 25.33, 0.0, 0.98) : ${SKY_ALPHA};
   gl_FragColor = vec4(color, a);
 }`;
 
@@ -382,10 +412,9 @@ const VERT = `
   varying vec2 vUv;
   void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
-export function createBlackHolePass(starTexture) {
+export function createBlackHolePass() {
   const material = new THREE.ShaderMaterial({
-    uniforms: {
-      tStars: { value: starTexture },
+    uniforms: Object.assign(skyUniforms(), {
       holePos: { value: Array.from({ length: MAX_HOLES }, () => new THREE.Vector3()) },
       holeRs: { value: new Array(MAX_HOLES).fill(0) },
       holeCount: { value: 1 },
@@ -398,11 +427,13 @@ export function createBlackHolePass(starTexture) {
       discTemp: { value: 0.6 },
       discOuter: { value: 15.0 },
       discTpeakPhys: { value: 1.1e7 },
-    },
+    }),
     vertexShader: VERT,
     fragmentShader: FRAG,
     depthTest: false,
     depthWrite: false,
+    // the sky's footprint measurement needs dFdx/dFdy
+    extensions: { derivatives: true },
   });
 
   const scene = new THREE.Scene();

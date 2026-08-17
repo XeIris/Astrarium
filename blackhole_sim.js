@@ -11,6 +11,7 @@ import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
 import { createPostFX } from './sim/postfx.js';
 import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
 import { physicalRadiusAU, createMarker } from './sim/scale.js';
+import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics } from './sim/sky.js';
 
 // ============================================================================
 // STATE
@@ -89,42 +90,40 @@ const starLights = Array.from({ length: MAX_SUNS }, () => {
 });
 
 // ============================================================================
-// STARFIELD
+// SKY
 // ============================================================================
-function makeStarTexture(size = 2048) {
-  const c = document.createElement('canvas'); c.width = size; c.height = size / 2;
-  const ctx = c.getContext('2d');
-  const g = ctx.createLinearGradient(0, 0, 0, c.height);
-  g.addColorStop(0, '#02030a'); g.addColorStop(0.5, '#050416'); g.addColorStop(1, '#02030a');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, c.width, c.height);
-  for (let i = 0; i < 16; i++) {
-    const x = Math.random() * c.width, y = Math.random() * c.height, r = 120 + Math.random() * 300;
-    const rg = ctx.createRadialGradient(x, y, 0, x, y, r);
-    rg.addColorStop(0, `hsla(${200 + Math.random() * 70},70%,45%,0.10)`); rg.addColorStop(1, 'hsla(0,0%,0%,0)');
-    ctx.fillStyle = rg; ctx.fillRect(0, 0, c.width, c.height);
-  }
-  for (let i = 0; i < 9000; i++) {
-    const x = Math.random() * c.width, y = Math.random() * c.height;
-    const sz = Math.pow(Math.random(), 10) * 2.6 + 0.25, b = 0.5 + Math.random() * 0.5, t = Math.random();
-    ctx.fillStyle = t < 0.7 ? `rgba(255,255,255,${b})` : t < 0.85 ? `rgba(200,220,255,${b})`
-                  : t < 0.95 ? `rgba(255,230,200,${b})` : `rgba(255,180,180,${b})`;
-    ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.mapping = THREE.EquirectangularReflectionMapping; tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-const starTex = makeStarTexture();
-scene.background = starTex;
+// The sky is procedural and lives in sim/sky.js — there is no texture and no
+// scene.background any more. Two consumers share the same GLSL and the same
+// uniforms: the lensing pass traces it directly, and this backdrop draws it for
+// every scene that has no black hole in it (which is most of them).
+//
+// Keeping the two in one module is the point. The old canvas map was assigned
+// to scene.background AND handed to the lens pass AND showed through the
+// surface view, and any change had to be made to look right in all three.
+const backdrop = createSkyBackdrop();
 
 // ============================================================================
 // LENSING / ACCRETION-DISC PASS
 // The whole general-relativistic ray marcher now lives in sim/blackhole.js.
 // ============================================================================
-const lensPass = createBlackHolePass(starTex);
+const lensPass = createBlackHolePass();
 const lensMaterial = lensPass.material;
 const lensScene = lensPass.scene;
 const lensCam = lensPass.camera;
+
+// Both passes carry an identical copy of the sky uniform block, so every change
+// has to reach both or the two views disagree about what the sky looks like.
+function syncSky(fn) { fn(backdrop.uniforms); fn(lensMaterial.uniforms); }
+
+// Draw the sky into whatever target is currently bound. Depth is off, so this
+// has to go down FIRST and the scene composites over it — the reverse of the
+// lensed path, where the marcher has already put the sky in the buffer.
+function drawBackdrop() {
+  camera.updateMatrixWorld(true);   // camMat must match this frame's camera
+  backdrop.uniforms.camMat.value.copy(camera.matrixWorld);
+  backdrop.uniforms.fov.value = camera.fov * Math.PI / 180;
+  renderer.render(backdrop.scene, backdrop.camera);
+}
 
 // ============================================================================
 // SPACETIME MESH (wells from holes + bodies)
@@ -271,12 +270,11 @@ function attachVisual(b) {
 function disposeMaterial(mat) {
   if (!mat) return;
   for (const v of Object.values(mat)) {
-    // scene.background is the one texture a body never owns.
-    if (v && v.isTexture && v !== starTex) v.dispose();
+    if (v && v.isTexture) v.dispose();
   }
   for (const u of Object.values(mat.uniforms || {})) {
     const v = u?.value;
-    if (v && v.isTexture && v !== starTex) v.dispose();
+    if (v && v.isTexture) v.dispose();
   }
   mat.dispose();
 }
@@ -791,6 +789,9 @@ function loadPreset(key) {
   for (const fl of flashes) killFlash(fl); flashes.length = 0;
 
   state.preset = p;
+  // Where in the universe this system sits. A preset that says nothing gets the
+  // mid-disc default, which is the familiar arrangement.
+  syncSky(u => applySkyEnvironment(u, p.sky || {}));
   state.sceneScale = p.sceneScale;
   state.bodyScale = p.bodyScale ?? 1;
   state.trueScale = !!p.trueScale;
@@ -1077,6 +1078,10 @@ function setBand(i) {
     b.classList.toggle('active', +b.dataset.band === state.band));
   if (DOM.bandNote) DOM.bandNote.textContent = band.note;
   if (DOM.bandLabel) DOM.bandLabel.textContent = band.short;
+  // The sky does not go through the spectral remap — it composites itself at
+  // the band's own frequency, because most of what it contains outside the
+  // visible is non-thermal and has no temperature to re-image from.
+  syncSky(u => applySkyBand(u, state.band));
 }
 
 if (DOM.bandGrid) {
@@ -1201,6 +1206,11 @@ function resize() {
   postfx.setSize(w * pr, h * pr);
   lensMaterial.uniforms.aspect.value = w / h;
   lensMaterial.uniforms.fov.value = camera.fov * Math.PI / 180;
+  backdrop.uniforms.aspect.value = w / h;
+  // The instrument PSF is pinned to the DEFAULT fov and only moves when the
+  // framebuffer does, so zooming spreads a star over more pixels the way a real
+  // telescope does instead of concentrating it into a brighter dot.
+  syncSky(u => applySkyOptics(u, { fov: camera.fov * Math.PI / 180, height: h * pr }));
 }
 addEventListener('resize', resize);
 
@@ -1357,6 +1367,12 @@ function animate() {
     lensMaterial.uniforms.fov.value = camera.fov * Math.PI / 180;
   }
 
+  // The sky's footprint reference has to track the CURRENT fov, not the one at
+  // the last resize: it is what the measured per-pixel footprint is compared
+  // against to recover the magnification, so a zoom that changed it silently
+  // would make every star near the ring the wrong brightness.
+  syncSky(u => { u.uPixAngle.value = (camera.fov * Math.PI / 180) / (innerHeight * renderer.getPixelRatio()); });
+
   // ---- surface view: render the sky as a full-screen composite over the scene
   if (state.camMode === 'surface' && home) {
     const u = skyPass.material.uniforms;
@@ -1404,7 +1420,13 @@ function animate() {
     spacetimeMesh.visible = false;
 
     renderer.setRenderTarget(sceneTarget); renderer.clear();
+    // Stars first, geometry over them. On the ground the atmosphere decides how
+    // much of this survives — sim/skyview.js fades the whole backdrop out under
+    // a lit sky — but it has to be there to be faded.
+    drawBackdrop();
+    renderer.autoClear = false;
     renderer.render(scene, camera);
+    renderer.autoClear = true;
     // the sky composite lands in the HDR buffer, not on the screen
     renderer.setRenderTarget(postfx.hdr); renderer.clear();
     skyPass.material.uniforms.tScene.value = sceneTarget.texture;
@@ -1432,12 +1454,16 @@ function animate() {
 
     // pass 2 — real geometry back on top, with depth, over the lensed image
     renderer.autoClear = false; renderer.clearDepth();
-    scene.background = null;
     renderer.render(scene, camera);
-    scene.background = starTex; renderer.autoClear = true;
+    renderer.autoClear = true;
   } else {
+    // No hole, so no marcher to trace the sky — the backdrop draws it instead,
+    // from the same GLSL, and the scene composites over it.
     renderer.setRenderTarget(postfx.hdr); renderer.clear();
+    drawBackdrop();
+    renderer.autoClear = false;
     renderer.render(scene, camera);
+    renderer.autoClear = true;
   }
   postfx.render(1.0, state.time);
   updateHUD(dt);

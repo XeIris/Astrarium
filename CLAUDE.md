@@ -64,6 +64,7 @@ Shell:
 | [sim/blackhole.js](sim/blackhole.js) | `createBlackHolePass` — GR null-geodesic ray marcher, shadow/photon ring, volumetric Shakura–Sunyaev disc; `MAX_HOLES = 2` |
 | [sim/postfx.js](sim/postfx.js) | `createPostFX` — HDR target, spectral remap, progressive bloom, ACES composite |
 | [sim/spectrum.js](sim/spectrum.js) | `BANDS` and the temperature→band-brightness remap shader used by postfx |
+| [sim/sky.js](sim/sky.js) | the celestial background: `SKY_GLSL` (procedural stars, galactic band, dust, nebulae, non-thermal populations, all band-aware), `createSkyBackdrop` for scenes with no hole, and `SKY_ENVIRONMENTS` |
 | [sim/textures.js](sim/textures.js) | seeded procedural rocky / gas-giant canvas textures |
 | [sim/scale.js](sim/scale.js) | true-scale rendering: `physicalRadiusAU` mass–radius fallbacks, and `createMarker` — the point-source glow that carries a body once its disc goes sub-pixel |
 
@@ -92,6 +93,19 @@ Shell:
   the HDR buffer so `sim/spectrum.js` can re-image them in non-visible bands. A
   new emitter that doesn't publish it will fall back to inferring T from colour
   and will behave wrong in X-ray/radio bands.
+- **The sky is the exception to that**, and deliberately so. Alpha `SKY_ALPHA`
+  (0.995) means "already imaged in this band, pass through untouched". The
+  celestial background cannot go through a Planck ratio at all, because most of
+  what dominates the sky outside the visible is non-thermal — synchrotron, 21 cm
+  and CO lines, π⁰-decay gammas, the CMB — so `sim/sky.js` composites it at the
+  band's own frequency instead. Adding a sky component means adding a row to the
+  `W` band-weight table there, not giving it a temperature.
+- **Nothing about the sky may depend on a fixed angular resolution.** Lensing
+  magnification near the photon ring is unbounded, so any map, mipmap or baked
+  texture fails there at any resolution. Stars are analytic and filtered through
+  the screen-space Jacobian; that is what makes them stay point-like and
+  brighten by μ instead of smearing. `#bhmerger` is the standing regression case
+  — the lensed arcs above the holes must be strings of crisp points.
 - **Order in the render loop matters** and is documented inline: surface view and
   lensed view are separate branches, the spectral remap runs *before* bloom, and
   the sky pass applies its own eye-adaptation exposure so the tone mapper is
@@ -110,3 +124,11 @@ relevant scenario by hash, check the browser console for shader compile errors
 the HUD reports simulated time and body count, and long-run stability is checked
 by letting a preset integrate — the Trisolaris hierarchy is the standing
 regression case (stable for 60k+ years, ~1e-7 relative energy drift).
+
+For sky work, open [.claude/skytest.html](.claude/skytest.html) instead. It
+renders `sim/sky.js` on its own through the same postfx chain, with a camera you
+can aim exactly (`1`–`7` band, `e` environment, arrows aim, `z`/`x` zoom) and no
+scene, mesh or black hole in the way. Hunting for the galactic band inside a
+live preset wastes a lot of time; there it is always in the same place. Beware
+that GLSL reserves `patch`, and that backticks in a comment inside a shader
+template literal terminate the string — both cost a debugging round trip here.
