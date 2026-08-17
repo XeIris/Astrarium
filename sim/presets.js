@@ -10,6 +10,13 @@ import { luminosity, effectiveTemp } from './stellar.js';
 // sim/scale.js to keep them visible). `radiusKm` supplies a real physical
 // radius; without one, sim/scale.js falls back to a mass–radius relation.
 // `gwBoost` accelerates gravitational-wave inspiral so mergers are watchable.
+//
+// `sky` says WHERE IN THE UNIVERSE the system is, which sim/sky.js turns into a
+// background. `env` names one of SKY_ENVIRONMENTS — disc, core, globular, halo,
+// starburst — and `tilt`/`roll` orient the galactic plane relative to the
+// scene, deciding where the band crosses the view. Nothing here obliges the sky
+// to be Earth's; a system in a globular cluster genuinely has thousands of
+// bright stars and no band at all, and saying so costs two numbers.
 // ============================================================================
 
 // two-body barycentric setup orbiting in the XZ plane
@@ -55,6 +62,7 @@ function orbiter(Mc, a, spec, angle = Math.random() * Math.PI * 2, incl = 0) {
 export const PRESETS = {
   // --------------------------------------------------------------------------
   sandbox: {
+    sky: { env: 'disc', tilt: 0.42, roll: 0.7 },
     name: 'Black Hole Sandbox',
     blurb: 'A 10 M☉ black hole with a live accretion disc & lensing. Spawn bodies and watch them orbit, get shredded, and fall in.',
     sceneScale: 2.0, bodyScale: 1.0, camRadius: 34, lensing: true,
@@ -69,6 +77,7 @@ export const PRESETS = {
 
   // --------------------------------------------------------------------------
   solar: {
+    sky: { env: 'disc', tilt: 0.38, roll: 2.1 },
     name: 'Solar System',
     blurb: 'Real orbital distances, masses and body radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle "Sizes" to get the readable, exaggerated view back.',
     sceneScale: 1.0, bodyScale: 0.5, camRadius: 80, lensing: false, timeScale: 6,
@@ -97,6 +106,7 @@ export const PRESETS = {
 
   // --------------------------------------------------------------------------
   threebody: {
+    sky: { env: 'globular', tilt: 0.30, roll: 1.4 },
     name: 'Three-Body (figure-eight)',
     blurb: 'The Chenciner–Montgomery choreography: three equal masses chasing each other along one shared figure-eight orbit. A real exact solution.',
     sceneScale: 4.0, bodyScale: 1.4, camRadius: 22, lensing: false,
@@ -136,6 +146,7 @@ export const PRESETS = {
   // by a factor of ~9 — from 0.34 to 3.1 Earth-suns — which is what drives the
   // Stable and Chaotic Eras. The chaos is in the CLIMATE, not in the orbits.
   trisolaris: {
+    sky: { env: 'disc', tilt: 0.55, roll: 0.35 },
     name: 'Trisolaris',
     blurb: 'Three suns, one world. A tight binary (Alpha + Beta) with Trisolaris on a wide eccentric circumbinary orbit, and hot Gamma sweeping past every 51 years. Insolation swings 9× — the Stable and Chaotic Eras are emergent, not scripted. Stable for 60 000+ years.',
     sceneScale: 4.0, bodyScale: 0.55, camRadius: 20, lensing: false,
@@ -188,6 +199,7 @@ export const PRESETS = {
   // Expect the planet to be flung into a wildly eccentric orbit, swallowed, or
   // ejected outright, usually within a few hundred years. Reload to reroll.
   trisolaris_chaos: {
+    sky: { env: 'disc', tilt: 0.55, roll: 0.35 },
     name: 'Trisolaris — Chaotic Era',
     blurb: 'The same three suns with NO protective hierarchy — a true chaotic three-body system. Trisolaris gets thrown between the stars, roasted, frozen, and usually ejected or consumed within a few centuries. This is the version that has no solution.',
     sceneScale: 3.0, bodyScale: 0.55, camRadius: 40, lensing: false,
@@ -224,6 +236,7 @@ export const PRESETS = {
 
   // --------------------------------------------------------------------------
   bhmerger: {
+    sky: { env: 'halo', tilt: 0.22, roll: 2.6 },
     name: 'Binary Black Hole Merger',
     blurb: 'Two stellar-mass black holes spiral together, shedding orbital energy to gravitational waves until they coalesce (à la GW150914). Inspiral rate exaggerated.',
     sceneScale: 60, bodyScale: 1.0, camRadius: 72, lensing: true, gwBoost: 3e10, timeScale: 0.15, maxStep: 5e-5,
@@ -236,6 +249,7 @@ export const PRESETS = {
 
   // --------------------------------------------------------------------------
   nsmerger: {
+    sky: { env: 'starburst', tilt: 0.48, roll: 1.9 },
     name: 'Neutron Star Merger',
     blurb: 'Two neutron stars inspiral and collide in a kilonova (à la GW170817). Watch the pulsar beams sweep as they whirl together.',
     sceneScale: 45, bodyScale: 1.0, camRadius: 26, lensing: false, gwBoost: 1.8e14, timeScale: 0.15, maxStep: 5e-5,
@@ -248,6 +262,7 @@ export const PRESETS = {
 
   // --------------------------------------------------------------------------
   binarystar: {
+    sky: { env: 'starburst', tilt: 0.50, roll: 0.9 },
     name: 'Binary Star Merger',
     blurb: 'A close contact binary: the two stars slowly spiral together and merge into one more massive star (a luminous red nova). Takes ~30 s — speed it up or slow it down with the slider.',
     sceneScale: 3.0, bodyScale: 1.0, camRadius: 16, lensing: false, gwBoost: 4e17, timeScale: 0.5,
@@ -260,6 +275,7 @@ export const PRESETS = {
 
   // --------------------------------------------------------------------------
   feeding: {
+    sky: { env: 'core', tilt: 0.36, roll: 1.2 },
     name: 'Black Hole Devouring a Star',
     blurb: 'A star on a plunging orbit is tidally stripped, trailing a stream of gas onto the black hole.',
     sceneScale: 2.0, bodyScale: 1.0, camRadius: 30, lensing: true, discOuter: 9,

@@ -11,9 +11,15 @@
 // emitting material's TEMPERATURE. So the emitters publish it directly —
 // the accretion disc, stellar photospheres and neutron-star surfaces each
 // write their true temperature, log-encoded, into the alpha channel of the HDR
-// buffer. Pixels with no such data (the starfield, lit geometry) fall back to
-// inferring T from colour, which works because those were coloured from the
-// Planck locus in the first place.
+// buffer. Pixels with no such data (lit geometry) fall back to inferring T from
+// colour, which works because those were coloured from the Planck locus in the
+// first place.
+//
+// The celestial background does neither. sim/sky.js composites it at the band's
+// own frequency and marks it with SKY_ALPHA so this pass hands it straight to
+// the palette — see the pass-through in main(). It has to work that way,
+// because the non-visible sky is mostly non-thermal and has no temperature for
+// a Planck ratio to consume.
 //
 // Publishing it matters rather than always inferring it: the disc is DRAWN in a
 // rescaled palette so it has visible colour at all, and a neutron star's 10⁶ K
@@ -229,6 +235,22 @@ export const REMAP_FRAG = `
     // reserved value 1.0 means "no data", and those pixels fall back to
     // inferring T from the colour — which is exactly right for the starfield.
     float a = src.a;
+
+    // SKY_ALPHA (0.995, from sim/sky.js) means "already imaged in this band".
+    // The celestial background cannot come through the temperature route at
+    // all: most of what dominates the sky outside the visible is non-thermal —
+    // synchrotron power laws, 21 cm and CO lines, pi-zero decay gammas, the CMB
+    // — and none of those have a temperature that a Planck ratio could use. So
+    // sim/sky.js composites the sky at the band's own frequency and hands over
+    // a finished band radiance; here it only needs the log stretch and the
+    // palette, with no coverage mask and no Wien cutoff applied on top.
+    if(a > 0.990 && a < 0.9985){
+      float sky = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      float vs = log(1.0 + sky * uStretch) / log(1.0 + 3.0 * uStretch);
+      gl_FragColor = vec4(palette(vs) * 1.55, 1.0);
+      return;
+    }
+
     float T = (a > 0.005 && a < 0.985) ? exp(a * 25.33) : estimateT(c);
 
     // The rendered luminance is used only as a COVERAGE mask — "is there
