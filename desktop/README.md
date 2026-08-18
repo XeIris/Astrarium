@@ -39,6 +39,17 @@ Runs [bench.js](bench.js) in the renderer, prints JSON between `===BENCH===`
 markers, exits. Times the march and resolve passes separately across lens
 scales and camera distances.
 
+For the long-run orbital regression, run the hidden renderer stability check:
+
+```bash
+ASTRARIUM_STABILITY=1 ./node_modules/.bin/electron .
+```
+
+This imports the production preset builders, Three.js module, and N-body integrator,
+then advances the four deterministic Trisolaris architectures for 60 000 simulated
+years. It reports the world and outer-orbit envelopes, minimum separation, and relative
+energy drift between `===STABILITY===` markers.
+
 > **Caveat, and it is a big one.** `EXT_disjoint_timer_query_webgl2` is
 > *exposed* on this stack and every query returns **0** — in a browser tab, and
 > in Electron, and with `--enable-gpu-benchmarking` set. ANGLE's Metal backend

@@ -85,6 +85,24 @@ simulated years** with a relative energy drift of ~1e-7 — several hours of con
 watching before anything drifts. Closer-in variants of Gamma's orbit were tested and
 did disintegrate (at 22 AU it survives; at 14 AU the planet is ejected after ~1900 yr).
 
+Three additional stable architectures are available in the Trisolaris scenario group:
+
+| scenario | architecture | defining scales |
+| -------- | ------------ | --------------- |
+| **Compact Haven** | tighter circumbinary hierarchy | binary 0.24 AU, world 1.35 AU, Gamma 15 AU |
+| **Wide Seasons** | wide circumbinary hierarchy | binary 0.55 AU, world 2.60 AU, Gamma 36 AU |
+| **Alpha's Refuge** | S-type nested hierarchy | world around Alpha at 0.80 AU, Beta 6.5 AU, Gamma 52 AU |
+
+All four deterministic architectures complete the 60 000-year headless stability check;
+the first three are P-type circumbinary worlds and Alpha's Refuge is the S-type
+counterexample. The numerical check uses the same browser-loaded physics module as the
+visual simulation:
+
+```bash
+cd desktop
+ASTRARIUM_STABILITY=1 ./node_modules/.bin/electron .
+```
+
 The chaos therefore lives in the **climate**, not in the orbits — and that is real
 chaos, not a script. Insolation swings by a factor of ~8 (0.40 → 3.08 S⊕) every
 1.7-year orbit, and a zero-dimensional energy-balance model turns that into eras:
@@ -122,7 +140,8 @@ Trisolarans want to leave.
 
 ## Features
 
-- **Scenarios:** **Trisolaris** · **Trisolaris — Chaotic Era** · Black Hole Sandbox ·
+- **Scenarios:** **Trisolaris** · **Compact Haven** · **Wide Seasons** · **Alpha's Refuge** ·
+  **Trisolaris — Chaotic Era** · Black Hole Sandbox ·
   Solar System (real distances & masses — zoom way out for Pluto) · Three-Body
   figure-eight (an exact choreography solution) · Binary Star · Binary Black Hole
   Merger · Neutron Star Merger (kilonova) · BH Devouring a Star.

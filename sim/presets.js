@@ -51,6 +51,81 @@ function kepler(Mtot, a, e, incl, nu) {
 const addv = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 const mulv = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
 
+// Shared three-sun constructors. The nested Kepler states put every level at
+// its own barycentre before the outer orbit is applied, which avoids the small
+// but secular kick caused by simply placing the inner system at the origin.
+function triStar(name, mass, extra = {}) {
+  return {
+    type: 'star', name, mass,
+    luminosity: luminosity(mass), teff: effectiveTemp(mass), ...extra,
+  };
+}
+
+function circumbinaryTriad({
+  mA, mB, mC, aBin, aWorld, eWorld, worldNu = Math.PI,
+  aOuter, eOuter, outerIncl = 0, outerNu = Math.PI * 0.55,
+  world = {},
+}) {
+  const Mab = mA + mB;
+  const kb = kepler(Mab, aBin, 0, 0, 0);
+  const A = { ...triStar('Alpha', mA), pos: mulv(kb.pos, -mB / Mab), vel: mulv(kb.vel, -mB / Mab) };
+  const B = { ...triStar('Beta', mB), pos: mulv(kb.pos, mA / Mab), vel: mulv(kb.vel, mA / Mab) };
+
+  const kw = kepler(Mab, aWorld, eWorld, 0, worldNu);
+  const P = {
+    type: 'world', name: 'Trisolaris', mass: 3.0e-6,
+    pos: kw.pos, vel: kw.vel,
+    dayLength: 1 / 90, obliquity: 0.41, home: true,
+    ...world,
+  };
+
+  // The outer star orbits the barycentre of the binary + world, not the
+  // binary alone. The distinction is tiny here, but keeps the construction
+  // self-consistent and makes the helper safe for heavier test worlds too.
+  const Min = Mab + P.mass, Mtot = Min + mC;
+  const ko = kepler(Mtot, aOuter, eOuter, outerIncl, outerNu);
+  const C = { ...triStar('Gamma', mC), pos: mulv(ko.pos, Min / Mtot), vel: mulv(ko.vel, Min / Mtot) };
+  const off = mulv(ko.pos, -mC / Mtot), offv = mulv(ko.vel, -mC / Mtot);
+  for (const b of [A, B, P]) { b.pos = addv(b.pos, off); b.vel = addv(b.vel, offv); }
+
+  return [A, B, C, P];
+}
+
+function alphaWorldTriad({
+  mA, mB, mC, aWorld, eWorld, worldNu = Math.PI,
+  aBeta, eBeta, betaIncl = 0, betaNu = 0,
+  aOuter, eOuter, outerIncl = 0, outerNu = Math.PI * 0.55,
+  world = {},
+}) {
+  // First level: Trisolaris is an S-type world around Alpha.
+  const Mwp = mA + 3.0e-6;
+  const kw = kepler(Mwp, aWorld, eWorld, 0, worldNu);
+  const A = { ...triStar('Alpha', mA), pos: mulv(kw.pos, -3.0e-6 / Mwp), vel: mulv(kw.vel, -3.0e-6 / Mwp) };
+  const P = {
+    type: 'world', name: 'Trisolaris', mass: 3.0e-6,
+    pos: mulv(kw.pos, mA / Mwp), vel: mulv(kw.vel, mA / Mwp),
+    dayLength: 1 / 90, obliquity: 0.41, home: true,
+    ...world,
+  };
+
+  // Second level: Beta circles the Alpha + world pair. Gamma then circles the
+  // entire nested system, so neither outer orbit is started around a false
+  // origin.
+  const Minner = Mwp + mB;
+  const kb = kepler(Minner, aBeta, eBeta, betaIncl, betaNu);
+  const B = { ...triStar('Beta', mB), pos: mulv(kb.pos, Mwp / Minner), vel: mulv(kb.vel, Mwp / Minner) };
+  const boff = mulv(kb.pos, -mB / Minner), boffv = mulv(kb.vel, -mB / Minner);
+  for (const b of [A, P]) { b.pos = addv(b.pos, boff); b.vel = addv(b.vel, boffv); }
+
+  const Mtot = Minner + mC;
+  const ko = kepler(Mtot, aOuter, eOuter, outerIncl, outerNu);
+  const C = { ...triStar('Gamma', mC), pos: mulv(ko.pos, Minner / Mtot), vel: mulv(ko.vel, Minner / Mtot) };
+  const off = mulv(ko.pos, -mC / Mtot), offv = mulv(ko.vel, -mC / Mtot);
+  for (const b of [A, B, P]) { b.pos = addv(b.pos, off); b.vel = addv(b.vel, offv); }
+
+  return [A, B, C, P];
+}
+
 // circular orbit about a dominant central mass at the origin
 function orbiter(Mc, a, spec, angle = Math.random() * Math.PI * 2, incl = 0) {
   const v = circularSpeed(Mc, a);
@@ -150,7 +225,9 @@ export const PRESETS = {
     name: 'Trisolaris',
     blurb: 'Three suns, one world. A tight binary (Alpha + Beta) with Trisolaris on a wide eccentric circumbinary orbit, and hot Gamma sweeping past every 51 years. Insolation swings 9× — the Stable and Chaotic Eras are emergent, not scripted. Stable for 60 000+ years.',
     sceneScale: 4.0, bodyScale: 0.55, camRadius: 20, lensing: false,
-    timeScale: 0.35, maxStep: 8e-4,
+    // The tighter cap keeps the 60 000-year phase error bounded; 8e-4 is fast
+    // enough to look fine but eventually lets this particular hierarchy drift.
+    timeScale: 0.35, maxStep: 4e-4,
     surface: true, focus: 'Alpha', mesh: false,                      // offers the view-from-the-ground camera
     climate: { mixedLayer: 12, T0: 288 },
     build() {
@@ -190,6 +267,71 @@ export const PRESETS = {
       for (const b of [A, B, P]) { b.pos = addv(b.pos, off); b.vel = addv(b.vel, offv); }
 
       return [A, B, C, P];
+    },
+  },
+
+  // A more compact P-type hierarchy. The inner binary is tighter and Gamma
+  // comes closer, but the world still has >4 binary separations at periapsis
+  // and Gamma stays >7 world apocentres away at its closest approach.
+  trisolaris_compact: {
+    sky: { env: 'disc', tilt: 0.50, roll: 0.65 },
+    name: 'Trisolaris - Compact Haven',
+    blurb: 'A compact, bright hierarchy: Trisolaris circles Alpha and Beta at 1.35 AU while Gamma sweeps the 15 AU outer orbit. Three suns, stronger encounters, and a stable 60 000-year architecture.',
+    sceneScale: 4.0, bodyScale: 0.55, camRadius: 20, lensing: false,
+    timeScale: 0.35, maxStep: 4e-4,
+    surface: true, focus: 'Alpha', mesh: false,
+    climate: { mixedLayer: 12, T0: 288 },
+    build() {
+      return circumbinaryTriad({
+        mA: 1.15, mB: 0.75, mC: 1.55,
+        aBin: 0.24, aWorld: 1.35, eWorld: 0.22,
+        aOuter: 15.0, eOuter: 0.22, outerIncl: 12 * Math.PI / 180,
+        outerNu: Math.PI * 0.65,
+      });
+    },
+  },
+
+  // A wide P-type hierarchy trades encounter strength for a long outer period.
+  // The planet's 2.6 AU orbit has room for a large seasonal cycle without
+  // approaching the circumbinary stability boundary.
+  trisolaris_wide: {
+    sky: { env: 'disc', tilt: 0.60, roll: 0.10 },
+    name: 'Trisolaris - Wide Seasons',
+    blurb: 'A wide circumbinary world: Alpha and Beta are 0.55 AU apart, Trisolaris follows a 2.6 AU eccentric orbit, and Gamma returns every century from 36 AU. Verified stable for 60 000 simulated years.',
+    sceneScale: 3.0, bodyScale: 0.55, camRadius: 28, lensing: false,
+    timeScale: 0.35, maxStep: 4e-4,
+    surface: true, focus: 'Alpha', mesh: false,
+    climate: { mixedLayer: 18, T0: 288 },
+    build() {
+      return circumbinaryTriad({
+        mA: 1.05, mB: 0.90, mC: 1.65,
+        aBin: 0.55, aWorld: 2.60, eWorld: 0.28,
+        aOuter: 36.0, eOuter: 0.25, outerIncl: 18 * Math.PI / 180,
+        outerNu: Math.PI * 0.40,
+      });
+    },
+  },
+
+  // The world need not be circumbinary. This S-type solution nests the world
+  // around Alpha, Beta around that pair, and Gamma around the whole hierarchy.
+  // It is a useful counterexample to the first preset: the planet gets a
+  // familiar dominant sun while the other two still make a changing sky.
+  trisolaris_alpha: {
+    sky: { env: 'disc', tilt: 0.46, roll: 1.05 },
+    name: "Trisolaris - Alpha's Refuge",
+    blurb: "An S-type solution: Trisolaris orbits Alpha at 0.8 AU, Beta circles the pair at 6.5 AU, and Gamma stays out at 52 AU. The planet remains bound to its home sun for 60 000+ simulated years.",
+    sceneScale: 2.4, bodyScale: 0.55, camRadius: 24, lensing: false,
+    timeScale: 0.35, maxStep: 4e-4,
+    surface: true, focus: 'Alpha', mesh: false,
+    climate: { mixedLayer: 14, T0: 288 },
+    build() {
+      return alphaWorldTriad({
+        mA: 1.10, mB: 0.80, mC: 1.60,
+        aWorld: 0.80, eWorld: 0.12, worldNu: Math.PI,
+        aBeta: 6.50, eBeta: 0.18, betaIncl: 8 * Math.PI / 180, betaNu: 0.90,
+        aOuter: 52.0, eOuter: 0.20, outerIncl: 18 * Math.PI / 180,
+        outerNu: Math.PI * 0.60,
+      });
     },
   },
 
@@ -293,4 +435,4 @@ export const PRESETS = {
   },
 };
 
-export const PRESET_ORDER = ['trisolaris', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];
+export const PRESET_ORDER = ['trisolaris', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];

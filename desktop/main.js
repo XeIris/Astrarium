@@ -33,7 +33,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const ENTRY = 'blackhole_sim.html';
+const stabilityMode = !!process.env.ASTRARIUM_STABILITY;
+const ENTRY = stabilityMode ? 'desktop/stability.html' : 'blackhole_sim.html';
 
 // ---- GPU switches ----------------------------------------------------------
 // These must be set before app 'ready'.
@@ -119,18 +120,21 @@ async function createWindow() {
 
   if (process.env.ASTRARIUM_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
 
-  // ---- benchmark mode ------------------------------------------------------
-  // ASTRARIUM_BENCH=1 runs desktop/bench.js in the renderer, prints the JSON to
-  // stdout and exits. This is the whole reason the shell earns its place: it
-  // makes the sim measurable without a human watching a window.
-  if (process.env.ASTRARIUM_BENCH) {
+  // ---- automation modes ----------------------------------------------------
+  // Both modes run in a hidden renderer, print JSON, and exit. This keeps the
+  // visual benchmark and the long numerical stability check out of the normal
+  // interactive shell while still exercising the browser's actual modules.
+  const automation = stabilityMode ? 'stability.js' : (process.env.ASTRARIUM_BENCH ? 'bench.js' : null);
+  if (automation) {
     win.webContents.once('did-finish-load', async () => {
       try {
-        const src = fs.readFileSync(path.join(__dirname, 'bench.js'), 'utf8');
+        const src = fs.readFileSync(path.join(__dirname, automation), 'utf8');
         const result = await win.webContents.executeJavaScript(src, true);
-        process.stdout.write('\n===BENCH===\n' + JSON.stringify(result, null, 2) + '\n===END===\n');
+        const label = stabilityMode ? 'STABILITY' : 'BENCH';
+        process.stdout.write(`\n===${label}===\n` + JSON.stringify(result, null, 2) + `\n===END===\n`);
       } catch (err) {
-        process.stdout.write('\n===BENCH-ERROR===\n' + (err && err.stack || String(err)) + '\n');
+        const label = stabilityMode ? 'STABILITY' : 'BENCH';
+        process.stdout.write(`\n===${label}-ERROR===\n` + (err && err.stack || String(err)) + '\n');
       }
       app.exit(0);
     });

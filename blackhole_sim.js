@@ -67,7 +67,7 @@ const presetGroup = (id, label, keys) => ({
   id, label, keys: PRESET_ORDER.filter(key => keys.includes(key)),
 });
 const PRESET_GROUPS = [
-  presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_chaos']),
+  presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos']),
   presetGroup('black-holes', 'BH scenarios', ['sandbox', 'bhmerger', 'feeding']),
   presetGroup('neutron-stars', 'Neutron star scenarios', ['nsmerger']),
   presetGroup('stellar-systems', 'Stellar system scenarios', ['solar', 'threebody', 'binarystar']),
