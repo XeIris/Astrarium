@@ -28,17 +28,15 @@
     <h3>Scenario</h3>
     <button class="panel-close" data-close="scenarioPanel" title="Collapse (H hides everything)">✕</button>
   </div>
-  <div class="preset-grid">
-    <button class="preset-btn tri" data-preset="trisolaris">☀☀☀ Trisolaris</button>
-    <button class="preset-btn tri" data-preset="trisolaris_chaos">Trisolaris — Chaotic Era</button>
-    <button class="preset-btn active" data-preset="sandbox">Black Hole Sandbox</button>
-    <button class="preset-btn" data-preset="solar">Solar System (true scale)</button>
-    <button class="preset-btn" data-preset="threebody">Three-Body (figure-8)</button>
-    <button class="preset-btn" data-preset="binarystar">Binary Star</button>
-    <button class="preset-btn" data-preset="bhmerger">Binary BH Merger</button>
-    <button class="preset-btn" data-preset="nsmerger">Neutron Star Merger</button>
-    <button class="preset-btn" data-preset="feeding">BH Devouring a Star</button>
+  <div class="preset-search">
+    <label class="sr-only" for="presetSearch">Search scenarios or categories</label>
+    <input id="presetSearch" type="search" placeholder="Search scenarios / categories"
+      autocomplete="off" spellcheck="false">
+    <button id="presetSearchClear" class="preset-search-clear" type="button"
+      aria-label="Clear scenario search" hidden>✕</button>
   </div>
+  <div class="preset-list" id="presetList"></div>
+  <div class="preset-empty" id="presetEmpty" hidden>No matching scenarios</div>
   <div class="blurb" id="blurb"></div>
 </div>
 

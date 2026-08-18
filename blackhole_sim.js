@@ -57,7 +57,23 @@ const DOM = {};
  'discRow', 'tempRow', 'camSurface', 'climatePanel', 'eraBadge',
  'eraDesc', 'cTemp', 'cFlux', 'cIce', 'cCloud', 'cTau', 'cExtremes', 'climateChart',
  'sunList', 'simClock', 'starPanel', 'skyRow', 'bhPanel',
- 'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs'].forEach(id => DOM[id] = document.getElementById(id));
+ 'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs', 'presetSearch',
+ 'presetSearchClear', 'presetList', 'presetEmpty'].forEach(id => DOM[id] = document.getElementById(id));
+
+// The scenario catalogue is grouped here rather than in the physics presets:
+// these labels are navigation, while PRESETS remains the source of truth for
+// each scenario's initial conditions and rendering settings.
+const presetGroup = (id, label, keys) => ({
+  id, label, keys: PRESET_ORDER.filter(key => keys.includes(key)),
+});
+const PRESET_GROUPS = [
+  presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_chaos']),
+  presetGroup('black-holes', 'BH scenarios', ['sandbox', 'bhmerger', 'feeding']),
+  presetGroup('neutron-stars', 'Neutron star scenarios', ['nsmerger']),
+  presetGroup('stellar-systems', 'Stellar system scenarios', ['solar', 'threebody', 'binarystar']),
+];
+const openPresetGroups = new Set();
+let presetSearchText = '';
 
 // ============================================================================
 // SCENE / RENDERER / CAMERA
@@ -888,6 +904,63 @@ function loadPreset(key) {
 // ============================================================================
 // UI
 // ============================================================================
+function renderPresetGroups() {
+  presetSearchText = (DOM.presetSearch?.value ?? '').trim().toLowerCase();
+  const searching = presetSearchText.length > 0;
+  let visibleGroups = 0;
+
+  const markup = PRESET_GROUPS.map(group => {
+    const groupText = `${group.id} ${group.label}`.toLowerCase();
+    const groupMatches = searching && groupText.includes(presetSearchText);
+    const visibleKeys = !searching || groupMatches
+      ? group.keys
+      : group.keys.filter(key => {
+          const p = PRESETS[key];
+          return `${key} ${p.name}`.toLowerCase().includes(presetSearchText);
+        });
+    if (!visibleKeys.length) return '';
+
+    visibleGroups++;
+    const count = searching && !groupMatches
+      ? `${visibleKeys.length}/${group.keys.length}`
+      : `${group.keys.length}`;
+    const open = searching || openPresetGroups.has(group.id);
+    const buttons = visibleKeys.map(key => {
+      const p = PRESETS[key];
+      const tri = group.id === 'trisolaris' ? ' tri' : '';
+      const active = p === state.preset ? ' active' : '';
+      return `<button class="preset-btn${tri}${active}" data-preset="${key}">${p.name}</button>`;
+    }).join('');
+
+    return `<details class="preset-group" data-group="${group.id}"${open ? ' open' : ''}>
+      <summary><span class="preset-group-name">${group.label}</span><span class="preset-group-count">${count}</span></summary>
+      <div class="preset-group-items">${buttons}</div>
+    </details>`;
+  }).join('');
+
+  DOM.presetList.innerHTML = markup;
+  DOM.presetList.hidden = visibleGroups === 0;
+  DOM.presetEmpty.hidden = visibleGroups !== 0;
+  if (DOM.presetEmpty && searching) {
+    DOM.presetEmpty.textContent = `No scenarios or categories match "${DOM.presetSearch.value.trim()}"`;
+  }
+  if (DOM.presetSearchClear) DOM.presetSearchClear.hidden = !searching;
+
+  // Native details provide the dropdown behavior and keyboard accessibility.
+  // Search owns the open state while active so every matching category stays
+  // visible; manually opened groups are remembered when the query is cleared.
+  DOM.presetList.querySelectorAll('.preset-group').forEach(group => {
+    group.addEventListener('toggle', () => {
+      if (presetSearchText) {
+        if (!group.open) group.open = true;
+        return;
+      }
+      if (group.open) openPresetGroups.add(group.dataset.group);
+      else openPresetGroups.delete(group.dataset.group);
+    });
+  });
+}
+
 function refreshUI() {
   // body list
   if (state.bodies.length === 0) {
@@ -1104,8 +1177,19 @@ if (DOM.bandGrid) {
 }
 setBand(VISIBLE_BAND);
 
+renderPresetGroups();
+DOM.presetSearch?.addEventListener('input', renderPresetGroups);
+DOM.presetSearchClear?.addEventListener('click', () => {
+  DOM.presetSearch.value = '';
+  renderPresetGroups();
+  DOM.presetSearch.focus();
+});
+DOM.presetList?.addEventListener('click', event => {
+  const btn = event.target.closest('[data-preset]');
+  if (btn) loadPreset(btn.dataset.preset);
+});
+
 document.querySelectorAll('[data-spawn]').forEach(btn => btn.addEventListener('click', () => spawnOrbiting(btn.dataset.spawn)));
-document.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => loadPreset(btn.dataset.preset)));
 document.getElementById('clear').addEventListener('click', clearBodies);
 document.getElementById('delFocus').addEventListener('click', () => { if (state.focusId != null) removeBody(state.focusId); });
 DOM.camOrbit.addEventListener('click', () => setCamMode('orbit'));
