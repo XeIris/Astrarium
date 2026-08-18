@@ -32,7 +32,10 @@
         : spec.type === 'world' ? 0.13 : 0.15;
       const radiusScene = b.radius * preset.sceneScale;
       const boostedScene = base * (preset.bodyScale ?? 1);
-      b.contactAU = (preset.trueScale ? radiusScene : boostedScene) / preset.sceneScale;
+      // honour a spec's explicit physical destruction distance, exactly as
+      // attachVisual() does in the renderer
+      b.contactAU = spec.contactAU
+        ?? (preset.trueScale ? radiusScene : boostedScene) / preset.sceneScale;
       return b;
     });
   }

@@ -67,7 +67,7 @@ const presetGroup = (id, label, keys) => ({
   id, label, keys: PRESET_ORDER.filter(key => keys.includes(key)),
 });
 const PRESET_GROUPS = [
-  presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos']),
+  presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos']),
   presetGroup('black-holes', 'BH scenarios', ['sandbox', 'bhmerger', 'feeding']),
   presetGroup('neutron-stars', 'Neutron star scenarios', ['nsmerger']),
   presetGroup('stellar-systems', 'Stellar system scenarios', ['solar', 'threebody', 'binarystar']),
@@ -250,7 +250,14 @@ function attachVisual(b) {
   const spec = b.spec, def = b.def;
   const radiusScene = renderRadius(b, spec, b.mass0);
   b.radiusScene = radiusScene;
-  b.contactAU = radiusScene / state.sceneScale;
+  // Destruction distance. By default a body is destroyed when it touches what
+  // you can SEE, which keeps the exaggerated view self-consistent. But that ties
+  // a physical outcome to a drawing convention: at the Trisolaris presets' scale
+  // an exaggerated star reaches ~9x further out than its real photosphere, which
+  // quietly decides which close passes a world walks away from. A spec may
+  // override it with a real distance in AU (see the Roche limits in
+  // sim/presets.js).
+  b.contactAU = spec.contactAU ?? radiusScene / state.sceneScale;
   if (spec.type === 'bh') b.rsScene = radiusScene;
 
   const palette = spec.palette ? GAS_PALETTES[spec.palette] : null;

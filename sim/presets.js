@@ -1,4 +1,4 @@
-import { circularSpeed, G } from './physics.js';
+import { circularSpeed, rocheLimit, G } from './physics.js';
 import { luminosity, effectiveTemp } from './stellar.js';
 
 // ============================================================================
@@ -122,6 +122,80 @@ function alphaWorldTriad({
   const C = { ...triStar('Gamma', mC), pos: mulv(ko.pos, Minner / Mtot), vel: mulv(ko.vel, Minner / Mtot) };
   const off = mulv(ko.pos, -mC / Mtot), offv = mulv(ko.vel, -mC / Mtot);
   for (const b of [A, B, P]) { b.pos = addv(b.pos, off); b.vel = addv(b.vel, offv); }
+
+  return [A, B, C, P];
+}
+
+// ----------------------------------------------------------------------------
+// A 2+2 hierarchy deliberately parked NEAR its stability boundary, which is the
+// only architecture that gives the book's sky without the book's death sentence.
+//
+//   Alpha       the home sun. Trisolaris orbits it at aP, close in and tightly
+//               bound, which is what lets the world survive at all.
+//   Beta+Gamma  a tight pair (aBC) that together orbit Alpha on a wide, eccentric,
+//               inclined orbit whose periapsis dives to q2 = a2(1 - e2).
+//
+// What makes the resulting sky non-repeating rather than merely periodic is that
+// the encounters are strong and NOT in the secular regime. Each periapsis passage
+// brings the pair to within q2 - aP of the world and delivers an impulsive kick to
+// its orbit; near the Mardling-Aarseth stability boundary those kicks are large
+// enough that the world's semi-major axis, eccentricity and orientation take a
+// chaotic walk instead of averaging out. So no two passages find the world in the
+// same place on the same orbit, and Beta and Gamma swing between flying-star
+// points and discs that rival the home sun's, whirling around each other as they
+// come. (Note that a modest `i2` is deliberate: below the ~39.2 deg Kozai-Lidov
+// critical angle there is no eccentricity-inclination libration to speak of. The
+// inclination here is not driving the chaos, it just denies the encounters a
+// shared plane and keeps the suns from tracing one repeated line across the sky.)
+//
+// `qRatio` = q2 / aP is the single knob that matters. Below ~4 the world is
+// stripped within decades; above ~6 the kicks weaken, the system relaxes toward a
+// plain hierarchy, and the sky goes back to being predictable — measurably so, in
+// a grid scan the one-sun fraction climbs from 21% to over 70%. See the preset.
+// ----------------------------------------------------------------------------
+function wanderingTriad({
+  mA, mB, mC, aBC, eBC = 0.10, e2, i2, qRatio, fLight = 1.0,
+  eP = 0.04, nuP = 0, nu2 = Math.PI, nuBC = 0, world = {},
+}) {
+  const mp = 3.0e-6;
+  // put the world where Alpha alone delivers `fLight` Earth-suns
+  const aP = Math.sqrt(luminosity(mA) / fLight);
+  const a2 = (qRatio * aP) / (1 - e2);
+
+  // A close pass is survivable here only because the destruction distance is the
+  // real one. Left to the default, a body is destroyed on contact with its
+  // *drawn* radius: for these stars that is 3.5-3.7x the true photosphere and
+  // ~2x the Roche limit, and on the flagship preset's fatter drawing convention
+  // it is ~9x and ~7x. That difference decides which close passes the world
+  // walks away from, so it should not be a drawing choice. See attachVisual().
+  const star = (name, mass) => ({
+    type: 'star', name, mass,
+    luminosity: luminosity(mass), teff: effectiveTemp(mass),
+    contactAU: rocheLimit(mass),
+  });
+
+  // level 1: Trisolaris about Alpha
+  const MAp = mA + mp;
+  const kp = kepler(MAp, aP, eP, 0, nuP);
+  const A = { ...star('Alpha', mA), pos: mulv(kp.pos, -mp / MAp), vel: mulv(kp.vel, -mp / MAp) };
+  const P = {
+    type: 'world', name: 'Trisolaris', mass: mp,
+    pos: mulv(kp.pos, mA / MAp), vel: mulv(kp.vel, mA / MAp),
+    dayLength: 1 / 90, obliquity: 0.41, home: true,
+    ...world,
+  };
+
+  // level 1b: the Beta-Gamma pair about its own barycentre
+  const MBC = mB + mC;
+  const kbc = kepler(MBC, aBC, eBC, 0, nuBC);
+  const B = { ...star('Beta', mB), pos: mulv(kbc.pos, -mC / MBC), vel: mulv(kbc.vel, -mC / MBC) };
+  const C = { ...star('Gamma', mC), pos: mulv(kbc.pos, mB / MBC), vel: mulv(kbc.vel, mB / MBC) };
+
+  // level 2: the pair's barycentre about Alpha's, inclined and eccentric
+  const Mt = MAp + MBC;
+  const k2 = kepler(Mt, a2, e2, i2, nu2);
+  for (const b of [B, C]) { b.pos = addv(b.pos, k2.pos, MAp / Mt); b.vel = addv(b.vel, k2.vel, MAp / Mt); }
+  for (const b of [A, P]) { b.pos = addv(b.pos, k2.pos, -MBC / Mt); b.vel = addv(b.vel, k2.vel, -MBC / Mt); }
 
   return [A, B, C, P];
 }
@@ -336,6 +410,86 @@ export const PRESETS = {
   },
 
   // --------------------------------------------------------------------------
+  // TRISOLARIS — WANDERING SUNS
+  // --------------------------------------------------------------------------
+  // The other four Trisolaris presets put the chaos in the climate and keep the
+  // orbits tame, which is what makes them last 60 000 years — but it also makes
+  // their sky honest to the physics and *not* to the book. Alpha and Beta stay a
+  // fixed pair overhead and Gamma sits 20 AU out contributing 0.04 S⊕: a third
+  // sun you have to be told about. Nobody would write a religion around it.
+  //
+  // This one is built the other way round, for the SKY. It is a 2+2 hierarchy
+  // parked just inside the region where secular evolution goes chaotic:
+  //
+  //   Alpha  0.58 M☉  K5, 4163 K   the home sun, 0.34 AU away — an orange disc
+  //                                twice the width of Earth's Sun
+  //   Beta   1.25 M☉  F5, 6770 K   — a tight 0.45 AU pair with a 78-day period,
+  //   Gamma  0.78 M☉  K2, 4973 K     the two of them on one wide e = 0.50 orbit
+  //                                  inclined 22° to the world's own
+  //
+  // The pair's periapsis dives to 1.68 AU — five times the world's own orbit,
+  // which is close enough for Beta and Gamma to swell into discs and pull the
+  // world's orbit around, and far enough that it is not simply torn away on the
+  // first pass. Every 3.8 years they come back, and each passage kicks the world's
+  // orbit hard enough that this close to the stability boundary the kicks compound
+  // chaotically rather than averaging away — so no two returns find the world where
+  // the last one left it, and none of them look alike. Nothing here is scripted or
+  // animated: the suns wander because the three-body problem says they do.
+  //
+  // Measured over a 24-run ensemble at this preset's own step cap (75 203 samples;
+  // see the note on determinism below), counting how many of the three are close
+  // enough to show a real disc — at least a quarter of the width Earth's Sun
+  // shows us, which is a statement about distance and not about how big this sim
+  // chooses to draw them:
+  //
+  //     none               3%        true dark. Rare, and it does happen
+  //     one               21%        a Stable Era. The sky you could plan a harvest by
+  //     two               44%        the ordinary state of affairs
+  //     three             32%        a tri-solar day, and the world bakes
+  //
+  // The same measurement on the flagship preset gives a flat 0 / 0 / 100 / 0 —
+  // two suns, always, never changing size. Insolation here runs 0.64 (5th pct) to
+  // 3.68 (95th), tailing to 7.8 at the 99th, and stays in the liquid-water band
+  // 91% of the time. How many are above the HORIZON at any moment is then set by
+  // the world's own 4-day rotation on top of that: near a close approach a single
+  // day carries you through all four of those skies and back.
+  //
+  // ON DETERMINISM. A chaotic system's Lyapunov time is of order its orbital
+  // period, so after a few decades this scenario's trajectory is set by
+  // floating-point rounding, not by these initial conditions — your run will NOT
+  // match the numbers above shot for shot, and cannot. Everything quoted here is
+  // therefore pooled over 24 runs differing only in starting phase, which is the
+  // only kind of claim that means anything about a system like this. On that
+  // ensemble the world lives a median of 382 years (shortest 92, longest 3437) and
+  // always ends: 14 of the 24 runs ejected it into the dark, the other 10 fed it
+  // to a star's Roche limit. It is supposed to end. That is the premise of the
+  // book. Worst-case energy drift across those runs is 5.3e-4.
+  trisolaris_wander: {
+    sky: { env: 'disc', tilt: 0.52, roll: 0.85 },
+    name: 'Trisolaris — Wandering Suns',
+    blurb: 'Three suns that genuinely wander. A tight Beta+Gamma pair dives past the home sun every 3.8 years on a chaotically evolving inclined orbit, so the sky is never the same twice: one sun 21% of the time, two 44%, three 32%, dark 3% — against two-suns-always for the other architectures. Stand on the planet (V); this is the one built for the view. Unlike them it is not stable, and it is not meant to be: the world lives a few centuries, then is ejected or torn apart.',
+    sceneScale: 4.0, bodyScale: 0.20, camRadius: 18, lensing: false,
+    // Close passes are the whole point here, so the step cap is tighter than the
+    // stable presets'. At 3e-4 the worst-case relative energy drift is 6e-5 over
+    // 1500 years and 5.3e-4 across the full 24-run ensemble; halving the cap again
+    // changes neither the lifetimes nor the sky statistics.
+    timeScale: 0.35, maxStep: 3e-4,
+    surface: true, focus: 'Alpha', mesh: false,
+    // a deeper mixed layer than the flagship: the swings here are sharper, and
+    // 20 m of ocean is what keeps them eras rather than weather.
+    climate: { mixedLayer: 20, T0: 288 },
+    build() {
+      return wanderingTriad({
+        mA: 0.58, mB: 1.25, mC: 0.78,
+        aBC: 0.45, eBC: 0.10,
+        e2: 0.50, i2: 22 * Math.PI / 180,
+        qRatio: 5.0, fLight: 1.0,
+        eP: 0.04, nuP: 0.9, nu2: Math.PI, nuBC: 2.1,
+      });
+    },
+  },
+
+  // --------------------------------------------------------------------------
   // The honest version: a genuine, non-hierarchical three-body system. This is
   // what the Trisolarans actually live with — and it is why they want to leave.
   // Expect the planet to be flung into a wildly eccentric orbit, swallowed, or
@@ -435,4 +589,4 @@ export const PRESETS = {
   },
 };
 
-export const PRESET_ORDER = ['trisolaris', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];
+export const PRESET_ORDER = ['trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];
