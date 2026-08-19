@@ -85,8 +85,27 @@ simulated years** with a relative energy drift of ~1e-7 — several hours of con
 watching before anything drifts. Closer-in variants of Gamma's orbit were tested and
 did disintegrate (at 22 AU it survives; at 14 AU the planet is ejected after ~1900 yr).
 
-The chaos therefore lives in the **climate**, not in the orbits — and that is real
-chaos, not a script. Insolation swings by a factor of ~8 (0.40 → 3.08 S⊕) every
+Three additional stable architectures are available in the Trisolaris scenario group:
+
+| scenario | architecture | defining scales |
+| -------- | ------------ | --------------- |
+| **Compact Haven** | tighter circumbinary hierarchy | binary 0.24 AU, world 1.35 AU, Gamma 15 AU |
+| **Wide Seasons** | wide circumbinary hierarchy | binary 0.55 AU, world 2.60 AU, Gamma 36 AU |
+| **Alpha's Refuge** | S-type nested hierarchy | world around Alpha at 0.80 AU, Beta 6.5 AU, Gamma 52 AU |
+
+All four deterministic architectures complete the 60 000-year headless stability check;
+the first three are P-type circumbinary worlds and Alpha's Refuge is the S-type
+counterexample. The numerical check uses the same browser-loaded physics module as the
+visual simulation:
+
+```bash
+cd desktop
+ASTRARIUM_STABILITY=1 ./node_modules/.bin/electron .
+```
+
+In these four the chaos therefore lives in the **climate**, not in the orbits — and
+that is real chaos, not a script. (For the version where the *orbits* misbehave too,
+see **Wandering Suns** below.) Insolation swings by a factor of ~8 (0.40 → 3.08 S⊕) every
 1.7-year orbit, and a zero-dimensional energy-balance model turns that into eras:
 
 ```text
@@ -115,14 +134,71 @@ then settles instead of flash-banging the whole frame.
 Because a sunset takes minutes while an era takes centuries, time is logarithmic with
 four named regimes — **Sunset · Days · Seasons · Eras**.
 
-There is also **Trisolaris — Chaotic Era**: the same three suns with *no* hierarchy, a
-genuine chaotic three-body system. The planet is thrown around and usually ejected or
-consumed within a few centuries. That is the honest version, and it is why the
-Trisolarans want to leave.
+### Wandering Suns — the sky the book actually describes
+
+Stability has a cost, and it is paid in the sky. In all four architectures above the
+two near suns keep a fixed apparent size and the third sits 20 AU out contributing
+0.04 S⊕ — a sun you have to be *told* about. Nobody would build a religion around it.
+
+**Trisolaris — Wandering Suns** is built the other way round, for the view from the
+ground. It is a 2+2 hierarchy parked just inside the region where secular evolution
+turns chaotic: the world orbits Alpha (0.58 M☉, K5) at 0.34 AU, while Beta (1.25 M☉,
+F5) and Gamma (0.78 M☉, K2) form a tight 0.45 AU pair on a wide *e* = 0.50 orbit
+inclined 22°, whose periapsis dives to 1.68 AU — five times the world's own orbit.
+
+Every 3.8 years the pair comes back, and each passage delivers an impulsive kick to the
+world's orbit. This close to the Mardling–Aarseth stability boundary those kicks are
+strong enough to compound chaotically instead of averaging away, so no two returns find
+the world where the last one left it. (The 22° inclination is not doing the work — it is
+below the ~39.2° Kozai–Lidov critical angle, so there is no eccentricity–inclination
+libration here. It simply denies the encounters a shared plane, which keeps the suns
+from tracing one repeated line across the sky.) The ratio of the pair's periapsis to the
+world's orbit is the whole knob: below ~4 the world is stripped within decades, above ~6
+the kicks weaken and the one-sun fraction climbs from 21% back over 70%.
+
+Counting how many suns are near enough to show a real disc (at least a quarter the
+width Earth's Sun shows us — a statement about distance, not about how big the sim
+draws them):
+
+| suns showing a disc | Wandering Suns | flagship Trisolaris |
+| --- | --- | --- |
+| none | 3% | 0% |
+| one | 21% | 0% |
+| two | 44% | **100%** |
+| three | 32% | 0% |
+
+Insolation runs **0.64 → 3.68 S⊕** (5th–95th percentile, tailing to 7.8 at the 99th) and
+stays in the liquid-water band 91% of the time. How many are above the *horizon* at any
+moment is then the world's own 4-day rotation on top of that: near a close approach a
+single day carries you through all four skies — a two-sun night, a tri-solar day, a lone
+sun, and true darkness — and back.
+
+**On determinism.** A chaotic system's Lyapunov time is of order its orbital period, so
+after a few decades this scenario's trajectory is set by floating-point rounding rather
+than by its initial conditions. Your run will not match those numbers shot for shot and
+cannot; every figure above is pooled over a **24-run ensemble** (75 203 samples) at the
+preset's own step cap, differing only in starting phase — which is the only kind of claim
+that means anything about a system like this. On that ensemble the world lives a median
+of **382 years** (shortest 92, longest 3437) and always ends: 14 runs ejected it into the
+dark, the other 10 fed it to a star's Roche limit. It is *supposed* to end. Worst-case
+relative energy drift across those runs is 5.3e-4.
+
+This one also fixes a quiet distortion. A body used to be destroyed on contact with its
+**drawn** radius, and these stars are drawn several times oversize — at the flagship
+preset's scale a star reached ~9× further out than its real photosphere, silently
+deciding which close passes a world walks away from. A preset can now give a real
+destruction distance in AU; this one uses the **Roche limit**, `d = 2.44 R★ (ρ★/ρ)^⅓`,
+the distance at which a rocky world is pulled apart before it ever reaches the surface.
+
+Finally there is **Trisolaris — Chaotic Era**: the same three suns with *no* hierarchy at
+all, a genuine chaotic three-body system. The planet is thrown around and usually ejected
+or consumed within a few centuries. That is the honest limit of the idea, and it is why
+the Trisolarans want to leave.
 
 ## Features
 
-- **Scenarios:** **Trisolaris** · **Trisolaris — Chaotic Era** · Black Hole Sandbox ·
+- **Scenarios:** **Trisolaris** · **Wandering Suns** · **Compact Haven** · **Wide Seasons** ·
+  **Alpha's Refuge** · **Trisolaris — Chaotic Era** · Black Hole Sandbox ·
   Solar System (real distances & masses — zoom way out for Pluto) · Three-Body
   figure-eight (an exact choreography solution) · Binary Star · Binary Black Hole
   Merger · Neutron Star Merger (kilonova) · BH Devouring a Star.

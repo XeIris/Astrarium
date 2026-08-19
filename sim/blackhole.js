@@ -63,9 +63,30 @@ import { SKY_GLSL, SKY_ALPHA, skyUniforms } from './sky.js';
 
 export const MAX_HOLES = 2;
 
-const FRAG = `
+// ----------------------------------------------------------------------------
+// pass 1 — the marcher
+// ----------------------------------------------------------------------------
+// This runs at the LENS SCALE, not at display resolution, and it deliberately
+// does not know the sky exists. Splitting there is what makes the scale
+// reduction affordable: the geodesic integration and the disc integral are
+// per-RAY costs and tolerate being traced at half rate, because their result is
+// a smooth field. The star field is a per-PIXEL cost and does not tolerate it
+// at all - a point source resampled at half rate stops being a point - so
+// sim/sky.js is evaluated in pass 2 at full resolution, on the direction field
+// this pass hands over.
+//
+// GLSL ES 3.00, and RawShaderMaterial, purely so this can write two
+// attachments. Nothing else here needs it.
+const MARCH_FRAG = `
 precision highp float;
-varying vec2 vUv;
+in vec2 vUv;
+
+// Both attachments are RGBA16F at the march resolution:
+//   gMarch0   disc emission (rgb), transmittance (a)
+//   gMarch1   outgoing direction as a delta from the undeflected ray (rgb),
+//             log of the disc's luminance-weighted mean temperature (a)
+layout(location = 0) out vec4 gMarch0;
+layout(location = 1) out vec4 gMarch1;
 
 uniform vec3  holePos[${MAX_HOLES}];
 uniform float holeRs[${MAX_HOLES}];
@@ -132,11 +153,6 @@ vec3 blackbody(float T){
   c = clamp(c / 255.0, 0.0, 1.0);
   return pow(c, vec3(2.2));                 // sRGB fit → linear
 }
-
-// The sky. Procedural, resolution-free and band-aware — see sim/sky.js for why
-// a texture cannot survive this pass. It brings its own uniforms and its own
-// hash/noise/blackbody, all prefixed sky_, so nothing above collides with it.
-${SKY_GLSL}
 
 // ----------------------------------------------------------------------------
 // disc
@@ -282,7 +298,9 @@ void main(){
   vec3 pos = camPos;
   vec3 vel = rd;
   vec3 color = vec3(0.0);
-  vec3 trans = vec3(1.0);
+  // Grey by construction: every attenuation below is exp(-tau) with a scalar
+  // tau, so the three channels were always carrying the same number.
+  float trans = 1.0;
   bool captured = false;
   float tSum = 0.0, tWeight = 0.0;      // luminance-weighted mean disc temperature
 
@@ -360,12 +378,78 @@ void main(){
       trans *= att;
     }
 
-    if(max(trans.r, max(trans.g, trans.b)) < 0.004) break;
+    if(trans < 0.004) break;
     vel = nvel;
     pos = npos;
   }
 
-  // ---- background sky
+  // ---- hand over to the resolve pass
+  //
+  // The direction is stored as a DELTA from the undeflected ray rather than
+  // absolutely, and that is not a packing trick - it is what makes half-float
+  // survivable here. Deflection falls to zero away from the hole, which is most
+  // of the frame, so the delta is smallest exactly where the sky needs the most
+  // angular precision, and fp16 spends its mantissa on the bend instead of on
+  // the unit vector the bend is a small correction to. It also means the
+  // resolve pass reconstructs d as (exact full-res ray + interpolated delta),
+  // so the interpolation error is proportional to the deflection gradient
+  // rather than to the direction itself.
+  vec3 d = normalize(vel);
+
+  // Zeroing transmittance on capture is what removes the need for a separate
+  // captured flag: the resolve pass multiplies the sky by it, and a captured
+  // ray contributes no sky by construction.
+  float tr = captured ? 0.0 : trans;
+
+  float Tmean = tWeight > 1e-9 ? tSum / tWeight : 0.0;
+
+  gMarch0 = vec4(color, tr);
+  gMarch1 = vec4(d - rd, Tmean > 1.0 ? log(Tmean) : 0.0);
+}`;
+
+const MARCH_VERT = `
+precision highp float;
+in vec3 position;
+in vec2 uv;
+out vec2 vUv;
+void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+// ----------------------------------------------------------------------------
+// pass 2 — resolve
+// ----------------------------------------------------------------------------
+// Full display resolution. Reads the marched direction field, evaluates the sky
+// along it, and composites. This is where the alpha protocol is decided, so the
+// reasoning that used to live at the end of the marcher lives here now.
+const RESOLVE_FRAG = `
+precision highp float;
+varying vec2 vUv;
+
+uniform sampler2D tMarch0, tMarch1;
+uniform mat4  camMat;
+uniform float fov, aspect;
+
+// The sky. Procedural, resolution-free and band-aware — see sim/sky.js for why
+// a texture cannot survive this pass. It brings its own uniforms and its own
+// hash/noise/blackbody, all prefixed sky_, so nothing here collides with it.
+${SKY_GLSL}
+
+void main(){
+  // The undeflected ray, recomputed exactly as the marcher built it, at FULL
+  // resolution. Adding back the stored delta reconstructs the outgoing
+  // direction; the half of that sum which carries the pixel grid is exact.
+  vec2 ndc = vUv * 2.0 - 1.0;
+  ndc.x *= aspect;
+  float f = tan(fov * 0.5);
+  vec3 rl = normalize(vec3(ndc.x * f, ndc.y * f, -1.0));
+  vec3 rd = normalize((camMat * vec4(rl, 0.0)).xyz);
+
+  vec4 m0 = texture2D(tMarch0, vUv);   // disc rgb, transmittance
+  vec4 m1 = texture2D(tMarch1, vUv);   // direction delta, log mean T
+
+  vec3  color = m0.rgb;
+  float tr    = m0.a;
+  vec3  d     = normalize(rd + m1.xyz);
+
   // These two derivatives are the whole lensing story as far as the sky is
   // concerned. dFdx/dFdy of the OUTGOING direction span the patch of sky this
   // pixel maps back onto: their cross product is its solid angle and carries
@@ -374,13 +458,21 @@ void main(){
   // extended sources holding their surface brightness — which is what lensing
   // actually does, and the thing a texture lookup could never reproduce.
   //
-  // The derivatives are taken OUTSIDE the branch on purpose: dFdx/dFdy are
-  // only defined under uniform control flow, and "captured" differs from pixel
-  // to pixel along the entire edge of the shadow — precisely where the ring is.
-  vec3 d = normalize(vel);
+  // They are taken OUTSIDE the branch on purpose: dFdx/dFdy are only defined
+  // under uniform control flow, and transmittance goes to zero from pixel to
+  // pixel along the entire edge of the shadow — precisely where the ring is.
+  //
+  // Taken at full resolution on a field that was marched more coarsely. Where
+  // that field is smooth, bilinear interpolation is exact to first order and
+  // this is the same Jacobian the single-pass version computed. Where it is not
+  // smooth the derivative blows up — and sim/sky.js already clamps w2 for
+  // exactly that reason, because a ray that winds several times around the
+  // photon sphere lands somewhere unrelated to its neighbour at ANY resolution.
+  // Marching coarsely widens that region; it does not create it.
   vec3 ddx = dFdx(d), ddy = dFdy(d);
+
   vec3 skyCol = vec3(0.0);
-  if(!captured) skyCol = trans * skyRadiance(d, ddx, ddy);
+  if(tr > 0.001) skyCol = tr * skyRadiance(d, ddx, ddy);
   color += skyCol;
 
   // Alpha carries the physical temperature, log-encoded, for the spectral
@@ -397,14 +489,15 @@ void main(){
   // outer disc, contributing a few percent of the light, took the label and
   // deleted a whole star field pixel from every non-visible band.
   //
-  // tWeight is already the disc's luminance-weighted contribution, so the two
-  // are directly comparable. This does not make mixed pixels correct — the
-  // minority component is still dropped — and doing that properly means giving
-  // the sky its own render target. It removes the visible failure mode.
-  float Tmean = tWeight > 1e-9 ? tSum / tWeight : 0.0;
-  float skyLum = dot(skyCol, vec3(0.2126, 0.7152, 0.0722));
-  bool discWins = Tmean > 1.0 && tWeight > skyLum;
-  float a = discWins ? clamp(log(Tmean) / 25.33, 0.0, 0.98) : ${SKY_ALPHA};
+  // The disc's luminance-weighted contribution is just the luminance of what it
+  // accumulated, so the two are directly comparable. This does not make mixed
+  // pixels correct — the minority component is still dropped — and doing that
+  // properly means giving the sky its own render target. It removes the visible
+  // failure mode.
+  float tWeight = dot(m0.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float skyLum  = dot(skyCol, vec3(0.2126, 0.7152, 0.0722));
+  bool discWins = m1.a > 0.0 && tWeight > skyLum;
+  float a = discWins ? clamp(m1.a / 25.33, 0.0, 0.98) : ${SKY_ALPHA};
   gl_FragColor = vec4(color, a);
 }`;
 
@@ -412,33 +505,110 @@ const VERT = `
   varying vec2 vUv;
   void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
+/**
+ * Default lens scale — the marcher's resolution as a fraction of the display's.
+ *
+ * The pass scales very nearly linearly with pixel count (measured: 3.89x faster
+ * for 4x fewer pixels, close in on a merger), because it is one fullscreen
+ * shader with no geometry, so this is the strongest single control there is.
+ * Half is the point where the disc and the shadow are still clean and the cost
+ * has come down by ~4x; the sky does not participate, so the stars are full
+ * resolution either way.
+ */
+export const DEFAULT_LENS_SCALE = 0.5;
+
 export function createBlackHolePass() {
-  const material = new THREE.ShaderMaterial({
-    uniforms: Object.assign(skyUniforms(), {
-      holePos: { value: Array.from({ length: MAX_HOLES }, () => new THREE.Vector3()) },
-      holeRs: { value: new Array(MAX_HOLES).fill(0) },
-      holeCount: { value: 1 },
-      camPos: { value: new THREE.Vector3() },
-      camMat: { value: new THREE.Matrix4() },
-      fov: { value: 0.87 },
-      aspect: { value: 1 },
-      time: { value: 0 },
-      discIntensity: { value: 0.9 },
-      discTemp: { value: 0.6 },
-      discOuter: { value: 15.0 },
-      discTpeakPhys: { value: 1.1e7 },
-    }),
+  // ONE uniforms object, shared by both materials. The orchestrator sets hole
+  // positions, camera and disc parameters in one place and does not have to
+  // know the pass is split; Three uploads to each program only what that
+  // program actually declares.
+  const uniforms = Object.assign(skyUniforms(), {
+    holePos: { value: Array.from({ length: MAX_HOLES }, () => new THREE.Vector3()) },
+    holeRs: { value: new Array(MAX_HOLES).fill(0) },
+    holeCount: { value: 1 },
+    camPos: { value: new THREE.Vector3() },
+    camMat: { value: new THREE.Matrix4() },
+    fov: { value: 0.87 },
+    aspect: { value: 1 },
+    time: { value: 0 },
+    discIntensity: { value: 0.9 },
+    discTemp: { value: 0.6 },
+    discOuter: { value: 15.0 },
+    discTpeakPhys: { value: 1.1e7 },
+    tMarch0: { value: null },
+    tMarch1: { value: null },
+  });
+
+  // RawShaderMaterial because the marcher writes two attachments, and Three
+  // declares its own location-0 output for an ordinary ShaderMaterial.
+  const marchMaterial = new THREE.RawShaderMaterial({
+    uniforms,
+    vertexShader: MARCH_VERT,
+    fragmentShader: MARCH_FRAG,
+    glslVersion: THREE.GLSL3,
+    depthTest: false,
+    depthWrite: false,
+  });
+
+  const resolveMaterial = new THREE.ShaderMaterial({
+    uniforms,
     vertexShader: VERT,
-    fragmentShader: FRAG,
+    fragmentShader: RESOLVE_FRAG,
     depthTest: false,
     depthWrite: false,
     // the sky's footprint measurement needs dFdx/dFdy
     extensions: { derivatives: true },
   });
 
-  const scene = new THREE.Scene();
-  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+  const quad = new THREE.PlaneGeometry(2, 2);
+  const mkScene = (mat) => {
+    const s = new THREE.Scene();
+    const m = new THREE.Mesh(quad, mat);
+    m.frustumCulled = false;
+    s.add(m);
+    return s;
+  };
+  const marchScene = mkScene(marchMaterial);
+  const resolveScene = mkScene(resolveMaterial);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-  return { scene, camera, material, uniforms: material.uniforms };
+  // Linear filtering is the point: the resolve pass reads this magnified, and
+  // the direction field has to interpolate rather than step.
+  const mrt = new THREE.WebGLMultipleRenderTargets(1, 1, 2, {
+    type: THREE.HalfFloatType,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+  });
+
+  let scale = DEFAULT_LENS_SCALE, vw = 1, vh = 1;
+  const sizeMRT = () => mrt.setSize(Math.max(1, Math.round(vw * scale)),
+                                    Math.max(1, Math.round(vh * scale)));
+
+  return {
+    scene: resolveScene, camera, material: resolveMaterial, uniforms,
+    // Exposed so the two passes can be timed independently — see desktop/bench.js.
+    marchScene, marchMaterial, target: mrt,
+
+    /** Display-resolution size, in device pixels. */
+    setSize(w, h) { vw = w; vh = h; sizeMRT(); },
+    setScale(s) { scale = Math.max(0.1, Math.min(1, s)); sizeMRT(); },
+    getScale() { return scale; },
+    marchSize() { return [mrt.width, mrt.height]; },
+
+    /** March at lens scale, then resolve into `target` at full resolution. */
+    render(renderer, target) {
+      renderer.setRenderTarget(mrt);
+      renderer.clear();
+      renderer.render(marchScene, camera);
+
+      uniforms.tMarch0.value = mrt.texture[0];
+      uniforms.tMarch1.value = mrt.texture[1];
+
+      renderer.setRenderTarget(target);
+      renderer.clear();
+      renderer.render(resolveScene, camera);
+    },
+
+    dispose() { mrt.dispose(); quad.dispose(); marchMaterial.dispose(); resolveMaterial.dispose(); },
+  };
 }

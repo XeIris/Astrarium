@@ -57,7 +57,23 @@ const DOM = {};
  'discRow', 'tempRow', 'camSurface', 'climatePanel', 'eraBadge',
  'eraDesc', 'cTemp', 'cFlux', 'cIce', 'cCloud', 'cTau', 'cExtremes', 'climateChart',
  'sunList', 'simClock', 'starPanel', 'skyRow', 'bhPanel',
- 'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs'].forEach(id => DOM[id] = document.getElementById(id));
+ 'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs', 'presetSearch',
+ 'presetSearchClear', 'presetList', 'presetEmpty'].forEach(id => DOM[id] = document.getElementById(id));
+
+// The scenario catalogue is grouped here rather than in the physics presets:
+// these labels are navigation, while PRESETS remains the source of truth for
+// each scenario's initial conditions and rendering settings.
+const presetGroup = (id, label, keys) => ({
+  id, label, keys: PRESET_ORDER.filter(key => keys.includes(key)),
+});
+const PRESET_GROUPS = [
+  presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos']),
+  presetGroup('black-holes', 'BH scenarios', ['sandbox', 'bhmerger', 'feeding']),
+  presetGroup('neutron-stars', 'Neutron star scenarios', ['nsmerger']),
+  presetGroup('stellar-systems', 'Stellar system scenarios', ['solar', 'threebody', 'binarystar']),
+];
+const openPresetGroups = new Set();
+let presetSearchText = '';
 
 // ============================================================================
 // SCENE / RENDERER / CAMERA
@@ -66,8 +82,20 @@ const scene  = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 100000);
 camera.position.set(0, 8, 24);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+// antialias is deliberately OFF. Nothing is ever drawn to the default
+// framebuffer except one fullscreen quad in sim/postfx.js's composite - the
+// whole frame is assembled in the non-multisampled HDR target - so MSAA here
+// only ever antialiases the edges of that quad, which are the edges of the
+// screen. It costs a multisampled backbuffer and a resolve to do nothing.
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+
+// Render scale. Every expensive pass in this sim is fullscreen, so this is a
+// straight multiplier on the entire frame cost - on a 2x display, a ratio of
+// 1.5 is 2.25x the pixels of 1.0. It defaults to 1.0 rather than following the
+// display, because the lensed pass is by far the most expensive thing here and
+// a sharper photon ring is rarely worth halving the frame rate. The slider is
+// there for screenshots, where it is worth exactly that.
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.0));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, 1);
 // The frame is composed in linear HDR and tone mapped by sim/postfx.js, so the
@@ -107,9 +135,9 @@ const backdrop = createSkyBackdrop();
 // The whole general-relativistic ray marcher now lives in sim/blackhole.js.
 // ============================================================================
 const lensPass = createBlackHolePass();
+// Both of the pass's materials share one uniforms object, so this is still the
+// single place to set hole positions, camera and disc parameters.
 const lensMaterial = lensPass.material;
-const lensScene = lensPass.scene;
-const lensCam = lensPass.camera;
 
 // Both passes carry an identical copy of the sky uniform block, so every change
 // has to reach both or the two views disagree about what the sky looks like.
@@ -222,7 +250,14 @@ function attachVisual(b) {
   const spec = b.spec, def = b.def;
   const radiusScene = renderRadius(b, spec, b.mass0);
   b.radiusScene = radiusScene;
-  b.contactAU = radiusScene / state.sceneScale;
+  // Destruction distance. By default a body is destroyed when it touches what
+  // you can SEE, which keeps the exaggerated view self-consistent. But that ties
+  // a physical outcome to a drawing convention: at the Trisolaris presets' scale
+  // an exaggerated star reaches ~9x further out than its real photosphere, which
+  // quietly decides which close passes a world walks away from. A spec may
+  // override it with a real distance in AU (see the Roche limits in
+  // sim/presets.js).
+  b.contactAU = spec.contactAU ?? radiusScene / state.sceneScale;
   if (spec.type === 'bh') b.rsScene = radiusScene;
 
   const palette = spec.palette ? GAS_PALETTES[spec.palette] : null;
@@ -876,6 +911,63 @@ function loadPreset(key) {
 // ============================================================================
 // UI
 // ============================================================================
+function renderPresetGroups() {
+  presetSearchText = (DOM.presetSearch?.value ?? '').trim().toLowerCase();
+  const searching = presetSearchText.length > 0;
+  let visibleGroups = 0;
+
+  const markup = PRESET_GROUPS.map(group => {
+    const groupText = `${group.id} ${group.label}`.toLowerCase();
+    const groupMatches = searching && groupText.includes(presetSearchText);
+    const visibleKeys = !searching || groupMatches
+      ? group.keys
+      : group.keys.filter(key => {
+          const p = PRESETS[key];
+          return `${key} ${p.name}`.toLowerCase().includes(presetSearchText);
+        });
+    if (!visibleKeys.length) return '';
+
+    visibleGroups++;
+    const count = searching && !groupMatches
+      ? `${visibleKeys.length}/${group.keys.length}`
+      : `${group.keys.length}`;
+    const open = searching || openPresetGroups.has(group.id);
+    const buttons = visibleKeys.map(key => {
+      const p = PRESETS[key];
+      const tri = group.id === 'trisolaris' ? ' tri' : '';
+      const active = p === state.preset ? ' active' : '';
+      return `<button class="preset-btn${tri}${active}" data-preset="${key}">${p.name}</button>`;
+    }).join('');
+
+    return `<details class="preset-group" data-group="${group.id}"${open ? ' open' : ''}>
+      <summary><span class="preset-group-name">${group.label}</span><span class="preset-group-count">${count}</span></summary>
+      <div class="preset-group-items">${buttons}</div>
+    </details>`;
+  }).join('');
+
+  DOM.presetList.innerHTML = markup;
+  DOM.presetList.hidden = visibleGroups === 0;
+  DOM.presetEmpty.hidden = visibleGroups !== 0;
+  if (DOM.presetEmpty && searching) {
+    DOM.presetEmpty.textContent = `No scenarios or categories match "${DOM.presetSearch.value.trim()}"`;
+  }
+  if (DOM.presetSearchClear) DOM.presetSearchClear.hidden = !searching;
+
+  // Native details provide the dropdown behavior and keyboard accessibility.
+  // Search owns the open state while active so every matching category stays
+  // visible; manually opened groups are remembered when the query is cleared.
+  DOM.presetList.querySelectorAll('.preset-group').forEach(group => {
+    group.addEventListener('toggle', () => {
+      if (presetSearchText) {
+        if (!group.open) group.open = true;
+        return;
+      }
+      if (group.open) openPresetGroups.add(group.dataset.group);
+      else openPresetGroups.delete(group.dataset.group);
+    });
+  });
+}
+
 function refreshUI() {
   // body list
   if (state.bodies.length === 0) {
@@ -1092,8 +1184,19 @@ if (DOM.bandGrid) {
 }
 setBand(VISIBLE_BAND);
 
+renderPresetGroups();
+DOM.presetSearch?.addEventListener('input', renderPresetGroups);
+DOM.presetSearchClear?.addEventListener('click', () => {
+  DOM.presetSearch.value = '';
+  renderPresetGroups();
+  DOM.presetSearch.focus();
+});
+DOM.presetList?.addEventListener('click', event => {
+  const btn = event.target.closest('[data-preset]');
+  if (btn) loadPreset(btn.dataset.preset);
+});
+
 document.querySelectorAll('[data-spawn]').forEach(btn => btn.addEventListener('click', () => spawnOrbiting(btn.dataset.spawn)));
-document.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => loadPreset(btn.dataset.preset)));
 document.getElementById('clear').addEventListener('click', clearBodies);
 document.getElementById('delFocus').addEventListener('click', () => { if (state.focusId != null) removeBody(state.focusId); });
 DOM.camOrbit.addEventListener('click', () => setCamMode('orbit'));
@@ -1127,6 +1230,32 @@ ghEl?.addEventListener('input', () => {
   if (state.climate) state.climate.greenhouse = v;
   document.getElementById('greenhouse-val').textContent = v.toFixed(2);
 });
+// --- render scale. resize() derives every target size from the pixel ratio,
+// so setting it and re-running that is the whole implementation.
+const rsEl = document.getElementById('renderScale');
+rsEl?.addEventListener('input', () => {
+  // The slider asks; devicePixelRatio caps. Report what the framebuffer
+  // actually got, so a DPR-1 display does not read "2.00x" at 1.00x pixels.
+  const effective = Math.min(devicePixelRatio, parseFloat(rsEl.value));
+  renderer.setPixelRatio(effective);
+  resize();
+  document.getElementById('renderScale-val').textContent = `${effective.toFixed(2)}x`;
+});
+
+// --- lens detail: the marcher's resolution as a fraction of the display's.
+// Separate from render scale on purpose — this one leaves the star field at
+// full resolution, so it costs disc and shadow sharpness and nothing else.
+const ldEl = document.getElementById('lensScale');
+if (ldEl) {
+  ldEl.value = String(lensPass.getScale());
+  document.getElementById('lensScale-val').textContent = `${lensPass.getScale().toFixed(2)}x`;
+  ldEl.addEventListener('input', () => {
+    const v = parseFloat(ldEl.value);
+    lensPass.setScale(v);
+    document.getElementById('lensScale-val').textContent = `${v.toFixed(2)}x`;
+  });
+}
+
 document.getElementById('climateReset')?.addEventListener('click', () => {
   state.climate?.reset(288);
 });
@@ -1204,6 +1333,7 @@ function resize() {
   const pr = renderer.getPixelRatio();
   sceneTarget.setSize(w * pr, h * pr);
   postfx.setSize(w * pr, h * pr);
+  lensPass.setSize(w * pr, h * pr);
   lensMaterial.uniforms.aspect.value = w / h;
   lensMaterial.uniforms.fov.value = camera.fov * Math.PI / 180;
   backdrop.uniforms.aspect.value = w / h;
@@ -1449,8 +1579,11 @@ function animate() {
     // backdrop to feed it. (The old code rendered the whole scene into an
     // offscreen target here for a `tScene` sampler that the shader never
     // actually read — a full scene draw per frame, thrown away.)
-    renderer.setRenderTarget(postfx.hdr); renderer.clear();
-    renderer.render(lensScene, lensCam);
+    //
+    // Internally this is two passes: the geodesics and the disc are marched at
+    // state.lensScale, and the star field is evaluated over the resulting
+    // direction field at full resolution. See sim/blackhole.js.
+    lensPass.render(renderer, postfx.hdr);
 
     // pass 2 — real geometry back on top, with depth, over the lensed image
     renderer.autoClear = false; renderer.clearDepth();

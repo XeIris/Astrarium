@@ -44,6 +44,23 @@ export function stellarRadius(massSun) {
   return Math.pow(Math.max(massSun, 0.05), 0.8) * AU_PER_RSUN;
 }
 
+// ----------------------------------------------------------------------------
+// Roche limit (AU): the separation inside which a body held together only by
+// its own gravity is pulled apart by the tidal field of `massSun`.
+//   d = 2.44 R* (rho* / rho_body)^(1/3)
+// For a rocky world around a main-sequence star this lands a few stellar radii
+// out — the world is shredded well before it ever reaches the photosphere, so
+// this, not the star's surface, is the honest destruction distance for any
+// scenario built on close passes.
+// ----------------------------------------------------------------------------
+const RHO_SUN = 1.41;                          // g/cm^3
+export function rocheLimit(massSun, bodyDensity = 5.5) {
+  const rAU = stellarRadius(massSun);
+  const rSun = rAU / AU_PER_RSUN;
+  const rhoStar = RHO_SUN * massSun / (rSun * rSun * rSun);
+  return 2.44 * rAU * Math.cbrt(rhoStar / bodyDensity);
+}
+
 const _r = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 
