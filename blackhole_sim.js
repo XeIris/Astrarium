@@ -1234,10 +1234,12 @@ ghEl?.addEventListener('input', () => {
 // so setting it and re-running that is the whole implementation.
 const rsEl = document.getElementById('renderScale');
 rsEl?.addEventListener('input', () => {
-  const v = parseFloat(rsEl.value);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, v));
+  // The slider asks; devicePixelRatio caps. Report what the framebuffer
+  // actually got, so a DPR-1 display does not read "2.00x" at 1.00x pixels.
+  const effective = Math.min(devicePixelRatio, parseFloat(rsEl.value));
+  renderer.setPixelRatio(effective);
   resize();
-  document.getElementById('renderScale-val').textContent = `${v.toFixed(2)}x`;
+  document.getElementById('renderScale-val').textContent = `${effective.toFixed(2)}x`;
 });
 
 // --- lens detail: the marcher's resolution as a fraction of the display's.

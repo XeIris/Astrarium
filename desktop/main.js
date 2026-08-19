@@ -15,10 +15,13 @@
 // and the same shaders, so a frame that costs 11 ms in a tab costs 11 ms here.
 // What it buys is everything around that:
 //
-//   · GPU timer queries that return real numbers. Chrome exposes
-//     EXT_disjoint_timer_query_webgl2 in a normal tab but zeroes the results,
-//     so the sim cannot be profiled from inside a browser at all. The switches
-//     below turn that back on.
+//   · A profiling attempt that is at least possible. Chrome exposes
+//     EXT_disjoint_timer_query_webgl2 in a normal tab but zeroes the results;
+//     the switches below ask for real ones. On this stack they do not arrive —
+//     ANGLE's Metal backend implements no GPU timestamps, so the queries still
+//     return 0 here (see PORTING.md). macOS measurement therefore uses the
+//     readPixels fallback, and the switch is kept for the platforms where it
+//     does work.
 //   · No background throttling. requestAnimationFrame in a hidden tab is
 //     frozen, which makes unattended measurement impossible.
 //   · No vsync ceiling, so a frame that takes 6 ms reports as 6 ms instead of
@@ -39,9 +42,10 @@ const ENTRY = stabilityMode ? 'desktop/stability.html' : 'blackhole_sim.html';
 // ---- GPU switches ----------------------------------------------------------
 // These must be set before app 'ready'.
 //
-// enable-gpu-benchmarking is the one that matters: it is what un-blunts
-// EXT_disjoint_timer_query_webgl2. Without it the extension is present and
-// every query returns 0, which is exactly what a normal Chrome tab does.
+// enable-gpu-benchmarking is the one that would matter: it is what un-blunts
+// EXT_disjoint_timer_query_webgl2 on backends that implement timestamps.
+// ANGLE/Metal does not, so on macOS the queries return 0 with or without it
+// and desktop/bench.js reports timerQueriesReturnRealValues: false.
 app.commandLine.appendSwitch('enable-gpu-benchmarking');
 app.commandLine.appendSwitch('enable-webgl-draft-extensions');
 // Uncap: report the true frame cost instead of the vsync interval.
@@ -127,16 +131,22 @@ async function createWindow() {
   const automation = stabilityMode ? 'stability.js' : (process.env.ASTRARIUM_BENCH ? 'bench.js' : null);
   if (automation) {
     win.webContents.once('did-finish-load', async () => {
+      // Exit status is the only thing CI or a shell caller can read without
+      // parsing the JSON, so a failed stability run and a thrown automation
+      // script must both be non-zero.
+      let exitCode = 0;
       try {
         const src = fs.readFileSync(path.join(__dirname, automation), 'utf8');
         const result = await win.webContents.executeJavaScript(src, true);
         const label = stabilityMode ? 'STABILITY' : 'BENCH';
         process.stdout.write(`\n===${label}===\n` + JSON.stringify(result, null, 2) + `\n===END===\n`);
+        if (stabilityMode && !(result && Array.isArray(result.results) && result.results.every((r) => r.passed))) exitCode = 1;
       } catch (err) {
         const label = stabilityMode ? 'STABILITY' : 'BENCH';
         process.stdout.write(`\n===${label}-ERROR===\n` + (err && err.stack || String(err)) + '\n');
+        exitCode = 1;
       }
-      app.exit(0);
+      app.exit(exitCode);
     });
   }
 }

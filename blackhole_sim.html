@@ -116,12 +116,12 @@
   </div>
   <button class="ghost-btn" id="resetView">Reset View</button>
   <div class="row">
-    <label title="Framebuffer scale. Every heavy pass here is fullscreen, so this multiplies the whole frame cost — 1.5x is 2.25x the pixels of 1.0x. Turn it up for screenshots, down for frame rate.">Render scale</label>
+    <label for="renderScale" title="Framebuffer scale. Every heavy pass here is fullscreen, so this multiplies the whole frame cost — 1.5x is 2.25x the pixels of 1.0x. Turn it up for screenshots, down for frame rate.">Render scale</label>
     <input type="range" id="renderScale" min="0.5" max="2" value="1" step="0.05">
     <span class="val" id="renderScale-val">1.00x</span>
   </div>
   <div class="row">
-    <label title="Resolution of the geodesic marcher, as a fraction of the display. The star field is always evaluated at full resolution, so this trades sharpness of the disc and the shadow edge — not the stars — for a large amount of frame time.">Lens detail</label>
+    <label for="lensScale" title="Resolution of the geodesic marcher, as a fraction of the display. The star field is always evaluated at full resolution, so this trades sharpness of the disc and the shadow edge — not the stars — for a large amount of frame time.">Lens detail</label>
     <input type="range" id="lensScale" min="0.25" max="1" value="0.5" step="0.05">
     <span class="val" id="lensScale-val">0.50x</span>
   </div>

@@ -1,11 +1,15 @@
 // ============================================================================
 // GPU profile of the lensed pass — runs inside the Electron renderer.
 // ============================================================================
-// This is the measurement that is impossible in a browser tab. Chrome exposes
-// EXT_disjoint_timer_query_webgl2 and then returns 0 from every query; with
-// --enable-gpu-benchmarking (set in main.js) the results are real, so each
-// draw can be timed on the GPU's own clock instead of inferred from a
-// readPixels stall.
+// The intent is to time each draw on the GPU's own clock instead of inferring
+// it from a readPixels stall. Chrome exposes EXT_disjoint_timer_query_webgl2
+// and returns 0 from every query; --enable-gpu-benchmarking (set in main.js)
+// is meant to un-blunt that, but on ANGLE's Metal backend the queries still
+// return 0 — the backend does not implement GPU timestamps at all. So this
+// currently reports zeros on macOS, and says so in the output rather than
+// claiming the numbers are real. It is kept because it is correct and will
+// work the day the backend gains timestamp support; every measurement in
+// PORTING.md used the readPixels fallback instead.
 //
 // It answers one question: is the lensed pass limited by arithmetic, or by
 // occupancy? The evidence so far is behavioural — splitting the marcher and the
@@ -65,6 +69,7 @@
       gl.deleteQuery(q);
     }
     s.sort((a, b) => a - b);
+    if (s.some((v) => v > 0)) sawNonZeroTiming = true;
     return s.length ? +s[s.length >> 1].toFixed(3) : null;
   };
 
@@ -80,6 +85,11 @@
     renderer.clear();
     renderer.render(pass.scene, pass.camera);
   };
+
+  // Whether any query came back non-zero. On ANGLE Metal every one is 0, and
+  // reporting that honestly is the difference between "the pass is free" and
+  // "this stack cannot measure it".
+  let sawNonZeroTiming = false;
 
   const results = {};
   for (const dist of [26, 60]) {
@@ -105,7 +115,7 @@
   renderer.dispose();
   return {
     renderer: gl.getParameter(gl.getExtension('WEBGL_debug_renderer_info').UNMASKED_RENDERER_WEBGL),
-    timerQueriesReturnRealValues: true,
+    timerQueriesReturnRealValues: sawNonZeroTiming,
     size: W + 'x' + H,
     results,
   };
