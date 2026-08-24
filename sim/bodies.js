@@ -297,6 +297,11 @@ export function createBodyVisual(b, opts) {
   switch (b.type) {
     case 'bh':        return createBlackHole(b, opts);
     case 'star':      return createStarHiFi(b, opts);
+    // A white dwarf is a photosphere like any other — a very small, very hot
+    // one. What it does NOT have is a convective envelope, so it has no dynamo,
+    // no starspots and no flares: `quiet` turns the activity model off rather
+    // than letting a degenerate star erupt.
+    case 'white-dwarf': return createStarHiFi(b, { ...opts, quiet: true });
     case 'star-basic':return createStar(b, opts);
     case 'world':     return createWorldVisual(b, opts);
     case 'neutron':   return createNeutron(b, opts);

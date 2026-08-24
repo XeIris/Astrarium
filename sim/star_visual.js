@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ActivityModel, blackbodyColor, coronaColor, rotationRate } from './stellar.js';
+import { granuleFrequency, surfaceBrightness } from './structure.js';
 
 // ============================================================================
 // HIGH-FIDELITY STAR RENDERING
@@ -30,6 +31,14 @@ function photosphereMaterial(color, hotColor, limbU) {
       // physical Teff, published to the spectral imaging pass via alpha
       uTeff:      { value: 5772 },
       uOmega:     { value: 1 },
+      // Rotation. uSpin is Ω/Ω_crit — the ONE number that sets both the shape
+      // and the temperature map (see sim/structure.js). At 0 everything below
+      // collapses to the non-rotating case exactly.
+      uSpin:      { value: 0 },
+      uGdBeta:    { value: 0.25 },
+      uColPole:   { value: new THREE.Color(1, 1, 1) },
+      uColEq:     { value: new THREE.Color(1, 1, 1) },
+      uTpole:     { value: 5772 },
       // Just past 1.0. The disc has to land ON the tone curve's shoulder, not
       // beyond it: photograph the Sun in white light and you get an obviously
       // limb-darkened disc with granulation and spots on it, not a uniform
@@ -45,23 +54,58 @@ function photosphereMaterial(color, hotColor, limbU) {
       uFlareCount:{ value: 0 },
     },
     vertexShader: `
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+      uniform float uSpin;
+      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP; varying float vG;
+
+      // The Roche equipotential, R(theta)/R_pole, solved in closed form. See
+      // the derivation in sim/structure.js — this is the same function, and at
+      // u = 1 it returns exactly 1.5, the hard geometric limit on how flat a
+      // self-gravitating body can be.
+      float rocheShape(float u){
+        u = clamp(u, 0.0, 1.0);
+        if (u < 1e-3) return 1.0 + 0.148148 * u * u;   // series; the form below is 0/0 here
+        return (3.0 / u) * cos((3.14159265 + acos(u)) / 3.0);
+      }
+
       void main(){
-        vObj = normalize(position);
-        vWN  = normalize(mat3(modelMatrix) * normal);
-        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vec3 dir = normalize(position);
+        vObj = dir;
+        float sinT = length(dir.xz);
+        float x = rocheShape(uSpin * sinT);
+        vec3 p = position * x;                  // radial stretch onto the spheroid
+
+        // Effective gravity at this point, in units of its polar value: the
+        // Newtonian pull plus the centrifugal term, on the Roche surface.
+        // With GM = 1 and R_pole = 1, Omega^2 = (8/27) uSpin^2.
+        float om2 = 0.296296 * uSpin * uSpin;
+        float gr  = -1.0 / (x * x) + om2 * x * sinT * sinT;
+        float gt  = om2 * x * sinT * dir.y;
+        vG = sqrt(gr * gr + gt * gt);           // exactly 1 at the pole
+
+        // The surface normal of a radially stretched sphere is no longer
+        // radial. Rather than carry the analytic gradient of the equipotential
+        // through, tilt the radial normal toward the meridian by the same
+        // ratio the gravity vector is tilted by — which is the gradient, since
+        // the surface IS an equipotential and g is normal to it.
+        vec3 er = dir;
+        vec3 et = normalize(vec3(dir.x * dir.y, -sinT * sinT, dir.z * dir.y) + vec3(1e-6));
+        vec3 n  = normalize(er * (-gr) + et * (-gt));
+
+        vWN = normalize(mat3(modelMatrix) * n);
+        vec4 wp = modelMatrix * vec4(p, 1.0);
         vWP = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: `
       precision highp float;
       uniform float uTime, uPulse, uLimbU, uOmega, uGranScale, uGain, uTeff;
-      uniform vec3 uColor, uHot;
+      uniform float uSpin, uGdBeta, uTpole;
+      uniform vec3 uColor, uHot, uColPole, uColEq;
       uniform vec4 uSpots[${MAX_SPOTS}];   // xyz = surface direction, w = strength
       uniform int  uSpotCount;
       uniform vec4 uFlares[${MAX_FLARES}]; // xyz = direction, w = amplitude
       uniform int  uFlareCount;
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP; varying float vG;
 
       float hash(vec3 p){ return fract(sin(dot(p, vec3(17.1,113.5,7.9))) * 43758.5453); }
       float noise(vec3 p){
@@ -151,9 +195,29 @@ function photosphereMaterial(color, hotColor, limbU) {
         // left to resolve granulation and spots. What sells "blazing" is not a
         // brighter disc — it is the hot granule cores and faculae punching far
         // past 1.0 and lighting up the bloom pass, while the mean stays put.
-        vec3 base = uColor * bright * uPulse * uGain;
+        // --- GRAVITY DARKENING (von Zeipel 1924).
+        // The rotating surface is an equipotential but not an equal-flux
+        // surface: the radiative flux is proportional to the local effective
+        // gravity, so T_eff ~ g^beta and F ~ g^(4 beta). The equator, further
+        // out and centrifugally supported, is both cooler and dimmer than the
+        // pole. On Vega that is 10 260 K against 8 610 K; on Regulus it is
+        // 14 500 against 11 000, and both are directly measured.
+        //
+        // beta is 1/4 for a radiative envelope and ~0.08 for a convective one
+        // (Lucy 1967) — the CPU side picks which, from Teff.
+        float gDark = pow(max(vG, 1e-4), uGdBeta);            // T_local / T_pole
+        float gFlux = pow(max(vG, 1e-4), 4.0 * uGdBeta);      // F_local / F_pole
+        // The two endpoint colours are true blackbody colours for the pole and
+        // equator temperatures, computed once on the CPU; g is monotonic
+        // between them, so it is also the blend coordinate.
+        float gEqv  = pow(max(1.0 - 0.5 * uSpin * uSpin, 1e-4), uGdBeta);
+        float tBlend = uSpin > 0.02
+          ? clamp((1.0 - gDark) / max(1.0 - gEqv, 1e-4), 0.0, 1.0) : 0.0;
+        vec3 surfCol = mix(uColPole, uColEq, tBlend);
+
+        vec3 base = surfCol * bright * uPulse * uGain * gFlux;
         // hot granule cores read as the star's own hotter continuum
-        base += uHot * pow(max(nB - 0.60, 0.0), 2.0) * 5.5 * uGain;
+        base += uHot * pow(max(nB - 0.60, 0.0), 2.0) * 5.5 * uGain * gFlux;
         base += flareGlow * uGain;
 
         // --- limb darkening: I(mu)/I(0) = 1 - u(1 - mu), mu = cos(view angle)
@@ -165,8 +229,12 @@ function photosphereMaterial(color, hotColor, limbU) {
         float rim = pow(1.0 - mu, 3.0);
         base += vec3(1.0, 0.28, 0.16) * rim * 0.85 * uGain;
 
-        // alpha = log-encoded true temperature for sim/spectrum.js
-        gl_FragColor = vec4(base, clamp(log(max(uTeff, 1.0)) / 25.33, 0.0, 0.98));
+        // alpha = log-encoded true temperature for sim/spectrum.js. It is the
+        // LOCAL temperature, not the star's mean: on a fast rotator the pole
+        // really is 1500 K hotter, and the imaging bands should see that — flip
+        // to UV on Vega and the poles brighten while the equator does not.
+        float tLocal = uSpin > 0.02 ? uTpole * gDark : uTeff;
+        gl_FragColor = vec4(base, clamp(log(max(tLocal, 1.0)) / 25.33, 0.0, 0.98));
       }`,
   });
 }
@@ -285,18 +353,39 @@ export function createStarVisual(b, opts) {
 
   const mat = photosphereMaterial(photo, hot, limbU);
   mat.uniforms.uTeff.value = teff;
+  // Rotation, from the structure model (sim/structure.js) via sim/bodies.js.
+  const spin = THREE.MathUtils.clamp(opts.spinFrac ?? 0, 0, 1);
+  mat.uniforms.uSpin.value = spin;
+  mat.uniforms.uGdBeta.value = opts.gdBeta ?? 0.25;
+  mat.uniforms.uTpole.value = opts.tPole ?? teff;
+  mat.uniforms.uColPole.value.copy(opts.tPole ? blackbodyColor(opts.tPole) : photo);
+  mat.uniforms.uColEq.value.copy(opts.tEq ? blackbodyColor(opts.tEq) : photo);
   mat.uniforms.uOmega.value = rotationRate(b.mass) * 0.02;   // slowed for legibility
-  // cool stars have deep convection zones and coarser granules than hot ones
-  mat.uniforms.uGranScale.value = 26 + 14 * THREE.MathUtils.clamp(b.mass - 0.6, 0, 1.6);
+  // Granule size from the pressure scale height rather than from mass — see
+  // granuleFrequency() in sim/structure.js. This is what turns a red supergiant
+  // from a scaled-up Sun into a surface made of three or four vast cells.
+  const radSun = opts.radiusSun ?? (b.radius ? b.radius / 0.00465047 : 1);
+  mat.uniforms.uGranScale.value = granuleFrequency(teff, radSun, b.mass);
+  // Disc brightness from Stefan–Boltzmann. Every star used to be drawn at the
+  // same surface brightness, which is why a 3600 K supergiant came out the same
+  // white as a 10 000 K A star; the tone curve then finished the job. F ∝ T⁴
+  // spans 0.15 to 200 over the stars in this sim, and the HDR buffer is there
+  // precisely so that range can be carried and rolled off once at the end.
+  mat.uniforms.uGain.value = surfaceBrightness(teff);
   const core = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 48), mat);
   g.add(core);
 
   // corona billboard. The quad spans ±1 and is scaled in the vertex shader, so
   // uCore is the photosphere's radius in quad units — the glow starts exactly
   // at the stellar limb however far away the camera is.
+  // The photosphere is R at the pole but up to 1.5 R at the equator, and the
+  // corona is a screen-space billboard with no idea about that — sized to the
+  // polar radius it would cut across a fast rotator's own bulge. Size it to the
+  // largest radius the star actually reaches.
+  const Rmax = R * (opts.oblate ?? 1);
   const CORONA_SPAN = 4.0;                       // in stellar radii
   const coronaMat = coronaMaterial(hot);
-  coronaMat.uniforms.uSize.value = R * CORONA_SPAN;
+  coronaMat.uniforms.uSize.value = Rmax * CORONA_SPAN;
   coronaMat.uniforms.uCore.value = 1 / CORONA_SPAN;
   const corona = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), coronaMat);
   corona.frustumCulled = false;
@@ -325,6 +414,10 @@ export function createStarVisual(b, opts) {
   }
 
   const activity = new ActivityModel(b.mass);
+  // Degenerate stars have no convection zone to run a dynamo, so no spots and
+  // no flares. Emptying the regions and pushing the next arrival past any
+  // watchable timescale leaves the same object with its magnetism switched off.
+  if (opts.quiet) { activity.regions.length = 0; activity.next = Infinity; }
   b.activity = activity;
 
   const _v = new THREE.Vector3();

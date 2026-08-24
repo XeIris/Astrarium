@@ -7,6 +7,10 @@ import { Climate } from './sim/climate.js';
 import { createSkyPass, SurfaceObserver } from './sim/skyview.js';
 import { MAX_SUNS } from './sim/world.js';
 import { luminosity, effectiveTemp, radiusSun, blackbodyColor, spectralClass } from './sim/stellar.js';
+import { structureOf, whiteDwarfRadiusSun, gravityDarkenedTemps, tovLimit, endStateOf, VERDICT, LIMITS } from './sim/structure.js';
+import { createFoundry, createInspector } from './sim/foundry.js';
+import { createPainter, ringSpan } from './sim/painter.js';
+import { fmtMass } from './sim/crosssection.js';
 import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
 import { createPostFX } from './sim/postfx.js';
 import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
@@ -58,7 +62,9 @@ const DOM = {};
  'eraDesc', 'cTemp', 'cFlux', 'cIce', 'cCloud', 'cTau', 'cExtremes', 'climateChart',
  'sunList', 'simClock', 'starPanel', 'skyRow', 'bhPanel',
  'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs', 'presetSearch',
- 'presetSearchClear', 'presetList', 'presetEmpty'].forEach(id => DOM[id] = document.getElementById(id));
+ 'presetSearchClear', 'presetList', 'presetEmpty', 'foundry', 'xsecPanel',
+ 'xsecCanvas', 'xsecLegend', 'xsecFacts', 'xsecNotes', 'xsecVerdict', 'xsecName',
+ 'xsecOpen'].forEach(id => DOM[id] = document.getElementById(id));
 
 // The scenario catalogue is grouped here rather than in the physics presets:
 // these labels are navigation, while PRESETS remains the source of truth for
@@ -70,6 +76,7 @@ const PRESET_GROUPS = [
   presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos']),
   presetGroup('black-holes', 'BH scenarios', ['sandbox', 'bhmerger', 'feeding']),
   presetGroup('neutron-stars', 'Neutron star scenarios', ['nsmerger']),
+  presetGroup('real-stars', 'Real stars', ['stellar_zoo', 'sirius', 'vega', 'achernar', 'betelgeuse', 'alphacen', 'etacar', 'hr_ladder']),
   presetGroup('stellar-systems', 'Stellar system scenarios', ['solar', 'threebody', 'binarystar']),
 ];
 const openPresetGroups = new Set();
@@ -181,6 +188,16 @@ const spacetimeMesh = new THREE.Mesh(meshGeo, meshMat);
 spacetimeMesh.position.y = -6;
 scene.add(spacetimeMesh);
 
+// ============================================================================
+// PAINTER — see sim/painter.js. Everything it holds is a test particle or a
+// shell, none of it enters the N-body loop, and all of it is pinned to a body.
+// ============================================================================
+const painter = createPainter({
+  scene,
+  getBody: id => state.bodies.find(b => b.id === id),
+  getSceneScale: () => state.sceneScale,
+});
+
 // merger flash sprites
 const flashes = [];
 function spawnFlash(worldPos, color, size, decay = 0.8) {
@@ -206,11 +223,19 @@ function killFlash(f) {
 // BODY CREATION
 // ============================================================================
 const TRAIL_MAX = 600;
-function baseRadius(type, mass) {
-  switch (type) {
+function baseRadius(spec, mass) {
+  switch (spec.type) {
     // Rendered star size now follows the real main-sequence mass–radius
     // relation, so a 2 M☉ star is visibly bigger than a 0.85 M☉ one.
-    case 'star': return 0.34 * radiusSun(mass);
+    //
+    // A spec carrying a MEASURED radius (sim/starcat.js) is the exception, and
+    // gets it compressed rather than used directly: the catalogue spans 90 000
+    // to 1 from Betelgeuse to Sirius B, and this is the deliberately unphysical
+    // "readable" mode, where drawing that range at all defeats the purpose.
+    // R^0.45 keeps the ordering and squeezes the range to ~180:1. True scale is
+    // the other branch of renderRadius and is left completely alone.
+    case 'star': return 0.34 * (spec.radiusSun != null ? Math.pow(spec.radiusSun, 0.45) : radiusSun(mass));
+    case 'white-dwarf': return 0.12;
     // A neutron star is ~12 km across sitting in an orbit millions of times
     // wider, so its rendered size is pure exaggeration either way. It used to
     // be 0.09 and was carried entirely by a glow sprite pasted over it; now
@@ -229,12 +254,13 @@ function baseRadius(type, mass) {
 function renderRadius(b, spec, mass) {
   if (spec.type === 'bh') return b.rs * state.sceneScale;
   if (state.trueScale && b.radius > 0) return b.radius * state.sceneScale;
-  return baseRadius(spec.type, mass) * state.bodyScale;
+  return baseRadius(spec, mass) * state.bodyScale;
 }
 
 const TYPE_DEFAULTS = {
   star:    { mass: 1.0, color: 0xffe0a0, glow: 0xff8040 },
   neutron: { mass: 1.4, color: 0xcfe8ff, glow: 0x88c4ff },
+  'white-dwarf': { mass: 0.6, color: 0xdfe9ff, glow: 0xaac8ff },
   'gas-giant': { mass: 9.5e-4, color: 0xd4a574, glow: 0x6a4828 },
   planet:  { mass: 3e-6, color: 0x6a90c0, glow: 0x3a6a9a },
   world:   { mass: 3e-6, color: 0x6a90c0, glow: 0x3a6a9a },
@@ -265,9 +291,19 @@ function attachVisual(b) {
   // deliberately overrides it (the figure-eight uses colour to tell bodies apart).
   const starColor = spec.color != null ? new THREE.Color(spec.color)
                   : (b.teff ? blackbodyColor(b.teff) : null);
+  const isStarLike = spec.type === 'star' || spec.type === 'white-dwarf';
+  // Rotational flattening and gravity darkening, from sim/structure.js. A star
+  // spun to 88% of break-up is measurably lens-shaped and measurably two-tone,
+  // and both are consequences of the same one number.
+  const st = b.structure;
+  const gd = (spec.type === 'star' && b.teff) ? gravityDarkenedTemps(b.teff, b.spinFrac ?? 0) : null;
   const viz = createBodyVisual(b, {
     radiusScene,
-    color: spec.type === 'star' ? starColor : (spec.color ?? def.color),
+    oblate: st?.flattening ? 1 / (1 - st.flattening) : 1,
+    spinFrac: b.spinFrac ?? 0,
+    tPole: gd?.tPole, tEq: gd?.tEq, gdBeta: gd?.beta,
+    radiusSun: b.radiusSun ?? (b.radius ? b.radius / PHYS.AU_PER_RSUN : undefined),
+    color: isStarLike ? starColor : (spec.color ?? def.color),
     teff: b.teff,
     glow: spec.glow ?? def.glow,
     seed: spec.seed,
@@ -275,8 +311,18 @@ function attachVisual(b) {
     palette, hot: spec.hot, atmosphere: spec.atmosphere, atmColor: spec.atmColor,
     seaLevel: spec.seaLevel, rings: spec.rings, ringColor: spec.ringColor,
   });
+  // Rotational flattening for everything that is NOT a star: the star shader
+  // deforms its own mesh onto the Roche surface (it needs the shape to compute
+  // gravity darkening anyway), but a planet or a neutron star has no such
+  // shader, so its group is scaled into the spheroid instead. Volume is
+  // conserved by sim/structure.js, so this bulges the body rather than
+  // inflating it — Jupiter really is 6.5% wider than it is tall.
+  if (st?.flattening > 1e-4 && spec.type !== 'star' && spec.type !== 'white-dwarf') {
+    const k = st.radiusEqAU / (st.radiusAU || 1);
+    viz.group.scale.set(k, k * (1 - st.flattening), k);
+  }
   viz.group.userData.bodyId = b.id;
-  viz.group.userData.baseScale = 1;
+  viz.group.userData.baseScale = viz.group.scale.x || 1;
   viz.group.position.copy(b.pos).multiplyScalar(state.sceneScale);
   scene.add(viz.group);
 
@@ -284,15 +330,16 @@ function attachVisual(b) {
   // falls below a pixel. It lives in the scene rather than under viz.group so
   // its size is never coupled to whatever the body's own visual does to its
   // transform (tidal stretching, flare pulses).
-  const markerColor = spec.type === 'star'
-    ? (starColor ?? new THREE.Color(0xfff2cc))
+  const emitter = spec.type === 'star' || spec.type === 'white-dwarf';
+  const markerColor = emitter
+    ? (starColor ?? (b.teff ? blackbodyColor(b.teff) : new THREE.Color(0xfff2cc)))
     : new THREE.Color(spec.color ?? def.color);
   b.marker = createMarker({
     color: markerColor,
     teff: b.teff ?? 0,
     // Emitters must stay bright enough to survive tone mapping and trip the
     // bloom; reflectors only need to be seen.
-    gain: spec.type === 'star' ? 26 : (spec.type === 'neutron' ? 18 : 2.2),
+    gain: spec.type === 'star' ? 26 : ((spec.type === 'neutron' || spec.type === 'white-dwarf') ? 18 : 2.2),
   });
   scene.add(b.marker.mesh);
 }
@@ -338,6 +385,23 @@ function rebuildVisuals() {
   if (state.camMode === 'orbit') updateOrbitCam();
 }
 
+// ---------------------------------------------------------------------------
+// Recompute a body's interior model. Everything that reads structure — the
+// cross-section, the object editor, the oblateness the star shader draws, the
+// stability checks in the render loop — reads b.structure, so this is the one
+// place that decides what a body physically IS. It has to be re-run whenever
+// mass or spin changes, which accretion does continuously.
+// ---------------------------------------------------------------------------
+function refreshStructure(b) {
+  b.structure = structureOf({
+    type: b.type, mass: b.mass, spinFrac: b.spinFrac ?? 0,
+    phase: b.phase, composition: b.composition, Z: b.Z,
+    radiusSun: b.radiusSun, teff: b.spec?.teff, luminosity: b.spec?.luminosity,
+    radiusKm: b.spec?.radiusKm, rs: b.rs,
+  });
+  return b.structure;
+}
+
 function spawnBody(spec) {
   const def = TYPE_DEFAULTS[spec.type] || TYPE_DEFAULTS.planet;
   const mass = spec.mass ?? def.mass;
@@ -360,11 +424,23 @@ function spawnBody(spec) {
     b.radius = PHYS.neutronRadius(mass);
     b.rs = PHYS.schwarzschild(mass);
   } else if (spec.type === 'star') {
-    b.radius = PHYS.stellarRadius(mass);
-    // stellar properties derived from mass alone (see sim/stellar.js)
+    // A measured radius (sim/starcat.js) wins; otherwise the main-sequence
+    // relation. This matters far past cosmetics — b.radius is the collision
+    // radius, and Betelgeuse's is 150 times what its mass alone would predict.
+    b.radiusSun = spec.radiusSun ?? null;
+    b.radius = spec.radiusSun != null ? spec.radiusSun * PHYS.AU_PER_RSUN : PHYS.stellarRadius(mass);
     b.luminosity = spec.luminosity ?? luminosity(mass);
     b.teff = spec.teff ?? effectiveTemp(mass);
     b.spectral = spectralClass(b.teff);
+    b.phase = spec.phase ?? 0.5;
+  } else if (spec.type === 'white-dwarf') {
+    b.radiusSun = spec.radiusSun ?? whiteDwarfRadiusSun(mass);
+    b.radius = b.radiusSun * PHYS.AU_PER_RSUN;
+    b.teff = spec.teff ?? 12000;
+    // L = 4πR²σT⁴, in solar units with the Sun's own radius and 5772 K divided out
+    b.luminosity = spec.luminosity ?? Math.pow(b.radiusSun, 2) * Math.pow(b.teff / 5772, 4);
+    b.spectral = 'D';
+    b.rs = PHYS.schwarzschild(mass);
   } else {
     // Planets and worlds now carry a REAL radius (AU) rather than the old
     // 0.0001 placeholder — true-scale rendering needs it, and it also makes the
@@ -378,9 +454,18 @@ function spawnBody(spec) {
     b.home = !!spec.home;
   }
 
+  // How fast it turns, as a fraction of its own break-up rate. This is the
+  // dimensionless form of spin, and it is the one that means something: 1.0 is
+  // the mass-shedding limit for ANY body, so the same number describes a
+  // millisecond pulsar and a gas giant. sim/structure.js turns it into a shape.
+  b.spinFrac = spec.spinFrac ?? 0;
+  b.composition = spec.composition;
+  b.Z = spec.Z ?? 0.014;
+
   // the spec is kept so the visual can be rebuilt at a different size without
   // disturbing the physics state (see rebuildVisuals)
   b.spec = spec; b.def = def;
+  refreshStructure(b);
   attachVisual(b);
   if (spec.type === 'world' && spec.home) state.homeId = b.id;
 
@@ -430,19 +515,140 @@ function clearBodies() {
 
 // add a body orbiting the dominant mass (used by Spawn buttons)
 function spawnOrbiting(type) {
+  const palette = type === 'gas-giant' ? ['jupiter', 'saturn', 'ice'][Math.floor(Math.random() * 3)] : undefined;
+  spawnBody(orbitSpecAroundDominant({
+    type, palette, atmosphere: type === 'planet', seed: Math.floor(Math.random() * 1e9),
+  }));
+  refreshUI();
+}
+
+// ---------------------------------------------------------------------------
+// Put a spec on a circular orbit about the dominant mass. Shared by the quick
+// spawn buttons and by the Object Foundry, so a hand-built 40 M☉ star arrives
+// the same way a quick-spawn planet does.
+// ---------------------------------------------------------------------------
+function orbitSpecAroundDominant(spec) {
   const center = state.bodies.reduce((a, b) => (b.mass > (a?.mass ?? -1) ? b : a), null);
-  const Mc = center ? center.mass : 1;
+  const Mc = center ? Math.max(center.mass, 1e-6) : 1;
   const cpos = center ? center.pos : new THREE.Vector3();
-  const aAU = (5 + Math.random() * 9) / state.sceneScale + (center ? center.radiusScene / state.sceneScale : 0);
+  // Stay clear of whatever we are orbiting: outside its rendered disc, and
+  // outside its horizon by a wide margin if it is a hole.
+  const clearAU = center
+    ? Math.max(center.radiusScene / state.sceneScale, (center.rs || 0) * 8, center.radius || 0)
+    : 0;
+  const aAU = clearAU * 2.5 + (5 + Math.random() * 9) / state.sceneScale;
   const ang = Math.random() * Math.PI * 2;
   const dir = new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang));
   const pos = cpos.clone().addScaledVector(dir, aAU);
-  const v = PHYS.circularSpeed(Mc, aAU);
+  const v = PHYS.circularSpeed(Mc + (spec.mass ?? 0), aAU);
   const tang = new THREE.Vector3(-Math.sin(ang), 0, Math.cos(ang)).multiplyScalar(v);
   if (center) tang.add(center.vel);
-  const palette = type === 'gas-giant' ? ['jupiter', 'saturn', 'ice'][Math.floor(Math.random() * 3)] : undefined;
-  spawnBody({ type, pos: [pos.x, pos.y, pos.z], vel: [tang.x, tang.y, tang.z], palette, atmosphere: type === 'planet', seed: Math.floor(Math.random() * 1e9) });
+  return { ...spec, pos: [pos.x, pos.y, pos.z], vel: [tang.x, tang.y, tang.z] };
+}
+
+// ============================================================================
+// STRUCTURAL CONSEQUENCES
+// ----------------------------------------------------------------------------
+// The interior model is not decoration: when it says a body can no longer hold
+// itself up, the body has to stop existing as that kind of body. Three things
+// can happen, and all three are reachable in ordinary play rather than only
+// from the editor —
+//
+//   · a neutron star fed past its TOV mass (by accretion, or by merging with
+//     another) has nothing left to support it and collapses to a black hole
+//   · a star built at the end of its life does what a star at the end of its
+//     life does: core collapse, and either a remnant or, in the pair-instability
+//     window, nothing at all
+//   · a body that crosses an ignition threshold is simply a different kind of
+//     object and is rebuilt as one
+//
+// This runs on any body whose mass has changed since it was last checked, which
+// is what makes the black-hole presets interesting: feed a 2.0 M☉ neutron star
+// and you can watch the moment it gives up.
+// ============================================================================
+function transmute(b, newType, why) {
+  const wpos = b.pos.clone().multiplyScalar(state.sceneScale);
+  b.type = newType;
+  b.spec = { ...(b.spec || {}), type: newType, mass: b.mass };
+  b.def = TYPE_DEFAULTS[newType] || TYPE_DEFAULTS.planet;
+  if (newType === 'bh') {
+    b.rs = PHYS.schwarzschild(b.mass);
+    b.radius = 0;
+    // A horizon has no photosphere; leaving a temperature behind would keep
+    // re-imaging it as a star in the non-visible bands (see CLAUDE.md).
+    b.teff = undefined; b.spectral = undefined; b.luminosity = undefined;
+    b.radiusSun = null;
+    b.emitsGW = true;
+    spawnFlash(wpos, 0xffffff, Math.max(b.rs * state.sceneScale * 9, 0.6), 1.4);
+    spawnFlash(wpos, 0x9fd0ff, Math.max(b.rs * state.sceneScale * 5, 0.4), 0.3);
+  }
+  detachVisual(b);
+  refreshStructure(b);
+  attachVisual(b);
+  if (why) toast(why, 5200);
   refreshUI();
+}
+
+// A star at the end of its life. What it leaves behind is decided by
+// endStateOf(), which is the standard initial-to-final mass mapping — and in
+// the pair-instability window it leaves nothing whatsoever.
+function coreCollapse(b) {
+  const end = endStateOf(b.mass);
+  const wpos = b.pos.clone().multiplyScalar(state.sceneScale);
+  const size = Math.max(b.radiusScene * 22, 1.5);
+  spawnFlash(wpos, 0xffffff, size, 0.55);
+  spawnFlash(wpos, 0xffd0a0, size * 0.6, 0.16);
+  state.consumed++;
+  if (end.type === 'none') {
+    toast(`${b.name}: pair-instability supernova — no remnant at all`, 6000);
+    spawnFlash(wpos, 0x9fd8ff, size * 1.6, 0.10);
+    removeBody(b.id);
+    return;
+  }
+  b.mass = end.mass; b.mass0 = end.mass;
+  b.spinFrac = Math.min((b.spinFrac ?? 0) + 0.55, 0.95);   // collapse spins it up
+  if (end.type === 'neutron') {
+    b.radius = PHYS.neutronRadius(b.mass);
+    b.spec = { ...(b.spec || {}), type: 'neutron', mass: b.mass, spin: 30 };
+    b.teff = undefined;
+    transmute(b, 'neutron', `${b.name}: core collapse → ${end.label} (${fmtMass(end.mass)})`);
+  } else if (end.type === 'bh') {
+    transmute(b, 'bh', `${b.name}: core collapse → ${end.label} (${fmtMass(end.mass)})`);
+  } else {
+    b.radiusSun = whiteDwarfRadiusSun(b.mass);
+    b.radius = b.radiusSun * PHYS.AU_PER_RSUN;
+    b.teff = 30000;
+    b.spec = { ...(b.spec || {}), type: 'white-dwarf', mass: b.mass, teff: 30000 };
+    transmute(b, 'white-dwarf', `${b.name}: envelope shed → ${end.label} (${fmtMass(end.mass)})`);
+  }
+}
+
+// Called for any body whose mass has moved. Cheap — it only recomputes the
+// structure when the mass actually changed by more than a part in a thousand.
+function checkStructuralLimits(b) {
+  if (!b.alive || b.type === 'bh') return;
+  if (b._mCheck != null && Math.abs(b.mass - b._mCheck) < b._mCheck * 1e-3) return;
+  b._mCheck = b.mass;
+  const st = refreshStructure(b);
+
+  if (b.type === 'neutron' && b.mass > tovLimit(b.spinFrac ?? 0)) {
+    transmute(b, 'bh',
+      `${b.name} passed the TOV limit at ${fmtMass(b.mass)} — nothing can hold it up. Collapsed to a black hole.`);
+    return;
+  }
+  if (b.type === 'white-dwarf' && b.mass >= LIMITS.chandrasekhar) {
+    const wpos = b.pos.clone().multiplyScalar(state.sceneScale);
+    spawnFlash(wpos, 0xffffff, Math.max(b.radiusScene * 40, 2.0), 0.4);
+    spawnFlash(wpos, 0xbfe0ff, Math.max(b.radiusScene * 24, 1.2), 0.12);
+    toast(`${b.name} reached the Chandrasekhar mass — Type Ia supernova, nothing left`, 6000);
+    state.consumed++;
+    removeBody(b.id);
+    return;
+  }
+  // A body that has crossed an ignition threshold is a different object.
+  if (st.type !== b.type && st.reclassifiedFrom) {
+    transmute(b, st.type, `${b.name}: ${st.verdict.detail}`);
+  }
 }
 
 // ============================================================================
@@ -453,7 +659,9 @@ function getHoles() {
 }
 
 function getStars() {
-  return state.bodies.filter(b => b.type === 'star' && b.alive);
+  // White dwarfs light a scene too — Sirius B is 25 000 K, hotter than Sirius A
+  // — and leaving them out would make the Sirius preset lit by one star.
+  return state.bodies.filter(b => (b.type === 'star' || b.type === 'white-dwarf') && b.alive);
 }
 function getHome() {
   return state.homeId != null ? state.bodies.find(b => b.id === state.homeId) : null;
@@ -464,7 +672,7 @@ function getHome() {
 function sceneMaxTemp() {
   let t = 0;
   for (const b of state.bodies) {
-    if (b.type === 'star') t = Math.max(t, b.teff ?? effectiveTemp(b.mass));
+    if (b.type === 'star' || b.type === 'white-dwarf') t = Math.max(t, b.teff ?? effectiveTemp(b.mass));
     else if (b.type === 'neutron') t = Math.max(t, 1.0e6);
     // thin-disc peak, T ∝ M^(−1/4)
     else if (b.type === 'bh') t = Math.max(t, 2.0e7 * Math.pow(Math.max(b.mass, 0.1), -0.25));
@@ -820,6 +1028,7 @@ function loadPreset(key) {
   const p = PRESETS[key];
   if (!p) return;
   clearBodies();
+  painter.clear();
   // also remove flashes
   for (const fl of flashes) killFlash(fl); flashes.length = 0;
 
@@ -852,6 +1061,10 @@ function loadPreset(key) {
   state.suns.length = 0;
 
   for (const spec of p.build()) spawnBody(spec);
+
+  // Anything the scenario paints on: rings, belts, ejecta. Applied after the
+  // bodies exist, since each decoration is pinned to one of them by name.
+  for (const spec of p.paint || []) applyPaintSpec(spec);
 
   // climate only exists for presets that give us a world to stand on
   state.climate = p.climate ? new Climate(p.climate) : null;
@@ -906,6 +1119,103 @@ function loadPreset(key) {
   spacetimeMesh.visible = state.showMesh;
   document.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('active', b.dataset.preset === key));
   refreshUI();
+}
+
+// ============================================================================
+// PAINTING
+// ----------------------------------------------------------------------------
+// The parameters are derived from the body rather than asked for, because the
+// interesting ones are not free: a ring's span is fixed by the Roche limit, and
+// a belt's gaps are fixed by which resonances a perturber has cleared.
+// ============================================================================
+function applyPaintSpec(spec) {
+  const b = spec.body ? state.bodies.find(x => x.name === spec.body) : null;
+  if (spec.body && !b) return null;
+  const common = { bodyId: b ? b.id : null, sceneScale: state.sceneScale };
+  if (spec.kind === 'cloud') {
+    return painter.add('cloud', {
+      ...common,
+      radius: spec.radius ?? 10, lobes: spec.lobes ?? 1,
+      color: spec.color ?? 0xffcf9a, density: spec.density ?? 0.7,
+      expandAUperYr: spec.expand ?? 0, seed: spec.seed ?? Math.random() * 100,
+      label: spec.label ?? 'ejecta',
+    });
+  }
+  return painter.add(spec.kind === 'belt' ? 'belt' : 'ring', {
+    ...common,
+    centralMass: b ? b.mass : 1,
+    inner: spec.inner, outer: spec.outer,
+    count: spec.count ?? (spec.kind === 'belt' ? 11000 : 26000),
+    ecc: spec.ecc ?? (spec.kind === 'belt' ? 0.14 : 0.0025),
+    incl: spec.incl ?? (spec.kind === 'belt' ? 0.16 : 0.001),
+    color: spec.color ?? 0xcdbb99,
+    sizePx: spec.sizePx ?? (spec.kind === 'belt' ? 2.4 : 2.0),
+    tilt: spec.tilt ?? 0,
+    perturberA: spec.perturber ?? null,
+    surfaceDensity: spec.surfaceDensity ?? -1.5,
+    label: spec.label ?? spec.kind,
+  });
+}
+
+// The "Ring" button. What it mostly does is REFUSE, when the body it was aimed
+// at cannot have one — and saying why is the point of the button.
+function paintRingOn(b) {
+  if (!b) return toast('Focus a body first (click it, or pick it from Bodies)');
+  if (b.type === 'bh') {
+    return toast('A black hole has no surface for a ring to sit above — what it gets instead is an accretion disc, which the lensing pass already draws.', 6000);
+  }
+  const span = ringSpan(b.mass, b.radius || 1e-6, 'ice');
+  if (!span.outer) {
+    return toast(`${b.name} is too diffuse for a ring: its Roche limit falls inside its own surface, so any orbiting debris is outside the tidal zone and would simply accrete into a moon.`, 7000);
+  }
+  applyPaintSpec({
+    kind: 'ring', body: b.name,
+    inner: span.inner, outer: span.outer,
+    tilt: (Math.random() - 0.5) * 0.5,
+    color: b.type === 'star' ? 0xffd8b4 : 0xcdbb99,
+  });
+  toast(`Ring around ${b.name}: ${(span.inner / PHYS.AU_PER_KM).toFixed(0)}–${(span.outer / PHYS.AU_PER_KM).toFixed(0)} km, i.e. from just above the surface out to the Roche limit at ${(span.roche / (b.radius || 1)).toFixed(2)} body radii. Outside that, this material would clump into a moon instead.`, 8000);
+}
+
+function paintBeltOn(b) {
+  if (!b) return toast('Focus a body first (click it, or pick it from Bodies)');
+  // The belt goes around whatever this body orbits, not around the body — a
+  // belt is a heliocentric structure. If the focus IS the dominant mass, use it.
+  const central = state.bodies.reduce((a, x) => (x.mass > (a?.mass ?? -1) ? x : a), null);
+  const host = (b === central) ? b : central;
+  if (!host) return;
+  const rHost = Math.max(host.radius || 0, host.rs || 0);
+  // Place it where the solar system's is, in units of the host's own scale:
+  // 2.1–3.3 AU about 1 M☉ scales as √M for a fixed orbital period.
+  const k = Math.sqrt(Math.max(host.mass, 1e-6));
+  const inner = Math.max(2.1 * k, rHost * 4), outer = Math.max(3.4 * k, rHost * 7);
+  // The nearest more massive body outside the belt is what clears the gaps.
+  let perturber = null, best = Infinity;
+  for (const o of state.bodies) {
+    if (o === host || o.mass < host.mass * 1e-5) continue;
+    const a = o.pos.distanceTo(host.pos);
+    if (a > outer && a < best) { best = a; perturber = a; }
+  }
+  applyPaintSpec({
+    kind: 'belt', body: host.name, inner, outer,
+    perturber, color: 0x9a8d7c, surfaceDensity: -1.0,
+  });
+  toast(perturber
+    ? `Belt from ${inner.toFixed(2)} to ${outer.toFixed(2)} AU, with Kirkwood gaps cleared at the 3:1, 5:2, 7:3 and 2:1 resonances with the body at ${perturber.toFixed(2)} AU.`
+    : `Belt from ${inner.toFixed(2)} to ${outer.toFixed(2)} AU. No body outside it to clear resonance gaps, so it is smooth — which is what the asteroid belt would look like without Jupiter.`, 8000);
+}
+
+function paintCloudOn(b) {
+  if (!b) return toast('Focus a body first (click it, or pick it from Bodies)');
+  const r = Math.max((b.radius || 0.01) * 12, 0.6 / state.sceneScale);
+  applyPaintSpec({
+    kind: 'cloud', body: b.name, radius: r,
+    lobes: 2, density: 0.7,
+    // 650 km/s, the measured expansion of Eta Carinae's Homunculus, in AU/yr.
+    expand: 0.137,
+    color: b.teff > 9000 ? 0xbcd6ff : 0xffcf9a,
+  });
+  toast(`Ejecta shell around ${b.name}, expanding at 650 km/s — the measured speed of η Carinae's Homunculus. It limb-brightens into a rim because it is optically thin and hollow.`, 7000);
 }
 
 // ============================================================================
@@ -1010,6 +1320,13 @@ function updateHUD(dt) {
   hudAcc = 0;
 
   if (DOM.simClock) DOM.simClock.textContent = fmtYears(state.simYears);
+
+  // An open cross-section tracks the focused body. Bodies change — a star
+  // being eaten loses mass every frame, and the diagram should say so.
+  if (xsecOpen && DOM.xsecPanel && DOM.xsecPanel.style.display !== 'none') {
+    const fb = state.bodies.find(b => b.id === state.focusId);
+    if (fb) showCrossSection(fb); else setPanelOpen('xsecPanel', false);
+  }
 
   // --- star readout: what each sun actually is, and how bright it is here
   if (DOM.sunList && state.suns.length) {
@@ -1149,6 +1466,9 @@ document.querySelectorAll('[data-open]').forEach(btn =>
   btn.addEventListener('click', () => setPanelOpen(btn.dataset.open, true)));
 // both start open — this also seeds the body class the hint's position keys off
 for (const id of ['scenarioPanel', 'controlPanel']) setPanelOpen(id, true);
+// The cross-section starts closed and has no tab: it is opened from a focused
+// body, so there is nothing to come back to until one is focused.
+setPanelOpen('xsecPanel', false);
 
 function setHudHidden(hidden) {
   state.hudHidden = hidden;
@@ -1156,7 +1476,7 @@ function setHudHidden(hidden) {
     // panels obey their own collapsed state once the HUD comes back
     el.style.display = hidden ? 'none' : '';
   }
-  for (const id of ['scenarioPanel', 'controlPanel']) setPanelOpen(id, !collapsed.has(id));
+  for (const id of ['scenarioPanel', 'controlPanel', 'xsecPanel']) setPanelOpen(id, !collapsed.has(id));
   if (hidden) toast('HUD hidden — press H to restore');
 }
 
@@ -1197,6 +1517,15 @@ DOM.presetList?.addEventListener('click', event => {
 });
 
 document.querySelectorAll('[data-spawn]').forEach(btn => btn.addEventListener('click', () => spawnOrbiting(btn.dataset.spawn)));
+document.querySelectorAll('[data-paint]').forEach(btn => btn.addEventListener('click', () => {
+  const b = state.bodies.find(x => x.id === state.focusId);
+  switch (btn.dataset.paint) {
+    case 'ring':  paintRingOn(b); break;
+    case 'belt':  paintBeltOn(b); break;
+    case 'cloud': paintCloudOn(b); break;
+    case 'clear': painter.clear(); toast('Cleared everything painted'); break;
+  }
+}));
 document.getElementById('clear').addEventListener('click', clearBodies);
 document.getElementById('delFocus').addEventListener('click', () => { if (state.focusId != null) removeBody(state.focusId); });
 DOM.camOrbit.addEventListener('click', () => setCamMode('orbit'));
@@ -1362,6 +1691,8 @@ function animate() {
   // frame slows the spin, the clouds and the lens together with the bodies
   // instead of letting them run ahead.
   const simStepped = stepPhysics(simDt);
+  runPendingCollapse();
+  painter.update(simStepped);
   updateSuns();
   postfx.setSceneTemp(sceneMaxTemp());
 
@@ -1375,6 +1706,11 @@ function animate() {
     if (b.type === 'bh') { b.rsScene = b.rs * state.sceneScale; b.radiusScene = b.rsScene; }
     b.viz.update(dt * (state.paused ? 0 : 1) + 0.0001, ctx); // keep shaders animating even paused-ish
   }
+  // Structural limits, on anything whose mass moved this frame. Accretion and
+  // mergers both change mass, so this is where a fed neutron star finds out it
+  // is over the TOV limit.
+  for (const b of state.bodies.slice()) checkStructuralLimits(b);
+
   // Bodies stripped down to nothing by accretion are fully consumed. This has
   // to be measured against the body's ORIGINAL mass: a planet is born lighter
   // than this threshold, and must not be deleted just for being a planet.
@@ -1603,8 +1939,72 @@ function animate() {
 }
 
 // ============================================================================
+// OBJECT FOUNDRY + CROSS-SECTION
+// ============================================================================
+const foundry = DOM.foundry ? createFoundry({
+  mount: DOM.foundry,
+  onSpawn(spec, structure) {
+    const b = spawnBody(orbitSpecAroundDominant({
+      ...spec,
+      seed: Math.floor(Math.random() * 1e9),
+      atmosphere: spec.type === 'planet',
+    }));
+    setFollow(b);
+    // A star built at the very end of its life does not get to sit there. The
+    // foundry can put a 200 M☉ star one step from core collapse into the
+    // scene, and the only honest thing for it to then do is collapse.
+    if (spec.type === 'star' && (spec.phase ?? 0) >= 1.93) {
+      pendingCollapse.push({ id: b.id, at: state.time + 1.6 });
+      toast(`${b.name} is at core collapse — watch`, 3000);
+    } else if (structure?.verdict?.state === VERDICT.explode && spec.type === 'star') {
+      toast(structure.verdict.label + ' — ' + structure.verdict.detail.slice(0, 120) + '…', 7000);
+    }
+  },
+}) : null;
+
+// Stars spawned at the end of their lives collapse a moment later, so the
+// explosion is something you watch rather than something that has already
+// happened by the time the panel closes.
+const pendingCollapse = [];
+function runPendingCollapse() {
+  for (let i = pendingCollapse.length - 1; i >= 0; i--) {
+    if (state.time < pendingCollapse[i].at) continue;
+    const b = state.bodies.find(x => x.id === pendingCollapse[i].id);
+    pendingCollapse.splice(i, 1);
+    if (b && b.alive) coreCollapse(b);
+  }
+}
+
+const inspector = DOM.xsecCanvas ? createInspector({
+  canvas: DOM.xsecCanvas, legend: DOM.xsecLegend,
+  factsEl: DOM.xsecFacts, verdictEl: DOM.xsecVerdict, notesEl: DOM.xsecNotes,
+}) : null;
+
+let xsecOpen = false;
+function showCrossSection(b) {
+  if (!inspector || !b) return;
+  DOM.xsecName.textContent = `#${b.id} ${b.name}`;
+  inspector.show(refreshStructure(b), b.structure?.label);
+}
+DOM.xsecOpen?.addEventListener('click', () => {
+  const b = state.bodies.find(x => x.id === state.focusId);
+  if (!b) return;
+  xsecOpen = true;
+  setPanelOpen('xsecPanel', true);
+  showCrossSection(b);
+});
+document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', () => { xsecOpen = false; });
+
+// ============================================================================
 // BOOT
 // ============================================================================
+// There is no build step and no test runner here, so the console IS the
+// debugger: `SIM.state.bodies[0].structure` is how you check what the physics
+// thinks a body is, `SIM.load('vega')` is faster than editing the hash, and
+// `SIM.renderer.info.render` settles "is this thing being drawn at all" in one
+// line. This is a deliberate handle, not a leftover.
+window.SIM = { state, scene, camera, cam, renderer, THREE, load: loadPreset, refreshStructure, spawnBody, setFollow, foundry, showCrossSection, coreCollapse, painter, applyPaintSpec };
+
 resize();
 // Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,
 // so opening the page at #constructor or #toString passed the truthiness test,

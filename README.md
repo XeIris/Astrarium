@@ -29,6 +29,65 @@ exactly one year, with no fudge factors.
 - Neutron stars follow a mass–radius relation (heavier ⇒ smaller, floored near the
   ~10 km limit); main-sequence stars use R ∝ M^0.8.
 
+### What holds a body up
+
+`sim/structure.js` answers a different question from the rest of the physics: not where
+a body is, but what it *is* — what is supporting it against its own gravity, how big
+that makes it, what is inside it, and at what point the support fails. Everything the
+Object Foundry does is derived from it, and none of the outcomes below are scripted;
+they are all consequences of the same competition between pressure and gravity.
+
+- **Solid planets** follow the scaled mass–radius law of
+  [Seager et al. (2007)](https://arxiv.org/abs/0707.2895) — every composition collapses
+  onto one curve, because the equations of state are all well fitted by a modified
+  polytrope. Fed the Earth-like coefficients it returns 0.97 R⊕ at 1 M⊕. Differentiate
+  it and the curve **turns over at about 300 M⊕**: past roughly one Jupiter mass,
+  electron degeneracy stiffens faster than gravity loads the planet, and adding rock
+  makes it *smaller*. There is a largest possible rocky planet, and it is ~3 R⊕.
+- **Ignition thresholds** are where the identity changes: deuterium at 13 M_J,
+  hydrogen at 0.075 M☉. Drag a planet's mass past either and it stops being one.
+- **Degenerate stars** shrink as they gain mass. White dwarfs use the Nauenberg (1972)
+  form of R ∝ M^−⅓ carried to the Chandrasekhar mass, which returns 0.0084 R☉ at
+  1.02 M☉ — Sirius B, measured at 0.0084 R☉. Past 1.44 M☉ there is no equilibrium and
+  it detonates as a Type Ia.
+- **Neutron stars** collapse past the **TOV limit** (~2.2 M☉ at rest), and rigid
+  rotation raises that by up to 20% because centrifugal support is real support. Feed
+  one in the sim and you can watch the moment it gives up.
+- **Massive stars** run into their own light. `L/L_Edd` rises with mass; above the
+  Humphreys–Davidson limit no stable supergiant is observed; between **140 and 260 M☉**
+  the **pair instability** disassembles the star completely, leaving no remnant at all;
+  above that it collapses directly to a black hole without exploding.
+- **Evolution** moves along a track rather than sitting on the main sequence. The core
+  hydrogen fraction falls, the mean molecular weight rises, and the star brightens and
+  swells — calibrated on the solar track, so the ZAMS Sun really is 0.70 L☉ and 0.90 R☉
+  and today's is exactly 1.00. Past the main sequence it becomes a subgiant, then a red
+  giant with a degenerate helium core, and — if it is heavy enough — an onion of burning
+  shells around an inert iron core. Above ~40 M☉ it goes the other way: its own wind
+  strips the envelope and it ends as a hot, small **Wolf–Rayet** star.
+
+### Rotation, shape and gravity darkening
+
+Spin is stored as one dimensionless number: Ω/Ω_crit, the fraction of the rate at which
+the body's own equator would be in orbit. That single number sets the shape and the
+surface temperature map, and both are checked against measurements.
+
+- **Planets** use the **Darwin–Radau** relation, which ties flattening to the measured
+  moment-of-inertia factor. It returns Earth's flattening as 1/300 against a measured
+  1/298.25, and Jupiter's as 0.0652 against 0.0649.
+- **Stars** use the **Roche model**, exact in the centrally-condensed limit, which
+  carries one famous consequence: at break-up, **R_equator/R_pole = 3/2 exactly**, for
+  any star. Nothing that stays in one piece can be flatter, which is why the spin
+  control has a principled hard stop rather than an arbitrary one.
+- **Gravity darkening** (von Zeipel 1924) follows: flux tracks effective gravity, so
+  T_eff ∝ g^β, with β = ¼ for a radiative envelope and ≈ 0.08 for a convective one
+  (Lucy 1967). The equator of a fast rotator is further out *and* centrifugally
+  supported, so it is cooler and dimmer than the poles.
+
+Vega is the test case, and it is a strong one. Its measured 236 km/s equatorial velocity
+predicts an equator-to-pole radius ratio of **1.192** against **1.193** observed, and a
+**10 260 K** pole over an **8 610 K** equator against **10 070 / 8 910** measured — with
+no free parameters anywhere in between.
+
 > Visual sizes of compact objects and horizons are exaggerated so they're not
 > sub-pixel — a true-to-scale stellar black hole or planet would be invisible next to
 > its orbit. Orbital *distances* and dynamics are always real.
@@ -195,10 +254,93 @@ all, a genuine chaotic three-body system. The planet is thrown around and usuall
 or consumed within a few centuries. That is the honest limit of the idea, and it is why
 the Trisolarans want to leave.
 
+## Real stars
+
+`sim/starcat.js` is a catalogue of measured objects, and the numbers in it are the
+measurements rather than what the scaling relations would have predicted. That
+distinction matters more than it sounds: feed Betelgeuse's 16.5 M☉ into a
+main-sequence radius relation and you get 4.9 R☉, and Betelgeuse is 764. So each entry
+also carries the evolutionary phase it is actually in, which is what lets the
+cross-section show a red supergiant's shells instead of a scaled-up Sun.
+
+Scenarios built from it:
+
+- **The Stellar Zoo** — ten famous stars at their true relative sizes, from Betelgeuse
+  down to Sirius B. That is a range of 90 000 to 1, so most of them are points until you
+  fly to one. They start on genuinely circular orbits, computed from the real N-body
+  force at t = 0; a ring of unequal masses has no stable mode and will come apart, which
+  is the correct answer rather than a bug.
+- **Sirius A & B** — the real orbit (a = 7.50 AU, e = 0.59, P = 50.13 yr), an ordinary
+  A1 star beside an Earth-sized white dwarf.
+- **Vega** — the rapid rotator seen pole-on that was the photometric zero point for a
+  century, which is why the calibration was quietly wrong.
+- **Achernar** — the flattest known star, at 1.35, against the hard limit of 1.5, and
+  close enough to break-up that it is throwing off a disc of its own gas.
+- **Betelgeuse** — with Jupiter's and Saturn's orbits drawn to scale beside it, so you
+  can see that Jupiter's is the first one that clears the star.
+- **Alpha Centauri** — the real nearest system, with the real 80-year orbit.
+- **Eta Carinae** — a hundred solar masses hard against its own Eddington limit, with
+  the Homunculus it threw off in the 1840s.
+- **The Main Sequence, end to end** — eleven stars from 0.1 to 60 M☉, all doing the same
+  thing, over a factor of 600 in mass and 400 000 in luminosity.
+
+## The Object Foundry
+
+An editor with no catalogue of outcomes in it. There are four inputs — mass, spin,
+composition, and how much of its life it has burned — and everything shown is derived
+from them by the interior model. So one slider produces behaviour nobody wrote:
+
+- Drag a **rocky planet's** mass up and the radius grows, flattens, **stops at ~300 M⊕
+  and then falls**. Keep going: at 13 M_J it lights deuterium and the panel stops
+  calling it a planet, at 0.075 M☉ it lights hydrogen and it is a star.
+- Drag a **star's** mass up and the colour tracks temperature from a 2800 K red dwarf to
+  a 45 000 K O star; past 120 M☉ it is a luminous blue variable, from 140 to 260 it is
+  destroyed completely by the pair instability, and above that it collapses without
+  exploding at all.
+- Drag a **neutron star's** mass up and nothing happens — until the TOV mass, where
+  everything does. Spin it first and the limit moves.
+- Drag **spin** on anything and it visibly deforms along the Roche sequence while its
+  equator cools relative to its poles, stopping at the 3/2 mass-shedding limit.
+- Drag **life burned** on a star and it walks its evolutionary track, ending — if you
+  take it all the way — in a core collapse you watch happen in the scene.
+
+## Cross-section
+
+Every body can be cut open (`Cross-section` on a focused object): concentric layers
+colour-coded by temperature over a log scale spanning 100 K to 10¹⁰ K, labelled with
+radii and temperatures, plus the derived quantities and a note per layer on what it is.
+
+The notes are deliberately uneven about confidence, because the *inference* is uneven. A
+planet's core radius comes from its moment of inertia and is known to a few percent; a
+neutron star's inner core is genuinely unknown and is what the whole TOV question turns
+on; and a black hole's interior is not unmeasured but unmeasurABLE — what the diagram
+draws there is the coordinate structure of a solution to Einstein's equations, and it
+says so. (It is still worth drawing: the horizon, ergosphere, photon sphere and ISCO are
+all real, locatable surfaces, and the Kerr ISCO comes out at 2.321 M for a* = 0.9, which
+is the textbook value.)
+
+## Painter
+
+The things made of too many pieces to integrate — rings, belts, ejecta — added as **test
+particles on real Keplerian orbits**, advanced analytically rather than integrated. For a
+particle of negligible mass the two-body solution *is* the exact answer, so this neither
+drifts nor needs a step size.
+
+- **Rings** can only exist **inside the Roche limit**, where tides beat self-gravity and
+  the material cannot collect into a moon. That is why every ring in the solar system is
+  inside its planet's Roche limit and every major moon is outside it — so the painter
+  computes the span from the body's own density and refuses when there isn't one.
+- **Belts** get **Kirkwood gaps** cleared at the 3:1, 5:2, 7:3 and 2:1 resonances with
+  whatever lies outside them, which is what actually carved the ones in our own belt.
+- **Ejecta** are optically thin hollow shells, so they **limb-brighten** into a rim, and
+  they expand homologously — the one shape that grows without changing shape.
+
 ## Features
 
 - **Scenarios:** **Trisolaris** · **Wandering Suns** · **Compact Haven** · **Wide Seasons** ·
-  **Alpha's Refuge** · **Trisolaris — Chaotic Era** · Black Hole Sandbox ·
+  **Alpha's Refuge** · **Trisolaris — Chaotic Era** · **The Stellar Zoo** ·
+  **Sirius A & B** · **Vega** · **Achernar** · **Betelgeuse** · **Alpha Centauri** ·
+  **Eta Carinae** · **The Main Sequence, end to end** · Black Hole Sandbox ·
   Solar System (real distances & masses — zoom way out for Pluto) · Three-Body
   figure-eight (an exact choreography solution) · Binary Star · Binary Black Hole
   Merger · Neutron Star Merger (kilonova) · BH Devouring a Star.
@@ -215,6 +357,17 @@ the Trisolarans want to leave.
   the star, and that extra flux feeds straight into the planet's climate.
 - Physically correct **limb darkening** (I(μ)/I(0) = 1 − u(1 − μ)), a chromospheric H-α
   limb, prominence loops standing over erupting regions, and a smooth streamered corona.
+- **Granule size from the pressure scale height**, not from taste. A convection cell is
+  about as wide as H_p = kT/(μm_H g) at the surface, so the number of cells across a star
+  is R/H_p — 2400 for the Sun, under a hundred for Betelgeuse. That is why a red
+  supergiant here is a handful of *enormous* cells rather than a scaled-up Sun, which is
+  what Schwarzschild (1975) predicted and what the VLTI and ALMA images show.
+- **Disc brightness from temperature.** Surface brightness goes as σT⁴, so a 3600 K
+  supergiant's disc is 0.15 of the Sun's per unit area and an O star's is 230 times it;
+  every star used to be drawn at the same brightness and so came out the same white.
+  (What is drawn is the eye's response to that ratio — Stevens' power law, L^⅓ — rather
+  than the raw ratio, because the orbit view has no adapted exposure. It is a display
+  transform and `sim/structure.js` says so.)
 - **Neutron stars** that spin and sweep two lighthouse **pulsar beams**.
 - **Procedurally generated planets** — rocky worlds (continents, oceans, ice caps) and
   banded gas giants (zonal bands, storms, optional rings).
@@ -245,7 +398,7 @@ Deep-link a scenario with a URL hash, e.g. `blackhole_sim.html#bhmerger`.
 
 `drag` look · `scroll` zoom / fly-speed / FOV · `click` focus object · **`V` stand on the
 planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` reset view ·
-`space` pause · `del` remove focused.
+`space` pause · `del` remove focused · `1`–`7` imaging band · `H` hide the HUD.
 
 ## Layout
 
@@ -263,6 +416,12 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
 - `sim/skyview.js` — surface observer + multi-sun atmospheric scattering pass
 - `sim/scale.js` — true-scale rendering: real mass–radius relations and the
   point-source markers that keep a sub-pixel body visible
+- `sim/structure.js` — what holds a body up: mass–radius laws, ignition and support
+  limits, rotational shape, gravity darkening, and the layer model everything else reads
+- `sim/starcat.js` — the catalogue of measured stars and the scenarios built from it
+- `sim/foundry.js` — the Object Foundry editor
+- `sim/crosssection.js` — the labelled interior diagram and its temperature ramp
+- `sim/painter.js` — rings, belts and ejecta as analytically-advanced test particles
 
 ## Disclaimer
 

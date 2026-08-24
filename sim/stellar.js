@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { baseLuminosity, baseRadiusSun } from './structure.js';
 
 // ============================================================================
 // STELLAR ASTROPHYSICS — the numbers behind a star.
@@ -10,26 +11,20 @@ import * as THREE from 'three';
 // hand-tuned per body.
 // ============================================================================
 
-// Mass–luminosity relation (piecewise, in L☉). The classic L ∝ M^3.5 holds for
-// solar-type stars; the exponent flattens at both ends of the main sequence.
-export function luminosity(massSun) {
-  const m = Math.max(massSun, 0.02);
-  if (m < 0.43) return 0.23 * Math.pow(m, 2.3);
-  if (m < 2.0)  return Math.pow(m, 4.0);
-  if (m < 55)   return 1.4 * Math.pow(m, 3.5);
-  return 32000 * m;
-}
-
-// Main-sequence mass–radius relation (R☉).
-export function radiusSun(massSun) {
-  const m = Math.max(massSun, 0.05);
-  return m < 1.0 ? Math.pow(m, 0.8) : Math.pow(m, 0.57);
-}
+// Mass–luminosity and mass–radius. Both live in sim/structure.js, which is the
+// single place that decides what a star of a given mass is; they are re-exported
+// here because this module's own name is what the rest of the sim reaches for.
+//
+// Keeping one copy matters above ~20 M☉, where the piecewise L ∝ M^3.5 that used
+// to be here runs away — it returns 1.7e6 L☉ at 55 M☉ against a real ~5e5, and
+// the Eddington factor computed from it would say every massive star is unbound.
+// See MASSIVE_L there.
+export { baseLuminosity as luminosity, baseRadiusSun as radiusSun } from './structure.js';
 
 // Effective temperature from Stefan–Boltzmann: L = 4πR²σT⁴  ⇒  T ∝ (L/R²)^¼.
 // Normalised so 1 M☉ → 5772 K.
 export function effectiveTemp(massSun) {
-  const L = luminosity(massSun), R = radiusSun(massSun);
+  const L = baseLuminosity(massSun), R = baseRadiusSun(massSun);
   return 5772 * Math.pow(L / (R * R), 0.25);
 }
 
@@ -178,6 +173,9 @@ export class ActivityModel {
   }
 
   ignite() {
+    // A star with no active regions has nothing to flare from (see the `quiet`
+    // path in sim/star_visual.js for degenerate stars).
+    if (!this.regions.length) return;
     const region = this.regions[Math.floor(this.rng() * this.regions.length)];
     // flare energies follow a power law: many small, rare huge ones
     const energy = Math.pow(this.rng(), 2.2) * 3 * this.activity + 0.15;

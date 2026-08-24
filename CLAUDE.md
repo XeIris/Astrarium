@@ -34,6 +34,11 @@ Scenarios deep-link by hash, e.g. `blackhole_sim.html#bhmerger` — handy for
 jumping straight to the case you're debugging. Keys `1`–`7` switch imaging band,
 `H` hides the UI (useful before screenshots).
 
+`window.SIM` is a deliberate console handle, not a leftover: `SIM.state.bodies[0].structure`
+is the fastest way to see what the physics thinks a body is, and `SIM.load('vega')` beats
+editing the hash. Note that browser-automation tools usually evaluate in an isolated
+world where page globals are not visible — inject a `<script>` element to reach it.
+
 ## Layout
 
 Shell:
@@ -67,6 +72,11 @@ Shell:
 | [sim/sky.js](sim/sky.js) | the celestial background: `SKY_GLSL` (procedural stars, galactic band, dust, nebulae, non-thermal populations, all band-aware), `createSkyBackdrop` for scenes with no hole, and `SKY_ENVIRONMENTS` |
 | [sim/textures.js](sim/textures.js) | seeded procedural rocky / gas-giant canvas textures |
 | [sim/scale.js](sim/scale.js) | true-scale rendering: `physicalRadiusAU` mass–radius fallbacks, and `createMarker` — the point-source glow that carries a body once its disc goes sub-pixel |
+| [sim/structure.js](sim/structure.js) | **what a body IS**: mass–radius laws per support mechanism, ignition/support limits, rotational shape & gravity darkening, central conditions, and the layer model. `structureOf(spec)` is the single entry point |
+| [sim/starcat.js](sim/starcat.js) | `STAR_CATALOG` — measured parameters for ~27 real stars — plus `starSpec` / `starRing` / `realBinary` / `companion` scenario builders |
+| [sim/foundry.js](sim/foundry.js) | the Object Foundry editor panel (`createFoundry`) and the live-body inspector (`createInspector`) |
+| [sim/crosssection.js](sim/crosssection.js) | `drawCrossSection` — the labelled interior diagram — plus the temperature ramp and every unit formatter the panels use |
+| [sim/painter.js](sim/painter.js) | rings, belts and ejecta: `createOrbitalSwarm` (analytic Keplerian test particles), `createGasCloud`, `ringSpan`, `createPainter` |
 
 ## Conventions
 
@@ -89,6 +99,21 @@ Shell:
   should resolve into a sphere, not clip, jitter, or slide out of frame.
 - **Body visuals follow one contract**: a factory returns `{ group, update(dt, ctx) }`
   attached as `b.viz`, with `ctx = { holes, camera, time, sceneScale }`.
+- **`sim/structure.js` is the single source of truth for what a body is.** Radius,
+  shape, temperature map, interior layers and the stability verdict all come from
+  `structureOf()`, and every consumer — the star shader's oblateness, the cross-section,
+  the Foundry, the runtime collapse checks — reads `b.structure`. It has to be refreshed
+  (`refreshStructure(b)`) whenever mass or spin changes, which accretion does
+  continuously. Do NOT add a second place that decides whether something is a brown
+  dwarf; add the threshold there.
+- **A structural limit is an event, not a label.** If the model says a body cannot hold
+  itself up, `checkStructuralLimits()` in the orchestrator has to act on it — a neutron
+  star past the TOV mass becomes a black hole, a white dwarf at the Chandrasekhar mass
+  detonates. A verdict the sim only prints is a bug.
+- **Measured beats modelled.** A spec carrying `radiusSun` / `teff` / `luminosity` (i.e.
+  anything from `sim/starcat.js`) overrides the evolutionary track, because the track
+  returns 244 R☉ for a 16.5 M☉ supergiant and Betelgeuse is 764. The track is for
+  filling in what was not measured.
 - **Emitters publish their true temperature** (log-encoded) into the alpha of
   the HDR buffer so `sim/spectrum.js` can re-image them in non-visible bands. A
   new emitter that doesn't publish it will fall back to inferring T from colour
@@ -124,6 +149,14 @@ relevant scenario by hash, check the browser console for shader compile errors
 the HUD reports simulated time and body count, and long-run stability is checked
 by letting a preset integrate — the Trisolaris hierarchy is the standing
 regression case (stable for 60k+ years, ~1e-7 relative energy drift).
+
+The physics in `sim/structure.js` is pure and has no Three.js in it beyond what
+`sim/physics.js` drags in, so it can be checked numerically instead of by eye. Copy
+`sim/` somewhere with a stub `three` module on the resolution path and run a script
+against it; the relations are all calibrated against published measurements (Earth's and
+Jupiter's flattening, Sirius B's radius, the Kerr ISCO, Vega's oblateness and pole/equator
+temperatures, the Sun's central temperature), so a regression shows up as a number moving
+rather than as a picture looking wrong.
 
 For sky work, open [.claude/skytest.html](.claude/skytest.html) instead. It
 renders `sim/sky.js` on its own through the same postfx chain, with a camera you
