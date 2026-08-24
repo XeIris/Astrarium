@@ -284,6 +284,18 @@ Scenarios built from it:
 - **The Main Sequence, end to end** — eleven stars from 0.1 to 60 M☉, all doing the same
   thing, over a factor of 600 in mass and 400 000 in luminosity.
 
+## Blank Canvas
+
+An empty scene, and the one place where **Spawn puts things down at rest** instead of
+into an orbit. Nothing moves until gravity moves it, so whatever happens next is entirely
+yours — release two bodies and watch them fall together, or place three and find out what
+the three-body problem does to your arrangement. The `Spawn: In orbit / At rest` toggle
+works everywhere; the Blank Canvas just defaults to the other setting.
+
+(Nothing in it emits light, so until you spawn a star the scene is lit by a lamp riding
+the camera. It is a viewing aid, it is labelled as one, and it switches off the moment
+there is a real star to light things.)
+
 ## The Object Foundry
 
 An editor with no catalogue of outcomes in it. There are four inputs — mass, spin,
@@ -291,7 +303,9 @@ composition, and how much of its life it has burned — and everything shown is 
 from them by the interior model. So one slider produces behaviour nobody wrote:
 
 - Drag a **rocky planet's** mass up and the radius grows, flattens, **stops at ~300 M⊕
-  and then falls**. Keep going: at 13 M_J it lights deuterium and the panel stops
+  and then falls** — 0.67 R⊕ at 0.3 M⊕, 2.34 at 30, 3.06 at the peak, and back down to
+  2.79 at 900. The drawn size follows it, in true scale and in the exaggerated view
+  alike. Keep going: at 13 M_J it lights deuterium and the panel stops
   calling it a planet, at 0.075 M☉ it lights hydrogen and it is a star.
 - Drag a **star's** mass up and the colour tracks temperature from a 2800 K red dwarf to
   a 45 000 K O star; past 120 M☉ it is a luminous blue variable, from 140 to 260 it is
@@ -340,7 +354,8 @@ drifts nor needs a step size.
 - **Scenarios:** **Trisolaris** · **Wandering Suns** · **Compact Haven** · **Wide Seasons** ·
   **Alpha's Refuge** · **Trisolaris — Chaotic Era** · **The Stellar Zoo** ·
   **Sirius A & B** · **Vega** · **Achernar** · **Betelgeuse** · **Alpha Centauri** ·
-  **Eta Carinae** · **The Main Sequence, end to end** · Black Hole Sandbox ·
+  **Eta Carinae** · **The Main Sequence, end to end** · **Blank Canvas** ·
+  Black Hole Sandbox ·
   Solar System (real distances & masses — zoom way out for Pluto) · Three-Body
   figure-eight (an exact choreography solution) · Binary Star · Binary Black Hole
   Merger · Neutron Star Merger (kilonova) · BH Devouring a Star.

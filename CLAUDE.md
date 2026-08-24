@@ -85,6 +85,15 @@ Shell:
   exaggeration belongs in `sceneScale` / `bodyScale` on the preset.
 - **Scene units ≠ AU.** `state.sceneScale` converts. Physical radii used for
   collisions live on the body in AU; rendered radii are in scene units.
+- **Exaggerated size is a constant MAGNIFICATION, not a constant size.** `baseRadius`
+  scales each type's boosted radius by how far the body's real radius departs from
+  that type's radius at its default mass (`referenceRadiusAU`). Normalising at the
+  default is what keeps every existing preset pixel-identical while letting the mass
+  slider do something — before this, every rocky planet was drawn at exactly 0.15
+  scene units whatever its mass, so the whole degeneracy turnover was invisible.
+- **A body's physical radius comes from `structureOf`** unless the spec carries a
+  measured `radiusKm`. The old `physicalRadiusAU` fallback was a plain M^0.27 and
+  never turned over, so a 300 M⊕ planet was drawn 4.7 R⊕ across even at true scale.
 - **Rendered size goes through `renderRadius`**, never `baseRadius` directly.
   Black holes are always their true horizon; everything else is the real radius
   when `state.trueScale` is on and the exaggerated stand-in otherwise. A body's

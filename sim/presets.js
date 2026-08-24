@@ -591,6 +591,33 @@ export const PRESETS = {
   },
 
   // ==========================================================================
+  // BLANK CANVAS
+  // --------------------------------------------------------------------------
+  // Nothing in it, nothing moving, and — unlike every other preset — new bodies
+  // arrive AT REST rather than on a circular orbit about the dominant mass.
+  //
+  // That combination is what makes it a workbench rather than a scenario. With
+  // an empty scene there is no dominant mass for an orbit to be computed about,
+  // so "spawn into orbit" has no meaning; and starting everything at zero
+  // velocity means the only motion that ever appears is motion the integrator
+  // produced from the gravity of what you placed. Drop two bodies and they fall
+  // together. Drop three and you have a three-body problem you built yourself.
+  //
+  // The time scale is deliberately slow: a pair released from rest a few AU
+  // apart collapses in a couple of years, and at the usual pace that is over
+  // before you have let go of the mouse.
+  // ==========================================================================
+  blank: {
+    sky: { env: 'disc', tilt: 0.38, roll: 1.6 },
+    name: 'Blank Canvas',
+    blurb: 'An empty scene, and the one place where Spawn puts things down at rest instead of into an orbit. Nothing moves until gravity moves it, so whatever happens next is entirely yours: release two bodies and watch them fall together, or place three and find out what the three-body problem does to your arrangement. Build the objects in the Foundry below — the mass, spin and composition sliders all apply — and paint rings and belts onto them. (Nothing here emits light, so until you spawn a star the scene is lit by a lamp riding the camera. It is a viewing aid and it switches off the moment there is a real star to light things.)',
+    sceneScale: 2.0, bodyScale: 1.0, camRadius: 26, lensing: false, mesh: true,
+    timeScale: 0.25, maxStep: 2e-3,
+    spawnAtRest: true,
+    build() { return []; },
+  },
+
+  // ==========================================================================
   // REAL STARS
   // --------------------------------------------------------------------------
   // Everything below is built from measured objects — see sim/starcat.js for
@@ -744,4 +771,4 @@ export const PRESETS = {
   },
 };
 
-export const PRESET_ORDER = ['stellar_zoo', 'sirius', 'vega', 'achernar', 'betelgeuse', 'alphacen', 'etacar', 'hr_ladder', 'trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];
+export const PRESET_ORDER = ['blank', 'stellar_zoo', 'sirius', 'vega', 'achernar', 'betelgeuse', 'alphacen', 'etacar', 'hr_ladder', 'trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];

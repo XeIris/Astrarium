@@ -35,6 +35,11 @@ const state = {
   discTemp: 0.6,
   showMesh: true,
   showLens: true,
+  // Where a spawned body starts. Every scenario with something already in it
+  // puts new bodies on a circular orbit about the dominant mass, because that
+  // is the only starting condition that does not immediately fall in. The
+  // Blank Canvas has no dominant mass, so it starts them at rest instead.
+  spawnAtRest: false,
   speed: 1.0,
   paused: false,
 
@@ -74,8 +79,9 @@ const presetGroup = (id, label, keys) => ({
 });
 const PRESET_GROUPS = [
   presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos']),
-  presetGroup('black-holes', 'BH scenarios', ['sandbox', 'bhmerger', 'feeding']),
+  presetGroup('black-holes', 'BH scenarios', ['bhmerger', 'feeding']),
   presetGroup('neutron-stars', 'Neutron star scenarios', ['nsmerger']),
+  presetGroup('sandboxes', 'Sandboxes', ['blank', 'sandbox']),
   presetGroup('real-stars', 'Real stars', ['stellar_zoo', 'sirius', 'vega', 'achernar', 'betelgeuse', 'alphacen', 'etacar', 'hr_ladder']),
   presetGroup('stellar-systems', 'Stellar system scenarios', ['solar', 'threebody', 'binarystar']),
 ];
@@ -223,30 +229,51 @@ function killFlash(f) {
 // BODY CREATION
 // ============================================================================
 const TRAIL_MAX = 600;
-function baseRadius(spec, mass) {
-  switch (spec.type) {
-    // Rendered star size now follows the real main-sequence mass–radius
-    // relation, so a 2 M☉ star is visibly bigger than a 0.85 M☉ one.
-    //
-    // A spec carrying a MEASURED radius (sim/starcat.js) is the exception, and
-    // gets it compressed rather than used directly: the catalogue spans 90 000
-    // to 1 from Betelgeuse to Sirius B, and this is the deliberately unphysical
-    // "readable" mode, where drawing that range at all defeats the purpose.
-    // R^0.45 keeps the ordering and squeezes the range to ~180:1. True scale is
-    // the other branch of renderRadius and is left completely alone.
-    case 'star': return 0.34 * (spec.radiusSun != null ? Math.pow(spec.radiusSun, 0.45) : radiusSun(mass));
-    case 'white-dwarf': return 0.12;
-    // A neutron star is ~12 km across sitting in an orbit millions of times
-    // wider, so its rendered size is pure exaggeration either way. It used to
-    // be 0.09 and was carried entirely by a glow sprite pasted over it; now
-    // that it has an actual lensed surface, polar caps and a magnetosphere,
-    // it needs enough pixels for any of that to be visible.
-    case 'neutron': return 0.30;
-    case 'gas-giant': return 0.30;
-    case 'world': return 0.13;
-    case 'planet': return 0.15;
-    default: return 0.2;
+// The exaggerated ("Boosted") size of each type, at that type's DEFAULT mass.
+// A neutron star is ~12 km across sitting in an orbit millions of times wider,
+// so its rendered size is pure invention either way; what these numbers buy is
+// enough pixels for its lensed surface, polar caps and magnetosphere to be
+// visible at all.
+const BOOST_RADIUS = {
+  star: 0.34, 'white-dwarf': 0.12, neutron: 0.30,
+  'gas-giant': 0.30, world: 0.13, planet: 0.15, bh: 0.2,
+};
+
+// The physical radius each of those numbers corresponds to, computed once from
+// the interior model at the type's default mass. Boosted radius is then scaled
+// by how far the BODY's real radius departs from that reference — so the
+// exaggeration is a constant magnification per type rather than a constant
+// size, and a 300 M⊕ super-Earth is visibly three times a 1 M⊕ one.
+//
+// Normalising at the default mass is what keeps every existing preset
+// pixel-identical: a quick-spawned planet is 1 M⊕, a quick-spawned gas giant is
+// 1 M_J, Trisolaris is 1 M⊕, and all of them come out at exactly the ratio 1.
+const _refRadius = new Map();
+function referenceRadiusAU(type) {
+  if (!_refRadius.has(type)) {
+    const def = TYPE_DEFAULTS[type] || TYPE_DEFAULTS.planet;
+    const st = structureOf({ type, mass: def.mass, spinFrac: 0 });
+    _refRadius.set(type, st.radiusAU > 0 ? st.radiusAU : 1);
   }
+  return _refRadius.get(type);
+}
+
+function baseRadius(b, spec, mass) {
+  const type = spec.type;
+  const base = BOOST_RADIUS[type] ?? 0.2;
+  // Stars are the one type whose measured radii span 90 000 to 1 (Betelgeuse to
+  // Sirius B). This is the deliberately unphysical readable mode, and drawing
+  // that range at all defeats its purpose, so a measured stellar radius is
+  // compressed: R^0.45 keeps the ordering and squeezes the range to ~180:1.
+  // True scale is the other branch of renderRadius and is left entirely alone.
+  if (type === 'star') {
+    return base * (spec.radiusSun != null ? Math.pow(spec.radiusSun, 0.45) : radiusSun(mass));
+  }
+  const ref = referenceRadiusAU(type);
+  const r = b?.radius > 0 ? b.radius : ref;
+  // The clamp is not physics, it is framing: a 0.01 M⊕ pebble still has to be
+  // clickable and a brown dwarf still has to fit beside the star it orbits.
+  return base * THREE.MathUtils.clamp(r / ref, 0.18, 9);
 }
 // Rendered radius in SCENE units. Black holes are always honest — their
 // horizon is the thing you came to look at. Everything else is either the real
@@ -254,7 +281,7 @@ function baseRadius(spec, mass) {
 function renderRadius(b, spec, mass) {
   if (spec.type === 'bh') return b.rs * state.sceneScale;
   if (state.trueScale && b.radius > 0) return b.radius * state.sceneScale;
-  return baseRadius(spec, mass) * state.bodyScale;
+  return baseRadius(b, spec, mass) * state.bodyScale;
 }
 
 const TYPE_DEFAULTS = {
@@ -466,6 +493,15 @@ function spawnBody(spec) {
   // disturbing the physics state (see rebuildVisuals)
   b.spec = spec; b.def = def;
   refreshStructure(b);
+
+  // A MEASURED radius always wins. Failing that, take the interior model's,
+  // which is the same relation the Foundry and the cross-section are showing —
+  // and which, unlike the M^0.27 fallback it replaces, actually turns over.
+  // Without this a 300 M⊕ planet is drawn 4.7 R⊕ across even at true scale,
+  // when the whole point is that no rocky planet can exceed about 3.06.
+  if (!spec.radiusKm && spec.type !== 'bh' && b.structure?.radiusAU > 0) {
+    b.radius = b.structure.radiusAU;
+  }
   attachVisual(b);
   if (spec.type === 'world' && spec.home) state.homeId = b.id;
 
@@ -516,7 +552,7 @@ function clearBodies() {
 // add a body orbiting the dominant mass (used by Spawn buttons)
 function spawnOrbiting(type) {
   const palette = type === 'gas-giant' ? ['jupiter', 'saturn', 'ice'][Math.floor(Math.random() * 3)] : undefined;
-  spawnBody(orbitSpecAroundDominant({
+  spawnBody(placeSpawn({
     type, palette, atmosphere: type === 'planet', seed: Math.floor(Math.random() * 1e9),
   }));
   refreshUI();
@@ -544,6 +580,47 @@ function orbitSpecAroundDominant(spec) {
   const tang = new THREE.Vector3(-Math.sin(ang), 0, Math.cos(ang)).multiplyScalar(v);
   if (center) tang.add(center.vel);
   return { ...spec, pos: [pos.x, pos.y, pos.z], vel: [tang.x, tang.y, tang.z] };
+}
+
+// ---------------------------------------------------------------------------
+// Place a spec AT REST, in front of the camera.
+//
+// "At rest" means exactly zero velocity in the simulation frame — not zero
+// relative to anything nearby — so a body dropped into a moving system really
+// does get left behind by it, which is the honest thing for a workbench to do.
+//
+// It goes where you are looking rather than at the origin, because the whole
+// point is to place things deliberately, and it is offset by a fraction of the
+// viewing distance so successive spawns do not land inside each other.
+// ---------------------------------------------------------------------------
+let restSpawnAngle = 0;
+function restSpecAtRest(spec) {
+  const centre = new THREE.Vector3();
+  let reach;
+  if (state.camMode === 'free') {
+    _fwd.set(Math.sin(cam.yaw) * Math.cos(cam.pitch), Math.sin(cam.pitch), Math.cos(cam.yaw) * Math.cos(cam.pitch));
+    reach = Math.max(cam.freeSpeed * 1.5, 2);
+    centre.copy(camera.position).addScaledVector(_fwd, reach);
+  } else {
+    centre.copy(cam.target);
+    reach = cam.radius;
+  }
+  // Fan successive spawns around the look-at point instead of stacking them.
+  restSpawnAngle += 2.399963;                       // golden angle, so they spread
+  const off = reach * 0.32;
+  centre.x += Math.cos(restSpawnAngle) * off;
+  centre.z += Math.sin(restSpawnAngle) * off;
+  const posAU = centre.multiplyScalar(1 / state.sceneScale);
+  return { ...spec, pos: [posAU.x, posAU.y, posAU.z], vel: [0, 0, 0] };
+}
+
+// Spawn placement, chosen by the scenario: at rest on the workbench, in orbit
+// everywhere else. An empty scene has no dominant mass to orbit, so it always
+// falls back to at-rest regardless of the toggle.
+function placeSpawn(spec) {
+  return (state.spawnAtRest || state.bodies.length === 0)
+    ? restSpecAtRest(spec)
+    : orbitSpecAroundDominant(spec);
 }
 
 // ============================================================================
@@ -1046,6 +1123,7 @@ function loadPreset(key) {
   state.timeScale = p.timeScale ?? 2;
   state.maxStep = p.maxStep ?? 5e-3;
   state.gwBoost = p.gwBoost ?? 0;
+  setSpawnAtRest(p.spawnAtRest ?? false);
   state.lensing = p.lensing;
   state.showLens = p.lensing;
   // Sim Speed and the paused flag are USER settings, not scenario settings —
@@ -1630,6 +1708,15 @@ document.querySelectorAll('[data-time]').forEach(b =>
   b.addEventListener('click', () => applyRegime(b.dataset.time)));
 document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); cam.radius = state.preset.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
 
+function setSpawnAtRest(on) {
+  state.spawnAtRest = on;
+  const btn = document.querySelector('[data-view="spawnrest"]');
+  if (btn) {
+    btn.classList.toggle('active', on);
+    btn.textContent = on ? 'Spawn: At rest' : 'Spawn: In orbit';
+  }
+}
+
 function toggleMesh(on) {
   state.showMesh = on;
   spacetimeMesh.visible = on;
@@ -1649,6 +1736,7 @@ document.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('cl
   const v = btn.dataset.view;
   if (v === 'mesh') toggleMesh(!state.showMesh);
   else if (v === 'scale') setTrueScale(!state.trueScale);
+  else if (v === 'spawnrest') setSpawnAtRest(!state.spawnAtRest);
   else { state.showLens = !state.showLens; btn.classList.toggle('active', state.showLens); btn.textContent = state.showLens ? 'Lens ON' : 'Lens OFF'; }
 }));
 
@@ -1780,10 +1868,20 @@ function animate() {
                     innerHeight, b.id === state.focusId);
   }
 
-  // light at dominant star/bh (legacy single-light path for star-less presets)
+  // The star-less fallback light. sunLight is only visible when the scene
+  // contains no emitters at all, and it then has to come from SOMEWHERE.
+  //
+  // A black hole is the honest answer where there is one: its disc is the light
+  // in that scene, so the lamp sits on it. Where there is not one — the Blank
+  // Canvas, most obviously — there is genuinely nothing illuminating anything,
+  // and the choice is between a black screen and admitting to a viewing lamp.
+  // It rides the camera, which is what makes it read as a lamp rather than as
+  // an invisible star at the origin, and the moment you spawn a real star it
+  // switches off and the scene is lit by physics again.
   if (sunLight.visible) {
-    const lum = state.bodies.find(b => b.type === 'star') || holes[0] && state.bodies.find(b => b.type === 'bh');
+    const lum = holes[0];
     if (lum) sunLight.position.copy(lum.viz.group.position);
+    else sunLight.position.copy(camera.position);
   }
 
   // flashes
@@ -1944,7 +2042,7 @@ function animate() {
 const foundry = DOM.foundry ? createFoundry({
   mount: DOM.foundry,
   onSpawn(spec, structure) {
-    const b = spawnBody(orbitSpecAroundDominant({
+    const b = spawnBody(placeSpawn({
       ...spec,
       seed: Math.floor(Math.random() * 1e9),
       atmosphere: spec.type === 'planet',
@@ -2003,7 +2101,7 @@ document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', ()
 // thinks a body is, `SIM.load('vega')` is faster than editing the hash, and
 // `SIM.renderer.info.render` settles "is this thing being drawn at all" in one
 // line. This is a deliberate handle, not a leftover.
-window.SIM = { state, scene, camera, cam, renderer, THREE, load: loadPreset, refreshStructure, spawnBody, setFollow, foundry, showCrossSection, coreCollapse, painter, applyPaintSpec };
+window.SIM = { state, scene, camera, cam, renderer, THREE, load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, showCrossSection, coreCollapse, painter, applyPaintSpec };
 
 resize();
 // Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,
