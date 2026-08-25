@@ -160,7 +160,7 @@
   <div class="focus-panel" id="focusPanel" style="display:none">
     <h3>Focused Object</h3>
     <div class="focus-name" id="focusName">—</div>
-    <button class="ghost-btn" id="xsecOpen">Cross-section ▸</button>
+    <button class="ghost-btn" id="xsecOpen">Cross-section &amp; edit ▸</button>
     <button class="action-btn" id="delFocus">Delete Object</button>
   </div>
 
@@ -211,6 +211,18 @@
     <button class="panel-close" data-close="xsecPanel" title="Close">✕</button>
   </div>
   <div class="xsec-name" id="xsecName">—</div>
+
+  <!-- LIVE EDIT — the Foundry's controls aimed at this body instead of at a
+       draft. Same interior model, same thresholds, applied while it orbits. -->
+  <div class="xsec-edit" id="xsecEdit">
+    <div class="section-note">Editing is the same operation as building: the
+      object is re-derived from these numbers and its limits are rechecked
+      immediately. Push a neutron star past the TOV mass here and it collapses
+      while you watch. Changing mass discards any measured radius or
+      temperature, because those described the star it used to be.</div>
+    <div id="liveEdit"></div>
+  </div>
+
   <canvas id="xsecCanvas" class="fd-xsec" width="330" height="260"></canvas>
   <canvas id="xsecLegend" class="fd-legend" width="330" height="26"></canvas>
   <div class="fd-verdict" id="xsecVerdict"></div>

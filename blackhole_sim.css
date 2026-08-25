@@ -407,6 +407,16 @@ h3 .clock {
   top: 92px; left: 272px; right: auto; width: 348px;
   max-height: calc(100vh - 130px);
 }
+/* The live editor inside the cross-section panel. Marked off from the diagram
+   because one half of the panel reports and the other half changes things. */
+.xsec-edit {
+  border: 1px solid var(--border); border-left: 2px solid var(--accent);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 9px 10px 2px; margin-bottom: 10px;
+}
+.xsec-edit .section-note { margin-bottom: 9px; }
+.xsec-edit .row { margin-bottom: 8px; }
+
 .xsec-name {
   font-size: 11px; color: var(--accent); letter-spacing: 0.08em;
   margin-bottom: 8px; text-transform: uppercase;

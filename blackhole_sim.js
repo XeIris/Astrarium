@@ -8,7 +8,7 @@ import { createSkyPass, SurfaceObserver } from './sim/skyview.js';
 import { MAX_SUNS } from './sim/world.js';
 import { luminosity, effectiveTemp, radiusSun, blackbodyColor, spectralClass } from './sim/stellar.js';
 import { structureOf, whiteDwarfRadiusSun, gravityDarkenedTemps, tovLimit, endStateOf, VERDICT, LIMITS } from './sim/structure.js';
-import { createFoundry, createInspector } from './sim/foundry.js';
+import { createFoundry, createInspector, createLiveEditor } from './sim/foundry.js';
 import { createPainter, ringSpan } from './sim/painter.js';
 import { fmtMass } from './sim/crosssection.js';
 import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
@@ -69,7 +69,7 @@ const DOM = {};
  'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs', 'presetSearch',
  'presetSearchClear', 'presetList', 'presetEmpty', 'foundry', 'xsecPanel',
  'xsecCanvas', 'xsecLegend', 'xsecFacts', 'xsecNotes', 'xsecVerdict', 'xsecName',
- 'xsecOpen'].forEach(id => DOM[id] = document.getElementById(id));
+ 'xsecOpen', 'liveEdit'].forEach(id => DOM[id] = document.getElementById(id));
 
 // The scenario catalogue is grouped here rather than in the physics presets:
 // these labels are navigation, while PRESETS remains the source of truth for
@@ -429,22 +429,16 @@ function refreshStructure(b) {
   return b.structure;
 }
 
-function spawnBody(spec) {
+// ---------------------------------------------------------------------------
+// Derive everything a body's spec IMPLIES: horizon, radius, temperature,
+// luminosity, spin and interior model. Split out of spawnBody because it has to
+// be re-runnable on a body that already exists — the live editor changes a mass
+// or a spin on something already in orbit and needs exactly this block again,
+// without touching the id, the position, the velocity or the trail.
+// ---------------------------------------------------------------------------
+function deriveBody(b, spec) {
   const def = TYPE_DEFAULTS[spec.type] || TYPE_DEFAULTS.planet;
-  const mass = spec.mass ?? def.mass;
-  const b = {
-    id: state.nextId++,
-    type: spec.type,
-    name: spec.name || spec.type.toUpperCase(),
-    mass, mass0: mass,
-    pos: new THREE.Vector3(...(spec.pos || [0, 0, 0])),     // AU
-    vel: new THREE.Vector3(...(spec.vel || [0, 0, 0])),     // AU/yr
-    acc: new THREE.Vector3(),
-    alive: true,
-    emitsGW: spec.emitsGW ?? (spec.type === 'bh' || spec.type === 'neutron'),
-    spin: spec.spin,
-  };
-
+  const mass = b.mass;
   if (spec.type === 'bh') {
     b.rs = spec.rs ?? PHYS.schwarzschild(mass);            // effective horizon (AU)
   } else if (spec.type === 'neutron') {
@@ -502,6 +496,27 @@ function spawnBody(spec) {
   if (!spec.radiusKm && spec.type !== 'bh' && b.structure?.radiusAU > 0) {
     b.radius = b.structure.radiusAU;
   }
+  return b;
+}
+
+function spawnBody(spec) {
+  const def = TYPE_DEFAULTS[spec.type] || TYPE_DEFAULTS.planet;
+  const mass = spec.mass ?? def.mass;
+  const b = {
+    id: state.nextId++,
+    type: spec.type,
+    name: spec.name || spec.type.toUpperCase(),
+    mass, mass0: mass,
+    pos: new THREE.Vector3(...(spec.pos || [0, 0, 0])),     // AU
+    vel: new THREE.Vector3(...(spec.vel || [0, 0, 0])),     // AU/yr
+    acc: new THREE.Vector3(),
+    alive: true,
+    emitsGW: spec.emitsGW ?? (spec.type === 'bh' || spec.type === 'neutron'),
+    spin: spec.spin,
+  };
+
+  deriveBody(b, spec);
+
   attachVisual(b);
   if (spec.type === 'world' && spec.home) state.homeId = b.id;
 
@@ -617,6 +632,60 @@ function restSpecAtRest(spec) {
 // Spawn placement, chosen by the scenario: at rest on the workbench, in orbit
 // everywhere else. An empty scene has no dominant mass to orbit, so it always
 // falls back to at-rest regardless of the toggle.
+// ---------------------------------------------------------------------------
+// LIVE EDIT — the Foundry's sliders, pointed at a body that already exists.
+// ----------------------------------------------------------------------------
+// Building an object and then editing one are the same operation here: both end
+// in deriveBody() re-reading a spec. What differs is only what is preserved.
+// The physics state — id, position, velocity, trail, whatever it is orbiting —
+// survives; everything the spec implies is thrown away and derived again, and
+// the meshes with it, because a visual bakes its radius into geometry and into
+// local-space offsets (corona span, ring radii, prominence loops).
+//
+// The edit is then passed straight to checkStructuralLimits, which is what
+// makes this more than a size control: drag a 2.0 M☉ neutron star up and it
+// does not become a big neutron star, it becomes a black hole, at exactly the
+// mass sim/structure.js says it must. Spin it up first and it survives longer,
+// because centrifugal support is real support.
+// ---------------------------------------------------------------------------
+function editBody(b, patch) {
+  if (!b || !b.alive) return null;
+  const spec = { ...(b.spec || {}), ...patch };
+  if (patch.mass != null) {
+    b.mass = patch.mass; b.mass0 = patch.mass;
+    spec.mass = patch.mass;
+    // Measured beats modelled (CLAUDE.md) — but a measurement describes ONE
+    // star. Once you have changed its mass those numbers are no longer about
+    // this object, so they are dropped and the evolutionary track takes over.
+    // Otherwise a 16.5 M☉ Betelgeuse dragged to 1 M☉ would still be 764 R☉.
+    delete spec.radiusSun; delete spec.teff; delete spec.luminosity;
+    delete spec.radiusKm; delete spec.rs;
+    b.radiusSun = null;
+  }
+  b.spec = spec;
+  const before = b.radiusScene || 0;
+  detachVisual(b);
+  deriveBody(b, spec);
+  attachVisual(b);
+
+  // Reframing the follow camera on every slider tick would be seasick, but a
+  // mass slider moves a radius by orders of magnitude, so the body can end up
+  // filling the screen or sub-pixel. Only step in once it has left the frame.
+  if (b.id === state.followId && before > 0) {
+    const r = Math.max(b.radiusScene, b.rsScene || 0);
+    if (r > cam.radius * 0.45 || r < cam.radius * 0.01) {
+      cam.radius = r * 7;
+      if (state.camMode === 'orbit') updateOrbitCam();
+    }
+  }
+  // A verdict the sim only prints is a bug: let the limit fire immediately
+  // rather than waiting for the next mass change.
+  b._mCheck = null;
+  checkStructuralLimits(b);
+  refreshUI();
+  return b;
+}
+
 function placeSpawn(spec) {
   return (state.spawnAtRest || state.bodies.length === 0)
     ? restSpecAtRest(spec)
@@ -1403,7 +1472,8 @@ function updateHUD(dt) {
   // being eaten loses mass every frame, and the diagram should say so.
   if (xsecOpen && DOM.xsecPanel && DOM.xsecPanel.style.display !== 'none') {
     const fb = state.bodies.find(b => b.id === state.focusId);
-    if (fb) showCrossSection(fb); else setPanelOpen('xsecPanel', false);
+    if (fb) { showCrossSection(fb); liveEditor?.sync(fb); }
+    else setPanelOpen('xsecPanel', false);
   }
 
   // --- star readout: what each sun actually is, and how bright it is here
@@ -2078,6 +2148,21 @@ const inspector = DOM.xsecCanvas ? createInspector({
   factsEl: DOM.xsecFacts, verdictEl: DOM.xsecVerdict, notesEl: DOM.xsecNotes,
 }) : null;
 
+// The live editor lives in the same panel as the diagram, because they are two
+// halves of one idea: the cross-section says what the body is, and the sliders
+// under it are the only way to argue with that.
+const liveEditor = DOM.liveEdit ? createLiveEditor({
+  mount: DOM.liveEdit,
+  onEdit(b, patch) {
+    editBody(b, patch);
+    // The body may no longer be the object it was — a neutron star dragged past
+    // the TOV mass is now a black hole — so re-read whatever survived.
+    const now = state.bodies.find(x => x.id === b.id);
+    if (now) { showCrossSection(now); liveEditor.sync(now); }
+    else setPanelOpen('xsecPanel', false);
+  },
+}) : null;
+
 let xsecOpen = false;
 function showCrossSection(b) {
   if (!inspector || !b) return;
@@ -2090,6 +2175,7 @@ DOM.xsecOpen?.addEventListener('click', () => {
   xsecOpen = true;
   setPanelOpen('xsecPanel', true);
   showCrossSection(b);
+  liveEditor?.sync(b);
 });
 document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', () => { xsecOpen = false; });
 
@@ -2101,7 +2187,7 @@ document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', ()
 // thinks a body is, `SIM.load('vega')` is faster than editing the hash, and
 // `SIM.renderer.info.render` settles "is this thing being drawn at all" in one
 // line. This is a deliberate handle, not a leftover.
-window.SIM = { state, scene, camera, cam, renderer, THREE, load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, showCrossSection, coreCollapse, painter, applyPaintSpec };
+window.SIM = { state, scene, camera, cam, renderer, THREE, load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
 
 resize();
 // Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,

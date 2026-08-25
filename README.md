@@ -318,9 +318,31 @@ from them by the interior model. So one slider produces behaviour nobody wrote:
 - Drag **life burned** on a star and it walks its evolutionary track, ending — if you
   take it all the way — in a core collapse you watch happen in the scene.
 
+## Editing a body in flight
+
+The Foundry's sliders appear again at the top of the cross-section panel, aimed at the
+focused body instead of at a draft — because building an object and changing one are the
+same operation here. The mass, spin, composition, age and metallicity of anything already
+in the scene can be moved while it orbits: the object is re-derived from the new numbers,
+its meshes are rebuilt, and its structural limits are rechecked immediately. What it is
+orbiting, where it is and how fast it is moving are untouched.
+
+Which means the thresholds are live rather than something you can only build up to.
+Drag a 2.0 M☉ neutron star's mass and it collapses to a black hole under you at exactly
+the TOV mass — spin it up first and it survives further, because centrifugal support is
+real support. Push a white dwarf to 1.44 M☉ and it detonates and is gone. Take Earth to
+300 M⊕ and watch the radius stop growing at 3.06 R⊕, then to 26 M_J and watch it stop
+being a planet. Age the Sun through to core helium burning and it swells into a K giant
+with the planets still in orbit around it.
+
+One deliberate loss: changing the mass of a catalogue star discards its *measured*
+radius, temperature and luminosity and hands it back to the evolutionary track. Those
+numbers described Betelgeuse; a 1 M☉ object is not Betelgeuse, and keeping its 764 R☉
+would be the one place in the sim where a measurement outlived the thing it measured.
+
 ## Cross-section
 
-Every body can be cut open (`Cross-section` on a focused object): concentric layers
+Every body can be cut open (`Cross-section & edit` on a focused object): concentric layers
 colour-coded by temperature over a log scale spanning 100 K to 10¹⁰ K, labelled with
 radii and temperatures, plus the derived quantities and a note per layer on what it is.
 
@@ -434,7 +456,7 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
 - `sim/structure.js` — what holds a body up: mass–radius laws, ignition and support
   limits, rotational shape, gravity darkening, and the layer model everything else reads
 - `sim/starcat.js` — the catalogue of measured stars and the scenarios built from it
-- `sim/foundry.js` — the Object Foundry editor
+- `sim/foundry.js` — the Object Foundry editor and the live editor
 - `sim/crosssection.js` — the labelled interior diagram and its temperature ramp
 - `sim/painter.js` — rings, belts and ejecta as analytically-advanced test particles
 
