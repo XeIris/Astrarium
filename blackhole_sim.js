@@ -350,6 +350,10 @@ function attachVisual(b) {
   }
   viz.group.userData.bodyId = b.id;
   viz.group.userData.baseScale = viz.group.scale.x || 1;
+  // The full (possibly oblate) scale, kept so the size ease can multiply it
+  // without flattening a spheroid back into a sphere.
+  viz.group.userData.baseVec = viz.group.scale.clone();
+  b.sizeK = 1;
   viz.group.position.copy(b.pos).multiplyScalar(state.sceneScale);
   scene.add(viz.group);
 
@@ -400,6 +404,30 @@ function detachVisual(b) {
   if (b.marker) { scene.remove(b.marker.mesh); b.marker.dispose(); b.marker = null; }
 }
 
+// ---------------------------------------------------------------------------
+// Size easing. An edit rebuilds the mesh at the new radius immediately — it has
+// to, because the whole visual is derived from that radius — so without this an
+// object that doubles in mass CUTS to its new size. The mesh is started back at
+// the size it had and grows into the new one over ~0.25 s, geometrically,
+// because radius is a scale and a linear ramp between 1e-5 and 1e2 spends the
+// entire animation in the last decade.
+//
+// This multiplies the group's own scale rather than replacing it, so the
+// rotational flattening baked in by attachVisual survives the transition. The
+// eased factor also drives the point-source marker (see the render loop), or a
+// true-scale body would glide while its glow jumped.
+// ---------------------------------------------------------------------------
+function applySizeEase(b, dt) {
+  const e = b.sizeEase;
+  if (!e) return;
+  e.t = Math.min(1, e.t + dt / 0.25);
+  const k = Math.pow(e.from, 1 - e.t);          // from → 1
+  b.sizeK = k;
+  const base = b.viz?.group.userData.baseVec;
+  if (base) b.viz.group.scale.set(base.x * k, base.y * k, base.z * k);
+  if (e.t >= 1) { b.sizeEase = null; b.sizeK = 1; }
+}
+
 // Swap every body between true and exaggerated size in place. Rebuilding is the
 // honest way to do this: each visual bakes its radius into geometry and into
 // local-space offsets (corona span, ring radii, prominence loops), so scaling
@@ -408,7 +436,7 @@ function rebuildVisuals() {
   for (const b of state.bodies) { detachVisual(b); attachVisual(b); }
   // the follow distance was framed for the old size and is now meaningless
   const fb = state.bodies.find(x => x.id === state.followId);
-  if (fb) cam.radius = Math.max(fb.radiusScene, fb.rsScene || 0) * 7;
+  if (fb) jumpCamRadius(Math.max(fb.radiusScene, fb.rsScene || 0) * 7);
   if (state.camMode === 'orbit') updateOrbitCam();
 }
 
@@ -668,14 +696,23 @@ function editBody(b, patch) {
   deriveBody(b, spec);
   attachVisual(b);
 
-  // Reframing the follow camera on every slider tick would be seasick, but a
-  // mass slider moves a radius by orders of magnitude, so the body can end up
-  // filling the screen or sub-pixel. Only step in once it has left the frame.
-  if (b.id === state.followId && before > 0) {
-    const r = Math.max(b.radiusScene, b.rsScene || 0);
-    if (r > cam.radius * 0.45 || r < cam.radius * 0.01) {
-      cam.radius = r * 7;
-      if (state.camMode === 'orbit') updateOrbitCam();
+  // Keep the followed body framed while it is being edited. A mass slider moves
+  // a radius by ORDERS OF MAGNITUDE, so without this the object either fills the
+  // screen or vanishes; with a hard snap instead it lurches. The camera is asked
+  // to glide, and the mesh eases from its old size over the same time constant,
+  // so what you see is one object changing character rather than a cut between
+  // two objects. Framing is only maintained while the drag actually moves the
+  // size — a 1% change is left alone so nudging the slider does not creep the
+  // view. It also never fights a zoom: the wheel cancels the glide.
+  const r = Math.max(b.radiusScene, b.rsScene || 0);
+  if (before > 0 && r > 0) {
+    const jump = r / before;
+    if (Math.abs(Math.log(jump)) > 0.01) {
+      // start the mesh where it was and let it grow into its new size
+      b.sizeEase = { from: 1 / jump, t: 0 };
+      if (b.id === state.followId && state.camMode === 'orbit') {
+        cam.radiusTo = THREE.MathUtils.clamp(r * 7, 1e-6, 20000);
+      }
     }
   }
   // A verdict the sim only prints is a bug: let the limit fire immediately
@@ -991,9 +1028,27 @@ function pushTrail(b) {
 // ============================================================================
 const cam = {
   target: new THREE.Vector3(), radius: 24, theta: Math.PI / 2 - 0.35, phi: Math.PI / 2,
+  // Where the viewing distance is HEADING, when something asked for a new one
+  // smoothly. Null means the camera is exactly where it was put.
+  radiusTo: null,
   // free fly
   yaw: 0, pitch: 0, freeSpeed: 12,
 };
+// Put the camera at a distance immediately, cancelling any glide in progress.
+// Everything that repositions the camera on purpose — the zoom wheel, reset,
+// loading a preset — goes through here, or an in-flight ease would drag the
+// view back out from under it a frame later.
+function jumpCamRadius(r) { cam.radius = r; cam.radiusTo = null; }
+// Ask for a distance instead of taking one. Geometric (log-space) easing,
+// because viewing distance is a scale: gliding from 1e-4 to 1e2 AU linearly
+// spends the whole animation in the last decade and looks like a jump anyway.
+function easeCamRadius(dt) {
+  if (cam.radiusTo == null) return;
+  const ratio = cam.radiusTo / cam.radius;
+  if (Math.abs(Math.log(ratio)) < 0.01) { cam.radius = cam.radiusTo; cam.radiusTo = null; return; }
+  // frame-rate independent: same time constant at 30 and 144 fps
+  cam.radius *= Math.pow(ratio, 1 - Math.exp(-dt * 6));
+}
 const keys = {};
 const observer = new SurfaceObserver();
 const skyPass = createSkyPass();
@@ -1020,7 +1075,7 @@ function setFollow(body) {
   if (body) {
     cam.target.copy(body.viz.group.position);
     // frame the body itself — a 4-unit floor put small worlds a hundred radii away
-    cam.radius = Math.max(body.radiusScene, body.rsScene || 0) * 7;
+    jumpCamRadius(Math.max(body.radiusScene, body.rsScene || 0) * 7);
     if (state.camMode === 'orbit') updateOrbitCam();
   }
   refreshUI();
@@ -1060,7 +1115,7 @@ el.addEventListener('wheel', e => {
   // The zoom floor used to be 0.05 scene units — twenty times wider than a
   // true-scale Earth, so you could never actually reach one. It now only has to
   // stay clear of float32 denormals.
-  if (state.camMode === 'orbit') { cam.radius = Math.max(1e-6, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001))); updateOrbitCam(); }
+  if (state.camMode === 'orbit') { jumpCamRadius(Math.max(1e-6, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001)))); updateOrbitCam(); }
   else if (state.camMode === 'surface') observer.zoom(1 + e.deltaY * 0.0012);
   else cam.freeSpeed = Math.max(0.5, cam.freeSpeed * (1 - e.deltaY * 0.001));
 }, { passive: false });
@@ -1087,7 +1142,7 @@ addEventListener('keydown', e => {
   const tag = e.target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   keys[e.code] = true;
-  if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); cam.radius = state.preset.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
+  if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
   if (e.code === 'Space') { e.preventDefault(); state.paused = !state.paused; }
   if (e.key === 'f' || e.key === 'F') setCamMode(state.camMode === 'orbit' ? 'free' : 'orbit');
   if (e.key === 'v' || e.key === 'V') setCamMode(state.camMode === 'surface' ? 'orbit' : 'surface');
@@ -1224,11 +1279,11 @@ function loadPreset(key) {
   // Camera reset. In a hierarchical system the total barycentre is nowhere near
   // the stars (the outer companion drags it ~11 AU away), so presets with a home
   // world start the camera following that world instead of the origin.
-  cam.target.set(0, 0, 0); cam.radius = p.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2;
+  cam.target.set(0, 0, 0); jumpCamRadius(p.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2;
   setCamMode('orbit');
   if (p.focus) {
     const f = state.bodies.find(b => b.name === p.focus);
-    if (f) { setFollow(f); cam.radius = p.camRadius; }
+    if (f) { setFollow(f); jumpCamRadius(p.camRadius); }
   }
   updateOrbitCam();
   // the spacetime slab is noise in a multi-star system; restore it elsewhere
@@ -1606,7 +1661,38 @@ function setPanelOpen(id, open) {
   if (id === 'controlPanel') {
     document.body.classList.toggle('panel-open-right', open && !state.hudHidden);
   }
+  // The left column is a stack: the scenario list opening or closing moves the
+  // editor under it, and the editor being open squeezes the list.
+  if (id === 'xsecPanel') document.body.classList.toggle('xsec-open', open && !state.hudHidden);
+  if (id === 'scenarioPanel' || id === 'xsecPanel') layoutLeftColumn();
 }
+
+// ---------------------------------------------------------------------------
+// The left column holds the scenario list with the cross-section + editor under
+// it. Neither has a fixed height — the scenario list grows with its groups and
+// the editor grows with the body it is showing — so the editor's top edge is
+// measured rather than hard-coded, and it slides up when the list is collapsed.
+// ---------------------------------------------------------------------------
+function layoutLeftColumn() {
+  const top = document.getElementById('scenarioPanel');
+  const open = top && top.style.display !== 'none';
+  const y = open ? Math.round(top.getBoundingClientRect().bottom) + 12 : 92;
+  document.documentElement.style.setProperty('--xsec-top', `${y}px`);
+}
+// The scenario panel changes height when a group is expanded, and the editor
+// changes height when the body changes type — so watch, rather than guess.
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(() => layoutLeftColumn());
+  // The panel itself, and the two children that actually change its height: the
+  // scenario list (groups expand) and the blurb (every preset writes a
+  // different one). Observing only the panel misses growth that happens in the
+  // same frame the observer is installed.
+  for (const id of ['scenarioPanel', 'presetList', 'blurb']) {
+    const el = document.getElementById(id);
+    if (el) ro.observe(el);
+  }
+}
+addEventListener('resize', layoutLeftColumn);
 
 document.querySelectorAll('[data-close]').forEach(btn =>
   btn.addEventListener('click', () => setPanelOpen(btn.dataset.close, false)));
@@ -1776,7 +1862,7 @@ function applyRegime(name) {
 }
 document.querySelectorAll('[data-time]').forEach(b =>
   b.addEventListener('click', () => applyRegime(b.dataset.time)));
-document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); cam.radius = state.preset.camRadius; cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
+document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
 
 function setSpawnAtRest(on) {
   state.spawnAtRest = on;
@@ -1863,6 +1949,7 @@ function animate() {
   for (const b of state.bodies) {
     if (b.type === 'bh') { b.rsScene = b.rs * state.sceneScale; b.radiusScene = b.rsScene; }
     b.viz.update(dt * (state.paused ? 0 : 1) + 0.0001, ctx); // keep shaders animating even paused-ish
+    applySizeEase(b, dt);
   }
   // Structural limits, on anything whose mass moved this frame. Accretion and
   // mergers both change mass, so this is where a fed neutron star finds out it
@@ -1898,6 +1985,7 @@ function animate() {
         else cam.target.lerp(p, 0.2);
       }
     }
+    easeCamRadius(dt);
     updateOrbitCam();
   }
 
@@ -1934,7 +2022,10 @@ function animate() {
   for (const b of state.bodies) {
     if (!b.marker) continue;
     if (state.camMode === 'surface') { b.marker.mesh.visible = false; continue; }
-    b.marker.update(camera, b.viz.group.position, Math.max(b.radiusScene, b.rsScene || 0),
+    // (b.sizeK) — during an edit the mesh is mid-glide, so the marker has to
+    // hand over at the size actually being drawn or it pops.
+    b.marker.update(camera, b.viz.group.position,
+                    Math.max(b.radiusScene, b.rsScene || 0) * (b.sizeK ?? 1),
                     innerHeight, b.id === state.focusId);
   }
 

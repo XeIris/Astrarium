@@ -403,10 +403,17 @@ h3 .clock {
 
 /* The cross-section panel sits on the left, below the scenario list, and is
    wider than the control stack because a labelled diagram needs the room. */
+/* The cross-section + editor sits in the LEFT column, under the scenario list,
+   and its top edge is measured from wherever that list actually ends — collapse
+   the scenarios and this slides up into the space. --xsec-top is written by
+   layoutLeftColumn() in blackhole_sim.js. */
 .panel-xsec {
-  top: 92px; left: 272px; right: auto; width: 348px;
-  max-height: calc(100vh - 130px);
+  top: var(--xsec-top, 92px); left: 20px; right: auto; width: 348px;
+  max-height: calc(100vh - var(--xsec-top, 92px) - 24px);
 }
+/* With both open the left column has two panels in it, so the scenario list
+   gives up the height rather than pushing the editor off the screen. */
+body.xsec-open .panel-left { max-height: 40vh; }
 /* The live editor inside the cross-section panel. Marked off from the diagram
    because one half of the panel reports and the other half changes things. */
 .xsec-edit {
@@ -415,6 +422,24 @@ h3 .clock {
   padding: 9px 10px 2px; margin-bottom: 10px;
 }
 .xsec-edit .section-note { margin-bottom: 9px; }
+.le-curve {
+  width: 100%; height: auto; display: block; cursor: ew-resize;
+  border: 1px solid var(--border); background: rgba(0, 0, 0, 0.42);
+  touch-action: none;
+}
+.le-curvebar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 5px 0 9px; font-size: 9px; color: var(--text-dim);
+}
+.le-near { line-height: 1.4; }
+.le-near .bad { color: var(--warn); }
+.le-zoom {
+  flex: 0 0 auto; background: none; border: 1px solid var(--border-strong);
+  color: var(--text-dim); font-family: var(--mono); font-size: 9px;
+  padding: 2px 6px; cursor: pointer; letter-spacing: 0.08em;
+}
+.le-zoom:hover { color: var(--text); border-color: var(--accent); }
+.le-zoom.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 .xsec-edit .row { margin-bottom: 8px; }
 
 .xsec-name {

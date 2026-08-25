@@ -75,6 +75,7 @@ Shell:
 | [sim/structure.js](sim/structure.js) | **what a body IS**: mass–radius laws per support mechanism, ignition/support limits, rotational shape & gravity darkening, central conditions, and the layer model. `structureOf(spec)` is the single entry point |
 | [sim/starcat.js](sim/starcat.js) | `STAR_CATALOG` — measured parameters for ~27 real stars — plus `starSpec` / `starRing` / `realBinary` / `companion` scenario builders |
 | [sim/foundry.js](sim/foundry.js) | the Object Foundry editor panel (`createFoundry`), the live-body inspector (`createInspector`) and the in-flight parameter editor (`createLiveEditor`), which share one set of control rows |
+| [sim/masscurve.js](sim/masscurve.js) | `createMassCurve` — the log–log mass–radius graph in the live editor. Its threshold marks are *sampled* out of `structureOf`, never listed, so a new limit in `sim/structure.js` appears here on its own |
 | [sim/crosssection.js](sim/crosssection.js) | `drawCrossSection` — the labelled interior diagram — plus the temperature ramp and every unit formatter the panels use |
 | [sim/painter.js](sim/painter.js) | rings, belts and ejecta: `createOrbitalSwarm` (analytic Keplerian test particles), `createGasCloud`, `ringSpan`, `createPainter` |
 
@@ -121,6 +122,12 @@ Shell:
   and then calls `checkStructuralLimits`, so every threshold is reachable in flight.
   Anything new that a spec implies belongs in `deriveBody`, not in `spawnBody`, or it
   will exist on spawn and quietly vanish on the first edit.
+- **A rebuilt body eases into its new size.** `editBody` starts the mesh at the size
+  it had (`b.sizeEase`, applied per frame by `applySizeEase`) and asks the follow
+  camera to glide (`cam.radiusTo`, eased by `easeCamRadius`) instead of snapping.
+  Both are geometric, because radius and viewing distance are scales. Anything that
+  repositions the camera deliberately must go through `jumpCamRadius`, or an
+  in-flight glide will drag the view back a frame later.
 - **A structural limit is an event, not a label.** If the model says a body cannot hold
   itself up, `checkStructuralLimits()` in the orchestrator has to act on it — a neutron
   star past the TOV mass becomes a black hole, a white dwarf at the Chandrasekhar mass

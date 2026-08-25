@@ -327,6 +327,24 @@ in the scene can be moved while it orbits: the object is re-derived from the new
 its meshes are rebuilt, and its structural limits are rechecked immediately. What it is
 orbiting, where it is and how fast it is moving are untouched.
 
+The editor sits in the left column under the scenario list, and its top edge is
+measured rather than fixed: collapse the scenarios and it slides up into the space.
+
+Above the sliders is the body's own **mass–radius curve**, log–log, with the object
+drawn on it as a handle you can drag. A slider tells you where you are; it cannot tell
+you where the interesting places are, and here that is the whole point — a rocky
+planet's radius turns over at ~300 M⊕ and *falls* thereafter, a neutron star's is flat
+for a solar mass and then drops off a cliff. On log axes the power laws are straight
+lines (R ∝ M^⅓ cold, R ∝ M^−⅓ degenerate, R ∝ M for a horizon) and the kinks between
+them are where the physics changes. Dashed lines mark those crossings, red where the
+object is destroyed rather than reclassified, and `focus limit` narrows the graph to
+the nearest one so a transition takes a whole drag instead of one pixel.
+
+Nothing in the graph knows that 13 M_J is the deuterium limit. It is sampled by calling
+the same interior model across the range and marking wherever the *answer* changes
+regime, so the lines move when they should: spin a neutron star up and the TOV mark
+slides right, because rotation really is support.
+
 Which means the thresholds are live rather than something you can only build up to.
 Drag a 2.0 M☉ neutron star's mass and it collapses to a black hole under you at exactly
 the TOV mass — spin it up first and it survives further, because centrifugal support is
@@ -457,6 +475,7 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
   limits, rotational shape, gravity darkening, and the layer model everything else reads
 - `sim/starcat.js` — the catalogue of measured stars and the scenarios built from it
 - `sim/foundry.js` — the Object Foundry editor and the live editor
+- `sim/masscurve.js` — the draggable mass–radius graph and its model-derived marks
 - `sim/crosssection.js` — the labelled interior diagram and its temperature ramp
 - `sim/painter.js` — rings, belts and ejecta as analytically-advanced test particles
 

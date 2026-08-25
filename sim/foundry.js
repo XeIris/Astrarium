@@ -6,6 +6,7 @@ import {
   drawCrossSection, drawTempLegend, structureFacts, VERDICT_CLASS,
   fmtMass, fmtLength,
 } from './crosssection.js';
+import { createMassCurve, fmtMassShort } from './masscurve.js';
 
 // ============================================================================
 // THE OBJECT FOUNDRY — building a body out of physics rather than out of a menu
@@ -301,11 +302,24 @@ export function createInspector({ canvas, legend, factsEl, verdictEl, notesEl })
 //     nothing is more annoying than a control that fights your thumb.
 // ============================================================================
 export function createLiveEditor({ mount, onEdit }) {
-  mount.innerHTML = `<div class="le-rows">${controlRows('le')}</div>`;
+  mount.innerHTML = `
+    <canvas class="le-curve" id="leCurve" width="330" height="152"></canvas>
+    <div class="le-curvebar">
+      <span class="le-near" id="leNear"></span>
+      <button class="le-zoom" id="leFocus" title="Narrow the graph to the nearest threshold, so the transition takes a whole drag instead of one pixel.">focus limit</button>
+    </div>
+    <div class="le-rows">${controlRows('le')}</div>`;
   const $ = id => mount.querySelector('#' + id);
 
   $('leComp').innerHTML = Object.entries(ROCK_COMPOSITIONS)
     .map(([k, c]) => `<option value="${k}">${c.label}</option>`).join('');
+
+  // The graph is a second view of the mass, not a second number: dragging its
+  // handle emits exactly the patch the mass slider emits.
+  const curve = createMassCurve({
+    canvas: $('leCurve'),
+    onPick(mass) { dragging = 'leCurve'; queue({ mass }); },
+  });
 
   let body = null;          // the body being edited
   let dragging = null;      // id of the control currently under the pointer
@@ -374,6 +388,22 @@ export function createLiveEditor({ mount, onEdit }) {
     $('leSpinRow').querySelector('label').textContent = bh ? 'Spin a*' : 'Spin';
     $('leSpin').max = bh ? '0.998' : '1';
     readouts();
+    drawCurve(b);
+  }
+
+  // The graph reads the LIVE body, so a star being eaten walks its handle down
+  // its own curve without anyone touching a control.
+  function drawCurve(b) {
+    curve.draw({
+      type: b.type === 'world' ? 'planet' : b.type,
+      mass: b.mass, spinFrac: b.spinFrac ?? 0,
+      composition: b.composition, phase: b.phase, Z: b.Z ?? 0.014,
+    }, RANGE_FOR(b.type));
+    const near = curve.nearest(b.mass);
+    $('leNear').innerHTML = near
+      ? `<span class="${near.bad ? 'bad' : ''}">${near.label}</span> at ${fmtMassShort(near.mass)}
+         · ${(Math.abs(Math.log10(near.mass / b.mass))).toFixed(2)} dex ${near.above ? 'below' : 'away'}`
+      : 'no threshold in range';
   }
 
   for (const id of ['leMass', 'leSpin', 'lePhase', 'leZ']) {
@@ -394,6 +424,13 @@ export function createLiveEditor({ mount, onEdit }) {
   // Releasing anywhere ends the drag, including outside the slider — otherwise
   // a control that lost the pointer would stop tracking the body forever.
   addEventListener('pointerup', () => { dragging = null; });
+
+  $('leFocus').addEventListener('click', () => {
+    curve.setFocus(!curve.focus);
+    $('leFocus').classList.toggle('on', curve.focus);
+    $('leFocus').textContent = curve.focus ? 'full range' : 'focus limit';
+    if (body) drawCurve(body);
+  });
 
   $('leComp').addEventListener('change', () => {
     queue({ composition: $('leComp').value });
