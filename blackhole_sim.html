@@ -160,10 +160,36 @@
   <div class="focus-panel" id="focusPanel" style="display:none">
     <h3>Focused Object</h3>
     <div class="focus-name" id="focusName">—</div>
+    <button class="ghost-btn" id="xsecOpen">Cross-section &amp; edit ▸</button>
     <button class="action-btn" id="delFocus">Delete Object</button>
   </div>
 
-  <h3>Spawn Body</h3>
+  <h3>Object Foundry</h3>
+  <div class="section-note">Four inputs, no menu of outcomes. Everything below — the
+    size, the colour, the shape, the verdict — is derived from mass, spin,
+    composition and age by the same interior model the rest of the sim runs on.</div>
+  <div id="foundry"></div>
+
+  <h3>Painter</h3>
+  <div class="section-note">Adds the things that are made of too many pieces to
+    integrate — rings, belts, ejecta. They are test particles on real Keplerian
+    orbits, so a ring shears the way a ring does and a belt has its resonance
+    gaps. Acts on the focused body.</div>
+  <div class="add-grid">
+    <button class="add-btn" data-paint="ring" title="A ring can only exist INSIDE the Roche limit, where tides beat self-gravity and the material cannot collect into a moon. The span is computed from the body's own density, not chosen.">
+      <span class="sym">◎</span>Ring</button>
+    <button class="add-btn" data-paint="belt" title="An asteroid belt, with Kirkwood gaps cleared at the 3:1, 5:2, 7:3 and 2:1 resonances with the next body out.">
+      <span class="sym">⋰</span>Belt</button>
+    <button class="add-btn" data-paint="cloud" title="An expanding shell of ejecta. Optically thin, so it limb-brightens into a rim, and homologous, so it expands without changing shape.">
+      <span class="sym">◍</span>Ejecta</button>
+    <button class="add-btn" data-paint="clear"><span class="sym">✕</span>Clear paint</button>
+  </div>
+
+  <h3>Quick Spawn</h3>
+  <div class="toggle-row">
+    <button class="toggle-btn" data-view="spawnrest"
+      title="At rest: a new body is placed where you are looking with exactly zero velocity, and only moves if gravity moves it. In orbit: it arrives on a circular orbit about the heaviest body present, which is the only start that does not immediately fall in.">Spawn: In orbit</button>
+  </div>
   <div class="add-grid">
     <button class="add-btn" data-spawn="planet"><span class="sym">·</span>Rocky Planet</button>
     <button class="add-btn" data-spawn="gas-giant"><span class="sym">○</span>Gas Giant</button>
@@ -174,6 +200,33 @@
 
   <h3>Bodies <span id="count" style="color:var(--accent)">(0)</span></h3>
   <div class="body-list" id="bodyList"><div class="empty">— empty —</div></div>
+</div>
+
+<!-- CROSS-SECTION — the one view in the sim that shows what cannot be seen.
+     Opened from a focused body; see sim/crosssection.js for what each layer's
+     confidence actually is, which varies enormously along the radius. -->
+<div class="hud panel panel-xsec" id="xsecPanel" style="display:none">
+  <div class="panel-head">
+    <h3>Cross-section</h3>
+    <button class="panel-close" data-close="xsecPanel" title="Close">✕</button>
+  </div>
+  <div class="xsec-name" id="xsecName">—</div>
+
+  <!-- LIVE EDIT — the Foundry's controls aimed at this body instead of at a
+       draft. Same interior model, same thresholds, applied while it orbits. -->
+  <div class="xsec-edit" id="xsecEdit">
+    <div class="section-note">Editing is the same operation as building — the object
+      is re-derived and its limits rechecked immediately. The curve is R(M) for this
+      body's own composition and spin; drag the handle along it. Dashed lines are
+      where the model changes its mind about what this is.</div>
+    <div id="liveEdit"></div>
+  </div>
+
+  <canvas id="xsecCanvas" class="fd-xsec" width="330" height="260"></canvas>
+  <canvas id="xsecLegend" class="fd-legend" width="330" height="26"></canvas>
+  <div class="fd-verdict" id="xsecVerdict"></div>
+  <div class="fd-facts" id="xsecFacts"></div>
+  <div class="fd-note" id="xsecNotes"></div>
 </div>
 
 <!-- Tabs that take a collapsed panel's place, so a closed panel is always one

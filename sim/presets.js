@@ -1,5 +1,7 @@
 import { circularSpeed, rocheLimit, G } from './physics.js';
 import { luminosity, effectiveTemp } from './stellar.js';
+import { starSpec, starRing, realBinary, companion } from './starcat.js';
+import { baseRadiusSun, phaseById } from './structure.js';
 
 // ============================================================================
 // PRESET SCENARIOS
@@ -587,6 +589,195 @@ export const PRESETS = {
       ];
     },
   },
+
+  // ==========================================================================
+  // BLANK CANVAS
+  // --------------------------------------------------------------------------
+  // Nothing in it, nothing moving, and — unlike every other preset — new bodies
+  // arrive AT REST rather than on a circular orbit about the dominant mass.
+  //
+  // That combination is what makes it a workbench rather than a scenario. With
+  // an empty scene there is no dominant mass for an orbit to be computed about,
+  // so "spawn into orbit" has no meaning; and starting everything at zero
+  // velocity means the only motion that ever appears is motion the integrator
+  // produced from the gravity of what you placed. Drop two bodies and they fall
+  // together. Drop three and you have a three-body problem you built yourself.
+  //
+  // The time scale is deliberately slow: a pair released from rest a few AU
+  // apart collapses in a couple of years, and at the usual pace that is over
+  // before you have let go of the mouse.
+  // ==========================================================================
+  blank: {
+    sky: { env: 'disc', tilt: 0.38, roll: 1.6 },
+    name: 'Blank Canvas',
+    blurb: 'An empty scene, and the one place where Spawn puts things down at rest instead of into an orbit. Nothing moves until gravity moves it, so whatever happens next is entirely yours: release two bodies and watch them fall together, or place three and find out what the three-body problem does to your arrangement. Build the objects in the Foundry below — the mass, spin and composition sliders all apply — and paint rings and belts onto them. (Nothing here emits light, so until you spawn a star the scene is lit by a lamp riding the camera. It is a viewing aid and it switches off the moment there is a real star to light things.)',
+    sceneScale: 2.0, bodyScale: 1.0, camRadius: 26, lensing: false, mesh: true,
+    timeScale: 0.25, maxStep: 2e-3,
+    spawnAtRest: true,
+    build() { return []; },
+  },
+
+  // ==========================================================================
+  // REAL STARS
+  // --------------------------------------------------------------------------
+  // Everything below is built from measured objects — see sim/starcat.js for
+  // the numbers and where they come from. These presets all run at TRUE SCALE,
+  // because their whole point is a comparison, and a comparison between
+  // exaggerated radii is a comparison between drawing conventions. A star that
+  // goes sub-pixel is carried by the point-source marker in sim/scale.js, which
+  // is what a telescope does with it too.
+  // ==========================================================================
+
+  stellar_zoo: {
+    sky: { env: 'disc', tilt: 0.34, roll: 1.15 },
+    name: 'The Stellar Zoo',
+    blurb: 'Ten famous stars at their true relative sizes, from Betelgeuse — whose photosphere would reach the asteroid belt — down to Sirius B, an Earth-sized white dwarf. That is a range of 90 000 to 1, so most of them are points until you fly to them. They are on genuinely circular orbits about their common centre of mass, computed from the real N-body force at t = 0; a ring of unequal masses has no stable mode, so left running it will buckle and come apart. That is the correct answer, not a bug.',
+    sceneScale: 0.5, bodyScale: 1.0, camRadius: 60, lensing: false, mesh: false,
+    trueScale: true, timeScale: 1.5, maxStep: 2e-3,
+    build() {
+      return starRing(['betelgeuse', 'rigel', 'aldebaran', 'polaris', 'achernar',
+                       'bellatrix', 'vega', 'siriusA', 'sun', 'siriusB'], 70);
+    },
+  },
+
+  sirius: {
+    sky: { env: 'disc', tilt: 0.40, roll: 2.4 },
+    name: 'Sirius A & B',
+    blurb: 'The real orbit: a = 7.50 AU, e = 0.59, period 50.13 years. Sirius A is an ordinary A1 star; Sirius B beside it has 1.02 solar masses packed into the volume of Earth, held up by electron degeneracy alone. Its existence was deduced from Sirius A wobbling, forty years before anyone saw it. At true scale B is a point of light — which is exactly the observational problem that made it so hard to find.',
+    sceneScale: 3.0, bodyScale: 1.0, camRadius: 40, lensing: false, mesh: false,
+    trueScale: true, timeScale: 3, maxStep: 1e-3,
+    build() { return realBinary('siriusA', 'siriusB', { a: 7.4957, e: 0.5923, incl: 0.24, nu: 2.2 }); },
+  },
+
+  vega: {
+    sky: { env: 'disc', tilt: 0.28, roll: 0.5 },
+    name: 'Vega — a star seen pole-on',
+    blurb: 'Vega spins at 236 km/s, 88% of the speed at which it would fly apart, and we happen to look almost straight down its rotation axis. That is why it was the photometric zero point for a century and why the calibration was quietly wrong: we were measuring its hot pole. The bulge and the pole-to-equator temperature gradient here are not artistic — the measured rotation predicts an equatorial radius 1.192 times the polar against 1.193 observed, and von Zeipel gravity darkening then gives a 10 260 K pole over an 8 610 K equator against 10 070 / 8 910 measured. (Vega also has a debris disc, but it runs from 86 to 200 AU — twenty thousand times the width of the star — so there is no single zoom that shows you both.)',
+    sceneScale: 182, bodyScale: 1.0, camRadius: 9, lensing: false, mesh: false,
+    trueScale: true, timeScale: 0.2, maxStep: 1e-3,
+    build() {
+      const v = starSpec('vega', { pos: [0, 0, 0], vel: [0, 0, 0] });
+      return [v];
+    },
+  },
+
+  achernar: {
+    sky: { env: 'disc', tilt: 0.62, roll: 1.8 },
+    name: 'Achernar — the flattest star',
+    blurb: 'Its equator sits 35% further from the centre than its poles, which is the most extreme rotational distortion measured on any bright star. The hard limit is 1.5: at that ratio the equator is in orbit and material simply leaves, and nothing that stays in one piece can be flatter. Achernar is close enough to it that it really is throwing off a disc of its own gas — the "e" in its spectral type B6Vep.',
+    sceneScale: 64, bodyScale: 1.0, camRadius: 11, lensing: false, mesh: false,
+    trueScale: true, timeScale: 0.2, maxStep: 1e-3,
+    paint: [{ kind: 'ring', body: 'Achernar', inner: 0.052, outer: 0.13, tilt: 0.0, color: 0xffd0b0, density: 0.7, decretion: true }],
+    build() { return [starSpec('achernar', { pos: [0, 0, 0], vel: [0, 0, 0] })]; },
+  },
+
+  betelgeuse: {
+    sky: { env: 'disc', tilt: 0.30, roll: 2.9 },
+    name: 'Betelgeuse',
+    blurb: 'A red supergiant of 16.5 solar masses and 764 solar radii — put it where the Sun is and its surface would reach past the asteroid belt, swallowing Mercury, Venus, Earth and Mars. Jupiter and Saturn are drawn here at their real orbital distances, to scale, so you can see that Jupiter’s orbit is the first one that clears it. Its interior is the onion: an iron-free carbon–oxygen core under helium and hydrogen shells, and almost all of that enormous volume is emptier than a laboratory vacuum.',
+    sceneScale: 2.2, bodyScale: 1.0, camRadius: 34, lensing: false, mesh: false,
+    trueScale: true, timeScale: 0.4, maxStep: 2e-3,
+    build() {
+      const B = starSpec('betelgeuse', { pos: [0, 0, 0], vel: [0, 0, 0] });
+      return [
+        B,
+        companion(B.mass, 5.203, { type: 'gas-giant', name: "Jupiter's orbit", mass: 9.5459e-4, radiusKm: 69911, palette: 'jupiter' }, 0.4),
+        companion(B.mass, 9.537, { type: 'gas-giant', name: "Saturn's orbit", mass: 2.858e-4, radiusKm: 58232, palette: 'saturn', rings: true }, 3.1),
+      ];
+    },
+  },
+
+  alphacen: {
+    sky: { env: 'disc', tilt: 0.44, roll: 0.2 },
+    name: 'Alpha Centauri',
+    blurb: 'The real nearest system, with the real orbit: A and B swing between 11.2 and 35.6 AU on an 80-year, e = 0.52 ellipse. Proxima is bound to the pair but 13 000 AU out — so far that it takes 550 000 years to go round once, and it is off screen at any zoom that shows the binary. Proxima b orbits it in 11 days, inside a habitable zone that is inside Mercury’s distance, around a star that flares hard enough to strip an atmosphere.',
+    sceneScale: 1.6, bodyScale: 1.0, camRadius: 60, lensing: false, mesh: false,
+    trueScale: true, timeScale: 4, maxStep: 2e-3,
+    build() {
+      const pair = realBinary('alphacenA', 'alphacenB', { a: 23.52, e: 0.5179, incl: 0.14, nu: 1.1 });
+      const P = starSpec('proxima');
+      // Proxima's real separation is 13 000 AU; placed there it is simply not
+      // in the scene. It goes at 900 AU on the same bound, near-circular path
+      // so it is reachable, and the blurb says what has been changed.
+      const mPair = pair[0].mass + pair[1].mass;
+      const M = mPair + P.mass;
+      const a = 900, v = circularSpeed(M, a);
+      // Split the outer orbit about its own barycentre. 0.55 of the circular
+      // speed is not "near-circular": with no radial velocity it starts at
+      // apoapsis of an e = 0.70 ellipse that falls to 160 AU. And giving
+      // Proxima all of the momentum with nothing to balance it sends the whole
+      // system drifting across the frame, so each side takes its mass share.
+      const pShare = mPair / M, bShare = P.mass / M;
+      const px = a * pShare, pv = v * pShare;
+      Object.assign(P, { pos: [px, 0, 0], vel: [0, 0, pv] });
+      for (const st of pair) { st.pos[0] -= a * bShare; st.vel[2] -= v * bShare; }
+      const pb = companion(P.mass, 0.0485, {
+        type: 'planet', name: 'Proxima b', mass: 3.3e-6, radiusKm: 7160, hot: true,
+      }, 1.0);
+      pb.pos = [pb.pos[0] + px, pb.pos[1], pb.pos[2]];
+      pb.vel = [pb.vel[0], pb.vel[1], pb.vel[2] + pv];
+      return [...pair, P, pb];
+    },
+  },
+
+  etacar: {
+    sky: { env: 'starburst', tilt: 0.52, roll: 1.35 },
+    name: 'Eta Carinae — against the Eddington limit',
+    blurb: 'A hundred solar masses radiating five million times the Sun. At that luminosity the radiation pressure pushing outward on free electrons is comparable to the star’s own gravity holding it in — L/L_Edd is near one, and its outer layers are barely bound at all. In the 1840s it threw off somewhere between ten and forty solar masses in a single eruption, briefly became the second brightest star in the sky, and survived. The debris is the Homunculus Nebula, expanding at its measured 650 km/s — drawn at 26 AU rather than its true 38 000, because the binary that threw it off is 15 AU across and there is no single frame that holds both.',
+    sceneScale: 0.9, bodyScale: 1.0, camRadius: 78, lensing: false, mesh: false,
+    trueScale: true, timeScale: 0.3, maxStep: 2e-3,
+    paint: [{ kind: 'cloud', body: 'Eta Carinae A', radius: 26, lobes: 2, color: 0xffcf9a, density: 0.85, expand: 0.137 }],
+    build() {
+      const E = starSpec('etacar', { pos: [0, 0, 0], vel: [0, 0, 0] });
+      // The real companion: ~30 M☉, 5.54-year orbit, e ≈ 0.9. Its periastron
+      // passage is what makes the whole system flare in X-rays.
+      const M = E.mass + 30;
+      const a = 15.4, e = 0.9, nu = Math.PI * 0.8;
+      const k = kepler(M, a, e, 0.2, nu);
+      return [
+        { ...E, pos: mulv(k.pos, -30 / M), vel: mulv(k.vel, -30 / M) },
+        { type: 'star', name: 'Eta Carinae B', mass: 30, radiusSun: 20, teff: 37000,
+          luminosity: 8.0e5, phase: phaseById('ms-mid').f,
+          pos: mulv(k.pos, E.mass / M), vel: mulv(k.vel, E.mass / M) },
+      ];
+    },
+  },
+
+  hr_ladder: {
+    sky: { env: 'globular', tilt: 0.36, roll: 0.9 },
+    name: 'The Main Sequence, end to end',
+    blurb: 'Eleven stars from 0.1 to 60 solar masses, every one of them burning hydrogen in its core — the same process, over a factor of 600 in mass. Everything else changes: the red dwarf at one end is 3000 K and will last ten trillion years; the O star at the other is 45 000 K, four hundred thousand times brighter, and will be gone in three million. Sizes are exaggerated here rather than true, because this is the one comparison where readability beats honesty; hit "Sizes: Real" to see what it actually looks like.',
+    sceneScale: 1.0, bodyScale: 0.9, camRadius: 46, lensing: false, mesh: false,
+    timeScale: 0.5, maxStep: 2e-3,
+    build() {
+      const masses = [0.1, 0.2, 0.4, 0.7, 1.0, 1.5, 2.5, 4, 9, 20, 60];
+      const n = masses.length, R = 26;
+      const specs = masses.map((m, i) => {
+        const th = (i / n) * Math.PI * 2;
+        return {
+          type: 'star', name: `${m} M☉`, mass: m,
+          luminosity: luminosity(m), teff: effectiveTemp(m),
+          radiusSun: baseRadiusSun(m), phase: 0.5,
+          pos: [Math.cos(th) * R, 0, Math.sin(th) * R], _th: th,
+        };
+      });
+      // same exact circular-balance construction as starRing()
+      for (const s of specs) {
+        let ax = 0, az = 0;
+        for (const o of specs) {
+          if (o === s) continue;
+          const dx = o.pos[0] - s.pos[0], dz = o.pos[2] - s.pos[2];
+          const d2 = dx * dx + dz * dz, d = Math.sqrt(d2);
+          ax += G * o.mass / d2 * dx / d; az += G * o.mass / d2 * dz / d;
+        }
+        const aRad = Math.max(-(ax * Math.cos(s._th) + az * Math.sin(s._th)), 1e-9);
+        const v = Math.sqrt(aRad * R);
+        s.vel = [-Math.sin(s._th) * v, 0, Math.cos(s._th) * v];
+        delete s._th;
+      }
+      return specs;
+    },
+  },
 };
 
-export const PRESET_ORDER = ['trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];
+export const PRESET_ORDER = ['blank', 'stellar_zoo', 'sirius', 'vega', 'achernar', 'betelgeuse', 'alphacen', 'etacar', 'hr_ladder', 'trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];

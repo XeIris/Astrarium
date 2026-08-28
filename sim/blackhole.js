@@ -365,7 +365,12 @@ void main(){
       // at the source function instead of integrating without bound the way a
       // glowing fog would — and the near side genuinely occludes the lensed
       // image of the far side underneath it.
-      float dl  = step / max(rs, 1e-4);
+      // Path length in HORIZON RADII — the only length the disc's optical depth
+      // is meaningfully measured in. The old 1e-4 floor was a divide-by-zero
+      // guard, but r_s is in scene units and a stellar-mass hole's is ~1e-7, so
+      // it silently divided the optical depth of every physically-sized hole by
+      // a thousand and rendered its disc as empty space.
+      float dl  = step / max(rs, 1e-20);
       float tau = dens * dl * 4.5;
       float att = exp(-tau);
       float Tphys;

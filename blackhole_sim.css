@@ -337,3 +337,112 @@ h3 .clock {
 }
 .time-btn:hover { color: var(--text); border-color: var(--border-strong); }
 .time-btn.active { background: var(--accent-2); color: #000; border-color: var(--accent-2); }
+
+/* ==========================================================================
+   OBJECT FOUNDRY + CROSS-SECTION
+   The foundry lives inside the control panel; the cross-section is its own
+   floating panel, because it is a diagram and wants the width.
+   ========================================================================== */
+.section-note {
+  font-size: 9.5px; color: var(--text-dim); line-height: 1.55; margin-bottom: 10px;
+}
+
+.fd-types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 12px; }
+.fd-type {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 2px; background: transparent; border: 1px solid var(--border);
+  color: var(--text-dim); font-family: var(--mono); font-size: 8.5px;
+  letter-spacing: 0.04em; cursor: pointer; transition: all 0.15s; text-align: center;
+}
+.fd-type:hover { color: var(--text); border-color: var(--border-strong); }
+.fd-type.active { border-color: var(--accent); color: var(--accent); background: rgba(255, 140, 66, 0.08); }
+.fd-type .sym { font-size: 13px; line-height: 1; }
+
+.fd-select {
+  flex: 1; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: 10px; padding: 4px 6px;
+}
+
+/* The verdict banner. Colour carries the same four states sim/structure.js
+   returns — stable, a warning, a transformation, or destruction — so the panel
+   never has to editorialise beyond what the physics said. */
+.fd-verdict {
+  border: 1px solid currentcolor; padding: 8px 9px; margin: 10px 0 8px;
+  font-size: 10px; line-height: 1.55;
+}
+.fd-verdict .fd-vhead {
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 4px;
+}
+.fd-verdict .fd-vbody { color: var(--text); opacity: 0.82; }
+.fd-verdict .fd-became {
+  font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  opacity: 0.75; margin-bottom: 5px;
+}
+.fd-verdict.v-ok   { color: #4ee39a; }
+.fd-verdict.v-warn { color: #ffab52; }
+.fd-verdict.v-bad  { color: #ff5a4a; background: rgba(255, 70, 50, 0.08); }
+.fd-verdict.v-info { color: #6fb6ff; background: rgba(110, 180, 255, 0.07); }
+
+.fd-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-bottom: 10px; }
+.fd-facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.fd-facts .k { font-size: 9px; color: var(--text-dim); white-space: nowrap; }
+.fd-facts .v {
+  font-size: 10px; color: var(--accent); font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.fd-xsec {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--border); background: rgba(0, 0, 0, 0.42);
+}
+.fd-legend { width: 100%; height: auto; display: block; margin: 4px 0 8px; }
+
+.fd-note { font-size: 9px; color: var(--text-dim); line-height: 1.6; margin-bottom: 12px; }
+.fd-note > div { margin-bottom: 5px; }
+.fd-note b { color: var(--text); font-weight: 500; }
+
+/* The cross-section panel sits on the left, below the scenario list, and is
+   wider than the control stack because a labelled diagram needs the room. */
+/* The cross-section + editor sits in the LEFT column, under the scenario list,
+   and its top edge is measured from wherever that list actually ends — collapse
+   the scenarios and this slides up into the space. --xsec-top is written by
+   layoutLeftColumn() in blackhole_sim.js. */
+.panel-xsec {
+  top: var(--xsec-top, 92px); left: 20px; right: auto; width: 348px;
+  max-height: calc(100vh - var(--xsec-top, 92px) - 24px);
+}
+/* With both open the left column has two panels in it, so the scenario list
+   gives up the height rather than pushing the editor off the screen. */
+body.xsec-open .panel-left { max-height: 40vh; }
+/* The live editor inside the cross-section panel. Marked off from the diagram
+   because one half of the panel reports and the other half changes things. */
+.xsec-edit {
+  border: 1px solid var(--border); border-left: 2px solid var(--accent);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 9px 10px 2px; margin-bottom: 10px;
+}
+.xsec-edit .section-note { margin-bottom: 9px; }
+.le-curve {
+  width: 100%; height: auto; display: block; cursor: ew-resize;
+  border: 1px solid var(--border); background: rgba(0, 0, 0, 0.42);
+  touch-action: none;
+}
+.le-curvebar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 5px 0 9px; font-size: 9px; color: var(--text-dim);
+}
+.le-near { line-height: 1.4; }
+.le-near .bad { color: var(--warn); }
+.le-zoom {
+  flex: 0 0 auto; background: none; border: 1px solid var(--border-strong);
+  color: var(--text-dim); font-family: var(--mono); font-size: 9px;
+  padding: 2px 6px; cursor: pointer; letter-spacing: 0.08em;
+}
+.le-zoom:hover { color: var(--text); border-color: var(--accent); }
+.le-zoom.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.xsec-edit .row { margin-bottom: 8px; }
+
+.xsec-name {
+  font-size: 11px; color: var(--accent); letter-spacing: 0.08em;
+  margin-bottom: 8px; text-transform: uppercase;
+}
