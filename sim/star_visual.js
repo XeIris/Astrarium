@@ -55,7 +55,7 @@ function photosphereMaterial(color, hotColor, limbU) {
     },
     vertexShader: `
       uniform float uSpin;
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP; varying float vG;
+      varying vec3 vObj; varying vec3 vVN; varying vec3 vVP; varying float vG;
 
       // The Roche equipotential, R(theta)/R_pole, solved in closed form. See
       // the derivation in sim/structure.js — this is the same function, and at
@@ -91,10 +91,23 @@ function photosphereMaterial(color, hotColor, limbU) {
         vec3 et = normalize(vec3(dir.x * dir.y, -sinT * sinT, dir.z * dir.y) + vec3(1e-6));
         vec3 n  = normalize(er * (-gr) + et * (-gt));
 
-        vWN = normalize(mat3(modelMatrix) * n);
-        vec4 wp = modelMatrix * vec4(p, 1.0);
-        vWP = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
+        // View space, not world space — and that is a precision decision, not
+        // a style one. Going through the world (projection * view * model * p)
+        // materialises an absolute world coordinate in float32 first: in the
+        // stellar zoo a star sits 35 scene units from the origin, where float32
+        // steps by 35·2⁻²³ ≈ 4e-6, while Sirius B's true-scale radius is 2e-5.
+        // The sphere is then quantised onto a grid five steps across its own
+        // radius and renders as a lump of cubes. modelViewMatrix is assembled
+        // on the CPU in float64 and carries the CAMERA-RELATIVE offset, which
+        // is ~1e-4 here and therefore exact — the 35 never enters a float32.
+        // Same reason the view vector below is (-position) in view space rather
+        // than cameraPosition minus a world position: that difference is 1e-4
+        // between two numbers of magnitude 35, i.e. almost entirely cancellation
+        // error once the body is drawn at its true size.
+        vVN = normalize(normalMatrix * n);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        vVP = mv.xyz;
+        gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
       precision highp float;
@@ -105,7 +118,7 @@ function photosphereMaterial(color, hotColor, limbU) {
       uniform int  uSpotCount;
       uniform vec4 uFlares[${MAX_FLARES}]; // xyz = direction, w = amplitude
       uniform int  uFlareCount;
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP; varying float vG;
+      varying vec3 vObj; varying vec3 vVN; varying vec3 vVP; varying float vG;
 
       float hash(vec3 p){ return fract(sin(dot(p, vec3(17.1,113.5,7.9))) * 43758.5453); }
       float noise(vec3 p){
@@ -221,8 +234,8 @@ function photosphereMaterial(color, hotColor, limbU) {
         base += flareGlow * uGain;
 
         // --- limb darkening: I(mu)/I(0) = 1 - u(1 - mu), mu = cos(view angle)
-        vec3 V = normalize(cameraPosition - vWP);
-        float mu = clamp(dot(normalize(vWN), V), 0.0, 1.0);
+        vec3 V = normalize(-vVP);
+        float mu = clamp(dot(normalize(vVN), V), 0.0, 1.0);
         base *= (1.0 - uLimbU * (1.0 - mu));
 
         // --- chromosphere: H-alpha reddening right at the limb

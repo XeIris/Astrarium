@@ -276,18 +276,23 @@ export function createGasCloud({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     vertexShader: `
-      varying vec3 vObj; varying vec3 vWP; varying vec3 vN;
+      varying vec3 vObj; varying vec3 vView; varying vec3 vN;
       void main(){
         vObj = normalize(position);
         vN = normalize(mat3(modelMatrix) * normal);
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWP = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
+        // Camera-relative, never through an absolute world coordinate — see
+        // sim/star_visual.js for why float32 world positions destroy a small
+        // body's silhouette. vView is that offset rotated back into world
+        // space by the transpose of the (orthonormal) view rotation.
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        mat3 vr = mat3(viewMatrix);
+        vView = -vec3(dot(vr[0], mv.xyz), dot(vr[1], mv.xyz), dot(vr[2], mv.xyz));
+        gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
       precision highp float;
       uniform vec3 uColor; uniform float uDensity, uTime, uSeed;
-      varying vec3 vObj; varying vec3 vWP; varying vec3 vN;
+      varying vec3 vObj; varying vec3 vView; varying vec3 vN;
       float hash(vec3 p){ return fract(sin(dot(p, vec3(17.1,113.5,7.9))) * 43758.5453); }
       float noise(vec3 p){
         vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
@@ -298,7 +303,7 @@ export function createGasCloud({
       }
       float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<5;i++){ v+=a*noise(p); p*=2.13; a*=0.5; } return v; }
       void main(){
-        vec3 V = normalize(cameraPosition - vWP);
+        vec3 V = normalize(vView);
         float mu = abs(dot(normalize(vN), V));
         // Limb brightening: an optically thin shell is brightest where the
         // sightline is most nearly tangent to it, i.e. where mu -> 0. The

@@ -44,21 +44,33 @@ import * as THREE from 'three';
 //    bright-edged hollow shells with filamentary structure.
 // ============================================================================
 
+// Everything here is camera-relative. Going through the world — projection *
+// view * model * p — materialises an absolute world coordinate in float32,
+// which 35 scene units from the origin steps by 4e-6: coarser than a true-scale
+// compact object is wide, so the sphere quantises into a lump of cubes and the
+// view vector, a 1e-4 difference between two numbers of magnitude 35, is almost
+// pure cancellation error. modelViewMatrix is built on the CPU in float64 and
+// carries the camera-relative offset instead. See sim/star_visual.js.
 const SURF_VERT = `
-  varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+  varying vec3 vObj; varying vec3 vWN; varying vec3 vView;
   void main(){
     vObj = normalize(position);
     vWN  = normalize(mat3(modelMatrix) * normal);
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vWP = wp.xyz;
-    gl_Position = projectionMatrix * viewMatrix * wp;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    // back to WORLD space without a world coordinate: mv.xyz is the offset to
+    // the camera in the view basis, and a view rotation is orthonormal, so its
+    // transpose rotates it back — (M^T v)_i = dot(column_i of M, v). The
+    // self-lensing below reconstructs against vObj and so needs V in world.
+    mat3 vr = mat3(viewMatrix);
+    vView = -vec3(dot(vr[0], mv.xyz), dot(vr[1], mv.xyz), dot(vr[2], mv.xyz));
+    gl_Position = projectionMatrix * mv;
   }`;
 
 const SURF_FRAG = `
   precision highp float;
   uniform float uTime, uGain, uCompact, uCapGlow, uTeffK;
   uniform vec3  uColor, uCapColor, uMagAxis;
-  varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+  varying vec3 vObj; varying vec3 vWN; varying vec3 vView;
 
   float hash(vec3 p){ return fract(sin(dot(p, vec3(17.1, 113.5, 7.9))) * 43758.5453); }
   float noise(vec3 p){
@@ -69,7 +81,7 @@ const SURF_FRAG = `
   float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<4;i++){ v+=a*noise(p); p*=2.11; a*=0.5; } return v; }
 
   void main(){
-    vec3 V  = normalize(cameraPosition - vWP);
+    vec3 V  = normalize(vView);
     vec3 N  = normalize(vWN);
     float mu = clamp(dot(N, V), 0.0, 1.0);
 
@@ -174,12 +186,11 @@ const FIELD_VERT = `
   uniform float uR;
   varying float vFall;
   void main(){
-    vec4 wp = modelMatrix * vec4(position, 1.0);
     // the attribute is already in the dipole's own frame, centred on the star,
     // so its length is the distance from the centre in scene units.
     float rr = length(position) / max(uR, 1e-5);
     vFall = 1.0 / (0.25 + rr * rr * 0.55);
-    gl_Position = projectionMatrix * viewMatrix * wp;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }`;
 
 const FIELD_FRAG = `
