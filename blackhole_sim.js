@@ -204,9 +204,26 @@ const painter = createPainter({
   getSceneScale: () => state.sceneScale,
 });
 
-// merger flash sprites
+// ---------------------------------------------------------------------------
+// FLASH SPRITES — the two things a violent event can look like.
+//
+// `flash` (the default) is a compact glow that grows a little and fades: the
+// right stand-in for light, where nothing is actually moving outward — a
+// ringdown burst, a horizon forming, a disc brightening as it swallows something.
+//
+// `shell` is the right stand-in for MATTER, and everything the sim calls a
+// supernova throws matter. Two things change. The ejecta expand a long way —
+// as t^½ rather than linearly, because they run out fast and then decelerate
+// against what is around them — and, because the sprite spreads the same
+// emission over that growing disc, brightness falls as size⁻¹ on top of the
+// fade. The net effect is a wash that thins out instead of a dot that dims:
+// what was left of a Type Ia at 90% of its life used to be a small, still
+// clearly visible blue-white ball sitting exactly where the star had been,
+// which reads as "the star is still there" — the opposite of what the toast
+// says happened to it.
+// ---------------------------------------------------------------------------
 const flashes = [];
-function spawnFlash(worldPos, color, size, decay = 0.8) {
+function spawnFlash(worldPos, color, size, decay = 0.8, { grow = 2, kind = 'flash' } = {}) {
   const cv = document.createElement('canvas'); cv.width = cv.height = 128;
   const g = cv.getContext('2d');
   const rg = g.createRadialGradient(64, 64, 0, 64, 64, 64);
@@ -215,7 +232,7 @@ function spawnFlash(worldPos, color, size, decay = 0.8) {
   g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
   sp.position.copy(worldPos); sp.scale.setScalar(size); scene.add(sp);
-  flashes.push({ sp, life: 1, size, decay });
+  flashes.push({ sp, life: 1, size, decay, grow, shell: kind === 'shell' });
 }
 // Each flash owns a fresh 128×128 CanvasTexture, and a merger spawns two. They
 // have to go back with the sprite or every merge leaks a pair.
@@ -294,6 +311,16 @@ const TYPE_DEFAULTS = {
   bh:      { mass: 10, color: 0x000000, glow: 0x000000 },
 };
 
+// Peak temperature of the Shakura–Sunyaev disc a hole of this mass would carry.
+// The thin-disc result is T_peak ∝ (Ṁ/M²)^¼ and, at a fixed Eddington fraction,
+// Ṁ ∝ M, which leaves T ∝ M^(−¼): a stellar-mass hole peaks in the X-ray at
+// ~10⁷ K and a supermassive one only in the UV. This is the temperature the
+// lens pass images the disc at, and the one a sub-pixel hole's marker has to
+// publish so the imaging bands treat it as the X-ray source it is.
+function discPeakTemp(mass) {
+  return 2.0e7 * Math.pow(Math.max(mass, 0.1), -0.25);
+}
+
 // ---------------------------------------------------------------------------
 // Build (or rebuild) a body's renderable half from its stored spec. Split out
 // of spawnBody so the size convention can change at runtime — the physics body
@@ -362,15 +389,33 @@ function attachVisual(b) {
   // its size is never coupled to whatever the body's own visual does to its
   // transform (tidal stretching, flare pulses).
   const emitter = spec.type === 'star' || spec.type === 'white-dwarf';
+  // A black hole is the one type that is ALWAYS drawn at its true horizon, so
+  // outside the black-hole presets — where the horizon is deliberately fat — it
+  // is always sub-pixel and always carried by the marker. Colouring that marker
+  // from the type's own colour meant colouring it 0x000000: it drew nothing, so
+  // every remnant the sim makes (core collapse, a neutron star past the TOV
+  // mass, a merger) simply vanished the instant it formed, leaving only the
+  // Bodies list to prove it was still there.
+  //
+  // What you see of a distant hole is not the hole, it is the disc, so the
+  // marker takes the disc's peak temperature — colour AND the log-encoded
+  // temperature the imaging bands re-image from (CLAUDE.md: emitters publish
+  // their true temperature). A stellar-mass hole is then correctly dim in the
+  // radio and blazing in X-ray, which is exactly how one is actually found.
+  const isHole = spec.type === 'bh';
+  const discT = isHole ? discPeakTemp(b.mass) : 0;
   const markerColor = emitter
     ? (starColor ?? (b.teff ? blackbodyColor(b.teff) : new THREE.Color(0xfff2cc)))
-    : new THREE.Color(spec.color ?? def.color);
+    // the Planck colour fit saturates long before 10⁷ K; past ~40 000 K the eye
+    // has nothing left to say beyond "blue-white", so clamp rather than extrapolate
+    : (isHole ? blackbodyColor(Math.min(discT, 4.0e4)) : new THREE.Color(spec.color ?? def.color));
   b.marker = createMarker({
     color: markerColor,
-    teff: b.teff ?? 0,
+    teff: isHole ? discT : (b.teff ?? 0),
     // Emitters must stay bright enough to survive tone mapping and trip the
     // bloom; reflectors only need to be seen.
-    gain: spec.type === 'star' ? 26 : ((spec.type === 'neutron' || spec.type === 'white-dwarf') ? 18 : 2.2),
+    gain: spec.type === 'star' ? 26
+        : ((spec.type === 'neutron' || spec.type === 'white-dwarf' || isHole) ? 18 : 2.2),
   });
   scene.add(b.marker.mesh);
 }
@@ -436,7 +481,7 @@ function rebuildVisuals() {
   for (const b of state.bodies) { detachVisual(b); attachVisual(b); }
   // the follow distance was framed for the old size and is now meaningless
   const fb = state.bodies.find(x => x.id === state.followId);
-  if (fb) jumpCamRadius(Math.max(fb.radiusScene, fb.rsScene || 0) * 7);
+  if (fb) jumpCamRadius(frameRadius(fb));
   if (state.camMode === 'orbit') updateOrbitCam();
 }
 
@@ -587,8 +632,24 @@ function removeBody(id) {
   refreshUI();
 }
 
+// Empty the scene. Not just the body list: a body is the only thing that OWNS
+// anything here, so everything it left behind has to go with it or the scene is
+// not actually clear. Two kinds of debris outlive their owner —
+//
+//   · flashes, which are spawned at an event and then live on their own clock.
+//     A Type Ia's afterglow runs for eight seconds, so clearing right after one
+//     used to leave a white glow burning in an otherwise empty scene, with
+//     nothing in the Bodies list to explain it and no way to remove it.
+//   · everything the painter holds — rings, belts, ejecta clouds — which track
+//     a body by id and simply freeze where they are once that id is gone.
+//
+// loadPreset goes through here, which is why loading a scenario never showed
+// either problem and clearing did.
 function clearBodies() {
   while (state.bodies.length) removeBody(state.bodies[0].id);
+  for (const fl of flashes) killFlash(fl);
+  flashes.length = 0;
+  painter.clear();
   state.consumed = 0; refreshUI();
 }
 
@@ -711,7 +772,7 @@ function editBody(b, patch) {
       // start the mesh where it was and let it grow into its new size
       b.sizeEase = { from: 1 / jump, t: 0 };
       if (b.id === state.followId && state.camMode === 'orbit') {
-        cam.radiusTo = THREE.MathUtils.clamp(r * 7, 1e-6, 20000);
+        cam.radiusTo = Math.min(frameRadius(b), 20000);
       }
     }
   }
@@ -779,12 +840,16 @@ function coreCollapse(b) {
   const end = endStateOf(b.mass);
   const wpos = b.pos.clone().multiplyScalar(state.sceneScale);
   const size = Math.max(b.radiusScene * 22, 1.5);
+  // A collapsing star is bigger than a white dwarf, but so is what it throws:
+  // stand back far enough that the blast is something you watch rather than
+  // something you are inside. The remnant is a point source afterwards anyway.
+  recoilCamera(b, size);
   spawnFlash(wpos, 0xffffff, size, 0.55);
-  spawnFlash(wpos, 0xffd0a0, size * 0.6, 0.16);
+  spawnFlash(wpos, 0xffd0a0, size * 0.6, 0.16, { kind: 'shell', grow: 12 });
   state.consumed++;
   if (end.type === 'none') {
     toast(`${b.name}: pair-instability supernova — no remnant at all`, 6000);
-    spawnFlash(wpos, 0x9fd8ff, size * 1.6, 0.10);
+    spawnFlash(wpos, 0x9fd8ff, size * 1.6, 0.10, { kind: 'shell', grow: 18 });
     removeBody(b.id);
     return;
   }
@@ -806,6 +871,29 @@ function coreCollapse(b) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stand back from an explosion you were watching from close up.
+//
+// The follow camera frames a body at seven of its radii, and a white dwarf is
+// SMALL — about 0.2 scene units away in the workbench. The blast it throws is
+// two units across before it starts expanding, i.e. ten times further out than
+// the camera is: you end up inside the billboard, and an additive white
+// gradient covering every pixel does not read as an explosion at all, it reads
+// as a white glow filling the screen that will not go away. (It also outlives
+// the body by eight seconds, so the Bodies list is empty while it is still
+// there — which is exactly what it looked like.)
+//
+// So a destructive event pushes the view out to where the blast fits on screen,
+// but only for whoever was actually following the body: a supernova across the
+// system must not yank your camera. It is a glide, not a cut — the ease is the
+// same one an edit uses — and it never pulls you IN, so if you were already
+// watching from far away nothing moves.
+// ---------------------------------------------------------------------------
+function recoilCamera(b, blastSize) {
+  if (b.id !== state.followId || state.camMode !== 'orbit') return;
+  cam.radiusTo = Math.min(Math.max(cam.radius, blastSize * 2.4), 20000);
+}
+
 // Called for any body whose mass has moved. Cheap — it only recomputes the
 // structure when the mass actually changed by more than a part in a thousand.
 function checkStructuralLimits(b) {
@@ -821,8 +909,12 @@ function checkStructuralLimits(b) {
   }
   if (b.type === 'white-dwarf' && b.mass >= LIMITS.chandrasekhar) {
     const wpos = b.pos.clone().multiplyScalar(state.sceneScale);
-    spawnFlash(wpos, 0xffffff, Math.max(b.radiusScene * 40, 2.0), 0.4);
-    spawnFlash(wpos, 0xbfe0ff, Math.max(b.radiusScene * 24, 1.2), 0.12);
+    const blast = Math.max(b.radiusScene * 40, 2.0);
+    recoilCamera(b, blast);
+    spawnFlash(wpos, 0xffffff, blast, 0.4);
+    // The ejecta. A Type Ia unbinds the entire star at ~10 000 km/s, so this
+    // is the one that must not still be sitting there looking like a star.
+    spawnFlash(wpos, 0xbfe0ff, blast * 0.6, 0.12, { kind: 'shell', grow: 14 });
     toast(`${b.name} reached the Chandrasekhar mass — Type Ia supernova, nothing left`, 6000);
     state.consumed++;
     removeBody(b.id);
@@ -857,8 +949,7 @@ function sceneMaxTemp() {
   for (const b of state.bodies) {
     if (b.type === 'star' || b.type === 'white-dwarf') t = Math.max(t, b.teff ?? effectiveTemp(b.mass));
     else if (b.type === 'neutron') t = Math.max(t, 1.0e6);
-    // thin-disc peak, T ∝ M^(−1/4)
-    else if (b.type === 'bh') t = Math.max(t, 2.0e7 * Math.pow(Math.max(b.mass, 0.1), -0.25));
+    else if (b.type === 'bh') t = Math.max(t, discPeakTemp(b.mass));
   }
   return t || 5800;
 }
@@ -994,9 +1085,10 @@ function handleMerger(ev) {
     spawnFlash(wpos, 0xffd2a0, rsS * 5, 0.32);            // slow lingering afterglow
   } else if (surv.type === 'neutron' && gone.type === 'neutron') {
     spawnFlash(wpos, 0xffffff, surv.radiusScene * 60, 1.4);
-    spawnFlash(wpos, 0xbfe0ff, surv.radiusScene * 34, 0.28);   // kilonova glow
+    // kilonova: the tidal tails and the disc wind, which really are ejecta
+    spawnFlash(wpos, 0xbfe0ff, surv.radiusScene * 34, 0.28, { kind: 'shell', grow: 10 });
   } else {
-    spawnFlash(wpos, 0xffaa66, surv.radiusScene * 14, 0.8);
+    spawnFlash(wpos, 0xffaa66, surv.radiusScene * 14, 0.8, { kind: 'shell', grow: 6 });
   }
   state.consumed++;
   removeBody(gone.id);
@@ -1039,6 +1131,33 @@ const cam = {
 // loading a preset — goes through here, or an in-flight ease would drag the
 // view back out from under it a frame later.
 function jumpCamRadius(r) { cam.radius = r; cam.radiusTo = null; }
+
+// The distance to frame a body from: seven of its radii, but never closer than
+// the scene can actually resolve.
+//
+// Every shader gets positions as float32, so a point sitting D scene units from
+// the origin is only known to about D·1e-5 units. A stellar-mass horizon is
+// r_s ≈ 1e-7 units — smaller than its own coordinate noise — so framing it at
+// 7 r_s does not give a close look at a black hole, it drops the camera inside
+// the rounding error, where the ray marcher has nothing to march through and
+// the rest of the scene is astronomically far away. That is the blank screen
+// you used to get the moment a star or a neutron star collapsed while followed.
+// Sub-resolution bodies are carried by the point-source marker (sim/scale.js)
+// instead, and the marker holds a constant on-screen size at any distance, so
+// stopping at the floor costs nothing and keeps the object findable.
+//
+// The floor is well below every real body — a true-scale Earth at 1 AU is
+// framed at 3e-4 against a 1e-5 floor — so this only ever binds on horizons.
+function frameRadius(b) {
+  const geometric = Math.max(b.radiusScene, b.rsScene || 0) * 7;
+  const resolvable = Math.max(1e-6, b.viz.group.position.length() * 1e-5);
+  if (geometric >= resolvable) return geometric;
+  // Below the floor there is nothing to fly to. The marker holds a constant
+  // on-screen size however close you get, so approaching it changes nothing
+  // except throwing away every other object in the scene — the view is left
+  // where it was, and the marker simply lights up at whatever distance you are.
+  return Math.max(cam.radius, resolvable);
+}
 // Ask for a distance instead of taking one. Geometric (log-space) easing,
 // because viewing distance is a scale: gliding from 1e-4 to 1e2 AU linearly
 // spends the whole animation in the last decade and looks like a jump anyway.
@@ -1075,7 +1194,7 @@ function setFollow(body) {
   if (body) {
     cam.target.copy(body.viz.group.position);
     // frame the body itself — a 4-unit floor put small worlds a hundred radii away
-    jumpCamRadius(Math.max(body.radiusScene, body.rsScene || 0) * 7);
+    jumpCamRadius(frameRadius(body));
     if (state.camMode === 'orbit') updateOrbitCam();
   }
   refreshUI();
@@ -1228,10 +1347,7 @@ function updateFreeCam(dt) {
 function loadPreset(key) {
   const p = PRESETS[key];
   if (!p) return;
-  clearBodies();
-  painter.clear();
-  // also remove flashes
-  for (const fl of flashes) killFlash(fl); flashes.length = 0;
+  clearBodies();          // bodies, painted swarms and any flash still burning
 
   state.preset = p;
   // Where in the universe this system sits. A preset that says nothing gets the
@@ -2040,8 +2156,15 @@ function animate() {
   // an invisible star at the origin, and the moment you spawn a real star it
   // switches off and the scene is lit by physics again.
   if (sunLight.visible) {
+    // `holes` is the flattened description built for the shaders above, not the
+    // bodies themselves: it carries posScene, and reaching for .viz on it threw
+    // every frame — which killed the rest of animate(), so the composite never
+    // ran and the canvas froze on its last good frame. That is what a star or a
+    // neutron star collapsing in a star-less scene used to look like: the sim
+    // kept stepping, the HUD kept updating, and the picture stopped, leaving a
+    // dead image of the object that no longer existed to click on.
     const lum = holes[0];
-    if (lum) sunLight.position.copy(lum.viz.group.position);
+    if (lum) sunLight.position.copy(lum.posScene);
     else sunLight.position.copy(camera.position);
   }
 
@@ -2049,7 +2172,13 @@ function animate() {
   for (let i = flashes.length - 1; i >= 0; i--) {
     const f = flashes[i]; f.life -= dt * (f.decay ?? 0.8);
     if (f.life <= 0) { killFlash(f); flashes.splice(i, 1); continue; }
-    f.sp.scale.setScalar(f.size * (1 + (1 - f.life) * 2)); f.sp.material.opacity = f.life;
+    const p = 1 - f.life;                                   // 0 → 1 over the life
+    // t^½ for ejecta (decelerating), linear for light (nothing is moving)
+    const k = 1 + (f.grow ?? 2) * (f.shell ? Math.sqrt(p) : p);
+    f.sp.scale.setScalar(f.size * k);
+    // Spreading the same emission over k× the radius costs a factor k in
+    // surface brightness; light that is not going anywhere just fades.
+    f.sp.material.opacity = f.shell ? Math.pow(f.life, 1.5) / k : f.life;
   }
 
   // mesh wells — recenter the slab under the camera's focus so fast/distant
