@@ -350,7 +350,13 @@ function attachVisual(b) {
   // spun to 88% of break-up is measurably lens-shaped and measurably two-tone,
   // and both are consequences of the same one number.
   const st = b.structure;
-  const gd = (spec.type === 'star' && b.teff) ? gravityDarkenedTemps(b.teff, b.spinFrac ?? 0) : null;
+  // White dwarfs go through the same photosphere shader, and past 2% of
+  // break-up it reads uTpole rather than uTeff — so without these it darkens a
+  // spun-up dwarf everywhere but the pole and publishes that wrong temperature
+  // into the HDR alpha. Its envelope is radiative, which is exactly where von
+  // Zeipel's β = ¼ belongs.
+  const gd = ((spec.type === 'star' || spec.type === 'white-dwarf') && b.teff)
+    ? gravityDarkenedTemps(b.teff, b.spinFrac ?? 0) : null;
   const viz = createBodyVisual(b, {
     radiusScene,
     oblate: st?.flattening ? 1 / (1 - st.flattening) : 1,
@@ -813,7 +819,10 @@ function placeSpawn(spec) {
 function transmute(b, newType, why) {
   const wpos = b.pos.clone().multiplyScalar(state.sceneScale);
   b.type = newType;
-  b.spec = { ...(b.spec || {}), type: newType, mass: b.mass };
+  // spinFrac rides in the spec because deriveBody reads it from there — and a
+  // core collapse has just spun the remnant up, so leaving it off would hand
+  // the new object back at zero rotation.
+  b.spec = { ...(b.spec || {}), type: newType, mass: b.mass, spinFrac: b.spinFrac ?? 0 };
   b.def = TYPE_DEFAULTS[newType] || TYPE_DEFAULTS.planet;
   if (newType === 'bh') {
     b.rs = PHYS.schwarzschild(b.mass);
@@ -823,11 +832,18 @@ function transmute(b, newType, why) {
     b.teff = undefined; b.spectral = undefined; b.luminosity = undefined;
     b.radiusSun = null;
     b.emitsGW = true;
+    b.spec.rs = b.rs;      // so deriveBody keeps this horizon rather than re-deriving one
     spawnFlash(wpos, 0xffffff, Math.max(b.rs * state.sceneScale * 9, 0.6), 1.4);
     spawnFlash(wpos, 0x9fd0ff, Math.max(b.rs * state.sceneScale * 5, 0.4), 0.3);
   }
   detachVisual(b);
-  refreshStructure(b);
+  // Re-derive, don't just re-measure. An object that has changed type has to be
+  // rebuilt from its spec the way a spawn or an edit would build it (CLAUDE.md:
+  // building a body and editing one are the same operation) — a gas giant that
+  // ignites needs a star's radius, Teff, luminosity and spectral class, and
+  // refreshStructure alone left it with the giant's radius and no temperature
+  // at all, which then propagated into the HUD, the lighting and the bands.
+  deriveBody(b, b.spec);
   attachVisual(b);
   if (why) toast(why, 5200);
   refreshUI();
@@ -2214,7 +2230,7 @@ function animate() {
     // theory gives T_peak ∝ M^(−1/4), so a 10 M☉ hole runs at ~10⁷ K (an X-ray
     // binary) while a supermassive one peaks in the UV. Independent of the
     // "Disc Temp" slider, which only sets the visible-light palette.
-    lensMaterial.uniforms.discTpeakPhys.value = 2.0e7 * Math.pow(Math.max(holes[0].mass, 0.1), -0.25);
+    lensMaterial.uniforms.discTpeakPhys.value = discPeakTemp(holes[0].mass);
     lensMaterial.uniforms.discTemp.value = state.discTemp;
     lensMaterial.uniforms.camPos.value.copy(camera.position);
     lensMaterial.uniforms.camMat.value.copy(camera.matrixWorld);

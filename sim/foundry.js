@@ -236,7 +236,10 @@ export function createFoundry({ mount, onSpawn }) {
       mass: structure.mass,
       spinFrac: draft.spinFrac,
       composition: draft.composition,
-      phase: draft.type === 'star' ? draft.phase : undefined,
+      // The derived type, not the button: a gas giant dragged past the
+      // hydrogen limit is previewed as a star AT THIS PHASE, and dropping the
+      // phase here would spawn a different star from the one you were shown.
+      phase: structure.type === 'star' ? draft.phase : undefined,
       Z: draft.Z,
       radiusKm: structure.radiusKm,
       name: `${structure.label}`,

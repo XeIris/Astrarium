@@ -740,9 +740,12 @@ function rockyStructure(spec, mass, spinFrac) {
 
   // Threshold crossings first — a "rocky planet" heavier than the deuterium
   // limit is not one, and saying so is the whole point of the editor.
-  if (mass >= LIMITS.hydrogenBurn) {
+  // Z-dependent, and identical to the limit starStructure demotes on — see
+  // giantStructure for why they must not differ.
+  const hLimit = hydrogenBurnLimit(spec.Z ?? 0.014);
+  if (mass >= hLimit) {
     return reclassified('star', spec, mass, spinFrac,
-      `At ${LIMITS.hydrogenBurn} M☉ the core reaches 3 million K and hydrogen ignites. This is a star.`);
+      `At ${hLimit.toFixed(3)} M☉ the core reaches 3 million K and hydrogen ignites. This is a star.`);
   }
   if (mass >= LIMITS.deuteriumBurn) {
     return reclassified('gas-giant', spec, mass, spinFrac,
@@ -812,9 +815,15 @@ function rockyLayers(comp, rEarth, Tc) {
 
 // ---------------------------------------------------------------------------
 function giantStructure(spec, mass, spinFrac) {
-  if (mass >= LIMITS.hydrogenBurn) {
+  // The SAME limit starStructure demotes on. It has to be, or the two disagree:
+  // starStructure sends anything below hydrogenBurnLimit(Z) back down, and if
+  // this promoted at a fixed 0.075 M☉ then at low Z every mass in between would
+  // be reclassified up and down forever — structureOf recursing into itself
+  // until the stack gives out, which is a hang, not a verdict.
+  const hLimit = hydrogenBurnLimit(spec.Z ?? 0.014);
+  if (mass >= hLimit) {
     return reclassified('star', spec, mass, spinFrac,
-      `Above ${LIMITS.hydrogenBurn} M☉ the core sustains hydrogen fusion. This is a star.`);
+      `Above ${hLimit.toFixed(3)} M☉ the core sustains hydrogen fusion. This is a star.`);
   }
   const mJup = mass / M_JUP_SUN;
   const rJup = giantRadiusJup(mJup);

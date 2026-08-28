@@ -66,7 +66,13 @@ function regimeLabel(st) {
 }
 
 function fmtMassShort(m) {
-  if (m >= 1e6) return `${(m / 1e6).toPrecision(2)}e6 M☉`;
+  // Plain scientific notation at the top of the range. Dividing by 1e6 and
+  // appending "e6" reads fine at 3.2e6 and turns into "1.0e+2e6" at 1e8 — and
+  // the Foundry's black-hole slider goes to 1e9.
+  if (m >= 1e6) {
+    const e = Math.floor(Math.log10(m));
+    return `${+(m / Math.pow(10, e)).toPrecision(2)}e${e} M☉`;
+  }
   if (m >= 0.02) return `${m < 10 ? m.toFixed(2) : m.toPrecision(3)} M☉`;
   if (m / M_JUP_SUN >= 0.3) return `${(m / M_JUP_SUN).toFixed(1)} M_J`;
   return `${(m / M_EARTH_SUN).toPrecision(2)} M⊕`;

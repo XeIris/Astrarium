@@ -279,8 +279,16 @@ export function companion(centralMass, aAU, spec, angle = 0, incl = 0) {
   const v = circularSpeed(centralMass, aAU);
   return {
     ...spec,
-    pos: [Math.cos(angle) * aAU, Math.sin(incl) * aAU * 0.05, Math.sin(angle) * aAU],
-    vel: [-Math.sin(angle) * v, 0, Math.cos(angle) * v],
+    // Rotate the whole state about the line of nodes (the x axis), the way
+    // realBinary above does. Tilting only the y COORDINATE by an arbitrary 0.05
+    // left the velocity flat in xz, so the body did not orbit in the plane it
+    // claimed — it started off it and precessed out.
+    pos: [Math.cos(angle) * aAU,
+          Math.sin(angle) * Math.sin(incl) * aAU,
+          Math.sin(angle) * Math.cos(incl) * aAU],
+    vel: [-Math.sin(angle) * v,
+          Math.cos(angle) * Math.sin(incl) * v,
+          Math.cos(angle) * Math.cos(incl) * v],
   };
 }
 

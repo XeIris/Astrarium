@@ -699,14 +699,23 @@ export const PRESETS = {
       // Proxima's real separation is 13 000 AU; placed there it is simply not
       // in the scene. It goes at 900 AU on the same bound, near-circular path
       // so it is reachable, and the blurb says what has been changed.
-      const M = pair[0].mass + pair[1].mass + P.mass;
+      const mPair = pair[0].mass + pair[1].mass;
+      const M = mPair + P.mass;
       const a = 900, v = circularSpeed(M, a);
-      Object.assign(P, { pos: [a, 0, 0], vel: [0, 0, v * 0.55] });
+      // Split the outer orbit about its own barycentre. 0.55 of the circular
+      // speed is not "near-circular": with no radial velocity it starts at
+      // apoapsis of an e = 0.70 ellipse that falls to 160 AU. And giving
+      // Proxima all of the momentum with nothing to balance it sends the whole
+      // system drifting across the frame, so each side takes its mass share.
+      const pShare = mPair / M, bShare = P.mass / M;
+      const px = a * pShare, pv = v * pShare;
+      Object.assign(P, { pos: [px, 0, 0], vel: [0, 0, pv] });
+      for (const st of pair) { st.pos[0] -= a * bShare; st.vel[2] -= v * bShare; }
       const pb = companion(P.mass, 0.0485, {
         type: 'planet', name: 'Proxima b', mass: 3.3e-6, radiusKm: 7160, hot: true,
       }, 1.0);
-      pb.pos = [pb.pos[0] + a, pb.pos[1], pb.pos[2]];
-      pb.vel = [pb.vel[0], pb.vel[1], pb.vel[2] + v * 0.55];
+      pb.pos = [pb.pos[0] + px, pb.pos[1], pb.pos[2]];
+      pb.vel = [pb.vel[0], pb.vel[1], pb.vel[2] + pv];
       return [...pair, P, pb];
     },
   },

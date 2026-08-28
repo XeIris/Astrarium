@@ -380,8 +380,11 @@ export function createPainter({ scene, getBody, getSceneScale }) {
       // so it has to travel with it — including through the planet's own orbit.
       if (it.bodyId != null) {
         const b = getBody(it.bodyId);
+        // Gone OR dead: a body marked !alive has already lost its meshes, so
+        // reading b.viz would be reading a corpse, and leaving the decoration
+        // pinned to its last position leaves a ring around nothing.
         if (b && b.alive) it.group.position.copy(b.viz.group.position);
-        else if (!b) { it.orphan = true; }
+        else it.orphan = true;
       }
     }
     // A decoration whose body is gone goes with it.
