@@ -107,6 +107,18 @@ Shell:
   hold up when its rendered radius is 1e-5 scene units. `state.trueScale` is a
   standing regression case for this: fly to Earth in the `solar` preset and it
   should resolve into a sphere, not clip, jitter, or slide out of frame.
+- **A body's vertex shader never forms an absolute world position.** Write
+  `projectionMatrix * modelViewMatrix * vec4(p, 1.0)`, not
+  `projectionMatrix * viewMatrix * modelMatrix * vec4(p, 1.0)`: the second one
+  materialises a world coordinate in float32, and 35 scene units out (the
+  `stellar_zoo` ring) that quantises to 4e-6 — coarser than Sirius B's true-scale
+  radius of 2e-5, so the sphere renders as a lump of cubes. `modelViewMatrix` is
+  assembled on the CPU in float64 and carries the CAMERA-relative offset, which is
+  tiny whenever you are close enough to see the body. For the same reason the view
+  vector is not `cameraPosition - vWP` (a 1e-4 difference between two numbers of
+  magnitude 35, i.e. all cancellation error): shaders that need it in world space
+  rotate the view-space offset back with the transpose of `mat3(viewMatrix)`.
+  Directions — normals, sun vectors — are unaffected and may still use `modelMatrix`.
 - **Body visuals follow one contract**: a factory returns `{ group, update(dt, ctx) }`
   attached as `b.viz`, with `ctx = { holes, camera, time, sceneScale }`.
 - **`sim/structure.js` is the single source of truth for what a body is.** Radius,

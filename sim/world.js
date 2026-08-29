@@ -56,20 +56,31 @@ function surfaceMaterial(seed) {
       uAmbient: { value: new THREE.Color(0x0a1020) },
     },
     vertexShader: `
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+      varying vec3 vObj; varying vec3 vWN; varying vec3 vView;
       void main(){
         vObj = normalize(position);
+        // The normal is a direction, so the world matrix may have it. The
+        // POSITION may not: projection * view * model * p materialises an
+        // absolute world coordinate in float32, which at 35 scene units from
+        // the origin steps by 4e-6 — coarser than a true-scale white dwarf is
+        // wide, so the sphere gets quantised into a lump of cubes. Everything
+        // below therefore stays camera-relative. See sim/star_visual.js.
         vWN  = normalize(mat3(modelMatrix) * normal);
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWP = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        // The world-space vector to the camera, without ever forming a world
+        // coordinate: mv.xyz IS the camera-relative offset, expressed in the
+        // view basis, and a view rotation is orthonormal so its transpose
+        // rotates it back. (M^T v)_i = dot(column_i of M, v).
+        mat3 vr = mat3(viewMatrix);
+        vView = -vec3(dot(vr[0], mv.xyz), dot(vr[1], mv.xyz), dot(vr[2], mv.xyz));
+        gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
       precision highp float;
       uniform vec3 uSunDir[${MAX_SUNS}]; uniform vec3 uSunColor[${MAX_SUNS}];
       uniform float uSunInt[${MAX_SUNS}]; uniform int uSunCount;
       uniform float uSeed, uIce, uSea, uScorch, uTime; uniform vec3 uAmbient;
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+      varying vec3 vObj; varying vec3 vWN; varying vec3 vView;
       ${NOISE_GLSL}
 
       void main(){
@@ -115,7 +126,7 @@ function surfaceMaterial(seed) {
 
         // --- lighting from every sun
         vec3 N = normalize(vWN);
-        vec3 V = normalize(cameraPosition - vWP);
+        vec3 V = normalize(vView);
         vec3 lit = vec3(0.0);
         for(int i=0;i<${MAX_SUNS};i++){
           if(i >= uSunCount) break;
@@ -148,17 +159,16 @@ function cloudMaterial() {
     },
     transparent: true, depthWrite: false,
     vertexShader: `
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+      varying vec3 vObj; varying vec3 vWN;
       void main(){ vObj = normalize(position);
         vWN = normalize(mat3(modelMatrix) * normal);
-        vec4 wp = modelMatrix * vec4(position,1.0); vWP = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp; }`,
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `
       precision highp float;
       uniform vec3 uSunDir[${MAX_SUNS}]; uniform vec3 uSunColor[${MAX_SUNS}];
       uniform float uSunInt[${MAX_SUNS}]; uniform int uSunCount;
       uniform float uTime, uCover, uStorm, uSeed;
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vWP;
+      varying vec3 vObj; varying vec3 vWN;
       ${NOISE_GLSL}
       void main(){
         vec3 p = normalize(vObj);
@@ -191,18 +201,20 @@ function atmosphereMaterial() {
     uniforms: { ...SUN_UNIFORMS(), uThick: { value: 1 } },
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
     vertexShader: `
-      varying vec3 vWN; varying vec3 vWP;
+      varying vec3 vWN; varying vec3 vView;
       void main(){ vWN = normalize(mat3(modelMatrix) * normal);
-        vec4 wp = modelMatrix * vec4(position,1.0); vWP = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp; }`,
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        mat3 vr = mat3(viewMatrix);
+        vView = -vec3(dot(vr[0], mv.xyz), dot(vr[1], mv.xyz), dot(vr[2], mv.xyz));
+        gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `
       precision highp float;
       uniform vec3 uSunDir[${MAX_SUNS}]; uniform vec3 uSunColor[${MAX_SUNS}];
       uniform float uSunInt[${MAX_SUNS}]; uniform int uSunCount; uniform float uThick;
-      varying vec3 vWN; varying vec3 vWP;
+      varying vec3 vWN; varying vec3 vView;
       void main(){
         vec3 N = normalize(vWN);
-        vec3 V = normalize(cameraPosition - vWP);
+        vec3 V = normalize(vView);
         float rim = pow(1.0 - abs(dot(N, V)), 2.6);
         vec3 col = vec3(0.0);
         for(int i=0;i<${MAX_SUNS};i++){
