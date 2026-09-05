@@ -427,9 +427,16 @@ export function createSpaceflight(ctx) {
         // which is half a kilometre of drift in the first second.
         sitePos.copy(vessel.r);
       } else {
-        const w = -env.rotRate * simSeconds;   // carried round with the body
-        const c = Math.cos(w), sn = Math.sin(w);
-        sitePos.set(sitePos.x * c - sitePos.z * sn, sitePos.y, sitePos.x * sn + sitePos.z * c);
+        // Carried round with the body, at ITS OWN surface velocity — the very
+        // expression placeOnPad() uses to give the vehicle its 408 m/s of free
+        // eastward motion at a 28.5° pad. Deriving the two from one line is the
+        // point: written as an independent rotation it was applied backwards,
+        // so the pad receded from the vehicle at twice the surface speed and
+        // the view pulled out to a kilometre within a second of liftoff.
+        // Euler on a circle drifts inward as (Ωdt)²/2 per step, which is 1e-11
+        // of a radius at 60 fps, and the re-normalisation removes even that.
+        _a.set(0, -env.rotRate, 0).cross(sitePos);
+        sitePos.addScaledVector(_a, simSeconds).setLength(env.radius);
       }
       const sx = sitePos.dot(east), sy = sitePos.dot(_up) - env.radius, sz = sitePos.dot(_north);
       site.group.position.set(sx, sy, sz);
@@ -623,13 +630,32 @@ export function createSpaceflight(ctx) {
     }
   }
 
+  // The pad camera is a camera on a tripod, not a fixed frame grab: you should
+  // be able to walk it round the vehicle and raise it up the tower, the way
+  // every launch broadcast cuts between half a dozen positions on the same pad.
+  // It is expressed as an offset from the pad rather than as yaw/pitch/distance
+  // because the pad itself is moving through the local frame at 408 m/s.
+  function padOrbit(dAz, dEl, scale) {
+    const r = Math.hypot(padOffset.x, padOffset.z) || 1;
+    let az = Math.atan2(padOffset.z, padOffset.x) + dAz;
+    // Elevation is held as a height, not an angle, so raising the camera does
+    // not walk it in toward the vehicle — which on a pad is exactly the shot
+    // you lose. Floor is head height; ceiling is above the tower.
+    let y = THREE.MathUtils.clamp(padOffset.y + dEl * r, 1.7, r * 3);
+    const nr = THREE.MathUtils.clamp(r * scale, Math.max(vessel.length * 0.35, 12), 6000);
+    padOffset.set(Math.cos(az) * nr, y * (nr / r), Math.sin(az) * nr);
+    padAimed = true;
+  }
+
   function wheel(e) {
     if (!active) return false;
+    if (flyCam.state.mode === 'pad' && site) { padOrbit(0, 0, 1 + e.deltaY * 0.001); return true; }
     flyCam.state.dist = THREE.MathUtils.clamp(flyCam.state.dist * (1 + e.deltaY * 0.001), 0.6, 400);
     return true;
   }
   function drag(dx, dy) {
     if (!active) return false;
+    if (flyCam.state.mode === 'pad' && site) { padOrbit(dx * 0.006, -dy * 0.004, 1); return true; }
     flyCam.state.userAimed = true;
     flyCam.state.yaw -= dx * 0.006;
     flyCam.state.pitch = THREE.MathUtils.clamp(flyCam.state.pitch - dy * 0.006, -1.45, 1.45);

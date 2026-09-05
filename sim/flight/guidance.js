@@ -786,13 +786,20 @@ export class Autopilot {
     return out.copy(_b).applyAxisAngle(_c, aMaxRad);
   }
 
-  /** Carry the landing site round with the body it is on. */
+  /** Carry the landing site round with the body it is on.
+   *
+   *  At its own surface velocity, ω × r — the same expression `placeOnPad`
+   *  uses to give a vehicle its free eastward motion, and deliberately not an
+   *  independently written rotation matrix. Written as one of those it went
+   *  round the WRONG WAY: with ω along −Y (the pole convention in orbit.js) the
+   *  small-angle form of x' = x cos w − z sin w matches ω × r only for
+   *  w = +Ω dt, so a site at 28.5° receded from the vehicle at 816 m/s instead
+   *  of travelling with it at 408. Deriving both from one line is what makes
+   *  that class of error impossible rather than merely unlikely. */
   spinSite(dt) {
     if (!this.site) return;
-    const w = -this.v.env.rotRate * dt;
-    const c = Math.cos(w), sn = Math.sin(w);
-    const x = this.site.x, z = this.site.z;
-    this.site.set(x * c - z * sn, this.site.y, x * sn + z * c);
+    _a.set(0, -this.v.env.rotRate, 0).cross(this.site);
+    this.site.addScaledVector(_a, dt).setLength(this.v.env.radius);
   }
 
   landingGuidance(dt, pa) {

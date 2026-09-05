@@ -218,6 +218,14 @@ point and the only file here that knows the orrery exists.
   so anything hand-shaded next to it — the ground patch — has to carry the same
   1/π or it comes out π times brighter than the rocket standing on it and the
   tone curve's shoulder flattens it to a glare.
+- **A point fixed to a rotating body is carried by ω × r, not by a rotation
+  matrix written out again.** The pole is −Y, so the small-angle form of
+  `x' = x cos w − z sin w` agrees with `ω × r` only for `w = +Ω dt`; written
+  with the intuitive minus sign the point goes round BACKWARDS and separates
+  from the vehicle standing on it at twice the surface speed — 816 m/s at a
+  28.5° pad, which pulled the pad view out to a kilometre in the first second
+  of a launch. `placeOnPad` already contains the one true expression; both the
+  launch pad and the landing site derive from it.
 - **A launch needs something of known size next to it.** The tower in
   `sim/flight/launchsite.js` is not decoration: it is the only object in frame
   whose height the eye knows, and without it a vehicle climbing over a smooth
