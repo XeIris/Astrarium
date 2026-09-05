@@ -2466,13 +2466,29 @@ let lastT = performance.now(), fpsAcc = 0, fpsCount = 0, fpsTime = 0;
 // by hand, and without cancelling first each manual call would leave another
 // callback queued and start a second loop the moment the page came back.
 let rafId = 0;
-function animate(fixedDt) {
+// A frame's length, in seconds, when SIM.frame() is driving by hand. It is a
+// variable and not a parameter for a reason that cost a lot of wall-clock
+// realism: `requestAnimationFrame(animate)` calls back with a
+// DOMHighResTimeStamp, so a parameter — however it is named or documented —
+// receives the milliseconds since navigation on EVERY real frame. dt was
+// therefore not the length of the frame, it was the age of the page, in
+// seconds, growing without bound: after four minutes the sim was advancing
+// 45 000 s of its own time against 258 s of the wall clock, the frame-rate
+// readout sat at 0 because 1/dt had underflowed, and a launch that was
+// arithmetically running at 1× was in fact running at a hundred and seventy.
+//
+// Anything that smooths over dt — the camera's easing, the swing arms, the
+// deploy animations — saturates at that step size too, so the symptom was not
+// only that time ran away but that everything which followed it snapped.
+let manualDt = null;
+function animate() {
   rafId = requestAnimationFrame(animate);
   const now = performance.now();
-  // `fixedDt` is only ever passed by SIM.frame(). A hidden page gets no frames
-  // at all and a hand-pumped one gets microsecond ones, so a reproducible
-  // headless run has to be able to say how long a frame lasted.
-  let dt = fixedDt != null ? fixedDt : Math.min((now - lastT) / 1000, 0.05);
+  // The cap matters in the honest direction: a frame that took longer than
+  // 50 ms is integrated as 50 ms, so a slow machine runs the sim SLOW rather
+  // than letting one long frame jump the whole state forward.
+  let dt = manualDt != null ? manualDt : Math.min((now - lastT) / 1000, 0.05);
+  manualDt = null;
   lastT = now;
   const simDt = state.paused ? 0 : dt * state.speed * state.timeScale;
   state.time += dt;
@@ -2886,7 +2902,11 @@ document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', ()
 // `SIM.renderer.info.render` settles "is this thing being drawn at all" in one
 // line. This is a deliberate handle, not a leftover.
 window.SIM = { state, scene, camera, cam, renderer, THREE, flight, launchCraft, endFlight,
-  frame: (dt) => { cancelAnimationFrame(rafId); animate(dt); },
+  // Step one frame by hand at a fixed step. A hidden page gets no
+  // requestAnimationFrame callbacks at all, so this is the only way a headless
+  // run can advance the sim — and it has to be able to say how long the frame
+  // lasted, or the run is not reproducible.
+  frame: (dt = 1 / 60) => { cancelAnimationFrame(rafId); manualDt = dt; animate(); },
   load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
 
 resize();

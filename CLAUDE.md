@@ -233,6 +233,14 @@ point and the only file here that knows the orrery exists.
   assigned to a mode without touching any of the controls inside it. Mode
   visibility uses a CLASS, because the climate and focused-object blocks drive
   their own inline `display` and whichever wrote last would win.
+- **The frame loop's dt is wall-clock, and nothing may shadow it.**
+  `requestAnimationFrame(cb)` calls back with a DOMHighResTimeStamp, so
+  `function animate(fixedDt) { requestAnimationFrame(animate); ... }` receives
+  the milliseconds since navigation as `fixedDt` on every real frame — dt then
+  is not the length of the frame but the AGE OF THE PAGE, growing without
+  bound. The sim ran 176× fast, the frame-rate readout sat at 0 because 1/dt had
+  underflowed, and every exponential ease downstream saturated. A hand-driven
+  step is passed through the module-level `manualDt`, never a parameter.
 - **Order in the render loop matters** and is documented inline: surface view and
   lensed view are separate branches, the spectral remap runs *before* bloom, and
   the sky pass applies its own eye-adaptation exposure so the tone mapper is

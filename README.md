@@ -342,6 +342,9 @@ cannot make orbit gives up rather than pretending.
   because they are not the same number and confusing them is the classic way to
   be 2 km/s wrong.
 
+Flight time is **1:1 with the wall clock** at 1×: one minute of your time is one
+minute of the vehicle's, and the warp ladder is the only thing that changes it.
+
 **Time warp** works the way it has to: physics warp while anything is acting,
 and an exact two-body propagation on rails above that — with the same interlocks
 KSP uses, because on rails the thrust and drag terms are not evaluated at all.
