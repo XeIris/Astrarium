@@ -15,7 +15,10 @@ import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
 import { createPostFX } from './sim/postfx.js';
 import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
 import { physicalRadiusAU, createMarker } from './sim/scale.js';
-import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics } from './sim/sky.js';
+import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics, applySkyBoost } from './sim/sky.js';
+import { createSpaceflight } from './sim/flight/spaceflight.js';
+import { createModelViewer } from './sim/flight/modelviewer.js';
+import { grossMass, totalDeltaV } from './sim/flight/vehicles.js';
 
 // ============================================================================
 // STATE
@@ -43,7 +46,7 @@ const state = {
   speed: 1.0,
   paused: false,
 
-  camMode: 'orbit',        // 'orbit' | 'free' | 'surface'
+  camMode: 'orbit',        // 'orbit' | 'free' | 'surface' | 'flight'
   followId: null,          // body id the orbit camera tracks
   focusId: null,           // selected body id
 
@@ -69,7 +72,8 @@ const DOM = {};
  'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs', 'presetSearch',
  'presetSearchClear', 'presetList', 'presetEmpty', 'foundry', 'xsecPanel',
  'xsecCanvas', 'xsecLegend', 'xsecFacts', 'xsecNotes', 'xsecVerdict', 'xsecName',
- 'xsecOpen', 'liveEdit'].forEach(id => DOM[id] = document.getElementById(id));
+ 'xsecOpen', 'liveEdit', 'flightPanel', 'flightHud', 'craftGrid', 'flightRow',
+ 'flightCam', 'flightExit', 'warpLabel'].forEach(id => DOM[id] = document.getElementById(id));
 
 // The scenario catalogue is grouped here rather than in the physics presets:
 // these labels are navigation, while PRESETS remains the source of truth for
@@ -1184,6 +1188,40 @@ function easeCamRadius(dt) {
   // frame-rate independent: same time constant at 30 and 144 fps
   cam.radius *= Math.pow(ratio, 1 - Math.exp(-dt * 6));
 }
+// ---- following a moving body.
+//
+// A fractional catch-up — `target.lerp(bodyPos, k)` — is a first-order lag, and
+// a first-order lag driven by a ramp has a STEADY-STATE ERROR: the target sits
+// permanently v·dt·(1−k)/k behind the body, proportional to how fast the body
+// is moving. That is the rubber-banding. It is not a tuning problem — no k
+// short of 1 removes it, and raising k only trades lag for jitter. Worse, a
+// distance threshold that switches between snapping and lerping oscillates
+// across the boundary every frame, which is the shake on top of the drag.
+//
+// So: track the body EXACTLY, and carry the smoothing in a separate offset that
+// decays to zero on its own. The offset is seeded only when something moves the
+// target on purpose (picking a new body), so a deliberate change still glides,
+// while steady motion — at 1x or at 6 yr/s — is followed with zero error.
+const camOffset = new THREE.Vector3();
+function trackFollow(b, dt) {
+  const p = b.viz.group.position;
+  if (camOffset.lengthSq() > 0) {
+    camOffset.multiplyScalar(Math.exp(-dt * 5));
+    // Retire it once it is far below anything the view can resolve, or it
+    // denormalises and keeps costing a multiply forever.
+    if (camOffset.lengthSq() < (cam.radius * 1e-4) ** 2) camOffset.set(0, 0, 0);
+  }
+  cam.target.copy(p).add(camOffset);
+}
+// Hand the camera a new target without teleporting the view: the difference
+// becomes the decaying offset, so the glide happens in trackFollow.
+function glideTargetTo(p) {
+  camOffset.copy(cam.target).sub(p);
+  // A jump across the whole system is not a glide, it is a cut. Past a few
+  // viewing distances the ease would spend seconds crossing empty space.
+  if (camOffset.lengthSq() > (cam.radius * 40) ** 2) camOffset.set(0, 0, 0);
+  cam.target.copy(p).add(camOffset);
+}
 const keys = {};
 const observer = new SurfaceObserver();
 const skyPass = createSkyPass();
@@ -1208,7 +1246,7 @@ function setFollow(body) {
   state.followId = body ? body.id : null;
   state.focusId = body ? body.id : null;
   if (body) {
-    cam.target.copy(body.viz.group.position);
+    glideTargetTo(body.viz.group.position);
     // frame the body itself — a 4-unit floor put small worlds a hundred radii away
     jumpCamRadius(frameRadius(body));
     if (state.camMode === 'orbit') updateOrbitCam();
@@ -1226,14 +1264,18 @@ addEventListener('mouseup', e => {
   // click ran a pick behind the panel and cleared the focused body.
   const wasDragging = dragging;
   dragging = false;
-  if (wasDragging && !dragMoved) handlePick(e);
+  if (wasDragging && !dragMoved && !modelOpen) handlePick(e);
 });
 addEventListener('mousemove', e => {
   if (!dragging) return;
   const dx = e.clientX - lastX, dy = e.clientY - lastY;
   if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 4) dragMoved = true;
   lastX = e.clientX; lastY = e.clientY;
-  if (state.camMode === 'orbit') {
+  if (modelOpen) {
+    modelView.drag(dx, dy);
+  } else if (state.camMode === 'flight') {
+    flight.drag(dx, dy);
+  } else if (state.camMode === 'orbit') {
     cam.phi -= dx * 0.005;
     cam.theta = Math.max(0.05, Math.min(Math.PI - 0.05, cam.theta - dy * 0.005));
     updateOrbitCam();
@@ -1250,13 +1292,16 @@ el.addEventListener('wheel', e => {
   // The zoom floor used to be 0.05 scene units — twenty times wider than a
   // true-scale Earth, so you could never actually reach one. It now only has to
   // stay clear of float32 denormals.
-  if (state.camMode === 'orbit') { jumpCamRadius(Math.max(1e-6, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001)))); updateOrbitCam(); }
+  if (modelOpen) { modelView.wheel(e); }
+  else if (state.camMode === 'flight') { flight.wheel(e); }
+  else if (state.camMode === 'orbit') { jumpCamRadius(Math.max(1e-6, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001)))); updateOrbitCam(); }
   else if (state.camMode === 'surface') observer.zoom(1 + e.deltaY * 0.0012);
   else cam.freeSpeed = Math.max(0.5, cam.freeSpeed * (1 - e.deltaY * 0.001));
 }, { passive: false });
 
 const raycaster = new THREE.Raycaster();
 function handlePick(e) {
+  if (state.camMode === 'flight') return;
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   let best = null, bestD = Infinity;
@@ -1277,7 +1322,10 @@ addEventListener('keydown', e => {
   const tag = e.target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   keys[e.code] = true;
-  if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
+  // Flight takes the keys it needs first; everything it does not claim falls
+  // through to the orrery's own bindings.
+  if (state.camMode === 'flight' && flight.key(e)) { e.preventDefault(); syncWarpLabel(); return; }
+  if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); camOffset.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
   if (e.code === 'Space') { e.preventDefault(); state.paused = !state.paused; }
   if (e.key === 'f' || e.key === 'F') setCamMode(state.camMode === 'orbit' ? 'free' : 'orbit');
   if (e.key === 'v' || e.key === 'V') setCamMode(state.camMode === 'surface' ? 'orbit' : 'surface');
@@ -1293,6 +1341,15 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 
 function setCamMode(mode) {
   if (mode === 'surface' && !getHome()) mode = 'orbit';    // nowhere to stand
+  if (mode === 'flight' && !(flight && flight.active)) mode = 'orbit';
+  // Leaving flight hands the camera back to the orrery, which needs its own
+  // near plane and field of view restored — the flight pass drives both.
+  if (state.camMode === 'flight' && mode !== 'flight') {
+    camera.fov = 50; camera.near = 0.01;
+    camera.quaternion.identity(); camera.up.set(0, 1, 0);
+    camera.updateProjectionMatrix();
+    applySkyBoostAll(ZERO_BETA);
+  }
   if (mode === 'free' && state.camMode !== 'free') {
     // seed yaw/pitch from current look direction
     const dir = cam.target.clone().sub(camera.position).normalize();
@@ -1411,7 +1468,7 @@ function loadPreset(key) {
   // Camera reset. In a hierarchical system the total barycentre is nowhere near
   // the stars (the outer companion drags it ~11 AU away), so presets with a home
   // world start the camera following that world instead of the origin.
-  cam.target.set(0, 0, 0); jumpCamRadius(p.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2;
+  cam.target.set(0, 0, 0); camOffset.set(0, 0, 0); jumpCamRadius(p.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2;
   setCamMode('orbit');
   if (p.focus) {
     const f = state.bodies.find(b => b.name === p.focus);
@@ -1796,7 +1853,7 @@ function setPanelOpen(id, open) {
   // The left column is a stack: the scenario list opening or closing moves the
   // editor under it, and the editor being open squeezes the list.
   if (id === 'xsecPanel') document.body.classList.toggle('xsec-open', open && !state.hudHidden);
-  if (id === 'scenarioPanel' || id === 'xsecPanel') layoutLeftColumn();
+  if (id === 'scenarioPanel' || id === 'xsecPanel' || id === 'flightPanel') layoutLeftColumn();
 }
 
 // ---------------------------------------------------------------------------
@@ -1810,6 +1867,16 @@ function layoutLeftColumn() {
   const open = top && top.style.display !== 'none';
   const y = open ? Math.round(top.getBoundingClientRect().bottom) + 12 : 92;
   document.documentElement.style.setProperty('--xsec-top', `${y}px`);
+  // The flight panel shares the column. When it is open it takes the slot under
+  // the scenario list and the cross-section moves below it, because the navball
+  // and the stage stack have to be visible at the same time as everything else.
+  const fp = document.getElementById('flightPanel');
+  const fOpen = fp && fp.style.display !== 'none';
+  document.documentElement.style.setProperty('--flight-top', `${y}px`);
+  if (fOpen) {
+    const fy = Math.round(fp.getBoundingClientRect().bottom) + 12;
+    document.documentElement.style.setProperty('--xsec-top', `${fy}px`);
+  }
 }
 // The scenario panel changes height when a group is expanded, and the editor
 // changes height when the body changes type — so watch, rather than guess.
@@ -1832,9 +1899,150 @@ document.querySelectorAll('[data-open]').forEach(btn =>
   btn.addEventListener('click', () => setPanelOpen(btn.dataset.open, true)));
 // both start open — this also seeds the body class the hint's position keys off
 for (const id of ['scenarioPanel', 'controlPanel']) setPanelOpen(id, true);
+// The flight panel starts closed and only opens when there is a vessel.
+setPanelOpen('flightPanel', false);
 // The cross-section starts closed and has no tab: it is opened from a focused
 // body, so there is nothing to come back to until one is focused.
 setPanelOpen('xsecPanel', false);
+
+
+// ============================================================================
+// APP MODE, AND WHY THE CONTROL COLUMN IS FOLDED
+// ----------------------------------------------------------------------------
+// The control panel grew one section at a time until it was eleven of them in a
+// single scrolling column, and by then finding the imaging band meant scrolling
+// past a climate model. Two things fix that and neither of them removes a
+// control:
+//
+//   1. Every section folds, and only the ones you are likely to want are open.
+//      Folding is done HERE rather than in the markup because the sections are
+//      defined by their <h3>s — wrapping each one by hand would mean touching
+//      every control in the file to add a container, and the next section added
+//      would silently not fold.
+//
+//   2. Sections belong to a MODE. Nothing about the Object Foundry is useful
+//      while flying a Saturn V, and nothing about a launch vehicle is useful
+//      while building a brown dwarf. The mode is a filter, not a separate
+//      application: the physics, the scene and the bodies are the same either
+//      way, and switching costs nothing.
+// ============================================================================
+const SECTION_MODE = {
+  'Central Singularity': 'sandbox', 'Suns': 'both', 'Climate': 'sandbox',
+  'Imaging Band': 'both', 'View & Camera': 'both', 'Time': 'both',
+  'Focused Object': 'sandbox', 'Object Foundry': 'sandbox', 'Painter': 'sandbox',
+  'Spaceflight': 'flight', 'Quick Spawn': 'sandbox', 'Bodies': 'sandbox',
+};
+const OPEN_BY_DEFAULT = {
+  sandbox: ['Suns', 'Imaging Band', 'View & Camera', 'Bodies'],
+  flight: ['Spaceflight', 'View & Camera', 'Time'],
+};
+const sections = [];
+
+function groupControlSections() {
+  const panel = document.getElementById('controlPanel');
+  if (!panel) return;
+  const kids = Array.from(panel.children);
+  let cur = null;
+  for (const el of kids) {
+    if (el.classList.contains('panel-head')) continue;
+    // A section starts at an <h3>, or at a wrapper whose first child is one —
+    // the climate and focused-object blocks are already grouped that way and
+    // must not be swallowed by the section above them.
+    const ownH3 = el.tagName === 'H3' ? el
+      : (el.firstElementChild && el.firstElementChild.tagName === 'H3' ? el.firstElementChild : null);
+    if (ownH3 && el.tagName === 'H3') {
+      cur = { title: ownH3.textContent.replace(/\s*\(.*?\)\s*$/, '').trim(), head: el, items: [], wrap: null };
+      sections.push(cur);
+      continue;
+    }
+    if (ownH3) {
+      // Self-contained block: it is its own section and keeps its own heading.
+      sections.push({ title: ownH3.textContent.trim(), head: ownH3, items: [], wrap: el, self: el });
+      cur = null;
+      continue;
+    }
+    if (cur) cur.items.push(el);
+  }
+
+  for (const sec of sections) {
+    sec.head.classList.add('sec-head');
+    sec.head.insertAdjacentHTML('afterbegin', '<span class="sec-arrow">▸</span>');
+    if (!sec.self) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sec-body';
+      sec.head.after(wrap);
+      for (const it of sec.items) wrap.appendChild(it);
+      sec.wrap = wrap;
+    } else {
+      const wrap = document.createElement('div');
+      wrap.className = 'sec-body';
+      // move everything after the heading inside the block into the wrapper
+      const rest = Array.from(sec.self.children).filter(c => c !== sec.head);
+      sec.self.appendChild(wrap);
+      for (const it of rest) wrap.appendChild(it);
+      sec.wrap = wrap;
+    }
+    sec.head.addEventListener('click', (e) => {
+      if (e.target.closest('input, button:not(.sec-head), select')) return;
+      setSectionOpen(sec, sec.head.classList.contains('closed'));
+    });
+  }
+}
+
+function setSectionOpen(sec, open) {
+  sec.head.classList.toggle('closed', !open);
+  sec.wrap.hidden = !open;
+}
+
+function applySectionModes(mode) {
+  for (const sec of sections) {
+    const want = SECTION_MODE[sec.title] ?? 'both';
+    const show = want === 'both' || want === mode;
+    // A CLASS, not an inline display: the climate block and the focused-object
+    // block both drive their own inline display, and whichever of the two wrote
+    // last would win. A class cannot be overwritten by that code by accident.
+    const host = sec.self || sec.head;
+    host.classList.toggle('mode-hidden', !show);
+    if (!sec.self) sec.wrap.classList.toggle('mode-hidden', !show);
+    if (show) setSectionOpen(sec, (OPEN_BY_DEFAULT[mode] || []).includes(sec.title));
+  }
+}
+
+function setAppMode(mode, opts = {}) {
+  state.appMode = mode;
+  document.body.dataset.appMode = mode;
+  document.querySelectorAll('.ms-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  applySectionModes(mode);
+  if (mode === 'sandbox') {
+    closeModelViewer();
+    if (flight.active) endFlight();
+  } else if (!opts.quiet) {
+    // Spaceflight needs somewhere to fly from. Anything can be launched from in
+    // principle, but a sandbox of three black holes has no surface and no
+    // atmosphere, and the honest thing is to put you somewhere that does.
+    // The vehicles launch from Earth by name (sim/flight/vehicles.js carries a
+    // `launchFrom`), so the test is whether that body is here — not whether
+    // something rocky is, which a black-hole sandbox can satisfy while still
+    // having nowhere to put a pad.
+    const home = state.bodies.some(b => b.name === 'Earth');
+    if (!home) loadPreset('solar');
+  }
+  layoutLeftColumn();
+}
+
+document.querySelectorAll('.ms-btn').forEach(b =>
+  b.addEventListener('click', () => setAppMode(b.dataset.mode)));
+
+// ---- the start screen. It is a choice, not a splash: it is dismissed only by
+// picking one, and picking one is what configures the panels.
+const startScreen = document.getElementById('startScreen');
+document.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
+  const m = b.dataset.start;
+  startScreen.classList.add('gone');
+  setTimeout(() => { startScreen.style.display = 'none'; }, 420);
+  setAppMode(m);
+  if (m === 'flight') setPanelOpen('controlPanel', true);
+}));
 
 function setHudHidden(hidden) {
   state.hudHidden = hidden;
@@ -1842,7 +2050,7 @@ function setHudHidden(hidden) {
     // panels obey their own collapsed state once the HUD comes back
     el.style.display = hidden ? 'none' : '';
   }
-  for (const id of ['scenarioPanel', 'controlPanel', 'xsecPanel']) setPanelOpen(id, !collapsed.has(id));
+  for (const id of ['scenarioPanel', 'controlPanel', 'xsecPanel', 'flightPanel']) setPanelOpen(id, !collapsed.has(id));
   if (hidden) toast('HUD hidden — press H to restore');
 }
 
@@ -1994,7 +2202,7 @@ function applyRegime(name) {
 }
 document.querySelectorAll('[data-time]').forEach(b =>
   b.addEventListener('click', () => applyRegime(b.dataset.time)));
-document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
+document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); camOffset.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
 
 function setSpawnAtRest(on) {
   state.spawnAtRest = on;
@@ -2046,17 +2254,197 @@ function resize() {
   // framebuffer does, so zooming spreads a star over more pixels the way a real
   // telescope does instead of concentrating it into a brighter dot.
   syncSky(u => applySkyOptics(u, { fov: camera.fov * Math.PI / 180, height: h * pr }));
+  flight?.setSize(w, h);
+  modelView?.setSize(w, h);
 }
 addEventListener('resize', resize);
+
+// ============================================================================
+// SPACEFLIGHT
+// ----------------------------------------------------------------------------
+// The whole feature lives in sim/flight/; this is the wiring. It takes over the
+// camera, the time scale and one extra render pass, and gives all three back
+// when the flight ends.
+// ============================================================================
+const ZERO_BETA = new THREE.Vector3(0, 0, 0);
+function applySkyBoostAll(b) { syncSky(u => applySkyBoost(u, b)); }
+
+const flight = createSpaceflight({
+  renderer, scene, camera, state,
+  panel: DOM.flightHud,
+  toast: (m) => toast(m),
+});
+
+// The vehicle picker. Each button carries the numbers the vehicle is actually
+// built from, because "2 970 t, 14.3 km/s, TWR 1.20" says more about what a
+// Saturn V is than any description could.
+function renderCraftGrid() {
+  if (!DOM.craftGrid) return;
+  DOM.craftGrid.innerHTML = flight.vehicles.map(v => {
+    const dv = (totalDeltaV(v, v.carries ? v.carries.mass : 0) / 1000).toFixed(1);
+    const m = grossMass(v, v.carries ? v.carries.mass : 0);
+    const mass = m > 1e5 ? `${(m / 1e6).toFixed(2)} kt` : `${(m / 1000).toFixed(0)} t`;
+    return `<button class="craft-btn" data-craft="${v.key}" title="${v.blurb}">
+      <span class="cn">${v.name}</span>
+      <span class="cd">${mass} · ${dv} km/s · ${v.role}</span></button>`;
+  }).join('');
+  DOM.craftGrid.querySelectorAll('[data-craft]').forEach(btn =>
+    btn.addEventListener('click', () => launchCraft(btn.dataset.craft)));
+}
+
+function launchCraft(key) {
+  const veh = flight.vehicles.find(v => v.key === key);
+  if (!veh) return;
+  // A launcher needs a body with a surface to leave; everything else is put in
+  // orbit around whatever dominates the scenario.
+  const v = flight.begin(key, { mode: veh.role === 'launch' ? 'pad' : 'orbit' });
+  if (!v) return;
+  setPanelOpen('flightPanel', true);
+  layoutLeftColumn();
+  setCamMode('flight');
+  if (DOM.flightRow) DOM.flightRow.style.display = '';
+  DOM.craftGrid?.querySelectorAll('[data-craft]').forEach(b =>
+    b.classList.toggle('on', b.dataset.craft === key));
+  toast(`${veh.name} — ${v.phase === 'prelaunch' ? 'ready on the pad' : 'in orbit'}`);
+  syncWarpLabel();
+}
+
+function endFlight() {
+  flight.teardown();
+  setCamMode('orbit');
+  setPanelOpen('flightPanel', false);
+  if (DOM.flightRow) DOM.flightRow.style.display = 'none';
+  DOM.craftGrid?.querySelectorAll('[data-craft]').forEach(b => b.classList.remove('on'));
+  // hand the orrery's own pacing back
+  applyTimeScale();
+}
+
+function syncWarpLabel() {
+  if (DOM.warpLabel) DOM.warpLabel.textContent = `${flight.warp().toLocaleString()}×`;
+  if (DOM.flightCam) DOM.flightCam.textContent =
+    'Cam: ' + flight.cameraMode().replace(/^./, c => c.toUpperCase());
+}
+
+DOM.flightExit?.addEventListener('click', endFlight);
+DOM.flightCam?.addEventListener('click', () => {
+  const modes = ['chase', 'orbit', 'cockpit', 'pad'];
+  flight.setCameraMode(modes[(modes.indexOf(flight.cameraMode()) + 1) % modes.length]);
+  syncWarpLabel();
+});
+document.querySelectorAll('[data-warp]').forEach(b => b.addEventListener('click', () => {
+  flight.setWarp(flight.warpIndex() + parseInt(b.dataset.warp, 10));
+  syncWarpLabel();
+}));
+renderCraftGrid();
+
+// ============================================================================
+// THE MODEL VIEWER
+// ----------------------------------------------------------------------------
+// Its own scene, its own camera, and it replaces the frame entirely rather than
+// compositing over the orrery: the whole point of it is that nothing else is in
+// the way. See sim/flight/modelviewer.js.
+// ============================================================================
+const modelView = createModelViewer();
+let modelOpen = false;
+
+function mvMass(kg) {
+  return kg >= 1e6 ? `${(kg / 1e6).toFixed(2)} kt`
+    : kg >= 1e3 ? `${(kg / 1e3).toFixed(1)} t` : `${kg.toFixed(0)} kg`;
+}
+
+function renderModelGrid() {
+  const g = document.getElementById('mvGrid');
+  if (!g) return;
+  g.innerHTML = modelView.list().map(v =>
+    `<button class="mv-chip" data-mv="${v.key}">${v.name}</button>`).join('');
+  g.querySelectorAll('[data-mv]').forEach(b =>
+    b.addEventListener('click', () => showModel(b.dataset.mv)));
+}
+
+function showModel(key) {
+  const veh = modelView.load(key);
+  if (!veh) return;
+  const st = modelView.stats();
+  document.getElementById('mvName').textContent = st.name;
+  document.querySelectorAll('[data-mv]').forEach(b => b.classList.toggle('on', b.dataset.mv === key));
+  document.getElementById('mvList').innerHTML = `
+    <div><span class="k">height</span><span class="v">${st.height.toFixed(1)} m</span></div>
+    <div><span class="k">gross</span><span class="v">${mvMass(st.gross)}</span></div>
+    <div><span class="k">ideal Δv</span><span class="v">${(st.dv / 1000).toFixed(2)} km/s</span></div>
+    <div><span class="k">pad TWR</span><span class="v">${st.twr > 0 ? st.twr.toFixed(2) : '—'}</span></div>`;
+  // One row per stage, with the numbers the stage IS: nothing here is stored,
+  // it is all read back out of the same table the physics integrates.
+  document.getElementById('mvStages').innerHTML = st.rows.map((r, i) => `
+    <div class="mv-stage">
+      <div class="ms-top"><span class="ms-i">${i + 1}</span><span class="ms-n">${r.name}</span>
+        <span class="ms-dv">${(r.dv / 1000).toFixed(2)} km/s</span></div>
+      <div class="ms-sub">${r.L.toFixed(1)} × ${r.D.toFixed(1)} m ·
+        ${mvMass(r.dry)} dry + ${mvMass(r.prop)} prop</div>
+      <div class="ms-sub">${r.engine}${r.thrust ? ` · ${(r.thrust / 1e6).toFixed(2)} MN vac · Isp ${r.isp.toFixed(0)} s` : ''}</div>
+    </div>`).join('');
+  modelOpen = true;
+  document.getElementById('modelPanel').style.display = '';
+  // The studio takes the whole frame, so the panels that describe the universe
+  // behind it have nothing to say while it is open.
+  setPanelOpen('scenarioPanel', false);
+  setPanelOpen('flightPanel', false);
+}
+
+function closeModelViewer() {
+  modelOpen = false;
+  const p = document.getElementById('modelPanel');
+  if (p) p.style.display = 'none';
+}
+
+document.getElementById('modelOpen')?.addEventListener('click', () => {
+  showModel(modelView.vehicle?.key || 'saturnv');
+});
+document.getElementById('modelClose')?.addEventListener('click', () => {
+  closeModelViewer(); setPanelOpen('scenarioPanel', true);
+  if (flight.active) setPanelOpen('flightPanel', true);
+});
+document.getElementById('mvExplode')?.addEventListener('input', e =>
+  modelView.setExplode(parseFloat(e.target.value)));
+document.getElementById('mvDeploy')?.addEventListener('click', e => {
+  const on = e.target.classList.toggle('on');
+  modelView.setDeploy(on);
+});
+document.getElementById('mvSpin')?.addEventListener('click', e => {
+  const on = e.target.classList.toggle('on');
+  modelView.cam.spin = on ? 0.10 : 0;
+  modelView.cam.held = !on;
+});
+document.getElementById('mvFly')?.addEventListener('click', () => {
+  const k = modelView.vehicle?.key;
+  closeModelViewer();
+  setPanelOpen('scenarioPanel', true);
+  if (k) launchCraft(k);
+});
+renderModelGrid();
+
+// The panels only make sense once both simulators exist, so the initial mode is
+// applied here rather than where it is defined.
+groupControlSections();
+setAppMode('sandbox', { quiet: true });
 
 // ============================================================================
 // ANIMATION LOOP
 // ============================================================================
 let lastT = performance.now(), fpsAcc = 0, fpsCount = 0, fpsTime = 0;
-function animate() {
-  requestAnimationFrame(animate);
+// The id of the pending frame. Kept so there is exactly one loop running: a
+// browser pauses requestAnimationFrame entirely while the page is hidden, so a
+// headless preview can never advance the sim on its own — SIM.frame() drives it
+// by hand, and without cancelling first each manual call would leave another
+// callback queued and start a second loop the moment the page came back.
+let rafId = 0;
+function animate(fixedDt) {
+  rafId = requestAnimationFrame(animate);
   const now = performance.now();
-  let dt = Math.min((now - lastT) / 1000, 0.05); lastT = now;
+  // `fixedDt` is only ever passed by SIM.frame(). A hidden page gets no frames
+  // at all and a hand-pumped one gets microsecond ones, so a reproducible
+  // headless run has to be able to say how long a frame lasted.
+  let dt = fixedDt != null ? fixedDt : Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
   const simDt = state.paused ? 0 : dt * state.speed * state.timeScale;
   state.time += dt;
 
@@ -2098,24 +2486,25 @@ function animate() {
     }
   }
 
+  // ---- spaceflight. It owns the camera while it is active, so this runs
+  // before the orrery's own camera update and that update is skipped.
+  if (flight.active) {
+    flight.update(dt, state.time);
+    if (flight.vessel && state.camMode !== 'flight') setCamMode('flight');
+    // Relativistic aberration and Doppler of the star field, from the ship's
+    // own velocity. Zero except in interstellar cruise, where it is the view.
+    applySkyBoostAll(flight.boost);
+  }
+
   // camera follow / movement
   const home = getHome();
-  if (state.camMode === 'surface' && home) observer.update(home, camera);
+  if (state.camMode === 'flight') { /* the flight pass has already placed it */ }
+  else if (state.camMode === 'surface' && home) observer.update(home, camera);
   else if (state.camMode === 'free') updateFreeCam(dt);
   else {
     if (state.followId != null) {
       const fb = state.bodies.find(b => b.id === state.followId);
-      // The 0.2 lerp exists to damp the camera when you click between bodies.
-      // At true scale it breaks down: framing Earth puts the camera 3e-4 AU
-      // out while Earth itself covers most of an AU per frame at 6 yr/s, so a
-      // fractional catch-up never arrives and the target trails hopelessly
-      // behind. Smooth only while the residual is small compared to the
-      // viewing distance; past that, track exactly.
-      if (fb) {
-        const p = fb.viz.group.position;
-        if (cam.target.distanceToSquared(p) > (cam.radius * 0.25) ** 2) cam.target.copy(p);
-        else cam.target.lerp(p, 0.2);
-      }
+      if (fb) trackFollow(fb, dt);
     }
     easeCamRadius(dt);
     updateOrbitCam();
@@ -2125,7 +2514,7 @@ function animate() {
   // entirely: fly up to one and it clips away before you ever see it. Tying the
   // near plane to how far the camera actually is keeps the whole zoom range —
   // from 40 AU down to a low pass over a planet — inside the depth buffer.
-  if (state.camMode !== 'surface') {
+  if (state.camMode !== 'surface' && state.camMode !== 'flight') {
     // In orbit mode the viewing distance IS cam.radius. Free-fly has no such
     // handle, so use the gap to the nearest body's surface — that is the only
     // thing the near plane can actually clip through.
@@ -2212,6 +2601,21 @@ function animate() {
   }
   meshMat.uniforms.wellCount.value = wc;
   meshMat.uniforms.time.value += simStepped;
+
+  // ---- model viewer: it is a studio, not a view of the universe, so it takes
+  // the whole frame. Still through postfx, because the vehicles are lit for a
+  // tone-mapped pipeline and would come out flat drawn straight to the screen.
+  if (modelOpen) {
+    modelView.update(dt);
+    renderer.setRenderTarget(postfx.hdr);
+    renderer.setClearColor(0x0b0d11, 1);
+    renderer.clear();
+    renderer.render(modelView.scene, modelView.camera);
+    renderer.setClearColor(0x000000, 0);
+    postfx.render(1.0, state.time);
+    updateHUD(dt);
+    return;
+  }
 
   // lensing uniforms
   lensMaterial.uniforms.time.value += simStepped;
@@ -2307,6 +2711,35 @@ function animate() {
     // The sky pass already applies its own eye-adaptation exposure, so the
     // tone mapper takes the frame at unity and just does the highlight roll-off
     // and the bloom on top of it.
+    postfx.render(1.0, state.time);
+    updateHUD(dt);
+    return;
+  }
+
+  // ---- flight view: the orrery's frame (planet, stars, lensing) first, then
+  // the metre-scale local pass over it with its own depth range. See
+  // sim/flight/localview.js for why the two cannot share a projection.
+  if (state.camMode === 'flight' && flight.active) {
+    // The spacetime slab is a 120-unit plane at AU scale. From a camera sitting
+    // on a launch pad it is a lattice of lines across the whole sky, and it is
+    // measuring a quantity — the depth of the gravity well — that means nothing
+    // at this range. Hide it and put it back on the way out.
+    const meshWasFlight = spacetimeMesh.visible;
+    spacetimeMesh.visible = false;
+    if (useLens) {
+      lensPass.render(renderer, postfx.hdr);
+      renderer.autoClear = false; renderer.clearDepth();
+      renderer.render(scene, camera);
+      renderer.autoClear = true;
+    } else {
+      renderer.setRenderTarget(postfx.hdr); renderer.clear();
+      drawBackdrop();
+      renderer.autoClear = false;
+      renderer.render(scene, camera);
+      renderer.autoClear = true;
+    }
+    flight.renderLocal();
+    spacetimeMesh.visible = meshWasFlight;
     postfx.render(1.0, state.time);
     updateHUD(dt);
     return;
@@ -2423,7 +2856,9 @@ document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', ()
 // thinks a body is, `SIM.load('vega')` is faster than editing the hash, and
 // `SIM.renderer.info.render` settles "is this thing being drawn at all" in one
 // line. This is a deliberate handle, not a leftover.
-window.SIM = { state, scene, camera, cam, renderer, THREE, load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
+window.SIM = { state, scene, camera, cam, renderer, THREE, flight, launchCraft, endFlight,
+  frame: (dt) => { cancelAnimationFrame(rafId); animate(dt); },
+  load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
 
 resize();
 // Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,

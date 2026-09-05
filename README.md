@@ -254,6 +254,180 @@ all, a genuine chaotic three-body system. The planet is thrown around and usuall
 or consumed within a few centuries. That is the honest limit of the idea, and it is why
 the Trisolarans want to leave.
 
+## Spaceflight
+
+A rocket is a different kind of object from everything else in this sim, and it
+gets a different treatment: its own integrator, its own units, its own render
+pass and its own instrument panel. Pick a vehicle from the **Spaceflight**
+section and it is built on the pad, in the local morning, at its real size.
+
+Everything below is in `sim/flight/`; the numbers and their sources are in
+[docs/spaceflight-research.md](docs/spaceflight-research.md).
+
+### The vehicles are the real ones
+
+Published stage masses, engines and specific impulses — nothing tuned for
+playability. A stage's Δv is **computed** from its own dry and propellant mass
+through the rocket equation, so if a vehicle cannot reach orbit here, it could
+not reach orbit.
+
+| vehicle | gross | liftoff thrust | pad TWR | ideal Δv |
+| --- | --- | --- | --- | --- |
+| **Saturn V / Apollo** | 2 862 t | 33.6 MN | 1.20 | 16.7 km/s |
+| **Falcon 9 Block 5** | 564 t | 7.6 MN | 1.37 | 9.7 km/s |
+| **Space Shuttle** | 2 031 t | 30.8 MN | 1.55 | 11.0 km/s |
+| **Starship / Super Heavy** | 4 995 t | 74.4 MN | 1.52 | 11.6 km/s |
+| **Apollo LM** | 15.2 t | 45 kN | 1.86 (lunar) | 4.7 km/s |
+| **Mars sky crane** | 2.8 t | 24.5 kN | — | 0.36 km/s |
+| **Ion cruiser** (Dawn-class) | 1.2 t | **0.24 N** | — | 18.5 km/s |
+| **Hail Mary** | 2 100 t | photon drive | — | rapidity 3.05 |
+
+The details that matter are in there too, because they change how the thing
+flies: a solid rocket booster's thrust **drops by a third** through the middle
+of its burn (that is what the star-shaped grain is for, and it is what holds the
+Shuttle stack under its limits when nothing aboard can throttle); the Apollo
+descent engine has a **forbidden throttle band** between 60% and 92.5% that
+eroded the valve, so the guidance really does have to sit on one side of it or
+the other; a Merlin cannot go below 57%, which is why a Falcon 9 booster cannot
+hover and has to land by hoverslam.
+
+### What is actually simulated
+
+- **Thrust** as `ṁ·g₀·Isp(p_a)`, with Isp interpolated between the engine's
+  published sea-level and vacuum values. Mass flow is constant at a given
+  throttle — the turbopump does not know what the outside pressure is.
+- **Atmosphere** to the US Standard tables: a lapse-rate troposphere and
+  exponential layers above, accurate to better than 1% below 20 km. Mars, Venus
+  and Titan get their own, from their measured surface conditions.
+- **Drag** with a transonic Cd curve, not a constant — which is what puts max-Q
+  where it belongs. The launchers above fly it at **25–33 kPa around 7–13 km**.
+- **Aerodynamic heating** from Sutton–Graves, `q̇ ∝ √ρ · v³`. The cube is the
+  whole story of re-entry, and it drives the ablation budget and the plasma
+  sheath from the same number.
+- **Full n-body gravity** in a frame centred on whichever body the vessel is
+  near, so the third-body terms are real rather than added on. Sphere-of-
+  influence handovers are computed against each body's **own primary**, which is
+  what keeps a vessel in low lunar orbit from being handed back and forth
+  between the Earth and the Moon every frame.
+- **Four ways to lose the vehicle**, each against a real limit: dynamic
+  pressure, axial g, `q·α`, and heat load. None of them are warnings.
+
+### Flying it
+
+The autopilot is a set of **closed loops on the vehicle's own state**, not a
+stored trajectory. A heavier rocket flies differently, and one that genuinely
+cannot make orbit gives up rather than pretending.
+
+- **Ascent** — vertical rise, a pitch program flown inside an angle-of-attack
+  limit set by the airframe's own `q·α`, then a closed loop that holds a climb
+  rate until apoapsis reaches its target. The Saturn V's timeline comes out as
+  centre-engine shutdown at **143 s**, S-IC staging at **164 s**, orbit at
+  **709 s** — against 135 s, 168 s and 703 s as flown.
+- **Orbital insertion** steered live rather than as an impulse, because a
+  thousand-metre-per-second circularisation is a burn two minutes long and the
+  orbit rotates out from under a direction frozen at ignition.
+- **Powered descent** on Apollo's own program structure and published gates:
+  **P63** braking, **hi-gate** at 2 377 m and 129 m/s, **P64** approach,
+  **lo-gate**, **P66** terminal. The lunar module touches down at **2.2 m/s
+  vertical and 0.5 m/s lateral after 687 s** — Apollo 11 took 756 s.
+- **Propulsive recovery** — an entry burn scheduled by the dynamic pressure it
+  exists to prevent, then a hoverslam whose ignition altitude is `v²/2(F/m − g)`
+  solved every step, together with how many engines to light. The booster lights
+  two Merlins at **1 598 m** and touches down at 3.2 m/s.
+- **Entry, descent and landing** — the Mars sequence, on its real gates: guided
+  lifting entry at L/D 0.24, supersonic parachute at **Mach 1.70**, backshell
+  separation at **1.80 km and 107 m/s**, powered descent, sky crane at 20 m.
+- **Transfers** — Hohmann with the launch window computed and waited for. The
+  planner reports the departure burn and the heliocentric Δv **separately**,
+  because they are not the same number and confusing them is the classic way to
+  be 2 km/s wrong.
+
+**Time warp** works the way it has to: physics warp while anything is acting,
+and an exact two-body propagation on rails above that — with the same interlocks
+KSP uses, because on rails the thrust and drag terms are not evaluated at all.
+A launch itself runs at 1×, through a real terminal count: T−10, ignition at the
+vehicle's own lead — **T−8.9 s** for a Saturn V, T−6.6 for a Shuttle, T−3 for
+Falcon 9 and Starship — the engines coming up against the hold-downs, and
+release at T−0. Nine seconds of a vehicle straining on the pad is not ceremony;
+it is the only part of a launch that changes fast enough to see, and without it
+an ascent that really is running in real time still reads as instantaneous.
+
+### The pad
+
+A rocket rising over an empty plain does not look like it is rising: there is
+nothing in the frame whose size is known, so there is no parallax to read. So
+the complexes are modelled too, at the dimensions of the pads these vehicles
+actually flew from — the LC-39A hardstand raised **12.8 m**, the **137 m** flame
+trench and its deflector, the **49.4 × 41.1 m** Mobile Launcher, the **115.8 m**
+umbilical tower with nine swing arms that retract on ignition because they are
+carrying live propellant until then, Falcon 9's strongback, Starship's OLM and
+its 146 m catch tower, lightning masts on a catenary, and the sound-suppression
+deluge, which exists to stop the acoustic energy reflecting off the deck rather
+than to cool anything.
+
+### The model viewer
+
+The vehicles are built at real dimensions from the same numbers the physics
+integrates, and in flight you never get to look at them. The viewer is a studio:
+neutral ground, a turntable, a three-point light rig carried on the camera so
+there is no shadow side, the stack pulled apart along its own axis, and a
+**1.75 m figure standing next to it** — because scale is a comparison, and
+110 m means nothing until there is a person beside it. Every number in the panel
+is derived on the spot: a stage's Δv from its own dry and propellant mass, the
+pad TWR from the engines actually fitted.
+
+### Interstellar
+
+The **Hail Mary** is built from the book and the 2026 film: three parallel
+astrophage tanks, the pressure vessel forward of them, four beetles in the nose.
+
+Its performance is not asserted, it is derived. The book puts a gram of
+astrophage at ~9 × 10¹³ J — which is *mc²* to two figures — so the spin drive
+converts fuel completely into light and its exhaust velocity is exactly **c**.
+Two thousand tonnes of it on a hundred-tonne ship is a mass ratio of 21, so the
+whole mission has **ln 21 = 3.05 of rapidity** to spend. That is *not* enough for
+a flip-and-burn crossing of the 11.9 light years to Tau Ceti, which needs 6.03.
+It is comfortably enough for accelerate–coast–decelerate, and the planner solves
+for the coast rather than assuming it:
+
+> burn to β = 0.909 (γ = 2.39), coast 10.1 ly, turn over —
+> **13.9 years of Earth time and 6.6 aboard.**
+
+Thirteen years is what the book says the outbound trip takes.
+
+The cruise runs on the exact constant-proper-acceleration solution rather than
+on a relativistic patch over the Newtonian integrator — `v = c·tanh(aτ/c)`,
+`t = (c/a)·sinh(aτ/c)`, `d = (c²/a)(cosh(aτ/c) − 1)` — and reproduces the
+standard 1 g reference journeys exactly.
+
+And the sky changes, from one boost vector:
+
+- **Aberration** compresses the whole sky into a forward cone,
+  `cos θ = (cos θ′ − β)/(1 − β cos θ′)`. It is applied to the ray direction
+  *before* the screen-space derivatives are taken, so the crowding is measured
+  by the same Jacobian that already measures lensing magnification — no new
+  resolution assumption anywhere.
+- **Doppler** shifts each star's temperature by `D`, applied at source, because
+  `sim/sky.js` colours its stars from a Planck locus and a blackbody at `T` seen
+  through `D` *is* a blackbody at `T·D`.
+- The **headlight effect** brightens it as `D⁴`. At β = 0.91 the sky ahead is a
+  single blazing cone and everything behind is black.
+
+### Two clocks
+
+The vessel carries its own proper time and the coordinate time, and the readout
+between them is their accumulated difference:
+
+```
+dτ/dt = √(1 − v²/c² − 2Φ/c²)
+```
+
+Because the difference is accumulated through `√A − √B = (A − B)/(√A + √B)`, it
+never subtracts two nearly-equal numbers, and one expression covers twelve orders
+of magnitude. In low orbit it is tens of microseconds a day — the same
+calculation, and the same +38.7 µs/day, that GPS has to correct for. At β = 0.91
+it is years.
+
 ## Real stars
 
 `sim/starcat.js` is a catalogue of measured objects, and the numbers in it are the
@@ -433,10 +607,25 @@ drifts nor needs a step size.
   fraction, seas shrink as they boil off, cloud decks thicken with humidity, and the
   ground glows when it is hot enough to. Lit by every star at once — several terminators
   in several colours crossing one disc.
+- **Spaceflight:** real launch vehicles with published stage masses and engines,
+  flown by closed-loop guidance — ascent, orbital insertion, transfers, Apollo's
+  own descent programs, propulsive booster recovery, Mars EDL, and relativistic
+  interstellar cruise with two clocks and an aberrated sky.
 - **Camera:** orbit camera, **free-fly mode** (WASD + mouse look), **surface view** from
-  the planet's ground (`V`), and **click any object to focus and zoom** onto it.
+  the planet's ground (`V`), **flight cameras** while a vessel exists (`C` cycles
+  chase / orbit / cockpit / pad), and **click any object to focus and zoom** onto it.
 - Gravitational lensing (now up to two black holes), accretion-disc shader with
   Doppler beaming & gravitational redshift, and a deformable spacetime mesh.
+
+## Two doors
+
+Astrarium is two simulators sharing one renderer, and one stacked control column
+could not serve both — by the time spaceflight was at the bottom of it, changing
+the imaging band meant scrolling past a climate model. So the page opens with a
+choice, **Sandbox** or **Spaceflight**, and the panels follow it: every section
+folds, only the ones that mode needs are shown, and the switch in the top left
+changes mode at any time without losing anything. It is a filter, not two
+applications — the physics, the scene and the bodies are the same either way.
 
 ## Running
 
@@ -454,6 +643,9 @@ Deep-link a scenario with a URL hash, e.g. `blackhole_sim.html#bhmerger`.
 `drag` look · `scroll` zoom / fly-speed / FOV · `click` focus object · **`V` stand on the
 planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` reset view ·
 `space` pause · `del` remove focused · `1`–`7` imaging band · `H` hide the HUD.
+
+**In flight:** `Z` / `X` full and cut throttle · `shift`+`space` stage ·
+`,` / `.` time warp · `C` flight camera · drag orbits the vehicle.
 
 ## Layout
 
@@ -478,6 +670,10 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
 - `sim/masscurve.js` — the draggable mass–radius graph and its model-derived marks
 - `sim/crosssection.js` — the labelled interior diagram and its temperature ramp
 - `sim/painter.js` — rings, belts and ejecta as analytically-advanced test particles
+- `sim/flight/` — spaceflight: SI-unit vehicle physics, the vehicle catalogue,
+  two-body mechanics and on-rails propagation, the autopilot, relativistic
+  cruise, procedural spacecraft, exhaust and plasma effects, the metre-scale
+  local render pass, and the instrument panel
 
 ## Disclaimer
 
@@ -486,3 +682,10 @@ model are real. Compact-object sizes, horizon radii and merger timescales are de
 exaggerated for visibility — and so are **stellar radii in the surface view**: the suns of
 Trisolaris are drawn about 10× their true angular size (a real one would subtend ~0.3°),
 because a physically-sized sun is a bright dot and the point of that view is the sky.
+
+The spacecraft are the exception to the exaggeration: they are modelled at their
+real dimensions and drawn in their own metre-scale pass, because at AU scale a
+rocket is 7 × 10⁻¹⁰ of a scene unit and no single projection covers both. The
+one piece of genuine science fiction is the Hail Mary's astrophage, which is the
+book's, and even there the drive is treated as the photon rocket the book's own
+energy density implies.

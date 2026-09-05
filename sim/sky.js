@@ -427,11 +427,55 @@ float sky_fbm(vec3 p, int oct){
   return v;
 }
 
+// ---- relativistic aberration -----------------------------------------------
+// The observer's boost, and the per-pixel Doppler factor it produces.
+//
+// A source seen by a moving observer at angle theta' from the direction of
+// travel was, in the rest frame, at
+//     cos theta = (cos theta' - beta) / (1 - beta cos theta')
+// so the whole sky piles into a forward cone: at gamma = 10 everything visible
+// is inside about 11 degrees ahead. The Doppler factor for that direction is
+//     D = 1 / (gamma (1 - beta cos theta'))
+// and a blackbody at T is seen at T*D, which this module can represent exactly
+// because it colours its stars from a Planck locus - so the shift is applied to
+// the TEMPERATURE at source, not as a hue filter afterwards. Bolometric
+// intensity goes as D^4 (the headlight effect), which is the last line of
+// skyRadiance.
+//
+// The aberration is deliberately applied to the ray direction BEFORE the caller
+// takes its screen-space derivatives, so the change in solid angle per pixel is
+// picked up by the same point-source machinery that already handles lensing
+// magnification. Nothing here assumes an angular resolution.
+uniform vec3 uBeta;
+float sky_D = 1.0;                       // set by sky_aberrate, read by sky_blackbody
+
+vec3 sky_aberrate(vec3 dir){
+  float b = length(uBeta);
+  if(b < 1e-6){ sky_D = 1.0; return dir; }
+  vec3 bh = uBeta / b;
+  float mu = dot(dir, bh);               // cos theta' in the ship frame
+  float gamma = 1.0 / sqrt(max(1.0 - b * b, 1e-12));
+  sky_D = 1.0 / (gamma * (1.0 - b * mu));
+  // rest-frame cosine, and the component perpendicular to the boost is rescaled
+  // to keep the direction a unit vector.
+  float mu0 = (mu - b) / (1.0 - b * mu);
+  vec3 perp = dir - bh * mu;
+  float pl = length(perp);
+  if(pl < 1e-9) return bh * sign(mu0 == 0.0 ? 1.0 : mu0);
+  return normalize(bh * mu0 + (perp / pl) * sqrt(max(1.0 - mu0 * mu0, 0.0)));
+}
+
+// Bolometric brightening: I' = D^4 I.
+float sky_beaming(){ return sky_D * sky_D * sky_D * sky_D; }
+
 // ---- Planck ----------------------------------------------------------------
 // Same fit as sim/blackhole.js, kept local to avoid a name collision when this
 // chunk is concatenated into it.
 vec3 sky_blackbody(float T){
-  T = clamp(T, 800.0, 42000.0);
+  // A blackbody at T seen through a Doppler factor D is a blackbody at T*D.
+  // sky_D is 1.0 unless sky_aberrate has been called with a real boost, so this
+  // is the identity for every non-relativistic path through the module.
+  T = clamp(T * sky_D, 800.0, 42000.0);
   float t = T * 0.01;
   vec3 c;
   c.r = t <= 66.0 ? 255.0 : 329.698727446 * pow(max(t - 60.0, 1e-3), -0.1332047592);
@@ -1149,7 +1193,22 @@ export function skyUniforms() {
     uwHii: { value: 1 }, uwRefl: { value: 1 }, uwGalaxies: { value: 1 },
     uwXrayBg: { value: 0 }, uwPion: { value: 0 }, uwSnr: { value: 0 },
     uwPulsar: { value: 0 }, uwXrb: { value: 0 }, uwBlazar: { value: 0 },
+
+    // Relativistic boost of the OBSERVER, as velocity/c in world coordinates.
+    // Zero everywhere except during interstellar cruise, where it is what turns
+    // the sky into a forward-lit tunnel. See sky_aberrate below.
+    uBeta: { value: new THREE.Vector3(0, 0, 0) },
   };
+}
+
+/**
+ * Set the observer's boost. Pass a zero vector (the default) and every path
+ * through this module is bit-identical to what it was before relativistic
+ * flight existed — the aberration reduces to the identity and the Doppler
+ * factor to exactly 1.
+ */
+export function applySkyBoost(uniforms, betaVec) {
+  if (uniforms.uBeta) uniforms.uBeta.value.copy(betaVec);
 }
 
 // h/k in kelvin-seconds, as in sim/spectrum.js.
@@ -1260,10 +1319,16 @@ void main(){
   float th = tan(fov * 0.5);
   vec3 dir = normalize((camMat * vec4(uv.x * th * aspect, uv.y * th, -1.0, 0.0)).xyz);
 
+  // Aberrate FIRST, then take the derivatives of the aberrated direction: the
+  // forward compression of solid angle is then measured by the same Jacobian
+  // that measures lensing magnification, and the star field crowds and
+  // brightens ahead without a single new resolution assumption.
+  vec3 rd = sky_aberrate(dir);
+
   // Same footprint measurement as the lensed path, so the two views agree on
   // how large and how bright a star is. With no hole in the way the Jacobian is
   // just the pixel grid, and skyRadiance reduces to an ordinary star field.
-  gl_FragColor = vec4(skyRadiance(dir, dFdx(dir), dFdy(dir)), ${SKY_ALPHA});
+  gl_FragColor = vec4(skyRadiance(rd, dFdx(rd), dFdy(rd)) * sky_beaming(), ${SKY_ALPHA});
 }`;
 
 const BACKDROP_VERT = `

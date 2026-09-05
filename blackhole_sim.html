@@ -12,6 +12,50 @@
 
 <div id="canvas-wrap"></div>
 
+<!-- START SCREEN ---------------------------------------------------------
+     Astrarium is two simulators sharing one renderer, and the single stacked
+     control column that served the orrery alone became unreadable the moment
+     spaceflight was added to the bottom of it. So the first question the page
+     asks is which of the two you came for, and the panels follow the answer.
+     Neither is hidden afterwards — the switch at the top left changes mode at
+     any time and nothing is lost by it. -->
+<div class="start" id="startScreen">
+  <div class="start-inner">
+    <div class="start-tag">ASTRARIUM</div>
+    <h1 class="start-title">A relativistic orrery<br>and a spaceflight simulator</h1>
+    <p class="start-sub">Real gravity in AU, M<sub>☉</sub> and years with <i>G</i> = 4π².
+      Real vehicles in metres and seconds. Pick where to start — you can switch at any time.</p>
+    <div class="start-cards">
+      <button class="start-card" data-start="sandbox">
+        <svg viewBox="0 0 64 64" class="start-ico" aria-hidden="true">
+          <ellipse cx="32" cy="32" rx="26" ry="10" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <ellipse cx="32" cy="32" rx="15" ry="24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+          <circle cx="32" cy="32" r="6.5" fill="currentColor"/>
+          <circle cx="58" cy="32" r="2.6" fill="currentColor"/>
+          <circle cx="32" cy="8"  r="2.0" fill="currentColor" opacity=".7"/>
+        </svg>
+        <span class="sc-name">Sandbox</span>
+        <span class="sc-desc">Build and break systems. N-body gravity, real interiors,
+          black holes, climate, and the imaging bands to look at it all in.</span>
+      </button>
+      <button class="start-card" data-start="flight">
+        <svg viewBox="0 0 64 64" class="start-ico" aria-hidden="true">
+          <path d="M32 4c7 8 10 18 10 28v12H22V32C22 22 25 12 32 4z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M22 40l-8 10h8zM42 40l8 10h-8z" fill="currentColor" opacity=".8"/>
+          <circle cx="32" cy="24" r="3.4" fill="currentColor"/>
+          <path d="M27 50c2 5 3 8 5 10 2-2 3-5 5-10z" fill="currentColor" opacity=".55"/>
+        </svg>
+        <span class="sc-name">Spaceflight</span>
+        <span class="sc-desc">Fly real vehicles off a real pad. Staging, guidance,
+          landings, time dilation — and a model viewer to see what you are flying.</span>
+      </button>
+    </div>
+    <div class="start-foot">Everything is derived, nothing is scripted —
+      if a rocket cannot reach orbit here, it could not reach orbit.</div>
+  </div>
+</div>
+
+
 <div class="corner tl"></div><div class="corner tr"></div>
 <div class="corner bl"></div><div class="corner br"></div>
 
@@ -19,6 +63,10 @@
   <div class="tag">ASTRARIUM</div>
   <div class="name" id="presetName">Black Hole Sandbox</div>
   <div class="sub">/ REAL N-BODY · G = 4π²</div>
+  <div class="mode-switch">
+    <button class="ms-btn" data-mode="sandbox">Sandbox</button>
+    <button class="ms-btn" data-mode="flight">Spaceflight</button>
+  </div>
 </div>
 
 <!-- SCENARIOS — its own panel, on the left, so the long control stack on the
@@ -185,6 +233,18 @@
     <button class="add-btn" data-paint="clear"><span class="sym">✕</span>Clear paint</button>
   </div>
 
+  <h3>Spaceflight</h3>
+  <div class="section-note">Real vehicles, real stage masses, real engines. A
+    stage's Δv is computed from its own dry and propellant mass, so if a rocket
+    cannot reach orbit here it could not reach orbit. Needs a scenario with a
+    body to fly from — try <b>Solar System</b>.</div>
+  <div class="craft-grid" id="craftGrid"></div>
+  <button class="ghost-btn" id="modelOpen">Model viewer ▸</button>
+  <div class="toggle-row" id="flightRow" style="display:none">
+    <button class="toggle-btn" id="flightCam" title="Chase · Orbit · Cockpit · Pad">Cam: Chase</button>
+    <button class="toggle-btn" id="flightExit">Exit flight</button>
+  </div>
+
   <h3>Quick Spawn</h3>
   <div class="toggle-row">
     <button class="toggle-btn" data-view="spawnrest"
@@ -200,6 +260,28 @@
 
   <h3>Bodies <span id="count" style="color:var(--accent)">(0)</span></h3>
   <div class="body-list" id="bodyList"><div class="empty">— empty —</div></div>
+</div>
+
+<!-- MODEL VIEWER — a studio for the vehicles. See sim/flight/modelviewer.js;
+     the point of it is that scale is a comparison, so there is a person in it. -->
+<div class="hud panel panel-model" id="modelPanel" style="display:none">
+  <div class="panel-head">
+    <h3>Model viewer</h3>
+    <button class="panel-close" id="modelClose" title="Close">✕</button>
+  </div>
+  <div class="mv-name" id="mvName">—</div>
+  <div class="mv-grid" id="mvGrid"></div>
+  <div class="mv-controls">
+    <label class="mv-slider"><span>Exploded</span>
+      <input type="range" id="mvExplode" min="0" max="1" value="0" step="0.01"></label>
+    <div class="toggle-row">
+      <button class="toggle-btn on" id="mvDeploy" title="Legs, fins, arrays and radiators in their deployed position">Deployed</button>
+      <button class="toggle-btn" id="mvSpin" title="Idle turntable">Turntable</button>
+    </div>
+  </div>
+  <div class="mv-list" id="mvList"></div>
+  <div class="mv-stages" id="mvStages"></div>
+  <button class="action-btn" id="mvFly">Fly this vehicle</button>
 </div>
 
 <!-- CROSS-SECTION — the one view in the sim that shows what cannot be seen.
@@ -229,11 +311,27 @@
   <div class="fd-note" id="xsecNotes"></div>
 </div>
 
+<!-- FLIGHT — the instrument panel. Only shown while a vessel exists; see
+     sim/flight/flightui.js for why the navball is drawn the way it is. -->
+<div class="hud panel panel-flight" id="flightPanel" style="display:none">
+  <div class="panel-head">
+    <h3>Flight</h3>
+    <div class="fl-warp">
+      <button class="fl-warp-btn" data-warp="-1" title="Slow time (,)">◂</button>
+      <span id="warpLabel">1×</span>
+      <button class="fl-warp-btn" data-warp="1" title="Speed time (.)">▸</button>
+    </div>
+    <button class="panel-close" data-close="flightPanel" title="Collapse">✕</button>
+  </div>
+  <div id="flightHud"></div>
+</div>
+
 <!-- Tabs that take a collapsed panel's place, so a closed panel is always one
      click from coming back. Hidden while the whole HUD is off. -->
 <div class="hud panel-tabs" id="panelTabs">
   <button class="panel-tab" data-open="scenarioPanel" hidden>▸ Scenario</button>
   <button class="panel-tab tab-right" data-open="controlPanel" hidden>Controls ◂</button>
+  <button class="panel-tab tab-flight" data-open="flightPanel" hidden>▸ Flight</button>
 </div>
 
 <div class="hud readout" id="readout">
@@ -246,7 +344,9 @@
   <kbd>drag</kbd> look · <kbd>scroll</kbd> zoom/speed · <kbd>click</kbd> focus object<br>
   <kbd>V</kbd> stand on the planet · <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly<br>
   <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove<br>
-  <kbd>H</kbd> hide all panels · <kbd>1</kbd>–<kbd>7</kbd> imaging band
+  <kbd>H</kbd> hide all panels · <kbd>1</kbd>–<kbd>7</kbd> imaging band<br>
+  <span class="hint-fl"><kbd>Z</kbd>/<kbd>X</kbd> full/cut throttle · <kbd>shift+space</kbd> stage ·
+  <kbd>,</kbd>/<kbd>.</kbd> time warp · <kbd>C</kbd> flight camera</span>
 </div>
 
 <div class="toast" id="toast"></div>

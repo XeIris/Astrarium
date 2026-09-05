@@ -203,6 +203,29 @@ function wanderingTriad({
 }
 
 // circular orbit about a dominant central mass at the origin
+// A satellite of a planet. It is placed relative to the PARENT'S ACTUAL STATE,
+// not to where the parent's orbit nominally is: sim/presets.js's `orbiter`
+// puts planets at a random phase, so a moon built from the parent's semi-major
+// axis alone lands tens of millions of kilometres from it and is on a solar
+// orbit of its own within days. The moon's own circular velocity is added to
+// whatever the parent is already doing, which is what makes it bound.
+function moonOf(parentSpec, distM, massSun, radiusKm, name, extra = {}) {
+  const AU_M = 1.495978707e11;
+  const a = distM / AU_M;
+  const [px, py, pz] = parentSpec.pos, [vx, vy, vz] = parentSpec.vel;
+  // Offset along the parent's own radius vector, so the moon starts at its
+  // planet's "noon" — an arbitrary but well-defined phase.
+  const r = Math.hypot(px, pz) || 1;
+  const ux = px / r, uz = pz / r;
+  const vMoon = circularSpeed(parentSpec.mass + massSun, a);
+  return {
+    type: 'planet', name, mass: massSun, radiusKm, hot: true, ...extra,
+    pos: [px + ux * a, py, pz + uz * a],
+    // perpendicular to the offset, in the same sense as the orrery's orbits
+    vel: [vx - (-uz) * vMoon, vy, vz - (ux) * vMoon],
+  };
+}
+
 function orbiter(Mc, a, spec, angle = Math.random() * Math.PI * 2, incl = 0) {
   const v = circularSpeed(Mc, a);
   const x = Math.cos(angle) * a, z = Math.sin(angle) * a;
@@ -230,7 +253,7 @@ export const PRESETS = {
   solar: {
     sky: { env: 'disc', tilt: 0.38, roll: 2.1 },
     name: 'Solar System',
-    blurb: 'Real orbital distances, masses and body radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle "Sizes" to get the readable, exaggerated view back.',
+    blurb: 'Real orbital distances, masses and body radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle "Sizes" to get the readable, exaggerated view back. This is also the scenario to fly from: the Spaceflight section builds a real launch vehicle on the pad, and the Moon is here to land on.',
     sceneScale: 1.0, bodyScale: 0.5, camRadius: 80, lensing: false, timeScale: 6,
     // The one preset where the bodies are drawn at their real geometric size.
     // See sim/scale.js for why that needs a point-source fallback to be usable.
@@ -240,11 +263,18 @@ export const PRESETS = {
       const sun = { type: 'star', name: 'Sun', mass: Ms, color: 0xfff2cc, glow: 0xffaa33, pos: [0, 0, 0], vel: [0, 0, 0] };
       // a = semi-major axis (AU), m = mass (M☉), radiusKm = mean physical radius
       const P = (a, m, radiusKm, type, name, extra) => orbiter(Ms, a, { type, name, mass: m, radiusKm, ...extra });
+      const earth = P(1.000, 3.00e-6, 6371.0, 'planet', 'Earth', { atmosphere: true, seaLevel: 0.55 });
       return [
         sun,
         P(0.387, 1.66e-7,  2439.7, 'planet', 'Mercury', { hot: true }),
         P(0.723, 2.45e-6,  6051.8, 'planet', 'Venus', { hot: true, atmosphere: true, atmColor: 0xffd9a0 }),
-        P(1.000, 3.00e-6,  6371.0, 'planet', 'Earth', { atmosphere: true, seaLevel: 0.55 }),
+        earth,
+        // The Moon, on its real orbit about the Earth rather than about the Sun.
+        // It is here because a lunar mission needs somewhere to go: without it
+        // the spaceflight autopilot's transfer planner has no target inside
+        // Earth's sphere of influence, and its landing programs have no airless
+        // body to practise on.
+        moonOf(earth, 3.844e8, 3.6923e-8, 1737.4, 'Moon'),
         P(1.524, 3.21e-7,  3389.5, 'planet', 'Mars', { hot: true }),
         P(5.203, 9.54e-4, 69911.0, 'gas-giant', 'Jupiter', { palette: 'jupiter' }),
         P(9.537, 2.86e-4, 58232.0, 'gas-giant', 'Saturn', { palette: 'saturn', rings: true }),

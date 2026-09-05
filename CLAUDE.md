@@ -79,11 +79,52 @@ Shell:
 | [sim/crosssection.js](sim/crosssection.js) | `drawCrossSection` — the labelled interior diagram — plus the temperature ramp and every unit formatter the panels use |
 | [sim/painter.js](sim/painter.js) | rings, belts and ejecta: `createOrbitalSwarm` (analytic Keplerian test particles), `createGasCloud`, `ringSpan`, `createPainter` |
 
+`sim/flight/` — spaceflight. The **only** part of the sim not in AU/M☉/yr; see the
+units note under Conventions. `sim/flight/spaceflight.js` is the sole integration
+point and the only file here that knows the orrery exists.
+
+| file | role |
+|---|---|
+| [sim/flight/rocketry.js](sim/flight/rocketry.js) | SI constants, layered atmospheres (`density`/`pressure`/`scaleHeight`), transonic `dragCoefficient`, Sutton–Graves `heatFlux`, `engineOutput` incl. solid-motor thrust profiles, `flightEnv(body)` |
+| [sim/flight/vehicles.js](sim/flight/vehicles.js) | `ENGINES` and `VEHICLES` — published masses, thrusts and Isp; `stageDeltaV`/`totalDeltaV`/`padTWR` derive, never store |
+| [sim/flight/orbit.js](sim/flight/orbit.js) | universal-variable (Stumpff) `propagate`, classical `elements`, `hohmann`, `sphereOfInfluence`. Reference pole is **−Y**, matching the orrery's own orbital sense |
+| [sim/flight/vessel.js](sim/flight/vessel.js) | the `Vessel`: RK4 in a parent-centred non-inertial frame, staging, engine shutdown/relight, attitude with real gimbal + RCS authority, structural limits, SOI handover, proper-time clocks |
+| [sim/flight/guidance.js](sim/flight/guidance.js) | the `Autopilot`: ascent, orbital insertion, node execution, transfers, Apollo P63/P64/P66, hoverslam, Mars EDL. One shared `descentLaw` and one shared `limitThrottle` |
+| [sim/flight/relativity.js](sim/flight/relativity.js) | exact constant-proper-acceleration `Cruise`, `solveProfile` (flip-and-burn vs accelerate–coast–decelerate), `skyBoost` |
+| [sim/flight/craftmodel.js](sim/flight/craftmodel.js) | procedural spacecraft at real dimensions; per-stage groups so separations are re-parents, with legs, grid fins, fairing halves, arrays and gimbals that move |
+| [sim/flight/plume.js](sim/flight/plume.js) | exhaust (shape from ambient pressure, shock diamonds when over-expanded), RCS puffs, re-entry plasma, launch smoke |
+| [sim/flight/localview.js](sim/flight/localview.js) | **local space**: the metre-scale scene, curved ground patch, altitude-driven atmosphere, and the flight cameras |
+| [sim/flight/launchsite.js](sim/flight/launchsite.js) | the launch complex at real dimensions — hardstand, flame trench, mobile launcher, umbilical tower with swing arms, strongback, chopsticks, lightning masts, deluge |
+| [sim/flight/modelviewer.js](sim/flight/modelviewer.js) | the studio: a turntable, a three-point rig carried on the camera, a 1.75 m figure for scale, and an exploded view |
+| [sim/flight/flightui.js](sim/flight/flightui.js) | the navball (a true orthographic projection of a sphere in the surface frame), telemetry, stage stack, two clocks, transfer plan |
+| [sim/flight/spaceflight.js](sim/flight/spaceflight.js) | integration: owns the vessel, drives the local pass, slaves the orrery camera, and takes over `state.timeScale` |
+
 ## Conventions
 
 - **Astronomical units everywhere in physics**: AU, M☉, years — so `G = 4π²`
   exactly. Never introduce a scaling fudge into `sim/physics.js`; rendering
   exaggeration belongs in `sceneScale` / `bodyScale` on the preset.
+- **`sim/flight/` is the one exception, and it is a hard boundary.** A rocket is
+  a metres-and-seconds object: an ascent lasts 500 s (1.6e-5 yr) and reaches
+  200 km (1.3e-6 AU), so expressing it in AU/M☉/yr throws away most of a float's
+  mantissa before the first step. The bridge is exact rather than fitted —
+  `GM☉ = 1.32712440018e20 m³/s²` **is** `G = 4π² AU³/M☉/yr²`, re-expressed — and
+  it is crossed in exactly one place, `sim/flight/vessel.js`. Do not let SI leak
+  outward or AU leak inward.
+- **Spaceflight draws in a SECOND pass with its own camera**, in metres. At AU
+  scale a 100 m rocket is 7e-10 scene units and the near plane, the depth buffer
+  and float32 vertex precision all fail at once; it is eleven orders of
+  magnitude and no single projection covers it. `sim/flight/localview.js` owns
+  that pass and the orrery's camera is slaved to it — the two never need to see
+  each other, because from a hundred metres the universe is background and from
+  a hundred kilometres the vehicle is a point.
+- **A guidance law is a closed loop on the vehicle's own state**, never a stored
+  trajectory. The test of a new one is that a heavier vehicle flies differently
+  and an incapable one fails honestly. In particular: never gate a manoeuvre on
+  catching a narrow window (it will be missed), never size an ignition on the
+  full available deceleration (there is no margin left for the lag), and never
+  let a discrete choice — how many engines are lit — appear inside a continuous
+  predicate, or the burn will stutter on and off every frame.
 - **Scene units ≠ AU.** `state.sceneScale` converts. Physical radii used for
   collisions live on the body in AU; rendered radii are in scene units.
 - **Exaggerated size is a constant MAGNIFICATION, not a constant size.** `baseRadius`
@@ -165,6 +206,33 @@ Shell:
   the screen-space Jacobian; that is what makes them stay point-like and
   brighten by μ instead of smearing. `#bhmerger` is the standing regression case
   — the lensed arcs above the holes must be strings of crisp points.
+- **A transparent object is drawn after every opaque one**, whatever its
+  `renderOrder` — three sorts within the opaque and transparent lists, not
+  across them. A sky dome given `renderOrder = -10` and `depthTest: false` on
+  the reasoning that it should be "behind everything" is therefore drawn LAST,
+  over the top of the vehicle, at whatever alpha it computes. That is what made
+  a launch look washed out and see-through. A background either depth-tests
+  against the scene or is drawn in its own pass before it.
+- **Local space is lit for a Lambert BRDF.** The vehicle is a
+  `MeshStandardMaterial`, whose diffuse term is albedo/π times the irradiance,
+  so anything hand-shaded next to it — the ground patch — has to carry the same
+  1/π or it comes out π times brighter than the rocket standing on it and the
+  tone curve's shoulder flattens it to a glare.
+- **A launch needs something of known size next to it.** The tower in
+  `sim/flight/launchsite.js` is not decoration: it is the only object in frame
+  whose height the eye knows, and without it a vehicle climbing over a smooth
+  plain reads as stationary and then as teleported. The same goes for the
+  terminal count — a launch has to have a beginning you can watch.
+- **Following a moving body is exact tracking plus a decaying offset**, never a
+  fractional catch-up. `target.lerp(bodyPos, k)` is a first-order lag, and a
+  first-order lag driven by a ramp keeps a steady-state error proportional to
+  the body's speed — that is the rubber-banding, and no k below 1 removes it.
+  See `trackFollow` / `glideTargetTo` in [blackhole_sim.js](blackhole_sim.js).
+- **The control column is folded and mode-filtered at runtime**, from the `<h3>`s
+  themselves (`groupControlSections`), so a new section folds and can be
+  assigned to a mode without touching any of the controls inside it. Mode
+  visibility uses a CLASS, because the climate and focused-object blocks drive
+  their own inline `display` and whichever wrote last would win.
 - **Order in the render loop matters** and is documented inline: surface view and
   lensed view are separate branches, the spectral remap runs *before* bloom, and
   the sky pass applies its own eye-adaptation exposure so the tone mapper is
@@ -191,6 +259,21 @@ against it; the relations are all calibrated against published measurements (Ear
 Jupiter's flattening, Sirius B's radius, the Kerr ISCO, Vega's oblateness and pole/equator
 temperatures, the Sun's central temperature), so a regression shows up as a number moving
 rather than as a picture looking wrong.
+
+The spaceflight physics is pure in the same sense and is checked the same way —
+`sim/flight/` imports nothing from the orrery except through
+`sim/flight/spaceflight.js`, so a stub `three` on the resolution path is enough to
+fly a whole mission headlessly. The standing regression cases are the four
+launchers reaching orbit with the right max-q and staging times, and the three
+landings touching down inside their gear ratings.
+
+When the preview pane is hidden the page gets a 0×0 viewport and
+`requestAnimationFrame` never fires, so nothing renders and screenshots show a
+stale surface. `SIM.frame(dt)` runs one frame by hand at a fixed step;
+[.claude/art.js](.claude/art.js) reads the composited framebuffer back as a
+coarse luminance grid, and [.claude/mission.js](.claude/mission.js) scripts a
+whole flight and samples telemetry along it. Override `innerWidth`/`innerHeight`
+and dispatch a `resize` first, or the drawing buffer is one pixel.
 
 For sky work, open [.claude/skytest.html](.claude/skytest.html) instead. It
 renders `sim/sky.js` on its own through the same postfx chain, with a camera you
