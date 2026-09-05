@@ -1926,16 +1926,25 @@ setPanelOpen('xsecPanel', false);
 //      application: the physics, the scene and the bodies are the same either
 //      way, and switching costs nothing.
 // ============================================================================
+// Spaceflight is for FLYING. Not one of the orrery's controls belongs in it:
+// the scenario list, the interior editor, the painter, the spawner, the body
+// list, the imaging bands, the camera modes and — above all — the time-scale
+// slider are all things you do to a universe you are looking at, and none of
+// them mean anything while you are holding a vehicle down on a pad. Editing
+// happens in the sandbox; the two modes share the physics and nothing else.
 const SECTION_MODE = {
-  'Central Singularity': 'sandbox', 'Suns': 'both', 'Climate': 'sandbox',
-  'Imaging Band': 'both', 'View & Camera': 'both', 'Time': 'both',
+  'Central Singularity': 'sandbox', 'Suns': 'sandbox', 'Climate': 'sandbox',
+  'Imaging Band': 'sandbox', 'View & Camera': 'sandbox', 'Time': 'sandbox',
   'Focused Object': 'sandbox', 'Object Foundry': 'sandbox', 'Painter': 'sandbox',
   'Spaceflight': 'flight', 'Quick Spawn': 'sandbox', 'Bodies': 'sandbox',
 };
 const OPEN_BY_DEFAULT = {
   sandbox: ['Suns', 'Imaging Band', 'View & Camera', 'Bodies'],
-  flight: ['Spaceflight', 'View & Camera', 'Time'],
+  flight: ['Spaceflight'],
 };
+// The vehicle you flew last. Spaceflight opens ON the pad rather than on a view
+// of the solar system, so it has to open with something.
+let lastCraft = 'saturnv';
 const sections = [];
 
 function groupControlSections() {
@@ -2013,19 +2022,30 @@ function setAppMode(mode, opts = {}) {
   document.body.dataset.appMode = mode;
   document.querySelectorAll('.ms-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
   applySectionModes(mode);
+  // The scenario list is the sandbox's own instrument. In flight the scenario
+  // is fixed — you are on Earth — so the panel and its tab both go.
+  document.body.classList.toggle('flight-mode', mode === 'flight');
+  const sub = document.querySelector('.title-block .sub');
+  if (sub) sub.textContent = mode === 'flight' ? '/ 1:1 REAL TIME · ON THE PAD' : '/ REAL N-BODY · G = 4π²';
   if (mode === 'sandbox') {
     closeModelViewer();
     if (flight.active) endFlight();
-  } else if (!opts.quiet) {
+    setPanelOpen('scenarioPanel', true);
+  } else if (opts.quiet) {
+    setPanelOpen('scenarioPanel', false);
+  } else {
+    setPanelOpen('scenarioPanel', false);
     // Spaceflight needs somewhere to fly from. Anything can be launched from in
     // principle, but a sandbox of three black holes has no surface and no
     // atmosphere, and the honest thing is to put you somewhere that does.
-    // The vehicles launch from Earth by name (sim/flight/vehicles.js carries a
-    // `launchFrom`), so the test is whether that body is here — not whether
-    // something rocky is, which a black-hole sandbox can satisfy while still
-    // having nowhere to put a pad.
-    const home = state.bodies.some(b => b.name === 'Earth');
-    if (!home) loadPreset('solar');
+    // Spaceflight starts ON EARTH, on the pad, at 1×. It does not start on a
+    // view of the solar system with a menu over it: the whole mode is one
+    // vehicle standing on one planet, and making you fly to it first is asking
+    // you to use the sandbox to reach the thing that is not the sandbox.
+    // The vehicles name their own home body (`launchFrom`) and every launcher's
+    // is Earth, so the scenario has to be one that has an Earth in it.
+    if (!state.bodies.some(b => b.name === 'Earth')) loadPreset('solar');
+    launchCraft(lastCraft);
   }
   layoutLeftColumn();
 }
@@ -2295,6 +2315,7 @@ function renderCraftGrid() {
 function launchCraft(key) {
   const veh = flight.vehicles.find(v => v.key === key);
   if (!veh) return;
+  lastCraft = key;
   // A launcher needs a body with a surface to leave; everything else is put in
   // orbit around whatever dominates the scenario.
   const v = flight.begin(key, { mode: veh.role === 'launch' ? 'pad' : 'orbit' });
@@ -2310,8 +2331,16 @@ function launchCraft(key) {
 }
 
 function endFlight() {
+  // Ending a flight is not leaving the planet. In flight mode the camera stays
+  // on Earth, framed, rather than snapping back out to a view of the whole
+  // system — which is the sandbox's view and the one this mode exists to avoid.
+  const wasFlightMode = state.appMode === 'flight';
   flight.teardown();
   setCamMode('orbit');
+  if (wasFlightMode) {
+    const home = state.bodies.find(b => b.name === 'Earth');
+    if (home) setFollow(home);
+  }
   setPanelOpen('flightPanel', false);
   if (DOM.flightRow) DOM.flightRow.style.display = 'none';
   DOM.craftGrid?.querySelectorAll('[data-craft]').forEach(b => b.classList.remove('on'));

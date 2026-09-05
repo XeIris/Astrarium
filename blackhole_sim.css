@@ -687,3 +687,12 @@ body.xsec-open .panel-left { max-height: 40vh; }
 .ms-sub { font-size: 9.5px; color: var(--text-dim); line-height: 1.5; }
 
 .mode-hidden { display: none !important; }
+
+/* In flight mode the orrery's own instruments are not merely folded — they are
+   gone. The scenario list, its tab, and the cross-section are all ways of
+   editing a universe, and this mode does not edit anything. */
+body.flight-mode #scenarioPanel,
+body.flight-mode #xsecPanel,
+body.flight-mode [data-open="scenarioPanel"] { display: none !important; }
+/* ...and the flight panel's tab has nothing to reopen in the sandbox. */
+body:not(.flight-mode) [data-open="flightPanel"] { display: none !important; }

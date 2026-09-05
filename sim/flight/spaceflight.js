@@ -50,6 +50,7 @@ export function createSpaceflight(ctx) {
   // simply is not on the pad and then is, which is most of why an ascent that
   // runs in real time can still read as instantaneous.
   let count = null;
+  let savedSpeed = null;   // the orrery's own speed multiplier, parked for the flight
   let warpIdx = 0, active = false, hud = null;
   let target = null, plan = null;
   const boost = new THREE.Vector3();
@@ -164,6 +165,8 @@ export function createSpaceflight(ctx) {
     active = true;
     cruise = null;
     count = null;
+    if (savedSpeed == null) savedSpeed = state.speed;
+    state.speed = 1;
     setWarp(0);
     vessel.log(`${veh.name} — ${vessel.phase === PHASE.PRELAUNCH ? 'on the pad' : 'in flight'}, ${(grossMass(veh) / 1000).toFixed(0)} t, ${(totalDeltaV(veh) / 1000).toFixed(2)} km/s ideal Δv`);
     if (vessel.phase === PHASE.PRELAUNCH) {
@@ -200,6 +203,7 @@ export function createSpaceflight(ctx) {
     plumes = []; entry = null;
     smoke.clear();
     vessel = null; ap = null; cruise = null; plan = null; count = null;
+    if (savedSpeed != null) { state.speed = savedSpeed; savedSpeed = null; }
     active = false;
   }
 
@@ -335,7 +339,13 @@ export function createSpaceflight(ctx) {
     // when the warp changes — otherwise the time-scale slider silently
     // desynchronises the planets from the vehicle flying between them.
     state.timeScale = WARPS[warpIdx] / YR_S;
-    const w = warp() * (state.paused ? 0 : state.speed);
+    // Flight time is 1:1 with the wall clock at warp 1, and the ONLY handle on
+    // it is the warp ladder. The orrery's own speed multiplier is deliberately
+    // not in this product: it is a viewing preference for watching planets go
+    // round, and letting it scale a launch means the count, the staging times
+    // and the max-q you read off the HUD are all silently multiples of the real
+    // ones. It is forced to 1 for the duration (see begin/teardown).
+    const w = warp() * (state.paused ? 0 : 1);
     const simSeconds = dt * w;
 
     if (cruise) {

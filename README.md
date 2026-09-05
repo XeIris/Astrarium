@@ -622,10 +622,16 @@ drifts nor needs a step size.
 Astrarium is two simulators sharing one renderer, and one stacked control column
 could not serve both — by the time spaceflight was at the bottom of it, changing
 the imaging band meant scrolling past a climate model. So the page opens with a
-choice, **Sandbox** or **Spaceflight**, and the panels follow it: every section
-folds, only the ones that mode needs are shown, and the switch in the top left
-changes mode at any time without losing anything. It is a filter, not two
-applications — the physics, the scene and the bodies are the same either way.
+choice, **Sandbox** or **Spaceflight**, and the switch in the top left changes
+mode at any time.
+
+They share the physics and nothing else. **Spaceflight is for flying**: it opens
+already on the pad at Earth, at **1:1** — one second per second, with the warp
+ladder the only handle on it — and the orrery's own instruments are simply not
+there. No scenario list, no interior editor, no painter, no spawner, no body
+list, no imaging bands, and above all no time-scale slider. Those are things you
+do to a universe you are looking at, and none of them mean anything while you
+are holding a vehicle down on a launch mount. Editing happens in the sandbox.
 
 ## Running
 
