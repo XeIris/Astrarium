@@ -17,6 +17,7 @@ import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
 import { physicalRadiusAU, createMarker } from './sim/scale.js';
 import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics, applySkyBoost } from './sim/sky.js';
 import { createSpaceflight } from './sim/flight/spaceflight.js';
+import { craftModelsReady } from './sim/flight/craftassets.js';
 import { createModelViewer } from './sim/flight/modelviewer.js';
 import { grossMass, totalDeltaV } from './sim/flight/vehicles.js';
 
@@ -2312,9 +2313,14 @@ function renderCraftGrid() {
     btn.addEventListener('click', () => launchCraft(btn.dataset.craft)));
 }
 
-function launchCraft(key) {
+async function launchCraft(key) {
   const veh = flight.vehicles.find(v => v.key === key);
   if (!veh) return;
+  // The authored models are a cache buildCraft reads synchronously, so the
+  // cache has to be full before the first build or the Hail Mary spawns as its
+  // procedural fallback and stays that way for the flight. Settled by now in
+  // every real case — the preload starts at boot — so this awaits nothing.
+  await craftModelsReady();
   lastCraft = key;
   // A launcher needs a body with a surface to leave; everything else is put in
   // orbit around whatever dominates the scenario.
@@ -2917,4 +2923,8 @@ resize();
 const hasPreset = k => Object.prototype.hasOwnProperty.call(PRESETS, k);
 loadPreset(hasPreset(location.hash.slice(1)) ? location.hash.slice(1) : 'sandbox');
 addEventListener('hashchange', () => { const k = location.hash.slice(1); if (hasPreset(k)) loadPreset(k); });
+// Start the authored models loading with everything else. Nothing waits on it:
+// launchCraft awaits the same promise, and a vehicle picked before it lands
+// simply gets the procedural build.
+craftModelsReady();
 setTimeout(() => { DOM.loading.classList.add('gone'); animate(); }, 400);

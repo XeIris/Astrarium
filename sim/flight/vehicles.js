@@ -121,7 +121,12 @@ export const ENGINES = {
     // PROPER acceleration (1.5 g in the book), so vessel.js sets F = m·a each
     // step and takes ṁ = F/c. See sim/flight/relativity.js.
     thrustVac: 3.1e7, ispSL: 3.0570e7, ispVac: 3.0570e7, throttleMin: 0.001,
-    gimbal: 0, photon: true, holdAccel: 1.5 * 9.80665, exitD: 4.0, plume: 'spin',
+    // The aperture is 1.64 m, not the 4 m a chemical engine of this thrust would
+    // need: a photon drive's thrust is P/c, so what sizes the exit is the power
+    // the emitter plate can radiate, not an expansion ratio. It is also what
+    // the plume is scaled from, so a drive drawn small and a beam drawn wide
+    // would disagree in the one place you can see both.
+    gimbal: 0, photon: true, holdAccel: 1.5 * 9.80665, exitD: 1.64, plume: 'spin',
   },
   BEETLE_DRIVE: {
     name: 'Beetle spin drive', prop: 'Astrophage',
@@ -168,17 +173,21 @@ export const VEHICLES = {
     stages: [
       stage({ key: 'sic', name: 'S-IC', dry: 137000, prop: 2077000,
         engine: ENGINES.F1, count: 5, L: 42.0, D: 10.06,
-        look: { skin: 'white', pattern: 'saturn', fins: 4, interstage: 3.5 } }),
+        look: { skin: 'white', pattern: 'saturn', fins: 4, interstage: 1.5 } }),
       stage({ key: 'sii', name: 'S-II', dry: 36200, prop: 443000,
         engine: ENGINES.J2, count: 5, L: 24.9, D: 10.06,
         rcs: { thrust: 3300, isp: 190, prop: 400, count: 8 },
-        look: { skin: 'white', interstage: 5.5 } }),
+        look: { skin: 'white', interstage: 2.0 } }),
       stage({ key: 'sivb', name: 'S-IVB', dry: 13500, prop: 109500,
         engine: ENGINES.J2, count: 1, L: 17.8, D: 6.60, restarts: 1,
         // The auxiliary propulsion modules — also what settles the propellant
         // before the restart for translunar injection.
         rcs: { thrust: 654, isp: 274, prop: 250, count: 6 },
-        look: { skin: 'white', band: 'black', aftSkirt: true } }),
+        // The spacecraft-LM adapter: a cone from the S-IVB's 6.6 m down to the
+        // service module's 3.9 m, with the lunar module folded inside it.
+        // Without it the stack is one diameter from the engines to the escape
+        // tower, which is the single thing a Saturn V most obviously is not.
+        look: { skin: 'white', band: 'black', aftSkirt: true, interstage: 6.5 } }),
       stage({ key: 'csm', name: 'CSM "Columbia"', dry: 11900, prop: 18410,
         engine: ENGINES.SPS, count: 1, L: 11.0, D: 3.9, sep: 'none',
         rcs: { thrust: 445, isp: 290, prop: 550, count: 16 },
@@ -212,7 +221,8 @@ export const VEHICLES = {
         // Reserve held back for boostback, entry and landing. Not invented: it
         // is what a droneship profile actually keeps, ~8% of the load.
         reserve: 0.08,
-        look: { skin: 'white', soot: true, octaweb: true, interstage: 4.0 } }),
+        look: { skin: 'white', soot: true, octaweb: true, interstage: 4.0,
+                interstageSkin: 'black' } }),
       stage({ key: 'f9s2', name: 'Stage 2', dry: 4000, prop: 111500,
         engine: ENGINES.MVAC, count: 1, L: 13.8, D: 3.66, restarts: 2,
         // Cold-gas nitrogen thrusters. Without attitude control that does not
@@ -228,7 +238,10 @@ export const VEHICLES = {
         look: { fairing: true } }),
       stage({ key: 'f9pl', name: 'Payload', dry: 13000, prop: 0,
         engine: null, count: 0, L: 5.0, D: 3.4, sep: 'none',
-        look: { satellite: true } }),
+        // The payload rides INSIDE the fairing, not stacked on its nose. Stacked
+        // it added its own 5 m to the vehicle and left a satellite sitting in
+        // the airstream above the shroud meant to protect it.
+        look: { satellite: true, mount: { y: 61.0 } } }),
     ],
   },
 
@@ -247,7 +260,7 @@ export const VEHICLES = {
       stage({ key: 'srb', name: 'SRB pair', dry: 172000, prop: 1004000,
         engine: ENGINES.SRB_RSRM, count: 2, L: 45.5, D: 3.71, liftoff: true,
         // A solid cannot be throttled or shut down. Once lit, it burns out.
-        look: { skin: 'white', srb: true, chutes: 3 } }),
+        look: { skin: 'white', srb: true, chutes: 3, mount: { y: 1.1 } } }),
       stage({ key: 'et', name: 'External Tank + SSME', dry: 26500, prop: 719000,
         engine: ENGINES.RS25, count: 3, L: 46.9, D: 8.40,
         // The SSMEs light on the pad alongside the solids and keep burning for
@@ -255,12 +268,15 @@ export const VEHICLES = {
         // not a stack, and `liftoff` is what says so.
         liftoff: true, engineOn: 'orbiter',
         rcs: { thrust: 3870, isp: 289, prop: 800, count: 44 },
-        look: { skin: 'foam', tank: true } }),
+        look: { skin: 'foam', tank: true, mount: { y: 10.3 } } }),
       stage({ key: 'orbiter', name: 'Orbiter + payload', dry: 99000, prop: 10800,
         engine: ENGINES.SPS, count: 2, L: 37.2, D: 5.6, sep: 'none',
         wings: { span: 23.8, area: 250, clMax: 1.4 },
         rcs: { thrust: 3870, isp: 289, prop: 1460, count: 44 },
-        look: { skin: 'tiles', orbiter: true } }),
+        // z is the tank's radius (4.2 m) plus the orbiter's own half-depth, so
+        // the belly tiles sit against the foam where the struts are; y stacks it
+        // on the tank's own mount, putting the nose just under the ogive.
+        look: { skin: 'tiles', orbiter: true, mount: { y: 16.7, z: 7.05 } } }),
     ],
   },
 
@@ -398,11 +414,15 @@ export const VEHICLES = {
   hailmary: {
     id: 'hailmary', name: 'Hail Mary', role: 'interstellar', launchFrom: null,
     era: 'Project Hail Mary',
-    blurb: 'Three parallel astrophage tanks, a pressure vessel forward of them, and a nose that holds four beetles. Photon drive at 1.5 g, 2 000 t of fuel — enough to reach Tau Ceti in thirteen Earth years and six and a half aboard.',
+    blurb: 'Three parallel astrophage tanks around a central spine, a pressure vessel forward of them, and a nose that holds four beetles. Four spin drives on one thrust plane, 1.5 g and 2 000 t of fuel — enough to reach Tau Ceti in thirteen Earth years and six and a half aboard.',
     limits: { maxQ: 1e9, maxG: 4, qAlpha: 1e9, heatLoad: 0 },
     stages: [
       stage({ key: 'hm', name: 'Hail Mary', dry: 100000, prop: 2000000,
-        engine: ENGINES.SPIN_DRIVE, count: 3, L: 47.0, D: 12.0, sep: 'none',
+        // FOUR drives, not three: one under each tank and one on the axis, all
+        // firing through a single plane parallel to the ship. The count is the
+        // model's count on purpose — a vehicle whose bells you can see and whose
+        // thrust you integrate must not disagree about how many there are.
+        engine: ENGINES.SPIN_DRIVE, count: 4, L: 47.0, D: 12.0, sep: 'none',
         rcs: { thrust: 2200, isp: 300, prop: 900, count: 16 },
         centrifuge: false,
         look: { skin: 'panel-white', hailmary: true, tanks: 3, beetles: 4, radiators: 4 } }),

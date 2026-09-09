@@ -9,8 +9,11 @@ the engineering map: stack, layout, conventions.
 
 - **Three.js 0.160.0**, loaded from a CDN through an `importmap` in
   [blackhole_sim.html](blackhole_sim.html). Vanilla ES modules, no bundler.
-- **No build step, no package.json, no dependencies, no tests.** Editing a file
-  and reloading the page is the whole dev loop.
+- **No build step, no package.json, no dependencies, no tests** — for the code.
+  Editing a file and reloading the page is the whole dev loop. The ONE exception
+  is `assets/hailmary.glb`, an authored mesh built offline in Blender from
+  `assets/blender/hailmary.py`. It is a build artifact, not a checked-in asset:
+  nothing builds it at serve time, and the sim runs without it (see below).
 - Most of the visual work is **custom GLSL** in `THREE.ShaderMaterial`s written
   inline as template strings — full-screen passes (lensing, sky, post) plus
   per-body surface shaders.
@@ -29,6 +32,22 @@ node .claude/serve.mjs
 Then open http://localhost:8777/blackhole_sim.html. `.claude/launch.json`
 registers the same server as the `sim` preview config (port 8777), so
 `preview_start {name: "sim"}` is the preferred way to run and verify changes.
+
+The one authored model is built offline and its mesh is NOT in the repo — the
+script is the model, `assets/*.glb` is what falls out of it, and `.gitignore`
+says so. A fresh clone runs without it (the procedural fallback takes over), but
+the ship is not the ship until this has been run once:
+
+```bash
+assets/blender/build.sh
+```
+
+The script hunts for Blender rather than assuming it: it is commonly installed
+somewhere off `PATH` — through Steam, on the machine this was written on — so
+`which blender` finding nothing means nothing, and `mdfind -name Blender.app` is
+the check worth doing before concluding it is missing. Any Blender 4.1+ works;
+the build uses sharp-edge shading rather than the `use_auto_smooth` removed in
+4.1. Set `BLENDER_OVERRIDE=/path/to/Blender` to force one.
 
 Scenarios deep-link by hash, e.g. `blackhole_sim.html#bhmerger` — handy for
 jumping straight to the case you're debugging. Keys `1`–`7` switch imaging band,
@@ -92,6 +111,8 @@ point and the only file here that knows the orrery exists.
 | [sim/flight/guidance.js](sim/flight/guidance.js) | the `Autopilot`: ascent, orbital insertion, node execution, transfers, Apollo P63/P64/P66, hoverslam, Mars EDL. One shared `descentLaw` and one shared `limitThrottle` |
 | [sim/flight/relativity.js](sim/flight/relativity.js) | exact constant-proper-acceleration `Cruise`, `solveProfile` (flip-and-burn vs accelerate–coast–decelerate), `skyBoost` |
 | [sim/flight/craftmodel.js](sim/flight/craftmodel.js) | procedural spacecraft at real dimensions; per-stage groups so separations are re-parents, with legs, grid fins, fairing halves, arrays and gimbals that move |
+| [sim/flight/craftassets.js](sim/flight/craftassets.js) | the authored-model cache: preloads `assets/*.glb` through `GLTFLoader`, binds their moving parts by name, and lets `buildCraft` stay synchronous. Falls back silently |
+| [assets/blender/hailmary.py](assets/blender/hailmary.py) | the Hail Mary's Blender build — the script IS the model, nothing is clicked; `lib.py` beside it holds the primitives and `build.sh` finds Blender and runs them |
 | [sim/flight/plume.js](sim/flight/plume.js) | exhaust (shape from ambient pressure, shock diamonds when over-expanded), RCS puffs, re-entry plasma, launch smoke |
 | [sim/flight/localview.js](sim/flight/localview.js) | **local space**: the metre-scale scene, curved ground patch, altitude-driven atmosphere, and the flight cameras |
 | [sim/flight/launchsite.js](sim/flight/launchsite.js) | the launch complex at real dimensions — hardstand, flame trench, mobile launcher, umbilical tower with swing arms, strongback, chopsticks, lightning masts, deluge |
@@ -162,6 +183,122 @@ point and the only file here that knows the orrery exists.
   Directions — normals, sun vectors — are unaffected and may still use `modelMatrix`.
 - **Body visuals follow one contract**: a factory returns `{ group, update(dt, ctx) }`
   attached as `b.viz`, with `ctx = { holes, camera, time, sceneScale }`.
+- **A stage's `L` is its WHOLE length, nose included.** A nose cone eats into the
+  barrel rather than being stacked on top of it; adding it above `L` made every
+  stage that has one longer than the number the physics integrates — 8 m of it on
+  the Shuttle tank alone, which is how the stack came out 68 m instead of 56.
+- **Not every stage stacks.** `look.mount = { x, y, z }` mounts a stage on the
+  core instead of on the nose of the one below, and a mounted stage does not
+  advance the stack height. The Shuttle is the case that forced it: the orbiter
+  is bolted to the SIDE of the tank, and stacking it put 37 m of spacecraft in
+  the wrong place — no amount of surface detail survives that. Because mounts
+  exist, the stack's height is a MEASURED extent (a `Box3` over the built root),
+  not a running sum of stage lengths.
+- **y = 0 on a craft is the PAD SURFACE.** `spaceflight.js` adds `craft.group`
+  straight to `local.craftRoot` with no vertical offset, so the datum has to be
+  whatever the vehicle stands on — for the Shuttle that is the solids' nozzle
+  exit, not the tank's aft dome, which is 9.2 m higher. Get it wrong and the
+  boosters are under the concrete.
+- **An interstage ADAPTS.** It is drawn from the stage's own diameter to the next
+  one's (`ctx.nextD`), because the Saturn V's go 10.06 m → 6.6 m → 3.9 m. Drawn
+  as a cylinder the whole vehicle is one width from the engines to the escape
+  tower, which is the single thing a Saturn V most obviously is not.
+- **Anything in `parts.gimbals` must have IDENTITY as its neutral pose.**
+  `update()` drives those groups by *assigning* Euler angles, and assigning a
+  rotation wipes whatever orientation was set when the part was built. So a
+  thruster that is mounted at an angle needs TWO groups: an outer mount carrying
+  the fixed orientation, and an inner pivot — the one registered — that the
+  guidance moves. Both the sky crane's engine cant and the Hail Mary's spin
+  drives were being snapped back to vertical on the first frame for want of it,
+  and it is invisible until something is mounted off-axis.
+- **A pivot declares how far it may swing, and `update()` clamps to it.**
+  `parts.gimbals` is where the PLUMES hang as well as where the deflection is
+  applied, so a rigid engine still has to be registered there — which meant an
+  engine that cannot gimbal was drawn gimballing. The authority belongs on the
+  pivot (`userData.gimbalDeg`) rather than on the stage, because a cluster is
+  not all one engine: Starship's three vacuum Raptors are fixed and sit in the
+  same list as its three that steer. A pivot that declares nothing is left
+  unclamped, so a hand-built drive keeps whatever freedom it had. The Hail
+  Mary's four spin drives are the case that forced it — rigid, and visibly
+  canted a few degrees and waggling once a second until the clamp existed.
+- **One vehicle is AUTHORED, and it is the exception that proves the rule.**
+  Eight of the nine are built from Three.js primitives, which is right: a Saturn
+  V is a stack of cylinders and cones, it is genuinely parametric, and there is
+  no asset to keep in step with the code. The Hail Mary is not — its shape is
+  three bent pressure vessels nested against a lathed spine, and what makes hard
+  surface read is a BEVEL on every edge. A perfectly sharp edge catches no
+  specular highlight at all, which is why a model assembled from
+  `CylinderGeometry` looks like cardboard however right its silhouette is, and
+  there is no bevel modifier at runtime. It also buys real recessed panel lines:
+  `CylinderGeometry` takes ONE radius, so a joint between barrel sections can
+  only be a ring strapped round the outside, where the Blender build dips the
+  radius and cuts a groove. Reach for an asset when the shape needs those and
+  not before — a second .glb for a vehicle a lathe could draw is a file that
+  will silently drift away from the numbers in `vehicles.js`.
+- **A missing asset is not an error.** `buildHailMary` falls back to its
+  procedural build if the .glb has not loaded, 404s, or the CDN serving
+  `GLTFLoader` is unreachable, and the fallback is kept working rather than left
+  to rot: a vehicle that cannot be drawn without a network round trip is a
+  vehicle that cannot be drawn. `buildCraft` also stays SYNCHRONOUS — four call
+  sites depend on it returning a finished vehicle, one of them the studio's
+  `audit()` — so assets are preloaded into a cache and the builder reads the
+  cache. Anything that builds a craft has to fill it first (`craftModelsReady()`)
+  or it silently measures the fallback and reports that as the regression number.
+- **The authored model's moving parts are bound BY NAME.** In the .glb the four
+  drive pivots are empties named `gimbal_0` … `gimbal_3`, each with identity
+  rotation and its origin ON THE EXIT PLANE, because spaceflight.js parents the
+  plume straight to the pivot. Their meshes are named `drv0_…` so that only the
+  pivots match `^gimbal_\d+$`. Everything static is joined by material before
+  export: six hundred objects is six hundred DRAW CALLS a frame for a body that
+  never moves relative to itself, and this is drawn in a second pass over a
+  whole orrery. 612 → 34.
+- **The Hail Mary's four drives fire through ONE PLANE, parallel to the axis.**
+  A drive canted by θ throws away 1 − cos θ of its thrust and puts the rest
+  into a torque that has to be held out with propellant for thirteen years, so
+  the tanks bend in around the spine — that is the shape of the ship — but each
+  drive hangs SQUARE underneath the bend on its own thrust block, and the fourth
+  is on the centreline. `count` in `sim/flight/vehicles.js` is the model's count
+  on purpose: a vehicle whose engines you can see and whose thrust you integrate
+  must not disagree about how many there are.
+- **A stage builder must not write to its own group's transform.** `buildCraft`
+  assigns `group.position` when it places the stage, so an offset set inside the
+  builder is silently overwritten a moment later. Put it on an inner group. This
+  is the same trap as the gimbal one above, one level up: in both cases the
+  parent owns that property and the child's value does not survive.
+- **An emitter has to be lit by itself, and BRIGHTLY.** A drive face points aft,
+  away from every light in the scene, so it renders black however it is coloured.
+  An emissive of 0x2a0d06 is 0.023 in linear light and ACES puts it back at
+  almost nothing — emitters need values scaled for an HDR pipeline, not values
+  that look right as hex.
+- **`parts.arrays` means DEPLOYABLE.** `update()` holds everything in that list
+  folded until the flight state asks for it, so fixed structure — the Hail Mary's
+  radiators — must not go in it, or the ship flies with its heat rejection stowed.
+- **Craft materials are DOUBLE-SIDED and LOW-METALNESS, both on purpose.** Most
+  of the vehicle set is open shells — lathed nozzles, aft skirts, interstages,
+  an aeroshell backshell — and a single-sided shell has no inner wall, so you
+  look into an engine bell and see sky. Separately, nothing in this renderer sets
+  `scene.environment`: local space is lit by punctual lights only, and a PBR
+  metal is *entirely* reflection with no diffuse term, so at metalness 0.8 it
+  renders BLACK. That is what made the sky crane's deck and Curiosity's chassis
+  dark blobs. Until there is an environment to sample, the base colour carries
+  the material.
+- **`engineOn` means the bells belong to ANOTHER stage.** The Shuttle's SSMEs are
+  on the orbiter and fed from the tank; the stage that owns the propellant must
+  not draw them too, or the stack flies with six main engines, three of them
+  bolted to a tank it throws away.
+- **A stage that carries a nose or an interstage needs a FLAT tank top.** The
+  lathe's dome curves away underneath whatever sits on it and leaves a pinched
+  gap at every joint — which is what read as odd spacing up the Saturn V.
+- **A stowed array folds to 90°, not "mostly".** At 1.35 rad the Falcon 9's
+  payload still spanned 5.8 m inside a 5.2 m fairing and speared through it.
+- **Not everything is a body of revolution.** `loft()` takes cross-sections with
+  independent half-width, half-height and a superellipse exponent, and its
+  `t0`/`t1` sweep lets the upper and lower shells carry different materials —
+  which is the whole point for a vehicle that is white on top and black
+  underneath. `wingPanel()` takes spanwise stations, so a kinked planform (the
+  orbiter's double delta) is just a station at the kink. Approximating either
+  with a cylinder and a slab is not a coarse model of the shape, it is a
+  different object.
 - **`sim/structure.js` is the single source of truth for what a body is.** Radius,
   shape, temperature map, interior layers and the stability verdict all come from
   `structureOf()`, and every consumer — the star shader's oblateness, the cross-section,
@@ -290,6 +427,22 @@ stale surface. `SIM.frame(dt)` runs one frame by hand at a fixed step;
 coarse luminance grid, and [.claude/mission.js](.claude/mission.js) scripts a
 whole flight and samples telemetry along it. Override `innerWidth`/`innerHeight`
 and dispatch a `resize` first, or the drawing buffer is one pixel.
+
+For vehicle models, open [.claude/crafttest.html](.claude/crafttest.html) — the
+same idea as skytest, for `sim/flight/craftmodel.js`. It renders one vehicle on
+a neutral ground under a fixed three-point rig with a 1.75 m figure beside it:
+`?v=shuttle&view=side` (orthographic elevation — a silhouette is the honest test
+of a shape and the only projection you can hold against a reference photo),
+`view=iso|front|top|detail`, `&stage=N` to frame one stage, `&z=` to zoom.
+`STUDIO.audit()` builds EVERY vehicle and returns measured height, span and
+triangle count — that is the regression check, because a stack whose height
+stops matching the published figure shows up as a number rather than as a
+picture that looks slightly wrong. [.claude/craftsheet.html](.claude/craftsheet.html)
+puts them all in one frame, which is how you judge whether the set belongs
+together. Note both set `preserveDrawingBuffer` — without it a hidden preview
+pane screenshots black, since nothing repaints and the buffer is cleared once
+composited. Params live in the SEARCH string, not the fragment: a hash-only
+change does not re-execute the module and you get the previous vehicle.
 
 For sky work, open [.claude/skytest.html](.claude/skytest.html) instead. It
 renders `sim/sky.js` on its own through the same postfx chain, with a camera you
