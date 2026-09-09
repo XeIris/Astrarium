@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { craftModel, bindParts } from './craftassets.js';
+import { craftStage, bindParts } from './craftassets.js';
 
 // ============================================================================
 // PROCEDURAL SPACECRAFT
@@ -525,6 +525,22 @@ function buildStage(spec, ctx) {
   const D = spec.D, L = spec.L;
   const parts = { gimbals: [], fins: [], legs: [], arrays: [], flaps: [], halves: [], nozzles: [] };
 
+  // THE AUTHORED MODEL, if one loaded. Everything past this point is the
+  // procedural build: real dimensions out of Three.js primitives, and still
+  // the only thing that draws when the .glb is missing — which it is on a
+  // fresh clone, because the mesh is a build artifact and the .py file beside
+  // it is the model. See sim/flight/craftassets.js.
+  //
+  // The authored subtree replaces the stage's CONTENTS, not its placement:
+  // buildCraft assigns this group's position a moment later, so the model goes
+  // inside it rather than being it.
+  const authored = craftStage(ctx?.id, spec.key);
+  if (authored) {
+    g.add(authored);
+    bindParts(authored, parts, spec);
+    return { group: g, parts };
+  }
+
   if (look.srb) return buildSRB(spec, parts);
   if (look.orbiter) return buildOrbiter(spec, parts);
   if (look.aeroshell) return buildAeroshell(spec, parts);
@@ -777,8 +793,16 @@ function buildSRB(spec, parts) {
     const skirt = new THREE.Mesh(
       new THREE.CylinderGeometry(r * 1.02, r * 1.30, L * 0.098, 24, 1, true), M.dirty);
     skirt.position.y = L * 0.049; b.add(skirt);
-    const nz = bell(spec.engine.exitD || D * 0.95, { ratio: 7.7, chamber: false });
-    nz.scale.setScalar(1.0); nz.position.y = L * 0.085; b.add(nz);
+    // The nozzle hangs on a PIVOT, and it has to: parts.gimbals is where the
+    // PLUMES hang as well as where the deflection is applied, so a booster with
+    // no pivot burns invisibly — and these two make 71% of the thrust at
+    // liftoff. The RSRM's nozzle really does vector 8 degrees, which is the
+    // stack's only control authority until the SSMEs have any.
+    const nzp = new THREE.Group();
+    nzp.position.y = L * 0.085;
+    nzp.userData.gimbalDeg = spec.engine.gimbal;
+    nzp.add(bell(spec.engine.exitD || D * 0.95, { ratio: 7.7, chamber: false }));
+    b.add(nzp); parts.gimbals.push(nzp);
 
     // Motor case: four segments, so four field joints.
     const caseY = L * 0.098, caseL = L * 0.735;
@@ -1089,7 +1113,13 @@ function buildLMDescent(spec, parts) {
     p.position.set(Math.cos(a) * D / 2 * 0.96, L / 2, Math.sin(a) * D / 2 * 0.96);
     p.rotation.y = -a; g.add(p);
   }
-  const b = bell(spec.engine.exitD, { ratio: 47.5 }); b.scale.setScalar(1.1); g.add(b);
+  // Same reason as the SRB above: with no pivot registered, parts.gimbals came
+  // back empty for this vehicle and the LM has always descended with no visible
+  // exhaust at all. The DPS gimbals 6 degrees.
+  const dp = new THREE.Group();
+  dp.userData.gimbalDeg = spec.engine.gimbal;
+  const b = bell(spec.engine.exitD, { ratio: 47.5 }); b.scale.setScalar(1.1);
+  dp.add(b); g.add(dp); parts.gimbals.push(dp);
   // Four legs on outriggers, plus the ladder on the +X one.
   for (let i = 0; i < 4; i++) {
     const a = i / 4 * Math.PI * 2 + Math.PI / 4;
@@ -1126,7 +1156,12 @@ function buildLMAscent(spec, parts) {
   const d = dish(0.66); d.position.set(1.1, 3.0, -0.6); d.rotation.z = -0.9; g.add(d);
   const drogue = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 0.5, 14), M.dirty);
   drogue.position.y = 3.2; g.add(drogue);
-  const b = bell(spec.engine.exitD, { ratio: 45 }); g.add(b);
+  // The APS is FIXED — no gimbal at all — so the ascent stage steers on RCS
+  // alone. It still needs the pivot, because that is where the plume hangs.
+  const ap = new THREE.Group();
+  ap.userData.gimbalDeg = spec.engine.gimbal;      // 0: declared, and clamped to it
+  ap.add(bell(spec.engine.exitD, { ratio: 45 }));
+  g.add(ap); parts.gimbals.push(ap);
   g.add(rcsRing(3.4, 2.4, 4));
   return { group: g, parts };
 }
@@ -1495,18 +1530,11 @@ function spinDrive(R) {
  * on.
  */
 function buildHailMary(spec, parts) {
+  // The authored .glb is picked up by buildStage before this is ever called —
+  // this whole function is now the FALLBACK, and it is kept working rather
+  // than left to rot because a ship that cannot be drawn without a network
+  // round trip is a ship that cannot be drawn.
   const g = new THREE.Group();
-  // THE AUTHORED MODEL, if it loaded. This is the one vehicle in the set that
-  // is not built from primitives — see sim/flight/craftassets.js for why, and
-  // assets/blender/hailmary.py for the build. Everything below this line is
-  // the fallback, and it is kept rather than deleted because a ship that cannot
-  // be drawn without a network round trip is a ship that cannot be drawn.
-  const authored = craftModel('hailmary');
-  if (authored) {
-    g.add(authored);
-    bindParts(authored, parts);
-    return { group: g, parts };
-  }
   const L = spec.L, D = spec.D;                          // 47 m × 12 m
   const f = (u) => u * L;
   const look = spec.look || {};

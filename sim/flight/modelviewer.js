@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildCraft } from './craftmodel.js';
+import { preloadCraft } from './craftassets.js';
 import { VEHICLES, VEHICLE_ORDER, grossMass, totalDeltaV, stageDeltaV, padTWR } from './vehicles.js';
 
 // ============================================================================
@@ -137,9 +138,20 @@ export function createModelViewer() {
   function load(vehicleKey) {
     const veh = VEHICLES[vehicleKey];
     if (!veh) return null;
+    // Warm this vehicle's authored mesh, and build again when it lands.
+    // buildCraft is synchronous by design, so the first call here draws the
+    // procedural fallback and the second replaces it — which is the right way
+    // round: the studio opens instantly on something, rather than on nothing.
+    // load() rebuilds from scratch, so calling it twice is safe.
+    preloadCraft(vehicleKey).then((ok) => {
+      if (ok && vehicle && vehicle.key === vehicleKey && !craft?.authored) load(vehicleKey);
+    });
     if (craft) { root.remove(craft.group); craft = null; }
     vehicle = { key: vehicleKey, ...veh };
     craft = buildCraft(veh);
+    // Remember whether this build used the authored mesh, so the warm-up above
+    // does not rebuild forever once it already has.
+    craft.authored = craft.stages.some(st => st.group.children.some(c => c.name.startsWith('stage_')));
     root.add(craft.group);
     // Frame from the MODEL's own bounds, not from the stacked stage lengths.
     // Those two disagree wherever a vehicle is not a simple stack — the lunar

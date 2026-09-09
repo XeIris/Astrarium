@@ -11,9 +11,10 @@ the engineering map: stack, layout, conventions.
   [blackhole_sim.html](blackhole_sim.html). Vanilla ES modules, no bundler.
 - **No build step, no package.json, no dependencies, no tests** — for the code.
   Editing a file and reloading the page is the whole dev loop. The ONE exception
-  is `assets/hailmary.glb`, an authored mesh built offline in Blender from
-  `assets/blender/hailmary.py`. It is a build artifact, not a checked-in asset:
-  nothing builds it at serve time, and the sim runs without it (see below).
+  is `assets/*.glb`, the nine authored spacecraft meshes, built offline in
+  Blender from the `.py` files in `assets/blender/`. They are build artifacts,
+  not checked-in assets: nothing builds them at serve time, `.gitignore` says
+  so, and the sim runs without them (see below).
 - Most of the visual work is **custom GLSL** in `THREE.ShaderMaterial`s written
   inline as template strings — full-screen passes (lensing, sky, post) plus
   per-body surface shaders.
@@ -33,14 +34,19 @@ Then open http://localhost:8777/blackhole_sim.html. `.claude/launch.json`
 registers the same server as the `sim` preview config (port 8777), so
 `preview_start {name: "sim"}` is the preferred way to run and verify changes.
 
-The one authored model is built offline and its mesh is NOT in the repo — the
-script is the model, `assets/*.glb` is what falls out of it, and `.gitignore`
-says so. A fresh clone runs without it (the procedural fallback takes over), but
-the ship is not the ship until this has been run once:
+The vehicle models are built offline and their meshes are NOT in the repo — the
+SCRIPT is the model, `assets/*.glb` is what falls out of it, and `.gitignore`
+says so. A fresh clone runs without them (the procedural fallback takes over),
+but the ships are not the ships until this has been run once:
 
 ```bash
 assets/blender/build.sh
 ```
+
+That builds all nine (~12 MB, half a minute). Name some to build fewer —
+`assets/blender/build.sh shuttle lm` — which is the loop worth using while
+editing one. `lib.py` holds the primitives and `common.py` the palette, the
+optimiser and the exporter; neither is a vehicle, so neither is buildable.
 
 The script hunts for Blender rather than assuming it: it is commonly installed
 somewhere off `PATH` — through Steam, on the machine this was written on — so
@@ -111,8 +117,8 @@ point and the only file here that knows the orrery exists.
 | [sim/flight/guidance.js](sim/flight/guidance.js) | the `Autopilot`: ascent, orbital insertion, node execution, transfers, Apollo P63/P64/P66, hoverslam, Mars EDL. One shared `descentLaw` and one shared `limitThrottle` |
 | [sim/flight/relativity.js](sim/flight/relativity.js) | exact constant-proper-acceleration `Cruise`, `solveProfile` (flip-and-burn vs accelerate–coast–decelerate), `skyBoost` |
 | [sim/flight/craftmodel.js](sim/flight/craftmodel.js) | procedural spacecraft at real dimensions; per-stage groups so separations are re-parents, with legs, grid fins, fairing halves, arrays and gimbals that move |
-| [sim/flight/craftassets.js](sim/flight/craftassets.js) | the authored-model cache: preloads `assets/*.glb` through `GLTFLoader`, binds their moving parts by name, and lets `buildCraft` stay synchronous. Falls back silently |
-| [assets/blender/hailmary.py](assets/blender/hailmary.py) | the Hail Mary's Blender build — the script IS the model, nothing is clicked; `lib.py` beside it holds the primitives and `build.sh` finds Blender and runs them |
+| [sim/flight/craftassets.js](sim/flight/craftassets.js) | the authored-model cache: loads one vehicle's `assets/<id>.glb` through `GLTFLoader`, splits it into per-stage subtrees, binds their moving parts by name, and lets `buildCraft` stay synchronous. Falls back silently |
+| [assets/blender/](assets/blender/) | the Blender builds — one `.py` per vehicle, and the script IS the model, nothing is clicked. `lib.py` holds the primitives (lathe, loft, wing, sphere-cone, bevel), `common.py` the palette, the join-by-material optimiser and the glTF export, `build.sh` finds Blender and runs them |
 | [sim/flight/plume.js](sim/flight/plume.js) | exhaust (shape from ambient pressure, shock diamonds when over-expanded), RCS puffs, re-entry plasma, launch smoke |
 | [sim/flight/localview.js](sim/flight/localview.js) | **local space**: the metre-scale scene, curved ground patch, altitude-driven atmosphere, and the flight cameras |
 | [sim/flight/launchsite.js](sim/flight/launchsite.js) | the launch complex at real dimensions — hardstand, flame trench, mobile launcher, umbilical tower with swing arms, strongback, chopsticks, lightning masts, deluge |
@@ -221,37 +227,69 @@ point and the only file here that knows the orrery exists.
   unclamped, so a hand-built drive keeps whatever freedom it had. The Hail
   Mary's four spin drives are the case that forced it — rigid, and visibly
   canted a few degrees and waggling once a second until the clamp existed.
-- **One vehicle is AUTHORED, and it is the exception that proves the rule.**
-  Eight of the nine are built from Three.js primitives, which is right: a Saturn
-  V is a stack of cylinders and cones, it is genuinely parametric, and there is
-  no asset to keep in step with the code. The Hail Mary is not — its shape is
-  three bent pressure vessels nested against a lathed spine, and what makes hard
-  surface read is a BEVEL on every edge. A perfectly sharp edge catches no
-  specular highlight at all, which is why a model assembled from
-  `CylinderGeometry` looks like cardboard however right its silhouette is, and
-  there is no bevel modifier at runtime. It also buys real recessed panel lines:
-  `CylinderGeometry` takes ONE radius, so a joint between barrel sections can
-  only be a ring strapped round the outside, where the Blender build dips the
-  radius and cuts a groove. Reach for an asset when the shape needs those and
-  not before — a second .glb for a vehicle a lathe could draw is a file that
-  will silently drift away from the numbers in `vehicles.js`.
-- **A missing asset is not an error.** `buildHailMary` falls back to its
-  procedural build if the .glb has not loaded, 404s, or the CDN serving
-  `GLTFLoader` is unreachable, and the fallback is kept working rather than left
-  to rot: a vehicle that cannot be drawn without a network round trip is a
-  vehicle that cannot be drawn. `buildCraft` also stays SYNCHRONOUS — four call
-  sites depend on it returning a finished vehicle, one of them the studio's
-  `audit()` — so assets are preloaded into a cache and the builder reads the
-  cache. Anything that builds a craft has to fill it first (`craftModelsReady()`)
-  or it silently measures the fallback and reports that as the regression number.
-- **The authored model's moving parts are bound BY NAME.** In the .glb the four
-  drive pivots are empties named `gimbal_0` … `gimbal_3`, each with identity
-  rotation and its origin ON THE EXIT PLANE, because spaceflight.js parents the
-  plume straight to the pivot. Their meshes are named `drv0_…` so that only the
-  pivots match `^gimbal_\d+$`. Everything static is joined by material before
-  export: six hundred objects is six hundred DRAW CALLS a frame for a body that
-  never moves relative to itself, and this is drawn in a second pass over a
-  whole orrery. 612 → 34.
+- **Every vehicle is AUTHORED, and every vehicle still has a procedural
+  build.** Both halves matter. The reason to author is that a lathe cannot
+  BEVEL AN EDGE: a perfectly sharp edge catches no specular highlight at all,
+  which is why hard surface assembled from `CylinderGeometry` reads as cardboard
+  however right its silhouette is, and there is no bevel modifier at runtime.
+  Nor can it cut a recessed panel line — `CylinderGeometry` takes ONE radius, so
+  a joint between barrel sections can only be a ring strapped round the outside,
+  where the Blender build dips the radius and cuts a groove. And some shapes are
+  not bodies of revolution at all: an orbiter's width and height vary
+  independently over a rounded-square section, which is `loft`, and its planform
+  has a kink, which is `wing`.
+  The reason to keep the procedural build is that the meshes are BUILD ARTIFACTS
+  and are not in the repo. A fresh clone has none of them.
+- **A missing asset is not an error.** `buildStage` falls back to the procedural
+  build if the .glb has not loaded, 404s, or the CDN serving `GLTFLoader` is
+  unreachable — one `console.warn` per vehicle and the sim runs. The fallback is
+  kept WORKING rather than left to rot: a vehicle that cannot be drawn without a
+  network round trip is a vehicle that cannot be drawn. The standing check is to
+  move `assets/*.glb` aside and re-run `STUDIO.audit()`; the heights must still
+  match (they agree within a few tenths of a metre) and only the triangle counts
+  should move. `buildCraft` also stays SYNCHRONOUS — four call sites depend on it
+  returning a finished vehicle, one of them `audit()` — so assets are preloaded
+  into a cache and the builder reads the cache. Anything that builds a craft has
+  to fill it first (`craftModelsReady(id)`) or it silently measures the fallback
+  and reports that as the regression number.
+- **Load ONE vehicle, not nine.** The set is ~12 MB and the Hail Mary alone is
+  two thirds of it, so nothing is fetched at boot: `preloadCraft(id)` gets
+  exactly one, `launchCraft` awaits the one it is about to fly, and the craft
+  buttons warm on `pointerenter` — pointing at a button is a reliable signal
+  that it is about to be pressed, which turns the fetch into one that has
+  already happened. Only the studios (`crafttest`/`craftsheet`) load all nine,
+  because `audit()` builds all nine.
+- **The moving parts are bound BY NAME, and the names are an INTERFACE.**
+  `assets/blender/common.py` writes them, `craftassets.js` matches them, and
+  nothing checks that the two agree — rename a node in a `.py` and the legs stop
+  deploying, silently, with no error anywhere. One `stage_<key>` empty per
+  stage, then `gimbal_`/`leg_`/`fin_`/`array_`/`flap_`/`half_` for what update()
+  drives, each scoped by stage key (`gimbal_sic_3`) because Blender object names
+  are unique SCENE-WIDE and two stages both wanting `gimbal_0` would silently
+  get `gimbal_0` and `gimbal_0.001`. The match is anchored and digit-terminated
+  for the same reason: a helper empty called `gimbal_beetle_0_mount` must not be
+  collected as a second pivot. Pivots carry identity rotation and sit ON THE
+  EXIT PLANE, because spaceflight.js parents the plume straight to them.
+- **A pivot that cannot swing is suffixed `_fixed`.** That is how per-engine
+  authority survives the trip through glTF, which carries no custom properties
+  here: `bindParts` gives every other pivot the engine's published gimbal and
+  gives those zero. It is not a detail — twenty of Super Heavy's thirty-three
+  Raptors are bolted down, three of Starship's six are, and so is the centre
+  F-1 on an S-IC. Without it they are all drawn steering.
+- **Meshes are joined by material WITHIN each node before export.** Six hundred
+  objects is six hundred DRAW CALLS a frame for a body that never moves relative
+  to itself, and this is drawn in a second pass over a whole orrery — the Hail
+  Mary went 612 → 34. The node boundary is what keeps it honest: joining across
+  one would weld the Falcon's legs to its tank and the deploy would move
+  nothing. Bevels are baked in the same pass, because once meshes are joined
+  there is no per-object modifier stack left for the exporter to apply.
+- **Blender is Z-up and the vehicle's UP is Blender −Y.** The exporter converts
+  to the Y-up Three wants, so Blender +Z is the stack axis and Blender +Y is
+  Three's −Z. Every sign error in `assets/blender/` is that one. `loft` and
+  `wing` therefore take their vertical terms as UP-POSITIVE and negate
+  internally, so a section table moves from `craftmodel.js` to a `.py` file
+  without touching a sign — get it wrong and the Shuttle flies inverted with its
+  tiles facing the sky.
 - **The Hail Mary's four drives fire through ONE PLANE, parallel to the axis.**
   A drive canted by θ throws away 1 − cos θ of its thrust and puts the rest
   into a torque that has to be held out with propellant for thirteen years, so

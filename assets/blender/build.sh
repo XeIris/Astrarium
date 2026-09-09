@@ -2,13 +2,18 @@
 # ---------------------------------------------------------------------------
 # Build the authored craft models.
 #
-#   assets/blender/build.sh              build everything
-#   assets/blender/build.sh hailmary     build one
+#   assets/blender/build.sh              build every vehicle
+#   assets/blender/build.sh shuttle lm   build some
 #
-# The .py files beside this one are the MODEL; assets/*.glb is a build artifact
-# and is not in the repo. A fresh clone runs fine without it — buildHailMary
-# falls back to its procedural build — but the ship is not the ship until this
-# has been run once.
+# The .py files beside this one are the MODELS; assets/*.glb is a build
+# artifact and is not in the repo. A fresh clone runs fine without them — every
+# stage falls back to its procedural build — but the ships are not the ships
+# until this has been run once.
+#
+# lib.py holds the primitives and common.py the palette, the optimiser and the
+# exporter. Neither is a model, so neither is buildable: MODELS below is the
+# list of vehicles, and it is the same set of ids as CRAFT_ASSETS in
+# sim/flight/craftassets.js.
 #
 # Finding Blender is half the job: it is commonly installed somewhere that is
 # not on PATH (through Steam, for one, which is where it is on the machine this
@@ -46,7 +51,8 @@ BLENDER="${BLENDER_OVERRIDE:-${BLENDER}}"
 echo "blender: $BLENDER"
 "$BLENDER" --version | head -1
 
-MODELS=("${@:-hailmary}")
+ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle)
+if [ "$#" -gt 0 ]; then MODELS=("$@"); else MODELS=("${ALL[@]}"); fi
 for m in "${MODELS[@]}"; do
   script="assets/blender/${m}.py"
   [ -f "$script" ] || { echo "error: no such model '$m' ($script)" >&2; exit 1; }
@@ -54,4 +60,7 @@ for m in "${MODELS[@]}"; do
   # Blender is chatty on export; keep the lines that say what was made.
   "$BLENDER" --background --python "$script" -- --out "assets/${m}.glb" 2>&1 \
     | grep -E '^\[|Error|Traceback|line [0-9]+, in' || true
+  [ -f "assets/${m}.glb" ] || { echo "error: $m produced no .glb" >&2; exit 1; }
 done
+
+echo "--- $(ls -1 assets/*.glb 2>/dev/null | wc -l | tr -d ' ') models, $(du -ch assets/*.glb 2>/dev/null | tail -1 | cut -f1) total"

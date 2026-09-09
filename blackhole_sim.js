@@ -17,7 +17,7 @@ import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
 import { physicalRadiusAU, createMarker } from './sim/scale.js';
 import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics, applySkyBoost } from './sim/sky.js';
 import { createSpaceflight } from './sim/flight/spaceflight.js';
-import { craftModelsReady } from './sim/flight/craftassets.js';
+import { craftModelsReady, preloadCraft } from './sim/flight/craftassets.js';
 import { createModelViewer } from './sim/flight/modelviewer.js';
 import { grossMass, totalDeltaV } from './sim/flight/vehicles.js';
 
@@ -2309,18 +2309,28 @@ function renderCraftGrid() {
       <span class="cn">${v.name}</span>
       <span class="cd">${mass} · ${dv} km/s · ${v.role}</span></button>`;
   }).join('');
-  DOM.craftGrid.querySelectorAll('[data-craft]').forEach(btn =>
-    btn.addEventListener('click', () => launchCraft(btn.dataset.craft)));
+  DOM.craftGrid.querySelectorAll('[data-craft]').forEach((btn) => {
+    btn.addEventListener('click', () => launchCraft(btn.dataset.craft));
+    // Warm the mesh on hover. Pointing at a button is a reliable signal that
+    // it is about to be pressed, and it turns the one fetch launchCraft has to
+    // wait for into one that has already happened. Idempotent, so the repeated
+    // enters a mouse generates cost nothing.
+    btn.addEventListener('pointerenter', () => preloadCraft(btn.dataset.craft));
+  });
 }
 
 async function launchCraft(key) {
   const veh = flight.vehicles.find(v => v.key === key);
   if (!veh) return;
-  // The authored models are a cache buildCraft reads synchronously, so the
-  // cache has to be full before the first build or the Hail Mary spawns as its
-  // procedural fallback and stays that way for the flight. Settled by now in
-  // every real case — the preload starts at boot — so this awaits nothing.
-  await craftModelsReady();
+  // The authored models are a cache buildCraft reads synchronously, so THIS
+  // vehicle's mesh has to be in it before the first build or the craft spawns
+  // as its procedural fallback and stays that way for the whole flight.
+  //
+  // One vehicle, not nine. The set is ~12 MB and the Hail Mary alone is two
+  // thirds of it; fetching all of it to fly a Falcon 9 would put a
+  // multi-megabyte stall in front of every launch for eight models that will
+  // not be drawn. Usually already settled — the buttons warm on hover.
+  await craftModelsReady(key);
   lastCraft = key;
   // A launcher needs a body with a surface to leave; everything else is put in
   // orbit around whatever dominates the scenario.
@@ -2923,8 +2933,8 @@ resize();
 const hasPreset = k => Object.prototype.hasOwnProperty.call(PRESETS, k);
 loadPreset(hasPreset(location.hash.slice(1)) ? location.hash.slice(1) : 'sandbox');
 addEventListener('hashchange', () => { const k = location.hash.slice(1); if (hasPreset(k)) loadPreset(k); });
-// Start the authored models loading with everything else. Nothing waits on it:
-// launchCraft awaits the same promise, and a vehicle picked before it lands
-// simply gets the procedural build.
-craftModelsReady();
+// The authored meshes are NOT fetched here. Nine of them come to ~12 MB and
+// none is needed until a craft is built, so they load per vehicle: warmed when
+// the pointer enters a craft button, awaited in launchCraft. A sim that is
+// mostly an orrery should not spend its first seconds downloading rockets.
 setTimeout(() => { DOM.loading.classList.add('gone'); animate(); }, 400);

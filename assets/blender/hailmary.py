@@ -28,6 +28,7 @@ from math import cos, sin, pi, radians, hypot
 from mathutils import Vector
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from common import build, stage
 from lib import (reset_scene, material, revolve, tube, ring_on, box, strut,
                  fin, finish, smooth, bevel, empty, group, frames, TAU)
 
@@ -352,7 +353,7 @@ def build_tank(idx, root, path):
     finish(tube(f'tank{idx}_feed', dense, 0.12, M['alu'], seg=12, parent=g,
                 caps=(True, True)), bevel_w=0.010)
 
-    spin_drive(f'gimbal_{idx + 1}', DR, g, (endP.x, 0, AFT), f'drv{idx + 1}')
+    spin_drive(f'gimbal_hm_{idx + 1}', DR, g, (endP.x, 0, AFT), f'drv{idx + 1}')
     return g, endP
 
 
@@ -576,93 +577,17 @@ def build_appendages(root, hull_z0, hull_z1, hull_d):
 # ---------------------------------------------------------------------------
 # OPTIMISE
 # ---------------------------------------------------------------------------
-def optimise():
+def build_hailmary(_M):
     """
-    Apply every modifier, then JOIN THE MESHES BY MATERIAL.
-
-    Blender is happy to export six hundred objects and GLTFLoader is happy to
-    read them, but six hundred meshes is six hundred DRAW CALLS every frame for
-    a body that never moves relative to itself — and this is drawn in a second
-    pass on top of a whole orrery. Joining by material takes it to a dozen.
-
-    The four drive pivots are joined only WITHIN their own pivot, because those
-    are the nodes craftmodel's update() rotates and the nodes the plumes hang
-    on. Everything else collapses into the root.
-
-    The bevels have to be baked here rather than left to the exporter: once the
-    meshes are joined there is no per-object modifier stack left to apply.
+    The build proper. common.build() has already reset the scene; this file
+    keeps its OWN palette rather than common's because the ship carries two
+    materials nothing else has — the radiator white and the two emitter
+    materials, whose strengths are tuned to the drive's own scale.
     """
-    vl = bpy.context.view_layer
-
-    def bake(objs):
-        for ob in objs:
-            ob.select_set(True)
-        vl.objects.active = objs[0]
-        bpy.ops.object.convert(target='MESH')
-        bpy.ops.object.select_all(action='DESELECT')
-
-    def join_by_material(objs, label):
-        buckets = {}
-        for ob in objs:
-            key = ob.data.materials[0].name if ob.data.materials else '_none'
-            buckets.setdefault(key, []).append(ob)
-        for key, group_ in buckets.items():
-            if len(group_) < 2:
-                group_[0].name = f'{label}_{key}'
-                continue
-            for ob in group_:
-                ob.select_set(True)
-            vl.objects.active = group_[0]
-            bpy.ops.object.join()
-            vl.objects.active.name = f'{label}_{key}'
-            bpy.ops.object.select_all(action='DESELECT')
-
-    pivots = [o for o in bpy.context.scene.objects if o.name.startswith('gimbal_')]
-    claimed = set()
-    for piv in pivots:
-        kids = [o for o in piv.children_recursive if o.type == 'MESH']
-        claimed.update(kids)
-        if kids:
-            bake(kids)
-            kids = [o for o in piv.children_recursive if o.type == 'MESH']
-            join_by_material(kids, piv.name.replace('gimbal', 'drive'))
-
-    static = [o for o in bpy.context.scene.objects
-              if o.type == 'MESH' and o not in claimed
-              and not any(p.name.startswith('gimbal_') for p in
-                          ([o.parent] if o.parent else []) + list(o.parents_recursive
-                          if hasattr(o, 'parents_recursive') else []))]
-    static = [o for o in static if not _under_pivot(o)]
-    if static:
-        bake(static)
-        static = [o for o in bpy.context.scene.objects if o.type == 'MESH'
-                  and not _under_pivot(o)]
-        join_by_material(static, 'hull')
-
-
-def _under_pivot(ob):
-    p = ob.parent
-    while p is not None:
-        if p.name.startswith('gimbal_'):
-            return True
-        p = p.parent
-    return False
-
-
-# ---------------------------------------------------------------------------
-# BUILD + EXPORT
-# ---------------------------------------------------------------------------
-def main():
-    argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-    out = 'assets/hailmary.glb'
-    if '--out' in argv:
-        out = argv[argv.index('--out') + 1]
-
-    reset_scene()
     build_materials()
 
-    root = empty('HailMary', (0, 0, 0))
-    spin_drive('gimbal_0', DR, root, (0, 0, AFT), 'drv0')
+    root = stage('hm')
+    spin_drive('gimbal_hm_0', DR, root, (0, 0, AFT), 'drv0')
     build_spine(root)
     path = bent_path(TR, f(0.679), f(0.245), D * 0.55, 16, D * 0.14)
     endP = None
@@ -673,36 +598,10 @@ def main():
     build_appendages(root, hz0, hz1, hd)
 
     # The layout above is written around the aft plane at f(0.132); shift the
-    # ship so the drives' exit plane is the origin. It goes on the ROOT, which
-    # is a child of the group buildCraft positions — a stage builder must not
-    # write to its own group's transform.
+    # ship so the drives' exit plane is the origin. It goes on the STAGE ROOT,
+    # which is a child of the group buildCraft positions — a stage builder must
+    # not write to its own group's transform.
     root.location = (0, 0, -AFT)
 
-    bpy.ops.object.select_all(action='DESELECT')
-    optimise()
 
-    tris = 0
-    for ob in bpy.context.scene.objects:
-        if ob.type == 'MESH':
-            ob.data.calc_loop_triangles()
-            tris += len(ob.data.loop_triangles)
-    print(f'[hailmary] {len(bpy.context.scene.objects)} objects, '
-          f'{tris} triangles, {len([o for o in bpy.context.scene.objects if o.type == "MESH"])} draw calls')
-
-    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    bpy.ops.export_scene.gltf(
-        filepath=os.path.abspath(out),
-        export_format='GLB',
-        export_apply=True,            # no-op after optimise(), kept as a belt
-        export_yup=True,              # Blender +Z becomes Three +Y
-        export_materials='EXPORT',
-        export_cameras=False,
-        export_lights=False,
-        export_extras=False,
-        use_selection=False,
-    )
-    print(f'[hailmary] wrote {out} '
-          f'({os.path.getsize(os.path.abspath(out)) / 1e6:.2f} MB)')
-
-
-main()
+build('hailmary', build_hailmary)
