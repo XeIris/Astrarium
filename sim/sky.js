@@ -1241,28 +1241,116 @@ export function applySkyBand(uniforms, bandIndex) {
   set('uwBlazar', W.blazar);
 }
 
+// ----------------------------------------------------------------------------
+// Environment parameters, and how two of them combine.
+// ----------------------------------------------------------------------------
+// SKY_PARAMS is the single list of what an environment IS. The uniform name,
+// the blend rule and the slider range all live on the one row, so a new sky
+// component is added here and the blender, the applier and the settings panel
+// pick it up without being touched. (Same discipline as sim/masscurve.js
+// sampling its thresholds out of structureOf rather than listing them.)
+//
+// The `add` flag is the physics, not a preference. Split by what the number
+// actually measures:
+//
+//   ADDITIVE (add: true) — an AMOUNT of something. Star density, the diffuse
+//     glow, the bulge, dust column, H II, reflection nebulae, external
+//     galaxies. These are independent populations along the same line of
+//     sight, and lines of sight superpose: standing in a globular cluster you
+//     see the cluster's own stars AND, through them, the galaxy it orbits.
+//     Adding is what a second population does.
+//
+//   GEOMETRIC (add: false) — a SHAPE of the one galaxy you are inside. There
+//     is exactly one galactic plane, so there is exactly one scale height, one
+//     plane concentration and one bulge size. Two of them cannot coexist the
+//     way two populations can, so these take the weighted MEAN — the blend
+//     moves the shape from one place to the other rather than stacking it.
+//
+// Summing a shape parameter is the error worth naming: blend disc with core
+// at full weight and an added bandScaleH gives a band 0.23 rad thick, which is
+// not a galaxy seen from anywhere.
+export const SKY_PARAMS = [
+  { key: 'starDensity',        uniform: 'uStarDensity', add: true,  max: 12, label: 'Star density' },
+  { key: 'glow',               uniform: 'uGlow',        add: true,  max: 6,  label: 'Unresolved glow' },
+  { key: 'bulge',              uniform: 'uBulge',       add: true,  max: 6,  label: 'Bulge' },
+  { key: 'dust',               uniform: 'uDust',        add: true,  max: 4,  label: 'Dust' },
+  { key: 'hii',                uniform: 'uHii',         add: true,  max: 6,  label: 'H II regions' },
+  { key: 'reflection',         uniform: 'uRefl',        add: true,  max: 4,  label: 'Reflection neb.' },
+  { key: 'galaxies',           uniform: 'uGalaxies',    add: true,  max: 4,  label: 'External galaxies' },
+  { key: 'planeConcentration', uniform: 'uPlaneConc',   add: false, max: 5,  label: 'Plane concentration' },
+  { key: 'bandScaleH',         uniform: 'uBandScaleH',  add: false, max: 0.25, label: 'Band scale height' },
+  { key: 'bulgeSize',          uniform: 'uBulgeSize',   add: false, max: 1.2, label: 'Bulge size' },
+];
+
 /**
- * Apply a named environment from SKY_ENVIRONMENTS (or an explicit override
- * object) plus the galactic frame orientation.
+ * Normalise whatever `env` was written as into [name, weight] pairs.
  *
- * `lat`/`lon` place the observer's view of the galaxy rather than the observer:
- * they rotate the galactic frame relative to the scene, which is what decides
- * where the band crosses the sky.
+ * Four spellings, because a preset, a slider panel and a console handle all
+ * want a different one and none of them should have to convert:
+ *
+ *   'disc'                          one environment, weight 1
+ *   ['globular', 'disc']            equal weights
+ *   [['globular', 1], ['disc', .4]] explicit weights
+ *   { globular: 1, disc: 0.4 }      the same, as a map — what the UI holds
+ *
+ * Unknown names are dropped rather than defaulted, so a typo shows up as the
+ * component going missing instead of silently becoming a second disc.
+ */
+export function skyEnvWeights(env) {
+  let pairs;
+  if (!env) pairs = [];
+  else if (typeof env === 'string') pairs = [[env, 1]];
+  else if (Array.isArray(env)) {
+    pairs = env.map(e => (Array.isArray(e) ? [e[0], +e[1]] : [e, 1]));
+  } else pairs = Object.entries(env).map(([k, v]) => [k, +v]);
+
+  return pairs.filter(([k, w]) => SKY_ENVIRONMENTS[k] && w > 0 && isFinite(w));
+}
+
+/**
+ * Collapse one or more named environments into a flat parameter object.
+ *
+ * Weights are NOT normalised for the additive terms — that is the whole point.
+ * Half a disc plus half a core is genuinely dimmer than either, and a disc at
+ * weight 1 alongside a globular at weight 1 is a cluster sky with the full
+ * galaxy still behind it. The geometric terms ARE normalised, because a
+ * weighted mean is only a mean if the weights sum to one.
+ *
+ * An empty or unrecognised list falls back to a plain disc, so nothing can ask
+ * for a sky and get a black one.
+ */
+export function blendEnvironments(env) {
+  const pairs = skyEnvWeights(env);
+  if (!pairs.length) return { ...SKY_ENVIRONMENTS.disc };
+
+  const total = pairs.reduce((s, [, w]) => s + w, 0);
+  const out = {};
+  for (const p of SKY_PARAMS) {
+    let acc = 0;
+    for (const [name, w] of pairs) acc += w * SKY_ENVIRONMENTS[name][p.key];
+    out[p.key] = p.add ? acc : acc / total;
+  }
+  return out;
+}
+
+/**
+ * Apply an environment — named, blended, or explicitly overridden — plus the
+ * galactic frame orientation.
+ *
+ * `spec.env` takes any of the spellings skyEnvWeights accepts, and any
+ * parameter written directly on the spec wins over the blend, so a preset can
+ * say "core, but without the dust" without inventing a sixth environment.
+ *
+ * `tilt`/`roll` place the observer's view of the galaxy rather than the
+ * observer: they rotate the galactic frame relative to the scene, which is
+ * what decides where the band crosses the sky. There is only ONE frame however
+ * many environments are blended — you are standing in one galaxy, so a blend
+ * mixes how much of each population you see, never where their planes are.
  */
 export function applySkyEnvironment(uniforms, spec = {}) {
-  const env = SKY_ENVIRONMENTS[spec.env] || SKY_ENVIRONMENTS.disc;
-  const p = { ...env, ...spec };
+  const p = { ...blendEnvironments(spec.env), ...spec };
 
-  uniforms.uStarDensity.value = p.starDensity;
-  uniforms.uPlaneConc.value = p.planeConcentration;
-  uniforms.uGlow.value = p.glow;
-  uniforms.uBulge.value = p.bulge;
-  uniforms.uDust.value = p.dust;
-  uniforms.uHii.value = p.hii;
-  uniforms.uRefl.value = p.reflection;
-  uniforms.uGalaxies.value = p.galaxies;
-  uniforms.uBandScaleH.value = p.bandScaleH;
-  uniforms.uBulgeSize.value = p.bulgeSize;
+  for (const { key, uniform } of SKY_PARAMS) uniforms[uniform].value = p[key];
 
   // Orient the galactic frame. tilt/roll are plain Euler angles on the plane
   // normal; the centre direction is then any unit vector orthogonal to it.

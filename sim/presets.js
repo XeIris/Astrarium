@@ -19,6 +19,14 @@ import { baseRadiusSun, phaseById } from './structure.js';
 // scene, deciding where the band crosses the view. Nothing here obliges the sky
 // to be Earth's; a system in a globular cluster genuinely has thousands of
 // bright stars and no band at all, and saying so costs two numbers.
+//
+// `env` also takes SEVERAL environments at once — ['globular', 'disc'], or
+// { globular: 1, disc: 0.4 } for explicit weights — because they are
+// populations rather than paint. A cluster's own stars and the galaxy behind
+// them are both there, and the blend adds them; see blendEnvironments() in
+// sim/sky.js for why the shape terms take the mean instead. Any parameter
+// written straight onto the spec overrides the blend, so "core, but without
+// the dust" needs no sixth environment.
 // ============================================================================
 
 // two-body barycentric setup orbiting in the XZ plane

@@ -30,9 +30,6 @@ canvas { display: block; }
 .hud > * { pointer-events: auto; }
 
 .title-block { top: 18px; left: 20px; }
-.title-block .tag { font-size: 10px; letter-spacing: 0.2em; color: var(--text-dim); text-transform: uppercase; }
-.title-block .name { font-size: 16px; letter-spacing: 0.05em; color: var(--text); margin-top: 4px; font-weight: 500; }
-.title-block .sub { font-size: 10px; color: var(--accent); margin-top: 2px; letter-spacing: 0.15em; }
 
 .panel {
   top: 18px; right: 18px; width: 300px;
@@ -47,6 +44,92 @@ canvas { display: block; }
   top: var(--col-top); left: 20px; right: auto; width: 232px;
   max-height: calc(100vh - var(--col-top) - var(--hud-bottom));
 }
+
+/* The left column gained a head: Settings sits at --col-top and the scenario
+   list now hangs off ITS measured bottom, exactly as the cross-section already
+   hung off the scenario list's. --scenario-top falls back to --col-top so the
+   panel is still correctly placed on the frame before layoutLeftColumn() has
+   run, and whenever Settings is collapsed. */
+.panel-settings {
+  width: 268px;
+  /* Two panels share the column and Settings is the one that can grow without
+     limit, so it is capped rather than allowed to push the scenario list off
+     the bottom of the screen. It scrolls; the list underneath stays reachable. */
+  max-height: min(calc(100vh - var(--col-top) - var(--hud-bottom)), 58vh);
+}
+#scenarioPanel {
+  top: var(--scenario-top, var(--col-top));
+  max-height: calc(100vh - var(--scenario-top, var(--col-top)) - var(--hud-bottom));
+}
+
+/* The running scenario's name, which used to be the caption in the corner. */
+.scenario-now {
+  font-size: 12px; color: var(--text); letter-spacing: 0.04em;
+  margin: -4px 0 9px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Settings is three pages rather than one long stack: the three groups are
+   consulted at different times — sky when composing a shot, render when the
+   frame rate is wrong, sim when a result looks wrong — and stacking them meant
+   scrolling past two to reach the third every time. */
+.set-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.set-tab {
+  flex: 1; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+  color: var(--text-dim); font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase; padding: 5px 0; cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.set-tab:hover { color: var(--text); }
+.set-tab.on { color: var(--accent); border-color: var(--accent); background: rgba(255, 255, 255, 0.06); }
+.set-page[hidden] { display: none; }
+
+/* .row was laid out for the 300px control panel: label, slider and a 60px
+   value on ONE line. This panel is narrower and its labels are longer ("Bloom
+   threshold", "Plane concentration"), so the value was pushed off the right
+   edge and clipped by the panel's own overflow — present, unreadable, and
+   silent about it. Here the slider WRAPS to a line of its own, which is the
+   same shape the environment rows already use. */
+.panel-settings .row {
+  display: grid; grid-template-columns: 1fr auto; align-items: baseline;
+  gap: 0 8px; margin-bottom: 13px;
+}
+/* Placed EXPLICITLY, not auto-flowed. The markup order is label, slider,
+   value — so auto-placement puts the label on row 1, the full-width slider on
+   row 2, and then the value on a row 3 of its own, under the slider it
+   annotates. Naming all three cells is what keeps the label and its number on
+   the same line whatever order the markup happens to be in. */
+.panel-settings .row label { grid-area: 1 / 1; min-width: 0; }
+.panel-settings .row .val { grid-area: 1 / 2; min-width: 0; }
+.panel-settings .row input[type="range"] {
+  grid-area: 2 / 1 / 3 / 3; width: 100%; height: 2px; margin: 8px 0 0;
+}
+.set-stats { margin-top: 10px; }
+.set-stats .v.warn { color: var(--warn); }
+
+/* One environment's weight. The name and the number share a line above the
+   slider because the names are words, not the short labels the .row grid was
+   built for — "Reflection neb." in a 74px column wraps to three lines. */
+/* The 12px thumb straddles a 2px track, so it overhangs 5px either side. In a
+   .row that is absorbed by the flex line's height; here the slider is a block
+   of its own and the overhang lands on the text above and below it, which is
+   what had the disc thumb sitting on top of "core". The margins are that
+   overhang, written down. */
+.sky-env { margin-bottom: 13px; }
+.sky-env-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 6px;
+  font-size: 11px; color: var(--text-dim); margin-bottom: 2px;
+}
+.sky-env.on .sky-env-head { color: var(--text); }
+.sky-env-head .w { font-family: var(--mono); font-size: 10px; color: var(--accent); }
+.sky-env.off .sky-env-head .w { color: var(--text-dim); }
+.sky-env input[type="range"] { width: 100%; display: block; height: 2px; margin: 8px 0 0; }
+.sky-env-solo {
+  background: none; border: none; padding: 0 0 0 6px; cursor: pointer;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--text-dim); text-transform: uppercase;
+}
+.sky-env-solo:hover { color: var(--accent); }
 
 .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .panel-head h3 { flex: 1; margin-bottom: 10px; }
@@ -63,8 +146,12 @@ canvas { display: block; }
    each `position: fixed; top: 92px`, differing by a 6px margin that a fixed box
    applies to itself — so Scenario and Flight sat one on top of the other and
    only a mode rule that happened to hide one of them kept it from showing. */
+/* --tab-top, not --col-top: the stack sits under whatever panel is above it in
+   the column (Settings, when that is open), and falls back to the ceiling when
+   there is nothing above it. The right-hand Controls tab keeps --col-top — it
+   is in the opposite corner and has nothing to collide with. */
 .tab-col {
-  position: fixed; top: var(--col-top); left: 20px;
+  position: fixed; top: var(--tab-top, var(--col-top)); left: 20px;
   display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
   pointer-events: none;
 }
@@ -740,6 +827,8 @@ body.model-open .panel-tab.tab-right { display: none; }
 /* In flight mode the orrery's own instruments are not merely folded — they are
    gone. The scenario list, its tab, and the cross-section are all ways of
    editing a universe, and this mode does not edit anything. */
+/* Settings is NOT hidden in flight — render scale and the sky are exactly what
+   you reach for on a pad camera — so only the scenario list goes. */
 body.flight-mode #scenarioPanel,
 body.flight-mode #xsecPanel,
 body.flight-mode [data-open="scenarioPanel"] { display: none !important; }

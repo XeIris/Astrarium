@@ -15,7 +15,8 @@ import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
 import { createPostFX } from './sim/postfx.js';
 import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
 import { physicalRadiusAU, createMarker } from './sim/scale.js';
-import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics, applySkyBoost } from './sim/sky.js';
+import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics, applySkyBoost,
+         SKY_PARAMS, SKY_ENVIRONMENTS, blendEnvironments, skyEnvWeights } from './sim/sky.js';
 import { createSpaceflight } from './sim/flight/spaceflight.js';
 import { craftModelsReady, preloadCraft } from './sim/flight/craftassets.js';
 import { createModelViewer } from './sim/flight/modelviewer.js';
@@ -62,6 +63,14 @@ const state = {
   suns: [],                // live star light sources, brightest first
   band: 3,                 // imaging band index (see sim/spectrum.js)
   hudHidden: false,
+
+  // The LIVE sky spec, in the shape applySkyEnvironment takes. A preset seeds
+  // it and the settings panel edits it afterwards, so this — not p.sky — is
+  // what is on screen. `env` is held as a weight MAP because the panel has one
+  // slider per environment and a map is what a set of sliders is.
+  sky: { env: { disc: 1 }, tilt: 0.34, roll: 0.9 },
+  lastSteps: 0,            // integrator sub-steps in the last frame
+  energy0: null,           // total energy when the scenario loaded (drift reference)
 };
 
 const DOM = {};
@@ -74,7 +83,8 @@ const DOM = {};
  'presetSearchClear', 'presetList', 'presetEmpty', 'foundry', 'xsecPanel',
  'xsecCanvas', 'xsecLegend', 'xsecFacts', 'xsecNotes', 'xsecVerdict', 'xsecName',
  'xsecOpen', 'liveEdit', 'flightPanel', 'flightHud', 'craftGrid', 'flightRow',
- 'flightCam', 'flightExit', 'warpLabel'].forEach(id => DOM[id] = document.getElementById(id));
+ 'flightCam', 'flightExit', 'warpLabel',
+ 'settingsPanel', 'skyEnvList', 'skyAdv', 'setSteps', 'setDrift'].forEach(id => DOM[id] = document.getElementById(id));
 
 // The scenario catalogue is grouped here rather than in the physics presets:
 // these labels are navigation, while PRESETS remains the source of truth for
@@ -1053,6 +1063,7 @@ function stepPhysics(simDt) {
     remaining -= h;
     stepped += h;
   }
+  state.lastSteps = guard;
   // Advance the clock by what was actually integrated, not by what was asked
   // for. During a close encounter dynamicStep() falls toward its 1e-8 floor and
   // the guard can stop the loop having covered under a percent of simDt; adding
@@ -1426,7 +1437,11 @@ function loadPreset(key) {
   state.preset = p;
   // Where in the universe this system sits. A preset that says nothing gets the
   // mid-disc default, which is the familiar arrangement.
-  syncSky(u => applySkyEnvironment(u, p.sky || {}));
+  // The preset SEEDS the live spec; the settings panel owns it from here. A
+  // scenario change therefore resets the sky, which is right — its sky is part
+  // of where the scenario is — while an edit made afterwards survives until the
+  // next load rather than being overwritten on the next uniform sync.
+  setSky(presetSky(p.sky));
   state.sceneScale = p.sceneScale;
   state.bodyScale = p.bodyScale ?? 1;
   state.trueScale = !!p.trueScale;
@@ -1437,6 +1452,11 @@ function loadPreset(key) {
   state.timeScale = p.timeScale ?? 2;
   state.maxStep = p.maxStep ?? 5e-3;
   state.gwBoost = p.gwBoost ?? 0;
+  // The drift readout's reference belongs to THIS scenario's initial
+  // conditions; carrying the old one over would report the difference between
+  // two unrelated systems as integration error.
+  state.energy0 = null;
+  syncSimControls();
   setSpawnAtRest(p.spawnAtRest ?? false);
   state.lensing = p.lensing;
   state.showLens = p.lensing;
@@ -1737,6 +1757,8 @@ function updateHUD(dt) {
     }).join('');
   }
 
+  updateSimStats();
+
   const cl = state.climate;
   if (!cl || !DOM.climatePanel || DOM.climatePanel.style.display === 'none') return;
 
@@ -1862,7 +1884,11 @@ function setPanelOpen(id, open) {
   // The left column is a stack: the scenario list opening or closing moves the
   // editor under it, and the editor being open squeezes the list.
   if (id === 'xsecPanel') document.body.classList.toggle('xsec-open', open);
-  if (id === 'scenarioPanel' || id === 'xsecPanel' || id === 'flightPanel') layoutLeftColumn();
+  // settingsPanel is in this list because it is the column's HEAD: collapsing
+  // it moves the tab stack and everything under it. The ResizeObserver would
+  // catch it too (a display:none panel measures zero), but relying on that
+  // makes the head of the chain the one link held together indirectly.
+  if (id === 'settingsPanel' || id === 'scenarioPanel' || id === 'xsecPanel' || id === 'flightPanel') layoutLeftColumn();
 }
 
 // ---------------------------------------------------------------------------
@@ -1891,13 +1917,35 @@ function layoutLeftColumn() {
   const rr = ro2 ? ro2.getBoundingClientRect() : null;
   root.setProperty('--hud-bottom', `${rr && rr.height ? Math.round(rr.height) + 30 : 30}px`);
 
+  // Settings is the head of the column and everything below hangs off its
+  // MEASURED bottom — including the tab stack. That last part is the whole of
+  // it: the tab column was pinned to --col-top, the same ceiling the settings
+  // panel sits at, so collapsing the scenario list put its tab on top of an
+  // open settings panel. A tab is a panel's placeholder and belongs in the
+  // column where the panel would have been, not at a fixed y.
+  //
+  // Settings' OWN tab is the fallback case rather than a special one: when
+  // settings is collapsed there is nothing above the column at all, so the
+  // stack starts at the ceiling and its tab is the first thing in it.
+  const setP = document.getElementById('settingsPanel');
+  const tabTop = shown(setP) ? Math.round(setP.getBoundingClientRect().bottom) + 12 : colTop;
+  root.setProperty('--tab-top', `${tabTop}px`);
+
   // A COLLAPSED panel still occupies the column. It leaves a tab behind at the
   // top of it, so the first free y when the scenario list is closed is the
   // bottom of that tab stack, not the bare top of the column — otherwise the
   // panel below slides up underneath the tab that reopens the one above it.
+  // Reading the rect here is AFTER --tab-top was written, so it reflects it:
+  // getBoundingClientRect forces the pending layout rather than returning the
+  // previous frame's numbers.
+  //
+  // An empty stack has zero height, so with nothing collapsed this collapses
+  // back to settings' own bottom and the scenario list does not pick up a
+  // second 12px gap for a tab column that is not there.
   const tabs = document.querySelector('.tab-col');
   const tr = tabs ? tabs.getBoundingClientRect() : null;
-  const free = tr && tr.height ? Math.round(tr.bottom) + 12 : colTop;
+  const free = tr && tr.height ? Math.round(tr.bottom) + 12 : tabTop;
+  root.setProperty('--scenario-top', `${free}px`);
 
   const top = document.getElementById('scenarioPanel');
   const y = shown(top) ? Math.round(top.getBoundingClientRect().bottom) + 12 : free;
@@ -1918,7 +1966,7 @@ function layoutLeftColumn() {
   // half under the control panel is the one message you most need to read.
   // Only what actually reaches the toast's own band of y counts.
   let bandL = 16;
-  for (const sel of ['#scenarioPanel', '#modelPanel', '#flightPanel', '#xsecPanel', '.tab-col']) {
+  for (const sel of ['#settingsPanel', '#scenarioPanel', '#modelPanel', '#flightPanel', '#xsecPanel', '.tab-col']) {
     const el = document.querySelector(sel);
     if (!shown(el)) continue;
     const r = el.getBoundingClientRect();
@@ -1933,7 +1981,7 @@ function layoutLeftColumn() {
   // minimum, but the cross-section panel is 348px wide and reaches nearly to
   // the bottom edge, so the clearance is the widest of them, not the readout's.
   let clear = rr && rr.width ? Math.round(rr.right) : 20;
-  for (const sel of ['#scenarioPanel', '#xsecPanel', '#flightPanel', '#modelPanel']) {
+  for (const sel of ['#settingsPanel', '#scenarioPanel', '#xsecPanel', '#flightPanel', '#modelPanel']) {
     const el = document.querySelector(sel);
     if (shown(el)) clear = Math.max(clear, Math.round(el.getBoundingClientRect().right));
   }
@@ -1947,7 +1995,7 @@ if (window.ResizeObserver) {
   // scenario list (groups expand) and the blurb (every preset writes a
   // different one). Observing only the panel misses growth that happens in the
   // same frame the observer is installed.
-  for (const id of ['scenarioPanel', 'presetList', 'blurb', 'readout']) {
+  for (const id of ['settingsPanel', 'skyAdv', 'scenarioPanel', 'presetList', 'blurb', 'readout']) {
     const el = document.getElementById(id);
     if (el) ro.observe(el);
   }
@@ -1965,7 +2013,7 @@ document.querySelectorAll('[data-close]').forEach(btn =>
 document.querySelectorAll('[data-open]').forEach(btn =>
   btn.addEventListener('click', () => setPanelOpen(btn.dataset.open, true)));
 // both start open — this also seeds the body class the hint's position keys off
-for (const id of ['scenarioPanel', 'controlPanel']) setPanelOpen(id, true);
+for (const id of ['settingsPanel', 'scenarioPanel', 'controlPanel']) setPanelOpen(id, true);
 // The flight panel starts closed and only opens when there is a vessel.
 setPanelOpen('flightPanel', false);
 // The cross-section starts closed and has no tab: it is opened from a focused
@@ -2244,6 +2292,288 @@ if (ldEl) {
     lensPass.setScale(v);
     document.getElementById('lensScale-val').textContent = `${v.toFixed(2)}x`;
   });
+}
+
+// ============================================================================
+// SETTINGS PANEL
+// ============================================================================
+// The cross-cutting knobs, as against the scenario's own. Three pages, because
+// they are consulted at different moments: sky when composing a shot, render
+// when the frame rate is wrong, sim when a RESULT looks wrong.
+//
+// Nothing here is enumerated twice. The environment rows come from
+// SKY_ENVIRONMENTS and the amplitude rows from SKY_PARAMS, so a sixth
+// environment or an eleventh component added to sim/sky.js grows a control
+// here without this file being touched — the same discipline sim/masscurve.js
+// uses to sample its thresholds out of structureOf() rather than listing them.
+
+/**
+ * A preset's `sky` in the live spec's shape. Presets were written with
+ * `env: 'disc'` and must keep working unchanged, so the string is widened into
+ * the weight map the panel edits. Explicit per-parameter overrides on the
+ * preset are carried across as-is.
+ */
+function presetSky(spec = {}) {
+  const pairs = skyEnvWeights(spec.env ?? 'disc');
+  const env = {};
+  for (const [name, w] of (pairs.length ? pairs : [['disc', 1]])) env[name] = w;
+  const out = { ...spec, env, tilt: spec.tilt ?? 0.34, roll: spec.roll ?? 0.9 };
+  return out;
+}
+
+/** Push the live spec into both copies of the sky uniform block. */
+function applySky() {
+  syncSky(u => applySkyEnvironment(u, state.sky));
+}
+
+/**
+ * Replace the live sky wholesale and put the controls where it says. Used when
+ * something OTHER than a slider decides the sky — a preset load, a solo, a
+ * reset. The slider handlers do not go through here: they edit state.sky
+ * directly and then sync with `skipInputs`, because writing a slider's own
+ * value back to it mid-drag is how a control starts fighting the pointer.
+ */
+function setSky(spec) {
+  state.sky = spec;
+  applySky();
+  syncSkyControls();
+}
+
+/** One environment's weight, as edited by its slider. 0 removes it entirely. */
+function setEnvWeight(name, w) {
+  const env = { ...state.sky.env };
+  if (w > 0) env[name] = w; else delete env[name];
+  state.sky = { ...state.sky, env };
+  applySky();
+  syncSkyControls({ skipInputs: true });
+}
+
+// Build the environment rows once. Each is a name, a weight, a slider, and a
+// "solo" that drops every other environment — the fastest way to see what one
+// of them actually contributes, which is the question a blend panel makes you
+// ask immediately.
+if (DOM.skyEnvList) {
+  DOM.skyEnvList.innerHTML = Object.keys(SKY_ENVIRONMENTS).map(name => `
+    <div class="sky-env" data-env="${name}">
+      <div class="sky-env-head">
+        <span>${name}<button class="sky-env-solo" data-solo="${name}" title="Show this environment alone">solo</button></span>
+        <span class="w" data-w="${name}">0.00</span>
+      </div>
+      <input type="range" data-envw="${name}" min="0" max="3" value="0" step="0.05">
+    </div>`).join('');
+  DOM.skyEnvList.querySelectorAll('[data-envw]').forEach(inp =>
+    inp.addEventListener('input', () => setEnvWeight(inp.dataset.envw, parseFloat(inp.value))));
+  DOM.skyEnvList.querySelectorAll('[data-solo]').forEach(btn =>
+    btn.addEventListener('click', () => setSky({ ...state.sky, env: { [btn.dataset.solo]: 1 } })));
+}
+
+// The amplitude rows. These are the BLEND's output, shown live, and writable —
+// writing one pins that component on the spec, where it wins over the blend
+// (the same precedence a preset gets when it says "core, but without dust").
+if (DOM.skyAdv) {
+  DOM.skyAdv.innerHTML = SKY_PARAMS.map(pm => `
+    <div class="row">
+      <label title="${pm.add ? 'An amount of something — blends by ADDING, because two populations along one line of sight superpose.'
+                             : 'A shape of the one galaxy you are in — blends by weighted MEAN, because there is only one galactic plane.'}">${pm.label}</label>
+      <input type="range" data-skyp="${pm.key}" min="0" max="${pm.max}" value="0" step="${pm.max / 200}">
+      <span class="val" data-skypv="${pm.key}">0</span>
+    </div>`).join('') +
+    `<button class="ghost-btn" id="skyAdvClear">Unpin all &mdash; back to the blend</button>`;
+  DOM.skyAdv.querySelectorAll('[data-skyp]').forEach(inp =>
+    inp.addEventListener('input', () => {
+      state.sky = { ...state.sky, [inp.dataset.skyp]: parseFloat(inp.value) };
+      applySky();
+      syncSkyControls({ skipInputs: true });
+    }));
+  document.getElementById('skyAdvClear')?.addEventListener('click', () => {
+    const next = { env: state.sky.env, tilt: state.sky.tilt, roll: state.sky.roll };
+    setSky(next);
+  });
+}
+
+const skyTiltEl = document.getElementById('skyTilt');
+const skyRollEl = document.getElementById('skyRoll');
+skyTiltEl?.addEventListener('input', () => {
+  state.sky = { ...state.sky, tilt: parseFloat(skyTiltEl.value) };
+  applySky(); syncSkyControls({ skipInputs: true });
+});
+skyRollEl?.addEventListener('input', () => {
+  state.sky = { ...state.sky, roll: parseFloat(skyRollEl.value) };
+  applySky(); syncSkyControls({ skipInputs: true });
+});
+
+document.getElementById('skyAdvOpen')?.addEventListener('click', e => {
+  const open = DOM.skyAdv.hidden;
+  DOM.skyAdv.hidden = !open;
+  e.currentTarget.textContent = open ? 'Component amplitudes ▾' : 'Component amplitudes ▸';
+  layoutLeftColumn();
+});
+document.getElementById('skyReset')?.addEventListener('click', () => {
+  setSky(presetSky(state.preset?.sky));
+  toast('Sky reset to the scenario\u2019s own');
+});
+
+/**
+ * Write the live spec back into the controls. `skipInputs` updates only the
+ * numbers, leaving the slider positions alone — an input event's own slider is
+ * already where the user put it, and assigning to it mid-drag is what makes a
+ * control stutter under the pointer.
+ */
+function syncSkyControls({ skipInputs = false } = {}) {
+  const sk = state.sky || {};
+  if (DOM.skyEnvList) {
+    for (const name of Object.keys(SKY_ENVIRONMENTS)) {
+      const w = sk.env?.[name] ?? 0;
+      const row = DOM.skyEnvList.querySelector(`.sky-env[data-env="${name}"]`);
+      if (row) row.classList.toggle('on', w > 0), row.classList.toggle('off', w <= 0);
+      const lbl = DOM.skyEnvList.querySelector(`[data-w="${name}"]`);
+      if (lbl) lbl.textContent = w > 0 ? w.toFixed(2) : '—';
+      if (!skipInputs) {
+        const inp = DOM.skyEnvList.querySelector(`[data-envw="${name}"]`);
+        if (inp) inp.value = String(w);
+      }
+    }
+  }
+  // The amplitude rows always show the EFFECTIVE value — blend output, or the
+  // pinned override where there is one — so the two halves of the page can
+  // never disagree about what the sky is currently made of.
+  const eff = { ...blendEnvironments(sk.env), ...sk };
+  if (DOM.skyAdv) {
+    for (const pm of SKY_PARAMS) {
+      const v = +eff[pm.key];
+      const out = DOM.skyAdv.querySelector(`[data-skypv="${pm.key}"]`);
+      if (out) out.textContent = (pm.max <= 1.5 ? v.toFixed(3) : v.toFixed(2)) + (sk[pm.key] !== undefined ? ' ·' : '');
+      const inp = DOM.skyAdv.querySelector(`[data-skyp="${pm.key}"]`);
+      if (inp && !skipInputs) inp.value = String(Math.min(v, pm.max));
+    }
+  }
+  if (skyTiltEl && !skipInputs) skyTiltEl.value = String(sk.tilt ?? 0.34);
+  if (skyRollEl && !skipInputs) skyRollEl.value = String(sk.roll ?? 0.9);
+  const tv = document.getElementById('skyTilt-val');
+  const rv = document.getElementById('skyRoll-val');
+  if (tv) tv.textContent = (sk.tilt ?? 0.34).toFixed(2);
+  if (rv) rv.textContent = (sk.roll ?? 0.9).toFixed(2);
+}
+
+// --- the three pages -------------------------------------------------------
+document.querySelectorAll('.set-tab').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.set-tab').forEach(b => b.classList.toggle('on', b === btn));
+  document.querySelectorAll('.set-page').forEach(pg => { pg.hidden = pg.dataset.page !== btn.dataset.set; });
+  layoutLeftColumn();
+}));
+
+// --- rendering -------------------------------------------------------------
+// postfx.params is a setter-only facade over three different passes' uniforms,
+// so the defaults are declared here rather than read back out of it.
+const FX_DEFAULTS = { bloom: 0.55, threshold: 1.0, radius: 1.0, vignette: 0.35, grain: 0.02 };
+const FX_ROWS = [
+  ['fxBloom', 'bloom', 2], ['fxThreshold', 'threshold', 2], ['fxRadius', 'radius', 2],
+  ['fxVignette', 'vignette', 2], ['fxGrain', 'grain', 3],
+];
+for (const [id, key, dp] of FX_ROWS) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  el.value = String(FX_DEFAULTS[key]);
+  const out = document.getElementById(`${id}-val`);
+  const write = () => {
+    const v = parseFloat(el.value);
+    postfx.params[key] = v;
+    if (out) out.textContent = v.toFixed(dp);
+  };
+  el.addEventListener('input', write);
+  write();
+}
+document.getElementById('fxReset')?.addEventListener('click', () => {
+  for (const [id, key] of FX_ROWS) {
+    const el = document.getElementById(id);
+    if (el) { el.value = String(FX_DEFAULTS[key]); el.dispatchEvent(new Event('input')); }
+  }
+});
+
+// --- simulation ------------------------------------------------------------
+// The step cap is logarithmic because the useful range is 1e-5 to 1e-1 yr and a
+// linear slider spends nine tenths of its travel in the half-decade that never
+// matters.
+const msEl = document.getElementById('maxStep');
+const gwEl = document.getElementById('gwBoost');
+function syncSimControls() {
+  if (msEl) {
+    msEl.value = String(Math.log10(state.maxStep));
+    const o = document.getElementById('maxStep-val');
+    if (o) o.textContent = `${state.maxStep.toExponential(1)} yr`;
+  }
+  if (gwEl) {
+    gwEl.value = String(state.gwBoost);
+    const o = document.getElementById('gwBoost-val');
+    if (o) o.textContent = state.gwBoost ? `${state.gwBoost.toFixed(2)}×` : 'off';
+  }
+}
+msEl?.addEventListener('input', () => {
+  state.maxStep = Math.pow(10, parseFloat(msEl.value));
+  const o = document.getElementById('maxStep-val');
+  if (o) o.textContent = `${state.maxStep.toExponential(1)} yr`;
+});
+gwEl?.addEventListener('input', () => {
+  state.gwBoost = parseFloat(gwEl.value);
+  const o = document.getElementById('gwBoost-val');
+  if (o) o.textContent = state.gwBoost ? `${state.gwBoost.toFixed(2)}×` : 'off';
+});
+document.getElementById('simReset')?.addEventListener('click', () => {
+  const p = state.preset || {};
+  state.maxStep = p.maxStep ?? 5e-3;
+  state.gwBoost = p.gwBoost ?? 0;
+  syncSimControls();
+});
+
+/**
+ * Total energy of the system, in AU/M☉/yr units. Kinetic plus the Newtonian
+ * pair potential — the Paczyński–Wiita term and the GW back-reaction are both
+ * deliberately left out, because a conserved quantity is only useful as a check
+ * if it is the one the INTEGRATOR is supposed to conserve. With GW boost on, or
+ * near a hole, the drift shown is therefore real physics leaving the system as
+ * well as integration error, and the readout says so by not pretending
+ * otherwise: what it detects is the cap being too long, which dwarfs both.
+ */
+function totalEnergy() {
+  const bs = state.bodies.filter(b => b.alive);
+  let E = 0;
+  for (let i = 0; i < bs.length; i++) {
+    E += 0.5 * bs[i].mass * bs[i].vel.lengthSq();
+    for (let j = i + 1; j < bs.length; j++) {
+      const r = bs[i].pos.distanceTo(bs[j].pos);
+      E -= PHYS.G * bs[i].mass * bs[j].mass / Math.max(r, 1e-9);
+    }
+  }
+  return E;
+}
+
+// stepPhysics gives up after 8000 sub-steps and advances the clock by what it
+// actually integrated, so hitting the guard does not corrupt the answer — it
+// silently slows simulated time instead. Silently is the problem: the step cap
+// is now a slider, and its low end reaches the guard easily, at which point the
+// sim is running slower than the Time controls say and nothing anywhere says
+// why. Saying so costs one class.
+const STEP_GUARD = 8000;
+
+function updateSimStats() {
+  if (DOM.setSteps) {
+    const capped = state.lastSteps >= STEP_GUARD;
+    DOM.setSteps.textContent = capped ? `${state.lastSteps} capped` : String(state.lastSteps);
+    DOM.setSteps.classList.toggle('warn', capped);
+    DOM.setSteps.title = capped
+      ? 'The integrator hit its 8000 sub-step guard. The answer is still correct — it advances the clock by what it actually integrated — but simulated time is now running slower than the Time panel says. Raise the step cap.'
+      : '';
+  }
+  if (!DOM.setDrift) return;
+  // A merger removes mass and its binding energy with it, so the reference is
+  // meaningless across one. Rebasing on a body count change is the honest fix:
+  // the number then reports drift since the last event rather than nonsense.
+  const E = totalEnergy();
+  if (state.energy0 === null || state.energyN !== state.bodies.length) {
+    state.energy0 = E; state.energyN = state.bodies.length;
+  }
+  const rel = state.energy0 ? Math.abs((E - state.energy0) / state.energy0) : 0;
+  DOM.setDrift.textContent = rel < 1e-12 ? '0' : rel.toExponential(1);
 }
 
 document.getElementById('climateReset')?.addEventListener('click', () => {
@@ -3015,7 +3345,7 @@ window.SIM = { state, scene, camera, cam, renderer, THREE, flight, launchCraft, 
   // run can advance the sim — and it has to be able to say how long the frame
   // lasted, or the run is not reproducible.
   frame: (dt = 1 / 60) => { cancelAnimationFrame(rafId); manualDt = dt; animate(); },
-  load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
+  load: loadPreset, setSky, applySky, presetSky, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
 
 resize();
 // Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,

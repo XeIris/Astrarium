@@ -94,7 +94,7 @@ Shell:
 | [sim/blackhole.js](sim/blackhole.js) | `createBlackHolePass` — GR null-geodesic ray marcher, shadow/photon ring, volumetric Shakura–Sunyaev disc; `MAX_HOLES = 2` |
 | [sim/postfx.js](sim/postfx.js) | `createPostFX` — HDR target, spectral remap, progressive bloom, ACES composite |
 | [sim/spectrum.js](sim/spectrum.js) | `BANDS` and the temperature→band-brightness remap shader used by postfx |
-| [sim/sky.js](sim/sky.js) | the celestial background: `SKY_GLSL` (procedural stars, galactic band, dust, nebulae, non-thermal populations, all band-aware), `createSkyBackdrop` for scenes with no hole, and `SKY_ENVIRONMENTS` |
+| [sim/sky.js](sim/sky.js) | the celestial background: `SKY_GLSL` (procedural stars, galactic band, dust, nebulae, non-thermal populations, all band-aware), `createSkyBackdrop` for scenes with no hole, `SKY_ENVIRONMENTS` / `SKY_PARAMS`, and `blendEnvironments` — several environments at once |
 | [sim/textures.js](sim/textures.js) | seeded procedural rocky / gas-giant canvas textures |
 | [sim/scale.js](sim/scale.js) | true-scale rendering: `physicalRadiusAU` mass–radius fallbacks, and `createMarker` — the point-source glow that carries a body once its disc goes sub-pixel |
 | [sim/structure.js](sim/structure.js) | **what a body IS**: mass–radius laws per support mechanism, ignition/support limits, rotational shape & gravity darkening, central conditions, and the layer model. `structureOf(spec)` is the single entry point |
@@ -441,6 +441,19 @@ point and the only file here that knows the orrery exists.
   and CO lines, π⁰-decay gammas, the CMB — so `sim/sky.js` composites it at the
   band's own frequency instead. Adding a sky component means adding a row to the
   `W` band-weight table there, not giving it a temperature.
+- **Sky environments are POPULATIONS, not paint, so they ADD.** `env` takes
+  several at once (`['globular', 'disc']`, or a weight map) and
+  `blendEnvironments` sums the amplitudes — star density, glow, bulge, dust,
+  H II, reflection, external galaxies — because independent populations along
+  one line of sight superpose: standing in a globular you see the cluster's own
+  stars AND the galaxy through them. The SHAPE terms are the exception and take
+  the weighted mean, because there is exactly one galactic plane you are inside
+  and therefore exactly one scale height, one plane concentration, one bulge
+  size. Summing those is the error worth naming: disc + core at full weight
+  gives a band 0.23 rad thick, which is not a galaxy seen from anywhere. The
+  split is declared per-parameter on `SKY_PARAMS` (`add: true|false`), which is
+  also the list the settings panel builds itself from — add a component there
+  and a control appears on its own.
 - **Nothing about the sky may depend on a fixed angular resolution.** Lensing
   magnification near the photon ring is unbounded, so any map, mipmap or baked
   texture fails there at any resolution. Stars are analytic and filtered through
@@ -477,6 +490,29 @@ point and the only file here that knows the orrery exists.
   first-order lag driven by a ramp keeps a steady-state error proportional to
   the body's speed — that is the rubber-banding, and no k below 1 removes it.
   See `trackFollow` / `glideTargetTo` in [blackhole_sim.js](blackhole_sim.js).
+- **The left column is a measured CHAIN, and Settings is its head.** Top left is
+  the settings panel (`#settingsPanel`), then the scenario list, then flight and
+  the cross-section; each one's top is `layoutLeftColumn()` measuring the
+  previous panel's BOTTOM, never a constant. `--col-top` is the ceiling under
+  the mode switch, `--tab-top` the top of the tab stack, `--scenario-top` the
+  scenario list's own top, and every var falls back to the one above it so a
+  collapsed panel closes the gap rather than leaving a hole. **The tab stack is
+  part of the chain, not a fixed point in it**: a tab is a panel's placeholder
+  and belongs where that panel would have been. Pinned to `--col-top` it shares
+  a y with the settings panel, and collapsing the scenario list drew its tab on
+  top of an open Settings. The four states — each panel open or collapsed — are
+  the standing check, and none of them may overlap. The panel holds what OUTLIVES a scenario — how the sky is
+  composed, what the renderer spends its frame on, and the integrator's step cap
+  — as against the control column on the right, which is about the thing you are
+  currently looking at. Render scale and lens detail live here for that reason.
+- **The step cap is the one setting that changes the ANSWER.** Everything else
+  in the settings panel changes the picture. So the sim page reports what the
+  integrator is actually doing — sub-steps per frame and relative energy drift
+  since the scenario loaded — and says so when `stepPhysics` hits its 8000-step
+  guard, because the guard does not corrupt the answer, it silently runs
+  simulated time slow, and silently is the whole problem. The drift reference
+  rebases on a body count change: a merger carries off binding energy, so
+  comparing across one reports physics as if it were error.
 - **The control column is folded and mode-filtered at runtime**, from the `<h3>`s
   themselves (`groupControlSections`), so a new section folds and can be
   assigned to a mode without touching any of the controls inside it. Mode
