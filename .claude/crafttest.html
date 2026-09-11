@@ -1,0 +1,225 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>craft studio</title>
+<style>
+  html,body{margin:0;height:100%;background:#0a0a0c;overflow:hidden;
+    font:12px/1.4 ui-monospace,Menlo,monospace;color:#9fb4c7}
+  canvas{display:block}
+  #hud{position:fixed;left:10px;top:8px;z-index:5;white-space:pre;
+    text-shadow:0 0 6px #000;pointer-events:none}
+</style></head><body>
+<div id="hud"></div>
+<script type="importmap">
+{"imports":{"three":"https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js",
+            "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+// ===========================================================================
+// CRAFT STUDIO — sim/flight/craftmodel.js on its own, with nothing in the way.
+// Same reason .claude/skytest.html exists: hunting for a model inside a live
+// flight wastes a lot of time, and here it is always in the same place, at the
+// same size, under the same light.
+//
+//   ?v=saturnv&view=side        side elevation, orthographic (silhouette)
+//   ?v=falcon9&view=iso&z=1.4   three-quarter, perspective
+//   view=front|top|detail|under|nose   other angles; detail/under frame the
+//                               aft end and nose the forward one
+//   &stage=2                    frame one stage only
+// ===========================================================================
+import * as THREE from 'three';
+import { buildCraft } from '../sim/flight/craftmodel.js';
+import { VEHICLES } from '../sim/flight/vehicles.js';
+import { craftModelsReady } from '../sim/flight/craftassets.js';
+
+// The authored models are a cache buildCraft reads, not something it awaits —
+// so the studio has to fill the cache BEFORE it builds anything, or it renders
+// the procedural fallback and reports its triangle count as the regression
+// number. Top-level await: this is a module, and there is nothing to draw yet.
+await craftModelsReady();
+
+// Params live in the SEARCH string, not the fragment: a fragment-only change
+// does not re-execute the module, so `#shuttle` after `#saturnv` would quietly
+// keep rendering the Saturn V — which is exactly the kind of stale picture this
+// harness exists to prevent.
+const q = new URLSearchParams(location.search);
+const key  = q.get('v') || 'saturnv';
+const view = q.get('view') || 'side';
+const zoom = parseFloat(q.get('z') || '1');
+const only = q.get('stage');
+// Gear DOWN by default. update() holds every deployable stowed until the
+// flight state asks for it, and `deploy: {}` means "asked for nothing" — so
+// this harness spent its life drawing landers with their legs folded up
+// against the body and grid fins laid flat, which is the one pose in which a
+// deployable tells you nothing about whether it is right. `&deploy=0` gets the
+// stowed pose back when that is what you want to look at.
+const dep = q.get('deploy') == null ? 1 : parseFloat(q.get('deploy'));
+
+// preserveDrawingBuffer: a hidden preview pane gets no requestAnimationFrame
+// and the browser is free to clear the buffer once it has composited, so
+// without this every headless screenshot comes back black. See CLAUDE.md.
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x30343b);
+
+// Three-point rig, matching modelviewer.js: key high-left, quarter-strength
+// fill opposite, rim behind to peel a white vehicle off a grey ground.
+const key1 = new THREE.DirectionalLight(0xfff4e6, 3.0); key1.position.set(-4, 5, 6);
+const fill = new THREE.DirectionalLight(0xbfd4ff, 0.8); fill.position.set(5, 1, 3);
+const rim  = new THREE.DirectionalLight(0xffffff, 2.0); rim.position.set(2, 2, -7);
+scene.add(key1, fill, rim, new THREE.AmbientLight(0x404a58, 0.6));
+
+// A URL is user input and buildCraft reads vehicle.stages straight off what it
+// is handed, so an unknown key fails deep inside the builder rather than here,
+// where the message can say what the options were.
+const veh = VEHICLES[key];
+if (!veh) throw new Error(`[crafttest] no such vehicle '${key}' — try one of: ${Object.keys(VEHICLES).join(', ')}`);
+const craft = buildCraft(veh);
+scene.add(craft.group);
+craft.update({ dt: 0, attached: {},
+  deploy: Object.fromEntries(craft.stages.map(st => [st.key, dep])),
+  gimbal: { x: 0, z: 0 }, flap: 0 });
+// dt = 0 freezes the easing at wherever `deploy` started, so the state has to
+// be stepped in rather than waited for: one big step, then one at dt = 0 to
+// settle everything that reads the eased value.
+craft.update({ dt: 4, attached: {},
+  deploy: Object.fromEntries(craft.stages.map(st => [st.key, dep])),
+  gimbal: { x: 0, z: 0 }, flap: 0 });
+
+// Frame it. A rocket is a tall thin thing, so the fit is driven by height.
+const box = new THREE.Box3();
+const stageIdx = only == null ? null : Number(only);
+if (stageIdx != null && !(Number.isInteger(stageIdx) && craft.stages[stageIdx])) {
+  throw new Error(`[crafttest] no stage ${only} on '${key}' — it has ${craft.stages.length} (0..${craft.stages.length - 1})`);
+}
+if (stageIdx != null) box.setFromObject(craft.stages[stageIdx].group);
+else box.setFromObject(craft.group);
+const size = box.getSize(new THREE.Vector3());
+const mid  = box.getCenter(new THREE.Vector3());
+const H = Math.max(size.y, 1e-3), W = Math.max(size.x, size.z, 1e-3);
+
+// A 1.75 m figure at the base: the only object whose size the eye already knows.
+const man = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 1.3, 4, 8),
+  new THREE.MeshStandardMaterial({ color: 0xd08a50, roughness: 0.9 }));
+man.position.set(W * 0.62 + 1.5, box.min.y + 0.87, 0);
+scene.add(man);
+
+const ground = new THREE.Mesh(new THREE.CircleGeometry(Math.max(H, W) * 3, 48),
+  new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = box.min.y - 0.01;
+scene.add(ground);
+
+let camera;
+function resize() {
+  const w = innerWidth, h = innerHeight, a = w / h;
+  if (view === 'side' || view === 'front' || view === 'top') {
+    // Orthographic: a silhouette is the honest test of a shape, and it is the
+    // only projection you can compare against a reference photo taken at range.
+    const span = (view === 'top' ? W * 2.4 : H * 1.12) / zoom;
+    camera = new THREE.OrthographicCamera(-span * a / 2, span * a / 2, span / 2, -span / 2, -1e5, 1e5);
+  } else {
+    camera = new THREE.PerspectiveCamera(34, a, 0.02, 1e5);
+  }
+  // `detail` frames the AFT END, and its distance has to come from the height,
+  // not the width: a ship with a 51 m wingspan and a 47 m hull would otherwise
+  // pull the camera out to 160 m to "zoom in" on its engines.
+  // `nose` is `detail`'s opposite number and exists for the same reason: the
+  // forward end is where the antennas, the docking node and the escape tower
+  // are, and on a 47 m ship a dish aimed the wrong way is four pixels wide in
+  // any view that frames the whole vehicle.
+  const close = view === 'detail' || view === 'under' || view === 'nose';
+  const d = (close ? H * 0.42 : H * 1.9) / zoom;
+  const at = view === 'nose' ? new THREE.Vector3(0, box.max.y - H * 0.14, 0)
+    : (view === 'detail' || view === 'under')
+      ? new THREE.Vector3(0, box.min.y + H * 0.16, 0) : mid;
+  const dir = { under:  new THREE.Vector3(0.45, -0.78, 0.44),
+                side:   new THREE.Vector3(0, 0, 1),
+                front:  new THREE.Vector3(1, 0, 0),
+                top:    new THREE.Vector3(0, 1, 0.0001),
+                iso:    new THREE.Vector3(0.72, 0.30, 0.62),
+                nose:   new THREE.Vector3(0.74, 0.34, 0.58),
+                detail: new THREE.Vector3(0.80, 0.22, 0.55) }[view] || new THREE.Vector3(0, 0, 1);
+  camera.position.copy(at).add(dir.normalize().multiplyScalar(d));
+  camera.lookAt(at);
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+addEventListener('resize', resize); resize();
+// A hash-only navigation does not re-execute the module, so switching vehicle
+// by editing the fragment would silently keep showing the previous one.
+
+
+document.getElementById('hud').textContent =
+  `${veh.name}\n${view}  ·  ${size.y.toFixed(1)} m tall  ·  ${size.x.toFixed(1)} m span`;
+
+function draw() { renderer.render(scene, camera); }
+// A continuous loop, not a single draw: without preserveDrawingBuffer the
+// browser is free to clear the buffer once it has composited, so a screenshot
+// taken a moment later catches an empty canvas.
+(function loop(){ requestAnimationFrame(loop); draw(); })();
+// Headless: the preview pane gets no rAF when hidden, so expose a hand step.
+window.STUDIO = { draw, scene, craft, renderer, camera: () => camera, box, size,
+  THREE, VEHICLES, buildCraft,
+  // Build every vehicle and report its measured extents. There is no test
+  // suite here, so this is the regression check: a builder that throws, or a
+  // stack whose height stops matching the published figure, shows up as a
+  // number rather than as a picture that looks slightly wrong.
+  audit() {
+    return Object.keys(VEHICLES).map(k => {
+      try {
+        const c = buildCraft(VEHICLES[k]);
+        // As-launched, not as-built: arrays and legs are STOWED until the
+        // flight state says otherwise, and measuring before the first update
+        // reports a payload with its solar wings already open inside a fairing.
+        c.update({ dt: 0, attached: {}, deploy: {}, gimbal: { x: 0, z: 0 }, flap: 0 });
+        const b = new THREE.Box3().setFromObject(c.group);
+        const s = b.getSize(new THREE.Vector3());
+        let tris = 0;
+        c.group.traverse(o => { if (o.geometry?.index) tris += o.geometry.index.count / 3;
+          else if (o.geometry?.attributes?.position) tris += o.geometry.attributes.position.count / 3; });
+        return { k, h: +s.y.toFixed(1), w: +s.x.toFixed(1), d: +s.z.toFixed(1),
+                 base: +b.min.y.toFixed(1), tris: Math.round(tris) };
+      } catch (e) { return { k, err: String(e && e.message || e) }; }
+    });
+  },
+  /**
+   * ENGINE CLEARANCE, as a number rather than as a picture. For every stage
+   * with more than one engine, the smallest gap between any two bells: the
+   * NEAREST NEIGHBOUR over the whole cluster, which is the test a per-ring
+   * chord check misses. Negative means they interpenetrate.
+   *
+   * This exists because three separate clusters shipped with their bells inside
+   * each other — the S-IC's outboard F-1s half a metre into the centre engine,
+   * Super Heavy's inner three buried in the ten around them, Starship's vacuum
+   * Raptors sitting on its sea-level ones — and every one of them looked, in a
+   * render, like a tightly packed cluster.
+   */
+  clearance() {
+    return Object.keys(VEHICLES).map(k => {
+      const c = buildCraft(VEHICLES[k]);
+      c.update({ dt: 4, attached: {}, deploy: {}, gimbal: { x: 0, z: 0 }, flap: 0 });
+      c.group.updateMatrixWorld(true);
+      const out = [];
+      for (const st of c.stages) {
+        const ps = st.parts.gimbals.map(p => {
+          const b = new THREE.Box3().setFromObject(p);
+          const v = new THREE.Vector3(); p.getWorldPosition(v);
+          return { x: v.x, z: v.z, r: b.getSize(new THREE.Vector3()).x / 2 };
+        });
+        if (ps.length < 2) continue;
+        let gap = Infinity;
+        for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+          gap = Math.min(gap, Math.hypot(ps[i].x - ps[j].x, ps[i].z - ps[j].z)
+                              - (ps[i].r + ps[j].r));
+        }
+        out.push({ stage: st.key, n: ps.length, gap: +gap.toFixed(3) });
+      }
+      return { k, clusters: out };
+    }).filter(r => r.clusters.length);
+  } };
+</script>
+</body></html>

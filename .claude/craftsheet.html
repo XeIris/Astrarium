@@ -1,0 +1,110 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>craft contact sheet</title>
+<style>html,body{margin:0;background:#22252a;overflow:hidden}canvas{display:block}</style>
+</head><body>
+<script type="importmap">
+{"imports":{"three":"https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js",
+            "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+// ===========================================================================
+// CONTACT SHEET — every vehicle in one frame, each in its own scissored
+// viewport, all at the same light and the same fraction of its own height.
+// One image is the only way to judge whether the SET looks like it belongs
+// together, which is a different question from whether any one of them is right.
+// ===========================================================================
+import * as THREE from 'three';
+import { buildCraft } from '../sim/flight/craftmodel.js';
+import { craftModelsReady } from '../sim/flight/craftassets.js';
+import { VEHICLES } from '../sim/flight/vehicles.js';
+await craftModelsReady();          // fill the model cache before the first build
+
+const q = new URLSearchParams(location.search);
+// One unknown key in the list is enough to throw inside buildCraft and leave
+// the whole sheet blank, which is the opposite of what a contact sheet is for.
+// Drop what does not exist and say so.
+const asked = (q.get('v') || 'saturnv,falcon9,shuttle,skycrane,hailmary').split(',');
+const keys = asked.filter(k => VEHICLES[k]);
+const unknown = asked.filter(k => !VEHICLES[k]);
+if (unknown.length) console.warn(`[craftsheet] no such vehicle: ${unknown.join(', ')}`);
+if (!keys.length) throw new Error(`[craftsheet] nothing to draw — known vehicles: ${Object.keys(VEHICLES).join(', ')}`);
+const cols = +(q.get('cols') || Math.min(keys.length, 5));
+const rows = Math.ceil(keys.length / cols);
+const CW = +(q.get('cw') || 340), CH = +(q.get('ch') || 560);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(cols * CW, rows * CH, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setScissorTest(true);
+document.body.appendChild(renderer.domElement);
+
+const label = document.createElement('canvas');
+label.width = cols * CW; label.height = rows * CH;
+label.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none';
+document.body.appendChild(label);
+const lx = label.getContext('2d');
+lx.font = '13px ui-monospace,Menlo,monospace';
+
+function makeScene(key) {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x2c3037);
+  const k = new THREE.DirectionalLight(0xfff4e6, 3.0); k.position.set(-4, 5, 6);
+  const f = new THREE.DirectionalLight(0xbfd4ff, 0.8); f.position.set(5, 1, 3);
+  const r = new THREE.DirectionalLight(0xffffff, 1.9); r.position.set(2, 2, -7);
+  scene.add(k, f, r, new THREE.AmbientLight(0x424c5a, 0.65));
+
+  const craft = buildCraft(VEHICLES[key]);
+  // Gear DOWN, like crafttest: `deploy: {}` means "asked for nothing", and a
+  // sheet of landers with their legs folded is a sheet that cannot tell you
+  // whether the legs are right. dt = 0 freezes the easing, so the state is
+  // stepped in rather than waited for.
+  const dep = Object.fromEntries(craft.stages.map(st => [st.key, 1]));
+  craft.update({ dt: 0, attached: {}, deploy: dep, gimbal: { x: 0, z: 0 }, flap: 0 });
+  craft.update({ dt: 4, attached: {}, deploy: dep, gimbal: { x: 0, z: 0 }, flap: 0 });
+  scene.add(craft.group);
+  const box = new THREE.Box3().setFromObject(craft.group);
+  const size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+  const H = Math.max(size.y, size.x, 1e-3);
+
+  // The 1.75 m figure: without it a contact sheet flattens a 111 m launcher and
+  // a 3 m rover into the same picture.
+  const man = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 1.31, 4, 8),
+    new THREE.MeshStandardMaterial({ color: 0xd08a50, roughness: 0.9 }));
+  man.position.set(size.x * 0.5 + Math.max(H * 0.05, 1.4), box.min.y + 0.875, 0);
+  scene.add(man);
+
+  const cam = new THREE.PerspectiveCamera(30, CW / CH, 0.02, 1e5);
+  const d = H * 2.15;
+  cam.position.set(mid.x + d * 0.62, mid.y + d * 0.20, mid.z + d * 0.76);
+  cam.lookAt(mid);
+  return { scene, cam, name: VEHICLES[key].name, H: size.y, W: size.x };
+}
+
+const built = keys.map(makeScene);
+built.forEach((b, i) => {
+  const cx = (i % cols) * CW, cy = Math.floor(i / cols) * CH;
+  // Scissor from the BOTTOM-LEFT: GL's origin is not the canvas's.
+  const gy = (rows - 1 - Math.floor(i / cols)) * CH;
+  renderer.setViewport(cx, gy, CW, CH);
+  renderer.setScissor(cx, gy, CW, CH);
+  renderer.render(b.scene, b.cam);
+  lx.fillStyle = '#dfe7ef'; lx.fillText(b.name, cx + 12, cy + 22);
+  lx.fillStyle = '#8fa3b6';
+  lx.fillText(`${b.H.toFixed(1)} m tall · ${b.W.toFixed(1)} m span`, cx + 12, cy + 40);
+});
+
+// Flatten the two canvases into one image for readback.
+window.SHEET = {
+  png(type = 'image/jpeg', qy = 0.86) {
+    const out = document.createElement('canvas');
+    out.width = cols * CW; out.height = rows * CH;
+    const o = out.getContext('2d');
+    o.drawImage(renderer.domElement, 0, 0);
+    o.drawImage(label, 0, 0);
+    return out.toDataURL(type, qy);
+  }
+};
+</script>
+</body></html>

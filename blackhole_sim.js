@@ -15,7 +15,12 @@ import { createBlackHolePass, MAX_HOLES } from './sim/blackhole.js';
 import { createPostFX } from './sim/postfx.js';
 import { BANDS, VISIBLE_BAND } from './sim/spectrum.js';
 import { physicalRadiusAU, createMarker } from './sim/scale.js';
-import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics } from './sim/sky.js';
+import { createSkyBackdrop, applySkyBand, applySkyEnvironment, applySkyOptics, applySkyBoost,
+         SKY_PARAMS, SKY_ENVIRONMENTS, blendEnvironments, skyEnvWeights } from './sim/sky.js';
+import { createSpaceflight } from './sim/flight/spaceflight.js';
+import { craftModelsReady, preloadCraft } from './sim/flight/craftassets.js';
+import { createModelViewer } from './sim/flight/modelviewer.js';
+import { grossMass, totalDeltaV } from './sim/flight/vehicles.js';
 
 // ============================================================================
 // STATE
@@ -43,7 +48,7 @@ const state = {
   speed: 1.0,
   paused: false,
 
-  camMode: 'orbit',        // 'orbit' | 'free' | 'surface'
+  camMode: 'orbit',        // 'orbit' | 'free' | 'surface' | 'flight'
   followId: null,          // body id the orbit camera tracks
   focusId: null,           // selected body id
 
@@ -58,6 +63,14 @@ const state = {
   suns: [],                // live star light sources, brightest first
   band: 3,                 // imaging band index (see sim/spectrum.js)
   hudHidden: false,
+
+  // The LIVE sky spec, in the shape applySkyEnvironment takes. A preset seeds
+  // it and the settings panel edits it afterwards, so this — not p.sky — is
+  // what is on screen. `env` is held as a weight MAP because the panel has one
+  // slider per environment and a map is what a set of sliders is.
+  sky: { env: { disc: 1 }, tilt: 0.34, roll: 0.9 },
+  lastSteps: 0,            // integrator sub-steps in the last frame
+  energy0: null,           // total energy when the scenario loaded (drift reference)
 };
 
 const DOM = {};
@@ -69,7 +82,9 @@ const DOM = {};
  'bandGrid', 'bandNote', 'bandLabel', 'toast', 'panelTabs', 'presetSearch',
  'presetSearchClear', 'presetList', 'presetEmpty', 'foundry', 'xsecPanel',
  'xsecCanvas', 'xsecLegend', 'xsecFacts', 'xsecNotes', 'xsecVerdict', 'xsecName',
- 'xsecOpen', 'liveEdit'].forEach(id => DOM[id] = document.getElementById(id));
+ 'xsecOpen', 'liveEdit', 'flightPanel', 'flightHud', 'craftGrid', 'flightRow',
+ 'flightCam', 'flightExit', 'warpLabel',
+ 'settingsPanel', 'skyEnvList', 'skyAdv', 'setSteps', 'setDrift'].forEach(id => DOM[id] = document.getElementById(id));
 
 // The scenario catalogue is grouped here rather than in the physics presets:
 // these labels are navigation, while PRESETS remains the source of truth for
@@ -1048,6 +1063,7 @@ function stepPhysics(simDt) {
     remaining -= h;
     stepped += h;
   }
+  state.lastSteps = guard;
   // Advance the clock by what was actually integrated, not by what was asked
   // for. During a close encounter dynamicStep() falls toward its 1e-8 floor and
   // the guard can stop the loop having covered under a percent of simDt; adding
@@ -1184,6 +1200,40 @@ function easeCamRadius(dt) {
   // frame-rate independent: same time constant at 30 and 144 fps
   cam.radius *= Math.pow(ratio, 1 - Math.exp(-dt * 6));
 }
+// ---- following a moving body.
+//
+// A fractional catch-up — `target.lerp(bodyPos, k)` — is a first-order lag, and
+// a first-order lag driven by a ramp has a STEADY-STATE ERROR: the target sits
+// permanently v·dt·(1−k)/k behind the body, proportional to how fast the body
+// is moving. That is the rubber-banding. It is not a tuning problem — no k
+// short of 1 removes it, and raising k only trades lag for jitter. Worse, a
+// distance threshold that switches between snapping and lerping oscillates
+// across the boundary every frame, which is the shake on top of the drag.
+//
+// So: track the body EXACTLY, and carry the smoothing in a separate offset that
+// decays to zero on its own. The offset is seeded only when something moves the
+// target on purpose (picking a new body), so a deliberate change still glides,
+// while steady motion — at 1x or at 6 yr/s — is followed with zero error.
+const camOffset = new THREE.Vector3();
+function trackFollow(b, dt) {
+  const p = b.viz.group.position;
+  if (camOffset.lengthSq() > 0) {
+    camOffset.multiplyScalar(Math.exp(-dt * 5));
+    // Retire it once it is far below anything the view can resolve, or it
+    // denormalises and keeps costing a multiply forever.
+    if (camOffset.lengthSq() < (cam.radius * 1e-4) ** 2) camOffset.set(0, 0, 0);
+  }
+  cam.target.copy(p).add(camOffset);
+}
+// Hand the camera a new target without teleporting the view: the difference
+// becomes the decaying offset, so the glide happens in trackFollow.
+function glideTargetTo(p) {
+  camOffset.copy(cam.target).sub(p);
+  // A jump across the whole system is not a glide, it is a cut. Past a few
+  // viewing distances the ease would spend seconds crossing empty space.
+  if (camOffset.lengthSq() > (cam.radius * 40) ** 2) camOffset.set(0, 0, 0);
+  cam.target.copy(p).add(camOffset);
+}
 const keys = {};
 const observer = new SurfaceObserver();
 const skyPass = createSkyPass();
@@ -1208,7 +1258,7 @@ function setFollow(body) {
   state.followId = body ? body.id : null;
   state.focusId = body ? body.id : null;
   if (body) {
-    cam.target.copy(body.viz.group.position);
+    glideTargetTo(body.viz.group.position);
     // frame the body itself — a 4-unit floor put small worlds a hundred radii away
     jumpCamRadius(frameRadius(body));
     if (state.camMode === 'orbit') updateOrbitCam();
@@ -1226,14 +1276,18 @@ addEventListener('mouseup', e => {
   // click ran a pick behind the panel and cleared the focused body.
   const wasDragging = dragging;
   dragging = false;
-  if (wasDragging && !dragMoved) handlePick(e);
+  if (wasDragging && !dragMoved && !modelOpen) handlePick(e);
 });
 addEventListener('mousemove', e => {
   if (!dragging) return;
   const dx = e.clientX - lastX, dy = e.clientY - lastY;
   if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 4) dragMoved = true;
   lastX = e.clientX; lastY = e.clientY;
-  if (state.camMode === 'orbit') {
+  if (modelOpen) {
+    modelView.drag(dx, dy);
+  } else if (state.camMode === 'flight') {
+    flight.drag(dx, dy);
+  } else if (state.camMode === 'orbit') {
     cam.phi -= dx * 0.005;
     cam.theta = Math.max(0.05, Math.min(Math.PI - 0.05, cam.theta - dy * 0.005));
     updateOrbitCam();
@@ -1250,13 +1304,16 @@ el.addEventListener('wheel', e => {
   // The zoom floor used to be 0.05 scene units — twenty times wider than a
   // true-scale Earth, so you could never actually reach one. It now only has to
   // stay clear of float32 denormals.
-  if (state.camMode === 'orbit') { jumpCamRadius(Math.max(1e-6, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001)))); updateOrbitCam(); }
+  if (modelOpen) { modelView.wheel(e); }
+  else if (state.camMode === 'flight') { flight.wheel(e); }
+  else if (state.camMode === 'orbit') { jumpCamRadius(Math.max(1e-6, Math.min(20000, cam.radius * (1 + e.deltaY * 0.001)))); updateOrbitCam(); }
   else if (state.camMode === 'surface') observer.zoom(1 + e.deltaY * 0.0012);
   else cam.freeSpeed = Math.max(0.5, cam.freeSpeed * (1 - e.deltaY * 0.001));
 }, { passive: false });
 
 const raycaster = new THREE.Raycaster();
 function handlePick(e) {
+  if (state.camMode === 'flight') return;
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   let best = null, bestD = Infinity;
@@ -1277,7 +1334,10 @@ addEventListener('keydown', e => {
   const tag = e.target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   keys[e.code] = true;
-  if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
+  // Flight takes the keys it needs first; everything it does not claim falls
+  // through to the orrery's own bindings.
+  if (state.camMode === 'flight' && flight.key(e)) { e.preventDefault(); syncWarpLabel(); return; }
+  if (e.key === 'r' || e.key === 'R') { cam.target.set(0, 0, 0); camOffset.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; if (state.camMode === 'orbit') updateOrbitCam(); }
   if (e.code === 'Space') { e.preventDefault(); state.paused = !state.paused; }
   if (e.key === 'f' || e.key === 'F') setCamMode(state.camMode === 'orbit' ? 'free' : 'orbit');
   if (e.key === 'v' || e.key === 'V') setCamMode(state.camMode === 'surface' ? 'orbit' : 'surface');
@@ -1293,6 +1353,15 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 
 function setCamMode(mode) {
   if (mode === 'surface' && !getHome()) mode = 'orbit';    // nowhere to stand
+  if (mode === 'flight' && !(flight && flight.active)) mode = 'orbit';
+  // Leaving flight hands the camera back to the orrery, which needs its own
+  // near plane and field of view restored — the flight pass drives both.
+  if (state.camMode === 'flight' && mode !== 'flight') {
+    camera.fov = 50; camera.near = 0.01;
+    camera.quaternion.identity(); camera.up.set(0, 1, 0);
+    camera.updateProjectionMatrix();
+    applySkyBoostAll(ZERO_BETA);
+  }
   if (mode === 'free' && state.camMode !== 'free') {
     // seed yaw/pitch from current look direction
     const dir = cam.target.clone().sub(camera.position).normalize();
@@ -1368,7 +1437,11 @@ function loadPreset(key) {
   state.preset = p;
   // Where in the universe this system sits. A preset that says nothing gets the
   // mid-disc default, which is the familiar arrangement.
-  syncSky(u => applySkyEnvironment(u, p.sky || {}));
+  // The preset SEEDS the live spec; the settings panel owns it from here. A
+  // scenario change therefore resets the sky, which is right — its sky is part
+  // of where the scenario is — while an edit made afterwards survives until the
+  // next load rather than being overwritten on the next uniform sync.
+  setSky(presetSky(p.sky));
   state.sceneScale = p.sceneScale;
   state.bodyScale = p.bodyScale ?? 1;
   state.trueScale = !!p.trueScale;
@@ -1379,6 +1452,11 @@ function loadPreset(key) {
   state.timeScale = p.timeScale ?? 2;
   state.maxStep = p.maxStep ?? 5e-3;
   state.gwBoost = p.gwBoost ?? 0;
+  // The drift readout's reference belongs to THIS scenario's initial
+  // conditions; carrying the old one over would report the difference between
+  // two unrelated systems as integration error.
+  state.energy0 = null;
+  syncSimControls();
   setSpawnAtRest(p.spawnAtRest ?? false);
   state.lensing = p.lensing;
   state.showLens = p.lensing;
@@ -1411,7 +1489,7 @@ function loadPreset(key) {
   // Camera reset. In a hierarchical system the total barycentre is nowhere near
   // the stars (the outer companion drags it ~11 AU away), so presets with a home
   // world start the camera following that world instead of the origin.
-  cam.target.set(0, 0, 0); jumpCamRadius(p.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2;
+  cam.target.set(0, 0, 0); camOffset.set(0, 0, 0); jumpCamRadius(p.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2;
   setCamMode('orbit');
   if (p.focus) {
     const f = state.bodies.find(b => b.name === p.focus);
@@ -1657,7 +1735,7 @@ function updateHUD(dt) {
 
   // An open cross-section tracks the focused body. Bodies change — a star
   // being eaten loses mass every frame, and the diagram should say so.
-  if (xsecOpen && DOM.xsecPanel && DOM.xsecPanel.style.display !== 'none') {
+  if (xsecOpen && !state.hudHidden && DOM.xsecPanel && DOM.xsecPanel.style.display !== 'none') {
     const fb = state.bodies.find(b => b.id === state.focusId);
     if (fb) { showCrossSection(fb); liveEditor?.sync(fb); }
     else setPanelOpen('xsecPanel', false);
@@ -1678,6 +1756,8 @@ function updateHUD(dt) {
       </div>`;
     }).join('');
   }
+
+  updateSimStats();
 
   const cl = state.climate;
   if (!cl || !DOM.climatePanel || DOM.climatePanel.style.display === 'none') return;
@@ -1774,6 +1854,10 @@ let toastTimer = null;
 function toast(msg, ms = 2200) {
   if (!DOM.toast) return;
   DOM.toast.textContent = msg;
+  // The toast is placed in whatever gap the panels have left, so its position
+  // is only right if it is computed at the moment it appears — a message shown
+  // seconds after the last panel moved would otherwise use the old gap.
+  layoutLeftColumn();
   DOM.toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => DOM.toast.classList.remove('show'), ms);
@@ -1785,18 +1869,26 @@ function setPanelOpen(id, open) {
   const tab = document.querySelector(`[data-open="${id}"]`);
   if (!panel) return;
   if (open) collapsed.delete(id); else collapsed.add(id);
-  // While the whole HUD is hidden, neither the panel nor its tab may show.
-  panel.style.display = (open && !state.hudHidden) ? '' : 'none';
-  if (tab) tab.hidden = open || state.hudHidden;
+  // A panel's inline display is its OWN collapsed state and nothing else.
+  // Hiding the whole HUD is a body class (see setHudHidden), because writing
+  // display on every .hud and then writing it back meant the one panel the
+  // restore loop did not know about — the model viewer — came back from the
+  // dead on top of whatever was in the left column.
+  panel.style.display = open ? '' : 'none';
+  if (tab) tab.hidden = open;
   // the key hint sits in the bottom-right corner; give it the corner back when
   // the control panel is not occupying it
   if (id === 'controlPanel') {
-    document.body.classList.toggle('panel-open-right', open && !state.hudHidden);
+    document.body.classList.toggle('panel-open-right', open);
   }
   // The left column is a stack: the scenario list opening or closing moves the
   // editor under it, and the editor being open squeezes the list.
-  if (id === 'xsecPanel') document.body.classList.toggle('xsec-open', open && !state.hudHidden);
-  if (id === 'scenarioPanel' || id === 'xsecPanel') layoutLeftColumn();
+  if (id === 'xsecPanel') document.body.classList.toggle('xsec-open', open);
+  // settingsPanel is in this list because it is the column's HEAD: collapsing
+  // it moves the tab stack and everything under it. The ResizeObserver would
+  // catch it too (a display:none panel measures zero), but relying on that
+  // makes the head of the chain the one link held together indirectly.
+  if (id === 'settingsPanel' || id === 'scenarioPanel' || id === 'xsecPanel' || id === 'flightPanel') layoutLeftColumn();
 }
 
 // ---------------------------------------------------------------------------
@@ -1806,10 +1898,94 @@ function setPanelOpen(id, open) {
 // measured rather than hard-coded, and it slides up when the list is collapsed.
 // ---------------------------------------------------------------------------
 function layoutLeftColumn() {
+  const root = document.documentElement.style;
+  // The column's own top and bottom edges are MEASURED, not assumed. The title
+  // block grew a mode switch under it and the readout is three lines of
+  // whatever the current preset is; both had been hard-coded at 92px and 24px,
+  // and both were being overlapped by whatever the column put next to them.
+  //
+  // Visibility is asked of the LAYOUT, not of the inline style: a panel can be
+  // hidden by a mode rule (`body.flight-mode #scenarioPanel`) or by the HUD
+  // class while its own inline display is still ''. Reading the inline style
+  // measured a zero-sized box as if it were an open panel, and the panel below
+  // it went to y = 12 — straight through the title block.
+  const shown = el => !!el && el.getBoundingClientRect().height > 0;
+  const title = document.querySelector('.title-block');
+  const colTop = shown(title) ? Math.round(title.getBoundingClientRect().bottom) + 12 : 18;
+  root.setProperty('--col-top', `${colTop}px`);
+  const ro2 = document.getElementById('readout');
+  const rr = ro2 ? ro2.getBoundingClientRect() : null;
+  root.setProperty('--hud-bottom', `${rr && rr.height ? Math.round(rr.height) + 30 : 30}px`);
+
+  // Settings is the head of the column and everything below hangs off its
+  // MEASURED bottom — including the tab stack. That last part is the whole of
+  // it: the tab column was pinned to --col-top, the same ceiling the settings
+  // panel sits at, so collapsing the scenario list put its tab on top of an
+  // open settings panel. A tab is a panel's placeholder and belongs in the
+  // column where the panel would have been, not at a fixed y.
+  //
+  // Settings' OWN tab is the fallback case rather than a special one: when
+  // settings is collapsed there is nothing above the column at all, so the
+  // stack starts at the ceiling and its tab is the first thing in it.
+  const setP = document.getElementById('settingsPanel');
+  const tabTop = shown(setP) ? Math.round(setP.getBoundingClientRect().bottom) + 12 : colTop;
+  root.setProperty('--tab-top', `${tabTop}px`);
+
+  // A COLLAPSED panel still occupies the column. It leaves a tab behind at the
+  // top of it, so the first free y when the scenario list is closed is the
+  // bottom of that tab stack, not the bare top of the column — otherwise the
+  // panel below slides up underneath the tab that reopens the one above it.
+  // Reading the rect here is AFTER --tab-top was written, so it reflects it:
+  // getBoundingClientRect forces the pending layout rather than returning the
+  // previous frame's numbers.
+  //
+  // An empty stack has zero height, so with nothing collapsed this collapses
+  // back to settings' own bottom and the scenario list does not pick up a
+  // second 12px gap for a tab column that is not there.
+  const tabs = document.querySelector('.tab-col');
+  const tr = tabs ? tabs.getBoundingClientRect() : null;
+  const free = tr && tr.height ? Math.round(tr.bottom) + 12 : tabTop;
+  root.setProperty('--scenario-top', `${free}px`);
+
   const top = document.getElementById('scenarioPanel');
-  const open = top && top.style.display !== 'none';
-  const y = open ? Math.round(top.getBoundingClientRect().bottom) + 12 : 92;
-  document.documentElement.style.setProperty('--xsec-top', `${y}px`);
+  const y = shown(top) ? Math.round(top.getBoundingClientRect().bottom) + 12 : free;
+  root.setProperty('--xsec-top', `${y}px`);
+  // The flight panel shares the column. When it is open it takes the slot under
+  // the scenario list and the cross-section moves below it, because the navball
+  // and the stage stack have to be visible at the same time as everything else.
+  const fp = document.getElementById('flightPanel');
+  const fOpen = shown(fp);
+  root.setProperty('--flight-top', `${y}px`);
+  if (fOpen) {
+    const fy = Math.round(fp.getBoundingClientRect().bottom) + 12;
+    root.setProperty('--xsec-top', `${fy}px`);
+  }
+
+  // The toast sits at the top of the FREE BAND, not at the middle of the
+  // window: dead centre is only clear while the window is wide, and a message
+  // half under the control panel is the one message you most need to read.
+  // Only what actually reaches the toast's own band of y counts.
+  let bandL = 16;
+  for (const sel of ['#settingsPanel', '#scenarioPanel', '#modelPanel', '#flightPanel', '#xsecPanel', '.tab-col']) {
+    const el = document.querySelector(sel);
+    if (!shown(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.top < colTop + 48) bandL = Math.max(bandL, r.right + 16);
+  }
+  const cp = document.getElementById('controlPanel');
+  const bandR = shown(cp) ? cp.getBoundingClientRect().left - 16 : window.innerWidth - 16;
+  root.setProperty('--toast-x', `${Math.round((bandL + bandR) / 2)}px`);
+
+  // The bottom-right key hint WRAPS rather than reaching across whatever the
+  // left-hand column has put in the opposite corner. That is the readout at a
+  // minimum, but the cross-section panel is 348px wide and reaches nearly to
+  // the bottom edge, so the clearance is the widest of them, not the readout's.
+  let clear = rr && rr.width ? Math.round(rr.right) : 20;
+  for (const sel of ['#settingsPanel', '#scenarioPanel', '#xsecPanel', '#flightPanel', '#modelPanel']) {
+    const el = document.querySelector(sel);
+    if (shown(el)) clear = Math.max(clear, Math.round(el.getBoundingClientRect().right));
+  }
+  root.setProperty('--hint-clear', `${clear + 24}px`);
 }
 // The scenario panel changes height when a group is expanded, and the editor
 // changes height when the body changes type — so watch, rather than guess.
@@ -1819,8 +1995,14 @@ if (window.ResizeObserver) {
   // scenario list (groups expand) and the blurb (every preset writes a
   // different one). Observing only the panel misses growth that happens in the
   // same frame the observer is installed.
-  for (const id of ['scenarioPanel', 'presetList', 'blurb']) {
+  for (const id of ['settingsPanel', 'skyAdv', 'scenarioPanel', 'presetList', 'blurb', 'readout']) {
     const el = document.getElementById(id);
+    if (el) ro.observe(el);
+  }
+  // The title block is the column's ceiling and it changes height with the mode
+  // switch and with the preset's name wrapping, so it is measured, not assumed.
+  for (const sel of ['.title-block', '.tab-col']) {
+    const el = document.querySelector(sel);
     if (el) ro.observe(el);
   }
 }
@@ -1831,18 +2013,177 @@ document.querySelectorAll('[data-close]').forEach(btn =>
 document.querySelectorAll('[data-open]').forEach(btn =>
   btn.addEventListener('click', () => setPanelOpen(btn.dataset.open, true)));
 // both start open — this also seeds the body class the hint's position keys off
-for (const id of ['scenarioPanel', 'controlPanel']) setPanelOpen(id, true);
+for (const id of ['settingsPanel', 'scenarioPanel', 'controlPanel']) setPanelOpen(id, true);
+// The flight panel starts closed and only opens when there is a vessel.
+setPanelOpen('flightPanel', false);
 // The cross-section starts closed and has no tab: it is opened from a focused
 // body, so there is nothing to come back to until one is focused.
 setPanelOpen('xsecPanel', false);
 
+
+// ============================================================================
+// APP MODE, AND WHY THE CONTROL COLUMN IS FOLDED
+// ----------------------------------------------------------------------------
+// The control panel grew one section at a time until it was eleven of them in a
+// single scrolling column, and by then finding the imaging band meant scrolling
+// past a climate model. Two things fix that and neither of them removes a
+// control:
+//
+//   1. Every section folds, and only the ones you are likely to want are open.
+//      Folding is done HERE rather than in the markup because the sections are
+//      defined by their <h3>s — wrapping each one by hand would mean touching
+//      every control in the file to add a container, and the next section added
+//      would silently not fold.
+//
+//   2. Sections belong to a MODE. Nothing about the Object Foundry is useful
+//      while flying a Saturn V, and nothing about a launch vehicle is useful
+//      while building a brown dwarf. The mode is a filter, not a separate
+//      application: the physics, the scene and the bodies are the same either
+//      way, and switching costs nothing.
+// ============================================================================
+// Spaceflight is for FLYING. Not one of the orrery's controls belongs in it:
+// the scenario list, the interior editor, the painter, the spawner, the body
+// list, the imaging bands, the camera modes and — above all — the time-scale
+// slider are all things you do to a universe you are looking at, and none of
+// them mean anything while you are holding a vehicle down on a pad. Editing
+// happens in the sandbox; the two modes share the physics and nothing else.
+const SECTION_MODE = {
+  'Central Singularity': 'sandbox', 'Suns': 'sandbox', 'Climate': 'sandbox',
+  'Imaging Band': 'sandbox', 'View & Camera': 'sandbox', 'Time': 'sandbox',
+  'Focused Object': 'sandbox', 'Object Foundry': 'sandbox', 'Painter': 'sandbox',
+  'Spaceflight': 'flight', 'Quick Spawn': 'sandbox', 'Bodies': 'sandbox',
+};
+const OPEN_BY_DEFAULT = {
+  sandbox: ['Suns', 'Imaging Band', 'View & Camera', 'Bodies'],
+  flight: ['Spaceflight'],
+};
+// The vehicle you flew last. Spaceflight opens ON the pad rather than on a view
+// of the solar system, so it has to open with something.
+let lastCraft = 'saturnv';
+const sections = [];
+
+function groupControlSections() {
+  const panel = document.getElementById('controlPanel');
+  if (!panel) return;
+  const kids = Array.from(panel.children);
+  let cur = null;
+  for (const el of kids) {
+    if (el.classList.contains('panel-head')) continue;
+    // A section starts at an <h3>, or at a wrapper whose first child is one —
+    // the climate and focused-object blocks are already grouped that way and
+    // must not be swallowed by the section above them.
+    const ownH3 = el.tagName === 'H3' ? el
+      : (el.firstElementChild && el.firstElementChild.tagName === 'H3' ? el.firstElementChild : null);
+    if (ownH3 && el.tagName === 'H3') {
+      cur = { title: ownH3.textContent.replace(/\s*\(.*?\)\s*$/, '').trim(), head: el, items: [], wrap: null };
+      sections.push(cur);
+      continue;
+    }
+    if (ownH3) {
+      // Self-contained block: it is its own section and keeps its own heading.
+      sections.push({ title: ownH3.textContent.trim(), head: ownH3, items: [], wrap: el, self: el });
+      cur = null;
+      continue;
+    }
+    if (cur) cur.items.push(el);
+  }
+
+  for (const sec of sections) {
+    sec.head.classList.add('sec-head');
+    sec.head.insertAdjacentHTML('afterbegin', '<span class="sec-arrow">▸</span>');
+    if (!sec.self) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sec-body';
+      sec.head.after(wrap);
+      for (const it of sec.items) wrap.appendChild(it);
+      sec.wrap = wrap;
+    } else {
+      const wrap = document.createElement('div');
+      wrap.className = 'sec-body';
+      // move everything after the heading inside the block into the wrapper
+      const rest = Array.from(sec.self.children).filter(c => c !== sec.head);
+      sec.self.appendChild(wrap);
+      for (const it of rest) wrap.appendChild(it);
+      sec.wrap = wrap;
+    }
+    sec.head.addEventListener('click', (e) => {
+      if (e.target.closest('input, button:not(.sec-head), select')) return;
+      setSectionOpen(sec, sec.head.classList.contains('closed'));
+    });
+  }
+}
+
+function setSectionOpen(sec, open) {
+  sec.head.classList.toggle('closed', !open);
+  sec.wrap.hidden = !open;
+}
+
+function applySectionModes(mode) {
+  for (const sec of sections) {
+    const want = SECTION_MODE[sec.title] ?? 'both';
+    const show = want === 'both' || want === mode;
+    // A CLASS, not an inline display: the climate block and the focused-object
+    // block both drive their own inline display, and whichever of the two wrote
+    // last would win. A class cannot be overwritten by that code by accident.
+    const host = sec.self || sec.head;
+    host.classList.toggle('mode-hidden', !show);
+    if (!sec.self) sec.wrap.classList.toggle('mode-hidden', !show);
+    if (show) setSectionOpen(sec, (OPEN_BY_DEFAULT[mode] || []).includes(sec.title));
+  }
+}
+
+function setAppMode(mode, opts = {}) {
+  state.appMode = mode;
+  document.body.dataset.appMode = mode;
+  document.querySelectorAll('.ms-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  applySectionModes(mode);
+  // The scenario list is the sandbox's own instrument. In flight the scenario
+  // is fixed — you are on Earth — so the panel and its tab both go.
+  document.body.classList.toggle('flight-mode', mode === 'flight');
+  if (mode === 'sandbox') {
+    closeModelViewer();
+    if (flight.active) endFlight();
+    setPanelOpen('scenarioPanel', true);
+  } else if (opts.quiet) {
+    setPanelOpen('scenarioPanel', false);
+  } else {
+    setPanelOpen('scenarioPanel', false);
+    // Spaceflight needs somewhere to fly from. Anything can be launched from in
+    // principle, but a sandbox of three black holes has no surface and no
+    // atmosphere, and the honest thing is to put you somewhere that does.
+    // Spaceflight starts ON EARTH, on the pad, at 1×. It does not start on a
+    // view of the solar system with a menu over it: the whole mode is one
+    // vehicle standing on one planet, and making you fly to it first is asking
+    // you to use the sandbox to reach the thing that is not the sandbox.
+    // The vehicles name their own home body (`launchFrom`) and every launcher's
+    // is Earth, so the scenario has to be one that has an Earth in it.
+    if (!state.bodies.some(b => b.name === 'Earth')) loadPreset('solar');
+    launchCraft(lastCraft);
+  }
+  layoutLeftColumn();
+}
+
+document.querySelectorAll('.ms-btn').forEach(b =>
+  b.addEventListener('click', () => setAppMode(b.dataset.mode)));
+
+// ---- the start screen. It is a choice, not a splash: it is dismissed only by
+// picking one, and picking one is what configures the panels.
+const startScreen = document.getElementById('startScreen');
+document.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
+  const m = b.dataset.start;
+  startScreen.classList.add('gone');
+  setTimeout(() => { startScreen.style.display = 'none'; }, 420);
+  setAppMode(m);
+  if (m === 'flight') setPanelOpen('controlPanel', true);
+}));
+
 function setHudHidden(hidden) {
   state.hudHidden = hidden;
-  for (const el of document.querySelectorAll('.hud')) {
-    // panels obey their own collapsed state once the HUD comes back
-    el.style.display = hidden ? 'none' : '';
-  }
-  for (const id of ['scenarioPanel', 'controlPanel', 'xsecPanel']) setPanelOpen(id, !collapsed.has(id));
+  // One class over the whole HUD. Every panel keeps the inline display that IS
+  // its collapsed state, so coming back restores exactly what was there — and a
+  // panel nobody remembered to list cannot be resurrected by the restore.
+  document.body.classList.toggle('hud-hidden', hidden);
+  layoutLeftColumn();
   if (hidden) toast('HUD hidden — press H to restore');
 }
 
@@ -1951,6 +2292,288 @@ if (ldEl) {
   });
 }
 
+// ============================================================================
+// SETTINGS PANEL
+// ============================================================================
+// The cross-cutting knobs, as against the scenario's own. Three pages, because
+// they are consulted at different moments: sky when composing a shot, render
+// when the frame rate is wrong, sim when a RESULT looks wrong.
+//
+// Nothing here is enumerated twice. The environment rows come from
+// SKY_ENVIRONMENTS and the amplitude rows from SKY_PARAMS, so a sixth
+// environment or an eleventh component added to sim/sky.js grows a control
+// here without this file being touched — the same discipline sim/masscurve.js
+// uses to sample its thresholds out of structureOf() rather than listing them.
+
+/**
+ * A preset's `sky` in the live spec's shape. Presets were written with
+ * `env: 'disc'` and must keep working unchanged, so the string is widened into
+ * the weight map the panel edits. Explicit per-parameter overrides on the
+ * preset are carried across as-is.
+ */
+function presetSky(spec = {}) {
+  const pairs = skyEnvWeights(spec.env ?? 'disc');
+  const env = {};
+  for (const [name, w] of (pairs.length ? pairs : [['disc', 1]])) env[name] = w;
+  const out = { ...spec, env, tilt: spec.tilt ?? 0.34, roll: spec.roll ?? 0.9 };
+  return out;
+}
+
+/** Push the live spec into both copies of the sky uniform block. */
+function applySky() {
+  syncSky(u => applySkyEnvironment(u, state.sky));
+}
+
+/**
+ * Replace the live sky wholesale and put the controls where it says. Used when
+ * something OTHER than a slider decides the sky — a preset load, a solo, a
+ * reset. The slider handlers do not go through here: they edit state.sky
+ * directly and then sync with `skipInputs`, because writing a slider's own
+ * value back to it mid-drag is how a control starts fighting the pointer.
+ */
+function setSky(spec) {
+  state.sky = spec;
+  applySky();
+  syncSkyControls();
+}
+
+/** One environment's weight, as edited by its slider. 0 removes it entirely. */
+function setEnvWeight(name, w) {
+  const env = { ...state.sky.env };
+  if (w > 0) env[name] = w; else delete env[name];
+  state.sky = { ...state.sky, env };
+  applySky();
+  syncSkyControls({ skipInputs: true });
+}
+
+// Build the environment rows once. Each is a name, a weight, a slider, and a
+// "solo" that drops every other environment — the fastest way to see what one
+// of them actually contributes, which is the question a blend panel makes you
+// ask immediately.
+if (DOM.skyEnvList) {
+  DOM.skyEnvList.innerHTML = Object.keys(SKY_ENVIRONMENTS).map(name => `
+    <div class="sky-env" data-env="${name}">
+      <div class="sky-env-head">
+        <span>${name}<button class="sky-env-solo" data-solo="${name}" title="Show this environment alone">solo</button></span>
+        <span class="w" data-w="${name}">0.00</span>
+      </div>
+      <input type="range" data-envw="${name}" min="0" max="3" value="0" step="0.05">
+    </div>`).join('');
+  DOM.skyEnvList.querySelectorAll('[data-envw]').forEach(inp =>
+    inp.addEventListener('input', () => setEnvWeight(inp.dataset.envw, parseFloat(inp.value))));
+  DOM.skyEnvList.querySelectorAll('[data-solo]').forEach(btn =>
+    btn.addEventListener('click', () => setSky({ ...state.sky, env: { [btn.dataset.solo]: 1 } })));
+}
+
+// The amplitude rows. These are the BLEND's output, shown live, and writable —
+// writing one pins that component on the spec, where it wins over the blend
+// (the same precedence a preset gets when it says "core, but without dust").
+if (DOM.skyAdv) {
+  DOM.skyAdv.innerHTML = SKY_PARAMS.map(pm => `
+    <div class="row">
+      <label title="${pm.add ? 'An amount of something — blends by ADDING, because two populations along one line of sight superpose.'
+                             : 'A shape of the one galaxy you are in — blends by weighted MEAN, because there is only one galactic plane.'}">${pm.label}</label>
+      <input type="range" data-skyp="${pm.key}" min="0" max="${pm.max}" value="0" step="${pm.max / 200}">
+      <span class="val" data-skypv="${pm.key}">0</span>
+    </div>`).join('') +
+    `<button class="ghost-btn" id="skyAdvClear">Unpin all &mdash; back to the blend</button>`;
+  DOM.skyAdv.querySelectorAll('[data-skyp]').forEach(inp =>
+    inp.addEventListener('input', () => {
+      state.sky = { ...state.sky, [inp.dataset.skyp]: parseFloat(inp.value) };
+      applySky();
+      syncSkyControls({ skipInputs: true });
+    }));
+  document.getElementById('skyAdvClear')?.addEventListener('click', () => {
+    const next = { env: state.sky.env, tilt: state.sky.tilt, roll: state.sky.roll };
+    setSky(next);
+  });
+}
+
+const skyTiltEl = document.getElementById('skyTilt');
+const skyRollEl = document.getElementById('skyRoll');
+skyTiltEl?.addEventListener('input', () => {
+  state.sky = { ...state.sky, tilt: parseFloat(skyTiltEl.value) };
+  applySky(); syncSkyControls({ skipInputs: true });
+});
+skyRollEl?.addEventListener('input', () => {
+  state.sky = { ...state.sky, roll: parseFloat(skyRollEl.value) };
+  applySky(); syncSkyControls({ skipInputs: true });
+});
+
+document.getElementById('skyAdvOpen')?.addEventListener('click', e => {
+  const open = DOM.skyAdv.hidden;
+  DOM.skyAdv.hidden = !open;
+  e.currentTarget.textContent = open ? 'Component amplitudes ▾' : 'Component amplitudes ▸';
+  layoutLeftColumn();
+});
+document.getElementById('skyReset')?.addEventListener('click', () => {
+  setSky(presetSky(state.preset?.sky));
+  toast('Sky reset to the scenario\u2019s own');
+});
+
+/**
+ * Write the live spec back into the controls. `skipInputs` updates only the
+ * numbers, leaving the slider positions alone — an input event's own slider is
+ * already where the user put it, and assigning to it mid-drag is what makes a
+ * control stutter under the pointer.
+ */
+function syncSkyControls({ skipInputs = false } = {}) {
+  const sk = state.sky || {};
+  if (DOM.skyEnvList) {
+    for (const name of Object.keys(SKY_ENVIRONMENTS)) {
+      const w = sk.env?.[name] ?? 0;
+      const row = DOM.skyEnvList.querySelector(`.sky-env[data-env="${name}"]`);
+      if (row) row.classList.toggle('on', w > 0), row.classList.toggle('off', w <= 0);
+      const lbl = DOM.skyEnvList.querySelector(`[data-w="${name}"]`);
+      if (lbl) lbl.textContent = w > 0 ? w.toFixed(2) : '—';
+      if (!skipInputs) {
+        const inp = DOM.skyEnvList.querySelector(`[data-envw="${name}"]`);
+        if (inp) inp.value = String(w);
+      }
+    }
+  }
+  // The amplitude rows always show the EFFECTIVE value — blend output, or the
+  // pinned override where there is one — so the two halves of the page can
+  // never disagree about what the sky is currently made of.
+  const eff = { ...blendEnvironments(sk.env), ...sk };
+  if (DOM.skyAdv) {
+    for (const pm of SKY_PARAMS) {
+      const v = +eff[pm.key];
+      const out = DOM.skyAdv.querySelector(`[data-skypv="${pm.key}"]`);
+      if (out) out.textContent = (pm.max <= 1.5 ? v.toFixed(3) : v.toFixed(2)) + (sk[pm.key] !== undefined ? ' ·' : '');
+      const inp = DOM.skyAdv.querySelector(`[data-skyp="${pm.key}"]`);
+      if (inp && !skipInputs) inp.value = String(Math.min(v, pm.max));
+    }
+  }
+  if (skyTiltEl && !skipInputs) skyTiltEl.value = String(sk.tilt ?? 0.34);
+  if (skyRollEl && !skipInputs) skyRollEl.value = String(sk.roll ?? 0.9);
+  const tv = document.getElementById('skyTilt-val');
+  const rv = document.getElementById('skyRoll-val');
+  if (tv) tv.textContent = (sk.tilt ?? 0.34).toFixed(2);
+  if (rv) rv.textContent = (sk.roll ?? 0.9).toFixed(2);
+}
+
+// --- the three pages -------------------------------------------------------
+document.querySelectorAll('.set-tab').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.set-tab').forEach(b => b.classList.toggle('on', b === btn));
+  document.querySelectorAll('.set-page').forEach(pg => { pg.hidden = pg.dataset.page !== btn.dataset.set; });
+  layoutLeftColumn();
+}));
+
+// --- rendering -------------------------------------------------------------
+// postfx.params is a setter-only facade over three different passes' uniforms,
+// so the defaults are declared here rather than read back out of it.
+const FX_DEFAULTS = { bloom: 0.55, threshold: 1.0, radius: 1.0, vignette: 0.35, grain: 0.02 };
+const FX_ROWS = [
+  ['fxBloom', 'bloom', 2], ['fxThreshold', 'threshold', 2], ['fxRadius', 'radius', 2],
+  ['fxVignette', 'vignette', 2], ['fxGrain', 'grain', 3],
+];
+for (const [id, key, dp] of FX_ROWS) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  el.value = String(FX_DEFAULTS[key]);
+  const out = document.getElementById(`${id}-val`);
+  const write = () => {
+    const v = parseFloat(el.value);
+    postfx.params[key] = v;
+    if (out) out.textContent = v.toFixed(dp);
+  };
+  el.addEventListener('input', write);
+  write();
+}
+document.getElementById('fxReset')?.addEventListener('click', () => {
+  for (const [id, key] of FX_ROWS) {
+    const el = document.getElementById(id);
+    if (el) { el.value = String(FX_DEFAULTS[key]); el.dispatchEvent(new Event('input')); }
+  }
+});
+
+// --- simulation ------------------------------------------------------------
+// The step cap is logarithmic because the useful range is 1e-5 to 1e-1 yr and a
+// linear slider spends nine tenths of its travel in the half-decade that never
+// matters.
+const msEl = document.getElementById('maxStep');
+const gwEl = document.getElementById('gwBoost');
+function syncSimControls() {
+  if (msEl) {
+    msEl.value = String(Math.log10(state.maxStep));
+    const o = document.getElementById('maxStep-val');
+    if (o) o.textContent = `${state.maxStep.toExponential(1)} yr`;
+  }
+  if (gwEl) {
+    gwEl.value = String(state.gwBoost);
+    const o = document.getElementById('gwBoost-val');
+    if (o) o.textContent = state.gwBoost ? `${state.gwBoost.toFixed(2)}×` : 'off';
+  }
+}
+msEl?.addEventListener('input', () => {
+  state.maxStep = Math.pow(10, parseFloat(msEl.value));
+  const o = document.getElementById('maxStep-val');
+  if (o) o.textContent = `${state.maxStep.toExponential(1)} yr`;
+});
+gwEl?.addEventListener('input', () => {
+  state.gwBoost = parseFloat(gwEl.value);
+  const o = document.getElementById('gwBoost-val');
+  if (o) o.textContent = state.gwBoost ? `${state.gwBoost.toFixed(2)}×` : 'off';
+});
+document.getElementById('simReset')?.addEventListener('click', () => {
+  const p = state.preset || {};
+  state.maxStep = p.maxStep ?? 5e-3;
+  state.gwBoost = p.gwBoost ?? 0;
+  syncSimControls();
+});
+
+/**
+ * Total energy of the system, in AU/M☉/yr units. Kinetic plus the Newtonian
+ * pair potential — the Paczyński–Wiita term and the GW back-reaction are both
+ * deliberately left out, because a conserved quantity is only useful as a check
+ * if it is the one the INTEGRATOR is supposed to conserve. With GW boost on, or
+ * near a hole, the drift shown is therefore real physics leaving the system as
+ * well as integration error, and the readout says so by not pretending
+ * otherwise: what it detects is the cap being too long, which dwarfs both.
+ */
+function totalEnergy() {
+  const bs = state.bodies.filter(b => b.alive);
+  let E = 0;
+  for (let i = 0; i < bs.length; i++) {
+    E += 0.5 * bs[i].mass * bs[i].vel.lengthSq();
+    for (let j = i + 1; j < bs.length; j++) {
+      const r = bs[i].pos.distanceTo(bs[j].pos);
+      E -= PHYS.G * bs[i].mass * bs[j].mass / Math.max(r, 1e-9);
+    }
+  }
+  return E;
+}
+
+// stepPhysics gives up after 8000 sub-steps and advances the clock by what it
+// actually integrated, so hitting the guard does not corrupt the answer — it
+// silently slows simulated time instead. Silently is the problem: the step cap
+// is now a slider, and its low end reaches the guard easily, at which point the
+// sim is running slower than the Time controls say and nothing anywhere says
+// why. Saying so costs one class.
+const STEP_GUARD = 8000;
+
+function updateSimStats() {
+  if (DOM.setSteps) {
+    const capped = state.lastSteps >= STEP_GUARD;
+    DOM.setSteps.textContent = capped ? `${state.lastSteps} capped` : String(state.lastSteps);
+    DOM.setSteps.classList.toggle('warn', capped);
+    DOM.setSteps.title = capped
+      ? 'The integrator hit its 8000 sub-step guard. The answer is still correct — it advances the clock by what it actually integrated — but simulated time is now running slower than the Time panel says. Raise the step cap.'
+      : '';
+  }
+  if (!DOM.setDrift) return;
+  // A merger removes mass and its binding energy with it, so the reference is
+  // meaningless across one. Rebasing on a body count change is the honest fix:
+  // the number then reports drift since the last event rather than nonsense.
+  const E = totalEnergy();
+  if (state.energy0 === null || state.energyN !== state.bodies.length) {
+    state.energy0 = E; state.energyN = state.bodies.length;
+  }
+  const rel = state.energy0 ? Math.abs((E - state.energy0) / state.energy0) : 0;
+  DOM.setDrift.textContent = rel < 1e-12 ? '0' : rel.toExponential(1);
+}
+
 document.getElementById('climateReset')?.addEventListener('click', () => {
   state.climate?.reset(288);
 });
@@ -1994,7 +2617,7 @@ function applyRegime(name) {
 }
 document.querySelectorAll('[data-time]').forEach(b =>
   b.addEventListener('click', () => applyRegime(b.dataset.time)));
-document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
+document.getElementById('resetView').addEventListener('click', () => { setFollow(null); cam.target.set(0, 0, 0); camOffset.set(0, 0, 0); jumpCamRadius(state.preset.camRadius); cam.theta = Math.PI / 2 - 0.35; cam.phi = Math.PI / 2; setCamMode('orbit'); updateOrbitCam(); });
 
 function setSpawnAtRest(on) {
   state.spawnAtRest = on;
@@ -2046,17 +2669,263 @@ function resize() {
   // framebuffer does, so zooming spreads a star over more pixels the way a real
   // telescope does instead of concentrating it into a brighter dot.
   syncSky(u => applySkyOptics(u, { fov: camera.fov * Math.PI / 180, height: h * pr }));
+  flight?.setSize(w, h);
+  modelView?.setSize(w, h);
 }
 addEventListener('resize', resize);
+
+// ============================================================================
+// SPACEFLIGHT
+// ----------------------------------------------------------------------------
+// The whole feature lives in sim/flight/; this is the wiring. It takes over the
+// camera, the time scale and one extra render pass, and gives all three back
+// when the flight ends.
+// ============================================================================
+const ZERO_BETA = new THREE.Vector3(0, 0, 0);
+function applySkyBoostAll(b) { syncSky(u => applySkyBoost(u, b)); }
+
+const flight = createSpaceflight({
+  renderer, scene, camera, state,
+  panel: DOM.flightHud,
+  toast: (m) => toast(m),
+});
+
+// The vehicle picker. Each button carries the numbers the vehicle is actually
+// built from, because "2 970 t, 14.3 km/s, TWR 1.20" says more about what a
+// Saturn V is than any description could.
+function renderCraftGrid() {
+  if (!DOM.craftGrid) return;
+  DOM.craftGrid.innerHTML = flight.vehicles.map(v => {
+    const dv = (totalDeltaV(v, v.carries ? v.carries.mass : 0) / 1000).toFixed(1);
+    const m = grossMass(v, v.carries ? v.carries.mass : 0);
+    const mass = m > 1e5 ? `${(m / 1e6).toFixed(2)} kt` : `${(m / 1000).toFixed(0)} t`;
+    return `<button class="craft-btn" data-craft="${v.key}" title="${v.blurb}">
+      <span class="cn">${v.name}</span>
+      <span class="cd">${mass} · ${dv} km/s · ${v.role}</span></button>`;
+  }).join('');
+  DOM.craftGrid.querySelectorAll('[data-craft]').forEach((btn) => {
+    btn.addEventListener('click', () => launchCraft(btn.dataset.craft));
+    // Warm the mesh on hover. Pointing at a button is a reliable signal that
+    // it is about to be pressed, and it turns the one fetch launchCraft has to
+    // wait for into one that has already happened. Idempotent, so the repeated
+    // enters a mouse generates cost nothing.
+    btn.addEventListener('pointerenter', () => preloadCraft(btn.dataset.craft));
+  });
+}
+
+async function launchCraft(key) {
+  const veh = flight.vehicles.find(v => v.key === key);
+  if (!veh) return;
+  // The authored models are a cache buildCraft reads synchronously, so THIS
+  // vehicle's mesh has to be in it before the first build or the craft spawns
+  // as its procedural fallback and stays that way for the whole flight.
+  //
+  // One vehicle, not nine. The set is ~12 MB and the Hail Mary alone is two
+  // thirds of it; fetching all of it to fly a Falcon 9 would put a
+  // multi-megabyte stall in front of every launch for eight models that will
+  // not be drawn. Usually already settled — the buttons warm on hover.
+  await craftModelsReady(key);
+  lastCraft = key;
+  // A launcher needs a body with a surface to leave; everything else is put in
+  // orbit around whatever dominates the scenario.
+  const v = flight.begin(key, { mode: veh.role === 'launch' ? 'pad' : 'orbit' });
+  if (!v) return;
+  setPanelOpen('flightPanel', true);
+  layoutLeftColumn();
+  setCamMode('flight');
+  if (DOM.flightRow) DOM.flightRow.style.display = '';
+  DOM.craftGrid?.querySelectorAll('[data-craft]').forEach(b =>
+    b.classList.toggle('on', b.dataset.craft === key));
+  toast(`${veh.name} — ${v.phase === 'prelaunch' ? 'ready on the pad' : 'in orbit'}`);
+  syncWarpLabel();
+}
+
+function endFlight() {
+  // Ending a flight is not leaving the planet. In flight mode the camera stays
+  // on Earth, framed, rather than snapping back out to a view of the whole
+  // system — which is the sandbox's view and the one this mode exists to avoid.
+  const wasFlightMode = state.appMode === 'flight';
+  flight.teardown();
+  setCamMode('orbit');
+  if (wasFlightMode) {
+    const home = state.bodies.find(b => b.name === 'Earth');
+    if (home) setFollow(home);
+  }
+  setPanelOpen('flightPanel', false);
+  if (DOM.flightRow) DOM.flightRow.style.display = 'none';
+  DOM.craftGrid?.querySelectorAll('[data-craft]').forEach(b => b.classList.remove('on'));
+  // hand the orrery's own pacing back
+  applyTimeScale();
+}
+
+function syncWarpLabel() {
+  if (DOM.warpLabel) DOM.warpLabel.textContent = `${flight.warp().toLocaleString()}×`;
+  if (DOM.flightCam) DOM.flightCam.textContent =
+    'Cam: ' + flight.cameraMode().replace(/^./, c => c.toUpperCase());
+}
+
+DOM.flightExit?.addEventListener('click', endFlight);
+DOM.flightCam?.addEventListener('click', () => {
+  const modes = ['chase', 'orbit', 'cockpit', 'pad'];
+  flight.setCameraMode(modes[(modes.indexOf(flight.cameraMode()) + 1) % modes.length]);
+  syncWarpLabel();
+});
+document.querySelectorAll('[data-warp]').forEach(b => b.addEventListener('click', () => {
+  flight.setWarp(flight.warpIndex() + parseInt(b.dataset.warp, 10));
+  syncWarpLabel();
+}));
+renderCraftGrid();
+
+// ============================================================================
+// THE MODEL VIEWER
+// ----------------------------------------------------------------------------
+// Its own scene, its own camera, and it replaces the frame entirely rather than
+// compositing over the orrery: the whole point of it is that nothing else is in
+// the way. See sim/flight/modelviewer.js.
+// ============================================================================
+const modelView = createModelViewer();
+let modelOpen = false;
+
+function mvMass(kg) {
+  return kg >= 1e6 ? `${(kg / 1e6).toFixed(2)} kt`
+    : kg >= 1e3 ? `${(kg / 1e3).toFixed(1)} t` : `${kg.toFixed(0)} kg`;
+}
+
+function renderModelGrid() {
+  const g = document.getElementById('mvGrid');
+  if (!g) return;
+  g.innerHTML = modelView.list().map(v =>
+    `<button class="mv-chip" data-mv="${v.key}">${v.name}</button>`).join('');
+  g.querySelectorAll('[data-mv]').forEach(b =>
+    b.addEventListener('click', () => showModel(b.dataset.mv)));
+}
+
+function showModel(key) {
+  const veh = modelView.load(key);
+  if (!veh) return;
+  const st = modelView.stats();
+  document.getElementById('mvName').textContent = st.name;
+  document.querySelectorAll('[data-mv]').forEach(b => b.classList.toggle('on', b.dataset.mv === key));
+  document.getElementById('mvList').innerHTML = `
+    <div><span class="k">height</span><span class="v">${st.height.toFixed(1)} m</span></div>
+    <div><span class="k">gross</span><span class="v">${mvMass(st.gross)}</span></div>
+    <div><span class="k">ideal Δv</span><span class="v">${(st.dv / 1000).toFixed(2)} km/s</span></div>
+    <div><span class="k">pad TWR</span><span class="v">${st.twr > 0 ? st.twr.toFixed(2) : '—'}</span></div>`;
+  // One row per stage, with the numbers the stage IS: nothing here is stored,
+  // it is all read back out of the same table the physics integrates.
+  document.getElementById('mvStages').innerHTML = st.rows.map((r, i) => `
+    <div class="mv-stage">
+      <div class="ms-top"><span class="ms-i">${i + 1}</span><span class="ms-n">${r.name}</span>
+        <span class="ms-dv">${(r.dv / 1000).toFixed(2)} km/s</span></div>
+      <div class="ms-sub">${r.L.toFixed(1)} × ${r.D.toFixed(1)} m ·
+        ${mvMass(r.dry)} dry + ${mvMass(r.prop)} prop</div>
+      <div class="ms-sub">${r.engine}${r.thrust ? ` · ${(r.thrust / 1e6).toFixed(2)} MN vac · Isp ${r.isp.toFixed(0)} s` : ''}</div>
+    </div>`).join('');
+  modelOpen = true;
+  document.getElementById('modelPanel').style.display = '';
+  openModelWorld();
+}
+
+// ---------------------------------------------------------------------------
+// THE STUDIO IS A WORLD, NOT A PANEL
+// ---------------------------------------------------------------------------
+// It was half of one. Opening it closed the scenario list and the flight panel
+// but left the control column standing, so the frame carried TWO vehicle
+// pickers — the studio's own chips on the left and the craft grid on the right
+// — and an EXIT FLIGHT button that does not exit the studio. Which of the two
+// you were in was a fair question, and the honest answer was neither.
+//
+// So it takes the frame: every other panel goes, and every panel comes back
+// exactly as it was when it lets go. What was open is REMEMBERED rather than
+// assumed, because the close used to reopen the scenario list unconditionally
+// — reinstating a panel you had deliberately collapsed before opening it.
+//
+// Panels alone are not enough either. A collapsed panel leaves a tab behind,
+// the tabs are later in the document than this panel, and the left-hand ones
+// stand at the top of the same column — so `model-open` takes the tabs with it
+// and the studio is the only thing on screen that answers to a click.
+const MODEL_WORLD = ['scenarioPanel', 'controlPanel', 'flightPanel', 'xsecPanel'];
+let modelRestore = null;
+function openModelWorld() {
+  if (!modelRestore) modelRestore = MODEL_WORLD.filter(id => !collapsed.has(id));
+  document.body.classList.add('model-open');
+  for (const id of MODEL_WORLD) setPanelOpen(id, false);
+}
+
+function closeModelViewer() {
+  modelOpen = false;
+  document.body.classList.remove('model-open');
+  const p = document.getElementById('modelPanel');
+  if (p) p.style.display = 'none';
+  // Put back what the studio borrowed — and only what it borrowed.
+  if (modelRestore) {
+    for (const id of modelRestore) setPanelOpen(id, true);
+    modelRestore = null;
+  }
+  layoutLeftColumn();
+}
+
+document.getElementById('modelOpen')?.addEventListener('click', () => {
+  showModel(modelView.vehicle?.key || 'saturnv');
+});
+document.getElementById('modelClose')?.addEventListener('click', closeModelViewer);
+document.getElementById('mvExplode')?.addEventListener('input', e =>
+  modelView.setExplode(parseFloat(e.target.value)));
+document.getElementById('mvDeploy')?.addEventListener('click', e => {
+  const on = e.target.classList.toggle('on');
+  modelView.setDeploy(on);
+});
+document.getElementById('mvSpin')?.addEventListener('click', e => {
+  const on = e.target.classList.toggle('on');
+  modelView.cam.spin = on ? 0.10 : 0;
+  modelView.cam.held = !on;
+});
+document.getElementById('mvFly')?.addEventListener('click', () => {
+  const k = modelView.vehicle?.key;
+  closeModelViewer();
+  if (k) launchCraft(k);
+});
+renderModelGrid();
+
+// The panels only make sense once both simulators exist, so the initial mode is
+// applied here rather than where it is defined.
+groupControlSections();
+setAppMode('sandbox', { quiet: true });
 
 // ============================================================================
 // ANIMATION LOOP
 // ============================================================================
 let lastT = performance.now(), fpsAcc = 0, fpsCount = 0, fpsTime = 0;
+// The id of the pending frame. Kept so there is exactly one loop running: a
+// browser pauses requestAnimationFrame entirely while the page is hidden, so a
+// headless preview can never advance the sim on its own — SIM.frame() drives it
+// by hand, and without cancelling first each manual call would leave another
+// callback queued and start a second loop the moment the page came back.
+let rafId = 0;
+// A frame's length, in seconds, when SIM.frame() is driving by hand. It is a
+// variable and not a parameter for a reason that cost a lot of wall-clock
+// realism: `requestAnimationFrame(animate)` calls back with a
+// DOMHighResTimeStamp, so a parameter — however it is named or documented —
+// receives the milliseconds since navigation on EVERY real frame. dt was
+// therefore not the length of the frame, it was the age of the page, in
+// seconds, growing without bound: after four minutes the sim was advancing
+// 45 000 s of its own time against 258 s of the wall clock, the frame-rate
+// readout sat at 0 because 1/dt had underflowed, and a launch that was
+// arithmetically running at 1× was in fact running at a hundred and seventy.
+//
+// Anything that smooths over dt — the camera's easing, the swing arms, the
+// deploy animations — saturates at that step size too, so the symptom was not
+// only that time ran away but that everything which followed it snapped.
+let manualDt = null;
 function animate() {
-  requestAnimationFrame(animate);
+  rafId = requestAnimationFrame(animate);
   const now = performance.now();
-  let dt = Math.min((now - lastT) / 1000, 0.05); lastT = now;
+  // The cap matters in the honest direction: a frame that took longer than
+  // 50 ms is integrated as 50 ms, so a slow machine runs the sim SLOW rather
+  // than letting one long frame jump the whole state forward.
+  let dt = manualDt != null ? manualDt : Math.min((now - lastT) / 1000, 0.05);
+  manualDt = null;
+  lastT = now;
   const simDt = state.paused ? 0 : dt * state.speed * state.timeScale;
   state.time += dt;
 
@@ -2098,24 +2967,25 @@ function animate() {
     }
   }
 
+  // ---- spaceflight. It owns the camera while it is active, so this runs
+  // before the orrery's own camera update and that update is skipped.
+  if (flight.active) {
+    flight.update(dt, state.time);
+    if (flight.vessel && state.camMode !== 'flight') setCamMode('flight');
+    // Relativistic aberration and Doppler of the star field, from the ship's
+    // own velocity. Zero except in interstellar cruise, where it is the view.
+    applySkyBoostAll(flight.boost);
+  }
+
   // camera follow / movement
   const home = getHome();
-  if (state.camMode === 'surface' && home) observer.update(home, camera);
+  if (state.camMode === 'flight') { /* the flight pass has already placed it */ }
+  else if (state.camMode === 'surface' && home) observer.update(home, camera);
   else if (state.camMode === 'free') updateFreeCam(dt);
   else {
     if (state.followId != null) {
       const fb = state.bodies.find(b => b.id === state.followId);
-      // The 0.2 lerp exists to damp the camera when you click between bodies.
-      // At true scale it breaks down: framing Earth puts the camera 3e-4 AU
-      // out while Earth itself covers most of an AU per frame at 6 yr/s, so a
-      // fractional catch-up never arrives and the target trails hopelessly
-      // behind. Smooth only while the residual is small compared to the
-      // viewing distance; past that, track exactly.
-      if (fb) {
-        const p = fb.viz.group.position;
-        if (cam.target.distanceToSquared(p) > (cam.radius * 0.25) ** 2) cam.target.copy(p);
-        else cam.target.lerp(p, 0.2);
-      }
+      if (fb) trackFollow(fb, dt);
     }
     easeCamRadius(dt);
     updateOrbitCam();
@@ -2125,7 +2995,7 @@ function animate() {
   // entirely: fly up to one and it clips away before you ever see it. Tying the
   // near plane to how far the camera actually is keeps the whole zoom range —
   // from 40 AU down to a low pass over a planet — inside the depth buffer.
-  if (state.camMode !== 'surface') {
+  if (state.camMode !== 'surface' && state.camMode !== 'flight') {
     // In orbit mode the viewing distance IS cam.radius. Free-fly has no such
     // handle, so use the gap to the nearest body's surface — that is the only
     // thing the near plane can actually clip through.
@@ -2212,6 +3082,21 @@ function animate() {
   }
   meshMat.uniforms.wellCount.value = wc;
   meshMat.uniforms.time.value += simStepped;
+
+  // ---- model viewer: it is a studio, not a view of the universe, so it takes
+  // the whole frame. Still through postfx, because the vehicles are lit for a
+  // tone-mapped pipeline and would come out flat drawn straight to the screen.
+  if (modelOpen) {
+    modelView.update(dt);
+    renderer.setRenderTarget(postfx.hdr);
+    renderer.setClearColor(0x0b0d11, 1);
+    renderer.clear();
+    renderer.render(modelView.scene, modelView.camera);
+    renderer.setClearColor(0x000000, 0);
+    postfx.render(1.0, state.time);
+    updateHUD(dt);
+    return;
+  }
 
   // lensing uniforms
   lensMaterial.uniforms.time.value += simStepped;
@@ -2307,6 +3192,35 @@ function animate() {
     // The sky pass already applies its own eye-adaptation exposure, so the
     // tone mapper takes the frame at unity and just does the highlight roll-off
     // and the bloom on top of it.
+    postfx.render(1.0, state.time);
+    updateHUD(dt);
+    return;
+  }
+
+  // ---- flight view: the orrery's frame (planet, stars, lensing) first, then
+  // the metre-scale local pass over it with its own depth range. See
+  // sim/flight/localview.js for why the two cannot share a projection.
+  if (state.camMode === 'flight' && flight.active) {
+    // The spacetime slab is a 120-unit plane at AU scale. From a camera sitting
+    // on a launch pad it is a lattice of lines across the whole sky, and it is
+    // measuring a quantity — the depth of the gravity well — that means nothing
+    // at this range. Hide it and put it back on the way out.
+    const meshWasFlight = spacetimeMesh.visible;
+    spacetimeMesh.visible = false;
+    if (useLens) {
+      lensPass.render(renderer, postfx.hdr);
+      renderer.autoClear = false; renderer.clearDepth();
+      renderer.render(scene, camera);
+      renderer.autoClear = true;
+    } else {
+      renderer.setRenderTarget(postfx.hdr); renderer.clear();
+      drawBackdrop();
+      renderer.autoClear = false;
+      renderer.render(scene, camera);
+      renderer.autoClear = true;
+    }
+    flight.renderLocal();
+    spacetimeMesh.visible = meshWasFlight;
     postfx.render(1.0, state.time);
     updateHUD(dt);
     return;
@@ -2423,7 +3337,13 @@ document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', ()
 // thinks a body is, `SIM.load('vega')` is faster than editing the hash, and
 // `SIM.renderer.info.render` settles "is this thing being drawn at all" in one
 // line. This is a deliberate handle, not a leftover.
-window.SIM = { state, scene, camera, cam, renderer, THREE, load: loadPreset, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
+window.SIM = { state, scene, camera, cam, renderer, THREE, flight, launchCraft, endFlight,
+  // Step one frame by hand at a fixed step. A hidden page gets no
+  // requestAnimationFrame callbacks at all, so this is the only way a headless
+  // run can advance the sim — and it has to be able to say how long the frame
+  // lasted, or the run is not reproducible.
+  frame: (dt = 1 / 60) => { cancelAnimationFrame(rafId); manualDt = dt; animate(); },
+  load: loadPreset, setSky, applySky, presetSky, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
 
 resize();
 // Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,
@@ -2433,4 +3353,8 @@ resize();
 const hasPreset = k => Object.prototype.hasOwnProperty.call(PRESETS, k);
 loadPreset(hasPreset(location.hash.slice(1)) ? location.hash.slice(1) : 'sandbox');
 addEventListener('hashchange', () => { const k = location.hash.slice(1); if (hasPreset(k)) loadPreset(k); });
+// The authored meshes are NOT fetched here. Nine of them come to ~12 MB and
+// none is needed until a craft is built, so they load per vehicle: warmed when
+// the pointer enters a craft button, awaited in launchCraft. A sim that is
+// mostly an orrery should not spend its first seconds downloading rockets.
 setTimeout(() => { DOM.loading.classList.add('gone'); animate(); }, 400);

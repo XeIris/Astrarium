@@ -12,13 +12,182 @@
 
 <div id="canvas-wrap"></div>
 
+<!-- START SCREEN ---------------------------------------------------------
+     Astrarium is two simulators sharing one renderer, and the single stacked
+     control column that served the orrery alone became unreadable the moment
+     spaceflight was added to the bottom of it. So the first question the page
+     asks is which of the two you came for, and the panels follow the answer.
+     Neither is hidden afterwards — the switch at the top left changes mode at
+     any time and nothing is lost by it. -->
+<div class="start" id="startScreen">
+  <div class="start-inner">
+    <div class="start-tag">ASTRARIUM</div>
+    <h1 class="start-title">A relativistic orrery<br>and a spaceflight simulator</h1>
+    <p class="start-sub">Real gravity in AU, M<sub>☉</sub> and years with <i>G</i> = 4π².
+      Real vehicles in metres and seconds. Pick where to start — you can switch at any time.</p>
+    <div class="start-cards">
+      <button class="start-card" data-start="sandbox">
+        <svg viewBox="0 0 64 64" class="start-ico" aria-hidden="true">
+          <ellipse cx="32" cy="32" rx="26" ry="10" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <ellipse cx="32" cy="32" rx="15" ry="24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+          <circle cx="32" cy="32" r="6.5" fill="currentColor"/>
+          <circle cx="58" cy="32" r="2.6" fill="currentColor"/>
+          <circle cx="32" cy="8"  r="2.0" fill="currentColor" opacity=".7"/>
+        </svg>
+        <span class="sc-name">Sandbox</span>
+        <span class="sc-desc">Build and break systems. N-body gravity, real interiors,
+          black holes, climate, and the imaging bands to look at it all in.</span>
+      </button>
+      <button class="start-card" data-start="flight">
+        <svg viewBox="0 0 64 64" class="start-ico" aria-hidden="true">
+          <path d="M32 4c7 8 10 18 10 28v12H22V32C22 22 25 12 32 4z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M22 40l-8 10h8zM42 40l8 10h-8z" fill="currentColor" opacity=".8"/>
+          <circle cx="32" cy="24" r="3.4" fill="currentColor"/>
+          <path d="M27 50c2 5 3 8 5 10 2-2 3-5 5-10z" fill="currentColor" opacity=".55"/>
+        </svg>
+        <span class="sc-name">Spaceflight</span>
+        <span class="sc-desc">Fly real vehicles off a real pad. Staging, guidance,
+          landings, time dilation — and a model viewer to see what you are flying.</span>
+      </button>
+    </div>
+    <div class="start-foot">Everything is derived, nothing is scripted —
+      if a rocket cannot reach orbit here, it could not reach orbit.</div>
+  </div>
+</div>
+
+
 <div class="corner tl"></div><div class="corner tr"></div>
 <div class="corner bl"></div><div class="corner br"></div>
 
+<!-- The top-left corner is the SETTINGS column now, so the title block is
+     reduced to the one thing in it that was a control rather than a caption:
+     the mode switch. The name of the running scenario was not deleted, it
+     MOVED — to the head of the scenario panel, which is where you go to change
+     it and therefore where it means something. A caption in the corner of the
+     screen and the list it names being two different places was the redundancy
+     worth spending on the panel. -->
 <div class="hud title-block">
-  <div class="tag">ASTRARIUM</div>
-  <div class="name" id="presetName">Black Hole Sandbox</div>
-  <div class="sub">/ REAL N-BODY · G = 4π²</div>
+  <div class="mode-switch">
+    <button class="ms-btn" data-mode="sandbox">Sandbox</button>
+    <button class="ms-btn" data-mode="flight">Spaceflight</button>
+  </div>
+</div>
+
+<!-- SETTINGS — the cross-cutting knobs, as opposed to the scenario's own.
+     Everything here outlives a preset change: how the sky is composed, what
+     the renderer spends its frame on, and the two integrator parameters that
+     decide whether a close pass is resolved or stepped straight through.
+
+     The sky block is built from SKY_PARAMS and SKY_ENVIRONMENTS at runtime
+     rather than written out here, so adding an environment or a component to
+     sim/sky.js puts a control in this panel on its own — same rule as the
+     mass curve sampling its thresholds out of structureOf(). -->
+<div class="hud panel panel-left panel-settings" id="settingsPanel">
+  <div class="panel-head">
+    <h3>Settings</h3>
+    <button class="panel-close" data-close="settingsPanel" title="Collapse (H hides everything)">✕</button>
+  </div>
+
+  <div class="set-tabs" id="setTabs">
+    <button class="set-tab on" data-set="sky">Sky</button>
+    <button class="set-tab" data-set="render">Render</button>
+    <button class="set-tab" data-set="sim">Sim</button>
+  </div>
+
+  <!-- SKY ------------------------------------------------------------------->
+  <div class="set-page" data-page="sky">
+    <div class="section-note">Where you are looking from. The environments are
+      POPULATIONS and they superpose — a globular cluster still has the galaxy
+      behind it — so the weights add rather than crossfade. Shape (band
+      thickness, bulge size, plane concentration) is the one galaxy you are in,
+      so those take the weighted mean instead.</div>
+    <div id="skyEnvList"></div>
+    <div class="row">
+      <label title="Tilt of the galactic plane relative to the scene. This places your VIEW of the galaxy, not you.">Plane tilt</label>
+      <input type="range" id="skyTilt" min="0" max="1.57" value="0.34" step="0.01">
+      <span class="val" id="skyTilt-val">0.34</span>
+    </div>
+    <div class="row">
+      <label title="Roll about the vertical. Swings the band round the horizon.">Plane roll</label>
+      <input type="range" id="skyRoll" min="0" max="6.28" value="0.9" step="0.01">
+      <span class="val" id="skyRoll-val">0.90</span>
+    </div>
+    <button class="ghost-btn" id="skyAdvOpen">Component amplitudes ▸</button>
+    <div id="skyAdv" hidden></div>
+    <button class="ghost-btn" id="skyReset">Reset to scenario&rsquo;s sky</button>
+  </div>
+
+  <!-- RENDER ---------------------------------------------------------------->
+  <div class="set-page" data-page="render" hidden>
+    <div class="section-note">Every heavy pass here is fullscreen, so the top
+      two sliders multiply the whole frame cost. Bloom is the instrument&rsquo;s
+      point-spread function and runs after the spectral remap, which is why it
+      spreads what the band actually images rather than what the eye would see.</div>
+    <div class="row">
+      <label for="renderScale" title="Framebuffer scale. Every heavy pass here is fullscreen, so this multiplies the whole frame cost — 1.5x is 2.25x the pixels of 1.0x. Turn it up for screenshots, down for frame rate.">Render scale</label>
+      <input type="range" id="renderScale" min="0.5" max="2" value="1" step="0.05">
+      <span class="val" id="renderScale-val">1.00x</span>
+    </div>
+    <div class="row">
+      <label for="lensScale" title="Resolution of the geodesic marcher, as a fraction of the display. The star field is always evaluated at full resolution, so this trades sharpness of the disc and the shadow edge — not the stars — for a large amount of frame time.">Lens detail</label>
+      <input type="range" id="lensScale" min="0.25" max="1" value="0.5" step="0.05">
+      <span class="val" id="lensScale-val">0.50x</span>
+    </div>
+    <div class="row">
+      <label title="Strength of the bloom added back over the frame.">Bloom</label>
+      <input type="range" id="fxBloom" min="0" max="1.2" value="0.55" step="0.01">
+      <span class="val" id="fxBloom-val">0.55</span>
+    </div>
+    <div class="row">
+      <label title="Luminance above which a pixel blooms. Lower catches more of the frame; the knee keeps the transition soft.">Bloom threshold</label>
+      <input type="range" id="fxThreshold" min="0" max="4" value="1" step="0.05">
+      <span class="val" id="fxThreshold-val">1.00</span>
+    </div>
+    <div class="row">
+      <label title="Spread of the upsample filter — how far the glow reaches.">Bloom radius</label>
+      <input type="range" id="fxRadius" min="0.2" max="2.5" value="1" step="0.05">
+      <span class="val" id="fxRadius-val">1.00</span>
+    </div>
+    <div class="row">
+      <label title="Corner falloff. An instrument artefact, not a physical one.">Vignette</label>
+      <input type="range" id="fxVignette" min="0" max="1" value="0.35" step="0.01">
+      <span class="val" id="fxVignette-val">0.35</span>
+    </div>
+    <div class="row">
+      <label title="Sensor grain. Breaks up the banding a smooth HDR gradient shows on an 8-bit display.">Grain</label>
+      <input type="range" id="fxGrain" min="0" max="0.1" value="0.02" step="0.002">
+      <span class="val" id="fxGrain-val">0.020</span>
+    </div>
+    <button class="ghost-btn" id="fxReset">Reset rendering</button>
+  </div>
+
+  <!-- SIM ------------------------------------------------------------------->
+  <div class="set-page" data-page="sim" hidden>
+    <div class="section-note">The integrator is velocity-Verlet in AU, M<sub>☉</sub>
+      and years with <i>G</i> = 4π². The step cap is the one setting that changes
+      the ANSWER rather than the picture: a close pass is only resolved if the
+      step is short compared with the time spent in it.</div>
+    <div class="row">
+      <label title="Longest integrator step, in years. Lower is more accurate and slower; too high and a close encounter is stepped straight over, which shows up as energy appearing from nowhere.">Max step</label>
+      <input type="range" id="maxStep" min="-5" max="-1" value="-2.3" step="0.05">
+      <span class="val" id="maxStep-val">5.0e-3 yr</span>
+    </div>
+    <div class="row">
+      <label title="Multiplier on the gravitational-wave radiation reaction. 1 is the real rate; presets raise it so an inspiral that truly takes megayears is watchable. 0 turns the back-reaction off entirely.">GW boost</label>
+      <input type="range" id="gwBoost" min="0" max="6" value="0" step="0.05">
+      <span class="val" id="gwBoost-val">off</span>
+    </div>
+    <div class="stat-grid set-stats">
+      <div><span class="k">steps/frame</span><span class="v" id="setSteps">—</span></div>
+      <div><span class="k">energy drift</span><span class="v" id="setDrift">—</span></div>
+    </div>
+    <div class="section-note">Drift is the relative change in total energy since
+      the scenario loaded. It is the honest measure of whether the step is short
+      enough: a stable hierarchy holds ~1e-7 over tens of thousands of years,
+      and a number climbing through 1e-3 means the cap is too long for what the
+      bodies are currently doing.</div>
+    <button class="ghost-btn" id="simReset">Reset to scenario&rsquo;s values</button>
+  </div>
 </div>
 
 <!-- SCENARIOS — its own panel, on the left, so the long control stack on the
@@ -28,6 +197,7 @@
     <h3>Scenario</h3>
     <button class="panel-close" data-close="scenarioPanel" title="Collapse (H hides everything)">✕</button>
   </div>
+  <div class="scenario-now" id="presetName">Black Hole Sandbox</div>
   <div class="preset-search">
     <label class="sr-only" for="presetSearch">Search scenarios or categories</label>
     <input id="presetSearch" type="search" placeholder="Search scenarios / categories"
@@ -115,16 +285,9 @@
     <button class="toggle-btn" id="camSurface" style="display:none">On Trisolaris</button>
   </div>
   <button class="ghost-btn" id="resetView">Reset View</button>
-  <div class="row">
-    <label for="renderScale" title="Framebuffer scale. Every heavy pass here is fullscreen, so this multiplies the whole frame cost — 1.5x is 2.25x the pixels of 1.0x. Turn it up for screenshots, down for frame rate.">Render scale</label>
-    <input type="range" id="renderScale" min="0.5" max="2" value="1" step="0.05">
-    <span class="val" id="renderScale-val">1.00x</span>
-  </div>
-  <div class="row">
-    <label for="lensScale" title="Resolution of the geodesic marcher, as a fraction of the display. The star field is always evaluated at full resolution, so this trades sharpness of the disc and the shadow edge — not the stars — for a large amount of frame time.">Lens detail</label>
-    <input type="range" id="lensScale" min="0.25" max="1" value="0.5" step="0.05">
-    <span class="val" id="lensScale-val">0.50x</span>
-  </div>
+  <div class="section-note">Render scale and lens detail moved to
+    <b>Settings &rsaquo; Render</b>, top left — they are properties of the
+    renderer rather than of this view, and they survive a scenario change.</div>
 
   <div id="skyRow" style="display:none">
     <div class="row">
@@ -185,6 +348,18 @@
     <button class="add-btn" data-paint="clear"><span class="sym">✕</span>Clear paint</button>
   </div>
 
+  <h3>Spaceflight</h3>
+  <div class="section-note">Real vehicles, real stage masses, real engines. A
+    stage's Δv is computed from its own dry and propellant mass, so if a rocket
+    cannot reach orbit here it could not reach orbit. Time runs <b>1:1</b> —
+    one second per second — until you warp it yourself.</div>
+  <div class="craft-grid" id="craftGrid"></div>
+  <button class="ghost-btn" id="modelOpen">Model viewer ▸</button>
+  <div class="toggle-row" id="flightRow" style="display:none">
+    <button class="toggle-btn" id="flightCam" title="Chase · Orbit · Cockpit · Pad">Cam: Chase</button>
+    <button class="toggle-btn" id="flightExit">Exit flight</button>
+  </div>
+
   <h3>Quick Spawn</h3>
   <div class="toggle-row">
     <button class="toggle-btn" data-view="spawnrest"
@@ -200,6 +375,28 @@
 
   <h3>Bodies <span id="count" style="color:var(--accent)">(0)</span></h3>
   <div class="body-list" id="bodyList"><div class="empty">— empty —</div></div>
+</div>
+
+<!-- MODEL VIEWER — a studio for the vehicles. See sim/flight/modelviewer.js;
+     the point of it is that scale is a comparison, so there is a person in it. -->
+<div class="hud panel panel-model" id="modelPanel" style="display:none">
+  <div class="panel-head">
+    <h3>Model viewer</h3>
+    <button class="panel-close" id="modelClose" title="Close">✕</button>
+  </div>
+  <div class="mv-name" id="mvName">—</div>
+  <div class="mv-grid" id="mvGrid"></div>
+  <div class="mv-controls">
+    <label class="mv-slider"><span>Exploded</span>
+      <input type="range" id="mvExplode" min="0" max="1" value="0" step="0.01"></label>
+    <div class="toggle-row">
+      <button class="toggle-btn on" id="mvDeploy" title="Legs, fins, arrays and radiators in their deployed position">Deployed</button>
+      <button class="toggle-btn" id="mvSpin" title="Idle turntable">Turntable</button>
+    </div>
+  </div>
+  <div class="mv-list" id="mvList"></div>
+  <div class="mv-stages" id="mvStages"></div>
+  <button class="action-btn" id="mvFly">Fly this vehicle</button>
 </div>
 
 <!-- CROSS-SECTION — the one view in the sim that shows what cannot be seen.
@@ -229,10 +426,32 @@
   <div class="fd-note" id="xsecNotes"></div>
 </div>
 
+<!-- FLIGHT — the instrument panel. Only shown while a vessel exists; see
+     sim/flight/flightui.js for why the navball is drawn the way it is. -->
+<div class="hud panel panel-flight" id="flightPanel" style="display:none">
+  <div class="panel-head">
+    <h3>Flight</h3>
+    <div class="fl-warp">
+      <button class="fl-warp-btn" data-warp="-1" title="Slow time (,)">◂</button>
+      <span id="warpLabel">1×</span>
+      <button class="fl-warp-btn" data-warp="1" title="Speed time (.)">▸</button>
+    </div>
+    <button class="panel-close" data-close="flightPanel" title="Collapse">✕</button>
+  </div>
+  <div id="flightHud"></div>
+</div>
+
 <!-- Tabs that take a collapsed panel's place, so a closed panel is always one
      click from coming back. Hidden while the whole HUD is off. -->
 <div class="hud panel-tabs" id="panelTabs">
-  <button class="panel-tab" data-open="scenarioPanel" hidden>▸ Scenario</button>
+  <!-- The left-hand tabs are a COLUMN. Both used to be pinned to the same y and
+       relied on a mode rule hiding one of them; the model viewer, which closes
+       the flight panel, then put that panel's tab straight over its own title. -->
+  <div class="tab-col">
+    <button class="panel-tab" data-open="settingsPanel" hidden>▸ Settings</button>
+    <button class="panel-tab" data-open="scenarioPanel" hidden>▸ Scenario</button>
+    <button class="panel-tab tab-flight" data-open="flightPanel" hidden>▸ Flight</button>
+  </div>
   <button class="panel-tab tab-right" data-open="controlPanel" hidden>Controls ◂</button>
 </div>
 
@@ -242,11 +461,16 @@
   <div><span class="k">fps</span> <span class="v" id="fps">--</span></div>
 </div>
 
+<!-- Key hints, split by mode: a key that does nothing here is not a hint, and
+     the block is bottom-centre, so every line it does not need is width it does
+     not take from the readout in the opposite corner. -->
 <div class="hud hint" id="hint">
   <kbd>drag</kbd> look · <kbd>scroll</kbd> zoom/speed · <kbd>click</kbd> focus object<br>
-  <kbd>V</kbd> stand on the planet · <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly<br>
-  <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove<br>
-  <kbd>H</kbd> hide all panels · <kbd>1</kbd>–<kbd>7</kbd> imaging band
+  <span class="hint-sb"><kbd>V</kbd> stand on the planet · <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly<br></span>
+  <kbd>R</kbd> reset · <kbd>space</kbd> pause<span class="hint-sb"> · <kbd>del</kbd> remove</span><br>
+  <kbd>H</kbd> hide all panels<span class="hint-sb"> · <kbd>1</kbd>–<kbd>7</kbd> imaging band</span>
+  <span class="hint-fl"><br><kbd>Z</kbd>/<kbd>X</kbd> full/cut throttle · <kbd>shift+space</kbd> stage ·
+  <kbd>,</kbd>/<kbd>.</kbd> time warp · <kbd>C</kbd> flight camera</span>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -254,7 +478,8 @@
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js"
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
   }
 }
 </script>
