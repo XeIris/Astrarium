@@ -119,6 +119,34 @@ def stage(key, parent=None, loc=(0, 0, 0)):
     return empty(f'stage_{key}', loc, parent)
 
 
+def hinge(name, loc, azim=0.0, parent=None):
+    """
+    A DRIVEN NODE, with its azimuth carried outside it. Returns (node, mount):
+    hang the moving part on `node` and the fixed structure around it on `mount`.
+
+    update() deploys a leg, a fin or a flap by ASSIGNING Three's rotation.z —
+    into an Euler triple Three decomposed from the quaternion glTF actually
+    stores, because glTF has no Eulers. For a node whose only rotation is about
+    Blender Z that decomposition comes back as (0, azimuth, 0) and the
+    assignment means what it looks like. Past ninety degrees it does not: the
+    XYZ solver returns the equally valid (pi, pi - azimuth, pi), the assignment
+    overwrites a z term that was carrying half the rotation, and the part swings
+    somewhere arbitrary. On the Apollo gear that was exactly one leg of the four
+    — the one at 180 degrees — deploying UPWARD through the ascent stage while
+    its three neighbours came down correctly, which is the kind of asymmetry
+    that looks like a modelling slip and is actually a frame bug.
+
+    The procedural build never meets this because it sets `hinge.rotation.y`
+    itself and the Euler is whatever it wrote. An authored node has to earn it,
+    so the azimuth goes on a mount and the driven node is left at IDENTITY.
+    That is the rule the gimbal pivots already follow, one level up, and for the
+    same reason: the parent owns the pose the child is not allowed to keep.
+    """
+    m = empty(f'mount_{name}', loc, parent)
+    m.rotation_euler = (0, 0, azim)
+    return empty(name, (0, 0, 0), m), m
+
+
 # ---------------------------------------------------------------------------
 # OPTIMISE
 # ---------------------------------------------------------------------------

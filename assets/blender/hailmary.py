@@ -272,18 +272,30 @@ def build_tank(idx, root, path):
                    bevel_w=0.006)
 
     p0 = Vector(pts[0])
-    # Forward dome, collar and vent.
-    dome = [(TANK_R * sin(i / 12 * pi / 2), p0.z + TANK_R * (1 - cos(i / 12 * pi / 2)))
-            for i in range(13)][::-1]
-    finish(revolve(f'tank{idx}_dome', [(0, p0.z + TANK_R)] + dome[1:],
-                   M['white'], seg=72, parent=g), bevel_w=0.010)
+    # ---- FORWARD DOME. An ellipsoidal head, RIM ON THE BARREL and apex above
+    # it, and — like every other lathed part here — moved out to the tank's own
+    # centreline rather than left on the ship's axis.
+    #
+    # Both of those were wrong and the two errors hid each other. Written the
+    # other way round (full radius at full height, closing to the axis at the
+    # barrel's top) the dome is a CONCAVE FUNNEL whose rim floats a tank radius
+    # clear of the skin, so the tank is left open at the top and you look
+    # straight down the inside of it; revolved about the origin it was not over
+    # the tank at all, but a 1.3 m cone standing on the centreline. A tank is a
+    # pressure vessel and the one thing it has to be is CLOSED.
+    hd = TANK_R * 0.72                      # a sqrt(2) ellipsoidal head
+    dome = [(TANK_R * cos(i / 12 * pi / 2), p0.z + hd * sin(i / 12 * pi / 2))
+            for i in range(13)]
+    dm = revolve(f'tank{idx}_dome', dome, M['white'], seg=72, parent=g)
+    dm.location = (p0.x, 0, 0)
+    finish(dm, bevel_w=0.010)
     finish(ring_on((p0.x, 0, p0.z), (0, 0, 1), TANK_R * 1.015, TANK_R * 0.05,
                    M['alu'], f'tank{idx}_collar', seg=64, minor=10, parent=g),
            bevel_w=0.006)
     v = revolve(f'tank{idx}_vent',
                 [(0, 0), (TANK_R * 0.22, 0), (TANK_R * 0.18, TANK_R * 0.30),
                  (0, TANK_R * 0.30)], M['dirty'], seg=20, parent=g)
-    v.location = (p0.x + TANK_R * 0.40, 0, p0.z + TANK_R * 0.86)
+    v.location = (p0.x + TANK_R * 0.40, 0, p0.z + hd * 0.86)
     finish(v, bevel_w=0.008)
 
     # MLI: one band on the straight run above the bend, one under the dome.
@@ -461,19 +473,75 @@ def build_modules(root):
     finish(node, bevel_w=0.010)
     for i in range(4):
         a = i / 4 * TAU
-        p = revolve(f'mod_port{i}', [(D * 0.030, 0), (D * 0.034, D * 0.055),
-                                     (D * 0.030, D * 0.062)], M['dirty'], seg=24, parent=root)
+        # CLOSED at both ends: an open tube is a hole you can see the sky
+        # through from the far side, and there are four of them on the nose.
+        p = revolve(f'mod_port{i}', [(0, 0), (D * 0.030, 0), (D * 0.034, D * 0.055),
+                                     (D * 0.030, D * 0.062), (0, D * 0.062)],
+                    M['dirty'], seg=24, parent=root)
         p.rotation_euler = (pi / 2, 0, a + pi / 2)
         p.location = (cos(a) * D * 0.082, sin(a) * D * 0.082, f(1.051))
         finish(p, bevel_w=0.008)
     finish(revolve('mod_mast', [(0, f(1.092)), (0.07, f(1.092)), (0.07, f(1.148)),
                                 (0, f(1.148))], M['alu'], seg=12, parent=root), bevel_w=0.006)
-    dish = revolve('mod_dish',
-                   [(D * 0.105 * (i / 10), D * 0.105 * 0.34 * (i / 10) ** 2) for i in range(11)],
-                   M['white'], seg=48, parent=root)
-    dish.rotation_euler = (0, -1.2, 0)
-    dish.location = (D * 0.14, 0, f(1.007))
-    finish(dish, bevel_w=0.008)
+
+    # ---- THE HIGH-GAIN ANTENNA, ON A YOKE, LOOKING FORWARD.
+    #
+    # Which way a dish points is the whole of what it is for, and this one was
+    # aimed back down the ship: a paraboloid opens along its own +Z, and the
+    # rotation applied to it swung that past the beam onto the hull it is
+    # mounted on. The Hail Mary spends thirteen years talking to a transmitter
+    # that is ASTERN of her for the outbound leg and ahead of her coming home,
+    # so the dish is on a two-axis yoke — which is also why the boom, the
+    # trunnion and the counterweight are worth drawing: a fixed dish would be a
+    # decoration, a steerable one is the reason the mission returns an answer.
+    # Standing it off far enough that the reflector clears the instrument
+    # module: a 2.5 m dish hung a metre from a 1.7 m cylinder cuts into it.
+    hga = group('mod_hga', root, loc=(D * 0.172, 0, f(1.000)), rot_z=0.0)
+    finish(strut('mod_hga_boom', (-D * 0.102, 0, 0), (0, 0, 0), 0.075, M['alu'],
+                 seg=10, parent=hga), bevel_w=0.008)
+    trn = revolve('mod_hga_trunnion', [(0, -D * 0.026), (D * 0.030, -D * 0.026),
+                                       (D * 0.030, D * 0.026), (0, D * 0.026)],
+                  M['dirty'], seg=16, parent=hga)
+    trn.rotation_euler = (pi / 2, 0, 0)
+    finish(trn, bevel_w=0.010)
+    # The dish proper, tipped 32 degrees off the thrust axis and OPENING
+    # FORWARD. Rotating about +Y by theta takes the paraboloid's own +Z to
+    # (sin theta, 0, cos theta), so a positive angle here is outboard and
+    # ahead — the sign is the whole fix.
+    yoke = empty('mod_hga_yoke', (0, 0, D * 0.030), hga)
+    yoke.rotation_euler = (0, 0.56, 0)
+    rD = D * 0.105
+    dsh = revolve('mod_dish',
+                  [(rD * (i / 10), rD * 0.30 * (i / 10) ** 2) for i in range(11)],
+                  M['white'], seg=48, parent=yoke)
+    finish(dsh, bevel_w=0.008)
+    # The back of it — a dish has a ribbed rear face, and this one is seen from
+    # behind for the whole outbound cruise. BEHIND is the operative word: the
+    # reflector opens along +Z, so its structure lives at lower z than the
+    # surface at the same radius. Laid out at the same z it is not backing the
+    # dish at all, it is a set of spars across the aperture.
+    def back_z(u):                       # the reflector's own surface, offset aft
+        return rD * (0.30 * u * u - 0.075)
+    finish(revolve('mod_dish_back',
+                   [(0, back_z(0)), (rD * 0.36, back_z(0.36)), (rD * 0.74, back_z(0.74)),
+                    (rD * 0.99, back_z(0.99))], M['dirty'], seg=48, parent=yoke),
+           bevel_w=0.008)
+    for k in range(8):
+        ak = k / 8 * TAU
+        finish(strut(f'mod_dish_rib{k}', (0, 0, back_z(0) - rD * 0.04),
+                     (cos(ak) * rD * 0.95, sin(ak) * rD * 0.95, back_z(0.95)),
+                     0.030, M['alu'], seg=6, parent=yoke), bevel_w=0.005)
+    # Subreflector at the focus, on a tripod. Without it a dish reads as a bowl.
+    sub = revolve('mod_dish_sub', [(0, rD * 0.40), (rD * 0.13, rD * 0.40),
+                                   (rD * 0.10, rD * 0.46), (0, rD * 0.46)],
+                  M['alu'], seg=20, parent=yoke)
+    finish(sub, bevel_w=0.006)
+    for k in range(3):
+        ak = k / 3 * TAU + 0.4
+        finish(strut(f'mod_dish_leg{k}',
+                     (cos(ak) * rD * 0.86, sin(ak) * rD * 0.86, rD * 0.30 * 0.86 ** 2),
+                     (cos(ak) * rD * 0.09, sin(ak) * rD * 0.09, rD * 0.40),
+                     0.022, M['alu'], seg=6, parent=yoke), bevel_w=0.004)
     # RCS quads. Small detail that does more for realism than anything its size.
     for i in range(4):
         a = i / 4 * TAU + pi / 4

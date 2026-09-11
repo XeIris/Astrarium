@@ -18,15 +18,34 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import math
 from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, disc, empty, finish,
                  smooth, strut, bell, ogive, grid_fin, rcs_ring, TAU)
-from common import build, stage
+from common import build, stage, hinge
 
 SH_L, D = 71.0, 9.0
 SS_L = 52.0
 R = D / 2
 RING = 1.83                        # weld-ring pitch: the coil width, not a guess
+
+# ---------------------------------------------------------------------------
+# THE ENGINE PACKING, which is a real constraint and not a layout choice.
+# ---------------------------------------------------------------------------
+# Thirty-three bells inside a 9 m skirt is the tightest cluster ever flown, and
+# it only closes because a Raptor's exit is about 1.1 m: twenty of them round a
+# 3.68 m ring leaves 1.151 m of chord per engine, so the nozzles very nearly
+# touch and that is what the photographs show. Get any of these numbers wrong
+# and the bells do not merely look crowded, they INTERPENETRATE — which is what
+# a ring radius picked as a fraction of a fraction (0.30 x 0.92 of the
+# diameter, 2.48 m for twenty 1.3 m bells) gave: every engine buried in its
+# neighbour, and no silhouette left at all.
+#
+# The check each ring has to pass is the chord, 2 r sin(pi/n), against the exit
+# diameter; and each PAIR of rings has to clear radially too.
+RAPTOR_D = 1.10                    # sea-level Raptor exit
+RVAC_D = 2.40                      # vacuum Raptor exit: nearly twice over
+SH_RINGS = ((3, 1.05, False), (10, 2.32, False), (20, 3.68, True))
 
 
 def weld_rings(name, z0, z1, mat, parent, r=R):
@@ -37,7 +56,7 @@ def weld_rings(name, z0, z1, mat, parent, r=R):
     """
     n = int((z1 - z0) / RING)
     for i in range(1, n + 1):
-        s = torus_z(f'{name}{i}', r * 1.004, 0.045, z0 + i * RING, mat,
+        s = torus_z(f'{name}{i}', r * 1.003, 0.028, z0 + i * RING, mat,
                     seg=64, minor=6, parent=parent)
         smooth(s, 30)
 
@@ -70,54 +89,74 @@ def build_sh(M, root):
             (cos(a) * R * 0.99, sin(a) * R * 0.99, SH_L + 0.5),
             M['black'], rot=(0, 0, a), parent=g)
 
-    # ---- 33 Raptors: 3 + 10 + 20. The inner thirteen gimbal; the outer twenty
-    # are bolted down and steer nothing, which is why the booster's control
-    # authority falls away as it throttles the centre engines back.
-    spread = D * 0.30
+    # ---- 33 Raptors: 3 + 10 + 20, on the radii at the top of this file. The
+    # inner thirteen gimbal; the outer twenty are bolted down and steer nothing,
+    # which is why the booster's control authority falls away as it throttles
+    # the centre engines back.
     idx = 0
-    for count, frac, fixed in ((3, 0.18, False), (10, 0.55, False), (20, 0.92, True)):
+    for count, rr, fixed in SH_RINGS:
         for i in range(count):
-            a = i / count * TAU + frac
+            a = i / count * TAU + (0.0 if count == 3 else pi / count)
             nm = f'gimbal_sh_{idx:02d}' + ('_fixed' if fixed else '')
-            piv = empty(nm, (cos(a) * spread * frac, sin(a) * spread * frac, -0.02), g)
-            b = bell(f'raptor{idx}', 1.30, M['nozzle'], ratio=34, seg=16, parent=piv)
+            piv = empty(nm, (cos(a) * rr, sin(a) * rr, -0.02), g)
+            b = bell(f'raptor{idx}', RAPTOR_D, M['nozzle'], ratio=34, seg=16, parent=piv)
             finish(b, 0.008, 2, 50)
             idx += 1
     # The thrust puck and the shielding around the outer ring.
     puck = cyl('thrustpuck', R * 0.42, R * 0.30, 0.30, 1.60, M['soot'], seg=32, parent=g)
     sk = cyl('sh_skirt', R, R * 0.98, 0.0, 2.6, M['soot'], seg=64, parent=g)
     finish(sk, 0.02, 2, 45)
-    # Chine covers over the plumbing runs, which are the only vertical features
-    # on the booster and the thing that makes it read as engineered.
-    for i in range(4):
-        a = i / 4 * TAU + pi / 4
-        box(f'sh_chine{i}', (0.30, 1.10, SH_L * 0.62),
-            (cos(a) * R * 1.02, sin(a) * R * 1.02, SH_L * 0.36),
-            M['steel'], rot=(0, 0, a), parent=g)
+    # ONE cable raceway, not four. It is the only vertical feature on the
+    # booster and the thing that makes 71 m of bare cylinder read as engineered
+    # — but there is exactly one of it on the real vehicle, and four evenly
+    # spaced slabs turn a rocket into a column.
+    a = pi / 4
+    rc = box('sh_raceway', (0.62, 0.30, SH_L * 0.90),
+             (cos(a) * (R + 0.12), sin(a) * (R + 0.12), SH_L * 0.47),
+             M['steel'], rot=(0, 0, a), parent=g)
+    finish(rc, 0.03, 2, 40)
 
     # ---- four grid fins, fixed to the forward dome. Unlike the Falcon's these
     # never fold — there is no reason to on a booster that is caught rather than
     # landed — but they are registered as fins so the model and the code agree.
+    # The pre-cant is the same derivation as the Falcon's: update() swings a
+    # registered fin by +1.35 about the node's Blender Y on deploy, so the fin
+    # is built at -1.35 and the deploy hands it back square to the body.
     for i in range(4):
         a = i / 4 * TAU + 0.4
-        h = empty(f'fin_sh_{i}', (cos(a) * R, sin(a) * R, SH_L * 0.955), g)
-        h.rotation_euler = (0, 0, a)
-        gf = grid_fin(f'shgf{i}', D * 0.34, M['hot'], parent=h)
+        h, _ = hinge(f'fin_sh_{i}', (cos(a) * R, sin(a) * R, SH_L * 0.955), a, g)
+        arm = empty(f'shgfarm{i}', (0, 0, 0), h)
+        arm.rotation_euler = (0, -1.35, 0)
+        gf = grid_fin(f'shgf{i}', D * 0.34, M['hot'], parent=arm)
         gf.location = (D * 0.20, 0, 0)
         strut(f'shfinhinge{i}', (0, 0, 0), (D * 0.14, 0, 0), 0.24, M['hot'],
-              seg=10, parent=h)
+              seg=10, parent=arm)
 
     # The catch pins the tower's arms actually take the booster's weight on.
     for sgn in (-1, 1):
         box(f'catchpin{sgn}', (0.9, 0.36, 0.36),
             (sgn * R * 1.06, 0, SH_L * 0.93), M['hot'], parent=g)
-    rcs_ring('sh_rcs', D, SH_L * 0.90, M['dirty'], M['nozzle'], 4, parent=g)
+    rcs_ring('sh_rcs', D * 1.055, SH_L * 0.905, M['dirty'], M['nozzle'], 4, parent=g)
     return g
 
 
 # ---------------------------------------------------------------------------
 # STARSHIP
 # ---------------------------------------------------------------------------
+def nose_r(z, nose_l):
+    """The ship's local radius at height z — R on the barrel, and the ogive's
+       own curve above it. Anything bolted to the upper hull has to ask: the
+       forward flaps sit 12 m up the nose, where the skin has already drawn in
+       by two thirds of a metre, and hanging them off R leaves them FLOATING
+       clear of the ship with daylight behind the hinge."""
+    z0 = SS_L - nose_l
+    if z <= z0:
+        return R
+    t = min(z - z0, nose_l)
+    rho = (R * R + nose_l * nose_l) / (2 * R)
+    return max(math.sqrt(max(rho * rho - t * t, 0.0)) - rho + R, 0.02)
+
+
 def build_ss(M, root):
     g = stage('ss', root)
     nose_l = D * 1.55
@@ -152,41 +191,58 @@ def build_ss(M, root):
     #
     # Each hangs on a hinge node update() drives; the node's rest pose must be
     # identity about the driven axis or the first frame snaps it.
-    for i, (sx, z, aft) in enumerate(((1, SS_L * 0.86, False), (-1, SS_L * 0.86, False),
-                                      (1, SS_L * 0.10, True), (-1, SS_L * 0.10, True))):
-        h = empty(f'flap_ss_{i}', (sx * R * 0.95, 0, z), g)
-        w = D * (0.52 if aft else 0.42)
-        f = box(f'ssflap{i}', (D * 0.42, 0.35, w), (sx * D * 0.20, 0, 0),
+    #
+    # THE HINGE AXIS IS SPANWISE, and getting that right is a frame problem
+    # rather than a modelling one. update() drives these nodes by assigning
+    # Three's rotation.z, which is a rotation about the node's OWN local axis —
+    # Blender -Y — so a flap laid out along X hinges about the vehicle's
+    # up-axis and SWEEPS fore and aft instead of feathering. The node is
+    # therefore turned a quarter turn about Z and the flap built along its
+    # local +Y: then the driven axis is the span, and the flap tips edge-on to
+    # the flow the way the real one does.
+    for i, (sx, zf, aft) in enumerate(((1, SS_L * 0.80, False), (-1, SS_L * 0.80, False),
+                                       (1, SS_L * 0.085, True), (-1, SS_L * 0.085, True))):
+        rr = nose_r(zf, nose_l)
+        h, _ = hinge(f'flap_ss_{i}', (sx * rr * 0.98, 0, zf), -sx * pi / 2, g)
+        span, chord = D * (0.42 if aft else 0.34), D * (0.52 if aft else 0.42)
+        f = box(f'ssflap{i}', (0.34, span, chord), (0, span * 0.52, 0),
                 M['tiles'], parent=h)
         finish(f, 0.02, 2, 40)
         # The hinge fairing, which is the part that actually failed on the early
         # flights and the part every photograph of a re-entry shows glowing.
-        hf = cyl(f'sshinge{i}', 0.42, 0.42, -w * 0.5, w * 0.5, M['hot'],
-                 seg=14, parent=h)
-        hf.rotation_euler = (pi / 2, 0, 0)
+        hf = cyl(f'sshinge{i}', 0.40, 0.40, -0.05, span * 0.30, M['hot'],
+                 seg=16, parent=h)
+        hf.rotation_euler = (-pi / 2, 0, 0)
+        finish(hf, 0.015, 2, 45)
 
     # ---- six Raptors: three sea-level that gimbal, three vacuum that do not.
     # The vacuum bells are nearly twice the exit diameter and they are fixed —
     # a 2.4 m bell has no room to swing inside a 9 m skirt.
+    # The sea-level three sit INSIDE the vacuum three, on a ring small enough
+    # that a 1.1 m bell clears its neighbour (chord 1.82 m) and large enough
+    # that it clears the 2.4 m vacuum bells opposite it (centres 2.35 m apart
+    # against a 1.75 m radii sum).
     for i in range(3):
         a = i / 3 * TAU + 0.5
-        piv = empty(f'gimbal_ss_{i}', (cos(a) * D * 0.13, sin(a) * D * 0.13, -0.02), g)
-        b = bell(f'ssraptor{i}', 1.30, M['nozzle'], ratio=34, seg=18, parent=piv)
+        piv = empty(f'gimbal_ss_{i}', (cos(a) * 1.05, sin(a) * 1.05, -0.02), g)
+        b = bell(f'ssraptor{i}', RAPTOR_D, M['nozzle'], ratio=34, seg=18, parent=piv)
         finish(b, 0.008, 2, 50)
     for i in range(3):
         a = i / 3 * TAU + 0.5 + pi / 3
         piv = empty(f'gimbal_ss_{i + 3}_fixed',
-                    (cos(a) * D * 0.30, sin(a) * D * 0.30, -0.02), g)
-        b = bell(f'ssrvac{i}', 2.40, M['nozzle'], ratio=90, seg=22, parent=piv)
+                    (cos(a) * 2.55, sin(a) * 2.55, -0.02), g)
+        b = bell(f'ssrvac{i}', RVAC_D, M['nozzle'], ratio=90, seg=22, parent=piv)
         finish(b, 0.010, 2, 50)
     sk = cyl('ss_skirt', R, R * 0.99, 0.0, 2.2, M['soot'], seg=64, parent=g)
     finish(sk, 0.02, 2, 45)
 
     # ---- the payload bay door, on the leeward side opposite the tiles.
-    door = lathe('ss_door', [(R * 1.008, SS_L * 0.60), (R * 1.008, SS_L * 0.78)],
+    door = lathe('ss_door', [(R * 1.008, SS_L * 0.52), (R * 1.008, SS_L * 0.70)],
                  M['dirty'], seg=18, t0=pi + 0.35, t1=TAU - 0.35, parent=g)
     smooth(door, 25)
-    rcs_ring('ss_rcs', D, SS_L * 0.80, M['dirty'], M['nozzle'], 4, parent=g)
+    # On the BARREL, where the skin is still 4.5 m: a pod pinned to R part way
+    # up a tangent ogive stands off in mid air.
+    rcs_ring('ss_rcs', D * 1.055, SS_L * 0.72, M['dirty'], M['nozzle'], 4, parent=g)
     return g
 
 

@@ -19,7 +19,7 @@ from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, dish, disc, empty,
                  finish, smooth, strut, bell, ball, ogive, grid_fin,
                  landing_leg, solar_array, stripe, rcs_ring, TAU)
-from common import build, stage
+from common import build, stage, hinge
 
 S1_L, S1_D = 41.2, 3.66
 S1_IS = 4.0                        # interstage, black composite
@@ -96,11 +96,27 @@ def build_s1(M, root):
         finish(tip, 0.012, 2, 45)
 
     # ---- the legs themselves, hinged at the base of each bay.
+    #
+    # THE PRE-CANT IS WHAT MAKES THE DEPLOYED POSE RIGHT, and its sign is the
+    # one thing here worth deriving rather than guessing. update() deploys a leg
+    # by assigning Three's rotation.z = -1.15 d, which is a rotation of +1.15 d
+    # about the node's own Blender Y — and about Blender Y a POSITIVE angle
+    # swings a leg built along -Z INWARD, under the vehicle. So a leg with no
+    # pre-cant at all does not splay: it folds in and tucks under the engines,
+    # which is what all four of these were doing.
+    #
+    # Deployed we want 60 degrees out from the vertical, i.e. -1.047 about Y;
+    # the hinge contributes +1.15, so the leg itself carries the difference.
+    # Stowed (d = 0) that leaves it lying up along the body at 54 degrees,
+    # which is where the bay fairings above are.
+    leg_cant = -1.047 - 1.15
     for i in range(4):
         a = i / 4 * TAU + 0.78
-        h = empty(f'leg_f9s1_{i}', (cos(a) * r * 0.92, sin(a) * r * 0.92, S1_L * 0.055), g)
-        h.rotation_euler = (0, 0, a)
-        landing_leg(f'f9leg{i}', S1_D * 0.82, S1_D * 0.10, M['dirty'], M['alu'], parent=h)
+        h, _ = hinge(f'leg_f9s1_{i}',
+                     (cos(a) * r * 0.92, sin(a) * r * 0.92, S1_L * 0.055), a, g)
+        leg = landing_leg(f'f9leg{i}', S1_D * 0.82, S1_D * 0.10, M['dirty'], M['alu'],
+                          parent=h)
+        leg.rotation_euler = (0, leg_cant, 0)
 
     # ---- interstage: BLACK composite, and the one place the vehicle changes
     # colour along its length. The grid fins hinge off the top of it.
@@ -119,14 +135,19 @@ def build_s1(M, root):
     # ---- four grid fins. An actual waffle: they are titanium, they glow on
     # entry, and they are the single most recognisable thing on the booster.
     fin_z = S1_L + S1_IS * 0.72
+    # Same pre-cant argument as the legs, with the fins' own 1.35 rad of travel:
+    # DEPLOYED is square to the body, so the fin carries -1.35 and the hinge
+    # gives it back. Without it the fins started square and the deploy laid
+    # them down flat along the interstage — exactly backwards.
     for i in range(4):
         a = i / 4 * TAU + 0.4
-        h = empty(f'fin_f9s1_{i}', (cos(a) * r, sin(a) * r, fin_z), g)
-        h.rotation_euler = (0, 0, a)
-        gf = grid_fin(f'gf{i}', S1_D * 0.42, M['hot'], parent=h)
+        h, _ = hinge(f'fin_f9s1_{i}', (cos(a) * r, sin(a) * r, fin_z), a, g)
+        arm = empty(f'gfarm{i}', (0, 0, 0), h)
+        arm.rotation_euler = (0, -1.35, 0)
+        gf = grid_fin(f'gf{i}', S1_D * 0.42, M['hot'], parent=arm)
         gf.location = (S1_D * 0.22, 0, 0)
         strut(f'finhinge{i}', (0, 0, 0), (S1_D * 0.16, 0, 0), 0.11, M['hot'],
-              seg=8, parent=h)
+              seg=8, parent=arm)
 
     # Cold-gas nitrogen thrusters at the top: without attitude control that does
     # not need the main engine, the booster cannot point itself for the flip.

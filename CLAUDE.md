@@ -200,11 +200,16 @@ point and the only file here that knows the orrery exists.
   the wrong place — no amount of surface detail survives that. Because mounts
   exist, the stack's height is a MEASURED extent (a `Box3` over the built root),
   not a running sum of stage lengths.
-- **y = 0 on a craft is the PAD SURFACE.** `spaceflight.js` adds `craft.group`
+- **y = 0 on a craft is the PAD SURFACE — or, for a lander, the FOOTPAD
+  PLANE.** `spaceflight.js` adds `craft.group`
   straight to `local.craftRoot` with no vertical offset, so the datum has to be
   whatever the vehicle stands on — for the Shuttle that is the solids' nozzle
   exit, not the tank's aft dome, which is 9.2 m higher. Get it wrong and the
-  boosters are under the concrete.
+  boosters are under the concrete. The LM is the case that was wrong: its gear
+  hung off a box whose underside was the origin, so the footpads finished 1.5 m
+  below the surface it had just landed on and the descent engine was buried in
+  it. `LM_GEAR` is the stand-off, and the ascent stage carries the same offset
+  internally so buildCraft's stacking still lands it on the descent stage's roof.
 - **An interstage ADAPTS.** It is drawn from the stage's own diameter to the next
   one's (`ctx.nextD`), because the Saturn V's go 10.06 m → 6.6 m → 3.9 m. Drawn
   as a cylinder the whole vehicle is one width from the engines to the escape
@@ -270,6 +275,53 @@ point and the only file here that knows the orrery exists.
   for the same reason: a helper empty called `gimbal_beetle_0_mount` must not be
   collected as a second pivot. Pivots carry identity rotation and sit ON THE
   EXIT PLANE, because spaceflight.js parents the plume straight to them.
+- **A DRIVEN NODE CARRIES IDENTITY ROTATION; its azimuth goes on a mount.**
+  `update()` deploys a leg, a fin or a flap by assigning Three's `rotation.z` —
+  into an Euler triple Three decomposed from the quaternion glTF actually
+  stores, because glTF has no Eulers. For a node whose only rotation is about
+  Blender Z that decomposition comes back as `(0, azimuth, 0)` and the
+  assignment means what it looks like. Past ninety degrees it does not: the XYZ
+  solver returns the equally valid `(π, π − azimuth, π)`, the assignment
+  overwrites a z term that was carrying half the rotation, and the part swings
+  somewhere arbitrary. On the Apollo gear that was exactly one leg of four —
+  the one at 180° — deploying UPWARD through the ascent stage while its three
+  neighbours came down correctly, which looks like a modelling slip and is a
+  frame bug. `common.py`'s `hinge()` is the fix: the mount takes the azimuth,
+  the driven node stays at identity. Same rule as the gimbal pivots, one level
+  up, and for the same reason — the parent owns the pose the child cannot keep.
+- **A deployable is built STOWED, and the pre-cant is derived, not guessed.**
+  `update()` gives a leg +1.15 rad and a fin +1.35 about the node's own Blender
+  Y, and about that axis a POSITIVE angle swings a part built along −Z *inward*,
+  under the vehicle. So a leg with no pre-cant does not splay when it deploys —
+  it folds in and tucks under the engines, which is what every leg in the set
+  was doing, in both builds. Write down where the part has to END (60° out for a
+  Falcon leg; square to the body for a grid fin), subtract the travel, and that
+  is the built pose. Where the travel cannot reach both poses honestly, the part
+  is not a deployable: the LM's gear came out in lunar orbit days before the
+  descent, so it is named `gear_` rather than `leg_`, does not match, and is
+  never collected. Opting out of an interface is done by not matching it.
+- **An engine ring's radius comes from the ENGINE, not from a fraction of the
+  vehicle.** A bell on a ring of n gets `2 r sin(π/n)` of chord and needs all of
+  it; one with a centre engine has to clear that too. Written as fractions the
+  layouts were wrong in both directions — the Saturn V's four outboard F-1s were
+  drawn inside their own centre engine, and Super Heavy's outer twenty so deeply
+  interpenetrated that the cluster had no silhouette left. Solving it also gets
+  the real numbers for free: four 3.53 m F-1s land on a 3.67 m ring, which is
+  where they are and why an S-IC's bells hang outside the tank above them. Where
+  the packing genuinely does not close — twenty 1.3 m bells want a 4.16 m ring
+  inside a 4.5 m booster — the DRAWN bell shrinks. A bell a tenth of a metre
+  narrow is the smaller error, and the only one of the two you cannot see.
+- **Which way a dish points is the whole of what a dish is for**, and its
+  structure lives BEHIND the reflector. A paraboloid radiates along its own +Z;
+  rotate that axis into the hull it is bolted to and the spacecraft is aiming
+  its only transmitter at its own tank. Ribs and backing shell at the same z as
+  the surface are not backing anything either — they are spars across the
+  aperture. Both were true of three of the four dishes in the set.
+- **A lathed part that is not on the axis has to be MOVED there**, and a dome's
+  rim goes on the barrel. The Hail Mary's tank heads were written full-radius at
+  full height, which is a concave funnel whose rim floats a tank radius clear of
+  the skin, and were left revolved about the ship's centreline instead of the
+  tank's. Two errors that hid each other, and three open pressure vessels.
 - **A pivot that cannot swing is suffixed `_fixed`.** That is how per-engine
   authority survives the trip through glTF, which carries no custom properties
   here: `bindParts` gives every other pivot the engine's published gimbal and
@@ -471,7 +523,13 @@ same idea as skytest, for `sim/flight/craftmodel.js`. It renders one vehicle on
 a neutral ground under a fixed three-point rig with a 1.75 m figure beside it:
 `?v=shuttle&view=side` (orthographic elevation — a silhouette is the honest test
 of a shape and the only projection you can hold against a reference photo),
-`view=iso|front|top|detail`, `&stage=N` to frame one stage, `&z=` to zoom.
+`view=iso|front|top|detail|under|nose` (`detail`/`under` frame the aft end,
+`nose` the forward one), `&stage=N` to frame one stage, `&z=` to zoom.
+Deployables are shown DEPLOYED; `&deploy=0` gets the stowed pose. That is not a
+default worth flipping back: `update()` holds everything folded until the flight
+state asks, so the harness spent its life drawing landers with their legs up and
+grid fins laid flat — the one pose in which a deployable tells you nothing about
+whether it is right, and the reason four broken landing gears went unnoticed.
 `STUDIO.audit()` builds EVERY vehicle and returns measured height, span and
 triangle count — that is the regression check, because a stack whose height
 stops matching the published figure shows up as a number rather than as a

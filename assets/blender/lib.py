@@ -643,19 +643,54 @@ def grid_fin(name, size, mat, parent=None):
     return g
 
 
-def landing_leg(name, length, foot_r, mat, mat2, parent=None):
-    """A real four-bar: a main strut and a folding secondary, so deployment
-       traces an arc instead of a rotation about nothing."""
+def landing_leg(name, length, foot_r, mat, mat2, parent=None, probe=0.0):
+    """
+    A landing leg: a primary strut with its shock cartridge, a pair of
+    secondary struts, a footpad on a ball joint, and optionally the contact
+    probe hanging under it.
+
+    Built straight DOWN from the hinge, along -Z, with the footpad's bearing
+    face at exactly z = -length. The caller sets the deployment angle — see the
+    pre-cant note in falcon9.py, which is where the sign is derived — so this
+    primitive must not carry one of its own.
+
+    The secondaries splay in +/-Y, sideways in the leg's OWN frame. That is
+    where they are on both the Apollo gear and the Falcon's, and it is the only
+    arrangement that does not depend on which way the leg happens to be swung:
+    a brace placed in X is either inside the primary or out in space depending
+    on the cant, which is what the single rotated tube here used to do.
+    """
     g = empty(name, (0, 0, 0), parent)
-    revolve(f'{name}_strut', [(length * 0.045, 0), (length * 0.06, -length)],
-            mat, seg=10, parent=g)
-    revolve(f'{name}_foot', [(0, -length), (foot_r, -length),
-                             (foot_r * 0.8, -length - length * 0.05),
-                             (0, -length - length * 0.05)], mat, seg=14, parent=g)
-    br = revolve(f'{name}_brace', [(length * 0.03, 0), (length * 0.03, length * 0.7)],
-                 mat2, seg=8, parent=g)
-    br.location = (length * 0.16, 0, -length * 0.42)
-    br.rotation_euler = (0, 2.68, 0)
+    # The primary, with the crushable-honeycomb cartridge at the bottom of it —
+    # a visibly fatter section, and the part that actually absorbs the landing.
+    revolve(f'{name}_strut', [(length * 0.050, 0), (length * 0.042, -length * 0.58),
+                              (length * 0.066, -length * 0.63),
+                              (length * 0.066, -length * 0.955),
+                              (length * 0.040, -length * 0.975)],
+            mat, seg=12, parent=g)
+    # The ball joint, so the pad can lie flat on a slope instead of on one edge.
+    ball(f'{name}_joint', length * 0.052, (0, 0, -length * 0.972), mat2,
+         seg=12, rings=7, parent=g)
+    # The footpad: a shallow dish, closed top and bottom.
+    revolve(f'{name}_pad', [(0, -length + foot_r * 0.16), (foot_r * 0.55, -length + foot_r * 0.16),
+                            (foot_r, -length), (foot_r * 0.94, -length - foot_r * 0.13),
+                            (0, -length - foot_r * 0.13)],
+            mat, seg=20, parent=g)
+    # The secondaries, off the hinge line out to the cartridge.
+    for s in (-1, 1):
+        strut(f'{name}_sec{"p" if s > 0 else "m"}',
+              (0, s * length * 0.135, length * 0.02),
+              (0, s * length * 0.028, -length * 0.60),
+              length * 0.024, mat2, seg=8, parent=g)
+    # The contact probe, where there is one: a wire under the pad, and the thing
+    # that actually ended the Apollo landings — "contact light" is a probe
+    # touching, not a footpad.
+    if probe > 0:
+        revolve(f'{name}_probe', [(length * 0.010, -length), (length * 0.010, -length - probe)],
+                     mat2, seg=6, parent=g)
+        revolve(f'{name}_probetip', [(0, -length - probe), (length * 0.026, -length - probe),
+                                     (0, -length - probe - length * 0.03)],
+                mat2, seg=8, parent=g)
     return g
 
 

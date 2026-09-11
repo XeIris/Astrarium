@@ -148,11 +148,26 @@ function bell(exitD, { ratio = 3.6, chamber = true } = {}) {
   return m;
 }
 
-/** A ring of engines with a real gimbal joint at each. Returns the group and
- *  the per-engine pivots so the guidance command can actually move them. */
+/**
+ * A ring of engines with a real gimbal joint at each. Returns the group and
+ * the per-engine pivots so the guidance command can actually move them.
+ *
+ * THE RING RADIUS IS DERIVED FROM THE ENGINE, not picked as a fraction of the
+ * vehicle, because on a real cluster the bells are the constraint. An engine on
+ * a ring of n gets 2 r sin(pi/n) of chord and its exit needs all of it; one with
+ * a centre engine also has to clear that. Written as fractions of a fraction the
+ * layouts came out wrong in both directions — the Saturn V's four outboard F-1s
+ * were drawn inside their own centre engine, and Super Heavy's outer twenty were
+ * so deeply interpenetrated that the cluster had no silhouette at all.
+ *
+ * Solving it instead of dialling it also gets the real numbers for free: four
+ * 3.53 m F-1s land on a 3.67 m ring, which is where they are, and which is why
+ * an S-IC's bells hang outside the line of the tank above them.
+ */
 function engineCluster(count, spread, exitD, opts = {}) {
   const g = new THREE.Group();
   const pivots = [];
+  let d = exitD;                       // the DRAWN exit — see the 3-ring case
   const place = (x, z) => {
     const p = new THREE.Group();
     p.position.set(x, 0, z);
@@ -161,33 +176,44 @@ function engineCluster(count, spread, exitD, opts = {}) {
     // three gimballing ones — so the authority belongs on the pivot rather than
     // on the stage. Absent, update() leaves the pivot unclamped.
     if (opts.gimbalDeg != null) p.userData.gimbalDeg = opts.gimbalDeg;
-    p.add(bell(exitD, opts));
+    p.add(bell(d, opts));
     g.add(p); pivots.push(p);
   };
+  // The smallest ring n bells of diameter d can stand on: neighbours clear, and
+  // the centre engine clears too where there is one. `minR` is for a cluster
+  // that has to miss ANOTHER cluster — Starship's vacuum Raptors have to sit
+  // outside its sea-level ones, and neither call can see the other.
+  const ringR = (n, centre) => Math.max(
+    d * 1.04 / (2 * Math.sin(Math.PI / n)), centre ? d * 1.04 : 0, opts.minR ?? 0);
+  const ring = (n, r, phase = Math.PI / n) => {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + phase;
+      place(Math.cos(a) * r, Math.sin(a) * r);
+    }
+  };
+
   if (count === 1) place(0, 0);
-  else if (count <= 5) {
-    // one centre + a ring — the F-1 and Merlin quincunx
+  else if (count === 5 || count === 9) {
+    // A centre engine and a ring: the F-1 quincunx and the Merlin octaweb.
     place(0, 0);
-    for (let i = 0; i < count - 1; i++) {
-      const a = (i / (count - 1)) * Math.PI * 2;
-      place(Math.cos(a) * spread, Math.sin(a) * spread);
-    }
+    ring(count - 1, ringR(count - 1, true), count === 9 ? 0.39 : 0);
   } else if (count <= 9) {
-    // octaweb: eight around one
-    place(0, 0);
-    for (let i = 0; i < count - 1; i++) {
-      const a = (i / (count - 1)) * Math.PI * 2 + 0.39;
-      place(Math.cos(a) * spread, Math.sin(a) * spread);
-    }
+    ring(count, ringR(count, false), count === 3 ? Math.PI / 2 : Math.PI / count);
   } else {
-    // three concentric rings, Super Heavy's arrangement
-    const rings = [[3, 0.18], [10, 0.55], [count - 13, 0.92]];
-    for (const [n, f] of rings) {
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + f;
-        place(Math.cos(a) * spread * f, Math.sin(a) * spread * f);
-      }
-    }
+    // THREE CONCENTRIC RINGS, Super Heavy's arrangement — and the one layout in
+    // the set where the packing does not close. Twenty 1.3 m bells want a 4.16 m
+    // ring and the booster is 4.5 m in RADIUS, so something has to give: the
+    // DRAWN bell shrinks until the outer ring fits inside the skirt. An engine
+    // a tenth of a metre narrow is a smaller error than thirty-three that
+    // interpenetrate, and it is the only one of the two you cannot see.
+    const nOut = count - 13;
+    const sOut = Math.sin(Math.PI / nOut);
+    const rMax = opts.maxR ?? spread * 1.46;
+    d = Math.min(exitD, 2 * rMax * sOut / (1 + sOut));
+    const rOut = rMax - d * 0.50;
+    ring(3, Math.max(d * 0.95, rOut - d * 2.80), 0);
+    ring(10, rOut - d * 1.45);
+    ring(nOut, rOut);
   }
   return { group: g, pivots };
 }
@@ -208,16 +234,55 @@ function gridFin(size = 1.5) {
 
 /** A landing leg as a real four-bar: a main strut and a folding secondary, so
  *  deployment traces an arc instead of a rotation about nothing. */
-function landingLeg(len, footR) {
+/** A strut between two points. Structure is most of what makes a vehicle of
+ *  parts read as one object rather than as parts. */
+function beam(p1, p2, r, material = M.alu, seg = 6) {
+  const b = new THREE.Mesh(new THREE.CylinderGeometry(r, r, p1.distanceTo(p2), seg), material);
+  b.position.copy(p1).lerp(p2, 0.5);
+  b.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+    p2.clone().sub(p1).normalize());
+  return b;
+}
+
+/**
+ * A landing leg: a primary strut with its shock cartridge, a pair of secondary
+ * struts, a footpad on a ball joint, and optionally the contact probe under it.
+ *
+ * Built straight DOWN from the hinge, with the footpad's bearing face at
+ * exactly -len. THE CALLER SETS THE DEPLOYMENT ANGLE — see the pre-cant note at
+ * the call sites, which is where the sign is derived — so this carries none of
+ * its own. The secondaries splay in ±Z, sideways in the leg's own frame, which
+ * is where they are on both the Apollo gear and the Falcon's and the only
+ * arrangement that does not depend on which way the leg happens to be swung.
+ */
+function landingLeg(len, footR, probe = 0) {
   const g = new THREE.Group();
-  const strut = new THREE.Mesh(new THREE.CylinderGeometry(len * 0.045, len * 0.06, len, 8), M.dirty);
-  strut.position.y = -len / 2; strut.rotation.z = 0;
-  g.add(strut);
-  const foot = new THREE.Mesh(new THREE.CylinderGeometry(footR, footR * 0.8, len * 0.05, 12), M.dirty);
-  foot.position.y = -len; g.add(foot);
-  const brace = new THREE.Mesh(new THREE.CylinderGeometry(len * 0.03, len * 0.03, len * 0.7, 6), M.alu);
-  brace.position.set(len * 0.16, -len * 0.42, 0); brace.rotation.z = -0.45;
-  g.add(brace);
+  const strut = new THREE.Mesh(
+    new THREE.CylinderGeometry(len * 0.050, len * 0.044, len * 0.60, 10), M.dirty);
+  strut.position.y = -len * 0.30; g.add(strut);
+  // The crushable-honeycomb cartridge: a visibly fatter section at the bottom
+  // of the primary, and the part that actually absorbs the landing.
+  const cart = new THREE.Mesh(
+    new THREE.CylinderGeometry(len * 0.066, len * 0.066, len * 0.36, 10), M.dirty);
+  cart.position.y = -len * 0.79; g.add(cart);
+  const joint = new THREE.Mesh(new THREE.SphereGeometry(len * 0.052, 10, 7), M.alu);
+  joint.position.y = -len * 0.97; g.add(joint);
+  // The footpad: a shallow dish, so it can lie flat on a slope instead of on
+  // one edge.
+  const foot = new THREE.Mesh(
+    new THREE.CylinderGeometry(footR * 0.58, footR * 0.96, footR * 0.28, 18), M.dirty);
+  foot.position.y = -len - footR * 0.06; g.add(foot);
+  for (const s of [-1, 1]) {
+    g.add(beam(new THREE.Vector3(0, len * 0.02, s * len * 0.135),
+               new THREE.Vector3(0, -len * 0.60, s * len * 0.028),
+               len * 0.024, M.alu));
+  }
+  if (probe > 0) {
+    const pr = new THREE.Mesh(new THREE.CylinderGeometry(len * 0.010, len * 0.010, probe, 6), M.alu);
+    pr.position.y = -len - probe / 2; g.add(pr);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(len * 0.026, len * 0.04, 8), M.alu);
+    tip.position.y = -len - probe; tip.rotation.x = Math.PI; g.add(tip);
+  }
   return g;
 }
 
@@ -483,9 +548,16 @@ function sphereCone(D, noseR, halfDeg, material, seg = 32) {
   const yF = yT + (xF - xT) / Math.tan(half);
   for (let i = 1; i <= 5; i++) {                       // the shoulder round-over
     const a = half + (i / 5) * (Math.PI / 2 - half);
-    pts.push(new THREE.Vector2(xF + shoulder * Math.cos(a) - shoulder * Math.cos(half) + shoulder * Math.cos(half),
+    pts.push(new THREE.Vector2(xF + shoulder * (Math.cos(a) - Math.cos(half)),
                                yF + shoulder * (Math.sin(a) - Math.sin(half))));
   }
+  // WHICH WAY IT POINTS IS THE WHOLE CONTRACT, so it is fixed here rather than
+  // left to a caller's rotation: the apex is the LOWEST point and the SHOULDER
+  // sits at y = 0, which is the plane the backshell bolts to. Built apex-at-
+  // the-origin and flipped by the caller, the vehicle ends up with its heat
+  // shield on top — a shape that would kill the vehicle it is meant to protect.
+  const top = pts[pts.length - 1].y;
+  for (const p of pts) p.y -= top;
   const g = new THREE.LatheGeometry(pts, seg);
   g.computeVertexNormals();
   return new THREE.Mesh(g, material);
@@ -664,7 +736,7 @@ function buildStage(spec, ctx) {
   if (spec.engine && spec.count > 0 && !spec.engineOn) {
     const spread = D * 0.30;
     const ec = engineCluster(spec.count, spread, spec.engine.exitD || D * 0.2,
-                             { gimbalDeg: spec.engine.gimbal });
+                             { gimbalDeg: spec.engine.gimbal, maxR: D * 0.44 });
     ec.group.position.y = -0.02;
     g.add(ec.group);
     parts.gimbals = ec.pivots;
@@ -673,8 +745,11 @@ function buildStage(spec, ctx) {
     ts.position.y = D * 0.05; g.add(ts);
   }
   if (spec.vacEngine && spec.vacCount) {
+    // `minR`: these have to sit outside the sea-level cluster drawn above, and
+    // neither call can see the other. Starship's 2.4 m vacuum bells alongside
+    // its 1.3 m sea-level ones need 2.1 m of ring before the two stop touching.
     const ec = engineCluster(spec.vacCount, D * 0.44, spec.vacEngine.exitD,
-                             { gimbalDeg: spec.vacEngine.gimbal });
+                             { gimbalDeg: spec.vacEngine.gimbal, minR: D * 0.28 });
     ec.group.position.y = -0.02; g.add(ec.group);
     parts.gimbals.push(...ec.pivots);
   }
@@ -685,20 +760,40 @@ function buildStage(spec, ctx) {
       const hinge = new THREE.Group();
       hinge.position.set(Math.cos(a) * D / 2, finY, Math.sin(a) * D / 2);
       hinge.rotation.y = -a;
+      // Same pre-cant argument as the legs, with the fins' own 1.35 rad of
+      // travel: DEPLOYED is square to the body, so the fin carries +1.35 and
+      // the hinge gives it back. Without it the fins started square and the
+      // deploy laid them flat along the interstage — exactly backwards.
+      const arm = new THREE.Group();
+      arm.rotation.z = 1.35;
       const fin = gridFin(D * 0.42);
       fin.position.set(D * 0.22, 0, 0);
-      hinge.add(fin);
+      arm.add(fin);
+      hinge.add(arm);
       g.add(hinge);
       parts.fins.push(hinge);
     }
   }
   if (spec.legs) {
+    // THE PRE-CANT IS WHAT MAKES THE DEPLOYED POSE RIGHT, and its sign is worth
+    // deriving rather than guessing. update() deploys by assigning the hinge
+    // rotation.z = -1.15 d, and NEGATIVE z about a hinge whose local +X is
+    // outboard swings a leg built along -Y INWARD, under the vehicle. With no
+    // pre-cant at all a leg does not splay: it folds in and tucks under the
+    // engines, which is what all four of these were doing.
+    //
+    // Deployed we want 60 degrees out from the vertical, i.e. rotation.z =
+    // +1.047; the hinge contributes -1.15, so the leg carries the difference.
+    // Stowed (d = 0) that leaves it lying up along the body, which is where the
+    // leg bays are.
     for (let i = 0; i < spec.legs; i++) {
       const a = (i / spec.legs) * Math.PI * 2 + 0.78;
       const hinge = new THREE.Group();
       hinge.position.set(Math.cos(a) * D / 2 * 0.92, L * 0.055, Math.sin(a) * D / 2 * 0.92);
       hinge.rotation.y = -a;
-      hinge.add(landingLeg(D * 0.82, D * 0.10));
+      const leg = landingLeg(D * 0.82, D * 0.10);
+      leg.rotation.z = 1.047 + 1.15;
+      hinge.add(leg);
       g.add(hinge);
       parts.legs.push(hinge);
     }
@@ -1100,69 +1195,155 @@ function buildCSM(spec, parts) {
   return { group: g, parts };
 }
 
+// ---------------------------------------------------------------------------
+// THE LUNAR MODULE'S STANCE. A landed LM stands about 1.5 m clear of the
+// surface on a gear 9.4 m across the footpads, and those two numbers set
+// everything else about the legs.
+//
+// Both builds used to hang the gear off a box whose underside was the origin,
+// so the footpads ended a metre and a half BELOW the ground the vehicle was
+// standing on and the engine bell was buried in it. y = 0 is the footpad
+// bearing plane; LM_GEAR is how far the descent stage sits above it, and the
+// ascent stage carries the same offset internally so that buildCraft's
+// stacking still lands it on the descent stage's roof.
+// ---------------------------------------------------------------------------
+const LM_GEAR = 1.52;
+const LM_PAD_R = 4.30;
+
 function buildLMDescent(spec, parts) {
   const g = new THREE.Group();
-  const D = spec.D, L = spec.L;
+  const D = spec.D, L = spec.L, r = D / 2;
+  const y0 = LM_GEAR, y1 = LM_GEAR + L;
+  const hingeR = r * 0.96, hingeY = LM_GEAR + L * 0.90;
+  const legLen = Math.hypot(LM_PAD_R - hingeR, hingeY);
+  const legCant = Math.atan2(LM_PAD_R - hingeR, hingeY);   // deployed, and stays
+
   // The octagonal box. Its whole character is that it is a box wrapped in foil.
-  const box = new THREE.Mesh(new THREE.CylinderGeometry(D / 2, D / 2, L, 8), M.gold);
-  box.position.y = L / 2; box.rotation.y = Math.PI / 8; g.add(box);
-  // Quadrant panels in black MLI, which is what breaks the shape up.
+  // Turned an eighth of a face so a FLAT is centred on +X, which is where the
+  // ladder, the porch and the forward leg all are.
+  const box = new THREE.Mesh(new THREE.CylinderGeometry(r, r, L, 8), M.gold);
+  box.position.y = y0 + L / 2; box.rotation.y = Math.PI / 8; g.add(box);
+  // Quadrant panels in black MLI on the four DIAGONAL faces — the cut corners
+  // between the tank bays. They are what breaks the shape up.
   for (let i = 0; i < 4; i++) {
     const a = i / 4 * Math.PI * 2 + Math.PI / 4;
-    const p = new THREE.Mesh(new THREE.BoxGeometry(D * 0.30, L * 0.8, 0.06), M.black);
-    p.position.set(Math.cos(a) * D / 2 * 0.96, L / 2, Math.sin(a) * D / 2 * 0.96);
+    const p = new THREE.Mesh(new THREE.BoxGeometry(D * 0.34, L * 0.82, 0.07), M.black);
+    p.position.set(Math.cos(a) * r * 0.95, y0 + L / 2, Math.sin(a) * r * 0.95);
     p.rotation.y = -a; g.add(p);
   }
-  // Same reason as the SRB above: with no pivot registered, parts.gimbals came
-  // back empty for this vehicle and the LM has always descended with no visible
-  // exhaust at all. The DPS gimbals 6 degrees.
+  // The DPS, foreshortened so its lip sits a hand's breadth above the surface,
+  // which is where it really is. With no pivot registered parts.gimbals came
+  // back empty for this vehicle and the LM burned with no visible exhaust.
   const dp = new THREE.Group();
+  dp.position.y = y0;
   dp.userData.gimbalDeg = spec.engine.gimbal;
-  const b = bell(spec.engine.exitD, { ratio: 47.5 }); b.scale.setScalar(1.1);
+  const b = bell(spec.engine.exitD, { ratio: 47.5 }); b.scale.set(1, 0.70, 1);
   dp.add(b); g.add(dp); parts.gimbals.push(dp);
-  // Four legs on outriggers, plus the ladder on the +X one.
+  const skirt = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.60, 1.05, L * 0.20, 24, 1, true), M.dirty);
+  skirt.position.y = y0 + L * 0.10; g.add(skirt);
+
+  // Four legs, from the TOP outrigger where the primary strut really roots —
+  // which is also what lets the ladder run from the porch to the pad in one
+  // straight line. The contact probe hangs under three of the four pads, and
+  // it is what actually ended the landings: "contact light" is a probe
+  // touching, not a footpad.
+  //
+  // AND THE LM's GEAR IS NOT A DEPLOYABLE. Every other lander in the set
+  // extends its legs on the way down, and spaceflight.js accordingly holds
+  // anything in parts.legs folded until 3 km — but the LM's legs came out in
+  // lunar orbit, days before the descent, and the sim's story starts after
+  // that. Registering them would fly the whole powered descent with the gear
+  // in a pose it was never in, and with the primary struts rooted at the TOP
+  // of the box (where they really are, and what lets the ladder run straight
+  // from the porch to the pad) the 1.15 rad of travel update() gives a leg puts
+  // that stowed pose out sideways. So they are built deployed and left alone.
   for (let i = 0; i < 4; i++) {
-    const a = i / 4 * Math.PI * 2 + Math.PI / 4;
+    const a = i / 4 * Math.PI * 2;
     const h = new THREE.Group();
-    h.position.set(Math.cos(a) * D / 2 * 0.9, L * 0.30, Math.sin(a) * D / 2 * 0.9);
+    h.position.set(Math.cos(a) * hingeR, hingeY, Math.sin(a) * hingeR);
     h.rotation.y = -a;
-    const leg = landingLeg(3.2, 0.94);
-    leg.rotation.z = -0.62;
+    const leg = landingLeg(legLen, 0.47, i === 0 ? 0 : 1.7);
+    leg.rotation.z = legCant;
     h.add(leg);
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.47, 0.42, 0.12, 14), M.dirty);
-    pad.position.set(2.0, -2.6, 0); h.add(pad);
-    const probe = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.7, 5), M.dirty);
-    probe.position.set(2.1, -3.4, 0); h.add(probe);
-    g.add(h); parts.legs.push(h);
+    // The outrigger the strut roots into. It is structure, not gear, so it
+    // hangs on the stage rather than on the hinge that swings.
+    const out = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, r * 0.49, 6), M.alu);
+    out.rotation.z = Math.PI / 2;
+    out.position.set(Math.cos(a) * r * 0.74, hingeY, Math.sin(a) * r * 0.74);
+    out.rotation.y = 0; g.add(out);
+    // THE LADDER, on the forward leg and slanting with it. Nine rungs from the
+    // porch to a bottom rung that stops well short of the pad.
+    if (i === 0) {
+      for (const sgn of [-1, 1]) {
+        leg.add(beam(new THREE.Vector3(0.34, legLen * 0.03, sgn * 0.26),
+                     new THREE.Vector3(0.34, -legLen * 0.80, sgn * 0.26), 0.035, M.alu));
+      }
+      for (let k = 0; k < 9; k++) {
+        const rung = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.035, 0.56), M.alu);
+        rung.position.set(0.34, legLen * 0.03 - legLen * 0.83 * (k / 8), 0);
+        leg.add(rung);
+      }
+    }
+    g.add(h);
   }
+
+  // The egress porch above the forward leg, and the MESA beside it — the bay
+  // that swung down carrying the TV camera that broadcast the first step.
+  const porch = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.07, 1.02), M.alu);
+  porch.position.set(r * 0.86, y1 - 0.03, 0); g.add(porch);
+  const mesa = new THREE.Mesh(new THREE.BoxGeometry(1.20, 1.05, 0.90), M.dirty);
+  mesa.position.set(0, y0 + L * 0.62, r * 0.82); g.add(mesa);
+  // The landing radar, under the aft face: what the guidance actually flew on
+  // below high gate.
+  const lr = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.14, 0.66), M.black);
+  lr.position.set(-r * 0.58, y0 - 0.06, 0); g.add(lr);
   return { group: g, parts };
 }
 
+/**
+ * The ascent stage, built with the SAME ground clearance baked in: buildCraft
+ * stacks it at the descent stage's 3.05 m and the descent stage's roof is
+ * LM_GEAR higher than that, so the offset lives inside the builder.
+ */
 function buildLMAscent(spec, parts) {
   const g = new THREE.Group();
-  const D = spec.D;
+  const B = LM_GEAR;
   // The crew cabin: a fat cylinder with the two triangular windows canted down,
   // and the equipment bay behind it. Lumpy on purpose — it never flew in air.
-  const cab = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 2.0, 16), M.gold);
-  cab.rotation.x = Math.PI / 2; cab.position.set(0, 2.0, 0.35); g.add(cab);
-  const mid = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.9, 2.4), M.gold);
-  mid.position.set(0, 1.0, -0.2); g.add(mid);
-  for (const side of [-1, 1]) {
-    const w = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.42, 0.10), M.glass);
-    w.position.set(side * 0.44, 2.35, 1.32); w.rotation.x = -0.45; g.add(w);
+  const cab = new THREE.Mesh(new THREE.CylinderGeometry(1.17, 1.17, 2.10, 20), M.gold);
+  cab.rotation.x = Math.PI / 2; cab.position.set(0, B + 2.02, 0.30); g.add(cab);
+  const mid = new THREE.Mesh(new THREE.BoxGeometry(2.46, 1.86, 2.30), M.gold);
+  mid.position.set(0, B + 0.98, -0.22); g.add(mid);
+  const aft = new THREE.Mesh(new THREE.BoxGeometry(1.90, 1.30, 0.80), M.black);
+  aft.position.set(0, B + 1.30, -1.30); g.add(aft);
+  for (const sgn of [-1, 1]) {
+    const t = new THREE.Mesh(new THREE.SphereGeometry(0.72, 18, 12), M.gold);
+    t.position.set(sgn * 1.34, B + 1.02, -0.30); g.add(t);
+    const w = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.44, 0.12), M.glass);
+    w.position.set(sgn * 0.46, B + 2.36, 1.30); w.rotation.x = -0.42; g.add(w);
   }
-  const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.85, 0.10), M.black);
-  hatch.position.set(0, 1.05, 1.24); g.add(hatch);
-  const d = dish(0.66); d.position.set(1.1, 3.0, -0.6); d.rotation.z = -0.9; g.add(d);
-  const drogue = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 0.5, 14), M.dirty);
-  drogue.position.y = 3.2; g.add(drogue);
+  const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.85, 0.12), M.black);
+  hatch.position.set(0, B + 1.02, 1.22); g.add(hatch);
+  const tun = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.32, 18), M.alu);
+  tun.position.y = B + 3.06; g.add(tun);
+  const drogue = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.44, 0.48, 18), M.dirty);
+  drogue.position.y = B + 3.46; g.add(drogue);
+  // The steerable S-band dish and the rendezvous radar. Getting home depended
+  // on both of them working — and on both of them POINTING somewhere: the
+  // rendezvous antenna used to be aimed back into its own cabin roof.
+  const d = dish(0.62); d.position.set(1.16, B + 3.00, -0.52); d.rotation.z = -0.85;
+  g.add(d);
+  const rr = dish(0.40); rr.position.set(0, B + 3.05, 0.86); rr.rotation.x = 1.15;
+  g.add(rr);
   // The APS is FIXED — no gimbal at all — so the ascent stage steers on RCS
   // alone. It still needs the pivot, because that is where the plume hangs.
   const ap = new THREE.Group();
+  ap.position.y = B + 0.06;
   ap.userData.gimbalDeg = spec.engine.gimbal;      // 0: declared, and clamped to it
   ap.add(bell(spec.engine.exitD, { ratio: 45 }));
   g.add(ap); parts.gimbals.push(ap);
-  g.add(rcsRing(3.4, 2.4, 4));
+  const rcs = rcsRing(3.56, B + 2.48, 4); g.add(rcs);
   return { group: g, parts };
 }
 
@@ -1181,10 +1362,10 @@ function buildAeroshell(spec, parts) {
   const D = spec.D;                                     // 4.5 m
   const noseR = spec.heatShield?.noseR || D * 0.25;
 
-  // Heat shield: apex DOWN, into the flow. Built pointing up and flipped, so
-  // the profile is written the way the drawing is.
+  // Heat shield: apex DOWN, into the flow — which sphereCone now guarantees
+  // itself, with its shoulder on y = 0. It used to be flipped here, on a
+  // profile that already ran apex-first, and two rights made a wrong.
   const hs = sphereCone(D, noseR, 70, M.ablator, 36);
-  hs.rotation.x = Math.PI;
   hs.position.y = D * 0.30;
   g.add(hs);
 

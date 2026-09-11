@@ -21,7 +21,8 @@
 //
 //   ?v=saturnv&view=side        side elevation, orthographic (silhouette)
 //   ?v=falcon9&view=iso&z=1.4   three-quarter, perspective
-//   view=front|top|detail|under  other angles; detail/under frame the aft end
+//   view=front|top|detail|under|nose   other angles; detail/under frame the
+//                               aft end and nose the forward one
 //   &stage=2                    frame one stage only
 // ===========================================================================
 import * as THREE from 'three';
@@ -44,6 +45,13 @@ const key  = q.get('v') || 'saturnv';
 const view = q.get('view') || 'side';
 const zoom = parseFloat(q.get('z') || '1');
 const only = q.get('stage');
+// Gear DOWN by default. update() holds every deployable stowed until the
+// flight state asks for it, and `deploy: {}` means "asked for nothing" — so
+// this harness spent its life drawing landers with their legs folded up
+// against the body and grid fins laid flat, which is the one pose in which a
+// deployable tells you nothing about whether it is right. `&deploy=0` gets the
+// stowed pose back when that is what you want to look at.
+const dep = q.get('deploy') == null ? 1 : parseFloat(q.get('deploy'));
 
 // preserveDrawingBuffer: a hidden preview pane gets no requestAnimationFrame
 // and the browser is free to clear the buffer once it has composited, so
@@ -68,7 +76,15 @@ scene.add(key1, fill, rim, new THREE.AmbientLight(0x404a58, 0.6));
 const veh = VEHICLES[key];
 const craft = buildCraft(veh);
 scene.add(craft.group);
-craft.update({ dt: 0, attached: {}, deploy: {}, gimbal: { x: 0, z: 0 }, flap: 0 });
+craft.update({ dt: 0, attached: {},
+  deploy: Object.fromEntries(craft.stages.map(st => [st.key, dep])),
+  gimbal: { x: 0, z: 0 }, flap: 0 });
+// dt = 0 freezes the easing at wherever `deploy` started, so the state has to
+// be stepped in rather than waited for: one big step, then one at dt = 0 to
+// settle everything that reads the eased value.
+craft.update({ dt: 4, attached: {},
+  deploy: Object.fromEntries(craft.stages.map(st => [st.key, dep])),
+  gimbal: { x: 0, z: 0 }, flap: 0 });
 
 // Frame it. A rocket is a tall thin thing, so the fit is driven by height.
 const box = new THREE.Box3();
@@ -103,14 +119,21 @@ function resize() {
   // `detail` frames the AFT END, and its distance has to come from the height,
   // not the width: a ship with a 51 m wingspan and a 47 m hull would otherwise
   // pull the camera out to 160 m to "zoom in" on its engines.
-  const d = (view === 'detail' || view === 'under' ? H * 0.42 : H * 1.9) / zoom;
-  const at = (view === 'detail' || view === 'under')
-    ? new THREE.Vector3(0, box.min.y + H * 0.16, 0) : mid;
+  // `nose` is `detail`'s opposite number and exists for the same reason: the
+  // forward end is where the antennas, the docking node and the escape tower
+  // are, and on a 47 m ship a dish aimed the wrong way is four pixels wide in
+  // any view that frames the whole vehicle.
+  const close = view === 'detail' || view === 'under' || view === 'nose';
+  const d = (close ? H * 0.42 : H * 1.9) / zoom;
+  const at = view === 'nose' ? new THREE.Vector3(0, box.max.y - H * 0.14, 0)
+    : (view === 'detail' || view === 'under')
+      ? new THREE.Vector3(0, box.min.y + H * 0.16, 0) : mid;
   const dir = { under:  new THREE.Vector3(0.45, -0.78, 0.44),
                 side:   new THREE.Vector3(0, 0, 1),
                 front:  new THREE.Vector3(1, 0, 0),
                 top:    new THREE.Vector3(0, 1, 0.0001),
                 iso:    new THREE.Vector3(0.72, 0.30, 0.62),
+                nose:   new THREE.Vector3(0.74, 0.34, 0.58),
                 detail: new THREE.Vector3(0.80, 0.22, 0.55) }[view] || new THREE.Vector3(0, 0, 1);
   camera.position.copy(at).add(dir.normalize().multiplyScalar(d));
   camera.lookAt(at);
