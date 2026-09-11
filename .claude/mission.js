@@ -1,12 +1,15 @@
 // A scripted browser mission: size the canvas, launch, engage the ascent
 // autopilot, run it forward in fixed real-frame steps and snapshot telemetry
 // plus a coarse framebuffer render at each checkpoint.
-window.__mission = function (vehicle, opts) {
+// launchCraft is ASYNC — it awaits this vehicle's authored mesh before it
+// builds — so reading f.vessel without awaiting it samples the PREVIOUS
+// mission's vessel, or null on the first run.
+window.__mission = async function (vehicle, opts) {
   opts = opts || {};
   Object.defineProperty(window, 'innerWidth',  { value: opts.w || 1280, configurable: true });
   Object.defineProperty(window, 'innerHeight', { value: opts.h || 720,  configurable: true });
   window.dispatchEvent(new Event('resize'));
-  SIM.launchCraft(vehicle);
+  await SIM.launchCraft(vehicle);
   const f = SIM.flight, v = f.vessel, ap = f.autopilot;
   if (opts.program) ap.engage(opts.program);
   if (opts.cam) f.setCameraMode(opts.cam);

@@ -84,13 +84,18 @@ export function solveProfile(distLy, aMS2, budget) {
   const coast = d - 2 * legLy;
   if (coast < 0) {
     // Not even enough to stop: report it honestly rather than inventing fuel.
-    return { mode: 'short', phi, coastLy: 0, feasible: false, budget, used: budget,
+    return { mode: 'short', phi, coastLy: 0, feasible: false, budget, used: budget, flipPhi: 2 * halfPhi,
              tauS: Infinity, coordS: Infinity, gammaMax: Math.cosh(phi), betaMax: Math.tanh(phi) };
   }
   const beta = Math.tanh(phi), gamma = Math.cosh(phi);
   const coastCoord = coast / (beta * C_MS);
   return {
     mode: 'coast', phi, coastLy: coast / LY_M,
+    // What the faster profile would have needed, carried out so the panel can
+    // say why this ship is not flying it. Rapidity is the honest currency: the
+    // mass ratio is exp(Δφ·c/v_e), which the readout finishes once it knows
+    // the exhaust velocity.
+    flipPhi: 2 * halfPhi,
     tauS: 2 * ca * phi + coastCoord / gamma,
     coordS: 2 * ca * Math.sinh(phi) + coastCoord,
     gammaMax: gamma, betaMax: beta,
@@ -211,6 +216,13 @@ export class Cruise {
       propT: this.prop / 1000, propFrac: this.prop / Math.max(this.propMass, 1),
       accelG: (this.leg === 'coast' || this.leg === 'arrived') ? 0 : this.a / G0,
       plan: this.plan,
+      // The extra mass ratio a flip-and-burn crossing would need over this
+      // ship's own. Δφ = (v_e/c)·ln(M), so the factor is exp(Δφ·c/v_e) — a
+      // number that moves with the plan, the drive and the tanks, which is the
+      // whole point of quoting it.
+      flipMassRatio: this.plan.flipPhi > this.budget && this.exhaust > 0
+        ? Math.exp((this.plan.flipPhi - this.budget) * C_MS / this.exhaust)
+        : 1,
     };
   }
 }

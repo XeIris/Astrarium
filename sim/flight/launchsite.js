@@ -477,7 +477,13 @@ export function createLaunchSite(vehicle, height, env) {
     style,
     deckHeight,
     /** Height of the tallest structure, m — the camera uses it for framing. */
-    towerHeight: style === 'chopsticks' ? 146 : style === 'strongback' ? Math.min(height * 0.86, 63) : Math.max(height + 12, 116),
+    // The same expression the tower was BUILT from, not a second guess at it:
+    // the fss style stands at 75.3 m, and reporting the lut height for it
+    // framed the Shuttle pad view some 40 m too wide.
+    towerHeight: style === 'chopsticks' ? 146
+      : style === 'strongback' ? Math.min(height * 0.86, 63)
+      : style === 'fss' ? 75.3
+      : Math.max(height + 12, 116),
 
     /**
      * @param s.released  true once the vehicle has committed to leaving

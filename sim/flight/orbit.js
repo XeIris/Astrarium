@@ -116,9 +116,10 @@ const K = new THREE.Vector3(0, -1, 0);
 
 /**
  * Classical elements from state. Angles in radians, lengths in metres.
- * The reference plane is the sim's XZ plane and the pole is +Y, matching the
- * orrery — so an inclination reported here is measured against the same plane
- * the presets lay their orbits in.
+ * The reference plane is the sim's XZ plane and the pole is K = −Y, matching
+ * the orrery — so an inclination reported here is measured against the same
+ * plane the presets lay their orbits in, and a prograde orbit reads 0° rather
+ * than 180°. See the derivation on K above; the sign is the whole of it.
  */
 export function elements(r, v, mu) {
   const R = r.length(), V = v.length();

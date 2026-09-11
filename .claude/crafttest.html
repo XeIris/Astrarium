@@ -73,7 +73,11 @@ const fill = new THREE.DirectionalLight(0xbfd4ff, 0.8); fill.position.set(5, 1, 
 const rim  = new THREE.DirectionalLight(0xffffff, 2.0); rim.position.set(2, 2, -7);
 scene.add(key1, fill, rim, new THREE.AmbientLight(0x404a58, 0.6));
 
+// A URL is user input and buildCraft reads vehicle.stages straight off what it
+// is handed, so an unknown key fails deep inside the builder rather than here,
+// where the message can say what the options were.
 const veh = VEHICLES[key];
+if (!veh) throw new Error(`[crafttest] no such vehicle '${key}' — try one of: ${Object.keys(VEHICLES).join(', ')}`);
 const craft = buildCraft(veh);
 scene.add(craft.group);
 craft.update({ dt: 0, attached: {},
@@ -88,7 +92,11 @@ craft.update({ dt: 4, attached: {},
 
 // Frame it. A rocket is a tall thin thing, so the fit is driven by height.
 const box = new THREE.Box3();
-if (only != null) box.setFromObject(craft.stages[+only].group);
+const stageIdx = only == null ? null : Number(only);
+if (stageIdx != null && !(Number.isInteger(stageIdx) && craft.stages[stageIdx])) {
+  throw new Error(`[crafttest] no stage ${only} on '${key}' — it has ${craft.stages.length} (0..${craft.stages.length - 1})`);
+}
+if (stageIdx != null) box.setFromObject(craft.stages[stageIdx].group);
 else box.setFromObject(craft.group);
 const size = box.getSize(new THREE.Vector3());
 const mid  = box.getCenter(new THREE.Vector3());

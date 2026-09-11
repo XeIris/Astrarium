@@ -204,6 +204,17 @@ export function fmtClockDelta(s) {
   return `${sign}${fmtYears(a / (365.25 * 86400))}`;
 }
 
+/** A mass ratio, which for a relativistic rocket is an exponential and can run
+ *  to any number of digits. Quoted plainly while it reads as a quantity of fuel
+ *  and in powers of ten once it does not, because "3.4e17×" is information and
+ *  "340000000000000000×" is a wall. */
+function fmtRatio(x) {
+  if (!isFinite(x)) return '∞';
+  if (x < 10) return x.toFixed(1);
+  if (x < 1e4) return Math.round(x).toLocaleString();
+  return x.toExponential(1).replace('e+', '×10^');
+}
+
 // ---------------------------------------------------------------------------
 // THE PANEL
 // ---------------------------------------------------------------------------
@@ -390,6 +401,6 @@ export function cruiseHTML(r) {
     </div>
     <div class="fl-plan-note">${r.plan.mode === 'flip'
       ? 'Flip-and-burn: accelerating to the midpoint and decelerating after it — the fastest crossing this Δv allows.'
-      : `Accelerate–coast–decelerate. The tanks hold rapidity ${r.plan.budget.toFixed(2)}; a flip-and-burn crossing would need ${(2 * Math.acosh(1 + 1)).toFixed(0)}× more mass, so the ship burns to β = ${r.plan.betaMax.toFixed(3)}, coasts ${r.plan.coastLy.toFixed(2)} ly and turns over.`}</div>
+      : `Accelerate–coast–decelerate. The tanks hold rapidity ${r.plan.budget.toFixed(2)} of the ${r.plan.flipPhi.toFixed(2)} a flip-and-burn needs, which is ${fmtRatio(r.flipMassRatio)}× more mass, so the ship burns to β = ${r.plan.betaMax.toFixed(3)}, coasts ${r.plan.coastLy.toFixed(2)} ly and turns over.`}</div>
   </div>`;
 }

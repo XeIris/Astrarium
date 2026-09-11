@@ -16,11 +16,18 @@
 import * as THREE from 'three';
 import { buildCraft } from '../sim/flight/craftmodel.js';
 import { craftModelsReady } from '../sim/flight/craftassets.js';
-await craftModelsReady();          // fill the model cache before the first build
 import { VEHICLES } from '../sim/flight/vehicles.js';
+await craftModelsReady();          // fill the model cache before the first build
 
 const q = new URLSearchParams(location.search);
-const keys = (q.get('v') || 'saturnv,falcon9,shuttle,skycrane,hailmary').split(',');
+// One unknown key in the list is enough to throw inside buildCraft and leave
+// the whole sheet blank, which is the opposite of what a contact sheet is for.
+// Drop what does not exist and say so.
+const asked = (q.get('v') || 'saturnv,falcon9,shuttle,skycrane,hailmary').split(',');
+const keys = asked.filter(k => VEHICLES[k]);
+const unknown = asked.filter(k => !VEHICLES[k]);
+if (unknown.length) console.warn(`[craftsheet] no such vehicle: ${unknown.join(', ')}`);
+if (!keys.length) throw new Error(`[craftsheet] nothing to draw — known vehicles: ${Object.keys(VEHICLES).join(', ')}`);
 const cols = +(q.get('cols') || Math.min(keys.length, 5));
 const rows = Math.ceil(keys.length / cols);
 const CW = +(q.get('cw') || 340), CH = +(q.get('ch') || 560);

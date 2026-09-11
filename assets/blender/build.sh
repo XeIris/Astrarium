@@ -41,13 +41,19 @@ find_blender() {
   return 1
 }
 
-BLENDER="$(find_blender)" || {
-  echo "error: no Blender found." >&2
-  echo "  Looked on PATH, in /Applications and ~/Applications, under Steam, and in Spotlight." >&2
-  echo "  Any Blender 4.1+ works. Set BLENDER=/path/to/Blender to override." >&2
-  exit 1
-}
-BLENDER="${BLENDER_OVERRIDE:-${BLENDER}}"
+# The override is consulted FIRST, and the search is skipped when it is set.
+# Read afterwards it was discarded, and a machine the search cannot crack exited
+# 1 before the override the error message had just recommended was ever looked
+# at. BLENDER_OVERRIDE is still accepted, because CLAUDE.md documents it.
+BLENDER="${BLENDER:-${BLENDER_OVERRIDE:-}}"
+if [ -z "$BLENDER" ]; then
+  BLENDER="$(find_blender)" || {
+    echo "error: no Blender found." >&2
+    echo "  Looked on PATH, in /Applications and ~/Applications, under Steam, and in Spotlight." >&2
+    echo "  Any Blender 4.1+ works. Set BLENDER=/path/to/Blender to override." >&2
+    exit 1
+  }
+fi
 echo "blender: $BLENDER"
 "$BLENDER" --version | head -1
 
@@ -58,8 +64,18 @@ for m in "${MODELS[@]}"; do
   [ -f "$script" ] || { echo "error: no such model '$m' ($script)" >&2; exit 1; }
   echo "--- building $m"
   # Blender is chatty on export; keep the lines that say what was made.
+  # The stale artifact goes FIRST and the exit status comes from Blender itself
+  # through PIPESTATUS: with `|| true` swallowing the status, the only guard was
+  # a -f test that a .glb from an earlier run satisfied, so a build that raised
+  # a traceback was reported as a model that had been rebuilt. `set +e` around
+  # the pipeline is needed because grep exits 1 on a quiet build.
+  rm -f "assets/${m}.glb"
+  set +e
   "$BLENDER" --background --python "$script" -- --out "assets/${m}.glb" 2>&1 \
-    | grep -E '^\[|Error|Traceback|line [0-9]+, in' || true
+    | grep -E '^\[|Error|Traceback|line [0-9]+, in'
+  status=${PIPESTATUS[0]}
+  set -e
+  [ "$status" -eq 0 ] || { echo "error: blender failed on $m (exit $status)" >&2; exit 1; }
   [ -f "assets/${m}.glb" ] || { echo "error: $m produced no .glb" >&2; exit 1; }
 done
 

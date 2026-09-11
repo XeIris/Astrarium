@@ -266,7 +266,12 @@ def build_csm(M, root):
     finish(cm, 0.02, 2, 40)
     shield = revolve('cm_shield',
                      [(cm_r * (1 - (i / 10) ** 2) ** 0.5 if i < 10 else 0.0,
-                       cm_z - cm_r * 0.42 * (1 - (i / 10) ** 2) ** 0.5 + cm_r * 0.42)
+                       # Apex DOWN, into the flow. Written with the signs the
+                       # other way the rim still lands on cm_z but the apex
+                       # rises 0.82 m above it, so the dome bulges up inside a
+                       # cone that is 1.59 m wide there — fully enclosed, never
+                       # visible, and the module's base left open.
+                       cm_z + cm_r * 0.42 * (1 - (i / 10) ** 2) ** 0.5 - cm_r * 0.42)
                       for i in range(11)][::-1],
                      M['ablator'], seg=40, parent=g)
     smooth(shield, 30)

@@ -43,6 +43,12 @@ import { PHASE } from './vessel.js';
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 const _d = new THREE.Vector3(), _e = new THREE.Vector3(), _up = new THREE.Vector3();
 const _f = new THREE.Vector3(), _g = new THREE.Vector3();
+// aeroLimit's own airstream vector. It cannot borrow one of the shared scratch
+// vectors above: `out` is caller-supplied and one call site passes _b, so the
+// limit would compare a vector with itself, find no angle, and pass the
+// unlimited command straight through — silently deleting the q·α protection on
+// exactly the vehicle that needs it most.
+const _air = new THREE.Vector3();
 
 export const MODE = {
   OFF: 'off', PROGRADE: 'prograde', RETROGRADE: 'retrograde',
@@ -397,9 +403,13 @@ export class Autopilot {
   nodeGuidance(dt, pa, node) {
     const v = this.v;
     if (!node) { this.say('No node'); v.throttle = 0; return attitudeFor(MODE.PROGRADE, v); }
-    if (!this.burning) {
-      // The node was planned for a moment in the future; track it down as the
-      // clock runs so the estimate keeps improving.
+    if (this._nodeRef !== node) {
+      // Seed ONCE per node. Re-seeding every cycle while the burn has not
+      // started puts nodeT back to node.t just before the decrement below
+      // takes one dt off it, so the countdown holds at node.t − dt forever and
+      // the ignition gate never opens. Nothing decrements node.t itself, so a
+      // node planned for apoapsis simply never fires.
+      this._nodeRef = node;
       this.nodeVec = node.dv.clone();
       this.nodeT = node.t;
       this.nodeDvTotal = node.dv.length();
@@ -443,7 +453,7 @@ export class Autopilot {
     if (this.burnRemaining <= 0.05 || v.deltaVRemaining(pa) < 0.01) {
       v.throttle = 0; this.burning = false;
       this.note(`${node.label || 'Node'} — cutoff`);
-      this.node = null;
+      this.node = null; this._nodeRef = null;
       if (this.program === 'circularize' || this.program === 'node') {
         this.program = null; this.mode = MODE.PROGRADE;
         this.v.phase = PHASE.ORBIT;
@@ -769,21 +779,21 @@ export class Autopilot {
   aeroLimit(cmd, out) {
     const v = this.v, t = v.telemetry;
     if (!v.env.atm || !(t.q > 200)) return out.copy(cmd).normalize();
-    v.airspeed(v.r, v.v, _b);
-    const va = _b.length();
+    v.airspeed(v.r, v.v, _air);
+    const va = _air.length();
     if (va < 1) return out.copy(cmd).normalize();
-    _b.multiplyScalar(-1 / va);                       // retrograde, the aligned attitude
+    _air.multiplyScalar(-1 / va);                     // retrograde, the aligned attitude
     out.copy(cmd).normalize();
     // 0.85 of the limit, because the limit is where the vehicle breaks and
     // steering to exactly there leaves nothing for a gust or a lag.
     const aMaxRad = THREE.MathUtils.clamp(0.85 * v.vehicle.limits.qAlpha / t.q, 0.01, Math.PI);
-    const ang = out.angleTo(_b);
+    const ang = out.angleTo(_air);
     if (ang <= aMaxRad) return out;
     // rotate `out` toward the airstream until it is within the limit
-    _c.crossVectors(_b, out);
-    if (_c.lengthSq() < 1e-12) return out.copy(_b);
+    _c.crossVectors(_air, out);
+    if (_c.lengthSq() < 1e-12) return out.copy(_air);
     _c.normalize();
-    return out.copy(_b).applyAxisAngle(_c, aMaxRad);
+    return out.copy(_air).applyAxisAngle(_c, aMaxRad);
   }
 
   /** Carry the landing site round with the body it is on.

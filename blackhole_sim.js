@@ -2140,8 +2140,6 @@ function setAppMode(mode, opts = {}) {
   // The scenario list is the sandbox's own instrument. In flight the scenario
   // is fixed — you are on Earth — so the panel and its tab both go.
   document.body.classList.toggle('flight-mode', mode === 'flight');
-  const sub = document.querySelector('.title-block .sub');
-  if (sub) sub.textContent = mode === 'flight' ? '/ 1:1 REAL TIME · ON THE PAD' : '/ REAL N-BODY · G = 4π²';
   if (mode === 'sandbox') {
     closeModelViewer();
     if (flight.active) endFlight();

@@ -16,7 +16,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from math import pi, cos, sin
+from math import pi, cos, sin, tan
 from lib import (revolve, cyl, lathe, box, torus_z, dish, disc, empty, finish,
                  smooth, strut, bell, ball, sphere_cone, loft, TAU)
 from common import build, stage
@@ -37,11 +37,20 @@ def build_shell(M, root):
     finish(hs, 0.02, 2, 45)
     # PICA tiles are laid as a gore pattern on the real article, and the gores
     # are the only thing that gives an otherwise featureless brown dish scale.
+    # The long axis is LOCAL X so that the azimuthal rotation about Z lays it
+    # radially; written along Y it came out tangential, i.e. a chord across the
+    # dish rather than a gore. And the flank of a 70 degree sphere-cone is not
+    # level, so a strip at a constant z crosses the surface — floating near the
+    # centre and buried further out. Blender's XYZ order applies the pitch
+    # before the azimuth, which is exactly what puts the strip on the flank.
+    flank = pi / 2 - 70 * pi / 180
     for i in range(16):
         a = i / 16 * TAU
-        gore = box(f'gore{i}', (0.035, D * 0.46, 0.03),
-                   (cos(a) * D * 0.24, sin(a) * D * 0.24, joint - 0.30),
-                   M['dirty'], rot=(0, 0, a), parent=g)
+        r_gore = D * 0.24
+        gore = box(f'gore{i}', (D * 0.46, 0.035, 0.03),
+                   (cos(a) * r_gore, sin(a) * r_gore,
+                    joint - (D / 2 - r_gore) * tan(flank)),
+                   M['dirty'], rot=(0, -flank, a), parent=g)
 
     # ---- backshell: a shallower cone closing the top, in white blanket.
     bs = cyl('backshell', D / 2, D * 0.19, joint, joint + D * 0.36, M['white'],

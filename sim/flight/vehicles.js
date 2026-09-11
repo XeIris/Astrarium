@@ -119,7 +119,9 @@ export const ENGINES = {
     //
     // Thrust is not a constant here: the drive is throttled to hold a constant
     // PROPER acceleration (1.5 g in the book), so vessel.js sets F = m·a each
-    // step and takes ṁ = F/c. See sim/flight/relativity.js.
+    // step and takes ṁ = F/c — see `photonOutput` there, and the cruise solver
+    // in sim/flight/relativity.js. thrustVac is the emitter plate's ceiling
+    // rather than its operating point.
     thrustVac: 3.1e7, ispSL: 3.0570e7, ispVac: 3.0570e7, throttleMin: 0.001,
     // The aperture is 1.64 m, not the 4 m a chemical engine of this thrust would
     // need: a photon drive's thrust is P/c, so what sizes the exit is the power
@@ -468,7 +470,7 @@ export const VEHICLE_ORDER = [
 // Δv small and the last stage's large despite the first holding 90% of the
 // propellant. `pa` lets the caller ask for the sea-level or vacuum answer.
 // ---------------------------------------------------------------------------
-import { G0, ispAt } from './rocketry.js';
+import { G0, ispAt, engineOutput } from './rocketry.js';
 
 export function stageDeltaV(vehicle, index, pa = 0, extraPayload = 0) {
   const st = vehicle.stages;
@@ -510,8 +512,11 @@ export function liftoffThrust(vehicle, pa = 101325) {
   let F = 0;
   vehicle.stages.forEach((s, i) => {
     if (!s.engine || !(i === 0 || s.liftoff)) return;
-    const mdot = s.engine.thrustVac / (G0 * s.engine.ispVac);
-    F += mdot * s.count * G0 * ispAt(s.engine, pa);
+    // Through engineOutput, so ONE function owns the pressure and grain terms.
+    // Written out again here it used the full vacuum rating, and an RSRM starts
+    // at 0.86 of it — so the Shuttle's pad TWR was reported 14% above the
+    // thrust the integrator actually produces at ignition.
+    F += engineOutput(s.engine, s.count, pa, 1, 0).F;
   });
   return F;
 }

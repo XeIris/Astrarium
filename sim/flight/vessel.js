@@ -185,13 +185,35 @@ export class Vessel {
   liveStages() { return this.stages.filter(s => s.attached && s.ignited && !s.spent); }
 
   /** Total thrust (N) and flow (kg/s) right now, at ambient pressure `pa`. */
+  /**
+   * A photon drive is throttled to hold a constant PROPER ACCELERATION, so its
+   * thrust follows the ship's mass rather than the other way round: F = m·a,
+   * and ṁ = F/c because the exhaust is light and carries E/c of momentum. Put
+   * through engineOutput instead it produced the plate's full rating whatever
+   * the ship weighed — which is a drive that pulls 1.5 g at departure and 15 g
+   * with the tanks nearly dry, and a vehicle whose documented contract the
+   * integrator did not honour.
+   *
+   * The emitter's rating is still a ceiling: a ship too heavy for its plate
+   * accelerates at less than the hold, which is the honest answer.
+   */
+  photonOutput(engine, n) {
+    const th = this.throttle <= 0 ? 0
+      : Math.min(Math.max(this.throttle, engine.throttleMin ?? 1), engine.maxThrottle ?? 1);
+    if (th <= 0 || n <= 0) return { F: 0, mdot: 0, isp: engine.ispVac, throttle: 0 };
+    const F = Math.min(engine.holdAccel * Math.max(this.mass, 1), engine.thrustVac * n) * th;
+    return { F, mdot: F / C_MS, isp: engine.ispVac, throttle: th };
+  }
+
   propulsion(pa) {
     let F = 0, mdot = 0, ispSum = 0, w = 0, plume = null, count = 0;
     for (const st of this.liveStages()) {
       const s = st.spec;
       if (!s.engine || st.prop <= 0) continue;
       const burned = 1 - st.prop / Math.max(st.prop0, 1);
-      const o = engineOutput(s.engine, st.live, pa, this.throttle, burned);
+      const o = s.engine.photon && s.engine.holdAccel > 0
+        ? this.photonOutput(s.engine, st.live)
+        : engineOutput(s.engine, st.live, pa, this.throttle, burned);
       if (s.vacEngine) {
         const ov = engineOutput(s.vacEngine, s.vacCount, pa, this.throttle, burned);
         o.F += ov.F; o.mdot += ov.mdot;
@@ -637,7 +659,13 @@ export class Vessel {
     if (this.phase === PHASE.LANDED && this.throttle <= 0) {
       // Sit on the surface, turning with it, rather than integrating a
       // contact force that is exactly cancelling gravity.
-      const w = -this.env.rotRate * dt;
+      // +Ω dt, not −. With ω along −Y the small-angle form of
+      // x' = x cos w − z sin w agrees with the ω × r velocity set below ONLY
+      // for the positive sign; written the intuitive way the position goes
+      // west while the velocity goes east and a landed vehicle walks off its
+      // own site at twice the surface speed. Same trap guidance.js spinSite
+      // documents.
+      const w = this.env.rotRate * dt;
       const cw = Math.cos(w), sw = Math.sin(w);
       const x = this.r.x, z = this.r.z;
       this.r.set(x * cw - z * sw, this.r.y, x * sw + z * cw);
@@ -951,6 +979,15 @@ export class Vessel {
     if (s.q > this.maxQ) this.maxQ = s.q;
     if (aNet / G0 > this.maxG) this.maxG = aNet / G0;
     if (this.launchSite) {
+      // Carry the pad round with the body before measuring against it. Stored
+      // as a fixed clone it is the pad's position at T-0, and the pad itself
+      // travels 465 m/s at Earth's equator — 232 km of pure bookkeeping error
+      // over a 500 s ascent. ω × r, the same expression placeOnPad used to
+      // give the vehicle its eastward motion.
+      if (dt > 0) {
+        _a.set(0, -env.rotRate, 0).cross(this.launchSite.r);
+        this.launchSite.r.addScaledVector(_a, dt).setLength(env.radius);
+      }
       // great-circle distance from the pad, along the surface
       const ang = this.launchSite.r.angleTo(this.r);
       this.downrange = ang * env.radius;

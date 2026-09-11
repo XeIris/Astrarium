@@ -101,6 +101,18 @@ const ATMOSPHERES = {
     p0: 1e5, rho0: 0.16, T0: 165, molar: 0.00226, gamma: 1.42,
     layers: [{ base: 0, H: 27000 }], top: 900e3, tint: 0xc9a882, haze: 0xe8d0aa,
   },
+  // ~1 Pa of N₂, as New Horizons measured it. Listed rather than derived
+  // because the Jeans test below decides only whether a world KEEPS a gas, not
+  // how much it ever had: Pluto passes it (v_esc 1214 m/s against 6·v_th of
+  // 970), so the derived model hands it 1.6 bar — five orders of magnitude out,
+  // and every entry, drag and max-Q figure with it. The upper layer is the
+  // measured inversion, which runs to ~100 K and so has the larger scale
+  // height, and is the reason the haze is visible from far above the surface.
+  Pluto: {
+    p0: 1.0, rho0: 7.6e-5, T0: 44, molar: 0.028, gamma: 1.4,
+    layers: [{ base: 0, H: 21000 }, { base: 30000, H: 50000 }],
+    top: 300e3, tint: 0xa89484, haze: 0xd8c4b4,
+  },
 };
 
 // A world the catalogue does not know. An atmosphere needs a source of gas and

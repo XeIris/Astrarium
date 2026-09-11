@@ -304,8 +304,13 @@ export function createSpaceflight(ctx) {
     if (vessel && !cruise) {
       const railable = vessel.canRail();
       if (!railable && WARPS[warpIdx] > 4) {
-        warpIdx = 2;
-        toast?.('Time warp limited — under thrust or inside the atmosphere');
+        // The highest rung still integrated rather than railed. WARPS[2] is 5,
+        // which is the very thing this interlock forbids — so clamping to a
+        // hard-coded index left the warp illegal AND re-toasted every frame,
+        // because the frame loop calls setWarp again while w > 4.
+        const capped = WARPS.reduce((best, v, i) => (v <= 4 ? i : best), 0);
+        if (warpIdx !== capped) toast?.('Time warp limited — under thrust or inside the atmosphere');
+        warpIdx = capped;
       }
     }
     state.timeScale = WARPS[warpIdx] / YR_S;

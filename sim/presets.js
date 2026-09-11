@@ -230,7 +230,7 @@ function moonOf(parentSpec, distM, massSun, radiusKm, name, extra = {}) {
     type: 'planet', name, mass: massSun, radiusKm, hot: true, ...extra,
     pos: [px + ux * a, py, pz + uz * a],
     // perpendicular to the offset, in the same sense as the orrery's orbits
-    vel: [vx - (-uz) * vMoon, vy, vz - (ux) * vMoon],
+    vel: [vx + (-uz) * vMoon, vy, vz + ux * vMoon],
   };
 }
 

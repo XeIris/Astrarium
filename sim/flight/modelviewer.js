@@ -47,11 +47,16 @@ const GRID_FRAG = `
     // Anti-aliased grid: the line width is set from the screen-space derivative
     // so a line is one pixel wide however far away it is. A fixed width would
     // either alias into moiré at range or vanish underfoot.
-    vec2 g = abs(fract(vP.xz / uStep - 0.5) - 0.5) / fwidth(vP.xz / uStep);
+    // vP is the LOCAL position and the mesh is a PlaneGeometry, so the two
+    // axes it spans are x and y — z is identically 0 whatever the mesh is
+    // rotated to. Sampled as .xz the second axis is constant, its fwidth is 0,
+    // and the division is 0/0: lines along one axis only, and a fade that is
+    // not radial.
+    vec2 g = abs(fract(vP.xy / uStep - 0.5) - 0.5) / fwidth(vP.xy / uStep);
     float line = 1.0 - min(min(g.x, g.y), 1.0);
-    vec2 g10 = abs(fract(vP.xz / (uStep * 10.0) - 0.5) - 0.5) / fwidth(vP.xz / (uStep * 10.0));
+    vec2 g10 = abs(fract(vP.xy / (uStep * 10.0) - 0.5) - 0.5) / fwidth(vP.xy / (uStep * 10.0));
     line = max(line, (1.0 - min(min(g10.x, g10.y), 1.0)) * 1.6);
-    float fade = 1.0 - smoothstep(uRadius * 0.35, uRadius, length(vP.xz));
+    float fade = 1.0 - smoothstep(uRadius * 0.35, uRadius, length(vP.xy));
     gl_FragColor = vec4(mix(uBg, uCol, clamp(line, 0.0, 1.0)), fade);
   }`;
 
@@ -135,6 +140,7 @@ export function createModelViewer() {
   const cam = { yaw: 0.9, pitch: 0.20, dist: 3.0, spin: 0.10, held: false, explode: 0, wantExplode: 0 };
   let deployAll = 1;
 
+  const retried = new Set();
   function load(vehicleKey) {
     const veh = VEHICLES[vehicleKey];
     if (!veh) return null;
@@ -143,8 +149,17 @@ export function createModelViewer() {
     // procedural fallback and the second replaces it — which is the right way
     // round: the studio opens instantly on something, rather than on nothing.
     // load() rebuilds from scratch, so calling it twice is safe.
+    // ONE retry per vehicle. A .glb that loads but carries no `stage_` node
+    // resolves true while buildCraft still falls back, so `authored` stays
+    // false and an unguarded condition re-enters load() on an already-settled
+    // promise — rebuilding the craft without bound until the page stops
+    // responding.
     preloadCraft(vehicleKey).then((ok) => {
-      if (ok && vehicle && vehicle.key === vehicleKey && !craft?.authored) load(vehicleKey);
+      if (ok && vehicle && vehicle.key === vehicleKey && !craft?.authored
+          && !retried.has(vehicleKey)) {
+        retried.add(vehicleKey);
+        load(vehicleKey);
+      }
     });
     if (craft) { root.remove(craft.group); craft = null; }
     vehicle = { key: vehicleKey, ...veh };
