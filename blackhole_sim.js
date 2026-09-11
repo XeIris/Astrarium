@@ -1715,7 +1715,7 @@ function updateHUD(dt) {
 
   // An open cross-section tracks the focused body. Bodies change — a star
   // being eaten loses mass every frame, and the diagram should say so.
-  if (xsecOpen && DOM.xsecPanel && DOM.xsecPanel.style.display !== 'none') {
+  if (xsecOpen && !state.hudHidden && DOM.xsecPanel && DOM.xsecPanel.style.display !== 'none') {
     const fb = state.bodies.find(b => b.id === state.focusId);
     if (fb) { showCrossSection(fb); liveEditor?.sync(fb); }
     else setPanelOpen('xsecPanel', false);
@@ -1832,6 +1832,10 @@ let toastTimer = null;
 function toast(msg, ms = 2200) {
   if (!DOM.toast) return;
   DOM.toast.textContent = msg;
+  // The toast is placed in whatever gap the panels have left, so its position
+  // is only right if it is computed at the moment it appears — a message shown
+  // seconds after the last panel moved would otherwise use the old gap.
+  layoutLeftColumn();
   DOM.toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => DOM.toast.classList.remove('show'), ms);
@@ -1843,17 +1847,21 @@ function setPanelOpen(id, open) {
   const tab = document.querySelector(`[data-open="${id}"]`);
   if (!panel) return;
   if (open) collapsed.delete(id); else collapsed.add(id);
-  // While the whole HUD is hidden, neither the panel nor its tab may show.
-  panel.style.display = (open && !state.hudHidden) ? '' : 'none';
-  if (tab) tab.hidden = open || state.hudHidden;
+  // A panel's inline display is its OWN collapsed state and nothing else.
+  // Hiding the whole HUD is a body class (see setHudHidden), because writing
+  // display on every .hud and then writing it back meant the one panel the
+  // restore loop did not know about — the model viewer — came back from the
+  // dead on top of whatever was in the left column.
+  panel.style.display = open ? '' : 'none';
+  if (tab) tab.hidden = open;
   // the key hint sits in the bottom-right corner; give it the corner back when
   // the control panel is not occupying it
   if (id === 'controlPanel') {
-    document.body.classList.toggle('panel-open-right', open && !state.hudHidden);
+    document.body.classList.toggle('panel-open-right', open);
   }
   // The left column is a stack: the scenario list opening or closing moves the
   // editor under it, and the editor being open squeezes the list.
-  if (id === 'xsecPanel') document.body.classList.toggle('xsec-open', open && !state.hudHidden);
+  if (id === 'xsecPanel') document.body.classList.toggle('xsec-open', open);
   if (id === 'scenarioPanel' || id === 'xsecPanel' || id === 'flightPanel') layoutLeftColumn();
 }
 
@@ -1864,20 +1872,72 @@ function setPanelOpen(id, open) {
 // measured rather than hard-coded, and it slides up when the list is collapsed.
 // ---------------------------------------------------------------------------
 function layoutLeftColumn() {
+  const root = document.documentElement.style;
+  // The column's own top and bottom edges are MEASURED, not assumed. The title
+  // block grew a mode switch under it and the readout is three lines of
+  // whatever the current preset is; both had been hard-coded at 92px and 24px,
+  // and both were being overlapped by whatever the column put next to them.
+  //
+  // Visibility is asked of the LAYOUT, not of the inline style: a panel can be
+  // hidden by a mode rule (`body.flight-mode #scenarioPanel`) or by the HUD
+  // class while its own inline display is still ''. Reading the inline style
+  // measured a zero-sized box as if it were an open panel, and the panel below
+  // it went to y = 12 — straight through the title block.
+  const shown = el => !!el && el.getBoundingClientRect().height > 0;
+  const title = document.querySelector('.title-block');
+  const colTop = shown(title) ? Math.round(title.getBoundingClientRect().bottom) + 12 : 18;
+  root.setProperty('--col-top', `${colTop}px`);
+  const ro2 = document.getElementById('readout');
+  const rr = ro2 ? ro2.getBoundingClientRect() : null;
+  root.setProperty('--hud-bottom', `${rr && rr.height ? Math.round(rr.height) + 30 : 30}px`);
+
+  // A COLLAPSED panel still occupies the column. It leaves a tab behind at the
+  // top of it, so the first free y when the scenario list is closed is the
+  // bottom of that tab stack, not the bare top of the column — otherwise the
+  // panel below slides up underneath the tab that reopens the one above it.
+  const tabs = document.querySelector('.tab-col');
+  const tr = tabs ? tabs.getBoundingClientRect() : null;
+  const free = tr && tr.height ? Math.round(tr.bottom) + 12 : colTop;
+
   const top = document.getElementById('scenarioPanel');
-  const open = top && top.style.display !== 'none';
-  const y = open ? Math.round(top.getBoundingClientRect().bottom) + 12 : 92;
-  document.documentElement.style.setProperty('--xsec-top', `${y}px`);
+  const y = shown(top) ? Math.round(top.getBoundingClientRect().bottom) + 12 : free;
+  root.setProperty('--xsec-top', `${y}px`);
   // The flight panel shares the column. When it is open it takes the slot under
   // the scenario list and the cross-section moves below it, because the navball
   // and the stage stack have to be visible at the same time as everything else.
   const fp = document.getElementById('flightPanel');
-  const fOpen = fp && fp.style.display !== 'none';
-  document.documentElement.style.setProperty('--flight-top', `${y}px`);
+  const fOpen = shown(fp);
+  root.setProperty('--flight-top', `${y}px`);
   if (fOpen) {
     const fy = Math.round(fp.getBoundingClientRect().bottom) + 12;
-    document.documentElement.style.setProperty('--xsec-top', `${fy}px`);
+    root.setProperty('--xsec-top', `${fy}px`);
   }
+
+  // The toast sits at the top of the FREE BAND, not at the middle of the
+  // window: dead centre is only clear while the window is wide, and a message
+  // half under the control panel is the one message you most need to read.
+  // Only what actually reaches the toast's own band of y counts.
+  let bandL = 16;
+  for (const sel of ['#scenarioPanel', '#modelPanel', '#flightPanel', '#xsecPanel', '.tab-col']) {
+    const el = document.querySelector(sel);
+    if (!shown(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.top < colTop + 48) bandL = Math.max(bandL, r.right + 16);
+  }
+  const cp = document.getElementById('controlPanel');
+  const bandR = shown(cp) ? cp.getBoundingClientRect().left - 16 : window.innerWidth - 16;
+  root.setProperty('--toast-x', `${Math.round((bandL + bandR) / 2)}px`);
+
+  // The bottom-right key hint WRAPS rather than reaching across whatever the
+  // left-hand column has put in the opposite corner. That is the readout at a
+  // minimum, but the cross-section panel is 348px wide and reaches nearly to
+  // the bottom edge, so the clearance is the widest of them, not the readout's.
+  let clear = rr && rr.width ? Math.round(rr.right) : 20;
+  for (const sel of ['#scenarioPanel', '#xsecPanel', '#flightPanel', '#modelPanel']) {
+    const el = document.querySelector(sel);
+    if (shown(el)) clear = Math.max(clear, Math.round(el.getBoundingClientRect().right));
+  }
+  root.setProperty('--hint-clear', `${clear + 24}px`);
 }
 // The scenario panel changes height when a group is expanded, and the editor
 // changes height when the body changes type — so watch, rather than guess.
@@ -1887,8 +1947,14 @@ if (window.ResizeObserver) {
   // scenario list (groups expand) and the blurb (every preset writes a
   // different one). Observing only the panel misses growth that happens in the
   // same frame the observer is installed.
-  for (const id of ['scenarioPanel', 'presetList', 'blurb']) {
+  for (const id of ['scenarioPanel', 'presetList', 'blurb', 'readout']) {
     const el = document.getElementById(id);
+    if (el) ro.observe(el);
+  }
+  // The title block is the column's ceiling and it changes height with the mode
+  // switch and with the preset's name wrapping, so it is measured, not assumed.
+  for (const sel of ['.title-block', '.tab-col']) {
+    const el = document.querySelector(sel);
     if (el) ro.observe(el);
   }
 }
@@ -2067,11 +2133,11 @@ document.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click
 
 function setHudHidden(hidden) {
   state.hudHidden = hidden;
-  for (const el of document.querySelectorAll('.hud')) {
-    // panels obey their own collapsed state once the HUD comes back
-    el.style.display = hidden ? 'none' : '';
-  }
-  for (const id of ['scenarioPanel', 'controlPanel', 'xsecPanel', 'flightPanel']) setPanelOpen(id, !collapsed.has(id));
+  // One class over the whole HUD. Every panel keeps the inline display that IS
+  // its collapsed state, so coming back restores exactly what was there — and a
+  // panel nobody remembered to list cannot be resurrected by the restore.
+  document.body.classList.toggle('hud-hidden', hidden);
+  layoutLeftColumn();
   if (hidden) toast('HUD hidden — press H to restore');
 }
 
@@ -2429,25 +2495,52 @@ function showModel(key) {
     </div>`).join('');
   modelOpen = true;
   document.getElementById('modelPanel').style.display = '';
-  // The studio takes the whole frame, so the panels that describe the universe
-  // behind it have nothing to say while it is open.
-  setPanelOpen('scenarioPanel', false);
-  setPanelOpen('flightPanel', false);
+  openModelWorld();
+}
+
+// ---------------------------------------------------------------------------
+// THE STUDIO IS A WORLD, NOT A PANEL
+// ---------------------------------------------------------------------------
+// It was half of one. Opening it closed the scenario list and the flight panel
+// but left the control column standing, so the frame carried TWO vehicle
+// pickers — the studio's own chips on the left and the craft grid on the right
+// — and an EXIT FLIGHT button that does not exit the studio. Which of the two
+// you were in was a fair question, and the honest answer was neither.
+//
+// So it takes the frame: every other panel goes, and every panel comes back
+// exactly as it was when it lets go. What was open is REMEMBERED rather than
+// assumed, because the close used to reopen the scenario list unconditionally
+// — reinstating a panel you had deliberately collapsed before opening it.
+//
+// Panels alone are not enough either. A collapsed panel leaves a tab behind,
+// the tabs are later in the document than this panel, and the left-hand ones
+// stand at the top of the same column — so `model-open` takes the tabs with it
+// and the studio is the only thing on screen that answers to a click.
+const MODEL_WORLD = ['scenarioPanel', 'controlPanel', 'flightPanel', 'xsecPanel'];
+let modelRestore = null;
+function openModelWorld() {
+  if (!modelRestore) modelRestore = MODEL_WORLD.filter(id => !collapsed.has(id));
+  document.body.classList.add('model-open');
+  for (const id of MODEL_WORLD) setPanelOpen(id, false);
 }
 
 function closeModelViewer() {
   modelOpen = false;
+  document.body.classList.remove('model-open');
   const p = document.getElementById('modelPanel');
   if (p) p.style.display = 'none';
+  // Put back what the studio borrowed — and only what it borrowed.
+  if (modelRestore) {
+    for (const id of modelRestore) setPanelOpen(id, true);
+    modelRestore = null;
+  }
+  layoutLeftColumn();
 }
 
 document.getElementById('modelOpen')?.addEventListener('click', () => {
   showModel(modelView.vehicle?.key || 'saturnv');
 });
-document.getElementById('modelClose')?.addEventListener('click', () => {
-  closeModelViewer(); setPanelOpen('scenarioPanel', true);
-  if (flight.active) setPanelOpen('flightPanel', true);
-});
+document.getElementById('modelClose')?.addEventListener('click', closeModelViewer);
 document.getElementById('mvExplode')?.addEventListener('input', e =>
   modelView.setExplode(parseFloat(e.target.value)));
 document.getElementById('mvDeploy')?.addEventListener('click', e => {
@@ -2462,7 +2555,6 @@ document.getElementById('mvSpin')?.addEventListener('click', e => {
 document.getElementById('mvFly')?.addEventListener('click', () => {
   const k = modelView.vehicle?.key;
   closeModelViewer();
-  setPanelOpen('scenarioPanel', true);
   if (k) launchCraft(k);
 });
 renderModelGrid();

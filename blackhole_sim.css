@@ -10,6 +10,16 @@
   --warn: #ff4e6b;
   --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
   --display: 'Neue Haas Grotesk Display Pro', 'Inter', system-ui, sans-serif;
+  /* THE HUD's TWO RESERVED EDGES, and why they are variables rather than
+     numbers. The title block at the top left grew a mode switch under it and
+     the left-hand column was still starting at a hard-coded 92px, so every
+     panel on that side clipped the corner of the Sandbox/Spaceflight buttons.
+     The bottom-left readout is the same story from the other end: a panel whose
+     max-height was `100vh - top - 24px` runs straight through it.
+     Both are MEASURED by layoutLeftColumn() and published here; the numbers
+     below are only the values before the first measurement lands. */
+  --col-top: 112px;      /* first free y below the title block + mode switch */
+  --hud-bottom: 84px;    /* height the readout and its margins claim */
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; }
@@ -34,8 +44,8 @@ canvas { display: block; }
 
 /* Scenarios live in their own panel on the left, clear of the title block. */
 .panel-left {
-  top: 92px; left: 20px; right: auto; width: 232px;
-  max-height: calc(100vh - 190px);
+  top: var(--col-top); left: 20px; right: auto; width: 232px;
+  max-height: calc(100vh - var(--col-top) - var(--hud-bottom));
 }
 
 .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -48,23 +58,40 @@ canvas { display: block; }
 .panel-close:hover { color: var(--warn); }
 
 /* A collapsed panel leaves a tab behind so it is always one click from back. */
-.panel-tabs { top: 92px; left: 0; right: 0; }
+.panel-tabs { top: var(--col-top); left: 0; right: 0; height: 0; }
+/* The two left-hand tabs are STACKED, not both pinned to the same y. They were
+   each `position: fixed; top: 92px`, differing by a 6px margin that a fixed box
+   applies to itself — so Scenario and Flight sat one on top of the other and
+   only a mode rule that happened to hide one of them kept it from showing. */
+.tab-col {
+  position: fixed; top: var(--col-top); left: 20px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  pointer-events: none;
+}
+.tab-col > * { pointer-events: auto; }
 .panel-tab {
-  position: fixed; top: 92px;
+  position: fixed; top: var(--col-top);
   background: var(--panel); color: var(--text-dim);
   border: 1px solid var(--border); backdrop-filter: blur(10px);
   padding: 8px 10px; font-family: var(--mono); font-size: 10px; cursor: pointer;
   letter-spacing: 0.12em; text-transform: uppercase; transition: all 0.15s;
 }
 .panel-tab[hidden] { display: none; }
-.panel-tab:not(.tab-right) { left: 20px; }
+/* Inside the stack the tabs are in normal flow; only the right-hand one is
+   still pinned, because it has no neighbour to collide with. */
+.tab-col .panel-tab { position: static; }
 .panel-tab.tab-right { right: 18px; }
 .panel-tab:hover { color: var(--accent); border-color: var(--border-strong); }
 
 /* Transient message — used when the HUD hides itself, so the way back is
    never a secret. */
 .toast {
-  position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
+  /* TOP centre, not bottom centre. The key hint is a bottom-anchored block six
+     hundred pixels wide and dead centre of the lower edge, so a bottom toast
+     landed exactly on top of it — including the one that says how to get the
+     HUD back, which is the one message that has to be readable. */
+  position: fixed; top: var(--col-top); left: var(--toast-x, 50%); transform: translateX(-50%);
+  max-width: min(420px, 76vw); text-align: center;
   padding: 9px 16px; background: var(--panel); border: 1px solid var(--border-strong);
   backdrop-filter: blur(10px); color: var(--text);
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
@@ -240,8 +267,15 @@ input[type=range]::-moz-range-thumb {
      on narrower screens. */
   bottom: 18px; right: 18px; font-size: 10px; color: var(--text-dim);
   text-align: right; line-height: 1.6; letter-spacing: 0.08em;
+  /* Bounded so it WRAPS instead of reaching the bottom-left readout. The
+     comment above was already right about the collision; it just only guarded
+     the case where the control panel is collapsed. Growing upward is free —
+     growing leftward is not. */
+  max-width: calc(100vw - 18px - var(--hint-clear, 300px));
 }
-body.panel-open-right .hint { right: 336px; }
+body.panel-open-right .hint { right: 336px; max-width: calc(100vw - 336px - var(--hint-clear, 300px)); }
+/* A key that does nothing in this mode is not a hint. */
+body.flight-mode .hint-sb, body:not(.flight-mode) .hint-fl { display: none; }
 .hint kbd {
   display: inline-block; padding: 1px 5px; border: 1px solid var(--border-strong);
   color: var(--text); font-family: var(--mono); font-size: 9px; margin: 0 2px;
@@ -408,8 +442,8 @@ h3 .clock {
    the scenarios and this slides up into the space. --xsec-top is written by
    layoutLeftColumn() in blackhole_sim.js. */
 .panel-xsec {
-  top: var(--xsec-top, 92px); left: 20px; right: auto; width: 348px;
-  max-height: calc(100vh - var(--xsec-top, 92px) - 24px);
+  top: var(--xsec-top, 112px); left: 20px; right: auto; width: 348px;
+  max-height: calc(100vh - var(--xsec-top, 112px) - var(--hud-bottom));
 }
 /* With both open the left column has two panels in it, so the scenario list
    gives up the height rather than pushing the editor off the screen. */
@@ -470,11 +504,11 @@ body.xsec-open .panel-left { max-height: 40vh; }
 .craft-btn .cd { color: #7d93ae; font-size: 9.5px; font-variant-numeric: tabular-nums; }
 
 .panel-flight {
-  position: fixed; left: 12px; top: var(--flight-top, 92px);
-  width: 306px; max-height: calc(100vh - var(--flight-top, 92px) - 16px);
+  position: fixed; left: 12px; top: var(--flight-top, 112px);
+  width: 306px; max-height: calc(100vh - var(--flight-top, 112px) - var(--hud-bottom));
   overflow-y: auto; z-index: 6;
 }
-.panel-tab.tab-flight { margin-top: 6px; }
+
 
 .fl-warp { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: 6px; }
 .fl-warp span { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--accent); min-width: 46px; text-align: center; }
@@ -661,7 +695,10 @@ body.xsec-open .panel-left { max-height: 40vh; }
 /* ==========================================================================
    MODEL VIEWER PANEL
    ========================================================================== */
-.panel-model { top: 92px; left: 20px; right: auto; width: 268px; max-height: calc(100vh - 120px); }
+.panel-model {
+  top: var(--col-top); left: 20px; right: auto; width: 268px;
+  max-height: calc(100vh - var(--col-top) - var(--hud-bottom));
+}
 .mv-name { font-size: 14px; color: var(--accent); margin-bottom: 10px; letter-spacing: 0.04em; }
 .mv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 12px; }
 .mv-chip {
@@ -687,6 +724,18 @@ body.xsec-open .panel-left { max-height: 40vh; }
 .ms-sub { font-size: 9.5px; color: var(--text-dim); line-height: 1.5; }
 
 .mode-hidden { display: none !important; }
+
+/* H hides the HUD. One class, so nothing has to write — and then write back —
+   an inline display that is already carrying each panel's collapsed state. */
+body.hud-hidden .hud { display: none !important; }
+
+/* The model viewer takes the FRAME. Its panels are closed by showModel(), but a
+   closed panel leaves a tab behind, and the tabs come later in the document
+   than this panel — so the left-hand ones landed on top of the studio's own
+   header regardless of z-index, and the right-hand one advertised a way back
+   into a control column the studio had just put away. Both go with it. */
+body.model-open .tab-col,
+body.model-open .panel-tab.tab-right { display: none; }
 
 /* In flight mode the orrery's own instruments are not merely folded — they are
    gone. The scenario list, its tab, and the cross-section are all ways of

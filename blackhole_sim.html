@@ -329,9 +329,14 @@
 <!-- Tabs that take a collapsed panel's place, so a closed panel is always one
      click from coming back. Hidden while the whole HUD is off. -->
 <div class="hud panel-tabs" id="panelTabs">
-  <button class="panel-tab" data-open="scenarioPanel" hidden>▸ Scenario</button>
+  <!-- The left-hand tabs are a COLUMN. Both used to be pinned to the same y and
+       relied on a mode rule hiding one of them; the model viewer, which closes
+       the flight panel, then put that panel's tab straight over its own title. -->
+  <div class="tab-col">
+    <button class="panel-tab" data-open="scenarioPanel" hidden>▸ Scenario</button>
+    <button class="panel-tab tab-flight" data-open="flightPanel" hidden>▸ Flight</button>
+  </div>
   <button class="panel-tab tab-right" data-open="controlPanel" hidden>Controls ◂</button>
-  <button class="panel-tab tab-flight" data-open="flightPanel" hidden>▸ Flight</button>
 </div>
 
 <div class="hud readout" id="readout">
@@ -340,12 +345,15 @@
   <div><span class="k">fps</span> <span class="v" id="fps">--</span></div>
 </div>
 
+<!-- Key hints, split by mode: a key that does nothing here is not a hint, and
+     the block is bottom-centre, so every line it does not need is width it does
+     not take from the readout in the opposite corner. -->
 <div class="hud hint" id="hint">
   <kbd>drag</kbd> look · <kbd>scroll</kbd> zoom/speed · <kbd>click</kbd> focus object<br>
-  <kbd>V</kbd> stand on the planet · <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly<br>
-  <kbd>R</kbd> reset · <kbd>space</kbd> pause · <kbd>del</kbd> remove<br>
-  <kbd>H</kbd> hide all panels · <kbd>1</kbd>–<kbd>7</kbd> imaging band<br>
-  <span class="hint-fl"><kbd>Z</kbd>/<kbd>X</kbd> full/cut throttle · <kbd>shift+space</kbd> stage ·
+  <span class="hint-sb"><kbd>V</kbd> stand on the planet · <kbd>F</kbd> free cam · <kbd>WASD</kbd> fly<br></span>
+  <kbd>R</kbd> reset · <kbd>space</kbd> pause<span class="hint-sb"> · <kbd>del</kbd> remove</span><br>
+  <kbd>H</kbd> hide all panels<span class="hint-sb"> · <kbd>1</kbd>–<kbd>7</kbd> imaging band</span>
+  <span class="hint-fl"><br><kbd>Z</kbd>/<kbd>X</kbd> full/cut throttle · <kbd>shift+space</kbd> stage ·
   <kbd>,</kbd>/<kbd>.</kbd> time warp · <kbd>C</kbd> flight camera</span>
 </div>
 
