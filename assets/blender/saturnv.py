@@ -26,7 +26,7 @@ from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, dish, disc, empty,
                  finish, smooth, strut, bell, ball, ogive, lattice, wing,
                  stripe, rcs_ring, TAU)
-from common import build, stage
+from common import build, stage, ring_radius
 
 SIC_L, SIC_D = 42.0, 10.06
 SII_L = 24.9
@@ -35,9 +35,18 @@ CSM_L, CSM_D = 11.0, 3.90
 
 
 def engines(M, g, key, count, spread, exit_d, ratio, z=-0.02, seg=24):
-    """One centre plus a ring — the F-1 and J-2 quincunx. The four outboard
-       engines gimbal; the centre one is fixed on the real vehicle, and on the
-       S-IC it also shuts down early to hold the stack under 4 g."""
+    """
+    One centre plus a ring — the F-1 and J-2 quincunx. The four outboard
+    engines gimbal; the centre one is fixed on the real vehicle, and on the
+    S-IC it also shuts down early to hold the stack under 4 g.
+
+    `spread` is a FLOOR, not the answer: the ring has to clear the engine on
+    the axis and its own neighbours first. At the fraction of the diameter this
+    used to take on faith, the S-IC's four outboard F-1s were drawn half a
+    metre inside the centre one.
+    """
+    if count > 1:
+        spread = max(spread, ring_radius(count - 1, exit_d, centre=True))
     def place(i, x, y, fixed):
         nm = f'gimbal_{key}_{i}' + ('_fixed' if fixed else '')
         piv = empty(nm, (x, y, z), g)

@@ -19,7 +19,7 @@ from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, dish, disc, empty,
                  finish, smooth, strut, bell, ball, ogive, grid_fin,
                  landing_leg, solar_array, stripe, rcs_ring, TAU)
-from common import build, stage, hinge
+from common import build, stage, hinge, ring_radius
 
 S1_L, S1_D = 41.2, 3.66
 S1_IS = 4.0                        # interstage, black composite
@@ -63,7 +63,10 @@ def build_s1(M, root):
     # ---- nine Merlins: eight around one, the octaweb arrangement. The centre
     # engine is the one that lands the stage, and it is the only one lit for
     # the last twenty seconds of the flight.
-    spread = S1_D * 0.30
+    # The ring has to clear the centre engine AND its own neighbours: eight
+    # 0.92 m Merlins on a 1.11 m ring are 0.85 m apart, which is 0.07 m of
+    # interpenetration all the way round.
+    spread = max(S1_D * 0.30, ring_radius(8, 0.92, centre=True))
     def place(i, x, y):
         piv = empty(f'gimbal_f9s1_{i}', (x, y, -0.02), g)
         b = bell(f'merlin{i}', 0.92, M['nozzle'], ratio=16, seg=20, parent=piv)

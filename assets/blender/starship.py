@@ -33,19 +33,32 @@ RING = 1.83                        # weld-ring pitch: the coil width, not a gues
 # THE ENGINE PACKING, which is a real constraint and not a layout choice.
 # ---------------------------------------------------------------------------
 # Thirty-three bells inside a 9 m skirt is the tightest cluster ever flown, and
-# it only closes because a Raptor's exit is about 1.1 m: twenty of them round a
-# 3.68 m ring leaves 1.151 m of chord per engine, so the nozzles very nearly
-# touch and that is what the photographs show. Get any of these numbers wrong
-# and the bells do not merely look crowded, they INTERPENETRATE — which is what
-# a ring radius picked as a fraction of a fraction (0.30 x 0.92 of the
-# diameter, 2.48 m for twenty 1.3 m bells) gave: every engine buried in its
-# neighbour, and no silhouette left at all.
+# the test it has to pass is not "does each ring space its own engines" — it is
+# the NEAREST NEIGHBOUR OVER THE WHOLE CLUSTER. Solving the rings one at a time
+# passes every chord and still buries the inner three in the ten around them,
+# because the closest pair in a three-ring pattern is usually a pair on
+# DIFFERENT rings and no per-ring check ever looks at it.
 #
-# The check each ring has to pass is the chord, 2 r sin(pi/n), against the exit
-# diameter; and each PAIR of rings has to clear radially too.
-RAPTOR_D = 1.10                    # sea-level Raptor exit
-RVAC_D = 2.40                      # vacuum Raptor exit: nearly twice over
-SH_RINGS = ((3, 1.05, False), (10, 2.32, False), (20, 3.68, True))
+# So the radii are fixed multiples of the exit diameter, chosen once against
+# that global minimum: at 0.90 / 2.05 / 3.45 every pair in the cluster — same
+# ring or not — is at least 1.079 exit diameters apart, and the outer bell's
+# edge lands at 3.95. Scale that to fit inside the skirt and the engine follows:
+# the DRAWN bell shrinks until it does. Twenty 1.30 m bells want a 4.16 m ring
+# and the booster is 4.50 m in RADIUS, so something has to give, and a bell a
+# fifth of a metre narrow is the smaller error — the only one of the two you
+# cannot see.
+K1, K2, K3 = 0.90, 2.05, 3.45          # ring radii, in exit diameters
+R_MAX = R * 0.95                       # the outermost bell edge, inside the skirt
+RAPTOR_D = min(1.30, R_MAX / (K3 + 0.5))
+RVAC_D = 2.40                          # vacuum Raptor: nearly twice over
+SH_RINGS = ((3, K1 * RAPTOR_D, 0.0, False),
+            (10, K2 * RAPTOR_D, pi / 10, False),
+            (20, K3 * RAPTOR_D, pi / 20, True))
+# The ship's two clusters have to miss EACH OTHER, which is the same failure one
+# level up: three 1.08 m bells inside three 2.40 m ones clear only if the two
+# rings are staggered, and at the same phase the vacuum bells sit straight on
+# top of the sea-level ones.
+SS_SEA_R, SS_VAC_R = 0.95 * RAPTOR_D, 2.45
 
 
 def weld_rings(name, z0, z1, mat, parent, r=R):
@@ -94,9 +107,9 @@ def build_sh(M, root):
     # which is why the booster's control authority falls away as it throttles
     # the centre engines back.
     idx = 0
-    for count, rr, fixed in SH_RINGS:
+    for count, rr, phase, fixed in SH_RINGS:
         for i in range(count):
-            a = i / count * TAU + (0.0 if count == 3 else pi / count)
+            a = i / count * TAU + phase
             nm = f'gimbal_sh_{idx:02d}' + ('_fixed' if fixed else '')
             piv = empty(nm, (cos(a) * rr, sin(a) * rr, -0.02), g)
             b = bell(f'raptor{idx}', RAPTOR_D, M['nozzle'], ratio=34, seg=16, parent=piv)
@@ -218,19 +231,19 @@ def build_ss(M, root):
     # ---- six Raptors: three sea-level that gimbal, three vacuum that do not.
     # The vacuum bells are nearly twice the exit diameter and they are fixed —
     # a 2.4 m bell has no room to swing inside a 9 m skirt.
-    # The sea-level three sit INSIDE the vacuum three, on a ring small enough
-    # that a 1.1 m bell clears its neighbour (chord 1.82 m) and large enough
-    # that it clears the 2.4 m vacuum bells opposite it (centres 2.35 m apart
-    # against a 1.75 m radii sum).
+    # The sea-level three sit INSIDE the vacuum three, STAGGERED sixty degrees
+    # against them: at the same phase a 2.4 m vacuum bell 1.4 m outboard of a
+    # 1.08 m sea-level one sits straight on top of it, and no amount of ring
+    # radius fixes that on its own.
     for i in range(3):
         a = i / 3 * TAU + 0.5
-        piv = empty(f'gimbal_ss_{i}', (cos(a) * 1.05, sin(a) * 1.05, -0.02), g)
+        piv = empty(f'gimbal_ss_{i}', (cos(a) * SS_SEA_R, sin(a) * SS_SEA_R, -0.02), g)
         b = bell(f'ssraptor{i}', RAPTOR_D, M['nozzle'], ratio=34, seg=18, parent=piv)
         finish(b, 0.008, 2, 50)
     for i in range(3):
         a = i / 3 * TAU + 0.5 + pi / 3
         piv = empty(f'gimbal_ss_{i + 3}_fixed',
-                    (cos(a) * 2.55, sin(a) * 2.55, -0.02), g)
+                    (cos(a) * SS_VAC_R, sin(a) * SS_VAC_R, -0.02), g)
         b = bell(f'ssrvac{i}', RVAC_D, M['nozzle'], ratio=90, seg=22, parent=piv)
         finish(b, 0.010, 2, 50)
     sk = cyl('ss_skirt', R, R * 0.99, 0.0, 2.2, M['soot'], seg=64, parent=g)

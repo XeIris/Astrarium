@@ -177,6 +177,41 @@ window.STUDIO = { draw, scene, craft, renderer, camera: () => camera, box, size,
                  base: +b.min.y.toFixed(1), tris: Math.round(tris) };
       } catch (e) { return { k, err: String(e && e.message || e) }; }
     });
+  },
+  /**
+   * ENGINE CLEARANCE, as a number rather than as a picture. For every stage
+   * with more than one engine, the smallest gap between any two bells: the
+   * NEAREST NEIGHBOUR over the whole cluster, which is the test a per-ring
+   * chord check misses. Negative means they interpenetrate.
+   *
+   * This exists because three separate clusters shipped with their bells inside
+   * each other — the S-IC's outboard F-1s half a metre into the centre engine,
+   * Super Heavy's inner three buried in the ten around them, Starship's vacuum
+   * Raptors sitting on its sea-level ones — and every one of them looked, in a
+   * render, like a tightly packed cluster.
+   */
+  clearance() {
+    return Object.keys(VEHICLES).map(k => {
+      const c = buildCraft(VEHICLES[k]);
+      c.update({ dt: 4, attached: {}, deploy: {}, gimbal: { x: 0, z: 0 }, flap: 0 });
+      c.group.updateMatrixWorld(true);
+      const out = [];
+      for (const st of c.stages) {
+        const ps = st.parts.gimbals.map(p => {
+          const b = new THREE.Box3().setFromObject(p);
+          const v = new THREE.Vector3(); p.getWorldPosition(v);
+          return { x: v.x, z: v.z, r: b.getSize(new THREE.Vector3()).x / 2 };
+        });
+        if (ps.length < 2) continue;
+        let gap = Infinity;
+        for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+          gap = Math.min(gap, Math.hypot(ps[i].x - ps[j].x, ps[i].z - ps[j].z)
+                              - (ps[i].r + ps[j].r));
+        }
+        out.push({ stage: st.key, n: ps.length, gap: +gap.toFixed(3) });
+      }
+      return { k, clusters: out };
+    }).filter(r => r.clusters.length);
   } };
 </script>
 </body></html>

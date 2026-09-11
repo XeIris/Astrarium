@@ -183,11 +183,14 @@ function engineCluster(count, spread, exitD, opts = {}) {
   // the centre engine clears too where there is one. `minR` is for a cluster
   // that has to miss ANOTHER cluster — Starship's vacuum Raptors have to sit
   // outside its sea-level ones, and neither call can see the other.
+  // 8 per cent is DAYLIGHT rather than slack: bells a centimetre apart read as
+  // touching, and it is the same fraction the three-ring cluster below is
+  // spaced to.
   const ringR = (n, centre) => Math.max(
-    d * 1.04 / (2 * Math.sin(Math.PI / n)), centre ? d * 1.04 : 0, opts.minR ?? 0);
-  const ring = (n, r, phase = Math.PI / n) => {
+    d * 1.08 / (2 * Math.sin(Math.PI / n)), centre ? d * 1.08 : 0, opts.minR ?? 0);
+  const ring = (n, r, phase) => {
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + phase;
+      const a = (i / n) * Math.PI * 2 + phase + (opts.phase ?? 0);
       place(Math.cos(a) * r, Math.sin(a) * r);
     }
   };
@@ -201,19 +204,29 @@ function engineCluster(count, spread, exitD, opts = {}) {
     ring(count, ringR(count, false), count === 3 ? Math.PI / 2 : Math.PI / count);
   } else {
     // THREE CONCENTRIC RINGS, Super Heavy's arrangement — and the one layout in
-    // the set where the packing does not close. Twenty 1.3 m bells want a 4.16 m
-    // ring and the booster is 4.5 m in RADIUS, so something has to give: the
-    // DRAWN bell shrinks until the outer ring fits inside the skirt. An engine
-    // a tenth of a metre narrow is a smaller error than thirty-three that
-    // interpenetrate, and it is the only one of the two you cannot see.
-    const nOut = count - 13;
-    const sOut = Math.sin(Math.PI / nOut);
+    // the set where the packing does not close.
+    //
+    // THE TEST IS THE NEAREST NEIGHBOUR OVER THE WHOLE CLUSTER, not the chord
+    // within each ring. Solving the rings one at a time passes every chord and
+    // still buries the inner three in the ten around them, because in a
+    // three-ring pattern the closest pair is usually a pair on DIFFERENT rings
+    // and no per-ring check ever looks at it. That is what survived the first
+    // pass here: every ring legal, the inner three 0.87 m from engines that
+    // needed 1.07, and the outer twenty exactly touching.
+    //
+    // So the radii are fixed multiples of the exit diameter, chosen once
+    // against that global minimum: at 0.90 / 2.05 / 3.45 every pair in the
+    // cluster is at least 1.079 exit diameters apart and the outer bell's edge
+    // lands at 3.95. Scale to fit inside the skirt and the engine follows — the
+    // DRAWN bell shrinks until it does. Twenty 1.3 m bells want a 4.16 m ring
+    // and the booster is 4.5 m in RADIUS, so something has to give, and a bell
+    // a fifth of a metre narrow is the smaller error: the only one of the two
+    // you cannot see.
     const rMax = opts.maxR ?? spread * 1.46;
-    d = Math.min(exitD, 2 * rMax * sOut / (1 + sOut));
-    const rOut = rMax - d * 0.50;
-    ring(3, Math.max(d * 0.95, rOut - d * 2.80), 0);
-    ring(10, rOut - d * 1.45);
-    ring(nOut, rOut);
+    d = Math.min(exitD, rMax / 3.95);
+    ring(3, 0.90 * d, 0);
+    ring(10, 2.05 * d, Math.PI / 10);
+    ring(count - 13, 3.45 * d, Math.PI / (count - 13));
   }
   return { group: g, pivots };
 }
@@ -736,7 +749,7 @@ function buildStage(spec, ctx) {
   if (spec.engine && spec.count > 0 && !spec.engineOn) {
     const spread = D * 0.30;
     const ec = engineCluster(spec.count, spread, spec.engine.exitD || D * 0.2,
-                             { gimbalDeg: spec.engine.gimbal, maxR: D * 0.44 });
+                             { gimbalDeg: spec.engine.gimbal, maxR: D * 0.475 });
     ec.group.position.y = -0.02;
     g.add(ec.group);
     parts.gimbals = ec.pivots;
@@ -745,11 +758,15 @@ function buildStage(spec, ctx) {
     ts.position.y = D * 0.05; g.add(ts);
   }
   if (spec.vacEngine && spec.vacCount) {
-    // `minR`: these have to sit outside the sea-level cluster drawn above, and
-    // neither call can see the other. Starship's 2.4 m vacuum bells alongside
-    // its 1.3 m sea-level ones need 2.1 m of ring before the two stop touching.
+    // `minR` and `phase`: these have to miss the sea-level cluster drawn above,
+    // and neither call can see the other. Both halves matter — Starship's three
+    // 2.4 m vacuum bells need 2.1 m of ring before they stop touching its three
+    // sea-level ones, AND they have to be staggered against them, because at
+    // the same phase each vacuum bell sits straight on top of the sea-level
+    // engine it is outboard of however far out the ring goes.
     const ec = engineCluster(spec.vacCount, D * 0.44, spec.vacEngine.exitD,
-                             { gimbalDeg: spec.vacEngine.gimbal, minR: D * 0.28 });
+                             { gimbalDeg: spec.vacEngine.gimbal,
+                               minR: D * 0.28, phase: Math.PI / spec.vacCount });
     ec.group.position.y = -0.02; g.add(ec.group);
     parts.gimbals.push(...ec.pivots);
   }
@@ -2018,18 +2035,34 @@ function buildHailMary(spec, parts) {
   band(hullY1, D * 0.170, f(0.022), M.gold);
 
   mod(f(0.861), f(1.013), D * 0.140, M.dirty);           // instruments
-  const node = new THREE.Mesh(new THREE.SphereGeometry(D * 0.088, 20, 14), M.alu);
-  node.position.y = f(1.051); g.add(node);
+  // THE NOSE HAS TO BE ONE OBJECT. The docking node sat with its lower surface
+  // three quarters of a metre above the instrument module's roof and the mast
+  // another metre above that, so the top of the ship was a sphere and a rod
+  // floating in company — which is what it looked like. The node overlaps the
+  // module it sits on, and the mast starts inside the node.
+  const nodeR = D * 0.088, nodeY = f(1.028);
+  const node = new THREE.Mesh(new THREE.SphereGeometry(nodeR, 20, 14), M.alu);
+  node.position.y = nodeY; g.add(node);
+  const collar = new THREE.Mesh(
+    new THREE.CylinderGeometry(D * 0.082, D * 0.072, f(0.020), 24), M.dirty);
+  collar.position.y = f(1.008); g.add(collar);
   for (let i = 0; i < 4; i++) {
     const a = i / 4 * Math.PI * 2;
     const port = new THREE.Mesh(new THREE.CylinderGeometry(D * 0.030, D * 0.034, D * 0.055, 14), M.dirty);
-    port.position.set(Math.cos(a) * D * 0.095, f(1.051), Math.sin(a) * D * 0.095);
+    port.position.set(Math.cos(a) * D * 0.095, nodeY, Math.sin(a) * D * 0.095);
     port.rotation.z = Math.PI / 2; port.rotation.y = -a; g.add(port);
   }
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, f(0.055), 8), M.alu);
-  mast.position.y = f(1.120); g.add(mast);
+  const mastY0 = nodeY + nodeR * 0.55, mastL = f(1.148) - mastY0;
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, mastL, 8), M.alu);
+  mast.position.y = mastY0 + mastL / 2; g.add(mast);
+  // The high-gain antenna, on a boom that stands it clear of the instrument
+  // module and OPENING FORWARD — see the Blender build, where the same dish was
+  // aimed back down the ship by a sign.
+  const hgY = f(1.000), hgX = D * 0.172;
+  g.add(beam(new THREE.Vector3(D * 0.070, hgY, 0), new THREE.Vector3(hgX, hgY, 0),
+             0.075, M.alu, 10));
   const hgDish = dish(D * 0.105);
-  hgDish.position.set(D * 0.14, f(1.007), 0); hgDish.rotation.z = -1.2; g.add(hgDish);
+  hgDish.position.set(hgX, hgY + D * 0.030, 0); hgDish.rotation.z = -0.56; g.add(hgDish);
 
   // ---- radiators. FIXED structure, not deployables: a ship under power for
   // thirteen years rejects heat continuously, and anything put in parts.arrays

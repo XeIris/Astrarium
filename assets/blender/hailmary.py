@@ -467,10 +467,20 @@ def build_modules(root):
     finish(revolve('mod_instr',
                    [(0, f(0.861)), (D * 0.070, f(0.861)), (D * 0.070, f(1.013)),
                     (0, f(1.013))], M['dirty'], seg=64, parent=root), bevel_w=0.014)
+    # ---- THE NOSE HAS TO BE ONE OBJECT. The docking node sat with its lower
+    # surface three quarters of a metre above the instrument module's roof and
+    # the mast another metre above THAT, so the top of the ship was a sphere and
+    # a rod floating in company — which is exactly what it looked like. The node
+    # now overlaps the module it stands on, a collar closes the joint, and the
+    # mast starts inside the node.
+    NODE_R, NODE_Z = D * 0.088, f(1.028)
     node = revolve('mod_node',
-                   [(D * 0.088 * sin(i / 16 * pi), f(1.051) - D * 0.088 * cos(i / 16 * pi))
+                   [(NODE_R * sin(i / 16 * pi), NODE_Z - NODE_R * cos(i / 16 * pi))
                     for i in range(17)], M['alu'], seg=48, parent=root)
     finish(node, bevel_w=0.010)
+    finish(revolve('mod_node_collar',
+                   [(D * 0.082, f(0.998)), (D * 0.082, f(1.010)), (D * 0.072, f(1.018))],
+                   M['dirty'], seg=48, parent=root), bevel_w=0.008)
     for i in range(4):
         a = i / 4 * TAU
         # CLOSED at both ends: an open tube is a hole you can see the sky
@@ -479,9 +489,10 @@ def build_modules(root):
                                      (D * 0.030, D * 0.062), (0, D * 0.062)],
                     M['dirty'], seg=24, parent=root)
         p.rotation_euler = (pi / 2, 0, a + pi / 2)
-        p.location = (cos(a) * D * 0.082, sin(a) * D * 0.082, f(1.051))
+        p.location = (cos(a) * D * 0.082, sin(a) * D * 0.082, NODE_Z)
         finish(p, bevel_w=0.008)
-    finish(revolve('mod_mast', [(0, f(1.092)), (0.07, f(1.092)), (0.07, f(1.148)),
+    mast_z0 = NODE_Z + NODE_R * 0.55
+    finish(revolve('mod_mast', [(0, mast_z0), (0.07, mast_z0), (0.07, f(1.148)),
                                 (0, f(1.148))], M['alu'], seg=12, parent=root), bevel_w=0.006)
 
     # ---- THE HIGH-GAIN ANTENNA, ON A YOKE, LOOKING FORWARD.

@@ -13,6 +13,7 @@
 # prefixes in NODE_PREFIXES are load-bearing: rename one here and the legs stop
 # deploying, silently, with no error anywhere.
 # ---------------------------------------------------------------------------
+import math
 import bpy, os, sys
 from mathutils import Matrix
 
@@ -117,6 +118,28 @@ def stage(key, parent=None, loc=(0, 0, 0)):
     """A stage root. buildCraft positions the group this ends up inside, so the
        stage is built with its own datum — whatever it stands on — at z = 0."""
     return empty(f'stage_{key}', loc, parent)
+
+
+def ring_radius(n, exit_d, centre=False, margin=1.08):
+    """
+    The smallest radius a ring of n bells of this exit diameter can stand on —
+    and, with `centre`, one that also clears an engine on the axis.
+
+    A CLUSTER'S SPACING IS SET BY ITS ENGINE, not by a fraction of the stage.
+    Written as `D * 0.30` it is right for nothing in particular: on an S-IC that
+    is 3.02 m for four 3.53 m F-1s, so each outboard engine was drawn half a
+    metre INSIDE the centre one, and on a Falcon the eight outer Merlins were
+    0.07 m into their neighbours. Solving it also gets the real numbers for
+    free — four F-1s land on a 3.67 m ring, which is where they are, and which
+    is why an S-IC's bells hang outside the line of the tank above them.
+
+    The caller may still ask for more (a Saturn V's J-2s are further out than
+    they need to be), so this is a floor and not an answer. The 8 per cent is
+    DAYLIGHT rather than slack: bells a centimetre apart read as touching, and
+    the three-ring Super Heavy cluster is spaced to the same fraction.
+    """
+    r = exit_d * margin / (2 * math.sin(math.pi / n))
+    return max(r, exit_d * margin if centre else 0.0)
 
 
 def hinge(name, loc, azim=0.0, parent=None):

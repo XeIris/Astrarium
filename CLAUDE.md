@@ -301,16 +301,30 @@ point and the only file here that knows the orrery exists.
   descent, so it is named `gear_` rather than `leg_`, does not match, and is
   never collected. Opting out of an interface is done by not matching it.
 - **An engine ring's radius comes from the ENGINE, not from a fraction of the
-  vehicle.** A bell on a ring of n gets `2 r sin(π/n)` of chord and needs all of
-  it; one with a centre engine has to clear that too. Written as fractions the
-  layouts were wrong in both directions — the Saturn V's four outboard F-1s were
-  drawn inside their own centre engine, and Super Heavy's outer twenty so deeply
-  interpenetrated that the cluster had no silhouette left. Solving it also gets
-  the real numbers for free: four 3.53 m F-1s land on a 3.67 m ring, which is
-  where they are and why an S-IC's bells hang outside the tank above them. Where
-  the packing genuinely does not close — twenty 1.3 m bells want a 4.16 m ring
-  inside a 4.5 m booster — the DRAWN bell shrinks. A bell a tenth of a metre
-  narrow is the smaller error, and the only one of the two you cannot see.
+  vehicle — and the test is the NEAREST NEIGHBOUR over the whole cluster.** A
+  bell on a ring of n gets `2 r sin(π/n)` of chord and needs all of it; one with
+  a centre engine has to clear that too; and in a multi-ring pattern the closest
+  pair is usually a pair on DIFFERENT rings, which no per-ring check ever looks
+  at. Solving the rings one at a time passed every chord on Super Heavy and
+  still left the inner three 0.87 m from engines that needed 1.07. So the
+  three-ring radii are fixed multiples of the exit diameter (0.90 / 2.05 / 3.45,
+  every pair ≥ 1.079 diameters apart, outer edge at 3.95) and two clusters that
+  cannot see each other — Starship's vacuum Raptors over its sea-level ones —
+  are staggered as well as spaced. `STUDIO.clearance()` is the standing check
+  and reports the minimum gap per stage; negative is an interpenetration.
+  Solving it rather than dialling it also gets the real numbers for free: four
+  3.53 m F-1s land on a 3.8 m ring, which is where they are and why an S-IC's
+  bells hang outside the line of the tank above them. Where the packing
+  genuinely does not close — twenty 1.3 m bells want a 4.16 m ring inside a
+  4.5 m booster — the DRAWN bell shrinks. A bell a fifth of a metre narrow is
+  the smaller error, and the only one of the two you cannot see.
+- **A vehicle is ONE OBJECT, and the joins are load-bearing on that.** Parts
+  written at independently chosen heights do not meet: the Hail Mary's docking
+  node sat three quarters of a metre above the instrument module's roof and the
+  mast another metre above that, so the top of the ship was a sphere and a rod
+  flying in company. Position a part against what it bolts to — `nodeY + nodeR`,
+  not another round fraction of the length — and overlap the joint rather than
+  butting it.
 - **Which way a dish points is the whole of what a dish is for**, and its
   structure lives BEHIND the reflector. A paraboloid radiates along its own +Z;
   rotate that axis into the hull it is bolted to and the spacecraft is aiming
