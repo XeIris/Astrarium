@@ -584,11 +584,20 @@ export function createGiantVisual(b, opts = {}) {
       // carries the axial tilt, so this is where the ring shadow learns which
       // way the rings are leaning.
       const inv = g.quaternion.clone().invert();
+      // The RING mesh is not spun, so the group frame is its frame. The BODY
+      // mesh is: rotation.y carries System III, and its shader tests the ring
+      // shadow against vObj, its own local position. Handing it the group-frame
+      // direction leaves the two frames a spin phase apart, and the shadow then
+      // travels round the planet at the interior rotation rate instead of
+      // staying under the sunward side of the ring plane. Taken back out with
+      // the mesh's own quaternion rather than a hand-written rotation, because
+      // the sign of that is exactly the trap this is.
+      _bodyInv.copy(body.quaternion).invert();
       const n = Math.min(suns.length, MAX_SUNS);
       for (let i = 0; i < n; i++) {
         const d = _v.copy(suns[i].posScene).sub(g.position).normalize().applyQuaternion(inv);
-        mat.uniforms.uSunObj.value[i].copy(d);
         if (ringMat) ringMat.uniforms.uSunObj.value[i].copy(d);
+        mat.uniforms.uSunObj.value[i].copy(d).applyQuaternion(_bodyInv);
       }
     }
   };
@@ -597,6 +606,7 @@ export function createGiantVisual(b, opts = {}) {
 }
 
 const _v = new THREE.Vector3();
+const _bodyInv = new THREE.Quaternion();
 
 function mulberry(seed) {
   let a = seed >>> 0;

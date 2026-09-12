@@ -221,7 +221,11 @@ function photosphereMaterial(color, hotColor, limbU) {
           // neutral line. sep GROWS with the flare: the field that reconnects
           // gets higher and wider as the event proceeds, so its footpoints
           // land further out, and the ribbons visibly draw apart.
-          float rb = exp(-pow((abs(across) - fx.w) / 0.055, 2.0));
+          // Squared directly, not through pow(): GLSL ES leaves pow undefined
+          // for a negative base, and this base is negative everywhere BETWEEN
+          // the two ribbons — i.e. over the whole arcade.
+          float rd = (abs(across) - fx.w) / 0.055;
+          float rb = exp(-rd * rd);
           rb *= 1.0 - smoothstep(0.14, 0.30, abs(along));
           rb *= 1.0 - smoothstep(0.30, 0.50, length(rel));
           // filamentary kernels inside each ribbon

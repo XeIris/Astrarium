@@ -227,9 +227,13 @@ export const CLIMATE_GLSL = `
   // latitude of France.
   float precipitation(float lat, float T, float inland, float shadow){
     float a = abs(lat);
-    float itcz  = 0.75 * exp(-pow(a / 0.30, 2.0));           // rising, equator
-    float front = 0.42 * exp(-pow((a - 0.90) / 0.40, 2.0));  // rising, ~52 deg
-    float horse = 0.42 * exp(-pow((a - 0.55) / 0.22, 2.0));  // sinking, ~31 deg
+    // Squared directly rather than through pow(), which GLSL ES leaves
+    // undefined for a negative base — both off-equator terms are negative on
+    // the equatorward side of the cell they describe.
+    float zi = a / 0.30, zf = (a - 0.90) / 0.40, zh = (a - 0.55) / 0.22;
+    float itcz  = 0.75 * exp(-zi * zi);                      // rising, equator
+    float front = 0.42 * exp(-zf * zf);                      // rising, ~52 deg
+    float horse = 0.42 * exp(-zh * zh);                      // sinking, ~31 deg
     float polar = 0.45 * smoothstep(1.00, 1.45, a);          // sinking, pole
     float P = clamp(0.30 + itcz + front - horse - polar, 0.0, 1.0);
     P *= clamp(exp((T - 288.0) / 20.0), 0.05, 1.6);          // moisture capacity
@@ -306,8 +310,9 @@ export const CRATER_GLSL = `
       float t = d / rad;
       if(t > 2.0) continue;
       float bowl = (t < 1.0) ? -(1.0 - t*t) * 0.85 : 0.0;
-      float rim  = exp(-pow((t - 1.0) * 3.4, 2.0)) * 0.55;
-      float ej   = exp(-pow((t - 1.45) * 2.0, 2.0)) * 0.10;
+      float dr = (t - 1.0) * 3.4, de = (t - 1.45) * 2.0;   // negative inside
+      float rim  = exp(-dr * dr) * 0.55;
+      float ej   = exp(-de * de) * 0.10;
       h += bowl + rim + ej;
     }
     return h;

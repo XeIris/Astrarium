@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAX_SUNS, applySuns } from './suns.js';
+import { MAX_SUNS, applySuns, litBy } from './suns.js';
 import { surfaceMaterial, cloudMaterial, atmosphereMaterial, insolationS2 } from './rocky_visual.js';
 
 // ============================================================================
@@ -111,8 +111,12 @@ export function createWorldVisual(b, opts) {
       atmoMat.uniforms.uThick.value = 0.6 + cl.humidity * 0.8;
     }
 
-    // feed the multi-star lighting
-    if (ctx.suns) applySuns([surfMat, cloudMat, atmoMat], ctx.suns, b.viz.group.position);
+    // feed the multi-star lighting. Through litBy, so a climate world beside a
+    // black hole in a starless scene is lit by the disc stand-in rather than
+    // rendering as a flat silhouette — the same fallback the rocky and giant
+    // visuals already take.
+    const suns = litBy(ctx);
+    if (suns) applySuns([surfMat, cloudMat, atmoMat], suns, b.viz.group.position);
   };
 
   return b.viz;

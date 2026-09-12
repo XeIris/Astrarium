@@ -133,10 +133,17 @@ export function surfaceMaterial(seed, opts = {}) {
         // the massif, not the scree on it — and the wind reverses at the
         // trade/westerly boundary near 30 degrees, which is why the wet side
         // of a continent swaps hemisphere by hemisphere.
+        //
+        // BOTH SIDES OF THE DIFFERENCE ARE THE SAME FIELD. Subtracting the full
+        // hKm from the coarse probe does not measure a slope at all: the fine
+        // octaves (+-0.9 km) and the tectonic belt (up to 7 km) exist on only
+        // one side of it, so the result is the local detail with its sign
+        // flipped — speckle on flat ground, and a mountain belt that reads as
+        // the WETTEST place on the planet rather than the driest lee.
         float inland = smoothstep(uSeaKm + 0.05, uSeaKm + 1.4, hKm);
         vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), p) + 1e-6);
         vec3 probe = normalize(p + east * (a < 0.52 ? -0.04 : 0.04));
-        float shadow = clamp((crustHeight(probe, uSeed) - hKm) * 0.6, 0.0, 1.0);
+        float shadow = clamp((crustHeight(probe, uSeed) - crustHeight(p, uSeed)) * 0.6, 0.0, 1.0);
         float P = precipitation(lat, T, inland, shadow);
 
         // --- albedo
@@ -274,7 +281,10 @@ export function cloudMaterial(seed) {
         // Zonal wind: easterly trades under ~30 degrees, westerlies above. The
         // deck is carried by it, so the cloud bands slide past each other
         // instead of turning as one rigid shell.
-        float u = -0.55 * exp(-pow(a / 0.42, 2.0)) + 1.00 * exp(-pow((a - 0.92) / 0.38, 2.0));
+        // Gaussians squared directly: pow() is undefined for a negative base,
+        // and the westerly term's base is negative equatorward of 53 degrees.
+        float ut = a / 0.42, uw = (a - 0.92) / 0.38;
+        float u = -0.55 * exp(-ut * ut) + 1.00 * exp(-uw * uw);
 
         // The offset between two latitudes grows without bound, and a frozen
         // noise field sheared for ever becomes a smear of streaks — which is
@@ -298,9 +308,10 @@ export function cloudMaterial(seed) {
         d += st * 0.30;
 
         // where the air is rising there is cloud, where it sinks there is none
-        float band = clamp(1.00 * exp(-pow(a / 0.25, 2.0))
-                         + 0.70 * exp(-pow((a - 0.95) / 0.30, 2.0))
-                         - 0.80 * exp(-pow((a - 0.52) / 0.22, 2.0)), 0.0, 1.25);
+        float bi = a / 0.25, bf = (a - 0.95) / 0.30, bh = (a - 0.52) / 0.22;
+        float band = clamp(1.00 * exp(-bi * bi)
+                         + 0.70 * exp(-bf * bf)
+                         - 0.80 * exp(-bh * bh), 0.0, 1.25);
         float cover = clamp(uCover * mix(0.30, 1.25, band), 0.0, 1.0);
         float al = smoothstep(0.62 - cover * 0.44, 0.88 - cover * 0.32, d);
         if(al < 0.01) discard;
