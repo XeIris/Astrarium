@@ -588,7 +588,22 @@ drifts nor needs a step size.
   ones; the biggest events launch expanding **coronal mass ejections**. Flares brighten
   the star, and that extra flux feeds straight into the planet's climate.
 - Physically correct **limb darkening** (I(μ)/I(0) = 1 − u(1 − μ)), a chromospheric H-α
-  limb, prominence loops standing over erupting regions, and a smooth streamered corona.
+  limb, and a smooth streamered corona.
+- **Eruptions with the structure eruptions actually have.** Coronal plasma cannot cross
+  the magnetic field, only slide along it, so a prominence is a bundle of separate
+  threads rather than one body; reconnection runs along a magnetic neutral line and works
+  upward, so a flare produces an *arcade* — a row of nested loops — anchored in **two
+  ribbons** that visibly draw apart as the event proceeds. The arcade is sheared, because
+  the shear is the free energy the flare is spending, and it relaxes toward square as it
+  goes. It is oriented by **Joy's law**: active regions are bipoles lying nearly
+  east–west with a tilt that grows with latitude, so every arcade in a hemisphere leans
+  the same way. The same cool material glows as a bright **prominence** off the limb and
+  is seen dark in absorption as a **filament** against the disc — one object, drawn twice,
+  and which one you get depends only on where it is. A CME carries the classic three-part
+  structure: bright swept-up leading edge, dark evacuated cavity, and the erupted
+  prominence material as a bright core. Flare plasma publishes its ~10⁷ K temperature into
+  the imaging pipeline, so an eruption is the brightest thing on the star in the X-ray
+  band and invisible in the visible one — which is exactly why flares were found in X-rays.
 - **Granule size from the pressure scale height**, not from taste. A convection cell is
   about as wide as H_p = kT/(μm_H g) at the surface, so the number of cells across a star
   is R/H_p — 2400 for the Sun, under a hundred for Betelgeuse. That is why a red
@@ -601,8 +616,24 @@ drifts nor needs a step size.
   than the raw ratio, because the orbit view has no adapted exposure. It is a display
   transform and `sim/structure.js` says so.)
 - **Neutron stars** that spin and sweep two lighthouse **pulsar beams**.
-- **Procedurally generated planets** — rocky worlds (continents, oceans, ice caps) and
-  banded gas giants (zonal bands, storms, optional rings).
+- **Planets that are modelled rather than painted.** A rocky world's relief comes from
+  isostasy (continental crust floats ~4.5 km higher than oceanic, which is why Earth's
+  hypsometric curve is bimodal and why coastlines are sharp) and from plate boundaries,
+  where the sign of the closing rate picks a mountain belt, a trench-and-arc, or a
+  mid-ocean ridge. Its colours come from a Whittaker diagram — biome as a function of
+  temperature and precipitation — over the three cells of the general circulation, which
+  is why the deserts land at 30° and the forests at 50°. Its temperature it works out for
+  itself from wherever it is and whatever stars are lighting it, so the ice line and the
+  desert belts move when the orbit does, and its caps are made of whatever freezes at its
+  own temperature: water at 273 K, CO₂ at 148 K on Mars, nitrogen at 37 K on Pluto. A
+  body with no air and no tectonics keeps its craters instead.
+- **Gas giants that do not turn as one object.** The interior rotates rigidly (System III,
+  the magnetic field's rate) and the visible cloud is advected over it by the zonal jets,
+  so adjacent bands *shear* past each other — which is where the ragged band edges, the
+  drawn-out ovals and the drifting spots all come from. Belts and zones are a quarter
+  cycle out of phase with the jets, because the jets sit on their boundaries. Saturn's
+  rings carry the real radial optical-depth profile (C, B, Cassini, A, Encke), cast the
+  planet's shadow across themselves and the ring shadow back onto the planet.
 - **Accretion:** bodies near a black hole are tidally stripped, shedding a visible
   particle stream and **losing mass** (they shrink) as they feed it.
 - **Living worlds** whose surface is generated in-shader from 3D noise (no seam, no polar
@@ -661,12 +692,19 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
 - `blackhole_sim.html` / `.css` — shell & UI
 - `blackhole_sim.js` — scene, lensing/disc shader, camera, picking, render loop, UI
 - `sim/physics.js` — N-body integrator, GR pseudo-potential, GW inspiral, collisions
-- `sim/bodies.js` — body visuals (star/neutron/planet shaders, accretion streams)
-- `sim/textures.js` — procedural rocky & gas-giant texture generation
+- `sim/bodies.js` — body visual dispatch and the accretion streams
+- `sim/terrain.js` — isostasy, plate tectonics, craters and the surface climate belts,
+  as shared GLSL
+- `sim/rocky_visual.js` — every solid-surface world: terrain, biomes, volatiles, clouds,
+  atmosphere
+- `sim/giant_visual.js` — gas giants: zonal jets, differential advection, vortices, rings
+- `sim/suns.js` — the multi-sun lighting block every lit surface declares
 - `sim/presets.js` — scenario definitions with real initial conditions
 - `sim/stellar.js` — mass → luminosity / radius / temperature / colour, and the
   starspot-flare-CME activity model
-- `sim/star_visual.js` — photosphere, corona, prominence and CME rendering
+- `sim/star_visual.js` — photosphere, corona, flare ribbons and CME rendering
+- `sim/prominence.js` — the post-flare arcade and the erupting flux rope, as threads on
+  field lines; bright off the limb, dark against the disc
 - `sim/world.js` — the climate-driven planet (surface, clouds, atmosphere), multi-sun lit
 - `sim/climate.js` — the energy-balance climate model and era classification
 - `sim/skyview.js` — surface observer + multi-sun atmospheric scattering pass

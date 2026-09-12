@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import * as PHYS from './sim/physics.js';
 import { createBodyVisual } from './sim/bodies.js';
-import { GAS_PALETTES } from './sim/textures.js';
 import { PRESETS, PRESET_ORDER } from './sim/presets.js';
 import { Climate } from './sim/climate.js';
 import { createSkyPass, SurfaceObserver } from './sim/skyview.js';
@@ -355,7 +354,6 @@ function attachVisual(b) {
   b.contactAU = spec.contactAU ?? radiusScene / state.sceneScale;
   if (spec.type === 'bh') b.rsScene = radiusScene;
 
-  const palette = spec.palette ? GAS_PALETTES[spec.palette] : null;
   // Stars are coloured from their blackbody temperature unless a preset
   // deliberately overrides it (the figure-eight uses colour to tell bodies apart).
   const starColor = spec.color != null ? new THREE.Color(spec.color)
@@ -383,8 +381,20 @@ function attachVisual(b) {
     glow: spec.glow ?? def.glow,
     seed: spec.seed,
     obliquity: spec.obliquity,
-    palette, hot: spec.hot, atmosphere: spec.atmosphere, atmColor: spec.atmColor,
+    paletteName: spec.palette,
+    hot: spec.hot, atmosphere: spec.atmosphere, atmColor: spec.atmColor,
     seaLevel: spec.seaLevel, rings: spec.rings, ringColor: spec.ringColor,
+    // Surface/atmosphere model parameters (sim/rocky_visual.js,
+    // sim/giant_visual.js). Every one of them has a physical default, so a
+    // preset only names the ones where the body is genuinely unusual.
+    land: spec.land, albedo: spec.albedo, greenhouse: spec.greenhouse,
+    surfaceK: spec.surfaceK, frostK: spec.frostK, biota: spec.biota,
+    crater: spec.crater, regolith: spec.regolith, haze: spec.haze,
+    cloudCover: spec.cloudCover, cloudColor: spec.cloudColor, atmThick: spec.atmThick,
+    ringInner: spec.ringInner, ringOuter: spec.ringOuter,
+    internalHeat: spec.internalHeat, vortices: spec.vortices,
+    transport: spec.transport, season: spec.season, arid: spec.arid,
+    plateScale: spec.plateScale, landRelief: spec.landRelief, oceanDepth: spec.oceanDepth,
   });
   // Rotational flattening for everything that is NOT a star: the star shader
   // deforms its own mesh onto the Roche surface (it needs the shape to compute
@@ -442,10 +452,10 @@ function attachVisual(b) {
 }
 
 // THREE.Material.dispose() frees the material, never the textures it points at,
-// and removing an Object3D frees nothing at all. Every procedural body owns its
-// maps (rockyTexture / gasGiantTexture build a CanvasTexture each), and
-// rebuildVisuals + loadPreset run this path repeatedly in a session, so anything
-// missed here accumulates on the GPU for as long as the tab is open.
+// and removing an Object3D frees nothing at all. Bodies still own canvas maps
+// (the star's glow sprites), and rebuildVisuals + loadPreset run this path
+// repeatedly in a session, so anything missed here accumulates on the GPU for
+// as long as the tab is open.
 function disposeMaterial(mat) {
   if (!mat) return;
   for (const v of Object.values(mat)) {
@@ -3343,6 +3353,25 @@ window.SIM = { state, scene, camera, cam, renderer, THREE, flight, launchCraft, 
   // run can advance the sim — and it has to be able to say how long the frame
   // lasted, or the run is not reproducible.
   frame: (dt = 1 / 60) => { cancelAnimationFrame(rafId); manualDt = dt; animate(); },
+  // Force an eruption on a star, for looking at one. A flare's natural
+  // arrival interval is measured in years and a whole event lasts days, so at
+  // any time scale that makes the orbits legible the entire thing is over
+  // inside one frame — which meant the most detailed thing the star renderer
+  // does was effectively unwatchable. Slow the clock right down first:
+  //   SIM.state.timeScale = 0.002; SIM.flare('Sun', { energy: 2.5 })
+  flare(name, opts = {}) {
+    const b = typeof name === 'object' ? name
+      : state.bodies.find(x => x.name === name) || getStars()[0];
+    if (!b || !b.activity || !b.activity.regions.length) return null;
+    b.activity.ignite();
+    const f = b.activity.flares[b.activity.flares.length - 1];
+    if (!f) return null;
+    if (opts.energy != null) f.energy = opts.energy;
+    // In years. The default is stretched well past a real event so there is
+    // time to look at it.
+    f.duration = opts.duration ?? 0.15;
+    return f;
+  },
   load: loadPreset, setSky, applySky, presetSky, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
 
 resize();

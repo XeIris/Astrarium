@@ -271,24 +271,62 @@ export const PRESETS = {
       const sun = { type: 'star', name: 'Sun', mass: Ms, color: 0xfff2cc, glow: 0xffaa33, pos: [0, 0, 0], vel: [0, 0, 0] };
       // a = semi-major axis (AU), m = mass (M☉), radiusKm = mean physical radius
       const P = (a, m, radiusKm, type, name, extra) => orbiter(Ms, a, { type, name, mass: m, radiusKm, ...extra });
-      const earth = P(1.000, 3.00e-6, 6371.0, 'planet', 'Earth', { atmosphere: true, seaLevel: 0.55 });
+      // The surface model derives what it can (see sim/rocky_visual.js): a body
+      // works out its own temperature from where it is, and its ice line, its
+      // desert belts and its biomes follow. What a preset still has to say is
+      // what the body is MADE of — its albedo, its greenhouse, and above all
+      // the condensation temperature of its dominant volatile, which is the
+      // difference between a cap of water ice, one of dry ice and one of
+      // nitrogen frost.
+      const earth = P(1.000, 3.00e-6, 6371.0, 'planet', 'Earth', {
+        atmosphere: true, land: 0.32, biota: 1, albedo: 0.306, greenhouse: 0.61,
+        obliquity: 0.4091, cloudCover: 0.44, season: 11,
+      });
       return [
         sun,
-        P(0.387, 1.66e-7,  2439.7, 'planet', 'Mercury', { hot: true }),
-        P(0.723, 2.45e-6,  6051.8, 'planet', 'Venus', { hot: true, atmosphere: true, atmColor: 0xffd9a0 }),
+        P(0.387, 1.66e-7,  2439.7, 'planet', 'Mercury', {
+          hot: true, crater: 0.95, regolith: 0x8b8279, albedo: 0.12, obliquity: 0.0006 }),
+        // Venus is the one body in the system whose surface temperature no
+        // greenhouse parameter reaches: 737 K under 92 bar of CO2 is a factor
+        // of 2.4 above its equilibrium temperature, so it is stated.
+        P(0.723, 2.45e-6,  6051.8, 'planet', 'Venus', {
+          hot: true, atmosphere: true, atmColor: 0xffd9a0, surfaceK: 737, albedo: 0.77,
+          crater: 0.10, regolith: 0xb08a5c, cloudCover: 1.0, cloudColor: 0xfff2d2,
+          atmThick: 2.4, haze: 1.2, obliquity: 3.096 }),
         earth,
         // The Moon, on its real orbit about the Earth rather than about the Sun.
         // It is here because a lunar mission needs somewhere to go: without it
         // the spaceflight autopilot's transfer planner has no target inside
         // Earth's sphere of influence, and its landing programs have no airless
         // body to practise on.
-        moonOf(earth, 3.844e8, 3.6923e-8, 1737.4, 'Moon'),
-        P(1.524, 3.21e-7,  3389.5, 'planet', 'Mars', { hot: true }),
-        P(5.203, 9.54e-4, 69911.0, 'gas-giant', 'Jupiter', { palette: 'jupiter' }),
-        P(9.537, 2.86e-4, 58232.0, 'gas-giant', 'Saturn', { palette: 'saturn', rings: true }),
-        P(19.19, 4.37e-5, 25362.0, 'gas-giant', 'Uranus', { palette: 'ice' }),
-        P(30.07, 5.15e-5, 24622.0, 'gas-giant', 'Neptune', { palette: 'ice' }),
-        P(39.48, 6.55e-9,  1188.3, 'planet', 'Pluto', { hot: false }),
+        moonOf(earth, 3.844e8, 3.6923e-8, 1737.4, 'Moon', {
+          hot: true, crater: 1.0, regolith: 0x9a958c, albedo: 0.12, obliquity: 0.0268 }),
+        // Mars keeps a trace of air, so it has dust storms and a haze — but its
+        // caps are CO2, freezing out at 148 K, which is why they grow and
+        // retreat by thousands of kilometres every winter.
+        P(1.524, 3.21e-7,  3389.5, 'planet', 'Mars', {
+          hot: true, atmosphere: true, atmThick: 0.22, atmColor: 0xd8b48c,
+          cloudCover: 0.10, cloudColor: 0xe8d8c0, haze: 0.25, greenhouse: 0.95,
+          frostK: 148, crater: 0.55, regolith: 0xa9603a, albedo: 0.25, obliquity: 0.4396,
+          transport: 0.16, season: 62 }),
+        P(5.203, 9.54e-4, 69911.0, 'gas-giant', 'Jupiter', {
+          palette: 'jupiter', obliquity: 0.0546, internalHeat: 1.67, albedo: 0.503 }),
+        P(9.537, 2.86e-4, 58232.0, 'gas-giant', 'Saturn', {
+          palette: 'saturn', rings: true, ringColor: 0xe2d3b0, ringInner: 1.235, ringOuter: 2.27,
+          obliquity: 0.4665, internalHeat: 1.78, albedo: 0.342 }),
+        // Uranus is tipped 97.8 degrees: its rotation axis lies almost IN its
+        // orbital plane, so its bands run around what is very nearly the
+        // sub-solar point and its poles take turns facing the Sun for 42 years.
+        P(19.19, 4.37e-5, 25362.0, 'gas-giant', 'Uranus', {
+          palette: 'ice', obliquity: 1.7064, internalHeat: 1.03, albedo: 0.300 }),
+        P(30.07, 5.15e-5, 24622.0, 'gas-giant', 'Neptune', {
+          palette: 'ice', obliquity: 0.4943, internalHeat: 2.61, albedo: 0.290, vortices: 2 }),
+        // Nitrogen freezes out at about 37 K and Pluto sits at 37 K, which is
+        // the whole of why it has a frost cycle at all: the bright plains are
+        // condensed N2 and the dark ones are the tholin crust showing through.
+        P(39.48, 6.55e-9,  1188.3, 'planet', 'Pluto', {
+          hot: true, frostK: 37, crater: 0.7, regolith: 0x9b7255, albedo: 0.52,
+          obliquity: 2.1386 }),
       ];
     },
   },
