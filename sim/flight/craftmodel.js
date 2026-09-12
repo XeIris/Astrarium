@@ -350,8 +350,41 @@ function rcsRing(D, y, n = 4) {
   return g;
 }
 
+// ---------------------------------------------------------------------------
+// PAINT IS A DECAL, AND A DECAL NEEDS A DEPTH BIAS, NOT A GAP.
+// ----------------------------------------------------------------------------
+// A painted band on a tank is coplanar with the tank. Drawn 0.2% proud of a
+// 3.7 m Falcon 9 that is three and a half MILLIMETRES of separation, and the
+// depth buffer resolves about z²/(near·2^24) — five centimetres at fifty metres
+// with a near plane of 0.05. So the band and the tank under it were resolving
+// to the same depth and the winner changed per pixel and per frame: the black
+// interstage band crawled, the aft skirt speckled, and it read as a texture
+// problem on the vehicle.
+//
+// Opening the gap is the wrong fix — it has to beat the resolution at the
+// FURTHEST range the vehicle is ever seen from, by which point it is a visible
+// ledge close up. polygonOffset is the bias in the right units: the smallest
+// resolvable increment at that fragment, plus a slope term. Combined with a
+// near plane that is now derived from the shot (sim/flight/localview.js), the
+// pair of them settle it at every distance.
+//
+// Cloned and cached per source material, because the same white is structural
+// everywhere else and biasing the tank would only move the fight.
+const decalCache = new Map();
+function decalMat(material) {
+  let m = decalCache.get(material.uuid);
+  if (!m) {
+    m = material.clone();
+    m.polygonOffset = true;
+    m.polygonOffsetFactor = -1;
+    m.polygonOffsetUnits = -4;
+    decalCache.set(material.uuid, m);
+  }
+  return m;
+}
+
 function stripe(D, y, h, material) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(D / 2 * 1.002, D / 2 * 1.002, h, 28, 1, true), material);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(D / 2 * 1.004, D / 2 * 1.004, h, 28, 1, true), decalMat(material));
   m.position.y = y + h / 2;
   return m;
 }
@@ -666,16 +699,16 @@ function buildStage(spec, ctx) {
     for (const [y, h] of [[L * 0.075, L * 0.115], [L * 0.545, L * 0.105]]) {
       for (let k = 0; k < 4; k += 2) {
         const q = new THREE.Mesh(new THREE.CylinderGeometry(
-          D / 2 * 1.004, D / 2 * 1.004, h, 10, 1, true, k * Math.PI / 2, Math.PI / 2), M.black);
+          D / 2 * 1.004, D / 2 * 1.004, h, 10, 1, true, k * Math.PI / 2, Math.PI / 2), decalMat(M.black));
         q.position.y = y + h / 2; g.add(q);
       }
     }
     // UNITED STATES down the side, and the flag opposite it.
     const usa = new THREE.Mesh(new THREE.CylinderGeometry(
-      D / 2 * 1.006, D / 2 * 1.006, L * 0.20, 8, 1, true, -0.34, 0.68), M.black);
+      D / 2 * 1.006, D / 2 * 1.006, L * 0.20, 8, 1, true, -0.34, 0.68), decalMat(M.black));
     usa.position.y = L * 0.78; g.add(usa);
     const flag = new THREE.Mesh(new THREE.CylinderGeometry(
-      D / 2 * 1.006, D / 2 * 1.006, L * 0.075, 6, 1, true, Math.PI - 0.24, 0.48), M.red);
+      D / 2 * 1.006, D / 2 * 1.006, L * 0.075, 6, 1, true, Math.PI - 0.24, 0.48), decalMat(M.red));
     flag.position.y = L * 0.80; g.add(flag);
   }
   if (look.hotStage) {
@@ -710,7 +743,7 @@ function buildStage(spec, ctx) {
   }
   if (look.tiles) {
     // heat tiles on the windward half only, which is what they are for
-    const sh = new THREE.Mesh(new THREE.CylinderGeometry(D / 2 * 1.005, D / 2 * 1.005, L * 0.9, 28, 1, true, -Math.PI / 2, Math.PI), M.tiles);
+    const sh = new THREE.Mesh(new THREE.CylinderGeometry(D / 2 * 1.005, D / 2 * 1.005, L * 0.9, 28, 1, true, -Math.PI / 2, Math.PI), decalMat(M.tiles));
     sh.position.y = L * 0.45; g.add(sh);
   }
   if (look.tank) {
@@ -2012,7 +2045,7 @@ function buildHailMary(spec, parts) {
     c.position.y = (y0 + y1) / 2; g.add(c); return c;
   };
   const band = (y, dia, h, m) => {
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(dia / 2 * 1.02, dia / 2 * 1.02, h, 22, 1, true), m);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(dia / 2 * 1.02, dia / 2 * 1.02, h, 22, 1, true), decalMat(m));
     c.position.y = y; g.add(c);
   };
   band(coneY1, D * 0.150, f(0.022), M.gold);

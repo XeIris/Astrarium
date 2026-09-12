@@ -346,7 +346,7 @@ export function flightEnv(body) {
     : deriveAtmosphere(radius, gSurf, teq);
   const daySec = Math.abs(surf.day ?? (body.dayLength ? body.dayLength * YR_S : 86400));
   return {
-    name, body, mu, radius, gSurf, atm,
+    name, body, mu, radius, gSurf, atm, teq,
     // Surface velocity at the equator — free Δv for an eastward launch, and the
     // reason Kourou exists. 465 m/s on Earth.
     rotRate: (surf.day && surf.day < 0 ? -1 : 1) * 2 * Math.PI / daySec,

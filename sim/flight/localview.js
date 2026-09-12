@@ -56,7 +56,7 @@ const GROUND_FRAG = `
   varying float vDist; varying vec3 vWorld; varying float vDrop;
   uniform vec3  uGround, uRock, uHaze, uSunDir;
   uniform float uEye, uScaleH, uDensity, uPatch, uHasAir, uSeaLevel, uOceans;
-  uniform float uSunI, uSkyI;
+  uniform float uSunI, uSkyI, uTemp;
   uniform vec3  uSea;
 
   float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
@@ -66,6 +66,16 @@ const GROUND_FRAG = `
                mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
   }
   float fbm(vec2 p){ float v = 0.0, a = 0.5; for(int i = 0; i < 5; i++){ v += a * noise(p); p *= 2.13; a *= 0.5; } return v; }
+
+  // A 4x4 ordered dither, built by the recursion that defines a Bayer matrix —
+  // M(2n) = 4·M(n) tiled plus M(2) — rather than by looking one up. GLSL ES 1.00
+  // does not promise that a matrix can be indexed by a non-constant expression,
+  // and this needs no indexing at all.
+  float b2(vec2 p){ p = mod(p, 2.0); return mod(2.0 * p.y + 3.0 * p.x, 4.0); }
+  float bayer4(vec2 c){
+    vec2 p = floor(mod(c, 4.0));
+    return (b2(floor(p * 0.5)) * 4.0 + b2(p)) / 16.0;
+  }
 
   void main(){
     // Terrain colour: two rock tones mixed by a large-scale field, with a fine
@@ -117,9 +127,21 @@ const GROUND_FRAG = `
     col = mix(col, uHaze * (0.35 + 0.75 * max(ndl, 0.0)), clamp(fog, 0.0, 1.0));
 
     // The patch has to end somewhere; fade it out rather than showing an edge.
+    //
+    // DITHERED, not blended, because this surface is OPAQUE — see the material.
+    // A 4x4 ordered threshold turns the fade into a stochastic discard, which
+    // costs nothing, needs no sorting, and at the rim is beyond the horizon and
+    // buried in haze anyway. On an airless body, where there is no haze to hide
+    // in, it is the difference between the patch ending and the patch having an
+    // edge you can see.
     float edge = 1.0 - smoothstep(0.86, 1.0, vDist / uPatch);
     if(edge <= 0.002) discard;
-    gl_FragColor = vec4(col, edge);
+    if(edge < 1.0 && edge < bayer4(gl_FragCoord.xy)) discard;
+    // Alpha is the TEMPERATURE channel sim/spectrum.js images the frame from,
+    // not an opacity — see CLAUDE.md. Writing the rim fade into it published
+    // "1.0", which means saturated, which means no data, which silently put the
+    // whole ground back to having its temperature guessed from its colour.
+    gl_FragColor = vec4(col, clamp(log(uTemp) / 25.33, 0.006, 0.984));
   }`;
 
 const SKY_VERT = `
@@ -169,6 +191,27 @@ const SKY_FRAG = `
     // what a white rocket in front of it has to be read against.
     gl_FragColor = vec4(col * 0.85, a);
   }`;
+
+// ---------------------------------------------------------------------------
+// THE TRANSPARENT QUEUE, DECLARED RATHER THAN SORTED.
+// ----------------------------------------------------------------------------
+// Everything that is left transparent in this pass overlaps everything else
+// transparent within a few metres of the nozzle, and three's back-to-front sort
+// is by object CENTROID — one number per mesh. At these separations that number
+// is noise: the order flips as the camera moves and the picture flickers.
+//
+// So the order is stated. It is not arbitrary, it is the physical stack at the
+// base of a rocket, read from the outside in:
+//
+//   sky       the background, behind everything, and depth-tested so the ground
+//             occludes it rather than the other way round
+//   smoke     the ground cloud and the deluge — real droplets and real alumina,
+//             which genuinely scatter and genuinely hide what is behind them
+//   flame     the plume and the entry sheath, LAST, because they are additive
+//             emitters: a flame seen through a cloud of steam still lights the
+//             steam up, and drawing it first meant the cloud painted it out.
+// ---------------------------------------------------------------------------
+export const ORDER = { sky: -10, smoke: 10, flame: 20 };
 
 /**
  * Build the local-space scene. `sceneRadius` is how far the ground patch and the
@@ -220,11 +263,24 @@ export function createLocalView() {
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uScaleH: { value: 8500 }, uDensity: { value: 2.4e-5 }, uHasAir: { value: 1 },
     uSeaLevel: { value: 0.42 }, uOceans: { value: 1 },
-    uSunI: { value: 3.0 }, uSkyI: { value: 0.35 },
+    uSunI: { value: 3.0 }, uSkyI: { value: 0.35 }, uTemp: { value: 288 },
   };
+  // OPAQUE. It was transparent, and being transparent is what put it in the
+  // wrong queue: three draws every opaque object before any transparent one and
+  // then sorts the transparent list back-to-front by CENTROID. The ground's
+  // centroid is directly under the vehicle, a few metres from the plume's, so
+  // which of the two came first was a coin toss that landed differently as the
+  // camera moved — and the ground WRITES DEPTH, so on the frames it won, it
+  // stamped the plume out. That is the "plumes covered by the sky": not the sky,
+  // the ground, drawn in the transparent pass on top of them.
+  //
+  // Nothing about this surface was ever transparent. It is dirt. Its only use of
+  // alpha was the rim fade, which is now a dither, so it belongs in the opaque
+  // queue where it is drawn first, front-to-back, and every transparent emitter
+  // in the scene is correctly depth-tested against it.
   const ground = new THREE.Mesh(groundGeo, new THREE.ShaderMaterial({
     uniforms: groundU, vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG,
-    transparent: true, depthWrite: true, side: THREE.DoubleSide,
+    transparent: false, depthWrite: true, side: THREE.DoubleSide,
   }));
   ground.frustumCulled = false;
   scene.add(ground);
@@ -253,7 +309,7 @@ export function createLocalView() {
       transparent: true, depthWrite: false, depthTest: true, side: THREE.BackSide,
     }));
   sky.frustumCulled = false;
-  sky.renderOrder = -10;
+  sky.renderOrder = ORDER.sky;
   scene.add(sky);
 
   // Everything that belongs to the vehicle hangs off here, so the whole craft
@@ -307,6 +363,7 @@ export function createLocalView() {
       // ground shader are driven from the same number so they cannot disagree.
       const flux = THREE.MathUtils.clamp(3.0 * (starFlux ?? 1), 0.05, 12);
       groundU.uSunI.value = flux;
+      groundU.uTemp.value = Math.max(env.teq || 255, 30);
       sun.intensity = flux;
       // Skylight only exists where there is air to scatter in.
       groundU.uSkyI.value = env.atm ? 0.42 * Math.exp(-h / Math.max(groundU.uScaleH.value * 2, 1)) : 0.03;
@@ -361,11 +418,47 @@ export function createFlightCamera() {
     padPos: new THREE.Vector3(), hasPad: false,
   };
   const _o = new THREE.Vector3(), _t = new THREE.Vector3(), _u = new THREE.Vector3();
+
+  /**
+   * THE NEAR PLANE IS WHAT SETS THE DEPTH RESOLUTION, and it was a constant.
+   *
+   * A perspective depth buffer resolves about z²/(n·2^b) at distance z. With the
+   * near plane nailed at 0.05 m that is 5 cm at 50 m and half a metre at 500 —
+   * so a 3.7 mm painted band standing 0.2% proud of a Falcon 9's tank, or a
+   * grid fin against the skin behind it, is one to two orders of magnitude
+   * inside the noise. That is the mottling ON THE VEHICLE, and no amount of
+   * lifting the decal fixes it, because the decal cannot be lifted far enough to
+   * beat half a metre without visibly floating.
+   *
+   * Nothing is ever 5 cm from this camera. The nearest thing in frame is at
+   * worst a fraction of the vehicle's own length away, so the near plane is
+   * derived from the shot rather than declared: a fixed fraction of the distance
+   * to what is being looked at, which is the quantity the whole framing is built
+   * on anyway. At a 200 m pad view it buys a factor of ten, and it costs nothing
+   * — there is no geometry in the range it gives up.
+   */
+  function depthRange(camera, craftPos, L) {
+    const d = camera.position.distanceTo(craftPos);
+    // Half a vehicle-length of headroom, so the camera can be inside the stack
+    // (cockpit) without the nose clipping.
+    const near = THREE.MathUtils.clamp(Math.min(d, Math.max(d - L * 0.6, 0.05)) * 0.02, 0.05, 40);
+    if (Math.abs(near / camera.near - 1) > 0.02) {
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
+  }
+
   return {
     state,
     setMode(m) { state.mode = m; },
     /** @param craftPos local-frame position of the vehicle (m) */
-    update(camera, { craftPos, craftQuat, length, up, velocity, dt, sunLocal }) {
+    update(camera, opts) {
+      place(camera, opts);
+      depthRange(camera, opts.craftPos, Math.max(opts.length, 3));
+    },
+  };
+
+  function place(camera, { craftPos, craftQuat, length, up, velocity, dt, sunLocal }) {
       const L = Math.max(length, 3);
       if (state.mode === 'pad' && state.hasPad) {
         camera.position.copy(state.padPos);
@@ -413,6 +506,5 @@ export function createFlightCamera() {
         .addScaledVector(_u, d * sp2);
       camera.up.copy(_u);
       camera.lookAt(craftPos);
-    },
-  };
+  }
 }

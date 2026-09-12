@@ -4,7 +4,7 @@ import { Autopilot, MODE, attitudeFor, targetOffset, fmtDur } from './guidance.j
 import { VEHICLES, VEHICLE_ORDER, grossMass, totalDeltaV, padTWR, liftoffThrust } from './vehicles.js';
 import { AU_M, YR_S, G0, pressure, density, flightEnv } from './rocketry.js';
 import { buildCraft } from './craftmodel.js';
-import { createPlume, createRCSPuffs, createEntryGlow, createSmokeColumn, PROPELLANT } from './plume.js';
+import { createPlume, createRCSPuffs, createEntryGlow, createSmokeColumn, createGroundFlame, PROPELLANT } from './plume.js';
 import { createLocalView, createFlightCamera } from './localview.js';
 import { createLaunchSite } from './launchsite.js';
 import { createFlightHUD, planHTML, cruiseHTML, fmtDist, fmtSpeed } from './flightui.js';
@@ -46,6 +46,8 @@ export function createSpaceflight(ctx) {
 
   let vessel = null, ap = null, craft = null, plumes = [], entry = null, cruise = null;
   let site = null, sitePos = null;   // the launch complex, and where it is (parent frame, m)
+  let padFire = null;                // the deflected exhaust, while it still reaches the deck
+  let plumeReach = 0;                // how far the first stage's jet carries, m
   // The terminal count. A launch has a beginning, and without one the vehicle
   // simply is not on the pad and then is, which is most of why an ascent that
   // runs in real time can still read as instantaneous.
@@ -146,6 +148,16 @@ export function createSpaceflight(ctx) {
     if (sitePos) {
       site = createLaunchSite(veh, H, vessel.env);
       local.scene.add(site.group);
+      // The ground flame belongs to the pad, not to the vehicle — it is what the
+      // DECK does with the exhaust — so it is parented to the complex and sits
+      // on the deck at the complex's own origin.
+      const first = veh.stages[0];
+      padFire = createGroundFlame(first?.engine?.plume || 'kerolox', Math.max(vessel.diameter * 3.4, 22));
+      site.group.add(padFire.mesh);
+      // How far the jet carries is set from the first stage's own plume, in
+      // buildPlumes() below — the plume reports the length it was built at
+      // rather than having it recomputed here, which got the beam multiplier
+      // wrong and carried a 1.6 that stood for nothing.
     }
     // The tower, not the vehicle, is what has to fit in frame — it is taller
     // than the stack and it is the thing the climb is read against.
@@ -182,6 +194,7 @@ export function createSpaceflight(ctx) {
   function buildPlumes(veh) {
     for (const p of plumes) p.mesh.parent?.remove(p.mesh);
     plumes = [];
+    plumeReach = 0;
     for (const st of craft.stages) {
       const spec = st.spec;
       if (!spec.engine) continue;
@@ -190,6 +203,9 @@ export function createSpaceflight(ctx) {
         for (const pv of pivots) {
           const pl = createPlume(eng.plume, eng.exitD || spec.D * 0.2);
           pv.add(pl.mesh);
+          // The pad flame is lit by the FIRST stage's jet, so the reach it dies
+          // at is that stage's plume length and no other's.
+          if (st === craft.stages[0] || !plumeReach) plumeReach = Math.max(plumeReach, pl.reach);
           plumes.push({ ...pl, stageKey: spec.key, engine: eng });
         }
       }
@@ -199,6 +215,9 @@ export function createSpaceflight(ctx) {
   function teardown() {
     if (craft) { local.craftRoot.remove(craft.group); craft = null; }
     if (site) { local.scene.remove(site.group); site.dispose(); site = null; sitePos = null; }
+    // createGroundFlame() makes a ShaderMaterial per launch and site.dispose()
+    // only walks the geometries, so this one has to be released here.
+    if (padFire) { padFire.mesh.material.dispose(); padFire = null; }
     local.ground.position.y = 0;
     plumes = []; entry = null;
     smoke.clear();
@@ -451,7 +470,13 @@ export function createSpaceflight(ctx) {
       // patch is dropped by that much rather than the vehicle being raised —
       // raising the vehicle would either put a constant error into the climb or
       // a fake one into its first few seconds.
-      local.ground.position.y = -site.deckHeight;
+      //
+      // And by the HARDSTAND's rise as well, not just the mount's. The mound the
+      // mount stands on is another 12.8 m, and dropping the patch only as far as
+      // the mount put it exactly level with the mound's top face — two coplanar
+      // surfaces a hundred metres across with nothing to separate them, which is
+      // the crazy paving that spread out around every pad in the sim.
+      local.ground.position.y = -site.gradeDrop;
       const range = Math.hypot(sx, sz);
       // Past a few tens of kilometres the whole complex is under a pixel, and
       // the ground patch's own detail is the better picture.
@@ -523,10 +548,21 @@ export function createSpaceflight(ctx) {
       entry.update(vessel.telemetry.heat || 0, vessel.met);
     }
 
+    // The deflected exhaust. Only while the jet still lands on the deck, which
+    // the ground flame works out for itself from the vehicle's height.
+    if (padFire) {
+      const lit = vessel.telemetry.thrust > 0 ? vessel.throttle : 0;
+      padFire.update(site?.group.visible ? lit : 0, alt, plumeReach, vessel.met);
+    }
+
     // launch smoke: only where there is an atmosphere and a surface to hit
     if (env.atm && alt < 900 && vessel.throttle > 0 && vessel.telemetry.thrust > 0) {
+      // How dirty the cloud is comes from the propellant, not from taste — a
+      // solid throws alumina, an RP-1 engine throws carbon, and a hydrogen
+      // engine throws steam and very little else.
+      const soot = PROPELLANT[vessel.stages[0]?.spec?.engine?.plume]?.soot ?? 0.7;
       smoke.emit(_a.set(0, Math.max(alt - vessel.length * 0.5, 0), 0),
-                 vessel.throttle, Math.max(vessel.diameter * 2.2, 12), dt);
+                 vessel.throttle, Math.max(vessel.diameter * 2.2, 12), dt, soot);
     }
     smoke.update(dt);
     rcsPuffs.update(dt);
