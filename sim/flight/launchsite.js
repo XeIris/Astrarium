@@ -228,8 +228,12 @@ function crawlerway(topR, width = 40, len = 1400) {
     pos.push(-width / 2, y, z, width / 2, y, z);
     nor.push(0, 1, 0, 0, 1, 0);
     if (i > 0) {
+      // Wound COUNTER-CLOCKWISE SEEN FROM ABOVE. The stations run toward
+      // decreasing z, so the obvious order puts the front face underneath the
+      // road: DARKCON is FrontSide, and the crawlerway was being culled in
+      // every view that looks down on the pad, which is all of them.
       const b = (i - 1) * 2;
-      idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+      idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
     }
   });
   const g = new THREE.BufferGeometry();

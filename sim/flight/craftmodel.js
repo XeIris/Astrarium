@@ -699,16 +699,16 @@ function buildStage(spec, ctx) {
     for (const [y, h] of [[L * 0.075, L * 0.115], [L * 0.545, L * 0.105]]) {
       for (let k = 0; k < 4; k += 2) {
         const q = new THREE.Mesh(new THREE.CylinderGeometry(
-          D / 2 * 1.004, D / 2 * 1.004, h, 10, 1, true, k * Math.PI / 2, Math.PI / 2), M.black);
+          D / 2 * 1.004, D / 2 * 1.004, h, 10, 1, true, k * Math.PI / 2, Math.PI / 2), decalMat(M.black));
         q.position.y = y + h / 2; g.add(q);
       }
     }
     // UNITED STATES down the side, and the flag opposite it.
     const usa = new THREE.Mesh(new THREE.CylinderGeometry(
-      D / 2 * 1.006, D / 2 * 1.006, L * 0.20, 8, 1, true, -0.34, 0.68), M.black);
+      D / 2 * 1.006, D / 2 * 1.006, L * 0.20, 8, 1, true, -0.34, 0.68), decalMat(M.black));
     usa.position.y = L * 0.78; g.add(usa);
     const flag = new THREE.Mesh(new THREE.CylinderGeometry(
-      D / 2 * 1.006, D / 2 * 1.006, L * 0.075, 6, 1, true, Math.PI - 0.24, 0.48), M.red);
+      D / 2 * 1.006, D / 2 * 1.006, L * 0.075, 6, 1, true, Math.PI - 0.24, 0.48), decalMat(M.red));
     flag.position.y = L * 0.80; g.add(flag);
   }
   if (look.hotStage) {
@@ -743,7 +743,7 @@ function buildStage(spec, ctx) {
   }
   if (look.tiles) {
     // heat tiles on the windward half only, which is what they are for
-    const sh = new THREE.Mesh(new THREE.CylinderGeometry(D / 2 * 1.005, D / 2 * 1.005, L * 0.9, 28, 1, true, -Math.PI / 2, Math.PI), M.tiles);
+    const sh = new THREE.Mesh(new THREE.CylinderGeometry(D / 2 * 1.005, D / 2 * 1.005, L * 0.9, 28, 1, true, -Math.PI / 2, Math.PI), decalMat(M.tiles));
     sh.position.y = L * 0.45; g.add(sh);
   }
   if (look.tank) {

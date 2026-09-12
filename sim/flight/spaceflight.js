@@ -154,10 +154,10 @@ export function createSpaceflight(ctx) {
       const first = veh.stages[0];
       padFire = createGroundFlame(first?.engine?.plume || 'kerolox', Math.max(vessel.diameter * 3.4, 22));
       site.group.add(padFire.mesh);
-      // How far the jet carries: the same length the plume's own geometry is
-      // built at, so the fan goes out exactly when the flame stops reaching the
-      // deck rather than on a number of its own.
-      plumeReach = (first?.engine?.exitD || (first?.D || 5) * 0.2) * 18 * 1.6;
+      // How far the jet carries is set from the first stage's own plume, in
+      // buildPlumes() below — the plume reports the length it was built at
+      // rather than having it recomputed here, which got the beam multiplier
+      // wrong and carried a 1.6 that stood for nothing.
     }
     // The tower, not the vehicle, is what has to fit in frame — it is taller
     // than the stack and it is the thing the climb is read against.
@@ -194,6 +194,7 @@ export function createSpaceflight(ctx) {
   function buildPlumes(veh) {
     for (const p of plumes) p.mesh.parent?.remove(p.mesh);
     plumes = [];
+    plumeReach = 0;
     for (const st of craft.stages) {
       const spec = st.spec;
       if (!spec.engine) continue;
@@ -202,6 +203,9 @@ export function createSpaceflight(ctx) {
         for (const pv of pivots) {
           const pl = createPlume(eng.plume, eng.exitD || spec.D * 0.2);
           pv.add(pl.mesh);
+          // The pad flame is lit by the FIRST stage's jet, so the reach it dies
+          // at is that stage's plume length and no other's.
+          if (st === craft.stages[0] || !plumeReach) plumeReach = Math.max(plumeReach, pl.reach);
           plumes.push({ ...pl, stageKey: spec.key, engine: eng });
         }
       }
@@ -211,7 +215,9 @@ export function createSpaceflight(ctx) {
   function teardown() {
     if (craft) { local.craftRoot.remove(craft.group); craft = null; }
     if (site) { local.scene.remove(site.group); site.dispose(); site = null; sitePos = null; }
-    padFire = null;
+    // createGroundFlame() makes a ShaderMaterial per launch and site.dispose()
+    // only walks the geometries, so this one has to be released here.
+    if (padFire) { padFire.mesh.material.dispose(); padFire = null; }
     local.ground.position.y = 0;
     plumes = []; entry = null;
     smoke.clear();

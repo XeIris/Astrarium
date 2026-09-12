@@ -46,6 +46,26 @@ import { ORDER } from './localview.js';
 // So every sprite here leaves the channel alone: zero of the source, one of the
 // destination. Smoke is not an emitter and has nothing to publish, and the
 // engine glow is drawn on top of the jet mesh, which publishes for it.
+// An emitter that DOES publish a temperature has the opposite problem, and it
+// is the rule in CLAUDE.md: THREE.AdditiveBlending is a single glBlendFunc, so
+// alpha takes the colour factors too and each fragment adds srcAlpha² to what
+// is already there. A 3400 K plume publishes 0.321, so nine overlapping bells —
+// an S-IC has five, a Super Heavy thirty-three — sum past 0.985, which means
+// "no data", and the whole stack falls back to guessing its temperature from
+// its colour in exactly the bands where that guess is worst. So the emitter
+// REPLACES the channel: one of the source, zero of the destination, with the
+// RGB left additive.
+function publishAlpha(m) {
+  m.blending = THREE.CustomBlending;
+  m.blendEquation = THREE.AddEquation;
+  m.blendSrc = THREE.SrcAlphaFactor;      // what AdditiveBlending does for RGB
+  m.blendDst = THREE.OneFactor;
+  m.blendEquationAlpha = THREE.AddEquation;
+  m.blendSrcAlpha = THREE.OneFactor;      // publish this fragment's temperature
+  m.blendDstAlpha = THREE.ZeroFactor;     // and only this one's
+  return m;
+}
+
 function passThroughAlpha(m, additive = false) {
   m.blending = THREE.CustomBlending;
   m.blendEquation = THREE.AddEquation;
@@ -183,7 +203,11 @@ const PLUME_FRAG = `
     // engine has nothing of the kind.
     float over = 1.0 - uExpand;
     float aM = 0.045 + 0.075 * over;
-    float disk = exp(-pow((a - aM) / 0.028, 2.0)) * smoothstep(0.35, 0.85, over);
+    // Squared by multiplication, not by pow(): the offset is negative for every
+    // fragment upstream of the disk and GLSL ES leaves pow() undefined for a
+    // negative base.
+    float dM = (a - aM) / 0.028;
+    float disk = exp(-dM * dM) * smoothstep(0.35, 0.85, over);
     disk *= 1.0 - smoothstep(0.35, 0.95, radial);
 
     float core = pow(max(1.0 - radial * 1.75, 0.0), 2.6) * inCore;
@@ -196,7 +220,8 @@ const PLUME_FRAG = `
     // and finishes combusting in the atmosphere. That afterburning is the long
     // soft flame, it is much dimmer than the core, and it is where all the
     // structure is. Brightest in an annulus, because that is where the shear is.
-    float shear = exp(-pow((radial - 0.62) / 0.40, 2.0));
+    float dS = (radial - 0.62) / 0.40;   // negative inboard of the annulus; see above
+    float shear = exp(-dS * dS);
     float mixLayer = smoothstep(coreEnd * 0.4, coreEnd * 1.8, a) * pow(1.0 - a, 0.9);
 
     // Turbulence advected downstream. Three octaves, scrolling on the axial
@@ -271,11 +296,10 @@ export function createPlume(propellant, exitD, { lengthScale = 18 } = {}) {
     uBeam: { value: P.beam ? 1 : 0 }, uDiamonds: { value: P.beam ? 0 : 1 },
     uLen: { value: L },
   };
-  const material = new THREE.ShaderMaterial({
+  const material = publishAlpha(new THREE.ShaderMaterial({
     uniforms, vertexShader: PLUME_VERT, fragmentShader: PLUME_FRAG,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-  });
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  }));
   const jet = new THREE.Mesh(geo, material);
   jet.frustumCulled = false;
   jet.renderOrder = ORDER.flame;
@@ -300,6 +324,10 @@ export function createPlume(propellant, exitD, { lengthScale = 18 } = {}) {
 
   return {
     mesh, uniforms, propellant: P,
+    // The length the jet is BUILT at, reported rather than left to be
+    // reconstructed by anything downstream: the beam multiplier above is not
+    // guessable from exitD, and the pad flame goes out on this number.
+    reach: L,
     /** @param throttle 0..1 @param pa ambient pressure, Pa @param p0 reference (sea level) */
     update(throttle, pa, time, p0 = 101325) {
       const on = throttle > 0.001;
@@ -401,7 +429,7 @@ export function createEntryGlow(radius) {
   const uniforms = {
     uHeat: { value: 0 }, uTime: { value: 0 }, uTemp: { value: 2000 },
   };
-  const material = new THREE.ShaderMaterial({
+  const material = publishAlpha(new THREE.ShaderMaterial({
     uniforms,
     vertexShader: `
       varying vec3 vN; varying vec3 vP;
@@ -425,9 +453,8 @@ export function createEntryGlow(radius) {
         c = mix(c, vec3(0.75, 0.86, 1.0), clamp(uHeat * 0.65 - 0.55, 0.0, 1.0));
         gl_FragColor = vec4(c * i * 5.0, clamp(log(uTemp) / 25.33, 0.006, 0.984));
       }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    side: THREE.BackSide,
-  });
+    transparent: true, depthWrite: false, side: THREE.BackSide,
+  }));
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false; mesh.visible = false;
   mesh.renderOrder = ORDER.flame;
@@ -626,7 +653,7 @@ export function createGroundFlame(propellant, scale) {
     uPower: { value: 0 }, uTime: { value: 0 }, uSoot: { value: P.soot },
     uTemp: { value: P.T * 0.82 },   // it has already done work turning the corner
   };
-  const mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+  const mesh = new THREE.Mesh(geo, publishAlpha(new THREE.ShaderMaterial({
     uniforms,
     vertexShader: `
       varying vec3 vP; varying vec3 vN;
@@ -682,9 +709,8 @@ export function createGroundFlame(propellant, scale) {
         gl_FragColor = vec4(col * i * 6.0,
           clamp(log(max(uTemp * mix(1.0, cool, 0.9), 2.0)) / 25.33, 0.006, 0.984));
       }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-  }));
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  })));
   mesh.frustumCulled = false;
   mesh.renderOrder = ORDER.flame;
   mesh.visible = false;
