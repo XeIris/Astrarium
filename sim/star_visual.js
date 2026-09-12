@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ActivityModel, blackbodyColor, coronaColor, rotationRate } from './stellar.js';
 import { granuleFrequency, surfaceBrightness } from './structure.js';
+import { createArcade } from './prominence.js';
 
 // ============================================================================
 // HIGH-FIDELITY STAR RENDERING
@@ -10,12 +11,19 @@ import { granuleFrequency, surfaceBrightness } from './structure.js';
 //   · differential rotation — the equator laps the poles (real: Sun 25 d vs 34 d)
 //   · starspots — dark umbra + warm penumbra + bright surrounding faculae,
 //     placed at the ActivityModel's live active regions
-//   · flare ribbons — a hot, white-blue kernel over the erupting region
+//   · flare ribbons — the TWO ribbons that straddle a flare's neutral line
+//     and separate as reconnection climbs (see sim/prominence.js)
 //   · limb darkening — the physically correct I(μ)/I(0) = 1 − u(1 − μ) law
 //   · a chromospheric H-α rim glowing just past the limb
 // Everything is driven by mass → Teff → colour, so an M dwarf and a B star look
 // genuinely different rather than being recoloured copies.
 // ============================================================================
+
+// Smoothstep on the CPU side, for driving the eruption timeline.
+function smoothstep01(a, b, x) {
+  const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
+  return t * t * (3 - 2 * t);
+}
 
 const MAX_SPOTS = 8;
 const MAX_FLARES = 4;
@@ -51,6 +59,13 @@ function photosphereMaterial(color, hotColor, limbU) {
       uSpots:     { value: Array.from({ length: MAX_SPOTS }, () => new THREE.Vector4()) },
       uSpotCount: { value: 0 },
       uFlares:    { value: Array.from({ length: MAX_FLARES }, () => new THREE.Vector4()) },
+      // xyz = the bipole axis (across the neutral line), w = how far the two
+      // ribbons have separated. A flare is a TWO-ribbon event: the loops that
+      // reconnect are rooted in a pair of parallel strips either side of the
+      // neutral line, and the strips move APART as reconnection works its way
+      // up through higher, wider field. One blob centred on the region is the
+      // one thing a flare never looks like.
+      uFlareAxis: { value: Array.from({ length: MAX_FLARES }, () => new THREE.Vector4()) },
       uFlareCount:{ value: 0 },
     },
     vertexShader: `
@@ -116,7 +131,8 @@ function photosphereMaterial(color, hotColor, limbU) {
       uniform vec3 uColor, uHot, uColPole, uColEq;
       uniform vec4 uSpots[${MAX_SPOTS}];   // xyz = surface direction, w = strength
       uniform int  uSpotCount;
-      uniform vec4 uFlares[${MAX_FLARES}]; // xyz = direction, w = amplitude
+      uniform vec4 uFlares[${MAX_FLARES}];    // xyz = region direction, w = amplitude
+      uniform vec4 uFlareAxis[${MAX_FLARES}]; // xyz = bipole axis, w = ribbon separation
       uniform int  uFlareCount;
       varying vec3 vObj; varying vec3 vVN; varying vec3 vVP; varying float vG;
 
@@ -192,16 +208,29 @@ function photosphereMaterial(color, hotColor, limbU) {
         bright *= mix(1.0, 0.62, penumbra);
         bright += facula * 0.35;
 
-        // --- flare ribbons over the erupting active region
+        // --- the two flare ribbons straddling the neutral line
         vec3 flareGlow = vec3(0.0);
         for(int i=0;i<${MAX_FLARES};i++){
           if(i >= uFlareCount) break;
           vec4 fl = uFlares[i];
-          float d = distance(p, fl.xyz);
-          float ribbon = 1.0 - smoothstep(0.06, 0.42, d);
-          // filamentary structure inside the ribbon
-          float fil = 0.55 + 0.45 * fbm(p * 26.0 + uTime * 3.0);
-          flareGlow += vec3(1.0, 0.93, 0.85) * ribbon * fil * fl.w * 2.4;
+          vec4 fx = uFlareAxis[i];
+          vec3 rel = p - fl.xyz;
+          float across = dot(rel, fx.xyz);                          // across the line
+          float along  = dot(rel, cross(fl.xyz, fx.xyz));           // along it
+          // Two strips at +-sep, each narrow, both running the length of the
+          // neutral line. sep GROWS with the flare: the field that reconnects
+          // gets higher and wider as the event proceeds, so its footpoints
+          // land further out, and the ribbons visibly draw apart.
+          // Squared directly, not through pow(): GLSL ES leaves pow undefined
+          // for a negative base, and this base is negative everywhere BETWEEN
+          // the two ribbons — i.e. over the whole arcade.
+          float rd = (abs(across) - fx.w) / 0.055;
+          float rb = exp(-rd * rd);
+          rb *= 1.0 - smoothstep(0.14, 0.30, abs(along));
+          rb *= 1.0 - smoothstep(0.30, 0.50, length(rel));
+          // filamentary kernels inside each ribbon
+          float fil = 0.5 + 0.5 * fbm(p * 30.0 + uTime * 3.0);
+          flareGlow += vec3(1.0, 0.93, 0.85) * rb * fil * fl.w * 3.4;
         }
 
         // The disc itself is kept near 1.0 so the tone curve still has slope
@@ -306,21 +335,51 @@ function coronaMaterial(color) {
   });
 }
 
-// A coronal mass ejection: a bright shell expanding inside a cone.
-function cmeMaterial(color) {
-  return new THREE.ShaderMaterial({
+// ---------------------------------------------------------------------------
+// A CORONAL MASS EJECTION.
+// ----------------------------------------------------------------------------
+// A CME has a three-part structure, and it has had one in every coronagraph
+// image since OSO-7 saw the first of them in 1971:
+//
+//   · a BRIGHT LEADING EDGE — coronal material swept up and compressed ahead
+//     of the eruption, a thin shell,
+//   · a DARK CAVITY behind it — the evacuated flux rope itself, which is the
+//     thing that is actually erupting, and
+//   · a BRIGHT CORE inside that — the prominence material the rope is
+//     carrying out with it, which is the same cool plasma that was hanging in
+//     the arcade a few minutes earlier (see sim/prominence.js).
+//
+// So it is drawn as two thin shells with a gap between them, additively, and
+// the gap IS the cavity: nothing needs to darken anything.
+//
+// The other half of it is that a thin shell is brightest where you look ALONG
+// it. Shaded as an ordinary surface, a shell renders as a solid crescent with
+// a hard silhouette, which is what this used to be; weighted by the path
+// length through it — long at the rim, short face-on — the same geometry
+// renders as the arc-and-legs shape a CME actually has.
+// ---------------------------------------------------------------------------
+function cmeMaterial(color, rimPow, filScale) {
+  const m = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: color.clone() }, uAlpha: { value: 1 },
-      uDir: { value: new THREE.Vector3(0, 1, 0) }, uWidth: { value: 0.5 }, uTime: { value: 0 },
+      uDir: { value: new THREE.Vector3(0, 1, 0) }, uWidth: { value: 0.5 },
+      uTime: { value: 0 }, uSeed: { value: 0 },
+      uRimPow: { value: rimPow }, uFil: { value: filScale },
+      uPlasmaT: { value: 1.6e6 },
     },
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    vertexShader: `varying vec3 vObj;
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending,
+    vertexShader: `varying vec3 vObj; varying vec3 vVN; varying vec3 vVP;
       void main(){ vObj = normalize(position);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        vVN = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vVP = mv.xyz;
+        gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `
       precision highp float;
-      uniform vec3 uColor, uDir; uniform float uAlpha, uWidth, uTime;
-      varying vec3 vObj;
+      uniform vec3 uColor, uDir;
+      uniform float uAlpha, uWidth, uTime, uSeed, uRimPow, uFil, uPlasmaT;
+      varying vec3 vObj; varying vec3 vVN; varying vec3 vVP;
       float hash(vec3 p){ return fract(sin(dot(p, vec3(17.1,113.5,7.9)))*43758.5453); }
       float noise(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
         return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
@@ -328,29 +387,32 @@ function cmeMaterial(color) {
       float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<4;i++){v+=a*noise(p);p*=2.2;a*=0.5;} return v; }
       void main(){
         float c = dot(vObj, normalize(uDir));
-        float cone = smoothstep(1.0 - uWidth, 1.0 - uWidth * 0.25, c);
-        if(cone <= 0.001) discard;
-        // turbulent, filamentary plasma front
-        float n = fbm(vObj * 7.0 + uTime * 0.4);
-        float a = cone * uAlpha * (0.25 + n * 0.95);
-        gl_FragColor = vec4(uColor * a * 2.0, a * 0.8);
+        // The cone has soft flanks: the field opens gradually, it does not end.
+        float cone = smoothstep(1.0 - uWidth, 1.0 - uWidth * 0.35, c);
+        if(cone <= 0.002) discard;
+
+        // Path length through a thin shell. This is the whole difference
+        // between a crescent and an arc with legs.
+        vec3 N = normalize(vVN), V = normalize(-vVP);
+        float rim = pow(1.0 - abs(dot(N, V)), uRimPow);
+
+        // Streamer-like striations: the ejecta is threaded on the field it
+        // dragged out with it, so the structure is RADIAL.
+        float n = fbm(vObj * uFil + vec3(uSeed) + uTime * 0.2);
+        float a = cone * rim * uAlpha * (0.20 + n * 1.25);
+        if(a < 0.003) discard;
+        // Published temperature: a CME front is ~1.5 MK compressed corona and
+        // its core is the ~10 kK prominence material it carried out, which is
+        // why the two look nothing alike outside the visible.
+        gl_FragColor = vec4(uColor * a * 2.0, clamp(log(max(uPlasmaT, 1.0)) / 25.33, 0.0, 0.98));
       }`,
   });
-}
-
-// A prominence: a plasma loop arcing out of the surface and back.
-function makeLoop(R, color) {
-  const curve = new THREE.CubicBezierCurve3(
-    new THREE.Vector3(-0.22 * R, 0, 0),
-    new THREE.Vector3(-0.16 * R, 0.55 * R, 0),
-    new THREE.Vector3( 0.16 * R, 0.55 * R, 0),
-    new THREE.Vector3( 0.22 * R, 0, 0),
-  );
-  const geo = new THREE.TubeGeometry(curve, 26, R * 0.035, 8, false);
-  const mat = new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  return new THREE.Mesh(geo, mat);
+  // Additive colour, alpha replaced — see the same note in sim/prominence.js.
+  m.blendEquation = THREE.AddEquation;
+  m.blendSrc = THREE.OneFactor; m.blendDst = THREE.OneFactor;
+  m.blendEquationAlpha = THREE.AddEquation;
+  m.blendSrcAlpha = THREE.OneFactor; m.blendDstAlpha = THREE.ZeroFactor;
+  return m;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,25 +467,45 @@ export function createStarVisual(b, opts) {
   corona.renderOrder = -1;                       // behind the photosphere
   g.add(corona);
 
-  // prominence loop pool, one per possible concurrent flare
-  const loops = [];
+  // Prominence pool, two arcades per possible concurrent flare — see
+  // sim/prominence.js. They are two different things and both are always
+  // present in a real event: the ERUPTING FLUX ROPE, which is the filament
+  // that was sitting there beforehand tearing itself off and leaving, and the
+  // POST-FLARE ARCADE, the row of hot loops that forms underneath it as the
+  // field reconnects and closes back down. The rope rises and fades; the
+  // arcade stays, grows taller, and cools.
+  //
+  // Halpha is Halpha whatever the star is, so the cool prominence material is
+  // the same red-orange on a B star as on an M dwarf; only the footpoints,
+  // heated by the beam, take the star's own hot continuum colour.
+  const chromo = new THREE.Color(0xff6a44);
+  const foot = hot.clone().lerp(new THREE.Color(0xffffff), 0.55);
+  const erupt = [];
   for (let i = 0; i < MAX_FLARES; i++) {
     const holder = new THREE.Group();
-    const loop = makeLoop(R, hot);
-    holder.add(loop);
+    const rope = createArcade(chromo, foot);
+    const arcade = createArcade(chromo, foot);
+    holder.add(rope.group, arcade.group);
     holder.visible = false;
     g.add(holder);
-    loops.push({ holder, loop });
+    erupt.push({ holder, rope, arcade });
   }
 
-  // CME shell pool
+  // CME pool — a leading edge and a core per event, with the cavity between
+  // them left empty because that is what a cavity is.
+  const cmeGeo = new THREE.SphereGeometry(1, 40, 28);
   const cmes = [];
   for (let i = 0; i < 3; i++) {
-    const cm = cmeMaterial(hot);
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), cm);
-    mesh.visible = false;
-    g.add(mesh);
-    cmes.push({ mesh, mat: cm });
+    const frontMat = cmeMaterial(hot, 1.7, 5.0);
+    const coreMat = cmeMaterial(chromo, 1.25, 8.0);
+    coreMat.uniforms.uPlasmaT.value = 1.2e4;
+    const front = new THREE.Mesh(cmeGeo, frontMat);
+    const core = new THREE.Mesh(cmeGeo, coreMat);
+    const holder = new THREE.Group();
+    holder.add(front, core);
+    holder.visible = false;
+    g.add(holder);
+    cmes.push({ holder, front, core, frontMat, coreMat, seed: Math.random() * 40 });
   }
 
   const activity = new ActivityModel(b.mass);
@@ -435,7 +517,9 @@ export function createStarVisual(b, opts) {
 
   const _v = new THREE.Vector3();
   const _up = new THREE.Vector3(0, 1, 0);
-  const _q = new THREE.Quaternion();
+  const _east = new THREE.Vector3(), _north = new THREE.Vector3();
+  const _bip = new THREE.Vector3(), _nl = new THREE.Vector3();
+  const _m = new THREE.Matrix4();
 
   b.viz = { group: g, core, mat, corona, baseR: R, R, colorHex: photo.getHex(), isStar: true, activity };
 
@@ -463,26 +547,75 @@ export function createStarVisual(b, opts) {
     }
     mat.uniforms.uSpotCount.value = sc;
 
-    // --- flares: shader ribbons + a prominence loop standing over the region
+    // --- flares: the two ribbons on the surface, and the two arcades over it
     const fu = mat.uniforms.uFlares.value;
+    const fa = mat.uniforms.uFlareAxis.value;
     let fc = 0;
-    for (const l of loops) l.holder.visible = false;
+    for (const e of erupt) e.holder.visible = false;
     for (const f of activity.flares) {
       if (fc >= MAX_FLARES) break;
       const om = omega * (1 - 0.19 * Math.sin(f.region.lat) ** 2);
       const lon = f.region.lon + om * t;
       const cl = Math.cos(f.region.lat);
       _v.set(cl * Math.cos(lon), Math.sin(f.region.lat), cl * Math.sin(lon));
-      fu[fc].set(_v.x, _v.y, _v.z, f.amp * Math.min(f.energy, 2));
 
-      // stand a loop on the surface, its axis along the local vertical
-      const L = loops[fc];
-      L.holder.visible = true;
-      L.holder.position.copy(_v).multiplyScalar(R * 0.92);
-      L.holder.quaternion.copy(_q.setFromUnitVectors(_up, _v));
-      const scl = 0.7 + Math.min(f.energy, 2.5) * 0.5;
-      L.holder.scale.setScalar(scl);
-      L.loop.material.opacity = Math.min(f.amp * 0.9, 1) * 0.85;
+      // JOY'S LAW. An active region is a bipole, and it is not oriented at
+      // random: it lies very nearly east-west with a tilt that grows with
+      // latitude — about half the latitude, leading polarity equatorward — so
+      // every arcade in a given hemisphere leans the same way. The neutral
+      // line runs across the bipole, and that is the axis the whole eruption
+      // is built on.
+      _east.crossVectors(_up, _v);
+      if (_east.lengthSq() < 1e-8) _east.set(1, 0, 0);   // straight over a pole
+      _east.normalize();
+      _north.crossVectors(_v, _east).normalize();
+      const joy = 0.5 * f.region.lat;
+      _bip.copy(_east).multiplyScalar(Math.cos(joy))
+          .addScaledVector(_north, Math.sin(joy)).normalize();
+      _nl.crossVectors(_v, _bip).normalize();
+
+      const x = Math.min(f.t / f.duration, 1);
+      const E = Math.min(f.energy, 2.5);
+      const sc = 0.55 + E * 0.42;
+
+      fu[fc].set(_v.x, _v.y, _v.z, f.amp * Math.min(f.energy, 2));
+      // The ribbons start almost on top of each other and draw apart as the
+      // reconnection point climbs into higher, wider field.
+      fa[fc].set(_bip.x, _bip.y, _bip.z, (0.045 + 0.13 * Math.min(x * 2.2, 1)) * sc);
+
+      const E2 = erupt[fc];
+      E2.holder.visible = true;
+      E2.holder.position.copy(_v).multiplyScalar(R);
+      _m.makeBasis(_nl, _v, _bip);
+      E2.holder.quaternion.setFromRotationMatrix(_m);
+
+      // The rope: already there, torn loose early, gone by mid-event. Its
+      // shear relaxes as it goes, because the shear is what is being spent.
+      const rise = smoothstep01(0.02, 0.5, x);
+      const ropeAmp = Math.min(0.55 + f.amp * 0.9, 1.5) * (1 - smoothstep01(0.22, 0.62, x));
+      E2.rope.group.visible = ropeAmp > 0.01;
+      // An arcade is LONG compared with the loops in it — a neutral line runs
+      // for many times a single loop's span, which is why the thing reads as a
+      // row. Make it short and the loops pile up on each other into a ball of
+      // wool, which is what one tube was trying to avoid in the first place.
+      E2.rope.set({
+        R, span: 0.075 * sc, len: 0.30 * sc, height: 0.17 * sc,
+        shear: 0.95 - 0.55 * x, twist: 0.8 + 1.1 * rise, erupt: rise,
+        width: 0.011, amp: ropeAmp, plasmaT: 1.2e4 + 2e6 * rise, dt,
+      });
+
+      // The post-flare arcade: forms under the rope once reconnection starts,
+      // grows taller as the reconnection point rises, and cools for the rest
+      // of the event. It is square across the neutral line, not sheared —
+      // that is what it means for the field to have relaxed.
+      const arcAmp = smoothstep01(0.05, 0.15, x) * Math.min(f.amp * 1.3 + 0.15, 1.4);
+      E2.arcade.group.visible = arcAmp > 0.01;
+      E2.arcade.set({
+        R, span: (0.045 + 0.055 * Math.min(x * 2.0, 1)) * sc, len: 0.34 * sc,
+        height: (0.040 + 0.095 * Math.min(x * 2.0, 1)) * sc,
+        shear: 0.30 * (1 - x), twist: 0.22, erupt: 0,
+        width: 0.009, amp: arcAmp, plasmaT: 1.5e7 * Math.exp(-x * 1.6) + 3e5, dt,
+      });
       fc++;
     }
     mat.uniforms.uFlareCount.value = fc;
@@ -491,13 +624,21 @@ export function createStarVisual(b, opts) {
     for (let i = 0; i < cmes.length; i++) {
       const c = activity.cmes[i];
       const slot = cmes[i];
-      if (!c) { slot.mesh.visible = false; continue; }
-      slot.mesh.visible = true;
-      slot.mesh.scale.setScalar(c.radius * R);
-      slot.mat.uniforms.uAlpha.value = c.alpha * 0.55;
-      slot.mat.uniforms.uDir.value.copy(c.dir);
-      slot.mat.uniforms.uWidth.value = c.width;
-      slot.mat.uniforms.uTime.value += dt;
+      if (!c) { slot.holder.visible = false; continue; }
+      slot.holder.visible = true;
+      // The core trails the front: the rope is inside the shell it is
+      // driving, and the gap between them widens as the whole thing expands.
+      slot.front.scale.setScalar(c.radius * R);
+      slot.core.scale.setScalar(c.radius * R * 0.58);
+      for (const [m, k] of [[slot.frontMat, 0.5], [slot.coreMat, 0.75]]) {
+        m.uniforms.uAlpha.value = c.alpha * k;
+        m.uniforms.uDir.value.copy(c.dir);
+        m.uniforms.uSeed.value = slot.seed;
+        m.uniforms.uTime.value += dt;
+      }
+      // The core occupies the inner part of the same cone.
+      slot.frontMat.uniforms.uWidth.value = c.width;
+      slot.coreMat.uniforms.uWidth.value = c.width * 0.55;
     }
 
     // --- brightness: slow pulsation + flare contribution

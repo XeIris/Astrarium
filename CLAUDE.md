@@ -61,7 +61,9 @@ jumping straight to the case you're debugging. Keys `1`–`7` switch imaging ban
 
 `window.SIM` is a deliberate console handle, not a leftover: `SIM.state.bodies[0].structure`
 is the fastest way to see what the physics thinks a body is, and `SIM.load('vega')` beats
-editing the hash. Note that browser-automation tools usually evaluate in an isolated
+editing the hash. `SIM.flare('Sun')` forces an eruption: flares arrive years apart and
+last days, so at any time scale that makes the orbits legible the whole event is over
+inside one frame — drop `SIM.state.timeScale` to ~0.002 first, or there is nothing to see. Note that browser-automation tools usually evaluate in an isolated
 world where page globals are not visible — inject a `<script>` element to reach it.
 
 ## Layout
@@ -86,16 +88,20 @@ Shell:
 | [sim/presets.js](sim/presets.js) | `PRESETS` / `PRESET_ORDER` — scenario initial conditions in real units, built with `binary()` / `kepler()` helpers |
 | [sim/stellar.js](sim/stellar.js) | mass → luminosity / radius / Teff / spectral class / blackbody colour, plus `ActivityModel` (spots, flares, CMEs) |
 | [sim/bodies.js](sim/bodies.js) | `createBodyVisual` — dispatches per body type, builds the `THREE.Group` and the `update(dt, ctx)` closure stored on `b.viz` |
-| [sim/star_visual.js](sim/star_visual.js) | photosphere / chromosphere / corona / prominence / CME rendering |
+| [sim/suns.js](sim/suns.js) | the multi-sun uniform block (`MAX_SUNS`, `SUN_UNIFORMS`, `SUN_GLSL`, `applySuns`) every lit surface declares, and `insolationAt(body, suns)` |
+| [sim/terrain.js](sim/terrain.js) | **what a solid surface looks like, and why**: isostasy (the bimodal hypsometric curve), plate tectonics (belts / trenches / ridges from the closing rate), craters, and the surface climate — the P₂ insolation profile, the three overturning cells, and a Whittaker biome diagram. Pure GLSL strings plus `crustThreshold` |
+| [sim/rocky_visual.js](sim/rocky_visual.js) | every solid-surface world — Earth, Mars, the Moon, Pluto, anything the Foundry makes. Terrain, volatiles at their own condensation temperature, clouds on the circulation, a Rayleigh atmosphere. Exports the three materials `sim/world.js` also uses |
+| [sim/giant_visual.js](sim/giant_visual.js) | gas giants: the zonal jet profile, differential advection of the cloud over a rigidly rotating interior, vortices that ride their own jet, and the ring system's radial optical-depth profile |
+| [sim/star_visual.js](sim/star_visual.js) | photosphere / chromosphere / corona / two-ribbon flare / CME rendering |
+| [sim/prominence.js](sim/prominence.js) | the eruption itself: a post-flare ARCADE and an erupting flux rope, built as threads on field lines in the vertex shader. Drawn twice — bright in emission off the limb, dark in absorption against the disc, because a prominence and a filament are the same object |
 | [sim/neutron_visual.js](sim/neutron_visual.js) | neutron-star surface, self-lensing, polar caps, pulsar beams |
-| [sim/world.js](sim/world.js) | the climate-driven rocky planet; also owns `MAX_SUNS` and `applySuns` (multi-sun lighting uniforms) |
+| [sim/world.js](sim/world.js) | the wiring between the climate model and `sim/rocky_visual.js`'s uniforms — nothing else. Re-exports `MAX_SUNS` / `applySuns` from `sim/suns.js` |
 | [sim/climate.js](sim/climate.js) | zero-D energy-balance model, `Climate` class and `ERAS` classification |
 | [sim/skyview.js](sim/skyview.js) | `SurfaceObserver` (where you stand, planet rotation) + `createSkyPass` multi-sun scattering composite |
 | [sim/blackhole.js](sim/blackhole.js) | `createBlackHolePass` — GR null-geodesic ray marcher, shadow/photon ring, volumetric Shakura–Sunyaev disc; `MAX_HOLES = 2` |
 | [sim/postfx.js](sim/postfx.js) | `createPostFX` — HDR target, spectral remap, progressive bloom, ACES composite |
 | [sim/spectrum.js](sim/spectrum.js) | `BANDS` and the temperature→band-brightness remap shader used by postfx |
 | [sim/sky.js](sim/sky.js) | the celestial background: `SKY_GLSL` (procedural stars, galactic band, dust, nebulae, non-thermal populations, all band-aware), `createSkyBackdrop` for scenes with no hole, `SKY_ENVIRONMENTS` / `SKY_PARAMS`, and `blendEnvironments` — several environments at once |
-| [sim/textures.js](sim/textures.js) | seeded procedural rocky / gas-giant canvas textures |
 | [sim/scale.js](sim/scale.js) | true-scale rendering: `physicalRadiusAU` mass–radius fallbacks, and `createMarker` — the point-source glow that carries a body once its disc goes sub-pixel |
 | [sim/structure.js](sim/structure.js) | **what a body IS**: mass–radius laws per support mechanism, ignition/support limits, rotational shape & gravity darkening, central conditions, and the layer model. `structureOf(spec)` is the single entry point |
 | [sim/starcat.js](sim/starcat.js) | `STAR_CATALOG` — measured parameters for ~27 real stars — plus `starSpec` / `starRing` / `realBinary` / `companion` scenario builders |
@@ -403,6 +409,107 @@ point and the only file here that knows the orrery exists.
   orbiter's double delta) is just a station at the kink. Approximating either
   with a cylinder and a slab is not a coarse model of the shape, it is a
   different object.
+- **A planet's appearance is a CONSEQUENCE, not a setting.** A body works out its
+  own insolation from wherever it currently is and whatever stars are lighting it
+  (`insolationAt`), turns that into a surface temperature, and the ice line, the
+  desert belts and the biomes follow. Edit a planet's orbit in flight and its caps
+  move. So a new planet parameter belongs in the derivation if it can be derived,
+  and only in the preset if it genuinely cannot — Venus's 737 K is stated because
+  no emissivity reaches it; Mercury's 433 K is not stated anywhere.
+- **What a cap is made of is ONE uniform.** `uFrostK` is the condensation
+  temperature of the body's dominant volatile: 273 K is water, 148 K is Mars's CO₂,
+  37 K is Pluto's nitrogen. Adding a kind of frost means adding a temperature, not
+  a code path. Likewise `uCrater` — whether anything erases impacts — is what
+  separates the Moon from the Earth, not a separate shader.
+- **Land fraction goes through the inverse normal CDF, not through a bias.**
+  Seven octaves of value noise are very nearly Gaussian (measured: mean 0.4970,
+  sd 0.1065), so the sea-level threshold for 29% land is `crustThreshold(0.29)`.
+  Subtracting `1 - land` instead — the obvious thing — gives a third of the land
+  asked for, and it is not obvious from the picture that anything is wrong.
+- **Albedos are ALBEDOS.** Closed-canopy forest is 0.12 and sand is 0.38, and it is
+  that ratio that makes a continent read as a continent. Colours chosen by eye come
+  out all the same brightness, which is the most reliable way to make a rendered
+  planet look painted. The one display convention is `uGain` (a single exposure
+  constant, because a camera exposes for the planet), and it is shared by every
+  body so two worlds side by side stay comparable.
+- **ADVECTED NOISE MUST BE FLOW-MAPPED.** A gas giant's cloud is carried by a wind
+  that depends on latitude, so the longitude offset between two adjacent latitudes
+  grows WITHOUT BOUND: sample a frozen noise field at that offset and after a
+  minute the field's latitudinal frequency is finer than a pixel and the planet
+  dissolves into a moire of horizontal stripes that swims with the camera. A real
+  atmosphere escapes this because its eddies are regenerated, not stretched for
+  ever. So the field is regenerated too — two copies advected on clocks half a
+  period out of step, cross-faded so each one's weight is ZERO at the moment its
+  own clock wraps (`w = 1 - |2t/T - 1|`, not `|2t/T - 1|`, or the reset pops). The
+  period bounds the shear and therefore the frequency; it is 16 s on a giant and
+  20 s on a cloud deck because the jets are a fifth of a radian apart. Same device
+  in `sim/giant_visual.js` and in `cloudMaterial`, same reason.
+- **Procedural detail finer than a pixel is not detail, it is aliasing** — and on a
+  banded planet it aliases into the very thing the bands are made of. There is no
+  mip chain on any of this, so octave counts and frequencies are chosen against the
+  screen, not against the noise. Anything that "adds more detail" to a giant has to
+  be looked at while the sim is running, not paused: the shear is what exposes it.
+- **A gas giant's core and its atmosphere are different objects.** The mesh's own
+  rotation is System III, the rigid interior rate; everything visible moves over it.
+  Nothing about the cloud may be baked into the mesh transform, or the two become
+  one object again and the planet reads as solid.
+- **Sea level is a LEVEL.** `uSeaKm` is the height of the datum, not an offset
+  applied to the ground: a dry world says sea level is 60 km down, and subtracting
+  that from the terrain is the same arithmetic but a different physical claim — the
+  lapse rate then reads it as 60 km of altitude and takes 390 K off the surface,
+  which froze Mars solid under CO₂ at an equilibrium temperature of 213 K.
+- **The annual mean cannot grow a winter cap.** Mars's cap is CO₂ at 148 K and its
+  annual-mean polar temperature is nowhere near that. `uDecl` is the sine of the
+  sub-solar latitude — geometry the orrery is already integrating — and `uSeason`
+  is how far the surface follows it: small under an ocean, large on bare rock.
+- **AN ERUPTION IS AN ARCADE, NOT AN ARCH — AND PLASMA LIVES ON FIELD LINES.**
+  Coronal beta is far below one, so gas cannot cross the field, only slide along
+  it: what is visible is a bundle of separate THREADS, and one tube can never
+  have that texture. Reconnection also runs along a neutral line and climbs, so
+  the loops come in a row anchored in two ribbons that draw apart. Both of those
+  are in [sim/prominence.js](sim/prominence.js), and the arcade's LENGTH along
+  the neutral line has to be several times a single loop's span or the loops
+  pile up into a ball of wool — which was the first thing that went wrong when
+  the single tube was replaced.
+- **The shear IS the energy.** A potential arcade is square across its neutral
+  line and stores nothing; the free energy a flare releases is the energy of the
+  skew. So the erupting rope is strongly sheared and winds down toward square as
+  the event proceeds, and the post-flare arcade under it is already relaxed.
+  Drawing loops perpendicular to the neutral line draws a field with nothing to
+  release.
+- **A prominence and a filament are ONE OBJECT.** The same cool material is
+  bright against the sky off the limb and dark in absorption against the
+  photosphere. So the arcade geometry is drawn twice from one buffer, with
+  different blend modes, each pass discarding where the other applies; the test
+  is whether the point projects inside the disc, done in view space against the
+  star's centre. Adding a "prominence" that only emits gets the limb right and
+  the disc wrong.
+- **Geometry that is entirely in the vertex shader is geometry you can share.**
+  The arcade buffer carries no shape at all — only thread index, arc parameter
+  and a side flag — so ONE buffer serves every arcade on every star, and an
+  eruption rises, stretches, shears and splays without a byte being rewritten.
+  It is deliberately never disposed; it outlives any one star.
+- **A thin shell is brightest where you look ALONG it.** Shade a CME shell like
+  an ordinary surface and it renders as a hard-edged crescent; weight it by the
+  path length through the shell — long at the rim, short face-on — and the same
+  geometry becomes the arc-with-legs a CME actually is. Its three parts (swept-up
+  front, evacuated cavity, prominence core) are two additive shells with a gap,
+  and the gap is the cavity, so nothing has to darken anything.
+- **Flare plasma publishes 10⁷ K, and that needs the alpha channel REPLACED.**
+  Alpha here is not opacity, it is the temperature channel
+  [sim/spectrum.js](sim/spectrum.js) images the frame from, so an additively
+  blended emitter must use `CustomBlending` with `blendDstAlpha = ZeroFactor`:
+  summed onto the photosphere's own published value it saturates to 1.0, which
+  means "no data" and silently drops both back to guessing a temperature from
+  colour. Absorption passes do the opposite and leave alpha alone. This is what
+  makes an eruption the brightest thing on a star in the X-ray band while the
+  3000 K photosphere under it is a black silhouette — the standing check is
+  `#alphacen`, Proxima, a forced flare, band 6.
+- **Active regions are not oriented at random** (Joy's law): a bipole lies
+  nearly east-west with a tilt of roughly half the latitude, leading polarity
+  equatorward. The whole eruption is built on that axis, so every arcade in a
+  hemisphere leans the same way — which is a thing you can see, and a thing that
+  looks wrong the moment it is random.
 - **`sim/structure.js` is the single source of truth for what a body is.** Radius,
   shape, temperature map, interior layers and the stability verdict all come from
   `structureOf()`, and every consumer — the star shader's oblateness, the cross-section,

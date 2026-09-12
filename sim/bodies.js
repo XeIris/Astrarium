@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { rockyTexture, gasGiantTexture, GAS_PALETTES } from './textures.js';
+import { createRockyVisual } from './rocky_visual.js';
+import { createGiantVisual, GIANT_PALETTES } from './giant_visual.js';
 import { createStarVisual } from './star_visual.js';
 import { createNeutronVisual } from './neutron_visual.js';
 import { createWorldVisual } from './world.js';
@@ -128,48 +129,31 @@ function createNeutron(b, opts) {
 }
 
 // ---------------------------------------------------------------------------
-// PLANETS — procedurally textured, with a thin atmospheric rim for rocky worlds
-// and a soft haze for gas giants.
+// PLANETS. Both kinds are full shader models now — sim/rocky_visual.js and
+// sim/giant_visual.js — and the only thing this file adds is the accretion
+// stream, because a planet still has to be edible by a black hole.
+//
+// What used to be here was a CanvasTexture: fBm run through a colour ramp and
+// wrapped round a sphere. It had to go for two reasons beyond looking painted.
+// A texture has a seam and a polar pinch; and, more to the point, nothing in it
+// was a consequence of anything — the same wallpaper was drawn at 0.4 AU and at
+// 40 AU, so a planet's appearance said nothing whatever about the planet.
 // ---------------------------------------------------------------------------
-function createPlanet(b, opts) {
-  const g = new THREE.Group();
-  const R = opts.radiusScene;
-  const seed = (b.id * 2654435761) >>> 0 ^ (opts.seed || 0);
-  let tex, rim;
-  if (opts.gas) {
-    tex = gasGiantTexture(seed, opts.palette || GAS_PALETTES.jupiter);
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0, emissive: new THREE.Color(opts.glow).multiplyScalar(0.04) });
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(R, 48, 48), mat));
-    // haze shell
-    const haze = new THREE.Mesh(new THREE.SphereGeometry(R * 1.03, 32, 32),
-      new THREE.MeshBasicMaterial({ color: opts.glow, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false }));
-    g.add(haze);
-    if (opts.rings) g.add(makeRings(R, opts.ringColor || 0xcdbb99));
-  } else {
-    tex = rockyTexture(seed, { hot: opts.hot, seaLevel: opts.seaLevel });
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0.02 });
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(R, 48, 48), mat));
-    if (opts.atmosphere) {
-      rim = new THREE.Mesh(new THREE.SphereGeometry(R * 1.025, 32, 32),
-        new THREE.MeshBasicMaterial({ color: opts.atmColor || 0x6aa6ff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false }));
-      g.add(rim);
-    }
-  }
-  const core = g.children[0];
-  const stream = new AccretionStream(opts.glow || 0x886644);
-  g.add(stream.points);
-
-  b.viz = { group: g, core, baseR: R, R };
-  b.spin = b.spin ?? (0.4 + Math.random() * 1.2) * (Math.random() < 0.1 ? -1 : 1);
-  b.viz.update = (dt, ctx) => { core.rotation.y += b.spin * dt; accrete(b, ctx, stream, dt); };
-  return b.viz;
+function withAccretion(viz, b, colorHex) {
+  const stream = new AccretionStream(colorHex || 0x886644);
+  viz.group.add(stream.points);
+  const inner = viz.update;
+  viz.update = (dt, ctx) => { inner(dt, ctx); accrete(b, ctx, stream, dt); };
+  return viz;
 }
 
-function makeRings(R, colorHex) {
-  const geo = new THREE.RingGeometry(R * 1.4, R * 2.3, 96);
-  geo.rotateX(-Math.PI / 2 + 0.25);
-  const m = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.55 });
-  return new THREE.Mesh(geo, m);
+function createRocky(b, opts) {
+  return withAccretion(createRockyVisual(b, opts), b, opts.glow);
+}
+
+function createGiant(b, opts) {
+  const pal = GIANT_PALETTES[opts.paletteName] || GIANT_PALETTES.jupiter;
+  return withAccretion(createGiantVisual(b, { ...opts, giantPalette: pal }), b, opts.glow);
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +289,7 @@ export function createBodyVisual(b, opts) {
     case 'star-basic':return createStar(b, opts);
     case 'world':     return createWorldVisual(b, opts);
     case 'neutron':   return createNeutron(b, opts);
-    case 'gas-giant': return createPlanet(b, { ...opts, gas: true });
-    default:          return createPlanet(b, opts);   // rocky
+    case 'gas-giant': return createGiant(b, opts);
+    default:          return createRocky(b, opts);   // rocky
   }
 }
