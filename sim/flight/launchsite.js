@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ORDER } from './localview.js';
 
 // ============================================================================
 // THE LAUNCH COMPLEX
@@ -47,6 +48,39 @@ const PAINT    = new THREE.MeshStandardMaterial({ color: 0x9c3f2e, roughness: 0.
 const GREY     = new THREE.MeshStandardMaterial({ color: 0x6e7276, roughness: 0.75, metalness: 0.35 });
 const SCORCH   = new THREE.MeshStandardMaterial({ color: 0x2a2724, roughness: 0.98, metalness: 0.02 });
 const WHITE    = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.8,  metalness: 0.08 });
+
+// ---------------------------------------------------------------------------
+// A DECAL IS NOT A SLAB LIFTED A FEW CENTIMETRES.
+// ----------------------------------------------------------------------------
+// The apron and the crawlerway lie ON the concrete, so they are coplanar with
+// it and the only thing separating them is a bias. Lifting them 8–12 cm does
+// not work, because the depth buffer's resolution is not a length: with a near
+// plane at n it is about z²/(n·2^24), which is 5 mm at 50 m and half a metre at
+// 500 m. A constant lift is therefore far too small far away — the mottling
+// that crawls over the apron as the camera moves — and far too large close up,
+// where the decal visibly floats.
+//
+// polygonOffset is the bias expressed in the units that actually matter: the
+// smallest resolvable depth increment AT THAT FRAGMENT, plus a term in the
+// polygon's depth slope so a surface seen edge-on gets more. It is correct at
+// every distance, which no constant in metres can be.
+//
+// The materials are cloned rather than flagged in place because the same
+// concrete is structural elsewhere — offsetting the hardstand itself would just
+// move the fight rather than settle it.
+const decalCache = new Map();
+function decal(material, order = 1) {
+  const key = material.uuid + ':' + order;
+  let m = decalCache.get(key);
+  if (!m) {
+    m = material.clone();
+    m.polygonOffset = true;
+    m.polygonOffsetFactor = -1 * order;
+    m.polygonOffsetUnits = -4 * order;
+    decalCache.set(key, m);
+  }
+  return m;
+}
 
 // ---------------------------------------------------------------------------
 // A merged box soup. A lattice tower is a few thousand struts and every one of
@@ -153,13 +187,56 @@ function box(w, h, d, m, x = 0, y = 0, z = 0) {
   return b;
 }
 
-/** The raised hardstand: an octagonal mound with sloped flanks. */
-function hardstand(across, rise) {
-  const g = new THREE.CylinderGeometry(across * 0.5, across * 0.5 + rise * 2.6, rise, 8, 1);
+// How far the pad deck stands above the surrounding terrain. LC-39A's hardstand
+// is a real mound: 390 x 325 m of octagon raised 12.8 m out of the marsh, with
+// flanks sloping down to grade. That number is load-bearing here for a reason
+// that has nothing to do with the pad — it is the ONLY thing keeping the mound's
+// top face off the ground patch. Drawn at the same height the two are exactly
+// coplanar over a hundred-metre octagon, and every frame the depth test picks a
+// different winner across it: the grey-and-olive crazy paving that spread out
+// around the pad and swam as the camera moved.
+export const PAD_RISE = 12.8;
+
+/** The raised hardstand: an octagonal mound with sloped flanks. Its top face is
+ *  at local y = 0 — the pad deck — and grade is PAD_RISE below that. */
+function hardstand(across) {
+  const g = new THREE.CylinderGeometry(across * 0.5, across * 0.5 + PAD_RISE * 2.6, PAD_RISE, 8, 1);
   const m = new THREE.Mesh(g, CONCRETE);
-  m.position.y = -rise * 0.5;   // top face at local y = 0, i.e. at the pad deck
+  m.position.y = -PAD_RISE * 0.5;   // top face at local y = 0, i.e. at the pad deck
   m.rotation.y = Math.PI / 8;
   return m;
+}
+
+/**
+ * THE CRAWLERWAY, which has to be a RAMP.
+ *
+ * A 1400 m road laid flat at deck height is fine for the hundred metres it
+ * spends on the mound and then hangs 12.8 m in the air over the plain for the
+ * other 1300. The real one climbs the flank — that five-percent grade is the
+ * steepest thing a loaded crawler-transporter is allowed to take, and it is why
+ * the ramp is as long as it is.
+ *
+ * Stations in (z, y) along the run, widened into a ribbon.
+ */
+function crawlerway(topR, width = 40, len = 1400) {
+  const toe = topR + PAD_RISE * 2.6;                 // where the flank meets grade
+  const stations = [
+    [0, 0], [-topR, 0], [-toe, -PAD_RISE], [-len, -PAD_RISE],
+  ];
+  const pos = [], idx = [], nor = [];
+  stations.forEach(([z, y], i) => {
+    pos.push(-width / 2, y, z, width / 2, y, z);
+    nor.push(0, 1, 0, 0, 1, 0);
+    if (i > 0) {
+      const b = (i - 1) * 2;
+      idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+    }
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return new THREE.Mesh(g, decal(DARKCON));
 }
 
 /**
@@ -258,7 +335,13 @@ const STYLES = {
  *                 and only for how far the deluge plume drifts
  */
 export function createLaunchSite(vehicle, height, env) {
-  const style = STYLES[vehicle.key] || 'lut';
+  // By `id`, not `key`. A vehicle in sim/flight/vehicles.js carries `id` and has
+  // never carried `key` — that belongs to its STAGES — so this lookup returned
+  // undefined for every vehicle ever built and every pad fell through to the
+  // Saturn V mobile launcher. The strongback, the chopsticks and the Shuttle's
+  // fixed service structure had never once been drawn; a Falcon 9 stood on an
+  // Apollo LUT with nine swing arms round it.
+  const style = STYLES[vehicle.id] || 'lut';
   const group = new THREE.Group();
   const D = vehicle.stages[0]?.D || 5;
 
@@ -275,29 +358,38 @@ export function createLaunchSite(vehicle, height, env) {
   const ground = new THREE.Group();
   ground.position.y = GRADE;
   group.add(ground);
-  const rise = 12.8;
-  ground.add(hardstand(Math.max(height * 2.6, 200), rise));
+  const across = Math.max(height * 2.6, 200);
+  const topR = across * 0.5;
+  ground.add(hardstand(across));
   ground.add(flameTrench(137, 18, 12.2));
   // The scorched apron. Every pad has one and it is the single strongest cue
-  // that something violent happens here.
-  const apron = new THREE.Mesh(new THREE.CircleGeometry(Math.max(D * 5, 30), 40), SCORCH);
+  // that something violent happens here. It lies ON the deck, so it is a decal:
+  // the depth bias does the separating, and the 1 cm lift is only there to keep
+  // it clear of the trench lip.
+  const apron = new THREE.Mesh(new THREE.CircleGeometry(Math.max(D * 5, 30), 40), decal(SCORCH, 2));
   apron.rotation.x = -Math.PI / 2;
-  apron.position.y = 0.12;
+  apron.position.y = 0.01;
   ground.add(apron);
   // The crawlerway out to the VAB — a 40 m wide river-rock road, and the only
-  // thing in the scene that says which way "away" is.
-  const road = new THREE.Mesh(new THREE.PlaneGeometry(40, 1400), DARKCON);
-  road.rotation.x = -Math.PI / 2;
-  road.position.set(0, 0.08, -760);
-  ground.add(road);
+  // thing in the scene that says which way "away" is. It ramps down the mound's
+  // flank rather than flying off the edge of it.
+  ground.add(crawlerway(topR));
+
+  // Everything that stands OFF the mound stands at grade, which is PAD_RISE
+  // lower. Hung off `ground` with the rest, the masts and the water tower —
+  // both of them far outside the octagon — floated a clear 12.8 m above the
+  // terrain they are supposed to be driven into.
+  const plain = new THREE.Group();
+  plain.position.y = GRADE - PAD_RISE;
+  group.add(plain);
 
   // The masts stand well clear of the vehicle — they are there to intercept a
   // strike, and a conductor close enough to be in the frame is close enough to
   // be a hazard. At 39B they are about 200 m out on a 300 m catenary span.
-  ground.add(lightningMasts(Math.max(height * 2.4, 240), Math.max(height * 1.2, 100)));
+  plain.add(lightningMasts(Math.max(height * 2.4, topR + 140), Math.max(height * 1.2, 100)));
   const wt = waterTower(88);
-  wt.position.set(-150, 0, 90);
-  ground.add(wt);
+  wt.position.set(-(topR + 60), 0, topR * 0.8);
+  plain.add(wt);
 
   // ---- the launch mount. Every one of these vehicles stands on a structure
   // that holds it down until the engines are at full thrust and confirmed good.
@@ -462,9 +554,23 @@ export function createLaunchSite(vehicle, height, env) {
         float a = (1.0 - smoothstep(0.15, 0.5, r)) * (1.0 - vA) * 0.55;
         gl_FragColor = vec4(vec3(0.92, 0.93, 0.95), a);
       }`,
-    transparent: true, depthWrite: false, blending: THREE.NormalBlending,
+    transparent: true, depthWrite: false,
+    // Alpha is sim/spectrum.js's temperature channel, not an opacity, so the
+    // coverage written above must drive the COLOUR blend and then be thrown
+    // away rather than landing in the buffer as a temperature. Steam is not an
+    // emitter; it has nothing to publish, and publishing its opacity instead
+    // saturated the channel over the whole pad and put everything behind it
+    // back to having its temperature guessed from its colour.
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendEquationAlpha: THREE.AddEquation,
+    blendSrcAlpha: THREE.ZeroFactor,
+    blendDstAlpha: THREE.OneFactor,
   }));
   steam.frustumCulled = false;
+  steam.renderOrder = ORDER.smoke;
   group.add(steam);
   let sNext = 0;
 
@@ -476,6 +582,9 @@ export function createLaunchSite(vehicle, height, env) {
     group,
     style,
     deckHeight,
+    /** How far grade — the level the ground patch is drawn at — sits below the
+     *  pad deck: the launch mount's own height plus the hardstand's rise. */
+    gradeDrop: deckHeight + PAD_RISE,
     /** Height of the tallest structure, m — the camera uses it for framing. */
     // The same expression the tower was BUILT from, not a second guess at it:
     // the fss style stands at 75.3 m, and reporting the lut height for it
