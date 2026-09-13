@@ -447,6 +447,11 @@ export function createRockyVisual(b, opts = {}) {
 
   const albedo = opts.albedo ?? 0.3;
   const eps = opts.greenhouse ?? (opts.atmosphere ? 0.61 : 1.0);
+  // The sea-level datum this body was BUILT with. A world that bakes past the
+  // boiling point loses its ocean, and the way that is expressed here is the
+  // datum dropping (see the note on uSeaKm above) — so the undried value has
+  // to be kept, or there is nothing to come back to when it cools.
+  const seaKm0 = surfMat.uniforms.uSeaKm.value;
   const _pole = new THREE.Vector3(), _sun = new THREE.Vector3();
 
   b.viz = {
@@ -486,6 +491,39 @@ export function createRockyVisual(b, opts = {}) {
       const S = (ctx.suns && ctx.suns.length) ? insolationAt(b, ctx.suns) : suns[0].intensity;
       const T = opts.surfaceK ?? (S > 1e-8 ? surfaceTempK(S, albedo, eps) : (opts.meanK ?? 60));
       surfMat.uniforms.uMeanK.value += (T - surfMat.uniforms.uMeanK.value) * Math.min(1, dt * 2);
+
+      // THE HOT END IS A CONSEQUENCE TOO. The cold end always was — everything
+      // freezes out below its own condensation point, and the caps follow the
+      // temperature this closure already derives. The hot end was not: the
+      // uniforms that dry a world out (uSeaKm, uScorch, uArid) were driven only
+      // by the energy-balance model in sim/world.js, which exists for the one
+      // home world a scenario may have. So an ordinary planet at 388 K — inside
+      // the inner edge of its star's habitable zone, past the runaway
+      // greenhouse — was drawn with oceans and fair-weather cloud, which is the
+      // one thing the habitable-zone lesson must not show.
+      //
+      // ONLY FOR A BODY THAT HAS WATER TO LOSE. An airless cratered rock at
+      // 440 K (Mercury) is not "scorched", it is just warm: there is no ocean
+      // to boil and no vegetation to bake, and tinting it ochre and giving it
+      // a red glow would be inventing a phenomenon. The gate is the atmosphere,
+      // which is also what `dry` above keys off. A STATED surface temperature
+      // counts: Venus's 737 K is stated because no greenhouse parameter reaches
+      // it, and a world at 737 K under 92 bar of CO2 is the archetype of this
+      // branch rather than an exception to it.
+      if (opts.atmosphere) {
+        const clamp01 = x => Math.min(Math.max(x, 0), 1);
+        const boil = clamp01((T - 350) / 90);
+        surfMat.uniforms.uSeaKm.value = seaKm0 + (-5.0 - seaKm0) * boil;
+        surfMat.uniforms.uScorch.value = clamp01((T - 330) / 140);
+        surfMat.uniforms.uArid.value = Math.min(clamp01((T - 310) / 80), 0.8);
+        if (cloudMat) {
+          // Cloud does not simply vanish — a runaway greenhouse ends up under
+          // MORE of it, not less (Venus is the reference case and is completely
+          // covered). What goes is the fair-weather structure in between.
+          const base = opts.cloudCover ?? 0.45;
+          cloudMat.uniforms.uCover.value = base + (1.0 - base) * clamp01((T - 340) / 110);
+        }
+      }
       // The season is just where the star is, relative to the spin axis: the
       // sine of the sub-solar latitude. It falls out of the geometry the orrery
       // is already integrating, so a world on an eccentric or a chaotic orbit

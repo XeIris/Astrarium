@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as PHYS from './sim/physics.js';
 import { createBodyVisual } from './sim/bodies.js';
 import { PRESETS, PRESET_ORDER } from './sim/presets.js';
+import { createLessons } from './sim/lessonui.js';
 import { Climate } from './sim/climate.js';
 import { createSkyPass, SurfaceObserver } from './sim/skyview.js';
 import { MAX_SUNS } from './sim/world.js';
@@ -83,7 +84,8 @@ const DOM = {};
  'xsecCanvas', 'xsecLegend', 'xsecFacts', 'xsecNotes', 'xsecVerdict', 'xsecName',
  'xsecOpen', 'liveEdit', 'flightPanel', 'flightHud', 'craftGrid', 'flightRow',
  'flightCam', 'flightExit', 'warpLabel',
- 'settingsPanel', 'skyEnvList', 'skyAdv', 'setSteps', 'setDrift'].forEach(id => DOM[id] = document.getElementById(id));
+ 'settingsPanel', 'skyEnvList', 'skyAdv', 'setSteps', 'setDrift',
+ 'coursePanel', 'courseMount', 'lessonCard'].forEach(id => DOM[id] = document.getElementById(id));
 
 // The scenario catalogue is grouped here rather than in the physics presets:
 // these labels are navigation, while PRESETS remains the source of truth for
@@ -92,6 +94,14 @@ const presetGroup = (id, label, keys) => ({
   id, label, keys: PRESET_ORDER.filter(key => keys.includes(key)),
 });
 const PRESET_GROUPS = [
+  // The course's own scenarios are in the list like everything else. A lesson
+  // opens one, but nothing about them is only reachable through a lesson —
+  // #edu_kepler is a scenario, and someone who never opens the course should
+  // still find "Why there are seasons" by looking for it.
+  presetGroup('learning', 'Learning scenarios', [
+    'edu_seasons', 'edu_moon', 'edu_kepler', 'edu_habitable', 'edu_starbirth',
+    'edu_sun', 'edu_lifecycle', 'edu_supernova', 'edu_pulsar', 'edu_transit',
+    'edu_hole', 'edu_galaxy', 'edu_cluster']),
   presetGroup('trisolaris', 'Trisolaris scenarios', ['trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos']),
   presetGroup('black-holes', 'BH scenarios', ['bhmerger', 'feeding']),
   presetGroup('neutron-stars', 'Neutron star scenarios', ['nsmerger']),
@@ -351,7 +361,15 @@ function attachVisual(b) {
   // quietly decides which close passes a world walks away from. A spec may
   // override it with a real distance in AU (see the Roche limits in
   // sim/presets.js).
-  b.contactAU = spec.contactAU ?? radiusScene / state.sceneScale;
+  //
+  // A MEASURED radius is such an override, and is treated as one. The Moon is
+  // the case that forced it: it orbits 0.00257 AU from the Earth, and the
+  // Earth's EXAGGERATED disc is 0.15 AU across — so switching #solar from real
+  // sizes to readable ones destroyed the Moon on the next frame, silently, with
+  // nothing but a bump in the "consumed" counter to say so. A body that carries
+  // a real radius in km has no need to guess a contact distance from how it
+  // happens to be drawn.
+  b.contactAU = spec.contactAU ?? (spec.radiusKm ? b.radius : radiusScene / state.sceneScale);
   if (spec.type === 'bh') b.rsScene = radiusScene;
 
   // Stars are coloured from their blackbody temperature unless a preset
@@ -591,6 +609,24 @@ function deriveBody(b, spec) {
   // disturbing the physics state (see rebuildVisuals)
   b.spec = spec; b.def = def;
   refreshStructure(b);
+
+  // The interior model has the last word on what a star currently IS, and the
+  // evolutionary phase is the case that proves it. b.teff and b.luminosity were
+  // set above from the ZAMS relations, which know about mass and nothing else —
+  // so dragging "Life burned" from the main sequence to the red giant branch
+  // moved the structure, the layers and the radius, and left the star the same
+  // colour and the same brightness it had been. A star that swells 25-fold and
+  // does not turn red is the one thing that lesson must not show.
+  //
+  // A stated value still wins (see starStructure: measured beats modelled), and
+  // at the default mid-main-sequence phase the model returns what the ZAMS
+  // relations already gave, so nothing that does not use the phase moves.
+  if (spec.type === 'star' && b.structure?.type === 'star') {
+    if (spec.teff == null) b.teff = b.structure.teff;
+    if (spec.luminosity == null) b.luminosity = b.structure.luminosity;
+    if (spec.radiusSun == null) b.radiusSun = b.structure.radiusSun;
+    b.spectral = spectralClass(b.teff);
+  }
 
   // A MEASURED radius always wins. Failing that, take the interior model's,
   // which is the same relation the Foundry and the cross-section are showing —
@@ -1445,6 +1481,7 @@ function loadPreset(key) {
   clearBodies();          // bodies, painted swarms and any flash still burning
 
   state.preset = p;
+  state.presetKey = key;
   // Where in the universe this system sits. A preset that says nothing gets the
   // mid-disc default, which is the familiar arrangement.
   // The preset SEEDS the live spec; the settings panel owns it from here. A
@@ -1537,7 +1574,14 @@ function loadPreset(key) {
   if (DOM.bhPanel) DOM.bhPanel.style.display = getHoles().length ? '' : 'none';
   if (DOM.climatePanel) DOM.climatePanel.style.display = state.climate ? '' : 'none';
   if (DOM.starPanel) DOM.starPanel.style.display = getStars().length ? '' : 'none';
-  if (DOM.camSurface) DOM.camSurface.style.display = p.surface ? '' : 'none';
+  if (DOM.camSurface) {
+    DOM.camSurface.style.display = p.surface ? '' : 'none';
+    // The button names the world you would be standing on. It used to say "On
+    // Trisolaris" in every scenario, which was true of the four it was written
+    // for and wrong the moment a lesson stood you on the Earth.
+    const hw = p.build && state.bodies.find(b => b.id === state.homeId);
+    DOM.camSurface.textContent = hw ? `On ${hw.name}` : 'Stand on it';
+  }
   spacetimeMesh.visible = state.showMesh;
   document.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('active', b.dataset.preset === key));
   refreshUI();
@@ -1898,7 +1942,7 @@ function setPanelOpen(id, open) {
   // it moves the tab stack and everything under it. The ResizeObserver would
   // catch it too (a display:none panel measures zero), but relying on that
   // makes the head of the chain the one link held together indirectly.
-  if (id === 'settingsPanel' || id === 'scenarioPanel' || id === 'xsecPanel' || id === 'flightPanel') layoutLeftColumn();
+  if (id === 'settingsPanel' || id === 'scenarioPanel' || id === 'coursePanel' || id === 'xsecPanel' || id === 'flightPanel') layoutLeftColumn();
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,8 +2001,11 @@ function layoutLeftColumn() {
   const free = tr && tr.height ? Math.round(tr.bottom) + 12 : tabTop;
   root.setProperty('--scenario-top', `${free}px`);
 
-  const top = document.getElementById('scenarioPanel');
-  const y = shown(top) ? Math.round(top.getBoundingClientRect().bottom) + 12 : free;
+  // The scenario list and the course share one slot — they are alternatives,
+  // never both — so the chain asks for whichever of the two is currently shown
+  // rather than naming one of them.
+  const top = [document.getElementById('scenarioPanel'), document.getElementById('coursePanel')].find(shown);
+  const y = top ? Math.round(top.getBoundingClientRect().bottom) + 12 : free;
   root.setProperty('--xsec-top', `${y}px`);
   // The flight panel shares the column. When it is open it takes the slot under
   // the scenario list and the cross-section moves below it, because the navball
@@ -1976,7 +2023,7 @@ function layoutLeftColumn() {
   // half under the control panel is the one message you most need to read.
   // Only what actually reaches the toast's own band of y counts.
   let bandL = 16;
-  for (const sel of ['#settingsPanel', '#scenarioPanel', '#modelPanel', '#flightPanel', '#xsecPanel', '.tab-col']) {
+  for (const sel of ['#settingsPanel', '#scenarioPanel', '#coursePanel', '#modelPanel', '#flightPanel', '#xsecPanel', '.tab-col']) {
     const el = document.querySelector(sel);
     if (!shown(el)) continue;
     const r = el.getBoundingClientRect();
@@ -1985,6 +2032,21 @@ function layoutLeftColumn() {
   const cp = document.getElementById('controlPanel');
   const bandR = shown(cp) ? cp.getBoundingClientRect().left - 16 : window.innerWidth - 16;
   root.setProperty('--toast-x', `${Math.round((bandL + bandR) / 2)}px`);
+
+  // The lesson card is the one panel that is WIDE and at the BOTTOM, so it is
+  // the one thing the toast's band is no use for: the toast only has to clear
+  // what is at the top of the column, and the card has to clear all of it. The
+  // cross-section is the case that forced this — it reaches the bottom of the
+  // screen, and a card centred on the free band at the top ran straight
+  // through it. So the card gets its own band, measured over every left panel
+  // at whatever y it sits at.
+  let cardL = 16;
+  for (const sel of ['#settingsPanel', '#scenarioPanel', '#coursePanel', '#flightPanel', '#xsecPanel', '.tab-col']) {
+    const el = document.querySelector(sel);
+    if (shown(el)) cardL = Math.max(cardL, el.getBoundingClientRect().right + 16);
+  }
+  root.setProperty('--card-left', `${Math.round(cardL)}px`);
+  root.setProperty('--card-right', `${Math.round(Math.max(window.innerWidth - bandR, 16))}px`);
 
   // The bottom-right key hint WRAPS rather than reaching across whatever the
   // left-hand column has put in the opposite corner. That is the readout at a
@@ -2005,7 +2067,7 @@ if (window.ResizeObserver) {
   // scenario list (groups expand) and the blurb (every preset writes a
   // different one). Observing only the panel misses growth that happens in the
   // same frame the observer is installed.
-  for (const id of ['settingsPanel', 'skyAdv', 'scenarioPanel', 'presetList', 'blurb', 'readout']) {
+  for (const id of ['settingsPanel', 'skyAdv', 'scenarioPanel', 'coursePanel', 'courseMount', 'presetList', 'blurb', 'readout']) {
     const el = document.getElementById(id);
     if (el) ro.observe(el);
   }
@@ -2065,6 +2127,9 @@ const SECTION_MODE = {
 };
 const OPEN_BY_DEFAULT = {
   sandbox: ['Suns', 'Imaging Band', 'View & Camera', 'Bodies'],
+  // A lesson's own card already carries the narration, so the column beside it
+  // opens with the two things lessons most often ask you to reach for.
+  learn: ['Imaging Band', 'View & Camera'],
   flight: ['Spaceflight'],
 };
 // The vehicle you flew last. Spaceflight opens ON the pad rather than on a view
@@ -2131,7 +2196,11 @@ function setSectionOpen(sec, open) {
 function applySectionModes(mode) {
   for (const sec of sections) {
     const want = SECTION_MODE[sec.title] ?? 'both';
-    const show = want === 'both' || want === mode;
+    // Learn mode is the sandbox with a course over it, and the lessons send you
+    // to these controls by name — "drag the Phase slider", "press 6 for X-ray".
+    // So it gets the sandbox's sections; only what it opens BY DEFAULT differs.
+    const effective = mode === 'learn' ? 'sandbox' : mode;
+    const show = want === 'both' || want === effective;
     // A CLASS, not an inline display: the climate block and the focused-object
     // block both drive their own inline display, and whichever of the two wrote
     // last would win. A class cannot be overwritten by that code by accident.
@@ -2142,6 +2211,7 @@ function applySectionModes(mode) {
   }
 }
 
+let learnEntered = false;
 function setAppMode(mode, opts = {}) {
   state.appMode = mode;
   document.body.dataset.appMode = mode;
@@ -2150,10 +2220,25 @@ function setAppMode(mode, opts = {}) {
   // The scenario list is the sandbox's own instrument. In flight the scenario
   // is fixed — you are on Earth — so the panel and its tab both go.
   document.body.classList.toggle('flight-mode', mode === 'flight');
+  document.body.classList.toggle('learn-mode', mode === 'learn');
+  if (mode !== 'learn') lessons?.close();
   if (mode === 'sandbox') {
     closeModelViewer();
     if (flight.active) endFlight();
     setPanelOpen('scenarioPanel', true);
+  } else if (mode === 'learn') {
+    // The course replaces the scenario list rather than joining it: in this
+    // mode every scenario change goes through a lesson, and two panels
+    // offering the same choice in different orders is one too many.
+    closeModelViewer();
+    if (flight.active) endFlight();
+    setPanelOpen('scenarioPanel', false);
+    setPanelOpen('coursePanel', true);
+    // Settings is the head of the left column and the tallest thing in it.
+    // The course needs that room and a beginner needs the settings panel
+    // least of anyone, so it starts folded — its tab is right there.
+    if (!learnEntered) { setPanelOpen('settingsPanel', false); learnEntered = true; }
+    if (!opts.quiet && !lessons.active) lessons.resume();
   } else if (opts.quiet) {
     setPanelOpen('scenarioPanel', false);
   } else {
@@ -2173,6 +2258,132 @@ function setAppMode(mode, opts = {}) {
   layoutLeftColumn();
 }
 
+// ============================================================================
+// THE COURSE
+// ----------------------------------------------------------------------------
+// sim/lessons.js is the curriculum and knows nothing about this file;
+// sim/lessonui.js renders it and executes a step's requests against the small
+// API below. This is the whole of the coupling, on purpose: a lesson asks for
+// "the solar system, following Earth, at true scale, in the X-ray band" and
+// does not know how any of those four things are done.
+// ============================================================================
+const stage = {
+  hasPreset: k => Object.prototype.hasOwnProperty.call(PRESETS, k),
+  currentPreset: () => state.presetKey,
+  loadPreset,
+  setFocus(name) {
+    const b = state.bodies.find(x => x.name === name);
+    if (b) setFollow(b);
+  },
+  setCam({ radius, theta, phi, mode }) {
+    if (mode) setCamMode(mode);
+    if (theta !== undefined) cam.theta = THREE.MathUtils.clamp(theta, 0.02, Math.PI - 0.02);
+    if (phi !== undefined) cam.phi = phi;
+    // jumpCamRadius rather than an assignment: an ease left running from the
+    // last step would otherwise drag the view back out a frame later.
+    if (radius !== undefined) jumpCamRadius(radius);
+    if (state.camMode === 'orbit') updateOrbitCam();
+  },
+  setBand,
+  setTimeScale,
+  setMesh(on) { toggleMesh(!!on); },
+  setTrueScale(on) { if (!!on !== state.trueScale) setTrueScale(!!on); },
+  setSky(spec) { setSky(presetSky({ ...(state.preset?.sky || {}), ...spec })); },
+  // Controls are driven through their own DOM elements and an `input` event
+  // rather than by writing state directly, so a lesson that moves a slider
+  // moves the slider — the learner can see what was changed, and every
+  // existing binding downstream of that control fires exactly as if they had
+  // done it themselves.
+  setControl(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = String(value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  },
+  setPanel(id, open) {
+    // The cross-section is the one panel that is not just a box: see
+    // openCrossSection. Everything else is a plain collapse.
+    if (id === 'xsecPanel') openCrossSection(open);
+    else setPanelOpen(id, open);
+  },
+  setPaused(p) { state.paused = !!p; },
+  flare(name) {
+    const b = state.bodies.find(x => x.name === name) || getStars()[0];
+    if (!b?.activity?.regions?.length) return;
+    b.activity.ignite();
+    const f = b.activity.flares[b.activity.flares.length - 1];
+    // A real flare lasts hours and this one has to survive being looked at.
+    if (f) f.duration = 0.15;
+  },
+  collapse(name) {
+    const b = state.bodies.find(x => x.name === name);
+    if (b) coreCollapse(b);
+  },
+  // ---- WHAT TIME IT IS WHERE YOU ARE STANDING.
+  // The surface observer's longitude is not a free parameter: it is fixed to
+  // the home world's own spin phase (see SurfaceObserver.update in
+  // sim/skyview.js), so "put me somewhere it is daylight" means turning the
+  // PLANET, not moving the camera. Without this a lesson that stands you on
+  // the surface has a 50% chance of opening at midnight and asking you to
+  // watch the Sun cross the sky.
+  //
+  // Noon is found by search rather than by algebra because the local vertical
+  // carries the obliquity, so the phase that maximises up·sun depends on where
+  // the planet is in its orbit as well as on the latitude — which is the whole
+  // content of the seasons lesson and not something to solve twice.
+  setLocalTime(when = 'noon') {
+    const home = getHome(), sun = state.suns[0];
+    if (!home?.viz || !sun) return;
+    const g = home.viz.group;
+    const q = g.getWorldQuaternion(new THREE.Quaternion());
+    const sunDir = sun.posScene.clone().sub(g.position).normalize();
+    const cl = Math.cos(observer.latitude), sl = Math.sin(observer.latitude);
+    const up = new THREE.Vector3();
+    const elev = phi => {
+      up.set(cl * Math.cos(phi), sl, cl * Math.sin(phi)).applyQuaternion(q);
+      return up.dot(sunDir);
+    };
+    let best = -2, noon = 0;
+    for (let i = 0; i < 720; i++) {
+      const phi = (i / 720) * Math.PI * 2, d = elev(phi);
+      if (d > best) { best = d; noon = phi; }
+    }
+    // Fraction of a day, midnight = 0, noon = 0.5. The named times are the
+    // quarters of that, and dawn is noon minus a quarter turn because the
+    // elevation is rising on that side of the maximum.
+    const frac = typeof when === 'number' ? when
+      : { midnight: 0, dawn: 0.25, noon: 0.5, dusk: 0.75, morning: 0.38 }[when] ?? 0.5;
+    home.spinPhase = noon + (frac - 0.5) * Math.PI * 2;
+    observer.update(home, camera);
+    aimAtBrightestSun();
+    // ...and then look BESIDE it, and UP. aimAtBrightestSun centres the star,
+    // which is right when you are looking for it and wrong when you are
+    // watching it move — a sun in the middle of the frame is a thing you cannot
+    // see anything else against.
+    //
+    // The elevation matters more than it looks. Sky brightness goes as
+    // 1 − exp(−β_e·m) with m the Kasten–Young air mass, and m is 1 at the zenith
+    // and 5 at ten degrees up: down there every channel has saturated, the
+    // ratio between them is gone, and the sky renders white. The blue is a
+    // RATIO, and you only have it while the path is still optically thin. So
+    // the opening view is a fifth of a radian up rather than along the horizon.
+    observer.azimuth += 0.45;
+    observer.elevation = 0.34;
+    observer.update(home, camera);
+  },
+  bodies: () => state.bodies,
+  focusBody: () => state.bodies.find(b => b.id === state.focusId) || null,
+  sceneScale: () => state.sceneScale,
+  simYears: () => state.simYears,
+  camera,
+  toast,
+};
+
+const lessons = createLessons({
+  panel: DOM.courseMount,
+  card: DOM.lessonCard,
+  stage,
+});
 document.querySelectorAll('.ms-btn').forEach(b =>
   b.addEventListener('click', () => setAppMode(b.dataset.mode)));
 
@@ -2950,6 +3161,11 @@ function animate() {
   painter.update(simStepped);
   updateSuns();
   postfx.setSceneTemp(sceneMaxTemp());
+  // The course's instruments are measurements of the running scene — a light
+  // curve, a strain trace, an HR diagram — so they are sampled here, on the
+  // frame, and not when a button is pressed. This is above the render branches
+  // rather than inside one because all of them need it.
+  lessons.update(dt);
 
   // body visual updates
   const holes = getHoles().map(h => ({ posScene: h.viz.group.position, rsScene: h.rsScene, mass: h.mass }));
@@ -3158,7 +3374,14 @@ function animate() {
     // day: three suns of different luminosity crossing the sky span a huge
     // dynamic range. Target exposure falls as the ground gets brighter, and the
     // eye takes a moment to follow — so a sunrise dazzles briefly, then settles.
-    const target = THREE.MathUtils.clamp(0.32 / (0.12 + illum), 0.35, 1.9);
+    // THE FLOOR IS WHAT DECIDES WHETHER DAYLIGHT IS BLUE. Sky radiance in the
+    // pass is ~4 units at the zenith under one solar constant, so an exposure
+    // floor of 0.35 pushed every channel past the knee of the filmic curve and
+    // a clear noon rendered WHITE — the blue of a daytime sky is the ratio
+    // between the channels, and that ratio only survives while the brightest
+    // of them is still on the linear part. 0.2 keeps it there. Night is
+    // unaffected: with no sun up the target is at the ceiling either way.
+    const target = THREE.MathUtils.clamp(0.32 / (0.12 + illum), 0.20, 1.9);
     const adapt = 1 - Math.exp(-dt / 1.6);              // ~1.6 s time constant
     state.exposure += (target - state.exposure) * adapt;
     u.uExposure.value = state.exposure;
@@ -3329,14 +3552,21 @@ function showCrossSection(b) {
   DOM.xsecName.textContent = `#${b.id} ${b.name}`;
   inspector.show(refreshStructure(b), b.structure?.label);
 }
-DOM.xsecOpen?.addEventListener('click', () => {
+// Opening the cross-section is more than showing the panel: it has to be
+// pointed at a body and told to keep tracking it. The button and the course
+// both go through here, because a lesson that only set `display` got an empty
+// diagram and an editor still holding the last object's numbers.
+function openCrossSection(on = true) {
+  if (!on) { xsecOpen = false; setPanelOpen('xsecPanel', false); return false; }
   const b = state.bodies.find(x => x.id === state.focusId);
-  if (!b) return;
+  if (!b) return false;
   xsecOpen = true;
   setPanelOpen('xsecPanel', true);
   showCrossSection(b);
   liveEditor?.sync(b);
-});
+  return true;
+}
+DOM.xsecOpen?.addEventListener('click', () => openCrossSection(true));
 document.querySelector('[data-close="xsecPanel"]')?.addEventListener('click', () => { xsecOpen = false; });
 
 // ============================================================================
@@ -3372,7 +3602,12 @@ window.SIM = { state, scene, camera, cam, renderer, THREE, flight, launchCraft, 
     f.duration = opts.duration ?? 0.15;
     return f;
   },
-  load: loadPreset, setSky, applySky, presetSky, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec };
+  load: loadPreset, setSky, applySky, presetSky, refreshStructure, spawnBody, setFollow, placeSpawn, setSpawnAtRest, foundry, liveEditor, editBody, showCrossSection, coreCollapse, painter, applyPaintSpec,
+  // The course, and the API it drives the sim through. `SIM.lessons.openLesson('lives/giants')`
+  // jumps straight to a lesson, and `SIM.stage` is how a headless check walks
+  // the whole curriculum without touching a button — there is no test runner
+  // here, so the handle IS the harness.
+  lessons, stage, setAppMode, observer, setCamMode, setBand, setTimeScale, setTrueScale };
 
 resize();
 // Own properties only: a plain `PRESETS[key]` lookup resolves inherited members,

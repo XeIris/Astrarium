@@ -2,6 +2,7 @@ import { circularSpeed, rocheLimit, G } from './physics.js';
 import { luminosity, effectiveTemp } from './stellar.js';
 import { starSpec, starRing, realBinary, companion } from './starcat.js';
 import { baseRadiusSun, phaseById } from './structure.js';
+import { EDU_PRESETS, EDU_ORDER } from './edupresets.js';
 
 // ============================================================================
 // PRESET SCENARIOS
@@ -242,6 +243,12 @@ function orbiter(Mc, a, spec, angle = Math.random() * Math.PI * 2, incl = 0) {
 }
 
 export const PRESETS = {
+  // The teaching scenarios live in sim/edupresets.js — same contract, same
+  // units, merged here so PRESETS stays the ONE lookup every consumer uses.
+  // Splitting the file was about length, not about kind: a scenario built for a
+  // lesson is still just a scenario, and #edu_kepler has to work from the hash
+  // and from the scenario list whether or not anyone is taking the course.
+  ...EDU_PRESETS,
   // --------------------------------------------------------------------------
   sandbox: {
     sky: { env: 'disc', tilt: 0.42, roll: 0.7 },
@@ -856,4 +863,4 @@ export const PRESETS = {
   },
 };
 
-export const PRESET_ORDER = ['blank', 'stellar_zoo', 'sirius', 'vega', 'achernar', 'betelgeuse', 'alphacen', 'etacar', 'hr_ladder', 'trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];
+export const PRESET_ORDER = [...EDU_ORDER, 'blank', 'stellar_zoo', 'sirius', 'vega', 'achernar', 'betelgeuse', 'alphacen', 'etacar', 'hr_ladder', 'trisolaris', 'trisolaris_wander', 'trisolaris_compact', 'trisolaris_wide', 'trisolaris_alpha', 'trisolaris_chaos', 'sandbox', 'solar', 'threebody', 'binarystar', 'bhmerger', 'nsmerger', 'feeding'];

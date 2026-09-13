@@ -38,6 +38,20 @@
         <span class="sc-desc">Build and break systems. N-body gravity, real interiors,
           black holes, climate, and the imaging bands to look at it all in.</span>
       </button>
+      <button class="start-card" data-start="learn">
+        <svg viewBox="0 0 64 64" class="start-ico" aria-hidden="true">
+          <circle cx="32" cy="32" r="19" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <ellipse cx="32" cy="32" rx="19" ry="7" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".75"/>
+          <path d="M13 32a19 19 0 0 1 38 0" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".45"
+            transform="rotate(60 32 32)"/>
+          <circle cx="32" cy="32" r="3.4" fill="currentColor"/>
+          <circle cx="51" cy="32" r="2.2" fill="currentColor" opacity=".8"/>
+        </svg>
+        <span class="sc-name">Learn astronomy</span>
+        <span class="sc-desc">A beginner’s course, thirty-five lessons, built on the
+          same physics as the rest of this. Seasons and moon phases through to
+          gravitational waves — in order, or jump to what you came for.</span>
+      </button>
       <button class="start-card" data-start="flight">
         <svg viewBox="0 0 64 64" class="start-ico" aria-hidden="true">
           <path d="M32 4c7 8 10 18 10 28v12H22V32C22 22 25 12 32 4z" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -69,6 +83,7 @@
 <div class="hud title-block">
   <div class="mode-switch">
     <button class="ms-btn" data-mode="sandbox">Sandbox</button>
+    <button class="ms-btn" data-mode="learn">Learn</button>
     <button class="ms-btn" data-mode="flight">Spaceflight</button>
   </div>
 </div>
@@ -210,6 +225,45 @@
   <div class="blurb" id="blurb"></div>
 </div>
 
+<!-- THE COURSE. It takes the scenario list's slot in the column rather than
+     sitting beside it, because in Learn mode the course IS how you choose what
+     to look at — every lesson opens a scenario. See sim/lessonui.js. -->
+<div class="hud panel panel-left" id="coursePanel">
+  <div class="panel-head">
+    <h3>Course</h3>
+    <button class="panel-close" data-close="coursePanel" title="Collapse (H hides everything)">✕</button>
+  </div>
+  <div id="courseMount"></div>
+</div>
+
+<!-- The lesson itself. Bottom centre and WIDE, because it is prose and prose
+     needs a measure — and because the thing it is arguing about is directly
+     behind it, which a panel over the middle of the screen would be covering. -->
+<div class="hud lesson-card" id="lessonCard" hidden>
+  <div class="lc-head">
+    <span class="lc-crumb"></span>
+    <span class="lc-count"></span>
+    <button class="panel-close" data-close-card title="Leave this lesson">✕</button>
+  </div>
+  <!-- Text FIRST in the DOM, instrument second. When the card is wide the two
+       sit side by side and it reads left to right; when the panels have left it
+       too narrow the flex row wraps, and the half that ends up on top is the
+       half you have to read. Wrapping the other way put a 210px canvas over the
+       lesson and pushed every word of it below the fold. -->
+  <div class="lc-cols">
+    <div class="lc-main">
+      <h4 class="lc-title"></h4>
+      <div class="lc-text"></div>
+    </div>
+    <div class="lc-media"></div>
+  </div>
+  <div class="lc-foot">
+    <button class="lc-nav" data-back>← Back</button>
+    <div class="lc-dots"></div>
+    <button class="lc-nav lc-primary" data-next>Next →</button>
+  </div>
+</div>
+
 <div class="hud panel" id="controlPanel">
   <div class="panel-head">
     <h3>Controls</h3>
@@ -282,7 +336,7 @@
   <div class="toggle-row">
     <button class="toggle-btn active" id="camOrbit">Orbit</button>
     <button class="toggle-btn" id="camFree">Free Fly</button>
-    <button class="toggle-btn" id="camSurface" style="display:none">On Trisolaris</button>
+    <button class="toggle-btn" id="camSurface" style="display:none">Stand on it</button>
   </div>
   <button class="ghost-btn" id="resetView">Reset View</button>
   <div class="section-note">Render scale and lens detail moved to
@@ -450,6 +504,7 @@
   <div class="tab-col">
     <button class="panel-tab" data-open="settingsPanel" hidden>▸ Settings</button>
     <button class="panel-tab" data-open="scenarioPanel" hidden>▸ Scenario</button>
+    <button class="panel-tab tab-learn" data-open="coursePanel" hidden>▸ Course</button>
     <button class="panel-tab tab-flight" data-open="flightPanel" hidden>▸ Flight</button>
   </div>
   <button class="panel-tab tab-right" data-open="controlPanel" hidden>Controls ◂</button>
