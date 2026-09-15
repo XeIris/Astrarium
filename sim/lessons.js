@@ -233,8 +233,8 @@ export const MODULES = [
           it. Nothing you can feel distinguishes the two explanations, which is why the argument lasted.</p>`,
         look: 'Drag to look around. Find the horizon, then watch the Sun move relative to it.' },
       { title: 'Latitude changes everything',
-        do: { preset: 'edu_seasons', cam: { mode: 'surface' }, timeScale: 0.003, control: { lat: 66 }, localTime: 'noon' },
-        body: `<p>The observer has been moved to 66° north — the Arctic Circle. From here the Sun's daily
+        do: { preset: 'edu_seasons', cam: { mode: 'surface' }, timeScale: 0.003, control: { lat: 66.56 }, localTime: 'noon' },
+        body: `<p>The observer has been moved to about 66.56° north — the Arctic Circle. From here the Sun's daily
           path is tilted right over: it skims the horizon instead of climbing overhead, and for part of
           the year it does not set at all.</p>
           <p>Drag the Latitude slider in the controls. At the equator the Sun goes straight up and straight
@@ -288,7 +288,7 @@ export const MODULES = [
     myth: "The Moon's phases are the Earth's shadow falling on it.",
     steps: [
       { title: 'Half of it is always lit',
-        do: { preset: 'edu_moon', focus: 'Moon', cam: { radius: 2.2 }, timeScale: 0.006 },
+        do: { preset: 'edu_moon', focus: 'Moon', timeScale: 0.006 },
         body: `<p>Look at the Moon from out here, off to the side. Exactly half of it is in sunlight, and the
           lit half is always the half facing the Sun. That is true at every instant, everywhere in the
           orbit, and it never changes.</p>
@@ -301,10 +301,10 @@ export const MODULES = [
           face — full moon. When it is between us and the Sun we are looking at its unlit back — new moon.
           In between we see a slice, at an angle.</p>
           <p>Notice what the Earth's shadow is doing during all of this: nothing. It points directly away
-          from the Sun, and at almost every new moon the Moon is nowhere near it.</p>`,
+          from the Sun, and at most full moons the Moon passes above or below it.</p>`,
         look: 'Follow one full cycle — 29.5 days. The phase tracks the angle between the Sun, the Moon and you, and nothing else.' },
       { title: 'The same face, always',
-        do: { preset: 'edu_moon', focus: 'Moon', cam: { radius: 1.2 } },
+        do: { preset: 'edu_moon', focus: 'Moon' },
         body: `<p>One more thing the Moon does that is easy to get wrong: it turns. It turns exactly once per
           orbit, which is why the same side always faces us. A moon that did not rotate at all would show
           us every side over a month.</p>
@@ -321,11 +321,12 @@ export const MODULES = [
           eclipse at every new moon and a lunar eclipse at every full moon — twenty-four a year, like
           clockwork.</p>
           <p>It is tilted by 5.14°. That sounds tiny, and it is enough: at most new moons the Moon passes
-          several Earth-diameters above or below the shadow and nothing happens at all. Only when the
-          crossing points of the two orbits happen to line up with the Sun does a shadow land.</p>`,
+          above or below the Sun–Earth line and nothing happens at all. Only when the
+          crossing points of the two orbits happen to line up with the Sun does a shadow land. This demo
+          shows those alignments; it does not render mutual eclipse shadows.</p>`,
         look: 'Watch the Moon relative to the line between the Sun and the Earth. It passes above, then below, then above.' },
       { title: 'An outrageous coincidence',
-        do: { preset: 'edu_moon', focus: 'Moon', cam: { radius: 0.9 } },
+        do: { preset: 'edu_moon', focus: 'Moon' },
         body: `<p>The Sun is about 400 times wider than the Moon, and it is about 400 times further away. So
           from Earth, and only from Earth, and only right now, the two discs are almost exactly the same
           size in the sky. That is why a total solar eclipse is a thin ring of corona around a perfectly
@@ -783,7 +784,7 @@ export const MODULES = [
           when helium runs out the envelope simply drifts away as a planetary nebula and the naked core is
           left behind — a white dwarf, cooling forever.</p>` },
       { title: 'Held up by nothing but the exclusion principle',
-        do: { preset: 'sirius', focus: 'Sirius B', trueScale: true, cam: { radius: 6 }, panel: { coursePanel: false, xsecPanel: true } },
+        do: { preset: 'sirius', focus: 'Sirius B', trueScale: true, panel: { coursePanel: false, xsecPanel: true } },
         instrument: 'cutaway',
         body: `<p>Sirius B again, now that you know what it is. There is no fusion in it and no heat holding
           it up. What stops it collapsing is that electrons cannot be squeezed into the same quantum state
@@ -902,7 +903,7 @@ export const MODULES = [
         body: `<p>There is nothing to see here in the ordinary sense — the object emits nothing. Everything
           visible is the sky <em>behind</em> being bent around it, and the dark disc in the middle is where
           the sky is missing.</p>
-          <p>That disc is bigger than the horizon: 2.6 Schwarzschild radii across, not one. Light that comes
+          <p>That disc is bigger than the horizon: 5.2 Schwarzschild radii across, compared with two for the horizon. Light that comes
           closer than the photon sphere at 1.5 r_s cannot get back out even if it was never heading in, so
           the shadow is the horizon plus everything that grazes too close.</p>`,
         look: 'Look at the stars near the edge of the shadow. They are smeared into arcs — that is the same star, seen twice.' },
@@ -911,8 +912,8 @@ export const MODULES = [
         body: `<p>At exactly 1.5 r_s, light can orbit. The thin bright circle at the edge of the shadow is
           light that went most of the way round and came back out toward you — and there is not one ring
           but an infinite nested series of them, each from light that went round one more time.</p>
-          <p>This is what the Event Horizon Telescope photographed in 2019: not the black hole, but the ring
-          of light around the hole where its shadow is.</p>` },
+          <p>The Event Horizon Telescope’s 2019 image shows a broad ring of emitting plasma around the
+          shadow. It does not resolve this nested series of photon rings.</p>` },
       { title: 'Turn the disc on',
         do: { preset: 'sandbox', cam: { radius: 34 }, control: { disc: 0.9 } },
         body: `<p>Now add an accretion disc. The extraordinary thing here is that you can see the <em>far
@@ -958,7 +959,9 @@ export const MODULES = [
           collision. This is not an animation: the energy loss is applied to the orbit as a force, and the
           speed-up follows from it.</p>
           <p>The trace on the left is the <em>strain</em> — the fractional stretch of space — that a detector
-          on Earth would record from this system.</p>` },
+          on Earth could receive in an ideal orientation. This is a rescaled, leading-order inspiral
+          illustration, not a detector waveform prediction: the demo accelerates the inspiral and does
+          not model merger or ringdown.</p>` },
       { title: 'Read the chirp',
         do: { preset: 'bhmerger', cam: { radius: 50 } }, instrument: 'gw',
         body: `<p>Two things rise together: the frequency and the amplitude. That characteristic sweep is
@@ -970,7 +973,8 @@ export const MODULES = [
       { title: 'How absurdly small it is',
         do: { preset: 'bhmerger', cam: { radius: 28 } }, instrument: 'gw',
         body: `<p>The L-shaped figure is an interferometer, and the numbers beside it are real. A strain of
-          10⁻²¹ across a 4 km arm is a length change of about 4×10⁻¹⁸ metres — one thousandth of the width
+          10⁻²¹ gives a differential change of about 4×10⁻¹⁸ metres between 4 km arms
+          (about 2×10⁻¹⁸ metres per arm) — one thousandth of the width
           of a proton.</p>
           <p>Einstein predicted these in 1916 and spent years doubting they were real rather than an artefact
           of coordinates. He also thought they could never possibly be measured. It took a century and two
@@ -1162,8 +1166,8 @@ export const MODULES = [
           whatever is in front, including the limb darkening that makes the middle of a stellar disc
           brighter than its edge. That is why the dip has a rounded bottom rather than a flat one.</p>
           <p>The deep dips are the hot Jupiter, once every 2 seconds or so — that is its 4.08-day year,
-          slowed down. Between them, if you look closely at the flux scale, the small planet is doing
-          the same thing two hundred times more faintly.</p>`,
+          sped up. The outer planet’s year is about 54 days, so its transits are much rarer
+          and roughly two hundred times shallower.</p>`,
         look: 'The depth readout under the chart is the deepest dip so far, in parts per million. It reads about 21 000 — deeper than the 17 000 the area ratio alone would give, because the planet is crossing the bright middle of the disc.' },
       { title: 'Now break it',
         do: { preset: 'edu_transit', cam: { radius: 26, theta: 0.6 } }, instrument: 'photometer',

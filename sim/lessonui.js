@@ -41,7 +41,12 @@ import { createCutaway } from './cutaway.js';
 const STORE = 'bh.course.v1';
 
 function loadProgress() {
-  try { return JSON.parse(localStorage.getItem(STORE)) || { done: {}, last: null }; }
+  try {
+    const p = JSON.parse(localStorage.getItem(STORE));
+    const done = {};
+    for (const e of LESSON_ORDER) if (p?.done?.[e.key] === true) done[e.key] = true;
+    return { done, last: findLesson(p?.last)?.lesson ? p.last : null };
+  }
   catch { return { done: {}, last: null }; }
 }
 function saveProgress(p) {
@@ -157,6 +162,8 @@ export function createLessons({ panel, card, stage }) {
   // ---- the media column: an instrument, a diagram, or nothing at all
   function setMedia(step) {
     instrument = step.instrument || null;
+    built.cutaway?.dispose();
+    delete built.cutaway;
     media.innerHTML = '';
     if (step.fig && FIGURES[step.fig]) {
       media.innerHTML = FIGURES[step.fig];
@@ -174,9 +181,7 @@ export function createLessons({ panel, card, stage }) {
     wrap.appendChild(note);
     media.appendChild(wrap);
 
-    // Each instrument keeps its own canvas across steps (so a light curve is
-    // not thrown away between two steps that both want one) but the canvas has
-    // to live in the card that is currently on screen, so it is re-parented.
+    // A new card owns a new canvas; readings restart with that step’s view.
     if (instrument === 'cutaway') {
       cv.width = 320; cv.height = 210;
       // A WebGLRenderer is bound to one canvas for life and this card builds a
@@ -193,7 +198,7 @@ export function createLessons({ panel, card, stage }) {
         note.textContent = '';
       } else if (instrument === 'gw') {
         built.gw = createGWDetector({ canvas: cv, distMpc: 410 });
-        note.textContent = 'strain a 4 km interferometer would record';
+        note.textContent = 'rescaled inspiral · ideal orientation at 410 Mpc · arm motion exaggerated';
       } else if (instrument === 'hr') {
         built.hr = createHRDiagram({ canvas: cv });
         note.textContent = 'the band is sampled from the interior model, not drawn';
@@ -221,10 +226,12 @@ export function createLessons({ panel, card, stage }) {
     stage.setMesh(!!d.mesh);
     if (d.sky) stage.setSky(d.sky);
     if (d.trueScale !== undefined) stage.setTrueScale(d.trueScale);
-    if (d.timeScale !== undefined) stage.setTimeScale(d.timeScale);
+
     if (d.paused !== undefined) stage.setPaused(d.paused);
     if (d.focus) stage.setFocus(d.focus);
     if (d.cam) stage.setCam(d.cam);
+    // Entering surface mode chooses a default pace; the lesson overrides it.
+    if (d.timeScale !== undefined) stage.setTimeScale(d.timeScale);
     if (d.band !== undefined) stage.setBand(d.band);
     if (d.control) for (const [id, v] of Object.entries(d.control)) stage.setControl(id, v);
     // AFTER the controls, not before: `control: { lat: 66 }` moves the observer
@@ -253,7 +260,7 @@ export function createLessons({ panel, card, stage }) {
   function openLesson(k, step = 0) {
     const found = findLesson(k);
     if (!found) return;
-    key = k; stepIx = 0;
+    key = k; stepIx = -1;
     progress.last = k; saveProgress(progress);
     goStep(step);
     renderPanel();
@@ -262,8 +269,21 @@ export function createLessons({ panel, card, stage }) {
   function goStep(i) {
     const found = findLesson(key);
     if (!found) return;
-    stepIx = Math.max(0, Math.min(i, found.lesson.steps.length - 1));
-    applyDo(found.lesson.steps[stepIx].do);
+    const target = Math.max(0, Math.min(i, found.lesson.steps.length - 1));
+    // Forward steps preserve a running experiment. Back, dots and direct links
+    // reconstruct its prerequisites, since each do block is only a patch.
+    if (stepIx < 0 || target !== stepIx + 1) {
+      const initial = found.lesson.steps[0].do?.preset || 'edu_galaxy';
+      stage.loadPreset(initial);
+      stage.setBand(3);
+      stage.setPaused(false);
+      stage.setControl('speed', 1);
+      stage.setControl('lat', 22);
+      stage.setPanel('xsecPanel', false);
+      stage.setPanel('coursePanel', true);
+      for (let j = 0; j <= target; j++) applyDo(found.lesson.steps[j].do);
+    } else applyDo(found.lesson.steps[target].do);
+    stepIx = target;
     renderCard();
     if (stepIx === found.lesson.steps.length - 1 && !progress.done[key]) {
       progress.done[key] = true; saveProgress(progress); renderPanel();
@@ -288,7 +308,11 @@ export function createLessons({ panel, card, stage }) {
     }
   }
 
-  function close() { key = null; card.hidden = true; renderPanel(); }
+  function close() {
+    key = null; instrument = null; card.hidden = true;
+    built.cutaway?.dispose(); delete built.cutaway;
+    renderPanel();
+  }
 
   // Where the course picks up. The lesson you were last on if you did not
   // finish it, otherwise the first one you have not done, otherwise the start.

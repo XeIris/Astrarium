@@ -83,36 +83,51 @@ export function measure(bodies, u) {
   _e2.crossVectors(u, _e1).normalize();
 
   const stars = bodies.filter(b => b.alive !== false && b.luminosity > 0 && b.radius > 0);
-  const occulters = bodies.filter(b => b.alive !== false && b.radius > 0 && !(b.luminosity > 0));
+  const occulters = bodies.filter(b => b.alive !== false && b.radius > 0);
 
   let flux = 0, total = 0;
   const events = [];
   for (const s of stars) {
     total += s.luminosity;
     let blocked = 0;
+    const R = s.radius;
+    const projected = [];
     for (const p of occulters) {
+      if (p === s) continue;
       _d.subVectors(p.pos, s.pos);
-      const along = _d.dot(u);
-      if (along <= 0) continue;                       // behind the star
-      const x = _d.dot(_e1), y = _d.dot(_e2);
-      const sep = Math.hypot(x, y);
-      const R = s.radius, r = p.radius;
-      if (sep >= R + r) continue;                     // no overlap at all
-      // Integrate the limb-darkened intensity over the part of the planet's
-      // disc that lies on the star's.
+      if (_d.dot(u) <= 0) continue;
+      const x = _d.dot(_e1), y = _d.dot(_e2), r = p.radius;
+      if (Math.hypot(x, y) >= R + r) continue;
+      projected.push({ p, x, y, r });
+    }
+    const intensity = (x, y) => {
+      const q2 = (x * x + y * y) / (R * R);
+      return q2 < 1 ? 1 - LIMB_U * (1 - Math.sqrt(1 - q2)) : 0;
+    };
+    const contains = (p, x, y) => (x - p.x) ** 2 + (y - p.y) ** 2 <= p.r ** 2;
+    if (projected.some(p => p.r >= R)) {
+      // Sample the smaller disc. Sampling a huge occulter can miss the star
+      // entirely, turning a total eclipse into no eclipse. Count the union of
+      // silhouettes, including luminous companions, without double subtraction.
+      let all = 0, hidden = 0;
+      for (const [sx, sy] of DISC_SAMPLES) {
+        const x = sx * R, y = sy * R, I = intensity(x, y);
+        all += I;
+        if (projected.some(p => contains(p, x, y))) hidden += I;
+      }
+      blocked = hidden / all;
+      for (const p of projected) events.push({ star: s, body: p.p });
+    } else for (let i = 0; i < projected.length; i++) {
+      const p = projected[i];
       let acc = 0;
       for (const [sx, sy] of DISC_SAMPLES) {
-        const px = x + sx * r, py = y + sy * r;
-        const q = Math.hypot(px, py) / R;
-        if (q >= 1) continue;
-        const mu = Math.sqrt(1 - q * q);
-        acc += 1 - LIMB_U * (1 - mu);
+        const x = p.x + sx * p.r, y = p.y + sy * p.r;
+        if (projected.slice(0, i).some(prev => contains(prev, x, y))) continue;
+        acc += intensity(x, y);
       }
-      // (disc area per sample) × Σ I  ÷  (disc-integrated intensity of the star)
-      const cover = (Math.PI * r * r / DISC_SAMPLES.length) * acc
-                  / (Math.PI * R * R * (1 - LIMB_U / 3));
+      const cover = p.r * p.r * acc / (DISC_SAMPLES.length * R * R * (1 - LIMB_U / 3));
       blocked += cover;
-      if (cover > 1e-7) events.push({ star: s, body: p, depth: cover });
+      if (cover > 1e-7) events.push({ star: s, body: p.p, depth: cover });
     }
     flux += s.luminosity * Math.max(0, 1 - blocked);
   }
@@ -142,6 +157,10 @@ export function createPhotometer({ canvas, span = 520 }) {
   function sample(bodies, u, clock) {
     const m = measure(bodies, u);
     last = m;
+    if (t.length && clock === t[t.length - 1]) {
+      f[f.length - 1] = m.rel; v[v.length - 1] = m.rv;
+      return m;
+    }
     t.push(clock); f.push(m.rel); v.push(m.rv);
     if (t.length > span) { t.shift(); f.shift(); v.shift(); }
     return m;
@@ -166,7 +185,7 @@ export function createPhotometer({ canvas, span = 520 }) {
 
     ctx.beginPath();
     for (let i = 0; i < ys.length; i++) {
-      const px = x0 + (i / Math.max(span - 1, 1)) * w;
+      const px = x0 + (t[i] - t[0]) / Math.max(t[t.length - 1] - t[0], 1e-12) * w;
       const py = y0 + h - ((ys[i] - lo) / (hi - lo)) * h;
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }

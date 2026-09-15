@@ -42,7 +42,9 @@ import { schwarzschild } from './physics.js';
 // frequency, the amplitude and the chirp rate are all the real ones, sweeping
 // up through the detector band exactly as the picture spirals in. The detector
 // clock is derived the same way: the orbital PHASE is the thing the two
-// versions genuinely share, so real time advances by ΔΦ/ω_real.
+// versions share, so equivalent time advances by ΔΦ/ω_real. The accelerated
+// reaction in the demo is NOT a physical chirp rate; merger/ringdown and
+// detector antenna response are outside this illustrative model.
 // ============================================================================
 
 const G_SI = 6.67430e-11;
@@ -61,7 +63,7 @@ export const BAND_LO = 20, BAND_HI = 2000;
 // a pair rather than two unrelated objects in the same scene.
 // ----------------------------------------------------------------------------
 export function findBinary(bodies) {
-  const live = bodies.filter(b => b.alive !== false).sort((a, b) => b.mass - a.mass);
+  const live = bodies.filter(b => b.alive !== false && (b.type === 'bh' || b.type === 'neutron')).sort((a, b) => b.mass - a.mass);
   if (live.length < 2) return null;
   const a = live[0], b = live[1];
   return { a, b };
@@ -119,7 +121,7 @@ export function strainOf(pair, { distMpc = 410, incl = 0 } = {}) {
 export function createGWDetector({ canvas, armM = 4000, distMpc = 410 }) {
   const ctx = canvas.getContext('2d');
   const hs = [], ts = [];
-  // 200 samples across the chart, not six hundred. A sample is one FRAME, and
+  // 200 samples across the chart. A sample is one FRAME, and
   // at the pace these lessons run there are about thirty frames per orbit —
   // fifteen per wave cycle, since the wave is at twice the orbital frequency.
   // At 600 the cycles are four pixels apart and the chirp renders as a solid
@@ -148,6 +150,7 @@ export function createGWDetector({ canvas, armM = 4000, distMpc = 410 }) {
       let d = theta - lastTheta;
       while (d > Math.PI) d -= 2 * Math.PI;
       while (d < -Math.PI) d += 2 * Math.PI;
+      if (Math.abs(d) < 1e-12) return s;
       phase += d;
       // The detector's own clock. ΔΦ is shared between the drawn binary and
       // the real one; dividing by the REAL angular rate turns it into real
@@ -182,7 +185,7 @@ export function createGWDetector({ canvas, armM = 4000, distMpc = 410 }) {
     if (hs.length > 1) {
       ctx.beginPath();
       for (let i = 0; i < hs.length; i++) {
-        const x = (i / (SPAN - 1)) * W;
+        const x = (ts[i] - ts[0]) / Math.max(ts[ts.length - 1] - ts[0], 1e-12) * W;
         const y = traceH / 2 - (hs[i] / amp) * (traceH / 2 - 8);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
@@ -201,13 +204,15 @@ export function createGWDetector({ canvas, armM = 4000, distMpc = 410 }) {
     ctx.textAlign = 'left';
 
     // ---- the interferometer, with its arms stretched by the current strain.
-    // The stretch is drawn 10²³ times life size, which is a number worth
-    // stating rather than hiding: a 4 km arm moves by 4×10⁻¹⁸ m, a thousandth
-    // of the width of a proton.
+    // The schematic exaggerates the strain with bounded, adaptive gain; the
+    // readout gives physical displacement per arm, h L / 2.
     const h = last ? last.hPlus * Math.cos(2 * phase) : 0;
     const y0 = traceH + gap;
     const cx = 54, cy = y0 + armH - 16, L = 46;
-    const ex = 1 + h * 5e22, ey = 1 - h * 5e22;
+    // Keep the schematic inside its box at high strain; report the actual
+    // displacement numerically. A fixed 10^23 gain inverted the arms.
+    const stretch = 0.3 * Math.tanh(h / amp);
+    const ex = 1 + stretch, ey = 1 - stretch;
     ctx.strokeStyle = 'rgba(140,200,255,0.85)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + L * ex, cy); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - L * ey); ctx.stroke();
@@ -226,7 +231,7 @@ export function createGWDetector({ canvas, armM = 4000, distMpc = 410 }) {
       ctx.fillText(`ΔL    ${dL.toExponential(2)} m  (${armM / 1000} km arm)`, tx, y0 + 42);
       ctx.fillText(`M_c   ${last.Mc.toFixed(1)} M☉ at ${last.distMpc} Mpc`, tx, y0 + 56);
       ctx.fillStyle = last.inBand ? '#8fe0c0' : 'rgba(150,170,200,0.55)';
-      ctx.fillText(last.inBand ? '● in the LIGO band' : `○ below ${BAND_LO} Hz — seismic noise`, tx, y0 + 70);
+      ctx.fillText(last.inBand ? '● in the LIGO band' : last.fGW < BAND_LO ? `○ below ${BAND_LO} Hz — seismic noise` : `○ above ${BAND_HI} Hz — shot noise`, tx, y0 + 70);
     } else {
       ctx.fillText('no binary in this scenario', tx, y0 + 14);
     }

@@ -41,7 +41,7 @@ export function createCutaway({ canvas }) {
   renderer.localClippingEnabled = true;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(34, 1, 0.01, 100);
+  const camera = new THREE.PerspectiveCamera(34, (canvas.clientWidth || 300) / (canvas.clientHeight || 300), 0.01, 100);
   camera.position.set(2.1, 1.35, 2.3);
   camera.lookAt(0, 0, 0);
 
@@ -66,7 +66,7 @@ export function createCutaway({ canvas }) {
 
   function clear() {
     while (root.children.length) {
-      const m = root.children.pop();
+      const m = root.children[root.children.length - 1];
       m.geometry?.dispose(); m.material?.dispose();
       root.remove(m);
     }
@@ -140,6 +140,6 @@ export function createCutaway({ canvas }) {
           <span class="cut-num">${fmtLength(L.r1 * (current.radiusAU || 0))} · ${fmtTemp(L.T)}</span>
         </div>`).join('');
     },
-    dispose() { clear(); renderer.dispose(); },
+    dispose() { clear(); renderer.dispose(); renderer.forceContextLoss(); },
   };
 }

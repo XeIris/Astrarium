@@ -924,7 +924,8 @@ body.learn-mode #hint { display: none; }
   background: var(--panel); border: 1px solid var(--border-strong);
   backdrop-filter: blur(12px); padding: 13px 15px 11px;
   display: flex; flex-direction: column; gap: 9px;
-  max-height: min(56vh, 480px);
+  /* Keep the followed object at screen centre above the narration. */
+  max-height: min(42vh, 380px);
 }
 .lesson-card[hidden] { display: none; }
 .lc-head { display: flex; align-items: baseline; gap: 10px; }

@@ -98,7 +98,7 @@ export const EDU_PRESETS = {
   // argument: perihelion is on 3 January. The Earth is closest to the Sun in
   // northern winter. The 3.4% change in distance over a year is a 6.8% change
   // in insolation — real, measurable, and the wrong sign for the explanation
-  // everyone gives. What does the work is 23.44° of tilt, which at 65°N is the
+  // everyone gives. What does the work is 23.44° of tilt, which at 67°N is the
   // difference between the Sun never setting and never rising.
   // ==========================================================================
   edu_seasons: {
@@ -121,7 +121,7 @@ export const EDU_PRESETS = {
       // pace on top of this: the day/night lesson runs at 0.003 yr/s (a day in
       // 17 seconds), the seasons lesson at 0.06 (a year in 17 seconds).
       const earth = eccentric(Ms, 1.00000011, 0.0167, { ...EARTH, dayLength: 1 / 20 });
-      return [sun, earth, moonOf(earth, 3.844e8, 3.6923e-8, 1737.4, 'Moon', MOON)];
+      return [sun, earth];
     },
   },
 
@@ -133,7 +133,7 @@ export const EDU_PRESETS = {
   // lit at every instant, always the half facing the Sun, and a phase is just
   // how much of that lit half happens to face us. The Earth's shadow does fall
   // on the Moon, twice a year at most, and when it does the Moon goes dark red
-  // in an hour rather than over a fortnight. Both things are in this scene.
+  // in an hour rather than over a fortnight. This scene shows the alignment; mutual eclipse shadows are not rendered.
   //
   // The Moon's orbit is tilted 5.14° to the ecliptic, and that number is why
   // eclipses are rare rather than monthly: the Moon misses the shadow by up to
@@ -143,18 +143,18 @@ export const EDU_PRESETS = {
   edu_moon: {
     sky: { env: 'disc', tilt: 0.38, roll: 2.1 },
     name: 'Phases, and why eclipses are rare',
-    blurb: 'The Earth–Moon system at its real separation — 384 400 km, thirty Earth diameters, which is already further apart than almost every diagram draws it. The Sun lights exactly half the Moon at every instant; the phase is how much of that half you can see from here. The orbit carries its real 5.14° tilt to the ecliptic, which is the entire reason there is not an eclipse every month: at most new moons the shadow misses by several Earth diameters.',
+    blurb: 'The Earth–Moon system at its real separation — 384 400 km, thirty Earth diameters, which is already further apart than almost every diagram draws it. The Sun lights exactly half the Moon at every instant; the phase is how much of that half you can see from here. The geometry shows eclipse alignments; mutual eclipse shadows are not rendered. Earth’s rotation is slowed to 80 turns per year. The orbit carries its real 5.14° tilt to the ecliptic, which is the entire reason there is not an eclipse every month: at most new moons the shadow misses by several Earth diameters.',
     sceneScale: 900, bodyScale: 0.25, camRadius: 6.5, lensing: false, mesh: false,
     // A lunar month in about twelve seconds. The Moon's orbit is the clock this
     // scenario is about, so it is the one the pace is chosen for.
-    timeScale: 0.006, maxStep: 2e-4,
+    trueScale: true, timeScale: 0.006, maxStep: 2e-4,
     surface: true, focus: 'Earth',
     climate: { mixedLayer: 60, T0: 288 },
     build() {
       const Ms = 1.0;
       const sun = { type: 'star', name: 'Sun', mass: Ms, color: 0xfff2cc, glow: 0xffaa33, pos: [0, 0, 0], vel: [0, 0, 0] };
       const earth = orbiter(Ms, 1.0, { ...EARTH, dayLength: 1 / 80 }, 0);
-      const moon = moonOf(earth, 3.844e8, 3.6923e-8, 1737.4, 'Moon', MOON);
+      const moon = moonOf(earth, 3.844e8, 3.6923e-8, 1737.4, 'Moon', { ...MOON, tidalLock: 'Earth' });
       // The 5.14° tilt, applied to the moon's state RELATIVE to the Earth so
       // the inclination is of the lunar orbit and not of the Earth's.
       const i = 5.145 * DEG, c = Math.cos(i), s = Math.sin(i);
@@ -511,7 +511,7 @@ export const EDU_PRESETS = {
   // --------------------------------------------------------------------------
   // No disc, no companion, no debris: a black hole is not a thing you can see,
   // it is a place where the sky is missing. What is left in the frame is the
-  // shadow (2.6 Schwarzschild radii across, not 1 — light that grazes closer
+  // shadow (2.6 Schwarzschild radii in radius, not 1 — light that grazes closer
   // than the photon sphere at 1.5 r_s is captured), the photon ring at its
   // edge, and the Einstein ring of whatever is directly behind.
   //
@@ -522,7 +522,8 @@ export const EDU_PRESETS = {
   edu_hole: {
     sky: { env: ['halo', 'disc'], tilt: 0.26, roll: 2.7 },
     name: 'A black hole, alone',
-    blurb: 'Eight solar masses and nothing else in the frame. There is nothing to see here in the ordinary sense — a black hole emits nothing — so everything you can see is the sky BEHIND it being bent. The dark disc is the shadow, and it is 2.6 Schwarzschild radii across rather than 1, because any light that comes closer than the photon sphere at 1.5 r_s spirals in. The bright circle round it is the photon ring: light that went most of the way round and came back out. Turn the accretion disc up and the same geometry shows you the far side of the disc over the top of the hole.',
+    discIntensity: 0,
+    blurb: 'Eight solar masses and nothing else in the frame. There is nothing to see here in the ordinary sense — a black hole emits nothing — so everything you can see is the sky BEHIND it being bent. The dark disc is the shadow, and it is 5.2 Schwarzschild radii across rather than 2, because any light that comes closer than the photon sphere at 1.5 r_s spirals in. The bright circle round it is the photon ring: light that went most of the way round and came back out. Turn the accretion disc up and the same geometry shows you the far side of the disc over the top of the hole.',
     sceneScale: 2.4, bodyScale: 1.0, camRadius: 26, lensing: true, mesh: false,
     timeScale: 0.4,
     build() {

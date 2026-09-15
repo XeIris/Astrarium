@@ -398,7 +398,7 @@ function attachVisual(b) {
     teff: b.teff,
     glow: spec.glow ?? def.glow,
     seed: spec.seed,
-    obliquity: spec.obliquity,
+    obliquity: spec.obliquity, tidalLock: spec.tidalLock,
     paletteName: spec.palette,
     hot: spec.hot, atmosphere: spec.atmosphere, atmColor: spec.atmColor,
     seaLevel: spec.seaLevel, rings: spec.rings, ringColor: spec.ringColor,
@@ -1499,6 +1499,9 @@ function loadPreset(key) {
   state.timeScale = p.timeScale ?? 2;
   state.maxStep = p.maxStep ?? 5e-3;
   state.gwBoost = p.gwBoost ?? 0;
+  state.discIntensity = p.discIntensity ?? 0.9;
+  document.getElementById('disc').value = String(state.discIntensity);
+  document.getElementById('disc-val').textContent = state.discIntensity.toFixed(2);
   // The drift readout's reference belongs to THIS scenario's initial
   // conditions; carrying the old one over would report the difference between
   // two unrelated systems as integration error.
@@ -1507,6 +1510,11 @@ function loadPreset(key) {
   setSpawnAtRest(p.spawnAtRest ?? false);
   state.lensing = p.lensing;
   state.showLens = p.lensing;
+  const lensButton = document.querySelector('[data-view="lens"]');
+  if (lensButton) {
+    lensButton.classList.toggle('active', !!state.showLens);
+    lensButton.textContent = state.showLens ? 'Lens ON' : 'Lens OFF';
+  }
   // Sim Speed and the paused flag are USER settings, not scenario settings —
   // they carry over. (`timeScale` does not: it is measured in simulated years
   // per second, and a neutron-star inspiral and the solar system genuinely
@@ -2741,6 +2749,9 @@ document.getElementById('simReset')?.addEventListener('click', () => {
   const p = state.preset || {};
   state.maxStep = p.maxStep ?? 5e-3;
   state.gwBoost = p.gwBoost ?? 0;
+  state.discIntensity = p.discIntensity ?? 0.9;
+  document.getElementById('disc').value = String(state.discIntensity);
+  document.getElementById('disc-val').textContent = state.discIntensity.toFixed(2);
   syncSimControls();
 });
 
@@ -3171,7 +3182,7 @@ function animate() {
   const holes = getHoles().map(h => ({ posScene: h.viz.group.position, rsScene: h.rsScene, mass: h.mass }));
   const ctx = {
     holes, camera, time: state.time, sceneScale: state.sceneScale,
-    simDt: simStepped, suns: state.suns, climate: state.climate,
+    simDt: simStepped, suns: state.suns, climate: state.climate, bodies: state.bodies,
   };
   for (const b of state.bodies) {
     if (b.type === 'bh') { b.rsScene = b.rs * state.sceneScale; b.radiusScene = b.rsScene; }
@@ -3374,14 +3385,9 @@ function animate() {
     // day: three suns of different luminosity crossing the sky span a huge
     // dynamic range. Target exposure falls as the ground gets brighter, and the
     // eye takes a moment to follow — so a sunrise dazzles briefly, then settles.
-    // THE FLOOR IS WHAT DECIDES WHETHER DAYLIGHT IS BLUE. Sky radiance in the
-    // pass is ~4 units at the zenith under one solar constant, so an exposure
-    // floor of 0.35 pushed every channel past the knee of the filmic curve and
-    // a clear noon rendered WHITE — the blue of a daytime sky is the ratio
-    // between the channels, and that ratio only survives while the brightest
-    // of them is still on the linear part. 0.2 keeps it there. Night is
-    // unaffected: with no sun up the target is at the ceiling either way.
-    const target = THREE.MathUtils.clamp(0.32 / (0.12 + illum), 0.20, 1.9);
+    // No daylight floor: close/multiple suns can exceed Earth's irradiance by
+    // orders of magnitude. A fixed minimum would wash those skies out again.
+    const target = Math.min(0.32 / (0.12 + illum), 1.9);
     const adapt = 1 - Math.exp(-dt / 1.6);              // ~1.6 s time constant
     state.exposure += (target - state.exposure) * adapt;
     u.uExposure.value = state.exposure;
@@ -3423,8 +3429,7 @@ function animate() {
     home.viz.group.visible = true;
     spacetimeMesh.visible = meshWas;
     // The sky pass already applies its own eye-adaptation exposure, so the
-    // tone mapper takes the frame at unity and just does the highlight roll-off
-    // and the bloom on top of it.
+    // postfx takes linear radiance at unity and applies bloom and the ONE tone curve.
     postfx.render(1.0, state.time);
     updateHUD(dt);
     return;

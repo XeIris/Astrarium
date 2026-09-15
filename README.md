@@ -694,7 +694,7 @@ the lesson says so and draws a diagram instead of pretending.
 ### Four instruments that measure the running scene
 
 Lessons that need a number carry a live instrument in the card, and each one is
-a measurement rather than an illustration:
+derived from the running scene, with the gravitational-wave trace explicitly rescaled:
 
 - **The photometer** (`sim/lightcurve.js`) sums the light of every star in the
   scene and subtracts whatever is in front of it, integrating the limb darkening
@@ -705,12 +705,15 @@ a measurement rather than an illustration:
   plane and the transits stop, which is the honest statement of why the planets
   we know about are a biased sample.
 - **The gravitational-wave detector** (`sim/gwdetector.js`) reads the real
-  binary and computes the strain a 4 km interferometer would record, from the
+  binary and illustrates ideal-orientation strain for a 4 km interferometer, from the
   quadrupole formula. The scenario draws a 36 M☉ horizon twenty-eight thousand
   times life size so you can see it, so the mapping is the one invariant both
   versions share — the drawn binary and the real one are at the same fraction of
   their own merger separation — and the chirp then sweeps up through the LIGO
-  band with the real frequencies, the real amplitudes and a real ΔL of 4×10⁻¹⁸ m.
+  band with leading-order frequency and amplitude estimates. The accelerated
+  inspiral is not a physical chirp rate; merger, ringdown and detector antenna
+  response are not modelled. For h = 10⁻²¹, the differential displacement is
+  4×10⁻¹⁸ m and each arm changes by 2×10⁻¹⁸ m. Arm motion is exaggerated.
 - **The HR diagram** (`sim/hrdiagram.js`) plots the stars in the scene live. The
   main sequence, the giant branches and the white-dwarf cooling line are not
   drawn — they are *sampled out of* `sim/structure.js`, so a change to the
@@ -772,7 +775,11 @@ There is no test suite, and for the course there is the next best thing:
 step in order, runs a frame at each, and reports any scenario that failed to
 load, any body a lesson asked to focus on that does not exist in it, any control
 or panel it named that is not there, and any step whose viewing distance puts
-the camera inside the thing it is pointing at. That last check found seven.
+the camera inside the thing it is pointing at. `.claude/sciencecheck.js` also
+checks direct-entry and backward navigation, transit/eclipsing geometry, inverse-distance
+strain scaling, and synchronous lunar rotation. `.claude/presetcheck.js` walks
+all 35 scenarios. Run them through `.claude/review.html?mode=course|science|presets`
+(one mode at a time). The harness preserves saved course progress.
 
 ### Controls
 

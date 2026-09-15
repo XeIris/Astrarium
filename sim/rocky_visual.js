@@ -468,7 +468,13 @@ export function createRockyVisual(b, opts = {}) {
     // and once its magnitude passes ~1e5 the per-frame increment is under one
     // ulp and the spin quantises and then stops. A rotation is exactly
     // 2*pi-periodic, so wrapping costs nothing.
-    b.spinPhase = (b.spinPhase + b.spin * dt) % TAU;
+    const parent = opts.tidalLock && ctx.bodies?.find(x => x.name === opts.tidalLock);
+    if (parent) {
+      // A synchronously rotating moon keeps its local +X meridian toward its
+      // parent. Transform into the tilted body frame before reading longitude.
+      const toward = parent.pos.clone().sub(b.pos).applyQuaternion(g.quaternion.clone().invert());
+      b.spinPhase = Math.atan2(-toward.z, toward.x);
+    } else b.spinPhase = (b.spinPhase + b.spin * dt) % TAU;
     surface.rotation.y = b.spinPhase;
     if (clouds) {
       // The deck super-rotates slightly; it also needs its own accumulator
@@ -512,8 +518,9 @@ export function createRockyVisual(b, opts = {}) {
       // branch rather than an exception to it.
       if (opts.atmosphere) {
         const clamp01 = x => Math.min(Math.max(x, 0), 1);
-        const boil = clamp01((T - 350) / 90);
-        surfMat.uniforms.uSeaKm.value = seaKm0 + (-5.0 - seaKm0) * boil;
+        // Near-Earth-pressure teaching model: dry out by water’s boiling point.
+        const boil = clamp01((T - 350) / 23.15);
+        surfMat.uniforms.uSeaKm.value = seaKm0 + (-60.0 - seaKm0) * boil;
         surfMat.uniforms.uScorch.value = clamp01((T - 330) / 140);
         surfMat.uniforms.uArid.value = Math.min(clamp01((T - 310) / 80), 0.8);
         if (cloudMat) {

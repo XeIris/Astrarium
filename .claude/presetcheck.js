@@ -19,6 +19,7 @@
         rep.errors.push(`${key}: lost ${n0 - n1} bodies in one second (${PRESETS[key].name})`);
       }
       rep.n++;
+      await new Promise(resolve => setTimeout(resolve, 0));
     } catch (err) { rep.errors.push(`${key}: THREW ${err.message}`); }
   }
   removeEventListener('error', onErr);

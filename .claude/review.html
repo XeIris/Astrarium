@@ -1,0 +1,31 @@
+<!doctype html><style>html,body{margin:0;height:100%;background:#111;color:white}iframe{display:block;width:100%;height:100%;border:0}pre{position:fixed;top:0;left:0;max-height:90vh;overflow:auto;background:#111;z-index:9}</style><iframe src="/blackhole_sim.html#edu_seasons"></iframe><pre id="report"></pre><script type="module">
+const frame=document.querySelector('iframe'), out=document.querySelector('pre');
+const q=new URLSearchParams(location.search);
+while(!frame.contentWindow.SIM) await new Promise(r=>setTimeout(r,100));
+const w=frame.contentWindow, s=w.SIM;
+w.document.querySelector('#startScreen').style.display='none';
+const saved=w.localStorage.getItem('bh.course.v1');
+const restore=()=>saved===null?w.localStorage.removeItem('bh.course.v1'):w.localStorage.setItem('bh.course.v1',saved);
+addEventListener('beforeunload',restore);
+const mode=q.get('mode');
+if(['course','presets','science'].includes(mode)){
+ s.renderer.setPixelRatio(0.25); w.dispatchEvent(new Event('resize'));
+ const sc=w.document.createElement('script');sc.src='/.claude/'+({course:'coursecheck',presets:'presetcheck',science:'sciencecheck'}[mode])+'.js';w.document.body.append(sc);
+ const key=mode.toUpperCase().replace('PRESETS','PRESET')+'_REPORT';
+ while(!w[key]) await new Promise(r=>setTimeout(r,100));
+ out.textContent=JSON.stringify(w[key],null,2);
+ s.state.paused=true;restore();
+}else{
+ if(q.get('lesson')) {s.setAppMode('learn',{quiet:true});s.lessons.openLesson(q.get('lesson'),Number(q.get('step')||0));}
+ else {s.setAppMode('sandbox',{quiet:true});s.load(q.get('preset')||'edu_seasons');}
+ if(q.has('surface')){s.setCamMode('surface');s.stage.setLocalTime(q.get('time')||'noon');}
+ if(q.has('focus'))s.stage.setFocus(q.get('focus'));
+ if(q.has('band'))s.setBand(Number(q.get('band')));
+ s.state.paused=q.get('paused')!=='false';
+ if(q.has('sun')) {s.frame(0);let d=s.state.suns[0].posScene.clone().sub(s.observer.eye).normalize();let east=s.observer.up.clone().cross(s.observer.north).normalize();s.observer.elevation=Math.asin(d.dot(s.observer.up));s.observer.azimuth=Math.atan2(d.dot(east),d.dot(s.observer.north));}
+ if(q.has('hide'))w.document.body.classList.add('ui-hidden');
+ for(let i=0;i<120;i++)s.frame(1/60);
+ if(q.has('stats')) {out.textContent=JSON.stringify({exposure:s.state.exposure,cam:s.camera.position,far:s.camera.far,suns:s.state.suns.map(x=>({intensity:x.intensity,ang:x.angRadius,pos:x.posScene,rad:x.body.radiusScene}))});}
+ restore();if(!q.has('stats'))out.remove();
+}
+</script>
