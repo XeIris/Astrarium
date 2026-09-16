@@ -747,7 +747,14 @@ body.xsec-open .panel-left { max-height: 40vh; }
 }
 .start-sub { font-size: 12px; line-height: 1.7; color: var(--text-dim); max-width: 620px; margin: 0 auto 30px; }
 .start-sub i { color: var(--accent); font-style: normal; }
-.start-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/* Three doors now, not two. The breakpoints step down rather than wrapping to
+   an orphan: at 1040 the course card goes full width above the other two,
+   which keeps the odd one out being the one you most likely want. */
+.start-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+@media (max-width: 1040px) {
+  .start-cards { grid-template-columns: 1fr 1fr; }
+  .start-cards > :nth-child(2) { grid-column: 1 / -1; order: -1; }
+}
 @media (max-width: 720px) { .start-cards { grid-template-columns: 1fr; } }
 .start-card {
   display: block; text-align: left; cursor: pointer;
@@ -834,3 +841,174 @@ body.flight-mode #xsecPanel,
 body.flight-mode [data-open="scenarioPanel"] { display: none !important; }
 /* ...and the flight panel's tab has nothing to reopen in the sandbox. */
 body:not(.flight-mode) [data-open="flightPanel"] { display: none !important; }
+
+/* ==========================================================================
+   THE COURSE
+   --------------------------------------------------------------------------
+   Two surfaces. The PANEL is in the left column and takes the scenario list's
+   slot — it uses --scenario-top like the list does, so layoutLeftColumn()
+   needs to know about one extra panel and nothing else moves. The CARD is
+   bottom-centre and wide, and it is the one element in this HUD that is about
+   reading rather than about instruments, so it is the one place a
+   proportional face and a 66-character measure are the right call.
+   ========================================================================== */
+#coursePanel {
+  top: var(--scenario-top, var(--col-top));
+  width: 250px;
+  max-height: calc(100vh - var(--scenario-top, var(--col-top)) - var(--hud-bottom));
+}
+body:not(.learn-mode) #coursePanel,
+body:not(.learn-mode) [data-open="coursePanel"] { display: none !important; }
+body.learn-mode #scenarioPanel,
+body.learn-mode [data-open="scenarioPanel"] { display: none !important; }
+/* In Learn mode the bottom-centre band belongs to the lesson, so the key hints
+   that normally live there step aside rather than being drawn under it. */
+body.learn-mode #hint { display: none; }
+
+.course-progress { margin-bottom: 10px; }
+.cp-bar { height: 4px; background: rgba(180, 200, 230, 0.12); }
+.cp-bar > i { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
+.cp-label { margin-top: 5px; font-size: 10px; color: var(--text-dim); }
+
+.course-continue {
+  display: block; width: 100%; margin-bottom: 10px; padding: 7px;
+  background: var(--accent); color: #0a0c12; border: none;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; cursor: pointer;
+}
+.course-continue:hover { filter: brightness(1.12); }
+
+.course-mods { display: grid; gap: 5px; }
+.course-mod { border: 1px solid var(--border); min-width: 0; }
+.course-mod > summary {
+  display: flex; align-items: center; gap: 7px; padding: 6px 8px; cursor: pointer;
+  list-style: none; color: var(--text-dim); font-size: 11px;
+}
+.course-mod > summary::-webkit-details-marker { display: none; }
+.course-mod[open] > summary { color: var(--text); border-bottom: 1px solid var(--border); }
+.course-mod > summary:hover { color: var(--text); background: rgba(180, 200, 230, 0.06); }
+.cm-icon { color: var(--accent); width: 12px; text-align: center; }
+.cm-name { flex: 1; min-width: 0; }
+.cm-count { font-size: 9px; color: var(--text-dim); }
+.cm-blurb { padding: 7px 9px 3px; font-size: 10px; line-height: 1.5; color: var(--text-dim); }
+.cm-items { display: grid; gap: 3px; padding: 5px; }
+
+.course-lesson {
+  display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 5px 7px;
+  background: none; border: 1px solid transparent; color: var(--text-dim);
+  font-family: var(--mono); font-size: 11px; text-align: left; cursor: pointer;
+}
+.course-lesson:hover { color: var(--text); border-color: var(--border-strong); }
+.course-lesson.done { color: rgba(143, 224, 192, 0.85); }
+.course-lesson.active { background: var(--accent-2); color: #000; border-color: var(--accent-2); }
+.cl-tick { width: 9px; }
+.cl-name { flex: 1; min-width: 0; }
+.cl-mins { font-size: 9px; opacity: 0.7; }
+
+.course-reset {
+  margin-top: 10px; background: none; border: none; padding: 0;
+  color: var(--text-dim); font-family: var(--mono); font-size: 9px;
+  text-decoration: underline; cursor: pointer;
+}
+.course-reset:hover { color: var(--warn); }
+
+/* -------------------------------------------------------------------------
+   THE LESSON CARD
+   ------------------------------------------------------------------------- */
+.lesson-card {
+  /* Left and right are both MEASURED (layoutLeftColumn) so the card sits in
+     whatever band the panels have left, and max-width + auto margins keep it
+     from stretching to a silly measure on a wide screen. */
+  left: var(--card-left, 50%); right: var(--card-right, 16px);
+  margin-inline: auto; max-width: 880px; min-width: 360px;
+  bottom: 16px;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  backdrop-filter: blur(12px); padding: 13px 15px 11px;
+  display: flex; flex-direction: column; gap: 9px;
+  /* Keep the followed object at screen centre above the narration. */
+  max-height: min(42vh, 380px);
+}
+.lesson-card[hidden] { display: none; }
+.lc-head { display: flex; align-items: baseline; gap: 10px; }
+.lc-crumb { flex: 1; min-width: 0; font-size: 10px; color: var(--accent); letter-spacing: 0.05em; text-transform: uppercase; }
+.lc-count { font-size: 10px; color: var(--text-dim); }
+
+/* WRAPPING IS DRIVEN BY THE CARD, NOT BY THE WINDOW. The card's width is what
+   the panels left over, so a viewport media query is measuring the wrong thing
+   entirely: with the cross-section open on a 1180px screen the band is 570px
+   wide and a window query still says "plenty of room", which squeezed the prose
+   into a four-word column beside a 340px canvas. Flex basis plus wrap puts the
+   text under the instrument exactly when they cannot both fit. */
+.lc-cols { display: flex; flex-wrap: wrap; gap: 15px; min-height: 0; overflow-y: auto; }
+.lesson-card:not(.has-media) .lc-media { display: none; }
+/* Bases that add up to less than the narrowest band the card is ever given, so
+   the two columns SHRINK together instead of one of them wrapping the prose
+   below the fold; the grow ratio then hands the extra width mostly to the text,
+   which is the half that benefits from a longer measure. The canvas is capped
+   so a wide card does not turn a 340px instrument into a poster. */
+.lc-media { flex: 1 1 240px; min-width: 170px; }
+.lc-main { flex: 3 1 260px; min-width: 0; }
+.lc-canvas, .lfig { max-width: 340px; }
+
+.lc-title { font-family: var(--display); font-size: 16px; font-weight: 600; color: #e6ecf6; margin-bottom: 7px; }
+/* The one place in this HUD that is prose. A monospace face at 12px is right
+   for a readout and wrong for four sentences, so the body text gets the
+   display stack, a real line height and a measure. */
+.lc-text { font-family: var(--display); font-size: 13.5px; line-height: 1.62; color: var(--text); max-width: 68ch; }
+.lc-text p + p { margin-top: 8px; }
+.lc-text em { color: #e6ecf6; font-style: italic; }
+.lc-text kbd {
+  font-family: var(--mono); font-size: 11px; padding: 1px 4px;
+  border: 1px solid var(--border-strong); color: var(--text);
+}
+
+.lc-myth {
+  border-left: 2px solid var(--warn); padding: 5px 0 5px 9px; margin-bottom: 9px;
+  font-size: 12.5px; color: #f2c2cc;
+}
+.lc-myth b { color: var(--warn); }
+.lc-look {
+  border-left: 2px solid var(--accent-2); padding: 5px 0 5px 9px; margin-top: 9px;
+  font-size: 12.5px; color: #bcd8f5;
+}
+.lc-look b { color: var(--accent-2); }
+.lc-act {
+  margin-top: 10px; padding: 6px 14px; cursor: pointer;
+  background: var(--warn); color: #12070a; border: none;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+}
+.lc-act:hover { filter: brightness(1.12); }
+
+.lfig { width: 100%; height: auto; color: var(--text-dim); display: block; }
+.lc-instr { display: block; }
+.lc-canvas { width: 100%; height: auto; display: block; background: rgba(4, 6, 10, 0.55); border: 1px solid var(--border); }
+.lc-instr-note { margin-top: 5px; font-size: 9.5px; color: var(--text-dim); line-height: 1.45; }
+
+/* The legend is capped and scrolls. A pre-collapse supergiant has eight
+   labelled shells and the card is bounded by the window, so the alternative to
+   a cap is the Next button going off the bottom of the screen. */
+.cut-legend { display: grid; gap: 2px; margin-top: 4px; max-height: 108px; overflow-y: auto; }
+.cut-legend::-webkit-scrollbar { width: 3px; }
+.cut-legend::-webkit-scrollbar-thumb { background: var(--border-strong); }
+.cut-row { display: flex; align-items: center; gap: 6px; font-size: 9.5px; color: var(--text-dim); }
+.cut-row > i { width: 8px; height: 8px; flex: 0 0 8px; display: block; }
+.cut-name { flex: 1; min-width: 0; color: var(--text); }
+.cut-num { font-size: 9px; }
+
+.lc-foot { display: flex; align-items: center; gap: 12px; }
+.lc-nav {
+  padding: 5px 13px; background: none; border: 1px solid var(--border-strong);
+  color: var(--text); font-family: var(--mono); font-size: 11px; cursor: pointer;
+}
+.lc-nav:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.lc-nav:disabled { opacity: 0.3; cursor: default; }
+.lc-primary { background: var(--accent); color: #0a0c12; border-color: var(--accent); }
+.lc-primary:hover { filter: brightness(1.12); border-color: var(--accent); color: #0a0c12; }
+.lc-dots { flex: 1; display: flex; gap: 5px; align-items: center; }
+.lc-dots > i {
+  width: 7px; height: 7px; border: 1px solid var(--border-strong); cursor: pointer;
+  border-radius: 50%; display: block;
+}
+.lc-dots > i.seen { background: rgba(180, 200, 230, 0.35); }
+.lc-dots > i.on { background: var(--accent); border-color: var(--accent); }
+
+

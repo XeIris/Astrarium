@@ -56,8 +56,15 @@ the build uses sharp-edge shading rather than the `use_auto_smooth` removed in
 4.1. Set `BLENDER_OVERRIDE=/path/to/Blender` to force one.
 
 Scenarios deep-link by hash, e.g. `blackhole_sim.html#bhmerger` — handy for
-jumping straight to the case you're debugging. Keys `1`–`7` switch imaging band,
+jumping straight to the case you're debugging. Note that a hash-only change does
+NOT reload the page, so an edit to a module is not picked up by re-navigating to
+a different hash; add a query (`?v=2#edu_kepler`) or reload. Keys `1`–`7` switch imaging band,
 `H` hides the UI (useful before screenshots).
+
+The page has a third mode, **Learn** — a thirty-five lesson beginner's astronomy
+course over the same simulator. `SIM.lessons.openLesson('lives/giants')` jumps
+straight to one, and `.claude/coursecheck.js` walks the whole curriculum; see the
+course entries under Conventions.
 
 `window.SIM` is a deliberate console handle, not a leftover: `SIM.state.bodies[0].structure`
 is the fastest way to see what the physics thinks a body is, and `SIM.load('vega')` beats
@@ -109,6 +116,13 @@ Shell:
 | [sim/masscurve.js](sim/masscurve.js) | `createMassCurve` — the log–log mass–radius graph in the live editor. Its threshold marks are *sampled* out of `structureOf`, never listed, so a new limit in `sim/structure.js` appears here on its own |
 | [sim/crosssection.js](sim/crosssection.js) | `drawCrossSection` — the labelled interior diagram — plus the temperature ramp and every unit formatter the panels use |
 | [sim/painter.js](sim/painter.js) | rings, belts and ejecta: `createOrbitalSwarm` (analytic Keplerian test particles), `createGasCloud`, `ringSpan`, `createPainter` |
+| [sim/lessons.js](sim/lessons.js) | **the course** — eight modules, thirty-five lessons, pure DATA with no DOM and no THREE in it. A step's `do` block is a declarative request the UI executes; the header lists the vocabulary |
+| [sim/lessonui.js](sim/lessonui.js) | `createLessons` — the course panel, the lesson card, and the executor. The other half of the split: this file is the only one that knows both the curriculum and the page |
+| [sim/edupresets.js](sim/edupresets.js) | `EDU_PRESETS` / `EDU_ORDER` — the thirteen teaching scenarios, merged into `PRESETS` by sim/presets.js. Same contract as any other preset |
+| [sim/lightcurve.js](sim/lightcurve.js) | the photometer: transit depth integrated against a limb-darkened disc, and the star's radial velocity. The observer is the CAMERA |
+| [sim/gwdetector.js](sim/gwdetector.js) | the strain a 4 km interferometer would record from the binary on screen, from the quadrupole formula |
+| [sim/hrdiagram.js](sim/hrdiagram.js) | the HR diagram. Main sequence, giant tracks and the white-dwarf line are SAMPLED from `structureOf`, never listed |
+| [sim/cutaway.js](sim/cutaway.js) | the interior model as a clipped 3D object, on its own small renderer |
 
 `sim/flight/` — spaceflight. The **only** part of the sim not in AU/M☉/yr; see the
 units note under Conventions. `sim/flight/spaceflight.js` is the sole integration
@@ -640,6 +654,56 @@ point and the only file here that knows the orrery exists.
 - **The comments are the documentation.** Each module opens with a block header
   deriving the physics it implements. Keep that density when editing — explain
   the equation and the reason for a choice, not the syntax.
+- **The course is DATA and the page is CODE, and they do not meet.**
+  `sim/lessons.js` imports nothing at all; a step asks for "the solar system,
+  following Earth, at true scale, in the X-ray band" and has no idea how any of
+  those four are done. `sim/lessonui.js` executes that against a `stage` object
+  built in the orchestrator, which is the whole of the coupling. A directive the
+  stage does not implement is ignored rather than thrown, so a lesson may ask
+  for something a later version will do.
+- **A lesson step's `do` block is a PATCH, not a state.** Steps within a lesson
+  normally share a scenario and differ by a camera or a band, so `applyDo` only
+  reloads when the key actually changes — and the order in it is load-bearing:
+  loading resets the camera and the focus, and `focus` reframes the view, so
+  anything that sets a distance has to come after both. Local time comes after
+  the controls, because where noon is depends on the latitude the step just set.
+- **A step that states a camera distance is usually wrong to.** `focus` already
+  frames a body at seven of its own radii, which is right under BOTH size
+  conventions; a distance written while looking at the exaggerated view puts the
+  camera inside the planet at true scale. `.claude/coursecheck.js` checks this
+  and found seven.
+- **There is no test runner, and for the course there is
+  [.claude/coursecheck.js](.claude/coursecheck.js).** Injected into the page, it
+  walks every lesson and every step IN ORDER — with `next()`, not by jumping,
+  because a step is a patch on the last one — runs a frame at each, and reports
+  anything that threw, any scenario that did not load, any body a lesson focuses
+  that is not in it, any control or panel it names that does not exist, and any
+  camera that ended up inside its subject. `SIM.lessons` and `SIM.stage` are
+  exposed for it. Run it after touching lessons, presets or the stage.
+  [.claude/presetcheck.js](.claude/presetcheck.js) is its blunter sibling: it
+  loads EVERY scenario in `PRESET_ORDER`, runs a second of frames in each, and
+  reports anything that threw or that quietly lost bodies — which is the check
+  that catches a change to a contact radius or a mass–radius law reaching a
+  scenario nobody was looking at.
+- **An instrument in a lesson card MEASURES the scene.** The light curve, the
+  strain and the HR diagram are all computed from the live bodies each frame
+  (`lessons.update(dt)` in the render loop), never from a table — which is what
+  makes "climb out of the orbital plane and the transits stop" a demonstration
+  rather than an assertion. A light curve that only advances when Next is
+  pressed is a picture of a light curve.
+- **A measured radius is the contact distance too.** By default a body is
+  destroyed when it touches what you can SEE, which keeps the exaggerated view
+  self-consistent — but the Moon orbits 0.00257 AU from an Earth whose
+  exaggerated disc is 0.15 AU across, so switching `#solar` to readable sizes
+  destroyed it silently. Anything carrying a real `radiusKm` uses that instead.
+- **The hot end of a surface is derived, like the cold end.** Everything freezes
+  out below its own condensation point and always did; nothing dried out above
+  the boiling point unless the energy-balance model in `sim/world.js` was driving
+  it, which happens only for a scenario's one home world. So an ordinary planet
+  at 388 K was drawn with oceans. `sim/rocky_visual.js` now derives `uSeaKm`,
+  `uScorch` and `uArid` from the temperature it already computes — but only for
+  a body with an atmosphere, because an airless rock at 440 K is not scorched,
+  it is just warm, and tinting it would be inventing a phenomenon.
 - Prefer extending a `sim/` module over growing `blackhole_sim.js`; it is already
   the largest file and is the integration layer, not a home for new physics.
 

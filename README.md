@@ -651,21 +651,113 @@ drifts nor needs a step size.
 - Gravitational lensing (now up to two black holes), accretion-disc shader with
   Doppler beaming & gravitational redshift, and a deformable spacetime mesh.
 
-## Two doors
+## Learn — a beginner's astronomy course
 
-Astrarium is two simulators sharing one renderer, and one stacked control column
-could not serve both — by the time spaceflight was at the bottom of it, changing
-the imaging band meant scrolling past a climate model. So the page opens with a
-choice, **Sandbox** or **Spaceflight**, and the switch in the top left changes
-mode at any time.
+The third door. **Thirty-five lessons in eight modules**, from why there are
+seasons to how two black holes were heard colliding, each one opening a real
+scenario in this simulator and arguing from what it does. It runs in order or
+you can jump anywhere; progress is remembered.
 
-They share the physics and nothing else. **Spaceflight is for flying**: it opens
+    The sky from here      scale · the turning sky · seasons · phases · eclipses
+    Gravity and orbits     ellipses · the harmonic law · three bodies · tides
+    Light                  inverse square · blackbody · the seven bands
+    The Sun and the stars  the Sun · activity · distances · the HR diagram · binaries
+    The lives of stars     birth · mass is destiny · giants · supernova · neutron stars
+    Black holes            escape velocity · the shadow · accretion · gravitational waves
+    Galaxies               the Milky Way · clusters · other galaxies · the Big Bang
+    Other worlds           planets · transits · wobbles · the habitable zone · are we alone
+
+**The syllabus is not invented.** The module order follows the standard
+introductory university sequence — OpenStax *Astronomy 2e*, the free text most
+US first-year courses now use — and the individual lessons are chosen against
+the [Nebraska Astronomy Applet Project's](https://astro.unl.edu/naap) fifteen
+lab modules, which are in effect a published answer to "which ideas in
+introductory astronomy need a simulator rather than a paragraph?". The framing
+of what a non-specialist should come away with is the IAU's
+[Big Ideas in Astronomy](https://astro4edu.org/bigideas/).
+
+**Two lessons exist to break a specific wrong idea.** That the seasons come from
+the Earth's distance to the Sun, and that the Moon's phases are the Earth's
+shadow, are the two best-documented misconceptions in the subject: most adults
+hold them, including most graduates, and they survive being told the right
+answer. What dislodges them is testing the wrong idea and watching it fail — so
+those lessons name the misconception out loud and open a scenario where it makes
+a prediction you can check. Earth's orbit here is its real one, eccentricity
+0.0167, and perihelion is in January.
+
+**Nothing is scripted.** A lesson loads a scenario, points the camera and says
+what to look at; everything after that is the integrator, the interior model and
+the shaders. Where the simulator genuinely cannot show something — parallax at
+one arcsecond, the expansion of the universe, the nuclear binding-energy curve —
+the lesson says so and draws a diagram instead of pretending.
+
+### Four instruments that measure the running scene
+
+Lessons that need a number carry a live instrument in the card, and each one is
+derived from the running scene, with the gravitational-wave trace explicitly rescaled:
+
+- **The photometer** (`sim/lightcurve.js`) sums the light of every star in the
+  scene and subtracts whatever is in front of it, integrating the limb darkening
+  over the planet's disc — which is why a transit here has a rounded floor and
+  reads about 2.1% deep for a planet covering 1.7% of the star. It reads the
+  star's radial velocity off the same orbit, so the dip and the wobble agree
+  because they have to. **The observer is the camera**: climb out of the orbital
+  plane and the transits stop, which is the honest statement of why the planets
+  we know about are a biased sample.
+- **The gravitational-wave detector** (`sim/gwdetector.js`) reads the real
+  binary and illustrates ideal-orientation strain for a 4 km interferometer, from the
+  quadrupole formula. The scenario draws a 36 M☉ horizon twenty-eight thousand
+  times life size so you can see it, so the mapping is the one invariant both
+  versions share — the drawn binary and the real one are at the same fraction of
+  their own merger separation — and the chirp then sweeps up through the LIGO
+  band with leading-order frequency and amplitude estimates. The accelerated
+  inspiral is not a physical chirp rate; merger, ringdown and detector antenna
+  response are not modelled. For h = 10⁻²¹, the differential displacement is
+  4×10⁻¹⁸ m and each arm changes by 2×10⁻¹⁸ m. Arm motion is exaggerated.
+- **The HR diagram** (`sim/hrdiagram.js`) plots the stars in the scene live. The
+  main sequence, the giant branches and the white-dwarf cooling line are not
+  drawn — they are *sampled out of* `sim/structure.js`, so a change to the
+  stellar model moves them and the two can never disagree.
+- **The 3D cutaway** (`sim/cutaway.js`) is the interior model as an object
+  rather than as a chart: nested shells with a quarter clipped away, built from
+  the same layers the flat cross-section uses. A flat disc cannot make a
+  beginner believe the core is a sphere, and that belief is most of what an
+  interior model is for.
+
+### Thirteen scenarios written for it
+
+`#edu_seasons` `#edu_moon` `#edu_kepler` `#edu_habitable` `#edu_starbirth`
+`#edu_sun` `#edu_lifecycle` `#edu_supernova` `#edu_pulsar` `#edu_transit`
+`#edu_hole` `#edu_galaxy` `#edu_cluster` — all in the scenario list under
+*Learning scenarios*, and all reachable without the course. What makes one of
+these different from any other scenario is only what it is **for**: the minimum
+arrangement that makes one idea visible and nothing else. The Kepler scenario is
+the clearest case — two planets with the same semi-major axis and wildly
+different eccentricities, which keep arriving back together forever, and a third
+at exactly 4^⅓ times the axis, which takes exactly two of their years. Nothing
+in the code makes them do that.
+
+## Three doors
+
+Astrarium is three simulators sharing one renderer, and one stacked control
+column could not serve them — by the time spaceflight was at the bottom of it,
+changing the imaging band meant scrolling past a climate model. So the page
+opens with a choice, **Sandbox**, **Learn** or **Spaceflight**, and the switch
+in the top left changes mode at any time.
+
+They share the physics and little else. **Spaceflight is for flying**: it opens
 already on the pad at Earth, at **1:1** — one second per second, with the warp
 ladder the only handle on it — and the orrery's own instruments are simply not
 there. No scenario list, no interior editor, no painter, no spawner, no body
 list, no imaging bands, and above all no time-scale slider. Those are things you
 do to a universe you are looking at, and none of them mean anything while you
 are holding a vehicle down on a launch mount. Editing happens in the sandbox.
+
+**Learn is the sandbox with a course over it.** It keeps every control, because
+the lessons send you to them by name — drag this slider, press 6 for X-ray — and
+replaces the scenario list with the syllabus, because in that mode the course is
+how you choose what to look at. Leaving it does not throw anything away: every
+scenario a lesson opened is still in the list.
 
 ## Running
 
@@ -677,6 +769,17 @@ node .claude/serve.mjs
 ```
 
 Deep-link a scenario with a URL hash, e.g. `blackhole_sim.html#bhmerger`.
+
+There is no test suite, and for the course there is the next best thing:
+`.claude/coursecheck.js`, injected into the page, walks every lesson and every
+step in order, runs a frame at each, and reports any scenario that failed to
+load, any body a lesson asked to focus on that does not exist in it, any control
+or panel it named that is not there, and any step whose viewing distance puts
+the camera inside the thing it is pointing at. `.claude/sciencecheck.js` also
+checks direct-entry and backward navigation, transit/eclipsing geometry, inverse-distance
+strain scaling, and synchronous lunar rotation. `.claude/presetcheck.js` walks
+all 35 scenarios. Run them through `.claude/review.html?mode=course|science|presets`
+(one mode at a time). The harness preserves saved course progress.
 
 ### Controls
 
@@ -693,6 +796,16 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
 - `blackhole_sim.js` — scene, lensing/disc shader, camera, picking, render loop, UI
 - `sim/physics.js` — N-body integrator, GR pseudo-potential, GW inspiral, collisions
 - `sim/bodies.js` — body visual dispatch and the accretion streams
+- `sim/lessons.js` — the course: eight modules, thirty-five lessons, pure data
+- `sim/lessonui.js` — the course panel, the lesson card, and the stage API a step
+  is executed against
+- `sim/edupresets.js` — the thirteen scenarios written for the lessons
+- `sim/lightcurve.js` — the photometer: transit depth with limb darkening, and
+  radial velocity
+- `sim/gwdetector.js` — the strain a detector would record from the binary on
+  screen
+- `sim/hrdiagram.js` — the HR diagram, sampled from the interior model
+- `sim/cutaway.js` — the interior as a clipped 3D object
 - `sim/terrain.js` — isostasy, plate tectonics, craters and the surface climate belts,
   as shared GLSL
 - `sim/rocky_visual.js` — every solid-surface world: terrain, biomes, volatiles, clouds,

@@ -81,13 +81,6 @@ vec3 inScatter(float cosTheta, float mView){
   return (betaS / betaE) * (1.0 - exp(-betaE * mView));
 }
 
-// ACES-style filmic curve: highlights roll off into white instead of clipping
-// flat, so a sun in frame stops flash-banging everything around it.
-vec3 tonemap(vec3 x){
-  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-
 void main(){
   vec2 ndc = vUv * 2.0 - 1.0; ndc.x *= uAspect;
   float f = tan(uFov * 0.5);
@@ -133,7 +126,7 @@ void main(){
     float c = dot(rd, L);
 
     vec3 I = uSunColor[i] * uSunInt[i] * vis;
-    sky += I * trans * inScatter(c, mView) * 134.0;
+    sky += I * trans * inScatter(c, mView) * 32.0;
 
     // aureole: the bright, tight halo right around the disc
     float halo = pow(max(c, 0.0), 900.0) * 0.5 + pow(max(c, 0.0), 60.0) * 0.06;
@@ -194,7 +187,9 @@ void main(){
   // ---------------------------------------------------------------- composite
   // Sky opacity: an bright sky hides the starfield, a dark one lets it through.
   float skyLum = dot(sky, vec3(0.2126,0.7152,0.0722));
-  float opacity = clamp(skyLum * 2.6, 0.0, 1.0);
+  // Hide the decorative starfield even under sub-solar daylight; this
+  // contrast threshold is separate from the radiance/exposure calibration.
+  float opacity = 1.0 - exp(-skyLum * 40.0);
   // never fully mask the suns themselves — they outshine their own sky
   float sunMask = 0.0;
   for(int i=0;i<${MAX_SUNS};i++){
@@ -208,7 +203,11 @@ void main(){
   // The rendered star discs live in the same linear space as the sky, but their
   // shader is tuned for the un-tonemapped orbit view, so lift them here to keep
   // a sun reading as a sun once the filmic curve is applied.
-  vec3 col = mix(scene * 1.5, sky, opacity) + sunGlare * (1.0 - groundMix);
+  // Scattered light ADDS along the ray, including over the solar disc.
+  // Replacing sky with a dim, orbit-exposed star made a dark hole in the halo.
+  // Surface viewing uses a brighter disc exposure than close-up stellar study.
+  vec3 col = scene * mix(1.5, 24.0, sunMask) * (1.0 - opacity)
+           + sky + sunGlare * (1.0 - groundMix);
 
   // cloud deck overhead, thickening with humidity
   if(elev > 0.0 && uClouds > 0.02){
@@ -231,11 +230,11 @@ void main(){
 
   if(groundMix > 0.0) col = mix(col, ground, groundMix);
 
-  // Exposure, then the filmic curve. uExposure is driven from the CPU by how
+  // Stay linear HDR: postfx applies the only tone curve. Exposure follows how
   // much sunlight is actually reaching the observer and lags behind it, so the
   // view adapts the way an eye does instead of blowing out the moment a sun
   // clears the horizon.
-  gl_FragColor = vec4(tonemap(col * uExposure), 1.0);
+  gl_FragColor = vec4(col * uExposure, 1.0);
 }`;
 
 export function createSkyPass() {
