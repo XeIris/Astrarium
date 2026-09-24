@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MAX_SUNS, applySuns, litBy } from './suns.js';
 import { surfaceMaterial, cloudMaterial, atmosphereMaterial, insolationS2 } from './rocky_visual.js';
+import { loadPlanetMap } from './planetmaps.js';
 
 // ============================================================================
 // THE LIVING WORLD
@@ -37,6 +38,12 @@ export function createWorldVisual(b, opts) {
     haze: 0.45,
     frostK: 273,
     transport: 0.42,
+  });
+  loadPlanetMap(b.name, ({ color, mask, kind, scale }) => {
+    surfMat.uniforms.uColorMap.value = color;
+    surfMat.uniforms.uLandMask.value = mask;
+    surfMat.uniforms.uMapScale.value = scale;
+    surfMat.uniforms.uMapKind.value = kind;
   });
   const surface = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 64), surfMat);
   g.add(surface);

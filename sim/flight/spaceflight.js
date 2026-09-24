@@ -33,6 +33,12 @@ import { elements } from './orbit.js';
 // ============================================================================
 
 const WARPS = [1, 2, 5, 10, 50, 100, 1000, 10000, 100000, 1000000];
+const EARTH_PADS = {
+  // NASA's SpaceX Starship environmental assessment lists these coordinates
+  // for the Texas launch site and Kennedy's Pad 39A, respectively.
+  starship: { lat: 25.99684, lon: -97.15523 },
+  default:  { lat: 28.608402, lon: -80.604201 },
+};
 
 export function createSpaceflight(ctx) {
   const { renderer, scene, camera, state, mount, panel, onExit, toast } = ctx;
@@ -45,7 +51,7 @@ export function createSpaceflight(ctx) {
   local.craftRoot.add(rcsPuffs.group);
 
   let vessel = null, ap = null, craft = null, plumes = [], entry = null, cruise = null;
-  let site = null, sitePos = null;   // the launch complex, and where it is (parent frame, m)
+  let site = null, sitePos = null, mapSite = null; // launch complex and its mapped geography
   let padFire = null;                // the deflected exhaust, while it still reaches the deck
   let plumeReach = 0;                // how far the first stage's jet carries, m
   // The terminal count. A launch has a beginning, and without one the vehicle
@@ -113,12 +119,14 @@ export function createSpaceflight(ctx) {
       payload: veh.carries ? veh.carries.mass : 0,
     });
     if (veh.role === 'launch' && opts.mode !== 'orbit') {
+      const earthPad = home.name === 'Earth' ? (EARTH_PADS[vehicleKey] || EARTH_PADS.default) : null;
       // Put the pad in the local morning unless asked otherwise. This is not
       // decoration: the launch site's longitude decides whether the ascent is
       // watched in daylight or in the dark, and "wherever longitude zero
       // happens to be" is night about half the time.
-      vessel.placeOnPad(opts.lat ?? veh.target?.inclination ?? 28.5,
+      vessel.placeOnPad(opts.lat ?? earthPad?.lat ?? veh.target?.inclination ?? 28.5,
                         opts.lon ?? morningLongitude(home));
+      mapSite = earthPad && { lat: opts.lat ?? earthPad.lat, lon: earthPad.lon };
       flyCam.setMode('pad');
       flyCam.state.hasPad = true;
       // Where the pad IS, in the parent-centred frame the vessel uses. The
@@ -128,6 +136,7 @@ export function createSpaceflight(ctx) {
       // surface.
       sitePos = vessel.r.clone();
     } else {
+      mapSite = null;
       vessel.placeInOrbit(opts.alt ?? (veh.role === 'lander' ? 15000 : 250000),
                           opts.inc ?? 0, Math.random() * 6.28);
       flyCam.setMode('chase');
@@ -215,6 +224,7 @@ export function createSpaceflight(ctx) {
   function teardown() {
     if (craft) { local.craftRoot.remove(craft.group); craft = null; }
     if (site) { local.scene.remove(site.group); site.dispose(); site = null; sitePos = null; }
+    mapSite = null;
     // createGroundFlame() makes a ShaderMaterial per launch and site.dispose()
     // only walks the geometries, so this one has to be released here.
     if (padFire) { padFire.mesh.material.dispose(); padFire = null; }
@@ -424,7 +434,17 @@ export function createSpaceflight(ctx) {
     const star = bodies().filter(b => b.type === 'star')[0];
     const dAU = star ? Math.max(star.pos.distanceTo(vessel.parent.pos), 1e-4) : 1;
     const starFlux = star ? (star.luminosity ?? 1) / (dAU * dAU) : 1;
-    local.update({ env, altitude: alt, sunDirWorld: _sun, upWorld: _up, northWorld: _north, starFlux });
+    // Advance the fixed launch site before sampling the map. Its rotation and
+    // the local ground's geographic frame must describe the same instant.
+    if (site && sitePos) {
+      if (vessel.phase === PHASE.PRELAUNCH) sitePos.copy(vessel.r);
+      else {
+        _a.set(0, -env.rotRate, 0).cross(sitePos);
+        sitePos.addScaledVector(_a, simSeconds).setLength(env.radius);
+      }
+    }
+    local.update({ env, altitude: alt, sunDirWorld: _sun, upWorld: _up, northWorld: _north,
+      starFlux, padWorld: sitePos, mapSite });
 
     // The craft sits at the origin of the local frame with the local up as +Y,
     // so its attitude has to be expressed in that frame rather than in world
@@ -444,24 +464,7 @@ export function createSpaceflight(ctx) {
     // to second order the same −x²/2R drop the ground patch is drawn with, so
     // the pad sits ON the ground rather than above or below it.
     if (site && sitePos) {
-      if (vessel.phase === PHASE.PRELAUNCH) {
-        // Still standing on it: the pad is wherever the vehicle is, exactly.
-        // Integrating it separately would let the two disagree by however much
-        // the hold differs from a free surface point — 465 m/s at the equator,
-        // which is half a kilometre of drift in the first second.
-        sitePos.copy(vessel.r);
-      } else {
-        // Carried round with the body, at ITS OWN surface velocity — the very
-        // expression placeOnPad() uses to give the vehicle its 408 m/s of free
-        // eastward motion at a 28.5° pad. Deriving the two from one line is the
-        // point: written as an independent rotation it was applied backwards,
-        // so the pad receded from the vehicle at twice the surface speed and
-        // the view pulled out to a kilometre within a second of liftoff.
-        // Euler on a circle drifts inward as (Ωdt)²/2 per step, which is 1e-11
-        // of a radius at 60 fps, and the re-normalisation removes even that.
-        _a.set(0, -env.rotRate, 0).cross(sitePos);
-        sitePos.addScaledVector(_a, simSeconds).setLength(env.radius);
-      }
+      // SitePos was advanced above, before the mapped ground was sampled.
       const sx = sitePos.dot(east), sy = sitePos.dot(_up) - env.radius, sz = sitePos.dot(_north);
       site.group.position.set(sx, sy, sz);
       // The pad deck is the datum: the vessel reads zero altitude standing on

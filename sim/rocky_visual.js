@@ -1,15 +1,16 @@
 import * as THREE from 'three';
 import { MAX_SUNS, SUN_UNIFORMS, SUN_GLSL, applySuns, insolationAt, litBy } from './suns.js';
 import { TERRAIN_GLSL, NOISE_GLSL, terrainUniforms } from './terrain.js';
+import { loadPlanetMap } from './planetmaps.js';
 
 // ============================================================================
 // SOLID-SURFACE WORLDS
 // ----------------------------------------------------------------------------
 // Every planet that is not a gas giant is drawn by this file: Earth, Mars, the
-// Moon, Mercury, Pluto, and whatever the Object Foundry makes. There is one
-// shader, not one per kind of world, because the differences between them are
-// not differences of KIND — they are the same physics at different values of
-// four numbers:
+// Moon, Mercury, Pluto, and whatever the Object Foundry makes. Named Earth,
+// Mars and Moon bodies use measured imagery for their geography; invented
+// worlds and other bodies keep the procedural terrain. Both paths use the same
+// shader, lighting, volatile and climate uniforms:
 //
 //   S        insolation, which the body works out for itself from wherever it
 //            happens to be and whatever stars happen to be lighting it. Move a
@@ -23,8 +24,9 @@ import { TERRAIN_GLSL, NOISE_GLSL, terrainUniforms } from './terrain.js';
 //            tectonics, nothing survives; with neither, the surface is a
 //            four-billion-year integral of everything that ever hit it.
 //
-// The terrain and the climate belts come from sim/terrain.js, so the world
-// that the climate model in sim/world.js stands on is the same world.
+// The procedural terrain and climate belts come from sim/terrain.js. The map
+// path replaces only surface geography and base color, not the atmosphere or
+// the response to extreme heating and cooling.
 // ============================================================================
 
 // ---------------------------------------------------------------------------
@@ -37,9 +39,10 @@ import { TERRAIN_GLSL, NOISE_GLSL, terrainUniforms } from './terrain.js';
 // transpose of the (orthonormal) view basis.
 // ---------------------------------------------------------------------------
 const SURF_VERT = `
-  varying vec3 vObj; varying vec3 vWN; varying vec3 vView;
+  varying vec3 vObj; varying vec3 vWN; varying vec3 vView; varying vec2 vMapUv;
   void main(){
     vObj = normalize(position);
+    vMapUv = uv;
     vWN  = normalize(mat3(modelMatrix) * normal);
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     mat3 vr = mat3(viewMatrix);
@@ -86,15 +89,20 @@ export function surfaceMaterial(seed, opts = {}) {
       // a thin atmosphere.
       uSeason:   { value: opts.season ?? 8 },
       uDecl:     { value: 0 },
+      uMapKind:  { value: 0 }, // 0 procedural, 1 Earth land/water, 2 dry mission mosaic
+      uMapScale: { value: 1 },
+      uColorMap: { value: null },
+      uLandMask: { value: null },
     },
     vertexShader: SURF_VERT,
     fragmentShader: `
       precision highp float;
       ${SUN_GLSL}
       uniform float uSeed, uSeaKm, uIce, uScorch, uS2, uFrostK, uBiota, uCrater, uHaze, uTime, uGain;
-      uniform float uSeason, uDecl;
+      uniform float uSeason, uDecl, uMapKind, uMapScale;
       uniform vec3 uRegolith, uAmbient;
-      varying vec3 vObj; varying vec3 vWN; varying vec3 vView;
+      uniform sampler2D uColorMap, uLandMask;
+      varying vec3 vObj; varying vec3 vWN; varying vec3 vView; varying vec2 vMapUv;
       ${TERRAIN_GLSL}
 
       void main(){
@@ -102,9 +110,10 @@ export function surfaceMaterial(seed, opts = {}) {
 
         // --- relief
         float hKm, rug;
-        terrain(p, uSeed, hKm, rug);
+        hKm = 0.0; rug = 0.0;
+        if(uMapKind < 0.5) terrain(p, uSeed, hKm, rug);
         float fresh = 0.0;
-        if(uCrater > 0.002){
+        if(uMapKind < 0.5 && uCrater > 0.002){
           // A body with no air and no plate tectonics has no orogeny either:
           // its relief IS its impact record, so the tectonic terrain is faded
           // out as the crater record is faded in.
@@ -123,6 +132,8 @@ export function surfaceMaterial(seed, opts = {}) {
         float lat = asin(sinLat);
         float a = abs(lat);
         bool sea = hKm < uSeaKm;
+        if(uMapKind > 0.5 && uMapKind < 1.5)
+          sea = texture2D(uLandMask, vMapUv).r < 0.5 && uSeaKm > -2.0;
 
         // --- temperature, and therefore everything else
         float T = surfaceTemp(sinLat, max(hKm, 0.0), uS2) + uSeason * sinLat * uDecl;
@@ -140,11 +151,14 @@ export function surfaceMaterial(seed, opts = {}) {
         // one side of it, so the result is the local detail with its sign
         // flipped — speckle on flat ground, and a mountain belt that reads as
         // the WETTEST place on the planet rather than the driest lee.
-        float inland = smoothstep(uSeaKm + 0.05, uSeaKm + 1.4, hKm);
-        vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), p) + 1e-6);
-        vec3 probe = normalize(p + east * (a < 0.52 ? -0.04 : 0.04));
-        float shadow = clamp((crustHeight(probe, uSeed) - crustHeight(p, uSeed)) * 0.6, 0.0, 1.0);
-        float P = precipitation(lat, T, inland, shadow);
+        float P = 0.0;
+        if(uMapKind < 0.5){
+          float inland = smoothstep(uSeaKm + 0.05, uSeaKm + 1.4, hKm);
+          vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), p) + 1e-6);
+          vec3 probe = normalize(p + east * (a < 0.52 ? -0.04 : 0.04));
+          float shadow = clamp((crustHeight(probe, uSeed) - crustHeight(p, uSeed)) * 0.6, 0.0, 1.0);
+          P = precipitation(lat, T, inland, shadow);
+        }
 
         // --- albedo
         vec3 albedo; float rough;
@@ -170,26 +184,54 @@ export function surfaceMaterial(seed, opts = {}) {
           albedo = mix(rock, biome(T, P, rug), uBiota);
           rough = mix(0.95, 0.6, rug);
         }
+        if(uMapKind > 0.5){
+          vec3 mapped = texture2D(uColorMap, vMapUv).rgb;
+          if(uMapKind < 1.5){
+            // NASA's deep ocean is intentionally almost black in the source
+            // composite. Restore the measured blue-water reflectance while
+            // retaining its shallow-water color and mapped coastline.
+            float land = texture2D(uLandMask, vMapUv).r;
+            vec3 deep = vec3(0.018, 0.060, 0.155);
+            float shelf = smoothstep(0.025, 0.13, mapped.g);
+            vec3 water = mix(deep, max(mapped * 0.8, deep), shelf);
+            float wet = smoothstep(-5.0, -2.0, uSeaKm);
+            vec3 dryBed = vec3(0.15, 0.14, 0.12) * (0.8 + mapped.g * 1.4);
+            albedo = mix(mix(dryBed, mapped, land), mix(water, mapped, land), wet);
+            rough = mix(0.9, mix(0.06, 0.88, land), wet);
+          } else {
+            albedo = mapped * uMapScale;
+            rough = 0.92;
+          }
+        }
 
         // --- volatiles. Everything freezes out below its own condensation
         // point: water at 273, CO2 at 148, nitrogen at 63. A permanent cap
         // needs no precipitation (an ice sheet is the accumulation of ages);
         // a seasonal snowpack does.
-        float perm = smoothstep(uFrostK - 5.0, uFrostK - 17.0, T);
-        float snow = smoothstep(uFrostK + 4.0, uFrostK - 5.0, T) * smoothstep(0.03, 0.28, P);
-        float seaIce = sea ? smoothstep(uFrostK + 0.5, uFrostK - 4.0, T) : 0.0;
-        float frost = clamp(max(max(perm, snow), seaIce), 0.0, 1.0);
+        float frost = 0.0;
+        if(uMapKind < 0.5){
+          float perm = smoothstep(uFrostK - 5.0, uFrostK - 17.0, T);
+          float snow = smoothstep(uFrostK + 4.0, uFrostK - 5.0, T) * smoothstep(0.03, 0.28, P);
+          float seaIce = sea ? smoothstep(uFrostK + 0.5, uFrostK - 4.0, T) : 0.0;
+          frost = clamp(max(max(perm, snow), seaIce), 0.0, 1.0);
+        } else if(uMapKind < 1.5){
+          // The July image already has Greenland and Antarctica. Additional
+          // glaciation appears only if the simulated Earth actually cools.
+          float cold = 1.0 - smoothstep(245.0, 280.0, uMeanK);
+          frost = cold * smoothstep(0.72 - 0.56 * cold, 0.92 - 0.35 * cold, abs(sinLat));
+        }
         // An energy-balance model, where there is one, owns the ice line: its
         // glaciated fraction is a state variable with a feedback on it, and the
         // picture has to agree with the number the model is integrating.
-        if(uIce > 0.001){
+        if(uIce > (uMapKind > 0.5 ? 0.15 : 0.001)){
           float capEdge = 1.0 - uIce * 1.05;
           float jitter = (fbm(p * 3.0 + 11.0, 3) - 0.5) * 0.16;
           frost = max(frost, smoothstep(capEdge - 0.10, capEdge + 0.06, abs(sinLat) + jitter)
                              * smoothstep(0.02, 0.18, uIce));
         }
         // ragged edge — an ice margin is a coastline, not a parallel
-        frost = clamp(frost + (fbm(p * 7.0 + 31.0, 4) - 0.5) * 0.35, 0.0, 1.0);
+        if(frost > 0.0)
+          frost = clamp(frost + (fbm(p * 7.0 + 31.0, 4) - 0.5) * 0.35, 0.0, 1.0);
         albedo = mix(albedo, vec3(0.82, 0.87, 0.93), frost);
         rough = mix(rough, 0.62, frost);
 
@@ -422,6 +464,12 @@ export function createRockyVisual(b, opts = {}) {
   };
 
   const surfMat = surfaceMaterial(seed, surfOpts);
+  loadPlanetMap(b.name, ({ color, mask, kind, scale }) => {
+    surfMat.uniforms.uColorMap.value = color;
+    surfMat.uniforms.uLandMask.value = mask;
+    surfMat.uniforms.uMapScale.value = scale;
+    surfMat.uniforms.uMapKind.value = kind;
+  });
   const surface = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 64), surfMat);
   g.add(surface);
 

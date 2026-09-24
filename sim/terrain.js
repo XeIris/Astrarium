@@ -47,9 +47,10 @@
 //      from a Whittaker diagram — biome as a function of mean temperature and
 //      annual precipitation — rather than from height.
 //
-// Everything below is pure GLSL exported as strings, so sim/world.js (the
-// climate-driven world) and sim/rocky_visual.js (every other solid planet) get
-// the same terrain rather than two models that disagree.
+// Everything below is pure GLSL exported as strings. It supplies terrain for
+// invented worlds and unmapped Solar System bodies in both world.js and
+// rocky_visual.js. Named Earth, Mars and Moon use mission imagery for their
+// geography instead.
 // ============================================================================
 
 // ----------------------------------------------------------------------------

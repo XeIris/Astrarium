@@ -616,7 +616,14 @@ drifts nor needs a step size.
   than the raw ratio, because the orbit view has no adapted exposure. It is a display
   transform and `sim/structure.js` says so.)
 - **Neutron stars** that spin and sweep two lighthouse **pulsar beams**.
-- **Planets that are modelled rather than painted.** A rocky world's relief comes from
+- **Real worlds use real maps; invented worlds use a terrain model.** Earth uses
+  NASA's July 2004 Blue Marble imagery and a Natural Earth land mask, so its
+  continents and ocean basins have their actual shapes and proportions. Mars
+  uses a Viking/USGS color mosaic, and the Moon uses an LRO color mosaic.
+  Spaceflight's ground uses the same Earth map, tied to the Cape Canaveral or
+  Starbase launch site. These are global color maps, not metre-scale elevation
+  meshes; nearby ground detail and weather remain simulated. For an invented
+  rocky world, relief comes from
   isostasy (continental crust floats ~4.5 km higher than oceanic, which is why Earth's
   hypsometric curve is bimodal and why coastlines are sharp) and from plate boundaries,
   where the sign of the closing rate picks a mountain belt, a trench-and-arc, or a
@@ -810,6 +817,8 @@ planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` res
   as shared GLSL
 - `sim/rocky_visual.js` — every solid-surface world: terrain, biomes, volatiles, clouds,
   atmosphere
+- `sim/planetmaps.js` and `assets/planet-maps/` — cached mission imagery and
+  the Earth coastline mask for named Solar System worlds
 - `sim/giant_visual.js` — gas giants: zonal jets, differential advection, vortices, rings
 - `sim/suns.js` — the multi-sun lighting block every lit surface declares
 - `sim/presets.js` — scenario definitions with real initial conditions

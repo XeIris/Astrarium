@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { density, pressure, scaleHeight } from './rocketry.js';
+import { loadPlanetMap } from '../planetmaps.js';
 
 // ============================================================================
 // LOCAL SPACE
@@ -58,6 +59,10 @@ const GROUND_FRAG = `
   uniform float uEye, uScaleH, uDensity, uPatch, uHasAir, uSeaLevel, uOceans;
   uniform float uSunI, uSkyI, uTemp;
   uniform vec3  uSea;
+  uniform float uGeoReady, uRadius;
+  uniform mat3 uGeoFrame;
+  uniform vec2 uPadLocal;
+  uniform sampler2D uEarthColor, uEarthLand;
 
   float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
   float noise(vec2 p){
@@ -100,6 +105,24 @@ const GROUND_FRAG = `
     if(uOceans > 0.5 && big < uSeaLevel){
       float dep = smoothstep(uSeaLevel, uSeaLevel - 0.18, big);
       col = mix(col, uSea, dep * 0.92);
+    }
+    if(uGeoReady > 0.5){
+      // The ground patch is a tangent sheet. Convert each point back to a
+      // direction on the real sphere, then into the NASA map's lat/lon frame.
+      vec3 geo = normalize(uGeoFrame * normalize(vec3(vWorld.x, vWorld.y + uRadius, vWorld.z)));
+      vec2 mapUv = vec2(fract(atan(geo.z, geo.x) / 6.2831853 + 0.5),
+                        asin(clamp(geo.y, -1.0, 1.0)) / 3.14159265 + 0.5);
+      vec3 mapped = texture2D(uEarthColor, mapUv).rgb;
+      float land = texture2D(uEarthLand, mapUv).r;
+      // The global mask resolves roughly 10 km per pixel. Keep the actual
+      // reclaimed/graded launch parcel above water at that coarse resolution.
+      land = max(land, 1.0 - smoothstep(700.0, 1800.0, distance(vWorld.xz, uPadLocal)));
+      // The global image resolves kilometres, so local stone, scrub and sand
+      // still come from the metre-scale fields above. The mapped mask owns
+      // every coastline, including the ocean beyond the launch complex.
+      vec3 landCol = mix(mapped, col, 0.42);
+      vec3 water = max(mapped * 0.8, uSea * 0.8);
+      col = mix(water, landCol, land);
     }
 
     // Lambert against the local sun. uSunI carries the same irradiance the
@@ -264,6 +287,9 @@ export function createLocalView() {
     uScaleH: { value: 8500 }, uDensity: { value: 2.4e-5 }, uHasAir: { value: 1 },
     uSeaLevel: { value: 0.42 }, uOceans: { value: 1 },
     uSunI: { value: 3.0 }, uSkyI: { value: 0.35 }, uTemp: { value: 288 },
+    uGeoReady: { value: 0 }, uGeoFrame: { value: new THREE.Matrix3() },
+    uPadLocal: { value: new THREE.Vector2() },
+    uEarthColor: { value: null }, uEarthLand: { value: null },
   };
   // OPAQUE. It was transparent, and being transparent is what put it in the
   // wrong queue: three draws every opaque object before any transparent one and
@@ -318,6 +344,8 @@ export function createLocalView() {
   scene.add(craftRoot);
 
   const _up = new THREE.Vector3(), _sun = new THREE.Vector3(), _e = new THREE.Vector3();
+  const _pole = new THREE.Vector3(0, -1, 0);
+  let earthMapRequested = false;
 
   return {
     scene, camera, sun, ground, sky, craftRoot,
@@ -330,7 +358,7 @@ export function createLocalView() {
      * patch a flat sheet in this frame, and makes the vehicle's height above it
      * literally its altitude.
      */
-    update({ env, altitude, sunDirWorld, upWorld, northWorld, starFlux }) {
+    update({ env, altitude, sunDirWorld, upWorld, northWorld, starFlux, padWorld, mapSite }) {
       const hasAir = env.atm ? 1 : 0;
       const h = Math.max(altitude, 0);
       // Horizon distance √(2Rh), with a floor so there is always ground to see,
@@ -376,6 +404,31 @@ export function createLocalView() {
       _up.copy(upWorld).normalize();
       const east = _e.crossVectors(_up, northWorld).normalize();
       const north = new THREE.Vector3().crossVectors(east, _up).normalize();
+      groundU.uGeoReady.value = 0;
+      if(env.name === 'Earth' && padWorld && mapSite){
+        if(!earthMapRequested){
+          earthMapRequested = true;
+          loadPlanetMap('Earth', ({ color, mask }) => {
+            groundU.uEarthColor.value = color;
+            groundU.uEarthLand.value = mask;
+          });
+        }
+        if(groundU.uEarthColor.value && groundU.uEarthLand.value){
+          const siteUp = padWorld.clone().normalize();
+          const siteNorth = _pole.clone().addScaledVector(siteUp, -_pole.dot(siteUp)).normalize();
+          const siteEast = siteNorth.clone().cross(siteUp).normalize();
+          const lat = mapSite.lat * Math.PI / 180, lon = mapSite.lon * Math.PI / 180;
+          const geoUp = new THREE.Vector3(Math.cos(lat)*Math.cos(lon), Math.sin(lat), Math.cos(lat)*Math.sin(lon));
+          const geoNorth = new THREE.Vector3(-Math.sin(lat)*Math.cos(lon), Math.cos(lat), -Math.sin(lat)*Math.sin(lon));
+          const geoEast = new THREE.Vector3(-Math.sin(lon), 0, Math.cos(lon));
+          const toGeo = v => geoEast.clone().multiplyScalar(v.dot(siteEast))
+            .addScaledVector(geoUp, v.dot(siteUp)).addScaledVector(geoNorth, v.dot(siteNorth));
+          const gx = toGeo(east), gy = toGeo(_up), gz = toGeo(north);
+          groundU.uGeoFrame.value.set(gx.x, gy.x, gz.x, gx.y, gy.y, gz.y, gx.z, gy.z, gz.z);
+          groundU.uPadLocal.value.set(padWorld.dot(east), padWorld.dot(north));
+          groundU.uGeoReady.value = 1;
+        }
+      }
       _sun.set(sunDirWorld.dot(east), sunDirWorld.dot(_up), sunDirWorld.dot(north)).normalize();
       groundU.uSunDir.value.copy(_sun);
       skyU.uSunDir.value.copy(_sun);
