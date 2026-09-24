@@ -46,7 +46,7 @@ const DEFAULTS := {"display": "block", "dir": "row", "wrap": false, "w": -1.0, "
 	"area": [], "ai": "stretch", "jc": "start", "as": "", "grow": 0.0, "shrink": 1.0, "basis": -1.0,
 	"iw": -1.0, "fit": false, "ib": false, "vc": false, "scroll": false, "sbw": 4.0,
 	"clip": false, "op": 1.0, "rot": 0.0, "glow": 0.0, "ring": HudTheme.CLEAR, "outline_ring": 0.0,
-	"blur": 0.0, "mlauto": false}
+	"blur": 0.0, "mlauto": false, "aspect": 0.0, "span": 1}
 
 ## Every root that needs laying out again (a positioned panel), and whether
 ## anything did — the Hud reads and clears these once a frame.
@@ -344,6 +344,11 @@ func layout(w: float, forced_h: float = -1.0) -> float:
 	return h
 
 func _layout_content(cw: float, o: Vector2) -> float:
+	if gf("aspect") > 0.0:
+		for k in kids():
+			k.position = o
+			k.layout(cw)
+		return cw * gf("aspect")
 	if not runs.is_empty():
 		return _layout_inline(cw)
 	var disp: String = g("display")
@@ -384,7 +389,7 @@ func eff_mt() -> float:
 	if _collapses_top():
 		var ks := kids()
 		if not ks.is_empty() and not bool(ks[0].g("ib")):
-			m = maxf(m, ks[0].eff_mt())
+			m = _collapse(m, ks[0].eff_mt())
 	return m
 
 func eff_mb() -> float:
@@ -392,8 +397,13 @@ func eff_mb() -> float:
 	if _collapses_bot():
 		var ks := kids()
 		if not ks.is_empty() and not bool(ks[-1].g("ib")):
-			m = maxf(m, ks[-1].eff_mb())
+			m = _collapse(m, ks[-1].eff_mb())
 	return m
+
+## Two adjoining margins collapse to the largest positive plus the most
+## negative (CSS 2 §8.3.1).
+static func _collapse(a: float, b: float) -> float:
+	return maxf(maxf(a, 0.0), maxf(b, 0.0)) + minf(minf(a, 0.0), minf(b, 0.0))
 
 func _layout_block(cw: float, o: Vector2) -> float:
 	var y := 0.0
@@ -427,10 +437,10 @@ func _layout_block(cw: float, o: Vector2) -> float:
 		if i == 0 and ct:
 			tm = 0.0
 		if h <= 0.0 and k._collapses_top() and k._collapses_bot():
-			pend = maxf(pend, maxf(tm, bm))
+			pend = _collapse(pend, _collapse(tm, bm))
 			k.position = o + Vector2(x, y + pend)
 			continue
-		y += maxf(pend, tm)
+		y += _collapse(pend, tm)
 		k.position = o + Vector2(x, y)
 		y += h
 		pend = bm
@@ -881,7 +891,7 @@ func _draw() -> void:
 		sb.anti_aliasing_size = 0.6
 		draw_style_box(sb, r)
 	else:
-		if bg.a > 0.0 and _blur == null:
+		if bg.a > 0.0 and (_blur == null or not _blur.visible):
 			draw_rect(r, bg)
 		_draw_borders(r)
 	if not runs.is_empty():
@@ -1017,3 +1027,9 @@ func _sync_blur() -> void:
 	var m2: ShaderMaterial = _blur.material
 	m2.set_shader_parameter("tint", g("bg"))
 	m2.set_shader_parameter("sigma", b)
+	m2.set_shader_parameter("px_scale", get_window().content_scale_factor if is_inside_tree() else 1.0)
+	_blur_extra(m2)
+
+## Override: extra blur-shader parameters (the start screen's gradient).
+func _blur_extra(_m: ShaderMaterial) -> void:
+	pass
