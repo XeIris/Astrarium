@@ -45,11 +45,11 @@ varying float vShade;
 // Two Newton steps from a good initial guess are accurate to ~1e-10 (in
 // double; to float32 here) for the eccentricities anything here uses.
 float eccentricAnomaly(float M, float e) {
-	float E = M + e * sin(M) * (1.0 + e * cos(M));
+	float Ea = M + e * sin(M) * (1.0 + e * cos(M));
 	for (int i = 0; i < 2; i++) {
-		E -= (E - e * sin(E) - M) / (1.0 - e * cos(E));
+		Ea -= (Ea - e * sin(Ea) - M) / (1.0 - e * cos(Ea));
 	}
-	return E;
+	return Ea;
 }
 
 void vertex() {
@@ -58,10 +58,10 @@ void vertex() {
 	float rev = fract(fract(CUSTOM0.z * uT.x) + fract(CUSTOM0.z * uT.y)
 	                + fract(CUSTOM0.w * uT.x) + CUSTOM0.w * uT.y);
 	float M = CUSTOM1.x + 6.283185307 * rev;
-	float E = e > 1e-6 ? eccentricAnomaly(M, e) : M;
+	float Ea = e > 1e-6 ? eccentricAnomaly(M, e) : M;
 	// Position in the orbital plane, from the eccentric anomaly.
-	float xo = a * (cos(E) - e);
-	float yo = a * sqrt(1.0 - e * e) * sin(E);
+	float xo = a * (cos(Ea) - e);
+	float yo = a * sqrt(1.0 - e * e) * sin(Ea);
 	// Rotate by argument of periapsis, inclination, longitude of node.
 	float cw = cos(CUSTOM1.w), sw = sin(CUSTOM1.w);
 	float x1 = xo * cw - yo * sw;
