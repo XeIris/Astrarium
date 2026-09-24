@@ -298,6 +298,17 @@ func _init() -> void:
 		f.store_string(JSON.stringify(clean(out), "", false, true))
 		f.close()
 		print("wrote ", args["out"])
+	elif mode == "budget":
+		# The frame budget: every preset at its own pace, `frames` frames at 60 fps,
+		# physics only (step_physics + climate). ms/frame is what the integrator
+		# alone costs; 16.7 ms is the whole frame at 60 fps.
+		var frames := int(args.get("frames", "120"))
+		var rows := []
+		for key in Presets.PRESET_ORDER:
+			var r := run_frames(key, frames, 60.0, 0)
+			rows.append({ "key": key, "bodies": r.bodies, "stepsPerFrame": float(r.steps) / frames, "maxSteps": r.maxSteps,
+				"msPerFrame": r.ms / frames, "stepsPerSec": r.stepsPerSec })
+			print("%-20s bodies %2d  steps/frame %7.1f (max %5d)  %7.3f ms/frame  %8.0f steps/s" % [key, r.bodies, float(r.steps) / frames, r.maxSteps, r.ms / frames, r.stepsPerSec])
 	elif mode == "long":
 		var key: String = args.get("preset", "trisolaris")
 		var years := float(args.get("years", "100"))

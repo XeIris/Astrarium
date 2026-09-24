@@ -380,6 +380,12 @@ if (mode === 'ref') {
   };
   writeFileSync(a1, exactJSON(clean(out)));
   console.log(`wrote ${a1}: ${specs.length} structure cases, ${calls.length} calls, ${PRESET_ORDER.length} presets`);
+} else if (mode === 'budget') {
+  const frames = parseInt(a1 || '120');
+  for (const key of PRESET_ORDER) {
+    const r = runFrames(key, frames, 60, 0);
+    console.log(`${key.padEnd(20)} bodies ${String(r.bodies).padStart(2)}  steps/frame ${(r.steps / frames).toFixed(1).padStart(7)} (max ${String(r.maxSteps).padStart(5)})  ${(r.ms / frames).toFixed(3).padStart(7)} ms/frame`);
+  }
 } else if (mode === 'long') {
   const key = a1, years = parseFloat(a2), fps = parseFloat(a3 || '60');
   const p = PRESETS[key];
@@ -389,5 +395,5 @@ if (mode === 'ref') {
   delete r.samples;
   console.log(JSON.stringify({ ...r, series }, null, 1));
 } else {
-  console.log('usage: physref.mjs ref <out.json> | long <preset> <simYears> [fps]');
+  console.log('usage: physref.mjs ref <out.json> | long <preset> <simYears> [fps] | budget [frames]');
 }
