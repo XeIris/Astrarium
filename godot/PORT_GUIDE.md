@@ -184,6 +184,19 @@ three r160 has `ColorManagement.enabled = true`, so:
   Godot's lighting.
 * gdshader is strict about int/float mixing, as GLSL ES was. Reserved words
   also differ from GLSL, so rename on a compile error.
+* **Float literals below ~1e-14 compile to 0.0 in a gdshader.** Godot re-prints
+  each constant into the generated GLSL in fixed notation, so `1e-16`, `1e-24`
+  and `1e-30` reach the GPU as zero. A floor like `max(x, 1e-24)` then stops
+  flooring and divides by zero. Measured: this produced NaNs on the photon
+  ring, which the bloom spread into black rectangles. Spell such constants as bit
+  patterns, `uintBitsToFloat(0x179abe15u)` for 1e-24 (see
+  shaders/sky/sky.gdshaderinc). Compute `.glsl` files are compiled directly and
+  are not affected. Note too that `isnan()`/`isinf()` checks are unreliable on
+  the Metal backend's fast math. Test the bits
+  (`floatBitsToUint(x) & 0x7fffffffu) >= 0x7f800000u`) when debugging.
+* gdshader has no mutable globals (only `const`/`uniform`/`varying` outside
+  functions). A GLSL module-level variable that one function sets and another
+  reads (the sky's `sky_D`) has to become an explicit parameter.
 * Uniform arrays: `uniform vec3 a[4];` set from script with a
   `PackedVector3Array` of exactly that length.
 
