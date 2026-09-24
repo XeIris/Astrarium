@@ -245,6 +245,12 @@ func _setup_surface(path: String) -> void:
 	sky_pass = SkyView.create_sky_pass()
 	sky_pass.exposure = float(d.get("exposure", 1.0))
 	pipe.surface_pass = sky_pass
+	# The orchestrator anchors the band gain to the hottest emitter every frame
+	# (postfx.setSceneTemp(sceneMaxTemp())); the surface pass publishes no
+	# temperatures, so in a non-visible band everything is inferred from colour
+	# against that reference, and it has to be the web frame's.
+	if d.has("sceneT"):
+		pipe.postfx.set_scene_temp(float(d.sceneT))
 
 ## Print the observer frame next to the web build's, and the sky-pass uniforms.
 func _report_frame() -> void:
@@ -254,7 +260,17 @@ func _report_frame() -> void:
 	var eye_w := DVec3.from_array(o.eye)
 	var fwd_g := -pipe.scene_cam.transform.basis.z
 	var fwd_w := Vector3(o.forward[0], o.forward[1], o.forward[2])
-	print("surface: |up-web| %.2e  |north-web| %.2e  |eye-web| %.2e  |fwd-web| %.2e" % [
-		(observer.up - up_w).length(), (observer.north - north_w).length(),
-		observer.eye.distance_to(eye_w), (fwd_g - fwd_w).length()])
-	print("surface: sun dirs ", sky_pass.u.uSunDir, " int ", sky_pass.u.uSunInt, " exposure ", sky_pass.u.uExposure)
+	print("surface: |up-web| %s  |north-web| %s  |eye-web| %s  |fwd-web| %s" % [
+		U.expo((observer.up - up_w).length(), 2), U.expo((observer.north - north_w).length(), 2),
+		U.expo(observer.eye.distance_to(eye_w), 2), U.expo((fwd_g - fwd_w).length(), 2)])
+	var wu: Dictionary = state_dump.get("web_uniforms", {})
+	if not wu.is_empty():
+		var worst := 0.0
+		for i in int(wu.uSunCount):
+			var a: Array = wu.uSunDir[i]
+			worst = maxf(worst, ((sky_pass.u.uSunDir[i] as Vector3) - Vector3(a[0], a[1], a[2])).length())
+		print("surface: sun-dir max |d| %s  count %d/%d  exposure web %.5f godot %.5f  ice %.4f/%.4f scorch %.4f/%.4f clouds %.4f/%.4f hum %.4f/%.4f storm %.4f/%.4f fov %.5f/%.5f" % [
+			U.expo(worst, 2), sky_pass.u.uSunCount, int(wu.uSunCount), float(wu.uExposure), float(sky_pass.u.uExposure),
+			float(wu.uIce), float(sky_pass.u.uIce), float(wu.uScorch), float(sky_pass.u.uScorch),
+			float(wu.uClouds), float(sky_pass.u.uClouds), float(wu.uHumidity), float(sky_pass.u.uHumidity),
+			float(wu.uStorm), float(sky_pass.u.uStorm), float(wu.uFov), float(sky_pass.u.uFov)])
