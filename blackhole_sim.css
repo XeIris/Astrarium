@@ -1012,3 +1012,14 @@ body.learn-mode #hint { display: none; }
 .lc-dots > i.on { background: var(--accent); border-color: var(--accent); }
 
 
+
+/* Two sidebars leave too little room for narration on a narrow desktop.
+   Give the card the bottom of the window and keep it above the sidebars. */
+@media (max-width: 1040px) {
+  .lesson-card {
+    left: 16px;
+    right: 16px;
+    min-width: 0;
+    z-index: 20;
+  }
+}

@@ -4,9 +4,9 @@
 
 - Surface skies stay linear until the final tone curve. Reduced scattered-light gain, removed the minimum daytime exposure, and added the Sun over the sky instead of replacing sky with an underexposed disc. Daylight suppresses background stars independently of artistic radiance gain.
 - Lesson entry, Back, and step jumps reconstruct prerequisite patches. Normal Next preserves the running experiment. Lesson speed takes precedence over surface-camera defaults, saved progress is validated, and cutaway contexts are released.
-- Reduced card height at ordinary desktop sizes so narration leaves the scene centre visible. Lens buttons and disc defaults now reflect the loaded scenario; the lone-hole demo starts without a disc.
+- Reduced card height at ordinary desktop sizes so narration leaves the scene centre visible; narrow windows give the card a readable full-width bottom region. Lens buttons and disc defaults now reflect the loaded scenario; the lone-hole demo starts without a disc.
 - Lunar lessons use real sizes and a synchronously oriented Moon. Removed the unnecessary Moon from the two-body seasons demo. Eclipse-shadow rendering limitations are explicit.
-- Photometry handles luminous companions, total eclipses by large bodies, and overlapping silhouettes; paused samples no longer fill the history. Traces use elapsed simulated time.
+- Photometry handles luminous companions, total eclipses by large bodies, and overlapping silhouettes; paused samples no longer fill the history. Sampling uses the current frame’s camera. Traces use elapsed simulated time.
 - GW charts use equivalent detector timestamps, suppress stationary duplicate samples, and bound schematic arm motion. The course labels the rescaled, leading-order inspiral and distinguishes differential displacement from motion per arm.
 - Corrected shadow radius versus diameter, the Arctic Circle latitude, EHT photon-ring wording, and transit clock wording. Hot Earth-like worlds lose their oceans by the model's near-Earth-pressure boiling threshold.
 

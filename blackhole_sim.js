@@ -3172,11 +3172,6 @@ function animate() {
   painter.update(simStepped);
   updateSuns();
   postfx.setSceneTemp(sceneMaxTemp());
-  // The course's instruments are measurements of the running scene — a light
-  // curve, a strain trace, an HR diagram — so they are sampled here, on the
-  // frame, and not when a button is pressed. This is above the render branches
-  // rather than inside one because all of them need it.
-  lessons.update(dt);
 
   // body visual updates
   const holes = getHoles().map(h => ({ posScene: h.viz.group.position, rsScene: h.rsScene, mass: h.mass }));
@@ -3227,6 +3222,10 @@ function animate() {
     easeCamRadius(dt);
     updateOrbitCam();
   }
+
+  // Sample after this frame's camera and body updates: a photometer's line
+  // of sight must match the image rather than lag a camera move by one frame.
+  lessons.update(dt);
 
   // ---- near plane. A fixed 0.01 AU near plane sits outside a true-scale Earth
   // entirely: fly up to one and it clips away before you ever see it. Tying the

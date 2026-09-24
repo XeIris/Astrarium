@@ -55,4 +55,6 @@
   for(let i=0;i<12;i++){s.frame(1/60);const moon=s.state.bodies.find(b=>b.name==='Moon'), earth=s.state.bodies.find(b=>b.name==='Earth');const toward=earth.pos.clone().sub(moon.pos).applyQuaternion(moon.viz.group.quaternion.clone().invert()).normalize();const facing=new Vector3(Math.cos(moon.spinPhase),0,-Math.sin(moon.spinPhase));if(facing.dot(toward)<0.99)errors.push('Moon synchronous rotation');}
   check('Moon keeps its near side toward Earth',!errors.includes('Moon synchronous rotation'));
   window.SCIENCE_REPORT={rows,errors,ok:!errors.length};
-})();
+})().catch(error => {
+  window.SCIENCE_REPORT = { ok: false, errors: [String(error.stack || error)] };
+});
