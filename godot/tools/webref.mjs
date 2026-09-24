@@ -22,7 +22,9 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url));
+// WEB_ROOT overrides the checkout served — a git worktree has no assets/*.glb
+// (they are build artifacts), so point it at a checkout that has them.
+const ROOT = process.env.WEB_ROOT || fileURLToPath(new URL('../..', import.meta.url));
 const PORT = Number(process.env.PORT) || 8779;
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
