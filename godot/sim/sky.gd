@@ -380,9 +380,9 @@ static func sky_uniforms() -> Dictionary:
 static func init_sky_materials(mats: Array) -> void:
 	var d := sky_uniforms()
 	for k in d:
-		_set(mats, k, d[k])
+		_set_all(mats, k, d[k])
 
-static func _set(mats: Array, name: String, value) -> void:
+static func _set_all(mats: Array, name: String, value) -> void:
 	for m in mats:
 		if m != null:
 			(m as ShaderMaterial).set_shader_parameter(name, value)
@@ -392,7 +392,7 @@ static func _set(mats: Array, name: String, value) -> void:
 ## flight existed — the aberration reduces to the identity and the Doppler
 ## factor to exactly 1.
 static func apply_sky_boost(mats: Array, beta_vec: Vector3) -> void:
-	_set(mats, "uBeta", beta_vec)
+	_set_all(mats, "uBeta", beta_vec)
 
 ## Point every band-dependent uniform at `band_index`. Everything the sky needs
 ## to know about the imaging band is set here and nowhere else.
@@ -402,13 +402,13 @@ static func apply_sky_band(mats: Array, band_index: int) -> void:
 	var nu := float(bands[i].nu)
 	# h/k in kelvin-seconds, as in sim/spectrum.gd.
 	var nu_vis := float(bands[Spectrum.VISIBLE_BAND].nu)
-	_set(mats, "uVisibleBand", 1.0 if i == Spectrum.VISIBLE_BAND else 0.0)
-	_set(mats, "uTheta", Spectrum.H_OVER_K * nu)
-	_set(mats, "uThetaVis", Spectrum.H_OVER_K * nu_vis)
-	_set(mats, "uNuRatio3", pow(nu / nu_vis, 3.0))
-	_set(mats, "uExtCoef", float(EXTINCTION[i]))
-	_set(mats, "uSkyGain", float(SKY_GAIN[i]))
-	_set(mats, "uStarGain", float(STAR_GAIN[i]))
+	_set_all(mats, "uVisibleBand", 1.0 if i == Spectrum.VISIBLE_BAND else 0.0)
+	_set_all(mats, "uTheta", Spectrum.H_OVER_K * nu)
+	_set_all(mats, "uThetaVis", Spectrum.H_OVER_K * nu_vis)
+	_set_all(mats, "uNuRatio3", pow(nu / nu_vis, 3.0))
+	_set_all(mats, "uExtCoef", float(EXTINCTION[i]))
+	_set_all(mats, "uSkyGain", float(SKY_GAIN[i]))
+	_set_all(mats, "uStarGain", float(STAR_GAIN[i]))
 
 	var table := {
 		"uwSynch": "synchrotron", "uwH21": "hydrogen21",
@@ -421,7 +421,7 @@ static func apply_sky_band(mats: Array, band_index: int) -> void:
 		"uwBlazar": "blazar",
 	}
 	for u in table:
-		_set(mats, u, float(W[table[u]][i]))
+		_set_all(mats, u, float(W[table[u]][i]))
 
 # ----------------------------------------------------------------------------
 # Environment parameters, and how two of them combine.
@@ -552,16 +552,16 @@ static func apply_sky_environment(mats: Array, spec: Dictionary = {}) -> void:
 	p.merge(spec, true)   # { ...blend, ...spec }
 
 	for pm in SKY_PARAMS:
-		_set(mats, pm.uniform, float(p[pm.key]))
+		_set_all(mats, pm.uniform, float(p[pm.key]))
 
 	# Orient the galactic frame. tilt/roll are plain Euler angles on the plane
 	# normal; the centre direction is then any unit vector orthogonal to it.
 	var tilt := float(spec.tilt) if spec.has("tilt") and spec.tilt != null else 0.34
 	var roll := float(spec.roll) if spec.has("roll") and spec.roll != null else 0.9
 	var frame := galactic_frame(tilt, roll)
-	_set(mats, "uGalNormal", frame[0])
-	_set(mats, "uGalCenter", frame[1])
-	_set(mats, "uGalEast", frame[2])
+	_set_all(mats, "uGalNormal", frame[0])
+	_set_all(mats, "uGalCenter", frame[1])
+	_set_all(mats, "uGalEast", frame[2])
 
 ## The galactic frame [normal, centre, east] for a tilt/roll, in doubles and
 ## only then truncated — the arithmetic of applySkyEnvironment, exposed so a
@@ -589,7 +589,7 @@ static func galactic_frame(tilt: float, roll: float) -> Array:
 ## the rendered frame in DEVICE pixels (the web build's innerHeight × pixel
 ## ratio — pipe.render_size.y here).
 static func apply_sky_optics(mats: Array, fov: float, height: float) -> void:
-	_set(mats, "uPixAngle", fov / maxf(1.0, height))
+	_set_all(mats, "uPixAngle", fov / maxf(1.0, height))
 
 ## The per-frame form of apply_sky_optics. The web build's render loop did
 ##   syncSky(u => { u.uPixAngle.value = fovRad / (innerHeight * pixelRatio); })
@@ -599,4 +599,4 @@ static func apply_sky_optics(mats: Array, fov: float, height: float) -> void:
 ## changed it silently would make every star near the ring the wrong
 ## brightness. Call with (deg_to_rad(camera.fov), pipe.render_size.y).
 static func update_pix_angle(mats: Array, fov_rad: float, height_px: float) -> void:
-	_set(mats, "uPixAngle", fov_rad / height_px if height_px > 0.0 else fov_rad)
+	_set_all(mats, "uPixAngle", fov_rad / height_px if height_px > 0.0 else fov_rad)

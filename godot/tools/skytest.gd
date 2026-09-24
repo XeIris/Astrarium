@@ -71,6 +71,18 @@ func _setup() -> void:
 			env_override = Array(names)
 	if args.has("surface"):
 		_setup_surface(str(args.surface))
+	else:
+		# skytest.html calls createPostFX(renderer) and never touches it, so its
+		# chain runs on sim/postfx.js's INITIAL uniform values — not the sim
+		# page's FX_DEFAULTS, which only the settings panel writes (and which
+		# render/postfx.gd defaults to). Same page, same chain. (Surface mode is
+		# compared against the sim page, so it keeps FX_DEFAULTS.)
+		pipe.postfx.bloom = 0.11
+		pipe.postfx.threshold = 1.5
+		pipe.postfx.knee = 0.7
+		pipe.postfx.radius = 0.85
+		pipe.postfx.vignette = 0.30
+		pipe.postfx.grain = 0.012
 	if not args.has("out"):
 		var layer := CanvasLayer.new()
 		layer.layer = 10
