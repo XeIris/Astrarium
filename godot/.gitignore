@@ -1,0 +1,9 @@
+# Godot's import cache and per-machine state.
+.godot/
+# The authored vehicle meshes are BUILD ARTIFACTS of assets/blender/*.py, exactly
+# as they are for the web build (see the repo's .gitignore). tools/sync_assets.sh
+# copies them in from ../assets after assets/blender/build.sh has produced them.
+assets/craft/*.glb
+assets/craft/*.glb.import
+# Export output.
+build/

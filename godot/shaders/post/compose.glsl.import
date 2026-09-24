@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://wf452uoxgpji"
+path="res://.godot/imported/compose.glsl-cc26d277bc808618cf80225a63430fa9.res"
+
+[deps]
+
+source_file="res://shaders/post/compose.glsl"
+dest_files=["res://.godot/imported/compose.glsl-cc26d277bc808618cf80225a63430fa9.res"]
+
+[params]
+

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://chyaidd73q537"
+path="res://.godot/imported/lens_march.glsl-751a448c7783604e92dda849feee5593.res"
+
+[deps]
+
+source_file="res://shaders/lens/lens_march.glsl"
+dest_files=["res://.godot/imported/lens_march.glsl-751a448c7783604e92dda849feee5593.res"]
+
+[params]
+

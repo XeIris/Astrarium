@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://c722q8o7h3vla"
+path="res://.godot/imported/bright.glsl-5a416651589639254dc4b5a6fa8416b8.res"
+
+[deps]
+
+source_file="res://shaders/post/bright.glsl"
+dest_files=["res://.godot/imported/bright.glsl-5a416651589639254dc4b5a6fa8416b8.res"]
+
+[params]
+
