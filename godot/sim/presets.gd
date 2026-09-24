@@ -278,7 +278,8 @@ static func moon_of(parent_spec: Dictionary, dist_m: float, mass_sun: float, rad
 	var vx: float = parent_spec.vel[0]; var vy: float = parent_spec.vel[1]; var vz: float = parent_spec.vel[2]
 	# Offset along the parent's own radius vector, so the moon starts at its
 	# planet's "noon" — an arbitrary but well-defined phase.
-	var r := Vector2(px, pz).length()
+	# Math.hypot, in double precision (Vector2 is float32)
+	var r := sqrt(px * px + pz * pz)
 	if r == 0.0: r = 1.0
 	var ux := px / r
 	var uz := pz / r

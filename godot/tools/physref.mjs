@@ -125,6 +125,17 @@ const clean = (v) => JSON.parse(JSON.stringify(v, (k, x) => {
   return x;
 }));
 
+// Godot's JSON parser loses precision on a long plain decimal such as
+// 0.0000015013600345916377 (which is how JS writes anything >= 1e-7), but reads
+// exponent notation exactly. So every non-integer is written as toExponential(),
+// which is still the shortest round-trip representation.
+function exactJSON(v) {
+  if (typeof v === 'number') return (Number.isInteger(v) && Math.abs(v) < 1e15) ? String(v) : v.toExponential();
+  if (Array.isArray(v)) return '[' + v.map(exactJSON).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.entries(v).map(([k, x]) => JSON.stringify(k) + ':' + exactJSON(x)).join(',') + '}';
+  return JSON.stringify(v);
+}
+
 // ---- loading a preset the way loadPreset does (physics half) --------------
 function loadPreset(key, seedValue = 12345) {
   const p = PRESETS[key];
@@ -264,7 +275,7 @@ function runFrames(key, frames, fps = 60, sample = 0) {
       samples.push({ f: f + 1, simYears: st.simYears, E: O.totalEnergy(), n: st.bodies.length,
         bodies: st.bodies.map(b => ({ name: b.name, pos: [b.pos.x, b.pos.y, b.pos.z], vel: [b.vel.x, b.vel.y, b.vel.z], mass: b.mass })),
         climate: cl ? { T: cl.T, S: cl.S, era: cl.era.key, ice: cl.ice, clouds: cl.clouds, humidity: cl.humidity, storm: cl.storm,
-          time: cl.time, historyLen: cl.history.length, extremes: cl.extremes, perStar: cl.perStar, last: cl.history[cl.history.length - 1] } : null });
+          time: cl.time, historyLen: cl.history.length, extremes: { ...cl.extremes }, perStar: cl.perStar.map(o => ({ ...o })), last: cl.history[cl.history.length - 1] } : null });
     }
   }
   const ms = performance.now() - t0;
@@ -286,10 +297,10 @@ function climateCases() {
       const stars = [mk(d1, 1, 'A'), mk(-d2, 2.5, 'B')];
       cl.step(dt, planet, stars);
       rows.push({ T: cl.T, S: cl.S, era: cl.era.key, ice: cl.ice, clouds: cl.clouds, humidity: cl.humidity, storm: cl.storm,
-        time: cl.time, hist: cl.history.length, ext: cl.extremes, perStar: cl.perStar, alb: cl.albedo(250), cls: cl.classify(cl.T).key, c: cl.celsius });
+        time: cl.time, hist: cl.history.length, ext: { ...cl.extremes }, perStar: cl.perStar.map(o => ({ ...o })), alb: cl.albedo(250), cls: cl.classify(cl.T).key, c: cl.celsius });
     }
     cl.reset(250);
-    rows.push({ T: cl.T, S: cl.S, era: cl.era.key, ext: cl.extremes, hist: cl.history.length });
+    rows.push({ T: cl.T, S: cl.S, era: cl.era.key, ext: { ...cl.extremes }, hist: cl.history.length });
     out.push(rows);
   }
   return out;
@@ -350,7 +361,7 @@ if (mode === 'ref') {
   for (const key of ['trisolaris', 'trisolaris_wander', 'bhmerger', 'nsmerger', 'binarystar', 'threebody', 'solar', 'feeding', 'sandbox', 'edu_seasons', 'sirius'])
     out.frames[key] = runFrames(key, 240, 60, 60);
   out.transitRV = transitRV();
-  writeFileSync(a1, JSON.stringify(clean(out)));
+  writeFileSync(a1, exactJSON(clean(out)));
   console.log(`wrote ${a1}: ${specs.length} structure cases, ${calls.length} calls, ${PRESET_ORDER.length} presets`);
 } else if (mode === 'long') {
   const key = a1, years = parseFloat(a2), fps = parseFloat(a3 || '60');

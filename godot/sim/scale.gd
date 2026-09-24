@@ -78,7 +78,7 @@ static func physical_radius_au(type: String, mass_sun: float, radius_km = null) 
 # in pixels — the quantity that decides whether a mesh is worth drawing.
 # ----------------------------------------------------------------------------
 static func pixels_per_world_unit(dist: float, fov_rad: float, viewport_h: float) -> float:
-	return viewport_h / maxf(2.0 * dist * tan(fov_rad / 2.0), 1e-30)
+	return viewport_h / maxf(2.0 * dist * tan(fov_rad / 2.0), 1.0e-30)   # "1.0e-30": Godot mis-parses "1e-30" by an ULP
 
 static func apparent_pixels(radius_scene: float, dist: float, fov_rad: float, viewport_h: float) -> float:
 	return 2.0 * radius_scene * pixels_per_world_unit(dist, fov_rad, viewport_h)

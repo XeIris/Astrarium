@@ -47,6 +47,8 @@ function walk(a, b, p) {
     return;
   }
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  // wall-clock timings are measurements of the machine, not results
+  for (const k of ['ms', 'stepsPerSec']) keys.delete(k);
   for (const k of keys) walk(a[k], b[k], p ? `${p}.${k}` : k);
 }
 walk(A, B, '');

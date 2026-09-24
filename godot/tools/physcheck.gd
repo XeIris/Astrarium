@@ -89,7 +89,7 @@ func step_physics(sim_dt: float) -> float:
 func body_out(b: Body) -> Dictionary:
 	return {
 		"name": b.name, "type": b.type, "mass": b.mass, "alive": b.alive, "emitsGW": b.emits_gw,
-		"radius": b.radius, "rs": b.rs if (b.type in ["bh", "neutron", "white-dwarf"]) else null,
+		"radius": b.radius if b.type != "bh" else null, "rs": b.rs if (b.type in ["bh", "neutron", "white-dwarf"]) else null,
 		"radiusSun": b.radius_sun, "luminosity": b.luminosity, "teff": b.teff,
 		"spectral": b.spectral, "phase": b.phase, "spinFrac": b.spin_frac, "Z": b.Z, "composition": b.composition,
 		"dayLength": b.day_length if b.type == "world" else null,
@@ -120,7 +120,7 @@ func run_frames(key: String, frames: int, fps: float = 60.0, sample: int = 0) ->
 			if climate != null:
 				cl = { "T": climate.T, "S": climate.S, "era": climate.era.key, "ice": climate.ice, "clouds": climate.clouds,
 					"humidity": climate.humidity, "storm": climate.storm, "time": climate.time,
-					"historyLen": climate.history.size(), "extremes": climate.extremes, "perStar": climate.per_star,
+					"historyLen": climate.history.size(), "extremes": climate.extremes.duplicate(), "perStar": climate.per_star.duplicate(true),
 					"last": climate.history[climate.history.size() - 1] if not climate.history.is_empty() else null }
 			samples.append({ "f": f + 1, "simYears": sim_years, "E": Derive.total_energy(bodies), "n": bodies.size(),
 				"bodies": bl, "climate": cl })

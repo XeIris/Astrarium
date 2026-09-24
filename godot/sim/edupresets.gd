@@ -48,7 +48,8 @@ static func moon_of(parent: Dictionary, dist_m: float, mass_sun: float, radius_k
 	var a := dist_m / 1.495978707e11
 	var px: float = parent.pos[0]; var py: float = parent.pos[1]; var pz: float = parent.pos[2]
 	var vx: float = parent.vel[0]; var vy: float = parent.vel[1]; var vz: float = parent.vel[2]
-	var r := Vector2(px, pz).length()
+	# Math.hypot, in double precision (Vector2 is float32)
+	var r := sqrt(px * px + pz * pz)
 	if r == 0.0: r = 1.0
 	var ux := px / r
 	var uz := pz / r

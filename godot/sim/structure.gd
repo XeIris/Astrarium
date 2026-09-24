@@ -37,10 +37,17 @@ extends RefCounted
 # ============================================================================
 
 # --- SI constants, for the interior physics only.
+#
+# PORT NOTE. Godot's decimal → double conversion is not always correctly
+# rounded, and it depends on how the digits are SPELLED: `1.98892e30` parses one
+# ULP high and `1.988920e30` parses exactly. The trailing zeros below are
+# therefore load-bearing — without them M_JUP_SUN is an ULP off and a
+# 3.5 M_J giant lands on the wrong side of GIANT_M0. tools/literalcheck.mjs
+# finds every such literal.
 const G_SI    := 6.67430e-11
-const M_SUN   := 1.98892e30      # kg
+const M_SUN   := 1.988920e30     # kg
 const R_SUN   := 6.957e8         # m
-const L_SUN   := 3.828e26        # W
+const L_SUN   := 3.8280e26       # W
 const M_EARTH := 5.97217e24
 const R_EARTH := 6.371e6
 const M_JUP   := 1.89813e27
@@ -468,7 +475,7 @@ static func breakup_omega(mass_sun: float, radius_au: float, kind: String = "sta
 # The Roche-model surface: R(θ)/R_pole for ω = Ω/Ω_crit and colatitude θ.
 # `u` = ω·sinθ. Below 1e-3 the closed form is 0/0, so use its series there.
 static func roche_shape(u: float) -> float:
-	var uu := minf(maxf(u, 0.0), 1.0)
+	var uu := _jmin(_jmax(u, 0.0), 1.0)
 	if uu < 1e-3: return 1.0 + (4.0 / 27.0) * uu * uu
 	return (3.0 / uu) * cos((PI + acos(uu)) / 3.0)
 
@@ -493,7 +500,7 @@ static func inverse_roche_shape(ratio: float) -> float:
 # Returns { f, Re, Rp, omega, omegaCrit, spinFrac, periodSec }.
 static func rotational_shape(mass_sun: float, radius_au: float, omega: float, kind: String = "star") -> Dictionary:
 	var omega_crit := breakup_omega(mass_sun, radius_au, kind)
-	var spin_frac := minf(omega / omega_crit, 1.0) if omega_crit > 0.0 else 0.0
+	var spin_frac := _jmin(omega / omega_crit, 1.0) if omega_crit > 0.0 else 0.0
 	var Re: float
 	var Rp: float
 	var f: float
@@ -705,6 +712,14 @@ static func _num(x: float) -> String:
 	if x == floor(x) and absf(x) < 1e15:
 		return str(int(x))
 	return str(x)
+
+# JS Math.min / Math.max: NaN in, NaN out. Godot's minf/maxf return the other
+# argument instead, which turns the degenerate R = 0 of a star at the Remnant
+# stop into a finite shape where the web build reports NaN.
+static func _jmin(a: float, b: float) -> float:
+	return NAN if (is_nan(a) or is_nan(b)) else minf(a, b)
+static func _jmax(a: float, b: float) -> float:
+	return NAN if (is_nan(a) or is_nan(b)) else maxf(a, b)
 
 # JS `(v > 0)` for a spec field that may be missing or null.
 static func _pos(v) -> bool:
@@ -1238,7 +1253,7 @@ static func _hole_structure(spec: Dictionary, mass: float, spin_frac: float) -> 
 	var r_isco := M * (3.0 + z2 - sqrt(maxf((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0)))
 	# Hawking temperature and evaporation time, for the readout.
 	var t_hawk := 6.169e-8 / mass                    # K
-	var t_evap := 2.1e67 * pow(mass, 3.0)            # yr
+	var t_evap := 2.10e67 * pow(mass, 3.0)           # yr (2.10: see the SI-constants note)
 
 	return {
 		"type": "bh", "kind": "bh", "mass": mass,
