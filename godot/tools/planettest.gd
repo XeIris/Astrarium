@@ -31,7 +31,7 @@ var pin := true
 var scene_scale := 1.0
 
 func _setup() -> void:
-	PlanetMaps.synchronous = true
+	PlanetMaps.synchronous = not args.has("async_maps")
 	pin = str(args.get("pin", "1")) != "0"
 	var txt := FileAccess.get_file_as_string(str(args.scene))
 	cap = JSON.parse_string(txt)
@@ -126,9 +126,6 @@ func apply_paint_spec(spec: Dictionary, by_name: Dictionary) -> void:
 		return
 	var belt := kind == "belt"
 	var central := 1.0
-	for cb in cap.allBodies:
-		if b != null and int(cb.id) == b.id:
-			pass
 	if b != null:
 		for cb in cap.bodies:
 			if int(cb.id) == b.id: central = float(cb.mass)

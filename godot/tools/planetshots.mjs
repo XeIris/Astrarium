@@ -96,7 +96,10 @@ const shots = [
   { name: 'mars_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Mars', names: ['Mars'], off: 0.9, theta: 1.1 }) },
   { name: 'moon_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Moon', names: ['Moon'], off: 0.7 }) },
   { name: 'jupiter_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Jupiter', names: ['Jupiter'], off: 0.5 }) },
-  { name: 'jupiter_run', frames: 900, setup: setup({ preset: 'solar', focus: 'Jupiter', names: ['Jupiter'], off: 0.5 }) },
+  // RUNNING, not paused: the flow map is what stops the shear winding the bands
+  // into moire, and it only shows once the clock has been going a while.
+  { name: 'jupiter_run', frames: 900, setup: setup({ preset: 'solar', focus: 'Jupiter', names: ['Jupiter'], off: 0.5, pause: false,
+    extra: 'SIM.state.timeScale = 0.0005;' }) },
   { name: 'jupiter_ir', frames: 30, setup: setup({ preset: 'solar', focus: 'Jupiter', names: ['Jupiter'], off: 0.5, band: 2 }) },
   { name: 'saturn_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Saturn', names: ['Saturn'], off: 0.6, theta: 1.15, radiusK: 0.75 }) },
   { name: 'neptune_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Neptune', names: ['Neptune'], off: 0.5 }) },
@@ -107,6 +110,15 @@ const shots = [
   { name: 'hotworld_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Hotworld', names: ['Hotworld'], off: 1.0,
     extra: `SIM.spawnBody({ type: 'planet', name: 'Hotworld', mass: 3e-6, radiusKm: 6371, atmosphere: true, land: 0.35, biota: 1,
       albedo: 0.3, greenhouse: 0.61, obliquity: 0.3, pos: [0.6, 0, 0], vel: [0, 0, 8.11] }); for (let i = 0; i < 90; i++) SIM.frame(1/60);` }) },
+  // The same world with the clock RUNNING: the web build hands a paused
+  // visual dt = 0.0001, so the paused shot above never finished easing toward
+  // its own temperature. Unpaused, uMeanK converges and the model must dry
+  // the planet out — the number to compare is uMeanK itself.
+  { name: 'hotworld_run', frames: 30, setup: setup({ preset: 'solar', focus: 'Hotworld', names: ['Hotworld'], off: 1.0, pause: false,
+    extra: `SIM.state.timeScale = 0.0005; SIM.spawnBody({ type: 'planet', name: 'Hotworld', mass: 3e-6, radiusKm: 6371, atmosphere: true, land: 0.35, biota: 1,
+      albedo: 0.3, greenhouse: 0.61, obliquity: 0.3, pos: [0.6, 0, 0], vel: [0, 0, 8.11] });` }) },
+  // Procedural craters: Mercury has no map, so uCrater and the crater layers draw it.
+  { name: 'mercury_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Mercury', names: ['Mercury'], off: 1.2 }) },
   // A painted ring (Roche span) around Jupiter, and a belt round the Sun.
   { name: 'ring_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Jupiter', names: ['Jupiter'], off: 0.5, theta: 1.2, radiusK: 1.1,
     paint: `{ const j = B('Jupiter'); paint({ kind: 'ring', body: 'Jupiter', inner: j.radius * 1.2, outer: j.radius * 2.6, tilt: 0.1, color: 0xcdbb99 }); }` }) },
@@ -114,6 +126,10 @@ const shots = [
     paint: `paint({ kind: 'belt', body: 'Sun', inner: 2.1, outer: 3.4, perturber: 5.2, color: 0x9a8d7c, surfaceDensity: -1.0 });`,
     extra: `SIM.setFollow(B('Sun')); ` }) },
 ];
+// An ejecta shell (painter 'cloud'), bipolar, on the Sun, framed from 3 AU.
+shots.push({ name: 'cloud_vis', frames: 30, setup: setup({ preset: 'solar', focus: 'Sun', names: [], off: 0, theta: 1.2, radiusK: 1,
+  paint: `paint({ kind: 'cloud', body: 'Sun', radius: 0.6, lobes: 2, density: 0.7, expand: 0.137, color: 0xffcf9a, seed: 42 });` })
+  + `SIM.cam.radius = 3; SIM.cam.radiusTo = null; SIM.frame(1/60);` });
 // The belt is framed from outside the inner system, not at seven solar radii.
 shots.find(s => s.name === 'belt_vis').setup += `SIM.cam.radius = 9; SIM.cam.radiusTo = null; SIM.frame(1/60);`;
 
