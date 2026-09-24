@@ -407,7 +407,7 @@ func clear_bodies() -> void:
 	while not state.bodies.is_empty():
 		remove_body(state.bodies[0].id)
 	for f in flashes:
-		f.flash.node.queue_free()
+		f.flash.kill()
 	flashes.clear()
 	painter.clear()
 	state.consumed = 0
@@ -624,7 +624,7 @@ func check_structural_limits(b: Body) -> void:
 # FLASH SPRITES — sim/flash.gd holds the two kinds (light vs matter).
 # ============================================================================
 func spawn_flash(world_pos: DVec3, color: int, size: float, decay: float = 0.8, opt: Dictionary = {}) -> void:
-	var f = Flash.new(color, size, decay, float(opt.get("grow", 2.0)), String(opt.get("kind", "flash")))
+	var f = Flash.create(color, size, decay, float(opt.get("grow", 2.0)), String(opt.get("kind", "flash")))
 	pipe.world_root.add_child(f.node)
 	f.node.position = world_pos.rel_v3(cam_pos)
 	flashes.append({"flash": f, "abs": world_pos.clone()})
@@ -1105,7 +1105,7 @@ func load_preset(key: String) -> void:
 	# The button names the world you would be standing on.
 	var hw := get_home()
 	hud.set_button_text("camSurface", ("On %s" % hw.name) if hw else "Stand on it")
-	spacetime_mesh.set_visible(state.show_mesh)
+	spacetime_mesh.node.visible = state.show_mesh
 	render_preset_groups()
 	refresh_ui()
 
@@ -1437,7 +1437,7 @@ func set_spawn_at_rest(on: bool) -> void:
 
 func toggle_mesh(on: bool) -> void:
 	state.show_mesh = on
-	spacetime_mesh.set_visible(on)
+	spacetime_mesh.node.visible = on
 	hud.set_active("[data-view=mesh]", on)
 	hud.set_button_text("[data-view=mesh]", "Mesh ON" if on else "Mesh OFF")
 
@@ -1977,13 +1977,13 @@ func animate(dt: float) -> void:
 		var fl = flashes[i]
 		fl.flash.node.position = (fl.abs as DVec3).rel_v3(cam_pos)
 		if not fl.flash.step(dt):
-			fl.flash.node.queue_free()
+			fl.flash.kill()
 			flashes.remove_at(i)
 
 	# mesh wells — recenter the slab under the camera's focus so fast/distant
 	# bodies never wander off it
 	var mc: DVec3 = cam_pos if state.cam_mode == "free" else cam.target
-	spacetime_mesh.update(state.bodies, DVec3.new(mc.x, MESH_Y, mc.z), cam_pos, sim_stepped)
+	spacetime_mesh.update(state.bodies, mc.x, mc.z, sim_stepped, cam_pos)
 
 	# ---- model viewer: a studio, not a view of the universe — the whole frame
 	if model_open:
@@ -2022,11 +2022,11 @@ func animate(dt: float) -> void:
 		_surface_frame(home, dt)
 		pipe.surface_pass = sky_pass
 		home.viz.group.visible = false
-		spacetime_mesh.set_visible(false)
+		spacetime_mesh.node.visible = false
 	else:
 		pipe.surface_pass = null
 		if home and home.viz: home.viz.group.visible = true
-		spacetime_mesh.set_visible(state.show_mesh and not (state.cam_mode == "flight" and flight.active))
+		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active)
 
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if (state.cam_mode == "flight" and flight.active) else RenderPipeline.Mode.ORRERY)
 	pipe.prepare_frame(lens_params, state.time)
@@ -2039,7 +2039,11 @@ func _apply_camera() -> void:
 	c.transform = Transform3D(cam_basis, Vector3.ZERO)
 	c.fov = cam_fov
 	c.near = cam_near
-	c.far = 100000.0
+	# THREE draws near 1e-7 / far 1e5 fine; Godot builds its culling frustum in
+	# float32 and the planes degenerate past ~1e7, culling everything (measured —
+	# PORT_GUIDE.md §3). Clamping far costs nothing at those distances: the
+	# body being framed is millions of near-planes away from anything beyond it.
+	c.far = minf(100000.0, cam_near * 1.0e7)
 
 func _surface_frame(home: Body, dt: float) -> void:
 	var n := mini(state.suns.size(), Suns.MAX_SUNS)
