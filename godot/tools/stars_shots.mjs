@@ -12,8 +12,13 @@
 // ============================================================================
 import { readFileSync } from 'node:fs';
 const dump = readFileSync(new URL('./stars_dump.js', import.meta.url), 'utf8');
-const noSky = `SIM.setSky({ ...SIM.state.sky, env: {} });`;
-const follow = n => `const B = SIM.state.bodies.find(b => b.name.includes(${JSON.stringify(n)})); SIM.setFollow(B);`;
+const noSky = `SIM.setSky({ ...SIM.state.sky, env: {}, starDensity: 0, glow: 0, bulge: 0, dust: 0, hii: 0, reflection: 0, galaxies: 0 });`;
+// Target first, so setFollow's glide has no offset to decay; then frame the
+// body at seven radii even where frameRadius() would refuse (Proxima sits
+// 1356 units out, where it says the body is below float resolution).
+const follow = n => `const B = SIM.state.bodies.find(b => b.name.includes(${JSON.stringify(n)}));
+  SIM.cam.target.copy(B.viz.group.position); SIM.setFollow(B);
+  SIM.cam.radius = Math.max(B.radiusScene, B.rsScene || 0) * 7; SIM.cam.radiusTo = null;`;
 // A forced flare, moved onto a region ~55° round from the sub-camera point so
 // the ribbons, the filament on the disc AND the prominence past the limb are
 // all in view (ignite() would pick a random region, often on the far side).
@@ -38,5 +43,11 @@ const shots = [
   { name: 'collapse', hash: 'sirius', frames: 40,
     setup: noSky + follow('Sirius A') + 'window.__pre = { radiusScene: B.radiusScene, pos: B.viz.group.position.toArray() }; SIM.coreCollapse(B);' },
 ];
-for (const s of shots) { s.dump = dump; s.frames ??= 30; }
+// Paused before the frames are pumped: headless Chrome keeps running its own
+// requestAnimationFrame loop between SIM.frame() calls, the capture and the
+// dump, so an unpaused scene moves on (a CME can expire) between the frame
+// that was captured and the state that was dumped. Paused, only the shader
+// clocks creep (dt·0 + 1e-4 per frame) — and the flashes, which run on wall
+// time; tools/startest.gd rebuilds those from their dumped opacity.
+for (const s of shots) { s.dump = dump; s.frames ??= 30; s.setup += ' SIM.state.paused = true;'; }
 process.stdout.write(JSON.stringify(shots, null, 1));
