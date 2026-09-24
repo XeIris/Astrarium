@@ -13,6 +13,8 @@
 //   frames  SIM.frame(dt) calls to pump after setup (deterministic stepping)
 //   hud     false (default) hides the HUD for a clean 3D frame
 //   wait    ms of real time to let async things settle (model loads)
+//   dump    JS function body evaluated after the capture; its return value is
+//           written to <name>.json (state for a Godot harness to rebuild)
 //
 // The page is served by .claude/serve.mjs, started here on PORT (default 8779)
 // so it never collides with a preview already running on 8777.
@@ -94,6 +96,13 @@ for (const s of shots) {
     await evaluate(`(() => { for (let i = 0; i < ${frames}; i++) SIM.frame(${dt}); return true; })()`);
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(join(outDir, s.name + '.png'), Buffer.from(shot.data, 'base64'));
+    // `dump`: a JS expression evaluated AFTER the capture, whose (JSON-able)
+    // value is written beside the PNG as <name>.json — the exact state the
+    // frame was drawn from, for a Godot harness to rebuild it.
+    if (s.dump) {
+      const v = await evaluate(`(async () => { ${s.dump} })()`);
+      await writeFile(join(outDir, s.name + '.json'), JSON.stringify(v, null, 1));
+    }
     console.log('ok', s.name);
   } catch (e) {
     console.log('FAIL', s.name, e.message);
