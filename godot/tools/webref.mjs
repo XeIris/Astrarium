@@ -13,6 +13,11 @@
 //   frames  SIM.frame(dt) calls to pump after setup (deterministic stepping)
 //   hud     false (default) hides the HUD for a clean 3D frame
 //   wait    ms of real time to let async things settle (model loads)
+//   mode    'none' leaves the start screen up (a shot OF the start screen)
+//   bare    true also writes <name>.bare.png: the same frame with every HUD
+//           element hidden — the 3D background alone, for overlay tests
+//   dump    JS expression (may be async) evaluated after the frames; its JSON
+//           value is written to <name>.json — fixtures for the Godot side
 //
 // The page is served by .claude/serve.mjs, started here on PORT (default 8779)
 // so it never collides with a preview already running on 8777.
@@ -82,6 +87,7 @@ for (const s of shots) {
   try {
     await evaluate(`(() => {
       const m = ${JSON.stringify(s.mode || 'sandbox')};
+      if (m === 'none') return true;
       const card = document.querySelector('[data-start="' + m + '"]');
       if (card) card.click();
       const st = document.getElementById('startScreen'); if (st) st.style.display = 'none';
@@ -94,6 +100,16 @@ for (const s of shots) {
     await evaluate(`(() => { for (let i = 0; i < ${frames}; i++) SIM.frame(${dt}); return true; })()`);
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(join(outDir, s.name + '.png'), Buffer.from(shot.data, 'base64'));
+    if (s.dump) {
+      const v = await evaluate(`(async () => (${s.dump}))()`);
+      await writeFile(join(outDir, s.name + '.json'), JSON.stringify(v, null, 1));
+    }
+    if (s.bare) {
+      await evaluate(`(() => { for (const e of document.body.children) if (e.id !== 'canvas-wrap' && e.tagName !== 'SCRIPT') e.style.visibility = 'hidden'; return true; })()`);
+      await sleep(100);
+      const b = await send('Page.captureScreenshot', { format: 'png' });
+      await writeFile(join(outDir, s.name + '.bare.png'), Buffer.from(b.data, 'base64'));
+    }
     console.log('ok', s.name);
   } catch (e) {
     console.log('FAIL', s.name, e.message);
