@@ -15,6 +15,7 @@ extends Harness
 # yaw/pitch are RADIANS (skytest.html's aim(y, p)), fov is degrees, and the
 # galactic frame is skytest.html's { tilt: 0, roll: 0 } unless tilt/roll are
 # given. `env` takes a name or a comma list (blended at weight 1 each).
+# `beta=x,y,z` sets the observer's boost (v/c), the relativistic-cruise sky.
 #
 # SURFACE MODE (`surface=/abs/state.json`): the atmosphere composite of
 # sim/skyview.gd over this sky, driven by a SurfaceObserver standing on a
@@ -105,6 +106,10 @@ func apply() -> void:
 		SkyModel.apply_sky_environment(pipe.sky_materials, {"env": env, "tilt": tilt, "roll": roll})
 	SkyModel.apply_sky_band(pipe.sky_materials, band)
 	pipe.set_band(band)
+	if args.has("beta"):
+		# the observer's boost, v/c in world coordinates (skytest.html: U.uBeta)
+		var bv: PackedStringArray = str(args.beta).split(",")
+		SkyModel.apply_sky_boost(pipe.sky_materials, Vector3(float(bv[0]), float(bv[1]), float(bv[2])))
 	if hud:
 		var envs := str(env_override) if env_override != null else str(env_keys[env_i])
 		hud.text = "env %s   band %s   yaw %d  pitch %d  fov %d\n[1-7] band   [e] env   [arrows] aim   [z/x] zoom" % [

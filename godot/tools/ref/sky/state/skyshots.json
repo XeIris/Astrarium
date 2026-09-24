@@ -1,0 +1,107 @@
+[
+ {
+  "name": "web_disc_b0",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(0); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b1",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(1); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b2",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(2); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b3",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(3); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b4",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(4); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b5",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(5); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b6",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(6); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_core_b3",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('core'); setBand(3); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_globular_b3",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('globular'); setBand(3); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_halo_b3",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('halo'); setBand(3); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_starburst_b3",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('starburst'); setBand(3); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_core_b2",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('core'); setBand(2); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_globular_b5",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('globular'); setBand(5); aim(-1.5708, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b3_yaw0",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(3); aim(0.0, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_disc_b3_up",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(3); aim(0.0, 1.2);",
+  "wait": 1500
+ }
+]
