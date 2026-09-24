@@ -10,7 +10,8 @@
 //   numbers  writes outdir/audit.json and outdir/clearance.json from
 //            STUDIO.audit() / STUDIO.clearance()
 //   shots    crafttest frames, 1280×720: every vehicle side/iso/detail, and
-//            deploy=0 iso for the vehicles with deployables
+//            deploy=0 iso for the vehicles with deployables, and `under` for
+//            the two ships whose drive faces are emitters
 //   sheet    the contact sheet, all nine
 //
 // WEB_ROOT picks the checkout served: one WITH assets/*.glb measures the
@@ -91,9 +92,13 @@ if (what.includes('numbers')) {
 }
 if (what.includes('shots')) {
   const list = [];
+  const only = process.env.ONLY ? process.env.ONLY.split(',') : null;
   for (const v of VEHICLES) for (const view of ['side', 'iso', 'detail']) list.push([v, view, 1]);
   for (const v of STOWED) list.push([v, 'iso', 0]);
+  // The spin drives' faces are EMITTERS and point aft: only `under` sees them.
+  for (const v of ['hailmary', 'beetle']) list.push([v, 'under', 1]);
   for (const [v, view, dep] of list) {
+    if (only && !only.includes(`${v}_${view}`)) continue;
     if (await open('crafttest.html', `v=${v}&view=${view}&deploy=${dep}`, 1280, 720, 'typeof window.STUDIO === "object"')) {
       await evaluate('STUDIO.draw(); true');
       await sleep(200);
