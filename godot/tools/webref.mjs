@@ -94,6 +94,11 @@ for (const s of shots) {
     await evaluate(`(() => { for (let i = 0; i < ${frames}; i++) SIM.frame(${dt}); return true; })()`);
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(join(outDir, s.name + '.png'), Buffer.from(shot.data, 'base64'));
+    // Optional: whatever the setup left in window.__cap (camera, uniforms,
+    // body state) is written beside the PNG, so a Godot harness can rebuild
+    // the same frame. Evaluated AFTER the frames, so it can be a function.
+    const cap = await evaluate(`(() => { const c = window.__cap; const v = typeof c === 'function' ? c() : c; return v ? JSON.stringify(v) : null; })()`);
+    if (cap) await writeFile(join(outDir, s.name + '.json'), cap);
     console.log('ok', s.name);
   } catch (e) {
     console.log('FAIL', s.name, e.message);
