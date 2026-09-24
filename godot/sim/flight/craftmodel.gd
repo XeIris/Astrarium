@@ -2484,7 +2484,7 @@ class Craft extends RefCounted:
 		var gim: Dictionary = s.get("gimbal", {}) if s.get("gimbal") != null else {}
 		for st: CraftStage in stages:
 			var a = attached.get(st.key)
-			var live := not (a is bool and a == false)
+			var live: bool = not (a is bool and a == false)
 			st.group.visible = live or st.sep != null
 			if st.sep != null:
 				# A separated stage drifts and tumbles away on its own for a
