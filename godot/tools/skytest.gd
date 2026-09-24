@@ -40,7 +40,8 @@ var tilt := 0.0
 var roll := 0.0
 var hud: Label
 
-# surface mode
+# lens / surface modes
+var lens := false
 var surface := false
 var state_dump := {}
 var observer: SkyView.SurfaceObserver
@@ -71,6 +72,8 @@ func _setup() -> void:
 			env_override = Array(names)
 	if args.has("surface"):
 		_setup_surface(str(args.surface))
+	elif args.has("lens"):
+		_setup_lens(str(args.lens))
 	else:
 		# skytest.html calls createPostFX(renderer) and never touches it, so its
 		# chain runs on sim/postfx.js's INITIAL uniform values — not the sim
@@ -95,7 +98,7 @@ func _setup() -> void:
 	apply()
 
 func apply() -> void:
-	if surface:
+	if surface or lens:
 		SkyModel.apply_sky_environment(pipe.sky_materials, sky_spec)
 	else:
 		var env = env_override if env_override != null else env_keys[env_i]
@@ -113,6 +116,18 @@ func update_camera() -> void:
 	if surface:
 		observer.update(home, pipe.scene_cam)
 		cam_pos.copy_from(observer.eye)
+		return
+	if lens:
+		var c: Dictionary = state_dump.cam
+		var q: Array = c.quat
+		cam_pos.copy_from(DVec3.from_array(c.pos))
+		pipe.scene_cam.fov = float(c.fov)
+		pipe.scene_cam.transform = Transform3D(Basis(Quaternion(q[0], q[1], q[2], q[3])), Vector3.ZERO)
+		var hs: Array = []
+		for h in state_dump.holes:
+			hs.append({"pos": DVec3.from_array(h.pos).rel_v3(cam_pos), "rs": float(h.rs)})
+		lens_params.holes = hs
+		lens_params.fov = deg_to_rad(float(c.fov))
 		return
 	cam_pos.set_v(0, 0, 0)
 	pipe.scene_cam.fov = fov
@@ -164,6 +179,29 @@ func _unhandled_input(e: InputEvent) -> void:
 	else:
 		return
 	apply()
+
+# ---------------------------------------------------------------------------
+# lens mode — the sky seen through the real marcher (render/lens_pass.gd),
+# with the web frame's own holes, camera and disc numbers. The disc is off in
+# the reference shots (discIntensity 0), so what is compared is the lensed sky
+# alone: CLAUDE.md's standing check that the arcs are strings of crisp points.
+# ---------------------------------------------------------------------------
+func _setup_lens(path: String) -> void:
+	var d = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not (d is Dictionary):
+		push_error("skytest: cannot read lens state " + path)
+		return
+	state_dump = d
+	lens = true
+	sky_spec = d.get("sky", {})
+	band = int(args.get("band", str(d.get("band", 3))))
+	var m0: float = float(d.holes[0].mass)
+	lens_params = {
+		"holes": [], "basis": Basis(), "fov": deg_to_rad(50.0), "aspect": 16.0 / 9.0,
+		"time": 0.0, "disc_intensity": float(d.discIntensity), "disc_temp": float(d.discTemp),
+		# discPeakTemp(holes[0].mass) in the web orchestrator
+		"disc_tpeak_phys": 2.0e7 * pow(maxf(m0, 0.1), -0.25), "disc_outer": float(d.discOuter),
+	}
 
 # ---------------------------------------------------------------------------
 # surface mode
