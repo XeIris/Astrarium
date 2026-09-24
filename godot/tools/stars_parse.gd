@@ -27,4 +27,15 @@ func _init() -> void:
 	print("flash step ", f.step(0.1), " ", f.node.scale)
 	var st := SpacetimeMesh.new()
 	print("mesh surfaces ", st.node.mesh.get_surface_count())
+	# the dynamic Structure route: a static func called through its script
+	var S = load("res://sim/stellar.gd")
+	print("static via script: ", S.callv("activity_level", [1.0]), " == ", Stellar.activity_level(1.0))
+	# accretion: a star 1 unit from a hole of r_s 0.1 sheds particles and mass
+	var a := Body.new(); a.type = "star"; a.mass = 1.0; a.mass0 = 1.0; a.radius = 0.00465
+	var av = Bodies.create_body_visual(a, {"radiusScene": 0.3, "teff": 5772.0})
+	av.group.position = Vector3(1, 0, 0)
+	var hctx := {"time": 0.0, "sim_dt": 0.0, "holes": [{"pos_rel": Vector3.ZERO, "rs_scene": 0.1, "mass": 10.0}]}
+	for i in 60:
+		av.update(1.0 / 60.0, hctx)
+	print("accretion: mass ", a.mass, " points visible ", av.stream.points.visible, " surfaces ", av.stream.mesh.get_surface_count(), " group scale ", av.group.scale.x)
 	quit()
