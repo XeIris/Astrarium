@@ -276,6 +276,24 @@ func _init() -> void:
 			fr[key] = run_frames(key, 240, 60.0, 60)
 		out.frames = fr
 		out.transitRV = transit_rv()
+		var AUkm := Physics.AU_PER_KM
+		var earth := Structure.rotational_shape(3.0035e-6, 6371.0 * AUkm, 7.2921159e-5, "rocky")
+		var jup := Structure.rotational_shape(9.5459e-4, 69911.0 * AUkm, 1.75853e-4, "giant")
+		var vega := Structure.structure_of(Starcat.star_spec("vega"))
+		var sun := Structure.structure_of({ "type": "star", "mass": 1.0, "phase": 0.5 })
+		var bh0 := Structure.structure_of({ "type": "bh", "mass": 10.0 })
+		var bh1 := Structure.structure_of({ "type": "bh", "mass": 10.0, "spinFrac": 0.998 })
+		out.calibrations = {
+			"earthFlattening": earth.f, "earthInvF": 1.0 / earth.f,
+			"jupiterFlattening": jup.f,
+			"siriusB_Rsun": Structure.white_dwarf_radius_sun(1.018),
+			"iscoOverM_a0": bh0.iscoAU / (bh0.rs / 2.0),
+			"iscoOverM_a998": bh1.iscoAU / (bh0.rs / 2.0),
+			"vegaSpinFrac": vega.spinFrac, "vegaReOverRp": vega.radiusEqAU / vega.radiusPolarAU, "vegaTPole": vega.tPole, "vegaTEq": vega.tEq,
+			"sunTc": sun.Tc, "sunPc": sun.Pc, "sunRhoC": sun.rhoC, "sunR": sun.radiusSun, "sunL": sun.luminosity, "sunTeff": sun.teff,
+			"rockyMaxRadiusEarth": Structure.rocky_max_radius("earth").radiusEarth, "rockyMaxMassEarth": Structure.rocky_max_radius("earth").massEarth,
+			"earth1ME_Rearth": Structure.rocky_radius_earth(1.0, "earth"),
+		}
 		var f := FileAccess.open(args["out"], FileAccess.WRITE)
 		f.store_string(JSON.stringify(clean(out), "", false, true))
 		f.close()

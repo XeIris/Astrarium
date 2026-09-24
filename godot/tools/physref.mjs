@@ -361,6 +361,23 @@ if (mode === 'ref') {
   for (const key of ['trisolaris', 'trisolaris_wander', 'bhmerger', 'nsmerger', 'binarystar', 'threebody', 'solar', 'feeding', 'sandbox', 'edu_seasons', 'sirius'])
     out.frames[key] = runFrames(key, 240, 60, 60);
   out.transitRV = transitRV();
+  // The published calibrations CLAUDE.md names, as numbers.
+  const AUkm = PHYS.AU_PER_KM;
+  const earth = S.rotationalShape(3.0035e-6, 6371.0 * AUkm, 7.2921159e-5, 'rocky');
+  const jup = S.rotationalShape(9.5459e-4, 69911 * AUkm, 1.75853e-4, 'giant');
+  const vega = S.structureOf(CAT.starSpec('vega'));
+  const sun = S.structureOf({ type: 'star', mass: 1, phase: 0.5 });
+  out.calibrations = {
+    earthFlattening: earth.f, earthInvF: 1 / earth.f,
+    jupiterFlattening: jup.f,
+    siriusB_Rsun: S.whiteDwarfRadiusSun(1.018),
+    iscoOverM_a0: S.structureOf({ type: 'bh', mass: 10 }).iscoAU / (S.structureOf({ type: 'bh', mass: 10 }).rs / 2),
+    iscoOverM_a998: S.structureOf({ type: 'bh', mass: 10, spinFrac: 0.998 }).iscoAU / (S.structureOf({ type: 'bh', mass: 10 }).rs / 2),
+    vegaSpinFrac: vega.spinFrac, vegaReOverRp: vega.radiusEqAU / vega.radiusPolarAU, vegaTPole: vega.tPole, vegaTEq: vega.tEq,
+    sunTc: sun.Tc, sunPc: sun.Pc, sunRhoC: sun.rhoC, sunR: sun.radiusSun, sunL: sun.luminosity, sunTeff: sun.teff,
+    rockyMaxRadiusEarth: S.rockyMaxRadius('earth').radiusEarth, rockyMaxMassEarth: S.rockyMaxRadius('earth').massEarth,
+    earth1ME_Rearth: S.rockyRadiusEarth(1, 'earth'),
+  };
   writeFileSync(a1, exactJSON(clean(out)));
   console.log(`wrote ${a1}: ${specs.length} structure cases, ${calls.length} calls, ${PRESET_ORDER.length} presets`);
 } else if (mode === 'long') {
