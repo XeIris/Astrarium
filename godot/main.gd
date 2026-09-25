@@ -1964,7 +1964,13 @@ func _process(real_dt: float) -> void:
 # hides the HUD first, `shot3d=1` writes the composited 3D frame alone) and quits.
 var _shot_frame := 0
 func _shot_tick() -> void:
-	if not _cmd.has("out"): return
+	if not _cmd.has("out"):
+		# `eval=` still runs without a screenshot (e.g. eval=_preset_check)
+		if _shot_frame == 0 and _cmd.has("eval"):
+			_shot_frame = 1
+			for m in String(_cmd.eval).split(",", false):
+				if has_method(m): call(m)
+		return
 	_shot_frame += 1
 	if _shot_frame == 1:
 		if _cmd.has("band"): set_band(int(_cmd.band))
