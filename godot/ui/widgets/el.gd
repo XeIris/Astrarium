@@ -348,7 +348,14 @@ func layout(w: float, forced_h: float = -1.0) -> float:
 	_lf = forced_h
 	return h
 
+## The height a flex parent imposed on this box for the layout in progress
+## (−1: none). A stretched flex item has a DEFINITE cross size in CSS, so a
+## single-line flex row inside it stretches its own items to that height —
+## the flight panel's throttle and V/S tapes are the case that needs it.
+var _forced_h := -1.0
+
 func _layout_now(w: float, forced_h: float) -> float:
+	_forced_h = forced_h
 	var bl := gf("bl"); var bt := gf("bt"); var pl := gf("pl"); var pt := gf("pt")
 	var cw := maxf(w - _hpad(), 0.0)
 	var maxh := gf("maxh")
@@ -596,6 +603,8 @@ func _flex_line(ks: Array, cw: float, o: Vector2, gap: float, single: bool) -> f
 	line_h = maxf(line_h, maxA + maxD)
 	if single and gf("h") >= 0.0:
 		line_h = maxf(line_h, gf("h") - _vpad())
+	elif single and _forced_h >= 0.0:
+		line_h = maxf(line_h, _forced_h - _vpad())
 	# main axis placement
 	var x := 0.0
 	var between := gap

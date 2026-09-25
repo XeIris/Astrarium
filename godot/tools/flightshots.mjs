@@ -14,13 +14,19 @@
 // ============================================================================
 import { readFile } from 'node:fs/promises';
 
-const table = JSON.parse(await readFile(new URL('./flight_scenarios.json', import.meta.url), 'utf8'));
+// TABLE=/abs/other.json flies another table of the same shape (a debugging set).
+const table = JSON.parse(await readFile(process.env.TABLE || new URL('./flight_scenarios.json', import.meta.url), 'utf8'));
 const only = process.argv[2] ? process.argv[2].split(',') : Object.keys(table.scenarios);
 
 const PRELUDE = (seed) => `
   const mb = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   const r0 = Math.random; Math.random = mb(${seed}); SIM.load('solar'); Math.random = r0;
+  // The Earth map arrives asynchronously, and a setup that runs thousands of
+  // SIM.frame()s back to back never yields to let it land — so whether the pad
+  // stood on the mapped coast or on the procedural ground was a race with the
+  // vehicle's .glb. The Godot harness loads maps synchronously; wait for it here.
+  await new Promise(r => import('./sim/planetmaps.js').then(m => m.loadPlanetMap('Earth', r) || r()));
   SIM.setAppMode('flight');
   const F = () => SIM.flight;
   const frames = (n) => { for (let i = 0; i < n; i++) SIM.frame(1 / 60); };
@@ -44,6 +50,9 @@ function stepJS(s) {
     case 'cam': return `F().setCameraMode(${JSON.stringify(s[1])});`;
     case 'warp': return `F().setWarp(${s[1]});`;
     case 'frames': return `frames(${s[1]});`;
+    // Debug: fly on the procedural ground alone, without the Earth map.
+    case 'nomap': return `F().localView.ground.material.uniforms.uEarthColor.value = null;`;
+    case 'close': return `document.querySelector('[data-close="${s[1]}"]').click();`;
     default: return '';
   }
 }
@@ -58,7 +67,9 @@ for (const key of only) {
   const steps = table.scenarios[key];
   steps.forEach((s, i) => {
     if (s[0] !== 'shot') return;
-    const body = steps.slice(0, i).map(stepJS).join('\n');
+    let body = steps.slice(0, i).map(stepJS).join('\n');
+    // The toast's lifetime is wall-clock, which the two runners do not share.
+    if (s[2]) body += `\ndocument.getElementById('toast').style.display = 'none';`;
     shots.push({ name: s[1], mode: 'sandbox', freeze: true, frames: 0, wait: 300,
       hud: !!s[2], bare: !!s[2], setup: PRELUDE(table.seed) + body, dump: TELEMETRY });
   });

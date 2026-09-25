@@ -77,7 +77,7 @@ func _flight():
 func _run() -> void:
 	# let the boot settle (the start screen dismissal, the first launch)
 	for i in 4: await get_tree().process_frame
-	var table: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(SCENARIO_FILE))
+	var table: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(str(args.get("table", SCENARIO_FILE))))
 	SCENARIOS = table.scenarios
 	var only: Array = str(args.get("scen", "sv_launch")).split(",")
 	for name in only:
@@ -126,8 +126,25 @@ func _do(s: Array) -> void:
 			f.set_warp(int(s[1]))
 		"frames":
 			await step(int(s[1]))
+		"dump":
+			_dump()
+		"nomap":
+			# Debug: fly on the procedural ground alone, without the Earth map.
+			f.local._earth_color = null
+		"close":
+			main.set_panel_open(s[1], false)
 		"shot":
 			await _shot(s[1], s.size() > 2 and s[2])
+
+## Diagnostics: the vessel's state and every body's offset from its parent.
+func _dump() -> void:
+	var v: Vessel = _flight().vessel
+	if v == null:
+		print("dump: no vessel"); return
+	print("dump: met=%.4f |r|=%.1f R=%.1f alt=%.2f |v|=%.3f phase=%s parent=%s" % [v.met, v.r.length(), v.env.radius, v.altitude(), v.v.length(), v.phase, v.parent.name])
+	for b in v.bodies:
+		var d: float = b.pos.distance_to(v.parent.pos) * Rocketry.AU_M
+		print("   body ", b.name, " alive=", b.alive, " mass=", b.mass, " d=", d, " m radius=", b.radius, " AU")
 
 func _shot(name: String, with_hud: bool) -> void:
 	var v: Vessel = _flight().vessel
@@ -140,13 +157,23 @@ func _shot(name: String, with_hud: bool) -> void:
 	fj.store_string(JSON.stringify(tel, " "))
 	fj.close()
 	if with_hud:
+		# The toast's lifetime is wall-clock, which the two runners do not share.
+		main.hud.toast_el.visible = false
 		# the same frame twice: the whole window (3D + HUD), then the 3D alone
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(out + name + ".hud.png")
 	var done := [false]
-	main.pipe.capture_next(func(img: Image):
+	var grab := func(img: Image):
+		if done[0]: return
 		img.save_png(out + name + ".png")
-		done[0] = true)
+		done[0] = true
+	main.pipe.capture_next(grab)
+	# A capture request has been seen to go unanswered once in a few hundred
+	# (the compositor hook skipped a frame); ask again rather than hang.
+	var waited := 0
 	while not done[0]:
 		await get_tree().process_frame
+		waited += 1
+		if waited % 60 == 0:
+			main.pipe.capture_next(grab)
 	print("flighttest: ", name, " ", tel)

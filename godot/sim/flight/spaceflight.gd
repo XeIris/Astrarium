@@ -31,8 +31,7 @@ extends RefCounted
 #     main.cam_pos (a DVec3, absolute scene units — computed in DOUBLE as
 #     parent.scene_pos + r·sceneScale/AU_M + (the local camera's offset from
 #     the vehicle, rotated out of the local frame)·sceneScale/AU_M),
-#     main.cam_basis and main.cam_fov. main.cam_near is left as the orrery had
-#     it, exactly as the web build left camera.near alone in flight.
+#     main.cam_basis, main.cam_fov and main.cam_near (0.01 — see update_visual).
 #   · `boost` is a Vector3 β for SkyModel.apply_sky_boost (main.gd applies it).
 #   · Input arrives as Godot events: key(e: InputEventKey) maps the JS e.code
 #     names to physical keycodes; wheel(delta_y) takes the browser's deltaY
@@ -707,8 +706,15 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
 		"dt": dt, "sunLocal": sun_l})
 	local.cam_pos.copy_from(fly_cam.pos)
-	local.camera.near = fly_cam.near
+	# far/near may not pass ~1e7 here (PORT_GUIDE.md §3: Godot builds the
+	# culling frustum in float32 and past that it degenerates and culls the
+	# whole pass — measured: the cockpit view, near 0.05 m against the 4e6 m
+	# far plane the sky dome needs, drew nothing at all). So the near plane is
+	# floored at far·1e-7 = 0.4 m. The web build's own floor is 0.05 m, reached
+	# only from inside the stack (cockpit), where nothing is closer than the
+	# tank wall metres away; everywhere else its near plane is already larger.
 	local.camera.far = 4.0e6
+	local.camera.near = maxf(fly_cam.near, local.camera.far * 1.0e-7)
 	local.camera.fov = 55.0
 	local.apply_origin(fly_cam.basis)
 
@@ -725,6 +731,14 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		main.cam_pos = parent_scene.clone().add_scaled_in(vessel.r, k).add_scaled_in(world_off, k)
 		main.cam_basis = (frame_basis * fly_cam.basis).orthonormalized()
 		main.cam_fov = 55.0
+		# The web build left camera.near alone in flight, which in practice is
+		# the 0.01 that setCamMode restores and that every system-scale view
+		# already has (its reference shots report exactly that). It is stated
+		# here rather than inherited because main.gd's far plane is tied to it
+		# (far = min(1e5, near·1e7), PORT_GUIDE.md §3): entering flight from a
+		# close-up would otherwise carry a 1e-6 near plane into the launch and
+		# cull every planet past 10 scene units.
+		main.cam_near = 0.01
 
 # ----------------------------------------------------------------------------
 func update_hud() -> void:
