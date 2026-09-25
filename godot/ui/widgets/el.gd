@@ -51,6 +51,10 @@ const DEFAULTS := {"display": "block", "dir": "row", "wrap": false, "w": -1.0, "
 ## Every root that needs laying out again (a positioned panel), and whether
 ## anything did — the Hud reads and clears these once a frame.
 static var dirty_roots := {}
+## Scrollbars take their 4 px out of the content box, as WebKit's do. The web
+## reference shots are taken with Chrome's --hide-scrollbars, which makes them
+## zero-width, so the HUD harness turns them off to compare like with like.
+static var scrollbars := true
 static var any_dirty := true
 
 var base := {}
@@ -310,7 +314,8 @@ func layout(w: float, forced_h: float = -1.0) -> float:
 		# The WebKit scrollbar is taken out of the content box, so the whole
 		# content lays out again 4 px narrower once it knows it overflows.
 		overflowing = true
-		ch = _layout_content(maxf(cw - gf("sbw"), 0.0), Vector2(bl + pl, bt + pt))
+		if scrollbars:
+			ch = _layout_content(maxf(cw - gf("sbw"), 0.0), Vector2(bl + pl, bt + pt))
 		auto_h = ch + _vpad()
 	content_h = auto_h
 	var h := auto_h
@@ -368,7 +373,7 @@ func _child_w(k: El, avail: float, stretch: bool) -> float:
 	if k.gf("wp") >= 0.0:
 		return avail * k.gf("wp") - ml - mr
 	var w := avail - ml - mr
-	if bool(k.g("fit")) or not stretch:
+	if not stretch or (bool(k.g("fit")) and g("display") == "block"):
 		w = minf(k.max_content_w(), w)
 	if k.gf("maxw") >= 0.0:
 		w = minf(w, k.gf("maxw"))
@@ -496,34 +501,36 @@ func _flex_line(ks: Array, cw: float, o: Vector2, gap: float, single: bool) -> f
 		sizes.append(maxf(b, mn)); frozen.append(false)
 		used += maxf(b, mn) + k.gf("ml") + k.gf("mr")
 		if bool(k.g("mlauto")): autos += 1
-	var free := cw - used
-	if free > 0.0:
-		var tg := 0.0
-		for k in ks: tg += k.gf("grow")
-		if tg > 0.0:
-			for i in n:
-				sizes[i] += free * ks[i].gf("grow") / tg
-			free = 0.0
-	elif free < 0.0:
-		for _it in 4:
-			var ts := 0.0
-			for i in n:
-				if not frozen[i]: ts += ks[i].gf("shrink") * basis[i]
-			if ts <= 0.0 or free >= -0.001:
-				break
-			var over := free
-			for i in n:
-				if frozen[i]: continue
-				var want: float = sizes[i] + over * ks[i].gf("shrink") * basis[i] / ts
-				if want < mins[i]:
-					free += sizes[i] - mins[i]
-					sizes[i] = mins[i]; frozen[i] = true
-				else:
-					free += sizes[i] - want
-					sizes[i] = want
-			free = cw - gap * (n - 1)
-			for i in n:
-				free -= sizes[i] + ks[i].gf("ml") + ks[i].gf("mr")
+	# CSS 2.1 flex sizing: grow or shrink is decided on the HYPOTHETICAL sizes
+	# (bases clamped to their minimums), but the free space is distributed from
+	# the flex BASES, freezing any item its minimum stops.
+	var growing := cw - used > 0.0
+	var fixed_sum := gap * (n - 1)
+	for k in ks: fixed_sum += k.gf("ml") + k.gf("mr")
+	for _it in 5:
+		var free0 := cw - fixed_sum
+		var tg := 0.0; var ts := 0.0
+		for i in n:
+			if frozen[i]: free0 -= sizes[i]
+			else:
+				free0 -= basis[i]
+				tg += ks[i].gf("grow"); ts += ks[i].gf("shrink") * basis[i]
+		var viol := false
+		for i in n:
+			if frozen[i]: continue
+			var want: float = basis[i]
+			if growing and tg > 0.0:
+				want = basis[i] + free0 * ks[i].gf("grow") / tg
+			elif not growing and ts > 0.0:
+				want = basis[i] + free0 * ks[i].gf("shrink") * basis[i] / ts
+			if want < mins[i]:
+				sizes[i] = mins[i]; frozen[i] = true; viol = true
+			else:
+				sizes[i] = want
+		if not viol:
+			break
+	var free := cw - fixed_sum
+	for i in n: free -= sizes[i]
 	# heights, then the line's cross size (baselines aligned)
 	var hs: Array = []
 	var maxA := 0.0; var maxD := 0.0; var line_h := 0.0
@@ -697,7 +704,7 @@ func _layout_grid(cw: float, o: Vector2) -> float:
 ## is no line box, as CSS synthesises it for an inline-block).
 func baseline() -> float:
 	if not runs.is_empty() and not _lines.is_empty():
-		return _lines[0].top + _lines[0].base
+		return gf("bt") + gf("pt") + _lines[0].top + _lines[0].base
 	for k in kids():
 		var b: float = k.baseline()
 		if b >= 0.0:
@@ -783,6 +790,16 @@ func _inline_widths() -> Vector2:
 
 func _layout_inline(cw: float) -> float:
 	var atoms := _atoms()
+	# no text at all is no line box at all (an empty element is 0 tall)
+	var any := false
+	for a in atoms:
+		if not a.get("sp", false):
+			any = true
+			break
+	if not any:
+		_lines = []
+		_text_h = 0.0
+		return 0.0
 	var nw: bool = g("nw")
 	_lines = []
 	var line: Array = []
@@ -841,8 +858,13 @@ func _layout_inline(cw: float) -> float:
 		var off := 0.0
 		if ta == "right": off = cw - w
 		elif ta == "center": off = (cw - w) * 0.5
-		out.append({"items": ln, "top": y, "base": A, "h": A + D, "off": off})
-		y += A + D
+		# Blink holds geometry in LayoutUnits of 1/64 px, and a fractional line
+		# height (9.5 px × 1.55) is truncated to one — which over a paragraph
+		# is the difference between a panel ending at .48 or .5, and so which
+		# way the measured chain rounds.
+		var lh_u := floorf((A + D) * 64.0) / 64.0
+		out.append({"items": ln, "top": y, "base": A, "h": lh_u, "off": off})
+		y += lh_u
 	_lines = out
 	_text_h = y
 	return y
@@ -862,9 +884,9 @@ func _draw() -> void:
 	var r := _snap(Rect2(Vector2.ZERO, size))
 	var rot := gf("rot")
 	if rot != 0.0:
+		# transform-origin: 50% 50%
 		var c := size * 0.5
-		draw_set_transform(c, deg_to_rad(rot), Vector2.ONE)
-		r.position -= c
+		draw_set_transform_matrix(Transform2D(deg_to_rad(rot), c) * Transform2D(0.0, -c))
 	var bg: Color = g("bg")
 	var ring := gf("outline_ring")
 	if ring > 0.0:
@@ -876,7 +898,7 @@ func _draw() -> void:
 		for i in 8:
 			var t := (i + 1) / 8.0
 			var rr := r.size.x * 0.5 + glow * t
-			draw_circle(cc, rr, Color(bg, 0.16 * (1.0 - t) * (1.0 - t)))
+			draw_circle(cc, rr, Color(bg, 0.16 * (1.0 - t) * (1.0 - t)), true, -1.0, true)
 	var rad := gf("rad")
 	if rad > 0.0 or glow > 0.0:
 		var sb := StyleBoxFlat.new()
@@ -983,7 +1005,7 @@ var pulse := 1.0
 # ---- scrollbar and backdrop --------------------------------------------------------------
 
 func _sync_thumb() -> void:
-	if not overflowing:
+	if not overflowing or not scrollbars:
 		if _thumb: _thumb.visible = false
 		return
 	if _thumb == null:

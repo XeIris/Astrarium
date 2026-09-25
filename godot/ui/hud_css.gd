@@ -18,7 +18,7 @@ extends RefCounted
 # what children inherit.
 # ============================================================================
 
-const T := HudTheme
+const T = preload("res://ui/theme.gd")
 
 static func em(x: float, fs: float) -> float:
 	return x * fs
@@ -104,7 +104,7 @@ const SET_TAB_ON := {"c": T.ACCENT, "bcol": T.ACCENT, "bg": Color(1, 1, 1, 0.06)
 static func ms_btn() -> Dictionary:
 	return button({"bg": Color(1, 1, 1, 0.03), "b": [1, T.BORDER], "c": T.TEXT_DIM, "ff": "mono", "fs": 9.0,
 		"ls": em(0.12, 9), "up": true, "p": [4, 9]})
-const MS_ON := {"c": T.hexc(0x0a0c12), "bg": T.ACCENT, "bcol": T.ACCENT}
+static var MS_ON := {"c": T.hexc(0x0a0c12), "bg": T.ACCENT, "bcol": T.ACCENT}
 
 static func panel_tab() -> Dictionary:
 	return button({"bg": T.PANEL, "c": T.TEXT_DIM, "b": [1, T.BORDER], "blur": 10.0, "p": [8, 10],
@@ -118,14 +118,14 @@ static func preset_btn() -> Dictionary:
 static func mv_chip() -> Dictionary:
 	return button({"bg": Color(1, 1, 1, 0.03), "b": [1, T.BORDER], "c": T.TEXT_DIM, "ff": "mono", "fs": 9.5,
 		"p": [6, 5], "ta": "left"})
-const MV_CHIP_ON := {"c": T.ACCENT, "bcol": T.ACCENT, "bg": T.rgba(255, 140, 66, 0.08)}
+static var MV_CHIP_ON := {"c": T.ACCENT, "bcol": T.ACCENT, "bg": T.rgba(255, 140, 66, 0.08)}
 
 static func craft_btn() -> Dictionary:
 	return button({"display": "flex", "dir": "column", "gapr": 2.0, "ai": "start", "p": [7, 8],
 		"b": [1, T.rgba(120, 190, 255, 0.22)], "rad": 4.0, "bg": T.rgba(20, 32, 50, 0.55), "c": T.TEXT,
 		"ff": "mono", "fs": 10.5, "ta": "left", "lh": 1.25})
-const CRAFT_HOVER := {"bcol": T.ACCENT, "bg": T.rgba(30, 52, 80, 0.7)}
-const CRAFT_ON := {"bcol": T.ACCENT, "bg": T.rgba(40, 80, 120, 0.75)}
+static var CRAFT_HOVER := {"bcol": T.ACCENT, "bg": T.rgba(30, 52, 80, 0.7)}
+static var CRAFT_ON := {"bcol": T.ACCENT, "bg": T.rgba(40, 80, 120, 0.75)}
 
 static func warp_btn() -> Dictionary:
 	return button({"w": 20.0, "h": 18.0, "b": [1, T.rgba(120, 190, 255, 0.25)], "rad": 3.0,

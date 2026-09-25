@@ -37,9 +37,9 @@ func _draw_extra() -> void:
 		"sandbox":
 			draw_polyline(_ellipse(c, 26, 10), col, 1.6, true)
 			draw_polyline(_ellipse(c, 15, 24), Color(col, 0.55), 1.2, true)
-			draw_circle(c, 6.5, col)
-			draw_circle(Vector2(58, 32), 2.6, col)
-			draw_circle(Vector2(32, 8), 2.0, Color(col, 0.7))
+			draw_circle(c, 6.5, col, true, -1.0, true)
+			draw_circle(Vector2(58, 32), 2.6, col, true, -1.0, true)
+			draw_circle(Vector2(32, 8), 2.0, Color(col, 0.7), true, -1.0, true)
 		"learn":
 			draw_polyline(_ellipse(c, 19, 19), col, 1.6, true)
 			draw_polyline(_ellipse(c, 19, 7), Color(col, 0.75), 1.1, true)
@@ -51,8 +51,8 @@ func _draw_extra() -> void:
 				var p := Vector2(cos(a), sin(a)) * 19.0
 				arc.append(c + p.rotated(deg_to_rad(60.0)))
 			draw_polyline(arc, Color(col, 0.45), 1.1, true)
-			draw_circle(c, 3.4, col)
-			draw_circle(Vector2(51, 32), 2.2, Color(col, 0.8))
+			draw_circle(c, 3.4, col, true, -1.0, true)
+			draw_circle(Vector2(51, 32), 2.2, Color(col, 0.8), true, -1.0, true)
 		"flight":
 			# M32 4 c7 8 10 18 10 28 v12 H22 V32 C22 22 25 12 32 4 z
 			var body := PackedVector2Array([Vector2(32, 4)])
@@ -63,7 +63,7 @@ func _draw_extra() -> void:
 			# M22 40 l-8 10 h8 z   M42 40 l8 10 h-8 z
 			draw_colored_polygon(PackedVector2Array([Vector2(22, 40), Vector2(14, 50), Vector2(22, 50)]), Color(col, 0.8))
 			draw_colored_polygon(PackedVector2Array([Vector2(42, 40), Vector2(50, 50), Vector2(42, 50)]), Color(col, 0.8))
-			draw_circle(Vector2(32, 24), 3.4, col)
+			draw_circle(Vector2(32, 24), 3.4, col, true, -1.0, true)
 			# M27 50 c2 5 3 8 5 10 2-2 3-5 5-10 z
 			var flame := PackedVector2Array([Vector2(27, 50)])
 			flame.append_array(_cubic(Vector2(27, 50), Vector2(29, 55), Vector2(30, 58), Vector2(32, 60)))

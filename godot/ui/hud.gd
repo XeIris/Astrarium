@@ -78,8 +78,8 @@ signal lesson_back()
 signal lesson_next()
 signal lesson_close()
 
-const T := HudTheme
-const C := HudCss
+const T = preload("res://ui/theme.gd")
+const C = preload("res://ui/hud_css.gd")
 
 # The control column's sections, by mode. See applySectionModes.
 # Spaceflight is for FLYING. Not one of the orrery's controls belongs in it:
@@ -1197,7 +1197,7 @@ func render_body_list(bodies: Array, focus_id) -> void:
 		it.set_state("sel", focus_id != null and int(focus_id) == bid)
 		it.pressed.connect(func(): body_focus.emit(bid))
 		E(it, {"c": T.TEXT_DIM, "ls": 1.0}, "#%d %s" % [bid, bd.name])
-		var rm := B(it, C.button({"bg": T.CLEAR, "b": [0, T.CLEAR], "c": T.WARN, "ff": "mono", "fs": 12.0}), "✕")
+		var rm := B(it, C.button({"bg": T.CLEAR, "b": [0, T.CLEAR], "c": T.WARN, "ff": "mono", "fs": 12.0, "lh": 12.0}), "✕")
 		rm.pressed.connect(func(): body_remove.emit(bid))
 
 # ---- updateHUD: suns --------------------------------------------------------------------------------
