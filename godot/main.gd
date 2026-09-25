@@ -694,19 +694,12 @@ func step_physics(sim_dt: float) -> float:
 		state.last_steps = 0
 		_commit_positions(false)
 		return 0.0
-	var remaining := sim_dt
-	var guard := 0
-	var stepped := 0.0
-	while remaining > 1e-12 and guard < STEP_GUARD:
-		guard += 1
-		var h := minf(remaining, dynamic_step())
-		Physics.integrate(state.bodies, h)
-		if state.gw_boost: Physics.apply_gw_reaction(state.bodies, h, state.gw_boost)
-		var events := Physics.resolve_collisions(state.bodies)
-		for ev in events: handle_merger(ev)
-		remaining -= h
-		stepped += h
-	state.last_steps = guard
+	# The sub-step loop itself (dynamicStep, velocity-Verlet, GW reaction,
+	# collisions) runs natively when native/ is built — sim/nbody.gd — and in
+	# GDScript otherwise; handle_merger runs between sub-steps either way.
+	var r := NBody.step_physics(state.bodies, sim_dt, state.max_step, state.gw_boost, handle_merger)
+	var stepped: float = r.stepped
+	state.last_steps = int(r.steps)
 	# Advance the clock by what was actually integrated, not by what was asked
 	# for: the deficit during a guarded close encounter is never repaid.
 	state.sim_years += stepped
