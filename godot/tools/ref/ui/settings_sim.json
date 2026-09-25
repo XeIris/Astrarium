@@ -1,0 +1,1502 @@
+{
+ "w": 1280,
+ "h": 720,
+ "bands": [
+  {
+   "short": "RADIO",
+   "note": "1 GHz. Far down the Rayleigh–Jeans tail of everything here, where brightness is simply proportional to temperature — so nothing is cut off, and the image is the scene’s temperature map at low gain.",
+   "label": "Radio"
+  },
+  {
+   "short": "MICRO",
+   "note": "100 GHz. Still Rayleigh–Jeans for every source in this scene, so it differs from radio only in sensitivity. That similarity is the real physics, not a shortcut.",
+   "label": "Microwave"
+  },
+  {
+   "short": "IR",
+   "note": "10 µm. The coolest band with a Wien cutoff that bites in this scene: material below ~1500 K begins to fade while stars and the disc stay bright.",
+   "label": "Infrared"
+  },
+  {
+   "short": "VIS",
+   "note": "550 nm. True colour — the frame exactly as rendered, with no remapping.",
+   "label": "Visible"
+  },
+  {
+   "short": "UV",
+   "note": "200 nm. The cutoff bites hard: cool K and M stars all but vanish while hot A/B stars and the inner accretion disc blaze.",
+   "label": "Ultraviolet"
+  },
+  {
+   "short": "X-RAY",
+   "note": "0.3 keV soft X-ray. Only million-kelvin material survives — the inner disc and neutron-star surfaces. Ordinary stars are black silhouettes.",
+   "label": "X-ray"
+  },
+  {
+   "short": "GAMMA",
+   "note": "~100 keV. Nothing thermal in this scene is hot enough to reach here, so the frame goes black. Real gamma sources are non-thermal (synchrotron, pair processes), which this model does not simulate.",
+   "label": "Gamma"
+  }
+ ],
+ "envs": [
+  "disc",
+  "core",
+  "globular",
+  "halo",
+  "starburst"
+ ],
+ "params": [
+  {
+   "key": "starDensity",
+   "label": "Star density",
+   "add": true,
+   "max": 12
+  },
+  {
+   "key": "glow",
+   "label": "Unresolved glow",
+   "add": true,
+   "max": 6
+  },
+  {
+   "key": "bulge",
+   "label": "Bulge",
+   "add": true,
+   "max": 6
+  },
+  {
+   "key": "dust",
+   "label": "Dust",
+   "add": true,
+   "max": 4
+  },
+  {
+   "key": "hii",
+   "label": "H II regions",
+   "add": true,
+   "max": 6
+  },
+  {
+   "key": "reflection",
+   "label": "Reflection neb.",
+   "add": true,
+   "max": 4
+  },
+  {
+   "key": "galaxies",
+   "label": "External galaxies",
+   "add": true,
+   "max": 4
+  },
+  {
+   "key": "planeConcentration",
+   "label": "Plane concentration",
+   "add": false,
+   "max": 5
+  },
+  {
+   "key": "bandScaleH",
+   "label": "Band scale height",
+   "add": false,
+   "max": 0.25
+  },
+  {
+   "key": "bulgeSize",
+   "label": "Bulge size",
+   "add": false,
+   "max": 1.2
+  }
+ ],
+ "sky": {
+  "env": {
+   "disc": 1
+  },
+  "tilt": 0.42,
+  "roll": 0.7
+ },
+ "skyEff": {
+  "starDensity": 0.55,
+  "glow": 1,
+  "bulge": 1,
+  "dust": 1,
+  "hii": 1,
+  "reflection": 1,
+  "galaxies": 1,
+  "planeConcentration": 2.6,
+  "bandScaleH": 0.1,
+  "bulgeSize": 0.3,
+  "env": {
+   "disc": 1
+  },
+  "tilt": 0.42,
+  "roll": 0.7
+ },
+ "groups": [
+  {
+   "id": "learning",
+   "label": "Learning scenarios",
+   "keys": [
+    "edu_seasons",
+    "edu_moon",
+    "edu_kepler",
+    "edu_habitable",
+    "edu_starbirth",
+    "edu_sun",
+    "edu_lifecycle",
+    "edu_supernova",
+    "edu_pulsar",
+    "edu_transit",
+    "edu_hole",
+    "edu_galaxy",
+    "edu_cluster"
+   ],
+   "open": false
+  },
+  {
+   "id": "trisolaris",
+   "label": "Trisolaris scenarios",
+   "keys": [
+    "trisolaris",
+    "trisolaris_wander",
+    "trisolaris_compact",
+    "trisolaris_wide",
+    "trisolaris_alpha",
+    "trisolaris_chaos"
+   ],
+   "open": false
+  },
+  {
+   "id": "black-holes",
+   "label": "BH scenarios",
+   "keys": [
+    "bhmerger",
+    "feeding"
+   ],
+   "open": false
+  },
+  {
+   "id": "neutron-stars",
+   "label": "Neutron star scenarios",
+   "keys": [
+    "nsmerger"
+   ],
+   "open": false
+  },
+  {
+   "id": "sandboxes",
+   "label": "Sandboxes",
+   "keys": [
+    "blank",
+    "sandbox"
+   ],
+   "open": false
+  },
+  {
+   "id": "real-stars",
+   "label": "Real stars",
+   "keys": [
+    "stellar_zoo",
+    "sirius",
+    "vega",
+    "achernar",
+    "betelgeuse",
+    "alphacen",
+    "etacar",
+    "hr_ladder"
+   ],
+   "open": false
+  },
+  {
+   "id": "stellar-systems",
+   "label": "Stellar system scenarios",
+   "keys": [
+    "solar",
+    "threebody",
+    "binarystar"
+   ],
+   "open": false
+  }
+ ],
+ "presets": {
+  "edu_seasons": {
+   "name": "Why there are seasons"
+  },
+  "edu_moon": {
+   "name": "Phases, and why eclipses are rare"
+  },
+  "edu_kepler": {
+   "name": "Kepler's laws"
+  },
+  "edu_habitable": {
+   "name": "The habitable zone"
+  },
+  "edu_starbirth": {
+   "name": "The birth of a star"
+  },
+  "edu_sun": {
+   "name": "The Sun, close up"
+  },
+  "edu_lifecycle": {
+   "name": "One star, whole life"
+  },
+  "edu_supernova": {
+   "name": "A star about to explode"
+  },
+  "edu_pulsar": {
+   "name": "A pulsar"
+  },
+  "edu_transit": {
+   "name": "Finding planets: transits and wobbles"
+  },
+  "edu_hole": {
+   "name": "A black hole, alone"
+  },
+  "edu_galaxy": {
+   "name": "The Milky Way, from inside it"
+  },
+  "edu_cluster": {
+   "name": "Inside a globular cluster"
+  },
+  "trisolaris": {
+   "name": "Trisolaris"
+  },
+  "trisolaris_wander": {
+   "name": "Trisolaris — Wandering Suns"
+  },
+  "trisolaris_compact": {
+   "name": "Trisolaris - Compact Haven"
+  },
+  "trisolaris_wide": {
+   "name": "Trisolaris - Wide Seasons"
+  },
+  "trisolaris_alpha": {
+   "name": "Trisolaris - Alpha's Refuge"
+  },
+  "trisolaris_chaos": {
+   "name": "Trisolaris — Chaotic Era"
+  },
+  "bhmerger": {
+   "name": "Binary Black Hole Merger"
+  },
+  "feeding": {
+   "name": "Black Hole Devouring a Star"
+  },
+  "nsmerger": {
+   "name": "Neutron Star Merger"
+  },
+  "blank": {
+   "name": "Blank Canvas"
+  },
+  "sandbox": {
+   "name": "Black Hole Sandbox"
+  },
+  "stellar_zoo": {
+   "name": "The Stellar Zoo"
+  },
+  "sirius": {
+   "name": "Sirius A & B"
+  },
+  "vega": {
+   "name": "Vega — a star seen pole-on"
+  },
+  "achernar": {
+   "name": "Achernar — the flattest star"
+  },
+  "betelgeuse": {
+   "name": "Betelgeuse"
+  },
+  "alphacen": {
+   "name": "Alpha Centauri"
+  },
+  "etacar": {
+   "name": "Eta Carinae — against the Eddington limit"
+  },
+  "hr_ladder": {
+   "name": "The Main Sequence, end to end"
+  },
+  "solar": {
+   "name": "Solar System"
+  },
+  "threebody": {
+   "name": "Three-Body (figure-eight)"
+  },
+  "binarystar": {
+   "name": "Binary Star Merger"
+  }
+ },
+ "presetKey": "sandbox",
+ "search": "",
+ "bodies": [
+  {
+   "id": 1,
+   "name": "Singularity"
+  },
+  {
+   "id": 2,
+   "name": "Gas Giant"
+  },
+  {
+   "id": 3,
+   "name": "Companion Star"
+  }
+ ],
+ "focusId": null,
+ "band": 3,
+ "suns": [
+  {
+   "name": "Companion Star",
+   "cls": "F",
+   "mass": 1.1033320146075611,
+   "teff": 6575.683677449632,
+   "dist_au": 1,
+   "intensity": 2.0736,
+   "color": [
+    1,
+    1,
+    0.9879804291819269
+   ],
+   "flaring": false
+  }
+ ],
+ "climate": null,
+ "crafts": [
+  {
+   "key": "saturnv",
+   "name": "Saturn V / Apollo",
+   "desc": "2.86 kt · 14.3 km/s · launch",
+   "blurb": "Three stages, 2 970 t on the pad, 111 m tall. The S-IVB restarts for translunar injection; the CSM and LM ride under the fairing."
+  },
+  {
+   "key": "falcon9",
+   "name": "Falcon 9 Block 5",
+   "desc": "0.56 kt · 9.9 km/s · launch",
+   "blurb": "Nine Merlins, a recoverable first stage with grid fins and legs, and a hoverslam that has to be solved for rather than scripted — minimum throttle gives TWR > 1, so it cannot hover."
+  },
+  {
+   "key": "shuttle",
+   "name": "Space Shuttle",
+   "desc": "2.03 kt · 10.2 km/s · launch",
+   "blurb": "Two solids that cannot be shut down, three engines fed from a tank that is not part of the orbiter, and a wing that only matters for the last twenty minutes of the mission."
+  },
+  {
+   "key": "starship",
+   "name": "Starship / Super Heavy",
+   "desc": "5.00 kt · 11.6 km/s · launch",
+   "blurb": "33 Raptors under 3 400 t of methalox. Both stages return: the booster to the tower, the ship belly-first through the atmosphere and then flipped upright in the last seconds."
+  },
+  {
+   "key": "lm",
+   "name": "Apollo Lunar Module",
+   "desc": "15 t · 4.4 km/s · lander",
+   "blurb": "Two stages: a throttleable descent stage that lands, and an ascent stage that uses it as a launch pad. Descent follows the real P63 / P64 / P66 program sequence and its published gate conditions."
+  },
+  {
+   "key": "skycrane",
+   "name": "Mars EDL — Sky Crane",
+   "desc": "3 t · 0.4 km/s · lander",
+   "blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at Mach 1.7, then a descent stage that lowers the rover on cables and flies away to crash somewhere else."
+  },
+  {
+   "key": "ioncruiser",
+   "name": "Ion Cruiser (Dawn-class)",
+   "desc": "1 t · 18.5 km/s · cruiser",
+   "blurb": "Three NEXT gridded ion engines and 425 kg of xenon. A quarter of a newton of thrust — a tenth the weight of a postcard — held for months at a time, which is why it can visit two main-belt worlds on one tank."
+  },
+  {
+   "key": "hailmary",
+   "name": "Hail Mary",
+   "desc": "2.10 kt · 912715.2 km/s · interstellar",
+   "blurb": "Three parallel astrophage tanks around a central spine, a pressure vessel forward of them, and a nose that holds four beetles. Four spin drives on one thrust plane, 1.5 g and 2 000 t of fuel — enough to reach Tau Ceti in thirteen Earth years and six and a half aboard."
+  },
+  {
+   "key": "beetle",
+   "name": "Beetle probe",
+   "desc": "21 t · 959287.6 km/s · interstellar",
+   "blurb": "A one-way courier: no crew, no life support, and a mass ratio the Hail Mary itself cannot reach. It is the only part of the mission that was always going to make it home."
+  }
+ ],
+ "models": [
+  {
+   "key": "saturnv",
+   "name": "Saturn V / Apollo"
+  },
+  {
+   "key": "falcon9",
+   "name": "Falcon 9 Block 5"
+  },
+  {
+   "key": "shuttle",
+   "name": "Space Shuttle"
+  },
+  {
+   "key": "starship",
+   "name": "Starship / Super Heavy"
+  },
+  {
+   "key": "lm",
+   "name": "Apollo Lunar Module"
+  },
+  {
+   "key": "skycrane",
+   "name": "Mars EDL — Sky Crane"
+  },
+  {
+   "key": "ioncruiser",
+   "name": "Ion Cruiser (Dawn-class)"
+  },
+  {
+   "key": "hailmary",
+   "name": "Hail Mary"
+  },
+  {
+   "key": "beetle",
+   "name": "Beetle probe"
+  }
+ ],
+ "mode": "sandbox",
+ "bodyClass": "panel-open-right",
+ "text": {
+  "loading": "INITIALIZING SPACETIME METRIC...",
+  "skyTilt": "0.42",
+  "skyTilt-val": "0.42",
+  "skyRoll": "0.7",
+  "skyRoll-val": "0.70",
+  "skyAdvOpen": "Component amplitudes ▸",
+  "skyAdvClear": "Unpin all — back to the blend",
+  "skyReset": "Reset to scenario’s sky",
+  "renderScale": "1",
+  "renderScale-val": "1.00x",
+  "lensScale": "0.5",
+  "lensScale-val": "0.50x",
+  "fxBloom": "0.55",
+  "fxBloom-val": "0.55",
+  "fxThreshold": "1",
+  "fxThreshold-val": "1.00",
+  "fxRadius": "1",
+  "fxRadius-val": "1.00",
+  "fxVignette": "0.35",
+  "fxVignette-val": "0.35",
+  "fxGrain": "0.02",
+  "fxGrain-val": "0.020",
+  "fxReset": "Reset rendering",
+  "maxStep": "-2.3",
+  "maxStep-val": "5.0e-3 yr",
+  "gwBoost": "0",
+  "gwBoost-val": "off",
+  "setSteps": "7",
+  "setDrift": "2.6e-1",
+  "simReset": "Reset to scenario’s values",
+  "presetName": "Black Hole Sandbox",
+  "presetSearchClear": "✕",
+  "presetEmpty": "No matching scenarios",
+  "blurb": "A 10 M☉ black hole with a live accretion disc & lensing. Spawn bodies and watch them orbit, get shredded, and fall in.",
+  "mass": "10",
+  "mass-val": "10.0",
+  "disc": "0.9",
+  "disc-val": "0.90",
+  "temp": "0.6",
+  "temp-val": "0.60",
+  "simClock": "2.21 yr",
+  "eraBadge": "Stable Era",
+  "eraDesc": "",
+  "cTemp": "—",
+  "cFlux": "—",
+  "cIce": "—",
+  "cCloud": "—",
+  "cTau": "—",
+  "cExtremes": "—",
+  "mixed": "12",
+  "mixed-val": "12 m",
+  "greenhouse": "0.61",
+  "greenhouse-val": "0.61",
+  "climateReset": "Reset Climate to 15 °C",
+  "bandNote": "550 nm. True colour — the frame exactly as rendered, with no remapping.",
+  "camOrbit": "Orbit",
+  "camFree": "Free Fly",
+  "camSurface": "Stand on it",
+  "resetView": "Reset View",
+  "lat": "22",
+  "lat-val": "22°",
+  "daylen": "4.1",
+  "daylen-val": "4.1 d",
+  "timescale": "0.3",
+  "timescale-val": "2.0 yr/s",
+  "speed": "1",
+  "speed-val": "1.00",
+  "focusName": "—",
+  "xsecOpen": "Cross-section & edit ▸",
+  "delFocus": "Delete Object",
+  "fdMass": "-5.52",
+  "fdMassVal": "1.01 M⊕",
+  "fdSpin": "0",
+  "fdSpinVal": "0%",
+  "fdPhase": "0.5",
+  "fdPhaseVal": "Mid MS",
+  "fdZ": "0.0141",
+  "fdZVal": "0.0141",
+  "fdSpawn": "Spawn into orbit",
+  "modelOpen": "Model viewer ▸",
+  "flightCam": "Cam: Chase",
+  "flightExit": "Exit flight",
+  "clear": "Clear All Bodies",
+  "count": "(3)",
+  "modelClose": "✕",
+  "mvName": "—",
+  "mvExplode": "0",
+  "mvDeploy": "Deployed",
+  "mvSpin": "Turntable",
+  "mvList": "",
+  "mvStages": "",
+  "mvFly": "Fly this vehicle",
+  "xsecName": "—",
+  "leNear": "",
+  "leFocus": "focus limit",
+  "leMass": "-5.52",
+  "leMassVal": "1.00 M⊕",
+  "leSpin": "0",
+  "leSpinVal": "0%",
+  "lePhase": "0.5",
+  "lePhaseVal": "Mid MS",
+  "leZ": "0.0141",
+  "leZVal": "0.014",
+  "xsecVerdict": "",
+  "xsecFacts": "",
+  "xsecNotes": "",
+  "warpLabel": "1×",
+  "bandLabel": "VIS",
+  "rs": "0.500",
+  "isco": "1.500",
+  "bc": "3",
+  "cc": "0",
+  "fps": "60",
+  "toast": ""
+ },
+ "shown": {
+  "loading": true,
+  "startScreen": false,
+  "settingsPanel": true,
+  "setTabs": true,
+  "skyEnvList": false,
+  "skyTilt": false,
+  "skyTilt-val": false,
+  "skyRoll": false,
+  "skyRoll-val": false,
+  "skyAdvOpen": false,
+  "skyAdv": false,
+  "skyAdvClear": false,
+  "skyReset": false,
+  "renderScale": false,
+  "renderScale-val": false,
+  "lensScale": false,
+  "lensScale-val": false,
+  "fxBloom": false,
+  "fxBloom-val": false,
+  "fxThreshold": false,
+  "fxThreshold-val": false,
+  "fxRadius": false,
+  "fxRadius-val": false,
+  "fxVignette": false,
+  "fxVignette-val": false,
+  "fxGrain": false,
+  "fxGrain-val": false,
+  "fxReset": false,
+  "maxStep": true,
+  "maxStep-val": true,
+  "gwBoost": true,
+  "gwBoost-val": true,
+  "setSteps": true,
+  "setDrift": true,
+  "simReset": true,
+  "scenarioPanel": true,
+  "presetName": true,
+  "presetSearch": true,
+  "presetSearchClear": false,
+  "presetList": true,
+  "presetEmpty": false,
+  "blurb": true,
+  "coursePanel": false,
+  "courseMount": false,
+  "lessonCard": false,
+  "controlPanel": true,
+  "bhPanel": true,
+  "massRow": false,
+  "mass": false,
+  "mass-val": false,
+  "discRow": false,
+  "disc": false,
+  "disc-val": false,
+  "tempRow": false,
+  "temp": false,
+  "temp-val": false,
+  "starPanel": true,
+  "sunList": true,
+  "climatePanel": false,
+  "simClock": false,
+  "eraBadge": false,
+  "eraDesc": false,
+  "climateChart": false,
+  "cTemp": false,
+  "cFlux": false,
+  "cIce": false,
+  "cCloud": false,
+  "cTau": false,
+  "cExtremes": false,
+  "mixed": false,
+  "mixed-val": false,
+  "greenhouse": false,
+  "greenhouse-val": false,
+  "climateReset": false,
+  "bandGrid": true,
+  "bandNote": true,
+  "camOrbit": true,
+  "camFree": true,
+  "camSurface": false,
+  "resetView": true,
+  "skyRow": false,
+  "lat": false,
+  "lat-val": false,
+  "daylen": false,
+  "daylen-val": false,
+  "timescale": false,
+  "timescale-val": false,
+  "speed": false,
+  "speed-val": false,
+  "focusPanel": false,
+  "focusName": false,
+  "xsecOpen": false,
+  "delFocus": false,
+  "foundry": false,
+  "fdTypes": false,
+  "fdMass": false,
+  "fdMassVal": false,
+  "fdSpinRow": false,
+  "fdSpin": false,
+  "fdSpinVal": false,
+  "fdCompRow": false,
+  "fdComp": false,
+  "fdPhaseRow": false,
+  "fdPhase": false,
+  "fdPhaseVal": false,
+  "fdZRow": false,
+  "fdZ": false,
+  "fdZVal": false,
+  "fdVerdict": false,
+  "fdFacts": false,
+  "fdXsec": false,
+  "fdLegend": false,
+  "fdLayerNote": false,
+  "fdSpawn": false,
+  "craftGrid": false,
+  "modelOpen": false,
+  "flightRow": false,
+  "flightCam": false,
+  "flightExit": false,
+  "clear": false,
+  "count": true,
+  "bodyList": true,
+  "modelPanel": false,
+  "modelClose": false,
+  "mvName": false,
+  "mvGrid": false,
+  "mvExplode": false,
+  "mvDeploy": false,
+  "mvSpin": false,
+  "mvList": false,
+  "mvStages": false,
+  "mvFly": false,
+  "xsecPanel": false,
+  "xsecName": false,
+  "xsecEdit": false,
+  "liveEdit": false,
+  "leCurve": false,
+  "leNear": false,
+  "leFocus": false,
+  "leMass": false,
+  "leMassVal": false,
+  "leSpinRow": false,
+  "leSpin": false,
+  "leSpinVal": false,
+  "leCompRow": false,
+  "leComp": false,
+  "lePhaseRow": false,
+  "lePhase": false,
+  "lePhaseVal": false,
+  "leZRow": false,
+  "leZ": false,
+  "leZVal": false,
+  "xsecCanvas": false,
+  "xsecLegend": false,
+  "xsecVerdict": false,
+  "xsecFacts": false,
+  "xsecNotes": false,
+  "flightPanel": false,
+  "warpLabel": false,
+  "flightHud": false,
+  "panelTabs": true,
+  "readout": true,
+  "bandLabel": true,
+  "rs": true,
+  "isco": true,
+  "bc": true,
+  "cc": true,
+  "fps": true,
+  "hint": true,
+  "toast": true
+ },
+ "active": [
+  {
+   "sel": "[data-mode=sandbox]",
+   "on": true,
+   "text": "Sandbox"
+  },
+  {
+   "sel": "[data-mode=learn]",
+   "on": false,
+   "text": "Learn"
+  },
+  {
+   "sel": "[data-mode=flight]",
+   "on": false,
+   "text": "Spaceflight"
+  },
+  {
+   "sel": "[data-set=sky]",
+   "on": false,
+   "text": "Sky"
+  },
+  {
+   "sel": "[data-set=render]",
+   "on": false,
+   "text": "Render"
+  },
+  {
+   "sel": "[data-set=sim]",
+   "on": true,
+   "text": "Sim"
+  },
+  {
+   "sel": "skyAdvOpen",
+   "on": false,
+   "text": "Component amplitudes ▸"
+  },
+  {
+   "sel": "skyAdvClear",
+   "on": false,
+   "text": "Unpin all — back to the blend"
+  },
+  {
+   "sel": "skyReset",
+   "on": false,
+   "text": "Reset to scenario’s sky"
+  },
+  {
+   "sel": "fxReset",
+   "on": false,
+   "text": "Reset rendering"
+  },
+  {
+   "sel": "simReset",
+   "on": false,
+   "text": "Reset to scenario’s values"
+  },
+  {
+   "sel": "presetSearchClear",
+   "on": false,
+   "text": "✕"
+  },
+  {
+   "sel": "[data-preset=edu_seasons]",
+   "on": false,
+   "text": "Why there are seasons"
+  },
+  {
+   "sel": "[data-preset=edu_moon]",
+   "on": false,
+   "text": "Phases, and why eclipses are rare"
+  },
+  {
+   "sel": "[data-preset=edu_kepler]",
+   "on": false,
+   "text": "Kepler's laws"
+  },
+  {
+   "sel": "[data-preset=edu_habitable]",
+   "on": false,
+   "text": "The habitable zone"
+  },
+  {
+   "sel": "[data-preset=edu_starbirth]",
+   "on": false,
+   "text": "The birth of a star"
+  },
+  {
+   "sel": "[data-preset=edu_sun]",
+   "on": false,
+   "text": "The Sun, close up"
+  },
+  {
+   "sel": "[data-preset=edu_lifecycle]",
+   "on": false,
+   "text": "One star, whole life"
+  },
+  {
+   "sel": "[data-preset=edu_supernova]",
+   "on": false,
+   "text": "A star about to explode"
+  },
+  {
+   "sel": "[data-preset=edu_pulsar]",
+   "on": false,
+   "text": "A pulsar"
+  },
+  {
+   "sel": "[data-preset=edu_transit]",
+   "on": false,
+   "text": "Finding planets: transits and wobbles"
+  },
+  {
+   "sel": "[data-preset=edu_hole]",
+   "on": false,
+   "text": "A black hole, alone"
+  },
+  {
+   "sel": "[data-preset=edu_galaxy]",
+   "on": false,
+   "text": "The Milky Way, from inside it"
+  },
+  {
+   "sel": "[data-preset=edu_cluster]",
+   "on": false,
+   "text": "Inside a globular cluster"
+  },
+  {
+   "sel": "[data-preset=trisolaris]",
+   "on": false,
+   "text": "Trisolaris"
+  },
+  {
+   "sel": "[data-preset=trisolaris_wander]",
+   "on": false,
+   "text": "Trisolaris — Wandering Suns"
+  },
+  {
+   "sel": "[data-preset=trisolaris_compact]",
+   "on": false,
+   "text": "Trisolaris - Compact Haven"
+  },
+  {
+   "sel": "[data-preset=trisolaris_wide]",
+   "on": false,
+   "text": "Trisolaris - Wide Seasons"
+  },
+  {
+   "sel": "[data-preset=trisolaris_alpha]",
+   "on": false,
+   "text": "Trisolaris - Alpha's Refuge"
+  },
+  {
+   "sel": "[data-preset=trisolaris_chaos]",
+   "on": false,
+   "text": "Trisolaris — Chaotic Era"
+  },
+  {
+   "sel": "[data-preset=bhmerger]",
+   "on": false,
+   "text": "Binary Black Hole Merger"
+  },
+  {
+   "sel": "[data-preset=feeding]",
+   "on": false,
+   "text": "Black Hole Devouring a Star"
+  },
+  {
+   "sel": "[data-preset=nsmerger]",
+   "on": false,
+   "text": "Neutron Star Merger"
+  },
+  {
+   "sel": "[data-preset=blank]",
+   "on": false,
+   "text": "Blank Canvas"
+  },
+  {
+   "sel": "[data-preset=sandbox]",
+   "on": true,
+   "text": "Black Hole Sandbox"
+  },
+  {
+   "sel": "[data-preset=stellar_zoo]",
+   "on": false,
+   "text": "The Stellar Zoo"
+  },
+  {
+   "sel": "[data-preset=sirius]",
+   "on": false,
+   "text": "Sirius A & B"
+  },
+  {
+   "sel": "[data-preset=vega]",
+   "on": false,
+   "text": "Vega — a star seen pole-on"
+  },
+  {
+   "sel": "[data-preset=achernar]",
+   "on": false,
+   "text": "Achernar — the flattest star"
+  },
+  {
+   "sel": "[data-preset=betelgeuse]",
+   "on": false,
+   "text": "Betelgeuse"
+  },
+  {
+   "sel": "[data-preset=alphacen]",
+   "on": false,
+   "text": "Alpha Centauri"
+  },
+  {
+   "sel": "[data-preset=etacar]",
+   "on": false,
+   "text": "Eta Carinae — against the Eddington limit"
+  },
+  {
+   "sel": "[data-preset=hr_ladder]",
+   "on": false,
+   "text": "The Main Sequence, end to end"
+  },
+  {
+   "sel": "[data-preset=solar]",
+   "on": false,
+   "text": "Solar System"
+  },
+  {
+   "sel": "[data-preset=threebody]",
+   "on": false,
+   "text": "Three-Body (figure-eight)"
+  },
+  {
+   "sel": "[data-preset=binarystar]",
+   "on": false,
+   "text": "Binary Star Merger"
+  },
+  {
+   "sel": "climateReset",
+   "on": false,
+   "text": "Reset Climate to 15 °C"
+  },
+  {
+   "sel": "[data-band=0]",
+   "on": false,
+   "text": "RADIO"
+  },
+  {
+   "sel": "[data-band=1]",
+   "on": false,
+   "text": "MICRO"
+  },
+  {
+   "sel": "[data-band=2]",
+   "on": false,
+   "text": "IR"
+  },
+  {
+   "sel": "[data-band=3]",
+   "on": true,
+   "text": "VIS"
+  },
+  {
+   "sel": "[data-band=4]",
+   "on": false,
+   "text": "UV"
+  },
+  {
+   "sel": "[data-band=5]",
+   "on": false,
+   "text": "X-RAY"
+  },
+  {
+   "sel": "[data-band=6]",
+   "on": false,
+   "text": "GAMMA"
+  },
+  {
+   "sel": "[data-view=mesh]",
+   "on": true,
+   "text": "Mesh ON"
+  },
+  {
+   "sel": "[data-view=lens]",
+   "on": true,
+   "text": "Lens ON"
+  },
+  {
+   "sel": "[data-view=scale]",
+   "on": false,
+   "text": "Sizes: Boosted"
+  },
+  {
+   "sel": "camOrbit",
+   "on": true,
+   "text": "Orbit"
+  },
+  {
+   "sel": "camFree",
+   "on": false,
+   "text": "Free Fly"
+  },
+  {
+   "sel": "camSurface",
+   "on": false,
+   "text": "Stand on it"
+  },
+  {
+   "sel": "resetView",
+   "on": false,
+   "text": "Reset View"
+  },
+  {
+   "sel": "[data-time=sunset]",
+   "on": false,
+   "text": "Sunset"
+  },
+  {
+   "sel": "[data-time=day]",
+   "on": false,
+   "text": "Days"
+  },
+  {
+   "sel": "[data-time=season]",
+   "on": false,
+   "text": "Seasons"
+  },
+  {
+   "sel": "[data-time=era]",
+   "on": false,
+   "text": "Eras"
+  },
+  {
+   "sel": "xsecOpen",
+   "on": false,
+   "text": "Cross-section & edit ▸"
+  },
+  {
+   "sel": "delFocus",
+   "on": false,
+   "text": "Delete Object"
+  },
+  {
+   "sel": "fdSpawn",
+   "on": false,
+   "text": "Spawn into orbit"
+  },
+  {
+   "sel": "[data-craft=saturnv]",
+   "on": false,
+   "text": "Saturn V / Apollo\n      2.86 kt · 14.3 km/s · launch"
+  },
+  {
+   "sel": "[data-craft=falcon9]",
+   "on": false,
+   "text": "Falcon 9 Block 5\n      0.56 kt · 9.9 km/s · launch"
+  },
+  {
+   "sel": "[data-craft=shuttle]",
+   "on": false,
+   "text": "Space Shuttle\n      2.03 kt · 10.2 km/s · launch"
+  },
+  {
+   "sel": "[data-craft=starship]",
+   "on": false,
+   "text": "Starship / Super Heavy\n      5.00 kt · 11.6 km/s · launch"
+  },
+  {
+   "sel": "[data-craft=lm]",
+   "on": false,
+   "text": "Apollo Lunar Module\n      15 t · 4.4 km/s · lander"
+  },
+  {
+   "sel": "[data-craft=skycrane]",
+   "on": false,
+   "text": "Mars EDL — Sky Crane\n      3 t · 0.4 km/s · lander"
+  },
+  {
+   "sel": "[data-craft=ioncruiser]",
+   "on": false,
+   "text": "Ion Cruiser (Dawn-class)\n      1 t · 18.5 km/s · cruiser"
+  },
+  {
+   "sel": "[data-craft=hailmary]",
+   "on": false,
+   "text": "Hail Mary\n      2.10 kt · 912715.2 km/s · interstellar"
+  },
+  {
+   "sel": "[data-craft=beetle]",
+   "on": false,
+   "text": "Beetle probe\n      21 t · 959287.6 km/s · interstellar"
+  },
+  {
+   "sel": "modelOpen",
+   "on": false,
+   "text": "Model viewer ▸"
+  },
+  {
+   "sel": "flightCam",
+   "on": false,
+   "text": "Cam: Chase"
+  },
+  {
+   "sel": "flightExit",
+   "on": false,
+   "text": "Exit flight"
+  },
+  {
+   "sel": "[data-view=spawnrest]",
+   "on": false,
+   "text": "Spawn: In orbit"
+  },
+  {
+   "sel": "clear",
+   "on": false,
+   "text": "Clear All Bodies"
+  },
+  {
+   "sel": "modelClose",
+   "on": false,
+   "text": "✕"
+  },
+  {
+   "sel": "[data-mv=saturnv]",
+   "on": false,
+   "text": "Saturn V / Apollo"
+  },
+  {
+   "sel": "[data-mv=falcon9]",
+   "on": false,
+   "text": "Falcon 9 Block 5"
+  },
+  {
+   "sel": "[data-mv=shuttle]",
+   "on": false,
+   "text": "Space Shuttle"
+  },
+  {
+   "sel": "[data-mv=starship]",
+   "on": false,
+   "text": "Starship / Super Heavy"
+  },
+  {
+   "sel": "[data-mv=lm]",
+   "on": false,
+   "text": "Apollo Lunar Module"
+  },
+  {
+   "sel": "[data-mv=skycrane]",
+   "on": false,
+   "text": "Mars EDL — Sky Crane"
+  },
+  {
+   "sel": "[data-mv=ioncruiser]",
+   "on": false,
+   "text": "Ion Cruiser (Dawn-class)"
+  },
+  {
+   "sel": "[data-mv=hailmary]",
+   "on": false,
+   "text": "Hail Mary"
+  },
+  {
+   "sel": "[data-mv=beetle]",
+   "on": false,
+   "text": "Beetle probe"
+  },
+  {
+   "sel": "mvDeploy",
+   "on": true,
+   "text": "Deployed"
+  },
+  {
+   "sel": "mvSpin",
+   "on": false,
+   "text": "Turntable"
+  },
+  {
+   "sel": "mvFly",
+   "on": false,
+   "text": "Fly this vehicle"
+  },
+  {
+   "sel": "leFocus",
+   "on": false,
+   "text": "focus limit"
+  },
+  {
+   "sel": "[data-mode=prograde]",
+   "on": false,
+   "text": "PRO"
+  },
+  {
+   "sel": "[data-mode=retrograde]",
+   "on": false,
+   "text": "RETRO"
+  },
+  {
+   "sel": "[data-mode=normal]",
+   "on": false,
+   "text": "NML"
+  },
+  {
+   "sel": "[data-mode=antinormal]",
+   "on": false,
+   "text": "ANML"
+  },
+  {
+   "sel": "[data-mode=radial]",
+   "on": false,
+   "text": "RAD"
+  },
+  {
+   "sel": "[data-mode=antiradial]",
+   "on": false,
+   "text": "ARAD"
+  },
+  {
+   "sel": "[data-mode=target]",
+   "on": false,
+   "text": "TGT"
+  },
+  {
+   "sel": "[data-mode=off]",
+   "on": false,
+   "text": "OFF"
+  }
+ ],
+ "sections": [
+  {
+   "title": "Central Singularity",
+   "open": false,
+   "shown": true
+  },
+  {
+   "title": "Suns",
+   "open": true,
+   "shown": true
+  },
+  {
+   "title": "Climate 2.21 yr",
+   "open": false,
+   "shown": false
+  },
+  {
+   "title": "Imaging Band",
+   "open": true,
+   "shown": true
+  },
+  {
+   "title": "View & Camera",
+   "open": true,
+   "shown": true
+  },
+  {
+   "title": "Time",
+   "open": false,
+   "shown": true
+  },
+  {
+   "title": "Focused Object",
+   "open": false,
+   "shown": false
+  },
+  {
+   "title": "Object Foundry",
+   "open": false,
+   "shown": true
+  },
+  {
+   "title": "Painter",
+   "open": false,
+   "shown": true
+  },
+  {
+   "title": "Spaceflight",
+   "open": true,
+   "shown": false
+  },
+  {
+   "title": "Quick Spawn",
+   "open": false,
+   "shown": true
+  },
+  {
+   "title": "Bodies",
+   "open": true,
+   "shown": true
+  }
+ ],
+ "setPage": "sim",
+ "skyAdvOpen": false,
+ "toast": null,
+ "collapsed": [
+  "flightPanel",
+  "xsecPanel",
+  "modelPanel"
+ ],
+ "startShown": false,
+ "rects": {
+  "#settingsPanel": [
+   20,
+   59,
+   268,
+   417.6
+  ],
+  "#scenarioPanel": [
+   20,
+   489,
+   232,
+   150
+  ],
+  "#controlPanel": [
+   962,
+   18,
+   300,
+   684
+  ],
+  ".title-block": [
+   20,
+   18,
+   217.5,
+   29
+  ],
+  ".mode-switch": [
+   20,
+   27,
+   217.5,
+   20
+  ],
+  "#readout": [
+   20,
+   651,
+   245.6,
+   51
+  ],
+  "#hint": [
+   564,
+   628.4,
+   380,
+   73.6
+  ],
+  "#toast": [
+   608,
+   59,
+   34,
+   20
+  ],
+  ".tab-col": [
+   20,
+   489,
+   0,
+   0
+  ],
+  "#presetName": [
+   37,
+   533,
+   198,
+   23
+  ],
+  "#presetList": [
+   37,
+   604,
+   198,
+   255
+  ],
+  "#blurb": [
+   37,
+   868,
+   198,
+   62
+  ],
+  "#setTabs": [
+   37,
+   107,
+   234,
+   23
+  ],
+  "#bandGrid": [
+   979,
+   251,
+   266,
+   56
+  ],
+  "#bandNote": [
+   979,
+   315,
+   266,
+   29.4
+  ],
+  "#sunList": [
+   979,
+   152,
+   266,
+   51
+  ],
+  "#bodyList": [
+   979,
+   793.3,
+   266,
+   82
+  ],
+  "sec:Central Singularity": [
+   979,
+   86,
+   266,
+   18
+  ],
+  "sec:Suns": [
+   979,
+   124,
+   266,
+   18
+  ],
+  "sec:Imaging Band": [
+   979,
+   223,
+   266,
+   18
+  ],
+  "sec:View & Camera": [
+   979,
+   364.4,
+   266,
+   18
+  ],
+  "sec:Time": [
+   979,
+   613.3,
+   266,
+   18
+  ],
+  "sec:Object Foundry": [
+   979,
+   651.3,
+   266,
+   18
+  ],
+  "sec:Painter": [
+   979,
+   689.3,
+   266,
+   18
+  ],
+  "sec:Quick Spawn": [
+   979,
+   727.3,
+   266,
+   18
+  ],
+  "sec:Bodies": [
+   979,
+   765.3,
+   266,
+   18
+  ]
+ }
+}

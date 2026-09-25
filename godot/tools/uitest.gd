@@ -18,7 +18,19 @@ extends Node
 # rect of every panel, tab and marked element, and the matching Godot rects are
 # printed beside them with the difference (`rects=1`).
 #
-# Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [frames=N] [rects=1]
+# THE COMMITTED SET is godot/tools/ref/ui: for each state <state>.web.png (the
+# page, 3D canvas hidden so the HUD sits on --bg), <state>.godot.png (this
+# harness's output) and <state>.json (the fixture). Re-run any of them with
+#   Godot --path godot res://tools/uitest.tscn -- fix=res://tools/ref/ui state=trisolaris out=/tmp/t.png rects=1
+# and flip or diff against <state>.web.png. Regenerate the set with
+# `uitest.shots.mjs --flat` → webref.mjs → this harness.
+#
+# Also printed every run: the overlap check of the left column's chain (the
+# CLAUDE.md standing check), the cost of a full and an incremental HUD layout,
+# and with selftest=1 a pass/fail walk of the orchestrator-facing API.
+#
+# Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [sb=1 scrollbars]
+#       [frames=N] [rects=1] [selftest=1]
 # ============================================================================
 
 var args := {}
@@ -56,13 +68,15 @@ func _ready() -> void:
 	var bg := ColorRect.new()
 	bg.color = HudTheme.BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
-	if args.get("bg", "1") != "0":
+	if args.get("bg", "1") != "0" and FileAccess.file_exists(fix.path_join(state + ".bare.png")):
 		var img := Image.load_from_file(fix.path_join(state + ".bare.png"))
 		if img:
 			var tr := TextureRect.new()
 			tr.texture = ImageTexture.create_from_image(img)
 			tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			tr.stretch_mode = TextureRect.STRETCH_SCALE
 			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			add_child(tr)
@@ -285,4 +299,61 @@ func _selftest() -> void:
 	check.call("a start card emits start_chosen", got.get("start", "") == "learn")
 	check.call("mount points exist", hud.mount("foundry") != null and hud.mount("liveEdit") != null and hud.mount("flightHud") != null \
 		and hud.mount("courseMount") != null and hud.mount("xsecCanvas") != null and hud.mount("lessonCard") != null)
+	# real mouse input through the viewport: a click lands on the button under
+	# it, a click on empty screen falls through to _unhandled_input, and the
+	# wheel over an overflowing panel scrolls it rather than the view
+	hud.relayout()
+	var vis_band: El = hud.sels["[data-band=2]"][0]
+	if vis_band.is_visible_in_tree():
+		got.erase("band")
+		_click(vis_band.get_global_rect().get_center())
+		check.call("a real click on a band button reaches it", got.get("band", -1) == 2)
+	_unhandled = 0
+	_click(Vector2(640, 300))
+	check.call("a click on empty screen falls through to the 3D view", _unhandled >= 2)
+	_unhandled = 0
+	_click(hud.control_panel.get_global_rect().position + Vector2(150, 200))
+	check.call("a click on a panel does not", _unhandled == 0)
+	var cp := hud.control_panel
+	if cp.overflowing:
+		var before := cp.scroll_y
+		var we := InputEventMouseButton.new()
+		we.button_index = MOUSE_BUTTON_WHEEL_DOWN
+		we.pressed = true
+		we.factor = 1.0
+		we.position = cp.get_global_rect().position + Vector2(150, 300)
+		get_viewport().push_input(we, true)
+		# a wheel notch is a press AND a release, as a real mouse sends it —
+		# without the release the panel keeps the mouse focus
+		var wr: InputEventMouseButton = we.duplicate()
+		wr.pressed = false
+		get_viewport().push_input(wr, true)
+		check.call("the wheel scrolls an overflowing panel", cp.scroll_y > before)
+	var r: RangeInput = hud.sliders["speed"]
+	if r.is_visible_in_tree():
+		got.erase("slider")
+		_click(r.get_global_rect().position + Vector2(r.size.x * 0.75, 1))
+		check.call("a click on a range track moves it and emits", got.get("slider", [""])[0] == "speed")
+	var sec: Dictionary = hud.section("Suns")
+	cp.scroll_y = 0.0
+	cp.touch()
+	hud.relayout()
+	var was: bool = sec.open
+	_click(sec.head.get_global_rect().get_center())
+	check.call("a section head folds/unfolds on click", sec.open != was)
 	print("uitest: selftest %d passed, %d failed" % [ok[0], ok[1]])
+
+var _unhandled := 0
+
+func _unhandled_input(e: InputEvent) -> void:
+	if e is InputEventMouseButton:
+		_unhandled += 1
+
+func _click(p: Vector2) -> void:
+	for pressed in [true, false]:
+		var e := InputEventMouseButton.new()
+		e.button_index = MOUSE_BUTTON_LEFT
+		e.pressed = pressed
+		e.position = p
+		e.global_position = p
+		get_viewport().push_input(e, true)
