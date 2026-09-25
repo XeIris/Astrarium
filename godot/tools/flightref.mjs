@@ -12,7 +12,7 @@
 //
 // It imports the REAL modules — sim/flight/{rocketry,vehicles,orbit,vessel,
 // guidance,relativity}.js — through a resolve hook that maps `three` onto
-// tools/three_stub.mjs (r160's own Vector3/Quaternion arithmetic, copied
+// tools/flight_three_stub.mjs (r160's own Vector3/Quaternion arithmetic, copied
 // operation for operation). Nothing of the flight model is re-implemented here.
 //
 // What IS written here is the part of sim/flight/spaceflight.js that drives a
@@ -49,7 +49,7 @@ import { dirname } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const THREE_URL = process.env.THREE_MODULE
   ? pathToFileURL(process.env.THREE_MODULE).href
-  : new URL('./three_stub.mjs', import.meta.url).href;
+  : new URL('./flight_three_stub.mjs', import.meta.url).href;
 registerHooks({
   resolve(spec, ctx, next) {
     if (spec === 'three') return { url: THREE_URL, shortCircuit: true };

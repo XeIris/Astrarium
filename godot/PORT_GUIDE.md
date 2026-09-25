@@ -98,6 +98,14 @@ are doubles. This split drives most of the architecture.
   build (sun positions, hole positions) are passed camera-relative:
   `pos_rel = abs.rel_v3(cam_pos)`. Directions (normals, sun directions) are
   unaffected.
+* **Keep far/near ≤ ~1e7 (measured).** The web build's near-plane policy
+  (`near = clamp(camDist·1e-3, 1e-7, 0.01)`, `far = 1e5`) reaches a ratio of
+  1e11 when framing Proxima or Sirius B at true scale. THREE draws that fine;
+  Godot derives its culling frustum from the projection in float32, the planes
+  degenerate (`create_frustum_points` errors) and the body is culled — the
+  frame is empty. `tools/startest.gd` clamps `far = min(far, near·1e7)`, and
+  every star/compact-object frame matches the web with it; the orchestrator's
+  near-plane code needs the same clamp.
 * **Frame order.** physics → camera (final `cam_pos` for the frame) → place
   every node → visual `update()`s → markers → `pipeline.prepare_frame()`. A
   visual therefore sees this frame's camera. (The web build ran visual
@@ -184,6 +192,19 @@ three r160 has `ColorManagement.enabled = true`, so:
   Godot's lighting.
 * gdshader is strict about int/float mixing, as GLSL ES was. Reserved words
   also differ from GLSL, so rename on a compile error.
+* **Float literals below ~1e-14 compile to 0.0 in a gdshader.** Godot re-prints
+  each constant into the generated GLSL in fixed notation, so `1e-16`, `1e-24`
+  and `1e-30` reach the GPU as zero. A floor like `max(x, 1e-24)` then stops
+  flooring and divides by zero. Measured: this produced NaNs on the photon
+  ring, which the bloom spread into black rectangles. Spell such constants as bit
+  patterns, `uintBitsToFloat(0x179abe15u)` for 1e-24 (see
+  shaders/sky/sky.gdshaderinc). Compute `.glsl` files are compiled directly and
+  are not affected. Note too that `isnan()`/`isinf()` checks are unreliable on
+  the Metal backend's fast math. Test the bits
+  (`floatBitsToUint(x) & 0x7fffffffu) >= 0x7f800000u`) when debugging.
+* gdshader has no mutable globals (only `const`/`uniform`/`varying` outside
+  functions). A GLSL module-level variable that one function sets and another
+  reads (the sky's `sky_D`) has to become an explicit parameter.
 * Uniform arrays: `uniform vec3 a[4];` set from script with a
   `PackedVector3Array` of exactly that length.
 

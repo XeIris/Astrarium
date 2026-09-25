@@ -1,0 +1,44 @@
+[
+ {
+  "name": "web_lens_bhmerger_b3",
+  "hash": "bhmerger",
+  "setup": "\nSIM.load('bhmerger');\nfor (let i = 0; i < 3; i++) SIM.frame(1/60);\nSIM.state.timeScale = 0; SIM.state.discIntensity = 0;\nSIM.setBand(3);\nSIM.scene.children.slice().forEach(c => SIM.scene.remove(c));\n",
+  "frames": 3,
+  "dump": "({\n holes: SIM.state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass)\n   .map(h => ({ pos: h.viz.group.position.toArray(), rs: h.rsScene, mass: h.mass })),\n cam: { pos: SIM.camera.position.toArray(), quat: SIM.camera.quaternion.toArray(), fov: SIM.camera.fov },\n discIntensity: SIM.state.discIntensity, discTemp: SIM.state.discTemp,\n discOuter: (SIM.state.preset && SIM.state.preset.discOuter) || 15,\n sky: SIM.state.sky, band: SIM.state.band })"
+ },
+ {
+  "name": "web_lens_bhmerger_b5",
+  "hash": "bhmerger",
+  "setup": "\nSIM.load('bhmerger');\nfor (let i = 0; i < 3; i++) SIM.frame(1/60);\nSIM.state.timeScale = 0; SIM.state.discIntensity = 0;\nSIM.setBand(5);\nSIM.scene.children.slice().forEach(c => SIM.scene.remove(c));\n",
+  "frames": 3,
+  "dump": "({\n holes: SIM.state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass)\n   .map(h => ({ pos: h.viz.group.position.toArray(), rs: h.rsScene, mass: h.mass })),\n cam: { pos: SIM.camera.position.toArray(), quat: SIM.camera.quaternion.toArray(), fov: SIM.camera.fov },\n discIntensity: SIM.state.discIntensity, discTemp: SIM.state.discTemp,\n discOuter: (SIM.state.preset && SIM.state.preset.discOuter) || 15,\n sky: SIM.state.sky, band: SIM.state.band })"
+ },
+ {
+  "name": "web_lens_bhmerger_b0",
+  "hash": "bhmerger",
+  "setup": "\nSIM.load('bhmerger');\nfor (let i = 0; i < 3; i++) SIM.frame(1/60);\nSIM.state.timeScale = 0; SIM.state.discIntensity = 0;\nSIM.setBand(0);\nSIM.scene.children.slice().forEach(c => SIM.scene.remove(c));\n",
+  "frames": 3,
+  "dump": "({\n holes: SIM.state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass)\n   .map(h => ({ pos: h.viz.group.position.toArray(), rs: h.rsScene, mass: h.mass })),\n cam: { pos: SIM.camera.position.toArray(), quat: SIM.camera.quaternion.toArray(), fov: SIM.camera.fov },\n discIntensity: SIM.state.discIntensity, discTemp: SIM.state.discTemp,\n discOuter: (SIM.state.preset && SIM.state.preset.discOuter) || 15,\n sky: SIM.state.sky, band: SIM.state.band })"
+ },
+ {
+  "name": "web_lens_sandbox_b3",
+  "hash": "sandbox",
+  "setup": "\nSIM.load('sandbox');\nfor (let i = 0; i < 3; i++) SIM.frame(1/60);\nSIM.state.timeScale = 0; SIM.state.discIntensity = 0;\nSIM.setBand(3);\nSIM.scene.children.slice().forEach(c => SIM.scene.remove(c));\n",
+  "frames": 3,
+  "dump": "({\n holes: SIM.state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass)\n   .map(h => ({ pos: h.viz.group.position.toArray(), rs: h.rsScene, mass: h.mass })),\n cam: { pos: SIM.camera.position.toArray(), quat: SIM.camera.quaternion.toArray(), fov: SIM.camera.fov },\n discIntensity: SIM.state.discIntensity, discTemp: SIM.state.discTemp,\n discOuter: (SIM.state.preset && SIM.state.preset.discOuter) || 15,\n sky: SIM.state.sky, band: SIM.state.band })"
+ },
+ {
+  "name": "web_lens_sandbox_b5",
+  "hash": "sandbox",
+  "setup": "\nSIM.load('sandbox');\nfor (let i = 0; i < 3; i++) SIM.frame(1/60);\nSIM.state.timeScale = 0; SIM.state.discIntensity = 0;\nSIM.setBand(5);\nSIM.scene.children.slice().forEach(c => SIM.scene.remove(c));\n",
+  "frames": 3,
+  "dump": "({\n holes: SIM.state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass)\n   .map(h => ({ pos: h.viz.group.position.toArray(), rs: h.rsScene, mass: h.mass })),\n cam: { pos: SIM.camera.position.toArray(), quat: SIM.camera.quaternion.toArray(), fov: SIM.camera.fov },\n discIntensity: SIM.state.discIntensity, discTemp: SIM.state.discTemp,\n discOuter: (SIM.state.preset && SIM.state.preset.discOuter) || 15,\n sky: SIM.state.sky, band: SIM.state.band })"
+ },
+ {
+  "name": "web_lens_sandbox_b0",
+  "hash": "sandbox",
+  "setup": "\nSIM.load('sandbox');\nfor (let i = 0; i < 3; i++) SIM.frame(1/60);\nSIM.state.timeScale = 0; SIM.state.discIntensity = 0;\nSIM.setBand(0);\nSIM.scene.children.slice().forEach(c => SIM.scene.remove(c));\n",
+  "frames": 3,
+  "dump": "({\n holes: SIM.state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass)\n   .map(h => ({ pos: h.viz.group.position.toArray(), rs: h.rsScene, mass: h.mass })),\n cam: { pos: SIM.camera.position.toArray(), quat: SIM.camera.quaternion.toArray(), fov: SIM.camera.fov },\n discIntensity: SIM.state.discIntensity, discTemp: SIM.state.discTemp,\n discOuter: (SIM.state.preset && SIM.state.preset.discOuter) || 15,\n sky: SIM.state.sky, band: SIM.state.band })"
+ }
+]
