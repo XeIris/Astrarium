@@ -130,8 +130,17 @@ static func fmt_density(rho_v) -> String:
 	if not is_finite(rho): return "∞"
 	if not (rho > 0.0): return "—"
 	if rho < 1e4: return "%s kg/m³" % U.fixed(rho, 2 if rho < 100.0 else 0)
-	var e := int(floor(U.log10(rho)))
+	var e := decade(rho)
 	return "%s×10%s kg/m³" % [U.fixed(rho / pow(10.0, e), 2), sup(e)]
+
+## Math.floor(Math.log10(x)). JS's log10 is exact at powers of ten and
+## log(x)/ln 10 is not — log10(1e6) comes out 5.999999999999999 — so the
+## decade is corrected by testing the mantissa rather than trusted.
+static func decade(x: float) -> int:
+	var e := int(floor(U.log10(x)))
+	if x / pow(10.0, e) >= 10.0: e += 1
+	elif x / pow(10.0, e) < 1.0: e -= 1
+	return e
 
 const SUPS := "⁰¹²³⁴⁵⁶⁷⁸⁹"
 static func sup(n: int) -> String:

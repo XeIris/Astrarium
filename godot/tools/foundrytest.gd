@@ -78,6 +78,8 @@ func _ready() -> void:
 
 	if state.begins_with("xsec"):
 		_build_xsec(root)
+	elif state.begins_with("cut"):
+		_build_cut(root)
 	else:
 		_build_foundry(root)
 	if args.get("behave", "0") == "1":
@@ -151,6 +153,26 @@ func _compare_text(what: String, web: Array, gd: Array) -> void:
 			ok = false
 			print("  %s[%d] web=%s | godot=%s" % [what, i, W[i], G[i]])
 	print("%s %s (%d web / %d godot)" % [what, "MATCH" if ok else "DIFF", W.size(), G.size()])
+
+# ---- the 3D cutaway ----------------------------------------------------------------
+var cut: Cutaway
+var cut_legend: El
+
+func _build_cut(root: Control) -> void:
+	# the same fixed canvas and legend the web shot places at (20, 20)
+	panel = _E(root, {"w": 320.0})
+	panel.is_root = true
+	cut = Cutaway.create_cutaway({"style": {"bg": T.rgba(4, 6, 10, 0.55)}})
+	panel.add_child(cut)
+	cut_legend = _E(panel, {"fs": 12.0})
+	cut.set_spin(false)
+	cut.nudge(0.6)
+	cut.show_structure(Structure.structure_of(d.q))
+	cut.render(0.0)
+	cut.build_legend(cut_legend)
+	var mine: Array = []
+	for r in cut.legend(): mine.append("%s %s" % [r.name, r.num])
+	_compare_text("legend", d.legend, mine)
 
 # ---- the Foundry ------------------------------------------------------------------
 func _build_foundry(root: Control) -> void:

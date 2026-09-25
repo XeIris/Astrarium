@@ -128,7 +128,7 @@ static func fmt_mass_short(m: float) -> String:
 	# appending "e6" reads fine at 3.2e6 and turns into "1.0e+2e6" at 1e8 — and
 	# the Foundry's black-hole slider goes to 1e9.
 	if m >= 1e6:
-		var e := int(floor(U.log10(m)))
+		var e := CrossSection.decade(m)
 		return "%se%d M☉" % [Structure._num(float(U.prec(m / pow(10.0, e), 2))), e]
 	if m >= 0.02: return "%s M☉" % (U.fixed(m, 2) if m < 10.0 else U.prec(m, 3))
 	if m / Structure.M_JUP_SUN >= 0.3: return "%s M_J" % U.fixed(m / Structure.M_JUP_SUN, 1)

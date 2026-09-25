@@ -95,6 +95,25 @@ const dumpFd = `${rects}
     })(),
   };`;
 
+// the 3D cutaway on its own canvas (320 × 210, as the lesson card sizes it),
+// at a fixed turntable angle, with its legend under it
+const cut = spec => `
+  SIM.load('blank');
+  const { createCutaway } = await import('./sim/cutaway.js');
+  const { structureOf } = await import('./sim/structure.js');
+  const cv = document.createElement('canvas'); cv.width = 320; cv.height = 210;
+  cv.style.cssText = 'position:fixed;left:20px;top:20px;width:320px;height:210px;background:rgba(4,6,10,0.55);z-index:50';
+  const lg = document.createElement('div'); lg.className = 'cut-legend';
+  lg.style.cssText = 'position:fixed;left:20px;top:230px;width:320px;max-height:none;z-index:50';
+  for (const e of document.body.children) if (e.tagName !== 'SCRIPT') e.style.display = 'none';
+  document.body.appendChild(cv); document.body.appendChild(lg);
+  const c = createCutaway({ canvas: cv }); c.setSpin(false); c.nudge(0.6);
+  window.__q = ${JSON.stringify(spec)};
+  c.show(structureOf(window.__q)); c.render(0);
+  lg.innerHTML = c.legend();
+  window.__cut = c;`;
+const dumpCut = `return { q: window.__q, legend: [...document.querySelectorAll('.cut-row')].map(r => r.textContent.replace(/\\s+/g, ' ').trim()) };`;
+
 const H = 1400;
 const shots = [
   { name: 'xsec_sun', setup: xsec('solar', 'Sun') },
@@ -118,6 +137,16 @@ const shots = [
   { name: 'fd_wd', setup: fd('white-dwarf', 0.2) },
   { name: 'fd_bh', setup: fd('bh', 1.0, { fdSpin: 0.9 }) },
 ].map(s => ({ ...s, hud: true, width: 1280, height: H, frames: 12, dump: s.name.startsWith('xsec') ? dumpXsec : dumpFd }));
+for (const [n, spec] of Object.entries({
+  sun: { type: 'star', mass: 1, phase: 0.5 },
+  redgiant: { type: 'star', mass: 1.2, phase: 1.35 },
+  presn: { type: 'star', mass: 18, phase: 1.9 },
+  vega: { type: 'star', mass: 2.1, phase: 0.3, spinFrac: 0.88 },
+  earth: { type: 'planet', mass: 3.0035e-6, composition: 'earth' },
+  jupiter: { type: 'gas-giant', mass: 9.5459e-4, spinFrac: 0.3 },
+  neutron: { type: 'neutron', mass: 1.4 },
+  bh: { type: 'bh', mass: 10, spinFrac: 0.9 },
+})) shots.push({ name: 'cut_' + n, setup: cut(spec), hud: true, width: 1280, height: 720, frames: 0, dump: dumpCut });
 
 await writeFile(process.argv[2] || 'shots.json', JSON.stringify(shots, null, 1));
 console.log('wrote', shots.length, 'shots');
