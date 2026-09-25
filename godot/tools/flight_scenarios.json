@@ -1,0 +1,26 @@
+{
+ "_doc": "Spaceflight comparison scenarios, read by BOTH tools/flighttest.gd (Godot) and tools/flightshots.mjs (writes the webref.mjs shot list). Steps: launch key | begin key opts | booster | init {alt,vVert,vHoriz} | program name | cam mode | warp i | frames n | shot name [hud].",
+ "seed": 7,
+ "scenarios": {
+  "sv_launch": [["launch", "saturnv"], ["program", "ascent"],
+   ["frames", 300], ["shot", "sv_tm5"],
+   ["frames", 600], ["shot", "sv_tp5"],
+   ["frames", 300], ["shot", "sv_tp10"],
+   ["frames", 3000], ["shot", "sv_tp60", true]],
+  "sv_cams": [["launch", "saturnv"], ["program", "ascent"], ["frames", 1200],
+   ["cam", "chase"], ["frames", 1], ["shot", "sv_cam_chase"],
+   ["cam", "orbit"], ["frames", 1], ["shot", "sv_cam_orbit"],
+   ["cam", "cockpit"], ["frames", 1], ["shot", "sv_cam_cockpit"],
+   ["cam", "pad"], ["frames", 1], ["shot", "sv_cam_pad"]],
+  "sv_staging": [["launch", "saturnv"], ["program", "ascent"], ["frames", 10380], ["shot", "sv_staging", true]],
+  "f9_pad": [["launch", "falcon9"], ["program", "ascent"], ["frames", 780], ["shot", "f9_tp3"]],
+  "f9_orbit": [["launch", "falcon9"], ["begin", "falcon9", {"mode": "orbit", "phase": 0.0}], ["frames", 30], ["shot", "f9_orbit", true]],
+  "f9_land": [["launch", "falcon9"], ["booster"], ["begin", "f9booster", {"mode": "orbit", "alt": 70000.0, "phase": 0.0}],
+   ["init", {"alt": 70000.0, "vVert": -1000.0, "vHoriz": 200.0}], ["program", "hoverslam"],
+   ["frames", 5400], ["shot", "f9_land_a"], ["frames", 900], ["shot", "f9_land_b", true]],
+  "lm_descent": [["launch", "lm"], ["begin", "lm", {"mode": "orbit", "phase": 0.0}], ["program", "land"],
+   ["frames", 3600], ["shot", "lm_a"], ["frames", 14400], ["shot", "lm_b", true]],
+  "hm_cruise": [["launch", "hailmary"], ["begin", "hailmary", {"mode": "orbit", "phase": 0.0}], ["program", "cruise"],
+   ["frames", 900], ["shot", "hm_cruise", true]]
+ }
+}
