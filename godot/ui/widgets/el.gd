@@ -201,10 +201,12 @@ func kids() -> Array:
 
 # ---- interaction ----------------------------------------------------------------
 
-## A <button>: takes the click, shows the hand, and goes :hover.
+## A <button>: takes the click, shows the hand, and goes :hover. PASS, not
+## STOP: the button accepts its own clicks, and a wheel over it still reaches
+## the panel that scrolls, as the browser's does.
 func make_clickable(tooltip := "") -> El:
 	clickable = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	if tooltip != "":
 		tooltip_text = tooltip
@@ -228,7 +230,7 @@ func _on_exit() -> void:
 
 func _gui_input(e: InputEvent) -> void:
 	if clickable and e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and not e.pressed:
-		if get_global_rect().has_point(get_global_mouse_position()) and not has_state("disabled"):
+		if Rect2(Vector2.ZERO, size).has_point(e.position) and not has_state("disabled"):
 			pressed.emit()
 			accept_event()
 	elif clickable and e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed:

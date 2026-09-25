@@ -207,6 +207,12 @@ func reg(key: String, e: El) -> void:
 func root(e: El) -> El:
 	e.is_root = true
 	roots.append(e)
+	# A panel takes the pointer: a click on it never becomes a pick in the 3D
+	# view behind it, and a wheel over it scrolls it (the page's panels are
+	# pointer-events:none themselves but every child is auto, which is the
+	# same thing everywhere but their padding).
+	if e.base.has("blur") and not e.clickable:
+		e.mouse_filter = Control.MOUSE_FILTER_STOP
 	return e
 
 func _h3(parent: Node, text: String, first := false, id := "") -> El:
@@ -503,7 +509,7 @@ func _section(parent: El, title: String, head_runs: Array = [], host: El = null)
 	var head := E(host if host else parent, C.merge(C.h3(host != null), {"display": "flex", "ai": "baseline", "gapc": 6.0}),
 		null, "", [["hover", {"c": T.ACCENT}]])
 	head.make_hoverable()
-	head.mouse_filter = Control.MOUSE_FILTER_STOP
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
 	head.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var arrow := E(head, {"fs": 9.0, "c": T.TEXT_DIM, "rot": 90.0}, "▸")
 	var tl := E(head, {}, title)
@@ -513,8 +519,10 @@ func _section(parent: El, title: String, head_runs: Array = [], host: El = null)
 	var sec := {"title": title, "head": head, "wrap": wrap, "host": host, "arrow": arrow, "label": tl}
 	sections.append(sec)
 	head.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and not e.pressed:
-			set_section_open(sec, not sec.open))
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+			head.accept_event()
+			if not e.pressed:
+				set_section_open(sec, not sec.open))
 	sec.open = true
 	return wrap
 
