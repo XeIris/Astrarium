@@ -27,6 +27,8 @@ common/physics_ticks_per_second=60
 
 [rendering]
 
+textures/vram_compression/import_etc2_astc=true
+
 renderer/rendering_method="forward_plus"
 textures/canvas_textures/default_texture_filter=1
 anti_aliasing/quality/msaa_3d=0
