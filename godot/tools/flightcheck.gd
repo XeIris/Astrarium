@@ -486,6 +486,16 @@ func bench(fixture: Dictionary) -> void:
 			for i in n: Orbit.propagate(vessel.r, vessel.v, vessel.env.mu, 60.0, vessel.r, vessel.v)
 		var us := float(Time.get_ticks_usec() - t0)
 		print("%-52s %8.1f µs/step  %9.0f steps/s" % [label, us / n, n / (us / 1e6)])
+	# A whole rails frame, as spaceflight runs one above 4×: propagate, clocks,
+	# sample (one accel() + elements) and the SOI test over every body.
+	for warp in [1000.0, 1000000.0]:
+		var vr := Vessel.new({ "vehicle": Vehicles.VEHICLES.falcon9, "parent": earth, "bodies": bodies, "payload": 0.0 })
+		vr.place_in_orbit(250000.0, 28.5, 0.0)
+		var nr := 3000
+		var tr := Time.get_ticks_usec()
+		for i in nr: vr.step(warp / 60.0, { "rails": true })
+		var usr := float(Time.get_ticks_usec() - tr)
+		print("%-52s %8.1f µs/frame" % ["rails frame at %d× (step+clocks+sample+SOI)" % int(warp), usr / nr])
 	# A whole guided frame: autopilot + substeps + sample, as spaceflight runs it.
 	var vessel2 := Vessel.new({ "vehicle": Vehicles.VEHICLES.falcon9, "parent": earth, "bodies": bodies, "payload": 0.0 })
 	vessel2.place_on_pad(28.6, 0.0)

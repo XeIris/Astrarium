@@ -1044,7 +1044,7 @@ class Autopilot extends RefCounted:
 		# early does not buy margin — it buys an ascent. Igniting at two kilometres
 		# "to be safe" makes the booster stop at a hundred metres, climb back to
 		# four hundred, and oscillate until the tanks are dry.
-		var must_land := slamming or (alt <= sel_pre.hBurn * 1.05 and alt < terminal_ceiling)
+		var must_land: bool = slamming or (alt <= sel_pre.hBurn * 1.05 and alt < terminal_ceiling)
 		# Hysteresis on q: start at a third of the limit, stop at a fifth. An entry
 		# burn is not a thing you pulse.
 		# Start the entry burn early — a tenth of the airframe limit, which on a

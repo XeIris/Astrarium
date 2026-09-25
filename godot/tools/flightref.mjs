@@ -8,7 +8,12 @@
 //                                    same, against the real three r160 — the
 //                                    output must be identical to the stub's
 //   node godot/tools/flightref.mjs --compare js.json gd.json
-//                                    diff two result files, per scenario
+//                                    diff two result files, per scenario (worst number)
+//   node godot/tools/flightdiff.mjs js.json gd.json [id]
+//                                    the same, broken down per field + event log
+//
+// The GDScript side: Godot --headless --path godot --script
+//   res://tools/flightcheck.gd -- out=/abs/gd.json   (bench=1 for timings)
 //
 // It imports the REAL modules — sim/flight/{rocketry,vehicles,orbit,vessel,
 // guidance,relativity}.js — through a resolve hook that maps `three` onto
@@ -45,6 +50,7 @@ import { registerHooks } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const THREE_URL = process.env.THREE_MODULE
@@ -526,7 +532,7 @@ function main() {
       `maxQ ${(s.maxQ / 1000).toFixed(2)} kPa @ ${s.maxQMet.toFixed(1)} s  apo/peri ${s.apo != null ? (s.apo / 1000).toFixed(1) : '—'}/${s.peri != null ? (s.peri / 1000).toFixed(1) : '—'} km  ` +
       `inc ${s.inc?.toFixed(2)}  ${s.landedAt ? `touchdown ${s.landedAt.vVert.toFixed(2)} / ${s.landedAt.vHoriz.toFixed(2)} m/s` : ''} ${s.failure ?? ''} (${s.wallMs.toFixed(0)} ms)`);
   }
-  const outPath = args[0] || `${HERE}/fixtures/flight_js.json`;
+  const outPath = args[0] || `${tmpdir()}/flight_js.json`;
   writeFileSync(outPath, JSON.stringify(results));
   console.log('wrote', outPath);
 }
