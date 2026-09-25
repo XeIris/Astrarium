@@ -1,0 +1,10 @@
+{
+ "met": 14999999.999999816,
+ "coord": 16391426.744316487,
+ "thr": 0,
+ "phase": "cruise",
+ "cam": "chase",
+ "status": "Manual control",
+ "near": 0.01,
+ "fov": 55
+}

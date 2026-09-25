@@ -276,6 +276,10 @@
     }
    ],
    [
+    "close",
+    "settingsPanel"
+   ],
+   [
     "program",
     "cruise"
    ],
@@ -286,6 +290,15 @@
    [
     "shot",
     "hm_cruise",
+    true
+   ],
+   [
+    "frames",
+    2700
+   ],
+   [
+    "shot",
+    "hm_cruise_b",
     true
    ]
   ],
@@ -332,6 +345,46 @@
    [
     "shot",
     "sv_orbit",
+    true
+   ]
+  ],
+  "mars_edl": [
+   [
+    "launch",
+    "skycrane"
+   ],
+   [
+    "init",
+    {
+     "alt": 125000.0,
+     "vVert": -1549.983,
+     "vHoriz": 5589.057
+    }
+   ],
+   [
+    "close",
+    "settingsPanel"
+   ],
+   [
+    "program",
+    "edl"
+   ],
+   [
+    "frames",
+    4800
+   ],
+   [
+    "shot",
+    "edl_a",
+    true
+   ],
+   [
+    "frames",
+    7200
+   ],
+   [
+    "shot",
+    "edl_b",
     true
    ]
   ]
