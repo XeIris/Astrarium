@@ -74,6 +74,10 @@ func _setup() -> void:
 			var m := Marker.create_marker({"color": _col(e.marker.color), "teff": float(U.nz(e.teff, 0.0)), "gain": float(e.marker.gain)})
 			pipe.world_root.add_child(m.mesh)
 			markers.append([b, m, e.marker])
+			if args.has("nomarker"): m.mesh.layers = 0
+		# debugging switches: hide a part to see what it contributes
+		if b.viz != null and args.has("nocorona") and b.viz.get("corona") != null: b.viz.corona.layers = 0
+		if b.viz != null and args.has("nocore") and b.viz.get("core") != null: b.viz.core.layers = 0
 
 	# the flash sprites a core collapse spawns (blackhole_sim.js coreCollapse),
 	# stepped through the same frames the web ran after it

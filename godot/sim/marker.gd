@@ -26,6 +26,17 @@ extends RefCounted
 # composite. In the Godot temperature pass that max is a no-op against the
 # sky (see shaders/bodies/marker_point.gdshader), so the pass discards.
 #
+# DEPTH. The marker is depth-TESTED (never depth-writing) and drawn at
+# render_priority 3, after everything at 0 — as the web's was (renderOrder 3,
+# depthTest on). So whatever writes depth in front of it cuts it. On the web
+# that is the orbit trails: THREE's LineBasicMaterial keeps depthWrite = true
+# even when transparent, the near side of every inner orbit crosses in front
+# of the Sun, and the Sun's marker is striped by them in its lower half — with
+# correspondingly less bloom. A trail material that does NOT write depth draws
+# the full marker and a Sun visibly larger and brighter than the web's
+# (measured on #solar: ring means within 5 levels with the trails writing
+# depth, 30–50 levels too bright without).
+#
 # PORT NOTES. The mesh is a child the orchestrator adds under world_root, NOT
 # under the body's group, exactly as the web kept it in the scene: its size is
 # never coupled to whatever the body's own visual does to its transform.
