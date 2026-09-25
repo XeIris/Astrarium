@@ -1,0 +1,23 @@
+[
+ {
+  "name": "web_beta09_fwd_b3",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(3); U.uBeta.value.set(0,0,-0.9); aim(0.0, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_beta09_side_b3",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(3); U.uBeta.value.set(0,0,-0.9); aim(1.2, 0.0);",
+  "wait": 1500
+ },
+ {
+  "name": "web_beta09_fwd_b4",
+  "page": ".claude/skytest.html",
+  "ready": "typeof window.aim === 'function'",
+  "setup": "document.getElementById('hud').style.display='none'; setEnv('disc'); setBand(4); U.uBeta.value.set(0,0,-0.9); aim(0.0, 0.0);",
+  "wait": 1500
+ }
+]

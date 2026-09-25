@@ -1,0 +1,10 @@
+[configuration]
+
+entry_symbol = "astrarium_native_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+macos.debug = "res://native/bin/libastrarium_native.dylib"
+macos.release = "res://native/bin/libastrarium_native.dylib"

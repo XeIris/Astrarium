@@ -112,8 +112,9 @@ static func _pull_mag(source: Body, dist: float) -> float:
 # ----------------------------------------------------------------------------
 # G and C are module constants, so their powers are too — hoisted out of the
 # O(n²) pair loop rather than recomputed per pair per sub-step.
-const G4 := G * G * G * G
-const C5 := C * C * C * C * C
+# Math.pow, as the JS wrote it — G·G·G·G rounds differently in the last bit.
+static var G4 := pow(G, 4.0)
+static var C5 := pow(C, 5.0)
 static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
 	var compact := []
 	for b in bodies:
@@ -143,7 +144,8 @@ static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
 			# spread over many frames and stays clearly visible.
 			var maxKick := 0.0025 * vrelMag
 			if dragAcc * dt > maxKick: dragAcc = maxKick / dt
-			vx /= vrelMag; vy /= vrelMag; vz /= vrelMag      # unit
+			var inv_v := 1.0 / vrelMag                       # multiplyScalar(1 / vrelMag)
+			vx *= inv_v; vy *= inv_v; vz *= inv_v            # unit
 			# share the kick by reduced mass
 			var ka := dragAcc * (mu / m1) * dt
 			var kb := dragAcc * (mu / m2) * dt
@@ -168,10 +170,15 @@ static func integrate(bodies: Array, dt: float) -> void:
 	compute_accel(live)
 	var hdt2 := 0.5 * dt * dt
 	for b in live:
-		# x += v·dt + ½a·dt²
-		b.pos.x += b.vel.x * dt + b.acc.x * hdt2
-		b.pos.y += b.vel.y * dt + b.acc.y * hdt2
-		b.pos.z += b.vel.z * dt + b.acc.z * hdt2
+		# x += v·dt + ½a·dt² — as TWO additions, the order the web build rounds
+		# in (addScaledVector twice). One fused sum is a different rounding and
+		# the trajectories part company after a few hundred frames.
+		b.pos.x += b.vel.x * dt
+		b.pos.y += b.vel.y * dt
+		b.pos.z += b.vel.z * dt
+		b.pos.x += b.acc.x * hdt2
+		b.pos.y += b.acc.y * hdt2
+		b.pos.z += b.acc.z * hdt2
 		b.a_prev.x = b.acc.x; b.a_prev.y = b.acc.y; b.a_prev.z = b.acc.z
 	compute_accel(live)
 	var hdt := 0.5 * dt

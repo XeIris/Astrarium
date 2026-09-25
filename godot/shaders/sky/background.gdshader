@@ -11,7 +11,8 @@
 //   u_lens = false  the backdrop: d = EYEDIR, aberrated for the observer's
 //                   boost, derivatives of the ABERRATED direction.
 //   u_lens = true   the resolve: d = EYEDIR + the marched deflection delta,
-//                   plus the disc emission the marcher accumulated.
+//                   plus the disc emission the marcher accumulated. Never
+//                   aberrated, as in the web build (skyRadiance, D = 1).
 // ============================================================================
 shader_type sky;
 
@@ -34,8 +35,12 @@ void sky() {
 		// Aberrate FIRST, then take the derivatives of the aberrated direction:
 		// the forward compression of solid angle is then measured by the same
 		// Jacobian that measures lensing magnification.
-		vec3 rd = sky_aberrate(normalize(EYEDIR));
-		COLOR = skyRadiance(rd, dFdx(rd), dFdy(rd)) * sky_beaming();
+		// (The Doppler factor is explicit here — sky_doppler — because gdshader
+		// has no mutable global for the web build's sky_D; see sky.gdshaderinc.)
+		vec3 d = normalize(EYEDIR);
+		vec3 rd = sky_aberrate(d);
+		float D = sky_doppler(d);
+		COLOR = skyRadianceD(rd, dFdx(rd), dFdy(rd), D) * sky_beaming(D);
 	} else {
 		vec4 m0 = texture(t_march0, SCREEN_UV);   // disc rgb, transmittance
 		vec4 m1 = texture(t_march1, SCREEN_UV);   // direction delta, log mean T
