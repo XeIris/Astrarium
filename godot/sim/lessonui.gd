@@ -141,7 +141,7 @@ class Fig extends El:
 	var _tex_w := -1.0
 
 	func _init(src: String) -> void:
-		super({"maxw": 340.0})
+		super({"maxw": 340.0, "clip": true})
 		var cur := "#%s" % T.TEXT_DIM.to_html(false)
 		var m := RegEx.create_from_string("viewBox=\"([^\"]+)\"").search(src)
 		if m:
@@ -213,6 +213,26 @@ class InstrCanvas extends El:
 		plot.size = size - Vector2(2, 2)
 		plot.queue_redraw()
 
+# A step dot: `.lc-dots > i { 7 × 7; border: 1px solid --border-strong;
+# border-radius: 50% }`, `.seen` filled faintly, `.on` in the accent. Painted as
+# a disc and a ring rather than through a 3.5 px-radius StyleBox, which at this
+# size breaks its own anti-aliased border into dashes.
+class Dot extends El:
+	func _init() -> void:
+		super({"w": 7.0, "h": 7.0})
+		make_clickable()
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var fill := T.CLEAR
+		var ring := T.BORDER_STRONG
+		if has_state("seen"): fill = T.rgba(180, 200, 230, 0.35)
+		if has_state("on"):
+			fill = T.ACCENT; ring = T.ACCENT
+		if fill.a > 0.0:
+			draw_circle(c, 3.5, fill, true, -1.0, true)
+		draw_arc(c, 3.0, 0.0, TAU, 32, ring, 1.0, true)
+
 # An El whose text is underlined (`text-decoration: underline`, the reset link).
 class Underlined extends El:
 	func _draw_extra() -> void:
@@ -254,6 +274,11 @@ class Course extends RefCounted:
 		hud = opts.get("hud", card.get_parent() if card else null)
 		if hud != null and "lc" in hud:
 			lc = hud.lc
+		# .lc-text { max-width: 68ch } — `ch` is the advance of "0" in the text's
+		# OWN face and size (the display stack at 13.5 px), measured, not assumed.
+		if lc.has("text"):
+			var disp := HudTheme.font_sized("disp", 400, false, 13.5)
+			(lc.text as El).set_style({"maxw": 68.0 * HudTheme.adv_em(disp, "0".unicode_at(0)) * 13.5})
 		_load_progress()
 
 		# ---- the curriculum's own consistency check. No test runner exists here, so
@@ -452,12 +477,17 @@ class Course extends RefCounted:
 			ab.pressed.connect(run_act.bind(act))
 		(lc.cols as El).scroll_y = 0.0
 
-		if hud != null and hud.has_method("set_lesson_dots"):
-			hud.set_lesson_dots(n, step_ix, step_ix - 1)
-			var dots: Array = (lc.dots as El).get_children()
-			for i in dots.size():
-				if dots[i] is El and not dots[i].is_queued_for_deletion():
-					(dots[i] as El).pressed.connect(go_step.bind(i))
+		var dots: El = lc.dots
+		dots.touch()
+		for k in dots.get_children():
+			dots.remove_child(k)
+			k.queue_free()
+		for i in n:
+			var dot := LessonUI.Dot.new()
+			dot.set_state("on", i == step_ix)
+			dot.set_state("seen", i < step_ix)
+			dots.add_child(dot)
+			dot.pressed.connect(go_step.bind(i))
 
 		(lc.back as El).set_state("disabled", step_ix == 0 and nb.prev == null)
 		(lc.next as El).set_text("Next →" if step_ix < n - 1 else ("Next lesson →" if nb.next != null else "Finish"))

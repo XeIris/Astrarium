@@ -62,6 +62,50 @@ static var _adv := {}
 static var _met := {}
 static var _metric := {}
 
+## THE SYSTEM FACE HAS AN OPTICAL SIZE. SF Pro is one variable font with an
+## `opsz` axis (17–96, default 28), and CoreText — which Chrome draws
+## system-ui with — sets that axis to the point size and then applies the
+## face's size-specific TRACKING (the `trak` table: 0 at 12 pt, −0.08 at 13,
+## −0.31 at 16, −0.43 at 17). Below 20 px the result is the wider "Text"
+## design; Godot's SystemFont gives the opsz-28 "Display" one at every size,
+## which set the lesson card's 13.5 px prose 11% narrower than the page
+## (measured: 489 px against 548 for the same line). So for the display
+## family at a small size, the face carries opsz and the run carries the
+## tracking, as extra letter-spacing (tracking()). At 20 px and above
+## nothing changes — the start screen's 30 px title is Display in both.
+const TRAK := [[12.0, 0.0], [13.0, -0.08], [14.0, -0.15], [15.0, -0.23], [16.0, -0.31], [17.0, -0.43], [19.99, -0.45]]
+
+static func font_sized(ff: String, fw: int, fi: bool, fs: float) -> Font:
+	if ff != "disp" or fs >= 20.0:
+		return font(ff, fw, fi)
+	var opsz := maxf(fs, 17.0)
+	var key := "%s/%d/%s/opsz%.2f" % [ff, fw, fi, opsz]
+	if _fonts.has(key):
+		return _fonts[key]
+	var base: FontVariation = font(ff, fw, fi)
+	var ts := TextServerManager.get_primary_interface()
+	var axes := {ts.name_to_tag("opsz"): opsz, ts.name_to_tag("wght"): fw}
+	var fv: FontVariation = base.duplicate()
+	fv.variation_opentype = axes
+	var mv := FontVariation.new()
+	mv.base_font = _metric["%s/%d/%s" % [ff, fw, fi]]
+	mv.variation_opentype = axes
+	_fonts[key] = fv
+	_metric[fv.get_instance_id()] = mv
+	return fv
+
+## Extra letter-spacing, px, that CoreText's tracking adds at this size.
+static func tracking(ff: String, fs: float) -> float:
+	if ff != "disp" or fs >= 20.0:
+		return 0.0
+	if fs <= TRAK[0][0]:
+		return TRAK[0][1]
+	for i in TRAK.size() - 1:
+		if fs <= TRAK[i + 1][0]:
+			var t: float = (fs - TRAK[i][0]) / (TRAK[i + 1][0] - TRAK[i][0])
+			return lerpf(TRAK[i][1], TRAK[i + 1][1], t)
+	return TRAK[-1][1]
+
 ## A font for a CSS family key ("mono" | "disp" | "sys"), weight and style.
 static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
 	var key := "%s/%d/%s" % [ff, fw, fi]

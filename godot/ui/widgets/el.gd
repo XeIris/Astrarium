@@ -764,11 +764,14 @@ func baseline() -> float:
 
 func _run_style(r: Dictionary) -> Dictionary:
 	var fs: float = r.get("fs", gf("fs"))
+	var ff: String = r.get("ff", g("ff"))
 	var s := {
 		"fs": fs,
-		"font": HudTheme.font(r.get("ff", g("ff")), int(r.get("fw", g("fw"))), bool(r.get("fi", g("fi")))),
+		# the display face at a small size is its optical "Text" design, with
+		# CoreText's tracking on top (HudTheme.font_sized)
+		"font": HudTheme.font_sized(ff, int(r.get("fw", g("fw"))), bool(r.get("fi", g("fi"))), fs),
 		"c": r.get("c", g("c")),
-		"ls": float(r.get("ls", gf("ls"))),
+		"ls": float(r.get("ls", gf("ls"))) + HudTheme.tracking(ff, fs),
 		"up": bool(r.get("up", g("up"))),
 		"lh": float(r.get("lh", gf("lh"))),
 	}

@@ -4,7 +4,8 @@ extends Node
 # THE COURSE HARNESS — the Godot half of the course's side-by-side check.
 #
 #   Godot --path godot res://tools/coursetest.tscn -- lesson=lives/giants steps=1 \
-#       frames=30 out=/abs/x.png [dump=/abs/x.json] [w=1280 h=720] [dt=0.016667]
+#       cframes=30 cout=/abs/x.png [cdump=/abs/x.json] [w=1280 h=720] [cdt=0.016667]
+# (prefixed: main.gd reads out=/frames=/dt= for its own screenshot mode)
 #
 # It runs the REAL orchestrator (main.tscn) in Learn mode at CSS-pixel scale
 # (content scale 1, the window at the page's size), resets the progress, opens
@@ -28,8 +29,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
-	frames = int(args.get("frames", "30"))
-	dt = float(args.get("dt", str(1.0 / 60.0)))
+	frames = int(args.get("cframes", "30"))
+	dt = float(args.get("cdt", str(1.0 / 60.0)))
 	main = load("res://main.tscn").instantiate()
 	add_child(main)
 	await get_tree().process_frame
@@ -40,7 +41,6 @@ func _ready() -> void:
 	HudBlur.enabled = args.get("blur", "1") != "0"
 	El.scrollbars = args.get("sb", "0") == "1"
 	await get_tree().process_frame
-	main.resize()
 	main._start("learn")
 	var L = main.lessons
 	L.store = ""
@@ -66,9 +66,9 @@ func _process(_d: float) -> void:
 func _finish() -> void:
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
-	var out := str(args.get("out", "/tmp/coursetest.png"))
+	var out := str(args.get("cout", "/tmp/coursetest.png"))
 	img.save_png(out)
-	if args.has("dump"):
+	if args.has("cdump"):
 		var L = main.lessons
 		var d := {"lesson": L.key, "step": L.step_ix, "instrument": L.instrument, "preset": main.state.preset_key}
 		if L.built.has("photometer"):
@@ -82,7 +82,7 @@ func _finish() -> void:
 		d.card = [card.position.x, card.position.y, card.size.x, card.size.y]
 		var cp: Control = main.hud.course_panel
 		d.panel = [cp.position.x, cp.position.y, cp.size.x, cp.size.y]
-		var f := FileAccess.open(str(args.dump), FileAccess.WRITE)
+		var f := FileAccess.open(str(args.cdump), FileAccess.WRITE)
 		f.store_string(JSON.stringify(d, " "))
 	print("coursetest: wrote ", out)
 	get_tree().quit()
