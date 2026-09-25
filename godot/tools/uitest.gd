@@ -150,6 +150,10 @@ func _process(_dt: float) -> void:
 	if frame == frames:
 		if args.get("rects", "0") == "1":
 			_print_rects()
+		_check_overlaps()
+		_time_layout()
+		if args.get("selftest", "0") == "1":
+			_selftest()
 		if args.has("out"):
 			var img := get_viewport().get_texture().get_image()
 			if img.get_width() != int(d.w):
@@ -195,3 +199,90 @@ func _print_rects() -> void:
 		print("  %-28s web [%6.1f %6.1f %6.1f %6.1f]  godot [%6.1f %6.1f %6.1f %6.1f]  Δ %s" % [sel, r[0], r[1], r[2], r[3],
 			g.position.x, g.position.y, g.size.x, g.size.y, "ok" if m < 1.01 else "%.1f" % m])
 	print("uitest: worst rect delta %.1f px" % worst)
+
+## The standing check on the left column (CLAUDE.md): whatever is open or
+## collapsed, no two of the HUD's positioned boxes may overlap.
+func _check_overlaps() -> void:
+	var boxes := [hud.title_block, hud.settings_panel, hud.scenario_panel, hud.course_panel, hud.flight_panel,
+		hud.xsec_panel, hud.model_panel, hud.tab_col, hud.control_panel, hud.tab_right, hud.readout, hud.hint]
+	var bad := 0
+	for i in boxes.size():
+		for j in range(i + 1, boxes.size()):
+			var a: El = boxes[i]; var b: El = boxes[j]
+			if not a.is_visible_in_tree() or not b.is_visible_in_tree() or a.size.y <= 0.0 or b.size.y <= 0.0:
+				continue
+			if a.get_global_rect().grow(-0.5).intersects(b.get_global_rect().grow(-0.5)):
+				print("uitest: OVERLAP %s / %s" % [a.el_id, b.el_id])
+				bad += 1
+	print("uitest: overlaps %d" % bad)
+
+func _time_layout() -> void:
+	var t0 := Time.get_ticks_usec()
+	for i in 10:
+		hud.relayout()
+	print("uitest: full HUD layout %.2f ms" % ((Time.get_ticks_usec() - t0) / 10000.0))
+	# the common case: a readout and a sun row change, as updateHUD does
+	t0 = Time.get_ticks_usec()
+	for i in 10:
+		hud.set_text("fps", str(60 + i))
+		hud.set_text("simClock", "%d yr" % i)
+		hud._layout_all()
+	print("uitest: incremental HUD layout %.2f ms" % ((Time.get_ticks_usec() - t0) / 10000.0))
+
+## Drive the API the orchestrator uses and check what comes back out.
+func _selftest() -> void:
+	var got := {}
+	var ok := [0, 0]
+	var check := func(name: String, cond: bool):
+		ok[0 if cond else 1] += 1
+		print("  %s %s" % ["PASS" if cond else "FAIL", name])
+	hud.slider.connect(func(id, v): got["slider"] = [id, v])
+	hud.preset_chosen.connect(func(k): got["preset"] = k)
+	hud.panel_changed.connect(func(id, o): got["panel"] = [id, o])
+	hud.band_chosen.connect(func(i): got["band"] = i)
+	hud.start_chosen.connect(func(m): got["start"] = m)
+	hud.drive_slider("mass", 20.04)
+	check.call("drive_slider emits slider(id, value) snapped to the step", got.get("slider", []) == ["mass", 20.0])
+	check.call("drive_slider writes the value label", hud.get_el("mass-val").get_text() == "20.0")
+	hud.drive_slider("timescale", 0.0)
+	check.call("timescale label is timeLabel(10^v)", hud.get_el("timescale-val").get_text() == "1.0 yr/s")
+	hud.drive_slider("maxStep", -3.0)
+	check.call("maxStep label is toExponential", hud.get_el("maxStep-val").get_text() == "1.0e-3 yr")
+	hud.set_text("fxBloom-val", "0.77")
+	check.call("set_text on a -val label", hud.get_el("fxBloom-val").get_text() == "0.77")
+	hud.set_text("bandLabel", "X-RAY")
+	check.call("set_text on an inline span (readout)", hud.run_ids["bandLabel"][1].t == "X-RAY")
+	hud.set_active("[data-view=scale]", true)
+	check.call("set_active by [data-x=v]", hud.sels["[data-view=scale]"][0].has_state("active"))
+	hud.set_active("[data-view='mesh']", false)
+	check.call("set_active tolerates quotes", not hud.sels["[data-view=mesh]"][0].has_state("active"))
+	hud.set_button_text("camOrbit", "Orbit!")
+	check.call("set_button_text by id", hud.get_el("camOrbit").get_text() == "Orbit!")
+	hud.set_panel_open("scenarioPanel", false)
+	check.call("set_panel_open collapses and emits", hud.is_collapsed("scenarioPanel") and got.get("panel", []) == ["scenarioPanel", false])
+	check.call("a collapsed panel leaves its tab", hud.tabs["scenarioPanel"].visible)
+	hud.tabs["scenarioPanel"].pressed.emit()
+	check.call("its tab reopens it", not hud.is_collapsed("scenarioPanel"))
+	var pb: Array = hud.sels.get("[data-preset=vega]", [])
+	if not pb.is_empty():
+		pb[0].pressed.emit()
+		check.call("a preset button emits preset_chosen", got.get("preset", "") == "vega")
+	var bb: Array = hud.sels.get("[data-band=5]", [])
+	bb[0].pressed.emit()
+	check.call("a band button emits band_chosen", got.get("band", -1) == 5)
+	hud.set_model_open(true)
+	check.call("model-open hides the tab stack", not hud.tab_col.visible)
+	hud.set_model_open(false)
+	hud.set_hud_hidden(true)
+	check.call("hud-hidden hides the panels, not the toast", not hud.control_panel.visible and hud.toast_el.get_text() == "HUD hidden — press H to restore")
+	hud.set_hud_hidden(false)
+	hud.set_app_mode("flight")
+	check.call("flight mode drops the scenario panel", not hud.scenario_panel.visible)
+	check.call("flight mode shows only the Spaceflight section", hud.section("Spaceflight").head.visible and not hud.section("Suns").head.visible)
+	hud.set_app_mode("sandbox")
+	var sc: Array = hud.sels["[data-start=learn]"]
+	sc[0].pressed.emit()
+	check.call("a start card emits start_chosen", got.get("start", "") == "learn")
+	check.call("mount points exist", hud.mount("foundry") != null and hud.mount("liveEdit") != null and hud.mount("flightHud") != null \
+		and hud.mount("courseMount") != null and hud.mount("xsecCanvas") != null and hud.mount("lessonCard") != null)
+	print("uitest: selftest %d passed, %d failed" % [ok[0], ok[1]])
