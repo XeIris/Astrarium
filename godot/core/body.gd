@@ -80,4 +80,4 @@ var extra: Dictionary = {}
 var scene_pos := DVec3.new()
 
 func _to_string() -> String:
-	return "Body#%d %s (%s, %.3g M☉)" % [id, name, type, mass]
+	return "Body#%d %s (%s, %s M☉)" % [id, name, type, U.prec(mass, 3)]
