@@ -105,6 +105,12 @@ for (const s of shots) {
     if (s.dump) {
       const expr = /return/.test(s.dump) ? `(async () => { ${s.dump} })()` : `(async () => (${s.dump}))()`;
       await writeFile(join(outDir, s.name + '.json'), JSON.stringify(await evaluate(expr), null, 1));
+    } else {
+      // Otherwise, whatever the setup left in window.__cap (camera, uniforms,
+      // body state) is written beside the PNG, so a Godot harness can rebuild
+      // the same frame. Evaluated AFTER the frames, so it can be a function.
+      const cap = await evaluate(`(() => { const c = window.__cap; const v = typeof c === 'function' ? c() : c; return v ? JSON.stringify(v) : null; })()`);
+      if (cap) await writeFile(join(outDir, s.name + '.json'), cap);
     }
     console.log('ok', s.name);
   } catch (e) {
