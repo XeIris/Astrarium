@@ -2195,3 +2195,28 @@ func _observe(home: Body) -> void:
 	cam_basis = pipe.scene_cam.transform.basis
 	cam_fov = pipe.scene_cam.fov
 	cam_near = pipe.scene_cam.near
+
+# ============================================================================
+# THE PRESET CHECK — .claude/presetcheck.js: load EVERY scenario, run a second
+# of frames in each, and report anything that threw or quietly lost bodies. A
+# GDScript runtime error does not throw, it prints, so each preset is bracketed
+# by markers and tools/presetcheck.sh attributes SCRIPT ERROR lines between them.
+#   Godot --path godot -- eval=_preset_check
+# ============================================================================
+func _preset_check() -> void:
+	var rows := []
+	var errs := []
+	for key in Presets.PRESET_ORDER:
+		print("PRESETCHECK BEGIN ", key)
+		load_preset(key)
+		var n0 := state.bodies.size()
+		for i in 60: animate(1.0 / 60.0)
+		var n1 := state.bodies.size()
+		rows.append("%s: %d->%d" % [key, n0, n1])
+		if n1 < n0 and not (key.contains("merger") or key.contains("feeding") or key.contains("binarystar") or key.contains("zoo")):
+			errs.append("%s: lost %d bodies in one second (%s)" % [key, n0 - n1, Presets.PRESETS[key].name])
+		print("PRESETCHECK END ", key)
+	print("PRESETCHECK ROWS ", " | ".join(rows))
+	print("PRESETCHECK LOST ", errs)
+	print("PRESETCHECK DONE ", Presets.PRESET_ORDER.size())
+	get_tree().quit()
