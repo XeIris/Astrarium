@@ -17,6 +17,9 @@
 //           (e.g. '.claude/skytest.html'); `ready` is then the JS expression
 //           waited on (default: the SIM test), and frames are only pumped if
 //           the page has a SIM
+//   mode    'none' leaves the start screen up (a shot OF the start screen)
+//   bare    true also writes <name>.bare.png: the same frame with every HUD
+//           element hidden — the 3D background alone, for overlay tests
 //   dump    JS evaluated after the capture; its JSON value is written to
 //           outdir/<name>.json. An expression (may be async), or a function
 //           body if it contains `return`.
@@ -90,6 +93,7 @@ for (const s of shots) {
   try {
     await evaluate(`(() => {
       const m = ${JSON.stringify(s.mode || 'sandbox')};
+      if (m === 'none') return true;
       const card = document.querySelector('[data-start="' + m + '"]');
       if (card) card.click();
       const st = document.getElementById('startScreen'); if (st) st.style.display = 'none';
@@ -111,6 +115,12 @@ for (const s of shots) {
       // the same frame. Evaluated AFTER the frames, so it can be a function.
       const cap = await evaluate(`(() => { const c = window.__cap; const v = typeof c === 'function' ? c() : c; return v ? JSON.stringify(v) : null; })()`);
       if (cap) await writeFile(join(outDir, s.name + '.json'), cap);
+    }
+    if (s.bare) {
+      await evaluate(`(() => { for (const e of document.body.children) if (e.id !== 'canvas-wrap' && e.tagName !== 'SCRIPT') e.style.visibility = 'hidden'; return true; })()`);
+      await sleep(100);
+      const b = await send('Page.captureScreenshot', { format: 'png' });
+      await writeFile(join(outDir, s.name + '.bare.png'), Buffer.from(b.data, 'base64'));
     }
     console.log('ok', s.name);
   } catch (e) {
