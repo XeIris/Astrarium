@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cdfqdw81k3qtm"
+path="res://.godot/imported/surface.glsl-902b040031a432b2b1fcda0159e734de.res"
+
+[deps]
+
+source_file="res://shaders/sky/surface.glsl"
+dest_files=["res://.godot/imported/surface.glsl-902b040031a432b2b1fcda0159e734de.res"]
+
+[params]
+

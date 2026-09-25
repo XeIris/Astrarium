@@ -13,8 +13,13 @@
 //   frames  SIM.frame(dt) calls to pump after setup (deterministic stepping)
 //   hud     false (default) hides the HUD for a clean 3D frame
 //   wait    ms of real time to let async things settle (model loads)
-//   dump    JS function body evaluated after the capture; its return value is
-//           written to <name>.json (state for a Godot harness to rebuild)
+//   page    another page under the web root instead of blackhole_sim.html
+//           (e.g. '.claude/skytest.html'); `ready` is then the JS expression
+//           waited on (default: the SIM test), and frames are only pumped if
+//           the page has a SIM
+//   dump    JS evaluated after the capture; its JSON value is written to
+//           outdir/<name>.json. An expression (may be async), or a function
+//           body if it contains `return`.
 //
 // The page is served by .claude/serve.mjs, started here on PORT (default 8779)
 // so it never collides with a preview already running on 8777.
@@ -77,9 +82,10 @@ await send('Runtime.enable'); await send('Page.enable');
 for (const s of shots) {
   const w = s.width || 1280, h = s.height || 720;
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
-  const url = `http://127.0.0.1:${PORT}/blackhole_sim.html${s.query ? '?' + s.query : '?r=' + Math.random()}${s.hash ? '#' + s.hash : ''}`;
+  const url = `http://127.0.0.1:${PORT}/${s.page || 'blackhole_sim.html'}${s.query ? '?' + s.query : '?r=' + Math.random()}${s.hash ? '#' + s.hash : ''}`;
   await send('Page.navigate', { url });
-  for (let i = 0; i < 80; i++) { await sleep(150); if (await evaluate('typeof window.SIM === "object" && !!SIM.state.preset').catch(() => false)) break; }
+  const ready = s.ready || 'typeof window.SIM === "object" && !!SIM.state.preset';
+  for (let i = 0; i < 80; i++) { await sleep(150); if (await evaluate(ready).catch(() => false)) break; }
   await sleep(500);
   try {
     await evaluate(`(() => {
@@ -93,15 +99,12 @@ for (const s of shots) {
     if (s.hud === false || s.hud === undefined) await evaluate(`document.body.classList.add('hud-hidden'); true`);
     if (s.wait) await sleep(s.wait);
     const frames = s.frames ?? 30, dt = s.dt ?? 1 / 60;
-    await evaluate(`(() => { for (let i = 0; i < ${frames}; i++) SIM.frame(${dt}); return true; })()`);
+    await evaluate(`(() => { if (typeof SIM === 'undefined') return true; for (let i = 0; i < ${frames}; i++) SIM.frame(${dt}); return true; })()`);
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(join(outDir, s.name + '.png'), Buffer.from(shot.data, 'base64'));
-    // `dump`: a JS expression evaluated AFTER the capture, whose (JSON-able)
-    // value is written beside the PNG as <name>.json — the exact state the
-    // frame was drawn from, for a Godot harness to rebuild it.
     if (s.dump) {
-      const v = await evaluate(`(async () => { ${s.dump} })()`);
-      await writeFile(join(outDir, s.name + '.json'), JSON.stringify(v, null, 1));
+      const expr = /return/.test(s.dump) ? `(async () => { ${s.dump} })()` : `(async () => (${s.dump}))()`;
+      await writeFile(join(outDir, s.name + '.json'), JSON.stringify(await evaluate(expr), null, 1));
     }
     console.log('ok', s.name);
   } catch (e) {
