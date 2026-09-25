@@ -533,9 +533,16 @@ class _Painter extends Control:
 class XsecCanvas extends BitmapCanvas:
 	var st: Dictionary = {}
 	var opts: Dictionary = {}
+	var _sig := ""
 	func _init(w := 330.0, h := 260.0, style: Dictionary = {}) -> void:
 		super(w, h, style)
 	func set_structure(structure: Dictionary, o: Dictionary = {}) -> void:
+		# the inspector re-shows the focused body ten times a second; a
+		# structure that has not changed needs no new bitmap
+		var sig := var_to_str([structure, o])
+		if sig == _sig:
+			return
+		_sig = sig
 		st = structure; opts = o
 		repaint()
 	func _paint(ci: CanvasItem) -> void:

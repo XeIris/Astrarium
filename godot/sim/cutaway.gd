@@ -51,6 +51,10 @@ var vp: SubViewport
 var camera: Camera3D
 var root3d: Node3D
 var current: Dictionary = {}
+## the web's `get structure()` — what is on the turntable now (lessonui
+## compares it against the focused body's to decide whether to rebuild)
+var structure: Dictionary:
+	get: return current
 var spin := 0.0
 var auto_spin := true
 var _tex: TextureRect
@@ -193,34 +197,72 @@ func show_structure(st: Dictionary) -> void:
 	if not (f > 0.0): f = 0.0
 	root3d.scale = Vector3(1.0, 1.0 - f, 1.0)
 
-## THREE.SphereGeometry(r, 64, 40)
-static func _sphere(r: float, mat: Material) -> Mesh:
-	var s := SphereMesh.new()
-	s.radius = r
-	s.height = 2.0 * r
-	s.radial_segments = 64
-	s.rings = 40
-	s.material = mat
-	return s
+## THREE.SphereGeometry(r, 64, 40), vertex for vertex. Godot's SphereMesh is
+## not the same grid — its `rings` counts one more band than three's
+## heightSegments, and its quads split on the other diagonal — which a solid
+## shell hides and a WIREFRAME shell draws line for line. So the grid is built
+## here as three builds it: (w+1) × (h+1) vertices with the seam and both
+## poles duplicated, the pole rows' degenerate triangles skipped, normal =
+## position / r. Three's triangles are counter-clockwise from the front and
+## Godot's clockwise, so each one is emitted reversed; that matters even
+## though every shell is double-sided, because cull_disabled flips the normal
+## of whatever Godot thinks is a back face, as DoubleSide does in three.
+static func _three_sphere(r: float, ws := 64, hs := 40) -> Dictionary:
+	var v := PackedVector3Array()
+	var n := PackedVector3Array()
+	var grid: Array = []
+	var idx := 0
+	for iy in hs + 1:
+		var row: Array = []
+		var vv := float(iy) / hs
+		for ix in ws + 1:
+			var uu := float(ix) / ws
+			var p := Vector3(-r * cos(uu * TAU) * sin(vv * PI), r * cos(vv * PI), r * sin(uu * TAU) * sin(vv * PI))
+			v.append(p)
+			n.append(p.normalized() if p.length() > 0.0 else Vector3.UP)
+			row.append(idx)
+			idx += 1
+		grid.append(row)
+	var tris := PackedInt32Array()      # three's order: (a, b, d), (b, c, d)
+	for iy in hs:
+		for ix in ws:
+			var a: int = grid[iy][ix + 1]
+			var b: int = grid[iy][ix]
+			var c: int = grid[iy + 1][ix]
+			var d: int = grid[iy + 1][ix + 1]
+			if iy != 0: tris.append_array([a, b, d])
+			if iy != hs - 1: tris.append_array([b, c, d])
+	return {"v": v, "n": n, "tris": tris}
 
-## The same sphere drawn `wireframe: true`: every triangle edge as a line.
+static func _sphere(r: float, mat: Material) -> Mesh:
+	var g := _three_sphere(r)
+	var t: PackedInt32Array = g.tris
+	var rev := PackedInt32Array()
+	rev.resize(t.size())
+	for i in range(0, t.size(), 3):
+		rev[i] = t[i]; rev[i + 1] = t[i + 2]; rev[i + 2] = t[i + 1]
+	var out := []
+	out.resize(Mesh.ARRAY_MAX)
+	out[Mesh.ARRAY_VERTEX] = g.v
+	out[Mesh.ARRAY_NORMAL] = g.n
+	out[Mesh.ARRAY_INDEX] = rev
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out)
+	m.surface_set_material(0, mat)
+	return m
+
+## The same sphere drawn `wireframe: true`: three turns each triangle (a, b, c)
+## into the three lines ab, bc, ca (shared edges are drawn twice, as there).
 static func _wire_sphere(r: float, mat: Material) -> Mesh:
-	var s := SphereMesh.new()
-	s.radius = r
-	s.height = 2.0 * r
-	s.radial_segments = 64
-	s.rings = 40
-	var a := s.get_mesh_arrays()
-	var v: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
-	var n: PackedVector3Array = a[Mesh.ARRAY_NORMAL]
-	var idx: PackedInt32Array = a[Mesh.ARRAY_INDEX]
+	var g := _three_sphere(r)
+	var idx: PackedInt32Array = g.tris
 	var lines := PackedInt32Array()
 	for t in range(0, idx.size(), 3):
 		lines.append_array([idx[t], idx[t + 1], idx[t + 1], idx[t + 2], idx[t + 2], idx[t]])
 	var out := []
 	out.resize(Mesh.ARRAY_MAX)
-	out[Mesh.ARRAY_VERTEX] = v
-	out[Mesh.ARRAY_NORMAL] = n
+	out[Mesh.ARRAY_VERTEX] = g.v
+	out[Mesh.ARRAY_NORMAL] = g.n
 	out[Mesh.ARRAY_INDEX] = lines
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, out)

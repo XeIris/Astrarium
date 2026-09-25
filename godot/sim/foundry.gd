@@ -209,7 +209,20 @@ static func verdict_box(e: El) -> El:
 	e._recompute()
 	return e
 
+## The web rewrote these three blocks' innerHTML on every refresh, which the
+## cross-section does ten times a second; rebuilding El nodes that often is
+## real work for text that has not changed, so each block keeps the content it
+## was last built from and does nothing when asked for the same again.
+static func _unchanged(e: El, content) -> bool:
+	var sig := var_to_str(content)
+	if e.has_meta("_fd_sig") and e.get_meta("_fd_sig") == sig:
+		return true
+	e.set_meta("_fd_sig", sig)
+	return false
+
 static func fill_verdict(e: El, v, became := "") -> void:
+	if _unchanged(e, [v, became]):
+		return
 	for c in e.get_children():
 		if c is El:
 			e.remove_child(c)
@@ -227,6 +240,8 @@ static func fill_verdict(e: El, v, became := "") -> void:
 const FACTS_STYLE := {"display": "grid", "cols": [1.0, 1.0], "gapr": 4.0, "gapc": 10.0, "mb": 10.0}
 
 static func fill_facts(e: El, facts: Array) -> void:
+	if _unchanged(e, facts):
+		return
 	for c in e.get_children():
 		if c is El:
 			e.remove_child(c)
@@ -240,6 +255,10 @@ static func fill_facts(e: El, facts: Array) -> void:
 const NOTE_STYLE := {"fs": 9.0, "c": T.TEXT_DIM, "lh": 1.6, "mb": 12.0}
 
 static func fill_notes(e: El, layers: Array) -> void:
+	var sig: Array = []
+	for L in layers: sig.append([L.get("name"), L.get("note")])
+	if _unchanged(e, sig):
+		return
 	for c in e.get_children():
 		if c is El:
 			e.remove_child(c)
@@ -411,8 +430,9 @@ class Inspector extends RefCounted:
 	var notes_el: El
 
 	func _init(o: Dictionary) -> void:
-		var slots := {"canvas": o.get("canvas"), "legend": o.get("legend"), "verdict": o.get("verdict"),
-			"facts": o.get("facts"), "notes": o.get("notes")}
+		# the web's own key names (factsEl, verdictEl, notesEl) are accepted too
+		var slots := {"canvas": o.get("canvas"), "legend": o.get("legend"), "verdict": o.get("verdict", o.get("verdictEl")),
+			"facts": o.get("facts", o.get("factsEl")), "notes": o.get("notes", o.get("notesEl"))}
 		var m = o.get("mount")
 		if m is El and slots.canvas == null:
 			if (m as El).gf("aspect") > 0.0 and m.get_parent() != null:

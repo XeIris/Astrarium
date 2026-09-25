@@ -1,0 +1,15 @@
+{
+ "q": {
+  "type": "star",
+  "mass": 1,
+  "phase": 0.5
+ },
+ "legend": [
+  "Corona 1.060 R\u2609 \u00b7 2.0 MK",
+  "Chromosphere 1.004 R\u2609 \u00b7 20.0 kK",
+  "Photosphere 1.000 R\u2609 \u00b7 \u2014",
+  "Convective zone 0.995 R\u2609 \u00b7 2.0 MK",
+  "Radiative zone 0.710 R\u2609 \u00b7 2.4 MK",
+  "Core 0.250 R\u2609 \u00b7 16 MK"
+ ]
+}

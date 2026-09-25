@@ -1,0 +1,163 @@
+{
+ "rects": {
+  "xsecPanel": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTest": [
+   20,
+   20,
+   300,
+   1001.078125
+  ],
+  "xsecCanvas": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecNotes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leCurve": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdXsec": [
+   37,
+   393.4375,
+   266,
+   204.390625
+  ],
+  "fdLegend": [
+   37,
+   601.828125,
+   266,
+   23.046875
+  ],
+  "fdVerdict": [
+   37,
+   185,
+   266,
+   149.4375
+  ],
+  "fdFacts": [
+   37,
+   342.4375,
+   266,
+   41
+  ],
+  "fdLayerNote": [
+   37,
+   632.875,
+   266,
+   322.203125
+  ],
+  "fdSpawn": [
+   37,
+   975.078125,
+   266,
+   29
+  ],
+  "fdTypes": [
+   37,
+   37,
+   266,
+   88
+  ],
+  "liveEdit": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leNear": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecName": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "draft": {
+  "type": "neutron",
+  "mass": 2.8183829312644537,
+  "spinFrac": 0,
+  "composition": "earth",
+  "phase": 0.5,
+  "Z": 0.0141
+ },
+ "type": "neutron",
+ "slider": {
+  "mass": 0.45,
+  "spin": 0,
+  "phase": 0.5,
+  "Z": 0.0141,
+  "comp": "earth"
+ },
+ "facts": [
+  "mass2.818 M\u2609",
+  "event horizon8.3 km",
+  "photon sphere12.5 km",
+  "ISCO25.0 km",
+  "Hawking T2.19e-8 K",
+  "evaporates in10\u2076\u2079 yr"
+ ],
+ "verdict": "TOV limit exceedednow a Black hole2.82 M\u2609 is past the 2.20 M\u2609 this star can support. Neutron degeneracy and the strong force are the last sources of pressure there are \u2014 past them nothing stops the collapse, and it becomes a black hole.",
+ "spawn": {
+  "type": "bh",
+  "mass": 2.8183829312644537,
+  "spinFrac": 0,
+  "composition": "earth",
+  "Z": 0.0141,
+  "name": "Schwarzschild black hole"
+ }
+}

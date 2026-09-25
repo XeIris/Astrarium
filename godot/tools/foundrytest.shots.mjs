@@ -136,7 +136,7 @@ const shots = [
   { name: 'fd_neutron_tov', setup: fd('neutron', 0.45) },
   { name: 'fd_wd', setup: fd('white-dwarf', 0.2) },
   { name: 'fd_bh', setup: fd('bh', 1.0, { fdSpin: 0.9 }) },
-].map(s => ({ ...s, hud: true, width: 1280, height: H, frames: 12, dump: s.name.startsWith('xsec') ? dumpXsec : dumpFd }));
+].map(s => ({ ...s, hud: true, freeze: true, width: 1280, height: H, frames: 12, dump: s.name.startsWith('xsec') ? dumpXsec : dumpFd }));
 for (const [n, spec] of Object.entries({
   sun: { type: 'star', mass: 1, phase: 0.5 },
   redgiant: { type: 'star', mass: 1.2, phase: 1.35 },
@@ -146,7 +146,7 @@ for (const [n, spec] of Object.entries({
   jupiter: { type: 'gas-giant', mass: 9.5459e-4, spinFrac: 0.3 },
   neutron: { type: 'neutron', mass: 1.4 },
   bh: { type: 'bh', mass: 10, spinFrac: 0.9 },
-})) shots.push({ name: 'cut_' + n, setup: cut(spec), hud: true, width: 1280, height: 720, frames: 0, dump: dumpCut });
+})) shots.push({ name: 'cut_' + n, setup: cut(spec), hud: true, freeze: true, width: 1280, height: 720, frames: 0, dump: dumpCut });
 
 await writeFile(process.argv[2] || 'shots.json', JSON.stringify(shots, null, 1));
 console.log('wrote', shots.length, 'shots');

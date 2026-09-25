@@ -1,0 +1,15 @@
+{
+ "q": {
+  "type": "star",
+  "mass": 2.1,
+  "phase": 0.3,
+  "spinFrac": 0.88
+ },
+ "legend": [
+  "Corona 1.553 R\u2609 \u00b7 2.0 MK",
+  "Chromosphere 1.471 R\u2609 \u00b7 20.0 kK",
+  "Photosphere 1.465 R\u2609 \u00b7 \u2014",
+  "Radiative envelope 1.450 R\u2609 \u00b7 2.0 MK",
+  "Convective core 0.293 R\u2609 \u00b7 20 MK"
+ ]
+}

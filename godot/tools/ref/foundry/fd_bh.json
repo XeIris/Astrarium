@@ -1,0 +1,164 @@
+{
+ "rects": {
+  "xsecPanel": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTest": [
+   20,
+   20,
+   300,
+   1133.875
+  ],
+  "xsecCanvas": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecNotes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leCurve": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdXsec": [
+   37,
+   420.5,
+   266,
+   204.390625
+  ],
+  "fdLegend": [
+   37,
+   628.890625,
+   266,
+   23.046875
+  ],
+  "fdVerdict": [
+   37,
+   185,
+   266,
+   161.5
+  ],
+  "fdFacts": [
+   37,
+   354.5,
+   266,
+   56
+  ],
+  "fdLayerNote": [
+   37,
+   659.9375,
+   266,
+   427.9375
+  ],
+  "fdSpawn": [
+   37,
+   1107.875,
+   266,
+   29
+  ],
+  "fdTypes": [
+   37,
+   37,
+   266,
+   88
+  ],
+  "liveEdit": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leNear": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecName": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "draft": {
+  "type": "bh",
+  "mass": 10,
+  "spinFrac": 0.9,
+  "composition": "earth",
+  "phase": 0.5,
+  "Z": 0.0141
+ },
+ "type": "bh",
+ "slider": {
+  "mass": 1,
+  "spin": 0.9,
+  "phase": 0.5,
+  "Z": 0.0141,
+  "comp": "earth"
+ },
+ "facts": [
+  "mass10.0 M\u2609",
+  "event horizon21.2 km",
+  "photon sphere23.0 km",
+  "ISCO34.3 km",
+  "spin a*0.900",
+  "Hawking T6.17e-9 K",
+  "evaporates in10\u2077\u2070 yr"
+ ],
+ "verdict": "No equilibriumThere is no pressure here at all \u2014 nothing is holding anything up. The Hawking temperature is 6.17e-9 K, far below the 2.7 K microwave background, so this hole absorbs more than it radiates and will keep growing for another 10^70 years before it can even begin to evaporate.",
+ "spawn": {
+  "type": "bh",
+  "mass": 10,
+  "spinFrac": 0.9,
+  "composition": "earth",
+  "Z": 0.0141,
+  "name": "Kerr black hole (a* = 0.90)"
+ }
+}

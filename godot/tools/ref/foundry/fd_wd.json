@@ -1,0 +1,162 @@
+{
+ "rects": {
+  "xsecPanel": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTest": [
+   20,
+   20,
+   300,
+   729.4375
+  ],
+  "xsecCanvas": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecNotes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leCurve": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdXsec": [
+   37,
+   452,
+   266,
+   204.390625
+  ],
+  "fdLegend": [
+   37,
+   660.390625,
+   266,
+   23.046875
+  ],
+  "fdVerdict": [
+   37,
+   185,
+   266,
+   208
+  ],
+  "fdFacts": [
+   37,
+   401,
+   266,
+   41
+  ],
+  "fdLayerNote": [
+   37,
+   691.4375,
+   266,
+   0
+  ],
+  "fdSpawn": [
+   37,
+   703.4375,
+   266,
+   29
+  ],
+  "fdTypes": [
+   37,
+   37,
+   266,
+   88
+  ],
+  "liveEdit": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leNear": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecName": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "draft": {
+  "type": "white-dwarf",
+  "mass": 1.5848931924611136,
+  "spinFrac": 0,
+  "composition": "earth",
+  "phase": 0.5,
+  "Z": 0.0141
+ },
+ "type": "white-dwarf",
+ "slider": {
+  "mass": 0.2,
+  "spin": 0,
+  "phase": 0.5,
+  "Z": 0.0141,
+  "comp": "earth"
+ },
+ "facts": [
+  "mass1.585 M\u2609",
+  "radius\u2014",
+  "density\u221e",
+  "T_eff\u221e",
+  "Chandrasekhar1.44 M\u2609"
+ ],
+ "verdict": "Type Ia supernovaPast 1.44 M\u2609 the electrons are relativistic and degeneracy pressure stops growing with density \u2014 there is no equilibrium left. In practice the star ignites its carbon first and detonates completely as a Type Ia supernova, leaving nothing. Because that always happens at the same mass, they all have nearly the same brightness, which is how the expansion of the universe was measured.",
+ "spawn": {
+  "type": "white-dwarf",
+  "mass": 1.5848931924611136,
+  "spinFrac": 0,
+  "composition": "earth",
+  "Z": 0.0141,
+  "name": "Chandrasekhar mass exceeded"
+ }
+}

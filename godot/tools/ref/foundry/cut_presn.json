@@ -1,0 +1,17 @@
+{
+ "q": {
+  "type": "star",
+  "mass": 18,
+  "phase": 1.9
+ },
+ "legend": [
+  "Photosphere 1355 R\u2609 \u00b7 6.30 AU \u00b7 3500 K",
+  "Hydrogen envelope 1349 R\u2609 \u00b7 6.27 AU \u00b7 5.0 MK",
+  "Helium shell 298.2 R\u2609 \u00b7 1.387 AU \u00b7 200 MK",
+  "Carbon shell 135.5 R\u2609 \u00b7 0.630 AU \u00b7 800 MK",
+  "Neon shell 81.3 R\u2609 \u00b7 0.378 AU \u00b7 1.4 GK",
+  "Oxygen shell 51.5 R\u2609 \u00b7 0.240 AU \u00b7 2.1 GK",
+  "Silicon shell 27.1 R\u2609 \u00b7 0.126 AU \u00b7 3.5 GK",
+  "Iron core 13.6 R\u2609 \u00b7 0.063 AU \u00b7 8.0 GK"
+ ]
+}

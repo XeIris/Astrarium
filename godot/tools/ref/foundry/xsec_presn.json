@@ -1,0 +1,165 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1204.734375
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   483.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   735.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   770.15625,
+   314,
+   99.5
+  ],
+  "xsecFacts": [
+   37,
+   877.65625,
+   314,
+   86
+  ],
+  "xsecNotes": [
+   37,
+   973.65625,
+   314,
+   222.078125
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   266.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 4,
+  "name": "Doomed",
+  "type": "star",
+  "mass": 18,
+  "spinFrac": 0,
+  "phase": 1.9,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "star",
+  "mass": 18,
+  "spinFrac": 0,
+  "phase": 1.9,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": 1355.2974386722485,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": null,
+  "rs": null
+ },
+ "label": "M4Ia \u00b7 Pre-collapse",
+ "focus": false,
+ "near": "Eddington-limited at 33.8 M\u2609\n         \u00b7 0.27 dex away",
+ "facts": [
+  "mass18.0 M\u2609",
+  "radius1355 R\u2609 \u00b7 6.30 AU",
+  "T_eff3200 K",
+  "luminosity1.74e+5 L\u2609",
+  "L / L_Edd0.301",
+  "core temp341.5 kK",
+  "core pressure2.25e-3 GPa",
+  "core X(H)0.00",
+  "phasePre-collapse",
+  "MS lifetime5.2 Myr",
+  "ends asNeutron star"
+ ],
+ "verdict": "Pre-collapseSilicon burning has built an iron core. Iron cannot release energy by fusing, so the core has no way to replace what it radiates: it will collapse in under a second."
+}

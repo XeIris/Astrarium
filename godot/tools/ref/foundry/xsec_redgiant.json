@@ -1,0 +1,165 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1114.0625
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   471.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   723.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   758.15625,
+   314,
+   84
+  ],
+  "xsecFacts": [
+   37,
+   850.15625,
+   314,
+   86
+  ],
+  "xsecNotes": [
+   37,
+   946.15625,
+   314,
+   158.90625
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   254.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 4,
+  "name": "Sun",
+  "type": "star",
+  "mass": 1,
+  "spinFrac": 0,
+  "phase": 1.35,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "star",
+  "mass": 1,
+  "spinFrac": 0,
+  "phase": 1.35,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": 24.999999999999996,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": null,
+  "rs": null
+ },
+ "label": "K4II \u00b7 Red giant",
+ "focus": false,
+ "near": "M4III \u00b7 Red giant at 0.08 M\u2609\n         \u00b7 1.12 dex below",
+ "facts": [
+  "mass1.000 M\u2609",
+  "radius25.0 R\u2609 \u00b7 0.116 AU",
+  "T_eff4670 K",
+  "luminosity267.92 L\u2609",
+  "L / L_Edd0.008",
+  "core temp1.0 MK",
+  "core pressure5.99e+1 GPa",
+  "core X(H)0.00",
+  "phaseRed giant",
+  "MS lifetime10.0 Gyr",
+  "ends asWhite dwarf"
+ ],
+ "verdict": "Hydrostatic equilibriumA degenerate helium core the size of Earth inside a convective envelope the size of Mercury's orbit."
+}

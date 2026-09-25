@@ -1,0 +1,158 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   995.671875
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   427.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   679.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   714.15625,
+   314,
+   84
+  ],
+  "xsecFacts": [
+   37,
+   806.15625,
+   314,
+   26
+  ],
+  "xsecNotes": [
+   37,
+   842.15625,
+   314,
+   144.515625
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   210.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 10,
+  "name": "Jupiter",
+  "type": "gas-giant",
+  "mass": 0.000954,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "gas-giant",
+  "mass": 0.000954,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": null,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": 69911,
+  "rs": null
+ },
+ "label": "Gas giant",
+ "focus": false,
+ "near": "Degeneracy-limited at 3.6 M_J\n         \u00b7 0.55 dex away",
+ "facts": [
+  "mass1.00 M_J",
+  "radius70649 km",
+  "density1285 kg/m\u00b3",
+  "core temp20.0 kK"
+ ],
+ "verdict": "Hydrogen\u2013helium envelopeHeld up by ordinary gas pressure over a degenerate interior. Radius is nearly independent of mass here."
+}

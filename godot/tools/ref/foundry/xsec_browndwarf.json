@@ -1,0 +1,159 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1041.671875
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   427.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   679.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   714.15625,
+   314,
+   115
+  ],
+  "xsecFacts": [
+   37,
+   837.15625,
+   314,
+   41
+  ],
+  "xsecNotes": [
+   37,
+   888.15625,
+   314,
+   144.515625
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   210.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 10,
+  "name": "Jupiter",
+  "type": "gas-giant",
+  "mass": 0.04,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "gas-giant",
+  "mass": 0.04,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": null,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": null,
+  "rs": null
+ },
+ "label": "Brown dwarf",
+ "focus": false,
+ "near": "M4V \u00b7 Mid MS at 0.08 M\u2609\n         \u00b7 0.28 dex away",
+ "facts": [
+  "mass0.040 M\u2609",
+  "radius56443 km",
+  "density1.06\u00d710\u2075 kg/m\u00b3",
+  "core temp1.4 MK",
+  "T_eff2334 K"
+ ],
+ "verdict": "Deuterium burningAbove 13 M_J (0.0124 M\u2609) the centre passes 5\u00d710\u2075 K and burns its deuterium \u2014 briefly, since there is very little of it. Not a planet, and not a star: a brown dwarf, which will simply cool forever."
+}

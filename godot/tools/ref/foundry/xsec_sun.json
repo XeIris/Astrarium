@@ -1,0 +1,165 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1150.625
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   471.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   723.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   758.15625,
+   314,
+   53
+  ],
+  "xsecFacts": [
+   37,
+   819.15625,
+   314,
+   86
+  ],
+  "xsecNotes": [
+   37,
+   915.15625,
+   314,
+   226.46875
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   254.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 4,
+  "name": "Sun",
+  "type": "star",
+  "mass": 1,
+  "spinFrac": 0,
+  "phase": 0.5,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "star",
+  "mass": 1,
+  "spinFrac": 0,
+  "phase": 0.5,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": 1,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": null,
+  "rs": null
+ },
+ "label": "G3V \u00b7 Mid MS",
+ "focus": false,
+ "near": "M4V \u00b7 Mid MS at 0.08 M\u2609\n         \u00b7 1.12 dex below",
+ "facts": [
+  "mass1.000 M\u2609",
+  "radius1.000 R\u2609",
+  "T_eff5772 K",
+  "luminosity1.00 L\u2609",
+  "L / L_Edd0.000",
+  "core temp16 MK",
+  "core pressure2.34e+7 GPa",
+  "core X(H)0.38",
+  "phaseMid MS",
+  "MS lifetime10.0 Gyr",
+  "ends asWhite dwarf"
+ ],
+ "verdict": "Hydrostatic equilibriumHalf its hydrogen gone. Where the Sun is now."
+}

@@ -1,0 +1,15 @@
+{
+ "q": {
+  "type": "planet",
+  "mass": 3.0035e-06,
+  "composition": "earth"
+ },
+ "legend": [
+  "Atmosphere 6179 km \u00b7 260 K",
+  "Crust 6161 km \u00b7 900 K",
+  "Upper mantle 6086 km \u00b7 1596 K",
+  "Lower mantle 5325 km \u00b7 3135 K",
+  "Outer core 3368 km \u00b7 4276 K",
+  "Inner core 1179 km \u00b7 5701 K"
+ ]
+}
