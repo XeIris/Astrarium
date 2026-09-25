@@ -57,6 +57,7 @@ function stepJS(s) {
     case 'frames': return `frames(${s[1]});`;
     // Debug: fly on the procedural ground alone, without the Earth map.
     case 'nomap': return `F().localView.ground.material.uniforms.uEarthColor.value = null;`;
+    case 'exit': return `SIM.endFlight();`;
     case 'close': return `document.querySelector('[data-close="${s[1]}"]').click();`;
     default: return '';
   }

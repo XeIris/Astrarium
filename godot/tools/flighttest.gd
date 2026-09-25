@@ -20,9 +20,8 @@ extends Node
 #   ["frames", n]                     n fixed steps of main.animate(dt)
 #   ["shot", name, hud?]              write <out>/<name>.png (+ .json telemetry)
 #
-# main.gd names three modules not yet on this branch (the course UI, the
-# Foundry, the cross-section formatter). If they are missing, its source is
-# compiled here with those references pointed at tools/flighttest_stubs.gd.
+# main.gd reads its own command line, so pass the scenario's world there:
+#   preset=solar seed=<table seed> mode=flight   (tools/flightshots.sh does)
 # ============================================================================
 
 ## The scenario table is shared with the web side (tools/flightshots.mjs).
@@ -41,26 +40,14 @@ func _ready() -> void:
 	out = str(args.get("out", "/tmp/"))
 	if not out.ends_with("/"): out += "/"
 	DirAccess.make_dir_recursive_absolute(out)
-	dt = float(args.get("dt", str(dt)))
+	# Only when asked: str(1.0/60.0) prints 13 digits, and parsing that back is
+	# 3e-15 off the web's 1/60 — 1e-5 s after an hour of 10⁶× warp, enough to
+	# land a readout on the other side of a whole minute.
+	if args.has("dt"): dt = float(args.dt)
 	PlanetMaps.synchronous = true
-	var src := FileAccess.get_file_as_string("res://main.gd")
-	var have := {}
-	for c in ProjectSettings.get_global_class_list(): have[c["class"]] = true
-	if not (have.has("LessonUI") and have.has("Foundry") and have.has("CrossSection")):
-		src = src.replace("extends Node\n", "extends Node\nconst _FTS = preload(\"res://tools/flighttest_stubs.gd\")\n", )
-		for n in ["LessonUI.", "Foundry.", "CrossSection."]:
-			if not have.has(n.trim_suffix(".")): src = src.replace(n, "_FTS.")
-	var sc := GDScript.new()
-	sc.source_code = src
-	sc.resource_path = "res://main_flighttest.gd"
-	var err := sc.reload()
-	if err != OK:
-		push_error("flighttest: main.gd did not compile (%d)" % err)
-		get_tree().quit(1)
-		return
 	main = Node.new()
 	main.name = "Main"
-	main.set_script(sc)
+	main.set_script(load("res://main.gd"))
 	add_child(main)
 	main.set_process(false)
 	await _run()
@@ -131,6 +118,8 @@ func _do(s: Array) -> void:
 		"nomap":
 			# Debug: fly on the procedural ground alone, without the Earth map.
 			f.local._earth_color = null
+		"exit":
+			main.end_flight()
 		"close":
 			main.set_panel_open(s[1], false)
 		"shot":
@@ -147,7 +136,7 @@ func _dump() -> void:
 		print("   body ", b.name, " alive=", b.alive, " mass=", b.mass, " d=", d, " m radius=", b.radius, " AU")
 
 func _shot(name: String, with_hud: bool) -> void:
-	var v: Vessel = _flight().vessel
+	var v = _flight().vessel
 	var t: Dictionary = v.telemetry if v != null else {}
 	var tel := {"met": v.met if v else 0.0, "coord": v.coord if v else 0.0, "alt": t.get("alt"), "speed": t.get("speed"), "q": t.get("q"),
 		"mach": t.get("mach"), "thr": v.throttle if v else 0.0, "mass": t.get("mass"), "apo": t.get("apo"),
@@ -159,6 +148,9 @@ func _shot(name: String, with_hud: bool) -> void:
 	if with_hud:
 		# The toast's lifetime is wall-clock, which the two runners do not share.
 		main.hud.toast_el.visible = false
+		# The HUD's own fades (the start screen, a panel opening) run on the
+		# wall clock, and a few hundred fixed steps take almost none of it.
+		await get_tree().create_timer(1.0).timeout
 		# the same frame twice: the whole window (3D + HUD), then the 3D alone
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(out + name + ".hud.png")
