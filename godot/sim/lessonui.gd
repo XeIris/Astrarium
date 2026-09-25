@@ -514,7 +514,7 @@ class Course extends RefCounted:
 	# ---- the media column: an instrument, a diagram, or nothing at all
 	func set_media(step: Dictionary) -> void:
 		instrument = step.get("instrument")
-		built.erase("cutaway")
+		_drop_cutaway()
 		media_note = null
 		if lc.is_empty(): return
 		var media: El = lc.media
@@ -536,23 +536,32 @@ class Course extends RefCounted:
 			W = 320.0
 		elif instrument == "hr":
 			H = 260.0
-		var cv := LessonUI.InstrCanvas.new(W, H)
-		wrap.add_child(cv)
+		var cv: El
+		if instrument == "cutaway":
+			# A WebGLRenderer was bound to one canvas for life and this card builds
+			# a fresh one per step, so the cutaway is rebuilt rather than
+			# re-parented. Here the cutaway IS the canvas: an El carrying its own
+			# SubViewport (sim/cutaway.gd), styled as the card's `.lc-canvas`.
+			var cut := Cutaway.create_cutaway({"w": W, "h": H,
+				"style": {"maxw": 340.0, "bg": T.rgba(4, 6, 10, 0.55), "b": [1, T.BORDER]}})
+			wrap.add_child(cut)
+			built.cutaway = cut
+			cv = cut
+		else:
+			cv = LessonUI.InstrCanvas.new(W, H)
+			wrap.add_child(cv)
 		var note := _E(wrap, {"mt": 5.0, "fs": 9.5, "c": T.TEXT_DIM, "lh": 1.45}, "")
 		if instrument == "cutaway":
-			# sim/cutaway.js is a WebGL renderer of its own and has no Godot port
-			# yet; the canvas and the legend's slot are kept so the card lays out
-			# exactly as it will.
-			built.erase("cutaway")
+			# the `.cut-legend` the frame hook fills once the body is known
 			note.set_text("")
 		elif instrument == "photometer":
-			built.photometer = LightCurve.create_photometer({"canvas": cv.plot, "width": W, "height": H})
+			built.photometer = LightCurve.create_photometer({"canvas": (cv as LessonUI.InstrCanvas).plot, "width": W, "height": H})
 			note.set_text("")
 		elif instrument == "gw":
-			built.gw = GWDetector.create_gw_detector({"canvas": cv.plot, "width": W, "height": H, "distMpc": 410.0})
+			built.gw = GWDetector.create_gw_detector({"canvas": (cv as LessonUI.InstrCanvas).plot, "width": W, "height": H, "distMpc": 410.0})
 			note.set_text("rescaled inspiral · ideal orientation at 410 Mpc · arm motion exaggerated")
 		elif instrument == "hr":
-			built.hr = HRDiagram.create_hr_diagram({"canvas": cv.plot, "width": W, "height": H})
+			built.hr = HRDiagram.create_hr_diagram({"canvas": (cv as LessonUI.InstrCanvas).plot, "width": W, "height": H})
 			note.set_text("the band is sampled from the interior model, not drawn")
 		media_note = note
 
@@ -597,6 +606,13 @@ class Course extends RefCounted:
 		# A fresh scenario invalidates whatever the instruments had collected.
 		if built.has("photometer"): built.photometer.reset()
 		if built.has("gw"): built.gw.reset()
+
+	# built.cutaway?.dispose(): its SubViewport renders every frame, so a card
+	# that no longer shows it must free it rather than just forget it.
+	func _drop_cutaway() -> void:
+		if built.has("cutaway") and is_instance_valid(built.cutaway):
+			built.cutaway.dispose()
+		built.erase("cutaway")
 
 	func run_act(act) -> void:
 		if not (act is Dictionary): return
@@ -664,7 +680,7 @@ class Course extends RefCounted:
 	func close() -> void:
 		key = null; instrument = null
 		_set_card_hidden(true)
-		built.erase("cutaway")
+		_drop_cutaway()
 		render_panel()
 
 	# Where the course picks up. The lesson you were last on if you did not
@@ -719,3 +735,13 @@ class Course extends RefCounted:
 			built.gw.draw()
 		elif instrument == "hr" and built.has("hr"):
 			built.hr.draw(bodies)
+		elif instrument == "cutaway" and built.has("cutaway") and is_instance_valid(built.cutaway):
+			var b = _st("focus_body") if _has("focus_body") else null
+			if b == null:
+				for x in bodies:
+					if not x.structure.is_empty(): b = x; break
+			var st: Dictionary = b.structure if b != null else {}
+			if not st.is_empty() and not is_same(st, built.cutaway.structure):
+				built.cutaway.show_structure(st)
+				if media_note: built.cutaway.build_legend(media_note)
+			built.cutaway.render(_dt)
