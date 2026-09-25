@@ -550,10 +550,12 @@ class Course extends RefCounted:
 		else:
 			cv = LessonUI.InstrCanvas.new(W, H)
 			wrap.add_child(cv)
-		var note := _E(wrap, {"mt": 5.0, "fs": 9.5, "c": T.TEXT_DIM, "lh": 1.45}, "")
+		# The note is text for the 2D instruments, and for the cutaway a
+		# container: the `.cut-legend` the frame hook fills once the body is
+		# known (an El that carries text lays out only that text).
+		var note := _E(wrap, {"mt": 5.0, "fs": 9.5, "c": T.TEXT_DIM, "lh": 1.45}, null if instrument == "cutaway" else "")
 		if instrument == "cutaway":
-			# the `.cut-legend` the frame hook fills once the body is known
-			note.set_text("")
+			pass
 		elif instrument == "photometer":
 			built.photometer = LightCurve.create_photometer({"canvas": (cv as LessonUI.InstrCanvas).plot, "width": W, "height": H})
 			note.set_text("")
