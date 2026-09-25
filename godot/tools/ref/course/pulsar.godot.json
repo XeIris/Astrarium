@@ -1,0 +1,19 @@
+{
+ "card": [
+  286.0,
+  454.84375,
+  660.0,
+  249.15625
+ ],
+ "instrument": null,
+ "lesson": "lives/neutron",
+ "panel": [
+  20.0,
+  100.0,
+  250.0,
+  539.0
+ ],
+ "preset": "edu_pulsar",
+ "simYears": 0.00000010000000000002,
+ "step": 0
+}

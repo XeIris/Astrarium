@@ -1,0 +1,19 @@
+{
+ "lesson": "worlds/wobble",
+ "preset": "edu_transit",
+ "simYears": 0.02000000000000003,
+ "card": [
+  286,
+  401.609375,
+  660,
+  302.390625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": "deepest dip 20654 ppm · RV swing ±152.4 m/s",
+ "strain": null
+}

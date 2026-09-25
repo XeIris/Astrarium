@@ -1,0 +1,24 @@
+{
+ "lesson": "holes/gw",
+ "preset": "bhmerger",
+ "simYears": 0.23999999999999955,
+ "card": [
+  286,
+  401.609375,
+  660,
+  302.390625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": "rescaled inspiral · ideal orientation at 410 Mpc · arm motion exaggerated",
+ "strain": {
+  "fGW": 9.567600193994158,
+  "h0": 3.3939803812064077e-22,
+  "Mc": 28.09555579546043,
+  "rSchwarz": 11.052152896486378
+ }
+}

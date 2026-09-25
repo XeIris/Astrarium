@@ -1,0 +1,19 @@
+{
+ "lesson": "stars/hr",
+ "preset": "hr_ladder",
+ "simYears": 0.24999999999999997,
+ "card": [
+  286,
+  401.609375,
+  660,
+  302.390625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": "the band is sampled from the interior model, not drawn",
+ "strain": null
+}
