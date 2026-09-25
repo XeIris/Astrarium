@@ -1,0 +1,13 @@
+{
+ "q": {
+  "type": "gas-giant",
+  "mass": 0.00095459,
+  "spinFrac": 0.3
+ },
+ "legend": [
+  "Cloud decks 70654 km \u00b7 165 K",
+  "Molecular hydrogen 69594 km \u00b7 5000 K",
+  "Metallic hydrogen 54401 km \u00b7 12.0 kK",
+  "Rock/ice core 8479 km \u00b7 20.0 kK"
+ ]
+}

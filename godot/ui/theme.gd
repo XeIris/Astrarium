@@ -62,6 +62,81 @@ static var _adv := {}
 static var _met := {}
 static var _metric := {}
 
+## THE SYSTEM FACE HAS AN OPTICAL SIZE. SF Pro is one variable font with an
+## `opsz` axis (17–96, default 28), and CoreText — which Chrome draws
+## system-ui with — sets that axis to the point size and then applies the
+## face's size-specific TRACKING (the `trak` table: 0 at 12 pt, −0.08 at 13,
+## −0.31 at 16, −0.43 at 17). Below 20 px the result is the wider "Text"
+## design; Godot's SystemFont gives the opsz-28 "Display" one at every size,
+## which set the lesson card's 13.5 px prose 11% narrower than the page
+## (measured: 489 px against 548 for the same line). So for the display
+## family at a small size, the face carries opsz and the run carries the
+## tracking, as extra letter-spacing (tracking()). At 20 px and above
+## nothing changes — the start screen's 30 px title is Display in both.
+const TRAK := [[12.0, 0.0], [13.0, -0.08], [14.0, -0.15], [15.0, -0.23], [16.0, -0.31], [17.0, -0.43], [19.99, -0.45]]
+
+static func font_sized(ff: String, fw: int, fi: bool, fs: float) -> Font:
+	if ff != "disp" or fs >= 20.0:
+		return font(ff, fw, fi)
+	var opsz := maxf(fs, 17.0)
+	var key := "%s/%d/%s/opsz%.2f" % [ff, fw, fi, opsz]
+	if _fonts.has(key):
+		return _fonts[key]
+	var base: FontVariation = font(ff, fw, fi)
+	var ts := TextServerManager.get_primary_interface()
+	var axes := {ts.name_to_tag("opsz"): opsz, ts.name_to_tag("wght"): fw}
+	var fv: FontVariation = base.duplicate()
+	fv.variation_opentype = axes
+	var mv := FontVariation.new()
+	mv.base_font = _metric["%s/%d/%s" % [ff, fw, fi]]
+	mv.variation_opentype = axes
+	_fonts[key] = fv
+	_metric[fv.get_instance_id()] = mv
+	_kerned[fv.get_instance_id()] = true
+	return fv
+
+## KERNING, for the same faces. Blink shapes a run through HarfBuzz/CoreText
+## and applies the font's pair kerning; the HUD's per-character layout sums
+## bare advances, which is exact for the monospaced face (it has no kerning)
+## and 1.6 px too wide over a 97-character line of the lesson card's prose —
+## enough to push the last word of a line that fits in Chrome onto the next.
+## So the optical-size display faces (and only they: nothing else in the HUD
+## changes) add each pair's kerning, measured by shaping the pair on the
+## metric face and taking away the two advances, in em, cached per pair.
+static var _kerned := {}
+static var _kern := {}
+
+static func kern_em(f: Font, a: int, b: int) -> float:
+	var fid := f.get_instance_id()
+	if not _kerned.has(fid):
+		return 0.0
+	var tbl: Dictionary = _kern.get(fid, {})
+	if tbl.is_empty():
+		_kern[fid] = tbl
+	var key := a * 0x110000 + b
+	if tbl.has(key):
+		return tbl[key]
+	var mf: Font = _metric.get(fid, f)
+	var pair := String.chr(a) + String.chr(b)
+	var k := mf.get_string_size(pair, HORIZONTAL_ALIGNMENT_LEFT, -1, 1000).x / 1000.0 - adv_em(f, a) - adv_em(f, b)
+	# a shaping artefact (a ligature, a mark) is not kerning; real pair
+	# kerning in a text face is a few hundredths of an em
+	if absf(k) > 0.25: k = 0.0
+	tbl[key] = k
+	return k
+
+## Extra letter-spacing, px, that CoreText's tracking adds at this size.
+static func tracking(ff: String, fs: float) -> float:
+	if ff != "disp" or fs >= 20.0:
+		return 0.0
+	if fs <= TRAK[0][0]:
+		return TRAK[0][1]
+	for i in TRAK.size() - 1:
+		if fs <= TRAK[i + 1][0]:
+			var t: float = (fs - TRAK[i][0]) / (TRAK[i + 1][0] - TRAK[i][0])
+			return lerpf(TRAK[i][1], TRAK[i + 1][1], t)
+	return TRAK[-1][1]
+
 ## A font for a CSS family key ("mono" | "disp" | "sys"), weight and style.
 static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
 	var key := "%s/%d/%s" % [ff, fw, fi]
@@ -149,8 +224,11 @@ static func asc_desc(f: Font, size: float) -> Vector2:
 ## letter-spacing after EVERY character (Blink adds it after the last too).
 static func text_w(f: Font, s: String, size: float, ls: float) -> float:
 	var w := 0.0
+	var kerned := _kerned.has(f.get_instance_id())
 	for i in s.length():
 		w += adv_em(f, s.unicode_at(i)) * size + ls
+		if kerned and i + 1 < s.length():
+			w += kern_em(f, s.unicode_at(i), s.unicode_at(i + 1)) * size
 	return w
 
 # ---- the Godot Theme, for the few stock Controls the HUD uses ---------------

@@ -1,0 +1,161 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1146.90625
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   427.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   679.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   714.15625,
+   314,
+   99.5
+  ],
+  "xsecFacts": [
+   37,
+   821.65625,
+   314,
+   56
+  ],
+  "xsecNotes": [
+   37,
+   887.65625,
+   314,
+   250.25
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   210.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   264.609375,
+   341.015625,
+   75.390625,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   207.609375,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 4,
+  "name": "NS-A",
+  "type": "neutron",
+  "mass": 1.45,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "neutron",
+  "mass": 1.45,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": null,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": null,
+  "rs": 2.8625904615969735e-08
+ },
+ "label": "Neutron star",
+ "focus": true,
+ "near": "TOV limit exceeded at 2.21 M\u2609\n         \u00b7 0.18 dex away",
+ "facts": [
+  "mass1.450 M\u2609",
+  "radius12.5 km",
+  "density3.56\u00d710\u00b9\u2077 kg/m\u00b3",
+  "surface gravity1.26e+11 g",
+  "compactnessr_s/R = 0.344",
+  "surface redshift23.4%",
+  "TOV limit here2.20 M\u2609"
+ ],
+ "verdict": "Neutron degeneracy + strong forceMean density 3.56\u00d710\u00b9\u2077 kg/m\u00b3 \u2014 a sugar cube of this weighs as much as a mountain. Surface gravity is 1.3e+11 g, and light leaving the surface is redshifted by 23%."
+}

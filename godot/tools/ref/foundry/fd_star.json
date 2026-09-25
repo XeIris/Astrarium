@@ -1,0 +1,170 @@
+{
+ "rects": {
+  "xsecPanel": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTest": [
+   20,
+   20,
+   300,
+   901.734375
+  ],
+  "xsecCanvas": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecNotes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leCurve": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdXsec": [
+   37,
+   443,
+   266,
+   204.390625
+  ],
+  "fdLegend": [
+   37,
+   651.390625,
+   266,
+   23.046875
+  ],
+  "fdVerdict": [
+   37,
+   233,
+   266,
+   84
+  ],
+  "fdFacts": [
+   37,
+   325,
+   266,
+   108
+  ],
+  "fdLayerNote": [
+   37,
+   682.4375,
+   266,
+   173.296875
+  ],
+  "fdSpawn": [
+   37,
+   875.734375,
+   266,
+   29
+  ],
+  "fdTypes": [
+   37,
+   37,
+   266,
+   88
+  ],
+  "liveEdit": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leNear": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecName": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "draft": {
+  "type": "star",
+  "mass": 3.1622776601683795,
+  "spinFrac": 0,
+  "composition": "earth",
+  "phase": 1.35,
+  "Z": 0.0141
+ },
+ "type": "star",
+ "slider": {
+  "mass": 0.5,
+  "spin": 0,
+  "phase": 1.35,
+  "Z": 0.0141,
+  "comp": "earth"
+ },
+ "facts": [
+  "mass3.162 M\u2609",
+  "radius64.3 R\u2609 \u00b7 0.299 AU",
+  "T_eff4758 K",
+  "luminosity1.91e+3 L\u2609",
+  "L / L_Edd0.019",
+  "core temp1.3 MK",
+  "core pressure1.37e+1 GPa",
+  "core X(H)0.00",
+  "phaseRed giant",
+  "MS lifetime402.0 Myr",
+  "ends asWhite dwarf"
+ ],
+ "verdict": "Hydrostatic equilibriumA degenerate helium core the size of Earth inside a convective envelope the size of Mercury's orbit.",
+ "spawn": {
+  "type": "star",
+  "mass": 3.1622776601683795,
+  "spinFrac": 0,
+  "composition": "earth",
+  "phase": 1.35,
+  "Z": 0.0141,
+  "radiusKm": 44705608.65180746,
+  "name": "K3II \u00b7 Red giant"
+ }
+}

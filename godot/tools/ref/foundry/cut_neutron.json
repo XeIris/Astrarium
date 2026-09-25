@@ -1,0 +1,13 @@
+{
+ "q": {
+  "type": "neutron",
+  "mass": 1.4
+ },
+ "legend": [
+  "Atmosphere 12.5 km \u00b7 1.0 MK",
+  "Outer crust 12.5 km \u00b7 100 MK",
+  "Inner crust 12.2 km \u00b7 500 MK",
+  "Outer core 11.2 km \u00b7 200 MK",
+  "Inner core 5.6 km \u00b7 100 MK"
+ ]
+}

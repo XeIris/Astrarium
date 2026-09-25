@@ -1959,7 +1959,7 @@ func _process(real_dt: float) -> void:
 #   Godot --path godot -- preset=vega band=5 frames=60 dt=0.0166 hud=0 \
 #         eval=<method>[,<method>...] out=/abs/shot.png [shot3d=1]
 #         focus=<body> truescale=1 cammode=surface|free localtime=noon
-#         timescale=<yr/s> paused=1 panel=<id>[,<id>]
+#         timescale=<yr/s> paused=1 panel=<id>[,<id>] closed=<id>[,<id>]
 # runs `frames` fixed steps, then writes the ROOT viewport (3D + HUD; `hud=0`
 # hides the HUD first, `shot3d=1` writes the composited 3D frame alone) and quits.
 var _shot_frame := 0
@@ -1981,8 +1981,13 @@ func _shot_tick() -> void:
 		if _cmd.has("localtime"): set_local_time(String(_cmd.localtime))
 		if _cmd.has("timescale"): set_time_scale(float(_cmd.timescale))
 		if _cmd.get("paused", "0") == "1": state.paused = true
+		# through the stage's panel verb, so `panel=xsecPanel` opens the
+		# cross-section ON the focused body (open_cross_section), as the
+		# page's own button does, rather than an empty box
 		if _cmd.has("panel"):
-			for pid in String(_cmd.panel).split(",", false): set_panel_open(pid, true)
+			for pid in String(_cmd.panel).split(",", false): _stage_set_panel(pid, true)
+		if _cmd.has("closed"):
+			for pid in String(_cmd.closed).split(",", false): _stage_set_panel(pid, false)
 		for m in String(_cmd.get("eval", "")).split(",", false):
 			if has_method(m): call(m)
 	if _shot_frame != int(_cmd.get("frames", "30")): return

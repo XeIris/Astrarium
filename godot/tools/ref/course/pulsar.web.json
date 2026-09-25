@@ -1,0 +1,19 @@
+{
+ "lesson": "lives/neutron",
+ "preset": "edu_pulsar",
+ "simYears": 1.0000000000000001e-7,
+ "card": [
+  286,
+  454.84375,
+  660,
+  249.15625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": null,
+ "strain": null
+}

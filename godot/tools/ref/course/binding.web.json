@@ -1,0 +1,19 @@
+{
+ "lesson": "stars/sun",
+ "preset": "edu_sun",
+ "simYears": 0.0013999999999999996,
+ "card": [
+  384,
+  401.609375,
+  562,
+  302.390625
+ ],
+ "panel": [
+  0,
+  0,
+  0,
+  0
+ ],
+ "note": null,
+ "strain": null
+}

@@ -1,0 +1,164 @@
+{
+ "rects": {
+  "xsecPanel": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTest": [
+   20,
+   20,
+   300,
+   885.015625
+  ],
+  "xsecCanvas": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecNotes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leCurve": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdXsec": [
+   37,
+   387.5,
+   266,
+   204.390625
+  ],
+  "fdLegend": [
+   37,
+   595.890625,
+   266,
+   23.046875
+  ],
+  "fdVerdict": [
+   37,
+   218,
+   266,
+   99.5
+  ],
+  "fdFacts": [
+   37,
+   325.5,
+   266,
+   52
+  ],
+  "fdLayerNote": [
+   37,
+   626.9375,
+   266,
+   212.078125
+  ],
+  "fdSpawn": [
+   37,
+   859.015625,
+   266,
+   29
+  ],
+  "fdTypes": [
+   37,
+   37,
+   266,
+   88
+  ],
+  "liveEdit": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdComp": [
+   119.859375,
+   185,
+   183.140625,
+   23
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leNear": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecName": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "draft": {
+  "type": "planet",
+  "mass": 3.0199517204020193e-06,
+  "spinFrac": 0,
+  "composition": "earth",
+  "phase": 0.5,
+  "Z": 0.0141
+ },
+ "type": "planet",
+ "slider": {
+  "mass": -5.52,
+  "spin": 0,
+  "phase": 0.5,
+  "Z": 0.0141,
+  "comp": "earth"
+ },
+ "facts": [
+  "mass1.01 M\u2295",
+  "radius6189 km",
+  "compositionearth",
+  "density6048 kg/m\u00b3",
+  "core temp5720 K",
+  "max radius3.06 R\u2295 at 303 M\u2295"
+ ],
+ "verdict": "Earth-like32.5% iron core, 67.5% silicate mantle. Radius follows Seager et al. (2007); it flattens out near 303 M\u2295 at 3.06 R\u2295 and turns over past it.",
+ "spawn": {
+  "type": "planet",
+  "mass": 3.0199517204020193e-06,
+  "spinFrac": 0,
+  "composition": "earth",
+  "Z": 0.0141,
+  "radiusKm": 6189.114462870119,
+  "name": "Terrestrial planet"
+ }
+}

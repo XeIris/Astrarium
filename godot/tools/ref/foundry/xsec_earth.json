@@ -1,0 +1,160 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1105.84375
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   458.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   710.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   745.15625,
+   314,
+   84
+  ],
+  "xsecFacts": [
+   37,
+   837.15625,
+   314,
+   52
+  ],
+  "xsecNotes": [
+   37,
+   899.15625,
+   314,
+   197.6875
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   241.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   131.859375,
+   414.609375,
+   208.140625,
+   23
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 7,
+  "name": "Earth",
+  "type": "planet",
+  "mass": 3e-06,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "planet",
+  "mass": 3e-06,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": null,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": 6371,
+  "rs": null
+ },
+ "label": "Terrestrial planet",
+ "focus": false,
+ "near": "Degeneracy-limited at 1.0 M_J\n         \u00b7 2.51 dex away",
+ "facts": [
+  "mass1.00 M\u2295",
+  "radius6177 km",
+  "compositionearth",
+  "density6044 kg/m\u00b3",
+  "core temp5697 K",
+  "max radius3.06 R\u2295 at 303 M\u2295"
+ ],
+ "verdict": "Earth-like32.5% iron core, 67.5% silicate mantle. Radius follows Seager et al. (2007); it flattens out near 303 M\u2295 at 3.06 R\u2295 and turns over past it."
+}

@@ -1,0 +1,13 @@
+{
+ "q": {
+  "type": "star",
+  "mass": 1.2,
+  "phase": 1.35
+ },
+ "legend": [
+  "Photosphere 29.0 R\u2609 \u00b7 0.135 AU \u00b7 3600 K",
+  "Convective envelope 28.7 R\u2609 \u00b7 0.134 AU \u00b7 300.0 kK",
+  "Hydrogen-burning shell 0.348 R\u2609 \u00b7 40 MK",
+  "Degenerate helium core 0.232 R\u2609 \u00b7 1.1 MK"
+ ]
+}

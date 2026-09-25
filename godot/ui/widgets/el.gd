@@ -773,11 +773,14 @@ func baseline() -> float:
 
 func _run_style(r: Dictionary) -> Dictionary:
 	var fs: float = r.get("fs", gf("fs"))
+	var ff: String = r.get("ff", g("ff"))
 	var s := {
 		"fs": fs,
-		"font": HudTheme.font(r.get("ff", g("ff")), int(r.get("fw", g("fw"))), bool(r.get("fi", g("fi")))),
+		# the display face at a small size is its optical "Text" design, with
+		# CoreText's tracking on top (HudTheme.font_sized)
+		"font": HudTheme.font_sized(ff, int(r.get("fw", g("fw"))), bool(r.get("fi", g("fi"))), fs),
 		"c": r.get("c", g("c")),
-		"ls": float(r.get("ls", gf("ls"))),
+		"ls": float(r.get("ls", gf("ls"))) + HudTheme.tracking(ff, fs),
 		"up": bool(r.get("up", g("up"))),
 		"lh": float(r.get("lh", gf("lh"))),
 	}
@@ -832,6 +835,13 @@ func _build_atoms() -> Array:
 				word += ch
 				# an em dash is a break opportunity after it (UAX #14, class B2)
 				if ch == "—" and i < t.length() - 1 and t[i + 1] != " " and not nw:
+					out.append({"t": word, "w": HudTheme.text_w(st.font, word, st.fs, st.ls), "r": r, "st": st})
+					word = ""
+				# so is a hyphen inside a word (class HY: "Pre-|collapse"), but
+				# not before a digit ("1e-7") — the Foundry's "Life burned"
+				# readout wraps there on the page
+				elif ch == "-" and word.length() > 1 and i < t.length() - 1 and not nw \
+						and not (t[i + 1] in " 0123456789"):
 					out.append({"t": word, "w": HudTheme.text_w(st.font, word, st.fs, st.ls), "r": r, "st": st})
 					word = ""
 		if word != "":
@@ -1067,6 +1077,8 @@ func _draw_chars(font: Font, t: String, p: Vector2, fs: float, ls: float, col: C
 		var ch := t.unicode_at(i)
 		draw_char(font, Vector2(x * k, p.y * k), t[i], isz, col)
 		x += HudTheme.adv_em(font, ch) * fs + ls
+		if i + 1 < t.length():
+			x += HudTheme.kern_em(font, ch, t.unicode_at(i + 1)) * fs
 	if k != 1.0:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 

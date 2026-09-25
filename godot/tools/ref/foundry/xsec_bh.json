@@ -1,0 +1,160 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1218.890625
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   418.421875,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   670.234375,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   704.96875,
+   314,
+   130.5
+  ],
+  "xsecFacts": [
+   37,
+   843.46875,
+   314,
+   63
+  ],
+  "xsecNotes": [
+   37,
+   916.46875,
+   314,
+   293.421875
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   201.109375
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   336.421875,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   338.125,
+   113.796875,
+   12.59375
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 4,
+  "name": "BH-A",
+  "type": "bh",
+  "mass": 36,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "bh",
+  "mass": 36,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": null,
+  "teff": null,
+  "luminosity": null,
+  "radiusKm": null,
+  "rs": 0.02
+ },
+ "label": "Schwarzschild black hole",
+ "focus": false,
+ "near": "no threshold in range",
+ "facts": [
+  "mass36.0 M\u2609",
+  "event horizon4.3 R\u2609 \u00b7 0.020 AU",
+  "photon sphere6.5 R\u2609 \u00b7 0.030 AU",
+  "ISCO12.9 R\u2609 \u00b7 0.060 AU",
+  "Hawking T1.71e-9 K",
+  "evaporates in10\u2077\u00b2 yr"
+ ],
+ "verdict": "No equilibriumThere is no pressure here at all \u2014 nothing is holding anything up. The Hawking temperature is 1.71e-9 K, far below the 2.7 K microwave background, so this hole absorbs more than it radiates and will keep growing for another 10^72 years before it can even begin to evaporate."
+}

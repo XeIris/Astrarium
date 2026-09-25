@@ -1,0 +1,159 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1023.390625
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   427.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   679.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   714.15625,
+   314,
+   130.5
+  ],
+  "xsecFacts": [
+   37,
+   852.65625,
+   314,
+   41
+  ],
+  "xsecNotes": [
+   37,
+   903.65625,
+   314,
+   110.734375
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   210.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 5,
+  "name": "Sirius B",
+  "type": "white-dwarf",
+  "mass": 1.018,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "white-dwarf",
+  "mass": 1.018,
+  "spinFrac": 0,
+  "phase": null,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": 0.0084,
+  "teff": 25200,
+  "luminosity": 0.056,
+  "radiusKm": null,
+  "rs": 2.00973592407291e-08
+ },
+ "label": "White dwarf",
+ "focus": false,
+ "near": "White dwarf at 1.35 M\u2609\n         \u00b7 0.12 dex away",
+ "facts": [
+  "mass1.018 M\u2609",
+  "radius5987 km",
+  "density2.25\u00d710\u2079 kg/m\u00b3",
+  "T_eff25.2 kK",
+  "Chandrasekhar1.44 M\u2609"
+ ],
+ "verdict": "Electron degeneracyEarth-sized and star-massed: mean density 2.25\u00d710\u2079 kg/m\u00b3. Because degeneracy pressure does not care about temperature, a white dwarf gets SMALLER as it gets heavier \u2014 R \u221d M^\u2212\u2153 \u2014 and shrinks to nothing at the Chandrasekhar mass of 1.44 M\u2609."
+}

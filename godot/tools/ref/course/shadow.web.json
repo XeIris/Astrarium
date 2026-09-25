@@ -1,0 +1,19 @@
+{
+ "lesson": "holes/shadow",
+ "preset": "edu_hole",
+ "simYears": 0.19999999999999987,
+ "card": [
+  286,
+  401.609375,
+  660,
+  302.390625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": null,
+ "strain": null
+}

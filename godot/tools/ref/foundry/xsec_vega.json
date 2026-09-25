@@ -1,0 +1,170 @@
+{
+ "rects": {
+  "xsecPanel": [
+   20,
+   20,
+   348,
+   1187.734375
+  ],
+  "fdTest": null,
+  "xsecCanvas": [
+   37,
+   471.609375,
+   314,
+   247.8125
+  ],
+  "xsecLegend": [
+   37,
+   723.421875,
+   314,
+   24.734375
+  ],
+  "xsecVerdict": [
+   37,
+   758.15625,
+   314,
+   68.5
+  ],
+  "xsecFacts": [
+   37,
+   834.65625,
+   314,
+   127
+  ],
+  "xsecNotes": [
+   37,
+   971.65625,
+   314,
+   207.078125
+  ],
+  "leCurve": [
+   49,
+   196.3125,
+   291,
+   135.109375
+  ],
+  "fdXsec": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdLayerNote": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdSpawn": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTypes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "liveEdit": [
+   49,
+   196.3125,
+   291,
+   254.296875
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   258.46875,
+   341.015625,
+   81.53125,
+   16
+  ],
+  "leNear": [
+   49,
+   336.421875,
+   201.46875,
+   25.1875
+  ],
+  "xsecName": [
+   37,
+   68,
+   314,
+   13
+  ]
+ },
+ "body": {
+  "id": 4,
+  "name": "Vega",
+  "type": "star",
+  "mass": 2.135,
+  "spinFrac": 0.8759971997083085,
+  "phase": 0.25,
+  "composition": null,
+  "Z": 0.014
+ },
+ "q": {
+  "type": "star",
+  "mass": 2.135,
+  "spinFrac": 0.8759971997083085,
+  "phase": 0.25,
+  "composition": null,
+  "Z": 0.014,
+  "radiusSun": 2.362,
+  "teff": 9602,
+  "luminosity": 40.12,
+  "radiusKm": null,
+  "rs": null
+ },
+ "label": "A1V \u00b7 Early MS",
+ "focus": false,
+ "near": "M4V \u00b7 Early MS at 0.08 M\u2609\n         \u00b7 1.44 dex below",
+ "facts": [
+  "mass2.135 M\u2609",
+  "radius2.362 R\u2609",
+  "shapeR_eq/R_pol = 1.193",
+  "flatteningf = 0.1618",
+  "spin87.6% of break-up",
+  "period14.5 h",
+  "T_eff9602 K",
+  "pole / equator10.3 kK / 8668 K",
+  "luminosity40.12 L\u2609",
+  "L / L_Edd0.001",
+  "core temp12 MK",
+  "core pressure3.43e+6 GPa",
+  "core X(H)0.55",
+  "phaseEarly MS",
+  "MS lifetime1.1 Gyr",
+  "ends asWhite dwarf"
+ ],
+ "verdict": "Hydrostatic equilibriumA quarter through. Helium ash is accumulating in the core and the star is slowly brightening."
+}

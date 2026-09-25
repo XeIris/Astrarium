@@ -98,14 +98,19 @@ are doubles. This split drives most of the architecture.
   build (sun positions, hole positions) are passed camera-relative:
   `pos_rel = abs.rel_v3(cam_pos)`. Directions (normals, sun directions) are
   unaffected.
-* **Keep far/near ≤ ~1e7 (measured).** The web build's near-plane policy
-  (`near = clamp(camDist·1e-3, 1e-7, 0.01)`, `far = 1e5`) reaches a ratio of
-  1e11 when framing Proxima or Sirius B at true scale. THREE draws that fine;
-  Godot derives its culling frustum from the projection in float32, the planes
-  degenerate (`create_frustum_points` errors) and the body is culled — the
-  frame is empty. `tools/startest.gd` clamps `far = min(far, near·1e7)`, and
-  every star/compact-object frame matches the web with it; the orchestrator's
-  near-plane code needs the same clamp.
+* **Keep far/near ≤ ~1e7 (measured), and move the NEAR plane to get there.**
+  The web build's near-plane policy (`near = clamp(camDist·1e-3, 1e-7, 0.01)`,
+  `far = 1e5`) reaches a ratio of 1e11 when framing Proxima or Sirius B at
+  true scale. THREE draws that fine; Godot derives its culling frustum from the
+  projection in float32, the planes degenerate (`create_frustum_points` errors;
+  measured: 1e8 already fails every frame) and whatever is framed is culled.
+  Clamping `far` alone culls the rest of the system instead (the spacetime
+  mesh vanished from true-scale views). So main.gd moves the near plane out:
+  `near = clamp(camDist·0.05, 1e-7, 0.01)`, `far = min(1e5, near·1e7)`. That
+  is safe because Godot's depth buffer is reverse-Z float, whose precision
+  does not depend on the near plane the way the web build's 24-bit integer
+  depth did — the 1e-3 there bought depth resolution, not visibility — and the
+  framed body's surface sits at 6/7 of the viewing distance, far outside 5%.
 * **Frame order.** physics → camera (final `cam_pos` for the frame) → place
   every node → visual `update()`s → markers → `pipeline.prepare_frame()`. A
   visual therefore sees this frame's camera. (The web build ran visual

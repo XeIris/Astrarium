@@ -1,0 +1,170 @@
+{
+ "rects": {
+  "xsecPanel": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdTest": [
+   20,
+   20,
+   300,
+   942.796875
+  ],
+  "xsecCanvas": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecLegend": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecVerdict": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecFacts": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecNotes": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leCurve": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdXsec": [
+   37,
+   416.5,
+   266,
+   204.390625
+  ],
+  "fdLegend": [
+   37,
+   624.890625,
+   266,
+   23.046875
+  ],
+  "fdVerdict": [
+   37,
+   233,
+   266,
+   68.5
+  ],
+  "fdFacts": [
+   37,
+   309.5,
+   266,
+   97
+  ],
+  "fdLayerNote": [
+   37,
+   655.9375,
+   266,
+   240.859375
+  ],
+  "fdSpawn": [
+   37,
+   916.796875,
+   266,
+   29
+  ],
+  "fdTypes": [
+   37,
+   37,
+   266,
+   88
+  ],
+  "liveEdit": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "fdComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leComp": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leFocus": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "leNear": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "xsecName": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "draft": {
+  "type": "star",
+  "mass": 1,
+  "spinFrac": 0,
+  "composition": "earth",
+  "phase": 0.5,
+  "Z": 0.0141
+ },
+ "type": "star",
+ "slider": {
+  "mass": 0,
+  "spin": 0,
+  "phase": 0.5,
+  "Z": 0.0141,
+  "comp": "earth"
+ },
+ "facts": [
+  "mass1.000 M\u2609",
+  "radius1.000 R\u2609",
+  "T_eff5771 K",
+  "luminosity1.00 L\u2609",
+  "L / L_Edd0.000",
+  "core temp16 MK",
+  "core pressure2.34e+7 GPa",
+  "core X(H)0.38",
+  "phaseMid MS",
+  "MS lifetime10.0 Gyr",
+  "ends asWhite dwarf"
+ ],
+ "verdict": "Hydrostatic equilibriumHalf its hydrogen gone. Where the Sun is now.",
+ "spawn": {
+  "type": "star",
+  "mass": 1,
+  "spinFrac": 0,
+  "composition": "earth",
+  "phase": 0.5,
+  "Z": 0.0141,
+  "radiusKm": 695700,
+  "name": "G3V \u00b7 Mid MS"
+ }
+}

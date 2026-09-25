@@ -1,0 +1,15 @@
+{
+ "q": {
+  "type": "bh",
+  "mass": 10,
+  "spinFrac": 0.9
+ },
+ "legend": [
+  "ISCO 21.2 km \u00b7 \u2014",
+  "Photon sphere 21.3 km \u00b7 \u2014",
+  "Ergosphere 18.3 km \u00b7 \u2014",
+  "Event horizon 13.4 km \u00b7 \u2014",
+  "Interior 13.1 km \u00b7 \u2014",
+  "Singularity 548 m \u00b7 \u221e"
+ ]
+}
