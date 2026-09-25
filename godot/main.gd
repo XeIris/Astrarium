@@ -1946,6 +1946,8 @@ func _process(real_dt: float) -> void:
 # build's SIM.frame() handle, which is what every headless check drove:
 #   Godot --path godot -- preset=vega band=5 frames=60 dt=0.0166 hud=0 \
 #         eval=<method>[,<method>...] out=/abs/shot.png [shot3d=1]
+#         focus=<body> truescale=1 cammode=surface|free localtime=noon
+#         timescale=<yr/s> paused=1 panel=<id>[,<id>]
 # runs `frames` fixed steps, then writes the ROOT viewport (3D + HUD; `hud=0`
 # hides the HUD first, `shot3d=1` writes the composited 3D frame alone) and quits.
 var _shot_frame := 0
@@ -1956,6 +1958,13 @@ func _shot_tick() -> void:
 		if _cmd.has("band"): set_band(int(_cmd.band))
 		if _cmd.get("hud", "1") == "0": set_hud_hidden(true); hud.toast("", 1)
 		if _cmd.has("focus"): _stage_set_focus(String(_cmd.focus))
+		if _cmd.get("truescale", "0") == "1": set_true_scale(true)
+		if _cmd.has("cammode"): set_cam_mode(String(_cmd.cammode))
+		if _cmd.has("localtime"): set_local_time(String(_cmd.localtime))
+		if _cmd.has("timescale"): set_time_scale(float(_cmd.timescale))
+		if _cmd.get("paused", "0") == "1": state.paused = true
+		if _cmd.has("panel"):
+			for pid in String(_cmd.panel).split(",", false): set_panel_open(pid, true)
 		for m in String(_cmd.get("eval", "")).split(",", false):
 			if has_method(m): call(m)
 	if _shot_frame != int(_cmd.get("frames", "30")): return
@@ -2020,7 +2029,16 @@ func animate(dt: float) -> void:
 				var surf := cam_pos.distance_to(b.scene_pos) - maxf(b.radius_scene, b.rs_scene)
 				if surf < cam_dist: cam_dist = surf
 			cam_dist = maxf(cam_dist, 1e-6) if is_finite(cam_dist) else 1.0
-		var near := clampf(cam_dist * 1e-3, 1e-7, 0.01)
+		# The web build used camDist·1e-3 — a 24-bit integer depth buffer needs the
+		# near plane as far out as it can go, but no further. Godot's depth is
+		# reverse-Z float, whose precision does not depend on the near plane, so
+		# it can sit at 5% of the viewing distance (the framed body's surface is
+		# at 6/7 of it) — and it MUST, because Godot builds its culling frustum in
+		# float32 and every far/near ratio past ~1e7 degenerates it (measured:
+		# 1e8 already fails, and the frame is culled empty; PORT_GUIDE.md §3).
+		# With near that far out, far = near·1e7 still reaches the whole system:
+		# ~150 scene units even at a true-scale Earth close-up.
+		var near := clampf(cam_dist * 0.05, 1e-7, 0.01)
 		if absf(log(near / cam_near)) > 0.05: cam_near = near
 	_apply_camera()
 
