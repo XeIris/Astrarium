@@ -149,7 +149,7 @@ func _dump() -> void:
 func _shot(name: String, with_hud: bool) -> void:
 	var v: Vessel = _flight().vessel
 	var t: Dictionary = v.telemetry if v != null else {}
-	var tel := {"met": v.met if v else 0.0, "alt": t.get("alt"), "speed": t.get("speed"), "q": t.get("q"),
+	var tel := {"met": v.met if v else 0.0, "coord": v.coord if v else 0.0, "alt": t.get("alt"), "speed": t.get("speed"), "q": t.get("q"),
 		"mach": t.get("mach"), "thr": v.throttle if v else 0.0, "mass": t.get("mass"), "apo": t.get("apo"),
 		"peri": t.get("peri"), "phase": v.phase if v else "", "cam": _flight().camera_mode(),
 		"status": _flight().autopilot.status if _flight().autopilot else ""}

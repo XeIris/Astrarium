@@ -28,6 +28,11 @@ const PRELUDE = (seed) => `
   // vehicle's .glb. The Godot harness loads maps synchronously; wait for it here.
   await new Promise(r => import('./sim/planetmaps.js').then(m => m.loadPlanetMap('Earth', r) || r()));
   SIM.setAppMode('flight');
+  // Entering flight launches the last vehicle (the Saturn V) WITHOUT awaiting
+  // it. Let that land now: otherwise, if its .glb arrives after the scenario's
+  // own launch, it begins a fresh Saturn V on top of whatever was being flown.
+  await (await import('./sim/flight/craftassets.js')).craftModelsReady('saturnv');
+  await new Promise(r => setTimeout(r, 0));
   const F = () => SIM.flight;
   const frames = (n) => { for (let i = 0; i < n; i++) SIM.frame(1 / 60); };
 `;
@@ -58,7 +63,7 @@ function stepJS(s) {
 }
 
 const TELEMETRY = `const f = SIM.flight, v = f.vessel, t = v ? v.telemetry : {};
-  return { met: v?.met, alt: t.alt, speed: t.speed, q: t.q, mach: t.mach, thr: v?.throttle, mass: t.mass,
+  return { met: v?.met, coord: v?.coord, alt: t.alt, speed: t.speed, q: t.q, mach: t.mach, thr: v?.throttle, mass: t.mass,
     apo: t.apo, peri: t.peri, phase: v?.phase, cam: f.cameraMode(), status: f.autopilot?.status,
     near: SIM.camera.near, fov: SIM.camera.fov };`;
 
