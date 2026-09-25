@@ -103,7 +103,7 @@ for (const s of shots) {
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(join(outDir, s.name + '.png'), Buffer.from(shot.data, 'base64'));
     if (s.dump) {
-      const expr = /return/.test(s.dump) ? `(async () => { ${s.dump} })()` : `(async () => (${s.dump}))()`;
+      const expr = /\breturn\b/.test(s.dump) ? `(async () => { ${s.dump} })()` : `(async () => (${s.dump}))()`;
       await writeFile(join(outDir, s.name + '.json'), JSON.stringify(await evaluate(expr), null, 1));
     } else {
       // Otherwise, whatever the setup left in window.__cap (camera, uniforms,
