@@ -21,6 +21,14 @@ the engineering map: stack, layout, conventions.
 - Rendering is **HDR**: everything composes into a half-float target and is tone
   mapped once at the end. Emitters are expected to write values well above 1.0.
 
+## The Godot port
+
+`godot/` is a complete port of this app to Godot 4.7 / GDScript, verified
+frame for frame against the web build (which stays the reference). Its own
+contract is [godot/PORT_GUIDE.md](godot/PORT_GUIDE.md); how to run and build it
+is [godot/README.md](godot/README.md). A change to the physics or the look here
+should be mirrored there.
+
 ## Running
 
 Static files; anything that serves the folder works. The bundled server exists

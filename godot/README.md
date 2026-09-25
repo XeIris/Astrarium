@@ -6,7 +6,8 @@ astronomy course and the spaceflight simulator — to **Godot 4.7** and
 is checked against it frame for frame (see *Verifying* below). What the sim
 models and why is in the root [README.md](../README.md); the engineering rules
 both builds follow are in [CLAUDE.md](../CLAUDE.md); what is *different* about
-Godot is in [PORT_GUIDE.md](PORT_GUIDE.md).
+Godot is in [PORT_GUIDE.md](PORT_GUIDE.md), and what the port changed and how it
+was verified is in [PORT_REPORT.md](PORT_REPORT.md).
 
 ## Running it
 
