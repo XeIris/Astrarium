@@ -331,8 +331,9 @@ func layout(w: float, forced_h: float = -1.0) -> float:
 		scroll_y = 0.0
 	else:
 		scroll_y = clampf(scroll_y, 0.0, maxf(content_h - h, 0.0))
-	# A <button> centres its content in whatever height it is given.
-	if bool(g("vc")) and h > auto_h + 0.01:
+	# A <button> centres its content in whatever height it is given — unless
+	# it is a flex container, whose items start at the top like any flex box.
+	if bool(g("vc")) and g("display") == "block" and h > auto_h + 0.01:
 		var dy := (h - auto_h) * 0.5
 		for k in kids():
 			k.position.y += dy

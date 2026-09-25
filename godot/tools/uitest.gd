@@ -85,9 +85,16 @@ func _apply() -> void:
 	hud.set_band(int(d.band), d.bands[int(d.band)])
 	hud.build_sky_settings(d.envs, d.params)
 	hud.sync_sky_controls(d.sky, d.skyEff)
+	# the page only has the MATCHING buttons in it while a search is active, so
+	# the catalogue itself comes from the unfiltered sandbox fixture
+	var cat := d
+	var cf := FileAccess.open(str(args.get("fix", "")).path_join("sandbox.json"), FileAccess.READ)
+	if cf != null and str(d.get("search", "")) != "":
+		cat = JSON.parse_string(cf.get_as_text())
 	var presets := {}
-	for k in d.presets:
-		presets[k] = d.presets[k]
+	for k in cat.presets:
+		presets[k] = cat.presets[k]
+	d.groups = cat.groups
 	for g in d.groups:
 		if g.open and str(d.get("search", "")) == "":
 			hud._open_groups[g.id] = true

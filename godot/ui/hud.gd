@@ -728,6 +728,9 @@ func _build_model_panel() -> void:
 	_range(sl, "mvExplode", {"grow": 1.0, "shrink": 1.0, "basis": 0.0, "m": 2}, 0, 1, 0, 0.01)
 	var tr := E(mc, C.TOGGLE_ROW)
 	var tvars := [["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]
+	# `.toggle-btn.on` has no rule in the stylesheet: the page marks these two
+	# with `on`, and they look the same either way. Faithfully so here.
+	tvars = [["hover", C.TOGGLE_HOVER], ["on", {}]]
 	var dep := B(tr, C.toggle_btn(), "Deployed", "mvDeploy", tvars, "Legs, fins, arrays and radiators in their deployed position")
 	dep.set_state("on", true)
 	dep.pressed.connect(func():
@@ -766,9 +769,9 @@ func _build_flight_panel() -> void:
 	var head := E(p, C.PANEL_HEAD)
 	E(head, C.merge(C.h3(true), {"grow": 1.0, "basis": 0.0, "minw": 0.0}), "Flight")
 	var warp := E(head, {"display": "flex", "ai": "center", "gapc": 4.0, "mlauto": true, "mr": 6.0})
-	B(warp, C.warp_btn(), "◂", "[data-warp=-1]", [["hover", {"bcol": T.ACCENT}]], "Slow time (,)").pressed.connect(func(): warp_step.emit(-1))
+	B(warp, C.merge(C.warp_btn(), {"ff": "lucida"}), "◂", "[data-warp=-1]", [["hover", {"bcol": T.ACCENT}]], "Slow time (,)").pressed.connect(func(): warp_step.emit(-1))
 	E(warp, {"fs": 11.0, "c": T.ACCENT, "minw": 46.0, "ta": "center"}, "1×", "warpLabel")
-	B(warp, C.warp_btn(), "▸", "[data-warp=1]", [["hover", {"bcol": T.ACCENT}]], "Speed time (.)").pressed.connect(func(): warp_step.emit(1))
+	B(warp, C.merge(C.warp_btn(), {"ff": "lucida"}), "▸", "[data-warp=1]", [["hover", {"bcol": T.ACCENT}]], "Speed time (.)").pressed.connect(func(): warp_step.emit(1))
 	B(head, C.panel_close(), "✕", "", [["hover", C.PANEL_CLOSE_HOVER]], "Collapse").pressed.connect(func(): set_panel_open("flightPanel", false))
 	_mounts["flightHud"] = E(p, {}, null, "flightHud")
 
@@ -1027,11 +1030,16 @@ func set_shown(id: String, shown: bool) -> void:
 		if shown: collapsed.erase(id)
 		else: collapsed[id] = true
 
-## `.active` / `.on` on a button, by id or by "[data-x=v]".
+## `.active` / `.on` on a button, by id or by "[data-x=v]" — whichever of the
+## two classes that element's stylesheet rules are written against.
 func set_active(sel: String, on: bool) -> void:
 	for e in _targets(sel):
-		e.set_state("active", on)
-		e.set_state("on", on)
+		var has_on := false
+		for v in e.variants:
+			if v[0] == "on": has_on = true
+		e.set_state("on" if has_on else "active", on)
+		if e.has_state("tri"):
+			e.set_state("triactive", on)
 
 func set_button_text(sel: String, text: String) -> void:
 	for e in _targets(sel):

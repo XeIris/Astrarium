@@ -56,8 +56,11 @@ static func hexc(h: int, a: float = 1.0) -> Color:
 
 # ---- fonts --------------------------------------------------------------------
 static var _fonts := {}
+## Stem dilation matching CoreText's (see font()).
+static var EMBOLDEN := 0.3
 static var _adv := {}
 static var _met := {}
+static var _metric := {}
 
 ## A font for a CSS family key ("mono" | "disp" | "sys"), weight and style.
 static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
@@ -68,6 +71,9 @@ static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
 	match ff:
 		"disp": sf.font_names = PackedStringArray(DISPLAY_STACK)
 		"sys": sf.font_names = PackedStringArray(SYSTEM_STACK)
+		# the face Chrome falls back to for ◂/▸ in a system-font button; Godot's
+		# system font claims to have those glyphs and draws them a third the size
+		"lucida": sf.font_names = PackedStringArray(["Lucida Grande"])
 		_: sf.font_names = PackedStringArray(MONO_STACK)
 	sf.font_weight = fw
 	sf.font_italic = fi
@@ -77,19 +83,34 @@ static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
 	sf.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_ONE_QUARTER
 	sf.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
 	sf.generate_mipmaps = true
-	var f: Font = sf
+	# Glyph fallback in the order Chrome's (measured): SF has no ◂/▸ and the
+	# browser takes them from Lucida Grande, not from wherever the OS's own
+	# fallback walk happens to land first.
+	# Metrics and advances are read from the face WITHOUT its fallbacks: a
+	# Font's ascent is the largest over its whole fallback chain, and Lucida's
+	# would make every Menlo line a pixel taller than Blink's.
+	_metric[key] = sf.duplicate()
+	var fb := SystemFont.new()
+	fb.font_names = PackedStringArray(["Menlo", "Apple Symbols"] if ff == "lucida" else ["Lucida Grande", "Apple Symbols"])
+	fb.hinting = TextServer.HINTING_NONE
+	fb.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_ONE_QUARTER
+	sf.fallbacks = [fb]
+	# CoreText dilates glyph stems a little on the Mac (the "font smoothing"
+	# Chrome inherits), so the same face rasterised plainly reads a shade
+	# thinner and dimmer than the page. A small embolden is that dilation.
+	var fv := FontVariation.new()
+	fv.base_font = sf
+	fv.variation_embolden = EMBOLDEN
 	# Menlo is one file with four faces and SystemFont does not select the
 	# bold or italic one by weight, so those two are synthesised — a face the
 	# browser has and this does not; the advances are identical either way.
-	if ff == "mono" and (fw >= 600 or fi):
-		var fv := FontVariation.new()
-		fv.base_font = sf
-		if fw >= 600:
-			fv.variation_embolden = 0.55
-		if fi:
-			fv.variation_transform = Transform2D(Vector2(1, 0), Vector2(-0.2, 1), Vector2.ZERO)
-		f = fv
+	if ff == "mono" and fw >= 600:
+		fv.variation_embolden = EMBOLDEN + 0.55
+	if ff == "mono" and fi:
+		fv.variation_transform = Transform2D(Vector2(1, 0), Vector2(-0.2, 1), Vector2.ZERO)
+	var f: Font = fv
 	_fonts[key] = f
+	_metric[f.get_instance_id()] = _metric[key]
 	return f
 
 ## Advance of one character, in em (measured at 1000 px).
@@ -97,7 +118,12 @@ static func adv_em(f: Font, ch: int) -> float:
 	var key := str(f.get_instance_id(), ":", ch)
 	if _adv.has(key):
 		return _adv[key]
-	var a := f.get_char_size(ch, 1000).x / 1000.0
+	# measured on the undilated face: emboldening widens the advance, and the
+	# dilation is a rendering effect, not a metric one
+	var mf: Font = _metric.get(f.get_instance_id(), f)
+	var a := mf.get_char_size(ch, 1000).x / 1000.0
+	if a <= 0.0 or not mf.has_char(ch):
+		a = f.get_char_size(ch, 1000).x / 1000.0
 	_adv[key] = a
 	return a
 
@@ -106,7 +132,8 @@ static func metrics(f: Font) -> Vector2:
 	var id := f.get_instance_id()
 	if _met.has(id):
 		return _met[id]
-	var m := Vector2(f.get_ascent(1000) / 1000.0, f.get_descent(1000) / 1000.0)
+	var mf: Font = _metric.get(f.get_instance_id(), f)
+	var m := Vector2(mf.get_ascent(1000) / 1000.0, mf.get_descent(1000) / 1000.0)
 	_met[id] = m
 	return m
 
