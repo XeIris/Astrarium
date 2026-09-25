@@ -233,6 +233,13 @@ class Navball extends El:
 	## canvas's rotate() turns it, clipped to the ball as ctx.clip() did.
 	func _ellipse(c: Vector2, rx: float, ry: float, rot: float, col: Color, width: float, clip_r: float) -> void:
 		var centre := Vector2(W / 2.0, H / 2.0)
+		# A great circle seen edge-on IS the rim (semi-axes R, R, centred). The
+		# canvas clipped that stroke to its inner half, so draw exactly that
+		# half: a strict inside test would drop every other sample to rounding
+		# and dash it, and a loose one draws it twice as heavy as the page.
+		if c.distance_to(centre) < 0.01 and minf(rx, ry) >= clip_r * 0.999:
+			over.draw_arc(centre, clip_r - width * 0.25, 0.0, TAU, 256, col, width * 0.5, true)
+			return
 		var cr := cos(rot); var sr := sin(rot)
 		var seg := PackedVector2Array()
 		var steps := 256
@@ -564,13 +571,18 @@ func update(s: Dictionary) -> void:
 	var vsv := clampf(float(U.nz(t.get("vertical"), 0.0)) / 400.0, -1.0, 1.0)
 	vs.set_frac(float(U.fixed(50.0 + vsv * 46.0, 1)) / 100.0)
 
+	# `(t.x || 0)` in the page, for the rows that wrote it that way ...
 	var tf := func(k: String) -> float: return float(U.nz(t.get(k), 0.0))
+	# ... and the bare `t.x` for the ones that did not: in interstellar cruise
+	# there is no altitude or speed about a parent, and fmtDist(undefined) is
+	# the dash, not "0 m".
+	var tn := func(k: String) -> float: return float(U.nz(t.get(k), NAN))
 	var mach: float = tf.call("mach")
 	var period = t.get("period")
 	var rows := [
-		["altitude", fmt_dist(tf.call("alt"))],
-		["speed", fmt_speed(tf.call("speed"))],
-		["vertical", fmt_speed(tf.call("vertical"))],
+		["altitude", fmt_dist(tn.call("alt"))],
+		["speed", fmt_speed(tn.call("speed"))],
+		["vertical", fmt_speed(tn.call("vertical"))],
 		["apoapsis", fmt_dist(t.apo) if is_finite(float(U.nz(t.get("apo"), INF))) else "escape"],
 		["periapsis", fmt_dist(float(U.nz(t.get("peri"), NAN)))],
 		["period", Guidance.fmt_dur(period) if period != null and period != 0.0 and is_finite(period) else "—"],

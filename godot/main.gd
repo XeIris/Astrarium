@@ -1950,7 +1950,9 @@ func _process(real_dt: float) -> void:
 	# than letting one long frame jump the whole state forward.
 	var dt: float = float(manual_dt) if manual_dt != null else minf(real_dt, 0.05)
 	manual_dt = null
-	if _cmd.has("out"): dt = float(_cmd.get("dt", "0.0166666667"))
+	# 1.0/60.0 exactly, as SIM.frame(1 / 60): "0.0166666667" is 1e-11 off, which
+	# a flight at 10⁶× warp turns into whole seconds of MET.
+	if _cmd.has("out"): dt = float(_cmd.dt) if _cmd.has("dt") else 1.0 / 60.0
 	animate(dt)
 	_shot_tick()
 
