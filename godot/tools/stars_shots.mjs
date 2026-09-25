@@ -49,5 +49,5 @@ const shots = [
 // that was captured and the state that was dumped. Paused, only the shader
 // clocks creep (dt·0 + 1e-4 per frame) — and the flashes, which run on wall
 // time; tools/startest.gd rebuilds those from their dumped opacity.
-for (const s of shots) { s.dump = dump; s.frames ??= 30; s.setup += ' SIM.state.paused = true;'; }
+for (const s of shots) { s.dump = dump; s.frames ??= 30; s.freeze = true; s.setup += ' SIM.state.paused = true;'; }
 process.stdout.write(JSON.stringify(shots, null, 1));
