@@ -181,7 +181,7 @@ func nearest_mark(lm: float):
 	return best
 
 # --- drawing --------------------------------------------------------------
-func _paint() -> void:
+func _paint(ci: CanvasItem) -> void:
 	var W := bw; var H := bh
 	var plotH := H - PAD_T - PAD_B
 	if spec == null:
@@ -210,11 +210,11 @@ func _paint() -> void:
 	var unit := radius_unit(pow(10.0, y1))
 	for d in range(int(ceil(y0)), int(floor(y1)) + 1):
 		var y: float = Y.call(float(d))
-		draw_line(Vector2(PAD_L, y), Vector2(W - PAD_R, y), grid, 1.0, true)
+		ci.draw_line(Vector2(PAD_L, y), Vector2(W - PAD_R, y), grid, 1.0, true)
 		var v := pow(10.0, d) * float(unit.k)
 		var t := U.expo(v, 0).replace("e+", "e") if (v >= 1e4 or v < 0.01) else Structure._num(float(U.prec(v, 2)))
-		CrossSection.fill_text(self, t, PAD_L - 4.0, y, 9, lab, "right", "middle")
-	CrossSection.fill_text(self, unit.name, 2, PAD_T - 6.0, 9, lab, "left", "middle")
+		CrossSection.fill_text(ci, t, PAD_L - 4.0, y, 9, lab, "right", "middle")
+	CrossSection.fill_text(ci, unit.name, 2, PAD_T - 6.0, 9, lab, "left", "middle")
 	# Every decade gets a gridline; only some get a label. Ten decades across
 	# 300 px is 30 px each and "0.033 M⊕" is 50 wide, so labelling them all
 	# produces a smear rather than an axis.
@@ -222,20 +222,20 @@ func _paint() -> void:
 	var label_every := maxi(1, int(ceil(56.0 / maxf(per_decade, 1.0))))
 	for d in range(int(ceil(view[0])), int(floor(view[1])) + 1):
 		var x := _X(float(d))
-		draw_line(Vector2(x, PAD_T), Vector2(x, H - PAD_B), grid, 1.0, true)
+		ci.draw_line(Vector2(x, PAD_T), Vector2(x, H - PAD_B), grid, 1.0, true)
 		if posmod(d, label_every) != 0: continue
-		CrossSection.fill_text(self, fmt_mass_short(pow(10.0, d)), x, H - PAD_B + 4.0, 9, Color8(150, 175, 210, 115), "center", "top")
+		CrossSection.fill_text(ci, fmt_mass_short(pow(10.0, d)), x, H - PAD_B + 4.0, 9, Color8(150, 175, 210, 115), "center", "top")
 
 	# --- dead zones: masses with no equilibrium at all
 	for ab in dead:
-		draw_rect(Rect2(_X(ab[0]), PAD_T, maxf(_X(ab[1]) - _X(ab[0]), 1.5), plotH), Color8(255, 90, 90, 26))
+		ci.draw_rect(Rect2(_X(ab[0]), PAD_T, maxf(_X(ab[1]) - _X(ab[0]), 1.5), plotH), Color8(255, 90, 90, 26))
 
 	# --- regime boundaries, drawn before the curve so the curve sits on top
 	for mk in marks:
 		var x := _X(mk.lm)
 		if x < PAD_L or x > W - PAD_R: continue
 		var c := Color8(255, 120, 120, 191) if mk.bad else Color8(150, 200, 255, 140)
-		CrossSection.stroke_line(self, Vector2(x, PAD_T), Vector2(x, H - PAD_B), c, 1.0, [3.0, 3.0])
+		CrossSection.stroke_line(ci, Vector2(x, PAD_T), Vector2(x, H - PAD_B), c, 1.0, [3.0, 3.0])
 
 	# --- the curve, coloured by what the object IS at that mass
 	var run: Array = []
@@ -243,7 +243,7 @@ func _paint() -> void:
 		if r.size() < 2: return
 		var pts := PackedVector2Array()
 		for s in r: pts.append(Vector2(_X(s.lm), Y.call(s.ly)))
-		draw_polyline(pts, type_color(r[0].type), 2.0, true)
+		ci.draw_polyline(pts, type_color(r[0].type), 2.0, true)
 	for s in samples:
 		if s == null:
 			flush.call(run); run = []
@@ -269,8 +269,8 @@ func _paint() -> void:
 		var tx := minf(x + 3.0, W - PAD_R - w - 1.0)
 		row_end[row] = tx + w
 		var ty := PAD_T + 1.0 + row * 12.0
-		draw_rect(Rect2(tx - 2.0, ty, w + 4.0, 11.0), Color8(8, 10, 16, 184))
-		CrossSection.fill_text(self, txt, tx, ty + 1.0, 9, HudTheme.hexc(0xff9a9a) if mk.bad else HudTheme.hexc(0xa9cdf5), "left", "top")
+		ci.draw_rect(Rect2(tx - 2.0, ty, w + 4.0, 11.0), Color8(8, 10, 16, 184))
+		CrossSection.fill_text(ci, txt, tx, ty + 1.0, 9, HudTheme.hexc(0xff9a9a) if mk.bad else HudTheme.hexc(0xa9cdf5), "left", "top")
 
 	# --- the handle: where this body sits on its own curve
 	var lm := U.log10(maxf(float(spec.mass), 1e-12))
@@ -278,11 +278,11 @@ func _paint() -> void:
 		var st := Structure.structure_of(_with_mass(spec, pow(10.0, lm)))
 		var r := CrossSection.num(st.get("radiusAU"))
 		var x := _X(lm)
-		CrossSection.stroke_line(self, Vector2(x, PAD_T), Vector2(x, H - PAD_B), Color(1, 1, 1, 0.35), 1.0, [2.0, 3.0])
+		CrossSection.stroke_line(ci, Vector2(x, PAD_T), Vector2(x, H - PAD_B), Color(1, 1, 1, 0.35), 1.0, [2.0, 3.0])
 		if r > 0.0:
 			var y: float = Y.call(U.log10(r))
-			draw_circle(Vector2(x, y), 4.5, Color.WHITE, true, -1.0, true)
-			draw_arc(Vector2(x, y), 4.5, 0.0, TAU, 32, DEAD if _bad(st) else type_color(st.get("type")), 2.0, true)
+			ci.draw_circle(Vector2(x, y), 4.5, Color.WHITE, true, -1.0, true)
+			ci.draw_arc(Vector2(x, y), 4.5, 0.0, TAU, 32, DEAD if _bad(st) else type_color(st.get("type")), 2.0, true)
 
 # --- interaction ----------------------------------------------------------
 # Dragging the handle is the same edit the mass slider makes; the graph is a
@@ -326,7 +326,7 @@ func draw_curve(new_spec: Dictionary, new_range = null) -> void:
 		view = [c - half, c + half]
 	else:
 		view = [minf(range_[0], lm - 0.02), maxf(range_[1], lm + 0.02)]
-	queue_redraw()
+	repaint()
 
 func set_focus(v: bool) -> void:
 	focus = v

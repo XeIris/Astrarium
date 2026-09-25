@@ -203,7 +203,9 @@ static var VERDICT_VARS := [
 ## Give an element the .fd-verdict rule (a mount the HUD made, or our own).
 static func verdict_box(e: El) -> El:
 	e.set_style(VERDICT_STYLE)
-	e.variants = VERDICT_VARS.duplicate(true)
+	e.variants = []
+	for v in VERDICT_VARS:
+		e.variants.append([v[0], El._expand(v[1])])
 	e._recompute()
 	return e
 
@@ -533,11 +535,10 @@ class LiveEditor extends RefCounted:
 			el.changed.connect(func(v: float):
 				dragging = id
 				readouts()
-				match id:
-					"leMass": queue({"mass": pow(10.0, v)})
-					"leSpin": queue({"spinFrac": v})
-					"lePhase": queue({"phase": v})
-					_: queue({"Z": v}))
+				if id == "leMass": queue({"mass": pow(10.0, v)})
+				elif id == "leSpin": queue({"spinFrac": v})
+				elif id == "lePhase": queue({"phase": v})
+				else: queue({"Z": v}))
 		rows.comp.changed.connect(func(v): queue({"composition": v}))
 		mount.touch()
 
@@ -656,7 +657,7 @@ class SelectEl extends El:
 		# .fd-select: flex 1; bg rgba(0,0,0,.4); border; text; mono 10px;
 		# padding 4px 6px — plus the UA's room for the arrow on the right.
 		super({"grow": 1.0, "shrink": 1.0, "basis": 0.0, "bg": T.rgba(0, 0, 0, 0.4), "b": [1, T.BORDER],
-			"c": T.TEXT, "ff": "mono", "fs": 10.0, "p": [4, 26, 4, 6], "nw": true, "clip": true})
+			"c": T.TEXT, "ff": "mono", "fs": 10.0, "p": [4, 26, 4, 6], "nw": true, "clip": true, "lh": 13.0})
 		make_clickable()
 		pressed.connect(_open)
 

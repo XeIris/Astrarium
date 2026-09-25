@@ -825,6 +825,13 @@ func _build_atoms() -> Array:
 				if ch == "—" and i < t.length() - 1 and t[i + 1] != " " and not nw:
 					out.append({"t": word, "w": HudTheme.text_w(st.font, word, st.fs, st.ls), "r": r, "st": st})
 					word = ""
+				# so is a hyphen inside a word (class HY: "Pre-|collapse"), but
+				# not before a digit ("1e-7") — the Foundry's "Life burned"
+				# readout wraps there on the page
+				elif ch == "-" and word.length() > 1 and i < t.length() - 1 and not nw \
+						and not (t[i + 1] in " 0123456789"):
+					out.append({"t": word, "w": HudTheme.text_w(st.font, word, st.fs, st.ls), "r": r, "st": st})
+					word = ""
 		if word != "":
 			out.append({"t": word, "w": HudTheme.text_w(st.font, word, st.fs, st.ls), "r": r, "st": st})
 	return out

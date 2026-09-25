@@ -82,6 +82,17 @@ const dumpFd = `${rects}
       comp: document.getElementById('fdComp').value },
     facts: [...document.querySelectorAll('#fdFacts > div')].map(d => d.textContent),
     verdict: document.getElementById('fdVerdict').textContent,
+    // what the Spawn button actually hands the scene: click it and read the
+    // spawned body's spec back (after the capture, so the shot is unaffected)
+    spawn: (() => {
+      const n = SIM.state.bodies.length;
+      document.getElementById('fdSpawn').click();
+      const b = SIM.state.bodies[SIM.state.bodies.length - 1];
+      if (SIM.state.bodies.length === n || !b) return null;
+      const s = { ...b.spec };
+      for (const k of ['pos', 'vel', 'seed', 'atmosphere']) delete s[k];
+      return s;
+    })(),
   };`;
 
 const H = 1400;

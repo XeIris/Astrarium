@@ -246,6 +246,9 @@ static func font(fw := 400) -> Font:
 static func text_w(s: String, fs: float, fw := 400) -> float:
 	return HudTheme.text_w(font(fw), s, fs, 0.0)
 
+static var MIDDLE_EM := 0.24
+static var ROUND_Y := true
+
 ## ctx.fillText with textAlign / textBaseline, glyph by glyph at Blink advances.
 static func fill_text(ci: CanvasItem, s: String, x: float, y: float, fs: float, col: Color,
 		align := "left", base := "alphabetic", fw := 400) -> void:
@@ -253,11 +256,22 @@ static func fill_text(ci: CanvasItem, s: String, x: float, y: float, fs: float, 
 	var w := HudTheme.text_w(f, s, fs, 0.0)
 	if align == "center": x -= w * 0.5
 	elif align == "right": x -= w
+	# textBaseline offsets. Chrome's canvas measures 'top' on the EM BOX —
+	# the font's ascent and descent normalised to sum to one em (Menlo:
+	# 0.797 / 0.203) — not on the hhea ascent the page's own line boxes use
+	# (0.928 / 0.236); with the hhea number every 9 px 'top' label sat 0.9 px
+	# low against the web shots. 'middle' is MEASURED (MIDDLE_EM): 0.24 em
+	# puts the 9 and 10 px labels of the diagram and the curve's axis within
+	# 0.05 px of the web's ink centroids, where (a − d)/2 on either metric was
+	# 0.4–0.6 px low. The baseline then goes to the nearest whole pixel row.
 	var m := HudTheme.metrics(f)
+	var ea := m.x / (m.x + m.y)
+	var ed := m.y / (m.x + m.y)
 	match base:
-		"middle": y += (m.x - m.y) * fs * 0.5
-		"top": y += m.x * fs
-		"bottom": y -= m.y * fs
+		"middle": y += MIDDLE_EM * fs
+		"top": y += ea * fs
+		"bottom": y -= ed * fs
+	if ROUND_Y: y = floorf(y + 0.5)
 	var isz := int(roundf(fs))
 	var xx := x
 	for i in s.length():
@@ -422,37 +436,90 @@ static func draw_temp_legend(ci: CanvasItem, W: float, H: float) -> void:
 		fill_text(ci, tk[1], minf(maxf(x, 1.0), W - 1.0), barH + 12.0, 8, col, al)
 
 # ============================================================================
-# The two canvases as El nodes: `width: 100%; height: auto` over a W × H bitmap.
-# The arithmetic above is the canvas's own; the content box scales it.
+# The canvases as El nodes: `width: 100%; height: auto` over a W × H bitmap.
+#
+# The web RASTERISED each diagram at its bitmap size and the compositor then
+# scaled the finished bitmap into the CSS box (330 → 314 px here, 300 → 266 in
+# the Foundry). That resampling is part of how the page looks — a 1 px canvas
+# line becomes a 0.95 px soft one, 9 px canvas text is slightly blurred — so
+# it is reproduced rather than drawn around: the diagram is painted into a
+# SubViewport of exactly the bitmap's size, only when it changes, and that
+# texture is drawn into the content box with linear filtering. A 2D viewport
+# with a transparent background stores colour premultiplied by the blend, so
+# the texture is composited with a premultiplied-alpha material.
 # ============================================================================
 class BitmapCanvas extends El:
 	var bw := 300.0
 	var bh := 230.0
+	var _vp: SubViewport
+	var _painter: _Painter
+	var _tex: TextureRect
+
 	func _init(w: float, h: float, style: Dictionary = {}) -> void:
 		bw = w; bh = h
 		var s := {"aspect": h / w}
 		s.merge(style, true)
 		super(s)
+		_vp = SubViewport.new()
+		_vp.transparent_bg = true
+		_vp.disable_3d = true
+		_vp.size = Vector2i(int(w), int(h))
+		_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+		_painter = _Painter.new()
+		_painter.owner_canvas = self
+		_painter.size = Vector2(w, h)
+		_vp.add_child(_painter)
+		add_child(_vp, false, Node.INTERNAL_MODE_BACK)
+		_tex = TextureRect.new()
+		_tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_tex.stretch_mode = TextureRect.STRETCH_SCALE
+		_tex.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		_tex.texture = _vp.get_texture()
+		var m := CanvasItemMaterial.new()
+		m.blend_mode = CanvasItemMaterial.BLEND_MODE_PREMULT_ALPHA
+		_tex.material = m
+		add_child(_tex, false, Node.INTERNAL_MODE_BACK)
+
 	func set_bitmap(w: float, h: float) -> void:
 		bw = w; bh = h
+		_vp.size = Vector2i(int(w), int(h))
+		_painter.size = Vector2(w, h)
 		set_style({"aspect": h / w})
-	## The content box (inside the border) and the bitmap → box scale.
+		repaint()
+
+	## The drawing changed: paint the bitmap again (once).
+	func repaint() -> void:
+		_painter.queue_redraw()
+		_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+		queue_redraw()
+
+	## The content box (inside the border).
 	func inner() -> Rect2:
 		return Rect2(Vector2(gf("bl"), gf("bt")), size - Vector2(gf("bl") + gf("br"), gf("bt") + gf("bb")))
+
 	func _draw_extra() -> void:
-		var r := inner()
-		if r.size.x <= 0.0 or r.size.y <= 0.0:
-			return
-		draw_set_transform(r.position, 0.0, Vector2(r.size.x / bw, r.size.y / bh))
-		_paint()
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	## Override: draw in bitmap px.
-	func _paint() -> void:
+		# the bitmap's box, snapped to device pixels as the compositor does
+		var r := _snap(inner())
+		_tex.position = r.position
+		_tex.size = r.size
+
+	## Override: draw onto `ci` in bitmap px.
+	func _paint(_ci: CanvasItem) -> void:
 		pass
+
 	## Local point → bitmap px, as the web's pick() does it: against the
 	## element's border box (getBoundingClientRect), not its content box.
 	func to_bitmap(p: Vector2) -> Vector2:
 		return Vector2(p.x * bw / maxf(size.x, 1.0), p.y * bh / maxf(size.y, 1.0))
+
+class _Painter extends Control:
+	var owner_canvas: BitmapCanvas
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		if owner_canvas:
+			owner_canvas._paint(self)
 
 class XsecCanvas extends BitmapCanvas:
 	var st: Dictionary = {}
@@ -461,12 +528,13 @@ class XsecCanvas extends BitmapCanvas:
 		super(w, h, style)
 	func set_structure(structure: Dictionary, o: Dictionary = {}) -> void:
 		st = structure; opts = o
-		queue_redraw()
-	func _paint() -> void:
-		CrossSection.draw_cross_section(self, bw, bh, st, opts)
+		repaint()
+	func _paint(ci: CanvasItem) -> void:
+		CrossSection.draw_cross_section(ci, bw, bh, st, opts)
 
 class LegendCanvas extends BitmapCanvas:
 	func _init(w := 330.0, h := 26.0, style: Dictionary = {}) -> void:
 		super(w, h, style)
-	func _paint() -> void:
-		CrossSection.draw_temp_legend(self, bw, bh)
+		repaint()
+	func _paint(ci: CanvasItem) -> void:
+		CrossSection.draw_temp_legend(ci, bw, bh)
