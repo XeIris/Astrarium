@@ -228,22 +228,22 @@ class Autopilot extends RefCounted:
 		var A := ascent
 		var t := v.telemetry
 		var env: Dictionary = v.env
-		DQuat.nrm(_up.copy_from(v.r))
+		DQuat.nrm(Guidance._up.copy_from(v.r))
 		# The launch azimuth that reaches the requested inclination, from the
 		# spherical-triangle relation cos(i) = cos(lat)·sin(az). A site cannot
 		# reach an inclination below its own latitude, which is why Baikonur
 		# cannot launch to 28.5° and why this clamps rather than pretending.
-		var lat := asin(DQuat.jclamp(-_up.y, -1.0, 1.0))
+		var lat := asin(DQuat.jclamp(-Guidance._up.y, -1.0, 1.0))
 		var inc: float = A.inclination * PI / 180.0
 		var sin_az := DQuat.jclamp(cos(inc) / maxf(cos(lat), 1e-3), -1.0, 1.0)
 		var az := asin(sin_az)
-		_b.set_v(0.0, -1.0, 0.0)
-		DQuat.nrm(_c.cross_vectors(_b, _up))                 # local east
-		DQuat.nrm(_d.cross_vectors(_up, _c))                 # local north
-		var heading := DQuat.nrm(_e.copy_from(_c).scale_in(sin(az)).add_scaled_in(_d, cos(az))).clone()
+		Guidance._b.set_v(0.0, -1.0, 0.0)
+		DQuat.nrm(Guidance._c.cross_vectors(Guidance._b, Guidance._up))                 # local east
+		DQuat.nrm(Guidance._d.cross_vectors(Guidance._up, Guidance._c))                 # local north
+		var heading := DQuat.nrm(Guidance._e.copy_from(Guidance._c).scale_in(sin(az)).add_scaled_in(Guidance._d, cos(az))).clone()
 
-		v.airspeed(v.r, v.v, _a)
-		var v_surf := _a.length()
+		v.airspeed(v.r, v.v, Guidance._a)
+		var v_surf := Guidance._a.length()
 		var alt := v.altitude()
 		var a_thrust := full_thrust(pa) / maxf(v.mass, 1.0)
 		var g_loc: float = env.mu / v.r.length_sq()
@@ -259,7 +259,7 @@ class Autopilot extends RefCounted:
 			state_name = "vertical"
 			note("Ascent — vertical rise")
 			pitch_deg = 90.0
-			return _a.copy_from(_up)
+			return Guidance._a.copy_from(Guidance._up)
 
 		# ---- phase 2: the pitch program, flown inside an angle-of-attack limit.
 		#
@@ -274,17 +274,17 @@ class Autopilot extends RefCounted:
 			state_name = "turn"
 			var x := DQuat.jclamp(v_surf / A.turnEndV, 0.0, 1.0)
 			var prog := (PI / 2.0) * pow(1.0 - x, A.turnExp)
-			var dir: DVec3 = DQuat.nrm(_b.copy_from(v.airspeed(v.r, v.v, _b))) if v_surf > 1.0 else _b.copy_from(_up)
-			var pro_pitch := asin(DQuat.jclamp(dir.dot(_up), -1.0, 1.0))
+			var dir: DVec3 = DQuat.nrm(Guidance._b.copy_from(v.airspeed(v.r, v.v, Guidance._b))) if v_surf > 1.0 else Guidance._b.copy_from(Guidance._up)
+			var pro_pitch := asin(DQuat.jclamp(dir.dot(Guidance._up), -1.0, 1.0))
 			var a_max := DQuat.jclamp(v.vehicle.limits.qAlpha / maxf(t.q, 1.0), 0.008, 0.30)
 			var pitch := DQuat.jclamp(prog, pro_pitch - a_max, pro_pitch + a_max)
 			pitch_deg = pitch * 180.0 / PI
 			say("Ascent — pitch program %s°, q %s kPa" % [U.fixed(pitch * 180.0 / PI, 0), U.fixed(t.q / 1000.0, 1)])
 			# Horizontal component follows the launch azimuth until there is a real
 			# orbital plane to follow, then the plane itself.
-			_c.copy_from(v.v).add_scaled_in(_up, -v.v.dot(_up))
-			var horiz: DVec3 = DQuat.nrm(_c) if _c.length_sq() > 4e4 else _c.copy_from(heading)
-			return DQuat.nrm(_a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(_up, sin(pitch)))
+			Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
+			var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
+			return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 
 		# ---- phase 3: closed loop, out of the air.
 		#
@@ -309,9 +309,9 @@ class Autopilot extends RefCounted:
 			note("MECO — %s × %s km, coasting" % [U.fixed(apo_alt / 1000.0, 0), U.fixed((el.rp - env.radius) / 1000.0, 0)])
 			engage("circularize")
 			return Guidance.attitude_for(MODE.PROGRADE, v)
-		var v_vert := v.v.dot(_up)
-		_c.copy_from(v.v).add_scaled_in(_up, -v_vert)
-		var v_horiz := _c.length()
+		var v_vert := v.v.dot(Guidance._up)
+		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert)
+		var v_horiz := Guidance._c.length()
 		var R := v.r.length()
 		var want_vert := DQuat.jclamp((A.targetApo - alt) / A.climbTime, 0.0, 1500.0)
 		# The vertical acceleration the engine must supply: hold the vehicle up
@@ -330,9 +330,9 @@ class Autopilot extends RefCounted:
 			-0.10, 0.95)
 		pitch_deg = pitch * 180.0 / PI
 		say("Ascent — closed loop · apo %s/%s km, pitch %s°" % [U.fixed(apo_alt / 1000.0, 0), U.fixed(A.targetApo / 1000.0, 0), U.fixed(pitch * 180.0 / PI, 0)])
-		_c.copy_from(v.v).add_scaled_in(_up, -v.v.dot(_up))
-		var horiz: DVec3 = DQuat.nrm(_c) if _c.length_sq() > 4e4 else _c.copy_from(heading)
-		return DQuat.nrm(_a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(_up, sin(pitch)))
+		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
+		var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
+		return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 
 	# -------------------------------------------------------------------------
 	# NODES
@@ -378,11 +378,11 @@ class Autopilot extends RefCounted:
 	func circularize_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var t := v.telemetry
-		DQuat.nrm(_up.copy_from(v.r))
+		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var R := v.r.length()
-		var v_vert := v.v.dot(_up)
-		_c.copy_from(v.v).add_scaled_in(_up, -v_vert)
-		var v_horiz := _c.length()
+		var v_vert := v.v.dot(Guidance._up)
+		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert)
+		var v_horiz := Guidance._c.length()
 		var target_r: float = ascent.targetApo + env.radius
 
 		# Done when the PERIAPSIS is where it was asked to be, or when the orbit is
@@ -439,8 +439,8 @@ class Autopilot extends RefCounted:
 		v.throttle = limit_throttle(1.0, pa, dt)
 		say("Insertion burn — %s × %s km, e %s, Δv %s m/s" % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 3), U.fixed(dv_need, 0)])
 		if full_thrust(pa) <= 0.0 and v.next_stage != null: v.stage()
-		var horiz: DVec3 = DQuat.nrm(_c) if v_horiz > 50.0 else _c.copy_from(v.forward(_d))
-		return DQuat.nrm(_a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(_up, sin(pitch)))
+		var horiz: DVec3 = DQuat.nrm(Guidance._c) if v_horiz > 50.0 else Guidance._c.copy_from(v.forward(Guidance._d))
+		return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 
 	## Execute a node. The three parts that make this reliable:
 	##   · point at the node vector and WAIT — a burn started before the vehicle
@@ -462,7 +462,7 @@ class Autopilot extends RefCounted:
 			node_t = nd.t
 			node_dv_total = (nd.dv as DVec3).length()
 			burn_remaining = node_dv_total
-		var dir := DQuat.nrm(_a.copy_from(node_vec))
+		var dir := DQuat.nrm(Guidance._a.copy_from(node_vec))
 		# Nothing lit and nothing left to burn in what IS lit: the next stage has
 		# to be ignited before there is a burn to execute at all. This is the case
 		# where an ascent reaches its target apoapsis mid-stage — Apollo's S-II cut
@@ -496,7 +496,7 @@ class Autopilot extends RefCounted:
 		# it cannot turn without thrusting and will not thrust until it has turned.
 		# 20° is loose enough to break that and tight enough that the loss (6%) is
 		# charged honestly to the burn.
-		var err := DQuat.angle_between(v.forward(_b), dir)
+		var err := DQuat.angle_between(v.forward(Guidance._b), dir)
 		v.throttle = limit_throttle(1.0, pa, dt) if err < 0.35 else 0.0
 		if prop.F > 0.0: burn_remaining -= (prop.F / v.mass) * cos(err) * dt
 		if burn_remaining <= 0.05 or v.delta_v_remaining(pa) < 0.01:
@@ -613,10 +613,10 @@ class Autopilot extends RefCounted:
 			# (the second case — heliocentric-to-heliocentric — is the same
 			# arithmetic, written out twice in the JS)
 			var r1 := v.r.length()
-			var r2 := _a.sub_vectors(tgt.pos, v.parent.pos).scale_in(Rocketry.AU_M).length()
+			var r2 := Guidance._a.sub_vectors(tgt.pos, v.parent.pos).scale_in(Rocketry.AU_M).length()
 			var h := Orbit.hohmann(v.env.mu, r1, r2)
 			var want: float = h.phase
-			var now := Orbit.phase_angle(v.r, _a)
+			var now := Orbit.phase_angle(v.r, Guidance._a)
 			var wait := want - now
 			while wait < 0.0: wait += 2.0 * PI
 			var T1: float = v.telemetry.el.period
@@ -634,7 +634,7 @@ class Autopilot extends RefCounted:
 		var soi := Orbit.sphere_of_influence(a_au * Rocketry.AU_M, v.parent.mass, dominant.mass)
 		var mu_p: float = Rocketry.GM_SUN * dominant.mass
 		var r1b := a_au * Rocketry.AU_M
-		var r2b := _a.sub_vectors(tgt.pos, dominant.pos).scale_in(Rocketry.AU_M).length()
+		var r2b := Guidance._a.sub_vectors(tgt.pos, dominant.pos).scale_in(Rocketry.AU_M).length()
 		var hb := Orbit.hohmann(mu_p, r1b, r2b)
 		# v∞ needed, then the burn from the current orbit — the Oberth saving is
 		# the difference between these two, and it is large.
@@ -674,11 +674,11 @@ class Autopilot extends RefCounted:
 			p.waitS -= dt
 			v.throttle = 0.0
 			say("Transfer window in %s — phase %s°, want %s°" % [Guidance.fmt_dur(p.waitS),
-				U.fixed(Orbit.phase_angle(v.r, _a.sub_vectors(target.pos, v.parent.pos)) * 180.0 / PI, 1),
+				U.fixed(Orbit.phase_angle(v.r, Guidance._a.sub_vectors(target.pos, v.parent.pos)) * 180.0 / PI, 1),
 				U.fixed(p.phase * 180.0 / PI, 1)])
 			return Guidance.attitude_for(MODE.PROGRADE, v)
 		if node == null:
-			node = { "dv": DQuat.nrm(_a.copy_from(v.v)).scale_in(p.dv1).clone(), "t": 0.0, "label": p.label }
+			node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(p.dv1).clone(), "t": 0.0, "label": p.label }
 		return node_guidance(dt, pa, node)
 
 	# -------------------------------------------------------------------------
@@ -688,16 +688,16 @@ class Autopilot extends RefCounted:
 	## (gravity already added back), in the parent frame, written into `out`.
 	func quadratic(rT: DVec3, vT: DVec3, tgo: float, out: DVec3) -> DVec3:
 		# Δr = r_T − r − v·t_go , Δv = v_T − v
-		_b.copy_from(rT).sub_in(v.r).add_scaled_in(v.v, -tgo)
-		_c.copy_from(vT).sub_in(v.v)
-		out.copy_from(_b).scale_in(6.0 / (tgo * tgo)).add_scaled_in(_c, -2.0 / tgo)
+		Guidance._b.copy_from(rT).sub_in(v.r).add_scaled_in(v.v, -tgo)
+		Guidance._c.copy_from(vT).sub_in(v.v)
+		out.copy_from(Guidance._b).scale_in(6.0 / (tgo * tgo)).add_scaled_in(Guidance._c, -2.0 / tgo)
 		# the engine also has to hold the vehicle up
-		v.gravity(v.r, _d)
-		out.sub_in(_d)
+		v.gravity(v.r, Guidance._d)
+		out.sub_in(Guidance._d)
 		return out
 
 	## THE TERMINAL DESCENT LAW — one controller, used by every landing.
-	## Returns the commanded thrust acceleration in the shared scratch _e.
+	## Returns the commanded thrust acceleration in the shared scratch Guidance._e.
 	##
 	## The vertical and lateral axes are treated SEPARATELY, and that separation
 	## is the whole design. A single three-dimensional "fly to the target" law
@@ -728,11 +728,11 @@ class Autopilot extends RefCounted:
 			dec_frac: float = 0.6, v_cap: float = INF, hold_below: float = 0.0) -> DVec3:
 		var env: Dictionary = v.env
 		var alt := maxf(v.altitude(), 0.0)
-		DQuat.nrm(_up.copy_from(v.r))
+		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var g: float = env.mu / maxf(v.r.length_sq(), 1.0)
-		v.airspeed(v.r, v.v, _g)
-		var v_vert := _g.dot(_up)
-		_b.copy_from(_g).add_scaled_in(_up, -v_vert)           # lateral drift
+		v.airspeed(v.r, v.v, Guidance._g)
+		var v_vert := Guidance._g.dot(Guidance._up)
+		Guidance._b.copy_from(Guidance._g).add_scaled_in(Guidance._up, -v_vert)           # lateral drift
 
 		var a_dec := maxf(dec_frac * (a_max - g), 0.05)
 		# The reference is also CAPPED. Without a cap it is whatever the vehicle
@@ -769,18 +769,18 @@ class Autopilot extends RefCounted:
 		var a_vert := maxf(g + a_ff + (vref - v_vert) / tau, floor_a)
 
 		# lateral: kill the drift, and lean gently toward the site
-		_c.set_v(0.0, 0.0, 0.0)
+		Guidance._c.set_v(0.0, 0.0, 0.0)
 		if site != null:
-			_c.sub_vectors(site, v.r)
-			_c.add_scaled_in(_up, -_c.dot(_up))
-			var off := _c.length()
+			Guidance._c.sub_vectors(site, v.r)
+			Guidance._c.add_scaled_in(Guidance._up, -Guidance._c.dot(Guidance._up))
+			var off := Guidance._c.length()
 			# Deliberately weak, and capped hard. Landing on the exact spot is worth
 			# something; not landing sideways is worth more. A strong site-seeking
 			# term fights the drift-killing term whenever the vehicle is already
 			# moving toward the site, and the two settle at a lateral speed neither
 			# of them wanted.
-			if off > 1e-3: _c.scale_in(minf(off, 25.0) / off * 0.02)
-		_d.copy_from(_b).scale_in(-1.0 / (tau * 0.7)).add_in(_c)
+			if off > 1e-3: Guidance._c.scale_in(minf(off, 25.0) / off * 0.02)
+		Guidance._d.copy_from(Guidance._b).scale_in(-1.0 / (tau * 0.7)).add_in(Guidance._c)
 		# The lateral authority is a fraction of the ENGINE, not a fraction of
 		# whatever the vertical channel happens to be asking for right now. Tying
 		# it to the vertical command starves the lateral axis exactly when the
@@ -789,10 +789,10 @@ class Autopilot extends RefCounted:
 		# a tenth of a g of lateral correction and leaves the lander to arrive with
 		# most of its approach speed intact.
 		var max_lat := a_max * sin(max_tilt_rad)
-		if _d.length() > max_lat: DQuat.set_len(_d, max_lat)
+		if Guidance._d.length() > max_lat: DQuat.set_len(Guidance._d, max_lat)
 
-		v_ref = vref; v_vert_now = v_vert; lat_now = _b.length()
-		return _e.copy_from(_up).scale_in(a_vert).add_in(_d)
+		v_ref = vref; v_vert_now = v_vert; lat_now = Guidance._b.length()
+		return Guidance._e.copy_from(Guidance._up).scale_in(a_vert).add_in(Guidance._d)
 
 	## Keep a commanded thrust direction inside what the airframe can take.
 	##
@@ -806,21 +806,21 @@ class Autopilot extends RefCounted:
 		var t := v.telemetry
 		var tq: float = t.get("q", 0.0)
 		if v.env.atm == null or not (tq > 200.0): return DQuat.nrm(out.copy_from(cmd))
-		v.airspeed(v.r, v.v, _air)
-		var va := _air.length()
+		v.airspeed(v.r, v.v, Guidance._air)
+		var va := Guidance._air.length()
 		if va < 1.0: return DQuat.nrm(out.copy_from(cmd))
-		_air.scale_in(-1.0 / va)                       # retrograde, the aligned attitude
+		Guidance._air.scale_in(-1.0 / va)                       # retrograde, the aligned attitude
 		DQuat.nrm(out.copy_from(cmd))
 		# 0.85 of the limit, because the limit is where the vehicle breaks and
 		# steering to exactly there leaves nothing for a gust or a lag.
 		var a_max_rad := DQuat.jclamp(0.85 * v.vehicle.limits.qAlpha / tq, 0.01, PI)
-		var ang := DQuat.angle_between(out, _air)
+		var ang := DQuat.angle_between(out, Guidance._air)
 		if ang <= a_max_rad: return out
 		# rotate `out` toward the airstream until it is within the limit
-		_c.cross_vectors(_air, out)
-		if _c.length_sq() < 1e-12: return out.copy_from(_air)
-		DQuat.nrm(_c)
-		return DQuat.apply_axis_angle(out.copy_from(_air), _c, a_max_rad)
+		Guidance._c.cross_vectors(Guidance._air, out)
+		if Guidance._c.length_sq() < 1e-12: return out.copy_from(Guidance._air)
+		DQuat.nrm(Guidance._c)
+		return DQuat.apply_axis_angle(out.copy_from(Guidance._air), Guidance._c, a_max_rad)
 
 	## Carry the landing site round with the body it is on.
 	##
@@ -834,8 +834,8 @@ class Autopilot extends RefCounted:
 	## that class of error impossible rather than merely unlikely.
 	func spin_site(dt: float) -> void:
 		if site == null: return
-		_a.set_v(0.0, -v.env.rotRate, 0.0).cross_vectors(_a, site)
-		DQuat.set_len(site.add_scaled_in(_a, dt), v.env.radius)
+		Guidance._a.set_v(0.0, -v.env.rotRate, 0.0).cross_vectors(Guidance._a, site)
+		DQuat.set_len(site.add_scaled_in(Guidance._a, dt), v.env.radius)
 
 	func landing_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
@@ -843,8 +843,8 @@ class Autopilot extends RefCounted:
 		spin_site(dt)
 		var prof = v.vehicle.get("descent")
 		var alt := v.altitude()
-		DQuat.nrm(_up.copy_from(v.r))
-		var v_vert := v.v.dot(_up)
+		DQuat.nrm(Guidance._up.copy_from(v.r))
+		var v_vert := v.v.dot(Guidance._up)
 		var a_max := full_thrust(pa) / v.mass
 
 		if site == null:
@@ -861,8 +861,8 @@ class Autopilot extends RefCounted:
 			var rng := maxf((vh + v_gate) * 0.5 * maxf(vh - v_gate, 0.0) / brake,
 							(prof.hiGate.range if prof != null else 7000.0) * 2.0)
 			var ang: float = rng / env.radius
-			DQuat.nrm(_b.copy_from(v.v).add_scaled_in(_up, -v_vert))
-			site = _up.clone().scale_in(cos(ang)).add_scaled_in(_b, sin(ang)).scale_in(env.radius)
+			DQuat.nrm(Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert))
+			site = Guidance._up.clone().scale_in(cos(ang)).add_scaled_in(Guidance._b, sin(ang)).scale_in(env.radius)
 			state_name = "P63"
 			note("P63 — braking phase")
 		var st: DVec3 = site
@@ -870,18 +870,18 @@ class Autopilot extends RefCounted:
 		if state_name == "P63":
 			var gate: Dictionary = prof.hiGate if prof != null else { "alt": 2400.0, "range": 7000.0, "vVert": -45.0, "vHoriz": 129.0 }
 			# hi-gate target: `gate.alt` above the site, `gate.range` short of it
-			DQuat.nrm(_a.copy_from(st))
-			_b.copy_from(v.v).add_scaled_in(_up, -v.v.dot(_up))
-			if _b.length_sq() < 1.0: _b.copy_from(_up).cross_vectors(_b, _a)
-			DQuat.nrm(_b)
-			var rT := _a.clone().scale_in(env.radius + gate.alt).add_scaled_in(_b, -gate.range)
-			var vT := _b.clone().scale_in(gate.vHoriz).add_scaled_in(_a, gate.vVert)
+			DQuat.nrm(Guidance._a.copy_from(st))
+			Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
+			if Guidance._b.length_sq() < 1.0: Guidance._b.copy_from(Guidance._up).cross_vectors(Guidance._b, Guidance._a)
+			DQuat.nrm(Guidance._b)
+			var rT := Guidance._a.clone().scale_in(env.radius + gate.alt).add_scaled_in(Guidance._b, -gate.range)
+			var vT := Guidance._b.clone().scale_in(gate.vHoriz).add_scaled_in(Guidance._a, gate.vVert)
 			# Aim the braking phase just ABOVE the DPS's forbidden throttle band, so
 			# it flies at full thrust the way the real P63 does, rather than
 			# repeatedly commanding a setting the engine is not allowed to hold and
 			# being rounded down to 60% of it.
 			var tgo := track_t_go(rT, vT, a_max, dt, 0.96)
-			var cmd := quadratic(rT, vT, tgo, _e)
+			var cmd := quadratic(rT, vT, tgo, Guidance._e)
 			var need := cmd.length()
 			v.throttle = limit_throttle(need / maxf(a_max, 1e-6), pa, dt)
 			say("P63 — braking · %s km, %s m/s, %s s to hi-gate" % [U.fixed(alt / 1000.0, 1), U.fixed(t.speed, 0), U.fixed(tgo, 0)])
@@ -891,9 +891,9 @@ class Autopilot extends RefCounted:
 
 		if state_name == "P64":
 			var gate: Dictionary = prof.loGate if prof != null else { "alt": 30.0, "range": 11.0 }
-			DQuat.nrm(_a.copy_from(st))
-			var _rT := _a.clone().scale_in(env.radius + gate.alt)
-			var _vT := _a.clone().scale_in(-1.2)
+			DQuat.nrm(Guidance._a.copy_from(st))
+			var _rT := Guidance._a.clone().scale_in(env.radius + gate.alt)
+			var _vT := Guidance._a.clone().scale_in(-1.2)
 			var cmd := descent_law(a_max, 2.0, 0.60, 3.5, 0.6, 50.0)
 			v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
 			say("P64 — approach · %s m, %s of %s m/s, %s m/s lateral" % [U.fixed(alt, 0), U.fixed(v_vert_now, 1), U.fixed(v_ref, 1), U.fixed(lat_now, 1)])
@@ -901,8 +901,8 @@ class Autopilot extends RefCounted:
 			# not merely low. Apollo's lo-gate is a STATE — 30 m up, 11 m short, and
 			# essentially stopped — and transitioning on the altitude alone hands
 			# P66 a vehicle still moving 40 m/s sideways with five seconds to fix it.
-			_b.copy_from(v.v).add_scaled_in(_up, -v.v.dot(_up))
-			var lateral := _b.length()
+			Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
+			var lateral := Guidance._b.length()
 			if (alt < gate.alt * 3.0 and lateral < 8.0) or alt < gate.alt * 0.7:
 				state_name = "P66"; t_go = null; note("P66 — terminal descent")
 			return DQuat.nrm(cmd)
@@ -943,7 +943,7 @@ class Autopilot extends RefCounted:
 		return t_go
 
 	func solve_t_go(rT: DVec3, vT: DVec3, a_max: float, frac: float = 0.72) -> float:
-		var dv := _e.copy_from(vT).sub_in(v.v).length()
+		var dv := Guidance._e.copy_from(vT).sub_in(v.v).length()
 		var est := DQuat.jclamp(dv / maxf(a_max * 0.85, 0.05), 4.0, 4000.0)
 		var lo := 2.0
 		var hi := est * 2.2
@@ -951,7 +951,7 @@ class Autopilot extends RefCounted:
 		# |a_cmd| decreasing in t_go, so bisect on the sign of (a − want).
 		for i in 34:
 			var mid := 0.5 * (lo + hi)
-			var a := quadratic(rT, vT, mid, _e).length()
+			var a := quadratic(rT, vT, mid, Guidance._e).length()
 			if a > want: lo = mid
 			else: hi = mid
 			if hi - lo < 0.5: break
@@ -994,10 +994,10 @@ class Autopilot extends RefCounted:
 	func hoverslam_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var alt := v.altitude()
-		DQuat.nrm(_up.copy_from(v.r))
-		v.airspeed(v.r, v.v, _a)
-		var speed := _a.length()
-		var v_vert := v.v.dot(_up)
+		DQuat.nrm(Guidance._up.copy_from(v.r))
+		v.airspeed(v.r, v.v, Guidance._a)
+		var speed := Guidance._a.length()
+		var v_vert := v.v.dot(Guidance._up)
 		var g: float = env.mu / v.r.length_sq()
 		var _m_min := throttle_for(0.0001)
 		var a_max := full_thrust(pa) / v.mass
@@ -1118,7 +1118,7 @@ class Autopilot extends RefCounted:
 		say("Landing burn — %s m, %s of %s m/s, throttle %s%%" % [U.fixed(alt, 0), U.fixed(v_vert_now, 1), U.fixed(v_ref, 1), U.fixed(v.throttle * 100.0, 0)])
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Booster recovered")
-		return aero_limit(cmd, _a)
+		return aero_limit(cmd, Guidance._a)
 
 	## The fewest engines whose landing burn still fits inside the altitude left,
 	## and the altitude that burn has to start at. Scanned rather than assumed:
@@ -1158,10 +1158,10 @@ class Autopilot extends RefCounted:
 		spin_site(dt)
 		var plan_edl = v.vehicle.get("edl")
 		var alt := v.altitude()
-		DQuat.nrm(_up.copy_from(v.r))
-		v.airspeed(v.r, v.v, _a)
-		var speed := _a.length()
-		var v_vert := v.v.dot(_up)
+		DQuat.nrm(Guidance._up.copy_from(v.r))
+		v.airspeed(v.r, v.v, Guidance._a)
+		var speed := Guidance._a.length()
+		var v_vert := v.v.dot(Guidance._up)
 		v.throttle = 0.0
 
 		if state_name == null:
@@ -1214,9 +1214,9 @@ class Autopilot extends RefCounted:
 		# terminal phase
 		var a_max := full_thrust(pa) / v.mass
 		var sk: Dictionary = plan_edl.skycrane if (plan_edl != null and plan_edl.get("skycrane") != null) else { "alt": 20.0, "vTouch": -0.75 }
-		if site == null: site = _up.clone().scale_in(env.radius)
-		DQuat.nrm(_a.copy_from(site))
-		var _rT := _a.clone().scale_in(env.radius + 0.5)
+		if site == null: site = Guidance._up.clone().scale_in(env.radius)
+		DQuat.nrm(Guidance._a.copy_from(site))
+		var _rT := Guidance._a.clone().scale_in(env.radius + 0.5)
 		var cmd := descent_law(a_max, absf(sk.vTouch), 0.35, 1.8, 0.55, 120.0, sk.alt * 1.5)
 		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
 		if alt < sk.alt and not crane_out:
@@ -1225,7 +1225,7 @@ class Autopilot extends RefCounted:
 		say("Powered descent — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(v_vert, 2)])
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Touchdown")
-		return aero_limit(cmd, _b)
+		return aero_limit(cmd, Guidance._b)
 
 	# -------------------------------------------------------------------------
 	func deorbit_guidance(dt: float, pa: float):
@@ -1239,5 +1239,5 @@ class Autopilot extends RefCounted:
 			var a_new := (R + target_peri) / 2.0
 			var v_new := sqrt(maxf(mu * (2.0 / R - 1.0 / a_new), 0.0))
 			var dv: float = v_new - el.v
-			node = { "dv": DQuat.nrm(_a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
+			node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
 		return node_guidance(dt, pa, node)
