@@ -1294,7 +1294,10 @@ func set_band(i: int, band: Dictionary) -> void:
 # ---- sky settings --------------------------------------------------------------------------------------------
 ## The environment rows and the amplitude rows, built from the sky module's
 ## own lists — a sixth environment grows a row here without this file changing.
-func build_sky_settings(envs: Array, params: Array) -> void:
+func build_sky_settings(envs, params: Array) -> void:
+	# SkyModel.SKY_ENVIRONMENTS is a Dictionary in web order; its keys are the rows
+	if envs is Dictionary:
+		envs = (envs as Dictionary).keys()
 	_envs = envs; _params = params
 	var list: El = ids.skyEnvList
 	for name in envs:
