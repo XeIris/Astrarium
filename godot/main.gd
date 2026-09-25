@@ -1051,7 +1051,19 @@ func load_preset(key: String) -> void:
 	state.home_id = null
 	state.suns.clear()
 
-	for spec in p.build.call(): spawn_body(spec)
+	# `seed=N` on the command line makes the scenario's random choices (the
+	# solar system's orbital phases) the ones the web build makes with
+	# Math.random replaced by mulberry32(N) for the duration of the build — so a
+	# side-by-side check can compare the same sky, not two random ones.
+	var specs: Array
+	if _cmd.has("seed"):
+		var rng := GiantVisual.Mulberry.new(int(_cmd.seed))
+		Presets.rand_override = rng.next
+		specs = p.build.call()
+		Presets.rand_override = Callable()
+	else:
+		specs = p.build.call()
+	for spec in specs: spawn_body(spec)
 
 	# Anything the scenario paints on: rings, belts, ejecta. Applied after the
 	# bodies exist, since each decoration is pinned to one of them by name.
@@ -2078,7 +2090,8 @@ func animate(dt: float) -> void:
 
 	# ---- trails and painted swarms follow the floating origin
 	for b in state.bodies:
-		if b.trail != null: b.trail.update(b, cam_pos)
+		if b.trail != null:
+			b.trail.update(b, cam_pos)
 	painter.place(cam_pos)
 
 	# ---- point-source markers. Not in surface view: the sky pass draws the suns
