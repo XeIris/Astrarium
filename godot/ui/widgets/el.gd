@@ -129,7 +129,21 @@ func _recompute() -> void:
 			c.merge(v[1], true)
 	cs = c
 	modulate.a = float(cs.get("op", 1.0))
+	_invalidate()
 	touch()
+
+## Text measurements are cached per element; anything that can change what a
+## run inherits (a state on an ancestor) drops the caches of the whole subtree.
+var _atoms_cache = null
+var _iw_cache = null
+
+func _invalidate() -> void:
+	_atoms_cache = null
+	_iw_cache = null
+	_ldirty = true
+	for c in get_children():
+		if c is El:
+			(c as El)._invalidate()
 
 ## The value of a property: own, inherited, or default.
 func g(k: String):
@@ -150,19 +164,26 @@ func touch() -> void:
 	any_dirty = true
 	var r: Node = self
 	while r != null and r is El and not (r as El).is_root:
+		(r as El)._ldirty = true
 		r = r.get_parent()
+	if r is El:
+		(r as El)._ldirty = true
 	if r is El:
 		dirty_roots[r] = true
 	queue_redraw()
 
 func set_runs(r: Array) -> void:
 	runs = r
+	_atoms_cache = null
+	_iw_cache = null
 	touch()
 
 func set_text(t: String) -> void:
 	if runs.size() == 1 and runs[0].get("t", null) == t:
 		return
 	runs = [{"t": t}]
+	_atoms_cache = null
+	_iw_cache = null
 	touch()
 
 func get_text() -> String:
@@ -180,10 +201,12 @@ func kids() -> Array:
 
 # ---- interaction ----------------------------------------------------------------
 
-## A <button>: takes the click, shows the hand, and goes :hover.
+## A <button>: takes the click, shows the hand, and goes :hover. PASS, not
+## STOP: the button accepts its own clicks, and a wheel over it still reaches
+## the panel that scrolls, as the browser's does.
 func make_clickable(tooltip := "") -> El:
 	clickable = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	if tooltip != "":
 		tooltip_text = tooltip
@@ -207,7 +230,7 @@ func _on_exit() -> void:
 
 func _gui_input(e: InputEvent) -> void:
 	if clickable and e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and not e.pressed:
-		if get_global_rect().has_point(get_global_mouse_position()) and not has_state("disabled"):
+		if Rect2(Vector2.ZERO, size).has_point(e.position) and not has_state("disabled"):
 			pressed.emit()
 			accept_event()
 	elif clickable and e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed:
@@ -302,7 +325,30 @@ func _flex_min() -> float:
 
 ## Lay out at border-box width `w`; returns the border-box height. `forced_h`
 ## is a height imposed by the parent (flex/grid stretch).
+## Layout is cached: an element nothing has touched, asked for the same width
+## and the same imposed height, keeps what it had — its children are already
+## where they belong. Ten text updates a second then cost only their own path
+## to the root, not the whole panel.
+var _ldirty := true
+var _lw := -1.0
+var _lf := -2.0
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PARENTED:
+		touch()
+	elif what == NOTIFICATION_UNPARENTED:
+		_ldirty = true
+
 func layout(w: float, forced_h: float = -1.0) -> float:
+	if not _ldirty and absf(w - _lw) < 0.001 and absf(forced_h - _lf) < 0.001:
+		return size.y
+	var h := _layout_now(w, forced_h)
+	_ldirty = false
+	_lw = w
+	_lf = forced_h
+	return h
+
+func _layout_now(w: float, forced_h: float) -> float:
 	var bl := gf("bl"); var bt := gf("bt"); var pl := gf("pl"); var pt := gf("pt")
 	var cw := maxf(w - _hpad(), 0.0)
 	var maxh := gf("maxh")
@@ -616,7 +662,9 @@ func _layout_flex_col(cw: float, o: Vector2) -> float:
 				var nh: float = maxf(k.size.y - excess, 0.0)
 				var old: float = k.base.get("maxh", -1.0)
 				k.cs["maxh"] = nh
+				k._ldirty = true
 				k.layout(k.size.x)
+				k._ldirty = true
 				k.cs["maxh"] = old
 				var shift: float = k.size.y - (nh + excess)
 				var after := false
@@ -736,6 +784,12 @@ static func _lh(font: Font, fs: float, lh: float) -> float:
 	return lh * fs
 
 func _atoms() -> Array:
+	if _atoms_cache != null:
+		return _atoms_cache
+	_atoms_cache = _build_atoms()
+	return _atoms_cache
+
+func _build_atoms() -> Array:
 	var out: Array = []
 	var nw: bool = g("nw")
 	for r in runs:
@@ -777,6 +831,12 @@ func _atoms() -> Array:
 
 ## (max-content, min-content) content widths of the inline text.
 func _inline_widths() -> Vector2:
+	if _iw_cache != null:
+		return _iw_cache
+	_iw_cache = _measure_inline()
+	return _iw_cache
+
+func _measure_inline() -> Vector2:
 	var mx := 0.0; var mn := 0.0; var cur := 0.0
 	for a in _atoms():
 		if a.get("br", false):

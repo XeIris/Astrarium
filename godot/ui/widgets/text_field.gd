@@ -25,7 +25,7 @@ func _init(style: Dictionary = {}, vars: Array = [], placeholder := "") -> void:
 	edit.focus_exited.connect(func(): set_state("focus", false))
 	edit.text_changed.connect(func(t): text_changed.emit(t))
 	add_child(edit, false, Node.INTERNAL_MODE_BACK)
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	mouse_default_cursor_shape = Control.CURSOR_IBEAM
 
 func _layout_content(cw: float, o: Vector2) -> float:

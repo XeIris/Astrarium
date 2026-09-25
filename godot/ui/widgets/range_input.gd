@@ -32,7 +32,7 @@ func _init(style: Dictionary = {}, vars: Array = []) -> void:
 	var s := {"h": 2.0, "bg": HudTheme.BORDER_STRONG, "iw": 129.0}
 	s.merge(style, true)
 	super(s, vars)
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 func setup(mn: float, mx: float, st: float, v: float) -> RangeInput:

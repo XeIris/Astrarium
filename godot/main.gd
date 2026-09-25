@@ -109,8 +109,11 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
 		_cmd[kv[0]] = kv[1] if kv.size() > 1 else ""
+	# CSS px = Godot logical px: the window's content scale is the display
+	# scale, as a browser's devicePixelRatio. The screenshot mode instead takes
+	# window pixels as CSS pixels, as the web reference shots (deviceScaleFactor 1) do.
 	var scale := DisplayServer.screen_get_scale(DisplayServer.window_get_current_screen())
-	get_window().content_scale_factor = scale
+	get_window().content_scale_factor = 1.0 if _cmd.has("out") else scale
 	get_window().min_size = Vector2i(900, 600)
 
 	PRESET_GROUPS = [
@@ -850,10 +853,10 @@ func handle_pick(pos: Vector2) -> void:
 	var best: Body = null
 	var best_d := INF
 	for b in state.bodies:
-		var wp := b.scene_pos.rel_v3(cam_pos)       # the ray starts at the origin
-		var along := wp.dot(dir)
+		var wp: Vector3 = b.scene_pos.rel_v3(cam_pos)       # the ray starts at the origin
+		var along: float = wp.dot(dir)
 		if along < 0.0: continue
-		var d := (wp - dir * along).length()
+		var d: float = (wp - dir * along).length()
 		if d < pick_radius_scene(b) and along < best_d:
 			best = b
 			best_d = along
@@ -952,7 +955,7 @@ func set_cam_mode(mode: String) -> void:
 		apply_sky_boost_all(Vector3.ZERO)
 	if mode == "free" and state.cam_mode != "free":
 		# seed yaw/pitch from current look direction
-		var dir := cam.target.rel_v3(cam_pos).normalized()
+		var dir: Vector3 = (cam.target as DVec3).rel_v3(cam_pos).normalized()
 		cam.yaw = atan2(dir.x, dir.z)
 		cam.pitch = asin(clampf(dir.y, -1.0, 1.0))
 	var was_surface := state.cam_mode == "surface"
@@ -1446,77 +1449,126 @@ func apply_sky_boost_all(beta: Vector3) -> void:
 # ============================================================================
 func _bind_hud() -> void:
 	hud.start_chosen.connect(_start)
-	hud.mode_chosen.connect(func(m): set_app_mode(m))
+	hud.mode_chosen.connect(set_app_mode)
 	hud.preset_chosen.connect(load_preset)
-	hud.body_focus.connect(func(id): var b := state.body_by_id(id); if b: set_follow(b))
+	hud.body_focus.connect(_on_body_focus)
 	hud.body_remove.connect(remove_body)
 	hud.spawn.connect(spawn_orbiting)
-	hud.paint.connect(func(kind):
-		var b := state.body_by_id(state.focus_id)
-		match kind:
-			"ring": paint_ring_on(b)
-			"belt": paint_belt_on(b)
-			"cloud": paint_cloud_on(b)
-			"clear":
-				painter.clear()
-				toast("Cleared everything painted"))
+	hud.paint.connect(_on_paint)
 	hud.clear_bodies.connect(clear_bodies)
-	hud.delete_focus.connect(func(): if state.focus_id != null: remove_body(state.focus_id))
-	hud.xsec_open.connect(func(): open_cross_section(true))
-	hud.xsec_closed.connect(func(): xsec_open = false)
+	hud.delete_focus.connect(_on_delete_focus)
+	hud.xsec_open.connect(open_cross_section.bind(true))
+	hud.xsec_closed.connect(_on_xsec_closed)
 	hud.cam_mode.connect(set_cam_mode)
-	hud.view_toggle.connect(func(v):
-		match v:
-			"mesh": toggle_mesh(not state.show_mesh)
-			"scale": set_true_scale(not state.true_scale)
-			"spawnrest": set_spawn_at_rest(not state.spawn_at_rest)
-			_:
-				state.show_lens = not state.show_lens
-				hud.set_active("[data-view=lens]", state.show_lens)
-				hud.set_button_text("[data-view=lens]", "Lens ON" if state.show_lens else "Lens OFF"))
-	hud.reset_view.connect(func():
-		set_follow(null)
-		cam.target.set_v(0, 0, 0); cam_offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
-		cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
-		set_cam_mode("orbit"); update_orbit_cam())
+	hud.view_toggle.connect(_on_view_toggle)
+	hud.reset_view.connect(_on_reset_view)
 	hud.band_chosen.connect(set_band)
 	hud.time_regime.connect(apply_regime)
 	hud.slider.connect(_on_slider)
-	hud.sky_solo.connect(func(n): set_sky(U.merged(state.sky, {"env": {n: 1.0}})))
-	hud.sky_reset.connect(func():
-		set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
-		toast("Sky reset to the scenario’s own"))
-	hud.sky_adv_clear.connect(func(): set_sky({"env": state.sky.env, "tilt": state.sky.tilt, "roll": state.sky.roll}))
-	hud.fx_reset.connect(func(): for row in FX_ROWS: _set_fx(row[0], FX_DEFAULTS[row[1]], true))
-	hud.sim_reset.connect(func():
-		var p: Dictionary = state.preset if state.preset else {}
-		state.max_step = float(p.get("maxStep", 5e-3))
-		state.gw_boost = float(p.get("gwBoost", 0.0))
-		state.disc_intensity = float(p.get("discIntensity", 0.9))
-		hud.set_slider("disc", state.disc_intensity, U.fixed(state.disc_intensity, 2))
-		sync_sim_controls())
-	hud.climate_reset.connect(func(): if state.climate != null: state.climate.reset(288.0))
+	hud.sky_solo.connect(_on_sky_solo)
+	hud.sky_reset.connect(_on_sky_reset)
+	hud.sky_adv_clear.connect(_on_sky_adv_clear)
+	hud.fx_reset.connect(_on_fx_reset)
+	hud.sim_reset.connect(_on_sim_reset)
+	hud.climate_reset.connect(_on_climate_reset)
 	hud.craft_launch.connect(launch_craft)
-	hud.craft_hover.connect(func(k): CraftAssets.preload_craft(k))
+	hud.craft_hover.connect(_on_craft_hover)
 	hud.flight_exit.connect(end_flight)
-	hud.flight_cam_cycle.connect(func():
-		var modes := ["chase", "orbit", "cockpit", "pad"]
-		flight.set_camera_mode(modes[(modes.find(flight.camera_mode()) + 1) % modes.size()])
-		sync_warp_label())
-	hud.warp_step.connect(func(d):
-		flight.set_warp(flight.warp_index() + int(d))
-		sync_warp_label())
-	hud.model_open.connect(func(): show_model(model_view.vehicle.key if model_view.vehicle else "saturnv"))
+	hud.flight_cam_cycle.connect(_on_flight_cam_cycle)
+	hud.warp_step.connect(_on_warp_step)
+	hud.model_open.connect(_on_model_open)
 	hud.model_close.connect(close_model_viewer)
 	hud.model_show.connect(show_model)
-	hud.model_deploy.connect(func(on): model_view.set_deploy(on))
-	hud.model_spin.connect(func(on):
-		model_view.cam.spin = 0.10 if on else 0.0
-		model_view.cam.held = not on)
-	hud.model_fly.connect(func():
-		var k = model_view.vehicle.key if model_view.vehicle else null
-		close_model_viewer()
-		if k: launch_craft(k))
+	hud.model_deploy.connect(_on_model_deploy)
+	hud.model_spin.connect(_on_model_spin)
+	hud.model_fly.connect(_on_model_fly)
+
+func _on_body_focus(id: int) -> void:
+	var b := state.body_by_id(id)
+	if b: set_follow(b)
+
+func _on_paint(kind: String) -> void:
+	var b := state.body_by_id(state.focus_id)
+	match kind:
+		"ring": paint_ring_on(b)
+		"belt": paint_belt_on(b)
+		"cloud": paint_cloud_on(b)
+		"clear":
+			painter.clear()
+			toast("Cleared everything painted")
+
+func _on_delete_focus() -> void:
+	if state.focus_id != null: remove_body(state.focus_id)
+
+func _on_xsec_closed() -> void:
+	xsec_open = false
+
+func _on_view_toggle(v: String) -> void:
+	match v:
+		"mesh": toggle_mesh(not state.show_mesh)
+		"scale": set_true_scale(not state.true_scale)
+		"spawnrest": set_spawn_at_rest(not state.spawn_at_rest)
+		_:
+			state.show_lens = not state.show_lens
+			hud.set_active("[data-view=lens]", state.show_lens)
+			hud.set_button_text("[data-view=lens]", "Lens ON" if state.show_lens else "Lens OFF")
+
+func _on_reset_view() -> void:
+	set_follow(null)
+	cam.target.set_v(0, 0, 0); cam_offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
+	cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
+	set_cam_mode("orbit"); update_orbit_cam()
+
+func _on_sky_solo(n: String) -> void:
+	set_sky(U.merged(state.sky, {"env": {n: 1.0}}))
+
+func _on_sky_reset() -> void:
+	set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
+	toast("Sky reset to the scenario’s own")
+
+func _on_sky_adv_clear() -> void:
+	set_sky({"env": state.sky.env, "tilt": state.sky.tilt, "roll": state.sky.roll})
+
+func _on_fx_reset() -> void:
+	for row in FX_ROWS: _set_fx(row[0], FX_DEFAULTS[row[1]], true)
+
+func _on_sim_reset() -> void:
+	var p: Dictionary = state.preset if state.preset else {}
+	state.max_step = float(p.get("maxStep", 5e-3))
+	state.gw_boost = float(p.get("gwBoost", 0.0))
+	state.disc_intensity = float(p.get("discIntensity", 0.9))
+	hud.set_slider("disc", state.disc_intensity, U.fixed(state.disc_intensity, 2))
+	sync_sim_controls()
+
+func _on_climate_reset() -> void:
+	if state.climate != null: state.climate.reset(288.0)
+
+func _on_craft_hover(k: String) -> void:
+	CraftAssets.preload_craft(k)
+
+func _on_flight_cam_cycle() -> void:
+	var modes := ["chase", "orbit", "cockpit", "pad"]
+	flight.set_camera_mode(modes[(modes.find(flight.camera_mode()) + 1) % modes.size()])
+	sync_warp_label()
+
+func _on_warp_step(d: int) -> void:
+	flight.set_warp(flight.warp_index() + d)
+	sync_warp_label()
+
+func _on_model_open() -> void:
+	show_model(model_view.vehicle.key if model_view.vehicle else "saturnv")
+
+func _on_model_deploy(on: bool) -> void:
+	model_view.set_deploy(on)
+
+func _on_model_spin(on: bool) -> void:
+	model_view.cam.spin = 0.10 if on else 0.0
+	model_view.cam.held = not on
+
+func _on_model_fly() -> void:
+	var k = model_view.vehicle.key if model_view.vehicle else null
+	close_model_viewer()
+	if k: launch_craft(k)
 
 func _on_slider(id: String, v: float) -> void:
 	if id.begins_with("env:"):
@@ -1693,34 +1745,35 @@ func close_model_viewer() -> void:
 # OBJECT FOUNDRY + CROSS-SECTION
 # ============================================================================
 func _build_foundry() -> void:
-	foundry = Foundry.create_foundry({
-		"mount": hud.mount("foundry"),
-		"on_spawn": func(spec, structure):
-			var b := spawn_body(place_spawn(U.merged(spec, {"seed": randi() % 1000000000, "atmosphere": spec.type == "planet"})))
-			set_follow(b)
-			# A star built at the very end of its life does not get to sit there.
-			if spec.type == "star" and float(spec.get("phase", 0.0)) >= 1.93:
-				pending_collapse.append({"id": b.id, "at": state.time + 1.6})
-				toast("%s is at core collapse — watch" % b.name, 3000)
-			elif structure and structure.get("verdict", {}).get("state") == Structure.VERDICT.explode and spec.type == "star":
-				toast(structure.verdict.label + " — " + String(structure.verdict.detail).substr(0, 120) + "…", 7000),
-	})
+	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": _on_foundry_spawn})
 	inspector = Foundry.create_inspector({"mount": hud.mount("xsecCanvas")})
 	# The live editor lives in the same panel as the diagram, because they are
 	# two halves of one idea: the cross-section says what the body is, and the
 	# sliders under it are the only way to argue with that.
-	live_editor = Foundry.create_live_editor({
-		"mount": hud.mount("liveEdit"),
-		"on_edit": func(b, patch):
-			edit_body(b, patch)
-			# The body may no longer be the object it was, so re-read what survived.
-			var now := state.body_by_id(b.id)
-			if now:
-				show_cross_section(now)
-				live_editor.sync(now)
-			else:
-				set_panel_open("xsecPanel", false),
-	})
+	live_editor = Foundry.create_live_editor({"mount": hud.mount("liveEdit"), "on_edit": _on_live_edit})
+
+func _on_foundry_spawn(spec: Dictionary, structure) -> void:
+	var b := spawn_body(place_spawn(U.merged(spec, {"seed": randi() % 1000000000, "atmosphere": spec.type == "planet"})))
+	set_follow(b)
+	# A star built at the very end of its life does not get to sit there. The
+	# foundry can put a 200 M☉ star one step from core collapse into the scene,
+	# and the only honest thing for it to then do is collapse.
+	if spec.type == "star" and float(spec.get("phase", 0.0)) >= 1.93:
+		pending_collapse.append({"id": b.id, "at": state.time + 1.6})
+		toast("%s is at core collapse — watch" % b.name, 3000)
+	elif structure and structure.get("verdict", {}).get("state") == Structure.VERDICT.explode and spec.type == "star":
+		toast(String(structure.verdict.label) + " — " + String(structure.verdict.detail).substr(0, 120) + "…", 7000)
+
+func _on_live_edit(b: Body, patch: Dictionary) -> void:
+	edit_body(b, patch)
+	# The body may no longer be the object it was — a neutron star dragged past
+	# the TOV mass is now a black hole — so re-read whatever survived.
+	var now := state.body_by_id(b.id)
+	if now:
+		show_cross_section(now)
+		live_editor.sync(now)
+	else:
+		set_panel_open("xsecPanel", false)
 
 # Stars spawned at the end of their lives collapse a moment later, so the
 # explosion is something you watch rather than something that has already
@@ -1759,55 +1812,84 @@ func open_cross_section(on := true) -> bool:
 # ============================================================================
 func _build_stage() -> void:
 	stage = {
-		"has_preset": func(k): return Presets.PRESETS.has(k),
-		"current_preset": func(): return state.preset_key,
+		"has_preset": _stage_has_preset,
+		"current_preset": _stage_current_preset,
 		"load_preset": load_preset,
-		"set_focus": func(name):
-			var b := state.body_named(name)
-			if b: set_follow(b),
-		"set_cam": func(o: Dictionary):
-			if o.get("mode"): set_cam_mode(o.mode)
-			if o.get("theta") != null: cam.theta = clampf(float(o.theta), 0.02, PI - 0.02)
-			if o.get("phi") != null: cam.phi = float(o.phi)
-			# jump_cam_radius rather than an assignment: an ease left running from
-			# the last step would otherwise drag the view back out a frame later.
-			if o.get("radius") != null: jump_cam_radius(float(o.radius))
-			if state.cam_mode == "orbit": update_orbit_cam(),
+		"set_focus": _stage_set_focus,
+		"set_cam": _stage_set_cam,
 		"set_band": set_band,
 		"set_time_scale": set_time_scale,
-		"set_mesh": func(on): toggle_mesh(bool(on)),
-		"set_true_scale": func(on): if bool(on) != state.true_scale: set_true_scale(bool(on)),
-		"set_sky": func(spec): set_sky(preset_sky(U.merged(state.preset.get("sky", {}) if state.preset else {}, spec))),
+		"set_mesh": _stage_set_mesh,
+		"set_true_scale": _stage_set_true_scale,
+		"set_sky": _stage_set_sky,
 		# Controls are driven through the Hud exactly as if the learner had moved
 		# them, so every binding downstream fires and the slider visibly moves.
-		"set_control": func(id, value): hud.drive_slider(id, float(value)),
-		"set_panel": func(id, open):
-			if id == "xsecPanel": open_cross_section(open)
-			else: set_panel_open(id, open),
-		"set_paused": func(p): state.paused = bool(p),
-		"flare": func(name):
-			var b := state.body_named(name)
-			if b == null:
-				var st := get_stars()
-				b = st[0] if not st.is_empty() else null
-			if b == null or b.activity == null or b.activity.regions.is_empty(): return
-			b.activity.ignite()
-			var f = b.activity.flares.back() if not b.activity.flares.is_empty() else null
-			# A real flare lasts hours and this one has to survive being looked at.
-			if f: f.duration = 0.15,
-		"collapse": func(name):
-			var b := state.body_named(name)
-			if b: core_collapse(b),
+		"set_control": _stage_set_control,
+		"set_panel": _stage_set_panel,
+		"set_paused": _stage_set_paused,
+		"flare": _stage_flare,
+		"collapse": _stage_collapse,
 		"set_local_time": set_local_time,
-		"bodies": func(): return state.bodies,
-		"focus_body": func(): return state.body_by_id(state.focus_id),
-		"scene_scale": func(): return state.scene_scale,
-		"sim_years": func(): return state.sim_years,
+		"bodies": _stage_bodies,
+		"focus_body": _stage_focus_body,
+		"scene_scale": _stage_scene_scale,
+		"sim_years": _stage_sim_years,
 		"camera": pipe.scene_cam,
-		"cam_pos": func(): return cam_pos,
+		"cam_pos": _stage_cam_pos,
 		"main": self,
 		"toast": toast,
 	}
+
+func _stage_has_preset(k: String) -> bool: return Presets.PRESETS.has(k)
+func _stage_current_preset() -> String: return state.preset_key
+func _stage_bodies() -> Array: return state.bodies
+func _stage_focus_body(): return state.body_by_id(state.focus_id)
+func _stage_scene_scale() -> float: return state.scene_scale
+func _stage_sim_years() -> float: return state.sim_years
+func _stage_cam_pos() -> DVec3: return cam_pos
+func _stage_set_mesh(on) -> void: toggle_mesh(bool(on))
+func _stage_set_paused(p) -> void: state.paused = bool(p)
+func _stage_set_control(id: String, value) -> void: hud.drive_slider(id, float(value))
+
+func _stage_set_focus(n: String) -> void:
+	var b := state.body_named(n)
+	if b: set_follow(b)
+
+func _stage_set_cam(o: Dictionary) -> void:
+	if o.get("mode"): set_cam_mode(o.mode)
+	if o.get("theta") != null: cam.theta = clampf(float(o.theta), 0.02, PI - 0.02)
+	if o.get("phi") != null: cam.phi = float(o.phi)
+	# jump_cam_radius rather than an assignment: an ease left running from the
+	# last step would otherwise drag the view back out a frame later.
+	if o.get("radius") != null: jump_cam_radius(float(o.radius))
+	if state.cam_mode == "orbit": update_orbit_cam()
+
+func _stage_set_true_scale(on) -> void:
+	if bool(on) != state.true_scale: set_true_scale(bool(on))
+
+func _stage_set_sky(spec: Dictionary) -> void:
+	set_sky(preset_sky(U.merged(state.preset.get("sky", {}) if state.preset else {}, spec)))
+
+func _stage_set_panel(id: String, open) -> void:
+	# The cross-section is the one panel that is not just a box: see
+	# open_cross_section. Everything else is a plain collapse.
+	if id == "xsecPanel": open_cross_section(bool(open))
+	else: set_panel_open(id, bool(open))
+
+func _stage_flare(n: String) -> void:
+	var b := state.body_named(n)
+	if b == null:
+		var st := get_stars()
+		b = st[0] if not st.is_empty() else null
+	if b == null or b.activity == null or b.activity.regions.is_empty(): return
+	b.activity.ignite()
+	if b.activity.flares.is_empty(): return
+	# A real flare lasts hours and this one has to survive being looked at.
+	b.activity.flares.back().duration = 0.15
+
+func _stage_collapse(n: String) -> void:
+	var b := state.body_named(n)
+	if b: core_collapse(b)
 
 # ---- WHAT TIME IT IS WHERE YOU ARE STANDING. The surface observer's longitude
 # is fixed to the home world's own spin phase, so "put me somewhere it is
@@ -1856,7 +1938,38 @@ func _process(real_dt: float) -> void:
 	# than letting one long frame jump the whole state forward.
 	var dt: float = float(manual_dt) if manual_dt != null else minf(real_dt, 0.05)
 	manual_dt = null
+	if _cmd.has("out"): dt = float(_cmd.get("dt", "0.0166666667"))
 	animate(dt)
+	_shot_tick()
+
+# ---- the command-line screenshot mode — the Godot counterpart of the web
+# build's SIM.frame() handle, which is what every headless check drove:
+#   Godot --path godot -- preset=vega band=5 frames=60 dt=0.0166 hud=0 \
+#         eval=<method>[,<method>...] out=/abs/shot.png [shot3d=1]
+# runs `frames` fixed steps, then writes the ROOT viewport (3D + HUD; `hud=0`
+# hides the HUD first, `shot3d=1` writes the composited 3D frame alone) and quits.
+var _shot_frame := 0
+func _shot_tick() -> void:
+	if not _cmd.has("out"): return
+	_shot_frame += 1
+	if _shot_frame == 1:
+		if _cmd.has("band"): set_band(int(_cmd.band))
+		if _cmd.get("hud", "1") == "0": set_hud_hidden(true); hud.toast("", 1)
+		if _cmd.has("focus"): _stage_set_focus(String(_cmd.focus))
+		for m in String(_cmd.get("eval", "")).split(",", false):
+			if has_method(m): call(m)
+	if _shot_frame != int(_cmd.get("frames", "30")): return
+	var out := String(_cmd.out)
+	if _cmd.get("shot3d", "0") == "1":
+		pipe.capture_next(func(img: Image):
+			img.save_png(out)
+			print("main: saved ", out)
+			get_tree().quit())
+	else:
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(out)
+		print("main: saved ", out)
+		get_tree().quit()
 
 func animate(dt: float) -> void:
 	var sim_dt := 0.0 if state.paused else dt * state.speed * state.time_scale

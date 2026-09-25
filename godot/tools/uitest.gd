@@ -18,7 +18,19 @@ extends Node
 # rect of every panel, tab and marked element, and the matching Godot rects are
 # printed beside them with the difference (`rects=1`).
 #
-# Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [frames=N] [rects=1]
+# THE COMMITTED SET is godot/tools/ref/ui: for each state <state>.web.png (the
+# page, 3D canvas hidden so the HUD sits on --bg), <state>.godot.png (this
+# harness's output) and <state>.json (the fixture). Re-run any of them with
+#   Godot --path godot res://tools/uitest.tscn -- fix=res://tools/ref/ui state=trisolaris out=/tmp/t.png rects=1
+# and flip or diff against <state>.web.png. Regenerate the set with
+# `uitest.shots.mjs --flat` → webref.mjs → this harness.
+#
+# Also printed every run: the overlap check of the left column's chain (the
+# CLAUDE.md standing check), the cost of a full and an incremental HUD layout,
+# and with selftest=1 a pass/fail walk of the orchestrator-facing API.
+#
+# Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [sb=1 scrollbars]
+#       [frames=N] [rects=1] [selftest=1]
 # ============================================================================
 
 var args := {}
@@ -56,13 +68,15 @@ func _ready() -> void:
 	var bg := ColorRect.new()
 	bg.color = HudTheme.BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
-	if args.get("bg", "1") != "0":
+	if args.get("bg", "1") != "0" and FileAccess.file_exists(fix.path_join(state + ".bare.png")):
 		var img := Image.load_from_file(fix.path_join(state + ".bare.png"))
 		if img:
 			var tr := TextureRect.new()
 			tr.texture = ImageTexture.create_from_image(img)
 			tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			tr.stretch_mode = TextureRect.STRETCH_SCALE
 			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			add_child(tr)
@@ -150,6 +164,10 @@ func _process(_dt: float) -> void:
 	if frame == frames:
 		if args.get("rects", "0") == "1":
 			_print_rects()
+		_check_overlaps()
+		_time_layout()
+		if args.get("selftest", "0") == "1":
+			_selftest()
 		if args.has("out"):
 			var img := get_viewport().get_texture().get_image()
 			if img.get_width() != int(d.w):
@@ -195,3 +213,147 @@ func _print_rects() -> void:
 		print("  %-28s web [%6.1f %6.1f %6.1f %6.1f]  godot [%6.1f %6.1f %6.1f %6.1f]  Δ %s" % [sel, r[0], r[1], r[2], r[3],
 			g.position.x, g.position.y, g.size.x, g.size.y, "ok" if m < 1.01 else "%.1f" % m])
 	print("uitest: worst rect delta %.1f px" % worst)
+
+## The standing check on the left column (CLAUDE.md): whatever is open or
+## collapsed, no two of the HUD's positioned boxes may overlap.
+func _check_overlaps() -> void:
+	var boxes := [hud.title_block, hud.settings_panel, hud.scenario_panel, hud.course_panel, hud.flight_panel,
+		hud.xsec_panel, hud.model_panel, hud.tab_col, hud.control_panel, hud.tab_right, hud.readout, hud.hint]
+	var bad := 0
+	for i in boxes.size():
+		for j in range(i + 1, boxes.size()):
+			var a: El = boxes[i]; var b: El = boxes[j]
+			if not a.is_visible_in_tree() or not b.is_visible_in_tree() or a.size.y <= 0.0 or b.size.y <= 0.0:
+				continue
+			if a.get_global_rect().grow(-0.5).intersects(b.get_global_rect().grow(-0.5)):
+				print("uitest: OVERLAP %s / %s" % [a.el_id, b.el_id])
+				bad += 1
+	print("uitest: overlaps %d" % bad)
+
+func _time_layout() -> void:
+	var t0 := Time.get_ticks_usec()
+	for i in 10:
+		hud.relayout()
+	print("uitest: full HUD layout %.2f ms" % ((Time.get_ticks_usec() - t0) / 10000.0))
+	# the common case: a readout and a sun row change, as updateHUD does
+	t0 = Time.get_ticks_usec()
+	for i in 10:
+		hud.set_text("fps", str(60 + i))
+		hud.set_text("simClock", "%d yr" % i)
+		hud._layout_all()
+	print("uitest: incremental HUD layout %.2f ms" % ((Time.get_ticks_usec() - t0) / 10000.0))
+
+## Drive the API the orchestrator uses and check what comes back out.
+func _selftest() -> void:
+	var got := {}
+	var ok := [0, 0]
+	var check := func(name: String, cond: bool):
+		ok[0 if cond else 1] += 1
+		print("  %s %s" % ["PASS" if cond else "FAIL", name])
+	hud.slider.connect(func(id, v): got["slider"] = [id, v])
+	hud.preset_chosen.connect(func(k): got["preset"] = k)
+	hud.panel_changed.connect(func(id, o): got["panel"] = [id, o])
+	hud.band_chosen.connect(func(i): got["band"] = i)
+	hud.start_chosen.connect(func(m): got["start"] = m)
+	hud.drive_slider("mass", 20.04)
+	check.call("drive_slider emits slider(id, value) snapped to the step", got.get("slider", []) == ["mass", 20.0])
+	check.call("drive_slider writes the value label", hud.get_el("mass-val").get_text() == "20.0")
+	hud.drive_slider("timescale", 0.0)
+	check.call("timescale label is timeLabel(10^v)", hud.get_el("timescale-val").get_text() == "1.0 yr/s")
+	hud.drive_slider("maxStep", -3.0)
+	check.call("maxStep label is toExponential", hud.get_el("maxStep-val").get_text() == "1.0e-3 yr")
+	hud.set_text("fxBloom-val", "0.77")
+	check.call("set_text on a -val label", hud.get_el("fxBloom-val").get_text() == "0.77")
+	hud.set_text("bandLabel", "X-RAY")
+	check.call("set_text on an inline span (readout)", hud.run_ids["bandLabel"][1].t == "X-RAY")
+	hud.set_active("[data-view=scale]", true)
+	check.call("set_active by [data-x=v]", hud.sels["[data-view=scale]"][0].has_state("active"))
+	hud.set_active("[data-view='mesh']", false)
+	check.call("set_active tolerates quotes", not hud.sels["[data-view=mesh]"][0].has_state("active"))
+	hud.set_button_text("camOrbit", "Orbit!")
+	check.call("set_button_text by id", hud.get_el("camOrbit").get_text() == "Orbit!")
+	hud.set_panel_open("scenarioPanel", false)
+	check.call("set_panel_open collapses and emits", hud.is_collapsed("scenarioPanel") and got.get("panel", []) == ["scenarioPanel", false])
+	check.call("a collapsed panel leaves its tab", hud.tabs["scenarioPanel"].visible)
+	hud.tabs["scenarioPanel"].pressed.emit()
+	check.call("its tab reopens it", not hud.is_collapsed("scenarioPanel"))
+	var pb: Array = hud.sels.get("[data-preset=vega]", [])
+	if not pb.is_empty():
+		pb[0].pressed.emit()
+		check.call("a preset button emits preset_chosen", got.get("preset", "") == "vega")
+	var bb: Array = hud.sels.get("[data-band=5]", [])
+	bb[0].pressed.emit()
+	check.call("a band button emits band_chosen", got.get("band", -1) == 5)
+	hud.set_model_open(true)
+	check.call("model-open hides the tab stack", not hud.tab_col.visible)
+	hud.set_model_open(false)
+	hud.set_hud_hidden(true)
+	check.call("hud-hidden hides the panels, not the toast", not hud.control_panel.visible and hud.toast_el.get_text() == "HUD hidden — press H to restore")
+	hud.set_hud_hidden(false)
+	hud.set_app_mode("flight")
+	check.call("flight mode drops the scenario panel", not hud.scenario_panel.visible)
+	check.call("flight mode shows only the Spaceflight section", hud.section("Spaceflight").head.visible and not hud.section("Suns").head.visible)
+	hud.set_app_mode("sandbox")
+	var sc: Array = hud.sels["[data-start=learn]"]
+	sc[0].pressed.emit()
+	check.call("a start card emits start_chosen", got.get("start", "") == "learn")
+	check.call("mount points exist", hud.mount("foundry") != null and hud.mount("liveEdit") != null and hud.mount("flightHud") != null \
+		and hud.mount("courseMount") != null and hud.mount("xsecCanvas") != null and hud.mount("lessonCard") != null)
+	# real mouse input through the viewport: a click lands on the button under
+	# it, a click on empty screen falls through to _unhandled_input, and the
+	# wheel over an overflowing panel scrolls it rather than the view
+	hud.relayout()
+	var vis_band: El = hud.sels["[data-band=2]"][0]
+	if vis_band.is_visible_in_tree():
+		got.erase("band")
+		_click(vis_band.get_global_rect().get_center())
+		check.call("a real click on a band button reaches it", got.get("band", -1) == 2)
+	_unhandled = 0
+	_click(Vector2(640, 300))
+	check.call("a click on empty screen falls through to the 3D view", _unhandled >= 2)
+	_unhandled = 0
+	_click(hud.control_panel.get_global_rect().position + Vector2(150, 200))
+	check.call("a click on a panel does not", _unhandled == 0)
+	var cp := hud.control_panel
+	if cp.overflowing:
+		var before := cp.scroll_y
+		var we := InputEventMouseButton.new()
+		we.button_index = MOUSE_BUTTON_WHEEL_DOWN
+		we.pressed = true
+		we.factor = 1.0
+		we.position = cp.get_global_rect().position + Vector2(150, 300)
+		get_viewport().push_input(we, true)
+		# a wheel notch is a press AND a release, as a real mouse sends it —
+		# without the release the panel keeps the mouse focus
+		var wr: InputEventMouseButton = we.duplicate()
+		wr.pressed = false
+		get_viewport().push_input(wr, true)
+		check.call("the wheel scrolls an overflowing panel", cp.scroll_y > before)
+	var r: RangeInput = hud.sliders["speed"]
+	if r.is_visible_in_tree():
+		got.erase("slider")
+		_click(r.get_global_rect().position + Vector2(r.size.x * 0.75, 1))
+		check.call("a click on a range track moves it and emits", got.get("slider", [""])[0] == "speed")
+	var sec: Dictionary = hud.section("Suns")
+	cp.scroll_y = 0.0
+	cp.touch()
+	hud.relayout()
+	var was: bool = sec.open
+	_click(sec.head.get_global_rect().get_center())
+	check.call("a section head folds/unfolds on click", sec.open != was)
+	print("uitest: selftest %d passed, %d failed" % [ok[0], ok[1]])
+
+var _unhandled := 0
+
+func _unhandled_input(e: InputEvent) -> void:
+	if e is InputEventMouseButton:
+		_unhandled += 1
+
+func _click(p: Vector2) -> void:
+	for pressed in [true, false]:
+		var e := InputEventMouseButton.new()
+		e.button_index = MOUSE_BUTTON_LEFT
+		e.pressed = pressed
+		e.position = p
+		e.global_position = p
+		get_viewport().push_input(e, true)
