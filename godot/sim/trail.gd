@@ -15,14 +15,18 @@ extends RefCounted
 #
 # The look is the web build's: a vertex-colour gradient from black at the
 # oldest slot to the body's colour at the newest, ADDITIVE, at the body's
-# opacity. The gradient is fixed to buffer SLOTS, not to age, so a trail that
+# opacity — and it WRITES DEPTH, because three's LineBasicMaterial does
+# unless told otherwise (transparent does not imply depthWrite: false). That
+# is visible: the near side of every inner orbit stripes the Sun's marker,
+# which is depth-tested and drawn after the trails, and takes bloom with it.
+# The gradient is fixed to buffer SLOTS, not to age, so a trail that
 # has not filled yet only uses the dim end of it — as three drew it with a
 # draw range over a fixed colour attribute.
 # ============================================================================
 
 const SHADER := """
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never, cull_disabled;
+render_mode unshaded, blend_add, depth_draw_always, cull_disabled;
 #include "res://shaders/common/temp_pass.gdshaderinc"
 uniform float u_opacity = 0.5;
 void fragment() {
