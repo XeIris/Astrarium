@@ -18,7 +18,19 @@ extends Node
 # rect of every panel, tab and marked element, and the matching Godot rects are
 # printed beside them with the difference (`rects=1`).
 #
-# Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [frames=N] [rects=1]
+# THE COMMITTED SET is godot/tools/ref/ui: for each state <state>.web.png (the
+# page, 3D canvas hidden so the HUD sits on --bg), <state>.godot.png (this
+# harness's output) and <state>.json (the fixture). Re-run any of them with
+#   Godot --path godot res://tools/uitest.tscn -- fix=res://tools/ref/ui state=trisolaris out=/tmp/t.png rects=1
+# and flip or diff against <state>.web.png. Regenerate the set with
+# `uitest.shots.mjs --flat` → webref.mjs → this harness.
+#
+# Also printed every run: the overlap check of the left column's chain (the
+# CLAUDE.md standing check), the cost of a full and an incremental HUD layout,
+# and with selftest=1 a pass/fail walk of the orchestrator-facing API.
+#
+# Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [sb=1 scrollbars]
+#       [frames=N] [rects=1] [selftest=1]
 # ============================================================================
 
 var args := {}
@@ -57,7 +69,7 @@ func _ready() -> void:
 	bg.color = HudTheme.BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
-	if args.get("bg", "1") != "0":
+	if args.get("bg", "1") != "0" and FileAccess.file_exists(fix.path_join(state + ".bare.png")):
 		var img := Image.load_from_file(fix.path_join(state + ".bare.png"))
 		if img:
 			var tr := TextureRect.new()

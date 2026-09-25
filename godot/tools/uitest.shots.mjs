@@ -2,7 +2,7 @@
 // The HUD reference set. Writes the shot list webref.mjs consumes, with the
 // fixture dump (uitest.dump.js) attached to every shot:
 //
-//   node godot/tools/uitest.shots.mjs /tmp/ui/shots.json
+//   node godot/tools/uitest.shots.mjs /tmp/ui/shots.json [--flat]
 //   PORT=8797 WEB_ROOT=<checkout with assets> node godot/tools/webref.mjs /tmp/ui/shots.json /tmp/ui/web
 //
 // Each shot yields <name>.png (the page), <name>.bare.png (the same frame
@@ -37,11 +37,17 @@ const base = [
   { name: 'toast', setup: `document.getElementById('skyReset').click();` },
   { name: 'controls_closed', setup: close('controlPanel') },
 ];
+// --flat hides the 3D canvas, so the page is the HUD over --bg alone: that is
+// the committed reference set (godot/tools/ref/ui), small and pixel-diffable.
+// Without it the frame behind the HUD is the live scene, for eyeballing the
+// backdrop blur.
+const flat = process.argv.includes('--flat');
+const flatten = `document.getElementById('canvas-wrap').style.visibility = 'hidden';`;
 const shots = [];
-for (const s of base) shots.push({ ...s, hud: true, bare: true, dump });
+for (const s of base) shots.push({ ...s, setup: (flat ? flatten : '') + (s.setup || ''), hud: true, bare: true, dump });
 for (const n of ['sandbox', 'trisolaris', 'start', 'chain_scenario_closed']) {
   const s = base.find(x => x.name === n);
-  shots.push({ ...s, name: n + '_1600', width: 1600, height: 1000, hud: true, bare: true, dump });
+  shots.push({ ...s, setup: (flat ? flatten : '') + (s.setup || ''), name: n + '_1600', width: 1600, height: 1000, hud: true, bare: true, dump });
 }
-await writeFile(process.argv[2] || 'shots.json', JSON.stringify(shots, null, 1));
+await writeFile(process.argv.filter(a => !a.startsWith('--'))[2] || 'shots.json', JSON.stringify(shots, null, 1));
 console.log('wrote', shots.length, 'shots');
