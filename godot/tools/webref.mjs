@@ -18,6 +18,10 @@
 //           waited on (default: the SIM test), and frames are only pumped if
 //           the page has a SIM
 //   mode    'none' leaves the start screen up (a shot OF the start screen)
+//   freeze  true stops the page's own requestAnimationFrame loop before setup,
+//           so ONLY the SIM.frame(dt) steps advance it — without this the page
+//           keeps integrating in real time between setup and capture, and no
+//           two shots (or builds) see the same moment
 //   bare    true also writes <name>.bare.png: the same frame with every HUD
 //           element hidden — the 3D background alone, for overlay tests
 //   dump    JS evaluated after the capture; its JSON value is written to
@@ -99,6 +103,7 @@ for (const s of shots) {
       const st = document.getElementById('startScreen'); if (st) st.style.display = 'none';
       return true; })()`);
     await sleep(300);
+    if (s.freeze) await evaluate(`(() => { window.requestAnimationFrame = () => 0; SIM.frame(0); return true; })()`);
     if (s.setup) await evaluate(`(async () => { ${s.setup} })()`);
     if (s.hud === false || s.hud === undefined) await evaluate(`document.body.classList.add('hud-hidden'); true`);
     if (s.wait) await sleep(s.wait);
