@@ -146,9 +146,8 @@ func _ready() -> void:
 		"get_scene_scale": func(): return state.scene_scale,
 	})
 
-	observer = SurfaceObserver.new()
-	sky_pass = SkyPass.new()
-	pipe.sky_materials.append_array(sky_pass.sky_materials() if sky_pass.has_method("sky_materials") else [])
+	observer = SkyView.SurfaceObserver.new()
+	sky_pass = SkyView.create_sky_pass()
 
 	var ui_layer := CanvasLayer.new()
 	ui_layer.layer = 1
@@ -221,9 +220,7 @@ func attach_visual(b: Body) -> void:
 	# override it with a real distance in AU (the Roche limits in sim/presets),
 	# and a MEASURED radius is such an override: the Moon orbits 0.00257 AU from
 	# an Earth whose exaggerated disc is 0.15 AU across.
-	if spec.get("contactAU") != null: b.contact_au = float(spec.contactAU)
-	elif spec.get("radiusKm"): b.contact_au = b.radius
-	else: b.contact_au = radius_scene / state.scene_scale
+	b.contact_au = Derive.contact_au(b, spec, radius_scene, state.scene_scale)
 	if spec.type == "bh": b.rs_scene = radius_scene
 
 	var star_color = _star_color(b)
@@ -978,7 +975,7 @@ func set_cam_mode(mode: String) -> void:
 func aim_at_brightest_sun() -> void:
 	var home := get_home()
 	if home == null or state.suns.is_empty(): return
-	observer.update(home, self)
+	_observe(home)
 	var up: Vector3 = observer.up
 	var north: Vector3 = observer.north
 	var east := up.cross(north)
@@ -1837,13 +1834,13 @@ func set_local_time(when = "noon") -> void:
 	if when is float or when is int: frac = float(when)
 	else: frac = {"midnight": 0.0, "dawn": 0.25, "noon": 0.5, "dusk": 0.75, "morning": 0.38}.get(when, 0.5)
 	home.spin_phase = noon + (frac - 0.5) * TAU
-	observer.update(home, self)
+	_observe(home)
 	aim_at_brightest_sun()
 	# ...and then look BESIDE it, and UP: the blue is a RATIO, and you only have
 	# it while the path is still optically thin.
 	observer.azimuth += 0.45
 	observer.elevation = 0.34
-	observer.update(home, self)
+	_observe(home)
 
 # ============================================================================
 # ANIMATION LOOP
@@ -1891,7 +1888,7 @@ func animate(dt: float) -> void:
 	if state.cam_mode == "flight":
 		pass    # the flight pass has already placed it (flight.update)
 	elif state.cam_mode == "surface" and home:
-		observer.update(home, self)
+		_observe(home)
 	elif state.cam_mode == "free":
 		update_free_cam(dt)
 	else:
@@ -2007,7 +2004,7 @@ func animate(dt: float) -> void:
 	# The sky's footprint reference has to track the CURRENT fov: it is what the
 	# measured per-pixel footprint is compared against to recover the
 	# magnification.
-	pipe.sky_set("uPixAngle", deg_to_rad(cam_fov) / float(pipe.render_size.y))
+	SkyModel.update_pix_angle(pipe.sky_materials, deg_to_rad(cam_fov), float(pipe.render_size.y))
 
 	# ---- surface view: the sky composite runs over the scene, the home world is
 	# hidden (we are standing on it) and so is the spacetime slab
@@ -2038,30 +2035,19 @@ func _apply_camera() -> void:
 	# body being framed is millions of near-planes away from anything beyond it.
 	c.far = minf(100000.0, cam_near * 1.0e7)
 
-func _surface_frame(home: Body, dt: float) -> void:
-	var n := mini(state.suns.size(), Suns.MAX_SUNS)
-	var illum := 0.0
-	var suns := []
-	for i in n:
-		var s: Dictionary = state.suns[i]
-		var d: Vector3 = (s.pos_abs as DVec3).sub(observer.eye).to_v3().normalized()
-		suns.append({"dir": d, "color": s.color, "intensity": s.intensity, "ang": s.ang_radius})
-		# horizontal illuminance from this sun: flux × cos(zenith angle)
-		illum += s.intensity * maxf(d.dot(observer.up), 0.0)
-	# Eye adaptation. Without it the view is either a black night or a white
-	# day; target exposure falls as the ground gets brighter, and the eye takes
-	# a moment to follow — so a sunrise dazzles briefly, then settles.
-	var target := minf(0.32 / (0.12 + illum), 1.9)
-	var adapt := 1.0 - exp(-dt / 1.6)              # ~1.6 s time constant
-	state.exposure += (target - state.exposure) * adapt
-	var cl = state.climate
-	sky_pass.set_frame({
-		"suns": suns, "exposure": state.exposure, "up": observer.up, "north": observer.north,
-		"basis": cam_basis, "fov": deg_to_rad(cam_fov),
-		"aspect": float(pipe.render_size.x) / float(pipe.render_size.y), "dt": dt,
-		"ice": cl.ice if cl else null,
-		"scorch": clampf((cl.T - 320.0) / 120.0, 0.0, 1.0) if cl else null,
-		"clouds": cl.clouds if cl else null,
-		"humidity": cl.humidity if cl else null,
-		"storm": U.nz(cl.get("storm") if cl is Dictionary else cl.storm, 0.2) if cl else null,
-	})
+## The surface view's per-frame block: sun directions from the eye, eye
+## adaptation and the climate's sky — sim/skyview.gd's update_frame is the
+## web build's render-loop code for it, verbatim.
+func _surface_frame(_home: Body, dt: float) -> void:
+	sky_pass.update_frame(observer, pipe.scene_cam, state.suns, state.climate, dt,
+		float(pipe.render_size.x) / float(pipe.render_size.y))
+	state.exposure = sky_pass.exposure
+
+## Stand on the home world: the observer sets the camera's orientation, fov and
+## near plane, and its eye (a DVec3) becomes the floating origin.
+func _observe(home: Body) -> void:
+	observer.update(home, pipe.scene_cam)
+	cam_pos.copy_from(observer.eye)
+	cam_basis = pipe.scene_cam.transform.basis
+	cam_fov = pipe.scene_cam.fov
+	cam_near = pipe.scene_cam.near
