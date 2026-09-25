@@ -17,12 +17,12 @@
 //           (e.g. '.claude/skytest.html'); `ready` is then the JS expression
 //           waited on (default: the SIM test), and frames are only pumped if
 //           the page has a SIM
-//   dump    JS evaluated after the capture; its JSON value is written to
-//           outdir/<name>.json. An expression (may be async), or a function
-//           body if it contains `return`.
 //   mode    'none' leaves the start screen up (a shot OF the start screen)
 //   bare    true also writes <name>.bare.png: the same frame with every HUD
 //           element hidden — the 3D background alone, for overlay tests
+//   dump    JS evaluated after the capture; its JSON value is written to
+//           outdir/<name>.json. An expression (may be async), or a function
+//           body if it contains `return`.
 //
 // The page is served by .claude/serve.mjs, started here on PORT (default 8779)
 // so it never collides with a preview already running on 8777.

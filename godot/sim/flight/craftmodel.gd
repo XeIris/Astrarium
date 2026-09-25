@@ -58,33 +58,17 @@ extends RefCounted
 # ---------------------------------------------------------------------------
 # VEHICLE DATA — the ONE accessor.
 # ---------------------------------------------------------------------------
-# The vehicle table (sim/flight/vehicles.js) is ported in parallel to
-# res://sim/flight/vehicles.gd (`const VEHICLES`, `const VEHICLE_ORDER`,
-# `const ENGINES`, JS keys verbatim). Until it exists, this reads a JSON
-# fixture generated from the JS by tools/fixtures/make_vehicles_json.mjs.
-# >>> TEMPORARY FALLBACK: delete the JSON branch (and tools/fixtures/) once
-# >>> vehicles.gd has landed. Nothing else in the craft code reads vehicle data.
-const VEHICLES_GD := "res://sim/flight/vehicles.gd"
-const VEHICLES_FIXTURE := "res://tools/fixtures/vehicles.json"   # TEMPORARY
+# The vehicle table (sim/flight/vehicles.js) is sim/flight/vehicles.gd —
+# `Vehicles.VEHICLES` / `VEHICLE_ORDER` / `ENGINES`, JS keys verbatim. Read
+# through here so the craft code has exactly one place that knows where the
+# data lives. `script` is the Vehicles script itself, for the derived stats
+# (stage_delta_v, gross_mass, total_delta_v, pad_twr) the studio reports.
 static var _vdata = null
 
 static func vehicle_data() -> Dictionary:
-	if _vdata != null:
-		return _vdata
-	if ResourceLoader.exists(VEHICLES_GD):
-		var s: Script = load(VEHICLES_GD)
-		var c := s.get_script_constant_map()
-		_vdata = {"VEHICLES": c.get("VEHICLES", {}), "VEHICLE_ORDER": c.get("VEHICLE_ORDER", []),
-			"ENGINES": c.get("ENGINES", {}), "script": s}
-	else:
-		# TEMPORARY FALLBACK — see above.
-		var f := FileAccess.open(VEHICLES_FIXTURE, FileAccess.READ)
-		var d = JSON.parse_string(f.get_as_text()) if f else null
-		if d == null:
-			push_error("[craftmodel] no vehicle data: neither %s nor %s" % [VEHICLES_GD, VEHICLES_FIXTURE])
-			d = {"VEHICLES": {}, "VEHICLE_ORDER": [], "ENGINES": {}}
-		d["script"] = null
-		_vdata = d
+	if _vdata == null:
+		_vdata = {"VEHICLES": Vehicles.VEHICLES, "VEHICLE_ORDER": Vehicles.VEHICLE_ORDER,
+			"ENGINES": Vehicles.ENGINES, "script": Vehicles}
 	return _vdata
 
 static func vehicles() -> Dictionary:

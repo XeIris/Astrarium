@@ -207,6 +207,12 @@ func reg(key: String, e: El) -> void:
 func root(e: El) -> El:
 	e.is_root = true
 	roots.append(e)
+	# A panel takes the pointer: a click on it never becomes a pick in the 3D
+	# view behind it, and a wheel over it scrolls it (the page's panels are
+	# pointer-events:none themselves but every child is auto, which is the
+	# same thing everywhere but their padding).
+	if e.base.has("blur") and not e.clickable:
+		e.mouse_filter = Control.MOUSE_FILTER_STOP
 	return e
 
 func _h3(parent: Node, text: String, first := false, id := "") -> El:
@@ -485,7 +491,9 @@ func set_lesson_media(on: bool) -> void:
 
 ## Rebuild the step dots: n of them, `seen` up to and `on` at index i.
 func set_lesson_dots(n: int, i: int, seen: int) -> void:
+	lc.dots.touch()
 	for k in lc.dots.get_children():
+		lc.dots.remove_child(k)
 		k.queue_free()
 	for d in n:
 		var dot := E(lc.dots, {"w": 7.0, "h": 7.0, "b": [1, T.BORDER_STRONG], "rad": 3.5},
@@ -501,7 +509,7 @@ func _section(parent: El, title: String, head_runs: Array = [], host: El = null)
 	var head := E(host if host else parent, C.merge(C.h3(host != null), {"display": "flex", "ai": "baseline", "gapc": 6.0}),
 		null, "", [["hover", {"c": T.ACCENT}]])
 	head.make_hoverable()
-	head.mouse_filter = Control.MOUSE_FILTER_STOP
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
 	head.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var arrow := E(head, {"fs": 9.0, "c": T.TEXT_DIM, "rot": 90.0}, "▸")
 	var tl := E(head, {}, title)
@@ -511,8 +519,10 @@ func _section(parent: El, title: String, head_runs: Array = [], host: El = null)
 	var sec := {"title": title, "head": head, "wrap": wrap, "host": host, "arrow": arrow, "label": tl}
 	sections.append(sec)
 	head.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and not e.pressed:
-			set_section_open(sec, not sec.open))
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+			head.accept_event()
+			if not e.pressed:
+				set_section_open(sec, not sec.open))
 	sec.open = true
 	return wrap
 
@@ -1016,6 +1026,7 @@ func set_text(id: String, text: String) -> void:
 		var pr: Array = run_ids[id]
 		if pr[1].t != text:
 			pr[1].t = text
+			(pr[0] as El)._invalidate()
 			(pr[0] as El).touch()
 		return
 	for e in _targets(id):
@@ -1110,6 +1121,7 @@ func _render_presets() -> void:
 	for k in _preset_list.get_children():
 		_preset_list.remove_child(k)
 		k.queue_free()
+	_preset_list.touch()
 	for sel in sels.keys():
 		if str(sel).begins_with("[data-preset="):
 			sels.erase(sel)
@@ -1188,6 +1200,7 @@ func set_search(text: String) -> void:
 # ---- refreshUI's body list -------------------------------------------------------------------------
 func render_body_list(bodies: Array, focus_id) -> void:
 	var list: El = ids.bodyList
+	list.touch()
 	for k in list.get_children():
 		if k is El:
 			list.remove_child(k)
@@ -1281,7 +1294,10 @@ func set_band(i: int, band: Dictionary) -> void:
 # ---- sky settings --------------------------------------------------------------------------------------------
 ## The environment rows and the amplitude rows, built from the sky module's
 ## own lists — a sixth environment grows a row here without this file changing.
-func build_sky_settings(envs: Array, params: Array) -> void:
+func build_sky_settings(envs, params: Array) -> void:
+	# SkyModel.SKY_ENVIRONMENTS is a Dictionary in web order; its keys are the rows
+	if envs is Dictionary:
+		envs = (envs as Dictionary).keys()
 	_envs = envs; _params = params
 	var list: El = ids.skyEnvList
 	for name in envs:
@@ -1337,6 +1353,7 @@ func sync_sky_controls(sky: Dictionary, eff: Dictionary, skip_inputs := false) -
 ## rows: [{key, name, desc ("2.86 kt · 14.3 km/s · launch"), blurb}]
 func render_craft_grid(rows: Array) -> void:
 	var g: El = ids.craftGrid
+	g.touch()
 	for k in g.get_children():
 		g.remove_child(k); k.queue_free()
 	for r in rows:
@@ -1351,6 +1368,7 @@ func render_craft_grid(rows: Array) -> void:
 
 func render_model_grid(list: Array) -> void:
 	var g: El = ids.mvGrid
+	g.touch()
 	for k in g.get_children():
 		g.remove_child(k); k.queue_free()
 	for v in list:
@@ -1373,6 +1391,8 @@ func show_model_stats(st: Dictionary) -> void:
 				for b in sels[sel]:
 					b.set_state("on", sel == "[data-mv=%s]" % st.key)
 	var list: El = ids.mvList
+	list.touch()
+	ids.mvStages.touch()
 	for k in list.get_children():
 		list.remove_child(k); k.queue_free()
 	for kv in [["height", "%s m" % U.fixed(st.height, 1)], ["gross", mv_mass(st.gross)],
@@ -1421,6 +1441,7 @@ func _process(dt: float) -> void:
 			sf.queue_redraw()
 	if size != _last_size:
 		_last_size = size
+		_full = true
 		El.any_dirty = true
 	if El.any_dirty:
 		_layout_all()
@@ -1438,15 +1459,33 @@ func _set_quiet(e: El, k: String, v) -> void:
 	e.base[k] = v
 	e.cs[k] = v
 
+## Place a positioned element; lay it out again only if something in it
+## changed or it is being given a different width or height cap. The HUD's
+## texts change ten times a second (updateHUD), and re-laying out every panel
+## for a sun row's flux is most of a frame's layout budget for nothing.
 func _lay(e: El, x: float, y: float, w: float, maxh := -1.0) -> void:
 	_set_quiet(e, "maxh", maxh)
 	e.position = Vector2(x, y)
-	if e.visible:
-		e.layout(w)
-	else:
+	if not e.visible:
 		e.size = Vector2(w, 0)
+		e.set_meta("lk", null)
+		return
+	var key := [w, maxh]
+	if _full or _dirty.has(e) or e.get_meta("lk", null) != key:
+		e._ldirty = true
+		e.layout(w)
+		e.set_meta("lk", key)
+
+var _dirty := {}
+var _full := true
+
+## A complete relayout of every element (a resize, a font change).
+func relayout() -> void:
+	_full = true
+	_layout_all()
 
 func _layout_all() -> void:
+	_dirty = El.dirty_roots.duplicate()
 	El.any_dirty = false
 	El.dirty_roots.clear()
 	var W := size.x
@@ -1544,6 +1583,8 @@ func _layout_all() -> void:
 	for k in start_screen.get_children():
 		if k is El and k.has_meta("inner"): inner = k
 	_start_cards_responsive(W)
+	start_cards._ldirty = true
+	inner._ldirty = true
 	var iw := minf(860.0, 0.9 * W)
 	var ih := inner.layout(iw)
 	inner.position = Vector2((W - iw) * 0.5, (H - ih) * 0.5)
@@ -1556,6 +1597,7 @@ func _layout_all() -> void:
 		_search_clear.position = Vector2(_search.size.x - 1 - 6 - _search_clear.size.x, (_search.size.y - _search_clear.size.y) * 0.5)
 	El.any_dirty = false
 	El.dirty_roots.clear()
+	_full = false
 
 ## Three doors, stepping down rather than wrapping to an orphan: at 1040 px the
 ## course card goes full width above the other two, at 720 px one column.

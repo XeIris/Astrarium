@@ -115,16 +115,19 @@ static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
 
 ## Advance of one character, in em (measured at 1000 px).
 static func adv_em(f: Font, ch: int) -> float:
-	var key := str(f.get_instance_id(), ":", ch)
-	if _adv.has(key):
-		return _adv[key]
+	var fid := f.get_instance_id()
+	var tbl: Dictionary = _adv.get(fid, {})
+	if tbl.is_empty():
+		_adv[fid] = tbl
+	if tbl.has(ch):
+		return tbl[ch]
 	# measured on the undilated face: emboldening widens the advance, and the
 	# dilation is a rendering effect, not a metric one
 	var mf: Font = _metric.get(f.get_instance_id(), f)
 	var a := mf.get_char_size(ch, 1000).x / 1000.0
 	if a <= 0.0 or not mf.has_char(ch):
 		a = f.get_char_size(ch, 1000).x / 1000.0
-	_adv[key] = a
+	tbl[ch] = a
 	return a
 
 ## [ascent_em, descent_em] (hhea, as CoreText reports it).
