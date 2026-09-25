@@ -344,6 +344,16 @@ class Course extends RefCounted:
 			panel.remove_child(k)
 			k.queue_free()
 		_mods.clear()
+		# A <details> parsed with `open` fires its own `toggle` event, and the
+		# page's listener adds it to the set — so a module the learner has been
+		# taken into STAYS open after they move on to another one. But the event
+		# is a queued TASK: a panel re-rendered again in the same task (resume()
+		# and then openLesson() from one script, say) replaces those elements
+		# before it fires, and only the last render's modules join. So the join
+		# is deferred to the end of the frame and made only by the latest render.
+		var rendered_open: Array = []
+		_render_gen += 1
+		_commit_open.call_deferred(_render_gen, rendered_open)
 
 		# .course-progress
 		var prog := _E(panel, {"mb": 10.0})
@@ -365,6 +375,7 @@ class Course extends RefCounted:
 			for l in m.lessons:
 				if progress.done.has("%s/%s" % [m.id, l.id]): dn += 1
 			var is_open: bool = open.has(m.id) or (cur != null and cur.module.id == m.id)
+			if is_open: rendered_open.append(m.id)
 			var det := _E(mods, {"b": [1, T.BORDER], "minw": 0.0})
 			var summ := _E(det, {"display": "flex", "ai": "center", "gapc": 7.0, "p": [6, 8], "c": T.TEXT_DIM, "fs": 11.0},
 				null, [["hover", {"c": T.TEXT, "bg": T.rgba(180, 200, 230, 0.06)}],
@@ -408,6 +419,12 @@ class Course extends RefCounted:
 		reset.make_clickable()
 		reset.pressed.connect(func():
 			progress.done = {}; progress.last = null; _save_progress(); render_panel())
+
+	var _render_gen := 0
+
+	func _commit_open(gen: int, ids: Array) -> void:
+		if gen != _render_gen: return
+		for id in ids: open[id] = true
 
 	static func _bright(c: Color) -> Color:
 		# filter: brightness(1.12)

@@ -1,0 +1,19 @@
+{
+ "lesson": "stars/distances",
+ "preset": "edu_galaxy",
+ "simYears": 0.04999999999999997,
+ "card": [
+  286,
+  401.609375,
+  660,
+  302.390625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": null,
+ "strain": null
+}

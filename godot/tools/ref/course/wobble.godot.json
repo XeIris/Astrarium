@@ -1,0 +1,27 @@
+{
+ "card": [
+  286.0,
+  401.600006103516,
+  660.0,
+  302.399993896484
+ ],
+ "instrument": "photometer",
+ "lesson": "worlds/wobble",
+ "note": "deepest dip 20654 ppm · RV swing ±152.4 m/s",
+ "panel": [
+  20.0,
+  100.0,
+  250.0,
+  539.0
+ ],
+ "photometer": {
+  "amplitude": 152.351056922336,
+  "depthPPM": 20654,
+  "n": 240,
+  "rel": 1.0,
+  "rv": 26.033375201433
+ },
+ "preset": "edu_transit",
+ "simYears": 0.0200000000000039,
+ "step": 0
+}

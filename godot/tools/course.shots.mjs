@@ -28,17 +28,26 @@ export const SHOTS = [
   ['wobble', 'worlds/wobble', 0, 240],
 ];
 
+// The card's rect and instrument note, plus the LIVE numbers at the moment of
+// capture: simulated time, and what gwdetector.js reads off the binary on
+// screen right now (the chart's own history is not reachable from outside).
 const uiDump = `
   const r = e => { if (!e) return null; const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
-  return { lesson: SIM.lessons.lessonKey, preset: SIM.state.presetKey,
+  const g = await import('/sim/gwdetector.js');
+  const s = g.strainOf(g.findBinary(SIM.state.bodies));
+  return { lesson: SIM.lessons.lessonKey, preset: SIM.state.presetKey, simYears: SIM.state.simYears,
     card: r(document.getElementById('lessonCard')), panel: r(document.getElementById('coursePanel')),
-    note: document.querySelector('.lc-instr-note')?.textContent ?? null };`;
+    note: document.querySelector('.lc-instr-note')?.textContent ?? null,
+    strain: s && { fGW: s.fGW, h0: s.h0, Mc: s.Mc, rSchwarz: s.rSchwarz } };`;
 
 const here = new URL('.', import.meta.url);
 if (import.meta.url === `file://${process.argv[1]}`) {
   const shots = SHOTS.map(([name, key, n, frames]) => ({
-    name, mode: 'learn', hud: true, frames,
-    setup: `document.querySelector('[data-reset]')?.click(); SIM.lessons.close(); SIM.lessons.openLesson('${key}'); for (let i = 0; i < ${n}; i++) SIM.lessons.next();`,
+    // Sandbox first, then Learn from the setup: localStorage survives from shot
+    // to shot, and entering Learn RESUMES the course, so the progress is reset
+    // before the mode is entered — a fresh learner, as coursetest.gd makes.
+    name, mode: 'sandbox', hud: true, freeze: true, frames,
+    setup: `document.querySelector('[data-reset]')?.click(); SIM.setAppMode('learn'); SIM.lessons.openLesson('${key}'); for (let i = 0; i < ${n}; i++) SIM.lessons.next();`,
     dump: uiDump,
   }));
   shots.push({ name: 'instruments', mode: 'sandbox', frames: 0, dump: readFileSync(new URL('course_instruments.dump.js', here), 'utf8') });

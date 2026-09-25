@@ -1061,6 +1061,8 @@ func _draw_chars(font: Font, t: String, p: Vector2, fs: float, ls: float, col: C
 		var ch := t.unicode_at(i)
 		draw_char(font, Vector2(x * k, p.y * k), t[i], isz, col)
 		x += HudTheme.adv_em(font, ch) * fs + ls
+		if i + 1 < t.length():
+			x += HudTheme.kern_em(font, ch, t.unicode_at(i + 1)) * fs
 	if k != 1.0:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 

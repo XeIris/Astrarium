@@ -2,7 +2,7 @@
 // frozen body states, so the Godot port can be checked to rounding on the SAME
 // input (a live comparison drifts: the page's requestAnimationFrame keeps
 // integrating between a screenshot and a dump). Used as the `dump` of a
-// webref.mjs shot (see godot/tools/course.shots.json); a function body.
+// webref.mjs shot (see godot/tools/course.shots.mjs); a function body.
 const { measure } = await import('/sim/lightcurve.js');
 const g = await import('/sim/gwdetector.js');
 const { Vector3 } = await import('three');

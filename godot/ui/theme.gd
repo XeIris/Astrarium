@@ -92,7 +92,38 @@ static func font_sized(ff: String, fw: int, fi: bool, fs: float) -> Font:
 	mv.variation_opentype = axes
 	_fonts[key] = fv
 	_metric[fv.get_instance_id()] = mv
+	_kerned[fv.get_instance_id()] = true
 	return fv
+
+## KERNING, for the same faces. Blink shapes a run through HarfBuzz/CoreText
+## and applies the font's pair kerning; the HUD's per-character layout sums
+## bare advances, which is exact for the monospaced face (it has no kerning)
+## and 1.6 px too wide over a 97-character line of the lesson card's prose —
+## enough to push the last word of a line that fits in Chrome onto the next.
+## So the optical-size display faces (and only they: nothing else in the HUD
+## changes) add each pair's kerning, measured by shaping the pair on the
+## metric face and taking away the two advances, in em, cached per pair.
+static var _kerned := {}
+static var _kern := {}
+
+static func kern_em(f: Font, a: int, b: int) -> float:
+	var fid := f.get_instance_id()
+	if not _kerned.has(fid):
+		return 0.0
+	var tbl: Dictionary = _kern.get(fid, {})
+	if tbl.is_empty():
+		_kern[fid] = tbl
+	var key := a * 0x110000 + b
+	if tbl.has(key):
+		return tbl[key]
+	var mf: Font = _metric.get(fid, f)
+	var pair := String.chr(a) + String.chr(b)
+	var k := mf.get_string_size(pair, HORIZONTAL_ALIGNMENT_LEFT, -1, 1000).x / 1000.0 - adv_em(f, a) - adv_em(f, b)
+	# a shaping artefact (a ligature, a mark) is not kerning; real pair
+	# kerning in a text face is a few hundredths of an em
+	if absf(k) > 0.25: k = 0.0
+	tbl[key] = k
+	return k
 
 ## Extra letter-spacing, px, that CoreText's tracking adds at this size.
 static func tracking(ff: String, fs: float) -> float:
@@ -193,8 +224,11 @@ static func asc_desc(f: Font, size: float) -> Vector2:
 ## letter-spacing after EVERY character (Blink adds it after the last too).
 static func text_w(f: Font, s: String, size: float, ls: float) -> float:
 	var w := 0.0
+	var kerned := _kerned.has(f.get_instance_id())
 	for i in s.length():
 		w += adv_em(f, s.unicode_at(i)) * size + ls
+		if kerned and i + 1 < s.length():
+			w += kern_em(f, s.unicode_at(i), s.unicode_at(i + 1)) * size
 	return w
 
 # ---- the Godot Theme, for the few stock Controls the HUD uses ---------------

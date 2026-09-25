@@ -15,7 +15,8 @@ extends Node
 # writes the root viewport. `dump` writes the instruments' own numbers and the
 # card's measured rect beside it.
 #
-# The web side is godot/tools/course.shots.json through godot/tools/webref.mjs.
+# The web side is godot/tools/course.shots.mjs through godot/tools/webref.mjs;
+# tools/coursetest.sh runs the whole list here. Pairs: godot/tools/ref/course/.
 # ============================================================================
 
 var args := {}
@@ -41,12 +42,14 @@ func _ready() -> void:
 	HudBlur.enabled = args.get("blur", "1") != "0"
 	El.scrollbars = args.get("sb", "0") == "1"
 	await get_tree().process_frame
-	main._start("learn")
+	# A fresh learner, and nothing written back: progress in memory only, and
+	# empty BEFORE Learn is entered, because entering it resumes the course —
+	# the first lesson for a fresh learner, which is what opens its module in
+	# the panel. The web shot does the same (reset, then setAppMode('learn')).
 	var L = main.lessons
 	L.store = ""
 	L.progress = {"done": {}, "last": null}
-	L.open = {}
-	L.render_panel()
+	main._start("learn")
 	if args.has("lesson"):
 		L.open_lesson(args.lesson)
 		for i in int(args.get("steps", "0")):
@@ -61,6 +64,12 @@ func _process(_d: float) -> void:
 		return
 	if n == frames:
 		n += 1
+		# The web shot is captured after its last SIM.frame with nothing running
+		# in between (the page's own loop is frozen). Here the engine has to
+		# draw one more frame to be read back, and main's _process would
+		# integrate it at the real frame time — up to 50 ms, three fixed steps,
+		# which is visible at the end of an inspiral. So main stops here.
+		main.set_process(false)
 		_finish.call_deferred()
 
 func _finish() -> void:
@@ -70,7 +79,11 @@ func _finish() -> void:
 	img.save_png(out)
 	if args.has("cdump"):
 		var L = main.lessons
-		var d := {"lesson": L.key, "step": L.step_ix, "instrument": L.instrument, "preset": main.state.preset_key}
+		var d := {"lesson": L.key, "step": L.step_ix, "instrument": L.instrument, "preset": main.state.preset_key,
+			"simYears": main.state.sim_years}
+		var s = GWDetector.strain_of(GWDetector.find_binary(main.state.bodies))
+		if s != null: d.strain = {"fGW": s.fGW, "h0": s.h0, "Mc": s.Mc, "rSchwarz": s.rSchwarz}
+		if L.media_note != null: d.note = L.media_note.get_text()
 		if L.built.has("photometer"):
 			var p = L.built.photometer
 			d.photometer = {"depthPPM": p.depth_ppm(), "amplitude": p.amplitude(), "n": p.t.size(),

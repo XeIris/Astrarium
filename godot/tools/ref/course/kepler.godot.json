@@ -1,0 +1,19 @@
+{
+ "card": [
+  286.0,
+  401.600006103516,
+  660.0,
+  302.399993896484
+ ],
+ "instrument": null,
+ "lesson": "gravity/ellipse",
+ "panel": [
+  20.0,
+  100.0,
+  250.0,
+  539.0
+ ],
+ "preset": "edu_kepler",
+ "simYears": 0.125000000000025,
+ "step": 2
+}

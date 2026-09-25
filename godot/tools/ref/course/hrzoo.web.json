@@ -1,0 +1,19 @@
+{
+ "lesson": "stars/hr",
+ "preset": "stellar_zoo",
+ "simYears": 0.7500000000000003,
+ "card": [
+  286,
+  401.609375,
+  660,
+  302.390625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": "the band is sampled from the interior model, not drawn",
+ "strain": null
+}

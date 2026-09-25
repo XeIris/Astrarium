@@ -1,0 +1,19 @@
+{
+ "card": [
+  384.0,
+  419.84375,
+  562.0,
+  284.15625
+ ],
+ "instrument": null,
+ "lesson": "lives/supernova",
+ "panel": [
+  20.0,
+  135.0,
+  250.0,
+  0.0
+ ],
+ "preset": "edu_supernova",
+ "simYears": 0.125000000000025,
+ "step": 2
+}

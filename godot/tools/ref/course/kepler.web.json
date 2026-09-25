@@ -1,0 +1,19 @@
+{
+ "lesson": "gravity/ellipse",
+ "preset": "edu_kepler",
+ "simYears": 0.12499999999999999,
+ "card": [
+  286,
+  401.609375,
+  660,
+  302.390625
+ ],
+ "panel": [
+  20,
+  100,
+  250,
+  539
+ ],
+ "note": null,
+ "strain": null
+}
