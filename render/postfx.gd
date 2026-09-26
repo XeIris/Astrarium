@@ -111,11 +111,19 @@ func size() -> Vector2i:
 ## every tick of the render-scale slider. Reassigning releases the wrapper
 ## first (it never frees the RD texture itself), then the old one can go.
 func _resize_rt() -> void:
-	var old: Array[RID] = [_hdr, _hdr2, _banded, _final]
+	# The surface composite and spectral remap are optional full-resolution
+	# passes. Keep their targets absent until those modes are used: in the
+	# default visible-light orrery they otherwise cost 16 bytes per pixel of
+	# persistent GPU memory despite never being read or written.
+	var had_hdr2 := _hdr2.is_valid()
+	var had_banded := _banded.is_valid()
+	var old: Array[RID] = [_hdr, _final]
+	if had_hdr2: old.append(_hdr2)
+	if had_banded: old.append(_banded)
 	old.append_array(_down); old.append_array(_up)
 	_hdr = RDU.make_tex(_w, _h)
-	_hdr2 = RDU.make_tex(_w, _h)
-	_banded = RDU.make_tex(_w, _h)
+	_hdr2 = RDU.make_tex(_w, _h) if had_hdr2 else RID()
+	_banded = RDU.make_tex(_w, _h) if had_banded else RID()
 	_final = RDU.make_tex(_w, _h, RDU.RGBA8)
 	final_tex.texture_rd_rid = _final
 	for r in old:
@@ -127,6 +135,12 @@ func _resize_rt() -> void:
 		_dsz.append(Vector2i(mw, mh))
 		_down.append(RDU.make_tex(mw, mh))
 		_up.append(RDU.make_tex(mw, mh))
+
+func _ensure_optional_targets(surface: bool, spectral: bool) -> void:
+	if surface and not _hdr2.is_valid():
+		_hdr2 = RDU.make_tex(_w, _h)
+	if spectral and not _banded.is_valid():
+		_banded = RDU.make_tex(_w, _h)
 
 ## Release every RD resource. The wrapper is emptied first, for the reason
 ## _resize_rt gives.
@@ -159,6 +173,9 @@ func render_rt(inputs: Dictionary) -> void:
 	var local: RID = inputs.get("local", RID())
 	if not temp.is_valid(): temp = scene
 	if not local.is_valid(): local = scene
+	var surface = inputs.get("surface", null)
+	var use_spectral := band != Spectrum.VISIBLE_BAND
+	_ensure_optional_targets(surface != null, use_spectral)
 
 	# 0. compose the HDR buffer (+ temperature in alpha)
 	RDU.dispatch(k_compose, [
@@ -168,7 +185,6 @@ func render_rt(inputs: Dictionary) -> void:
 	var src := _hdr
 
 	# 0b. the surface view's atmosphere composites over the scene it was given
-	var surface = inputs.get("surface", null)
 	if surface != null:
 		surface.dispatch(src, _hdr2, _w, _h)
 		src = _hdr2

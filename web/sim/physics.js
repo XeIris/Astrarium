@@ -117,12 +117,16 @@ function pullMag(source, dist) {
 // ----------------------------------------------------------------------------
 const _rel = new THREE.Vector3();
 const _vrel = new THREE.Vector3();
+const _compactScratch = [];
+const _liveScratch = [];
 // G and C are module constants, so their powers are too — hoisted out of the
 // O(n²) pair loop rather than recomputed per pair per sub-step.
 const G4 = Math.pow(G, 4);
 const C5 = Math.pow(C, 5);
 export function applyGWReaction(bodies, dt, boost) {
-  const compact = bodies.filter(b => b.alive && b.emitsGW);
+  const compact = _compactScratch;
+  compact.length = 0;
+  for (const b of bodies) if (b.alive && b.emitsGW) compact.push(b);
   for (let i = 0; i < compact.length; i++) {
     for (let j = i + 1; j < compact.length; j++) {
       const a = compact[i], b = compact[j];
@@ -155,13 +159,16 @@ export function applyGWReaction(bodies, dt, boost) {
       b.vel.addScaledVector(_vrel, -dragAcc * (mu / m2) * dt);
     }
   }
+  compact.length = 0;
 }
 
 // ----------------------------------------------------------------------------
 // One velocity-Verlet step (symplectic).
 // ----------------------------------------------------------------------------
 export function integrate(bodies, dt) {
-  const live = bodies.filter(b => b.alive);
+  const live = _liveScratch;
+  live.length = 0;
+  for (const b of bodies) if (b.alive) live.push(b);
   if (!live.length) return;
 
   computeAccel(live);
@@ -178,6 +185,7 @@ export function integrate(bodies, dt) {
     // v += ½(a_old + a_new)·dt
     b.vel.addScaledVector(_tmp.copy(b._aPrev).add(b.acc), 0.5 * dt);
   }
+  live.length = 0;
 }
 
 // ----------------------------------------------------------------------------
