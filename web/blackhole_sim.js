@@ -1006,14 +1006,39 @@ function checkStructuralLimits(b) {
 // ============================================================================
 // PHYSICS STEP
 // ============================================================================
+const holeBodyScratch = [];
 function getHoles() {
-  return state.bodies.filter(b => b.type === 'bh').sort((a, b) => b.mass - a.mass);
+  let count = 0;
+  for (const b of state.bodies) if (b.type === 'bh') holeBodyScratch[count++] = b;
+  holeBodyScratch.length = count;
+  return holeBodyScratch.sort((a, b) => b.mass - a.mass);
 }
 
+// Body visuals only need a small shader-facing view of each black hole.
+const holeVisualScratch = [];
+function getHoleVisuals() {
+  const bodies = getHoles();
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i];
+    const h = holeVisualScratch[i] || (holeVisualScratch[i] = {});
+    h.posScene = b.viz.group.position;
+    h.rsScene = b.rsScene;
+    h.mass = b.mass;
+  }
+  holeVisualScratch.length = bodies.length;
+  return holeVisualScratch;
+}
+
+const starScratch = [];
 function getStars() {
   // White dwarfs light a scene too — Sirius B is 25 000 K, hotter than Sirius A
   // — and leaving them out would make the Sirius preset lit by one star.
-  return state.bodies.filter(b => (b.type === 'star' || b.type === 'white-dwarf') && b.alive);
+  let count = 0;
+  for (const b of state.bodies) {
+    if (b.alive && (b.type === 'star' || b.type === 'white-dwarf')) starScratch[count++] = b;
+  }
+  starScratch.length = count;
+  return starScratch;
 }
 function getHome() {
   return state.homeId != null ? state.bodies.find(b => b.id === state.homeId) : null;
@@ -3174,7 +3199,7 @@ function animate() {
   postfx.setSceneTemp(sceneMaxTemp());
 
   // body visual updates
-  const holes = getHoles().map(h => ({ posScene: h.viz.group.position, rsScene: h.rsScene, mass: h.mass }));
+  const holes = getHoleVisuals();
   const ctx = {
     holes, camera, time: state.time, sceneScale: state.sceneScale,
     simDt: simStepped, suns: state.suns, climate: state.climate, bodies: state.bodies,
@@ -3187,16 +3212,22 @@ function animate() {
   // Structural limits, on anything whose mass moved this frame. Accretion and
   // mergers both change mass, so this is where a fed neutron star finds out it
   // is over the TOV limit.
-  for (const b of state.bodies.slice()) checkStructuralLimits(b);
+  for (let i = 0; i < state.bodies.length;) {
+    const b = state.bodies[i];
+    checkStructuralLimits(b);
+    if (state.bodies[i] === b) i++; // removal leaves the next body at this index
+  }
 
   // Bodies stripped down to nothing by accretion are fully consumed. This has
   // to be measured against the body's ORIGINAL mass: a planet is born lighter
   // than this threshold, and must not be deleted just for being a planet.
-  for (const b of state.bodies.slice()) {
+  for (let i = 0; i < state.bodies.length;) {
+    const b = state.bodies[i];
     if (b.type !== 'bh' && b.mass0 > 0.05 && b.mass <= Math.max(0.012, b.mass0 * 0.02)) {
       spawnFlash(b.viz.group.position.clone(), 0xffcaa0, b.radiusScene * 10, 0.7);
       state.consumed++; removeBody(b.id);
     }
+    if (state.bodies[i] === b) i++; // also make progress if removal did not match
   }
 
   // ---- spaceflight. It owns the camera while it is active, so this runs
@@ -3278,13 +3309,6 @@ function animate() {
   // an invisible star at the origin, and the moment you spawn a real star it
   // switches off and the scene is lit by physics again.
   if (sunLight.visible) {
-    // `holes` is the flattened description built for the shaders above, not the
-    // bodies themselves: it carries posScene, and reaching for .viz on it threw
-    // every frame — which killed the rest of animate(), so the composite never
-    // ran and the canvas froze on its last good frame. That is what a star or a
-    // neutron star collapsing in a star-less scene used to look like: the sim
-    // kept stepping, the HUD kept updating, and the picture stopped, leaving a
-    // dead image of the object that no longer existed to click on.
     const lum = holes[0];
     if (lum) sunLight.position.copy(lum.posScene);
     else sunLight.position.copy(camera.position);
