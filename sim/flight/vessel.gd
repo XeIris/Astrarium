@@ -309,7 +309,8 @@ func propulsion(pa: float) -> Dictionary:
 	var w := 0.0
 	var plume = null
 	var count := 0
-	for st in live_stages():
+	for st in stages:
+		if not st.attached or not st.ignited or st.spent: continue
 		var s: Dictionary = st.spec
 		if s.get("engine") == null or st.prop <= 0.0: continue
 		var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
@@ -439,7 +440,8 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample = null) -> DVec3:
 			# airstream, in the plane containing the body axis — this is what lets
 			# the Shuttle fly a hypersonic bank and Starship belly-flop.
 			var wing = null
-			for s3 in live_stages():
+			for s3 in stages:
+				if not s3.attached or not s3.ignited or s3.spent: continue
 				if s3.spec.get("wings") != null or s3.spec.get("flaps", 0):
 					wing = s3; break
 			if wing != null and cos_a < 0.999:
