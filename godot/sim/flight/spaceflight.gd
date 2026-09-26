@@ -325,6 +325,15 @@ func build_plumes(_veh: Dictionary) -> void:
 			pl.engine = eng
 			plumes.append(pl)
 
+## For shutdown only. The flight panel's hooks are lambdas that capture this
+## object, and the panel is held here, so the two keep each other alive — and
+## the orrery's state with them — until something breaks the ring.
+func release() -> void:
+	if active: teardown()
+	hud = null
+	target = null
+	state = null
+
 func teardown() -> void:
 	if craft != null:
 		if is_instance_valid(craft.group):

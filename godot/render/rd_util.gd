@@ -75,7 +75,7 @@ class Kernel:
 		pipeline = RDU.rd().compute_pipeline_create(shader)
 	func valid() -> bool:
 		return pipeline.is_valid()
-	func free() -> void:
+	func release() -> void:
 		RDU.free_rid(pipeline)
 		RDU.free_rid(shader)
 

@@ -151,7 +151,9 @@ func _dispatch_rt(bytes: PackedByteArray) -> void:
 	dev.buffer_update(_ubo, 0, bytes.size(), bytes)
 	RDU.dispatch(_kernel, [RDU.u_image(0, _march0), RDU.u_image(1, _march1), RDU.u_ubo(2, _ubo)], _mw, _mh)
 
-func free() -> void:
+func release() -> void:
 	RenderingServer.call_on_render_thread(func():
+		# empty the wrappers first: see PostFX._resize_rt
+		tex0.texture_rd_rid = RID(); tex1.texture_rd_rid = RID()
 		RDU.free_rid(_march0); RDU.free_rid(_march1); RDU.free_rid(_ubo)
-		if _kernel: _kernel.free())
+		if _kernel: _kernel.release())

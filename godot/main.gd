@@ -862,6 +862,40 @@ func handle_pick(pos: Vector2) -> void:
 			best_d = along
 	set_follow(best)
 
+# ============================================================================
+# SHUTDOWN
+# ----------------------------------------------------------------------------
+# The web build never had to do this: closing the tab threw the whole heap away
+# and its GC collects cycles. Godot counts references, and a body and its
+# visual hold each other (the visual reads its body every frame), as do a few
+# panel/controller pairs — so without an explicit teardown every one of them
+# was reported leaked at exit, and the GPU resources the post chain and the
+# lens marcher own directly (RenderingDevice RIDs, which nothing refcounts)
+# were never released at all. Teardown runs in the same order a scenario
+# switch uses, then drops what is left.
+# ============================================================================
+func _exit_tree() -> void:
+	if flight != null: flight.release()
+	if model_view != null: model_view.dispose()
+	clear_bodies()
+	_drop_lessons()
+	if sky_pass != null: sky_pass.release()
+	if pipe != null:
+		pipe.postfx.release()
+		pipe.lens.release()
+	flight = null; model_view = null; lessons = null; foundry = null
+	inspector = null; live_editor = null; painter = null; observer = null
+	sky_pass = null; spacetime_mesh = null
+	stage.clear(); flashes.clear(); pending_collapse.clear(); _world_placed.clear()
+	state = null
+	# the vehicle-model cache is orphan node trees, which nothing frees on its own
+	CraftAssets.clear()
+
+## The lesson card may be holding an instrument (the cutaway owns its own
+## small world), so it is released through the card, not just dropped.
+func _drop_lessons() -> void:
+	if lessons != null: lessons._drop_cutaway()
+
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventMouseButton:
 		var mb := e as InputEventMouseButton
@@ -2232,4 +2266,61 @@ func _preset_check() -> void:
 	print("PRESETCHECK ROWS ", " | ".join(rows))
 	print("PRESETCHECK LOST ", errs)
 	print("PRESETCHECK DONE ", Presets.PRESET_ORDER.size())
+	get_tree().quit()
+
+## `eval=_leak_check`: load every scenario twice over and report what is still
+## alive after each pass. Refcounting does not collect cycles the way the web
+## build's GC did, so a visual that holds its body (and is held by it) outlives
+## the scenario unless teardown breaks the link — and that is a leak on every
+## scenario switch, invisible until memory runs out. A clean build reports the
+## same counts after both passes.
+func _leak_check() -> void:
+	var keys: Array = Presets.PRESET_ORDER
+	for pass_i in 5:
+		for key in keys:
+			load_preset(key)
+			for i in 10: animate(1.0 / 60.0)
+			await get_tree().process_frame
+		load_preset("solar")
+		for i in 3: await get_tree().process_frame
+		# and a launch/abort cycle per pass: flight builds a vehicle, a pad and
+		# a plume set, and tears all of it down again
+		for k in ["falcon9", "saturnv"]:
+			launch_craft(k)
+			for i in 20: await get_tree().process_frame
+			end_flight()
+			for i in 3: await get_tree().process_frame
+		# let toast and fade timers run out, or they read as leaked objects
+		await get_tree().create_timer(5.0).timeout
+		print("LEAKCHECK pass %d objects=%d resources=%d nodes=%d vmem=%.1fMB" % [pass_i,
+			Performance.get_monitor(Performance.OBJECT_COUNT),
+			Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT),
+			Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+			Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0])
+	get_tree().quit()
+
+## `eval=_shutdown_check`: exercise what owns GPU resources directly — drag the
+## render-scale slider both ways (every tick reallocates the post chain and the
+## lens targets), open a lesson with the cutaway instrument, the model viewer
+## and a launch — then quit. Run with `--verbose`: a clean pass prints no
+## "Attempted to free", and nothing is reported leaked at exit.
+func _shutdown_check() -> void:
+	load_preset("solar")
+	for i in 5: await get_tree().process_frame
+	for v in [0.9, 0.75, 0.6, 0.5, 0.65, 0.8, 1.0]:
+		_on_slider("renderScale", v)
+		await get_tree().process_frame
+	for e in Lessons.LESSON_ORDER:
+		var steps: Array = Lessons.find_lesson(e.key).lesson.steps
+		var si := steps.find_custom(func(s): return str(s).contains("cutaway"))
+		if si >= 0:
+			lessons.open_lesson(e.key, si)
+			print("SHUTDOWNCHECK cutaway lesson ", e.key, " step ", si)
+			break
+	for i in 10: await get_tree().process_frame
+	open_model_world()
+	for i in 10: await get_tree().process_frame
+	launch_craft("saturnv")
+	for i in 60: await get_tree().process_frame
+	print("SHUTDOWNCHECK DONE")
 	get_tree().quit()

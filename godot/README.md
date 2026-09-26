@@ -87,6 +87,8 @@ There is no test suite, as in the web build; there are checks.
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()` |
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
+| `eval=_leak_check` | loads all 35 scenarios and two launches, five times over; object, resource, node and VRAM counts should stay flat |
+| `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 
 `tools/ref/` holds the side-by-side evidence each part of the port was
 accepted on.

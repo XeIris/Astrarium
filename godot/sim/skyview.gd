@@ -195,11 +195,11 @@ class SkyPass extends RefCounted:
 		RDU.rd().buffer_update(_ubo, 0, bytes.size(), bytes)
 		RDU.dispatch(_kernel, [RDU.u_sampled(0, _sampler, src), RDU.u_image(1, dst), RDU.u_ubo(2, _ubo)], w, h)
 
-	func free() -> void:
+	func release() -> void:
 		var k := _kernel; var ubo := _ubo; var smp := _sampler
 		RenderingServer.call_on_render_thread(func():
 			RDU.free_rid(ubo); RDU.free_rid(smp)
-			if k: k.free())
+			if k: k.release())
 
 # ============================================================================
 # SURFACE OBSERVER

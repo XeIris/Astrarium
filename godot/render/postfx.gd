@@ -105,16 +105,21 @@ func set_size(w: int, h: int) -> void:
 func size() -> Vector2i:
 	return Vector2i(_w, _h)
 
+## Rebind BEFORE freeing. `final_tex` wraps `_final`, and freeing an RD
+## texture that a Texture2DRD still wraps takes the engine's own views of it
+## down too — two "Attempted to free invalid ID" errors per resize, which is
+## every tick of the render-scale slider. Reassigning releases the wrapper
+## first (it never frees the RD texture itself), then the old one can go.
 func _resize_rt() -> void:
-	for r in [_hdr, _hdr2, _banded, _final]:
-		RDU.free_rid(r)
-	for r in _down + _up:
-		RDU.free_rid(r)
+	var old: Array[RID] = [_hdr, _hdr2, _banded, _final]
+	old.append_array(_down); old.append_array(_up)
 	_hdr = RDU.make_tex(_w, _h)
 	_hdr2 = RDU.make_tex(_w, _h)
 	_banded = RDU.make_tex(_w, _h)
 	_final = RDU.make_tex(_w, _h, RDU.RGBA8)
 	final_tex.texture_rd_rid = _final
+	for r in old:
+		RDU.free_rid(r)
 	_down.clear(); _up.clear(); _dsz.clear()
 	var mw := _w; var mh := _h
 	for i in MIPS:
@@ -122,6 +127,23 @@ func _resize_rt() -> void:
 		_dsz.append(Vector2i(mw, mh))
 		_down.append(RDU.make_tex(mw, mh))
 		_up.append(RDU.make_tex(mw, mh))
+
+## Release every RD resource. The wrapper is emptied first, for the reason
+## _resize_rt gives.
+func release() -> void:
+	RenderingServer.call_on_render_thread(_free_rt)
+
+func _free_rt() -> void:
+	final_tex.texture_rd_rid = RID()
+	for r in [_hdr, _hdr2, _banded, _final, _sampler]:
+		RDU.free_rid(r)
+	for r in _down + _up:
+		RDU.free_rid(r)
+	_hdr = RID(); _hdr2 = RID(); _banded = RID(); _final = RID(); _sampler = RID()
+	_down.clear(); _up.clear()
+	for k in [k_compose, k_remap, k_bright, k_down, k_up, k_composite]:
+		if k: k.release()
+	k_composite = null
 
 ## Run the whole chain. RENDER THREAD ONLY (the pipeline's hook callback).
 ## `inputs`: scene, temp, local (RD RIDs; may be invalid), mode (0/1/2),
