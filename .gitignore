@@ -1,7 +1,9 @@
-# Build artifacts from assets/blender/*.py — the SCRIPT is the model, the mesh
-# is what falls out of it. Run assets/blender/build.sh to produce them; the sim
-# falls back to its procedural build when they are absent.
-assets/*.glb
-
-__pycache__/
-.DS_Store
+# Godot's import cache and per-machine state.
+.godot/
+# The authored vehicle meshes are BUILD ARTIFACTS of assets/blender/*.py, exactly
+# as they are for the web build (see the repo's .gitignore). tools/sync_assets.sh
+# copies them in from ../assets after assets/blender/build.sh has produced them.
+assets/craft/*.glb
+assets/craft/*.glb.import
+# Export output.
+build/

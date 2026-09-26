@@ -1,19 +1,28 @@
 # AGENTS.md
 
-Guidance for Codex working in this repo. The [README.md](README.md) is the
+Guidance for coding agents working in this repo. The [web/README.md](web/README.md) is the
 authoritative description of *what the sim models and why* (physics derivations,
 scenario design, disclaimers) — don't duplicate or rewrite it here. This file is
 the engineering map: stack, layout, conventions.
 
-## Stack
+## Main project
+
+The Godot 4.7 / GDScript project lives at the repository root. Open
+[project.godot](project.godot) to run it. [README.md](README.md) covers running
+and exporting it, and [PORT_GUIDE.md](PORT_GUIDE.md) is its Godot-specific
+engineering contract. The archived HTML/Three.js build lives in `web/` and
+remains a runnable reference for comparisons. Changes to shared physics or
+appearance should be checked in both versions.
+
+## Archived web stack
 
 - **Three.js 0.160.0**, loaded from a CDN through an `importmap` in
-  [blackhole_sim.html](blackhole_sim.html). Vanilla ES modules, no bundler.
+  [web/blackhole_sim.html](web/blackhole_sim.html). Vanilla ES modules, no bundler.
 - **No build step, no package.json, no dependencies, no tests** — for the code.
   Editing a file and reloading the page is the whole dev loop. The ONE exception
-  is `assets/*.glb`, the nine authored spacecraft meshes, built offline in
-  Blender from the `.py` files in `assets/blender/`. They are build artifacts,
-  not checked-in assets: nothing builds them at serve time, `.gitignore` says
+  is `web/assets/*.glb`, the nine authored spacecraft meshes, built offline in
+  Blender from the `.py` files in `web/assets/blender/`. They are build artifacts,
+  not checked-in assets: nothing builds them at serve time, `web/.gitignore` says
   so, and the sim runs without them (see below).
 - Most of the visual work is **custom GLSL** in `THREE.ShaderMaterial`s written
   inline as template strings — full-screen passes (lensing, sky, post) plus
@@ -27,24 +36,22 @@ Static files; anything that serves the folder works. The bundled server exists
 so ES modules load over http and are never cached stale:
 
 ```bash
-node .claude/serve.mjs
+node web/.claude/serve.mjs
 ```
 
-Then open http://localhost:8777/blackhole_sim.html. `.claude/launch.json`
-registers the same server as the `sim` preview config (port 8777), so
-`preview_start {name: "sim"}` is the preferred way to run and verify changes.
+Then open http://localhost:8777/blackhole_sim.html. `web/.claude/launch.json` registers the same server on port 8777.
 
 The vehicle models are built offline and their meshes are NOT in the repo — the
-SCRIPT is the model, `assets/*.glb` is what falls out of it, and `.gitignore`
+SCRIPT is the model, `web/assets/*.glb` is what falls out of it, and `web/.gitignore`
 says so. A fresh clone runs without them (the procedural fallback takes over),
 but the ships are not the ships until this has been run once:
 
 ```bash
-assets/blender/build.sh
+web/assets/blender/build.sh
 ```
 
 That builds all nine (~12 MB, half a minute). Name some to build fewer —
-`assets/blender/build.sh shuttle lm` — which is the loop worth using while
+`web/assets/blender/build.sh shuttle lm` — which is the loop worth using while
 editing one. `lib.py` holds the primitives and `common.py` the palette, the
 optimiser and the exporter; neither is a vehicle, so neither is buildable.
 
@@ -55,7 +62,7 @@ the check worth doing before concluding it is missing. Any Blender 4.1+ works;
 the build uses sharp-edge shading rather than the `use_auto_smooth` removed in
 4.1. Set `BLENDER_OVERRIDE=/path/to/Blender` to force one.
 
-Scenarios deep-link by hash, e.g. `blackhole_sim.html#bhmerger` — handy for
+Scenarios deep-link by hash, e.g. `web/blackhole_sim.html#bhmerger` — handy for
 jumping straight to the case you're debugging. Note that a hash-only change does
 NOT reload the page, so an edit to a module is not picked up by re-navigating to
 a different hash; add a query (`?v=2#edu_kepler`) or reload. Keys `1`–`7` switch imaging band,
@@ -63,7 +70,7 @@ a different hash; add a query (`?v=2#edu_kepler`) or reload. Keys `1`–`7` swit
 
 The page has a third mode, **Learn** — a thirty-five lesson beginner's astronomy
 course over the same simulator. `SIM.lessons.openLesson('lives/giants')` jumps
-straight to one, and `.claude/coursecheck.js` walks the whole curriculum; see the
+straight to one, and `web/.claude/coursecheck.js` walks the whole curriculum; see the
 course entries under Conventions.
 
 `window.SIM` is a deliberate console handle, not a leftover: `SIM.state.bodies[0].structure`
@@ -77,91 +84,91 @@ world where page globals are not visible — inject a `<script>` element to reac
 
 Shell:
 
-- [blackhole_sim.html](blackhole_sim.html) — page shell, importmap, all HUD panel
+- [web/blackhole_sim.html](web/blackhole_sim.html) — page shell, importmap, all HUD panel
   markup. Controls are plain elements looked up by `id`.
-- [blackhole_sim.css](blackhole_sim.css) — HUD/panel styling.
-- [blackhole_sim.js](blackhole_sim.js) — the only orchestrator (~3.6k lines).
+- [web/blackhole_sim.css](web/blackhole_sim.css) — HUD/panel styling.
+- [web/blackhole_sim.js](web/blackhole_sim.js) — the only orchestrator (~1.2k lines).
   Holds `state`, the scene/camera/renderer, body spawning and trails, physics
   stepping, camera modes (orbit / free-fly / surface), picking, preset loading,
   every UI binding, the HUD and climate chart, and the render loop.
-- [.claude/serve.mjs](.claude/serve.mjs) — dependency-free static server with
+- [web/.claude/serve.mjs](web/.claude/serve.mjs) — dependency-free static server with
   `Cache-Control: no-store`.
 
-`sim/` — each module owns one domain and exports a small surface:
+`web/sim/` — each module owns one domain and exports a small surface:
 
 | file | role |
 |---|---|
-| [sim/physics.js](sim/physics.js) | units & constants (`G`, `C`), N-body velocity-Verlet `integrate`, Paczyński–Wiita term, GW radiation reaction, collisions, `schwarzschild`/radius helpers |
-| [sim/presets.js](sim/presets.js) | `PRESETS` / `PRESET_ORDER` — scenario initial conditions in real units, built with `binary()` / `kepler()` helpers |
-| [sim/stellar.js](sim/stellar.js) | mass → luminosity / radius / Teff / spectral class / blackbody colour, plus `ActivityModel` (spots, flares, CMEs) |
-| [sim/bodies.js](sim/bodies.js) | `createBodyVisual` — dispatches per body type, builds the `THREE.Group` and the `update(dt, ctx)` closure stored on `b.viz` |
-| [sim/suns.js](sim/suns.js) | the multi-sun uniform block (`MAX_SUNS`, `SUN_UNIFORMS`, `SUN_GLSL`, `applySuns`) every lit surface declares, and `insolationAt(body, suns)` |
-| [sim/terrain.js](sim/terrain.js) | **what a solid surface looks like, and why**: isostasy (the bimodal hypsometric curve), plate tectonics (belts / trenches / ridges from the closing rate), craters, and the surface climate — the P₂ insolation profile, the three overturning cells, and a Whittaker biome diagram. Pure GLSL strings plus `crustThreshold` |
-| [sim/rocky_visual.js](sim/rocky_visual.js) | every solid-surface world — Earth, Mars, the Moon, Pluto, anything the Foundry makes. Terrain, volatiles at their own condensation temperature, clouds on the circulation, a Rayleigh atmosphere. Exports the three materials `sim/world.js` also uses |
-| [sim/giant_visual.js](sim/giant_visual.js) | gas giants: the zonal jet profile, differential advection of the cloud over a rigidly rotating interior, vortices that ride their own jet, and the ring system's radial optical-depth profile |
-| [sim/star_visual.js](sim/star_visual.js) | photosphere / chromosphere / corona / two-ribbon flare / CME rendering |
-| [sim/prominence.js](sim/prominence.js) | the eruption itself: a post-flare ARCADE and an erupting flux rope, built as threads on field lines in the vertex shader. Drawn twice — bright in emission off the limb, dark in absorption against the disc, because a prominence and a filament are the same object |
-| [sim/neutron_visual.js](sim/neutron_visual.js) | neutron-star surface, self-lensing, polar caps, pulsar beams |
-| [sim/world.js](sim/world.js) | the wiring between the climate model and `sim/rocky_visual.js`'s uniforms — nothing else. Re-exports `MAX_SUNS` / `applySuns` from `sim/suns.js` |
-| [sim/climate.js](sim/climate.js) | zero-D energy-balance model, `Climate` class and `ERAS` classification |
-| [sim/skyview.js](sim/skyview.js) | `SurfaceObserver` (where you stand, planet rotation) + `createSkyPass` multi-sun scattering composite |
-| [sim/blackhole.js](sim/blackhole.js) | `createBlackHolePass` — GR null-geodesic ray marcher, shadow/photon ring, volumetric Shakura–Sunyaev disc; `MAX_HOLES = 2` |
-| [sim/postfx.js](sim/postfx.js) | `createPostFX` — HDR target, spectral remap, progressive bloom, ACES composite |
-| [sim/spectrum.js](sim/spectrum.js) | `BANDS` and the temperature→band-brightness remap shader used by postfx |
-| [sim/sky.js](sim/sky.js) | the celestial background: `SKY_GLSL` (procedural stars, galactic band, dust, nebulae, non-thermal populations, all band-aware), `createSkyBackdrop` for scenes with no hole, `SKY_ENVIRONMENTS` / `SKY_PARAMS`, and `blendEnvironments` — several environments at once |
-| [sim/scale.js](sim/scale.js) | true-scale rendering: `physicalRadiusAU` mass–radius fallbacks, and `createMarker` — the point-source glow that carries a body once its disc goes sub-pixel |
-| [sim/structure.js](sim/structure.js) | **what a body IS**: mass–radius laws per support mechanism, ignition/support limits, rotational shape & gravity darkening, central conditions, and the layer model. `structureOf(spec)` is the single entry point |
-| [sim/starcat.js](sim/starcat.js) | `STAR_CATALOG` — measured parameters for ~27 real stars — plus `starSpec` / `starRing` / `realBinary` / `companion` scenario builders |
-| [sim/foundry.js](sim/foundry.js) | the Object Foundry editor panel (`createFoundry`), the live-body inspector (`createInspector`) and the in-flight parameter editor (`createLiveEditor`), which share one set of control rows |
-| [sim/masscurve.js](sim/masscurve.js) | `createMassCurve` — the log–log mass–radius graph in the live editor. Its threshold marks are *sampled* out of `structureOf`, never listed, so a new limit in `sim/structure.js` appears here on its own |
-| [sim/crosssection.js](sim/crosssection.js) | `drawCrossSection` — the labelled interior diagram — plus the temperature ramp and every unit formatter the panels use |
-| [sim/painter.js](sim/painter.js) | rings, belts and ejecta: `createOrbitalSwarm` (analytic Keplerian test particles), `createGasCloud`, `ringSpan`, `createPainter` |
-| [sim/lessons.js](sim/lessons.js) | **the course** — eight modules, thirty-five lessons, pure DATA with no DOM and no THREE in it. A step's `do` block is a declarative request the UI executes; the header lists the vocabulary |
-| [sim/lessonui.js](sim/lessonui.js) | `createLessons` — the course panel, the lesson card, and the executor. The other half of the split: this file is the only one that knows both the curriculum and the page |
-| [sim/edupresets.js](sim/edupresets.js) | `EDU_PRESETS` / `EDU_ORDER` — the thirteen teaching scenarios, merged into `PRESETS` by sim/presets.js. Same contract as any other preset |
-| [sim/lightcurve.js](sim/lightcurve.js) | the photometer: transit depth integrated against a limb-darkened disc, and the star's radial velocity. The observer is the CAMERA |
-| [sim/gwdetector.js](sim/gwdetector.js) | the strain a 4 km interferometer would record from the binary on screen, from the quadrupole formula |
-| [sim/hrdiagram.js](sim/hrdiagram.js) | the HR diagram. Main sequence, giant tracks and the white-dwarf line are SAMPLED from `structureOf`, never listed |
-| [sim/cutaway.js](sim/cutaway.js) | the interior model as a clipped 3D object, on its own small renderer |
+| [web/sim/physics.js](web/sim/physics.js) | units & constants (`G`, `C`), N-body velocity-Verlet `integrate`, Paczyński–Wiita term, GW radiation reaction, collisions, `schwarzschild`/radius helpers |
+| [web/sim/presets.js](web/sim/presets.js) | `PRESETS` / `PRESET_ORDER` — scenario initial conditions in real units, built with `binary()` / `kepler()` helpers |
+| [web/sim/stellar.js](web/sim/stellar.js) | mass → luminosity / radius / Teff / spectral class / blackbody colour, plus `ActivityModel` (spots, flares, CMEs) |
+| [web/sim/bodies.js](web/sim/bodies.js) | `createBodyVisual` — dispatches per body type, builds the `THREE.Group` and the `update(dt, ctx)` closure stored on `b.viz` |
+| [web/sim/suns.js](web/sim/suns.js) | the multi-sun uniform block (`MAX_SUNS`, `SUN_UNIFORMS`, `SUN_GLSL`, `applySuns`) every lit surface declares, and `insolationAt(body, suns)` |
+| [web/sim/terrain.js](web/sim/terrain.js) | **what a solid surface looks like, and why**: isostasy (the bimodal hypsometric curve), plate tectonics (belts / trenches / ridges from the closing rate), craters, and the surface climate — the P₂ insolation profile, the three overturning cells, and a Whittaker biome diagram. Pure GLSL strings plus `crustThreshold` |
+| [web/sim/rocky_visual.js](web/sim/rocky_visual.js) | every solid-surface world — Earth, Mars, the Moon, Pluto, anything the Foundry makes. Terrain, volatiles at their own condensation temperature, clouds on the circulation, a Rayleigh atmosphere. Exports the three materials `web/sim/world.js` also uses |
+| [web/sim/giant_visual.js](web/sim/giant_visual.js) | gas giants: the zonal jet profile, differential advection of the cloud over a rigidly rotating interior, vortices that ride their own jet, and the ring system's radial optical-depth profile |
+| [web/sim/star_visual.js](web/sim/star_visual.js) | photosphere / chromosphere / corona / two-ribbon flare / CME rendering |
+| [web/sim/prominence.js](web/sim/prominence.js) | the eruption itself: a post-flare ARCADE and an erupting flux rope, built as threads on field lines in the vertex shader. Drawn twice — bright in emission off the limb, dark in absorption against the disc, because a prominence and a filament are the same object |
+| [web/sim/neutron_visual.js](web/sim/neutron_visual.js) | neutron-star surface, self-lensing, polar caps, pulsar beams |
+| [web/sim/world.js](web/sim/world.js) | the wiring between the climate model and `web/sim/rocky_visual.js`'s uniforms — nothing else. Re-exports `MAX_SUNS` / `applySuns` from `web/sim/suns.js` |
+| [web/sim/climate.js](web/sim/climate.js) | zero-D energy-balance model, `Climate` class and `ERAS` classification |
+| [web/sim/skyview.js](web/sim/skyview.js) | `SurfaceObserver` (where you stand, planet rotation) + `createSkyPass` multi-sun scattering composite |
+| [web/sim/blackhole.js](web/sim/blackhole.js) | `createBlackHolePass` — GR null-geodesic ray marcher, shadow/photon ring, volumetric Shakura–Sunyaev disc; `MAX_HOLES = 2` |
+| [web/sim/postfx.js](web/sim/postfx.js) | `createPostFX` — HDR target, spectral remap, progressive bloom, ACES composite |
+| [web/sim/spectrum.js](web/sim/spectrum.js) | `BANDS` and the temperature→band-brightness remap shader used by postfx |
+| [web/sim/sky.js](web/sim/sky.js) | the celestial background: `SKY_GLSL` (procedural stars, galactic band, dust, nebulae, non-thermal populations, all band-aware), `createSkyBackdrop` for scenes with no hole, `SKY_ENVIRONMENTS` / `SKY_PARAMS`, and `blendEnvironments` — several environments at once |
+| [web/sim/scale.js](web/sim/scale.js) | true-scale rendering: `physicalRadiusAU` mass–radius fallbacks, and `createMarker` — the point-source glow that carries a body once its disc goes sub-pixel |
+| [web/sim/structure.js](web/sim/structure.js) | **what a body IS**: mass–radius laws per support mechanism, ignition/support limits, rotational shape & gravity darkening, central conditions, and the layer model. `structureOf(spec)` is the single entry point |
+| [web/sim/starcat.js](web/sim/starcat.js) | `STAR_CATALOG` — measured parameters for ~27 real stars — plus `starSpec` / `starRing` / `realBinary` / `companion` scenario builders |
+| [web/sim/foundry.js](web/sim/foundry.js) | the Object Foundry editor panel (`createFoundry`), the live-body inspector (`createInspector`) and the in-flight parameter editor (`createLiveEditor`), which share one set of control rows |
+| [web/sim/masscurve.js](web/sim/masscurve.js) | `createMassCurve` — the log–log mass–radius graph in the live editor. Its threshold marks are *sampled* out of `structureOf`, never listed, so a new limit in `web/sim/structure.js` appears here on its own |
+| [web/sim/crosssection.js](web/sim/crosssection.js) | `drawCrossSection` — the labelled interior diagram — plus the temperature ramp and every unit formatter the panels use |
+| [web/sim/painter.js](web/sim/painter.js) | rings, belts and ejecta: `createOrbitalSwarm` (analytic Keplerian test particles), `createGasCloud`, `ringSpan`, `createPainter` |
+| [web/sim/lessons.js](web/sim/lessons.js) | **the course** — eight modules, thirty-five lessons, pure DATA with no DOM and no THREE in it. A step's `do` block is a declarative request the UI executes; the header lists the vocabulary |
+| [web/sim/lessonui.js](web/sim/lessonui.js) | `createLessons` — the course panel, the lesson card, and the executor. The other half of the split: this file is the only one that knows both the curriculum and the page |
+| [web/sim/edupresets.js](web/sim/edupresets.js) | `EDU_PRESETS` / `EDU_ORDER` — the thirteen teaching scenarios, merged into `PRESETS` by web/sim/presets.js. Same contract as any other preset |
+| [web/sim/lightcurve.js](web/sim/lightcurve.js) | the photometer: transit depth integrated against a limb-darkened disc, and the star's radial velocity. The observer is the CAMERA |
+| [web/sim/gwdetector.js](web/sim/gwdetector.js) | the strain a 4 km interferometer would record from the binary on screen, from the quadrupole formula |
+| [web/sim/hrdiagram.js](web/sim/hrdiagram.js) | the HR diagram. Main sequence, giant tracks and the white-dwarf line are SAMPLED from `structureOf`, never listed |
+| [web/sim/cutaway.js](web/sim/cutaway.js) | the interior model as a clipped 3D object, on its own small renderer |
 
-`sim/flight/` — spaceflight. The **only** part of the sim not in AU/M☉/yr; see the
-units note under Conventions. `sim/flight/spaceflight.js` is the sole integration
+`web/sim/flight/` — spaceflight. The **only** part of the sim not in AU/M☉/yr; see the
+units note under Conventions. `web/sim/flight/spaceflight.js` is the sole integration
 point and the only file here that knows the orrery exists.
 
 | file | role |
 |---|---|
-| [sim/flight/rocketry.js](sim/flight/rocketry.js) | SI constants, layered atmospheres (`density`/`pressure`/`scaleHeight`), transonic `dragCoefficient`, Sutton–Graves `heatFlux`, `engineOutput` incl. solid-motor thrust profiles, `flightEnv(body)` |
-| [sim/flight/vehicles.js](sim/flight/vehicles.js) | `ENGINES` and `VEHICLES` — published masses, thrusts and Isp; `stageDeltaV`/`totalDeltaV`/`padTWR` derive, never store |
-| [sim/flight/orbit.js](sim/flight/orbit.js) | universal-variable (Stumpff) `propagate`, classical `elements`, `hohmann`, `sphereOfInfluence`. Reference pole is **−Y**, matching the orrery's own orbital sense |
-| [sim/flight/vessel.js](sim/flight/vessel.js) | the `Vessel`: RK4 in a parent-centred non-inertial frame, staging, engine shutdown/relight, attitude with real gimbal + RCS authority, structural limits, SOI handover, proper-time clocks |
-| [sim/flight/guidance.js](sim/flight/guidance.js) | the `Autopilot`: ascent, orbital insertion, node execution, transfers, Apollo P63/P64/P66, hoverslam, Mars EDL. One shared `descentLaw` and one shared `limitThrottle` |
-| [sim/flight/relativity.js](sim/flight/relativity.js) | exact constant-proper-acceleration `Cruise`, `solveProfile` (flip-and-burn vs accelerate–coast–decelerate), `skyBoost` |
-| [sim/flight/craftmodel.js](sim/flight/craftmodel.js) | procedural spacecraft at real dimensions; per-stage groups so separations are re-parents, with legs, grid fins, fairing halves, arrays and gimbals that move |
-| [sim/flight/craftassets.js](sim/flight/craftassets.js) | the authored-model cache: loads one vehicle's `assets/<id>.glb` through `GLTFLoader`, splits it into per-stage subtrees, binds their moving parts by name, and lets `buildCraft` stay synchronous. Falls back silently |
-| [assets/blender/](assets/blender/) | the Blender builds — one `.py` per vehicle, and the script IS the model, nothing is clicked. `lib.py` holds the primitives (lathe, loft, wing, sphere-cone, bevel), `common.py` the palette, the join-by-material optimiser and the glTF export, `build.sh` finds Blender and runs them |
-| [sim/flight/plume.js](sim/flight/plume.js) | exhaust (shape from ambient pressure, shock diamonds when over-expanded), RCS puffs, re-entry plasma, launch smoke |
-| [sim/flight/localview.js](sim/flight/localview.js) | **local space**: the metre-scale scene, curved ground patch, altitude-driven atmosphere, and the flight cameras |
-| [sim/flight/launchsite.js](sim/flight/launchsite.js) | the launch complex at real dimensions — hardstand, flame trench, mobile launcher, umbilical tower with swing arms, strongback, chopsticks, lightning masts, deluge |
-| [sim/flight/modelviewer.js](sim/flight/modelviewer.js) | the studio: a turntable, a three-point rig carried on the camera, a 1.75 m figure for scale, and an exploded view |
-| [sim/flight/flightui.js](sim/flight/flightui.js) | the navball (a true orthographic projection of a sphere in the surface frame), telemetry, stage stack, two clocks, transfer plan |
-| [sim/flight/spaceflight.js](sim/flight/spaceflight.js) | integration: owns the vessel, drives the local pass, slaves the orrery camera, and takes over `state.timeScale` |
+| [web/sim/flight/rocketry.js](web/sim/flight/rocketry.js) | SI constants, layered atmospheres (`density`/`pressure`/`scaleHeight`), transonic `dragCoefficient`, Sutton–Graves `heatFlux`, `engineOutput` incl. solid-motor thrust profiles, `flightEnv(body)` |
+| [web/sim/flight/vehicles.js](web/sim/flight/vehicles.js) | `ENGINES` and `VEHICLES` — published masses, thrusts and Isp; `stageDeltaV`/`totalDeltaV`/`padTWR` derive, never store |
+| [web/sim/flight/orbit.js](web/sim/flight/orbit.js) | universal-variable (Stumpff) `propagate`, classical `elements`, `hohmann`, `sphereOfInfluence`. Reference pole is **−Y**, matching the orrery's own orbital sense |
+| [web/sim/flight/vessel.js](web/sim/flight/vessel.js) | the `Vessel`: RK4 in a parent-centred non-inertial frame, staging, engine shutdown/relight, attitude with real gimbal + RCS authority, structural limits, SOI handover, proper-time clocks |
+| [web/sim/flight/guidance.js](web/sim/flight/guidance.js) | the `Autopilot`: ascent, orbital insertion, node execution, transfers, Apollo P63/P64/P66, hoverslam, Mars EDL. One shared `descentLaw` and one shared `limitThrottle` |
+| [web/sim/flight/relativity.js](web/sim/flight/relativity.js) | exact constant-proper-acceleration `Cruise`, `solveProfile` (flip-and-burn vs accelerate–coast–decelerate), `skyBoost` |
+| [web/sim/flight/craftmodel.js](web/sim/flight/craftmodel.js) | procedural spacecraft at real dimensions; per-stage groups so separations are re-parents, with legs, grid fins, fairing halves, arrays and gimbals that move |
+| [web/sim/flight/craftassets.js](web/sim/flight/craftassets.js) | the authored-model cache: loads one vehicle's `web/assets/<id>.glb` through `GLTFLoader`, splits it into per-stage subtrees, binds their moving parts by name, and lets `buildCraft` stay synchronous. Falls back silently |
+| [web/assets/blender/](web/assets/blender/) | the Blender builds — one `.py` per vehicle, and the script IS the model, nothing is clicked. `lib.py` holds the primitives (lathe, loft, wing, sphere-cone, bevel), `common.py` the palette, the join-by-material optimiser and the glTF export, `build.sh` finds Blender and runs them |
+| [web/sim/flight/plume.js](web/sim/flight/plume.js) | exhaust (shape from ambient pressure, shock diamonds when over-expanded), RCS puffs, re-entry plasma, launch smoke |
+| [web/sim/flight/localview.js](web/sim/flight/localview.js) | **local space**: the metre-scale scene, curved ground patch, altitude-driven atmosphere, and the flight cameras |
+| [web/sim/flight/launchsite.js](web/sim/flight/launchsite.js) | the launch complex at real dimensions — hardstand, flame trench, mobile launcher, umbilical tower with swing arms, strongback, chopsticks, lightning masts, deluge |
+| [web/sim/flight/modelviewer.js](web/sim/flight/modelviewer.js) | the studio: a turntable, a three-point rig carried on the camera, a 1.75 m figure for scale, and an exploded view |
+| [web/sim/flight/flightui.js](web/sim/flight/flightui.js) | the navball (a true orthographic projection of a sphere in the surface frame), telemetry, stage stack, two clocks, transfer plan |
+| [web/sim/flight/spaceflight.js](web/sim/flight/spaceflight.js) | integration: owns the vessel, drives the local pass, slaves the orrery camera, and takes over `state.timeScale` |
 
 ## Conventions
 
 - **Astronomical units everywhere in physics**: AU, M☉, years — so `G = 4π²`
-  exactly. Never introduce a scaling fudge into `sim/physics.js`; rendering
+  exactly. Never introduce a scaling fudge into `web/sim/physics.js`; rendering
   exaggeration belongs in `sceneScale` / `bodyScale` on the preset.
-- **`sim/flight/` is the one exception, and it is a hard boundary.** A rocket is
+- **`web/sim/flight/` is the one exception, and it is a hard boundary.** A rocket is
   a metres-and-seconds object: an ascent lasts 500 s (1.6e-5 yr) and reaches
   200 km (1.3e-6 AU), so expressing it in AU/M☉/yr throws away most of a float's
   mantissa before the first step. The bridge is exact rather than fitted —
   `GM☉ = 1.32712440018e20 m³/s²` **is** `G = 4π² AU³/M☉/yr²`, re-expressed — and
-  it is crossed in exactly one place, `sim/flight/vessel.js`. Do not let SI leak
+  it is crossed in exactly one place, `web/sim/flight/vessel.js`. Do not let SI leak
   outward or AU leak inward.
 - **Spaceflight draws in a SECOND pass with its own camera**, in metres. At AU
   scale a 100 m rocket is 7e-10 scene units and the near plane, the depth buffer
   and float32 vertex precision all fail at once; it is eleven orders of
-  magnitude and no single projection covers it. `sim/flight/localview.js` owns
+  magnitude and no single projection covers it. `web/sim/flight/localview.js` owns
   that pass and the orrery's camera is slaved to it — the two never need to see
   each other, because from a hundred metres the universe is background and from
   a hundred kilometres the vehicle is a point.
@@ -190,7 +197,7 @@ point and the only file here that knows the orrery exists.
   convention at runtime means `rebuildVisuals()` — the physics body survives, the
   meshes do not. `b.spec` is kept for exactly that.
 - **A true-scale body is usually sub-pixel**, and is carried by the point-source
-  marker in `sim/scale.js` rather than by any mesh. Anything that reasons about a
+  marker in `web/sim/scale.js` rather than by any mesh. Anything that reasons about a
   body's on-screen presence — picking, the near plane, the follow camera — has to
   hold up when its rendered radius is 1e-5 scene units. `state.trueScale` is a
   standing regression case for this: fly to Earth in the `solar` preset and it
@@ -270,7 +277,7 @@ point and the only file here that knows the orrery exists.
   unreachable — one `console.warn` per vehicle and the sim runs. The fallback is
   kept WORKING rather than left to rot: a vehicle that cannot be drawn without a
   network round trip is a vehicle that cannot be drawn. The standing check is to
-  move `assets/*.glb` aside and re-run `STUDIO.audit()`; the heights must still
+  move `web/assets/*.glb` aside and re-run `STUDIO.audit()`; the heights must still
   match (they agree within a few tenths of a metre) and only the triangle counts
   should move. `buildCraft` also stays SYNCHRONOUS — four call sites depend on it
   returning a finished vehicle, one of them `audit()` — so assets are preloaded
@@ -285,7 +292,7 @@ point and the only file here that knows the orrery exists.
   already happened. Only the studios (`crafttest`/`craftsheet`) load all nine,
   because `audit()` builds all nine.
 - **The moving parts are bound BY NAME, and the names are an INTERFACE.**
-  `assets/blender/common.py` writes them, `craftassets.js` matches them, and
+  `web/assets/blender/common.py` writes them, `craftassets.js` matches them, and
   nothing checks that the two agree — rename a node in a `.py` and the legs stop
   deploying, silently, with no error anywhere. One `stage_<key>` empty per
   stage, then `gimbal_`/`leg_`/`fin_`/`array_`/`flap_`/`half_` for what update()
@@ -371,7 +378,7 @@ point and the only file here that knows the orrery exists.
   there is no per-object modifier stack left for the exporter to apply.
 - **Blender is Z-up and the vehicle's UP is Blender −Y.** The exporter converts
   to the Y-up Three wants, so Blender +Z is the stack axis and Blender +Y is
-  Three's −Z. Every sign error in `assets/blender/` is that one. `loft` and
+  Three's −Z. Every sign error in `web/assets/blender/` is that one. `loft` and
   `wing` therefore take their vertical terms as UP-POSITIVE and negate
   internally, so a section table moves from `craftmodel.js` to a `.py` file
   without touching a sign — get it wrong and the Shuttle flies inverted with its
@@ -381,7 +388,7 @@ point and the only file here that knows the orrery exists.
   into a torque that has to be held out with propellant for thirteen years, so
   the tanks bend in around the spine — that is the shape of the ship — but each
   drive hangs SQUARE underneath the bend on its own thrust block, and the fourth
-  is on the centreline. `count` in `sim/flight/vehicles.js` is the model's count
+  is on the centreline. `count` in `web/sim/flight/vehicles.js` is the model's count
   on purpose: a vehicle whose engines you can see and whose thrust you integrate
   must not disagree about how many there are.
 - **A stage builder must not write to its own group's transform.** `buildCraft`
@@ -457,7 +464,7 @@ point and the only file here that knows the orrery exists.
   own clock wraps (`w = 1 - |2t/T - 1|`, not `|2t/T - 1|`, or the reset pops). The
   period bounds the shear and therefore the frequency; it is 16 s on a giant and
   20 s on a cloud deck because the jets are a fifth of a radian apart. Same device
-  in `sim/giant_visual.js` and in `cloudMaterial`, same reason.
+  in `web/sim/giant_visual.js` and in `cloudMaterial`, same reason.
 - **Procedural detail finer than a pixel is not detail, it is aliasing** — and on a
   banded planet it aliases into the very thing the bands are made of. There is no
   mip chain on any of this, so octave counts and frequencies are chosen against the
@@ -481,7 +488,7 @@ point and the only file here that knows the orrery exists.
   it: what is visible is a bundle of separate THREADS, and one tube can never
   have that texture. Reconnection also runs along a neutral line and climbs, so
   the loops come in a row anchored in two ribbons that draw apart. Both of those
-  are in [sim/prominence.js](sim/prominence.js), and the arcade's LENGTH along
+  are in [web/sim/prominence.js](web/sim/prominence.js), and the arcade's LENGTH along
   the neutral line has to be several times a single loop's span or the loops
   pile up into a ball of wool — which was the first thing that went wrong when
   the single tube was replaced.
@@ -511,7 +518,7 @@ point and the only file here that knows the orrery exists.
   and the gap is the cavity, so nothing has to darken anything.
 - **Flare plasma publishes 10⁷ K, and that needs the alpha channel REPLACED.**
   Alpha here is not opacity, it is the temperature channel
-  [sim/spectrum.js](sim/spectrum.js) images the frame from, so an additively
+  [web/sim/spectrum.js](web/sim/spectrum.js) images the frame from, so an additively
   blended emitter must use `CustomBlending` with `blendDstAlpha = ZeroFactor`:
   summed onto the photosphere's own published value it saturates to 1.0, which
   means "no data" and silently drops both back to guessing a temperature from
@@ -524,7 +531,7 @@ point and the only file here that knows the orrery exists.
   equatorward. The whole eruption is built on that axis, so every arcade in a
   hemisphere leans the same way — which is a thing you can see, and a thing that
   looks wrong the moment it is random.
-- **`sim/structure.js` is the single source of truth for what a body is.** Radius,
+- **`web/sim/structure.js` is the single source of truth for what a body is.** Radius,
   shape, temperature map, interior layers and the stability verdict all come from
   `structureOf()`, and every consumer — the star shader's oblateness, the cross-section,
   the Foundry, the runtime collapse checks — reads `b.structure`. It has to be refreshed
@@ -548,18 +555,18 @@ point and the only file here that knows the orrery exists.
   star past the TOV mass becomes a black hole, a white dwarf at the Chandrasekhar mass
   detonates. A verdict the sim only prints is a bug.
 - **Measured beats modelled.** A spec carrying `radiusSun` / `teff` / `luminosity` (i.e.
-  anything from `sim/starcat.js`) overrides the evolutionary track, because the track
+  anything from `web/sim/starcat.js`) overrides the evolutionary track, because the track
   returns 244 R☉ for a 16.5 M☉ supergiant and Betelgeuse is 764. The track is for
   filling in what was not measured.
 - **Emitters publish their true temperature** (log-encoded) into the alpha of
-  the HDR buffer so `sim/spectrum.js` can re-image them in non-visible bands. A
+  the HDR buffer so `web/sim/spectrum.js` can re-image them in non-visible bands. A
   new emitter that doesn't publish it will fall back to inferring T from colour
   and will behave wrong in X-ray/radio bands.
 - **The sky is the exception to that**, and deliberately so. Alpha `SKY_ALPHA`
   (0.995) means "already imaged in this band, pass through untouched". The
   celestial background cannot go through a Planck ratio at all, because most of
   what dominates the sky outside the visible is non-thermal — synchrotron, 21 cm
-  and CO lines, π⁰-decay gammas, the CMB — so `sim/sky.js` composites it at the
+  and CO lines, π⁰-decay gammas, the CMB — so `web/sim/sky.js` composites it at the
   band's own frequency instead. Adding a sky component means adding a row to the
   `W` band-weight table there, not giving it a temperature.
 - **Sky environments are POPULATIONS, not paint, so they ADD.** `env` takes
@@ -602,7 +609,7 @@ point and the only file here that knows the orrery exists.
   of a launch. `placeOnPad` already contains the one true expression; both the
   launch pad and the landing site derive from it.
 - **A launch needs something of known size next to it.** The tower in
-  `sim/flight/launchsite.js` is not decoration: it is the only object in frame
+  `web/sim/flight/launchsite.js` is not decoration: it is the only object in frame
   whose height the eye knows, and without it a vehicle climbing over a smooth
   plain reads as stationary and then as teleported. The same goes for the
   terminal count — a launch has to have a beginning you can watch.
@@ -610,7 +617,7 @@ point and the only file here that knows the orrery exists.
   fractional catch-up. `target.lerp(bodyPos, k)` is a first-order lag, and a
   first-order lag driven by a ramp keeps a steady-state error proportional to
   the body's speed — that is the rubber-banding, and no k below 1 removes it.
-  See `trackFollow` / `glideTargetTo` in [blackhole_sim.js](blackhole_sim.js).
+  See `trackFollow` / `glideTargetTo` in [web/blackhole_sim.js](web/blackhole_sim.js).
 - **The left column is a measured CHAIN, and Settings is its head.** Top left is
   the settings panel (`#settingsPanel`), then the scenario list, then flight and
   the cross-section; each one's top is `layoutLeftColumn()` measuring the
@@ -655,9 +662,9 @@ point and the only file here that knows the orrery exists.
   deriving the physics it implements. Keep that density when editing — explain
   the equation and the reason for a choice, not the syntax.
 - **The course is DATA and the page is CODE, and they do not meet.**
-  `sim/lessons.js` imports nothing at all; a step asks for "the solar system,
+  `web/sim/lessons.js` imports nothing at all; a step asks for "the solar system,
   following Earth, at true scale, in the X-ray band" and has no idea how any of
-  those four are done. `sim/lessonui.js` executes that against a `stage` object
+  those four are done. `web/sim/lessonui.js` executes that against a `stage` object
   built in the orchestrator, which is the whole of the coupling. A directive the
   stage does not implement is ignored rather than thrown, so a lesson may ask
   for something a later version will do.
@@ -670,17 +677,17 @@ point and the only file here that knows the orrery exists.
 - **A step that states a camera distance is usually wrong to.** `focus` already
   frames a body at seven of its own radii, which is right under BOTH size
   conventions; a distance written while looking at the exaggerated view puts the
-  camera inside the planet at true scale. `.claude/coursecheck.js` checks this
+  camera inside the planet at true scale. `web/.claude/coursecheck.js` checks this
   and found seven.
 - **There is no test runner, and for the course there is
-  [.claude/coursecheck.js](.claude/coursecheck.js).** Injected into the page, it
+  [web/.claude/coursecheck.js](web/.claude/coursecheck.js).** Injected into the page, it
   walks every lesson and every step IN ORDER — with `next()`, not by jumping,
   because a step is a patch on the last one — runs a frame at each, and reports
   anything that threw, any scenario that did not load, any body a lesson focuses
   that is not in it, any control or panel it names that does not exist, and any
   camera that ended up inside its subject. `SIM.lessons` and `SIM.stage` are
   exposed for it. Run it after touching lessons, presets or the stage.
-  [.claude/presetcheck.js](.claude/presetcheck.js) is its blunter sibling: it
+  [web/.claude/presetcheck.js](web/.claude/presetcheck.js) is its blunter sibling: it
   loads EVERY scenario in `PRESET_ORDER`, runs a second of frames in each, and
   reports anything that threw or that quietly lost bodies — which is the check
   that catches a change to a contact radius or a mass–radius law reaching a
@@ -698,13 +705,13 @@ point and the only file here that knows the orrery exists.
   destroyed it silently. Anything carrying a real `radiusKm` uses that instead.
 - **The hot end of a surface is derived, like the cold end.** Everything freezes
   out below its own condensation point and always did; nothing dried out above
-  the boiling point unless the energy-balance model in `sim/world.js` was driving
+  the boiling point unless the energy-balance model in `web/sim/world.js` was driving
   it, which happens only for a scenario's one home world. So an ordinary planet
-  at 388 K was drawn with oceans. `sim/rocky_visual.js` now derives `uSeaKm`,
+  at 388 K was drawn with oceans. `web/sim/rocky_visual.js` now derives `uSeaKm`,
   `uScorch` and `uArid` from the temperature it already computes — but only for
   a body with an atmosphere, because an airless rock at 440 K is not scorched,
   it is just warm, and tinting it would be inventing a phenomenon.
-- Prefer extending a `sim/` module over growing `blackhole_sim.js`; it is already
+- Prefer extending a `web/sim/` module over growing `web/blackhole_sim.js`; it is already
   the largest file and is the integration layer, not a home for new physics.
 
 ## Verifying changes
@@ -716,17 +723,17 @@ the HUD reports simulated time and body count, and long-run stability is checked
 by letting a preset integrate — the Trisolaris hierarchy is the standing
 regression case (stable for 60k+ years, ~1e-7 relative energy drift).
 
-The physics in `sim/structure.js` is pure and has no Three.js in it beyond what
-`sim/physics.js` drags in, so it can be checked numerically instead of by eye. Copy
-`sim/` somewhere with a stub `three` module on the resolution path and run a script
+The physics in `web/sim/structure.js` is pure and has no Three.js in it beyond what
+`web/sim/physics.js` drags in, so it can be checked numerically instead of by eye. Copy
+`web/sim/` somewhere with a stub `three` module on the resolution path and run a script
 against it; the relations are all calibrated against published measurements (Earth's and
 Jupiter's flattening, Sirius B's radius, the Kerr ISCO, Vega's oblateness and pole/equator
 temperatures, the Sun's central temperature), so a regression shows up as a number moving
 rather than as a picture looking wrong.
 
 The spaceflight physics is pure in the same sense and is checked the same way —
-`sim/flight/` imports nothing from the orrery except through
-`sim/flight/spaceflight.js`, so a stub `three` on the resolution path is enough to
+`web/sim/flight/` imports nothing from the orrery except through
+`web/sim/flight/spaceflight.js`, so a stub `three` on the resolution path is enough to
 fly a whole mission headlessly. The standing regression cases are the four
 launchers reaching orbit with the right max-q and staging times, and the three
 landings touching down inside their gear ratings.
@@ -734,13 +741,13 @@ landings touching down inside their gear ratings.
 When the preview pane is hidden the page gets a 0×0 viewport and
 `requestAnimationFrame` never fires, so nothing renders and screenshots show a
 stale surface. `SIM.frame(dt)` runs one frame by hand at a fixed step;
-[.claude/art.js](.claude/art.js) reads the composited framebuffer back as a
-coarse luminance grid, and [.claude/mission.js](.claude/mission.js) scripts a
+[web/.claude/art.js](web/.claude/art.js) reads the composited framebuffer back as a
+coarse luminance grid, and [web/.claude/mission.js](web/.claude/mission.js) scripts a
 whole flight and samples telemetry along it. Override `innerWidth`/`innerHeight`
 and dispatch a `resize` first, or the drawing buffer is one pixel.
 
-For vehicle models, open [.claude/crafttest.html](.claude/crafttest.html) — the
-same idea as skytest, for `sim/flight/craftmodel.js`. It renders one vehicle on
+For vehicle models, open [web/.claude/crafttest.html](web/.claude/crafttest.html) — the
+same idea as skytest, for `web/sim/flight/craftmodel.js`. It renders one vehicle on
 a neutral ground under a fixed three-point rig with a 1.75 m figure beside it:
 `?v=shuttle&view=side` (orthographic elevation — a silhouette is the honest test
 of a shape and the only projection you can hold against a reference photo),
@@ -754,15 +761,15 @@ whether it is right, and the reason four broken landing gears went unnoticed.
 `STUDIO.audit()` builds EVERY vehicle and returns measured height, span and
 triangle count — that is the regression check, because a stack whose height
 stops matching the published figure shows up as a number rather than as a
-picture that looks slightly wrong. [.claude/craftsheet.html](.claude/craftsheet.html)
+picture that looks slightly wrong. [web/.claude/craftsheet.html](web/.claude/craftsheet.html)
 puts them all in one frame, which is how you judge whether the set belongs
 together. Note both set `preserveDrawingBuffer` — without it a hidden preview
 pane screenshots black, since nothing repaints and the buffer is cleared once
 composited. Params live in the SEARCH string, not the fragment: a hash-only
 change does not re-execute the module and you get the previous vehicle.
 
-For sky work, open [.claude/skytest.html](.claude/skytest.html) instead. It
-renders `sim/sky.js` on its own through the same postfx chain, with a camera you
+For sky work, open [web/.claude/skytest.html](web/.claude/skytest.html) instead. It
+renders `web/sim/sky.js` on its own through the same postfx chain, with a camera you
 can aim exactly (`1`–`7` band, `e` environment, arrows aim, `z`/`x` zoom) and no
 scene, mesh or black hole in the way. Hunting for the galactic band inside a
 live preset wastes a lot of time; there it is always in the same place. Beware
