@@ -25,6 +25,7 @@ var mass: float = 10.0         # sandbox BH mass (M☉)
 var disc_intensity: float = 0.9
 var disc_temp: float = 0.6
 var show_mesh: bool = true
+var mesh_style: String = "lines"
 var show_lens: bool = true
 # Where a spawned body starts. Every scenario with something already in it
 # puts new bodies on a circular orbit about the dominant mass, because that

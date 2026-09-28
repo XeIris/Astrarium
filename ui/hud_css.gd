@@ -61,7 +61,7 @@ const ROW_LABEL := {"fs": 11.0, "c": T.TEXT_DIM, "grow": 0.0, "shrink": 0.0}
 const ROW_LABEL_TITLE := {"bb": 1.0, "bcb": T.TEXT_DIM, "bdot": true}
 const ROW_VAL := {"fs": 11.0, "c": T.ACCENT, "minw": 60.0, "ta": "right"}
 # flex: 1 (basis 0), and the UA's 2px margin all round
-const ROW_RANGE := {"grow": 1.0, "shrink": 1.0, "basis": 0.0, "m": 2}
+const ROW_RANGE := {"grow": 1.0, "shrink": 1.0, "basis": 0.0, "minw": 48.0, "m": 2}
 
 # ---- buttons -------------------------------------------------------------------------
 static func ghost_btn() -> Dictionary:

@@ -23,6 +23,14 @@ double-precision build).
 2. Open `project.godot` in the Godot editor and press **Play** (F5).
    The first open imports everything, which takes a minute.
 
+The app opens on a star-field start screen. Choose **Sandbox**, **Learn astronomy**,
+or **Spaceflight** to load that mode. Press **Esc** during play for Settings;
+its **Controls** tab lists the bindings and has **Quit to start** and **Quit app**.
+Select a key in that tab to remap it. Keyboard bindings are saved between runs;
+**Reset all bindings** restores the defaults.
+The **Render** tab switches the spacetime mesh between a connected grid and
+deforming dots. The **Mesh** button in Controls still shows or hides it.
+
 Or from a terminal, without the editor UI:
 ```sh
 /Applications/Godot.app/Contents/MacOS/Godot --path .
@@ -33,7 +41,7 @@ and its `SIM` console handle:
 | option | effect |
 |---|---|
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
-| `mode=sandbox\|learn\|flight` | skip the start screen |
+| `mode=sandbox\|learn\|flight` | skip the start screen and load that mode |
 | `seed=7` | make the scenario's random choices reproducible |
 | `band=5` | imaging band 0–6 |
 | `focus=Earth`, `truescale=1`, `cammode=surface`, `localtime=noon` | camera and view |

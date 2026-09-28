@@ -235,11 +235,15 @@ func _gui_input(e: InputEvent) -> void:
 			accept_event()
 	elif clickable and e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed:
 		accept_event()
-	if gf("maxh") > 0.0 and bool(g("scroll")) and e is InputEventMouseButton and e.pressed:
-		if e.button_index == MOUSE_BUTTON_WHEEL_UP or e.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			if overflowing:
-				scroll_by((-1.0 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0) * 40.0 * maxf(e.factor, 1.0))
+	if gf("maxh") > 0.0 and bool(g("scroll")):
+		if e is InputEventMouseButton and e.pressed:
+			if e.button_index == MOUSE_BUTTON_WHEEL_UP or e.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				if overflowing:
+					scroll_by((-1.0 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0) * 40.0 * maxf(e.factor, 1.0))
 				accept_event()
+		elif e is InputEventPanGesture:
+			if overflowing: scroll_by(e.delta.y * 12.0)
+			accept_event()
 
 func scroll_by(dy: float) -> void:
 	var mx := maxf(content_h - size.y, 0.0)

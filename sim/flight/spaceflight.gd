@@ -783,39 +783,32 @@ func set_size(w: float, h: float) -> void:
 # ----------------------------------------------------------------------------
 # INPUT
 # ----------------------------------------------------------------------------
-## The flight keys, by the JS e.code they were bound to. Returns true when the
-## key was taken.
-func key(e: InputEventKey) -> bool:
+## The orchestrator resolves configurable physical keys before dispatching the
+## flight action. Returns true when the active vessel accepted it.
+func key_action(action: String) -> bool:
 	if not active or vessel == null: return false
-	if not e.pressed: return false
-	match e.physical_keycode:
-		KEY_COMMA:
+	match action:
+		"warp_down":
 			set_warp(warp_idx - 1); return true
-		KEY_PERIOD:
+		"warp_up":
 			set_warp(warp_idx + 1); return true
-		KEY_X:
+		"throttle_cut":
 			vessel.throttle = 0.0; return true
-		KEY_Z:
+		"throttle_full":
 			vessel.throttle = 1.0; return true
-		KEY_SHIFT:
-			# ShiftLeft only, as the web build bound it
-			if e.location == KEY_LOCATION_RIGHT: return false
+		"throttle_up":
 			vessel.throttle = minf(1.0, vessel.throttle + 0.06); return true
-		KEY_CTRL:
-			if e.location == KEY_LOCATION_RIGHT: return false
+		"throttle_down":
 			vessel.throttle = maxf(0.0, vessel.throttle - 0.06); return true
-		KEY_SPACE:
-			if e.shift_pressed:
-				vessel.stage()
-				return true
-			return false
-		KEY_G:
+		"stage":
+			vessel.stage(); return true
+		"gear":
 			for st in vessel.stages:
 				if st.attached and st.spec.get("legs"):
 					st.gear_out = not st.gear_out
 					break
 			return true
-		KEY_C:
+		"flight_camera":
 			var modes := ["chase", "orbit", "cockpit", "pad"]
 			var i := modes.find(fly_cam.state.mode)
 			fly_cam.set_mode(modes[(i + 1) % modes.size()])

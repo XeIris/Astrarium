@@ -32,6 +32,7 @@ extends Node
 const STEP_GUARD := 8000
 const TRAIL_MAX := 600
 const MESH_Y := -6.0
+const Bindings = preload("res://ui/control_bindings.gd")
 
 var state := SimState.new()
 var pipe: RenderPipeline
@@ -67,6 +68,9 @@ var stage := {}                   # the course's API (see _build_stage)
 var flashes: Array = []           # [{flash: Flash, abs: DVec3}]
 var pending_collapse: Array = []
 var keys := {}
+var controls = Bindings.new()
+var capture_action := ""
+var capture_modifier := 0
 var manual_dt = null
 var model_open := false
 var model_restore = null
@@ -84,6 +88,7 @@ var down_pos := Vector2.ZERO
 var last_pos := Vector2.ZERO
 var _world_placed: Array = []     # other nodes held at an absolute scene position [node, DVec3]
 var _cmd := {}
+var at_start := true
 
 # The scenario catalogue is grouped here rather than in the physics presets:
 # these labels are navigation, while PRESETS remains the source of truth for
@@ -173,6 +178,8 @@ func _ready() -> void:
 	hud.build_band_grid(Spectrum.BANDS)
 	set_band(Spectrum.VISIBLE_BAND)
 	hud.build_sky_settings(SkyModel.SKY_ENVIRONMENTS.keys(), SkyModel.SKY_PARAMS)
+	set_mesh_style(state.mesh_style)
+	hud.build_bindings(Bindings.GROUPS, controls.bindings)
 	_init_fx_rows()
 	render_preset_groups()
 	render_craft_grid()
@@ -180,22 +187,26 @@ func _ready() -> void:
 
 	# The panels only make sense once both simulators exist, so the initial mode
 	# is applied here rather than where it is defined.
-	for id in ["settingsPanel", "scenarioPanel", "controlPanel"]: set_panel_open(id, true)
+	for id in ["scenarioPanel", "controlPanel"]: set_panel_open(id, true)
+	hud.set_settings_open(false)
 	# The flight panel starts closed and only opens when there is a vessel.
 	set_panel_open("flightPanel", false)
 	# The cross-section starts closed and has no tab: it is opened from a focused
 	# body, so there is nothing to come back to until one is focused.
 	set_panel_open("xsecPanel", false)
 	set_app_mode("sandbox", {"quiet": true})
+	set_sky(state.sky)
+	spacetime_mesh.node.visible = false
+	hud.set_hud_hidden(true)
 
 	get_viewport().size_changed.connect(resize)
 	resize()
 	# The web build took the scenario from the URL hash; here it is `preset=key`
 	# on the command line, with the same own-property check.
-	var k: String = _cmd.get("preset", "sandbox")
-	load_preset(k if Presets.PRESETS.has(k) else "sandbox")
-	if _cmd.has("mode"):
-		_start(_cmd.mode)
+	if _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
+		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") == "flight" else "sandbox")
+		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
+		_start(String(_cmd.get("mode", "sandbox")))
 
 # ============================================================================
 # BODY CREATION
@@ -897,6 +908,7 @@ func _drop_lessons() -> void:
 	if lessons != null: lessons._drop_cutaway()
 
 func _unhandled_input(e: InputEvent) -> void:
+	if at_start or hud.settings_open: return
 	if e is InputEventMouseButton:
 		var mb := e as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -938,6 +950,52 @@ func _unhandled_input(e: InputEvent) -> void:
 	elif e is InputEventKey:
 		_key(e as InputEventKey)
 
+func _input(e: InputEvent) -> void:
+	if not e is InputEventKey: return
+	var key := e as InputEventKey
+	if capture_action != "":
+		_capture_key(key)
+		get_viewport().set_input_as_handled()
+		return
+	if key.pressed and not key.echo and (key.keycode == KEY_ESCAPE or controls.matches("settings", key)):
+		if not at_start:
+			hud.set_settings_open(not hud.settings_open)
+			keys.clear()
+		get_viewport().set_input_as_handled()
+		return
+	if hud.settings_open:
+		get_viewport().set_input_as_handled()
+
+func _capture_key(e: InputEventKey) -> void:
+	if e.echo: return
+	var code := e.physical_keycode if e.physical_keycode != 0 else e.keycode
+	if code == KEY_SHIFT or code == KEY_CTRL or code == KEY_ALT:
+		if e.pressed:
+			capture_modifier = code
+		elif capture_modifier == code:
+			_finish_capture([code, false, false, false])
+		return
+	if not e.pressed: return
+	if code == KEY_ESCAPE and capture_action != "settings":
+		capture_action = ""
+		hud.update_binding_labels(controls.bindings)
+		return
+	_finish_capture([code, e.shift_pressed, e.ctrl_pressed, e.alt_pressed])
+
+func _finish_capture(binding: Array) -> void:
+	var accepted: bool = controls.bind(capture_action, binding)
+	capture_action = ""
+	capture_modifier = 0
+	hud.update_binding_labels(controls.bindings)
+	keys.clear()
+	if not accepted: toast("Choose a key not reserved for Settings")
+
+func _choose_binding(action: String) -> void:
+	capture_action = "" if capture_action == action else action
+	capture_modifier = 0
+	hud.update_binding_labels(controls.bindings)
+	if capture_action != "": hud.show_binding_capture(capture_action)
+
 func _wheel(delta_y: float) -> void:
 	# The zoom floor only has to stay clear of float32 denormals.
 	if model_open: model_view.wheel(delta_y)
@@ -949,35 +1007,34 @@ func _wheel(delta_y: float) -> void:
 	else: cam.free_speed = maxf(0.5, cam.free_speed * (1.0 - delta_y * 0.001))
 
 func _key(e: InputEventKey) -> void:
-	var code := OS.get_keycode_string(e.physical_keycode)
+	var code := e.physical_keycode if e.physical_keycode != 0 else e.keycode
 	if not e.pressed:
-		keys[e.physical_keycode] = false
+		keys[code] = false
 		return
-	keys[e.physical_keycode] = true
+	keys[code] = true
 	if e.echo: return
 	# Flight takes the keys it needs first; everything it does not claim falls
 	# through to the orrery's own bindings.
-	if state.cam_mode == "flight" and flight.key(e):
-		get_viewport().set_input_as_handled()
-		sync_warp_label()
-		return
-	var kc := e.keycode
-	if kc == KEY_R:
+	if state.cam_mode == "flight":
+		for action in ["stage", "warp_down", "warp_up", "throttle_cut", "throttle_full",
+			"throttle_up", "throttle_down", "gear", "flight_camera"]:
+			if controls.matches(action, e) and flight.key_action(action):
+				get_viewport().set_input_as_handled()
+				sync_warp_label()
+				return
+	if controls.matches("reset_view", e):
 		cam.target.set_v(0, 0, 0); cam_offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
 		cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 		if state.cam_mode == "orbit": update_orbit_cam()
-	if kc == KEY_SPACE:
+	if controls.matches("pause", e):
 		state.paused = not state.paused
 		get_viewport().set_input_as_handled()
-	if kc == KEY_F: set_cam_mode("free" if state.cam_mode == "orbit" else "orbit")
-	if kc == KEY_V: set_cam_mode("orbit" if state.cam_mode == "surface" else "surface")
-	if kc == KEY_H: set_hud_hidden(not state.hud_hidden)
-	# 1–7 select the imaging band, in spectrum order
-	if kc >= KEY_1 and kc <= KEY_9:
-		var n := int(kc - KEY_0)
-		if n >= 1 and n <= Spectrum.BANDS.size(): set_band(n - 1)
-	if (kc == KEY_DELETE or kc == KEY_BACKSPACE) and state.focus_id != null: remove_body(state.focus_id)
-	var _unused := code
+	if controls.matches("free_view", e): set_cam_mode("free" if state.cam_mode == "orbit" else "orbit")
+	if controls.matches("surface_view", e): set_cam_mode("orbit" if state.cam_mode == "surface" else "surface")
+	if controls.matches("hide_hud", e): set_hud_hidden(not state.hud_hidden)
+	for i in range(Spectrum.BANDS.size()):
+		if controls.matches("band_%d" % (i + 1), e): set_band(i)
+	if controls.matches("delete_body", e) and state.focus_id != null: remove_body(state.focus_id)
 
 func set_cam_mode(mode: String) -> void:
 	if mode == "surface" and get_home() == null: mode = "orbit"   # nowhere to stand
@@ -1035,14 +1092,14 @@ func aim_at_brightest_sun() -> void:
 func update_free_cam(dt: float) -> void:
 	var fwd := Vector3(sin(cam.yaw) * cos(cam.pitch), sin(cam.pitch), cos(cam.yaw) * cos(cam.pitch)).normalized()
 	var right := fwd.cross(Vector3.UP).normalized()
-	var sp: float = cam.free_speed * (4.0 if (keys.get(KEY_SHIFT, false)) else 1.0) * dt
+	var sp: float = cam.free_speed * (4.0 if controls.held("move_fast", keys) else 1.0) * dt
 	var mv := Vector3.ZERO
-	if keys.get(KEY_W, false): mv += fwd * sp
-	if keys.get(KEY_S, false): mv -= fwd * sp
-	if keys.get(KEY_D, false): mv += right * sp
-	if keys.get(KEY_A, false): mv -= right * sp
-	if keys.get(KEY_E, false) or keys.get(KEY_SPACE, false): mv += Vector3.UP * sp
-	if keys.get(KEY_Q, false) or keys.get(KEY_CTRL, false): mv -= Vector3.UP * sp
+	if controls.held("move_forward", keys): mv += fwd * sp
+	if controls.held("move_back", keys): mv -= fwd * sp
+	if controls.held("move_right", keys): mv += right * sp
+	if controls.held("move_left", keys): mv -= right * sp
+	if controls.held("move_up", keys): mv += Vector3.UP * sp
+	if controls.held("move_down", keys): mv -= Vector3.UP * sp
 	cam_pos.x += mv.x; cam_pos.y += mv.y; cam_pos.z += mv.z
 	cam_basis = Basis.looking_at(fwd, Vector3.UP)
 
@@ -1347,9 +1404,40 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 	hud.layout_left_column()
 
 func _start(m: String) -> void:
+	if at_start and state.preset == null:
+		load_preset("solar" if m == "flight" else "sandbox")
+	at_start = false
 	hud.dismiss_start()
+	hud.set_hud_hidden(false)
 	set_app_mode(m)
 	if m == "flight": set_panel_open("controlPanel", true)
+
+func quit_to_start() -> void:
+	hud.set_settings_open(false)
+	if flight.active: end_flight()
+	close_model_viewer()
+	if lessons: lessons.close()
+	clear_bodies()
+	state.preset = null
+	state.preset_key = ""
+	state.climate = null
+	state.home_id = null
+	state.focus_id = null
+	state.follow_id = null
+	state.suns.clear()
+	state.show_lens = false
+	state.show_mesh = false
+	spacetime_mesh.node.visible = false
+	set_cam_mode("orbit")
+	cam.target.set_v(0, 0, 0)
+	cam_offset.set_v(0, 0, 0)
+	jump_cam_radius(24.0)
+	update_orbit_cam()
+	set_sky(SimState.new().sky)
+	pipe.set_mode(RenderPipeline.Mode.ORRERY)
+	at_start = true
+	hud.set_hud_hidden(true)
+	hud.show_start()
 
 # ============================================================================
 # IMAGING BAND
@@ -1480,6 +1568,12 @@ func toggle_mesh(on: bool) -> void:
 	hud.set_active("[data-view=mesh]", on)
 	hud.set_button_text("[data-view=mesh]", "Mesh ON" if on else "Mesh OFF")
 
+func set_mesh_style(style: String) -> void:
+	state.mesh_style = "dots" if style == "dots" else "lines"
+	spacetime_mesh.set_style(state.mesh_style)
+	hud.set_active("[data-mesh-style=lines]", state.mesh_style == "lines")
+	hud.set_active("[data-mesh-style=dots]", state.mesh_style == "dots")
+
 func set_true_scale(on: bool) -> void:
 	state.true_scale = on
 	hud.set_active("[data-view=scale]", on)
@@ -1495,6 +1589,19 @@ func apply_sky_boost_all(beta: Vector3) -> void:
 # ============================================================================
 func _bind_hud() -> void:
 	hud.start_chosen.connect(_start)
+	hud.quit_to_start.connect(quit_to_start)
+	hud.quit_app.connect(func(): get_tree().quit())
+	hud.binding_chosen.connect(_choose_binding)
+	hud.bindings_reset.connect(func():
+		controls.reset()
+		capture_action = ""
+		hud.update_binding_labels(controls.bindings))
+	hud.panel_changed.connect(func(id, open):
+		if id == "settingsPanel" and not open and capture_action != "":
+			capture_action = ""
+			capture_modifier = 0
+			hud.update_binding_labels(controls.bindings))
+	hud.mesh_style_chosen.connect(set_mesh_style)
 	hud.mode_chosen.connect(set_app_mode)
 	hud.preset_chosen.connect(load_preset)
 	hud.body_focus.connect(_on_body_focus)
@@ -1577,6 +1684,7 @@ func _on_sky_adv_clear() -> void:
 
 func _on_fx_reset() -> void:
 	for row in FX_ROWS: _set_fx(row[0], FX_DEFAULTS[row[1]], true)
+	set_mesh_style("lines")
 
 func _on_sim_reset() -> void:
 	var p: Dictionary = state.preset if state.preset else {}
@@ -2040,6 +2148,9 @@ func _shot_tick() -> void:
 		get_tree().quit()
 
 func animate(dt: float) -> void:
+	if at_start:
+		pipe.prepare_frame(null, state.time)
+		return
 	var sim_dt := 0.0 if state.paused else dt * state.speed * state.time_scale
 	state.time += dt
 
@@ -2164,7 +2275,8 @@ func animate(dt: float) -> void:
 	# mesh wells — recenter the slab under the camera's focus so fast/distant
 	# bodies never wander off it
 	var mc: DVec3 = cam_pos if state.cam_mode == "free" else cam.target
-	spacetime_mesh.update(state.bodies, mc.x, mc.z, sim_stepped, cam_pos)
+	spacetime_mesh.update(state.bodies, mc.x, mc.z, sim_stepped, cam_pos,
+		Vector2(pipe.view_size), cam_fov)
 
 	# ---- model viewer: a studio, not a view of the universe — the whole frame
 	if model_open:

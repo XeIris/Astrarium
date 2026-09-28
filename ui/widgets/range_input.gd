@@ -11,9 +11,8 @@ extends El
 # overhangs it by 5 px either side (which is why the settings panel gives
 # these a margin). WebKit keeps the thumb's box inside the track, so its
 # centre runs from 6 px to (width − 6 px). The intrinsic width is WebKit's
-# 129 px, and it matters: a flex:1 range in a .row cannot shrink below it,
-# which is why the Ocean depth row's value is pushed past the panel's edge on
-# the web page too.
+# 129 px; control-panel rows override the minimum so their value stays inside
+# the panel when a label is long.
 #
 # `changed(value)` fires on every move, as the DOM `input` event does; a value
 # written with set_value() fires nothing.

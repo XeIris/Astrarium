@@ -618,21 +618,19 @@ point and the only file here that knows the orrery exists.
   first-order lag driven by a ramp keeps a steady-state error proportional to
   the body's speed — that is the rubber-banding, and no k below 1 removes it.
   See `trackFollow` / `glideTargetTo` in [web/blackhole_sim.js](web/blackhole_sim.js).
-- **The left column is a measured CHAIN, and Settings is its head.** Top left is
-  the settings panel (`#settingsPanel`), then the scenario list, then flight and
-  the cross-section; each one's top is `layoutLeftColumn()` measuring the
-  previous panel's BOTTOM, never a constant. `--col-top` is the ceiling under
-  the mode switch, `--tab-top` the top of the tab stack, `--scenario-top` the
-  scenario list's own top, and every var falls back to the one above it so a
-  collapsed panel closes the gap rather than leaving a hole. **The tab stack is
-  part of the chain, not a fixed point in it**: a tab is a panel's placeholder
-  and belongs where that panel would have been. Pinned to `--col-top` it shares
-  a y with the settings panel, and collapsing the scenario list drew its tab on
-  top of an open Settings. The four states — each panel open or collapsed — are
-  the standing check, and none of them may overlap. The panel holds what OUTLIVES a scenario — how the sky is
+- **The left column is a measured CHAIN.** Top left is the scenario list,
+  followed by flight and the cross-section; each panel is positioned from the
+  previous panel's measured bottom. Collapsed panels leave a tab at their place
+  in the chain, and no two panels or tabs may overlap. Settings is a centered
+  Esc overlay, outside that chain. It holds what OUTLIVES a scenario — how the sky is
   composed, what the renderer spends its frame on, and the integrator's step cap
   — as against the control column on the right, which is about the thing you are
   currently looking at. Render scale and lens detail live here for that reason.
+- **Keyboard bindings are shared by the orrery and flight.**
+  `ui/control_bindings.gd` owns the defaults, conflict handling, and the saved
+  `user://controls.json` map. `main.gd` resolves physical keys before passing
+  flight actions to `sim/flight/spaceflight.gd`; the Controls settings page
+  renders the same map for remapping. Esc remains a Settings fallback.
 - **The step cap is the one setting that changes the ANSWER.** Everything else
   in the settings panel changes the picture. So the sim page reports what the
   integrator is actually doing — sub-steps per frame and relative energy drift
