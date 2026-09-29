@@ -186,6 +186,22 @@ point and the only file here that knows the orrery exists.
   pitch program is 90°·v₀/(v₀ + v − v_start), which stages a Saturn V at the
   flight-path angle AS-506 did; the check is the staging state, not the
   orbit, because a lofted ascent still reaches orbit.
+- **The closed loop is explicit guidance, aimed at a LOW cutoff.** Above the
+  air the ascent solves a_v = 6Δh/T² − 4ḣ/T every step (T_go from the rocket
+  equation for the speed still missing) toward a perigee just above the
+  atmosphere, at the perigee speed of an ellipse whose apoapsis is the target,
+  and circularizes there — the Shuttle's profile, and the only one on which its
+  0.9 g sustainer reaches orbit. The regression is all four launchers in orbit
+  within a few km of their targets, web and Godot agreeing to 0.1 km.
+- **Each stage pays for its own engines.** `burn()` splits the flow by each
+  lit stage's own mass flow; bottom-first let the Shuttle's SSMEs drink 180 t
+  of the boosters' solid. A separation only lights the next stage if nothing
+  is still burning, and a solid is never "shut down" to meet a g limit (its
+  thrust is read at its CURRENT point in the grain, not at ignition).
+- **Thrusters belong to every attached stage, and attitude control feeds the
+  target's rate forward.** Holding prograde is holding a turning attitude; a
+  controller that stops dead in its deadband re-fires every few seconds and
+  emptied the orbiter's RCS in one coast.
 - **On rails the attitude is HELD, not frozen.** Nothing integrates it during
   a warp, so the vessel keeps whatever `point_at` asked for that frame; frozen,
   a quarter-orbit coast left the nose 90° off the insertion burn. And an

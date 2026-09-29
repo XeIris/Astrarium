@@ -79,6 +79,9 @@ export class Vessel {
     this.omega = new THREE.Vector3();      // body rates, world axes, rad/s
     this._hold = new THREE.Vector3();      // the attitude pointAt asked for this frame (see step's rails branch)
     this._holding = false;
+    this._prevDir = new THREE.Vector3();  // the last direction pointAt was given, and when (for its rate)
+    this._prevMet = -1;
+    this._wT = new THREE.Vector3();       // the target direction's own angular velocity, rad/s
     this.throttle = 0;
     this.rcsOn = true;
 
@@ -366,9 +369,16 @@ export class Vessel {
     const I = this.inertia();
     const L = Math.max(this.length, 1);
     let tau = 0, gimballed = false;
-    for (const st of this.liveStages()) {
+    // Thrusters belong to every ATTACHED stage, lit or not: the Shuttle's
+    // orbiter holds and turns the stack on its own RCS long before its OMS
+    // fires. Counted only on stages whose main engines had lit, it coasted to
+    // apoapsis with no attitude control at all, drifting with the orbit, and
+    // never came round to the circularization it was coasting to.
+    for (const st of this.stages) {
+      if (!st.attached) continue;
       const s = st.spec;
-      if (s.engine && st.prop > 0 && this.throttle > 0 && s.gimbalDeg > 0) {
+      const lit = st.ignited && !st.spent;
+      if (lit && s.engine && st.prop > 0 && this.throttle > 0 && s.gimbalDeg > 0) {
         const o = engineOutput(s.engine, st.live, pa, this.throttle);
         // The gimbal acts at the engine plane, roughly a half-length from the
         // centre of mass.
@@ -400,7 +410,20 @@ export class Vessel {
     const fwd = this.forward(_b);
     const err = fwd.angleTo(_a);
     const { alpha, gimballed } = this.authority(pa);
+    // FEED-FORWARD. A held attitude is usually a MOVING one — prograde turns
+    // with the orbit, a pitch program with the climb — and a controller that
+    // only knows the error stops dead in its deadband, falls behind, and
+    // starts again, a firing every few seconds. Coasting prograde that cost the
+    // Shuttle its whole 2.3 t of RCS in eight minutes, and it reached its
+    // apoapsis unable to turn. So the target's own rotation rate is measured
+    // from the direction it was given last time, and the law below works on
+    // the rate RELATIVE to it: tracking a steadily turning target is then free.
+    const wT = this._wT.set(0, 0, 0);
+    if (this._prevMet >= 0 && this.met > this._prevMet && this._prevDir.angleTo(_a) < 0.05)
+      wT.crossVectors(this._prevDir, _a).multiplyScalar(1 / (this.met - this._prevMet));
+    this._prevDir.copy(_a); this._prevMet = this.met;
     if (alpha <= 0) return err;
+    this.omega.sub(wT);                      // from here on, omega is relative
     // rotation axis
     _c.crossVectors(fwd, _a);
     if (_c.lengthSq() < 1e-14) {
@@ -415,6 +438,7 @@ export class Vessel {
     if (err < 0.004) {
       const w = this.omega.length();
       if (w > 1e-6) this.omega.multiplyScalar(Math.max(0, 1 - Math.min(alpha * dt / w, 1)));
+      this.omega.add(wT);
       return err;
     }
     const wMax = Math.min(Math.sqrt(2 * alpha * err), 0.35);   // rad/s cap: real vehicles are slow
@@ -435,6 +459,7 @@ export class Vessel {
     // to the cold gas: Starship's ship reached orbit with its RCS dry, could not
     // turn off the attitude a coast leaves it in, and never circularized.
     if (!gimballed) this.spendRCS(Math.abs(dw) * this.inertia().pitch, dt);
+    this.omega.add(wT);
     return err;
   }
 
@@ -449,7 +474,8 @@ export class Vessel {
 
   /** Book an RCS impulse against the tanks. Torque impulse → propellant. */
   spendRCS(angularImpulse, dt) {
-    for (const st of this.liveStages()) {
+    for (const st of this.stages) {
+      if (!st.attached) continue;
       const rcs = st.spec.rcs;
       if (!rcs || st.rcsProp <= 0) continue;
       const arm = this.diameter * 0.5 + this.length * 0.25;
@@ -491,7 +517,15 @@ export class Vessel {
         : `Staging — ${st.spec.name} away`) + this._where());
       break;
     }
+    // A separation lights the next stage only if nothing is still burning. On
+    // the Shuttle the external tank's engines burn on after the boosters go,
+    // and lighting "the next stage" there lit the orbiter's OMS for the whole
+    // climb — which, once each stage paid for its own engines, spent the
+    // orbiter's insertion propellant before it reached the apoapsis it was for.
+    const stillBurning = !!dropped && this.stages.some(st =>
+      st.attached && st.ignited && !st.spent && st.spec.engine && st.prop > 0);
     for (const st of this.stages) {
+      if (stillBurning) break;
       if (!st.attached || st.ignited || !st.spec.engine) continue;
       st.ignited = true;
       this.log(`Ignition — ${st.spec.name}`);
@@ -798,17 +832,49 @@ export class Vessel {
 
   /** Draw `kg` from the live stages, bottom first, and auto-stage when a stage
    *  runs dry if the flight plan says to. */
+  /** One burning stage's own propellant flow, kg/s — propulsion()'s per-stage
+   *  term. Flow is set by the vacuum rating, so no ambient pressure is needed. */
+  _stageMdot(st) {
+    const s = st.spec;
+    if (!s.engine || st.prop <= 0) return 0;
+    const burned = 1 - st.prop / Math.max(st.prop0, 1);
+    const o = s.engine.photon && s.engine.holdAccel > 0
+      ? this.photonOutput(s.engine, st.live)
+      : engineOutput(s.engine, st.live, 0, this.throttle, burned);
+    let m = o.mdot;
+    if (s.vacEngine) m += engineOutput(s.vacEngine, s.vacCount, 0, this.throttle, burned).mdot;
+    return m;
+  }
+
+  /**
+   * Draw `kg` from the live stages, EACH IN PROPORTION TO ITS OWN ENGINES'
+   * FLOW, and auto-stage when a stage runs dry if the flight plan says to.
+   *
+   * It used to draw bottom first, which is right while one stage burns and
+   * wrong the moment two do: the Shuttle's main engines drank the solid
+   * boosters' propellant — 180 t of it by separation — so the solids burned
+   * out early on a sixth less impulse and the external tank climbed to
+   * staging still carrying the 180 t it should have spent. With one stage lit
+   * the share is exactly 1 and nothing changes.
+   */
   burn(kg) {
-    for (const st of this.liveStages()) {
+    const lst = this.liveStages();
+    const shares = lst.map(st => this._stageMdot(st));
+    let tot = 0;
+    for (const m of shares) tot += m;
+    for (let i = 0; i < lst.length; i++) {
+      const st = lst[i];
       if (!st.spec.engine || st.prop <= 0) continue;
-      const take = Math.min(st.prop, kg);
-      st.prop -= take; kg -= take;
+      if (tot > 0 && shares[i] <= 0) continue;
+      const take = Math.min(st.prop, tot > 0 ? kg * (shares[i] / tot) : kg);
+      st.prop -= take;
+      if (tot <= 0) kg -= take;
       if (st.prop <= 1e-6) {
         st.spent = true;
         this.log(`${st.spec.name} — cutoff (propellant depleted)` + this._where());
         if (this.autoStage) this.pendingStage = true;
       }
-      if (kg <= 0) break;
+      if (tot <= 0 && kg <= 0) break;
     }
   }
 

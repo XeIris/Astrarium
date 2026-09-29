@@ -256,9 +256,12 @@ export function ispAt(engine, pa) {
 // constant is the single biggest way to get a Shuttle ascent wrong.
 //
 // Fractions of the vacuum rating against fraction of propellant burned.
+// The propellant and Isp fix the total impulse, so the curve's level sets the
+// burn time: this one burns out at ~127 s, against the RSRM's 123.6 s action
+// time (the earlier, deeper bucket stretched it to 145 s).
 const RSRM_PROFILE = [
-  [0.00, 0.86], [0.04, 1.00], [0.10, 0.94], [0.22, 0.78],
-  [0.36, 0.66], [0.55, 0.74], [0.78, 0.72], [0.92, 0.52], [1.00, 0.18],
+  [0.00, 0.88], [0.04, 1.00], [0.10, 0.96], [0.22, 0.84],
+  [0.36, 0.74], [0.55, 0.80], [0.78, 0.78], [0.92, 0.64], [1.00, 0.25],
 ];
 export function solidThrustFraction(burnedFrac, profile = RSRM_PROFILE) {
   const x = Math.min(Math.max(burnedFrac, 0), 1);

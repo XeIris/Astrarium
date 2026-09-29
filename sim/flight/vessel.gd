@@ -132,6 +132,9 @@ var v := DVec3.new()
 var q := DQuat.new()
 var omega := DVec3.new()            # body rates, world axes, rad/s
 var _hold := DVec3.new()            # the attitude point_at asked for this frame (see step's rails branch)
+var _prev_dir := DVec3.new()        # the last direction point_at was given, and when (for its rate)
+var _prev_met := -1.0
+var _w_t := DVec3.new()             # the target direction's own angular velocity, rad/s
 var _holding := false
 var throttle: float = 0.0
 var rcs_on: bool = true
@@ -487,9 +490,16 @@ func authority(pa: float) -> Dictionary:
 	var L := maxf(length, 1.0)
 	var tau := 0.0
 	var gimballed := false
-	for st in live_stages():
+	# Thrusters belong to every ATTACHED stage, lit or not: the Shuttle's
+	# orbiter holds and turns the stack on its own RCS long before its OMS
+	# fires. Counted only on stages whose main engines had lit, it coasted to
+	# apoapsis with no attitude control at all, drifting with the orbit, and
+	# never came round to the circularization it was coasting to.
+	for st in stages:
+		if not st.attached: continue
 		var s: Dictionary = st.spec
-		if s.get("engine") != null and st.prop > 0.0 and throttle > 0.0 and s.gimbalDeg > 0.0:
+		var lit: bool = st.ignited and not st.spent
+		if lit and s.get("engine") != null and st.prop > 0.0 and throttle > 0.0 and s.gimbalDeg > 0.0:
 			var o := Rocketry.engine_output(s.engine, st.live, pa, throttle)
 			# The gimbal acts at the engine plane, roughly a half-length from the
 			# centre of mass.
@@ -517,7 +527,20 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	var err := DQuat.angle_between(fwd, _a)
 	var auth := authority(pa)
 	var alpha: float = auth.alpha
+	# FEED-FORWARD. A held attitude is usually a MOVING one — prograde turns
+	# with the orbit, a pitch program with the climb — and a controller that
+	# only knows the error stops dead in its deadband, falls behind, and
+	# starts again, a firing every few seconds. Coasting prograde that cost the
+	# Shuttle its whole 2.3 t of RCS in eight minutes, and it reached its
+	# apoapsis unable to turn. So the target's own rotation rate is measured
+	# from the direction it was given last time, and the law below works on
+	# the rate RELATIVE to it: tracking a steadily turning target is then free.
+	_w_t.set_v(0.0, 0.0, 0.0)
+	if _prev_met >= 0.0 and met > _prev_met and DQuat.angle_between(_prev_dir, _a) < 0.05:
+		_w_t.cross_vectors(_prev_dir, _a).scale_in(1.0 / (met - _prev_met))
+	_prev_dir.copy_from(_a); _prev_met = met
 	if alpha <= 0.0: return err
+	omega.add_scaled_in(_w_t, -1.0)          # from here on, omega is relative
 	# rotation axis
 	_c.cross_vectors(fwd, _a)
 	if _c.length_sq() < 1e-14:
@@ -531,6 +554,7 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	if err < 0.004:
 		var w := omega.length()
 		if w > 1e-6: omega.scale_in(maxf(0.0, 1.0 - minf(alpha * dt / w, 1.0)))
+		omega.add_in(_w_t)
 		return err
 	var w_max := minf(sqrt(2.0 * alpha * err), 0.35)   # rad/s cap: real vehicles are slow
 	# current rate about the error axis
@@ -550,6 +574,7 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	# to the cold gas: Starship's ship reached orbit with its RCS dry, could not
 	# turn off the attitude a coast leaves it in, and never circularized.
 	if not auth.gimballed: spend_rcs(absf(dw) * inertia().pitch, dt)
+	omega.add_in(_w_t)
 	return err
 
 ## Integrate the attitude by the current body rates.
@@ -562,7 +587,8 @@ func spin(dt: float) -> void:
 
 ## Book an RCS impulse against the tanks. Torque impulse → propellant.
 func spend_rcs(angular_impulse: float, _dt: float) -> void:
-	for st in live_stages():
+	for st in stages:
+		if not st.attached: continue
 		var rcs = st.spec.get("rcs")
 		if rcs == null or st.rcs_prop <= 0.0: continue
 		var arm := diameter * 0.5 + length * 0.25
@@ -597,7 +623,19 @@ func stage():
 		dropped = st; stage_events += 1
 		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name + _where())
 		break
+	# A separation lights the next stage only if nothing is still burning. On
+	# the Shuttle the external tank's engines burn on after the boosters go,
+	# and lighting "the next stage" there lit the orbiter's OMS for the whole
+	# climb — which, once each stage paid for its own engines, spent the
+	# orbiter's insertion propellant before it reached the apoapsis it was for.
+	var still_burning := false
+	if dropped != null:
+		for st in stages:
+			if st.attached and st.ignited and not st.spent and st.spec.get("engine") != null and st.prop > 0.0:
+				still_burning = true
+				break
 	for st in stages:
+		if still_burning: break
 		if not st.attached or st.ignited or st.spec.get("engine") == null: continue
 		st.ignited = true
 		log_event("Ignition — %s" % st.spec.name)
@@ -935,18 +973,48 @@ func rk4(h: float, s: Dictionary) -> void:
 	heat_load += s.get("heat", 0.0) * h
 	if s.get("heat", 0.0) > peak_heat: peak_heat = s.heat
 
-## Draw `kg` from the live stages, bottom first, and auto-stage when a stage
-## runs dry if the flight plan says to.
+## One burning stage's own propellant flow, kg/s — propulsion()'s per-stage
+## term. Flow is set by the vacuum rating, so no ambient pressure is needed.
+func _stage_mdot(st) -> float:
+	var s: Dictionary = st.spec
+	if s.get("engine") == null or st.prop <= 0.0: return 0.0
+	var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
+	var o: Dictionary = photon_output(s.engine, st.live) \
+		if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
+		else Rocketry.engine_output(s.engine, st.live, 0.0, throttle, burned)
+	var m: float = o.mdot
+	if s.get("vacEngine") != null:
+		m += Rocketry.engine_output(s.vacEngine, s.vacCount, 0.0, throttle, burned).mdot
+	return m
+
+## Draw `kg` from the live stages, EACH IN PROPORTION TO ITS OWN ENGINES' FLOW,
+## and auto-stage when a stage runs dry if the flight plan says to.
+##
+## It used to draw bottom first, which is right while one stage burns and
+## wrong the moment two do: the Shuttle's main engines drank the solid
+## boosters' propellant — 180 t of it by separation — so the solids burned
+## out early on a sixth less impulse and the external tank climbed to staging
+## still carrying the 180 t it should have spent. With one stage lit the share
+## is exactly 1 and nothing changes.
 func burn(kg: float) -> void:
-	for st in live_stages():
+	var lst := live_stages()
+	var shares: Array[float] = []
+	var tot := 0.0
+	for st in lst:
+		var m := _stage_mdot(st)
+		shares.append(m); tot += m
+	for i in lst.size():
+		var st = lst[i]
 		if st.spec.get("engine") == null or st.prop <= 0.0: continue
-		var take := minf(st.prop, kg)
-		st.prop -= take; kg -= take
+		if tot > 0.0 and shares[i] <= 0.0: continue
+		var take := minf(st.prop, kg * (shares[i] / tot) if tot > 0.0 else kg)
+		st.prop -= take
+		if tot <= 0.0: kg -= take
 		if st.prop <= 1e-6:
 			st.spent = true
 			log_event("%s — cutoff (propellant depleted)" % st.spec.name + _where())
 			if auto_stage: pending_stage = true
-		if kg <= 0.0: break
+		if tot <= 0.0 and kg <= 0.0: break
 
 func can_rail() -> bool:
 	if throttle > 0.0: return false

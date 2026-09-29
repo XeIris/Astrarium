@@ -133,8 +133,7 @@ class Autopilot extends RefCounted:
 	var log: Array = []
 	## Ascent parameters. These are the pilot's, not the vehicle's — a launch
 	## profile is a choice, and the same rocket flies differently with a
-	## different one. JS keys: targetApo, inclination, pitchStart, turnV0,
-	## climbTime, tauVert.
+	## different one. JS keys: targetApo, inclination, pitchStart, turnV0.
 	var ascent: Dictionary
 	var last_throttle: float = 1.0
 	var aim = null               # DVec3 (a clone) — what the vessel is steering to
@@ -174,8 +173,6 @@ class Autopilot extends RefCounted:
 			"inclination": tgt.get("inclination", 28.5) if tgt != null else 28.5,
 			"pitchStart": 55.0,       # m/s at which the pitch program starts
 			"turnV0": 600.0,          # m/s past pitchStart at which the program is at 45°
-			"climbTime": 170.0,       # s over which the closed loop closes the altitude deficit
-			"tauVert": 22.0,          # s — vertical-rate time constant
 		}
 		last_throttle = 1.0
 
@@ -314,7 +311,11 @@ class Autopilot extends RefCounted:
 		# flying an ascent forever, seven kilometres short of a number that no
 		# longer means anything.
 		var safe_alt: float = env.atm.top * 0.6 if env.atm != null else env.radius * 0.002
-		if is_finite(el.ra) and (apo_alt >= A.targetApo * 0.998 or (el.rp - env.radius) > safe_alt):
+		# (...but only once there is nothing left to burn: the ascent now cuts
+		# off LOW on purpose, and its perigee clears the air well before the
+		# apoapsis has been raised to the target.)
+		if is_finite(el.ra) and (apo_alt >= A.targetApo * 0.998 \
+				or ((el.rp - env.radius) > safe_alt and full_thrust(pa) <= 0.0 and v.next_stage == null)):
 			v.throttle = 0.0
 			note("MECO — %s × %s km, coasting" % [U.fixed(apo_alt / 1000.0, 0), U.fixed((el.rp - env.radius) / 1000.0, 0)])
 			engage("circularize")
@@ -323,14 +324,43 @@ class Autopilot extends RefCounted:
 		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert)
 		var v_horiz := Guidance._c.length()
 		var R := v.r.length()
-		var want_vert := DQuat.jclamp((A.targetApo - alt) / A.climbTime, 0.0, 1500.0)
+		# EXPLICIT GUIDANCE (Cherry's E-guidance, the ancestor of the Shuttle's
+		# PEG). The burn ends when the engines have supplied orbital speed; its
+		# length T_go is the rocket equation's for the horizontal speed still
+		# missing, from this stage's own thrust and Isp. Over that time the
+		# vertical motion must end at the target altitude with zero climb rate,
+		# and with a vertical acceleration linear in time the two conditions fix
+		# the acceleration NOW:
+		#     a_v = 6·Δh / T² − 4·ḣ / T
+		# re-solved every step, so every error — staging, a wrong T_go — is
+		# absorbed on the way rather than discovered at the end. It replaced a
+		# climb rate that closed the altitude deficit over a fixed 170 s: right
+		# for a stage that burns about that long, and for any other it arrived
+		# early and still climbing (Starship: 458 × 243 km for a 250 km target)
+		# or, on the Shuttle's long, weak sustainer, pitched up to its limit for
+		# five minutes and ran dry lofted and short of orbital speed.
+		#   WHERE the burn ends is the other half, and it is not the target
+		# orbit. Climbing to 300 km under power, the Shuttle's sustainer (0.9 g
+		# after the boosters go) spent minutes pointed steeply up to hold itself
+		# there and ran dry 500 m/s short. Every real ascent does what the
+		# Shuttle did: cut off just above the atmosphere on an ellipse whose
+		# apoapsis IS the target, coast up, and circularize there — a Hohmann
+		# transfer folded into the ascent. So the burn aims at that perigee,
+		# with the perigee speed of that ellipse.
+		var h_ins: float = minf(A.targetApo, env.atm.top * 0.8) if env.atm != null else A.targetApo
+		var r_p: float = env.radius + h_ins
+		var r_a: float = env.radius + A.targetApo
+		var v_ins: float = sqrt(env.mu * 2.0 * r_a / (r_p * (r_p + r_a)))
+		var dv_h: float = maxf(v_ins - v_horiz, 0.0)
+		var T_go: float = DQuat.jclamp(Rocketry.burn_time_for(dv_h, v.mass, full_thrust(pa), current_isp(pa)), 20.0, 900.0)
+		var a_v: float = 6.0 * (h_ins - alt) / (T_go * T_go) - 4.0 * v_vert / T_go
 		# The vertical acceleration the engine must supply: hold the vehicle up
 		# (gravity), minus what the horizontal speed is ALREADY supplying
-		# (centripetal), plus the correction that walks the climb rate toward its
-		# target over τ. The centripetal term is what retires the loop on its own —
-		# as the vehicle approaches orbital speed it cancels gravity, the required
-		# pitch goes to zero, and the vehicle is level and in orbit.
-		var a_vert: float = g_loc - (v_horiz * v_horiz) / R + (want_vert - v_vert) / A.tauVert
+		# (centripetal), plus the guidance's own. The centripetal term is what
+		# retires the loop on its own — as the vehicle approaches orbital speed
+		# it cancels gravity, the required pitch goes to zero, and the vehicle is
+		# level and in orbit.
+		var a_vert: float = g_loc - (v_horiz * v_horiz) / R + a_v
 		# The nose never goes below the horizon on the way up. Without this floor a
 		# stage that separates with more climb rate than the loop wants points
 		# itself downward to shed it, which converts most of an upper stage into
@@ -431,7 +461,11 @@ class Autopilot extends RefCounted:
 		# clear of the atmosphere and the orbit is round enough to stay that way.
 		# Chasing a perfectly circular orbit past that point spends propellant on a
 		# number rather than on the mission, and a real upper stage does not.
-		if t.peri >= (target_r - env.radius) * 0.92 or (t.ecc < 0.014 and t.peri > safe):
+		# (The round-enough clause is for an ascent that fell SHORT of its
+		# target; one that reached it is on a deliberate ellipse from a low
+		# cutoff, and the whole point is to raise the perigee at its apoapsis.)
+		if t.peri >= (target_r - env.radius) * 0.92 \
+				or (t.ecc < 0.014 and t.peri > safe and t.apo < (target_r - env.radius) * 0.9):
 			v.throttle = 0.0; program = null; mode = MODE.PROGRADE
 			v.phase = Vessel.PHASE.ORBIT
 			note("Orbit — %s × %s km, e = %s" % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 4)])
@@ -455,7 +489,10 @@ class Autopilot extends RefCounted:
 		var a_thrust := full_thrust(pa) / maxf(v.mass, 1.0)
 		var dv_need: float = maxf(sqrt(env.mu / maxf(t.el.ra, R)) - v_horiz, 0.0)
 		var t_burn := Rocketry.burn_time_for(dv_need, v.mass, full_thrust(pa), current_isp(pa))
-		if t.peri > safe and is_finite(t_apo) and t_apo > t_burn * 0.5 + 25.0:
+		# (and just AFTER apoapsis too: a vehicle still coming round when it
+		# passed is no worse off burning a few seconds late than an orbit late)
+		var since_apo: float = float(t.el.period) - t_apo if is_finite(float(t.el.period)) else INF
+		if t.peri > safe and is_finite(t_apo) and t_apo > t_burn * 0.5 + 25.0 and since_apo > t_burn * 0.5 + 90.0:
 			v.throttle = 0.0
 			say("Coasting to apoapsis — T-%s s, insertion Δv %s m/s" % [U.fixed(t_apo, 0), U.fixed(dv_need, 0)])
 			return Guidance.attitude_for(MODE.PROGRADE, v)
@@ -582,8 +619,10 @@ class Autopilot extends RefCounted:
 		# produce, which is knowable in advance.
 		shut_cool = maxf(0.0, shut_cool - dt)
 		var st_c = v.current_stage
+		# (never a solid: once lit it burns out, and there is nothing to shut)
 		if want > 0.0 and shut_cool == 0.0 and not manual_engines \
-				and st_c != null and st_c.spec.get("engine") != null and f_full > 0.0 and st_c.live > 1:
+				and st_c != null and st_c.spec.get("engine") != null and f_full > 0.0 and st_c.live > 1 \
+				and not st_c.spec.engine.get("solid", false):
 			var eng: Dictionary = st_c.spec.engine
 			var floor_th: float = 1.0 if eng.get("solid", false) else eng.get("throttleMin", 1.0)
 			var g_at_floor := (f_full * floor_th - tdrag) / (v.mass * Rocketry.G0)
@@ -612,9 +651,15 @@ class Autopilot extends RefCounted:
 		var F := 0.0
 		for st in v.live_stages():
 			if st.spec.get("engine") == null or st.prop <= 0.0: continue
-			F += Rocketry.engine_output(st.spec.engine, st.live, pa, 1.0).F
+			# where a SOLID is in its burn: its grain, not a throttle, sets the
+			# thrust. Evaluated at ignition instead, an RSRM two-thirds burned was
+			# credited with its liftoff thrust, the g prediction below read an
+			# overload that was not there, and the limiter "shut down" one of the
+			# Shuttle's boosters twenty seconds before separation.
+			var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
+			F += Rocketry.engine_output(st.spec.engine, st.live, pa, 1.0, burned).F
 			if st.spec.get("vacEngine") != null:
-				F += Rocketry.engine_output(st.spec.vacEngine, st.spec.vacCount, pa, 1.0).F
+				F += Rocketry.engine_output(st.spec.vacEngine, st.spec.vacCount, pa, 1.0, burned).F
 		return F
 
 	func current_isp(pa: float) -> float:

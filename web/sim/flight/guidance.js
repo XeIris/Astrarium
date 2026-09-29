@@ -115,8 +115,6 @@ export class Autopilot {
       inclination: vessel.vehicle.target?.inclination ?? 28.5,
       pitchStart: 55,             // m/s at which the pitch program starts
       turnV0: 600,                // m/s past pitchStart at which the program is at 45°
-      climbTime: 170,             // s over which the closed loop closes the altitude deficit
-      tauVert: 22,                // s — vertical-rate time constant
     };
     this.lastThrottle = 1;
     this._pitchCmd = null;        // the last commanded ascent pitch, rad (see _rateLimitPitch)
@@ -259,7 +257,11 @@ export class Autopilot {
     // flying an ascent forever, seven kilometres short of a number that no
     // longer means anything.
     const safeAlt = env.atm ? env.atm.top * 0.6 : env.radius * 0.002;
-    if (Number.isFinite(el.ra) && (apoAlt >= A.targetApo * 0.998 || (el.rp - env.radius) > safeAlt)) {
+    // (...but only once there is nothing left to burn: the ascent now cuts
+    // off LOW on purpose, and its perigee clears the air well before the
+    // apoapsis has been raised to the target.)
+    if (Number.isFinite(el.ra) && (apoAlt >= A.targetApo * 0.998
+        || ((el.rp - env.radius) > safeAlt && this.fullThrust(pa) <= 0 && !v.nextStage))) {
       v.throttle = 0;
       this.note(`MECO — ${(apoAlt / 1000).toFixed(0)} × ${((el.rp - env.radius) / 1000).toFixed(0)} km, coasting`);
       this.engage('circularize');
@@ -269,14 +271,42 @@ export class Autopilot {
     _c.copy(v.v).addScaledVector(_up, -vVert);
     const vHoriz = _c.length();
     const R = v.r.length();
-    const wantVert = THREE.MathUtils.clamp((A.targetApo - alt) / A.climbTime, 0, 1500);
+    // EXPLICIT GUIDANCE (Cherry's E-guidance, the ancestor of the Shuttle's
+    // PEG). The burn ends when the engines have supplied orbital speed; its
+    // length T_go is the rocket equation's for the horizontal speed still
+    // missing, from this stage's own thrust and Isp. Over that time the
+    // vertical motion must end at the target altitude with zero climb rate,
+    // and with a vertical acceleration linear in time the two conditions fix
+    // the acceleration NOW:
+    //     a_v = 6·Δh / T² − 4·ḣ / T
+    // re-solved every step, so every error — staging, a wrong T_go — is
+    // absorbed on the way rather than discovered at the end. It replaced a
+    // climb rate that closed the altitude deficit over a fixed 170 s: right
+    // for a stage that burns about that long, and for any other it arrived
+    // early and still climbing (Starship: 458 × 243 km for a 250 km target)
+    // or, on the Shuttle's long, weak sustainer, pitched up to its limit for
+    // five minutes and ran dry lofted and short of orbital speed.
+    //   WHERE the burn ends is the other half, and it is not the target
+    // orbit. Climbing to 300 km under power, the Shuttle's sustainer (0.9 g
+    // after the boosters go) spent minutes pointed steeply up to hold itself
+    // there and ran dry 500 m/s short. Every real ascent does what the
+    // Shuttle did: cut off just above the atmosphere on an ellipse whose
+    // apoapsis IS the target, coast up, and circularize there — a Hohmann
+    // transfer folded into the ascent. So the burn aims at that perigee,
+    // with the perigee speed of that ellipse.
+    const hIns = env.atm ? Math.min(A.targetApo, env.atm.top * 0.8) : A.targetApo;
+    const rP = env.radius + hIns, rA = env.radius + A.targetApo;
+    const vIns = Math.sqrt(env.mu * 2 * rA / (rP * (rP + rA)));
+    const dvH = Math.max(vIns - vHoriz, 0);
+    const Tgo = THREE.MathUtils.clamp(burnTimeFor(dvH, v.mass, this.fullThrust(pa), this.currentIsp(pa)), 20, 900);
+    const aV = 6 * (hIns - alt) / (Tgo * Tgo) - 4 * vVert / Tgo;
     // The vertical acceleration the engine must supply: hold the vehicle up
     // (gravity), minus what the horizontal speed is ALREADY supplying
-    // (centripetal), plus the correction that walks the climb rate toward its
-    // target over τ. The centripetal term is what retires the loop on its own —
-    // as the vehicle approaches orbital speed it cancels gravity, the required
-    // pitch goes to zero, and the vehicle is level and in orbit.
-    const aVert = gLoc - (vHoriz * vHoriz) / R + (wantVert - vVert) / A.tauVert;
+    // (centripetal), plus the guidance's own. The centripetal term is what
+    // retires the loop on its own — as the vehicle approaches orbital speed
+    // it cancels gravity, the required pitch goes to zero, and the vehicle is
+    // level and in orbit.
+    const aVert = gLoc - (vHoriz * vHoriz) / R + aV;
     // The nose never goes below the horizon on the way up. Without this floor a
     // stage that separates with more climb rate than the loop wants points
     // itself downward to shed it, which converts most of an upper stage into
@@ -381,7 +411,11 @@ export class Autopilot {
     // clear of the atmosphere and the orbit is round enough to stay that way.
     // Chasing a perfectly circular orbit past that point spends propellant on a
     // number rather than on the mission, and a real upper stage does not.
-    if (t.peri >= (target - env.radius) * 0.92 || (t.ecc < 0.014 && t.peri > safe)) {
+    // (The round-enough clause is for an ascent that fell SHORT of its
+    // target; one that reached it is on a deliberate ellipse from a low
+    // cutoff, and the whole point is to raise the perigee at its apoapsis.)
+    if (t.peri >= (target - env.radius) * 0.92
+        || (t.ecc < 0.014 && t.peri > safe && t.apo < (target - env.radius) * 0.9)) {
       v.throttle = 0; this.program = null; this.mode = MODE.PROGRADE;
       v.phase = PHASE.ORBIT;
       this.note(`Orbit — ${(t.apo / 1000).toFixed(0)} × ${(t.peri / 1000).toFixed(0)} km, e = ${t.ecc.toFixed(4)}`);
@@ -406,7 +440,10 @@ export class Autopilot {
     const aThrust = this.fullThrust(pa) / Math.max(v.mass, 1);
     const dvNeed = Math.max(Math.sqrt(env.mu / Math.max(t.el.ra, R)) - vHoriz, 0);
     const tBurn = burnTimeFor(dvNeed, v.mass, this.fullThrust(pa), this.currentIsp(pa));
-    if (t.peri > safe && Number.isFinite(tApo) && tApo > tBurn * 0.5 + 25) {
+    // (and just AFTER apoapsis too: a vehicle still coming round when it
+    // passed is no worse off burning a few seconds late than an orbit late)
+    const sinceApo = Number.isFinite(t.el.period) ? t.el.period - tApo : Infinity;
+    if (t.peri > safe && Number.isFinite(tApo) && tApo > tBurn * 0.5 + 25 && sinceApo > tBurn * 0.5 + 90) {
       v.throttle = 0;
       this.say(`Coasting to apoapsis — T-${tApo.toFixed(0)} s, insertion Δv ${dvNeed.toFixed(0)} m/s`);
       return attitudeFor(MODE.PROGRADE, v);
@@ -536,8 +573,9 @@ export class Autopilot {
     // produce, which is knowable in advance.
     this.shutCool = Math.max(0, (this.shutCool || 0) - (dt || 0));
     const stC = v.currentStage;
+    // (never a solid: once lit it burns out, and there is nothing to shut)
     if (want > 0 && !this.shutCool && !this.manualEngines
-        && stC?.spec.engine && Ffull > 0 && stC.live > 1) {
+        && stC?.spec.engine && Ffull > 0 && stC.live > 1 && !stC.spec.engine.solid) {
       const floor = stC.spec.engine.solid ? 1 : (stC.spec.engine.throttleMin ?? 1);
       const gAtFloor = (Ffull * floor - (t.drag || 0)) / (v.mass * G0);
       if (th <= floor + 1e-6 && gAtFloor > gTarget) {
@@ -569,8 +607,14 @@ export class Autopilot {
     let F = 0;
     for (const st of this.v.liveStages()) {
       if (!st.spec.engine || st.prop <= 0) continue;
-      F += engineOutput(st.spec.engine, st.live, pa, 1).F;
-      if (st.spec.vacEngine) F += engineOutput(st.spec.vacEngine, st.spec.vacCount, pa, 1).F;
+      // where a SOLID is in its burn: its grain, not a throttle, sets the
+      // thrust. Evaluated at ignition instead, an RSRM two-thirds burned was
+      // credited with its liftoff thrust, the g prediction read an overload
+      // that was not there, and the limiter "shut down" one of the Shuttle's
+      // boosters twenty seconds before separation.
+      const burned = 1 - st.prop / Math.max(st.prop0, 1);
+      F += engineOutput(st.spec.engine, st.live, pa, 1, burned).F;
+      if (st.spec.vacEngine) F += engineOutput(st.spec.vacEngine, st.spec.vacCount, pa, 1, burned).F;
     }
     return F;
   }
