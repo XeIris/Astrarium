@@ -70,7 +70,7 @@ extends RefCounted
 # In Godot this is render_priority, which — like three's renderOrder — only
 # sorts within the transparent list.
 # ---------------------------------------------------------------------------
-const ORDER := {"sky": -10, "clouds": -8, "sun": -6, "smoke": 10, "flame": 20}
+const ORDER := {"sky": -10, "clouds": -8, "sun": -6, "smoke": 10, "flame": 20, "flare": 40}
 
 var pipe: RenderPipeline
 var root: Node3D                 # everything in local space hangs under here
@@ -91,6 +91,11 @@ var _sun_rgb := Vector3.ONE        # the star's colour, luminance 1
 var _tau0 := Vector3.ZERO          # sea-level zenith optical depth, per channel
 var _airmass := 1.0                # along the sun line, from the observer
 const SUN_DIST := 3.0e6
+## The lens's ghosts (shaders/flight/lens_flare.gdshader), and the sun's
+## radiance entering the lens before the clouds, which it is fed.
+var flare: MeshInstance3D
+var flare_mat: ShaderMaterial
+var _sun_entering := Vector3.ZERO
 var reflection_sky: Sky
 var reflection_material: PhysicalSkyMaterial
 ## The cloud field's three noise volumes (shaders/flight/clouds.gdshaderinc)
@@ -289,6 +294,19 @@ func _init(p: RenderPipeline) -> void:
 	# the vertex shader turns and sizes it; never cull it
 	sun_disc.custom_aabb = AABB(Vector3(-2.0e6, -2.0e6, -2.0e6), Vector3(4.0e6, 4.0e6, 4.0e6))
 	root.add_child(sun_disc)
+	# ---- its ghosts: a full-screen pass, last of all, since they are in the
+	# lens and in front of everything
+	flare_mat = ShaderMaterial.new()
+	flare_mat.shader = load("res://shaders/flight/lens_flare.gdshader")
+	flare_mat.render_priority = ORDER.flare
+	flare_mat.set_shader_parameter("uDist", SUN_DIST)
+	flare = MeshInstance3D.new()
+	flare.name = "lens_flare"
+	flare.mesh = sq
+	flare.material_override = flare_mat
+	flare.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flare.custom_aabb = AABB(Vector3(-4.0e6, -4.0e6, -4.0e6), Vector3(8.0e6, 8.0e6, 8.0e6))
+	root.add_child(flare)
 
 	craft_root = Node3D.new()
 	craft_root.name = "craft_root"
@@ -391,6 +409,19 @@ func apply_origin(basis: Basis) -> void:
 	clouds.position = Vector3.ZERO
 	var cl := cam_pos.to_v3()
 	for m in [cloud_mat, ground_mat, sun_mat]: m.set_shader_parameter("uCamLocal", cl)
+	# The EYE is the camera, not the vehicle. The sky's column and the ground's
+	# haze both run from the eye's altitude, and on the pad the vehicle's is
+	# zero while the camera stands tens of metres above the ground patch
+	# (which lies grade_drop below the deck datum). From zero the sky's ground
+	# root sat at t ≈ 0 for every ray below the horizontal, float rounding left
+	# no path at all, and the patch's dithered rim showed black speckle through
+	# a dome that had nothing to draw there.
+	var gy := 0.0
+	for pn in _placed:
+		if pn[0] == ground: gy = float((pn[1] as DVec3).y)
+	var eye := maxf(float(cam_pos.y) - gy, 1.0)
+	sky_mat.set_shader_parameter("uEye", eye)
+	ground_mat.set_shader_parameter("uEye", eye)
 	# The sun is at infinity: a fixed distance from the camera, whatever the
 	# camera's position — which, here, is always the origin.
 	sun_disc.position = _sun_l * SUN_DIST
@@ -455,6 +486,7 @@ func update(o: Dictionary) -> Dictionary:
 		sky_mat.set_shader_parameter("uThick", clampf(float(atm.rho0) * 0.9, 0.02, 6.0))
 		ground_mat.set_shader_parameter("uDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
 	sky_mat.set_shader_parameter("uEye", h)
+	sky_mat.set_shader_parameter("uRadius", float(env.radius))
 	sky_mat.set_shader_parameter("uHasAir", has_air)
 	# Irradiance falls as 1/r² from the star; the local sun light and the
 	# ground shader are driven from the same number so they cannot disagree.
@@ -466,7 +498,9 @@ func update(o: Dictionary) -> Dictionary:
 	ground_mat.set_shader_parameter("uSkyI", 0.42 * exp(-h / maxf(sh * 2.0, 1.0)) if atm != null else 0.03)
 	# Ground fades out entirely once the orrery's planet takes over.
 	ground.visible = h < 4.0e5
-	sky.visible = atm != null and h < (float(atm.top) * 1.6 if atm != null else 0.0)
+	# ...and the sky with it: the limb is the dome's (sky_dome.gdshader), and
+	# it is most of what an ascent through 100–400 km looks like.
+	sky.visible = atm != null and h < 4.0e5
 
 	# Sun direction expressed in the local frame: its component along the local
 	# up is what decides day, night and the colour of both.
@@ -515,6 +549,9 @@ func update(o: Dictionary) -> Dictionary:
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
 	var sun_vis := _update_sun(o, env, atm, h, sh, sun_l)
 	_update_clouds(o, env, atm, h, sh, sun_l, east, up, north)
+	flare.visible = sun_vis > 0.0
+	flare_mat.set_shader_parameter("uSunLocal", sun_l)
+	flare_mat.set_shader_parameter("uSunRGB", _sun_entering * sun_through)
 	ground_mat.set_shader_parameter("uSunDir", sun_l)
 	sky_mat.set_shader_parameter("uSunDir", sun_l)
 	# A DirectionalLight3D shines along its own −Z; three's shines from its
@@ -658,6 +695,9 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l
 	sun_mat.set_shader_parameter("uTau", tau)
 	sun_mat.set_shader_parameter("uAirMass", m)
 	sun_mat.set_shader_parameter("uAureole", aerosol)
+	var T := Vector3(exp(-tau.x * m), exp(-tau.y * m), exp(-tau.z * m))
+	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
+		* (ang_r * ang_r) / (0.00465 * 0.00465)
 	return vis
 
 func set_size(_w: float, _h: float) -> void:

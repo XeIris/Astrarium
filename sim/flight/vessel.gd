@@ -131,6 +131,8 @@ var r := DVec3.new()
 var v := DVec3.new()
 var q := DQuat.new()
 var omega := DVec3.new()            # body rates, world axes, rad/s
+var _hold := DVec3.new()            # the attitude point_at asked for this frame (see step's rails branch)
+var _holding := false
 var throttle: float = 0.0
 var rcs_on: bool = true
 
@@ -146,6 +148,10 @@ var time_rate: float = 1.0
 
 # ---- telemetry / records
 var max_q: float = 0.0
+var max_q_t: float = 0.0            # T+ (s after liftoff), altitude and Mach of the max-Q
+var max_q_alt: float = 0.0
+var max_q_mach: float = 0.0
+var max_mach: float = 0.0
 var max_g: float = 0.0
 var heat_load: float = 0.0
 var peak_heat: float = 0.0
@@ -153,6 +159,10 @@ var downrange: float = 0.0
 var phase: String = PHASE.PRELAUNCH
 var failure = null                  # String or null
 var events: Array = []              # [{t, msg}]
+var _logged := {}                   # the one-shot milestones already in the log (see _milestones)
+var _peak_heat_alt: float = 0.0
+var _peak_heat_v: float = 0.0
+var _peak_heat_seen: float = 0.0
 var stage_events: int = 0
 var landed_at = null                # {met, vVert, vHoriz} or null
 var t0: float = 0.0                 # MET of liftoff
@@ -476,6 +486,7 @@ func authority(pa: float) -> Dictionary:
 	var I := inertia()
 	var L := maxf(length, 1.0)
 	var tau := 0.0
+	var gimballed := false
 	for st in live_stages():
 		var s: Dictionary = st.spec
 		if s.get("engine") != null and st.prop > 0.0 and throttle > 0.0 and s.gimbalDeg > 0.0:
@@ -483,11 +494,12 @@ func authority(pa: float) -> Dictionary:
 			# The gimbal acts at the engine plane, roughly a half-length from the
 			# centre of mass.
 			tau += o.F * sin(s.gimbalDeg * PI / 180.0) * (L * 0.45)
+			gimballed = gimballed or o.F > 0.0
 		if rcs_on and s.get("rcs") != null and st.rcs_prop > 0.0:
 			# A quarter of the thrusters bear on any one axis, at a lever arm of
 			# roughly the radius plus a fraction of the length.
 			tau += s.rcs.thrust * maxf(float(s.rcs.count) / 4.0, 1.0) * (diameter * 0.5 + L * 0.25)
-	return { "alpha": tau / maxf(I.pitch, 1.0), "tau": tau, "I": I }
+	return { "alpha": tau / maxf(I.pitch, 1.0), "tau": tau, "I": I, "gimballed": gimballed }
 
 ## Steer toward a world-space direction for the +Y axis. Returns the pointing
 ## error, rad.
@@ -500,9 +512,11 @@ func authority(pa: float) -> Dictionary:
 func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	if dir == null or dir.length_sq() < 1e-12: return 0.0
 	DQuat.nrm(_a.copy_from(dir))
+	_hold.copy_from(_a); _holding = true
 	var fwd := forward(_b)
 	var err := DQuat.angle_between(fwd, _a)
-	var alpha: float = authority(pa).alpha
+	var auth := authority(pa)
+	var alpha: float = auth.alpha
 	if alpha <= 0.0: return err
 	# rotation axis
 	_c.cross_vectors(fwd, _a)
@@ -530,8 +544,12 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	_d.copy_from(omega).add_scaled_in(_c, -omega.dot(_c))
 	var damp := minf(alpha * dt, _d.length())
 	if _d.length_sq() > 1e-16: omega.add_scaled_in(DQuat.nrm(_d), -damp)
-	# RCS costs propellant. Gimbal does not (it is already burning).
-	spend_rcs(absf(dw) * inertia().pitch, dt)
+	# RCS costs propellant. Gimbal does not (it is already burning) — so while
+	# a gimballed engine is lit, the thrusters are not charged for the turn.
+	# Charged anyway, every steering correction of a powered ascent was billed
+	# to the cold gas: Starship's ship reached orbit with its RCS dry, could not
+	# turn off the attitude a coast leaves it in, and never circularized.
+	if not auth.gimballed: spend_rcs(absf(dw) * inertia().pitch, dt)
 	return err
 
 ## Integrate the attitude by the current body rates.
@@ -577,7 +595,7 @@ func stage():
 		if st.spec.sep == "none": break
 		st.attached = false; st.spent = true
 		dropped = st; stage_events += 1
-		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name)
+		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name + _where())
 		break
 	for st in stages:
 		if not st.attached or st.ignited or st.spec.get("engine") == null: continue
@@ -691,6 +709,38 @@ func destroy(why: String) -> void:
 	throttle = 0.0
 	log_event("LOSS OF VEHICLE — %s" % why)
 
+## " · 62.1 km, 2.45 km/s" — where a staging or a cutoff happened, which is
+## most of what makes one line of a flight log worth reading.
+func _where() -> String:
+	return " · %s km, %s km/s" % [U.fixed(altitude() / 1000.0, 1), U.fixed(v.length() / 1000.0, 2)]
+
+## THE MILESTONES a launch commentary calls, logged as they are passed, each
+## once per flight. Max-Q and peak heating are PEAKS, so they can only be
+## called after the fact: the log waits until the value has fallen a tenth
+## (a fifth, for heating) off its maximum and then reports the maximum, with
+## the T+ it actually happened at — the same moment a flight controller says
+## "we're through max-Q".
+func _milestones(t: Dictionary) -> void:
+	if phase == PHASE.PRELAUNCH or phase == PHASE.LANDED or phase == PHASE.DESTROYED: return
+	if env.atm == null: return
+	var alt: float = t.alt
+	if not _logged.has("mach1") and t.mach >= 1.0 and t.vertical > 0.0:
+		_logged.mach1 = true
+		log_event("Mach 1 — supersonic at %s km" % U.fixed(alt / 1000.0, 1))
+	if not _logged.has("maxq") and max_q > 5000.0 and t.q < 0.9 * max_q:
+		_logged.maxq = true
+		log_event("Max-Q — %s kPa at T+%s s · %s km, Mach %s" % [U.fixed(max_q / 1000.0, 1),
+			U.fixed(max_q_t, 1), U.fixed(max_q_alt / 1000.0, 1), U.fixed(max_q_mach, 2)])
+	if not _logged.has("karman") and alt >= env.karman and t.vertical > 0.0:
+		_logged.karman = true
+		log_event("Space — through the Kármán line at %s km/s" % U.fixed(t.speed / 1000.0, 2))
+	if t.heat > _peak_heat_seen:
+		_peak_heat_seen = t.heat; _peak_heat_alt = alt; _peak_heat_v = t.speed
+	if not _logged.has("heat") and _peak_heat_seen > 5e4 and t.heat < 0.8 * _peak_heat_seen:
+		_logged.heat = true
+		log_event("Peak heating — %s W/cm² at %s km, %s km/s" % [U.fixed(_peak_heat_seen / 1e4, 1),
+			U.fixed(_peak_heat_alt / 1000.0, 1), U.fixed(_peak_heat_v / 1000.0, 2)])
+
 ## JS `log(msg)`: append to the event log the HUD shows, capped at 120.
 func log_event(msg: String) -> void:
 	events.append({ "t": met, "msg": msg })
@@ -789,6 +839,18 @@ func step(dt: float, opts: Dictionary = {}) -> void:
 
 	if opts.get("rails", false) and can_rail():
 		if Orbit.propagate(r, v, env.mu, dt, r, v):
+			# On rails nothing integrates the attitude, so a vehicle holding
+			# prograde through a coast used to arrive at apoapsis still pointing
+			# where it was when the warp began — a quarter-orbit coast turned the
+			# nose 90° off the burn, and a slow upper stage could not come round
+			# before the apoapsis passed, so it waited an orbit and did it again.
+			# The hold is cheap and continuous, so the rails keep it: whatever
+			# point_at asked for this frame, if there is authority to hold it.
+			if _holding and authority(0.0).alpha > 0.0:
+				_dq.set_from_unit_vectors(forward(_b), _hold)
+				q.premultiply(_dq).normalize_in()
+				omega.set_v(0.0, 0.0, 0.0)
+			_holding = false
 			step_clocks(dt)
 			sample(dt)
 			check_soi()
@@ -882,7 +944,7 @@ func burn(kg: float) -> void:
 		st.prop -= take; kg -= take
 		if st.prop <= 1e-6:
 			st.spent = true
-			log_event("%s — cutoff (propellant depleted)" % st.spec.name)
+			log_event("%s — cutoff (propellant depleted)" % st.spec.name + _where())
 			if auto_stage: pending_stage = true
 		if kg <= 0.0: break
 
@@ -1073,7 +1135,9 @@ func sample(dt: float, s = null) -> Dictionary:
 	# α = 180° and tear themselves apart the instant they enter the atmosphere.
 	var alpha := acos(DQuat.jclamp(absf(fwd.dot(_vrel)) / va, 0.0, 1.0)) if va > 1.0 else 0.0
 	var el := Orbit.elements(r, v, env.mu)
-	if s.get("q", 0.0) > max_q: max_q = s.q
+	if s.get("q", 0.0) > max_q:
+		max_q = s.q; max_q_t = met - t0; max_q_alt = alt; max_q_mach = s.get("mach", 0.0)
+	if s.get("mach", 0.0) > max_mach: max_mach = s.mach
 	if a_net / Rocketry.G0 > max_g: max_g = a_net / Rocketry.G0
 	if launch_site != null:
 		# Carry the pad round with the body before measuring against it. Stored
@@ -1109,6 +1173,7 @@ func sample(dt: float, s = null) -> Dictionary:
 	# The gate the structure checks are made against.
 	s.gees = t.gees; s.alpha = alpha
 	if dt > 0.0: check_structure(s, dt)
+	if dt > 0.0: _milestones(t)
 	if pending_stage:
 		pending_stage = false
 		stage()

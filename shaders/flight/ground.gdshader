@@ -112,9 +112,15 @@ void fragment() {
 	float fineK = exp(-vDist / 900.0);
 	vec3 col = mix(uRock, uGround, clamp(big * 1.5 - 0.15, 0.0, 1.0));
 	col *= 0.72 + 0.30 * mix(0.5, mid, midK) + 0.34 * mix(0.5, fine, fineK);
-	if (uOceans > 0.5 && big < uSeaLevel) {
+	// Procedural seas only where there is no map: where there is one, it owns
+	// every coastline, and a procedural lake blended into the pad's parcel
+	// drew saturated blue ponds a few kilometres out that the map knows
+	// nothing about.
+	float water_frac = 0.0;
+	if (uGeoReady < 0.5 && uOceans > 0.5 && big < uSeaLevel) {
 		float dep = smoothstep(uSeaLevel, uSeaLevel - 0.18, big);
 		col = mix(col, uSea, dep * 0.92);
+		water_frac = dep;
 	}
 	if (uGeoReady > 0.5) {
 		// The ground patch is a tangent sheet. Convert each point back to a
@@ -125,21 +131,52 @@ void fragment() {
 		// three samples with flipY: v = 0 is the image's BOTTOM row
 		mapUv.y = 1.0 - mapUv.y;
 		vec3 mapped = texture(uEarthColor, mapUv).rgb;
-		float land = texture(uEarthLand, mapUv).r;
-		// The global mask resolves roughly 10 km per pixel. Keep the actual
-		// reclaimed/graded launch parcel above water at that coarse resolution.
+		float mask = texture(uEarthLand, mapUv).r;
+		// THE MAP IS TEN KILOMETRES A TEXEL, and from a hundred kilometres up
+		// that is forty texels across the frame: filtered, every coast is a
+		// smear and every field a blur. What is under a texel cannot be
+		// recovered, but it can be made CONSISTENT with the map — detail that
+		// only exists where the map cannot see and that averages back to it
+		// where it can. Everything below fades on the pixel's own footprint
+		// (fwidth), so it is added where the map is magnified and vanishes
+		// where it is not, rather than aliasing.
+		float fp = length(fwidth(gp));                              // metres per pixel here
+		float texel = length(fwidth(mapUv * vec2(4096.0, 2048.0))); // map texels per pixel
+		// COASTS: the bilinear mask's half-way contour, pushed about by fractal
+		// noise a texel's worth, and cut as sharply as the pixel allows — a
+		// coast at the pixel's resolution with the map's shape.
+		float wig = (fbm(gp * (1.0 / 2600.0) + vec2(3.1, 7.7)) - 0.5) * 0.55
+			+ (fbm(gp * (1.0 / 420.0) + vec2(9.2, 1.3)) - 0.5) * 0.30 * (1.0 - smoothstep(60.0, 300.0, fp));
+		float k = clamp(texel * 0.5, 0.035, 0.5);
+		float land = smoothstep(0.5 - k, 0.5 + k, mask + wig * (1.0 - smoothstep(0.6, 2.0, texel)));
+		// Keep the actual reclaimed/graded launch parcel above water.
 		land = max(land, 1.0 - smoothstep(700.0, 1800.0, distance(vWorld.xz, uPadLocal)));
-		// The global image resolves kilometres, so local stone, scrub and sand
-		// still come from the metre-scale fields above. The mapped mask owns
-		// every coastline, including the ocean beyond the launch complex.
-		// The global image resolves kilometres per texel. Within a few kilometres
-		// of the pad, restore local scrub, sand and weathering at usable scale.
+		// LAND: the map's colour, broken up at the scales it cannot resolve —
+		// the patchwork of forest, field, scrub and bare ground that every
+		// view from orbit is made of. Brightness and dryness, each at two
+		// scales, faded by footprint.
+		float k2 = 1.0 - smoothstep(350.0, 1600.0, fp);
+		float k3 = 1.0 - smoothstep(40.0, 220.0, fp);
+		float d1 = fbm(gp * (1.0 / 9000.0) + vec2(5.3, 2.9));
+		float d2 = fbm(gp * (1.0 / 1300.0) + vec2(1.7, 8.1));
+		float d3 = fbm(gp * (1.0 / 170.0) + vec2(6.6, 4.4));
+		float lum = 1.0 + 0.30 * (d1 - 0.5) + 0.42 * (d2 - 0.5) * k2 + 0.30 * (d3 - 0.5) * k3;
+		float dry = smoothstep(0.52, 0.74, fbm(gp * (1.0 / 3800.0) + vec2(12.0, 3.0)));
+		float wood = smoothstep(0.50, 0.72, fbm(gp * (1.0 / 1900.0) + vec2(2.0, 19.0))) * k2;
+		vec3 landCol = mapped * lum;
+		landCol = mix(landCol, landCol * vec3(1.18, 1.06, 0.80) + vec3(0.015, 0.012, 0.0), dry * 0.55);
+		landCol = mix(landCol, landCol * vec3(0.72, 0.84, 0.66), wood * 0.6);
+		// Within a few kilometres of the pad the metre-scale fields above take
+		// over: stone, scrub and sand at a scale the map knows nothing about.
 		float parcel = 1.0 - smoothstep(1300.0, 4200.0, distance(vWorld.xz, uPadLocal));
 		float sand = smoothstep(0.48, 0.69, fbm(gp * 0.0018 + vec2(17.0, 31.0)));
-		vec3 landCol = mix(mapped, col, 0.42 + parcel * 0.36);
+		landCol = mix(landCol, col, parcel * 0.62);
 		landCol = mix(landCol, uRock * 1.28, sand * parcel * 0.28);
-		vec3 water = max(mapped * 0.8, uSea * 0.8);
+		// WATER: the map's own shallows (the Bahamas banks are in it), with a
+		// little large-scale variation so open ocean is not one flat colour.
+		vec3 water = max(mapped * 0.8, uSea * 0.8) * (0.92 + 0.16 * d1);
 		col = mix(water, landCol, land);
+		water_frac = 1.0 - land;
 	}
 
 	// Lambert against the local sun, with the vehicle's 1/π: uSunI is the same
@@ -167,14 +204,54 @@ void fragment() {
 	}
 	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade + uSkyI * (0.35 + 0.65 * clamp(uSunDir.y + 0.25, 0.0, 1.0)));
 
-	// AERIAL PERSPECTIVE. The optical depth along a horizontal path is the
-	// integral of the density, which for an exponential atmosphere seen from
-	// altitude h is ρ(h)·distance — so the haze thins with height on the body's
-	// own scale height with nothing extra to tune.
-	float rho = uHasAir > 0.5 ? exp(-uEye / uScaleH) : 0.0;
-	float tau = rho * uDensity * vDist;
+	// SUN GLINT on open water: the specular image of the sun in a wind-
+	// roughened sea, a GGX lobe with the slope spread of a ~7 m/s wind
+	// (Cox & Munk's σ² ≈ 0.04). From altitude it is the brightest thing on the
+	// planet and a broad smear across the ocean on the sun's side; without it
+	// water is a flat painted blue.
+	vec3 to_eye = uCamLocal - vLocal;
+	float eye_dist = length(to_eye);
+	vec3 V = to_eye / max(eye_dist, 1e-3);
+	vec3 Nrm = normalize(vec3(vWorld.x, vWorld.y + uRadius, vWorld.z));
+	if (water_frac > 0.0 && ndl > 0.0) {
+		vec3 Hh = normalize(V + uSunDir);
+		float nh = max(dot(Nrm, Hh), 0.0);
+		float nv = max(dot(Nrm, V), 1e-3);
+		float a2 = 0.04;
+		float dd = nh * nh * (a2 - 1.0) + 1.0;
+		float D = a2 / (3.14159265 * dd * dd);
+		float F = 0.02 + 0.98 * pow(1.0 - max(dot(V, Hh), 0.0), 5.0);
+		col += vec3(1.0, 0.96, 0.9) * water_frac * F * D / (4.0 * nv) * uSunI * shade;
+	}
+
+	// AERIAL PERSPECTIVE, along the actual path from the eye to this point:
+	// a straight path from the ground to altitude h through an exponential
+	// atmosphere has mean density H·(1 − e^(−h/H))/h, so its depth is that
+	// times the path length. Near the ground (h ≪ H) it is the ρ·distance it
+	// always was; from altitude it is the column between the two, spread over
+	// the slant — thin straight down, thick toward the limb, which is what
+	// turns the view from orbit blue-white at the horizon. The old form used
+	// the air density at the eye alone, so above 50 km the planet had no air
+	// on it at all.
+	//   uDensity is calibrated on the HORIZONTAL haze at the pad, which is
+	// mostly boundary-layer aerosol; a path down from altitude crosses that
+	// layer once and the clean air above it, so from high up the column is
+	// weighted down to the ~0.1 Rayleigh depth it really is. And the light a
+	// downward path scatters toward the eye is dimmer than the horizon's
+	// (sideways phase, and no bright horizon behind it), so the veil straight
+	// down is dimmer too. Without both, the planet from 100 km was a milky
+	// blue sheet with the continents drowned in it.
+	float tau = 0.0;
+	float cosz = max(dot(Nrm, V), 0.0);
+	float up_high = smoothstep(2000.0, 20000.0, uEye);
+	if (uHasAir > 0.5) {
+		float dh = max(uEye, 1.0);
+		float mean_rho = uScaleH * (1.0 - exp(-dh / uScaleH)) / dh;
+		tau = uDensity * max(eye_dist, vDist) * mean_rho * mix(1.0, 0.45, up_high);
+	}
 	float fog = 1.0 - exp(-tau);
-	col = mix(col, uHaze * (0.35 + 0.75 * max(ndl, 0.0)), clamp(fog, 0.0, 1.0));
+	vec3 haze = uHaze * (0.35 + 0.75 * max(ndl, 0.0)) * mix(1.0, 0.4, up_high * smoothstep(0.1, 0.6, cosz));
+	col = mix(col, haze, clamp(fog, 0.0, 1.0));
 
 	// The patch has to end somewhere; fade it out rather than showing an edge —
 	// DITHERED, not blended, because this surface is OPAQUE.

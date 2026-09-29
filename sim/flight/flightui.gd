@@ -468,6 +468,7 @@ var plan_el: El
 var plan_key := ""
 var log_el: El
 var last_log := -1
+var rec_v: Array = []           # the records strip's value cells (see flight_records)
 
 static func _el(parent: Node, style: Dictionary, text = null, vars: Array = []) -> El:
 	var e := El.new(style, vars)
@@ -547,7 +548,10 @@ func _init(r: Control, h: Dictionary) -> void:
 	target_sel.changed.connect(func(v: String): if hooks.has("setTarget"): hooks.setTarget.call(v))
 	plan_el = _el(root, {})
 	_section(root, "Flight log")
-	log_el = _el(root, {"fs": 9.5, "lh": 1.4, "maxh": 116.0, "scroll": true})
+	var recs := _el(root, {"display": "grid", "cols": [1.0, 1.0], "gapr": 1.0, "gapc": 8.0, "fs": 10.0, "mb": 5.0})
+	for rec in flight_records(null):
+		rec_v.append(_kv(recs, rec[0], rec[1])[1])
+	log_el = _el(root, {"fs": 9.5, "lh": 1.4, "maxh": 150.0, "scroll": true})
 	log_el.make_hoverable()
 	log_el.mouse_filter = Control.MOUSE_FILTER_STOP
 
@@ -616,15 +620,30 @@ func update(s: Dictionary) -> void:
 
 	_update_plan(s.get("plan", {}))
 
+	# The flight's records: the numbers a post-flight report leads with.
+	var recs := flight_records(v)
+	for i in recs.size(): (rec_v[i] as El).set_text(recs[i][1])
+
 	if v.events.size() != last_log:
 		last_log = v.events.size()
 		for c in log_el.get_children():
 			log_el.remove_child(c); c.queue_free()
-		var ev: Array = v.events.slice(-9)
+		var ev: Array = v.events.slice(-40)
 		ev.reverse()
 		for e in ev:
 			_el(log_el, {"c": HudTheme.hexc(0xa8c4e0), "p": [1, 0], "bb": 1.0, "bcb": HudTheme.rgba(120, 190, 255, 0.06)},
 				[{"t": Guidance.fmt_dur(e.t), "c": HudTheme.hexc(0x5f7590), "box": {"mr": 5.0}}, {"t": " " + str(e.msg)}])
+
+## The flight log's records strip — flightui.js flightRecords, the same four
+## numbers in both builds. `v` null gives the labels with empty values.
+static func flight_records(v) -> Array:
+	if v == null: return [["max-Q", "—"], ["peak g", "—"], ["top Mach", "—"], ["peak heating", "—"]]
+	return [
+		["max-Q", ("%s kPa · T+%s s" % [U.fixed(v.max_q / 1000.0, 1), U.fixed(v.max_q_t, 0)]) if v.max_q > 100.0 else "—"],
+		["peak g", "%s g" % U.fixed(v.max_g, 2)],
+		["top Mach", U.fixed(v.max_mach, 2) if v.max_mach > 0.01 else "—"],
+		["peak heating", ("%s W/cm²" % U.fixed(v.peak_heat / 1e4, 1)) if v.peak_heat > 100.0 else "—"],
+	]
 
 func _update_stages(v: Vessel) -> void:
 	if stage_rows.size() != v.stages.size():

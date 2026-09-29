@@ -133,8 +133,8 @@ class Autopilot extends RefCounted:
 	var log: Array = []
 	## Ascent parameters. These are the pilot's, not the vehicle's — a launch
 	## profile is a choice, and the same rocket flies differently with a
-	## different one. JS keys: targetApo, inclination, pitchStart, turnEndV,
-	## turnExp, climbTime, tauVert.
+	## different one. JS keys: targetApo, inclination, pitchStart, turnV0,
+	## climbTime, tauVert.
 	var ascent: Dictionary
 	var last_throttle: float = 1.0
 	var aim = null               # DVec3 (a clone) — what the vessel is steering to
@@ -161,6 +161,8 @@ class Autopilot extends RefCounted:
 	var shield_gone: bool = false
 	var crane_out: bool = false
 	var _integ: float = 0.0
+	var _pitch_cmd = null        # the last commanded ascent pitch, rad (see _rate_limit_pitch)
+	var _pitch_met: float = 0.0
 	var _last_note = null
 	var _node_ref = null
 
@@ -171,8 +173,7 @@ class Autopilot extends RefCounted:
 			"targetApo": tgt.get("apoapsis", 200e3) if tgt != null else 200e3,
 			"inclination": tgt.get("inclination", 28.5) if tgt != null else 28.5,
 			"pitchStart": 55.0,       # m/s at which the pitch program starts
-			"turnEndV": 2350.0,       # m/s at which the program reaches horizontal
-			"turnExp": 0.62,          # shape of θ = 90°(1 − v/v_turn)^k
+			"turnV0": 600.0,          # m/s past pitchStart at which the program is at 45°
 			"climbTime": 170.0,       # s over which the closed loop closes the altitude deficit
 			"tauVert": 22.0,          # s — vertical-rate time constant
 		}
@@ -190,6 +191,7 @@ class Autopilot extends RefCounted:
 		program = prog
 		state_name = null
 		_integ = 0.0
+		_pitch_cmd = null
 		for k in opts:
 			set(String(k).to_snake_case(), opts[k])
 		v.auto_stage = true
@@ -259,25 +261,33 @@ class Autopilot extends RefCounted:
 			state_name = "vertical"
 			note("Ascent — vertical rise")
 			pitch_deg = 90.0
+			_pitch_cmd = PI / 2.0; _pitch_met = v.met
 			return Guidance._a.copy_from(Guidance._up)
 
 		# ---- phase 2: the pitch program, flown inside an angle-of-attack limit.
 		#
-		# The programmed pitch is θ = 90°·(1 − v/v_turn)^k, which is the shape every
-		# launcher flies: most of the turn happens early and cheaply, and by the
-		# time the vehicle is fast it is nearly horizontal. What keeps it honest is
+		# The programmed pitch is θ = 90°·v₀/(v₀ + v − v_start): steepest at the
+		# kick, 45° by v₀ = 600 m/s past it, and still ~20° at booster cutoff,
+		# which is the shape every launcher flies — most of the turn happens
+		# early, low and cheaply. It replaced θ = 90°(1 − v/2350)^0.62, which held
+		# the nose near vertical far too long: every launcher went through 45 km
+		# climbing at 66° when a Saturn V was at about 30, arrived at staging
+		# slow and steep, and the closed loop then had to throw the nose below
+		# the horizon to shed the climb. With this one a Saturn V stages at
+		# 62 km, 2.45 km/s and a 19° flight-path angle; AS-506 staged at 67 km,
+		# 2.4 km/s earth-relative and 21°. What keeps it honest is
 		# the SECOND term: the command is clamped to within α_max of the velocity
 		# vector, and α_max is itself set by the q·α the airframe can take. In
 		# thick air that is a fraction of a degree, so the vehicle really is flying
 		# a gravity turn there; high up the clamp opens and the program leads.
 		if t.q > 1200.0 or alt < 42000.0:
 			state_name = "turn"
-			var x := DQuat.jclamp(v_surf / A.turnEndV, 0.0, 1.0)
-			var prog := (PI / 2.0) * pow(1.0 - x, A.turnExp)
+			var prog: float = (PI / 2.0) * A.turnV0 / (A.turnV0 + maxf(v_surf - A.pitchStart, 0.0))
 			var dir: DVec3 = DQuat.nrm(Guidance._b.copy_from(v.airspeed(v.r, v.v, Guidance._b))) if v_surf > 1.0 else Guidance._b.copy_from(Guidance._up)
 			var pro_pitch := asin(DQuat.jclamp(dir.dot(Guidance._up), -1.0, 1.0))
 			var a_max := DQuat.jclamp(v.vehicle.limits.qAlpha / maxf(t.q, 1.0), 0.008, 0.30)
 			var pitch := DQuat.jclamp(prog, pro_pitch - a_max, pro_pitch + a_max)
+			_pitch_cmd = pitch; _pitch_met = v.met
 			pitch_deg = pitch * 180.0 / PI
 			say("Ascent — pitch program %s°, q %s kPa" % [U.fixed(pitch * 180.0 / PI, 0), U.fixed(t.q / 1000.0, 1)])
 			# Horizontal component follows the launch azimuth until there is a real
@@ -328,11 +338,37 @@ class Autopilot extends RefCounted:
 		var pitch := DQuat.jclamp(
 			asin(DQuat.jclamp(a_vert / maxf(a_thrust, 1e-3), -0.95, 0.95)),
 			-0.10, 0.95)
+		# The loop's answer moves as fast as the vehicle's state does, and at two
+		# moments that is a step: the handover from the pitch program, where a
+		# lofted first stage is climbing faster than the loop wants and the
+		# answer is "level off, now", and every staging, where the thrust under
+		# a_thrust drops by half. Flown as commanded, a Saturn V swung from 60°
+		# to below the horizon in six seconds at 48 km. No launch vehicle's
+		# guidance does that: the Saturn LVDC and every IGM descendant limit the
+		# commanded attitude RATE (about a degree per second), and the vehicle
+		# comes round in a long smooth arc while the loop keeps closing on the
+		# state it actually has. The limit is in SIMULATED seconds, so it holds
+		# at time warp too.
+		pitch = _rate_limit_pitch(pitch)
 		pitch_deg = pitch * 180.0 / PI
 		say("Ascent — closed loop · apo %s/%s km, pitch %s°" % [U.fixed(apo_alt / 1000.0, 0), U.fixed(A.targetApo / 1000.0, 0), U.fixed(pitch * 180.0 / PI, 0)])
 		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 		var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
 		return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+
+	## Walk the commanded pitch toward `want` at no more than PITCH_RATE per
+	## simulated second (see the closed loop above for why).
+	const PITCH_RATE := 1.0 * PI / 180.0
+	func _rate_limit_pitch(want: float) -> float:
+		if _pitch_cmd == null:
+			# a fresh program starts from wherever the nose actually is, so the
+			# handover from the ascent (or from manual control) is continuous
+			_pitch_cmd = asin(DQuat.jclamp(v.forward(Guidance._f).dot(Guidance._up), -1.0, 1.0))
+			_pitch_met = v.met
+		var step := PITCH_RATE * maxf(v.met - _pitch_met, 0.0)
+		_pitch_cmd = DQuat.jclamp(want, _pitch_cmd - step, _pitch_cmd + step)
+		_pitch_met = v.met
+		return _pitch_cmd
 
 	# -------------------------------------------------------------------------
 	# NODES
@@ -436,11 +472,20 @@ class Autopilot extends RefCounted:
 		var a_vert := g_loc - (v_horiz * v_horiz) / R + (0.0 - v_vert) / 22.0
 		var pitch := DQuat.jclamp(
 			asin(DQuat.jclamp(a_vert / maxf(a_thrust, 1e-3), -0.9, 0.9)), -0.30, 0.9)
-		v.throttle = limit_throttle(1.0, pa, dt)
-		say("Insertion burn — %s × %s km, e %s, Δv %s m/s" % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 3), U.fixed(dv_need, 0)])
+		pitch = _rate_limit_pitch(pitch)   # the ascent's attitude-rate limit, carried across the handover
 		if full_thrust(pa) <= 0.0 and v.next_stage != null: v.stage()
 		var horiz: DVec3 = DQuat.nrm(Guidance._c) if v_horiz > 50.0 else Guidance._c.copy_from(v.forward(Guidance._d))
-		return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+		var dir := DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+		# Burn only while pointing near enough — the node executor's 20° gate, for
+		# the same reason. A coast on rails leaves the attitude fixed in INERTIAL
+		# space, so by apoapsis the nose has turned with the orbit (84° up, after a
+		# half-hour coast to a Starship insertion). Lit before it came round, every
+		# frame of thrust pushed the apoapsis ahead again, the vehicle went back to
+		# coasting, and the orbit walked upward a few kilometres at a time.
+		var err := DQuat.angle_between(v.forward(Guidance._d), dir)
+		v.throttle = limit_throttle(1.0, pa, dt) if err < 0.35 else 0.0
+		say(("Insertion burn — %s × %s km, e %s, Δv %s m/s" if err < 0.35 else "Insertion — aligning, %s × %s km, e %s, Δv %s m/s") % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 3), U.fixed(dv_need, 0)])
+		return dir
 
 	## Execute a node. The three parts that make this reliable:
 	##   · point at the node vector and WAIT — a burn started before the vehicle
@@ -1165,7 +1210,9 @@ class Autopilot extends RefCounted:
 		v.throttle = 0.0
 
 		if state_name == null:
-			state_name = "entry"; note("Entry interface")
+			state_name = "entry"
+			note("Entry interface — %s km, %s km/s, flight path %s°" % [U.fixed(alt / 1000.0, 0), U.fixed(speed / 1000.0, 2),
+				U.fixed(asin(clampf(v_vert / maxf(speed, 1.0), -1.0, 1.0)) * 180.0 / PI, 1)])
 
 		if state_name == "entry":
 			say("Entry — %s km, %s m/s, %s W/cm²" % [U.fixed(alt / 1000.0, 1), U.fixed(speed, 0), U.fixed(t.heat / 1e4, 1)])

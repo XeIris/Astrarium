@@ -706,7 +706,8 @@ body.xsec-open .panel-left { max-height: 40vh; }
   margin-top: 5px; font-size: 9.5px; line-height: 1.35; color: #7d93ae; font-style: italic;
 }
 
-.fl-log { font-size: 9.5px; line-height: 1.4; max-height: 116px; overflow-y: auto; }
+.fl-records { margin-bottom: 5px; }
+.fl-log { font-size: 9.5px; line-height: 1.4; max-height: 150px; overflow-y: auto; }
 .fl-log > div { color: #a8c4e0; padding: 1px 0; border-bottom: 1px solid rgba(120,190,255,.06); }
 .fl-log .t { color: #5f7590; font-variant-numeric: tabular-nums; margin-right: 5px; }
 

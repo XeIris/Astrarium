@@ -168,6 +168,16 @@ export function createNavball(canvas) {
 // Formatters. Distances span from metres on the pad to light years in cruise,
 // so there is one function and it picks the unit rather than the caller.
 // ---------------------------------------------------------------------------
+/** The flight log's records strip — the same four numbers in both builds. */
+export function flightRecords(v) {
+  return [
+    ['max-Q', v.maxQ > 100 ? `${(v.maxQ / 1000).toFixed(1)} kPa · T+${v.maxQT.toFixed(0)} s` : '—'],
+    ['peak g', `${v.maxG.toFixed(2)} g`],
+    ['top Mach', v.maxMach > 0.01 ? v.maxMach.toFixed(2) : '—'],
+    ['peak heating', v.peakHeat > 100 ? `${(v.peakHeat / 1e4).toFixed(1)} W/cm²` : '—'],
+  ];
+}
+
 export function fmtDist(m) {
   if (!Number.isFinite(m)) return '—';
   const a = Math.abs(m);
@@ -243,12 +253,14 @@ export function createFlightHUD(root, hooks) {
     <select class="fl-target"><option value="">— none —</option></select>
     <div class="fl-plan"></div>
     <div class="fl-section">Flight log</div>
+    <div class="fl-grid fl-records"></div>
     <div class="fl-log"></div>`;
 
   const q = (s) => root.querySelector(s);
   const navCanvas = q('.fl-navball');
   const navball = createNavball(navCanvas);
   const grid = q('.fl-grid'), stagesEl = q('.fl-stages'), logEl = q('.fl-log');
+  const recordsEl = q('.fl-records');
   const statusEl = q('.fl-status'), planEl = q('.fl-plan'), targetSel = q('.fl-target');
   const thrFill = q('.fl-throttle-fill'), vsMark = q('.fl-vs-mark');
 
@@ -342,9 +354,13 @@ export function createFlightHUD(root, hooks) {
 
       planEl.innerHTML = s.planHTML || '';
 
+      // The flight's records: the numbers a post-flight report leads with.
+      recordsEl.innerHTML = flightRecords(v).map(([k, val]) =>
+        `<div><span class="k">${k}</span><span class="v">${val}</span></div>`).join('');
+
       if (v.events.length !== lastLog) {
         lastLog = v.events.length;
-        logEl.innerHTML = v.events.slice(-9).reverse().map(e =>
+        logEl.innerHTML = v.events.slice(-40).reverse().map(e =>
           `<div><span class="t">${fmtDur(e.t)}</span> ${e.msg}</div>`).join('');
       }
     },

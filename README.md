@@ -49,7 +49,13 @@ sunlight when it is under or in a cloud) and subtle near-field atmospheric
 scattering. Medium marches the same clouds more coarsely; Low skips them.
 The sun is drawn at its true angular size at every altitude, reddened by the
 air mass along its line and occluded by the vehicle, the ground, the planet
-and clouds, with camera glare. The star field is dimmed by the camera's
+and clouds, with the camera's glare: a 14-ray starburst from a 7-blade iris,
+fine scatter rays, and coloured aperture ghosts strung across the frame
+(`shaders/flight/lens_flare.gdshader`). The sky is integrated through a
+spherical atmosphere, so climbing out of it the horizon becomes a thin blue
+limb, and the ground is hazed along the true slant path; from altitude the
+10 km/px Earth map gets noise-warped coastlines, kilometre-scale land
+texture and a sun glint on the sea. The star field is dimmed by the camera's
 daylight exposure (stars vanish beside a sunlit vehicle and return in the
 planet's shadow or far from the Sun). Daylight exposure is calibrated in the
 flight view, and the Advanced exposure slider gives manual control.

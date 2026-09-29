@@ -19,6 +19,7 @@ extends Node
 #   ["cam", mode] / ["warp", i]
 #   ["call", method, args...]         main.<method>(args...)
 #   ["sunaim", yaw, pitch]            turntable to the far side from the sun
+#   ["look", yaw, pitch, dist?]       aim the chase/orbit turntable directly (rad, m)
 #   ["pad", az°, el, scale]           walk the pad camera round (pad_orbit)
 #   ["frames", n]                     n fixed steps of main.animate(dt)
 #   ["shot", name, hud?]              write <out>/<name>.png (+ .json telemetry)
@@ -119,6 +120,11 @@ func _do(s: Array) -> void:
 			main.callv(s[1], s.slice(2))
 		"sunaim":
 			f.aim_camera_at_sun(float(s[1]) if s.size() > 1 else 0.22, float(s[2]) if s.size() > 2 else 0.10)
+		"look":
+			f.fly_cam.state.userAimed = true
+			f.fly_cam.state.yaw = float(s[1])
+			f.fly_cam.state.pitch = float(s[2])
+			if s.size() > 3: f.fly_cam.state.dist = float(s[3])
 		"pad":
 			f.pad_orbit(deg_to_rad(float(s[1])), float(s[2]), float(s[3]) if s.size() > 3 else 1.0)
 		"warp":

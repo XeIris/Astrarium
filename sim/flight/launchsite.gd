@@ -82,7 +82,10 @@ static func SCORCH() -> StandardMaterial3D: return _std("scorch", 0x2a2724, 0.98
 static func WHITE() -> StandardMaterial3D: return _std("white", 0xc9ccd0, 0.8, 0.08)
 static func SAFETY() -> StandardMaterial3D: return _std("safety-yellow", 0xd7ad38, 0.72, 0.04)
 static func COPPER() -> StandardMaterial3D: return _std("oxidized-copper", 0x657a79, 0.58, 0.35)
-static func JOINT() -> StandardMaterial3D: return _std("joint", 0x80807b, 0.98, 0.0)
+static func ASPHALT() -> StandardMaterial3D: return _std("asphalt", 0x3b3d3f, 0.93, 0.0)
+static func GRAVEL() -> StandardMaterial3D: return _std("gravel", 0x9a958a, 0.97, 0.0)
+static func GLASS() -> StandardMaterial3D: return _std("glass", 0x1d2a33, 0.18, 0.25)
+static func WATER() -> StandardMaterial3D: return _std("pond", 0x1f3a40, 0.10, 0.0)
 static func SCRUB() -> StandardMaterial3D:
 	var m := _std("scrub", 0x4a6740, 0.96, 0.0)
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -481,6 +484,11 @@ static func lightning_masts(R: float, H: float) -> Node3D:
 	var line := MeshInstance3D.new()
 	line.mesh = lm
 	line.material_override = mat
+	# A 2 cm conductor 100 m up casts no shadow worth the name: the sun's half
+	# degree smears it over most of a metre of penumbra, and the eye sees
+	# nothing. Rasterized into the shadow map it cast a hard black stripe
+	# across the hardstand a texel wide, crawling as the cascades moved.
+	line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	g.add_child(line)
 	return g
 
@@ -497,17 +505,31 @@ static func water_tower(H: float = 88.0) -> Node3D:
 	g.add_child(cap)
 	return g
 
-## Expansion joints give the concrete apron a human-scale rhythm. They are one
-## merged mesh so dozens of seams do not become dozens of draw calls.
+## Expansion joints give the concrete apron a human-scale rhythm. They are
+## drawn, not built: one disc over the hardstand's top whose shader multiplies
+## anti-aliased saw-cut lines into the concrete (ground_mark.gdshader says why
+## the half-buried tubes they used to be flickered).
 static func hardstand_joints(radius: float) -> MeshInstance3D:
-	var seams := Struts.new()
-	var limit := radius * 0.72
-	var steps := int(floor(limit / 14.0))
-	for i in range(-steps, steps + 1):
-		var at := float(i) * 14.0
-		seams.strut(at, 0.022, -limit, at, 0.022, limit, 0.022)
-		seams.strut(-limit, 0.022, at, limit, 0.022, at, 0.022)
-	return _mesh(seams.g, JOINT())
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/flight/ground_mark.gdshader")
+	m.set_shader_parameter("uMode", 0)
+	m.set_shader_parameter("uOrder", 1.0)
+	m.set_shader_parameter("uExtent", radius * 0.9)
+	var disc := _mesh(CraftModel._circle(radius * 0.92, 48), m)
+	disc.rotation.x = -PI / 2.0
+	return disc
+
+## The burnt apron under the vehicle, as a multiply over the concrete (see
+## ground_mark.gdshader): soot darkens what is lit rather than replacing it.
+static func scorch_apron(radius: float) -> MeshInstance3D:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/flight/ground_mark.gdshader")
+	m.set_shader_parameter("uMode", 1)
+	m.set_shader_parameter("uOrder", 2.0)
+	m.set_shader_parameter("uScorchRadius", radius)
+	var disc := _mesh(CraftModel._circle(radius * 1.25, 64), m)
+	disc.rotation.x = -PI / 2.0
+	return disc
 
 ## Equipment sits outside the launch mount's blast area, not scattered across
 ## the vehicle's footprint. Vents, cabinets and low pipe runs break up the
@@ -526,6 +548,16 @@ static func deck_services(radius: float) -> Node3D:
 		var pipe_start := Vector3(x, 0.72, z - 4.3)
 		var pipe_end := Vector3(x * 0.5, 0.72, z - 18.0)
 		g.add_child(pipe_between(pipe_start, pipe_end, 0.16, COPPER()))
+		# A pipe run stands on sleepers and ends at something. Drawn as a bare
+		# line hovering over the slab it read as a crack in the concrete.
+		var run := pipe_end - pipe_start
+		var n_sup := int(run.length() / 3.5)
+		for k in range(1, n_sup + 1):
+			var at := pipe_start + run * (float(k) / float(n_sup + 1))
+			var sleeper := box(0.3, 0.56, 0.9, STEEL(), at.x, 0.0, at.z)
+			sleeper.rotation.y = atan2(run.x, run.z)
+			g.add_child(sleeper)
+		g.add_child(box(1.6, 1.1, 1.6, GREY(), pipe_end.x, 0.0, pipe_end.z))
 	return g
 
 ## Ground support: cryogenic storage, pump houses, piping and perimeter lights.
@@ -534,7 +566,11 @@ static func deck_services(radius: float) -> Node3D:
 static func support_facilities(radius: float, pad_style: String) -> Node3D:
 	var g := _node()
 	var farm := _node()
-	farm.position = Vector3(-radius - 65.0, 0.0, -radius * 0.35)
+	# Both of these stand at GRADE, so they have to be clear of the mound's
+	# flank (it runs out to radius + 2.6 × PAD_RISE): placed inside it, the
+	# slope buried the service building to its roof, which lay on the concrete
+	# as a white triangle.
+	farm.position = Vector3(-radius - 95.0, 0.0, -radius * 0.35)
 	g.add_child(farm)
 	farm.add_child(box(90.0, 0.24, 56.0, DARKCON()))
 	if pad_style == "lut" or pad_style == "fss":
@@ -562,7 +598,7 @@ static func support_facilities(radius: float, pad_style: String) -> Node3D:
 		farm.add_child(pipe_between(Vector3(-39.0, 1.0, z), Vector3(38.0, 1.0, z), 0.18, COPPER()))
 
 	var service := _node()
-	service.position = Vector3(radius * 0.90, 0.0, -radius * 0.55)
+	service.position = Vector3(radius + 62.0, 0.0, -radius * 0.55)
 	g.add_child(service)
 	service.add_child(box(32.0, 0.20, 26.0, DARKCON()))
 	service.add_child(box(22.0, 7.0, 16.0, GREY(), 0.0, 0.20, 0.0))
@@ -581,9 +617,315 @@ static func support_facilities(radius: float, pad_style: String) -> Node3D:
 				g.add_child(box(1.8, 0.75, 0.6, WHITE(), x + side * 1.0, PAD_RISE + 14.7, z))
 	return g
 
+# ---------------------------------------------------------------------------
+# THE REST OF THE COMPLEX — what a launch site is when it is not the pad.
+# ---------------------------------------------------------------------------
+## Many small parts, one draw call per material: every box, drum and sphere
+## added is transformed into a shared buffer for its material and emitted as
+## one mesh at the end. A complex's worth of buildings, fence posts and bottle
+## racks is several hundred pieces; as separate nodes it was that many draw
+## calls a frame for things that never move relative to each other.
+class Batch extends RefCounted:
+	var geos := {}          # Material → CraftModel.Geo
+	var shadowless := {}    # Material → true: too thin to cast a shadow worth having
+	var keep_out: Array = [] # Rect2 footprints, for the scrub
+	func add(g: CraftModel.Geo, m: Material, xf: Transform3D) -> void:
+		if not geos.has(m): geos[m] = CraftModel.Geo.new()
+		var dst: CraftModel.Geo = geos[m]
+		var base := dst.pos.size()
+		for i in g.pos.size():
+			dst.pos.append(xf * g.pos[i])
+			dst.nrm.append(xf.basis * g.nrm[i])
+		for i in g.idx: dst.idx.append(base + i)
+	## An upright box standing on `at` (its base centre), turned by `yaw`.
+	func box(w: float, h: float, d: float, m: Material, at: Vector3, yaw := 0.0) -> void:
+		add(CraftModel._box(w, h, d), m, Transform3D(Basis(Vector3.UP, yaw), at + Vector3(0.0, h * 0.5, 0.0)))
+	## A vertical drum standing on `at`.
+	func drum(r: float, h: float, m: Material, at: Vector3, seg := 18) -> void:
+		add(CraftModel._cylinder(r, r, h, seg), m, Transform3D(Basis(), at + Vector3(0.0, h * 0.5, 0.0)))
+	## A horizontal drum centred on `at`, its axis along x turned by `yaw`.
+	func hdrum(r: float, len: float, m: Material, at: Vector3, yaw := 0.0) -> void:
+		var b := Basis(Vector3.UP, yaw) * Basis(Vector3(0, 0, 1), PI / 2.0)
+		add(CraftModel._cylinder(r, r, len, 14), m, Transform3D(b, at))
+	func ball(r: float, m: Material, at: Vector3) -> void:
+		add(CraftModel._sphere(r, 20, 12), m, Transform3D(Basis(), at))
+	## A flat ribbon on the ground from a to b (a road, a gravel path).
+	func strip(a: Vector2, b: Vector2, width: float, m: Material, lift := 0.03) -> void:
+		var d := (b - a)
+		var L := d.length()
+		if L < 1e-3: return
+		var g := CraftModel.Geo.new()
+		var n := Vector2(-d.y, d.x) / L * (width * 0.5)
+		for p in [a + n, a - n, b + n, b - n]:
+			g.pos.append(Vector3(p.x, lift, p.y)); g.nrm.append(Vector3.UP)
+		g.idx.append_array([0, 2, 1, 1, 2, 3] if d.cross(n) > 0.0 else [0, 1, 2, 1, 3, 2])
+		add(g, m, Transform3D())
+	func footprint(c: Vector2, w: float, d: float, pad := 6.0) -> void:
+		keep_out.append(Rect2(c.x - w * 0.5 - pad, c.y - d * 0.5 - pad, w + 2.0 * pad, d + 2.0 * pad))
+	func build(parent: Node3D) -> void:
+		for m in geos:
+			var mi := LaunchSite._mesh(geos[m], m)
+			if shadowless.has(m): mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			parent.add_child(mi)
+
+## An office or operations block: a box with bands of glazing on its long
+## faces (proud of the wall by a few centimetres, so they never fight it),
+## roof plant, and a parapet.
+static func _office(B: Batch, c: Vector2, w: float, d: float, floors: int, yaw := 0.0) -> void:
+	var h := 3.9 * float(floors) + 1.2
+	var rot := Basis(Vector3.UP, yaw)
+	var at := Vector3(c.x, 0.0, c.y)
+	B.box(w, h, d, WHITE(), at, yaw)
+	B.box(w + 0.6, 0.5, d + 0.6, GREY(), at + Vector3(0.0, h, 0.0), yaw)
+	for f in floors:
+		var y := 1.3 + 3.9 * float(f)
+		for side in [-1.0, 1.0]:
+			B.box(w - 3.0, 1.6, 0.12, GLASS(), at + rot * Vector3(0.0, y, float(side) * (d * 0.5 + 0.06)), yaw)
+	for k in 3:
+		B.box(4.2, 2.2, 3.0, GREY(), at + rot * Vector3((float(k) - 1.0) * w * 0.25, h + 0.5, 0.0), yaw)
+	B.footprint(c, w * 1.1 + d * 0.3, d * 1.1 + w * 0.3)
+
+## A car park with cars in it — the one thing on a launch site that says
+## people work here. Instanced, with a colour each.
+static func _car_park(g: Node3D, B: Batch, c: Vector2, rows: int, per_row: int, yaw: float, seed: int) -> void:
+	var rot := Basis(Vector3.UP, yaw)
+	var W := float(per_row) * 2.9 + 6.0
+	var D := float(rows) * 6.2 + 8.0
+	# the lot, as a decal on the ground
+	var lot := CraftModel.Geo.new()
+	for p in [Vector2(-W, -D), Vector2(W, -D), Vector2(-W, D), Vector2(W, D)]:
+		var q := rot * Vector3(p.x * 0.5, 0.0, p.y * 0.5)
+		lot.pos.append(Vector3(c.x + q.x, 0.04, c.y + q.z)); lot.nrm.append(Vector3.UP)
+	lot.idx.append_array([0, 2, 1, 1, 2, 3])
+	var lm := _mesh(lot, decal(ASPHALT(), 2))
+	g.add_child(lm)
+	B.footprint(c, maxf(W, D), maxf(W, D), 2.0)
+	var body := CraftModel.Geo.new()
+	for part in [[Vector3(4.5, 0.8, 1.8), 0.35], [Vector3(2.5, 0.65, 1.6), 1.15]]:
+		var bx := CraftModel._box(part[0].x, part[0].y, part[0].z)
+		for i in bx.pos.size():
+			body.pos.append(bx.pos[i] + Vector3(-0.2 if part[1] > 1.0 else 0.0, part[1] + part[0].y * 0.5 - 0.35, 0.0))
+			body.nrm.append(bx.nrm[i])
+		var base := body.pos.size() - bx.pos.size()
+		for i in bx.idx: body.idx.append(base + i)
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.35
+	mat.metallic = 0.2
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = CraftModel._to_mesh(body, mat)
+	mm.instance_count = rows * per_row
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var PAINT_COLS := [Color(0.85, 0.86, 0.87), Color(0.06, 0.06, 0.07), Color(0.45, 0.47, 0.5),
+		Color(0.62, 0.64, 0.66), Color(0.12, 0.2, 0.38), Color(0.5, 0.07, 0.06), Color(0.9, 0.9, 0.88)]
+	var n := 0
+	for rrow in rows:
+		for k in per_row:
+			if rng.randf() < 0.28: continue    # the empty bays
+			var local := Vector3((float(k) - float(per_row - 1) * 0.5) * 2.9, 0.0,
+				(float(rrow) - float(rows - 1) * 0.5) * 6.2)
+			var q := rot * local
+			var face := yaw + PI / 2.0 + (PI if rrow % 2 == 1 else 0.0) + rng.randf_range(-0.05, 0.05)
+			mm.set_instance_transform(n, Transform3D(Basis(Vector3.UP, face), Vector3(c.x + q.x, 0.0, c.y + q.z)))
+			mm.set_instance_color(n, PAINT_COLS[rng.randi() % PAINT_COLS.size()])
+			n += 1
+	mm.visible_instance_count = n
+	var cars := MultiMeshInstance3D.new()
+	cars.name = "cars"
+	cars.multimesh = mm
+	g.add_child(cars)
+
+## THE GROUNDS. What surrounds a pad on every real complex, laid out from the
+## site plans of LC-39A/B and SLC-40 and from Starbase's: a perimeter road and
+## fence ringing the pad at a few hundred metres; the two cryogen farms on
+## opposite sides (LOX one way, liquid hydrogen the other, as far apart as the
+## site allows) with the hydrogen's burn pond and flare stack; high-pressure
+## gas bottle racks; an electrical substation; an operations building and its
+## car park; floodlight towers; the deluge water's retention pond; and, where
+## the vehicle is integrated horizontally (Falcon), the hangar it is rolled
+## out of. None of it is to survey accuracy — positions keep the real
+## relationships (distance from the pad, which side of the crawlerway) — but
+## all of it is at real size, which is the point: a 30 m hangar and a car
+## are the scale the eye reads a 110 m rocket against.
+static func complex_grounds(radius: float, style: String) -> Array:
+	var g := _node()
+	g.name = "grounds"
+	var B := Batch.new()
+	var toe := radius + PAD_RISE * 2.6 + 8.0            # the mound's footprint
+	var Rp := radius + 300.0                            # perimeter road
+	# ---- perimeter road (an octagon, broken where the crawlerway crosses it)
+	var roads := Batch.new()
+	var ring: Array[Vector2] = []
+	for i in 8:
+		var a := (float(i) + 0.5) * TAU / 8.0
+		ring.append(Vector2(cos(a), sin(a)) * Rp)
+	for i in 8:
+		var a: Vector2 = ring[i]; var b: Vector2 = ring[(i + 1) % 8]
+		# the edge the crawlerway (x ≈ 0, z < 0) runs through
+		if a.y < 0.0 and b.y < 0.0 and signf(a.x) != signf(b.x):
+			var cut_a := a.lerp(b, (a.x - 24.0 * signf(a.x)) / (a.x - b.x))
+			var cut_b := a.lerp(b, (a.x + 24.0 * signf(a.x)) / (a.x - b.x))
+			roads.strip(a, cut_a, 8.0, ASPHALT()); roads.strip(cut_b, b, 8.0, ASPHALT())
+		else:
+			roads.strip(a, b, 8.0, ASPHALT())
+	# ---- fence: posts every 12 m and three strands, just outside the road
+	var Rf := Rp + 22.0
+	var fence := Struts.new()
+	for i in 8:
+		var a0 := (float(i) + 0.5) * TAU / 8.0
+		var a1 := (float(i) + 1.5) * TAU / 8.0
+		var A := Vector2(cos(a0), sin(a0)) * Rf
+		var Bv := Vector2(cos(a1), sin(a1)) * Rf
+		var n := int((Bv - A).length() / 12.0)
+		for k in n + 1:
+			var p := A.lerp(Bv, float(k) / float(n))
+			if absf(p.x) < 26.0 and p.y < 0.0: continue
+			fence.strut(p.x, 0.0, p.y, p.x, 2.4, p.y, 0.09)
+		for hgt in [0.5, 1.4, 2.3]:
+			fence.strut(A.x, hgt, A.y, Bv.x, hgt, Bv.y, 0.025)
+	var fm := _mesh(fence.g, STEEL())
+	fm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	g.add_child(fm)
+
+	# ---- the second cryogen farm, opposite the first: liquid hydrogen on
+	# the KSC pads (a 3 200 m³ sphere), with its vaporizers, and the burn pond
+	# where boil-off is flared
+	var h2 := Vector2(toe + 95.0, radius * 0.15)
+	B.box(62.0, 0.25, 48.0, DARKCON(), Vector3(h2.x, 0.0, h2.y))
+	if style == "lut" or style == "fss":
+		B.ball(10.5, WHITE(), Vector3(h2.x, 12.5, h2.y))
+		for k in 8:
+			var a := float(k) * TAU / 8.0
+			B.box(1.1, 8.0, 1.1, CONCRETE(), Vector3(h2.x + cos(a) * 8.2, 0.25, h2.y + sin(a) * 8.2))
+	else:
+		# a horizontal cryogen tank row (SLC-40 / Starbase style)
+		for k in 3:
+			B.hdrum(3.2, 32.0, WHITE(), Vector3(h2.x, 4.2, h2.y - 12.0 + float(k) * 12.0))
+			for s in [-11.0, 11.0]:
+				B.box(1.4, 1.2, 6.0, CONCRETE(), Vector3(h2.x + s, 0.25, h2.y - 12.0 + float(k) * 12.0))
+	for k in 4:
+		B.box(2.4, 7.0, 2.4, STEEL(), Vector3(h2.x - 22.0 + float(k) * 3.4, 0.25, h2.y + 19.0))
+	B.footprint(h2, 62.0, 48.0)
+	var pond := Vector2(h2.x + 70.0, h2.y + 40.0)
+	B.box(34.0, 0.6, 34.0, DARKCON(), Vector3(pond.x, 0.0, pond.y))
+	var water := CraftModel.Geo.new()
+	for p in [Vector2(-15, -15), Vector2(15, -15), Vector2(-15, 15), Vector2(15, 15)]:
+		water.pos.append(Vector3(pond.x + p.x, 0.62, pond.y + p.y)); water.nrm.append(Vector3.UP)
+	water.idx.append_array([0, 2, 1, 1, 2, 3])
+	g.add_child(_mesh(water, decal(WATER(), 1)))
+	g.add_child(pipe_between(Vector3(pond.x + 12.0, 0.6, pond.y), Vector3(pond.x + 12.0, 24.0, pond.y), 0.35, STEEL()))
+	B.footprint(pond, 34.0, 34.0)
+	roads.strip(Vector2(Rp * 0.924, h2.y), Vector2(h2.x + 31.0, h2.y), 6.0, ASPHALT())
+
+	# ---- high-pressure gas: nitrogen and helium in racks of long bottles
+	var gas := Vector2(radius * 0.35, toe + 70.0)
+	B.box(44.0, 0.25, 26.0, DARKCON(), Vector3(gas.x, 0.0, gas.y))
+	for row in 2:
+		for k in 4:
+			var at := Vector3(gas.x, 1.4 + float(row) * 2.3, gas.y - 7.5 + float(k) * 5.0)
+			B.hdrum(1.0, 34.0, GREY(), at)
+		for s in [-14.0, 0.0, 14.0]:
+			B.box(0.5, 2.6 + float(row) * 2.3, 20.0, STEEL(), Vector3(gas.x + s, 0.25, gas.y))
+	B.footprint(gas, 44.0, 26.0)
+	roads.strip(Vector2(gas.x, gas.y + 13.0), Vector2(gas.x, Rp * 0.924), 6.0, ASPHALT())
+
+	# ---- electrical substation: gravel, transformers, bus structure, fence
+	var sub := Vector2(-radius * 0.45, toe + 95.0)
+	B.box(42.0, 0.12, 30.0, GRAVEL(), Vector3(sub.x, 0.0, sub.y))
+	for k in 3:
+		var x := sub.x - 12.0 + float(k) * 12.0
+		B.box(4.2, 3.6, 3.0, GREY(), Vector3(x, 0.12, sub.y + 4.0))
+		for f in 4:
+			B.box(0.14, 2.8, 1.4, GREY(), Vector3(x - 2.2 + float(f) * 0.12, 0.3, sub.y + 4.0))
+	var bus := Struts.new()
+	for k in 4:
+		var x := sub.x - 18.0 + float(k) * 12.0
+		bus.strut(x, 0.12, sub.y - 8.0, x, 9.0, sub.y - 8.0, 0.35)
+	bus.strut(sub.x - 18.0, 9.0, sub.y - 8.0, sub.x + 18.0, 9.0, sub.y - 8.0, 0.3)
+	bus.strut(sub.x - 18.0, 7.0, sub.y - 8.0, sub.x + 18.0, 7.0, sub.y - 8.0, 0.2)
+	g.add_child(_mesh(bus.g, STEEL()))
+	B.footprint(sub, 42.0, 30.0)
+
+	# ---- operations building and its car park, outside the fence by the
+	# gate where the crawlerway comes in
+	var ops := Vector2(-(Rf + 70.0), -(Rp * 0.55))
+	_office(B, ops, 64.0, 20.0, 3, 0.0)
+	_car_park(g, B, Vector2(ops.x, ops.y + 44.0), 4, 18, 0.0, 7101)
+	roads.strip(Vector2(ops.x + 32.0, ops.y), Vector2(-Rp * 0.924, ops.y), 7.0, ASPHALT())
+	roads.strip(Vector2(ops.x, ops.y + 25.0), Vector2(ops.x, ops.y + 30.0), 7.0, ASPHALT())
+	# a guard house at the gate
+	B.box(6.0, 3.2, 4.0, WHITE(), Vector3(34.0, 0.0, -(Rf + 16.0)))
+	B.box(7.0, 0.3, 5.0, GREY(), Vector3(34.0, 3.2, -(Rf + 16.0)))
+	B.footprint(Vector2(34.0, -(Rf + 16.0)), 7.0, 5.0)
+
+	# ---- the deluge water's retention pond (a million litres a launch go
+	# somewhere), low and dark
+	var ret := Vector2(toe + 60.0, -(toe + 70.0))
+	B.box(84.0, 0.5, 46.0, GRAVEL(), Vector3(ret.x, 0.0, ret.y))
+	var rw := CraftModel.Geo.new()
+	for p in [Vector2(-39, -20), Vector2(39, -20), Vector2(-39, 20), Vector2(39, 20)]:
+		rw.pos.append(Vector3(ret.x + p.x, 0.52, ret.y + p.y)); rw.nrm.append(Vector3.UP)
+	rw.idx.append_array([0, 2, 1, 1, 2, 3])
+	g.add_child(_mesh(rw, decal(WATER(), 1)))
+	B.footprint(ret, 84.0, 46.0)
+
+	# ---- floodlight towers, the tall landmarks every pad has at night
+	for k in 4:
+		var a := (float(k) + 0.5) * TAU / 4.0 + 0.2
+		var p := Vector2(cos(a), sin(a)) * (Rp - 40.0)
+		if absf(p.x) < 40.0 and p.y < 0.0: p.x += 60.0
+		g.add_child(pipe_between(Vector3(p.x, 0.0, p.y), Vector3(p.x, 34.0, p.y), 0.42, STEEL()))
+		B.box(5.0, 2.0, 0.8, WHITE(), Vector3(p.x, 33.0, p.y), a)
+		B.box(5.6, 0.3, 1.6, STEEL(), Vector3(p.x, 32.6, p.y), a)
+		B.footprint(p, 6.0, 6.0)
+
+	# ---- where the vehicle is built horizontally, the hangar it rolls out
+	# of: SpaceX's integration facility sits by the ramp at 39A and at SLC-40
+	if style == "strongback":
+		var hf := Vector2(95.0, -(Rp + 95.0))
+		var HW := 92.0; var HD := 58.0; var HH := 24.0
+		B.box(HW + 20.0, 0.25, HD + 40.0, DARKCON(), Vector3(hf.x, 0.0, hf.y))
+		B.box(HW, HH, HD, WHITE(), Vector3(hf.x, 0.25, hf.y))
+		# a barrel roof, as the real one has
+		var roof := CraftModel._cylinder(HD * 0.56, HD * 0.56, HW, 24, 1, false, 0.0, PI)
+		B.add(roof, GREY(), Transform3D(Basis(Vector3(0, 0, 1), PI / 2.0) * Basis(Vector3.UP, -PI / 2.0),
+			Vector3(hf.x, 0.25 + HH - HD * 0.18, hf.y)))
+		# the big door on the pad side
+		B.box(HW * 0.8, HH * 0.85, 0.3, GREY(), Vector3(hf.x, 0.25, hf.y + HD * 0.5 + 0.15))
+		B.footprint(hf, HW + 20.0, HD + 40.0)
+		roads.strip(Vector2(hf.x - 30.0, hf.y + HD * 0.5 + 20.0), Vector2(20.0, -(Rp - 10.0)), 14.0, DARKCON())
+	# ---- Starbase: the GSE farm is a street of tanks
+	if style == "chopsticks":
+		var tf := Vector2(-(toe + 60.0), radius * 0.9)
+		B.box(120.0, 0.25, 34.0, DARKCON(), Vector3(tf.x, 0.0, tf.y))
+		for k in 8:
+			var r := 4.5 if k % 3 != 0 else 6.0
+			var hgt := 26.0 if k % 2 == 0 else 20.0
+			var at := Vector3(tf.x - 52.0 + float(k) * 14.8, 0.25, tf.y)
+			B.drum(r, hgt, WHITE(), at)
+			B.add(CraftModel._sphere(r, 16, 6, 0.0, TAU, 0.0, PI / 2.0), WHITE(), Transform3D(Basis(), at + Vector3(0, hgt, 0)))
+		B.box(40.0, 11.0, 18.0, GREY(), Vector3(tf.x, 0.25, tf.y + 30.0))
+		B.footprint(tf, 120.0, 34.0)
+		B.footprint(Vector2(tf.x, tf.y + 30.0), 40.0, 18.0)
+
+	roads.build(g)
+	# the roads lie ON the ground, so they are decals, not slabs
+	for c in g.get_children():
+		if c is MeshInstance3D and (c as MeshInstance3D).mesh.surface_get_material(0) == ASPHALT():
+			(c as MeshInstance3D).mesh.surface_set_material(0, decal(ASPHALT(), 1))
+			(c as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		elif c is MeshInstance3D and (c as MeshInstance3D).mesh.surface_get_material(0) == DARKCON():
+			(c as MeshInstance3D).mesh.surface_set_material(0, decal(DARKCON(), 1))
+			(c as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	B.build(g)
+	return [g, B.keep_out]
+
 ## Sparse coastal scrub outside the maintained hardstand. Instancing keeps the
 ## visible foliage to one draw call rather than hundreds of tiny scene nodes.
-static func coastal_scrub(radius: float) -> MultiMeshInstance3D:
+static func coastal_scrub(radius: float, keep_out: Array = []) -> MultiMeshInstance3D:
 	var blades := CraftModel.Geo.new()
 	for i in 11:
 		var a := float(i) * 2.39996
@@ -612,6 +954,10 @@ static func coastal_scrub(radius: float) -> MultiMeshInstance3D:
 		var x := cos(a) * r
 		var z := sin(a) * r
 		if absf(x) < 30.0 and z < -radius: continue # crawlerway
+		var clear := true
+		for rc in keep_out:
+			if (rc as Rect2).has_point(Vector2(x, z)): clear = false; break
+		if not clear: continue
 		var scale := rng.randf_range(0.7, 1.9)
 		var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(
 			Vector3(scale, scale * rng.randf_range(0.7, 1.4), scale))
@@ -760,11 +1106,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	# The scorched apron — the single strongest cue that something violent
 	# happens here. It lies ON the deck, so it is a decal: the depth bias does
 	# the separating, and the 1 cm lift only keeps it clear of the trench lip.
-	var apron_radius := maxf(D * 2.5, 18.0)
-	var scorch_material := decal(SCORCH(), 2)
-	scorch_material.set_shader_parameter("uScorchRadius", apron_radius)
-	var apron := _mesh(CraftModel._circle(apron_radius, 64), scorch_material)
-	apron.rotation.x = -PI / 2.0
+	var apron := scorch_apron(maxf(D * 2.5, 18.0))
 	apron.position.y = 0.01
 	ground.add_child(apron)
 	# The crawlerway out to the VAB — a 40 m wide river-rock road, and the only
@@ -784,7 +1126,14 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	wt.position = Vector3(-(top_r + 60.0), 0.0, top_r * 0.8)
 	plain.add_child(wt)
 	plain.add_child(support_facilities(top_r, style))
-	plain.add_child(coastal_scrub(top_r))
+	var grounds := complex_grounds(top_r, style)
+	plain.add_child(grounds[0])
+	var keep_out: Array = grounds[1]
+	# support_facilities' two plots and the water tower
+	keep_out.append(Rect2(-top_r - 145.0, -top_r * 0.35 - 38.0, 100.0, 76.0))
+	keep_out.append(Rect2(top_r + 40.0, -top_r * 0.55 - 19.0, 44.0, 38.0))
+	keep_out.append(Rect2(-(top_r + 60.0) - 10.0, top_r * 0.8 - 10.0, 20.0, 20.0))
+	plain.add_child(coastal_scrub(top_r, keep_out))
 
 	# ---- the launch mount. Every part of the structure that stands on the
 	# ground is built upward from zero and then dropped onto grade in one move,

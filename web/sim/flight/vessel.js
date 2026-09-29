@@ -77,6 +77,8 @@ export class Vessel {
     this.v = new THREE.Vector3();
     this.q = new THREE.Quaternion();
     this.omega = new THREE.Vector3();      // body rates, world axes, rad/s
+    this._hold = new THREE.Vector3();      // the attitude pointAt asked for this frame (see step's rails branch)
+    this._holding = false;
     this.throttle = 0;
     this.rcsOn = true;
 
@@ -89,6 +91,10 @@ export class Vessel {
 
     // ---- telemetry / records
     this.maxQ = 0; this.maxG = 0; this.heatLoad = 0; this.peakHeat = 0;
+    // T+ (s after liftoff), altitude and Mach of the max-Q, and the fastest Mach
+    this.maxQT = 0; this.maxQAlt = 0; this.maxQMach = 0; this.maxMach = 0;
+    this._logged = {};            // the one-shot milestones already in the log (see _milestones)
+    this._peakHeatAlt = 0; this._peakHeatV = 0; this._peakHeatSeen = 0;
     this.downrange = 0; this.phase = PHASE.PRELAUNCH;
     this.failure = null; this.events = [];
     this.stageEvents = 0;
@@ -359,7 +365,7 @@ export class Vessel {
   authority(pa) {
     const I = this.inertia();
     const L = Math.max(this.length, 1);
-    let tau = 0;
+    let tau = 0, gimballed = false;
     for (const st of this.liveStages()) {
       const s = st.spec;
       if (s.engine && st.prop > 0 && this.throttle > 0 && s.gimbalDeg > 0) {
@@ -367,6 +373,7 @@ export class Vessel {
         // The gimbal acts at the engine plane, roughly a half-length from the
         // centre of mass.
         tau += o.F * Math.sin(s.gimbalDeg * Math.PI / 180) * (L * 0.45);
+        gimballed = gimballed || o.F > 0;
       }
       if (this.rcsOn && s.rcs && st.rcsProp > 0) {
         // A quarter of the thrusters bear on any one axis, at a lever arm of
@@ -374,7 +381,7 @@ export class Vessel {
         tau += s.rcs.thrust * Math.max(s.rcs.count / 4, 1) * (this.diameter * 0.5 + L * 0.25);
       }
     }
-    return { alpha: tau / Math.max(I.pitch, 1), tau, I };
+    return { alpha: tau / Math.max(I.pitch, 1), tau, I, gimballed };
   }
 
   /**
@@ -389,9 +396,10 @@ export class Vessel {
   pointAt(dir, dt, pa, rollRef) {
     if (!dir || dir.lengthSq() < 1e-12) return 0;
     _a.copy(dir).normalize();
+    this._hold.copy(_a); this._holding = true;
     const fwd = this.forward(_b);
     const err = fwd.angleTo(_a);
-    const { alpha } = this.authority(pa);
+    const { alpha, gimballed } = this.authority(pa);
     if (alpha <= 0) return err;
     // rotation axis
     _c.crossVectors(fwd, _a);
@@ -421,8 +429,12 @@ export class Vessel {
     _d.copy(this.omega).addScaledVector(_c, -this.omega.dot(_c));
     const damp = Math.min(alpha * dt, _d.length());
     if (_d.lengthSq() > 1e-16) this.omega.addScaledVector(_d.normalize(), -damp);
-    // RCS costs propellant. Gimbal does not (it is already burning).
-    this.spendRCS(Math.abs(dw) * this.inertia().pitch, dt);
+    // RCS costs propellant. Gimbal does not (it is already burning) — so while
+    // a gimballed engine is lit, the thrusters are not charged for the turn.
+    // Charged anyway, every steering correction of a powered ascent was billed
+    // to the cold gas: Starship's ship reached orbit with its RCS dry, could not
+    // turn off the attitude a coast leaves it in, and never circularized.
+    if (!gimballed) this.spendRCS(Math.abs(dw) * this.inertia().pitch, dt);
     return err;
   }
 
@@ -474,9 +486,9 @@ export class Vessel {
       if (st.spec.sep === 'none') break;
       st.attached = false; st.spent = true;
       dropped = st; this.stageEvents++;
-      this.log(st.spec.sep === 'fairing'
+      this.log((st.spec.sep === 'fairing'
         ? `Fairing separation — ${st.spec.name} away`
-        : `Staging — ${st.spec.name} away`);
+        : `Staging — ${st.spec.name} away`) + this._where());
       break;
     }
     for (const st of this.stages) {
@@ -678,6 +690,19 @@ export class Vessel {
 
     if (opts.rails && this.canRail()) {
       if (propagate(this.r, this.v, this.env.mu, dt, this.r, this.v)) {
+        // On rails nothing integrates the attitude, so a vehicle holding
+        // prograde through a coast used to arrive at apoapsis still pointing
+        // where it was when the warp began — a quarter-orbit coast turned the
+        // nose 90° off the burn, and a slow upper stage could not come round
+        // before the apoapsis passed, so it waited an orbit and did it again.
+        // The hold is cheap and continuous, so the rails keep it: whatever
+        // pointAt asked for this frame, if there is authority to hold it.
+        if (this._holding && this.authority(0).alpha > 0) {
+          _dq.setFromUnitVectors(this.forward(_b), this._hold);
+          this.q.premultiply(_dq).normalize();
+          this.omega.set(0, 0, 0);
+        }
+        this._holding = false;
         this.stepClocks(dt);
         this.sample(dt);
         this.checkSOI();
@@ -780,7 +805,7 @@ export class Vessel {
       st.prop -= take; kg -= take;
       if (st.prop <= 1e-6) {
         st.spent = true;
-        this.log(`${st.spec.name} — cutoff (propellant depleted)`);
+        this.log(`${st.spec.name} — cutoff (propellant depleted)` + this._where());
         if (this.autoStage) this.pendingStage = true;
       }
       if (kg <= 0) break;
@@ -976,7 +1001,10 @@ export class Vessel {
     // α = 180° and tear themselves apart the instant they enter the atmosphere.
     const alpha = va > 1 ? Math.acos(THREE.MathUtils.clamp(Math.abs(fwd.dot(_vrel)) / va, 0, 1)) : 0;
     const el = elements(this.r, this.v, env.mu);
-    if (s.q > this.maxQ) this.maxQ = s.q;
+    if (s.q > this.maxQ) {
+      this.maxQ = s.q; this.maxQT = this.met - (this.t0 || 0); this.maxQAlt = alt; this.maxQMach = s.mach || 0;
+    }
+    if (s.mach > this.maxMach) this.maxMach = s.mach;
     if (aNet / G0 > this.maxG) this.maxG = aNet / G0;
     if (this.launchSite) {
       // Carry the pad round with the body before measuring against it. Stored
@@ -1012,8 +1040,49 @@ export class Vessel {
     // The gate the structure checks are made against.
     s.gees = t.gees; s.alpha = alpha;
     if (dt > 0) this.checkStructure(s, dt);
+    if (dt > 0) this._milestones(t);
     if (this.pendingStage) { this.pendingStage = false; this.stage(); }
     return t;
+  }
+
+  /** " · 62.1 km, 2.45 km/s" — where a staging or a cutoff happened, which is
+   *  most of what makes one line of a flight log worth reading. */
+  _where() {
+    return ` · ${(this.altitude() / 1000).toFixed(1)} km, ${(this.v.length() / 1000).toFixed(2)} km/s`;
+  }
+
+  /**
+   * THE MILESTONES a launch commentary calls, logged as they are passed, each
+   * once per flight. Max-Q and peak heating are PEAKS, so they can only be
+   * called after the fact: the log waits until the value has fallen a tenth
+   * (a fifth, for heating) off its maximum and then reports the maximum, with
+   * the T+ it actually happened at — the same moment a flight controller says
+   * "we're through max-Q".
+   */
+  _milestones(t) {
+    if (this.phase === PHASE.PRELAUNCH || this.phase === PHASE.LANDED || this.phase === PHASE.DESTROYED) return;
+    const env = this.env, L = this._logged;
+    if (!env.atm) return;
+    const alt = t.alt;
+    if (!L.mach1 && t.mach >= 1 && t.vertical > 0) {
+      L.mach1 = true;
+      this.log(`Mach 1 — supersonic at ${(alt / 1000).toFixed(1)} km`);
+    }
+    if (!L.maxq && this.maxQ > 5000 && t.q < 0.9 * this.maxQ) {
+      L.maxq = true;
+      this.log(`Max-Q — ${(this.maxQ / 1000).toFixed(1)} kPa at T+${this.maxQT.toFixed(1)} s · ${(this.maxQAlt / 1000).toFixed(1)} km, Mach ${this.maxQMach.toFixed(2)}`);
+    }
+    if (!L.karman && alt >= env.karman && t.vertical > 0) {
+      L.karman = true;
+      this.log(`Space — through the Kármán line at ${(t.speed / 1000).toFixed(2)} km/s`);
+    }
+    if (t.heat > this._peakHeatSeen) {
+      this._peakHeatSeen = t.heat; this._peakHeatAlt = alt; this._peakHeatV = t.speed;
+    }
+    if (!L.heat && this._peakHeatSeen > 5e4 && t.heat < 0.8 * this._peakHeatSeen) {
+      L.heat = true;
+      this.log(`Peak heating — ${(this._peakHeatSeen / 1e4).toFixed(1)} W/cm² at ${(this._peakHeatAlt / 1000).toFixed(1)} km, ${(this._peakHeatV / 1000).toFixed(2)} km/s`);
+    }
   }
 }
 

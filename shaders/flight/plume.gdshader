@@ -217,6 +217,13 @@ void fragment() {
 		float lick = clamp(turb * 1.7 - 0.35, 0.0, 1.0);
 		float burn = uAfterburn * (shell * 0.8 + fill * 0.9) * (0.15 + 2.2 * lick * lick) * (0.6 + 0.8 * turb2)
 		           * smoothstep(0.2, 1.4, x) * (0.1 + 0.9 * (1.0 - under));
+		// Mass is conserved: a jet that has ballooned to Rj exit radii carries
+		// the same gas through Rj² times the area, so what glows per metre
+		// falls as 1/Rj². Without it, a first stage at 50 km (PR ≈ 500, a bell
+		// 27 exit radii across) filled that whole bell with afterburning flame
+		// and drew a solid orange orb a quarter of a kilometre wide around the
+		// vehicle. The vacuum bell below already obeyed this.
+		burn *= mix(1.0, 1.0 / (Rj * Rj), under);
 		// in vacuum there is nothing to burn with and nothing to shear on: a
 		// smooth, faint bell whose light falls off as it spreads
 		// (thin: a vacuum plume is a glow you can see the stars through)

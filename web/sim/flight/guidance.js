@@ -43,6 +43,7 @@ import { PHASE } from './vessel.js';
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 const _d = new THREE.Vector3(), _e = new THREE.Vector3(), _up = new THREE.Vector3();
 const _f = new THREE.Vector3(), _g = new THREE.Vector3();
+const PITCH_RATE = 1.0 * Math.PI / 180;   // rad per simulated second — see _rateLimitPitch
 // aeroLimit's own airstream vector. It cannot borrow one of the shared scratch
 // vectors above: `out` is caller-supplied and one call site passes _b, so the
 // limit would compare a vector with itself, find no angle, and pass the
@@ -113,12 +114,13 @@ export class Autopilot {
       targetApo: vessel.vehicle.target?.apoapsis ?? 200e3,
       inclination: vessel.vehicle.target?.inclination ?? 28.5,
       pitchStart: 55,             // m/s at which the pitch program starts
-      turnEndV: 2350,             // m/s at which the program reaches horizontal
-      turnExp: 0.62,              // shape of θ = 90°(1 − v/v_turn)^k
+      turnV0: 600,                // m/s past pitchStart at which the program is at 45°
       climbTime: 170,             // s over which the closed loop closes the altitude deficit
       tauVert: 22,                // s — vertical-rate time constant
     };
     this.lastThrottle = 1;
+    this._pitchCmd = null;        // the last commanded ascent pitch, rad (see _rateLimitPitch)
+    this._pitchMet = 0;
   }
 
   // The HUD status line changes every frame; the event log must not. `say` is
@@ -131,6 +133,7 @@ export class Autopilot {
     this.program = program;
     this.stateName = null;
     this._integ = 0;
+    this._pitchCmd = null;
     Object.assign(this, opts);
     this.v.autoStage = true;
     this.note(`Autopilot — ${program}`);
@@ -200,26 +203,34 @@ export class Autopilot {
       this.stateName = 'vertical';
       this.note('Ascent — vertical rise');
       this.pitchDeg = 90;
+      this._pitchCmd = Math.PI / 2; this._pitchMet = v.met;
       return _a.copy(_up);
     }
 
     // ---- phase 2: the pitch program, flown inside an angle-of-attack limit.
     //
-    // The programmed pitch is θ = 90°·(1 − v/v_turn)^k, which is the shape every
-    // launcher flies: most of the turn happens early and cheaply, and by the
-    // time the vehicle is fast it is nearly horizontal. What keeps it honest is
+    // The programmed pitch is θ = 90°·v₀/(v₀ + v − v_start): steepest at the
+    // kick, 45° by v₀ = 600 m/s past it, and still ~20° at booster cutoff,
+    // which is the shape every launcher flies — most of the turn happens
+    // early, low and cheaply. It replaced θ = 90°(1 − v/2350)^0.62, which held
+    // the nose near vertical far too long: every launcher went through 45 km
+    // climbing at 66° when a Saturn V was at about 30, arrived at staging
+    // slow and steep, and the closed loop then had to throw the nose below
+    // the horizon to shed the climb. With this one a Saturn V stages at
+    // 62 km, 2.45 km/s and a 19° flight-path angle; AS-506 staged at 67 km,
+    // 2.4 km/s earth-relative and 21°. What keeps it honest is
     // the SECOND term: the command is clamped to within α_max of the velocity
     // vector, and α_max is itself set by the q·α the airframe can take. In
     // thick air that is a fraction of a degree, so the vehicle really is flying
     // a gravity turn there; high up the clamp opens and the program leads.
     if (t.q > 1200 || alt < 42000) {
       this.stateName = 'turn';
-      const x = THREE.MathUtils.clamp(vSurf / A.turnEndV, 0, 1);
-      const prog = (Math.PI / 2) * Math.pow(1 - x, A.turnExp);
+      const prog = (Math.PI / 2) * A.turnV0 / (A.turnV0 + Math.max(vSurf - A.pitchStart, 0));
       const dir = vSurf > 1 ? _b.copy(v.airspeed(v.r, v.v, _b)).normalize() : _b.copy(_up);
       const proPitch = Math.asin(THREE.MathUtils.clamp(dir.dot(_up), -1, 1));
       const aMax = THREE.MathUtils.clamp(v.vehicle.limits.qAlpha / Math.max(t.q, 1), 0.008, 0.30);
       const pitch = THREE.MathUtils.clamp(prog, proPitch - aMax, proPitch + aMax);
+      this._pitchCmd = pitch; this._pitchMet = v.met;
       this.pitchDeg = pitch * 180 / Math.PI;
       this.say(`Ascent — pitch program ${(pitch * 180 / Math.PI).toFixed(0)}°, q ${(t.q / 1000).toFixed(1)} kPa`);
       // Horizontal component follows the launch azimuth until there is a real
@@ -270,15 +281,43 @@ export class Autopilot {
     // stage that separates with more climb rate than the loop wants points
     // itself downward to shed it, which converts most of an upper stage into
     // nothing at all.
-    const pitch = THREE.MathUtils.clamp(
+    let pitch = THREE.MathUtils.clamp(
       Math.asin(THREE.MathUtils.clamp(aVert / Math.max(aThrust, 1e-3), -0.95, 0.95)),
       -0.10, 0.95);
+    // The loop's answer moves as fast as the vehicle's state does, and at two
+    // moments that is a step: the handover from the pitch program, where a
+    // lofted first stage is climbing faster than the loop wants and the
+    // answer is "level off, now", and every staging, where the thrust under
+    // aThrust drops by half. Flown as commanded, a Saturn V swung from 60°
+    // to below the horizon in six seconds at 48 km. No launch vehicle's
+    // guidance does that: the Saturn LVDC and every IGM descendant limit the
+    // commanded attitude RATE (about a degree per second), and the vehicle
+    // comes round in a long smooth arc while the loop keeps closing on the
+    // state it actually has. The limit is in SIMULATED seconds, so it holds
+    // at time warp too.
+    pitch = this._rateLimitPitch(pitch);
     this.pitchDeg = pitch * 180 / Math.PI;
     this.say(`Ascent — closed loop · apo ${(apoAlt / 1000).toFixed(0)}/${(A.targetApo / 1000).toFixed(0)} km, pitch ${(pitch * 180 / Math.PI).toFixed(0)}°`);
     _c.copy(v.v).addScaledVector(_up, -v.v.dot(_up));
     const horiz = _c.lengthSq() > 4e4 ? _c.normalize() : _c.copy(heading);
     return _a.copy(horiz).multiplyScalar(Math.cos(pitch))
       .addScaledVector(_up, Math.sin(pitch)).normalize();
+  }
+
+  /** Walk the commanded pitch toward `want` at no more than PITCH_RATE per
+   *  simulated second (see the closed loop above for why). */
+  _rateLimitPitch(want) {
+    const v = this.v;
+    if (this._pitchCmd === null) {
+      // a fresh program starts from wherever the nose actually is, so the
+      // handover from the ascent (or from manual control) is continuous
+      this._pitchCmd = Math.asin(THREE.MathUtils.clamp(v.forward(_f).dot(_up), -1, 1));
+      this._pitchMet = v.met;
+    }
+    const step = PITCH_RATE * Math.max(v.met - this._pitchMet, 0);
+    this._pitchCmd = THREE.MathUtils.clamp(want, this._pitchCmd - step, this._pitchCmd + step);
+    this._pitchMet = v.met;
+    return this._pitchCmd;
   }
 
   // -------------------------------------------------------------------------
@@ -383,14 +422,23 @@ export class Autopilot {
     // itself steeply down to null that out, and spend the insertion budget
     // digging its own periapsis into the ground.
     const aVert = gLoc - (vHoriz * vHoriz) / R + (0 - vVert) / 22;
-    const pitch = THREE.MathUtils.clamp(
+    let pitch = THREE.MathUtils.clamp(
       Math.asin(THREE.MathUtils.clamp(aVert / Math.max(aThrust, 1e-3), -0.9, 0.9)), -0.30, 0.9);
-    v.throttle = this.limitThrottle(1, pa, dt);
-    this.say(`Insertion burn — ${(t.apo / 1000).toFixed(0)} × ${(t.peri / 1000).toFixed(0)} km, e ${t.ecc.toFixed(3)}, Δv ${dvNeed.toFixed(0)} m/s`);
+    pitch = this._rateLimitPitch(pitch);   // the ascent's attitude-rate limit, carried across the handover
     if (this.fullThrust(pa) <= 0 && v.nextStage) v.stage();
     const horiz = vHoriz > 50 ? _c.normalize() : _c.copy(v.forward(_d));
-    return _a.copy(horiz).multiplyScalar(Math.cos(pitch))
+    const dir = _a.copy(horiz).multiplyScalar(Math.cos(pitch))
       .addScaledVector(_up, Math.sin(pitch)).normalize();
+    // Burn only while pointing near enough — the node executor's 20° gate, for
+    // the same reason. A coast on rails leaves the attitude fixed in INERTIAL
+    // space, so by apoapsis the nose has turned with the orbit (84° up, after a
+    // half-hour coast to a Starship insertion). Lit before it came round, every
+    // frame of thrust pushed the apoapsis ahead again, the vehicle went back to
+    // coasting, and the orbit walked upward a few kilometres at a time.
+    const err = v.forward(_d).angleTo(dir);
+    v.throttle = err < 0.35 ? this.limitThrottle(1, pa, dt) : 0;
+    this.say(`${err < 0.35 ? 'Insertion burn —' : 'Insertion — aligning,'} ${(t.apo / 1000).toFixed(0)} × ${(t.peri / 1000).toFixed(0)} km, e ${t.ecc.toFixed(3)}, Δv ${dvNeed.toFixed(0)} m/s`);
+    return dir;
   }
 
   /**
@@ -1148,7 +1196,10 @@ export class Autopilot {
     const vVert = v.v.dot(_up);
     v.throttle = 0;
 
-    if (!this.stateName) { this.stateName = 'entry'; this.note('Entry interface'); }
+    if (!this.stateName) {
+      this.stateName = 'entry';
+      this.note(`Entry interface — ${(alt / 1000).toFixed(0)} km, ${(speed / 1000).toFixed(2)} km/s, flight path ${(Math.asin(Math.min(Math.max(vVert / Math.max(speed, 1), -1), 1)) * 180 / Math.PI).toFixed(1)}°`);
+    }
 
     if (this.stateName === 'entry') {
       this.say(`Entry — ${(alt / 1000).toFixed(1)} km, ${speed.toFixed(0)} m/s, ${(t.heat / 1e4).toFixed(1)} W/cm²`);

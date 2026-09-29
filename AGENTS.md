@@ -179,7 +179,17 @@ point and the only file here that knows the orrery exists.
   catching a narrow window (it will be missed), never size an ignition on the
   full available deceleration (there is no margin left for the lag), and never
   let a discrete choice — how many engines are lit — appear inside a continuous
-  predicate, or the burn will stutter on and off every frame.
+  predicate, or the burn will stutter on and off every frame. And a loop's
+  ATTITUDE command is rate-limited (1°/s, in simulated seconds): its answer
+  steps at every handover and every staging, and flown unfiltered the Saturn
+  V swung from 60° to below the horizon in six seconds at 48 km. The ascent's
+  pitch program is 90°·v₀/(v₀ + v − v_start), which stages a Saturn V at the
+  flight-path angle AS-506 did; the check is the staging state, not the
+  orbit, because a lofted ascent still reaches orbit.
+- **On rails the attitude is HELD, not frozen.** Nothing integrates it during
+  a warp, so the vessel keeps whatever `point_at` asked for that frame; frozen,
+  a quarter-orbit coast left the nose 90° off the insertion burn. And an
+  insertion burn, like a node, only lights within 20° of its direction.
 - **Scene units ≠ AU.** `state.sceneScale` converts. Physical radii used for
   collisions live on the body in AU; rendered radii are in scene units.
 - **Exaggerated size is a constant MAGNIFICATION, not a constant size.** `baseRadius`
@@ -633,6 +643,16 @@ point and the only file here that knows the orrery exists.
   their own rays, because a volume's bounding mesh is never where the volume
   is. Godot's projection has a flipped y: take `abs(PROJECTION_MATRIX[1][1])`
   when deriving a pixel's angle, or every smoothstep built on it inverts.
+- **The EYE is the camera.** The sky's column and the ground's haze run from
+  the camera's height over the ground patch (set in `apply_origin`), not the
+  vehicle's altitude: on the pad that is zero, and every ray below the
+  horizontal met the ground at t ≈ 0.
+- **Marks on the ground are multiplies, not geometry.** Joints and the
+  scorched apron are `ground_mark.gdshader` — a line narrower than a pixel
+  drawn as geometry flickers and dashes whatever the depth bias does; drawn
+  analytically and filtered by `fwidth` it stays a line. Anything at grade
+  must also stand clear of the hardstand's flank (radius + 2.6·PAD_RISE), or
+  the slope buries it.
 - **Following a moving body is exact tracking plus a decaying offset**, never a
   fractional catch-up. `target.lerp(bodyPos, k)` is a first-order lag, and a
   first-order lag driven by a ramp keeps a steady-state error proportional to
