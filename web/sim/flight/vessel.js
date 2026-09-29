@@ -501,14 +501,16 @@ export class Vessel {
    * orbiter, the Hail Mary itself — so it is skipped by the jettison pass but
    * still eligible for ignition.
    */
-  stage() {
+  /** `force` drops the lowest stage even with propellant left in it — a tank
+   *  whose engines cannot be relit (the Shuttle's, after MECO). */
+  stage(force = false) {
     let dropped = null;
     for (const st of this.stages) {
       if (!st.attached) continue;
       const done = !st.spec.engine || st.prop <= 1e-6;
       // The lowest attached stage still has propellant and is lit: nothing at
       // the bottom is finished, so this event only ignites.
-      if (!done && st.ignited) break;
+      if (!done && st.ignited && !force) break;
       if (st.spec.sep === 'none') break;
       st.attached = false; st.spent = true;
       dropped = st; this.stageEvents++;
@@ -574,7 +576,7 @@ export class Vessel {
     const st = this.stages.find(s => s.spec.key === key && s.attached);
     if (!st) return null;
     st.attached = false; st.spent = true; this.stageEvents++;
-    this.log(`Separation — ${st.spec.name}`);
+    this.log(`Separation — ${st.spec.name}` + this._where());
     return st;
   }
 

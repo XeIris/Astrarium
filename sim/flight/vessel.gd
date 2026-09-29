@@ -610,14 +610,16 @@ func spend_rcs(angular_impulse: float, _dt: float) -> void:
 ## `sep: 'none'` marks a stage that is never thrown away — a capsule, an
 ## orbiter, the Hail Mary itself — so it is skipped by the jettison pass but
 ## still eligible for ignition.
-func stage():
+## `force` drops the lowest stage even with propellant left in it — a tank
+## whose engines cannot be relit (the Shuttle's, after MECO).
+func stage(force := false):
 	var dropped = null
 	for st in stages:
 		if not st.attached: continue
 		var done: bool = st.spec.get("engine") == null or st.prop <= 1e-6
 		# The lowest attached stage still has propellant and is lit: nothing at
 		# the bottom is finished, so this event only ignites.
-		if not done and st.ignited: break
+		if not done and st.ignited and not force: break
 		if st.spec.sep == "none": break
 		st.attached = false; st.spent = true
 		dropped = st; stage_events += 1
@@ -681,7 +683,7 @@ func jettison(key: String):
 			st = s; break
 	if st == null: return null
 	st.attached = false; st.spent = true; stage_events += 1
-	log_event("Separation — %s" % st.spec.name)
+	log_event("Separation — %s" % st.spec.name + _where())
 	return st
 
 var current_stage:

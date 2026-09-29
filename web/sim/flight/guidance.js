@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { G0, AU_M, GM_SUN, pressure, density, engineOutput, burnTimeFor } from './rocketry.js';
+import { G0, AU_M, GM_SUN, pressure, density, engineOutput, burnTimeFor, heatFlux } from './rocketry.js';
 import { elements, propagate, hohmann, timeToApoapsis, timeToPeriapsis, sphereOfInfluence, phaseAngle } from './orbit.js';
 import { PHASE } from './vessel.js';
 
@@ -118,6 +118,7 @@ export class Autopilot {
     };
     this.lastThrottle = 1;
     this._pitchCmd = null;        // the last commanded ascent pitch, rad (see _rateLimitPitch)
+    this._mecoMet = -1;           // when the ascent cut off (for a tank dropped after MECO)
     this._pitchMet = 0;
   }
 
@@ -263,6 +264,7 @@ export class Autopilot {
     if (Number.isFinite(el.ra) && (apoAlt >= A.targetApo * 0.998
         || ((el.rp - env.radius) > safeAlt && this.fullThrust(pa) <= 0 && !v.nextStage))) {
       v.throttle = 0;
+      this._mecoMet = v.met;
       this.note(`MECO — ${(apoAlt / 1000).toFixed(0)} × ${((el.rp - env.radius) / 1000).toFixed(0)} km, coasting`);
       this.engage('circularize');
       return attitudeFor(MODE.PROGRADE, v);
@@ -294,9 +296,24 @@ export class Autopilot {
     // apoapsis IS the target, coast up, and circularize there — a Hohmann
     // transfer folded into the ascent. So the burn aims at that perigee,
     // with the perigee speed of that ellipse.
-    const hIns = env.atm ? Math.min(A.targetApo, env.atm.top * 0.8) : A.targetApo;
-    const rP = env.radius + hIns, rA = env.radius + A.targetApo;
-    const vIns = Math.sqrt(env.mu * 2 * rA / (rP * (rP + rA)));
+    let hIns = env.atm ? Math.min(A.targetApo, env.atm.top * 0.8) : A.targetApo;
+    const rA = env.radius + A.targetApo;
+    let vIns = this._perigeeSpeed(env, hIns, rA);
+    //   ...unless a FAIRING is still on. Its payload may only see a heat flux
+    // below the fairing's own jettison limit, and a cutoff at 112 km at
+    // orbital speed is well above it: the Falcon 9 carried its fairing to
+    // orbit. So the perigee rises until the heating the vehicle's telemetry
+    // will measure there (the same Sutton–Graves flux, at the same nose
+    // radius, at airspeed) is under the limit — the reason a real Falcon's
+    // second stage lofts, and why its fairing comes off near 110 km.
+    const qLim = this._fairingHeatLimit();
+    if (qLim > 0 && env.atm) {
+      const airFrac = t.airspeed / Math.max(t.speed, 1);
+      while (hIns < A.targetApo && heatFlux(density(env.atm, hIns), vIns * airFrac, v.diameter * 0.25) > qLim) {
+        hIns = Math.min(hIns + 2000, A.targetApo);
+        vIns = this._perigeeSpeed(env, hIns, rA);
+      }
+    }
     const dvH = Math.max(vIns - vHoriz, 0);
     const Tgo = THREE.MathUtils.clamp(burnTimeFor(dvH, v.mass, this.fullThrust(pa), this.currentIsp(pa)), 20, 900);
     const aV = 6 * (hIns - alt) / (Tgo * Tgo) - 4 * vVert / Tgo;
@@ -332,6 +349,22 @@ export class Autopilot {
     const horiz = _c.lengthSq() > 4e4 ? _c.normalize() : _c.copy(heading);
     return _a.copy(horiz).multiplyScalar(Math.cos(pitch))
       .addScaledVector(_up, Math.sin(pitch)).normalize();
+  }
+
+  /** The speed at perigee altitude `h` of an orbit whose apoapsis radius is rA. */
+  _perigeeSpeed(env, h, rA) {
+    const rP = env.radius + h;
+    return Math.sqrt(env.mu * 2 * rA / (rP * (rP + rA)));
+  }
+
+  /** The lowest jettison heat flux among the fairings still attached, W/m², or 0. */
+  _fairingHeatLimit() {
+    let lim = 0;
+    for (const st of this.v.stages) {
+      if (!st.attached || st.spec.jettisonAt?.heat == null) continue;
+      lim = lim === 0 ? st.spec.jettisonAt.heat : Math.min(lim, st.spec.jettisonAt.heat);
+    }
+    return lim;
   }
 
   /** Walk the commanded pitch toward `want` at no more than PITCH_RATE per
@@ -394,6 +427,21 @@ export class Autopilot {
    */
   circularizeGuidance(dt, pa) {
     const v = this.v, env = v.env, t = v.telemetry;
+    // A tank whose engines cannot be relit is finished at MECO: it rides
+    // along for the separation interval and goes, whatever is left in it,
+    // and the stage above makes the insertion. That is the Shuttle's ET at
+    // MECO + 18 s, with OMS-2 at apogee — not the SSMEs relit on a tank
+    // that should have been falling into the Indian Ocean.
+    const cs = v.currentStage;
+    if (cs && cs.spec.sepAfterCutoff != null && this._mecoMet >= 0) {
+      v.throttle = 0;
+      const wait = cs.spec.sepAfterCutoff - (v.met - this._mecoMet);
+      if (wait > 0) {
+        this.say(`MECO — tank separation in ${wait.toFixed(0)} s`);
+        return attitudeFor(MODE.PROGRADE, v);
+      }
+      v.stage(true);
+    }
     _up.copy(v.r).normalize();
     const R = v.r.length();
     const vVert = v.v.dot(_up);

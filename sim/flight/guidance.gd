@@ -161,6 +161,7 @@ class Autopilot extends RefCounted:
 	var crane_out: bool = false
 	var _integ: float = 0.0
 	var _pitch_cmd = null        # the last commanded ascent pitch, rad (see _rate_limit_pitch)
+	var _meco_met: float = -1.0  # when the ascent cut off (for a tank dropped after MECO)
 	var _pitch_met: float = 0.0
 	var _last_note = null
 	var _node_ref = null
@@ -317,6 +318,7 @@ class Autopilot extends RefCounted:
 		if is_finite(el.ra) and (apo_alt >= A.targetApo * 0.998 \
 				or ((el.rp - env.radius) > safe_alt and full_thrust(pa) <= 0.0 and v.next_stage == null)):
 			v.throttle = 0.0
+			_meco_met = v.met
 			note("MECO — %s × %s km, coasting" % [U.fixed(apo_alt / 1000.0, 0), U.fixed((el.rp - env.radius) / 1000.0, 0)])
 			engage("circularize")
 			return Guidance.attitude_for(MODE.PROGRADE, v)
@@ -348,9 +350,22 @@ class Autopilot extends RefCounted:
 		# transfer folded into the ascent. So the burn aims at that perigee,
 		# with the perigee speed of that ellipse.
 		var h_ins: float = minf(A.targetApo, env.atm.top * 0.8) if env.atm != null else A.targetApo
-		var r_p: float = env.radius + h_ins
 		var r_a: float = env.radius + A.targetApo
-		var v_ins: float = sqrt(env.mu * 2.0 * r_a / (r_p * (r_p + r_a)))
+		var v_ins: float = _perigee_speed(env, h_ins, r_a)
+		#   ...unless a FAIRING is still on. Its payload may only see a heat flux
+		# below the fairing's own jettison limit, and a cutoff at 112 km at
+		# orbital speed is well above it: the Falcon 9 carried its fairing to
+		# orbit. So the perigee rises until the heating the vehicle's telemetry
+		# will measure there (the same Sutton–Graves flux, at the same nose
+		# radius, at airspeed) is under the limit — the reason a real Falcon's
+		# second stage lofts, and why its fairing comes off near 110 km.
+		var q_lim := _fairing_heat_limit()
+		if q_lim > 0.0 and env.atm != null:
+			var air_frac: float = t.airspeed / maxf(t.speed, 1.0)
+			while h_ins < A.targetApo and Rocketry.heat_flux(Rocketry.density(env.atm, h_ins),
+					v_ins * air_frac, v.diameter * 0.25) > q_lim:
+				h_ins = minf(h_ins + 2000.0, A.targetApo)
+				v_ins = _perigee_speed(env, h_ins, r_a)
 		var dv_h: float = maxf(v_ins - v_horiz, 0.0)
 		var T_go: float = DQuat.jclamp(Rocketry.burn_time_for(dv_h, v.mass, full_thrust(pa), current_isp(pa)), 20.0, 900.0)
 		var a_v: float = 6.0 * (h_ins - alt) / (T_go * T_go) - 4.0 * v_vert / T_go
@@ -385,6 +400,22 @@ class Autopilot extends RefCounted:
 		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 		var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
 		return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+
+	## The speed at perigee altitude `h` of an orbit whose apoapsis radius is r_a.
+	func _perigee_speed(env: Dictionary, h: float, r_a: float) -> float:
+		var r_p: float = env.radius + h
+		return sqrt(env.mu * 2.0 * r_a / (r_p * (r_p + r_a)))
+
+	## The lowest jettison heat flux among the fairings still attached, W/m²,
+	## or 0 if there are none.
+	func _fairing_heat_limit() -> float:
+		var lim := 0.0
+		for st in v.stages:
+			if not st.attached: continue
+			var j = st.spec.get("jettisonAt")
+			if j != null and j.get("heat") != null:
+				lim = float(j.heat) if lim == 0.0 else minf(lim, float(j.heat))
+		return lim
 
 	## Walk the commanded pitch toward `want` at no more than PITCH_RATE per
 	## simulated second (see the closed loop above for why).
@@ -444,6 +475,19 @@ class Autopilot extends RefCounted:
 	func circularize_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var t := v.telemetry
+		# A tank whose engines cannot be relit is finished at MECO: it rides
+		# along for the separation interval and goes, whatever is left in it,
+		# and the stage above makes the insertion. That is the Shuttle's ET at
+		# MECO + 18 s, with OMS-2 at apogee — not the SSMEs relit on a tank
+		# that should have been falling into the Indian Ocean.
+		var cs = v.current_stage
+		if cs != null and cs.spec.get("sepAfterCutoff") != null and _meco_met >= 0.0:
+			v.throttle = 0.0
+			var wait: float = float(cs.spec.sepAfterCutoff) - (v.met - _meco_met)
+			if wait > 0.0:
+				say("MECO — tank separation in %s s" % U.fixed(wait, 0))
+				return Guidance.attitude_for(MODE.PROGRADE, v)
+			v.stage(true)
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var R := v.r.length()
 		var v_vert := v.v.dot(Guidance._up)

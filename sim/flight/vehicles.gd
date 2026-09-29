@@ -291,6 +291,10 @@ static func _build_vehicles() -> Dictionary:
 				# six minutes after they are gone. This is the one stack here that is
 				# not a stack, and `liftoff` is what says so.
 				"liftoff": true, "engineOn": "orbiter",
+				# The SSMEs cannot be relit, so the tank has nothing more to give
+				# once they cut off: it is dropped 18 s after MECO, whatever is left
+				# in it, and the orbiter's OMS makes the insertion at apogee.
+				"sepAfterCutoff": 18.0,
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 800.0, "count": 44 },
 				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.3 } } }),
 			stage({ "key": "orbiter", "name": "Orbiter + payload", "dry": 99000.0, "prop": 10800.0,
