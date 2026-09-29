@@ -33,6 +33,9 @@ const MIPS := 5
 ## The defaults the web build's settings panel wrote on load (FX_DEFAULTS):
 ## the uniforms' own initial values are overwritten before the first frame.
 var bloom := 0.55
+## Camera exposure is applied once, after the HDR passes and before ACES.
+var exposure := 1.0
+var flight_exposure := 1.0
 var threshold := 1.0
 var knee := 0.7
 var radius := 1.0
@@ -217,7 +220,8 @@ func render_rt(inputs: Dictionary) -> void:
 	# 5. composite to 8-bit sRGB
 	RDU.dispatch(k_composite, [RDU.u_sampled(0, _sampler, src), RDU.u_sampled(1, _sampler, acc),
 		RDU.u_image(2, _final)],
-		_w, _h, RDU.pack([bloom, 1.0, vignette, grain, inputs.get("time", 0.0)]))
+		_w, _h, RDU.pack([bloom, exposure * (flight_exposure if int(inputs.mode) == 1 else 1.0),
+			vignette, grain, inputs.get("time", 0.0)]))
 
 ## Read the last composited frame back (RENDER THREAD, after the hook ran).
 func read_final_rt() -> Image:

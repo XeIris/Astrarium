@@ -128,6 +128,7 @@ static func _mat(name: String, color: int, rough: float, metal: float,
 		m.emission_enabled = true
 		m.emission = Color.hex((emissive << 8) | 0xff)
 		m.emission_energy_multiplier = emissive_intensity
+	MaterialDetail.register(m)
 	MAT[name] = m
 	return m
 

@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # THE HAIL MARY — the Blender build.
 # ---------------------------------------------------------------------------
-#   assets/blender/build.sh          (or drive Blender yourself, see below)
+#   model_sources/blender/build.sh          (or drive Blender yourself, see below)
 #
 # WHY THIS EXISTS AND THE PROCEDURAL BUILDER STILL DOES. sim/flight/craftmodel.js
 # builds every vehicle out of Three.js primitives, which is the right trade for

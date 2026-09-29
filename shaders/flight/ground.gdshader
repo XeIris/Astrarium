@@ -114,7 +114,12 @@ void fragment() {
 		// The global image resolves kilometres, so local stone, scrub and sand
 		// still come from the metre-scale fields above. The mapped mask owns
 		// every coastline, including the ocean beyond the launch complex.
-		vec3 landCol = mix(mapped, col, 0.42);
+		// The global image resolves kilometres per texel. Within a few kilometres
+		// of the pad, restore local scrub, sand and weathering at usable scale.
+		float parcel = 1.0 - smoothstep(1300.0, 4200.0, distance(vWorld.xz, uPadLocal));
+		float sand = smoothstep(0.48, 0.69, fbm(vWorld.xz * 0.0018 + vec2(17.0, 31.0)));
+		vec3 landCol = mix(mapped, col, 0.42 + parcel * 0.36);
+		landCol = mix(landCol, uRock * 1.28, sand * parcel * 0.28);
 		vec3 water = max(mapped * 0.8, uSea * 0.8);
 		col = mix(water, landCol, land);
 	}

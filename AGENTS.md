@@ -21,7 +21,7 @@ appearance should be checked in both versions.
 - **No build step, no package.json, no dependencies, no tests** — for the code.
   Editing a file and reloading the page is the whole dev loop. The ONE exception
   is `web/assets/*.glb`, the nine authored spacecraft meshes, built offline in
-  Blender from the `.py` files in `web/assets/blender/`. They are build artifacts,
+  Blender from the `.py` files in `model_sources/blender/`. They are build artifacts,
   not checked-in assets: nothing builds them at serve time, `web/.gitignore` says
   so, and the sim runs without them (see below).
 - Most of the visual work is **custom GLSL** in `THREE.ShaderMaterial`s written
@@ -47,13 +47,14 @@ says so. A fresh clone runs without them (the procedural fallback takes over),
 but the ships are not the ships until this has been run once:
 
 ```bash
-web/assets/blender/build.sh
+model_sources/blender/build.sh
 ```
 
-That builds all nine (~12 MB, half a minute). Name some to build fewer —
-`web/assets/blender/build.sh shuttle lm` — which is the loop worth using while
+That builds all nine vehicles (~12 MB) and four Godot launchpads into the ignored
+`assets/pads/*.glb` artifacts. Name some to build fewer — for example,
+`model_sources/blender/build.sh shuttle pad_fss` — which is the useful loop while
 editing one. `lib.py` holds the primitives and `common.py` the palette, the
-optimiser and the exporter; neither is a vehicle, so neither is buildable.
+optimiser and the exporter; neither is a model, so neither is buildable.
 
 The script hunts for Blender rather than assuming it: it is commonly installed
 somewhere off `PATH` — through Steam, on the machine this was written on — so
@@ -145,7 +146,7 @@ point and the only file here that knows the orrery exists.
 | [web/sim/flight/relativity.js](web/sim/flight/relativity.js) | exact constant-proper-acceleration `Cruise`, `solveProfile` (flip-and-burn vs accelerate–coast–decelerate), `skyBoost` |
 | [web/sim/flight/craftmodel.js](web/sim/flight/craftmodel.js) | procedural spacecraft at real dimensions; per-stage groups so separations are re-parents, with legs, grid fins, fairing halves, arrays and gimbals that move |
 | [web/sim/flight/craftassets.js](web/sim/flight/craftassets.js) | the authored-model cache: loads one vehicle's `web/assets/<id>.glb` through `GLTFLoader`, splits it into per-stage subtrees, binds their moving parts by name, and lets `buildCraft` stay synchronous. Falls back silently |
-| [web/assets/blender/](web/assets/blender/) | the Blender builds — one `.py` per vehicle, and the script IS the model, nothing is clicked. `lib.py` holds the primitives (lathe, loft, wing, sphere-cone, bevel), `common.py` the palette, the join-by-material optimiser and the glTF export, `build.sh` finds Blender and runs them |
+| [model_sources/blender/](model_sources/blender/) | the Blender builds — one `.py` per vehicle, and the script IS the model, nothing is clicked. `lib.py` holds the primitives (lathe, loft, wing, sphere-cone, bevel), `common.py` the palette, the join-by-material optimiser and the glTF export, `build.sh` finds Blender and runs them |
 | [web/sim/flight/plume.js](web/sim/flight/plume.js) | exhaust (shape from ambient pressure, shock diamonds when over-expanded), RCS puffs, re-entry plasma, launch smoke |
 | [web/sim/flight/localview.js](web/sim/flight/localview.js) | **local space**: the metre-scale scene, curved ground patch, altitude-driven atmosphere, and the flight cameras |
 | [web/sim/flight/launchsite.js](web/sim/flight/launchsite.js) | the launch complex at real dimensions — hardstand, flame trench, mobile launcher, umbilical tower with swing arms, strongback, chopsticks, lightning masts, deluge |
@@ -292,7 +293,7 @@ point and the only file here that knows the orrery exists.
   already happened. Only the studios (`crafttest`/`craftsheet`) load all nine,
   because `audit()` builds all nine.
 - **The moving parts are bound BY NAME, and the names are an INTERFACE.**
-  `web/assets/blender/common.py` writes them, `craftassets.js` matches them, and
+  `model_sources/blender/common.py` writes them, `craftassets.js` matches them, and
   nothing checks that the two agree — rename a node in a `.py` and the legs stop
   deploying, silently, with no error anywhere. One `stage_<key>` empty per
   stage, then `gimbal_`/`leg_`/`fin_`/`array_`/`flap_`/`half_` for what update()
@@ -378,7 +379,7 @@ point and the only file here that knows the orrery exists.
   there is no per-object modifier stack left for the exporter to apply.
 - **Blender is Z-up and the vehicle's UP is Blender −Y.** The exporter converts
   to the Y-up Three wants, so Blender +Z is the stack axis and Blender +Y is
-  Three's −Z. Every sign error in `web/assets/blender/` is that one. `loft` and
+  Three's −Z. Every sign error in `model_sources/blender/` is that one. `loft` and
   `wing` therefore take their vertical terms as UP-POSITIVE and negate
   internally, so a section table moves from `craftmodel.js` to a `.py` file
   without touching a sign — get it wrong and the Shuttle flies inverted with its

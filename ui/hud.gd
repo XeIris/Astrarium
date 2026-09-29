@@ -64,6 +64,9 @@ signal sky_solo(name: String)
 signal sky_reset()
 signal sky_adv_clear()
 signal fx_reset()
+signal render_quality_chosen(quality: String)
+signal lighting_quality_chosen(quality: String)
+signal lighting_effect_chosen(effect: String)
 signal sim_reset()
 signal climate_reset()
 signal craft_launch(key: String)
@@ -377,16 +380,43 @@ func _build_settings() -> void:
 	# RENDER
 	var ren := E(p, {})
 	ren.set_meta("page", "render")
-	_note(ren, [_t("Every heavy pass here is fullscreen, so the top two sliders multiply the whole frame cost. Bloom is the instrument’s point-spread function and runs after the spectral remap, which is why it spreads what the band actually images rather than what the eye would see.")])
-	_set_row(ren, "renderScale", "Render scale", "Framebuffer scale. Every heavy pass here is fullscreen, so this multiplies the whole frame cost — 1.5x is 2.25x the pixels of 1.0x. Turn it up for screenshots, down for frame rate.",
+	_note(ren, [_t("Choose a preset for frame rate and image quality. High adds photo-style craft and launchpad materials. Advanced controls expose resolution and post-processing settings.")])
+	E(ren, C.h3(false), "Rendering quality")
+	var quality_choices := E(ren, {"display": "grid", "cols": [1.0, 1.0, 1.0], "gapc": 6.0, "mb": 10.0})
+	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"]]:
+		B(quality_choices, C.toggle_btn(), q[1], "[data-render-quality=%s]" % q[0],
+			[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
+	var advanced_btn := B(ren, C.toggle_btn(), "☐ Advanced rendering controls", "renderAdvancedToggle",
+		[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]])
+	var advanced := E(ren, {"mt": 10.0}, null, "renderAdvanced")
+	_hide(advanced, "inline", true)
+	advanced_btn.pressed.connect(func():
+		var on := not advanced.visible
+		_hide(advanced, "inline", not on)
+		advanced_btn.set_text("☑ Advanced rendering controls" if on else "☐ Advanced rendering controls")
+		set_active("renderAdvancedToggle", on))
+	_set_row(advanced, "renderScale", "Render scale", "Framebuffer scale. 1.5x draws 2.25 times as many pixels as 1.0x, subject to the display cap.",
 		0.5, 2, 1, 0.05, "1.00x", func(v): return U.fixed(minf(_dpr(), v), 2) + "x")
-	_set_row(ren, "lensScale", "Lens detail", "Resolution of the geodesic marcher, as a fraction of the display. The star field is always evaluated at full resolution, so this trades sharpness of the disc and the shadow edge — not the stars — for a large amount of frame time.",
+	_set_row(advanced, "lensScale", "Lens detail", "Resolution of the black-hole geodesic marcher as a fraction of the display.",
 		0.25, 1, 0.5, 0.05, "0.50x", func(v): return U.fixed(v, 2) + "x")
-	_set_row(ren, "fxBloom", "Bloom", "Strength of the bloom added back over the frame.", 0, 1.2, 0.55, 0.01, "0.55", func(v): return U.fixed(v, 2))
-	_set_row(ren, "fxThreshold", "Bloom threshold", "Luminance above which a pixel blooms. Lower catches more of the frame; the knee keeps the transition soft.", 0, 4, 1, 0.05, "1.00", func(v): return U.fixed(v, 2))
-	_set_row(ren, "fxRadius", "Bloom radius", "Spread of the upsample filter — how far the glow reaches.", 0.2, 2.5, 1, 0.05, "1.00", func(v): return U.fixed(v, 2))
-	_set_row(ren, "fxVignette", "Vignette", "Corner falloff. An instrument artefact, not a physical one.", 0, 1, 0.35, 0.01, "0.35", func(v): return U.fixed(v, 2))
-	_set_row(ren, "fxGrain", "Grain", "Sensor grain. Breaks up the banding a smooth HDR gradient shows on an 8-bit display.", 0, 0.1, 0.02, 0.002, "0.020", func(v): return U.fixed(v, 3))
+	_set_row(advanced, "fxBloom", "Bloom", "Strength of the bloom added back over the frame.", 0, 1.2, 0.55, 0.01, "0.55", func(v): return U.fixed(v, 2))
+	_set_row(advanced, "fxThreshold", "Bloom threshold", "Luminance above which a pixel blooms.", 0, 4, 1, 0.05, "1.00", func(v): return U.fixed(v, 2))
+	_set_row(advanced, "fxRadius", "Bloom radius", "Spread of the upsample filter.", 0.2, 2.5, 1, 0.05, "1.00", func(v): return U.fixed(v, 2))
+	_set_row(advanced, "fxVignette", "Vignette", "Corner falloff.", 0, 1, 0.35, 0.01, "0.35", func(v): return U.fixed(v, 2))
+	_set_row(advanced, "fxGrain", "Grain", "Sensor grain.", 0, 0.1, 0.02, 0.002, "0.020", func(v): return U.fixed(v, 3))
+	_set_row(advanced, "fxExposure", "Exposure", "Camera exposure before the filmic tone curve. Flight receives a small daylight calibration.",
+		0.5, 2.0, 1.0, 0.025, "1.00", func(v): return U.fixed(v, 2))
+	E(ren, C.h3(false), "Lighting detail")
+	_note(ren, [_t("Flight and the craft studio use shadow maps and screen-space lighting. Reflections apply to the craft studio only. These are not hardware ray tracing.")])
+	var lighting_choices := E(ren, {"display": "grid", "cols": [1.0, 1.0, 1.0, 1.0], "gapc": 6.0, "mb": 10.0})
+	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["custom", "Custom"]]:
+		B(lighting_choices, C.toggle_btn(), q[1], "[data-lighting-quality=%s]" % q[0],
+			[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): lighting_quality_chosen.emit(q[0]))
+	var raw := E(ren, {"display": "grid", "cols": [1.0, 1.0], "gapc": 6.0, "gapr": 6.0, "mb": 10.0}, null, "lightingRaw")
+	_hide(raw, "inline", true)
+	for effect in [["shadows", "Shadows"], ["ao", "Ambient occlusion"], ["reflections", "Studio reflections"], ["indirect", "Indirect light"]]:
+		B(raw, C.toggle_btn(), effect[1], "[data-light-effect=%s]" % effect[0],
+			[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): lighting_effect_chosen.emit(effect[0]))
 	E(ren, C.h3(false), "Spacetime mesh")
 	var mesh_choices := E(ren, {"display": "grid", "cols": [1.0, 1.0], "gapc": 6.0, "mb": 10.0})
 	B(mesh_choices, C.toggle_btn(), "Connected grid", "[data-mesh-style=lines]",

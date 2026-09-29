@@ -14,9 +14,9 @@ extends RefCounted
 # a cylinder takes one radius, so a joint between barrel sections can only be
 # a ring strapped round the outside.
 #
-# So the vehicles are authored in Blender — assets/blender/*.py, where the
+# So the vehicles are authored in Blender — model_sources/blender/*.py, where the
 # SCRIPT IS THE MODEL and nothing is clicked — and loaded here. The .glb files
-# are build artifacts and are not in the repo; assets/blender/build.sh makes
+# are build artifacts and are not in the repo; model_sources/blender/build.sh makes
 # them, tools/sync_assets.sh copies them to res://assets/craft/, and a
 # fresh clone runs without them.
 #
@@ -57,7 +57,7 @@ extends RefCounted
 #     craftmodel's update() drives whatever is in `parts`, and spaceflight
 #     hangs the plumes on the same objects. Rename a node in a .py file and the
 #     legs stop deploying — silently, with no error anywhere — so the patterns
-#     below and the prefixes in assets/blender/common.py are one agreement
+#     below and the prefixes in model_sources/blender/common.py are one agreement
 #     written in two places. Godot's importer keeps these names verbatim
 #     (measured on all nine files: `gltf/naming_version=2` changes only names
 #     carrying '.', ':' or '@', and none of the interface names do).
@@ -148,6 +148,7 @@ static func _prepare(root: Node) -> void:
 				var want = EMISSIVE.get(m.resource_name)
 				if want != null and m.emission_enabled:
 					m.emission_energy_multiplier = maxf(m.emission_energy_multiplier, want)
+				MaterialDetail.register(m)
 	for c in root.get_children():
 		_prepare(c)
 

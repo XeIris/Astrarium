@@ -291,7 +291,7 @@ def build(label, fn, default_out=None):
     The whole outer shell of a model script: reset, materials, build, optimise,
     export. Every vehicle file ends in one call to this.
     """
-    out = out_path(default_out or f'assets/{label}.glb')
+    out = out_path(default_out or f'web/assets/{label}.glb')
     reset_scene()
     build_materials()
     fn(M)

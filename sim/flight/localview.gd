@@ -81,6 +81,12 @@ var ground: MeshInstance3D
 var sky: MeshInstance3D
 var ground_mat: ShaderMaterial
 var sky_mat: ShaderMaterial
+var reflection_sky: Sky
+var reflection_material: PhysicalSkyMaterial
+var cloud_noise: NoiseTexture3D
+var render_quality := "medium"
+var _reflection_body := ""
+var _has_air := true
 ## Everything that belongs to the vehicle hangs off here, so the whole craft
 ## can be swapped without touching the world.
 var craft_root: Node3D
@@ -123,8 +129,19 @@ func _init(p: RenderPipeline) -> void:
 	sun.name = "sun"
 	sun.light_color = Color.hex(0xfff4e2ff)
 	sun.light_energy = 3.1 / PI
+	sun.light_angular_distance = 0.53
 	sun.shadow_enabled = false
 	root.add_child(sun)
+	# The visible dome is custom because this pass is transparent, but a
+	# separate physical sky can still light PBR metal through its radiance map.
+	# Without it the reflection source is black and metal reads as paint.
+	reflection_sky = Sky.new()
+	reflection_sky.radiance_size = Sky.RADIANCE_SIZE_64
+	reflection_material = PhysicalSkyMaterial.new()
+	reflection_material.turbidity = 3.0
+	reflection_material.energy_multiplier = 0.7
+	reflection_sky.sky_material = reflection_material
+	pipe.env_local.sky = reflection_sky
 	for s in [1.0, -1.0]:
 		var l := DirectionalLight3D.new()
 		l.name = "bounce_up" if s > 0.0 else "bounce_down"
@@ -204,6 +221,7 @@ func _init(p: RenderPipeline) -> void:
 	sky_mat.set_shader_parameter("uScaleH", 8500.0)
 	sky_mat.set_shader_parameter("uHasAir", 1.0)
 	sky_mat.set_shader_parameter("uThick", 1.05)
+	sky_mat.set_shader_parameter("uCloudCoverage", 0.35)
 	sky_mat.render_priority = ORDER.sky
 	sky = MeshInstance3D.new()
 	sky.name = "sky"
@@ -235,6 +253,13 @@ func _set_ambient(bounce: float) -> void:
 		fill.g * 0.30 + (skyc.g + gnd.g) * 0.5 * bounce,
 		fill.b * 0.30 + (skyc.b + gnd.b) * 0.5 * bounce)
 	var env := pipe.env_local
+	# High uses the sky's directional diffuse irradiance. The old constant
+	# colour left backlit vehicles almost black in bright daylight.
+	if render_quality == "high" and _has_air:
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		env.ambient_light_energy = 0.7
+		for l: DirectionalLight3D in hemi: l.light_energy = 0.0
+		return
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	var am := maxf(maxf(amb.r, amb.g), maxf(amb.b, 1e-6))
 	# Environment colours are sRGB and converted like three's hex; these are
@@ -247,6 +272,22 @@ func _set_ambient(bounce: float) -> void:
 	for l: DirectionalLight3D in hemi:
 		l.light_color = hc
 		l.light_energy = hm * bounce / PI
+
+func set_render_quality(q: String) -> void:
+	render_quality = q
+	if q == "high" and cloud_noise == null:
+		cloud_noise = NoiseTexture3D.new()
+		cloud_noise.width = 64
+		cloud_noise.height = 64
+		cloud_noise.depth = 64
+		cloud_noise.seamless = true
+		var noise := FastNoiseLite.new()
+		noise.seed = 2731
+		noise.frequency = 0.065
+		noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+		noise.fractal_octaves = 3
+		cloud_noise.noise = noise
+		sky_mat.set_shader_parameter("uCloudNoise", cloud_noise)
 
 ## Keep `node` at local-frame position `p` (metres, double) under the local
 ## floating origin. `p` is held by reference: mutate it and the node follows.
@@ -284,6 +325,25 @@ func update(o: Dictionary) -> Dictionary:
 	var env: Dictionary = o.env
 	var atm = env.atm
 	var has_air := 1.0 if atm != null else 0.0
+	_has_air = atm != null
+	pipe.env_local.reflected_light_source = Environment.REFLECTION_SOURCE_SKY \
+		if render_quality == "high" and atm != null else Environment.REFLECTION_SOURCE_DISABLED
+	# Near-field aerial perspective gives the tower and vehicle a shared air
+	# volume. The long-range ground shader still handles the horizon.
+	pipe.env_local.volumetric_fog_enabled = render_quality == "high" and atm != null \
+		and float(o.altitude) < 3000.0
+	pipe.env_local.volumetric_fog_density = 0.00018
+	pipe.env_local.volumetric_fog_length = 1100.0
+	pipe.env_local.volumetric_fog_albedo = Color(0.82, 0.88, 0.95)
+	pipe.env_local.volumetric_fog_anisotropy = 0.55
+	pipe.env_local.volumetric_fog_sky_affect = 0.0
+	if atm != null and _reflection_body != str(env.name):
+		_reflection_body = str(env.name)
+		reflection_material.rayleigh_color = Color.hex((int(atm.tint) << 8) | 0xff)
+		reflection_material.turbidity = clampf(float(atm.rho0) * 3.0, 1.0, 10.0)
+	var cloud_cover := 0.32 if render_quality == "high" else (0.18 if render_quality == "medium" else 0.0)
+	sky_mat.set_shader_parameter("uCloudCoverage", cloud_cover if env.name == "Earth" else 0.0)
+	sky_mat.set_shader_parameter("uCloudVolume", 1.0 if render_quality == "high" and env.name == "Earth" else 0.0)
 	var h := maxf(float(o.altitude), 0.0)
 	# Horizon distance √(2Rh), with a floor so there is always ground to see,
 	# and a ceiling because past a few hundred km the orrery's own planet mesh
@@ -361,6 +421,7 @@ func update(o: Dictionary) -> Dictionary:
 			ground_mat.set_shader_parameter("uGeoReady", 1.0)
 	var sw: DVec3 = o.sunDirWorld
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
+	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
 	ground_mat.set_shader_parameter("uSunDir", sun_l)
 	sky_mat.set_shader_parameter("uSunDir", sun_l)
 	# A DirectionalLight3D shines along its own −Z; three's shines from its

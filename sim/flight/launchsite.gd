@@ -41,7 +41,9 @@ extends RefCounted
 # apart, not to cool anything.
 #
 # PORT NOTES
-#   · Geometry goes through CraftModel's three-exact primitives (_box,
+#   · The four common Earth launchpads can load authored Blender meshes from
+#     assets/pads/. Missing meshes fall back to the original geometry below.
+#   · Fallback geometry goes through CraftModel's three-exact primitives (_box,
 #     _cylinder, _circle, _sphere, _to_mesh) so the complex has three's
 #     tessellation and winding; the strut soup and the crawlerway ribbon are
 #     written in three's counter-clockwise order and swapped once by _to_mesh.
@@ -55,6 +57,8 @@ extends RefCounted
 # ============================================================================
 
 static var _mats := {}
+## Diagnostic switch for checking that a fresh clone still renders its pads.
+static var use_authored_pads := true
 static func _std(name: String, hex: int, rough: float, metal: float) -> StandardMaterial3D:
 	if _mats.has(name): return _mats[name]
 	var m := StandardMaterial3D.new()
@@ -65,6 +69,7 @@ static func _std(name: String, hex: int, rough: float, metal: float) -> Standard
 	m.metallic_specular = 0.5
 	m.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT
 	m.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+	MaterialDetail.register(m)
 	_mats[name] = m
 	return m
 
@@ -75,6 +80,13 @@ static func PAINT() -> StandardMaterial3D: return _std("paint", 0x9c3f2e, 0.8, 0
 static func GREY() -> StandardMaterial3D: return _std("grey", 0x6e7276, 0.75, 0.35)
 static func SCORCH() -> StandardMaterial3D: return _std("scorch", 0x2a2724, 0.98, 0.02)
 static func WHITE() -> StandardMaterial3D: return _std("white", 0xc9ccd0, 0.8, 0.08)
+static func SAFETY() -> StandardMaterial3D: return _std("safety-yellow", 0xd7ad38, 0.72, 0.04)
+static func COPPER() -> StandardMaterial3D: return _std("oxidized-copper", 0x657a79, 0.58, 0.35)
+static func JOINT() -> StandardMaterial3D: return _std("joint", 0x80807b, 0.98, 0.0)
+static func SCRUB() -> StandardMaterial3D:
+	var m := _std("scrub", 0x4a6740, 0.96, 0.0)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
 
 # ---------------------------------------------------------------------------
 # A DECAL IS NOT A SLAB LIFTED A FEW CENTIMETRES — see decal.gdshader. The
@@ -103,7 +115,7 @@ static func _mesh(g: CraftModel.Geo, m: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.rotation_order = EULER_ORDER_XYZ
 	mi.mesh = CraftModel._to_mesh(g, m)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if m is StandardMaterial3D else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
 # ---------------------------------------------------------------------------
@@ -191,6 +203,15 @@ static func box(w: float, h: float, d: float, m: Material, x := 0.0, y := 0.0, z
 	b.position = Vector3(x, y + h / 2.0, z)
 	return b
 
+## Rigid service plumbing between two support points. Unlike decorative lines,
+## these pipes catch light and cast a useful scale shadow beside the tower.
+static func pipe_between(a: Vector3, b: Vector3, radius: float, m: Material) -> MeshInstance3D:
+	var d := b - a
+	var p := _mesh(CraftModel._cylinder(radius, radius, d.length(), 12, 1, true), m)
+	p.position = (a + b) * 0.5
+	p.basis = Basis(Quaternion(Vector3.UP, d.normalized()))
+	return p
+
 ## THREE.RingGeometry(inner, outer, thetaSegments, 1), in XY facing +Z.
 static func _ring(inner: float, outer: float, seg: int) -> CraftModel.Geo:
 	var g := CraftModel.Geo.new()
@@ -245,6 +266,24 @@ static func crawlerway(top_r: float, width: float = 40.0, len: float = 1400.0) -
 			var b := (i - 1) * 2
 			g.idx.append_array([b, b + 1, b + 2, b + 1, b + 3, b + 2])
 	return _mesh(g, decal(DARKCON()))
+
+## Narrow edge paint follows the same grade as the crawlerway, including its
+## ramp down the mound. A flat stripe would float above the road beyond it.
+static func crawlerway_marks(top_r: float, width: float = 40.0, len: float = 1400.0) -> MeshInstance3D:
+	var toe := top_r + PAD_RISE * 2.6
+	var stations := [[0.0, 0.025], [-top_r, 0.025], [-toe, -PAD_RISE + 0.025], [-len, -PAD_RISE + 0.025]]
+	var g := CraftModel.Geo.new()
+	for side in [-1.0, 1.0]:
+		var x: float = float(side) * (width * 0.5 - 0.7)
+		var base := g.pos.size()
+		for point in stations:
+			g.pos.append(Vector3(x - 0.09, point[1], point[0]))
+			g.pos.append(Vector3(x + 0.09, point[1], point[0]))
+			g.nrm.append(Vector3.UP); g.nrm.append(Vector3.UP)
+		for i in stations.size() - 1:
+			var a := base + i * 2
+			g.idx.append_array([a, a + 1, a + 2, a + 1, a + 3, a + 2])
+	return _mesh(g, decal(SAFETY(), 3))
 
 ## The flame trench and its deflector. The trench runs under the vehicle and out
 ## both ways; the deflector is a wedge directly beneath the engines that turns
@@ -322,6 +361,133 @@ static func water_tower(H: float = 88.0) -> Node3D:
 	g.add_child(cap)
 	return g
 
+## Expansion joints give the concrete apron a human-scale rhythm. They are one
+## merged mesh so dozens of seams do not become dozens of draw calls.
+static func hardstand_joints(radius: float) -> MeshInstance3D:
+	var seams := Struts.new()
+	var limit := radius * 0.72
+	var steps := int(floor(limit / 14.0))
+	for i in range(-steps, steps + 1):
+		var at := float(i) * 14.0
+		seams.strut(at, 0.022, -limit, at, 0.022, limit, 0.022)
+		seams.strut(-limit, 0.022, at, limit, 0.022, at, 0.022)
+	return _mesh(seams.g, JOINT())
+
+## Equipment sits outside the launch mount's blast area, not scattered across
+## the vehicle's footprint. Vents, cabinets and low pipe runs break up the
+## otherwise empty concrete while keeping the scale of the real hardstand.
+static func deck_services(radius: float) -> Node3D:
+	var g := _node()
+	for side in [-1.0, 1.0]:
+		var x: float = float(side) * radius * 0.66
+		var z := radius * 0.27
+		g.add_child(box(14.0, 0.18, 7.0, DARKCON(), x, 0.0, z))
+		for j in 3:
+			var bx := x + (float(j) - 1.0) * 4.5
+			g.add_child(box(3.7, 2.2, 2.7, GREY(), bx, 0.18, z))
+			g.add_child(box(3.7, 0.14, 0.45, DARKCON(), bx, 1.65, z + 1.39))
+			g.add_child(box(0.16, 0.8, 2.7, SAFETY(), bx - 1.9, 0.18, z))
+		var pipe_start := Vector3(x, 0.72, z - 4.3)
+		var pipe_end := Vector3(x * 0.5, 0.72, z - 18.0)
+		g.add_child(pipe_between(pipe_start, pipe_end, 0.16, COPPER()))
+	return g
+
+## Ground support: cryogenic storage, pump houses, piping and perimeter lights.
+## The KSC pads do have storage tanks beyond the mound; these simplified forms
+## keep that relationship and scale without pretending to be a site survey.
+static func support_facilities(radius: float, pad_style: String) -> Node3D:
+	var g := _node()
+	var farm := _node()
+	farm.position = Vector3(-radius - 65.0, 0.0, -radius * 0.35)
+	g.add_child(farm)
+	farm.add_child(box(90.0, 0.24, 56.0, DARKCON()))
+	if pad_style == "lut" or pad_style == "fss":
+		for x in [-22.0, 22.0]:
+			var tank := _mesh(CraftModel._sphere(10.5, 24, 16), WHITE())
+			tank.position = Vector3(x, 12.0, 2.0)
+			farm.add_child(tank)
+			for z in [-7.0, 7.0]:
+				farm.add_child(box(2.8, 2.0, 2.0, CONCRETE(), x, 0.25, z))
+	else:
+		for i in 4:
+			var x := -31.0 + float(i) * 20.5
+			var tank := _mesh(CraftModel._cylinder(5.8, 5.8, 22.0, 20), WHITE())
+			tank.position = Vector3(x, 11.25, -2.0)
+			farm.add_child(tank)
+			var dome := _mesh(CraftModel._sphere(5.8, 20, 10, 0.0, TAU, 0.0, PI / 2.0), WHITE())
+			dome.position = Vector3(x, 22.25, -2.0)
+			farm.add_child(dome)
+	# The low pump building and its roof plant read against the storage vessels.
+	farm.add_child(box(27.0, 5.6, 11.0, GREY(), 0.0, 0.25, 20.0))
+	farm.add_child(box(29.0, 0.35, 12.5, DARKCON(), 0.0, 5.85, 20.0))
+	for x in [-8.0, 0.0, 8.0]:
+		farm.add_child(box(3.6, 2.7, 0.08, STEEL(), x, 0.4, 25.56))
+	for z in [14.0, 17.0]:
+		farm.add_child(pipe_between(Vector3(-39.0, 1.0, z), Vector3(38.0, 1.0, z), 0.18, COPPER()))
+
+	var service := _node()
+	service.position = Vector3(radius * 0.90, 0.0, -radius * 0.55)
+	g.add_child(service)
+	service.add_child(box(32.0, 0.20, 26.0, DARKCON()))
+	service.add_child(box(22.0, 7.0, 16.0, GREY(), 0.0, 0.20, 0.0))
+	service.add_child(box(23.0, 0.35, 17.0, WHITE(), 0.0, 7.20, 0.0))
+	for x in [-6.0, 0.0, 6.0]:
+		service.add_child(box(3.8, 3.3, 0.09, STEEL(), x, 0.25, 8.06))
+	for x in [-7.0, 7.0]:
+		service.add_child(box(3.0, 1.5, 2.7, WHITE(), x, 7.55, 0.0))
+	# Short lamp poles make the apron and mound size legible from the pad camera.
+	for x_sign in [-1.0, 1.0]:
+		for z_sign in [-1.0, 1.0]:
+			var x: float = float(x_sign) * radius * 0.66
+			var z: float = float(z_sign) * radius * 0.66
+			g.add_child(pipe_between(Vector3(x, PAD_RISE, z), Vector3(x, PAD_RISE + 15.0, z), 0.16, STEEL()))
+			for side in [-1.0, 1.0]:
+				g.add_child(box(1.8, 0.75, 0.6, WHITE(), x + side * 1.0, PAD_RISE + 14.7, z))
+	return g
+
+## Sparse coastal scrub outside the maintained hardstand. Instancing keeps the
+## visible foliage to one draw call rather than hundreds of tiny scene nodes.
+static func coastal_scrub(radius: float) -> MultiMeshInstance3D:
+	var blades := CraftModel.Geo.new()
+	for i in 11:
+		var a := float(i) * 2.39996
+		var rr := 0.14 + 0.07 * float(i % 4)
+		var h := 0.8 + 0.12 * float(i % 5)
+		var radial := Vector3(cos(a), 0.0, sin(a))
+		var tangent := Vector3(-sin(a), 0.0, cos(a))
+		var center := radial * rr
+		var base := blades.pos.size()
+		blades.pos.append(center - tangent * 0.15)
+		blades.pos.append(center + radial * 0.20 + Vector3.UP * h)
+		blades.pos.append(center + tangent * 0.15)
+		for j in 3: blades.nrm.append(radial)
+		blades.idx.append_array([base, base + 1, base + 2])
+	var mesh := CraftModel._to_mesh(blades, SCRUB())
+	var instances := MultiMesh.new()
+	instances.transform_format = MultiMesh.TRANSFORM_3D
+	instances.mesh = mesh
+	instances.instance_count = 900
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 58193
+	var made := 0
+	for i in 900:
+		var a := rng.randf_range(0.0, TAU)
+		var r := sqrt(lerpf(pow(radius + 34.0, 2.0), pow(radius + 850.0, 2.0), rng.randf()))
+		var x := cos(a) * r
+		var z := sin(a) * r
+		if absf(x) < 30.0 and z < -radius: continue # crawlerway
+		var scale := rng.randf_range(0.7, 1.9)
+		var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(
+			Vector3(scale, scale * rng.randf_range(0.7, 1.4), scale))
+		instances.set_instance_transform(made, Transform3D(basis, Vector3(x, 0.0, z)))
+		made += 1
+	instances.visible_instance_count = made
+	var foliage := MultiMeshInstance3D.new()
+	foliage.name = "coastal_scrub"
+	foliage.multimesh = instances
+	foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return foliage
+
 # ---------------------------------------------------------------------------
 # THE COMPLEX
 # ---------------------------------------------------------------------------
@@ -356,6 +522,16 @@ var s_next := 0
 static func create_launch_site(vehicle: Dictionary, height: float, env = null) -> LaunchSite:
 	return LaunchSite.new(vehicle, height, env)
 
+static func _authored_pad(pad_style: String) -> Node3D:
+	if not use_authored_pads: return null
+	var path := "res://assets/pads/pad_%s.glb" % pad_style
+	if not ResourceLoader.exists(path): return null
+	var packed := load(path) as PackedScene
+	if packed == null: return null
+	var art := packed.instantiate() as Node3D
+	if art != null: CraftAssets._prepare(art)
+	return art
+
 func _init(vehicle: Dictionary, height: float, _env = null) -> void:
 	# By `id`, not `key`. A vehicle carries `id` and has never carried `key` —
 	# that belongs to its STAGES.
@@ -384,17 +560,23 @@ func _init(vehicle: Dictionary, height: float, _env = null) -> void:
 	var across := maxf(height * 2.6, 200.0)
 	var top_r := across * 0.5
 	ground.add_child(hardstand(across))
+	ground.add_child(hardstand_joints(top_r))
+	ground.add_child(deck_services(top_r))
 	ground.add_child(flame_trench(137.0, 18.0, 12.2))
 	# The scorched apron — the single strongest cue that something violent
 	# happens here. It lies ON the deck, so it is a decal: the depth bias does
 	# the separating, and the 1 cm lift only keeps it clear of the trench lip.
-	var apron := _mesh(CraftModel._circle(maxf(D * 5.0, 30.0), 40), decal(SCORCH(), 2))
+	var apron_radius := maxf(D * 2.5, 18.0)
+	var scorch_material := decal(SCORCH(), 2)
+	scorch_material.set_shader_parameter("uScorchRadius", apron_radius)
+	var apron := _mesh(CraftModel._circle(apron_radius, 64), scorch_material)
 	apron.rotation.x = -PI / 2.0
 	apron.position.y = 0.01
 	ground.add_child(apron)
 	# The crawlerway out to the VAB — a 40 m wide river-rock road, and the only
 	# thing in the scene that says which way "away" is.
 	ground.add_child(crawlerway(top_r))
+	ground.add_child(crawlerway_marks(top_r))
 
 	# Everything that stands OFF the mound stands at grade, PAD_RISE lower.
 	var plain := _node()
@@ -407,6 +589,8 @@ func _init(vehicle: Dictionary, height: float, _env = null) -> void:
 	var wt := water_tower(88.0)
 	wt.position = Vector3(-(top_r + 60.0), 0.0, top_r * 0.8)
 	plain.add_child(wt)
+	plain.add_child(support_facilities(top_r, style))
+	plain.add_child(coastal_scrub(top_r))
 
 	# ---- the launch mount. Every part of the structure that stands on the
 	# ground is built upward from zero and then dropped onto grade in one move,
@@ -414,24 +598,46 @@ func _init(vehicle: Dictionary, height: float, _env = null) -> void:
 	var mount := _node()
 	mount.position.y = GRADE
 	group.add_child(mount)
+	var art := _authored_pad(style)
+	if art != null: mount.add_child(art)
+	var authored_deck: Node3D = art.get_node_or_null("stage_deck") if art != null else null
+	var authored_tower: Node3D = art.get_node_or_null("stage_tower") if art != null else null
+	var authored_strongback: Node3D = art.get_node_or_null("stage_strongback") if art != null else null
+	var authored_rss: Node3D = art.get_node_or_null("stage_rss") if art != null else null
 
 	if style == "lut" or style == "fss":
 		# Mobile Launcher Platform: 49.4 × 41.1 m, 7.6 m deep, with a square
 		# exhaust opening — four slabs around the hole, so the hole is real.
 		var PW := 49.4; var PD := 41.1; var PH := 7.6; var HOLE := 13.7
 		var side_w := (PW - HOLE) / 2.0; var side_d := (PD - HOLE) / 2.0
-		mount.add_child(box(side_w, PH, PD, GREY(), -(HOLE / 2.0 + side_w / 2.0), 0.0, 0.0))
-		mount.add_child(box(side_w, PH, PD, GREY(), +(HOLE / 2.0 + side_w / 2.0), 0.0, 0.0))
-		mount.add_child(box(HOLE, PH, side_d, GREY(), 0.0, 0.0, -(HOLE / 2.0 + side_d / 2.0)))
-		mount.add_child(box(HOLE, PH, side_d, GREY(), 0.0, 0.0, +(HOLE / 2.0 + side_d / 2.0)))
+		if authored_deck == null:
+			mount.add_child(box(side_w, PH, PD, GREY(), -(HOLE / 2.0 + side_w / 2.0), 0.0, 0.0))
+			mount.add_child(box(side_w, PH, PD, GREY(), +(HOLE / 2.0 + side_w / 2.0), 0.0, 0.0))
+			mount.add_child(box(HOLE, PH, side_d, GREY(), 0.0, 0.0, -(HOLE / 2.0 + side_d / 2.0)))
+			mount.add_child(box(HOLE, PH, side_d, GREY(), 0.0, 0.0, +(HOLE / 2.0 + side_d / 2.0)))
+			for signum in [-1.0, 1.0]:
+				var edge: float = signum * (HOLE * 0.5 + 1.4)
+				mount.add_child(box(0.34, 0.035, HOLE + 4.0, SAFETY(), edge, PH, 0.0))
+				mount.add_child(box(HOLE + 4.0, 0.035, 0.34, SAFETY(), 0.0, PH, edge))
+				for i in 7:
+					mount.add_child(box(0.18, 0.04, 2.1, DARKCON(), signum * (HOLE * 0.5 + 3.2), PH,
+						(float(i) - 3.0) * 2.7))
 		# hold-down arms
 		for i in 4:
 			var a := (float(i) / 4.0) * PI * 2.0 + PI / 4.0
 			mount.add_child(box(2.2, 3.4, 2.2, PAINT(), cos(a) * D * 0.62, PH, sin(a) * D * 0.62))
 		var tower_h := maxf(height + 12.0, 116.0) if style == "lut" else 75.3
-		var tower := lattice_tower(tower_h, 12.2, {"bay": 6.1})
-		tower.position = Vector3(-(HOLE / 2.0 + 16.0), PH, 0.0)
-		mount.add_child(tower)
+		var tower_x := -(HOLE / 2.0 + 16.0)
+		if authored_tower == null:
+			var tower := lattice_tower(tower_h, 12.2, {"bay": 6.1})
+			tower.position = Vector3(tower_x, PH, 0.0)
+			mount.add_child(tower)
+		elif style == "lut":
+			authored_tower.scale.y = tower_h / 116.0
+		# Feed and return lines are separate runs on the tower's outside face.
+		for z in [-3.2, 3.2]:
+			mount.add_child(pipe_between(Vector3(tower_x - 6.4, PH, z),
+				Vector3(tower_x - 6.4, PH + tower_h * 0.88, z), 0.18, COPPER()))
 		# hammerhead crane
 		var jib := truss(22.0, 3.0, 3.0)
 		jib.position = Vector3(-(HOLE / 2.0 + 16.0) + 6.0, PH + tower_h + 2.0, 0.0)
@@ -458,7 +664,12 @@ func _init(vehicle: Dictionary, height: float, _env = null) -> void:
 			# the Rotating Service Structure, swung clear before launch
 			var rss := _node()
 			rss.position = Vector3(-(HOLE / 2.0 + 16.0), PH, 0.0)
-			rss.add_child(box(18.0, 40.0, 14.0, WHITE(), 14.0, 12.0, 0.0))
+			if authored_rss != null:
+				authored_rss.owner = null
+				art.remove_child(authored_rss)
+				rss.add_child(authored_rss)
+			else:
+				rss.add_child(box(18.0, 40.0, 14.0, WHITE(), 14.0, 12.0, 0.0))
 			mount.add_child(rss)
 			arms.append({"group": rss, "axis": "yaw", "rest": -PI * 0.66, "open": -PI * 0.66})
 			# vent arm and its "beanie cap" over the ET nose, drawing off the
@@ -479,16 +690,33 @@ func _init(vehicle: Dictionary, height: float, _env = null) -> void:
 		# is brought out lying on the transporter-erector, which then stands it
 		# up and stays alongside carrying propellant and power until it lifts.
 		var leg_h := 8.0
-		for i in 4:
-			var a := (float(i) / 4.0) * PI * 2.0 + PI / 4.0
-			mount.add_child(box(1.6, leg_h, 1.6, GREY(), cos(a) * 4.4, 0.0, sin(a) * 4.4))
-		mount.add_child(box(11.0, 1.6, 11.0, GREY(), 0.0, leg_h, 0.0))
+		if authored_deck == null:
+			for i in 4:
+				var a := (float(i) / 4.0) * PI * 2.0 + PI / 4.0
+				mount.add_child(box(1.6, leg_h, 1.6, GREY(), cos(a) * 4.4, 0.0, sin(a) * 4.4))
+			mount.add_child(box(11.0, 1.6, 11.0, GREY(), 0.0, leg_h, 0.0))
+			for i in 4:
+				var a := float(i) * TAU / 4.0
+				var stripe := box(0.42, 0.045, 8.7, SAFETY(), cos(a) * 5.2, leg_h + 1.6,
+					sin(a) * 5.2)
+				stripe.rotation.y = a
+				mount.add_child(stripe)
 		var te := _node()
 		te.position = Vector3(-(D / 2.0 + 2.6), leg_h, 0.0)
-		te.add_child(lattice_tower(minf(height * 0.86, 63.0), 3.4, {"bay": 5.0, "leg": 0.3, "brace": 0.16}))
+		if authored_strongback != null:
+			authored_strongback.owner = null
+			art.remove_child(authored_strongback)
+			te.add_child(authored_strongback)
+			authored_strongback.scale.y = minf(height * 0.86, 63.0) / 63.0
+		else:
+			te.add_child(lattice_tower(minf(height * 0.86, 63.0), 3.4,
+				{"bay": 5.0, "leg": 0.3, "brace": 0.16}))
 		# the two umbilical "quick disconnect" boxes that fall away at liftoff
 		te.add_child(box(2.4, 3.0, 2.4, WHITE(), 1.6, height * 0.30, 0.0))
 		te.add_child(box(2.4, 3.0, 2.4, WHITE(), 1.6, height * 0.62, 0.0))
+		# Two hydraulic rams are visually separate from the umbilical truss.
+		for z in [-1.1, 1.1]:
+			te.add_child(pipe_between(Vector3(-2.5, 1.0, z), Vector3(-0.9, height * 0.35, z), 0.22, STEEL()))
 		mount.add_child(te)
 		# The strongback rotates about its base, away from the vehicle.
 		arms.append({"group": te, "axis": "tilt", "rest": -0.035, "open": -0.30})
@@ -496,19 +724,37 @@ func _init(vehicle: Dictionary, height: float, _env = null) -> void:
 		# Starship: an Orbital Launch Mount on six legs with the vehicle over a
 		# water-cooled steel deck, and a 146 m tower carrying two catch arms.
 		var leg_h := 20.0
-		for i in 6:
-			var a := (float(i) / 6.0) * PI * 2.0
-			mount.add_child(box(3.0, leg_h, 3.0, GREY(), cos(a) * 12.0, 0.0, sin(a) * 12.0))
-		var ring := _mesh(CraftModel._cylinder(14.0, 14.0, 3.5, 24, 1, true), GREY())
-		ring.position.y = leg_h + 1.75
-		mount.add_child(ring)
-		var deck := _mesh(_ring(6.5, 14.0, 24), SCORCH())
-		deck.rotation.x = -PI / 2.0
-		deck.position.y = leg_h + 3.5
-		mount.add_child(deck)
-		var tower := lattice_tower(146.0, 12.0, {"bay": 8.4, "leg": 0.7, "brace": 0.32})
-		tower.position = Vector3(-26.0, 0.0, 0.0)
-		mount.add_child(tower)
+		if authored_deck == null:
+			for i in 6:
+				var a := (float(i) / 6.0) * PI * 2.0
+				mount.add_child(box(3.0, leg_h, 3.0, GREY(), cos(a) * 12.0, 0.0, sin(a) * 12.0))
+			var ring := _mesh(_ring(6.5, 14.0, 32), GREY())
+			ring.rotation.x = -PI / 2.0
+			ring.position.y = leg_h + 3.5
+			mount.add_child(ring)
+			var deck := _mesh(_ring(6.5, 14.0, 32), decal(SCORCH(), 2))
+			deck.rotation.x = -PI / 2.0
+			deck.position.y = leg_h + 3.515
+			mount.add_child(deck)
+		# Individual water-cooled deck plates, plumbing underneath, and launch
+		# clamps distinguish this mount from a single featureless grey cylinder.
+		if authored_deck == null:
+			for i in 12:
+				var a := (float(i) + 0.5) * TAU / 12.0
+				var x := cos(a) * 10.0; var z := sin(a) * 10.0
+				var plate := box(3.7, 0.10, 4.4, STEEL(), x, leg_h + 3.5, z)
+				plate.rotation.y = -a
+				mount.add_child(plate)
+				if i % 2 == 0:
+					mount.add_child(box(1.4, 2.6, 1.5, PAINT(), cos(a) * 7.5, leg_h + 3.5,
+						sin(a) * 7.5))
+		for z in [-13.0, 13.0]:
+			mount.add_child(pipe_between(Vector3(-28.0, 1.0, z), Vector3(-13.0, leg_h + 2.0, z),
+				0.34, COPPER()))
+		if authored_tower == null:
+			var tower := lattice_tower(146.0, 12.0, {"bay": 8.4, "leg": 0.7, "brace": 0.32})
+			tower.position = Vector3(-26.0, 0.0, 0.0)
+			mount.add_child(tower)
 		for z in [-9.0, 9.0]:
 			var pivot := _node()
 			pivot.position = Vector3(-26.0, 62.0, z)

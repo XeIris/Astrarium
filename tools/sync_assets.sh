@@ -1,8 +1,8 @@
 #!/bin/sh
 # Copy the authored vehicle meshes into the Godot project.
 #
-# web/assets/*.glb are BUILD ARTIFACTS of web/assets/blender/*.py (run
-# web/assets/blender/build.sh) and are gitignored, in the web build and here alike.
+# web/assets/*.glb are BUILD ARTIFACTS of model_sources/blender/*.py (run
+# model_sources/blender/build.sh) and are gitignored, in the web build and here alike.
 # The Godot port loads them at runtime from res://assets/craft/ and falls back
 # to its procedural builds when they are missing — a missing asset is not an
 # error (AGENTS.md). Pass a different source directory as $1 if the meshes live

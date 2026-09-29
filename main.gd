@@ -114,6 +114,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
 		_cmd[kv[0]] = kv[1] if kv.size() > 1 else ""
+	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
 	# CSS px = Godot logical px: the window's content scale is the display
 	# scale, as a browser's devicePixelRatio. The screenshot mode instead takes
 	# window pixels as CSS pixels, as the web reference shots (deviceScaleFactor 1) do.
@@ -181,6 +182,8 @@ func _ready() -> void:
 	set_mesh_style(state.mesh_style)
 	hud.build_bindings(Bindings.GROUPS, controls.bindings)
 	_init_fx_rows()
+	if _cmd.has("quality"): set_render_quality(String(_cmd.quality))
+	if _cmd.has("lighting"): set_lighting_quality(String(_cmd.lighting))
 	render_preset_groups()
 	render_craft_grid()
 	hud.render_model_grid(model_view.list())
@@ -206,6 +209,7 @@ func _ready() -> void:
 	if _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
 		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") == "flight" else "sandbox")
 		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
+		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")))
 
 # ============================================================================
@@ -1493,14 +1497,82 @@ func sync_sky_controls(skip_inputs := false) -> void:
 	var eff := U.merged(SkyModel.blend_environments(state.sky.get("env")), state.sky)
 	hud.sync_sky_controls(state.sky, eff, skip_inputs)
 
-const FX_DEFAULTS := {"bloom": 0.55, "threshold": 1.0, "radius": 1.0, "vignette": 0.35, "grain": 0.02}
-const FX_ROWS := [["fxBloom", "bloom", 2], ["fxThreshold", "threshold", 2], ["fxRadius", "radius", 2], ["fxVignette", "vignette", 2], ["fxGrain", "grain", 3]]
+const FX_DEFAULTS := {"bloom": 0.55, "threshold": 1.0, "radius": 1.0, "vignette": 0.35, "grain": 0.02, "exposure": 1.0}
+const FX_ROWS := [["fxBloom", "bloom", 2], ["fxThreshold", "threshold", 2], ["fxRadius", "radius", 2], ["fxVignette", "vignette", 2], ["fxGrain", "grain", 3], ["fxExposure", "exposure", 2]]
+const RENDER_QUALITY := {
+	"low": {"render": 0.65, "lens": 0.30, "bloom": 0.25, "threshold": 1.25, "radius": 0.7, "vignette": 0.2, "grain": 0.0, "exposure": 1.0},
+	"medium": {"render": 1.0, "lens": 0.5, "bloom": 0.55, "threshold": 1.0, "radius": 1.0, "vignette": 0.35, "grain": 0.02, "exposure": 1.0},
+	"high": {"render": 1.5, "lens": 1.0, "bloom": 0.65, "threshold": 0.9, "radius": 1.15, "vignette": 0.3, "grain": 0.012, "exposure": 1.0},
+}
+var render_quality := "medium"
+var lighting_quality := "low"
+var lighting_effects := {"shadows": false, "ao": false, "reflections": false, "indirect": false}
 
 func _init_fx_rows() -> void:
 	for row in FX_ROWS: _set_fx(row[0], FX_DEFAULTS[row[1]], true)
 	var ls := pipe.lens.get_scale()
 	hud.set_slider("lensScale", ls, "%sx" % U.fixed(ls, 2))
 	hud.set_slider("renderScale", 1.0, "%sx" % U.fixed(pipe.render_scale, 2))
+	_sync_render_quality()
+	_sync_lighting_quality()
+
+func _sync_render_quality() -> void:
+	for q in RENDER_QUALITY:
+		hud.set_active("[data-render-quality=%s]" % q, render_quality == q)
+
+func set_render_quality(q: String) -> void:
+	if not RENDER_QUALITY.has(q): return
+	render_quality = q
+	MaterialDetail.set_enabled(q == "high")
+	flight.local.set_render_quality(q)
+	var aa := Viewport.MSAA_DISABLED if q == "low" else (Viewport.MSAA_4X if q == "high" else Viewport.MSAA_2X)
+	pipe.local_vp.msaa_3d = aa
+	pipe.model_vp.msaa_3d = aa
+	var settings: Dictionary = RENDER_QUALITY[q]
+	var eff := pipe.set_render_scale(settings.render)
+	resize()
+	hud.set_slider("renderScale", settings.render, "%sx" % U.fixed(eff, 2))
+	pipe.lens.set_scale(settings.lens)
+	hud.set_slider("lensScale", settings.lens, "%sx" % U.fixed(settings.lens, 2))
+	for row in FX_ROWS: _set_fx(row[0], settings[row[1]], true)
+	_sync_render_quality()
+
+func _sync_lighting_quality() -> void:
+	for q in ["low", "medium", "high", "custom"]:
+		hud.set_active("[data-lighting-quality=%s]" % q, lighting_quality == q)
+	hud.set_shown("lightingRaw", lighting_quality == "custom")
+	for effect in lighting_effects:
+		hud.set_active("[data-light-effect=%s]" % effect, lighting_effects[effect])
+
+func set_lighting_quality(q: String) -> void:
+	if not q in ["low", "medium", "high", "custom"]: return
+	lighting_quality = q
+	if q != "custom":
+		lighting_effects.shadows = q != "low"
+		lighting_effects.ao = q != "low"
+		lighting_effects.reflections = q == "high"
+		lighting_effects.indirect = q == "high"
+	_apply_lighting_effects()
+	_sync_lighting_quality()
+
+func _toggle_lighting_effect(effect: String) -> void:
+	if not lighting_effects.has(effect): return
+	lighting_effects[effect] = not lighting_effects[effect]
+	lighting_quality = "custom"
+	_apply_lighting_effects()
+	_sync_lighting_quality()
+
+func _apply_lighting_effects() -> void:
+	# The astronomical pass has custom emissive shaders; these effects apply
+	# to the metre-scale flight scene and the PBR craft studio only.
+	for env in [pipe.env_local, pipe.env_model]:
+		env.ssao_enabled = lighting_effects.ao
+		env.ssil_enabled = lighting_effects.indirect
+	# Flight composites a transparent viewport; Godot disables SSR there.
+	# The opaque craft-studio viewport can use it.
+	pipe.env_model.ssr_enabled = lighting_effects.reflections
+	flight.local.sun.shadow_enabled = lighting_effects.shadows
+	model_view.key_l.shadow_enabled = lighting_effects.shadows
 
 func _set_fx(id: String, v: float, write_slider := false) -> void:
 	for row in FX_ROWS:
@@ -1618,6 +1690,9 @@ func _bind_hud() -> void:
 	hud.band_chosen.connect(set_band)
 	hud.time_regime.connect(apply_regime)
 	hud.slider.connect(_on_slider)
+	hud.render_quality_chosen.connect(set_render_quality)
+	hud.lighting_quality_chosen.connect(set_lighting_quality)
+	hud.lighting_effect_chosen.connect(_toggle_lighting_effect)
 	hud.sky_solo.connect(_on_sky_solo)
 	hud.sky_reset.connect(_on_sky_reset)
 	hud.sky_adv_clear.connect(_on_sky_adv_clear)
@@ -1683,7 +1758,8 @@ func _on_sky_adv_clear() -> void:
 	set_sky({"env": state.sky.env, "tilt": state.sky.tilt, "roll": state.sky.roll})
 
 func _on_fx_reset() -> void:
-	for row in FX_ROWS: _set_fx(row[0], FX_DEFAULTS[row[1]], true)
+	set_render_quality("medium")
+	set_lighting_quality("low")
 	set_mesh_style("lines")
 
 func _on_sim_reset() -> void:
@@ -1765,11 +1841,15 @@ func _on_slider(id: String, v: float) -> void:
 			if state.climate != null: state.climate.greenhouse = v
 			hud.set_text("greenhouse-val", U.fixed(v, 2))
 		"renderScale":
+			render_quality = "custom"
+			_sync_render_quality()
 			# The slider asks; the display caps. Report what the framebuffer got.
 			var eff := pipe.set_render_scale(v)
 			resize()
 			hud.set_text("renderScale-val", "%sx" % U.fixed(eff, 2))
 		"lensScale":
+			render_quality = "custom"
+			_sync_render_quality()
 			pipe.lens.set_scale(v)
 			hud.set_text("lensScale-val", "%sx" % U.fixed(v, 2))
 		"maxStep":
@@ -1785,7 +1865,10 @@ func _on_slider(id: String, v: float) -> void:
 		"mvExplode":
 			model_view.set_explode(v)
 		_:
-			if id.begins_with("fx"): _set_fx(id, v)
+			if id.begins_with("fx"):
+				render_quality = "custom"
+				_sync_render_quality()
+				_set_fx(id, v)
 
 # ============================================================================
 # RESIZE
@@ -2123,6 +2206,9 @@ func _shot_tick() -> void:
 		if _cmd.get("truescale", "0") == "1": set_true_scale(true)
 		if _cmd.has("cammode"): set_cam_mode(String(_cmd.cammode))
 		if _cmd.has("localtime"): set_local_time(String(_cmd.localtime))
+		if (_cmd.has("padaz") or _cmd.has("padel")) and flight.active:
+			flight.pad_orbit(deg_to_rad(float(_cmd.get("padaz", "0"))),
+				float(_cmd.get("padel", "0")), 1.0)
 		if _cmd.has("timescale"): set_time_scale(float(_cmd.timescale))
 		if _cmd.get("paused", "0") == "1": state.paused = true
 		# through the stage's panel verb, so `panel=xsecPanel` opens the
@@ -2135,6 +2221,9 @@ func _shot_tick() -> void:
 		for m in String(_cmd.get("eval", "")).split(",", false):
 			if has_method(m): call(m)
 	if _shot_frame != int(_cmd.get("frames", "30")): return
+	if _cmd.get("sunview", "0") == "1" and flight.active:
+		var toward_sun: Vector3 = flight.local.sky_mat.get_shader_parameter("uSunDir")
+		pipe.local_cam.transform = Transform3D(Basis.looking_at(toward_sun, Vector3.UP), Vector3.ZERO)
 	var out := String(_cmd.out)
 	if _cmd.get("shot3d", "0") == "1":
 		pipe.capture_next(func(img: Image):

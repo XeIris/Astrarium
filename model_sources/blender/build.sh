@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Build the authored craft models.
+# Build the authored craft and launchpad models.
 #
-#   assets/blender/build.sh              build every vehicle
-#   assets/blender/build.sh shuttle lm   build some
+#   model_sources/blender/build.sh                  build 9 vehicles and 4 pads
+#   model_sources/blender/build.sh shuttle pad_fss  build selected models
 #
-# The .py files beside this one are the MODELS; assets/*.glb is a build
-# artifact and is not in the repo. A fresh clone runs fine without them — every
-# stage falls back to its procedural build — but the ships are not the ships
-# until this has been run once.
+# The .py files beside this one are the MODELS. The output .glb files in
+# web/assets/ and assets/pads/ are ignored build artifacts. A fresh clone runs
+# with procedural craft and pad fallbacks until this script has been run.
 #
 # lib.py holds the primitives and common.py the palette, the optimiser and the
-# exporter. Neither is a model, so neither is buildable: MODELS below is the
-# list of vehicles, and it is the same set of ids as CRAFT_ASSETS in
-# sim/flight/craftassets.js.
+# exporter. Neither is a model, so neither is buildable. The vehicle ids in
+# ALL match CRAFT_ASSETS in web/sim/flight/craftassets.js; pad_* builds use
+# launchpads.py and are only consumed by the Godot project.
 #
 # Finding Blender is half the job: it is commonly installed somewhere that is
 # not on PATH (through Steam, for one, which is where it is on the machine this
@@ -57,26 +56,34 @@ fi
 echo "blender: $BLENDER"
 "$BLENDER" --version | head -1
 
-ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle)
+ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle pad_lut pad_fss pad_strongback pad_chopsticks)
 if [ "$#" -gt 0 ]; then MODELS=("$@"); else MODELS=("${ALL[@]}"); fi
 for m in "${MODELS[@]}"; do
-  script="assets/blender/${m}.py"
+  extra=()
+  if [[ "$m" == pad_* ]]; then
+    script="model_sources/blender/launchpads.py"
+    extra=(--style "${m#pad_}")
+    dst="assets/pads/${m}.glb"
+  else
+    script="model_sources/blender/${m}.py"
+    dst="web/assets/${m}.glb"
+  fi
   [ -f "$script" ] || { echo "error: no such model '$m' ($script)" >&2; exit 1; }
   echo "--- building $m"
   # Blender is chatty on export; keep the lines that say what was made.
-  # The stale artifact goes FIRST and the exit status comes from Blender itself
-  # through PIPESTATUS: with `|| true` swallowing the status, the only guard was
-  # a -f test that a .glb from an earlier run satisfied, so a build that raised
-  # a traceback was reported as a model that had been rebuilt. `set +e` around
-  # the pipeline is needed because grep exits 1 on a quiet build.
-  rm -f "assets/${m}.glb"
+  # Write beside the published artifact and replace it only after a successful
+  # build. A Blender crash must not remove a previously working model.
+  mkdir -p "$(dirname "$dst")"
+  tmp="$(dirname "$dst")/.${m}.build.glb"
+  rm -f "$tmp"
   set +e
-  "$BLENDER" --background --python "$script" -- --out "assets/${m}.glb" 2>&1 \
+  "$BLENDER" --background --python "$script" -- "${extra[@]}" --out "$tmp" 2>&1 \
     | grep -E '^\[|Error|Traceback|line [0-9]+, in'
   status=${PIPESTATUS[0]}
   set -e
-  [ "$status" -eq 0 ] || { echo "error: blender failed on $m (exit $status)" >&2; exit 1; }
-  [ -f "assets/${m}.glb" ] || { echo "error: $m produced no .glb" >&2; exit 1; }
+  [ "$status" -eq 0 ] || { rm -f "$tmp"; echo "error: blender failed on $m (exit $status)" >&2; exit 1; }
+  [ -f "$tmp" ] || { echo "error: $m produced no .glb" >&2; exit 1; }
+  mv "$tmp" "$dst"
 done
 
-echo "--- $(ls -1 assets/*.glb 2>/dev/null | wc -l | tr -d ' ') models, $(du -ch assets/*.glb 2>/dev/null | tail -1 | cut -f1) total"
+echo "--- built ${#MODELS[@]} model(s)"

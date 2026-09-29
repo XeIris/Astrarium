@@ -13,9 +13,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // panel line: CylinderGeometry takes one radius, so a joint between barrel
 // sections can only be a ring strapped round the outside.
 //
-// So the vehicles are authored in Blender — assets/blender/*.py, where the
+// So the vehicles are authored in Blender — model_sources/blender/*.py, where the
 // SCRIPT IS THE MODEL and nothing is clicked — and loaded here. The .glb files
-// are build artifacts and are not in the repo; assets/blender/build.sh makes
+// are build artifacts and are not in the repo; model_sources/blender/build.sh makes
 // them, and a fresh clone runs without them.
 //
 // FOUR RULES THIS MODULE EXISTS TO KEEP.
@@ -42,7 +42,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 //     craftmodel's update() drives whatever is in `parts`, and spaceflight.js
 //     hangs the plumes on the same objects. Rename a node in a .py file and
 //     the legs stop deploying — silently, with no error anywhere — so the
-//     patterns below and the prefixes in assets/blender/common.py are one
+//     patterns below and the prefixes in model_sources/blender/common.py are one
 //     agreement written in two places.
 // ============================================================================
 
