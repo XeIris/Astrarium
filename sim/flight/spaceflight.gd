@@ -99,6 +99,16 @@ var plan = null
 var boost := Vector3.ZERO
 var _boost_d := DVec3.new()
 
+var sky_gain := 1.0               # the background's exposure, see update_visual
+## The planet's rotation since the flight began, rad: world → planet-fixed is
+## a turn about +Y by this (the spin is about −Y). The cloud field and the
+## ground's detail are laid out in that frame, so they stay put on the planet.
+var planet_spin := 0.0
+## A point on the surface, carried round with the planet: where the ground's
+## detail is laid out from when there is no pad.
+var anchor_pos := DVec3.new()
+## Which way the wind carries the cloud field, in the planet-fixed frame.
+var wind_dir := Vector3.ZERO
 var pad_offset := Vector3.ZERO
 var pad_aimed := false
 var craft_pos := DVec3.new()      # the vehicle in the local frame: (0, alt, 0)
@@ -249,6 +259,12 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 		fly_cam.set_mode("chase")
 		fly_cam.state.hasPad = false
 	vessel.vehicle_key = vehicle_key
+	planet_spin = 0.0
+	DQuat.set_len(anchor_pos.copy_from(vessel.r), float(vessel.env.radius))
+	# east at the start, in the planet-fixed frame (which is the world frame
+	# at spin 0): ω̂ × r̂ with ω̂ = −Y
+	var st_up := DQuat.nrm(vessel.r.clone()).to_v3()
+	wind_dir = Vector3(0, -1, 0).cross(st_up).normalized() if absf(st_up.y) < 0.999 else Vector3(1, 0, 0)
 	autopilot = Guidance.Autopilot.new(vessel)
 	autopilot.mode = Guidance.MODE.PROGRADE
 
@@ -263,7 +279,20 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	if H == 0.0:
 		for s2 in veh.stages: H += float(s2.L)
 	if site_pos != null:
-		site = LaunchSite.create_launch_site(veh, H, vessel.env)
+		# The complex is fitted to the vehicle, so the vehicle has to be
+		# standing in the attitude it will have on the first frame BEFORE the
+		# complex measures it — and the complex is then turned to the vehicle's
+		# roll, so a tower built on the site's −x is on the craft's −x too. The
+		# roll on the pad falls out of set_from_unit_vectors and depends on the
+		# pad's longitude; without this the Shuttle's orbiter faced a different
+		# way into its own tower at every launch site.
+		var un := _local_up_north()
+		var east0 := DQuat.nrm(DVec3.new().cross_vectors(un[0], un[1]))
+		var fb := Basis((east0 as DVec3).to_v3(), (un[0] as DVec3).to_v3(), (un[1] as DVec3).to_v3())
+		var cb := (fb.transposed() * Basis(vessel.q.to_quaternion())).orthonormalized()
+		craft.group.basis = cb
+		site = LaunchSite.create_launch_site(veh, H, vessel.env, craft.group)
+		site.group.rotation.y = atan2(-cb.x.z, cb.x.x)
 		local.root.add_child(site.group)
 		local.place(site.group, site_local)
 		# The ground flame belongs to the pad, not to the vehicle — it is what
@@ -272,6 +301,13 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 		var first = veh.stages[0] if not veh.stages.is_empty() else null
 		var prop = first.engine.get("plume", "kerolox") if first != null and first.get("engine") != null else "kerolox"
 		pad_fire = Plume.create_ground_flame(prop, maxf(vessel.diameter * 3.4, 22.0))
+		# ON THE GROUND UNDER THE MOUNT, not on its deck. The exhaust goes
+		# down through the mount's opening and turns at grade (into the flame
+		# trench, or across the deflector plate under Starship's mount), 7.6 m
+		# to 23.5 m below the deck — a fireball sitting on the platform around
+		# the vehicle's own feet was a flame with nothing under it to turn it.
+		pad_fire.mesh.position.y = -site.deck_height
+		pad_fire.aspect = Vector2(1.0, 1.0) if site.style == "chopsticks" else Vector2(1.9, 0.55)
 		site.group.add_child(pad_fire.mesh)
 	# The tower, not the vehicle, is what has to fit in frame — it is taller
 	# than the stack and it is the thing the climb is read against.
@@ -314,16 +350,93 @@ func build_plumes(_veh: Dictionary) -> void:
 		var spec: Dictionary = st.spec
 		var eng = spec.get("engine")
 		if eng == null: continue
-		for pv in st.parts.gimbals:
-			var exit_d = eng.get("exitD")
-			var pl := Plume.create_plume(eng.get("plume"), float(exit_d) if exit_d else float(spec.D) * 0.2)
-			(pv as Node3D).add_child(pl.mesh)
-			# The pad flame is lit by the FIRST stage's jet, so the reach it
-			# dies at is that stage's plume length and no other's.
+		var pivots: Array = st.parts.gimbals
+		if pivots.is_empty(): continue
+		# `engineOn`: a stage whose bells another stage CARRIES. The Shuttle's
+		# three SSMEs are bolted to the orbiter but burn the External Tank's
+		# propellant, are counted on the tank's stage and fire with it — so
+		# the orbiter's three pivots are the TANK's engines, and they are lit
+		# from liftoff. Read as the orbiter's own (its two OMS engines, not
+		# lit until orbit), the Shuttle climbed off the pad with no main
+		# engines burning at all.
+		var owner_spec := spec
+		for other in craft.stages:
+			var os: Dictionary = other.spec
+			if str(os.get("engineOn", "")) == str(spec.key) and int(os.get("count", 0)) == pivots.size():
+				owner_spec = os
+		eng = owner_spec.engine
+		# A CLUSTER'S JETS MERGE a few diameters downstream — five F-1s make one
+		# fire, not five — so a stage of four or more draws each engine's near
+		# field and ONE merged far field round the whole cluster. It is also
+		# what keeps thirty-three Raptors from costing thirty-three volumes.
+		var cluster := pivots.size() >= 4
+		var lead: Plume.PlumeFx = null
+		var inv: Transform3D = st.group.global_transform.affine_inverse()
+		var centre := Vector3.ZERO
+		var exits: Array = []
+		for i in pivots.size():
+			var pv: Node3D = pivots[i]
+			var bell := _measure_bell(pv, owner_spec)
+			var e: Dictionary = bell.engine
+			var pl := Plume.create_plume(e.get("plume"), bell.exit_d, 18.0, e,
+				"near" if cluster else "single", float(i) + float(hash(str(owner_spec.key)) % 97))
+			# the plume starts at the EXIT PLANE, which is where the bell ends —
+			# the pivot is at the throat, a bell's length above it
+			pl.mesh.position.y = bell.exit_y
+			pv.add_child(pl.mesh)
 			if st == craft.stages[0] or plume_reach == 0.0: plume_reach = maxf(plume_reach, pl.reach)
-			pl.stage_key = str(spec.key)
-			pl.engine = eng
+			pl.stage_key = str(owner_spec.key)
+			pl.engine = e
 			plumes.append(pl)
+			if lead == null: lead = pl
+			var ep: Vector3 = inv * pv.global_transform * Vector3(0.0, bell.exit_y, 0.0)
+			centre += ep
+			exits.append([ep, bell.exit_d])
+		if cluster:
+			centre /= float(pivots.size())
+			var rad := 0.0
+			var ey := 0.0
+			for ex in exits:
+				var ep: Vector3 = ex[0]
+				rad = maxf(rad, Vector2(ep.x - centre.x, ep.z - centre.z).length() + float(ex[1]) * 0.5)
+				ey += ep.y
+			centre.y = ey / float(exits.size())
+			var far := Plume.create_plume(eng.get("plume"), rad * 2.0, 12.0, eng, "far", float(hash(str(spec.key)) % 53))
+			far.mesh.position = centre
+			st.group.add_child(far.mesh)
+			if st == craft.stages[0] or plume_reach == 0.0: plume_reach = maxf(plume_reach, far.reach)
+			far.stage_key = str(owner_spec.key)
+			far.engine = eng
+			plumes.append(far)
+			lead = far
+		if lead != null: Plume.add_flame_light(lead, lead.exit_d)
+
+## Where a pivot's bell ENDS and how wide it is, measured off the mesh rather
+## than assumed — the pivot sits at the throat, and the exit plane is a bell's
+## length below it (1.3 exit diameters for the lathed bells, but not for a
+## spin drive's flat emitter). And which engine it is: Starship's ring carries
+## sea-level Raptors and Raptor Vacuums on the same stage, told apart here by
+## the one thing that differs at a glance, the size of the bell.
+func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
+	var eng: Dictionary = spec.engine
+	var inv := pv.global_transform.affine_inverse()
+	var lo := INF
+	var r := 0.0
+	for c in pv.find_children("*", "MeshInstance3D", true, false):
+		var mi := c as MeshInstance3D
+		if mi.mesh == null or not mi.is_visible_in_tree(): continue
+		var ab := mi.get_aabb()
+		var xf := inv * mi.global_transform
+		for k in 8:
+			var p: Vector3 = xf * ab.get_endpoint(k)
+			lo = minf(lo, p.y)
+			r = maxf(r, maxf(absf(p.x), absf(p.z)))
+	var vac = spec.get("vacEngine")
+	if vac != null and r > 0.0 and absf(2.0 * r - float(vac.exitD)) < absf(2.0 * r - float(eng.exitD)):
+		eng = vac
+	var d := float(eng.get("exitD", float(spec.D) * 0.2))
+	var y := lo if is_finite(lo) else -d * 1.3
+	return {"engine": eng, "exit_d": d, "exit_y": minf(y, 0.0)}
 
 ## For shutdown only. The flight panel's hooks are lambdas that capture this
 ## object, and the panel is held here, so the two keep each other alive — and
@@ -356,6 +469,8 @@ func teardown() -> void:
 		saved_speed = null
 	active = false
 	boost = Vector3.ZERO
+	sky_gain = 1.0
+	SkyModel.apply_day_gain(pipe.sky_materials, 1.0)
 
 # ----------------------------------------------------------------------------
 # INTERSTELLAR
@@ -473,6 +588,33 @@ func camera_mode() -> String:
 func set_camera_mode(m: String) -> void:
 	fly_cam.set_mode(m)
 
+## Swing the chase/orbit turntable round to the far side of the vehicle from
+## the sun, so the sun is in frame `off` radians beside it — the backlit shot.
+## The default framing deliberately does the opposite (a vehicle photographed
+## from its shadow side is a silhouette), so this is the one way to look INTO
+## the light without dragging for it.
+func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10) -> void:
+	if vessel == null: return
+	if fly_cam.state.mode == "pad" or fly_cam.state.mode == "cockpit": fly_cam.set_mode("chase")
+	var un := _local_up_north()
+	var up: DVec3 = un[0]
+	var north: DVec3 = un[1]
+	var east := DQuat.nrm(DVec3.new().cross_vectors(up, north))
+	var sun := sun_direction(DVec3.new())
+	var sun_l := Vector3(sun.dot(east), sun.dot(up), sun.dot(north)).normalized()
+	# the same turntable basis FlightCamera.place() builds
+	var fb := Basis(east.to_v3(), up.to_v3(), north.to_v3())
+	var cb := fb.transposed() * Basis(vessel.q.to_quaternion())
+	var uu: Vector3 = (cb * Vector3(0, 1, 0)) if fly_cam.state.mode == "chase" else Vector3.UP
+	uu = uu.normalized()
+	var ref := Vector3(1, 0, 0) if absf(uu.y) > 0.95 else Vector3(0, 1, 0)
+	var right := uu.cross(ref).normalized()
+	var fwd := right.cross(uu).normalized()
+	# camera offset from the vehicle = −sun: it looks through the vehicle at it
+	fly_cam.state.userAimed = true
+	fly_cam.state.yaw = atan2(-sun_l.dot(fwd), -sun_l.dot(right)) + off_yaw
+	fly_cam.state.pitch = clampf(asin(clampf(-sun_l.dot(uu), -1.0, 1.0)) + off_pitch, -1.45, 1.45)
+
 # ----------------------------------------------------------------------------
 # TARGETING
 # ----------------------------------------------------------------------------
@@ -582,8 +724,26 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			# ω × r — see AGENTS.md: a point fixed to a rotating body.
 			_a.set_v(0.0, -float(env.rotRate), 0.0).cross_vectors(_a, site_pos)
 			DQuat.set_len(site_pos.add_scaled_in(_a, sim_seconds), float(env.radius))
+	# The planet turns under the frame; see planet_spin.
+	planet_spin = fposmod(planet_spin + float(env.rotRate) * sim_seconds, TAU)
+	_a.set_v(0.0, -float(env.rotRate), 0.0).cross_vectors(_a, anchor_pos)
+	DQuat.set_len(anchor_pos.add_scaled_in(_a, sim_seconds), float(env.radius))
 	var fr := local.update({"env": env, "altitude": alt, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
-		"starFlux": star_flux, "padWorld": site_pos, "mapSite": map_site})
+		"starFlux": star_flux, "padWorld": site_pos, "mapSite": map_site,
+		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt,
+		# a steady 9 m/s westerly, the trade-wind belt's upper flow reversed
+		"cloudWind": wind_dir * (9.0 * vessel.met),
+		"sunAngR": (star.radius / d_au) if star != null and star.radius > 0.0 else 0.00465,
+		"sunTeff": float(U.nz(star.teff, 5772.0)) if star != null else 5772.0})
+	# THE CAMERA'S EXPOSURE, applied to the sky. A camera beside a sunlit
+	# vehicle exposes for the vehicle, and the background — calibrated for a
+	# night sky — is dimmer than that by the ratio of the two exposures, which
+	# goes as 1/illuminance: 1/400 at Earth, so the stars are gone; a fifth at
+	# 10 AU; nothing out between the stars, or in the planet's shadow. Eased,
+	# because an exposure does not jump (see SkyModel.apply_day_gain).
+	var want := 1.0 / (1.0 + 400.0 * star_flux * float(fr.get("sun_visible", 0.0)))
+	sky_gain += (want - sky_gain) * (1.0 - exp(-maxf(dt, 0.0) / 0.8))
+	SkyModel.apply_day_gain(pipe.sky_materials, sky_gain)
 
 	# The craft sits at the origin of the local frame with the local up as +Y,
 	# so its attitude has to be expressed in that frame rather than in world
@@ -660,6 +820,11 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		if not st.attached and cs != null and cs.sep == null and cs.group.visible:
 			craft.separate(str(st.spec.key), 4.0 + randf() * 4.0, 0.2 + randf() * 0.5)
 
+	# The light the plumes' smoke scatters: the sun where it reaches the
+	# vehicle (clouds included), with a floor for the sky's own light.
+	var sl: Vector3 = fr.get("sun_local", Vector3.UP)
+	Plume.daylight = clampf(sl.y * 2.0 + 0.25, 0.0, 1.0) * local.sun_through * clampf(star_flux, 0.05, 4.0) + 0.04
+	Plume.sprite_material(false, 2, Plume.ORDER_SMOKE).set_shader_parameter("uLight", clampf(Plume.daylight, 0.08, 1.4))
 	# plumes — each engine's own, at the ambient pressure it is actually in
 	var pa: float = Rocketry.pressure(env.atm, maxf(alt, 0.0)) if env.atm != null else 0.0
 	var p0: float = float(env.atm.p0) if env.atm != null else 101325.0
@@ -683,7 +848,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	# the ground flame works out for itself from the vehicle's height.
 	if pad_fire != null:
 		var lit: float = vessel.throttle if float(vessel.telemetry.get("thrust", 0.0)) > 0.0 else 0.0
-		pad_fire.update(lit if site.group.visible else 0.0, alt, plume_reach, vessel.met)
+		pad_fire.update(lit if site.group.visible else 0.0, alt + site.deck_height, plume_reach, vessel.met)
 
 	# launch smoke: only where there is an atmosphere and a surface to hit
 	if env.atm != null and alt < 900.0 and vessel.throttle > 0.0 and float(vessel.telemetry.get("thrust", 0.0)) > 0.0:

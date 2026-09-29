@@ -75,6 +75,87 @@ const PROPELLANT := {
 	"spin":       { "T": 1500.0, "core": [1.00, 0.30, 0.18], "edge": [0.55, 0.06, 0.04], "soot": 0.0, "glow": 0.45, "beam": true },
 }
 
+# ---------------------------------------------------------------------------
+# WHAT EACH PROPELLANT LOOKS LIKE, as emission per unit path in HDR — the
+# volume in shaders/flight/plume.gdshader integrates these along the ray.
+#
+#   kerolox     soot-luminous: a yellow-white core, then an orange afterburning
+#               mixing layer that is most of the light, cooling to deep red and
+#               brown-black smoke
+#   hydrolox    burns to water with almost no continuum emitter, so it is nearly
+#               INVISIBLE in daylight — what shows are the shock cells, where
+#               compression reheats the gas, and a faint violet-blue OH glow
+#   methalox    blue from CH and C₂ band emission in the core; little soot, so a
+#               pink-orange afterburning fringe rather than an orange torch
+#   solid       aluminium burning to alumina droplets at ~3000 K: a white-yellow
+#               torch you cannot look at, inside the enormous white cloud those
+#               same droplets make as they cool
+#   hypergolic  pale, translucent, peach — and in vacuum close to invisible
+#   ion         a collimated xenon beam: dim, blue, perfectly steady
+#   spin        the book's astrophage drive radiates at 25.98 µm, far in the
+#               infrared; what is drawn is the faint visible tail of an almost
+#               entirely invisible beam, a deep red haze on the axis
+# ---------------------------------------------------------------------------
+const LOOK := {
+	"kerolox":    {"core": [1.40, 1.09, 0.63], "shock": [1.0, 0.92, 0.75], "mix": [1.0, 0.42, 0.10],
+		"tail": [0.55, 0.14, 0.03], "smoke": [0.030, 0.024, 0.018], "afterburn": 1.0, "soot": 0.55,
+		"coreLen": 4.0, "diamonds": 0.8, "machDisk": 0.15, "bright": 3.2},
+	"hydrolox":   {"core": [0.16, 0.20, 0.36], "shock": [1.25, 1.05, 0.85], "mix": [0.09, 0.055, 0.12],
+		"tail": [0.025, 0.015, 0.04], "smoke": [0.0, 0.0, 0.0], "afterburn": 0.4, "soot": 0.0,
+		"coreLen": 5.0, "diamonds": 1.2, "machDisk": 0.8, "bright": 1.4},
+	"methalox":   {"core": [0.40, 0.62, 1.00], "shock": [0.95, 1.0, 1.1], "mix": [1.0, 0.46, 0.26],
+		"tail": [0.45, 0.13, 0.06], "smoke": [0.004, 0.004, 0.004], "afterburn": 0.9, "soot": 0.06,
+		"coreLen": 4.5, "diamonds": 1.2, "machDisk": 0.35, "bright": 2.4},
+	"solid":      {"core": [3.0, 2.8, 2.4], "shock": [1.0, 0.95, 0.85], "mix": [2.0, 1.44, 0.76],
+		"tail": [1.2, 0.66, 0.26], "smoke": [0.60, 0.58, 0.55], "afterburn": 1.4, "soot": 0.85,
+		"coreLen": 3.0, "diamonds": 0.35, "machDisk": 0.0, "bright": 2.6},
+	"hypergolic": {"core": [0.60, 0.49, 0.37], "shock": [0.6, 0.54, 0.48], "mix": [0.35, 0.19, 0.12],
+		"tail": [0.12, 0.045, 0.022], "smoke": [0.0, 0.0, 0.0], "afterburn": 0.35, "soot": 0.0,
+		"coreLen": 4.0, "diamonds": 0.6, "machDisk": 0.2, "bright": 1.4},
+	"ion":        {"core": [0.21, 0.30, 0.60], "shock": [0, 0, 0], "mix": [0, 0, 0], "tail": [0, 0, 0],
+		"smoke": [0, 0, 0], "afterburn": 0.0, "soot": 0.0, "coreLen": 99.0, "diamonds": 0.0,
+		"machDisk": 0.0, "bright": 1.0, "beam": true},
+	"spin":       {"core": [0.55, 0.10, 0.05], "shock": [0, 0, 0], "mix": [0, 0, 0], "tail": [0, 0, 0],
+		"smoke": [0, 0, 0], "afterburn": 0.0, "soot": 0.0, "coreLen": 99.0, "diamonds": 0.0,
+		"machDisk": 0.0, "bright": 1.0, "beam": true},
+}
+
+# ---------------------------------------------------------------------------
+# WHAT MAKES ONE ENGINE'S PLUME ITS OWN. Exit pressure p_e and exit Mach are
+# published figures (or follow from the published expansion ratio and chamber
+# pressure); against the ambient they give the pressure ratio the whole shape
+# is built on. So a Merlin (p_e ≈ 0.6 atm) is gently over-expanded at the pad
+# and shows a train of soft diamonds, and an RS-25 (p_e ≈ 0.16 atm, 69:1 on a
+# 206-bar chamber) is violently over-expanded and hangs a white Mach disk under
+# each bell — which is the Shuttle's liftoff picture, from the same one number.
+# Vacuum engines exhaust at a few kPa, so they bloom the moment the air thins.
+#
+#   F-1   the gas-generator exhaust was dumped into the nozzle extension as a
+#         film coolant: a dark, fuel-rich sleeve round the first diameters of
+#         the jet that ignites raggedly further down — `film`
+#   RSRM  alumina: the soot is WHITE (it scatters), see LOOK.solid
+# ---------------------------------------------------------------------------
+const ENGINE_LOOK := {
+	"F-1": {"pe": 41000.0, "mach": 3.2, "film": 1.0, "soot": 0.95, "diamonds": 0.45, "coreLen": 3.0},
+	"J-2": {"pe": 3000.0, "mach": 4.4},
+	"Merlin 1D": {"pe": 60000.0, "mach": 3.5, "soot": 0.6},
+	"Merlin 1D Vacuum": {"pe": 1000.0, "mach": 4.6, "soot": 0.12, "brightK": 0.7},
+	"RS-25 (SSME)": {"pe": 16000.0, "mach": 4.4, "machDisk": 1.2, "diamonds": 1.4},
+	"RSRM solid booster": {"pe": 62000.0, "mach": 3.0},
+	"Raptor 2": {"pe": 70000.0, "mach": 3.6},
+	"Raptor Vacuum": {"pe": 800.0, "mach": 4.8, "brightK": 0.8},
+	"LM Descent Engine": {"pe": 1500.0, "mach": 4.2},
+	"LM Ascent Engine": {"pe": 1500.0, "mach": 4.0},
+	"Service Propulsion System": {"pe": 900.0, "mach": 4.6},
+	"Mars Descent Engine (MLE)": {"pe": 5000.0, "mach": 3.8},
+	"Draco RCS": {"pe": 1000.0, "mach": 4.0},
+}
+
+## How brightly the local scene is lit, relative to full sun at Earth: the
+## smoke a plume scatters is only as bright as the light falling on it.
+## spaceflight.gd sets it each frame.
+static var daylight := 1.0
+
 static var _sh := {}
 static func shader(name: String) -> Shader:
 	if not _sh.has(name):
@@ -87,41 +168,34 @@ static func _v3(a: Array) -> Vector3:
 static func _prop(name) -> Dictionary:
 	return PROPELLANT.get(name, PROPELLANT.kerolox) if name != null else PROPELLANT.kerolox
 
-## A THREE.CylinderGeometry WITH its uv attribute (craftmodel's Geo carries
-## none, and the plume's azimuth IS uv.x): open-ended, translated so the top
-## sits at y = 0 and the tube runs down −Y. Index winding is swapped once for
-## Godot, as craftmodel's _to_mesh does.
-static func _tube_mesh(r: float, L: float, radial: int, hseg: int) -> ArrayMesh:
-	var pos := PackedVector3Array()
-	var nrm := PackedVector3Array()
-	var uv := PackedVector2Array()
-	var idx := PackedInt32Array()
-	for y in hseg + 1:
-		var v := float(y) / hseg
-		for x in radial + 1:
-			var u := float(x) / radial
-			var th := u * TAU
-			# three: y = −v·L + L/2, then geo.translate(0, −L/2, 0)
-			pos.append(Vector3(r * sin(th), -v * L, r * cos(th)))
-			nrm.append(Vector3(sin(th), 0.0, cos(th)))
-			uv.append(Vector2(u, 1.0 - v))
-	for x in radial:
-		for y in hseg:
-			var a := y * (radial + 1) + x
-			var b := (y + 1) * (radial + 1) + x
-			var c := (y + 1) * (radial + 1) + x + 1
-			var d := y * (radial + 1) + x + 1
-			# three: (a, b, d), (b, c, d) — reversed for Godot's clockwise fronts
-			idx.append_array([a, d, b, b, d, c])
-	var arr := []
-	arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = pos
-	arr[Mesh.ARRAY_NORMAL] = nrm
-	arr[Mesh.ARRAY_TEX_UV] = uv
-	arr[Mesh.ARRAY_INDEX] = idx
-	var m := ArrayMesh.new()
-	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-	return m
+## A closed unit cylinder, y from −1 to 0 — the plume's bounding volume. The
+## shader scales it by uBox and marches the field inside; only its back faces
+## are drawn, so it covers every pixel the plume can reach from any viewpoint,
+## including from inside it.
+static var _box: ArrayMesh = null
+static func _box_mesh() -> ArrayMesh:
+	if _box != null: return _box
+	var g := CraftModel.Geo.new()
+	var n := 24
+	for ring in 2:
+		var y := -float(ring)
+		for i in n:
+			var th := float(i) / n * TAU
+			g.pos.append(Vector3(cos(th), y, sin(th))); g.nrm.append(Vector3(cos(th), 0.0, sin(th)))
+	for i in n:
+		var a := i; var b2 := (i + 1) % n; var c := n + i; var d := n + (i + 1) % n
+		# outward-facing (three's counter-clockwise, which _to_mesh turns
+		# into Godot's clockwise): the shader culls FRONT faces, so what is
+		# drawn is the far wall — or every wall, from inside
+		g.idx.append_array([a, b2, c, b2, d, c])
+	# caps
+	var top := g.pos.size(); g.pos.append(Vector3(0, 0, 0)); g.nrm.append(Vector3.UP)
+	var bot := g.pos.size(); g.pos.append(Vector3(0, -1, 0)); g.nrm.append(Vector3.DOWN)
+	for i in n:
+		g.idx.append_array([top, (i + 1) % n, i])
+		g.idx.append_array([bot, n + i, n + (i + 1) % n])
+	_box = CraftModel._to_mesh(g, null)
+	return _box
 
 static var _quad: QuadMesh = null
 static func quad() -> QuadMesh:
@@ -165,88 +239,152 @@ class PlumeFx extends RefCounted:
 	var glow: MeshInstance3D
 	var material: ShaderMaterial   # the web build's `uniforms`
 	var propellant: Dictionary
+	var look: Dictionary
 	## The length the jet is BUILT at, reported rather than left to be
 	## reconstructed by anything downstream: the beam multiplier is not
 	## guessable from exit_d, and the pad flame goes out on this number.
 	var reach: float
 	var exit_d: float
+	var pe := 50000.0              # exit pressure, Pa
 	var stage_key := ""
 	var engine = null
+	var beam := false
+	## The flame's light on its surroundings — the vehicle's base, the deck,
+	## the smoke — one per stage, on the plume that leads it. Null on the rest.
+	var light: OmniLight3D = null
+	var light_scale := 1.0
 
 	## @param throttle 0..1 @param pa ambient pressure, Pa @param p0 reference (sea level)
-	func update(throttle: float, pa: float, time: float, p0: float = 101325.0) -> void:
+	func update(throttle: float, pa: float, time: float, _p0: float = 101325.0) -> void:
 		var on := throttle > 0.001
 		mesh.visible = on
+		if light != null: light.visible = on
 		if not on: return
-		var P := propellant
-		material.set_shader_parameter("uThrottle", 0.35 + 0.65 * throttle)
-		# Expansion state: 0 in a sea-level atmosphere, 1 in vacuum. The plume's
-		# whole shape follows this one number.
-		var ex := clampf(1.0 - pa / p0, 0.0, 1.0)
-		material.set_shader_parameter("uExpand", ex)
+		var pr := pe / maxf(pa, 1e-3)
+		material.set_shader_parameter("uThrottle", throttle)
+		material.set_shader_parameter("uPR", pr)
 		material.set_shader_parameter("uTime", time)
-		# The glow sits a little inside the exit plane — the flash comes from the
-		# gas in the bell, not from a disc hanging in front of it — and grows
-		# with the plume, because in vacuum there is far more radiating gas.
-		var beam: bool = P.get("beam", false)
-		glow.position.y = -exit_d * 0.35
-		var s := exit_d * (2.2 + 3.4 * ex) * (0.6 + 0.4 * throttle) * (0.35 if beam else 1.0)
-		glow.scale = Vector3(s, s, s)
-		glow.set_instance_shader_parameter("opacity", (0.18 if beam else 0.85) * float(P.glow) * (0.45 + 0.55 * throttle))
+		var sm: Vector3 = Plume._v3(look.smoke) * Plume.daylight
+		material.set_shader_parameter("uSmoke", sm)
+		# The bounding cylinder follows the jet: a pencil at the pad, a bell
+		# many diameters across in vacuum, and shorter when throttled back —
+		# the afterburning mixing layer is most of the length, and a throttled
+		# engine has less to burn.
+		var under := clampf(log(maxf(pr, 1.0)) / log(300.0), 0.0, 1.0)
+		var re := exit_d * 0.5
+		var L := reach * (1.0 + 1.3 * under) * (0.55 + 0.45 * throttle)
+		if beam: L = reach
+		var lx := L / exit_d
+		var rj := 1.0 + under * 2.6 * pow(lx, 0.62) + maxf(0.14 * (1.0 - under), 0.05) * lx
+		if beam: rj = 1.0 + 0.03 * lx
+		var R := re * rj * 1.9
+		material.set_shader_parameter("uBox", Vector3(R, L, R))
+		# The exit glow sits a little inside the exit plane — the flash comes
+		# from the gas in the bell — and grows with the plume, because in vacuum
+		# there is far more radiating gas.
+		if glow != null:
+			glow.position.y = -exit_d * 0.08
+			var s := exit_d * (1.6 + 2.4 * under) * (0.6 + 0.4 * throttle) * (0.35 if beam else 1.0)
+			glow.scale = Vector3(s, s, s)
+			glow.set_instance_shader_parameter("opacity", (0.18 if beam else 0.75) * float(propellant.glow) * (0.45 + 0.55 * throttle))
+		if light != null:
+			light.light_energy = light_scale * throttle * (0.4 if beam else 1.0)
 
 ## One engine's plume. `exit_d` sets the scale; everything else is driven per
-## frame from the flight state.
-static func create_plume(propellant, exit_d: float, length_scale: float = 18.0) -> PlumeFx:
+## frame from the flight state. `engine` is the vehicles.gd entry (for its own
+## exit pressure and look); `role` is "single", "near" (one engine of a cluster
+## whose far field is drawn merged) or "far" (that merged far field).
+static func create_plume(propellant, exit_d: float, length_scale: float = 18.0,
+		engine = null, role: String = "single", seed: float = 0.0) -> PlumeFx:
 	var P := _prop(propellant)
-	var beam: bool = P.get("beam", false)
+	var look: Dictionary = (LOOK.get(propellant, LOOK.kerolox) as Dictionary).duplicate()
+	var name := str(engine.get("name", "")) if engine is Dictionary else ""
+	var over: Dictionary = ENGINE_LOOK.get(name, {})
+	for k in over: look[k] = over[k]
+	if role == "far":
+		# a merged far field is turbulent flow with no nozzle of its own: its
+		# shock cells and its core belong to the single jets upstream
+		look.diamonds = 0.0; look.machDisk = 0.0; look.film = 0.0; look.coreLen = 0.6
+	var beam: bool = look.get("beam", false)
 	var L := exit_d * length_scale * (2.4 if beam else 1.0)
 	var fx := PlumeFx.new()
 	fx.propellant = P
+	fx.look = look
+	fx.beam = beam
 	fx.reach = L
 	fx.exit_d = exit_d
+	fx.pe = float(look.get("pe", 1000.0 if beam else 50000.0))
 	var m := ShaderMaterial.new()
 	m.shader = shader("plume")
-	m.set_shader_parameter("uCore", _v3(P.core))
-	m.set_shader_parameter("uEdge", _v3(P.edge))
-	m.set_shader_parameter("uSoot", float(P.soot))
-	m.set_shader_parameter("uGlow", float(P.glow))
-	m.set_shader_parameter("uTemp", float(P.T))
+	m.set_shader_parameter("uRe", exit_d * 0.5)
+	m.set_shader_parameter("uMach", float(look.get("mach", 3.6)))
+	m.set_shader_parameter("uSeed", seed * 13.7)
+	m.set_shader_parameter("uCore", _v3(look.core))
+	m.set_shader_parameter("uShock", _v3(look.shock))
+	m.set_shader_parameter("uMix", _v3(look.mix))
+	m.set_shader_parameter("uTail", _v3(look.tail))
+	m.set_shader_parameter("uCoreLen", float(look.coreLen))
+	m.set_shader_parameter("uBright", float(look.bright) * float(look.get("brightK", 1.0)))
+	m.set_shader_parameter("uDiamonds", float(look.diamonds))
+	m.set_shader_parameter("uMachDisk", float(look.machDisk))
+	m.set_shader_parameter("uAfterburn", float(look.afterburn))
+	m.set_shader_parameter("uSoot", float(look.soot))
+	m.set_shader_parameter("uFilm", float(look.get("film", 0.0)))
 	m.set_shader_parameter("uBeam", 1.0 if beam else 0.0)
-	m.set_shader_parameter("uDiamonds", 0.0 if beam else 1.0)
-	m.set_shader_parameter("uLen", L)
+	m.set_shader_parameter("uNear", 1.0 if role == "near" else 0.0)
+	m.set_shader_parameter("uFar", 1.0 if role == "far" else 0.0)
+	m.set_shader_parameter("uTempCode", clampf(log(maxf(float(P.T), 2.0)) / 25.33, 0.006, 0.984))
+	# a cluster's single engines only draw their first few diameters
+	m.set_shader_parameter("uSteps", 14 if role == "near" else (22 if role == "far" else 26))
 	m.render_priority = ORDER_FLAME
 	fx.material = m
-	# A straight tube at the NOZZLE'S OWN EXIT RADIUS. All the shaping is in the
-	# vertex shader, where it is a function of the pressure ratio, so the
-	# geometry must not pre-empt any of it — a tapered tube would multiply a
-	# taper by a taper and the sea-level jet came out a third the width.
 	var jet := MeshInstance3D.new()
-	jet.mesh = _tube_mesh(exit_d * 0.5, L, 28, 30)
+	jet.mesh = _box_mesh()
 	jet.material_override = m
 	jet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# frustumCulled = false: the vertex shader blooms it up to 5.3× wide and
-	# 2.3× long, far outside the tube's own box.
+	# the vertex shader scales the unit box to the jet, up to ~50 exit radii
+	# across in vacuum: never cull it on the unit box's own bounds
 	jet.custom_aabb = AABB(Vector3(-L * 3.0, -L * 2.5, -L * 3.0), Vector3(L * 6.0, L * 2.6, L * 6.0))
 	fx.jet = jet
-
-	# THE NOZZLE IS A LIGHT SOURCE, and a jet drawn as a tube is not one. The
-	# exit plane is the hottest thing on the vehicle and it is looked at down
-	# its own axis half the time, where a tube presents almost no area. A
-	# camera-facing glow at the exit is the part of an engine you actually see
-	# first: it is why a rocket at twenty kilometres is a star, not a shape.
-	var glow := make_sprite(sprite_material(true, 0, ORDER_FLAME))
-	# color.setRGB(...) — floats, so NOT colour-converted
-	glow.set_instance_shader_parameter("tint", Vector3(
-		minf(1.0, P.core[0] * 1.1 + 0.25), minf(1.0, P.core[1] * 1.1 + 0.2), minf(1.0, P.core[2] * 1.1 + 0.15)))
-	fx.glow = glow
+	if role == "near":
+		fx.reach = exit_d * 6.0
 
 	var g := Node3D.new()
 	g.name = "plume"
 	g.add_child(jet)
-	g.add_child(glow)
+	# THE NOZZLE IS A LIGHT SOURCE: the exit plane is the hottest thing on the
+	# vehicle and is looked at down its own axis half the time. A merged far
+	# field has no nozzle of its own, so no glow.
+	if role != "far":
+		var glow := make_sprite(sprite_material(true, 0, ORDER_FLAME))
+		# color.setRGB(...) — floats, so NOT colour-converted
+		glow.set_instance_shader_parameter("tint", Vector3(
+			minf(1.0, P.core[0] * 1.1 + 0.25), minf(1.0, P.core[1] * 1.1 + 0.2), minf(1.0, P.core[2] * 1.1 + 0.15)))
+		g.add_child(glow)
+		fx.glow = glow
 	g.visible = false
 	fx.mesh = g
 	return fx
+
+## Give a plume the light its flame throws. Its colour is the mixing layer's
+## (the part of the flame with the most area), its reach a few dozen exit
+## diameters, and its energy what makes a pad at night orange rather than dark.
+static func add_flame_light(fx: PlumeFx, scale_d: float) -> void:
+	var l := OmniLight3D.new()
+	l.name = "flame_light"
+	var c: Vector3 = _v3(fx.look.mix) + _v3(fx.look.core) * 0.3
+	var mx := maxf(c.x, maxf(c.y, c.z))
+	l.light_color = Color(c.x / mx, c.y / mx, c.z / mx) if mx > 0.0 else Color(1, 0.6, 0.3)
+	l.omni_range = maxf(scale_d * 22.0, 40.0)
+	l.omni_attenuation = 1.6
+	l.light_specular = 0.35
+	l.shadow_enabled = false
+	l.position = Vector3(0.0, -scale_d * 1.5, 0.0)
+	fx.light_scale = clampf(scale_d * 1.6, 1.5, 18.0) * float(fx.look.bright) * \
+		(0.25 if fx.propellant == PROPELLANT.hydrolox else 1.0)
+	l.visible = false
+	fx.mesh.add_child(l)
+	fx.light = l
 
 # ============================================================================
 # RCS — short, cold, translucent puffs. They matter because they are the only
@@ -519,6 +657,11 @@ class GroundFlame extends RefCounted:
 	var mesh: MeshInstance3D
 	var material: ShaderMaterial
 	var scale: float
+	## The fan's plan shape, (along x, along z). A flame TRENCH turns the jet
+	## through ninety degrees and sends it out of both ends, so the fire runs
+	## along the trench (site x) and is narrow across it; a mount with an open
+	## deflector under it (Starship's) throws it out in every direction.
+	var aspect := Vector2.ONE
 
 	## @param throttle 0..1
 	## @param height   the vehicle's height above the deck, m
@@ -537,7 +680,7 @@ class GroundFlame extends RefCounted:
 		var rad := scale * (1.0 + 1.8 * (1.0 - hit))
 		# Flat. The fan is a sheet running along the ground, not a fireball —
 		# it is the vertical momentum that has been taken OUT of the jet.
-		mesh.scale = Vector3(rad, rad * 0.22, rad)
+		mesh.scale = Vector3(rad * aspect.x, rad * 0.22, rad * aspect.y)
 
 static func create_ground_flame(propellant, scale: float) -> GroundFlame:
 	var P := _prop(propellant)

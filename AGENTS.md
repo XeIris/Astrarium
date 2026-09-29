@@ -614,6 +614,25 @@ point and the only file here that knows the orrery exists.
   whose height the eye knows, and without it a vehicle climbing over a smooth
   plain reads as stationary and then as teleported. The same goes for the
   terminal count — a launch has to have a beginning you can watch.
+- **A launch complex is FITTED to its vehicle, never sized from a diameter.**
+  Swing arms, the white room, the vent hood, umbilical plates and hold-downs
+  stop at the vehicle's measured skin (`LaunchSite.Envelope`, the craft's own
+  triangles clipped to a lane), and the complex is yawed to the vehicle's roll
+  on the pad. Written as fractions of the stage diameter, every arm on the LUT
+  ran through the Saturn V. `tools/padcheck.gd` is the standing check, for the
+  authored pads and the fallback (`padmodels=0`); it must report zero.
+- **Anything local space draws of the PLANET is sampled planet-fixed.** The
+  local frame's origin rides under the vehicle, so noise sampled in local
+  coordinates travels with the rocket. Clouds (and the ground's detail, via
+  its anchor) are sampled in the planet's rotating frame (`uLocalToPlanet`),
+  and the CPU copy of the cloud field (`sim/flight/cloudfield.gd`) must stay
+  sample-for-sample identical to `clouds.gdshaderinc`, or the vehicle's light
+  and the shadow under it disagree.
+- **Volumes in local space end at the depth buffer.** Clouds, plumes and the
+  sun's glare are depth-test-disabled and read `hint_depth_texture` to stop
+  their own rays, because a volume's bounding mesh is never where the volume
+  is. Godot's projection has a flipped y: take `abs(PROJECTION_MATRIX[1][1])`
+  when deriving a pixel's angle, or every smoothstep built on it inverts.
 - **Following a moving body is exact tracking plus a decaying offset**, never a
   fractional catch-up. `target.lerp(bodyPos, k)` is a first-order lag, and a
   first-order lag driven by a ramp keeps a steady-state error proportional to

@@ -70,7 +70,7 @@ extends RefCounted
 # In Godot this is render_priority, which — like three's renderOrder — only
 # sorts within the transparent list.
 # ---------------------------------------------------------------------------
-const ORDER := {"sky": -10, "smoke": 10, "flame": 20}
+const ORDER := {"sky": -10, "clouds": -8, "sun": -6, "smoke": 10, "flame": 20}
 
 var pipe: RenderPipeline
 var root: Node3D                 # everything in local space hangs under here
@@ -81,9 +81,37 @@ var ground: MeshInstance3D
 var sky: MeshInstance3D
 var ground_mat: ShaderMaterial
 var sky_mat: ShaderMaterial
+## The sun as the vehicle sees it (shaders/flight/sun_disc.gdshader): its own
+## sprite, because the orrery's Sun is calibrated for looking at a solar system
+## and the dome's disc only existed while there was air to draw it in.
+var sun_disc: MeshInstance3D
+var sun_mat: ShaderMaterial
+var _sun_l := Vector3.UP
+var _sun_rgb := Vector3.ONE        # the star's colour, luminance 1
+var _tau0 := Vector3.ZERO          # sea-level zenith optical depth, per channel
+var _airmass := 1.0                # along the sun line, from the observer
+const SUN_DIST := 3.0e6
 var reflection_sky: Sky
 var reflection_material: PhysicalSkyMaterial
-var cloud_noise: NoiseTexture3D
+## The cloud field's three noise volumes (shaders/flight/clouds.gdshaderinc)
+## and the pass that marches them (shaders/flight/clouds.gdshader).
+var cloud_shape: NoiseTexture3D
+var cloud_worley: NoiseTexture3D
+var cloud_detail: NoiseTexture3D
+var clouds: MeshInstance3D
+var cloud_mat: ShaderMaterial
+## The same field on the CPU, for what the DirectionalLight cannot know: how
+## much of the sun reaches the vehicle (CloudField's header).
+var cloud_field: CloudField
+## That fraction, eased, and applied to the sun light's energy.
+var sun_through := 1.0
+## The planet's rotation since the flight began, rad, and the local frame's
+## axes in world coordinates: together, the local → planet-fixed transform
+## every cloud sample (and the ground's own detail) is taken in.
+var _to_planet := Basis()
+const CLOUD_BASE := 1500.0
+const CLOUD_TOP := 4600.0
+const CLOUD_SIGMA := 0.03
 var render_quality := "medium"
 var _reflection_body := ""
 var _has_air := true
@@ -221,7 +249,6 @@ func _init(p: RenderPipeline) -> void:
 	sky_mat.set_shader_parameter("uScaleH", 8500.0)
 	sky_mat.set_shader_parameter("uHasAir", 1.0)
 	sky_mat.set_shader_parameter("uThick", 1.05)
-	sky_mat.set_shader_parameter("uCloudCoverage", 0.35)
 	sky_mat.render_priority = ORDER.sky
 	sky = MeshInstance3D.new()
 	sky.name = "sky"
@@ -230,6 +257,38 @@ func _init(p: RenderPipeline) -> void:
 	sky.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	sky.custom_aabb = AABB(Vector3(-3.1e6, -3.1e6, -3.1e6), Vector3(6.2e6, 6.2e6, 6.2e6))
 	root.add_child(sky)
+
+	# ---- the cloud layer: a sphere round the camera, drawn after the sky,
+	# marching the field per pixel and stopping at the depth buffer. Only its
+	# direction matters, so its size is anything comfortably past the near
+	# plane and inside the far one.
+	cloud_mat = ShaderMaterial.new()
+	cloud_mat.shader = load("res://shaders/flight/clouds.gdshader")
+	cloud_mat.render_priority = ORDER.clouds
+	clouds = MeshInstance3D.new()
+	clouds.name = "clouds"
+	clouds.mesh = CraftModel._to_mesh(CraftModel._sphere(3000.0, 32, 16), cloud_mat)
+	clouds.material_override = cloud_mat
+	clouds.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	clouds.custom_aabb = AABB(Vector3(-3100, -3100, -3100), Vector3(6200, 6200, 6200))
+	clouds.visible = false
+	root.add_child(clouds)
+
+	# ---- the sun. After the sky and the clouds, before the smoke and flames,
+	# so a launch cloud still passes in front of it.
+	sun_mat = ShaderMaterial.new()
+	sun_mat.shader = load("res://shaders/flight/sun_disc.gdshader")
+	sun_mat.render_priority = ORDER.sun
+	var sq := QuadMesh.new()
+	sq.size = Vector2(1, 1)
+	sun_disc = MeshInstance3D.new()
+	sun_disc.name = "sun_disc"
+	sun_disc.mesh = sq
+	sun_disc.material_override = sun_mat
+	sun_disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# the vertex shader turns and sizes it; never cull it
+	sun_disc.custom_aabb = AABB(Vector3(-2.0e6, -2.0e6, -2.0e6), Vector3(4.0e6, 4.0e6, 4.0e6))
+	root.add_child(sun_disc)
 
 	craft_root = Node3D.new()
 	craft_root.name = "craft_root"
@@ -275,19 +334,42 @@ func _set_ambient(bounce: float) -> void:
 
 func set_render_quality(q: String) -> void:
 	render_quality = q
-	if q == "high" and cloud_noise == null:
-		cloud_noise = NoiseTexture3D.new()
-		cloud_noise.width = 64
-		cloud_noise.height = 64
-		cloud_noise.depth = 64
-		cloud_noise.seamless = true
-		var noise := FastNoiseLite.new()
-		noise.seed = 2731
-		noise.frequency = 0.065
-		noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-		noise.fractal_octaves = 3
-		cloud_noise.noise = noise
-		sky_mat.set_shader_parameter("uCloudNoise", cloud_noise)
+	if q != "low" and cloud_shape == null:
+		# Tiling volumes, generated once on Godot's worker thread. The large
+		# scales (the weather, the turrets) are Perlin and big-celled Worley;
+		# the erosion is small Worley. Each is inverted where it is Worley so
+		# that the CELLS, not the edges between them, are the dense part —
+		# which is the whole difference between billows and a honeycomb.
+		cloud_shape = _noise3d(96, 2731, FastNoiseLite.TYPE_PERLIN, 0.035, 4, false)
+		cloud_worley = _noise3d(64, 977, FastNoiseLite.TYPE_CELLULAR, 0.05, 2, true)
+		cloud_detail = _noise3d(48, 4410, FastNoiseLite.TYPE_CELLULAR, 0.09, 3, true)
+		cloud_field = CloudField.new(cloud_shape, cloud_worley, cloud_detail)
+		for m in [cloud_mat, ground_mat, sun_mat]:
+			m.set_shader_parameter("uCloudShape", cloud_shape)
+			m.set_shader_parameter("uCloudWorley", cloud_worley)
+			m.set_shader_parameter("uCloudDetail", cloud_detail)
+	# High marches finely, with erosion and a long light march; Medium is the
+	# same field, coarser; Low has no clouds.
+	cloud_mat.set_shader_parameter("uSteps", 64 if q == "high" else 28)
+	cloud_mat.set_shader_parameter("uLightSteps", 6 if q == "high" else 3)
+	cloud_mat.set_shader_parameter("uDetail", 1.0 if q == "high" else 0.0)
+
+static func _noise3d(size: int, seed: int, type: int, freq: float, octaves: int, invert: bool) -> NoiseTexture3D:
+	var t := NoiseTexture3D.new()
+	t.width = size; t.height = size; t.depth = size
+	t.seamless = true
+	t.invert = invert
+	var n := FastNoiseLite.new()
+	n.seed = seed
+	n.noise_type = type
+	n.frequency = freq
+	n.fractal_type = FastNoiseLite.FRACTAL_FBM
+	n.fractal_octaves = octaves
+	if type == FastNoiseLite.TYPE_CELLULAR:
+		n.cellular_distance_function = FastNoiseLite.DISTANCE_EUCLIDEAN
+		n.cellular_return_type = FastNoiseLite.RETURN_DISTANCE
+	t.noise = n
+	return t
 
 ## Keep `node` at local-frame position `p` (metres, double) under the local
 ## floating origin. `p` is held by reference: mutate it and the node follows.
@@ -306,6 +388,12 @@ func unplace(node: Node3D) -> void:
 ## render camera at the origin with the view's orientation.
 func apply_origin(basis: Basis) -> void:
 	camera.transform = Transform3D(basis, Vector3.ZERO)
+	clouds.position = Vector3.ZERO
+	var cl := cam_pos.to_v3()
+	for m in [cloud_mat, ground_mat, sun_mat]: m.set_shader_parameter("uCamLocal", cl)
+	# The sun is at infinity: a fixed distance from the camera, whatever the
+	# camera's position — which, here, is always the origin.
+	sun_disc.position = _sun_l * SUN_DIST
 	for pn in _placed:
 		var n: Node3D = pn[0]
 		if is_instance_valid(n):
@@ -341,9 +429,6 @@ func update(o: Dictionary) -> Dictionary:
 		_reflection_body = str(env.name)
 		reflection_material.rayleigh_color = Color.hex((int(atm.tint) << 8) | 0xff)
 		reflection_material.turbidity = clampf(float(atm.rho0) * 3.0, 1.0, 10.0)
-	var cloud_cover := 0.32 if render_quality == "high" else (0.18 if render_quality == "medium" else 0.0)
-	sky_mat.set_shader_parameter("uCloudCoverage", cloud_cover if env.name == "Earth" else 0.0)
-	sky_mat.set_shader_parameter("uCloudVolume", 1.0 if render_quality == "high" and env.name == "Earth" else 0.0)
 	var h := maxf(float(o.altitude), 0.0)
 	# Horizon distance √(2Rh), with a floor so there is always ground to see,
 	# and a ceiling because past a few hundred km the orrery's own planet mesh
@@ -376,7 +461,7 @@ func update(o: Dictionary) -> Dictionary:
 	var flux := clampf(3.0 * float(U.nz(o.get("starFlux"), 1.0)), 0.05, 12.0)
 	ground_mat.set_shader_parameter("uSunI", flux)
 	ground_mat.set_shader_parameter("uTemp", maxf(float(env.get("teq", 255.0)), 30.0))
-	sun.light_energy = flux / PI
+	sun.light_energy = flux / PI * sun_through
 	# Skylight only exists where there is air to scatter in.
 	ground_mat.set_shader_parameter("uSkyI", 0.42 * exp(-h / maxf(sh * 2.0, 1.0)) if atm != null else 0.03)
 	# Ground fades out entirely once the orrery's planet takes over.
@@ -390,6 +475,12 @@ func update(o: Dictionary) -> Dictionary:
 	var north := DQuat.nrm(DVec3.new().cross_vectors(east, up))
 	ground_mat.set_shader_parameter("uGeoReady", 0.0)
 	var pad = o.get("padWorld")
+	# The planet-fixed point the ground's detail is laid out about: the pad
+	# when there is one, else wherever the flight began (spaceflight.gd).
+	var anchor = pad if pad != null else o.get("anchorWorld")
+	if anchor != null:
+		ground_mat.set_shader_parameter("uAnchor", Vector2((anchor as DVec3).dot(east), (anchor as DVec3).dot(north)))
+	ground_mat.set_shader_parameter("uHasPad", 1.0 if pad != null else 0.0)
 	var map_site = o.get("mapSite")
 	if env.name == "Earth" and pad != null and map_site != null:
 		if not _earth_requested:
@@ -422,6 +513,8 @@ func update(o: Dictionary) -> Dictionary:
 	var sw: DVec3 = o.sunDirWorld
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
+	var sun_vis := _update_sun(o, env, atm, h, sh, sun_l)
+	_update_clouds(o, env, atm, h, sh, sun_l, east, up, north)
 	ground_mat.set_shader_parameter("uSunDir", sun_l)
 	sky_mat.set_shader_parameter("uSunDir", sun_l)
 	# A DirectionalLight3D shines along its own −Z; three's shines from its
@@ -431,7 +524,141 @@ func update(o: Dictionary) -> Dictionary:
 		sun.basis = Basis.looking_at(-sun_l, ref)
 	# Planetshine: strong in low orbit over a bright planet, gone in deep space.
 	_set_ambient(clampf(0.75 * (1.0 - h / 8e5), 0.04, 0.75))
-	return {"east": east, "north": north, "up": up.clone(), "sun_local": sun_l}
+	return {"east": east, "north": north, "up": up.clone(), "sun_local": sun_l, "sun_visible": sun_vis}
+
+## THE CLOUD LAYER, per frame: where it is (the planet-fixed frame), what
+## lights it, and whether this world has one.
+##
+## Earth only: its fair-weather cumulus is what a launch is photographed
+## against. Venus's cloud is a 20 km deck that starts 48 km up and the view
+## under it is a uniform murk the sky dome already draws; Mars's water-ice
+## clouds are thin cirrus at altitudes this layer does not model.
+func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l: Vector3,
+		east: DVec3, up: DVec3, north: DVec3) -> void:
+	var cover := 0.0
+	if render_quality != "low" and env.name == "Earth" and atm != null and cloud_shape != null:
+		# fair-weather cumulus, broken: what most launches are flown under
+		cover = float(U.nz(o.get("cloudCover"), 0.30))
+	# Past a few hundred kilometres the orrery's planet (with its own cloud
+	# deck) is the picture; the local layer only exists over the ground patch.
+	clouds.visible = cover > 0.0 and h < 4.0e5
+	var R := float(env.radius)
+	# local → world is the basis with columns (east, up, north); world →
+	# planet-fixed undoes the planet's spin about its pole, which is −Y, so it
+	# is a rotation about +Y by the angle turned (see spaceflight.gd).
+	var fb := Basis(east.to_v3(), up.to_v3(), north.to_v3())
+	_to_planet = Basis(Vector3.UP, float(U.nz(o.get("planetSpin"), 0.0))) * fb
+	var wind: Vector3 = o.get("cloudWind", Vector3.ZERO)
+	# the pad, planet-fixed, for the thinning round it
+	var clear_at := Vector3.ZERO
+	var clear_r := 0.0
+	var pad = o.get("padWorld")
+	if pad != null:
+		clear_at = _to_planet * Vector3((pad as DVec3).dot(east), R, (pad as DVec3).dot(north))
+		clear_r = 9000.0
+	for m in [cloud_mat, ground_mat, sun_mat]:
+		m.set_shader_parameter("uClearAt", clear_at)
+		m.set_shader_parameter("uClearR", clear_r)
+		m.set_shader_parameter("uCloudCoverage", cover)
+		m.set_shader_parameter("uLocalToPlanet", _to_planet)
+		m.set_shader_parameter("uPlanetR", R)
+		m.set_shader_parameter("uCloudWind", wind)
+		m.set_shader_parameter("uCloudBase", CLOUD_BASE)
+		m.set_shader_parameter("uCloudTop", CLOUD_TOP)
+		m.set_shader_parameter("uCloudSigma", CLOUD_SIGMA)
+	# The vehicle's own sunlight, through the same field (see cloud_field):
+	# sampled at the craft, the thing the camera is exposing for.
+	var through := 1.0
+	if cloud_field != null and cover > 0.0 and h < CLOUD_TOP + 2000.0:
+		cloud_field.coverage = cover
+		cloud_field.base = CLOUD_BASE; cloud_field.top = CLOUD_TOP
+		cloud_field.sigma = CLOUD_SIGMA; cloud_field.radius = R
+		cloud_field.wind = wind
+		cloud_field.clear_at = clear_at; cloud_field.clear_r = clear_r
+		var craft_local := Vector3(0.0, h, 0.0)
+		var pp := _to_planet * (craft_local + Vector3(0.0, R, 0.0))
+		through = cloud_field.sun_transmittance(pp, (_to_planet * sun_l).normalized())
+	sun_through += (through - sun_through) * (1.0 - exp(-float(U.nz(o.get("dt"), 0.016)) / 0.35))
+	if not clouds.visible: return
+	# The sun as it arrives at the middle of the layer: the same extinction as
+	# the disc's (see _update_sun), for the column above 3 km.
+	var flux := clampf(3.0 * float(U.nz(o.get("starFlux"), 1.0)), 0.05, 12.0)
+	var T := Vector3.ONE
+	if atm != null:
+		var dens := clampf(float(atm.rho0) / 1.225, 0.0, 6.0)
+		T = Vector3(exp(-_tau0.x * dens * exp(-3000.0 / 8500.0) * _airmass),
+			exp(-_tau0.y * dens * exp(-3000.0 / 8500.0) * _airmass),
+			exp(-_tau0.z * dens * exp(-3000.0 / 8500.0) * _airmass))
+	# day → twilight → night, as the dome's own "sun" factor
+	var day := clampf(sun_l.y * 2.0 + 0.25, 0.0, 1.0)
+	var sun_col := Vector3(_sun_rgb.x * T.x, _sun_rgb.y * T.y, _sun_rgb.z * T.z) * flux * day
+	cloud_mat.set_shader_parameter("uSunDir", sun_l)
+	cloud_mat.set_shader_parameter("uSunColor", sun_col)
+	cloud_mat.set_shader_parameter("uPixAngle",
+		2.0 * tan(deg_to_rad(camera.fov * 0.5)) / maxf(float(pipe.local_vp.size.y), 1.0))
+	# Skylight on the upper faces (the dome's own tint, at the brightness of a
+	# clear sky) and the ground's bounce on the lower ones.
+	var tint := _v3(int(atm.tint))
+	cloud_mat.set_shader_parameter("uSkyTop", tint * (0.55 * day + 0.01))
+	var g := _v3(int(env.ground))
+	cloud_mat.set_shader_parameter("uSkyBottom", g * flux * maxf(sun_l.y, 0.0) * 0.30 / PI + tint * 0.05 * day)
+	cloud_mat.set_shader_parameter("uHaze", _v3(int(atm.haze)) * (0.35 + 0.75 * maxf(sun_l.y, 0.0)) * day)
+	cloud_mat.set_shader_parameter("uHazeDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
+	cloud_mat.set_shader_parameter("uHazeRho", exp(-h / maxf(sh, 1.0)))
+	cloud_mat.set_shader_parameter("uMaxDist", clampf(sqrt(2.0 * R * maxf(h, 3000.0)) * 1.6, 60000.0, 1.2e6))
+
+## Point and filter the sun sprite. Returns the fraction of the disc above the
+## horizon, which is also what decides whether the camera is exposing for
+## daylight (spaceflight.gd dims the stars by it).
+##
+## `o.sunAngR` is the star's angular radius from here and `o.sunTeff` its
+## temperature; both default to the Sun from Earth.
+func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l: Vector3) -> float:
+	_sun_l = sun_l
+	var R := float(env.radius)
+	var ang_r := float(U.nz(o.get("sunAngR"), 0.00465))
+	# The HORIZON, not the horizontal: from altitude h the limb is depressed by
+	# acos(R / (R + h)) — 5° at 25 km, 20° at 400 km — and the sun is up until
+	# it sets behind THAT. Beyond the ground patch there is nothing in this pass
+	# to hide it, so the planet's occlusion has to be said here.
+	var dip := acos(clampf(R / (R + h), -1.0, 1.0))
+	var elev := asin(clampf(sun_l.y, -1.0, 1.0))
+	var vis := U.smooth(elev, -dip - ang_r, -dip + ang_r)
+	sun_disc.visible = vis > 0.0
+	sun_mat.set_shader_parameter("uVisible", vis)
+	sun_mat.set_shader_parameter("uAngR", ang_r)
+	sun_mat.set_shader_parameter("uSunLocal", sun_l)
+
+	sun_mat.set_shader_parameter("uDist", SUN_DIST)
+	# Surface brightness is independent of distance (flux and solid angle both
+	# go as 1/r²), so the disc's radiance goes only with the star's T⁴.
+	var teff := float(U.nz(o.get("sunTeff"), 5772.0))
+	var bb := Stellar.blackbody_color(teff)
+	var lum := maxf(bb.r * 0.2126 + bb.g * 0.7152 + bb.b * 0.0722, 1e-4)
+	sun_mat.set_shader_parameter("uColor", Vector3(bb.r, bb.g, bb.b) / lum)
+	sun_mat.set_shader_parameter("uRadiance", 2400.0 * pow(teff / 5772.0, 4.0))
+	# EXTINCTION. Zenith optical depths at sea level for 680 / 550 / 440 nm:
+	# Rayleigh 0.042 / 0.097 / 0.235 (∝ λ⁻⁴) and a clear-day aerosol load of
+	# 0.08 · (λ / 550)^-1.3. The column above the observer falls as e^(−h/H),
+	# and the air mass along the sun line is Kasten & Young's (1989), which
+	# stays finite at the horizon where 1/sin(e) does not.
+	var tau := Vector3.ZERO
+	var m := 1.0
+	var aerosol := 0.0
+	_sun_rgb = Vector3(bb.r, bb.g, bb.b) / lum
+	_tau0 = Vector3(0.042, 0.097, 0.235) + Vector3(0.061, 0.080, 0.109)
+	if atm != null:
+		var col := exp(-h / maxf(sh, 1.0))
+		var dens := clampf(float(atm.rho0) / 1.225, 0.0, 6.0)
+		tau = _tau0 * dens * col
+		var e_deg := rad_to_deg(elev + dip)
+		m = 1.0 / (sin(maxf(elev + dip, -0.02)) + 0.50572 * pow(maxf(e_deg + 6.07995, 0.3), -1.6364))
+		aerosol = col * dens * clampf(sqrt(m), 1.0, 6.0)
+	_airmass = m
+	sun_mat.set_shader_parameter("uTau", tau)
+	sun_mat.set_shader_parameter("uAirMass", m)
+	sun_mat.set_shader_parameter("uAureole", aerosol)
+	return vis
 
 func set_size(_w: float, _h: float) -> void:
 	# The render camera keeps its aspect from the viewport (keep_height, as

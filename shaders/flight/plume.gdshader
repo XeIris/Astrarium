@@ -1,171 +1,261 @@
 // ============================================================================
-// ONE ENGINE'S PLUME — PLUME_VERT / PLUME_FRAG of sim/flight/plume.js.
+// ONE ENGINE'S PLUME — a raymarched volume of emission and soot.
 // ----------------------------------------------------------------------------
-// The derivation is in the JS header and repeated inline below: the SHAPE is a
-// function of the ambient pressure alone (uExpand, 0 at sea level, 1 in
-// vacuum), and the colour is the propellant's temperature falling along the
-// jet. The geometry is a straight open tube at the nozzle's own exit radius,
-// hung from the exit plane and running down −Y; all the shaping is here.
+// The web build drew a plume as the SURFACE of a tube whose radius was bent
+// in the vertex shader, with the light painted onto that surface. A flame is
+// not a surface: it is a volume of glowing gas, and what reaches the eye is
+// the emission INTEGRATED along the line of sight, dimmed by whatever soot is
+// in front of it. A tube cannot do the three things that make a real plume
+// read as one — it has a hard silhouette, it looks the same end-on as side-on,
+// and nothing inside it can be in front of anything else. So this marches the
+// ray through the jet's own field, from a bounding cylinder drawn back-faced
+// (so it works from inside, too), and stops at the depth buffer (so the
+// rocket's own base and the ground in front of the flame hide it).
 //
-// BLENDING. The web material was publishAlpha(): RGB = src·srcα + dst, where
-// srcα is the log-encoded TEMPERATURE this fragment publishes (≈ 0.32 for a
-// 3400 K plume) — so the colour that reaches the frame is rgb × that code, and
-// the code itself replaced the alpha channel. The local pass has no
-// temperature channel (compose.glsl treats local coverage as "no data"), so
-// here the product is formed in the shader and blended ONE, ONE —
-// blend_premul_alpha with ALPHA = 0 (PORT_GUIDE §6) — which adds the colour
-// and leaves the local pass's COVERAGE alone: an additive emitter covers
-// nothing, and the orrery behind it must show through undimmed.
+// THE FIELD, in the jet's own units (De = exit diameter), and every part of
+// it set by a number the flight model already has:
+//
+//   PRESSURE RATIO  PR = p_exit / p_ambient. This is the whole shape story.
+//     PR < 1, OVER-EXPANDED (sea level): the air squeezes the jet in and it
+//     recompresses through a train of oblique shocks — the SHOCK DIAMONDS —
+//     and, if PR is low enough, a normal shock across the axis: the MACH
+//     DISK, the hard white knot an RS-25 has a metre below its bell and a
+//     Merlin does not (its PR at sea level is ~0.6, the SSME's ~0.16).
+//     PR > 1, UNDER-EXPANDED (altitude): the jet turns the corner at the lip
+//     and balloons; the diamonds stretch (cell length ∝ √PR) and go.
+//     PR → ∞ (vacuum): a vast, faint, structureless bell.
+//   CELL LENGTH  Ls ≈ 0.45 De √(M² − 1) √PR + 0.4 De: Prandtl's √(M² − 1) is
+//     the angle an expansion wave makes with the flow; √PR is the jet getting
+//     wider and the waves longer as the air thins.
+//   CORE  the supersonic potential core, a few De long at sea level: the
+//     mixing layer eats in from the edge until it reaches the axis.
+//   MIXING LAYER  a turbulent shear layer at the jet's edge, growing ~0.1 De
+//     per De. Fuel-rich exhaust meets air there and BURNS AGAIN, which is
+//     where most of a kerosene plume's light comes from — so it is brightest
+//     in an annulus, and it is turbulent, advected downstream at a fraction of
+//     the exhaust speed and regenerated rather than scrolled.
+//   SOOT  carbon from a fuel-rich kerosene engine: it both GLOWS (the orange
+//     of a kerolox plume is incandescent soot at ~2000 K) and ABSORBS (the
+//     brown-black smoke). The F-1 dumped its gas-generator exhaust into the
+//     nozzle extension as a film coolant, so the first couple of diameters of
+//     a Saturn V's plume are wrapped in a dark, cool, sooty sleeve before the
+//     film ignites — the single most recognisable thing about the S-IC's fire.
+//     A solid's alumina is the other kind: it scatters, bright and white.
+//
+// EMISSION IS IN HDR and the colour is the propellant's (see sim/flight/plume.gd
+// for the table). BLENDING is premultiplied: rgb is the light emitted (and,
+// for smoke, scattered) along the ray, alpha the soot's COVERAGE — a sooty
+// plume genuinely hides the sky behind it, a hydrogen one hides nothing.
 // ============================================================================
 shader_type spatial;
-render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
+render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_front, fog_disabled;
 
-uniform vec3 uCore;
-uniform vec3 uEdge;
-uniform float uThrottle = 0.0;
-uniform float uExpand = 0.0;     // 0 = sea level (pinched), 1 = vacuum (bloomed)
+uniform sampler2D uDepth : hint_depth_texture, filter_nearest, repeat_disable;
+
+uniform vec3 uBox = vec3(1.0);        // bounding cylinder: (radius, length, radius), m
+uniform float uRe = 0.5;              // exit radius, m
+uniform float uThrottle = 0.0;        // 0..1
+uniform float uPR = 1.0;              // p_exit / p_ambient
+uniform float uMach = 3.5;            // exit Mach number
 uniform float uTime = 0.0;
-uniform float uSoot = 0.85;
-uniform float uGlow = 1.0;
-uniform float uTemp = 3400.0;
-uniform float uBeam = 0.0;
-uniform float uDiamonds = 1.0;
-uniform float uLen = 1.0;
+uniform float uSeed = 0.0;            // per engine: no two flicker alike
 
-varying vec2 vUv;
-varying float vAxial;      // 0 at the nozzle, 1 at the tip
-varying float vAng;        // azimuth round the jet, 0..1
+uniform vec3 uCore = vec3(1.0, 0.85, 0.55);     // supersonic core, HDR per unit
+uniform vec3 uShock = vec3(1.0, 0.95, 0.85);    // diamonds and the Mach disk
+uniform vec3 uMix = vec3(1.0, 0.45, 0.12);      // afterburning mixing layer
+uniform vec3 uTail = vec3(0.7, 0.22, 0.05);     // cooling downstream
+uniform vec3 uSmoke = vec3(0.05, 0.04, 0.03);   // what the soot scatters, lit
+uniform float uCoreLen = 5.0;         // potential core at sea level, De
+uniform float uBright = 1.0;          // overall emission
+uniform float uDiamonds = 1.0;        // shock-structure strength
+uniform float uMachDisk = 0.0;        // normal-shock strength when over-expanded
+uniform float uAfterburn = 1.0;       // how much the mixing layer burns
+uniform float uSoot = 0.0;            // absorbing smoke in the tail
+uniform float uFilm = 0.0;            // the F-1's dark film-cooling sleeve
+uniform float uBeam = 0.0;            // 1: a collimated beam (ion, photon drive)
+uniform float uNear = 0.0;            // 1: near field only (a cluster's far field is drawn merged)
+uniform float uFar = 0.0;             // 1: a cluster's merged far field, fading in downstream
+uniform float uTempCode = 0.32;       // ln(T)/25.33 — the web build's publish factor
+uniform int uSteps = 26;
+
+varying vec3 vLocal;                  // this fragment, in the plume's frame, m
+varying flat vec3 vCam;               // the camera, in the plume's frame, m
 
 void vertex() {
-	vUv = UV;
-	vAng = UV.x;
-	vAxial = clamp(-VERTEX.y / max(uLen, 1e-4), 0.0, 1.0);
-	vec3 p = VERTEX;
-	float a = vAxial;
-	// THE RADIUS PROFILE IS THE PRESSURE STORY, and it is two different shapes
-	// rather than one scaled.
-	//
-	//   OVER-EXPANDED (sea level): the ambient squeezes the jet back down to a
-	//   column barely wider than the throat, and it spreads only as the mixing
-	//   layer eats into it — slowly, and roughly linearly. A Merlin at liftoff
-	//   is a pencil, not a cone.
-	//
-	//   UNDER-EXPANDED (vacuum): nothing confines it, so it turns the corner at
-	//   the lip and opens as a bell that is several exit diameters across within
-	//   one diameter of the nozzle. The a^0.6 is that: nearly all the spread
-	//   happens immediately and then it is ballistic.
-	// Both profiles start at exactly 1.0 — the nozzle's own exit radius, which
-	// the geometry is built at — and then neck or bloom over the first few
-	// percent of the length. Starting anywhere else leaves a visible step where
-	// the jet meets the bell it is supposed to be coming out of.
-	float sea = mix(1.0, 0.52, smoothstep(0.0, 0.05, a)) + 0.95 * pow(a, 1.55);
-	float vac = mix(1.0, 0.34, smoothstep(0.0, 0.03, a)) + 4.30 * pow(a, 0.60);
-	float bloom = mix(sea, vac, uExpand);
-	// A beam does not spread at all — it is collimated, which is the whole
-	// difference between an ion engine and a flame.
-	bloom = mix(bloom, 0.34 + 0.22 * a, uBeam);
-	p.xz *= bloom;
-	// A throttled engine has a shorter flame — less mass flow to burn, and the
-	// afterburning mixing layer is what most of the length IS. A vacuum plume is
-	// longer again because nothing is stopping it.
-	p.y *= mix(1.0, 2.3, uExpand) * (0.55 + 0.45 * uThrottle);
-	VERTEX = p;
+	vLocal = VERTEX * uBox;
+	VERTEX = vLocal;
+	vCam = (inverse(MODEL_MATRIX) * vec4(CAMERA_POSITION_WORLD, 1.0)).xyz;
 }
 
-float hash(vec3 p) { return fract(sin(dot(p, vec3(21.7, 91.3, 47.1))) * 43758.5453); }
-float noise(vec3 p) {
-	vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-	float n000 = hash(i), n100 = hash(i + vec3(1.0, 0.0, 0.0));
-	float n010 = hash(i + vec3(0.0, 1.0, 0.0)), n110 = hash(i + vec3(1.0, 1.0, 0.0));
-	float n001 = hash(i + vec3(0.0, 0.0, 1.0)), n101 = hash(i + vec3(1.0, 0.0, 1.0));
-	float n011 = hash(i + vec3(0.0, 1.0, 1.0)), n111 = hash(i + vec3(1.0, 1.0, 1.0));
-	return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
-	           mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
+// ---- noise: value noise, trilinear, and a 3-octave sum
+float hash13(vec3 p) {
+	p = fract(p * 0.1031);
+	p += dot(p, p.zyx + 31.32);
+	return fract((p.x + p.y) * p.z);
 }
-float fbm(vec3 p) {
-	float v = 0.0, a = 0.5;
-	for (int i = 0; i < 3; i++) { v += a * noise(p); p *= 2.07; a *= 0.5; }
-	return v;
+float vnoise(vec3 p) {
+	vec3 i = floor(p), f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x),
+	               mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y),
+	           mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x),
+	               mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float fbm3(vec3 p) {
+	return vnoise(p) * 0.55 + vnoise(p * 2.13 + 7.1) * 0.30 + vnoise(p * 4.37 + 3.3) * 0.15;
+}
+
+float ign(vec2 p) {
+	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
+
+// The jet's radius at axial distance x (both in De), in exit radii.
+float jet_radius(float x, float over, float under) {
+	// over-expanded: pinched toward the first cell, then a slow ~4° spread
+	float pinch = 1.0 - 0.16 * over * sin(3.14159 * clamp(x / 1.2, 0.0, 1.0));
+	float sea = pinch + 0.14 * x;
+	// under-expanded: turns the corner at the lip — nearly all of the spread
+	// happens inside the first diameter, then it is ballistic
+	float vac = 1.0 + under * 2.6 * pow(max(x, 0.0), 0.62) + 0.05 * x;
+	float r = mix(sea, vac, clamp(under, 0.0, 1.0));
+	// a beam does not spread: that is the whole difference from a flame
+	return mix(r, 1.0 + 0.03 * x, uBeam);
 }
 
 void fragment() {
-	float a = vAxial;
-	float radial = abs(vUv.x - 0.5) * 2.0;
-	// Azimuth as a position on a circle, so the turbulence does not have a seam
-	// where the cylinder's uv wraps.
-	float th = vAng * 6.2831853;
-	vec3 sp = vec3(cos(th) * 1.7, sin(th) * 1.7, 0.0);
+	if (uThrottle <= 0.001) discard;
+	vec3 ro = vCam;
+	vec3 rd = normalize(vLocal - vCam);
+	float R = uBox.x;
+	float L = uBox.y;
+	// ---- the ray inside the bounding cylinder (y from −L to 0, radius R)
+	float a = dot(rd.xz, rd.xz);
+	float b = dot(ro.xz, rd.xz);
+	float c = dot(ro.xz, ro.xz) - R * R;
+	float disc = b * b - a * c;
+	if (disc <= 0.0 || a < 1e-8) discard;
+	float sq = sqrt(disc);
+	float tc0 = (-b - sq) / a, tc1 = (-b + sq) / a;
+	float ty0 = (-L - ro.y) / (abs(rd.y) > 1e-6 ? rd.y : 1e-6);
+	float ty1 = (0.0 - ro.y) / (abs(rd.y) > 1e-6 ? rd.y : 1e-6);
+	float t0 = max(max(tc0, min(ty0, ty1)), 0.0);
+	float t1 = min(tc1, max(ty0, ty1));
+	// the scene in front ends the ray (the vehicle's base, the deck, the ground)
+	float d = texture(uDepth, SCREEN_UV).r;
+	vec4 v = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, d, 1.0);
+	t1 = min(t1, length(v.xyz / v.w));
+	if (t1 <= t0) discard;
 
-	// ZONE 1 — THE SUPERSONIC CORE. The gas leaves the throat at Mach 3-plus
-	// and stays supersonic for a few exit diameters before the mixing layer,
-	// growing inward from the edge, closes on the axis. That length is SHORT and
-	// it is where all the shock structure lives; it gets relatively shorter as
-	// the jet blooms, because a bloomed jet has far more surface for the shear
-	// layer to work on.
-	float coreEnd = mix(0.34, 0.13, uExpand);
-	float inCore = 1.0 - smoothstep(coreEnd * 0.55, coreEnd * 1.35, a);
+	float De = 2.0 * uRe;
+	float pr = max(uPR, 1e-3);
+	// 0..1 measures of how over- and under-expanded the jet is
+	float over = clamp(1.0 - pr, 0.0, 1.0);
+	float under = clamp(log(max(pr, 1.0)) / log(300.0), 0.0, 1.0);
+	float cell = 0.45 * sqrt(max(uMach * uMach - 1.0, 0.2)) * sqrt(clamp(pr, 0.05, 40.0)) + 0.4;
+	// the diamonds exist while there is an ambient pressure to be wrong about
+	float dia = uDiamonds * (1.0 - smoothstep(1.5, 12.0, pr)) * (1.0 - uBeam);
+	float coreLen = uCoreLen * (1.0 + 3.0 * under);
+	float Lx = L / De;                   // the plume's length, in De
+	float thr = 0.35 + 0.65 * uThrottle;
+	float flow = uTime * (6.0 + 10.0 * uThrottle);   // turbulence carried downstream, De/s
 
-	// SHOCK DIAMONDS: a standing train of oblique shocks, bright where the gas
-	// is compressed and dark where it re-expands. The spacing grows downstream
-	// and the whole train disappears with altitude on its own, because there
-	// is no longer an ambient pressure to be wrong about.
-	float sp0 = 0.055 + 0.16 * a;
-	float diamonds = 0.5 + 0.5 * cos((a / sp0) * 6.2831853);
-	diamonds = pow(max(diamonds, 0.0), 2.6);
-	// The bright cells are narrow and the dark ones wide: weight to the axis.
-	float shock = 1.0 + 2.4 * diamonds * (1.0 - radial * 0.65);
+	float jitter = ign(FRAGCOORD.xy);
+	float dt = (t1 - t0) / float(uSteps);
+	vec3 col = vec3(0.0);
+	float T = 1.0;
+	for (int i = 0; i < 48; i++) {
+		if (i >= uSteps) break;
+		float t = t0 + (float(i) + jitter) * dt;
+		vec3 p = ro + rd * t;
+		float x = -p.y / De;             // downstream, in De
+		if (x < 0.0) continue;
+		float r = length(p.xz) / uRe;    // off axis, in exit radii
+		float Rj = jet_radius(x, over, under);
+		float rho = r / Rj;
+		if (rho > 1.9) continue;
+		float fade_end = 1.0 - smoothstep(0.55, 1.0, x / Lx);
+		// a cluster's single engines hand over to the merged far field
+		// (overlapping, so the hand-over never leaves a gap in the fire)
+		float nearK = mix(1.0, 1.0 - smoothstep(2.5, 6.0, x), uNear);
+		float farK = mix(1.0, smoothstep(0.15, 0.9, x), uFar);
+		float along = fade_end * nearK * farK;
+		if (along <= 0.0) continue;
 
-	// THE MACH DISK: a heavily over-expanded jet terminates its oblique train
-	// in a NORMAL shock within a diameter or so of the exit — the hard white
-	// knot at a sea-level nozzle that a vacuum engine does not have.
-	float over = 1.0 - uExpand;
-	float aM = 0.045 + 0.075 * over;
-	// Squared by multiplication, not pow(): the base is negative upstream.
-	float dM = (a - aM) / 0.028;
-	float disk = exp(-dM * dM) * smoothstep(0.35, 0.85, over);
-	disk *= 1.0 - smoothstep(0.35, 0.95, radial);
+		// ---- turbulence, advected downstream and regenerated (two scales)
+		// stretched along the flow, because the eddies are: a shear layer's
+		// structures are drawn out downstream before they break up
+		vec3 q = vec3(p.x / De, x - flow, p.z / De);
+		float turb = fbm3(q * vec3(2.4, 0.85, 2.4) + uSeed);
+		float turb2 = fbm3(q * vec3(7.0, 2.2, 7.0) - uSeed * 1.7 + vec3(0.0, flow * 0.6, 0.0));
+		turb = mix(turb, 0.55, uBeam);
 
-	float core = pow(max(1.0 - radial * 1.75, 0.0), 2.6) * inCore;
+		// ---- 1. the supersonic core: hot, bright, smooth
+		float inCore = 1.0 - smoothstep(coreLen * 0.55, coreLen * 1.25, x);
+		float core = exp(-rho * rho * 3.5) * inCore;
 
-	// ZONE 2 — THE MIXING LAYER, which is most of what you can see: a
-	// turbulent shear layer entraining air and, for anything carbon-bearing,
-	// still BURNING. Brightest in an annulus, because that is where the shear is.
-	float dS = (radial - 0.62) / 0.40;
-	float shear = exp(-dS * dS);
-	float mixLayer = smoothstep(coreEnd * 0.4, coreEnd * 1.8, a) * pow(1.0 - a, 0.9);
+		// ---- 2. shock structure: X-shaped oblique shocks and bright cells
+		float ph = x / cell;
+		float tri = abs(1.0 - 2.0 * fract(ph));             // the shock's radius, rises and falls
+		// (squares by multiplication: pow() of a negative base is undefined)
+		float sd = (min(rho, 1.2) - tri) / 0.13;
+		float shock = exp(-sd * sd) * 0.5
+		            + exp(-rho * rho * 7.0) * pow(0.5 + 0.5 * cos(6.2831853 * ph), 5.0);
+		shock *= dia * exp(-ph * 0.28) * inCore;
+		// the Mach disk: a normal shock ~0.6–0.9 cell downstream, when PR is low
+		float xm = cell * (0.55 + 0.35 * pr);
+		float dm = (x - xm) / 0.09;
+		float disk = exp(-dm * dm) * exp(-rho * rho * 5.0)
+		           * uMachDisk * smoothstep(0.25, 0.8, over);
 
-	// Turbulence advected downstream, regenerated rather than translated.
-	float turb = fbm(sp + vec3(0.0, 0.0, a * 6.5 - uTime * 5.5));
-	turb = mix(turb, fbm(sp * 2.3 + vec3(0.0, 0.0, a * 13.0 - uTime * 9.0)), 0.45);
-	// A beam has no turbulence at all: it is collisionless.
-	turb = mix(turb, 0.5, uBeam);
+		// ---- 3. the mixing layer: an annulus at the jet's edge, burning
+		float w = 0.22 + 0.05 * x;
+		float sh = (rho - 0.92) / w;
+		float shell = exp(-sh * sh);
+		float fill = smoothstep(1.25, 0.2, rho) * smoothstep(coreLen * 0.4, coreLen * 1.6, x);
+		// hard contrast, so the turbulence EATS the flame into tongues rather
+		// than shading a smooth one
+		float lick = clamp(turb * 1.7 - 0.35, 0.0, 1.0);
+		float burn = uAfterburn * (shell * 0.8 + fill * 0.9) * (0.15 + 2.2 * lick * lick) * (0.6 + 0.8 * turb2)
+		           * smoothstep(0.2, 1.4, x) * (0.1 + 0.9 * (1.0 - under));
+		// in vacuum there is nothing to burn with and nothing to shear on: a
+		// smooth, faint bell whose light falls off as it spreads
+		// (thin: a vacuum plume is a glow you can see the stars through)
+		float bell = under * exp(-rho * rho * 1.6) * 0.14 / (Rj * Rj) * (0.8 + 0.4 * turb);
 
-	float iCore = (core * 2.2 + disk * 3.4) * mix(1.0, shock, uDiamonds * over);
-	// The mixing layer needs SOMETHING TO MIX WITH: in vacuum there is no
-	// entrainment and no afterburning, so a vacuum plume is a smooth,
-	// translucent, almost structureless cone — the observation, not a shortcut.
-	float iMix = shear * mixLayer * (0.35 + 1.5 * turb) * (0.30 + 0.70 * uSoot)
-	           * (0.18 + 0.82 * over);
-	// The body glow behind both, so the jet is never see-through down the axis.
-	float body = pow(1.0 - a, 1.25) * (1.0 - pow(radial, uBeam > 0.5 ? 6.0 : 2.2)) * 0.45;
+		// ---- colour: core → mixing → tail as the gas cools downstream
+		float cool = smoothstep(coreLen * 0.6, Lx * 0.8, x);
+		vec3 e = uCore * core * 2.2 + uShock * (shock * 3.0 + disk * 5.0)
+		       + mix(uMix, uTail, cool) * burn + mix(uCore, uMix, 0.5) * bell;
+		// a beam is its core and nothing else
+		e = mix(e, uCore * exp(-rho * rho * 2.0) * (0.8 + 0.2 * turb2), uBeam);
 
-	float i = (iCore + iMix + body) * uThrottle * uGlow;
-	if (i <= 0.0006) discard;
+		// ---- 4. the F-1's film sleeve: cool, fuel-rich, dark, igniting
+		// raggedly over the first couple of diameters
+		float film = uFilm * smoothstep(0.55, 0.95, rho) * (1.0 - smoothstep(1.2, 2.6 + turb * 1.2, x))
+		           * (1.0 - under);
+		e *= 1.0 - film * 0.92;
 
-	// COLOUR IS A TEMPERATURE, and the temperature falls along the jet. Soot is
-	// what makes that visible: a hydrogen plume stays a thin violet.
-	float cool = 1.0 - 0.72 * pow(a, 0.8) * uSoot;
-	vec3 col = mix(uEdge, uCore, clamp(core * 1.5 + disk * 2.0 + (1.0 - a) * 0.30, 0.0, 1.0));
-	col = mix(col, uEdge * vec3(1.00, 0.52, 0.24), (1.0 - cool));
-	// The shock cells are hotter than the gas around them, so they are WHITER.
-	col = mix(col, vec3(1.0), clamp((disk * 1.8 + diamonds * 0.45 * over * inCore) * uDiamonds, 0.0, 0.85));
+		// ---- 5. soot: absorbs, and scatters a little (brown for carbon,
+		// white for a solid's alumina). Thickest in the tail and at the edge.
+		// In streaks, not a sheet: soot is carried in the same eddies as the
+		// flame, and between them is clear burning gas.
+		float streak = clamp(turb2 * 1.8 - 0.55, 0.0, 1.0);
+		float soot = uSoot * (0.2 + 1.3 * streak * turb) * (smoothstep(0.25, 0.9, x / Lx) * 1.1 + film * 3.0)
+		           * smoothstep(1.8, 0.5, rho) * (1.0 - under) * along;
+		float sigma = soot * 0.8 / De;   // per metre
 
-	// HDR: emitters are expected to write well above 1.0
-	vec3 rgb = col * i * 7.0;
-	// The published temperature code, cooled along the jet — which in the web
-	// build was also the SOURCE FACTOR of the colour blend.
-	float T = uTemp * mix(1.0, cool, 0.85);
-	float code = clamp(log(max(T, 2.0)) / 25.33, 0.006, 0.984);
-	ALBEDO = rgb * code;
-	ALPHA = 0.0;
+		vec3 em = e * uBright * thr * along / De;    // emission per metre
+		float ds = dt;
+		float Ts = exp(-sigma * ds);
+		// emission + in-scattered smoke, integrated across the step
+		col += T * (em * ds + uSmoke * (1.0 - Ts) * along);
+		T *= Ts;
+		if (T < 0.02) break;
+	}
+	float alpha = 1.0 - T;
+	if (max(col.r, max(col.g, col.b)) < 1e-4 && alpha < 0.002) discard;
+	// the web build's published temperature code was also the colour's source
+	// factor; it is kept, so the plume sits at the same brightness it did
+	ALBEDO = col * uTempCode * 2.4;
+	ALPHA = alpha;
 }

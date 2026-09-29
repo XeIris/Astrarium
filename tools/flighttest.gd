@@ -17,6 +17,9 @@ extends Node
 #   ["init", {alt, vVert, vHoriz}]    set r, v, q as tools/flightref.mjs does
 #   ["program", name]                 the flight panel's program button
 #   ["cam", mode] / ["warp", i]
+#   ["call", method, args...]         main.<method>(args...)
+#   ["sunaim", yaw, pitch]            turntable to the far side from the sun
+#   ["pad", az°, el, scale]           walk the pad camera round (pad_orbit)
 #   ["frames", n]                     n fixed steps of main.animate(dt)
 #   ["shot", name, hud?]              write <out>/<name>.png (+ .json telemetry)
 #
@@ -109,6 +112,15 @@ func _do(s: Array) -> void:
 			f.run_program(s[1])
 		"cam":
 			f.set_camera_mode(s[1])
+		"throttle":
+			f.vessel.throttle = float(s[1])
+			if f.autopilot != null: f.autopilot.mode = "manual"
+		"call":
+			main.callv(s[1], s.slice(2))
+		"sunaim":
+			f.aim_camera_at_sun(float(s[1]) if s.size() > 1 else 0.22, float(s[2]) if s.size() > 2 else 0.10)
+		"pad":
+			f.pad_orbit(deg_to_rad(float(s[1])), float(s[2]), float(s[3]) if s.size() > 3 else 1.0)
 		"warp":
 			f.set_warp(int(s[1]))
 		"frames":

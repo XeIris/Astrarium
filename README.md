@@ -43,10 +43,20 @@ authored Blender models and procedural vehicle fallbacks; see
 [the material guide](assets/materials/README.md). Lower presets keep the lighter
 flat-colour materials.
 In Earth's flight view, High also uses sky radiance for material reflections,
-an eight-step 3D cloud layer, subtle near-field atmospheric scattering and a
-solar disc with an apparent diameter of about 0.53 degrees. Medium uses a
-lighter cloud shader; Low skips clouds. Daylight exposure is calibrated in the
+a raymarched volumetric cumulus layer (1.5–4.6 km, visible from below,
+inside and above, casting shadows on the ground and dimming the vehicle's
+sunlight when it is under or in a cloud) and subtle near-field atmospheric
+scattering. Medium marches the same clouds more coarsely; Low skips them.
+The sun is drawn at its true angular size at every altitude, reddened by the
+air mass along its line and occluded by the vehicle, the ground, the planet
+and clouds, with camera glare. The star field is dimmed by the camera's
+daylight exposure (stars vanish beside a sunlit vehicle and return in the
+planet's shadow or far from the Sun). Daylight exposure is calibrated in the
 flight view, and the Advanced exposure slider gives manual control.
+Engine exhaust is a raymarched volume per engine: shock diamonds and Mach
+disks from the real exit-to-ambient pressure ratio, afterburning, soot, and a
+look per propellant and engine (see `sim/flight/plume.gd`); large clusters
+draw one merged far field.
 The four Blender pad builds add railings, catwalks, structural framing and
 service hardware to Saturn V, Shuttle, Falcon 9 and Starship launch sites. The
 surrounding hardstand now has joints, marked access roads, utility cabinets,
@@ -117,6 +127,7 @@ There is no test suite, as in the web build; there are checks.
 | `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript |
 | `tools/nbodycheck.gd` | native kernel vs the GDScript loop |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()` |
+| `tools/padcheck.gd` | launch complexes: reports any pad structure inside its vehicle (`-- padmodels=0` for the fallback pads) |
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
 | `eval=_leak_check` | loads all 35 scenarios and two launches, five times over; object, resource, node and VRAM counts should stay flat |

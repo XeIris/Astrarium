@@ -49,8 +49,14 @@ def pipe(name, a, b, radius, mat, parent=None):
     return strut(name, xyz(a), xyz(b), radius, mat, seg=12, parent=parent)
 
 
-def tower(M, x, base, height, side, parent, prefix):
-    """Bevelled corner columns, bracing, open catwalks, stairs and service runs."""
+def tower(M, x, base, height, side, parent, prefix, clear_px=False):
+    """Bevelled corner columns, bracing, open catwalks, stairs and service runs.
+
+    clear_px keeps everything behind the tower's +x face. A strongback stands
+    0.9 m off the vehicle, and catwalks that overhang by 0.9 m reach the skin:
+    that face carries only what mates with the vehicle, which launchsite.gd
+    fits to the measured skin itself.
+    """
     steel, grey, rail, copper = M['steel'], M['grey'], M['safety-yellow'], M['oxidized-copper']
     h = side * 0.5
     for sx in (-1, 1):
@@ -80,11 +86,13 @@ def tower(M, x, base, height, side, parent, prefix):
     for i in range(1, levels + 1):
         y = base + height * i / levels
         # Perimeter grating leaves the centre visually open.
+        over = 0.0 if clear_px else 0.9
         for sign in (-1, 1):
-            block(f'{prefix}_walk_x_{i}_{sign}', side + 1.8, 0.18, 1.25,
-                  x, y, sign * (h - 0.35), grey, parent, 0.018)
+            block(f'{prefix}_walk_x_{i}_{sign}', side + 0.9 + over, 0.18, 1.25,
+                  x + (over - 0.9) * 0.5, y, sign * (h - 0.35), grey, parent, 0.018)
+            inset = 0.65 if (clear_px and sign > 0) else 0.35
             block(f'{prefix}_walk_z_{i}_{sign}', 1.25, 0.18, side - 1.5,
-                  x + sign * (h - 0.35), y, 0, grey, parent, 0.018)
+                  x + sign * (h - inset), y, 0, grey, parent, 0.018)
         # Guardrails and posts are full geometry rather than black lines.
         for sz in (-1, 1):
             for sx in (-1, 1):
@@ -117,14 +125,50 @@ def tower(M, x, base, height, side, parent, prefix):
               x - h - 0.25, y + 0.2, h + 1.2, M['white'], parent, 0.12)
 
 
-def mobile_deck(M, parent):
-    pw, pd, ph, hole = 49.4, 41.1, 7.6, 13.7
-    side_w, side_d = (pw - hole) * 0.5, (pd - hole) * 0.5
-    for s in (-1, 1):
-        block(f'deck_side_{s}', side_w, ph, pd, s * (hole + side_w) * 0.5,
-              0, 0, M['grey'], parent, 0.28)
-        block(f'deck_end_{s}', hole, ph, side_d, 0,
-              0, s * (hole + side_d) * 0.5, M['grey'], parent, 0.28)
+# The exhaust openings, (centre x, centre z, width x, depth z), metres. The
+# Saturn V ML has one 13.7 m square hole for the five F-1s. The Shuttle MLP has
+# THREE: a 6.1 x 12.8 m hole under each booster and a 10.4 x 9.4 m hole under
+# the three main engines, which are on the orbiter and so 7.4 m off the tank's
+# axis toward it (+z; the site is turned to the vehicle's roll). A single hole
+# on the axis put both boosters' nozzles down onto solid deck, 1.1 m into it.
+# The same table is in sim/flight/launchsite.gd for the procedural fallback.
+DECK_HOLES = {
+    'lut': [(0.0, 0.0, 13.7, 13.7)],
+    'fss': [(-6.35, 0.0, 6.1, 12.8), (6.35, 0.0, 6.1, 12.8), (0.0, 7.4, 10.4, 9.4)],
+}
+
+
+def deck_cells(pw, pd, holes, cx0=0.0, cz0=0.0):
+    """A rectangle (the platform, by default) minus the holes, as rectangles:
+    cut the plan at every hole edge inside it and keep the cells no hole
+    covers, merged along x so a row is one slab where it can be."""
+    x_lo, x_hi, z_lo, z_hi = cx0 - pw / 2, cx0 + pw / 2, cz0 - pd / 2, cz0 + pd / 2
+    xs = sorted({x_lo, x_hi, *[min(max(h[0] + s * h[2] / 2, x_lo), x_hi) for h in holes for s in (-1, 1)]})
+    zs = sorted({z_lo, z_hi, *[min(max(h[1] + s * h[3] / 2, z_lo), z_hi) for h in holes for s in (-1, 1)]})
+    cells = []
+    for j in range(len(zs) - 1):
+        z0, z1 = zs[j], zs[j + 1]
+        run = None
+        for i in range(len(xs) - 1):
+            x0, x1 = xs[i], xs[i + 1]
+            cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+            solid = not any(abs(cx - h[0]) < h[2] / 2 and abs(cz - h[1]) < h[3] / 2 for h in holes)
+            if solid and run is not None and abs(run[1] - x0) < 1e-6:
+                run[1] = x1
+            elif solid:
+                run = [x0, x1, z0, z1]
+                cells.append(run)
+            else:
+                run = None
+    return cells
+
+
+def mobile_deck(M, parent, holes):
+    pw, pd, ph = 49.4, 41.1, 7.6
+    for k, (x0, x1, z0, z1) in enumerate(deck_cells(pw, pd, holes)):
+        block(f'deck_cell_{k}', x1 - x0, ph, z1 - z0, (x0 + x1) / 2,
+              0, (z0 + z1) / 2, M['grey'], parent, min(0.28, (x1 - x0) * 0.1, (z1 - z0) * 0.1))
+    hx = max(abs(h[0]) + h[2] / 2 for h in holes)
     # Deep visible girder band and catwalk/guardrail along all four sides.
     for s in (-1, 1):
         beam(f'edge_x_{s}', (-pw * 0.5, ph - 0.2, s * pd * 0.5),
@@ -134,21 +178,33 @@ def mobile_deck(M, parent):
         for i in range(10):
             z = -pd * 0.47 + i * pd * 0.104
             block(f'grate_{s}_{i}', 1.8, 0.045, 1.9,
-                  s * (hole * 0.5 + 3.7), ph, z, M['darkcon'], parent, 0.012)
+                  s * (hx + 3.7), ph, z, M['darkcon'], parent, 0.012)
         for i in range(12):
             x = -pw * 0.46 + i * pw * 0.084
             pipe(f'rail_post_{s}_{i}', (x, ph, s * (pd * 0.5 - 0.25)),
                  (x, ph + 1.2, s * (pd * 0.5 - 0.25)), 0.06, M['safety-yellow'], parent)
         pipe(f'rail_top_{s}', (-pw * 0.5, ph + 1.2, s * (pd * 0.5 - 0.25)),
              (pw * 0.5, ph + 1.2, s * (pd * 0.5 - 0.25)), 0.07, M['safety-yellow'], parent)
-        block(f'hazard_x_{s}', 0.35, 0.025, hole + 4.0,
-              s * (hole * 0.5 + 1.4), ph, 0, M['safety-yellow'], parent, 0.005)
-        block(f'hazard_z_{s}', hole + 4.0, 0.025, 0.35,
-              0, ph, s * (hole * 0.5 + 1.4), M['safety-yellow'], parent, 0.005)
+    # A hazard line a metre outside every opening's edge — cut where it
+    # would run across a NEIGHBOURING opening, as the Shuttle's three do.
+    for k, (cx, cz, w, d) in enumerate(holes):
+        for s in (-1, 1):
+            lines = ((0.35, d + 2.35, cx + s * (w / 2 + 1.0), cz),
+                     (w + 2.35, 0.35, cx, cz + s * (d / 2 + 1.0)))
+            for j, (lw, ld, lx, lz) in enumerate(lines):
+                for q, (x0, x1, z0, z1) in enumerate(deck_cells(lw, ld, holes, lx, lz)):
+                    block(f'hazard_{k}_{s}_{j}_{q}', x1 - x0, 0.025, z1 - z0,
+                          (x0 + x1) / 2, ph, (z0 + z1) / 2, M['safety-yellow'], parent, 0.005)
+    # Ribs under the deck, split where they would cross an opening.
     for i in range(8):
         x = -pw * 0.42 + i * pw * 0.12
-        block(f'under_rib_{i}', 0.45, 1.1, pd * 0.93, x, 1.4, 0,
-              M['steel'], parent, 0.08)
+        cuts = sorted((h[1] - h[3] / 2, h[1] + h[3] / 2) for h in holes if abs(x - h[0]) < h[2] / 2 + 0.3)
+        z = -pd * 0.465
+        for k, (a, b) in enumerate(cuts + [(pd * 0.465, pd * 0.465)]):
+            if a - z > 0.5:
+                block(f'under_rib_{i}_{k}', 0.45, 1.1, a - z, x, 1.4, (a + z) / 2,
+                      M['steel'], parent, 0.08)
+            z = max(z, b)
     for i in range(4):
         x = -pw * 0.3 + i * pw * 0.2
         block(f'utility_{i}', 2.2, 1.7, 1.4, x, ph,
@@ -165,10 +221,14 @@ def falcon_deck(M, parent):
     for s in (-1, 1):
         block(f'stool_ring_{s}', 2.1, 1.6, 6.8,
               s * 4.45, 8.0, 0, M['grey'], parent, 0.18)
-    for i in range(8):
-        x = -4.5 + i * 1.28
-        block(f'falcon_grate_{i}', 0.22, 0.045, 8.2, x, 9.6, 0,
-              M['darkcon'], parent, 0.012)
+    # Grating on the ring's top only. The middle is the OPENING the nine
+    # Merlins fire through; grating laid across it put the bells' exhaust
+    # into 8 m of steel.
+    for s in (-1, 1):
+        for i in range(8):
+            x = -4.5 + i * 1.28
+            block(f'falcon_grate_{s}_{i}', 0.22, 0.045, 1.6, x, 9.6, s * 4.45,
+                  M['darkcon'], parent, 0.012)
     for s in (-1, 1):
         pipe(f'falcon_fuel_{s}', (-13.0, 0.5, s * 1.5),
              (-5.0, 8.4, s * 1.5), 0.17, M['oxidized-copper'], parent)
@@ -251,7 +311,7 @@ def build_pad(M):
         M[name] = material(name, srgb(color), rough, metal)
     deck = empty('stage_deck', (0, 0, 0))
     if STYLE in ('lut', 'fss'):
-        mobile_deck(M, deck)
+        mobile_deck(M, deck, DECK_HOLES[STYLE])
         height = 116.0 if STYLE == 'lut' else 75.3
         tower_node = empty('stage_tower', xyz((-22.85, 7.6, 0)))
         tower(M, 0, 0, height, 12.2, tower_node, STYLE)
@@ -261,10 +321,13 @@ def build_pad(M):
     elif STYLE == 'strongback':
         falcon_deck(M, deck)
         strongback = empty('stage_strongback', (0, 0, 0))
-        tower(M, 0, 0, 63.0, 3.4, strongback, STYLE)
+        tower(M, 0, 0, 63.0, 3.4, strongback, STYLE, clear_px=True)
+        # Brackets FLUSH on the vehicle face: 0.45 m proud of a face that
+        # stands 0.9 m off the skin. They were 2.3 m deep once and stood a
+        # metre inside the booster.
         for y in (18.0, 36.0, 54.0):
-            block(f'umbilical_mount_{y}', 2.3, 1.3, 2.8,
-                  2.2, y, 0, M['white'], strongback, 0.12)
+            block(f'umbilical_mount_{y}', 0.5, 1.3, 2.8,
+                  1.7 + 0.2, y, 0, M['white'], strongback, 0.08)
     else:
         starship_deck(M, deck)
         tower_node = empty('stage_tower', xyz((-26.0, 0, 0)))

@@ -15,9 +15,19 @@
 // Lit by hand for a Lambert BRDF: the 1/π is the same one the vehicle's
 // StandardMaterial3D carries, with uSunI the same irradiance its
 // DirectionalLight gets (AGENTS.md, "local space is lit for a Lambert BRDF").
+//
+// Two things tie it to the PLANET rather than to the local frame, whose origin
+// rides under the vehicle: the procedural detail is sampled about uAnchor (a
+// planet-fixed point's position in the local frame — the pad, when there is
+// one), so the scrub and sand stay where they are as the rocket flies over
+// them instead of travelling with it; and the CLOUD SHADOWS are the cloud
+// pass's own field (clouds.gdshaderinc) marched toward the sun from each
+// ground point, so a shadow lies under the cloud that casts it.
 // ============================================================================
 shader_type spatial;
 render_mode unshaded, cull_disabled;
+
+#include "res://shaders/flight/clouds.gdshaderinc"
 
 uniform float uRadius = 6.371e6;    // planet radius, m
 uniform float uPatch = 4e4;         // patch radius, m
@@ -38,12 +48,16 @@ uniform float uTemp = 288.0;
 uniform float uGeoReady = 0.0;
 uniform mat3 uGeoFrame;
 uniform vec2 uPadLocal;
+uniform vec2 uAnchor = vec2(0.0);   // a planet-fixed point, in the local frame (x east, y north)
+uniform float uHasPad = 0.0;
+uniform vec3 uCamLocal = vec3(0.0);
 uniform sampler2D uEarthColor : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D uEarthLand : filter_linear_mipmap_anisotropic, repeat_enable;
 
 varying float vDist;
 varying vec3 vWorld;
 varying float vDrop;
+varying vec3 vLocal;
 
 void vertex() {
 	// The unit disc is stretched to the patch radius with a quadratic
@@ -56,6 +70,8 @@ void vertex() {
 	float drop = (r * r) / (2.0 * uRadius);
 	vec3 q = vec3(d.x * r, -drop, d.y * r);
 	vDist = r; vWorld = q; vDrop = drop;
+	// camera-relative world position, plus the camera: the point in the local frame
+	vLocal = (MODEL_MATRIX * vec4(q, 1.0)).xyz + uCamLocal;
 	VERTEX = q;
 }
 
@@ -79,17 +95,19 @@ void fragment() {
 	// Terrain colour: two rock tones mixed by a large-scale field, with a fine
 	// grain that only survives close to the camera — past a few kilometres it
 	// is below a pixel anyway and keeping it just aliases.
-	float big = fbm(vWorld.xz * 0.00008);
+	vec2 gp = vWorld.xz - uAnchor;     // planet-fixed: see the header
+	float big = fbm(gp * 0.00008);
 	// Raise the ground under the launch site. Every pad ever built is on a
 	// coast — for range safety — so this is what a launch site actually looks
-	// like from the tower: land under you, water a few kilometres out.
-	big += 0.40 * exp(-vDist / 7000.0);
+	// like from the tower: land under you, water a few kilometres out. Under
+	// the PAD, which is not where the vehicle is a minute later.
+	big += 0.40 * exp(-length(gp) / 7000.0) * uHasPad;
 	// Three scales of detail, each fading out at the range where it stops being
 	// resolvable and starts being aliasing. The MID octave is the one that
 	// matters for a launch: it is the only thing in view with a known size, so
 	// it is what the eye reads the climb rate against.
-	float mid = fbm(vWorld.xz * 0.0011);
-	float fine = fbm(vWorld.xz * 0.02);
+	float mid = fbm(gp * 0.0011);
+	float fine = fbm(gp * 0.02);
 	float midK = exp(-vDist / 9000.0);
 	float fineK = exp(-vDist / 900.0);
 	vec3 col = mix(uRock, uGround, clamp(big * 1.5 - 0.15, 0.0, 1.0));
@@ -117,7 +135,7 @@ void fragment() {
 		// The global image resolves kilometres per texel. Within a few kilometres
 		// of the pad, restore local scrub, sand and weathering at usable scale.
 		float parcel = 1.0 - smoothstep(1300.0, 4200.0, distance(vWorld.xz, uPadLocal));
-		float sand = smoothstep(0.48, 0.69, fbm(vWorld.xz * 0.0018 + vec2(17.0, 31.0)));
+		float sand = smoothstep(0.48, 0.69, fbm(gp * 0.0018 + vec2(17.0, 31.0)));
 		vec3 landCol = mix(mapped, col, 0.42 + parcel * 0.36);
 		landCol = mix(landCol, uRock * 1.28, sand * parcel * 0.28);
 		vec3 water = max(mapped * 0.8, uSea * 0.8);
@@ -130,7 +148,24 @@ void fragment() {
 	// body with an atmosphere, and why a terminator is not a hard edge.
 	const float INV_PI = 0.3183099;
 	float ndl = clamp(uSunDir.y, -0.2, 1.0);
-	col *= INV_PI * (uSunI * max(ndl, 0.0) + uSkyI * (0.35 + 0.65 * clamp(uSunDir.y + 0.25, 0.0, 1.0)));
+	// CLOUD SHADOW: the optical depth of the layer along the sun line from
+	// here, six samples between where that line enters the base and leaves
+	// the top. Not a black shadow: under a thick cloud the sun still arrives
+	// DIFFUSED, and the sky round the cloud still lights the ground.
+	float shade = 1.0;
+	if (uCloudCoverage > 0.0 && uSunDir.y > 0.02) {
+		vec2 tb = cloud_sphere(vLocal, uSunDir, uCloudBase);
+		vec2 tt = cloud_sphere(vLocal, uSunDir, uCloudTop);
+		float a0 = max(tb.y, 0.0);
+		float a1 = tt.y;
+		float ds = (a1 - a0) / 6.0;
+		float od = 0.0;
+		for (int i = 0; i < 6; i++)
+			od += cloud_density(vLocal + uSunDir * (a0 + (float(i) + 0.5) * ds), false) * ds;
+		// direct beam, or what diffuses through (two-stream, as the cloud pass)
+		shade = max(exp(-od), 1.0 / (1.0 + 0.11 * od));
+	}
+	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade + uSkyI * (0.35 + 0.65 * clamp(uSunDir.y + 0.25, 0.0, 1.0)));
 
 	// AERIAL PERSPECTIVE. The optical depth along a horizontal path is the
 	// integral of the density, which for an exponential atmosphere seen from

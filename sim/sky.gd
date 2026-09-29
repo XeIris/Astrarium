@@ -387,6 +387,27 @@ static func _set_all(mats: Array, name: String, value) -> void:
 		if m != null:
 			(m as ShaderMaterial).set_shader_parameter(name, value)
 
+## THE EXPOSURE THE SKY IS SEEN AT, relative to a night-sky exposure.
+##
+## The background is calibrated to be looked at in the dark. A camera beside a
+## sunlit vehicle is not exposing for that: it is exposing for a white hull in
+## full sun, which is some ten or eleven stops brighter, and at that exposure
+## the stars — Sirius included — are below the noise. That is why no picture
+## from a sunlit spacecraft has stars in it, and why the flight view showing a
+## full star field beside the sun looked wrong. So the flight view scales the
+## background down by the ratio of exposures (spaceflight.gd), and it comes
+## back as the vehicle passes into the planet's shadow or leaves the star far
+## behind: the exposure goes as 1/illuminance, not as a switch.
+static var day_gain := 1.0
+static var _band := -1
+
+static func apply_day_gain(mats: Array, g: float) -> void:
+	if absf(g - day_gain) < 1e-5 and _band >= 0: return
+	day_gain = g
+	if _band < 0: return
+	_set_all(mats, "uSkyGain", float(SKY_GAIN[_band]) * day_gain)
+	_set_all(mats, "uStarGain", float(STAR_GAIN[_band]) * day_gain)
+
 ## Set the observer's boost. Pass a zero vector (the default) and every path
 ## through this module is bit-identical to what it was before relativistic
 ## flight existed — the aberration reduces to the identity and the Doppler
@@ -407,8 +428,9 @@ static func apply_sky_band(mats: Array, band_index: int) -> void:
 	_set_all(mats, "uThetaVis", Spectrum.H_OVER_K * nu_vis)
 	_set_all(mats, "uNuRatio3", pow(nu / nu_vis, 3.0))
 	_set_all(mats, "uExtCoef", float(EXTINCTION[i]))
-	_set_all(mats, "uSkyGain", float(SKY_GAIN[i]))
-	_set_all(mats, "uStarGain", float(STAR_GAIN[i]))
+	_band = i
+	_set_all(mats, "uSkyGain", float(SKY_GAIN[i]) * day_gain)
+	_set_all(mats, "uStarGain", float(STAR_GAIN[i]) * day_gain)
 
 	var table := {
 		"uwSynch": "synchrotron", "uwH21": "hydrogen21",
