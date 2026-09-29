@@ -21,7 +21,7 @@ func _setup() -> void:
 	if args.get("assets", "1") != "0":
 		CraftAssets.craft_models_ready([v])
 	mv = ModelViewer.create_model_viewer(pipe)
-	mv.load(v)
+	mv.load_vehicle(v)
 	if args.get("spin", "0") != "1":
 		mv.cam.spin = 0.0
 		mv.cam.held = true

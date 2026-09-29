@@ -440,10 +440,21 @@ export function createLaunchSite(vehicle, height, env) {
     // engines are running — which is why they retract ON IGNITION and not
     // before it.
     const n = style === 'lut' ? 9 : 5;
+    // On the FSS the crew access arm goes to the orbiter's HATCH — the
+    // orbiter is bolted to the tank's side, so its lane is off the axis by
+    // the orbiter's own mount, at the middeck (0.834 of the way up it).
+    let hatchY = -1, hatchZ = 0;
+    if (style === 'fss') {
+      for (const st of vehicle.stages) {
+        const m = st.look && st.look.orbiter ? st.look.mount : null;
+        if (m) { hatchY = (m.y || 0) + st.L * 0.834; hatchZ = m.z || 0; }
+      }
+    }
     for (let i = 0; i < n; i++) {
-      const y = PH + 10 + (i / (n - 1)) * (height * 0.92 - 10);
+      const top = i === n - 1 && hatchY > 0;
+      const y = top ? PH + hatchY : PH + 10 + (i / (n - 1)) * (height * 0.92 - 10);
       const pivot = new THREE.Group();
-      pivot.position.set(-(HOLE / 2 + 16), y, 0);
+      pivot.position.set(-(HOLE / 2 + 16), y, top ? hatchZ : 0);
       const arm = truss(16, 2.6, 2.4);
       arm.position.set(6, -1.2, 0);
       pivot.add(arm);

@@ -1709,6 +1709,7 @@ func _bind_hud() -> void:
 	hud.model_show.connect(show_model)
 	hud.model_deploy.connect(_on_model_deploy)
 	hud.model_spin.connect(_on_model_spin)
+	hud.model_backdrop.connect(func(light: bool): model_view.set_backdrop(light))
 	hud.model_fly.connect(_on_model_fly)
 
 func _on_body_focus(id: int) -> void:
@@ -1952,7 +1953,7 @@ func sync_warp_label() -> void:
 const MODEL_WORLD := ["scenarioPanel", "controlPanel", "flightPanel", "xsecPanel"]
 
 func show_model(key: String) -> void:
-	var veh = model_view.load(key)
+	var veh = model_view.load_vehicle(key)
 	if veh == null: return
 	hud.show_model_stats(model_view.stats())
 	for row in model_view.list(): hud.set_active("[data-mv=%s]" % row.key, row.key == key)

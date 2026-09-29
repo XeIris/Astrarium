@@ -1418,14 +1418,33 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		# for all nine is the same arm through two different vehicles.
 		var n := 9 if style == "lut" else 5
 		var pivot_x := -(HOLE / 2.0 + 16.0)
+		# On the FSS the crew access arm goes to the orbiter's HATCH, not to the
+		# top of the stack: the orbiter is bolted to the tank's side, so its
+		# lane is off the axis by the orbiter's own mount, and its height is
+		# the middeck's (the hatch is 0.834 of the way up the orbiter).
+		var hatch_y := -1.0
+		var hatch_z := 0.0
+		if style == "fss":
+			for st in vehicle.stages:
+				var lk: Dictionary = st.get("look", {})
+				var mt = lk.get("mount")
+				if CraftModel._t(lk.get("orbiter")) and mt != null:
+					hatch_y = float(mt.get("y", 0.0)) + float(st.L) * 0.834
+					hatch_z = float(mt.get("z", 0.0))
 		for i in n:
 			var y := PH + 10.0 + (float(i) / (n - 1)) * (height * 0.92 - 10.0)
+			var top_arm := i == n - 1
+			var lane_z := 0.0
+			if top_arm and hatch_y > 0.0:
+				y = PH + hatch_y
+				lane_z = hatch_z
 			var vy := y - PH                       # the same height in the craft's frame
 			var pivot := _node()
-			pivot.position = Vector3(pivot_x, y, 0.0)
-			var top_arm := i == n - 1
-			# the white room / crew access arm is the top one and is bigger
-			var stop := _stop(vy - 2.3, vy + 2.4, -2.6, 2.6, 0.0) if top_arm \
+			pivot.position = Vector3(pivot_x, y, lane_z)
+			# the white room / crew access arm is the top one and is bigger.
+			# (A lane's `across` is measured to the left of an approach from
+			# −x, which is −z.)
+			var stop := _stop(vy - 2.3, vy + 2.4, -lane_z - 2.6, -lane_z + 2.6, 0.0) if top_arm \
 				else _stop(vy - 1.3, vy + 1.3, -1.5, 1.5, 0.0)
 			var tip := -pivot_x - stop             # arm-local x of the skin, less the gap
 			var arm_end := tip - 4.5 * 0.5 if top_arm else tip

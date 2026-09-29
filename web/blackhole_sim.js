@@ -3137,6 +3137,9 @@ document.getElementById('mvSpin')?.addEventListener('click', e => {
   modelView.cam.spin = on ? 0.10 : 0;
   modelView.cam.held = !on;
 });
+document.getElementById('mvLight')?.addEventListener('click', e => {
+  modelView.setBackdrop(e.target.classList.toggle('on'));
+});
 document.getElementById('mvFly')?.addEventListener('click', () => {
   const k = modelView.vehicle?.key;
   closeModelViewer();
@@ -3349,7 +3352,7 @@ function animate() {
   if (modelOpen) {
     modelView.update(dt);
     renderer.setRenderTarget(postfx.hdr);
-    renderer.setClearColor(0x0b0d11, 1);
+    renderer.setClearColor(modelView.clearColor, 1);
     renderer.clear();
     renderer.render(modelView.scene, modelView.camera);
     renderer.setClearColor(0x000000, 0);

@@ -280,9 +280,13 @@ export const VEHICLES = {
         wings: { span: 23.8, area: 250, clMax: 1.4 },
         rcs: { thrust: 3870, isp: 289, prop: 1460, count: 44 },
         // z is the tank's radius (4.2 m) plus the orbiter's own half-depth, so
-        // the belly tiles sit against the foam where the struts are; y stacks it
-        // on the tank's own mount, putting the nose just under the ogive.
-        look: { skin: 'tiles', orbiter: true, mount: { y: 16.7, z: 7.05 } } }),
+        // the belly tiles sit against the foam where the struts are. y comes
+        // from the two aft attach points: the tank's is 2.8 m above its base
+        // (ET station 2058) and the orbiter's is 27.4 m behind its nose (Xo
+        // 1317), which puts the nose at 40.5 m — level with the intertank,
+        // well under the boosters' nose cones, as every photograph has it.
+        // It was 16.7, and the orbiter rode 13 m high with its nose at the ogive.
+        look: { skin: 'tiles', orbiter: true, mount: { y: 3.3, z: 7.05 } } }),
     ],
   },
 

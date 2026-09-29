@@ -254,7 +254,11 @@ point and the only file here that knows the orrery exists.
   is bolted to the SIDE of the tank, and stacking it put 37 m of spacecraft in
   the wrong place — no amount of surface detail survives that. Because mounts
   exist, the stack's height is a MEASURED extent (a `Box3` over the built root),
-  not a running sum of stage lengths.
+  not a running sum of stage lengths. A mount's height comes from where the
+  real attach points are, not from what looks tidy: the orbiter's is the ET's
+  aft attach (2.8 m up the tank) less the orbiter's own (27.4 m behind its
+  nose), which stands its nose at the intertank. "Stacked on the tank's
+  mount" put it 13 m too high, nose at the ogive, for as long as it stood.
 - **y = 0 on a craft is the PAD SURFACE — or, for a lander, the FOOTPAD
   PLANE.** `spaceflight.js` adds `craft.group`
   straight to `local.craftRoot` with no vertical offset, so the datum has to be

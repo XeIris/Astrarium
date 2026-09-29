@@ -74,7 +74,8 @@ export function createModelViewer() {
   scene.add(fill);
   const rim = new THREE.DirectionalLight(0xe8f0ff, 1.9);
   scene.add(rim);
-  scene.add(new THREE.HemisphereLight(0x2a3340, 0x14161a, 0.55));
+  const hemi = new THREE.HemisphereLight(0x2a3340, 0x14161a, 0.55);
+  scene.add(hemi);
 
   const gridU = {
     uStep: { value: 1 }, uRadius: { value: 100 },
@@ -227,6 +228,15 @@ export function createModelViewer() {
 
     setExplode(v) { cam.wantExplode = THREE.MathUtils.clamp(v, 0, 1); },
     setDeploy(v) { deployAll = v ? 1 : 0; },
+    /** Dark studio or light cyclorama. The light one lifts the ambient too: a
+     *  white room bounces light into the shadows. The page reads clearColor. */
+    clearColor: 0x0b0d11,
+    setBackdrop(light) {
+      this.clearColor = light ? 0xdfe3e8 : 0x0b0d11;
+      gridU.uBg.value.set(light ? 0xdfe3e8 : 0x101318);
+      gridU.uCol.value.set(light ? 0x98a3ae : 0x55677a);
+      hemi.intensity = light ? 0.55 * 2.6 : 0.55;
+    },
     drag(dx, dy) {
       cam.held = true;
       cam.yaw -= dx * 0.008;

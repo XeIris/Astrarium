@@ -18,6 +18,7 @@ extends Node
 #   ["program", name]                 the flight panel's program button
 #   ["cam", mode] / ["warp", i]
 #   ["call", method, args...]         main.<method>(args...)
+#   ["backdrop", light]               the model viewer's light/dark backdrop
 #   ["sunaim", yaw, pitch]            turntable to the far side from the sun
 #   ["look", yaw, pitch, dist?]       aim the chase/orbit turntable directly (rad, m)
 #   ["pad", az°, el, scale]           walk the pad camera round (pad_orbit)
@@ -118,6 +119,8 @@ func _do(s: Array) -> void:
 			if f.autopilot != null: f.autopilot.mode = "manual"
 		"call":
 			main.callv(s[1], s.slice(2))
+		"backdrop":
+			main.model_view.set_backdrop(bool(s[1]))
 		"sunaim":
 			f.aim_camera_at_sun(float(s[1]) if s.size() > 1 else 0.22, float(s[2]) if s.size() > 2 else 0.10)
 		"look":

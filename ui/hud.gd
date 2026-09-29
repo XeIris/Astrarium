@@ -79,6 +79,7 @@ signal model_close()
 signal model_show(key: String)
 signal model_deploy(on: bool)
 signal model_spin(on: bool)
+signal model_backdrop(light: bool)
 signal model_fly()
 signal panel_changed(id: String, open: bool)
 ## The lesson card's own buttons (the course UI, written elsewhere, listens).
@@ -832,6 +833,10 @@ func _build_model_panel() -> void:
 	spin.pressed.connect(func():
 		spin.set_state("on", not spin.has_state("on"))
 		model_spin.emit(spin.has_state("on")))
+	var bg := B(tr, C.toggle_btn(), "Light", "mvLight", tvars, "Light backdrop instead of the dark studio")
+	bg.pressed.connect(func():
+		bg.set_state("on", not bg.has_state("on"))
+		model_backdrop.emit(bg.has_state("on")))
 	E(p, {"display": "grid", "cols": [1.0, 1.0], "gapr": 3.0, "gapc": 10.0, "mb": 12.0}, null, "mvList")
 	E(p, {}, null, "mvStages")
 	B(p, C.action_btn(), "Fly this vehicle", "mvFly", [["hover", C.ACTION_HOVER]]).pressed.connect(func(): model_fly.emit())

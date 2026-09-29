@@ -103,6 +103,11 @@ var radius := 1.0
 ## "turntable" toggle), as the web page did.
 var cam := {"yaw": 0.9, "pitch": 0.20, "dist": 3.0, "spin": 0.10, "held": false, "explode": 0.0, "want_explode": 0.0}
 var deploy_all := 1.0
+## The backdrop: the dark studio, or a light one (a white cyclorama, which is
+## how most reference photographs of hardware are shot and the better ground
+## for judging a dark vehicle's silhouette).
+var light_backdrop := false
+var _ambient_base := 0.0
 var _retried := {}
 var _waiting := ""
 
@@ -167,6 +172,7 @@ func _hemisphere(sky_hex: int, ground_hex: int, intensity: float) -> void:
 	# linear sums, so they go back through linear_to_srgb first.
 	env.ambient_light_color = Color(avg.r / am, avg.g / am, avg.b / am).linear_to_srgb()
 	env.ambient_light_energy = am * intensity / PI
+	_ambient_base = env.ambient_light_energy
 	var hm := maxf(maxf(absf(half.r), absf(half.g)), maxf(absf(half.b), 1e-6))
 	var hc := Color(absf(half.r) / hm, absf(half.g) / hm, absf(half.b) / hm).linear_to_srgb()
 	for s in [1.0, -1.0]:
@@ -236,7 +242,11 @@ func _build_rule(H: float) -> void:
 ## per vehicle: a .glb that loads but carries no `stage_` node settles with no
 ## model while build_craft still falls back, and an unguarded rebuild would
 ## repeat without bound.
-func load(vehicle_key: String):
+## Named load_vehicle, not load: inside this class a bare `load(k)` resolves to
+## GDScript's global resource loader, and the rebuild below went looking for a
+## file called res://shuttle — so the studio never swapped the procedural
+## stand-in for the authored model it had just finished loading.
+func load_vehicle(vehicle_key: String):
 	var veh = CM.vehicle(vehicle_key)
 	if veh == null:
 		return null
@@ -316,6 +326,16 @@ func stats():
 		"twr": vs.pad_twr(vehicle, 9.80665) if can.call("pad_twr") else null,
 	}
 
+## Dark studio or light cyclorama. The light one also lifts the ambient: a
+## white room bounces light back into the shadows, and a vehicle lit as if in
+## a black box looks cut out against it.
+func set_backdrop(light: bool) -> void:
+	light_backdrop = light
+	pipe.env_model.background_color = Color.hex(0xdfe3e8ff if light else 0x0b0d11ff)
+	grid_mat.set_shader_parameter("uBg", _lin3(0xdfe3e8 if light else 0x101318))
+	grid_mat.set_shader_parameter("uCol", _lin3(0x98a3ae if light else 0x55677a))
+	pipe.env_model.ambient_light_energy = _ambient_base * (2.6 if light else 1.0)
+
 func set_explode(v: float) -> void:
 	cam.want_explode = clampf(v, 0.0, 1.0)
 
@@ -344,7 +364,7 @@ func update(dt: float) -> void:
 				and not craft.authored and not _retried.has(k):
 			_retried[k] = true
 			var keep := cam.duplicate()
-			load(k)
+			load_vehicle(k)
 			cam = keep
 	if not cam.held: cam.yaw += cam.spin * dt
 	cam.explode += (cam.want_explode - cam.explode) * (1.0 - exp(-dt * 4.0))
