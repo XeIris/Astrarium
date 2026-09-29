@@ -13,11 +13,12 @@ record is in [PORT_REPORT.md](PORT_REPORT.md).
 You need Godot **4.7.x** (standard build — not the .NET one, and not a
 double-precision build).
 
-1. *(optional, once)* Build the authored vehicle and launchpad meshes. They are
-   build artifacts of `model_sources/blender/*.py` and are gitignored; without
-   them the vehicles and launchpads use their procedural fallbacks.
+1. *(optional, once)* Build the authored vehicle, launchpad and launch-site
+   facility meshes. They are build artifacts of `model_sources/blender/*.py`
+   and are gitignored; without them the vehicles, launchpads and site
+   buildings use their procedural fallbacks.
    ```sh
-   model_sources/blender/build.sh       # needs Blender 4.1+; 9 craft + 4 pads
+   model_sources/blender/build.sh       # needs Blender 4.1+; 9 craft, 4 pads, facilities
    tools/sync_assets.sh                 # copies web/assets/*.glb into assets/craft/
    ```
 2. Open `project.godot` in the Godot editor and press **Play** (F5).

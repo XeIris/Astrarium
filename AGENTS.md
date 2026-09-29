@@ -50,7 +50,8 @@ but the ships are not the ships until this has been run once:
 model_sources/blender/build.sh
 ```
 
-That builds all nine vehicles (~12 MB) and four Godot launchpads into the ignored
+That builds all nine vehicles (~12 MB), four Godot launchpads and the
+launch-complex facility library (`facilities`, ~7 MB) into the ignored
 `assets/pads/*.glb` artifacts. Name some to build fewer — for example,
 `model_sources/blender/build.sh shuttle pad_fss` — which is the useful loop while
 editing one. `lib.py` holds the primitives and `common.py` the palette, the
@@ -663,6 +664,17 @@ point and the only file here that knows the orrery exists.
   the camera's height over the ground patch (set in `apply_origin`), not the
   vehicle's altitude: on the pad that is zero, and every ray below the
   horizontal met the ground at t ≈ 0.
+- **The grounds are a PLAN plus a LIBRARY.** `model_sources/blender/facilities.py`
+  builds one `stage_fac_<name>` node per facility, each drawn from a real one
+  at its published size (LC-39's 21 m cryogen spheres and 88.9 m water tower,
+  SpaceX's integration hangar, Starbase's cryoshell tank farm and subcoolers,
+  and the gas farms, substations, gatehouses, cameras and tankers every site
+  has), with its grade at y = 0 and its mains/doors/lamps on local +x or +z.
+  `LaunchSite.site_plan` says which stand where for each pad style, turned to
+  face the pad, clear of the lightning masts, the trench axis (±x) and the
+  crawlerway (−z). The names are an interface; a missing library falls back
+  to `complex_grounds`' procedural blocks. `tools/flight_scenarios.json`'s
+  `*_grounds` scenarios are the aerial check.
 - **Marks on the ground are multiplies, not geometry.** Joints and the
   scorched apron are `ground_mark.gdshader` — a line narrower than a pixel
   drawn as geometry flickers and dashes whatever the depth bias does; drawn

@@ -563,8 +563,11 @@ static func deck_services(radius: float) -> Node3D:
 ## Ground support: cryogenic storage, pump houses, piping and perimeter lights.
 ## The KSC pads do have storage tanks beyond the mound; these simplified forms
 ## keep that relationship and scale without pretending to be a site survey.
-static func support_facilities(radius: float, pad_style: String) -> Node3D:
+static func support_facilities(radius: float, pad_style: String, lamps_only := false) -> Node3D:
 	var g := _node()
+	if lamps_only:
+		_mound_lamps(g, radius)
+		return g
 	var farm := _node()
 	# Both of these stand at GRADE, so they have to be clear of the mound's
 	# flank (it runs out to radius + 2.6 × PAD_RISE): placed inside it, the
@@ -607,7 +610,11 @@ static func support_facilities(radius: float, pad_style: String) -> Node3D:
 		service.add_child(box(3.8, 3.3, 0.09, STEEL(), x, 0.25, 8.06))
 	for x in [-7.0, 7.0]:
 		service.add_child(box(3.0, 1.5, 2.7, WHITE(), x, 7.55, 0.0))
-	# Short lamp poles make the apron and mound size legible from the pad camera.
+	_mound_lamps(g, radius)
+	return g
+
+## Short lamp poles make the apron and mound size legible from the pad camera.
+static func _mound_lamps(g: Node3D, radius: float) -> void:
 	for x_sign in [-1.0, 1.0]:
 		for z_sign in [-1.0, 1.0]:
 			var x: float = float(x_sign) * radius * 0.66
@@ -615,7 +622,6 @@ static func support_facilities(radius: float, pad_style: String) -> Node3D:
 			g.add_child(pipe_between(Vector3(x, PAD_RISE, z), Vector3(x, PAD_RISE + 15.0, z), 0.16, STEEL()))
 			for side in [-1.0, 1.0]:
 				g.add_child(box(1.8, 0.75, 0.6, WHITE(), x + side * 1.0, PAD_RISE + 14.7, z))
-	return g
 
 # ---------------------------------------------------------------------------
 # THE REST OF THE COMPLEX — what a launch site is when it is not the pad.
@@ -750,7 +756,7 @@ static func _car_park(g: Node3D, B: Batch, c: Vector2, rows: int, per_row: int, 
 ## relationships (distance from the pad, which side of the crawlerway) — but
 ## all of it is at real size, which is the point: a 30 m hangar and a car
 ## are the scale the eye reads a 110 m rocket against.
-static func complex_grounds(radius: float, style: String) -> Array:
+static func complex_grounds(radius: float, style: String, authored := false) -> Array:
 	var g := _node()
 	g.name = "grounds"
 	var B := Batch.new()
@@ -794,6 +800,9 @@ static func complex_grounds(radius: float, style: String) -> Array:
 	# the KSC pads (a 3 200 m³ sphere), with its vaporizers, and the burn pond
 	# where boil-off is flared
 	var h2 := Vector2(toe + 95.0, radius * 0.15)
+	if authored:
+		_grounds_common(g, B, roads, radius, Rp, Rf, toe, true)
+		return _grounds_finish(g, B, roads)
 	B.box(62.0, 0.25, 48.0, DARKCON(), Vector3(h2.x, 0.0, h2.y))
 	if style == "lut" or style == "fss":
 		B.ball(10.5, WHITE(), Vector3(h2.x, 12.5, h2.y))
@@ -849,28 +858,7 @@ static func complex_grounds(radius: float, style: String) -> Array:
 	g.add_child(_mesh(bus.g, STEEL()))
 	B.footprint(sub, 42.0, 30.0)
 
-	# ---- operations building and its car park, outside the fence by the
-	# gate where the crawlerway comes in
-	var ops := Vector2(-(Rf + 70.0), -(Rp * 0.55))
-	_office(B, ops, 64.0, 20.0, 3, 0.0)
-	_car_park(g, B, Vector2(ops.x, ops.y + 44.0), 4, 18, 0.0, 7101)
-	roads.strip(Vector2(ops.x + 32.0, ops.y), Vector2(-Rp * 0.924, ops.y), 7.0, ASPHALT())
-	roads.strip(Vector2(ops.x, ops.y + 25.0), Vector2(ops.x, ops.y + 30.0), 7.0, ASPHALT())
-	# a guard house at the gate
-	B.box(6.0, 3.2, 4.0, WHITE(), Vector3(34.0, 0.0, -(Rf + 16.0)))
-	B.box(7.0, 0.3, 5.0, GREY(), Vector3(34.0, 3.2, -(Rf + 16.0)))
-	B.footprint(Vector2(34.0, -(Rf + 16.0)), 7.0, 5.0)
-
-	# ---- the deluge water's retention pond (a million litres a launch go
-	# somewhere), low and dark
-	var ret := Vector2(toe + 60.0, -(toe + 70.0))
-	B.box(84.0, 0.5, 46.0, GRAVEL(), Vector3(ret.x, 0.0, ret.y))
-	var rw := CraftModel.Geo.new()
-	for p in [Vector2(-39, -20), Vector2(39, -20), Vector2(-39, 20), Vector2(39, 20)]:
-		rw.pos.append(Vector3(ret.x + p.x, 0.52, ret.y + p.y)); rw.nrm.append(Vector3.UP)
-	rw.idx.append_array([0, 2, 1, 1, 2, 3])
-	g.add_child(_mesh(rw, decal(WATER(), 1)))
-	B.footprint(ret, 84.0, 46.0)
+	_grounds_common(g, B, roads, radius, Rp, Rf, toe, false)
 
 	# ---- floodlight towers, the tall landmarks every pad has at night
 	for k in 4:
@@ -911,6 +899,37 @@ static func complex_grounds(radius: float, style: String) -> Array:
 		B.footprint(tf, 120.0, 34.0)
 		B.footprint(Vector2(tf.x, tf.y + 30.0), 40.0, 18.0)
 
+	return _grounds_finish(g, B, roads)
+
+## What every complex has whichever buildings stand on it: the operations
+## building's car park and its roads, and the deluge's retention pond. The
+## office and the gatehouse are procedural only when the library is missing.
+static func _grounds_common(g: Node3D, B: Batch, roads: Batch, radius: float, Rp: float, Rf: float, toe: float, authored: bool) -> void:
+	# ---- operations building and its car park, outside the fence by the
+	# gate where the crawlerway comes in
+	var ops := Vector2(-(Rf + 70.0), -(Rp * 0.55))
+	if not authored: _office(B, ops, 64.0, 20.0, 3, 0.0)
+	_car_park(g, B, Vector2(ops.x, ops.y + 44.0), 4, 18, 0.0, 7101)
+	roads.strip(Vector2(ops.x + 32.0, ops.y), Vector2(-Rp * 0.924, ops.y), 7.0, ASPHALT())
+	roads.strip(Vector2(ops.x, ops.y + 25.0), Vector2(ops.x, ops.y + 30.0), 7.0, ASPHALT())
+	# a guard house at the gate
+	if not authored:
+		B.box(6.0, 3.2, 4.0, WHITE(), Vector3(34.0, 0.0, -(Rf + 16.0)))
+		B.box(7.0, 0.3, 5.0, GREY(), Vector3(34.0, 3.2, -(Rf + 16.0)))
+		B.footprint(Vector2(34.0, -(Rf + 16.0)), 7.0, 5.0)
+
+	# ---- the deluge water's retention pond (a million litres a launch go
+	# somewhere), low and dark
+	var ret := Vector2(toe + 60.0, -(toe + 70.0))
+	B.box(84.0, 0.5, 46.0, GRAVEL(), Vector3(ret.x, 0.0, ret.y))
+	var rw := CraftModel.Geo.new()
+	for p in [Vector2(-39, -20), Vector2(39, -20), Vector2(-39, 20), Vector2(39, 20)]:
+		rw.pos.append(Vector3(ret.x + p.x, 0.52, ret.y + p.y)); rw.nrm.append(Vector3.UP)
+	rw.idx.append_array([0, 2, 1, 1, 2, 3])
+	g.add_child(_mesh(rw, decal(WATER(), 1)))
+	B.footprint(ret, 84.0, 46.0)
+
+static func _grounds_finish(g: Node3D, B: Batch, roads: Batch) -> Array:
 	roads.build(g)
 	# the roads lie ON the ground, so they are decals, not slabs
 	for c in g.get_children():
@@ -922,6 +941,177 @@ static func complex_grounds(radius: float, style: String) -> Array:
 			(c as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	B.build(g)
 	return [g, B.keep_out]
+
+# ---------------------------------------------------------------------------
+# THE AUTHORED GROUNDS — model_sources/blender/facilities.py builds one library,
+# assets/pads/facilities.glb, of `stage_fac_<name>` buildings drawn from real
+# ones (the LC-39 cryogen spheres and water tower, SpaceX's integration hangar,
+# Starbase's tank farm and subcoolers, and the gas farms, substations, offices,
+# gatehouses, floodlights and camera sites every complex has). The PLAN below
+# says which stand where; the library says what they look like. Without the
+# build, complex_grounds' procedural blocks stand in.
+# ---------------------------------------------------------------------------
+static func _facility_library() -> Node3D:
+	if not use_authored_pads: return null
+	var path := "res://assets/pads/facilities.glb"
+	if not ResourceLoader.exists(path): return null
+	var packed := load(path) as PackedScene
+	if packed == null: return null
+	var lib := packed.instantiate() as Node3D
+	if lib != null: CraftAssets._prepare(lib)
+	return lib
+
+## The yaw that turns a facility's local +x (or, with `z`, its +z) toward the
+## pad from where it stands. Its mains, doors and lamps face that way.
+static func _face_pad(p: Vector2, z := false) -> float:
+	var d := -p.normalized()
+	return atan2(d.x, d.y) if z else atan2(-d.y, d.x)
+
+## Where a point given in a facility's own frame lands, the facility standing
+## at `p` turned by `yaw` (Basis(UP, yaw), as Node3D.rotation.y applies it).
+static func _at(p: Vector2, yaw: float, local: Vector2) -> Vector2:
+	return p + Vector2(local.x * cos(yaw) + local.y * sin(yaw), -local.x * sin(yaw) + local.y * cos(yaw))
+
+## [name, position, yaw, half-extent, service road?] for one complex, in the
+## plain's frame: pad at the origin, the crawlerway toward −z, "north" +z.
+## Laid out from the site plans: at LC-39 the LOX sphere is at the pad's NW
+## corner and the LH2 sphere at its NE, the water tower about 300 m north-east,
+## the hypergols at the SW and SE corners; SpaceX's hangar stands at the foot
+## of the ramp outside the fence; Starbase's tank farm is a row beside the
+## mount with its subcoolers alongside. Everything is kept clear of the
+## lightning masts (30°, 150° and 270° at `mast_r`), the flame trench's axis
+## (±x) and the crawlerway (−z).
+static func site_plan(r: float, style: String, mast_r: float) -> Array:
+	var toe := r + PAD_RISE * 2.6 + 8.0
+	var Rp := r + 300.0
+	var Rf := Rp + 22.0
+	var plan: Array = []
+	var add := func(name: String, p: Vector2, yaw: float, half: float, road := false) -> void:
+		plan.append([name, p, yaw, half, road])
+	# ---- every complex
+	add.call("substation", Vector2(-r * 0.45, toe + 95.0), 0.0, 24.0, true)
+	add.call("gas_farm", Vector2(r * 0.35, toe + 70.0), 0.0, 27.0, true)
+	add.call("ops_building", Vector2(-(Rf + 70.0), -(Rp * 0.55)), 0.0, 36.0)
+	add.call("guard_house", Vector2(34.0, -(Rf + 16.0)), 0.0, 10.0)
+	var shop := Vector2(-(toe + 75.0), -(toe + 60.0))
+	add.call("warehouse", shop, _face_pad(shop, true), 26.0)
+	for k in 4:
+		var a := (float(k) + 0.5) * TAU / 4.0 + 0.2
+		var p := Vector2(cos(a), sin(a)) * (Rp - 40.0)
+		if absf(p.x) < 40.0 and p.y < 0.0: p.x += 60.0
+		add.call("floodlight", p, _face_pad(p, true), 3.0)
+	# the camera sites ring the foot of the mound, clear of the trench's two
+	# ends (0° and 180°) and of the crawlerway (270°)
+	for deg in [35.0, 72.0, 108.0, 145.0, 215.0, 325.0]:
+		var a := deg_to_rad(deg)
+		var p := Vector2(cos(a), sin(a)) * (toe + 6.0)
+		add.call("camera_site", p, _face_pad(p), 2.5)
+	# ---- the LC-39 pads: Apollo and Shuttle
+	if style == "lut" or style == "fss" or style == "strongback":
+		var lox := Vector2(-(toe + 45.0), toe * 0.4)
+		var lox_yaw := _face_pad(lox)
+		add.call("lox_sphere", lox, lox_yaw, 26.0, true)
+		# a tanker at the sphere's fill bay (facilities.py: -(R + 2), R + 3)
+		add.call("tanker", _at(lox, lox_yaw, Vector2(-12.5, 13.5)), lox_yaw, 0.0)
+		var wt := Vector2(Rp * 0.52, Rp * 0.52)
+		add.call("water_tower", wt, _face_pad(wt), 20.0)
+		# the converter-compressor building and the shops, east of the pad
+		var ccf := Vector2(toe + 150.0, -toe * 0.3)
+		add.call("warehouse", ccf, _face_pad(ccf, true), 26.0)
+	if style == "lut" or style == "fss":
+		var lh2 := Vector2(toe + 45.0, toe * 0.4)
+		var lh2_yaw := _face_pad(lh2)
+		add.call("lh2_sphere", lh2, lh2_yaw, 26.0, true)
+		add.call("tanker", _at(lh2, lh2_yaw, Vector2(-12.9, 13.9)), lh2_yaw, 0.0)
+		add.call("burn_pond", Vector2(toe + 125.0, toe * 0.4 + 75.0), 0.0, 32.0)
+	if style == "lut" or style == "strongback":
+		var rp1 := Vector2(-(toe + 45.0), -toe * 0.2)
+		add.call("rp1_farm", rp1, _face_pad(rp1), 28.0, true)
+	if style == "fss":
+		for sx in [-1.0, 1.0]:
+			var hy := Vector2(sx * (toe + 35.0), -toe * 0.2)
+			add.call("hypergol", hy, _face_pad(hy), 18.0, true)
+	# ---- SpaceX: the hangar at the foot of the ramp, and horizontal tanks in
+	# place of the hydrogen sphere a Falcon has no use for
+	if style == "strongback":
+		var ht := Vector2(toe + 45.0, toe * 0.4)
+		add.call("horizontal_tanks", ht, _face_pad(ht), 24.0, true)
+		add.call("hif", Vector2(0.0, -(Rp + 150.0)), 0.0, 70.0)
+		add.call("containers", Vector2(72.0, -(Rp + 130.0)), 0.0, 16.0)
+		add.call("trailers", Vector2(-72.0, -(Rp + 125.0)), PI / 2.0, 21.0)
+	# ---- Starbase
+	if style == "chopsticks":
+		# north of the 150° mast, clear of its catenary's foot
+		var farm := Vector2(-(toe + 70.0), mast_r * 0.5 + 45.0)
+		add.call("tank_farm", farm, 0.0, 66.0, true)
+		# the tankers that fill it, waiting their turn along its south side
+		for k in 3:
+			add.call("tanker", farm + Vector2(-44.0 + float(k) * 22.0, -18.0), 0.0, 0.0)
+		add.call("subcooler", farm + Vector2(-10.0, 30.0), 0.0, 17.0)
+		var bunker := Vector2(-(toe + 12.0), farm.y * 0.5)
+		add.call("gse_bunker", bunker, _face_pad(bunker, true) + PI, 24.0)
+		var hz := Vector2(-(toe + 60.0), -r * 0.15)
+		add.call("horizontal_tanks", hz, _face_pad(hz), 24.0, true)
+		var dl := Vector2(toe + 35.0, r * 0.35)
+		add.call("deluge_tanks", dl, _face_pad(dl), 18.0)
+		# a site that is still being built: the crane that stacks it, the
+		# container yard and the office trailers
+		var crane := Vector2(-(toe + 15.0), -60.0)
+		add.call("crawler_crane", crane, _face_pad(crane), 16.0)
+		add.call("containers", Vector2(toe + 45.0, -toe * 0.3), _face_pad(Vector2(toe + 45.0, -toe * 0.3)), 16.0)
+		add.call("trailers", Vector2(r * 0.35 + 72.0, toe + 60.0), 0.0, 21.0)
+	return plan
+
+static func _set_range(n: Node, end: float) -> void:
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+		# railings, ladders and cable are thinner than a shadow-map texel:
+		# their shadows are aliasing, and cost a pass for nothing
+		var m := (n as MeshInstance3D).mesh.surface_get_material(0)
+		if m != null and m.resource_name in ["safety-yellow", "rubber"]:
+			(n as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if n is GeometryInstance3D:
+		(n as GeometryInstance3D).visibility_range_end = end
+		(n as GeometryInstance3D).visibility_range_end_margin = end * 0.1
+		(n as GeometryInstance3D).visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	for c in n.get_children(): _set_range(c, end)
+
+## Stand the plan's facilities on the plain, each a copy of its library node,
+## with a service road out to the perimeter where the plan asks for one.
+## Returns their footprints, for the scrub.
+static func place_facilities(plain: Node3D, lib: Node3D, plan: Array, Rp: float) -> Array:
+	var g := _node()
+	g.name = "facilities"
+	plain.add_child(g)
+	var roads := Batch.new()
+	var keep_out: Array = []
+	for item in plan:
+		var src := lib.get_node_or_null("stage_fac_" + str(item[0])) as Node3D
+		if src == null: continue
+		var n := src.duplicate() as Node3D
+		var p: Vector2 = item[1]
+		n.position = Vector3(p.x, 0.0, p.y)
+		n.rotation = Vector3(0.0, float(item[2]), 0.0)
+		g.add_child(n)
+		var half: float = item[3]
+		# Past a few kilometres a gatehouse is under a pixel and still costs
+		# its draw calls; the camera leaves the pad at a kilometre a second.
+		# Big things (a tank farm, the hangar) carry further than small ones.
+		_set_range(n, 2500.0 + maxf(half, 4.0) * 80.0)
+		if half > 0.0: keep_out.append(Rect2(p.x - half - 4.0, p.y - half - 4.0, 2.0 * half + 8.0, 2.0 * half + 8.0))
+		if item[4]:
+			# out to the perimeter road: an octagon of circumradius Rp, whose
+			# edges' normals are at multiples of 45°
+			var out := p.normalized()
+			var off := fposmod(atan2(out.y, out.x) + PI / 8.0, PI / 4.0) - PI / 8.0
+			var ring := Rp * cos(PI / 8.0) / cos(off)
+			if p.length() + half < ring:
+				roads.strip(p + out * half, out * ring, 6.0, ASPHALT())
+	roads.build(g)
+	for c in g.get_children():
+		if c is MeshInstance3D:
+			(c as MeshInstance3D).mesh.surface_set_material(0, decal(ASPHALT(), 1))
+			(c as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return keep_out
 
 ## Sparse coastal scrub outside the maintained hardstand. Instancing keeps the
 ## visible foliage to one draw call rather than hundreds of tiny scene nodes.
@@ -1121,18 +1311,31 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	# The masts stand well clear of the vehicle — they are there to intercept a
 	# strike, and a conductor close enough to be in the frame is close enough
 	# to be a hazard. At 39B they are about 200 m out on a 300 m catenary span.
-	plain.add_child(lightning_masts(maxf(height * 2.4, top_r + 140.0), maxf(height * 1.2, 100.0)))
-	var wt := water_tower(88.0)
-	wt.position = Vector3(-(top_r + 60.0), 0.0, top_r * 0.8)
-	plain.add_child(wt)
-	plain.add_child(support_facilities(top_r, style))
-	var grounds := complex_grounds(top_r, style)
-	plain.add_child(grounds[0])
-	var keep_out: Array = grounds[1]
-	# support_facilities' two plots and the water tower
-	keep_out.append(Rect2(-top_r - 145.0, -top_r * 0.35 - 38.0, 100.0, 76.0))
-	keep_out.append(Rect2(top_r + 40.0, -top_r * 0.55 - 19.0, 44.0, 38.0))
-	keep_out.append(Rect2(-(top_r + 60.0) - 10.0, top_r * 0.8 - 10.0, 20.0, 20.0))
+	var mast_r := maxf(height * 2.4, top_r + 140.0)
+	plain.add_child(lightning_masts(mast_r, maxf(height * 1.2, 100.0)))
+	# The buildings: authored (model_sources/blender/facilities.py) when the
+	# library has been built, the procedural blocks when it has not.
+	var lib := _facility_library()
+	var keep_out: Array = []
+	if lib != null:
+		plain.add_child(support_facilities(top_r, style, true))
+		var grounds := complex_grounds(top_r, style, true)
+		plain.add_child(grounds[0])
+		keep_out = grounds[1]
+		keep_out.append_array(place_facilities(plain, lib, site_plan(top_r, style, mast_r), top_r + 300.0))
+		lib.free()
+	else:
+		var wt := water_tower(88.0)
+		wt.position = Vector3(-(top_r + 60.0), 0.0, top_r * 0.8)
+		plain.add_child(wt)
+		plain.add_child(support_facilities(top_r, style))
+		var grounds := complex_grounds(top_r, style)
+		plain.add_child(grounds[0])
+		keep_out = grounds[1]
+		# support_facilities' two plots and the water tower
+		keep_out.append(Rect2(-top_r - 145.0, -top_r * 0.35 - 38.0, 100.0, 76.0))
+		keep_out.append(Rect2(top_r + 40.0, -top_r * 0.55 - 19.0, 44.0, 38.0))
+		keep_out.append(Rect2(-(top_r + 60.0) - 10.0, top_r * 0.8 - 10.0, 20.0, 20.0))
 	plain.add_child(coastal_scrub(top_r, keep_out))
 
 	# ---- the launch mount. Every part of the structure that stands on the
