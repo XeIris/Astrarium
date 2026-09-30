@@ -342,15 +342,23 @@ func _layout_now(w: float, forced_h: float) -> float:
 	var cw := maxf(w - _hpad(), 0.0)
 	var maxh := gf("maxh")
 	var scroll: bool = g("scroll")
-	var ch := _layout_content(cw, Vector2(bl + pl, bt + pt))
+	var o := Vector2(bl + pl, bt + pt)
+	var narrow_w := maxf(cw - gf("sbw"), 0.0)
+	# The scrollbar is taken out of the content box. A panel that overflowed last
+	# time is tried at the narrow width first, where its children's layouts are
+	# cached (full width first would redo all of them twice). So a scrollbar stays
+	# until the content fits without it.
+	var narrow := scroll and scrollbars and maxh >= 0.0 and overflowing
+	var ch := _layout_content(narrow_w if narrow else cw, o)
+	if narrow and ch + _vpad() <= maxh + 0.01:
+		narrow = false
+		ch = _layout_content(cw, o)
 	var auto_h := ch + _vpad()
-	overflowing = false
+	overflowing = narrow
 	if scroll and maxh >= 0.0 and auto_h > maxh + 0.01:
-		# The WebKit scrollbar is taken out of the content box, so the whole
-		# content lays out again 4 px narrower once it knows it overflows.
 		overflowing = true
-		if scrollbars:
-			ch = _layout_content(maxf(cw - gf("sbw"), 0.0), Vector2(bl + pl, bt + pt))
+		if scrollbars and not narrow:
+			ch = _layout_content(narrow_w, o)
 		auto_h = ch + _vpad()
 	content_h = auto_h
 	var h := auto_h
