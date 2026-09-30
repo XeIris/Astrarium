@@ -181,6 +181,7 @@ func _ready() -> void:
 	hud.build_sky_settings(SkyModel.SKY_ENVIRONMENTS.keys(), SkyModel.SKY_PARAMS)
 	set_mesh_style(state.mesh_style)
 	hud.build_bindings(Bindings.GROUPS, controls.bindings)
+	set_app_icon(AppIcon.saved(), false)
 	_init_fx_rows()
 	if _cmd.has("quality"): set_render_quality(String(_cmd.quality))
 	if _cmd.has("lighting"): set_lighting_quality(String(_cmd.lighting))
@@ -1497,6 +1498,12 @@ func sync_sky_controls(skip_inputs := false) -> void:
 	var eff := U.merged(SkyModel.blend_environments(state.sky.get("env")), state.sky)
 	hud.sync_sky_controls(state.sky, eff, skip_inputs)
 
+## The window/dock icon, remembered across launches (ui/app_icon.gd).
+func set_app_icon(key: String, persist := true) -> void:
+	if not AppIcon.apply(key, persist): return
+	for icon in AppIcon.ICONS:
+		hud.set_active("[data-app-icon=%s]" % icon[0], icon[0] == key)
+
 const FX_DEFAULTS := {"bloom": 0.55, "threshold": 1.0, "radius": 1.0, "vignette": 0.35, "grain": 0.02, "exposure": 1.0}
 const FX_ROWS := [["fxBloom", "bloom", 2], ["fxThreshold", "threshold", 2], ["fxRadius", "radius", 2], ["fxVignette", "vignette", 2], ["fxGrain", "grain", 3], ["fxExposure", "exposure", 2]]
 const RENDER_QUALITY := {
@@ -1664,6 +1671,7 @@ func _bind_hud() -> void:
 	hud.quit_to_start.connect(quit_to_start)
 	hud.quit_app.connect(func(): get_tree().quit())
 	hud.binding_chosen.connect(_choose_binding)
+	hud.app_icon_chosen.connect(set_app_icon)
 	hud.bindings_reset.connect(func():
 		controls.reset()
 		capture_action = ""
