@@ -156,11 +156,23 @@ export class Cruise {
    * Coordinate time is derived from it, never integrated separately.
    */
   step(dtau) {
-    if (this.leg === 'arrived' || dtau <= 0) return;
+    // A step is SPLIT at every leg boundary it crosses, at the exact proper
+    // time the boundary falls: cutoff when φ reaches the planned rapidity,
+    // turnover when the distance left equals what the deceleration covers,
+    // arrival when φ comes back to zero. Checked only at the start of a step,
+    // the turnover came up to a whole step late — at 10⁶× warp that is 16 667 s
+    // of coasting at 0.9 c, and the ship reached Tau Ceti still doing 0.04 c.
+    let left = dtau, guard = 0;
+    while (left > 0 && this.leg !== 'arrived' && guard++ < 8) left = this._advance(left);
+  }
+
+  /** One piece of a step inside a single leg; returns the proper time left over. */
+  _advance(dtau) {
+    if (this.leg === 'arrived' || dtau <= 0) return 0;
     const plan = this.plan;
     const legPhi = plan.phi;
     // decide the leg
-    if (this.leg === 'accel' && this.phi >= legPhi - 1e-9) {
+    if (this.leg === 'accel' && this.phi >= legPhi - 1e-12) {
       this.leg = plan.mode === 'flip' ? 'decel' : 'coast';
       this.note(plan.mode === 'flip' ? 'Turnover — beginning deceleration' : `Cutoff at β = ${this.beta.toFixed(5)}, γ = ${this.gamma.toFixed(3)} — coasting`);
       if (this.leg === 'decel') this.note('Flip and burn');
@@ -168,17 +180,28 @@ export class Cruise {
     if (this.leg === 'coast') {
       // Turn over when the remaining distance equals what the deceleration leg
       // will cover — computed, not scheduled, so a mid-course change of mind
-      // still stops at the right place.
+      // still stops at the right place. Within a part in 10¹² of the trip
+      // counts as there: s is ~10¹⁷ m, where a double's spacing is 16 m.
       const need = (C_MS * C_MS / this.a) * (Math.cosh(this.phi) - 1);
-      if (this.remaining <= need) { this.leg = 'decel'; this.note('Turnover — flip and burn'); }
+      if (this.remaining <= need + this.distLy * LY_M * 1e-12) { this.leg = 'decel'; this.note('Turnover — flip and burn'); }
     }
 
     const burning = this.leg === 'accel' || this.leg === 'decel';
     const sign = this.leg === 'decel' ? -1 : 1;
     const a = burning ? this.a * this.throttle : 0;
 
-    // Exact hyperbolic advance over dtau at constant proper acceleration.
-    const dphi = sign * a * dtau / C_MS;
+    // How much of dtau this leg gets before its boundary.
+    let h = dtau;
+    if (this.leg === 'accel' && a > 0) h = Math.min(h, (legPhi - this.phi) * C_MS / a);
+    else if (this.leg === 'decel' && a > 0) h = Math.min(h, this.phi * C_MS / a);
+    else if (this.leg === 'coast' && this.phi > 0) {
+      const need = (C_MS * C_MS / this.a) * (Math.cosh(this.phi) - 1);
+      h = Math.min(h, Math.max(this.remaining - need, 0) / (C_MS * Math.sinh(this.phi)));
+    }
+    h = Math.max(h, 0);
+
+    // Exact hyperbolic advance over h at constant proper acceleration.
+    const dphi = sign * a * h / C_MS;
     const phi0 = this.phi, phi1 = burning ? this.phi + dphi : this.phi;
     // Coordinate time and distance are integrals of cosh and sinh; with constant
     // a they are exact, and with a = 0 they reduce to the coasting case.
@@ -193,16 +216,17 @@ export class Cruise {
       if (this.prop <= 0 && this.leg === 'accel') { this.note('Astrophage exhausted — coasting'); this.leg = 'coast'; }
       this.phi = phi1;
     } else {
-      this.t += dtau * Math.cosh(this.phi);
-      this.s += dtau * C_MS * Math.sinh(this.phi);
+      this.t += h * Math.cosh(this.phi);
+      this.s += h * C_MS * Math.sinh(this.phi);
     }
-    this.tau += dtau;
+    this.tau += h;
 
-    if (this.leg === 'decel' && (this.phi <= 0 || this.remaining <= 0)) {
-      this.phi = Math.max(this.phi, 0);
+    if (this.leg === 'decel' && (this.phi <= 1e-12 || this.remaining <= 0)) {
+      this.phi = this.phi <= 1e-12 ? 0 : this.phi;
       this.leg = 'arrived';
       this.note(`Arrival — ${fmtYears(this.tau / YEAR_S)} ship, ${fmtYears(this.t / YEAR_S)} coordinate`);
     }
+    return h < dtau ? dtau - h : 0;
   }
 
   /** Everything the HUD needs, in one object. */

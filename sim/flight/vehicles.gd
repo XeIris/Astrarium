@@ -459,11 +459,19 @@ static func _build_vehicles() -> Dictionary:
 				"centrifuge": false,
 				"look": { "skin": "panel-white", "hailmary": true, "tanks": 3, "beetles": 4, "radiators": 4 } }),
 		],
-		# The mission the ship was built for. Distances in light years.
+		# The mission the ship was built for. Distances in light years; `ra`
+		# (hours) and `dec` (degrees) are each star's J2000 position, so a
+		# cruise leaves in the direction the star actually is — see
+		# Spaceflight.mission_direction for the frame. `lum` (L☉), `teff` (K)
+		# and `radius` (R☉) are the star's measured values (as starcat.gd),
+		# because the star is also a LIGHT: it rises as the ship arrives.
 		"missions": [
-			{ "name": "Tau Ceti", "ly": 11.9, "accel": 1.5 },
-			{ "name": "Proxima Centauri", "ly": 4.246, "accel": 1.5 },
-			{ "name": "40 Eridani", "ly": 16.3, "accel": 1.5 },
+			{ "name": "Tau Ceti", "ly": 11.9, "accel": 1.5, "ra": 1.7345, "dec": -15.937,
+			  "lum": 0.52, "teff": 5344.0, "radius": 0.793 },
+			{ "name": "Proxima Centauri", "ly": 4.246, "accel": 1.5, "ra": 14.4953, "dec": -62.679,
+			  "lum": 0.00155, "teff": 3042.0, "radius": 0.1542 },
+			{ "name": "40 Eridani", "ly": 16.3, "accel": 1.5, "ra": 4.2544, "dec": -7.653,
+			  "lum": 0.46, "teff": 5072.0, "radius": 0.812 },
 		],
 	},
 

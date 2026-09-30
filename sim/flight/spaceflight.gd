@@ -80,6 +80,17 @@ var craft = null                  # CraftModel.Craft
 var plumes: Array = []            # Plume.PlumeFx
 var entry = null                  # Plume.EntryGlow
 var cruise = null                 # Relativity.Cruise
+## What the cruise is flying between, so the ship's straight line can be
+## carried along with the two bodies at its ends: {parent, parent0, target,
+## target0, stage, name, arrived}. Null outside cruise.
+var cruise_ctx = null
+## A cruise that has been asked for but cannot leave yet, because the line to
+## the destination runs through the planet under the ship: {body, mission,
+## accel}. The ship coasts round its orbit until the line is clear.
+var pending_cruise = null
+## An interstellar destination picked from the target list — one of the
+## vehicle's `missions` — as against `target`, which is always a body.
+var star_target = null
 var site = null                   # LaunchSite
 var site_pos = null               # DVec3: the pad, in the vessel's parent frame, m
 var map_site = null               # {lat, lon} of the mapped geography
@@ -100,6 +111,14 @@ var boost := Vector3.ZERO
 var _boost_d := DVec3.new()
 
 var sky_gain := 1.0               # the background's exposure, see update_visual
+## The camera's adapted exposure: what the light at the vehicle is multiplied
+## by to be drawn, eased like an eye. 1 in daylight at 1 AU; see
+## update_visual. Negative means "not adapted yet — snap to the scene".
+var exposure := -1.0
+## Integrated starlight — every star in the sky but the near ones — as a
+## fraction of the Sun's irradiance at Earth. About 2e-4 lux against 1e5:
+## nothing, near a star; the only light there is, between them.
+const STARLIGHT := 2.0e-9
 ## The planet's rotation since the flight began, rad: world → planet-fixed is
 ## a turn about +Y by this (the spin is about −Y). The cloud field and the
 ## ground's detail are laid out in that frame, so they stay put on the planet.
@@ -127,6 +146,10 @@ var local_view: LocalView
 var _q := DQuat.new()
 var _a := DVec3.new()
 var _b := DVec3.new()
+var _warp_shown := -1
+## The target list's prefix for an interstellar destination, which is not a
+## body in the scenario and must not be looked up as one.
+const MISSION_PREFIX := "★ "
 
 static func create_spaceflight(ctx: Dictionary) -> Spaceflight:
 	return Spaceflight.new(ctx)
@@ -200,11 +223,41 @@ func morning_longitude(body: Body) -> float:
 
 ## The brightest star's direction from the vessel, for lighting the model.
 func sun_direction(out: DVec3) -> DVec3:
-	var st := _stars()
-	var src: Body = st[0] if not st.is_empty() else dominant()
-	if src == null or vessel == null: return out.set_v(0.0, 1.0, 0.0)
-	out.sub_vectors(src.pos, vessel.parent.pos).scale_in(Rocketry.AU_M).sub_in(vessel.r)
-	return DQuat.nrm(out)
+	var src := light_sources()
+	if src.is_empty() or vessel == null:
+		var d := dominant()
+		if d == null or vessel == null: return out.set_v(0.0, 1.0, 0.0)
+		out.sub_vectors(d.pos, vessel.parent.pos).scale_in(Rocketry.AU_M).sub_in(vessel.r)
+		return DQuat.nrm(out)
+	return out.copy_from(src[0].dir)
+
+## Where the vessel is in the orrery's frame, AU.
+func ship_world(out: DVec3 = null) -> DVec3:
+	if out == null: out = DVec3.new()
+	return out.copy_from(vessel.parent.pos).add_scaled_in(vessel.r, 1.0 / Rocketry.AU_M)
+
+## Every star lighting the vessel, brightest first: {dir (unit DVec3, world,
+## toward the star), flux (irradiance relative to the Sun's at Earth, from
+## the vessel's OWN position), teff, ang_r (angular radius, rad)}. The
+## scenario's stars, plus an interstellar mission's destination, which is not
+## a body in the scenario but is every bit as much a sun once you get there.
+func light_sources() -> Array:
+	var out := []
+	if vessel == null: return out
+	var w := ship_world()
+	for b in _stars():
+		var d := DVec3.new().sub_vectors(b.pos, w)
+		var r := maxf(d.length(), 1e-6)
+		out.append({"dir": d.scale_in(1.0 / r), "flux": float(U.nz(b.luminosity, 1.0)) / (r * r),
+			"teff": float(U.nz(b.teff, 5772.0)), "ang_r": b.radius / r if b.radius > 0.0 else 0.00465 / r})
+	if cruise_ctx != null and cruise_ctx.get("star_pos") != null:
+		var m: Dictionary = cruise_ctx.mission
+		var d := DVec3.new().sub_vectors(cruise_ctx.star_pos, w)
+		var r := maxf(d.length(), 1e-6)
+		out.append({"dir": d.scale_in(1.0 / r), "flux": float(m.get("lum", 1.0)) / (r * r),
+			"teff": float(m.get("teff", 5772.0)), "ang_r": float(m.get("radius", 1.0)) * 0.00465047 / r})
+	out.sort_custom(func(a, b): return a.flux > b.flux)
+	return out
 
 # ----------------------------------------------------------------------------
 # LAUNCH / SPAWN
@@ -325,8 +378,9 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 
 	fly_cam.state.dist = 3.2
 	active = true
-	cruise = null
+	cruise = null; cruise_ctx = null; pending_cruise = null
 	count = null
+	exposure = -1.0
 	if saved_speed == null: saved_speed = state.speed
 	state.speed = 1.0
 	set_warp(0)
@@ -464,6 +518,7 @@ func teardown() -> void:
 	plumes = []; entry = null
 	smoke.clear()
 	vessel = null; autopilot = null; cruise = null; plan = null; count = null
+	cruise_ctx = null; pending_cruise = null; star_target = null
 	if saved_speed != null:
 		state.speed = saved_speed
 		saved_speed = null
@@ -479,34 +534,265 @@ func teardown() -> void:
 ## burn: the vessel comes off the n-body integrator and onto the exact
 ## hyperbolic solution in sim/flight/relativity.gd, because at γ = 2 the
 ## Newtonian one is simply wrong and no step size fixes that.
-func begin_cruise(target_body, accel_g = null) -> void:
+##
+## The destination is a body in the scenario (`target_body`), one of the
+## vehicle's `missions` (a star, which is not in the scenario and is placed at
+## its real distance in its real direction), or — asked for nothing — the
+## first mission, which for the Hail Mary is Tau Ceti.
+func begin_cruise(target_body, accel_g = null, mission = null) -> void:
 	if vessel == null: return
-	var st = null
-	for s in vessel.stages:
-		if s.attached and s.spec.get("engine") != null and s.spec.engine.get("photon", false):
-			st = s; break
+	var st = _photon_stage()
 	if st == null:
 		_toast("This vehicle has no interstellar drive — try the Hail Mary")
 		return
+	if target_body == vessel.parent:
+		_toast("Already at %s — pick somewhere else to go" % vessel.parent.name)
+		return
+	if target_body == null and mission == null:
+		var ms := missions()
+		if not ms.is_empty():
+			mission = ms[0]
+			vessel.log_event("No target picked — flying the mission, %s" % mission.name)
 	var origin := vessel.parent.pos.clone().add_scaled_in(vessel.r, 1.0 / Rocketry.AU_M)
-	var tpos: DVec3 = (target_body as Body).pos.clone() if target_body != null \
-		else origin.clone().add_in(DVec3.new(11.9 * Relativity.LY_AU, 0.0, 0.0))
-	var a: float = (float(accel_g) if accel_g != null else float(st.spec.engine.holdAccel) / Rocketry.G0) * Rocketry.G0
-	cruise = Relativity.Cruise.new({
+	var tpos := _cruise_target_pos(target_body, mission, origin)
+	var dname: String = (target_body as Body).name if target_body != null \
+		else (str(mission.name) if mission != null else "deep space")
+	# THE LINE HAS TO BE CLEAR. The crossing is a straight line from where the
+	# ship is, and from a low orbit half the destinations are on the far side
+	# of the planet — the line runs through it. A real departure waits for
+	# the orbit to carry it round to the side facing the destination, which is
+	# exactly the condition r̂·d̂ > 0: moving away from the centre, the closest
+	# approach is where it already is.
+	var d_hat := DQuat.nrm(tpos.clone().sub_in(origin))
+	if vessel.phase != Vessel.PHASE.PRELAUNCH and DQuat.nrm(vessel.r.clone()).dot(d_hat) < 0.0:
+		if pending_cruise == null:
+			vessel.log_event("Coasting to the departure point — the line to %s runs through %s" % [dname, vessel.parent.name])
+		pending_cruise = {"body": target_body, "mission": mission, "accel": accel_g}
+		if autopilot != null:
+			autopilot.program = null
+			autopilot.say("Waiting for the line to %s to clear %s" % [dname, vessel.parent.name])
+		# Half an orbit at most, so let it go by quickly — a few seconds.
+		var want := 0
+		for k in WARPS.size():
+			if WARPS[k] <= 1000: want = k
+		if warp_idx < want: set_warp(want)
+		return
+	pending_cruise = null
+
+	var a: float = (float(accel_g) if accel_g != null
+		else (float(mission.accel) if mission != null and mission.get("accel") != null
+		else float(st.spec.engine.holdAccel) / Rocketry.G0)) * Rocketry.G0
+	var c = Relativity.Cruise.new({
 		"origin": origin, "target": tpos, "accel": a,
 		"dryMass": vessel.mass - st.prop, "propMass": st.prop,
 		"exhaustMS": 299792458.0, "name": vessel.name,
 	})
+	var p: Dictionary = c.plan
+	if not p.feasible:
+		# Not enough to stop. The solver says so rather than inventing fuel, and
+		# so does the ship: it does not leave.
+		_toast("Not enough astrophage to stop at %s — this ship would fly past it" % dname)
+		vessel.log_event("Cruise to %s refused: rapidity %s, a flip-and-burn needs %s" % [
+			dname, U.fixed(p.budget, 2), U.fixed(p.flipPhi, 2)])
+		return
+	cruise = c
+	cruise_ctx = {
+		"parent": vessel.parent, "parent0": vessel.parent.pos.clone(),
+		"target": target_body, "target0": (target_body as Body).pos.clone() if target_body != null else null,
+		"stage": st, "name": dname, "arrived": false,
+		"mission": mission if target_body == null else null,
+		"star_pos": _mission_star_pos(mission, origin) if target_body == null and mission != null else null,
+	}
+	st.ignited = true
 	vessel.phase = Vessel.PHASE.CRUISE
-	var p: Dictionary = cruise.plan
-	vessel.log_event("Interstellar cruise — %s ly at %s g" % [U.fixed(cruise.dist_ly, 2), U.fixed(a / Rocketry.G0, 2)])
-	vessel.log_event(("Flip-and-burn: %s yr ship, %s yr coordinate" % [U.fixed(p.tauS / Rocketry.YR_S, 2), U.fixed(p.coordS / Rocketry.YR_S, 2)]) if p.mode == "flip"
+	if autopilot != null:
+		autopilot.program = "cruise"
+		autopilot.say("Interstellar cruise to %s" % dname)
+	var dist_txt: String = ("%s ly" % U.fixed(cruise.dist_ly, 2)) if cruise.dist_ly > 0.01 \
+		else ("%s AU" % U.fixed(cruise.dist_au, 3))
+	vessel.log_event("Cruise to %s — %s at %s g" % [dname, dist_txt, U.fixed(a / Rocketry.G0, 2)])
+	vessel.log_event(("Flip-and-burn: %s ship, %s coordinate" % [Relativity.fmt_years(p.tauS / Rocketry.YR_S), Relativity.fmt_years(p.coordS / Rocketry.YR_S)]) if p.mode == "flip"
 		else ("Accelerate–coast–decelerate: burn %s ly, coast %s ly, β %s — %s yr ship, %s yr coordinate" % [
 			U.fixed(p.burnLy, 2), U.fixed(p.coastLy, 2), U.fixed(p.betaMax, 4), U.fixed(p.tauS / Rocketry.YR_S, 2), U.fixed(p.coordS / Rocketry.YR_S, 2)]))
-	# A crossing is measured in years, so it starts at the top of the warp
-	# ladder. The rails interlock does not apply: an interstellar cruise is on
-	# the exact hyperbolic solution, and that is valid at any step size.
-	set_warp(WARPS.size() - 1)
+	# THE WARP FITS THE TRIP. A crossing to Tau Ceti is six years of ship time
+	# and one to Mars is a day and a half; one fixed rung either spends the
+	# whole Mars trip inside a single frame (and strobes the planet's day
+	# under the camera at 11 days a second) or makes Tau Ceti take a week. So
+	# pick the rung nearest (in ratio) to a crossing of about a minute —
+	# twenty seconds to Mars, three minutes to Tau Ceti at the top rung.
+	# The rails interlock does not apply: the cruise is the exact hyperbolic
+	# solution, valid at any step size.
+	var want := 0
+	var ideal := log(maxf(float(p.tauS) / 60.0, 1.0))
+	for k in WARPS.size():
+		if absf(log(float(WARPS[k])) - ideal) < absf(log(float(WARPS[want])) - ideal): want = k
+	set_warp(want)
+
+## The drive a cruise flies on: the first attached stage with a photon engine.
+func _photon_stage():
+	for s in vessel.stages:
+		if s.attached and s.spec.get("engine") != null and s.spec.engine.get("photon", false):
+			return s
+	return null
+
+## The interstellar destinations on offer: the vehicle's own, or the Hail
+## Mary's for anything else with a photon drive (the beetles went where it did).
+func missions() -> Array:
+	if vessel == null or _photon_stage() == null: return []
+	var ms = vessel.vehicle.get("missions")
+	if ms == null: ms = Vehicles.VEHICLES.hailmary.get("missions", [])
+	return ms
+
+func _cruise_target_pos(body, mission, origin: DVec3) -> DVec3:
+	if body != null: return (body as Body).pos.clone()
+	var d := mission_direction(mission) if mission != null else DVec3.new(1.0, 0.0, 0.0)
+	# Not INTO the star: the ship stops where the star is as bright as the Sun
+	# is at Earth — √L AU out, the distance at which it would orbit — so the
+	# arrival is daylight rather than a vessel parked in a photosphere.
+	return _mission_star_pos(mission, origin).add_scaled_in(d, -_mission_standoff(mission))
+
+func _mission_star_pos(mission, origin: DVec3) -> DVec3:
+	var d := mission_direction(mission) if mission != null else DVec3.new(1.0, 0.0, 0.0)
+	var ly: float = float(mission.ly) if mission != null else 11.9
+	return origin.clone().add_scaled_in(d, ly * Relativity.LY_AU)
+
+func _mission_standoff(mission) -> float:
+	return sqrt(maxf(float(mission.get("lum", 1.0)), 1e-6)) if mission != null else 1.0
+
+## A star's direction in the orrery's frame, from its J2000 right ascension
+## (hours) and declination (degrees). Equatorial → ecliptic is a turn about
+## the equinox by the obliquity; ecliptic → orrery puts the ecliptic in the
+## XZ plane with its north pole on −Y (the orbital sense, see orbit.gd) and
+## the equinox on +X. So the ship sets off toward where the star really is
+## against the planets' own plane — Proxima well south of it, Tau Ceti and
+## 40 Eridani close to it.
+static func mission_direction(m) -> DVec3:
+	if m == null or m.get("ra") == null: return DVec3.new(1.0, 0.0, 0.0)
+	var ra := float(m.ra) * PI / 12.0
+	var dec := deg_to_rad(float(m.dec))
+	var eps := deg_to_rad(23.4393)
+	var xq := cos(dec) * cos(ra)
+	var yq := cos(dec) * sin(ra)
+	var zq := sin(dec)
+	var ye := yq * cos(eps) + zq * sin(eps)
+	var ze := -yq * sin(eps) + zq * cos(eps)
+	return DQuat.nrm(DVec3.new(xq, -ze, ye))
+
+## Hand the vessel to a new parent body mid-flight, resetting everything the
+## local view keeps in that body's frame (see begin()).
+func _adopt_parent(body: Body) -> void:
+	if vessel.parent == body: return
+	var world := vessel.parent.pos.clone().add_scaled_in(vessel.r, 1.0 / Rocketry.AU_M)
+	vessel.set_parent(body, bodies())
+	vessel.r.copy_from(world.sub_in(body.pos)).scale_in(Rocketry.AU_M)
+	planet_spin = 0.0
+	DQuat.set_len(anchor_pos.copy_from(vessel.r), float(vessel.env.radius))
+	var st_up := DQuat.nrm(vessel.r.clone()).to_v3()
+	wind_dir = Vector3(0, -1, 0).cross(st_up).normalized() if absf(st_up.y) < 0.999 else Vector3(1, 0, 0)
+
+## One frame of cruise: the exact solution advanced, the ship put where it
+## says, and the readouts the orbital panel shows refilled from it — the
+## vessel is off its integrator, so nothing else would.
+func _step_cruise(dt: float, sim_seconds: float) -> void:
+	# One call whatever the warp: the step splits itself at every leg boundary
+	# (see Relativity.Cruise.step), so a big one lands exactly as a small one.
+	cruise.step(sim_seconds)
+	var ctx: Dictionary = cruise_ctx
+	# WHERE THE SHIP IS. The solution is a straight line between two points
+	# fixed when it started; the bodies at its ends have moved since. So the
+	# line is carried with them — the departure end with the planet it left,
+	# the arrival end with the one it is going to — blended by how far along
+	# it the ship is. At the start that is exactly the orbit it left and at
+	# the end exactly the body it reaches, with no jump at either.
+	var total_m: float = maxf(cruise.dist_ly * Relativity.LY_M, 1.0)
+	var f := clampf(cruise.s / total_m, 0.0, 1.0)
+	cruise.position(_a)
+	var par: Body = ctx.parent
+	if par.alive: _a.add_scaled_in(_b.sub_vectors(par.pos, ctx.parent0), 1.0 - f)
+	var tb = ctx.target
+	if tb != null and (tb as Body).alive:
+		_a.add_scaled_in(_b.sub_vectors(tb.pos, ctx.target0), f)
+		# Past halfway the destination is the body that matters: its name on
+		# the panel, its ground and air in local space when the ship gets there.
+		if f > 0.5: _adopt_parent(tb)
+	vessel.r.copy_from(_a).sub_in(vessel.parent.pos).scale_in(Rocketry.AU_M)
+	vessel.v.copy_from(cruise.dir).scale_in(cruise.beta * Rocketry.C_MS)
+	vessel.met = cruise.tau; vessel.coord = cruise.t
+	vessel.clock_delta = cruise.tau - cruise.t
+	var st = ctx.stage
+	st.prop = cruise.prop
+	var burning: bool = cruise.leg == "accel" or cruise.leg == "decel"
+	# Point the ship along or against the line of flight, which is what a
+	# flip-and-burn looks like from outside.
+	# Arrived at a star, it turns BROADSIDE to it and holds there. Tail-on,
+	# the light arrives along the hull and grazes it — only the drive plate
+	# is lit, from any angle — and a ship holding station at a star would
+	# not present its thinnest aspect to the only light there is anyway.
+	if cruise.leg == "arrived":
+		var side := DVec3.new().cross_vectors(cruise.dir, DVec3.new(0.0, 1.0, 0.0))
+		if side.length_sq() < 1e-6: side.set_v(1.0, 0.0, 0.0)
+		_q.set_from_unit_vectors(DVec3.new(0.0, 1.0, 0.0), DQuat.nrm(side))
+	else:
+		var facing := -1.0 if cruise.leg == "decel" else 1.0
+		_q.set_from_unit_vectors(DVec3.new(0.0, 1.0, 0.0), _b.copy_from(cruise.dir).scale_in(facing))
+	vessel.q.slerp_in(_q, 1.0 - exp(-dt * 1.4))
+	# ...and once it has turned, go round to the lit side to look at it.
+	if cruise.leg == "arrived" and not ctx.get("framed", false) and vessel.q.dot(_q) ** 2 > 0.9995:
+		ctx["framed"] = true
+		aim_camera_at_sun(0.6, 0.25, true)
+	Relativity.sky_boost(cruise.dir, cruise.beta, _boost_d)
+	boost = _boost_d.to_v3()
+	# THE READOUTS. Sampled unpowered (nothing about the drive belongs in the
+	# Newtonian force sum), then the drive's own numbers written over it.
+	vessel.throttle = 0.0
+	var t: Dictionary = vessel.sample(0.0)
+	var m := maxf(vessel.mass, 1.0)
+	var acc: float = cruise.a * cruise.throttle if burning else 0.0
+	t.thrust = m * acc
+	t.gees = acc / Rocketry.G0
+	t.isp = Rocketry.C_MS / Rocketry.G0
+	t.mdot = t.thrust / Rocketry.C_MS
+	t.twr = t.thrust / (m * maxf(float(t.gSurf), 1e-12))
+	# Δv on a photon drive is c times the rapidity left: c·ln(m/m_dry).
+	t.dv = Rocketry.C_MS * log(m / maxf(m - cruise.prop, 1.0))
+	vessel.throttle = 1.0 if burning else 0.0
+	if cruise.leg == "arrived" and not ctx.arrived:
+		ctx.arrived = true
+		_arrive(tb)
+
+## The end of a crossing. At a body the ship drops into a parking orbit and
+## is an ordinary vessel again; at a star (which the scenario does not
+## contain) it simply stops, and the clocks say what the trip cost.
+func _arrive(body) -> void:
+	var name_: String = cruise_ctx.name
+	var summary := "%s ship, %s coordinate" % [Relativity.fmt_years(cruise.tau / Rocketry.YR_S), Relativity.fmt_years(cruise.t / Rocketry.YR_S)]
+	set_warp(0)
+	if body == null or not (body as Body).alive:
+		boost = Vector3.ZERO
+		vessel.throttle = 0.0
+		vessel.log_event("Arrived at %s — %s" % [name_, summary])
+		_toast("Arrived at %s — %s" % [name_, summary])
+		return
+	_adopt_parent(body)
+	# Parking orbit: clear of any air, in the plane the ship arrived in, at the
+	# longitude it arrived at — so the last frame of cruise and the first
+	# frame in orbit are the same place.
+	var alt := maxf(250000.0, float(vessel.env.radius) * 0.04)
+	vessel.place_in_orbit(alt, 0.0, atan2(vessel.r.z, vessel.r.x))
+	var st = cruise_ctx.stage
+	st.prop = cruise.prop
+	var met: float = cruise.tau
+	var coord: float = cruise.t
+	cruise = null; cruise_ctx = null
+	boost = Vector3.ZERO
+	vessel.met = met; vessel.coord = coord
+	vessel.throttle = 0.0
+	if autopilot != null:
+		autopilot.program = null; autopilot.mode = Guidance.MODE.PROGRADE
+		autopilot.say("In orbit at %s" % (body as Body).name)
+	plan = null
+	vessel.log_event("Arrived at %s — %s. Parking orbit, %s km" % [name_, summary, U.fixed(alt / 1000.0, 0)])
+	_toast("Arrived at %s — in orbit" % name_)
 
 # ----------------------------------------------------------------------------
 # THE TERMINAL COUNT
@@ -543,9 +829,14 @@ func step_count(dt_sim: float) -> void:
 ## The flight panel's program buttons (JS: hooks.runProgram).
 func run_program(p: String) -> void:
 	if autopilot == null: return
-	if p == "cruise":
-		begin_cruise(target, null)
+	if cruise != null and cruise.leg != "arrived":
+		_toast("In interstellar cruise — nothing to steer until arrival")
 		return
+	if p == "cruise":
+		pending_cruise = null
+		begin_cruise(target, null, star_target)
+		return
+	pending_cruise = null
 	if p == "transfer" and target == null:
 		_toast("Pick a target body first")
 		return
@@ -593,7 +884,12 @@ func set_camera_mode(m: String) -> void:
 ## The default framing deliberately does the opposite (a vehicle photographed
 ## from its shadow side is a silhouette), so this is the one way to look INTO
 ## the light without dragging for it.
-func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10) -> void:
+##
+## `front_lit` does the opposite: the camera goes on the SUN's side, `off_yaw`
+## round from it, for a three-quarter lit view. That is the shot wanted where
+## nothing else lights the vehicle — at a star with no planet under it there
+## is no planetshine, and from the shadow side the ship is simply not there.
+func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10, front_lit: bool = false) -> void:
 	if vessel == null: return
 	if fly_cam.state.mode == "pad" or fly_cam.state.mode == "cockpit": fly_cam.set_mode("chase")
 	var un := _local_up_north()
@@ -610,8 +906,18 @@ func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10) -> void:
 	var ref := Vector3(1, 0, 0) if absf(uu.y) > 0.95 else Vector3(0, 1, 0)
 	var right := uu.cross(ref).normalized()
 	var fwd := right.cross(uu).normalized()
-	# camera offset from the vehicle = −sun: it looks through the vehicle at it
 	fly_cam.state.userAimed = true
+	if front_lit:
+		# camera offset = +sun, turned off it. A sun near the vehicle's own axis
+		# (a ship pointed along its line of flight) would put the camera on
+		# the axis too, looking down the length of it at the one end the light
+		# reaches: hold it nearly broadside instead, tipped 17° sunward.
+		var su := sun_l.dot(uu)
+		fly_cam.state.yaw = atan2(sun_l.dot(fwd), sun_l.dot(right)) + off_yaw
+		fly_cam.state.pitch = signf(su) * 0.3 if absf(su) > 0.75 \
+			else clampf(asin(clampf(su, -1.0, 1.0)) + off_pitch, -1.45, 1.45)
+		return
+	# camera offset from the vehicle = −sun: it looks through the vehicle at it
 	fly_cam.state.yaw = atan2(-sun_l.dot(fwd), -sun_l.dot(right)) + off_yaw
 	fly_cam.state.pitch = clampf(asin(clampf(-sun_l.dot(uu), -1.0, 1.0)) + off_pitch, -1.45, 1.45)
 
@@ -621,11 +927,25 @@ func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10) -> void:
 func refresh_targets() -> void:
 	if hud == null: return
 	var names := []
+	# A ship that can cross to another star lists the stars first: they are
+	# what it is for, and they are not bodies in the scenario.
+	for m in missions(): names.append(MISSION_PREFIX + str(m.name))
 	for b in bodies(): names.append(b.name)
-	hud.set_targets(names, target.name if target != null else null)
+	var cur = null
+	if target != null: cur = target.name
+	elif star_target != null: cur = MISSION_PREFIX + str(star_target.name)
+	hud.set_targets(names, cur)
 
 func set_target(n) -> void:
-	target = body_named(n) if n != null and n != "" else null
+	star_target = null
+	target = null
+	pending_cruise = null
+	if n != null and str(n).begins_with(MISSION_PREFIX):
+		var want := str(n).substr(MISSION_PREFIX.length())
+		for m in missions():
+			if str(m.name) == want: star_target = m
+	else:
+		target = body_named(n) if n != null and n != "" else null
 	plan = null
 	if autopilot != null:
 		autopilot.target = target
@@ -656,17 +976,7 @@ func update(dt: float, _frame = null) -> void:
 	if cruise != null:
 		# Ship proper time is the natural variable in cruise — the drive, the
 		# fuel and the crew all live on it.
-		cruise.step(sim_seconds)
-		cruise.position(_a)
-		vessel.met = cruise.tau; vessel.coord = cruise.t
-		vessel.clock_delta = cruise.tau - cruise.t
-		# Point the ship along or against the line of flight, which is what a
-		# flip-and-burn looks like from outside.
-		var facing := -1.0 if cruise.leg == "decel" else 1.0
-		_q.set_from_unit_vectors(DVec3.new(0.0, 1.0, 0.0), _b.copy_from(cruise.dir).scale_in(facing))
-		vessel.q.slerp_in(_q, 1.0 - exp(-dt * 1.4))
-		Relativity.sky_boost(cruise.dir, cruise.beta, _boost_d)
-		boost = _boost_d.to_v3()
+		_step_cruise(dt, sim_seconds)
 	else:
 		boost = Vector3.ZERO
 		if count != null: step_count(sim_seconds)
@@ -686,6 +996,8 @@ func update(dt: float, _frame = null) -> void:
 				vessel.step(h)
 				rem -= h
 		if w > 4.0 and not vessel.can_rail(): set_warp(2)
+		if pending_cruise != null:
+			begin_cruise(pending_cruise.body, pending_cruise.accel, pending_cruise.mission)
 
 	update_visual(dt, sim_seconds)
 	if hud != null: update_hud()
@@ -707,14 +1019,44 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var north: DVec3 = un[1]
 	var sun := sun_direction(DVec3.new())
 
-	# Irradiance relative to Earth's, so a launch from Mars is visibly dimmer
-	# and one from Mercury is blinding — 1/r² from the brightest star.
-	var star: Body = null
-	for b in bodies():
-		if b.type == "star":
-			star = b; break
-	var d_au := maxf(star.pos.distance_to(vessel.parent.pos), 1e-4) if star != null else 1.0
-	var star_flux: float = (float(U.nz(star.luminosity, 1.0)) / (d_au * d_au)) if star != null else 1.0
+	# LIGHT, from where the vessel actually is: each star's irradiance goes
+	# as 1/r² from its own position, relative to the Sun's at Earth — so a
+	# launch from Mars is dimmer, one from Mercury is blinding, and a ship
+	# between the stars is lit by almost nothing but the sky itself.
+	var srcs := light_sources()
+	var key = srcs[0] if not srcs.is_empty() else null
+	var second = srcs[1] if srcs.size() > 1 else null
+	var f_key: float = float(key.flux) if key != null else 1.0
+	var f_total := STARLIGHT
+	for L in srcs: f_total += float(L.flux)
+	# THE CAMERA ADAPTS. An auto-exposure (or an eye) does not show 4e-12 of
+	# daylight as black: it opens up. But it does not open up ALL the way —
+	# a dim scene still reads as dim — so the target brightness is a power
+	# law in the light available, F^0.3 below daylight (Mars 0.78, Jupiter
+	# 0.37, Pluto 0.11) with a floor at 0.06, the darkest a camera is
+	# allowed to leave its subject. Above daylight it does not stop down:
+	# Mercury stays blinding. The exposure is the ratio of the two, eased in
+	# log (an exposure is a scale) over a second and a half, so leaving a
+	# star is a slow dimming and a new sun is a slow dawn.
+	var shown := f_total if f_total >= 1.0 else maxf(pow(f_total, 0.3), 0.06)
+	# METERING. Everything above was calibrated in low orbit, where the
+	# planet under the vehicle lights its shadow side (see _set_ambient's
+	# planetshine). Away from any planet the subject is lit from one side
+	# only, a meter reading it opens up, and so does this — by up to 1.8×,
+	# fading in from where the planetshine fades out (800 km) to a few
+	# thousand km, so nothing in orbit or on the pad changes.
+	shown *= lerpf(1.0, 1.8, U.smooth(alt, 8.0e5, 5.0e6))
+	var want_e := shown / f_total
+	if exposure <= 0.0: exposure = want_e
+	else: exposure = exp(lerpf(log(exposure), log(want_e), 1.0 - exp(-maxf(dt, 0.0) / 1.5)))
+	var star_flux := f_key * exposure
+	# THE SHADOW LIFT. Far from every star the one real light is a point, and
+	# whatever faces away from it is black at any exposure — which, with the
+	# destination ahead and the camera behind, is the whole ship. A camera
+	# metering a scene that dim lifts its shadows (so does an eye), so below a
+	# hundredth of daylight the unlit side is held up to a readable fill. It
+	# is fully off inside ~10 AU, so nothing in a planetary system changes.
+	var shadow_lift := U.smooth(-log(maxf(f_total, 1e-30)), -log(0.01), -log(1e-4))
 	# Advance the fixed launch site before sampling the map. Its rotation and
 	# the local ground's geographic frame must describe the same instant.
 	if site != null and site_pos != null:
@@ -733,15 +1075,20 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt,
 		# a steady 9 m/s westerly, the trade-wind belt's upper flow reversed
 		"cloudWind": wind_dir * (9.0 * vessel.met),
-		"sunAngR": (star.radius / d_au) if star != null and star.radius > 0.0 else 0.00465,
-		"sunTeff": float(U.nz(star.teff, 5772.0)) if star != null else 5772.0})
+		"sunAngR": float(key.ang_r) if key != null else 0.00465,
+		"sunTeff": float(key.teff) if key != null else 5772.0,
+		# the other sun, and the sky's own light, through the same exposure
+		"sun2World": second.dir if second != null else null,
+		"sun2Flux": float(second.flux) * exposure if second != null else 0.0,
+		"sun2Teff": float(second.teff) if second != null else 5772.0,
+		"starlight": maxf(STARLIGHT * exposure, 0.05 * shadow_lift)})
 	# THE CAMERA'S EXPOSURE, applied to the sky. A camera beside a sunlit
 	# vehicle exposes for the vehicle, and the background — calibrated for a
 	# night sky — is dimmer than that by the ratio of the two exposures, which
 	# goes as 1/illuminance: 1/400 at Earth, so the stars are gone; a fifth at
 	# 10 AU; nothing out between the stars, or in the planet's shadow. Eased,
 	# because an exposure does not jump (see SkyModel.apply_day_gain).
-	var want := 1.0 / (1.0 + 400.0 * star_flux * float(fr.get("sun_visible", 0.0)))
+	var want := 1.0 / (1.0 + 400.0 * f_key * float(fr.get("sun_visible", 0.0)))
 	sky_gain += (want - sky_gain) * (1.0 - exp(-maxf(dt, 0.0) / 0.8))
 	SkyModel.apply_day_gain(pipe.sky_materials, sky_gain)
 
@@ -931,6 +1278,15 @@ func update_hud() -> void:
 	var plan_data := {}
 	if cruise != null: plan_data = FlightUI.cruise_block(cruise.readout())
 	elif target != null: plan_data = FlightUI.plan_block(plan, target.name)
+	elif star_target != null and _photon_stage() != null:
+		var st = _photon_stage()
+		var budget := Relativity.rapidity_budget(vessel.mass - st.prop, st.prop, Rocketry.C_MS)
+		var a := float(U.nz(star_target.get("accel"), 1.5)) * Rocketry.G0
+		plan_data = FlightUI.mission_block(str(star_target.name), float(star_target.ly),
+			Relativity.solve_profile(float(star_target.ly), a, budget))
+	if warp_idx != _warp_shown:
+		_warp_shown = warp_idx
+		if main != null and main.has_method("sync_warp_label"): main.sync_warp_label()
 	hud.update({
 		"vessel": vessel, "telemetry": t, "up": (un[0] as DVec3).to_v3(), "north": (un[1] as DVec3).to_v3(),
 		"markers": markers,
@@ -940,6 +1296,7 @@ func update_hud() -> void:
 		"warp": str(warp()),
 		"parentName": vessel.parent.name,
 		"plan": plan_data,
+		"cruise": cruise != null,
 	})
 
 func set_size(w: float, h: float) -> void:

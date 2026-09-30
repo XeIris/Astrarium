@@ -67,6 +67,17 @@ uniform int uSteps = 56;
 uniform int uLightSteps = 6;
 uniform float uDetail = 1.0;
 uniform float uPixAngle = 0.0009;        // radians per pixel, for the mip level
+// THE UPPER-ATMOSPHERE LOD (set per frame by localview.gd from altitude).
+// Looking DOWN on the deck from tens of km, a pixel covers tens of metres and
+// the ray crosses a 3 km slab, so the march's budget is spent resolving
+// structure nobody can see. Above the layer the CPU lowers uSteps and
+// uLightSteps, stretches the light march's first step (uLightFirst) so it
+// still reaches as far through the cloud, and lets the coverage — the part
+// of the density that varies over tens of km — be re-evaluated only every
+// uCovReuse metres along the ray instead of at every sample, and not at all
+// in the light march under it. 0 = every sample, as under the deck.
+uniform float uLightFirst = 45.0;
+uniform float uCovReuse = 0.0;
 
 varying vec3 vDir;
 
@@ -139,6 +150,8 @@ void fragment() {
 	float r = pow(max(t1, base * 1.001) / base, 1.0 / float(N));
 	float ds = base * (r - 1.0) + max(t0 - base, 0.0);
 	float t = t0 + ds * jitter;
+	float cov = 0.0;
+	float cov_t = -1e30;
 	for (int i = 0; i < 160; i++) {
 		if (i >= N || t >= t1) break;
 		float step = min(ds, t1 - t);
@@ -147,11 +160,19 @@ void fragment() {
 		ds *= r;
 		vec3 p = ro + rd * ts;
 		vec3 pp = cloud_planet(p);
-		float sigma = cloud_density_fp(pp, uDetail, ts * uPixAngle);
+		float fp = ts * uPixAngle;
+		float hf0 = cloud_hfrac(pp);
+		if (hf0 <= 0.0 || hf0 >= 1.0) continue;
+		if (uCovReuse <= 0.0 || ts - cov_t > uCovReuse) {
+			cov = cloud_coverage(pp, fp);
+			cov_t = ts;
+		}
+		float sigma = cloud_density_cov(pp, uDetail, fp, cov);
 		if (sigma <= 0.0) continue;
 		// light: the optical depth toward the sun; single scattering, one
 		// octave, and the diffusion floor (see the header)
-		float od = cloud_optical_depth(p, uSunDir, uLightSteps, 45.0);
+		float od = cloud_optical_depth_fp(p, uSunDir, uLightSteps, uLightFirst, fp,
+			uCovReuse > 0.0 ? cov : -1.0);
 		float hf = clamp(cloud_hfrac(pp), 0.0, 1.0);
 		vec3 sun = uSunColor * (ph0 * exp(-od)
 			+ 0.5 * ph1 * exp(-od * 0.5)

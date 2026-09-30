@@ -51,6 +51,10 @@ uniform vec2 uPadLocal;
 uniform vec2 uAnchor = vec2(0.0);   // a planet-fixed point, in the local frame (x east, y north)
 uniform float uHasPad = 0.0;
 uniform vec3 uCamLocal = vec3(0.0);
+// Samples in the cloud-shadow march: 6 near the deck, fewer from the upper
+// atmosphere, where one pixel of ground is wider than a cloud's shadow edge
+// (set from altitude by localview.gd).
+uniform int uShadowSteps = 6;
 uniform sampler2D uEarthColor : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D uEarthLand : filter_linear_mipmap_anisotropic, repeat_enable;
 
@@ -195,10 +199,12 @@ void fragment() {
 		vec2 tt = cloud_sphere(vLocal, uSunDir, uCloudTop);
 		float a0 = max(tb.y, 0.0);
 		float a1 = tt.y;
-		float ds = (a1 - a0) / 6.0;
+		float ds = (a1 - a0) / float(uShadowSteps);
 		float od = 0.0;
-		for (int i = 0; i < 6; i++)
+		for (int i = 0; i < 6; i++) {
+			if (i >= uShadowSteps) break;
 			od += cloud_density(vLocal + uSunDir * (a0 + (float(i) + 0.5) * ds), false) * ds;
+		}
 		// direct beam, or what diffuses through (two-stream, as the cloud pass)
 		shade = max(exp(-od), 1.0 / (1.0 + 0.11 * od));
 	}

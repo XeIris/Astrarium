@@ -16,6 +16,8 @@ extends Node
 #   ["booster"]                       register the lone Falcon 9 booster
 #   ["init", {alt, vVert, vHoriz}]    set r, v, q as tools/flightref.mjs does
 #   ["program", name]                 the flight panel's program button
+#   ["target", name]                  the flight panel's target list (a body,
+#                                     or "★ <star>" for an interstellar mission)
 #   ["cam", mode] / ["warp", i]
 #   ["call", method, args...]         main.<method>(args...)
 #   ["backdrop", light]               the model viewer's light/dark backdrop
@@ -112,6 +114,9 @@ func _do(s: Array) -> void:
 			v.q.set_from_unit_vectors(DVec3.new(0.0, 1.0, 0.0), air)
 		"program":
 			f.run_program(s[1])
+		"target":
+			f.set_target(s[1])
+			f.refresh_targets()
 		"cam":
 			f.set_camera_mode(s[1])
 		"throttle":
@@ -162,7 +167,9 @@ func _shot(name: String, with_hud: bool) -> void:
 	var tel := {"met": v.met if v else 0.0, "coord": v.coord if v else 0.0, "alt": t.get("alt"), "speed": t.get("speed"), "q": t.get("q"),
 		"mach": t.get("mach"), "thr": v.throttle if v else 0.0, "mass": t.get("mass"), "apo": t.get("apo"),
 		"peri": t.get("peri"), "phase": v.phase if v else "", "cam": _flight().camera_mode(),
-		"status": _flight().autopilot.status if _flight().autopilot else ""}
+		"status": _flight().autopilot.status if _flight().autopilot else "",
+		"warp": _flight().warp(), "parent": v.parent.name if v else "",
+		"cruise": _flight().cruise.readout() if _flight().cruise != null else null}
 	var fj := FileAccess.open(out + name + ".json", FileAccess.WRITE)
 	fj.store_string(JSON.stringify(tel, " "))
 	fj.close()

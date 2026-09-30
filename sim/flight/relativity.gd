@@ -172,11 +172,28 @@ class Cruise extends RefCounted:
 	## Advance by `dtau` seconds of SHIP time — the natural variable, because the
 	## drive's throttle, the fuel burn and the crew all live on the ship's clock.
 	## Coordinate time is derived from it, never integrated separately.
+	##
+	## A step is SPLIT at every leg boundary it crosses, at the exact proper
+	## time the boundary falls: cutoff when φ reaches the planned rapidity,
+	## turnover when the distance left equals what the deceleration covers,
+	## arrival when φ comes back to zero. Checked only at the start of a step,
+	## the turnover came up to a whole step late — at 10⁶× warp that is 16 667 s
+	## of coasting at 0.9 c, 0.0005 ly, and the ship reached Tau Ceti still
+	## doing 0.04 c with nothing left to stop on.
 	func step(dtau: float) -> void:
-		if leg == "arrived" or dtau <= 0.0: return
+		var left := dtau
+		var guard := 0
+		while left > 0.0 and leg != "arrived" and guard < 8:
+			guard += 1
+			left = _advance(left)
+
+	## One piece of a step, inside a single leg. Returns the proper time left
+	## over once the leg's boundary has been reached (0 if it was not).
+	func _advance(dtau: float) -> float:
+		if leg == "arrived" or dtau <= 0.0: return 0.0
 		var leg_phi: float = plan.phi
 		# decide the leg
-		if leg == "accel" and phi >= leg_phi - 1e-9:
+		if leg == "accel" and phi >= leg_phi - 1e-12:
 			leg = "decel" if plan.mode == "flip" else "coast"
 			note("Turnover — beginning deceleration" if plan.mode == "flip" else "Cutoff at β = %s, γ = %s — coasting" % [U.fixed(beta, 5), U.fixed(gamma, 3)])
 			if leg == "decel": note("Flip and burn")
@@ -184,16 +201,30 @@ class Cruise extends RefCounted:
 			# Turn over when the remaining distance equals what the deceleration leg
 			# will cover — computed, not scheduled, so a mid-course change of mind
 			# still stops at the right place.
+			# Within a part in 10¹² of the trip counts as there: s is ~10¹⁷ m at
+			# Tau Ceti, a float's spacing there is 16 m, and a boundary a few
+			# metres off can never be stepped onto.
 			var need := (Rocketry.C_MS * Rocketry.C_MS / a) * (cosh(phi) - 1.0)
-			if remaining <= need:
+			if remaining <= need + dist_ly * LY_M * 1e-12:
 				leg = "decel"; note("Turnover — flip and burn")
 
 		var burning := leg == "accel" or leg == "decel"
 		var sgn := -1.0 if leg == "decel" else 1.0
 		var acc := a * throttle if burning else 0.0
 
-		# Exact hyperbolic advance over dtau at constant proper acceleration.
-		var dphi := sgn * acc * dtau / Rocketry.C_MS
+		# How much of dtau this leg gets before its boundary.
+		var h := dtau
+		if leg == "accel" and acc > 0.0:
+			h = minf(h, (leg_phi - phi) * Rocketry.C_MS / acc)
+		elif leg == "decel" and acc > 0.0:
+			h = minf(h, phi * Rocketry.C_MS / acc)
+		elif leg == "coast" and phi > 0.0:
+			var need := (Rocketry.C_MS * Rocketry.C_MS / a) * (cosh(phi) - 1.0)
+			h = minf(h, maxf(remaining - need, 0.0) / (Rocketry.C_MS * sinh(phi)))
+		h = maxf(h, 0.0)
+
+		# Exact hyperbolic advance over h at constant proper acceleration.
+		var dphi := sgn * acc * h / Rocketry.C_MS
 		var phi0 := phi
 		var phi1 := phi + dphi if burning else phi
 		# Coordinate time and distance are integrals of cosh and sinh; with constant
@@ -210,14 +241,18 @@ class Cruise extends RefCounted:
 				note("Astrophage exhausted — coasting"); leg = "coast"
 			phi = phi1
 		else:
-			t += dtau * cosh(phi)
-			s += dtau * Rocketry.C_MS * sinh(phi)
-		tau += dtau
+			t += h * cosh(phi)
+			s += h * Rocketry.C_MS * sinh(phi)
+		tau += h
 
-		if leg == "decel" and (phi <= 0.0 or remaining <= 0.0):
+		if leg == "decel" and (phi <= 1e-12 or remaining <= 0.0):
 			phi = maxf(phi, 0.0)
+			if phi <= 1e-12: phi = 0.0
 			leg = "arrived"
 			note("Arrival — %s ship, %s coordinate" % [Relativity.fmt_years(tau / YEAR_S), Relativity.fmt_years(t / YEAR_S)])
+		# A boundary reached within the piece hands the rest to the next leg;
+		# otherwise the whole piece was spent here.
+		return dtau - h if h < dtau else 0.0
 
 	## Everything the HUD needs, in one Dictionary (JS keys).
 	func readout() -> Dictionary:

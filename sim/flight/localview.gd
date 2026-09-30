@@ -76,6 +76,13 @@ var pipe: RenderPipeline
 var root: Node3D                 # everything in local space hangs under here
 var camera: Camera3D             # pipe.local_cam — at the origin, rotation only
 var sun: DirectionalLight3D
+## The second sun: the other star of a binary, or an interstellar
+## destination rising while the Sun sets behind. Unshadowed and without a
+## disc — at the distances where it matters it is a point.
+var sun2: DirectionalLight3D
+## Integrated starlight, already through the camera's exposure: an
+## isotropic fill, the only light between the stars (see spaceflight.gd).
+var _starlight := 0.0
 var hemi: Array = []             # the hemisphere's ±Y pair
 var ground: MeshInstance3D
 var sky: MeshInstance3D
@@ -117,6 +124,14 @@ var _to_planet := Basis()
 const CLOUD_BASE := 1500.0
 const CLOUD_TOP := 4600.0
 const CLOUD_SIGMA := 0.03
+## Where the upper-atmosphere cloud LOD starts and where it is complete, m.
+## It starts a few km over the tops, once the camera is looking DOWN on the
+## deck rather than into it, and is fully in by the stratopause.
+const CLOUD_LOD_LO := CLOUD_TOP + 3000.0
+const CLOUD_LOD_HI := 45000.0
+var _cloud_steps := 28
+var _cloud_light := 3
+var _cloud_detail := 0.0
 var render_quality := "medium"
 var _reflection_body := ""
 var _has_air := true
@@ -165,6 +180,11 @@ func _init(p: RenderPipeline) -> void:
 	sun.light_angular_distance = 0.53
 	sun.shadow_enabled = false
 	root.add_child(sun)
+	sun2 = DirectionalLight3D.new()
+	sun2.name = "sun2"
+	sun2.shadow_enabled = false
+	sun2.light_energy = 0.0
+	root.add_child(sun2)
 	# The visible dome is custom because this pass is transparent, but a
 	# separate physical sky can still light PBR metal through its radiance map.
 	# Without it the reflection source is black and metal reads as paint.
@@ -326,9 +346,12 @@ func _set_ambient(bounce: float) -> void:
 	var fill := U.lin(0x223044)
 	var skyc := U.lin(0x8899aa)
 	var gnd := U.lin(0x33302c)
-	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * 0.5 * bounce,
-		fill.g * 0.30 + (skyc.g + gnd.g) * 0.5 * bounce,
-		fill.b * 0.30 + (skyc.b + gnd.b) * 0.5 * bounce)
+	# plus the starlight, isotropic and a little blue (the sky's mean star
+	# is hotter than the Sun), on the same 3× scale as the sun's irradiance
+	var sl := 3.0 * _starlight
+	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * 0.5 * bounce + sl * 0.85,
+		fill.g * 0.30 + (skyc.g + gnd.g) * 0.5 * bounce + sl * 0.92,
+		fill.b * 0.30 + (skyc.b + gnd.b) * 0.5 * bounce + sl * 1.0)
 	var env := pipe.env_local
 	# High uses the sky's directional diffuse irradiance. The old constant
 	# colour left backlit vehicles almost black in bright daylight.
@@ -367,10 +390,12 @@ func set_render_quality(q: String) -> void:
 			m.set_shader_parameter("uCloudWorley", cloud_worley)
 			m.set_shader_parameter("uCloudDetail", cloud_detail)
 	# High marches finely, with erosion and a long light march; Medium is the
-	# same field, coarser; Low has no clouds.
-	cloud_mat.set_shader_parameter("uSteps", 64 if q == "high" else 28)
-	cloud_mat.set_shader_parameter("uLightSteps", 6 if q == "high" else 3)
-	cloud_mat.set_shader_parameter("uDetail", 1.0 if q == "high" else 0.0)
+	# same field, coarser; Low has no clouds. These are the budgets at and
+	# under the deck — _cloud_lod() cuts them from altitude.
+	_cloud_steps = 64 if q == "high" else 28
+	_cloud_light = 6 if q == "high" else 3
+	_cloud_detail = 1.0 if q == "high" else 0.0
+	_cloud_lod(0.0)
 
 static func _noise3d(size: int, seed: int, type: int, freq: float, octaves: int, invert: bool) -> NoiseTexture3D:
 	var t := NoiseTexture3D.new()
@@ -490,7 +515,11 @@ func update(o: Dictionary) -> Dictionary:
 	sky_mat.set_shader_parameter("uHasAir", has_air)
 	# Irradiance falls as 1/r² from the star; the local sun light and the
 	# ground shader are driven from the same number so they cannot disagree.
-	var flux := clampf(3.0 * float(U.nz(o.get("starFlux"), 1.0)), 0.05, 12.0)
+	# (starFlux arrives already through the camera's exposure, which is what
+	# keeps a dim sun readable; there is no floor here any more, because the
+	# floor is the exposure's.)
+	var flux := clampf(3.0 * float(U.nz(o.get("starFlux"), 1.0)), 0.0, 12.0)
+	_starlight = float(U.nz(o.get("starlight"), 0.0))
 	ground_mat.set_shader_parameter("uSunI", flux)
 	ground_mat.set_shader_parameter("uTemp", maxf(float(env.get("teq", 255.0)), 30.0))
 	sun.light_energy = flux / PI * sun_through
@@ -548,6 +577,11 @@ func update(o: Dictionary) -> Dictionary:
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
 	var sun_vis := _update_sun(o, env, atm, h, sh, sun_l)
+	# The light's COLOUR is the star's: the base tint is the Sun's, carried
+	# by the ratio of the two blackbodies, so the Sun is unchanged and
+	# Proxima lights the hull red.
+	sun.light_color = _star_tint(float(U.nz(o.get("sunTeff"), 5772.0)))
+	_update_sun2(o, h, float(env.radius), east, up, north)
 	_update_clouds(o, env, atm, h, sh, sun_l, east, up, north)
 	flare.visible = sun_vis > 0.0
 	flare_mat.set_shader_parameter("uSunLocal", sun_l)
@@ -617,6 +651,7 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 		through = cloud_field.sun_transmittance(pp, (_to_planet * sun_l).normalized())
 	sun_through += (through - sun_through) * (1.0 - exp(-float(U.nz(o.get("dt"), 0.016)) / 0.35))
 	if not clouds.visible: return
+	_cloud_lod(h)
 	# The sun as it arrives at the middle of the layer: the same extinction as
 	# the disc's (see _update_sun), for the column above 3 km.
 	var flux := clampf(3.0 * float(U.nz(o.get("starFlux"), 1.0)), 0.05, 12.0)
@@ -643,6 +678,37 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	cloud_mat.set_shader_parameter("uHazeDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
 	cloud_mat.set_shader_parameter("uHazeRho", exp(-h / maxf(sh, 1.0)))
 	cloud_mat.set_shader_parameter("uMaxDist", clampf(sqrt(2.0 * R * maxf(h, 3000.0)) * 1.6, 60000.0, 1.2e6))
+
+## THE UPPER-ATMOSPHERE LOD. Under and inside the deck the march is spent
+## on what the camera can see: turrets a few hundred metres off, their
+## eroded edges, the light through them. From above, looking down across a
+## 3 km slab with a pixel tens of metres wide, most of that budget resolves
+## nothing — and the deck fills the lower half of the frame, so it is paid on
+## half a million pixels at once. That is the frame-rate drop on the way up.
+## So from a few km over the tops to the stratopause, in proportion:
+##   · the view march drops to a quarter of its steps (floor 10) — the ray
+##     crosses the slab rather than running along it, so it needs few;
+##   · the light march drops to half its samples, with a longer first step so
+##     it still reaches as far into the cloud (the same geometric series,
+##     fewer terms) — the self-shadowing keeps its depth, loses its fine grain;
+##   · the erosion goes (it has faded against the footprint by then anyway);
+##   · the coverage, which varies over tens of km, is re-read every 6 km of
+##     ray instead of at every sample;
+##   · the ground's cloud shadows march 3 samples instead of 6.
+## Nothing changes below CLOUD_LOD_LO, so a launch through the deck is drawn
+## exactly as before.
+func _cloud_lod(h: float) -> void:
+	var k := smoothstep(CLOUD_LOD_LO, CLOUD_LOD_HI, h)
+	var steps := int(round(lerpf(float(_cloud_steps), maxf(10.0, _cloud_steps * 0.25), k)))
+	var light := _cloud_light if k < 0.35 else maxi(2, _cloud_light / 2)
+	# Keep the light march's reach: 45 m·(2ⁿ − 1) at the quality's own n.
+	var reach := 45.0 * (pow(2.0, _cloud_light) - 1.0)
+	cloud_mat.set_shader_parameter("uSteps", steps)
+	cloud_mat.set_shader_parameter("uLightSteps", light)
+	cloud_mat.set_shader_parameter("uLightFirst", reach / (pow(2.0, light) - 1.0))
+	cloud_mat.set_shader_parameter("uDetail", _cloud_detail * (1.0 - k))
+	cloud_mat.set_shader_parameter("uCovReuse", 6000.0 * k if k > 0.0 else 0.0)
+	ground_mat.set_shader_parameter("uShadowSteps", 6 if k < 0.35 else 3)
 
 ## Point and filter the sun sprite. Returns the fraction of the disc above the
 ## horizon, which is also what decides whether the camera is exposing for
@@ -699,6 +765,33 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l
 	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
 		* (ang_r * ang_r) / (0.00465 * 0.00465)
 	return vis
+
+static func _star_tint(teff: float) -> Color:
+	var base := Color.hex(0xfff4e2ff)
+	var bb := Stellar.blackbody_color(teff)
+	var ref := Stellar.blackbody_color(5772.0)
+	var c := Color(base.r * bb.r / maxf(ref.r, 1e-3), base.g * bb.g / maxf(ref.g, 1e-3), base.b * bb.b / maxf(ref.b, 1e-3))
+	var m := maxf(c.r, maxf(c.g, c.b))
+	return Color(c.r / m, c.g / m, c.b / m)
+
+## The second sun: its own direction, flux and colour, and set behind the
+## planet the same way the first one is (the limb is depressed by the dip).
+func _update_sun2(o: Dictionary, h: float, R: float, east: DVec3, up: DVec3, north: DVec3) -> void:
+	var w = o.get("sun2World")
+	var f := float(U.nz(o.get("sun2Flux"), 0.0))
+	if w == null or f <= 0.0:
+		sun2.light_energy = 0.0
+		sun2.visible = false
+		return
+	var d: DVec3 = w
+	var l := Vector3(d.dot(east), d.dot(up), d.dot(north)).normalized()
+	var dip := acos(clampf(R / (R + h), -1.0, 1.0))
+	var vis := U.smooth(asin(clampf(l.y, -1.0, 1.0)), -dip - 0.01, -dip + 0.01)
+	sun2.visible = vis > 0.0
+	sun2.light_color = _star_tint(float(U.nz(o.get("sun2Teff"), 5772.0)))
+	sun2.light_energy = clampf(3.0 * f, 0.0, 12.0) / PI * vis
+	var ref := Vector3(0, 0, 1) if absf(l.y) > 0.99 else Vector3.UP
+	sun2.basis = Basis.looking_at(-l, ref)
 
 func set_size(_w: float, _h: float) -> void:
 	# The render camera keeps its aspect from the viewport (keep_height, as

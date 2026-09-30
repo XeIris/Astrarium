@@ -65,7 +65,7 @@ const PROGRAMS := [
 	["land", "Land (airless)", "Apollo's own P63 / P64 / P66 sequence, on its published gate conditions."],
 	["hoverslam", "Propulsive landing", "Entry burn, then a hoverslam: ignition altitude solved from v²/2(F/m − g) every step."],
 	["edl", "Entry, descent & landing", "Aeroshell, supersonic parachute, backshell separation, powered descent, sky crane."],
-	["cruise", "Interstellar cruise", "Leave the system on the exact constant-proper-acceleration solution: accelerate, coast, flip and burn. Two clocks, and the sky aberrates."],
+	["cruise", "Interstellar cruise", "Fly to the target on the exact constant-proper-acceleration solution: accelerate, coast, flip and burn. Pick a star (★) or a planet under Target first — with none picked it flies the mission. Two clocks, and the sky aberrates."],
 ]
 
 # ---- colours of the .fl-* rules (sRGB, as the page draws them) ---------------
@@ -141,6 +141,21 @@ static func plan_block(plan, target_name) -> Dictionary:
 		["escape burn", fmt_speed(plan.dvBurn)], ["v∞ needed", fmt_speed(plan.vInf)],
 		["heliocentric Δv", fmt_speed(plan.dvHelio)], ["flight time", Guidance.fmt_dur(plan.tof)],
 	], "note": "The burn is smaller than the heliocentric Δv it buys — that difference is the Oberth effect, and it is why the departure is made at periapsis."}
+
+## An interstellar destination before departure: what the crossing will cost,
+## solved from this ship's own tanks, so picking a star says something before
+## anything is pressed.
+static func mission_block(name: String, ly: float, plan: Dictionary) -> Dictionary:
+	if not plan.get("feasible", false):
+		return {"kind": "none", "text": "%s is %s ly away, and this ship cannot stop there: its tanks hold rapidity %s of the %s a crossing needs." % [
+			name, U.fixed(ly, 2), U.fixed(plan.budget, 2), U.fixed(plan.get("flipPhi", 0.0), 2)]}
+	return {"kind": "rows", "rows": [
+		["distance", "%s ly" % U.fixed(ly, 2)],
+		["profile", "flip-and-burn" if plan.mode == "flip" else "accelerate–coast–decelerate"],
+		["peak β", U.fixed(plan.betaMax, 4)], ["peak γ", U.fixed(plan.gammaMax, 3)],
+		["ship clock", Relativity.fmt_years(plan.tauS / Relativity.YEAR_S)],
+		["Earth clock", Relativity.fmt_years(plan.coordS / Relativity.YEAR_S)],
+	], "note": "Press Interstellar cruise to go. The ship waits for its orbit to carry it clear of the planet, then burns; time warp is set to fit the trip."}
 
 ## The interstellar readout — a different instrument, because in cruise nothing
 ## on the orbital panel means anything.
@@ -605,6 +620,16 @@ func update(s: Dictionary) -> void:
 		["warp", "%s×" % str(s.warp)],
 		["body", str(s.parentName)],
 	]
+	if s.get("cruise", false):
+		# In cruise the orbit about the planet left behind is a hyperbola with
+		# an eccentricity in the tens of thousands, and the thrust-to-weight
+		# against its gravity at light years is a number with fifteen digits.
+		# None of it is about this flight; the cruise block below is.
+		for i in [4, 5, 6, 7, 14, 17]: rows[i][1] = "—"
+		# A photon drive's Δv is c times the rapidity left, which passes c
+		# long before the tanks are dry: quoted in units of c, it is the
+		# rapidity itself, the number the mission is planned in.
+		rows[16][1] = "%s c" % U.fixed(tf.call("dv") / 299792458.0, 3)
 	for i in rows.size():
 		(grid_k[i] as El).set_text(rows[i][0])
 		(grid_v[i] as El).set_text(rows[i][1])

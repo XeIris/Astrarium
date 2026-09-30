@@ -78,13 +78,14 @@ float cloud_lod(float fp, float tile, float texels) {
 	return max(log2(fp * texels / tile), 0.0);
 }
 
-// Density at a planet-fixed point, as an extinction coefficient (1/m).
-// `detail` (0..1) weights the erosion: the light march and the shadows only
-// need the bulk of the cloud, and it is the most expensive fetch. `fp` is the
-// pixel footprint in metres at this sample, for the mip level.
-float cloud_density_fp(vec3 pp, float detail, float fp) {
-	float hf = cloud_hfrac(pp);
-	if (hf <= 0.0 || hf >= 1.0 || uCloudCoverage <= 0.0) return 0.0;
+// COVERAGE at a planet-fixed point: how much of the sky is cloud here, from
+// the weather and the synoptic systems round the global coverage, thinned
+// over the pad. Split out of the density because it is the slowly varying
+// part — tens to hundreds of km — and a march seen from the upper atmosphere
+// can evaluate it once every few km instead of at every sample (see
+// uCovReuse in clouds.gdshader). Evaluated at every sample, as everything
+// but that march does, the result is exactly what it always was.
+float cloud_coverage(vec3 pp, float fp) {
 	vec3 q = pp + uCloudWind;
 	// WEATHER: 40 km cells of more and less cloud round the global coverage,
 	// so the sky is not the same everywhere you look.
@@ -104,6 +105,18 @@ float cloud_density_fp(vec3 pp, float detail, float fp) {
 	// of cloud shadow.
 	if (uClearR > 0.0)
 		cov *= mix(0.2, 1.0, smoothstep(uClearR * 0.35, uClearR * 1.4, distance(pp, uClearAt)));
+	return cov;
+}
+
+// Density at a planet-fixed point, as an extinction coefficient (1/m), given
+// the coverage there. `detail` (0..1) weights the erosion: the light march
+// and the shadows only need the bulk of the cloud, and it is the most
+// expensive fetch. `fp` is the pixel footprint in metres at this sample, for
+// the mip level.
+float cloud_density_cov(vec3 pp, float detail, float fp, float cov) {
+	float hf = cloud_hfrac(pp);
+	if (hf <= 0.0 || hf >= 1.0 || uCloudCoverage <= 0.0) return 0.0;
+	vec3 q = pp + uCloudWind;
 	// PROFILE: a flat base in the first 6% of the layer, a top that rounds
 	// off over the upper half — narrower where the weather is thinner, so
 	// fair-weather cumulus are squat and the big ones tower.
@@ -118,18 +131,25 @@ float cloud_density_fp(vec3 pp, float detail, float fp) {
 	float shape = cloud_remap(perlin, -(1.0 - worley) * 0.9, 1.0, 0.0, 1.0);
 	float d = cloud_remap(shape * profile, 1.0 - cov, 1.0, 0.0, 1.0);
 	if (d <= 0.0) return 0.0;
-	if (detail > 0.0) {
-		// EROSION, stronger toward the base where the cloud is wispier and
-		// weaker in the turrets, and only where the cloud is thin already.
-		// Faded out with range, before its own mip level is a blur of grey.
+	// EROSION, stronger toward the base where the cloud is wispier and
+	// weaker in the turrets, and only where the cloud is thin already.
+	// Faded out with range, before its own mip level is a blur of grey —
+	// and not FETCHED once it has faded, which from altitude is always.
+	float k = detail * (1.0 - smoothstep(8.0, 40.0, fp));
+	if (k > 0.0) {
 		float e = textureLod(uCloudDetail, q * (1.0 / 820.0), cloud_lod(fp, 820.0, 48.0)).r;
 		e = mix(e, 1.0 - e, clamp(hf * 4.0, 0.0, 1.0));
-		float k = detail * (1.0 - smoothstep(8.0, 40.0, fp));
 		d = cloud_remap(d, e * 0.42 * k, 1.0, 0.0, 1.0);
 		if (d <= 0.0) return 0.0;
 	}
 	// density ramps up over the lower third, so bases are not a hard sheet
 	return d * smoothstep(0.0, 0.3, hf + 0.1) * uCloudSigma;
+}
+
+float cloud_density_fp(vec3 pp, float detail, float fp) {
+	float hf = cloud_hfrac(pp);
+	if (hf <= 0.0 || hf >= 1.0 || uCloudCoverage <= 0.0) return 0.0;
+	return cloud_density_cov(pp, detail, fp, cloud_coverage(pp, fp));
 }
 
 float cloud_density_pp(vec3 pp, bool detail) {
@@ -142,18 +162,28 @@ float cloud_density(vec3 local, bool detail) {
 
 // Optical depth from a local point toward `dir` through the layer — `n`
 // samples on a geometric progression from `first` metres, which puts the
-// resolution where the cloud's own self-shadowing is.
-float cloud_optical_depth(vec3 local, vec3 dir, int n, float first) {
+// resolution where the cloud's own self-shadowing is. `fp` is the footprint
+// of the pixel the march is for: a light sample for a cloud 200 km away does
+// not need, and should not fetch, the volume's finest mip.
+// `cov` < 0 reads the coverage at every sample; otherwise it is the coverage
+// to use throughout — the light march is a few km at most, and the coverage
+// varies over tens.
+float cloud_optical_depth_fp(vec3 local, vec3 dir, int n, float first, float fp, float cov) {
 	float od = 0.0;
 	float t = 0.0;
 	float ds = first;
 	for (int i = 0; i < n; i++) {
 		t += ds * 0.5;
-		od += cloud_density(local + dir * t, false) * ds;
+		vec3 pp = cloud_planet(local + dir * t);
+		od += (cov < 0.0 ? cloud_density_fp(pp, 0.0, fp) : cloud_density_cov(pp, 0.0, fp, cov)) * ds;
 		t += ds * 0.5;
 		ds *= 2.0;
 	}
 	return od;
+}
+
+float cloud_optical_depth(vec3 local, vec3 dir, int n, float first) {
+	return cloud_optical_depth_fp(local, dir, n, first, 0.0, -1.0);
 }
 
 // The (at most two) distances along a ray from `ro` (local) at which it
