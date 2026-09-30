@@ -1,64 +1,26 @@
 class_name CraftAssets
 extends RefCounted
 
-# CRAFT ASSETS — the authored models, and the rules that keep them honest.
-# Port of sim/flight/craftassets.js.
-# Every vehicle in sim/flight/craftmodel.gd can be built out of primitives at
-# real dimensions, and that procedural build is still there and still works.
-# What it cannot do is BEVEL AN EDGE. A perfectly sharp edge catches no
-# specular highlight at all, which is why hard surface assembled from lathes
-# and cylinders reads as cardboard however right its silhouette is, and there
-# is no bevel modifier at runtime. Nor can a lathe cut a recessed panel line:
-# a cylinder takes one radius, so a joint between barrel sections can only be
-# a ring strapped round the outside.
+# CRAFT ASSETS: the authored Blender models. A lathe can't bevel an edge or cut a
+# recessed panel line, so vehicles are authored in model_sources/blender/*.py (the
+# script is the model). The .glb files are build artifacts: build.sh makes them,
+# tools/sync_assets.sh copies them to res://assets/craft/, and a fresh clone runs
+# without them.
 #
-# So the vehicles are authored in Blender — model_sources/blender/*.py, where the
-# SCRIPT IS THE MODEL and nothing is clicked — and loaded here. The .glb files
-# are build artifacts and are not in the repo; model_sources/blender/build.sh makes
-# them, tools/sync_assets.sh copies them to res://assets/craft/, and a
-# fresh clone runs without them.
+# Godot imports a .glb as a PackedScene and exports the imported scene, so models
+# are reached by load("res://assets/craft/<id>.glb") (runtime GLTFDocument on the
+# raw file would fail in an export). The .glb must be imported before exporting, or
+# every vehicle flies its procedural build. "Not synced", "not imported" and "no
+# stage_ nodes" all fall back silently.
 #
-# HOW THEY ARE LOADED, AND WHY THIS WAY. Godot's editor IMPORTS a .glb as a
-# PackedScene (res://.godot/imported/<id>.glb-<hash>.scn) and an export packs
-# that imported scene, not the .glb. So the file is reached with
-# ResourceLoader.exists() + load() of "res://assets/craft/<id>.glb", which the
-# import remap resolves in the editor and in an exported build alike. Runtime
-# GLTFDocument on the raw file would work in the editor and then fail in an
-# export, which strips non-resource files — a vehicle that draws only on the
-# developer's machine. The consequences:
-#   · the .glb has to be present (and imported: open the editor once, or run
-#     `Godot --headless --path . --import`) BEFORE exporting, or the export
-#     simply has no model and every vehicle flies its procedural build;
-#   · nothing is fetched over a network, so "unreachable CDN" is gone as a
-#     failure mode; "not synced", "not imported" and "no stage_ nodes" remain,
-#     and all three fall back silently.
-#
-# FOUR RULES THIS MODULE EXISTS TO KEEP.
-#
-#   · build_craft() STAYS SYNCHRONOUS. Four call sites depend on it returning a
-#     finished vehicle, one of them the studio's audit(). So assets are
-#     preloaded into a cache and the builder reads the cache — a load is a
-#     startup concern, not a per-build one.
-#
-#   · A MISSING ASSET IS NOT AN ERROR. If a .glb is absent or unimportable, the
-#     stage falls back to its procedural build and the sim runs: one
-#     push_warning per vehicle, nothing more. The fallback is kept working
-#     rather than left to rot.
-#
-#   · LOAD ONE VEHICLE, NOT NINE. The set is about 12 MB and two thirds of that
-#     is the Hail Mary alone; pulling all of it to fly a Falcon 9 would put a
-#     multi-megabyte stall in front of a launch for eight models that will not
-#     be drawn. preload_craft(id) starts a THREADED load of exactly one, and
-#     everything that builds a craft asks for the one it is about to build.
-#
-#   · THE MOVING PARTS ARE BOUND BY NAME, and the names are an INTERFACE.
-#     craftmodel's update() drives whatever is in `parts`, and spaceflight
-#     hangs the plumes on the same objects. Rename a node in a .py file and the
-#     legs stop deploying — silently, with no error anywhere — so the patterns
-#     below and the prefixes in model_sources/blender/common.py are one agreement
-#     written in two places. Godot's importer keeps these names verbatim
-#     (measured on all nine files: `gltf/naming_version=2` changes only names
-#     carrying '.', ':' or '@', and none of the interface names do).
+# Rules (see model_sources/blender/AGENTS.md):
+#   · build_craft() stays synchronous; assets are preloaded into a cache.
+#   · A missing asset is not an error: one push_warning per vehicle, then fallback.
+#   · Load one vehicle, not nine (the set is ~12 MB, two thirds Hail Mary):
+#     preload_craft(id) starts a threaded load of one.
+#   · Moving parts are bound by name, and the patterns below must match common.py's
+#     prefixes. The importer keeps them verbatim (naming_version=2 only touches
+#     '.', ':' and '@').
 
 const DIR := "res://assets/craft/"
 ## Keys are vehicle ids from sim/flight/vehicles.
@@ -74,21 +36,12 @@ const CRAFT_ASSETS := {
 	"beetle": DIR + "beetle.glb",
 }
 
-## Emitters have to be scaled for an HDR pipeline. Blender writes the strength
-## through KHR_materials_emissive_strength, which Godot's importer reads into
-## `emission_energy_multiplier` — but if that extension is ever dropped the
-## value silently comes back as 1.0 and a drive face renders as a dull red
-## disc. Taking the max is idempotent: a no-op when the extension loaded, a
-## rescue when it did not. Keyed by the EXACT material name, as the JS is (the
-## Hail Mary's are `emitCell.001` and so are left at the file's value there
-## too).
+## Emissive strength floors, keyed by exact material name: a no-op when
+## KHR_materials_emissive_strength loaded, a rescue when it didn't.
 const EMISSIVE := {"emitPlate": 2.0, "emitCell": 6.0}
 
-## The node names craftmodel drives, mapped to the `parts` bucket they belong
-## in. Anchored and digit-terminated on purpose: a helper empty called
-## `mount_gimbal_x` or `gimbal_beetle_0_mount` must NOT be collected as a
-## pivot, and a loose begins_with() would collect both and drive the wrong
-## node. `_fixed` is the one permitted suffix — see bind_parts.
+## Driven node names → `parts` bucket. Anchored and digit-terminated, so helpers like
+## `gimbal_beetle_0_mount` aren't collected. `_fixed` is the one permitted suffix.
 const ROLES := [
 	["gimbals", "^gimbal_[A-Za-z0-9]+_\\d+(_fixed)?$"],
 	["legs", "^leg_[A-Za-z0-9]+_\\d+$"],
@@ -113,30 +66,21 @@ static func _roles() -> Array:
 			_re.append([r[0], re])
 	return _re
 
-## Make an imported scene draw the way the web build draws its GLTFLoader
-## output, and the way craftmodel's own materials do.
+## Make an imported scene draw like craftmodel's own materials.
 static func _prepare(root: Node) -> void:
 	if root is Node3D:
-		# three's Euler is XYZ, and update() assigns rotation.z on the driven
-		# nodes; they carry identity (the interface says so), so the order only
-		# has to agree with the procedural build's.
+		# XYZ Euler order, matching the procedural build (driven nodes carry identity).
 		(root as Node3D).rotation_order = EULER_ORDER_XYZ
 	if root is MeshInstance3D:
 		var mi := root as MeshInstance3D
-		# The importer generates LODs, and Godot swaps them in by screen size.
-		# The web build draws the full mesh at every range, and a bevel is
-		# exactly the detail an automatic decimator removes first; hold the top
-		# level at any distance.
+		# Hold the top LOD at any distance: bevels are what a decimator removes first.
 		mi.lod_bias = 128.0
 		var mesh := mi.mesh
 		if mesh != null:
 			for s in mesh.get_surface_count():
 				var m := mesh.surface_get_material(s) as BaseMaterial3D
 				if m == null: continue
-				# Most of this set is open shells — a lathed bell, an aft
-				# skirt, an interstage, a fairing half — and a single-sided
-				# shell has no inner wall: you look into an engine bell and see
-				# sky. The exporter already writes doubleSided; this is the belt.
+				# Double-sided: most of the set is open shells.
 				m.cull_mode = BaseMaterial3D.CULL_DISABLED
 				# three's MeshStandardMaterial is Lambert + GGX; Godot's
 				# importer leaves Burley diffuse, which is not.
@@ -149,13 +93,8 @@ static func _prepare(root: Node) -> void:
 	for c in root.get_children():
 		_prepare(c)
 
-## Split a loaded scene into its per-stage subtrees.
-##
-## A vehicle is one file with one `stage_<key>` node per stage, because
-## build_craft positions each stage's group itself — a mounted stage does not
-## even sit where the file has it (the Shuttle's orbiter is bolted to the side
-## of the tank). So the subtrees are detached here and handed out one at a
-## time, each still carrying its own internal offset.
+## Split a loaded scene into per-stage subtrees (one `stage_<key>` each), since
+## build_craft positions each stage itself.
 static func _split_stages(scene: Node) -> Dictionary:
 	var found := []
 	_collect(scene, found)
@@ -192,9 +131,8 @@ static func _settle(id: String, ps: Resource) -> void:
 		return
 	CACHE[id] = stages
 
-## Start loading one vehicle's model on a worker thread. Never blocks, never
-## throws: returns false when there is nothing to load (unknown id, or no
-## imported .glb), in which case the fallback is already settled.
+## Start a threaded load of one vehicle. Never blocks or throws; false when there's
+## nothing to load.
 static func preload_craft(id: String) -> bool:
 	if CACHE.has(id):
 		return CACHE[id] != null
@@ -233,13 +171,8 @@ static func poll(id: String) -> bool:
 static func has_model(id: String) -> bool:
 	return CACHE.get(id) != null
 
-## Settle the models for the given vehicle ids, or for ALL of them if none is
-## named — BLOCKING until each is loaded or has fallen back. Anything that
-## builds a craft and cares which build it gets has to call this first or it
-## silently measures the fallback — which for the studio's audit() means
-## reporting the fallback's triangle count as the regression number. (The JS
-## returns a Promise; here the wait is synchronous, because a load that has
-## already been started on a thread is simply joined.)
+## Settle the models for these ids (all if none), blocking until each has loaded or
+## fallen back. Call before building, or audit() measures the fallback.
 static func craft_models_ready(ids: Array = []) -> void:
 	var want := ids.filter(func(x): return x != null and str(x) != "")
 	if want.is_empty():
@@ -256,9 +189,8 @@ static func craft_models_ready(ids: Array = []) -> void:
 		if res == null: _fallback(k, "load failed")
 		else: _settle(k, res)
 
-## A fresh instance of one authored stage, or null if there isn't one.
-## duplicate() shares meshes and materials with the template, so a second
-## vehicle costs a hierarchy and nothing else.
+## A fresh instance of one authored stage, or null. duplicate() shares meshes and
+## materials.
 static func craft_stage(vehicle_id: String, stage_key: String) -> Node3D:
 	var v = CACHE.get(vehicle_id)
 	if v == null: return null
@@ -267,12 +199,8 @@ static func craft_stage(vehicle_id: String, stage_key: String) -> Node3D:
 	var n: Node3D = (t as Node3D).duplicate()
 	return n
 
-## Bind an authored stage's moving parts into the `parts` record craftmodel
-## keeps. Sorted by name so the order is deterministic across loads — the
-## plumes are created in this order and an engine that swaps index between
-## runs would swap its exhaust with its neighbour. (Plain code-point order;
-## the JS's localeCompare agrees on every name in the set, which are all
-## zero-padded where they run past 9.)
+## Bind an authored stage's moving parts into `parts`, sorted by name so plume order
+## is deterministic.
 static func bind_parts(root: Node, parts: Dictionary, spec: Dictionary) -> int:
 	var n := 0
 	for role in _roles():
@@ -283,14 +211,7 @@ static func bind_parts(root: Node, parts: Dictionary, spec: Dictionary) -> int:
 		found.sort_custom(func(a: Node, b: Node) -> bool: return String(a.name) < String(b.name))
 		for p: Node3D in found:
 			if bucket == "gimbals":
-				# A PIVOT DECLARES HOW FAR IT MAY SWING and update() clamps to
-				# it, because a cluster is not all one engine: Starship's three
-				# vacuum Raptors are rigid and sit in the same list as its three
-				# that steer, and twenty of Super Heavy's thirty-three are bolted
-				# down. The model says which by suffixing the node `_fixed`;
-				# everything else gets the engine's published authority. Without
-				# this the Hail Mary's rigid spin drives sat visibly canted and
-				# waggled once a second.
+				# Per-pivot swing: `_fixed` pivots get zero, the rest the engine's published gimbal.
 				var eng = spec.get("engine")
 				var g := 0.0 if String(p.name).ends_with("_fixed") else \
 					(float(U.nz(eng.get("gimbal"), 0.0)) if eng != null else 0.0)

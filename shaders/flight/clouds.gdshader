@@ -1,50 +1,9 @@
-// THE CLOUD PASS — a raymarched cumulus layer for local space.
-// The previous clouds lived inside the sky dome: eight samples through a slab,
-// evaluated only when the camera was under it and looking up. So they had no
-// sides, nothing lit them but a guess, and the moment a rocket climbed past
-// 2.8 km they were gone — there was nothing to look DOWN on, which is the one
-// view of a cloud deck every launch broadcast has.
-//
-// This is a volume, marched per pixel through the field in clouds.gdshaderinc,
-// from wherever the camera is: under the layer, inside it, or above it looking
-// down. The march stops at whatever the scene has in front — the ground, the
-// tower, the vehicle — because it reads the DEPTH BUFFER and ends the ray
-// there, which is how a cloud gets in front of the ground and behind the
-// rocket without either being sorted against it.
-//
-// LIGHT, in the order it matters:
-//   · extinction along the view ray (Beer–Lambert), integrated per step with
-//     Hillaire's energy-conserving form ∫S·e^{-σx}dx = S(1 − e^{-σΔ})/σ, so
-//     the result does not depend on the step size;
-//   · the SUN, attenuated by the optical depth toward it (a short march with
-//     geometrically growing steps), phase-weighted by a two-lobe
-//     Henyey–Greenstein: a strong forward peak (g = 0.8, the SILVER LINING on
-//     a cloud between you and the sun) and a weak back lobe;
-//   · MULTIPLE SCATTERING, which is what makes a thick cloud white instead of
-//     black, in two parts. One further octave after Wrenninge et al. (half
-//     the extinction, half the energy, a flatter lobe) carries the shallow
-//     orders. The deep ones are DIFFUSION: in a medium this thick the light
-//     random-walks, and what gets through an optical depth τ goes as
-//     1/(1 + ¾τ(1 − g)) — two-stream theory — not as e^(−τ). That is the
-//     difference between a grey cumulus base and a black one: at τ = 40 the
-//     exponential leaves 4e-18 of the sun and the random walk leaves a fifth.
-//     Its weight, ~1/π², is what makes a thick slab's diffuse radiance come
-//     out at E·T/π, the radiance of a Lambert sheet with that transmission;
-//   · SKYLIGHT from above and the ground's bounce from below, which is why
-//     the tops of a cumulus are brighter than its base even in shade;
-//   · AERIAL PERSPECTIVE, the same exponential haze as the ground's, applied
-//     at the transmittance-weighted distance — so a deck 50 km off goes blue
-//     and flat, which is what depth in a cloudscape looks like.
-//
-// SAMPLING. Steps grow geometrically with distance (a pixel's footprint
-// does), the texture mip is chosen from that footprint, and the start is
-// offset per pixel by interleaved gradient noise — which trades the banding a
-// fixed step would draw for fine grain the film grain in the post chain
-// already covers. The march ends early once the view is 99% blocked.
-//
-// OUTPUT is premultiplied: rgb is the integrated radiance, alpha the
-// COVERAGE (1 − transmittance) — a cloud genuinely hides what is behind it,
-// the stars included.
+// THE CLOUD PASS: a raymarched cumulus layer for local space, from below, inside or
+// above, stopping at the depth buffer. Beer–Lambert with Hillaire's integration, a
+// two-lobe Henyey–Greenstein sun, an extra scattering octave plus two-stream
+// diffusion (1/(1 + ¾τ(1 − g))), sky and ground light, and aerial perspective.
+// Steps grow geometrically with range, jittered in s. Output is premultiplied
+// (alpha = coverage). Derivation and sampling: docs/physics/clouds.md.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_front, fog_disabled;
 
@@ -64,15 +23,8 @@ uniform int uSteps = 56;
 uniform int uLightSteps = 6;
 uniform float uDetail = 1.0;
 uniform float uPixAngle = 0.0009;        // radians per pixel, for the mip level
-// THE UPPER-ATMOSPHERE LOD (set per frame by localview.gd from altitude).
-// Looking DOWN on the deck from tens of km, a pixel covers tens of metres and
-// the ray crosses a 3 km slab, so the march's budget is spent resolving
-// structure nobody can see. Above the layer the CPU lowers uSteps and
-// uLightSteps, stretches the light march's first step (uLightFirst) so it
-// still reaches as far through the cloud, and lets the coverage — the part
-// of the density that varies over tens of km — be re-evaluated only every
-// uCovReuse metres along the ray instead of at every sample, and not at all
-// in the light march under it. 0 = every sample, as under the deck.
+// Upper-atmosphere LOD, set per frame by localview.gd: fewer steps, a stretched
+// first light step, coverage re-read every uCovReuse m (0 = every sample).
 uniform float uLightFirst = 45.0;
 uniform float uCovReuse = 0.0;
 
@@ -103,9 +55,8 @@ float seg_end(int i, float j, float t0, float base, float lr, float n, float t1)
 	return min(t0 + base * (exp(lr * clamp(float(i) + j, 0.0, n)) - 1.0), t1);
 }
 
-// The density at distance t along the ray, and the coverage there — the
-// probe that decides whether a segment is worth refining, and the sample
-// itself when it is not.
+// Density at distance t and the coverage there: the refinement probe, and the sample
+// itself when a segment isn't refined.
 float probe(vec3 ro, vec3 rd, float t, out float cov) {
 	vec3 pp = cloud_planet(ro + rd * t);
 	float hf = cloud_hfrac(pp);
@@ -160,38 +111,11 @@ void fragment() {
 	float T = 1.0;
 	float tw = 0.0;       // transmittance-weighted distance, for the haze
 	float wsum = 0.0;
-	// STEP LENGTH GROWS WITH RANGE: a fixed fraction of the distance (what a
-	// pixel's footprint does), floored so near cloud is resolved and sized so
-	// the march always reaches t1 within the step budget. A step from 11 km
-	// up through a 3 km deck is a few tens of metres; along a grazing line to
-	// the horizon it is kilometres, and at that range that is all there is.
-	// The march is uniform in s, where t(s) = t0 + base·(rˢ − 1).
-	//
-	// THE JITTER GOES ON s, NOT ON t. Added to t it is a fraction of the FIRST
-	// step — ten metres — and every later step is the same kilometres for
-	// every pixel, so every pixel samples the same concentric shells round the
-	// camera. Looking down through the slab that hardly shows; looking ALONG
-	// it, from inside the deck on the way up, each shell cuts the layer in a
-	// sheet and the cloud reads as a stack of painted planes. Offsetting s
-	// moves every boundary by the same fraction of its OWN step, which turns
-	// the shells into grain.
-	//
-	// And a grazing ray gets more samples. Down through the deck the range
-	// spans a factor of two or three; along it, from 30 m to the horizon, a
-	// factor of four thousand, and 28 steps over that are 35% of the range
-	// apiece — a whole turret skipped between two samples. So the count is
-	// raised until no step is more than ~15% of its range, up to twice the
-	// budget; the early exit at 99% opacity keeps most of that unpaid.
-	//
-	// REFINED WHERE THERE IS CLOUD. Even at 15%, a step 20 km out is 3 km
-	// long, and the jitter that removed the shells leaves a grain that big at
-	// every cloud edge. Most of a grazing ray is clear air, so each segment is
-	// first PROBED at its middle, and a segment whose own probe or either
-	// neighbour's found any is marched in sub-steps of about REFINE_LEN, up
-	// to REFINE_MAX of them. The neighbours are what catch the edge a
-	// segment's midpoint missed. Looking down through the deck the segments
-	// are already shorter than that, so nothing is added there — and an
-	// unrefined segment's probe IS its sample, so probing costs nothing extra.
+	// Steps uniform in s, t(s) = t0 + base·(rˢ − 1), floored near the camera and sized
+	// to reach t1. The jitter is on s, or every pixel samples the same shells and the
+	// deck reads as sheets. Grazing rays get more steps (no step over ~15% of its range,
+	// up to 2× budget). Segments whose probe or a neighbour's finds cloud are refined
+	// into ~REFINE_LEN sub-steps (up to REFINE_MAX).
 	float base = max(t0, 30.0);
 	float span = max((t1 - t0 + base) / base, 1.001);
 	int N = clamp(int(ceil(log(span) / log(1.15))), uSteps, uSteps * 2);
@@ -230,21 +154,15 @@ void fragment() {
 				sigma = cloud_density_cov(pp, uDetail, fp, cov);
 			}
 			if (sigma <= 0.0) continue;
-			// light: the optical depth toward the sun; single scattering, one
-			// octave, and the diffusion floor (see the header). Marched once per
-			// SEGMENT, at its first cloudy sample, and shared by its sub-steps:
-			// a segment is only refined where it is hundreds of metres long,
-			// and at that range the self-shadowing a separate light march per
-			// sub-step would resolve is finer than a pixel. Marched per
-			// sub-step, it was most of the refinement's cost.
+			// light: optical depth toward the sun, single scattering, one octave and the
+			// diffusion floor. Once per segment, shared by its sub-steps.
 			if (od < 0.0) od = cloud_optical_depth_fp(p, uSunDir, uLightSteps, uLightFirst, fp,
 				uCovReuse > 0.0 ? cov : -1.0);
 			vec3 sun = uSunColor * (ph0 * exp(-od)
 				+ 0.5 * ph1 * exp(-od * 0.5)
 				+ 0.10 / (1.0 + 0.11 * od));
-			// a powder term: the edge of a cloud facing you is darker than its
-			// interior, because light entering there has had nothing to scatter
-			// off yet. Applied softly, and only away from the forward lobe.
+			// Powder: a cloud's near edge is darker than its interior. Soft, away from the
+			// forward lobe.
 			float powder = mix(1.0, 1.0 - exp(-sigma * 90.0), 0.5 * (1.0 - clamp(cosT, 0.0, 1.0)));
 			vec3 amb = mix(uSkyBottom, uSkyTop, smoothstep(0.0, 1.0, hf));
 			vec3 S = sigma * (sun * powder * 12.566371 * 0.25 + amb);

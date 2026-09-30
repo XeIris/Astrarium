@@ -1,31 +1,19 @@
 class_name StarVisual
 extends RefCounted
 
-# HIGH-FIDELITY STAR RENDERING
-# The photosphere shader (shaders/bodies/star_photo.gdshader) models, in one
-# pass:
-#   · granulation — convective cells, two octaves of fBm advected in time
-#   · differential rotation — the equator laps the poles (real: Sun 25 d vs 34 d)
-#   · starspots — dark umbra + warm penumbra + bright surrounding faculae,
-#     placed at the ActivityModel's live active regions
-#   · flare ribbons — the TWO ribbons that straddle a flare's neutral line
-#     and separate as reconnection climbs (see sim/prominence.gd)
-#   · limb darkening — the physically correct I(μ)/I(0) = 1 − u(1 − μ) law
-#   · a chromospheric H-α rim glowing just past the limb
-# Everything is driven by mass → Teff → colour, so an M dwarf and a B star look
-# genuinely different rather than being recoloured copies.
+# STAR RENDERING. The photosphere shader (star_photo.gdshader) does, in one pass:
+#   · granulation: two advected fBm octaves
+#   · differential rotation (Sun: 25 d equator, 34 d poles)
+#   · starspots: umbra, penumbra and faculae at the ActivityModel's active regions
+#   · flare ribbons: the two ribbons that separate as reconnection climbs
+#     (sim/prominence.gd)
+#   · limb darkening, I(μ)/I(0) = 1 − u(1 − μ)
+#   · a chromospheric H-α rim past the limb
+# All driven by mass → Teff → colour.
 #
-# PORT NOTES.
-#   · createStarVisual's closure is the StarViz class below (docs/godot.md:
-#     a GDScript lambda captures by value). Its fields are the web viz's in
-#     snake_case: group, core, mat, corona, base_r, r, color_hex, is_star,
-#     activity — plus stream, which sim/bodies.gd attaches.
-#   · Uniform clocks (uTime on each material) are accumulated in members and
-#     pushed, never read back from the material.
-#   · Colours: the photosphere colours are Planck-fit colours built from
-#     FLOATS in the web build, so they are linear and passed raw; the one hex
-#     here (the H-α prominence colour 0xff6a44) went through THREE.Color and
-#     is U.lin().
+# StarViz fields: group, core, mat, corona, base_r, r, color_hex, is_star, activity,
+# plus stream (attached by sim/bodies.gd). Uniform clocks are kept in members and
+# pushed. Photosphere colours are Planck fits (linear, raw); the H-α hex is U.lin().
 
 const MAX_SPOTS := 8
 const MAX_FLARES := 4
@@ -46,10 +34,7 @@ static func smoothstep01(a: float, b: float, x: float) -> float:
 static func _v3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
 
-# Two display relations from sim/structure.js. They belong to the structure
-# model, and sim/structure.gd is being ported in parallel; until it exports
-# them (granule_frequency / surface_brightness), these are exact copies. When
-# it does, _structure() below routes to it and these become dead.
+# Fallback copies for _structure(). Structure exports both, so these are unused.
 const _G_SI := 6.67430e-11
 const _M_SUN := 1.98892e30      # kg
 const _R_SUN := 6.957e8         # m
@@ -57,9 +42,8 @@ const _K_B := 1.380649e-23
 const _M_H := 1.6735575e-27
 const _HP_OVER_R_SUN := 4.16e-4
 
-## Granule size from the pressure scale height H_p = kT/(μ m_H g) as a
-## fraction of the radius — a noise frequency normalised so the Sun keeps
-## the value that was tuned by eye for it.
+## Granule size from the pressure scale height H_p = kT/(μ m_H g) as a fraction of
+## the radius, normalised to the Sun's tuned value.
 static func _granule_frequency(teff: float, radius_sun: float, mass_sun: float) -> float:
 	var R := maxf(radius_sun, 1e-6) * _R_SUN
 	var M := maxf(mass_sun, 1e-6) * _M_SUN
@@ -70,7 +54,7 @@ static func _granule_frequency(teff: float, radius_sun: float, mass_sun: float) 
 	return minf(maxf(40.0 * cells, 1.5), 80.0)
 
 ## How bright to DRAW a photosphere: the eye's response to σT⁴, (T/T☉)^(4/3),
-## capped where the bloom kernel runs out of extent (see sim/structure.js).
+## capped where the bloom kernel runs out of extent.
 static func _surface_brightness(teff: float) -> float:
 	return minf(pow(maxf(teff, 500.0) / 5772.0, 4.0 / 3.0), 12.0)
 
@@ -86,13 +70,8 @@ static func _photosphere_material(color: Color, hot_color: Color, limb_u: float)
 	m.set_shader_parameter("uColor", _v3(color))
 	m.set_shader_parameter("uHot", _v3(hot_color))
 	m.set_shader_parameter("uLimbU", limb_u)
-	# Just past 1.0. The disc has to land ON the tone curve's shoulder, not
-	# beyond it: photograph the Sun in white light and you get an obviously
-	# limb-darkened disc with granulation and spots on it, not a uniform
-	# white circle. Overdrive it and ACES flattens every one of those
-	# features into the same clipped white — which is exactly the look this
-	# was meant to get rid of. Brightness is carried by the bloom halo and
-	# by the real lights instead.
+	# Gain just past 1.0, so the disc sits on the tone curve's shoulder and keeps its
+	# limb darkening, granulation and spots. Bloom and lights carry the brightness.
 	m.set_shader_parameter("uGain", 1.0)
 	m.set_shader_parameter("uGranScale", 9.0)
 	var z4 := PackedVector4Array(); z4.resize(MAX_SPOTS)
@@ -110,26 +89,10 @@ static func _corona_material(color: Color) -> ShaderMaterial:
 	m.set_shader_parameter("uColor", _v3(color))
 	return m
 
-# A CORONAL MASS EJECTION.
-# A CME has a three-part structure, and it has had one in every coronagraph
-# image since OSO-7 saw the first of them in 1971:
-#
-#   · a BRIGHT LEADING EDGE — coronal material swept up and compressed ahead
-#     of the eruption, a thin shell,
-#   · a DARK CAVITY behind it — the evacuated flux rope itself, which is the
-#     thing that is actually erupting, and
-#   · a BRIGHT CORE inside that — the prominence material the rope is
-#     carrying out with it, which is the same cool plasma that was hanging in
-#     the arcade a few minutes earlier (see sim/prominence.gd).
-#
-# So it is drawn as two thin shells with a gap between them, additively, and
-# the gap IS the cavity: nothing needs to darken anything.
-#
-# The other half of it is that a thin shell is brightest where you look ALONG
-# it. Shaded as an ordinary surface, a shell renders as a solid crescent with
-# a hard silhouette, which is what this used to be; weighted by the path
-# length through it — long at the rim, short face-on — the same geometry
-# renders as the arc-and-legs shape a CME actually has.
+# A CORONAL MASS EJECTION's three parts: a bright swept-up leading edge, a dark
+# cavity (the erupting flux rope), and a bright prominence core. Two additive shells
+# with a gap; the gap is the cavity. Weighted by path length through the shell, so
+# it renders as an arc with legs rather than a hard crescent.
 static func _cme_material(color: Color, rim_pow: float, fil_scale: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = CME_SHADER
@@ -147,9 +110,8 @@ static func _sphere(radius: float, radial: int, rings: int) -> SphereMesh:
 	s.rings = rings
 	return s
 
-## opts: the dictionary attachVisual builds — radiusScene, teff, color (a
-## LINEAR Color for star-likes, or null), oblate, spinFrac, tPole, tEq,
-## gdBeta, radiusSun, quiet.
+## opts from attach_visual: radiusScene, teff, color (linear Color or null), oblate,
+## spinFrac, tPole, tEq, gdBeta, radiusSun, quiet.
 static func create_star_visual(b: Body, opts: Dictionary) -> StarViz:
 	var viz := StarViz.new(b, opts)
 	b.viz = viz
@@ -204,17 +166,12 @@ class StarViz:
 		mat.set_shader_parameter("uColEq", StarVisual._v3(Stellar.blackbody_color(t_eq) if (t_eq != null and t_eq > 0) else photo))
 		omega = Stellar.rotation_rate(b.mass) * 0.02   # slowed for legibility
 		mat.set_shader_parameter("uOmega", omega)
-		# Granule size from the pressure scale height rather than from mass — see
-		# granuleFrequency() in sim/structure.js. This is what turns a red supergiant
-		# from a scaled-up Sun into a surface made of three or four vast cells.
+		# Granule size from the pressure scale height (a red supergiant has a few vast cells).
 		var rad_sun: float = float(U.nz(opts.get("radiusSun"), (b.radius / 0.00465047) if b.radius > 0.0 else 1.0))
 		mat.set_shader_parameter("uGranScale", StarVisual._structure("granule_frequency",
 			[teff, rad_sun, b.mass], StarVisual._granule_frequency))
-		# Disc brightness from Stefan–Boltzmann. Every star used to be drawn at the
-		# same surface brightness, which is why a 3600 K supergiant came out the same
-		# white as a 10 000 K A star; the tone curve then finished the job. F ∝ T⁴
-		# spans 0.15 to 200 over the stars in this sim, and the HDR buffer is there
-		# precisely so that range can be carried and rolled off once at the end.
+		# Disc brightness from Stefan–Boltzmann (0.15 to 200 across the sim's stars), carried
+		# in HDR and rolled off once.
 		mat.set_shader_parameter("uGain", StarVisual._structure("surface_brightness",
 			[teff], StarVisual._surface_brightness))
 		core = MeshInstance3D.new()
@@ -227,13 +184,8 @@ class StarViz:
 		core.extra_cull_margin = R * 0.5
 		group.add_child(core)
 
-		# corona billboard. The quad spans ±1 and is scaled in the vertex shader, so
-		# uCore is the photosphere's radius in quad units — the glow starts exactly
-		# at the stellar limb however far away the camera is.
-		# The photosphere is R at the pole but up to 1.5 R at the equator, and the
-		# corona is a screen-space billboard with no idea about that — sized to the
-		# polar radius it would cut across a fast rotator's own bulge. Size it to the
-		# largest radius the star actually reaches.
+		# Corona billboard: the quad spans ±1 and uCore is the photosphere's radius in quad
+		# units. Sized to the largest radius (up to 1.5 R at the equator), not the polar one.
 		var Rmax: float = R * float(U.nz(opts.get("oblate"), 1.0))
 		var CORONA_SPAN := 4.0                       # in stellar radii
 		corona_mat = StarVisual._corona_material(hot)
@@ -247,20 +199,13 @@ class StarViz:
 		corona.material_override = corona_mat
 		corona.custom_aabb = StarVisual.NO_CULL_AABB
 		corona.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		corona_mat.render_priority = -1              # the web's renderOrder = -1
+		corona_mat.render_priority = -1
 		group.add_child(corona)
 
-		# Prominence pool, two arcades per possible concurrent flare — see
-		# sim/prominence.gd. They are two different things and both are always
-		# present in a real event: the ERUPTING FLUX ROPE, which is the filament
-		# that was sitting there beforehand tearing itself off and leaving, and the
-		# POST-FLARE ARCADE, the row of hot loops that forms underneath it as the
-		# field reconnects and closes back down. The rope rises and fades; the
-		# arcade stays, grows taller, and cools.
-		#
-		# Halpha is Halpha whatever the star is, so the cool prominence material is
-		# the same red-orange on a B star as on an M dwarf; only the footpoints,
-		# heated by the beam, take the star's own hot continuum colour.
+		# Prominence pool, two arcades per concurrent flare (sim/prominence.gd): the erupting
+		# flux rope, which rises and fades, and the post-flare arcade, which stays, grows and
+		# cools. H-α is the same red-orange on any star; only the footpoints take the star's
+		# colour.
 		var chromo := U.lin(0xff6a44)
 		var foot := hot.lerp(U.lin(0xffffff), 0.55)
 		for i in StarVisual.MAX_FLARES:
@@ -297,9 +242,7 @@ class StarViz:
 				"core_mat": core_mat, "seed": randf() * 40.0, "time": 0.0})
 
 		activity = Stellar.ActivityModel.new(b.mass)
-		# Degenerate stars have no convection zone to run a dynamo, so no spots and
-		# no flares. Emptying the regions and pushing the next arrival past any
-		# watchable timescale leaves the same object with its magnetism switched off.
+		# Degenerate stars have no dynamo: no spots, no flares.
 		if opts.get("quiet", false):
 			activity.regions.clear()
 			activity.next = INF
@@ -351,12 +294,9 @@ class StarViz:
 			var cl := cos(lat)
 			var v := Vector3(cl * cos(lon), sin(lat), cl * sin(lon))
 
-			# JOY'S LAW. An active region is a bipole, and it is not oriented at
-			# random: it lies very nearly east-west with a tilt that grows with
-			# latitude — about half the latitude, leading polarity equatorward — so
-			# every arcade in a given hemisphere leans the same way. The neutral
-			# line runs across the bipole, and that is the axis the whole eruption
-			# is built on.
+			# JOY'S LAW: a bipole lies near east-west, tilted by about half the latitude with
+			# the leading polarity equatorward, so every arcade in a hemisphere leans the same
+			# way. The neutral line across it is the eruption's axis.
 			var east := Vector3.UP.cross(v)
 			if east.length_squared() < 1e-8: east = Vector3(1, 0, 0)   # straight over a pole
 			east = east.normalized()
@@ -387,20 +327,15 @@ class StarViz:
 			var rope_amp: float = minf(0.55 + f.amp * 0.9, 1.5) * (1.0 - StarVisual.smoothstep01(0.22, 0.62, x))
 			var rope: Prominence.Arcade = E2.rope
 			rope.group.visible = rope_amp > 0.01
-			# An arcade is LONG compared with the loops in it — a neutral line runs
-			# for many times a single loop's span, which is why the thing reads as a
-			# row. Make it short and the loops pile up on each other into a ball of
-			# wool, which is what one tube was trying to avoid in the first place.
+			# An arcade runs many loop spans along its neutral line, or the loops pile into a ball.
 			rope.set_params({
 				"R": R, "span": 0.075 * scl, "len": 0.30 * scl, "height": 0.17 * scl,
 				"shear": 0.95 - 0.55 * x, "twist": 0.8 + 1.1 * rise, "erupt": rise,
 				"width": 0.011, "amp": rope_amp, "plasmaT": 1.2e4 + 2e6 * rise, "dt": dt,
 			})
 
-			# The post-flare arcade: forms under the rope once reconnection starts,
-			# grows taller as the reconnection point rises, and cools for the rest
-			# of the event. It is square across the neutral line, not sheared —
-			# that is what it means for the field to have relaxed.
+			# The post-flare arcade forms under the rope, rises with the reconnection point, and
+			# cools. Square across the neutral line: the field has relaxed.
 			var arc_amp: float = StarVisual.smoothstep01(0.05, 0.15, x) * minf(f.amp * 1.3 + 0.15, 1.4)
 			var arcade: Prominence.Arcade = E2.arcade
 			arcade.group.visible = arc_amp > 0.01
@@ -443,10 +378,8 @@ class StarViz:
 		var pulse := 1.0 + sin(float(ctx.get("time", 0.0)) * 0.6 + body.id) * 0.02
 		core.scale = Vector3.ONE * pulse
 		mat.set_shader_parameter("uPulse", activity.flux)
-		# The corona billboard is now only the structured part — the streamers and
-		# the tight inner aureole. The broad soft halo it used to have to fake is
-		# produced for real by the bloom pass, so this is dialled well back to
-		# stop the two stacking into a glowing ball.
+		# The corona billboard carries only streamers and the inner aureole; bloom makes the
+		# soft halo.
 		corona_mat.set_shader_parameter("uFlux", 0.15 + (activity.flux - 1.0) * 0.8)
 
 		if stream != null:

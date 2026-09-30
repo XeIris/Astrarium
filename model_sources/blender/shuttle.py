@@ -1,28 +1,13 @@
-# SPACE SHUTTLE — the winged one, and the only stack here that is not a stack.
-# The orbiter's engines light on the pad and burn all the way to cutoff, fed
-# from a tank that is not part of the orbiter and is thrown away. The solids
-# cannot be shut down once lit. Nothing about the arrangement is stacked:
-# vehicles.js MOUNTS all three (`look.mount`), the solids hang below the tank's
-# base, and the orbiter is bolted to the SIDE.
-#
-# Three shapes here are not bodies of revolution, and that is the whole reason
-# this vehicle is worth authoring:
-#
-#   · THE FUSELAGE is a rounded-square section whose width and height change
-#     independently — `loft`, not a lathe. A cylinder is not a coarse model of
-#     an orbiter, it is a different object.
-#   · THE WING is a double delta. The kink at x = 5.4 m is the planform: a 79
-#     degree glove that keeps the shock attached at hypersonic speed, then a 45
-#     degree outer panel that still has a lift curve at 200 knots on final.
-#   · THE WHITE/BLACK SPLIT is the thermal design made visible. Carbon-carbon
-#     and black HRSI go where the plasma goes — underside, leading edges, nose
-#     cap; everything that only ever sees space is white LRSI and felt. Getting
-#     that boundary right does more for the read than any panel detail.
-#
-# Axes: the orbiter is built nose-up along +Z with the wings on +/-X and the
-# BELLY toward the tank. `loft` and `wing` take their vertical terms as
-# up-positive, so the section tables below transfer from craftmodel.js as
-# written — see the axis note in lib.py.
+# SPACE SHUTTLE, the Blender build. Nothing is stacked: vehicles.gd mounts all
+# three (`look.mount`), the solids hang below the tank's base, and the orbiter is
+# bolted to its side. Three non-revolved shapes:
+#   · the fuselage: a rounded-square section whose width and height vary
+#     independently (`loft`)
+#   · the wing: a double delta kinked at x = 5.4 m (79° glove, 45° outer panel)
+#   · the white/black split: RCC and black HRSI where the plasma goes (underside,
+#     leading edges, nose cap), white LRSI and felt elsewhere
+# The orbiter is nose-up along +Z, wings on ±X, belly toward the tank. `loft` and
+# `wing` take vertical terms up-positive (see lib.py's axis note).
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,10 +23,10 @@ ORB_L = 37.2
 f = lambda u: u * ORB_L
 
 
-# THE ORBITER'S HULL, as a function — so details can be put ON it
+# The orbiter's hull as a function, so details can be placed on it:
 # (u, belly, back, half-width, superellipse n, black-line angle s). Heights are
-# UP-POSITIVE from the payload bay's axis; s is the angle above the section's
-# middle where the black belly tile stops (negative: below it).
+# up-positive from the payload bay axis; s is the angle above the section's middle
+# where the black tile stops (negative: below it).
 _FUS = [
     (0.000, -2.50, 2.70, 2.35, 3.0, -0.30),
     (0.030, -2.80, 2.92, 2.62, 3.4, -0.30),
@@ -175,13 +160,8 @@ def build_srb(M, root):
         sk = cyl(f'skirt{side}', r * 1.30, r * 1.02, 0.0, SRB_L * 0.098,
                  M['dirty'], seg=40, parent=b)
         finish(sk, 0.02, 2, 45)
-        # The nozzle hangs on a PIVOT, and it has to: parts.gimbals is where
-        # spaceflight.js hangs the plumes as well as where the deflection is
-        # applied, so a booster with no pivot burns invisibly. These two
-        # produce 71% of the thrust at liftoff. The RSRM's nozzle really does
-        # gimbal 8 degrees — a solid cannot be throttled or shut down, so
-        # vectoring it is the only control the stack has until the SSMEs have
-        # authority.
+        # The nozzle hangs on a pivot, since plumes parent to parts.gimbals. The RSRM
+        # vectors 8°, the stack's only control until the SSMEs have authority.
         piv = empty(f'gimbal_srb_{0 if side < 0 else 1}',
                     (side * 6.35, 0, SRB_L * 0.085), g)
         nz = bell(f'srbnoz{side}', 3.75, M['nozzle'], ratio=7.7, chamber=False,
@@ -276,9 +256,8 @@ def build_et(M, root):
                 (sin(ax) * r * 1.02, -cos(ax) * r * 1.02, ET_L * (0.10 + i * 0.12)),
                 M['dirty'], parent=g)
 
-    # ---- the bipod fitting the orbiter's nose hangs on, and the aft attach
-    # ring. These carry the entire orbiter, and one of them is why STS-107 was
-    # lost — the foam ramp over this bipod is what came off.
+    # ---- the bipod fitting the orbiter's nose hangs on, and the aft attach ring (the
+    # foam ramp over the bipod is what came off on STS-107).
     for sgn in (-1, 1):
         strut(f'bipod{sgn}', (sgn * 0.9, -r * 0.98, ET_L * 0.60),
               (sgn * 1.4, -r * 1.9, ET_L * 0.56), 0.16, M['dirty'], seg=8, parent=g)
@@ -292,23 +271,15 @@ def build_et(M, root):
 def build_orbiter(M, root):
     g = stage('orbiter', root)
 
-    # ---- the fuselage, from its own profile: the belly line, the back line
-    # and the half-width at each station, and a superellipse exponent carrying
-    # the section from near-circular at the nose to the rounded square of the
-    # payload bay. Written as a SEPARATE belly and back rather than a
-    # symmetric section about a centreline, because the orbiter's nose is not
-    # symmetric about anything: the belly runs flat almost to the tip, the tip
-    # is low (a third of the depth up), and behind it the forward RCS module
-    # climbs to a steep windscreen and the crew cabin, whose roof stands a
-    # little PROUD of the payload bay. Drawn as a symmetric ogive — as it was —
-    # it reads as a missile with wings. u runs aft (0) to nose (1); the
-    # stations follow the orbiter's Xo frame (payload bay Xo 582-1307, crew
-    # cabin forward of that, forward RCS module Xo 238-378).
+    # ---- the fuselage from its own profile: belly line, back line and half-width per
+    # station, with n going from near-circular at the nose to the payload bay's rounded
+    # square. Belly and back are separate because the nose isn't symmetric: the belly
+    # runs flat almost to a low tip, then the forward RCS module climbs to a steep
+    # windscreen and a cabin roof just proud of the bay. u runs aft (0) to nose (1);
+    # stations follow the Xo frame (bay Xo 582–1307, forward RCS Xo 238–378).
     fus = orbiter_sections()
-    # Two shells, and the split between them is not the waterline: black
-    # HRSI covers the belly and turns up the flanks only as far as the plasma
-    # reaches — low along the bay, climbing round the chin to the corners of
-    # the windscreen at the nose. White LRSI and felt above.
+    # Two shells split where the plasma reaches: low along the bay, climbing round the
+    # chin to the windscreen corners.
     up = loft_split('fus_top', fus, M['white'], lambda c: (c['s'], pi - c['s']), seg=40, parent=g)
     lo = loft_split('fus_bot', fus, M['tiles'], lambda c: (pi - c['s'], TAU + c['s']), seg=40, parent=g)
     smooth(up, 32); smooth(lo, 32)
@@ -325,9 +296,7 @@ def build_orbiter(M, root):
     for sgn in (1, -1):
         for w_ in wing(f'wing{sgn}', ws, M['white'], M['tiles'], sign=sgn, parent=g):
             smooth(w_, 34)
-        # Reinforced carbon-carbon leading edge: 22 panels a side, and the
-        # hottest structure on the vehicle at about 1 500 C. It is a DIFFERENT
-        # COLOUR from the wing behind it, which is how you read the planform.
+        # RCC leading edge: 22 panels a side, ~1500 °C, a different colour from the wing.
         for i in range(len(ws) - 1):
             a0, a1 = ws[i], ws[i + 1]
             strut(f'rcc{sgn}{i}',
@@ -378,9 +347,8 @@ def build_orbiter(M, root):
             n.location = (sgn * (2.7 + k * 0.1), -(2.3 - k * 0.5), f(0.19 + k * 0.006))
             n.rotation_euler = (0, sgn * pi / 2, 0)
 
-    # ---- three SSMEs, in the triangle they actually sit in: one high on the
-    # centreline, two low and outboard. They gimbal 10.5 degrees, which is the
-    # most of any engine in this set, because they are steering the whole stack.
+    # ---- three SSMEs: one high on the centreline, two low and outboard. They gimbal
+    # 10.5°, the most in the set.
     for i, (x, zc) in enumerate(((0, 1.30), (-1.55, -0.55), (1.55, -0.55))):
         piv = empty(f'gimbal_orbiter_{i}', (x, -zc, f(0.045)), g)
         b = bell(f'ssme{i}', 2.30, M['nozzle'], ratio=69, seg=26, parent=piv)
@@ -392,18 +360,15 @@ def build_orbiter(M, root):
     ], M['black'], seg=28, parent=g)
     smooth(aft, 32)
 
-    # ---- body flap: the slab under the engines that trims the vehicle in
-    # hypersonic flight and shields the bells. Small, and very recognisable.
-    # It goes in parts.flaps, so the node it hangs on must have NO rotation
-    # about the driven axis — the build-time cant is about X only.
+    # ---- body flap: trims hypersonic flight and shields the bells. In parts.flaps, so
+    # its node has no rotation about the driven axis (the cant is about X only).
     fl = empty('flap_orbiter_0', (0, 2.35, f(0.028)), g)
     fl.rotation_euler = (0.12, 0, 0)
     bf = box('bodyflap', (4.3, 0.36, 2.3), (0, 0, 0), M['tiles'], parent=fl)
     finish(bf, 0.02, 2, 40)
 
-    # ---- payload bay doors, closed: the centreline seam where the two doors
-    # meet, the hinge lines down each side, and the four frames each door is
-    # built in. Lines, not panels: the doors are the fuselage's own skin.
+    # ---- payload bay doors, closed: centreline seam, hinge lines and door frames, as
+    # lines on the fuselage skin.
     seam = M['dirty']
     surf_patch('bay_ctr', fus, 0.215, 0.762, pi / 2 - 0.0007, pi / 2 + 0.0007, 0.012, seam, g, nu=6, nt=1)
     for sgn, t in ((1, 0.30), (-1, pi - 0.30)):
@@ -412,13 +377,8 @@ def build_orbiter(M, root):
         u = 0.215 + (0.762 - 0.215) * k / 4
         surf_patch(f'bay_frame{k}', fus, u - 0.0008, u + 0.0008, 0.30, pi - 0.30, 0.012, seam, g, nu=1, nt=12)
 
-    # ---- THE WINDSCREEN. Six forward panes in a band that wraps from one
-    # shoulder of the cabin to the other, two overhead panes in the roof, and
-    # all of them set in black: the frames and the surround are HRSI, which is
-    # why the flight deck reads as a dark mask across the white nose in every
-    # photograph of the vehicle. Each pane is a patch OF THE HULL, evaluated
-    # on the loft and stood a few centimetres off it — a flat box can only
-    # touch a curved nose along a line, and the old ones sat inside it.
+    # ---- THE WINDSCREEN: six forward panes wrapping the cabin and two overhead, set in
+    # black HRSI. Each pane is a patch of the hull, stood a few cm off it.
     surf_patch('ws_mask', fus, 0.852, 0.906, 0.64, pi - 0.64, 0.02, M['tiles'], g, nu=14, nt=24)
     pitch, half = 0.285, 0.098
     for i in range(6):
@@ -432,9 +392,8 @@ def build_orbiter(M, root):
     port(g, fus, 0.834, pi + 0.04, 0.52, 0.03, M['dirty'], 'hatch')
     port(g, fus, 0.834, pi + 0.04, 0.14, 0.08, M['glass'], 'hatch_win')
 
-    # ---- forward RCS: the module ahead of the windscreen carries fourteen
-    # primary thrusters, and they show as black mouths in three groups — two
-    # pairs firing UP out of its crown, and a row firing out of each side.
+    # ---- forward RCS: fourteen thrusters in three groups (two pairs up out of the
+    # crown, a row out of each side).
     for sgn in (-1, 1):
         for k, u in enumerate((0.944, 0.951)):
             for j, dt in enumerate((0.10, 0.20)):
@@ -449,9 +408,8 @@ def build_orbiter(M, root):
     # reinforced carbon-carbon, with the tile ring round it.
     surf_patch('nosecap', fus, 0.968, 1.0, 0.0, TAU, 0.010, M['tiles'], g, nu=6, nt=40)
 
-    # ---- elevons and rudder: the control surfaces are separate panels, and
-    # their hinge lines and the gap between inboard and outboard elevon are
-    # the lines that make a wing read as a wing and not as a plate.
+    # ---- elevons and rudder as separate panels, with their hinge lines and the
+    # inboard/outboard elevon gap.
     for sgn in (1, -1):
         pts = []
         for st in ws[:-1]:

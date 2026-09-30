@@ -1,56 +1,24 @@
 class_name Plume
 extends RefCounted
 
-# EXHAUST, PLASMA AND SMOKE — port of sim/flight/plume.js.
-# The plume's SHAPE is a function of ambient pressure and nothing else, so one
-# shader covers sea level, vacuum and everything in between — which is the
-# effect worth having, because you watch it happen during the climb.
+# EXHAUST, PLASMA AND SMOKE. The plume's shape follows ambient pressure alone, so
+# one shader covers the whole climb:
+#   over-expanded (p_e < p_a)   the air squeezes the jet into a column that
+#                               recompresses through shock diamonds, spacing
+#                               growing as the air thins
+#   under-expanded (p_e > p_a)  a huge translucent bell, no diamonds
+# Colour is the propellant (see LOOK); an ion beam is dim, narrow and steady.
 #
-#   OVER-EXPANDED (low altitude, p_e < p_a): the outside air squeezes the jet
-#   into a narrow column, and it recompresses to ambient through a train of
-#   oblique shocks — the SHOCK DIAMONDS. Bright where the gas is compressed and
-#   heated, dark where it expands again. Three to five are visible on a Falcon 9
-#   at liftoff, and their spacing grows as the air thins.
+# The local pass has no temperature channel (its alpha is coverage; compose.glsl
+# treats it as no data), so emitters (jet, entry sheath, ground flame, glow, RCS)
+# blend ONE, ONE (blend_premul_alpha, ALPHA = 0) and add light without coverage;
+# smoke is blend_mix, the one thing that hides what's behind it. In non-visible
+# bands the local pass images from colour.
 #
-#   UNDER-EXPANDED (vacuum, p_e > p_a): nothing confines it, so it opens into a
-#   huge translucent bell many times the nozzle diameter and the diamonds
-#   disappear entirely. This is why an upper stage looks like it has an enormous
-#   ghost of a flame and a first stage looks like a blowtorch.
-#
-# COLOUR IS THE PROPELLANT, not taste. RP-1/LOX is soot-luminous orange because
-# it is burning carbon; LH2/LOX is nearly invisible pale violet because it is
-# burning to water with almost no continuum emitter in it; methalox is blue with
-# an orange core; a solid is a white-orange torch behind an enormous grey-white
-# cloud of aluminium oxide. An ion engine is not a flame at all — it is a
-# collimated beam of xenon ions recombining, so it is dim, narrow, does not
-# flicker, and must not look powerful at 237 mN.
-#
-# ALPHA WAS THE TEMPERATURE CHANNEL in the web build. Every emitter published
-# its true temperature into the HDR buffer's alpha (α = ln T / 25.33) with the
-# RGB added at a source factor of that same α, and every sprite left the
-# channel alone. The Godot local pass has no temperature channel at all — its
-# alpha is COVERAGE, and render/compose.glsl reads local coverage as "no data"
-# (docs/godot.md) — so here:
-#   · emitters (jet, entry sheath, ground flame) form rgb × code in the shader
-#     and blend ONE, ONE (blend_premul_alpha, ALPHA = 0): the same light, and
-#     no coverage, so the orrery behind a plume shows through undimmed;
-#   · the engine glow and the RCS puffs are additive sprites the same way;
-#   · the smoke is blend_mix, which raises coverage — smoke is the one thing
-#     here that genuinely hides what is behind it.
-# What this loses is the plume's own temperature in the non-visible bands; the
-# local pass images from colour there.
-#
-# PORT NOTES
-#   · createPlume/createRCSPuffs/createEntryGlow/createSmokeColumn/
-#     createGroundFlame become create_plume/create_rcs_puffs/create_entry_glow/
-#     create_smoke_column/create_ground_flame, each returning an inner-class
-#     object with the JS fields (mesh/group, uniforms → the ShaderMaterial,
-#     reach, update(), emit(), clear()).
-#   · THREE.Sprite becomes a camera-facing quad (shaders/flight/sprite*.gdshader)
-#     with per-object INSTANCE uniforms for the colour, opacity and rotation the
-#     web build kept on one SpriteMaterial per sprite.
-#   · renderOrder becomes render_priority (LocalView.ORDER); Godot, like three,
-#     sorts it only within the transparent list.
+# Factories return inner-class objects (mesh/group, the ShaderMaterial, reach,
+# update(), emit(), clear()). Sprites are camera-facing quads (sprite*.gdshader)
+# with per-instance colour, opacity and rotation. Draw order is render_priority
+# (LocalView.ORDER), transparent list only.
 
 const ORDER_SMOKE := 10
 const ORDER_FLAME := 20
@@ -66,31 +34,19 @@ const PROPELLANT := {
 	# Not thermal at all: a beam of ions recombining, so it gets a low nominal
 	# temperature and is dominated by line emission rather than a continuum.
 	"ion":        { "T": 1200.0, "core": [0.55, 0.62, 1.00], "edge": [0.40, 0.20, 0.95], "soot": 0.0, "glow": 0.25, "beam": true },
-	# The spin drive radiates at 25.98 µm — deep infrared, and invisible. What is
-	# drawn is the visible tail of a source that is overwhelmingly not visible,
-	# which is why it is a faint red haze and not a torch.
+	# The spin drive radiates at 25.98 µm; what's drawn is its faint visible tail.
 	"spin":       { "T": 1500.0, "core": [1.00, 0.30, 0.18], "edge": [0.55, 0.06, 0.04], "soot": 0.0, "glow": 0.45, "beam": true },
 }
 
-# WHAT EACH PROPELLANT LOOKS LIKE, as emission per unit path in HDR — the
-# volume in shaders/flight/plume.gdshader integrates these along the ray.
-#
-#   kerolox     soot-luminous: a yellow-white core, then an orange afterburning
-#               mixing layer that is most of the light, cooling to deep red and
-#               brown-black smoke
-#   hydrolox    burns to water with almost no continuum emitter, so it is nearly
-#               INVISIBLE in daylight — what shows are the shock cells, where
-#               compression reheats the gas, and a faint violet-blue OH glow
-#   methalox    blue from CH and C₂ band emission in the core; little soot, so a
-#               pink-orange afterburning fringe rather than an orange torch
-#   solid       aluminium burning to alumina droplets at ~3000 K: a white-yellow
-#               torch you cannot look at, inside the enormous white cloud those
-#               same droplets make as they cool
-#   hypergolic  pale, translucent, peach — and in vacuum close to invisible
-#   ion         a collimated xenon beam: dim, blue, perfectly steady
-#   spin        the book's astrophage drive radiates at 25.98 µm, far in the
-#               infrared; what is drawn is the faint visible tail of an almost
-#               entirely invisible beam, a deep red haze on the axis
+# Emission per unit path in HDR, integrated along the ray by plume.gdshader:
+#   kerolox     soot-luminous yellow-white core, orange afterburning layer, red
+#               and brown-black smoke
+#   hydrolox    nearly invisible in daylight: shock cells and a faint OH violet
+#   methalox    blue CH/C₂ core, pink-orange fringe, little soot
+#   solid       white-yellow alumina torch inside its own white cloud
+#   hypergolic  pale peach, near-invisible in vacuum
+#   ion         collimated xenon: dim, blue, steady
+#   spin        a deep red haze on the axis (the drive is far infrared)
 const LOOK := {
 	"kerolox":    {"core": [1.40, 1.09, 0.63], "shock": [1.0, 0.92, 0.75], "mix": [1.0, 0.42, 0.10],
 		"tail": [0.55, 0.14, 0.03], "smoke": [0.030, 0.024, 0.018], "afterburn": 1.0, "soot": 0.55,
@@ -115,19 +71,12 @@ const LOOK := {
 		"machDisk": 0.0, "bright": 1.0, "beam": true},
 }
 
-# WHAT MAKES ONE ENGINE'S PLUME ITS OWN. Exit pressure p_e and exit Mach are
-# published figures (or follow from the published expansion ratio and chamber
-# pressure); against the ambient they give the pressure ratio the whole shape
-# is built on. So a Merlin (p_e ≈ 0.6 atm) is gently over-expanded at the pad
-# and shows a train of soft diamonds, and an RS-25 (p_e ≈ 0.16 atm, 69:1 on a
-# 206-bar chamber) is violently over-expanded and hangs a white Mach disk under
-# each bell — which is the Shuttle's liftoff picture, from the same one number.
-# Vacuum engines exhaust at a few kPa, so they bloom the moment the air thins.
-#
-#   F-1   the gas-generator exhaust was dumped into the nozzle extension as a
-#         film coolant: a dark, fuel-rich sleeve round the first diameters of
-#         the jet that ignites raggedly further down — `film`
-#   RSRM  alumina: the soot is WHITE (it scatters), see LOOK.solid
+# Per-engine look. Published exit pressure and Mach against ambient give the
+# pressure ratio the shape comes from: a Merlin (p_e ≈ 0.6 atm) shows soft diamonds
+# at the pad, an RS-25 (≈ 0.16 atm) hangs a white Mach disk under each bell.
+#   F-1   gas-generator exhaust film-cools the extension: a dark fuel-rich sleeve
+#         that ignites raggedly downstream (`film`)
+#   RSRM  alumina: white soot (LOOK.solid)
 const ENGINE_LOOK := {
 	"F-1": {"pe": 41000.0, "mach": 3.2, "film": 1.0, "soot": 0.95, "diamonds": 0.45, "coreLen": 3.0},
 	"J-2": {"pe": 3000.0, "mach": 4.4},
@@ -144,9 +93,8 @@ const ENGINE_LOOK := {
 	"Draco RCS": {"pe": 1000.0, "mach": 4.0},
 }
 
-## How brightly the local scene is lit, relative to full sun at Earth: the
-## smoke a plume scatters is only as bright as the light falling on it.
-## spaceflight.gd sets it each frame.
+## Local light level relative to full sun at Earth (set by spaceflight.gd); smoke is
+## only as bright as the light on it.
 static var daylight := 1.0
 
 static var _sh := {}
@@ -161,10 +109,8 @@ static func _v3(a: Array) -> Vector3:
 static func _prop(name) -> Dictionary:
 	return PROPELLANT.get(name, PROPELLANT.kerolox) if name != null else PROPELLANT.kerolox
 
-## A closed unit cylinder, y from −1 to 0 — the plume's bounding volume. The
-## shader scales it by uBox and marches the field inside; only its back faces
-## are drawn, so it covers every pixel the plume can reach from any viewpoint,
-## including from inside it.
+## A closed unit cylinder, y from −1 to 0: the plume's bounding volume. Only back
+## faces are drawn, so it covers every reachable pixel, inside or out.
 static var _box: ArrayMesh = null
 static func _box_mesh() -> ArrayMesh:
 	if _box != null: return _box
@@ -177,9 +123,7 @@ static func _box_mesh() -> ArrayMesh:
 			g.pos.append(Vector3(cos(th), y, sin(th))); g.nrm.append(Vector3(cos(th), 0.0, sin(th)))
 	for i in n:
 		var a := i; var b2 := (i + 1) % n; var c := n + i; var d := n + (i + 1) % n
-		# outward-facing (three's counter-clockwise, which _to_mesh turns
-		# into Godot's clockwise): the shader culls FRONT faces, so what is
-		# drawn is the far wall — or every wall, from inside
+		# Outward-facing; the shader culls front faces, so the far wall is drawn.
 		g.idx.append_array([a, b2, c, b2, d, c])
 	# caps
 	var top := g.pos.size(); g.pos.append(Vector3(0, 0, 0)); g.nrm.append(Vector3.UP)
@@ -228,12 +172,10 @@ class PlumeFx extends RefCounted:
 	var mesh: Node3D               # the group hung on the gimbal pivot
 	var jet: MeshInstance3D
 	var glow: MeshInstance3D
-	var material: ShaderMaterial   # the web build's `uniforms`
+	var material: ShaderMaterial
 	var propellant: Dictionary
 	var look: Dictionary
-	## The length the jet is BUILT at, reported rather than left to be
-	## reconstructed by anything downstream: the beam multiplier is not
-	## guessable from exit_d, and the pad flame goes out on this number.
+	## The jet's built length, reported (the pad flame goes out on it).
 	var reach: float
 	var exit_d: float
 	var pe := 50000.0              # exit pressure, Pa
@@ -257,10 +199,8 @@ class PlumeFx extends RefCounted:
 		material.set_shader_parameter("uTime", time)
 		var sm: Vector3 = Plume._v3(look.smoke) * Plume.daylight
 		material.set_shader_parameter("uSmoke", sm)
-		# The bounding cylinder follows the jet: a pencil at the pad, a bell
-		# many diameters across in vacuum, and shorter when throttled back —
-		# the afterburning mixing layer is most of the length, and a throttled
-		# engine has less to burn.
+		# The bounding cylinder follows the jet: a pencil at the pad, a wide bell in vacuum,
+		# shorter when throttled.
 		var under := clampf(log(maxf(pr, 1.0)) / log(300.0), 0.0, 1.0)
 		var re := exit_d * 0.5
 		var L := reach * (1.0 + 1.3 * under) * (0.55 + 0.45 * throttle)
@@ -270,9 +210,7 @@ class PlumeFx extends RefCounted:
 		if beam: rj = 1.0 + 0.03 * lx
 		var R := re * rj * 1.9
 		material.set_shader_parameter("uBox", Vector3(R, L, R))
-		# The exit glow sits a little inside the exit plane — the flash comes
-		# from the gas in the bell — and grows with the plume, because in vacuum
-		# there is far more radiating gas.
+		# Exit glow a little inside the exit plane, growing with the plume.
 		if glow != null:
 			glow.position.y = -exit_d * 0.08
 			var s := exit_d * (1.6 + 2.4 * under) * (0.6 + 0.4 * throttle) * (0.35 if beam else 1.0)
@@ -281,10 +219,9 @@ class PlumeFx extends RefCounted:
 		if light != null:
 			light.light_energy = light_scale * throttle * (0.4 if beam else 1.0)
 
-## One engine's plume. `exit_d` sets the scale; everything else is driven per
-## frame from the flight state. `engine` is the vehicles.gd entry (for its own
-## exit pressure and look); `role` is "single", "near" (one engine of a cluster
-## whose far field is drawn merged) or "far" (that merged far field).
+## One engine's plume, scaled by `exit_d` and driven per frame. `engine` is the
+## vehicles.gd entry; `role` is "single", "near" (one engine of a merged cluster) or
+## "far" (the merged far field).
 static func create_plume(propellant, exit_d: float, length_scale: float = 18.0,
 		engine = null, role: String = "single", seed: float = 0.0) -> PlumeFx:
 	var P := _prop(propellant)
@@ -343,9 +280,7 @@ static func create_plume(propellant, exit_d: float, length_scale: float = 18.0,
 	var g := Node3D.new()
 	g.name = "plume"
 	g.add_child(jet)
-	# THE NOZZLE IS A LIGHT SOURCE: the exit plane is the hottest thing on the
-	# vehicle and is looked at down its own axis half the time. A merged far
-	# field has no nozzle of its own, so no glow.
+	# The nozzle exit is a light source (not for a merged far field).
 	if role != "far":
 		var glow := make_sprite(sprite_material(true, 0, ORDER_FLAME))
 		# color.setRGB(...) — floats, so NOT colour-converted
@@ -357,9 +292,8 @@ static func create_plume(propellant, exit_d: float, length_scale: float = 18.0,
 	fx.mesh = g
 	return fx
 
-## Give a plume the light its flame throws. Its colour is the mixing layer's
-## (the part of the flame with the most area), its reach a few dozen exit
-## diameters, and its energy what makes a pad at night orange rather than dark.
+## The light a plume's flame throws: the mixing layer's colour, a few dozen exit
+## diameters of reach.
 static func add_flame_light(fx: PlumeFx, scale_d: float) -> void:
 	var l := OmniLight3D.new()
 	l.name = "flame_light"
@@ -423,11 +357,8 @@ static func _lin3(hex: int) -> Vector3:
 	var c := U.lin(hex)
 	return Vector3(c.r, c.g, c.b)
 
-# RE-ENTRY PLASMA
-# A bow-shock cap ahead of the vehicle whose brightness and colour follow the
-# Sutton–Graves heat flux — the same number that is burning the shield down and
-# that will destroy the vehicle if it gets too large. So nothing here is
-# decorative: if you see a lot of it, you are in trouble, and the HUD agrees.
+# RE-ENTRY PLASMA: a bow-shock cap whose brightness and colour follow the
+# Sutton–Graves heat flux, the same number that loads the shield.
 class EntryGlow extends RefCounted:
 	var mesh: MeshInstance3D
 	var material: ShaderMaterial
@@ -458,27 +389,14 @@ static func create_entry_glow(radius: float) -> EntryGlow:
 	o.mesh = mi
 	return o
 
-# LAUNCH SMOKE — the ground cloud, which only exists where there is an
-# atmosphere AND a surface to bounce off. It is billboards rather than a
-# volume, because that is what a few hundred of them can afford to be.
+# LAUNCH SMOKE: the ground cloud (needs air and a surface), as billboards.
 class SmokeColumn extends RefCounted:
 	var group: Node3D
 	var parts: Array = []     # [{s, life, rate, spin, rot, vel, color, dirty}]
 	var next := 0
-	# TWO CLOUDS, NOT ONE, and they are made of different substances.
-	#
-	#   STEAM is the deluge flashing off the deck — a million litres of water in
-	#   forty seconds. It is brilliant white, it is most of the VOLUME, and it
-	#   dies quickly because it condenses and rains back out.
-	#
-	#   SOOT is the exhaust: unburnt carbon out of a fuel-rich kerosene engine,
-	#   or aluminium oxide out of a solid. It is dark, it is what the column is
-	#   still made of a minute later, and it is the reason the base of a launch
-	#   cloud is brown and the top is white.
-	#
-	# Drawing only the white half is what makes a rendered launch look like a
-	# fog machine. The mix follows the propellant's own soot fraction, so a
-	# hydrogen launch is genuinely almost clean and a solid is filthy.
+	# Two clouds: white steam from the deluge (most of the volume, gone quickly) and
+	# dark soot or alumina from the exhaust (what's left a minute later). The mix follows
+	# the propellant's soot fraction.
 	var STEAM := U.lin(0xe8eaec)
 	var SOOT := U.lin(0x4a423a)
 
@@ -496,9 +414,7 @@ class SmokeColumn extends RefCounted:
 			# exhaust is going sideways at the speed of sound.
 			p.vel = Vector3(cos(a) * spread * (0.7 + randf()), spread * 0.25 * randf(),
 				sin(a) * spread * (0.7 + randf()))
-			# Soot is thrown out with the exhaust and stays low and near the
-			# middle; steam boils off the whole deck. So which one a puff is
-			# depends on where it started — the dark core inside the white.
+			# Soot starts low and central, steam across the deck.
 			var dirty := randf() < soot * (1.0 - 0.55 * (r / spread))
 			var c: Color = SOOT if dirty else STEAM
 			# No two puffs the same value, or several hundred of them read as
@@ -559,17 +475,8 @@ static func create_smoke_column(count: int = 150) -> SmokeColumn:
 			"color": Color(1, 1, 1), "dirty": false})
 	return o
 
-# A puff of smoke. The alpha is VALUE NOISE, not a product of a sine and a
-# cosine — sin(x)·cos(y) is separable, which means its level sets are a grid,
-# which means every sprite in the cloud carried the same diagonal lattice and
-# a few hundred of them overlapping turned the whole launch cloud into visible
-# cross-hatching. Real noise has no preferred direction, which is the entire
-# property being asked for here.
-#
-# The shading is not flat either: a smoke puff is a lump of scattering medium
-# lit from one side, so it is bright where it faces the light and dark in its
-# own shadow. One texture with a baked gradient does more for a cloud than any
-# number of extra sprites.
+# A smoke puff: value-noise alpha (sin·cos is separable and cross-hatches) and a
+# baked light-side gradient.
 static var _smoke_tex: ImageTexture = null
 static func smoke_texture() -> ImageTexture:
 	if _smoke_tex != null: return _smoke_tex
@@ -595,9 +502,8 @@ static func smoke_texture() -> ImageTexture:
 			for o in 5:
 				n += amp * vnoise.call(float(x) / s * f, float(y) / s * f)
 				amp *= 0.5; f *= 2.13
-			# The noise EATS the disc — it scales the radius rather than
-			# modulating the alpha on top of it — and then the alpha is taken to
-			# a power, so the puff is mostly holes and tendrils.
+			# The noise scales the radius rather than the alpha, then a power: mostly holes and
+			# tendrils.
 			var bite := pow(maxf(0.0, 1.0 - d * (0.58 + 0.95 * n)), 1.35)
 			var a := bite * (0.18 + 1.15 * n * n)
 			# Self-shading, as if lit from the upper left. Ambient occlusion in
@@ -612,41 +518,20 @@ static func smoke_texture() -> ImageTexture:
 	_smoke_tex = ImageTexture.create_from_image(img)
 	return _smoke_tex
 
-# THE GROUND FLAME — what the exhaust does after it hits the deck.
-# For the first two or three vehicle lengths of a launch the jet is not going
-# anywhere: it hits the deflector and turns through ninety degrees, and what
-# comes out is a horizontal sheet of burning gas thrown out along the trench
-# faster than it went down. That fan is the largest, brightest thing in the
-# frame at T+0, and it is the reason a pad at ignition looks nothing like a
-# rocket with a flame under it.
-#
-# Two things drive it and both are physical:
-#
-#   IMPINGEMENT — it exists only while the jet still reaches the deck, i.e.
-#   while the vehicle's height above the pad is less than the plume is long.
-#   It does not fade out on a timer; it goes out because the rocket left.
-#
-#   SPREAD — the fan's radius grows as the vehicle climbs, because the jet
-#   arrives at the deck wider and with more of its momentum already turned by
-#   the air. So it opens out and thins at the same time, which is exactly what
-#   the ring of fire under a Saturn V does in the first five seconds.
-#
-# Drawn as a flattened dome rather than a disc: the sheet has thickness, it is
-# brightest where you look ALONG it — out at the rim, where the path through
-# the burning gas is longest — and a flat disc has none of that.
+# THE GROUND FLAME: the jet turned 90° by the deflector into a horizontal sheet.
+# It exists while the jet still reaches the deck (height < reach) and spreads as the
+# vehicle climbs. A flattened dome, brightest at the rim where the path is longest.
 class GroundFlame extends RefCounted:
 	var mesh: MeshInstance3D
 	var material: ShaderMaterial
 	var scale: float
-	## The fan's plan shape, (along x, along z). A flame TRENCH turns the jet
-	## through ninety degrees and sends it out of both ends, so the fire runs
-	## along the trench (site x) and is narrow across it; a mount with an open
-	## deflector under it (Starship's) throws it out in every direction.
+	## Fan plan shape (x, z): a trench throws it along the trench axis; an open
+	## deflector (Starship) in every direction.
 	var aspect := Vector2.ONE
 
-	## @param throttle 0..1
-	## @param height   the vehicle's height above the deck, m
-	## @param reach    how far the jet carries — the plume's own length, m
+	##   throttle  0..1
+	##   height    vehicle height above the deck, m
+	##   reach     the plume's length, m
 	func update(throttle: float, height: float, reach: float, time: float) -> void:
 		# It is on while the jet still lands on the deck, and it dies as the
 		# vehicle climbs out of its own exhaust. Nothing here is a timer.

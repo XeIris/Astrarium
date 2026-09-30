@@ -1,38 +1,19 @@
 class_name Hud
 extends Control
 
-# THE HUD — blackhole_sim.html's markup, blackhole_sim.css's rules, and the DOM
-# half of blackhole_sim.js, as one Control.
-# Every panel, control and caption of the page is an El (ui/widgets/el.gd), a
-# node that carries one element's computed style and is laid out by CSS's own
-# rules. The tree below is the HTML's tree, element for element and in the same
-# order, so reading this file against blackhole_sim.html is a diff; the styles
-# are blackhole_sim.css's (ui/hud_css.gd). Anything that is an `id` in the page
-# is registered under that id, and the orchestrator reaches it through
-# set_text / set_shown / set_active exactly as blackhole_sim.js reached it
-# through document.getElementById.
+# THE HUD: every panel, control and caption, as El nodes (ui/widgets/el.gd) laid
+# out by CSS rules (ui/hud_css.gd). Elements with an id are registered under it,
+# and the orchestrator reaches them through set_text / set_shown / set_active.
 #
-# WHAT MOVED IN HERE from blackhole_sim.js, so the orchestrator does NOT do it:
-#   * renderPresetGroups, including the search box, the <details> groups and
-#     their remembered open state — the Hud only reports preset_chosen(key);
-#   * refreshUI's markup (render_body_list), updateHUD's sun rows and climate
-#     block (render_sun_list, update_climate) and drawClimateChart;
-#   * toast, setPanelOpen, layoutLeftColumn — all of it, measured — and the
-#     tabs a collapsed panel leaves behind;
-#   * groupControlSections / setSectionOpen / applySectionModes, with
-#     SECTION_MODE and OPEN_BY_DEFAULT, and the section heads' click;
-#   * setHudHidden's class, the mode switch's visuals, the settings pages;
-#   * every range input's value label and its formatter (timeLabel, the
-#     toExponential of the step cap, °, d, m, ×) on user input;
-#   * the markup of the band grid, the craft grid, the model viewer's chips,
-#     list and stage rows, the sky environment and amplitude rows.
-# The orchestrator keeps every DECISION: what a click means, which panels a
-# mode opens, what the values are. It hears about input through the signals
+# The HUD owns the markup and layout: preset groups and search, the body list, sun
+# rows, climate block and chart, toasts, panel open/close and the measured left
+# column (with tabs for collapsed panels), section folding and modes, settings
+# pages, range labels and formatters, and the band, craft, model-viewer and sky
+# rows. The orchestrator keeps every decision; it hears input through the signals
 # below and answers through the methods.
 #
-# The HUD sits over the 3D view as a full-rect Control that ignores the mouse
-# itself; only the panels and their controls stop it. A click, drag or wheel on
-# empty screen therefore reaches the orchestrator's _unhandled_input.
+# A full-rect Control that ignores the mouse, so input on empty screen reaches the
+# orchestrator's _unhandled_input.
 
 # ---- Hud → orchestrator ------------------------------------------------------------
 signal start_chosen(mode: String)
@@ -88,12 +69,8 @@ signal lesson_close()
 const T = preload("res://ui/theme.gd")
 const C = preload("res://ui/hud_css.gd")
 
-# The control column's sections, by mode. See applySectionModes.
-# Spaceflight is for FLYING. Not one of the orrery's controls belongs in it:
-# the scenario list, the interior editor, the painter, the spawner, the body
-# list, the imaging bands, the camera modes and — above all — the time-scale
-# slider are all things you do to a universe you are looking at, and none of
-# them mean anything while you are holding a vehicle down on a pad.
+# Control column sections by mode. Spaceflight hides every orrery control
+# (scenarios, editor, painter, spawner, body list, bands, camera modes, time scale).
 const SECTION_MODE := {
 	"Central Singularity": "sandbox", "Suns": "sandbox", "Climate": "sandbox",
 	"Imaging Band": "sandbox", "View & Camera": "sandbox", "Time": "sandbox",
@@ -217,10 +194,7 @@ func reg(key: String, e: El) -> void:
 func root(e: El) -> El:
 	e.is_root = true
 	roots.append(e)
-	# A panel takes the pointer: a click on it never becomes a pick in the 3D
-	# view behind it, and wheel or trackpad gestures scroll it (the page's panels are
-	# pointer-events:none themselves but every child is auto, which is the
-	# same thing everywhere but their padding).
+	# A panel takes the pointer: clicks don't pick through it, and wheel gestures scroll it.
 	if e.base.has("blur") and not e.clickable:
 		e.mouse_filter = Control.MOUSE_FILTER_STOP
 		e.mouse_force_pass_scroll_events = false
@@ -487,9 +461,7 @@ func update_binding_labels(bindings: Dictionary) -> void:
 	for id in binding_buttons:
 		binding_buttons[id].set_text(binding_label(bindings[id]))
 
-## Settings is three pages rather than one long stack: the three groups are
-## consulted at different times — sky when composing a shot, render when the
-## frame rate is wrong, sim when a result looks wrong.
+## Settings has three pages: sky, render and sim.
 func set_settings_page(page: String) -> void:
 	for k in settings_panel.get_children():
 		if k is El and k.has_meta("page"):
@@ -624,13 +596,11 @@ func section(title: String) -> Dictionary:
 			return s
 	return {}
 
-## applySectionModes: a CLASS, not an inline display — the climate block and
-## the focused-object block drive their own display, and whichever of two
-## writers wrote last would win.
+## Section modes use a hide reason, not the element's own visibility, since the
+## climate and focus blocks drive their own.
 func apply_section_modes(mode: String) -> void:
-	# Learn mode is the sandbox with a course over it, and the lessons send you
-	# to these controls by name, so it gets the sandbox's sections; only what it
-	# opens BY DEFAULT differs.
+	# Learn mode gets the sandbox's sections (lessons send you to them); only the
+	# defaults differ.
 	var effective := "sandbox" if mode == "learn" else mode
 	for sec in sections:
 		var want: String = SECTION_MODE.get(sec.title, "both")
@@ -935,9 +905,8 @@ func _build_start() -> void:
 		E(card, {"fs": 11.0, "lh": 1.65, "c": T.TEXT_DIM}, c[2])
 		card.pressed.connect(func(): start_chosen.emit(c[0]))
 
-## Fade the start screen out (`.start.gone`: opacity and a 3% scale over 0.4 s)
-## and take it out of the page 420 ms later. The orchestrator calls this; the
-## cards only report which one was chosen.
+## Fade the start screen out (opacity and a 3% scale over 0.4 s), then remove it
+## 420 ms later.
 func dismiss_start() -> void:
 	if not start_screen.visible:
 		return
@@ -969,10 +938,8 @@ func set_settings_open(open: bool) -> void:
 
 # VISIBILITY
 
-## One element can be hidden for several independent reasons — its own inline
-## display, a mode class, a folded section — and it shows only when none holds.
-## This is the port of "a class, not an inline display": no writer can undo
-## another's reason by accident.
+## An element can be hidden for several independent reasons (inline, mode, folded
+## section) and shows only when none holds, so no writer undoes another's.
 func _hide(e: El, why: String, hidden: bool) -> void:
 	if not hidden_flags.has(e):
 		# Flight panel rows are rebuilt per launch; drop the freed ones' entries.
@@ -1171,9 +1138,8 @@ func render_preset_groups(groups: Array, presets: Dictionary, active_key: String
 	_active_preset = active_key
 	_render_presets()
 
-## renderPresetGroups. Search owns the open state while active, so every
-## matching category stays visible; groups opened by hand are remembered when
-## the query is cleared.
+## Preset groups. Search owns the open state while active; hand-opened groups are
+## remembered when the query clears.
 func _render_presets() -> void:
 	var q := _search.edit.text.strip_edges().to_lower()
 	var searching := q.length() > 0
@@ -1382,9 +1348,8 @@ func build_sky_settings(envs, params: Array) -> void:
 		_set_row(adv, "skyp:" + str(pm.key), str(pm.label), tip, 0, float(pm.max), 0, float(pm.max) / 200.0, "0")
 	B(adv, C.ghost_btn(), "Unpin all — back to the blend", "skyAdvClear", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): sky_adv_clear.emit())
 
-## syncSkyControls. `eff` is the blend's output merged with the live spec's
-## pinned values; `skip_inputs` updates only the numbers, never a slider under
-## the pointer.
+## `eff` is the blend merged with pinned values; `skip_inputs` updates only the
+## numbers, never a slider under the pointer.
 func sync_sky_controls(sky: Dictionary, eff: Dictionary, skip_inputs := false) -> void:
 	var env: Dictionary = sky.get("env", {})
 	for name in _envs:
@@ -1516,10 +1481,8 @@ func _set_quiet(e: El, k: String, v) -> void:
 	e.base[k] = v
 	e.cs[k] = v
 
-## Place a positioned element; lay it out again only if something in it
-## changed or it is being given a different width or height cap. The HUD's
-## texts change ten times a second (updateHUD), and re-laying out every panel
-## for a sun row's flux is most of a frame's layout budget for nothing.
+## Place an element, re-laying it out only if something in it changed or its size
+## cap did (texts change ten times a second).
 func _lay(e: El, x: float, y: float, w: float, maxh := -1.0) -> void:
 	_set_quiet(e, "maxh", maxh)
 	e.position = Vector2(x, y)

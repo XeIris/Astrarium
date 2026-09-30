@@ -1,53 +1,22 @@
 class_name Painter
 extends RefCounted
 
-# PAINTER — rings, belts and clouds
-# Everything here is made of enormous numbers of small things, which is exactly
-# the case the N-body integrator cannot take: a ring is 10^13 particles, and
-# even a token 20 000 of them would swamp an O(n²) force loop that is currently
-# running twelve bodies.
+# PAINTER: rings, belts and clouds, far too many particles for the N-body loop. So
+# they are test particles on analytic Keplerian orbits (mean anomaly at √(GM/a³),
+# Kepler's equation solved), which for negligible masses is exact. Mutual effects
+# are dropped; resonances are added by hand.
 #
-# So these are TEST PARTICLES. Each one carries its own orbital elements and is
-# advanced analytically in the central body's potential — mean anomaly grows at
-# n = √(GM/a³), Kepler's equation is solved for the true position — rather than
-# being integrated. That is not a cheat so much as a different and, here, more
-# accurate method: for a particle whose own mass is negligible, the two-body
-# solution IS the exact answer, and it neither drifts nor needs a step size.
-# What it gives up is the particles' effect on each other and on the planet,
-# which for a ring is genuinely negligible, and their response to a third body,
-# which is not — so resonances are put in by hand where they matter (below).
+# A ring lies inside the Roche limit, d = 2.44 R_p (ρ_p/ρ_m)^⅓, where tides beat
+# self-gravity; outside it material forms moons. `ring_span()` returns that
+# interval. Kirkwood gaps (3:1, 5:2, 7:3, 2:1 with Jupiter) are depopulated by
+# `_in_resonance_gap`, as the dynamics does over the solar system's age.
 #
-# WHAT DECIDES WHERE A RING CAN BE. A ring is not a design choice. Inside the
-# Roche limit,
-#
-#     d = 2.44 R_p (ρ_p/ρ_m)^⅓
-#
-# tidal forces across a body held together only by its own gravity exceed its
-# self-gravity, so it cannot accrete into a moon and stays a ring; outside it,
-# the same material collects into moons within a few orbits. Every ring in the
-# solar system lies inside its planet's Roche limit and every major moon lies
-# outside. So `ring_span()` returns that interval, and the painter defaults to
-# it rather than to an arbitrary radius.
-#
-# KIRKWOOD GAPS. The asteroid belt is not uniform: it has gaps at the orbital
-# radii where a particle's period is a simple ratio of Jupiter's, because a
-# particle there gets the same kick at the same phase every time and its
-# eccentricity is pumped until it crosses a planet and is removed. The 3:1,
-# 5:2, 7:3 and 2:1 resonances are all visible in the real distribution, and
-# they are what `_in_resonance_gap` reproduces — by depopulating those radii,
-# which is what the dynamics does over the age of the solar system.
-#
-# PORT NOTES
-#   · The Kepler solution runs in the VERTEX SHADER (shaders/bodies/
-#     painter_swarm.gdshader), not on the CPU per frame: a GDScript loop over
-#     26 000 particles is tens of milliseconds, a vertex shader is nothing.
-#     The elements are attributes; the clock is a uniform split in two so the
-#     float32 phase does not step (the shader header explains the split).
-#   · THE FLOATING ORIGIN. Particle positions are relative to the item's
-#     group, and the group is placed at its body's scene position minus the
-#     camera's, in double: `place(cam_pos)` does that. Call update(sim_dt)
-#     with the physics and place(cam_pos) once the camera is final, or
-#     update(sim_dt, cam_pos) to do both.
+# The Kepler solution runs in the vertex shader (painter_swarm.gdshader), with
+# elements as attributes and the clock split in two uniforms so the float32 phase
+# doesn't step. Floating origin: particle positions are group-relative and
+# place(cam_pos) puts each group at its body's scene position minus the camera's,
+# in double. Call update(sim_dt) with the physics and place(cam_pos) once the camera
+# is final, or update(sim_dt, cam_pos) for both.
 
 const SWARM_SHADER := preload("res://shaders/bodies/painter_swarm.gdshader")
 const CLOUD_SHADER := preload("res://shaders/bodies/painter_cloud.gdshader")
@@ -57,13 +26,9 @@ const TWO_PI := PI * 2.0
 # Bulk densities, g/cm³ → kg/m³, for the Roche calculation.
 const RHO := {"rock": 3000.0, "ice": 900.0, "rubble": 1500.0}
 
-# The interval a ring can occupy around a body: from just above its surface out
-# to the Roche limit for the given material.
-#   radius_au  the central body's radius
-#   mass_sun   its mass
-# Returns { inner, outer, roche } in AU. `outer` is null when the Roche limit
-# falls inside the body itself — which happens for a low-density central body,
-# and means it simply cannot have a ring.
+# The interval a ring can occupy: from just above the surface to the Roche limit
+# for the material. Returns { inner, outer, roche } in AU; `outer` is null when the
+# Roche limit is inside the body (no ring possible).
 static func ring_span(mass_sun: float, radius_au: float, material := "ice") -> Dictionary:
 	var M_SUN := 1.98892e30
 	var rM := radius_au / Physics.AU_PER_KM * 1000.0
@@ -114,14 +79,12 @@ static func particle_material(color, size_px: float, softness := 1.0) -> ShaderM
 	m.set_shader_parameter("uSoft", softness)
 	return m
 
-# create_orbital_swarm — the shared engine behind rings and belts. Options
-# (the web build's names):
-#
-#   centralMass   M☉, the body the particles orbit
+# create_orbital_swarm, behind rings and belts. Options:
+#   centralMass   M☉, the body orbited
 #   inner/outer   AU
-#   count         number of particles
+#   count         particles
 #   ecc/incl      maximum eccentricity and inclination spread
-#   perturberA    if given, clear resonance gaps against a body at this a (AU)
+#   perturberA    clear resonance gaps against a body at this a (AU)
 #   sceneScale    scene units per AU
 #   color sizePx tilt softness surfaceDensity shade
 static func create_orbital_swarm(o: Dictionary) -> OrbitalSwarm:
@@ -166,11 +129,8 @@ class OrbitalSwarm extends RefCounted:
 		var guard := 0
 		while written < N and guard < N * 40:
 			guard += 1
-			# Sample the semi-major axis from a power-law surface density Σ ∝ a^p,
-			# so the number of particles between a and a+da goes as 2πa·Σ·da ∝ a^(p+1).
-			# Saturn's rings and the asteroid belt are both centrally concentrated;
-			# a flat sample would put most of the particles in the outer edge, which
-			# is where a uniform random radius always puts them.
+			# Sample a from Σ ∝ a^p, so dN ∝ a^(p+1) da (both rings and the belt are centrally
+			# concentrated).
 			var u := randf()
 			var k := surface_density + 2.0
 			var a: float
@@ -235,19 +195,9 @@ class OrbitalSwarm extends RefCounted:
 		if is_instance_valid(group):
 			group.queue_free()
 
-# GAS CLOUD — an expanding shell, optionally bipolar.
-# Nebulae are optically thin, so what you see is the integral of emission along
-# the line of sight — which is why a hollow expanding shell looks like a bright
-# RIM: the sightline through the edge passes through far more gas than the one
-# through the middle. That limb brightening is the single feature that makes a
-# shell read as a shell, and it is one line of shader (the exponent on the
-# fresnel term) rather than a texture.
-#
-# Ejected shells also expand homologously — a parcel thrown out faster is
-# further out, so v ∝ r and the whole thing scales without changing shape. The
-# radius here therefore grows linearly with time at the speed given, which for
-# Eta Carinae's Homunculus is a measured 650 km/s.
-#
+# GAS CLOUD: an expanding shell, optionally bipolar. Optically thin, so the rim is
+# limb-brightened (the fresnel exponent). Expansion is homologous (v ∝ r), so the
+# radius grows linearly (the Homunculus: a measured 650 km/s).
 # Options: radius (AU), color, lobes, density, expandAUperYr, sceneScale, seed.
 static func create_gas_cloud(o: Dictionary) -> GasCloud:
 	return GasCloud.new(o)
@@ -263,7 +213,7 @@ class GasCloud extends RefCounted:
 	var radius := 10.0
 	var expand := 0.0
 	var scene_scale := 1.0
-	var r := 10.0          # current radius, AU (the web build's radiusAU getter)
+	var r := 10.0          # current radius, AU
 	var t := 0.0
 
 	func _init(o: Dictionary) -> void:
@@ -276,15 +226,12 @@ class GasCloud extends RefCounted:
 		mat.set_shader_parameter("uDensity", float(U.nz(o.get("density"), 0.7)))
 		mat.set_shader_parameter("uTime", 0.0)
 		mat.set_shader_parameter("uSeed", float(U.nz(o.get("seed"), 1.0)))
-		# The web build gave the cloud's group renderOrder -2: among transparent
-		# objects it draws first. render_priority is the same sort key here.
+		# First among transparent objects.
 		mat.render_priority = -2
 
 		group = Node3D.new()
 		group.name = "GasCloud"
-		# A bipolar cloud is two lobes thrown along the rotation axis — which is what
-		# happens whenever the ejection is collimated by rotation or by a companion,
-		# and is why the Homunculus is an hourglass and not a sphere.
+		# Bipolar: two lobes along the rotation axis (the Homunculus's hourglass).
 		var n := maxi(1, int(U.nz(o.get("lobes"), 1)))
 		var geo := RockyVisual.sphere_geometry(1.0, 48, 36)
 		for i in n:
@@ -309,9 +256,8 @@ class GasCloud extends RefCounted:
 		if is_instance_valid(group):
 			group.queue_free()
 
-# The painter's own bookkeeping: a list of decorations, each pinned to a body
-# (or to the scene origin), updated together and disposed together.
-#
+# The painter's decorations, each pinned to a body (or the origin), updated and
+# disposed together.
 #   Painter.create_painter({get_body: Callable(id) -> Body,
 #                           get_scene_scale: Callable() -> float,
 #                           root: Node3D})
@@ -331,7 +277,7 @@ func _init(o: Dictionary = {}) -> void:
 func _scale() -> float:
 	return float(_get_scene_scale.call()) if _get_scene_scale.is_valid() else 1.0
 
-## kind: "ring" | "belt" | "cloud". opts: the web build's option names, plus
+## kind: "ring" | "belt" | "cloud". opts: the factory's options, plus
 ## bodyId (pin to that body) and label.
 func add(kind: String, opts: Dictionary):
 	var o := opts.duplicate()
@@ -359,9 +305,7 @@ func update(sim_dt: float, cam_pos: DVec3 = null) -> void:
 		# so it has to travel with it — including through the planet's own orbit.
 		if it.body_id != null:
 			var b = _get_body.call(it.body_id) if _get_body.is_valid() else null
-			# Gone OR dead: a body marked !alive has already lost its meshes, and
-			# leaving the decoration pinned to its last position leaves a ring
-			# around nothing.
+			# Gone or dead (a dead body has already lost its meshes).
 			if b == null or not b.alive:
 				it.orphan = true
 	# A decoration whose body is gone goes with it.
@@ -371,9 +315,8 @@ func update(sim_dt: float, cam_pos: DVec3 = null) -> void:
 	if cam_pos != null:
 		place(cam_pos)
 
-## THE FLOATING ORIGIN: put every group at its body's absolute scene position
-## minus the camera's, subtracted in double (docs/godot.md). Unpinned
-## decorations sit at the scene origin. Call once the frame's camera is final.
+## Floating origin: each group at its body's scene position minus the camera's, in
+## double. Unpinned decorations sit at the origin. Call once the camera is final.
 func place(cam_pos: DVec3) -> void:
 	for it in items:
 		var p := DVec3.new()

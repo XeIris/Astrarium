@@ -1,51 +1,21 @@
 class_name ModelViewer
 extends RefCounted
 
-# THE MODEL VIEWER — port of sim/flight/modelviewer.js.
-# The vehicles are built at their real dimensions from the same numbers the
-# physics uses, and in flight you almost never get to see that. A rocket in a
-# launch is a hundred metres away and lit from one side; a lander is a dot on a
-# grey plain; an ion cruiser is in the dark. So this is a studio: neutral
-# ground, three-point light, a turntable, and nothing else in the scene.
+# THE MODEL VIEWER: a studio (neutral ground, three-point light, turntable) for
+# what flight can't show:
+#   HOW BIG IS IT?      a 1.75 m figure at the base and a 10 m rule up the side
+#   WHAT IS IT MADE OF? the stack pulled apart along its axis
+#   WHAT MOVES?         legs, fins, arrays and gimbals, driven by the same update()
+# Lighting is photographic: key 35° up and left, fill at a quarter opposite, rim
+# behind.
 #
-# It exists to answer three questions that flight cannot:
-#
-#   HOW BIG IS IT?      A 1.75 m figure stands at the base and a rule is drawn
-#                       up the side in ten-metre divisions. Scale is a
-#                       comparison, not a number — 110 m means nothing until
-#                       there is a person next to it.
-#   WHAT IS IT MADE OF? The stack can be pulled apart along its own axis, each
-#                       stage separated in proportion to its length, so the
-#                       interstages, the engine clusters and the payload are
-#                       all visible at once.
-#   WHAT MOVES?         Legs, fins, arrays and gimbals all run from the same
-#                       `update` the flight model drives, so what you see here
-#                       is what will move on the vehicle.
-#
-# LIGHTING is a photographic three-point setup rather than a physical one,
-# because the question here is "what shape is this" and not "what would this
-# look like at Merritt Island at 09:00". A key at 35° above and to the left, a
-# fill at a quarter of its strength opposite to open the shadows, and a rim
-# behind to separate a white vehicle from a grey ground — which is exactly the
-# problem every NASA publicity photograph of a rocket had to solve.
-#
-# GODOT NOTES
-#   · Everything lives under pipe.model_root and is drawn by pipe.model_cam in
-#     pipe.model_vp, through render/postfx.gd (bloom + ACES), as the web studio
-#     drew through sim/postfx.js. The orchestrator switches the pipeline to
-#     Mode.MODEL; this file never touches the mode.
-#   · render/pipeline.gd's neutral_env() turns Godot's ambient OFF, so the
-#     studio sets up its own light here: three light energies are divided by π
-#     (Godot's non-physical light units already carry the π that three's
-#     Lambert divides out — measured, see tools/crafttest.gd add_rig()).
-#   · THREE.HemisphereLight has no Godot node. Its irradiance is
-#     mix(ground, sky, ½ + ½ n·y) = (sky+ground)/2 + (sky−ground)/2 · n·y, which
-#     is EXACTLY an ambient term plus a pair of directional lights along ±Y —
-#     one ordinary from above, one NEGATIVE from below, each contributing
-#     max(0, ±n·y). Both are diffuse-only (light_specular = 0), as three's
-#     hemisphere light is.
-#   · The studio is metres across, so its camera moves; the floating origin of
-#     docs/godot.md is for the orrery, where float32 runs out.
+# Everything is under pipe.model_root, drawn by pipe.model_cam in pipe.model_vp
+# through render/postfx.gd; the orchestrator sets Mode.MODEL. neutral_env() turns
+# ambient off, so the studio lights itself, with energies divided by π (measured,
+# see tools/crafttest.gd add_rig()). The hemisphere light is ambient plus two
+# diffuse-only directionals on ±Y, one negative:
+# mix(ground, sky, ½ + ½ n·y) = (sky+ground)/2 + (sky−ground)/2 · n·y.
+# The studio is metres across, so no floating origin.
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 
@@ -59,13 +29,8 @@ uniform vec3 uBg;
 varying vec3 vP;
 void vertex() { vP = VERTEX; }
 void fragment() {
-	// Anti-aliased grid: the line width is set from the screen-space
-	// derivative so a line is one pixel wide however far away it is. A fixed
-	// width would either alias into moiré at range or vanish underfoot.
-	// vP is the LOCAL position and the mesh is a plane in XY, so the two axes
-	// it spans are x and y — z is identically 0 whatever the mesh is rotated
-	// to. Sampled as .xz the second axis is constant, its fwidth is 0, and the
-	// division is 0/0: lines along one axis only, and a fade that is not radial.
+	// Anti-aliased grid: line width from fwidth, one pixel at any range. vP is local and
+	// the plane lies in XY, so sample .xy (.xz gives 0/0).
 	vec2 g = abs(fract(vP.xy / uStep - 0.5) - 0.5) / fwidth(vP.xy / uStep);
 	float line = 1.0 - min(min(g.x, g.y), 1.0);
 	vec2 g10 = abs(fract(vP.xy / (uStep * 10.0) - 0.5) - 0.5) / fwidth(vP.xy / (uStep * 10.0));
@@ -94,15 +59,11 @@ var height := 1.0
 var span := 1.0
 var mid_y := 0.5
 var radius := 1.0
-## Turntable state. `spin` is the idle rotation; it stops the moment the viewer
-## takes hold of the model, because an object that keeps moving under your
-## hand cannot be inspected. The orchestrator writes spin / held directly (the
-## "turntable" toggle), as the web page did.
+## Turntable state. `spin` stops once the viewer takes hold. The orchestrator writes
+## spin / held directly.
 var cam := {"yaw": 0.9, "pitch": 0.20, "dist": 3.0, "spin": 0.10, "held": false, "explode": 0.0, "want_explode": 0.0}
 var deploy_all := 1.0
-## The backdrop: the dark studio, or a light one (a white cyclorama, which is
-## how most reference photographs of hardware are shot and the better ground
-## for judging a dark vehicle's silhouette).
+## Dark studio, or a light cyclorama (better for a dark vehicle's silhouette).
 var light_backdrop := false
 var _ambient_base := 0.0
 var _retried := {}
@@ -120,10 +81,7 @@ func _init(p: RenderPipeline) -> void:
 	root.name = "ModelViewer"
 	pipe.model_root.add_child(root)
 
-	# The rig is carried ON the camera, not fixed to the world. A studio
-	# photographer moves the lights with the subject; a fixed rig means half of
-	# every turntable revolution is spent looking at the shadow side, which is
-	# exactly the problem this viewer exists to solve.
+	# The rig rides on the camera, so the lit side always faces you.
 	key_l = _dir(0xfff3e4, 2.9)
 	fill_l = _dir(0xbfd4f0, 0.8)
 	rim_l = _dir(0xe8f0ff, 1.9)
@@ -182,9 +140,7 @@ func _hemisphere(sky_hex: int, ground_hex: int, intensity: float) -> void:
 		l.basis = Basis.looking_at(Vector3(0, -s, 0), Vector3(0, 0, 1))
 		root.add_child(l)
 
-## The human figure. 1.75 m, and deliberately a silhouette rather than a model:
-## the eye reads a person from the proportions alone, and anything more
-## detailed would invite you to look at it instead of at the vehicle.
+## The figure: 1.75 m, a silhouette.
 func _human() -> Node3D:
 	var g := Node3D.new()
 	var m := StandardMaterial3D.new()
@@ -228,21 +184,10 @@ func _build_rule(H: float) -> void:
 	rule_group.add_child(mi)
 	rule_group.set_meta("step", step)
 
-## Put a vehicle on the turntable. Returns {key, ...spec}, or null for an
-## unknown key.
-##
-## Warms this vehicle's authored mesh, and builds again when it lands.
-## build_craft is synchronous by design, so the first call here draws the
-## procedural fallback (unless the model is already cached) and update()
-## replaces it once the threaded load settles — which is the right way round:
-## the studio opens instantly on something, rather than on nothing. ONE retry
-## per vehicle: a .glb that loads but carries no `stage_` node settles with no
-## model while build_craft still falls back, and an unguarded rebuild would
-## repeat without bound.
-## Named load_vehicle, not load: inside this class a bare `load(k)` resolves to
-## GDScript's global resource loader, and the rebuild below went looking for a
-## file called res://shuttle — so the studio never swapped the procedural
-## stand-in for the authored model it had just finished loading.
+## Put a vehicle on the turntable; returns {key, ...spec} or null. The first build
+## may be the procedural fallback; update() rebuilds once the threaded load settles,
+## once per vehicle (a .glb with no `stage_` node would otherwise retry forever).
+## Not named `load`, which would shadow the global resource loader.
 func load_vehicle(vehicle_key: String):
 	var veh = CM.vehicle(vehicle_key)
 	if veh == null:
@@ -257,11 +202,8 @@ func load_vehicle(vehicle_key: String):
 	vehicle["key"] = vehicle_key
 	craft = CM.build_craft(veh)
 	root.add_child(craft.group)
-	# Frame from the MODEL's own bounds, not from the stacked stage lengths.
-	# Those two disagree wherever a vehicle is not a simple stack — the lunar
-	# module's legs reach far outside its 6 m of stage height, an aeroshell is
-	# wider than it is tall, and a Shuttle's boosters sit alongside rather than
-	# under. A box measured off the geometry cannot be wrong about any of them.
+	# Frame from the model's measured bounds, not stacked stage lengths (legs, aeroshells
+	# and side-mounted boosters break the sum).
 	var bb: AABB = CM.measure(craft.group)
 	var size := bb.size
 	height = craft.height
@@ -291,10 +233,9 @@ func load_vehicle(vehicle_key: String):
 	cam.explode = 0.0; cam.want_explode = 0.0
 	return vehicle
 
-## Stage-by-stage statistics for the panel, all derived rather than stored.
-## The Δv / mass / TWR derivations belong to sim/flight/vehicles.gd
-## (stage_delta_v, gross_mass, total_delta_v, pad_twr); until that file exists
-## they come back null and the rows carry only what the spec states.
+## Per-stage statistics, derived by vehicles.gd (stage_delta_v, gross_mass,
+## total_delta_v, pad_twr); rows fall back to what the spec states if a function is
+## missing.
 func stats():
 	if vehicle == null: return null
 	var vs = CM.vehicle_data().get("script")
@@ -323,9 +264,7 @@ func stats():
 		"twr": vs.pad_twr(vehicle, 9.80665) if can.call("pad_twr") else null,
 	}
 
-## Dark studio or light cyclorama. The light one also lifts the ambient: a
-## white room bounces light back into the shadows, and a vehicle lit as if in
-## a black box looks cut out against it.
+## The light backdrop also lifts the ambient (a white room bounces light).
 func set_backdrop(light: bool) -> void:
 	light_backdrop = light
 	pipe.env_model.background_color = Color.hex(0xdfe3e8ff if light else 0x0b0d11ff)
@@ -339,7 +278,7 @@ func set_explode(v: float) -> void:
 func set_deploy(on) -> void:
 	deploy_all = 1.0 if on else 0.0
 
-## Mouse drag in CSS pixels, as the web's pointermove deltas.
+## Mouse drag deltas in logical pixels.
 func drag(dx: float, dy: float) -> void:
 	cam.held = true
 	cam.yaw -= dx * 0.008
@@ -352,8 +291,7 @@ func wheel(delta_y: float) -> void:
 
 func update(dt: float) -> void:
 	if craft == null: return
-	# The warm-up load finishing is the rebuild signal (the JS awaited the
-	# promise; here the threaded load is polled).
+	# Rebuild once the warm-up load finishes (polled).
 	if _waiting != "" and CraftAssets.poll(_waiting):
 		var k := _waiting
 		_waiting = ""
@@ -366,9 +304,7 @@ func update(dt: float) -> void:
 	if not cam.held: cam.yaw += cam.spin * dt
 	cam.explode += (cam.want_explode - cam.explode) * (1.0 - exp(-dt * 4.0))
 
-	# The stack is pulled apart along its own axis, each stage moved in
-	# proportion to how far up the stack it sits — so the gaps are even and the
-	# vehicle stays recognisable instead of scattering.
+	# Explode along the axis in proportion to each stage's height in the stack.
 	var attached := {}; var deploy := {}
 	for st in craft.stages:
 		st.group.position.y = st.base_y + cam.explode * st.base_y * 0.55
@@ -379,18 +315,15 @@ func update(dt: float) -> void:
 	craft.update({"dt": dt, "attached": attached, "deploy": deploy,
 		"gimbal": {"x": 0.0, "z": 0.0}, "flap": 0.0})
 
-	# Frame the whole stack: the camera orbits the vehicle's mid-height at a
-	# distance set by the height itself, so a 7 m lander and a 120 m launcher
-	# are both filled to the same fraction of the frame.
+	# Orbit the mid-height at a distance set by the height, so any vehicle fills the frame.
 	var H: float = span * (1.0 + cam.explode * 0.5)
 	var mid: float = mid_y + span * cam.explode * 0.28
 	var d: float = cam.dist * H
 	var cp := cos(cam.pitch); var sp := sin(cam.pitch)
 	var pos := Vector3(cos(cam.yaw) * cp * d, mid + sp * d, sin(cam.yaw) * cp * d)
 	camera.transform = Transform3D(Basis.looking_at(Vector3(0, mid, 0) - pos, Vector3.UP), pos)
-	# Key 40° off the camera axis and above, fill 70° the other way and low,
-	# rim behind and high: the standard three-point setup, in the camera's own
-	# frame so it holds at every angle.
+	# Key 40° off the camera axis and above, fill 70° the other way and low, rim behind
+	# and high, all in the camera's frame.
 	var place := func(light: DirectionalLight3D, d_az: float, elev: float) -> void:
 		var a: float = cam.yaw + d_az
 		var dir := Vector3(cos(a) * cos(elev), sin(elev), sin(a) * cos(elev))
@@ -403,7 +336,7 @@ func update(dt: float) -> void:
 	camera.far = H * 200.0
 
 ## The camera's aspect follows the viewport the pipeline sized
-## (RenderPipeline.set_view_size); kept for the web API's shape.
+## (RenderPipeline.set_view_size), so this is a no-op.
 func set_size(_w: int, _h: int) -> void:
 	pass
 

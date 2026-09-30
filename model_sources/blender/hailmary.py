@@ -1,25 +1,10 @@
-# THE HAIL MARY — the Blender build.
-#   model_sources/blender/build.sh          (or drive Blender yourself, see below)
+# THE HAIL MARY, the Blender build (model_sources/blender/build.sh). Its shape is
+# three bent pressure vessels nested against a lathed spine, and it reads through
+# many small bevelled pieces, which the primitive build can't do. The procedural
+# build in craftmodel.gd stays as the fallback, with the same numbers.
 #
-# WHY THIS EXISTS AND THE PROCEDURAL BUILDER STILL DOES. sim/flight/craftmodel.js
-# builds every vehicle out of Three.js primitives, which is the right trade for
-# eight of the nine: a Saturn V is a stack of cylinders and cones and it is
-# genuinely parametric — change spec.D and the whole thing follows. The Hail
-# Mary is the one that is not. Its shape is three bent pressure vessels nested
-# against a lathed spine, and what makes it read is a hundred small pieces of
-# hardware with BEVELLED edges catching a highlight. A perfectly sharp edge
-# catches nothing; that is why the primitive build looks like cardboard however
-# right its silhouette is, and it is the one thing a runtime full of
-# CylinderGeometry cannot fix.
-#
-# So: this script is the model, the .glb is a build artifact, and the
-# procedural buildHailMary() stays as the fallback for when the asset is not
-# there. Nothing here is clicked — the numbers are the same ones in
-# craftmodel.js, so the two builds are the same ship.
-#
-# GEOMETRY. Blender is Z-up and the exporter converts to Three's Y-up, so the
-# thrust axis is +Z here and the nose is toward +Z. z = 0 is the DRIVE EXIT
-# PLANE. Metres throughout.
+# Stack axis +Z (the exporter makes it Y-up), nose toward +Z; z = 0 is the drive
+# exit plane. Metres.
 import bpy, sys, os, math
 from math import cos, sin, pi, radians, hypot
 from mathutils import Vector
@@ -29,7 +14,7 @@ from common import build, stage
 from lib import (reset_scene, material, revolve, tube, ring_on, box, strut,
                  fin, finish, smooth, bevel, empty, group, frames, TAU)
 
-# THE NUMBERS. Identical to sim/flight/vehicles.js and buildHailMary().
+# THE NUMBERS: identical to sim/flight/vehicles.gd and build_hail_mary().
 L, D = 47.0, 12.0
 f = lambda u: u * L
 AFT = f(0.132)                     # the aft plane, in build coords
@@ -56,10 +41,8 @@ def build_materials():
     M['solar']  = material('solar',  (0.016, 0.030, 0.13), 0.28, 0.22)
     M['glass']  = material('glass',  (0.01, 0.02, 0.035), 0.10, 0.20)
     M['rad']    = material('rad',    (0.78, 0.78, 0.80), 0.50, 0.06)
-    # An emitter has to be lit BY ITSELF. A drive face points aft, away from
-    # every light in the scene, so it renders black however it is coloured —
-    # and the sim's pipeline is HDR and expects emitters well above 1.0.
-    # Astrophage fires at 4.26 and 18.31 um, so the visible tail is deep red.
+    # Emitters light themselves at HDR values (the drive faces point away from every
+    # light). Astrophage fires at 4.26 and 18.31 µm, so the visible tail is deep red.
     M['emitPlate'] = material('emitPlate', (0.10, 0.09, 0.085), 0.52, 0.15,
                               emit=(0.55, 0.17, 0.07), emit_strength=1.4)
     M['emitCell']  = material('emitCell',  (0.05, 0.02, 0.015), 0.45, 0.08,
@@ -137,9 +120,7 @@ def spin_drive(name, R, parent, loc, tag):
     finish(ring_on((0, 0, 0), (0, 0, 1), R, R * 0.055, M['alu'],
                    name + '_lip', seg=64, minor=12, parent=piv), bevel_w=0.006)
 
-    # The emitter plate, RECESSED inside the reflector: you should have to look
-    # up the drive to see it, which is also what stops four glowing discs
-    # reading as four tail-lights.
+    # The emitter plate, recessed inside the reflector.
     pr, pz = R * 0.80, R * 0.55
     finish(revolve(name + '_plate',
                    [(0, pz), (pr, pz), (pr, pz + R * 0.07), (0, pz + R * 0.07)],
@@ -153,11 +134,7 @@ def spin_drive(name, R, parent, loc, tag):
                         M['emitCell'], seg=6, parent=piv)
             c.location = (cos(b) * rr, sin(b) * rr, pz - R * 0.01)
             finish(c, bevel_w=0.004)
-    # Cooling ribs, standing OFF the reflector and following its curve. A drive
-    # turning two thousand tonnes of fuel into light has to reject the waste
-    # heat somewhere, and they are also what gives the cone a scale to read
-    # against. Straight boxes were buried inside the bell for most of their
-    # length — the wall is curved, so the rib has to be.
+    # Cooling ribs standing off the reflector and following its curve.
     for i in range(12):
         finish(fin(f'{name}_rib{i}', prof[2:], i / 12 * TAU, R * 0.085, R * 0.055,
                    M['alu'], parent=piv), bevel_w=0.006)
@@ -189,11 +166,8 @@ def build_tank(idx, root, path):
     pts, arc, total = resample(path, 0.125)
     tan, nrm, bi = frames(pts)
 
-    # PANEL GROOVES, cut into the skin as real geometry rather than painted on
-    # as a stripe. The tank is built as a run of barrel sections and the radius
-    # dips at every joint; spaced by ARC LENGTH, because the source polyline is
-    # eighteen times denser round the bend than down the barrel and indexing by
-    # point puts all the detail on the turn.
+    # Panel grooves cut into the skin: the radius dips at every barrel joint, spaced by
+    # arc length (the polyline is 18× denser round the bend).
     seams = [n * BAY for n in range(1, int(total / BAY) + 1)]
     W = 0.17
     def rfun(i, j, ang):
@@ -202,10 +176,8 @@ def build_tank(idx, root, path):
             d = abs(s - sm)
             if d < W:
                 r -= TANK_R * 0.020 * (1 - (d / W) ** 2)
-        # and six longitudinal seams down the length. The half-width has to be
-        # comfortably wider than the angular step or the groove falls between
-        # two samples and is smoothed away — at 72 segments that step is 0.087
-        # rad, and a 0.045 groove was invisible.
+        # Six longitudinal seams; the half-width must exceed the angular step (0.087 rad at
+        # 72 segments) or the groove is smoothed away.
         for k in range(6):
             da = abs(((ang - k * TAU / 6 + pi) % TAU) - pi)
             if da < 0.075:
@@ -238,9 +210,8 @@ def build_tank(idx, root, path):
         p, t, nv, bv = at(s)
         return p + nv * (cos(phi) * rr) + bv * (sin(phi) * rr)
 
-    # Cable trays, a propellant trunk on the inboard face and a conduit run on
-    # the outboard one, all carried round the bend on the tank's own frame.
-    # These are most of what tells you a tank is a machine and not a cylinder.
+    # Cable trays, an inboard propellant trunk and an outboard conduit, carried round
+    # the bend on the tank frame.
     runs = [(0.62, TANK_R * 1.05, 0.085, 'alu'), (-0.62, TANK_R * 1.05, 0.085, 'alu'),
             (pi * 0.5, TANK_R * 1.09, 0.135, 'dirty'),
             (pi * 1.5, TANK_R * 1.06, 0.090, 'soot'),
@@ -259,17 +230,8 @@ def build_tank(idx, root, path):
                    bevel_w=0.006)
 
     p0 = Vector(pts[0])
-    # ---- FORWARD DOME. An ellipsoidal head, RIM ON THE BARREL and apex above
-    # it, and — like every other lathed part here — moved out to the tank's own
-    # centreline rather than left on the ship's axis.
-    #
-    # Both of those were wrong and the two errors hid each other. Written the
-    # other way round (full radius at full height, closing to the axis at the
-    # barrel's top) the dome is a CONCAVE FUNNEL whose rim floats a tank radius
-    # clear of the skin, so the tank is left open at the top and you look
-    # straight down the inside of it; revolved about the origin it was not over
-    # the tank at all, but a 1.3 m cone standing on the centreline. A tank is a
-    # pressure vessel and the one thing it has to be is CLOSED.
+    # ---- FORWARD DOME: an ellipsoidal head with its rim on the barrel and apex above,
+    # moved onto the tank's own centreline, so the vessel is closed.
     hd = TANK_R * 0.72                      # a sqrt(2) ellipsoidal head
     dome = [(TANK_R * cos(i / 12 * pi / 2), p0.z + hd * sin(i / 12 * pi / 2))
             for i in range(13)]
@@ -292,9 +254,7 @@ def build_tank(idx, root, path):
                         (TANK_R * 1.018, z + h)], M['gold'], seg=72, parent=g),
                bevel_w=0.004).location = (p0.x, 0, 0)
 
-    # Equipment on the outboard flanks, clear of the conduit run. The boxes are
-    # small, and being able to SEE that they are small next to a 2.6 m tank is
-    # most of what they are there for.
+    # Equipment boxes on the outboard flanks, clear of the conduit.
     for n, (z, w, h2, phi) in enumerate([(f(0.330), 1.5, 1.1, pi * 1.5 + 0.62),
                                          (f(0.455), 0.9, 0.8, pi * 1.5 - 0.62),
                                          (f(0.545), 1.2, 0.6, pi * 1.5 + 0.62),
@@ -317,29 +277,22 @@ def build_tank(idx, root, path):
     cap.location = endP
     finish(cap, bevel_w=0.010)
 
-    # The thrust block. This is what makes an axial drive under a bent tank an
-    # honest structure rather than a floating one: the tank's aft face is
-    # oblique, the drive is square to the ship, and the whole sixteen degrees
-    # is taken up in one short piece of hardware instead of being carried out
-    # into the thrust vector.
+    # The thrust block takes the oblique tank end to the square drive, absorbing the
+    # 16° in one short piece.
     b_bot, b_top = AFT + TOP_Z, endP.z + TANK_R * 0.62
     blk = revolve(f'tank{idx}_block',
                   [(0, b_bot), (DR * 0.80, b_bot), (DR * 0.92, b_top), (0, b_top)],
                   M['dirty'], seg=40, parent=g)
     blk.location = (endP.x, 0, 0)
     finish(blk, bevel_w=0.012)
-    # Gussets out to the bulkhead ring. The cap is oblique and the block is
-    # square, so no two of them are the same length — which is what taking an
-    # angle out of a structure actually looks like.
+    # Gussets to the bulkhead ring (all different lengths).
     for k in range(8):
         phi = k / 8 * TAU
         p2 = endP + nrm[-1] * (cos(phi) * TANK_R * 0.90) + bi[-1] * (sin(phi) * TANK_R * 0.90)
         p1 = Vector((endP.x - sin(phi) * DR * 0.88, cos(phi) * DR * 0.88, b_bot + 0.22))
         finish(strut(f'tank{idx}_gusset{k}', p1, p2, 0.055, M['alu'], parent=g),
                bevel_w=0.008)
-    # The feed line, off the inboard trunk and down the side of the block into
-    # the emitter can. Routed outboard of the spine's thrust plate, because the
-    # shortest path from there to here goes straight through it.
+    # The feed line into the emitter can, routed outboard of the spine's thrust plate.
     feed = [tuple(surf(total * 0.90, pi * 0.5, TANK_R * 1.09)),
             tuple(surf(total * 0.97, pi * 0.5, TANK_R * 1.15)),
             (endP.x - DR * 1.05, 0, b_bot + 0.75),
@@ -382,9 +335,7 @@ def build_spine(root):
                   (D * 0.158, 0.330), (D * 0.158, 0.420)]:
         finish(ring_on((0, 0, f(u)), (0, 0, 1), rr, D * 0.006, M['alu'],
                        f'spine_ring{u}', seg=72, minor=10, parent=root), bevel_w=0.006)
-    # MLI where the spine runs between the tanks, and the plumbing that feeds
-    # four drives from three tanks — the cross-feed is why the middle of this
-    # ship is machinery rather than skin.
+    # MLI on the spine between the tanks, and the cross-feed plumbing.
     finish(revolve('spine_mli',
                    [(D * 0.157, f(0.300)), (D * 0.160, f(0.315)), (D * 0.157, f(0.330))],
                    M['gold'], seg=72, parent=root), bevel_w=0.004)
@@ -452,12 +403,8 @@ def build_modules(root):
     finish(revolve('mod_instr',
                    [(0, f(0.861)), (D * 0.070, f(0.861)), (D * 0.070, f(1.013)),
                     (0, f(1.013))], M['dirty'], seg=64, parent=root), bevel_w=0.014)
-    # ---- THE NOSE HAS TO BE ONE OBJECT. The docking node sat with its lower
-    # surface three quarters of a metre above the instrument module's roof and
-    # the mast another metre above THAT, so the top of the ship was a sphere and
-    # a rod floating in company — which is exactly what it looked like. The node
-    # now overlaps the module it stands on, a collar closes the joint, and the
-    # mast starts inside the node.
+    # ---- THE NOSE IS ONE OBJECT: the node overlaps the module it stands on, a collar
+    # closes the joint, and the mast starts inside the node.
     NODE_R, NODE_Z = D * 0.088, f(1.028)
     node = revolve('mod_node',
                    [(NODE_R * sin(i / 16 * pi), NODE_Z - NODE_R * cos(i / 16 * pi))
@@ -480,18 +427,9 @@ def build_modules(root):
     finish(revolve('mod_mast', [(0, mast_z0), (0.07, mast_z0), (0.07, f(1.148)),
                                 (0, f(1.148))], M['alu'], seg=12, parent=root), bevel_w=0.006)
 
-    # ---- THE HIGH-GAIN ANTENNA, ON A YOKE, LOOKING FORWARD.
-    #
-    # Which way a dish points is the whole of what it is for, and this one was
-    # aimed back down the ship: a paraboloid opens along its own +Z, and the
-    # rotation applied to it swung that past the beam onto the hull it is
-    # mounted on. The Hail Mary spends thirteen years talking to a transmitter
-    # that is ASTERN of her for the outbound leg and ahead of her coming home,
-    # so the dish is on a two-axis yoke — which is also why the boom, the
-    # trunnion and the counterweight are worth drawing: a fixed dish would be a
-    # decoration, a steerable one is the reason the mission returns an answer.
-    # Standing it off far enough that the reflector clears the instrument
-    # module: a 2.5 m dish hung a metre from a 1.7 m cylinder cuts into it.
+    # ---- THE HIGH-GAIN ANTENNA on a two-axis yoke, opening forward (Earth is astern
+    # outbound, ahead coming home). Stood off far enough that the 2.5 m reflector
+    # clears the instrument module.
     hga = group('mod_hga', root, loc=(D * 0.172, 0, f(1.000)), rot_z=0.0)
     finish(strut('mod_hga_boom', (-D * 0.102, 0, 0), (0, 0, 0), 0.075, M['alu'],
                  seg=10, parent=hga), bevel_w=0.008)
@@ -500,10 +438,8 @@ def build_modules(root):
                   M['dirty'], seg=16, parent=hga)
     trn.rotation_euler = (pi / 2, 0, 0)
     finish(trn, bevel_w=0.010)
-    # The dish proper, tipped 32 degrees off the thrust axis and OPENING
-    # FORWARD. Rotating about +Y by theta takes the paraboloid's own +Z to
-    # (sin theta, 0, cos theta), so a positive angle here is outboard and
-    # ahead — the sign is the whole fix.
+    # Tipped 32° off the thrust axis, opening forward: rotating about +Y by θ takes the
+    # dish's +Z to (sin θ, 0, cos θ), so positive is outboard and ahead.
     yoke = empty('mod_hga_yoke', (0, 0, D * 0.030), hga)
     yoke.rotation_euler = (0, 0.56, 0)
     rD = D * 0.105
@@ -511,11 +447,7 @@ def build_modules(root):
                   [(rD * (i / 10), rD * 0.30 * (i / 10) ** 2) for i in range(11)],
                   M['white'], seg=48, parent=yoke)
     finish(dsh, bevel_w=0.008)
-    # The back of it — a dish has a ribbed rear face, and this one is seen from
-    # behind for the whole outbound cruise. BEHIND is the operative word: the
-    # reflector opens along +Z, so its structure lives at lower z than the
-    # surface at the same radius. Laid out at the same z it is not backing the
-    # dish at all, it is a set of spars across the aperture.
+    # The ribbed back face sits behind the reflector (lower z at the same radius).
     def back_z(u):                       # the reflector's own surface, offset aft
         return rD * (0.30 * u * u - 0.075)
     finish(revolve('mod_dish_back',
@@ -600,9 +532,7 @@ def build_appendages(root, hull_z0, hull_z1, hull_d):
         sp.location = (D * 0.46, 0, 0)
         finish(sp, bevel_w=0.008)
 
-    # ---- radiators. FIXED structure, not deployables: a ship under power for
-    # thirteen years rejects heat continuously. They sit on the hull ABOVE the
-    # tank tops, the only band of the spine with a clear horizon.
+    # ---- radiators: fixed structure, on the hull above the tank tops.
     for i in range(4):
         arm = group(f'rad{i}', root, loc=(0, 0, f(0.775)), rot_z=i / 4 * TAU + pi / 4)
         finish(box(f'rad{i}_panel', (D * 0.22, 0.07, f(0.085)),
@@ -659,10 +589,8 @@ def build_hailmary(_M):
     hz0, hz1, hd = build_modules(root)
     build_appendages(root, hz0, hz1, hd)
 
-    # The layout above is written around the aft plane at f(0.132); shift the
-    # ship so the drives' exit plane is the origin. It goes on the STAGE ROOT,
-    # which is a child of the group buildCraft positions — a stage builder must
-    # not write to its own group's transform.
+    # Shift the ship so the drive exit plane is the origin, on the stage root (a
+    # builder never writes its own group's transform).
     root.location = (0, 0, -AFT)
 
 

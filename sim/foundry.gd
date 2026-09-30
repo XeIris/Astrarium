@@ -1,56 +1,22 @@
 class_name Foundry
 extends RefCounted
 
-# THE OBJECT FOUNDRY — building a body out of physics rather than out of a menu
-# The point of this panel is that it has no catalogue of outcomes in it. There
-# is no rule anywhere saying "if mass > X show the explosion". There are four
-# inputs — mass, spin, composition, and how much of its life it has burned —
-# and everything you see is what sim/structure.gd derives from them. Which is
-# why dragging one slider produces behaviour that was never scripted:
+# THE OBJECT FOUNDRY: four inputs (mass, spin, composition, life burned) and
+# everything shown is what sim/structure.gd derives from them. No outcome is
+# scripted: a rocky planet's radius turns over near 300 M⊕; 13 M_J lights
+# deuterium and 0.075 M☉ hydrogen; stars pass the Eddington, pair-instability and
+# direct-collapse limits; a neutron star collapses at TOV (moved by spin); spin
+# flattens anything along the Roche sequence to R_eq/R_pol = 3/2; life burned walks
+# a star along its track to the onion.
 #
-#   MASS on a rocky planet. The radius grows as M^⅓, flattens, and then at
-#   about 300 M⊕ it STOPS and starts falling: electron degeneracy stiffens
-#   faster than gravity loads it, so past one Jupiter mass a ball of rock gets
-#   smaller the more rock you add. Keep going and at 13 M_J it lights
-#   deuterium and the panel stops calling it a planet; at 0.075 M☉ it lights
-#   hydrogen and it is a star.
-#
-#   MASS on a star. Colour tracks temperature all the way from a 2800 K red
-#   dwarf to a 45 000 K O star, because both come from the same L and R. Past
-#   ~150 M☉ its own radiation is pushing its outer layers off; between 140 and
-#   260 M☉ the pair instability disassembles it completely, leaving nothing;
-#   above that it collapses straight to a black hole without exploding at all.
-#
-#   MASS on a neutron star. Nothing happens, and then at the TOV mass
-#   everything does — there is no pressure left anywhere in physics to hold it
-#   up, and it becomes a black hole. Spin it first and the limit moves, because
-#   centrifugal support is real support.
-#
-#   SPIN, on anything. The body flattens along the Roche sequence and its
-#   equator cools relative to its poles, and at Ω = Ω_crit the equator is in
-#   orbit and material leaves. That limit is R_eq/R_pol = 3/2 exactly, for
-#   every object, which is why the slider can stop somewhere principled.
-#
-#   LIFE BURNED, on a star. The core hydrogen fraction falls, the mean
-#   molecular weight rises, and the star brightens and swells along its track —
-#   then leaves the main sequence entirely and becomes a subgiant, a red giant
-#   with a degenerate helium core, and finally an onion of burning shells
-#   around iron.
-#
-# PORT NOTES. The web built this panel as an HTML string and wired it with
-# listeners; here it is built from El nodes (ui/widgets/el.gd) carrying the
-# CSS's own computed styles — the `.fd-*`, `.le-*`, `.xsec-*` and `.row` rules
-# of blackhole_sim.css — so the HUD's CSS layout places them exactly as the
-# page did. The three factories keep their shape: create_foundry,
-# create_inspector and create_live_editor each return an object (a class here,
-# docs/godot.md) with the same members the JS returned.
+# Built from El nodes styled by the `.fd-*`, `.le-*`, `.xsec-*` and `.row` rules.
+# create_foundry, create_inspector and create_live_editor each return a class
+# instance.
 
 const T = preload("res://ui/theme.gd")
 const C = preload("res://ui/hud_css.gd")
 
-# Slider range in log10(M☉) per type, chosen to run comfortably PAST the
-# boundary in both directions — the thresholds are the interesting part, so
-# every range has to be able to reach one.
+# Slider range in log10(M☉) per type, running past the thresholds both ways.
 const MASS_RANGE := {
 	"planet":      [-8.5, -1.6, -5.52],    # 0.01 M⊕ … 25 M_J   (default 1 M⊕)
 	"gas-giant":   [-5.5, -0.7, -3.02],    # 0.3 M⊕  … 200 M_J  (default 1 M_J)
@@ -69,9 +35,8 @@ const TYPES := [
 	{"id": "bh", "label": "Black hole", "sym": "●"},
 ]
 
-# Mass readout picks its unit from the value, not from the type — a "rocky
-# planet" dragged past 13 M_J is being reported in the units of what it has
-# become.
+# The unit follows the value, not the type (a "planet" past 13 M_J reads as what it
+# has become).
 static func mass_label(m: float) -> String:
 	if m >= 0.02: return "%s M☉" % (U.fixed(m, 3) if m < 10.0 else U.prec(m, 3))
 	if m / Structure.M_JUP_SUN >= 0.3: return "%s M_J" % U.fixed(m / Structure.M_JUP_SUN, 2)
@@ -136,11 +101,8 @@ static func _range(mn: float, mx: float, st: float, v: float) -> RangeInput:
 	r.setup(mn, mx, st, v)
 	return r
 
-# The parameter rows, shared verbatim between the Foundry (building a body) and
-# the live editor (changing one that already exists). They are the same four
-# inputs in both places on purpose: editing an object in flight is not a
-# different, weaker operation than making one — it runs the same interior model
-# and reaches the same thresholds.
+# The parameter rows, shared by the Foundry and the live editor: editing runs the
+# same model and reaches the same thresholds as building.
 class ControlRows extends RefCounted:
 	var mass: RangeInput
 	var mass_val: El
@@ -183,10 +145,8 @@ class ControlRows extends RefCounted:
 	func set_spin_label(bh: bool) -> void:
 		spin_label.set_text("Spin a*" if bh else "Spin")
 
-# ---- the verdict banner, the facts grid, the layer notes -------------------------
-# The verdict banner. Colour carries the same four states sim/structure.gd
-# returns — stable, a warning, a transformation, or destruction — so the panel
-# never has to editorialise beyond what the physics said.
+# ---- the verdict banner, facts grid and layer notes. Banner colour carries
+# structure.gd's four states.
 const VERDICT_STYLE := {"b": [1, T.TEXT], "p": [8, 9], "m": [10, 0, 8, 0], "fs": 10.0, "lh": 1.55, "c": T.TEXT}
 static var VERDICT_VARS := [
 	["v-ok", {"c": T.hexc(0x4ee39a), "bcol": T.hexc(0x4ee39a)}],
@@ -204,10 +164,8 @@ static func verdict_box(e: El) -> El:
 	e._recompute()
 	return e
 
-## The web rewrote these three blocks' innerHTML on every refresh, which the
-## cross-section does ten times a second; rebuilding El nodes that often is
-## real work for text that has not changed, so each block keeps the content it
-## was last built from and does nothing when asked for the same again.
+## Each block keeps the content it was built from and skips identical rebuilds (the
+## cross-section refreshes ten times a second).
 static func _unchanged(e: El, content) -> bool:
 	var sig := var_to_str(content)
 	if e.has_meta("_fd_sig") and e.get_meta("_fd_sig") == sig:
@@ -333,9 +291,8 @@ class FoundryPanel extends RefCounted:
 		var hi: float = Foundry.MASS_RANGE[id][1]
 		var el := rows.mass
 		el.vmin = lo; el.vmax = hi
-		# Carry the mass across if the new type's range can hold it; this is what
-		# makes "build a 0.01 M☉ planet, switch to Star, watch it be rejected"
-		# work, which is a lesson rather than an error.
+		# Carry the mass across if the new type's range holds it (so a 0.01 M☉ "star" is
+		# rejected on screen).
 		var keep := minf(maxf(float(last_mass[id]), lo), hi)
 		el.set_value(keep)
 		draft.mass = pow(10.0, keep)
@@ -375,9 +332,8 @@ class FoundryPanel extends RefCounted:
 		xsec.set_structure(structure, {"title": structure.get("label")})
 		Foundry.fill_notes(notes, structure.get("layers", []))
 
-	## The spec the Spawn button hands on_spawn — what it ACTUALLY IS, not what
-	## the type buttons say. A 20 M_J "rocky planet" goes into the scene as a
-	## brown dwarf, because that is what the physics returned.
+	## The spec Spawn hands on, as the physics classified it (a 20 M_J "planet" spawns
+	## as a brown dwarf).
 	func spawn_spec() -> Dictionary:
 		var s := {
 			"type": structure.get("type"),
@@ -387,9 +343,7 @@ class FoundryPanel extends RefCounted:
 			"Z": draft.Z,
 			"name": str(structure.get("label")),
 		}
-		# The derived type, not the button: a gas giant dragged past the
-		# hydrogen limit is previewed as a star AT THIS PHASE, and dropping the
-		# phase here would spawn a different star from the one you were shown.
+		# Keep the phase for a derived star, so the spawned star is the one previewed.
 		if structure.get("type") == "star": s["phase"] = draft.phase
 		if structure.get("radiusKm") != null: s["radiusKm"] = structure.get("radiusKm")
 		return s
@@ -401,15 +355,9 @@ class FoundryPanel extends RefCounted:
 	func refresh() -> void:
 		update()
 
-# A standalone inspector for a body that already exists in the scene — the same
-# diagram and the same facts, but reading a live body instead of a draft.
-#
-# The web wrote into five elements the page already had (canvas, legend,
-# verdict, facts, notes). Pass them as {canvas, legend, verdict, facts, notes}
-# — the HUD's mounts xsecCanvas / xsecLegend / xsecVerdict / xsecFacts /
-# xsecNotes — or pass ONE {mount}: an empty container gets all five built
-# inside it; the HUD's xsecCanvas slot (an El with an aspect ratio) is taken
-# as the canvas and its siblings are found by those ids.
+# An inspector for a live body. Pass {canvas, legend, verdict, facts, notes} (the
+# HUD's xsec* mounts), or one {mount}: an empty container gets all five built in it,
+# and an xsecCanvas slot is taken as the canvas with its siblings found by id.
 static func create_inspector(opts: Dictionary) -> Inspector:
 	return Inspector.new(opts)
 
@@ -421,7 +369,7 @@ class Inspector extends RefCounted:
 	var notes_el: El
 
 	func _init(o: Dictionary) -> void:
-		# the web's own key names (factsEl, verdictEl, notesEl) are accepted too
+		# factsEl / verdictEl / notesEl are accepted too
 		var slots := {"canvas": o.get("canvas"), "legend": o.get("legend"), "verdict": o.get("verdict", o.get("verdictEl")),
 			"facts": o.get("facts", o.get("factsEl")), "notes": o.get("notes", o.get("notesEl"))}
 		var m = o.get("mount")
@@ -471,24 +419,12 @@ class Inspector extends RefCounted:
 		if notes_el:
 			Foundry.fill_notes(notes_el, st.get("layers", []))
 
-# THE LIVE EDITOR — the same four inputs, pointed at a body already in flight
-# Spawning and editing differ only in what is preserved. This panel holds no
-# draft: it reads the focused body, and every slider move hands a patch back to
-# the orchestrator, which re-derives the object and rebuilds its meshes in
-# place. So the thresholds are all still live — drag a neutron star past the
-# TOV mass and it collapses under you, spin a star to break-up and it flattens
-# and its equator cools while it is still orbiting.
-#
-# Two details that are not obvious:
-#
-#   · The mass slider's range comes from the type, but a body can already sit
-#     outside it (a catalogue supergiant, a body that has been eating). The
-#     range is widened to contain what is actually there rather than snapping
-#     the value — an editor that silently changed the thing you opened it on
-#     would be worse than no editor.
-#   · Mass changes continuously in this sim, because accretion is continuous.
-#     The sliders re-read the body every refresh, EXCEPT the one being dragged:
-#     nothing is more annoying than a control that fights your thumb.
+# THE LIVE EDITOR: the same inputs, on the focused body. Each move hands a patch to
+# the orchestrator, which re-derives and rebuilds in place, so every threshold is
+# live.
+#   · The mass range widens to hold the body's actual value rather than snapping it.
+#   · Sliders re-read the body each refresh (accretion is continuous), except the
+#     one being dragged.
 static func create_live_editor(opts: Dictionary) -> LiveEditor:
 	return LiveEditor.new(opts.get("mount"), opts.get("on_edit", Callable()))
 
@@ -550,10 +486,8 @@ class LiveEditor extends RefCounted:
 		rows.comp.changed.connect(func(v): queue({"composition": v}))
 		mount.touch()
 
-	# At most one apply per frame-length. A slider emits events far faster than a
-	# visual can be torn down and rebuilt, and every patch is absolute rather
-	# than incremental, so dropping the intermediate ones costs nothing — but the
-	# LAST one must always land, hence the trailing timer.
+	# At most one apply per frame; patches are absolute, so drop the intermediates but
+	# always land the last (the trailing timer).
 	func _flush() -> void:
 		_timer = null
 		_last_apply = Time.get_ticks_msec()
@@ -594,9 +528,7 @@ class LiveEditor extends RefCounted:
 	# Push the body's current state into the controls. Called on attach and on
 	# every panel refresh; skips whatever the user has hold of.
 	func sync(b) -> void:
-		# Switching to a different body always loads that body's values, whatever
-		# the pointer is doing — the alternative is a slider still holding the last
-		# object's number while the panel names a new one.
+		# Switching bodies always loads the new body's values.
 		if b != null and b.id != last_id:
 			last_id = b.id
 			dragging = ""
@@ -650,9 +582,7 @@ class LiveEditor extends RefCounted:
 		focus_btn.set_text("full range" if curve.focus else "focus limit")
 		if body != null: _draw_curve(body)
 
-# <select class="fd-select"> — the composition picker. Drawn as Chrome draws a
-# styled <select>: the chosen label, and a chevron in the right-hand padding;
-# the list itself is a PopupMenu, as the browser's own is a native menu.
+# The composition <select>: label and chevron; the list is a PopupMenu.
 class SelectEl extends El:
 	signal changed(value: String)
 	var options: Array = []       # [[value, label], ...]

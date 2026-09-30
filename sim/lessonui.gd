@@ -1,55 +1,24 @@
 class_name LessonUI
 extends RefCounted
 
-# THE COURSE, AS AN INTERFACE
-# sim/lessons.gd is data and knows nothing about the page. This file is the
-# other half: it renders the course, and it EXECUTES a step's `do` block
-# against a small stage API that the orchestrator hands in. The split matters
-# more than it looks — it is what stops the curriculum from turning into a
-# pile of DOM code, and it means a lesson can ask for something the stage does
-# not implement yet and simply not get it, instead of throwing.
+# THE COURSE, AS AN INTERFACE. sim/lessons.gd is data; this renders it and executes
+# a step's `do` block against the stage API the orchestrator hands in. A directive
+# the stage doesn't implement is skipped, not thrown.
 #
-# TWO SURFACES, ON PURPOSE:
+#   THE PANEL (left column) is the map: modules, lessons, progress. It takes the
+#   scenario list's slot.
+#   THE CARD (bottom centre) is the lesson: wide for prose, at the bottom so it
+#   doesn't cover what it describes. A step with an instrument gets a 340 px
+#   instrument column, driven every frame through update().
 #
-#   THE PANEL (left column) is the map. Modules, lessons, what you have done,
-#   and how far through you are. It takes the scenario list's slot because in
-#   this mode the course IS how you choose what to look at.
+# Progress is per lesson (done once its last step is seen), stored as JSON under
+# user:// (opts.store; "" keeps it in memory, for the checks).
 #
-#   THE CARD (bottom centre) is the lesson itself. It is wide rather than tall
-#   because it is prose and prose needs a measure, and it is at the BOTTOM
-#   because the thing it is talking about is the thing behind it — a panel
-#   over the middle of the screen would be covering the argument.
-#
-# A step that carries an instrument gets a two-column card: the instrument on
-# the left at a fixed 340 px, the text beside it. The instruments are live and
-# are driven from the orchestrator's own frame loop through update(), because a
-# light curve that only advances when you press Next is a picture of a light
-# curve.
-#
-# PROGRESS IS PER-LESSON AND LIVES IN localStorage. A lesson counts as done
-# when its last step has been seen. It is deliberately not a score: there is
-# nothing to get wrong here, and the only thing the tick is for is finding
-# your way back.
-#
-# THE PORT. The web card was markup in blackhole_sim.html filled through
-# innerHTML; here the card's FRAME is built by ui/hud.gd (its `lc` parts — the
-# crumb, count, title, text, media column, back / dots / next), and this file
-# fills it, exactly as lessonui.js filled the page's elements. Everything is
-# an El (ui/widgets/el.gd) styled from blackhole_sim.css's `.course-*` and
-# `.lc-*` rules, so the card wraps, scrolls and measures as the page did.
-#
-# RICH TEXT. The bodies are HTML fragments, set with innerHTML. They use four
-# tags — <p>, <em>, <strong>, <kbd> — and the card adds a <b> in the myth and
-# look-for boxes; that is the whole of what is interpreted (`_html_blocks`).
-# A <p> is a block El and `p + p` its 8 px; the inline tags become El runs
-# (italic in the lighter colour, bold, and <kbd> as an inline-block box in the
-# mono face), so line breaking and line boxes follow the same rules as every
-# other line of text in the HUD. The FIGURES are SVG: Godot's loader draws the
-# shapes, but has no <text>, so the labels are pulled out and set here in the
-# page's own font (`Fig`).
-#
-# localStorage becomes a JSON file under user:// (opts.store; "" keeps the
-# progress in memory only, which the checks use).
+# The card's frame is built by ui/hud.gd (`lc` parts); this fills it, with El nodes
+# styled by the `.course-*` and `.lc-*` rules. Bodies are HTML fragments using <p>,
+# <em>, <strong>, <kbd> (and <b> in the myth and look-for boxes), parsed by
+# `_html_blocks` into block and inline Els. Figures are SVG; Godot's loader has no
+# <text>, so labels are pulled out and set here (`Fig`).
 
 const T = preload("res://ui/theme.gd")
 const C = preload("res://ui/hud_css.gd")
@@ -121,11 +90,8 @@ static func html_blocks(html: String) -> Array:
 			b.runs[-1].t = str(b.runs[-1].t).rstrip(" ")
 	return blocks
 
-# A FIGURE: `.lfig { width: 100%; max-width: 340px; height: auto; color:
-# var(--text-dim) }`. The shapes are rasterised by Godot's SVG loader at the
-# size the figure is drawn (× the display scale); the <text> elements, which
-# the loader does not draw, are taken out first and set here, in the mono face
-# the SVG inherits from the page, at the same user-unit coordinates.
+# A figure, max 340 px wide. Shapes are rasterised by the SVG loader at display
+# scale; the <text> labels are set here in the mono face at the same coordinates.
 class Fig extends El:
 	var svg := ""
 	var vb := Vector2(320, 150)
@@ -182,11 +148,9 @@ class Fig extends El:
 				Canvas2D.fill_text(self, t.t, t.x, t.y, t.fs, t.c, al)
 		Canvas2D.end(self)
 
-# An instrument's canvas: `.lc-canvas { width: 100%; max-width: 340px; height:
-# auto; background: rgba(4,6,10,.55); border: 1px solid var(--border) }` over a
-# backing store of w × h. The instrument paints into `plot`, a plain Control
-# over the content box, because a signal-connected draw runs BEFORE the El's
-# own _draw and the background would cover it.
+# An instrument canvas (max 340 px, dark background, border). Painting goes into
+# `plot`, a Control over the content box, since a signal draw runs before the El's
+# own _draw.
 class InstrCanvas extends El:
 	var plot := Control.new()
 	var bw := 340.0
@@ -204,10 +168,8 @@ class InstrCanvas extends El:
 		plot.size = size - Vector2(2, 2)
 		plot.queue_redraw()
 
-# A step dot: `.lc-dots > i { 7 × 7; border: 1px solid --border-strong;
-# border-radius: 50% }`, `.seen` filled faintly, `.on` in the accent. Painted as
-# a disc and a ring rather than through a 3.5 px-radius StyleBox, which at this
-# size breaks its own anti-aliased border into dashes.
+# A step dot, 7 × 7: `.seen` faint, `.on` accent. Painted as a disc and ring (a tiny
+# StyleBox border breaks into dashes).
 class Dot extends El:
 	func _init() -> void:
 		super({"w": 7.0, "h": 7.0})
@@ -270,9 +232,8 @@ class Course extends RefCounted:
 			(lc.text as El).set_style({"maxw": 68.0 * HudTheme.adv_em(disp, "0".unicode_at(0)) * 13.5})
 		_load_progress()
 
-		# ---- the curriculum's own consistency check. No test runner exists here, so
-		# this is it: a lesson that names a scenario nobody has written is a silent
-		# dead end, and a console warning at boot is cheap.
+		# ---- the curriculum's own consistency check: warn at boot about lessons naming
+		# scenarios that don't exist.
 		var missing: Array = []
 		for k in Lessons.presets_used():
 			if _has("has_preset") and not stage.has_preset.call(k): missing.append(k)
@@ -331,13 +292,9 @@ class Course extends RefCounted:
 			panel.remove_child(k)
 			k.queue_free()
 		_mods.clear()
-		# A <details> parsed with `open` fires its own `toggle` event, and the
-		# page's listener adds it to the set — so a module the learner has been
-		# taken into STAYS open after they move on to another one. But the event
-		# is a queued TASK: a panel re-rendered again in the same task (resume()
-		# and then openLesson() from one script, say) replaces those elements
-		# before it fires, and only the last render's modules join. So the join
-		# is deferred to the end of the frame and made only by the latest render.
+		# Modules the learner was taken into stay open. The join is deferred to the end of
+		# the frame and done only by the latest render, since a re-render in the same frame
+		# replaces the elements.
 		var rendered_open: Array = []
 		_render_gen += 1
 		_commit_open.call_deferred(_render_gen, rendered_open)
@@ -523,10 +480,8 @@ class Course extends RefCounted:
 			H = 260.0
 		var cv: El
 		if instrument == "cutaway":
-			# A WebGLRenderer was bound to one canvas for life and this card builds
-			# a fresh one per step, so the cutaway is rebuilt rather than
-			# re-parented. Here the cutaway IS the canvas: an El carrying its own
-			# SubViewport (sim/cutaway.gd), styled as the card's `.lc-canvas`.
+			# The cutaway is rebuilt per step; it is an El carrying its own SubViewport
+			# (sim/cutaway.gd).
 			var cut := Cutaway.create_cutaway({"w": W, "h": H,
 				"style": {"maxw": 340.0, "bg": T.rgba(4, 6, 10, 0.55), "b": [1, T.BORDER]}})
 			wrap.add_child(cut)
@@ -535,9 +490,7 @@ class Course extends RefCounted:
 		else:
 			cv = LessonUI.InstrCanvas.new(W, H)
 			wrap.add_child(cv)
-		# The note is text for the 2D instruments, and for the cutaway a
-		# container: the `.cut-legend` the frame hook fills once the body is
-		# known (an El that carries text lays out only that text).
+		# The note is text for the 2D instruments and a legend container for the cutaway.
 		var note := _E(wrap, {"mt": 5.0, "fs": 9.5, "c": T.TEXT_DIM, "lh": 1.45}, null if instrument == "cutaway" else "")
 		if instrument == "cutaway":
 			pass
@@ -555,16 +508,10 @@ class Course extends RefCounted:
 	# EXECUTING A STEP
 	func apply_do(d) -> void:
 		if not (d is Dictionary): return
-		# Order matters and is not arbitrary. Loading a scenario resets the camera
-		# and the focus, so anything that sets either must come after it; and
-		# following a body reframes the view, so an explicit radius must come
-		# after THAT. Getting this order wrong is invisible on the first frame and
-		# obvious by the second.
+		# Order matters: loading resets the camera and focus, and following a body reframes
+		# the view, so an explicit radius comes after both.
 		if d.get("preset") and _st("current_preset") != d.preset: _st("load_preset", [d.preset])
-		# The curvature grid is OFF in the course unless a lesson asks for it. It
-		# is a good picture of one specific idea and unexplained scenery in every
-		# other lesson, and several scenarios switch it on by default — so the
-		# course states what it wants rather than inheriting it.
+		# The curvature grid is off in the course unless a lesson asks for it.
 		_st("set_mesh", [bool(d.get("mesh", false))])
 		if d.get("sky"): _st("set_sky", [d.sky])
 		if d.has("trueScale"): _st("set_true_scale", [bool(d.trueScale)])
@@ -577,10 +524,7 @@ class Course extends RefCounted:
 		if d.has("band"): _st("set_band", [int(d.band)])
 		if d.get("control"):
 			for id in d.control: _st("set_control", [id, float(d.control[id])])
-		# AFTER the controls, not before: `control: { lat: 66 }` moves the observer
-		# to the Arctic Circle, and where noon is depends on the latitude it is
-		# being asked about. Setting the time first put the Sun overhead for a
-		# place the lesson was about to stop standing in.
+		# Local time after the controls: noon depends on the latitude just set.
 		if d.has("localTime"):
 			var lt = d.localTime
 			_st("set_local_time", [float(lt) if (lt is int or lt is float) else lt])
@@ -688,10 +632,7 @@ class Course extends RefCounted:
 		var bodies: Array = _st("bodies") if _has("bodies") else []
 
 		if instrument == "photometer" and built.has("photometer"):
-			# The observer is the camera — see the header of sim/lightcurve.gd for
-			# why that is the lesson rather than a shortcut. The camera lives in
-			# scene units and the bodies in AU, so it is converted rather than
-			# compared.
+			# The observer is the camera (sim/lightcurve.gd); convert scene units to AU.
 			var s: float = _st("scene_scale") if _has("scene_scale") else 1.0
 			if not s: s = 1.0
 			var cp = _st("cam_pos")

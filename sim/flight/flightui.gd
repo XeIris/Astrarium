@@ -1,44 +1,23 @@
 class_name FlightUI
 extends RefCounted
 
-# FLIGHT INSTRUMENTS — port of sim/flight/flightui.js.
-# A navball, a telemetry block, a stage stack, two clocks and a targeting menu.
+# FLIGHT INSTRUMENTS: navball, telemetry, stage stack, two clocks, targeting menu.
 #
-# THE NAVBALL is the one instrument worth building properly, because it is the
-# only one that answers the question a pilot actually has — "which way am I
-# pointing, relative to where I am going and to the ground below" — in a single
-# glance. It is drawn as a true orthographic projection of a sphere fixed in the
-# SURFACE frame, seen from the vehicle's own nose:
+# The navball is a true orthographic projection of a sphere fixed in the surface
+# frame, seen from the nose:
+#   · a great circle (the horizon) projects to an ellipse with semi-minor axis
+#     R·|n·z|, n the local up in view coordinates;
+#   · a pitch line at latitude φ projects to semi-axes R·cos φ, offset R·sin φ
+#     along n's projection.
+# The two clocks: MET is proper time, UT coordinate time; their difference is the
+# GPS correction in LEO and years at relativistic speed.
 #
-#   · a great circle (the horizon) projects to an ellipse whose semi-minor axis
-#     is R·|n·z|, where n is the local up expressed in view coordinates;
-#   · a small circle at latitude φ (a pitch line) projects to an ellipse of
-#     semi-axes R·cos φ, offset R·sin φ along the projection of n.
-#
-# Both fall out of the same three lines, which is why the ladder stays correct
-# at any attitude instead of being faked with a tilted straight line.
-#
-# THE TWO CLOCKS are the other thing this UI exists for. MET is the vehicle's
-# own proper time and UT is coordinate time; the readout between them is their
-# accumulated difference, which is microseconds in low orbit — where it is
-# exactly the GPS correction — and years at relativistic speed. Same number.
-#
-# GODOT NOTES
-#   · The markup is blackhole_sim.css's .fl-* rules as El style dictionaries
-#     (ui/widgets/el.gd), the same way ui/hud.gd builds every other panel, so
-#     the panel lays out and styles like the page. The DOM rebuilt its grid,
-#     stage stack and log with innerHTML every frame; here the elements are
-#     built once and only their text and state change.
-#   · The navball's canvas is a 188 px El whose own background is the
-#     .fl-navball disc (#05080e, border-radius 50% — which also CLIPS the
-#     canvas, so it clips its children here). Its two hemispheres are a
-#     canvas_item shader (shaders/flight/navball.gdshader: the even-odd fill is
-#     an XOR); the ladder, meridians, horizon, markers, reticle, bezel and the
-#     pitch/heading numbers are _draw() calls with the canvas's own arithmetic.
-#   · planHTML / cruiseHTML return HTML in the web build. Here they return a
-#     small DATA description ({kind, rows, note, bar}) that the panel turns
-#     into elements — the same content, and the same split of who decides it.
-#   · The <select> is an El that opens a PopupMenu.
+# Built from El nodes with the `.fl-*` rules, once; only text and state change. The
+# navball is a 188 px El whose disc background clips its children. Its hemispheres
+# are a canvas_item shader (navball.gdshader, even-odd fill as XOR); ladder,
+# meridians, horizon, markers, reticle, bezel and numbers are _draw() calls.
+# plan_block / cruise_block return data ({kind, rows, note, bar}) the panel renders.
+# The <select> is an El that opens a PopupMenu.
 
 const MARKERS := [
 	{"key": "prograde",   "glyph": "⊙", "color": 0xffe27a},
@@ -92,10 +71,7 @@ static func fmt_mass_t(kg: float) -> String:
 	if kg > 1000.0: return "%s t" % U.fixed(kg / 1000.0, 1)
 	return "%s kg" % U.fixed(kg, 0)
 
-## The clock-difference readout. This is the whole point of carrying two
-## clocks, and it has to stay readable across twelve orders of magnitude:
-## nanoseconds on the pad, tens of microseconds a day in low orbit (the GPS
-## number), years in interstellar cruise.
+## The clock difference, readable from nanoseconds on the pad to years in cruise.
 static func fmt_clock_delta(s: float) -> String:
 	var a := absf(s)
 	var sign := "−" if s < 0.0 else "+"
@@ -107,9 +83,7 @@ static func fmt_clock_delta(s: float) -> String:
 	if a < 86400.0: return sign + Guidance.fmt_dur(a)
 	return sign + Relativity.fmt_years(a / (365.25 * 86400.0))
 
-## A mass ratio, which for a relativistic rocket is an exponential and can run
-## to any number of digits. Quoted plainly while it reads as a quantity of fuel
-## and in powers of ten once it does not.
+## A mass ratio: plain while it reads as fuel, powers of ten after.
 static func fmt_ratio(x: float) -> String:
 	if not is_finite(x): return "∞"
 	if x < 10.0: return U.fixed(x, 1)
@@ -117,9 +91,8 @@ static func fmt_ratio(x: float) -> String:
 	return U.expo(x, 1).replace("e+", "×10^")
 
 # THE PLAN BLOCKS — planHTML / cruiseHTML as data.
-## The transfer-plan block, written out in full because the two Δv numbers in
-## an interplanetary plan are not the same number and confusing them is the
-## classic way to be 2 km/s wrong.
+## The transfer plan, showing both Δv numbers (departure burn and heliocentric),
+## which differ by the Oberth saving.
 static func plan_block(plan, target_name) -> Dictionary:
 	if plan == null:
 		return {"kind": "none", "text": "No solution to %s from here." % (target_name if target_name else "target")}
@@ -135,9 +108,8 @@ static func plan_block(plan, target_name) -> Dictionary:
 		["heliocentric Δv", fmt_speed(plan.dvHelio)], ["flight time", Guidance.fmt_dur(plan.tof)],
 	], "note": "The burn is smaller than the heliocentric Δv it buys — that difference is the Oberth effect, and it is why the departure is made at periapsis."}
 
-## An interstellar destination before departure: what the crossing will cost,
-## solved from this ship's own tanks, so picking a star says something before
-## anything is pressed.
+## An interstellar destination before departure: the crossing solved from this
+## ship's tanks.
 static func mission_block(name: String, ly: float, plan: Dictionary) -> Dictionary:
 	if not plan.get("feasible", false):
 		return {"kind": "none", "text": "%s is %s ly away, and this ship cannot stop there: its tanks hold rapidity %s of the %s a crossing needs." % [
@@ -210,10 +182,10 @@ class Navball extends El:
 		over.draw.connect(_draw_over)
 		add_child(over)
 
-	## @param q      vessel attitude (body +Y is the nose), Quaternion
-	## @param up_w   local up, world
-	## @param north_w local north, world
-	## @param v      {prograde, retrograde, ...} world directions to mark
+	##   q        vessel attitude (body +Y is the nose)
+	##   up_w     local up, world
+	##   north_w  local north, world
+	##   v        {prograde, retrograde, ...} world directions to mark
 	func draw_ball(q: Quaternion, up_w: Vector3, north_w: Vector3, v: Dictionary, extra: Dictionary = {}) -> void:
 		# View basis: the camera looks along the vehicle's nose (+Y in body space).
 		fwd = q * Vector3(0, 1, 0)          # into the screen
@@ -239,10 +211,7 @@ class Navball extends El:
 	## canvas's rotate() turns it, clipped to the ball as ctx.clip() did.
 	func _ellipse(c: Vector2, rx: float, ry: float, rot: float, col: Color, width: float, clip_r: float) -> void:
 		var centre := Vector2(W / 2.0, H / 2.0)
-		# A great circle seen edge-on IS the rim (semi-axes R, R, centred). The
-		# canvas clipped that stroke to its inner half, so draw exactly that
-		# half: a strict inside test would drop every other sample to rounding
-		# and dash it, and a loose one draws it twice as heavy as the page.
+		# A great circle seen edge-on is the rim: draw exactly its inner half.
 		if c.distance_to(centre) < 0.01 and minf(rx, ry) >= clip_r * 0.999:
 			over.draw_arc(centre, clip_r - width * 0.25, 0.0, TAU, 256, col, width * 0.5, true)
 			return
@@ -561,8 +530,7 @@ func set_targets(names: Array, current) -> void:
 	target_sel.set_options(opts, current if current != null else "")
 
 ## `s`: {vessel, telemetry, up: Vector3, north: Vector3, markers: {key: Vector3},
-## status, mode, program, warp, parentName, plan: Dictionary (plan_block /
-## cruise_block), roll}
+## status, mode, program, warp, parentName, plan (plan_block / cruise_block), roll}
 func update(s: Dictionary) -> void:
 	var t: Dictionary = s.telemetry
 	var v: Vessel = s.vessel
@@ -577,9 +545,7 @@ func update(s: Dictionary) -> void:
 
 	# `(t.x || 0)` in the page, for the rows that wrote it that way ...
 	var tf := func(k: String) -> float: return float(U.nz(t.get(k), 0.0))
-	# ... and the bare `t.x` for the ones that did not: in interstellar cruise
-	# there is no altitude or speed about a parent, and fmtDist(undefined) is
-	# the dash, not "0 m".
+	# Missing telemetry reads as a dash (in cruise there is no altitude about a parent).
 	var tn := func(k: String) -> float: return float(U.nz(t.get(k), NAN))
 	var mach: float = tf.call("mach")
 	var period = t.get("period")
@@ -606,14 +572,10 @@ func update(s: Dictionary) -> void:
 		["body", str(s.parentName)],
 	]
 	if s.get("cruise", false):
-		# In cruise the orbit about the planet left behind is a hyperbola with
-		# an eccentricity in the tens of thousands, and the thrust-to-weight
-		# against its gravity at light years is a number with fifteen digits.
-		# None of it is about this flight; the cruise block below is.
+		# In cruise the parent-relative orbit and TWR are meaningless; the cruise block
+		# replaces them.
 		for i in [4, 5, 6, 7, 14, 17]: rows[i][1] = "—"
-		# A photon drive's Δv is c times the rapidity left, which passes c
-		# long before the tanks are dry: quoted in units of c, it is the
-		# rapidity itself, the number the mission is planned in.
+		# A photon drive's Δv in units of c is the rapidity left.
 		rows[16][1] = "%s c" % U.fixed(tf.call("dv") / 299792458.0, 3)
 	for i in rows.size():
 		(grid_k[i] as El).set_text(rows[i][0])
@@ -644,8 +606,8 @@ func update(s: Dictionary) -> void:
 			_el(log_el, {"c": HudTheme.hexc(0xa8c4e0), "p": [1, 0], "bb": 1.0, "bcb": HudTheme.rgba(120, 190, 255, 0.06)},
 				[{"t": Guidance.fmt_dur(e.t), "c": HudTheme.hexc(0x5f7590), "box": {"mr": 5.0}}, {"t": " " + str(e.msg)}])
 
-## The flight log's records strip — flightui.js flightRecords, the same four
-## numbers in both builds. `v` null gives the labels with empty values.
+## The flight log's records strip (four numbers). `v` null gives the labels with
+## empty values.
 static func flight_records(v) -> Array:
 	if v == null: return [["max-Q", "—"], ["peak g", "—"], ["top Mach", "—"], ["peak heating", "—"]]
 	return [

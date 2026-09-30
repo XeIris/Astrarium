@@ -1,71 +1,30 @@
-// TERRAIN & SURFACE CLIMATE — the shared GLSL that decides what a solid world
-// LOOKS like, from the two things that actually decide it on a real planet:
-// where its crust is thick, and how much sunlight and rain each patch gets.
-// (Port of sim/terrain.js's GLSL strings; sim/terrain.gd holds the JS half.)
-// The old rocky planet was a canvas of fBm run through a colour ramp. That is
-// a texture, not a model, and it shows: the elevation histogram of plain fBm is
-// a single hump centred on the mean, so a sea-level cut through it gives
-// smooth, rounded, contour-like coasts everywhere, and the colour, being a
-// function of height alone, puts the same vegetation at the equator and at
-// 70 degrees. Nothing in the picture is a consequence of anything.
+// TERRAIN & SURFACE CLIMATE: what a solid world looks like, from where its crust is
+// thick and how much sunlight and rain each patch gets. CPU half: sim/terrain.gd.
+// Used for invented worlds and unmapped bodies (Earth, Mars and the Moon use imagery,
+// sim/planetmaps.gd). Three mechanisms:
 //
-// Three mechanisms replace it, and between them they are most of what you
-// recognise when you look at a photograph of the Earth:
+//   1. ISOSTASY: thick light continental crust rides ~4.5 km above thin dense
+//      oceanic crust, so the hypsometric curve is bimodal (+0.8 km and −4 km) and
+//      sea level lands on the steep, empty slope between: sharp coastlines.
+//   2. PLATE TECTONICS: a Worley partition gives plates with velocities, and the
+//      closing rate across a boundary picks the relief: collision belts, trenches
+//      with volcanic arcs, mid-ocean ridges. Mountains come in lines.
+//   3. THE GENERAL CIRCULATION: Hadley descent near 30° makes the desert belts,
+//      the polar front near 55° the storm tracks, and the poles are dry. With
+//      Clausius–Clapeyron, precipitation is a function of latitude and temperature,
+//      and colour comes from a Whittaker diagram, not height.
 //
-//   1. ISOSTASY, which is why coastlines are sharp.
-//      Continental crust is ~35 km of low-density granitic rock; oceanic crust
-//      is ~7 km of dense basalt. Both float on the mantle, so the continents
-//      ride about 4.5 km higher, and Earth's hypsometric curve is BIMODAL —
-//      two peaks, one at roughly +0.8 km (continental platform) and one at
-//      -4 km (abyssal plain), with very little area in between. That gap is
-//      the continental slope, and it is why a coastline is a sharp, fractal,
-//      dendritic boundary rather than a soft contour: sea level lands in the
-//      empty part of the histogram, where the surface is STEEP. Reproducing
-//      the bimodality is a one-line transfer function on the noise, and it is
-//      the single biggest difference between this and a height-ramped fBm.
-//
-//   2. PLATE TECTONICS, which is why mountains come in LINES.
-//      Relief is not scattered at random over the crust; it is concentrated at
-//      plate boundaries, and which kind of relief depends on whether the
-//      plates are converging or separating. A cellular (Worley) partition of
-//      the sphere gives the plates; each is given a velocity, and the sign of
-//      the closing rate across a boundary selects the outcome — a mountain
-//      belt where two continents collide, a trench with a volcanic arc just
-//      inboard of it where ocean goes under land, a mid-ocean ridge where two
-//      oceanic plates separate.
-//
-//   3. THE GENERAL CIRCULATION, which is why deserts come in BELTS.
-//      Air rises at the equator, dries, and descends near 30 degrees; that
-//      descending branch of the Hadley cell is the Sahara, Arabia, the Kalahari,
-//      the Atacama and the Australian interior, all at the same latitude on
-//      different continents. It rises again at the polar front near 55 degrees
-//      (the storm tracks, and the world's temperate forests) and descends at
-//      the pole (Antarctica is a desert). Combine that with the Clausius–
-//      Clapeyron scaling of how much water air can hold, and precipitation
-//      falls out as a function of latitude and temperature. Colour then comes
-//      from a Whittaker diagram — biome as a function of mean temperature and
-//      annual precipitation — rather than from height.
-//
-// Everything below is pure shader code. It supplies terrain for invented
-// worlds and unmapped Solar System bodies in both sim/world.gd and
-// sim/rocky_visual.gd. Named Earth, Mars and Moon use mission imagery for
-// their geography instead (sim/planetmaps.gd).
-//
-// Include order is the web build's TERRAIN_GLSL: NOISE + PLATE + ELEVATION +
-// COARSE + CRATER + CLIMATE. The uniforms declared here are fed by
-// Terrain.terrain_uniforms() (sim/terrain.gd).
+// Include order: NOISE + PLATE + ELEVATION + COARSE + CRATER + CLIMATE. Uniforms are
+// fed by Terrain.terrain_uniforms().
 #ifndef TERRAIN_INC
 #define TERRAIN_INC
 
 #include "res://shaders/bodies/terrain_noise.gdshaderinc"
 
-// PLATES. A Worley partition of the sphere: jitter one feature point per cell
-// of a 3D lattice and find the two nearest. F1 names the plate you are on, F2
-// the one across the nearest boundary, and F2 - F1 is (twice) the distance to
-// that boundary — zero on it, growing inward. Each plate gets a velocity from
-// its own hash, projected into the tangent plane, and the closing rate along
-// the line joining the two feature points says what kind of boundary it is.
-// c1/c2 come back as the two nearest feature POINTS; d1/d2 their distances.
+// PLATES: a Worley partition. F1 names your plate, F2 the one across the nearest
+// boundary, F2 − F1 is twice the distance to it. Each plate's velocity (hashed,
+// projected tangent) gives the closing rate. c1/c2 are the two nearest feature
+// points; d1/d2 their distances.
 void plateField(vec3 p, out float d1, out float d2, out vec3 c1, out vec3 c2) {
 	vec3 ip = floor(p);
 	vec3 fp = fract(p);
@@ -86,9 +45,8 @@ vec3 plateVel(vec3 cell, vec3 p) {
 	return normalize(v - p * dot(v, p) + 1e-5);
 }
 
-// ELEVATION. Returns height in KILOMETRES relative to the datum, so the lapse
-// rate below is a real 6.5 K/km and a trench is really 10 km deep. `rug` comes
-// back as a 0..1 ruggedness used for shading and for the rain shadow.
+// ELEVATION in km relative to the datum (the lapse rate is a real 6.5 K/km). `rug`
+// is 0..1 ruggedness for shading and the rain shadow.
 uniform float uPlateScale = 2.6;    // plates across the sphere (Earth: ~3)
 uniform float uLandRelief = 3.2;    // km from datum to the highest continent
 uniform float uOceanDepth = 4.6;    // km from datum to the abyssal plain
@@ -97,26 +55,17 @@ uniform float uCrustT = 0.54;       // the fBm level that IS sea level (see terr
 void terrain(vec3 p, float seed, out float hKm, out float rug) {
 	vec3 q = warp(p * 1.9 + vec3(seed), 0.55);
 
-	// --- crust thickness. One warped fBm, recentred on the level that makes
-	// the requested fraction of the surface continental. The threshold is NOT
-	// 1 - landFraction: summed-octave fBm is very nearly Gaussian (measured:
-	// mean 0.497, sd 0.1065 over seven octaves), so asking for 32% land by
-	// subtracting 0.68 leaves 8% of the surface above the datum. The GDScript
-	// side inverts the normal CDF instead — see Terrain.crust_threshold —
-	// which is why Earth here has Earth's land fraction rather than a third
-	// of it.
+	// --- crust thickness: warped fBm recentred so the requested fraction is
+	// continental. The threshold is not 1 − landFraction: the fBm is near-Gaussian
+	// (mean 0.497, sd 0.1065), so the CPU inverts the normal CDF (Terrain.crust_threshold).
 	float c = fbm(q, 7) - uCrustT;
 
-	// --- ISOSTASY: push the distribution AWAY from the datum. pow() with an
-	// exponent below 1 expands values near zero outward and compresses the
-	// tails, turning one hump into two and leaving the continental slope
-	// nearly empty. This is the line that makes coastlines sharp.
+	// --- ISOSTASY: pow() with an exponent below 1 pushes values away from the datum,
+	// making the distribution bimodal and the continental slope nearly empty.
 	float s = sign(c);
 	float y = s * pow(min(abs(c) / 0.34, 1.0), 0.55);
 
-	// Continents are rough; the abyssal plain is famously flat (it is buried
-	// under kilometres of pelagic sediment), so the two sides get different
-	// relief and different detail amplitudes.
+	// Continents are rough; the abyssal plain is flat under sediment.
 	hKm = (y >= 0.0) ? y * uLandRelief : y * uOceanDepth;
 	float detailAmp = (y >= 0.0) ? 0.9 : 0.25;
 	float fine = (fbm(q * 5.3 + 3.1, 5) - 0.5) * 2.0;
@@ -132,9 +81,8 @@ void terrain(vec3 p, float seed, out float hKm, out float rug) {
 	float closing = dot(plateVel(c1, p) - plateVel(c2, p), dir);
 	float land = sstep(-0.2, 0.6, hKm);
 
-	// Convergent: a ridged belt, tall where two continents meet (the Himalaya
-	// is 8 km because neither side will subduct), lower as a volcanic arc
-	// where ocean goes under land.
+	// Convergent: a ridged belt, tallest where continents meet, lower as a volcanic arc
+	// where ocean subducts.
 	float belt = ridged(warp(p * 7.0 + vec3(seed), 0.2), 5);
 	belt = pow(clamp(belt, 0.0, 1.0), 1.6);
 	float conv = max(closing, 0.0) * onEdge;
@@ -151,10 +99,7 @@ void terrain(vec3 p, float seed, out float hKm, out float rug) {
 	rug = clamp(belt * conv * 1.6 + abs(fine) * 0.4, 0.0, 1.0);
 }
 
-// A CHEAP crust probe — warp + isostasy only, no plates and no fine detail.
-// The rain-shadow test needs to know how high the ground is UPWIND, and
-// evaluating the full terrain a second time per fragment to find out is not
-// worth it: what casts a shadow is the massif, not the scree on it.
+// A cheap crust probe (warp + isostasy only) for the upwind rain-shadow test.
 float crustHeight(vec3 p, float seed) {
 	vec3 q = warp(p * 1.9 + vec3(seed), 0.55);
 	float c = fbm(q, 5) - uCrustT;
@@ -162,16 +107,9 @@ float crustHeight(vec3 p, float seed) {
 	return (y >= 0.0) ? y * uLandRelief : y * uOceanDepth;
 }
 
-// CRATERS. On a body with no atmosphere and no plate tectonics, nothing erases
-// an impact: the Moon's surface is a four-billion-year integral of everything
-// that ever hit it, and the size distribution is a power law, so every big
-// crater is pocked with smaller ones. That is the whole look, and it is not
-// something fBm produces — a crater is a DISC with a rim, not a bump.
-//
-// One layer scatters at most one impact per lattice cell, each with its own
-// radius, and draws the real profile: a parabolic bowl inside the rim, an
-// uplifted rim at the radius itself, and an ejecta blanket fading outside it.
-// Three layers an octave apart give the power law.
+// CRATERS, where nothing erases them. At most one impact per lattice cell with its
+// own radius: parabolic bowl, uplifted rim, fading ejecta. Three layers an octave
+// apart give the power-law size distribution.
 float craterLayer(vec3 p, float seed) {
 	vec3 ip = floor(p);
 	vec3 fp = fract(p);
@@ -203,46 +141,34 @@ float craters(vec3 p, float seed, float density, out float fresh) {
 	return h * 1.6 * density;
 }
 
-// SURFACE CLIMATE. Temperature from the annual-mean insolation distribution,
-// precipitation from the cells of the general circulation, colour from the two
-// together.
+// SURFACE CLIMATE: temperature from annual-mean insolation, precipitation from the
+// circulation cells, colour from both.
 uniform float uMeanK = 288.0;      // global mean surface temperature, K
 uniform float uTransport = 0.42;   // 0 = radiative equilibrium, 1 = isothermal planet
 uniform float uArid = 0.0;         // 0..1 global dryness (a world with little water)
 
-// Annual-mean insolation vs latitude, the standard form used by every 1-D
-// energy-balance model since Budyko and Sellers:
-//     S(phi)/Sbar = 1 + s2 * P2(sin phi),   P2(x) = (3x^2 - 1)/2
-// s2 = -0.482 for Earth's 23.4 degree obliquity; a world tipped further over
-// has a flatter profile, and past 54 degrees s2 changes SIGN and the poles
-// become the hottest part of the planet.
+// Annual-mean insolation vs latitude (Budyko, Sellers):
+//     S(φ)/S̄ = 1 + s2·P2(sin φ),  P2(x) = (3x² − 1)/2
+// s2 = −0.482 at 23.4°; it changes sign past 54°, and the poles become hottest.
 float insolation(float sinLat, float s2) {
 	float P2 = 0.5 * (3.0 * sinLat * sinLat - 1.0);
 	return max(1.0 + s2 * P2, 0.02);
 }
 
-// Surface temperature: the radiative-equilibrium gradient T ~ S^(1/4),
-// relaxed toward the global mean by however much heat the atmosphere and
-// ocean move poleward, then a dry-ish 6.5 K/km lapse rate with altitude.
+// T ~ S^(1/4), relaxed toward the global mean by poleward heat transport, then a
+// 6.5 K/km lapse rate.
 float surfaceTemp(float sinLat, float hKm, float s2) {
 	float f = pow(insolation(sinLat, s2), 0.25);
 	float T = uMeanK * mix(f, 1.0, uTransport);
 	return T - 6.5 * max(hKm, 0.0);
 }
 
-// Precipitation, 0..1, from the three overturning cells plus Clausius-
-// Clapeyron: saturation vapour pressure rises about 7% per kelvin, so warm
-// air carries far more water and a cold desert is as dry as a hot one.
-// The coefficients are fitted to Earth's annual-mean zonal precipitation:
-// a maximum at the equator, a trough near 30 degrees that is DRY BUT NOT
-// ZERO, a broad secondary maximum over the storm tracks at 45-60, and a
-// polar desert. Getting the trough wrong is what puts a Sahara at the
-// latitude of France.
+// Precipitation 0..1 from the three cells plus Clausius–Clapeyron (~7%/K), fitted to
+// Earth's zonal mean: equatorial maximum, a dry-but-not-zero trough near 30°, a
+// storm-track maximum at 45–60°, polar desert.
 float precipitation(float lat, float T, float inland, float shadow) {
 	float a = abs(lat);
-	// Squared directly rather than through pow(), which GLSL leaves
-	// undefined for a negative base — both off-equator terms are negative on
-	// the equatorward side of the cell they describe.
+	// Squared directly: pow() is undefined for a negative base.
 	float zi = a / 0.30;
 	float zf = (a - 0.90) / 0.40;
 	float zh = (a - 0.55) / 0.22;
@@ -257,16 +183,9 @@ float precipitation(float lat, float T, float inland, float shadow) {
 	return clamp(P * (1.0 - uArid), 0.0, 1.0);
 }
 
-// Whittaker's biome diagram: what grows somewhere is a function of mean
-// temperature and annual precipitation, and almost nothing else. Read off
-// as a 2-D blend rather than as a lookup so the boundaries are gradients,
-// which is what they are on the ground.
-// The values are ALBEDOS, not palette picks: sand really is around 0.38 and
-// closed-canopy forest really is around 0.12, and it is that three-to-one
-// ratio that makes a photograph of a continent look the way it does. Choose
-// them by eye instead and the deserts come out the same brightness as the
-// grassland, which is the single most obvious way a rendered planet stops
-// looking like a planet.
+// Whittaker biomes: vegetation as a 2-D blend of temperature and precipitation.
+// The values are real albedos (sand ~0.38, forest ~0.12); that 3:1 ratio is what
+// makes a continent read as one.
 vec3 biome(float T, float P, float rug) {
 	float t = clamp((T - 258.0) / 48.0, 0.0, 1.0);   // -15 C .. +48 C
 	vec3 desert  = mix(vec3(0.34, 0.30, 0.25), vec3(0.44, 0.35, 0.22), t); // cold->hot

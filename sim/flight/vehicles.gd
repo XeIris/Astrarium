@@ -1,45 +1,23 @@
 class_name Vehicles
 extends RefCounted
 
-# THE VEHICLE CATALOGUE
-# Published numbers for vehicles that flew, and derived numbers for the two
-# that did not. Nothing here is tuned for playability: a stage's Δv is computed
-# from its own dry and propellant masses through the rocket equation, so if a
-# vehicle cannot reach orbit in the sim it could not reach orbit.
+# THE VEHICLE CATALOGUE: published numbers for vehicles that flew, derived ones for
+# the two that didn't. Nothing is tuned: Δv comes from each stage's masses through
+# the rocket equation. Sources: docs/spaceflight-research.md. kg, N, m, s.
 #
-# Sources are in docs/spaceflight-research.md. Masses in kg, thrust in N,
-# lengths in m, Isp in seconds.
+# `limits` are structural margins, not flown values (a Saturn V flew 34 kPa max-q;
+# its airframe fails higher), so a bad profile finds the limit.
 #
-# `limits` are STRUCTURAL margins, not flown values, and the distinction is the
-# point: a Saturn V flew a max-q of 34 kPa and a Falcon 9 flies about 30, but
-# neither airframe fails there. The limit is where it does. So a good ascent
-# profile stays well under its limit and a bad one finds it — which is exactly
-# what should happen, and the sim will tell you which of the four modes broke
-# the vehicle.
+# `thrustVac` and both Isps are measured per engine; sea-level thrust follows from
+# ispSL (Rocketry.engine_output). A quoted sea-level thrust was used to back out ispSL.
 #
-# One convention that matters everywhere below: `thrustVac` and the two Isp
-# figures are the MEASURED per-engine values, and sea-level thrust is a derived
-# consequence of ispSL rather than a second number that can drift out of sync
-# with it (see sim/flight/rocketry.gd's engine_output). Where a source quotes a
-# sea-level thrust, it has been used to back out ispSL and the pair is
-# consistent by construction.
-#
-# PORT NOTES. The catalogue is DATA, so it stays Dictionaries with the JS keys
-# verbatim (`thrustVac`, `gimbalDeg`, `look`, …): craftmodel, the launch site,
-# the plumes and the HUD all read it by name, and the Foundry can edit it.
-# ENGINES and VEHICLES are static vars built once at class load (a GDScript
-# const cannot call the `stage()` helper), and a stage references its engine
-# Dictionary BY IDENTITY, as the JS object literal did — so editing
-# Vehicles.ENGINES.F1 edits every stage that flies it.
+# Data stays Dictionaries (craftmodel, launch site, plumes, HUD and Foundry read it
+# by name). ENGINES and VEHICLES are built once at class load, and stages hold their
+# engine Dictionary by identity, so editing ENGINES.F1 edits every stage flying it.
 
-# ENGINES
-#
-# `throttleMin` is the real deep-throttle limit and it is a gameplay-shaping
-# number, not a detail: a Merlin cannot go below 57%, which is why a nearly
-# empty first stage cannot hover and must land by hoverslam. The Apollo DPS is
-# the interesting one — it has a FORBIDDEN BAND between 60% and 92.5%, because
-# sustained operation there eroded the throttle valve, so the descent guidance
-# really does have to avoid it.
+# ENGINES. `throttleMin` is the real deep-throttle limit: a Merlin can't go below
+# 57%, so an empty first stage lands by hoverslam. The Apollo DPS has a forbidden
+# band from 60% to 92.5% (valve erosion) that the guidance must avoid.
 static var ENGINES: Dictionary = _build_engines()
 
 static func _build_engines() -> Dictionary:
@@ -103,11 +81,8 @@ static func _build_engines() -> Dictionary:
 		},
 		"MLE": {
 			"name": "Mars Descent Engine (MLE)", "prop": "Hydrazine",
-			# The eight MLEs are fixed, but they are individually throttleable and the
-			# stage steers by differential throttle. That is a torque about the same
-			# axes a gimbal would give, so it is modelled as an equivalent deflection —
-			# without it the descent stage has no attitude authority at all and thrusts
-			# in whatever direction the entry left it pointing.
+			# Eight fixed MLEs steered by differential throttle, modelled as an equivalent
+			# gimbal deflection.
 			"thrustVac": 3060.0, "ispSL": 200.0, "ispVac": 210.0, "throttleMin": 0.20, "gimbal": 5.0,
 			"exitD": 0.20, "plume": "hypergolic",
 		},
@@ -120,23 +95,13 @@ static func _build_engines() -> Dictionary:
 		},
 		"SPIN_DRIVE": {
 			"name": "Astrophage spin drive", "prop": "Astrophage",
-			# A PHOTON ROCKET, and derived rather than invented. The book puts a gram of
-			# astrophage at ~9e13 J, i.e. 9e16 J/kg — which is c² to two figures, so
-			# astrophage is a perfect mass-to-energy converter. A drive that turns fuel
-			# fully into light carries away momentum E/c = mc, so its exhaust velocity
-			# is exactly c and its specific impulse is c/g₀ = 3.06e7 s.
-			#
-			# Thrust is not a constant here: the drive is throttled to hold a constant
-			# PROPER acceleration (1.5 g in the book), so vessel.gd sets F = m·a each
-			# step and takes ṁ = F/c — see `photon_output` there, and the cruise solver
-			# in sim/flight/relativity.gd. thrustVac is the emitter plate's ceiling
-			# rather than its operating point.
+			# A PHOTON ROCKET, derived: astrophage stores ~9e16 J/kg, c² to two figures, so the
+			# exhaust is light, v_e = c, Isp = c/g₀ = 3.06e7 s. Throttled to hold a constant
+			# proper acceleration (1.5 g), so vessel.gd sets F = m·a and ṁ = F/c
+			# (photon_output; cruise in relativity.gd). thrustVac is the plate's ceiling.
 			"thrustVac": 3.1e7, "ispSL": 3.0570e7, "ispVac": 3.0570e7, "throttleMin": 0.001,
-			# The aperture is 1.64 m, not the 4 m a chemical engine of this thrust would
-			# need: a photon drive's thrust is P/c, so what sizes the exit is the power
-			# the emitter plate can radiate, not an expansion ratio. It is also what
-			# the plume is scaled from, so a drive drawn small and a beam drawn wide
-			# would disagree in the one place you can see both.
+			# Aperture 1.64 m: thrust is P/c, so the exit is sized by radiated power, not an
+			# expansion ratio. The plume scales from it too.
 			"gimbal": 0.0, "photon": true, "holdAccel": 1.5 * 9.80665, "exitD": 1.64, "plume": "spin",
 		},
 		"BEETLE_DRIVE": {
@@ -151,10 +116,8 @@ static func _build_engines() -> Dictionary:
 		},
 	}
 
-# A helper so a stage reads as a table row rather than as an object literal.
-# `look` is the only field the physics ignores: it is what craftmodel builds
-# the mesh from, and it is kept beside the masses so a stage cannot be described
-# twice in two places and disagree with itself.
+# A stage as a table row. `look` is only for craftmodel, kept beside the masses so
+# the stage is described once.
 static func stage(o: Dictionary) -> Dictionary:
 	var eng = o.get("engine")
 	var s := {
@@ -196,10 +159,7 @@ static func _build_vehicles() -> Dictionary:
 				# The auxiliary propulsion modules — also what settles the propellant
 				# before the restart for translunar injection.
 				"rcs": { "thrust": 654.0, "isp": 274.0, "prop": 250.0, "count": 6 },
-				# The spacecraft-LM adapter: a cone from the S-IVB's 6.6 m down to the
-				# service module's 3.9 m, with the lunar module folded inside it.
-				# Without it the stack is one diameter from the engines to the escape
-				# tower, which is the single thing a Saturn V most obviously is not.
+				# The spacecraft-LM adapter: a cone from 6.6 m to 3.9 m, the LM folded inside.
 				"look": { "skin": "white", "band": "black", "aftSkirt": true, "interstage": 6.5 } }),
 			stage({ "key": "csm", "name": "CSM \"Columbia\"", "dry": 11900.0, "prop": 18410.0,
 				"engine": E.SPS, "count": 1, "L": 11.0, "D": 3.9, "sep": "none",
@@ -211,9 +171,8 @@ static func _build_vehicles() -> Dictionary:
 		"carries": { "vehicle": "lm", "mass": 15200.0, "at": "sivb" },
 	},
 
-	# FALCON 9 BLOCK 5 — the working reusable launcher. The first stage is the
-	# interesting object: it separates at ~65 km with a third of its Δv still in
-	# the tanks, and spends it on coming back.
+	# FALCON 9 BLOCK 5. The first stage separates at ~65 km with a third of its Δv left
+	# for coming back.
 	"falcon9": {
 		"id": "falcon9", "name": "Falcon 9 Block 5", "role": "launch", "launchFrom": "Earth",
 		"era": "2018–",
@@ -224,9 +183,7 @@ static func _build_vehicles() -> Dictionary:
 			stage({ "key": "f9s1", "name": "Stage 1", "dry": 22200.0, "prop": 411000.0,
 				"engine": E.MERLIN1D, "count": 9, "L": 41.2, "D": 3.66,
 				"recover": "droneship", "gridFins": 4, "legs": 4,
-				# The landing legs are rated well above Apollo's, because a hoverslam
-				# arrives with no margin and the vehicle has to survive being a little
-				# late rather than being written off by it.
+				# Legs rated above Apollo's: a hoverslam arrives with no margin.
 				"gear": { "vVert": 6.0, "vHoriz": 2.0 },
 				"rcs": { "thrust": 400.0, "isp": 70.0, "prop": 400.0, "count": 8 },
 				# Reserve held back for boostback, entry and landing. Not invented: it
@@ -236,9 +193,7 @@ static func _build_vehicles() -> Dictionary:
 						"interstageSkin": "black" } }),
 			stage({ "key": "f9s2", "name": "Stage 2", "dry": 4000.0, "prop": 111500.0,
 				"engine": E.MVAC, "count": 1, "L": 13.8, "D": 3.66, "restarts": 2,
-				# Cold-gas nitrogen thrusters. Without attitude control that does not
-				# need the main engine, an upper stage cannot point at the burn it has
-				# to make — the gimbal only has authority while it is already thrusting.
+				# Cold-gas N₂ RCS: the gimbal only has authority while thrusting.
 				"rcs": { "thrust": 220.0, "isp": 70.0, "prop": 400.0, "count": 8 },
 				"look": { "skin": "white", "nozzleExt": true } }),
 			stage({ "key": "f9fair", "name": "Payload fairing", "dry": 1900.0, "prop": 0.0,
@@ -249,16 +204,13 @@ static func _build_vehicles() -> Dictionary:
 				"look": { "fairing": true } }),
 			stage({ "key": "f9pl", "name": "Payload", "dry": 13000.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 5.0, "D": 3.4, "sep": "none",
-				# The payload rides INSIDE the fairing, not stacked on its nose. Stacked
-				# it added its own 5 m to the vehicle and left a satellite sitting in
-				# the airstream above the shroud meant to protect it.
+				# The payload rides inside the fairing.
 				"look": { "satellite": true, "mount": { "y": 61.0 } } }),
 		],
 	},
 
-	# SPACE SHUTTLE — the winged one, and the only stack here that is not a
-	# stack: the orbiter's engines light on the pad and burn all the way to
-	# cutoff, fed from a tank it throws away.
+	# SPACE SHUTTLE: the orbiter's engines light on the pad and burn to cutoff, fed from
+	# a tank it throws away.
 	"shuttle": {
 		"id": "shuttle", "name": "Space Shuttle", "role": "launch", "launchFrom": "Earth",
 		"era": "1981–2011",
@@ -272,13 +224,9 @@ static func _build_vehicles() -> Dictionary:
 				"look": { "skin": "white", "srb": true, "chutes": 3, "mount": { "y": 1.1 } } }),
 			stage({ "key": "et", "name": "External Tank + SSME", "dry": 26500.0, "prop": 719000.0,
 				"engine": E.RS25, "count": 3, "L": 46.9, "D": 8.40,
-				# The SSMEs light on the pad alongside the solids and keep burning for
-				# six minutes after they are gone. This is the one stack here that is
-				# not a stack, and `liftoff` is what says so.
+				# The SSMEs light with the solids and burn six minutes past them (`liftoff`).
 				"liftoff": true, "engineOn": "orbiter",
-				# The SSMEs cannot be relit, so the tank has nothing more to give
-				# once they cut off: it is dropped 18 s after MECO, whatever is left
-				# in it, and the orbiter's OMS makes the insertion at apogee.
+				# The SSMEs can't relight, so the tank drops 18 s after MECO and OMS inserts at apogee.
 				"sepAfterCutoff": 18.0,
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 800.0, "count": 44 },
 				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.3 } } }),
@@ -286,13 +234,9 @@ static func _build_vehicles() -> Dictionary:
 				"engine": E.SPS, "count": 2, "L": 37.2, "D": 5.6, "sep": "none",
 				"wings": { "span": 23.8, "area": 250.0, "clMax": 1.4 },
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 1460.0, "count": 44 },
-				# z is the tank's radius (4.2 m) plus the orbiter's own half-depth, so
-				# the belly tiles sit against the foam where the struts are. y comes
-				# from the two aft attach points: the tank's is 2.8 m above its base
-				# (ET station 2058) and the orbiter's is 27.4 m behind its nose (Xo
-				# 1317), which puts the nose at 40.5 m — level with the intertank,
-				# well under the boosters' nose cones, as every photograph has it.
-				# It was 16.7, and the orbiter rode 13 m high with its nose at the ogive.
+				# z = tank radius (4.2 m) plus the orbiter's half-depth. y from the aft attach
+				# points: the tank's 2.8 m above its base (ET station 2058), the orbiter's 27.4 m
+				# behind its nose (Xo 1317), putting the nose at 40.5 m, level with the intertank.
 				"look": { "skin": "tiles", "orbiter": true, "mount": { "y": 3.3, "z": 7.05 } } }),
 		],
 	},
@@ -401,23 +345,12 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# HAIL MARY — the interstellar ship, built from the book and the 2026 film.
-	#
-	# The one performance number worth deriving here, because it decides whether
-	# the whole mission is possible: the book puts a gram of astrophage at ~9e13 J,
-	# which is 9e16 J/kg — c² to two figures. So the spin drive converts fuel
-	# completely into light and its exhaust velocity is exactly c, giving a total
-	# available rapidity of ln(mass ratio) = ln(21) = 3.05 on 2 000 t of fuel and
-	# a 100 t ship.
-	#
-	# That is NOT enough for a flip-and-burn crossing of the 11.9 ly to Tau Ceti,
-	# which needs rapidity 6.03 at 1.5 g. It IS enough for accelerate–coast–
-	# decelerate, which is what the ship actually does: burn to rapidity 1.52
-	# (0.909 c, γ = 2.39), coast 10.1 ly, and turn over. That profile takes
-	#     13.9 years of Earth time and 6.6 years of ship time
-	# — and thirteen years is exactly what the book says the outbound trip takes.
-	# The mission planner in relativity.gd solves for the coast fraction rather
-	# than assuming one, so this comes out of the numbers instead of being asserted.
+	# HAIL MARY, from the book and the 2026 film. With v_e = c, rapidity is
+	# ln(mass ratio) = ln(21) = 3.05 (2000 t of fuel, a 100 t ship). Not enough to
+	# flip-and-burn 11.9 ly to Tau Ceti (6.03 at 1.5 g), but enough to
+	# accelerate–coast–decelerate: rapidity 1.52 (0.909 c, γ = 2.39), coast 10.1 ly,
+	# turn over. 13.9 years Earth time, 6.6 ship time: the book's thirteen years.
+	# relativity.gd solves for the coast fraction.
 	"hailmary": {
 		"id": "hailmary", "name": "Hail Mary", "role": "interstellar", "launchFrom": null,
 		"era": "Project Hail Mary",
@@ -425,21 +358,15 @@ static func _build_vehicles() -> Dictionary:
 		"limits": { "maxQ": 1e9, "maxG": 4.0, "qAlpha": 1e9, "heatLoad": 0.0 },
 		"stages": [
 			stage({ "key": "hm", "name": "Hail Mary", "dry": 100000.0, "prop": 2000000.0,
-				# FOUR drives, not three: one under each tank and one on the axis, all
-				# firing through a single plane parallel to the ship. The count is the
-				# model's count on purpose — a vehicle whose bells you can see and whose
-				# thrust you integrate must not disagree about how many there are.
+				# Four drives (one under each tank, one on the axis), matching the model.
 				"engine": E.SPIN_DRIVE, "count": 4, "L": 47.0, "D": 12.0, "sep": "none",
 				"rcs": { "thrust": 2200.0, "isp": 300.0, "prop": 900.0, "count": 16 },
 				"centrifuge": false,
 				"look": { "skin": "panel-white", "hailmary": true, "tanks": 3, "beetles": 4, "radiators": 4 } }),
 		],
-		# The mission the ship was built for. Distances in light years; `ra`
-		# (hours) and `dec` (degrees) are each star's J2000 position, so a
-		# cruise leaves in the direction the star actually is — see
-		# Spaceflight.mission_direction for the frame. `lum` (L☉), `teff` (K)
-		# and `radius` (R☉) are the star's measured values (as starcat.gd),
-		# because the star is also a LIGHT: it rises as the ship arrives.
+		# Mission stars: distance in ly, J2000 `ra` (h) and `dec` (°) for the departure
+		# direction (Spaceflight.mission_direction), and measured `lum`, `teff`, `radius`
+		# since the star also lights the arrival.
 		"missions": [
 			{ "name": "Tau Ceti", "ly": 11.9, "accel": 1.5, "ra": 1.7345, "dec": -15.937,
 			  "lum": 0.52, "teff": 5344.0, "radius": 0.793 },
@@ -450,9 +377,8 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# BEETLE — the data-return probe. Four of them ride in the Hail Mary's nose;
-	# their only job is to be small enough that the mass ratio works for the trip
-	# home, which the mothership's does not.
+	# BEETLE: the data-return probes, four in the Hail Mary's nose, small enough for the
+	# trip home.
 	"beetle": {
 		"id": "beetle", "name": "Beetle probe", "role": "interstellar", "launchFrom": null,
 		"era": "Project Hail Mary",
@@ -472,13 +398,8 @@ const VEHICLE_ORDER := [
 	"ioncruiser", "hailmary", "beetle",
 ]
 
-# Ideal Δv of a whole vehicle, stage by stage, from the rocket equation.
-# Nothing stores this — it is derived, so editing a mass anywhere above changes
-# it and the HUD immediately says so.
-#
-# Each stage carries everything above it, which is what makes the first stage's
-# Δv small and the last stage's large despite the first holding 90% of the
-# propellant. `pa` lets the caller ask for the sea-level or vacuum answer.
+# Ideal Δv of one stage, carrying everything above it. Derived, never stored. `pa`
+# selects sea level or vacuum.
 static func stage_delta_v(vehicle: Dictionary, index: int, pa: float = 0.0, extra_payload: float = 0.0) -> float:
 	var st: Array = vehicle.stages
 	var above := extra_payload
@@ -494,9 +415,8 @@ static func stage_delta_v(vehicle: Dictionary, index: int, pa: float = 0.0, extr
 	return ve * log(m0 / maxf(m1, 1.0))
 
 static func total_delta_v(vehicle: Dictionary, extra_payload: float = 0.0) -> float:
-	# First stage at sea level (it spends most of its burn in air), everything
-	# above it in vacuum. This is the standard way the number is quoted and it is
-	# within a few percent of an integrated ascent.
+	# First stage at sea level, the rest in vacuum: the usual quoted figure, within a
+	# few percent of an integrated ascent.
 	var a := 0.0
 	for i in vehicle.stages.size():
 		a += stage_delta_v(vehicle, i, 101325.0 * 0.4 if i == 0 else 0.0, extra_payload)
@@ -508,28 +428,23 @@ static func gross_mass(vehicle: Dictionary, extra_payload: float = 0.0) -> float
 		a += s.dry + s.prop
 	return a
 
-## Thrust-to-weight on the pad. Below 1.0 the vehicle does not move; a real
-## launcher sits between 1.2 and 1.5, because anything higher wastes propellant
-## fighting drag and anything lower wastes it fighting gravity.
+## Pad thrust-to-weight (real launchers sit at 1.2–1.5).
 static func pad_twr(vehicle: Dictionary, g_surf: float = 9.80665, extra_payload: float = 0.0, pa: float = 101325.0) -> float:
 	return liftoff_thrust(vehicle, pa) / (gross_mass(vehicle, extra_payload) * g_surf)
 
-## Sea-level thrust of everything that is lit at T-0. Used by the HUD and by the
-## launch check, which refuses to release the hold below TWR 1.0 — a real
-## constraint that a vehicle edited in the Foundry can genuinely fail.
+## Sea-level thrust of everything lit at T-0. The launch check won't release below
+## TWR 1.0.
 static func liftoff_thrust(vehicle: Dictionary, pa: float = 101325.0) -> float:
 	var F := 0.0
 	var st: Array = vehicle.stages
 	for i in st.size():
 		var s: Dictionary = st[i]
 		if s.get("engine") == null or not (i == 0 or s.get("liftoff", false)): continue
-		# Through engine_output, so ONE function owns the pressure and grain terms.
-		# Written out again here it used the full vacuum rating, and an RSRM starts
-		# at 0.86 of it — so the Shuttle's pad TWR was reported 14% above the
-		# thrust the integrator actually produces at ignition.
+		# Through engine_output, which owns the pressure and grain terms (an RSRM starts at
+		# 0.86 of its rating).
 		F += Rocketry.engine_output(s.engine, s.count, pa, 1.0, 0.0).F
 	return F
 
-## A vehicle Dictionary by id (null if unknown) — the JS `VEHICLES[key]`.
+## A vehicle Dictionary by id (null if unknown).
 static func get_vehicle(key: String):
 	return VEHICLES.get(key)

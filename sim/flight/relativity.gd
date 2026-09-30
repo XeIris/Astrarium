@@ -1,40 +1,21 @@
 class_name Relativity
 extends RefCounted
 
-# RELATIVISTIC CRUISE
-# Interstellar flight is a different physical regime from everything else in
-# sim/flight/, and it gets its own integrator rather than a relativistic patch
-# on the Newtonian one. Between stars there is no gravity worth the name, the
-# motion is one-dimensional along the target line, and the exact solution is
-# available in closed form — so using it is both more accurate and simpler than
-# stepping a modified momentum equation.
-#
-# With constant PROPER acceleration a (what the crew feels) and proper time τ:
-#
+# RELATIVISTIC CRUISE: its own exact integrator, since between stars the motion is
+# one-dimensional with no gravity to speak of. At constant proper acceleration a
+# and proper time τ:
 #     v(τ) = c·tanh(aτ/c)          γ(τ) = cosh(aτ/c)
 #     t(τ) = (c/a)·sinh(aτ/c)      d(τ) = (c²/a)·(cosh(aτ/c) − 1)
+# Everything works in rapidity φ = aτ/c, which adds linearly; the rocket equation is
+# Δφ = (v_e/c)·ln(m₀/m₁).
 #
-# The natural variable is the RAPIDITY φ = aτ/c, which adds linearly the way
-# velocity does not: a flip-and-burn crossing needs total rapidity 2φ, and the
-# rocket equation in these units is simply Δφ = (v_e/c)·ln(m₀/m₁). That is why
-# this module thinks in rapidity throughout and only converts to a velocity at
-# the very end.
+# Profiles: flip-and-burn is fastest; without the Δv for it, burn to what the tanks
+# allow, coast, and turn over. `solve_profile` finds the coast. For the Hail Mary,
+# ln(21) = 3.05 isn't enough to flip-and-burn 11.9 ly but is enough to coast,
+# arriving in 13.9 Earth years (the book's figure).
 #
-# THE MISSION PROFILE. A flip-and-burn (accelerate to the midpoint, decelerate
-# after it) is the fastest crossing but needs the most Δv. When the ship does
-# not have it, the answer is not "impossible" — it is to burn to whatever
-# rapidity the tanks allow, COAST, and turn over. `solve_profile` finds the
-# coast fraction, and that is what makes the Hail Mary's real mission close:
-# 2 000 t of astrophage on a 100 t ship gives ln(21) = 3.05 of rapidity through
-# a photon drive, which is not enough for flip-and-burn over 11.9 ly but is
-# comfortably enough for accelerate–coast–decelerate — arriving in 13.9 years
-# of Earth time, which is what the book says the trip takes.
-#
-# PORT NOTES. `Cruise` is an inner class: `Relativity.Cruise.new({...})`, the
-# constructor taking the JS options object as a Dictionary. Its getters (beta,
-# gamma, remaining) are properties. Positions are DVec3 in AU — the Cruise is
-# the one flight object that lives in the orrery's frame, because between the
-# stars there is no parent body to be centred on.
+# `Relativity.Cruise.new({...})`; beta, gamma and remaining are properties. Positions
+# are DVec3 in AU: the Cruise lives in the orrery's frame, with no parent body.
 
 const LY_M := 9.4607304725808e15            # light year, metres (exact by definition of c)
 const LY_AU := LY_M / Rocketry.AU_M          # 63241.077 AU — the same number as physics.gd's C
@@ -46,23 +27,16 @@ static func gamma_of(phi: float) -> float: return cosh(phi)
 static func rapidity_of(beta: float) -> float:
 	return atanh(minf(maxf(beta, -0.999999999), 0.999999999))
 
-## Total rapidity a vehicle can deliver, from the relativistic rocket equation
-##   Δφ = (v_e/c)·ln(m₀/m₁)
-## A photon drive has v_e = c exactly, so its rapidity is just ln of the mass
-## ratio — which is the cleanest statement of why interstellar flight is hard:
-## every unit of rapidity costs a factor of e in mass.
+## Total rapidity budget, Δφ = (v_e/c)·ln(m₀/m₁); for a photon drive just ln of the
+## mass ratio.
 static func rapidity_budget(dry_mass: float, prop_mass: float, exhaust_ms: float) -> float:
 	if not (prop_mass > 0.0) or not (dry_mass > 0.0): return 0.0
 	return (exhaust_ms / Rocketry.C_MS) * log((dry_mass + prop_mass) / dry_mass)
 
-## Solve an accelerate–coast–decelerate crossing of `dist_ly` at proper
-## acceleration `a` with a rapidity budget `budget`.
-##
-## Returns the leg rapidity actually used, the coast, and both clocks. If the
-## budget is more than a flip-and-burn needs, the answer IS flip-and-burn and
-## the surplus is reported rather than spent. Keys as in the JS: mode ('flip' |
-## 'coast' | 'short'), phi, coastLy, tauS, coordS, gammaMax, betaMax, budget,
-## used, spare, feasible, flipPhi, burnLy.
+## Solve an accelerate–coast–decelerate crossing of `dist_ly` at proper acceleration
+## `a` with rapidity `budget`. A surplus is reported, not spent. Returns mode ("flip"
+## | "coast" | "short"), phi, coastLy, tauS, coordS, gammaMax, betaMax, budget, used,
+## spare, feasible, flipPhi, burnLy.
 static func solve_profile(dist_ly: float, a_ms2: float, budget: float) -> Dictionary:
 	var d := dist_ly * LY_M
 	var ca := Rocketry.C_MS / a_ms2                        # seconds per unit rapidity
@@ -91,10 +65,8 @@ static func solve_profile(dist_ly: float, a_ms2: float, budget: float) -> Dictio
 	var coast_coord := coast / (beta * Rocketry.C_MS)
 	return {
 		"mode": "coast", "phi": phi, "coastLy": coast / LY_M,
-		# What the faster profile would have needed, carried out so the panel can
-		# say why this ship is not flying it. Rapidity is the honest currency: the
-		# mass ratio is exp(Δφ·c/v_e), which the readout finishes once it knows
-		# the exhaust velocity.
+		# What flip-and-burn would need, in rapidity, so the panel can say why this ship
+		# isn't flying it.
 		"flipPhi": 2.0 * half_phi,
 		"tauS": 2.0 * ca * phi + coast_coord / gamma,
 		"coordS": 2.0 * ca * sinh(phi) + coast_coord,
@@ -136,7 +108,7 @@ class Cruise extends RefCounted:
 		get: return maxf(dist_ly * LY_M - s, 0.0)
 
 	## opts: { origin: DVec3 (AU), target: DVec3 (AU), accel, budget?, dryMass,
-	## propMass, exhaustMS, name? } — the JS constructor's option object.
+	## propMass, exhaustMS, name? }.
 	func _init(opts: Dictionary) -> void:
 		name = opts.get("name") if opts.get("name") else "Cruise"
 		origin = (opts.origin as DVec3).clone()
@@ -164,17 +136,10 @@ class Cruise extends RefCounted:
 		log.append({ "tau": tau, "m": m })
 		if log.size() > 60: log.pop_front()
 
-	## Advance by `dtau` seconds of SHIP time — the natural variable, because the
-	## drive's throttle, the fuel burn and the crew all live on the ship's clock.
-	## Coordinate time is derived from it, never integrated separately.
-	##
-	## A step is SPLIT at every leg boundary it crosses, at the exact proper
-	## time the boundary falls: cutoff when φ reaches the planned rapidity,
-	## turnover when the distance left equals what the deceleration covers,
-	## arrival when φ comes back to zero. Checked only at the start of a step,
-	## the turnover came up to a whole step late — at 10⁶× warp that is 16 667 s
-	## of coasting at 0.9 c, 0.0005 ly, and the ship reached Tau Ceti still
-	## doing 0.04 c with nothing left to stop on.
+	## Advance `dtau` seconds of ship time (coordinate time is derived). A step splits at
+	## every leg boundary it crosses, at the exact proper time: cutoff, turnover (when
+	## the remaining distance equals the deceleration leg's), arrival. Checked only per
+	## step, turnover at 10⁶× warp came 0.0005 ly late.
 	func step(dtau: float) -> void:
 		var left := dtau
 		var guard := 0
@@ -193,12 +158,9 @@ class Cruise extends RefCounted:
 			note("Turnover — beginning deceleration" if plan.mode == "flip" else "Cutoff at β = %s, γ = %s — coasting" % [U.fixed(beta, 5), U.fixed(gamma, 3)])
 			if leg == "decel": note("Flip and burn")
 		if leg == "coast":
-			# Turn over when the remaining distance equals what the deceleration leg
-			# will cover — computed, not scheduled, so a mid-course change of mind
-			# still stops at the right place.
-			# Within a part in 10¹² of the trip counts as there: s is ~10¹⁷ m at
-			# Tau Ceti, a float's spacing there is 16 m, and a boundary a few
-			# metres off can never be stepped onto.
+			# Turn over when the remaining distance equals the deceleration leg's (computed, so
+			# a change of plan still stops right). Within 1e-12 of the trip counts as there:
+			# float spacing at 10¹⁷ m is 16 m.
 			var need := (Rocketry.C_MS * Rocketry.C_MS / a) * (cosh(phi) - 1.0)
 			if remaining <= need + dist_ly * LY_M * 1e-12:
 				leg = "decel"; note("Turnover — flip and burn")
@@ -249,7 +211,7 @@ class Cruise extends RefCounted:
 		# otherwise the whole piece was spent here.
 		return dtau - h if h < dtau else 0.0
 
-	## Everything the HUD needs, in one Dictionary (JS keys).
+	## Everything the HUD needs, in one Dictionary.
 	func readout() -> Dictionary:
 		return {
 			"beta": beta, "gamma": gamma, "phi": phi,
@@ -260,38 +222,19 @@ class Cruise extends RefCounted:
 			"propT": prop / 1000.0, "propFrac": prop / maxf(prop_mass, 1.0),
 			"accelG": 0.0 if (leg == "coast" or leg == "arrived") else a / Rocketry.G0,
 			"plan": plan,
-			# The extra mass ratio a flip-and-burn crossing would need over this
-			# ship's own. Δφ = (v_e/c)·ln(M), so the factor is exp(Δφ·c/v_e) — a
-			# number that moves with the plan, the drive and the tanks, which is the
-			# whole point of quoting it.
+			# The extra mass ratio flip-and-burn would need: exp(Δφ·c/v_e).
 			"flipMassRatio": exp((plan.flipPhi - budget) * Rocketry.C_MS / exhaust) \
 				if (plan.get("flipPhi") != null and plan.flipPhi > budget and exhaust > 0.0) else 1.0,
 		}
 
-# WHAT RELATIVISTIC FLIGHT LOOKS LIKE
-# Three effects, all of which act on the SKY rather than on the ship, and all of
-# which fall out of one boost. `sky_boost` hands the sky shader the velocity it
-# needs and the shader does the rest; see the aberration block in SKY_GLSL.
-#
-#   ABERRATION. The apparent direction of a source satisfies
-#       cos θ_rest = (cos θ_ship − β)/(1 − β·cos θ_ship)
-#   so the whole sky piles into a forward cone. At γ = 10 everything visible is
-#   inside about 11° ahead.
-#
-#   DOPPLER. D = 1/(γ(1 − β·cos θ_ship)). A blackbody at T is seen at T·D, which
-#   is exactly representable here because the sky colours its stars from a
-#   Planck locus — so the shift is applied to the TEMPERATURE at source rather
-#   than as a hue filter afterwards.
-#
-#   HEADLIGHT. Specific intensity transforms as I' = D⁴·I. Ahead the sky
-#   brightens enormously; behind it goes black. Same physics as a blazar, one
-#   multiply.
-#
-# Crucially the aberration is applied to the ray direction BEFORE the screen
-# derivatives are taken, so the change in solid angle per pixel is picked up by
-# the existing point-source machinery — the same path that already handles
-# lensing magnification. Nothing here introduces a fixed angular resolution,
-# which the repo forbids for good reason.
+# WHAT RELATIVISTIC FLIGHT LOOKS LIKE: all on the sky, from one boost (sky_boost; the
+# shader does the rest).
+#   aberration  cos θ_rest = (cos θ_ship − β)/(1 − β·cos θ_ship): the sky piles
+#               forward (within ~11° at γ = 10)
+#   Doppler     D = 1/(γ(1 − β·cos θ_ship)); a blackbody at T is seen at T·D
+#   headlight   I' = D⁴·I
+# The aberration is applied before the screen derivatives, so the point-source
+# machinery handles the change in solid angle, as it does for lensing.
 
 ## The β vector (velocity/c) to hand the sky shader, in world coordinates. A
 ## DVec3 like every flight vector; the sky's uniform is its to_v3().
