@@ -1,31 +1,17 @@
-/* ============================================================================
- * ASTRARIUM NATIVE — the N-body sub-step loop, in C.
- * ----------------------------------------------------------------------------
- * Why this exists. The web build's integrator (sim/physics.js) runs in V8,
- * which JITs the O(N²) pair loops to machine code. GDScript is a bytecode VM:
- * measured on this port, 24–46× slower than V8 on short runs and ~125× slower
- * than warmed-up V8 — the `solar` preset (11 bodies, ~170 sub-steps a frame
- * at its default pace) cost 33.5 ms of physics per frame, twice a 60 fps
- * budget, before a single pixel was drawn. PORTING.md §6.4 predicted exactly
- * this. The fix is to move THE ONE HOT LOOP — dynamicStep, velocity-Verlet,
- * the GW back-reaction and the collision test — out of the VM, and nothing
- * else: the physics it implements is sim/physics.gd + sim/derive.gd line for
- * line, and those GDScript versions remain the reference and the FALLBACK. A
- * build without this library runs identically, only slower (sim/nbody.gd picks
- * whichever is present, the same rule AGENTS.md sets for the vehicle meshes: a
- * missing native piece is not an error).
+/* ASTRARIUM NATIVE: the N-body sub-step loop in C.
  *
- * Why plain C against the raw GDExtension interface rather than godot-cpp:
- * this needs one static method taking and returning a PackedFloat64Array, and
- * the raw interface does that in a page, with no SCons, no CMake and no
- * third-party checkout. The whole build is one `cc` line (build.sh), with the
- * compiler that ships with Xcode's command line tools.
+ * GDScript runs the O(N²) pair loops 24–125× slower than V8 did (the `solar`
+ * preset cost 33.5 ms of physics a frame), so this one hot loop (dynamic step,
+ * velocity-Verlet, GW back-reaction, collision test) runs natively. It is
+ * sim/physics.gd + sim/derive.gd line for line; those stay the reference and the
+ * fallback, and sim/nbody.gd uses whichever is present.
  *
- * ARITHMETIC PARITY. Every expression is written in the order the JS evaluates
- * it, and the library is compiled with -ffp-contract=off so the compiler may
- * not fuse a·b + c into one rounding (V8 never does). pow() is used where the
- * JS used Math.pow. With that, a run here and a run in the browser take the
- * same number of sub-steps and agree to rounding.
+ * Plain C against the raw GDExtension interface: one static method, one `cc`
+ * line (build.sh), no godot-cpp.
+ *
+ * ARITHMETIC PARITY. Expressions keep the reference's evaluation order, compiled
+ * with -ffp-contract=off (no fused a·b + c), pow() where the reference used it,
+ * so runs take the same sub-steps and agree to rounding (tools/nbodycheck.gd).
  *
  * THE CONTRACT (sim/nbody.gd builds and reads it):
  *   step(state: PackedFloat64Array) -> PackedFloat64Array (same layout)
@@ -37,10 +23,9 @@
  *           emits_gw alive (then 2 spare)
  *   events at HDR + n·STRIDE: (survivor k, absorbed k, separation) × up to n
  * It integrates until the time is used up, the 8000-step guard trips, or a
- * sub-step produced a merger — then returns, so the orchestrator can run
- * handleMerger exactly where the web build did (it changes horizons and types
- * and removes bodies) and call again with what remains.
- * ========================================================================== */
+ * sub-step produced a merger, then returns so the orchestrator can run
+ * handle_merger (which changes horizons and types and removes bodies) and call
+ * again with what remains. */
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,15 +40,15 @@ enum { PX, PY, PZ, VX, VY, VZ, MASS, RS, ISBH, SOFT, RADIUS, CONTACT, EMITSGW, A
 static const double G = 4.0 * 3.141592653589793 * 3.141592653589793;   /* 4π², as (4·π)·π */
 static const double C_LIGHT = 63241.077;
 
-/* JS Math.min/Math.max: NaN in, NaN out (fmin/fmax would drop it). */
+/* NaN-propagating min/max (fmin/fmax would drop NaN). */
 static double jmin(double a, double b) { if (isnan(a) || isnan(b)) return NAN; return a < b ? a : b; }
 static double jmax(double a, double b) { if (isnan(a) || isnan(b)) return NAN; return a > b ? a : b; }
-/* JS `a || b` over numbers: 0 and NaN are falsy. */
+/* `a || b` over numbers: 0 and NaN are falsy. */
 static double jor(double a, double b) { return (a != 0.0 && !isnan(a)) ? a : b; }
 
 typedef struct { double ax, ay, az, px, py, pz; } Scratch;
 
-/* |acceleration| imparted by body s at separation dist (physics.js pullMag). */
+/* |acceleration| imparted by body s at separation dist (Physics._pull_mag). */
 static double pull_mag(const double *s, double dist) {
 	double GM = G * s[MASS];
 	if (s[ISBH] != 0.0) {
@@ -97,7 +82,7 @@ static void compute_accel(double *B, int n, Scratch *S) {
 	}
 }
 
-/* Smallest resolved-needs timescale among bodies (blackhole_sim.js dynamicStep). */
+/* Smallest resolved-needs timescale among bodies (Derive.dynamic_step). */
 static double dynamic_step(const double *B, int n, double max_step) {
 	double t_min = max_step;
 	for (int i = 0; i < n; i++) {
@@ -119,7 +104,7 @@ static double dynamic_step(const double *B, int n, double max_step) {
 	return jmax(t_min, 1e-8);
 }
 
-/* One velocity-Verlet step, in the web build's rounding order. */
+/* One velocity-Verlet step, in the reference's rounding order. */
 static void integrate(double *B, int n, double dt, Scratch *S) {
 	compute_accel(B, n, S);
 	double h2 = 0.5 * dt * dt;
@@ -141,7 +126,7 @@ static void integrate(double *B, int n, double dt, Scratch *S) {
 	}
 }
 
-/* 2.5-PN radiation reaction as a drag (physics.js applyGWReaction). */
+/* 2.5-PN radiation reaction as a drag (Physics GW reaction). */
 static void apply_gw(double *B, int n, double dt, double boost) {
 	static double G4 = 0.0, C5 = 0.0;
 	if (G4 == 0.0) { G4 = pow(G, 4.0); C5 = pow(C_LIGHT, 5.0); }
@@ -172,7 +157,7 @@ static void apply_gw(double *B, int n, double dt, double boost) {
 	}
 }
 
-/* Collision / accretion resolution (physics.js resolveCollisions), including
+/* Collision / accretion resolution (Physics collisions), including
  * its quirk: the inner loop carries on even after `a` has been absorbed. */
 static int resolve_collisions(double *B, int n, double *ev) {
 	int count = 0;

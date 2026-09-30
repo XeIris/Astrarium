@@ -1,37 +1,14 @@
-// THE CLOUD FIELD — shared by the cloud pass, the ground (its shadows) and the
-// sun (its occlusion). Density only; the lighting is the cloud pass's.
-// A cloud is a region of air past its dew point, and what that looks like is
-// set by two scales: the WEATHER (tens of kilometres — where there is cloud
-// at all) and the CONVECTION inside it (a few hundred metres to a few
-// kilometres — the individual turrets of a cumulus). The field is built the
-// way the production real-time systems build it (Schneider's Nubis for
-// Horizon Zero Dawn, Hillaire's for Frostbite):
-//
-//   coverage  a low-frequency field that says how much of the sky is cloud
-//             here, raised and lowered around the global coverage
-//   profile   how a cumulus fills its layer with height: a FLAT base, because
-//             the base is the lifting condensation level and is the same
-//             height everywhere, and a rounded top that narrows as the parcel
-//             runs out of buoyancy
-//   shape     billowed low-frequency noise (Perlin warped by inverted Worley,
-//             which is what makes it read as cauliflower rather than smoke);
-//             a sample is cloud where shape × profile beats (1 − coverage)
-//   erosion   high-frequency Worley taken OFF the edges only, where a real
-//             cloud is evaporating into dry air — which is why a cumulus has
-//             a crisp edge and a soft one at once
-//
-// WHERE THE NOISE LIVES. Local space's origin follows the vehicle, so noise
-// sampled in local coordinates slides along with it — a cloud field that rides
-// with the rocket is the one thing that most obviously says "painted". So every
-// sample is taken at its PLANET-FIXED position: local → the planet's rotating
-// frame (uLocalToPlanet, carried round with the planet's spin), measured from
-// the planet's centre. That is 6.4e6 m in float32, resolved to half a metre,
-// which is far below any structure a cloud has; and it means there is no seam,
-// no re-anchoring, and the same cumulus is over the same field from the pad
-// and from orbit.
-//
-// Altitude is the exact |p| − R of that position, not a flat-earth y, so the
-// layer bends down over the horizon the way the ground patch does.
+// THE CLOUD FIELD, shared by the cloud pass, the ground (shadows) and the sun
+// (occlusion). Density only. Built as Nubis (Schneider) and Frostbite (Hillaire) do:
+//   coverage  low-frequency: how much of the sky is cloud here
+//   profile   a flat base (the lifting condensation level) and a rounded top
+//   shape     Perlin warped by inverted Worley (cauliflower, not smoke); cloud where
+//             shape × profile beats (1 − coverage)
+//   erosion   high-frequency Worley off the edges only
+// Samples are planet-fixed (uLocalToPlanet), measured from the planet's centre, so
+// clouds don't ride with the vehicle (6.4e6 m in float32 is half a metre). Altitude
+// is |p| − R, so the layer curves over the horizon. sim/flight/cloudfield.gd must
+// match this sample for sample. Rendering: docs/physics/clouds.md.
 
 uniform sampler3D uCloudShape : filter_linear_mipmap, repeat_enable;    // Perlin fbm
 uniform sampler3D uCloudWorley : filter_linear_mipmap, repeat_enable;   // inverted Worley, large cells
@@ -65,73 +42,53 @@ float cloud_hfrac(vec3 pp) {
 	return (length(pp) - uPlanetR - uCloudBase) / (uCloudTop - uCloudBase);
 }
 
-// MIP LEVEL FROM FOOTPRINT. Inside a march there are no useful screen
-// derivatives — the neighbouring pixel's sample is at a different, jittered
-// distance — so the level is chosen from what one pixel covers at this range
-// (`fp`, metres) against the volume's texel. Without it the erosion, which is
-// 17 m per texel, aliases into glitter on every deck more than ten km off:
-// detail finer than a pixel is not detail.
+// Mip level from the pixel footprint `fp` (m) against the texel, since march samples
+// have no useful screen derivatives. Otherwise the 17 m erosion glitters at range.
 float cloud_lod(float fp, float tile, float texels) {
 	return max(log2(fp * texels / tile), 0.0);
 }
 
-// COVERAGE at a planet-fixed point: how much of the sky is cloud here, from
-// the weather and the synoptic systems round the global coverage, thinned
-// over the pad. Split out of the density because it is the slowly varying
-// part — tens to hundreds of km — and a march seen from the upper atmosphere
-// can evaluate it once every few km instead of at every sample (see
-// uCovReuse in clouds.gdshader). Evaluated at every sample, as everything
-// but that march does, the result is exactly what it always was.
+// COVERAGE at a planet-fixed point (weather plus synoptic systems, thinned over the
+// pad). Split out because it varies over tens of km, so a march from above can reuse
+// it (uCovReuse).
 float cloud_coverage(vec3 pp, float fp) {
 	vec3 q = pp + uCloudWind;
 	// WEATHER: 40 km cells of more and less cloud round the global coverage,
 	// so the sky is not the same everywhere you look.
 	float weather = textureLod(uCloudShape, q * (1.0 / 41000.0) + vec3(0.31, 0.17, 0.83),
 		cloud_lod(fp, 41000.0, 96.0)).r;
-	// and SYNOPTIC SYSTEMS, several hundred km across — fronts and clear
-	// highs. Seen from orbit a single 40 km weather tile repeats across the
-	// whole disc like wallpaper; this is what makes it a planet's weather.
+	// Synoptic systems several hundred km across, so the 40 km weather tile doesn't
+	// repeat like wallpaper from orbit.
 	float synoptic = textureLod(uCloudShape, q * (1.0 / 420000.0) + vec3(0.71, 0.43, 0.05),
 		cloud_lod(fp, 420000.0, 96.0)).r;
 	float cov = clamp(uCloudCoverage + (weather - 0.5) * 0.9 + (synoptic - 0.5) * 1.3, 0.0, 1.0);
-	// LAUNCH COMMIT CRITERIA. A rocket climbing through a cumulus can trigger
-	// lightning down its own exhaust (Apollo 12 was struck twice), so the
-	// flight rules forbid launching within a few miles of one. So the sky
-	// over the pad on launch day is the sky a launch was allowed in: the
-	// field is thinned round the site rather than every launch being flown out
-	// of cloud shadow.
+	// Launch commit criteria forbid launching near cumulus (Apollo 12 was struck), so
+	// the field is thinned round the site.
 	if (uClearR > 0.0)
 		cov *= mix(0.2, 1.0, smoothstep(uClearR * 0.35, uClearR * 1.4, distance(pp, uClearAt)));
 	return cov;
 }
 
-// Density at a planet-fixed point, as an extinction coefficient (1/m), given
-// the coverage there. `detail` (0..1) weights the erosion: the light march
-// and the shadows only need the bulk of the cloud, and it is the most
-// expensive fetch. `fp` is the pixel footprint in metres at this sample, for
-// the mip level.
+// Density (extinction, 1/m) given the coverage. `detail` (0..1) weights the
+// erosion; `fp` is the footprint in metres, for the mip level.
 float cloud_density_cov(vec3 pp, float detail, float fp, float cov) {
 	float hf = cloud_hfrac(pp);
 	if (hf <= 0.0 || hf >= 1.0 || uCloudCoverage <= 0.0) return 0.0;
 	vec3 q = pp + uCloudWind;
-	// PROFILE: a flat base in the first 6% of the layer, a top that rounds
-	// off over the upper half — narrower where the weather is thinner, so
-	// fair-weather cumulus are squat and the big ones tower.
+	// PROFILE: flat base in the first 6%, a top rounding off over the upper half; squat
+	// where the weather is thin, towering where it isn't.
 	float top = mix(0.45, 1.0, clamp(cov * 1.3 - 0.1, 0.0, 1.0));
 	float profile = smoothstep(0.0, 0.06, hf) * (1.0 - smoothstep(top * 0.55, top, hf));
-	// SHAPE: Perlin, lifted where the big inverted-Worley cells are, which
-	// is what bunches it into separate billowed turrets.
-	// turned against the weather grid, so the two tilings never line up
+	// SHAPE: Perlin lifted by big inverted-Worley cells into turrets, turned against the
+	// weather grid so the tilings don't align.
 	vec3 s = CLOUD_TURN * q * (1.0 / 6200.0);
 	float perlin = textureLod(uCloudShape, s, cloud_lod(fp, 6200.0, 96.0)).r;
 	float worley = textureLod(uCloudWorley, s * 0.9 + vec3(0.5, 0.2, 0.7), cloud_lod(fp, 6900.0, 64.0)).r;
 	float shape = cloud_remap(perlin, -(1.0 - worley) * 0.9, 1.0, 0.0, 1.0);
 	float d = cloud_remap(shape * profile, 1.0 - cov, 1.0, 0.0, 1.0);
 	if (d <= 0.0) return 0.0;
-	// EROSION, stronger toward the base where the cloud is wispier and
-	// weaker in the turrets, and only where the cloud is thin already.
-	// Faded out with range, before its own mip level is a blur of grey —
-	// and not FETCHED once it has faded, which from altitude is always.
+	// EROSION, stronger toward the base and only where the cloud is thin; faded with
+	// range and not fetched once faded.
 	float k = detail * (1.0 - smoothstep(8.0, 40.0, fp));
 	if (k > 0.0) {
 		float e = textureLod(uCloudDetail, q * (1.0 / 820.0), cloud_lod(fp, 820.0, 48.0)).r;
@@ -157,14 +114,9 @@ float cloud_density(vec3 local, bool detail) {
 	return cloud_density_pp(cloud_planet(local), detail);
 }
 
-// Optical depth from a local point toward `dir` through the layer — `n`
-// samples on a geometric progression from `first` metres, which puts the
-// resolution where the cloud's own self-shadowing is. `fp` is the footprint
-// of the pixel the march is for: a light sample for a cloud 200 km away does
-// not need, and should not fetch, the volume's finest mip.
-// `cov` < 0 reads the coverage at every sample; otherwise it is the coverage
-// to use throughout — the light march is a few km at most, and the coverage
-// varies over tens.
+// Optical depth from a local point toward `dir`: `n` geometric samples from `first`
+// metres. `fp` is the pixel's footprint. `cov` < 0 reads coverage per sample,
+// otherwise it is used throughout.
 float cloud_optical_depth_fp(vec3 local, vec3 dir, int n, float first, float fp, float cov) {
 	float od = 0.0;
 	float t = 0.0;
@@ -183,9 +135,8 @@ float cloud_optical_depth(vec3 local, vec3 dir, int n, float first) {
 	return cloud_optical_depth_fp(local, dir, n, first, 0.0, -1.0);
 }
 
-// The (at most two) distances along a ray from `ro` (local) at which it
-// crosses the sphere of radius uPlanetR + h, measured from the planet centre.
-// Computed about the camera's own offset so the big numbers cancel first.
+// The ray's crossings of the sphere of radius uPlanetR + h, computed about the
+// camera's offset so the big numbers cancel first.
 vec2 cloud_sphere(vec3 ro, vec3 rd, float h) {
 	vec3 c = vec3(ro.x, ro.y + uPlanetR, ro.z);
 	float r = uPlanetR + h;

@@ -1,15 +1,9 @@
-# MARS EDL — AEROSHELL, SKY CRANE, CURIOSITY.
-# Three stages and four separations in seven minutes. Each one is a different
-# machine and none of them looks like a rocket:
-#
-#   shell  a 70 degree sphere-cone that arrives at 5.8 km/s
+# MARS EDL, the Blender build: three stages, four separations in seven minutes.
+#   shell  a 70° sphere-cone arriving at 5.8 km/s
 #   desc   an eight-engine deck that flies, then lowers the rover on cables
-#   rover  a rocker-bogie chassis whose SIX WHEELS ARE THE LANDING GEAR
-#
-# The heat shield's sense is the one thing here worth being pedantic about, and
-# lib.sphere_cone now fixes it rather than trusting a caller's rotation: apex
-# lowest, shoulder at the joint plane. Blunt-forward is not a detail of the
-# drawing, it is the entire reason the vehicle survives entry.
+#   rover  a rocker-bogie chassis whose six wheels are the landing gear
+# lib.sphere_cone fixes the heat shield's sense (apex lowest, shoulder at the joint
+# plane).
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -30,14 +24,8 @@ def build_shell(M, root):
     hs = sphere_cone('heatshield', D, nose_r, 70, M['ablator'], seg=56, parent=g)
     hs.location = (0, 0, joint)
     finish(hs, 0.02, 2, 45)
-    # PICA tiles are laid as a gore pattern on the real article, and the gores
-    # are the only thing that gives an otherwise featureless brown dish scale.
-    # The long axis is LOCAL X so that the azimuthal rotation about Z lays it
-    # radially; written along Y it came out tangential, i.e. a chord across the
-    # dish rather than a gore. And the flank of a 70 degree sphere-cone is not
-    # level, so a strip at a constant z crosses the surface — floating near the
-    # centre and buried further out. Blender's XYZ order applies the pitch
-    # before the azimuth, which is exactly what puts the strip on the flank.
+    # PICA gores. The long axis is local X so the rotation about Z lays each radially,
+    # pitched onto the 70° flank (Blender's XYZ order applies pitch before azimuth).
     flank = pi / 2 - 70 * pi / 180
     for i in range(16):
         a = i / 16 * TAU
@@ -55,9 +43,7 @@ def build_shell(M, root):
                    seg=56, minor=8, parent=g)
     smooth(ring, 30)
 
-    # ---- parachute cone and its cover. The chute is 21.5 m across and opens at
-    # Mach 1.7 — it is the largest supersonic parachute ever flown, and this
-    # small can is all of it that is visible until it is not.
+    # ---- parachute cone and cover. The 21.5 m chute opens at Mach 1.7.
     pc = cyl('chutecan', D * 0.19, D * 0.155, joint + D * 0.36,
              joint + D * 0.46, M['white'], seg=32, parent=g)
     finish(pc, 0.015, 2, 45)
@@ -67,10 +53,8 @@ def build_shell(M, root):
                                (0, joint + D * 0.56)], M['dirty'], seg=32, parent=g)
     smooth(lid, 30)
 
-    # ---- cruise-stage RCS quads, and the tungsten balance masses. The offset
-    # centre of mass those masses create is what gives this capsule its L/D of
-    # 0.24 — an entry capsule with no lift cannot steer, and MSL's landing
-    # ellipse was 20 km long instead of 150 because this one can.
+    # ---- cruise-stage RCS quads and the tungsten balance masses, whose offset CoM gives
+    # L/D 0.24 (a 20 km landing ellipse rather than 150).
     for i in range(4):
         a = i / 4 * TAU + pi / 4
         q = box(f'rcs{i}', (D * 0.07, D * 0.07, D * 0.05),
@@ -128,15 +112,8 @@ def build_desc(M, root):
             (cos(a) * D * 0.30, sin(a) * D * 0.30, deck_z - 0.26),
             M['black'], rot=(0, 0, a), parent=g)
 
-    # ---- eight MLEs in four canted pairs. THE CANT IS THE ARCHITECTURE: eight
-    # plumes pointed straight down at a rover hanging seven metres below would
-    # blast it, and would dig the crater Viking and Phoenix both had to be flown
-    # around. It is the reason the sky crane exists at all.
-    #
-    # The cant lives on an OUTER mount and the driven pivot is inside it, at
-    # identity — update() assigns Euler angles to whatever is in parts.gimbals,
-    # and assigning wipes any orientation set at build time. Without the split
-    # all eight engines snap upright on the first frame.
+    # ---- eight MLEs in four canted pairs, so the plumes miss the rover and don't dig a
+    # crater. The cant is on an outer mount; the driven pivot inside stays identity.
     for i in range(4):
         a = i / 4 * TAU + pi / 4
         cant = empty(f'cant{i}', (cos(a) * D * 0.44, sin(a) * D * 0.44, deck_z - 0.20), g)
@@ -170,10 +147,8 @@ def build_rover(M, root):
     z0 = wr
     body_z = z0 + 0.62
 
-    # ---- warm electronics box: 3.0 x 2.7 x 0.8 m, so a SLAB. loft stacks its
-    # sections along +Z, and w/h are half-extents — writing the long axis into
-    # the section list and rotating it upright is what made an earlier pass a
-    # 2.7 m tall blob instead of a chassis the wheels hang off.
+    # ---- warm electronics box, 3.0 × 2.7 × 0.8 m: a slab (loft stacks along +Z; w/h
+    # are half-extents).
     body = loft('web', [
         {'z': body_z - 0.34, 'w': 1.16, 'h': 0.95, 'n': 3.2},
         {'z': body_z - 0.26, 'w': 1.34, 'h': 1.12, 'n': 3.8},
@@ -182,9 +157,7 @@ def build_rover(M, root):
     ], M['alu'], seg=28, parent=g)
     finish(body, 0.02, 2, 40)
 
-    # ---- RTG at the back, canted up, with its cooling fins. 110 W electrical
-    # from 2 kW of plutonium heat, and the one part of this rover that is
-    # visibly hot: the fins are there to throw away the other 1 890 W.
+    # ---- RTG, canted up, with fins: 110 W electrical from 2 kW of heat.
     rtg = cyl('rtg', 0.27, 0.27, -0.31, 0.31, M['black'], seg=16, parent=g)
     rtg.location = (-1.42, 0, body_z + 0.34)
     rtg.rotation_euler = (0, pi / 2 - 0.30, 0)
@@ -221,10 +194,8 @@ def build_rover(M, root):
     turret = ball('turret', 0.16, (1.55, 0, body_z - 0.52), M['dirty'],
                   seg=14, rings=10, parent=g)
 
-    # ---- rocker-bogie. THE LINKAGE IS THE VEHICLE'S SIGNATURE: six driven
-    # wheels on a passive linkage with NO SPRINGS anywhere in it, which is what
-    # keeps all six loaded over a rock half a wheel high. A box with six discs
-    # stuck to it has none of that.
+    # ---- rocker-bogie: six driven wheels on a spring-free passive linkage that keeps
+    # all six loaded over a rock half a wheel high.
     for sz in (1, -1):
         side = empty(f'side{sz}', (0, sz * 0.72, 0), g)
         rk = cyl(f'rocker{sz}', 0.045, 0.045, -0.775, 0.775, M['dirty'], seg=8, parent=side)

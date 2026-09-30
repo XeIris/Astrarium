@@ -1,21 +1,9 @@
-# SATURN V / APOLLO — the expendable superheavy.
-# Four stages in the model's sense: S-IC, S-II, S-IVB and the spacecraft.
-# 110 m on the pad, and three things make it read as itself rather than as a
-# white cylinder:
-#
-#   · THE ROLL PATTERN. The black quadrants were painted on so the tracking
-#     cameras could measure the vehicle's roll attitude optically during first
-#     stage flight. That is why they are asymmetric QUARTER PANELS and not
-#     full bands — a full band tells you nothing about roll.
-#   · IT NARROWS. 10.06 m, then 6.6 m, then 3.9 m, through two conical
-#     interstages and the spacecraft-LM adapter. Drawn at one width from the
-#     engines to the escape tower it is the single thing a Saturn V most
-#     obviously is not.
-#   · THE FINS. 18.8 m across the tips against a 10.06 m tank — the widest part
-#     of the vehicle, at the one place anybody ever looks at it.
-#
-# And the escape tower is MOSTLY AIR. Drawing it solid turns the most
-# distinctive nose in spaceflight into a crayon.
+# SATURN V / APOLLO, the Blender build: S-IC, S-II, S-IVB and the spacecraft,
+# 110 m on the pad.
+#   · The roll pattern: asymmetric quarter panels so tracking cameras could read roll.
+#   · It narrows: 10.06 m, 6.6 m, 3.9 m, through two conical interstages and the SLA.
+#   · The fins: 18.8 m across the tips against a 10.06 m tank.
+# The escape tower is mostly air.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -82,9 +70,8 @@ def build_sic(M, root):
     stripe('sic_flag', D, L * 0.80, L * 0.075, M['red'], seg=10, parent=g,
            t0=pi - 0.24, t1=pi + 0.24, grow=1.006)
 
-    # ---- five F-1s. 7.77 MN each and a 3.53 m bell; the four outboard ones
-    # gimbal 5.15 degrees and that is the entire control authority of the
-    # largest stage ever flown.
+    # ---- five F-1s: 7.77 MN each, 3.53 m bells; the four outboard gimbal 5.15°, the
+    # stage's entire control authority.
     engines(M, g, 'sic', 5, D * 0.30, 3.53, 16, seg=28)
     ts = cyl('sic_thrust', r * 0.80, r * 0.92, D * 0.02, D * 0.13, M['soot'],
              seg=40, parent=g)
@@ -139,9 +126,8 @@ def build_sii(M, root):
     body = tank('sii_body', L, D, M['white'], dome_top=0.0, dome_bot=0.02,
                 seg=64, parent=g)
     finish(body, 0.03, 2, 40)
-    # The S-II is the insulated one — spray-on foam over the LH2 tank, which is
-    # why it is a slightly different white from the S-IC and has a visible
-    # common-bulkhead line rather than an intertank.
+    # The S-II: spray-on foam over the LH2 tank (a slightly different white) and a
+    # visible common-bulkhead line.
     j = torus_z('sii_dome', r * 1.008, D * 0.008, L * 0.28, M['dirty'],
                 seg=64, minor=6, parent=g)
     smooth(j, 30)
@@ -181,9 +167,7 @@ def build_sivb(M, root):
     # second time, three hours later, to leave Earth entirely.
     engines(M, g, 'sivb', 1, 0, 2.01, 28, seg=24)
 
-    # The two auxiliary propulsion modules — also what settles the propellant
-    # before the restart. They are on opposite sides, and they are the only
-    # thing hanging off the S-IVB's skin.
+    # The two auxiliary propulsion modules, on opposite sides.
     for sgn in (-1, 1):
         apsm = box(f'aps{sgn}', (0.62, 0.90, 1.60),
                    (sgn * r * 1.06, 0, L * 0.16), M['dirty'], parent=g)
@@ -194,9 +178,8 @@ def build_sivb(M, root):
             n.location = (sgn * r * 1.14, 0, L * 0.16 + (k - 1) * 0.55)
             n.rotation_euler = (0, sgn * pi / 2, 0)
 
-    # ---- the spacecraft-LM adapter: 6.6 m down to the service module's 3.9 m,
-    # with the lunar module folded inside it. Four panels that hinge open after
-    # TLI, and the hinge lines are visible on the closed cone.
+    # ---- the spacecraft-LM adapter: 6.6 m to 3.9 m, the LM folded inside, four hinged
+    # panels.
     sla = cyl('sla', r, CSM_D / 2, L, L + 6.5, M['white'], seg=56, parent=g)
     finish(sla, 0.02, 2, 40)
     for i in range(4):
@@ -255,11 +238,7 @@ def build_csm(M, root):
     finish(cm, 0.02, 2, 40)
     shield = revolve('cm_shield',
                      [(cm_r * (1 - (i / 10) ** 2) ** 0.5 if i < 10 else 0.0,
-                       # Apex DOWN, into the flow. Written with the signs the
-                       # other way the rim still lands on cm_z but the apex
-                       # rises 0.82 m above it, so the dome bulges up inside a
-                       # cone that is 1.59 m wide there — fully enclosed, never
-                       # visible, and the module's base left open.
+                       # Apex down, into the flow, so the base is closed.
                        cm_z + cm_r * 0.42 * (1 - (i / 10) ** 2) ** 0.5 - cm_r * 0.42)
                       for i in range(11)][::-1],
                      M['ablator'], seg=40, parent=g)
@@ -273,9 +252,8 @@ def build_csm(M, root):
                 (sin(a) * cm_r * 0.80, -cos(a) * cm_r * 0.80, cm_z + cm_h * 0.52),
                 M['glass'], rot=(0, 0, a), parent=g)
 
-    # ---- launch escape system. Tower, motor, and the canted nozzles that pull
-    # the command module off a failing stack fast enough to matter — 10 g in
-    # under a second. It is MOSTLY AIR and has to look it.
+    # ---- launch escape system: tower, motor and canted nozzles (10 g in under a
+    # second), mostly air.
     tow_z, tow_h = cm_z + cm_h + 0.40, 3.05
     lattice('les_tower', tow_h, cm_r * 1.05, cm_r * 0.62, M['dirty'], parent=g).location = (0, 0, tow_z)
     motor_z, motor_l = tow_z + tow_h, 4.75

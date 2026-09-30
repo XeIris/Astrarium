@@ -1,60 +1,23 @@
 class_name LightCurve
 extends RefCounted
 
-# PHOTOMETER — the light curve and the radial velocity, measured
-# Almost everything known about planets around other stars was learned from two
-# numbers that a telescope can actually get: how bright the star is, and how
-# fast it is moving toward or away. Neither one is a picture of a planet. So
-# this instrument does not draw a planet either — it points at the running
-# simulation from wherever the camera is and measures those two numbers, frame
-# by frame, exactly as an observatory would.
+# PHOTOMETER: the two numbers a telescope actually gets, measured from the running
+# sim at the camera's direction each frame.
+#   FLUX: every star's luminosity minus what is blocked, with linear limb darkening
+#     I(μ)/I(0) = 1 − u(1 − μ),  u ≈ 0.6 for a solar-type star,
+#   integrated by sampling the occulter's disc (honest for any law).
+#   RADIAL VELOCITY: the star's velocity along the line of sight, straight from the
+#   integrator (127 m/s for a hot Jupiter, 9 cm/s for an Earth), so it agrees with
+#   the transit.
+# The observer is the camera's direction, at infinity: a transit needs the orbit
+# edge-on to it (R☉/a = 0.47% for an Earth round a Sun), so climbing out of the plane
+# makes the dips disappear.
 #
-# WHAT IT MEASURES
-#
-#   FLUX. Sum the luminosity of every star, subtract whatever is blocked. A
-#   body of radius r crossing a star of radius R blocks the overlap of two
-#   circles in the plane of the sky — but not uniformly, because a star is
-#   LIMB DARKENED: you see deeper, hotter gas at the centre of the disc and
-#   shallower, cooler gas at the edge, so the middle of the disc is brighter.
-#   The linear law
-#
-#       I(μ)/I(0) = 1 − u(1 − μ),      μ = cos(angle from disc centre)
-#
-#   with u ≈ 0.6 for a solar-type star in visible light, is what gives a real
-#   transit its rounded bottom instead of a flat one. It is integrated here by
-#   sampling the planet's disc rather than by a closed form, because the closed
-#   form only exists for the linear law and the sampling is honest for any of
-#   them.
-#
-#   RADIAL VELOCITY. The component of a star's own velocity along the line of
-#   sight. A star with a planet does not sit still — both orbit their common
-#   centre of mass — and that motion is a Doppler shift in every line in its
-#   spectrum. The amplitude is small: 127 m/s for a hot Jupiter, 9 cm/s for an
-#   Earth. This reads it straight off the integrator's velocity vector, which
-#   is why it agrees with the transit: the same orbit produces both.
-#
-# THE OBSERVER IS THE CAMERA. Not a fixed axis — the camera. That is not a
-# shortcut, it is the lesson: a transit requires the orbit to be edge-on to
-# whoever is looking, and for an Earth at 1 AU round a Sun-like star the
-# chance of that is R☉/a = 0.47%. Climbing out of the orbital plane and
-# watching the dips disappear is the fastest way to understand why the
-# thousands of planets we know about are a biased sample of the ones there are.
-#
-# The observer is taken to be at INFINITY — the direction to the camera is
-# used, but not its distance. A real one is parsecs away, which is far enough
-# that every body in the system is at the same distance to one part in 10⁵.
-#
-# THE PORT. Positions and velocities are the integrator's DVec3s (doubles), and
-# the line of sight is a DVec3 too, so the arithmetic is the web build's to the
-# last bit. The chart is a Control's _draw() at the canvas's own 340 × 210
-# backing size, scaled to whatever width the card gives it — the CSS scaled the
-# canvas bitmap the same way (`width: 100%; height: auto`).
+# DVec3 throughout. The chart is drawn at 340 × 210 and scaled to the card's width.
 
 const AU_PER_YR_TO_MS := 1.495978707e11 / 3.15576e7   # 4740.57 m/s
 
-# Sample points over a unit disc, spiralled so they are equal-area rather than
-# bunched at the middle. 96 of them resolve a 1% transit to better than a part
-# in 10³, which is finer than the chart can draw.
+# Equal-area spiral samples over a unit disc; 96 resolve a 1% transit to 1e-3.
 static var DISC_SAMPLES: Array = _disc_samples()
 
 static func _disc_samples() -> Array:
@@ -79,13 +42,9 @@ static func _intensity(x: float, y: float, R: float) -> float:
 static func _contains(p: Dictionary, x: float, y: float) -> bool:
 	return (x - p.x) * (x - p.x) + (y - p.y) * (y - p.y) <= p.r * p.r
 
-# One measurement of the system as seen from direction `u` (a unit vector from
-# the system TOWARD the observer).
-#
-# Returns the total flux in solar luminosities as seen from unit distance, the
-# same normalised by the unobscured total, the radial velocity of the brightest
-# star in m/s (positive = receding), and a list of what is currently in front
-# of what.
+# One measurement from direction `u` (unit, system → observer). Returns total flux
+# (L☉ at unit distance), flux relative to the unobscured total, the brightest star's
+# radial velocity (m/s, positive receding), and what is in front of what.
 static func measure(bodies: Array, u: DVec3) -> Dictionary:
 	# A basis for the plane of the sky. Any two vectors perpendicular to u will
 	# do — the measurement cannot depend on which, and does not.
@@ -123,9 +82,8 @@ static func measure(bodies: Array, u: DVec3) -> Dictionary:
 		for p in projected:
 			if p.r >= R: big = true
 		if big:
-			# Sample the smaller disc. Sampling a huge occulter can miss the star
-			# entirely, turning a total eclipse into no eclipse. Count the union of
-			# silhouettes, including luminous companions, without double subtraction.
+			# Sample the smaller disc (sampling a huge occulter can miss the star), counting the
+			# union of silhouettes without double subtraction.
 			var all := 0.0
 			var hidden := 0.0
 			for sp in DISC_SAMPLES:
@@ -167,12 +125,8 @@ static func measure(bodies: Array, u: DVec3) -> Dictionary:
 
 	return {"flux": flux, "rel": flux / total if total > 0.0 else 1.0, "rv": rv, "events": events, "star": bright, "total": total}
 
-# The rolling chart. Two traces share one time axis, because the whole point is
-# that the dip and the wobble come from the same orbit: the transit happens at
-# the moment the star's radial velocity passes through zero going the right way.
-#
-# opts: canvas (a Control to paint into), width/height (the backing size the
-# web canvas had, 340 × 210), span.
+# The rolling chart: flux and RV on one time axis (mid-transit is where RV crosses
+# zero). opts: canvas (Control), width/height (340 × 210 backing), span.
 static func create_photometer(opts: Dictionary) -> Photometer:
 	return Photometer.new(opts)
 
@@ -237,10 +191,7 @@ class Photometer extends RefCounted:
 			if y > hi: hi = y
 		if not is_finite(lo):
 			lo = 0.0; hi = 1.0
-		# A pad of at least `floor` keeps a flat trace from being amplified into
-		# noise: with no planet transiting, the flux is 1.000000 and an autoscale
-		# that fits the range would draw the last bit of floating-point as a
-		# mountain range. A real photometer has a noise floor for the same reason.
+		# A minimum pad so a flat trace isn't amplified into float noise.
 		var mid := (lo + hi) / 2.0
 		var half_raw := maxf((hi - lo) / 2.0, floor_ / 2.0)
 		var half := half_raw * 1.25

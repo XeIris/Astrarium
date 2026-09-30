@@ -1,11 +1,8 @@
 #[compute]
 #version 450
-// BLACK HOLE — pass 1 of the split marcher: null geodesics + volumetric disc.
-// The port of sim/blackhole.js's MARCH_FRAG. The physics, and every comment
-// that explains it, is in render/lens_pass.gd's header and below; only the
-// plumbing changed (a compute shader writing two images, where the web build
-// used a WebGL2 MRT). Runs at the LENS SCALE; the sky is evaluated on the
-// resulting direction field, at full resolution, by shaders/sky/background.
+// BLACK HOLE, pass 1: null geodesics and the volumetric disc, at the lens scale
+// (physics: docs/physics/lensing.md). The sky is evaluated on the resulting
+// direction field at full resolution by shaders/sky/background.
 layout(local_size_x = 8, local_size_y = 8) in;
 
 //   gMarch0   disc emission (rgb), transmittance (a)
@@ -32,10 +29,8 @@ layout(set = 0, binding = 2, std140) uniform Params {
 #define time P.misc0.y
 #define discIntensity P.misc0.z
 #define discTemp P.misc0.w
-// The disc's TRUE peak temperature, in kelvin, from the hole's mass. The
-// rendered colour is deliberately rescaled to something an eye can read (see
-// discSource), but the multi-wavelength imaging needs the real number — a
-// 10 M☉ disc is an X-ray source at ~10⁷ K.
+// The disc's true peak temperature (K) from the hole's mass, for the imaging bands
+// (the rendered colour is rescaled for the eye; a 10 M☉ disc is ~10⁷ K).
 #define discTpeakPhys P.misc1.x
 // Outer edge of the disc, in r_s. Set by where gas is actually supplied, so a
 // preset that puts a star on a 6 AU orbit needs a smaller disc.
@@ -121,10 +116,8 @@ float discDensity(vec3 p, float rs, float r, float H){
 	float w = fbm2(vec3(cos(psi) * 0.55, sin(psi) * 0.55, lr * 2.0 + time * 0.03));
 	psi += (w - 0.5) * 1.3;
 
-	// The strong anisotropy is the whole trick: a small azimuthal radius on the
-	// noise circle plus a large radial multiplier gives features many radians
-	// long and a fraction of a scale-length thick. The y term keeps the field
-	// genuinely three-dimensional.
+	// Anisotropic noise: small azimuthal radius, large radial multiplier, so features
+	// are long and thin. The y term keeps it 3D.
 	float yv = p.y / max(H, 1e-5) * 0.35;
 	vec3 q1 = vec3(cos(psi), sin(psi), 0.0) * 0.80 + vec3(0.0, yv, lr * 11.0);
 	vec3 q2 = vec3(cos(psi), sin(psi), 0.0) * 2.20 + vec3(0.0, yv * 2.0, lr * 30.0);
@@ -146,9 +139,8 @@ float discDensity(vec3 p, float rs, float r, float H){
 	return strands * arms * vert * edge * 9.0;
 }
 
-// The SOURCE FUNCTION S = j/κ at one point of the disc, already transported to
-// the observer. It does not depend on density: an optically thick medium shows
-// a photosphere whose brightness is set by temperature alone.
+// The source function S = j/κ, already transported to the observer. Independent of
+// density: an optically thick medium's brightness is set by temperature.
 vec3 discSource(vec3 p, vec3 rd, float rs, float r, float dens, out float Tphys){
 	float rin = R_ISCO * rs;
 	float Tn  = ssTemp(r, rin);
@@ -270,9 +262,8 @@ void main(){
 			float dens = discDensity(pl, rs, r, H);
 			if(dens <= 0.0015) continue;
 
-			// Exact solution of dI/dτ = S − I over the segment: I += S(1 − e^−τ).
-			// Path length in HORIZON RADII — the only length the disc's optical
-			// depth is meaningfully measured in.
+			// Exact dI/dτ = S − I over the segment: I += S(1 − e^−τ). Path length in horizon
+			// radii.
 			float dl  = step / max(rs, 1e-20);
 			float tau = dens * dl * 4.5;
 			float att = exp(-tau);
@@ -290,9 +281,8 @@ void main(){
 		pos = npos;
 	}
 
-	// ---- hand over to the resolve pass. The direction is stored as a DELTA
-	// from the undeflected ray: deflection falls to zero away from the hole, so
-	// fp16 spends its mantissa on the bend rather than the unit vector.
+	// ---- hand over to the resolve pass. The direction is stored as a delta from the
+	// undeflected ray, so fp16 spends its mantissa on the bend.
 	vec3 d = normalize(vel);
 	// Zeroing transmittance on capture retires a separate captured flag.
 	float tr = captured ? 0.0 : trans;

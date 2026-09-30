@@ -1,32 +1,15 @@
 class_name DQuat
 extends RefCounted
 
-# A DOUBLE-PRECISION QUATERNION, and the handful of THREE.Vector3 operations
-# the flight model relies on BIT FOR BIT.
-# The web build's attitude was a THREE.Quaternion — four JS doubles — and its
-# vectors were THREE.Vector3s. Godot's Quaternion is float32, and DVec3 (the
-# shared core/dvec3.gd) is double but was written for readability, not for
-# reproducing three's exact operation order. Three places where "the same
-# maths" is NOT the same arithmetic, and each one moves a trajectory in the
-# last place, which a closed-loop guidance then amplifies:
-#
-#   · three's Vector3.normalize() is divideScalar(length || 1), and
-#     divideScalar(s) is multiplyScalar(1/s) — a multiply by the reciprocal,
-#     not three divisions. DVec3.normalize_in() divides. Use DQuat.nrm().
-#   · setLength(l) is normalize() then multiplyScalar(l) — two roundings.
-#   · angleTo() clamps dot/sqrt(|a|²|b|²) and takes acos; it is not
-#     atan2(|a×b|, a·b), which is the better formula and a different number.
-#
-# So every flight module goes through these helpers, and they are written as
-# transcriptions of three.js r160, operation for operation. The quaternion
-# methods likewise (setFromUnitVectors normalises at the end; multiply is the
-# euclideanspace formula; slerp has three's own two special cases).
-#
-# Precision matters less for attitude than for position — but attitude feeds
-# the thrust direction, which feeds the trajectory, and the port is verified by
-# flying the JS and the GDScript side by side and diffing them. Anything short
-# of the same operations gives a diff that grows, and a diff that grows cannot
-# tell a port error from a rounding one.
+# A double-precision quaternion, and the Vector3 operations the flight model needs
+# bit for bit as three.js r160 does them, so flightcheck.gd can diff trajectories
+# against the JS reference (a growing diff can't tell a bug from rounding):
+#   · normalize() multiplies by 1/length, it doesn't divide (use DQuat.nrm(), not
+#     DVec3.normalize_in()).
+#   · setLength(l) is normalize then multiply: two roundings.
+#   · angleTo() is acos of the clamped dot/sqrt(|a|²|b|²), not atan2.
+# Quaternion methods likewise (setFromUnitVectors normalises at the end, multiply is
+# the euclideanspace formula, slerp keeps three's two special cases).
 
 var x: float = 0.0
 var y: float = 0.0
@@ -85,9 +68,7 @@ func set_from_unit_vectors(v_from: DVec3, v_to: DVec3) -> DQuat:
 		w = r
 	return normalize_in()
 
-## Quaternion.setFromRotationMatrix, from three basis columns (unscaled).
-## Columns are (m11,m21,m31), (m12,m22,m32), (m13,m23,m33) — THREE's makeBasis
-## order — so the render layer can build the local-frame rotation it used.
+## setFromRotationMatrix from three unscaled basis columns (makeBasis order).
 func set_from_basis_columns(c0: DVec3, c1: DVec3, c2: DVec3) -> DQuat:
 	var m11 := c0.x; var m12 := c1.x; var m13 := c2.x
 	var m21 := c0.y; var m22 := c1.y; var m23 := c2.y

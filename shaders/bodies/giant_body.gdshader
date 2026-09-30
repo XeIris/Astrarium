@@ -1,9 +1,6 @@
-// GAS GIANT CLOUD DECK — the port of sim/giant_visual.js's giantMaterial. The
-// module header (why a giant does not turn as one object, the three optical
-// levels, the unbanded poles) is in sim/giant_visual.gd.
-//
-// Opaque and an emitter: it publishes the planet's effective temperature
-// (absorbed sunlight plus internal heat) to the temperature pass.
+// GAS GIANT CLOUD DECK (module notes in sim/giant_visual.gd). Opaque and an
+// emitter: it publishes the planet's effective temperature (absorbed sunlight plus
+// internal heat).
 shader_type spatial;
 render_mode unshaded, cull_back, depth_draw_opaque;
 
@@ -29,16 +26,14 @@ uniform int uVortexN = 0;
 // sun directions in the SPUN body's own frame, for the ring-shadow test
 uniform vec3 uSunObj[4];
 
-// The zonal wind profile, shared by the shader (which advects the cloud with
-// it) and by GDScript (which drifts the vortices with it), so a spot always
-// travels at the speed of the jet it is sitting in.
+// The zonal wind profile, shared with GDScript (which drifts the vortices), so a
+// spot travels at its jet's speed.
 uniform float uJets = 11.0;      // jets per radian of latitude
 uniform float uJetAmp = 0.55;    // amplitude of the alternating jets
 uniform float uEqJet = 1.0;      // equatorial superrotation (Saturn's is enormous)
 
-// Phase of the jet system. The jets go as cos(theta), the vertical motion as
-// sin(theta): a quarter cycle apart, which is the observed relationship
-// between the jets and the belt/zone boundaries they sit on.
+// Jets go as cos(θ) and vertical motion as sin(θ): a quarter cycle apart, as the
+// belt/zone boundaries are.
 float jetPhase(float lat) { return uJets * lat; }
 
 float zonalWind(float lat) {
@@ -49,9 +44,7 @@ float zonalWind(float lat) {
 	return uEqJet * exp(-pow(a / 0.24, 2.0)) + uJetAmp * cos(jetPhase(lat)) * env;
 }
 
-// Angular drift rate. u is a LINEAR speed along a latitude circle, so the
-// angular rate carries the 1/cos(phi) — which is why the high-latitude jets
-// wrap the planet faster in longitude than their wind speed suggests.
+// Angular rate carries 1/cos(φ): u is linear speed along the latitude circle.
 float zonalOmega(float lat) {
 	return zonalWind(lat) / max(cos(lat), 0.15);
 }
@@ -61,9 +54,7 @@ vec3 rotY(vec3 p, float a) {
 	float s = sin(a);
 	return vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
 }
-// Rodrigues — rotate p about an arbitrary unit axis. Used to spin the
-// sampled coordinate inside a vortex, which is what turns a coloured oval
-// into something with visible circulation in it.
+// Rodrigues rotation, to spin the coordinate inside a vortex.
 vec3 rotAxis(vec3 p, vec3 axis, float a) {
 	float c = cos(a);
 	float s = sin(a);
@@ -81,15 +72,8 @@ void vertex() {
 	vView = -(MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
-// Turbulence sampled with more latitudinal than longitudinal frequency:
-// a zonal flow stretches everything it carries along the direction it
-// flows, so the eddies are long thin filaments, not blobs. The stretch
-// is 2.5 rather than the 4 it wants to be, and the octave counts are
-// low, for a reason that matters here: this is procedural noise with no
-// mip chain, so an octave finer than a pixel does not add detail, it
-// ALIASES — and on a banded planet it aliases into exactly the thing the
-// bands are made of, a moire of horizontal stripes that moves with the
-// camera. Detail that cannot be resolved is worse than no detail.
+// Turbulence stretched along the flow (2.5×, not 4) with low octave counts: with no
+// mip chain, sub-pixel octaves alias into horizontal moiré.
 float zonalTurb(vec3 q, float s, int oct) {
 	return fbm(vec3(q.x, q.y * 2.5, q.z) * s + vec3(uSeed), oct);
 }
@@ -103,44 +87,23 @@ void fragment() {
 	float lat = asin(clamp(p.y, -1.0, 1.0));
 	float a = abs(lat);
 
-	// --- ADVECTION, and the one thing that has to be got right about it.
-	//
-	// The cloud is carried by the zonal wind, which is a function of
-	// latitude, so the longitude offset between two adjacent latitudes
-	// grows linearly and WITHOUT BOUND. Sample a frozen noise field at
-	// that offset and after a few minutes the field's latitudinal
-	// frequency has been wound up past a pixel and the planet dissolves
-	// into moire — the shear is real, but a frozen field cannot express
-	// arbitrarily much of it. A real atmosphere escapes this because its
-	// eddies are continuously regenerated at their own scale, not stretched
-	// for ever.
-	//
-	// So the field is regenerated too, by the standard flow-map device:
-	// advect two copies whose clocks are half a period out of step, and
-	// cross-fade between them so that whichever copy is being looked at is
-	// always the one near the start of its wind-up. The winding is then
-	// bounded by omega * period, the motion is continuous, and nothing
-	// accumulates.
-	// The period is what bounds the shear, so it is short: with jets a
-	// fifth of a radian apart and an angular rate differing by a few per
-	// radian across them, half a minute of winding already puts several
-	// radians of phase between one side of a band and the other, which is
-	// finer than the band. Sixteen seconds keeps the filaments legible.
+	// --- ADVECTION, flow-mapped. Wind varies with latitude, so the longitude offset
+	// between latitudes grows without bound, and a frozen field winds into moiré. So
+	// two copies advect on clocks half a period apart and cross-fade, bounding the
+	// winding by ω·period. 16 s keeps the filaments legible with jets a fifth of a
+	// radian apart.
 	float per = 16.0;
 	float ta = mod(uTime, per);
 	float tb = mod(uTime + per * 0.5, per);
-	// Each copy's weight falls to ZERO exactly when its own clock wraps,
-	// so the reset is never visible and the worst winding ever shown is
-	// half a period's worth.
+	// Each copy's weight is zero when its clock wraps: w = 1 − |2t/T − 1|.
 	float wx = 1.0 - abs(2.0 * ta / per - 1.0);
 
 	float om = zonalOmega(lat);
 	vec3 qa = rotY(p, -om * ta);
 	vec3 qb = rotY(p, -om * tb);
 
-	// --- vortices. Each one drifts with its own jet (GDScript advances its
-	// longitude), is stretched into an oval by the ambient shear, and spins
-	// the coordinate inside it so the cloud there is visibly circulating.
+	// --- vortices: each drifts with its own jet (GDScript advances its longitude), is
+	// sheared into an oval, and spins the coordinate inside it.
 	float vortexMask = 0.0;
 	float vortexCollar = 0.0;
 	vec3 vortexCol = uZone;
@@ -169,19 +132,9 @@ void fragment() {
 		}
 	}
 
-	// --- belts and zones: sin of the jet phase, i.e. a quarter cycle out
-	// of step with the jets themselves.
-	//
-	// The wobble goes on the LATITUDE, not on the result. A real band
-	// boundary is a jet, and a jet meanders: it is displaced north and
-	// south by the eddies it is shedding, so the boundary between a belt
-	// and a zone is a train of interlocking scallops and festoons, and two
-	// adjacent boundaries meander independently. Adding the noise to the
-	// finished band value instead just mottles the stripes, which is what
-	// a painted planet looks like.
-	// The displacement is a fraction of the jet SPACING (pi/uJets): a
-	// meander of order the spacing itself does not ripple the boundary, it
-	// erases the band.
+	// --- belts and zones: sin of the jet phase. The wobble goes on the latitude, not the
+	// result, so boundaries meander as jets do, with festoons. The displacement is a
+	// fraction of the jet spacing (π/uJets), or it erases the band.
 	float sp = 3.14159 / max(uJets, 1.0);
 	float meander = (turb(qa, qb, wx, 1.5, 4) - 0.5) * sp * 0.55
 	              + (turb(qa, qb, wx, 3.4, 3) - 0.5) * sp * 0.18;
@@ -204,19 +157,14 @@ void fragment() {
 	float clear = sstep(0.62, 0.34, tau + band * 0.20);
 	col = mix(col, uDeep, clear * 0.75);
 
-	// --- filaments and festoons, concentrated where the shear is: the
-	// middle of a zone is bland and the boundary is a mess of streamers,
-	// because that is where the velocity gradient is.
+	// --- filaments and festoons where the shear is (zone edges, not centres).
 	float shear = 1.0 - abs(band);
 	float fil = mix(ridged(vec3(qb.x, qb.y * 3.5, qb.z) * 3.0 + vec3(uSeed + 4.0), 3),
 	                ridged(vec3(qa.x, qa.y * 3.5, qa.z) * 3.0 + vec3(uSeed + 4.0), 3), wx);
 	col *= 1.0 + (fil - 0.55) * (0.22 + 0.55 * shear);
 
-	// --- the high haze, which is thin at the equator and piles up over
-	// the poles (it is why Saturn's poles are flat grey-blue). It is
-	// advected RIGIDLY, at one rate for the whole planet: it sits above
-	// the jets, it has almost no structure of its own, and a layer with no
-	// shear in it needs no flow map.
+	// --- the high haze, thicker toward the poles (Saturn's grey-blue poles), advected
+	// rigidly above the jets, so no flow map.
 	float hz = zonalTurb(rotY(p, -uTime * 0.018), 1.6, 4);
 	float hazeAmt = clamp(0.12 + 0.55 * polar + 0.25 * hz, 0.0, 0.85);
 	col = mix(col, uHaze, hazeAmt * 0.6);
@@ -225,10 +173,7 @@ void fragment() {
 	col = mix(col, uZone, vortexCollar * 0.7);
 	col = mix(col, vortexCol, vortexMask);
 
-	// --- lighting. A gas giant has no surface to be rough or smooth, so
-	// there is no specular term at all; what it has instead is very strong
-	// limb darkening, because near the limb you are looking through a long
-	// slant path and seeing only the topmost, thinnest haze.
+	// --- lighting: no specular (no surface), strong limb darkening.
 	vec3 N = normalize(vWN);
 	vec3 Vv = normalize(vView);
 	float mu = max(dot(N, Vv), 0.0);
@@ -238,16 +183,12 @@ void fragment() {
 		vec3 L = normalize(uSunDir[i]);
 		float ndl = dot(N, L);
 		float diff = sstep(-0.06, 0.20, ndl);
-		// Limb darkening, and a lot of it: near the limb the line of sight
-		// is a long slant path that never reaches the deck, so you see only
-		// the thin haze above it. A giant fades to its edge.
+		// Near the limb the slant path never reaches the deck: only haze.
 		float minn = mix(0.28, 1.0, pow(mu, 0.60));
 		float sh = 1.0;
 		if (uRingOut > 0.0) {
-			// Ring shadow. Walk from this point toward the star and see where
-			// the line crosses the equatorial plane; if it crosses inside the
-			// ring system, the star is behind the rings from here. It is the
-			// single most recognisable thing about Saturn at low tilt.
+			// Ring shadow: if the line toward the star crosses the equatorial plane inside the
+			// rings, the star is behind them.
 			vec3 Lo = normalize(uSunObj[i]);
 			if (abs(Lo.y) > 1e-3) {
 				float t = -p.y / Lo.y;
@@ -269,9 +210,7 @@ void fragment() {
 	}
 	lit += col * vec3(0.012, 0.014, 0.020);
 
-	// A giant is warm from the inside: Jupiter radiates 1.67 times what it
-	// absorbs, left over from contraction. Publishing that temperature is
-	// what lets the infrared band image it as the source it is.
+	// Internal heat (Jupiter emits 1.67× what it absorbs), so the IR band images it.
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		ALBEDO = vec3(temp_code(uTeff), 0.0, 0.0);
 	} else {

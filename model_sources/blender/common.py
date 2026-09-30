@@ -4,10 +4,10 @@
 # agree on, and it exists for one reason above the others: a vehicle whose
 # authored mesh is a different colour from the procedural fallback it replaces
 # is a vehicle that changes appearance depending on whether a build has been
-# run. So the palette here is craftMaterials() in sim/flight/craftmodel.js,
+# run. So the palette here is the materials in sim/flight/craftmodel.gd,
 # converted rather than re-picked — see srgb() below.
 #
-# NAMING IS AN INTERFACE. craftassets.js binds moving parts by name, so the
+# NAMING IS AN INTERFACE. craftassets.gd binds moving parts by name, so the
 # prefixes in NODE_PREFIXES are load-bearing: rename one here and the legs stop
 # deploying, silently, with no error anywhere.
 import math
@@ -38,7 +38,7 @@ def srgb(hex_):
 
 M = {}
 
-# (name, colour, roughness, metalness) — mirroring craftMaterials() exactly.
+# (name, colour, roughness, metalness) — mirroring the materials exactly.
 # METALNESS IS DELIBERATELY LOW, and it is not an oversight: nothing in this
 # renderer sets scene.environment, local space is lit by punctual lights only,
 # and a PBR metal is entirely reflection with no diffuse term — so at metalness
@@ -82,7 +82,7 @@ def build_materials():
 
 # THE NAME INTERFACE
 # Every one of these is a node craftmodel's update() drives, or the stage
-# boundary buildCraft positions. They are JOIN BOUNDARIES for the optimiser
+# boundary build_craft positions. They are JOIN BOUNDARIES for the optimiser
 # below — a mesh may only be merged with another mesh under the same node, or
 # a leg would be welded to the body it is supposed to swing away from.
 #
@@ -265,7 +265,7 @@ def export(out, label):
         filepath=path,
         export_format='GLB',
         export_apply=True,          # no-op after optimise(), kept as a belt
-        export_yup=True,            # Blender +Z becomes Three +Y
+        export_yup=True,            # Blender +Z becomes Godot +Y
         export_materials='EXPORT',
         export_cameras=False,
         export_lights=False,

@@ -1,26 +1,13 @@
-// THE GROUND PATCH — GROUND_VERT / GROUND_FRAG of sim/flight/localview.js.
-// A radially tessellated unit disc, stretched to the patch radius with a
-// quadratic distribution (the vertices crowd near the vehicle) and dropped by
-// the planet's curvature, y = −r²/2R — a parabolic sheet rather than a piece of
-// a sphere, which over a few hundred kilometres is identical to well under a
-// metre and never puts 6.4e6 into a float32 vertex.
+// THE GROUND PATCH: a radially tessellated disc, stretched with vertices crowding
+// near the vehicle and dropped by y = −r²/2R (docs: localview.gd).
 //
-// OPAQUE, and it must stay so: its only use of alpha was the rim fade, which
-// is a 4×4 ordered DITHER here as in the web build. Being opaque is what puts
-// it in the queue that is drawn first, so every transparent emitter in the
-// scene is depth-tested against it rather than stamped out by it.
+// Opaque: the rim fade is a 4×4 ordered dither, so every transparent emitter is
+// depth-tested against it. Lit by hand for a Lambert BRDF, with the same 1/π and
+// irradiance (uSunI) the vehicle's light gets.
 //
-// Lit by hand for a Lambert BRDF: the 1/π is the same one the vehicle's
-// StandardMaterial3D carries, with uSunI the same irradiance its
-// DirectionalLight gets (AGENTS.md, "local space is lit for a Lambert BRDF").
-//
-// Two things tie it to the PLANET rather than to the local frame, whose origin
-// rides under the vehicle: the procedural detail is sampled about uAnchor (a
-// planet-fixed point's position in the local frame — the pad, when there is
-// one), so the scrub and sand stay where they are as the rocket flies over
-// them instead of travelling with it; and the CLOUD SHADOWS are the cloud
-// pass's own field (clouds.gdshaderinc) marched toward the sun from each
-// ground point, so a shadow lies under the cloud that casts it.
+// Tied to the planet, not the local frame: detail is sampled about uAnchor (a
+// planet-fixed point, the pad when there is one), and cloud shadows march the cloud
+// field (clouds.gdshaderinc) toward the sun from each ground point.
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 
@@ -48,9 +35,7 @@ uniform vec2 uPadLocal;
 uniform vec2 uAnchor = vec2(0.0);   // a planet-fixed point, in the local frame (x east, y north)
 uniform float uHasPad = 0.0;
 uniform vec3 uCamLocal = vec3(0.0);
-// Samples in the cloud-shadow march: 6 near the deck, fewer from the upper
-// atmosphere, where one pixel of ground is wider than a cloud's shadow edge
-// (set from altitude by localview.gd).
+// Cloud-shadow samples: 6 near the deck, fewer from altitude (set by localview.gd).
 uniform int uShadowSteps = 6;
 uniform sampler2D uEarthColor : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D uEarthLand : filter_linear_mipmap_anisotropic, repeat_enable;
@@ -93,30 +78,20 @@ float bayer4(vec2 c) {
 }
 
 void fragment() {
-	// Terrain colour: two rock tones mixed by a large-scale field, with a fine
-	// grain that only survives close to the camera — past a few kilometres it
-	// is below a pixel anyway and keeping it just aliases.
+	// Two rock tones and a fine grain that fades past a few km.
 	vec2 gp = vWorld.xz - uAnchor;     // planet-fixed: see the header
 	float big = fbm(gp * 0.00008);
-	// Raise the ground under the launch site. Every pad ever built is on a
-	// coast — for range safety — so this is what a launch site actually looks
-	// like from the tower: land under you, water a few kilometres out. Under
-	// the PAD, which is not where the vehicle is a minute later.
+	// Raise the land under the pad: pads are on coasts (range safety), water a few km out.
 	big += 0.40 * exp(-length(gp) / 7000.0) * uHasPad;
-	// Three scales of detail, each fading out at the range where it stops being
-	// resolvable and starts being aliasing. The MID octave is the one that
-	// matters for a launch: it is the only thing in view with a known size, so
-	// it is what the eye reads the climb rate against.
+	// Three detail scales, each fading where it would alias. The mid octave is what the
+	// eye reads the climb rate against.
 	float mid = fbm(gp * 0.0011);
 	float fine = fbm(gp * 0.02);
 	float midK = exp(-vDist / 9000.0);
 	float fineK = exp(-vDist / 900.0);
 	vec3 col = mix(uRock, uGround, clamp(big * 1.5 - 0.15, 0.0, 1.0));
 	col *= 0.72 + 0.30 * mix(0.5, mid, midK) + 0.34 * mix(0.5, fine, fineK);
-	// Procedural seas only where there is no map: where there is one, it owns
-	// every coastline, and a procedural lake blended into the pad's parcel
-	// drew saturated blue ponds a few kilometres out that the map knows
-	// nothing about.
+	// Procedural seas only where there is no map.
 	float water_frac = 0.0;
 	if (uGeoReady < 0.5 && uOceans > 0.5 && big < uSeaLevel) {
 		float dep = smoothstep(uSeaLevel, uSeaLevel - 0.18, big);
@@ -133,29 +108,20 @@ void fragment() {
 		mapUv.y = 1.0 - mapUv.y;
 		vec3 mapped = texture(uEarthColor, mapUv).rgb;
 		float mask = texture(uEarthLand, mapUv).r;
-		// THE MAP IS TEN KILOMETRES A TEXEL, and from a hundred kilometres up
-		// that is forty texels across the frame: filtered, every coast is a
-		// smear and every field a blur. What is under a texel cannot be
-		// recovered, but it can be made CONSISTENT with the map — detail that
-		// only exists where the map cannot see and that averages back to it
-		// where it can. Everything below fades on the pixel's own footprint
-		// (fwidth), so it is added where the map is magnified and vanishes
-		// where it is not, rather than aliasing.
+		// The map is 10 km a texel. Detail is added only where the map is magnified and
+		// averages back to it, faded on the pixel footprint (fwidth).
 		float fp = length(fwidth(gp));                              // metres per pixel here
 		float texel = length(fwidth(mapUv * vec2(4096.0, 2048.0))); // map texels per pixel
-		// COASTS: the bilinear mask's half-way contour, pushed about by fractal
-		// noise a texel's worth, and cut as sharply as the pixel allows — a
-		// coast at the pixel's resolution with the map's shape.
+		// COASTS: the mask's half-way contour, pushed a texel's worth by fractal noise and
+		// cut as sharply as the pixel allows.
 		float wig = (fbm(gp * (1.0 / 2600.0) + vec2(3.1, 7.7)) - 0.5) * 0.55
 			+ (fbm(gp * (1.0 / 420.0) + vec2(9.2, 1.3)) - 0.5) * 0.30 * (1.0 - smoothstep(60.0, 300.0, fp));
 		float k = clamp(texel * 0.5, 0.035, 0.5);
 		float land = smoothstep(0.5 - k, 0.5 + k, mask + wig * (1.0 - smoothstep(0.6, 2.0, texel)));
 		// Keep the actual reclaimed/graded launch parcel above water.
 		land = max(land, 1.0 - smoothstep(700.0, 1800.0, distance(vWorld.xz, uPadLocal)));
-		// LAND: the map's colour, broken up at the scales it cannot resolve —
-		// the patchwork of forest, field, scrub and bare ground that every
-		// view from orbit is made of. Brightness and dryness, each at two
-		// scales, faded by footprint.
+		// LAND: the map's colour broken up below a texel (brightness and dryness at two
+		// scales), faded by footprint.
 		float k2 = 1.0 - smoothstep(350.0, 1600.0, fp);
 		float k3 = 1.0 - smoothstep(40.0, 220.0, fp);
 		float d1 = fbm(gp * (1.0 / 9000.0) + vec2(5.3, 2.9));
@@ -180,16 +146,12 @@ void fragment() {
 		water_frac = 1.0 - land;
 	}
 
-	// Lambert against the local sun, with the vehicle's 1/π: uSunI is the same
-	// irradiance the DirectionalLight gives the rocket standing on this ground.
-	// uSkyI is the diffuse skylight — the ONLY light on the night side of a
-	// body with an atmosphere, and why a terminator is not a hard edge.
+	// Lambert with the vehicle's 1/π; uSkyI is the diffuse skylight (the only light on
+	// the night side, and why the terminator is soft).
 	const float INV_PI = 0.3183099;
 	float ndl = clamp(uSunDir.y, -0.2, 1.0);
-	// CLOUD SHADOW: the optical depth of the layer along the sun line from
-	// here, six samples between where that line enters the base and leaves
-	// the top. Not a black shadow: under a thick cloud the sun still arrives
-	// DIFFUSED, and the sky round the cloud still lights the ground.
+	// CLOUD SHADOW: the layer's optical depth along the sun line, six samples between
+	// base and top. Diffuse sun and skylight still arrive under it.
 	float shade = 1.0;
 	if (uCloudCoverage > 0.0 && uSunDir.y > 0.02) {
 		vec2 tb = cloud_sphere(vLocal, uSunDir, uCloudBase);
@@ -207,11 +169,7 @@ void fragment() {
 	}
 	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade + uSkyI * (0.35 + 0.65 * clamp(uSunDir.y + 0.25, 0.0, 1.0)));
 
-	// SUN GLINT on open water: the specular image of the sun in a wind-
-	// roughened sea, a GGX lobe with the slope spread of a ~7 m/s wind
-	// (Cox & Munk's σ² ≈ 0.04). From altitude it is the brightest thing on the
-	// planet and a broad smear across the ocean on the sun's side; without it
-	// water is a flat painted blue.
+	// SUN GLINT: a GGX lobe with Cox & Munk's σ² ≈ 0.04 (~7 m/s wind).
 	vec3 to_eye = uCamLocal - vLocal;
 	float eye_dist = length(to_eye);
 	vec3 V = to_eye / max(eye_dist, 1e-3);
@@ -227,23 +185,12 @@ void fragment() {
 		col += vec3(1.0, 0.96, 0.9) * water_frac * F * D / (4.0 * nv) * uSunI * shade;
 	}
 
-	// AERIAL PERSPECTIVE, along the actual path from the eye to this point:
-	// a straight path from the ground to altitude h through an exponential
-	// atmosphere has mean density H·(1 − e^(−h/H))/h, so its depth is that
-	// times the path length. Near the ground (h ≪ H) it is the ρ·distance it
-	// always was; from altitude it is the column between the two, spread over
-	// the slant — thin straight down, thick toward the limb, which is what
-	// turns the view from orbit blue-white at the horizon. The old form used
-	// the air density at the eye alone, so above 50 km the planet had no air
-	// on it at all.
-	//   uDensity is calibrated on the HORIZONTAL haze at the pad, which is
-	// mostly boundary-layer aerosol; a path down from altitude crosses that
-	// layer once and the clean air above it, so from high up the column is
-	// weighted down to the ~0.1 Rayleigh depth it really is. And the light a
-	// downward path scatters toward the eye is dimmer than the horizon's
-	// (sideways phase, and no bright horizon behind it), so the veil straight
-	// down is dimmer too. Without both, the planet from 100 km was a milky
-	// blue sheet with the continents drowned in it.
+	// AERIAL PERSPECTIVE along the actual path. A straight path from the ground to
+	// height h through an exponential atmosphere has mean density H·(1 − e^(−h/H))/h, so
+	// from altitude the depth is the column spread over the slant (thin straight down,
+	// thick at the limb). uDensity is calibrated on the pad's horizontal haze (mostly
+	// boundary-layer aerosol), so a downward path is weighted toward its ~0.1 Rayleigh
+	// depth, and its in-scatter is dimmer than the horizon's.
 	float tau = 0.0;
 	float cosz = max(dot(Nrm, V), 0.0);
 	float up_high = smoothstep(2000.0, 20000.0, uEye);

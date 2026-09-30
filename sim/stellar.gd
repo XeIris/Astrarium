@@ -1,21 +1,12 @@
 class_name Stellar
 extends RefCounted
 
-# STELLAR ASTROPHYSICS — the numbers behind a star.
-# Everything here is derived from ONE input: the mass in M☉. Main-sequence
-# scaling relations give radius, luminosity and effective temperature; Teff
-# gives the colour via a Planck-curve fit. So a 2 M☉ star really is bigger,
-# hotter, bluer and ~11× more luminous than the Sun without any of it being
-# hand-tuned per body.
+# STELLAR ASTROPHYSICS from one input, mass in M☉: main-sequence radius, luminosity
+# and Teff, and colour from a Planck fit (a 2 M☉ star is ~11× the Sun's luminosity).
 
-# Mass–luminosity and mass–radius. Both live in sim/structure.gd, which is the
-# single place that decides what a star of a given mass is; they are re-exported
-# here because this module's own name is what the rest of the sim reaches for.
-#
-# Keeping one copy matters above ~20 M☉, where the piecewise L ∝ M^3.5 that used
-# to be here runs away — it returns 1.7e6 L☉ at 55 M☉ against a real ~5e5, and
-# the Eddington factor computed from it would say every massive star is unbound.
-# See MASSIVE_L there.
+# Mass–luminosity and mass–radius live in sim/structure.gd and are re-exported
+# here. One copy matters above ~20 M☉, where a plain M^3.5 gives 1.7e6 L☉ at 55 M☉
+# against a real ~5e5 (see MASSIVE_L there).
 static func luminosity(mass_sun: float, Z: float = 0.014) -> float:
 	return Structure.base_luminosity(mass_sun, Z)
 
@@ -39,14 +30,9 @@ static func spectral_class(teff: float) -> String:
 	if teff >= 3700.0: return "K"
 	return "M"
 
-# Blackbody colour. Tanner Helland's piecewise fit to the Planck locus, then
-# normalised to keep the perceived brightness roughly constant (we convey
-# luminosity through size/glow/light intensity, not by dimming the disc).
-#
-# PORT NOTE: the web build built this as `new THREE.Color(r, g, b)` from
-# FLOATS, which three does not colour-manage — the fit's values are used as
-# linear-light components directly. So this is a plain Color, and it must NOT
-# go through srgb_to_linear or a `source_color` uniform.
+# Blackbody colour: Tanner Helland's piecewise fit to the Planck locus, normalised
+# for roughly constant perceived brightness. The components are linear, so pass the
+# Color raw, never through srgb_to_linear or a `source_color` uniform.
 static func blackbody_color(kelvin: float) -> Color:
 	var t := clampf(kelvin, 1000.0, 40000.0) / 100.0
 	var r: float; var g: float; var b: float
@@ -67,17 +53,13 @@ static func blackbody_color(kelvin: float) -> Color:
 static func corona_color(kelvin: float) -> Color:
 	return blackbody_color(kelvin).lerp(Color(1, 1, 1), 0.35)
 
-# Rotation. Real stars rotate differentially — the equator laps the poles.
-# The Sun: ~25 d equatorial, ~34 d polar. Massive stars spin much faster.
-# Returned in radians per year (sim time unit).
+# Rotation in rad/yr (the Sun: ~25 d equator, ~34 d poles; massive stars much faster).
 static func rotation_rate(mass_sun: float) -> float:
 	var days := 25.0 * pow(maxf(mass_sun, 0.1), -0.6)   # equatorial period
 	return TAU / (days / 365.25)
 
-# MAGNETIC ACTIVITY
-# Cool stars with deep convective envelopes are the flare stars; hot massive
-# stars have radiative envelopes and almost no spots. This drives how often a
-# star flares and how heavily it's spotted.
+# MAGNETIC ACTIVITY: cool convective-envelope stars flare and spot; hot radiative
+# ones barely do.
 static func activity_level(mass_sun: float) -> float:
 	# peaks for late-K/M dwarfs, falls off sharply above ~1.4 M☉
 	var m := maxf(mass_sun, 0.08)
@@ -87,13 +69,9 @@ static func activity_level(mass_sun: float) -> float:
 static func flare_interval(mass_sun: float) -> float:
 	return 0.06 / activity_level(mass_sun)
 
-# FLARE / CME EVENT MODEL
-# A star carries a small population of active regions (starspot groups). Flares
-# erupt from those regions: a fast rise, an exponential decay, and — for the
-# biggest events — a coronal mass ejection that expands away from the surface.
-#
-# Flares, CMEs and regions are Dictionaries with the JS field names, because
-# sim/star_visual.gd and sim/prominence.gd read them the way the web build did.
+# FLARE / CME EVENT MODEL: a small population of active regions; flares rise fast
+# and decay exponentially, the biggest launching a CME. Flares, CMEs and regions
+# are Dictionaries read by star_visual.gd and prominence.gd.
 class ActivityModel:
 	extends RefCounted
 	var rng: Callable

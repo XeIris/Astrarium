@@ -1,17 +1,10 @@
-# SUPER HEAVY / STARSHIP — the only vehicle in the set with two landings per
-# flight, and the only one made of stainless steel.
-# 71 m of booster under 52 m of ship, both 9 m across, 33 Raptors on the pad.
-# Two things drive the whole read:
-#
-#   · IT IS STEEL, not white paint. 301 stainless, unpainted, in horizontal
-#     weld rings about 1.83 m apart — the ring spacing is a real number (the
-#     coil width the barrels are rolled from) and it is what gives 123 m of
-#     bare cylinder any scale at all.
-#   · THE ENGINES ARE NOT ALL THE SAME. Thirteen of the booster's 33 gimbal and
-#     twenty are rigid; the ship has three sea-level Raptors that steer and
-#     three vacuum Raptors that do not. The model says so — a pivot suffixed
-#     `_fixed` is bound with zero authority — because an engine that cannot
-#     gimbal must not be drawn gimballing.
+# SUPER HEAVY / STARSHIP, the Blender build: 71 m of booster under 52 m of ship,
+# both 9 m across, 33 Raptors on the pad.
+#   · Unpainted 301 stainless in weld rings ~1.83 m apart (the coil width), which
+#     gives the bare cylinder its scale.
+#   · Thirteen of the booster's engines gimbal and twenty are rigid; the ship has
+#     three steering sea-level Raptors and three fixed vacuum ones. Rigid pivots
+#     are suffixed `_fixed`.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -26,22 +19,10 @@ SS_L = 52.0
 R = D / 2
 RING = 1.83                        # weld-ring pitch: the coil width, not a guess
 
-# THE ENGINE PACKING, which is a real constraint and not a layout choice.
-# Thirty-three bells inside a 9 m skirt is the tightest cluster ever flown, and
-# the test it has to pass is not "does each ring space its own engines" — it is
-# the NEAREST NEIGHBOUR OVER THE WHOLE CLUSTER. Solving the rings one at a time
-# passes every chord and still buries the inner three in the ten around them,
-# because the closest pair in a three-ring pattern is usually a pair on
-# DIFFERENT rings and no per-ring check ever looks at it.
-#
-# So the radii are fixed multiples of the exit diameter, chosen once against
-# that global minimum: at 0.90 / 2.05 / 3.45 every pair in the cluster — same
-# ring or not — is at least 1.079 exit diameters apart, and the outer bell's
-# edge lands at 3.95. Scale that to fit inside the skirt and the engine follows:
-# the DRAWN bell shrinks until it does. Twenty 1.30 m bells want a 4.16 m ring
-# and the booster is 4.50 m in RADIUS, so something has to give, and a bell a
-# fifth of a metre narrow is the smaller error — the only one of the two you
-# cannot see.
+# THE ENGINE PACKING, tested by nearest neighbour over the whole cluster (the
+# closest pair is usually on different rings). Radii 0.90 / 2.05 / 3.45 exit
+# diameters keep every pair ≥ 1.079 apart, outer edge at 3.95. Twenty 1.30 m bells
+# want a 4.16 m ring inside a 4.50 m radius, so the drawn bell shrinks.
 K1, K2, K3 = 0.90, 2.05, 3.45          # ring radii, in exit diameters
 R_MAX = R * 0.95                       # the outermost bell edge, inside the skirt
 RAPTOR_D = min(1.30, R_MAX / (K3 + 0.5))
@@ -49,10 +30,8 @@ RVAC_D = 2.40                          # vacuum Raptor: nearly twice over
 SH_RINGS = ((3, K1 * RAPTOR_D, 0.0, False),
             (10, K2 * RAPTOR_D, pi / 10, False),
             (20, K3 * RAPTOR_D, pi / 20, True))
-# The ship's two clusters have to miss EACH OTHER, which is the same failure one
-# level up: three 1.08 m bells inside three 2.40 m ones clear only if the two
-# rings are staggered, and at the same phase the vacuum bells sit straight on
-# top of the sea-level ones.
+# The ship's two clusters must miss each other: staggered, or the vacuum bells sit
+# on top of the sea-level ones.
 SS_SEA_R, SS_VAC_R = 0.95 * RAPTOR_D, 2.45
 
 
@@ -83,9 +62,7 @@ def build_sh(M, root):
                 seg=64, minor=8, parent=g)
     smooth(j, 30)
 
-    # ---- hot-stage ring: the vented adapter the second stage lights INSIDE.
-    # Hot staging is why it exists — the ship's engines fire while still
-    # attached, and the exhaust has to go somewhere.
+    # ---- hot-stage ring: the vented adapter the ship lights inside.
     hs = cyl('hotstage', R * 0.99, R * 0.99, SH_L * 0.978, SH_L + 1.2,
              M['hot'], seg=64, parent=g)
     finish(hs, 0.03, 2, 40)
@@ -95,10 +72,7 @@ def build_sh(M, root):
             (cos(a) * R * 0.99, sin(a) * R * 0.99, SH_L + 0.5),
             M['black'], rot=(0, 0, a), parent=g)
 
-    # ---- 33 Raptors: 3 + 10 + 20, on the radii at the top of this file. The
-    # inner thirteen gimbal; the outer twenty are bolted down and steer nothing,
-    # which is why the booster's control authority falls away as it throttles
-    # the centre engines back.
+    # ---- 33 Raptors (3 + 10 + 20). The inner thirteen gimbal; the outer twenty don't.
     idx = 0
     for count, rr, phase, fixed in SH_RINGS:
         for i in range(count):
@@ -112,22 +86,15 @@ def build_sh(M, root):
     puck = cyl('thrustpuck', R * 0.42, R * 0.30, 0.30, 1.60, M['soot'], seg=32, parent=g)
     sk = cyl('sh_skirt', R, R * 0.98, 0.0, 2.6, M['soot'], seg=64, parent=g)
     finish(sk, 0.02, 2, 45)
-    # ONE cable raceway, not four. It is the only vertical feature on the
-    # booster and the thing that makes 71 m of bare cylinder read as engineered
-    # — but there is exactly one of it on the real vehicle, and four evenly
-    # spaced slabs turn a rocket into a column.
+    # One cable raceway, as on the real vehicle.
     a = pi / 4
     rc = box('sh_raceway', (0.62, 0.30, SH_L * 0.90),
              (cos(a) * (R + 0.12), sin(a) * (R + 0.12), SH_L * 0.47),
              M['steel'], rot=(0, 0, a), parent=g)
     finish(rc, 0.03, 2, 40)
 
-    # ---- four grid fins, fixed to the forward dome. Unlike the Falcon's these
-    # never fold — there is no reason to on a booster that is caught rather than
-    # landed — but they are registered as fins so the model and the code agree.
-    # The pre-cant is the same derivation as the Falcon's: update() swings a
-    # registered fin by +1.35 about the node's Blender Y on deploy, so the fin
-    # is built at -1.35 and the deploy hands it back square to the body.
+    # ---- four grid fins on the forward dome. They never fold, but are registered as
+    # fins; built at −1.35 so the deploy's +1.35 about Blender Y leaves them square.
     for i in range(4):
         a = i / 4 * TAU + 0.4
         h, _ = hinge(f'fin_sh_{i}', (cos(a) * R, sin(a) * R, SH_L * 0.955), a, g)
@@ -172,13 +139,8 @@ def build_ss(M, root):
     nose = ogive('ss_nose', nose_l, D, M['steel'], seg=64, parent=g, z0=SS_L - nose_l)
     finish(nose, 0.03, 2, 40)
 
-    # ---- heat tiles on the WINDWARD HALF ONLY, which is what they are for.
-    # The ship re-enters belly-first at 60 degrees angle of attack, so exactly
-    # one side of it is a heat shield and the other is bare steel. That split is
-    # the vehicle's whole silhouette on the way down.
-    #
-    # The belly is Blender +Y, i.e. Three -Z. The flaps below hinge about the
-    # axis update() drives, so the two have to agree about which side is which.
+    # ---- heat tiles on the windward half only (belly-first entry at 60° AoA). The belly
+    # is Blender +Y (Godot −Z); the flaps' hinge axis must agree.
     tiles = lathe('ss_tiles', [(R * 1.006, SS_L * 0.02), (R * 1.006, SS_L * 0.72)],
                   M['tiles'], seg=40, t0=-0.06, t1=pi + 0.06, parent=g)
     smooth(tiles, 25)
@@ -188,22 +150,10 @@ def build_ss(M, root):
                   M['tiles'], seg=40, t0=-0.06, t1=pi + 0.06, parent=g)
     smooth(tnose, 25)
 
-    # ---- four flaps: two forward, two aft. They are not control surfaces in
-    # the aircraft sense — the ship falls belly-first like a skydiver and moves
-    # these to shift its centre of pressure, which is why they are so big and
-    # so slow.
-    #
-    # Each hangs on a hinge node update() drives; the node's rest pose must be
-    # identity about the driven axis or the first frame snaps it.
-    #
-    # THE HINGE AXIS IS SPANWISE, and getting that right is a frame problem
-    # rather than a modelling one. update() drives these nodes by assigning
-    # Three's rotation.z, which is a rotation about the node's OWN local axis —
-    # Blender -Y — so a flap laid out along X hinges about the vehicle's
-    # up-axis and SWEEPS fore and aft instead of feathering. The node is
-    # therefore turned a quarter turn about Z and the flap built along its
-    # local +Y: then the driven axis is the span, and the flap tips edge-on to
-    # the flow the way the real one does.
+    # ---- four flaps (two forward, two aft), moved to shift the centre of pressure in a
+    # belly-first fall. Each hinge node rests at identity about the driven axis, which
+    # is the node's local Blender −Y; the node is turned a quarter about Z and the flap
+    # built along local +Y, so the driven axis is spanwise and the flap feathers.
     for i, (sx, zf, aft) in enumerate(((1, SS_L * 0.80, False), (-1, SS_L * 0.80, False),
                                        (1, SS_L * 0.085, True), (-1, SS_L * 0.085, True))):
         rr = nose_r(zf, nose_l)
@@ -219,13 +169,8 @@ def build_ss(M, root):
         hf.rotation_euler = (-pi / 2, 0, 0)
         finish(hf, 0.015, 2, 45)
 
-    # ---- six Raptors: three sea-level that gimbal, three vacuum that do not.
-    # The vacuum bells are nearly twice the exit diameter and they are fixed —
-    # a 2.4 m bell has no room to swing inside a 9 m skirt.
-    # The sea-level three sit INSIDE the vacuum three, STAGGERED sixty degrees
-    # against them: at the same phase a 2.4 m vacuum bell 1.4 m outboard of a
-    # 1.08 m sea-level one sits straight on top of it, and no amount of ring
-    # radius fixes that on its own.
+    # ---- six Raptors: three gimballing sea-level inside three fixed vacuum (2.4 m
+    # bells, no room to swing), staggered 60° so they clear.
     for i in range(3):
         a = i / 3 * TAU + 0.5
         piv = empty(f'gimbal_ss_{i}', (cos(a) * SS_SEA_R, sin(a) * SS_SEA_R, -0.02), g)

@@ -1,30 +1,24 @@
 extends Node
 
-# CRAFT STUDIO — sim/flight/craftmodel.gd on its own, with nothing in the way.
-# The Godot counterpart of .claude/crafttest.html, and deliberately NOT built on
-# tools/harness.gd: the web page renders straight to the canvas with three's
-# own ACESFilmic tone mapping and no bloom, and a harness that went through
-# render/postfx.gd would be comparing two different pictures. So this renders
-# one HDR SubViewport, tone maps it with three's exact curve (exposure / 0.6,
-# then the Hill ACES fit, then sRGB), and composites the flat background colour
-# AFTER the curve, as three's clear colour is. Same camera, same rig, same
-# figure, same ground, same framing arithmetic as the page.
+# CRAFT STUDIO: sim/flight/craftmodel.gd on its own, matched to the web
+# crafttest.html for side-by-side comparison, so deliberately not on harness.gd:
+# one HDR SubViewport, three's exact ACES curve (exposure / 0.6, Hill fit, sRGB),
+# and the background composited after the curve. Same camera, rig, figure, ground
+# and framing as the page.
 #
 #   Godot --path . res://tools/crafttest.tscn -- v=saturnv view=side out=/abs.png
 #     v=<id>        vehicle (default saturnv)
 #     view=side|iso|front|top|detail|under|nose   (default side)
 #     z=<zoom>      zoom (default 1)
 #     stage=<n>     frame one stage only
-#     deploy=0      stowed pose (deployables are shown DEPLOYED by default,
-#                   because a folded leg tells you nothing about whether the
-#                   leg is right — see AGENTS.md)
-#     w=, h=        frame size (default 1280×720, the web reference's)
-#     assets=0      do not load the authored meshes: the procedural fallback
+#     deploy=0      stowed pose (default is deployed: a folded leg shows nothing)
+#     w=, h=        frame size (default 1280×720)
+#     assets=0      skip the authored meshes: the procedural fallback
 #     out=<png>     write the frame and quit
 #
 #   Godot --headless --path . res://tools/crafttest.tscn -- audit [assets=0]
 #   Godot --headless --path . res://tools/crafttest.tscn -- clearance [assets=0]
-#     print STUDIO.audit() / STUDIO.clearance() as tables (and JSON) and quit.
+#     print audit() / clearance() as tables (and JSON) and quit.
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 
@@ -39,10 +33,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
-	# The authored models are a cache build_craft reads, not something it
-	# waits for — so the studio has to fill the cache BEFORE it builds anything,
-	# or it renders the procedural fallback and reports its triangle count as
-	# the regression number.
+	# Fill the model cache before building anything, or this measures the fallback.
 	if args.get("assets", "1") != "0":
 		CraftAssets.craft_models_ready()
 	if args.has("audit") or args.has("clearance"):
@@ -56,18 +47,14 @@ func _ready() -> void:
 	_build_studio()
 
 # THE NUMBERS
-## Build every vehicle and report its measured extents. There is no test suite
-## here, so this is the regression check: a builder that throws, or a stack
-## whose height stops matching the published figure, shows up as a number
-## rather than as a picture that looks slightly wrong.
+## Build every vehicle and report measured extents: the regression check (a builder
+## that throws or a height that drifts shows up as a number).
 static func audit() -> Array:
 	var out := []
 	var V: Dictionary = CM.vehicles()
 	for k in V.keys():
 		var c = CM.build_craft(V[k])
-		# As-launched, not as-built: arrays and legs are STOWED until the flight
-		# state says otherwise, and measuring before the first update reports a
-		# payload with its solar wings already open inside a fairing.
+		# As launched: arrays and legs stowed until the flight state says otherwise.
 		c.update({"dt": 0.0, "attached": {}, "deploy": {}, "gimbal": {"x": 0.0, "z": 0.0}, "flap": 0.0})
 		var b: AABB = CM.measure(c.group)
 		out.append({"k": k, "h": _r1(b.size.y), "w": _r1(b.size.x), "d": _r1(b.size.z),
@@ -75,16 +62,9 @@ static func audit() -> Array:
 		c.group.free()
 	return out
 
-## ENGINE CLEARANCE, as a number rather than as a picture. For every stage with
-## more than one engine, the smallest gap between any two bells: the NEAREST
-## NEIGHBOUR over the whole cluster, which is the test a per-ring chord check
-## misses. Negative means they interpenetrate.
-##
-## This exists because three separate clusters shipped with their bells inside
-## each other — the S-IC's outboard F-1s half a metre into the centre engine,
-## Super Heavy's inner three buried in the ten around them, Starship's vacuum
-## Raptors sitting on its sea-level ones — and every one of them looked, in a
-## render, like a tightly packed cluster.
+## ENGINE CLEARANCE: per stage with more than one engine, the smallest gap between
+## any two bells (nearest neighbour over the whole cluster). Negative means they
+## interpenetrate.
 static func clearance() -> Array:
 	var out := []
 	var V: Dictionary = CM.vehicles()
@@ -126,10 +106,8 @@ static func print_clearance(rows: Array) -> void:
 	print("CLEAR_JSON ", JSON.stringify(rows))
 
 # THE STUDIO
-## three's ACESFilmicToneMapping (r160), exactly: exposure / 0.6, the Hill
-## RRT+ODT fit, clamp — then linear → sRGB, as the page's SRGBColorSpace output
-## does. The background is composited AFTER the curve, because three's clear
-## colour never goes through tone mapping.
+## three's ACESFilmicToneMapping (r160): exposure / 0.6, Hill RRT+ODT fit, clamp, then
+## linear → sRGB. Background composited after the curve.
 const TONEMAP_SHADER := """
 shader_type canvas_item;
 uniform sampler2D hdr : filter_linear;
@@ -192,13 +170,9 @@ static func make_frame(parent: Node, w: int, h: int, bg_hex: int) -> Array:
 static func _srgb3(hex: int) -> Vector3:
 	return Vector3(((hex >> 16) & 255) / 255.0, ((hex >> 8) & 255) / 255.0, (hex & 255) / 255.0)
 
-## The page's rig, into a 3D viewport: key high-left, quarter-strength fill
-## opposite, rim behind to peel a white vehicle off a grey ground, and an
-## ambient. Intensities are three's (r160, physically-correct lights, Lambert
-## = albedo/π) divided by π, because Godot's non-physical light energy already
-## carries the π: measured, a white Lambert quad under a unit DirectionalLight3D
-## returns exactly 1.0 and under a unit ambient returns 1.0 — three returns 1/π
-## for both.
+## The page's rig: key high-left, quarter fill opposite, rim behind, and ambient.
+## Intensities are divided by π: measured, a white Lambert quad under a unit
+## DirectionalLight3D or ambient returns 1.0 in Godot and 1/π in three.
 static func add_rig(vp: SubViewport, rim_i := 2.0, amb_hex := 0x404a58, amb_i := 0.6) -> Environment:
 	for L in [[Vector3(-4, 5, 6), 0xfff4e6, 3.0], [Vector3(5, 1, 3), 0xbfd4ff, 0.8], [Vector3(2, 2, -7), 0xffffff, rim_i]]:
 		vp.add_child(dir_light(L[0], L[1], L[2]))
@@ -249,9 +223,7 @@ func _build_studio() -> void:
 	vp3 = fr[0]; vp2 = fr[1]
 	add_rig(vp3)
 
-	# A spec is user input and build_craft reads vehicle.stages straight off
-	# what it is handed, so an unknown key fails deep inside the builder rather
-	# than here, where the message can say what the options were.
+	# Fail here, listing the options, rather than deep in the builder.
 	var veh = CM.vehicle(key)
 	if veh == null:
 		push_error("[crafttest] no such vehicle '%s' — try one of: %s" % [key, ", ".join(CM.vehicles().keys())])
@@ -261,9 +233,7 @@ func _build_studio() -> void:
 	vp3.add_child(craft.group)
 	var deploy := {}
 	for st in craft.stages: deploy[st.key] = dep
-	# dt = 0 freezes the easing at wherever `deploy` started, so the state has
-	# to be stepped in rather than waited for: one step at dt = 0, then one big
-	# one.
+	# dt = 0 freezes the easing, so step once at 0 and once big.
 	craft.update({"dt": 0.0, "attached": {}, "deploy": deploy, "gimbal": {"x": 0.0, "z": 0.0}, "flap": 0.0})
 	craft.update({"dt": 4.0, "attached": {}, "deploy": deploy, "gimbal": {"x": 0.0, "z": 0.0}, "flap": 0.0})
 
@@ -297,11 +267,8 @@ func _build_studio() -> void:
 	cam = Camera3D.new()
 	cam.keep_aspect = Camera3D.KEEP_HEIGHT
 	var ortho := view == "side" or view == "front" or view == "top"
-	# `detail` frames the AFT END, and its distance has to come from the height,
-	# not the width: a ship with a 51 m wingspan and a 47 m hull would otherwise
-	# pull the camera out to 160 m to "zoom in" on its engines. `nose` is
-	# `detail`'s opposite number: the forward end is where the antennas, the
-	# docking node and the escape tower are.
+	# `detail` frames the aft end with distance from the height, not the width; `nose`
+	# frames the forward end.
 	var close := view == "detail" or view == "under" or view == "nose"
 	var d := (hh * 0.42 if close else hh * 1.9) / zoom
 	var at := mid
@@ -312,11 +279,8 @@ func _build_studio() -> void:
 		"detail": Vector3(0.80, 0.22, 0.55)}
 	var dir: Vector3 = dirs.get(view, Vector3(0, 0, 1)).normalized()
 	if ortho:
-		# Orthographic: a silhouette is the honest test of a shape, and it is
-		# the only projection you can compare against a reference photo taken at
-		# range. three's frustum runs −1e5…1e5 through the camera; Godot wants a
-		# positive near, so the eye is backed off along its own axis instead —
-		# an orthographic picture does not change with distance.
+		# Orthographic: a silhouette is the honest test of a shape. Godot needs a positive
+		# near, so the eye is backed off along its axis (ortho doesn't change with distance).
 		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 		cam.size = (ww * 2.4 if view == "top" else hh * 1.12) / zoom
 		d += 4.0 * maxf(hh, ww) + 50.0

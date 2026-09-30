@@ -1,49 +1,20 @@
-// ONE ENGINE'S PLUME — a raymarched volume of emission and soot.
-// The web build drew a plume as the SURFACE of a tube whose radius was bent
-// in the vertex shader, with the light painted onto that surface. A flame is
-// not a surface: it is a volume of glowing gas, and what reaches the eye is
-// the emission INTEGRATED along the line of sight, dimmed by whatever soot is
-// in front of it. A tube cannot do the three things that make a real plume
-// read as one — it has a hard silhouette, it looks the same end-on as side-on,
-// and nothing inside it can be in front of anything else. So this marches the
-// ray through the jet's own field, from a bounding cylinder drawn back-faced
-// (so it works from inside, too), and stops at the depth buffer (so the
-// rocket's own base and the ground in front of the flame hide it).
-//
-// THE FIELD, in the jet's own units (De = exit diameter), and every part of
-// it set by a number the flight model already has:
-//
-//   PRESSURE RATIO  PR = p_exit / p_ambient. This is the whole shape story.
-//     PR < 1, OVER-EXPANDED (sea level): the air squeezes the jet in and it
-//     recompresses through a train of oblique shocks — the SHOCK DIAMONDS —
-//     and, if PR is low enough, a normal shock across the axis: the MACH
-//     DISK, the hard white knot an RS-25 has a metre below its bell and a
-//     Merlin does not (its PR at sea level is ~0.6, the SSME's ~0.16).
-//     PR > 1, UNDER-EXPANDED (altitude): the jet turns the corner at the lip
-//     and balloons; the diamonds stretch (cell length ∝ √PR) and go.
-//     PR → ∞ (vacuum): a vast, faint, structureless bell.
-//   CELL LENGTH  Ls ≈ 0.45 De √(M² − 1) √PR + 0.4 De: Prandtl's √(M² − 1) is
-//     the angle an expansion wave makes with the flow; √PR is the jet getting
-//     wider and the waves longer as the air thins.
-//   CORE  the supersonic potential core, a few De long at sea level: the
-//     mixing layer eats in from the edge until it reaches the axis.
-//   MIXING LAYER  a turbulent shear layer at the jet's edge, growing ~0.1 De
-//     per De. Fuel-rich exhaust meets air there and BURNS AGAIN, which is
-//     where most of a kerosene plume's light comes from — so it is brightest
-//     in an annulus, and it is turbulent, advected downstream at a fraction of
-//     the exhaust speed and regenerated rather than scrolled.
-//   SOOT  carbon from a fuel-rich kerosene engine: it both GLOWS (the orange
-//     of a kerolox plume is incandescent soot at ~2000 K) and ABSORBS (the
-//     brown-black smoke). The F-1 dumped its gas-generator exhaust into the
-//     nozzle extension as a film coolant, so the first couple of diameters of
-//     a Saturn V's plume are wrapped in a dark, cool, sooty sleeve before the
-//     film ignites — the single most recognisable thing about the S-IC's fire.
-//     A solid's alumina is the other kind: it scatters, bright and white.
-//
-// EMISSION IS IN HDR and the colour is the propellant's (see sim/flight/plume.gd
-// for the table). BLENDING is premultiplied: rgb is the light emitted (and,
-// for smoke, scattered) along the ray, alpha the soot's COVERAGE — a sooty
-// plume genuinely hides the sky behind it, a hydrogen one hides nothing.
+// ONE ENGINE'S PLUME: a raymarched volume of emission and soot, marched from a
+// back-faced bounding cylinder (so it works from inside) and stopped at the depth
+// buffer. In the jet's own units (De = exit diameter):
+//   PRESSURE RATIO  PR = p_exit / p_ambient.
+//     PR < 1, over-expanded: shock diamonds, and at low enough PR a Mach disk (an
+//     RS-25's PR at sea level is ~0.16, a Merlin's ~0.6).
+//     PR > 1, under-expanded: the jet balloons and the cells stretch (∝ √PR).
+//     PR → ∞: a faint structureless bell.
+//   CELL LENGTH  Ls ≈ 0.45 De √(M² − 1) √PR + 0.4 De (Prandtl's expansion-wave angle).
+//   CORE  the supersonic potential core, a few De at sea level.
+//   MIXING LAYER  a turbulent shear layer growing ~0.1 De per De, where fuel-rich
+//     exhaust afterburns (most of a kerosene plume's light): bright in an annulus,
+//     advected downstream and regenerated.
+//   SOOT  glows (kerolox's orange, ~2000 K) and absorbs. The F-1's film-coolant
+//     sleeve is a dark sooty wrap for the first diameters. Alumina scatters white.
+// Emission is HDR in the propellant's colour (plume.gd). Premultiplied: rgb emitted
+// light, alpha soot coverage.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_front, fog_disabled;
 
@@ -72,7 +43,7 @@ uniform float uFilm = 0.0;            // the F-1's dark film-cooling sleeve
 uniform float uBeam = 0.0;            // 1: a collimated beam (ion, photon drive)
 uniform float uNear = 0.0;            // 1: near field only (a cluster's far field is drawn merged)
 uniform float uFar = 0.0;             // 1: a cluster's merged far field, fading in downstream
-uniform float uTempCode = 0.32;       // ln(T)/25.33 — the web build's publish factor
+uniform float uTempCode = 0.32;       // ln(T)/25.33, the temperature code
 uniform int uSteps = 26;
 
 varying vec3 vLocal;                  // this fragment, in the plume's frame, m
@@ -178,9 +149,7 @@ void fragment() {
 		float along = fade_end * nearK * farK;
 		if (along <= 0.0) continue;
 
-		// ---- turbulence, advected downstream and regenerated (two scales)
-		// stretched along the flow, because the eddies are: a shear layer's
-		// structures are drawn out downstream before they break up
+		// ---- turbulence, advected and regenerated at two scales, stretched along the flow.
 		vec3 q = vec3(p.x / De, x - flow, p.z / De);
 		float turb = fbm3(q * vec3(2.4, 0.85, 2.4) + uSeed);
 		float turb2 = fbm3(q * vec3(7.0, 2.2, 7.0) - uSeed * 1.7 + vec3(0.0, flow * 0.6, 0.0));
@@ -214,16 +183,9 @@ void fragment() {
 		float lick = clamp(turb * 1.7 - 0.35, 0.0, 1.0);
 		float burn = uAfterburn * (shell * 0.8 + fill * 0.9) * (0.15 + 2.2 * lick * lick) * (0.6 + 0.8 * turb2)
 		           * smoothstep(0.2, 1.4, x) * (0.1 + 0.9 * (1.0 - under));
-		// Mass is conserved: a jet that has ballooned to Rj exit radii carries
-		// the same gas through Rj² times the area, so what glows per metre
-		// falls as 1/Rj². Without it, a first stage at 50 km (PR ≈ 500, a bell
-		// 27 exit radii across) filled that whole bell with afterburning flame
-		// and drew a solid orange orb a quarter of a kilometre wide around the
-		// vehicle. The vacuum bell below already obeyed this.
+		// Mass is conserved: a jet ballooned to Rj exit radii glows ∝ 1/Rj² per metre.
 		burn *= mix(1.0, 1.0 / (Rj * Rj), under);
-		// in vacuum there is nothing to burn with and nothing to shear on: a
-		// smooth, faint bell whose light falls off as it spreads
-		// (thin: a vacuum plume is a glow you can see the stars through)
+		// In vacuum: a smooth, faint bell you can see stars through.
 		float bell = under * exp(-rho * rho * 1.6) * 0.14 / (Rj * Rj) * (0.8 + 0.4 * turb);
 
 		// ---- colour: core → mixing → tail as the gas cools downstream
@@ -239,10 +201,8 @@ void fragment() {
 		           * (1.0 - under);
 		e *= 1.0 - film * 0.92;
 
-		// ---- 5. soot: absorbs, and scatters a little (brown for carbon,
-		// white for a solid's alumina). Thickest in the tail and at the edge.
-		// In streaks, not a sheet: soot is carried in the same eddies as the
-		// flame, and between them is clear burning gas.
+		// ---- 5. soot: absorbs and scatters a little (brown carbon, white alumina),
+		// thickest in the tail and edge, in streaks carried by the eddies.
 		float streak = clamp(turb2 * 1.8 - 0.55, 0.0, 1.0);
 		float soot = uSoot * (0.2 + 1.3 * streak * turb) * (smoothstep(0.25, 0.9, x / Lx) * 1.1 + film * 3.0)
 		           * smoothstep(1.8, 0.5, rho) * (1.0 - under) * along;
@@ -258,8 +218,7 @@ void fragment() {
 	}
 	float alpha = 1.0 - T;
 	if (max(col.r, max(col.g, col.b)) < 1e-4 && alpha < 0.002) discard;
-	// the web build's published temperature code was also the colour's source
-	// factor; it is kept, so the plume sits at the same brightness it did
+	// the temperature code also scales the colour (calibrated brightness)
 	ALBEDO = col * uTempCode * 2.4;
 	ALPHA = alpha;
 }

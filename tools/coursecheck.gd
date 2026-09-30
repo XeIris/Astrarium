@@ -1,39 +1,21 @@
 extends Node
 
-# COURSE WALK — the regression check for the education mode
-# The port of .claude/coursecheck.js. There is no test runner in this repo, so
-# this is it: it brings up the REAL orchestrator (main.tscn), opens EVERY
-# lesson, steps through EVERY step, runs frames at each one, and reports
-# anything that raised an error, any scenario that came up empty when it
-# should not have, and any body a lesson asked to focus on that does not
-# exist in the scenario it opened.
-#
-# That last check is the one worth having. A lesson naming `focus: 'Sol'` in a
-# scenario whose star is called 'Sun' fails silently — the camera simply does
-# not move — and it is invisible in a screenshot.
+# COURSE WALK, the education mode's regression check: runs the real orchestrator,
+# opens every lesson, steps through every step with frames at each, and reports
+# errors, empty scenarios, missing focus bodies (a wrong name fails silently), and
+# cameras inside their subject.
 #
 #   Godot --path . --resolution 1280x720 res://tools/coursecheck.tscn -- \
 #         [report=/abs/report.json] [only=<module>/<lesson>,...] [selftest=1]
 #
-# `selftest=1` plants a script error, a push_error and a push_warning in the
-# first step walked, to prove the logger is catching what it claims to — a
-# check that cannot fail is not a check. It must report 2 errors, 1 warning.
+# `selftest=1` plants a script error, a push_error and a push_warning in the first
+# step, and must report 2 errors, 1 warning. Prints one line per problem and a
+# summary (`COURSE 35L 170S 0E`), optionally writes JSON, and exits 1 on errors.
 #
-# It prints one line per problem and a summary (`COURSE 35L 170S 0E`), writes
-# the report as JSON if asked, and exits 1 if there were errors.
-#
-# THE PORT. The web version caught `window.onerror`, i.e. anything that
-# THREW. A GDScript runtime error does not throw: it prints, abandons the
-# function it happened in and carries on — so the equivalent is a Logger
-# (OS.add_logger), which sees every script error, shader error and engine
-# error as it is reported, and each is attributed to the step that was running
-# when it arrived. push_warning() lands in the warnings list, as console.warn
-# did. `document.getElementById` becomes the HUD's own id registry
-# (hud.get_el), which is what the stage's set_control / set_panel resolve
-# against, so "no such control" here means the stage would have ignored it.
-# SIM.frame(dt) is main.animate(dt), as tools/presetcheck.sh's walk uses; the
-# engine is then given two real frames so each step is also DRAWN, which is
-# where a shader that fails to compile would show itself.
+# GDScript runtime errors print rather than throw, so a Logger (OS.add_logger)
+# catches script, shader and engine errors and attributes them to the running step.
+# Controls resolve through hud.get_el, as the stage does. Each step runs
+# main.animate(dt) and then two real frames, so a shader that fails to compile shows.
 
 class Catch extends Logger:
 	var mutex := Mutex.new()
@@ -95,10 +77,7 @@ func _walk() -> void:
 			var key := "%s/%s" % [mod.id, lesson.id]
 			if not only.is_empty() and not only.has(key): continue
 			report.lessons += 1
-			# Walked IN ORDER with next(), not jumped to. A step's `do` block is a
-			# patch on whatever the previous step left behind — "same scenario,
-			# closer camera" is the normal case — so checking a step in isolation
-			# would be checking something no learner ever sees.
+			# Walked in order with next(): a step is a patch on the previous one.
 			L.open_lesson(key)
 			var steps: Array = lesson.steps
 			for i in steps.size():
@@ -148,10 +127,8 @@ func _check(where: String, step: Dictionary) -> void:
 			report.errors.append("%s: no body named \"%s\" in %s" % [where, d.focus, state.preset_key])
 		elif state.focus_id != b.id:
 			report.errors.append("%s: focus did not take" % where)
-		# Is the camera actually OUTSIDE the thing the lesson is pointing at? A
-		# viewing distance written for one size convention puts the camera
-		# inside the planet under the other, and the symptom is a screen of flat
-		# colour that looks like a shader bug.
+		# Is the camera outside the body the lesson points at? A distance written for one
+		# size convention lands inside the planet under the other.
 		elif state.cam_mode == "orbit" and float(main.cam.radius) < b.radius_scene * 1.15:
 			report.errors.append("%s: camera at %s is inside %s (drawn radius %s)" % [where,
 				U.expo(float(main.cam.radius), 2), d.focus, U.expo(b.radius_scene, 2)])

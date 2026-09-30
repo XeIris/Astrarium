@@ -1,45 +1,17 @@
 class_name Cutaway
 extends El
 
-# THE 3D CUTAWAY — the interior model, as an object rather than as a chart
-# sim/crosssection.gd already draws a body's interior, and draws it well: exact
-# radii, a temperature ramp, a label per layer. What a flat disc cannot do is
-# make a beginner believe that the core is a SPHERE — that the iron core is not
-# a circle painted on a cut face but a ball with a shell of liquid iron round
-# it and a mantle round that. That belief is most of what an interior model is
-# for, and it costs one quarter of the geometry to earn.
+# THE 3D CUTAWAY: the interior model as an object, so the core reads as a sphere
+# inside shells. Each layer is a double-sided sphere at its own radius, and two
+# clipping planes (intersection) remove one octant pair, so the notch shows the far
+# inner wall of every shell for free. StandardMaterial3D has no clip planes, so
+# shells use shaders/ui/cutaway_layer.gdshader (Lambert + GGX plus the discard).
 #
-# HOW THE WEDGE IS CUT. Not by building wedge geometry — by clipping. Every
-# layer is an ordinary sphere at its own radius, drawn DOUBLE-SIDED, and two
-# clipping planes with `clipIntersection = true` remove the one octant-pair
-# where both of them would cut. Building the wedge as geometry would need cut
-# faces, caps and a seam per layer; clipping needs two planes for the whole
-# model and gets the inside surfaces for free, which is the entire point: what
-# you see through the notch is the far inner wall of every shell above the one
-# you are looking at, which is exactly what a cutaway is. (Godot's
-# StandardMaterial3D has no clip planes, so the shell material is
-# shaders/ui/cutaway_layer.gdshader: the same Lambert + GGX lighting with the
-# two-plane discard added.)
-#
-# It gets its own tiny renderer rather than sharing the orrery's. On the web
-# that was a second WebGLRenderer bound to its own canvas; here it is a
-# SubViewport with its OWN World3D, camera and lights, so nothing in it can
-# see the orrery or be seen by it, and its texture is drawn into this
-# element's content box. The web renderer was three's default — sRGB output,
-# NoToneMapping — so the viewport's environment is the linear tonemapper at
-# unity: values are clamped at 1 and encoded to sRGB, and nothing else. The
-# lights are three's physically based intensities, which Godot scales by π
-# internally, hence the /π (sim/flight/modelviewer.gd does the same).
-#
-# THE RADII ARE REAL, AND THAT IS SOMETIMES THE LESSON. A red giant's
-# degenerate helium core is 0.008 of its radius, which is a dot — and it should
-# be a dot, because the fact that a third of the star's mass is inside a
-# thousandth of its volume is the reason it is a red giant at all.
-#
-# This node IS the canvas: an El with the canvas's `width: 100%; height:
-# auto` over a 320 × 210 bitmap, so the lesson card lays it out as it did the
-# <canvas>. The viewport renders at the laid-out size × the display scale
-# (capped at 2, as `setPixelRatio(min(devicePixelRatio, 2))` was).
+# Its own SubViewport with its own World3D, camera and lights, drawn into this El's
+# content box. Linear tonemapper at unity (clamp, sRGB). Light intensities are /π,
+# as in modelviewer.gd. Radii are real: a red giant's core is a dot, and that is the
+# lesson. The El is `width: 100%; height: auto` over a 320 × 210 bitmap, rendered at
+# laid-out size × display scale (capped at 2).
 
 const LAYER_SHADER := preload("res://shaders/ui/cutaway_layer.gdshader")
 const LAYER_ALPHA_SHADER := preload("res://shaders/ui/cutaway_layer_alpha.gdshader")
@@ -48,8 +20,8 @@ var vp: SubViewport
 var camera: Camera3D
 var root3d: Node3D
 var current: Dictionary = {}
-## the web's `get structure()` — what is on the turntable now (lessonui
-## compares it against the focused body's to decide whether to rebuild)
+## What is on the turntable now (lessonui compares it with the focused body's
+## to decide whether to rebuild).
 var structure: Dictionary:
 	get: return current
 var spin := 0.0
@@ -58,9 +30,8 @@ var _tex: TextureRect
 var _re_shell := RegEx.create_from_string("(?i)sphere|ISCO|Ergosphere")
 var _re_wire := RegEx.create_from_string("(?i)sphere|ISCO")
 
-## createCutaway({ canvas }) → here the canvas is the returned node.
-## opts.style: extra El style (the lesson card's `.lc-canvas` border and
-## background); opts.w / opts.h: the bitmap size whose aspect it keeps.
+## Returns the canvas node. opts.style: extra El style (the card's `.lc-canvas`);
+## opts.w / opts.h: the bitmap size whose aspect it keeps.
 static func create_cutaway(opts: Dictionary = {}) -> Cutaway:
 	return Cutaway.new(opts.get("style", {}), float(opts.get("w", 320.0)), float(opts.get("h", 210.0)))
 
@@ -88,9 +59,7 @@ func _init(style: Dictionary = {}, w := 320.0, h := 210.0) -> void:
 	env.sdfgi_enabled = false
 	env.fog_enabled = false
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
-	# AmbientLight(0x93a6c4, 0.55): an ambient colour is sRGB and converted,
-	# like three's hex; its diffuse term is albedo × E here and albedo × E / π
-	# there, so the energy carries the 1/π.
+	# Ambient 0x93a6c4 × 0.55, sRGB-converted, with the 1/π in the energy.
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color.hex(0x93a6c4ff)
 	env.ambient_light_energy = 0.55 / PI
@@ -110,10 +79,8 @@ func _init(style: Dictionary = {}, w := 320.0, h := 210.0) -> void:
 
 	_dir_light(0xffffff, 1.5, Vector3(3, 4, 5))
 	_dir_light(0x88a8ff, 0.45, Vector3(-4, -1, -2))
-	# A light INSIDE the notch, or the whole reason for cutting it is in shadow.
-	# PointLight(0xffe3c0, 2.0, distance 8, decay 2): Godot's omni attenuation
-	# with range 8 and attenuation 2 is three's physical falloff
-	# (1/d² × (1 − (d/8)⁴)²) term for term.
+	# A light inside the notch. Omni with range 8 and attenuation 2 matches the physical
+	# falloff 1/d² × (1 − (d/8)⁴)².
 	var inner := OmniLight3D.new()
 	inner.light_color = Color.hex(0xffe3c0ff)
 	inner.light_energy = 2.0 / PI
@@ -159,9 +126,7 @@ func show_structure(st: Dictionary) -> void:
 	if layers.is_empty():
 		return
 
-	# A black hole has no interior. Its "layers" are locations in the
-	# spacetime, so they are drawn as wireframe shells over a black ball
-	# rather than as material — see draw_cross_section for the same distinction.
+	# A black hole's layers are spacetime locations: wireframe shells over a black ball.
 	var is_hole: bool = st.get("type") == "bh"
 
 	for i in range(layers.size() - 1, -1, -1):
@@ -194,16 +159,11 @@ func show_structure(st: Dictionary) -> void:
 	if not (f > 0.0): f = 0.0
 	root3d.scale = Vector3(1.0, 1.0 - f, 1.0)
 
-## THREE.SphereGeometry(r, 64, 40), vertex for vertex. Godot's SphereMesh is
-## not the same grid — its `rings` counts one more band than three's
-## heightSegments, and its quads split on the other diagonal — which a solid
-## shell hides and a WIREFRAME shell draws line for line. So the grid is built
-## here as three builds it: (w+1) × (h+1) vertices with the seam and both
-## poles duplicated, the pole rows' degenerate triangles skipped, normal =
-## position / r. Three's triangles are counter-clockwise from the front and
-## Godot's clockwise, so each one is emitted reversed; that matters even
-## though every shell is double-sided, because cull_disabled flips the normal
-## of whatever Godot thinks is a back face, as DoubleSide does in three.
+## THREE.SphereGeometry(r, 64, 40), vertex for vertex: SphereMesh's grid differs,
+## which a wireframe shell would show. (w+1) × (h+1) vertices, seam and poles
+## duplicated, degenerate pole triangles skipped, normal = position / r, each
+## triangle reversed for Godot's CW front faces (cull_disabled still flips normals by
+## facing).
 static func _three_sphere(r: float, ws := 64, hs := 40) -> Dictionary:
 	var v := PackedVector3Array()
 	var n := PackedVector3Array()
@@ -290,9 +250,8 @@ func _draw_extra() -> void:
 	if vp.size != want:
 		vp.size = want
 
-# The legend is page elements rather than drawn into the render: it has to be
-# readable, and a 3D view is not. legend() gives the rows (outermost first,
-# as the web's markup did); build_legend() lays them out as `.cut-legend`.
+# The legend is page elements (readable): legend() gives rows outermost first;
+# build_legend() lays them out as `.cut-legend`.
 func legend() -> Array:
 	var rows: Array = []
 	var layers: Array = current.get("layers", []) if not current.is_empty() else []

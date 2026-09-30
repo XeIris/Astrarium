@@ -1,68 +1,21 @@
 class_name LensPass
 extends RefCounted
 
-# BLACK HOLE — general-relativistic ray marcher + volumetric accretion disc.
-# Everything you see of a black hole is light that *missed*. There is no
-# surface to shade, so this is a full-screen pass that integrates null
-# geodesics backwards from the eye and reports what each one ran into.
+# BLACK HOLE: a general-relativistic ray marcher and volumetric accretion disc.
+# Null geodesics are integrated backwards from the eye with the exact Schwarzschild
+# acceleration d²x/dλ² = −(3/2) r_s h² x̂ / r⁵ (RK2, step shrinking toward r_s); the
+# shadow and photon ring fall out of the integration. A Shakura–Sunyaev disc with
+# Doppler + gravitational shift g (T_obs = g·T_emit, I_obs ∝ g⁴), a flared volume,
+# and sheared filaments. Derivation: docs/physics/lensing.md.
 #
-# WHAT IS PHYSICALLY MODELLED
-#
-#  · Null geodesics. In Schwarzschild geometry the orbit equation for a photon
-#    reduces (via Binet) to a Cartesian acceleration
-#        d²x/dλ² = −(3/2) r_s h² x̂ / r⁵ ,    h = |x × v|, |v| = 1
-#    which is EXACT for light, not a Newtonian approximation. Integrated with
-#    an RK2 midpoint step that shrinks as (r − r_s), so rays that graze the
-#    photon sphere at 1.5 r_s are resolved instead of tunnelling through it.
-#
-#  · The shadow. Nothing is drawn for the hole itself. A ray that crosses the
-#    horizon simply stops and returns whatever disc light it had already
-#    collected. The dark region that results has an apparent radius of
-#    (√27/2)·r_s ≈ 2.6 r_s — noticeably LARGER than the horizon, because the
-#    photon sphere is what casts it.
-#
-#  · The photon ring. Rays with impact parameter near the critical value wind
-#    around the hole one or more times, crossing the disc on each pass, and
-#    stack that emission into the thin brilliant ring that hugs the shadow.
-#    It is not drawn — it falls out of the integration, which is the point.
-#
-#  · Shakura–Sunyaev disc. T(r) ∝ (r_in/r)^¾ · (1 − √(r_in/r))^¼ — the
-#    standard thin-disc profile. It vanishes AT the ISCO and peaks a little
-#    outside it, so the disc has a genuinely dark inner gap and a hot ridge.
-#
-#  · Relativistic transfer. The disc orbits at v = √(r_s/2r)/√(1 − r_s/r); the
-#    combined Doppler + gravitational factor g = δ·√(1 − r_s/r) is applied to
-#    BOTH the observed colour temperature (T_obs = g·T_emit) and the intensity
-#    (I_obs ∝ g⁴, from the invariance of I_ν/ν³). That single term is what
-#    produces the famous asymmetry: the approaching limb goes blue-white and
-#    ~80× brighter, the receding limb sinks into dull red.
-#
-#  · Volumetric emission/absorption through a flared, geometrically thin slab
-#    of height H(r) ∝ r^9/8, so the disc occludes itself and the far side is
-#    genuinely seen *through* the near side.
-#
-# THE FILAMENTARY STRUCTURE
-#
-#    Magnetorotational turbulence injects eddies, and Keplerian shear —
-#    Ω(r) ∝ r^(−3/2) — stretches every one of them into a long thin arc. The
-#    noise is sampled in the CO-ROTATING frame, ψ = φ + Ω(r)·t, with the
-#    azimuthal axis compressed and the radial axis expanded (~8:1): strands,
-#    not clouds.
-#
-# THE SPLIT. The marcher runs at the LENS SCALE and does not know the sky
-# exists: the geodesic integration and the disc integral are per-RAY costs and
-# tolerate being traced at half rate, because their result is a smooth field.
-# The star field is a per-PIXEL cost and does not, so the sky is evaluated at
-# full resolution over the direction field this pass hands over — in the
-# background sky shader (shaders/sky/background.gdshader), which is the Godot
-# home of the web build's resolve pass. The web build wrote the two outputs as
-# a WebGL2 MRT; here the marcher is a compute shader writing two images.
+# The marcher runs at the lens scale and writes the direction field; the sky is
+# evaluated at full resolution in shaders/sky/background.gdshader over it. A compute
+# shader writing two images.
 
 const MAX_HOLES := 2
 
-## Default lens scale — the marcher's resolution as a fraction of the display's.
-## The pass scales very nearly linearly with pixel count (measured: 3.89x faster
-## for 4x fewer pixels), so this is the strongest single control there is.
+## Default lens scale (a fraction of display resolution); cost is nearly linear in
+## pixels (3.89× faster for 4× fewer).
 const DEFAULT_LENS_SCALE := 0.5
 
 var scale := DEFAULT_LENS_SCALE
@@ -118,9 +71,9 @@ func _resize_rt() -> void:
 	tex1.texture_rd_rid = _march1
 	RDU.free_rid(old0); RDU.free_rid(old1)
 
-## March this frame. `p` carries: holes (Array of {pos: Vector3 camera-relative,
-## rs: float scene units}), basis (the camera's world Basis), fov (rad), aspect,
-## time, disc_intensity, disc_temp, disc_tpeak_phys, disc_outer.
+## March this frame. `p`: holes (Array of {pos: camera-relative Vector3, rs: scene
+## units}), basis (camera world Basis), fov (rad), aspect, time, disc_intensity,
+## disc_temp, disc_tpeak_phys, disc_outer.
 func dispatch(p: Dictionary) -> void:
 	var holes: Array = p.holes
 	var b: Basis = p.basis

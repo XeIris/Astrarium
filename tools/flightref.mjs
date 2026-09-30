@@ -1,49 +1,37 @@
-// FLIGHT REFERENCE RUNNER — the web build's spaceflight model, flown headlessly
-// in Node, as the numeric reference for the GDScript port (tools/flightcheck.gd).
+// FLIGHT REFERENCE RUNNER: the web build's spaceflight model flown headlessly in
+// Node, as the numeric reference for tools/flightcheck.gd.
 //
 //   node tools/flightref.mjs [out.json]            run, write results
 //   node tools/flightref.mjs --fixture             (re)write the fixture only
 //   THREE_MODULE=/path/three.module.js node tools/flightref.mjs out.json
-//                                    same, against the real three r160 — the
-//                                    output must be identical to the stub's
+//                                    against real three r160; must match the stub
 //   node tools/flightref.mjs --compare js.json gd.json
 //                                    diff two result files, per scenario (worst number)
 //   node tools/flightdiff.mjs js.json gd.json [id]
-//                                    the same, broken down per field + event log
+//                                    per field, plus the event log
+// Godot side: Godot --headless --path . --script res://tools/flightcheck.gd --
+//   out=/abs/gd.json   (bench=1 for timings)
 //
-// The GDScript side: Godot --headless --path . --script
-//   res://tools/flightcheck.gd -- out=/abs/gd.json   (bench=1 for timings)
+// It imports the real web/sim/flight modules, with `three` resolved to
+// tools/flight_three_stub.mjs (r160's arithmetic, operation for operation). Only
+// spaceflight.js's vessel driver (begin(), the count, setWarp's interlock,
+// update()'s sub-stepping) is transcribed, identically to flightcheck.gd.
 //
-// It imports the REAL modules — sim/flight/{rocketry,vehicles,orbit,vessel,
-// guidance,relativity}.js — through a resolve hook that maps `three` onto
-// tools/flight_three_stub.mjs (r160's own Vector3/Quaternion arithmetic, copied
-// operation for operation). Nothing of the flight model is re-implemented here.
-//
-// What IS written here is the part of sim/flight/spaceflight.js that drives a
-// vessel — begin(), the terminal count, setWarp()'s interlock, and update()'s
-// sub-stepping — because spaceflight.js itself imports the renderer. Those few
-// lines are transcribed verbatim, and tools/flightcheck.gd transcribes the same
-// lines, so the two runners are one driver in two languages.
-//
-// THE SCENARIOS (the standing regression cases in AGENTS.md, plus coverage):
+// SCENARIOS
 //   saturnv / falcon9 / shuttle / starship  pad → count → ascent → insertion
 //   lm          Apollo LM from a 15 km lunar orbit, program 'land' (P63/P64/P66)
-//   f9booster   a Falcon 9 first stage alone, 70 km up, falling at 1 km/s with
-//               200 m/s of drift and 15% of its propellant — program
-//               'hoverslam' (entry burn on 3 engines, then the landing burn).
-//               BP/BV/BH env vars override the three numbers for exploring.
-//   skycrane    MSL at the entry interface its own `edl.entry` describes —
-//               program 'edl' (chute, backshell, powered descent, sky crane)
-//   skycrane_staged  the same, with a pilot pressing STAGE just before the
-//               backshell separation. The program's own separation is a
-//               jettison(), which drops the shell but lights nothing, so
-//               without the pilot the descent stage never ignites.
-//   lmdeorbit   the LM in a 110 km orbit, program 'deorbit' (node execution)
-//   leo_rails   a vessel in LEO at 1000× warp — the universal-variable propagator
+//   f9booster   a lone Falcon 9 first stage, 70 km up, falling at 1 km/s with
+//               200 m/s drift and 15% propellant: 'hoverslam'. BP/BV/BH env vars
+//               override the three numbers.
+//   skycrane    MSL at its `edl.entry` interface: 'edl'
+//   skycrane_staged  the same, with a pilot pressing STAGE just before backshell
+//               separation (the program's jettison drops the shell but lights
+//               nothing)
+//   lmdeorbit   the LM in a 110 km orbit: 'deorbit' (node execution)
+//   leo_rails   LEO at 1000× warp (the universal-variable propagator)
 //   hailmary    the relativistic Cruise to Tau Ceti at 1 000 000×
-// The orrery's bodies are FROZEN at the fixture's positions in both runners:
-// the flight model reads them, it does not move them, and freezing them keeps
-// the comparison about the port rather than about the n-body integrator.
+// Bodies are frozen at the fixture's positions in both runners, so the comparison is
+// about the flight model, not the n-body integrator.
 import { registerHooks } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -81,9 +69,8 @@ const unhex = (h) => Buffer.from(h, 'hex').readDoubleLE(0);
 const vhex = (v) => [hex(v.x), hex(v.y), hex(v.z)];
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
-// THE FIXTURE — the `solar` preset's bodies at FIXED phases (the preset draws
-// them at random). Same construction as sim/presets.js: orbiter() for the
-// planets, moonOf() for the Moon, radiusKm × AU_PER_KM for the radius.
+// THE FIXTURE: the `solar` preset's bodies at fixed phases, built as the preset
+// builds them.
 const G = 4 * Math.PI * Math.PI;
 const AU_PER_KM = 6.68459e-9;
 const circularSpeed = (M, r) => Math.sqrt(G * M / r);
@@ -148,9 +135,8 @@ function morningLongitude(bodies, body) {
   return sub - 22;
 }
 
-// The derived vehicles some scenarios fly. A lone booster is the Falcon 9's own
-// first stage with only its landing reserve in the tanks — the same spec object
-// the ascent flies, so nothing about it is re-stated.
+// Derived vehicles: a lone booster is the Falcon 9's first stage with only its
+// landing reserve.
 function vehicleFor(sc) {
   const veh = VEHICLES[sc.vehicle];
   if (!sc.stages) return veh;
@@ -291,10 +277,8 @@ function frame(S, dt) {
   }
 }
 
-// A PILOT's hand on the staging button — the one scripted input any scenario
-// makes. `pilotStage` stages once, just before the EDL program's own backshell
-// separation would fire (it fires at 1.8 km or 100 m/s; this at 1.9 km or
-// 105 m/s). See the skycrane_staged scenario for why a pilot is needed at all.
+// A pilot's hand on STAGE, the one scripted input: once, just before the EDL
+// program's own backshell separation (1.9 km or 105 m/s vs its 1.8 km or 100 m/s).
 const _air = new THREE.Vector3();
 function pilot(S) {
   const sc = S.sc, v = S.vessel;
@@ -303,9 +287,8 @@ function pilot(S) {
   if (v.altitude() < 1900 || speed < 105) { v.stage(); S.piloted = true; }
 }
 
-// The one policy the driver adds: which rung it ASKS for. Launches coast to
-// apoapsis at `coastWarp` once the insertion loop is waiting; everything else
-// asks for `warp`. setWarp's interlock decides what it actually gets.
+// The warp the driver asks for: `coastWarp` while waiting to insert, else `warp`;
+// setWarp's interlock decides.
 function wantWarp(S) {
   const sc = S.sc, ap = S.ap, v = S.vessel;
   if (S.cruise) return WARPS.length - 1;

@@ -1,30 +1,20 @@
-// ORBITAL SWARM — the particles of a painted ring or belt (sim/painter.gd).
-// The web build advanced every particle's Kepler orbit on the CPU each frame
-// and uploaded the positions. Here the same analytic solution runs in the
-// VERTEX SHADER: each point carries its orbital elements as attributes, and
-// only the clock is a uniform. The solution is exact for a test particle
-// (painter.gd's header says why), so moving it to the GPU changes nothing but
-// where it is evaluated — except precision, which is the one thing to get right.
+// ORBITAL SWARM: the particles of a painted ring or belt (sim/painter.gd), with each
+// particle's analytic Kepler orbit solved in the vertex shader from its elements;
+// only the clock is a uniform.
 //
-// THE CLOCK IN FLOAT32. The mean anomaly M = M0 + n t is what drifts: a ring
-// particle near Saturn has n ~ 1e4 rad/yr, so after a few hundred simulated
-// years n t is ~1e6 rad, where one float32 ulp is 0.06 rad and the ring would
-// visibly step. So the phase is formed in REVOLUTIONS with both factors split:
-//
+// THE CLOCK IN FLOAT32. M = M0 + n t drifts: near Saturn n ~ 1e4 rad/yr, and after
+// centuries n t ~ 1e6 rad, where a float32 ulp is 0.06 rad. So the phase is in
+// revolutions with both factors split:
 //     nu = nu_hi + nu_lo        (nu_hi carries 12 significant bits)
 //     t  = t_hi  + t_lo         (t_hi carries 12 significant bits)
-//
-// nu_hi * t_hi is then a 24-bit product and EXACT in float32, so its fractional
-// part is exact however large it is; the three cross terms are each ~2^-11 of
-// the whole and lose nothing that matters. The CPU does the splitting (in
-// double), once per particle for nu and once per frame for t.
+// nu_hi * t_hi is an exact 24-bit product, so its fraction is exact; the cross terms
+// are ~2^-11 of the whole. The CPU splits in double (nu per particle, t per frame).
 //
 // CUSTOM0 = (a [AU], e, nu_hi, nu_lo)     nu in revolutions per year
 // CUSTOM1 = (M0, inclination, node, argument of periapsis)
 // CUSTOM2 = (size, shade, 0, 0)
 //
-// Transparent, NormalBlending → blend_mix; temperature pass writes 1 at the
-// point's own alpha (docs/godot.md).
+// Transparent (blend_mix); the temperature pass writes 1 at the point's own alpha.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 
@@ -38,9 +28,7 @@ uniform float uScale = 1.0;      // scene units per AU
 
 varying float vShade;
 
-// Solve Kepler's equation M = E − e sin E for the eccentric anomaly.
-// Two Newton steps from a good initial guess are accurate to ~1e-10 (in
-// double; to float32 here) for the eccentricities anything here uses.
+// Kepler's equation M = E − e sin E: two Newton steps from a good guess.
 float eccentricAnomaly(float M, float e) {
 	float Ea = M + e * sin(M) * (1.0 + e * cos(M));
 	for (int i = 0; i < 2; i++) {
@@ -76,12 +64,8 @@ void vertex() {
 	// Model space; MODEL_MATRIX's translation is the pinned body's offset from
 	// the camera (floating origin), so the transformed point is small near it.
 	VERTEX = p;
-	// Constant size in PIXELS, deliberately. A ring particle is somewhere
-	// between a grain and a house, sitting in a ring a hundred thousand
-	// kilometres wide: its true angular size is unresolvable at every
-	// distance from which the ring is visible at all, so it is a point
-	// source and stays one. Sizing these with distance would draw the
-	// particles as boulders the size of moons the moment you flew close.
+	// Constant pixel size: a ring particle is unresolvable from any distance where the
+	// ring is visible, so it stays a point source.
 	POINT_SIZE = uSize * CUSTOM2.x;
 }
 

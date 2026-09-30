@@ -1,31 +1,15 @@
 class_name Climate
 extends RefCounted
 
-# CLIMATE — a zero-dimensional energy-balance model (EBM)
-# The oldest real climate model there is, and the right one here: it captures
-# exactly the physics that makes Trisolaris terrifying.
-#
+# CLIMATE: a zero-dimensional energy-balance model.
 #   C · dT/dt = (1 − α(T)) · S/4  −  ε σ T⁴
-#
-#   S      total stellar flux at the planet, summed over every star:
-#          S = Σ L_i / d_i²   (in solar constants, then × 1361 W/m²)
-#   α(T)   planetary albedo, which RISES as the planet freezes — the
-#          ice-albedo feedback. This is the runaway: a cold snap grows ice,
-#          ice reflects sunlight, which deepens the cold snap. Cross the
-#          threshold and the planet snowballs and never comes back.
-#   ε      effective emissivity, i.e. the greenhouse. ε = 0.61 is calibrated
-#          so Earth (S = 1, α = 0.3) sits at 288 K.
-#   C      heat capacity of the ocean mixed layer — the planet's thermal
-#          flywheel. A deep ocean damps the swings; a shallow one lets the
-#          temperature whip around with the orbit.
-#
-# The result is emergent, not scripted: Stable Eras and Chaotic Eras fall out
-# of the orbit, and a bad enough Chaotic Era genuinely sterilises the world.
-#
-# PORT NOTE. Fields are the JS names in snake_case (`mixedLayer` →
-# `mixed_layer`, `perStar` → `per_star`); the physics symbols `T` and `S` keep
-# their case. `per_star` rows, `era` and `extremes` are Dictionaries with the JS
-# keys, and `history` rows are [simYear, S, T] Arrays, as before.
+#   S     total stellar flux, Σ L_i / d_i² (solar constants × 1361 W/m²)
+#   α(T)  albedo rising as the planet freezes: the ice-albedo runaway
+#   ε     effective emissivity (the greenhouse); 0.61 puts Earth at 288 K
+#   C     ocean mixed-layer heat capacity, the thermal flywheel
+# Stable and Chaotic Eras come out of the orbit; a bad enough era sterilises the
+# world. `per_star` rows, `era` and `extremes` are Dictionaries; `history` rows are
+# [simYear, S, T].
 
 const S0 := 1361.0             # solar constant, W/m²
 const SIGMA := 5.670374e-8     # Stefan–Boltzmann, W m⁻² K⁻⁴
@@ -68,18 +52,15 @@ func _init(opts: Dictionary = {}) -> void:
 	albedo_base = float(U.nz(opts.get("albedoBase"), 0.22))
 	albedo_ice = float(U.nz(opts.get("albedoIce"), 0.45))
 	T = float(U.nz(opts.get("T0"), 288.0))
-	# Seeded from the empty interval, not from 1 S⊕: step() only ever narrows
-	# these with min/max, so a seed of 1 is reported as an observed extreme on
-	# a world that never receives exactly one solar constant. Trisolaris ranges
-	# 0.40–3.08 S⊕, so Smin would read a fictitious 1.00 until the first dip.
+	# Seed S extremes from the empty interval, or a fictitious 1.00 S⊕ is reported as
+	# observed.
 	extremes = { "Tmin": T, "Tmax": T, "Smin": INF, "Smax": -INF }
 
 var heat_capacity: float:       # J m⁻² K⁻¹
 	get: return mixed_layer * RHO_CW
 
-# Radiative relaxation time of the planet, in years — how long it takes to
-# respond to a change in sunlight. Compare it to the orbital period to know
-# whether the world can even "feel" a season.
+# Radiative relaxation time (yr): compare with the orbital period to see whether
+# seasons register.
 var tau_years: float:
 	get: return heat_capacity / (4.0 * greenhouse * SIGMA * pow(T, 3.0)) / YEAR_S
 
@@ -139,9 +120,7 @@ func step(dt_years: float, planet: Body, stars: Array) -> void:
 		T = maxf(T, 3.0)
 		ice = ab.ice
 
-	# Diagnostics that ride on temperature: humidity → cloud → weather.
-	# Saturation vapour pressure roughly doubles every 10 K (Clausius–Clapeyron),
-	# so a warm world is a wet, cloudy, stormy one.
+	# Humidity → cloud → weather: saturation vapour pressure roughly doubles every 10 K.
 	var cc := pow(2.0, (T - 288.0) / 10.0)
 	humidity = minf(1.0, cc * (1.0 - ice) * 0.5)
 	clouds = minf(0.95, 0.12 + humidity * 0.75)
@@ -164,10 +143,7 @@ func step(dt_years: float, planet: Body, stars: Array) -> void:
 
 func reset(T0: float = 288.0) -> void:
 	T = T0; time = 0.0; history.clear()
-	# Every derived quantity has to go back with it. sim/world.gd reads cl.ice
-	# straight into the surface shader and the HUD reads era/clouds, so leaving
-	# these behind leaves the old run's ice caps and era badge on screen until
-	# the next step() completes.
+	# Reset every derived quantity too (world.gd reads ice, the HUD era and clouds).
 	S = 1.0; ice = 0.0; clouds = 0.4; humidity = 0.5
 	era = ERAS.STABLE
 	per_star.clear(); _acc = 0.0

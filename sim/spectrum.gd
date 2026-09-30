@@ -1,55 +1,22 @@
 class_name Spectrum
 extends RefCounted
 
-# SIMULATED MULTI-WAVELENGTH IMAGING
-# Real astronomy almost never looks at things in visible light. The same black
-# hole is a faint smudge to the eye, a blazing point in X-rays, and a pair of
-# jets in the radio — because what you see is not "the object" but the object's
-# Planck spectrum sampled through one narrow window.
+# MULTI-WAVELENGTH IMAGING: re-image the frame through a chosen band, from each
+# pixel's emitting temperature. Emitters (disc, photospheres, neutron-star
+# surfaces) publish their true temperature through the temperature pass, zipped
+# into the HDR alpha by shaders/post/compose.glsl (docs/godot.md). Lit geometry
+# without data falls back to T from colour (it was coloured from the Planck locus).
+# The sky is composited per band by sim/sky.gd and marked SKY_ALPHA.
 #
-# This module re-images the rendered frame through a chosen window. It needs
-# one thing per pixel that a colour buffer does not normally carry: the
-# emitting material's TEMPERATURE. So the emitters publish it directly —
-# the accretion disc, stellar photospheres and neutron-star surfaces each
-# write their true temperature, log-encoded, into the alpha channel of the HDR
-# buffer. Pixels with no such data (lit geometry) fall back to inferring T from
-# colour, which works because those were coloured from the Planck locus in the
-# first place.
-#
-# (In the Godot build that "alpha channel" is produced by a second camera over
-# the same world — the temperature pass — and zipped back into the HDR buffer's
-# alpha by shaders/post/compose.glsl. Everything downstream of that is the web
-# build's chain unchanged. See docs/godot.md.)
-#
-# The celestial background does neither. sim/sky.gd composites it at the band's
-# own frequency and marks it with SKY_ALPHA so the remap hands it straight to
-# the palette. It has to work that way, because the non-visible sky is mostly
-# non-thermal and has no temperature for a Planck ratio to consume.
-#
-# THE CHAIN, PER PIXEL (shaders/post/remap.glsl)
-#
-#   1. Recover T — from alpha where an emitter published it, otherwise from the
-#      blue/red ratio in linear light, which is monotonic along the Planck locus.
-#
-#   2. Evaluate the band's surface brightness relative to the band's reference
-#      temperature. With B_ν = 2hν³/c² / (exp(hν/kT) − 1), the ν³ prefactor is
-#      common to both and cancels, leaving only the Planck exponent — which is
-#      the whole story anyway, because the Wien cutoff is what makes the bands
-#      differ. A source appears in a band if and only if kT is comparable to
-#      hν. Everything is computed in logs: hν/kT reaches ~1750 for soft X-rays
-#      off a 6000 K star, which overflows a float on the first line otherwise.
-#
-#   3. The rendered luminance is used only as a coverage mask — "is there
-#      emitting material on this pixel" — never as the band radiance.
-#
-#   4. Per-band gain, log stretch, false-colour ramp. All three are what a real
-#      observatory image does.
-#
-# WHAT THIS IS NOT: it re-images blackbody continuum only. Real non-thermal
-# emission — synchrotron from a jet, cyclotron lines, molecular lines, 21 cm —
-# is not modelled, and neither is reflected starlight or a planet's own thermal
-# glow, which is why worlds go dark outside the visible here when a real
-# infrared image would show them plainly.
+# PER PIXEL (shaders/post/remap.glsl):
+#   1. T from alpha, else from the blue/red ratio (monotonic on the Planck locus).
+#   2. The band's surface brightness relative to its reference temperature: with
+#      B_ν = 2hν³/c² / (exp(hν/kT) − 1) the ν³ cancels, leaving the Planck
+#      exponent (the Wien cutoff). Computed in logs: hν/kT reaches ~1750.
+#   3. Rendered luminance is only a coverage mask.
+#   4. Per-band gain, log stretch, false-colour ramp.
+# Blackbody continuum only: no synchrotron, lines, reflected light or planetary
+# thermal glow, so worlds go dark outside the visible.
 
 ## h/k, in kelvin·seconds — converts a frequency straight to the temperature
 ## scale where that frequency's Planck exponent is unity.
@@ -59,13 +26,8 @@ const H_OVER_K := 4.799243e-11
 ## a = ln(T) / TEMP_LOG_SCALE, clamped below 1 (1.0 is reserved: "no data").
 const TEMP_LOG_SCALE := 25.33
 
-# Each band's gain is set the way an observer sets one: expose for the
-# brightest target actually in the field. `trefFactor` scales the hottest
-# source present (a factor of 1 puts it near full scale, larger under-exposes),
-# and `trefFloor` is a hard physical limit that scene-adaptive exposure must
-# never cross — it is what keeps the statement "you need a million kelvin to
-# emit soft X-rays" true. Without the floor, auto-exposure would happily make
-# a 5000 K star blaze in the gamma band.
+# Per-band exposure: `trefFactor` scales the hottest source in the field, and
+# `trefFloor` is a hard limit so a 5000 K star can't blaze in gamma.
 const BANDS := [
 	{
 		"id": "radio", "label": "Radio", "short": "RADIO",

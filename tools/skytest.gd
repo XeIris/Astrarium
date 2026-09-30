@@ -1,32 +1,23 @@
 extends Harness
-# ISOLATED SKY VIEWER — the port of .claude/skytest.html. Not part of the sim:
-# it renders the sky (shaders/sky/sky.gdshaderinc via the pipeline's
-# background shaders) on its own, through the full post chain, with a camera
-# you can aim exactly, so the background can be judged without a scene, a mesh
-# or a black hole in front of it. Hunting for the galactic band inside a live
-# preset wastes a lot of time; here it is always in the same place.
+# ISOLATED SKY VIEWER, the Godot counterpart of web/.claude/skytest.html: the sky
+# alone through the full post chain with an exactly aimed camera.
 #
-#   keys   1-7 band   e environment   arrows aim   z/x zoom   (as skytest.html)
+#   keys   1-7 band   e environment   arrows aim   z/x zoom
 #
 #   Godot --path . res://tools/skytest.tscn -- out=/abs/x.png \
 #         band=3 env=disc yaw=0 pitch=0 fov=50 tilt=0 roll=0 w=1280 h=720
 #
-# yaw/pitch are RADIANS (skytest.html's aim(y, p)), fov is degrees, and the
-# galactic frame is skytest.html's { tilt: 0, roll: 0 } unless tilt/roll are
-# given. `env` takes a name or a comma list (blended at weight 1 each).
-# `beta=x,y,z` sets the observer's boost (v/c), the relativistic-cruise sky.
+# yaw/pitch in radians, fov in degrees; the galactic frame is { tilt: 0, roll: 0 }
+# unless given. `env` takes a name or a comma list (weight 1 each). `beta=x,y,z`
+# sets the observer's boost (v/c).
 #
-# SURFACE MODE (`surface=/abs/state.json`): the atmosphere composite of
-# sim/skyview.gd over this sky, driven by a SurfaceObserver standing on a
-# stand-in home world. The JSON is a web-build state dump (see
-# tools/ref/sky/README.md for the webref shot that writes it): the home
-# world's scene position, radius, spin phase and group quaternion, the suns'
-# scene positions/colours/intensities/angular radii, the observer's
-# latitude/azimuth/elevation/fov, the eye-adaptation exposure, the climate
-# numbers and the sky spec. The stand-in is a Body with that scene_pos and a
-# Node3D "group" carrying that quaternion — exactly what SurfaceObserver reads
-# — and nothing is drawn for the world itself (the web build hides it too).
-# The observer's frame is then compared against the web's own (printed).
+# SURFACE MODE (`surface=/abs/state.json`): sim/skyview.gd's atmosphere over this
+# sky, from a web state dump (tools/ref/sky/README.md): the home world's scene
+# position, radius, spin phase and group quaternion; the suns; the observer's
+# latitude, azimuth, elevation and fov; exposure, climate and sky spec. The
+# stand-in is a Body plus a Node3D "group" with that quaternion (what
+# SurfaceObserver reads); the world itself isn't drawn. The observer frame is
+# printed beside the web's.
 
 var yaw := 0.0
 var pitch := 0.0
@@ -74,11 +65,8 @@ func _setup() -> void:
 	elif args.has("lens"):
 		_setup_lens(str(args.lens))
 	else:
-		# skytest.html calls createPostFX(renderer) and never touches it, so its
-		# chain runs on sim/postfx.js's INITIAL uniform values — not the sim
-		# page's FX_DEFAULTS, which only the settings panel writes (and which
-		# render/postfx.gd defaults to). Same page, same chain. (Surface mode is
-		# compared against the sim page, so it keeps FX_DEFAULTS.)
+		# skytest.html runs its post chain on the initial uniform values, not the settings
+		# panel's defaults, so match that. (Surface mode keeps the defaults.)
 		pipe.postfx.bloom = 0.11
 		pipe.postfx.threshold = 1.5
 		pipe.postfx.knee = 0.7
@@ -183,10 +171,9 @@ func _unhandled_input(e: InputEvent) -> void:
 		return
 	apply()
 
-# lens mode — the sky seen through the real marcher (render/lens_pass.gd),
-# with the web frame's own holes, camera and disc numbers. The disc is off in
-# the reference shots (discIntensity 0), so what is compared is the lensed sky
-# alone: AGENTS.md's standing check that the arcs are strings of crisp points.
+# lens mode: the sky through the real marcher with the web frame's holes, camera
+# and disc numbers, disc off, so the lensed sky alone is compared (arcs must be
+# strings of crisp points).
 func _setup_lens(path: String) -> void:
 	var d = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not (d is Dictionary):
@@ -244,10 +231,8 @@ func _setup_surface(path: String) -> void:
 	sky_pass = SkyView.create_sky_pass()
 	sky_pass.exposure = float(d.get("exposure", 1.0))
 	pipe.surface_pass = sky_pass
-	# The orchestrator anchors the band gain to the hottest emitter every frame
-	# (postfx.setSceneTemp(sceneMaxTemp())); the surface pass publishes no
-	# temperatures, so in a non-visible band everything is inferred from colour
-	# against that reference, and it has to be the web frame's.
+	# Anchor the band gain to the web frame's hottest-emitter temperature (the surface
+	# pass publishes none).
 	if d.has("sceneT"):
 		pipe.postfx.set_scene_temp(float(d.sceneT))
 

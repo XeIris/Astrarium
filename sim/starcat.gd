@@ -1,37 +1,21 @@
 class_name Starcat
 extends RefCounted
 
-# A CATALOGUE OF REAL STARS
-# Everything else in this sim is generated: masses go in, a mass–luminosity
-# relation comes out, and the result is a plausible star rather than a
-# particular one. This file is the opposite. Every entry is a measured object,
-# and the numbers are the measurements — mass, radius, effective temperature,
-# luminosity, rotation — not what the scaling relations would have predicted.
+# A CATALOGUE OF REAL STARS: measured mass, radius, temperature, luminosity and
+# rotation, not what the scaling relations predict (Betelgeuse's 16.5 M☉ gives
+# 4.9 R☉ on the main-sequence relation; it is 764. Sirius B's 1.02 M☉ gives 1.0 R☉;
+# it is 0.0084). Each entry carries its evolutionary `phase` for the interior model.
 #
-# That distinction is the point of the file. Feeding Betelgeuse's 16.5 M☉ into
-# a main-sequence radius relation returns 4.9 R☉; Betelgeuse is 764. Feeding
-# Sirius B's 1.02 M☉ into one returns 1.0 R☉; Sirius B is 0.0084. The scaling
-# relations are not wrong, they simply describe main-sequence stars, and half
-# of the famous ones are not on the main sequence. So each entry also carries
-# its evolutionary `phase`, which is what lets the cross-section view show a
-# red supergiant's onion shells rather than a scaled-up Sun.
+# Sources: interferometry (CHARA, VLTI/AMBER, NPOI), asteroseismology and binary
+# orbital solutions; distances from Hipparcos/Gaia. Contested values (Betelgeuse's
+# radius and distance) are noted.
 #
-# SOURCES. Masses, radii and temperatures are the values in general use from
-# interferometry (CHARA, VLTI/AMBER, NPOI), asteroseismology, and orbital
-# solutions for the binaries; distances are Hipparcos/Gaia parallaxes. Where a
-# quantity is genuinely contested — Betelgeuse's radius and distance above all,
-# which have moved by 30% within the last decade — the note says so.
+# `oblate` is the measured R_eq/R_pol, and the spin fraction is derived from it
+# (Structure.inverse_roche_shape), since interferometry measures shape better than
+# equatorial velocity. Vega's 236 km/s independently predicts 1.192 against a
+# measured 1.193.
 #
-# ROTATION. `oblate` is the MEASURED R_equator / R_polar, and the sim works
-# backwards from it to the fraction of break-up rotation (see
-# Structure.inverse_roche_shape). This is the right way round: interferometry
-# measures a star's shape far more precisely than its equatorial velocity,
-# which needs an inclination to be known. Vega's measured 236 km/s
-# independently predicts a ratio of 1.192 against a measured 1.193 — see the
-# note there.
-#
-# PORT NOTE. Entries and the specs built from them are Dictionaries with the
-# web build's keys verbatim; `pos`/`vel` are 3-element Arrays of floats.
+# Entries and specs are Dictionaries; `pos`/`vel` are 3-element Arrays.
 
 # mass  M☉        radius R☉ (polar, if oblate is given)
 # teff  K         luminosity L☉         dist  light years
@@ -175,8 +159,7 @@ const STAR_CATALOG := {
 }
 
 # Turn a catalogue key into a body spec the sim can spawn.
-## `extra` is merged over the catalogue fields ({...extra} in the JS). An
-## unknown key is an error there (it throws); here it pushes an error and
+## `extra` is merged over the catalogue fields. An unknown key pushes an error and
 ## returns {}.
 static func star_spec(key: String, extra: Dictionary = {}) -> Dictionary:
 	if not STAR_CATALOG.has(key):
@@ -205,21 +188,10 @@ static func star_spec(key: String, extra: Dictionary = {}) -> Dictionary:
 
 # SCENARIO BUILDERS
 
-# A ring of stars, each started on a genuinely circular orbit.
-#
-# The usual way to build a display like this is to place the bodies and give
-# them a speed from √(GM_total/R), which is only correct for one body orbiting
-# a central mass — there is no central mass here, and the ring members pull on
-# each other as hard as anything else does. So instead, sum the actual
-# N-body acceleration on each member at t = 0, take its inward component, and
-# set that body's speed from v = √(a_r · R). Each star then starts in exact
-# circular balance with the real force acting on it.
-#
-# It will still come apart. A ring of unequal masses has no stable mode — the
-# heavy members perturb the light ones, the ring buckles, and within a few
-# revolutions it is an ordinary chaotic N-body system. That is the correct
-# answer and the blurb says so; the alternative would be to freeze the bodies
-# in place and stop calling it a simulation.
+# A ring of stars, each started circular against the real N-body force: sum the
+# acceleration on each member at t = 0 and set v = √(a_r · R) (there is no central
+# mass for √(GM/R)). It still comes apart: unequal masses have no stable mode, and
+# the blurb says so.
 static func star_ring(keys: Array, radius_au: float, opts: Dictionary = {}) -> Array:
 	var n := keys.size()
 	var specs := []
@@ -252,9 +224,8 @@ static func star_ring(keys: Array, radius_au: float, opts: Dictionary = {}) -> A
 		s.vel = [-sin(th) * v, 0.0, cos(th) * v]
 	return specs
 
-# A real visual binary from its published orbital elements. Both stars are
-# placed about their common barycentre on the true ellipse, at the true
-# anomaly asked for, with the exact vis-viva speed for that point.
+# A real visual binary from published elements: both stars about their barycentre
+# on the true ellipse at the given anomaly, at the vis-viva speed.
 ## `el` = { a, e, incl = 0, nu = PI }.
 static func real_binary(key_a: String, key_b: String, el: Dictionary) -> Array:
 	var A := star_spec(key_a)
@@ -287,10 +258,8 @@ static func _share(spec: Dictionary, rel_pos: Array, rel_vel: Array, k: float) -
 static func companion(central_mass: float, a_au: float, spec: Dictionary, angle: float = 0.0, incl: float = 0.0) -> Dictionary:
 	var v := Physics.circular_speed(central_mass, a_au)
 	var o := spec.duplicate()
-	# Rotate the whole state about the line of nodes (the x axis), the way
-	# real_binary above does. Tilting only the y COORDINATE by an arbitrary 0.05
-	# left the velocity flat in xz, so the body did not orbit in the plane it
-	# claimed — it started off it and precessed out.
+	# Rotate the whole state about the line of nodes (x), as real_binary does, so the
+	# velocity lies in the orbit plane too.
 	o.pos = [cos(angle) * a_au,
 			sin(angle) * sin(incl) * a_au,
 			sin(angle) * cos(incl) * a_au]

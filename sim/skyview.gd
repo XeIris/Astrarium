@@ -1,50 +1,31 @@
 class_name SkyView
 extends RefCounted
 
-# SURFACE VIEW — standing on the planet, looking up.
-# Rendered as a full-screen composite pass (same structure as the lensing pass)
-# rather than as dome geometry, so there are no depth-precision or draw-order
-# fights between a sky that spans 5 orders of magnitude and stars 30 AU away.
+# SURFACE VIEW: standing on the planet looking up, as a full-screen composite pass
+# (no depth or draw-order fights across the sky's dynamic range). Single-scattering
+# Rayleigh + Mie, per sun, summed:
+#   L(v) = Σ_i I_i · T(m_sun,i) · (β_s·P(θ_i)/β_e) · (1 − exp(−β_e·m_view))
+#   β_R ∝ 1/λ⁴   blue sky, red low sun
+#   P_M          Henyey–Greenstein, g = 0.76: the aureole round each sun
+#   m            Kasten–Young air mass, so each sun reddens on its own schedule
+# So one sun can set red while another burns white overhead.
 #
-# The sky is single-scattering Rayleigh + Mie, evaluated INDEPENDENTLY FOR
-# EVERY SUN and summed:
-#
-#   L(v) = Σ_i  I_i · T(m_sun,i) · (β_s·P(θ_i)/β_e) · (1 − exp(−β_e·m_view))
-#
-#   β_R ∝ 1/λ⁴  → the sky is blue, and a low sun is red because its light has
-#                 crossed a long air mass and lost the blue end.
-#   P_M          Henyey–Greenstein, g = 0.76 → the bright aureole hugging each sun.
-#   m            Kasten–Young air mass, so the reddening is driven by real
-#                 geometry: each sun reddens on its own schedule as it sets.
-#
-# Because the terms are per-sun, a Trisolaran sky does what the books describe:
-# one sun can be setting red on one horizon while another burns white overhead,
-# the shadows cross, and the sky colour is the sum of all of them.
-#
-# IN GODOT. The web build's createSkyPass() was a ShaderMaterial on a quad that
-# read `tScene` and wrote postfx's HDR target. Here the fragment shader is the
-# compute kernel shaders/sky/surface.glsl, and SkyPass (below) is the object
-# render/pipeline.gd calls as `pipe.surface_pass`: PostFX.render_rt runs it ON
-# THE RENDER THREAD between compose and the band remap, with the composed HDR
-# buffer (scene colour + temperature alpha) as tScene. Its uniforms are the
-# web build's set, by name, in `SkyPass.u`; the orchestrator writes them on the
-# main thread and calls commit(), which packs them into the std140 block the
-# kernel reads (or calls update_frame(), which is the web render loop's whole
-# surface-view block and commits at the end).
+# The kernel is shaders/sky/surface.glsl; SkyPass is `pipe.surface_pass`, run on the
+# render thread by PostFX.render_rt between compose and the band remap, with the
+# composed HDR buffer as tScene. The orchestrator writes `SkyPass.u` on the main
+# thread and calls commit() (or update_frame(), which commits), packing the std140
+# block.
 
 const MAX_SUNS := Suns.MAX_SUNS
 
-## Create the surface-view composite (the web build's createSkyPass()).
+## Create the surface-view composite.
 static func create_sky_pass() -> SkyPass:
 	return SkyPass.new()
 
 # THE SKY PASS
 class SkyPass extends RefCounted:
-	## The web build's `skyPass.material.uniforms`, by name, with its defaults.
-	## tScene is not here: the pipeline hands the source buffer to dispatch().
-	## uCamMat is the camera's world Basis (the web's matrixWorld — only its
-	## rotation was ever used, as a direction transform). uCamPos is carried for
-	## parity; the shader never read it, in either build.
+	## The pass uniforms by name, with defaults (tScene comes via dispatch()). uCamMat is
+	## the camera's world Basis (a direction transform); uCamPos is unused.
 	var u := {
 		"uCamPos": Vector3.ZERO,
 		"uCamMat": Basis(),
@@ -60,8 +41,7 @@ class SkyPass extends RefCounted:
 		"uClouds": 0.4, "uHumidity": 0.4, "uStorm": 0.2,
 		"uTime": 0.0, "uNight": 0.0, "uExposure": 1.0,
 	}
-	## Surface-view eye adaptation — the web build's `state.exposure` (initially
-	## 1, and kept across visits to the surface, as the web kept it on state).
+	## Surface-view eye adaptation (starts at 1, kept across visits to the surface).
 	var exposure := 1.0
 
 	const UBO_FLOATS := 4 * (2 * 4 + 8)
@@ -112,17 +92,14 @@ class SkyPass extends RefCounted:
 			f[32 + k] = vals[k]
 		_bytes = f.to_byte_array()
 
-	## The web render loop's surface-view block, verbatim in effect: sun
-	## directions from the observer's eye, the eye adaptation, the observer
-	## frame, the camera, the clock and the climate — then commit().
-	##
+	## The surface view's per-frame block: sun directions from the eye, eye adaptation,
+	## observer frame, camera, clock and climate, then commit().
 	##   observer  SkyView.SurfaceObserver, already update()d this frame
 	##   camera    the orrery camera it placed (pipe.scene_cam)
-	##   suns      the frame's sun list (docs/godot.md ctx.suns), brightest
-	##             first: {body: Body, color: Color (linear), intensity: float,
-	##             ang_radius: float}; `pos_rel` is used only if `body` is absent
+	##   suns      the frame's sun list, brightest first: {body, color (linear),
+	##             intensity, ang_radius}; `pos_rel` only if `body` is absent
 	##   climate   the home world's Climate (object or Dictionary) or null
-	##   dt        the frame's wall-clock step, seconds
+	##   dt        wall-clock step, s
 	##   aspect    render width / height
 	func update_frame(observer, camera: Camera3D, suns: Array, climate, dt: float, aspect: float) -> void:
 		var n := mini(suns.size(), MAX_SUNS)
@@ -148,12 +125,9 @@ class SkyPass extends RefCounted:
 		u.uSunAng = angs
 		u.uSunCount = n
 
-		# Eye adaptation. Without it the view is either a black night or a white
-		# day: three suns of different luminosity crossing the sky span a huge
-		# dynamic range. Target exposure falls as the ground gets brighter, and the
-		# eye takes a moment to follow — so a sunrise dazzles briefly, then settles.
-		# No daylight floor: close/multiple suns can exceed Earth's irradiance by
-		# orders of magnitude. A fixed minimum would wash those skies out again.
+		# Eye adaptation: target exposure falls as the ground brightens, eased, so a sunrise
+		# dazzles and settles. No daylight floor: close or multiple suns can exceed Earth's
+		# irradiance by orders of magnitude.
 		var target := minf(0.32 / (0.12 + illum), 1.9)
 		var adapt := 1.0 - exp(-dt / 1.6)              # ~1.6 s time constant
 		exposure += (target - exposure) * adapt
@@ -196,22 +170,14 @@ class SkyPass extends RefCounted:
 			RDU.free_rid(ubo); RDU.free_rid(smp)
 			if k: k.release())
 
-# SURFACE OBSERVER
-# Places the camera on the planet's surface at a chosen latitude and rides the
-# planet's rotation, so the suns rise and set because the ground is turning —
-# not because anything is animating them.
-#
-# IN GODOT, under the floating origin. The camera sits at the origin, so this
-# sets only the camera's ORIENTATION (plus fov and near) and publishes `eye`,
-# the absolute scene position, in double precision: the orchestrator uses it as
-# the frame's cam_pos and places every node relative to it. The home body's
-# orientation comes from its visual's `group` (the node carrying the axial
-# tilt, as the web build's viz.group did — the spin is NOT on it; it is
-# `spin_phase`, applied here), its radius from `viz.R` (falling back to
-# b.radius_scene), and its position from b.scene_pos.
+# SURFACE OBSERVER: the camera on the surface at a latitude, riding the planet's
+# rotation, so suns rise because the ground turns. Under the floating origin it sets
+# only orientation, fov and near, and publishes `eye` (absolute scene position, in
+# double) as the frame's cam_pos. The body's tilt comes from its visual's `group`,
+# its spin from `spin_phase` (applied here), its radius from `viz.R` (else
+# b.radius_scene), its position from b.scene_pos.
 class SurfaceObserver extends RefCounted:
-	## The near plane the web build set on entering the surface view
-	## (setCamMode('surface')), applied here on every update.
+	## The surface view's near plane, applied on every update.
 	const NEAR := 0.002
 
 	var latitude := 0.38     # radians
@@ -225,9 +191,7 @@ class SurfaceObserver extends RefCounted:
 	## The look direction this update produced (world space).
 	var look_dir := Vector3(0, 0, -1)
 
-	## The planet's orientation as a quaternion: the web build's
-	## g.getWorldQuaternion(). Rotation only — the orchestrator may put a scale
-	## (oblateness, size ease) on the same node.
+	## The planet's orientation (rotation only; the node may also carry scale).
 	static func home_quat(planet: Body) -> Quaternion:
 		var g = planet.viz.group if planet.viz != null else null
 		if g == null:
@@ -274,9 +238,6 @@ class SurfaceObserver extends RefCounted:
 		camera.transform = Transform3D(Basis.looking_at(lk, up), Vector3.ZERO)
 		camera.fov = fov
 		camera.near = NEAR
-		# (The web build had to call camera.updateMatrixWorld(true) here so the
-		# sky pass would not build its rays from last frame's orientation. A
-		# Godot transform is current the moment it is assigned.)
 
 	func look(dx: float, dy: float) -> void:
 		azimuth += dx

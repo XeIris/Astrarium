@@ -1,102 +1,54 @@
 class_name Lessons
 extends RefCounted
 
-# THE COURSE
-# A beginner's astronomy syllabus, written against the running simulation.
+# THE COURSE: a beginner's astronomy syllabus written against the running sim.
+# Module order follows OpenStax *Astronomy 2e*; lessons are chosen against the
+# Nebraska Astronomy Applet Project's lab modules (the ideas that need a simulator,
+# not a paragraph); the framing is the IAU's Big Ideas in Astronomy.
 #
-# WHERE THE SHAPE OF IT COMES FROM. The module order follows the standard
-# introductory university sequence — OpenStax *Astronomy 2e*, which is the free
-# text most first-year courses in the US now use: sky and seasons, gravity and
-# orbits, light and spectra, the Sun, the stars, stellar death, black holes,
-# galaxies, cosmology, other worlds. The individual lessons are chosen against
-# the Nebraska Astronomy Applet Project's fifteen lab modules (seasons, lunar
-# phases, planetary orbits, blackbody curves, the HR diagram, eclipsing
-# binaries, extrasolar planets, the cosmic distance ladder, habitable zones) —
-# that list is, in effect, a published answer to the question "which ideas in
-# introductory astronomy are the ones that need a simulator rather than a
-# paragraph?", and it is exactly the question this file is answering. The
-# framing of what a non-specialist should come away with is the IAU's eleven
-# Big Ideas in Astronomy.
+# Two rules from the education research:
+#   · Name the misconception (`myth`). Seasons-from-distance and phases-from-shadow
+#     survive being told the answer; testing the wrong idea and watching it fail
+#     dislodges them.
+#   · The simulation is the argument: every lesson opens a real scenario and every
+#     claim is produced by the sim. Where it can't show something (parallax,
+#     cosmic expansion, the binding energy curve) the lesson says so and uses a
+#     figure.
 #
-# TWO RULES, BOTH LEARNED FROM THE EDUCATION RESEARCH RATHER THAN INVENTED:
-#
-#   · NAME THE MISCONCEPTION. The two best-documented wrong ideas in the
-#     subject — that the seasons come from the Earth's distance to the Sun, and
-#     that the Moon's phases are the Earth's shadow — are held by most adults
-#     INCLUDING most graduates, and they are famously resistant: they survive
-#     being told the right answer, because being told is not the same as
-#     seeing the geometry move. The constructivist finding is that what
-#     dislodges them is testing the wrong idea and watching it fail. So a
-#     lesson with a known misconception says it out loud (`myth`), and the
-#     scenario it opens is one where the wrong idea makes a prediction you can
-#     check.
-#
-#   · THE SIMULATION IS THE ARGUMENT. Nothing here is scripted or animated.
-#     Every lesson opens a real scenario, and every claim it makes is one the
-#     integrator, the structure model or the shaders produce on their own. If a
-#     lesson says two orbits have the same period, the way you find out is that
-#     they keep meeting. That is also the honest limit of the format: where the
-#     sim genuinely cannot show something — parallax, the expansion of the
-#     universe, the nuclear binding energy curve — the lesson says so and draws
-#     a diagram instead of pretending.
-#
-# SHAPE OF THE DATA. This module is DATA, not behaviour: no DOM, no THREE, no
-# imports at all. A step's `do` block is a declarative request — load this
-# scenario, focus that body, slow the clock, open that panel — which
-# sim/lessonui.gd executes against a small stage API handed to it by the
-# orchestrator. Anything the stage does not recognise is ignored rather than
-# thrown, so a lesson can ask for something a future version will do.
-#
-# A NOTE ON `cam.radius`. Most steps do not give one, and that is deliberate:
-# `focus` already frames the body at seven of its own radii, which is the right
-# distance under BOTH size conventions. A hard-coded distance written while
-# looking at the exaggerated view puts the camera inside the planet at true
-# scale, and vice versa — the symptom is a screen of flat colour that looks
-# like a broken shader. State a distance only when the framing is the point.
+# This file is data: no scene access, no imports. A step's `do` block is a
+# declarative request that sim/lessonui.gd executes against the stage; unknown
+# directives are ignored. Most steps give no `cam.radius`: `focus` frames at seven
+# radii, which works at both size conventions, and a stated distance ends up inside
+# the planet at true scale.
 #
 # THE `do` VOCABULARY
-#   preset      scenario key (see sim/presets.gd and sim/edupresets.gd)
+#   preset      scenario key (sim/presets.gd, sim/edupresets.gd)
 #   focus       body name to follow
-#   cam         { radius, theta, phi, mode }  — mode: orbit | free | surface
-#   band        imaging band index, 0–6 (see sim/spectrum.gd BANDS)
+#   cam         { radius, theta, phi, mode }; mode: orbit | free | surface
+#   band        imaging band 0–6 (Spectrum.BANDS)
 #   timeScale   simulated years per second
-#   speed       the dimensionless multiplier on top of it
-#   trueScale   true = real body radii, false = the readable exaggeration
-#   sky         { env, tilt, roll } — override the scenario's own sky
-#   control     { id: value } — set a slider by the id it has in the HUD
-#   panel       { id: true|false } — open or collapse a HUD panel. A lesson
-#               that opens the cross-section also collapses the course list
-#               (`coursePanel: false`): they share the left column and at any
-#               ordinary window height the second one lands off the bottom of
-#               the screen. The course's own tab brings it straight back.
-#   localTime   'dawn' | 'morning' | 'noon' | 'dusk' | 'midnight', or a
-#               fraction of a day — turns the home world so the surface
-#               observer is standing in that local time. Only meaningful in
-#               the surface view, and the reason it exists is that without it
-#               half of the surface lessons open at midnight.
+#   speed       the dimensionless multiplier on top
+#   trueScale   true = real radii, false = readable exaggeration
+#   sky         { env, tilt, roll }, overriding the scenario's sky
+#   control     { id: value }: set a slider by its HUD id
+#   panel       { id: true|false }: open or collapse a panel. Opening the
+#               cross-section also collapses the course list (`coursePanel: false`),
+#               since they share the left column.
+#   localTime   'dawn' | 'morning' | 'noon' | 'dusk' | 'midnight' or a day fraction:
+#               turns the home world so the surface observer is at that time
 #   paused      true | false
-#   flare       body name — force an eruption
-#   collapse    body name — trigger core collapse
-#   instrument  photometer | gw | hr | cutaway  (also settable per step)
+#   flare       body name: force an eruption
+#   collapse    body name: trigger core collapse
+#   instrument  photometer | gw | hr | cutaway (also settable per step)
 #
-# THE PORT. This file is generated from sim/lessons.js and holds the same
-# data as Dictionaries with the JS keys VERBATIM (camelCase and all), because
-# the course is data that the executor reads by key. Text is text: every body
-# is the same HTML fragment the web build set as innerHTML, and
-# sim/lessonui.gd interprets the handful of tags it uses (<p>, <em>, <strong>,
-# <kbd>, and the <b> of the myth and look-for boxes). Integers stay integers
-# (a band index is an index); the executor converts where a number is a scale.
+# Dictionaries with camelCase keys. Bodies are HTML fragments using <p>, <em>,
+# <strong>, <kbd> (and <b> in myth and look-for boxes), interpreted by lessonui.gd.
+# Integers stay integers; the executor converts scales. Originally generated from
+# web/sim/lessons.js (tools/gen_lessons.mjs); web/ is frozen, so edit this file.
 
-# The web build wrapped every figure with
-#   svg(viewBox, inner) = `<svg viewBox="${viewBox}" class="lfig" ...>${inner}</svg>`
-# and built the repetitive ones (the ladder rungs, the redshift strips, the
-# spectrum ticks) with .map().join(). What is stored here is the expanded
-# result, character for character; sim/lessonui.gd rasterises the shapes and
-# sets the <text> itself (Godot's SVG loader has no text).
-# FIGURES — only for the things the simulation genuinely cannot show you.
-# Every one of these is a case where the real phenomenon is either too slow
-# (the expansion of the universe), too small (a parallax of one arcsecond), or
-# not a thing in space at all (the nuclear binding energy curve).
+# FIGURES, only for what the sim can't show: too slow (cosmic expansion), too small
+# (a one-arcsecond parallax), or not in space (the binding energy curve). Stored as
+# expanded SVG; lessonui.gd rasterises the shapes and sets the <text> itself.
 const FIGURES := {
 	"parallax": """<svg viewBox="0 0 320 150" class="lfig" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <circle cx="40" cy="75" r="9" fill="#ffd28a"/>
@@ -1739,10 +1691,8 @@ const MODULES := [
 },
 ]
 
-# The course as a flat, ordered list. Two ways through it are both first-class:
-# straight down the line, and jumping to whatever you came for. The linear
-# order is what "next" means and what the progress bar measures; the module
-# list is what makes jumping possible. Neither is the "real" one.
+# The course as a flat ordered list ("next" and the progress bar); the module list
+# allows jumping. Both are first-class.
 static var LESSON_ORDER: Array = _order()
 static var LESSON_COUNT: int = LESSON_ORDER.size()
 static var STEP_COUNT: int = _step_count()
@@ -1786,9 +1736,8 @@ static func neighbours(key) -> Dictionary:
 		"next": LESSON_ORDER[i + 1].key if i >= 0 and i < LESSON_ORDER.size() - 1 else null,
 	}
 
-# Every scenario key the course asks for, so a start-up check can prove the
-# curriculum and the preset catalogue have not drifted apart. There is no test
-# runner here; this is the next best thing, and sim/lessonui.gd runs it once.
+# Every scenario key the course uses, so lessonui.gd can check at startup that none
+# is missing.
 static func presets_used() -> Array:
 	var seen := {}
 	var out: Array = []

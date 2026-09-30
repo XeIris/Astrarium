@@ -1,22 +1,19 @@
-// THE PHOTOSPHERE — port of photosphereMaterial() in sim/star_visual.js.
-// The header of sim/star_visual.gd carries the physics; the comments below are
-// the web shader's own, kept with the lines they explain.
+// THE PHOTOSPHERE (physics in sim/star_visual.gd's header).
 shader_type spatial;
 render_mode unshaded, cull_back;
 
 #include "res://shaders/common/temp_pass.gdshaderinc"
 
 uniform float uTime = 0.0;
-uniform vec3 uColor = vec3(1.0);   // kept for parity with the web uniform block; unused
+uniform vec3 uColor = vec3(1.0);   // unused
 uniform vec3 uHot = vec3(1.0);
 uniform float uPulse = 1.0;
 uniform float uLimbU = 0.6;
 // physical Teff, published to the spectral imaging pass (the temperature pass)
 uniform float uTeff = 5772.0;
 uniform float uOmega = 1.0;
-// Rotation. uSpin is Ω/Ω_crit — the ONE number that sets both the shape
-// and the temperature map (see sim/structure.js). At 0 everything below
-// collapses to the non-rotating case exactly.
+// uSpin is Ω/Ω_crit, which sets both the shape and the temperature map; at 0
+// everything reduces to the non-rotating case.
 uniform float uSpin = 0.0;
 uniform float uGdBeta = 0.25;
 uniform vec3 uColPole = vec3(1.0);
@@ -39,10 +36,8 @@ varying vec3 vVN;
 varying vec3 vVP;
 varying float vG;
 
-// The Roche equipotential, R(theta)/R_pole, solved in closed form. See
-// the derivation in sim/structure.js — this is the same function, and at
-// u = 1 it returns exactly 1.5, the hard geometric limit on how flat a
-// self-gravitating body can be.
+// The Roche equipotential R(θ)/R_pole in closed form (Structure.roche_shape); 1.5 at
+// u = 1.
 float rocheShape(float u0) {
 	float u = clamp(u0, 0.0, 1.0);
 	if (u < 1e-3) return 1.0 + 0.148148 * u * u;   // series; the form below is 0/0 here
@@ -56,27 +51,20 @@ void vertex() {
 	float x = rocheShape(uSpin * sinT);
 	vec3 p = VERTEX * x;                    // radial stretch onto the spheroid
 
-	// Effective gravity at this point, in units of its polar value: the
-	// Newtonian pull plus the centrifugal term, on the Roche surface.
-	// With GM = 1 and R_pole = 1, Omega^2 = (8/27) uSpin^2.
+	// Effective gravity in units of its polar value; with GM = 1 and R_pole = 1,
+	// Ω² = (8/27) uSpin².
 	float om2 = 0.296296 * uSpin * uSpin;
 	float gr  = -1.0 / (x * x) + om2 * x * sinT * sinT;
 	float gt  = om2 * x * sinT * dir.y;
 	vG = sqrt(gr * gr + gt * gt);           // exactly 1 at the pole
 
-	// The surface normal of a radially stretched sphere is no longer
-	// radial. Rather than carry the analytic gradient of the equipotential
-	// through, tilt the radial normal toward the meridian by the same
-	// ratio the gravity vector is tilted by — which is the gradient, since
-	// the surface IS an equipotential and g is normal to it.
+	// Tilt the radial normal toward the meridian by the gravity vector's tilt (g is
+	// normal to an equipotential).
 	vec3 er = dir;
 	vec3 et = normalize(vec3(dir.x * dir.y, -sinT * sinT, dir.z * dir.y) + vec3(1e-6));
 	vec3 n  = normalize(er * (-gr) + et * (-gt));
 
-	// View space, not world space. In the web build that was the precision
-	// decision (modelViewMatrix carries the camera-relative offset in float64);
-	// here the floating origin makes world space camera-relative already, and
-	// MODELVIEW_MATRIX is the same small-number product (docs/godot.md).
+	// View space; the floating origin keeps MODELVIEW small.
 	vVN = normalize(MODELVIEW_NORMAL_MATRIX * n);
 	vVP = (MODELVIEW_MATRIX * vec4(p, 1.0)).xyz;
 	VERTEX = p;
@@ -111,14 +99,8 @@ void fragment() {
 	float omega  = uOmega * (1.0 - 0.19 * sinLat * sinLat);
 	vec3  s      = rotY(p, -omega * uTime);   // co-rotating surface coordinate
 
-	// --- granulation.
-	// A real photosphere is a packed mosaic of convective CELLS: bright,
-	// roughly polygonal granule tops separated by narrow dark intergranular
-	// lanes where the cooled gas sinks. Plain fBm cannot produce that — it
-	// gives soft blobs, which is exactly what made the star read as a
-	// fluffy cartoon sun. The lanes are recovered with the ridge trick:
-	// the set where a noise field crosses its own mid-value is a thin
-	// connected network, so |n − ½| near zero IS the lane pattern.
+	// --- granulation: bright granule tops and dark intergranular lanes. The lanes come
+	// from the ridge trick: |n − ½| near zero is a thin connected network.
 	float nA = fbm(s * uGranScale + vec3(0.0, uTime * 0.05, 0.0));
 	float nB = fbm(s * (uGranScale * 2.7) - vec3(uTime * 0.09));
 
@@ -147,9 +129,7 @@ void fragment() {
 		float u = 1.0 - smoothstep(rad * 0.42, rad + wob, d); // 1 in the umbra
 		spotMask = max(spotMask, u * sp.w);
 
-		// Penumbral filaments: the field is nearly horizontal in the
-		// penumbra, so it combs the gas into radial threads pointing at the
-		// umbra. It is the single most recognisable feature of a real spot.
+		// Penumbral filaments: the near-horizontal field combs the gas into radial threads.
 		float ring = (1.0 - smoothstep(rad * 0.85, rad * 1.35, d)) * (1.0 - u);
 		vec3  rel  = normalize(p - sp.xyz * dot(p, sp.xyz) + vec3(1e-5));
 		float comb = 0.5 + 0.5 * sin(dot(rel, normalize(cross(sp.xyz, vec3(0.0, 1.0, 0.001)))) * 90.0
@@ -171,13 +151,9 @@ void fragment() {
 		vec3 rel = p - fl.xyz;
 		float across = dot(rel, fx.xyz);                          // across the line
 		float along  = dot(rel, cross(fl.xyz, fx.xyz));           // along it
-		// Two strips at +-sep, each narrow, both running the length of the
-		// neutral line. sep GROWS with the flare: the field that reconnects
-		// gets higher and wider as the event proceeds, so its footpoints
-		// land further out, and the ribbons visibly draw apart.
-		// Squared directly, not through pow(): pow is undefined for a
-		// negative base, and this base is negative everywhere BETWEEN the
-		// two ribbons — i.e. over the whole arcade.
+		// Two strips at ±sep along the neutral line; sep grows as reconnection climbs, so
+		// the ribbons draw apart. Squared directly: pow() is undefined for the negative base
+		// between the ribbons.
 		float rd = (abs(across) - fx.w) / 0.055;
 		float rb = exp(-rd * rd);
 		rb *= 1.0 - smoothstep(0.14, 0.30, abs(along));
@@ -187,24 +163,14 @@ void fragment() {
 		flareGlow += vec3(1.0, 0.93, 0.85) * rb * fil * fl.w * 3.4;
 	}
 
-	// The disc itself is kept near 1.0 so the tone curve still has slope
-	// left to resolve granulation and spots. What sells "blazing" is not a
-	// brighter disc — it is the hot granule cores and faculae punching far
-	// past 1.0 and lighting up the bloom pass, while the mean stays put.
-	// --- GRAVITY DARKENING (von Zeipel 1924).
-	// The rotating surface is an equipotential but not an equal-flux
-	// surface: the radiative flux is proportional to the local effective
-	// gravity, so T_eff ~ g^beta and F ~ g^(4 beta). The equator, further
-	// out and centrifugally supported, is both cooler and dimmer than the
-	// pole. On Vega that is 10 260 K against 8 610 K; on Regulus it is
-	// 14 500 against 11 000, and both are directly measured.
-	//
-	// beta is 1/4 for a radiative envelope and ~0.08 for a convective one
-	// (Lucy 1967) — the CPU side picks which, from Teff.
+	// The disc mean stays near 1.0 so the tone curve resolves granulation and spots;
+	// hot granule cores and faculae punch past it into the bloom.
+	// --- GRAVITY DARKENING (von Zeipel 1924): T_eff ~ g^β, F ~ g^(4β), so the equator is
+	// cooler and dimmer (Vega 10 260 K vs 8 610 K; Regulus 14 500 vs 11 000). β = ¼
+	// radiative, ~0.08 convective (Lucy 1967), chosen on the CPU from Teff.
 	float gDark = pow(max(vG, 1e-4), uGdBeta);            // T_local / T_pole
 	float gFlux = pow(max(vG, 1e-4), 4.0 * uGdBeta);      // F_local / F_pole
-	// The two endpoint colours are true blackbody colours for the pole and
-	// equator temperatures, computed once on the CPU; g is monotonic
+	// Endpoint colours are true blackbody colours for pole and equator; g is monotonic
 	// between them, so it is also the blend coordinate.
 	float gEqv  = pow(max(1.0 - 0.5 * uSpin * uSpin, 1e-4), uGdBeta);
 	float tBlend = uSpin > 0.02
@@ -225,11 +191,8 @@ void fragment() {
 	float rim = pow(1.0 - mu, 3.0);
 	base += vec3(1.0, 0.28, 0.16) * rim * 0.85 * uGain;
 
-	// The temperature pass: the log-encoded true temperature for
-	// sim/spectrum.gd. It is the LOCAL temperature, not the star's mean: on a
-	// fast rotator the pole really is 1500 K hotter, and the imaging bands
-	// should see that — flip to UV on Vega and the poles brighten while the
-	// equator does not.
+	// Publish the local temperature, not the mean: a fast rotator's pole is ~1500 K
+	// hotter, visible in UV.
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		float tLocal = uSpin > 0.02 ? uTpole * gDark : uTeff;
 		ALBEDO = vec3(temp_code(tLocal), 0.0, 0.0);

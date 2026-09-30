@@ -1,59 +1,20 @@
-// THE SUN, SEEN FROM THE VEHICLE — sim/flight/localview.gd's sun sprite.
-// The orrery draws the Sun as a body 1 AU away, which from inside local space
-// is a disc a handful of pixels across at a brightness calibrated for looking
-// at a solar system, not for standing in daylight. The sky dome drew a disc of
-// its own, but only while there was air to draw it in: above the dome's top
-// the sun simply vanished from the sky of an ascending rocket, which is the
-// one place it is most dramatic.
-//
-// So the sun is drawn here, in the pass the vehicle is in, as three things:
-//
-//   THE DISC at its true angular radius (0.267° from Earth — passed in, so it
-//   is 0.4° from Venus and a point from Neptune), limb-darkened with the
-//   Eddington law I(μ) = I₀(0.4 + 0.6μ). Its radiance is the sun's own: a
-//   white surface in full sun is E/π, the disc is E/Ω, and the ratio of the
-//   two is π/Ω ≈ 46 000. That is well past anything a display can show and
-//   the tone curve takes care of it; what matters is that it is FAR brighter
-//   than anything it lights, or it reads as a white sticker.
-//
-//   THE AUREOLE — forward scattering by aerosols, the bright halo a few
-//   degrees round the sun that is most of what "looking toward the sun" is in
-//   the lower atmosphere. It scales with the air column along the sun line,
-//   so it thins away with altitude and is gone in vacuum.
-//
-//   THE VEILING GLARE of the camera — scatter in the optics, a 1/θ² wing, and
-//   the STARBURST. This is what hides the stars near the sun even in vacuum:
-//   the sky beside the sun is not bright, the LENS is. The starburst is
-//   diffraction off the aperture's straight edges: an iris of n blades throws
-//   one streak perpendicular to each edge, 2n of them for an odd n (a 7-blade
-//   iris makes 14), each a line a pixel or two wide whose length goes with how
-//   far the sun overexposes the frame. Between them, dozens of fainter hair-
-//   thin rays of random length — scatter from the blade edges' roughness and
-//   dust on the front element — which is the texture every photograph of the
-//   sun from orbit has and six clean spikes do not. The streaks are widths in
-//   PIXELS and lengths in ANGLE: the lens draws a sharp line whatever the
-//   field of view, and its length is the optics' response to the sun's flux.
-//   The ghosts the same lens throws across the frame are lens_flare.gdshader.
-//
-// EXTINCTION is per channel: Rayleigh τ ∝ λ⁻⁴ plus a grey aerosol term, along
-// the real air mass for the sun's elevation, scaled by the density at the
-// observer's altitude. That is the whole of sunset reddening, and it switches
-// off by itself on the way up.
-//
-// OCCLUSION, three ways:
-//   · by anything in the local pass (the vehicle, the tower, the ground patch)
-//     — this is depth-test-DISABLED, and reads the depth buffer itself: the
-//     disc is hidden per pixel where geometry is nearer than the sun, and the
-//     glare by the fraction of the disc that is uncovered, sampled at its
-//     centre and on a ring round it. A glare that ignored occlusion would
-//     shine through the rocket;
-//   · by the planet beyond the ground patch — uVisible, the fraction of the
-//     disc above the horizon at the observer's altitude, from the script;
-//   · by clouds — the cloud field's transmittance toward the sun's centre,
-//     marched here from the same field the cloud pass draws.
-//
-// BLENDING: additive (premultiplied with ALPHA = 0), like every emitter in
-// this pass: it adds light and covers nothing.
+// THE SUN, SEEN FROM THE VEHICLE, drawn in the local pass (the orrery's Sun is
+// calibrated for a solar system, and the sky dome's disc needed air):
+//   THE DISC at its true angular radius (0.267° from Earth), Eddington limb
+//     darkening I(μ) = I₀(0.4 + 0.6μ), at radiance E/Ω: π/Ω ≈ 46 000 times a white
+//     surface it lights, left to the tone curve.
+//   THE AUREOLE: aerosol forward scattering a few degrees round the sun, scaled by
+//     the air column along the sun line, gone in vacuum.
+//   THE VEILING GLARE of the optics: a 1/θ² wing and the starburst (an n-blade iris
+//     throws 2n streaks for odd n, 14 for 7), plus fainter hair-thin rays from edge
+//     roughness and dust. Widths in pixels, lengths in angle, set by overexposure.
+//     Lens ghosts are lens_flare.gdshader.
+// EXTINCTION per channel: Rayleigh τ ∝ λ⁻⁴ plus grey aerosol, along the real air
+// mass, scaled by density at the observer's altitude (sunset reddening).
+// OCCLUSION: by local geometry (depth test disabled; reads the depth buffer: the
+// disc per pixel, the glare by the uncovered fraction sampled at the centre and a
+// ring), by the planet (uVisible, from the script), and by clouds (transmittance
+// toward the centre, from the cloud field). Additive (premultiplied, ALPHA = 0).
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled;
 
@@ -86,11 +47,8 @@ void vertex() {
 	vec4 p = c + vec4(VERTEX.xy * 2.0 * s, 0.0, 0.0);
 	vView = p.xyz;
 	POSITION = PROJECTION_MATRIX * p;
-	// CLOUDS toward the sun's centre: the layer's optical depth along the sun
-	// line, marched once — the same for every fragment of the sprite, because
-	// the glare is the lens's response to whatever of the sun gets through.
-	// So it is marched per VERTEX (four times) rather than per pixel of a
-	// quad that can cover the screen.
+	// CLOUDS toward the sun's centre, marched per vertex: the glare responds to what of
+	// the sun gets through, the same for every fragment.
 	vCloudT = 1.0;
 	if (uCloudCoverage > 0.0) {
 		vec3 ro = uCamLocal;
@@ -135,12 +93,9 @@ void fragment() {
 	// the atmosphere's colour filter on the direct beam
 	vec3 T = exp(-uTau * uAirMass);
 
-	// ---- the disc, limb-darkened, antialiased on its own edge. Never drawn
-	// smaller than a pixel and a bit: a distant sun is a POINT, and a point
-	// has to keep its flux — so what is drawn larger is drawn dimmer by the
-	// ratio of the areas, and seen from Neptune it is a hard, bright star.
-	// abs(): Godot's projection carries a flipped y, and a negative pixel
-	// turned every smoothstep here inside out
+	// ---- the disc, limb-darkened and antialiased. Never under a pixel and a bit: drawn
+	// larger means drawn dimmer by the area ratio, so flux is kept. abs(): Godot's
+	// projection has a flipped y.
 	float px = 2.0 / abs(PROJECTION_MATRIX[1][1] * VIEWPORT_SIZE.y);
 	float r_draw = max(uAngR, 1.2 * px);
 	float edge = 1.0 - smoothstep(r_draw - px * 0.7, r_draw + px * 0.7, th);
@@ -169,15 +124,10 @@ void fragment() {
 	// ---- aureole: aerosol forward scattering, ~θ^-1.5 out to tens of degrees
 	float x = th / uAngR;
 	float aureole = uAureole * 0.012 * pow(max(x, 1.0), -1.6);
-	// ---- veiling glare of the optics: a 1/θ² wing and a broad soft floor
-	// (the floor is written per unit of the Sun-from-Earth's solid angle, so a
-	// smaller sun throws proportionally less of it: glare goes with FLUX)
+	// ---- veiling glare: a 1/θ² wing and a soft floor, scaled with the sun's flux.
 	float flux = (uAngR * uAngR) / (0.00465 * 0.00465);
 	float glare = uGlare * (0.0012 / max(x * x, 1.0) + 0.00005 * exp(-th / 0.05) * flux);
-	// ---- the starburst, in the FRAME's axes: the iris does not turn with
-	// the sun, so the streaks keep their angle as the sun crosses the screen.
-	// (the camera's x axis laid into the plane round the sun: no divide, so
-	// nothing blows up for a sun near the edge of the view)
+	// ---- the starburst, in the frame's axes (the iris doesn't turn with the sun).
 	vec3 fx = vec3(1.0, 0.0, 0.0) - sd * sd.x;
 	fx = dot(fx, fx) > 1e-6 ? normalize(fx) : normalize(cross(sd, vec3(0.0, 1.0, 0.0)));
 	vec3 fy = cross(sd, fx);
@@ -213,11 +163,8 @@ void fragment() {
 
 	float cloudT = vCloudT;
 	vec3 rgb = uColor * T * uRadiance * uVisible * cloudT * (disc * open_here + sky_part);
-	// A cloud in front scatters the sun it hides into a bright patch rather
-	// than blotting it out; that light is the cloud's own (the cloud pass
-	// draws it), so only the DIRECT terms are cut here.
-	// written as a positive test so a NaN (which fails every comparison) is
-	// discarded too, not composited as black
+	// A cloud in front scatters the sun into its own light (drawn by the cloud pass), so
+	// only the direct terms are cut. Positive test so a NaN is discarded too.
 	if (!(max(rgb.r, max(rgb.g, rgb.b)) >= 1e-4)) discard;
 	ALBEDO = rgb;
 	ALPHA = 0.0;

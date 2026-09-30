@@ -1,13 +1,7 @@
-# ION CRUISER (Dawn-class) — the interplanetary workhorse.
-# 237 mN of thrust, a tenth the weight of a postcard, held for months at a
-# time. Everything about the shape follows from that: there is no thrust
-# structure worth the name, no tankage worth the name, and 19.7 m of solar
-# array carrying a 1.64 m bus — because on this vehicle the power system IS the
-# propulsion system and the bus is a rounding error hung between the wings.
-#
-# The arrays are DEPLOYABLES and go in `array_*`, which craftmodel's update()
-# holds folded until the flight state asks. Radiators and dishes must not: a
-# ship that flies with its heat rejection stowed is a ship that cooks.
+# ION CRUISER (Dawn-class): 237 mN held for months, and 19.7 m of solar array
+# carrying a 1.64 m bus, since the power system is the propulsion system. The arrays
+# go in `array_*` (held folded until the flight state asks); radiators and dishes
+# must not.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -23,14 +17,10 @@ BUS_Z = 0.9                        # its centre, matching the procedural build
 def build_ioncruiser(M):
     root = stage('bus')
 
-    # ---- the bus: a gold-blanketed box. Multi-layer insulation is not a
-    # colour choice, it is the reason a spacecraft this far from the Sun keeps
-    # its propellant liquid, and it is the only warm thing in the frame.
+    # ---- the bus: a gold-blanketed box (MLI keeps the propellant liquid far from the Sun).
     bus = box('bus', (BUS_W, BUS_W, BUS_H), (0, 0, BUS_Z), M['gold'], parent=root)
     finish(bus, 0.03, 2, 40)
-    # MLI is quilted, not smooth. A few tension seams across each face do more
-    # for the read than any amount of surface detail, because they are what
-    # makes it look like fabric over a frame rather than a painted solid.
+    # Quilted MLI: tension seams across each face.
     for i in (-1, 0, 1):
         for ax in (0, 1):
             sz = (BUS_W * 1.01, 0.035, 0.035) if ax else (0.035, BUS_W * 1.01, 0.035)
@@ -48,14 +38,11 @@ def build_ioncruiser(M):
              M['alu'], seg=24, parent=root)
     finish(ad, 0.02, 2, 45)
 
-    # ---- solar arrays. 19.7 m tip to tip, 36.4 m^2, and at Ceres they return
-    # about a tenth of what they do at Earth — which is the constraint the whole
-    # mission profile is built around.
+    # ---- solar arrays: 19.7 m tip to tip, 36.4 m², a tenth of their Earth output at Ceres.
     for k, sgn in enumerate((1, -1)):
         arm = empty(f'array_bus_{k}', (sgn * (BUS_W / 2 + 0.10), 0, BUS_Z), root)
-        # The yoke, then the panel outboard of it. The panel's own group sits at
-        # +X in the arm's frame so the arm rotates it about the bus like a real
-        # hinge — update() drives `array_*` and nothing else here moves.
+        # The yoke, then the panel at +X in the arm's frame, so the arm hinges it about the
+        # bus (update() drives `array_*` only).
         strut(f'yoke{k}', (0, 0, 0), (sgn * 0.55, 0, 0), 0.05, M['alu'], seg=8, parent=arm)
         pan = solar_array(f'panel{k}', 8.3, 2.2, M['solar'], M['alu'], parent=arm)
         pan.location = (sgn * (0.55 + 8.3 / 2), 0, 0)
@@ -75,9 +62,7 @@ def build_ioncruiser(M):
     fd = ball('hga_horn', 0.09, (0, 0, BUS_Z + BUS_H / 2 + 0.58), M['dirty'],
               seg=12, rings=8, parent=root)
     smooth(fd, 30)
-    # The two low-gain horns, which are what it talks through when it has lost
-    # attitude and cannot point the dish. Small, and the reason a mission
-    # survives a safe-mode.
+    # The two low-gain horns, used when it can't point the dish (safe mode).
     for sgn in (-1, 1):
         lg = revolve(f'lga{sgn}', [(0.05, 0), (0.05, 0.16), (0.12, 0.30)],
                      M['dirty'], seg=12, parent=root)
@@ -90,10 +75,8 @@ def build_ioncruiser(M):
               rings=14, parent=root)
     smooth(xt, 30)
 
-    # ---- three NEXT gridded ion thrusters, on a shallow aft ring. They are
-    # SMALL and they should look it: 0.36 m across, and each one is a quarter of
-    # a newton. Drawing them at chemical-engine scale is the single easiest way
-    # to make this vehicle lie about what it is.
+    # ---- three NEXT gridded ion thrusters on a shallow aft ring: 0.36 m across, a
+    # quarter newton each, drawn small.
     for i in range(3):
         a = i / 3 * TAU
         piv = empty(f'gimbal_bus_{i}', (cos(a) * 0.42, sin(a) * 0.42, 0.10), root)

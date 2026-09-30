@@ -1,23 +1,12 @@
 class_name WorldVisual
 extends RefCounted
 
-# THE LIVING WORLD
-# A rocky planet whose APPEARANCE IS DRIVEN BY THE CLIMATE MODEL: ice caps
-# advance and retreat with the glaciated fraction the EBM is integrating, seas
-# shrink as they boil away, cloud decks thicken with humidity, and the ground
-# glows when it is hot enough to.
-#
-# It is lit by every star at once. That is the whole point — a Trisolaran
-# sunset has two or three terminators crossing the disc at different angles,
-# in different colours, and you can see it directly here.
-#
-# The terrain, the biomes and the atmosphere are the SAME ones every other
-# solid planet gets (sim/rocky_visual.gd, over sim/terrain.gd). This file is
-# only the wiring between the energy-balance model and those uniforms: a
-# second terrain model here would be a second answer to what a rocky planet
-# looks like, and the two would drift apart.
+# THE LIVING WORLD: a rocky planet whose appearance follows the climate model (ice
+# caps with the EBM's glaciated fraction, seas boiling away, cloud with humidity,
+# glowing ground when hot), lit by every star at once. Terrain, biomes and
+# atmosphere are rocky_visual.gd's; this file only wires the EBM into those uniforms.
 
-# Re-exported, as the web build re-exported them from sim/suns.js.
+# Re-exported from sim/suns.gd.
 const MAX_SUNS := Suns.MAX_SUNS
 
 static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> void:
@@ -76,9 +65,7 @@ class WorldViz extends RefCounted:
 		atmo.name = "Atmosphere"
 		group.add_child(atmo)
 
-		# The spin axis is tilted — obliquity is what gives a world seasons on top of
-		# whatever its orbit is already doing, and it also sets how steep the
-		# pole-to-equator insolation gradient is (see RockyVisual.insolation_s2).
+		# Obliquity: seasons, and the pole-to-equator gradient (RockyVisual.insolation_s2).
 		var tilt := float(U.nz(opts.get("obliquity"), 0.35))
 		group.rotation.z = tilt
 		surf_mat.set_shader_parameter("uS2", RockyVisual.insolation_s2(tilt))
@@ -95,34 +82,21 @@ class WorldViz extends RefCounted:
 		var sim_dt := float(U.nz(ctx.get("sim_dt"), 0.0))
 		# planet rotation — b.day_length is in years
 		var day := b.day_length if b.day_length != 0.0 else 0.01
-		# Both phases wrap. At system speeds this advances hundreds of radians per
-		# frame, and the rotation reaches the GPU as a float32 matrix entry: once
-		# the magnitude passes ~1e5 the per-frame increment is under one ulp and
-		# the spin quantises and then stops. A rotation is exactly 2π-periodic, so
-		# wrapping is free of artefacts — but the cloud deck super-rotates at 0.985
-		# of the surface, so it needs its own accumulator rather than a scaled read
-		# of spin_phase, which would jump at every wrap.
+		# Wrap both phases (float32 rotation stops advancing past ~1e5). The cloud deck
+		# super-rotates at 0.985, so it has its own accumulator.
 		b.spin_phase = fmod(b.spin_phase + (sim_dt / day) * TAU, TAU)
 		b.cloud_phase = fmod(b.cloud_phase + (sim_dt / day) * TAU * 0.985, TAU)
 		surface.rotation.y = b.spin_phase
 		clouds.rotation.y = b.cloud_phase          # super-rotating cloud deck
 
 		surf_mat.set_shader_parameter("uTime", _u(surf_mat, "uTime") + dt)
-		# The cloud shader feeds uTime into fbm/ridged domains, which are not
-		# periodic — wrapping it would pop the cloud field. Bound the sim-time term
-		# instead: it is a drift cue, and above a few radians per frame the deck is
-		# a blur anyway, so capping it costs nothing visually and keeps the uniform
-		# growing at real-time rates.
+		# uTime feeds non-periodic noise, so cap the sim-time term instead of wrapping it.
 		cloud_mat.set_shader_parameter("uTime", _u(cloud_mat, "uTime") + dt + minf(sim_dt * 40.0, 2.0))
 
 		var cl = ctx.get("climate")
 		if cl != null:
-			# The EBM owns the global mean temperature AND the glaciated fraction.
-			# Handing over both is deliberate: the shader would reach its own ice
-			# line from the temperature alone, but the ice-albedo feedback means the
-			# fraction is a state variable with hysteresis in it — a snowballed
-			# planet stays snowballed at a temperature it would never have frozen
-			# at. The picture has to show the state, not re-derive it.
+			# The EBM owns both mean temperature and glaciated fraction: the ice-albedo
+			# hysteresis means ice is state (a snowball stays frozen), not derivable from T.
 			var T := float(cl.get("T"))
 			surf_mat.set_shader_parameter("uMeanK", T)
 			surf_mat.set_shader_parameter("uIce", float(cl.get("ice")))
@@ -136,10 +110,7 @@ class WorldViz extends RefCounted:
 			cloud_mat.set_shader_parameter("uStorm", float(U.nz(cl.get("storm"), 0.2)))
 			atmo_mat.set_shader_parameter("uThick", 0.6 + float(cl.get("humidity")) * 0.8)
 
-		# feed the multi-star lighting. Through lit_by, so a climate world beside a
-		# black hole in a starless scene is lit by the disc stand-in rather than
-		# rendering as a flat silhouette — the same fallback the rocky and giant
-		# visuals already take.
+		# Through lit_by, so a starless scene uses the disc stand-in light.
 		var suns = Suns.lit_by(ctx)
 		if suns != null:
 			Suns.apply_suns([surf_mat, cloud_mat, atmo_mat], suns, group.position)

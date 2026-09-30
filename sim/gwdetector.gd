@@ -1,49 +1,20 @@
 class_name GWDetector
 extends RefCounted
 
-# GRAVITATIONAL-WAVE DETECTOR — the strain, and what a detector does with it
-# Two masses in orbit radiate gravitational waves, which is not a metaphor for
-# anything: the orbit really does shrink, and the energy really does leave. The
-# sim already integrates that — applyGWReaction() in sim/physics.js applies the
-# leading-order (2.5-PN) energy loss as a drag, which is why the inspiral in
-# #bhmerger accelerates instead of repeating. What this module does is read the
-# SAME binary and work out what a detector on Earth would record.
-#
-# WHAT A DETECTOR RECORDS is not energy, or a photograph — it is a STRAIN: a
-# fractional change in length, h = ΔL/L. For a circular binary seen at
-# inclination ι and distance D,
-#
+# GRAVITATIONAL-WAVE DETECTOR: the strain a detector on Earth would record from the
+# binary on screen (the integrator already applies 2.5-PN radiation reaction).
+# For a circular binary at inclination ι and distance D:
 #     h₊ = (4 G² μ M / c⁴ D r) · (1+cos²ι)/2 · cos 2Φ
 #     h× = (4 G² μ M / c⁴ D r) · cos ι       · sin 2Φ
+# M total mass, μ = m₁m₂/M, r separation, Φ orbital phase. The wave is at twice the
+# orbital frequency, and h ∝ 1/D (twice the sensitivity, eight times the volume).
 #
-# with M the total mass, μ = m₁m₂/M the reduced mass, r the separation and Φ
-# the orbital phase. Two things in that expression do all the teaching:
-#
-#   · The wave is at TWICE the orbital frequency. A binary is symmetric under a
-#     half turn — swap the two stars and the mass distribution is the same — so
-#     the quadrupole comes back to itself twice per orbit.
-#   · h falls as 1/D, not as 1/D². Gravitational-wave astronomy measures an
-#     amplitude, not a power, so doubling a detector's sensitivity doubles its
-#     reach and so multiplies the volume it can see by eight.
-#
-# THE SCALE PROBLEM, AND HOW IT IS HANDLED HONESTLY. The scenario draws a
-# 36 M☉ black hole's horizon at 0.02 AU so that you can see it; the real one is
-# 106 km, twenty-eight thousand times smaller. A strain computed from the drawn
-# separation would be true of nothing. So the mapping used here is the one
-# invariant both versions share:
-#
-#     THE DRAWN BINARY AND THE REAL ONE ARE AT THE SAME FRACTION OF THEIR OWN
-#     MERGER SEPARATION.
-#
-# The sim merges its pair when they touch; a real compact binary merges at
-# about one Schwarzschild radius of the total mass. Dividing one by the other
-# gives a single scale factor, applied to the separation — and then the
-# frequency, the amplitude and the chirp rate are all the real ones, sweeping
-# up through the detector band exactly as the picture spirals in. The detector
-# clock is derived the same way: the orbital PHASE is the thing the two
-# versions share, so equivalent time advances by ΔΦ/ω_real. The accelerated
-# reaction in the demo is NOT a physical chirp rate; merger/ringdown and
-# detector antenna response are outside this illustrative model.
+# Scale: the drawn binary (a 36 M☉ horizon drawn at 0.02 AU, 28 000× real) and the
+# real one are placed at the same fraction of their own merger separation (contact
+# in the sim, ~1 r_s of the total mass in reality). One factor on the separation
+# makes frequency, amplitude and chirp real. The detector clock advances by
+# ΔΦ/ω_real. The demo's accelerated reaction is not a physical chirp rate;
+# merger/ringdown and antenna response are outside the model.
 
 const G_SI := 6.67430e-11
 const C := 2.99792458e8
@@ -51,9 +22,7 @@ const M_SUN := 1.98892e30
 const AU_M := 1.495978707e11
 const MPC_M := 3.0857e22
 
-# LIGO's useful band. Below 20 Hz it is buried in seismic noise (which is why a
-# detector on the ground can never see the year-long early inspiral, and why
-# LISA has to be in space); above a few kHz the laser's own shot noise wins.
+# LIGO's band: seismic noise below 20 Hz (hence LISA), shot noise above a few kHz.
 const BAND_LO := 20.0
 const BAND_HI := 2000.0
 
@@ -64,8 +33,8 @@ static func find_binary(bodies: Array) -> Variant:
 	for b in bodies:
 		if b.alive != false and (b.type == "bh" or b.type == "neutron"):
 			live.append(b)
-	# Array.sort is stable in JS and a merge sort; sort_custom is not stable,
-	# so ties (an equal-mass pair) break on the original order explicitly.
+	# sort_custom is not stable, so ties (an equal-mass pair) break on the
+	# original order explicitly.
 	var ix := {}
 	for i in live.size(): ix[live[i]] = i
 	live.sort_custom(func(a, b): return a.mass > b.mass or (a.mass == b.mass and ix[a] < ix[b]))
@@ -109,9 +78,7 @@ static func strain_of(pair, opts: Dictionary = {}) -> Variant:
 	var f_gw := omega / PI                                   # twice the orbital frequency
 	var h0 := 4.0 * G_SI * G_SI * mu * M / (C * C * C * C * D * r)
 
-	# The chirp mass is the ONE combination of the two masses the waveform
-	# actually determines, which is why every detection is quoted with one:
-	# the early inspiral depends on m1 and m2 only through M_c.
+	# The chirp mass: the one mass combination the early inspiral determines.
 	var Mc := pow(m1 * m2, 3.0 / 5.0) / pow(Msun, 1.0 / 5.0)
 
 	return {
@@ -122,9 +89,8 @@ static func strain_of(pair, opts: Dictionary = {}) -> Variant:
 		"inBand": f_gw >= BAND_LO and f_gw <= BAND_HI,
 	}
 
-# The instrument: a strain trace on a real-seconds axis, plus the L-shaped
-# interferometer whose arms it is stretching.
-# opts: canvas (Control), width/height (backing size, 340 × 210), armM, distMpc.
+# The instrument: a strain trace on a real-seconds axis and the stretched L.
+# opts: canvas (Control), width/height (backing, 340 × 210), armM, distMpc.
 static func create_gw_detector(opts: Dictionary) -> Detector:
 	return Detector.new(opts)
 
@@ -136,12 +102,7 @@ class Detector extends RefCounted:
 	var dist_mpc := 410.0
 	var hs: Array = []
 	var ts: Array = []
-	# 200 samples across the chart. A sample is one FRAME, and
-	# at the pace these lessons run there are about thirty frames per orbit —
-	# fifteen per wave cycle, since the wave is at twice the orbital frequency.
-	# At 600 the cycles are four pixels apart and the chirp renders as a solid
-	# block; at 200 you can see the individual oscillations tighten, which is
-	# the entire thing the plot is for.
+	# 200 samples (one per frame, ~15 per wave cycle), so individual oscillations show.
 	const SPAN := 200
 	var phase := 0.0          # accumulated orbital phase, radians
 	var last_theta = null     # last measured orbital angle, for unwrapping
@@ -179,9 +140,7 @@ class Detector extends RefCounted:
 			while d < -PI: d += 2.0 * PI
 			if absf(d) < 1e-12: return s
 			phase += d
-			# The detector's own clock. ΔΦ is shared between the drawn binary and
-			# the real one; dividing by the REAL angular rate turns it into real
-			# seconds, which is what makes the trace a waveform and not a picture.
+			# Real seconds from the shared phase: ΔΦ over the real angular rate.
 			t_real += absf(d) / float(s.omega)
 		last_theta = theta
 
@@ -224,9 +183,8 @@ class Detector extends RefCounted:
 		if ts.size() > 1:
 			Canvas2D.fill_text(canvas, "%s s of detector time" % U.fixed(float(ts[-1]) - float(ts[0]), 3), W - 6.0, trace_h - 6.0, 10.0, dim, "right")
 
-		# ---- the interferometer, with its arms stretched by the current strain.
-		# The schematic exaggerates the strain with bounded, adaptive gain; the
-		# readout gives physical displacement per arm, h L / 2.
+		# ---- the interferometer, arms stretched with bounded adaptive gain; the readout
+		# gives the real displacement per arm, h L / 2.
 		var h: float = float(last.hPlus) * cos(2.0 * phase) if last != null else 0.0
 		var y0 := trace_h + gap
 		var cx := 54.0
@@ -263,6 +221,6 @@ class Detector extends RefCounted:
 			Canvas2D.fill_text(canvas, "no binary in this scenario", tx, y0 + 14.0, 10.0, lab)
 		Canvas2D.end(canvas)
 
-	# A JS number in a template literal: 4, not 4.0.
+	# An integer prints without ".0".
 	static func _num(x: float) -> String:
 		return str(int(x)) if x == floorf(x) and absf(x) < 1e15 else str(x)

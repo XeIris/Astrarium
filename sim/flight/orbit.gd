@@ -1,38 +1,20 @@
 class_name Orbit
 extends RefCounted
 
-# TWO-BODY ORBITAL MECHANICS
-# Everything here is about ONE body's gravity, in SI, in a frame centred on it.
-# The sim's real force model is the full n-body sum (see vessel.gd); this module
-# exists for the two jobs that genuinely want the two-body answer:
+# TWO-BODY ORBITAL MECHANICS, in SI about one body. The real force model is the
+# n-body sum (vessel.gd); this is for:
+#   1. The instruments: apoapsis and friends describe the current conic,
+#      recomputed every frame from the live state.
+#   2. On-rails warp: an unpowered vessel out of the air is advanced along its conic
+#      analytically (exact, dropping perturbations).
+# Universal-variable (Stumpff) propagation: one series covers ellipse, parabola and
+# hyperbola, with no branch to divide by zero at e = 1.
 #
-#   1. THE INSTRUMENTS. "Apoapsis 412 km" is a statement about the conic the
-#      vessel is on right now, and the conic is what the crew steers by. It is
-#      recomputed every frame from the live state, so perturbations show up as
-#      the numbers drifting, which is exactly what they do in reality.
-#
-#   2. ON-RAILS TIME WARP. Above ~1000x the integrator cannot keep up with an
-#      orbit — a 90-minute LEO orbit passes in 5 ms of wall clock — so an
-#      unpowered vessel outside the atmosphere is taken off the integrator and
-#      advanced along its conic analytically. That is exactly what KSP does and
-#      for the same reason. The propagation is EXACT for the two-body problem,
-#      so it neither drifts nor cares about the step size; what it drops is the
-#      perturbations, which is an honest and clearly-bounded trade.
-#
-# The propagator is the universal-variable (Stumpff) formulation rather than a
-# per-conic one. That is not an aesthetic choice: a vessel on an escape
-# trajectory passes through e = 1, and a formulation with separate elliptic and
-# hyperbolic branches divides by zero exactly there. The universal form has no
-# branch — it is one series that covers ellipse, parabola and hyperbola.
-#
-# PORT NOTES. Vectors are DVec3 (metres, m/s — never float32). `elements()`
-# returns a Dictionary with the JS keys (a, e, inc, raan, argp, nu, rp, ra, h,
-# energy, period, r, v); INF where the JS had Infinity.
+# DVec3 in metres and m/s. `elements()` returns {a, e, inc, raan, argp, nu, rp, ra, h,
+# energy, period, r, v}, INF where unbounded.
 
-# ---- Stumpff functions ------------------------------------------------------
-# C(z) and S(z) are the even and odd parts of the universal anomaly series. The
-# series expansions near z = 0 are not an optimisation: the closed forms are
-# 0/0 there, which is precisely the parabolic case.
+# ---- Stumpff functions C(z), S(z). The series near z = 0 matter: the closed forms
+# are 0/0 there (the parabolic case).
 static func stumpff_c(z: float) -> float:
 	if z > 1e-6:
 		var s := sqrt(z)
@@ -54,9 +36,8 @@ static func stumpff_s(z: float) -> float:
 static var _r0 := DVec3.new()
 static var _v0 := DVec3.new()
 
-## Advance (r, v) by dt seconds on the two-body conic about `mu`.
-## Writes into r_out/v_out (which may alias r/v). Returns false if it failed to
-## converge, in which case the caller must fall back to integrating.
+## Advance (r, v) by dt on the conic about `mu`, into r_out/v_out (may alias).
+## Returns false if it didn't converge; the caller then integrates.
 static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_out: DVec3) -> bool:
 	if dt == 0.0:
 		r_out.copy_from(r); v_out.copy_from(v)
@@ -69,9 +50,8 @@ static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_
 	var rdotv := _r0.dot(_v0)
 	var alpha := 2.0 / r0 - v0 * v0 / mu               # = 1/a; negative ⇒ hyperbolic
 
-	# Initial guess for the universal anomaly. The elliptic guess is exact for a
-	# circle; the hyperbolic one is Vallado's, and matters because a bad guess on
-	# a near-parabolic orbit sends Newton off to infinity.
+	# Initial universal anomaly: exact for a circle; Vallado's hyperbolic guess keeps
+	# Newton sane near parabolic.
 	var x: float
 	if alpha > 1e-12:
 		x = sqmu * dt * alpha
@@ -105,9 +85,7 @@ static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_
 		if not is_finite(x): return false
 	if not ok: return false
 
-	# Lagrange f and g. These reconstruct the new state as a linear combination of
-	# the OLD position and velocity, which is why the propagation is exact rather
-	# than integrated: the orbit plane is preserved to machine precision.
+	# Lagrange f and g: the new state from the old r and v, so the plane is preserved.
 	var f := 1.0 - (x * x / r0) * C
 	var g := dt - (x * x * x / sqmu) * S
 	var gd := 1.0 - (x * x / r_mag) * C
@@ -122,20 +100,12 @@ static var _h := DVec3.new()
 static var _n := DVec3.new()
 static var _e := DVec3.new()
 static var _t := DVec3.new()
-# The reference pole. It is −Y, not +Y, and that is measured rather than
-# chosen: sim/presets.js places every standard orbit at (a·cos, 0, a·sin) with
-# velocity (−v·sin, 0, v·cos), whose angular momentum r × v points along −Y. So
-# the orrery's own "orbital north" is −Y, and defining it that way here is what
-# makes a normal prograde orbit read as inclination 0° in the HUD instead of
-# 180°. Everything else — the normal/anti-normal attitude targets, the plane
-# change planner — inherits the same sign for free.
+# The reference pole is −Y: presets place orbits at (a·cos, 0, a·sin) with velocity
+# (−v·sin, 0, v·cos), whose r × v is −Y. So a prograde orbit reads 0°, and normal
+# targets and plane changes share the sign.
 static var K := DVec3.new(0.0, -1.0, 0.0)
 
-## Classical elements from state. Angles in radians, lengths in metres.
-## The reference plane is the sim's XZ plane and the pole is K = −Y, matching
-## the orrery — so an inclination reported here is measured against the same
-## plane the presets lay their orbits in, and a prograde orbit reads 0° rather
-## than 180°. See the derivation on K above; the sign is the whole of it.
+## Classical elements from state, radians and metres, in the XZ plane with pole K.
 static func elements(r: DVec3, v: DVec3, mu: float) -> Dictionary:
 	var R := r.length()
 	var V := v.length()
@@ -184,9 +154,8 @@ static func time_to_periapsis(el: Dictionary, mu: float) -> float: return time_t
 
 # ---- transfers --------------------------------------------------------------
 
-## Hohmann transfer between two circular orbits of radii r1, r2 about `mu`.
-## The minimum-energy two-impulse transfer, and the number every mission plan
-## starts from. Returns { dv1, dv2, dv, tof, aT, phase, synodic }.
+## Hohmann transfer between circular orbits r1, r2 about `mu`:
+## { dv1, dv2, dv, tof, aT, phase, synodic }.
 static func hohmann(mu: float, r1: float, r2: float) -> Dictionary:
 	var aT := (r1 + r2) / 2.0
 	var v1 := sqrt(mu / r1)
@@ -199,15 +168,11 @@ static func hohmann(mu: float, r1: float, r2: float) -> Dictionary:
 	var T2 := 2.0 * PI * sqrt(r2 * r2 * r2 / mu)
 	var phase := PI - 2.0 * PI * tof / T2
 	var T1 := 2.0 * PI * sqrt(r1 * r1 * r1 / mu)
-	# How long until the same geometry comes round again — i.e. the launch window
-	# period. 780 days for Earth/Mars, which is why Mars missions come in pairs
-	# of years and not whenever anyone feels like it.
+	# The synodic (launch window) period: 780 days for Earth/Mars.
 	var synodic := absf(1.0 / (1.0 / T1 - 1.0 / T2))
 	return { "dv1": dv1, "dv2": dv2, "dv": absf(dv1) + absf(dv2), "tof": tof, "aT": aT, "phase": phase, "synodic": synodic }
 
-## Δv to circularize at the current radius — the standard "raise the periapsis
-## to match" burn, evaluated where the vessel is right now. `at_radius` null
-## means "at apoapsis" (JS: atRadius ?? el.ra).
+## Δv to circularize at `at_radius` (null: apoapsis).
 static func circularize_dv(el: Dictionary, mu: float, at_radius = null) -> float:
 	var R: float = el.ra if at_radius == null else at_radius
 	if not is_finite(R): return 0.0
@@ -224,9 +189,7 @@ static func phase_angle(r: DVec3, r_target: DVec3) -> float:
 	while d < -PI: d += 2.0 * PI
 	return d
 
-## Sphere of influence (m): the radius at which `body`'s pull dominates its
-## primary's. r_SOI = a·(m/M)^(2/5) — the Laplace radius, which is what the
-## patched-conic approximation patches at.
+## Sphere of influence, r_SOI = a·(m/M)^(2/5) (the Laplace radius).
 static func sphere_of_influence(a_m: float, mass_body: float, mass_primary: float) -> float:
 	if not (mass_primary > 0.0) or not (a_m > 0.0): return INF
 	return a_m * pow(mass_body / mass_primary, 0.4)

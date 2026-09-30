@@ -1,43 +1,21 @@
 class_name GiantVisual
 extends RefCounted
 
-# GAS GIANTS
-# A gas giant has no surface. What you are looking at is the top of a cloud
-# deck a few bars down in an envelope thousands of kilometres deep, and the
-# one thing that makes it read as GAS rather than as a painted ball is that it
-# does not turn as one object:
-#
-#   · The interior rotates rigidly, because it is conducting and the magnetic
-#     field ties it together. That rate — System III, 9h55m29.7s for Jupiter —
-#     is the mesh's own rotation here, and it is the only thing the "core"
-#     does.
-#   · The visible atmosphere does NOT rotate at that rate. It is organised
-#     into a dozen alternating zonal jets, and the equatorial one runs 100 m/s
-#     FASTER than the interior while jets a few degrees away run slower. So
-#     the cloud field is advected, in the shader, by
-#         dlambda(phi) = [u(phi) / (R cos phi)] * t
-#     and because that is a function of latitude, adjacent bands SHEAR past
-#     each other. Everything that makes Jupiter look alive follows from that
-#     one line: the ragged, filamented band edges, the way a vortex is drawn
-#     out into an oval, the fact that a feature you were watching has drifted
-#     relative to the one beside it a few hours later.
-#   · Belts and zones are not stripes of paint either. The jets sit at their
-#     BOUNDARIES — the flow is 90 degrees out of phase with the vertical
-#     motion — so bright zones are rising ammonia-ice cloud and dark belts are
-#     subsiding, cleared air where you are seeing several scale heights deeper
-#     into warmer, browner chromophores. One phase function gives both.
-#   · There are three optical levels, not one: a deep, warm layer, the main
-#     deck, and a thin high haze, each advected at its own rate (the wind
-#     shears with depth as well as with latitude) and composited by optical
-#     depth. That is what stops the disc looking like a decal.
-#
-# The poles are deliberately NOT banded. Juno found the jets break down inside
-# about 60 degrees latitude into a crowd of packed cyclones, which is why the
-# polar view of Jupiter looks nothing like the equatorial one.
-#
-# Shaders: shaders/bodies/giant_body.gdshader (the deck, the flow map, the
-# vortices, the ring shadow), giant_limb.gdshader (the limb haze) and
-# ring_system.gdshader (the rings' optical-depth profile).
+# GAS GIANTS: the visible cloud deck doesn't turn as one object.
+#   · The interior rotates rigidly (System III, 9h55m29.7s for Jupiter): the mesh's
+#     own rotation.
+#   · The atmosphere is a dozen alternating zonal jets (the equatorial one 100 m/s
+#     ahead of the interior), advected in the shader by
+#         dλ(φ) = [u(φ) / (R cos φ)] · t
+#     so adjacent bands shear: filamented edges, vortices drawn into ovals.
+#   · Jets sit at belt/zone boundaries, 90° out of phase with vertical motion:
+#     zones are rising ammonia cloud, belts subsiding clearer air showing deeper,
+#     browner layers.
+#   · Three optical levels (deep, deck, high haze), each advected at its own rate
+#     and composited by optical depth.
+# The poles are not banded (Juno: jets break into packed cyclones past ~60°).
+# Shaders: giant_body.gdshader (deck, flow map, vortices, ring shadow),
+# giant_limb.gdshader (limb haze), ring_system.gdshader (rings' optical depth).
 
 const BODY_SHADER := preload("res://shaders/bodies/giant_body.gdshader")
 const LIMB_SHADER := preload("res://shaders/bodies/giant_limb.gdshader")
@@ -45,13 +23,11 @@ const RING_SHADER := preload("res://shaders/bodies/ring_system.gdshader")
 
 const MAX_VORTEX := 6
 
-# zone (rising, bright), belt (sinking, dark), deep (what you see down the
-# holes), haze (the thin upper layer over everything). Hex values are sRGB,
-# converted to linear where they reach a shader (U.lin), as THREE.Color did.
+# zone (rising, bright), belt (sinking, dark), deep (seen through holes), haze (the
+# upper layer). sRGB hex, U.lin()'d at the shader.
 const GIANT_PALETTES := {
-	# Jupiter has about six alternating jets per hemisphere, so uJets is set so
-	# that sin(uJets * lat) completes that many half cycles between equator and
-	# pole; jetAmp and eqJet are in the same units as the advection rate.
+	# About six jets per hemisphere on Jupiter; jetAmp and eqJet share the advection
+	# rate's units.
 	"jupiter": {"zone": 0xc2b190, "belt": 0x7d5233, "deep": 0x54301e, "haze": 0xb5a68c, "spot": 0xa5522f,
 			"jets": 11.0, "jetAmp": 0.55, "contrast": 1.0, "eqJet": 1.0},
 	"saturn":  {"zone": 0xcfbf96, "belt": 0xa88b5e, "deep": 0x876236, "haze": 0xd2c6aa, "spot": 0xb59868,
@@ -67,10 +43,8 @@ static func zonal_wind(pal: Dictionary, lat: float) -> float:
 	var env := exp(-pow(a / 1.05, 4.0))
 	return float(pal.eqJet) * exp(-pow(a / 0.24, 2.0)) + float(pal.jetAmp) * cos(float(pal.jets) * lat) * env
 
-## mulberry32 — the web build's seeded generator, bit for bit, so the vortices
-## land where they land in the web build. JS does this in int32 with
-## Math.imul; here every value is kept as an unsigned 32-bit int in a 64-bit
-## one, and the multiply is split so no product exceeds 48 bits.
+## mulberry32, bit for bit (so vortex placement is reproducible): unsigned 32-bit
+## values in 64-bit ints, with the multiply split to stay under 48 bits.
 class Mulberry extends RefCounted:
 	var a: int
 	func _init(seed: int) -> void:
@@ -170,9 +144,8 @@ static func _ring_material(opts: Dictionary, seed: float) -> ShaderMaterial:
 static func create_giant_visual(b: Body, opts: Dictionary = {}) -> GiantViz:
 	return GiantViz.new(b, opts)
 
-## The visual object (docs/godot.md). Fields mirror the web build's b.viz:
-## group, core, body_mesh (JS `body`), limb, rings, mat, limb_mat, ring_mat,
-## base_r, R, is_giant, vortices; plus update(dt, ctx).
+## The visual object: group, core, body_mesh, limb, rings, mat, limb_mat, ring_mat,
+## base_r, R, is_giant, vortices, and update(dt, ctx).
 class GiantViz extends RefCounted:
 	var group: Node3D
 	var core: MeshInstance3D
@@ -216,16 +189,15 @@ class GiantViz extends RefCounted:
 		limb.name = "Limb"
 		group.add_child(limb)
 
-		# --- long-lived vortices. They sit where the shear is anticyclonic, which
-		# is the poleward side of a prograde jet; the Great Red Spot has been at
-		# 22 degrees south for at least 190 years for exactly that reason.
+		# --- long-lived vortices on the anticyclonic (poleward) side of prograde jets (the
+		# Great Red Spot has sat at 22°S for 190+ years).
 		var rnd := GiantVisual.Mulberry.new(int(seed * 1000.0 + 7.0))
 		var contrast := float(pal.contrast)
 		var nV := int(U.nz(opts.get("vortices"), 3 if contrast > 0.6 else (2 if contrast > 0.3 else 1)))
 		var vscale := float(U.nz(opts.get("vortexScale"), 1.0))
 		for i in mini(nV, GiantVisual.MAX_VORTEX):
 			# pick a latitude at an anticyclonic phase of the jet system
-			# (the JS evaluates these in object-literal order; so does this)
+			# (draw order matters for the seeded sequence)
 			var lat := -0.39 if i == 0 else (rnd.next() - 0.5) * 1.6
 			var lon := rnd.next() * TAU
 			var size := (0.135 if i == 0 else 0.045 + rnd.next() * 0.04) * vscale
@@ -243,9 +215,7 @@ class GiantViz extends RefCounted:
 		if RockyVisual.truthy(opts.get("rings")):
 			var inner := float(U.nz(opts.get("ringInner"), 1.24))
 			var outer := float(U.nz(opts.get("ringOuter"), 2.27))
-			# The visual radius is exaggerated along with the body, so the ring system
-			# is built in BODY RADII and scaled with it — a ring is at a resonance
-			# with a moon, not at an absolute distance.
+			# Rings are built in body radii and scale with the body (they sit at resonances).
 			ring_mat = GiantVisual._ring_material(opts, seed)
 			ring_mat.set_shader_parameter("uBodyR", R)
 			rings = RockyVisual.mesh_instance(GiantVisual.ring_geometry(R * inner, R * outer, 192, 8), ring_mat)
@@ -295,18 +265,11 @@ class GiantViz extends RefCounted:
 			var S: float = Suns.insolation_at(b, ctx.suns) if real_suns else float(suns[0].intensity)
 			var Teq := 278.6 * pow(maxf(S, 1e-9) * (1.0 - albedo), 0.25)
 			mat.set_shader_parameter("uTeff", Teq * pow(internal, 0.25))
-			# Sun directions in the BODY frame, for the two shadow tests. The group
-			# carries the axial tilt, so this is where the ring shadow learns which
-			# way the rings are leaning.
+			# Sun directions in the body frame; the group carries the tilt.
 			var inv := tilt_q.inverse()
-			# The RING mesh is not spun, so the group frame is its frame. The BODY
-			# mesh is: rotation.y carries System III, and its shader tests the ring
-			# shadow against vObj, its own local position. Handing it the group-frame
-			# direction leaves the two frames a spin phase apart, and the shadow then
-			# travels round the planet at the interior rotation rate instead of
-			# staying under the sunward side of the ring plane. Taken back out with
-			# the mesh's own quaternion rather than a hand-written rotation, because
-			# the sign of that is exactly the trap this is.
+			# The body mesh spins (System III) and its shader tests the ring shadow in its own
+			# local frame, so un-spin with the mesh's own quaternion, or the shadow travels at
+			# the interior rate.
 			var body_inv := body_mesh.quaternion.inverse()
 			var n := mini(suns.size(), Suns.MAX_SUNS)
 			var so_ring := PackedVector3Array(); so_ring.resize(Suns.MAX_SUNS)

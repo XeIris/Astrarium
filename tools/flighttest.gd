@@ -1,33 +1,30 @@
 extends Node
 
-# FLIGHT TEST — drives the REAL orchestrator (main.gd) through a scripted
-# spaceflight scenario and writes frames and telemetry, for side-by-side
-# comparison with the web build (tools/flightshots.json through webref.mjs).
+# FLIGHT TEST: drives the real orchestrator through a scripted spaceflight scenario
+# and writes frames and telemetry, for comparison with the web build
+# (tools/flightshots.json through webref.mjs).
 #
 #   Godot --path . res://tools/flighttest.tscn -- scen=sv_launch out=/abs/dir/ \
 #         seed=7 [only=name,name]
 #
-# The scenarios live in tools/flight_scenarios.json, which tools/flightshots.mjs
-# also reads to write the web build's shot list — one table, two runners. Each
-# is a list of steps:
+# Scenarios are in tools/flight_scenarios.json (also read by flightshots.mjs). Steps:
 #   ["launch", key]                   main.launch_craft(key) (await its mesh)
 #   ["begin", key, opts]              flight.begin(key, opts) directly
 #   ["booster"]                       register the lone Falcon 9 booster
 #   ["init", {alt, vVert, vHoriz}]    set r, v, q as tools/flightref.mjs does
 #   ["program", name]                 the flight panel's program button
-#   ["target", name]                  the flight panel's target list (a body,
-#                                     or "★ <star>" for an interstellar mission)
+#   ["target", name]                  a body, or "★ <star>" for a mission
 #   ["cam", mode] / ["warp", i]
 #   ["call", method, args...]         main.<method>(args...)
-#   ["backdrop", light]               the model viewer's light/dark backdrop
+#   ["backdrop", light]               the model viewer's backdrop
 #   ["sunaim", yaw, pitch]            turntable to the far side from the sun
-#   ["look", yaw, pitch, dist?]       aim the chase/orbit turntable directly (rad, m)
+#   ["look", yaw, pitch, dist?]       aim the chase/orbit turntable (rad, m)
 #   ["pad", az°, el, scale]           walk the pad camera round (pad_orbit)
 #   ["frames", n]                     n fixed steps of main.animate(dt)
 #   ["shot", name, hud?]              write <out>/<name>.png (+ .json telemetry)
 #
-# main.gd reads its own command line, so pass the scenario's world there:
-#   preset=solar seed=<table seed> mode=flight   (tools/flightshots.sh does)
+# Pass the world on main.gd's command line: preset=solar seed=<table seed>
+# mode=flight (tools/flightshots.sh does).
 
 ## The scenario table is shared with the web side (tools/flightshots.mjs).
 const SCENARIO_FILE := "res://tools/flight_scenarios.json"
@@ -45,9 +42,8 @@ func _ready() -> void:
 	out = str(args.get("out", "/tmp/"))
 	if not out.ends_with("/"): out += "/"
 	DirAccess.make_dir_recursive_absolute(out)
-	# Only when asked: str(1.0/60.0) prints 13 digits, and parsing that back is
-	# 3e-15 off the web's 1/60 — 1e-5 s after an hour of 10⁶× warp, enough to
-	# land a readout on the other side of a whole minute.
+	# Only when asked: str(1.0/60.0) round-trips 3e-15 off, which drifts past a minute
+	# boundary after an hour at 10⁶×.
 	if args.has("dt"): dt = float(args.dt)
 	PlanetMaps.synchronous = true
 	main = Node.new()

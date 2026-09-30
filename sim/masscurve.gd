@@ -1,43 +1,18 @@
 class_name MassCurve
 extends CrossSection.BitmapCanvas
 
-# THE MASS–RADIUS CURVE — the slider's own graph, and a handle you can drag
-# A slider tells you where you are. It cannot tell you where the interesting
-# places ARE, and in this model they are the whole point: a rocky planet's
-# radius does not grow monotonically, it turns over at ~300 M⊕ where electron
-# degeneracy starts stiffening faster than gravity loads it; a neutron star's
-# radius is flat for a solar mass and then falls off a cliff at the TOV limit.
-# Neither is visible on a linear bar with a number next to it.
+# THE MASS–RADIUS CURVE: R(M) for the body's composition and spin, log–log, with the
+# body as a draggable handle. Both axes are logarithmic (ten decades of mass, eight
+# of radius), so R ∝ M^⅓, M^(−⅓) and M are straight lines and regime changes show as
+# kinks.
 #
-# So this draws R(M) for the body's own composition and spin, log–log, with the
-# current object sitting on the curve as a handle you can drag. Both axes have
-# to be logarithmic: the mass axis spans ten decades from a dwarf planet to a
-# supermassive hole, and the radius axis spans eight from a neutron star's
-# 12 km to a supergiant's 700 R☉. On log axes the power laws that make up the
-# curve — R ∝ M^⅓ for a cold solid, R ∝ M^(−⅓) for a degenerate one, R ∝ M for
-# a horizon — are straight lines with slopes of ⅓, −⅓ and 1, and the places
-# where the physics changes are visible as kinks rather than hidden in a number.
+# The marks are sampled, not listed: structure_of() is called across the range and a
+# boundary is drawn wherever the type or verdict changes, so a new threshold in
+# sim/structure.gd appears on its own and marks move with spin. A region with no
+# equilibrium (radiusAU = 0, e.g. past Chandrasekhar) is a hatched dead zone.
 #
-# THE MARKS ARE NOT A LIST. Nothing here knows that 13 M_J is the deuterium
-# limit. The curve is sampled by calling structure_of() across the range, and a
-# boundary is drawn wherever the RESULT changes regime — a different type, or a
-# different verdict. That is the same rule the rest of the editor follows: if
-# sim/structure.gd learns a new threshold, this graph grows a new line without
-# being told. It also means the marks move when they should — spin a neutron
-# star up and the TOV line slides right, because rotation really does support
-# more mass.
-#
-# The one thing sampling cannot show is a region with no equilibrium at all
-# (past the Chandrasekhar mass a white dwarf has no radius, it detonates), so
-# those come back with radiusAU = 0 and are drawn as a hatched dead zone rather
-# than as a curve falling to nothing.
-#
-# PORT NOTES. The web's createMassCurve({canvas, onPick}) closure is this class
-# (docs/godot.md: closures over mutable state become members). It IS the
-# canvas: an El over a 330 × 152 bitmap that the layout scales into the panel,
-# with the drawing arithmetic in bitmap pixels exactly as the canvas had it.
-# Pointer capture is Godot's own: a Control that takes the press keeps the
-# drag until the release, wherever the pointer goes.
+# An El over a 330 × 152 bitmap scaled into the panel, drawing in bitmap pixels. A
+# Control that takes the press keeps the drag until release.
 
 const N := 240                 # samples across the range
 const PAD_L := 34.0
@@ -45,9 +20,7 @@ const PAD_R := 10.0
 const PAD_T := 14.0
 const PAD_B := 22.0
 
-# Colour per resulting type, so a curve that crosses an ignition threshold
-# changes colour at the crossing. These match the type buttons' sense of what
-# each object is rather than any particular body's own colour.
+# Colour per resulting type, so the curve changes colour at an ignition threshold.
 const TYPE_COLOR := {
 	"planet": 0x7fb2e0, "world": 0x7fb2e0, "gas-giant": 0xd9a15e, "star": 0xffd27f,
 	"white-dwarf": 0xcfe4ff, "neutron": 0xa8d8ff, "bh": 0xb98cff,
@@ -101,9 +74,8 @@ static func regime_key(st: Dictionary) -> String:
 	var state = v.get("state") if v is Dictionary else null
 	return "%s|%s" % [st.get("type"), state if state != null else Structure.VERDICT.ok]
 
-# What to call the boundary. The model's own words, shortened to fit: the
-# verdict label when there is one (it names the event — "TOV limit exceeded"),
-# otherwise the new object's label ("Brown dwarf").
+# A boundary's name: the verdict label if there is one ("TOV limit exceeded"), else
+# the new object's label ("Brown dwarf").
 static func regime_label(st: Dictionary) -> String:
 	var v = st.get("verdict")
 	var lab = st.get("label")
@@ -121,9 +93,7 @@ static func _bad(st: Dictionary) -> bool:
 	return v is Dictionary and v.get("state") != Structure.VERDICT.ok
 
 static func fmt_mass_short(m: float) -> String:
-	# Plain scientific notation at the top of the range. Dividing by 1e6 and
-	# appending "e6" reads fine at 3.2e6 and turns into "1.0e+2e6" at 1e8 — and
-	# the Foundry's black-hole slider goes to 1e9.
+	# Plain scientific notation at the top of the range (the BH slider reaches 1e9).
 	if m >= 1e6:
 		var e := CrossSection.decade(m)
 		return "%se%d M☉" % [Structure._num(float(U.prec(m / pow(10.0, e), 2))), e]
@@ -212,9 +182,7 @@ func _paint(ci: CanvasItem) -> void:
 		var t := U.expo(v, 0).replace("e+", "e") if (v >= 1e4 or v < 0.01) else Structure._num(float(U.prec(v, 2)))
 		CrossSection.fill_text(ci, t, PAD_L - 4.0, y, 9, lab, "right", "middle")
 	CrossSection.fill_text(ci, unit.name, 2, PAD_T - 6.0, 9, lab, "left", "middle")
-	# Every decade gets a gridline; only some get a label. Ten decades across
-	# 300 px is 30 px each and "0.033 M⊕" is 50 wide, so labelling them all
-	# produces a smear rather than an axis.
+	# Every decade gets a gridline; only some get a label (30 px per decade).
 	var per_decade := _X(1.0) - _X(0.0)
 	var label_every := maxi(1, int(ceil(56.0 / maxf(per_decade, 1.0))))
 	for d in range(int(ceil(view[0])), int(floor(view[1])) + 1):
@@ -251,10 +219,8 @@ func _paint(ci: CanvasItem) -> void:
 		run.append(s)
 	flush.call(run)
 
-	# --- boundary labels last, so they are legible over the curve
-	# Boundaries cluster (deuterium ignition and hydrogen ignition are 0.8 dex
-	# apart), so labels alternate between two rows and a label that would still
-	# land on top of the previous one is dropped rather than smeared over it.
+	# --- boundary labels last, alternating two rows; a label that would still overlap
+	# is dropped.
 	var row_end := [-1e9, -1e9]
 	for mk in marks:
 		var x := _X(mk.lm)
@@ -281,9 +247,7 @@ func _paint(ci: CanvasItem) -> void:
 			ci.draw_circle(Vector2(x, y), 4.5, Color.WHITE, true, -1.0, true)
 			ci.draw_arc(Vector2(x, y), 4.5, 0.0, TAU, 32, DEAD if _bad(st) else type_color(st.get("type")), 2.0, true)
 
-# --- interaction ----------------------------------------------------------
-# Dragging the handle is the same edit the mass slider makes; the graph is a
-# second view of one number, not a second number.
+# --- interaction: dragging the handle is the same edit as the mass slider.
 func _pick(p: Vector2) -> void:
 	var px := to_bitmap(p).x
 	var lm := minf(maxf(_unX(px), view[0]), view[1])
@@ -311,9 +275,7 @@ func draw_curve(new_spec: Dictionary, new_range = null) -> void:
 	if new_range != null: range_ = new_range
 	var lm := U.log10(maxf(float(spec.mass), 1e-12))
 	if focus:
-		# Zoomed: put the nearest boundary and the body in the same ±0.35 dex
-		# window, so the transition is something you can crawl across rather
-		# than something the handle jumps over in one pixel.
+		# Zoomed: the nearest boundary and the body in one ±0.35 dex window.
 		_cache_key = ""                    # the window moves, so re-sample
 		view = [minf(lm, range_[0]), maxf(lm, range_[1])]
 		_resample()
@@ -329,9 +291,7 @@ func set_focus(v: bool) -> void:
 	focus = v
 	_cache_key = ""
 
-# What the body is closest to becoming — used for the caption under the
-# graph, which is the part people actually read. Needs the curve sampled,
-# which draw_curve() does.
+# What the body is closest to becoming, for the caption. Needs draw_curve() first.
 func nearest(mass: float):
 	if spec != null: _resample()
 	var lm := U.log10(maxf(mass, 1e-12))

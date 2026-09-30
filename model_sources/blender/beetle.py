@@ -1,21 +1,9 @@
-# THE BEETLE — the Hail Mary's data-return probe. Four of them ride in her nose.
-# 4.2 m long, 2.4 m across, and its whole design argument is mass ratio: it is
-# a one-way courier with no crew and no life support, small enough that the
-# rocket equation closes for the trip home when the mothership's does not.
-#
-# PLAIN IS NOT THE SAME AS BARE. The first pass took "built by people who had
-# months, not years" as licence to draw a grey cylinder with four hoops on it,
-# and a grey cylinder with four hoops on it is not a spacecraft — it is a
-# barrel. What makes a small probe read is the hardware a small probe cannot do
-# without and cannot hide: a high-gain antenna big enough to close the link over
-# four light years, thermal blanket where the hull is warm and radiator where it
-# is not, thrusters in clusters far enough apart to give a moment arm, a star
-# tracker with a sun shade, and the tank and the drive it spends its whole
-# journey burning. Every one of those is load-bearing on the design; none of
-# them is decoration; and together they are what says this thing was built to
-# cross interstellar space and TRANSMIT at the far end.
-#
-# See common.py for the axis convention: +Z is the nose here.
+# THE BEETLE, the Hail Mary's data-return probe (four in her nose): 4.2 m long,
+# 2.4 m across, a crewless one-way courier small enough for the rocket equation to
+# close on the trip home. It reads through the hardware it can't do without: a
+# high-gain antenna for a four-light-year link, blanket where warm and radiators
+# where not, widely spaced thrusters, a shaded star tracker, and its tank and drive.
+# +Z is the nose (common.py).
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,11 +17,7 @@ R = D / 2
 DR = R * 0.46                       # drive aperture radius
 NECK = DR * 1.42                    # drive neck height
 
-# THE STACK, bottom up, because a 4.2 m vehicle has no room for anything to be
-# approximately anywhere. z = 0 is the DRIVE EXIT PLANE — the drive is the aft
-# end of the probe, not a part buried in the middle of it, and the first pass
-# had the propellant tank hanging BELOW the emitter array where the exhaust
-# goes.
+# THE STACK, bottom up. z = 0 is the drive exit plane, at the aft end.
 CAN_Z = NECK * 1.15                 # top of the emitter can
 CAP = R * 0.42                      # dome depth: a shallow welded head, not
 HZ0, HZ1 = 1.55, 3.70               # a hemisphere — the barrel is the vehicle
@@ -55,9 +39,8 @@ def spin_drive(name, r, parent, loc):
     update() drives it by ASSIGNING Euler angles, which wipes any orientation
     set at build time.
     """
-    # The outer mount carries the placement; the inner pivot is the node
-    # craftmodel drives, and its name must NOT itself start with a binding
-    # prefix or it would be collected as a second gimbal.
+    # The mount carries placement; the inner pivot is driven, and its name must not
+    # start with a binding prefix.
     mount = empty(f'mount_{name}', loc, parent)
     piv = empty(name, (0, 0, 0), mount)
 
@@ -70,9 +53,8 @@ def spin_drive(name, r, parent, loc):
                   f'{name}_lip', seg=40, minor=10, parent=piv)
     smooth(lip, 30)
 
-    # Emitter plate, recessed inside the reflector, and the cells on it. They
-    # have to be BRIGHT: the face points aft, away from every light in the
-    # scene, so it renders black however it is coloured.
+    # Emitter plate, recessed, with bright self-lit cells (the face points away from
+    # every light).
     plate = revolve(f'{name}_plate',
                     [(0, NECK * 0.34), (r * 0.90, NECK * 0.34),
                      (r * 0.90, NECK * 0.40), (0, NECK * 0.40)],
@@ -88,9 +70,7 @@ def spin_drive(name, r, parent, loc):
             c.location = (cos(a) * r * ring, sin(a) * r * ring, NECK * 0.33)
             finish(c, 0.004, 2, 45)
 
-    # The can behind the plate, the collar that ties it to the hull, and the
-    # fasteners round it — hardware at a size the eye can measure the probe
-    # against, which on a 4 m vehicle is most of what scale there is.
+    # The can, collar and fasteners: hardware at a measurable scale.
     can = cyl(f'{name}_can', r * 0.82, r * 0.72, NECK * 0.40, NECK * 1.15,
               MM['dirty'], seg=28, parent=piv)
     finish(can, 0.010, 2, 45)
@@ -114,10 +94,8 @@ def build_beetle(M):
     MM.update(M)
     root = stage('beetle')
 
-    # ---- pressure hull: a capsule, because a sphere is the cheapest pressure
-    # vessel and a cylinder is the cheapest thing to pack four of into a nose.
-    # Built as a lathe rather than a capsule primitive so the shoulders can be
-    # a little fuller than a hemisphere, which is what a welded dome is.
+    # ---- pressure hull: a capsule, lathed so the shoulders are a little fuller than a
+    # hemisphere (a welded dome).
     prof = [(0.0, HZ0 - CAP)]
     for i in range(1, 9):
         a = (i / 8) * pi / 2
@@ -136,9 +114,7 @@ def build_beetle(M):
                      M['alu'], seg=40, minor=8, parent=root)
         smooth(r_, 30)
 
-    # ---- MLI. Gold blanket over the warm forward bay where the transmitter and
-    # the batteries are. Its seams are the tape over the stitching, spaced far
-    # enough apart to read as a blanket rather than as a birdcage.
+    # ---- MLI over the warm forward bay, with tape seams.
     bl0, bl1 = HZ0 + (HZ1 - HZ0) * 0.52, HZ1 + CAP * 0.62
     bl = lathe('mli', [(R * 1.020, bl0), (R * 1.032, bl0 + 0.10),
                        (R * 1.024, (bl0 + bl1) / 2), (R * 1.032, bl1 - 0.20),
@@ -163,10 +139,8 @@ def build_beetle(M):
         u.location = (-R * 1.12, 0, 2.10 + 1.00 * k)
         finish(u, 0.010, 2, 40)
 
-    # ---- the astrophage bay: the dark band at the base of the barrel, between
-    # the pressure hull and the drive. It is a third of the vehicle's mass and
-    # it has nowhere to hide, so it is drawn as what it is rather than tucked
-    # out of sight — with the fill and drain couplings on it.
+    # ---- the astrophage bay at the barrel's base, a third of the mass, with fill and
+    # drain couplings.
     bay = cyl('fuelbay', R * 1.005, R * 1.005, HZ0 + 0.02, HZ0 + 0.56,
               M['soot'], seg=48, parent=root)
     finish(bay, 0.012, 2, 40)
@@ -182,9 +156,7 @@ def build_beetle(M):
     # attitude, not by differential power, because there is only one of it.
     spin_drive('gimbal_beetle_0', DR, root, (0, 0, 0))
 
-    # The aft skirt, which fairs the drive can out to the barrel and hides the
-    # hull's lower dome inside itself, and four thrust struts through it so the
-    # drive is carried by something.
+    # The aft skirt fairs the drive can to the barrel; four thrust struts carry the drive.
     skirt = cyl('skirt', DR * 1.15, R * 0.92, CAN_Z * 0.94, SK_Z,
                 M['dirty'], seg=40, parent=root)
     finish(skirt, 0.014, 2, 45)
@@ -195,13 +167,8 @@ def build_beetle(M):
               (cos(a) * R * 0.74, sin(a) * R * 0.74, SK_Z + 0.02),
               0.042, M['alu'], seg=6, parent=root)
 
-    # ---- HIGH-GAIN ANTENNA. The beetle's entire purpose is to arrive and
-    # TRANSMIT, so the dish is not a detail on it — it is the payload, and
-    # everything else is a bus for it. On a two-axis gimbal, on a boom that
-    # stands it clear of the hull, and OPENING FORWARD: a paraboloid radiates
-    # along its own +Z, and the first version had that axis tipped back into the
-    # hull it is bolted to, so the probe crossed four light years aiming its
-    # only transmitter at its own tank.
+    # ---- HIGH-GAIN ANTENNA: the payload. On a two-axis gimbal and boom, opening
+    # forward (a paraboloid radiates along its +Z, away from the hull).
     yoke = group('hga', root, loc=(R * 0.98, 0, HZ1 - 0.30), rot_z=0.0)
     strut('hga_boom', (-R * 0.26, 0, 0), (D * 0.19, 0, 0), 0.05, M['alu'],
           seg=8, parent=yoke)
@@ -217,9 +184,7 @@ def build_beetle(M):
     d = revolve('hga_dish', [(rd * (i / 12), rd * 0.30 * (i / 12) ** 2) for i in range(13)],
                 M['white'], seg=36, parent=aim)
     finish(d, 0.008, 2, 40)
-    # The backing structure, which lives BEHIND the reflector — at lower z than
-    # the surface at the same radius, since the dish opens along +Z. Level with
-    # it, the ribs are not ribs: they are spars straight across the aperture.
+    # Backing structure behind the reflector (lower z at the same radius).
     def back_z(u):
         return rd * (0.30 * u * u - 0.075)
     finish(revolve('hga_back', [(0, back_z(0)), (rd * 0.36, back_z(0.36)),
@@ -259,10 +224,7 @@ def build_beetle(M):
     sh.location = (0.23, 0, 0)
     smooth(sh, 30)
 
-    # ---- two radiator wings, standing OFF the hull on brackets. Flush to the
-    # skin they radiate into the hull they are cooling, which is why a real one
-    # is always held clear — and it is the standoff, not the panel, that makes
-    # them read as radiators rather than as painted stripes.
+    # ---- two radiator wings on brackets, held clear of the hull.
     for sgn in (-1, 1):
         rad = group(f'rad{sgn}', root, loc=(0, 0, 2.78),
                     rot_z=(pi / 2 if sgn > 0 else -pi / 2))
@@ -276,9 +238,8 @@ def build_beetle(M):
             strut(f'rad{sgn}_arm{s2}', (R * 0.99, s2 * D * 0.13, 0),
                   (R + 0.28, s2 * D * 0.13, 0), 0.042, M['alu'], seg=6, parent=rad)
 
-    # ---- attitude control: two rings of clusters as far apart as the hull
-    # allows, three nozzles each. The moment arm is the whole point, so they go
-    # on the shoulders rather than tidily amidships.
+    # ---- attitude control: two rings of three-nozzle clusters on the shoulders, for
+    # moment arm.
     for k in range(4):
         a = k / 4 * TAU + pi / 4
         for zq, tag in ((HZ1 - 0.10, 'f'), (HZ0 + 0.78, 'a')):

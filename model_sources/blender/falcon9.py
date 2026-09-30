@@ -1,14 +1,10 @@
-# FALCON 9 BLOCK 5 — the working reusable launcher.
-# Four stages in the model's sense: booster, second stage, fairing, payload.
-# The booster is the interesting object — it separates at ~65 km with a third
-# of its delta-v still in the tanks and spends it on coming back — and almost
-# everything that distinguishes it from a plain white tube is recovery
-# hardware: grid fins, four stowed legs lying along the body as dark strakes,
-# a soot-black interstage, and the octaweb they all bolt to.
+# FALCON 9 BLOCK 5, the Blender build: booster, second stage, fairing, payload. The
+# booster separates at ~65 km with a third of its Δv left, and its recovery hardware
+# is what distinguishes it: grid fins, four stowed legs as dark strakes, a soot-black
+# interstage, the octaweb.
 #
-# Dimensions are vehicles.js: 41.2 m and 3.66 m for the booster, 13.8 m for
-# the second stage, a 13.1 m x 5.2 m fairing, and the payload MOUNTED at 61 m
-# rather than stacked — it rides inside the shroud, not on its nose.
+# Dimensions from vehicles.gd: booster 41.2 m × 3.66 m, second stage 13.8 m, fairing
+# 13.1 m × 5.2 m, payload mounted at 61 m inside the shroud.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -36,9 +32,7 @@ def build_s1(M, root):
                 seg=56, parent=g)
     finish(body, 0.02, 2, 40)
 
-    # The soot band. A flight-proven booster is BLACK for the bottom few metres
-    # and that is not weathering for its own sake — it is the single clearest
-    # sign that this vehicle is on its second flight or its twentieth.
+    # The soot band on the bottom few metres of a flight-proven booster.
     st = stripe('soot', S1_D, 0.0, S1_L * 0.12, M['soot'], seg=56, parent=g)
     # The LOX/RP-1 dome joint, roughly two thirds up, and the raceway that runs
     # the full length carrying the harness and the helium lines.
@@ -55,12 +49,8 @@ def build_s1(M, root):
     ow.rotation_euler = (0, 0, pi / 8)
     finish(ow, 0.02, 2, 40)
 
-    # ---- nine Merlins: eight around one, the octaweb arrangement. The centre
-    # engine is the one that lands the stage, and it is the only one lit for
-    # the last twenty seconds of the flight.
-    # The ring has to clear the centre engine AND its own neighbours: eight
-    # 0.92 m Merlins on a 1.11 m ring are 0.85 m apart, which is 0.07 m of
-    # interpenetration all the way round.
+    # ---- nine Merlins, eight around one (the centre one lands the stage). The ring
+    # clears the centre engine and its neighbours (a naive 1.11 m ring overlaps by 0.07 m).
     spread = max(S1_D * 0.30, ring_radius(8, 0.92, centre=True))
     def place(i, x, y):
         piv = empty(f'gimbal_f9s1_{i}', (x, y, -0.02), g)
@@ -75,10 +65,8 @@ def build_s1(M, root):
     ts = cyl('thruststruct', r * 0.80, r * 0.92, S1_D * 0.13, S1_D * 0.21,
              M['soot'], seg=32, parent=g)
 
-    # ---- four stowed landing legs, lying along the body as dark strakes. They
-    # are there for the whole ascent and are half the booster's aft silhouette.
-    # These are the FAIRINGS, not the legs — the legs themselves are the
-    # deployables below and swing out of these bays.
+    # ---- the four leg bay fairings, lying along the body; the legs are the deployables
+    # below.
     for i in range(4):
         a = i / 4 * TAU + 0.78
         holder = empty(f'legbay{i}', (0, 0, 0), g)
@@ -93,20 +81,9 @@ def build_s1(M, root):
         tip.location = (r * 0.985, 0, S1_D * 0.14 + bay_l)
         finish(tip, 0.012, 2, 45)
 
-    # ---- the legs themselves, hinged at the base of each bay.
-    #
-    # THE PRE-CANT IS WHAT MAKES THE DEPLOYED POSE RIGHT, and its sign is the
-    # one thing here worth deriving rather than guessing. update() deploys a leg
-    # by assigning Three's rotation.z = -1.15 d, which is a rotation of +1.15 d
-    # about the node's own Blender Y — and about Blender Y a POSITIVE angle
-    # swings a leg built along -Z INWARD, under the vehicle. So a leg with no
-    # pre-cant at all does not splay: it folds in and tucks under the engines,
-    # which is what all four of these were doing.
-    #
-    # Deployed we want 60 degrees out from the vertical, i.e. -1.047 about Y;
-    # the hinge contributes +1.15, so the leg itself carries the difference.
-    # Stowed (d = 0) that leaves it lying up along the body at 54 degrees,
-    # which is where the bay fairings above are.
+    # ---- the legs, hinged at the base of each bay. update() swings a leg +1.15·d about
+    # the node's Blender Y, which folds a leg built along −Z inward. To end 60° out
+    # (−1.047 about Y), the leg carries −1.047 − 1.15; stowed it lies along the body.
     leg_cant = -1.047 - 1.15
     for i in range(4):
         a = i / 4 * TAU + 0.78
@@ -133,10 +110,7 @@ def build_s1(M, root):
     # ---- four grid fins. An actual waffle: they are titanium, they glow on
     # entry, and they are the single most recognisable thing on the booster.
     fin_z = S1_L + S1_IS * 0.72
-    # Same pre-cant argument as the legs, with the fins' own 1.35 rad of travel:
-    # DEPLOYED is square to the body, so the fin carries -1.35 and the hinge
-    # gives it back. Without it the fins started square and the deploy laid
-    # them down flat along the interstage — exactly backwards.
+    # Fins get the same pre-cant: −1.35, so the deploy's +1.35 leaves them square.
     for i in range(4):
         a = i / 4 * TAU + 0.4
         h, _ = hinge(f'fin_f9s1_{i}', (cos(a) * r, sin(a) * r, fin_z), a, g)
@@ -167,9 +141,8 @@ def build_s2(M, root):
               (0, -r * 1.02, S2_L * 0.48), M['dirty'], parent=g)
     finish(ray, 0.012, 2, 40)
 
-    # ---- MVac. A 3.3 m niobium extension on a 0.92 m Merlin: the nozzle is
-    # most of the engine and it glows cherry red in flight, which is why the
-    # skirt is a different material from the bell it hangs off.
+    # ---- MVac: a 3.3 m niobium extension on a 0.92 m Merlin, glowing cherry red in
+    # flight, so the skirt is its own material.
     piv = empty('gimbal_f9s2_0', (0, 0, -0.02), g)
     b = bell('mvac', 3.30, M['nozzle'], ratio=165, seg=32, parent=piv)
     finish(b, 0.010, 2, 50)
@@ -217,7 +190,7 @@ def build_fairing(M, root):
     return g
 
 
-# PAYLOAD — rides INSIDE the fairing, which is why vehicles.js mounts it at 61 m
+# PAYLOAD — rides INSIDE the fairing, which is why vehicles.gd mounts it at 61 m
 # rather than stacking it on the shroud's nose.
 def build_payload(M, root):
     g = stage('f9pl', root)
@@ -230,9 +203,8 @@ def build_payload(M, root):
     ad = cyl('padapter', 0.94, 0.66, 0.0, 0.55, M['alu'], seg=28, parent=g)
     finish(ad, 0.015, 2, 45)
 
-    # Two deployable wings. `array_*` is what update() holds FOLDED until the
-    # flight state asks — which is right for a solar array and wrong for
-    # anything structural, so only these go in it.
+    # Two deployable wings: `array_*` is held folded until the flight state asks, so only
+    # these go in it.
     for k, sgn in enumerate((1, -1)):
         arm = empty(f'array_f9pl_{k}', (sgn * 1.2, 0, 1.6), g)
         strut(f'satyoke{k}', (0, 0, 0), (sgn * 0.4, 0, 0), 0.05, M['alu'],

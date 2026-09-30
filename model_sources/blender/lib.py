@@ -5,10 +5,10 @@
 # artifact.
 #
 # CONVENTIONS
-#   · Blender is Z-UP and the glTF exporter converts to the Y-up that Three
+#   · Blender is Z-UP and the glTF exporter converts to the Y-up that Godot
 #     expects, so the ship is built with its THRUST AXIS ALONG +Z and its nose
-#     toward +Z. After conversion that is +Y, which is what vessel.js thrusts
-#     along (BODY_FWD) and what buildCraft stacks along.
+#     toward +Z. After conversion that is +Y, which is what vessel.gd thrusts
+#     along (BODY_FWD) and what build_craft stacks along.
 #   · z = 0 is the DRIVE EXIT PLANE, because y = 0 on a craft is whatever the
 #     vehicle stands on and this one stands on its own exhaust.
 #   · Metres. Blender's default unit, and the sim's.
@@ -246,7 +246,7 @@ def strut(name, p1, p2, r, mat, seg=8, parent=None):
     return ob
 
 
-# FINISHING — the part a procedural Three.js build cannot do
+# FINISHING — the part a procedural build cannot do
 def bevel(ob, width=0.03, segments=2, angle=40.0, clamp=True):
     """
     A BEVEL is the single highest-value thing available here. A perfectly sharp
@@ -325,11 +325,11 @@ def group(name, parent=None, loc=(0, 0, 0), rot_z=0.0):
 
 # THE REST OF THE SET — primitives the other eight vehicles are built from.
 # AXES, once, because every sign error in this file is the same sign error.
-# The exporter converts Blender Z-up to the Y-up Three wants, which means
+# The exporter converts Blender Z-up to Godot's Y-up, which means
 #
-#       Blender +X  ->  Three +X          (span, wings, left/right)
-#       Blender +Z  ->  Three +Y          (the stack axis: nose is +Z here)
-#       Blender +Y  ->  Three -Z          (so the vehicle's UP is Blender -Y)
+#       Blender +X  ->  Godot +X          (span, wings, left/right)
+#       Blender +Z  ->  Godot +Y          (the stack axis: nose is +Z here)
+#       Blender +Y  ->  Godot -Z          (so the vehicle's UP is Blender -Y)
 #
 # That last one is the trap. Anything with a top and a bottom — a lofted
 # fuselage, a wing section, a payload bay door — is written in the procedural
@@ -338,7 +338,7 @@ def group(name, parent=None, loc=(0, 0, 0), rot_z=0.0):
 #
 # So `loft` and `wing` below take their vertical terms as UP-POSITIVE and do the
 # negation internally: a section's `cz` and a wing's top surface mean the same
-# thing here as they do in sim/flight/craftmodel.js, and transfer verbatim.
+# thing here as they do in sim/flight/craftmodel.gd, and transfer verbatim.
 
 def lathe(name, profile, mat, seg=48, t0=0.0, t1=TAU, parent=None, caps=False):
     """

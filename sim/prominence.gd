@@ -1,56 +1,24 @@
 class_name Prominence
 extends RefCounted
 
-# PROMINENCES, FILAMENTS AND THE POST-FLARE ARCADE
-# What used to stand over an erupting active region here was a single tube
-# swept along one cubic Bezier: a smooth semicircular arch of uniform
-# thickness and uniform colour. Nothing about a real eruption is like that,
-# and the differences are not stylistic:
-#
-#   · PLASMA IS TIED TO FIELD LINES. Coronal gas has a plasma beta far below
-#     one, so it cannot cross the magnetic field — it can only slide along it.
-#     What you see is therefore a bundle of THREADS, each one a separate flux
-#     tube lit up along its own length, not a single solid body. The threading
-#     is the texture, and one tube cannot have it.
-#
-#   · A FLARE MAKES AN ARCADE, NOT AN ARCH. Reconnection proceeds along a
-#     magnetic neutral line and works its way upward, so the loops come in a
-#     row — dozens of them, anchored in two parallel ribbons, each rooted a
-#     little further along and each taller than the last. That row is the
-#     single most recognisable thing in any EUV image of a flare.
-#
-#   · THE ARCADE IS SHEARED, AND THAT SHEAR IS THE ENERGY. A potential field
-#     has its loops square across the neutral line and stores nothing. The
-#     free energy that a flare releases is exactly the energy of the shear, so
-#     a pre-flare arcade is strongly skewed and a post-flare one has relaxed
-#     back toward square. Drawing loops perpendicular to the neutral line is
-#     drawing a field with nothing to release.
-#
-#   · A BIPOLE IS NOT ORIENTED AT RANDOM. Hale's polarity law and JOY'S LAW:
-#     active regions are bipolar, aligned very nearly east-west, with a tilt
-#     that grows with latitude — roughly half the latitude, leading polarity
-#     equatorward. So the neutral line runs nearly north-south, tipped a
-#     little, and every arcade on a given star leans the same way in a given
-#     hemisphere. See create_arcade's caller in sim/star_visual.gd.
-#
-#   · ON THE DISC IT IS DARK. The same cool, dense material that glows as a
-#     bright PROMINENCE off the limb is seen in absorption against the
-#     photosphere behind it, where it is called a FILAMENT — it is the same
-#     object, and which one you are looking at depends only on where it is.
-#     That is why this file draws the arcade twice, once in emission and once
-#     in absorption, each discarding where the other applies.
-#
-#   · THE FOOTPOINTS ARE THE BRIGHT PART. Particles accelerated at the
-#     reconnection site stream down the legs and dump their energy where the
-#     density rises, so a flaring loop is brightest at its feet and thin and
-#     tenuous at its apex, and material condenses and drains back down the
-#     legs afterwards as coronal rain.
-#
-# Geometry is generated in the VERTEX SHADER from a parametric field line, so
-# the whole arcade can rise, stretch, shear and untwist over the course of an
-# eruption without a single buffer being rewritten. The shader code is in
-# shaders/bodies/prom_arcade.gdshaderinc (shared), prom_emit.gdshader and
-# prom_absorb.gdshader (the two passes).
+# PROMINENCES, FILAMENTS AND THE POST-FLARE ARCADE.
+#   · Plasma is tied to field lines (β ≪ 1), so an eruption is a bundle of separate
+#     threads, each a flux tube lit along its length.
+#   · A flare makes an arcade: reconnection runs along a neutral line and climbs, so
+#     loops come in a row anchored in two ribbons, each taller than the last.
+#   · The shear is the energy: a pre-flare arcade is strongly skewed, a post-flare
+#     one relaxed toward square.
+#   · Hale's and Joy's laws: bipoles lie near east-west, tilted by about half the
+#     latitude with leading polarity equatorward, so every arcade in a hemisphere
+#     leans the same way (see create_arcade's caller in star_visual.gd).
+#   · On the disc it is dark: the same material is a bright prominence off the limb
+#     and a dark filament against the photosphere, so the arcade is drawn twice,
+#     emission and absorption, each discarding where the other applies.
+#   · Footpoints are brightest (particles dump energy where density rises), apexes
+#     thin, and material drains back as coronal rain.
+# Geometry is generated in the vertex shader from a parametric field line, so an
+# arcade rises, stretches, shears and untwists without rewriting a buffer. Shaders:
+# prom_arcade.gdshaderinc (shared), prom_emit.gdshader, prom_absorb.gdshader.
 
 const THREADS := 22     # flux tubes across the arcade
 const SEGS := 44        # samples along each
@@ -61,18 +29,12 @@ const ABSORB_SHADER := preload("res://shaders/bodies/prom_absorb.gdshader")
 # aThread: -1..1 across the arcade   aS: 0..1 along the loop
 # aSide:   -1/+1 ribbon edge         aSeed: per-thread randomiser
 # (packed as CUSTOM0 = (aThread, aS, aSide, aSeed), RGBA float).
-#
-# ONE buffer, shared by every arcade on every star in the scene. It carries no
-# shape at all — the shape is entirely in the vertex shader, and two arcades
-# differ only by their uniforms — so allocating a copy per flare slot per star
-# would be megabytes of identical parameter values. It is never disposed for
-# the same reason: it outlives any one star. (A static var holds the one
-# reference for the life of the process.)
+# One buffer carries no shape, so it serves every arcade on every star, and is
+# never freed (a static var holds it).
 static var _geo: ArrayMesh = null
 
-## The mesh's own AABB is degenerate — every VERTEX is zero, because the
-## shader, not the buffer, has the shape. The web build set frustumCulled =
-## false; the Godot equivalent is an AABB nothing can fall outside of.
+## Every vertex is zero (the shader has the shape), so use an AABB nothing falls
+## outside of.
 const NO_CULL_AABB := AABB(Vector3(-1.0e6, -1.0e6, -1.0e6), Vector3(2.0e6, 2.0e6, 2.0e6))
 
 static func arcade_geometry() -> ArrayMesh:
@@ -121,10 +83,9 @@ static func _arcade_material(cool: Color, hot: Color, mode: int) -> ShaderMateri
 	m.set_shader_parameter("uHot", Vector3(hot.r, hot.g, hot.b))
 	return m
 
-## One arcade: a group carrying the same geometry twice, once in emission and
-## once in absorption. Place and orient the group so +Y is the local vertical
-## and +Z the bipole axis, then drive it with set_params() (the web's set()).
-## `cool` / `hot` are LINEAR colours.
+## One arcade: the same geometry twice, emission and absorption. Orient the group
+## with +Y the local vertical and +Z the bipole axis, then drive it with
+## set_params(). `cool` / `hot` are linear colours.
 static func create_arcade(cool: Color, hot: Color) -> Arcade:
 	return Arcade.new(cool, hot)
 

@@ -1,25 +1,14 @@
 #[compute]
 #version 450
-// SURFACE VIEW — standing on the planet, looking up. The port of
-// sim/skyview.js's SKY_FRAG; the derivation is in the header of
-// sim/skyview.gd, and every comment below is the web build's.
-// The web build ran this as a full-screen fragment pass that read the rendered
-// scene (sky backdrop + geometry, `tScene`) and wrote the composite into the
-// HDR buffer. Here it is a compute kernel the pipeline runs between compose
-// and the band remap (render/postfx.gd, "0b"), reading the composed HDR buffer
-// and writing a second one. Nothing in it needs screen-space derivatives, so
-// nothing is lost in the move to compute.
+// SURFACE VIEW (derivation in sim/skyview.gd). A compute kernel run between compose
+// and the band remap (render/postfx.gd, "0b"), reading the composed HDR buffer and
+// writing a second one; nothing here needs screen derivatives.
 //
-// ALPHA. The web pass wrote gl_FragColor = vec4(col * uExposure, 1.0) over the
-// whole frame, so in the surface view every pixel reached the remap as 1.0 —
-// "no temperature data, infer T from colour" — and the backdrop's SKY_ALPHA
-// and every emitter's published temperature were overwritten. This kernel
-// writes 1.0 for the same reason and with the same consequence.
+// ALPHA: every pixel is written with 1.0 ("infer T from colour"), so in the surface
+// view the backdrop's SKY_ALPHA and emitters' temperatures are overwritten.
 //
-// The ray is rebuilt exactly as the web build built it from uCamMat/uFov/
-// uAspect, with vUv reconstructed WebGL-style (origin bottom-left) from the
-// pixel, and the scene is fetched at the same pixel the web's texture2D(tScene,
-// vUv) hit (a texel centre, so linear filtering returns the texel itself).
+// The ray is built from uCamMat/uFov/uAspect with uv reconstructed bottom-left from
+// the pixel, and the scene is fetched at the texel centre.
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform sampler2D tScene;
 layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D outHdr;
@@ -33,7 +22,7 @@ layout(set = 0, binding = 2, std140) uniform Params {
 	vec4 camRight;              // uCamMat column 0 (world), w uAspect
 	vec4 camUp;                 // uCamMat column 1, w uTime
 	vec4 camBack;               // uCamMat column 2, w uExposure
-	vec4 camPosNight;           // xyz uCamPos (unused by the shader, as in the web), w uNight
+	vec4 camPosNight;           // xyz uCamPos (unused), w uNight
 	vec4 clim0;                 // uIce, uScorch, uClouds, uHumidity
 	vec4 clim1;                 // uStorm, _, _, _
 } P;
@@ -79,18 +68,10 @@ float phaseMie(float c){
 	return (1.0 - gg) / (4.0*PI * pow(1.0 + gg - 2.0*g*c, 1.5));
 }
 
-// Single-scattered radiance along a view ray of air mass mView.
-//
-// The naive form is (beta_scatter * phase) * mView, which grows WITHOUT BOUND as
-// you look toward the horizon — at the horizon mView ~ 38, so the horizon comes
-// out 38x the zenith and whites out the frame. That is wrong: light scattered
-// toward you is also extinguished on its way to you. Integrating both through a
-// uniform slab gives a SATURATING result,
-//
+// Single-scattered radiance along a view ray of air mass mView. Scattering and
+// extinction together through a uniform slab saturate:
 //     L = (beta_s * P / beta_e) * (1 - exp(-beta_e * m))
-//
-// which tends to the single-scattering albedo as the path gets optically thick.
-// It is why a real horizon is pale and bright but not blinding.
+// so the horizon (mView ~ 38) is pale and bright, not 38× the zenith.
 vec3 inScatter(float cosTheta, float mView){
 	vec3 betaE = TAU_R + TAU_M;
 	vec3 betaS = TAU_R * phaseRayleigh(cosTheta) + vec3(TAU_M * phaseMie(cosTheta));
@@ -113,10 +94,7 @@ void main(){
 	float elev = dot(rd, uUp);                 // sine of the view elevation
 	vec3 scene = texelFetch(tScene, px, 0).rgb;
 
-	// Extinction on the SUN'S OWN DISC. The rendered star knows nothing about the
-	// air it is being seen through, so redden it here: a sun on the horizon is
-	// looking at us through ~38 air masses, which is why it goes blood red before
-	// it sets. Applied per sun, so each one reddens on its own schedule.
+	// Redden each sun's disc by its own air mass (~38 at the horizon).
 	vec3 tint = vec3(1.0);
 	for(int i=0;i<MAX_SUNS;i++){
 		if(i >= uSunCount) break;
@@ -224,12 +202,9 @@ void main(){
 	}
 	opacity *= (1.0 - sunMask * 0.92);
 
-	// The rendered star discs live in the same linear space as the sky, but their
-	// shader is tuned for the un-tonemapped orbit view, so lift them here to keep
-	// a sun reading as a sun once the filmic curve is applied.
-	// Scattered light ADDS along the ray, including over the solar disc.
-	// Replacing sky with a dim, orbit-exposed star made a dark hole in the halo.
-	// Surface viewing uses a brighter disc exposure than close-up stellar study.
+	// Lift the star discs (tuned for the orbit view) so a sun still reads after the tone
+	// curve. Scattered light adds over the disc too, so it doesn't punch a hole in the
+	// halo.
 	vec3 col = scene * mix(1.5, 24.0, sunMask) * (1.0 - opacity)
 	         + sky + sunGlare * (1.0 - groundMix);
 
@@ -254,9 +229,7 @@ void main(){
 
 	if(groundMix > 0.0) col = mix(col, ground, groundMix);
 
-	// Stay linear HDR: postfx applies the only tone curve. Exposure follows how
-	// much sunlight is actually reaching the observer and lags behind it, so the
-	// view adapts the way an eye does instead of blowing out the moment a sun
-	// clears the horizon.
+	// Linear HDR (postfx has the only tone curve), with exposure lagging the sunlight
+	// reaching the observer.
 	imageStore(outHdr, px, vec4(col * uExposure, 1.0));
 }

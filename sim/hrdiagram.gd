@@ -1,27 +1,13 @@
 class_name HRDiagram
 extends RefCounted
 
-# THE HERTZSPRUNG–RUSSELL DIAGRAM
-# Plot every star you can measure with temperature on one axis and luminosity
-# on the other, and they do not scatter. They fall on a line — with a couple of
-# well-populated clumps off it — and that line is the single most important
-# picture in stellar astronomy, because it says that a star is not free to be
-# anything. Give it a mass and the physics fixes the rest.
-#
-# NOTHING IN THIS PLOT IS DRAWN FROM A TABLE. The main sequence is sampled out
-# of structure_of() over mass, exactly as the mass–radius curve in
-# sim/masscurve.js is — so a change to the stellar model in sim/structure.gd
-# moves this line too, and the two can never disagree. The evolutionary tracks
-# are the same function walked over PHASES at fixed mass; the white dwarf
-# sequence is white_dwarf_radius_sun() at a few cooling temperatures, which is
-# why it is a LINE of nearly constant radius rather than a region.
-#
-# THE AXES ARE BOTH BACKWARDS, and it is worth knowing why rather than being
-# annoyed by it: Hertzsprung and Russell plotted against spectral type — O B A
-# F G K M — which was an alphabetical ordering of hydrogen line strength before
-# anyone knew it was a temperature sequence. Temperature increases to the LEFT
-# because that is the order the letters were already in. Luminosity is
-# logarithmic because the range is 10¹² to 1.
+# THE HERTZSPRUNG–RUSSELL DIAGRAM. Nothing here is a table: the main sequence is
+# sampled from structure_of() over mass (as the mass–radius curve is), evolutionary
+# tracks walk PHASES at fixed mass, and the white-dwarf sequence is
+# white_dwarf_radius_sun() at a few cooling temperatures (a line of nearly constant
+# radius). Temperature increases to the left because the axis was once spectral
+# type (O B A F G K M, ordered before it was known to be temperature); luminosity is
+# logarithmic (a 10¹² range).
 
 const T_HI := 46000.0
 const T_LO := 2100.0        # x range, kelvin (hot on the left)
@@ -54,9 +40,8 @@ class Diagram extends RefCounted:
 		W = float(opts.get("width", 340.0))
 		H = float(opts.get("height", 260.0))
 
-		# ---- the ZAMS-to-midlife main sequence, sampled over mass.
-		# f = 0.5 (PHASES 'ms-mid') is where the model is calibrated to today's Sun,
-		# and where most observed main-sequence stars actually sit.
+		# ---- the main sequence, sampled over mass at f = 0.5 (today's Sun, where most
+		# observed stars sit).
 		var lm := U.log10(0.08)
 		while lm <= U.log10(80.0):
 			var m := pow(10.0, lm)
@@ -71,9 +56,7 @@ class Diagram extends RefCounted:
 			{"mass": 8, "color": Color(160 / 255.0, 200 / 255.0, 1.0, 0.7), "pts": _track(8.0)},
 		]
 
-		# ---- the white dwarf cooling sequence. A white dwarf does not burn
-		# anything; it is a fixed lump of degenerate matter losing heat, so it slides
-		# DOWN and to the RIGHT at constant radius over billions of years.
+		# ---- white dwarf cooling: constant radius, sliding down and right as it cools.
 		for M in [0.6]:
 			var R := Structure.white_dwarf_radius_sun(M)
 			var T := 40000.0
@@ -165,9 +148,7 @@ class Diagram extends RefCounted:
 			var fill := Color8(int(c.r * 255.0), int(c.g * 255.0), int(c.b * 255.0))
 			Canvas2D.fill_circle(canvas, x, y, 4.2, fill)
 			Canvas2D.stroke_circle(canvas, x, y, 4.2, Color(0, 0, 0, 0.6), 1.0)
-			# A white dwarf's class is D, not whatever its temperature would make it
-			# on the main sequence — Sirius B is 25 000 K and is emphatically not a
-			# B star. The body already carries the right answer, so use it.
+			# A white dwarf's class is D (Sirius B at 25 000 K is not a B star); use the body's.
 			var cls: String = str(b.spectral) if b.spectral != null and str(b.spectral) != "" else Structure.spectral_type(float(b.teff))
 			var nm: String = b.name if b.name.ends_with(" " + cls) else "%s %s" % [b.name, cls]
 			Canvas2D.fill_text(canvas, nm, x + 7.0, y + 3.0, fs, Color(225 / 255.0, 235 / 255.0, 250 / 255.0, 0.92))

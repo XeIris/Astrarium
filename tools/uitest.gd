@@ -1,32 +1,24 @@
 extends Node
 
-# THE HUD HARNESS — the Godot half of the HUD's side-by-side check.
+# THE HUD HARNESS: the Godot half of the HUD side-by-side check.
 #
 #   node tools/uitest.shots.mjs /tmp/ui/shots.json
 #   PORT=8797 WEB_ROOT=<checkout> node tools/webref.mjs /tmp/ui/shots.json /tmp/ui/web
 #   Godot --path . res://tools/uitest.tscn -- fix=/tmp/ui/web state=sandbox out=/tmp/ui/godot/sandbox.png
 #
-# For a state it reads the web page's own fixture (<state>.json, written by
-# uitest.dump.js), puts the web frame WITH ITS HUD HIDDEN (<state>.bare.png)
-# behind the Godot HUD, feeds the Hud the same data through the same API the
-# orchestrator uses, and screenshots the root viewport at the page's size. The
-# pair <state>.png / out can then be flipped between, or diffed: everything in
-# the picture that is not the HUD is the same pixels in both.
+# For a state it reads the web fixture (<state>.json, from uitest.dump.js), puts the
+# web frame with its HUD hidden (<state>.bare.png) behind the Godot HUD, feeds the
+# Hud the same data through the orchestrator's API, and screenshots at the page's
+# size, so only the HUD differs. With `rects=1` it prints each panel's, tab's and
+# marked element's rect beside the page's, with the difference.
 #
-# It also checks the layout as NUMBERS: the fixture carries the page's measured
-# rect of every panel, tab and marked element, and the matching Godot rects are
-# printed beside them with the difference (`rects=1`).
-#
-# THE COMMITTED SET is tools/ref/ui: for each state <state>.web.png (the
-# page, 3D canvas hidden so the HUD sits on --bg), <state>.godot.png (this
-# harness's output) and <state>.json (the fixture). Re-run any of them with
+# The committed set is tools/ref/ui (<state>.web.png, <state>.godot.png,
+# <state>.json). Re-run one with
 #   Godot --path . res://tools/uitest.tscn -- fix=res://tools/ref/ui state=trisolaris out=/tmp/t.png rects=1
-# and flip or diff against <state>.web.png. Regenerate the set with
-# `uitest.shots.mjs --flat` → webref.mjs → this harness.
+# and regenerate with `uitest.shots.mjs --flat` → webref.mjs → this harness.
 #
-# Also printed every run: the overlap check of the left column's chain (the
-# AGENTS.md standing check), the cost of a full and an incremental HUD layout,
-# and with selftest=1 a pass/fail walk of the orchestrator-facing API.
+# Every run also prints the left column's overlap check, full and incremental layout
+# cost, and with selftest=1 a pass/fail walk of the orchestrator-facing API.
 #
 # Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [sb=1 scrollbars]
 #       [frames=N] [rects=1] [selftest=1]
@@ -297,9 +289,8 @@ func _selftest() -> void:
 	check.call("a start card emits start_chosen", got.get("start", "") == "learn")
 	check.call("mount points exist", hud.mount("foundry") != null and hud.mount("liveEdit") != null and hud.mount("flightHud") != null \
 		and hud.mount("courseMount") != null and hud.mount("xsecCanvas") != null and hud.mount("lessonCard") != null)
-	# real mouse input through the viewport: a click lands on the button under
-	# it, a click on empty screen falls through to _unhandled_input, and the
-	# wheel over an overflowing panel scrolls it rather than the view
+	# Real mouse input: a click hits the button under it, empty screen falls through to
+	# _unhandled_input, and the wheel over an overflowing panel scrolls it.
 	hud.relayout()
 	var vis_band: El = hud.sels["[data-band=2]"][0]
 	if vis_band.is_visible_in_tree():

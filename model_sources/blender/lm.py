@@ -1,38 +1,14 @@
-# APOLLO LUNAR MODULE — the only crewed vehicle ever built that could not fly
-# in an atmosphere at all, and it shows in every line of it.
-# Two stages. The descent stage is an octagonal box wrapped in foil that lands;
-# the ascent stage uses it as a launch pad and leaves it there. Nothing on
-# either is streamlined, faired, or symmetric, because nothing had to be — the
-# design freedom of never meeting air is the whole reason it looks like this.
-#
-# THREE THINGS HERE ARE FIXES RATHER THAN A PORT, and all three were visible.
-#
-#   · THE GEAR STANDS THE VEHICLE UP. Both builds hung the legs off a box whose
-#     underside was the origin, so the footpads ended a metre and a half BELOW
-#     the ground the LM was standing on and the engine bell was buried in it.
-#     z = 0 here is the footpad bearing plane, GEAR is how far the descent stage
-#     sits above it, and the ascent stage carries the same offset internally so
-#     that buildCraft's stacking still lands it on the descent stage's roof.
-#
-#   · THE LEGS WENT THE WRONG WAY, and are no longer a deployable at all. A pad
-#     placed separately on +X while the strut it belongs to was canted the other
-#     way put the two on opposite sides of the vehicle, which is the
-#     "disconnected" look; the pad is part of the leg now, and the cant is
-#     derived from where the pad has to land. And the gear is built DEPLOYED and
-#     left there: the LM's legs came out in lunar orbit, days before the
-#     descent, where every other lander in the set extends its own on the way
-#     down — so these are named `gear_` rather than `leg_` and update() does not
-#     collect them. The names are the interface; opting out of it is done by
-#     not matching, not by hoping.
-#
-#   · THE LADDER IS ON THE LEG. It was a pair of rails running out into space on
-#     a diagonal from a point in mid-air. On the real vehicle it is bolted to
-#     the forward primary strut and slants with it, which is why every
-#     photograph of it is at an angle.
-#
-# The engine pivots are a port of an earlier fix: the procedural build hangs
-# both bells straight off the stage group with no pivot, so `parts.gimbals`
-# comes back EMPTY and the LM has always burned with no visible exhaust.
+# APOLLO LUNAR MODULE, the Blender build. Two stages: an octagonal foil-wrapped
+# descent stage that lands, and an ascent stage that uses it as a launch pad. Nothing
+# is streamlined; it never met air.
+#   · z = 0 is the footpad bearing plane; GEAR is the descent stage's height above
+#     it, and the ascent stage carries the same offset so build_craft's stacking
+#     lands it on the descent stage's roof.
+#   · Each footpad is part of its leg, with the cant derived from where the pad
+#     must land. The gear is built deployed and named `gear_`, not `leg_`, so
+#     update() doesn't collect it (it deployed in lunar orbit).
+#   · The ladder is bolted to the forward primary strut and slants with it.
+#   · The engines hang on pivots, so parts.gimbals isn't empty and they have plumes.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -45,9 +21,8 @@ from common import build, stage
 DES_L, DES_D = 3.05, 4.27
 ASC_L, ASC_D = 3.76, 4.29
 
-# THE STANCE. A landed LM stands about 1.5 m clear of the surface on a gear
-# 9.4 m across the footpads, and those two numbers together are what set the
-# leg: everything below follows from them rather than being dialled in.
+# THE STANCE: ~1.5 m clear of the surface on a gear 9.4 m across the pads; the legs
+# follow from those two numbers.
 GEAR = 1.52                         # descent stage underside above the pads
 PAD_R = 4.30                        # footpad centre radius — 9.4 m span
 HINGE_R = DES_D / 2 * 0.96          # primary strut root, on the top outrigger
@@ -63,25 +38,18 @@ def build_descent(M, root):
     r = DES_D / 2
     z0, z1 = GEAR, GEAR + DES_L
 
-    # ---- the octagonal box. Its whole character is that it is a box wrapped in
-    # foil: eight flat faces, cut from the cruciform of four propellant tanks
-    # and four equipment quadrants, and no attempt at anything else. Turned an
-    # eighth of a face so a FLAT is centred on +X, which is where the ladder,
-    # the porch and the forward leg all are.
+    # ---- the octagonal box: eight flat faces, turned so a flat is centred on +X (ladder,
+    # porch, forward leg).
     body = cyl('box', r, r, z0, z1, M['gold'], seg=8, parent=g, t0=OCT, t1=TAU + OCT)
     finish(body, 0.03, 2, 40)
-    # Top and bottom decks, so the box is closed rather than a foil tube. A
-    # revolve fans properly from the axis where a lathe would leave a ring of
-    # coincident vertices; it starts its first vertex at angle zero, so the
-    # whole flat plate is simply turned to line up with the faces above it.
+    # Top and bottom decks as revolves (a lathe would leave coincident vertices at the
+    # axis), turned to line up with the faces.
     for z in (z0, z1):
         d = revolve(f'deck{z:.0f}', [(0, z), (r * 0.999, z)], M['gold'], seg=8, parent=g)
         d.rotation_euler = (0, 0, OCT)
         smooth(d, 20)
 
-    # Quadrant panels in black MLI on the four DIAGONAL faces — the cut corners
-    # between the tank bays. They are what breaks the shape up; an all-gold
-    # octagon reads as a lump.
+    # Black MLI panels on the four diagonal faces, breaking up the gold.
     for i in range(4):
         a = i / 4 * TAU + pi / 4
         p = box(f'quad{i}', (DES_D * 0.34, 0.07, DES_L * 0.82),
@@ -95,12 +63,9 @@ def build_descent(M, root):
                    M['alu'], seg=8, parent=g, t0=OCT, t1=TAU + OCT)
         smooth(fr, 30)
 
-    # ---- the DPS. A deeply throttleable engine with a 47.5:1 bell, and the
-    # only one on Apollo that could be throttled at all — the forbidden band
-    # between 60% and 92.5% is in ENGINES because sustained running there ate
-    # the throttle valve. The bell is foreshortened so its lip sits a hand's
-    # breadth above the surface, which is where it really is: Apollo 15 landed
-    # in a crater and crushed it.
+    # ---- the DPS: a 47.5:1 bell, Apollo's only throttleable engine (forbidden band
+    # 60–92.5%, in ENGINES). Foreshortened so the lip sits a hand's breadth above the
+    # surface.
     piv = empty('gimbal_des_0', (0, 0, z0), g)
     b = bell('dps', 1.52, M['nozzle'], ratio=47.5, chamber=True, seg=36, parent=piv)
     b.scale = (1.0, 1.0, 0.70)
@@ -112,9 +77,8 @@ def build_descent(M, root):
                seg=32, parent=g)
     smooth(bs, 25)
 
-    # ---- four legs. Primary strut from the TOP outrigger, which is where it
-    # really attaches and which is also what lets the ladder run from the porch
-    # to the pad in one straight line.
+    # ---- four legs, the primary strut from the top outrigger, so the ladder runs
+    # straight from porch to pad.
     for i in range(4):
         a = i / 4 * TAU
         h = group(f'gear_des_{i}', g, (cos(a) * HINGE_R, sin(a) * HINGE_R, HINGE_Z), a)
@@ -127,9 +91,7 @@ def build_descent(M, root):
         strut(f'out{i}', (r * 0.50, 0, 0), (r * 0.99, 0, 0), 0.09, M['alu'],
               seg=8, parent=mnt)
 
-        # ---- THE LADDER, on the forward leg and slanting with it. Nine rungs
-        # from the porch to a bottom rung that stops well short of the pad,
-        # which is the gap Armstrong described before he stepped off it.
+        # ---- THE LADDER: nine rungs on the forward leg, the bottom one well short of the pad.
         if i == 0:
             for sgn in (-1, 1):
                 strut(f'lad_rail{sgn}', (0.34, sgn * 0.26, LEG_LEN * 0.03),
@@ -174,9 +136,8 @@ def build_ascent(M, root):
     g = stage('asc', root)
     B = GEAR                              # the descent stage's roof, locally
 
-    # ---- crew cabin: a fat horizontal cylinder with the two triangular
-    # windows canted DOWN, because the crew flew standing up looking at the
-    # ground they were about to land on. Lumpy on purpose.
+    # ---- crew cabin: a fat horizontal cylinder with the triangular windows canted down
+    # (the crew stood, looking at the ground).
     cab = revolve('cabin', [(0, -1.05), (0.92, -1.12), (1.17, -0.92),
                             (1.17, 0.95), (0.92, 1.05), (0, 1.05)],
                   M['gold'], seg=28, parent=g)
@@ -190,9 +151,7 @@ def build_ascent(M, root):
     finish(mid, 0.03, 2, 40)
     aft = box('aftbay', (1.90, 0.80, 1.30), (0, 1.30, B + 1.30), M['black'], parent=g)
     finish(aft, 0.02, 2, 40)
-    # Two spherical propellant tanks either side, in their conical fairings —
-    # oxidiser to the right of the crew, fuel to the left, and the asymmetry of
-    # that was trimmed out with ballast on the real vehicle.
+    # Two spherical propellant tanks in conical fairings, oxidiser right, fuel left.
     for sgn in (-1, 1):
         t = ball(f'tank{sgn}', 0.72, (sgn * 1.34, 0.30, B + 1.02), M['gold'],
                  seg=24, rings=14, parent=g)
@@ -203,9 +162,7 @@ def build_ascent(M, root):
         fr.location = (sgn * 1.34, 0.30, B + 1.02)
         smooth(fr, 30)
 
-    # ---- the front face. Canted, flat, and carrying everything the crew used:
-    # two triangular windows looking down at the landing site, the forward
-    # hatch between them, and the docking target above.
+    # ---- the front face: two down-looking windows, the forward hatch, the docking target.
     for sgn in (-1, 1):
         w = box(f'window{sgn}', (0.62, 0.12, 0.44), (sgn * 0.46, -1.30, B + 2.36),
                 M['glass'], rot=(0.42, 0, 0), parent=g)
@@ -223,10 +180,7 @@ def build_ascent(M, root):
                             (0, B + 3.70)], M['dirty'], seg=20, parent=g)
     finish(dr, 0.015, 2, 45)
 
-    # ---- rendezvous radar and the steerable S-band dish, which is how it found
-    # the CSM again. Getting home depended on both of these working — and on
-    # both of them POINTING somewhere: a dish is an aim, and the rendezvous
-    # antenna was aimed back into its own cabin roof by a sign.
+    # ---- rendezvous radar and the steerable S-band dish, both pointing outward.
     arm = empty('sband', (1.16, 0.52, B + 3.00), g)
     arm.rotation_euler = (0, 0.85, 0)
     strut('sband_boom', (0, 0, -0.55), (0, 0, -0.05), 0.05, M['alu'], seg=8, parent=arm)
@@ -248,10 +202,8 @@ def build_ascent(M, root):
     b = bell('aps', 0.86, M['nozzle'], ratio=45, chamber=True, seg=32, parent=piv)
     finish(b, 0.008, 2, 50)
 
-    # ---- four RCS quads on outriggers, canted 45 degrees so each cluster has
-    # authority about two axes. They are the ascent stage's only control, and
-    # each nozzle has to point somewhere useful: up, down, and one pair fore
-    # and aft. A quad whose four nozzles all face the same way is a decoration.
+    # ---- four RCS quads on outriggers, canted 45° for two-axis authority, nozzles up,
+    # down, fore and aft.
     for i in range(4):
         a = i / 4 * TAU + pi / 4
         q = empty(f'rcsq{i}', (cos(a) * 1.78, sin(a) * 1.78, B + 2.48), g)

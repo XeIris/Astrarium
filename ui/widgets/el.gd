@@ -1,34 +1,22 @@
 class_name El
 extends Control
 
-# ONE HTML ELEMENT, LAID OUT BY CSS's RULES
-# The HUD's target is a screenshot-identical copy of the web page, and the page
-# is laid out by CSS: block flow with COLLAPSING margins, flex rows whose items
-# shrink to their min-content and align on their text BASELINES, grids of equal
-# fractions, inline text whose line boxes are sized by the font's rounded
-# metrics, inline-blocks (<kbd>) that stretch the line they sit in. Godot's
-# containers do none of those, and every one of them moves something by a few
-# pixels — the panel head alone is 31 px tall rather than 28 only because the
-# ✕ button's baseline sits lower than the heading's. So the HUD is not built
-# from Godot containers. It is built from these: one El per HTML element,
-# carrying that element's computed style, and a layout that is a small, honest
-# port of the parts of CSS the page actually uses.
+# ONE HTML ELEMENT, LAID OUT BY CSS'S RULES. The HUD matches a CSS layout (block
+# flow with collapsing margins, baseline-aligned flex rows, equal-fraction grids,
+# line boxes from rounded font metrics, inline-blocks), which Godot containers
+# don't do, so it is built from these: one El per element, carrying its computed
+# style, laid out by a port of the CSS the page uses.
 #
-# Style is a Dictionary of CSS properties (short keys, below), plus VARIANTS:
-# [state, overrides] pairs applied in order when a state is on — "hover",
-# "active", "on", "open", "focus", and any class the HUD toggles. Order is the
-# cascade's: a later variant wins, exactly as `.toggle-btn.active` written
-# after `.toggle-btn:hover` does.
+# Style is a Dictionary of CSS properties (short keys below) plus variants:
+# [state, overrides] pairs applied in order ("hover", "active", "on", "open",
+# "focus", or any class the HUD toggles); a later variant wins, as in the cascade.
+# Text properties inherit (colour, font, size, letter-spacing, line-height,
+# text-transform, text-align). A leaf carries `runs` (inline text, inline-blocks,
+# breaks), laid out by `_layout_inline`.
 #
-# Text properties INHERIT (colour, font, size, letter-spacing, line-height,
-# text-transform, text-align), everything else does not. A leaf element carries
-# `runs` — inline text, optionally with inline-blocks (kbd, the FLARE tag) and
-# line breaks — and is laid out by `_layout_inline`.
-#
-# Layout is top-down and explicit: `layout(width) -> height` sets this node's
-# size and every child's position and size. Nothing here is a Container, so
-# nothing re-sorts behind our back; the Hud calls layout on each positioned
-# panel when something in it changed (`touch()`).
+# `layout(width) -> height` sets this node's size and every child's position and
+# size, top-down. The Hud re-lays out a positioned panel when something in it
+# changed (`touch()`).
 
 signal pressed
 
@@ -48,9 +36,8 @@ const DEFAULTS := {"display": "block", "dir": "row", "wrap": false, "w": -1.0, "
 ## Every root that needs laying out again (a positioned panel), and whether
 ## anything did — the Hud reads and clears these once a frame.
 static var dirty_roots := {}
-## Scrollbars take their 4 px out of the content box, as WebKit's do. The web
-## reference shots are taken with Chrome's --hide-scrollbars, which makes them
-## zero-width, so the HUD harness turns them off to compare like with like.
+## Scrollbars take 4 px from the content box. The HUD harness turns them off to
+## match reference shots taken without scrollbars.
 static var scrollbars := true
 static var any_dirty := true
 
@@ -198,9 +185,8 @@ func kids() -> Array:
 
 # ---- interaction ----------------------------------------------------------------
 
-## A <button>: takes the click, shows the hand, and goes :hover. PASS, not
-## STOP: the button accepts its own clicks, and a wheel over it still reaches
-## the panel that scrolls, as the browser's does.
+## A button: takes the click, shows the hand, goes :hover. PASS, so a wheel over it
+## still scrolls its panel.
 func make_clickable(tooltip := "") -> El:
 	clickable = true
 	mouse_filter = Control.MOUSE_FILTER_PASS
@@ -324,12 +310,9 @@ func _flex_min() -> float:
 
 # ---- layout -----------------------------------------------------------------------
 
-## Lay out at border-box width `w`; returns the border-box height. `forced_h`
-## is a height imposed by the parent (flex/grid stretch).
-## Layout is cached: an element nothing has touched, asked for the same width
-## and the same imposed height, keeps what it had — its children are already
-## where they belong. Ten text updates a second then cost only their own path
-## to the root, not the whole panel.
+## Lay out at border-box width `w`; returns the border-box height. `forced_h` is a
+## height the parent imposes (flex/grid stretch). Cached: an untouched element at the
+## same width and height keeps its layout.
 var _ldirty := true
 var _lw := -1.0
 var _lf := -2.0
@@ -349,10 +332,8 @@ func layout(w: float, forced_h: float = -1.0) -> float:
 	_lf = forced_h
 	return h
 
-## The height a flex parent imposed on this box for the layout in progress
-## (−1: none). A stretched flex item has a DEFINITE cross size in CSS, so a
-## single-line flex row inside it stretches its own items to that height —
-## the flight panel's throttle and V/S tapes are the case that needs it.
+## The height a flex parent imposed (−1: none). A stretched item has a definite cross
+## size, so a single-line flex row inside it stretches its own items.
 var _forced_h := -1.0
 
 func _layout_now(w: float, forced_h: float) -> float:
@@ -556,9 +537,9 @@ func _flex_line(ks: Array, cw: float, o: Vector2, gap: float, single: bool) -> f
 		sizes.append(maxf(b, mn)); frozen.append(false)
 		used += maxf(b, mn) + k.gf("ml") + k.gf("mr")
 		if bool(k.g("mlauto")): autos += 1
-	# CSS 2.1 flex sizing: grow or shrink is decided on the HYPOTHETICAL sizes
-	# (bases clamped to their minimums), but the free space is distributed from
-	# the flex BASES, freezing any item its minimum stops.
+	# CSS 2.1 flex sizing: grow or shrink is decided on hypothetical sizes (bases
+	# clamped to minimums), but free space is distributed from the bases, freezing items
+	# at their minimum.
 	var growing := cw - used > 0.0
 	var fixed_sum := gap * (n - 1)
 	for k in ks: fixed_sum += k.gf("ml") + k.gf("mr")
@@ -838,9 +819,8 @@ func _build_atoms() -> Array:
 				if ch == "—" and i < t.length() - 1 and t[i + 1] != " " and not nw:
 					out.append({"t": word, "w": HudTheme.text_w(st.font, word, st.fs, st.ls), "r": r, "st": st})
 					word = ""
-				# so is a hyphen inside a word (class HY: "Pre-|collapse"), but
-				# not before a digit ("1e-7") — the Foundry's "Life burned"
-				# readout wraps there on the page
+				# A hyphen inside a word is a break opportunity ("Pre-|collapse"), but not before a
+				# digit ("1e-7").
 				elif ch == "-" and word.length() > 1 and i < t.length() - 1 and not nw \
 						and not (t[i + 1] in " 0123456789"):
 					out.append({"t": word, "w": HudTheme.text_w(st.font, word, st.fs, st.ls), "r": r, "st": st})
@@ -939,10 +919,7 @@ func _layout_inline(cw: float) -> float:
 		var off := 0.0
 		if ta == "right": off = cw - w
 		elif ta == "center": off = (cw - w) * 0.5
-		# Blink holds geometry in LayoutUnits of 1/64 px, and a fractional line
-		# height (9.5 px × 1.55) is truncated to one — which over a paragraph
-		# is the difference between a panel ending at .48 or .5, and so which
-		# way the measured chain rounds.
+		# Line heights are truncated to 1/64 px, as Blink's LayoutUnits are.
 		var lh_u := floorf((A + D) * 64.0) / 64.0
 		out.append({"items": ln, "top": y, "base": A, "h": lh_u, "off": off})
 		y += lh_u
@@ -1060,9 +1037,8 @@ func _draw_text() -> void:
 				continue
 			_draw_chars(st.font, a.t, Vector2(x, bly), st.fs, st.ls, col)
 
-## Per-character drawing at Blink's positions. Sizes that are not whole
-## pixels (9.5, 10.5, 13.33) are rasterised at a whole multiple and scaled
-## down, so the glyphs are the size CSS asked for rather than the nearest int.
+## Per-character drawing at Blink's positions. Fractional sizes (9.5, 10.5, 13.33) are
+## rasterised at a whole multiple and scaled down.
 func _draw_chars(font: Font, t: String, p: Vector2, fs: float, ls: float, col: Color) -> void:
 	var k := 1.0
 	if absf(fs - roundf(fs)) > 0.01:
@@ -1108,9 +1084,8 @@ class _Thumb extends Control:
 	func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, size), HudTheme.BORDER_STRONG)
 
-## backdrop-filter: blur(Npx) — the panel's background is drawn by a child
-## that samples the screen behind it (show_behind_parent, so the borders and
-## text this element draws still go over it).
+## backdrop-filter: blur(): a child samples the screen behind (show_behind_parent),
+## so this element's borders and text draw over it.
 static var _blur_shader: Shader = null
 
 func _sync_blur() -> void:

@@ -1,37 +1,25 @@
 class_name Bodies
 extends RefCounted
 
-# BODY VISUALS — each factory builds a Node3D group and an object with an
-# `update(dt, ctx)` method, stored on b.viz. ctx is docs/godot.md's
-# (holes, camera, cam_pos, time, scene_scale, sim_dt, suns, …).
-# Rendered radii are in SCENE units (visually exaggerated); physical radii in
-# AU live on the body for collisions/physics.
+# BODY VISUALS: each factory builds a Node3D group and an object with
+# `update(dt, ctx)`, stored on b.viz (ctx: docs/godot.md). Rendered radii are scene
+# units; physical radii in AU live on the body.
 #
-# PORT NOTES.
-#   · The web chained each viz's update() through a closure to add the
-#     accretion stream. Here my own visual classes (StarViz, NeutronViz,
-#     LegacyStarViz) carry a `stream` member and call accrete() at the end of
-#     their update(); the planet visuals — sim/rocky_visual.gd,
-#     sim/giant_visual.gd, sim/world.gd, ported in parallel — are wrapped in an
-#     AccretionWrap that forwards every property read and write to them.
-#   · Those three files are loaded by path, not by class_name, so this file
-#     parses whether or not they exist yet; a missing one falls back to a plain
-#     sphere (PlainViz) rather than failing.
-#   · The orchestrator owns group.position (the floating origin) and
-#     group.scale. accrete() is the one exception, as it was in the web: a body
-#     being stripped by a hole shrinks its whole group, relative to the
-#     group's meta "base_scale" (the web's userData.baseScale), which the
-#     orchestrator must set when it attaches the visual.
+# StarViz, NeutronViz and LegacyStarViz carry a `stream` member and call accrete()
+# at the end of update(). The planet visuals (rocky_visual.gd, giant_visual.gd,
+# world.gd) are loaded by path and wrapped in an AccretionWrap that forwards every
+# property; a missing one falls back to PlainViz. The orchestrator owns
+# group.position and group.scale, except that accrete() shrinks a body being
+# stripped by a hole relative to the group's "base_scale" meta, which the
+# orchestrator sets when it attaches the visual.
 
 const ACCRETION_SHADER := preload("res://shaders/bodies/accretion_points.gdshader")
 const BASIC_SHADER := preload("res://shaders/bodies/star_basic.gdshader")
 const BASIC_LAYER_SHADER := preload("res://shaders/bodies/star_basic_layer.gdshader")
 
-# Radial-gradient sprite (corona / glow / flare): `stops` as the web wrote them,
-# [[position, 'aa'], …] with alpha as a two-digit hex string (or a float), all
-# in the one colour. Canvas pixels are never colour-managed, so the colour is
-# RAW. Returns the sprite node; its scale is its size and its material's
-# uOpacity is SpriteMaterial.opacity.
+# Radial-gradient sprite (corona, glow, flare): `stops` are [[position, 'aa'], …]
+# with alpha as two-digit hex (or a float), one colour, raw (not colour-managed).
+# Returns the node; its scale is its size and uOpacity its opacity.
 static func glow_sprite(color_hex: int, stops = null) -> MeshInstance3D:
 	var st: Array = stops if stops != null else [[0.0, "ff"], [0.4, "66"], [1.0, "00"]]
 	var out := []
@@ -48,9 +36,9 @@ static func _col(c, fallback: int) -> Color:
 	if c == null: return U.lin(fallback)
 	return U.lin(int(c))
 
-# LEGACY STAR ('star-basic'): granulation fBm + limb darkening + flicker, a
-# gassy outer layer, a glow-sprite corona and four flame sprites that wax and
-# wane. Kept for the type; the high-fidelity star is sim/star_visual.gd.
+# LEGACY STAR ('star-basic'): granulation, limb darkening, flicker, a gassy outer
+# layer, a glow corona and four flame sprites. The high-fidelity star is
+# sim/star_visual.gd.
 class LegacyStarViz:
 	extends RefCounted
 	var body: Body
@@ -123,8 +111,7 @@ class LegacyStarViz:
 		var pulse := 1.0 + sin(t * 0.6 + body.id) * 0.04
 		core.scale = Vector3.ONE * pulse
 		layer.scale = Vector3.ONE * pulse
-		# (the web's uPulse lives on the core's material only; the layer's own
-		# copy of the uniform block was cloned once and never driven)
+		# uPulse is driven on the core's material only
 		mat.set_shader_parameter("uPulse", 0.9 + sin(t * 4.0 + body.id) * 0.04)
 		Bodies._sprite_opacity(corona, 0.8 + sin(t * 1.3 + body.id) * 0.15)
 		for f in flares:
@@ -149,15 +136,8 @@ static func create_neutron(b: Body, opts: Dictionary):
 	viz.group.add_child(viz.stream.points)
 	return viz
 
-# PLANETS. Both kinds are full shader models now — sim/rocky_visual.gd and
-# sim/giant_visual.gd — and the only thing this file adds is the accretion
-# stream, because a planet still has to be edible by a black hole.
-#
-# What used to be here was a CanvasTexture: fBm run through a colour ramp and
-# wrapped round a sphere. It had to go for two reasons beyond looking painted.
-# A texture has a seam and a polar pinch; and, more to the point, nothing in it
-# was a consequence of anything — the same wallpaper was drawn at 0.4 AU and at
-# 40 AU, so a planet's appearance said nothing whatever about the planet.
+# PLANETS: rocky_visual.gd and giant_visual.gd; this adds only the accretion stream,
+# so a planet can still be eaten by a black hole.
 static func with_accretion(viz, b: Body, color_hex) -> AccretionWrap:
 	var w := AccretionWrap.new(viz, b, AccretionStream.new(color_hex if color_hex != null else 0x886644))
 	b.viz = w
@@ -216,10 +196,8 @@ class PlainViz:
 	func update(_dt: float, _ctx: Dictionary) -> void:
 		pass
 
-## The web's `withAccretion`: the planet's own viz, with an accretion stream
-## chained after its update(). Every property the orchestrator reads or writes
-## on b.viz (group, core, mat, r, …) is forwarded to the wrapped object;
-## `inner` is the object itself, for method calls beyond update().
+## A planet viz with an accretion stream after its update(). Every property the
+## orchestrator touches on b.viz is forwarded; `inner` is the wrapped object.
 class AccretionWrap:
 	extends RefCounted
 	var inner
@@ -242,20 +220,10 @@ class AccretionWrap:
 		inner.set(property, value)
 		return true
 
-# BLACK HOLE — an empty transform, deliberately.
-# There used to be a black sphere here, sized to r_s and drawn over the lensed
-# image. It was wrong twice over. A black hole has no surface to draw: inside
-# the horizon there is a singularity, and the horizon itself is a one-way
-# boundary, not an object. And the dark region you actually see is not the
-# horizon at all — it is the shadow cast by the photon sphere, with an
-# apparent radius of (√27/2)·r_s ≈ 2.6 r_s, so a sphere at r_s was 2.6× too
-# small and covered up the very light (the photon ring, the lensed underside
-# of the disc) that makes a black hole recognisable.
-#
-# The ray marcher in render/lens_pass.gd already renders the shadow correctly,
-# by the only honest method: rays that cross the horizon return nothing. So
-# this group carries no geometry at all — just the position that physics, the
-# camera and the picker read.
+# BLACK HOLE: an empty transform. There is no surface to draw, and the visible
+# shadow is the photon sphere's at (√27/2)·r_s ≈ 2.6 r_s; lens_pass.gd renders it by
+# returning nothing for rays that cross the horizon. This carries only the position
+# physics, camera and picker read.
 class HoleViz:
 	extends RefCounted
 	var group := Node3D.new()
@@ -274,13 +242,9 @@ static func create_black_hole(b: Body, _opts: Dictionary) -> HoleViz:
 	b.viz = viz
 	return viz
 
-# ACCRETION STREAM — a GPU point pool. When a body is inside a hole's tidal
-# radius it sheds particles that spiral toward the hole, and visibly loses
-# mass (mass + rendered radius shrink).
-#
-# The pool is rebuilt into its ArrayMesh each frame it has anything alive, and
-# hidden (and not rebuilt) while it is empty — which is every body, every
-# frame, in a scene with no hole in it.
+# ACCRETION STREAM: a GPU point pool. A body inside a hole's tidal radius sheds
+# particles that spiral in, and loses mass and radius. Rebuilt each frame it has
+# anything alive; hidden when empty.
 class AccretionStream:
 	extends RefCounted
 	var max_n := 240
@@ -294,7 +258,7 @@ class AccretionStream:
 	var mat: ShaderMaterial
 	var _live := false
 
-	## `color`: an sRGB hex (converted, as THREE.Color(hex) was) or a linear Color.
+	## `color`: an sRGB hex (converted) or a linear Color.
 	func _init(color) -> void:
 		pos_arr.resize(max_n); vel_arr.resize(max_n); life_arr.resize(max_n); alpha_arr.resize(max_n)
 		var c: Color = color if color is Color else U.lin(int(color))
@@ -394,17 +358,15 @@ static func create_star_hifi(b: Body, opts: Dictionary):
 	viz.group.add_child(viz.stream.points)
 	return viz
 
-## Dispatch per body type. Sets b.viz and returns it. `opts` is the dictionary
-## attachVisual builds (keys verbatim from the web: radiusScene, oblate,
-## spinFrac, tPole, tEq, gdBeta, radiusSun, color, teff, glow, seed, …).
+## Dispatch per body type; sets and returns b.viz. `opts` from attach_visual:
+## radiusScene, oblate, spinFrac, tPole, tEq, gdBeta, radiusSun, color, teff, glow,
+## seed, …
 static func create_body_visual(b: Body, opts: Dictionary):
 	match b.type:
 		"bh": return create_black_hole(b, opts)
 		"star": return create_star_hifi(b, opts)
-		# A white dwarf is a photosphere like any other — a very small, very hot
-		# one. What it does NOT have is a convective envelope, so it has no dynamo,
-		# no starspots and no flares: `quiet` turns the activity model off rather
-		# than letting a degenerate star erupt.
+		# A white dwarf is a small hot photosphere with no convective envelope: `quiet`
+		# turns off spots and flares.
 		"white-dwarf": return create_star_hifi(b, U.merged(opts, {"quiet": true}))
 		"star-basic": return create_star(b, opts)
 		"world": return create_world(b, opts)

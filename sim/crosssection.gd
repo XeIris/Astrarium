@@ -1,49 +1,25 @@
 class_name CrossSection
 extends RefCounted
 
-# CROSS-SECTION — cutting a body open and labelling what is inside
-# Everything else in this sim draws what an observer could see. This draws what
-# they could not: the interior, which for every object here is inferred rather
-# than imaged. That is worth being explicit about, because the inference is not
-# equally strong everywhere along the radius —
+# CROSS-SECTION: the interior, which is inferred, never imaged, and not equally
+# well: a planet's core from its moment of inertia and seismology (a few percent),
+# a star from models constrained by helioseismology and neutrinos, a neutron star's
+# inner core genuinely unknown, a black hole's interior unmeasurable (the
+# coordinate structure of a solution, drawn as such). Each layer carries its note.
 #
-#   · a planet's core radius comes from its moment of inertia and seismology,
-#     and is known to a few percent
-#   · a star's interior comes from stellar models constrained by helioseismology
-#     and neutrinos, and is known well for the Sun and less well elsewhere
-#   · a neutron star's inner core is genuinely unknown — that is what the whole
-#     TOV-limit question turns on
-#   · a black hole's interior is not merely unmeasured but unmeasurABLE, and
-#     what is drawn there is the coordinate structure of a solution to
-#     Einstein's equations, not a place anyone has information about
+# Layers are filled by a ramp over log T from 100 K to 10¹⁰ K, dark violet → red →
+# orange → yellow → white: brighter is hotter.
 #
-# So each layer carries its own note, and the black hole says outright that the
-# diagram is cheating. The alternative — drawing them all with the same
-# confidence — would be the actual dishonesty.
-#
-# TEMPERATURE COLOUR. Layers are filled by a ramp over log T spanning 100 K to
-# 10¹⁰ K, which is the range the sim contains (a planet's crust to a collapsing
-# iron core). It runs dark violet → red → orange → yellow → white, the ordering
-# of a heated blackbody, so "brighter is hotter" is the whole legend.
-#
-# PORT NOTES (Godot). The web drew into two <canvas> bitmaps (330 × 260 and
-# 330 × 26) that CSS then scaled to the panel's width. Here the same arithmetic
-# runs in the same BITMAP coordinates inside a Control's _draw(), under one
-# scale transform onto the laid-out box — `XsecCanvas` and `LegendCanvas`
-# below, both El nodes so the HUD's CSS layout sizes them as `width: 100%;
-# height: auto` sized them (content height = width × H/W). Canvas-2D colours
-# are CSS sRGB and so are a Control's, so they pass straight through
-# (docs/godot.md, §8). Text is drawn glyph by glyph at Blink's advances
-# (HudTheme.adv_em) in the HUD's Menlo, because Chrome's canvas resolves
-# `ui-monospace, monospace` to the same face and a measured label that drifts
-# by a few pixels lands on the leader line it was placed beside.
+# Drawn in bitmap coordinates (330 × 260 and 330 × 26) inside _draw(), scaled onto
+# the laid-out box (`XsecCanvas`, `LegendCanvas`, content height = width × H/W).
+# Colours are CSS sRGB and pass straight through. Text is drawn glyph by glyph at
+# Blink's advances (HudTheme.adv_em) in Menlo, so labels land on their leader lines.
 
 const AU_PER_KM := Physics.AU_PER_KM
 const AU_PER_RSUN := Physics.AU_PER_RSUN
 
-# A perceptual ramp over log10(T). Anchors are chosen so the familiar
-# temperatures land where you would expect: a planetary surface is dark, a
-# photosphere is orange-yellow, a stellar core is white.
+# A perceptual ramp over log10(T): a surface is dark, a photosphere orange-yellow,
+# a core white.
 const TEMP_STOPS := [
 	[2.0, [18, 16, 46]],        # 100 K   — outer solar system ice
 	[2.5, [30, 34, 92]],        # 316 K   — a habitable surface
@@ -128,9 +104,7 @@ static func fmt_density(rho_v) -> String:
 	var e := decade(rho)
 	return "%s×10%s kg/m³" % [U.fixed(rho / pow(10.0, e), 2), sup(e)]
 
-## Math.floor(Math.log10(x)). JS's log10 is exact at powers of ten and
-## log(x)/ln 10 is not — log10(1e6) comes out 5.999999999999999 — so the
-## decade is corrected by testing the mantissa rather than trusted.
+## floor(log10(x)), corrected on the mantissa (log(x)/ln 10 gives 5.999… for 1e6).
 static func decade(x: float) -> int:
 	var e := int(floor(U.log10(x)))
 	if x / pow(10.0, e) >= 10.0: e += 1
@@ -174,10 +148,7 @@ const VERDICT_CLASS := {
 	"ignite": "v-info",
 }
 
-# The prose that goes beside the diagram: the derived quantities the layers do
-# not carry, chosen per kind of body because what is interesting about a
-# neutron star (its compactness) is not what is interesting about a planet.
-# Returns [[key, value], ...].
+# The facts beside the diagram, per kind of body. Returns [[key, value], ...].
 static func structure_facts(st: Dictionary) -> Array:
 	var F: Array = []
 	var add := func(k: String, v) -> void:
@@ -256,14 +227,9 @@ static func fill_text(ci: CanvasItem, s: String, x: float, y: float, fs: float, 
 	var w := HudTheme.text_w(f, s, fs, 0.0)
 	if align == "center": x -= w * 0.5
 	elif align == "right": x -= w
-	# textBaseline offsets. Chrome's canvas measures 'top' on the EM BOX —
-	# the font's ascent and descent normalised to sum to one em (Menlo:
-	# 0.797 / 0.203) — not on the hhea ascent the page's own line boxes use
-	# (0.928 / 0.236); with the hhea number every 9 px 'top' label sat 0.9 px
-	# low against the web shots. 'middle' is MEASURED (MIDDLE_EM): 0.24 em
-	# puts the 9 and 10 px labels of the diagram and the curve's axis within
-	# 0.05 px of the web's ink centroids, where (a − d)/2 on either metric was
-	# 0.4–0.6 px low. The baseline then goes to the nearest whole pixel row.
+	# textBaseline offsets. 'top' uses the EM box (Menlo 0.797 / 0.203), not the hhea
+	# ascent (0.928 / 0.236). 'middle' is measured (MIDDLE_EM = 0.24 em), within 0.05 px
+	# of the reference ink centroids. The baseline rounds to a whole pixel.
 	var m := HudTheme.metrics(f)
 	var ea := m.x / (m.x + m.y)
 	var ed := m.y / (m.x + m.y)
@@ -324,9 +290,8 @@ static func fill_circle(ci: CanvasItem, c: Vector2, r: float, col: Color) -> voi
 		return
 	ci.draw_circle(c, r, col, true, -1.0, true)
 
-# THE DIAGRAM
-# draw(canvas, structure) — one call, repeated whenever the body changes. Here
-# it draws onto any CanvasItem, in a W × H bitmap frame.
+# THE DIAGRAM: redrawn whenever the body changes, onto any CanvasItem in a W × H
+# bitmap frame.
 static func draw_cross_section(ci: CanvasItem, W: float, H: float, st: Dictionary, opts: Dictionary = {}) -> void:
 	if st.is_empty():
 		return
@@ -361,9 +326,8 @@ static func draw_cross_section(ci: CanvasItem, W: float, H: float, st: Dictionar
 	for L in layers:
 		stroke_ellipse(ci, Vector2(cx, cy), rr.call(num(L.get("r1"))), rr.call(num(L.get("r1"))), Color(0, 0, 0, 0.45), 1.0)
 
-	# --- a black hole's "layers" are not material shells and must not be drawn
-	# as if they were: the horizon, photon sphere and ISCO are locations in the
-	# spacetime, so they get dashed rings over an unlit interior.
+	# --- a black hole's layers are locations in spacetime (horizon, photon sphere,
+	# ISCO): dashed rings over an unlit interior.
 	if is_bh:
 		var re := RegEx.create_from_string("(?i)sphere|ISCO|horizon|Ergosphere")
 		var rh := RegEx.create_from_string("(?i)horizon")
@@ -373,10 +337,8 @@ static func draw_cross_section(ci: CanvasItem, W: float, H: float, st: Dictionar
 			var c := Color8(255, 220, 150, 242) if rh.search(str(L.get("name", ""))) != null else Color8(120, 190, 255, 191)
 			stroke_ellipse(ci, Vector2(cx, cy), r, r, c, 1.4, [4.0, 4.0])
 
-	# --- rotational flattening, shown honestly: if the body is oblate, outline
-	# the true shape over the (circular) layer diagram. The layers themselves are
-	# drawn round because their published radii are means; the outline is the
-	# measured shape, and the gap between them is the point.
+	# --- if the body is oblate, outline its true shape over the round (mean-radius)
+	# layers.
 	var fl := num(st.get("flattening"))
 	if fl > 0.01:
 		stroke_ellipse(ci, Vector2(cx, cy), R, R * (1.0 - fl), Color8(120, 220, 255, 217), 1.2, [3.0, 3.0])
@@ -430,17 +392,11 @@ static func draw_temp_legend(ci: CanvasItem, W: float, H: float) -> void:
 		var al := "left" if x < W * 0.2 else ("right" if x > W * 0.8 else "center")
 		fill_text(ci, tk[1], minf(maxf(x, 1.0), W - 1.0), barH + 12.0, 8, col, al)
 
-# The canvases as El nodes: `width: 100%; height: auto` over a W × H bitmap.
-#
-# The web RASTERISED each diagram at its bitmap size and the compositor then
-# scaled the finished bitmap into the CSS box (330 → 314 px here, 300 → 266 in
-# the Foundry). That resampling is part of how the page looks — a 1 px canvas
-# line becomes a 0.95 px soft one, 9 px canvas text is slightly blurred — so
-# it is reproduced rather than drawn around: the diagram is painted into a
-# SubViewport of exactly the bitmap's size, only when it changes, and that
-# texture is drawn into the content box with linear filtering. A 2D viewport
-# with a transparent background stores colour premultiplied by the blend, so
-# the texture is composited with a premultiplied-alpha material.
+# The canvases as El nodes (`width: 100%; height: auto` over a W × H bitmap). The
+# diagram is painted into a SubViewport at bitmap size, only when it changes, and
+# drawn into the content box with linear filtering, reproducing the resampling
+# (330 → 314 px) the reference has. Composited premultiplied, as a transparent 2D
+# viewport stores it.
 class BitmapCanvas extends El:
 	var bw := 300.0
 	var bh := 230.0

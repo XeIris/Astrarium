@@ -1,58 +1,29 @@
 class_name NeutronVisual
 extends RefCounted
 
-# NEUTRON STAR
-# A neutron star is a ~12 km sphere with the mass of the Sun, a surface at
-# ~10⁶ K, and a magnetic field of 10⁸–10¹⁵ gauss. Almost every visually
-# interesting thing about it is a consequence of one of those three numbers,
-# and none of them are served by a white ball with two cones stuck on it.
-#
-# WHAT IS MODELLED
-#
-#  · Colour from temperature. At ~10⁶ K the Planck peak is deep in the soft
-#    X-ray; the visible tail is the Rayleigh–Jeans slope, which is why the few
-#    optically detected neutron stars (RX J1856−3754 and friends) look faint
-#    blue-white rather than "hot orange". The surface is therefore a saturated
-#    blue-white driven far above 1.0 so the tone mapper clips its core to pure
-#    white while the limb keeps its colour.
-#
-#  · Its own gravitational lensing. R ≈ 2.5 r_s here, so the star bends the
-#    light leaving it hard enough that you see well past the geometric limb.
-#    The exact Schwarzschild relation for the visible colatitude is
-#        cos ψ = 1 − (1 − μ)/(1 − r_s/R)
-#    where μ is the cosine on the apparent disc. At r_s/R = 0.4 the limb
-#    (μ = 0) maps to ψ ≈ 132°, so roughly 60% of the surface is visible at
-#    once instead of 50% — and a hot polar cap stays in view for far more of
-#    the rotation than naive geometry allows.
-#
-#  · Magnetic polar caps. The field funnels returning particles onto two small
-#    caps around the magnetic axis, which run hotter than the rest of the
-#    surface. They are the actual source of the pulse.
-#
-#  · A misaligned dipole. The magnetic axis is tilted from the spin axis, so
-#    the caps and their beams sweep — the lighthouse. The observed pulse is
-#    sharpened by relativistic beaming from the co-rotating magnetosphere, so
-#    the flash is a narrow spike rather than a slow sinusoid.
-#
-#  · Dipole field lines, r = r₀·sin²θ, drawn as glowing tubes. This is the real
-#    shape of the closed magnetosphere and it is what actually reads as
-#    "neutron star" at a glance.
-#
-#  · Hollow radio/X-ray beams. Emission comes from a cone WALL near the last
-#    open field lines, not from a filled cone, so the beams are rendered as
-#    bright-edged hollow shells with filamentary structure.
-#
-# Everything here is camera-relative (the floating origin, docs/godot.md).
-# The shaders are shaders/bodies/neutron_surface / neutron_beam / neutron_field.
+# NEUTRON STAR: ~12 km, a solar mass, a ~10⁶ K surface, a 10⁸–10¹⁵ G field.
+#   · Colour: the Planck peak is soft X-ray, so the visible tail is Rayleigh–Jeans
+#     blue-white (RX J1856−3754), driven well past 1.0 so the core clips white and
+#     the limb keeps its colour.
+#   · Self-lensing: at R ≈ 2.5 r_s,
+#         cos ψ = 1 − (1 − μ)/(1 − r_s/R)
+#     (μ the cosine on the apparent disc). At r_s/R = 0.4 the limb maps to ψ ≈ 132°,
+#     so ~60% of the surface is visible and a polar cap stays in view longer.
+#   · Hot magnetic polar caps, the source of the pulse.
+#   · A misaligned dipole, so caps and beams sweep; relativistic beaming sharpens
+#     the pulse into a spike.
+#   · Dipole field lines r = r₀·sin²θ as glowing tubes.
+#   · Hollow radio/X-ray beams: emission from the cone wall near the last open field
+#     lines.
+# Camera-relative throughout. Shaders: neutron_surface, neutron_beam, neutron_field.
 
 const SURF_SHADER := preload("res://shaders/bodies/neutron_surface.gdshader")
 const BEAM_SHADER := preload("res://shaders/bodies/neutron_beam.gdshader")
 const FIELD_SHADER := preload("res://shaders/bodies/neutron_field.gdshader")
 
-# THREE.CatmullRomCurve3 ('centripetal', the default) and THREE.TubeGeometry,
-# reproduced so the tube is the same tube: arc-length sampling over 200
-# divisions, a parallel-transported frame, and three's index order (counter-
-# clockwise fronts — see the cull note in neutron_field.gdshader).
+# THREE.CatmullRomCurve3 (centripetal) and TubeGeometry, reproduced: arc-length
+# sampling over 200 divisions, parallel-transported frame, CCW index order (see
+# neutron_field.gdshader's cull note).
 static func _cubic(x0: float, x1: float, x2: float, x3: float, dt0: float, dt1: float, dt2: float, t: float) -> float:
 	# initNonuniformCatmullRom, then init() and calc()
 	var t1 := (x1 - x0) / dt0 - (x2 - x0) / (dt0 + dt1) + (x2 - x1) / dt1
@@ -171,9 +142,8 @@ static func field_line_geometry(R: float, r0: float, segments: int = 48) -> Arra
 	if pts.size() < 2: return null
 	return _tube(pts, 40, R * 0.010, 5)
 
-# THREE.ConeGeometry(open, len, 40, 24, openEnded) translated by −len/2 and
-# flipped in y: the apex at the star, the mouth at +len. Only positions are
-# needed — the beam shader reads nothing else.
+# THREE.ConeGeometry(open, len, 40, 24, openEnded), shifted and flipped: apex at the
+# star, mouth at +len. Positions only.
 static func _beam_cone(open: float, length: float, radial: int = 40, rows: int = 24) -> ArrayMesh:
 	var verts := PackedVector3Array()
 	for iy in rows + 1:
@@ -238,9 +208,7 @@ class NeutronViz:
 
 		surf_mat = ShaderMaterial.new()
 		surf_mat.shader = NeutronVisual.SURF_SHADER
-		# Bright enough that the caps and the lensed rim clip to white, but not
-		# so bright that the whole disc does — the blue-white of the crust has to
-		# survive tone mapping or the star is just a lamp again.
+		# Gain: caps and lensed rim clip white, the crust keeps its blue-white.
 		surf_mat.set_shader_parameter("uGain", 1.35)
 		surf_mat.set_shader_parameter("uCompact", compact)
 		surf_mat.set_shader_parameter("uCapGlow", 0.0)
@@ -316,17 +284,13 @@ class NeutronViz:
 		surf_mat.set_shader_parameter("uTime", time)
 		spin_axis.rotation.y += float(body.spin) * dt
 
-		# keep the shader's cap axis in sync with the rotating dipole, in the
-		# body's own object space (spin × tilt; the group's own rotation, if it
-		# ever had one, cancels out of the object-space direction)
+		# Keep the shader's cap axis on the rotating dipole, in object space (spin × tilt).
 		var local_dir := (spin_axis.basis * mag_axis.basis * Vector3.UP).normalized()
 		surf_mat.set_shader_parameter("uMagAxis", local_dir)
 		var gb := group.global_basis.orthonormalized() if group.is_inside_tree() else group.basis.orthonormalized()
 		var beam_dir := (gb * local_dir).normalized()
 
-		# --- the lighthouse. Relativistic beaming from the co-rotating
-		# magnetosphere concentrates the emission into a narrow forward lobe, so
-		# the observed pulse is a sharp spike, not a sinusoid.
+		# --- the lighthouse: beaming makes the pulse a sharp spike.
 		var wp := group.global_position if group.is_inside_tree() else group.position
 		var cam_p := Vector3.ZERO
 		var cam = ctx.get("camera")

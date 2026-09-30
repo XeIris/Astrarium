@@ -1,29 +1,16 @@
 class_name PostFX
 extends RefCounted
 
-# POST-PROCESSING — HDR bloom + filmic tone mapping.
-# This is the single biggest reason the sim used to read as "cartoony": every
-# emitter was clamped to 1.0 at the framebuffer, so a star, a flare and the
-# inner edge of an accretion disc all resolved to exactly the same flat white.
-# Real cameras and real eyes do neither of those things — they bloom, and they
-# roll highlights off along a filmic curve instead of clipping.
-#
-# The chain (shaders/post/*.glsl, all compute, run in order in one callback):
-#   compose  →  HDR buffer (half-float, values well above 1, temperature in a)
-#   [surface →  the atmosphere, when standing on a world: sim/skyview.gd]
-#   [remap   →  spectral re-imaging, when not in visible light]
-#   bright pass, then a 5-level progressive down/upsample bloom
-#             (the "dual filter" used by Unreal/CoD — cheap, and it produces a
-#             wide, smooth halo instead of a visible gaussian donut)
+# POST-PROCESSING: HDR bloom and filmic tone mapping, the one tone curve (Godot's
+# tonemapper, glow and auto-exposure are off on every viewport; render/pipeline.gd).
+# The chain (shaders/post/*.glsl, compute, in order in one callback):
+#   compose    → HDR buffer (half-float, temperature in a)
+#   [surface   → the atmosphere, when standing on a world: sim/skyview.gd]
+#   [remap     → spectral re-imaging, outside visible light]
+#   bright pass, then a 5-level dual-filter down/upsample bloom
 #   composite: ACES RRT+ODT fit, vignette, grain, ordered dither → 8-bit sRGB
-#
-# Because the tone curve compresses rather than clips, an object can now be
-# 40× over white and still show its own colour at the edges — which is exactly
-# how the Doppler-boosted side of a disc, or the core of an O star, behaves.
-#
-# Godot's own tonemapper, glow and auto-exposure are all OFF on every viewport
-# feeding this (see render/pipeline.gd): this is the ONE tone curve, as it was
-# in the web build.
+# The curve compresses rather than clips, so an emitter 40× over white keeps its
+# colour at the edges.
 
 const MIPS := 5
 
@@ -83,10 +70,8 @@ func set_band(i: int) -> Dictionary:
 	_apply_band_gain()
 	return Spectrum.BANDS[band]
 
-## The temperature of the hottest emitter in the scene. The band gain is
-## anchored to it — an observer exposes for the brightest target in the field,
-## and without that a preset with only 5000 K stars would render as a black
-## frame in every band above the visible.
+## The hottest emitter's temperature, which anchors the band gain (expose for the
+## brightest target, or a 5000 K scene is black above the visible).
 func set_scene_temp(t: float) -> void:
 	if not (t > 0.0) or absf(t - _scene_max_t) < _scene_max_t * 0.01:
 		return
@@ -105,16 +90,11 @@ func set_size(w: int, h: int) -> void:
 func size() -> Vector2i:
 	return Vector2i(_w, _h)
 
-## Rebind BEFORE freeing. `final_tex` wraps `_final`, and freeing an RD
-## texture that a Texture2DRD still wraps takes the engine's own views of it
-## down too — two "Attempted to free invalid ID" errors per resize, which is
-## every tick of the render-scale slider. Reassigning releases the wrapper
-## first (it never frees the RD texture itself), then the old one can go.
+## Rebind before freeing: freeing an RD texture a Texture2DRD still wraps frees the
+## engine's views too ("Attempted to free invalid ID" on every resize).
 func _resize_rt() -> void:
-	# The surface composite and spectral remap are optional full-resolution
-	# passes. Keep their targets absent until those modes are used: in the
-	# default visible-light orrery they otherwise cost 16 bytes per pixel of
-	# persistent GPU memory despite never being read or written.
+	# The surface and remap targets are allocated only when those modes are used
+	# (16 bytes per pixel otherwise).
 	var had_hdr2 := _hdr2.is_valid()
 	var had_banded := _banded.is_valid()
 	var old: Array[RID] = [_hdr, _final]
@@ -159,10 +139,9 @@ func _free_rt() -> void:
 		if k: k.release()
 	k_composite = null
 
-## Run the whole chain. RENDER THREAD ONLY (the pipeline's hook callback).
-## `inputs`: scene, temp, local (RD RIDs; may be invalid), mode (0/1/2),
-## use_temp (bool), surface (an object with dispatch(src, dst, w, h), or null),
-## time (seconds, for the grain).
+## Run the chain. Render thread only. `inputs`: scene, temp, local (RD RIDs; may be
+## invalid), mode (0/1/2), use_temp, surface (dispatch(src, dst, w, h) or null),
+## time (for grain).
 func render_rt(inputs: Dictionary) -> void:
 	if k_composite == null or not _final.is_valid():
 		return
@@ -189,9 +168,8 @@ func render_rt(inputs: Dictionary) -> void:
 		surface.dispatch(src, _hdr2, _w, _h)
 		src = _hdr2
 
-	# 1. spectral re-imaging, when we are not looking in visible light. It runs
-	# BEFORE the bloom: bloom is the instrument's point-spread function, so it
-	# has to spread the band image.
+	# 1. spectral re-imaging, before bloom (bloom is the instrument's PSF on the band
+	# image).
 	if band != Spectrum.VISIBLE_BAND:
 		RDU.dispatch(k_remap, [RDU.u_sampled(0, _sampler, src), RDU.u_image(1, _banded)],
 			_w, _h, RDU.pack([_theta, _tref, band, STRETCH]))

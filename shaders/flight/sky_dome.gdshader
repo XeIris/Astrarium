@@ -1,23 +1,14 @@
-// THE SKY DOME — SKY_VERT / SKY_FRAG of sim/flight/localview.js.
-// A spherical atmosphere seen from inside a 3000 km sphere: column density
-// along the line of sight through the shell (see column()), saturating so the
-// horizon goes pale instead of blowing out; Rayleigh phase plus a forward Mie
-// lobe; sunrise reddening. From the pad it is the sky it always was; from
-// orbit it is the limb.
+// THE SKY DOME: a spherical atmosphere seen from inside a 3000 km sphere. Column
+// density through the shell (column()), saturating so the horizon goes pale; Rayleigh
+// plus a forward Mie lobe; sunrise reddening. From orbit it is the limb.
 //
-// DEPTH-TESTED, no depth write, BackSide, transparent (NormalBlending). A
-// transparent object is drawn after every opaque one whatever its priority, so
-// a dome drawn "behind everything" with the depth test off is drawn LAST, over
-// the vehicle — the washed-out, see-through launch of the web build's history.
-// Tested against the depth buffer, the ground and the vehicle occlude it.
+// Depth-tested, no depth write, back faces, transparent (blend_mix). Transparent
+// objects draw after all opaque ones, so it must depth-test, or it draws over the
+// vehicle.
 //
-// ALPHA IS COVERAGE, deliberately much steeper than the scattered radiance:
-// stars are invisible in daylight not because the air is opaque but because
-// the sky is four orders of magnitude brighter than they are, and with no
-// adapted exposure in this pass the only way to say that is to cover them.
-// In the local pass alpha is exactly that — coverage of the orrery behind —
-// and compose.glsl blends it premultiplied, as the web build's NormalBlending
-// drew the dome straight over the orrery's frame.
+// Alpha is coverage, steeper than the radiance: in daylight the sky is 10⁴ brighter
+// than the stars, and with no adapted exposure here the way to say so is to cover
+// them. compose.glsl blends it premultiplied over the orrery.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_front;
 
@@ -31,13 +22,9 @@ uniform float uThick = 1.05;
 uniform float uRadius = 6.371e6;    // the planet, m
 varying vec3 vDir;
 
-// The air's column density along a ray from the eye, in units of one scale
-// height of sea-level air: ∫ exp(−z/H) ds / H, through a SPHERICAL shell and
-// stopping at the ground. The plane-parallel air mass this replaced knows only
-// the eye's own density, so from 50 km up it saw almost no air in any
-// direction and the sky went black to the horizon — when the one thing every
-// photograph from up there shows is the LIMB: a tangent ray skims down through
-// the whole atmosphere and glows blue in a thin band over the black.
+// Column density from the eye, in sea-level scale heights, ∫ exp(−z/H) ds / H through
+// a spherical shell and stopping at the ground, so a tangent ray from altitude
+// shows the limb.
 float column(vec3 d) {
 	float R = uRadius;
 	float H = max(uScaleH, 1.0);
@@ -86,12 +73,8 @@ void vertex() {
 void fragment() {
 	if (uHasAir < 0.5) discard;
 	vec3 d = normalize(vDir);
-	// Column density along the line of sight, from a plane-parallel atmosphere
-	// with the Kasten–Young-ish 1/(cos+eps) air mass. Saturating rather than
-	// linear, so the horizon goes pale instead of blowing out.
-	// (uThick is the zenith depth from sea level; the plane-parallel form
-	// wrote it with an air mass of 1/(1 + 0.09) straight up, kept here so the
-	// sky from the pad is the sky it was)
+	// Saturating column depth (uThick is the zenith depth from sea level; the 0.917
+	// keeps the pad sky calibrated).
 	float tau = uThick * 0.917 * column(d);
 	float scatter = 1.0 - exp(-tau);
 
@@ -110,13 +93,10 @@ void fragment() {
 	// Clouds are not drawn here either: shaders/flight/clouds.gdshader marches
 	// them as a volume, from above as well as below.
 
-	// The sun's DISC is not drawn here: shaders/flight/sun_disc.gdshader draws
-	// it in the same pass, at every altitude, with the air mass's reddening and
-	// the camera's glare. The Mie lobe above is the sky's own share of it.
+	// The sun's disc is sun_disc.gdshader; the Mie lobe is the sky's share.
 	float a = clamp(scatter * 3.2, 0.0, 1.0) * sun;
-	// 0.85, not 1.5: the horizon term reaches uHaze·scatter ≈ (0.56, 0.71, 0.91)
-	// on its own, and scaling that up put every channel past 1.0, where the tone
-	// curve's shoulder flattens it to a featureless white band.
+	// 0.85: the horizon term already reaches (0.56, 0.71, 0.91), and more flattens into
+	// white on the tone curve's shoulder.
 	ALBEDO = col * 0.85;
 	ALPHA = a;
 }

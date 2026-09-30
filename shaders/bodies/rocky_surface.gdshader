@@ -1,14 +1,7 @@
-// SOLID SURFACE — the port of sim/rocky_visual.js's surfaceMaterial. Used by
-// every solid world (sim/rocky_visual.gd) and by the climate model's home
-// world (sim/world.gd). See sim/rocky_visual.gd for what drives each uniform.
-//
-// THE VERTEX STAGE never forms an absolute world position. The web build
-// wrote projection * modelView * p because modelViewMatrix was assembled on
-// the CPU in float64 and carried the CAMERA-relative offset; here the camera
-// sits at the render origin (docs/godot.md, floating origin), so
-// MODEL_MATRIX's translation IS that camera-relative offset and the world
-// position formed from it is small whenever the body is close enough to see.
-// The world-space view vector is therefore just minus that position.
+// SOLID SURFACE, for every solid world (sim/rocky_visual.gd, which explains the
+// uniforms) and the climate model's home world (sim/world.gd). The camera sits at
+// the render origin, so MODEL_MATRIX's translation is camera-relative and the
+// world-space view vector is minus the world position.
 shader_type spatial;
 render_mode unshaded, cull_back, depth_draw_opaque;
 
@@ -17,9 +10,7 @@ render_mode unshaded, cull_back, depth_draw_opaque;
 #include "res://shaders/bodies/terrain.gdshaderinc"
 
 uniform float uSeed = 0.0;
-// Height of the sea-level datum, in km. Raising it floods the world;
-// -60 is "there is no liquid at all", which is how an airless or a
-// boiled-dry body is expressed rather than by a second code path.
+// Sea-level datum height, km. −60 means no liquid (airless or boiled dry).
 uniform float uSeaKm = 0.0;
 uniform float uIce = 0.0;        // glaciated fraction FORCED by an EBM, if any
 uniform float uScorch = 0.0;
@@ -41,11 +32,9 @@ uniform float uSeason = 8.0;
 uniform float uDecl = 0.0;
 uniform float uMapKind = 0.0;  // 0 procedural, 1 Earth land/water, 2 dry mission mosaic
 uniform float uMapScale = 1.0;
-// Mission imagery (sim/planetmaps.gd). The colour map is sRGB and decoded, as
-// THREE's SRGBColorSpace texture was; the land mask is data and is not.
-// Clamped rather than repeated: THREE repeated in u and clamped in v, and a
-// repeat in v would bleed the south pole into the north one in the small mips.
-// The seam needs no wrap — the mesh duplicates its vertices there.
+// Mission imagery (sim/planetmaps.gd): colour is sRGB, the land mask is data.
+// Clamped (a repeat in v bleeds pole to pole in small mips); the mesh duplicates the
+// seam vertices.
 uniform sampler2D uColorMap : source_color, hint_default_black, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform sampler2D uLandMask : hint_default_black, filter_linear_mipmap, repeat_disable;
 
@@ -70,20 +59,14 @@ void fragment() {
 	if (uMapKind < 0.5) terrain(p, uSeed, hKm, rug);
 	float fresh = 0.0;
 	if (uMapKind < 0.5 && uCrater > 0.002) {
-		// A body with no air and no plate tectonics has no orogeny either:
-		// its relief IS its impact record, so the tectonic terrain is faded
-		// out as the crater record is faded in.
+		// With no air and no tectonics, relief is the impact record: tectonic terrain fades
+		// out as craters fade in.
 		float ch = craters(p, uSeed, uCrater, fresh);
 		hKm = mix(hKm, hKm * 0.30 + ch, clamp(uCrater, 0.0, 1.0));
 		rug = mix(rug, clamp(abs(ch) * 0.8, 0.0, 1.0), clamp(uCrater, 0.0, 1.0));
 	}
-	// uSeaKm is a LEVEL, not an offset applied to the ground. Subtracting
-	// it from the terrain was the same arithmetic and a different physical
-	// claim: a dry world expresses itself by putting sea level 60 km down,
-	// and the lapse rate then read that as 60 km of altitude and took
-	// 390 K off the surface — which froze Mars solid under CO2 at an
-	// equilibrium temperature of 213 K. Altitude is measured from the
-	// geoid; where the sea is, is a separate question.
+	// uSeaKm is a level, not an offset: altitude is from the geoid, or a dry world's
+	// −60 km sea would read as 60 km of altitude for the lapse rate.
 	float sinLat = clamp(p.y, -1.0, 1.0);
 	float lat = asin(sinLat);
 	float a = abs(lat);
@@ -94,19 +77,10 @@ void fragment() {
 	// --- temperature, and therefore everything else
 	float T = surfaceTemp(sinLat, max(hKm, 0.0), uS2) + uSeason * sinLat * uDecl;
 
-	// --- how wet. Continental interiors are dry because the water fell on
-	// the way in; lee slopes are dry because it fell on the way over. The
-	// upwind probe is the coarse crust only — what casts a rain shadow is
-	// the massif, not the scree on it — and the wind reverses at the
-	// trade/westerly boundary near 30 degrees, which is why the wet side
-	// of a continent swaps hemisphere by hemisphere.
-	//
-	// BOTH SIDES OF THE DIFFERENCE ARE THE SAME FIELD. Subtracting the full
-	// hKm from the coarse probe does not measure a slope at all: the fine
-	// octaves (+-0.9 km) and the tectonic belt (up to 7 km) exist on only
-	// one side of it, so the result is the local detail with its sign
-	// flipped — speckle on flat ground, and a mountain belt that reads as
-	// the WETTEST place on the planet rather than the driest lee.
+	// --- how wet. Interiors are dry (rain fell on the way in), lee slopes are dry. The
+	// upwind probe is coarse crust only, and the wind reverses near 30°. Both sides of
+	// the difference must be the same (coarse) field, or fine detail and belts read as
+	// wet.
 	float P = 0.0;
 	if (uMapKind < 0.5) {
 		float inland = sstep(uSeaKm + 0.05, uSeaKm + 1.4, hKm);
@@ -121,9 +95,7 @@ void fragment() {
 	float rough;
 	if (sea) {
 		float depth = clamp((uSeaKm - hKm) / max(uOceanDepth, 0.5), 0.0, 1.0);
-		// The continental shelf is only ~130 m deep and is the brightest
-		// water on the planet — it is why coastlines are turquoise from
-		// orbit and why the shape of a continent reads larger than its land.
+		// The ~130 m continental shelf: the brightest water, turquoise from orbit.
 		vec3 shelf = vec3(0.06, 0.26, 0.31);
 		vec3 abyss = vec3(0.014, 0.050, 0.135);
 		albedo = mix(shelf, abyss, sstep(0.02, 0.30, depth));
@@ -144,9 +116,8 @@ void fragment() {
 	if (uMapKind > 0.5) {
 		vec3 mapped = texture(uColorMap, vMapUv).rgb;
 		if (uMapKind < 1.5) {
-			// NASA's deep ocean is intentionally almost black in the source
-			// composite. Restore the measured blue-water reflectance while
-			// retaining its shallow-water color and mapped coastline.
+			// The source composite's deep ocean is near black; restore measured blue-water
+			// reflectance, keeping shallow colour and the mapped coast.
 			float land = texture(uLandMask, vMapUv).r;
 			vec3 deep = vec3(0.018, 0.060, 0.155);
 			float shelf = sstep(0.025, 0.13, mapped.g);
@@ -161,10 +132,8 @@ void fragment() {
 		}
 	}
 
-	// --- volatiles. Everything freezes out below its own condensation
-	// point: water at 273, CO2 at 148, nitrogen at 63. A permanent cap
-	// needs no precipitation (an ice sheet is the accumulation of ages);
-	// a seasonal snowpack does.
+	// --- volatiles, each freezing out below its own condensation point (uFrostK). A
+	// permanent cap needs no precipitation; seasonal snow does.
 	float frost = 0.0;
 	if (uMapKind < 0.5) {
 		float perm = sstep(uFrostK - 5.0, uFrostK - 17.0, T);
@@ -177,9 +146,7 @@ void fragment() {
 		float cold = 1.0 - sstep(245.0, 280.0, uMeanK);
 		frost = cold * sstep(0.72 - 0.56 * cold, 0.92 - 0.35 * cold, abs(sinLat));
 	}
-	// An energy-balance model, where there is one, owns the ice line: its
-	// glaciated fraction is a state variable with a feedback on it, and the
-	// picture has to agree with the number the model is integrating.
+	// Where an energy-balance model runs, its ice fraction owns the ice line.
 	if (uIce > (uMapKind > 0.5 ? 0.15 : 0.001)) {
 		float capEdge = 1.0 - uIce * 1.05;
 		float jitter = (fbm(p * 3.0 + 11.0, 3) - 0.5) * 0.16;
@@ -212,33 +179,23 @@ void fragment() {
 		vec3 H = normalize(L + V);
 		float spec = pow(max(dot(N, H), 0.0), mix(240.0, 20.0, rough)) * (1.0 - rough);
 		lit += sc * spec * 0.30 * step(0.0, ndl);
-		// The sea is not blue because water is blue. It is blue because it
-		// is a mirror lying under a Rayleigh-scattering sky, and at grazing
-		// incidence its Fresnel reflectance approaches 1 — which is why the
-		// ocean brightens toward the limb and toward the terminator.
+		// The sea reflects the sky with Fresnel reflectance near 1 at grazing incidence, so
+		// it brightens toward the limb and terminator.
 		float fres = pow(1.0 - max(dot(N, V), 0.0), 5.0);
 		lit += sc * (1.0 - rough) * mix(0.02, 0.35, fres) * diff * uHaze;
 		skylight += sc * diff;
 	}
 	lit += albedo * uAmbient;
 
-	// --- aerial perspective. An atmosphere is between you and the ground,
-	// and it scatters blue out of the line of sight, so the limb of a world
-	// with air is hazier and bluer than its centre. Without this term a
-	// planet with an atmosphere still reads as a bare rock with a ring
-	// painted round it.
+	// --- aerial perspective: bluer, hazier limbs on a world with air.
 	float limb = pow(1.0 - abs(dot(N, V)), 2.2);
 	lit = mix(lit, lit * 0.75 + skylight * vec3(0.20, 0.34, 0.62) * 0.45, uHaze * limb);
 
 	// --- incandescent once it is truly scorching
 	lit += vec3(1.0, 0.28, 0.06) * pow(uScorch, 2.0) * 0.9;
 
-	// Publish the surface temperature, log-encoded, so the spectral imaging
-	// pass can re-image the planet in its own thermal band rather than
-	// guessing a temperature from the colour of its rocks. A 288 K world is
-	// a 10 micron source, and that is exactly what the infrared band should
-	// show it as. (The web build wrote it into alpha; here it is the
-	// temperature pass, docs/godot.md — an opaque emitter.)
+	// Publish the surface temperature to the temperature pass (a 288 K world is a 10 µm
+	// source in the IR band).
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		ALBEDO = vec3(temp_code(T), 0.0, 0.0);
 	} else {

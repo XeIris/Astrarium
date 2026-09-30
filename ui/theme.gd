@@ -1,31 +1,19 @@
 class_name HudTheme
 extends RefCounted
 
-# THE HUD's LOOK, FROM THE CSS's OWN VARIABLES
-# Every colour here is a `:root` variable of blackhole_sim.css, used DIRECTLY.
-# A CSS colour is sRGB and so is a Godot Color drawn by a Control (the 2D
-# canvas is not colour-managed), so `#ff8c42` is Color8(0xff, 0x8c, 0x42) and
-# nothing is converted — docs/godot.md. The only linear colours the HUD ever
-# sees are the ones the SIM computes (a sun's blackbody colour), and those are
-# converted at the one place they cross over (the sun-list dot).
+# THE HUD'S LOOK, from the CSS `:root` variables used directly: CSS colours are sRGB
+# and so are Control colours, so nothing is converted (docs/godot.md). The only
+# linear colours are sim-computed ones, converted where they cross (the sun-list dot).
 #
-# The fonts are the CSS stacks, resolved the way the browser resolves them.
-# Measured, not assumed: on the machine this was written on, Chrome renders
-# `'JetBrains Mono', 'SF Mono', 'Menlo', monospace` as Menlo (the installed
-# JetBrains font is the Nerd-font family, under a different name, and SF Mono
-# is not exposed to applications), and Godot's SystemFont resolves the same
-# stack to the same Menlo. The display stack ends in `system-ui`, which Godot
-# does not know — asked for it, it hands back an arbitrary face — so it is
-# spelled `.AppleSystemUIFont` here, which is what system-ui IS on macOS.
+# Fonts are the CSS stacks resolved as the browser does (measured on the dev
+# machine): the mono stack resolves to Menlo, and `system-ui` is spelled
+# `.AppleSystemUIFont`, which Godot understands.
 #
-# FONT METRICS ARE CHROME'S, NOT GODOT'S. Every line box in the HUD is sized
-# from them, so they decide where every panel ends:
-#   * `line-height: normal` is round(ascent) + round(descent) at the used size
-#     (Blink rounds the two separately): Menlo at 10px is 9 + 2 = 11, at 11px
-#     10 + 3 = 13. Godot's own get_height() rounds up and gives 14 at 11px.
-#   * advances are taken at 1000 px and scaled, so a 9.5px glyph advances
-#     exactly 9.5 × its em advance. Godot quantises advances at small sizes,
-#     which over a 40-character line drifts by several pixels.
+# Font metrics are Chrome's, since every line box comes from them:
+#   * `line-height: normal` = round(ascent) + round(descent) at the used size
+#     (Menlo 10 px: 9 + 2 = 11; 11 px: 10 + 3 = 13; Godot's get_height() gives 14).
+#   * Advances are taken at 1000 px and scaled, so a 9.5 px glyph advances exactly
+#     9.5 × its em advance (Godot quantises small sizes).
 
 # ---- :root
 const BG := Color(0x05 / 255.0, 0x06 / 255.0, 0x0a / 255.0)
@@ -59,17 +47,11 @@ static var _adv := {}
 static var _met := {}
 static var _metric := {}
 
-## THE SYSTEM FACE HAS AN OPTICAL SIZE. SF Pro is one variable font with an
-## `opsz` axis (17–96, default 28), and CoreText — which Chrome draws
-## system-ui with — sets that axis to the point size and then applies the
-## face's size-specific TRACKING (the `trak` table: 0 at 12 pt, −0.08 at 13,
-## −0.31 at 16, −0.43 at 17). Below 20 px the result is the wider "Text"
-## design; Godot's SystemFont gives the opsz-28 "Display" one at every size,
-## which set the lesson card's 13.5 px prose 11% narrower than the page
-## (measured: 489 px against 548 for the same line). So for the display
-## family at a small size, the face carries opsz and the run carries the
-## tracking, as extra letter-spacing (tracking()). At 20 px and above
-## nothing changes — the start screen's 30 px title is Display in both.
+## The system face has an optical size: SF Pro's `opsz` axis (17–96), which CoreText
+## sets to the point size, plus the `trak` tracking table (0 at 12 pt, −0.08 at 13,
+## −0.31 at 16, −0.43 at 17). SystemFont gives opsz 28 at every size, 11% narrow for
+## 13.5 px prose. So below 20 px the face carries opsz and the run carries the
+## tracking (tracking()).
 const TRAK := [[12.0, 0.0], [13.0, -0.08], [14.0, -0.15], [15.0, -0.23], [16.0, -0.31], [17.0, -0.43], [19.99, -0.45]]
 
 static func font_sized(ff: String, fw: int, fi: bool, fs: float) -> Font:
@@ -92,14 +74,8 @@ static func font_sized(ff: String, fw: int, fi: bool, fs: float) -> Font:
 	_kerned[fv.get_instance_id()] = true
 	return fv
 
-## KERNING, for the same faces. Blink shapes a run through HarfBuzz/CoreText
-## and applies the font's pair kerning; the HUD's per-character layout sums
-## bare advances, which is exact for the monospaced face (it has no kerning)
-## and 1.6 px too wide over a 97-character line of the lesson card's prose —
-## enough to push the last word of a line that fits in Chrome onto the next.
-## So the optical-size display faces (and only they: nothing else in the HUD
-## changes) add each pair's kerning, measured by shaping the pair on the
-## metric face and taking away the two advances, in em, cached per pair.
+## Kerning for those faces: pair kerning, measured by shaping each pair on the metric
+## face less the two advances, in em, cached. (Menlo has none.)
 static var _kerned := {}
 static var _kern := {}
 
@@ -155,27 +131,20 @@ static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
 	sf.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_ONE_QUARTER
 	sf.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
 	sf.generate_mipmaps = true
-	# Glyph fallback in the order Chrome's (measured): SF has no ◂/▸ and the
-	# browser takes them from Lucida Grande, not from wherever the OS's own
-	# fallback walk happens to land first.
-	# Metrics and advances are read from the face WITHOUT its fallbacks: a
-	# Font's ascent is the largest over its whole fallback chain, and Lucida's
-	# would make every Menlo line a pixel taller than Blink's.
+	# Glyph fallback in Chrome's order (◂/▸ from Lucida Grande). Metrics come from the
+	# face without fallbacks, or Lucida's ascent makes Menlo lines a pixel taller.
 	_metric[key] = sf.duplicate()
 	var fb := SystemFont.new()
 	fb.font_names = PackedStringArray(["Menlo", "Apple Symbols"] if ff == "lucida" else ["Lucida Grande", "Apple Symbols"])
 	fb.hinting = TextServer.HINTING_NONE
 	fb.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_ONE_QUARTER
 	sf.fallbacks = [fb]
-	# CoreText dilates glyph stems a little on the Mac (the "font smoothing"
-	# Chrome inherits), so the same face rasterised plainly reads a shade
-	# thinner and dimmer than the page. A small embolden is that dilation.
+	# A small embolden matches CoreText's stem dilation.
 	var fv := FontVariation.new()
 	fv.base_font = sf
 	fv.variation_embolden = EMBOLDEN
-	# Menlo is one file with four faces and SystemFont does not select the
-	# bold or italic one by weight, so those two are synthesised — a face the
-	# browser has and this does not; the advances are identical either way.
+	# Menlo's bold and italic are synthesised (SystemFont won't select them); advances
+	# are identical.
 	if ff == "mono" and fw >= 600:
 		fv.variation_embolden = EMBOLDEN + 0.55
 	if ff == "mono" and fi:
