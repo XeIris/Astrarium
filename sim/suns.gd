@@ -1,24 +1,16 @@
 class_name Suns
 extends RefCounted
 
-# MULTI-SUN LIGHTING — the uniform block every surface in the orrery is lit by.
-# A body here is never lit by "the" sun: a Trisolaran world has three
-# terminators crossing its disc at once, in three different colours, and a
-# circumbinary planet has two. So lighting is an ARRAY, and every material
-# that faces a star declares the same block (shaders/common/suns.gdshaderinc)
-# and is fed by the same apply_suns().
-#
-# It lives in its own module because both the solid-surface shaders
-# (sim/rocky_visual.gd, sim/world.gd) and the gas giant (sim/giant_visual.gd)
-# need it, and none of them should have to import each other to get it.
+# MULTI-SUN LIGHTING: the uniform block every star-facing surface declares
+# (shaders/common/suns.gdshaderinc), fed by apply_suns(). Lighting is an array: a
+# Trisolaran world has three terminators in three colours.
 
 const MAX_SUNS := 4
 
-## Point every sun-aware material at the current star set. `suns` entries carry
-## { pos_rel: Vector3 (camera-relative scene position), color: Color (linear),
-## intensity: float }; `target_rel` is the lit body's camera-relative position.
-## Directions are formed from two camera-relative positions — never from
-## absolute ones (docs/godot.md, floating origin).
+## Point every sun-aware material at the current star set. `suns` entries:
+## { pos_rel: Vector3 (camera-relative), color: Color (linear), intensity: float };
+## `target_rel` is the lit body's camera-relative position. Directions come from two
+## camera-relative positions, never absolute ones.
 static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> void:
 	var n := mini(suns.size(), MAX_SUNS)
 	var dirs := PackedVector3Array(); dirs.resize(MAX_SUNS)
@@ -38,12 +30,8 @@ static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> vo
 		m.set_shader_parameter("uSunInt", ints)
 		m.set_shader_parameter("uSunCount", n)
 
-## Total insolation at a body, in solar constants (S_Earth = 1), summed over
-## every star: S = sum L_i / d_i^2 with L in solar luminosities and d in AU.
-## This is the same quantity sim/climate.gd integrates, computed for a body
-## that has no climate model of its own — which is what lets an ordinary planet
-## know its own temperature, and therefore where its ice line and its deserts
-## are, without anything being written down per preset.
+## Total insolation at a body in solar constants: S = Σ L_i / d_i² (L☉, AU), the
+## quantity climate.gd integrates, so any planet knows its own temperature.
 static func insolation_at(body: Body, suns: Array) -> float:
 	if suns == null or suns.is_empty(): return 0.0
 	var S := 0.0
@@ -55,14 +43,9 @@ static func insolation_at(body: Body, suns: Array) -> float:
 		S += L / (d * d)
 	return S
 
-# The light in a scene that has no stars in it. A black hole's accretion disc
-# is the brightest thing in the universe per unit mass, so a planet beside one
-# is lit — but by WHAT is not something this model knows: the lens pass draws
-# a Shakura-Sunyaev disc without ever exporting a luminosity from it. So this
-# is a deliberately modest stand-in with a disc's colour temperature rather
-# than a derived flux, and its only job is to stop a body next to a black hole
-# rendering as a flat silhouette. If a disc luminosity is ever derived, this is
-# the one place that should read it.
+# The light in a starless scene: a modest stand-in with a disc's colour temperature
+# so a body beside a black hole isn't a flat silhouette (the lens pass exports no
+# disc luminosity). If one is ever derived, read it here.
 static func lit_by(ctx: Dictionary):
 	if ctx.has("suns") and not ctx.suns.is_empty(): return ctx.suns
 	if not ctx.has("holes") or ctx.holes.is_empty(): return null

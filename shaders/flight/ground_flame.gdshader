@@ -1,12 +1,7 @@
-// THE GROUND FLAME — createGroundFlame() of sim/flight/plume.js: what the
-// exhaust does after it hits the deck. A flattened hemisphere, brightest where
-// you look ALONG the sheet, thin on the axis, thrown out in wandering lobes,
-// eaten by hard-contrast turbulence so the geometry never shows as a dome.
-//
-// Blending as the plume (publishAlpha): colour weighted by the published
-// temperature code and added; formed here, blended ONE, ONE. The normal is a
-// view-space varying (normalMatrix·normal), never flipped for back faces —
-// the web shader's vN was not.
+// THE GROUND FLAME: the exhaust after it hits the deck. A flattened hemisphere,
+// brightest along the sheet, thrown out in wandering lobes and eaten by
+// hard-contrast turbulence. Colour weighted by the temperature code, blended ONE,
+// ONE. The normal is a view-space varying, not flipped on back faces.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

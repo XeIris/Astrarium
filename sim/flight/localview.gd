@@ -96,7 +96,7 @@ var craft_root: Node3D
 ## The local camera's position in the local frame, metres, DOUBLE. The render
 ## camera itself is at the origin; see the header.
 var cam_pos := DVec3.new()
-## The ground patch's own vertical offset (the web build's ground.position.y).
+## The ground patch's own vertical offset.
 var ground_y := 0.0
 var _placed: Array = []          # [Node3D, DVec3]
 var _earth_requested := false
@@ -116,8 +116,7 @@ func _init(p: RenderPipeline) -> void:
 	camera.near = 0.05
 	camera.far = 4.0e6
 	camera.transform = Transform3D.IDENTITY
-	# The vehicle meshes carry authored LODs nothing asked for; the web build
-	# drew every triangle at every range.
+	# Draw every triangle at every range (the imported meshes carry automatic LODs).
 	pipe.local_vp.mesh_lod_threshold = 0.0
 	root = Node3D.new()
 	root.name = "LocalView"

@@ -1,20 +1,18 @@
 class_name HudCss
 extends RefCounted
 
-# blackhole_sim.css, rule by rule, as El style dictionaries.
+# The HUD's CSS rules as El style dictionaries.
 #
-# Keys (see ui/widgets/el.gd): w/h/maxh/minw/maxw px; wp a width fraction;
-# m/p shorthands or mt/mr/mb/ml, pt/pr/pb/pl; b [width, colour] or bt/br/bb/bl
-# with bct/bcr/bcb/bcl; bg; rad; display block|flex|grid; dir row|column;
-# ai/as align-items/-self; jc justify-content; gapc/gapr; cols grid tracks
-# (fr > 0, fixed px < 0); grow/shrink/basis; fs ff fw fi c ls lh up ta nw for
-# text (these inherit); ib an inline-block (margins do not collapse); fit
-# shrink-to-fit width; vc a <button>'s vertically centred content; scroll
+# Keys (ui/widgets/el.gd): w/h/maxh/minw/maxw px; wp width fraction; m/p shorthands
+# or mt/mr/mb/ml, pt/pr/pb/pl; b [width, colour] or bt/br/bb/bl with bct/bcr/bcb/bcl;
+# bg; rad; display block|flex|grid; dir row|column; ai/as align-items/-self; jc
+# justify-content; gapc/gapr; cols grid tracks (fr > 0, fixed px < 0);
+# grow/shrink/basis; fs ff fw fi c ls lh up ta nw for text (inherited); ib
+# inline-block; fit shrink-to-fit; vc a button's centred content; scroll
 # overflow-y:auto; blur a backdrop-filter radius.
 #
-# letter-spacing is written in em in the CSS and is converted here with the
-# element's OWN font size — that is the computed (px) value, and the px value is
-# what children inherit.
+# letter-spacing in em converts with the element's own font size (the computed px
+# value, which children inherit).
 
 const T = preload("res://ui/theme.gd")
 

@@ -1,16 +1,9 @@
 class_name ClimateChart
 extends El
 
-# drawClimateChart, ported line for line.
-#
-# A scrolling record of insolation and temperature. The point of the chart is
-# to make the lag visible: the temperature curve is a smoothed, delayed echo of
-# the flux curve, and the delay is the ocean's thermal inertia.
-#
-# The web canvas is a 290 × 86 bitmap shown at `width: 100%; height: 86px`
-# inside a 1 px border, so it is drawn at 290 × 86 and SCALED into the
-# content box — the page squeezes it horizontally by the same factor, and the
-# arithmetic below is the canvas's own, in bitmap pixels.
+# The climate chart: insolation and temperature scrolling, so the ocean's lag shows
+# (temperature is a delayed, smoothed echo of flux). Drawn at a 290 × 86 bitmap
+# scaled into the content box, in bitmap pixels.
 
 const CW := 290.0
 const CH := 86.0

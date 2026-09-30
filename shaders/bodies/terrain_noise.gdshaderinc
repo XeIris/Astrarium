@@ -1,18 +1,9 @@
-// NOISE — the port of sim/terrain.js's NOISE_GLSL, split out of
-// terrain.gdshaderinc because the cloud deck, the gas giants and the rings
-// need the noise without the terrain (the web build imported NOISE_GLSL on
-// its own for exactly those three).
+// NOISE, split from terrain.gdshaderinc for the cloud deck, gas giants and rings.
+// 3D value noise on the unit sphere: no seam, no polar pinch.
 //
-// Value noise on a 3D domain. Sampling in 3D on the unit sphere is what keeps
-// the surface free of the seam and the polar pinch that any equirectangular
-// texture has; there is no (u, v) anywhere in the procedural path.
-//
-// PORT NOTE — sstep(). GLSL leaves smoothstep() UNDEFINED when edge0 >= edge1,
-// and the web build leans on the reversed form everywhere ("1 at a, falling to
-// 0 at b"). WebGL gets the textbook formula from every driver, so that is what
-// the pictures were tuned against; sstep() IS that formula, written out, so a
-// driver that takes the spec at its word cannot quietly change the answer.
-// Every smoothstep in the body shaders goes through it.
+// sstep(): GLSL leaves smoothstep undefined for edge0 ≥ edge1, and the shaders rely
+// on the reversed form ("1 at a, falling to 0 at b"), so sstep() writes out the
+// textbook formula. Every smoothstep in the body shaders goes through it.
 #ifndef TERRAIN_NOISE_INC
 #define TERRAIN_NOISE_INC
 
@@ -52,10 +43,7 @@ float ridged(vec3 p, int oct) {
 	for (int i = 0; i < 8; i++) { if (i >= oct) break; v += a * (1.0 - abs(noise(q) * 2.0 - 1.0)); q *= 2.11; a *= 0.5; }
 	return v;
 }
-// Domain warp — displace the sample point by another noise field before
-// evaluating. Un-warped fBm is isotropic and reads as cloud; warped fBm has
-// the stretched, folded, sheared look of material that has been moved
-// around, which is what crust is.
+// Domain warp: displace the sample by another field, for the folded look of crust.
 vec3 warp(vec3 p, float amt) {
 	return p + amt * vec3(fbm(p + 19.3, 4), fbm(p + 41.7, 4), fbm(p + 73.1, 4));
 }

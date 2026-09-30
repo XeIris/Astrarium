@@ -1,11 +1,6 @@
-// LIMB HAZE — a giant has no edge. The disc fades into a thin bright rim of
-// forward-scattering aerosol several scale heights above the deck, and without
-// it the silhouette is a hard circle, which is the tell that you are looking at
-// a solid ball. (Port of sim/giant_visual.js's limbMaterial.)
-//
-// AdditiveBlending, BackSide, alpha 1 → blend_add, cull_front; in the
-// temperature pass it writes 1 at alpha 1, i.e. "no data", as the web build's
-// saturated alpha did.
+// LIMB HAZE: the disc fades into a thin bright rim of forward-scattering aerosol, so
+// the silhouette isn't a hard circle. blend_add, cull_front; the temperature pass
+// writes 1 ("no data").
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_front;
 

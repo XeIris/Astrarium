@@ -1,15 +1,7 @@
-// CLOUDS — the port of sim/rocky_visual.js's cloudMaterial.
-//
-// Not a noise field wrapped round a ball: the same three overturning cells
-// that put the deserts at 30 degrees put the CLOUD there too, or rather take
-// it away — a satellite image of Earth is a bright convective band at the
-// equator, two clear subtropical belts, and two ragged storm-track spirals at
-// mid latitude. The deck is also advected by the zonal wind, which reverses
-// between the trades and the westerlies, so the bands visibly shear past each
-// other instead of turning as one rigid shell.
-//
-// Transparent, NormalBlending in the web build → blend_mix here, and in the
-// temperature pass it writes 1.0 at its own alpha (docs/godot.md).
+// CLOUDS on the circulation: the same overturning cells that make the deserts clear
+// the subtropics, so the deck is a convective equatorial band, clear subtropical
+// belts and mid-latitude storm tracks, advected by a zonal wind that reverses between
+// trades and westerlies. blend_mix; the temperature pass writes 1.0 at its alpha.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_back;
 
@@ -39,22 +31,14 @@ void fragment() {
 	float lat = asin(clamp(p.y, -1.0, 1.0));
 	float a = abs(lat);
 
-	// Zonal wind: easterly trades under ~30 degrees, westerlies above. The
-	// deck is carried by it, so the cloud bands slide past each other
-	// instead of turning as one rigid shell.
-	// Gaussians squared directly: pow() is undefined for a negative base,
-	// and the westerly term's base is negative equatorward of 53 degrees.
+	// Zonal wind: easterly trades below ~30°, westerlies above. Gaussians squared
+	// directly (pow() is undefined for a negative base).
 	float ut = a / 0.42;
 	float uw = (a - 0.92) / 0.38;
 	float u = -0.55 * exp(-ut * ut) + 1.00 * exp(-uw * uw);
 
-	// The offset between two latitudes grows without bound, and a frozen
-	// noise field sheared for ever becomes a smear of streaks — which is
-	// exactly what a fast-forwarded climate world looked like. Two copies
-	// of the field, half a period out of step, cross-faded so that each
-	// one's weight is zero at the moment its own clock wraps: the motion
-	// is continuous, and the winding never exceeds half a period's worth.
-	// Same device as the gas giants (giant_body.gdshader), same reason.
+	// Flow-mapped, as in giant_body.gdshader: two copies half a period apart,
+	// cross-faded to zero weight at each wrap, so the shear never winds up.
 	float per = 20.0;
 	float ta = mod(uTime, per);
 	float tb = mod(uTime + per * 0.5, per);

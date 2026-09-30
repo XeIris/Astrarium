@@ -1,6 +1,5 @@
-// The legacy star's opaque core (sim/bodies.js starMaterial). It wrote alpha
-// 1.0 — no temperature — so the temperature pass publishes TEMP_NO_DATA and the
-// imaging bands infer T from its colour, exactly as they did for it on the web.
+// The legacy star's opaque core. It publishes TEMP_NO_DATA, so the imaging bands
+// infer T from its colour.
 shader_type spatial;
 render_mode unshaded, cull_back;
 

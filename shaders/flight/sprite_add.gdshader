@@ -1,7 +1,6 @@
-// The ADDITIVE sprites (engine glow, RCS puffs): passThroughAlpha(m, true) in
-// sim/flight/plume.js — RGB = src·srcα + dst, alpha left alone. Formed here and
-// blended ONE, ONE (blend_premul_alpha, ALPHA = 0), so it adds light without
-// covering the orrery behind it. See sprite.gdshaderinc.
+// The additive sprites (engine glow, RCS puffs): RGB = src·srcα + dst, blended ONE,
+// ONE (blend_premul_alpha, ALPHA = 0), adding light without coverage. See
+// sprite.gdshaderinc.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 #include "res://shaders/flight/sprite.gdshaderinc"

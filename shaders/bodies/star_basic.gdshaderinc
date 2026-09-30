@@ -1,7 +1,5 @@
-// THE LEGACY STAR surface — starMaterial() in sim/bodies.js: granulation fBm +
-// limb darkening + flicker. Shared by star_basic.gdshader (the opaque core)
-// and star_basic_layer.gdshader (the additive "gassy outer layer", which in
-// the web build was a clone of the same ShaderMaterial).
+// THE LEGACY STAR surface: granulation fBm, limb darkening, flicker. Shared by
+// star_basic.gdshader (opaque core) and star_basic_layer.gdshader (additive layer).
 #include "res://shaders/common/temp_pass.gdshaderinc"
 
 uniform float uTime = 0.0;

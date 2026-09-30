@@ -1,17 +1,7 @@
-// THE POINT-SOURCE MARKER — port of createMarker()'s material in sim/scale.js.
-// See sim/marker.gd for why it exists and how it hands over from the mesh.
-//
-// A camera-facing quad (the web copied camera.quaternion onto the mesh; here
-// the billboard is formed in view space, which is the same plane) scaled by the
-// node's own scale, as THREE's mesh.scale was.
-//
-// BLENDING is deliberately split in the web build: RGB adds (ONE, ONE), ALPHA
-// takes the MAX, because alpha is the log-encoded temperature and "the hottest
-// contributor wins" is the right composite. Godot has no MAX blend on a
-// spatial material, and it does not need one: the destination under a marker
-// is almost always the sky, SKY_ALPHA = 0.995, which is above every code a
-// marker can publish (≤ 0.98) — so the web's max() was a no-op there, and the
-// temperature pass here discards (docs/godot.md, the marker row).
+// THE POINT-SOURCE MARKER (see sim/marker.gd): a camera-facing quad formed in view
+// space, scaled by the node's scale. RGB adds; the temperature would take the max,
+// but the destination is almost always the sky (SKY_ALPHA = 0.995, above any marker
+// code ≤ 0.98), so the temperature pass discards.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 
@@ -40,10 +30,7 @@ void fragment() {
 	float core = exp(-r * r * 30.0);
 	float halo = exp(-r * r * 3.2) * 0.28;
 	float a = (core + halo) * uOpacity;
-	// Selection reticle. Once every planet is an honest point of light it is
-	// indistinguishable from the background starfield, so picking one out of
-	// the Bodies list has to show you WHERE it is. The ring sits well
-	// outside the core so it frames the body without hiding it.
+	// Selection reticle, well outside the core, so a point-sized body can be found.
 	float ring = uSel * uOpacity * 0.5 *
 	             (smoothstep(0.58, 0.65, r) - smoothstep(0.71, 0.78, r));
 	if (a <= 0.003 && ring <= 0.003) discard;

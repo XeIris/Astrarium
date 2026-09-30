@@ -1,27 +1,14 @@
 class_name DVec3
 extends RefCounted
 
-# A DOUBLE-PRECISION 3-VECTOR.
-# Godot's Vector3 is float32 in a standard build. The web version never had to
-# think about this, because every THREE.Vector3 it did physics with was a pair
-# of JS doubles — and the physics depends on it. The orrery integrates in AU
-# with G = 4π² and needs ~1e-12 relative precision to hold Trisolaris at 1e-7
-# energy drift; the flight model integrates in METRES about a planet 6.4e6 m in
-# radius, where float32 quantises position to 0.4 m and an RK4 step to garbage.
-#
-# GDScript's `float` IS a double, so this is simply three of them. It is a
-# class rather than a PackedFloat64Array because the ported physics reads like
-# the original that way (`a.add(b).scale(k)`), which is what keeps a 1:1 port
-# checkable against the JavaScript line by line.
-#
-# CONVENTIONS, mirroring THREE.Vector3 so the port stays mechanical:
-#   · The mutating methods (set_v, add_in, sub_in, scale_in, add_scaled_in,
-#     copy_from, normalize_in…) change `self` and return it, like THREE's.
-#   · The pure methods (add, sub, scaled, cross, normalized, clone…) allocate.
-#     Prefer the mutating form in hot loops — allocation is the cost here.
-#   · to_v3() is the ONLY way down to float32, and it belongs at the render
-#     boundary, after the camera origin has been subtracted (see docs/godot.md,
-#     "floating origin"). Never convert an absolute AU/metre position.
+# A DOUBLE-PRECISION 3-VECTOR. Vector3 is float32, and the physics needs ~1e-12
+# relative precision in AU (Trisolaris at 1e-7 drift) and metres about a 6.4e6 m
+# planet (float32 is 0.4 m there). GDScript floats are doubles, so this is three.
+#   · Mutating methods (set_v, add_in, sub_in, scale_in, add_scaled_in, copy_from,
+#     normalize_in…) change `self` and return it; prefer them in hot loops.
+#   · Pure methods (add, sub, scaled, cross, normalized, clone…) allocate.
+#   · to_v3() is the only way down to float32, at the render boundary after the
+#     camera origin is subtracted (docs/godot.md). Never convert an absolute position.
 
 var x: float
 var y: float

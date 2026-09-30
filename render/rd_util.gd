@@ -1,23 +1,12 @@
 class_name RDU
 extends RefCounted
 
-# RENDERINGDEVICE HELPERS — the plumbing every compute pass in render/ shares.
-# The web build's fullscreen passes were ShaderMaterials on a quad, drawn into
-# WebGLRenderTargets by hand. Here the equivalent is a GLSL 450 compute shader
-# dispatched on Godot's main RenderingDevice, writing an RD texture that is
-# handed to the rest of the engine as a Texture2DRD. Why compute rather than a
-# chain of canvas_item SubViewports:
-#
-#   · ORDER IS EXPLICIT. Every pass runs inside one callback, in the order it
-#     is written, on the frame it belongs to. A SubViewport chain relies on the
-#     server's viewport sort and one misplaced node silently lags a frame.
-#   · MULTIPLE OUTPUTS. The lens marcher writes two attachments (MRT); a
-#     canvas_item shader has one COLOR.
-#   · THE SHADERS STAY GLSL. The web passes were GLSL, and compute GLSL 450 is
-#     a much shorter step from them than gdshader is.
-#
-# Everything here must run on the RENDER thread (inside a CompositorEffect
-# callback, or via RenderingServer.call_on_render_thread).
+# RENDERINGDEVICE HELPERS for the compute passes in render/: GLSL 450 compute on the
+# main RenderingDevice, writing RD textures handed on as Texture2DRD. Compute rather
+# than canvas_item SubViewports because order is explicit (one callback, in order,
+# this frame), passes can have several outputs (the lens marcher writes two), and
+# the shaders stay GLSL. Render thread only (a CompositorEffect callback or
+# RenderingServer.call_on_render_thread).
 
 const RGBA16F := RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
 const RGBA8 := RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM

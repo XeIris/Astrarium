@@ -1,7 +1,5 @@
-// cutaway_layer.gdshader for the TRANSPARENT shells — a black hole's
-// photon sphere, ISCO and ergosphere, which are locations in the spacetime
-// rather than material (three: transparent, opacity 0.16, depthWrite left on,
-// NormalBlending → blend_mix + depth_draw_always). Same clip, same lighting.
+// cutaway_layer.gdshader for transparent shells (a black hole's photon sphere, ISCO,
+// ergosphere): opacity 0.16, blend_mix + depth_draw_always. Same clip and lighting.
 shader_type spatial;
 render_mode cull_disabled, diffuse_lambert, specular_schlick_ggx, blend_mix, depth_draw_always;
 

@@ -35,7 +35,7 @@ var era: Dictionary = ERAS.STABLE
 var ice: float = 0.0            # 0..1 glaciated fraction
 var clouds: float = 0.4         # 0..1 cloud cover
 var humidity: float = 0.5
-# JS: `this.storm` is undefined until the first step() writes it.
+# null until the first step() writes it.
 var storm: float = 0.0
 var time: float = 0.0
 # rolling history for the graph: [simYear, S, T]
@@ -44,8 +44,8 @@ var history_max: int = 900
 var _acc: float = 0.0
 var extremes: Dictionary = {}
 
-## `opts` is the preset's `climate` Dictionary (JS keys: mixedLayer,
-## greenhouse, albedoBase, albedoIce, T0).
+## `opts` is the preset's `climate` Dictionary (mixedLayer, greenhouse,
+## albedoBase, albedoIce, T0).
 func _init(opts: Dictionary = {}) -> void:
 	mixed_layer = float(U.nz(opts.get("mixedLayer"), 12.0))
 	greenhouse = float(U.nz(opts.get("greenhouse"), 0.61))
@@ -88,8 +88,7 @@ func insolation(planet: Body, stars: Array) -> float:
 		per_star.append({ "name": s.name, "S": contrib, "dist": d, "mass": s.mass })
 	for p in per_star:
 		p.frac = p.S / s_tot if s_tot > 0.0 else 0.0
-	# JS Array.prototype.sort is stable; sort_custom is not, so ties keep their
-	# insertion order through the index.
+	# sort_custom is not stable, so ties keep insertion order through the index.
 	for i in per_star.size(): per_star[i]._i = i
 	per_star.sort_custom(func(a, b): return a.S > b.S or (a.S == b.S and a._i < b._i))
 	for p in per_star: p.erase("_i")

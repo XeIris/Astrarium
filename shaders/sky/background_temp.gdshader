@@ -1,16 +1,10 @@
-// THE BACKGROUND — temperature pass. What the web build's backdrop and lens
-// resolve wrote into ALPHA, written into COLOR.r (see docs/godot.md).
+// THE BACKGROUND, temperature pass: the backdrop's and lens resolve's temperature
+// code in COLOR.r (docs/godot.md). A pixel with no emitter is SKY_ALPHA, not 1.0,
+// so the remap passes it through.
 //
-// A pixel with no emitter on it is SKY_ALPHA rather than 1.0: the sky is
-// composited in the current band already, so the remap must pass it through
-// rather than infer a temperature from it.
-//
-// ONE ALPHA, TWO POSSIBLE SOURCES. A pixel looking through a partly
-// transparent disc holds both, and it is labelled by whichever DOMINATES it —
-// the disc's luminance-weighted contribution is just the luminance of what it
-// accumulated, so the two are directly comparable. Without the comparison the
-// thin outer disc took the label on any emission at all and deleted whole
-// star-field pixels from every non-visible band.
+// A pixel seen through partly transparent disc gets whichever source dominates its
+// luminance (the disc's accumulated luminance vs the sky's); otherwise the thin
+// outer disc would label, and delete, star pixels in every non-visible band.
 shader_type sky;
 
 #include "res://shaders/sky/sky.gdshaderinc"

@@ -1,21 +1,11 @@
-// RINGS — the port of sim/giant_visual.js's ringMaterial. Not an annulus of
-// flat colour: a ring system is a swarm of individual orbiting particles with
-// a RADIAL OPTICAL DEPTH PROFILE, and the profile is the recognisable part.
-// Saturn's, in units of its own radius:
-//
+// RINGS: a radial optical-depth profile. Saturn's, in its own radii:
 //   C ring      1.24 – 1.53   tau ~ 0.1, nearly transparent
 //   B ring      1.53 – 1.95   tau ~ 1.5, the bright one
-//   Cassini     1.95 – 2.03   a resonance-swept gap, not empty but close
-//   A ring      2.03 – 2.27   tau ~ 0.5, with the Encke gap at 2.21
-//
-// Each boundary is a resonance with a moon, which is why they are sharp. The
-// transparency then follows from tau along the actual slant path,
-// 1 - exp(-tau/mu), so the rings really do go more opaque as you view them
-// edge-on, and the planet really is visible through the C ring and not
-// through the B ring.
-//
-// NormalBlending, DoubleSide → blend_mix, cull_disabled; temperature pass
-// writes 1 at the ring's own alpha (docs/godot.md).
+//   Cassini     1.95 – 2.03   a resonance-swept gap
+//   A ring      2.03 – 2.27   tau ~ 0.5, Encke gap at 2.21
+// Boundaries are moon resonances, hence sharp. Transparency is 1 − exp(−tau/mu)
+// along the slant path. blend_mix, cull_disabled; the temperature pass writes 1 at
+// the ring's alpha.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 
@@ -55,18 +45,13 @@ void fragment() {
 	float r = length(vLocal.xy) / max(uBodyR, 1e-6);
 	if (r < uInner || r > uOuter) discard;
 	float tau = tauAt(r);
-	// Ringlets. The fine structure is spiral density waves driven by the
-	// moons, so it is RADIAL and has no azimuthal structure at all — the
-	// rings are grooved like a record, not mottled. Two scales, because
-	// the waves come in trains.
+	// Ringlets: spiral density waves, radial only (grooved like a record), two scales.
 	tau *= 0.62 + 0.50 * fbm(vec3(r * 42.0, uSeed, 0.0), 3)
 	     + 0.26 * fbm(vec3(r * 150.0, uSeed + 3.0, 0.0), 2);
 	if (tau < 0.004) discard;
 
-	// Slant path: the transmitted fraction is exp(-tau/mu) with mu the
-	// cosine to the ring PLANE NORMAL, so a ring system seen edge-on goes
-	// opaque and the same ring seen face-on is a haze. That is one law, not
-	// two opacities.
+	// Transmitted fraction exp(−tau/mu), mu the cosine to the ring-plane normal: opaque
+	// edge-on, a haze face-on.
 	vec3 V = normalize(vView);
 	float mu = max(abs(dot(normalize(vNrm), V)), 0.05);
 	float alpha = 1.0 - exp(-tau / mu);
@@ -84,10 +69,8 @@ void fragment() {
 		vec3 pt = vec3(q.x, 0.0, -q.y);
 		float along = dot(pt, Lo);
 		float perp = length(pt - Lo * along);
-		// The planet's shadow is a CYLINDER of its own radius laid along the
-		// line to the star, so on a tilted ring system it is a parallel-sided
-		// band, not a circle — and its edge is soft because the star is a
-		// disc, not a point.
+		// The planet's shadow is a cylinder along the star line: a parallel-sided band on
+		// tilted rings, soft-edged because the star is a disc.
 		float sh = (along < 0.0) ? mix(0.10, 1.0, sstep(0.92, 1.12, perp)) : 1.0;
 		// Ring particles are icy and forward-scatter strongly: the far side
 		// of the system, seen against the sun, is much the brighter.

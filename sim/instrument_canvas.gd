@@ -1,21 +1,14 @@
 class_name Canvas2D
 extends RefCounted
 
-# THE INSTRUMENTS' CANVAS — the handful of CanvasRenderingContext2D calls the
-# light curve, the strain chart and the HR diagram make, as static helpers over
-# a Control's draw_* API.
-# The web instruments drew into a <canvas> whose BACKING size was fixed (340 ×
-# 210, or 340 × 260 for the HR diagram) and which CSS then scaled to the width
-# of the card's media column (`width: 100%; height: auto`, max 340 px). Every
-# coordinate in those files is therefore in backing pixels. `begin()` sets the
-# same scale on the Control (its laid-out width over the backing width), so the
-# arithmetic ports unchanged and the picture is the web one, resampled the same
-# way — only sharper, since Godot scales the vectors rather than a bitmap.
+# THE INSTRUMENTS' CANVAS: the few Canvas2D calls the light curve, strain chart and
+# HR diagram use, over a Control's draw_* API. They draw in backing pixels (340 × 210,
+# or 340 × 260 for the HR diagram) scaled to the card's media column (max 340 px);
+# `begin()` sets that scale on the Control.
 #
-# Canvas conventions kept: strokeRect(x+0.5 …) is a 1 px line centred on the
-# half pixel; fillText's y is the alphabetic BASELINE; textAlign right/center
-# move the anchor. The canvas font was `10px ui-monospace, monospace`, which
-# Chrome on the Mac resolves to the same Menlo as the HUD's mono stack.
+# Kept conventions: strokeRect(x+0.5 …) centres a 1 px line on the half pixel;
+# fillText's y is the alphabetic baseline; textAlign right/center move the anchor.
+# The font is Menlo, as the HUD's mono stack.
 
 static func begin(ci: CanvasItem, backing_w: float) -> void:
 	var s := 1.0

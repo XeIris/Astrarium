@@ -1,8 +1,6 @@
 #[compute]
 #version 450
-// SPECTRAL RE-IMAGING — the port of sim/spectrum.js's REMAP_FRAG. The physics,
-// the knots and the palettes are unchanged; only the plumbing is compute. The
-// header of sim/spectrum.gd carries the derivation.
+// SPECTRAL RE-IMAGING (derivation in sim/spectrum.gd's header).
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform sampler2D tSrc;
 layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D outImg;
@@ -15,11 +13,8 @@ layout(push_constant, std430) uniform PC {
 	float uStretch;
 } pc;
 
-// --- inverse of the Planck-locus colour fit -------------------------------
-// x = ln(b/r) in LINEAR light. The knots below are that fit evaluated at
-// known temperatures; the curve is steep in the cool half and saturates in
-// the hot half, so a straight exponential fit will not do — this is a
-// piecewise-linear inverse through the tabulated points.
+// --- inverse of the Planck-locus colour fit: x = ln(b/r) in linear light, a
+// piecewise-linear inverse through tabulated points (steep cool, saturating hot).
 float estimateT(vec3 c){
 	float r = max(c.r, 1e-7);
 	float b = max(c.b, 1e-7);
@@ -40,12 +35,9 @@ float estimateT(vec3 c){
 	for(int i = 1; i < N; i++){
 		if(x <= xs[i]){
 			float f = (x - xs[i-1]) / max(xs[i] - xs[i-1], 1e-6);
-			// Capped well below the fit's own ceiling. Inference is only
-			// trustworthy for pixels that really are blackbody-coloured; anything
-			// genuinely hotter than this publishes its temperature in alpha
-			// instead, so the top of the table only ever gets reached by things
-			// that merely happen to be blue — and calling those 40 000 K makes
-			// them erupt in the ultraviolet.
+			// Capped below the fit's ceiling: genuinely hotter emitters publish their
+			// temperature, so only merely-blue pixels reach the top (and 40 000 K would make
+			// them blaze in the UV).
 			return clamp(exp(mix(ts[i-1], ts[i], f)), 1200.0, 20000.0);
 		}
 	}
@@ -105,10 +97,8 @@ void main(){
 	// inferring T from the colour — which is exactly right for lit geometry.
 	float a = src.a;
 
-	// SKY_ALPHA (0.995, from sim/sky.gd) means "already imaged in this band".
-	// The celestial background is mostly non-thermal outside the visible and
-	// has no temperature for a Planck ratio to use, so sim/sky.gd composites it
-	// at the band's own frequency and this pass only stretches and colours it.
+	// SKY_ALPHA (0.995): already imaged in this band (sim/sky.gd), so only stretch and
+	// colour it.
 	if(a > 0.990 && a < 0.9985){
 		float sky = dot(c, vec3(0.2126, 0.7152, 0.0722));
 		float vs = log(1.0 + sky * pc.uStretch) / log(1.0 + 3.0 * pc.uStretch);
@@ -118,11 +108,8 @@ void main(){
 
 	float T = (a > 0.005 && a < 0.985) ? exp(a * 25.33) : estimateT(c);
 
-	// The rendered luminance is used only as a COVERAGE mask — "is there
-	// emitting material on this pixel" — never as the band radiance: the disc is
-	// drawn in a rescaled palette, so its visible brightness is not B_ν(ν_vis,
-	// T_true). The threshold keeps the faint nebular gradient of the sky from
-	// being amplified by the band gain into a glowing field.
+	// Luminance is only a coverage mask (the disc is drawn in a rescaled palette); the
+	// threshold keeps the sky's faint gradients from being amplified into a glow.
 	float cover = smoothstep(0.02, 0.25, lum) * clamp(lum / 1.2, 0.05, 1.2);
 	float band = cover * bandBrightness(T);
 

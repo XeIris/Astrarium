@@ -1,14 +1,7 @@
-// DIPOLE FIELD LINES — port of FIELD_VERT / FIELD_FRAG in sim/neutron_visual.js.
-// Field lines glow from the plasma trapped on them, which is densest close to
-// the star. A flat additive tube lands in a uniform mid-grey and reads as a
-// plastic pipe; brightness falling as 1/r makes the same geometry read as
-// something luminous, brilliant at the poles and fading into the dark.
-//
-// The tubes are built in THREE's winding (counter-clockwise front faces) and
-// the web material was single-sided (FrontSide). Godot's front faces are
-// clockwise, so the same outward faces are culled here with cull_front.
-// BLENDING: web AdditiveBlending with (uColor·a, min(a,1)); the product is
-// formed here and blended ONE, ONE (docs/godot.md).
+// DIPOLE FIELD LINES, glowing from trapped plasma, brightness falling as 1/r
+// (brilliant at the poles). Tubes are CCW-wound and single-sided, so Godot's CW front
+// faces mean cull_front. The product uColor·a·min(a, 1) is formed here and blended
+// ONE, ONE.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_front;
 

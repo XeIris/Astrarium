@@ -1,8 +1,7 @@
 #[compute]
 #version 450
-// COMPOSITE — sim/postfx.js COMPOSITE_FRAG: bloom back over the frame, the ONE
-// tone curve (ACES), vignette, grain, linear → sRGB, and a sub-LSB dither.
-// Writes 8-bit sRGB, which is what the web build's default framebuffer held.
+// COMPOSITE: bloom back over the frame, the one tone curve (ACES), vignette,
+// grain, linear → sRGB, and a sub-LSB dither. Writes 8-bit sRGB.
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform sampler2D tScene;
 layout(set = 0, binding = 1) uniform sampler2D tBloom;
@@ -42,7 +41,7 @@ void main(){
 	ivec2 sz = imageSize(outImg);
 	if(p.x >= sz.x || p.y >= sz.y) return;
 	vec2 vUv = (vec2(p) + 0.5) / vec2(sz);
-	// gl_FragCoord as WebGL reported it: pixel centres, origin bottom-left.
+	// Pixel centres, origin bottom-left.
 	vec2 fragCoord = vec2(float(p.x) + 0.5, float(sz.y - p.y) - 0.5);
 
 	vec3 col = texture(tScene, vUv).rgb;

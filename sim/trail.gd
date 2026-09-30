@@ -1,25 +1,14 @@
 class_name Trail
 extends RefCounted
 
-# ORBIT TRAILS — the web build's per-body THREE.Line (blackhole_sim.js,
-# spawnBody/pushTrail), in its own file because under the floating origin a
-# trail is no longer a buffer that only grows at one end.
-# The ring buffer is kept in DOUBLE precision (Body.trail_buf) and the drawn
-# vertices are written relative to an ANCHOR — the newest point — so the
-# float32 line is precise exactly where the body is, which is where the camera
-# is looking whenever precision could matter. The node sits at the anchor
-# minus the camera origin, which is all that changes on a frame when nothing
-# was pushed.
+# ORBIT TRAILS. The ring buffer is double precision (Body.trail_buf) and vertices are
+# written relative to the newest point, so the float32 line is precise where the body
+# is. The node sits at that anchor minus the camera origin.
 #
-# The look is the web build's: a vertex-colour gradient from black at the
-# oldest slot to the body's colour at the newest, ADDITIVE, at the body's
-# opacity — and it WRITES DEPTH, because three's LineBasicMaterial does
-# unless told otherwise (transparent does not imply depthWrite: false). That
-# is visible: the near side of every inner orbit stripes the Sun's marker,
-# which is depth-tested and drawn after the trails, and takes bloom with it.
-# The gradient is fixed to buffer SLOTS, not to age, so a trail that
-# has not filled yet only uses the dim end of it — as three drew it with a
-# draw range over a fixed colour attribute.
+# A vertex-colour gradient from black (oldest slot) to the body's colour (newest),
+# additive at the body's opacity, fixed to buffer slots (an unfilled trail uses only
+# the dim end). It writes depth (as three's LineBasicMaterial does), so inner orbits
+# stripe the Sun's marker drawn after them.
 
 const SHADER := """
 shader_type spatial;
@@ -27,8 +16,8 @@ render_mode unshaded, blend_add, depth_draw_always, cull_disabled;
 #include "res://shaders/common/temp_pass.gdshaderinc"
 uniform float u_opacity = 0.5;
 void fragment() {
-	// LineBasicMaterial + AdditiveBlending: c = rgb·opacity + dst, and the web
-	// build's alpha channel took opacity² + dst (see docs/godot.md).
+	// Additive: c = rgb·opacity + dst; the temperature pass takes opacity² + dst
+	// (docs/godot.md).
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		ALBEDO = vec3(u_opacity, 0.0, 0.0);
 	} else {

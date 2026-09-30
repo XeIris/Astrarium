@@ -12,7 +12,7 @@ extends RefCounted
 # _to_mesh() swaps every index triple once. Nodes use EULER_ORDER_XYZ.
 # Pivot authority is node metadata `gimbal_deg`; a pivot without it is unclamped.
 
-# VEHICLE DATA: the one accessor for Vehicles (JS keys verbatim). `script` is the
+# VEHICLE DATA: the one accessor for Vehicles (camelCase keys). `script` is the
 # Vehicles script, for the derived stats the studio reports.
 static var _vdata = null
 
@@ -71,7 +71,7 @@ static func _mat(name: String, color: int, rough: float, metal: float,
 	MAT[name] = m
 	return m
 
-## craftMaterials(): the shared palette, keyed as in the JS.
+## The shared palette.
 static func craft_materials() -> Dictionary:
 	return {
 		"white": _mat("white", 0xe8e8ea, 0.72, 0.04),
@@ -135,7 +135,7 @@ static func _to_mesh(g: Geo, material: Material) -> ArrayMesh:
 		var v := g.nrm[i]
 		n[i] = v.normalized() if v.length_squared() > 1e-20 else Vector3.UP
 	# three's front faces are counter-clockwise, Godot's clockwise: swap each
-	# triple once, here, so every builder can be written as the JS was.
+	# triple once, here, so every builder can use three's order.
 	var ix := PackedInt32Array()
 	ix.resize(g.idx.size())
 	for t in range(0, g.idx.size(), 3):

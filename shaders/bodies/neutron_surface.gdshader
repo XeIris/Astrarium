@@ -1,11 +1,6 @@
-// NEUTRON-STAR SURFACE — port of SURF_VERT / SURF_FRAG in sim/neutron_visual.js.
-// The header of sim/neutron_visual.gd carries the physics.
-//
-// Everything here is camera-relative. The web build avoided forming a world
-// coordinate by working from modelViewMatrix and rotating the view-space offset
-// back to world with the transpose of mat3(viewMatrix); here world space IS
-// camera-relative (the floating origin, docs/godot.md), and the same
-// rotation is mat3(INV_VIEW_MATRIX).
+// NEUTRON-STAR SURFACE (physics in sim/neutron_visual.gd). Camera-relative: world
+// space is camera-relative under the floating origin, so the view offset rotates back
+// to world with mat3(INV_VIEW_MATRIX).
 shader_type spatial;
 render_mode unshaded, cull_back;
 
@@ -28,10 +23,8 @@ void vertex() {
 	vObj = normalize(VERTEX);
 	vWN = normalize(mat3(MODEL_MATRIX) * NORMAL);
 	vec4 mv = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
-	// back to WORLD space without a world coordinate: mv.xyz is the offset to
-	// the camera in the view basis, and a view rotation is orthonormal, so its
-	// inverse rotates it back. The self-lensing below reconstructs against vObj
-	// and so needs V in world.
+	// View offset back to world (a view rotation is orthonormal); the self-lensing needs
+	// V in world.
 	vView = -(mat3(INV_VIEW_MATRIX) * mv.xyz);
 }
 
@@ -55,23 +48,15 @@ void fragment() {
 	vec3 N  = normalize(vWN);
 	float mu = clamp(dot(N, V), 0.0, 1.0);
 
-	// --- gravitational self-lensing.
-	// cos(psi) = 1 - (1 - mu) / (1 - rs/R).  uCompact = rs/R.
-	// Points on the apparent disc map back to a LARGER colatitude than they
-	// would in flat space, which is how the far side comes into view.
+	// --- gravitational self-lensing: cos(psi) = 1 − (1 − mu) / (1 − rs/R), uCompact =
+	// rs/R. The apparent disc maps to larger colatitudes, bringing the far side into view.
 	float cosPsi = 1.0 - (1.0 - mu) / max(1.0 - uCompact, 0.05);
 	cosPsi = clamp(cosPsi, -1.0, 1.0);
 
-	// Rebuild the true surface direction: keep the object-space azimuth around
-	// the view axis, but replace the colatitude with the lensed one.
-	//
-	// NOTE: vObj is object space and V is world space, so this reconstruction
-	// is only correct while the mesh carries no rotation relative to world
-	// space. That holds today — update() rotates spin_axis, never core, and
-	// no obliquity tilt is applied to a neutron star the way sim/world.gd tilts
-	// a rocky planet. Anything that starts rotating this group has to transform
-	// V into object space with inverse(MODEL_MATRIX) in the vertex shader first,
-	// or the far side will come into view off-axis.
+	// Rebuild the true surface direction: keep the azimuth about the view axis, use the
+	// lensed colatitude. vObj is object space and V world space, so this assumes the
+	// mesh has no rotation relative to world (true: update() rotates spin_axis, not
+	// core). Rotating this group would need V in object space first.
 	vec3 tangential = normalize(vObj - dot(vObj, V) * V + vec3(1e-6));
 	vec3 pTrue = normalize(V * cosPsi + tangential * sqrt(max(1.0 - cosPsi * cosPsi, 0.0)));
 

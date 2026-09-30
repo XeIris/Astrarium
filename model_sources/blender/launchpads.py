@@ -125,13 +125,10 @@ def tower(M, x, base, height, side, parent, prefix, clear_px=False):
               x - h - 0.25, y + 0.2, h + 1.2, M['white'], parent, 0.12)
 
 
-# The exhaust openings, (centre x, centre z, width x, depth z), metres. The
-# Saturn V ML has one 13.7 m square hole for the five F-1s. The Shuttle MLP has
-# THREE: a 6.1 x 12.8 m hole under each booster and a 10.4 x 9.4 m hole under
-# the three main engines, which are on the orbiter and so 7.4 m off the tank's
-# axis toward it (+z; the site is turned to the vehicle's roll). A single hole
-# on the axis put both boosters' nozzles down onto solid deck, 1.1 m into it.
-# The same table is in sim/flight/launchsite.gd for the procedural fallback.
+# Exhaust openings (centre x, centre z, width x, depth z), m. The Saturn V ML has one
+# 13.7 m square for the five F-1s. The Shuttle MLP has three: 6.1 × 12.8 m under each
+# booster and 10.4 × 9.4 m under the main engines, 7.4 m off the tank axis toward the
+# orbiter (+z). Mirrored in sim/flight/launchsite.gd for the fallback.
 DECK_HOLES = {
     'lut': [(0.0, 0.0, 13.7, 13.7)],
     'fss': [(-6.35, 0.0, 6.1, 12.8), (6.35, 0.0, 6.1, 12.8), (0.0, 7.4, 10.4, 9.4)],

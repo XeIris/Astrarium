@@ -1,11 +1,6 @@
-// A CORONAL MASS EJECTION SHELL — port of cmeMaterial() in sim/star_visual.js.
-// The three-part structure and the path-length weighting are explained in the
-// header block above createStarVisual's CME pool (sim/star_visual.gd).
-//
-// BLENDING. Additive colour, alpha REPLACED — the flare-plasma row of the
-// temperature table (docs/godot.md): blend_premul_alpha with ALPHA = 0 in
-// the colour pass (c = s + d) and ALPHA = 1 in the temperature pass
-// (r = code), the same as sim/prominence.gd's emission pass.
+// A CORONAL MASS EJECTION SHELL (the three-part structure and path-length weighting
+// are explained in sim/star_visual.gd). Additive colour, temperature replaced:
+// blend_premul_alpha, ALPHA = 0 in the colour pass, 1 in the temperature pass.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

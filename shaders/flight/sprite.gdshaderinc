@@ -1,20 +1,9 @@
-// THREE.Sprite, as the flight view's sprites used it (sim/flight/plume.js: the
-// engine glow, the RCS puffs, the launch smoke).
-// A unit quad facing the camera, centred on the object, scaled by the
-// object's world scale and turned in the screen plane by the material's
-// `rotation` — three's sprite vertex shader, line for line. SpriteMaterial's
-// output is (color · texel.rgb, opacity · texel.a).
-//
-// Each sprite in the web build had its OWN material (a colour, an opacity and
-// a rotation per puff), so here those three are INSTANCE uniforms: one shader,
-// one material, and every MeshInstance3D carries its own values. Each sprite
-// stays its own object for the same reason it was one in three — the
-// transparent queue is sorted back-to-front per OBJECT, and a cloud of
-// overlapping puffs needs that order.
-//
-// The textures were canvases (NoColorSpace — sampled as LINEAR, docs/godot.md),
-// so the two gradients are evaluated analytically and the smoke puff, which
-// is value noise, is baked into an ImageTexture with no colour conversion.
+// Camera-facing sprites (engine glow, RCS puffs, launch smoke): a unit quad centred on
+// the object, scaled by its world scale and turned in the screen plane by `rotation`.
+// Output is (color · texel.rgb, opacity · texel.a). Colour, opacity and rotation are
+// instance uniforms (one material), and each sprite stays its own object so the
+// transparent queue sorts puffs back to front. Gradients are analytic and linear;
+// the smoke puff is value noise baked into an ImageTexture without conversion.
 instance uniform vec3 tint = vec3(1.0);
 instance uniform float opacity = 0.0;
 instance uniform float rot = 0.0;

@@ -31,4 +31,4 @@ static func pixels_per_world_unit(dist: float, fov_rad: float, viewport_h: float
 static func apparent_pixels(radius_scene: float, dist: float, fov_rad: float, viewport_h: float) -> float:
 	return 2.0 * radius_scene * pixels_per_world_unit(dist, fov_rad, viewport_h)
 
-# ---- MARKER (visual) — ported by the visuals agent ----
+# ---- MARKER (visual): sim/marker.gd

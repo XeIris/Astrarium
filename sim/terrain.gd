@@ -1,29 +1,19 @@
 class_name Terrain
 extends RefCounted
 
-# TERRAIN & SURFACE CLIMATE — the GDScript half of sim/terrain.js.
-# The model itself — isostasy, plate tectonics, craters, the P₂ insolation
-# profile, the three overturning cells and the Whittaker biome diagram — is
-# pure shader code and lives in shaders/bodies/terrain.gdshaderinc, whose
-# header carries the derivation (the web build's TERRAIN_GLSL, ported with its
-# comments). What is left here is what the JS module exported besides strings:
-#
-#   crust_threshold(land)  the fBm level that leaves `land` of the sphere
-#                          above sea level (the inverse normal CDF)
-#   terrain_uniforms(opts) the defaults for the uniforms the include declares,
-#                          overridable per body by a preset
-#   INCLUDE / NOISE_INCLUDE  the shader include paths — the Godot counterpart
-#                          of importing TERRAIN_GLSL / NOISE_GLSL
+# TERRAIN & SURFACE CLIMATE, the CPU half. The model is shader code in
+# shaders/bodies/terrain.gdshaderinc (with its derivation). Here:
+#   crust_threshold(land)    the fBm level leaving `land` of the sphere above sea
+#                            level (the inverse normal CDF)
+#   terrain_uniforms(opts)   defaults for the include's uniforms, per-body overridable
+#   INCLUDE / NOISE_INCLUDE  the include paths
 
 const INCLUDE := "res://shaders/bodies/terrain.gdshaderinc"
 const NOISE_INCLUDE := "res://shaders/bodies/terrain_noise.gdshaderinc"
 
-## The fBm level that leaves `land` of the sphere above it. Seven octaves of
-## value noise sum to something very close to a normal distribution — measured
-## mean 0.4970, standard deviation 0.1065 — so the level is the inverse normal
-## CDF, and asking for 29% land gets 29% land. The approximation below is the
-## one the web build calls Moro's (the constants are Abramowitz & Stegun
-## 26.2.23, |error| < 4.5e-4 in z); it is far finer than a coastline.
+## Seven octaves of value noise are near-normal (mean 0.4970, sd 0.1065), so the level
+## is the inverse normal CDF and 29% land gives 29% land. Abramowitz & Stegun 26.2.23,
+## |error| < 4.5e-4 in z.
 static func crust_threshold(land: float) -> float:
 	var q := 1.0 - minf(maxf(land, 0.002), 0.998)
 	# rational approximation to the standard normal quantile
@@ -36,8 +26,8 @@ static func crust_threshold(land: float) -> float:
 	return 0.4970 + 0.1065 * z
 
 ## Defaults for the uniforms terrain.gdshaderinc declares. A preset can
-## override any of them per body. Keys are the JS option names (camelCase,
-## data), values are what the shader receives.
+## override any of them per body. Keys are camelCase option names; values are
+## what the shader receives.
 static func terrain_uniforms(opts: Dictionary = {}) -> Dictionary:
 	return {
 		"uPlateScale": float(U.nz(opts.get("plateScale"), 2.6)),

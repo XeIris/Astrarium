@@ -1,6 +1,6 @@
 #[compute]
 #version 450
-// Progressive downsample — sim/postfx.js DOWN_FRAG.
+// Progressive downsample.
 // 13-tap partial-tent kernel (Jimenez / CoD): far better mip stability than a
 // box filter, which is what stops the halo from crawling.
 layout(local_size_x = 8, local_size_y = 8) in;

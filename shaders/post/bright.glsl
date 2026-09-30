@@ -1,9 +1,7 @@
 #[compute]
 #version 450
-// Bright pass into mip 0 — sim/postfx.js BRIGHT_FRAG.
-// Karis average — weight by 1/(1+luma) before averaging so a single blazing
-// pixel (a star, a flare kernel) doesn't detonate into a flickering firefly
-// when it gets downsampled.
+// Bright pass into mip 0, with a Karis average (weight 1/(1+luma)) so one blazing
+// pixel doesn't flicker when downsampled.
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform sampler2D tSrc;
 layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D outImg;

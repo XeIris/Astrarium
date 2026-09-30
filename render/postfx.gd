@@ -14,8 +14,7 @@ extends RefCounted
 
 const MIPS := 5
 
-## The defaults the web build's settings panel wrote on load (FX_DEFAULTS):
-## the uniforms' own initial values are overwritten before the first frame.
+## The settings panel's defaults (FX_DEFAULTS), applied before the first frame.
 var bloom := 0.55
 ## Camera exposure is applied once, after the HDR passes and before ACES.
 var exposure := 1.0

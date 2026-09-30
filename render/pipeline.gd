@@ -91,8 +91,8 @@ func _viewport(w: World3D, transparent := false) -> SubViewport:
 		vp.world_3d = w
 	return vp
 
-## An Environment that does NOTHING to the image: the post chain is the one
-## tone curve, as sim/postfx.js was.
+## An Environment that does nothing to the image: the post chain is the one
+## tone curve.
 static func neutral_env() -> Environment:
 	var e := Environment.new()
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
@@ -217,13 +217,12 @@ func _build() -> void:
 	display.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	display.set_anchors_preset(Control.PRESET_FULL_RECT)
 
-## Set the logical view size (what the web build called innerWidth/innerHeight)
-## and derive every target from it and the render scale.
+## Set the logical view size and derive every target from it and the render scale.
 func set_view_size(logical: Vector2i) -> void:
 	view_size = Vector2i(maxi(logical.x, 1), maxi(logical.y, 1))
 	_apply_size()
 
-## Render scale — the web build's pixel ratio, capped by the display's own.
+## Render scale (a pixel ratio), capped by the display's own.
 func set_render_scale(s: float) -> float:
 	var cap := DisplayServer.screen_get_scale(DisplayServer.window_get_current_screen())
 	render_scale = minf(s, maxf(cap, 1.0))

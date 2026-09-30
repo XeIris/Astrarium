@@ -1,25 +1,12 @@
 class_name CloudField
 extends RefCounted
 
-# THE CLOUD FIELD ON THE CPU — the same density shaders/flight/clouds.gdshaderinc
-# computes, evaluated in GDScript at a handful of points a frame.
-# The cloud pass shades the clouds and the ground shader darkens the ground
-# under them, but the vehicle, the tower and the pad are lit by Godot's own
-# DirectionalLight3D, which knows nothing about either. So a rocket standing
-# under a cumulus was lit by full sun on a ground in shadow — the concrete
-# glaring white inside a dark field, which reads as a pasted-in object. The
-# fix is the obvious one: ask the same field how much of the sun reaches the
-# vehicle, and dim the light by that. Climbing through a deck, the vehicle
-# then goes grey inside it and bursts back into sunlight above it.
-#
-# It has to be the SAME field, sample for sample, or the vehicle's light and
-# the shadow on the ground under it disagree. So this reads the three noise
-# volumes' own texels (NoiseTexture3D.get_data) and filters them trilinearly
-# with wrap-around, which is what the GPU does at mip 0; the bulk density
-# (no erosion) is what the light march and the ground shadows use too.
-#
-# The volumes are generated on a worker thread; until they exist this reports
-# a clear sky.
+# THE CLOUD FIELD ON THE CPU, at a handful of points a frame, so the vehicle, tower
+# and pad (lit by Godot's DirectionalLight3D) dim under a cumulus as the ground does.
+# It must match shaders/flight/clouds.gdshaderinc sample for sample: it reads the
+# three noise volumes' texels and filters them trilinearly with wrap (the GPU's mip
+# 0), using the bulk density without erosion, as the light march and ground shadows
+# do. Until the volumes exist (worker thread), it reports clear sky.
 
 var _tex: Array = []        # [NoiseTexture3D] × 3: shape, worley, detail
 var _vol: Array = []        # [{w, h, d, data: PackedByteArray}] once read
@@ -99,10 +86,9 @@ func density(pp: Vector3) -> float:
 	if dd <= 0.0: return 0.0
 	return dd * U.smooth(hf + 0.1, 0.0, 0.3) * sigma
 
-## How much of the sun reaches a planet-fixed point from direction `dir`
-## (planet-fixed, unit): the layer's optical depth along the sun line in
-## `n` samples, then the direct beam or the diffused light, whichever is more
-## — the ground shader's own rule, so the two agree.
+## Sun reaching a planet-fixed point from `dir`: the layer's optical depth in `n`
+## samples, then the direct beam or the diffuse light, whichever is more (the ground
+## shader's rule).
 func sun_transmittance(pp: Vector3, dir: Vector3, n: int = 8) -> float:
 	if coverage <= 0.0 or not ready(): return 1.0
 	# where the sun line crosses the base and top spheres

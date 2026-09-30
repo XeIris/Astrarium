@@ -1,22 +1,8 @@
-// MARKS ON THE CONCRETE — the hardstand's expansion joints and the scorched
-// apron, drawn as a MULTIPLY over the concrete that is already there.
-// Both used to be geometry. The joints were 2 cm tubes laid along the slab at
-// a height equal to their own radius, so half of each was inside the concrete
-// and the depth test chose, pixel by pixel and frame by frame, which of the two
-// to show: a joint read as a dotted line that crawled as the camera moved. At
-// any range past a few tens of metres it was also narrower than a pixel, which
-// rasterizes as dashes whatever the depth does. The apron's burnt edge was a
-// screen-door dither (discard against a per-pixel hash), which reads as black
-// speckle rather than as soot.
-//
-// A darkening is a multiply, so that is what this is: rgb is the fraction of
-// the lit concrete that survives, and everything under it — the sun, the cloud
-// shadow, the concrete's own detail — carries through. The joints are
-// analytic lines filtered by the pixel's footprint (fwidth): a line narrower
-// than a pixel is drawn wider and fainter by exactly its coverage, and once the
-// grid is finer than the pixels can hold it fades to its own average instead
-// of aliasing into moiré. The depth bias is decal.gdshader's, so the mark lies
-// ON the concrete and never fights it.
+// MARKS ON THE CONCRETE (expansion joints, the scorched apron), as a multiply over
+// the lit concrete, so sun, cloud shadow and detail carry through. Joints are
+// analytic lines filtered by fwidth: narrower than a pixel draws wider and fainter
+// by coverage, and a grid finer than the pixels fades to its average instead of
+// moiré. Depth bias as decal.gdshader.
 shader_type spatial;
 render_mode unshaded, blend_mul, depth_draw_never, cull_back, fog_disabled, skip_vertex_transform, shadows_disabled;
 

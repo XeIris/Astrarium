@@ -90,8 +90,7 @@ class Diagram extends RefCounted:
 		for p in pts: pv.append(Vector2(X(float(p.teff)), Y(float(p.L))))
 		Canvas2D.stroke_path(canvas, pv, color, width, dash)
 
-	## The JS draw(bodies) painted immediately; here the bodies are kept and the
-	## Control repaints on its own draw pass, which is the same frame.
+	## Keep the bodies; the Control repaints on its own draw pass, the same frame.
 	func draw(b: Array = []) -> void:
 		bodies = b
 		if canvas: canvas.queue_redraw()

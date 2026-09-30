@@ -1,18 +1,9 @@
-// THE DELUGE — the launch complex's steam points (sim/flight/launchsite.js).
-// THREE.Points: gl_PointSize = uSize·(0.35 + age·1.6)·300 / max(−z_view, 1),
-// a soft disc per point that fades with age. The age rides in UV.x (dead
-// points are simply left out of the buffer rather than discarded).
-//
-// The web material drove the COLOUR blend with the coverage and threw the
-// alpha away (steam is not an emitter and must not publish a temperature).
-// Here the local pass's alpha is coverage, and blend_mix raising it is right:
-// steam does hide the orrery behind it.
-//
-// Each point is a PUFF, not a disc: the smoke sprite's noise-bitten, self-
-// shadowed texture (Plume.smoke_texture), turned by a per-point angle that
-// rides in UV.y so it is stable for the point's life. Round soft discs by the
-// hundred read as a pile of cotton balls however they move; torn, lit puffs
-// read as steam. Its brightness is the light falling on it (Plume.daylight).
+// THE DELUGE: the launch complex's steam points. Point size
+// uSize·(0.35 + age·1.6)·300 / max(−z_view, 1), fading with age; age in UV.x (dead
+// points are left out of the buffer). Steam isn't an emitter; blend_mix raising
+// coverage is right, since it hides the orrery behind it. Each point is a puff (the
+// smoke sprite texture, Plume.smoke_texture), turned by a per-point angle in UV.y,
+// lit by Plume.daylight.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 

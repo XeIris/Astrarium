@@ -1,19 +1,13 @@
 class_name NBody
 extends RefCounted
 
-# THE SUB-STEP LOOP, NATIVE WHEN IT CAN BE.
-# Same contract as Derive.step_physics — it IS that loop — but it hands the hot
-# part to native/astrarium_native.c's NBodyKernel when the library is loaded,
-# because GDScript cannot run the O(N²) pair loops at the rate the presets ask
-# for (`solar`: 33.5 ms of physics a frame in GDScript; see the C file's
-# header). When the library is missing — a fresh clone on another platform, a
-# build without it — Derive.step_physics runs instead and the answer is the
-# same, only slower. A missing native piece is not an error.
+# THE SUB-STEP LOOP, native when it can be: Derive.step_physics's contract, handing
+# the hot part to native/astrarium_native.c's NBodyKernel when loaded (`solar` cost
+# 33.5 ms a frame in GDScript). Without the library Derive.step_physics runs, with
+# the same answer.
 #
-# The kernel stops after any sub-step that produced a merger and returns here,
-# so on_merger (the orchestrator's handleMerger) runs exactly where the web
-# build ran it — between that sub-step and the next — and may change horizons,
-# types and the body list before integration resumes.
+# The kernel returns after any sub-step with a merger, so on_merger runs between
+# sub-steps and can change horizons, types and the body list before resuming.
 
 const HDR := 8
 const STRIDE := 16

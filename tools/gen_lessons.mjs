@@ -1,3 +1,5 @@
+// LEGACY: web/ is frozen and sim/lessons.gd is now edited directly; running
+// this would overwrite those edits.
 // Generates sim/lessons.gd from sim/lessons.js: the header comment is
 // carried over verbatim (// → #), the data is serialised as GDScript literals
 // with the JS keys verbatim. Run from the worktree root:

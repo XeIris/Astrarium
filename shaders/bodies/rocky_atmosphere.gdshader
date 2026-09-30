@@ -1,13 +1,6 @@
-// ATMOSPHERE — the port of sim/rocky_visual.js's atmosphereMaterial.
-//
-// Rayleigh scattering goes as lambda^-4, so the cross sections for R, G, B
-// are in the ratio 5.8 : 13.5 : 33.1 per 10^-6 m^-1 — that ratio IS why the
-// sky is blue and why the same sky is red along a long path at sunset, and it
-// is the only colour information this shell needs.
-//
-// AdditiveBlending, BackSide, alpha 1 in the web build → blend_add,
-// cull_front; its alpha (1·1 + d) saturated the temperature channel to "no
-// data" wherever it drew, and the temperature pass reproduces exactly that.
+// ATMOSPHERE shell. Rayleigh goes as λ⁻⁴, so the R:G:B cross sections are
+// 5.8 : 13.5 : 33.1 per 10⁻⁶ m⁻¹: blue sky, red long paths. blend_add, cull_front;
+// the temperature pass saturates to "no data" where it draws.
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_front;
 

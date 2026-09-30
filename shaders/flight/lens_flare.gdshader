@@ -1,27 +1,11 @@
-// LENS GHOSTS — the other half of what a camera does with the sun in frame.
-// sun_disc.gdshader draws what the lens does AT the sun: the core, the veiling
-// glare, the starburst. This draws what it does everywhere else. Every air–
-// glass surface in a lens reflects a fraction of a percent, and a pair of
-// such reflections sends a defocused image of the aperture back onto the
-// sensor — a GHOST. Because every element is centred on the optical axis, the
-// ghosts all lie on the line from the sun through the centre of the frame,
-// on both sides of it, at fixed fractions of the sun's offset; each is the
-// shape of the iris (here seven blades, a heptagon) and tinted by the coating
-// it bounced off (green and magenta for modern multi-coats, amber for old
-// single-layer ones). Move the sun and they slide along that line; put the
-// sun at the centre and they collapse onto it. Photographs of the sun from
-// orbit are full of them, and a sun without them reads as painted on.
-//
-// Their brightness goes with the light that ENTERS the lens: the sun's
-// radiance after the atmosphere and the clouds (the script passes that as one
-// colour), times how much of the disc is uncovered in this frame — read from
-// the depth buffer at the sun's own screen position, so a tower or the
-// vehicle in front of the sun puts its ghosts out with it. And they fade as
-// the sun leaves the frame: off the sensor there is still glare, but the
-// bright ghosts come from the image of the sun itself.
-//
-// Full-screen, additive (premultiplied with ALPHA = 0). Drawn last in the
-// pass: a ghost is in the lens, in front of everything.
+// LENS GHOSTS, the rest of what a camera does with the sun in frame (sun_disc.gdshader
+// does the core, glare and starburst). Pairs of reflections off lens surfaces put
+// defocused iris images (a 7-blade heptagon here) on the line from the sun through
+// the frame centre, at fixed fractions of its offset, tinted by the coatings (green
+// and magenta modern, amber old). Brightness follows the light entering the lens (the
+// sun's radiance after air and cloud, one colour from the script) times the uncovered
+// fraction of the disc (depth at the sun's screen position), fading as the sun leaves
+// the frame. Full-screen, additive (premultiplied, ALPHA = 0), drawn last.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled, skip_vertex_transform;
 

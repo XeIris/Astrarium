@@ -1,12 +1,9 @@
 class_name SimState
 extends RefCounted
 
-# THE ORCHESTRATOR'S STATE — blackhole_sim.js's `state` object, typed.
-# It is its own file (rather than a Dictionary inside main.gd) because other
-# modules are handed it and write to it exactly as they did in the web build:
-# spaceflight takes over `time_scale` and parks `speed`, the course reads the
-# bodies, the cross-section reads the focus. Field names are the JS names in
-# snake_case; the comments are the JS comments.
+# The orchestrator's state, typed. Its own file because other modules are handed it
+# and write to it (spaceflight takes over `time_scale` and parks `speed`, the course
+# reads the bodies, the cross-section reads the focus).
 
 var preset = null              # active preset Dictionary
 var preset_key: String = ""
@@ -24,10 +21,8 @@ var disc_temp: float = 0.6
 var show_mesh: bool = true
 var mesh_style: String = "lines"
 var show_lens: bool = true
-# Where a spawned body starts. Every scenario with something already in it
-# puts new bodies on a circular orbit about the dominant mass, because that
-# is the only starting condition that does not immediately fall in. The
-# Blank Canvas has no dominant mass, so it starts them at rest instead.
+# Spawn at rest (the Blank Canvas, with no dominant mass) or on a circular orbit
+# about the dominant mass (everywhere else).
 var spawn_at_rest: bool = false
 var speed: float = 1.0
 var paused: bool = false
@@ -49,10 +44,9 @@ var band: int = 3              # imaging band index (see sim/spectrum.gd)
 var hud_hidden: bool = false
 var app_mode: String = "sandbox"
 
-# The LIVE sky spec, in the shape SkyModel.apply_sky_environment takes. A
-# preset seeds it and the settings panel edits it afterwards, so this — not
-# p.sky — is what is on screen. `env` is held as a weight MAP because the panel
-# has one slider per environment and a map is what a set of sliders is.
+# The live sky spec (what's on screen), in apply_sky_environment's shape. A preset
+# seeds it, the settings panel edits it; `env` is a weight map, one slider per
+# environment.
 var sky: Dictionary = {"env": {"disc": 1.0}, "tilt": 0.34, "roll": 0.9}
 var last_steps: int = 0        # integrator sub-steps in the last frame
 var energy0 = null             # total energy when the scenario loaded (drift reference)

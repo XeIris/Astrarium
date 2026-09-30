@@ -1,18 +1,9 @@
-// A DECAL IS NOT A SLAB LIFTED A FEW CENTIMETRES — launchsite.js's decal().
-// The apron and the crawlerway lie ON the concrete, coplanar with it, and the
-// only thing separating them is a bias. The web build used polygonOffset: the
-// bias expressed in the smallest resolvable depth increment at that fragment,
-// correct at every distance, where any constant lift in metres is too small
-// far away and floats visibly close up.
-//
-// StandardMaterial3D has no polygon offset, so this is the same material (a
-// Lambert / Schlick-GGX surface with the MeshStandardMaterial's parameters)
-// with the bias done the way a float depth buffer wants it: the view-space
-// vertex is pulled toward the eye by a fixed FRACTION of its distance. The
-// pixel it projects to does not move; only its depth does, by an amount that
-// scales with range exactly as depth resolution does. `uOrder` is the JS
-// order argument (the apron is 2, drawn over the crawlerway's 1). The apron
-// itself, and the hardstand's joints, are ground_mark.gdshader.
+// A DECAL (the apron, the crawlerway) lies on the concrete, separated only by a
+// depth bias. StandardMaterial3D has no polygon offset, so this is the same
+// Lambert / Schlick-GGX surface with the view-space vertex pulled toward the eye by a
+// fixed fraction of its distance: the pixel doesn't move, and the bias scales with
+// range as float depth resolution does. `uOrder` stacks decals (the apron's 2 over
+// the crawlerway's 1). The apron and joints are ground_mark.gdshader.
 shader_type spatial;
 render_mode skip_vertex_transform, diffuse_lambert, specular_schlick_ggx, cull_back;
 

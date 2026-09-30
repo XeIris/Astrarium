@@ -34,8 +34,8 @@ const TEMP_STOPS := [
 	[10.0, [190, 222, 255]],    # 10 GK   — silicon burning / collapse
 ]
 
-## A JS number out of a structure field: null / undefined → NaN, so every
-## comparison below fails the way `undefined > 0` does.
+## A number from a structure field; missing or null → NaN, so every comparison
+## below fails.
 static func num(v) -> float:
 	if v == null or not (v is float or v is int):
 		return NAN
@@ -457,8 +457,7 @@ class BitmapCanvas extends El:
 	func _paint(_ci: CanvasItem) -> void:
 		pass
 
-	## Local point → bitmap px, as the web's pick() does it: against the
-	## element's border box (getBoundingClientRect), not its content box.
+	## Local point → bitmap px, against the element's border box, not its content box.
 	func to_bitmap(p: Vector2) -> Vector2:
 		return Vector2(p.x * bw / maxf(size.x, 1.0), p.y * bh / maxf(size.y, 1.0))
 

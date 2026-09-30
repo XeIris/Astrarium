@@ -1,31 +1,16 @@
 class_name U
 extends RefCounted
 
-# JAVASCRIPT-COMPATIBILITY HELPERS.
-# The port is line-by-line, and a handful of JS idioms have no one-token
-# GDScript equivalent or — worse — have one that means something different.
-# Every one of these exists because the obvious translation is WRONG:
-#
-#   `a ?? b`            → U.nz(a, b)      (Dictionary.get only covers a MISSING
-#                                          key; a key present with null is not
-#                                          defaulted by it, and ?? does default it)
-#   `x.toFixed(n)`      → U.fixed(x, n)
-#   `x.toExponential(n)`→ U.expo(x, n)    ("5.0e-3", JS's exact spelling)
-#   `x.toLocaleString()`→ U.grouped(x)    ("1,000,000")
-#   `Math.round(x)`     → U.jround(x)     (JS rounds .5 toward +∞; Godot's
-#                                          round() goes away from zero)
-#   `Math.log10`        → U.log10
-#   `Math.cbrt`         → U.cbrt          (keeps the sign, unlike pow(x, 1/3))
-#   `new THREE.Color(0xRRGGBB)` → U.lin(0xRRGGBB)
-#                         three r160 has ColorManagement ON: a hex colour is
-#                         sRGB and is converted to LINEAR on construction. A
-#                         Godot Color(hex) is not converted. Every colour that
-#                         reaches a shader uniform or a light has to go through
-#                         this (or use a `: source_color` uniform, which does
-#                         the same conversion on the GPU side).
-#   `THREE.MathUtils.smoothstep(x, lo, hi)` → U.smooth(x, lo, hi)
-#                         NOTE the argument order: THREE's takes x FIRST, and
-#                         Godot's smoothstep(from, to, x) takes it last.
+# Helpers for idioms whose obvious GDScript translation is wrong:
+#   U.nz(a, b)       null-coalesce (Dictionary.get only defaults a missing key)
+#   U.fixed(x, n)    fixed decimals
+#   U.expo(x, n)     exponent form, "5.0e-3"
+#   U.grouped(x)     thousands separators, "1,000,000"
+#   U.jround(x)      .5 rounds toward +∞ (round() goes away from zero)
+#   U.log10, U.cbrt  (cbrt keeps the sign, unlike pow(x, 1/3))
+#   U.lin(0xRRGGBB)  sRGB hex → linear Color; every colour reaching a uniform or
+#                    light goes through this (or a `source_color` uniform)
+#   U.smooth(x, lo, hi)  smoothstep with x FIRST (Godot's takes it last)
 
 const LN10 := 2.302585092994046
 
@@ -52,7 +37,7 @@ static func fixed(x: float, n: int) -> String:
 	if not is_finite(x):
 		return "NaN" if is_nan(x) else ("Infinity" if x > 0 else "-Infinity")
 	var s := ("%." + str(n) + "f") % x
-	# JS prints -0.00 as "-0.00" too, so no special case is needed there.
+	# -0.00 prints as "-0.00", intentionally.
 	return s
 
 ## Number.prototype.toExponential(n): "5.0e-3", "1.2e+4".
@@ -105,8 +90,8 @@ static func hex_of(c: Color) -> int:
 static func css_of(c: Color) -> String:
 	return "#%06x" % hex_of(c)
 
-## A raw (unconverted) hex, for the few places the web used a hex WITHOUT going
-## through THREE.Color — canvas gradients, CanvasTexture pixels, CSS strings.
+## A raw (unconverted) hex, for colours never colour-managed: canvas gradients,
+## sprite gradient stops, CSS strings.
 static func raw(hex: int, a: float = 1.0) -> Color:
 	var c := Color.hex((hex << 8) | 0xff)
 	c.a = a

@@ -1,7 +1,5 @@
-// The GLSL declaration that matches sim/suns.gd's apply_suns(), so the two
-// cannot drift apart. (The web build's SUN_GLSL; MAX_SUNS = 4.)
-// Colours arrive as LINEAR vec3s already (they come from Stellar.blackbody_color
-// or U.lin), so no source_color hint: that would convert them a second time.
+// Matches sim/suns.gd's apply_suns() (MAX_SUNS = 4). Colours arrive linear
+// (Stellar.blackbody_color or U.lin), so no source_color hint.
 uniform vec3 uSunDir[4];
 uniform vec3 uSunColor[4];
 uniform float uSunInt[4];

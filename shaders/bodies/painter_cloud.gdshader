@@ -1,10 +1,5 @@
-// GAS CLOUD SHELL — the port of sim/painter.js's createGasCloud material. The
-// physics (optically thin, limb-brightened, homologous expansion) is in
-// sim/painter.gd's GasCloud header.
-//
-// AdditiveBlending, DoubleSide → blend_add, cull_disabled. Its alpha a' was
-// summed into the temperature channel as a'·a' + d; the temperature pass
-// writes a' at alpha a' through blend_add to reproduce it.
+// GAS CLOUD SHELL (physics in sim/painter.gd's GasCloud). blend_add, cull_disabled;
+// the temperature pass writes a' at alpha a' (a'·a' + d).
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_disabled;
 

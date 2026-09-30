@@ -18,7 +18,7 @@ extends RefCounted
 # cover 360° × 180°, which is exactly the UV layout of the THREE-compatible
 # sphere in RockyVisual.sphere_geometry (0° longitude at +X).
 #
-# THE API is the web build's, so the flight view's ground patch can reuse it:
+# The API (the flight view's ground patch uses it too):
 #   PlanetMaps.load_planet_map(name, ready: Callable) -> bool
 #     false  → no map for this body (or it failed to load): use terrain().
 #     true   → ready({color, mask, kind, scale}) is called once the textures
@@ -26,9 +26,8 @@ extends RefCounted
 #              the main thread a frame or two later.
 # Loads are THREADED (ResourceLoader.load_threaded_request, polled from the
 # SceneTree's process_frame), because a 4096×2048 map decoded synchronously is
-# a visible hitch the moment Earth spawns — the web build's TextureLoader was
-# asynchronous for the same reason. `synchronous = true` makes every load
-# blocking, for harnesses that must have the map in the first frame.
+# a visible hitch the moment Earth spawns. `synchronous = true` makes every load
+# blocking, for harnesses that need the map in the first frame.
 
 const DIR := "res://assets/planet-maps/"
 

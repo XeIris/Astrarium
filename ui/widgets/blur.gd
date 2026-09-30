@@ -1,16 +1,10 @@
 class_name HudBlur
 extends RefCounted
 
-# backdrop-filter: blur(σ) — and the start screen's radial gradient over it.
-#
-# CSS blurs the backdrop with a Gaussian of standard deviation σ px and then
-# paints the element's own (translucent) background on top. Here the screen
-# behind the panel is read through hint_screen_texture WITH MIPMAPS: a 7 × 7
-# tap Gaussian spaced σ/2 apart, read from the mip whose texels are about that
-# spacing, is a σ-wide Gaussian for 49 taps a pixel instead of the (6σ)² a
-# direct kernel would need. The tint (the panel's rgba background) is then
-# mixed over it exactly as CSS composites a background over a filtered
-# backdrop. Everything is in the canvas's own sRGB space, as the browser's is.
+# backdrop-filter: blur(σ), and the start screen's radial gradient over it. The
+# screen behind is read through hint_screen_texture with mipmaps: a 7 × 7 tap
+# Gaussian spaced σ/2 from the matching mip is a σ-wide blur for 49 taps. The
+# panel's rgba background is mixed over it, in sRGB as the browser does.
 
 ## The HUD test harness turns this off to compare against flat backgrounds.
 static var enabled := true

@@ -1,22 +1,15 @@
-// THE BACKGROUND — the sky at infinity, lensed or not. Colour pass.
-// The web build had two passes for this: sim/sky.js's backdrop for scenes with
-// no hole, and the resolve half of sim/blackhole.js's split marcher for scenes
-// with one. They shared SKY_GLSL and differed only in where the ray direction
-// came from, so here they are ONE Godot sky shader with a branch on a uniform.
-// Godot draws a sky shader per pixel behind every opaque object, which is
-// exactly what both web passes were: "sky first, geometry over it with depth".
-//
-//   u_lens = false  the backdrop: d = EYEDIR, aberrated for the observer's
-//                   boost, derivatives of the ABERRATED direction.
-//   u_lens = true   the resolve: d = EYEDIR + the marched deflection delta,
-//                   plus the disc emission the marcher accumulated. Never
-//                   aberrated, as in the web build (skyRadiance, D = 1).
+// THE BACKGROUND: the sky at infinity, lensed or not (colour pass). One sky shader,
+// drawn behind all opaque geometry, with a branch on a uniform:
+//   u_lens = false  the backdrop: d = EYEDIR, aberrated for the observer's boost,
+//                   derivatives of the aberrated direction
+//   u_lens = true   the resolve: d = EYEDIR + the marched deflection, plus the
+//                   disc emission the marcher accumulated; never aberrated (D = 1)
 shader_type sky;
 
 #include "res://shaders/sky/sky.gdshaderinc"
 
 uniform bool u_lens = false;
-// Written by render/lens_pass.gd's compute marcher at lens scale, this frame:
+// From render/lens_pass.gd's compute marcher, at lens scale, this frame:
 //   t_march0  disc emission (rgb), transmittance (a)
 //   t_march1  outgoing direction as a delta from the undeflected ray (rgb),
 //             log of the disc's luminance-weighted mean temperature (a)
@@ -29,11 +22,8 @@ void sky() {
 		// by the environment), so it is never worth a sky evaluation.
 		COLOR = vec3(0.0);
 	} else if (!u_lens) {
-		// Aberrate FIRST, then take the derivatives of the aberrated direction:
-		// the forward compression of solid angle is then measured by the same
-		// Jacobian that measures lensing magnification.
-		// (The Doppler factor is explicit here — sky_doppler — because gdshader
-		// has no mutable global for the web build's sky_D; see sky.gdshaderinc.)
+		// Aberrate first, then differentiate, so the forward compression of solid angle is
+		// measured by the same Jacobian as lensing. D is explicit (sky_doppler).
 		vec3 d = normalize(EYEDIR);
 		vec3 rd = sky_aberrate(d);
 		float D = sky_doppler(d);

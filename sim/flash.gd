@@ -1,23 +1,12 @@
 class_name Flash
 extends RefCounted
 
-# FLASH SPRITES — the two things a violent event can look like.
-# (blackhole_sim.js spawnFlash / killFlash and the flash loop in animate().)
-#
-# `flash` (the default) is a compact glow that grows a little and fades: the
-# right stand-in for light, where nothing is actually moving outward — a
-# ringdown burst, a horizon forming, a disc brightening as it swallows something.
-#
-# `shell` is the right stand-in for MATTER, and everything the sim calls a
-# supernova throws matter. Two things change. The ejecta expand a long way —
-# as t^½ rather than linearly, because they run out fast and then decelerate
-# against what is around them — and, because the sprite spreads the same
-# emission over that growing disc, brightness falls as size⁻¹ on top of the
-# fade. The net effect is a wash that thins out instead of a dot that dims:
-# what was left of a Type Ia at 90% of its life used to be a small, still
-# clearly visible blue-white ball sitting exactly where the star had been,
-# which reads as "the star is still there" — the opposite of what the toast
-# says happened to it.
+# FLASH SPRITES, the two looks of a violent event.
+#   `flash` (default)  a compact glow that grows a little and fades: light, with
+#                      nothing moving out (a ringdown, a horizon forming)
+#   `shell`            matter: ejecta expanding as t^½ with brightness falling as
+#                      size⁻¹ on top of the fade, so a supernova thins into a wash
+#                      instead of leaving a ball where the star was
 #
 # USE (the orchestrator):
 #   var f := Flash.create(0xffffff, size, 0.55)          # or kind = "shell"
@@ -25,9 +14,8 @@ extends RefCounted
 #   flashes.append([f, wpos_dvec3])                      #   wpos.rel_v3(cam_pos)
 #   … each frame: if not f.step(dt): f.kill()            # and drop it
 #
-# The web's CanvasTexture — which had to be disposed with the sprite or every
-# merger leaked a pair — is gone: the gradient is evaluated in
-# shaders/bodies/flash_sprite.gdshader, so kill() only frees the node.
+# The gradient is evaluated in shaders/bodies/flash_sprite.gdshader, so kill() only
+# frees the node.
 
 const SPRITE_SHADER := preload("res://shaders/bodies/flash_sprite.gdshader")
 const NO_CULL_AABB := AABB(Vector3(-1.0e6, -1.0e6, -1.0e6), Vector3(2.0e6, 2.0e6, 2.0e6))

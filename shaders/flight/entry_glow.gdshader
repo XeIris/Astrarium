@@ -1,14 +1,7 @@
-// RE-ENTRY PLASMA — createEntryGlow() of sim/flight/plume.js.
-// A bow-shock cap whose brightness and colour follow the Sutton–Graves heat
-// flux, the same number that is burning the shield down. BackSide in the web
-// build: only the inner wall of the cap is drawn (cull_front here).
-//
-// The view-space normal is a VARYING formed in vertex() — normalMatrix·normal
-// — because Godot's own fragment NORMAL is flipped on back faces and this is a
-// back-face-only material: the shading reads the sign of vN.y.
-//
-// Blending as the plume (publishAlpha): the colour was weighted by the
-// published temperature code and added; formed here, blended ONE, ONE.
+// RE-ENTRY PLASMA: a bow-shock cap following the Sutton–Graves heat flux, inner wall
+// only (cull_front). The view-space normal is a varying from vertex(), since Godot's
+// fragment NORMAL flips on back faces and the shading reads the sign of vN.y.
+// Colour weighted by the temperature code, blended ONE, ONE.
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_front;
 

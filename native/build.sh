@@ -1,15 +1,10 @@
 #!/bin/sh
-# Build the native N-body kernel (see astrarium_native.c for why it exists).
-# One compiler line, no build system: needs only Xcode's command line tools
-# (`xcode-select --install`). Produces a universal (arm64 + x86_64) dylib so an
-# exported macOS build runs on both Apple silicon and Intel Macs.
-#
-# -ffp-contract=off is load-bearing: it forbids fusing a*b+c into one rounding,
-# which V8 never does, and the port promises the same sub-steps as the web build.
-#
-# The dylib is committed prebuilt, so none of this is needed to RUN the project;
-# rebuild only after editing astrarium_native.c. Regenerate the header with
-#   Godot --headless --dump-gdextension-interface   (after a Godot upgrade).
+# Build the native N-body kernel (astrarium_native.c). One compiler line, Xcode
+# command line tools only (`xcode-select --install`); a universal arm64 + x86_64
+# dylib. -ffp-contract=off is load-bearing: no fused a*b+c, to keep the reference's
+# rounding. The dylib is committed prebuilt; rebuild only after editing the C.
+# Regenerate the header after a Godot upgrade with
+#   Godot --headless --dump-gdextension-interface
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HERE/bin"
