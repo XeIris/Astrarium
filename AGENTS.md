@@ -664,6 +664,12 @@ point and the only file here that knows the orrery exists.
   their own rays, because a volume's bounding mesh is never where the volume
   is. Godot's projection has a flipped y: take `abs(PROJECTION_MATRIX[1][1])`
   when deriving a pixel's angle, or every smoothstep built on it inverts.
+- **A march's jitter goes on its PARAMETER, not on distance.** The cloud
+  march steps geometrically, so a jitter added to t is a fraction of the
+  first ten-metre step and every later kilometre-long step lands on the same
+  shell for every pixel — seen along the deck on the way up, the cloud is a
+  stack of flat sheets. Jitter s in t(s) = t0 + base·(rˢ − 1), and refine
+  only the long segments that a probe finds cloud in.
 - **The EYE is the camera.** The sky's column and the ground's haze run from
   the camera's height over the ground patch (set in `apply_origin`), not the
   vehicle's altitude: on the pad that is zero, and every ray below the

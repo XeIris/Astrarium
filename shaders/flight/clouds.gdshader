@@ -96,6 +96,29 @@ float ign(vec2 p) {
 	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
+// Sub-step length a segment containing cloud is refined to, and the most
+// sub-steps one segment may take (see the march).
+const float REFINE_LEN = 150.0;
+const int REFINE_MAX = 6;
+
+// The far end of march segment i: s = i + jitter on t(s) = t0 + base·(rˢ − 1).
+float seg_end(int i, float j, float t0, float base, float lr, float n, float t1) {
+	return min(t0 + base * (exp(lr * clamp(float(i) + j, 0.0, n)) - 1.0), t1);
+}
+
+// The density at distance t along the ray, and the coverage there — the
+// probe that decides whether a segment is worth refining, and the sample
+// itself when it is not.
+float probe(vec3 ro, vec3 rd, float t, out float cov) {
+	vec3 pp = cloud_planet(ro + rd * t);
+	float hf = cloud_hfrac(pp);
+	cov = 0.0;
+	if (hf <= 0.0 || hf >= 1.0) return 0.0;
+	float fp = t * uPixAngle;
+	cov = cloud_coverage(pp, fp);
+	return cloud_density_cov(pp, uDetail, fp, cov);
+}
+
 void fragment() {
 	if (uCloudCoverage <= 0.0) discard;
 	vec3 rd = normalize(vDir);
@@ -145,50 +168,99 @@ void fragment() {
 	// the march always reaches t1 within the step budget. A step from 11 km
 	// up through a 3 km deck is a few tens of metres; along a grazing line to
 	// the horizon it is kilometres, and at that range that is all there is.
-	int N = uSteps;
+	// The march is uniform in s, where t(s) = t0 + base·(rˢ − 1).
+	//
+	// THE JITTER GOES ON s, NOT ON t. Added to t it is a fraction of the FIRST
+	// step — ten metres — and every later step is the same kilometres for
+	// every pixel, so every pixel samples the same concentric shells round the
+	// camera. Looking down through the slab that hardly shows; looking ALONG
+	// it, from inside the deck on the way up, each shell cuts the layer in a
+	// sheet and the cloud reads as a stack of painted planes. Offsetting s
+	// moves every boundary by the same fraction of its OWN step, which turns
+	// the shells into grain.
+	//
+	// And a grazing ray gets more samples. Down through the deck the range
+	// spans a factor of two or three; along it, from 30 m to the horizon, a
+	// factor of four thousand, and 28 steps over that are 35% of the range
+	// apiece — a whole turret skipped between two samples. So the count is
+	// raised until no step is more than ~15% of its range, up to twice the
+	// budget; the early exit at 99% opacity keeps most of that unpaid.
+	//
+	// REFINED WHERE THERE IS CLOUD. Even at 15%, a step 20 km out is 3 km
+	// long, and the jitter that removed the shells leaves a grain that big at
+	// every cloud edge. Most of a grazing ray is clear air, so each segment is
+	// first PROBED at its middle, and a segment whose own probe or either
+	// neighbour's found any is marched in sub-steps of about REFINE_LEN, up
+	// to REFINE_MAX of them. The neighbours are what catch the edge a
+	// segment's midpoint missed. Looking down through the deck the segments
+	// are already shorter than that, so nothing is added there — and an
+	// unrefined segment's probe IS its sample, so probing costs nothing extra.
 	float base = max(t0, 30.0);
-	float r = pow(max(t1, base * 1.001) / base, 1.0 / float(N));
-	float ds = base * (r - 1.0) + max(t0 - base, 0.0);
-	float t = t0 + ds * jitter;
-	float cov = 0.0;
-	float cov_t = -1e30;
+	float span = max((t1 - t0 + base) / base, 1.001);
+	int N = clamp(int(ceil(log(span) / log(1.15))), uSteps, uSteps * 2);
+	float lr = log(span) / float(N);
+	float fN = float(N);
+	float ta = t0;
+	float te = seg_end(0, jitter, t0, base, lr, fN, t1);
+	float c_cur; float c_nxt = 0.0;
+	float p_prv = 0.0;
+	float p_cur = probe(ro, rd, 0.5 * (ta + te), c_cur);
 	for (int i = 0; i < 160; i++) {
-		if (i >= N || t >= t1) break;
-		float step = min(ds, t1 - t);
-		float ts = t;
-		t += step;
-		ds *= r;
-		vec3 p = ro + rd * ts;
-		vec3 pp = cloud_planet(p);
-		float fp = ts * uPixAngle;
-		float hf0 = cloud_hfrac(pp);
-		if (hf0 <= 0.0 || hf0 >= 1.0) continue;
-		if (uCovReuse <= 0.0 || ts - cov_t > uCovReuse) {
-			cov = cloud_coverage(pp, fp);
-			cov_t = ts;
+		if (i > N || ta >= t1) break;
+		// segment i runs from the last boundary to s = i + jitter (the first
+		// and last are partial)
+		float step = te - ta;
+		float tn = seg_end(i + 1, jitter, t0, base, lr, fN, t1);
+		float p_nxt = i < N ? probe(ro, rd, 0.5 * (te + tn), c_nxt) : 0.0;
+		bool busy = max(p_prv, max(p_cur, p_nxt)) > 0.0;
+		int K = busy ? clamp(int(ceil(step / REFINE_LEN)), 1, REFINE_MAX) : 0;
+		float sub = step / float(max(K, 1));
+		float od = -1.0;
+		for (int k = 0; k < REFINE_MAX; k++) {
+			if (k >= K) break;
+			float ts = ta + (float(k) + 0.5) * sub;
+			vec3 p = ro + rd * ts;
+			vec3 pp = cloud_planet(p);
+			float fp = ts * uPixAngle;
+			float hf = cloud_hfrac(pp);
+			if (hf <= 0.0 || hf >= 1.0) continue;
+			float sigma;
+			float cov = c_cur;
+			if (K == 1) sigma = p_cur;   // the probe IS this sample
+			else {
+				// the coverage varies over tens of km: a refined segment's
+				// sub-steps share the probe's
+				sigma = cloud_density_cov(pp, uDetail, fp, cov);
+			}
+			if (sigma <= 0.0) continue;
+			// light: the optical depth toward the sun; single scattering, one
+			// octave, and the diffusion floor (see the header). Marched once per
+			// SEGMENT, at its first cloudy sample, and shared by its sub-steps:
+			// a segment is only refined where it is hundreds of metres long,
+			// and at that range the self-shadowing a separate light march per
+			// sub-step would resolve is finer than a pixel. Marched per
+			// sub-step, it was most of the refinement's cost.
+			if (od < 0.0) od = cloud_optical_depth_fp(p, uSunDir, uLightSteps, uLightFirst, fp,
+				uCovReuse > 0.0 ? cov : -1.0);
+			vec3 sun = uSunColor * (ph0 * exp(-od)
+				+ 0.5 * ph1 * exp(-od * 0.5)
+				+ 0.10 / (1.0 + 0.11 * od));
+			// a powder term: the edge of a cloud facing you is darker than its
+			// interior, because light entering there has had nothing to scatter
+			// off yet. Applied softly, and only away from the forward lobe.
+			float powder = mix(1.0, 1.0 - exp(-sigma * 90.0), 0.5 * (1.0 - clamp(cosT, 0.0, 1.0)));
+			vec3 amb = mix(uSkyBottom, uSkyTop, smoothstep(0.0, 1.0, hf));
+			vec3 S = sigma * (sun * powder * 12.566371 * 0.25 + amb);
+			float Ts = exp(-sigma * sub);
+			col += T * (S - S * Ts) / sigma;
+			tw += T * (1.0 - Ts) * ts;
+			wsum += T * (1.0 - Ts);
+			T *= Ts;
+			if (T < 0.01) break;
 		}
-		float sigma = cloud_density_cov(pp, uDetail, fp, cov);
-		if (sigma <= 0.0) continue;
-		// light: the optical depth toward the sun; single scattering, one
-		// octave, and the diffusion floor (see the header)
-		float od = cloud_optical_depth_fp(p, uSunDir, uLightSteps, uLightFirst, fp,
-			uCovReuse > 0.0 ? cov : -1.0);
-		float hf = clamp(cloud_hfrac(pp), 0.0, 1.0);
-		vec3 sun = uSunColor * (ph0 * exp(-od)
-			+ 0.5 * ph1 * exp(-od * 0.5)
-			+ 0.10 / (1.0 + 0.11 * od));
-		// a powder term: the edge of a cloud facing you is darker than its
-		// interior, because light entering there has had nothing to scatter
-		// off yet. Applied softly, and only away from the forward lobe.
-		float powder = mix(1.0, 1.0 - exp(-sigma * 90.0), 0.5 * (1.0 - clamp(cosT, 0.0, 1.0)));
-		vec3 amb = mix(uSkyBottom, uSkyTop, smoothstep(0.0, 1.0, hf));
-		vec3 S = sigma * (sun * powder * 12.566371 * 0.25 + amb);
-		float Ts = exp(-sigma * step);
-		col += T * (S - S * Ts) / sigma;
-		tw += T * (1.0 - Ts) * ts;
-		wsum += T * (1.0 - Ts);
-		T *= Ts;
 		if (T < 0.01) break;
+		ta = te; te = tn;
+		p_prv = p_cur; p_cur = p_nxt; c_cur = c_nxt;
 	}
 	float a = 1.0 - T;
 	if (a <= 0.002) discard;
