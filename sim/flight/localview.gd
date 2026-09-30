@@ -1,78 +1,42 @@
 class_name LocalView
 extends RefCounted
 
-# LOCAL SPACE — port of sim/flight/localview.js.
-# The orrery draws in scene units where one unit is an AU. A rocket is 100 m —
-# 7e-10 AU — so at the camera distances a launch is watched from, the near
-# plane, the depth buffer and float32 vertex precision all fail at once. This is
-# not a tuning problem; it is eleven orders of magnitude and no single
-# projection covers it.
+# LOCAL SPACE: spaceflight's own metre-scale pass. At AU scale a 100 m rocket is
+# 7e-10 units and the near plane, depth buffer and float32 precision all fail, so
+# the vehicle is drawn in a second scene with its own camera and composited over
+# the orrery (KSP's "scaled" and "local" space). Contents: the vehicle and plumes,
+# a ground patch with real curvature (horizon at √(2Rh)), and an atmosphere that
+# thins on the body's scale height.
 #
-# So spaceflight is drawn in a SECOND pass with its own scene and its own
-# camera, in metres, and composited over the orrery's frame. Every space
-# simulator that has ever worked does this — KSP calls the two halves "scaled
-# space" and "local space" — and the split is clean here because the two never
-# need to see each other: from a hundred metres the whole rest of the universe
-# is background, and from a hundred kilometres the vehicle is a point.
+# The ground is the parabola y = −r²/2R, identical to a sphere to well under a metre
+# over a few hundred km, without 6.4e6 in a float32 vertex.
 #
-# What local space contains:
-#   · the vehicle and its plumes (sim/flight/craftmodel.gd, plume.gd)
-#   · a GROUND PATCH with real planetary curvature, so the horizon sits where
-#     it belongs: √(2Rh) away, 35.7 km from a 100 m tower, 357 km from 10 km up
-#   · an ATMOSPHERE that thins with altitude on the body's own scale height, so
-#     the sky goes from blue to black over exactly the range it should
+# The pass is pipeline.gd's local_vp (own World3D, pipe.local_cam, transparent,
+# composited premultiplied). A floating origin one level down: the local origin is
+# the ground point under the vehicle, the camera sits at the origin, `cam_pos` is a
+# DVec3, and place()/apply_origin() put every object at (local position − cam_pos)
+# in double.
 #
-# The ground is a parabolic sheet, y = −r²/2R, not a piece of a sphere. Over a
-# few hundred kilometres the two are identical to well under a metre, and the
-# sphere would put 6.4e6 into a float32 vertex where the resolution is already
-# 0.4 m before the rocket's own geometry gets a look in.
-#
-# GODOT NOTES
-#   · The pass is render/pipeline.gd's local_vp: its own World3D, its own
-#     camera (pipe.local_cam), a transparent background, composited by
-#     compose.glsl premultiplied over the orrery exactly as the web build drew
-#     it over the orrery's frame with its own depth. Nothing here renders; the
-#     pipeline draws local_vp whenever it is in Mode.FLIGHT.
-#   · A FLOATING ORIGIN, one level down. The local frame's origin is the ground
-#     point under the vehicle, and in a chase view at 400 km the camera and the
-#     vehicle are both 4e5 m from it — where float32 is 3 cm and Godot forms
-#     model × view on the GPU from two float32 matrices. So the local camera
-#     sits at the origin too (rotation only), its position `cam_pos` is a DVec3,
-#     and every top-level object here is placed at (its local position −
-#     cam_pos), subtracted in double, by place()/apply_origin(). THREE built the
-#     modelView on the CPU in float64 and never needed this.
-#   · Lights: Godot's light energies already carry the π that three's Lambert
-#     divides out, so every three intensity is divided by π (measured — see
-#     sim/flight/modelviewer.gd). THREE.AmbientLight and THREE.HemisphereLight
-#     become the environment's ambient term (the fill plus the hemisphere's
-#     mean) and two diffuse-only directional lights along ±Y, one of them
-#     NEGATIVE — which is exactly the hemisphere's irradiance, mix(ground, sky,
-#     ½ + ½ n·y), rewritten as a constant plus ±(sky − ground)/2 · max(0, ±n·y).
+# Lights: Godot's energies include the π that a Lambert BRDF divides out, so
+# intensities are /π (measured, see modelviewer.gd). The hemisphere light becomes
+# ambient (fill + the hemisphere's mean) plus two diffuse-only directionals on ±Y,
+# one negative: mix(ground, sky, ½ + ½ n·y) rewritten as a constant plus
+# ±(sky − ground)/2 · max(0, ±n·y).
 
-# THE TRANSPARENT QUEUE, DECLARED RATHER THAN SORTED.
-# Everything left transparent in this pass overlaps everything else transparent
-# within a few metres of the nozzle, and a back-to-front sort by object centre
-# is noise at those separations. So the order is stated, and it is the
-# physical stack at the base of a rocket, read from the outside in:
-#
-#   sky       the background, behind everything, and depth-tested so the ground
-#             occludes it rather than the other way round
-#   smoke     the ground cloud and the deluge — real droplets and real alumina,
-#             which genuinely scatter and genuinely hide what is behind them
-#   flame     the plume and the entry sheath, LAST, because they are additive
-#             emitters: a flame seen through a cloud of steam still lights the
-#             steam up, and drawing it first meant the cloud painted it out.
-# In Godot this is render_priority, which — like three's renderOrder — only
-# sorts within the transparent list.
+# THE TRANSPARENT QUEUE, declared (a centroid sort is noise within metres of the
+# nozzle). Outside in:
+#   sky    behind everything, depth-tested so the ground occludes it
+#   smoke  ground cloud and deluge, which really hide what's behind them
+#   flame  plume and entry sheath last: additive, so a flame lights the steam
+# render_priority only sorts within the transparent list.
 const ORDER := {"sky": -10, "clouds": -8, "sun": -6, "smoke": 10, "flame": 20, "flare": 40}
 
 var pipe: RenderPipeline
 var root: Node3D                 # everything in local space hangs under here
 var camera: Camera3D             # pipe.local_cam — at the origin, rotation only
 var sun: DirectionalLight3D
-## The second sun: the other star of a binary, or an interstellar
-## destination rising while the Sun sets behind. Unshadowed and without a
-## disc — at the distances where it matters it is a point.
+## The second sun (a binary companion or an interstellar destination): unshadowed,
+## no disc.
 var sun2: DirectionalLight3D
 ## Integrated starlight, already through the camera's exposure: an
 ## isotropic fill, the only light between the stars (see spaceflight.gd).
@@ -82,9 +46,7 @@ var ground: MeshInstance3D
 var sky: MeshInstance3D
 var ground_mat: ShaderMaterial
 var sky_mat: ShaderMaterial
-## The sun as the vehicle sees it (shaders/flight/sun_disc.gdshader): its own
-## sprite, because the orrery's Sun is calibrated for looking at a solar system
-## and the dome's disc only existed while there was air to draw it in.
+## The sun as the vehicle sees it (sun_disc.gdshader), independent of air.
 var sun_disc: MeshInstance3D
 var sun_mat: ShaderMaterial
 var _sun_l := Vector3.UP
@@ -111,16 +73,14 @@ var cloud_mat: ShaderMaterial
 var cloud_field: CloudField
 ## That fraction, eased, and applied to the sun light's energy.
 var sun_through := 1.0
-## The planet's rotation since the flight began, rad, and the local frame's
-## axes in world coordinates: together, the local → planet-fixed transform
-## every cloud sample (and the ground's own detail) is taken in.
+## Planet spin since the flight began and the local axes: the local → planet-fixed
+## transform for clouds and ground detail.
 var _to_planet := Basis()
 const CLOUD_BASE := 1500.0
 const CLOUD_TOP := 4600.0
 const CLOUD_SIGMA := 0.03
-## Where the upper-atmosphere cloud LOD starts and where it is complete, m.
-## It starts a few km over the tops, once the camera is looking DOWN on the
-## deck rather than into it, and is fully in by the stratopause.
+## The upper-atmosphere cloud LOD, m: starts a few km over the tops, complete by the
+## stratopause.
 const CLOUD_LOD_LO := CLOUD_TOP + 3000.0
 const CLOUD_LOD_HI := 45000.0
 var _cloud_steps := 28
@@ -163,10 +123,8 @@ func _init(p: RenderPipeline) -> void:
 	root.name = "LocalView"
 	pipe.local_root.add_child(root)
 
-	# Lights. A directional sun (parallel rays: the real thing is 1.5e11 m away),
-	# a dim fill for the shadowed side, and a hemisphere term standing in for
-	# light bounced off the planet — which is a large part of what actually
-	# lights a spacecraft in low orbit.
+	# Lights: a directional sun, a dim fill, and a hemisphere term for planetshine (a
+	# large part of what lights a spacecraft in LEO).
 	sun = DirectionalLight3D.new()
 	sun.name = "sun"
 	sun.light_color = Color.hex(0xfff4e2ff)
@@ -179,9 +137,7 @@ func _init(p: RenderPipeline) -> void:
 	sun2.shadow_enabled = false
 	sun2.light_energy = 0.0
 	root.add_child(sun2)
-	# The visible dome is custom because this pass is transparent, but a
-	# separate physical sky can still light PBR metal through its radiance map.
-	# Without it the reflection source is black and metal reads as paint.
+	# A physical sky for reflections only, so PBR metal has something to reflect.
 	reflection_sky = Sky.new()
 	reflection_sky.radiance_size = Sky.RADIANCE_SIZE_64
 	reflection_material = PhysicalSkyMaterial.new()
@@ -240,10 +196,7 @@ func _init(p: RenderPipeline) -> void:
 		"uGeoReady": 0.0, "uGeoFrame": Basis(), "uPadLocal": Vector2.ZERO,
 	}
 	for k in gu: ground_mat.set_shader_parameter(k, gu[k])
-	# OPAQUE. It was transparent once, and being transparent is what put it in
-	# the wrong queue: sorted against the plumes by centroid, it won the coin
-	# toss on some frames and — writing depth — stamped the plume out. Nothing
-	# about this surface was ever transparent. It is dirt.
+	# Opaque: in the transparent queue it could stamp out the plumes.
 	ground = MeshInstance3D.new()
 	ground.name = "ground"
 	ground.mesh = gm
@@ -254,11 +207,8 @@ func _init(p: RenderPipeline) -> void:
 	ground.custom_aabb = AABB(Vector3(-1.3e6, -2.0e5, -1.3e6), Vector3(2.6e6, 2.1e5, 2.6e6))
 	root.add_child(ground)
 
-	# ---- sky dome. Drawn after the ground with no depth write, so it tints the
-	# ground near the horizon as well as filling the sky. Depth-TESTED (see
-	# shaders/flight/sky_dome.gdshader). Its radius is larger than the ground
-	# patch can ever be (1.2e6) so the two never intersect, and comfortably
-	# inside the camera's far plane.
+	# ---- sky dome: after the ground, no depth write (it hazes the ground near the
+	# horizon), depth-tested. Radius 1.2e6, past the ground patch and inside far.
 	sky_mat = ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/flight/sky_dome.gdshader")
 	sky_mat.set_shader_parameter("uSunDir", Vector3(0, 1, 0))
@@ -277,10 +227,8 @@ func _init(p: RenderPipeline) -> void:
 	sky.custom_aabb = AABB(Vector3(-3.1e6, -3.1e6, -3.1e6), Vector3(6.2e6, 6.2e6, 6.2e6))
 	root.add_child(sky)
 
-	# ---- the cloud layer: a sphere round the camera, drawn after the sky,
-	# marching the field per pixel and stopping at the depth buffer. Only its
-	# direction matters, so its size is anything comfortably past the near
-	# plane and inside the far one.
+	# ---- cloud layer: a sphere round the camera marching the field per pixel and
+	# stopping at the depth buffer.
 	cloud_mat = ShaderMaterial.new()
 	cloud_mat.shader = load("res://shaders/flight/clouds.gdshader")
 	cloud_mat.render_priority = ORDER.clouds
@@ -333,9 +281,8 @@ static func _v3(hex: int) -> Vector3:
 	var c := U.lin(hex)
 	return Vector3(c.r, c.g, c.b)
 
-## THREE.AmbientLight(0x223044, 0.30) + THREE.HemisphereLight(0x8899aa,
-## 0x33302c, bounce): the ambient term is the fill plus the hemisphere's mean,
-## the ±Y pair carries its half-difference. See the header.
+## Ambient 0x223044 × 0.30 plus a hemisphere (0x8899aa over 0x33302c, × bounce):
+## see the header.
 func _set_ambient(bounce: float) -> void:
 	var fill := U.lin(0x223044)
 	var skyc := U.lin(0x8899aa)
@@ -370,11 +317,8 @@ func _set_ambient(bounce: float) -> void:
 func set_render_quality(q: String) -> void:
 	render_quality = q
 	if q != "low" and cloud_shape == null:
-		# Tiling volumes, generated once on Godot's worker thread. The large
-		# scales (the weather, the turrets) are Perlin and big-celled Worley;
-		# the erosion is small Worley. Each is inverted where it is Worley so
-		# that the CELLS, not the edges between them, are the dense part —
-		# which is the whole difference between billows and a honeycomb.
+		# Tiling noise volumes, built once on a worker thread. Worley is inverted so the
+		# cells, not their edges, are dense (billows, not honeycomb).
 		cloud_shape = _noise3d(96, 2731, FastNoiseLite.TYPE_PERLIN, 0.035, 4, false)
 		cloud_worley = _noise3d(64, 977, FastNoiseLite.TYPE_CELLULAR, 0.05, 2, true)
 		cloud_detail = _noise3d(48, 4410, FastNoiseLite.TYPE_CELLULAR, 0.09, 3, true)
@@ -383,9 +327,8 @@ func set_render_quality(q: String) -> void:
 			m.set_shader_parameter("uCloudShape", cloud_shape)
 			m.set_shader_parameter("uCloudWorley", cloud_worley)
 			m.set_shader_parameter("uCloudDetail", cloud_detail)
-	# High marches finely, with erosion and a long light march; Medium is the
-	# same field, coarser; Low has no clouds. These are the budgets at and
-	# under the deck — _cloud_lod() cuts them from altitude.
+	# High: fine march, erosion, long light march. Medium: coarser. Low: no clouds.
+	# _cloud_lod() cuts these with altitude.
 	_cloud_steps = 64 if q == "high" else 28
 	_cloud_light = 6 if q == "high" else 3
 	_cloud_detail = 1.0 if q == "high" else 0.0
@@ -428,13 +371,8 @@ func apply_origin(basis: Basis) -> void:
 	clouds.position = Vector3.ZERO
 	var cl := cam_pos.to_v3()
 	for m in [cloud_mat, ground_mat, sun_mat]: m.set_shader_parameter("uCamLocal", cl)
-	# The EYE is the camera, not the vehicle. The sky's column and the ground's
-	# haze both run from the eye's altitude, and on the pad the vehicle's is
-	# zero while the camera stands tens of metres above the ground patch
-	# (which lies grade_drop below the deck datum). From zero the sky's ground
-	# root sat at t ≈ 0 for every ray below the horizontal, float rounding left
-	# no path at all, and the patch's dithered rim showed black speckle through
-	# a dome that had nothing to draw there.
+	# The sky column and ground haze run from the camera's height, not the vehicle's
+	# (zero on the pad, which left rays below the horizontal with no path).
 	var gy := 0.0
 	for pn in _placed:
 		if pn[0] == ground: gy = float((pn[1] as DVec3).y)
@@ -449,16 +387,10 @@ func apply_origin(basis: Basis) -> void:
 		if is_instance_valid(n):
 			n.position = (pn[1] as DVec3).rel_v3(cam_pos)
 
-## Point the local world at the vehicle's actual situation.
-##
-## The local frame is defined so that +Y is the vehicle's local UP and the
-## origin is directly beneath it on the surface — which makes the ground patch
-## a flat sheet in this frame, and makes the vehicle's height above it
-## literally its altitude.
-##
-## `o`: {env, altitude, sunDirWorld: DVec3, upWorld: DVec3, northWorld: DVec3,
-## starFlux, padWorld: DVec3|null, mapSite: {lat, lon}|null}. Returns
-## {east, north, up} as DVec3.
+## Point the local world at the vehicle's situation: +Y is local up and the origin
+## is beneath it, so height above the patch is altitude.
+## `o`: {env, altitude, sunDirWorld, upWorld, northWorld (DVec3), starFlux,
+## padWorld: DVec3|null, mapSite: {lat, lon}|null}. Returns {east, north, up}.
 func update(o: Dictionary) -> Dictionary:
 	var env: Dictionary = o.env
 	var atm = env.atm
@@ -480,9 +412,7 @@ func update(o: Dictionary) -> Dictionary:
 		reflection_material.rayleigh_color = Color.hex((int(atm.tint) << 8) | 0xff)
 		reflection_material.turbidity = clampf(float(atm.rho0) * 3.0, 1.0, 10.0)
 	var h := maxf(float(o.altitude), 0.0)
-	# Horizon distance √(2Rh), with a floor so there is always ground to see,
-	# and a ceiling because past a few hundred km the orrery's own planet mesh
-	# is the better picture.
+	# Horizon √(2Rh), floored, and capped where the orrery's planet mesh takes over.
 	var horizon := sqrt(2.0 * float(env.radius) * maxf(h, 3.0)) * 1.35
 	var patch := clampf(horizon, 2.5e4, 1.2e6)
 	var sh := Rocketry.scale_height(atm, h) if atm != null else 1.0
@@ -507,11 +437,8 @@ func update(o: Dictionary) -> Dictionary:
 	sky_mat.set_shader_parameter("uEye", h)
 	sky_mat.set_shader_parameter("uRadius", float(env.radius))
 	sky_mat.set_shader_parameter("uHasAir", has_air)
-	# Irradiance falls as 1/r² from the star; the local sun light and the
-	# ground shader are driven from the same number so they cannot disagree.
-	# (starFlux arrives already through the camera's exposure, which is what
-	# keeps a dim sun readable; there is no floor here any more, because the
-	# floor is the exposure's.)
+	# The sun light and ground shader share one irradiance (starFlux arrives through
+	# the camera's exposure).
 	var flux := clampf(3.0 * float(U.nz(o.get("starFlux"), 1.0)), 0.0, 12.0)
 	_starlight = float(U.nz(o.get("starlight"), 0.0))
 	ground_mat.set_shader_parameter("uSunI", flux)
@@ -571,9 +498,7 @@ func update(o: Dictionary) -> Dictionary:
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
 	var sun_vis := _update_sun(o, env, atm, h, sh, sun_l)
-	# The light's COLOUR is the star's: the base tint is the Sun's, carried
-	# by the ratio of the two blackbodies, so the Sun is unchanged and
-	# Proxima lights the hull red.
+	# The light takes the star's colour, relative to the Sun's.
 	sun.light_color = _star_tint(float(U.nz(o.get("sunTeff"), 5772.0)))
 	_update_sun2(o, h, float(env.radius), east, up, north)
 	_update_clouds(o, env, atm, h, sh, sun_l, east, up, north)
@@ -591,13 +516,9 @@ func update(o: Dictionary) -> Dictionary:
 	_set_ambient(clampf(0.75 * (1.0 - h / 8e5), 0.04, 0.75))
 	return {"east": east, "north": north, "up": up.clone(), "sun_local": sun_l, "sun_visible": sun_vis}
 
-## THE CLOUD LAYER, per frame: where it is (the planet-fixed frame), what
-## lights it, and whether this world has one.
-##
-## Earth only: its fair-weather cumulus is what a launch is photographed
-## against. Venus's cloud is a 20 km deck that starts 48 km up and the view
-## under it is a uniform murk the sky dome already draws; Mars's water-ice
-## clouds are thin cirrus at altitudes this layer does not model.
+## THE CLOUD LAYER, per frame: planet-fixed frame, lighting, and whether this world
+## has one. Earth only: Venus's deck is a murk the dome already draws, and Mars's
+## cirrus isn't modelled.
 func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l: Vector3,
 		east: DVec3, up: DVec3, north: DVec3) -> void:
 	var cover := 0.0
@@ -608,9 +529,8 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	# deck) is the picture; the local layer only exists over the ground patch.
 	clouds.visible = cover > 0.0 and h < 4.0e5
 	var R := float(env.radius)
-	# local → world is the basis with columns (east, up, north); world →
-	# planet-fixed undoes the planet's spin about its pole, which is −Y, so it
-	# is a rotation about +Y by the angle turned (see spaceflight.gd).
+	# local → world has columns (east, up, north); world → planet-fixed undoes the spin
+	# about −Y, i.e. a rotation about +Y.
 	var fb := Basis(east.to_v3(), up.to_v3(), north.to_v3())
 	_to_planet = Basis(Vector3.UP, float(U.nz(o.get("planetSpin"), 0.0))) * fb
 	var wind: Vector3 = o.get("cloudWind", Vector3.ZERO)
@@ -673,24 +593,15 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	cloud_mat.set_shader_parameter("uHazeRho", exp(-h / maxf(sh, 1.0)))
 	cloud_mat.set_shader_parameter("uMaxDist", clampf(sqrt(2.0 * R * maxf(h, 3000.0)) * 1.6, 60000.0, 1.2e6))
 
-## THE UPPER-ATMOSPHERE LOD. Under and inside the deck the march is spent
-## on what the camera can see: turrets a few hundred metres off, their
-## eroded edges, the light through them. From above, looking down across a
-## 3 km slab with a pixel tens of metres wide, most of that budget resolves
-## nothing — and the deck fills the lower half of the frame, so it is paid on
-## half a million pixels at once. That is the frame-rate drop on the way up.
-## So from a few km over the tops to the stratopause, in proportion:
-##   · the view march drops to a quarter of its steps (floor 10) — the ray
-##     crosses the slab rather than running along it, so it needs few;
-##   · the light march drops to half its samples, with a longer first step so
-##     it still reaches as far into the cloud (the same geometric series,
-##     fewer terms) — the self-shadowing keeps its depth, loses its fine grain;
-##   · the erosion goes (it has faded against the footprint by then anyway);
-##   · the coverage, which varies over tens of km, is re-read every 6 km of
-##     ray instead of at every sample;
-##   · the ground's cloud shadows march 3 samples instead of 6.
-## Nothing changes below CLOUD_LOD_LO, so a launch through the deck is drawn
-## exactly as before.
+## THE UPPER-ATMOSPHERE LOD. From above, a pixel is tens of metres across a 3 km slab
+## and the fine march resolves nothing on half the frame. From CLOUD_LOD_LO to the
+## stratopause, in proportion:
+##   · view march to a quarter of its steps (floor 10)
+##   · light march to half its samples, with a longer first step (same reach)
+##   · no erosion
+##   · coverage re-read every 6 km of ray
+##   · ground shadows march 3 samples instead of 6
+## Below CLOUD_LOD_LO nothing changes.
 func _cloud_lod(h: float) -> void:
 	var k := smoothstep(CLOUD_LOD_LO, CLOUD_LOD_HI, h)
 	var steps := int(round(lerpf(float(_cloud_steps), maxf(10.0, _cloud_steps * 0.25), k)))
@@ -705,19 +616,14 @@ func _cloud_lod(h: float) -> void:
 	ground_mat.set_shader_parameter("uShadowSteps", 6 if k < 0.35 else 3)
 
 ## Point and filter the sun sprite. Returns the fraction of the disc above the
-## horizon, which is also what decides whether the camera is exposing for
-## daylight (spaceflight.gd dims the stars by it).
-##
-## `o.sunAngR` is the star's angular radius from here and `o.sunTeff` its
-## temperature; both default to the Sun from Earth.
+## horizon, which also decides the daylight exposure. `o.sunAngR` and `o.sunTeff`
+## default to the Sun from Earth.
 func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l: Vector3) -> float:
 	_sun_l = sun_l
 	var R := float(env.radius)
 	var ang_r := float(U.nz(o.get("sunAngR"), 0.00465))
-	# The HORIZON, not the horizontal: from altitude h the limb is depressed by
-	# acos(R / (R + h)) — 5° at 25 km, 20° at 400 km — and the sun is up until
-	# it sets behind THAT. Beyond the ground patch there is nothing in this pass
-	# to hide it, so the planet's occlusion has to be said here.
+	# The horizon is depressed by acos(R / (R + h)) (5° at 25 km, 20° at 400 km); the
+	# planet's occlusion has to be done here.
 	var dip := acos(clampf(R / (R + h), -1.0, 1.0))
 	var elev := asin(clampf(sun_l.y, -1.0, 1.0))
 	var vis := U.smooth(elev, -dip - ang_r, -dip + ang_r)
@@ -734,11 +640,9 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l
 	var lum := maxf(bb.r * 0.2126 + bb.g * 0.7152 + bb.b * 0.0722, 1e-4)
 	sun_mat.set_shader_parameter("uColor", Vector3(bb.r, bb.g, bb.b) / lum)
 	sun_mat.set_shader_parameter("uRadiance", 2400.0 * pow(teff / 5772.0, 4.0))
-	# EXTINCTION. Zenith optical depths at sea level for 680 / 550 / 440 nm:
-	# Rayleigh 0.042 / 0.097 / 0.235 (∝ λ⁻⁴) and a clear-day aerosol load of
-	# 0.08 · (λ / 550)^-1.3. The column above the observer falls as e^(−h/H),
-	# and the air mass along the sun line is Kasten & Young's (1989), which
-	# stays finite at the horizon where 1/sin(e) does not.
+	# EXTINCTION. Sea-level zenith depths at 680 / 550 / 440 nm: Rayleigh
+	# 0.042 / 0.097 / 0.235 and aerosol 0.08·(λ/550)^-1.3. The column falls as e^(−h/H);
+	# air mass is Kasten & Young (1989), finite at the horizon.
 	var tau := Vector3.ZERO
 	var m := 1.0
 	var aerosol := 0.0
@@ -796,19 +700,11 @@ func dispose() -> void:
 	if is_instance_valid(root): root.queue_free()
 
 # THE FLIGHT CAMERA
-# Four modes, and they exist because a launch, an orbit and a landing are
-# looked at from completely different places:
-#
-#   CHASE   — behind and above, framing the vehicle against what it is flying
-#             over. The distance follows the vehicle's own length, so a Saturn V
-#             and a lunar module are both framed rather than one being a dot.
-#   ORBIT   — a free turntable around the vehicle. This is the inspection mode.
-#   COCKPIT — at the top of the stack looking along the thrust axis.
-#   PAD     — fixed on the ground, watching it go. Only meaningful near a
-#             surface, and it is the one that sells a launch.
-#
-# Positions are DVec3 in the local frame (see the header: the camera and the
-# vehicle can both be 4e5 m from the origin); directions are Vector3.
+#   CHASE    behind and above; distance follows the vehicle's length
+#   ORBIT    a free turntable, for inspection
+#   COCKPIT  at the top of the stack, looking along the thrust axis
+#   PAD      fixed on the ground, watching it go
+# Positions are DVec3 in the local frame; directions Vector3.
 class FlightCamera extends RefCounted:
 	var state := {
 		"mode": "chase", "dist": 1.0, "yaw": 2.2, "pitch": 0.28, "fov": 55.0, "userAimed": false,
@@ -823,15 +719,8 @@ class FlightCamera extends RefCounted:
 	func set_mode(m: String) -> void:
 		state.mode = m
 
-	## THE NEAR PLANE IS WHAT SETS THE DEPTH RESOLUTION, and it was a constant.
-	##
-	## Nothing is ever 5 cm from this camera. The nearest thing in frame is at
-	## worst a fraction of the vehicle's own length away, so the near plane is
-	## derived from the shot rather than declared: a fixed fraction of the
-	## distance to what is being looked at, which is the quantity the whole
-	## framing is built on anyway. (Godot's depth buffer is reversed-Z float and
-	## far less fragile than the web build's 24-bit one, but the frustum is
-	## still built in float32, so the same near plane keeps far/near sane.)
+	## The near plane is a fixed fraction of the distance to the subject, since the
+	## frustum is float32 and far/near has to stay sane.
 	func depth_range(craft_pos: DVec3, L: float) -> void:
 		var d := pos.distance_to(craft_pos)
 		# Half a vehicle-length of headroom, so the camera can be inside the
@@ -870,10 +759,7 @@ class FlightCamera extends RefCounted:
 		var dt := float(o.dt)
 		if state.mode == "pad" and state.hasPad:
 			pos.copy_from(state.padPos)
-			# Aim at the middle of the stack, not at its base. craftPos is the
-			# vehicle's ORIGIN, which is where the engine bells are — pointing
-			# the camera there puts the whole vehicle above the centre line and
-			# runs most of it off the top of the frame.
+			# Aim at the middle of the stack, not its origin (the engine bells).
 			look_at(craft_pos.clone().add_in(DVec3.from_v3(up * (L * 0.45))), up)
 			return
 		if state.mode == "cockpit":
@@ -890,11 +776,7 @@ class FlightCamera extends RefCounted:
 		var ref := Vector3(1, 0, 0) if absf(uu.y) > 0.95 else Vector3(0, 1, 0)
 		var right := uu.cross(ref).normalized()
 		var fwd := right.cross(uu).normalized()
-		# Until the viewer takes the turntable themselves, stand on the SUNLIT
-		# side. A vehicle photographed from its own shadow is a silhouette, and a
-		# silhouette of a white rocket against a bright sky is the one thing that
-		# makes all this modelling invisible. Eased rather than snapped, because
-		# the sun's bearing swings as the vehicle flies round the planet.
+		# Until the viewer takes over, ease round to the sunlit side.
 		var sun_l = o.get("sunLocal")
 		if sun_l != null and not state.userAimed:
 			var want := atan2((sun_l as Vector3).dot(fwd), (sun_l as Vector3).dot(right))

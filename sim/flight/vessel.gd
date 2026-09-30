@@ -1,52 +1,25 @@
 class_name Vessel
 extends RefCounted
 
-# THE VESSEL
-# State, forces, staging, structure and clocks. Everything in SI, in a frame
-# centred on the vessel's parent body whose axes are parallel to the orrery's.
+# THE VESSEL: state, forces, staging, structure and clocks, in SI, in a frame
+# centred on the parent body with axes parallel to the orrery's. This file is the
+# AU↔SI boundary: the only place Body.pos / Body.vel become metres.
 #
-# THE FRAME IS NOT INERTIAL — it accelerates with the parent — and that is
-# deliberate, because it is the only frame in which a rocket's numbers stay in
-# a float's comfortable range. The price is one extra term in the gravity, and
-# it is the term that carries all the interesting physics anyway:
-#
+# The frame accelerates with the parent, so gravity carries one extra term:
 #     a = Σᵢ GMᵢ (Rᵢ − R_v)/|Rᵢ − R_v|³  −  Σᵢ≠p GMᵢ (Rᵢ − R_p)/|Rᵢ − R_p|³
+# The parent's pull stays whole and every other body's becomes a tidal difference
+# (LEO feels the Moon, not the Sun's 6e-3 m/s²).
 #
-# The first sum is the pull of every body on the vessel; the second is the pull
-# of every body EXCEPT the parent on the frame origin. Subtracting them leaves
-# the parent's own gravity intact and reduces every other body's contribution to
-# a tidal difference — which is why a vessel in LEO does not get dragged out of
-# orbit by the Sun's 6e-3 m/s², and why it nevertheless feels the Moon.
+# Attitude: body +Y is the thrust axis. The controller is the time-optimal
+# rest-to-rest slew, ω_des = sign(e)·min(k|e|, √(2α|e|)), with α from the real
+# gimbal deflection and RCS authority.
 #
-# ATTITUDE. Body +Y is the thrust axis, so the nose direction is q·(0,1,0) and
-# craftmodel stacks its meshes along +Y to match. The controller is the
-# time-optimal rest-to-rest slew — ω_des = sign(e)·min(k|e|, √(2α|e|)) — rather
-# than a plain proportional law, because a proportional law commands a rate the
-# vehicle cannot stop from and overshoots every large slew. The available α is
-# computed from the real gimbal deflection and the real RCS authority, so a
-# stage with its engines off genuinely cannot pitch on gimbal alone.
-#
-# PORT NOTES.
-#   · THIS FILE IS THE AU↔SI BOUNDARY, as vessel.js was: the only place the
-#     orrery's AU / AU·yr⁻¹ body state (Body.pos, Body.vel) is multiplied into
-#     metres. Nothing else in sim/flight/ touches a Body's position.
-#   · Every vector is a DVec3 (doubles) and the attitude is a DQuat: the frame
-#     is centred on a planet 6.4e6 m in radius, where float32 quantises position
-#     to 0.4 m.
-#   · Vector normalisation, setLength and angleTo go through DQuat.nrm /
-#     set_len / angle_between, which reproduce three.js's arithmetic exactly
-#     (see dquat.gd) — the port is verified by diffing trajectories against the
-#     JS, and a last-place difference in a normalise is a trajectory that drifts.
-#   · The scratch vectors are STATIC, shared by every Vessel, exactly as the JS
-#     module-level temporaries were — and the aliasing between them is part of
-#     the behaviour (the guidance hands in its own scratch as `dir`, `out`), so
-#     it is kept rather than "cleaned up".
-#   · JS `log(msg)` is `log_event(msg)` here: a method called `log` would shadow
-#     the math function this class also uses. Everything else keeps its name in
-#     snake_case (`deltaVRemaining` → `delta_v_remaining`).
-#   · The per-stage state is the inner class StageState; `spec` is the vehicle's
-#     own stage Dictionary (JS keys). Telemetry and the per-step sample are
-#     Dictionaries with the JS keys, since the HUD reads them by name.
+# Vectors are DVec3 and attitude a DQuat (float32 is 0.4 m at planet radius).
+# DQuat.nrm / set_len / angle_between reproduce three.js's arithmetic, since
+# trajectories are diffed against flightref.mjs. The scratch vectors are static
+# and shared, and callers pass them in as `dir`/`out` on purpose. `log_event`, not
+# `log` (that would shadow the math function). Telemetry and samples are
+# Dictionaries with camelCase keys, read by name by the HUD.
 
 const PHASE := {
 	"PRELAUNCH": "prelaunch", "ASCENT": "ascent", "COAST": "coast", "ORBIT": "orbit",
@@ -54,7 +27,7 @@ const PHASE := {
 	"CRUISE": "cruise", "DESTROYED": "destroyed",
 }
 
-# The orrery's year, in seconds, as vessel.js wrote it for the velocity bridge.
+# The orrery's year in seconds, for the AU/yr → m/s bridge.
 const _YR := 3.15576e7
 
 static var _a := DVec3.new()
@@ -86,11 +59,10 @@ static var _k_a4 := DVec3.new()
 
 static var _next_vessel_id := 1
 
-## One stage's live state. A stage is `pending` until its ignition event, `live`
-## while it is attached, and gone once jettisoned. Propellant is tracked per
-## stage because that is what staging actually throws away.
+## One stage's live state: `pending` until ignition, `live` while attached, gone
+## once jettisoned. Propellant is per stage.
 class StageState extends RefCounted:
-	var spec: Dictionary          # the vehicle's stage Dictionary (JS keys)
+	var spec: Dictionary          # the vehicle's stage Dictionary
 	var index: int
 	var prop: float
 	var prop0: float
@@ -99,12 +71,10 @@ class StageState extends RefCounted:
 	var spent: bool
 	var restarts: int
 	var rcs_prop: float
-	## How many of this stage's engines are running. Shutting engines down is
-	## the only throttle a non-throttleable engine has, and it is what the
-	## Saturn V actually did: the centre F-1 was cut at T+135 s to hold the
-	## crew under 4 g, and the centre J-2 at T+460 s for the same reason.
+	## Engines running on this stage. Shutdown is a non-throttleable engine's only
+	## throttle (the Saturn V cut its centre F-1 at T+135 s and centre J-2 at T+460 s).
 	var live: int
-	var gear_out: bool = false    # spaceflight's G key toggles it (JS: st.gearOut)
+	var gear_out: bool = false    # spaceflight's G key toggles it
 
 	func _init(s: Dictionary, i: int) -> void:
 		spec = s; index = i
@@ -119,7 +89,7 @@ var id: int
 var vehicle: Dictionary
 var name: String
 var payload_mass: float
-var vehicle_key: String = ""        # set by spaceflight (JS: vessel.vehicleKey)
+var vehicle_key: String = ""        # set by spaceflight
 var stages: Array = []              # of StageState
 var stage_index: int = 0            # the lowest still-attached stage
 
@@ -136,11 +106,9 @@ var _holding := false
 var throttle: float = 0.0
 var rcs_on: bool = true
 
-# ---- clocks. `met` is the vessel's own PROPER time and `coord` is the
-# coordinate time the rest of the sim runs on; `clock_delta` is the
-# accumulated difference against a clock sitting on the parent's surface at
-# the launch site. In LEO that is tens of microseconds a day (GPS's famous
-# +38.7 µs); at 0.99c it is years. Same expression.
+# ---- clocks. `met` is proper time, `coord` coordinate time; `clock_delta` is the
+# difference against a clock on the parent's surface at the launch site (GPS:
+# +38.7 µs/day in LEO; years at 0.99c).
 var met: float = 0.0
 var coord: float = 0.0
 var clock_delta: float = 0.0
@@ -182,7 +150,7 @@ var auto_stage: bool = false
 var pending_stage: bool = false
 
 ## opts: { vehicle: Dictionary, name?: String, parent: Body, bodies: Array[Body],
-## payload?: float } — the JS constructor's option object.
+## payload?: float }.
 func _init(opts: Dictionary) -> void:
 	id = _next_vessel_id
 	_next_vessel_id += 1
@@ -211,9 +179,7 @@ func place_on_pad(lat_deg: float = 28.5, lon_deg: float = 0.0) -> Vessel:
 	# plane — the same plane the orrery lays its orbits in.
 	var cl := cos(lat)
 	r.set_v(env.radius * cl * cos(lon), -env.radius * sin(lat), env.radius * cl * sin(lon))
-	# Surface velocity from the parent's rotation: ω × r, with ω along −Y so an
-	# eastward launch gains it. 465 m/s at Earth's equator, and the reason a pad
-	# near the equator is worth building.
+	# Surface velocity ω × r, ω along −Y (465 m/s at Earth's equator).
 	_a.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_a, r)
 	v.copy_from(_a)
 	# Nose up.
@@ -270,10 +236,8 @@ var area: float:
 			if st.attached: A = maxf(A, st.spec.area)
 		return A
 
-## Transverse and roll moments of inertia, treating the live stack as a
-## uniform slender cylinder. Crude for a Shuttle, right for everything else,
-## and what matters is the ORDER: a 110 m Saturn V has 300× the pitch inertia
-## of a lunar module and turns like it. Returns { pitch, roll }.
+## Transverse and roll inertia, treating the stack as a uniform slender cylinder.
+## Returns { pitch, roll }.
 func inertia() -> Dictionary:
 	var m := mass
 	var L := maxf(length, 0.5)
@@ -287,16 +251,8 @@ func live_stages() -> Array:
 		if s.attached and s.ignited and not s.spent: out.append(s)
 	return out
 
-## A photon drive is throttled to hold a constant PROPER ACCELERATION, so its
-## thrust follows the ship's mass rather than the other way round: F = m·a,
-## and ṁ = F/c because the exhaust is light and carries E/c of momentum. Put
-## through engine_output instead it produced the plate's full rating whatever
-## the ship weighed — which is a drive that pulls 1.5 g at departure and 15 g
-## with the tanks nearly dry, and a vehicle whose documented contract the
-## integrator did not honour.
-##
-## The emitter's rating is still a ceiling: a ship too heavy for its plate
-## accelerates at less than the hold, which is the honest answer.
+## A photon drive holds constant proper acceleration: F = m·a, ṁ = F/c. The plate's
+## rating is a ceiling, so a ship too heavy for it accelerates at less.
 func photon_output(engine: Dictionary, n: float) -> Dictionary:
 	var th: float = 0.0 if throttle <= 0.0 \
 		else minf(maxf(throttle, engine.get("throttleMin", 1.0)), engine.get("maxThrottle", 1.0))
@@ -329,8 +285,7 @@ func propulsion(pa: float) -> Dictionary:
 		if plume == null: plume = s.engine.plume
 	return { "F": F, "mdot": mdot, "isp": isp_sum / w if w > 0.0 else 0.0, "plume": plume, "count": count }
 
-## The thrust axis in world coordinates. `out` defaults to the shared scratch
-## (JS: forward(out = _a)).
+## The thrust axis in world coordinates. `out` defaults to the shared scratch _a.
 func forward(out: DVec3 = null) -> DVec3:
 	if out == null: out = _a
 	return DQuat.rotate(out.copy_from(BODY_FWD), q)
@@ -345,9 +300,8 @@ func gravity(rr: DVec3, out: DVec3) -> DVec3:
 	for b in bodies:
 		if not b.alive: continue
 		var gm: float = Rocketry.GM_SUN * b.mass
-		# offset of body b from the parent, in metres. PRIVATE scratch: callers
-		# routinely pass one of the shared temporaries as `out`, and reusing one
-		# here would have this function overwrite its own accumulator.
+		# offset of body b from the parent, m. Private scratch: callers pass the shared
+		# temporaries as `out`.
 		_g1.sub_vectors(b.pos, p.pos).scale_in(Rocketry.AU_M)
 		# pull on the vessel
 		_g2.copy_from(_g1).sub_in(rr)
@@ -364,9 +318,7 @@ func altitude(rr: DVec3 = null) -> float:
 	if rr == null: rr = r
 	return rr.length() - env.radius
 
-## Velocity relative to the rotating atmosphere. This is what drag, Mach and
-## heating all use — an equatorial launch site is already doing 465 m/s
-## through space and 0 m/s through the air.
+## Velocity relative to the rotating atmosphere, for drag, Mach and heating.
 func airspeed(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, rr)
 	return out.sub_vectors(vv, _d)
@@ -376,10 +328,9 @@ func _first_attached():
 		if s.attached: return s
 	return null
 
-## Total acceleration at a trial state. Called four times per RK4 step, so it
-## writes into scratch and allocates as little as it can. `sample` (a
-## Dictionary, or null) receives q, mach, drag, heat, pa, thrust, mdot, isp,
-## plume, engines.
+## Total acceleration at a trial state (four times per RK4 step, so into scratch).
+## `sample` (Dictionary or null) receives q, mach, drag, heat, pa, thrust, mdot,
+## isp, plume, engines.
 func accel(rr: DVec3, vv: DVec3, out: DVec3, sample = null) -> DVec3:
 	gravity(rr, out)
 	var atm = env.atm
@@ -417,12 +368,8 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample = null) -> DVec3:
 				var ch: Dictionary = chute_open
 				out.add_scaled_in(_vrel, -(qd * ch.Cd * ch.area * chute_deploy) / (m * va))
 				drag += qd * ch.Cd * ch.area * chute_deploy
-			# BLUNT-BODY LIFT. A Mars aeroshell is not a ballistic capsule: an
-			# offset centre of mass makes it fly at a trim angle of attack with a
-			# lift-to-drag ratio of about 0.24, and it banks that lift vector to
-			# steer. Flown lift-up it stretches the trajectory by tens of
-			# kilometres, which is the difference between deploying the parachute
-			# at Mach 1.7 with 11 km to spare and arriving supersonic at the ground.
+			# Blunt-body lift: a Mars aeroshell's offset CoM trims it to L/D ≈ 0.24, and it
+			# banks that lift to steer.
 			var bl = null
 			for s2 in stages:
 				if s2.attached and s2.spec.get("lift") != null:
@@ -431,16 +378,10 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample = null) -> DVec3:
 				DQuat.nrm(_c.copy_from(rr))                    # local up
 				_c.add_scaled_in(_vrel, -_c.dot(_vrel) / (va * va))
 				if _c.length_sq() > 1e-12:
-					# Banked lift. An entry vehicle rolls its lift vector to control
-					# range: straight up stretches the trajectory the most and skips if
-					# overdone, so a guided entry flies a partial bank. 60° puts half
-					# the lift into the vertical, which is where MSL's range control
-					# lived.
+					# Bank: 60° puts half the lift into the vertical (MSL's range control).
 					var bnk: float = bank if bank != null else PI / 3.0
 					out.add_scaled_in(DQuat.nrm(_c), (drag * bl.spec.lift.LD * cos(bnk)) / m)
-			# Lift, for anything with a wing or a body flap. Perpendicular to the
-			# airstream, in the plane containing the body axis — this is what lets
-			# the Shuttle fly a hypersonic bank and Starship belly-flop.
+			# Wing or body-flap lift: perpendicular to the airstream, in the plane of the body axis.
 			var wing = null
 			for s3 in stages:
 				if not s3.attached or not s3.ignited or s3.spent: continue
@@ -469,19 +410,15 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample = null) -> DVec3:
 
 # Attitude
 
-## Angular acceleration the vehicle can actually produce, rad/s², about a
-## transverse axis. Gimbal only works while the engines are lit.
-## Returns { alpha, tau, I }.
+## Achievable angular acceleration about a transverse axis, rad/s². Gimbal only
+## while lit. Returns { alpha, tau, I }.
 func authority(pa: float) -> Dictionary:
 	var I := inertia()
 	var L := maxf(length, 1.0)
 	var tau := 0.0
 	var gimballed := false
-	# Thrusters belong to every ATTACHED stage, lit or not: the Shuttle's
-	# orbiter holds and turns the stack on its own RCS long before its OMS
-	# fires. Counted only on stages whose main engines had lit, it coasted to
-	# apoapsis with no attitude control at all, drifting with the orbit, and
-	# never came round to the circularization it was coasting to.
+	# RCS on every attached stage, lit or not (the orbiter turns the stack before OMS
+	# fires).
 	for st in stages:
 		if not st.attached: continue
 		var s: Dictionary = st.spec
@@ -498,14 +435,9 @@ func authority(pa: float) -> Dictionary:
 			tau += s.rcs.thrust * maxf(float(s.rcs.count) / 4.0, 1.0) * (diameter * 0.5 + L * 0.25)
 	return { "alpha": tau / maxf(I.pitch, 1.0), "tau": tau, "I": I, "gimballed": gimballed }
 
-## Steer toward a world-space direction for the +Y axis. Returns the pointing
-## error, rad.
-##
-## The commanded rate is the TIME-OPTIMAL rest-to-rest profile: accelerate at
-## α, then decelerate at α, which means never asking for a rate you cannot
-## stop from inside the remaining error. A plain proportional law overshoots
-## every large slew and then hunts, which is the exact complaint Orbiter's PID
-## autopilot exists to fix.
+## Steer the +Y axis toward a world direction; returns the pointing error, rad.
+## Time-optimal rest-to-rest: never command a rate that can't be stopped within the
+## remaining error.
 func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	if dir == null or dir.length_sq() < 1e-12: return 0.0
 	DQuat.nrm(_a.copy_from(dir))
@@ -514,14 +446,10 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	var err := DQuat.angle_between(fwd, _a)
 	var auth := authority(pa)
 	var alpha: float = auth.alpha
-	# FEED-FORWARD. A held attitude is usually a MOVING one — prograde turns
-	# with the orbit, a pitch program with the climb — and a controller that
-	# only knows the error stops dead in its deadband, falls behind, and
-	# starts again, a firing every few seconds. Coasting prograde that cost the
-	# Shuttle its whole 2.3 t of RCS in eight minutes, and it reached its
-	# apoapsis unable to turn. So the target's own rotation rate is measured
-	# from the direction it was given last time, and the law below works on
-	# the rate RELATIVE to it: tracking a steadily turning target is then free.
+	# Feed-forward: a held attitude usually turns (prograde, a pitch program), so the
+	# target's own rate is measured from its last direction and the law works on the
+	# rate relative to it. Without this the controller stops in its deadband, falls
+	# behind, and fires every few seconds.
 	_w_t.set_v(0.0, 0.0, 0.0)
 	if _prev_met >= 0.0 and met > _prev_met and DQuat.angle_between(_prev_dir, _a) < 0.05:
 		_w_t.cross_vectors(_prev_dir, _a).scale_in(1.0 / (met - _prev_met))
@@ -535,9 +463,7 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 		_c.set_v(fwd.y, -fwd.x, 0.0)
 		if _c.length_sq() < 1e-14: _c.set_v(0.0, fwd.z, -fwd.y)
 	DQuat.nrm(_c)
-	# Deadband. Below it the vehicle is pointed and the only job left is to
-	# stop turning — without this the controller chatters across the target and
-	# anything gated on the pointing error flickers with it.
+	# Deadband: once pointed, only stop turning, so gated logic doesn't flicker.
 	if err < 0.004:
 		var w := omega.length()
 		if w > 1e-6: omega.scale_in(maxf(0.0, 1.0 - minf(alpha * dt / w, 1.0)))
@@ -555,11 +481,7 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	_d.copy_from(omega).add_scaled_in(_c, -omega.dot(_c))
 	var damp := minf(alpha * dt, _d.length())
 	if _d.length_sq() > 1e-16: omega.add_scaled_in(DQuat.nrm(_d), -damp)
-	# RCS costs propellant. Gimbal does not (it is already burning) — so while
-	# a gimballed engine is lit, the thrusters are not charged for the turn.
-	# Charged anyway, every steering correction of a powered ascent was billed
-	# to the cold gas: Starship's ship reached orbit with its RCS dry, could not
-	# turn off the attitude a coast leaves it in, and never circularized.
+	# RCS costs propellant only when no gimballed engine is lit.
 	if not auth.gimballed: spend_rcs(absf(dw) * inertia().pitch, dt)
 	omega.add_in(_w_t)
 	return err
@@ -585,18 +507,11 @@ func spend_rcs(angular_impulse: float, _dt: float) -> void:
 
 # Staging
 
-## Fire the next staging event. Returns the dropped StageState, or null.
-##
-## A staging event is two things at once and they have to happen in this
-## order: drop the lowest attached stage that has nothing left to give, then
-## light the lowest stage that has not been lit. Doing it the other way round
-## ignites an upper stage inside the interstage it is still attached to.
-##
-## `sep: 'none'` marks a stage that is never thrown away — a capsule, an
-## orbiter, the Hail Mary itself — so it is skipped by the jettison pass but
-## still eligible for ignition.
-## `force` drops the lowest stage even with propellant left in it — a tank
-## whose engines cannot be relit (the Shuttle's, after MECO).
+## Fire the next staging event; returns the dropped StageState, or null. First drop
+## the lowest attached stage with nothing left to give, then light the lowest unlit
+## one (the other order lights inside the interstage). `sep: 'none'` stages are never
+## dropped but can still ignite. `force` drops a stage with propellant left (the
+## Shuttle ET after MECO).
 func stage(force := false):
 	var dropped = null
 	for st in stages:
@@ -610,11 +525,7 @@ func stage(force := false):
 		dropped = st; stage_events += 1
 		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name + _where())
 		break
-	# A separation lights the next stage only if nothing is still burning. On
-	# the Shuttle the external tank's engines burn on after the boosters go,
-	# and lighting "the next stage" there lit the orbiter's OMS for the whole
-	# climb — which, once each stage paid for its own engines, spent the
-	# orbiter's insertion propellant before it reached the apoapsis it was for.
+	# Light the next stage only if nothing is still burning.
 	var still_burning := false
 	if dropped != null:
 		for st in stages:
@@ -633,10 +544,7 @@ func stage(force := false):
 			stage_index = i; break
 	return dropped
 
-## Shut down `n` engines on the burning stage. Symmetric shutdown only: with a
-## centre engine it goes first (a Saturn V or a Falcon 9 shuts the centre), and
-## after that they come off in pairs, because an asymmetric thrust pattern the
-## gimbal cannot trim is how you lose the vehicle.
+## Shut down `n` engines, symmetrically: the centre first, then pairs.
 func shutdown_engines(n: int = 1) -> int:
 	var st = current_stage
 	if st == null or st.live <= 1: return 0
@@ -645,10 +553,8 @@ func shutdown_engines(n: int = 1) -> int:
 	log_event("Engine shutdown — %d of %d on %s (%d running)" % [off, st.spec.count, st.spec.name, st.live])
 	return off
 
-## Ask for a specific number of engines on the burning stage. Real vehicles
-## choose their engine count per phase rather than throttling nine engines to
-## their floor and hoping — a Falcon 9 lights three for the entry burn and one
-## for the landing — and shutdown has to be reversible for that to be possible.
+## Set the burning stage's engine count (Falcon 9: three for entry, one to land).
+## Shutdown is reversible.
 func set_engine_count(n: float) -> int:
 	var st = current_stage
 	if st == null or not st.spec.count: return 0
@@ -701,9 +607,8 @@ func delta_v_remaining(pa: float = 0.0) -> float:
 	return dv
 
 # Structure
-## Four independent ways to lose a vehicle, each against a real limit. A
-## verdict here is an EVENT — the vessel is destroyed and the sim says which
-## of the four did it — not a warning light.
+## Four ways to lose a vehicle, each against a real limit. A failure destroys the
+## vessel and says which.
 func check_structure(s: Dictionary, _dt: float) -> void:
 	var lim: Dictionary = vehicle.limits
 	if phase == PHASE.DESTROYED: return
@@ -719,9 +624,7 @@ func check_structure(s: Dictionary, _dt: float) -> void:
 		destroy("loss of control — q·α of %s kPa·rad exceeded %s" % [U.fixed(sq * sa / 1000.0, 1), U.fixed(lim.qAlpha / 1000.0, 0)]); return
 	if lim.heatLoad > 0.0 and heat_load > lim.heatLoad:
 		destroy("thermal failure — %s MJ/m² burned through the shield" % U.fixed(heat_load / 1e6, 0)); return
-	# No shield at all: bare aluminium structure fails somewhere around
-	# 80 W/cm² of stagnation heating, which is why a stage that comes back
-	# without one comes back as a debris field.
+	# No shield: bare aluminium fails around 80 W/cm².
 	if lim.heatLoad == 0.0 and sh > 8e5:
 		destroy("burned up on entry — %s W/cm² on a vehicle with no heat shield" % U.fixed(sh / 1e4, 0)); return
 
@@ -737,12 +640,8 @@ func destroy(why: String) -> void:
 func _where() -> String:
 	return " · %s km, %s km/s" % [U.fixed(altitude() / 1000.0, 1), U.fixed(v.length() / 1000.0, 2)]
 
-## THE MILESTONES a launch commentary calls, logged as they are passed, each
-## once per flight. Max-Q and peak heating are PEAKS, so they can only be
-## called after the fact: the log waits until the value has fallen a tenth
-## (a fifth, for heating) off its maximum and then reports the maximum, with
-## the T+ it actually happened at — the same moment a flight controller says
-## "we're through max-Q".
+## Milestones, each logged once. Max-Q and peak heating are logged once the value has
+## fallen 10% (20% for heating) off its peak, reporting the peak and its T+.
 func _milestones(t: Dictionary) -> void:
 	if phase == PHASE.PRELAUNCH or phase == PHASE.LANDED or phase == PHASE.DESTROYED: return
 	if env.atm == null: return
@@ -764,29 +663,21 @@ func _milestones(t: Dictionary) -> void:
 		log_event("Peak heating — %s W/cm² at %s km, %s km/s" % [U.fixed(_peak_heat_seen / 1e4, 1),
 			U.fixed(_peak_heat_alt / 1000.0, 1), U.fixed(_peak_heat_v / 1000.0, 2)])
 
-## JS `log(msg)`: append to the event log the HUD shows, capped at 120.
+## Append to the event log the HUD shows, capped at 120.
 func log_event(msg: String) -> void:
 	events.append({ "t": met, "msg": msg })
 	if events.size() > 120: events.pop_front()
 
-## A number as JS's `${x}` prints it (6 → "6", 4.5 → "4.5").
+## A number printed without a trailing .0 (6 → "6", 4.5 → "4.5").
 static func js_num(x: float) -> String:
 	if x == floor(x) and absf(x) < 1e15: return str(int(x))
 	return str(x)
 
 # Clocks
-## Advance the proper-time clocks.
-##
+## Advance the proper-time clocks:
 ##   dτ/dt = √(1 − v²/c² − 2Φ/c²)
-##
-## with Φ the (negative) Newtonian potential summed over every body. The two
-## ends of this are twelve orders of magnitude apart, so the DIFFERENCE
-## against a ground clock is accumulated through
-##
-##   √A − √B = (A − B)/(√A + √B)
-##
-## which never subtracts two nearly-equal numbers. At LEO that recovers GPS's
-## +38.7 µs/day; at 0.99c it accumulates years — from one expression.
+## with Φ the Newtonian potential summed over every body. The difference against a
+## ground clock uses √A − √B = (A − B)/(√A + √B), avoiding cancellation.
 func step_clocks(dt: float) -> void:
 	var c2 := Rocketry.C_MS * Rocketry.C_MS
 	# vessel: speed in the coordinate frame = parent's own speed + local v
@@ -824,26 +715,16 @@ func potential(rr: DVec3) -> float:
 
 # Stepping
 
-## Advance `dt` seconds. opts.rails = true asks for the analytic conic.
-##
-## RAILS is only legal unpowered, out of the atmosphere and off the ground —
-## the same interlocks KSP uses, and for the same reason: on rails the thrust
-## and drag terms are not evaluated at all, so allowing it while either is
-## acting silently deletes them. Entering and leaving rails re-seeds from the
-## analytic state, so there is no boundary to cross badly.
+## Advance `dt` seconds; opts.rails = true asks for the analytic conic. Rails only
+## unpowered, out of the air and off the ground, since thrust and drag aren't
+## evaluated there. Entering and leaving rails re-seeds from the analytic state.
 func step(dt: float, opts: Dictionary = {}) -> void:
 	if phase == PHASE.DESTROYED:
 		coord += dt
 		return
 	if phase == PHASE.LANDED and throttle <= 0.0:
-		# Sit on the surface, turning with it, rather than integrating a
-		# contact force that is exactly cancelling gravity.
-		# +Ω dt, not −. With ω along −Y the small-angle form of
-		# x' = x cos w − z sin w agrees with the ω × r velocity set below ONLY
-		# for the positive sign; written the intuitive way the position goes
-		# west while the velocity goes east and a landed vehicle walks off its
-		# own site at twice the surface speed. Same trap guidance.gd spin_site
-		# documents.
+		# Landed: sit on the surface, turning with it. +Ω dt, not −: with ω on −Y only the
+		# positive sign agrees with ω × r (see guidance.gd spin_site).
 		var w: float = env.rotRate * dt
 		var cw := cos(w)
 		var sw := sin(w)
@@ -858,13 +739,7 @@ func step(dt: float, opts: Dictionary = {}) -> void:
 
 	if opts.get("rails", false) and can_rail():
 		if Orbit.propagate(r, v, env.mu, dt, r, v):
-			# On rails nothing integrates the attitude, so a vehicle holding
-			# prograde through a coast used to arrive at apoapsis still pointing
-			# where it was when the warp began — a quarter-orbit coast turned the
-			# nose 90° off the burn, and a slow upper stage could not come round
-			# before the apoapsis passed, so it waited an orbit and did it again.
-			# The hold is cheap and continuous, so the rails keep it: whatever
-			# point_at asked for this frame, if there is authority to hold it.
+			# On rails, hold whatever point_at last asked for (nothing integrates attitude).
 			if _holding and authority(0.0).alpha > 0.0:
 				_dq.set_from_unit_vectors(forward(_b), _hold)
 				q.premultiply(_dq).normalize_in()
@@ -875,10 +750,7 @@ func step(dt: float, opts: Dictionary = {}) -> void:
 			check_soi()
 			return
 
-	# ---- RK4. The substep is bounded by how fast the state is changing: in
-	# thick air with the engines lit that is a few hundredths of a second, in
-	# orbit it can be tens. Choosing it from the acceleration rather than
-	# fixing it is what lets one integrator cover both.
+	# ---- RK4, with the substep bounded by how fast the state is changing.
 	var remaining := dt
 	var guard := 0
 	var s := {}
@@ -893,13 +765,8 @@ func step(dt: float, opts: Dictionary = {}) -> void:
 	check_soi()
 	contact(dt)
 
-## Conditional separations that are not staging events — the fairing, most
-## obviously. Its real criterion is not an altitude but a HEAT FLUX: the
-## fairing comes off once free-molecular heating on the bare payload drops
-## below about 1135 W/m², which is the number the industry quotes and which
-## happens somewhere around 110 km depending entirely on how the vehicle flew.
-## Keying it to the flux rather than to an altitude means a lofted trajectory
-## really does shed its fairing earlier.
+## Conditional separations. The fairing goes when free-molecular heating drops below
+## ~1135 W/m² (usually near 110 km), so a lofted trajectory sheds it earlier.
 func auto_jettison() -> void:
 	for st in stages:
 		var j = st.spec.get("jettisonAt")
@@ -914,9 +781,7 @@ func auto_jettison() -> void:
 func step_bound() -> float:
 	var alt := altitude()
 	var atm = env.atm
-	# In the atmosphere the density scale height is what limits it: never move
-	# more than a fraction of a scale height in one step, or the drag is
-	# evaluated at an altitude the vehicle has already left.
+	# In the air, move at most a fraction of a scale height per step.
 	if atm != null and alt < atm.top:
 		var H := Rocketry.scale_height(atm, maxf(alt, 0.0))
 		var vv := maxf(v.length(), 1.0)
@@ -946,9 +811,7 @@ func rk4(h: float, s: Dictionary) -> void:
 	v.add_scaled_in(_k_a1, h / 6.0).add_scaled_in(_k_a2, h / 3.0) \
 		.add_scaled_in(_k_a3, h / 3.0).add_scaled_in(_k_a4, h / 6.0)
 
-	# Propellant is spent on the same step, from the flow the first evaluation
-	# reported — the flow is constant at a given throttle, so this is exact
-	# rather than a first-order approximation.
+	# Propellant is spent on the same step at the reported flow (exact at fixed throttle).
 	if s.get("mdot", 0.0) > 0.0: burn(s.mdot * h)
 	spin(h)
 	heat_load += s.get("heat", 0.0) * h
@@ -968,15 +831,8 @@ func _stage_mdot(st) -> float:
 		m += Rocketry.engine_output(s.vacEngine, s.vacCount, 0.0, throttle, burned).mdot
 	return m
 
-## Draw `kg` from the live stages, EACH IN PROPORTION TO ITS OWN ENGINES' FLOW,
-## and auto-stage when a stage runs dry if the flight plan says to.
-##
-## It used to draw bottom first, which is right while one stage burns and
-## wrong the moment two do: the Shuttle's main engines drank the solid
-## boosters' propellant — 180 t of it by separation — so the solids burned
-## out early on a sixth less impulse and the external tank climbed to staging
-## still carrying the 180 t it should have spent. With one stage lit the share
-## is exactly 1 and nothing changes.
+## Draw `kg` from the live stages, each in proportion to its own engines' flow, and
+## auto-stage when one runs dry if the plan says to.
 func burn(kg: float) -> void:
 	var lst := live_stages()
 	var shares: Array[float] = []
@@ -1005,24 +861,10 @@ func can_rail() -> bool:
 	if chute_open != null: return false
 	return true
 
-## A body's own primary — the body it is gravitationally BOUND to.
-##
-## The obvious test, "whose pull is strongest here", is wrong, and famously so:
-## the Sun pulls the Moon about twice as hard as the Earth does. The Moon
-## orbits the Earth anyway, because what decides that is not the pull but the
-## TIDAL difference — whether the Moon sits inside the Earth's Hill sphere,
-##
-##     r_Hill = d·(m/3M)^⅓ ,
-##
-## which for the Earth is 1.5 million km against the Moon's 384 000. So the
-## primary is the smallest Hill sphere the body is inside; failing all of
-## them, the system's dominant mass.
-##
-## Getting this wrong is not cosmetic. It puts the Moon's sphere of influence
-## at 129 000 km instead of 66 000 with the Earth's *inside* it, so a vessel in
-## low lunar orbit is simultaneously inside both and the handover oscillates
-## every frame; and it plans a translunar injection as a heliocentric transfer
-## between two nearly identical orbits, costing twenty metres per second.
+## A body's primary: the smallest Hill sphere it is inside, r_Hill = d·(m/3M)^⅓,
+## else the dominant mass. Not "strongest pull": the Sun pulls the Moon twice as hard
+## as the Earth does. Getting it wrong puts the Moon's SOI at 129 000 km around an
+## Earth inside it, and the handover oscillates.
 func primary_of(body: Body):
 	var root = null
 	for b in bodies:
@@ -1045,12 +887,8 @@ func soi_of(body: Body) -> float:
 	if p == null: return INF
 	return Orbit.sphere_of_influence(body.pos.distance_to(p.pos) * Rocketry.AU_M, body.mass, p.mass)
 
-## Has the vessel left the parent's sphere of influence, or entered a smaller
-## one nested inside it? This is the patched-conic handover, and it is where
-## the HUD's numbers jump — because the conic they describe genuinely changed.
-##
-## Entering picks the SMALLEST enclosing SOI, so a vessel in low lunar orbit
-## is handed to the Moon and not to the Earth it is also technically inside.
+## Patched-conic handover: left the parent's SOI, or entered a smaller nested one
+## (the smallest enclosing wins).
 func check_soi() -> void:
 	if bodies.is_empty(): return
 	var R := r.length()
@@ -1069,19 +907,14 @@ func check_soi() -> void:
 	var own := soi_of(parent)
 	if R > own:
 		var up = primary_of(parent)
-		# Only climb out if the parent we would climb to is not itself a smaller,
-		# closer option — otherwise the two rules can hand the vessel back and
-		# forth across the same boundary.
+		# Only climb out if the parent above isn't itself a smaller, closer option.
 		if up != null and not (best != null and best_soi < own):
 			rebase(up)
 			return
 	if best != null and best_soi < own:
 		rebase(best)
 
-## Move the vessel's frame to a new parent, preserving the absolute state.
-## Position and velocity are both offset — forgetting the velocity offset is
-## the classic patched-conic bug and it puts the vessel on a wildly wrong
-## conic the instant it crosses a boundary.
+## Rebase onto a new parent, offsetting position and velocity.
 func rebase(body: Body) -> void:
 	if body == parent: return
 	_a.sub_vectors(parent.pos, body.pos).scale_in(Rocketry.AU_M)
@@ -1091,25 +924,19 @@ func rebase(body: Body) -> void:
 	set_parent(body, bodies)
 	log_event("Sphere of influence — %s → %s" % [old, body.name])
 
-## Ground contact. A landing is a landing if the legs are down and the
-## vertical speed is inside what the gear can take; otherwise it is a crash,
-## and the threshold is the real one (Apollo's gear was rated to 3 m/s).
+## Ground contact: a landing if the legs are down and vertical speed is within the
+## gear rating, otherwise a crash.
 func contact(_dt: float) -> void:
 	var alt := altitude()
-	# Bolted to the mount. This has to come before the airborne branch: the
-	# integrator moves the vehicle a few centimetres before contact() ever
-	# runs, and an altitude test alone would call that liftoff on the first
-	# step after ignition — which is precisely the moment the hold-downs exist
-	# to bridge.
+	# Held down on the mount: before the airborne branch, since the integrator moves
+	# the vehicle a few cm before contact() runs.
 	if phase == PHASE.PRELAUNCH and held_down:
 		DQuat.set_len(r, env.radius)
 		_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 		v.copy_from(_c)
 		return
 	if alt > 0.0:
-		# Liftoff is detected here rather than in the pad branch below, because a
-		# vehicle with a TWR of 1.4 is already off the ground by the end of its
-		# first step and the pad branch never runs again.
+		# Liftoff is detected here: at TWR 1.4 the vehicle is off the pad in one step.
 		if phase == PHASE.PRELAUNCH:
 			phase = PHASE.ASCENT; t0 = met; log_event("Liftoff")
 		return
@@ -1122,28 +949,20 @@ func contact(_dt: float) -> void:
 		var w: float = mass * env.gSurf
 		var s := {}
 		accel(r, v, _b, s)
-		# Hold-downs. A launch vehicle is bolted to its mount and stays there
-		# while the engines come up, so that a failure to reach thrust is a
-		# scrubbed count rather than a vehicle that lifts a metre and falls back.
-		# Releasing on thrust alone made ignition and liftoff the same instant,
-		# which is the one moment of a launch that is worth watching happen.
+		# Hold-downs release once thrust exceeds weight, so a failed spin-up is a scrub.
 		if s.thrust > w and not held_down:
 			phase = PHASE.ASCENT; log_event("Liftoff"); t0 = met
 		else:
 			_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r); v.copy_from(_c)
 		return
-	# Gear rating is a property of the GEAR, not a global constant. Apollo's
-	# legs were qualified to 3 m/s of vertical touchdown; a Falcon 9's are
-	# built for about twice that because a hoverslam has no margin to spare.
+	# Gear rating is per vehicle (Apollo 3 m/s; Falcon 9 about twice that).
 	var geared = null
 	for s2 in stages:
 		if s2.attached and s2.spec.get("legs", 0):
 			geared = s2; break
 	var legs := geared != null
 	var rate: Dictionary = geared.spec.gear if (geared != null and geared.spec.get("gear") != null) else { "vVert": 3.0, "vHoriz": 1.2 }
-	# Lateral speed is measured against the GROUND, not against the stars. A
-	# landing gear is dragged sideways by how fast the pad is moving under it,
-	# and at Mars's equator that is 240 m/s of difference between the two.
+	# Lateral speed against the ground (240 m/s of difference at Mars's equator).
 	var v_horiz := _b.copy_from(_vrel).add_scaled_in(up, -_vrel.dot(up)).length()
 	var limit_v: float = rate.vVert if legs else 1.0
 	var limit_h: float = rate.vHoriz if legs else 0.5
@@ -1174,12 +993,7 @@ func sample(dt: float, s = null) -> Dictionary:
 	var a_net: float = absf(s.get("thrust", 0.0) - s.get("drag", 0.0)) / m
 	var fwd := forward(_e)
 	var va := _vrel.length()
-	# Angle of attack is how far the airstream is OFF THE AXIS, which is what
-	# the q·α structural limit is about — not which end is forward. Every entry
-	# vehicle ever flown flies backwards on purpose: an Apollo command module,
-	# a Mars aeroshell and a returning booster all put their axis along the
-	# airstream and their heat shield into it. Measured signed, all three read
-	# α = 180° and tear themselves apart the instant they enter the atmosphere.
+	# Angle of attack is unsigned: entry vehicles fly heat shield first, α ≈ 180° signed.
 	var alpha := acos(DQuat.jclamp(absf(fwd.dot(_vrel)) / va, 0.0, 1.0)) if va > 1.0 else 0.0
 	var el := Orbit.elements(r, v, env.mu)
 	if s.get("q", 0.0) > max_q:
@@ -1187,11 +1001,7 @@ func sample(dt: float, s = null) -> Dictionary:
 	if s.get("mach", 0.0) > max_mach: max_mach = s.mach
 	if a_net / Rocketry.G0 > max_g: max_g = a_net / Rocketry.G0
 	if launch_site != null:
-		# Carry the pad round with the body before measuring against it. Stored
-		# as a fixed clone it is the pad's position at T-0, and the pad itself
-		# travels 465 m/s at Earth's equator — 232 km of pure bookkeeping error
-		# over a 500 s ascent. ω × r, the same expression place_on_pad used to
-		# give the vehicle its eastward motion.
+		# Carry the pad round with the body (ω × r) before measuring against it.
 		var site_r: DVec3 = launch_site.r
 		if dt > 0.0:
 			_a.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_a, site_r)

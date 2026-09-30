@@ -1,57 +1,27 @@
 class_name LaunchSite
 extends RefCounted
 
-# THE LAUNCH COMPLEX — port of sim/flight/launchsite.js.
-# A rocket rising over an empty plain does not look like it is rising. There is
-# nothing in the frame whose size is known, so there is no parallax to read and
-# no scale to read it against — the vehicle appears to sit still and then to be
-# somewhere else. Every launch broadcast ever made solves this the same way: it
-# puts a tower of known height next to the vehicle and lets you watch the
-# vehicle go past it.
+# The launch complex at real dimensions. The tower is the one object of known
+# height next to a climbing vehicle; without it the first seconds read as a
+# vehicle sitting still.
 #
-# So this is not decoration. The tower is the instrument you read the first
-# fifteen seconds of a launch on, which is exactly the part of the flight where
-# the vehicle is moving slowly enough that nothing else in view is changing.
+#   LC-39A hardstand   390 × 325 m octagon, raised 12.8 m above grade
+#   flame trench       137 m long, 18 m wide, 12.2 m deep, wedge deflector
+#   Mobile Launcher    49.4 × 41.1 m, 7.6 m deep, one 13.7 m square opening
+#   LUT (Saturn V)     115.8 m to the crane, 12 m square, nine swing arms
+#   FSS (Shuttle)      75.3 m, vent arm and "beanie cap", rotating service structure
+#   Falcon 9 TE        ~63 m strongback, retracts at T−4 min, falls back at liftoff
+#   Starship tower     146 m, two catch arms
+#   lightning masts    three on a catenary (181 m at 39B)
+#   water tower        88 m, 1.135 Ml for the sound-suppression deluge
 #
-# Everything here is at real dimensions, from the pads these vehicles actually
-# flew from:
+# Swing arms carry live umbilicals and retract on ignition; the deluge starts
+# before ignition to damp acoustic energy.
 #
-#   LC-39A hardstand      390 × 325 m octagon, raised 12.8 m above grade
-#   flame trench          137 m long, 18 m wide, 12.2 m deep, split by a
-#                         wedge deflector under the vehicle
-#   Mobile Launcher       49.4 × 41.1 m platform, 7.6 m deep, one 13.7 m
-#                         square exhaust opening
-#   LUT (Saturn V)        115.8 m to the top of the hammerhead crane, 12 m
-#                         square in plan, nine swing arms
-#   FSS (Shuttle)         75.3 m, plus the vent arm and its "beanie cap" over
-#                         the ET, and a rotating service structure
-#   Falcon 9 TE           ~63 m strongback, retracted a few degrees at T−4 min
-#                         and dropped away at liftoff
-#   Starship tower        146 m, two catch arms
-#   lightning masts       three, on a catenary; the 39B masts are 181 m
-#   water tower           88 m, 1.135 Ml, for the sound suppression deluge
-#
-# The moving parts move for the reasons they really do: swing arms carry
-# propellant and power and cannot be released until the engines are up, so they
-# retract on ignition; the strongback is holding the vehicle vertical and falls
-# back as it leaves; the deluge starts before ignition, because it is there to
-# stop the ACOUSTIC energy reflecting off the deck and shaking the payload
-# apart, not to cool anything.
-#
-# PORT NOTES
-#   · The four common Earth launchpads can load authored Blender meshes from
-#     assets/pads/. Missing meshes fall back to the original geometry below.
-#   · Fallback geometry goes through CraftModel's three-exact primitives (_box,
-#     _cylinder, _circle, _sphere, _to_mesh) so the complex has three's
-#     tessellation and winding; the strut soup and the crawlerway ribbon are
-#     written in three's counter-clockwise order and swapped once by _to_mesh.
-#   · MeshStandardMaterial → StandardMaterial3D with three's BRDF (Lambert
-#     diffuse, Schlick-GGX, F0 0.04), front-sided as three's default is.
-#   · decal()'s polygonOffset → shaders/flight/decal.gdshader (see there).
-#   · THREE.Points for the deluge → a PRIMITIVE_POINTS ArrayMesh rebuilt each
-#     frame from the live particles (shaders/flight/steam.gdshader).
-#   · Every node's Euler order is XYZ, three's, so rotation.y/z mean what the
-#     JS wrote.
+# The four Earth pads load authored meshes from assets/pads/, falling back to the
+# geometry here, built with CraftModel's three-exact primitives (CCW, swapped once
+# in _to_mesh). The deluge is a PRIMITIVE_POINTS mesh rebuilt each frame
+# (steam.gdshader). Euler order is XYZ.
 
 static var _mats := {}
 ## Diagnostic switch for checking that a fresh clone still renders its pads.
@@ -88,10 +58,8 @@ static func SCRUB() -> StandardMaterial3D:
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
-# A DECAL IS NOT A SLAB LIFTED A FEW CENTIMETRES — see decal.gdshader. The
-# materials are separate rather than flagged in place because the same
-# concrete is structural elsewhere: offsetting the hardstand itself would just
-# move the fight rather than settle it.
+# Decals are separate materials (see decal.gdshader), since the same concrete is
+# structural elsewhere.
 static var _decals := {}
 static func decal(material: StandardMaterial3D, order: int = 1) -> ShaderMaterial:
 	var key := "%s:%d" % [material.resource_name, order]
@@ -117,10 +85,7 @@ static func _mesh(g: CraftModel.Geo, m: Material) -> MeshInstance3D:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if m is StandardMaterial3D else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
-# A merged box soup. A lattice tower is a few thousand struts and every one of
-# them as its own mesh would cost more draw calls than the rest of the sim put
-# together, so they are baked into one mesh up front. Nothing in a tower moves
-# relative to the rest of the tower, so there is nothing lost.
+# A merged box soup: a lattice tower's thousands of struts as one mesh.
 class Struts extends RefCounted:
 	var g := CraftModel.Geo.new()
 	var n := 0
@@ -149,11 +114,8 @@ class Struts extends RefCounted:
 			g.idx.append_array([base + f[0], base + f[1], base + f[2], base + f[0], base + f[2], base + f[3]])
 		n += 8
 
-## A square lattice tower: four legs, horizontal ties at `bay` intervals, and a
-## pair of diagonals in every bay of every face. That is what a real umbilical
-## tower is — the diagonals are what carries the wind load, and they are also
-## the only reason a lattice reads as a lattice at a distance rather than as
-## four lines.
+## A square lattice tower: four legs, ties every `bay`, and diagonals in every bay
+## of every face (they carry the wind load, and make it read as a lattice).
 static func lattice_tower(H: float, side: float, opts: Dictionary = {}) -> MeshInstance3D:
 	var bay: float = opts.get("bay", 6.0)
 	var leg: float = opts.get("leg", 0.55)
@@ -222,26 +184,13 @@ static func _ring(inner: float, outer: float, seg: int) -> CraftModel.Geo:
 		g.idx.append_array([a, b, d, b, c, d])
 	return g
 
-# THE VEHICLE'S SKIN, MEASURED — NOT ASSUMED.
-# Everything that reaches out of a tower toward the vehicle — a swing arm, a
-# white room, the GOX vent hood, an umbilical plate — is only right if it stops
-# at the skin. Written as a fraction of the stage diameter it was wrong in
-# every place the vehicle is not one cylinder: the Saturn V's arms ran from the
-# tower to within a metre of the AXIS, so all nine passed straight through the
-# S-IC, the S-II and the command module; the Shuttle's ran through the tower-
-# side booster and the tank; the beanie cap hung beside the ET's ogive with a
-# third of its hood inside the tank.
-#
-# So the complex asks the vehicle. This is the craft's own triangle soup (the
-# authored mesh when it has loaded, the procedural build otherwise), bucketed
-# by height, and a query is a LANE: a rectangle in (height, across) seen from
-# some azimuth. Every triangle in the lane is clipped to it and the one that
-# comes nearest the approaching structure wins. Exact, not sampled — a ray
-# grid misses a fin that falls between two rays, and a clip cannot.
-#
-# Coordinates are the craft's own: y = 0 on the pad deck, the stack axis at
-# x = z = 0. The site is yawed to the craft's roll (spaceflight.gd), so the
-# craft's axes ARE the site's.
+# THE VEHICLE'S SKIN, MEASURED. Anything that reaches toward the vehicle (swing
+# arm, white room, vent hood, umbilical plate) stops at the skin. This is the
+# craft's own triangles (authored or procedural), bucketed by height; a query is a
+# lane, a rectangle in (height, across) from some azimuth. Triangles in the lane
+# are clipped to it, so a fin between samples can't be missed. Coordinates are the
+# craft's: y = 0 on the deck, stack axis at x = z = 0; the site is yawed to the
+# craft's roll, so the axes coincide.
 class Envelope extends RefCounted:
 	const BIN := 1.0
 	var tri := PackedVector3Array()      # three vertices per triangle
@@ -291,10 +240,9 @@ class Envelope extends RefCounted:
 		for c in n.get_children():
 			if c is Node3D: _collect(c, xf * (c as Node3D).transform)
 
-	## How far from the stack axis the skin comes, toward azimuth `az`, inside
-	## the lane y ∈ [ya, yb], across ∈ [za, zb]. `az` is the direction the
-	## structure approaches FROM (π: from −x, where the towers stand); `across`
-	## is measured to the left of that approach. −INF if nothing is in the lane.
+	## How far from the axis the skin comes toward azimuth `az`, inside y ∈ [ya, yb],
+	## across ∈ [za, zb]. `az` is where the structure approaches FROM (π: from −x);
+	## `across` is to the left of that approach. −INF if the lane is empty.
 	func standoff(ya: float, yb: float, za: float, zb: float, az: float = PI) -> float:
 		if bins.is_empty(): return -INF
 		_query += 1
@@ -355,13 +303,8 @@ class Envelope extends RefCounted:
 			if p.x * p.x + p.z * p.z <= r * r: top = maxf(top, p.y)
 		return top
 
-# How far the pad deck stands above the surrounding terrain. LC-39A's hardstand
-# is a real mound: 390 x 325 m of octagon raised 12.8 m out of the marsh, with
-# flanks sloping down to grade. That number is load-bearing for a reason that
-# has nothing to do with the pad — it is the ONLY thing keeping the mound's top
-# face off the ground patch. Drawn at the same height the two are exactly
-# coplanar over a hundred-metre octagon, and every frame the depth test picks a
-# different winner across it.
+# Deck height above terrain: LC-39A's hardstand is a 12.8 m mound. This also keeps
+# the mound's top off the ground patch; coplanar, they z-fight.
 const PAD_RISE := 12.8
 
 ## The raised hardstand: an octagonal mound with sloped flanks. Its top face is
@@ -372,14 +315,8 @@ static func hardstand(across: float) -> MeshInstance3D:
 	m.rotation.y = PI / 8.0
 	return m
 
-## THE CRAWLERWAY, which has to be a RAMP.
-##
-## A 1400 m road laid flat at deck height is fine for the hundred metres it
-## spends on the mound and then hangs 12.8 m in the air over the plain for the
-## other 1300. The real one climbs the flank — that five-percent grade is the
-## steepest thing a loaded crawler-transporter is allowed to take, and it is why
-## the ramp is as long as it is. Stations in (z, y) along the run, widened into
-## a ribbon.
+## THE CRAWLERWAY is a ramp up the mound's flank (a 5% grade, the most a loaded
+## crawler may climb). Stations in (z, y) along the run, widened into a ribbon.
 static func crawlerway(top_r: float, width: float = 40.0, len: float = 1400.0) -> MeshInstance3D:
 	var toe := top_r + PAD_RISE * 2.6                 # where the flank meets grade
 	var stations := [[0.0, 0.0], [-top_r, 0.0], [-toe, -PAD_RISE], [-len, -PAD_RISE]]
@@ -389,10 +326,7 @@ static func crawlerway(top_r: float, width: float = 40.0, len: float = 1400.0) -
 		g.pos.append(Vector3(-width / 2.0, y, z)); g.pos.append(Vector3(width / 2.0, y, z))
 		g.nrm.append(Vector3.UP); g.nrm.append(Vector3.UP)
 		if i > 0:
-			# Wound COUNTER-CLOCKWISE SEEN FROM ABOVE (three's front face). The
-			# stations run toward decreasing z, so the obvious order puts the
-			# front face underneath the road and culls it from every view that
-			# looks down on the pad, which is all of them.
+			# Counter-clockwise seen from above; the stations run toward −z.
 			var b := (i - 1) * 2
 			g.idx.append_array([b, b + 1, b + 2, b + 1, b + 3, b + 2])
 	return _mesh(g, decal(DARKCON()))
@@ -415,10 +349,7 @@ static func crawlerway_marks(top_r: float, width: float = 40.0, len: float = 140
 			g.idx.append_array([a, a + 1, a + 2, a + 1, a + 3, a + 2])
 	return _mesh(g, decal(SAFETY(), 3))
 
-## The flame trench and its deflector. The trench runs under the vehicle and out
-## both ways; the deflector is a wedge directly beneath the engines that turns
-## the exhaust through 90° and sends it out either end. Without it the plume
-## reflects straight back up into the vehicle it just came out of.
+## The flame trench and the wedge deflector that turns the exhaust 90° out both ends.
 static func flame_trench(len: float, wide: float, deep: float) -> Node3D:
 	var g := _node()
 	var wall := 2.5
@@ -475,10 +406,8 @@ static func lightning_masts(R: float, H: float) -> Node3D:
 	var line := MeshInstance3D.new()
 	line.mesh = lm
 	line.material_override = mat
-	# A 2 cm conductor 100 m up casts no shadow worth the name: the sun's half
-	# degree smears it over most of a metre of penumbra, and the eye sees
-	# nothing. Rasterized into the shadow map it cast a hard black stripe
-	# across the hardstand a texel wide, crawling as the cascades moved.
+	# No shadow: a 2 cm conductor 100 m up casts only penumbra, but the shadow map drew
+	# a crawling texel-wide stripe.
 	line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	g.add_child(line)
 	return g
@@ -496,10 +425,7 @@ static func water_tower(H: float = 88.0) -> Node3D:
 	g.add_child(cap)
 	return g
 
-## Expansion joints give the concrete apron a human-scale rhythm. They are
-## drawn, not built: one disc over the hardstand's top whose shader multiplies
-## anti-aliased saw-cut lines into the concrete (ground_mark.gdshader says why
-## the half-buried tubes they used to be flickered).
+## Expansion joints, drawn by ground_mark.gdshader on one disc over the hardstand.
 static func hardstand_joints(radius: float) -> MeshInstance3D:
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/flight/ground_mark.gdshader")
@@ -522,9 +448,7 @@ static func scorch_apron(radius: float) -> MeshInstance3D:
 	disc.rotation.x = -PI / 2.0
 	return disc
 
-## Equipment sits outside the launch mount's blast area, not scattered across
-## the vehicle's footprint. Vents, cabinets and low pipe runs break up the
-## otherwise empty concrete while keeping the scale of the real hardstand.
+## Equipment outside the launch mount's blast area.
 static func deck_services(radius: float) -> Node3D:
 	var g := _node()
 	for side in [-1.0, 1.0]:
@@ -551,19 +475,14 @@ static func deck_services(radius: float) -> Node3D:
 		g.add_child(box(1.6, 1.1, 1.6, GREY(), pipe_end.x, 0.0, pipe_end.z))
 	return g
 
-## Ground support: cryogenic storage, pump houses, piping and perimeter lights.
-## The KSC pads do have storage tanks beyond the mound; these simplified forms
-## keep that relationship and scale without pretending to be a site survey.
+## Ground support: cryogenic storage, pump houses, piping and lights, simplified.
 static func support_facilities(radius: float, pad_style: String, lamps_only := false) -> Node3D:
 	var g := _node()
 	if lamps_only:
 		_mound_lamps(g, radius)
 		return g
 	var farm := _node()
-	# Both of these stand at GRADE, so they have to be clear of the mound's
-	# flank (it runs out to radius + 2.6 × PAD_RISE): placed inside it, the
-	# slope buried the service building to its roof, which lay on the concrete
-	# as a white triangle.
+	# At grade, so clear of the mound's flank (radius + 2.6 × PAD_RISE).
 	farm.position = Vector3(-radius - 95.0, 0.0, -radius * 0.35)
 	g.add_child(farm)
 	farm.add_child(box(90.0, 0.24, 56.0, DARKCON()))
@@ -615,11 +534,8 @@ static func _mound_lamps(g: Node3D, radius: float) -> void:
 				g.add_child(box(1.8, 0.75, 0.6, WHITE(), x + side * 1.0, PAD_RISE + 14.7, z))
 
 # THE REST OF THE COMPLEX — what a launch site is when it is not the pad.
-## Many small parts, one draw call per material: every box, drum and sphere
-## added is transformed into a shared buffer for its material and emitted as
-## one mesh at the end. A complex's worth of buildings, fence posts and bottle
-## racks is several hundred pieces; as separate nodes it was that many draw
-## calls a frame for things that never move relative to each other.
+## One draw call per material: parts go into a shared buffer per material and are
+## emitted as one mesh.
 class Batch extends RefCounted:
 	var geos := {}          # Material → CraftModel.Geo
 	var shadowless := {}    # Material → true: too thin to cast a shadow worth having
@@ -663,9 +579,7 @@ class Batch extends RefCounted:
 			if shadowless.has(m): mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			parent.add_child(mi)
 
-## An office or operations block: a box with bands of glazing on its long
-## faces (proud of the wall by a few centimetres, so they never fight it),
-## roof plant, and a parapet.
+## An office block: glazing bands a few cm proud of the wall, roof plant, parapet.
 static func _office(B: Batch, c: Vector2, w: float, d: float, floors: int, yaw := 0.0) -> void:
 	var h := 3.9 * float(floors) + 1.2
 	var rot := Basis(Vector3.UP, yaw)
@@ -733,18 +647,11 @@ static func _car_park(g: Node3D, B: Batch, c: Vector2, rows: int, per_row: int, 
 	cars.multimesh = mm
 	g.add_child(cars)
 
-## THE GROUNDS. What surrounds a pad on every real complex, laid out from the
-## site plans of LC-39A/B and SLC-40 and from Starbase's: a perimeter road and
-## fence ringing the pad at a few hundred metres; the two cryogen farms on
-## opposite sides (LOX one way, liquid hydrogen the other, as far apart as the
-## site allows) with the hydrogen's burn pond and flare stack; high-pressure
-## gas bottle racks; an electrical substation; an operations building and its
-## car park; floodlight towers; the deluge water's retention pond; and, where
-## the vehicle is integrated horizontally (Falcon), the hangar it is rolled
-## out of. None of it is to survey accuracy — positions keep the real
-## relationships (distance from the pad, which side of the crawlerway) — but
-## all of it is at real size, which is the point: a 30 m hangar and a car
-## are the scale the eye reads a 110 m rocket against.
+## THE GROUNDS around a pad, from the LC-39A/B, SLC-40 and Starbase site plans:
+## perimeter road and fence, LOX and LH2 farms on opposite sides (with the hydrogen
+## burn pond and flare), gas bottle racks, substation, operations building and car
+## park, floodlights, retention pond, and Falcon's integration hangar. Real sizes and
+## real relationships, not survey positions.
 static func complex_grounds(radius: float, style: String, authored := false) -> Array:
 	var g := _node()
 	g.name = "grounds"
@@ -785,9 +692,8 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 	fm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	g.add_child(fm)
 
-	# ---- the second cryogen farm, opposite the first: liquid hydrogen on
-	# the KSC pads (a 3 200 m³ sphere), with its vaporizers, and the burn pond
-	# where boil-off is flared
+	# ---- the second cryogen farm: LH2 on the KSC pads (a 3200 m³ sphere), vaporizers
+	# and the burn pond.
 	var h2 := Vector2(toe + 95.0, radius * 0.15)
 	if authored:
 		_grounds_common(g, B, roads, radius, Rp, Rf, toe, true)
@@ -890,9 +796,8 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 
 	return _grounds_finish(g, B, roads)
 
-## What every complex has whichever buildings stand on it: the operations
-## building's car park and its roads, and the deluge's retention pond. The
-## office and the gatehouse are procedural only when the library is missing.
+## Common to every complex: car park, roads, retention pond. Office and gatehouse
+## are procedural only when the library is missing.
 static func _grounds_common(g: Node3D, B: Batch, roads: Batch, radius: float, Rp: float, Rf: float, toe: float, authored: bool) -> void:
 	# ---- operations building and its car park, outside the fence by the
 	# gate where the crawlerway comes in
@@ -931,13 +836,9 @@ static func _grounds_finish(g: Node3D, B: Batch, roads: Batch) -> Array:
 	B.build(g)
 	return [g, B.keep_out]
 
-# THE AUTHORED GROUNDS — model_sources/blender/facilities.py builds one library,
-# assets/pads/facilities.glb, of `stage_fac_<name>` buildings drawn from real
-# ones (the LC-39 cryogen spheres and water tower, SpaceX's integration hangar,
-# Starbase's tank farm and subcoolers, and the gas farms, substations, offices,
-# gatehouses, floodlights and camera sites every complex has). The PLAN below
-# says which stand where; the library says what they look like. Without the
-# build, complex_grounds' procedural blocks stand in.
+# THE AUTHORED GROUNDS: model_sources/blender/facilities.py builds
+# assets/pads/facilities.glb, one `stage_fac_<name>` per building. site_plan says
+# where each stands; without the library, complex_grounds' blocks stand in.
 static func _facility_library() -> Node3D:
 	if not use_authored_pads: return null
 	var path := "res://assets/pads/facilities.glb"
@@ -959,15 +860,11 @@ static func _face_pad(p: Vector2, z := false) -> float:
 static func _at(p: Vector2, yaw: float, local: Vector2) -> Vector2:
 	return p + Vector2(local.x * cos(yaw) + local.y * sin(yaw), -local.x * sin(yaw) + local.y * cos(yaw))
 
-## [name, position, yaw, half-extent, service road?] for one complex, in the
-## plain's frame: pad at the origin, the crawlerway toward −z, "north" +z.
-## Laid out from the site plans: at LC-39 the LOX sphere is at the pad's NW
-## corner and the LH2 sphere at its NE, the water tower about 300 m north-east,
-## the hypergols at the SW and SE corners; SpaceX's hangar stands at the foot
-## of the ramp outside the fence; Starbase's tank farm is a row beside the
-## mount with its subcoolers alongside. Everything is kept clear of the
-## lightning masts (30°, 150° and 270° at `mast_r`), the flame trench's axis
-## (±x) and the crawlerway (−z).
+## [name, position, yaw, half-extent, service road?] for one complex. Pad at the
+## origin, crawlerway toward −z, north +z. From the site plans: at LC-39 LOX at the
+## NW corner, LH2 at the NE, water tower ~300 m NE, hypergols SW and SE; SpaceX's
+## hangar at the foot of the ramp; Starbase's tank farm beside the mount. Clear of
+## the masts (30°, 150°, 270° at `mast_r`), the trench axis (±x) and crawlerway (−z).
 static func site_plan(r: float, style: String, mast_r: float) -> Array:
 	var toe := r + PAD_RISE * 2.6 + 8.0
 	var Rp := r + 300.0
@@ -1062,9 +959,8 @@ static func _set_range(n: Node, end: float) -> void:
 		(n as GeometryInstance3D).visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	for c in n.get_children(): _set_range(c, end)
 
-## Stand the plan's facilities on the plain, each a copy of its library node,
-## with a service road out to the perimeter where the plan asks for one.
-## Returns their footprints, for the scrub.
+## Stand the plan's facilities on the plain, with service roads where asked.
+## Returns their footprints for the scrub.
 static func place_facilities(plain: Node3D, lib: Node3D, plan: Array, Rp: float) -> Array:
 	var g := _node()
 	g.name = "facilities"
@@ -1080,9 +976,7 @@ static func place_facilities(plain: Node3D, lib: Node3D, plan: Array, Rp: float)
 		n.rotation = Vector3(0.0, float(item[2]), 0.0)
 		g.add_child(n)
 		var half: float = item[3]
-		# Past a few kilometres a gatehouse is under a pixel and still costs
-		# its draw calls; the camera leaves the pad at a kilometre a second.
-		# Big things (a tank farm, the hangar) carry further than small ones.
+		# Visibility range grows with size.
 		_set_range(n, 2500.0 + maxf(half, 4.0) * 80.0)
 		if half > 0.0: keep_out.append(Rect2(p.x - half - 4.0, p.y - half - 4.0, 2.0 * half + 8.0, 2.0 * half + 8.0))
 		if item[4]:
@@ -1150,10 +1044,8 @@ static func coastal_scrub(radius: float, keep_out: Array = []) -> MultiMeshInsta
 # THE COMPLEX
 const STYLES := {"saturnv": "lut", "shuttle": "fss", "falcon9": "strongback", "starship": "chopsticks"}
 
-## The mobile launchers' exhaust openings, [centre x, centre z, width x, depth z]
-## in metres — the same table as model_sources/blender/launchpads.py, which says
-## where the numbers come from. The Shuttle's platform has three, and a single
-## hole on the axis stood both boosters' nozzles on solid deck.
+## Mobile launcher exhaust openings [centre x, centre z, width x, depth z] in m,
+## matching model_sources/blender/launchpads.py. The Shuttle's has three.
 const DECK_HOLES := {
 	"lut": [[0.0, 0.0, 13.7, 13.7]],
 	"fss": [[-6.35, 0.0, 6.1, 12.8], [6.35, 0.0, 6.1, 12.8], [0.0, 7.4, 10.4, 9.4]],
@@ -1210,17 +1102,12 @@ var s_vel := PackedVector3Array()
 var s_age := PackedFloat32Array()
 var s_next := 0
 
-## Build a launch complex sized to a vehicle.
-##
-## @param vehicle  the entry from sim/flight/vehicles.gd
-## @param height   the vehicle's real stacked height, m
-## @param env      Rocketry.flight_env() for the body — only its gravity
-##                 matters here, and only for how far the deluge drifts
-##
-## @param craft    the vehicle's built root (CraftModel.Craft.group), measured
-##                 for clearances in its own frame. Null keeps the old
-##                 diameter-based reach, which clears nothing that is not a
-##                 single cylinder.
+## Build a launch complex for a vehicle.
+##   vehicle  the sim/flight/vehicles.gd entry
+##   height   real stacked height, m
+##   env      Rocketry.flight_env(); only its gravity matters (deluge drift)
+##   craft    the built root, measured for clearances; null falls back to the
+##            diameter-based reach
 static func create_launch_site(vehicle: Dictionary, height: float, env = null, craft: Node3D = null) -> LaunchSite:
 	return LaunchSite.new(vehicle, height, env, craft)
 
@@ -1239,9 +1126,8 @@ static func _authored_pad(pad_style: String) -> Node3D:
 var skin: Envelope
 const GAP := 0.35
 
-## Distance from the stack axis at which a structure coming from azimuth `az`
-## has to stop, inside a lane: the skin's own standoff plus GAP, or `fallback`
-## when the vehicle has nothing in that lane (or was not measured).
+## Where a structure from azimuth `az` must stop inside a lane: the skin's standoff
+## plus GAP, or `fallback` if the lane is empty or unmeasured.
 func _stop(ya: float, yb: float, za: float, zb: float, fallback: float, az: float = PI) -> float:
 	var d := skin.standoff(ya, yb, za, zb, az) if skin != null else -INF
 	return d + GAP if d > -INF else fallback
@@ -1255,12 +1141,8 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	group.name = "launch_site"
 	D = float(vehicle.stages[0].D) if not vehicle.stages.is_empty() else 5.0
 
-	# How high the vehicle stands above its own launch mount. The vessel's
-	# altitude is measured from the planet's reference radius and reads zero on
-	# the pad, so the complex is built with the DECK at group-local y = 0 and
-	# everything that touches the ground sits at −deck: that puts the deck under
-	# the engines rather than through them, and the grade where the ground
-	# patch is drawn.
+	# The vehicle's height above its mount. The deck is at local y = 0 (the vessel reads
+	# zero altitude on the pad), and everything on the ground sits at −deck.
 	deck_height = 23.5 if style == "chopsticks" else (9.6 if style == "strongback" else 7.6)
 	var GRADE := -deck_height
 	grade_drop = deck_height + PAD_RISE
@@ -1278,9 +1160,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	ground.add_child(hardstand_joints(top_r))
 	ground.add_child(deck_services(top_r))
 	ground.add_child(flame_trench(137.0, 18.0, 12.2))
-	# The scorched apron — the single strongest cue that something violent
-	# happens here. It lies ON the deck, so it is a decal: the depth bias does
-	# the separating, and the 1 cm lift only keeps it clear of the trench lip.
+	# The scorched apron, a decal on the deck.
 	var apron := scorch_apron(maxf(D * 2.5, 18.0))
 	apron.position.y = 0.01
 	ground.add_child(apron)
@@ -1293,9 +1173,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	var plain := _node()
 	plain.position.y = GRADE - PAD_RISE
 	group.add_child(plain)
-	# The masts stand well clear of the vehicle — they are there to intercept a
-	# strike, and a conductor close enough to be in the frame is close enough
-	# to be a hazard. At 39B they are about 200 m out on a 300 m catenary span.
+	# Masts stand well clear (~200 m out on a 300 m span at 39B).
 	var mast_r := maxf(height * 2.4, top_r + 140.0)
 	plain.add_child(lightning_masts(mast_r, maxf(height * 1.2, 100.0)))
 	# The buildings: authored (model_sources/blender/facilities.py) when the
@@ -1323,9 +1201,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		keep_out.append(Rect2(-(top_r + 60.0) - 10.0, top_r * 0.8 - 10.0, 20.0, 20.0))
 	plain.add_child(coastal_scrub(top_r, keep_out))
 
-	# ---- the launch mount. Every part of the structure that stands on the
-	# ground is built upward from zero and then dropped onto grade in one move,
-	# so a change to the deck height cannot leave one piece of the tower floating.
+	# ---- the launch mount: built upward from zero, then dropped onto grade in one move.
 	var mount := _node()
 	mount.position.y = GRADE
 	group.add_child(mount)
@@ -1359,10 +1235,8 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 				for i in 7:
 					mount.add_child(box(0.18, 0.04, 2.1, DARKCON(), signum * (hx + 3.2), PH,
 						(float(i) - 3.0) * 2.7))
-		# HOLD-DOWN ARMS, between the fins rather than through them. Two
-		# candidate sets of four (on the diagonals and on the axes); the one
-		# that lets the arms stand closer in is the one that is between things,
-		# and each arm then stands off the skin it actually faces.
+		# HOLD-DOWN ARMS between the fins: of two candidate sets of four, keep the one that
+		# stands closer in, and stand each arm off the skin it faces.
 		var best_set := 0.0
 		var best_r := INF
 		for set_off in [PI / 4.0, 0.0]:
@@ -1393,20 +1267,12 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		jib.position = Vector3(-(HOLE / 2.0 + 16.0) + 6.0, PH + tower_h + 2.0, 0.0)
 		mount.add_child(jib)
 		mount.add_child(box(3.0, 4.0, 3.0, STEEL(), -(HOLE / 2.0 + 16.0), PH + tower_h, 0.0))
-		# SWING ARMS. Nine on the LUT, at the levels where the stages actually
-		# needed servicing. They carry live umbilicals, so they cannot leave
-		# until the engines are running — which is why they retract ON
-		# IGNITION and not before it.
-		#
-		# Each arm is cut to the skin it faces at its own height (_stop): the
-		# S-IC is 10 m across and the command module under 4, and one length
-		# for all nine is the same arm through two different vehicles.
+		# SWING ARMS (nine on the LUT) at the service levels, retracting on ignition. Each is
+		# cut to the skin at its own height.
 		var n := 9 if style == "lut" else 5
 		var pivot_x := -(HOLE / 2.0 + 16.0)
-		# On the FSS the crew access arm goes to the orbiter's HATCH, not to the
-		# top of the stack: the orbiter is bolted to the tank's side, so its
-		# lane is off the axis by the orbiter's own mount, and its height is
-		# the middeck's (the hatch is 0.834 of the way up the orbiter).
+		# On the FSS the crew access arm goes to the orbiter's hatch (0.834 of the way up,
+		# in the orbiter's off-axis lane).
 		var hatch_y := -1.0
 		var hatch_z := 0.0
 		if style == "fss":
@@ -1426,9 +1292,8 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 			var vy := y - PH                       # the same height in the craft's frame
 			var pivot := _node()
 			pivot.position = Vector3(pivot_x, y, lane_z)
-			# the white room / crew access arm is the top one and is bigger.
-			# (A lane's `across` is measured to the left of an approach from
-			# −x, which is −z.)
+			# The white room is the top arm and larger. (`across` is to the left of an approach
+			# from −x, i.e. −z.)
 			var stop := _stop(vy - 2.3, vy + 2.4, -lane_z - 2.6, -lane_z + 2.6, 0.0) if top_arm \
 				else _stop(vy - 1.3, vy + 1.3, -1.5, 1.5, 0.0)
 			var tip := -pivot_x - stop             # arm-local x of the skin, less the gap
@@ -1452,11 +1317,8 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 				rss.add_child(box(18.0, 40.0, 14.0, WHITE(), 14.0, 12.0, 0.0))
 			mount.add_child(rss)
 			arms.append({"group": rss, "axis": "yaw", "rest": -PI * 0.66, "open": -PI * 0.66})
-			# vent arm and its "beanie cap" over the ET nose, drawing off the
-			# boiled oxygen that would otherwise fall as ice onto the tiles
-			# The hood goes OVER the ogive's tip, on the tank's axis — so its
-			# height is the measured top of the stack near the axis, and the arm
-			# is as long as the distance from the tower to that axis.
+			# The vent arm's "beanie cap" sits over the ET's ogive tip, on the axis, at the
+			# measured top of the stack.
 			var nose := skin.tip(1.5) if skin != null else -INF
 			if nose == -INF: nose = height * 0.93
 			var vent := _node()
@@ -1464,26 +1326,20 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 			var v_arm := truss(-pivot_x - 6.0, 2.2, 2.0)
 			v_arm.position = Vector3(5.0, 0.0, 0.0)
 			vent.add_child(v_arm)
-			# a 5 m cone, opening down: its rim 1 m below the tip, its crown 4 above
-			# Apex UP. Turned over, as it once was, it was a funnel with its
-			# point 0.8 m down inside the tank.
+			# A 5 m cone, apex up: rim 1 m below the tip, crown 4 m above.
 			var cap := _mesh(CraftModel._cone(3.4, 5.0, 16, 1, true), WHITE())
 			cap.position = Vector3(-pivot_x, -0.5, 0.0)
 			vent.add_child(cap)
 			mount.add_child(vent)
 			arms.append({"group": vent, "axis": "yaw", "rest": 0.0, "open": -PI * 0.55})
 	elif style == "strongback":
-		# Falcon 9's launch mount is a small four-legged stool, and the vehicle
-		# is brought out lying on the transporter-erector, which then stands it
-		# up and stays alongside carrying propellant and power until it lifts.
+		# Falcon 9: a four-legged mount, and a transporter-erector alongside until liftoff.
 		var leg_h := 8.0
 		if authored_deck == null:
 			for i in 4:
 				var a := (float(i) / 4.0) * PI * 2.0 + PI / 4.0
 				mount.add_child(box(1.6, leg_h, 1.6, GREY(), cos(a) * 4.4, 0.0, sin(a) * 4.4))
-			# A RING, not a slab: the middle is the opening the nine Merlins
-			# fire through. The solid 11 m plate this once was sat 1.8 m up
-			# inside the engine bay.
+			# A ring: the nine Merlins fire through the middle.
 			for signum in [-1.0, 1.0]:
 				mount.add_child(box(11.0, 1.6, 2.1, GREY(), 0.0, leg_h, signum * 4.45))
 				mount.add_child(box(2.1, 1.6, 6.8, GREY(), signum * 4.45, leg_h, 0.0))
@@ -1493,9 +1349,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 					sin(a) * 5.2)
 				stripe.rotation.y = a
 				mount.add_child(stripe)
-		# The strongback's near face stands 0.9 m off the SKIN it faces over
-		# its whole height, which on a Falcon 9 is the 3.7 m barrel — but the
-		# clearance is measured, so a wider fairing would push it out.
+		# The strongback stands 0.9 m off the measured skin over its whole height.
 		var te := _node()
 		var sb_h := minf(height * 0.86, 63.0)
 		var sb_face := _stop(leg_h - deck_height, leg_h - deck_height + sb_h, -1.9, 1.9, D * 0.5) + 0.55
@@ -1508,9 +1362,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		else:
 			te.add_child(lattice_tower(minf(height * 0.86, 63.0), 3.4,
 				{"bay": 5.0, "leg": 0.3, "brace": 0.16}))
-		# The two umbilical "quick disconnect" plates. They bridge the gap to
-		# the skin and stop short of it: they are what MATES with the vehicle,
-		# and a plate that stands inside the tank is not mated to anything.
+		# Quick-disconnect plates bridge to the skin and stop at it.
 		for f in [0.30, 0.62]:
 			var qy: float = height * f
 			var vy: float = leg_h - deck_height + qy
@@ -1520,12 +1372,9 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		for z in [-1.1, 1.1]:
 			te.add_child(pipe_between(Vector3(-2.5, 1.0, z), Vector3(-0.9, height * 0.35, z), 0.22, STEEL()))
 		mount.add_child(te)
-		# The strongback rotates about its base, AWAY from the vehicle — which
-		# about +Z is a POSITIVE angle: rotation.z = θ carries a point at
-		# height y to x = −y·sin θ, and the vehicle is on +x. The negative
-		# angles this once had leaned 63 m of truss 18 m into the booster.
-		# It stands plumb until release, because the quick-disconnect plates
-		# above are mated to the vehicle until then.
+		# The strongback falls back about its base, away from the vehicle: positive z
+		# (rotation.z = θ moves height y to x = −y·sin θ; the vehicle is on +x). Plumb
+		# until release.
 		arms.append({"group": te, "axis": "tilt", "rest": 0.0, "open": 0.30})
 	else:
 		# Starship: an Orbital Launch Mount on six legs with the vehicle over a
@@ -1589,9 +1438,9 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	steam.custom_aabb = AABB(Vector3(-2000, -100, -2000), Vector3(4000, 2000, 4000))
 	group.add_child(steam)
 
-## @param s.released  true once the vehicle has committed to leaving
-## @param s.throttle  0..1, drives the deluge
-## @param s.dt        seconds
+##   s.released  true once the vehicle has committed to leaving
+##   s.throttle  0..1, drives the deluge
+##   s.dt        seconds
 func update(s: Dictionary) -> void:
 	var dt := float(s.dt)
 	# Retraction state: 0 = stowed against the vehicle, 1 = fully clear. Arms
