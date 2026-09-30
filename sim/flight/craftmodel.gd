@@ -854,7 +854,6 @@ static func _new_parts() -> Dictionary:
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	_init_mats()
-	var g := _grp()
 	var look: Dictionary = spec.get("look", {}) if spec.get("look") != null else {}
 	var skin: StandardMaterial3D = SKIN.get(look.get("skin", ""), M.white)
 	var D: float = spec.D; var L: float = spec.L
@@ -864,9 +863,10 @@ static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	# placement: build_craft sets this group's position afterwards.
 	var authored := CraftAssets.craft_stage(str(ctx.get("id", "")), str(spec.key))
 	if authored != null:
-		g.add_child(authored)
+		var ga := _grp()
+		ga.add_child(authored)
 		CraftAssets.bind_parts(authored, parts, spec)
-		return {"group": g, "parts": parts}
+		return {"group": ga, "parts": parts}
 
 	if _t(look.get("srb")): return build_srb(spec, parts)
 	if _t(look.get("orbiter")): return build_orbiter(spec, parts)
@@ -881,6 +881,8 @@ static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if _t(look.get("capsule")): return build_csm(spec, parts)
 	if _t(look.get("fairing")): return build_fairing(spec, parts)
 	if _t(look.get("satellite")): return build_satellite(spec, parts)
+	# Created only now: a Node3D is not refcounted, so one made before those returns leaks.
+	var g := _grp()
 
 	# ---- the default: a cylindrical stage with engines under it. `L` is the whole
 	# length, so a nose eats into the barrel.

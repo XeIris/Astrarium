@@ -45,9 +45,12 @@ func _run() -> void:
 			[key, site.style, LaunchSite.use_authored_pads, craft.authored, fit_ms, samples[0], hits.size(), worst])
 		for k in hits:
 			if hits[k] > 0.05: print("    %-40s %.2f m" % [k, hits[k]])
-		site.dispose()
-		craft.group.queue_free()
+		# Neither is in a tree, so free them now: queue_free would wait for a frame
+		# that quit() never runs.
+		site.group.free()
+		craft.group.free()
 	print("padcheck: worst intrusion %.2f m" % worst_all)
+	CraftAssets.clear()
 	quit()
 
 func _walk(n: Node, inv: Transform3D, skin, hits: Dictionary, samples: Array) -> void:
