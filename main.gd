@@ -2314,6 +2314,91 @@ func _leak_check() -> void:
 			Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0])
 	get_tree().quit()
 
+## `eval=_soak_check [soak=a,b] [rounds=n]`: repeat each feature on its own and
+## print the object, resource, node and orphan counts after each round. The first
+## round warms caches; a feature whose counts still grow after it leaks. Run it
+## with `--verbose` too: a node dropped once is flat here but leaked at exit.
+func _soak_check() -> void:
+	var rounds := int(_cmd.get("rounds", 4))
+	var only: PackedStringArray = str(_cmd.get("soak", "")).split(",", false)
+	var feats := {
+		"spawn_remove": func():
+			for t in ["star", "planet", "gas-giant", "bh", "neutron", "white-dwarf", "world"]:
+				spawn_orbiting(t)
+			for i in 20: animate(1.0 / 60.0)
+			while state.bodies.size() > 1: remove_body(state.bodies[-1].id),
+		"edit_mass": func():
+			for b in state.bodies.duplicate():
+				if b.type == "star": edit_body(b, {"mass": b.mass * 1.1}); edit_body(b, {"mass": b.mass / 1.1})
+			for i in 10: animate(1.0 / 60.0),
+		"true_scale": func():
+			set_true_scale(true); for i in 5: animate(1.0 / 60.0)
+			set_true_scale(false); for i in 5: animate(1.0 / 60.0),
+		"paint": func():
+			var b: Body = get_stars()[0] if not get_stars().is_empty() else state.bodies[0]
+			state.focus_id = b.id
+			for k in ["ring", "belt", "cloud", "clear"]: _on_paint(k)
+			for i in 5: animate(1.0 / 60.0),
+		"xsec": func():
+			var b: Body = state.bodies[0]
+			state.focus_id = b.id
+			open_cross_section(true); for i in 5: animate(1.0 / 60.0)
+			open_cross_section(false),
+		"cam_modes": func():
+			for m in ["free", "surface", "orbit"]:
+				set_cam_mode(m); for i in 5: animate(1.0 / 60.0),
+		"quality": func():
+			for q in ["high", "low", "medium"]:
+				set_render_quality(q); set_lighting_quality("high" if q == "high" else "low")
+				await get_tree().process_frame
+			for i in 4: set_band(i); await get_tree().process_frame
+			set_band(0),
+		"lessons": func():
+			set_app_mode("learn", {"quiet": true})
+			for e in Lessons.LESSON_ORDER:
+				var steps: Array = Lessons.find_lesson(e.key).lesson.steps
+				for si in steps.size():
+					lessons.open_lesson(e.key, si)
+					for i in 2: animate(1.0 / 60.0)
+				await get_tree().process_frame
+			set_app_mode("sandbox"),
+		"model_viewer": func():
+			for k in ["saturnv", "shuttle", "starship"]:
+				show_model(k)
+				for i in 5: await get_tree().process_frame
+			close_model_viewer(),
+		"flight_stage": func():
+			await launch_craft("saturnv")
+			flight.run_program("ascent")
+			for i in 900: animate(1.0 / 60.0)
+			for s in 3:
+				flight.key_action("stage")
+				for i in 30: animate(1.0 / 60.0)
+			_on_flight_cam_cycle(); _on_flight_cam_cycle()
+			for i in 5: await get_tree().process_frame
+			end_flight(),
+		"start_screen": func():
+			quit_to_start(); await get_tree().process_frame
+			_start("sandbox"); load_preset("solar"),
+	}
+	load_preset("solar")
+	for i in 5: await get_tree().process_frame
+	for key in feats:
+		if not only.is_empty() and not only.has(key): continue
+		var counts := []
+		for r in rounds:
+			if key != "start_screen" and state.preset_key != "solar": load_preset("solar")
+			await feats[key].call()
+			for i in 3: await get_tree().process_frame
+			await get_tree().create_timer(3.0).timeout
+			counts.append("%d/%d/%d/%d" % [Performance.get_monitor(Performance.OBJECT_COUNT),
+				Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT),
+				Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+				Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT)])
+		print("SOAK %-14s %s" % [key, "  ".join(counts)])
+	print("SOAK DONE")
+	get_tree().quit()
+
 ## `eval=_shutdown_check`: drag render scale both ways, open a cutaway lesson, the
 ## model viewer and a launch, then quit. With `--verbose`, a clean pass prints no
 ## "Attempted to free" and no leaks.

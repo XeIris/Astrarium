@@ -138,6 +138,7 @@ There is no test suite, as in the web build; there are checks.
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
 | `eval=_leak_check` | loads all 35 scenarios and two launches, five times over; object, resource, node and VRAM counts should stay flat |
+| `eval=_soak_check` | repeats each feature (spawning, edits, true scale, painting, cross-section, camera modes, quality, every lesson step, the model viewer, a staged launch, the start screen) four times and prints object/resource/node/orphan counts after each round; after the first round they should not change |
 | `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 
 `tools/ref/` holds the side-by-side evidence each part of the port was

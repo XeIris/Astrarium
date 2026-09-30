@@ -121,6 +121,8 @@ There is no test suite; there are checks, listed in
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
   `assets=0`
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero
+- anything that creates or frees nodes, visuals or caches: `eval=_soak_check`;
+  the counts must stay flat after the first round
 - parse errors: `Godot --headless --path . --import`, then `--quit`. Shader
   errors print as `SHADER ERROR` on first render.
 
