@@ -1,9 +1,7 @@
 class_name GiantVisual
 extends RefCounted
 
-# ============================================================================
 # GAS GIANTS
-# ----------------------------------------------------------------------------
 # A gas giant has no surface. What you are looking at is the top of a cloud
 # deck a few bars down in an envelope thousands of kilometres deep, and the
 # one thing that makes it read as GAS rather than as a painted ball is that it
@@ -40,7 +38,6 @@ extends RefCounted
 # Shaders: shaders/bodies/giant_body.gdshader (the deck, the flow map, the
 # vortices, the ring shadow), giant_limb.gdshader (the limb haze) and
 # ring_system.gdshader (the rings' optical-depth profile).
-# ============================================================================
 
 const BODY_SHADER := preload("res://shaders/bodies/giant_body.gdshader")
 const LIMB_SHADER := preload("res://shaders/bodies/giant_limb.gdshader")
@@ -63,10 +60,8 @@ const GIANT_PALETTES := {
 			"jets": 4.5, "jetAmp": 0.30, "contrast": 0.22, "eqJet": -0.8},
 }
 
-# ---------------------------------------------------------------------------
 # The zonal wind profile — the GDScript twin of zonalWind() in the shader, so
 # a spot always travels at the speed of the jet it is sitting in.
-# ---------------------------------------------------------------------------
 static func zonal_wind(pal: Dictionary, lat: float) -> float:
 	var a := absf(lat)
 	var env := exp(-pow(a / 1.05, 4.0))
@@ -91,10 +86,8 @@ class Mulberry extends RefCounted:
 		t = ((t + imul(t ^ (t >> 7), 61 | t)) & 0xFFFFFFFF) ^ t
 		return float((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296.0
 
-# ---------------------------------------------------------------------------
 # THREE.RingGeometry(inner, outer, thetaSegments, phiSegments) in its own XY
 # plane (the shader reads the radius from the local position).
-# ---------------------------------------------------------------------------
 static func ring_geometry(inner: float, outer: float, tseg: int, pseg: int) -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
@@ -174,11 +167,10 @@ static func _ring_material(opts: Dictionary, seed: float) -> ShaderMaterial:
 	m.set_shader_parameter("uSunObj", so)
 	return m
 
-# ---------------------------------------------------------------------------
 static func create_giant_visual(b: Body, opts: Dictionary = {}) -> GiantViz:
 	return GiantViz.new(b, opts)
 
-## The visual object (PORT_GUIDE.md §7). Fields mirror the web build's b.viz:
+## The visual object (docs/godot.md). Fields mirror the web build's b.viz:
 ## group, core, body_mesh (JS `body`), limb, rings, mat, limb_mat, ring_mat,
 ## base_r, R, is_giant, vortices; plus update(dt, ctx).
 class GiantViz extends RefCounted:

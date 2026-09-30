@@ -1,10 +1,8 @@
 class_name Hud
 extends Control
 
-# ============================================================================
 # THE HUD — blackhole_sim.html's markup, blackhole_sim.css's rules, and the DOM
 # half of blackhole_sim.js, as one Control.
-# ----------------------------------------------------------------------------
 # Every panel, control and caption of the page is an El (ui/widgets/el.gd), a
 # node that carries one element's computed style and is laid out by CSS's own
 # rules. The tree below is the HTML's tree, element for element and in the same
@@ -35,7 +33,6 @@ extends Control
 # The HUD sits over the 3D view as a full-rect Control that ignores the mouse
 # itself; only the panels and their controls stop it. A click, drag or wheel on
 # empty screen therefore reaches the orchestrator's _unhandled_input.
-# ============================================================================
 
 # ---- Hud → orchestrator ------------------------------------------------------------
 signal start_chosen(mode: String)
@@ -188,9 +185,7 @@ func _ready() -> void:
 	set_app_mode("sandbox")
 	_layout_all()
 
-# =============================================================================================
 # BUILDERS
-# =============================================================================================
 
 func E(parent: Node, style: Dictionary = {}, text = null, id := "", vars: Array = []) -> El:
 	var e := El.new(style, vars)
@@ -314,9 +309,7 @@ func _on_slider(v: float, id: String) -> void:
 		set_text(id + "-val", val_fmt[id].call(v))
 	slider.emit(id, v)
 
-# =============================================================================================
 # THE PAGE
-# =============================================================================================
 
 func _build() -> void:
 	# .corner — z-index 5, under everything
@@ -974,9 +967,7 @@ func set_settings_open(open: bool) -> void:
 	set_panel_open("settingsPanel", open)
 	El.any_dirty = true
 
-# =============================================================================================
 # VISIBILITY
-# =============================================================================================
 
 ## One element can be hidden for several independent reasons — its own inline
 ## display, a mode class, a folded section — and it shows only when none holds.
@@ -1022,9 +1013,7 @@ func _set_body(cls: String, on: bool) -> void:
 	if on: body[cls] = true
 	else: body.erase(cls)
 
-# =============================================================================================
 # THE ORCHESTRATOR's API
-# =============================================================================================
 
 ## setPanelOpen: a panel's own collapsed state, and the tab it leaves behind.
 func set_panel_open(id: String, open: bool) -> void:
@@ -1484,9 +1473,7 @@ func show_model_stats(st: Dictionary) -> void:
 			eng += " · %s MN vac · Isp %s s" % [U.fixed(r.thrust / 1e6, 2), U.fixed(r.isp, 0)]
 		E(s, {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.5}, eng)
 
-# =============================================================================================
 # LAYOUT — layoutLeftColumn and every position:fixed rule
-# =============================================================================================
 
 func _process(dt: float) -> void:
 	_time += dt

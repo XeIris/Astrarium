@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # THE BEETLE — the Hail Mary's data-return probe. Four of them ride in her nose.
-# ---------------------------------------------------------------------------
 # 4.2 m long, 2.4 m across, and its whole design argument is mass ratio: it is
 # a one-way courier with no crew and no life support, small enough that the
 # rocket equation closes for the trip home when the mothership's does not.
@@ -18,7 +16,6 @@
 # cross interstellar space and TRANSMIT at the far end.
 #
 # See common.py for the axis convention: +Z is the nose here.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,13 +29,11 @@ R = D / 2
 DR = R * 0.46                       # drive aperture radius
 NECK = DR * 1.42                    # drive neck height
 
-# ---------------------------------------------------------------------------
 # THE STACK, bottom up, because a 4.2 m vehicle has no room for anything to be
 # approximately anywhere. z = 0 is the DRIVE EXIT PLANE — the drive is the aft
 # end of the probe, not a part buried in the middle of it, and the first pass
 # had the propellant tank hanging BELOW the emitter array where the exhaust
 # goes.
-# ---------------------------------------------------------------------------
 CAN_Z = NECK * 1.15                 # top of the emitter can
 CAP = R * 0.42                      # dome depth: a shallow welded head, not
 HZ0, HZ1 = 1.55, 3.70               # a hemisphere — the barrel is the vehicle

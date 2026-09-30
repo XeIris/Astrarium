@@ -1,6 +1,5 @@
 extends SceneTree
 
-# ============================================================================
 # FLIGHT CHECK — the GDScript port of the spaceflight model, flown headlessly
 # through exactly the scenarios tools/flightref.mjs flies in Node, so the two
 # result files can be diffed number by number.
@@ -20,7 +19,6 @@ extends SceneTree
 # line from the same lines flightref.mjs transcribes. It is NOT the Godot port of
 # spaceflight.js (that is a separate module with rendering in it); it is the
 # minimum that drives a Vessel the way the page does.
-# ============================================================================
 
 const WARPS := [1, 2, 5, 10, 50, 100, 1000, 10000, 100000, 1000000]
 const EARTH_PADS := {
@@ -365,9 +363,7 @@ func run(sc: Dictionary, fix_bodies: Array, dt: float) -> Dictionary:
 	for e in v.events: ev.append([e.t, e.msg])
 	return { "summary": summary, "samples": samples, "events": ev }
 
-# ============================================================================
 # PURE-FUNCTION SPOT CHECKS — the same inputs as flightref.mjs's spot()
-# ============================================================================
 func spot(fix_bodies: Array) -> Dictionary:
 	var out := {}
 	var bodies := body_objects(fix_bodies)
@@ -455,9 +451,7 @@ func spot(fix_bodies: Array) -> Dictionary:
 	out.fmtDur = fd
 	return out
 
-# ============================================================================
 # PERFORMANCE — how many vessel RK4 steps a second GDScript sustains
-# ============================================================================
 func bench(fixture: Dictionary) -> void:
 	var bodies := body_objects(fixture.bodies)
 	var earth: Body = find_body(bodies, "Earth")

@@ -1,9 +1,7 @@
 class_name Spectrum
 extends RefCounted
 
-# ============================================================================
 # SIMULATED MULTI-WAVELENGTH IMAGING
-# ----------------------------------------------------------------------------
 # Real astronomy almost never looks at things in visible light. The same black
 # hole is a faint smudge to the eye, a blazing point in X-rays, and a pair of
 # jets in the radio — because what you see is not "the object" but the object's
@@ -21,7 +19,7 @@ extends RefCounted
 # (In the Godot build that "alpha channel" is produced by a second camera over
 # the same world — the temperature pass — and zipped back into the HDR buffer's
 # alpha by shaders/post/compose.glsl. Everything downstream of that is the web
-# build's chain unchanged. See PORT_GUIDE.md.)
+# build's chain unchanged. See docs/godot.md.)
 #
 # The celestial background does neither. sim/sky.gd composites it at the band's
 # own frequency and marks it with SKY_ALPHA so the remap hands it straight to
@@ -52,7 +50,6 @@ extends RefCounted
 # is not modelled, and neither is reflected starlight or a planet's own thermal
 # glow, which is why worlds go dark outside the visible here when a real
 # infrared image would show them plainly.
-# ============================================================================
 
 ## h/k, in kelvin·seconds — converts a frequency straight to the temperature
 ## scale where that frequency's Planck exponent is unity.

@@ -1,4 +1,3 @@
-// ============================================================================
 // ATMOSPHERE — the port of sim/rocky_visual.js's atmosphereMaterial.
 //
 // Rayleigh scattering goes as lambda^-4, so the cross sections for R, G, B
@@ -9,7 +8,6 @@
 // AdditiveBlending, BackSide, alpha 1 in the web build → blend_add,
 // cull_front; its alpha (1·1 + d) saturated the temperature channel to "no
 // data" wherever it drew, and the temperature pass reproduces exactly that.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_front;
 

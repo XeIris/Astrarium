@@ -1,9 +1,7 @@
-// ============================================================================
 // TERRAIN & SURFACE CLIMATE — the shared GLSL that decides what a solid world
 // LOOKS like, from the two things that actually decide it on a real planet:
 // where its crust is thick, and how much sunlight and rain each patch gets.
 // (Port of sim/terrain.js's GLSL strings; sim/terrain.gd holds the JS half.)
-// ----------------------------------------------------------------------------
 // The old rocky planet was a canvas of fBm run through a colour ramp. That is
 // a texture, not a model, and it shows: the elevation histogram of plain fBm is
 // a single hump centred on the mean, so a sea-level cut through it gives
@@ -56,20 +54,17 @@
 // Include order is the web build's TERRAIN_GLSL: NOISE + PLATE + ELEVATION +
 // COARSE + CRATER + CLIMATE. The uniforms declared here are fed by
 // Terrain.terrain_uniforms() (sim/terrain.gd).
-// ============================================================================
 #ifndef TERRAIN_INC
 #define TERRAIN_INC
 
 #include "res://shaders/bodies/terrain_noise.gdshaderinc"
 
-// ----------------------------------------------------------------------------
 // PLATES. A Worley partition of the sphere: jitter one feature point per cell
 // of a 3D lattice and find the two nearest. F1 names the plate you are on, F2
 // the one across the nearest boundary, and F2 - F1 is (twice) the distance to
 // that boundary — zero on it, growing inward. Each plate gets a velocity from
 // its own hash, projected into the tangent plane, and the closing rate along
 // the line joining the two feature points says what kind of boundary it is.
-// ----------------------------------------------------------------------------
 // c1/c2 come back as the two nearest feature POINTS; d1/d2 their distances.
 void plateField(vec3 p, out float d1, out float d2, out vec3 c1, out vec3 c2) {
 	vec3 ip = floor(p);
@@ -91,11 +86,9 @@ vec3 plateVel(vec3 cell, vec3 p) {
 	return normalize(v - p * dot(v, p) + 1e-5);
 }
 
-// ----------------------------------------------------------------------------
 // ELEVATION. Returns height in KILOMETRES relative to the datum, so the lapse
 // rate below is a real 6.5 K/km and a trench is really 10 km deep. `rug` comes
 // back as a 0..1 ruggedness used for shading and for the rain shadow.
-// ----------------------------------------------------------------------------
 uniform float uPlateScale = 2.6;    // plates across the sphere (Earth: ~3)
 uniform float uLandRelief = 3.2;    // km from datum to the highest continent
 uniform float uOceanDepth = 4.6;    // km from datum to the abyssal plain
@@ -158,12 +151,10 @@ void terrain(vec3 p, float seed, out float hKm, out float rug) {
 	rug = clamp(belt * conv * 1.6 + abs(fine) * 0.4, 0.0, 1.0);
 }
 
-// ----------------------------------------------------------------------------
 // A CHEAP crust probe — warp + isostasy only, no plates and no fine detail.
 // The rain-shadow test needs to know how high the ground is UPWIND, and
 // evaluating the full terrain a second time per fragment to find out is not
 // worth it: what casts a shadow is the massif, not the scree on it.
-// ----------------------------------------------------------------------------
 float crustHeight(vec3 p, float seed) {
 	vec3 q = warp(p * 1.9 + vec3(seed), 0.55);
 	float c = fbm(q, 5) - uCrustT;
@@ -171,7 +162,6 @@ float crustHeight(vec3 p, float seed) {
 	return (y >= 0.0) ? y * uLandRelief : y * uOceanDepth;
 }
 
-// ----------------------------------------------------------------------------
 // CRATERS. On a body with no atmosphere and no plate tectonics, nothing erases
 // an impact: the Moon's surface is a four-billion-year integral of everything
 // that ever hit it, and the size distribution is a power law, so every big
@@ -182,7 +172,6 @@ float crustHeight(vec3 p, float seed) {
 // radius, and draws the real profile: a parabolic bowl inside the rim, an
 // uplifted rim at the radius itself, and an ejecta blanket fading outside it.
 // Three layers an octave apart give the power law.
-// ----------------------------------------------------------------------------
 float craterLayer(vec3 p, float seed) {
 	vec3 ip = floor(p);
 	vec3 fp = fract(p);
@@ -214,11 +203,9 @@ float craters(vec3 p, float seed, float density, out float fresh) {
 	return h * 1.6 * density;
 }
 
-// ----------------------------------------------------------------------------
 // SURFACE CLIMATE. Temperature from the annual-mean insolation distribution,
 // precipitation from the cells of the general circulation, colour from the two
 // together.
-// ----------------------------------------------------------------------------
 uniform float uMeanK = 288.0;      // global mean surface temperature, K
 uniform float uTransport = 0.42;   // 0 = radiative equilibrium, 1 = isothermal planet
 uniform float uArid = 0.0;         // 0..1 global dryness (a world with little water)

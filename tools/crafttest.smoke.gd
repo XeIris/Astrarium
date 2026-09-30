@@ -1,10 +1,8 @@
 extends SceneTree
 
-# ===========================================================================
 # BEHAVIOUR SMOKE TEST for Craft.update() / separate() — the parts that move.
 #   Godot --headless --path . --script res://tools/crafttest.smoke.gd [-- assets=0]
 # Prints PASS/FAIL lines; exit code 1 on any failure.
-# ===========================================================================
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 var fails := 0

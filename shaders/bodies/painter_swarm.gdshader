@@ -1,6 +1,4 @@
-// ============================================================================
 // ORBITAL SWARM — the particles of a painted ring or belt (sim/painter.gd).
-// ----------------------------------------------------------------------------
 // The web build advanced every particle's Kepler orbit on the CPU each frame
 // and uploaded the positions. Here the same analytic solution runs in the
 // VERTEX SHADER: each point carries its orbital elements as attributes, and
@@ -26,8 +24,7 @@
 // CUSTOM2 = (size, shade, 0, 0)
 //
 // Transparent, NormalBlending → blend_mix; temperature pass writes 1 at the
-// point's own alpha (PORT_GUIDE.md §6 table).
-// ============================================================================
+// point's own alpha (docs/godot.md).
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 

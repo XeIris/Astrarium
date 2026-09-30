@@ -1,5 +1,4 @@
 #!/bin/sh
-# ============================================================================
 # FLIGHT SHOTS, both builds — every scenario in tools/flight_scenarios.json (or
 # the comma list given), flown by the REAL orchestrator in Godot (one process
 # per scenario, as the web side replays each shot from a fresh page) and by the
@@ -10,7 +9,6 @@
 # writes outdir/godot/<shot>.png (+ .hud.png, .json) and outdir/web/<shot>.png
 # (+ .bare.png, .json). The web side needs a checkout with assets/*.glb:
 # WEB_ROOT (default: the main checkout this worktree hangs off).
-# ============================================================================
 
 OUT=${1:?outdir}
 HERE=$(cd "$(dirname "$0")/.." && pwd)

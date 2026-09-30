@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# ---------------------------------------------------------------------------
 # Build the authored craft and launchpad models.
 #
 #   model_sources/blender/build.sh                  build 9 vehicles, 4 pads and the facilities
@@ -17,7 +16,6 @@
 # Finding Blender is half the job: it is commonly installed somewhere that is
 # not on PATH (through Steam, for one, which is where it is on the machine this
 # was written on), so `which blender` finding nothing means nothing.
-# ---------------------------------------------------------------------------
 set -euo pipefail
 cd "$(dirname "$0")/../.."                    # repo root
 

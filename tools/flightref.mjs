@@ -1,4 +1,3 @@
-// ============================================================================
 // FLIGHT REFERENCE RUNNER — the web build's spaceflight model, flown headlessly
 // in Node, as the numeric reference for the GDScript port (tools/flightcheck.gd).
 //
@@ -45,7 +44,6 @@
 // The orrery's bodies are FROZEN at the fixture's positions in both runners:
 // the flight model reads them, it does not move them, and freezing them keeps
 // the comparison about the port rather than about the n-body integrator.
-// ============================================================================
 import { registerHooks } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -83,11 +81,9 @@ const unhex = (h) => Buffer.from(h, 'hex').readDoubleLE(0);
 const vhex = (v) => [hex(v.x), hex(v.y), hex(v.z)];
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
-// ============================================================================
 // THE FIXTURE — the `solar` preset's bodies at FIXED phases (the preset draws
 // them at random). Same construction as sim/presets.js: orbiter() for the
 // planets, moonOf() for the Moon, radiusKm × AU_PER_KM for the radius.
-// ============================================================================
 const G = 4 * Math.PI * Math.PI;
 const AU_PER_KM = 6.68459e-9;
 const circularSpeed = (M, r) => Math.sqrt(G * M / r);
@@ -135,9 +131,7 @@ function bodyObjects(fix) {
   }));
 }
 
-// ============================================================================
 // THE DRIVER — transcribed from sim/flight/spaceflight.js
-// ============================================================================
 const WARPS = [1, 2, 5, 10, 50, 100, 1000, 10000, 100000, 1000000];
 const EARTH_PADS = {
   starship: { lat: 25.99684, lon: -97.15523 },
@@ -386,9 +380,7 @@ function run(sc, fixBodies, dt) {
   return { summary, samples, events: v.events.map((e) => [e.t, e.msg]) };
 }
 
-// ============================================================================
 // PURE-FUNCTION SPOT CHECKS — every exported helper at a spread of inputs
-// ============================================================================
 function spot(fixBodies) {
   const out = {};
   const bodies = bodyObjects(fixBodies);
@@ -461,9 +453,7 @@ function spot(fixBodies) {
   return out;
 }
 
-// ============================================================================
 // THE SCENARIO LIST, with any explicit initial states resolved to exact bits
-// ============================================================================
 function scenarioList(fixBodies) {
   const list = [
     { id: 'saturnv', vehicle: 'saturnv', body: 'Earth', place: 'pad', program: 'ascent', until: 'orbit', coastWarp: 10, maxFrames: 150000 },
@@ -506,7 +496,6 @@ function scenarioList(fixBodies) {
   return list;
 }
 
-// ============================================================================
 function main() {
   const fixDir = `${HERE}/fixtures`;
   mkdirSync(fixDir, { recursive: true });
@@ -538,9 +527,7 @@ function main() {
 }
 main();
 
-// ============================================================================
 // COMPARISON — max deviation per scenario between two result files
-// ============================================================================
 function compare(pa, pb) {
   const A = JSON.parse(readFileSync(pa, 'utf8')), B = JSON.parse(readFileSync(pb, 'utf8'));
   const rel = (a, b) => (a === b ? 0 : Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b), 1e-300));

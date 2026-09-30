@@ -1,4 +1,3 @@
-// ============================================================================
 // PULSAR BEAM — port of BEAM_VERT / BEAM_FRAG in sim/neutron_visual.js.
 // Hollow, filamentary emission cone along +Y of its own frame (apex at the
 // star, mouth at +uLength).
@@ -6,8 +5,7 @@
 // BLENDING. Web: AdditiveBlending (SRC_ALPHA, ONE) with gl_FragColor =
 // (uColor·a·2.4, 0.75a) — colour gains uColor·a·2.4·0.75a, alpha (0.75a)².
 // The product is formed here and blended ONE, ONE (blend_premul_alpha,
-// ALPHA = 0; PORT_GUIDE.md §6).
-// ============================================================================
+// ALPHA = 0; docs/godot.md).
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

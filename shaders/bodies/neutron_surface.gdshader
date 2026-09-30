@@ -1,13 +1,11 @@
-// ============================================================================
 // NEUTRON-STAR SURFACE — port of SURF_VERT / SURF_FRAG in sim/neutron_visual.js.
 // The header of sim/neutron_visual.gd carries the physics.
 //
 // Everything here is camera-relative. The web build avoided forming a world
 // coordinate by working from modelViewMatrix and rotating the view-space offset
 // back to world with the transpose of mat3(viewMatrix); here world space IS
-// camera-relative (the floating origin, PORT_GUIDE.md §3), and the same
+// camera-relative (the floating origin, docs/godot.md), and the same
 // rotation is mat3(INV_VIEW_MATRIX).
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, cull_back;
 

@@ -1,6 +1,4 @@
-// ============================================================================
 // PHYSICS-CORE REFERENCE — the web build's numbers, for the Godot port to match.
-// ----------------------------------------------------------------------------
 //   node tools/physref.mjs ref  <out.json>
 //       Runs the web build's pure modules (sim/structure.js, starcat, presets,
 //       edupresets, climate, scale, and the body-derivation + stepPhysics code
@@ -17,7 +15,6 @@
 // build is imported untouched. Math.random is replaced by a seeded Park–Miller
 // generator (the same one physcheck.gd installs as Presets.rand_override), so
 // the solar system's random orbital phases can be compared too.
-// ============================================================================
 import { register } from 'node:module';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -165,7 +162,6 @@ const bodyOut = (b) => ({
   radiusScene: b.radiusScene, contactAU: b.contactAU, structure: b.structure,
 });
 
-// ============================================================================
 function makeCases() {
   const ME = S.M_EARTH_SUN, MJ = S.M_JUP_SUN;
   const specs = [];
@@ -322,7 +318,6 @@ function transitRV() {
   return { K: (hi - lo) / 2, lo, hi };
 }
 
-// ============================================================================
 const [mode, a1, a2, a3] = process.argv.slice(2);
 if (mode === 'ref') {
   const { specs, calls } = makeCases();

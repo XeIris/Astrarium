@@ -1,15 +1,12 @@
 class_name SimState
 extends RefCounted
 
-# ============================================================================
 # THE ORCHESTRATOR'S STATE — blackhole_sim.js's `state` object, typed.
-# ----------------------------------------------------------------------------
 # It is its own file (rather than a Dictionary inside main.gd) because other
 # modules are handed it and write to it exactly as they did in the web build:
 # spaceflight takes over `time_scale` and parks `speed`, the course reads the
 # bodies, the cross-section reads the focus. Field names are the JS names in
 # snake_case; the comments are the JS comments.
-# ============================================================================
 
 var preset = null              # active preset Dictionary
 var preset_key: String = ""

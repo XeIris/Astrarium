@@ -1,7 +1,6 @@
 class_name Rocketry
 extends RefCounted
 
-# ============================================================================
 # ROCKETRY — propulsion, atmosphere, aerodynamics and the environment a vessel
 # flies through.
 #
@@ -39,7 +38,6 @@ extends RefCounted
 # the JS keys verbatim (`rho0`, `thrustVac`, `mdot`, `rotRate` …), because it is
 # data the HUD, the launch site and the plume read by name. All arithmetic is
 # in GDScript floats, i.e. doubles, as it was in JS.
-# ============================================================================
 
 # ---- defined constants ------------------------------------------------------
 const G0 := 9.80665                 # m/s² — DEFINED, not local gravity
@@ -50,9 +48,7 @@ const GM_SUN := 1.32712440018e20    # m³/s² — the same G as sim/physics.gd
 const M_EARTH_SUN := 3.00348959e-6  # M⊕ in M☉
 const R_GAS := 8.31446261815324     # J/mol/K
 
-# ============================================================================
 # ATMOSPHERE
-# ----------------------------------------------------------------------------
 # A layer is either ISOTHERMAL — ρ = ρ_base·exp(−Δh/H) — or has a LAPSE RATE,
 # in which case the barometric solution is a power law rather than an
 # exponential: ρ = ρ_base·(1 − L·Δh/T_base)^(g·M/(R·L) − 1).
@@ -68,7 +64,6 @@ const R_GAS := 8.31446261815324     # J/mol/K
 #
 # `top` truncates the model. Above it drag is exactly zero, which is what makes
 # an orbit an orbit instead of a slow spiral that costs frame time forever.
-# ============================================================================
 
 # Measured atmospheres, keyed by body name. Anything not listed is derived (see
 # derive_atmosphere) — measured beats modelled, as everywhere else in this repo.
@@ -204,9 +199,7 @@ static func speed_of_sound(atm, h: float) -> float:
 	if atm == null: return 1e9                          # no medium ⇒ no Mach number
 	return sqrt(atm.gamma * R_GAS * temperature(atm, h) / atm.molar)
 
-# ============================================================================
 # AERODYNAMICS
-# ============================================================================
 
 ## Drag coefficient against Mach number for a slender launch vehicle.
 ##
@@ -239,12 +232,9 @@ static func heat_flux(rho: float, v: float, nose_radius_m: float) -> float:
 	if rho <= 0.0: return 0.0
 	return SUTTON_GRAVES_K * sqrt(rho / maxf(nose_radius_m, 0.05)) * v * v * v
 
-# ============================================================================
 # ENGINES
-# ----------------------------------------------------------------------------
 # An engine is defined by its two MEASURED specific impulses and its vacuum
 # thrust. Everything else follows.
-# ============================================================================
 
 ## Effective Isp at ambient pressure p_a. Linear between the published endpoints;
 ## clamped below because a nozzle in a pressure higher than it was designed for
@@ -308,14 +298,11 @@ static func burn_time_for(dv: float, mass: float, thrust_n: float, isp: float) -
 	var ve := G0 * isp
 	return (mass * ve / thrust_n) * (1.0 - exp(-dv / ve))
 
-# ============================================================================
 # FLIGHT ENVIRONMENT — one simulation body, expressed the way a rocket needs it
-# ----------------------------------------------------------------------------
 # Radii and rotation rates for the bodies you can actually launch from or land
 # on. A preset that carries a measured radiusKm already has the radius; this
 # adds the things the orrery has no reason to know: how fast the surface turns,
 # what the ground looks like, and whether there is any air.
-# ============================================================================
 const SURFACES := {
 	"Earth":   { "day": 86164.1,   "albedo": 0.30, "teq": 255.0, "ground": 0x4a6b3f, "rock": 0x6b5a45, "sea": 0x1b3a6b, "oceans": true },
 	"Moon":    { "day": 2360591.0, "albedo": 0.12, "teq": 270.0, "ground": 0x8a8378, "rock": 0x6e6860 },

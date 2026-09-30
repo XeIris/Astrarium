@@ -1,7 +1,6 @@
 class_name Scale
 extends RefCounted
 
-# ============================================================================
 # TRUE-SCALE RENDERING
 #
 # Every other preset renders bodies at an invented size, because the Solar
@@ -38,10 +37,8 @@ extends RefCounted
 #   only happens in extreme close-ups of the outer system. Callers that care
 #   can subtract a render origin; nothing here assumes one.
 #   (In the Godot port the floating origin makes that subtraction structural —
-#   see godot/PORT_GUIDE.md §3.)
-# ============================================================================
+#   see godot/docs/godot.md.)
 
-# ----------------------------------------------------------------------------
 # Physical radius (AU) for a non-degenerate body.
 #
 # A measured radius always wins. Failing that we need a mass–radius relation,
@@ -56,7 +53,6 @@ extends RefCounted
 #   almost flat — every object from 0.3 to 10 M_J sits within ~20% of one
 #   Jupiter radius, and Jupiter itself is near the maximum. A constant beats
 #   any power law here.
-# ----------------------------------------------------------------------------
 const R_EARTH_KM := 6371.0
 const R_JUP_KM   := 69911.0
 const M_EARTH_SUN := 3.00348e-6      # Earth mass in M☉
@@ -69,14 +65,12 @@ static func physical_radius_au(type: String, mass_sun: float, radius_km = null) 
 	var m_earth := maxf(mass_sun / M_EARTH_SUN, 1e-4)
 	return R_EARTH_KM * pow(m_earth, 0.27) * Physics.AU_PER_KM
 
-# ----------------------------------------------------------------------------
 # Apparent angular DIAMETER of a body, in screen pixels.
 #
 # A perspective camera with vertical field of view f maps a viewport of H
 # pixels onto 2·z·tan(f/2) world units at distance z, so one pixel spans
 # (2·z·tan(f/2))/H there. Dividing the body's diameter by that gives its size
 # in pixels — the quantity that decides whether a mesh is worth drawing.
-# ----------------------------------------------------------------------------
 static func pixels_per_world_unit(dist: float, fov_rad: float, viewport_h: float) -> float:
 	return viewport_h / maxf(2.0 * dist * tan(fov_rad / 2.0), 1.0e-30)   # "1.0e-30": Godot mis-parses "1e-30" by an ULP
 

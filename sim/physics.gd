@@ -1,9 +1,7 @@
 class_name Physics
 extends RefCounted
 
-# ============================================================================
 # REAL PHYSICS ENGINE
-# ----------------------------------------------------------------------------
 # Units: astronomical. Length = AU, mass = solar mass (M☉), time = year (yr).
 # In this system the gravitational constant is exactly G = 4π², the speed of
 # light is c ≈ 63241 AU/yr. With these units a body at 1 AU around a 1 M☉ star
@@ -24,7 +22,6 @@ extends RefCounted
 # DVec3 (core/dvec3.gd). The pair loops read components directly rather than
 # going through DVec3 methods, because this is the hot loop the whole sim
 # spends its CPU in (up to 8000 sub-steps a frame during a close encounter).
-# ============================================================================
 
 const G := 4.0 * PI * PI                # 39.478 AU³ M☉⁻¹ yr⁻²
 const C := 63241.077                    # speed of light, AU/yr
@@ -47,7 +44,6 @@ static func neutron_radius(mass_sun: float) -> float:
 static func stellar_radius(mass_sun: float) -> float:
 	return pow(maxf(mass_sun, 0.05), 0.8) * AU_PER_RSUN
 
-# ----------------------------------------------------------------------------
 # Roche limit (AU): the separation inside which a body held together only by
 # its own gravity is pulled apart by the tidal field of `massSun`.
 #   d = 2.44 R* (rho* / rho_body)^(1/3)
@@ -55,7 +51,6 @@ static func stellar_radius(mass_sun: float) -> float:
 # out — the world is shredded well before it ever reaches the photosphere, so
 # this, not the star's surface, is the honest destruction distance for any
 # scenario built on close passes.
-# ----------------------------------------------------------------------------
 const RHO_SUN := 1.41                   # g/cm^3
 static func roche_limit(mass_sun: float, body_density: float = 5.5) -> float:
 	var r_au := stellar_radius(mass_sun)
@@ -63,9 +58,7 @@ static func roche_limit(mass_sun: float, body_density: float = 5.5) -> float:
 	var rho_star := RHO_SUN * mass_sun / (r_sun * r_sun * r_sun)
 	return 2.44 * r_au * U.cbrt(rho_star / body_density)
 
-# ----------------------------------------------------------------------------
 # Acceleration field. Fills every live body's `acc`.
-# ----------------------------------------------------------------------------
 static func compute_accel(bodies: Array) -> void:
 	for b in bodies:
 		b.acc.x = 0.0; b.acc.y = 0.0; b.acc.z = 0.0
@@ -104,12 +97,10 @@ static func _pull_mag(source: Body, dist: float) -> float:
 	var d2 := dist * dist + soft * soft
 	return GM / d2
 
-# ----------------------------------------------------------------------------
 # Gravitational-wave radiation reaction for a bound compact binary.
 # Applies the 2.5-PN leading-order energy loss as a drag, scaled by `boost`
 # so the inspiral is watchable (real systems take Myr; presets exaggerate the
 # rate but preserve the correct r(t) ∝ (t_c − t)^¼ chirp morphology).
-# ----------------------------------------------------------------------------
 # G and C are module constants, so their powers are too — hoisted out of the
 # O(n²) pair loop rather than recomputed per pair per sub-step.
 # Math.pow, as the JS wrote it — G·G·G·G rounds differently in the last bit.
@@ -158,9 +149,7 @@ static func _or3(a: float, b: float, c: float) -> float:
 	if b != 0.0: return b
 	return c
 
-# ----------------------------------------------------------------------------
 # One velocity-Verlet step (symplectic).
-# ----------------------------------------------------------------------------
 static func integrate(bodies: Array, dt: float) -> void:
 	var live := []
 	for b in bodies:
@@ -188,10 +177,8 @@ static func integrate(bodies: Array, dt: float) -> void:
 		b.vel.y += (b.a_prev.y + b.acc.y) * hdt
 		b.vel.z += (b.a_prev.z + b.acc.z) * hdt
 
-# ----------------------------------------------------------------------------
 # Collision / accretion resolution. Returns an array of merger events
 # ({survivor, absorbed, separation}).
-# ----------------------------------------------------------------------------
 static func resolve_collisions(bodies: Array) -> Array:
 	var events := []
 	var n := bodies.size()

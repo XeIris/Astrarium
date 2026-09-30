@@ -1,10 +1,8 @@
 #[compute]
 #version 450
-// ============================================================================
 // SURFACE VIEW — standing on the planet, looking up. The port of
 // sim/skyview.js's SKY_FRAG; the derivation is in the header of
 // sim/skyview.gd, and every comment below is the web build's.
-// ----------------------------------------------------------------------------
 // The web build ran this as a full-screen fragment pass that read the rendered
 // scene (sky backdrop + geometry, `tScene`) and wrote the composite into the
 // HDR buffer. Here it is a compute kernel the pipeline runs between compose
@@ -22,7 +20,6 @@
 // uAspect, with vUv reconstructed WebGL-style (origin bottom-left) from the
 // pixel, and the scene is fetched at the same pixel the web's texture2D(tScene,
 // vUv) hit (a texel centre, so linear filtering returns the texel itself).
-// ============================================================================
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform sampler2D tScene;
 layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D outHdr;

@@ -1,6 +1,5 @@
 extends Harness
 
-# ============================================================================
 # PLANET HARNESS — rebuilds a web-reference frame for the solid-world, gas
 # giant and painter port, from the JSON tools/planetshots.mjs had the web
 # build write beside its PNG:
@@ -20,7 +19,6 @@ extends Harness
 # PINS every uniform, spin phase and vortex to the captured values, so the
 # picture compares the shaders alone and is free of clock differences (uTime,
 # the uMeanK ease, the random spin a rocky body is born with).
-# ============================================================================
 
 var cap: Dictionary
 var items: Array = []        # [{viz, body, cap}]

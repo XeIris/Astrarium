@@ -1,4 +1,3 @@
-// ============================================================================
 // SKY — procedural celestial background, resolution-free and band-aware.
 // The port of sim/sky.js's SKY_GLSL. The module-level derivation (why a map
 // cannot survive lensing, the screen-space Jacobian, the magnitude law, the
@@ -33,7 +32,6 @@
 // so the backdrop reads   rd = sky_aberrate(d); D = sky_doppler(d);
 //                         skyRadianceD(rd, dFdx(rd), dFdy(rd), D) * sky_beaming(D)
 // which is arithmetically the web build's backdrop, term for term.
-// ============================================================================
 
 // ---- uniforms --------------------------------------------------------------
 uniform vec3  uGalNormal = vec3(0.2798740849862627, 0.929581782275801, 0.23989207284536798);  // unit normal of the galactic plane
@@ -638,9 +636,7 @@ float sky_snr(vec3 dir, float face, vec2 g, float w2){
 	return acc;
 }
 
-// ============================================================================
 // skyRadianceD / skyRadiance
-// ----------------------------------------------------------------------------
 //   dir      outgoing ray direction, normalised (after lensing, if any)
 //   ddx,ddy  screen derivatives of that direction. These ARE the lensing, as
 //            far as the sky is concerned: their cross product is the pixel's
@@ -648,7 +644,6 @@ float sky_snr(vec3 dir, float face, vec2 g, float w2){
 //            the anisotropy that keeps a magnified star from smearing.
 //   D        the observer's Doppler factor for this pixel (sky_doppler), 1.0
 //            with no boost — the web build's sky_D global
-// ============================================================================
 vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 	vec3 total = vec3(0.0);
 	vec3 ddx = ddx_in;

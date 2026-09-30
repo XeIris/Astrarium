@@ -1,9 +1,7 @@
 class_name PlanetMaps
 extends RefCounted
 
-# ============================================================================
 # PLANET MAPS — mission imagery for the three bodies we have it for.
-# ----------------------------------------------------------------------------
 # These are offline copies of mission maps (assets/planet-maps/, credits in
 # the README there), not network dependencies at run time. Only real Solar
 # System bodies use them; invented worlds keep terrain(). The maps supply
@@ -31,7 +29,6 @@ extends RefCounted
 # a visible hitch the moment Earth spawns — the web build's TextureLoader was
 # asynchronous for the same reason. `synchronous = true` makes every load
 # blocking, for harnesses that must have the map in the first frame.
-# ============================================================================
 
 const DIR := "res://assets/planet-maps/"
 

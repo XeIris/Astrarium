@@ -1,9 +1,7 @@
 class_name Cutaway
 extends El
 
-# ============================================================================
 # THE 3D CUTAWAY — the interior model, as an object rather than as a chart
-# ----------------------------------------------------------------------------
 # sim/crosssection.gd already draws a body's interior, and draws it well: exact
 # radii, a temperature ramp, a label per layer. What a flat disc cannot do is
 # make a beginner believe that the core is a SPHERE — that the iron core is not
@@ -42,7 +40,6 @@ extends El
 # auto` over a 320 × 210 bitmap, so the lesson card lays it out as it did the
 # <canvas>. The viewport renders at the laid-out size × the display scale
 # (capped at 2, as `setPixelRatio(min(devicePixelRatio, 2))` was).
-# ============================================================================
 
 const LAYER_SHADER := preload("res://shaders/ui/cutaway_layer.gdshader")
 const LAYER_ALPHA_SHADER := preload("res://shaders/ui/cutaway_layer_alpha.gdshader")

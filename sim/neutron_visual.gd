@@ -1,9 +1,7 @@
 class_name NeutronVisual
 extends RefCounted
 
-# ============================================================================
 # NEUTRON STAR
-# ----------------------------------------------------------------------------
 # A neutron star is a ~12 km sphere with the mass of the Sun, a surface at
 # ~10⁶ K, and a magnetic field of 10⁸–10¹⁵ gauss. Almost every visually
 # interesting thing about it is a consequence of one of those three numbers,
@@ -44,20 +42,17 @@ extends RefCounted
 #    open field lines, not from a filled cone, so the beams are rendered as
 #    bright-edged hollow shells with filamentary structure.
 #
-# Everything here is camera-relative (the floating origin, PORT_GUIDE.md §3).
+# Everything here is camera-relative (the floating origin, docs/godot.md).
 # The shaders are shaders/bodies/neutron_surface / neutron_beam / neutron_field.
-# ============================================================================
 
 const SURF_SHADER := preload("res://shaders/bodies/neutron_surface.gdshader")
 const BEAM_SHADER := preload("res://shaders/bodies/neutron_beam.gdshader")
 const FIELD_SHADER := preload("res://shaders/bodies/neutron_field.gdshader")
 
-# ---------------------------------------------------------------------------
 # THREE.CatmullRomCurve3 ('centripetal', the default) and THREE.TubeGeometry,
 # reproduced so the tube is the same tube: arc-length sampling over 200
 # divisions, a parallel-transported frame, and three's index order (counter-
 # clockwise fronts — see the cull note in neutron_field.gdshader).
-# ---------------------------------------------------------------------------
 static func _cubic(x0: float, x1: float, x2: float, x3: float, dt0: float, dt1: float, dt2: float, t: float) -> float:
 	# initNonuniformCatmullRom, then init() and calc()
 	var t1 := (x1 - x0) / dt0 - (x2 - x0) / (dt0 + dt1) + (x2 - x1) / dt1

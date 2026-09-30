@@ -1,6 +1,4 @@
-// ============================================================================
 // THE APP ICONS, RAY-TRACED — a Schwarzschild hole and a thin disk, as vectors.
-// ----------------------------------------------------------------------------
 //   node tools/icon_trace.mjs            writes assets/icons/*.svg and icon.svg
 //
 // Units G = c = M = 1. A photon's orbit obeys u'' = 3u² − u (u = 1/r, φ the
@@ -22,7 +20,6 @@
 // single annulus under a single horizontal gradient, outer rings first, so each
 // overlaps the last and there is no seam anywhere. No filters, no masks —
 // nothing an SVG importer might not support.
-// ============================================================================
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

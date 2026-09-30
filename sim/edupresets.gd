@@ -1,9 +1,7 @@
 class_name EduPresets
 extends RefCounted
 
-# ============================================================================
 # TEACHING SCENARIOS
-# ----------------------------------------------------------------------------
 # These are PRESETS like any other — same units (AU, M☉, yr), same build()
 # contract, merged into PRESETS by sim/presets.gd — and they are kept in their
 # own file only because the catalogue was already 860 lines.
@@ -30,7 +28,6 @@ extends RefCounted
 #
 # PORT NOTE. Same data contract as sim/presets.gd: Dictionaries with the JS
 # keys, `build` a Callable returning spec Dictionaries.
-# ============================================================================
 
 const DEG := PI / 180.0
 
@@ -93,9 +90,7 @@ const EDU_ORDER := [
 static func _make() -> Dictionary:
 	var P := {}
 
-	# ==========================================================================
 	# WHY THERE ARE SEASONS
-	# --------------------------------------------------------------------------
 	# The single most robust misconception in astronomy education is that summer
 	# is when the Earth is nearer the Sun — it survives a physics degree, and the
 	# reason it survives is that nobody is ever shown the geometry moving. So
@@ -108,7 +103,6 @@ static func _make() -> Dictionary:
 	# in insolation — real, measurable, and the wrong sign for the explanation
 	# everyone gives. What does the work is 23.44° of tilt, which at 67°N is the
 	# difference between the Sun never setting and never rising.
-	# ==========================================================================
 	P.edu_seasons = {
 		"sky": { "env": "disc", "tilt": 0.38, "roll": 2.1 },
 		"name": "Why there are seasons",
@@ -132,9 +126,7 @@ static func _make() -> Dictionary:
 			return [sun, earth],
 	}
 
-	# ==========================================================================
 	# PHASES AND ECLIPSES
-	# --------------------------------------------------------------------------
 	# The second great misconception: that the Moon's phases are the Earth's
 	# shadow. The refutation is geometric and needs no words — half the Moon is
 	# lit at every instant, always the half facing the Sun, and a phase is just
@@ -146,7 +138,6 @@ static func _make() -> Dictionary:
 	# eclipses are rare rather than monthly: the Moon misses the shadow by up to
 	# ten Earth diameters at most new moons. It is in here as a real inclination,
 	# so the alignments come round on their own.
-	# ==========================================================================
 	P.edu_moon = {
 		"sky": { "env": "disc", "tilt": 0.38, "roll": 2.1 },
 		"name": "Phases, and why eclipses are rare",
@@ -160,9 +151,7 @@ static func _make() -> Dictionary:
 		"build": func() -> Array: return _build_moon(),
 	}
 
-	# ==========================================================================
 	# KEPLER'S LAWS, AS AN EXPERIMENT
-	# --------------------------------------------------------------------------
 	# Three planets, and the arrangement IS the argument:
 	#
 	#   Circle and Ellipse are both at a = 1.5 AU — one on a circle, one on an
@@ -180,7 +169,6 @@ static func _make() -> Dictionary:
 	# The second law needs no third body at all: on the ellipse the planet runs
 	# 6.1 times faster at periapsis than at apoapsis (the ratio is (1+e)/(1-e)),
 	# and the trail bunches where it is slow and stretches where it is fast.
-	# ==========================================================================
 	P.edu_kepler = {
 		"sky": { "env": "disc", "tilt": 0.30, "roll": 1.1 },
 		"name": "Kepler's laws",
@@ -205,9 +193,7 @@ static func _make() -> Dictionary:
 			],
 	}
 
-	# ==========================================================================
 	# WHERE STARS COME FROM
-	# --------------------------------------------------------------------------
 	# A star forms when a cold, dense core inside a molecular cloud becomes
 	# heavier than its own Jeans mass and can no longer hold itself up:
 	#
@@ -228,7 +214,6 @@ static func _make() -> Dictionary:
 	# fixed Keplerian orbits (sim/painter.gd) rather than infalling gas. What the
 	# scenario shows is the ARRANGEMENT a collapse leaves behind, which is the
 	# part a lesson can actually argue from.
-	# ==========================================================================
 	P.edu_starbirth = {
 		# The cloud is the SKY here, not a painted object. sim/painter.gd's nebula
 		# is an optically thin SHELL — right for ejecta, where a crisp limb-
@@ -266,14 +251,11 @@ static func _make() -> Dictionary:
 			],
 	}
 
-	# ==========================================================================
 	# THE SUN, CLOSE UP
-	# --------------------------------------------------------------------------
 	# A star on its own, on a clock slow enough that a flare is an event rather
 	# than a single frame. Flares arrive years apart and last days; at any pace
 	# that makes an orbit legible the whole eruption is over inside one frame,
 	# which is why this scenario has no orbit in it at all.
-	# ==========================================================================
 	P.edu_sun = {
 		"sky": { "env": "disc", "tilt": 0.38, "roll": 2.1 },
 		"name": "The Sun, close up",
@@ -283,16 +265,13 @@ static func _make() -> Dictionary:
 		"build": func() -> Array: return [Starcat.star_spec("sun", { "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] })],
 	}
 
-	# ==========================================================================
 	# ONE STAR, WHOLE LIFE
-	# --------------------------------------------------------------------------
 	# A single solar-mass star with nothing near it, so the cross-section panel's
 	# phase slider has the frame to itself. The slider is not an animation: each
 	# stop is a real point on the evolutionary track (PHASES in sim/structure.gd)
 	# and the radius, luminosity, colour and interior layers are recomputed by
 	# structure_of() at every step. The star swells by a factor of 130 between the
 	# main sequence and the AGB, which is why nothing else is in the scene.
-	# ==========================================================================
 	P.edu_lifecycle = {
 		"sky": { "env": "disc", "tilt": 0.40, "roll": 0.3 },
 		"name": "One star, whole life",
@@ -324,9 +303,7 @@ static func _make() -> Dictionary:
 			],
 	}
 
-	# ==========================================================================
 	# A STAR THAT IS ABOUT TO EXPLODE
-	# --------------------------------------------------------------------------
 	# 20 M☉ at the pre-collapse stop: an iron core the size of the Earth under
 	# silicon, oxygen, neon, carbon, helium and hydrogen shells, radiating six
 	# thousand times the Sun's luminosity out of a photosphere 220 times the
@@ -338,7 +315,6 @@ static func _make() -> Dictionary:
 	# end_state_of() in sim/structure.gd decides what is left, and at 20 M☉ that is
 	# a black hole. Below about 20 it is a neutron star. Nothing here is scripted:
 	# the lesson triggers the collapse and the structure model answers.
-	# ==========================================================================
 	P.edu_supernova = {
 		"sky": { "env": ["starburst", "disc"], "tilt": 0.5, "roll": 1.4 },
 		"name": "A star about to explode",
@@ -356,9 +332,7 @@ static func _make() -> Dictionary:
 			}],
 	}
 
-	# ==========================================================================
 	# A LIGHTHOUSE MADE OF NEUTRONS
-	# --------------------------------------------------------------------------
 	# 1.4 M☉ inside 12 km: a teaspoon weighs as much as a mountain range, the
 	# surface gravity is 2×10¹¹ g, and light leaving the surface is bent so hard
 	# that you can see more than half the sphere at once — which sim/neutron_visual.gd
@@ -367,7 +341,6 @@ static func _make() -> Dictionary:
 	# The beams come out of the MAGNETIC poles and the magnetic axis is not the
 	# rotation axis, so they sweep. That is the entire pulsar phenomenon: not a
 	# blinking star, a rotating one, seen by anyone the beam happens to cross.
-	# ==========================================================================
 	P.edu_pulsar = {
 		"sky": { "env": ["disc", "halo"], "tilt": 0.58, "roll": 2.2 },
 		"name": "A pulsar",
@@ -385,9 +358,7 @@ static func _make() -> Dictionary:
 				"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }],
 	}
 
-	# ==========================================================================
 	# HOW WE FIND PLANETS ROUND OTHER STARS
-	# --------------------------------------------------------------------------
 	# Two planets on nearly edge-on orbits, chosen so that both detection methods
 	# work on the same system and the numbers come out as the real ones do:
 	#
@@ -413,7 +384,6 @@ static func _make() -> Dictionary:
 	# orbital plane — which is also the honest statement of the method's biggest
 	# limitation: a transit needs the geometry to cooperate, and for a planet at
 	# 1 AU round a Sun the chance of that is about 0.5%.
-	# ==========================================================================
 	P.edu_transit = {
 		"sky": { "env": "disc", "tilt": 0.34, "roll": 1.9 },
 		"name": "Finding planets: transits and wobbles",
@@ -428,9 +398,7 @@ static func _make() -> Dictionary:
 		"build": func() -> Array: return _build_transit(),
 	}
 
-	# ==========================================================================
 	# THE HABITABLE ZONE
-	# --------------------------------------------------------------------------
 	# Three identical planets — same mass, same radius, same albedo, same air —
 	# at 0.55, 1.00 and 1.90 AU from the same star. Nothing about their
 	# appearance is set. Each one works out its own insolation from where it is
@@ -446,7 +414,6 @@ static func _make() -> Dictionary:
 	# The zone is not a line on a diagram. It is where those three numbers put
 	# you, and moving a planet in flight (the live editor is right there) moves
 	# its ice caps within a second.
-	# ==========================================================================
 	P.edu_habitable = {
 		"sky": { "env": "disc", "tilt": 0.36, "roll": 0.7 },
 		"name": "The habitable zone",
@@ -471,9 +438,7 @@ static func _make() -> Dictionary:
 			return [sun, world.call("Scorched", 0.55, 0.4), world.call("Temperate", 1.00, 2.6), world.call("Frozen", 1.90, 4.6)],
 	}
 
-	# ==========================================================================
 	# A BLACK HOLE WITH NOTHING AROUND IT
-	# --------------------------------------------------------------------------
 	# No disc, no companion, no debris: a black hole is not a thing you can see,
 	# it is a place where the sky is missing. What is left in the frame is the
 	# shadow (2.6 Schwarzschild radii in radius, not 1 — light that grazes closer
@@ -483,7 +448,6 @@ static func _make() -> Dictionary:
 	# The star field behind it is analytic and filtered through the screen-space
 	# Jacobian precisely so this works: magnification near the ring is unbounded,
 	# and any baked sky texture turns those arcs into smears.
-	# ==========================================================================
 	P.edu_hole = {
 		"sky": { "env": ["halo", "disc"], "tilt": 0.26, "roll": 2.7 },
 		"name": "A black hole, alone",
@@ -495,9 +459,7 @@ static func _make() -> Dictionary:
 			return [{ "type": "bh", "name": "Hole", "mass": 8.0, "rs": 0.5, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }],
 	}
 
-	# ==========================================================================
 	# THE SKY FROM INSIDE THE GALAXY
-	# --------------------------------------------------------------------------
 	# Nothing in the scene at all. The lesson IS the background: the Milky Way is
 	# a flat disc and we are in it, two thirds of the way out, so it is not an
 	# object in our sky — it is a BAND round the whole sky, and its thickness is
@@ -507,7 +469,6 @@ static func _make() -> Dictionary:
 	# wavelength lesson possible from this one scenario: the dust that blocks the
 	# galactic centre in visible light is what glows in the infrared, and the
 	# non-thermal populations take over entirely in radio and gamma.
-	# ==========================================================================
 	P.edu_galaxy = {
 		"sky": { "env": "disc", "tilt": 0.0, "roll": 0.9 },
 		"name": "The Milky Way, from inside it",

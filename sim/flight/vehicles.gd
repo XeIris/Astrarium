@@ -1,9 +1,7 @@
 class_name Vehicles
 extends RefCounted
 
-# ============================================================================
 # THE VEHICLE CATALOGUE
-# ----------------------------------------------------------------------------
 # Published numbers for vehicles that flew, and derived numbers for the two
 # that did not. Nothing here is tuned for playability: a stage's Δv is computed
 # from its own dry and propellant masses through the rocket equation, so if a
@@ -33,9 +31,7 @@ extends RefCounted
 # const cannot call the `stage()` helper), and a stage references its engine
 # Dictionary BY IDENTITY, as the JS object literal did — so editing
 # Vehicles.ENGINES.F1 edits every stage that flies it.
-# ============================================================================
 
-# ---------------------------------------------------------------------------
 # ENGINES
 #
 # `throttleMin` is the real deep-throttle limit and it is a gameplay-shaping
@@ -44,7 +40,6 @@ extends RefCounted
 # the interesting one — it has a FORBIDDEN BAND between 60% and 92.5%, because
 # sustained operation there eroded the throttle valve, so the descent guidance
 # really does have to avoid it.
-# ---------------------------------------------------------------------------
 static var ENGINES: Dictionary = _build_engines()
 
 static func _build_engines() -> Dictionary:
@@ -156,12 +151,10 @@ static func _build_engines() -> Dictionary:
 		},
 	}
 
-# ---------------------------------------------------------------------------
 # A helper so a stage reads as a table row rather than as an object literal.
 # `look` is the only field the physics ignores: it is what craftmodel builds
 # the mesh from, and it is kept beside the masses so a stage cannot be described
 # twice in two places and disagree with itself.
-# ---------------------------------------------------------------------------
 static func stage(o: Dictionary) -> Dictionary:
 	var eng = o.get("engine")
 	var s := {
@@ -175,19 +168,15 @@ static func stage(o: Dictionary) -> Dictionary:
 	s["area"] = o["area"] if o.get("area") != null else PI * pow(o.D / 2.0, 2.0)
 	return s
 
-# ============================================================================
 # VEHICLES
-# ============================================================================
 static var VEHICLES: Dictionary = _build_vehicles()
 
 static func _build_vehicles() -> Dictionary:
 	var E := ENGINES
 	return {
 
-	# --------------------------------------------------------------------------
 	# SATURN V — the expendable superheavy. Three stages, and the only vehicle
 	# here whose third stage restarts to leave Earth entirely.
-	# --------------------------------------------------------------------------
 	"saturnv": {
 		"id": "saturnv", "name": "Saturn V / Apollo", "role": "launch", "launchFrom": "Earth",
 		"era": "1967–1973",
@@ -222,11 +211,9 @@ static func _build_vehicles() -> Dictionary:
 		"carries": { "vehicle": "lm", "mass": 15200.0, "at": "sivb" },
 	},
 
-	# --------------------------------------------------------------------------
 	# FALCON 9 BLOCK 5 — the working reusable launcher. The first stage is the
 	# interesting object: it separates at ~65 km with a third of its Δv still in
 	# the tanks, and spends it on coming back.
-	# --------------------------------------------------------------------------
 	"falcon9": {
 		"id": "falcon9", "name": "Falcon 9 Block 5", "role": "launch", "launchFrom": "Earth",
 		"era": "2018–",
@@ -269,11 +256,9 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# --------------------------------------------------------------------------
 	# SPACE SHUTTLE — the winged one, and the only stack here that is not a
 	# stack: the orbiter's engines light on the pad and burn all the way to
 	# cutoff, fed from a tank it throws away.
-	# --------------------------------------------------------------------------
 	"shuttle": {
 		"id": "shuttle", "name": "Space Shuttle", "role": "launch", "launchFrom": "Earth",
 		"era": "1981–2011",
@@ -312,10 +297,8 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# --------------------------------------------------------------------------
 	# SUPER HEAVY / STARSHIP — both halves come back, which makes it the only
 	# vehicle here with two landings per flight.
-	# --------------------------------------------------------------------------
 	"starship": {
 		"id": "starship", "name": "Starship / Super Heavy", "role": "launch", "launchFrom": "Earth",
 		"era": "2023–",
@@ -337,10 +320,8 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# --------------------------------------------------------------------------
 	# APOLLO LM — the lander, and the only crewed vehicle ever built that could
 	# not fly in an atmosphere at all.
-	# --------------------------------------------------------------------------
 	"lm": {
 		"id": "lm", "name": "Apollo Lunar Module", "role": "lander", "launchFrom": "Moon",
 		"era": "1969–1972", "airless": true,
@@ -366,10 +347,8 @@ static func _build_vehicles() -> Dictionary:
 		},
 	},
 
-	# --------------------------------------------------------------------------
 	# MARS SKY CRANE — an aeroshell, a supersonic parachute, a rocket-powered
 	# descent stage and a rover on cables. Four separations in seven minutes.
-	# --------------------------------------------------------------------------
 	"skycrane": {
 		"id": "skycrane", "name": "Mars EDL — Sky Crane", "role": "lander", "launchFrom": "Mars",
 		"era": "2012, 2021",
@@ -406,10 +385,8 @@ static func _build_vehicles() -> Dictionary:
 		},
 	},
 
-	# --------------------------------------------------------------------------
 	# ION CRUISER — the interplanetary workhorse. 237 mN and months of burn: it
 	# is the vehicle that makes the warp ladder necessary.
-	# --------------------------------------------------------------------------
 	"ioncruiser": {
 		"id": "ioncruiser", "name": "Ion Cruiser (Dawn-class)", "role": "cruiser", "launchFrom": null,
 		"era": "2007–",
@@ -424,7 +401,6 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# --------------------------------------------------------------------------
 	# HAIL MARY — the interstellar ship, built from the book and the 2026 film.
 	#
 	# The one performance number worth deriving here, because it decides whether
@@ -442,7 +418,6 @@ static func _build_vehicles() -> Dictionary:
 	# — and thirteen years is exactly what the book says the outbound trip takes.
 	# The mission planner in relativity.gd solves for the coast fraction rather
 	# than assuming one, so this comes out of the numbers instead of being asserted.
-	# --------------------------------------------------------------------------
 	"hailmary": {
 		"id": "hailmary", "name": "Hail Mary", "role": "interstellar", "launchFrom": null,
 		"era": "Project Hail Mary",
@@ -475,11 +450,9 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# --------------------------------------------------------------------------
 	# BEETLE — the data-return probe. Four of them ride in the Hail Mary's nose;
 	# their only job is to be small enough that the mass ratio works for the trip
 	# home, which the mothership's does not.
-	# --------------------------------------------------------------------------
 	"beetle": {
 		"id": "beetle", "name": "Beetle probe", "role": "interstellar", "launchFrom": null,
 		"era": "Project Hail Mary",
@@ -499,7 +472,6 @@ const VEHICLE_ORDER := [
 	"ioncruiser", "hailmary", "beetle",
 ]
 
-# ---------------------------------------------------------------------------
 # Ideal Δv of a whole vehicle, stage by stage, from the rocket equation.
 # Nothing stores this — it is derived, so editing a mass anywhere above changes
 # it and the HUD immediately says so.
@@ -507,7 +479,6 @@ const VEHICLE_ORDER := [
 # Each stage carries everything above it, which is what makes the first stage's
 # Δv small and the last stage's large despite the first holding 90% of the
 # propellant. `pa` lets the caller ask for the sea-level or vacuum answer.
-# ---------------------------------------------------------------------------
 static func stage_delta_v(vehicle: Dictionary, index: int, pa: float = 0.0, extra_payload: float = 0.0) -> float:
 	var st: Array = vehicle.stages
 	var above := extra_payload

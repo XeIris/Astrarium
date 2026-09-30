@@ -1,10 +1,8 @@
 class_name RenderPipeline
 extends Node
 
-# ============================================================================
 # THE RENDER PIPELINE — the Godot home of everything the web build did by hand
 # with renderer.setRenderTarget / autoClear / clearDepth in animate().
-# ----------------------------------------------------------------------------
 # The web build rendered into its own half-float target and tone mapped once.
 # That is kept exactly; what changes is who does the drawing.
 #
@@ -28,12 +26,11 @@ extends Node
 # marcher is dispatched from _process via call_on_render_thread, which with
 # the single-threaded render model runs before any viewport draws, so the sky
 # shader samples this frame's march. All three facts were measured in a probe
-# before this was written (PORT_GUIDE.md, "render order").
+# before this was written (docs/godot.md, "render order").
 #
 # THE FLOATING ORIGIN. Every camera here sits at the origin with rotation only;
 # the orchestrator places objects at (position − camera position), computed in
-# double precision. See PORT_GUIDE.md.
-# ============================================================================
+# double precision. See docs/godot.md.
 
 const TEMP_LAYER_BIT := 1 << 19
 const ALL_LAYERS := 0xFFFFF

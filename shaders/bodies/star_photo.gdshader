@@ -1,8 +1,6 @@
-// ============================================================================
 // THE PHOTOSPHERE — port of photosphereMaterial() in sim/star_visual.js.
 // The header of sim/star_visual.gd carries the physics; the comments below are
 // the web shader's own, kept with the lines they explain.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, cull_back;
 
@@ -78,7 +76,7 @@ void vertex() {
 	// View space, not world space. In the web build that was the precision
 	// decision (modelViewMatrix carries the camera-relative offset in float64);
 	// here the floating origin makes world space camera-relative already, and
-	// MODELVIEW_MATRIX is the same small-number product (PORT_GUIDE.md §3).
+	// MODELVIEW_MATRIX is the same small-number product (docs/godot.md).
 	vVN = normalize(MODELVIEW_NORMAL_MATRIX * n);
 	vVP = (MODELVIEW_MATRIX * vec4(p, 1.0)).xyz;
 	VERTEX = p;

@@ -1,7 +1,5 @@
-# ---------------------------------------------------------------------------
 # SUPER HEAVY / STARSHIP — the only vehicle in the set with two landings per
 # flight, and the only one made of stainless steel.
-# ---------------------------------------------------------------------------
 # 71 m of booster under 52 m of ship, both 9 m across, 33 Raptors on the pad.
 # Two things drive the whole read:
 #
@@ -14,7 +12,6 @@
 #     three vacuum Raptors that do not. The model says so — a pivot suffixed
 #     `_fixed` is bound with zero authority — because an engine that cannot
 #     gimbal must not be drawn gimballing.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,9 +26,7 @@ SS_L = 52.0
 R = D / 2
 RING = 1.83                        # weld-ring pitch: the coil width, not a guess
 
-# ---------------------------------------------------------------------------
 # THE ENGINE PACKING, which is a real constraint and not a layout choice.
-# ---------------------------------------------------------------------------
 # Thirty-three bells inside a 9 m skirt is the tightest cluster ever flown, and
 # the test it has to pass is not "does each ring space its own engines" — it is
 # the NEAREST NEIGHBOUR OVER THE WHOLE CLUSTER. Solving the rings one at a time
@@ -74,9 +69,7 @@ def weld_rings(name, z0, z1, mat, parent, r=R):
         smooth(s, 30)
 
 
-# ---------------------------------------------------------------------------
 # SUPER HEAVY
-# ---------------------------------------------------------------------------
 def build_sh(M, root):
     g = stage('sh', root)
 
@@ -153,9 +146,7 @@ def build_sh(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # STARSHIP
-# ---------------------------------------------------------------------------
 def nose_r(z, nose_l):
     """The ship's local radius at height z — R on the barrel, and the ogive's
        own curve above it. Anything bolted to the upper hull has to ask: the

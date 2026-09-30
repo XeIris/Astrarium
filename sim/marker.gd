@@ -1,10 +1,8 @@
 class_name Marker
 extends RefCounted
 
-# ============================================================================
 # THE POINT-SOURCE MARKER — the visual half of sim/scale.js (createMarker).
 # The physics half (physicalRadiusAU) is sim/scale.gd.
-# ----------------------------------------------------------------------------
 # A real telescope has the true-scale problem and solves it this way: below
 # the resolution limit a body stops being a disc and becomes a POINT SOURCE.
 # Its apparent size stops shrinking (it is pinned at the instrument's
@@ -42,7 +40,6 @@ extends RefCounted
 # never coupled to whatever the body's own visual does to its transform.
 # update() takes the body's CAMERA-RELATIVE position (the floating origin),
 # and places the mesh there itself.
-# ============================================================================
 
 const SHADER := preload("res://shaders/bodies/marker_point.gdshader")
 
@@ -61,7 +58,6 @@ const NO_CULL_AABB := AABB(Vector3(-1.0e6, -1.0e6, -1.0e6), Vector3(2.0e6, 2.0e6
 var mesh: MeshInstance3D
 var material: ShaderMaterial
 
-# ----------------------------------------------------------------------------
 # Apparent angular DIAMETER of a body, in screen pixels. (Private copies of
 # sim/scale.js's pure helpers; sim/scale.gd exports the same two.)
 #
@@ -69,7 +65,6 @@ var material: ShaderMaterial
 # pixels onto 2·z·tan(f/2) world units at distance z, so one pixel spans
 # (2·z·tan(f/2))/H there. Dividing the body's diameter by that gives its size
 # in pixels — the quantity that decides whether a mesh is worth drawing.
-# ----------------------------------------------------------------------------
 static func _pixels_per_world_unit(dist: float, fov_rad: float, viewport_h: float) -> float:
 	return viewport_h / maxf(2.0 * dist * tan(fov_rad / 2.0), 1e-30)
 

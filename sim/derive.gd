@@ -1,9 +1,7 @@
 class_name Derive
 extends RefCounted
 
-# ============================================================================
 # BODY DERIVATION — what a spec IMPLIES, and the integrator loop that moves it.
-# ----------------------------------------------------------------------------
 # In the web build all of this lived in the orchestrator (blackhole_sim.js):
 # the exaggerated-size table, the reference radii, deriveBody, the energy
 # readout and the adaptive step. None of it touches a mesh, a DOM node or the
@@ -11,11 +9,8 @@ extends RefCounted
 # orchestrator, so the port moves the pure half here and leaves main.gd with
 # the half that owns the scene. The functions are verbatim ports; where the JS
 # read `state.*` the value is a parameter instead.
-# ============================================================================
 
-# ============================================================================
 # BODY CREATION
-# ============================================================================
 # The exaggerated ("Boosted") size of each type, at that type's DEFAULT mass.
 # A neutron star is ~12 km across sitting in an orbit millions of times wider,
 # so its rendered size is pure invention either way; what these numbers buy is
@@ -122,13 +117,11 @@ static func contact_au(b: Body, spec: Dictionary, radius_scene: float, scene_sca
 static func disc_peak_temp(mass: float) -> float:
 	return 2.0e7 * pow(maxf(mass, 0.1), -0.25)
 
-# ---------------------------------------------------------------------------
 # Recompute a body's interior model. Everything that reads structure — the
 # cross-section, the object editor, the oblateness the star shader draws, the
 # stability checks in the render loop — reads b.structure, so this is the one
 # place that decides what a body physically IS. It has to be re-run whenever
 # mass or spin changes, which accretion does continuously.
-# ---------------------------------------------------------------------------
 static func refresh_structure(b: Body) -> Dictionary:
 	var sp := b.spec
 	var q := {
@@ -143,13 +136,11 @@ static func refresh_structure(b: Body) -> Dictionary:
 	b.structure = Structure.structure_of(q)
 	return b.structure
 
-# ---------------------------------------------------------------------------
 # Derive everything a body's spec IMPLIES: horizon, radius, temperature,
 # luminosity, spin and interior model. Split out of spawnBody because it has to
 # be re-runnable on a body that already exists — the live editor changes a mass
 # or a spin on something already in orbit and needs exactly this block again,
 # without touching the id, the position, the velocity or the trail.
-# ---------------------------------------------------------------------------
 static func derive_body(b: Body, spec: Dictionary) -> Body:
 	var type = spec.get("type")
 	var def := type_default(type)
@@ -252,9 +243,7 @@ static func new_body(id: int, spec: Dictionary) -> Body:
 	derive_body(b, spec)
 	return b
 
-# ============================================================================
 # THE INTEGRATOR LOOP
-# ============================================================================
 
 # Smallest resolved-needs timescale among bodies — the dynamical time of the
 # tightest/ fastest pair. Used to shrink the step during close encounters so a

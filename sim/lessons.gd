@@ -1,9 +1,7 @@
 class_name Lessons
 extends RefCounted
 
-# ============================================================================
 # THE COURSE
-# ----------------------------------------------------------------------------
 # A beginner's astronomy syllabus, written against the running simulation.
 #
 # WHERE THE SHAPE OF IT COMES FROM. The module order follows the standard
@@ -80,7 +78,6 @@ extends RefCounted
 #   flare       body name — force an eruption
 #   collapse    body name — trigger core collapse
 #   instrument  photometer | gw | hr | cutaway  (also settable per step)
-# ============================================================================
 #
 # THE PORT. This file is generated from sim/lessons.js and holds the same
 # data as Dictionaries with the JS keys VERBATIM (camelCase and all), because
@@ -89,7 +86,6 @@ extends RefCounted
 # sim/lessonui.gd interprets the handful of tags it uses (<p>, <em>, <strong>,
 # <kbd>, and the <b> of the myth and look-for boxes). Integers stay integers
 # (a band index is an index); the executor converts where a number is a scale.
-# ============================================================================
 
 # The web build wrapped every figure with
 #   svg(viewBox, inner) = `<svg viewBox="${viewBox}" class="lfig" ...>${inner}</svg>`
@@ -97,12 +93,10 @@ extends RefCounted
 # spectrum ticks) with .map().join(). What is stored here is the expanded
 # result, character for character; sim/lessonui.gd rasterises the shapes and
 # sets the <text> itself (Godot's SVG loader has no text).
-# ---------------------------------------------------------------------------
 # FIGURES — only for the things the simulation genuinely cannot show you.
 # Every one of these is a case where the real phenomenon is either too slow
 # (the expansion of the universe), too small (a parallax of one arcsecond), or
 # not a thing in space at all (the nuclear binding energy curve).
-# ---------------------------------------------------------------------------
 const FIGURES := {
 	"parallax": """<svg viewBox="0 0 320 150" class="lfig" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <circle cx="40" cy="75" r="9" fill="#ffd28a"/>
@@ -222,12 +216,9 @@ const FIGURES := {
     <text x="300" y="36" text-anchor="end" fill="currentColor" font-size="7.5" opacity=".7">depth</text></svg>""",
 }
 
-# ============================================================================
 # THE MODULES
-# ============================================================================
 const MODULES := [
 
-# ---------------------------------------------------------------------------
 {
 	"id": "sky",
 	"title": "The sky from here",
@@ -448,7 +439,6 @@ const MODULES := [
 	],
 },
 
-# ---------------------------------------------------------------------------
 {
 	"id": "gravity",
 	"title": "Gravity and orbits",
@@ -608,7 +598,6 @@ const MODULES := [
 	],
 },
 
-# ---------------------------------------------------------------------------
 {
 	"id": "light",
 	"title": "Light, the only messenger",
@@ -726,7 +715,6 @@ const MODULES := [
 	],
 },
 
-# ---------------------------------------------------------------------------
 {
 	"id": "stars",
 	"title": "The Sun, and the other stars",
@@ -947,7 +935,6 @@ const MODULES := [
 	],
 },
 
-# ---------------------------------------------------------------------------
 {
 	"id": "lives",
 	"title": "The lives of stars",
@@ -1184,7 +1171,6 @@ const MODULES := [
 	],
 },
 
-# ---------------------------------------------------------------------------
 {
 	"id": "holes",
 	"title": "Black holes and spacetime",
@@ -1361,7 +1347,6 @@ const MODULES := [
 	],
 },
 
-# ---------------------------------------------------------------------------
 {
 	"id": "galaxies",
 	"title": "Galaxies and the universe",
@@ -1533,7 +1518,6 @@ const MODULES := [
 	],
 },
 
-# ---------------------------------------------------------------------------
 {
 	"id": "worlds",
 	"title": "Other worlds",
@@ -1755,12 +1739,10 @@ const MODULES := [
 },
 ]
 
-# ---------------------------------------------------------------------------
 # The course as a flat, ordered list. Two ways through it are both first-class:
 # straight down the line, and jumping to whatever you came for. The linear
 # order is what "next" means and what the progress bar measures; the module
 # list is what makes jumping possible. Neither is the "real" one.
-# ---------------------------------------------------------------------------
 static var LESSON_ORDER: Array = _order()
 static var LESSON_COUNT: int = LESSON_ORDER.size()
 static var STEP_COUNT: int = _step_count()

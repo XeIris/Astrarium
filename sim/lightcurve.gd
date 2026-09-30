@@ -1,9 +1,7 @@
 class_name LightCurve
 extends RefCounted
 
-# ============================================================================
 # PHOTOMETER — the light curve and the radial velocity, measured
-# ----------------------------------------------------------------------------
 # Almost everything known about planets around other stars was learned from two
 # numbers that a telescope can actually get: how bright the star is, and how
 # fast it is moving toward or away. Neither one is a picture of a planet. So
@@ -51,7 +49,6 @@ extends RefCounted
 # last bit. The chart is a Control's _draw() at the canvas's own 340 × 210
 # backing size, scaled to whatever width the card gives it — the CSS scaled the
 # canvas bitmap the same way (`width: 100%; height: auto`).
-# ============================================================================
 
 const AU_PER_YR_TO_MS := 1.495978707e11 / 3.15576e7   # 4740.57 m/s
 
@@ -82,7 +79,6 @@ static func _intensity(x: float, y: float, R: float) -> float:
 static func _contains(p: Dictionary, x: float, y: float) -> bool:
 	return (x - p.x) * (x - p.x) + (y - p.y) * (y - p.y) <= p.r * p.r
 
-# ----------------------------------------------------------------------------
 # One measurement of the system as seen from direction `u` (a unit vector from
 # the system TOWARD the observer).
 #
@@ -90,7 +86,6 @@ static func _contains(p: Dictionary, x: float, y: float) -> bool:
 # same normalised by the unobscured total, the radial velocity of the brightest
 # star in m/s (positive = receding), and a list of what is currently in front
 # of what.
-# ----------------------------------------------------------------------------
 static func measure(bodies: Array, u: DVec3) -> Dictionary:
 	# A basis for the plane of the sky. Any two vectors perpendicular to u will
 	# do — the measurement cannot depend on which, and does not.
@@ -172,14 +167,12 @@ static func measure(bodies: Array, u: DVec3) -> Dictionary:
 
 	return {"flux": flux, "rel": flux / total if total > 0.0 else 1.0, "rv": rv, "events": events, "star": bright, "total": total}
 
-# ----------------------------------------------------------------------------
 # The rolling chart. Two traces share one time axis, because the whole point is
 # that the dip and the wobble come from the same orbit: the transit happens at
 # the moment the star's radial velocity passes through zero going the right way.
 #
 # opts: canvas (a Control to paint into), width/height (the backing size the
 # web canvas had, 340 × 210), span.
-# ----------------------------------------------------------------------------
 static func create_photometer(opts: Dictionary) -> Photometer:
 	return Photometer.new(opts)
 

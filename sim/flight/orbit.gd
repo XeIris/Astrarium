@@ -1,9 +1,7 @@
 class_name Orbit
 extends RefCounted
 
-# ============================================================================
 # TWO-BODY ORBITAL MECHANICS
-# ----------------------------------------------------------------------------
 # Everything here is about ONE body's gravity, in SI, in a frame centred on it.
 # The sim's real force model is the full n-body sum (see vessel.gd); this module
 # exists for the two jobs that genuinely want the two-body answer:
@@ -30,7 +28,6 @@ extends RefCounted
 # PORT NOTES. Vectors are DVec3 (metres, m/s — never float32). `elements()`
 # returns a Dictionary with the JS keys (a, e, inc, raan, argp, nu, rp, ra, h,
 # energy, period, r, v); INF where the JS had Infinity.
-# ============================================================================
 
 # ---- Stumpff functions ------------------------------------------------------
 # C(z) and S(z) are the even and odd parts of the universal anomaly series. The

@@ -1,9 +1,7 @@
 class_name Terrain
 extends RefCounted
 
-# ============================================================================
 # TERRAIN & SURFACE CLIMATE — the GDScript half of sim/terrain.js.
-# ----------------------------------------------------------------------------
 # The model itself — isostasy, plate tectonics, craters, the P₂ insolation
 # profile, the three overturning cells and the Whittaker biome diagram — is
 # pure shader code and lives in shaders/bodies/terrain.gdshaderinc, whose
@@ -16,7 +14,6 @@ extends RefCounted
 #                          overridable per body by a preset
 #   INCLUDE / NOISE_INCLUDE  the shader include paths — the Godot counterpart
 #                          of importing TERRAIN_GLSL / NOISE_GLSL
-# ============================================================================
 
 const INCLUDE := "res://shaders/bodies/terrain.gdshaderinc"
 const NOISE_INCLUDE := "res://shaders/bodies/terrain_noise.gdshaderinc"

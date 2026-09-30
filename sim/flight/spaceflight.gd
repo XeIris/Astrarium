@@ -1,9 +1,7 @@
 class_name Spaceflight
 extends RefCounted
 
-# ============================================================================
 # SPACEFLIGHT — the integration layer (port of sim/flight/spaceflight.js)
-# ----------------------------------------------------------------------------
 # This is the only file in sim/flight/ that knows about the orrery. Everything
 # under it is pure: given a vehicle, a body and a state it produces numbers, and
 # none of it reaches into main.gd or for a global.
@@ -38,7 +36,6 @@ extends RefCounted
 #     (main.gd converts a wheel notch to ~100); drag(dx, dy) is unchanged.
 #   · The HUD (sim/flight/flightui.gd) is mounted into ctx.panel. planHTML /
 #     cruiseHTML became FlightUI.plan_block / cruise_block, which return data.
-# ============================================================================
 
 const WARPS := [1, 2, 5, 10, 50, 100, 1000, 10000, 100000, 1000000]
 const EARTH_PADS := {
@@ -48,9 +45,7 @@ const EARTH_PADS := {
 	"default": {"lat": 28.608402, "lon": -80.604201},
 }
 
-# ----------------------------------------------------------------------------
 # THE TERMINAL COUNT
-# ----------------------------------------------------------------------------
 # The last ten seconds of a real count, with the events at the times they
 # really happen. The lead is the vehicle's own: a Saturn V starts its F-1s at
 # T−8.9 s and does not release until they have been running long enough to
@@ -186,7 +181,6 @@ func _init(ctx: Dictionary) -> void:
 func _toast(m: String) -> void:
 	if toast_cb != null: toast_cb.call(m)
 
-# ----------------------------------------------------------------------------
 func bodies() -> Array:
 	return state.bodies.filter(func(b): return b.alive)
 
@@ -259,9 +253,7 @@ func light_sources() -> Array:
 	out.sort_custom(func(a, b): return a.flux > b.flux)
 	return out
 
-# ----------------------------------------------------------------------------
 # LAUNCH / SPAWN
-# ----------------------------------------------------------------------------
 ## opts: {mode: "pad"|"orbit", body, lat, lon, alt, inc} as the web build, plus
 ## two harness hooks the web reaches by other means: `phase` (the orbit phase
 ## the JS draws from Math.random) and `vehicle` (a vehicle Dictionary to fly
@@ -527,9 +519,7 @@ func teardown() -> void:
 	sky_gain = 1.0
 	SkyModel.apply_day_gain(pipe.sky_materials, 1.0)
 
-# ----------------------------------------------------------------------------
 # INTERSTELLAR
-# ----------------------------------------------------------------------------
 ## Leave the solar system for a star. This is a different regime, not a longer
 ## burn: the vessel comes off the n-body integrator and onto the exact
 ## hyperbolic solution in sim/flight/relativity.gd, because at γ = 2 the
@@ -794,9 +784,7 @@ func _arrive(body) -> void:
 	vessel.log_event("Arrived at %s — %s. Parking orbit, %s km" % [name_, summary, U.fixed(alt / 1000.0, 0)])
 	_toast("Arrived at %s — in orbit" % name_)
 
-# ----------------------------------------------------------------------------
 # THE TERMINAL COUNT
-# ----------------------------------------------------------------------------
 func start_count(T: float = 10.0) -> void:
 	var lead: float = IGNITION_LEAD.get(vessel.vehicle_key, 4.0)
 	count = {"t": T, "lead": lead, "lit": false, "called": {}}
@@ -848,9 +836,7 @@ func run_program(p: String) -> void:
 		return
 	ap.engage(p)
 
-# ----------------------------------------------------------------------------
 # TIME
-# ----------------------------------------------------------------------------
 func set_warp(i: int) -> void:
 	warp_idx = clampi(i, 0, WARPS.size() - 1)
 	# The interlocks are real: on rails the thrust and drag terms are not
@@ -921,9 +907,7 @@ func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10, front_lit
 	fly_cam.state.yaw = atan2(-sun_l.dot(fwd), -sun_l.dot(right)) + off_yaw
 	fly_cam.state.pitch = clampf(asin(clampf(-sun_l.dot(uu), -1.0, 1.0)) + off_pitch, -1.45, 1.45)
 
-# ----------------------------------------------------------------------------
 # TARGETING
-# ----------------------------------------------------------------------------
 func refresh_targets() -> void:
 	if hud == null: return
 	var names := []
@@ -951,9 +935,7 @@ func set_target(n) -> void:
 		autopilot.target = target
 		autopilot.plan = null
 
-# ----------------------------------------------------------------------------
 # UPDATE
-# ----------------------------------------------------------------------------
 func update(dt: float, _frame = null) -> void:
 	if not active or vessel == null: return
 	vessel.bodies = bodies()
@@ -1002,7 +984,6 @@ func update(dt: float, _frame = null) -> void:
 	update_visual(dt, sim_seconds)
 	if hud != null: update_hud()
 
-# ----------------------------------------------------------------------------
 func _local_up_north() -> Array:
 	var up := DQuat.nrm(vessel.r.clone())
 	var north := DVec3.new(0.0, -1.0, 0.0)
@@ -1227,7 +1208,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
 		"dt": dt, "sunLocal": sun_l})
 	local.cam_pos.copy_from(fly_cam.pos)
-	# far/near may not pass ~1e7 here (PORT_GUIDE.md §3: Godot builds the
+	# far/near may not pass ~1e7 here (docs/godot.md: Godot builds the
 	# culling frustum in float32 and past that it degenerates and culls the
 	# whole pass — measured: the cockpit view, near 0.05 m against the 4e6 m
 	# far plane the sky dome needs, drew nothing at all). So the near plane is
@@ -1256,12 +1237,11 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# the 0.01 that setCamMode restores and that every system-scale view
 		# already has (its reference shots report exactly that). It is stated
 		# here rather than inherited because main.gd's far plane is tied to it
-		# (far = min(1e5, near·1e7), PORT_GUIDE.md §3): entering flight from a
+		# (far = min(1e5, near·1e7), docs/godot.md): entering flight from a
 		# close-up would otherwise carry a 1e-6 near plane into the launch and
 		# cull every planet past 10 scene units.
 		main.cam_near = 0.01
 
-# ----------------------------------------------------------------------------
 func update_hud() -> void:
 	var t: Dictionary = vessel.telemetry
 	var un := _local_up_north()
@@ -1302,9 +1282,7 @@ func update_hud() -> void:
 func set_size(w: float, h: float) -> void:
 	local.set_size(w, h)
 
-# ----------------------------------------------------------------------------
 # INPUT
-# ----------------------------------------------------------------------------
 ## The orchestrator resolves configurable physical keys before dispatching the
 ## flight action. Returns true when the active vessel accepted it.
 func key_action(action: String) -> bool:

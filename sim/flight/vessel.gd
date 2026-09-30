@@ -1,9 +1,7 @@
 class_name Vessel
 extends RefCounted
 
-# ============================================================================
 # THE VESSEL
-# ----------------------------------------------------------------------------
 # State, forces, staging, structure and clocks. Everything in SI, in a frame
 # centred on the vessel's parent body whose axes are parallel to the orrery's.
 #
@@ -49,7 +47,6 @@ extends RefCounted
 #   · The per-stage state is the inner class StageState; `spec` is the vehicle's
 #     own stage Dictionary (JS keys). Telemetry and the per-step sample are
 #     Dictionaries with the JS keys, since the HUD reads them by name.
-# ============================================================================
 
 const PHASE := {
 	"PRELAUNCH": "prelaunch", "ASCENT": "ascent", "COAST": "coast", "ORBIT": "orbit",
@@ -200,9 +197,7 @@ func _init(opts: Dictionary) -> void:
 	set_parent(opts.parent, opts.get("bodies"))
 	telemetry = {}
 
-# -------------------------------------------------------------------------
 # Parent / frame
-# -------------------------------------------------------------------------
 func set_parent(body: Body, bods) -> void:
 	parent = body
 	env = Rocketry.flight_env(body) if body != null else null
@@ -242,9 +237,7 @@ func place_in_orbit(alt_m: float, inc_deg: float = 0.0, phase_rad: float = 0.0) 
 	phase = PHASE.ORBIT
 	return self
 
-# -------------------------------------------------------------------------
 # Mass properties
-# -------------------------------------------------------------------------
 var mass: float:
 	get:
 		var m := payload_mass
@@ -287,9 +280,7 @@ func inertia() -> Dictionary:
 	var R := maxf(diameter / 2.0, 0.25)
 	return { "pitch": m * (L * L / 12.0 + R * R / 4.0), "roll": m * R * R / 2.0 }
 
-# -------------------------------------------------------------------------
 # Propulsion
-# -------------------------------------------------------------------------
 func live_stages() -> Array:
 	var out := []
 	for s in stages:
@@ -344,9 +335,7 @@ func forward(out: DVec3 = null) -> DVec3:
 	if out == null: out = _a
 	return DQuat.rotate(out.copy_from(BODY_FWD), q)
 
-# -------------------------------------------------------------------------
 # Forces
-# -------------------------------------------------------------------------
 
 ## Gravity in the parent-centred non-inertial frame. See the module header.
 func gravity(rr: DVec3, out: DVec3) -> DVec3:
@@ -478,9 +467,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample = null) -> DVec3:
 		sample.engines = prop.count
 	return out
 
-# -------------------------------------------------------------------------
 # Attitude
-# -------------------------------------------------------------------------
 
 ## Angular acceleration the vehicle can actually produce, rad/s², about a
 ## transverse axis. Gimbal only works while the engines are lit.
@@ -596,9 +583,7 @@ func spend_rcs(angular_impulse: float, _dt: float) -> void:
 		st.rcs_prop = maxf(0.0, st.rcs_prop - mdot)
 		return
 
-# -------------------------------------------------------------------------
 # Staging
-# -------------------------------------------------------------------------
 
 ## Fire the next staging event. Returns the dropped StageState, or null.
 ##
@@ -715,9 +700,7 @@ func delta_v_remaining(pa: float = 0.0) -> float:
 		above += st.prop
 	return dv
 
-# -------------------------------------------------------------------------
 # Structure
-# -------------------------------------------------------------------------
 ## Four independent ways to lose a vehicle, each against a real limit. A
 ## verdict here is an EVENT — the vessel is destroyed and the sim says which
 ## of the four did it — not a warning light.
@@ -791,9 +774,7 @@ static func js_num(x: float) -> String:
 	if x == floor(x) and absf(x) < 1e15: return str(int(x))
 	return str(x)
 
-# -------------------------------------------------------------------------
 # Clocks
-# -------------------------------------------------------------------------
 ## Advance the proper-time clocks.
 ##
 ##   dτ/dt = √(1 − v²/c² − 2Φ/c²)
@@ -841,9 +822,7 @@ func potential(rr: DVec3) -> float:
 		phi -= Rocketry.GM_SUN * b.mass / d
 	return phi
 
-# -------------------------------------------------------------------------
 # Stepping
-# -------------------------------------------------------------------------
 
 ## Advance `dt` seconds. opts.rails = true asks for the analytic conic.
 ##
@@ -1180,9 +1159,7 @@ func contact(_dt: float) -> void:
 		landed_at = { "met": met, "vVert": v_vert, "vHoriz": v_horiz }
 		log_event("Touchdown — %s m/s vertical, %s m/s lateral" % [U.fixed(absf(v_vert), 2), U.fixed(v_horiz, 2)])
 
-# -------------------------------------------------------------------------
 # Telemetry
-# -------------------------------------------------------------------------
 ## Refresh `telemetry` (and the records) from the current state. `s` is the
 ## last integration sample, or null to take a fresh one. Returns telemetry.
 func sample(dt: float, s = null) -> Dictionary:

@@ -1,10 +1,8 @@
 class_name CloudField
 extends RefCounted
 
-# ============================================================================
 # THE CLOUD FIELD ON THE CPU — the same density shaders/flight/clouds.gdshaderinc
 # computes, evaluated in GDScript at a handful of points a frame.
-# ----------------------------------------------------------------------------
 # The cloud pass shades the clouds and the ground shader darkens the ground
 # under them, but the vehicle, the tower and the pad are lit by Godot's own
 # DirectionalLight3D, which knows nothing about either. So a rocket standing
@@ -22,7 +20,6 @@ extends RefCounted
 #
 # The volumes are generated on a worker thread; until they exist this reports
 # a clear sky.
-# ============================================================================
 
 var _tex: Array = []        # [NoiseTexture3D] × 3: shape, worley, detail
 var _vol: Array = []        # [{w, h, d, data: PackedByteArray}] once read

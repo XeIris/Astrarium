@@ -1,9 +1,7 @@
 class_name Painter
 extends RefCounted
 
-# ============================================================================
 # PAINTER — rings, belts and clouds
-# ----------------------------------------------------------------------------
 # Everything here is made of enormous numbers of small things, which is exactly
 # the case the N-body integrator cannot take: a ring is 10^13 particles, and
 # even a token 20 000 of them would swamp an O(n²) force loop that is currently
@@ -50,7 +48,6 @@ extends RefCounted
 #     camera's, in double: `place(cam_pos)` does that. Call update(sim_dt)
 #     with the physics and place(cam_pos) once the camera is final, or
 #     update(sim_dt, cam_pos) to do both.
-# ============================================================================
 
 const SWARM_SHADER := preload("res://shaders/bodies/painter_swarm.gdshader")
 const CLOUD_SHADER := preload("res://shaders/bodies/painter_cloud.gdshader")
@@ -60,7 +57,6 @@ const TWO_PI := PI * 2.0
 # Bulk densities, g/cm³ → kg/m³, for the Roche calculation.
 const RHO := {"rock": 3000.0, "ice": 900.0, "rubble": 1500.0}
 
-# ----------------------------------------------------------------------------
 # The interval a ring can occupy around a body: from just above its surface out
 # to the Roche limit for the given material.
 #   radius_au  the central body's radius
@@ -68,7 +64,6 @@ const RHO := {"rock": 3000.0, "ice": 900.0, "rubble": 1500.0}
 # Returns { inner, outer, roche } in AU. `outer` is null when the Roche limit
 # falls inside the body itself — which happens for a low-density central body,
 # and means it simply cannot have a ring.
-# ----------------------------------------------------------------------------
 static func ring_span(mass_sun: float, radius_au: float, material := "ice") -> Dictionary:
 	var M_SUN := 1.98892e30
 	var rM := radius_au / Physics.AU_PER_KM * 1000.0
@@ -109,10 +104,8 @@ static func split12(x: float) -> Vector2:
 	var hi := floorf(x / q) * q
 	return Vector2(hi, x - hi)
 
-# ============================================================================
 # The particle system itself. One point mesh, one draw call, the analytic
 # solution evaluated per vertex.
-# ============================================================================
 static func particle_material(color, size_px: float, softness := 1.0) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = SWARM_SHADER
@@ -121,7 +114,6 @@ static func particle_material(color, size_px: float, softness := 1.0) -> ShaderM
 	m.set_shader_parameter("uSoft", softness)
 	return m
 
-# ----------------------------------------------------------------------------
 # create_orbital_swarm — the shared engine behind rings and belts. Options
 # (the web build's names):
 #
@@ -132,7 +124,6 @@ static func particle_material(color, size_px: float, softness := 1.0) -> ShaderM
 #   perturberA    if given, clear resonance gaps against a body at this a (AU)
 #   sceneScale    scene units per AU
 #   color sizePx tilt softness surfaceDensity shade
-# ----------------------------------------------------------------------------
 static func create_orbital_swarm(o: Dictionary) -> OrbitalSwarm:
 	return OrbitalSwarm.new(o)
 
@@ -244,9 +235,7 @@ class OrbitalSwarm extends RefCounted:
 		if is_instance_valid(group):
 			group.queue_free()
 
-# ============================================================================
 # GAS CLOUD — an expanding shell, optionally bipolar.
-# ----------------------------------------------------------------------------
 # Nebulae are optically thin, so what you see is the integral of emission along
 # the line of sight — which is why a hollow expanding shell looks like a bright
 # RIM: the sightline through the edge passes through far more gas than the one
@@ -260,7 +249,6 @@ class OrbitalSwarm extends RefCounted:
 # Eta Carinae's Homunculus is a measured 650 km/s.
 #
 # Options: radius (AU), color, lobes, density, expandAUperYr, sceneScale, seed.
-# ============================================================================
 static func create_gas_cloud(o: Dictionary) -> GasCloud:
 	return GasCloud.new(o)
 
@@ -321,14 +309,12 @@ class GasCloud extends RefCounted:
 		if is_instance_valid(group):
 			group.queue_free()
 
-# ============================================================================
 # The painter's own bookkeeping: a list of decorations, each pinned to a body
 # (or to the scene origin), updated together and disposed together.
 #
 #   Painter.create_painter({get_body: Callable(id) -> Body,
 #                           get_scene_scale: Callable() -> float,
 #                           root: Node3D})
-# ============================================================================
 static func create_painter(o: Dictionary) -> Painter:
 	return Painter.new(o)
 
@@ -386,7 +372,7 @@ func update(sim_dt: float, cam_pos: DVec3 = null) -> void:
 		place(cam_pos)
 
 ## THE FLOATING ORIGIN: put every group at its body's absolute scene position
-## minus the camera's, subtracted in double (PORT_GUIDE.md §3). Unpinned
+## minus the camera's, subtracted in double (docs/godot.md). Unpinned
 ## decorations sit at the scene origin. Call once the frame's camera is final.
 func place(cam_pos: DVec3) -> void:
 	for it in items:

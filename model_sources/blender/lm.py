@@ -1,7 +1,5 @@
-# ---------------------------------------------------------------------------
 # APOLLO LUNAR MODULE — the only crewed vehicle ever built that could not fly
 # in an atmosphere at all, and it shows in every line of it.
-# ---------------------------------------------------------------------------
 # Two stages. The descent stage is an octagonal box wrapped in foil that lands;
 # the ascent stage uses it as a launch pad and leaves it there. Nothing on
 # either is streamlined, faired, or symmetric, because nothing had to be — the
@@ -35,7 +33,6 @@
 # The engine pivots are a port of an earlier fix: the procedural build hangs
 # both bells straight off the stage group with no pivot, so `parts.gimbals`
 # comes back EMPTY and the LM has always burned with no visible exhaust.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,11 +45,9 @@ from common import build, stage
 DES_L, DES_D = 3.05, 4.27
 ASC_L, ASC_D = 3.76, 4.29
 
-# ---------------------------------------------------------------------------
 # THE STANCE. A landed LM stands about 1.5 m clear of the surface on a gear
 # 9.4 m across the footpads, and those two numbers together are what set the
 # leg: everything below follows from them rather than being dialled in.
-# ---------------------------------------------------------------------------
 GEAR = 1.52                         # descent stage underside above the pads
 PAD_R = 4.30                        # footpad centre radius — 9.4 m span
 HINGE_R = DES_D / 2 * 0.96          # primary strut root, on the top outrigger
@@ -62,9 +57,7 @@ LEG_CANT = -atan2(PAD_R - HINGE_R, HINGE_Z)            # deployed, and stays
 OCT = pi / 8                        # so a flat face is centred on +X
 
 
-# ---------------------------------------------------------------------------
 # DESCENT STAGE
-# ---------------------------------------------------------------------------
 def build_descent(M, root):
     g = stage('des', root)
     r = DES_D / 2
@@ -170,9 +163,7 @@ def build_descent(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # ASCENT STAGE
-# ---------------------------------------------------------------------------
 def build_ascent(M, root):
     """
     Built with the SAME ground clearance baked in: buildCraft stacks this stage

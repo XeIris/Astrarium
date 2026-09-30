@@ -1,6 +1,4 @@
-// ============================================================================
 // THE SKY DOME — SKY_VERT / SKY_FRAG of sim/flight/localview.js.
-// ----------------------------------------------------------------------------
 // A spherical atmosphere seen from inside a 3000 km sphere: column density
 // along the line of sight through the shell (see column()), saturating so the
 // horizon goes pale instead of blowing out; Rayleigh phase plus a forward Mie
@@ -20,7 +18,6 @@
 // In the local pass alpha is exactly that — coverage of the orrery behind —
 // and compose.glsl blends it premultiplied, as the web build's NormalBlending
 // drew the dome straight over the orrery's frame.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_front;
 

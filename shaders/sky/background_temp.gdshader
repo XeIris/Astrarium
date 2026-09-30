@@ -1,6 +1,5 @@
-// ============================================================================
 // THE BACKGROUND — temperature pass. What the web build's backdrop and lens
-// resolve wrote into ALPHA, written into COLOR.r (see PORT_GUIDE.md).
+// resolve wrote into ALPHA, written into COLOR.r (see docs/godot.md).
 //
 // A pixel with no emitter on it is SKY_ALPHA rather than 1.0: the sky is
 // composited in the current band already, so the remap must pass it through
@@ -12,7 +11,6 @@
 // accumulated, so the two are directly comparable. Without the comparison the
 // thin outer disc took the label on any emission at all and deleted whole
 // star-field pixels from every non-visible band.
-// ============================================================================
 shader_type sky;
 
 #include "res://shaders/sky/sky.gdshaderinc"

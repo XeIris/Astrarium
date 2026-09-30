@@ -1,7 +1,5 @@
-// ============================================================================
 // THREE.Sprite, as the flight view's sprites used it (sim/flight/plume.js: the
 // engine glow, the RCS puffs, the launch smoke).
-// ----------------------------------------------------------------------------
 // A unit quad facing the camera, centred on the object, scaled by the
 // object's world scale and turned in the screen plane by the material's
 // `rotation` — three's sprite vertex shader, line for line. SpriteMaterial's
@@ -14,10 +12,9 @@
 // transparent queue is sorted back-to-front per OBJECT, and a cloud of
 // overlapping puffs needs that order.
 //
-// The textures were canvases (NoColorSpace — sampled as LINEAR, PORT_GUIDE §5),
+// The textures were canvases (NoColorSpace — sampled as LINEAR, docs/godot.md),
 // so the two gradients are evaluated analytically and the smoke puff, which
 // is value noise, is baked into an ImageTexture with no colour conversion.
-// ============================================================================
 instance uniform vec3 tint = vec3(1.0);
 instance uniform float opacity = 0.0;
 instance uniform float rot = 0.0;

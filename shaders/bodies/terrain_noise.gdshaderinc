@@ -1,4 +1,3 @@
-// ============================================================================
 // NOISE — the port of sim/terrain.js's NOISE_GLSL, split out of
 // terrain.gdshaderinc because the cloud deck, the gas giants and the rings
 // need the noise without the terrain (the web build imported NOISE_GLSL on
@@ -14,7 +13,6 @@
 // the pictures were tuned against; sstep() IS that formula, written out, so a
 // driver that takes the spec at its word cannot quietly change the answer.
 // Every smoothstep in the body shaders goes through it.
-// ============================================================================
 #ifndef TERRAIN_NOISE_INC
 #define TERRAIN_NOISE_INC
 

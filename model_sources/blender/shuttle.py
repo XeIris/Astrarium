@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # SPACE SHUTTLE — the winged one, and the only stack here that is not a stack.
-# ---------------------------------------------------------------------------
 # The orbiter's engines light on the pad and burn all the way to cutoff, fed
 # from a tank that is not part of the orbiter and is thrown away. The solids
 # cannot be shut down once lit. Nothing about the arrangement is stacked:
@@ -25,7 +23,6 @@
 # BELLY toward the tank. `loft` and `wing` take their vertical terms as
 # up-positive, so the section tables below transfer from craftmodel.js as
 # written — see the axis note in lib.py.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -41,9 +38,7 @@ ORB_L = 37.2
 f = lambda u: u * ORB_L
 
 
-# ---------------------------------------------------------------------------
 # THE ORBITER'S HULL, as a function — so details can be put ON it
-# ---------------------------------------------------------------------------
 # (u, belly, back, half-width, superellipse n, black-line angle s). Heights are
 # UP-POSITIVE from the payload bay's axis; s is the angle above the section's
 # middle where the black belly tile stops (negative: below it).
@@ -158,9 +153,7 @@ def port(parent, secs, u, t, r, depth, mat, name):
         o.location = hull(secs, u, t)
 
 
-# ---------------------------------------------------------------------------
 # THE SOLIDS
-# ---------------------------------------------------------------------------
 def build_srb(M, root):
     """
     A PAIR, and the vehicle stands on them: z = 0 here is the NOZZLE EXIT
@@ -233,9 +226,7 @@ def build_srb(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # EXTERNAL TANK
-# ---------------------------------------------------------------------------
 def build_et(M, root):
     """
     46.9 m is the WHOLE tank, ogive included, so the barrel is SHORTENED to
@@ -297,9 +288,7 @@ def build_et(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # ORBITER
-# ---------------------------------------------------------------------------
 def build_orbiter(M, root):
     g = stage('orbiter', root)
 

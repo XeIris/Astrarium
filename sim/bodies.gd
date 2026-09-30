@@ -1,9 +1,8 @@
 class_name Bodies
 extends RefCounted
 
-# ============================================================================
 # BODY VISUALS — each factory builds a Node3D group and an object with an
-# `update(dt, ctx)` method, stored on b.viz. ctx is PORT_GUIDE.md §7's
+# `update(dt, ctx)` method, stored on b.viz. ctx is docs/godot.md's
 # (holes, camera, cam_pos, time, scene_scale, sim_dt, suns, …).
 # Rendered radii are in SCENE units (visually exaggerated); physical radii in
 # AU live on the body for collisions/physics.
@@ -23,7 +22,6 @@ extends RefCounted
 #     being stripped by a hole shrinks its whole group, relative to the
 #     group's meta "base_scale" (the web's userData.baseScale), which the
 #     orchestrator must set when it attaches the visual.
-# ============================================================================
 
 const ACCRETION_SHADER := preload("res://shaders/bodies/accretion_points.gdshader")
 const BASIC_SHADER := preload("res://shaders/bodies/star_basic.gdshader")
@@ -50,11 +48,9 @@ static func _col(c, fallback: int) -> Color:
 	if c == null: return U.lin(fallback)
 	return U.lin(int(c))
 
-# ---------------------------------------------------------------------------
 # LEGACY STAR ('star-basic'): granulation fBm + limb darkening + flicker, a
 # gassy outer layer, a glow-sprite corona and four flame sprites that wax and
 # wane. Kept for the type; the high-fidelity star is sim/star_visual.gd.
-# ---------------------------------------------------------------------------
 class LegacyStarViz:
 	extends RefCounted
 	var body: Body
@@ -145,17 +141,14 @@ static func create_star(b: Body, opts: Dictionary) -> LegacyStarViz:
 	b.viz = viz
 	return viz
 
-# ---------------------------------------------------------------------------
 # NEUTRON STAR — see sim/neutron_visual.gd. Like the star, it still has to be
 # edible by a black hole, so it gets the same accretion stream chained on.
-# ---------------------------------------------------------------------------
 static func create_neutron(b: Body, opts: Dictionary):
 	var viz = NeutronVisual.create_neutron_visual(b, opts)
 	viz.stream = AccretionStream.new(0x8fc4ff)
 	viz.group.add_child(viz.stream.points)
 	return viz
 
-# ---------------------------------------------------------------------------
 # PLANETS. Both kinds are full shader models now — sim/rocky_visual.gd and
 # sim/giant_visual.gd — and the only thing this file adds is the accretion
 # stream, because a planet still has to be edible by a black hole.
@@ -165,7 +158,6 @@ static func create_neutron(b: Body, opts: Dictionary):
 # A texture has a seam and a polar pinch; and, more to the point, nothing in it
 # was a consequence of anything — the same wallpaper was drawn at 0.4 AU and at
 # 40 AU, so a planet's appearance said nothing whatever about the planet.
-# ---------------------------------------------------------------------------
 static func with_accretion(viz, b: Body, color_hex) -> AccretionWrap:
 	var w := AccretionWrap.new(viz, b, AccretionStream.new(color_hex if color_hex != null else 0x886644))
 	b.viz = w
@@ -250,9 +242,7 @@ class AccretionWrap:
 		inner.set(property, value)
 		return true
 
-# ---------------------------------------------------------------------------
 # BLACK HOLE — an empty transform, deliberately.
-# ----------------------------------------------------------------------------
 # There used to be a black sphere here, sized to r_s and drawn over the lensed
 # image. It was wrong twice over. A black hole has no surface to draw: inside
 # the horizon there is a singularity, and the horizon itself is a one-way
@@ -266,7 +256,6 @@ class AccretionWrap:
 # by the only honest method: rays that cross the horizon return nothing. So
 # this group carries no geometry at all — just the position that physics, the
 # camera and the picker read.
-# ---------------------------------------------------------------------------
 class HoleViz:
 	extends RefCounted
 	var group := Node3D.new()
@@ -285,7 +274,6 @@ static func create_black_hole(b: Body, _opts: Dictionary) -> HoleViz:
 	b.viz = viz
 	return viz
 
-# ---------------------------------------------------------------------------
 # ACCRETION STREAM — a GPU point pool. When a body is inside a hole's tidal
 # radius it sheds particles that spiral toward the hole, and visibly loses
 # mass (mass + rendered radius shrink).
@@ -293,7 +281,6 @@ static func create_black_hole(b: Body, _opts: Dictionary) -> HoleViz:
 # The pool is rebuilt into its ArrayMesh each frame it has anything alive, and
 # hidden (and not rebuilt) while it is empty — which is every body, every
 # frame, in a scene with no hole in it.
-# ---------------------------------------------------------------------------
 class AccretionStream:
 	extends RefCounted
 	var max_n := 240
@@ -399,7 +386,6 @@ static func accrete(b: Body, ctx: Dictionary, stream: AccretionStream, dt: float
 		# bleed a little orbital energy so it gradually descends rather than orbiting forever
 		if b.vel != null: b.vel.scale_in(1.0 - strength * dt * 0.06)
 
-# ---------------------------------------------------------------------------
 # The high-fidelity star still has to be able to be eaten by a black hole, so
 # give it the same accretion stream the legacy star had and chain the updates.
 static func create_star_hifi(b: Body, opts: Dictionary):

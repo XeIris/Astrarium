@@ -1,12 +1,10 @@
 class_name StartIcon
 extends El
 
-# ============================================================================
 # The three start-card icons, drawn from the SVG in blackhole_sim.html. Each
 # is a 64-unit viewBox shown at 46 px in `currentColor` (the accent); the
 # shapes below are the SVG's own, coordinate for coordinate — ellipses and
 # circles as they are, the arcs and cubic paths flattened to polylines.
-# ============================================================================
 
 var kind := "sandbox"
 

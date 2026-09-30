@@ -1,7 +1,6 @@
 class_name HudBlur
 extends RefCounted
 
-# ============================================================================
 # backdrop-filter: blur(σ) — and the start screen's radial gradient over it.
 #
 # CSS blurs the backdrop with a Gaussian of standard deviation σ px and then
@@ -12,7 +11,6 @@ extends RefCounted
 # direct kernel would need. The tint (the panel's rgba background) is then
 # mixed over it exactly as CSS composites a background over a filtered
 # backdrop. Everything is in the canvas's own sRGB space, as the browser's is.
-# ============================================================================
 
 ## The HUD test harness turns this off to compare against flat backgrounds.
 static var enabled := true

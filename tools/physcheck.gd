@@ -1,8 +1,6 @@
 extends SceneTree
 
-# ============================================================================
 # PHYSICS-CORE CHECK — the GDScript half of the numeric comparison.
-# ----------------------------------------------------------------------------
 #   node tools/physref.mjs ref /abs/ref.json
 #   Godot --headless --path . --script res://tools/physcheck.gd -- \
 #         mode=ref in=/abs/ref.json out=/abs/gd.json
@@ -17,7 +15,6 @@ extends SceneTree
 # conventions, the climate model, and 240 frames of eleven presets through the
 # exact stepPhysics loop). `long` is the integration regression: a preset at its
 # own pace, frame by frame, reporting energy drift and sub-steps per second.
-# ============================================================================
 
 var pm_seed := 1
 func _pm() -> float:

@@ -1,11 +1,9 @@
 class_name Canvas2D
 extends RefCounted
 
-# ============================================================================
 # THE INSTRUMENTS' CANVAS — the handful of CanvasRenderingContext2D calls the
 # light curve, the strain chart and the HR diagram make, as static helpers over
 # a Control's draw_* API.
-# ----------------------------------------------------------------------------
 # The web instruments drew into a <canvas> whose BACKING size was fixed (340 ×
 # 210, or 340 × 260 for the HR diagram) and which CSS then scaled to the width
 # of the card's media column (`width: 100%; height: auto`, max 340 px). Every
@@ -18,7 +16,6 @@ extends RefCounted
 # half pixel; fillText's y is the alphabetic BASELINE; textAlign right/center
 # move the anchor. The canvas font was `10px ui-monospace, monospace`, which
 # Chrome on the Mac resolves to the same Menlo as the HUD's mono stack.
-# ============================================================================
 
 static func begin(ci: CanvasItem, backing_w: float) -> void:
 	var s := 1.0

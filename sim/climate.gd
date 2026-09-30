@@ -1,9 +1,7 @@
 class_name Climate
 extends RefCounted
 
-# ============================================================================
 # CLIMATE — a zero-dimensional energy-balance model (EBM)
-# ----------------------------------------------------------------------------
 # The oldest real climate model there is, and the right one here: it captures
 # exactly the physics that makes Trisolaris terrifying.
 #
@@ -28,7 +26,6 @@ extends RefCounted
 # `mixed_layer`, `perStar` → `per_star`); the physics symbols `T` and `S` keep
 # their case. `per_star` rows, `era` and `extremes` are Dictionaries with the JS
 # keys, and `history` rows are [simYear, S, T] Arrays, as before.
-# ============================================================================
 
 const S0 := 1361.0             # solar constant, W/m²
 const SIGMA := 5.670374e-8     # Stefan–Boltzmann, W m⁻² K⁻⁴

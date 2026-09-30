@@ -1,6 +1,5 @@
 extends Node
 
-# ============================================================================
 # THE FOUNDRY / CROSS-SECTION HARNESS — the Godot half of the side-by-side.
 #
 #   node tools/foundrytest.shots.mjs /tmp/fd/shots.json
@@ -26,7 +25,6 @@ extends Node
 #   behave=1   also runs the behaviour checks: dragging the mass-curve handle
 #              past the TOV / Chandrasekhar limits must call on_edit with the
 #              picked mass, and the slider drag must coalesce into one patch.
-# ============================================================================
 
 const T = preload("res://ui/theme.gd")
 const C = preload("res://ui/hud_css.gd")

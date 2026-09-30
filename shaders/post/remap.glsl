@@ -1,10 +1,8 @@
 #[compute]
 #version 450
-// ============================================================================
 // SPECTRAL RE-IMAGING — the port of sim/spectrum.js's REMAP_FRAG. The physics,
 // the knots and the palettes are unchanged; only the plumbing is compute. The
 // header of sim/spectrum.gd carries the derivation.
-// ============================================================================
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform sampler2D tSrc;
 layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D outImg;

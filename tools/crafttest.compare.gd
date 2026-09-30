@@ -1,6 +1,5 @@
 extends SceneTree
 
-# ===========================================================================
 # WEB vs GODOT, AS NUMBERS — compare pairs of crafttest/craftsheet frames.
 #
 #   Godot --headless --path . --script res://tools/crafttest.compare.gd -- \
@@ -15,7 +14,6 @@ extends SceneTree
 #   fg      the fraction of pixels that differ by more than 24 levels
 # and, with pairs_dir, writes <name>.png there: web on the left, Godot on the
 # right, which is the evidence image kept in tools/ref/craft/.
-# ===========================================================================
 
 func _init() -> void:
 	var a := OS.get_cmdline_user_args()

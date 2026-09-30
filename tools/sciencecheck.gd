@@ -1,6 +1,5 @@
 extends SceneTree
 
-# ============================================================================
 # THE COURSE INSTRUMENTS, CHECKED AS NUMBERS
 #
 #   Godot --headless --path . --script res://tools/sciencecheck.gd
@@ -22,7 +21,6 @@ extends SceneTree
 #   4. the HR diagram's sampled main sequence passes through the Sun.
 #
 # Regenerate the fixtures with tools/course.shots.mjs + webref.mjs.
-# ============================================================================
 
 var fails := 0
 var rows := 0

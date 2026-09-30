@@ -1,4 +1,3 @@
-// ============================================================================
 // ONE SHELL OF THE 3D CUTAWAY (sim/cutaway.gd) — a MeshStandardMaterial with
 // two clipping planes, which StandardMaterial3D cannot express.
 //
@@ -12,7 +11,6 @@
 // and cull_disabled flips the normal on back faces as DoubleSide does — the
 // far inner wall seen through the notch is lit as an inside surface.
 // The emissive is three's `emissive` (linear, added after lighting).
-// ============================================================================
 shader_type spatial;
 render_mode cull_disabled, diffuse_lambert, specular_schlick_ggx;
 

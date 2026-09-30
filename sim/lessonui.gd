@@ -1,9 +1,7 @@
 class_name LessonUI
 extends RefCounted
 
-# ============================================================================
 # THE COURSE, AS AN INTERFACE
-# ----------------------------------------------------------------------------
 # sim/lessons.gd is data and knows nothing about the page. This file is the
 # other half: it renders the course, and it EXECUTES a step's `do` block
 # against a small stage API that the orchestrator hands in. The split matters
@@ -52,7 +50,6 @@ extends RefCounted
 #
 # localStorage becomes a JSON file under user:// (opts.store; "" keeps the
 # progress in memory only, which the checks use).
-# ============================================================================
 
 const T = preload("res://ui/theme.gd")
 const C = preload("res://ui/hud_css.gd")
@@ -61,10 +58,8 @@ const STORE := "user://bh.course.v1.json"
 static func create_lessons(opts: Dictionary) -> Course:
 	return Course.new(opts)
 
-# ----------------------------------------------------------------------------
 # HTML → El runs. A fragment is a sequence of blocks (<p> or bare text), each a
 # list of runs; whitespace collapses as HTML's does.
-# ----------------------------------------------------------------------------
 const EM := {"fi": true, "c": Color(0xe6 / 255.0, 0xec / 255.0, 0xf6 / 255.0)}
 const STRONG := {"fw": 700}
 # .lc-text kbd { font: 11px mono; padding: 1px 4px; border: 1px solid --border-strong; color: --text }
@@ -126,13 +121,11 @@ static func html_blocks(html: String) -> Array:
 			b.runs[-1].t = str(b.runs[-1].t).rstrip(" ")
 	return blocks
 
-# ----------------------------------------------------------------------------
 # A FIGURE: `.lfig { width: 100%; max-width: 340px; height: auto; color:
 # var(--text-dim) }`. The shapes are rasterised by Godot's SVG loader at the
 # size the figure is drawn (× the display scale); the <text> elements, which
 # the loader does not draw, are taken out first and set here, in the mono face
 # the SVG inherits from the page, at the same user-unit coordinates.
-# ----------------------------------------------------------------------------
 class Fig extends El:
 	var svg := ""
 	var vb := Vector2(320, 150)
@@ -189,13 +182,11 @@ class Fig extends El:
 				Canvas2D.fill_text(self, t.t, t.x, t.y, t.fs, t.c, al)
 		Canvas2D.end(self)
 
-# ----------------------------------------------------------------------------
 # An instrument's canvas: `.lc-canvas { width: 100%; max-width: 340px; height:
 # auto; background: rgba(4,6,10,.55); border: 1px solid var(--border) }` over a
 # backing store of w × h. The instrument paints into `plot`, a plain Control
 # over the content box, because a signal-connected draw runs BEFORE the El's
 # own _draw and the background would cover it.
-# ----------------------------------------------------------------------------
 class InstrCanvas extends El:
 	var plot := Control.new()
 	var bw := 340.0
@@ -247,9 +238,7 @@ class Underlined extends El:
 			var y := roundf(gp.y + gf("pt") + ln.top + ln.base) - gp.y + maxf(1.0, roundf(fs * 0.12))
 			draw_rect(Rect2(gf("pl") + ln.off, y, w, 1.0), col)
 
-# ============================================================================
 # THE CONTROLLER — createLessons()'s closure, as an object
-# ============================================================================
 class Course extends RefCounted:
 	var panel: El
 	var card: El
@@ -324,9 +313,7 @@ class Course extends RefCounted:
 		if not _has(k): return null
 		return (stage[k] as Callable).callv(args)
 
-	# =========================================================================
 	# THE PANEL
-	# =========================================================================
 	func _E(parent: Node, style: Dictionary = {}, text = null, vars: Array = []) -> El:
 		var e := El.new(style, vars)
 		if text is String: e.runs = [{"t": text}]
@@ -436,9 +423,7 @@ class Course extends RefCounted:
 		(rec.items as El).visible = on
 		(rec.summary as El).touch()
 
-	# =========================================================================
 	# THE CARD
-	# =========================================================================
 	func _set_card_hidden(h: bool) -> void:
 		if hud != null and hud.has_method("set_shown"):
 			hud.set_shown("lessonCard", not h)
@@ -567,9 +552,7 @@ class Course extends RefCounted:
 			note.set_text("the band is sampled from the interior model, not drawn")
 		media_note = note
 
-	# =========================================================================
 	# EXECUTING A STEP
-	# =========================================================================
 	func apply_do(d) -> void:
 		if not (d is Dictionary): return
 		# Order matters and is not arbitrary. Loading a scenario resets the camera
@@ -622,9 +605,7 @@ class Course extends RefCounted:
 		if act.get("flare"): _st("flare", [act.flare])
 		if act.get("preset"): _st("load_preset", [act.preset])
 
-	# =========================================================================
 	# NAVIGATION
-	# =========================================================================
 	func open_lesson(k, step: int = 0) -> void:
 		var found = Lessons.find_lesson(k)
 		if found == null: return
@@ -701,9 +682,7 @@ class Course extends RefCounted:
 	var lesson_key:
 		get: return key
 
-	# =========================================================================
 	# THE FRAME HOOK — the instruments are live, and have to be
-	# =========================================================================
 	func update(_dt: float) -> void:
 		if instrument == null or card_hidden(): return
 		var bodies: Array = _st("bodies") if _has("bodies") else []

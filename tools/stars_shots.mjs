@@ -1,4 +1,3 @@
-// ============================================================================
 // Reference shots for the star / compact-object port (tools/startest.gd).
 //
 //   node tools/stars_shots.mjs > /tmp/stars_shots.json
@@ -9,7 +8,6 @@
 // rebuild the SAME frame — same camera, same spots, same flare, same clocks.
 // The sky is switched off in both (the sky port is another module's), so the
 // background is black and the comparison is the bodies alone.
-// ============================================================================
 import { readFileSync } from 'node:fs';
 const dump = readFileSync(new URL('./stars_dump.js', import.meta.url), 'utf8');
 const noSky = `SIM.setSky({ ...SIM.state.sky, env: {}, starDensity: 0, glow: 0, bulge: 0, dust: 0, hii: 0, reflection: 0, galaxies: 0 });`;

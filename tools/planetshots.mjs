@@ -1,4 +1,3 @@
-// ============================================================================
 // PLANET REFERENCE SHOTS — writes the shots.json that webref.mjs runs over the
 // web build for the solid-world / gas-giant / painter port, and the capture
 // function every shot's setup installs.
@@ -14,7 +13,6 @@
 // the live values of every uniform on every material, the sun list, the
 // climate, and the painter's items with the options they were made from.
 // tools/planettest.gd rebuilds exactly that frame.
-// ============================================================================
 import { writeFile } from 'node:fs/promises';
 
 const CAPTURE = `

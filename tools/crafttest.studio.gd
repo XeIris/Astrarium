@@ -1,6 +1,5 @@
 extends Harness
 
-# ===========================================================================
 # THE MODEL VIEWER ON THE REAL PIPELINE — sim/flight/modelviewer.gd drawn into
 # pipe.model_vp and through render/postfx.gd, exactly as the orchestrator will
 # draw it, for comparison with the web app's studio (blackhole_sim.html, the
@@ -11,7 +10,6 @@ extends Harness
 #
 # The turntable is OFF by default (the web shot clicks #mvSpin), so the frame
 # does not depend on how long anything took to load.
-# ===========================================================================
 
 var mv: ModelViewer
 

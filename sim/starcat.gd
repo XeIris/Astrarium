@@ -1,9 +1,7 @@
 class_name Starcat
 extends RefCounted
 
-# ============================================================================
 # A CATALOGUE OF REAL STARS
-# ----------------------------------------------------------------------------
 # Everything else in this sim is generated: masses go in, a mass–luminosity
 # relation comes out, and the result is a plausible star rather than a
 # particular one. This file is the opposite. Every entry is a measured object,
@@ -34,7 +32,6 @@ extends RefCounted
 #
 # PORT NOTE. Entries and the specs built from them are Dictionaries with the
 # web build's keys verbatim; `pos`/`vel` are 3-element Arrays of floats.
-# ============================================================================
 
 # mass  M☉        radius R☉ (polar, if oblate is given)
 # teff  K         luminosity L☉         dist  light years
@@ -177,9 +174,7 @@ const STAR_CATALOG := {
 	},
 }
 
-# ----------------------------------------------------------------------------
 # Turn a catalogue key into a body spec the sim can spawn.
-# ----------------------------------------------------------------------------
 ## `extra` is merged over the catalogue fields ({...extra} in the JS). An
 ## unknown key is an error there (it throws); here it pushes an error and
 ## returns {}.
@@ -208,11 +203,8 @@ static func star_spec(key: String, extra: Dictionary = {}) -> Dictionary:
 		spec.spin = (1000.0 / float(c.spinMs)) if c.has("spinMs") else 10.0
 	return spec
 
-# ============================================================================
 # SCENARIO BUILDERS
-# ============================================================================
 
-# ----------------------------------------------------------------------------
 # A ring of stars, each started on a genuinely circular orbit.
 #
 # The usual way to build a display like this is to place the bodies and give
@@ -228,7 +220,6 @@ static func star_spec(key: String, extra: Dictionary = {}) -> Dictionary:
 # revolutions it is an ordinary chaotic N-body system. That is the correct
 # answer and the blurb says so; the alternative would be to freeze the bodies
 # in place and stop calling it a simulation.
-# ----------------------------------------------------------------------------
 static func star_ring(keys: Array, radius_au: float, opts: Dictionary = {}) -> Array:
 	var n := keys.size()
 	var specs := []
@@ -261,11 +252,9 @@ static func star_ring(keys: Array, radius_au: float, opts: Dictionary = {}) -> A
 		s.vel = [-sin(th) * v, 0.0, cos(th) * v]
 	return specs
 
-# ----------------------------------------------------------------------------
 # A real visual binary from its published orbital elements. Both stars are
 # placed about their common barycentre on the true ellipse, at the true
 # anomaly asked for, with the exact vis-viva speed for that point.
-# ----------------------------------------------------------------------------
 ## `el` = { a, e, incl = 0, nu = PI }.
 static func real_binary(key_a: String, key_b: String, el: Dictionary) -> Array:
 	var A := star_spec(key_a)
@@ -294,9 +283,7 @@ static func _share(spec: Dictionary, rel_pos: Array, rel_vel: Array, k: float) -
 	o.vel = [rel_vel[0] * k, rel_vel[1] * k, rel_vel[2] * k]
 	return o
 
-# ----------------------------------------------------------------------------
 # Put a small body on a circular orbit around a catalogue star.
-# ----------------------------------------------------------------------------
 static func companion(central_mass: float, a_au: float, spec: Dictionary, angle: float = 0.0, incl: float = 0.0) -> Dictionary:
 	var v := Physics.circular_speed(central_mass, a_au)
 	var o := spec.duplicate()

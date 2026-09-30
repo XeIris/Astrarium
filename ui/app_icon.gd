@@ -1,14 +1,12 @@
 class_name AppIcon
 extends RefCounted
 
-# ============================================================================
 # THE APP ICON, CHOSEN AT RUNTIME. The icons are ray-traced SVGs written by
 # tools/icon_trace.mjs; they are imported at svg/scale = 8 (512 px) because
 # the dock draws an icon far larger than the 64-unit viewBox. The project icon
 # (icon.svg) is the default and is what an export's bundle carries — a running
 # app can replace its window/dock icon, not the file Finder shows, so the
 # choice is re-applied on every launch from user://app.json.
-# ============================================================================
 
 ## [key, label, resource]. Keep in step with ICONS in tools/icon_trace.mjs.
 const ICONS := [

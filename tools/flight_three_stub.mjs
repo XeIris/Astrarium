@@ -1,4 +1,3 @@
-// ============================================================================
 // A MINIMAL `three` FOR NODE — just enough of r160's math for the pure flight
 // modules (sim/flight/{rocketry,vehicles,orbit,vessel,guidance,relativity}.js)
 // to import and run headlessly.
@@ -14,7 +13,6 @@
 // flightref.mjs can also be pointed at the real three.module.js
 // (THREE_MODULE=/path/to/three.module.js) — the two must give identical output,
 // which is the check that this file is faithful.
-// ============================================================================
 
 function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 

@@ -1,4 +1,3 @@
-// ============================================================================
 // FLIGHT SHOTS — turns tools/flight_scenarios.json (the table the Godot
 // harness tools/flighttest.gd flies) into a webref.mjs shot list, so the web
 // build flies the SAME steps: one entry per ["shot"], each replaying its
@@ -11,7 +10,6 @@
 // the same stream main.gd's `seed=` feeds Presets — so both skies, and the
 // Moon's phase, are the same. Math.random is pinned to 0 while a vehicle is
 // placed in orbit (its phase), matching the harness's `phase: 0`.
-// ============================================================================
 import { readFile } from 'node:fs/promises';
 
 // TABLE=/abs/other.json flies another table of the same shape (a debugging set).

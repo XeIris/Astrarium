@@ -1,10 +1,8 @@
 class_name CraftAssets
 extends RefCounted
 
-# ============================================================================
 # CRAFT ASSETS — the authored models, and the rules that keep them honest.
 # Port of sim/flight/craftassets.js.
-# ----------------------------------------------------------------------------
 # Every vehicle in sim/flight/craftmodel.gd can be built out of primitives at
 # real dimensions, and that procedural build is still there and still works.
 # What it cannot do is BEVEL AN EDGE. A perfectly sharp edge catches no
@@ -61,7 +59,6 @@ extends RefCounted
 #     written in two places. Godot's importer keeps these names verbatim
 #     (measured on all nine files: `gltf/naming_version=2` changes only names
 #     carrying '.', ':' or '@', and none of the interface names do).
-# ============================================================================
 
 const DIR := "res://assets/craft/"
 ## Keys are vehicle ids from sim/flight/vehicles.

@@ -1,56 +1,18 @@
 class_name Guidance
 extends RefCounted
 
-# ============================================================================
-# GUIDANCE — the autopilot, and the attitude references it steers to.
-#
-# Every program here is a CLOSED LOOP on the vehicle's own state. None of them
-# replay a stored trajectory, and that is the difference that matters: a
-# scripted ascent looks identical whatever you do to the vehicle, while a
-# closed loop flies a heavier rocket differently and gives up when it genuinely
-# cannot make orbit.
-#
-# The four laws, and where each comes from:
-#
-#   ASCENT — vertical rise, pitch kick, gravity turn at zero angle of attack
-#   while the air is thick, then a closed-loop phase that holds TIME TO
-#   APOAPSIS at a set value until the apoapsis reaches its target. The
-#   time-to-apoapsis hold is the practical cousin of Powered Explicit Guidance:
-#   both answer "am I climbing too fast or too slow for the energy I have
-#   left", and this one does it without re-solving a transcendental every cycle.
-#
-#   NODE — a Δv vector at a time. Ignition at T − t_burn/2 so a finite burn
-#   straddles the impulsive solution it was planned as; cutoff on the REMAINING
-#   Δv projected onto the node direction going negative, never on elapsed time,
-#   so a wrong burn-time estimate cannot overburn.
-#
-#   POWERED DESCENT — the Apollo quadratic law. For a linear acceleration
-#   profile that arrives at (r_T, v_T) in t_go:
-#        a_cmd = 6·Δr/t_go² − 2·Δv/t_go   with  Δr = r_T − r − v·t_go
-#   which is the minimum-∫a² solution of the two-point boundary problem, and is
-#   what P63 and P64 actually compute. Gravity is added on top, because the
-#   engine has to hold the vehicle up as well as steer it.
-#
-#   HOVERSLAM — one line, and the whole manoeuvre:
-#        h_burn = v² / (2·(F/m − g))
-#   evaluated every step. Ignition is when the altitude reaches it. The vehicle
-#   cannot hover — minimum throttle already gives TWR > 1 — so arriving at zero
-#   velocity and zero altitude simultaneously is the only solution there is.
-#
-# PORT NOTES.
-#   · The Autopilot is the inner class `Guidance.Autopilot` (one JS module, one
-#     GDScript file). MODE, attitude_for, target_offset and fmt_dur are statics
-#     here, as they were module exports.
-#   · The scratch vectors are static and SHARED, as the JS module temporaries
-#     were, and several functions return one of them (attitude_for returns _a,
-#     descent_law returns _e). Callers that keep a result clone it —
-#     Autopilot.update does (`aim`), and so must anything that holds on to one.
-#   · A node is a Dictionary { dv: DVec3, t: float, label: String }, and is
-#     compared BY IDENTITY (is_same), as the JS `!==` did — GDScript's `==` on
-#     Dictionaries compares contents, which would re-seed on an equal new node.
-#   · `engage(program, opts)` is Object.assign: camelCase keys in `opts` are
-#     set on the snake_case member of the same name.
-# ============================================================================
+# The autopilot and the attitude references it steers to. Every program is a
+# closed loop on the vessel's own state.
+#   ascent     vertical rise, pitch program, then explicit guidance to a low cutoff
+#   node       ignite at T − t_burn/2; cut off when the remaining Δv along the node
+#              goes negative, never on elapsed time
+#   descent    Apollo's quadratic law, a = 6·Δr/t_go² − 2·Δv/t_go with
+#              Δr = r_T − r − v·t_go (the minimum-∫a² solution P63/P64 compute), plus g
+#   hoverslam  h_burn = v²/(2·(F/m − g)); minimum throttle has TWR > 1, so no hovering
+# The scratch vectors are static and shared, and several functions return one
+# (attitude_for → _a, descent_law → _e): clone a result you keep. Nodes are compared
+# by identity (is_same). engage() sets each camelCase key of `opts` on the
+# snake_case member.
 
 static var _a := DVec3.new()
 static var _b := DVec3.new()
@@ -60,11 +22,8 @@ static var _e := DVec3.new()
 static var _up := DVec3.new()
 static var _f := DVec3.new()
 static var _g := DVec3.new()
-# aero_limit's own airstream vector. It cannot borrow one of the shared scratch
-# vectors above: `out` is caller-supplied and one call site passes _b, so the
-# limit would compare a vector with itself, find no angle, and pass the
-# unlimited command straight through — silently deleting the q·α protection on
-# exactly the vehicle that needs it most.
+# aero_limit's own scratch: a caller passes _b as `out`, and sharing it would
+# silently disable the q·α limit.
 static var _air := DVec3.new()
 
 const MODE := {
@@ -75,11 +34,8 @@ const MODE := {
 	"NODE": "node", "HOLD": "hold",
 }
 
-## The attitude reference for a mode, as a world-space direction for the +Y
-## (thrust) axis — the shared scratch _a, or null. Prograde is relative to the
-## SURFACE while inside the atmosphere and to the orbit outside it, because
-## those are the two things a pilot actually wants to line up with and they
-## differ by 465 m/s at the pad.
+## Thrust-axis direction for a mode (the shared _a), or null. Prograde is
+## surface-relative inside the air and orbital outside it.
 static func attitude_for(mode: String, v: Vessel, target = null):
 	var r := v.r
 	DQuat.nrm(_up.copy_from(r))
@@ -120,9 +76,7 @@ static func fmt_dur(s: float) -> String:
 	var out := ("%dd %dh %dm" % [d, h, m]) if d > 0 else (("%dh %dm %ds" % [h, m, sec]) if h > 0 else ("%dm %ds" % [m, sec]))
 	return ("-" if neg else "") + out
 
-# ============================================================================
 # THE AUTOPILOT
-# ============================================================================
 class Autopilot extends RefCounted:
 	var v: Vessel
 	var mode: String = "off"
@@ -131,14 +85,12 @@ class Autopilot extends RefCounted:
 	var node = null              # { dv: DVec3, t: seconds from now, label }
 	var status: String = "Manual control"
 	var log: Array = []
-	## Ascent parameters. These are the pilot's, not the vehicle's — a launch
-	## profile is a choice, and the same rocket flies differently with a
-	## different one. JS keys: targetApo, inclination, pitchStart, turnV0.
+	## Ascent profile: the pilot's choice, not the vehicle's.
 	var ascent: Dictionary
 	var last_throttle: float = 1.0
 	var aim = null               # DVec3 (a clone) — what the vessel is steering to
 
-	# ---- program state (all of it was ad-hoc fields on the JS object)
+	# program state
 	var state_name = null
 	var pitch_deg: float = 0.0
 	var plan = null              # transfer plan Dictionary
@@ -177,9 +129,7 @@ class Autopilot extends RefCounted:
 		}
 		last_throttle = 1.0
 
-	# The HUD status line changes every frame; the event log must not. `say` is
-	# the transient one, `note` is the one that goes in the log — and separating
-	# them is the difference between a flight log and a countdown transcript.
+	# `say` sets the transient status line; `note` also writes the event log, once.
 	func say(s: String) -> void: status = s
 	func note(s: String) -> void:
 		if _last_note != s:
@@ -198,13 +148,11 @@ class Autopilot extends RefCounted:
 	func disengage() -> void:
 		program = null; mode = MODE.OFF; note("Manual control")
 
-	# -------------------------------------------------------------------------
 	func update(dt: float) -> void:
 		if v.phase == Vessel.PHASE.DESTROYED:
 			program = null
 			return
-		# Guidance runs before the integrator, so on the very first cycle there is
-		# no telemetry yet. Take a reading rather than guarding every use of it.
+		# Guidance runs before the integrator, so the first cycle has no telemetry yet.
 		if v.telemetry.get("el") == null: v.sample(0.0)
 		var pa := Rocketry.pressure(v.env.atm, maxf(v.altitude(), 0.0)) if v.env.atm != null else 0.0
 		var aim_dir = null
@@ -221,18 +169,14 @@ class Autopilot extends RefCounted:
 		if aim_dir != null: v.point_at(aim_dir, dt, pa)
 		aim = aim_dir.clone() if aim_dir != null else null
 
-	# -------------------------------------------------------------------------
 	# ASCENT
-	# -------------------------------------------------------------------------
 	func ascent_guidance(dt: float, pa: float):
 		var A := ascent
 		var t := v.telemetry
 		var env: Dictionary = v.env
 		DQuat.nrm(Guidance._up.copy_from(v.r))
-		# The launch azimuth that reaches the requested inclination, from the
-		# spherical-triangle relation cos(i) = cos(lat)·sin(az). A site cannot
-		# reach an inclination below its own latitude, which is why Baikonur
-		# cannot launch to 28.5° and why this clamps rather than pretending.
+		# Launch azimuth from cos(i) = cos(lat)·sin(az), clamped: a site can't reach an
+		# inclination below its own latitude.
 		var lat := asin(DQuat.jclamp(-Guidance._up.y, -1.0, 1.0))
 		var inc: float = A.inclination * PI / 180.0
 		var sin_az := DQuat.jclamp(cos(inc) / maxf(cos(lat), 1e-3), -1.0, 1.0)
@@ -248,12 +192,10 @@ class Autopilot extends RefCounted:
 		var a_thrust := full_thrust(pa) / maxf(v.mass, 1.0)
 		var g_loc: float = env.mu / v.r.length_sq()
 
-		# ---- throttle: the shared limiter, which is also what protects the
-		# circularization and every other powered phase.
+		# ---- throttle: the shared limiter
 		v.throttle = limit_throttle(1.0, pa, dt)
 
-		# ---- phase 1: vertical rise, to clear the tower and build enough speed
-		# for the fins/gimbal to have authority.
+		# ---- phase 1: vertical rise, until the fins and gimbal have authority.
 		if v_surf < A.pitchStart and alt < 2500.0:
 			v.throttle = 1.0; last_throttle = 1.0
 			state_name = "vertical"
@@ -262,22 +204,9 @@ class Autopilot extends RefCounted:
 			_pitch_cmd = PI / 2.0; _pitch_met = v.met
 			return Guidance._a.copy_from(Guidance._up)
 
-		# ---- phase 2: the pitch program, flown inside an angle-of-attack limit.
-		#
-		# The programmed pitch is θ = 90°·v₀/(v₀ + v − v_start): steepest at the
-		# kick, 45° by v₀ = 600 m/s past it, and still ~20° at booster cutoff,
-		# which is the shape every launcher flies — most of the turn happens
-		# early, low and cheaply. It replaced θ = 90°(1 − v/2350)^0.62, which held
-		# the nose near vertical far too long: every launcher went through 45 km
-		# climbing at 66° when a Saturn V was at about 30, arrived at staging
-		# slow and steep, and the closed loop then had to throw the nose below
-		# the horizon to shed the climb. With this one a Saturn V stages at
-		# 62 km, 2.45 km/s and a 19° flight-path angle; AS-506 staged at 67 km,
-		# 2.4 km/s earth-relative and 21°. What keeps it honest is
-		# the SECOND term: the command is clamped to within α_max of the velocity
-		# vector, and α_max is itself set by the q·α the airframe can take. In
-		# thick air that is a fraction of a degree, so the vehicle really is flying
-		# a gravity turn there; high up the clamp opens and the program leads.
+		# ---- phase 2: pitch θ = 90°·v₀/(v₀ + v − v_start), clamped within α_max of the
+		# velocity vector (α_max from the airframe's q·α limit), so thick air flies a
+		# gravity turn. Saturn V stages at 62 km / 2.45 km/s / 19° (AS-506: 67 / 2.4 / 21°).
 		if t.q > 1200.0 or alt < 42000.0:
 			state_name = "turn"
 			var prog: float = (PI / 2.0) * A.turnV0 / (A.turnV0 + maxf(v_surf - A.pitchStart, 0.0))
@@ -294,27 +223,13 @@ class Autopilot extends RefCounted:
 			var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
 			return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 
-		# ---- phase 3: closed loop, out of the air.
-		#
-		# Hold a VERTICAL SPEED that runs the remaining altitude deficit down over
-		# T_climb, and pitch to whatever that needs. As the deficit closes the
-		# commanded rate falls to zero and the required pitch falls with it, so the
-		# vehicle flattens on its own — no separate "now go horizontal" rule and no
-		# discontinuity. Everything left over goes into horizontal speed, which is
-		# what actually buys the orbit.
+		# ---- phase 3: explicit guidance, out of the air.
 		state_name = "closed"
 		var el: Dictionary = t.el
 		var apo_alt: float = el.ra - env.radius
-		# Hand over when the apoapsis is where it was asked to be — OR when the
-		# periapsis has already climbed clear of the atmosphere, which means the
-		# vehicle is in orbit whatever the apoapsis says. Without the second test a
-		# launcher that ends up in a 178 × 80 km orbit while aiming for 185 keeps
-		# flying an ascent forever, seven kilometres short of a number that no
-		# longer means anything.
+		# Hand over at the target apoapsis, or once the periapsis clears the air with
+		# nothing left to burn (the ascent cuts off low on purpose).
 		var safe_alt: float = env.atm.top * 0.6 if env.atm != null else env.radius * 0.002
-		# (...but only once there is nothing left to burn: the ascent now cuts
-		# off LOW on purpose, and its perigee clears the air well before the
-		# apoapsis has been raised to the target.)
 		if is_finite(el.ra) and (apo_alt >= A.targetApo * 0.998 \
 				or ((el.rp - env.radius) > safe_alt and full_thrust(pa) <= 0.0 and v.next_stage == null)):
 			v.throttle = 0.0
@@ -326,39 +241,17 @@ class Autopilot extends RefCounted:
 		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert)
 		var v_horiz := Guidance._c.length()
 		var R := v.r.length()
-		# EXPLICIT GUIDANCE (Cherry's E-guidance, the ancestor of the Shuttle's
-		# PEG). The burn ends when the engines have supplied orbital speed; its
-		# length T_go is the rocket equation's for the horizontal speed still
-		# missing, from this stage's own thrust and Isp. Over that time the
-		# vertical motion must end at the target altitude with zero climb rate,
-		# and with a vertical acceleration linear in time the two conditions fix
-		# the acceleration NOW:
-		#     a_v = 6·Δh / T² − 4·ḣ / T
-		# re-solved every step, so every error — staging, a wrong T_go — is
-		# absorbed on the way rather than discovered at the end. It replaced a
-		# climb rate that closed the altitude deficit over a fixed 170 s: right
-		# for a stage that burns about that long, and for any other it arrived
-		# early and still climbing (Starship: 458 × 243 km for a 250 km target)
-		# or, on the Shuttle's long, weak sustainer, pitched up to its limit for
-		# five minutes and ran dry lofted and short of orbital speed.
-		#   WHERE the burn ends is the other half, and it is not the target
-		# orbit. Climbing to 300 km under power, the Shuttle's sustainer (0.9 g
-		# after the boosters go) spent minutes pointed steeply up to hold itself
-		# there and ran dry 500 m/s short. Every real ascent does what the
-		# Shuttle did: cut off just above the atmosphere on an ellipse whose
-		# apoapsis IS the target, coast up, and circularize there — a Hohmann
-		# transfer folded into the ascent. So the burn aims at that perigee,
-		# with the perigee speed of that ellipse.
+		# Explicit guidance (Cherry's E-guidance, ancestor of the Shuttle's PEG). T_go is
+		# the rocket-equation burn time for the horizontal speed still missing. Ending at
+		# the insertion altitude with zero climb rate fixes a_v = 6·Δh/T² − 4·ḣ/T,
+		# re-solved every step. Insertion is not the target orbit: cut off just above the
+		# air on an ellipse whose apoapsis is the target, then circularize there. That is
+		# the Shuttle's profile, and the only one its 0.9 g sustainer reaches orbit on.
 		var h_ins: float = minf(A.targetApo, env.atm.top * 0.8) if env.atm != null else A.targetApo
 		var r_a: float = env.radius + A.targetApo
 		var v_ins: float = _perigee_speed(env, h_ins, r_a)
-		#   ...unless a FAIRING is still on. Its payload may only see a heat flux
-		# below the fairing's own jettison limit, and a cutoff at 112 km at
-		# orbital speed is well above it: the Falcon 9 carried its fairing to
-		# orbit. So the perigee rises until the heating the vehicle's telemetry
-		# will measure there (the same Sutton–Graves flux, at the same nose
-		# radius, at airspeed) is under the limit — the reason a real Falcon's
-		# second stage lofts, and why its fairing comes off near 110 km.
+		# With a fairing on, raise the insertion perigee until the Sutton–Graves flux there
+		# is under its jettison limit (why a Falcon 9's second stage lofts).
 		var q_lim := _fairing_heat_limit()
 		if q_lim > 0.0 and env.atm != null:
 			var air_frac: float = t.airspeed / maxf(t.speed, 1.0)
@@ -369,31 +262,16 @@ class Autopilot extends RefCounted:
 		var dv_h: float = maxf(v_ins - v_horiz, 0.0)
 		var T_go: float = DQuat.jclamp(Rocketry.burn_time_for(dv_h, v.mass, full_thrust(pa), current_isp(pa)), 20.0, 900.0)
 		var a_v: float = 6.0 * (h_ins - alt) / (T_go * T_go) - 4.0 * v_vert / T_go
-		# The vertical acceleration the engine must supply: hold the vehicle up
-		# (gravity), minus what the horizontal speed is ALREADY supplying
-		# (centripetal), plus the guidance's own. The centripetal term is what
-		# retires the loop on its own — as the vehicle approaches orbital speed
-		# it cancels gravity, the required pitch goes to zero, and the vehicle is
-		# level and in orbit.
+		# Thrust holds the vehicle up (g), less what horizontal speed already supplies
+		# (v²/R), plus guidance. At orbital speed the pitch goes to zero by itself.
 		var a_vert: float = g_loc - (v_horiz * v_horiz) / R + a_v
-		# The nose never goes below the horizon on the way up. Without this floor a
-		# stage that separates with more climb rate than the loop wants points
-		# itself downward to shed it, which converts most of an upper stage into
-		# nothing at all.
+		# Pitch floor just below the horizon, or a stage separating with excess climb rate
+		# dives to shed it.
 		var pitch := DQuat.jclamp(
 			asin(DQuat.jclamp(a_vert / maxf(a_thrust, 1e-3), -0.95, 0.95)),
 			-0.10, 0.95)
-		# The loop's answer moves as fast as the vehicle's state does, and at two
-		# moments that is a step: the handover from the pitch program, where a
-		# lofted first stage is climbing faster than the loop wants and the
-		# answer is "level off, now", and every staging, where the thrust under
-		# a_thrust drops by half. Flown as commanded, a Saturn V swung from 60°
-		# to below the horizon in six seconds at 48 km. No launch vehicle's
-		# guidance does that: the Saturn LVDC and every IGM descendant limit the
-		# commanded attitude RATE (about a degree per second), and the vehicle
-		# comes round in a long smooth arc while the loop keeps closing on the
-		# state it actually has. The limit is in SIMULATED seconds, so it holds
-		# at time warp too.
+		# Rate-limit the attitude, as the LVDC and IGM do: the answer steps at the
+		# handover and at every staging. Simulated seconds, so it holds under warp.
 		pitch = _rate_limit_pitch(pitch)
 		pitch_deg = pitch * 180.0 / PI
 		say("Ascent — closed loop · apo %s/%s km, pitch %s°" % [U.fixed(apo_alt / 1000.0, 0), U.fixed(A.targetApo / 1000.0, 0), U.fixed(pitch * 180.0 / PI, 0)])
@@ -431,9 +309,7 @@ class Autopilot extends RefCounted:
 		_pitch_met = v.met
 		return _pitch_cmd
 
-	# -------------------------------------------------------------------------
 	# NODES
-	# -------------------------------------------------------------------------
 	## A node that circularizes at whichever apsis is ahead — apoapsis if we are
 	## climbing to it, periapsis if the orbit is already closed and low.
 	func plan_circularize(at_apo: bool = true):
@@ -447,39 +323,22 @@ class Autopilot extends RefCounted:
 		# prograde (or retrograde) burn of |v_circ − v_apsis|.
 		var v_circ := sqrt(mu / R)
 		var v_at := sqrt(maxf(mu * (2.0 / R - 1.0 / el.a), 0.0))
-		# Direction: the horizontal at that apsis. Propagate to find it rather than
-		# guessing — the orbit may be inclined and the apsis is not "over there".
+		# Propagate to the apsis for its horizontal: the orbit may be inclined.
 		var rA := DVec3.new()
 		var vA := DVec3.new()
 		if not Orbit.propagate(v.r, v.v, mu, t_go_s, rA, vA): return null
 		var dir := DQuat.nrm(vA)
 		return { "dv": dir.scale_in(v_circ - v_at), "t": t_go_s, "label": "Circularize at apoapsis" if at_apo else "Circularize at periapsis" }
 
-	## ORBITAL INSERTION — the same law as the ascent's closed loop, aimed at zero
-	## vertical speed instead of a climb rate.
-	##
-	## A node is the wrong tool for this. A circularization from a steep insertion
-	## can be a thousand metres per second, which on an upper stage is a burn two
-	## or three minutes long — and over two minutes the orbit rotates out from
-	## under a direction that was frozen at ignition, the cosine loss climbs, and
-	## eventually the vehicle is thrusting sideways to the burn it thinks it is
-	## making. Real vehicles do not fly a long insertion burn as an impulse; they
-	## fly it as guidance. So does this:
-	##
-	##   pitch so that   a_vertical = g − v_horiz²/r + (0 − ṙ)/τ
-	##
-	## i.e. hold the vehicle in the vertical balance a circular orbit requires,
-	## and put everything else into horizontal speed. When the centripetal term
-	## cancels gravity the required pitch is zero and the orbit is circular, so
-	## the loop retires itself.
+	## Orbital insertion: the ascent's closed loop aimed at zero vertical speed,
+	##   a_vertical = g − v_horiz²/r + (0 − ṙ)/τ
+	## A long insertion burn can't be flown as a node: over minutes the orbit rotates
+	## out from under a direction frozen at ignition.
 	func circularize_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var t := v.telemetry
-		# A tank whose engines cannot be relit is finished at MECO: it rides
-		# along for the separation interval and goes, whatever is left in it,
-		# and the stage above makes the insertion. That is the Shuttle's ET at
-		# MECO + 18 s, with OMS-2 at apogee — not the SSMEs relit on a tank
-		# that should have been falling into the Indian Ocean.
+		# A tank that can't relight is finished at MECO: it separates after its interval
+		# and the stage above makes the insertion (the Shuttle's ET, then OMS-2).
 		var cs = v.current_stage
 		if cs != null and cs.spec.get("sepAfterCutoff") != null and _meco_met >= 0.0:
 			v.throttle = 0.0
@@ -495,46 +354,22 @@ class Autopilot extends RefCounted:
 		var v_horiz := Guidance._c.length()
 		var target_r: float = ascent.targetApo + env.radius
 
-		# Done when the PERIAPSIS is where it was asked to be, or when the orbit is
-		# round and high enough to stay up. Testing the periapsis is what stops a
-		# high-Δv upper stage running away: eccentricity alone is satisfied by a
-		# 1 300 × 3 km orbit as easily as by a circular one, and only one of those
-		# survives the next hour.
+		# Done when the periapsis reaches the target (eccentricity alone accepts a
+		# 1300 × 3 km orbit), or when an ascent that fell short is round and clear of the air.
 		var safe: float = env.atm.top * 0.62 if env.atm != null else env.radius * 0.001
-		# "In orbit" is a physical statement, not a cosmetic one: the periapsis is
-		# clear of the atmosphere and the orbit is round enough to stay that way.
-		# Chasing a perfectly circular orbit past that point spends propellant on a
-		# number rather than on the mission, and a real upper stage does not.
-		# (The round-enough clause is for an ascent that fell SHORT of its
-		# target; one that reached it is on a deliberate ellipse from a low
-		# cutoff, and the whole point is to raise the perigee at its apoapsis.)
 		if t.peri >= (target_r - env.radius) * 0.92 \
 				or (t.ecc < 0.014 and t.peri > safe and t.apo < (target_r - env.radius) * 0.9):
 			v.throttle = 0.0; program = null; mode = MODE.PROGRADE
 			v.phase = Vessel.PHASE.ORBIT
 			note("Orbit — %s × %s km, e = %s" % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 4)])
 			return Guidance.attitude_for(MODE.PROGRADE, v)
-		# Where to burn. Two cases, and separating them is what makes this
-		# reliable:
-		#
-		#   The periapsis is already clear of the atmosphere — the orbit is safe,
-		#   so there is time to be efficient, and the burn waits for apoapsis where
-		#   raising the periapsis is cheapest.
-		#
-		#   The periapsis is NOT clear — the vehicle is on a trajectory that ends in
-		#   the atmosphere, and waiting is how you arrive there. Burn now.
-		#
-		# The earlier version waited for a window of tBurn·0.65 + 20 seconds around
-		# apoapsis, which for a 30 m/s trim burn is a 22-second slot that the
-		# vehicle can pass through between samples — and having missed it, it
-		# cheerfully coasted another 85 minutes for the next one. A rule that
-		# depends on catching a narrow window is a rule that will miss it.
+		# Periapsis clear of the air: coast to apoapsis. Otherwise: burn now. Don't gate
+		# on a narrow window around apoapsis; it gets missed between samples.
 		var t_apo := Orbit.time_to_apoapsis(t.el, env.mu)
 		var a_thrust := full_thrust(pa) / maxf(v.mass, 1.0)
 		var dv_need: float = maxf(sqrt(env.mu / maxf(t.el.ra, R)) - v_horiz, 0.0)
 		var t_burn := Rocketry.burn_time_for(dv_need, v.mass, full_thrust(pa), current_isp(pa))
-		# (and just AFTER apoapsis too: a vehicle still coming round when it
-		# passed is no worse off burning a few seconds late than an orbit late)
+		# (also just after apoapsis: a few seconds late beats an orbit late)
 		var since_apo: float = float(t.el.period) - t_apo if is_finite(float(t.el.period)) else INF
 		if t.peri > safe and is_finite(t_apo) and t_apo > t_burn * 0.5 + 25.0 and since_apo > t_burn * 0.5 + 90.0:
 			v.throttle = 0.0
@@ -542,14 +377,8 @@ class Autopilot extends RefCounted:
 			return Guidance.attitude_for(MODE.PROGRADE, v)
 
 		var g_loc: float = env.mu / (R * R)
-		# The vertical acceleration a circular orbit needs here: gravity minus what
-		# the horizontal speed already supplies, plus the correction that drives
-		# the climb rate to zero.
-		# Same balance as the ascent loop, aimed at zero climb rate. The floor on
-		# the pitch matters as much here: a stage that reaches its target apoapsis
-		# still climbing at several hundred metres per second will otherwise point
-		# itself steeply down to null that out, and spend the insertion budget
-		# digging its own periapsis into the ground.
+		# Same balance as the ascent loop, aimed at zero climb rate, with the same pitch
+		# floor so a stage still climbing doesn't dive its periapsis into the ground.
 		var a_vert := g_loc - (v_horiz * v_horiz) / R + (0.0 - v_vert) / 22.0
 		var pitch := DQuat.jclamp(
 			asin(DQuat.jclamp(a_vert / maxf(a_thrust, 1e-3), -0.9, 0.9)), -0.30, 0.9)
@@ -557,12 +386,8 @@ class Autopilot extends RefCounted:
 		if full_thrust(pa) <= 0.0 and v.next_stage != null: v.stage()
 		var horiz: DVec3 = DQuat.nrm(Guidance._c) if v_horiz > 50.0 else Guidance._c.copy_from(v.forward(Guidance._d))
 		var dir := DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
-		# Burn only while pointing near enough — the node executor's 20° gate, for
-		# the same reason. A coast on rails leaves the attitude fixed in INERTIAL
-		# space, so by apoapsis the nose has turned with the orbit (84° up, after a
-		# half-hour coast to a Starship insertion). Lit before it came round, every
-		# frame of thrust pushed the apoapsis ahead again, the vehicle went back to
-		# coasting, and the orbit walked upward a few kilometres at a time.
+		# Burn only within 20° of the command, as for a node: after a coast on rails the
+		# nose is off by however far the orbit turned.
 		var err := DQuat.angle_between(v.forward(Guidance._d), dir)
 		v.throttle = limit_throttle(1.0, pa, dt) if err < 0.35 else 0.0
 		say(("Insertion burn — %s × %s km, e %s, Δv %s m/s" if err < 0.35 else "Insertion — aligning, %s × %s km, e %s, Δv %s m/s") % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 3), U.fixed(dv_need, 0)])
@@ -578,22 +403,14 @@ class Autopilot extends RefCounted:
 			say("No node"); v.throttle = 0.0
 			return Guidance.attitude_for(MODE.PROGRADE, v)
 		if not is_same(_node_ref, nd):
-			# Seed ONCE per node. Re-seeding every cycle while the burn has not
-			# started puts node_t back to node.t just before the decrement below
-			# takes one dt off it, so the countdown holds at node.t − dt forever and
-			# the ignition gate never opens. Nothing decrements node.t itself, so a
-			# node planned for apoapsis simply never fires.
+			# Seed once per node; re-seeding every cycle holds the countdown still.
 			_node_ref = nd
 			node_vec = (nd.dv as DVec3).clone()
 			node_t = nd.t
 			node_dv_total = (nd.dv as DVec3).length()
 			burn_remaining = node_dv_total
 		var dir := DQuat.nrm(Guidance._a.copy_from(node_vec))
-		# Nothing lit and nothing left to burn in what IS lit: the next stage has
-		# to be ignited before there is a burn to execute at all. This is the case
-		# where an ascent reaches its target apoapsis mid-stage — Apollo's S-II cut
-		# off at insertion and the S-IVB lit for the circularization, and without
-		# this the vehicle counts down to a burn it has no engine for.
+		# Nothing lit: light the next stage first (the S-IVB after S-II cutoff).
 		if full_thrust(pa) <= 0.0 and v.next_stage != null: v.stage()
 		var prop := v.propulsion(pa)
 		var ft := full_thrust(pa)
@@ -604,24 +421,16 @@ class Autopilot extends RefCounted:
 		if not burning and node_t > t_burn / 2.0:
 			v.throttle = 0.0
 			say("%s — T-%s s, Δv %s m/s" % [label, U.fixed(maxf(node_t - t_burn / 2.0, 0.0), 0), U.fixed(burn_remaining, 1)])
-			# Only slew to the node when the burn is close. The node vector is fixed
-			# in space but the vessel is not, so "point at the node" a whole orbit
-			# early means chasing a target that sweeps 180° — which a real crew would
-			# never do and which, on cold gas at 70 s of specific impulse, empties the
-			# attitude tanks long before the burn. Until then, hold prograde: free,
-			# stable, and already within a few degrees of most node directions.
+			# Slew to the node only when the burn is near; until then hold prograde. Chasing
+			# a fixed direction for an orbit empties the RCS.
 			var lead := maxf(3.0 * t_burn, 90.0)
 			return dir if node_t < lead else Guidance.attitude_for(MODE.PROGRADE, v)
 		# ignition
 		if not burning:
 			burning = true
 			note("%s — ignition, Δv %s m/s" % [label, U.fixed(burn_remaining, 1)])
-		# Burn while pointing near enough, and account for the cosine loss rather
-		# than pretending there is none. Gating the throttle on a TIGHT error is
-		# what deadlocks a vehicle whose only attitude authority is its own gimbal:
-		# it cannot turn without thrusting and will not thrust until it has turned.
-		# 20° is loose enough to break that and tight enough that the loss (6%) is
-		# charged honestly to the burn.
+		# Burn within 20° and charge the cosine loss. A tighter gate deadlocks a vehicle
+		# whose only authority is its gimbal.
 		var err := DQuat.angle_between(v.forward(Guidance._b), dir)
 		v.throttle = limit_throttle(1.0, pa, dt) if err < 0.35 else 0.0
 		if prop.F > 0.0: burn_remaining -= (prop.F / v.mass) * cos(err) * dt
@@ -637,13 +446,8 @@ class Autopilot extends RefCounted:
 				state_name = "done"
 		return dir
 
-	## The throttle every program should actually command, given what it wants.
-	##
-	## Two limits, both solved rather than nudged, plus the engine-shutdown escape
-	## hatch for when the throttle has run out of authority. This lives here and
-	## not in the ascent because a light upper stage circularizing is exactly as
-	## capable of tearing itself apart as one climbing — the Starship's third burn
-	## pulls more g than its first.
+	## The throttle every program should command: solved q and g limits, plus engine
+	## shutdown when the throttle runs out of authority. Upper stages need it too.
 	func limit_throttle(want: float, pa: float, dt: float) -> float:
 		var t := v.telemetry
 		var lim: Dictionary = v.vehicle.limits
@@ -655,12 +459,8 @@ class Autopilot extends RefCounted:
 		var g_target: float = lim.maxG * 0.88
 		var f_full := full_thrust(pa)
 		if f_full > 0.0: th = minf(th, (g_target * Rocketry.G0 * v.mass + tdrag) / f_full)
-		# ENGINE SHUTDOWN, decided BEFORE the thrust is commanded rather than after
-		# it has been felt. A nine-engine booster at its 57% floor pulls 8 g on an
-		# empty tank, and one frame of that is enough to lose the vehicle — so
-		# waiting to measure the overload and then reacting is a guidance law that
-		# reliably arrives one step too late. The test is on what the floor WOULD
-		# produce, which is knowable in advance.
+		# Engine shutdown is decided from what the throttle floor WOULD produce, before
+		# thrust is commanded: a frame at 8 g loses the vehicle.
 		shut_cool = maxf(0.0, shut_cool - dt)
 		var st_c = v.current_stage
 		# (never a solid: once lit it burns out, and there is nothing to shut)
@@ -671,9 +471,7 @@ class Autopilot extends RefCounted:
 			var floor_th: float = 1.0 if eng.get("solid", false) else eng.get("throttleMin", 1.0)
 			var g_at_floor := (f_full * floor_th - tdrag) / (v.mass * Rocketry.G0)
 			if th <= floor_th + 1e-6 and g_at_floor > g_target:
-				# How many engines can stay lit and still keep the floor under the
-				# target. Solved rather than stepped one at a time, because on a nearly
-				# empty stage the acceleration climbs by a g a second.
+				# Solve how many engines can stay lit, rather than stepping one at a time.
 				var ratio := (g_target * Rocketry.G0 * v.mass + tdrag) / (f_full * floor_th)
 				var keep := maxi(1, int(floor(st_c.live * minf(ratio, 1.0))))
 				if keep < st_c.live:
@@ -686,20 +484,12 @@ class Autopilot extends RefCounted:
 		last_throttle = th if th != 0.0 else 1.0
 		return th
 
-	## Thrust at full throttle from the engines that are actually RUNNING —
-	## `st.live`, not the stage's built count. Using the built count makes every
-	## throttle solve, burn-time estimate and g prediction wrong by the ratio of
-	## the two the moment anything shuts an engine down, and the shutdown logic
-	## then reads its own output as an overload and shuts down again.
+	## Full-throttle thrust from the engines actually running (`st.live`, not the built count).
 	func full_thrust(pa: float) -> float:
 		var F := 0.0
 		for st in v.live_stages():
 			if st.spec.get("engine") == null or st.prop <= 0.0: continue
-			# where a SOLID is in its burn: its grain, not a throttle, sets the
-			# thrust. Evaluated at ignition instead, an RSRM two-thirds burned was
-			# credited with its liftoff thrust, the g prediction below read an
-			# overload that was not there, and the limiter "shut down" one of the
-			# Shuttle's boosters twenty seconds before separation.
+			# A solid's thrust is read at its current point in the grain.
 			var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
 			F += Rocketry.engine_output(st.spec.engine, st.live, pa, 1.0, burned).F
 			if st.spec.get("vacEngine") != null:
@@ -712,40 +502,22 @@ class Autopilot extends RefCounted:
 				return Rocketry.engine_output(st.spec.engine, st.live, pa, 1.0).isp
 		return 300.0
 
-	# -------------------------------------------------------------------------
 	# INTERPLANETARY TRANSFER
-	# -------------------------------------------------------------------------
-	## Plan a transfer to `tgt`. Two cases, and the difference is which body's
-	## gravity dominates the answer:
-	##
-	##   SAME PARENT — a straight Hohmann between the two orbits, with a wait for
-	##   the phase angle. This is the LEO→GEO and Earth→Mars-around-the-Sun case.
-	##
-	##   DIFFERENT PARENT — the vessel must first leave its parent's sphere of
-	##   influence with the right hyperbolic excess velocity, and the departure
-	##   burn is far smaller than the heliocentric Δv it buys because it is made
-	##   deep in the parent's well (the Oberth effect). The planner reports both
-	##   numbers, because confusing them is the single most common way to get an
-	##   interplanetary Δv budget wrong by 2 km/s.
-	##
-	## Returns a Dictionary — kind 'hohmann' (the hohmann() keys plus waitS,
-	## label) or kind 'escape' (vInf, soi, dvBurn, dvHelio, tof, phase, synodic,
-	## label) — or null.
+	## Plan a transfer to `tgt`.
+	##   same parent   Hohmann, waiting for the phase angle
+	##   other parent  escape with the right v∞; the departure burn is far smaller than
+	##                 the heliocentric Δv (Oberth), and the plan reports both
+	## Returns {kind: "hohmann", ...hohmann(), waitS, label}, {kind: "escape", vInf, soi,
+	## dvBurn, dvHelio, tof, phase, synodic, label}, or null.
 	func plan_transfer(tgt):
 		var dominant = null
 		for b in v.bodies:
 			if b.mass > (dominant.mass if dominant != null else -1.0): dominant = b
 		if tgt == null or dominant == null or tgt == v.parent: return null
 
-		# THE TARGET IS IN THE SAME WELL. A Moon shot from Earth orbit is a Hohmann
-		# about the EARTH — that is what a translunar injection is — and planning
-		# it about the Sun instead compares two almost identical heliocentric
-		# orbits and reports a transfer costing twenty metres per second. The test
-		# is whose gravity actually dominates at the target, not which body is
-		# heaviest in the scene.
+		# Same well: a Moon shot from LEO is a Hohmann about the Earth. Test which body
+		# dominates at the target, not which is heaviest.
 		if v.primary_of(tgt) == v.parent or v.parent == dominant:
-			# (the second case — heliocentric-to-heliocentric — is the same
-			# arithmetic, written out twice in the JS)
 			var r1 := v.r.length()
 			var r2 := Guidance._a.sub_vectors(tgt.pos, v.parent.pos).scale_in(Rocketry.AU_M).length()
 			var h := Orbit.hohmann(v.env.mu, r1, r2)
@@ -815,9 +587,7 @@ class Autopilot extends RefCounted:
 			node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(p.dv1).clone(), "t": 0.0, "label": p.label }
 		return node_guidance(dt, pa, node)
 
-	# -------------------------------------------------------------------------
 	# POWERED DESCENT — Apollo's programs, on Apollo's gates
-	# -------------------------------------------------------------------------
 	## The quadratic guidance law. Returns the commanded THRUST acceleration
 	## (gravity already added back), in the parent frame, written into `out`.
 	func quadratic(rT: DVec3, vT: DVec3, tgo: float, out: DVec3) -> DVec3:
@@ -830,34 +600,12 @@ class Autopilot extends RefCounted:
 		out.sub_in(Guidance._d)
 		return out
 
-	## THE TERMINAL DESCENT LAW — one controller, used by every landing.
-	## Returns the commanded thrust acceleration in the shared scratch Guidance._e.
-	##
-	## The vertical and lateral axes are treated SEPARATELY, and that separation
-	## is the whole design. A single three-dimensional "fly to the target" law
-	## saturates: a vehicle a kilometre up with a hundred metres per second of
-	## sideways drift asks for more lateral acceleration than the engine has, the
-	## command ends up pointing nearly horizontal, and the vehicle falls out of
-	## the sky perfectly on course.
-	##
-	## VERTICAL — a reference descent rate that is exactly what the vehicle can
-	## still stop from, plus the rate it wants to touch down at:
-	##
-	##     v_ref(h) = −( v_touch + √(2·a_dec·h) ),   a_dec = k·(F/m − g)
-	##
-	## The commanded vertical acceleration closes the gap over τ, and is CLAMPED
-	## AT ZERO: an engine cannot push downward, and a vehicle descending slower
-	## than the reference should simply fall until it catches it. That free fall
-	## is not a gap in the law, it is the fuel-optimal thing to do — every second
-	## spent holding a vehicle up is a second of gravity loss.
-	##
-	## LATERAL — null the ground-relative drift and close on the site, with the
-	## result capped at a maximum TILT. A lander leans a few degrees to stop
-	## drifting; it never points sideways, and capping the tilt is what guarantees
-	## the vertical channel keeps the authority it was promised.
-	##
-	## Everything is ground-relative, because a landing site is a place on a
-	## rotating body and the gear cares about motion relative to it.
+	## The terminal descent law, shared by every landing. Returns the commanded thrust
+	## acceleration in Guidance._e, ground-relative. Vertical and lateral are separate
+	## channels; a combined law saturates on a large lateral error and falls on course.
+	##   vertical  v_ref(h) = −(v_touch + √(2·a_dec·h)), a_dec = k·(F/m − g), closed
+	##             over τ and clamped at zero (free fall above the profile is fuel-optimal)
+	##   lateral   null the drift and close on the site, capped at a maximum tilt
 	func descent_law(a_max: float, v_touch: float, max_tilt_rad: float, tau: float,
 			dec_frac: float = 0.6, v_cap: float = INF, hold_below: float = 0.0) -> DVec3:
 		var env: Dictionary = v.env
@@ -869,36 +617,13 @@ class Autopilot extends RefCounted:
 		Guidance._b.copy_from(Guidance._g).add_scaled_in(Guidance._up, -v_vert)           # lateral drift
 
 		var a_dec := maxf(dec_frac * (a_max - g), 0.05)
-		# The reference is also CAPPED. Without a cap it is whatever the vehicle
-		# could survive — 113 m/s at the Apollo approach gate — and the free-fall
-		# clamp then means the lander does not touch its engine until it is going
-		# that fast, arriving at the surface having spent the whole approach
-		# accelerating. A real approach phase descends at a chosen rate (Apollo's
-		# is about 45 m/s at hi-gate) so that there is time to do the other things
-		# an approach is for: fly out the sideways drift, and look at the site.
-		# Below `hold_below` the reference is simply the touchdown rate — a
-		# constant-rate final descent. The square-root profile is still several
-		# metres per second a metre off the ground, which is more than any landing
-		# gear is rated for, so the last stretch has to be flown at a held rate
-		# instead. This is not a smoothing hack: it is what a sky crane does for
-		# its last twenty metres and what a lunar module does for its last ten.
+		# The reference is capped (Apollo's approach is ~45 m/s at hi-gate). Below
+		# `hold_below` it is the touchdown rate: a held-rate final descent.
 		var vref := -v_touch if alt < hold_below else -minf(v_touch + sqrt(2.0 * a_dec * alt), v_cap)
-		# FEED-FORWARD. Following the reference means decelerating at a_dec — the
-		# profile is √(2·a_dec·h), and differentiating it along the trajectory
-		# gives exactly that. Without the term, a vehicle sitting perfectly on the
-		# reference is commanded g and nothing more, i.e. told to hold its speed,
-		# and it rides its own profile straight into the ground: the error term
-		# only ever reacts to falling BEHIND, and by then there is no altitude left
-		# to catch up in. The zero clamp still gives free fall when the vehicle is
-		# above the profile, which is the fuel-optimal thing to do.
-		# No feed-forward in the held-rate region: the reference is constant there,
-		# so following it needs gravity and nothing else.
+		# Feed forward a_dec, the profile's own deceleration: without it a vehicle on the
+		# profile is only told to hold speed. None in the held-rate region.
 		var a_ff := a_dec if (v_vert < 0.0 and alt >= hold_below) else 0.0
-		# Free fall is fuel-optimal a long way up and reckless close in: a vehicle
-		# that is slower than its reference at 150 m and takes the free ride
-		# arrives at the held-rate region 40% faster than it left, with no altitude
-		# left to fix it. Below a few times the hold altitude the command floors at
-		# g — hold what you have — rather than at zero.
+		# Near the ground, floor at g instead of free fall: no altitude is left to recover.
 		var floor_a := g if alt < hold_below * 5.0 else 0.0
 		var a_vert := maxf(g + a_ff + (vref - v_vert) / tau, floor_a)
 
@@ -908,34 +633,18 @@ class Autopilot extends RefCounted:
 			Guidance._c.sub_vectors(site, v.r)
 			Guidance._c.add_scaled_in(Guidance._up, -Guidance._c.dot(Guidance._up))
 			var off := Guidance._c.length()
-			# Deliberately weak, and capped hard. Landing on the exact spot is worth
-			# something; not landing sideways is worth more. A strong site-seeking
-			# term fights the drift-killing term whenever the vehicle is already
-			# moving toward the site, and the two settle at a lateral speed neither
-			# of them wanted.
+			# Site-seeking is deliberately weak, or it fights the drift damping.
 			if off > 1e-3: Guidance._c.scale_in(minf(off, 25.0) / off * 0.02)
 		Guidance._d.copy_from(Guidance._b).scale_in(-1.0 / (tau * 0.7)).add_in(Guidance._c)
-		# The lateral authority is a fraction of the ENGINE, not a fraction of
-		# whatever the vertical channel happens to be asking for right now. Tying
-		# it to the vertical command starves the lateral axis exactly when the
-		# vehicle is coasting down a capped reference and the vertical command is
-		# only enough to hold it up — on the Moon that is 1.6 m/s², which allows
-		# a tenth of a g of lateral correction and leaves the lander to arrive with
-		# most of its approach speed intact.
+		# Lateral authority is a fraction of the engine, not of the vertical command (on
+		# the Moon that would allow a tenth of a g).
 		var max_lat := a_max * sin(max_tilt_rad)
 		if Guidance._d.length() > max_lat: DQuat.set_len(Guidance._d, max_lat)
 
 		v_ref = vref; v_vert_now = v_vert; lat_now = Guidance._b.length()
 		return Guidance._e.copy_from(Guidance._up).scale_in(a_vert).add_in(Guidance._d)
 
-	## Keep a commanded thrust direction inside what the airframe can take.
-	##
-	## q·α is one of the four ways this vehicle breaks, so a controller that asks
-	## for a large lateral correction in thick air is asking to be destroyed. The
-	## allowable misalignment is α_max = qα_limit / q, and the command is rotated
-	## back toward the airstream until it fits — which is why a booster's lateral
-	## authority vanishes as it descends, and why it has to be pointed at the pad
-	## long before it gets there.
+	## Rotate a thrust command back toward the airstream until α ≤ α_max = qα_limit / q.
 	func aero_limit(cmd: DVec3, out: DVec3) -> DVec3:
 		var t := v.telemetry
 		var tq: float = t.get("q", 0.0)
@@ -945,8 +654,7 @@ class Autopilot extends RefCounted:
 		if va < 1.0: return DQuat.nrm(out.copy_from(cmd))
 		Guidance._air.scale_in(-1.0 / va)                       # retrograde, the aligned attitude
 		DQuat.nrm(out.copy_from(cmd))
-		# 0.85 of the limit, because the limit is where the vehicle breaks and
-		# steering to exactly there leaves nothing for a gust or a lag.
+		# 0.85 of the limit, leaving margin for gusts and lag.
 		var a_max_rad := DQuat.jclamp(0.85 * v.vehicle.limits.qAlpha / tq, 0.01, PI)
 		var ang := DQuat.angle_between(out, Guidance._air)
 		if ang <= a_max_rad: return out
@@ -956,16 +664,7 @@ class Autopilot extends RefCounted:
 		DQuat.nrm(Guidance._c)
 		return DQuat.apply_axis_angle(out.copy_from(Guidance._air), Guidance._c, a_max_rad)
 
-	## Carry the landing site round with the body it is on.
-	##
-	## At its own surface velocity, ω × r — the same expression `place_on_pad`
-	## uses to give a vehicle its free eastward motion, and deliberately not an
-	## independently written rotation matrix. Written as one of those it went
-	## round the WRONG WAY: with ω along −Y (the pole convention in orbit.gd) the
-	## small-angle form of x' = x cos w − z sin w matches ω × r only for
-	## w = +Ω dt, so a site at 28.5° receded from the vehicle at 816 m/s instead
-	## of travelling with it at 408. Deriving both from one line is what makes
-	## that class of error impossible rather than merely unlikely.
+	## Carry the landing site round with its body by ω × r, the same expression as `place_on_pad`.
 	func spin_site(dt: float) -> void:
 		if site == null: return
 		Guidance._a.set_v(0.0, -v.env.rotRate, 0.0).cross_vectors(Guidance._a, site)
@@ -982,13 +681,8 @@ class Autopilot extends RefCounted:
 		var a_max := full_thrust(pa) / v.mass
 
 		if site == null:
-			# Put the landing site where this vehicle can actually stop, straight
-			# down-track. Braking from v_h to the hi-gate speed at the available
-			# acceleration covers  (v₁ + v₂)/2 · (v₁ − v₂)/a  — so the range is
-			# derived from the vehicle rather than read out of a stored number that
-			# belonged to a different one. A site placed short forces the guidance to
-			# brake harder than the engine can, and the quadratic law answers that by
-			# lofting: the lander climbs twenty kilometres on its way down.
+			# Place the site where this vehicle can stop: braking from v_h to the hi-gate
+			# speed covers (v₁ + v₂)/2 · (v₁ − v₂)/a. A site too short makes the law loft.
 			var vh := sqrt(maxf(t.speed * t.speed - v_vert * v_vert, 0.0))
 			var v_gate: float = prof.hiGate.vHoriz if prof != null else 130.0
 			var brake := maxf(a_max * 0.72, 0.05)
@@ -1010,10 +704,7 @@ class Autopilot extends RefCounted:
 			DQuat.nrm(Guidance._b)
 			var rT := Guidance._a.clone().scale_in(env.radius + gate.alt).add_scaled_in(Guidance._b, -gate.range)
 			var vT := Guidance._b.clone().scale_in(gate.vHoriz).add_scaled_in(Guidance._a, gate.vVert)
-			# Aim the braking phase just ABOVE the DPS's forbidden throttle band, so
-			# it flies at full thrust the way the real P63 does, rather than
-			# repeatedly commanding a setting the engine is not allowed to hold and
-			# being rounded down to 60% of it.
+			# Aim just above the DPS's forbidden throttle band, so P63 flies at full thrust.
 			var tgo := track_t_go(rT, vT, a_max, dt, 0.96)
 			var cmd := quadratic(rT, vT, tgo, Guidance._e)
 			var need := cmd.length()
@@ -1031,19 +722,14 @@ class Autopilot extends RefCounted:
 			var cmd := descent_law(a_max, 2.0, 0.60, 3.5, 0.6, 50.0)
 			v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
 			say("P64 — approach · %s m, %s of %s m/s, %s m/s lateral" % [U.fixed(alt, 0), U.fixed(v_vert_now, 1), U.fixed(v_ref, 1), U.fixed(lat_now, 1)])
-			# Hand to terminal descent when the vehicle is genuinely over the site,
-			# not merely low. Apollo's lo-gate is a STATE — 30 m up, 11 m short, and
-			# essentially stopped — and transitioning on the altitude alone hands
-			# P66 a vehicle still moving 40 m/s sideways with five seconds to fix it.
+			# Lo-gate is a state (30 m up, 11 m short, nearly stopped), not an altitude.
 			Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 			var lateral := Guidance._b.length()
 			if (alt < gate.alt * 3.0 and lateral < 8.0) or alt < gate.alt * 0.7:
 				state_name = "P66"; t_go = null; note("P66 — terminal descent")
 			return DQuat.nrm(cmd)
 
-		# P66 — terminal descent. Same law, aimed at the gear's rated touchdown
-		# rate with a tighter time constant and a bigger allowed lean, because this
-		# is the phase where the last metre per second of sideways drift has to go.
+		# P66: the same law at the rated touchdown rate, with a tighter τ and more lean.
 		var a_cmd := descent_law(a_max, 0.8, 0.35, 1.4, 0.55, 20.0, 12.0)
 		v.throttle = limit_throttle(a_cmd.length() / maxf(a_max, 1e-6), pa, dt)
 		say("P66 — terminal · %s m, %s m/s, %s m/s lateral" % [U.fixed(alt, 1), U.fixed(v_vert_now, 2), U.fixed(lat_now, 2)])
@@ -1051,26 +737,11 @@ class Autopilot extends RefCounted:
 			note("Landed"); program = null; v.throttle = 0.0
 		return DQuat.nrm(a_cmd)
 
-	## Choose t_go so the commanded acceleration sits at a comfortable fraction of
-	## what the engine can give.
-	##
-	## Apollo solved a quartic for this. Bisection gets to the same place and
-	## cannot diverge, which matters because |a_cmd| falls monotonically with t_go
-	## and a multiplicative search seeded badly walks the wrong way: seeded at the
-	## 3000 s ceiling, the quadratic law's commanded acceleration collapses to
-	## "cancel gravity", the throttle holds a TWR above 1, and a lander told to
-	## descend climbs instead — which is exactly what it did.
-	##
-	## The bracket's upper end is a real physical estimate rather than a constant:
-	## braking Δv at the available acceleration. For an Apollo PDI that is
-	## 1570 m/s at 2.96 m/s², i.e. 530 s — against the 514 s the real thing took.
-	##
-	## track_t_go: time-to-go as a COUNTDOWN that is nudged, not re-solved from
-	## nothing every cycle. Time really is passing, so the honest update is to
-	## subtract dt and correct slowly toward the freshly solved value; re-solving
-	## outright each frame lets the answer jump by hundreds of seconds between
-	## steps, and the throttle chatters between its deep-throttle floor and full
-	## power because the commanded acceleration is following it.
+	## t_go that puts the commanded acceleration at `frac` of the engine's, by
+	## bisection: |a_cmd| falls monotonically with t_go (Apollo solved a quartic). The
+	## upper bracket is braking Δv over the available acceleration (Apollo PDI: 530 s,
+	## flown in 514). track_t_go counts down and nudges toward the fresh solution;
+	## re-solving outright jumps between frames and the throttle chatters.
 	func track_t_go(rT: DVec3, vT: DVec3, a_max: float, dt: float, frac: float) -> float:
 		var solved := solve_t_go(rT, vT, a_max, frac)
 		t_go = solved if t_go == null else maxf(t_go - dt, 1.0) * 0.97 + solved * 0.03
@@ -1100,31 +771,16 @@ class Autopilot extends RefCounted:
 		if st == null: return 0.0
 		var eng: Dictionary = st.spec.engine
 		var th := DQuat.jclamp(x, 0.0, eng.get("maxThrottle", 1.0))
-		# Below the deep-throttle floor there are two options and only one of them
-		# is safe. Cutting to zero is what the old rule did whenever the request
-		# fell under half the floor — and in a landing burn, where the commanded
-		# acceleration drops the moment the vehicle starts tracking its reference,
-		# that turns the last hundred metres into a series of free falls. A real
-		# engine cannot go below its floor, so it sits AT the floor, over-brakes a
-		# little, and the loop asks for less next cycle. Zero is reserved for a
-		# genuine shutdown command.
+		# Below the deep-throttle floor, sit at the floor; zero is only for a real shutdown.
 		var floor_th: float = eng.get("throttleMin", 0.0)
 		if th < floor_th: th = 0.0 if x < 0.02 else floor_th
-		# The Apollo DPS could not be run between 60% and 92.5% without eroding the
-		# throttle valve, so a command inside the band has to go to one edge or the
-		# other. It goes UP. Rounding down looks thriftier and is the wrong answer:
-		# the guidance asked for that acceleration because it needs it, and a
-		# lander that consistently delivers 60% of a 72% command arrives at the
-		# surface still moving 40 m/s sideways. Propellant is recoverable; the
-		# approach is not.
+		# The Apollo DPS couldn't run between 60% and 92.5%: go to the nearer edge.
 		var fb = eng.get("forbidden")
 		if fb != null and th > fb[0] and th < fb[1]:
 			th = fb[0] if (th - fb[0]) < (fb[1] - th) else fb[1]
 		return th
 
-	# -------------------------------------------------------------------------
 	# HOVERSLAM — propulsive booster recovery
-	# -------------------------------------------------------------------------
 	func hoverslam_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var alt := v.altitude()
@@ -1136,78 +792,34 @@ class Autopilot extends RefCounted:
 		var _m_min := throttle_for(0.0001)
 		var a_max := full_thrust(pa) / v.mass
 
-		# The landing burn takes priority over the entry burn: once the vehicle is
-		# inside the envelope where it must burn continuously to stop, an entry
-		# burn that switches itself off because the speed dropped under a threshold
-		# hands it back a vehicle it can no longer save.
-		# The shortest landing burn the vehicle could possibly fly — every engine,
-		# full throttle. The entry burn hands over when even that would no longer
-		# fit with margin. It is used rather than the SELECTED burn's altitude
-		# because the selected engine count is a discrete choice that flips between
-		# two values as the altitude falls, and gating a burn on a number that
-		# jumps makes the burn stutter on and off every frame.
+		# The landing burn has priority over the entry burn. The handover tests the
+		# shortest possible landing burn (every engine, full throttle), not the selected
+		# engine count, which jumps and would make the burn stutter.
 		var st_e = v.current_stage
 		var per_e: float = Rocketry.engine_output(st_e.spec.engine, 1, pa, 1.0).F / maxf(v.mass, 1.0) \
 			if (st_e != null and st_e.spec.get("engine") != null) else 0.0
 		var a_full := maxf((st_e.spec.count if st_e != null else 1) * per_e - g, 0.3)
 		var h_burn_pre := (v_vert * v_vert) / (2.0 * a_full)
-		# ENTRY BURN. Scheduled by the dynamic pressure it is there to prevent,
-		# not by an altitude: the vehicle burns retrograde whenever q climbs past a
-		# third of what the airframe can take, and stops when it falls back under.
-		# That is self-scheduling — a steeper return starts the burn higher and a
-		# shallow one may not need it at all — and it cannot be caught out by a
-		# trajectory the numbers were not written for. A fixed "70 km to 40 km at
-		# over 1800 m/s" window simply does not fire on a booster that separates
-		# slower, and the vehicle then meets max-q with the engines cold.
+		# Entry burn: scheduled by dynamic pressure, not altitude, so it adapts to the trajectory.
 		var q_lim: float = v.vehicle.limits.maxQ
-		# THE HANDOVER. Solved first and tested first, so the landing burn always
-		# wins: an entry burn that keeps running because its own deceleration keeps
-		# shrinking the predicted landing-burn altitude will run the vehicle all
-		# the way to the ground, and hand over at forty metres.
+		# The landing-burn test comes first, so the entry burn can't run to the ground.
 		var sel_pre := solve_landing_burn(alt, v_vert, pa, g)
-		# The terminal landing burn belongs in the last few kilometres. Above that
-		# the atmosphere and the entry burn do the braking, and they are far better
-		# at it than the engines: a booster at 34 km is doing over a kilometre a
-		# second, its predicted burn altitude is larger than its altitude, and
-		# reading that as "burn now" starts a landing burn thirty kilometres up
-		# that runs the tanks dry long before the ground.
+		# The landing burn belongs in the last few km; above that, air and the entry burn brake.
 		var terminal_ceiling: float = env.atm.top * 0.08 if env.atm != null else INF
-		# Ignition is at h_burn and NOT before. This is the part of a hoverslam
-		# that is genuinely unforgiving: minimum throttle already gives a
-		# thrust-to-weight above one, so the vehicle cannot hover, and lighting
-		# early does not buy margin — it buys an ascent. Igniting at two kilometres
-		# "to be safe" makes the booster stop at a hundred metres, climb back to
-		# four hundred, and oscillate until the tanks are dry.
+		# Ignite at h_burn, not before: with TWR > 1 at minimum throttle, early ignition climbs.
 		var must_land: bool = slamming or (alt <= sel_pre.hBurn * 1.05 and alt < terminal_ceiling)
-		# Hysteresis on q: start at a third of the limit, stop at a fifth. An entry
-		# burn is not a thing you pulse.
-		# Start the entry burn early — a tenth of the airframe limit, which on a
-		# returning booster is around 40 km — and hold it. Waiting until a third of
-		# the limit means starting at 30 km with a kilometre and a half a second
-		# still on the clock, and by then the air is arriving faster than the
-		# engines can take it away.
+		# Hysteresis on q: start at a tenth of the limit (~40 km on a booster), stop at 6%.
 		var q_on := q_lim * (0.06 if entry_burning else 0.10)
 		var tq: float = v.telemetry.get("q", 0.0)
-		# The entry burn also stops well before the ground. Its job is to protect
-		# the vehicle from the air, and its throttle is set by dynamic pressure —
-		# which near the surface is still high enough to keep it lit, so it flies
-		# the booster gently down to a hundred metres and hands over a vehicle
-		# whose landing burn is now twenty metres long. Below half the terminal
-		# ceiling the vehicle either falls or lands; nothing else.
+		# The entry burn stops by half the terminal ceiling; otherwise near-surface q keeps
+		# it lit all the way down.
 		if env.atm != null and not must_land and alt > terminal_ceiling * 0.5 \
 				and alt > h_burn_pre * 1.6 and tq > q_on:
-			# Throttle on how far over the line q is, so it is a trim rather than a
-			# hammer, and hard over if the vehicle is genuinely in trouble.
-			# Three engines for the entry burn — the count the real vehicle uses, and
-			# the reason it can pull the deceleration it needs without the throttle
-			# floor of nine putting it over its g limit.
+			# Throttle on how far q is over the line, on three engines as the real booster uses.
 			v.set_engine_count(3)
 			manual_engines = true
 			var over := tq / (q_lim * 0.10) - 1.0
-			# Through the shared limiter, so the same g cap and the same engine
-			# shutdown apply here as on the way up. A nine-engine booster at its 57%
-			# floor pulls 5 g on an empty tank; the limiter is what turns that into
-			# the three-engine burn the real one uses.
+			# Through the shared limiter, so the g cap and engine shutdown apply here too.
 			v.throttle = limit_throttle(DQuat.jclamp(0.45 + over * 2.5, 0.0, 1.0), pa, dt)
 			if not entry_burning:
 				entry_burning = true
@@ -1217,17 +829,7 @@ class Autopilot extends RefCounted:
 		if entry_burning:
 			entry_burning = false; entry_done = true; v.throttle = 0.0; note("Entry burn cutoff")
 
-		# THE ONE LINE THAT IS THE WHOLE MANOEUVRE — generalised over how many
-		# engines are lit, because that is the other half of the decision.
-		#
-		#     h_burn(n) = v² / (2·(n·F_engine/m − g))
-		#
-		# Fewer engines means a lower deceleration and a higher ignition altitude.
-		# The vehicle picks the FEWEST engines whose burn still fits in the
-		# altitude it has left, which is exactly why a Falcon 9 lands on one engine
-		# when it can and three when it cannot. Choosing the count first and then
-		# computing h_burn for a different count is how you arrive at 900 m needing
-		# 3 900 m of braking.
+		# h_burn(n) = v²/(2·(n·F_engine/m − g)), for the engine count solve_landing_burn picked.
 		var sel := sel_pre
 		var h_burn: float = sel.hBurn
 		if not must_land:
@@ -1239,14 +841,8 @@ class Autopilot extends RefCounted:
 			v.set_engine_count(sel.n)
 			manual_engines = true
 			note("Landing burn — %d engine%s, ignition at %s m" % [sel.n, "s" if sel.n > 1 else "", U.fixed(h_burn, 0)])
-		# Same terminal law. For a booster the reference rate IS the hoverslam
-		# profile — √(2·a_net·h) is what "arrive at zero velocity at zero altitude"
-		# means — and the zero clamp on the vertical command is what lets it keep
-		# falling between the entry burn and the landing burn instead of hovering.
-		# A booster barely leans. Six degrees of tilt against 25 kPa of dynamic
-		# pressure is already 2.6 kPa·rad of the 5 the airframe allows, and the
-		# attitude lags the command — so the commanded tilt has to sit well inside
-		# the limit, not at it.
+		# Same terminal law; for a booster the reference is the hoverslam profile. Keep the
+		# tilt small: 6° at 25 kPa is already half the airframe's q·α.
 		var cmd := descent_law(a_max, 2.0, 0.10, 1.0, 0.55, INF, 30.0)
 		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
 		say("Landing burn — %s m, %s of %s m/s, throttle %s%%" % [U.fixed(alt, 0), U.fixed(v_vert_now, 1), U.fixed(v_ref, 1), U.fixed(v.throttle * 100.0, 0)])
@@ -1254,38 +850,21 @@ class Autopilot extends RefCounted:
 			program = null; v.throttle = 0.0; note("Booster recovered")
 		return aero_limit(cmd, Guidance._a)
 
-	## The fewest engines whose landing burn still fits inside the altitude left,
-	## and the altitude that burn has to start at. Scanned rather than assumed:
-	## the answer depends on the vehicle's current mass, which is why it is one
-	## engine on a nearly empty booster and three on a heavy one.
-	## Returns { n: int, hBurn: float }.
+	## Engine count and ignition altitude for the landing burn: { n: int, hBurn: float }.
 	func solve_landing_burn(_alt: float, v_vert: float, pa: float, g: float) -> Dictionary:
 		var st = v.current_stage
 		if st == null or st.spec.get("engine") == null: return { "n": 1, "hBurn": 0.0 }
 		var per: float = Rocketry.engine_output(st.spec.engine, 1, pa, 1.0).F / maxf(v.mass, 1.0)
-		# The MOST engines the g limit allows, which is what makes this a hoverslam
-		# rather than a descent: more deceleration means a later ignition, and the
-		# whole point of the manoeuvre is to arrive at zero velocity and zero
-		# altitude at the same instant, having spent as little time as possible
-		# holding the vehicle up against gravity. Picking the FEWEST engines
-		# instead gives an ignition altitude of thirty kilometres and a burn that
-		# is mostly hover.
+		# The most engines the g limit allows: more deceleration means a later ignition
+		# and less time holding the vehicle up.
 		var g_limit: float = (v.vehicle.limits.maxG * 0.85 * Rocketry.G0 + g)
 		var n := int(DQuat.jclamp(floor(g_limit / maxf(per, 1e-6)), 1.0, float(st.spec.count)))
-		# The SAME margin the descent law flies with (decFrac), so the ignition
-		# altitude and the profile the vehicle then tracks are the same curve. Sized
-		# on the full deceleration instead, the burn starts exactly where a perfect
-		# controller would need it and a real one with any lag at all arrives short.
-		# 70% of the available deceleration, so ignition is about 20% higher than a
-		# perfect controller would need. A hoverslam has no margin by construction;
-		# this is the only place to put any, and without it the vehicle arrives
-		# saturated at full throttle and still moving.
+		# Size ignition on a deceleration margin like the descent law's, not on the full
+		# deceleration, or any lag arrives short.
 		var a := maxf(0.58 * (n * per - g), 0.3)
 		return { "n": n, "hBurn": (v_vert * v_vert) / (2.0 * a) }
 
-	# -------------------------------------------------------------------------
 	# ENTRY, DESCENT AND LANDING — the atmospheric one
-	# -------------------------------------------------------------------------
 	func edl_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var t := v.telemetry
@@ -1305,18 +884,11 @@ class Autopilot extends RefCounted:
 
 		if state_name == "entry":
 			say("Entry — %s km, %s m/s, %s W/cm²" % [U.fixed(alt / 1000.0, 1), U.fixed(speed, 0), U.fixed(t.heat / 1e4, 1)])
-			# Heat-shield forward, which is the entire job of the aeroshell.
-			# A parachute is qualified for a Mach number and a dynamic pressure, not
-			# an altitude — MSL's supersonic disk-gap-band deploys at Mach 1.7 and
-			# about 750 Pa, wherever on the profile that happens to be. Gating on a
-			# stored altitude means an entry that decelerates higher than expected
-			# falls past its own deployment box with the chute still packed.
+			# Heat shield forward. Deploy on Mach and q, as a chute is qualified (MSL: Mach 1.7,
+			# ~750 Pa), not on altitude.
 			var ch: Dictionary = plan_edl.chute if (plan_edl != null and plan_edl.get("chute") != null) else { "mach": 1.7, "deployQ": 750.0 }
 			var dq: float = ch.get("deployQ", 750.0)
-			# The lower bound matters as much as the upper one: at the entry
-			# interface there is no atmosphere at all, so Mach and q are both zero
-			# and a test written only as "Mach below 1.7" fires on the first frame,
-			# 125 km up, into vacuum. A parachute needs dynamic pressure to inflate.
+			# The q lower bound keeps it from firing in vacuum at the entry interface.
 			if t.mach < ch.mach and t.mach > 0.05 and t.q > dq * 0.25 and t.q < dq * 1.6:
 				state_name = "chute"
 				var sh = null
@@ -1333,12 +905,7 @@ class Autopilot extends RefCounted:
 			# largest of the whole descent.
 			v.chute_deploy = minf(1.0, v.chute_deploy + dt / 2.2)
 			say("On the chute — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
-			# The backshell — and the chute with it — is released LOW and SLOW, at
-			# about 1.8 km and 100 m/s, and only then does the descent stage light.
-			# Dropping it at parachute deploy instead leaves the descent stage to fly
-			# the whole remaining descent on 390 kg of hydrazine, which is a fifth of
-			# what that would take. The chute does the work; the rockets do the last
-			# kilometre.
+			# Release the backshell low and slow (~1.8 km, 100 m/s): the chute does the braking.
 			var bs: Dictionary = plan_edl.backshell if (plan_edl != null and plan_edl.get("backshell") != null) else { "alt": 1800.0, "v": 100.0 }
 			if (alt < bs.alt or speed < bs.v) and not shield_gone:
 				shield_gone = true; v.jettison("shell"); v.chute_open = null
@@ -1363,7 +930,6 @@ class Autopilot extends RefCounted:
 			program = null; v.throttle = 0.0; note("Touchdown")
 		return aero_limit(cmd, Guidance._b)
 
-	# -------------------------------------------------------------------------
 	func deorbit_guidance(dt: float, pa: float):
 		var el: Dictionary = v.telemetry.el
 		var mu: float = v.env.mu

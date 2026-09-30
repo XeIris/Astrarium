@@ -1,9 +1,7 @@
 class_name GWDetector
 extends RefCounted
 
-# ============================================================================
 # GRAVITATIONAL-WAVE DETECTOR — the strain, and what a detector does with it
-# ----------------------------------------------------------------------------
 # Two masses in orbit radiate gravitational waves, which is not a metaphor for
 # anything: the orbit really does shrink, and the energy really does leave. The
 # sim already integrates that — applyGWReaction() in sim/physics.js applies the
@@ -46,7 +44,6 @@ extends RefCounted
 # versions share, so equivalent time advances by ΔΦ/ω_real. The accelerated
 # reaction in the demo is NOT a physical chirp rate; merger/ringdown and
 # detector antenna response are outside this illustrative model.
-# ============================================================================
 
 const G_SI := 6.67430e-11
 const C := 2.99792458e8
@@ -60,10 +57,8 @@ const MPC_M := 3.0857e22
 const BAND_LO := 20.0
 const BAND_HI := 2000.0
 
-# ----------------------------------------------------------------------------
 # Pick the binary: the two heaviest bodies that are close enough together to be
 # a pair rather than two unrelated objects in the same scene.
-# ----------------------------------------------------------------------------
 static func find_binary(bodies: Array) -> Variant:
 	var live: Array = []
 	for b in bodies:
@@ -85,10 +80,8 @@ static func _contact_au(b) -> float:
 	if b.rs > 0.0: return b.rs
 	return 1e-9
 
-# ----------------------------------------------------------------------------
 # One reading. `distMpc` is where the source is put — 410 Mpc is GW150914's
 # measured luminosity distance, 40 Mpc is GW170817's.
-# ----------------------------------------------------------------------------
 static func strain_of(pair, opts: Dictionary = {}) -> Variant:
 	if pair == null: return null
 	var dist_mpc: float = float(opts.get("distMpc", 410.0))
@@ -129,11 +122,9 @@ static func strain_of(pair, opts: Dictionary = {}) -> Variant:
 		"inBand": f_gw >= BAND_LO and f_gw <= BAND_HI,
 	}
 
-# ----------------------------------------------------------------------------
 # The instrument: a strain trace on a real-seconds axis, plus the L-shaped
 # interferometer whose arms it is stretching.
 # opts: canvas (Control), width/height (backing size, 340 × 210), armM, distMpc.
-# ----------------------------------------------------------------------------
 static func create_gw_detector(opts: Dictionary) -> Detector:
 	return Detector.new(opts)
 

@@ -1,4 +1,3 @@
-// ============================================================================
 // FOUNDRY / CROSS-SECTION reference set — the web half of foundrytest.gd.
 //
 //   node tools/foundrytest.shots.mjs /tmp/fd/shots.json
@@ -14,7 +13,6 @@
 // The dump (<name>.json) carries what the Godot side needs to reproduce it:
 // the structureOf query refreshStructure builds for the body, the body's own
 // fields for the live editor, the Foundry's draft, and the measured rects.
-// ============================================================================
 import { writeFile } from 'node:fs/promises';
 
 const isolate = sel => `

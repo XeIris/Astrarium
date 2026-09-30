@@ -1,13 +1,10 @@
-// ============================================================================
 // THE ARCADE IN ABSORPTION — a filament, seen against the photosphere.
-// ----------------------------------------------------------------------------
 // Ordinary over-compositing for the dark filament (blend_mix: s·a + d(1−a)),
 // but LEAVING the temperature channel alone: the photosphere behind it has
 // already published its own temperature there and a filament does not change
 // what band the pixel should be imaged in. The web did that with
 // blendSrcAlpha = ZERO, blendDstAlpha = ONE; the temperature pass does it by
-// discarding (PORT_GUIDE.md §6, "absorption pass").
-// ============================================================================
+// discarding (docs/godot.md, "absorption pass").
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 

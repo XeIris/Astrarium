@@ -1,9 +1,7 @@
 class_name LaunchSite
 extends RefCounted
 
-# ============================================================================
 # THE LAUNCH COMPLEX — port of sim/flight/launchsite.js.
-# ----------------------------------------------------------------------------
 # A rocket rising over an empty plain does not look like it is rising. There is
 # nothing in the frame whose size is known, so there is no parallax to read and
 # no scale to read it against — the vehicle appears to sit still and then to be
@@ -54,7 +52,6 @@ extends RefCounted
 #     frame from the live particles (shaders/flight/steam.gdshader).
 #   · Every node's Euler order is XYZ, three's, so rotation.y/z mean what the
 #     JS wrote.
-# ============================================================================
 
 static var _mats := {}
 ## Diagnostic switch for checking that a fresh clone still renders its pads.
@@ -91,7 +88,6 @@ static func SCRUB() -> StandardMaterial3D:
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
-# ---------------------------------------------------------------------------
 # A DECAL IS NOT A SLAB LIFTED A FEW CENTIMETRES — see decal.gdshader. The
 # materials are separate rather than flagged in place because the same
 # concrete is structural elsewhere: offsetting the hardstand itself would just
@@ -121,12 +117,10 @@ static func _mesh(g: CraftModel.Geo, m: Material) -> MeshInstance3D:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if m is StandardMaterial3D else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
-# ---------------------------------------------------------------------------
 # A merged box soup. A lattice tower is a few thousand struts and every one of
 # them as its own mesh would cost more draw calls than the rest of the sim put
 # together, so they are baked into one mesh up front. Nothing in a tower moves
 # relative to the rest of the tower, so there is nothing lost.
-# ---------------------------------------------------------------------------
 class Struts extends RefCounted:
 	var g := CraftModel.Geo.new()
 	var n := 0
@@ -228,9 +222,7 @@ static func _ring(inner: float, outer: float, seg: int) -> CraftModel.Geo:
 		g.idx.append_array([a, b, d, b, c, d])
 	return g
 
-# ---------------------------------------------------------------------------
 # THE VEHICLE'S SKIN, MEASURED — NOT ASSUMED.
-# ----------------------------------------------------------------------------
 # Everything that reaches out of a tower toward the vehicle — a swing arm, a
 # white room, the GOX vent hood, an umbilical plate — is only right if it stops
 # at the skin. Written as a fraction of the stage diameter it was wrong in
@@ -250,7 +242,6 @@ static func _ring(inner: float, outer: float, seg: int) -> CraftModel.Geo:
 # Coordinates are the craft's own: y = 0 on the pad deck, the stack axis at
 # x = z = 0. The site is yawed to the craft's roll (spaceflight.gd), so the
 # craft's axes ARE the site's.
-# ---------------------------------------------------------------------------
 class Envelope extends RefCounted:
 	const BIN := 1.0
 	var tri := PackedVector3Array()      # three vertices per triangle
@@ -623,9 +614,7 @@ static func _mound_lamps(g: Node3D, radius: float) -> void:
 			for side in [-1.0, 1.0]:
 				g.add_child(box(1.8, 0.75, 0.6, WHITE(), x + side * 1.0, PAD_RISE + 14.7, z))
 
-# ---------------------------------------------------------------------------
 # THE REST OF THE COMPLEX — what a launch site is when it is not the pad.
-# ---------------------------------------------------------------------------
 ## Many small parts, one draw call per material: every box, drum and sphere
 ## added is transformed into a shared buffer for its material and emitted as
 ## one mesh at the end. A complex's worth of buildings, fence posts and bottle
@@ -942,7 +931,6 @@ static func _grounds_finish(g: Node3D, B: Batch, roads: Batch) -> Array:
 	B.build(g)
 	return [g, B.keep_out]
 
-# ---------------------------------------------------------------------------
 # THE AUTHORED GROUNDS — model_sources/blender/facilities.py builds one library,
 # assets/pads/facilities.glb, of `stage_fac_<name>` buildings drawn from real
 # ones (the LC-39 cryogen spheres and water tower, SpaceX's integration hangar,
@@ -950,7 +938,6 @@ static func _grounds_finish(g: Node3D, B: Batch, roads: Batch) -> Array:
 # gatehouses, floodlights and camera sites every complex has). The PLAN below
 # says which stand where; the library says what they look like. Without the
 # build, complex_grounds' procedural blocks stand in.
-# ---------------------------------------------------------------------------
 static func _facility_library() -> Node3D:
 	if not use_authored_pads: return null
 	var path := "res://assets/pads/facilities.glb"
@@ -1160,9 +1147,7 @@ static func coastal_scrub(radius: float, keep_out: Array = []) -> MultiMeshInsta
 	foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return foliage
 
-# ---------------------------------------------------------------------------
 # THE COMPLEX
-# ---------------------------------------------------------------------------
 const STYLES := {"saturnv": "lut", "shuttle": "fss", "falcon9": "strongback", "starship": "chopsticks"}
 
 ## The mobile launchers' exhaust openings, [centre x, centre z, width x, depth z]

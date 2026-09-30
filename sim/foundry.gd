@@ -1,9 +1,7 @@
 class_name Foundry
 extends RefCounted
 
-# ============================================================================
 # THE OBJECT FOUNDRY — building a body out of physics rather than out of a menu
-# ----------------------------------------------------------------------------
 # The point of this panel is that it has no catalogue of outcomes in it. There
 # is no rule anywhere saying "if mass > X show the explosion". There are four
 # inputs — mass, spin, composition, and how much of its life it has burned —
@@ -45,8 +43,7 @@ extends RefCounted
 # of blackhole_sim.css — so the HUD's CSS layout places them exactly as the
 # page did. The three factories keep their shape: create_foundry,
 # create_inspector and create_live_editor each return an object (a class here,
-# PORT_GUIDE.md §1) with the same members the JS returned.
-# ============================================================================
+# docs/godot.md) with the same members the JS returned.
 
 const T = preload("res://ui/theme.gd")
 const C = preload("res://ui/hud_css.gd")
@@ -92,9 +89,7 @@ static func _type_label(id) -> String:
 		if t.id == id: return t.label
 	return str(id)
 
-# ============================================================================
 # THE SHARED PIECES — every one an El with the page's computed style.
-# ============================================================================
 static func E(parent: Node, style: Dictionary = {}, text = null, vars: Array = []) -> El:
 	var e := El.new(style, vars)
 	if text is String:
@@ -267,9 +262,7 @@ static func fill_notes(e: El, layers: Array) -> void:
 		E(e, {"mb": 5.0}, [{"t": str(L.get("name", "")), "c": T.TEXT, "fw": 500}, {"t": " — " + str(L.get("note", ""))}])
 	e.touch()
 
-# ============================================================================
 # THE FOUNDRY
-# ============================================================================
 ## createFoundry({ mount, onSpawn }). `on_spawn` is called with (spec, structure).
 static func create_foundry(opts: Dictionary) -> FoundryPanel:
 	return FoundryPanel.new(opts.get("mount"), opts.get("on_spawn", Callable()))
@@ -408,7 +401,6 @@ class FoundryPanel extends RefCounted:
 	func refresh() -> void:
 		update()
 
-# ============================================================================
 # A standalone inspector for a body that already exists in the scene — the same
 # diagram and the same facts, but reading a live body instead of a draft.
 #
@@ -418,7 +410,6 @@ class FoundryPanel extends RefCounted:
 # xsecNotes — or pass ONE {mount}: an empty container gets all five built
 # inside it; the HUD's xsecCanvas slot (an El with an aspect ratio) is taken
 # as the canvas and its siblings are found by those ids.
-# ============================================================================
 static func create_inspector(opts: Dictionary) -> Inspector:
 	return Inspector.new(opts)
 
@@ -480,9 +471,7 @@ class Inspector extends RefCounted:
 		if notes_el:
 			Foundry.fill_notes(notes_el, st.get("layers", []))
 
-# ============================================================================
 # THE LIVE EDITOR — the same four inputs, pointed at a body already in flight
-# ----------------------------------------------------------------------------
 # Spawning and editing differ only in what is preserved. This panel holds no
 # draft: it reads the focused body, and every slider move hands a patch back to
 # the orchestrator, which re-derives the object and rebuilds its meshes in
@@ -500,7 +489,6 @@ class Inspector extends RefCounted:
 #   · Mass changes continuously in this sim, because accretion is continuous.
 #     The sliders re-read the body every refresh, EXCEPT the one being dragged:
 #     nothing is more annoying than a control that fights your thumb.
-# ============================================================================
 static func create_live_editor(opts: Dictionary) -> LiveEditor:
 	return LiveEditor.new(opts.get("mount"), opts.get("on_edit", Callable()))
 
@@ -662,11 +650,9 @@ class LiveEditor extends RefCounted:
 		focus_btn.set_text("full range" if curve.focus else "focus limit")
 		if body != null: _draw_curve(body)
 
-# ============================================================================
 # <select class="fd-select"> — the composition picker. Drawn as Chrome draws a
 # styled <select>: the chosen label, and a chevron in the right-hand padding;
 # the list itself is a PopupMenu, as the browser's own is a native menu.
-# ============================================================================
 class SelectEl extends El:
 	signal changed(value: String)
 	var options: Array = []       # [[value, label], ...]

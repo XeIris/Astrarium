@@ -1,5 +1,4 @@
 extends Harness
-# ============================================================================
 # ISOLATED SKY VIEWER — the port of .claude/skytest.html. Not part of the sim:
 # it renders the sky (shaders/sky/sky.gdshaderinc via the pipeline's
 # background shaders) on its own, through the full post chain, with a camera
@@ -28,7 +27,6 @@ extends Harness
 # Node3D "group" carrying that quaternion — exactly what SurfaceObserver reads
 # — and nothing is drawn for the world itself (the web build hides it too).
 # The observer's frame is then compared against the web's own (printed).
-# ============================================================================
 
 var yaw := 0.0
 var pitch := 0.0
@@ -185,12 +183,10 @@ func _unhandled_input(e: InputEvent) -> void:
 		return
 	apply()
 
-# ---------------------------------------------------------------------------
 # lens mode — the sky seen through the real marcher (render/lens_pass.gd),
 # with the web frame's own holes, camera and disc numbers. The disc is off in
 # the reference shots (discIntensity 0), so what is compared is the lensed sky
 # alone: AGENTS.md's standing check that the arcs are strings of crisp points.
-# ---------------------------------------------------------------------------
 func _setup_lens(path: String) -> void:
 	var d = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not (d is Dictionary):
@@ -208,9 +204,7 @@ func _setup_lens(path: String) -> void:
 		"disc_tpeak_phys": 2.0e7 * pow(maxf(m0, 0.1), -0.25), "disc_outer": float(d.discOuter),
 	}
 
-# ---------------------------------------------------------------------------
 # surface mode
-# ---------------------------------------------------------------------------
 func _setup_surface(path: String) -> void:
 	var txt := FileAccess.get_file_as_string(path)
 	var d = JSON.parse_string(txt)

@@ -1,7 +1,6 @@
 class_name Harness
 extends Node
 
-# ============================================================================
 # A REUSABLE RENDER HARNESS — the Godot counterpart of the web build's
 # throwaway test pages (.claude/skytest.html, crafttest.html). Extend it, put
 # your module's objects under `pipe.world_root` in _setup(), and run:
@@ -16,8 +15,7 @@ extends Node
 # The camera is the orrery's orbit camera: a target (DVec3, scene units), a
 # radius and two angles. It sits at the ORIGIN of the render world (floating
 # origin) — objects must be placed with place(node, abs_scene_pos) or with
-# `cam_pos` subtracted by hand. See PORT_GUIDE.md.
-# ============================================================================
+# `cam_pos` subtracted by hand. See docs/godot.md.
 
 var pipe: RenderPipeline
 var args := {}

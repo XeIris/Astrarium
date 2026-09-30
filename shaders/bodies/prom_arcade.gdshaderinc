@@ -1,4 +1,3 @@
-// ============================================================================
 // THE ARCADE — shared by prom_emit.gdshader (a prominence: emission off the
 // limb) and prom_absorb.gdshader (a filament: absorption on the disc). One
 // object, drawn twice; the two shaders differ only in their blend mode and in
@@ -8,7 +7,6 @@
 // The mesh carries NO shape: CUSTOM0 = (aThread, aS, aSide, aSeed).
 //   aThread: -1..1 across the arcade   aS: 0..1 along the loop
 //   aSide:   -1/+1 ribbon edge         aSeed: per-thread randomiser
-// ============================================================================
 #include "res://shaders/common/temp_pass.gdshaderinc"
 
 uniform float uR = 1.0;
@@ -33,14 +31,12 @@ varying float vSeed;
 varying vec3 vVP;
 varying vec3 vCV;
 
-// ---------------------------------------------------------------------------
 // The field line. Local frame: +Y is the local vertical, +Z the bipole axis
 // (so the footpoints separate along Z), +X the neutral line (so the arcade
 // extends along X). Lengths in X and Z are tangent-plane offsets in stellar
 // radii; Y is a RADIAL height, also in stellar radii, and onSphere() turns the
 // triple into a point on or above the actual sphere — which is what keeps the
 // footpoints welded to the surface instead of hovering over it on a big star.
-// ---------------------------------------------------------------------------
 float h1(float x) { return fract(sin(x * 127.1) * 43758.5453); }
 
 vec3 fieldLine(float s, float k, float seed) {

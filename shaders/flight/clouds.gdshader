@@ -1,6 +1,4 @@
-// ============================================================================
 // THE CLOUD PASS — a raymarched cumulus layer for local space.
-// ----------------------------------------------------------------------------
 // The previous clouds lived inside the sky dome: eight samples through a slab,
 // evaluated only when the camera was under it and looking up. So they had no
 // sides, nothing lit them but a guess, and the moment a rocket climbed past
@@ -47,7 +45,6 @@
 // OUTPUT is premultiplied: rgb is the integrated radiance, alpha the
 // COVERAGE (1 − transmittance) — a cloud genuinely hides what is behind it,
 // the stars included.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_front, fog_disabled;
 

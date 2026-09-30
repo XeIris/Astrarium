@@ -1,6 +1,5 @@
 extends Node
 
-# ===========================================================================
 # CONTACT SHEET — every vehicle in one frame, each in its own viewport, all at
 # the same light and the same fraction of its own height. The Godot
 # counterpart of .claude/craftsheet.html. One image is the only way to judge
@@ -15,7 +14,6 @@ extends Node
 #
 # Each cell is tone mapped exactly as crafttest.gd's frame is (three's
 # ACESFilmic, background composited after the curve); see make_frame() there.
-# ===========================================================================
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 const CT := preload("res://tools/crafttest.gd")

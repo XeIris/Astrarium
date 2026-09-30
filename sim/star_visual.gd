@@ -1,9 +1,7 @@
 class_name StarVisual
 extends RefCounted
 
-# ============================================================================
 # HIGH-FIDELITY STAR RENDERING
-# ----------------------------------------------------------------------------
 # The photosphere shader (shaders/bodies/star_photo.gdshader) models, in one
 # pass:
 #   · granulation — convective cells, two octaves of fBm advected in time
@@ -18,7 +16,7 @@ extends RefCounted
 # genuinely different rather than being recoloured copies.
 #
 # PORT NOTES.
-#   · createStarVisual's closure is the StarViz class below (PORT_GUIDE.md §1:
+#   · createStarVisual's closure is the StarViz class below (docs/godot.md:
 #     a GDScript lambda captures by value). Its fields are the web viz's in
 #     snake_case: group, core, mat, corona, base_r, r, color_hex, is_star,
 #     activity — plus stream, which sim/bodies.gd attaches.
@@ -28,7 +26,6 @@ extends RefCounted
 #     FLOATS in the web build, so they are linear and passed raw; the one hex
 #     here (the H-α prominence colour 0xff6a44) went through THREE.Color and
 #     is U.lin().
-# ============================================================================
 
 const MAX_SPOTS := 8
 const MAX_FLARES := 4
@@ -49,12 +46,10 @@ static func smoothstep01(a: float, b: float, x: float) -> float:
 static func _v3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
 
-# ----------------------------------------------------------------------------
 # Two display relations from sim/structure.js. They belong to the structure
 # model, and sim/structure.gd is being ported in parallel; until it exports
 # them (granule_frequency / surface_brightness), these are exact copies. When
 # it does, _structure() below routes to it and these become dead.
-# ----------------------------------------------------------------------------
 const _G_SI := 6.67430e-11
 const _M_SUN := 1.98892e30      # kg
 const _R_SUN := 6.957e8         # m
@@ -85,7 +80,6 @@ static func _structure(fn: String, args: Array, fallback: Callable) -> float:
 		return float(S.callv(fn, args))
 	return float(fallback.callv(args))
 
-# ---------------------------------------------------------------------------
 static func _photosphere_material(color: Color, hot_color: Color, limb_u: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = PHOTO_SHADER
@@ -116,9 +110,7 @@ static func _corona_material(color: Color) -> ShaderMaterial:
 	m.set_shader_parameter("uColor", _v3(color))
 	return m
 
-# ---------------------------------------------------------------------------
 # A CORONAL MASS EJECTION.
-# ----------------------------------------------------------------------------
 # A CME has a three-part structure, and it has had one in every coronagraph
 # image since OSO-7 saw the first of them in 1971:
 #
@@ -138,7 +130,6 @@ static func _corona_material(color: Color) -> ShaderMaterial:
 # a hard silhouette, which is what this used to be; weighted by the path
 # length through it — long at the rim, short face-on — the same geometry
 # renders as the arc-and-legs shape a CME actually has.
-# ---------------------------------------------------------------------------
 static func _cme_material(color: Color, rim_pow: float, fil_scale: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = CME_SHADER
@@ -156,7 +147,6 @@ static func _sphere(radius: float, radial: int, rings: int) -> SphereMesh:
 	s.rings = rings
 	return s
 
-# ---------------------------------------------------------------------------
 ## opts: the dictionary attachVisual builds — radiusScene, teff, color (a
 ## LINEAR Color for star-likes, or null), oblate, spinFrac, tPole, tEq,
 ## gdBeta, radiusSun, quiet.

@@ -1,4 +1,3 @@
-// ============================================================================
 // WEB REFERENCE CAPTURE — screenshots of the web build, for side-by-side
 // comparison with the Godot port. No dependencies: it launches Chrome with the
 // DevTools protocol open and speaks it over Node's built-in WebSocket.
@@ -30,7 +29,6 @@
 //
 // The page is served by .claude/serve.mjs, started here on PORT (default 8779)
 // so it never collides with a preview already running on 8777.
-// ============================================================================
 import { spawn } from 'node:child_process';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';

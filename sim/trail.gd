@@ -1,11 +1,9 @@
 class_name Trail
 extends RefCounted
 
-# ============================================================================
 # ORBIT TRAILS — the web build's per-body THREE.Line (blackhole_sim.js,
 # spawnBody/pushTrail), in its own file because under the floating origin a
 # trail is no longer a buffer that only grows at one end.
-# ----------------------------------------------------------------------------
 # The ring buffer is kept in DOUBLE precision (Body.trail_buf) and the drawn
 # vertices are written relative to an ANCHOR — the newest point — so the
 # float32 line is precise exactly where the body is, which is where the camera
@@ -22,7 +20,6 @@ extends RefCounted
 # The gradient is fixed to buffer SLOTS, not to age, so a trail that
 # has not filled yet only uses the dim end of it — as three drew it with a
 # draw range over a fixed colour attribute.
-# ============================================================================
 
 const SHADER := """
 shader_type spatial;
@@ -31,7 +28,7 @@ render_mode unshaded, blend_add, depth_draw_always, cull_disabled;
 uniform float u_opacity = 0.5;
 void fragment() {
 	// LineBasicMaterial + AdditiveBlending: c = rgb·opacity + dst, and the web
-	// build's alpha channel took opacity² + dst (see PORT_GUIDE.md §6).
+	// build's alpha channel took opacity² + dst (see docs/godot.md).
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		ALBEDO = vec3(u_opacity, 0.0, 0.0);
 	} else {

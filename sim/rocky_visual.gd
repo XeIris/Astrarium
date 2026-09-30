@@ -1,9 +1,7 @@
 class_name RockyVisual
 extends RefCounted
 
-# ============================================================================
 # SOLID-SURFACE WORLDS
-# ----------------------------------------------------------------------------
 # Every planet that is not a gas giant is drawn by this file: Earth, Mars, the
 # Moon, Mercury, Pluto, and whatever the Object Foundry makes. Named Earth,
 # Mars and Moon bodies use measured imagery for their geography; invented
@@ -32,7 +30,7 @@ extends RefCounted
 #
 # PORT NOTES
 #   · The JS factory returned a closure; here it is the RockyViz class (a
-#     GDScript lambda captures by value, PORT_GUIDE.md §1).
+#     GDScript lambda captures by value, docs/godot.md).
 #   · The sphere is built by sphere_geometry(), a vertex-for-vertex copy of
 #     THREE.SphereGeometry, not Godot's SphereMesh: the mission maps are
 #     sampled through the mesh's UVs, and the tidally-locked moon keeps its
@@ -41,7 +39,6 @@ extends RefCounted
 #   · The orchestrator owns group.position and group.scale (floating origin,
 #     size ease, oblateness); this visual owns group.rotation (the obliquity)
 #     and everything under the group.
-# ============================================================================
 
 const SURFACE_SHADER := preload("res://shaders/bodies/rocky_surface.gdshader")
 const CLOUD_SHADER := preload("res://shaders/bodies/cloud_deck.gdshader")
@@ -49,9 +46,7 @@ const ATMO_SHADER := preload("res://shaders/bodies/rocky_atmosphere.gdshader")
 
 const TAU_ := PI * 2.0
 
-# ---------------------------------------------------------------------------
 # small helpers for the JS idioms the options use
-# ---------------------------------------------------------------------------
 ## JS truthiness of an option value (undefined/null/false/0/"" are false).
 static func truthy(v) -> bool:
 	if v == null: return false
@@ -73,14 +68,12 @@ static func lin_of(x) -> Color:
 static func id_hash(id: int) -> int:
 	return (id * 2654435761) & 0xFFFFFFFF
 
-# ---------------------------------------------------------------------------
 # THREE.SphereGeometry(radius, widthSegments, heightSegments), vertex for
 # vertex: positions x = -r cos(φ) sin(θ), y = r cos(θ), z = r sin(φ) sin(θ),
 # normals the normalised position, and the seam and pole rows duplicated.
 # UVs are in GODOT's convention (v = 0 at the TOP of the image, i.e. north),
 # which is THREE's (1 - v) — THREE flipped the image on upload instead. The
 # triangle winding is reversed, because Godot's front faces are clockwise.
-# ---------------------------------------------------------------------------
 static var _sphere_cache := {}
 
 static func sphere_geometry(radius: float, wseg: int, hseg: int) -> ArrayMesh:
@@ -144,9 +137,7 @@ static func mesh_instance(mesh: Mesh, mat: Material) -> MeshInstance3D:
 static func _init_suns(m: ShaderMaterial) -> void:
 	Suns.apply_suns([m], [], Vector3.ZERO)
 
-# ---------------------------------------------------------------------------
 # SURFACE MATERIAL. See rocky_surface.gdshader for the model.
-# ---------------------------------------------------------------------------
 static func surface_material(seed: float, opts: Dictionary = {}) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = SURFACE_SHADER
@@ -201,9 +192,7 @@ static func bind_planet_map(m: ShaderMaterial, body_name: String) -> void:
 		m.set_shader_parameter("uMapScale", float(e.scale))
 		m.set_shader_parameter("uMapKind", float(e.kind)))
 
-# ---------------------------------------------------------------------------
 # CLOUDS. Not a noise field wrapped round a ball — see cloud_deck.gdshader.
-# ---------------------------------------------------------------------------
 static func cloud_material(seed: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = CLOUD_SHADER
@@ -215,9 +204,7 @@ static func cloud_material(seed: float) -> ShaderMaterial:
 	m.set_shader_parameter("uTint", Vector3(1, 1, 1))
 	return m
 
-# ---------------------------------------------------------------------------
 # ATMOSPHERE. Rayleigh scattering — see rocky_atmosphere.gdshader.
-# ---------------------------------------------------------------------------
 static func atmosphere_material(tint = null) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = ATMO_SHADER
@@ -226,7 +213,6 @@ static func atmosphere_material(tint = null) -> ShaderMaterial:
 	m.set_shader_parameter("uTint", v3(lin_of(U.nz(tint, 0xffffff))))
 	return m
 
-# ---------------------------------------------------------------------------
 # Annual-mean insolation's second Legendre coefficient, from the obliquity.
 #
 #   S(phi)/Sbar = 1 + s2 * P2(sin phi),   s2 = -(5/8)(1 - (3/2) sin^2 eps)
@@ -238,7 +224,6 @@ static func atmosphere_material(tint = null) -> ShaderMaterial:
 # equator, the temperature gradient inverts, and the ice caps form around the
 # EQUATOR. Uranus is over on its side like that, and so is anything the
 # Foundry is asked to tip past 55 degrees.
-# ---------------------------------------------------------------------------
 static func insolation_s2(obliquity: float) -> float:
 	var s := sin(obliquity)
 	return -0.625 * (1.0 - 1.5 * s * s)
@@ -250,11 +235,10 @@ static func surface_temp_k(S: float, albedo: float, eps: float) -> float:
 	var Teq := 278.6 * pow(maxf(S, 1e-9) * (1.0 - albedo), 0.25)
 	return Teq / pow(maxf(eps, 1e-3), 0.25)
 
-# ---------------------------------------------------------------------------
 static func create_rocky_visual(b: Body, opts: Dictionary = {}) -> RockyViz:
 	return RockyViz.new(b, opts)
 
-## The visual object (PORT_GUIDE.md §7). Fields mirror the web build's b.viz:
+## The visual object (docs/godot.md). Fields mirror the web build's b.viz:
 ## group, core, surface, clouds, atmo, surf_mat, cloud_mat, atmo_mat, base_r,
 ## R, is_rocky; plus update(dt, ctx).
 class RockyViz extends RefCounted:

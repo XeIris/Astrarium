@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # MARS EDL — AEROSHELL, SKY CRANE, CURIOSITY.
-# ---------------------------------------------------------------------------
 # Three stages and four separations in seven minutes. Each one is a different
 # machine and none of them looks like a rocket:
 #
@@ -12,7 +10,6 @@
 # lib.sphere_cone now fixes it rather than trusting a caller's rotation: apex
 # lowest, shoulder at the joint plane. Blunt-forward is not a detail of the
 # drawing, it is the entire reason the vehicle survives entry.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -22,9 +19,7 @@ from lib import (revolve, cyl, lathe, box, torus_z, dish, disc, empty, finish,
 from common import build, stage
 
 
-# ---------------------------------------------------------------------------
 # AEROSHELL
-# ---------------------------------------------------------------------------
 def build_shell(M, root):
     g = stage('shell', root)
     D = 4.5
@@ -97,9 +92,7 @@ def build_shell(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # DESCENT STAGE — the sky crane itself
-# ---------------------------------------------------------------------------
 def build_desc(M, root):
     g = stage('desc', root)
     D = 3.2
@@ -170,9 +163,7 @@ def build_desc(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # CURIOSITY
-# ---------------------------------------------------------------------------
 def build_rover(M, root):
     g = stage('rover', root)
     wr = 0.2625                                # 0.525 m wheels

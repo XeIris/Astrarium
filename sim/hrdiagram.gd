@@ -1,9 +1,7 @@
 class_name HRDiagram
 extends RefCounted
 
-# ============================================================================
 # THE HERTZSPRUNG–RUSSELL DIAGRAM
-# ----------------------------------------------------------------------------
 # Plot every star you can measure with temperature on one axis and luminosity
 # on the other, and they do not scatter. They fall on a line — with a couple of
 # well-populated clumps off it — and that line is the single most important
@@ -24,7 +22,6 @@ extends RefCounted
 # anyone knew it was a temperature sequence. Temperature increases to the LEFT
 # because that is the order the letters were already in. Luminosity is
 # logarithmic because the range is 10¹² to 1.
-# ============================================================================
 
 const T_HI := 46000.0
 const T_LO := 2100.0        # x range, kelvin (hot on the left)

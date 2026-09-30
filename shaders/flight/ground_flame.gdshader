@@ -1,4 +1,3 @@
-// ============================================================================
 // THE GROUND FLAME — createGroundFlame() of sim/flight/plume.js: what the
 // exhaust does after it hits the deck. A flattened hemisphere, brightest where
 // you look ALONG the sheet, thin on the axis, thrown out in wandering lobes,
@@ -8,7 +7,6 @@
 // temperature code and added; formed here, blended ONE, ONE. The normal is a
 // view-space varying (normalMatrix·normal), never flipped for back faces —
 // the web shader's vN was not.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

@@ -1,7 +1,6 @@
 class_name ClimateChart
 extends El
 
-# ============================================================================
 # drawClimateChart, ported line for line.
 #
 # A scrolling record of insolation and temperature. The point of the chart is
@@ -12,7 +11,6 @@ extends El
 # inside a 1 px border, so it is drawn at 290 × 86 and SCALED into the
 # content box — the page squeezes it horizontally by the same factor, and the
 # arithmetic below is the canvas's own, in bitmap pixels.
-# ============================================================================
 
 const CW := 290.0
 const CH := 86.0

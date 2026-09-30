@@ -1,9 +1,7 @@
 class_name LensPass
 extends RefCounted
 
-# ============================================================================
 # BLACK HOLE — general-relativistic ray marcher + volumetric accretion disc.
-# ============================================================================
 # Everything you see of a black hole is light that *missed*. There is no
 # surface to shade, so this is a full-screen pass that integrates null
 # geodesics backwards from the eye and reports what each one ran into.
@@ -59,7 +57,6 @@ extends RefCounted
 # background sky shader (shaders/sky/background.gdshader), which is the Godot
 # home of the web build's resolve pass. The web build wrote the two outputs as
 # a WebGL2 MRT; here the marcher is a compute shader writing two images.
-# ============================================================================
 
 const MAX_HOLES := 2
 

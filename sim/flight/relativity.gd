@@ -1,9 +1,7 @@
 class_name Relativity
 extends RefCounted
 
-# ============================================================================
 # RELATIVISTIC CRUISE
-# ----------------------------------------------------------------------------
 # Interstellar flight is a different physical regime from everything else in
 # sim/flight/, and it gets its own integrator rather than a relativistic patch
 # on the Newtonian one. Between stars there is no gravity worth the name, the
@@ -37,7 +35,6 @@ extends RefCounted
 # gamma, remaining) are properties. Positions are DVec3 in AU — the Cruise is
 # the one flight object that lives in the orrery's frame, because between the
 # stars there is no parent body to be centred on.
-# ============================================================================
 
 const LY_M := 9.4607304725808e15            # light year, metres (exact by definition of c)
 const LY_AU := LY_M / Rocketry.AU_M          # 63241.077 AU — the same number as physics.gd's C
@@ -106,9 +103,7 @@ static func solve_profile(dist_ly: float, a_ms2: float, budget: float) -> Dictio
 		"burnLy": leg_ly / LY_M,
 	}
 
-# ============================================================================
 # THE CRUISE STATE — one live interstellar flight
-# ============================================================================
 class Cruise extends RefCounted:
 	var name: String
 	var origin: DVec3            # AU, in the orrery's frame
@@ -273,9 +268,7 @@ class Cruise extends RefCounted:
 				if (plan.get("flipPhi") != null and plan.flipPhi > budget and exhaust > 0.0) else 1.0,
 		}
 
-# ============================================================================
 # WHAT RELATIVISTIC FLIGHT LOOKS LIKE
-# ----------------------------------------------------------------------------
 # Three effects, all of which act on the SKY rather than on the ship, and all of
 # which fall out of one boost. `sky_boost` hands the sky shader the velocity it
 # needs and the shader does the rest; see the aberration block in SKY_GLSL.
@@ -299,7 +292,6 @@ class Cruise extends RefCounted:
 # the existing point-source machinery — the same path that already handles
 # lensing magnification. Nothing here introduces a fixed angular resolution,
 # which the repo forbids for good reason.
-# ============================================================================
 
 ## The β vector (velocity/c) to hand the sky shader, in world coordinates. A
 ## DVec3 like every flight vector; the sky's uniform is its to_v3().

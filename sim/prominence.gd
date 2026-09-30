@@ -1,9 +1,7 @@
 class_name Prominence
 extends RefCounted
 
-# ============================================================================
 # PROMINENCES, FILAMENTS AND THE POST-FLARE ARCADE
-# ----------------------------------------------------------------------------
 # What used to stand over an erupting active region here was a single tube
 # swept along one cubic Bezier: a smooth semicircular arch of uniform
 # thickness and uniform colour. Nothing about a real eruption is like that,
@@ -53,7 +51,6 @@ extends RefCounted
 # eruption without a single buffer being rewritten. The shader code is in
 # shaders/bodies/prom_arcade.gdshaderinc (shared), prom_emit.gdshader and
 # prom_absorb.gdshader (the two passes).
-# ============================================================================
 
 const THREADS := 22     # flux tubes across the arcade
 const SEGS := 44        # samples along each

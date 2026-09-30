@@ -1,8 +1,6 @@
 extends Node
 
-# ============================================================================
 # THE ORCHESTRATOR — the port of blackhole_sim.js.
-# ----------------------------------------------------------------------------
 # The web build's orchestrator held `state`, the scene/camera/renderer, body
 # spawning and trails, physics stepping, camera modes (orbit / free-fly /
 # surface), picking, preset loading, every UI binding, the HUD and the render
@@ -25,9 +23,8 @@ extends Node
 # THE FLOATING ORIGIN. Every renderer camera sits at the origin; `cam_pos`
 # (a DVec3, scene units) is where the web build's camera.position was, and
 # every object is placed each frame at (its scene position − cam_pos),
-# subtracted in double precision (PORT_GUIDE.md §3). `b.scene_pos` is what the
+# subtracted in double precision (docs/godot.md). `b.scene_pos` is what the
 # web build called `b.viz.group.position`.
-# ============================================================================
 
 const STEP_GUARD := 8000
 const TRAIL_MAX := 600
@@ -107,9 +104,7 @@ var PRESET_GROUPS: Array = []
 # slider are all things you do to a universe you are looking at.
 # (SECTION_MODE / OPEN_BY_DEFAULT live with the sections, in ui/hud.gd.)
 
-# ============================================================================
 # BOOT
-# ============================================================================
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
@@ -213,9 +208,7 @@ func _ready() -> void:
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")))
 
-# ============================================================================
 # BODY CREATION
-# ============================================================================
 # Stars are coloured from their blackbody temperature unless a preset
 # deliberately overrides it (the figure-eight uses colour to tell bodies apart).
 func _star_color(b: Body):
@@ -224,11 +217,9 @@ func _star_color(b: Body):
 	if b.teff != null: return Stellar.blackbody_color(float(b.teff))
 	return null
 
-# ---------------------------------------------------------------------------
 # Build (or rebuild) a body's renderable half from its stored spec. Split out
 # of spawnBody so the size convention can change at runtime — the physics body
 # keeps its position, velocity and mass; only the meshes are thrown away.
-# ---------------------------------------------------------------------------
 func attach_visual(b: Body) -> void:
 	var spec := b.spec
 	var def := b.def
@@ -340,13 +331,11 @@ func detach_visual(b: Body) -> void:
 		if is_instance_valid(b.marker.mesh): b.marker.mesh.queue_free()
 		b.marker = null
 
-# ---------------------------------------------------------------------------
 # Size easing. An edit rebuilds the mesh at the new radius immediately — it has
 # to, because the whole visual is derived from that radius — so without this an
 # object that doubles in mass CUTS to its new size. The mesh is started back at
 # the size it had and grows into the new one over ~0.25 s, geometrically,
 # because radius is a scale.
-# ---------------------------------------------------------------------------
 func apply_size_ease(b: Body, dt: float) -> void:
 	var e = b.size_ease
 	if e == null: return
@@ -441,11 +430,9 @@ func _dominant() -> Body:
 		if c == null or b.mass > c.mass: c = b
 	return c
 
-# ---------------------------------------------------------------------------
 # Put a spec on a circular orbit about the dominant mass. Shared by the quick
 # spawn buttons and by the Object Foundry, so a hand-built 40 M☉ star arrives
 # the same way a quick-spawn planet does.
-# ---------------------------------------------------------------------------
 func orbit_spec_around_dominant(spec: Dictionary) -> Dictionary:
 	var center := _dominant()
 	var Mc := maxf(center.mass, 1e-6) if center else 1.0
@@ -464,13 +451,11 @@ func orbit_spec_around_dominant(spec: Dictionary) -> Dictionary:
 	out.vel = tang.to_array()
 	return out
 
-# ---------------------------------------------------------------------------
 # Place a spec AT REST, in front of the camera. "At rest" means exactly zero
 # velocity in the simulation frame, so a body dropped into a moving system
 # really does get left behind by it. It goes where you are looking, offset by
 # a fraction of the viewing distance so successive spawns do not land inside
 # each other.
-# ---------------------------------------------------------------------------
 func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
 	var centre := DVec3.new()
 	var reach: float
@@ -498,14 +483,12 @@ func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
 func place_spawn(spec: Dictionary) -> Dictionary:
 	return rest_spec_at_rest(spec) if (state.spawn_at_rest or state.bodies.is_empty()) else orbit_spec_around_dominant(spec)
 
-# ---------------------------------------------------------------------------
 # LIVE EDIT — the Foundry's sliders, pointed at a body that already exists.
 # Building an object and then editing one are the same operation here: both end
 # in derive_body() re-reading a spec. The physics state survives; everything
 # the spec implies is derived again, and the meshes with it. The edit is then
 # passed straight to check_structural_limits: drag a 2.0 M☉ neutron star up and
 # it becomes a black hole, at exactly the mass sim/structure.gd says it must.
-# ---------------------------------------------------------------------------
 func edit_body(b: Body, patch: Dictionary):
 	if b == null or not b.alive: return null
 	var spec := U.merged(b.spec, patch)
@@ -536,15 +519,12 @@ func edit_body(b: Body, patch: Dictionary):
 	refresh_ui()
 	return b
 
-# ============================================================================
 # STRUCTURAL CONSEQUENCES
-# ----------------------------------------------------------------------------
 # The interior model is not decoration: when it says a body can no longer hold
 # itself up, the body has to stop existing as that kind of body — a neutron
 # star past its TOV mass collapses, a star at the end of its life goes core
 # collapse (or leaves nothing), and a body that crosses an ignition threshold
 # is rebuilt as the new kind of object.
-# ============================================================================
 func transmute(b: Body, new_type: String, why) -> void:
 	var wpos := b.scene_pos.clone()
 	b.type = new_type
@@ -636,18 +616,14 @@ func check_structural_limits(b: Body) -> void:
 	if st.get("type") != b.type and st.get("reclassifiedFrom"):
 		transmute(b, st.type, "%s: %s" % [b.name, st.verdict.detail])
 
-# ============================================================================
 # FLASH SPRITES — sim/flash.gd holds the two kinds (light vs matter).
-# ============================================================================
 func spawn_flash(world_pos: DVec3, color: int, size: float, decay: float = 0.8, opt: Dictionary = {}) -> void:
 	var f = Flash.create(color, size, decay, float(opt.get("grow", 2.0)), String(opt.get("kind", "flash")))
 	pipe.world_root.add_child(f.node)
 	f.node.position = world_pos.rel_v3(cam_pos)
 	flashes.append({"flash": f, "abs": world_pos.clone()})
 
-# ============================================================================
 # PHYSICS STEP
-# ============================================================================
 func get_holes() -> Array:
 	var hs := state.bodies.filter(func(b): return b.type == "bh")
 	hs.sort_custom(func(a, b): return a.mass > b.mass)
@@ -780,9 +756,7 @@ func push_trail(b: Body) -> void:
 	b.trail_count = mini(b.trail_count + 1, M)
 	b.trail.dirty = true
 
-# ============================================================================
 # CAMERA — orbit + free-fly + click-to-focus
-# ============================================================================
 # Put the camera at a distance immediately, cancelling any glide in progress.
 func jump_cam_radius(r: float) -> void:
 	cam.radius = r
@@ -878,9 +852,7 @@ func handle_pick(pos: Vector2) -> void:
 			best_d = along
 	set_follow(best)
 
-# ============================================================================
 # SHUTDOWN
-# ----------------------------------------------------------------------------
 # The web build never had to do this: closing the tab threw the whole heap away
 # and its GC collects cycles. Godot counts references, and a body and its
 # visual hold each other (the visual reads its body every frame), as do a few
@@ -889,7 +861,6 @@ func handle_pick(pos: Vector2) -> void:
 # lens marcher own directly (RenderingDevice RIDs, which nothing refcounts)
 # were never released at all. Teardown runs in the same order a scenario
 # switch uses, then drops what is left.
-# ============================================================================
 func _exit_tree() -> void:
 	if flight != null: flight.release()
 	if model_view != null: model_view.dispose()
@@ -1108,9 +1079,7 @@ func update_free_cam(dt: float) -> void:
 	cam_pos.x += mv.x; cam_pos.y += mv.y; cam_pos.z += mv.z
 	cam_basis = Basis.looking_at(fwd, Vector3.UP)
 
-# ============================================================================
 # PRESET LOADING
-# ============================================================================
 func load_preset(key: String) -> void:
 	if not Presets.PRESETS.has(key): return
 	var p: Dictionary = Presets.PRESETS[key]
@@ -1210,11 +1179,9 @@ func load_preset(key: String) -> void:
 	render_preset_groups()
 	refresh_ui()
 
-# ============================================================================
 # PAINTING — the parameters are derived from the body rather than asked for:
 # a ring's span is fixed by the Roche limit, and a belt's gaps are fixed by
 # which resonances a perturber has cleared.
-# ============================================================================
 func apply_paint_spec(spec: Dictionary):
 	var b: Body = state.body_named(String(spec.body)) if spec.get("body") else null
 	if spec.get("body") and b == null: return null
@@ -1294,10 +1261,8 @@ func paint_cloud_on(b: Body) -> void:
 		"color": 0xbcd6ff if float(U.nz(b.teff, 0.0)) > 9000.0 else 0xffcf9a})
 	toast("Ejecta shell around %s, expanding at 650 km/s — the measured speed of η Carinae's Homunculus. It limb-brightens into a rim because it is optically thin and hollow." % b.name, 7000)
 
-# ============================================================================
 # UI — everything the Hud shows is pushed from here; everything it does comes
 # back as a signal (see _bind_hud).
-# ============================================================================
 func render_preset_groups() -> void:
 	hud.render_preset_groups(PRESET_GROUPS, Presets.PRESETS, state.preset_key)
 
@@ -1373,10 +1338,8 @@ func set_hud_hidden(hidden: bool) -> void:
 	hud.set_hud_hidden(hidden)
 	if hidden: toast("HUD hidden — press H to restore")
 
-# ============================================================================
 # APP MODE — the mode is a filter, not a separate application: the physics,
 # the scene and the bodies are the same either way, and switching costs nothing.
-# ============================================================================
 func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 	state.app_mode = mode
 	hud.set_app_mode(mode)
@@ -1444,9 +1407,7 @@ func quit_to_start() -> void:
 	hud.set_hud_hidden(true)
 	hud.show_start()
 
-# ============================================================================
 # IMAGING BAND
-# ============================================================================
 func set_band(i: int) -> void:
 	var band: Dictionary = pipe.set_band(i)
 	state.band = pipe.postfx.band
@@ -1456,9 +1417,7 @@ func set_band(i: int) -> void:
 	# visible is non-thermal and has no temperature to re-image from.
 	SkyModel.apply_sky_band(pipe.sky_materials, state.band)
 
-# ============================================================================
 # SETTINGS PANEL — the cross-cutting knobs, as against the scenario's own.
-# ============================================================================
 ## A preset's `sky` in the live spec's shape. Presets were written with
 ## `env: 'disc'` and must keep working unchanged, so the string is widened into
 ## the weight map the panel edits.
@@ -1608,10 +1567,8 @@ func update_sim_stats() -> void:
 	var rel := absf((E - float(state.energy0)) / float(state.energy0)) if state.energy0 else 0.0
 	hud.set_text("setDrift", "0" if rel < 1e-12 else U.expo(rel, 1))
 
-# ----------------------------------------------------------------------------
 # TIME CONTROL. The scale is logarithmic and backed by named regimes that are
 # computed FROM the current world's day length and orbital period.
-# ----------------------------------------------------------------------------
 static func time_label(yr_per_sec: float) -> String:
 	if yr_per_sec < 3e-3: return "%s hr/s" % U.fixed(yr_per_sec * 365.25 * 24.0, 2)
 	if yr_per_sec < 1.0: return "%s d/s" % U.fixed(yr_per_sec * 365.25, 2)
@@ -1663,9 +1620,7 @@ func set_true_scale(on: bool) -> void:
 func apply_sky_boost_all(beta: Vector3) -> void:
 	SkyModel.apply_sky_boost(pipe.sky_materials, beta)
 
-# ============================================================================
 # THE HUD'S SIGNALS
-# ============================================================================
 func _bind_hud() -> void:
 	hud.start_chosen.connect(_start)
 	hud.quit_to_start.connect(quit_to_start)
@@ -1879,9 +1834,7 @@ func _on_slider(id: String, v: float) -> void:
 				_sync_render_quality()
 				_set_fx(id, v)
 
-# ============================================================================
 # RESIZE
-# ============================================================================
 func resize() -> void:
 	var s := get_viewport().get_visible_rect().size
 	pipe.set_view_size(Vector2i(int(s.x), int(s.y)))
@@ -1893,11 +1846,9 @@ func resize() -> void:
 	if model_view: model_view.set_size(s.x, s.y)
 	if hud: hud.layout_left_column()
 
-# ============================================================================
 # SPACEFLIGHT — the whole feature lives in sim/flight/; this is the wiring. It
 # takes over the camera, the time scale and one extra render pass, and gives
 # all three back when the flight ends.
-# ============================================================================
 # The vehicle picker. Each button carries the numbers the vehicle is actually
 # built from, because "2 970 t, 14.3 km/s, TWR 1.20" says more about what a
 # Saturn V is than any description could.
@@ -1953,11 +1904,9 @@ func sync_warp_label() -> void:
 	var m: String = flight.camera_mode()
 	hud.set_button_text("flightCam", "Cam: " + m.substr(0, 1).to_upper() + m.substr(1))
 
-# ============================================================================
 # THE MODEL VIEWER — its own scene, its own camera, and it replaces the frame
 # entirely: the whole point of it is that nothing else is in the way. It takes
 # every panel away and puts back exactly what it borrowed.
-# ============================================================================
 const MODEL_WORLD := ["scenarioPanel", "controlPanel", "flightPanel", "xsecPanel"]
 
 func show_model(key: String) -> void:
@@ -1987,9 +1936,7 @@ func close_model_viewer() -> void:
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if (flight and flight.active) else RenderPipeline.Mode.ORRERY)
 	hud.layout_left_column()
 
-# ============================================================================
 # OBJECT FOUNDRY + CROSS-SECTION
-# ============================================================================
 func _build_foundry() -> void:
 	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": _on_foundry_spawn})
 	inspector = Foundry.create_inspector({"mount": hud.mount("xsecCanvas")})
@@ -2051,11 +1998,9 @@ func open_cross_section(on := true) -> bool:
 	if live_editor: live_editor.sync(b)
 	return true
 
-# ============================================================================
 # THE COURSE — sim/lessons.gd is the curriculum and knows nothing about this
 # file; sim/lessonui.gd renders it and executes a step's requests against the
 # small API below. This is the whole of the coupling, on purpose.
-# ============================================================================
 func _build_stage() -> void:
 	stage = {
 		"has_preset": _stage_has_preset,
@@ -2170,9 +2115,7 @@ func set_local_time(when = "noon") -> void:
 	observer.elevation = 0.34
 	_observe(home)
 
-# ============================================================================
 # ANIMATION LOOP
-# ============================================================================
 ## Step one frame by hand at a fixed step — the web build's SIM.frame(dt). A
 ## harness drives the sim with this so a run is reproducible.
 func frame(dt: float = 1.0 / 60.0) -> void:
@@ -2303,7 +2246,7 @@ func animate(dt: float) -> void:
 		# it can sit at 5% of the viewing distance (the framed body's surface is
 		# at 6/7 of it) — and it MUST, because Godot builds its culling frustum in
 		# float32 and every far/near ratio past ~1e7 degenerates it (measured:
-		# 1e8 already fails, and the frame is culled empty; PORT_GUIDE.md §3).
+		# 1e8 already fails, and the frame is culled empty; docs/godot.md).
 		# With near that far out, far = near·1e7 still reaches the whole system:
 		# ~150 scene units even at a true-scale Earth close-up.
 		var near := clampf(cam_dist * 0.05, 1e-7, 0.01)
@@ -2432,7 +2375,7 @@ func _apply_camera() -> void:
 	c.near = cam_near
 	# THREE draws near 1e-7 / far 1e5 fine; Godot builds its culling frustum in
 	# float32 and the planes degenerate past ~1e7, culling everything (measured —
-	# PORT_GUIDE.md §3). Clamping far costs nothing at those distances: the
+	# docs/godot.md). Clamping far costs nothing at those distances: the
 	# body being framed is millions of near-planes away from anything beyond it.
 	c.far = minf(100000.0, cam_near * 1.0e7)
 
@@ -2453,13 +2396,11 @@ func _observe(home: Body) -> void:
 	cam_fov = pipe.scene_cam.fov
 	cam_near = pipe.scene_cam.near
 
-# ============================================================================
 # THE PRESET CHECK — .claude/presetcheck.js: load EVERY scenario, run a second
 # of frames in each, and report anything that threw or quietly lost bodies. A
 # GDScript runtime error does not throw, it prints, so each preset is bracketed
 # by markers and tools/presetcheck.sh attributes SCRIPT ERROR lines between them.
 #   Godot --path godot -- eval=_preset_check
-# ============================================================================
 func _preset_check() -> void:
 	var rows := []
 	var errs := []

@@ -1,9 +1,7 @@
 class_name CrossSection
 extends RefCounted
 
-# ============================================================================
 # CROSS-SECTION — cutting a body open and labelling what is inside
-# ----------------------------------------------------------------------------
 # Everything else in this sim draws what an observer could see. This draws what
 # they could not: the interior, which for every object here is inferred rather
 # than imaged. That is worth being explicit about, because the inference is not
@@ -35,11 +33,10 @@ extends RefCounted
 # below, both El nodes so the HUD's CSS layout sizes them as `width: 100%;
 # height: auto` sized them (content height = width × H/W). Canvas-2D colours
 # are CSS sRGB and so are a Control's, so they pass straight through
-# (PORT_GUIDE.md §5, §8). Text is drawn glyph by glyph at Blink's advances
+# (docs/godot.md, §8). Text is drawn glyph by glyph at Blink's advances
 # (HudTheme.adv_em) in the HUD's Menlo, because Chrome's canvas resolves
 # `ui-monospace, monospace` to the same face and a measured label that drifts
 # by a few pixels lands on the leader line it was placed beside.
-# ============================================================================
 
 const AU_PER_KM := Physics.AU_PER_KM
 const AU_PER_RSUN := Physics.AU_PER_RSUN
@@ -93,10 +90,8 @@ static func temp_color(Tv) -> Color:
 static func _c8(a: Array) -> Color:
 	return Color8(a[0], a[1], a[2])
 
-# ----------------------------------------------------------------------------
 # Formatting. A body in this sim can be 10 km or 10 AU across and 1e-9 or 1e9
 # solar masses, so every readout has to pick its own unit or it is unreadable.
-# ----------------------------------------------------------------------------
 static func fmt_length(au_v) -> String:
 	var au := num(au_v)
 	if not (au > 0.0): return "—"
@@ -179,12 +174,10 @@ const VERDICT_CLASS := {
 	"ignite": "v-info",
 }
 
-# ----------------------------------------------------------------------------
 # The prose that goes beside the diagram: the derived quantities the layers do
 # not carry, chosen per kind of body because what is interesting about a
 # neutron star (its compactness) is not what is interesting about a planet.
 # Returns [[key, value], ...].
-# ----------------------------------------------------------------------------
 static func structure_facts(st: Dictionary) -> Array:
 	var F: Array = []
 	var add := func(k: String, v) -> void:
@@ -245,9 +238,7 @@ static func structure_facts(st: Dictionary) -> Array:
 			add.call("evaporates in", "10%s yr" % sup(int(U.jround(U.log10(g.call("evaporationYr"))))))
 	return F
 
-# ============================================================================
 # CANVAS-2D, the few calls the diagrams use, on a CanvasItem in bitmap px.
-# ============================================================================
 static func font(fw := 400) -> Font:
 	return HudTheme.font("mono", fw)
 
@@ -333,12 +324,9 @@ static func fill_circle(ci: CanvasItem, c: Vector2, r: float, col: Color) -> voi
 		return
 	ci.draw_circle(c, r, col, true, -1.0, true)
 
-# ============================================================================
 # THE DIAGRAM
-# ----------------------------------------------------------------------------
 # draw(canvas, structure) — one call, repeated whenever the body changes. Here
 # it draws onto any CanvasItem, in a W × H bitmap frame.
-# ============================================================================
 static func draw_cross_section(ci: CanvasItem, W: float, H: float, st: Dictionary, opts: Dictionary = {}) -> void:
 	if st.is_empty():
 		return
@@ -428,9 +416,7 @@ static func draw_cross_section(ci: CanvasItem, W: float, H: float, st: Dictionar
 	var label := "ISCO %s across" % fmt_length(num(st.get("iscoAU")) * 2.0) if is_bh else "%s across" % fmt_length(radius_au * 2.0)
 	fill_text(ci, label, cx, barY - 6.0, 9, Color8(190, 210, 240, 204), "center")
 
-# ----------------------------------------------------------------------------
 # The temperature legend, drawn once into its own small canvas.
-# ----------------------------------------------------------------------------
 static func draw_temp_legend(ci: CanvasItem, W: float, H: float) -> void:
 	var barH := 9.0
 	for x in int(W):
@@ -444,7 +430,6 @@ static func draw_temp_legend(ci: CanvasItem, W: float, H: float) -> void:
 		var al := "left" if x < W * 0.2 else ("right" if x > W * 0.8 else "center")
 		fill_text(ci, tk[1], minf(maxf(x, 1.0), W - 1.0), barH + 12.0, 8, col, al)
 
-# ============================================================================
 # The canvases as El nodes: `width: 100%; height: auto` over a W × H bitmap.
 #
 # The web RASTERISED each diagram at its bitmap size and the compositor then
@@ -456,7 +441,6 @@ static func draw_temp_legend(ci: CanvasItem, W: float, H: float) -> void:
 # texture is drawn into the content box with linear filtering. A 2D viewport
 # with a transparent background stores colour premultiplied by the blend, so
 # the texture is composited with a premultiplied-alpha material.
-# ============================================================================
 class BitmapCanvas extends El:
 	var bw := 300.0
 	var bh := 230.0

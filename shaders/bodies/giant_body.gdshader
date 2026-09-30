@@ -1,11 +1,9 @@
-// ============================================================================
 // GAS GIANT CLOUD DECK — the port of sim/giant_visual.js's giantMaterial. The
 // module header (why a giant does not turn as one object, the three optical
 // levels, the unbanded poles) is in sim/giant_visual.gd.
 //
 // Opaque and an emitter: it publishes the planet's effective temperature
 // (absorbed sunlight plus internal heat) to the temperature pass.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, cull_back, depth_draw_opaque;
 
@@ -31,11 +29,9 @@ uniform int uVortexN = 0;
 // sun directions in the SPUN body's own frame, for the ring-shadow test
 uniform vec3 uSunObj[4];
 
-// ---------------------------------------------------------------------------
 // The zonal wind profile, shared by the shader (which advects the cloud with
 // it) and by GDScript (which drifts the vortices with it), so a spot always
 // travels at the speed of the jet it is sitting in.
-// ---------------------------------------------------------------------------
 uniform float uJets = 11.0;      // jets per radian of latitude
 uniform float uJetAmp = 0.55;    // amplitude of the alternating jets
 uniform float uEqJet = 1.0;      // equatorial superrotation (Saturn's is enormous)

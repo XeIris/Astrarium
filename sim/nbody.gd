@@ -1,9 +1,7 @@
 class_name NBody
 extends RefCounted
 
-# ============================================================================
 # THE SUB-STEP LOOP, NATIVE WHEN IT CAN BE.
-# ----------------------------------------------------------------------------
 # Same contract as Derive.step_physics — it IS that loop — but it hands the hot
 # part to native/astrarium_native.c's NBodyKernel when the library is loaded,
 # because GDScript cannot run the O(N²) pair loops at the rate the presets ask
@@ -16,7 +14,6 @@ extends RefCounted
 # so on_merger (the orchestrator's handleMerger) runs exactly where the web
 # build ran it — between that sub-step and the next — and may change horizons,
 # types and the body list before integration resumes.
-# ============================================================================
 
 const HDR := 8
 const STRIDE := 16

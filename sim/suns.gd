@@ -1,9 +1,7 @@
 class_name Suns
 extends RefCounted
 
-# ============================================================================
 # MULTI-SUN LIGHTING — the uniform block every surface in the orrery is lit by.
-# ----------------------------------------------------------------------------
 # A body here is never lit by "the" sun: a Trisolaran world has three
 # terminators crossing its disc at once, in three different colours, and a
 # circumbinary planet has two. So lighting is an ARRAY, and every material
@@ -13,7 +11,6 @@ extends RefCounted
 # It lives in its own module because both the solid-surface shaders
 # (sim/rocky_visual.gd, sim/world.gd) and the gas giant (sim/giant_visual.gd)
 # need it, and none of them should have to import each other to get it.
-# ============================================================================
 
 const MAX_SUNS := 4
 
@@ -21,7 +18,7 @@ const MAX_SUNS := 4
 ## { pos_rel: Vector3 (camera-relative scene position), color: Color (linear),
 ## intensity: float }; `target_rel` is the lit body's camera-relative position.
 ## Directions are formed from two camera-relative positions — never from
-## absolute ones (PORT_GUIDE.md, floating origin).
+## absolute ones (docs/godot.md, floating origin).
 static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> void:
 	var n := mini(suns.size(), MAX_SUNS)
 	var dirs := PackedVector3Array(); dirs.resize(MAX_SUNS)

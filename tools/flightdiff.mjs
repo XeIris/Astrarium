@@ -1,4 +1,3 @@
-// ============================================================================
 // FLIGHT DIFF — per-scenario, per-field deviation between the JS reference run
 // (tools/flightref.mjs) and the GDScript run (tools/flightcheck.gd).
 //
@@ -10,7 +9,6 @@
 // other). This breaks it down by FIELD, as absolute and relative deviation,
 // and diffs the event logs — the event log is where a discrete divergence (a
 // staging, an engine shutdown, a phase change on a different frame) shows up.
-// ============================================================================
 import { readFileSync } from 'node:fs';
 
 const [pa, pb, only] = process.argv.slice(2);

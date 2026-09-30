@@ -1,4 +1,3 @@
-// ============================================================================
 // ACCRETION STREAM — the GPU point pool of sim/bodies.js's AccretionStream.
 // CUSTOM0.x is the particle's alpha (its remaining life). Points shrink with
 // distance (uSize·alpha / depth, clamped at depth 0.5) and are round, fading
@@ -6,8 +5,7 @@
 //
 // BLENDING: web AdditiveBlending with (uColor, a) — colour gains uColor·a,
 // alpha a². The product is formed here and blended ONE, ONE
-// (blend_premul_alpha, ALPHA = 0; PORT_GUIDE.md §6).
-// ============================================================================
+// (blend_premul_alpha, ALPHA = 0; docs/godot.md).
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

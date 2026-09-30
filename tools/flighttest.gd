@@ -1,6 +1,5 @@
 extends Node
 
-# ============================================================================
 # FLIGHT TEST — drives the REAL orchestrator (main.gd) through a scripted
 # spaceflight scenario and writes frames and telemetry, for side-by-side
 # comparison with the web build (tools/flightshots.json through webref.mjs).
@@ -29,7 +28,6 @@ extends Node
 #
 # main.gd reads its own command line, so pass the scenario's world there:
 #   preset=solar seed=<table seed> mode=flight   (tools/flightshots.sh does)
-# ============================================================================
 
 ## The scenario table is shared with the web side (tools/flightshots.mjs).
 const SCENARIO_FILE := "res://tools/flight_scenarios.json"

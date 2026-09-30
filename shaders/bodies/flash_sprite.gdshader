@@ -1,22 +1,19 @@
-// ============================================================================
 // A RADIAL-GRADIENT SPRITE — the web build's THREE.Sprite with a 128×128
 // CanvasTexture radial gradient, as used by the flash sprites
 // (blackhole_sim.js spawnFlash) and by sim/bodies.js glowSprite().
-// ----------------------------------------------------------------------------
 // The texture was never a picture, only a gradient, so it is evaluated here
 // analytically: up to three colour stops, interpolated linearly in straight
 // (un-premultiplied) RGBA as the canvas did, zero past the outer stop.
 // CanvasTexture pixels are NoColorSpace — the hex values are sampled AS
 // LINEAR and never decoded — so the stop colours are passed RAW
-// (U.raw(hex), PORT_GUIDE.md §5).
+// (U.raw(hex), docs/godot.md).
 //
 // THREE.Sprite: a unit quad facing the camera, scaled by the object's world
 // scale (the column lengths of its model matrix), SpriteMaterial output
 // (texel.rgb, texel.a · opacity), AdditiveBlending (SRC_ALPHA, ONE). The product
 // is formed here and blended ONE, ONE (blend_premul_alpha with ALPHA = 0);
-// the temperature pass adds the web's (texel.a · opacity)² (PORT_GUIDE.md §6).
+// the temperature pass adds the web's (texel.a · opacity)² (docs/godot.md).
 // Depth-tested, not depth-writing, as SpriteMaterial was.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

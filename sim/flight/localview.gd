@@ -1,9 +1,7 @@
 class_name LocalView
 extends RefCounted
 
-# ============================================================================
 # LOCAL SPACE — port of sim/flight/localview.js.
-# ----------------------------------------------------------------------------
 # The orrery draws in scene units where one unit is an AU. A rocket is 100 m —
 # 7e-10 AU — so at the camera distances a launch is watched from, the near
 # plane, the depth buffer and float32 vertex precision all fail at once. This is
@@ -50,11 +48,8 @@ extends RefCounted
 #     mean) and two diffuse-only directional lights along ±Y, one of them
 #     NEGATIVE — which is exactly the hemisphere's irradiance, mix(ground, sky,
 #     ½ + ½ n·y), rewritten as a constant plus ±(sky − ground)/2 · max(0, ±n·y).
-# ============================================================================
 
-# ---------------------------------------------------------------------------
 # THE TRANSPARENT QUEUE, DECLARED RATHER THAN SORTED.
-# ----------------------------------------------------------------------------
 # Everything left transparent in this pass overlaps everything else transparent
 # within a few metres of the nozzle, and a back-to-front sort by object centre
 # is noise at those separations. So the order is stated, and it is the
@@ -69,7 +64,6 @@ extends RefCounted
 #             steam up, and drawing it first meant the cloud painted it out.
 # In Godot this is render_priority, which — like three's renderOrder — only
 # sorts within the transparent list.
-# ---------------------------------------------------------------------------
 const ORDER := {"sky": -10, "clouds": -8, "sun": -6, "smoke": 10, "flame": 20, "flare": 40}
 
 var pipe: RenderPipeline
@@ -801,9 +795,7 @@ func set_size(_w: float, _h: float) -> void:
 func dispose() -> void:
 	if is_instance_valid(root): root.queue_free()
 
-# ---------------------------------------------------------------------------
 # THE FLIGHT CAMERA
-# ----------------------------------------------------------------------------
 # Four modes, and they exist because a launch, an orbit and a landing are
 # looked at from completely different places:
 #
@@ -817,7 +809,6 @@ func dispose() -> void:
 #
 # Positions are DVec3 in the local frame (see the header: the camera and the
 # vehicle can both be 4e5 m from the origin); directions are Vector3.
-# ---------------------------------------------------------------------------
 class FlightCamera extends RefCounted:
 	var state := {
 		"mode": "chase", "dist": 1.0, "yaw": 2.2, "pitch": 0.28, "fov": 55.0, "userAimed": false,

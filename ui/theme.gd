@@ -1,13 +1,11 @@
 class_name HudTheme
 extends RefCounted
 
-# ============================================================================
 # THE HUD's LOOK, FROM THE CSS's OWN VARIABLES
-# ----------------------------------------------------------------------------
 # Every colour here is a `:root` variable of blackhole_sim.css, used DIRECTLY.
 # A CSS colour is sRGB and so is a Godot Color drawn by a Control (the 2D
 # canvas is not colour-managed), so `#ff8c42` is Color8(0xff, 0x8c, 0x42) and
-# nothing is converted — PORT_GUIDE.md §5. The only linear colours the HUD ever
+# nothing is converted — docs/godot.md. The only linear colours the HUD ever
 # sees are the ones the SIM computes (a sun's blackbody colour), and those are
 # converted at the one place they cross over (the sun-list dot).
 #
@@ -28,7 +26,6 @@ extends RefCounted
 #   * advances are taken at 1000 px and scaled, so a 9.5px glyph advances
 #     exactly 9.5 × its em advance. Godot quantises advances at small sizes,
 #     which over a 40-character line drifts by several pixels.
-# ============================================================================
 
 # ---- :root
 const BG := Color(0x05 / 255.0, 0x06 / 255.0, 0x0a / 255.0)

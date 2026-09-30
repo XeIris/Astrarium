@@ -1,7 +1,5 @@
-// ============================================================================
 // THE CLOUD FIELD — shared by the cloud pass, the ground (its shadows) and the
 // sun (its occlusion). Density only; the lighting is the cloud pass's.
-// ----------------------------------------------------------------------------
 // A cloud is a region of air past its dew point, and what that looks like is
 // set by two scales: the WEATHER (tens of kilometres — where there is cloud
 // at all) and the CONVECTION inside it (a few hundred metres to a few
@@ -34,7 +32,6 @@
 //
 // Altitude is the exact |p| − R of that position, not a flat-earth y, so the
 // layer bends down over the horizon the way the ground patch does.
-// ============================================================================
 
 uniform sampler3D uCloudShape : filter_linear_mipmap, repeat_enable;    // Perlin fbm
 uniform sampler3D uCloudWorley : filter_linear_mipmap, repeat_enable;   // inverted Worley, large cells

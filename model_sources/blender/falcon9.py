@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # FALCON 9 BLOCK 5 — the working reusable launcher.
-# ---------------------------------------------------------------------------
 # Four stages in the model's sense: booster, second stage, fairing, payload.
 # The booster is the interesting object — it separates at ~65 km with a third
 # of its delta-v still in the tanks and spends it on coming back — and almost
@@ -11,7 +9,6 @@
 # Dimensions are vehicles.js: 41.2 m and 3.66 m for the booster, 13.8 m for
 # the second stage, a 13.1 m x 5.2 m fairing, and the payload MOUNTED at 61 m
 # rather than stacked — it rides inside the shroud, not on its nose.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -28,9 +25,7 @@ FR_L, FR_D = 13.1, 5.2
 PL_L, PL_D = 5.0, 3.4
 
 
-# ---------------------------------------------------------------------------
 # STAGE 1
-# ---------------------------------------------------------------------------
 def build_s1(M, root):
     g = stage('f9s1', root)
     r = S1_D / 2
@@ -158,9 +153,7 @@ def build_s1(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # STAGE 2
-# ---------------------------------------------------------------------------
 def build_s2(M, root):
     g = stage('f9s2', root)
     r = S2_D / 2
@@ -189,9 +182,7 @@ def build_s2(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # FAIRING
-# ---------------------------------------------------------------------------
 def build_fairing(M, root):
     g = stage('f9fair', root)
     r = FR_D / 2
@@ -226,10 +217,8 @@ def build_fairing(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # PAYLOAD — rides INSIDE the fairing, which is why vehicles.js mounts it at 61 m
 # rather than stacking it on the shroud's nose.
-# ---------------------------------------------------------------------------
 def build_payload(M, root):
     g = stage('f9pl', root)
     bus = box('satbus', (2.4, 2.4, 3.0), (0, 0, 1.5), M['gold'], parent=g)

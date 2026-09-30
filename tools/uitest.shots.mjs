@@ -1,4 +1,3 @@
-// ============================================================================
 // The HUD reference set. Writes the shot list webref.mjs consumes, with the
 // fixture dump (uitest.dump.js) attached to every shot:
 //
@@ -11,7 +10,6 @@
 // here: the start screen, the four open/collapsed states of the left column's
 // chain, the settings pages, a search, a climate preset, the three modes, the
 // model viewer and a toast.
-// ============================================================================
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 

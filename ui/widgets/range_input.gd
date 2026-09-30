@@ -1,7 +1,6 @@
 class_name RangeInput
 extends El
 
-# ============================================================================
 # <input type="range">, drawn the way blackhole_sim.css draws it:
 #
 #   input[type=range]  appearance none, height 2px, background border-strong
@@ -16,7 +15,6 @@ extends El
 #
 # `changed(value)` fires on every move, as the DOM `input` event does; a value
 # written with set_value() fires nothing.
-# ============================================================================
 
 signal changed(value: float)
 

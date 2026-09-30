@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # SATURN V / APOLLO — the expendable superheavy.
-# ---------------------------------------------------------------------------
 # Four stages in the model's sense: S-IC, S-II, S-IVB and the spacecraft.
 # 110 m on the pad, and three things make it read as itself rather than as a
 # white cylinder:
@@ -18,7 +16,6 @@
 #
 # And the escape tower is MOSTLY AIR. Drawing it solid turns the most
 # distinctive nose in spaceflight into a crayon.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -62,9 +59,7 @@ def engines(M, g, key, count, spread, exit_d, ratio, z=-0.02, seg=24):
         place(i + 1, cos(a) * spread, sin(a) * spread, False)
 
 
-# ---------------------------------------------------------------------------
 # S-IC
-# ---------------------------------------------------------------------------
 def build_sic(M, root):
     g = stage('sic', root)
     L, D = SIC_L, SIC_D
@@ -136,9 +131,7 @@ def build_sic(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # S-II
-# ---------------------------------------------------------------------------
 def build_sii(M, root):
     g = stage('sii', root)
     L, D = SII_L, SIC_D
@@ -171,9 +164,7 @@ def build_sii(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # S-IVB
-# ---------------------------------------------------------------------------
 def build_sivb(M, root):
     g = stage('sivb', root)
     L, D = SIVB_L, SIVB_D
@@ -217,9 +208,7 @@ def build_sivb(M, root):
     return g
 
 
-# ---------------------------------------------------------------------------
 # CSM + LAUNCH ESCAPE SYSTEM
-# ---------------------------------------------------------------------------
 def build_csm(M, root):
     g = stage('csm', root)
     sm_d, sm_l = CSM_D, 4.70

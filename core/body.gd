@@ -1,9 +1,7 @@
 class_name Body
 extends RefCounted
 
-# ============================================================================
 # A BODY — the physics object the orrery integrates.
-# ----------------------------------------------------------------------------
 # In the web build a body was a plain JS object that every module hung its own
 # fields on (the star visual adds `activity`, the world adds `spinPhase`, the
 # integrator adds `_aPrev`). GDScript members are far faster than Dictionary
@@ -14,7 +12,6 @@ extends RefCounted
 #
 # Units are the web build's: AU, M☉, years. `pos`/`vel`/`acc` are DVec3 —
 # doubles — for the reason in core/dvec3.gd. Nothing here is float32.
-# ============================================================================
 
 var id: int = 0
 var type: String = "planet"
@@ -50,7 +47,7 @@ var structure: Dictionary = {}  # sim/structure.gd structureOf() result
 var softening: float = 0.0      # optional Plummer softening override, AU
 
 # ---- rendering ---------------------------------------------------------------
-var viz = null                # the body visual (see PORT_GUIDE.md: visual contract)
+var viz = null                # the body visual (see docs/godot.md: visual contract)
 var marker = null             # sim/scale.gd point-source marker
 var radius_scene: float = 0.0
 var rs_scene: float = 0.0

@@ -1,8 +1,6 @@
 extends Node
 
-# ============================================================================
 # COURSE WALK — the regression check for the education mode
-# ----------------------------------------------------------------------------
 # The port of .claude/coursecheck.js. There is no test runner in this repo, so
 # this is it: it brings up the REAL orchestrator (main.tscn), opens EVERY
 # lesson, steps through EVERY step, runs frames at each one, and reports
@@ -36,7 +34,6 @@ extends Node
 # SIM.frame(dt) is main.animate(dt), as tools/presetcheck.sh's walk uses; the
 # engine is then given two real frames so each step is also DRAWN, which is
 # where a shader that fails to compile would show itself.
-# ============================================================================
 
 class Catch extends Logger:
 	var mutex := Mutex.new()

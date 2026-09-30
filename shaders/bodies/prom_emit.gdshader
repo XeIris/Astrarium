@@ -1,13 +1,10 @@
-// ============================================================================
 // THE ARCADE IN EMISSION — a prominence, seen against the sky off the limb.
-// ----------------------------------------------------------------------------
 // Additive colour, but alpha REPLACED rather than summed: alpha is not
 // opacity in this renderer, it is the published temperature channel that
 // sim/spectrum.gd images the frame from. In Godot that is the flare-plasma row
-// of the temperature table (PORT_GUIDE.md §6): blend_premul_alpha with
+// of the temperature table (docs/godot.md): blend_premul_alpha with
 // ALPHA = 0 in the colour pass (c = s + d, the web's ONE, ONE) and ALPHA = 1
 // in the temperature pass (r = code — the web's blendDstAlpha = ZERO).
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

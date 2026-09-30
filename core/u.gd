@@ -1,9 +1,7 @@
 class_name U
 extends RefCounted
 
-# ============================================================================
 # JAVASCRIPT-COMPATIBILITY HELPERS.
-# ----------------------------------------------------------------------------
 # The port is line-by-line, and a handful of JS idioms have no one-token
 # GDScript equivalent or — worse — have one that means something different.
 # Every one of these exists because the obvious translation is WRONG:
@@ -28,7 +26,6 @@ extends RefCounted
 #   `THREE.MathUtils.smoothstep(x, lo, hi)` → U.smooth(x, lo, hi)
 #                         NOTE the argument order: THREE's takes x FIRST, and
 #                         Godot's smoothstep(from, to, x) takes it last.
-# ============================================================================
 
 const LN10 := 2.302585092994046
 

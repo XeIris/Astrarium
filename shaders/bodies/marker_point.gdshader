@@ -1,4 +1,3 @@
-// ============================================================================
 // THE POINT-SOURCE MARKER — port of createMarker()'s material in sim/scale.js.
 // See sim/marker.gd for why it exists and how it hands over from the mesh.
 //
@@ -12,8 +11,7 @@
 // spatial material, and it does not need one: the destination under a marker
 // is almost always the sky, SKY_ALPHA = 0.995, which is above every code a
 // marker can publish (≤ 0.98) — so the web's max() was a no-op there, and the
-// temperature pass here discards (PORT_GUIDE.md §6, the marker row).
-// ============================================================================
+// temperature pass here discards (docs/godot.md, the marker row).
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 

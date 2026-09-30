@@ -1,6 +1,5 @@
 extends Node
 
-# ============================================================================
 # THE COURSE HARNESS — the Godot half of the course's side-by-side check.
 #
 #   Godot --path . res://tools/coursetest.tscn -- lesson=lives/giants steps=1 \
@@ -17,7 +16,6 @@ extends Node
 #
 # The web side is tools/course.shots.mjs through tools/webref.mjs;
 # tools/coursetest.sh runs the whole list here. Pairs: tools/ref/course/.
-# ============================================================================
 
 var args := {}
 var main: Node

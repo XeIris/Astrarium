@@ -1,10 +1,8 @@
 class_name DQuat
 extends RefCounted
 
-# ============================================================================
 # A DOUBLE-PRECISION QUATERNION, and the handful of THREE.Vector3 operations
 # the flight model relies on BIT FOR BIT.
-# ----------------------------------------------------------------------------
 # The web build's attitude was a THREE.Quaternion — four JS doubles — and its
 # vectors were THREE.Vector3s. Godot's Quaternion is float32, and DVec3 (the
 # shared core/dvec3.gd) is double but was written for readability, not for
@@ -29,7 +27,6 @@ extends RefCounted
 # flying the JS and the GDScript side by side and diffing them. Anything short
 # of the same operations gives a diff that grows, and a diff that grows cannot
 # tell a port error from a rounding one.
-# ============================================================================
 
 var x: float = 0.0
 var y: float = 0.0
@@ -201,9 +198,7 @@ func slerp_in(qb: DQuat, t: float) -> DQuat:
 func _to_string() -> String:
 	return "DQuat(%s, %s, %s, %s)" % [x, y, z, w]
 
-# ============================================================================
 # THREE.Vector3 OPERATIONS, EXACTLY — static, on DVec3, in place.
-# ============================================================================
 
 ## Vector3.normalize(): multiply by 1/(length || 1).
 static func nrm(v: DVec3) -> DVec3:

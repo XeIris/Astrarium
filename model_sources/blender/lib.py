@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # BLENDER BUILD LIBRARY — the primitives the Hail Mary is assembled from.
-# ---------------------------------------------------------------------------
 # Everything here generates a mesh from numbers rather than from a click, for
 # the same reason the rest of this repo does: a shape you can re-derive is a
 # shape you can argue with. The script is the model; the .glb is a build
@@ -14,7 +12,6 @@
 #   · z = 0 is the DRIVE EXIT PLANE, because y = 0 on a craft is whatever the
 #     vehicle stands on and this one stands on its own exhaust.
 #   · Metres. Blender's default unit, and the sim's.
-# ---------------------------------------------------------------------------
 import bpy, bmesh, math
 from math import cos, sin, pi, hypot
 from mathutils import Vector, Quaternion
@@ -22,9 +19,7 @@ from mathutils import Vector, Quaternion
 TAU = 2 * pi
 
 
-# ---------------------------------------------------------------------------
 # SCENE
-# ---------------------------------------------------------------------------
 def reset_scene():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     for block in (bpy.data.meshes, bpy.data.materials, bpy.data.objects):
@@ -63,9 +58,7 @@ def material(name, base, rough=0.6, metal=0.05, emit=None, emit_strength=1.0,
     return m
 
 
-# ---------------------------------------------------------------------------
 # MESH CONSTRUCTION
-# ---------------------------------------------------------------------------
 def _obj(name, verts, faces, mat, parent=None):
     me = bpy.data.meshes.new(name)
     me.from_pydata(verts, [], faces)
@@ -253,9 +246,7 @@ def strut(name, p1, p2, r, mat, seg=8, parent=None):
     return ob
 
 
-# ---------------------------------------------------------------------------
 # FINISHING — the part a procedural Three.js build cannot do
-# ---------------------------------------------------------------------------
 def bevel(ob, width=0.03, segments=2, angle=40.0, clamp=True):
     """
     A BEVEL is the single highest-value thing available here. A perfectly sharp
@@ -332,9 +323,7 @@ def group(name, parent=None, loc=(0, 0, 0), rot_z=0.0):
     return ob
 
 
-# ===========================================================================
 # THE REST OF THE SET — primitives the other eight vehicles are built from.
-# ---------------------------------------------------------------------------
 # AXES, once, because every sign error in this file is the same sign error.
 # The exporter converts Blender Z-up to the Y-up Three wants, which means
 #
@@ -350,7 +339,6 @@ def group(name, parent=None, loc=(0, 0, 0), rot_z=0.0):
 # So `loft` and `wing` below take their vertical terms as UP-POSITIVE and do the
 # negation internally: a section's `cz` and a wing's top surface mean the same
 # thing here as they do in sim/flight/craftmodel.js, and transfer verbatim.
-# ===========================================================================
 
 def lathe(name, profile, mat, seg=48, t0=0.0, t1=TAU, parent=None, caps=False):
     """

@@ -1,6 +1,4 @@
-// ============================================================================
 // CORONA / AUREOLE — port of coronaMaterial() in sim/star_visual.js.
-// ----------------------------------------------------------------------------
 // Drawn as a CAMERA-FACING BILLBOARD rather than a sphere shell: a shell's
 // fresnel term peaks at the shell's own limb, which puts a hard-edged bubble
 // ring in space around the star. A billboard lets the brightness fall off
@@ -12,10 +10,9 @@
 // (a/2)² to the temperature channel. a reaches 4, so the "alpha" reaches 2 —
 // legal in a float target, but not something to trust to a blend factor here.
 // So the product is formed in the shader and blended ONE, ONE
-// (blend_premul_alpha with ALPHA = 0; PORT_GUIDE.md §6), which is the same
+// (blend_premul_alpha with ALPHA = 0; docs/godot.md), which is the same
 // arithmetic without the factor. Depth test off, as the web's: it is drawn
 // after the opaque photosphere and adds over it.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_disabled;
 

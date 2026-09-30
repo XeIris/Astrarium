@@ -1,6 +1,4 @@
-// ============================================================================
 // THE GROUND PATCH — GROUND_VERT / GROUND_FRAG of sim/flight/localview.js.
-// ----------------------------------------------------------------------------
 // A radially tessellated unit disc, stretched to the patch radius with a
 // quadratic distribution (the vertices crowd near the vehicle) and dropped by
 // the planet's curvature, y = −r²/2R — a parabolic sheet rather than a piece of
@@ -23,7 +21,6 @@
 // them instead of travelling with it; and the CLOUD SHADOWS are the cloud
 // pass's own field (clouds.gdshaderinc) marched toward the sun from each
 // ground point, so a shadow lies under the cloud that casts it.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 

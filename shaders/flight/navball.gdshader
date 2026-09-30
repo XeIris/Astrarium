@@ -1,6 +1,4 @@
-// ============================================================================
 // THE NAVBALL'S TWO HEMISPHERES — the fills of flightui.js's createNavball.
-// ----------------------------------------------------------------------------
 // The canvas drew them as: clip to the ball (radius R), paint it sky, then —
 // rotated by `ang` — fill the horizon ellipse (semi-axes R·|n·z| across, R
 // along) together with a half-plane rectangle under the EVENODD rule, in
@@ -8,7 +6,6 @@
 // what is evaluated here per pixel, antialiased over one pixel as the canvas
 // rasteriser was. Colours are the canvas's CSS colours, sRGB, straight into
 // the (sRGB) 2D canvas as the page composited them.
-// ============================================================================
 shader_type canvas_item;
 
 uniform vec2 uCentre = vec2(94.0);

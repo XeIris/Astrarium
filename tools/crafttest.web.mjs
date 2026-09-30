@@ -1,4 +1,3 @@
-// ============================================================================
 // WEB REFERENCE FOR THE CRAFT STUDIO — .claude/crafttest.html and
 // .claude/craftsheet.html in headless Chrome, for side-by-side comparison with
 // tools/crafttest.gd / craftsheet.gd. A sibling of webref.mjs (same
@@ -17,7 +16,6 @@
 // WEB_ROOT picks the checkout served: one WITH assets/*.glb measures the
 // authored build, one without (a fresh worktree) measures the procedural
 // fallback — which is the standing "move the meshes aside" check.
-// ============================================================================
 import { spawn } from 'node:child_process';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';

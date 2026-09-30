@@ -1,13 +1,11 @@
 #[compute]
 #version 450
-// ============================================================================
 // BLACK HOLE — pass 1 of the split marcher: null geodesics + volumetric disc.
 // The port of sim/blackhole.js's MARCH_FRAG. The physics, and every comment
 // that explains it, is in render/lens_pass.gd's header and below; only the
 // plumbing changed (a compute shader writing two images, where the web build
 // used a WebGL2 MRT). Runs at the LENS SCALE; the sky is evaluated on the
 // resulting direction field, at full resolution, by shaders/sky/background.
-// ============================================================================
 layout(local_size_x = 8, local_size_y = 8) in;
 
 //   gMarch0   disc emission (rgb), transmittance (a)
@@ -52,9 +50,7 @@ float holeRs(int k){ return P.holePosRs[k].w; }
 // inner edge of the disc, in r_s — the ISCO of a Schwarzschild hole
 #define R_ISCO 3.0
 
-// ----------------------------------------------------------------------------
 // noise
-// ----------------------------------------------------------------------------
 float hash31(vec3 p){
 	p = fract(p * vec3(0.1031, 0.1030, 0.0973));
 	p += dot(p, p.yxz + 33.33);
@@ -77,10 +73,8 @@ float fbm2(vec3 p){   // cheaper, for the domain warp
 	return vnoise(p) * 0.65 + vnoise(p * 2.17 + 5.1) * 0.35;
 }
 
-// ----------------------------------------------------------------------------
 // Planck locus → linear RGB. Colour comes from a temperature, never from a
 // hand-picked gradient, so the disc, the stars and the redshift all agree.
-// ----------------------------------------------------------------------------
 vec3 blackbody(float T){
 	T = clamp(T, 800.0, 42000.0);
 	float t = T * 0.01;
@@ -94,9 +88,7 @@ vec3 blackbody(float T){
 	return pow(c, vec3(2.2));                 // sRGB fit → linear
 }
 
-// ----------------------------------------------------------------------------
 // disc
-// ----------------------------------------------------------------------------
 
 // Flaring scale height. Thin discs run H/R ≈ 0.05 and flare outward as r^(9/8).
 float scaleHeight(float r, float rs){
@@ -192,9 +184,7 @@ vec3 discSource(vec3 p, vec3 rd, float rs, float r, float dens, out float Tphys)
 	return col * emis * heat * discIntensity * 0.62;
 }
 
-// ----------------------------------------------------------------------------
 // null geodesic:  d²x/dλ² = −(3/2) r_s h² x̂ / r⁵
-// ----------------------------------------------------------------------------
 vec3 geoAccel(vec3 pos, vec3 vel){
 	vec3 a = vec3(0.0);
 	for(int k = 0; k < MAX_HOLES; k++){

@@ -1,10 +1,9 @@
 #[compute]
 #version 450
-// ============================================================================
 // COMPOSE — assemble the frame's HDR buffer, the way the web build's single
 // WebGLRenderTarget held it: linear radiance in rgb, and in ALPHA the web
 // build's temperature protocol (sim/spectrum.js). Godot renders colour and
-// temperature in two passes over one world (see PORT_GUIDE.md, "the
+// temperature in two passes over one world (see docs/godot.md, "the
 // temperature pass"), so this is where the two are zipped back into the one
 // RGBA16F buffer the rest of the chain was written against.
 //
@@ -14,7 +13,6 @@
 //            opaque vehicle pixels are "no data" (1.0), exactly as a
 //            MeshStandardMaterial's alpha of 1 was in the web build)
 //   mode 2  model viewer  rgb = model,                         a = 1
-// ============================================================================
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform sampler2D tScene;
 layout(set = 0, binding = 1) uniform sampler2D tTemp;

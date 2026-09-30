@@ -1,7 +1,6 @@
 class_name HudCss
 extends RefCounted
 
-# ============================================================================
 # blackhole_sim.css, rule by rule, as El style dictionaries.
 #
 # Keys (see ui/widgets/el.gd): w/h/maxh/minw/maxw px; wp a width fraction;
@@ -16,7 +15,6 @@ extends RefCounted
 # letter-spacing is written in em in the CSS and is converted here with the
 # element's OWN font size — that is the computed (px) value, and the px value is
 # what children inherit.
-# ============================================================================
 
 const T = preload("res://ui/theme.gd")
 

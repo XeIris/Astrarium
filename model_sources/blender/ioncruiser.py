@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # ION CRUISER (Dawn-class) — the interplanetary workhorse.
-# ---------------------------------------------------------------------------
 # 237 mN of thrust, a tenth the weight of a postcard, held for months at a
 # time. Everything about the shape follows from that: there is no thrust
 # structure worth the name, no tankage worth the name, and 19.7 m of solar
@@ -10,7 +8,6 @@
 # The arrays are DEPLOYABLES and go in `array_*`, which craftmodel's update()
 # holds folded until the flight state asks. Radiators and dishes must not: a
 # ship that flies with its heat rejection stowed is a ship that cooks.
-# ---------------------------------------------------------------------------
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

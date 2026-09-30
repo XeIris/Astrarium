@@ -1,6 +1,4 @@
-// ============================================================================
 // THE BACKGROUND — the sky at infinity, lensed or not. Colour pass.
-// ----------------------------------------------------------------------------
 // The web build had two passes for this: sim/sky.js's backdrop for scenes with
 // no hole, and the resolve half of sim/blackhole.js's split marcher for scenes
 // with one. They shared SKY_GLSL and differed only in where the ray direction
@@ -13,7 +11,6 @@
 //   u_lens = true   the resolve: d = EYEDIR + the marched deflection delta,
 //                   plus the disc emission the marcher accumulated. Never
 //                   aberrated, as in the web build (skyRadiance, D = 1).
-// ============================================================================
 shader_type sky;
 
 #include "res://shaders/sky/sky.gdshaderinc"

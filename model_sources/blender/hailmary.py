@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
 # THE HAIL MARY — the Blender build.
-# ---------------------------------------------------------------------------
 #   model_sources/blender/build.sh          (or drive Blender yourself, see below)
 #
 # WHY THIS EXISTS AND THE PROCEDURAL BUILDER STILL DOES. sim/flight/craftmodel.js
@@ -22,7 +20,6 @@
 # GEOMETRY. Blender is Z-up and the exporter converts to Three's Y-up, so the
 # thrust axis is +Z here and the nose is toward +Z. z = 0 is the DRIVE EXIT
 # PLANE. Metres throughout.
-# ---------------------------------------------------------------------------
 import bpy, sys, os, math
 from math import cos, sin, pi, radians, hypot
 from mathutils import Vector
@@ -32,9 +29,7 @@ from common import build, stage
 from lib import (reset_scene, material, revolve, tube, ring_on, box, strut,
                  fin, finish, smooth, bevel, empty, group, frames, TAU)
 
-# ---------------------------------------------------------------------------
 # THE NUMBERS. Identical to sim/flight/vehicles.js and buildHailMary().
-# ---------------------------------------------------------------------------
 L, D = 47.0, 12.0
 f = lambda u: u * L
 AFT = f(0.132)                     # the aft plane, in build coords
@@ -48,9 +43,7 @@ PLATE_Z = AFT + TOP_Z + f(0.006)   # the spine's thrust plate
 BAY = 2.6                          # tank barrel section length
 
 
-# ---------------------------------------------------------------------------
 # MATERIALS
-# ---------------------------------------------------------------------------
 M = {}
 def build_materials():
     M['white']  = material('white',  (0.86, 0.86, 0.88), 0.62, 0.04)
@@ -73,9 +66,7 @@ def build_materials():
                               emit=(1.0, 0.38, 0.15), emit_strength=3.2)
 
 
-# ---------------------------------------------------------------------------
 # PATHS
-# ---------------------------------------------------------------------------
 def bent_path(x0, z0, zbend, turn_r, turn_deg, runout, n_straight=16, n_arc=28):
     """
     A centreline that runs straight and then bends in through a circular arc,
@@ -115,9 +106,7 @@ def resample(path, step):
     return out, arc, total
 
 
-# ---------------------------------------------------------------------------
 # THE SPIN DRIVE
-# ---------------------------------------------------------------------------
 def spin_drive(name, R, parent, loc, tag):
     """
     A spin drive, and deliberately NOT a bell.
@@ -191,9 +180,7 @@ def spin_drive(name, R, parent, loc, tag):
     return piv
 
 
-# ---------------------------------------------------------------------------
 # A TANK
-# ---------------------------------------------------------------------------
 def build_tank(idx, root, path):
     """One astrophage tank, its hardware, and the drive square underneath it."""
     a = idx / 3 * TAU + pi / 2
@@ -369,9 +356,7 @@ def build_tank(idx, root, path):
     return g, endP
 
 
-# ---------------------------------------------------------------------------
 # THE SPINE, THE MODULE STACK AND EVERYTHING BOLTED TO THEM
-# ---------------------------------------------------------------------------
 def build_spine(root):
     """
     The central body: a FAT cone the tanks lie AGAINST, not a spike they bend
@@ -653,9 +638,7 @@ def build_appendages(root, hull_z0, hull_z1, hull_d):
         finish(nz, bevel_w=0.005)
 
 
-# ---------------------------------------------------------------------------
 # OPTIMISE
-# ---------------------------------------------------------------------------
 def build_hailmary(_M):
     """
     The build proper. common.build() has already reset the scene; this file

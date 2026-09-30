@@ -1,9 +1,7 @@
 class_name RDU
 extends RefCounted
 
-# ============================================================================
 # RENDERINGDEVICE HELPERS — the plumbing every compute pass in render/ shares.
-# ----------------------------------------------------------------------------
 # The web build's fullscreen passes were ShaderMaterials on a quad, drawn into
 # WebGLRenderTargets by hand. Here the equivalent is a GLSL 450 compute shader
 # dispatched on Godot's main RenderingDevice, writing an RD texture that is
@@ -20,7 +18,6 @@ extends RefCounted
 #
 # Everything here must run on the RENDER thread (inside a CompositorEffect
 # callback, or via RenderingServer.call_on_render_thread).
-# ============================================================================
 
 const RGBA16F := RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
 const RGBA8 := RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM

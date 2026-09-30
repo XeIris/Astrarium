@@ -109,12 +109,10 @@ for (const m of L.MODULES) {
 }
 out.push(']');
 out.push(`
-# ---------------------------------------------------------------------------
 # The course as a flat, ordered list. Two ways through it are both first-class:
 # straight down the line, and jumping to whatever you came for. The linear
 # order is what "next" means and what the progress bar measures; the module
 # list is what makes jumping possible. Neither is the "real" one.
-# ---------------------------------------------------------------------------
 static var LESSON_ORDER: Array = _order()
 static var LESSON_COUNT: int = LESSON_ORDER.size()
 static var STEP_COUNT: int = _step_count()

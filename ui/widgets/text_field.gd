@@ -1,12 +1,10 @@
 class_name TextField
 extends El
 
-# ============================================================================
 # <input type="search"> — the scenario search. The El draws the field (border,
 # background, the accent-2 focus ring); a borderless LineEdit inside it does
 # the editing, placed on the content box so its text sits where the input's
 # does. The line box is the input's own: `line-height: normal` at 10 px.
-# ============================================================================
 
 signal text_changed(text: String)
 

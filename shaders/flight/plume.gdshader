@@ -1,6 +1,4 @@
-// ============================================================================
 // ONE ENGINE'S PLUME — a raymarched volume of emission and soot.
-// ----------------------------------------------------------------------------
 // The web build drew a plume as the SURFACE of a tube whose radius was bent
 // in the vertex shader, with the light painted onto that surface. A flame is
 // not a surface: it is a volume of glowing gas, and what reaches the eye is
@@ -46,7 +44,6 @@
 // for the table). BLENDING is premultiplied: rgb is the light emitted (and,
 // for smoke, scattered) along the ray, alpha the soot's COVERAGE — a sooty
 // plume genuinely hides the sky behind it, a hydrogen one hides nothing.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_front, fog_disabled;
 

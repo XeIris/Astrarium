@@ -1,6 +1,5 @@
 extends Node
 
-# ============================================================================
 # THE HUD HARNESS — the Godot half of the HUD's side-by-side check.
 #
 #   node tools/uitest.shots.mjs /tmp/ui/shots.json
@@ -31,7 +30,6 @@ extends Node
 #
 # Args: fix=<dir> state=<name> out=<png> [bg=0] [blur=0] [sb=1 scrollbars]
 #       [frames=N] [rects=1] [selftest=1]
-# ============================================================================
 
 var args := {}
 var hud: Hud

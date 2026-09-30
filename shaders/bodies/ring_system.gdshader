@@ -1,4 +1,3 @@
-// ============================================================================
 // RINGS — the port of sim/giant_visual.js's ringMaterial. Not an annulus of
 // flat colour: a ring system is a swarm of individual orbiting particles with
 // a RADIAL OPTICAL DEPTH PROFILE, and the profile is the recognisable part.
@@ -16,8 +15,7 @@
 // through the B ring.
 //
 // NormalBlending, DoubleSide → blend_mix, cull_disabled; temperature pass
-// writes 1 at the ring's own alpha (PORT_GUIDE.md §6 table).
-// ============================================================================
+// writes 1 at the ring's own alpha (docs/godot.md).
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 

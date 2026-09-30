@@ -1,9 +1,7 @@
 class_name El
 extends Control
 
-# ============================================================================
 # ONE HTML ELEMENT, LAID OUT BY CSS's RULES
-# ----------------------------------------------------------------------------
 # The HUD's target is a screenshot-identical copy of the web page, and the page
 # is laid out by CSS: block flow with COLLAPSING margins, flex rows whose items
 # shrink to their min-content and align on their text BASELINES, grids of equal
@@ -31,7 +29,6 @@ extends Control
 # size and every child's position and size. Nothing here is a Container, so
 # nothing re-sorts behind our back; the Hud calls layout on each positioned
 # panel when something in it changed (`touch()`).
-# ============================================================================
 
 signal pressed
 

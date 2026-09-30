@@ -5,7 +5,7 @@ astronomy course, and spaceflight simulator. Open [project.godot](project.godot)
 to run it. The original HTML/Three.js version is archived as a runnable project
 in [web/](web/). Its [README](web/README.md) describes the physics and scenarios;
 the shared engineering guidance is in [AGENTS.md](AGENTS.md), Godot-specific
-decisions are in [PORT_GUIDE.md](PORT_GUIDE.md), and the port's verification
+decisions are in [docs/godot.md](docs/godot.md), and the port's verification
 record is in [PORT_REPORT.md](PORT_REPORT.md).
 
 ## Running it

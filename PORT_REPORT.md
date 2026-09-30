@@ -51,7 +51,7 @@ arbitrary alpha from an opaque shader, so the same world is drawn a second time
 by a camera with an extra cull-mask bit. Every shader checks
 `CAMERA_VISIBLE_LAYERS` and, in that pass, writes into R exactly what the web
 build's blend equations would have left in alpha. The blend-mode table in
-`PORT_GUIDE.md §6` was measured, not assumed. This pass only runs outside the
+`docs/godot.md` was measured, not assumed. This pass only runs outside the
 visible band, so it costs nothing in normal viewing.
 
 ### 1.3 Double precision and a floating origin

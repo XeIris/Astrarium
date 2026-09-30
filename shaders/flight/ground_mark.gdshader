@@ -1,7 +1,5 @@
-// ============================================================================
 // MARKS ON THE CONCRETE — the hardstand's expansion joints and the scorched
 // apron, drawn as a MULTIPLY over the concrete that is already there.
-// ----------------------------------------------------------------------------
 // Both used to be geometry. The joints were 2 cm tubes laid along the slab at
 // a height equal to their own radius, so half of each was inside the concrete
 // and the depth test chose, pixel by pixel and frame by frame, which of the two
@@ -19,7 +17,6 @@
 // grid is finer than the pixels can hold it fades to its own average instead
 // of aliasing into moiré. The depth bias is decal.gdshader's, so the mark lies
 // ON the concrete and never fights it.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_mul, depth_draw_never, cull_back, fog_disabled, skip_vertex_transform, shadows_disabled;
 

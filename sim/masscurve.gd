@@ -1,9 +1,7 @@
 class_name MassCurve
 extends CrossSection.BitmapCanvas
 
-# ============================================================================
 # THE MASS–RADIUS CURVE — the slider's own graph, and a handle you can drag
-# ----------------------------------------------------------------------------
 # A slider tells you where you are. It cannot tell you where the interesting
 # places ARE, and in this model they are the whole point: a rocky planet's
 # radius does not grow monotonically, it turns over at ~300 M⊕ where electron
@@ -35,12 +33,11 @@ extends CrossSection.BitmapCanvas
 # than as a curve falling to nothing.
 #
 # PORT NOTES. The web's createMassCurve({canvas, onPick}) closure is this class
-# (PORT_GUIDE.md §1: closures over mutable state become members). It IS the
+# (docs/godot.md: closures over mutable state become members). It IS the
 # canvas: an El over a 330 × 152 bitmap that the layout scales into the panel,
 # with the drawing arithmetic in bitmap pixels exactly as the canvas had it.
 # Pointer capture is Godot's own: a Control that takes the press keeps the
 # drag until the release, wherever the pointer goes.
-# ============================================================================
 
 const N := 240                 # samples across the range
 const PAD_L := 34.0

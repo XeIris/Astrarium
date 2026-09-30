@@ -1,8 +1,6 @@
 extends SceneTree
 
-# ============================================================================
 # PAD CHECK — does any part of a launch complex stand inside its vehicle?
-# ----------------------------------------------------------------------------
 #   Godot --headless --path . --script res://tools/padcheck.gd [-- padmodels=0]
 #
 # Builds each launcher and the complex fitted to it (the authored pads, or the
@@ -15,7 +13,6 @@ extends SceneTree
 # shortest way out. The measured skin is the same one
 # the complex was fitted to, so this is a check on the fitting, and on every
 # piece of the complex that was NOT fitted.
-# ============================================================================
 
 func _initialize() -> void:
 	_run.call_deferred()

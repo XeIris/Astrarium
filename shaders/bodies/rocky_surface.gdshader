@@ -1,4 +1,3 @@
-// ============================================================================
 // SOLID SURFACE — the port of sim/rocky_visual.js's surfaceMaterial. Used by
 // every solid world (sim/rocky_visual.gd) and by the climate model's home
 // world (sim/world.gd). See sim/rocky_visual.gd for what drives each uniform.
@@ -6,11 +5,10 @@
 // THE VERTEX STAGE never forms an absolute world position. The web build
 // wrote projection * modelView * p because modelViewMatrix was assembled on
 // the CPU in float64 and carried the CAMERA-relative offset; here the camera
-// sits at the render origin (PORT_GUIDE.md §3, floating origin), so
+// sits at the render origin (docs/godot.md, floating origin), so
 // MODEL_MATRIX's translation IS that camera-relative offset and the world
 // position formed from it is small whenever the body is close enough to see.
 // The world-space view vector is therefore just minus that position.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, cull_back, depth_draw_opaque;
 
@@ -240,7 +238,7 @@ void fragment() {
 	// guessing a temperature from the colour of its rocks. A 288 K world is
 	// a 10 micron source, and that is exactly what the infrared band should
 	// show it as. (The web build wrote it into alpha; here it is the
-	// temperature pass, PORT_GUIDE.md §6 — an opaque emitter.)
+	// temperature pass, docs/godot.md — an opaque emitter.)
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		ALBEDO = vec3(temp_code(T), 0.0, 0.0);
 	} else {

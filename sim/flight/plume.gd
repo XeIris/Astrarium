@@ -1,9 +1,7 @@
 class_name Plume
 extends RefCounted
 
-# ============================================================================
 # EXHAUST, PLASMA AND SMOKE — port of sim/flight/plume.js.
-# ----------------------------------------------------------------------------
 # The plume's SHAPE is a function of ambient pressure and nothing else, so one
 # shader covers sea level, vacuum and everything in between — which is the
 # effect worth having, because you watch it happen during the climb.
@@ -32,7 +30,7 @@ extends RefCounted
 # RGB added at a source factor of that same α, and every sprite left the
 # channel alone. The Godot local pass has no temperature channel at all — its
 # alpha is COVERAGE, and render/compose.glsl reads local coverage as "no data"
-# (PORT_GUIDE §6) — so here:
+# (docs/godot.md) — so here:
 #   · emitters (jet, entry sheath, ground flame) form rgb × code in the shader
 #     and blend ONE, ONE (blend_premul_alpha, ALPHA = 0): the same light, and
 #     no coverage, so the orrery behind a plume shows through undimmed;
@@ -53,7 +51,6 @@ extends RefCounted
 #     web build kept on one SpriteMaterial per sprite.
 #   · renderOrder becomes render_priority (LocalView.ORDER); Godot, like three,
 #     sorts it only within the transparent list.
-# ============================================================================
 
 const ORDER_SMOKE := 10
 const ORDER_FLAME := 20
@@ -75,7 +72,6 @@ const PROPELLANT := {
 	"spin":       { "T": 1500.0, "core": [1.00, 0.30, 0.18], "edge": [0.55, 0.06, 0.04], "soot": 0.0, "glow": 0.45, "beam": true },
 }
 
-# ---------------------------------------------------------------------------
 # WHAT EACH PROPELLANT LOOKS LIKE, as emission per unit path in HDR — the
 # volume in shaders/flight/plume.gdshader integrates these along the ray.
 #
@@ -95,7 +91,6 @@ const PROPELLANT := {
 #   spin        the book's astrophage drive radiates at 25.98 µm, far in the
 #               infrared; what is drawn is the faint visible tail of an almost
 #               entirely invisible beam, a deep red haze on the axis
-# ---------------------------------------------------------------------------
 const LOOK := {
 	"kerolox":    {"core": [1.40, 1.09, 0.63], "shock": [1.0, 0.92, 0.75], "mix": [1.0, 0.42, 0.10],
 		"tail": [0.55, 0.14, 0.03], "smoke": [0.030, 0.024, 0.018], "afterburn": 1.0, "soot": 0.55,
@@ -120,7 +115,6 @@ const LOOK := {
 		"machDisk": 0.0, "bright": 1.0, "beam": true},
 }
 
-# ---------------------------------------------------------------------------
 # WHAT MAKES ONE ENGINE'S PLUME ITS OWN. Exit pressure p_e and exit Mach are
 # published figures (or follow from the published expansion ratio and chamber
 # pressure); against the ambient they give the pressure ratio the whole shape
@@ -134,7 +128,6 @@ const LOOK := {
 #         film coolant: a dark, fuel-rich sleeve round the first diameters of
 #         the jet that ignites raggedly further down — `film`
 #   RSRM  alumina: the soot is WHITE (it scatters), see LOOK.solid
-# ---------------------------------------------------------------------------
 const ENGINE_LOOK := {
 	"F-1": {"pe": 41000.0, "mach": 3.2, "film": 1.0, "soot": 0.95, "diamonds": 0.45, "coreLen": 3.0},
 	"J-2": {"pe": 3000.0, "mach": 4.4},
@@ -230,9 +223,7 @@ static func make_sprite(mat: ShaderMaterial) -> MeshInstance3D:
 	s.set_instance_shader_parameter("opacity", 0.0)
 	return s
 
-# ============================================================================
 # ONE ENGINE'S PLUME
-# ============================================================================
 class PlumeFx extends RefCounted:
 	var mesh: Node3D               # the group hung on the gimbal pivot
 	var jet: MeshInstance3D
@@ -386,10 +377,8 @@ static func add_flame_light(fx: PlumeFx, scale_d: float) -> void:
 	fx.mesh.add_child(l)
 	fx.light = l
 
-# ============================================================================
 # RCS — short, cold, translucent puffs. They matter because they are the only
 # visible sign that the vehicle is holding attitude.
-# ============================================================================
 class RCSPuffs extends RefCounted:
 	var group: Node3D
 	var puffs: Array = []          # [{sprite, life, dir, size}]
@@ -434,14 +423,11 @@ static func _lin3(hex: int) -> Vector3:
 	var c := U.lin(hex)
 	return Vector3(c.r, c.g, c.b)
 
-# ============================================================================
 # RE-ENTRY PLASMA
-# ----------------------------------------------------------------------------
 # A bow-shock cap ahead of the vehicle whose brightness and colour follow the
 # Sutton–Graves heat flux — the same number that is burning the shield down and
 # that will destroy the vehicle if it gets too large. So nothing here is
 # decorative: if you see a lot of it, you are in trouble, and the HUD agrees.
-# ============================================================================
 class EntryGlow extends RefCounted:
 	var mesh: MeshInstance3D
 	var material: ShaderMaterial
@@ -472,11 +458,9 @@ static func create_entry_glow(radius: float) -> EntryGlow:
 	o.mesh = mi
 	return o
 
-# ============================================================================
 # LAUNCH SMOKE — the ground cloud, which only exists where there is an
 # atmosphere AND a surface to bounce off. It is billboards rather than a
 # volume, because that is what a few hundred of them can afford to be.
-# ============================================================================
 class SmokeColumn extends RefCounted:
 	var group: Node3D
 	var parts: Array = []     # [{s, life, rate, spin, rot, vel, color, dirty}]
@@ -628,9 +612,7 @@ static func smoke_texture() -> ImageTexture:
 	_smoke_tex = ImageTexture.create_from_image(img)
 	return _smoke_tex
 
-# ============================================================================
 # THE GROUND FLAME — what the exhaust does after it hits the deck.
-# ----------------------------------------------------------------------------
 # For the first two or three vehicle lengths of a launch the jet is not going
 # anywhere: it hits the deflector and turns through ninety degrees, and what
 # comes out is a horizontal sheet of burning gas thrown out along the trench
@@ -652,7 +634,6 @@ static func smoke_texture() -> ImageTexture:
 # Drawn as a flattened dome rather than a disc: the sheet has thickness, it is
 # brightest where you look ALONG it — out at the rim, where the path through
 # the burning gas is longest — and a flat disc has none of that.
-# ============================================================================
 class GroundFlame extends RefCounted:
 	var mesh: MeshInstance3D
 	var material: ShaderMaterial

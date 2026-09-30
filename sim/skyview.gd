@@ -1,9 +1,7 @@
 class_name SkyView
 extends RefCounted
 
-# ============================================================================
 # SURFACE VIEW — standing on the planet, looking up.
-# ----------------------------------------------------------------------------
 # Rendered as a full-screen composite pass (same structure as the lensing pass)
 # rather than as dome geometry, so there are no depth-precision or draw-order
 # fights between a sky that spans 5 orders of magnitude and stars 30 AU away.
@@ -33,7 +31,6 @@ extends RefCounted
 # main thread and calls commit(), which packs them into the std140 block the
 # kernel reads (or calls update_frame(), which is the web render loop's whole
 # surface-view block and commits at the end).
-# ============================================================================
 
 const MAX_SUNS := Suns.MAX_SUNS
 
@@ -41,9 +38,7 @@ const MAX_SUNS := Suns.MAX_SUNS
 static func create_sky_pass() -> SkyPass:
 	return SkyPass.new()
 
-# ============================================================================
 # THE SKY PASS
-# ============================================================================
 class SkyPass extends RefCounted:
 	## The web build's `skyPass.material.uniforms`, by name, with its defaults.
 	## tScene is not here: the pipeline hands the source buffer to dispatch().
@@ -123,7 +118,7 @@ class SkyPass extends RefCounted:
 	##
 	##   observer  SkyView.SurfaceObserver, already update()d this frame
 	##   camera    the orrery camera it placed (pipe.scene_cam)
-	##   suns      the frame's sun list (PORT_GUIDE.md ctx.suns), brightest
+	##   suns      the frame's sun list (docs/godot.md ctx.suns), brightest
 	##             first: {body: Body, color: Color (linear), intensity: float,
 	##             ang_radius: float}; `pos_rel` is used only if `body` is absent
 	##   climate   the home world's Climate (object or Dictionary) or null
@@ -201,9 +196,7 @@ class SkyPass extends RefCounted:
 			RDU.free_rid(ubo); RDU.free_rid(smp)
 			if k: k.release())
 
-# ============================================================================
 # SURFACE OBSERVER
-# ----------------------------------------------------------------------------
 # Places the camera on the planet's surface at a chosen latitude and rides the
 # planet's rotation, so the suns rise and set because the ground is turning —
 # not because anything is animating them.
@@ -216,7 +209,6 @@ class SkyPass extends RefCounted:
 # tilt, as the web build's viz.group did — the spin is NOT on it; it is
 # `spin_phase`, applied here), its radius from `viz.R` (falling back to
 # b.radius_scene), and its position from b.scene_pos.
-# ============================================================================
 class SurfaceObserver extends RefCounted:
 	## The near plane the web build set on entering the surface view
 	## (setCamMode('surface')), applied here on every update.

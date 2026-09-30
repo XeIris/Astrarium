@@ -1,4 +1,3 @@
-// ============================================================================
 // CLOUDS — the port of sim/rocky_visual.js's cloudMaterial.
 //
 // Not a noise field wrapped round a ball: the same three overturning cells
@@ -10,8 +9,7 @@
 // other instead of turning as one rigid shell.
 //
 // Transparent, NormalBlending in the web build → blend_mix here, and in the
-// temperature pass it writes 1.0 at its own alpha (PORT_GUIDE.md §6 table).
-// ============================================================================
+// temperature pass it writes 1.0 at its own alpha (docs/godot.md).
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_back;
 

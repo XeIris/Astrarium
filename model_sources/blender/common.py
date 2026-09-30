@@ -1,7 +1,5 @@
-# ---------------------------------------------------------------------------
 # COMMON — the material set, the optimiser and the exporter, shared by every
 # authored vehicle.
-# ---------------------------------------------------------------------------
 # The .py files beside this one are the MODELS. This file is what they all
 # agree on, and it exists for one reason above the others: a vehicle whose
 # authored mesh is a different colour from the procedural fallback it replaces
@@ -12,7 +10,6 @@
 # NAMING IS AN INTERFACE. craftassets.js binds moving parts by name, so the
 # prefixes in NODE_PREFIXES are load-bearing: rename one here and the legs stop
 # deploying, silently, with no error anywhere.
-# ---------------------------------------------------------------------------
 import math
 import bpy, os, sys
 from mathutils import Matrix
@@ -20,9 +17,7 @@ from mathutils import Matrix
 from lib import reset_scene, material, empty
 
 
-# ---------------------------------------------------------------------------
 # PALETTE
-# ---------------------------------------------------------------------------
 def srgb(hex_):
     """
     An sRGB hex triple as LINEAR floats, which is what Blender's Base Color
@@ -85,9 +80,7 @@ def build_materials():
     return M
 
 
-# ---------------------------------------------------------------------------
 # THE NAME INTERFACE
-# ---------------------------------------------------------------------------
 # Every one of these is a node craftmodel's update() drives, or the stage
 # boundary buildCraft positions. They are JOIN BOUNDARIES for the optimiser
 # below — a mesh may only be merged with another mesh under the same node, or
@@ -170,9 +163,7 @@ def hinge(name, loc, azim=0.0, parent=None):
     return empty(name, (0, 0, 0), m), m
 
 
-# ---------------------------------------------------------------------------
 # OPTIMISE
-# ---------------------------------------------------------------------------
 def optimise():
     """
     Apply every modifier, then JOIN THE MESHES BY MATERIAL, within each node.
@@ -250,9 +241,7 @@ def optimise():
             bpy.data.objects.remove(ob, do_unlink=True)
 
 
-# ---------------------------------------------------------------------------
 # EXPORT
-# ---------------------------------------------------------------------------
 def out_path(default):
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     if '--out' in argv:

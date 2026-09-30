@@ -1,6 +1,5 @@
 extends Node
 
-# ===========================================================================
 # CRAFT STUDIO — sim/flight/craftmodel.gd on its own, with nothing in the way.
 # The Godot counterpart of .claude/crafttest.html, and deliberately NOT built on
 # tools/harness.gd: the web page renders straight to the canvas with three's
@@ -26,7 +25,6 @@ extends Node
 #   Godot --headless --path . res://tools/crafttest.tscn -- audit [assets=0]
 #   Godot --headless --path . res://tools/crafttest.tscn -- clearance [assets=0]
 #     print STUDIO.audit() / STUDIO.clearance() as tables (and JSON) and quit.
-# ===========================================================================
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 
@@ -57,9 +55,7 @@ func _ready() -> void:
 		return
 	_build_studio()
 
-# ---------------------------------------------------------------------------
 # THE NUMBERS
-# ---------------------------------------------------------------------------
 ## Build every vehicle and report its measured extents. There is no test suite
 ## here, so this is the regression check: a builder that throws, or a stack
 ## whose height stops matching the published figure, shows up as a number
@@ -129,9 +125,7 @@ static func print_clearance(rows: Array) -> void:
 			print("CLEAR  %-11s %-8s n=%2d  gap=%7.3f" % [r.k, c.stage, c.n, c.gap])
 	print("CLEAR_JSON ", JSON.stringify(rows))
 
-# ---------------------------------------------------------------------------
 # THE STUDIO
-# ---------------------------------------------------------------------------
 ## three's ACESFilmicToneMapping (r160), exactly: exposure / 0.6, the Hill
 ## RRT+ODT fit, clamp — then linear → sRGB, as the page's SRGBColorSpace output
 ## does. The background is composited AFTER the curve, because three's clear

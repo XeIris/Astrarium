@@ -1,9 +1,7 @@
 class_name CraftModel
 extends RefCounted
 
-# ============================================================================
 # PROCEDURAL SPACECRAFT — port of sim/flight/craftmodel.js.
-# ----------------------------------------------------------------------------
 # Every vehicle is built from primitives at its REAL dimensions in metres, from
 # the same numbers the physics uses — a stage's length and diameter come out of
 # sim/flight/vehicles, so a model can never disagree with the mass it is
@@ -53,11 +51,8 @@ extends RefCounted
 #     vehicle is ever seen from — the 24-bit fixed-point buffer the web build
 #     fought does not exist here. decal_mat() still hands out a separate cached
 #     material per source, so the painted bands remain their own objects.
-# ============================================================================
 
-# ---------------------------------------------------------------------------
 # VEHICLE DATA — the ONE accessor.
-# ---------------------------------------------------------------------------
 # The vehicle table (sim/flight/vehicles.js) is sim/flight/vehicles.gd —
 # `Vehicles.VEHICLES` / `VEHICLE_ORDER` / `ENGINES`, JS keys verbatim. Read
 # through here so the craft code has exactly one place that knows where the
@@ -94,9 +89,7 @@ static func _t(v) -> bool:
 static func _n(v, d := 0.0) -> float:
 	return float(v) if v != null else d
 
-# ---------------------------------------------------------------------------
 # MATERIALS
-# ---------------------------------------------------------------------------
 static var MAT := {}
 
 ## MeshStandardMaterial → StandardMaterial3D. `color` is an sRGB hex, exactly as
@@ -184,7 +177,6 @@ static func _init_mats() -> void:
 		"metal": M.alu, "ablator": M.ablator, "mli-gold": M.gold, "panel-white": M.dirty,
 	}
 
-# ---------------------------------------------------------------------------
 # PAINT IS A DECAL. In the web build a painted band is drawn 0.2% proud of the
 # tank with a polygonOffset, because the 24-bit depth buffer resolved about
 # z²/(near·2^24) — five centimetres at fifty metres — and the band and the tank
@@ -201,9 +193,7 @@ static func decal_mat(material: StandardMaterial3D) -> StandardMaterial3D:
 		_decal_cache[k] = m
 	return _decal_cache[k]
 
-# ===========================================================================
 # GEOMETRY — three.js's primitives, reproduced exactly.
-# ===========================================================================
 ## Positions, normals and a three-convention (CCW) index list.
 class Geo:
 	var pos := PackedVector3Array()
@@ -593,9 +583,7 @@ static func _add(parent: Node3D, child: Node3D) -> Node3D:
 	parent.add_child(child)
 	return child
 
-# ---------------------------------------------------------------------------
 # PARTS
-# ---------------------------------------------------------------------------
 
 ## A tank barrel with domed ends, built as a lathe so the domes are real
 ## geometry rather than a capsule approximation.
@@ -1025,9 +1013,7 @@ static func lattice(h: float, w_bot: float, w_top: float, material: Material) ->
 		g.add_child(ring)
 	return g
 
-# ---------------------------------------------------------------------------
 # STAGE BUILDERS — one per `look` flavour
-# ---------------------------------------------------------------------------
 static func _new_parts() -> Dictionary:
 	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "nozzles": []}
 
@@ -1576,7 +1562,6 @@ static func build_csm(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	nose.position.y = motor_y + motor_l; g.add_child(nose)
 	return {"group": g, "parts": parts}
 
-# ---------------------------------------------------------------------------
 # THE LUNAR MODULE'S STANCE. A landed LM stands about 1.5 m clear of the
 # surface on a gear 9.4 m across the footpads, and those two numbers set
 # everything else about the legs.
@@ -1587,7 +1572,6 @@ static func build_csm(spec: Dictionary, parts: Dictionary) -> Dictionary:
 # bearing plane; LM_GEAR is how far the descent stage sits above it, and the
 # ascent stage carries the same offset internally so that build_craft's
 # stacking still lands it on the descent stage's roof.
-# ---------------------------------------------------------------------------
 const LM_GEAR := 1.52
 const LM_PAD_R := 4.30
 
@@ -1913,9 +1897,7 @@ static func build_ion_bus(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		g.add_child(th); parts.gimbals.append(th)
 	return {"group": g, "parts": parts}
 
-# ---------------------------------------------------------------------------
 # THE HAIL MARY
-# ---------------------------------------------------------------------------
 
 ## A SPIN DRIVE, and deliberately NOT a bell.
 ##
@@ -2382,9 +2364,7 @@ static func build_beetle(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var d := dish(D * 0.34); d.position = Vector3(D * 0.4, L * 0.75, 0); d.rotation.z = -1.2; g.add_child(d)
 	return {"group": g, "parts": parts}
 
-# ---------------------------------------------------------------------------
 # MEASUREMENT — three's Box3.setFromObject, which several callers depend on.
-# ---------------------------------------------------------------------------
 ## The transform of `n` relative to the top of the hierarchy it is in (its
 ## global transform when it is in a tree; the product of local transforms up
 ## to the parentless root when it is not — a craft is built before it is
@@ -2429,9 +2409,7 @@ static func triangles(obj: Node) -> int:
 		tris += triangles(c)
 	return tris
 
-# ---------------------------------------------------------------------------
 # THE VEHICLE
-# ---------------------------------------------------------------------------
 ## One stage of a built craft: {key, spec, group, parts, base_y, deploy, sep}
 ## — the JS record, field for field (baseY → base_y).
 class CraftStage extends RefCounted:

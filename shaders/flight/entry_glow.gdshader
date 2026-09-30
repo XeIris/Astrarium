@@ -1,6 +1,4 @@
-// ============================================================================
 // RE-ENTRY PLASMA — createEntryGlow() of sim/flight/plume.js.
-// ----------------------------------------------------------------------------
 // A bow-shock cap whose brightness and colour follow the Sutton–Graves heat
 // flux, the same number that is burning the shield down. BackSide in the web
 // build: only the inner wall of the cap is drawn (cull_front here).
@@ -11,7 +9,6 @@
 //
 // Blending as the plume (publishAlpha): the colour was weighted by the
 // published temperature code and added; formed here, blended ONE, ONE.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_front;
 

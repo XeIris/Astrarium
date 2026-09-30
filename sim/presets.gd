@@ -1,7 +1,6 @@
 class_name Presets
 extends RefCounted
 
-# ============================================================================
 # PRESET SCENARIOS
 # Every spec is in REAL units: mass = M☉, pos = AU, vel = AU/yr.
 # `sceneScale` = scene units per AU (rendering only). `bodyScale` exaggerates
@@ -34,7 +33,6 @@ extends RefCounted
 # not state is ABSENT here too, so `p.get("maxStep", 5e-3)` is `p.maxStep ??
 # 5e-3`. Spec `pos`/`vel` are 3-element Arrays of floats (DVec3.from_array);
 # colours in specs are the JS hex ints (sRGB — U.lin() them).
-# ============================================================================
 
 # The one source of randomness in any build: `orbiter`'s default phase, which
 # the solar system uses so every load starts the planets somewhere new. It is
@@ -59,11 +57,9 @@ static func binary(m1: float, m2: float, sep: float, t1: Dictionary, t2: Diction
 		U.merged(t2, { "mass": m2, "pos": [r2 * cx, 0.0, r2 * cz], "vel": [-v2 * cz, 0.0, v2 * cx] }),
 	]
 
-# ----------------------------------------------------------------------------
 # Keplerian two-body relative state (position & velocity) for an orbit with
 # semi-major axis a, eccentricity e, inclination incl, at true anomaly nu.
 # Used to assemble hierarchical systems exactly rather than by eyeballing.
-# ----------------------------------------------------------------------------
 ## Returns { pos: [x,y,z], vel: [x,y,z] }.
 static func kepler(Mtot: float, a: float, e: float, incl: float, nu: float) -> Dictionary:
 	var p := a * (1.0 - e * e)
@@ -179,7 +175,6 @@ static func alpha_world_triad(o: Dictionary) -> Array:
 
 	return [A, B, C, P]
 
-# ----------------------------------------------------------------------------
 # A 2+2 hierarchy deliberately parked NEAR its stability boundary, which is the
 # only architecture that gives the book's sky without the book's death sentence.
 #
@@ -205,7 +200,6 @@ static func alpha_world_triad(o: Dictionary) -> Array:
 # stripped within decades; above ~6 the kicks weaken, the system relaxes toward a
 # plain hierarchy, and the sky goes back to being predictable — measurably so, in
 # a grid scan the one-sun fraction climbs from 21% to over 70%. See the preset.
-# ----------------------------------------------------------------------------
 ## o = { mA, mB, mC, aBC, eBC = 0.10, e2, i2, qRatio, fLight = 1.0,
 ##       eP = 0.04, nuP = 0, nu2 = π, nuBC = 0, world = {} }
 static func wandering_triad(o: Dictionary) -> Array:
@@ -300,9 +294,7 @@ static func orbiter(Mc: float, a: float, spec: Dictionary, angle = null, incl: f
 	var y := sin(incl) * x
 	return U.merged(spec, { "pos": [x, y * 0.02, z], "vel": [-sin(ang) * v, 0.0, cos(ang) * v] })
 
-# ============================================================================
 # THE TABLE
-# ============================================================================
 static var PRESETS: Dictionary = _make_presets()
 
 static var PRESET_ORDER: Array = EduPresets.EDU_ORDER + ["blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding"]
@@ -317,7 +309,6 @@ static func _make_presets() -> Dictionary:
 	var edu: Dictionary = EduPresets.EDU_PRESETS
 	for k in edu:
 		P[k] = edu[k]
-	# --------------------------------------------------------------------------
 	P.sandbox = {
 		"sky": { "env": "disc", "tilt": 0.42, "roll": 0.7 },
 		"name": "Black Hole Sandbox",
@@ -326,7 +317,6 @@ static func _make_presets() -> Dictionary:
 		"build": func() -> Array: return _build_sandbox(),
 	}
 
-	# --------------------------------------------------------------------------
 	P.solar = {
 		"sky": { "env": "disc", "tilt": 0.38, "roll": 2.1 },
 		"name": "Solar System",
@@ -338,7 +328,6 @@ static func _make_presets() -> Dictionary:
 		"build": func() -> Array: return _build_solar(),
 	}
 
-	# --------------------------------------------------------------------------
 	P.threebody = {
 		"sky": { "env": "globular", "tilt": 0.30, "roll": 1.4 },
 		"name": "Three-Body (figure-eight)",
@@ -347,9 +336,7 @@ static func _make_presets() -> Dictionary:
 		"build": func() -> Array: return _build_threebody(),
 	}
 
-	# --------------------------------------------------------------------------
 	# TRISOLARIS
-	# --------------------------------------------------------------------------
 	# Three suns and a world, arranged so it actually survives. A raw three-body
 	# system with a planet in it disintegrates in a few hundred years, which is
 	# dramatic but useless for watching a climate evolve. So this uses the one
@@ -440,9 +427,7 @@ static func _make_presets() -> Dictionary:
 		}),
 	}
 
-	# --------------------------------------------------------------------------
 	# TRISOLARIS — WANDERING SUNS
-	# --------------------------------------------------------------------------
 	# The other four Trisolaris presets put the chaos in the climate and keep the
 	# orbits tame, which is what makes them last 60 000 years — but it also makes
 	# their sky honest to the physics and *not* to the book. Alpha and Beta stay a
@@ -518,7 +503,6 @@ static func _make_presets() -> Dictionary:
 		}),
 	}
 
-	# --------------------------------------------------------------------------
 	# The honest version: a genuine, non-hierarchical three-body system. This is
 	# what the Trisolarans actually live with — and it is why they want to leave.
 	# Expect the planet to be flung into a wildly eccentric orbit, swallowed, or
@@ -534,7 +518,6 @@ static func _make_presets() -> Dictionary:
 		"build": func() -> Array: return _build_trisolaris_chaos(),
 	}
 
-	# --------------------------------------------------------------------------
 	P.bhmerger = {
 		"sky": { "env": "halo", "tilt": 0.22, "roll": 2.6 },
 		"name": "Binary Black Hole Merger",
@@ -545,7 +528,6 @@ static func _make_presets() -> Dictionary:
 			{ "type": "bh", "name": "BH-B", "rs": 0.016 }),
 	}
 
-	# --------------------------------------------------------------------------
 	P.nsmerger = {
 		"sky": { "env": "starburst", "tilt": 0.48, "roll": 1.9 },
 		"name": "Neutron Star Merger",
@@ -556,7 +538,6 @@ static func _make_presets() -> Dictionary:
 			{ "type": "neutron", "name": "NS-B", "spin": 16.0 }),
 	}
 
-	# --------------------------------------------------------------------------
 	P.binarystar = {
 		"sky": { "env": "starburst", "tilt": 0.50, "roll": 0.9 },
 		"name": "Binary Star Merger",
@@ -567,7 +548,6 @@ static func _make_presets() -> Dictionary:
 			{ "type": "star", "name": "Star B", "mass": 0.9, "color": 0xffd0a0, "glow": 0xff8030, "emitsGW": true }),
 	}
 
-	# --------------------------------------------------------------------------
 	P.feeding = {
 		"sky": { "env": "core", "tilt": 0.36, "roll": 1.2 },
 		"name": "Black Hole Devouring a Star",
@@ -576,9 +556,7 @@ static func _make_presets() -> Dictionary:
 		"build": func() -> Array: return _build_feeding(),
 	}
 
-	# ==========================================================================
 	# BLANK CANVAS
-	# --------------------------------------------------------------------------
 	# Nothing in it, nothing moving, and — unlike every other preset — new bodies
 	# arrive AT REST rather than on a circular orbit about the dominant mass.
 	#
@@ -592,7 +570,6 @@ static func _make_presets() -> Dictionary:
 	# The time scale is deliberately slow: a pair released from rest a few AU
 	# apart collapses in a couple of years, and at the usual pace that is over
 	# before you have let go of the mouse.
-	# ==========================================================================
 	P.blank = {
 		"sky": { "env": "disc", "tilt": 0.38, "roll": 1.6 },
 		"name": "Blank Canvas",
@@ -603,16 +580,13 @@ static func _make_presets() -> Dictionary:
 		"build": func() -> Array: return [],
 	}
 
-	# ==========================================================================
 	# REAL STARS
-	# --------------------------------------------------------------------------
 	# Everything below is built from measured objects — see sim/starcat.gd for
 	# the numbers and where they come from. These presets all run at TRUE SCALE,
 	# because their whole point is a comparison, and a comparison between
 	# exaggerated radii is a comparison between drawing conventions. A star that
 	# goes sub-pixel is carried by the point-source marker in sim/scale.gd, which
 	# is what a telescope does with it too.
-	# ==========================================================================
 
 	P.stellar_zoo = {
 		"sky": { "env": "disc", "tilt": 0.34, "roll": 1.15 },
@@ -692,10 +666,8 @@ static func _make_presets() -> Dictionary:
 	}
 	return P
 
-# ============================================================================
 # BUILDS — the bodies of the `build()` functions, as static functions so the
 # table above stays readable.
-# ============================================================================
 static func _build_sandbox() -> Array:
 	var Mbh := 10.0
 	var rs := 0.5   # 0.5 AU "fat" horizon → self-consistent & visible

@@ -1,9 +1,7 @@
 class_name FlightUI
 extends RefCounted
 
-# ============================================================================
 # FLIGHT INSTRUMENTS — port of sim/flight/flightui.js.
-# ----------------------------------------------------------------------------
 # A navball, a telemetry block, a stage stack, two clocks and a targeting menu.
 #
 # THE NAVBALL is the one instrument worth building properly, because it is the
@@ -41,7 +39,6 @@ extends RefCounted
 #     small DATA description ({kind, rows, note, bar}) that the panel turns
 #     into elements — the same content, and the same split of who decides it.
 #   · The <select> is an El that opens a PopupMenu.
-# ============================================================================
 
 const MARKERS := [
 	{"key": "prograde",   "glyph": "⊙", "color": 0xffe27a},
@@ -75,10 +72,8 @@ static func _rgba(r: int, g: int, b: int, a: float) -> Color: return HudTheme.rg
 const K_COL := 0x6f86a0
 const V_COL := 0xdbeaff
 
-# ============================================================================
 # Formatters. Distances span from metres on the pad to light years in cruise,
 # so there is one function and it picks the unit rather than the caller.
-# ============================================================================
 static func fmt_dist(m: float) -> String:
 	if not is_finite(m): return "—"
 	var a := absf(m)
@@ -121,9 +116,7 @@ static func fmt_ratio(x: float) -> String:
 	if x < 1e4: return U.grouped(x)
 	return U.expo(x, 1).replace("e+", "×10^")
 
-# ============================================================================
 # THE PLAN BLOCKS — planHTML / cruiseHTML as data.
-# ============================================================================
 ## The transfer-plan block, written out in full because the two Δv numbers in
 ## an interplanetary plan are not the same number and confusing them is the
 ## classic way to be 2 km/s wrong.
@@ -181,9 +174,7 @@ static func cruise_block(r) -> Dictionary:
 			["astrophage", "%s%%" % U.fixed(r.propFrac * 100.0, 2)],
 		], "note": note}
 
-# ============================================================================
 # THE NAVBALL
-# ============================================================================
 class Navball extends El:
 	const W := 188.0
 	const H := 188.0
@@ -331,10 +322,8 @@ class Navball extends El:
 			var rw := mono.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz).x
 			over.draw_string(mono, Vector2(W / 2.0 - rw * 0.5, H - 6), rt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz, tc)
 
-# ============================================================================
 # THE TAPES — .fl-throttle and .fl-vs: a fill, a centre line, a marker and a
 # label, all absolutely positioned inside a clipped, rounded box.
-# ============================================================================
 class Tape extends El:
 	var label := ""
 	var is_vs := false
@@ -386,9 +375,7 @@ class Tape extends El:
 		var by := inner.end.y - 2.0 - ad.y
 		_draw_chars(f, label, Vector2(inner.position.x + (inner.size.x - tw) * 0.5, by), fs, ls, HudTheme.hexc(0x7d93ae))
 
-# ============================================================================
 # A STAGE ROW — .fl-stage: a proportional bar behind three spans.
-# ============================================================================
 class StageRow extends El:
 	var frac := 0.0
 	var live := false
@@ -459,9 +446,7 @@ class Select extends El:
 		var x := size.x - 12.0; var y := size.y * 0.5
 		draw_polyline(PackedVector2Array([Vector2(x - 3.5, y - 2.0), Vector2(x, y + 1.5), Vector2(x + 3.5, y - 2.0)]), c, 1.2, true)
 
-# ============================================================================
 # THE PANEL
-# ============================================================================
 var root: Control
 var hooks: Dictionary
 var nav: Navball

@@ -1,9 +1,7 @@
 class_name WorldVisual
 extends RefCounted
 
-# ============================================================================
 # THE LIVING WORLD
-# ----------------------------------------------------------------------------
 # A rocky planet whose APPEARANCE IS DRIVEN BY THE CLIMATE MODEL: ice caps
 # advance and retreat with the glaciated fraction the EBM is integrating, seas
 # shrink as they boil away, cloud decks thicken with humidity, and the ground
@@ -18,7 +16,6 @@ extends RefCounted
 # only the wiring between the energy-balance model and those uniforms: a
 # second terrain model here would be a second answer to what a rocky planet
 # looks like, and the two would drift apart.
-# ============================================================================
 
 # Re-exported, as the web build re-exported them from sim/suns.js.
 const MAX_SUNS := Suns.MAX_SUNS
@@ -29,7 +26,7 @@ static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> vo
 static func create_world_visual(b: Body, opts: Dictionary = {}) -> WorldViz:
 	return WorldViz.new(b, opts)
 
-## The visual object (PORT_GUIDE.md §7): group, core, surface, clouds, atmo,
+## The visual object (docs/godot.md): group, core, surface, clouds, atmo,
 ## surf_mat, cloud_mat, atmo_mat, base_r, R, is_world; plus update(dt, ctx).
 class WorldViz extends RefCounted:
 	var group: Node3D

@@ -1,6 +1,4 @@
-// ============================================================================
 // THE DELUGE — the launch complex's steam points (sim/flight/launchsite.js).
-// ----------------------------------------------------------------------------
 // THREE.Points: gl_PointSize = uSize·(0.35 + age·1.6)·300 / max(−z_view, 1),
 // a soft disc per point that fades with age. The age rides in UV.x (dead
 // points are simply left out of the buffer rather than discarded).
@@ -9,7 +7,6 @@
 // alpha away (steam is not an emitter and must not publish a temperature).
 // Here the local pass's alpha is coverage, and blend_mix raising it is right:
 // steam does hide the orrery behind it.
-// ============================================================================
 //
 // Each point is a PUFF, not a disc: the smoke sprite's noise-bitten, self-
 // shadowed texture (Plume.smoke_texture), turned by a per-point angle that

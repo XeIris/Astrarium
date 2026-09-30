@@ -1,6 +1,4 @@
-// ============================================================================
 // LENS GHOSTS — the other half of what a camera does with the sun in frame.
-// ----------------------------------------------------------------------------
 // sun_disc.gdshader draws what the lens does AT the sun: the core, the veiling
 // glare, the starburst. This draws what it does everywhere else. Every air–
 // glass surface in a lens reflects a fraction of a percent, and a pair of
@@ -24,7 +22,6 @@
 //
 // Full-screen, additive (premultiplied with ALPHA = 0). Drawn last in the
 // pass: a ghost is in the lens, in front of everything.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled, skip_vertex_transform;
 

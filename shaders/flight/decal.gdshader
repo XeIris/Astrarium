@@ -1,6 +1,4 @@
-// ============================================================================
 // A DECAL IS NOT A SLAB LIFTED A FEW CENTIMETRES — launchsite.js's decal().
-// ----------------------------------------------------------------------------
 // The apron and the crawlerway lie ON the concrete, coplanar with it, and the
 // only thing separating them is a bias. The web build used polygonOffset: the
 // bias expressed in the smallest resolvable depth increment at that fragment,
@@ -15,7 +13,6 @@
 // scales with range exactly as depth resolution does. `uOrder` is the JS
 // order argument (the apron is 2, drawn over the crawlerway's 1). The apron
 // itself, and the hardstand's joints, are ground_mark.gdshader.
-// ============================================================================
 shader_type spatial;
 render_mode skip_vertex_transform, diffuse_lambert, specular_schlick_ggx, cull_back;
 

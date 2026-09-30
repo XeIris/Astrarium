@@ -1,9 +1,7 @@
 class_name DVec3
 extends RefCounted
 
-# ============================================================================
 # A DOUBLE-PRECISION 3-VECTOR.
-# ----------------------------------------------------------------------------
 # Godot's Vector3 is float32 in a standard build. The web version never had to
 # think about this, because every THREE.Vector3 it did physics with was a pair
 # of JS doubles — and the physics depends on it. The orrery integrates in AU
@@ -22,9 +20,8 @@ extends RefCounted
 #   · The pure methods (add, sub, scaled, cross, normalized, clone…) allocate.
 #     Prefer the mutating form in hot loops — allocation is the cost here.
 #   · to_v3() is the ONLY way down to float32, and it belongs at the render
-#     boundary, after the camera origin has been subtracted (see PORT_GUIDE.md,
+#     boundary, after the camera origin has been subtracted (see docs/godot.md,
 #     "floating origin"). Never convert an absolute AU/metre position.
-# ============================================================================
 
 var x: float
 var y: float

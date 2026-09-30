@@ -60,9 +60,7 @@ def P(x, y, z):
     return (x, -z, y)
 
 
-# ---------------------------------------------------------------------------
 # PRIMITIVES, in Godot coordinates
-# ---------------------------------------------------------------------------
 def blk(par, w, h, d, x, y, z, mat, bev=0.04, yaw=0.0):
     """A box STANDING on (x, y, z): w along x, h up, d along z."""
     ob = box(nm('b'), (w, d, h), P(x, y + h * 0.5, z), mat, parent=par)
@@ -385,9 +383,7 @@ def fence(par, pts, M, h=2.4, post=3.0):
         pipe(par, (A.x, h + 0.45, A.z), (B.x, h + 0.45, B.z), 0.012, M['steel'], 4)
 
 
-# ---------------------------------------------------------------------------
 # LC-39: CRYOGEN SPHERES
-# ---------------------------------------------------------------------------
 def cryo_sphere(M, key, R, legs, vaps):
     """A Horton sphere on legs: columns tangent to the equator, rod X-bracing
     between them, a girder at the equator, a stair that climbs round the
@@ -462,9 +458,7 @@ def cryo_sphere(M, key, R, legs, vaps):
     return root
 
 
-# ---------------------------------------------------------------------------
 # LC-39: THE WATER TOWER
-# ---------------------------------------------------------------------------
 def water_tower(M):
     """88.9 m to the top of the vent, and 300 000 US gallons (1 135 m³) in a
     14 m tank on eight battered legs: released through 2.1 m mains, starting
@@ -521,9 +515,7 @@ def water_tower(M):
     return root
 
 
-# ---------------------------------------------------------------------------
 # LC-39: RP-1, HYPERGOLS
-# ---------------------------------------------------------------------------
 def rp1_farm(M):
     """Three horizontal kerosene tanks (Apollo's were 86 000 US gal, 325 m³
     each), inside a bund that holds more than one of them, with the pump house
@@ -577,9 +569,7 @@ def hypergol(M):
     return root
 
 
-# ---------------------------------------------------------------------------
 # COMMON: GAS, POWER, PEOPLE, LIGHT, CAMERAS
-# ---------------------------------------------------------------------------
 def gas_farm(M):
     """High-pressure gas: helium and nitrogen at 400 bar in banks of long
     forged bottles, an LN2 dewar that the nitrogen boils off, and its
@@ -781,9 +771,7 @@ def burn_pond(M):
     return root
 
 
-# ---------------------------------------------------------------------------
 # SPACEX: THE HANGAR
-# ---------------------------------------------------------------------------
 def hif(M):
     """The horizontal integration facility. The vehicle is assembled lying on
     its side, then carried out through the end door on the transporter-
@@ -858,9 +846,7 @@ def hif(M):
     return root
 
 
-# ---------------------------------------------------------------------------
 # STARBASE
-# ---------------------------------------------------------------------------
 def tank_farm(M):
     """The orbital tank farm. Eight GSE tanks in a row — three LOX, two CH4,
     two LN2 and the deluge water — each a 9 m stainless tank built the way the
@@ -1034,9 +1020,7 @@ def gse_bunker(M):
 
 
 
-# ---------------------------------------------------------------------------
 # THE CLUTTER — what makes a site look worked in rather than finished
-# ---------------------------------------------------------------------------
 def lattice_between(par, a, b, w, M, mat, taper=0.35):
     """A four-chord lattice from a to b, square in section, narrowing to
     `taper` of its width at both ends — a crane boom."""
@@ -1189,7 +1173,6 @@ def trailers(M):
             blk(root, 1.0, 0.8, 0.9, x - 4.2, 3.85, z, M['grey'], 0.04)      # A/C
     return root
 
-# ---------------------------------------------------------------------------
 def build_facilities(M):
     extra = (
         ('concrete', 0x8d8d88, 0.95, 0.02),

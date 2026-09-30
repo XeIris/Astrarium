@@ -1,7 +1,6 @@
 class_name Flash
 extends RefCounted
 
-# ============================================================================
 # FLASH SPRITES — the two things a violent event can look like.
 # (blackhole_sim.js spawnFlash / killFlash and the flash loop in animate().)
 #
@@ -29,7 +28,6 @@ extends RefCounted
 # The web's CanvasTexture — which had to be disposed with the sprite or every
 # merger leaked a pair — is gone: the gradient is evaluated in
 # shaders/bodies/flash_sprite.gdshader, so kill() only frees the node.
-# ============================================================================
 
 const SPRITE_SHADER := preload("res://shaders/bodies/flash_sprite.gdshader")
 const NO_CULL_AABB := AABB(Vector3(-1.0e6, -1.0e6, -1.0e6), Vector3(2.0e6, 2.0e6, 2.0e6))

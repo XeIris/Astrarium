@@ -1,5 +1,4 @@
 extends Harness
-# ============================================================================
 # STAR / COMPACT-OBJECT HARNESS — rebuilds a frame of the web build from the
 # state it was drawn from (tools/stars_dump.js, via webref.mjs `dump`) and
 # renders it through the real pipeline:
@@ -12,7 +11,6 @@ extends Harness
 # Visual updates then run with dt = 0 and sim_dt = 0, so every clock stays at
 # the dumped value and the frame is the web's frame. Numeric cross-checks
 # (uniforms the port derives itself vs. the web's) are printed as CHECK lines.
-# ============================================================================
 
 var d: Dictionary
 var bodies: Array = []           # Body

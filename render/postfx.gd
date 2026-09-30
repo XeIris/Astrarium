@@ -1,9 +1,7 @@
 class_name PostFX
 extends RefCounted
 
-# ============================================================================
 # POST-PROCESSING — HDR bloom + filmic tone mapping.
-# ----------------------------------------------------------------------------
 # This is the single biggest reason the sim used to read as "cartoony": every
 # emitter was clamped to 1.0 at the framebuffer, so a star, a flare and the
 # inner edge of an accretion disc all resolved to exactly the same flat white.
@@ -26,7 +24,6 @@ extends RefCounted
 # Godot's own tonemapper, glow and auto-exposure are all OFF on every viewport
 # feeding this (see render/pipeline.gd): this is the ONE tone curve, as it was
 # in the web build.
-# ============================================================================
 
 const MIPS := 5
 

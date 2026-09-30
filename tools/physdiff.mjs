@@ -1,4 +1,3 @@
-// ============================================================================
 // Compare physref.mjs (web build) against physcheck.gd (Godot port).
 //   node tools/physdiff.mjs ref.json gd.json [--all]
 // Walks both trees together. Numbers are compared by relative error
@@ -6,7 +5,6 @@
 // key the JS left undefined is the same as one the port left null. Prints the
 // maximum relative error per section and every mismatch above 1e-12 (or all
 // with --all), and exits non-zero on any structural or string mismatch.
-// ============================================================================
 import { readFileSync } from 'node:fs';
 const [refPath, gdPath, flag] = process.argv.slice(2);
 const A = JSON.parse(readFileSync(refPath, 'utf8'));

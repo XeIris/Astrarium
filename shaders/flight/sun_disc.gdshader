@@ -1,6 +1,4 @@
-// ============================================================================
 // THE SUN, SEEN FROM THE VEHICLE — sim/flight/localview.gd's sun sprite.
-// ----------------------------------------------------------------------------
 // The orrery draws the Sun as a body 1 AU away, which from inside local space
 // is a disc a handful of pixels across at a brightness calibrated for looking
 // at a solar system, not for standing in daylight. The sky dome drew a disc of
@@ -56,7 +54,6 @@
 //
 // BLENDING: additive (premultiplied with ALPHA = 0), like every emitter in
 // this pass: it adds light and covers nothing.
-// ============================================================================
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled;
 

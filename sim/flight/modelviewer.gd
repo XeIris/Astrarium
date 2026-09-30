@@ -1,9 +1,7 @@
 class_name ModelViewer
 extends RefCounted
 
-# ============================================================================
 # THE MODEL VIEWER — port of sim/flight/modelviewer.js.
-# ----------------------------------------------------------------------------
 # The vehicles are built at their real dimensions from the same numbers the
 # physics uses, and in flight you almost never get to see that. A rocket in a
 # launch is a hundred metres away and lit from one side; a lander is a dot on a
@@ -47,8 +45,7 @@ extends RefCounted
 #     max(0, ±n·y). Both are diffuse-only (light_specular = 0), as three's
 #     hemisphere light is.
 #   · The studio is metres across, so its camera moves; the floating origin of
-#     PORT_GUIDE §3 is for the orrery, where float32 runs out.
-# ============================================================================
+#     docs/godot.md is for the orrery, where float32 runs out.
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 
