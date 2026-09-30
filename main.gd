@@ -877,6 +877,7 @@ func _exit_tree() -> void:
 	state = null
 	# the vehicle-model cache is orphan node trees, which nothing frees on its own
 	CraftAssets.clear()
+	PlanetMaps.finish_pending()
 
 ## The lesson card may be holding an instrument (the cutaway owns its own
 ## small world), so it is released through the card, not just dropped.

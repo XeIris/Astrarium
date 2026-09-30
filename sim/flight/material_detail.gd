@@ -71,8 +71,12 @@ static func register(m: StandardMaterial3D) -> void:
 	if m.emission_enabled or m.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED: return
 	var family := m.resource_name.get_slice(".", 0)
 	if not FAMILIES.has(family): return
-	for ref in _materials:
-		if ref.get_ref() == m: return
+	# Prune while scanning: every launch registers fresh materials, and dead refs
+	# would otherwise pile up until the next quality toggle.
+	for i in range(_materials.size() - 1, -1, -1):
+		var r = _materials[i].get_ref()
+		if r == null: _materials.remove_at(i)
+		elif r == m: return
 	m.set_meta("photo_base", {
 		"albedo_color": m.albedo_color, "albedo_texture": m.albedo_texture,
 		"roughness_texture": m.roughness_texture,

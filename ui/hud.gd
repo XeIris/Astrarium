@@ -975,6 +975,9 @@ func set_settings_open(open: bool) -> void:
 ## another's reason by accident.
 func _hide(e: El, why: String, hidden: bool) -> void:
 	if not hidden_flags.has(e):
+		# Flight panel rows are rebuilt per launch; drop the freed ones' entries.
+		for k in hidden_flags.keys():
+			if not is_instance_valid(k): hidden_flags.erase(k)
 		hidden_flags[e] = {}
 	hidden_flags[e][why] = hidden
 	var vis := true

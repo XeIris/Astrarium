@@ -86,6 +86,16 @@ static func load_planet_map(body_name: String, ready: Callable) -> bool:
 		entry.waiting.append(ready)
 	return true
 
+## Collect any threaded load still in flight, at shutdown. A request that is
+## never collected leaks its load token at exit, and there is no cancel.
+static func finish_pending() -> void:
+	for body_name in _cache:
+		var entry: Dictionary = _cache[body_name]
+		for p in entry.pending:
+			ResourceLoader.load_threaded_get(p)
+		entry.pending = []
+		entry.waiting.clear()
+
 static func _complete(entry: Dictionary) -> bool:
 	return entry.color != null and (not _has_mask(entry) or entry.mask != null)
 
