@@ -686,7 +686,7 @@ func push_trail(b: Body) -> void:
 	b.trail_buf[head * 3 + 2] = b.scene_pos.z
 	b.trail_head = (head + 1) % M
 	b.trail_count = mini(b.trail_count + 1, M)
-	b.trail.dirty = true
+	b.trail.pending += 1
 
 # CAMERA — orbit + free-fly + click-to-focus
 # Put the camera at a distance immediately, cancelling any glide in progress.
