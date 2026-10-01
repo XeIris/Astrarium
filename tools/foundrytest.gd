@@ -32,7 +32,7 @@ var d: Dictionary
 var vp: SubViewport
 var hud: Hud
 var panel: Control
-var cut_root: El
+var cut_root: HudStack
 var frame := 0
 var frames := 6
 var edits: Array = []
@@ -140,20 +140,15 @@ func _compare_text(what: String, web: Array, gd: Array) -> void:
 
 # ---- the 3D cutaway ----------------------------------------------------------------
 var cut: Cutaway
-var cut_legend: El
-
-func _E(parent: Node, style: Dictionary = {}) -> El:
-	var e := El.new(style)
-	parent.add_child(e)
-	return e
+var cut_legend: HudStack
 
 func _build_cut(root: Control) -> void:
 	# the same fixed canvas and legend the web shot places at (20, 20)
-	cut_root = _E(root, {"w": 320.0})
-	cut_root.is_root = true
-	cut = Cutaway.create_cutaway({"style": {"bg": T.rgba(4, 6, 10, 0.55)}})
+	cut_root = HudStack.new(false)
+	root.add_child(cut_root)
+	cut = Cutaway.create_cutaway({"bg": T.rgba(4, 6, 10, 0.55)})
 	cut_root.add_child(cut)
-	cut_legend = _E(cut_root, {"fs": 12.0})
+	cut_legend = Hud.stack(cut_root, 4.0)
 	cut.set_spin(false)
 	cut.nudge(0.6)
 	cut.show_structure(Structure.structure_of(d.q))
@@ -240,7 +235,7 @@ func _process(_dt: float) -> void:
 		return
 	if cut_root != null:
 		cut_root.position = Vector2(20, 20)
-		cut_root.layout(320.0)
+		cut_root.size = Vector2(320.0, cut_root.get_combined_minimum_size().y)
 	frame += 1
 	if frame == frames:
 		_report_rects()

@@ -81,7 +81,7 @@ func _finish() -> void:
 			"simYears": main.state.sim_years}
 		var s = GWDetector.strain_of(GWDetector.find_binary(main.state.bodies))
 		if s != null: d.strain = {"fGW": s.fGW, "h0": s.h0, "Mc": s.Mc, "rSchwarz": s.rSchwarz}
-		if L.media_note != null: d.note = L.media_note.get_text()
+		if L.media_note is Prose: d.note = L.media_note.said()
 		if L.built.has("photometer"):
 			var p = L.built.photometer
 			d.photometer = {"depthPPM": p.depth_ppm(), "amplitude": p.amplitude(), "n": p.t.size(),

@@ -1,5 +1,5 @@
 class_name Cutaway
-extends El
+extends HudCanvas
 
 # THE 3D CUTAWAY: the interior model as an object, so the core reads as a sphere
 # inside shells. Each layer is a double-sided sphere at its own radius, and two
@@ -7,11 +7,11 @@ extends El
 # inner wall of every shell for free. StandardMaterial3D has no clip planes, so
 # shells use shaders/ui/cutaway_layer.gdshader (Lambert + GGX plus the discard).
 #
-# Its own SubViewport with its own World3D, camera and lights, drawn into this El's
-# content box. Linear tonemapper at unity (clamp, sRGB). Light intensities are /π,
+# Its own SubViewport with its own World3D, camera and lights, drawn into this
+# canvas's content box. Linear tonemapper at unity (clamp, sRGB). Light intensities are /π,
 # as in modelviewer.gd. Radii are real: a red giant's core is a dot, and that is the
-# lesson. The El is `width: 100%; height: auto` over a 320 × 210 bitmap, rendered at
-# laid-out size × display scale (capped at 2).
+# lesson. Full width over a 320 × 210 bitmap's aspect, rendered at laid-out size ×
+# display scale (capped at 2).
 
 const LAYER_SHADER := preload("res://shaders/ui/cutaway_layer.gdshader")
 const LAYER_ALPHA_SHADER := preload("res://shaders/ui/cutaway_layer_alpha.gdshader")
@@ -30,15 +30,13 @@ var _tex: TextureRect
 var _re_shell := RegEx.create_from_string("(?i)sphere|ISCO|Ergosphere")
 var _re_wire := RegEx.create_from_string("(?i)sphere|ISCO")
 
-## Returns the canvas node. opts.style: extra El style (the card's `.lc-canvas`);
-## opts.w / opts.h: the bitmap size whose aspect it keeps.
+## Returns the canvas node. opts.bg / opts.border: its ground and border; opts.w /
+## opts.h: the bitmap size whose aspect it keeps.
 static func create_cutaway(opts: Dictionary = {}) -> Cutaway:
-	return Cutaway.new(opts.get("style", {}), float(opts.get("w", 320.0)), float(opts.get("h", 210.0)))
+	return Cutaway.new(opts.get("bg", HudTheme.CLEAR), opts.get("border", HudTheme.CLEAR), float(opts.get("w", 320.0)), float(opts.get("h", 210.0)))
 
-func _init(style: Dictionary = {}, w := 320.0, h := 210.0) -> void:
-	var s := {"aspect": h / w}
-	s.merge(style, true)
-	super(s)
+func _init(bg_col := HudTheme.CLEAR, border_col := HudTheme.CLEAR, w := 320.0, h := 210.0) -> void:
+	super(h / w, -1.0, bg_col, border_col)
 	vp = SubViewport.new()
 	vp.own_world_3d = true
 	vp.world_3d = World3D.new()
@@ -241,8 +239,8 @@ func render(dt := 1.0 / 60.0) -> void:
 	if auto_spin: spin += dt * 0.35
 	root3d.rotation.y = spin
 
-func _draw_extra() -> void:
-	var r := _snap(Rect2(Vector2(gf("bl"), gf("bt")), size - Vector2(gf("bl") + gf("br"), gf("bt") + gf("bb"))))
+func _draw_content() -> void:
+	var r := snap_rect(inner())
 	_tex.position = r.position
 	_tex.size = r.size
 	var dpr := minf(get_window().content_scale_factor if is_inside_tree() else 1.0, 2.0)
@@ -263,25 +261,25 @@ func legend() -> Array:
 			"num": "%s · %s" % [CrossSection.fmt_length(CrossSection.num(L.get("r1")) * R), CrossSection.fmt_temp(L.get("T"))]})
 	return rows
 
-## Fill `parent` (an El) with the .cut-legend grid.
-func build_legend(parent: El) -> void:
-	for c in parent.get_children():
-		if c is El:
-			parent.remove_child(c)
-			c.queue_free()
-	parent.set_style({"display": "grid", "cols": [1.0], "gapr": 2.0, "gapc": 2.0, "mt": 4.0, "maxh": 108.0, "scroll": true, "sbw": 3.0})
+## Fill `parent` with the legend: one row per layer, outermost first, scrolling
+## past 108 px.
+func build_legend(parent: Control) -> void:
+	Hud._clear(parent)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 2)
+	parent.add_child(CapScroll.new(108.0, rows))
 	for row in legend():
-		var r := _el(parent, {"display": "flex", "ai": "center", "gapc": 6.0, "fs": 9.5, "c": HudTheme.TEXT_DIM})
-		_el(r, {"w": 8.0, "h": 8.0, "bg": row.color, "shrink": 0.0})
-		_el(r, {"grow": 1.0, "basis": -1.0, "minw": 0.0, "c": HudTheme.TEXT}, row.name)
-		_el(r, {"fs": 9.0}, row.num)
-	parent.touch()
-
-static func _el(parent: Node, style: Dictionary, text = null) -> El:
-	var e := El.new(style)
-	if text is String: e.runs = [{"t": text}]
-	parent.add_child(e)
-	return e
+		var r := Hud.hbox(rows, 6.0)
+		var sw := ColorRect.new()
+		sw.color = row.color
+		sw.custom_minimum_size = Vector2(8, 8)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		r.add_child(sw)
+		var nl := Hud.label(r, row.name, {"fs": 9.5, "c": HudTheme.TEXT})
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.clip_text = true
+		Hud.label(r, row.num, {"fs": 9.0, "c": HudTheme.TEXT_DIM})
 
 func dispose() -> void:
 	clear()

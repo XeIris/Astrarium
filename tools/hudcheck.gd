@@ -163,7 +163,7 @@ func _reveal(c: Control) -> void:
 		if p is ScrollContainer:
 			(p as ScrollContainer).ensure_control_visible(c)
 			return
-		if "overflowing" in p and p.overflowing:
+		if p.has_method("scroll_by") and p.overflowing:
 			var dy: float = c.get_global_rect().position.y - (p as Control).get_global_rect().position.y
 			p.scroll_by(dy - 40.0)
 			return
@@ -174,7 +174,7 @@ func _scroll_panel(panel: Control, frac: float) -> void:
 		var bar := (sc as ScrollContainer).get_v_scroll_bar()
 		(sc as ScrollContainer).scroll_vertical = int(frac * (bar.max_value - bar.page))
 		return
-	if "overflowing" in panel:
+	if panel.has_method("scroll_by"):
 		panel.scroll_by(frac * 100000.0 - panel.scroll_y)
 
 func _push(e: InputEvent) -> void:

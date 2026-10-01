@@ -8,91 +8,76 @@ extends RefCounted
 #   THE PANEL (left column) is the map: modules, lessons, progress. It takes the
 #   scenario list's slot.
 #   THE CARD (bottom centre) is the lesson: wide for prose, at the bottom so it
-#   doesn't cover what it describes. A step with an instrument gets a 340 px
-#   instrument column, driven every frame through update().
+#   doesn't cover what it describes. A step with an instrument gets an instrument
+#   column, driven every frame through update().
 #
 # Progress is per lesson (done once its last step is seen), stored as JSON under
 # user:// (opts.store; "" keeps it in memory, for the checks).
 #
-# The card's frame is built by ui/hud.gd (`lc` parts); this fills it, with El nodes
-# styled by the `.course-*` and `.lc-*` rules. Bodies are HTML fragments using <p>,
-# <em>, <strong>, <kbd> (and <b> in the myth and look-for boxes), parsed by
-# `_html_blocks` into block and inline Els. Figures are SVG; Godot's loader has no
-# <text>, so labels are pulled out and set here (`Fig`).
+# The card's frame is built by ui/hud.gd (`lc` parts); this fills it with HUD
+# controls. Bodies are HTML fragments using <p>, <em>, <strong>, <kbd> (and <b> in
+# the myth and look-for boxes), turned into BBCode by `html_bbcode`. Figures are
+# SVG; Godot's loader has no <text>, so labels are pulled out and set here (`Fig`).
 
 const T = preload("res://ui/theme.gd")
-const C = preload("res://ui/hud_css.gd")
 const STORE := "user://bh.course.v1.json"
+const EM_COL := "e6ecf6"
+const PROSE := {"ff": "disp", "fs": 13.5, "lh": 1.62}
 
 static func create_lessons(opts: Dictionary) -> Course:
 	return Course.new(opts)
 
-# HTML → El runs. A fragment is a sequence of blocks (<p> or bare text), each a
-# list of runs; whitespace collapses as HTML's does.
-const EM := {"fi": true, "c": Color(0xe6 / 255.0, 0xec / 255.0, 0xf6 / 255.0)}
-const STRONG := {"fw": 700}
-# .lc-text kbd { font: 11px mono; padding: 1px 4px; border: 1px solid --border-strong; color: --text }
-const KBD := {"ff": "mono", "fs": 11.0, "c": T.TEXT, "box": {"pt": 1, "pb": 1, "pl": 4, "pr": 4, "bw": 1, "bc": T.BORDER_STRONG}}
-
 static func _decode(s: String) -> String:
 	return s.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
 
-static func html_blocks(html: String) -> Array:
-	var blocks: Array = []          # [{p: bool, runs: []}]
+## An HTML fragment as paragraphs of BBCode: [{p: bool, bb: String}]. Whitespace
+## collapses as HTML's does; <em> is italic in the light ink, <strong>/<b> bold,
+## <kbd> a small mono key on a faint ground.
+static func html_bbcode(html: String) -> Array:
+	var blocks: Array = []
 	var cur = null
-	var stack: Array = []           # open inline tags
 	var re := RegEx.create_from_string("<(/?)([a-zA-Z0-9]+)[^>]*>|[^<]+")
 	var ws := RegEx.create_from_string("\\s+")
+	var open := {"em": "[i][color=#%s]" % EM_COL, "i": "[i][color=#%s]" % EM_COL, "strong": "[b]", "b": "[b]",
+		"kbd": "[bgcolor=#ffffff14][code][font_size=11][color=#%s]" % T.TEXT.to_html(false)}
+	var close := {"em": "[/color][/i]", "i": "[/color][/i]", "strong": "[/b]", "b": "[/b]",
+		"kbd": "[/color][/font_size][/code][/bgcolor]"}
+	var prev_space := true
 	for m in re.search_all(html):
-		var tag := m.get_string(2)
+		var tag := m.get_string(2).to_lower()
 		if tag != "":
 			var closing := m.get_string(1) == "/"
-			var t := tag.to_lower()
-			if t == "p":
+			if tag == "p":
 				if not closing:
-					cur = {"p": true, "runs": []}
+					cur = {"p": true, "bb": ""}
 					blocks.append(cur)
+					prev_space = true
 				else:
 					cur = null
-			elif t == "br":
-				if cur != null: cur.runs.append({"br": true})
-			elif closing:
-				var i := stack.rfind(t)
-				if i >= 0: stack.remove_at(i)
-			else:
-				stack.append(t)
+			elif tag == "br":
+				if cur != null: cur.bb += "\n"; prev_space = true
+			elif open.has(tag):
+				if cur == null:
+					cur = {"p": false, "bb": ""}
+					blocks.append(cur)
+				cur.bb += close[tag] if closing else open[tag]
 			continue
 		var text := ws.sub(_decode(m.get_string(0)), " ", true)
 		if cur == null:
 			if text.strip_edges() == "": continue
-			cur = {"p": false, "runs": []}
+			cur = {"p": false, "bb": ""}
 			blocks.append(cur)
-		var run := {"t": text}
-		for s in stack:
-			match s:
-				"em", "i": run.merge(EM, true)
-				"strong", "b": run.merge(STRONG, true)
-				"kbd": run.merge(KBD, true)
-		cur.runs.append(run)
-	# collapse: no leading space in a block, no double space across runs, no
-	# trailing space at the end (it would hang anyway)
+			prev_space = true
+		if prev_space and text.begins_with(" "): text = text.substr(1)
+		if text != "": prev_space = text.ends_with(" ")
+		cur.bb += Hud.esc(text)
 	for b in blocks:
-		var prev_space := true
-		for r in b.runs:
-			if not r.has("t"): prev_space = true; continue
-			var t: String = r.t
-			if prev_space and t.begins_with(" ") and not r.has("box"): t = t.substr(1)
-			r.t = t
-			if t != "": prev_space = t.ends_with(" ")
-		while not b.runs.is_empty() and b.runs[-1].has("t") and str(b.runs[-1].t).strip_edges() == "" and not b.runs[-1].has("box"):
-			b.runs.pop_back()
-		if not b.runs.is_empty() and b.runs[-1].has("t") and not b.runs[-1].has("box"):
-			b.runs[-1].t = str(b.runs[-1].t).rstrip(" ")
+		b.bb = (b.bb as String).strip_edges(false, true)
 	return blocks
 
-# A figure, max 340 px wide. Shapes are rasterised by the SVG loader at display
+# A figure, at most 340 px wide. Shapes are rasterised by the SVG loader at display
 # scale; the <text> labels are set here in the mono face at the same coordinates.
-class Fig extends El:
+class Fig extends HudCanvas:
 	var svg := ""
 	var vb := Vector2(320, 150)
 	var texts: Array = []
@@ -100,13 +85,14 @@ class Fig extends El:
 	var _tex_w := -1.0
 
 	func _init(src: String) -> void:
-		super({"maxw": 340.0, "clip": true})
+		super()
+		clip_contents = true
 		var cur := "#%s" % T.TEXT_DIM.to_html(false)
 		var m := RegEx.create_from_string("viewBox=\"([^\"]+)\"").search(src)
 		if m:
 			var p := m.get_string(1).split(" ", false)
 			vb = Vector2(float(p[2]), float(p[3]))
-		set_style({"aspect": vb.y / vb.x})
+		set_aspect(vb.y / vb.x)
 		var tre := RegEx.create_from_string("<text([^>]*)>([\\s\\S]*?)</text>")
 		for tm in tre.search_all(src):
 			texts.append(_parse_text(tm.get_string(1), tm.get_string(2), cur))
@@ -128,7 +114,7 @@ class Fig extends El:
 		return {"x": float(_attr(a, "x", "0")), "y": float(_attr(a, "y", "0")), "t": LessonUI._decode(t),
 			"anchor": _attr(a, "text-anchor", "start"), "c": col, "fs": float(_attr(a, "font-size", "16")), "rot": rot}
 
-	func _draw_extra() -> void:
+	func _draw_content() -> void:
 		if size.x <= 0.0: return
 		var dpr := get_window().content_scale_factor if is_inside_tree() else 1.0
 		var px := size.x * dpr
@@ -148,17 +134,13 @@ class Fig extends El:
 				Canvas2D.fill_text(self, t.t, t.x, t.y, t.fs, t.c, al)
 		Canvas2D.end(self)
 
-# An instrument canvas (max 340 px, dark background, border). Painting goes into
-# `plot`, a Control over the content box, since a signal draw runs before the El's
-# own _draw.
-class InstrCanvas extends El:
+# An instrument canvas (dark ground, border, the bitmap's aspect). Painting goes into
+# `plot`, a Control over the content box.
+class InstrCanvas extends HudCanvas:
 	var plot := Control.new()
-	var bw := 340.0
-	var bh := 210.0
 
 	func _init(w: float, h: float) -> void:
-		bw = w; bh = h
-		super({"maxw": 340.0, "aspect": h / w, "bg": T.rgba(4, 6, 10, 0.55), "b": [1, T.BORDER]})
+		super(h / w, -1.0, T.rgba(4, 6, 10, 0.55), T.BORDER)
 		plot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(plot)
 		resized.connect(_fit)
@@ -168,42 +150,60 @@ class InstrCanvas extends El:
 		plot.size = size - Vector2(2, 2)
 		plot.queue_redraw()
 
-# A step dot, 7 × 7: `.seen` faint, `.on` accent. Painted as a disc and ring (a tiny
-# StyleBox border breaks into dashes).
-class Dot extends El:
+# A step dot, 7 × 7: seen ones faint, the current one accent; pressing one goes to
+# its step.
+class Dot extends Control:
+	signal pressed
+	var on := false
+	var seen := false
+
 	func _init() -> void:
-		super({"w": 7.0, "h": 7.0})
-		make_clickable()
+		custom_minimum_size = Vector2(7, 7)
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	func _gui_input(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+			accept_event()
+			if not e.pressed and Rect2(Vector2.ZERO, size).has_point(e.position):
+				pressed.emit()
 
 	func _draw() -> void:
 		var c := size * 0.5
 		var fill := T.CLEAR
 		var ring := T.BORDER_STRONG
-		if has_state("seen"): fill = T.rgba(180, 200, 230, 0.35)
-		if has_state("on"):
+		if seen: fill = T.rgba(180, 200, 230, 0.35)
+		if on:
 			fill = T.ACCENT; ring = T.ACCENT
 		if fill.a > 0.0:
 			draw_circle(c, 3.5, fill, true, -1.0, true)
 		draw_arc(c, 3.0, 0.0, TAU, 32, ring, 1.0, true)
 
-# An El whose text is underlined (`text-decoration: underline`, the reset link).
-class Underlined extends El:
-	func _draw_extra() -> void:
-		var f := HudTheme.font(g("ff"), int(g("fw")), bool(g("fi")))
-		var fs := gf("fs")
-		var col: Color = g("c")
-		var gp := get_global_transform().origin
-		for ln in _lines:
-			var w := 0.0
-			for it in ln.items:
-				if not it.a.get("sp", false): w = it.x + it.a.w
-			var y := roundf(gp.y + gf("pt") + ln.top + ln.base) - gp.y + maxf(1.0, roundf(fs * 0.12))
-			draw_rect(Rect2(gf("pl") + ln.off, y, w, 1.0), col)
+# A button whose text is underlined (the reset link).
+class Underlined extends HudButton:
+	func _draw() -> void:
+		var f := get_theme_font("font")
+		var fs := get_theme_font_size("font_size")
+		var col := get_theme_color("font_hover_color" if is_hovered() else "font_color")
+		var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var y := roundf((size.y + f.get_ascent(fs) - f.get_descent(fs)) * 0.5) + maxf(1.0, roundf(fs * 0.12))
+		draw_rect(Rect2(0, y, w, 1.0), col)
+
+## The course's progress bar: a 4 px track and its accent fill.
+class Progress extends Control:
+	var frac := 0.0
+	func _init(f: float) -> void:
+		frac = f
+		custom_minimum_size.y = 4.0
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), T.rgba(180, 200, 230, 0.12))
+		draw_rect(Rect2(0, 0, size.x * frac, size.y), T.ACCENT)
 
 # THE CONTROLLER — createLessons()'s closure, as an object
 class Course extends RefCounted:
-	var panel
-	var card: El
+	var panel: Control
+	var card: Control
 	var stage: Dictionary
 	var hud = null
 	var lc: Dictionary = {}
@@ -214,8 +214,9 @@ class Course extends RefCounted:
 	var instrument = null   # the name the current step asked for
 	var open := {}          # which module accordions are open
 	var built := {}
-	var media_note: El = null
-	var _mods: Array = []   # [{id, summary, blurb, items}]
+	## The instrument's caption (a Prose), or the cutaway's legend box.
+	var media_note: Control = null
+	var _mods: Array = []   # [{id, summary, body}]
 
 	func _init(opts: Dictionary) -> void:
 		panel = opts.get("panel")
@@ -225,15 +226,14 @@ class Course extends RefCounted:
 		hud = opts.get("hud", card.get_parent() if card else null)
 		if hud != null and "lc" in hud:
 			lc = hud.lc
-		# .lc-text { max-width: 68ch } — `ch` is the advance of "0" in the text's
-		# OWN face and size (the display stack at 13.5 px), measured, not assumed.
+		# a 68-character measure: `ch` is the advance of "0" in the prose face
 		if lc.has("text"):
-			var disp := HudTheme.font_sized("disp", 400, false, 13.5)
-			(lc.text as El).set_style({"maxw": 68.0 * HudTheme.adv_em(disp, "0".unicode_at(0)) * 13.5})
+			var disp := T.font_sized("disp", 400, false, 13.5)
+			lc.text.set_meta("maxw", 68.0 * T.adv_em(disp, "0".unicode_at(0)) * 13.5)
 		_load_progress()
 
-		# ---- the curriculum's own consistency check: warn at boot about lessons naming
-		# scenarios that don't exist.
+		# the curriculum's own consistency check: warn at boot about lessons naming
+		# scenarios that don't exist
 		var missing: Array = []
 		for k in Lessons.presets_used():
 			if _has("has_preset") and not stage.has_preset.call(k): missing.append(k)
@@ -247,7 +247,7 @@ class Course extends RefCounted:
 		render_panel()
 		_set_card_hidden(true)
 
-	# ---- progress ----------------------------------------------------------------
+	# progress
 	func _load_progress() -> void:
 		progress = {"done": {}, "last": null}
 		if store == "" or not FileAccess.file_exists(store): return
@@ -266,7 +266,7 @@ class Course extends RefCounted:
 		var f := FileAccess.open(store, FileAccess.WRITE)
 		if f: f.store_string(JSON.stringify(progress))
 
-	# ---- the stage: a directive it does not implement is ignored, not thrown ------
+	# the stage: a directive it does not implement is ignored, not thrown
 	func _has(k: String) -> bool:
 		return stage.has(k) and stage[k] is Callable and (stage[k] as Callable).is_valid()
 
@@ -275,94 +275,99 @@ class Course extends RefCounted:
 		return (stage[k] as Callable).callv(args)
 
 	# THE PANEL
-	func _E(parent: Node, style: Dictionary = {}, text = null, vars: Array = []) -> El:
-		var e := El.new(style, vars)
-		if text is String: e.runs = [{"t": text}]
-		elif text is Array: e.runs = text
-		parent.add_child(e)
-		return e
-
 	func render_panel() -> void:
 		if panel == null: return
 		var done_count: int = progress.done.size()
 		var pct := int(U.jround(100.0 * done_count / Lessons.LESSON_COUNT))
 		var cur = Lessons.find_lesson(key) if key != null else null
-		panel.touch()
-		for k in panel.get_children():
-			panel.remove_child(k)
-			k.queue_free()
+		Hud._clear(panel)
 		_mods.clear()
-		# Modules the learner was taken into stay open. The join is deferred to the end of
-		# the frame and done only by the latest render, since a re-render in the same frame
-		# replaces the elements.
+		# Modules the learner was taken into stay open. The join is deferred to the end
+		# of the frame and done only by the latest render, since a re-render in the
+		# same frame replaces the controls.
 		var rendered_open: Array = []
 		_render_gen += 1
 		_commit_open.call_deferred(_render_gen, rendered_open)
 
-		# .course-progress
-		var prog := _E(panel, {"mb": 10.0})
-		var bar := _E(prog, {"h": 4.0, "bg": T.rgba(180, 200, 230, 0.12)})
-		_E(bar, {"wp": pct / 100.0, "h": 4.0, "bg": T.ACCENT})
-		_E(prog, {"mt": 5.0, "fs": 10.0, "c": T.TEXT_DIM}, "%d of %d lessons · %d%%" % [done_count, Lessons.LESSON_COUNT, pct])
+		var prog := Hud.stack(panel, 0.0, 10.0)
+		prog.add_child(LessonUI.Progress.new(pct / 100.0))
+		Hud.m(Hud.label(prog, "%d of %d lessons · %d%%" % [done_count, Lessons.LESSON_COUNT, pct], {"fs": 10.0, "c": T.TEXT_DIM}), 5.0)
 
-		# .course-continue
-		var cont := _E(panel, C.button({"display": "block", "ib": false, "fit": false, "wp": 1.0, "mb": 10.0, "p": 7,
-			"bg": T.ACCENT, "c": T.hexc(0x0a0c12), "b": [0, T.CLEAR], "ff": "mono", "fs": 11.0, "ls": C.em(0.04, 11)}),
-			"Continue" if done_count > 0 else "Start the course", [["hover", {"bg": _bright(T.ACCENT)}]])
-		cont.make_clickable()
+		var cont := HudButton.new("Continue", "Continue" if done_count > 0 else "Start the course")
+		panel.add_child(Hud.m(cont, 0.0, 10.0))
 		cont.pressed.connect(resume)
 
-		# .course-mods
-		var mods := _E(panel, {"display": "grid", "cols": [1.0], "gapr": 5.0})
+		var mods := VBoxContainer.new()
+		mods.add_theme_constant_override("separation", 5)
+		mods.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(mods)
 		for m in Lessons.MODULES:
 			var dn := 0
 			for l in m.lessons:
 				if progress.done.has("%s/%s" % [m.id, l.id]): dn += 1
 			var is_open: bool = open.has(m.id) or (cur != null and cur.module.id == m.id)
 			if is_open: rendered_open.append(m.id)
-			var det := _E(mods, {"b": [1, T.BORDER], "minw": 0.0})
-			var summ := _E(det, {"display": "flex", "ai": "center", "gapc": 7.0, "p": [6, 8], "c": T.TEXT_DIM, "fs": 11.0},
-				null, [["hover", {"c": T.TEXT, "bg": T.rgba(180, 200, 230, 0.06)}],
-					["open", {"c": T.TEXT, "bb": 1.0, "bcb": T.BORDER}], ["openhover", {"c": T.TEXT, "bg": T.rgba(180, 200, 230, 0.06)}]])
-			summ.make_clickable()
-			_E(summ, {"c": T.ACCENT, "w": 12.0, "ta": "center"}, str(m.icon))
-			_E(summ, {"grow": 1.0, "shrink": 1.0, "basis": -1.0, "minw": 0.0}, str(m.title))
-			_E(summ, {"fs": 9.0, "c": T.TEXT_DIM}, "%d/%d" % [dn, m.lessons.size()])
-			var blurb := _E(det, {"p": [7, 9, 3, 9], "fs": 10.0, "lh": 1.5, "c": T.TEXT_DIM}, str(m.blurb))
-			var items := _E(det, {"display": "grid", "cols": [1.0], "gapr": 3.0, "p": 5})
+			var det := VBoxContainer.new()
+			det.add_theme_constant_override("separation", 0)
+			mods.add_child(Hud.frame(det, {"bc": T.BORDER}))
+			var row := Hud.hbox(null, 7.0)
+			var summ := BoxButton.new("ModHead", row)
+			var icon := Hud.label(row, str(m.icon), {"fs": 11.0, "c": T.ACCENT})
+			icon.custom_minimum_size.x = 12.0
+			icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var tl := summ.tint(Hud.label(row, str(m.title), {"fs": 11.0, "c": T.TEXT_DIM}, true))
+			tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var cnt := Hud.label(row, "%d/%d" % [dn, m.lessons.size()], {"fs": 9.0, "c": T.TEXT_DIM})
+			cnt.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			det.add_child(summ)
+			var body := HudStack.new(false)
+			det.add_child(body)
+			var blurb := Hud.label(null, str(m.blurb), {"fs": 10.0, "lh": 1.5, "c": T.TEXT_DIM}, true)
+			body.add_child(Hud.frame(blurb, {"bw": 0, "pad": [7, 9, 3, 9]}))
+			var items := VBoxContainer.new()
+			items.add_theme_constant_override("separation", 3)
+			items.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			body.add_child(Hud.frame(items, {"bw": 0, "pad": [5, 5, 5, 5]}))
 			for l in m.lessons:
 				var k := "%s/%s" % [m.id, l.id]
 				var d: bool = progress.done.has(k)
-				var st := C.button({"display": "flex", "ib": false, "fit": false, "vc": false, "ai": "baseline", "gapc": 6.0,
-					"wp": 1.0, "p": [5, 7], "bg": T.CLEAR, "b": [1, T.CLEAR], "c": T.TEXT_DIM, "ff": "mono", "fs": 11.0, "ta": "left"})
-				if d: st.c = T.rgba(143, 224, 192, 0.85)
-				var vars: Array = [["hover", {"c": T.TEXT, "bcol": T.BORDER_STRONG}],
-					["active", {"bg": T.ACCENT_2, "c": Color.BLACK, "bcol": T.ACCENT_2}]]
-				var btn := _E(items, st, null, vars)
-				btn.make_clickable()
-				btn.set_state("active", k == key)
-				_E(btn, {"w": 9.0}, "✓" if d else "·")
-				_E(btn, {"grow": 1.0, "shrink": 1.0, "basis": -1.0, "minw": 0.0}, str(l.title))
-				_E(btn, {"fs": 9.0, "op": 0.7}, "%dm" % int(l.mins))
+				var lrow := Hud.hbox(null, 6.0)
+				var btn := BoxButton.new("LessonDone" if d else "LessonItem", lrow)
+				var look: Dictionary = T.kind_look(btn.kind, "normal")
+				var mark := btn.tint(Hud.label(lrow, "✓" if d else "·", {"fs": 11.0, "c": look.c}))
+				mark.custom_minimum_size.x = 9.0
+				mark.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+				var title := btn.tint(Hud.label(lrow, str(l.title), {"fs": 11.0, "c": look.c}, true))
+				title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				title.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+				var mins := btn.tint(Hud.label(lrow, "%dm" % int(l.mins), {"fs": 9.0, "c": look.c}))
+				mins.modulate.a = 0.7
+				mins.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+				# the minutes sit on the title's first baseline
+				Hud.m(mins, 2.0)
+				btn.set_active(k == key)
+				items.add_child(btn)
 				btn.pressed.connect(open_lesson.bind(k))
-			var rec := {"id": m.id, "summary": summ, "blurb": blurb, "items": items}
+			var rec := {"id": m.id, "summary": summ, "body": body}
 			_mods.append(rec)
 			_set_mod_open(rec, is_open)
-			summ.pressed.connect(func():
-				var now := not bool(summ.has_state("open"))
-				_set_mod_open(rec, now)
-				if now: open[rec.id] = true
-				else: open.erase(rec.id))
+			summ.pressed.connect(_toggle_mod.bind(rec))
 
-		# .course-reset
-		var reset := Underlined.new(C.button({"display": "block", "ib": false, "fit": true, "ta": "left", "vc": false,
-			"mt": 10.0, "bg": T.CLEAR, "b": [0, T.CLEAR], "p": 0, "c": T.TEXT_DIM, "ff": "mono", "fs": 9.0}),
-			[["hover", {"c": T.WARN}]])
-		reset.runs = [{"t": "reset progress"}]
-		panel.add_child(reset)
-		reset.make_clickable()
-		reset.pressed.connect(func():
-			progress.done = {}; progress.last = null; _save_progress(); render_panel())
+		var reset := LessonUI.Underlined.new("Reset", "reset progress")
+		reset.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		panel.add_child(Hud.m(reset, 10.0))
+		reset.pressed.connect(_reset_progress)
+
+	func _toggle_mod(rec: Dictionary) -> void:
+		var now := not (rec.summary as BoxButton).active
+		_set_mod_open(rec, now)
+		if now: open[rec.id] = true
+		else: open.erase(rec.id)
+
+	func _reset_progress() -> void:
+		progress.done = {}; progress.last = null; _save_progress(); render_panel()
 
 	var _render_gen := 0
 
@@ -370,15 +375,9 @@ class Course extends RefCounted:
 		if gen != _render_gen: return
 		for id in ids: open[id] = true
 
-	static func _bright(c: Color) -> Color:
-		# filter: brightness(1.12)
-		return Color(minf(c.r * 1.12, 1.0), minf(c.g * 1.12, 1.0), minf(c.b * 1.12, 1.0), c.a)
-
 	func _set_mod_open(rec: Dictionary, on: bool) -> void:
-		(rec.summary as El).set_state("open", on)
-		(rec.blurb as El).visible = on
-		(rec.items as El).visible = on
-		(rec.summary as El).touch()
+		(rec.summary as BoxButton).set_active(on)
+		(rec.body as Control).visible = on
 
 	# THE CARD
 	func _set_card_hidden(h: bool) -> void:
@@ -406,71 +405,68 @@ class Course extends RefCounted:
 			hud.set_lesson_media(step.get("instrument") != null or step.get("fig") != null)
 		if lc.is_empty(): return
 
-		lc.crumb.set_text("%s · %s" % [mod.title, lesson.title])
-		lc.count.set_text("%d / %d" % [step_ix + 1, n])
-		lc.title.set_text(str(step.title))
+		(lc.crumb as Label).text = "%s · %s" % [mod.title, lesson.title]
+		(lc.count as Label).text = "%d / %d" % [step_ix + 1, n]
+		(lc.title as Prose).say(str(step.title))
 
-		var text: El = lc.text
-		text.touch()
-		for k in text.get_children():
-			text.remove_child(k)
-			k.queue_free()
+		var text: Control = lc.text
+		Hud._clear(text)
+		var prose := LessonUI.PROSE.duplicate()
+		prose.c = T.TEXT
 		if step_ix == 0 and lesson.get("myth"):
-			_E(text, {"bl": 2.0, "bcl": T.WARN, "p": [5, 0, 5, 9], "mb": 9.0, "fs": 12.5, "c": T.hexc(0xf2c2cc)},
-				[{"t": "Commonly believed, and wrong:", "fw": 700, "c": T.WARN}, {"t": " " + str(lesson.myth)}])
+			var myth := Hud.rich("[b][color=#%s]Commonly believed, and wrong:[/color][/b] %s" % [T.WARN.to_html(false), Hud.esc(str(lesson.myth))],
+				{"ff": "disp", "fs": 12.5, "lh": 1.62, "c": T.hexc(0xf2c2cc)})
+			text.add_child(Hud.m(Hud.frame(myth, {"bw": 0, "bl": 2, "bc": T.WARN, "pad": [5, 0, 5, 9]}), 0.0, 9.0))
 		var first := true
-		for b in LessonUI.html_blocks(str(step.get("body", ""))):
-			# .lc-text p + p { margin-top: 8px }
-			var st := {}
-			if b.p and not first: st = {"mt": 8.0}
+		for b in LessonUI.html_bbcode(str(step.get("body", ""))):
+			var r := Hud.rich_in(text, b.bb, prose)
+			# a paragraph after a paragraph is 8 px down
+			if b.p and not first: Hud.m(r, 8.0)
 			first = false
-			_E(text, st, b.runs)
 		if step.get("look"):
-			_E(text, {"bl": 2.0, "bcl": T.ACCENT_2, "p": [5, 0, 5, 9], "mt": 9.0, "fs": 12.5, "c": T.hexc(0xbcd8f5)},
-				[{"t": "Look for", "fw": 700, "c": T.ACCENT_2}, {"t": " " + str(step.look)}])
+			var look := Hud.rich("[b][color=#%s]Look for[/color][/b] %s" % [T.ACCENT_2.to_html(false), Hud.esc(str(step.look))],
+				{"ff": "disp", "fs": 12.5, "lh": 1.62, "c": T.hexc(0xbcd8f5)})
+			text.add_child(Hud.m(Hud.frame(look, {"bw": 0, "bl": 2, "bc": T.ACCENT_2, "pad": [5, 0, 5, 9]}), 9.0))
 		if step.get("act"):
 			var act: Dictionary = step.act
-			var ab := _E(text, C.button({"mt": 10.0, "p": [6, 14], "bg": T.WARN, "c": T.hexc(0x12070a), "b": [0, T.CLEAR],
-				"ff": "mono", "fs": 11.0, "ls": C.em(0.04, 11)}), str(act.label), [["hover", {"bg": _bright(T.WARN)}]])
-			ab.make_clickable()
+			var ab := HudButton.new("Act", str(act.label))
+			ab.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+			text.add_child(Hud.m(ab, 10.0))
 			ab.pressed.connect(run_act.bind(act))
-		(lc.cols as El).scroll_y = 0.0
+		if hud != null and hud.has_method("lesson_scroll_top"):
+			hud.lesson_scroll_top()
 
-		var dots: El = lc.dots
-		dots.touch()
-		for k in dots.get_children():
-			dots.remove_child(k)
-			k.queue_free()
+		var dots: Control = lc.dots
+		Hud._clear(dots)
 		for i in n:
 			var dot := LessonUI.Dot.new()
-			dot.set_state("on", i == step_ix)
-			dot.set_state("seen", i < step_ix)
+			dot.on = i == step_ix
+			dot.seen = i < step_ix
 			dots.add_child(dot)
 			dot.pressed.connect(go_step.bind(i))
 
-		(lc.back as El).set_state("disabled", step_ix == 0 and nb.prev == null)
-		(lc.next as El).set_text("Next →" if step_ix < n - 1 else ("Next lesson →" if nb.next != null else "Finish"))
+		(lc.back as HudButton).set_enabled(not (step_ix == 0 and nb.prev == null))
+		(lc.next as HudButton).set_label("Next →" if step_ix < n - 1 else ("Next lesson →" if nb.next != null else "Finish"))
 
 		set_media(step)
 
-	# ---- the media column: an instrument, a diagram, or nothing at all
+	# the media column: an instrument, a diagram, or nothing at all
 	func set_media(step: Dictionary) -> void:
 		instrument = step.get("instrument")
 		_drop_cutaway()
 		media_note = null
 		if lc.is_empty(): return
-		var media: El = lc.media
-		media.touch()
-		for k in media.get_children():
-			media.remove_child(k)
-			k.queue_free()
+		var media: Control = lc.media
+		Hud._clear(media)
 		var fig = step.get("fig")
 		if fig != null and Lessons.FIGURES.has(fig):
-			media.add_child(LessonUI.Fig.new(Lessons.FIGURES[fig]))
+			var fg := LessonUI.Fig.new(Lessons.FIGURES[fig])
+			fg.set_meta("maxw", 340.0)
+			media.add_child(fg)
 			return
 		if instrument == null: return
 
-		var wrap := _E(media, {})
+		var wrap := Hud.stack(media)
 		# A new card owns a new canvas; readings restart with that step's view.
 		var W := 340.0
 		var H := 210.0
@@ -478,31 +474,26 @@ class Course extends RefCounted:
 			W = 320.0
 		elif instrument == "hr":
 			H = 260.0
-		var cv: El
 		if instrument == "cutaway":
-			# The cutaway is rebuilt per step; it is an El carrying its own SubViewport
-			# (sim/cutaway.gd).
-			var cut := Cutaway.create_cutaway({"w": W, "h": H,
-				"style": {"maxw": 340.0, "bg": T.rgba(4, 6, 10, 0.55), "b": [1, T.BORDER]}})
+			# rebuilt per step; it carries its own SubViewport (sim/cutaway.gd)
+			var cut := Cutaway.create_cutaway({"w": W, "h": H, "bg": T.rgba(4, 6, 10, 0.55), "border": T.BORDER})
+			cut.set_meta("maxw", 340.0)
 			wrap.add_child(cut)
 			built.cutaway = cut
-			cv = cut
-		else:
-			cv = LessonUI.InstrCanvas.new(W, H)
-			wrap.add_child(cv)
-		# The note is text for the 2D instruments and a legend container for the cutaway.
-		var note := _E(wrap, {"mt": 5.0, "fs": 9.5, "c": T.TEXT_DIM, "lh": 1.45}, null if instrument == "cutaway" else "")
-		if instrument == "cutaway":
-			pass
-		elif instrument == "photometer":
-			built.photometer = LightCurve.create_photometer({"canvas": (cv as LessonUI.InstrCanvas).plot, "width": W, "height": H})
-			note.set_text("")
+			media_note = Hud.stack(wrap, 4.0)
+			return
+		var cv := LessonUI.InstrCanvas.new(W, H)
+		cv.set_meta("maxw", 340.0)
+		wrap.add_child(cv)
+		var note := Hud.m(Hud.label(wrap, "", {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.45}, true), 5.0) as Prose
+		if instrument == "photometer":
+			built.photometer = LightCurve.create_photometer({"canvas": cv.plot, "width": W, "height": H})
 		elif instrument == "gw":
-			built.gw = GWDetector.create_gw_detector({"canvas": (cv as LessonUI.InstrCanvas).plot, "width": W, "height": H, "distMpc": 410.0})
-			note.set_text("rescaled inspiral · ideal orientation at 410 Mpc · arm motion exaggerated")
+			built.gw = GWDetector.create_gw_detector({"canvas": cv.plot, "width": W, "height": H, "distMpc": 410.0})
+			note.say("rescaled inspiral · ideal orientation at 410 Mpc · arm motion exaggerated")
 		elif instrument == "hr":
-			built.hr = HRDiagram.create_hr_diagram({"canvas": (cv as LessonUI.InstrCanvas).plot, "width": W, "height": H})
-			note.set_text("the band is sampled from the interior model, not drawn")
+			built.hr = HRDiagram.create_hr_diagram({"canvas": cv.plot, "width": W, "height": H})
+			note.say("the band is sampled from the interior model, not drawn")
 		media_note = note
 
 	# EXECUTING A STEP
@@ -648,9 +639,9 @@ class Course extends RefCounted:
 			var ph = built.photometer
 			var m: Dictionary = ph.sample(bodies, u, float(_st("sim_years") if _has("sim_years") else 0.0))
 			ph.draw()
-			if media_note:
+			if media_note is Prose:
 				var a: float = ph.amplitude()
-				media_note.set_text("deepest dip %d ppm · RV swing ±%s m/s" % [ph.depth_ppm(), U.fixed(a, 2) if a < 1.0 else U.fixed(a, 1)]
+				(media_note as Prose).say("deepest dip %d ppm · RV swing ±%s m/s" % [ph.depth_ppm(), U.fixed(a, 2) if a < 1.0 else U.fixed(a, 1)]
 					+ (" · TRANSIT NOW" if not m.events.is_empty() else ""))
 		elif instrument == "gw" and built.has("gw"):
 			built.gw.sample(bodies)

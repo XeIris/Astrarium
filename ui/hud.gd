@@ -123,7 +123,8 @@ var settings_backdrop: ColorRect
 var settings_open := false
 var scenario_panel: HudPanel
 var course_panel: HudPanel
-var lesson_card: El
+var lesson_card: HudPanel
+var _lc_scroll: CapScroll
 var control_panel: HudPanel
 var model_panel: HudPanel
 var xsec_panel: HudPanel
@@ -282,10 +283,8 @@ static func grid(parent: Node, cols: Array, hgap: float, vgap: float, mt := 0.0,
 		parent.add_child(g)
 	return g
 
-static func hbox(parent: Node, sep: float, mt := 0.0, mb := 0.0) -> HBoxContainer:
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", int(sep))
-	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+static func hbox(parent: Node, sep: float, mt := 0.0, mb := 0.0) -> HudRow:
+	var h := HudRow.new(sep)
 	HudStack.m(h, mt, mb)
 	if parent != null:
 		parent.add_child(h)
@@ -299,7 +298,7 @@ func _h3(parent: Node, text: String, first := false, id := "") -> PanelContainer
 	return f
 
 ## The panel head: the heading and a ✕ that collapses the panel.
-func _panel_head(p: HudPanel, title: String, close_id: String, tip := "Collapse (H hides everything)") -> HBoxContainer:
+func _panel_head(p: HudPanel, title: String, close_id: String, tip := "Collapse (H hides everything)") -> HudRow:
 	var head := hbox(p.body, 8.0)
 	head.add_child(_head_title(title))
 	var x := B(head, "PanelClose", "✕", "", tip)
@@ -367,7 +366,7 @@ static func tip_label(parent: Node, text: String, st: Dictionary, tip: String, w
 
 ## A control-column range row: label · slider · value.
 func _row(parent: Node, id: String, text: String, tip: String, mn: float, mx: float, v: float, st: float,
-		val_text: String, row_id := "", fmt: Callable = Callable()) -> HBoxContainer:
+		val_text: String, row_id := "", fmt: Callable = Callable()) -> HudRow:
 	var r := _range(null, id, mn, mx, v, st, fmt)
 	r.inset = 2.0
 	var parts := range_row(parent, text, tip, r, val_text)
@@ -587,7 +586,7 @@ func _page(p: HudPanel, page: String) -> HudStack:
 	_pages.append(s)
 	return s
 
-func _stat(parent: Node, k: String, id: String) -> HBoxContainer:
+func _stat(parent: Node, k: String, id: String) -> HudRow:
 	var cell := hbox(parent, 6.0)
 	var kl := L(cell, k, STAT_K)
 	kl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -703,75 +702,94 @@ func _build_course() -> void:
 	var p := _panel("coursePanel")
 	course_panel = p
 	_panel_head(p, "Course", "coursePanel")
-	var host := ElHost.new()
-	p.body.add_child(host)
-	_mounts["courseMount"] = host
-	reg("courseMount", host)
+	reg("courseMount", stack(p.body))
 
-# the LESSON CARD frame (El until the course moves over)
-func E(parent: Node, style: Dictionary = {}, text = null, id := "", vars: Array = []) -> El:
-	var e := El.new(style, vars)
-	if text is String:
-		e.runs = [{"t": text}]
-	elif text is Array:
-		e.runs = text
-	parent.add_child(e)
-	if id != "":
-		reg(id, e)
-	return e
-
-func EB(parent: Node, style: Dictionary, text, sel := "", vars: Array = [], tip := "") -> El:
-	var e := E(parent, style, text, "", vars)
-	e.make_clickable(tip)
-	if sel != "":
-		reg(sel, e)
-	return e
-
+# THE LESSON CARD frame: head, the text and instrument columns (which scroll when
+# the card is at its height cap), and the foot with the step dots.
 func _build_lesson_card() -> void:
-	var c := E(self, {"bg": T.PANEL, "b": [1, T.BORDER_STRONG], "blur": 12.0, "p": [13, 15, 11, 15],
-		"display": "flex", "dir": "column", "gapr": 9.0}, null, "lessonCard")
-	c.is_root = true
-	c.mouse_filter = Control.MOUSE_FILTER_STOP
-	c.mouse_force_pass_scroll_events = false
+	var c := HudPanel.new([13, 15, 11, 15], false, T.PANEL, T.BORDER_STRONG, 12.0)
+	add_child(c)
+	reg("lessonCard", c)
 	lesson_card = c
-	var head := E(c, {"display": "flex", "ai": "baseline", "gapc": 10.0})
-	lc.crumb = E(head, {"grow": 1.0, "basis": 0.0, "minw": 0.0, "fs": 10.0, "c": T.ACCENT, "ls": C.em(0.05, 10), "up": true}, "")
-	lc.count = E(head, {"fs": 10.0, "c": T.TEXT_DIM}, "")
-	lc.close = EB(head, C.panel_close(), "✕", "", [["hover", C.PANEL_CLOSE_HOVER]], "Leave this lesson")
+	c.pad.minimum_size_changed.connect(_queue_layout)
+	var head := hbox(c.body, 10.0, 0.0, 9.0)
+	# the ✕ beside it has the deeper baseline, as in a panel head
+	var hm := MarginContainer.new()
+	hm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hm.add_theme_constant_override("margin_top", 3)
+	hm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(hm)
+	var hl := hbox(hm, 10.0)
+	lc.crumb = label(hl, "", {"fs": 10.0, "c": T.ACCENT, "ls": 0.5, "up": true})
+	lc.crumb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lc.crumb.clip_text = true
+	lc.count = label(hl, "", {"fs": 10.0, "c": T.TEXT_DIM})
+	lc.close = B(head, "PanelClose", "✕", "", "Leave this lesson")
+	lc.close.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	lc.close.pressed.connect(func(): lesson_close.emit())
-	# Text FIRST, instrument second: when the card is too narrow the row wraps,
-	# and the half that ends up on top is the half you have to read.
-	lc.cols = E(c, {"display": "flex", "wrap": true, "gapc": 15.0, "gapr": 15.0, "scroll": true, "sbw": 4.0})
-	lc.main = E(lc.cols, {"grow": 3.0, "shrink": 1.0, "basis": 260.0, "minw": 0.0})
-	lc.title = E(lc.main, {"ff": "disp", "fs": 16.0, "fw": 600, "c": T.hexc(0xe6ecf6), "mb": 7.0}, "")
-	lc.text = E(lc.main, {"ff": "disp", "fs": 13.5, "lh": 1.62, "c": T.TEXT, "maxw": 68 * 13.5 * 0.5})
-	lc.media = E(lc.cols, {"grow": 1.0, "shrink": 1.0, "basis": 240.0, "minw": 170.0})
+	var cols := CardCols.new()
+	_lc_scroll = CapScroll.new(1000.0, cols)
+	c.body.add_child(m(_lc_scroll, 0.0, 9.0))
+	lc.cols = _lc_scroll
+	lc.main = cols.main
+	lc.title = m(label(cols.main, "", {"ff": "disp", "fs": 16.0, "fw": 600, "c": T.hexc(0xe6ecf6)}, true), 0.0, 7.0)
+	lc.text = HudStack.new(false)
+	cols.main.add_child(lc.text)
+	lc.media = cols.media
 	_hide(lc.media, "inline", true)
-	var foot := E(c, {"display": "flex", "ai": "center", "gapc": 12.0})
-	lc.back = EB(foot, C.lc_nav(), "← Back", "", [["hover", {"bcol": T.ACCENT, "c": T.ACCENT}], ["disabled", {"op": 0.3}]])
+	var foot := hbox(c.body, 12.0)
+	lc.back = B(foot, "LcNav", "← Back")
+	lc.back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lc.back.pressed.connect(func(): lesson_back.emit())
-	lc.dots = E(foot, {"grow": 1.0, "display": "flex", "gapc": 5.0, "ai": "center"})
-	lc.next = EB(foot, C.merge(C.lc_nav(), {"bg": T.ACCENT, "c": T.hexc(0x0a0c12), "bcol": T.ACCENT}), "Next →")
+	lc.dots = hbox(foot, 5.0)
+	lc.dots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lc.next = B(foot, "LcNext", "Next →")
+	lc.next.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lc.next.pressed.connect(func(): lesson_next.emit())
 	_mounts["lessonCard"] = c
 	_hide(c, "inline", true)
+
+## Text first, instrument second, as a wrapping flex row: side by side (bases 260
+## and 240 px, growing 3 : 1) when both fit, else stacked, so the half on top is
+## the half you have to read.
+class CardCols extends Container:
+	const GAP := 15.0
+	var main := HudStack.new(false)
+	var media := HudStack.new(false)
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(main)
+		add_child(media)
+
+	func _rects(w: float) -> Array:
+		var mh := main.get_combined_minimum_size().y
+		if not media.visible:
+			return [Rect2(0, 0, w, mh), Rect2(), mh]
+		var dh := media.get_combined_minimum_size().y
+		if w >= 260.0 + GAP + 240.0:
+			var free := w - 260.0 - GAP - 240.0
+			var mw := 260.0 + free * 0.75
+			var h := maxf(mh, dh)
+			return [Rect2(0, 0, mw, h), Rect2(mw + GAP, 0, w - mw - GAP, h), h]
+		return [Rect2(0, 0, w, mh), Rect2(0, mh + GAP, w, dh), mh + GAP + dh]
+
+	func _get_minimum_size() -> Vector2:
+		return Vector2(0, _rects(size.x)[2])
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_SORT_CHILDREN:
+			var r := _rects(size.x)
+			fit_child_in_rect(main, r[0])
+			if media.visible: fit_child_in_rect(media, r[1])
 
 ## Show the card with an instrument column or not.
 func set_lesson_media(on: bool) -> void:
 	_hide(lc.media, "inline", not on)
 
-## Rebuild the step dots: n of them, `seen` up to and `on` at index i.
-func set_lesson_dots(n: int, i: int, seen: int) -> void:
-	lc.dots.touch()
-	for k in lc.dots.get_children():
-		lc.dots.remove_child(k)
-		k.queue_free()
-	for d in n:
-		var dot := E(lc.dots, {"w": 7.0, "h": 7.0, "b": [1, T.BORDER_STRONG], "rad": 3.5},
-			null, "", [["seen", {"bg": T.rgba(180, 200, 230, 0.35)}], ["on", {"bg": T.ACCENT, "bcol": T.ACCENT}]])
-		dot.set_state("seen", d <= seen)
-		dot.set_state("on", d == i)
-		dot.make_clickable()
+## A new step starts at the top of its text.
+func lesson_scroll_top() -> void:
+	_lc_scroll.scroll_vertical = 0
 
 # CONTROLS
 ## groupControlSections: a heading that folds everything under it.
@@ -1750,8 +1768,6 @@ func _process(dt: float) -> void:
 		var fb: Control = r[5]
 		if fb.is_visible_in_tree():
 			fb.modulate.a = 1.0 - 0.55 * ease
-	if lesson_card.visible and lesson_card._ldirty:
-		_queue_layout()
 	# Once a frame at most: a panel's height feeds back into its width (a
 	# scrollbar), and a re-placement inside the same message flush could cycle.
 	if _layout_pending:
@@ -1785,17 +1801,6 @@ func _place(p: HudPanel, x: float, y: float, w: float, maxh := -1.0) -> void:
 func _fit(c: Control, x: float, y: float) -> void:
 	c.position = Vector2(x, y)
 	c.size = c.get_combined_minimum_size()
-
-func _lay_el(e: El, x: float, y: float, w: float, maxh := -1.0) -> void:
-	e.base["maxh"] = maxh
-	e.cs["maxh"] = maxh
-	e.position = Vector2(x, y)
-	if not e.visible:
-		e.size = Vector2(w, 0)
-		return
-	e._ldirty = true
-	e.layout(w)
-	El.dirty_roots.erase(e)
 
 func _layout_all() -> void:
 	_layout_pending = false
@@ -1876,7 +1881,12 @@ func _layout_all() -> void:
 		var avail := W - card_l - card_r
 		cw = maxf(minf(avail, 880.0), 360.0)
 		cx = card_l + maxf((avail - cw) * 0.5, 0.0)
-	_lay_el(lesson_card, cx, 0, cw, cmax)
+	# the text scrolls inside the card once the card reaches its cap
+	var fixed := lesson_card.natural_height() - _lc_scroll.custom_minimum_size.y
+	if absf(_lc_scroll.cap - maxf(cmax - fixed, 40.0)) > 0.5:
+		_lc_scroll.cap = maxf(cmax - fixed, 40.0)
+		_lc_scroll._fit()
+	_place(lesson_card, cx, 0, cw)
 	lesson_card.position.y = H - 16.0 - lesson_card.size.y
 
 	# the start screen
