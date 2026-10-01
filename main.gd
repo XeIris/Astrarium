@@ -597,19 +597,17 @@ func update_suns() -> void:
 	for s in stars:
 		var L: float = float(U.nz(s.luminosity, Stellar.luminosity(s.mass))) * (s.activity.flux if s.activity != null else 1.0)
 		var d := maxf(home.pos.distance_to(s.pos), 1e-3) if home else 1.0
-		state.suns.append({
-			"body": s,
-			"pos_rel": s.scene_pos.rel_v3(cam_pos),
-			"pos_abs": s.scene_pos,
-			"color": Stellar.blackbody_color(float(U.nz(s.teff, Stellar.effective_temp(s.mass)))),
-			"intensity": L / (d * d) if home else L,
-			"dist_au": d,
-			# true angular RADIUS as rendered, for the sky pass
-			"ang_radius": atan(s.radius_scene / maxf(d * state.scene_scale, 1e-4)),
-			# and the physically true one, for the readout
-			"ang_true": atan(Physics.stellar_radius(s.mass) / d),
-		})
-	state.suns.sort_custom(func(a, b): return a.intensity > b.intensity)
+		var sun := VisualCtx.Sun.new()
+		sun.body = s
+		sun.pos_rel = s.scene_pos.rel_v3(cam_pos)
+		sun.pos_abs = s.scene_pos
+		sun.color = Stellar.blackbody_color(float(U.nz(s.teff, Stellar.effective_temp(s.mass))))
+		sun.intensity = L / (d * d) if home else L
+		sun.dist_au = d
+		sun.ang_radius = atan(s.radius_scene / maxf(d * state.scene_scale, 1e-4))
+		sun.ang_true = atan(Physics.stellar_radius(s.mass) / d)
+		state.suns.append(sun)
+	state.suns.sort_custom(func(a: VisualCtx.Sun, b: VisualCtx.Sun): return a.intensity > b.intensity)
 
 # Smallest resolved-needs timescale among bodies — the dynamical time of the
 # tightest/fastest pair (sim/derive.gd).
@@ -970,7 +968,7 @@ func aim_at_brightest_sun() -> void:
 	# prefer a sun that is actually above the horizon
 	var best = null
 	var best_score := -INF
-	for s in state.suns:
+	for s: VisualCtx.Sun in state.suns:
 		var d: Vector3 = (s.pos_abs as DVec3).sub(observer.eye).to_v3().normalized()
 		var elev := d.dot(up)
 		var score: float = s.intensity * (elev + 0.2) if elev > -0.05 else -1.0 + s.intensity * 1e-3
@@ -1221,7 +1219,7 @@ func update_hud(dt: float) -> void:
 	# --- star readout: what each sun actually is, and how bright it is here
 	if not state.suns.is_empty():
 		var rows := []
-		for s in state.suns:
+		for s: VisualCtx.Sun in state.suns:
 			var b: Body = s.body
 			rows.append({"name": b.name, "cls": U.nz(b.spectral, ""), "mass": b.mass, "teff": float(U.nz(b.teff, 0.0)),
 				"dist_au": s.dist_au, "intensity": s.intensity, "color": s.color,
@@ -1978,7 +1976,7 @@ func _stage_collapse(n: String) -> void:
 func set_local_time(when = "noon") -> void:
 	var home := get_home()
 	if home == null or home.viz == null or state.suns.is_empty(): return
-	var sun: Dictionary = state.suns[0]
+	var sun: VisualCtx.Sun = state.suns[0]
 	var g: Node3D = home.viz.group
 	var q := g.global_transform.basis.get_rotation_quaternion()
 	var sun_dir := (sun.pos_abs as DVec3).sub(home.scene_pos).to_v3().normalized()
@@ -2133,13 +2131,11 @@ func animate(dt: float) -> void:
 	# ---- place everything relative to the camera (the floating origin)
 	update_suns()
 	var holes := []
-	for h in get_holes():
-		holes.append({"pos_rel": h.scene_pos.rel_v3(cam_pos), "pos_abs": h.scene_pos, "rs_scene": h.rs_scene, "mass": h.mass, "body": h})
-	var ctx := {
-		"holes": holes, "camera": pipe.scene_cam, "cam_pos": cam_pos, "time": state.time,
-		"scene_scale": state.scene_scale, "sim_dt": sim_stepped, "suns": state.suns,
-		"climate": state.climate, "bodies": state.bodies, "viewport_h": float(pipe.view_size.y),
-	}
+	for h in get_holes(): holes.append(VisualCtx.Hole.of(h, h.scene_pos.rel_v3(cam_pos)))
+	var ctx := VisualCtx.new()
+	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
+	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
+	ctx.climate = state.climate; ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
 	for b in state.bodies:
 		if b.type == "bh":
 			b.rs_scene = b.rs * state.scene_scale

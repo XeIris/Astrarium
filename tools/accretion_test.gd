@@ -30,8 +30,9 @@ func _setup() -> void:
 	pipe.world_root.add_child(slab.node)
 
 func _step(dt: float) -> void:
-	var ctx := {"time": t, "sim_dt": 0.0, "camera": pipe.scene_cam, "cam_pos": cam_pos,
-		"holes": [{"pos_rel": hole.scene_pos.rel_v3(cam_pos), "rs_scene": 0.1, "mass": 10.0}]}
+	var ctx := VisualCtx.new()
+	ctx.time = t; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos
+	ctx.holes = [VisualCtx.Hole.of(hole, hole.scene_pos.rel_v3(cam_pos))]
 	for b in bodies:
 		b.viz.update(dt, ctx)
 	slab.update(bodies, cam_target.x, cam_target.z, dt, cam_pos)

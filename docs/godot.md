@@ -7,7 +7,7 @@ rules every change must follow are in the root [AGENTS.md](../AGENTS.md).
 
 ```
 main.gd        orchestrator: state, spawning, physics stepping, camera, UI bindings
-core/          DVec3, Body, SimState, U (helpers)
+core/          DVec3, Body, SimState, VisualCtx, U (helpers)
 render/        pipeline.gd, postfx.gd, lens_pass.gd, rd_util.gd, hook_effect.gd
 sim/           one domain per file; sim/flight/ is spaceflight
 shaders/       common/ sky/ lens/ post/ bodies/ flight/ ui/
@@ -144,22 +144,25 @@ The pass only renders outside visible light, so it costs nothing there.
 
 ```gdscript
 var group: Node3D            # added under pipe.world_root by the orchestrator
-func update(dt: float, ctx: Dictionary) -> void
+func update(dt: float, ctx: VisualCtx) -> void
 ```
 
 The orchestrator owns `group.position` (floating origin) and `group.scale`
 (size ease, oblateness). `b.scene_pos` (`DVec3`) is the body's absolute scene
 position.
 
-| `ctx` key | meaning |
+`VisualCtx` (`core/visual_ctx.gd`) is a typed class, so a misspelt field is a parse
+error rather than a silent null.
+
+| `ctx` field | meaning |
 |---|---|
-| `holes` | `[{pos_rel: Vector3, rs_scene, mass}]`, camera-relative |
+| `holes` | `[VisualCtx.Hole]` (`body, pos_rel, pos_abs, rs_scene, mass`), heaviest first |
 | `camera` | the Camera3D (at the origin; its basis is the view) |
 | `cam_pos` | `DVec3`, the camera's absolute scene position |
 | `time` | wall-clock seconds accumulated |
 | `scene_scale` | scene units per AU |
 | `sim_dt` | years integrated this frame |
-| `suns` | `[{body, pos_rel, color (linear), intensity, dist_au, ang_radius, ang_true}]` |
+| `suns` | `[VisualCtx.Sun]` (`body, pos_rel, pos_abs, color` (linear)`, intensity, dist_au, ang_radius, ang_true`), brightest first; `state.suns` is the same list |
 | `climate` | the home world's `Climate`, or null |
 | `bodies` | all bodies |
 | `viewport_h` | logical viewport height in px |

@@ -77,9 +77,9 @@ class WorldViz extends RefCounted:
 	func _u(m: ShaderMaterial, k: String) -> float:
 		return float(m.get_shader_parameter(k))
 
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		var b := body
-		var sim_dt := float(U.nz(ctx.get("sim_dt"), 0.0))
+		var sim_dt := ctx.sim_dt
 		# planet rotation — b.day_length is in years
 		var day := b.day_length if b.day_length != 0.0 else 0.01
 		# Wrap both phases (float32 rotation stops advancing past ~1e5). The cloud deck
@@ -93,7 +93,7 @@ class WorldViz extends RefCounted:
 		# uTime feeds non-periodic noise, so cap the sim-time term instead of wrapping it.
 		cloud_mat.set_shader_parameter("uTime", _u(cloud_mat, "uTime") + dt + minf(sim_dt * 40.0, 2.0))
 
-		var cl = ctx.get("climate")
+		var cl = ctx.climate
 		if cl != null:
 			# The EBM owns both mean temperature and glaciated fraction: the ice-albedo
 			# hysteresis means ice is state (a snowball stays frozen), not derivable from T.

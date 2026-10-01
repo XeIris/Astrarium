@@ -59,10 +59,10 @@ func _setup() -> void:
 	for s in cap.suns:
 		var star: Body = by_name.get(str(s.name))
 		var c: Array = s.color
-		suns_ctx.append({
-			"body": star, "pos_rel": DVec3.from_array(s.posScene).rel_v3(cam_pos),
-			"color": Color(c[0], c[1], c[2]), "intensity": float(s.intensity),
-		})
+		var sun := VisualCtx.Sun.stand_in(DVec3.from_array(s.posScene).rel_v3(cam_pos),
+			Color(c[0], c[1], c[2]), float(s.intensity))
+		sun.body = star
+		suns_ctx.append(sun)
 
 	for cb in cap.bodies:
 		var b: Body = by_name[str(cb.name)]
@@ -144,11 +144,10 @@ func update_camera() -> void:
 	pass   # the web camera, fixed
 
 func _step(step: float) -> void:
-	var ctx := {
-		"suns": suns_ctx, "holes": [], "bodies": all_bodies, "climate": cap.get("climate"),
-		"sim_dt": 0.0, "time": t, "scene_scale": scene_scale, "cam_pos": cam_pos,
-		"camera": pipe.scene_cam, "viewport_h": 720,
-	}
+	var ctx := VisualCtx.new()
+	ctx.suns = suns_ctx; ctx.bodies = all_bodies; ctx.climate = cap.get("climate")
+	ctx.time = t; ctx.scene_scale = scene_scale; ctx.cam_pos = cam_pos
+	ctx.camera = pipe.scene_cam; ctx.viewport_h = 720.0
 	for it in items:
 		it.viz.update(step, ctx)
 	painter.update(0.0, cam_pos)

@@ -281,13 +281,13 @@ class RockyViz extends RefCounted:
 	func _u(m: ShaderMaterial, k: String) -> float:
 		return float(m.get_shader_parameter(k))
 
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		var b := body
 		# Wrap both phases: past ~1e5 a float32 rotation stops advancing.
 		var parent: Body = null
 		var tl = opts.get("tidalLock")
-		if RockyVisual.truthy(tl) and ctx.has("bodies") and ctx.bodies != null:
-			for x in ctx.bodies:
+		if RockyVisual.truthy(tl):
+			for x: Body in ctx.bodies:
 				if x.name == tl:
 					parent = x
 					break
@@ -313,8 +313,7 @@ class RockyViz extends RefCounted:
 		if suns != null:
 			# Insolation from real stars, or the stand-in light's own intensity when there are
 			# none, so temperature and lighting agree.
-			var real_suns: bool = ctx.has("suns") and ctx.suns != null and not ctx.suns.is_empty()
-			var S: float = Suns.insolation_at(b, ctx.suns) if real_suns else float(suns[0].intensity)
+			var S: float = Suns.insolation_at(b, ctx.suns) if not ctx.suns.is_empty() else float(suns[0].intensity)
 			var T: float
 			if opts.get("surfaceK") != null:
 				T = float(opts.surfaceK)

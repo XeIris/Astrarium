@@ -252,8 +252,8 @@ class StarViz:
 		r = R
 		color_hex = U.hex_of(photo)
 
-	func update(dt: float, ctx: Dictionary) -> void:
-		var sim_dt: float = float(U.nz(ctx.get("sim_dt"), dt))
+	func update(dt: float, ctx: VisualCtx) -> void:
+		var sim_dt: float = ctx.sim_dt
 		time += dt
 		corona_time += dt
 		mat.set_shader_parameter("uTime", time)
@@ -375,7 +375,7 @@ class StarViz:
 			slot.core_mat.set_shader_parameter("uWidth", c.width * 0.55)
 
 		# --- brightness: slow pulsation + flare contribution
-		var pulse := 1.0 + sin(float(ctx.get("time", 0.0)) * 0.6 + body.id) * 0.02
+		var pulse := 1.0 + sin(ctx.time * 0.6 + body.id) * 0.02
 		core.scale = Vector3.ONE * pulse
 		mat.set_shader_parameter("uPulse", activity.flux)
 		# The corona billboard carries only streamers and the inner aureole; bloom makes the

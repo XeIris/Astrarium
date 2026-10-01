@@ -101,8 +101,8 @@ class LegacyStarViz:
 		r = R
 		color_hex = U.hex_of(col)
 
-	func update(dt: float, ctx: Dictionary) -> void:
-		var t: float = float(ctx.get("time", 0.0))
+	func update(dt: float, ctx: VisualCtx) -> void:
+		var t: float = ctx.time
 		time += dt
 		layer_time += dt * 0.6
 		mat.set_shader_parameter("uTime", time)
@@ -193,7 +193,7 @@ class PlainViz:
 		group.add_child(core)
 		base_r = R
 		r = R
-	func update(_dt: float, _ctx: Dictionary) -> void:
+	func update(_dt: float, _ctx: VisualCtx) -> void:
 		pass
 
 ## A planet viz with an accretion stream after its update(). Every property the
@@ -210,7 +210,7 @@ class AccretionWrap:
 		var g: Node3D = inner.get("group")
 		if g != null:
 			g.add_child(stream.points)
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		inner.update(dt, ctx)
 		Bodies.accrete(body, ctx, stream, dt)
 	func _get(property: StringName):
@@ -234,7 +234,7 @@ class HoleViz:
 	var is_star := false
 	var is_neutron := false
 	var stream = null
-	func update(_dt: float, _ctx: Dictionary) -> void:
+	func update(_dt: float, _ctx: VisualCtx) -> void:
 		pass
 
 static func create_black_hole(b: Body, _opts: Dictionary) -> HoleViz:
@@ -311,18 +311,18 @@ class AccretionStream:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arr, [], {},
 			Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 
-static func accrete(b: Body, ctx: Dictionary, stream: AccretionStream, dt: float) -> void:
+static func accrete(b: Body, ctx: VisualCtx, stream: AccretionStream, dt: float) -> void:
 	stream.step(dt)
-	var holes: Array = ctx.get("holes", [])
+	var holes: Array = ctx.holes
 	var viz = b.viz
 	if holes.is_empty() or viz == null or viz.get("is_hole"): return
 	var group: Node3D = viz.get("group")
 	var xf := group.global_transform if group.is_inside_tree() else group.transform
 	var wpos := xf.origin
-	var nearest = null
+	var nearest: VisualCtx.Hole = null
 	var nd := INF
-	for h in holes:
-		var d := (h.pos_rel as Vector3).distance_to(wpos)
+	for h: VisualCtx.Hole in holes:
+		var d := h.pos_rel.distance_to(wpos)
 		if d < nd: nd = d; nearest = h
 	if nearest == null: return
 	var R: float = float(U.nz(viz.get("r"), b.radius_scene))
@@ -332,7 +332,7 @@ static func accrete(b: Body, ctx: Dictionary, stream: AccretionStream, dt: float
 	if nd > reach: return
 	var strength := clampf(1.0 - (nd - rs_scene * 2.0) / reach, 0.0, 1.0)
 	# local-space direction toward hole
-	var hole_local: Vector3 = xf.affine_inverse() * (nearest.pos_rel as Vector3)
+	var hole_local: Vector3 = xf.affine_inverse() * nearest.pos_rel
 	var dir := hole_local.normalized() * (R * (4.0 + 6.0 * strength))
 	var emit_n := (1 + int(floor(strength * 2.0))) if randf() < strength * 0.9 else 0
 	var core = viz.get("core")

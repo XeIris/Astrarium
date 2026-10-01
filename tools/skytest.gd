@@ -219,8 +219,10 @@ func _setup_surface(path: String) -> void:
 		b.name = s.name
 		b.scene_pos = DVec3.from_array(s.posScene)
 		var c: Array = s.color
-		suns.append({"body": b, "color": Color(c[0], c[1], c[2]), "intensity": float(s.intensity),
-			"ang_radius": float(s.angRadius)})
+		var sun := VisualCtx.Sun.new()
+		sun.body = b; sun.color = Color(c[0], c[1], c[2]); sun.intensity = float(s.intensity)
+		sun.ang_radius = float(s.angRadius)
+		suns.append(sun)
 
 	observer = SkyView.SurfaceObserver.new()
 	var o: Dictionary = d.observer

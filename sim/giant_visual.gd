@@ -240,7 +240,7 @@ class GiantViz extends RefCounted:
 		internal = float(U.nz(opts.get("internalHeat"), 1.67))
 		b.viz = self
 
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		var b := body
 		b.spin_phase = fmod(b.spin_phase + float(b.spin) * dt, TAU)
 		body_mesh.rotation.y = b.spin_phase               # the core, and only the core
@@ -261,8 +261,7 @@ class GiantViz extends RefCounted:
 			if ring_mat != null: mats.append(ring_mat)
 			Suns.apply_suns(mats, suns, group.position)
 			# Effective temperature: what it absorbs plus what it makes.
-			var real_suns: bool = ctx.has("suns") and ctx.suns != null and not ctx.suns.is_empty()
-			var S: float = Suns.insolation_at(b, ctx.suns) if real_suns else float(suns[0].intensity)
+			var S: float = Suns.insolation_at(b, ctx.suns) if not ctx.suns.is_empty() else float(suns[0].intensity)
 			var Teq := 278.6 * pow(maxf(S, 1e-9) * (1.0 - albedo), 0.25)
 			mat.set_shader_parameter("uTeff", Teq * pow(internal, 0.25))
 			# Sun directions in the body frame; the group carries the tilt.

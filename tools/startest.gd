@@ -156,10 +156,9 @@ func update_camera() -> void:
 
 var _checked := false
 func _step(_dt: float) -> void:
-	var ctx := {
-		"holes": [], "camera": pipe.scene_cam, "cam_pos": cam_pos, "time": float(d.time),
-		"scene_scale": float(d.sceneScale), "sim_dt": 0.0, "viewport_h": viewport_h, "bodies": bodies,
-	}
+	var ctx := VisualCtx.new()
+	ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = float(d.time)
+	ctx.scene_scale = float(d.sceneScale); ctx.viewport_h = viewport_h; ctx.bodies = bodies
 	for b in bodies:
 		if b.viz != null:
 			b.viz.update(0.0, ctx)
