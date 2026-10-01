@@ -12,7 +12,7 @@ const MAX_SUNS := Suns.MAX_SUNS
 static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> void:
 	Suns.apply_suns(materials, suns, target_rel)
 
-static func create_world_visual(b: Body, opts: Dictionary = {}) -> WorldViz:
+static func create_world_visual(b: Body, opts: VisualOpts) -> WorldViz:
 	return WorldViz.new(b, opts)
 
 ## The visual object (docs/godot.md): group, core, surface, clouds, atmo,
@@ -31,24 +31,20 @@ class WorldViz extends RefCounted:
 	var is_world := true
 	var body: Body
 
-	func _init(b: Body, opts: Dictionary) -> void:
+	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
 		group = Node3D.new()
 		group.name = "World_%s" % b.name
-		R = float(opts.get("radiusScene", 1.0))
+		R = float(opts.radius_scene)
 		base_r = R
 		var seed := float(RockyVisual.id_hash(b.id) % 1000) / 7.3
 
-		surf_mat = RockyVisual.surface_material(seed, {
-			# A world the climate model is standing on is by construction one with
-			# oceans, air and life on it.
-			"continent": U.nz(opts.get("land"), 0.34),
-			"biota": 1.0,
-			"crater": 0.0,
-			"haze": 0.45,
-			"frostK": 273.0,
-			"transport": 0.42,
-		})
+		# A world the climate model is standing on is by construction one with oceans,
+		# air and life on it.
+		var surf := VisualOpts.new()
+		surf.continent = U.nz(opts.land, 0.34)
+		surf.biota = 1.0; surf.crater = 0.0; surf.haze = 0.45; surf.frost_k = 273.0; surf.transport = 0.42
+		surf_mat = RockyVisual.surface_material(seed, surf)
 		RockyVisual.bind_planet_map(surf_mat, b.name)
 		surface = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R, 96, 64), surf_mat)
 		surface.name = "Surface"
@@ -60,13 +56,13 @@ class WorldViz extends RefCounted:
 		clouds.name = "Clouds"
 		group.add_child(clouds)
 
-		atmo_mat = RockyVisual.atmosphere_material(opts.get("atmColor"))
+		atmo_mat = RockyVisual.atmosphere_material(opts.atm_color)
 		atmo = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.035, 72, 48), atmo_mat)
 		atmo.name = "Atmosphere"
 		group.add_child(atmo)
 
 		# Obliquity: seasons, and the pole-to-equator gradient (RockyVisual.insolation_s2).
-		var tilt := float(U.nz(opts.get("obliquity"), 0.35))
+		var tilt := float(U.nz(opts.obliquity, 0.35))
 		group.rotation.z = tilt
 		surf_mat.set_shader_parameter("uS2", RockyVisual.insolation_s2(tilt))
 

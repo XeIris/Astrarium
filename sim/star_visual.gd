@@ -112,7 +112,7 @@ static func _sphere(radius: float, radial: int, rings: int) -> SphereMesh:
 
 ## opts from attach_visual: radiusScene, teff, color (linear Color or null), oblate,
 ## spinFrac, tPole, tEq, gdBeta, radiusSun, quiet.
-static func create_star_visual(b: Body, opts: Dictionary) -> StarViz:
+static func create_star_visual(b: Body, opts: VisualOpts) -> StarViz:
 	var viz := StarViz.new(b, opts)
 	b.viz = viz
 	return viz
@@ -141,12 +141,12 @@ class StarViz:
 	var erupt: Array = []             # [{holder, rope, arcade}]
 	var cmes: Array = []              # [{holder, front, core, front_mat, core_mat, seed, time}]
 
-	func _init(b: Body, opts: Dictionary) -> void:
+	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
 		group = Node3D.new()
-		var R: float = opts.radiusScene
-		var teff: float = float(U.nz(opts.get("teff"), 5772.0))
-		var photo: Color = opts.color if opts.get("color") is Color else Stellar.blackbody_color(teff)
+		var R: float = opts.radius_scene
+		var teff: float = float(U.nz(opts.teff, 5772.0))
+		var photo: Color = opts.color if opts.color is Color else Stellar.blackbody_color(teff)
 		hot = Stellar.corona_color(teff)
 
 		# Limb darkening is stronger for cool stars, weaker for hot ones.
@@ -155,19 +155,19 @@ class StarViz:
 		mat = StarVisual._photosphere_material(photo, hot, limb_u)
 		mat.set_shader_parameter("uTeff", teff)
 		# Rotation, from the structure model (sim/structure.gd) via sim/bodies.gd.
-		var spin := clampf(float(U.nz(opts.get("spinFrac"), 0.0)), 0.0, 1.0)
+		var spin := clampf(float(U.nz(opts.spin_frac, 0.0)), 0.0, 1.0)
 		mat.set_shader_parameter("uSpin", spin)
-		mat.set_shader_parameter("uGdBeta", float(U.nz(opts.get("gdBeta"), 0.25)))
-		var t_pole = opts.get("tPole")
-		var t_eq = opts.get("tEq")
+		mat.set_shader_parameter("uGdBeta", float(U.nz(opts.gd_beta, 0.25)))
+		var t_pole = opts.t_pole
+		var t_eq = opts.t_eq
 		mat.set_shader_parameter("uTpole", float(U.nz(t_pole, teff)))
-		# `opts.tPole ? … : photo` — a 0 or missing temperature falls back.
+		# `opts.t_pole ? … : photo` — a 0 or missing temperature falls back.
 		mat.set_shader_parameter("uColPole", StarVisual._v3(Stellar.blackbody_color(t_pole) if (t_pole != null and t_pole > 0) else photo))
 		mat.set_shader_parameter("uColEq", StarVisual._v3(Stellar.blackbody_color(t_eq) if (t_eq != null and t_eq > 0) else photo))
 		omega = Stellar.rotation_rate(b.mass) * 0.02   # slowed for legibility
 		mat.set_shader_parameter("uOmega", omega)
 		# Granule size from the pressure scale height (a red supergiant has a few vast cells).
-		var rad_sun: float = float(U.nz(opts.get("radiusSun"), (b.radius / 0.00465047) if b.radius > 0.0 else 1.0))
+		var rad_sun: float = float(U.nz(opts.radius_sun, (b.radius / 0.00465047) if b.radius > 0.0 else 1.0))
 		mat.set_shader_parameter("uGranScale", StarVisual._structure("granule_frequency",
 			[teff, rad_sun, b.mass], StarVisual._granule_frequency))
 		# Disc brightness from Stefan–Boltzmann (0.15 to 200 across the sim's stars), carried
@@ -186,7 +186,7 @@ class StarViz:
 
 		# Corona billboard: the quad spans ±1 and uCore is the photosphere's radius in quad
 		# units. Sized to the largest radius (up to 1.5 R at the equator), not the polar one.
-		var Rmax: float = R * float(U.nz(opts.get("oblate"), 1.0))
+		var Rmax: float = R * float(U.nz(opts.oblate, 1.0))
 		var CORONA_SPAN := 4.0                       # in stellar radii
 		corona_mat = StarVisual._corona_material(hot)
 		corona_mat.set_shader_parameter("uSize", Rmax * CORONA_SPAN)
@@ -243,7 +243,7 @@ class StarViz:
 
 		activity = Stellar.ActivityModel.new(b.mass)
 		# Degenerate stars have no dynamo: no spots, no flares.
-		if opts.get("quiet", false):
+		if opts.quiet:
 			activity.regions.clear()
 			activity.next = INF
 		b.activity = activity

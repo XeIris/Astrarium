@@ -213,31 +213,30 @@ func attach_visual(b: Body) -> void:
 	if is_star_like and b.teff != null:
 		gd = Structure.gravity_darkened_temps(float(b.teff), b.spin_frac)
 	var flat: float = float(st.get("flattening", 0.0)) if st else 0.0
-	var opts := {
-		"radiusScene": radius_scene,
-		"oblate": 1.0 / (1.0 - flat) if flat else 1.0,
-		"spinFrac": b.spin_frac,
-		"tPole": gd.tPole if gd else null, "tEq": gd.tEq if gd else null, "gdBeta": gd.beta if gd else null,
-		"radiusSun": b.radius_sun if b.radius_sun != null else (b.radius / Physics.AU_PER_RSUN if b.radius else null),
-		"color": star_color if is_star_like else U.nz(spec.get("color"), def.color),
-		"teff": b.teff,
-		"glow": U.nz(spec.get("glow"), def.glow),
-		"seed": spec.get("seed"),
-		"obliquity": spec.get("obliquity"), "tidalLock": spec.get("tidalLock"),
-		"paletteName": spec.get("palette"),
-		"hot": spec.get("hot"), "atmosphere": spec.get("atmosphere"), "atmColor": spec.get("atmColor"),
-		"seaLevel": spec.get("seaLevel"), "rings": spec.get("rings"), "ringColor": spec.get("ringColor"),
-		# Surface/atmosphere model parameters. Every one of them has a physical
-		# default, so a preset only names the ones where the body is unusual.
-		"land": spec.get("land"), "albedo": spec.get("albedo"), "greenhouse": spec.get("greenhouse"),
-		"surfaceK": spec.get("surfaceK"), "frostK": spec.get("frostK"), "biota": spec.get("biota"),
-		"crater": spec.get("crater"), "regolith": spec.get("regolith"), "haze": spec.get("haze"),
-		"cloudCover": spec.get("cloudCover"), "cloudColor": spec.get("cloudColor"), "atmThick": spec.get("atmThick"),
-		"ringInner": spec.get("ringInner"), "ringOuter": spec.get("ringOuter"),
-		"internalHeat": spec.get("internalHeat"), "vortices": spec.get("vortices"),
-		"transport": spec.get("transport"), "season": spec.get("season"), "arid": spec.get("arid"),
-		"plateScale": spec.get("plateScale"), "landRelief": spec.get("landRelief"), "oceanDepth": spec.get("oceanDepth"),
-	}
+	var opts := VisualOpts.new()
+	opts.radius_scene = radius_scene
+	opts.oblate = 1.0 / (1.0 - flat) if flat else 1.0
+	opts.spin_frac = b.spin_frac
+	if gd: opts.t_pole = gd.tPole; opts.t_eq = gd.tEq; opts.gd_beta = gd.beta
+	opts.radius_sun = b.radius_sun if b.radius_sun != null else (b.radius / Physics.AU_PER_RSUN if b.radius else null)
+	opts.color = star_color if is_star_like else U.nz(spec.get("color"), def.color)
+	opts.teff = b.teff
+	opts.glow = U.nz(spec.get("glow"), def.glow)
+	opts.spec_seed = spec.get("seed")
+	opts.obliquity = spec.get("obliquity"); opts.tidal_lock = spec.get("tidalLock")
+	opts.palette_name = spec.get("palette")
+	opts.hot = spec.get("hot"); opts.atmosphere = spec.get("atmosphere"); opts.atm_color = spec.get("atmColor")
+	opts.sea_level = spec.get("seaLevel"); opts.rings = spec.get("rings"); opts.ring_color = spec.get("ringColor")
+	# Surface/atmosphere model parameters. Every one of them has a physical
+	# default, so a preset only names the ones where the body is unusual.
+	opts.land = spec.get("land"); opts.albedo = spec.get("albedo"); opts.greenhouse = spec.get("greenhouse")
+	opts.surface_k = spec.get("surfaceK"); opts.frost_k = spec.get("frostK"); opts.biota = spec.get("biota")
+	opts.crater = spec.get("crater"); opts.regolith = spec.get("regolith"); opts.haze = spec.get("haze")
+	opts.cloud_cover = spec.get("cloudCover"); opts.cloud_color = spec.get("cloudColor"); opts.atm_thick = spec.get("atmThick")
+	opts.ring_inner = spec.get("ringInner"); opts.ring_outer = spec.get("ringOuter")
+	opts.internal_heat = spec.get("internalHeat"); opts.vortices = spec.get("vortices")
+	opts.transport = spec.get("transport"); opts.season = spec.get("season"); opts.arid = spec.get("arid")
+	opts.plate_scale = spec.get("plateScale"); opts.land_relief = spec.get("landRelief"); opts.ocean_depth = spec.get("oceanDepth")
 	var viz = Bodies.create_body_visual(b, opts)
 	b.viz = viz
 	var g: Node3D = viz.group

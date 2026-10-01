@@ -7,7 +7,7 @@ rules every change must follow are in the root [AGENTS.md](../AGENTS.md).
 
 ```
 main.gd        orchestrator: state, spawning, physics stepping, camera, UI bindings
-core/          DVec3, Body, SimState, VisualCtx, U (helpers)
+core/          DVec3, Body, SimState, VisualCtx, VisualOpts, U (helpers)
 render/        pipeline.gd, postfx.gd, lens_pass.gd, rd_util.gd, hook_effect.gd
 sim/           one domain per file; sim/flight/ is spaceflight
 shaders/       common/ sky/ lens/ post/ bodies/ flight/ ui/

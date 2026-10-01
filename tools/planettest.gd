@@ -73,12 +73,12 @@ func _setup() -> void:
 		b.day_length = float(cb.dayLength)
 		b.radius = float(cb.radius)
 		var spec: Dictionary = cb.spec
-		var opts := opts_from_spec(spec, float(cb.radiusScene), cb.defColor)
+		var opts := VisualOpts.from_dict(opts_from_spec(spec, float(cb.radiusScene), cb.defColor))
 		var viz
 		match b.type:
 			"world": viz = WorldVisual.create_world_visual(b, opts)
 			"gas-giant":
-				opts["giantPalette"] = GiantVisual.GIANT_PALETTES.get(str(U.nz(opts.get("paletteName"), "jupiter")), GiantVisual.GIANT_PALETTES.jupiter)
+				opts.giant_palette = GiantVisual.GIANT_PALETTES.get(str(U.nz(opts.palette_name, "jupiter")), GiantVisual.GIANT_PALETTES.jupiter)
 				viz = GiantVisual.create_giant_visual(b, opts)
 			_: viz = RockyVisual.create_rocky_visual(b, opts)
 		pipe.world_root.add_child(viz.group)

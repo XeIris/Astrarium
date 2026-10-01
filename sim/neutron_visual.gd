@@ -167,7 +167,7 @@ static func _beam_cone(open: float, length: float, radial: int = 40, rows: int =
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return m
 
-static func create_neutron_visual(b: Body, opts: Dictionary) -> NeutronViz:
+static func create_neutron_visual(b: Body, opts: VisualOpts) -> NeutronViz:
 	var viz := NeutronViz.new(b, opts)
 	b.viz = viz
 	return viz
@@ -191,10 +191,10 @@ class NeutronViz:
 	var time := 0.0                 # surface uTime
 	var beam_time := 0.0
 
-	func _init(b: Body, opts: Dictionary) -> void:
+	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
 		group = Node3D.new()
-		var R: float = opts.radiusScene
+		var R: float = opts.radius_scene
 
 		# r_s/R for a real neutron star: r_s ≈ 4.1 km per M☉, R ≈ 12 km ⇒ ~0.4 at
 		# 1.4 M☉. Taken from the body's own numbers when they exist.

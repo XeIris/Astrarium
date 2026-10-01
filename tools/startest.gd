@@ -61,7 +61,7 @@ func _setup() -> void:
 			var o: Dictionary = e.opts.duplicate()
 			o.color = _col(o.get("color"))
 			if o.get("glow") != null: o.glow = int(o.glow)
-			var viz = Bodies.create_body_visual(b, o)
+			var viz = Bodies.create_body_visual(b, VisualOpts.from_dict(o))
 			viz.group.scale = Vector3(e.scale[0], e.scale[1], e.scale[2])
 			viz.group.set_meta("base_scale", float(e.scale[0]))
 			pipe.world_root.add_child(viz.group)
