@@ -6,17 +6,16 @@ extends Node
 #   PORT=8803 WEB_ROOT=<checkout> node tools/webref.mjs /tmp/fd/shots.json /tmp/fd/web
 #   Godot --path . res://tools/foundrytest.tscn -- fix=/tmp/fd/web state=xsec_sun out=/tmp/fd/godot/xsec_sun.png
 #
-# The web shots isolate one panel at (20, 20) on the page background; this
-# builds the same panel around the same component, fed from the fixture the
-# web page dumped (<state>.json):
-#   xsec_*  the cross-section panel exactly as ui/hud.gd builds it, with the
-#           inspector created the way main.gd creates it (ONE mount, the
-#           xsecCanvas slot) and the live editor synced to a Body carrying
-#           the web body's fields. The structure is recomputed HERE from the
-#           same structureOf query refreshStructure built on the web, so the
-#           diagram is also a check on sim/structure.gd.
-#   fd_*    a 300 px .panel with the Foundry in it, driven to the same type
-#           and slider values.
+# The web shots isolate one panel on the page background; this puts a real Hud
+# in a viewport with only that panel open, fed from the fixture the web page
+# dumped (<state>.json):
+#   xsec_*  the cross-section panel, with the inspector and live editor created
+#           exactly as main.gd creates them (the xsecCanvas and liveEdit mounts),
+#           the editor synced to a Body carrying the web body's fields. The
+#           structure is recomputed HERE from the same structureOf query, so
+#           the diagram is also a check on sim/structure.gd.
+#   fd_*    the control panel with only the Foundry section open, driven to the
+#           same type and slider values.
 # It prints the facts and verdict text beside the web's, the Foundry's spawn
 # spec beside the one the web actually spawned, and the measured rects. The
 # picture is rendered in a fixed 400 × 1400 SubViewport (the window may be
@@ -27,12 +26,13 @@ extends Node
 #              picked mass, and the slider drag must coalesce into one patch.
 
 const T = preload("res://ui/theme.gd")
-const C = preload("res://ui/hud_css.gd")
 
 var args := {}
 var d: Dictionary
 var vp: SubViewport
-var panel: El
+var hud: Hud
+var panel: Control
+var cut_root: HudStack
 var frame := 0
 var frames := 6
 var edits: Array = []
@@ -40,7 +40,6 @@ var foundry = null
 var inspector = null
 var live = null
 var body: Body = null
-var mounts := {}
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -57,7 +56,6 @@ func _ready() -> void:
 		return
 	d = JSON.parse_string(f.get_as_text())
 	HudBlur.enabled = false
-	El.scrollbars = false
 	get_window().content_scale_factor = 1.0
 
 	vp = SubViewport.new()
@@ -74,40 +72,28 @@ func _ready() -> void:
 	bg.size = Vector2(vp.size)
 	root.add_child(bg)
 
-	if state.begins_with("xsec"):
-		_build_xsec(root)
-	elif state.begins_with("cut"):
+	if state.begins_with("cut"):
 		_build_cut(root)
 	else:
-		_build_foundry(root)
+		hud = Hud.new()
+		root.add_child(hud)
+		hud.start_screen.visible = false
+		for id in ["scenarioPanel", "settingsPanel", "controlPanel", "xsecPanel"]:
+			hud.set_panel_open(id, false)
+		if state.begins_with("xsec"):
+			_build_xsec()
+		else:
+			_build_foundry()
 	if args.get("behave", "0") == "1":
 		_behaviour.call_deferred()
 
-# ---- the cross-section panel, as ui/hud.gd's _build_xsec_panel -----------------
-func _E(parent: Node, style: Dictionary = {}, text = null) -> El:
-	return Foundry.E(parent, style, text)
-
-func _build_xsec(root: Control) -> void:
-	panel = _E(root, C.merge(C.panel(348.0), {"scroll": false}))
-	panel.is_root = true
-	var head := _E(panel, C.PANEL_HEAD)
-	_E(head, C.merge(C.h3(true), {"grow": 1.0, "basis": 0.0, "minw": 0.0}), "Cross-section")
-	Foundry.B(head, C.panel_close(), "✕")
-	var name_el := _E(panel, {"fs": 11.0, "c": T.ACCENT, "ls": C.em(0.08, 11), "mb": 8.0, "up": true}, "—")
-	var ed := _E(panel, {"b": [1, T.BORDER], "bl": 2.0, "bcl": T.ACCENT, "bg": Color(1, 1, 1, 0.02), "p": [9, 10, 2, 10], "mb": 10.0})
-	_E(ed, C.merge(C.section_note(), {"mb": 9.0}), "Editing is the same operation as building — the object is re-derived and its limits rechecked immediately. The curve is R(M) for this body's own composition and spin; drag the handle along it. Dashed lines are where the model changes its mind about what this is.")
-	mounts.liveEdit = _E(ed)
-	for id in ["xsecCanvas", "xsecLegend", "xsecVerdict", "xsecFacts", "xsecNotes"]:
-		var st := {}
-		if id == "xsecCanvas": st = {"aspect": 260.0 / 330.0, "b": [1, T.BORDER], "bg": T.rgba(0, 0, 0, 0.42)}
-		if id == "xsecLegend": st = {"aspect": 26.0 / 330.0, "m": [4, 0, 8, 0]}
-		var e := _E(panel, st)
-		e.el_id = id
-		mounts[id] = e
-
+# ---- the cross-section panel --------------------------------------------------------
+func _build_xsec() -> void:
+	hud.set_panel_open("xsecPanel", true)
+	panel = hud.xsec_panel
 	# exactly main.gd's calls
-	inspector = Foundry.create_inspector({"mount": mounts.xsecCanvas})
-	live = Foundry.create_live_editor({"mount": mounts.liveEdit, "on_edit": func(b, patch): edits.append(patch)})
+	inspector = Foundry.create_inspector({"mount": hud.mount("xsecCanvas")})
+	live = Foundry.create_live_editor({"mount": hud.mount("liveEdit"), "on_edit": func(b, patch): edits.append(patch)})
 
 	var q: Dictionary = d.q
 	var st := Structure.structure_of(q)
@@ -119,7 +105,7 @@ func _build_xsec(root: Control) -> void:
 	body.composition = bd.get("composition")
 	body.Z = float(U.nz(bd.get("Z"), 0.014))
 	body.structure = st
-	name_el.set_text("#%d %s" % [body.id, body.name])
+	hud.set_text("xsecName", "#%d %s" % [body.id, body.name])
 	inspector.show(st, st.get("label"))
 	if d.get("focus", false):
 		live._toggle_focus()
@@ -131,7 +117,7 @@ func _build_xsec(root: Control) -> void:
 	var vt := ""
 	if v is Dictionary: vt = str(v.label).to_upper() + str(v.detail)
 	_compare_text("verdict", [str(d.verdict).to_upper()], [vt.to_upper()])
-	_compare_text("near", [str(d.near).replace("\n", " ").replace("  ", " ")], [live.near_el.get_text()])
+	_compare_text("near", [str(d.near).replace("\n", " ").replace("  ", " ")], [live.near_el.get_parsed_text()])
 
 static func _facts_text(F: Array) -> Array:
 	var o: Array = []
@@ -154,15 +140,15 @@ func _compare_text(what: String, web: Array, gd: Array) -> void:
 
 # ---- the 3D cutaway ----------------------------------------------------------------
 var cut: Cutaway
-var cut_legend: El
+var cut_legend: HudStack
 
 func _build_cut(root: Control) -> void:
 	# the same fixed canvas and legend the web shot places at (20, 20)
-	panel = _E(root, {"w": 320.0})
-	panel.is_root = true
-	cut = Cutaway.create_cutaway({"style": {"bg": T.rgba(4, 6, 10, 0.55)}})
-	panel.add_child(cut)
-	cut_legend = _E(panel, {"fs": 12.0})
+	cut_root = HudStack.new(false)
+	root.add_child(cut_root)
+	cut = Cutaway.create_cutaway({"bg": T.rgba(4, 6, 10, 0.55)})
+	cut_root.add_child(cut)
+	cut_legend = Hud.stack(cut_root, 4.0)
 	cut.set_spin(false)
 	cut.nudge(0.6)
 	cut.show_structure(Structure.structure_of(d.q))
@@ -173,18 +159,19 @@ func _build_cut(root: Control) -> void:
 	_compare_text("legend", d.legend, mine)
 
 # ---- the Foundry ------------------------------------------------------------------
-func _build_foundry(root: Control) -> void:
-	panel = _E(root, C.merge(C.panel(300.0), {"scroll": false}))
-	panel.is_root = true
-	var m := _E(panel)
+func _build_foundry() -> void:
+	hud.set_panel_open("controlPanel", true)
+	for sec in hud.sections:
+		hud.set_section_open(sec, sec.title == "Object Foundry")
+	panel = hud.control_panel
 	var spawned: Array = []
-	foundry = Foundry.create_foundry({"mount": m, "on_spawn": func(spec, st): spawned.append(spec)})
+	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": func(spec, st): spawned.append(spec)})
 	foundry.set_type(str(d.type))
 	var sl: Dictionary = d.slider
-	foundry.rows.mass.set_value(float(sl.mass))
-	foundry.rows.spin.set_value(float(sl.spin))
-	foundry.rows.phase.set_value(float(sl.phase))
-	foundry.rows.z.set_value(float(sl.Z))
+	foundry.rows.mass.set_v(float(sl.mass))
+	foundry.rows.spin.set_v(float(sl.spin))
+	foundry.rows.phase.set_v(float(sl.phase))
+	foundry.rows.z.set_v(float(sl.Z))
 	foundry.rows.comp.set_value(str(sl.comp))
 	foundry.update()
 	_compare_text("facts", d.facts, _facts_text(CrossSection.structure_facts(foundry.structure)))
@@ -244,12 +231,11 @@ func _behaviour() -> void:
 		print("behave: nearest mark from the start = %s" % JSON.stringify(curve.nearest(body.mass)))
 
 func _process(_dt: float) -> void:
-	if panel == null:
+	if panel == null and cut_root == null:
 		return
-	panel.position = Vector2(20, 20)
-	panel.layout(panel.gf("w"))
-	El.any_dirty = false
-	El.dirty_roots.clear()
+	if cut_root != null:
+		cut_root.position = Vector2(20, 20)
+		cut_root.size = Vector2(320.0, cut_root.get_combined_minimum_size().y)
 	frame += 1
 	if frame == frames:
 		_report_rects()
@@ -266,7 +252,6 @@ func _process(_dt: float) -> void:
 func _report_rects() -> void:
 	var R: Dictionary = d.get("rects", {})
 	var mine := {"xsecPanel": panel, "fdTest": panel}
-	for k in mounts: mine[k] = mounts[k]
 	if live:
 		mine["leCurve"] = live.curve; mine["leNear"] = live.near_el; mine["leFocus"] = live.focus_btn
 		mine["leComp"] = live.rows.comp

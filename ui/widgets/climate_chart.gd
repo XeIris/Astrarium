@@ -1,5 +1,5 @@
 class_name ClimateChart
-extends El
+extends HudCanvas
 
 # The climate chart: insolation and temperature scrolling, so the ocean's lag shows
 # (temperature is a delayed, smoothed echo of flux). Drawn at a 290 × 86 bitmap
@@ -10,10 +10,8 @@ const CH := 86.0
 
 var history: Array = []     # [[t, S, T], ...]
 
-func _init(style: Dictionary = {}) -> void:
-	var s := {"h": 86.0, "b": [1, HudTheme.BORDER], "bg": HudTheme.rgba(0, 0, 0, 0.35)}
-	s.merge(style, true)
-	super(s)
+func _init() -> void:
+	super(0.0, 86.0, HudTheme.rgba(0, 0, 0, 0.35), HudTheme.BORDER)
 
 func set_history(h: Array) -> void:
 	history = h
@@ -24,13 +22,13 @@ static func fmt_years(y: float) -> String:
 	if y < 1000.0: return "%s yr" % U.fixed(y, 2)
 	return "%s kyr" % U.fixed(y / 1000.0, 2)
 
-func _draw_extra() -> void:
+func _draw_content() -> void:
 	var hist := history
 	if hist.size() < 2:
 		return
-	var inner := Rect2(Vector2(gf("bl"), gf("bt")), size - Vector2(gf("bl") + gf("br"), gf("bt") + gf("bb")))
-	var k := Vector2(inner.size.x / CW, inner.size.y / CH)
-	draw_set_transform(inner.position, 0.0, k)
+	var box := inner()
+	var k := Vector2(box.size.x / CW, box.size.y / CH)
+	draw_set_transform(box.position, 0.0, k)
 	var w := CW; var h := CH
 	var t0: float = hist[0][0]; var t1: float = hist[-1][0]
 	var span := maxf(t1 - t0, 1e-6)

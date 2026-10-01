@@ -1,14 +1,16 @@
 class_name StartIcon
-extends El
+extends Control
 
-# The three start-card icons from the page's SVG: a 64-unit viewBox at 46 px in the
-# accent colour, arcs and cubics flattened to polylines.
+# The three start-card icons: a 64-unit drawing at 46 px in the accent colour, arcs
+# and cubics flattened to polylines.
 
 var kind := "sandbox"
 
 func _init(k: String) -> void:
 	kind = k
-	super({"w": 46.0, "h": 46.0, "mb": 14.0})
+	custom_minimum_size = Vector2(46, 46)
+	size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 static func _ellipse(c: Vector2, rx: float, ry: float, n := 72) -> PackedVector2Array:
 	var p := PackedVector2Array()
@@ -25,7 +27,7 @@ static func _cubic(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, n := 16) 
 		out.append(u * u * u * p0 + 3.0 * u * u * t * p1 + 3.0 * u * t * t * p2 + t * t * t * p3)
 	return out
 
-func _draw_extra() -> void:
+func _draw() -> void:
 	var col: Color = HudTheme.ACCENT
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(46.0 / 64.0, 46.0 / 64.0))
 	var c := Vector2(32, 32)

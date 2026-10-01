@@ -392,23 +392,20 @@ static func draw_temp_legend(ci: CanvasItem, W: float, H: float) -> void:
 		var al := "left" if x < W * 0.2 else ("right" if x > W * 0.8 else "center")
 		fill_text(ci, tk[1], minf(maxf(x, 1.0), W - 1.0), barH + 12.0, 8, col, al)
 
-# The canvases as El nodes (`width: 100%; height: auto` over a W × H bitmap). The
-# diagram is painted into a SubViewport at bitmap size, only when it changes, and
-# drawn into the content box with linear filtering, reproducing the resampling
-# (330 → 314 px) the reference has. Composited premultiplied, as a transparent 2D
-# viewport stores it.
-class BitmapCanvas extends El:
+# The canvases: full width over a W × H bitmap. The diagram is painted into a
+# SubViewport at bitmap size, only when it changes, and drawn into the content box
+# with linear filtering (330 → 314 px is a resample). Composited premultiplied, as a
+# transparent 2D viewport stores it.
+class BitmapCanvas extends HudCanvas:
 	var bw := 300.0
 	var bh := 230.0
 	var _vp: SubViewport
 	var _painter: _Painter
 	var _tex: TextureRect
 
-	func _init(w: float, h: float, style: Dictionary = {}) -> void:
+	func _init(w: float, h: float, bg_col := HudTheme.CLEAR, border_col := HudTheme.CLEAR) -> void:
 		bw = w; bh = h
-		var s := {"aspect": h / w}
-		s.merge(style, true)
-		super(s)
+		super(h / w, -1.0, bg_col, border_col)
 		_vp = SubViewport.new()
 		_vp.transparent_bg = true
 		_vp.disable_3d = true
@@ -434,7 +431,7 @@ class BitmapCanvas extends El:
 		bw = w; bh = h
 		_vp.size = Vector2i(int(w), int(h))
 		_painter.size = Vector2(w, h)
-		set_style({"aspect": h / w})
+		set_aspect(h / w)
 		repaint()
 
 	## The drawing changed: paint the bitmap again (once).
@@ -443,13 +440,9 @@ class BitmapCanvas extends El:
 		_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 		queue_redraw()
 
-	## The content box (inside the border).
-	func inner() -> Rect2:
-		return Rect2(Vector2(gf("bl"), gf("bt")), size - Vector2(gf("bl") + gf("br"), gf("bt") + gf("bb")))
-
-	func _draw_extra() -> void:
-		# the bitmap's box, snapped to device pixels as the compositor does
-		var r := _snap(inner())
+	func _draw_content() -> void:
+		# the bitmap's box, snapped to device pixels as a compositor does
+		var r := snap_rect(inner())
 		_tex.position = r.position
 		_tex.size = r.size
 
@@ -473,8 +466,8 @@ class XsecCanvas extends BitmapCanvas:
 	var st: Dictionary = {}
 	var opts: Dictionary = {}
 	var _sig := ""
-	func _init(w := 330.0, h := 260.0, style: Dictionary = {}) -> void:
-		super(w, h, style)
+	func _init(w := 330.0, h := 260.0, bg_col := HudTheme.CLEAR, border_col := HudTheme.CLEAR) -> void:
+		super(w, h, bg_col, border_col)
 	func set_structure(structure: Dictionary, o: Dictionary = {}) -> void:
 		# the inspector re-shows the focused body ten times a second; a
 		# structure that has not changed needs no new bitmap
@@ -488,8 +481,8 @@ class XsecCanvas extends BitmapCanvas:
 		CrossSection.draw_cross_section(ci, bw, bh, st, opts)
 
 class LegendCanvas extends BitmapCanvas:
-	func _init(w := 330.0, h := 26.0, style: Dictionary = {}) -> void:
-		super(w, h, style)
+	func _init(w := 330.0, h := 26.0) -> void:
+		super(w, h)
 		repaint()
 	func _paint(ci: CanvasItem) -> void:
 		CrossSection.draw_temp_legend(ci, bw, bh)

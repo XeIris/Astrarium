@@ -1,14 +1,12 @@
 class_name IconSwatch
-extends El
+extends TextureRect
 
-# A fixed-size picture inside the HUD's box model — the settings panel's app
-# icon choices. El draws boxes and text only; this is the one thing it cannot.
-
-var tex: Texture2D
+# A fixed-size picture in a row: the settings panel's app icon choices.
 
 func _init(t: Texture2D, px := 28.0) -> void:
-	tex = t
-	super({"w": px, "h": px})
-
-func _draw_extra() -> void:
-	if tex != null: draw_texture_rect(tex, Rect2(Vector2.ZERO, size), false)
+	texture = t
+	expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	stretch_mode = TextureRect.STRETCH_SCALE
+	custom_minimum_size = Vector2(px, px)
+	size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
