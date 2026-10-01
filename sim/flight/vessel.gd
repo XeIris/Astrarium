@@ -18,8 +18,8 @@ extends RefCounted
 # DQuat.nrm / set_len / angle_between reproduce three.js's arithmetic, since
 # trajectories are diffed against flightref.mjs. The scratch vectors are static
 # and shared, and callers pass them in as `dir`/`out` on purpose. `log_event`, not
-# `log` (that would shadow the math function). Telemetry and samples are
-# Dictionaries with camelCase keys, read by name by the HUD.
+# `log` (that would shadow the math function). Telemetry is a Dictionary with
+# camelCase keys, read by name by the HUD.
 
 const PHASE := {
 	"PRELAUNCH": "prelaunch", "ASCENT": "ascent", "COAST": "coast", "ORBIT": "orbit",
@@ -58,6 +58,30 @@ static var _k_a3 := DVec3.new()
 static var _k_a4 := DVec3.new()
 
 static var _next_vessel_id := 1
+
+## What accel() saw at one trial state; sample() turns the last one into telemetry
+## and check_structure() judges it.
+class Sample extends RefCounted:
+	var q: float = 0.0          # dynamic pressure, Pa
+	var mach: float = 0.0
+	var drag: float = 0.0       # N
+	var heat: float = 0.0       # W/m²
+	var pa: float = 0.0         # ambient pressure, Pa
+	var thrust: float = 0.0     # N
+	var mdot: float = 0.0       # kg/s
+	var isp: float = 0.0        # s
+	var plume = null            # the first lit engine's plume Dictionary
+	var engines: int = 0
+	var gees: float = 0.0       # sensed acceleration, g (set by sample())
+	var alpha: float = 0.0      # angle of attack, rad (set by sample())
+
+## Every lit stage together; `plume` is the first one's look.
+class Propulsion extends RefCounted:
+	var F: float = 0.0
+	var mdot: float = 0.0
+	var isp: float = 0.0
+	var plume = null
+	var count: int = 0
 
 ## One stage's live state: `pending` until ignition, `live` while attached, gone
 ## once jettisoned. Propellant is per stage.
@@ -253,16 +277,15 @@ func live_stages() -> Array:
 
 ## A photon drive holds constant proper acceleration: F = m·a, ṁ = F/c. The plate's
 ## rating is a ceiling, so a ship too heavy for it accelerates at less.
-func photon_output(engine: Dictionary, n: float) -> Dictionary:
+func photon_output(engine: Dictionary, n: float) -> Rocketry.Thrust:
 	var th: float = 0.0 if throttle <= 0.0 \
 		else minf(maxf(throttle, engine.get("throttleMin", 1.0)), engine.get("maxThrottle", 1.0))
-	if th <= 0.0 or n <= 0.0: return { "F": 0.0, "mdot": 0.0, "isp": engine.ispVac, "throttle": 0.0 }
+	if th <= 0.0 or n <= 0.0: return Rocketry.Thrust.of(0.0, 0.0, engine.ispVac, 0.0)
 	var F: float = minf(engine.holdAccel * maxf(mass, 1.0), engine.thrustVac * n) * th
-	return { "F": F, "mdot": F / Rocketry.C_MS, "isp": engine.ispVac, "throttle": th }
+	return Rocketry.Thrust.of(F, F / Rocketry.C_MS, engine.ispVac, th)
 
 ## Total thrust (N) and flow (kg/s) right now, at ambient pressure `pa`.
-## Returns { F, mdot, isp, plume, count }.
-func propulsion(pa: float) -> Dictionary:
+func propulsion(pa: float) -> Propulsion:
 	var F := 0.0
 	var mdot := 0.0
 	var isp_sum := 0.0
@@ -274,7 +297,7 @@ func propulsion(pa: float) -> Dictionary:
 		var s: Dictionary = st.spec
 		if s.get("engine") == null or st.prop <= 0.0: continue
 		var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
-		var o: Dictionary = photon_output(s.engine, st.live) \
+		var o: Rocketry.Thrust = photon_output(s.engine, st.live) \
 			if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
 			else Rocketry.engine_output(s.engine, st.live, pa, throttle, burned)
 		if s.get("vacEngine") != null:
@@ -283,7 +306,10 @@ func propulsion(pa: float) -> Dictionary:
 		F += o.F; mdot += o.mdot; isp_sum += o.isp * o.F; w += o.F
 		count += st.live + int(s.get("vacCount", 0))
 		if plume == null: plume = s.engine.plume
-	return { "F": F, "mdot": mdot, "isp": isp_sum / w if w > 0.0 else 0.0, "plume": plume, "count": count }
+	var out := Propulsion.new()
+	out.F = F; out.mdot = mdot; out.isp = isp_sum / w if w > 0.0 else 0.0
+	out.plume = plume; out.count = count
+	return out
 
 ## The thrust axis in world coordinates. `out` defaults to the shared scratch _a.
 func forward(out: DVec3 = null) -> DVec3:
@@ -329,9 +355,8 @@ func _first_attached():
 	return null
 
 ## Total acceleration at a trial state (four times per RK4 step, so into scratch).
-## `sample` (Dictionary or null) receives q, mach, drag, heat, pa, thrust, mdot,
-## isp, plume, engines.
-func accel(rr: DVec3, vv: DVec3, out: DVec3, sample = null) -> DVec3:
+## `sample`, if given, receives what the forces were.
+func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 	gravity(rr, out)
 	var atm = env.atm
 	var h := altitude(rr)
@@ -609,13 +634,13 @@ func delta_v_remaining(pa: float = 0.0) -> float:
 # Structure
 ## Four ways to lose a vehicle, each against a real limit. A failure destroys the
 ## vessel and says which.
-func check_structure(s: Dictionary, _dt: float) -> void:
+func check_structure(s: Sample, _dt: float) -> void:
 	var lim: Dictionary = vehicle.limits
 	if phase == PHASE.DESTROYED: return
-	var sq: float = s.get("q", 0.0)
-	var sg: float = s.get("gees", 0.0)
-	var sa: float = s.get("alpha", 0.0)
-	var sh: float = s.get("heat", 0.0)
+	var sq := s.q
+	var sg := s.gees
+	var sa := s.alpha
+	var sh := s.heat
 	if sq > lim.maxQ:
 		destroy("aerodynamic breakup — %s kPa exceeded the %s kPa airframe limit" % [U.fixed(sq / 1000.0, 1), U.fixed(lim.maxQ / 1000.0, 0)]); return
 	if sg > lim.maxG:
@@ -753,7 +778,7 @@ func step(dt: float, opts: Dictionary = {}) -> void:
 	# ---- RK4, with the substep bounded by how fast the state is changing.
 	var remaining := dt
 	var guard := 0
-	var s := {}
+	var s := Sample.new()
 	while remaining > 1e-9 and guard < 400:
 		guard += 1
 		var h := minf(remaining, step_bound())
@@ -792,7 +817,7 @@ func step_bound() -> float:
 	var T: float = 2.0 * PI * sqrt(R * R * R / env.mu)
 	return DQuat.jclamp(T / 900.0, 0.05, 60.0)
 
-func rk4(h: float, s: Dictionary) -> void:
+func rk4(h: float, s: Sample) -> void:
 	var r0 := _k_r0.copy_from(r)
 	var v0 := _k_v0.copy_from(v)
 	accel(r0, v0, _k_a1, s)
@@ -812,10 +837,10 @@ func rk4(h: float, s: Dictionary) -> void:
 		.add_scaled_in(_k_a3, h / 3.0).add_scaled_in(_k_a4, h / 6.0)
 
 	# Propellant is spent on the same step at the reported flow (exact at fixed throttle).
-	if s.get("mdot", 0.0) > 0.0: burn(s.mdot * h)
+	if s.mdot > 0.0: burn(s.mdot * h)
 	spin(h)
-	heat_load += s.get("heat", 0.0) * h
-	if s.get("heat", 0.0) > peak_heat: peak_heat = s.heat
+	heat_load += s.heat * h
+	if s.heat > peak_heat: peak_heat = s.heat
 
 ## One burning stage's own propellant flow, kg/s — propulsion()'s per-stage
 ## term. Flow is set by the vacuum rating, so no ambient pressure is needed.
@@ -823,7 +848,7 @@ func _stage_mdot(st) -> float:
 	var s: Dictionary = st.spec
 	if s.get("engine") == null or st.prop <= 0.0: return 0.0
 	var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
-	var o: Dictionary = photon_output(s.engine, st.live) \
+	var o: Rocketry.Thrust = photon_output(s.engine, st.live) \
 		if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
 		else Rocketry.engine_output(s.engine, st.live, 0.0, throttle, burned)
 	var m: float = o.mdot
@@ -947,7 +972,7 @@ func contact(_dt: float) -> void:
 		# held down on the pad until thrust exceeds weight
 		DQuat.set_len(r, env.radius)
 		var w: float = mass * env.gSurf
-		var s := {}
+		var s := Sample.new()
 		accel(r, v, _b, s)
 		# Hold-downs release once thrust exceeds weight, so a failed spin-up is a scrub.
 		if s.thrust > w and not held_down:
@@ -981,24 +1006,24 @@ func contact(_dt: float) -> void:
 # Telemetry
 ## Refresh `telemetry` (and the records) from the current state. `s` is the
 ## last integration sample, or null to take a fresh one. Returns telemetry.
-func sample(dt: float, s = null) -> Dictionary:
+func sample(dt: float, s: Sample = null) -> Dictionary:
 	if s == null:
-		s = {}
+		s = Sample.new()
 		accel(r, v, _b, s)
 	var m := maxf(mass, 1.0)
 	var alt := altitude()
 	airspeed(r, v, _vrel)
 	# g-load is what an accelerometer reads: every force EXCEPT gravity, which
 	# is why a coasting vessel reads zero however hard it is falling.
-	var a_net: float = absf(s.get("thrust", 0.0) - s.get("drag", 0.0)) / m
+	var a_net: float = absf(s.thrust - s.drag) / m
 	var fwd := forward(_e)
 	var va := _vrel.length()
 	# Angle of attack is unsigned: entry vehicles fly heat shield first, α ≈ 180° signed.
 	var alpha := acos(DQuat.jclamp(absf(fwd.dot(_vrel)) / va, 0.0, 1.0)) if va > 1.0 else 0.0
 	var el := Orbit.elements(r, v, env.mu)
-	if s.get("q", 0.0) > max_q:
-		max_q = s.q; max_q_t = met - t0; max_q_alt = alt; max_q_mach = s.get("mach", 0.0)
-	if s.get("mach", 0.0) > max_mach: max_mach = s.mach
+	if s.q > max_q:
+		max_q = s.q; max_q_t = met - t0; max_q_alt = alt; max_q_mach = s.mach
+	if s.mach > max_mach: max_mach = s.mach
 	if a_net / Rocketry.G0 > max_g: max_g = a_net / Rocketry.G0
 	if launch_site != null:
 		# Carry the pad round with the body (ω × r) before measuring against it.
@@ -1014,17 +1039,17 @@ func sample(dt: float, s = null) -> Dictionary:
 	t.speed = v.length(); t.airspeed = va
 	t.vertical = v.dot(DQuat.nrm(_a.copy_from(r)))
 	t.horizontal = sqrt(maxf(t.speed * t.speed - t.vertical * t.vertical, 0.0))
-	t.q = s.get("q", 0.0); t.mach = s.get("mach", 0.0); t.drag = s.get("drag", 0.0); t.heat = s.get("heat", 0.0)
-	t.thrust = s.get("thrust", 0.0); t.isp = s.get("isp", 0.0); t.mdot = s.get("mdot", 0.0)
-	t.plume = s.get("plume"); t.engines = s.get("engines", 0)
+	t.q = s.q; t.mach = s.mach; t.drag = s.drag; t.heat = s.heat
+	t.thrust = s.thrust; t.isp = s.isp; t.mdot = s.mdot
+	t.plume = s.plume; t.engines = s.engines
 	t.mass = m; t.gees = a_net / Rocketry.G0; t.alpha = alpha
 	var rl2 := r.length_sq()
-	t.twr = s.get("thrust", 0.0) / (m * env.mu / (rl2 if rl2 != 0.0 else 1.0))
+	t.twr = s.thrust / (m * env.mu / (rl2 if rl2 != 0.0 else 1.0))
 	t.el = el
 	t.apo = el.ra - env.radius; t.peri = el.rp - env.radius
 	t.period = el.period; t.ecc = el.e; t.inc = el.inc * 180.0 / PI
-	t.pressure = s.get("pa", 0.0)
-	t.dv = delta_v_remaining(s.get("pa", 0.0))
+	t.pressure = s.pa
+	t.dv = delta_v_remaining(s.pa)
 	t.downrange = downrange
 	t.gSurf = env.mu / (rl2 if rl2 != 0.0 else 1.0)
 	# The gate the structure checks are made against.

@@ -471,7 +471,7 @@ func bench(fixture: Dictionary) -> void:
 		else:
 			vessel.place_in_orbit(250000.0, 0.0, 0.0)
 			label = "rails: Orbit.propagate (Falcon 9)"
-		var s := {}
+		var s := Vessel.Sample.new()
 		var n := 20000
 		var t0 := Time.get_ticks_usec()
 		if case_i < 2:
