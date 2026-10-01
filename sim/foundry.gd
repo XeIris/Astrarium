@@ -80,7 +80,7 @@ static func show_el(e: Control, on: bool) -> void:
 
 ## A .row: label (with its title as a tooltip and the dotted underline
 ## `label[title]` draws), the control, and the `.val` readout.
-static func _row(parent: El, label: String, tip: String, control: Control, val_text = null) -> Dictionary:
+static func _row(parent: Node, label: String, tip: String, control: Control, val_text = null) -> Dictionary:
 	var row := E(parent, C.ROW)
 	var ls := C.ROW_LABEL.duplicate()
 	if tip != "":
@@ -119,7 +119,7 @@ class ControlRows extends RefCounted:
 	var z: RangeInput
 	var z_val: El
 
-	func _init(parent: El) -> void:
+	func _init(parent: Node) -> void:
 		mass = Foundry._range(-8.5, -1.6, 0.01, -5.52)
 		var r := Foundry._row(parent, "Mass", "Dragged far enough, this stops being a size control and starts being an identity control: mass is what decides whether an object is a planet, a brown dwarf, a star or a hole.", mass, "1.00 M⊕")
 		mass_val = r.val
@@ -226,7 +226,7 @@ static func create_foundry(opts: Dictionary) -> FoundryPanel:
 	return FoundryPanel.new(opts.get("mount"), opts.get("on_spawn", Callable()))
 
 class FoundryPanel extends RefCounted:
-	var mount: El
+	var mount   # the HUD mount (El content for now)
 	var on_spawn: Callable
 	var draft := {
 		"type": "planet",
@@ -249,7 +249,7 @@ class FoundryPanel extends RefCounted:
 	var notes: El
 	var spawn_btn: El
 
-	func _init(m: El, cb: Callable) -> void:
+	func _init(m, cb: Callable) -> void:
 		mount = m
 		on_spawn = cb
 		for k in Foundry.MASS_RANGE:

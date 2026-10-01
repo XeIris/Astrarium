@@ -1,21 +1,18 @@
 class_name Hud
 extends Control
 
-# THE HUD: every panel, control and caption, as El nodes (ui/widgets/el.gd) laid
-# out by CSS rules (ui/hud_css.gd). Elements with an id are registered under it,
-# and the orchestrator reaches them through set_text / set_shown / set_active.
+# THE HUD: every panel, control and caption, as Godot Controls styled by
+# ui/theme.gd. Elements with an id are registered under it, and the orchestrator
+# reaches them through set_text / set_shown / set_active; it hears input through the
+# signals below. The orchestrator keeps every decision.
 #
-# The HUD owns the markup and layout: preset groups and search, the body list, sun
-# rows, climate block and chart, toasts, panel open/close and the measured left
-# column (with tabs for collapsed panels), section folding and modes, settings
-# pages, range labels and formatters, and the band, craft, model-viewer and sky
-# rows. The orchestrator keeps every decision; it hears input through the signals
-# below and answers through the methods.
+# The HUD owns the panels, the measured left column (tabs for collapsed panels),
+# section folding and modes, settings pages, range labels and formatters, and the
+# preset, body, sun, band, craft, model-viewer and sky rows.
 #
 # A full-rect Control that ignores the mouse, so input on empty screen reaches the
 # orchestrator's _unhandled_input.
 
-# ---- Hud → orchestrator ------------------------------------------------------------
 signal start_chosen(mode: String)
 signal quit_to_start()
 signal quit_app()
@@ -69,8 +66,7 @@ signal lesson_close()
 const T = preload("res://ui/theme.gd")
 const C = preload("res://ui/hud_css.gd")
 
-# Control column sections by mode. Spaceflight hides every orrery control
-# (scenarios, editor, painter, spawner, body list, bands, camera modes, time scale).
+# Control column sections by mode. Spaceflight hides every orrery control.
 const SECTION_MODE := {
 	"Central Singularity": "sandbox", "Suns": "sandbox", "Climate": "sandbox",
 	"Imaging Band": "sandbox", "View & Camera": "sandbox", "Time": "sandbox",
@@ -86,18 +82,24 @@ const OPEN_BY_DEFAULT := {
 }
 const STEP_GUARD := 8000
 
-# ---- registries -----------------------------------------------------------------------------
-var ids := {}            # element id → El
-var run_ids := {}        # id of an inline <span> → [El, run]
-var sels := {}           # "[data-x=v]" or id → Array of El
-var sliders := {}        # range id → RangeInput
+# text styles
+const H3 := {"fs": 10.0, "ls": 2.0, "up": true, "c": T.TEXT_DIM, "fw": 500}
+const NOTE := {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.55}
+const ROW_LABEL := {"fs": 11.0, "c": T.TEXT_DIM}
+const ROW_VAL := {"fs": 11.0, "c": T.ACCENT}
+const STAT_K := {"fs": 10.0, "c": T.TEXT_DIM}
+const STAT_V := {"fs": 11.0, "c": T.ACCENT}
+
+# registries
+var ids := {}            # element id → Control
+var sels := {}           # "[data-x=v]" or id → Array of Control
+var sliders := {}        # range id → HudSlider
 var val_fmt := {}        # range id → Callable(v) -> String (its "-val" label)
-var roots: Array = []    # positioned elements, laid out by _layout_all
 var collapsed := {}      # panel id → true
-var body := {}           # the <body> classes: flight-mode, learn-mode, model-open, hud-hidden, …
-var sections: Array = [] # {title, head, wrap, host, arrow}
+var body := {}           # mode classes: flight-mode, learn-mode, model-open, hud-hidden
+var sections: Array = [] # {title, head, wrap, host, arrow, label, open}
 var tabs := {}           # panel id → its tab
-var hidden_flags := {}   # El → {inline, mode, closed}
+var hidden_flags := {}   # Control → {reason: hidden}
 var app_mode := "sandbox"
 
 var hud_hidden := false
@@ -108,37 +110,37 @@ var _presets := {}
 var _active_preset := ""
 var _band_count := 0
 var _sun_rows: Array = []
-var _flare_els: Array = []
 var _toast_tween: Tween = null
 var _toast_timer := 0.0
-var _toast_x := 0.0
 var _time := 0.0
 var _envs: Array = []
 var _params: Array = []
-var _last_size := Vector2.ZERO
+var _layout_pending := false
 
 # elements the layout needs by name
-var title_block: El
-var settings_panel: El
-var settings_backdrop: El
+var settings_panel: HudPanel
+var settings_backdrop: ColorRect
 var settings_open := false
-var scenario_panel: El
-var course_panel: El
+var scenario_panel: HudPanel
+var course_panel: HudPanel
 var lesson_card: El
-var control_panel: El
-var model_panel: El
-var xsec_panel: El
-var flight_panel: El
-var tab_col: El
-var tab_right: El
-var readout: El
-var toast_el: El
-var start_screen: El
-var start_cards: El
+var control_panel: HudPanel
+var model_panel: HudPanel
+var xsec_panel: HudPanel
+var flight_panel: HudPanel
+var tab_col: VBoxContainer
+var tab_right: HudButton
+var readout: VBoxContainer
+var toast_el: PanelContainer
+var _toast_label: Label
+var start_screen: Control
+var start_cards: HudGrid
+var _start_inner: VBoxContainer
 var binding_buttons := {}
 var _start_tween: Tween = null
 var _start_generation := 0
 var corners: Array = []
+var _pages: Array = []
 
 ## The lesson card's parts, for the course UI to fill.
 var lc := {}
@@ -151,65 +153,147 @@ func _init() -> void:
 
 func _ready() -> void:
 	_build()
-	# The scenario and control panels are available as soon as a mode starts.
 	for id in ["scenarioPanel", "controlPanel"]:
 		set_panel_open(id, true)
 	set_panel_open("settingsPanel", false)
-	# The flight panel starts closed and only opens when there is a vessel; the
-	# cross-section starts closed and has no tab — it is opened from a body.
+	# The flight panel only opens when there is a vessel; the cross-section has no
+	# tab — it is opened from a body.
 	set_panel_open("flightPanel", false)
 	set_panel_open("xsecPanel", false)
 	set_app_mode("sandbox")
 	_layout_all()
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED:
+		_queue_layout()
+
 # BUILDERS
 
-func E(parent: Node, style: Dictionary = {}, text = null, id := "", vars: Array = []) -> El:
-	var e := El.new(style, vars)
-	if text is String:
-		e.runs = [{"t": text}]
-	elif text is Array:
-		e.runs = text
-	parent.add_child(e)
+## A label in a text style (T.style keys); `wrap` breaks it to the width it is given.
+func L(parent: Node, text: String, st: Dictionary, id := "", wrap := false) -> Label:
+	var l := Label.new()
+	l.set_meta("st", st)
+	T.apply_label(l, st)
+	l.text = text
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if wrap:
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if parent != null:
+		parent.add_child(l)
 	if id != "":
-		reg(id, e)
-	return e
+		reg(id, l)
+	return l
 
-## A <button>. `sel` registers it under an id or a "[data-x=v]" selector.
-func B(parent: Node, style: Dictionary, text, sel := "", vars: Array = [], tip := "") -> El:
-	var e := E(parent, style, text, "", vars)
-	e.make_clickable(tip)
+## Text with inline runs, as BBCode ([b], [i], [color], [font_size]).
+func RT(parent: Node, bbcode: String, st: Dictionary, id := "") -> RichTextLabel:
+	var r := rich(bbcode, st)
+	if parent != null:
+		parent.add_child(r)
+	if id != "":
+		reg(id, r)
+	return r
+
+static func rich(bbcode: String, st: Dictionary) -> RichTextLabel:
+	var r := RichTextLabel.new()
+	r.bbcode_enabled = true
+	r.fit_content = true
+	r.scroll_active = false
+	r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.selection_enabled = false
+	var s := T.style(st)
+	r.add_theme_font_override("normal_font", T.text_font(s))
+	r.add_theme_font_override("bold_font", T.text_font(C.merge(s, {"fw": 700})))
+	r.add_theme_font_override("italics_font", T.text_font(C.merge(s, {"fi": true})))
+	r.add_theme_font_override("bold_italics_font", T.text_font(C.merge(s, {"fw": 700, "fi": true})))
+	r.add_theme_font_override("mono_font", T.text_font(C.merge(s, {"ff": "mono"})))
+	for k in ["normal_font_size", "bold_font_size", "italics_font_size", "bold_italics_font_size", "mono_font_size"]:
+		r.add_theme_font_size_override(k, T.px(float(s.fs)))
+	r.add_theme_color_override("default_color", s.c)
+	r.add_theme_constant_override("line_separation", 0)
+	r.text = bbcode
+	return r
+
+## A button of a theme kind; `sel` registers it under an id or a "[data-x=v]" selector.
+func B(parent: Node, kind: String, text: String, sel := "", tip := "") -> HudButton:
+	var b := HudButton.new(kind, text, tip)
+	if parent != null:
+		parent.add_child(b)
 	if sel != "":
-		reg(sel, e)
-	return e
+		reg(sel, b)
+	return b
 
-func reg(key: String, e: El) -> void:
+## A box of a look (T.stylebox keys) around one child.
+static func frame(child: Control, look: Dictionary) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_theme_stylebox_override("panel", T.stylebox(look))
+	if child != null:
+		p.add_child(child)
+	return p
+
+func reg(key: String, e: Control) -> void:
 	if not key.begins_with("["):
 		ids[key] = e
-		e.el_id = key
 	if not sels.has(key):
 		sels[key] = []
 	sels[key].append(e)
 
-func root(e: El) -> El:
-	e.is_root = true
-	roots.append(e)
-	# A panel takes the pointer: clicks don't pick through it, and wheel gestures scroll it.
-	if e.base.has("blur") and not e.clickable:
-		e.mouse_filter = Control.MOUSE_FILTER_STOP
-		e.mouse_force_pass_scroll_events = false
-	return e
+## Margins on a child; untyped, so a caller can go on to `.pressed` or `.text`.
+static func m(c, mt := 0.0, mb := 0.0):
+	HudStack.m(c, mt, mb)
+	return c
 
-func _h3(parent: Node, text: String, first := false, id := "") -> El:
-	return E(parent, C.h3(first), text, id)
+static func stack(parent: Node, mt := 0.0, mb := 0.0) -> HudStack:
+	var s := HudStack.new(true)
+	HudStack.m(s, mt, mb)
+	if parent != null:
+		parent.add_child(s)
+	return s
 
-## .panel-head: the heading and a ✕ that collapses the panel.
-func _panel_head(p: El, title: String, close_id: String, tip := "Collapse (H hides everything)") -> El:
-	var head := E(p, C.PANEL_HEAD)
-	E(head, C.merge(C.h3(true), {"grow": 1.0, "basis": 0.0, "minw": 0.0}), title)
-	var x := B(head, C.panel_close(), "✕", "", [["hover", C.PANEL_CLOSE_HOVER]], tip)
-	x.pressed.connect(func(): _close_pressed(close_id))
+static func grid(parent: Node, cols: Array, hgap: float, vgap: float, mt := 0.0, mb := 0.0) -> HudGrid:
+	var g := HudGrid.new(cols, hgap, vgap)
+	HudStack.m(g, mt, mb)
+	if parent != null:
+		parent.add_child(g)
+	return g
+
+static func hbox(parent: Node, sep: float, mt := 0.0, mb := 0.0) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", int(sep))
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	HudStack.m(h, mt, mb)
+	if parent != null:
+		parent.add_child(h)
+	return h
+
+## `.panel h3`: a heading on a bottom rule; 20 px above it unless it comes first.
+func _h3(parent: Node, text: String, first := false, id := "") -> PanelContainer:
+	var f := frame(L(null, text, H3, id), {"bw": 0, "bb": 1, "bc": T.BORDER, "pad": [0, 0, 6, 0]})
+	m(f, 0.0 if first else 20.0, 10.0)
+	parent.add_child(f)
+	return f
+
+## The panel head: the heading and a ✕ that collapses the panel.
+func _panel_head(p: HudPanel, title: String, close_id: String, tip := "Collapse (H hides everything)") -> HBoxContainer:
+	var head := hbox(p.body, 8.0)
+	head.add_child(_head_title(title))
+	var x := B(head, "PanelClose", "✕", "", tip)
+	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	x.pressed.connect(_close_pressed.bind(close_id))
 	return head
+
+## The head's title on its rule. The row aligns baselines, and the ✕ beside it has
+## the deeper one (a 12 px glyph under 2 px of padding), so the title sits 3 px down.
+func _head_title(title: String) -> MarginContainer:
+	var mc := MarginContainer.new()
+	mc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mc.add_theme_constant_override("margin_top", 3)
+	# the heading's own 10 px margin is inside the row, so it never collapses
+	mc.add_theme_constant_override("margin_bottom", 10)
+	mc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mc.add_child(frame(L(null, title, H3), {"bw": 0, "bb": 1, "bc": T.BORDER, "pad": [0, 0, 6, 0]}))
+	return mc
 
 func _close_pressed(id: String) -> void:
 	if id == "modelPanel":
@@ -219,63 +303,86 @@ func _close_pressed(id: String) -> void:
 	if id == "xsecPanel":
 		xsec_closed.emit()
 
-func _note(parent: Node, runs: Array, extra := {}) -> El:
-	return E(parent, C.merge(C.section_note(), extra), runs)
+func _note(parent: Node, text: String, extra_mb := 10.0) -> Label:
+	return m(L(parent, text, NOTE, "", true), 0.0, extra_mb) as Label
 
-static func _t(s: String, extra := {}) -> Dictionary:
-	var r := {"t": s}
-	r.merge(extra, true)
-	return r
+func _rnote(parent: Node, bbcode: String) -> RichTextLabel:
+	return m(RT(parent, bbcode, NOTE), 0.0, 10.0) as RichTextLabel
+
+## A label whose title is a tooltip, underlined with dots as `label[title]` is.
+class TipLabel extends Label:
+	var full := true
+	func _init(tip: String, whole := true) -> void:
+		tooltip_text = tip
+		full = whole
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		mouse_default_cursor_shape = Control.CURSOR_HELP
+	func _draw() -> void:
+		var w := size.x
+		if not full and label_settings != null:
+			w = minf(w, label_settings.font.get_string_size(text.to_upper() if uppercase else text, HORIZONTAL_ALIGNMENT_LEFT, -1, label_settings.font_size).x)
+		var x := 0.0
+		var col: Color = label_settings.font_color if label_settings else T.TEXT_DIM
+		while x < w:
+			draw_rect(Rect2(x, size.y - 1.0, minf(1.0, w - x), 1.0), col)
+			x += 2.0
+
+func _tip_label(parent: Node, text: String, st: Dictionary, tip: String, whole := true) -> Label:
+	var l: Label = TipLabel.new(tip, whole) if tip != "" else Label.new()
+	l.set_meta("st", st)
+	T.apply_label(l, st)
+	l.text = text
+	if tip == "":
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	else:
+		# the dotted border is part of the label's box, a pixel below the text
+		l.custom_minimum_size.y = T.line_h(st) + 1.0
+		l.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	parent.add_child(l)
+	return l
 
 ## A control-column range row: label · slider · value.
 func _row(parent: Node, id: String, label: String, tip: String, mn: float, mx: float, v: float, st: float,
-		val_text: String, row_id := "", fmt: Callable = Callable()) -> El:
-	var row := E(parent, C.ROW, null, row_id)
-	var ls := C.ROW_LABEL.duplicate()
-	if tip != "":
-		ls.merge(C.ROW_LABEL_TITLE, true)
-	var lab := E(row, ls, label)
-	if tip != "":
-		lab.tooltip_text = tip
-		lab.mouse_filter = Control.MOUSE_FILTER_PASS
-		lab.mouse_default_cursor_shape = Control.CURSOR_HELP
-	_range(row, id, C.ROW_RANGE, mn, mx, v, st, fmt)
-	E(row, C.ROW_VAL, val_text, id + "-val")
+		val_text: String, row_id := "", fmt: Callable = Callable()) -> HBoxContainer:
+	var row := hbox(parent, 10.0, 0.0, 10.0)
+	if row_id != "":
+		reg(row_id, row)
+	var lab := _tip_label(row, label, ROW_LABEL, tip)
+	lab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var r := _range(row, id, mn, mx, v, st, fmt)
+	r.inset = 2.0
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var val := L(row, val_text, ROW_VAL, id + "-val")
+	val.custom_minimum_size.x = 60.0
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	val.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return row
 
 ## A settings-panel range row: label and value on one line, slider under them.
 func _set_row(parent: Node, id: String, label: String, tip: String, mn: float, mx: float, v: float, st: float,
-		val_text: String, fmt: Callable = Callable()) -> El:
-	var row := E(parent, {"mb": 13.0})
-	var head := E(row, {"display": "flex", "ai": "baseline", "gapc": 8.0})
-	var ls := C.merge(C.ROW_LABEL, {"grow": 1.0, "shrink": 1.0, "basis": 0.0, "minw": 0.0})
-	if tip != "":
-		ls.merge(C.ROW_LABEL_TITLE, true)
-		ls["as"] = "baseline"
-	var lab := E(head, ls, label)
-	# grid-area 1/1: the label's cell is the whole 1fr track, but its dotted
-	# border is its own box, which is only as wide as the text
-	lab.set_style({"fit": true})
-	if tip != "":
-		lab.tooltip_text = tip
-		lab.mouse_filter = Control.MOUSE_FILTER_PASS
-		lab.mouse_default_cursor_shape = Control.CURSOR_HELP
-	E(head, C.merge(C.ROW_VAL, {"minw": 0.0}), val_text, id + "-val")
-	_range(row, id, {"wp": 1.0, "mt": 8.0}, mn, mx, v, st, fmt)
+		val_text: String, fmt: Callable = Callable()) -> HudStack:
+	var row := stack(parent, 0.0, 13.0)
+	row.collapse = false
+	var head := hbox(row, 8.0)
+	var lab := _tip_label(head, label, ROW_LABEL, tip, false)
+	lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lab.size_flags_vertical = Control.SIZE_SHRINK_END
+	var val := L(head, val_text, ROW_VAL, id + "-val")
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	val.size_flags_vertical = Control.SIZE_SHRINK_END
+	m(_range(row, id, mn, mx, v, st, fmt), 8.0)
 	return row
 
-func _range(parent: Node, id: String, style: Dictionary, mn: float, mx: float, v: float, st: float,
-		fmt: Callable = Callable()) -> RangeInput:
-	var r := RangeInput.new(style)
-	r.setup(mn, mx, st, v)
-	r.input_id = id
+func _range(parent: Node, id: String, mn: float, mx: float, v: float, st: float,
+		fmt: Callable = Callable()) -> HudSlider:
+	var r := HudSlider.new(mn, mx, st, v)
 	parent.add_child(r)
 	if id != "":
 		reg(id, r)
 		sliders[id] = r
 		if fmt.is_valid():
 			val_fmt[id] = fmt
-		r.changed.connect(_on_slider.bind(id))
+		r.moved.connect(_on_slider.bind(id))
 	return r
 
 func _on_slider(v: float, id: String) -> void:
@@ -286,19 +393,11 @@ func _on_slider(v: float, id: String) -> void:
 # THE PAGE
 
 func _build() -> void:
-	# .corner — z-index 5, under everything
 	for k in ["tl", "tr", "bl", "br"]:
-		var s := {"w": 14.0, "h": 14.0}
-		var b := T.BORDER_STRONG
-		match k:
-			"tl": s.merge({"bt": 1.0, "bl": 1.0, "bct": b, "bcl": b})
-			"tr": s.merge({"bt": 1.0, "br": 1.0, "bct": b, "bcr": b})
-			"bl": s.merge({"bb": 1.0, "bl": 1.0, "bcb": b, "bcl": b})
-			"br": s.merge({"bb": 1.0, "br": 1.0, "bcb": b, "bcr": b})
-		var c := root(E(self, s))
-		c.set_meta("corner", k)
+		var c := Corner.new(k)
+		add_child(c)
 		corners.append(c)
-	_build_flight_panel()     # z-index 6: under the other panels
+	_build_flight_panel()     # under the other panels
 	_build_settings()
 	_build_scenario()
 	_build_course()
@@ -309,60 +408,81 @@ func _build() -> void:
 	_build_tabs()
 	_build_readout()
 	_build_start()
-	toast_el = root(E(self, {"bg": T.PANEL, "b": [1, T.BORDER_STRONG], "blur": 10.0, "p": [9, 16], "c": T.TEXT,
-		"fs": 10.0, "ls": C.em(0.14, 10), "up": true, "ta": "center", "op": 0.0}, "", "toast"))
+	_build_toast()
 	move_child(settings_backdrop, get_child_count() - 1)
 	move_child(settings_panel, get_child_count() - 1)
 
-# ---- SETTINGS -----------------------------------------------------------------------------
+## A panel the left column or the control column places.
+func _panel(id: String, padding: Array = [16, 16, 16, 16]) -> HudPanel:
+	var p := HudPanel.new(padding)
+	add_child(p)
+	reg(id, p)
+	p.pad.minimum_size_changed.connect(_queue_layout)
+	return p
+
+class Corner extends Control:
+	var k := "tl"
+	func _init(which: String) -> void:
+		k = which
+		size = Vector2(14, 14)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		var c := T.BORDER_STRONG
+		draw_rect(Rect2(0, 0 if k.begins_with("t") else 13, 14, 1), c)
+		draw_rect(Rect2(0 if k.ends_with("l") else 13, 0, 1, 14), c)
+
+# SETTINGS
 func _build_settings() -> void:
-	settings_backdrop = root(E(self, {"bg": T.rgba(2, 4, 9, 0.78)}, null, "settingsBackdrop"))
+	settings_backdrop = ColorRect.new()
+	settings_backdrop.color = T.rgba(2, 4, 9, 0.78)
 	settings_backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	settings_backdrop.visible = false
-	var p := root(E(self, C.panel(460.0), null, "settingsPanel"))
+	add_child(settings_backdrop)
+	reg("settingsBackdrop", settings_backdrop)
+	var p := _panel("settingsPanel")
 	settings_panel = p
 	_panel_head(p, "Settings", "settingsPanel", "Close settings (Esc)")
-	var tabsrow := E(p, {"display": "flex", "gapc": 4.0, "mb": 10.0}, null, "setTabs")
+	var tabsrow := hbox(p.body, 4.0, 0.0, 10.0)
+	reg("setTabs", tabsrow)
 	for t in [["sky", "Sky"], ["render", "Render"], ["sim", "Sim"], ["controls", "Controls"]]:
-		var b := B(tabsrow, C.set_tab(), t[1], "[data-set=%s]" % t[0],
-			[["hover", {"c": T.TEXT}], ["on", C.SET_TAB_ON]])
-		b.pressed.connect(func(): set_settings_page(t[0]))
+		var b := B(tabsrow, "SetTab", t[1], "[data-set=%s]" % t[0])
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.pressed.connect(set_settings_page.bind(t[0]))
 
 	# SKY
-	var sky := E(p, {})
-	sky.set_meta("page", "sky")
-	_note(sky, [_t("Where you are looking from. The environments are POPULATIONS and they superpose — a globular cluster still has the galaxy behind it — so the weights add rather than crossfade. Shape (band thickness, bulge size, plane concentration) is the one galaxy you are in, so those take the weighted mean instead.")])
-	E(sky, {}, null, "skyEnvList")
+	var sky := _page(p, "sky")
+	_note(sky, "Where you are looking from. The environments are POPULATIONS and they superpose — a globular cluster still has the galaxy behind it — so the weights add rather than crossfade. Shape (band thickness, bulge size, plane concentration) is the one galaxy you are in, so those take the weighted mean instead.")
+	reg("skyEnvList", stack(sky))
 	_set_row(sky, "skyTilt", "Plane tilt", "Tilt of the galactic plane relative to the scene. This places your VIEW of the galaxy, not you.",
 		0, 1.57, 0.34, 0.01, "0.34", func(v): return U.fixed(v, 2))
 	_set_row(sky, "skyRoll", "Plane roll", "Roll about the vertical. Swings the band round the horizon.",
 		0, 6.28, 0.9, 0.01, "0.90", func(v): return U.fixed(v, 2))
-	var adv_btn := B(sky, C.ghost_btn(), "Component amplitudes ▸", "skyAdvOpen", [["hover", C.GHOST_HOVER]])
-	var adv := E(sky, {}, null, "skyAdv")
+	var adv_btn := m(B(sky, "Ghost", "Component amplitudes ▸", "skyAdvOpen"), 0.0, 10.0) as HudButton
+	var adv := stack(sky)
+	reg("skyAdv", adv)
 	_hide(adv, "inline", true)
 	adv_btn.pressed.connect(func():
 		var open := not adv.visible
 		_hide(adv, "inline", not open)
-		adv_btn.set_text("Component amplitudes ▾" if open else "Component amplitudes ▸"))
-	B(sky, C.ghost_btn(), "Reset to scenario’s sky", "skyReset", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): sky_reset.emit())
+		adv_btn.set_label("Component amplitudes ▾" if open else "Component amplitudes ▸"))
+	m(B(sky, "Ghost", "Reset to scenario’s sky", "skyReset"), 0.0, 10.0).pressed.connect(func(): sky_reset.emit())
 
 	# RENDER
-	var ren := E(p, {})
-	ren.set_meta("page", "render")
-	_note(ren, [_t("Choose a preset for frame rate and image quality. High adds photo-style craft and launchpad materials. Advanced controls expose resolution and post-processing settings.")])
-	E(ren, C.h3(false), "Rendering quality")
-	var quality_choices := E(ren, {"display": "grid", "cols": [1.0, 1.0, 1.0], "gapc": 6.0, "mb": 10.0})
+	var ren := _page(p, "render")
+	_note(ren, "Choose a preset for frame rate and image quality. High adds photo-style craft and launchpad materials. Advanced controls expose resolution and post-processing settings.")
+	_h3(ren, "Rendering quality")
+	var quality_choices := grid(ren, [1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
 	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"]]:
-		B(quality_choices, C.toggle_btn(), q[1], "[data-render-quality=%s]" % q[0],
-			[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
-	var advanced_btn := B(ren, C.toggle_btn(), "☐ Advanced rendering controls", "renderAdvancedToggle",
-		[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]])
-	var advanced := E(ren, {"mt": 10.0}, null, "renderAdvanced")
+		B(quality_choices, "Toggle", q[1], "[data-render-quality=%s]" % q[0]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
+	var advanced_btn := B(ren, "Toggle", "☐ Advanced rendering controls", "renderAdvancedToggle")
+	advanced_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var advanced := stack(ren, 10.0)
+	reg("renderAdvanced", advanced)
 	_hide(advanced, "inline", true)
 	advanced_btn.pressed.connect(func():
 		var on := not advanced.visible
 		_hide(advanced, "inline", not on)
-		advanced_btn.set_text("☑ Advanced rendering controls" if on else "☐ Advanced rendering controls")
+		advanced_btn.set_label("☑ Advanced rendering controls" if on else "☐ Advanced rendering controls")
 		set_active("renderAdvancedToggle", on))
 	_set_row(advanced, "renderScale", "Render scale", "Framebuffer scale. 1.5x draws 2.25 times as many pixels as 1.0x, subject to the display cap.",
 		0.5, 2, 1, 0.05, "1.00x", func(v): return U.fixed(minf(_dpr(), v), 2) + "x")
@@ -375,74 +495,88 @@ func _build_settings() -> void:
 	_set_row(advanced, "fxGrain", "Grain", "Sensor grain.", 0, 0.1, 0.02, 0.002, "0.020", func(v): return U.fixed(v, 3))
 	_set_row(advanced, "fxExposure", "Exposure", "Camera exposure before the filmic tone curve. Flight receives a small daylight calibration.",
 		0.5, 2.0, 1.0, 0.025, "1.00", func(v): return U.fixed(v, 2))
-	E(ren, C.h3(false), "Lighting detail")
-	_note(ren, [_t("Flight and the craft studio use shadow maps and screen-space lighting. Reflections apply to the craft studio only. These are not hardware ray tracing.")])
-	var lighting_choices := E(ren, {"display": "grid", "cols": [1.0, 1.0, 1.0, 1.0], "gapc": 6.0, "mb": 10.0})
+	_h3(ren, "Lighting detail")
+	_note(ren, "Flight and the craft studio use shadow maps and screen-space lighting. Reflections apply to the craft studio only. These are not hardware ray tracing.")
+	var lighting_choices := grid(ren, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
 	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["custom", "Custom"]]:
-		B(lighting_choices, C.toggle_btn(), q[1], "[data-lighting-quality=%s]" % q[0],
-			[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): lighting_quality_chosen.emit(q[0]))
-	var raw := E(ren, {"display": "grid", "cols": [1.0, 1.0], "gapc": 6.0, "gapr": 6.0, "mb": 10.0}, null, "lightingRaw")
+		B(lighting_choices, "Toggle", q[1], "[data-lighting-quality=%s]" % q[0]).pressed.connect(func(): lighting_quality_chosen.emit(q[0]))
+	var raw := grid(ren, [1.0, 1.0], 6.0, 6.0, 0.0, 10.0)
+	reg("lightingRaw", raw)
 	_hide(raw, "inline", true)
 	for effect in [["shadows", "Shadows"], ["ao", "Ambient occlusion"], ["reflections", "Studio reflections"], ["indirect", "Indirect light"]]:
-		B(raw, C.toggle_btn(), effect[1], "[data-light-effect=%s]" % effect[0],
-			[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): lighting_effect_chosen.emit(effect[0]))
-	E(ren, C.h3(false), "Spacetime mesh")
-	var mesh_choices := E(ren, {"display": "grid", "cols": [1.0, 1.0], "gapc": 6.0, "mb": 10.0})
-	B(mesh_choices, C.toggle_btn(), "Connected grid", "[data-mesh-style=lines]",
-		[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): mesh_style_chosen.emit("lines"))
-	B(mesh_choices, C.toggle_btn(), "Dots", "[data-mesh-style=dots]",
-		[["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]).pressed.connect(func(): mesh_style_chosen.emit("dots"))
-	B(ren, C.ghost_btn(), "Reset rendering", "fxReset", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): fx_reset.emit())
+		B(raw, "Toggle", effect[1], "[data-light-effect=%s]" % effect[0]).pressed.connect(func(): lighting_effect_chosen.emit(effect[0]))
+	_h3(ren, "Spacetime mesh")
+	var mesh_choices := grid(ren, [1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
+	B(mesh_choices, "Toggle", "Connected grid", "[data-mesh-style=lines]").pressed.connect(func(): mesh_style_chosen.emit("lines"))
+	B(mesh_choices, "Toggle", "Dots", "[data-mesh-style=dots]").pressed.connect(func(): mesh_style_chosen.emit("dots"))
+	m(B(ren, "Ghost", "Reset rendering", "fxReset"), 0.0, 10.0).pressed.connect(func(): fx_reset.emit())
 
 	# SIM
-	var sim := E(p, {})
-	sim.set_meta("page", "sim")
-	_note(sim, [_t("The integrator is velocity-Verlet in AU, M"), _t("☉", {"sub": true, "fs": 7.917}), _t(" and years with "),
-		_t("G", {"fi": true}), _t(" = 4π². The step cap is the one setting that changes the ANSWER rather than the picture: a close pass is only resolved if the step is short compared with the time spent in it.")])
+	var sim := _page(p, "sim")
+	_rnote(sim, "The integrator is velocity-Verlet in AU, M[font_size=8]☉[/font_size] and years with [i]G[/i] = 4π². The step cap is the one setting that changes the ANSWER rather than the picture: a close pass is only resolved if the step is short compared with the time spent in it.")
 	_set_row(sim, "maxStep", "Max step", "Longest integrator step, in years. Lower is more accurate and slower; too high and a close encounter is stepped straight over, which shows up as energy appearing from nowhere.",
 		-5, -1, -2.3, 0.05, "5.0e-3 yr", func(v): return U.expo(pow(10.0, v), 1) + " yr")
 	_set_row(sim, "gwBoost", "GW boost", "Multiplier on the gravitational-wave radiation reaction. 1 is the real rate; presets raise it so an inspiral that truly takes megayears is watchable. 0 turns the back-reaction off entirely.",
 		0, 6, 0, 0.05, "off", func(v): return (U.fixed(v, 2) + "×") if v != 0.0 else "off")
-	var sg := E(sim, C.merge(C.STAT_GRID, {"mt": 10.0}))
+	var sg := grid(sim, [1.0, 1.0], 10.0, 5.0, 10.0, 12.0)
 	for kv in [["steps/frame", "setSteps"], ["energy drift", "setDrift"]]:
-		var cell := E(sg, C.STAT_CELL)
-		E(cell, C.STAT_K, kv[0])
-		E(cell, C.STAT_V, "—", kv[1], [["warn", {"c": T.WARN}]])
-	_note(sim, [_t("Drift is the relative change in total energy since the scenario loaded. It is the honest measure of whether the step is short enough: a stable hierarchy holds ~1e-7 over tens of thousands of years, and a number climbing through 1e-3 means the cap is too long for what the bodies are currently doing.")])
-	B(sim, C.ghost_btn(), "Reset to scenario’s values", "simReset", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): sim_reset.emit())
-	var controls := E(p, {})
-	controls.set_meta("page", "controls")
-	B(controls, C.ghost_btn(), "Quit to start", "quitToStart", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): quit_to_start.emit())
-	B(controls, C.action_btn(), "Quit app", "quitApp", [["hover", C.ACTION_HOVER]]).pressed.connect(func(): quit_app.emit())
-	E(controls, C.h3(false), "App icon")
-	var icon_choices := E(controls, C.TOGGLE_ROW)
+		_stat(sg, kv[0], kv[1])
+	_note(sim, "Drift is the relative change in total energy since the scenario loaded. It is the honest measure of whether the step is short enough: a stable hierarchy holds ~1e-7 over tens of thousands of years, and a number climbing through 1e-3 means the cap is too long for what the bodies are currently doing.")
+	m(B(sim, "Ghost", "Reset to scenario’s values", "simReset"), 0.0, 10.0).pressed.connect(func(): sim_reset.emit())
+
+	# CONTROLS
+	var controls := _page(p, "controls")
+	m(B(controls, "Ghost", "Quit to start", "quitToStart"), 0.0, 10.0).pressed.connect(func(): quit_to_start.emit())
+	m(B(controls, "Action", "Quit app", "quitApp"), 8.0).pressed.connect(func(): quit_app.emit())
+	_h3(controls, "App icon")
+	var icon_choices := grid(controls, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
 	for icon in AppIcon.ICONS:
-		var b := B(icon_choices, C.merge(C.toggle_btn(), {"display": "flex", "ai": "center", "gapc": 8.0, "p": [5, 8]}),
-			null, "[data-app-icon=%s]" % icon[0], [["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]])
-		b.add_child(IconSwatch.new(AppIcon.thumb(icon[0], 56)))
-		E(b, {}, icon[1])
+		var row := hbox(null, 8.0)
+		var b := BoxButton.new("ToggleIcon", row)
+		row.add_child(IconSwatch.new(AppIcon.thumb(icon[0], 56)))
+		var l := L(row, icon[1], {"fs": 10.0, "ls": 1.0, "up": true, "c": T.TEXT_DIM})
+		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		b.tint(l)
+		icon_choices.add_child(b)
+		reg("[data-app-icon=%s]" % icon[0], b)
 		b.pressed.connect(func(): app_icon_chosen.emit(icon[0]))
-	_note(controls, [_t("Mouse: drag to look or orbit, scroll to zoom, click to focus an object.")])
-	_note(controls, [_t("Select a key to change it. Bindings are saved automatically. Esc always opens Settings.")])
-	E(controls, {}, null, "bindingList")
-	B(controls, C.ghost_btn(), "Reset all bindings", "bindingsReset", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): bindings_reset.emit())
+	_note(controls, "Mouse: drag to look or orbit, scroll to zoom, click to focus an object.")
+	_note(controls, "Select a key to change it. Bindings are saved automatically. Esc always opens Settings.")
+	reg("bindingList", stack(controls))
+	m(B(controls, "Ghost", "Reset all bindings", "bindingsReset"), 0.0, 10.0).pressed.connect(func(): bindings_reset.emit())
 	set_settings_page("sky")
 
+func _page(p: HudPanel, page: String) -> HudStack:
+	var s := HudStack.new(false)
+	s.set_meta("page", page)
+	p.body.add_child(s)
+	_pages.append(s)
+	return s
+
+func _stat(parent: Node, k: String, id: String) -> HBoxContainer:
+	var cell := hbox(parent, 6.0)
+	var kl := L(cell, k, STAT_K)
+	kl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	kl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var v := L(cell, "—", STAT_V, id)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	return cell
+
 func build_bindings(groups: Array, bindings: Dictionary) -> void:
-	var host: El = ids.bindingList
-	for child in host.get_children(): child.queue_free()
+	var host: HudStack = ids.bindingList
+	_clear(host)
 	binding_buttons.clear()
 	for group in groups:
-		E(host, C.h3(false), group[0])
+		_h3(host, group[0])
 		for row in group[1]:
 			var action: String = row[0]
-			var line := E(host, {"display": "flex", "ai": "center", "gapc": 12.0, "mb": 7.0})
-			E(line, {"grow": 1.0, "basis": 0.0, "fs": 10.0, "c": T.TEXT_DIM}, row[1])
-			var button := B(line, C.toggle_btn(), binding_label(bindings[action]), "[data-binding=%s]" % action,
-				[["hover", C.TOGGLE_HOVER]])
+			var line := hbox(host, 12.0, 0.0, 7.0)
+			var l := L(line, row[1], {"fs": 10.0, "c": T.TEXT_DIM})
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var button := B(line, "Toggle", binding_label(bindings[action]), "[data-binding=%s]" % action)
 			button.pressed.connect(_on_binding_pressed.bind(action))
 			binding_buttons[action] = button
-	host.touch()
 
 func _on_binding_pressed(action: String) -> void:
 	binding_chosen.emit(action)
@@ -455,94 +589,137 @@ func binding_label(binding: Array) -> String:
 	return ("Ctrl + " if binding[2] else "") + ("Shift + " if binding[1] else "") + key
 
 func show_binding_capture(action: String) -> void:
-	if binding_buttons.has(action): binding_buttons[action].set_text("Press a key…")
+	if binding_buttons.has(action): binding_buttons[action].set_label("Press a key…")
 
 func update_binding_labels(bindings: Dictionary) -> void:
 	for id in binding_buttons:
-		binding_buttons[id].set_text(binding_label(bindings[id]))
+		binding_buttons[id].set_label(binding_label(bindings[id]))
 
-## Settings has three pages: sky, render and sim.
+## Settings has four pages: sky, render, sim and controls.
 func set_settings_page(page: String) -> void:
-	for k in settings_panel.get_children():
-		if k is El and k.has_meta("page"):
-			_hide(k, "inline", k.get_meta("page") != page)
+	for k in _pages:
+		_hide(k, "inline", k.get_meta("page") != page)
 	for t in ["sky", "render", "sim", "controls"]:
 		for b in sels.get("[data-set=%s]" % t, []):
-			b.set_state("on", t == page)
+			b.set_active(t == page)
 
 func _dpr() -> float:
 	return get_window().content_scale_factor if is_inside_tree() else 1.0
 
-# ---- SCENARIO -----------------------------------------------------------------------------
-var _search: TextField
-var _search_clear: El
-var _preset_list: El
-var _preset_empty: El
+## Free a container's children now (a rebuilt list must not be seen twice).
+static func _clear(c: Node) -> void:
+	for k in c.get_children():
+		c.remove_child(k)
+		k.queue_free()
+
+# SCENARIO
+var _search: LineEdit
+var _search_clear: HudButton
+var _preset_list: VBoxContainer
+var _preset_empty: PanelContainer
 
 func _build_scenario() -> void:
-	var p := root(E(self, C.panel(232.0), null, "scenarioPanel"))
+	var p := _panel("scenarioPanel")
 	scenario_panel = p
 	_panel_head(p, "Scenario", "scenarioPanel")
-	E(p, {"fs": 12.0, "c": T.TEXT, "ls": C.em(0.04, 12), "mt": -4.0, "mb": 9.0, "pb": 8.0, "bb": 1.0, "bcb": T.BORDER},
-		"Black Hole Sandbox", "presetName")
-	var ps := E(p, {"mb": 10.0})
-	_search = TextField.new({"b": [1, T.BORDER], "bg": T.rgba(0, 0, 0, 0.18), "p": [8, 28, 8, 9], "fs": 10.0,
-		"ls": C.em(0.04, 10), "c": T.TEXT},
-		[["focus", {"bcol": T.ACCENT_2, "outline_ring": 1.0, "ring": T.rgba(78, 168, 255, 0.14)}]],
-		"Search scenarios / categories")
-	ps.add_child(_search)
+	p.body.add_child(m(frame(L(null, "Black Hole Sandbox", {"fs": 12.0, "c": T.TEXT, "ls": 0.48}, "presetName"),
+		{"bw": 0, "bb": 1, "bc": T.BORDER, "pad": [0, 0, 8, 0]}), -4.0, 9.0))
+	_search = LineEdit.new()
+	_search.placeholder_text = "Search scenarios / categories"
+	_search.flat = false
+	_search.focus_mode = Control.FOCUS_CLICK
+	_search.caret_blink = true
+	_search.context_menu_enabled = false
+	_search.mouse_default_cursor_shape = Control.CURSOR_IBEAM
+	m(_search, 0.0, 10.0)
+	p.body.add_child(_search)
 	reg("presetSearch", _search)
 	_search.text_changed.connect(func(_t): _render_presets())
-	_search_clear = B(_search, C.button({"bg": T.CLEAR, "b": [0, T.CLEAR], "c": T.TEXT_DIM, "ff": "mono", "fs": 10.0,
-		"lh": 1.0, "p": 3}), "✕", "presetSearchClear", [["hover", {"c": T.TEXT}]])
-	_search_clear.set_meta("abs", true)
+	_search_clear = B(_search, "Clear", "✕", "presetSearchClear")
+	# inside the field's right padding, centred on it
+	var place_clear := func():
+		var s := _search_clear.get_combined_minimum_size()
+		_search_clear.size = s
+		_search_clear.position = Vector2(_search.size.x - 7.0 - s.x, roundf((_search.size.y - s.y) * 0.5))
+	_search.resized.connect(place_clear)
+	_search_clear.minimum_size_changed.connect(place_clear)
 	_search_clear.pressed.connect(func():
-		_search.edit.text = ""
+		_search.text = ""
 		_render_presets()
-		_search.edit.grab_focus())
-	_preset_list = E(p, {"display": "grid", "cols": [1.0], "gapr": 5.0}, null, "presetList")
-	_preset_empty = E(p, {"p": [10, 8], "b": [1, T.BORDER], "c": T.TEXT_DIM, "fs": 10.0, "ta": "center", "fi": true},
-		"No matching scenarios", "presetEmpty")
+		_search.grab_focus())
+	_preset_list = VBoxContainer.new()
+	_preset_list.add_theme_constant_override("separation", 5)
+	_preset_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.body.add_child(_preset_list)
+	reg("presetList", _preset_list)
+	var empty := L(null, "No matching scenarios", {"fs": 10.0, "c": T.TEXT_DIM, "fi": true}, "", true)
+	empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_preset_empty = frame(empty, {"bc": T.BORDER, "pad": [10, 8, 10, 8]})
+	p.body.add_child(_preset_empty)
+	reg("presetEmpty", _preset_empty)
 	_hide(_preset_empty, "inline", true)
-	E(p, {"mt": 9.0, "fs": 10.0, "lh": 1.55, "c": T.TEXT_DIM, "bl": 2.0, "bcl": T.ACCENT_2, "pl": 8.0}, "", "blurb")
+	var blurb := L(null, "", {"fs": 10.0, "lh": 1.55, "c": T.TEXT_DIM}, "blurb", true)
+	p.body.add_child(m(frame(blurb, {"bw": 0, "bl": 2, "bc": T.ACCENT_2, "pad": [0, 0, 0, 8]}), 9.0))
 
-# ---- COURSE -------------------------------------------------------------------------------
+# COURSE
 func _build_course() -> void:
-	var p := root(E(self, C.panel(250.0), null, "coursePanel"))
+	var p := _panel("coursePanel")
 	course_panel = p
 	_panel_head(p, "Course", "coursePanel")
-	_mounts["courseMount"] = E(p, {}, null, "courseMount")
+	var host := ElHost.new()
+	p.body.add_child(host)
+	_mounts["courseMount"] = host
+	reg("courseMount", host)
 
-# ---- the LESSON CARD frame ----------------------------------------------------------------
+# the LESSON CARD frame (El until the course moves over)
+func E(parent: Node, style: Dictionary = {}, text = null, id := "", vars: Array = []) -> El:
+	var e := El.new(style, vars)
+	if text is String:
+		e.runs = [{"t": text}]
+	elif text is Array:
+		e.runs = text
+	parent.add_child(e)
+	if id != "":
+		reg(id, e)
+	return e
+
+func EB(parent: Node, style: Dictionary, text, sel := "", vars: Array = [], tip := "") -> El:
+	var e := E(parent, style, text, "", vars)
+	e.make_clickable(tip)
+	if sel != "":
+		reg(sel, e)
+	return e
+
 func _build_lesson_card() -> void:
-	var c := root(E(self, {"bg": T.PANEL, "b": [1, T.BORDER_STRONG], "blur": 12.0, "p": [13, 15, 11, 15],
-		"display": "flex", "dir": "column", "gapr": 9.0}, null, "lessonCard"))
+	var c := E(self, {"bg": T.PANEL, "b": [1, T.BORDER_STRONG], "blur": 12.0, "p": [13, 15, 11, 15],
+		"display": "flex", "dir": "column", "gapr": 9.0}, null, "lessonCard")
+	c.is_root = true
+	c.mouse_filter = Control.MOUSE_FILTER_STOP
+	c.mouse_force_pass_scroll_events = false
 	lesson_card = c
 	var head := E(c, {"display": "flex", "ai": "baseline", "gapc": 10.0})
 	lc.crumb = E(head, {"grow": 1.0, "basis": 0.0, "minw": 0.0, "fs": 10.0, "c": T.ACCENT, "ls": C.em(0.05, 10), "up": true}, "")
 	lc.count = E(head, {"fs": 10.0, "c": T.TEXT_DIM}, "")
-	lc.close = B(head, C.panel_close(), "✕", "", [["hover", C.PANEL_CLOSE_HOVER]], "Leave this lesson")
+	lc.close = EB(head, C.panel_close(), "✕", "", [["hover", C.PANEL_CLOSE_HOVER]], "Leave this lesson")
 	lc.close.pressed.connect(func(): lesson_close.emit())
 	# Text FIRST, instrument second: when the card is too narrow the row wraps,
 	# and the half that ends up on top is the half you have to read.
 	lc.cols = E(c, {"display": "flex", "wrap": true, "gapc": 15.0, "gapr": 15.0, "scroll": true, "sbw": 4.0})
 	lc.main = E(lc.cols, {"grow": 3.0, "shrink": 1.0, "basis": 260.0, "minw": 0.0})
 	lc.title = E(lc.main, {"ff": "disp", "fs": 16.0, "fw": 600, "c": T.hexc(0xe6ecf6), "mb": 7.0}, "")
-	# The one place in this HUD that is prose: the display face, a real line
-	# height, and a 68-character measure.
 	lc.text = E(lc.main, {"ff": "disp", "fs": 13.5, "lh": 1.62, "c": T.TEXT, "maxw": 68 * 13.5 * 0.5})
 	lc.media = E(lc.cols, {"grow": 1.0, "shrink": 1.0, "basis": 240.0, "minw": 170.0})
 	_hide(lc.media, "inline", true)
 	var foot := E(c, {"display": "flex", "ai": "center", "gapc": 12.0})
-	lc.back = B(foot, C.lc_nav(), "← Back", "", [["hover", {"bcol": T.ACCENT, "c": T.ACCENT}], ["disabled", {"op": 0.3}]])
+	lc.back = EB(foot, C.lc_nav(), "← Back", "", [["hover", {"bcol": T.ACCENT, "c": T.ACCENT}], ["disabled", {"op": 0.3}]])
 	lc.back.pressed.connect(func(): lesson_back.emit())
 	lc.dots = E(foot, {"grow": 1.0, "display": "flex", "gapc": 5.0, "ai": "center"})
-	lc.next = B(foot, C.merge(C.lc_nav(), {"bg": T.ACCENT, "c": T.hexc(0x0a0c12), "bcol": T.ACCENT}), "Next →")
+	lc.next = EB(foot, C.merge(C.lc_nav(), {"bg": T.ACCENT, "c": T.hexc(0x0a0c12), "bcol": T.ACCENT}), "Next →")
 	lc.next.pressed.connect(func(): lesson_next.emit())
 	_mounts["lessonCard"] = c
 	_hide(c, "inline", true)
 
-## Show the card with an instrument column (`.lesson-card.has-media`) or not.
+## Show the card with an instrument column or not.
 func set_lesson_media(on: bool) -> void:
 	_hide(lc.media, "inline", not on)
 
@@ -559,36 +736,37 @@ func set_lesson_dots(n: int, i: int, seen: int) -> void:
 		dot.set_state("on", d == i)
 		dot.make_clickable()
 
-# ---- CONTROLS -------------------------------------------------------------------------------
-func _section(parent: El, title: String, head_runs: Array = [], host: El = null) -> El:
-	# groupControlSections: the heading gains an arrow and a click, and
-	# everything under it moves into a body that folds.
-	var head := E(host if host else parent, C.merge(C.h3(host != null), {"display": "flex", "ai": "baseline", "gapc": 6.0}),
-		null, "", [["hover", {"c": T.ACCENT}]])
-	head.make_hoverable()
-	head.mouse_filter = Control.MOUSE_FILTER_PASS
-	head.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var arrow := E(head, {"fs": 9.0, "c": T.TEXT_DIM, "rot": 90.0}, "▸")
-	var tl := E(head, {}, title)
-	for r in head_runs:
-		head.add_child(r)
-	var wrap := E(host if host else parent, {})
-	var sec := {"title": title, "head": head, "wrap": wrap, "host": host, "arrow": arrow, "label": tl}
+# CONTROLS
+## groupControlSections: a heading that folds everything under it.
+## `host` is the block the heading and body go in, `box` the control that shows
+## or hides with the section's mode (the host itself, or its frame).
+func _section(parent: Node, title: String, head_extra: Array = [], host: Node = null, kind := "SectionHead", box: Control = null) -> HudStack:
+	var holder: Node = host if host else parent
+	var row := hbox(null, 6.0)
+	var head := BoxButton.new(kind, row)
+	m(head, 0.0 if host else 20.0, 10.0)
+	var arrow := L(row, "▸", {"fs": 9.0, "c": T.TEXT_DIM})
+	arrow.size_flags_vertical = Control.SIZE_SHRINK_END
+	arrow.rotation_degrees = 90.0
+	arrow.resized.connect(func(): arrow.pivot_offset = arrow.size * 0.5)
+	var tl := head.tint(L(row, title, H3))
+	tl.size_flags_vertical = Control.SIZE_SHRINK_END
+	for r in head_extra:
+		(r as Control).size_flags_vertical = Control.SIZE_SHRINK_END
+		row.add_child(r)
+	holder.add_child(head)
+	var wrap := stack(holder)
+	var sec := {"title": title, "head": head, "wrap": wrap, "host": box if box else host, "arrow": arrow, "label": tl, "open": true}
 	sections.append(sec)
-	head.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
-			head.accept_event()
-			if not e.pressed:
-				set_section_open(sec, not sec.open))
-	sec.open = true
+	head.pressed.connect(func(): set_section_open(sec, not sec.open))
 	return wrap
 
 func set_section_open(sec: Dictionary, open: bool) -> void:
 	sec.open = open
 	_hide(sec.wrap, "closed", not open)
-	var a: El = sec.arrow
+	var a: Label = sec.arrow
 	var tw := create_tween()
-	tw.tween_method(func(v): a.set_style({"rot": v}), float(a.g("rot")), 90.0 if open else 0.0, 0.16)
+	tw.tween_property(a, "rotation_degrees", 90.0 if open else 0.0, 0.16)
 
 func section(title: String) -> Dictionary:
 	for s in sections:
@@ -605,7 +783,7 @@ func apply_section_modes(mode: String) -> void:
 	for sec in sections:
 		var want: String = SECTION_MODE.get(sec.title, "both")
 		var show := want == "both" or want == effective
-		var host: El = sec.host if sec.host else sec.head
+		var host: Control = sec.host if sec.host else sec.head
 		_hide(host, "mode", not show)
 		if not sec.host:
 			_hide(sec.wrap, "mode", not show)
@@ -613,79 +791,90 @@ func apply_section_modes(mode: String) -> void:
 			set_section_open(sec, (OPEN_BY_DEFAULT.get(mode, []) as Array).has(sec.title))
 
 func _build_control_panel() -> void:
-	var p := root(E(self, C.panel(300.0), null, "controlPanel"))
+	var p := _panel("controlPanel")
 	control_panel = p
-	var maxh_note := p
 	_panel_head(p, "Controls", "controlPanel")
+	var b := p.body
 
 	# Central Singularity
-	var s := _section(p, "Central Singularity")
+	var s := _section(b, "Central Singularity")
 	reg("bhPanel", sections[-1].head)
 	_row(s, "mass", "Mass (M☉)", "", 1, 50, 10, 0.1, "10.0", "massRow", func(v): return U.fixed(v, 1))
 	_row(s, "disc", "Accretion Disc", "", 0, 1, 0.9, 0.01, "0.90", "discRow", func(v): return U.fixed(v, 2))
 	_row(s, "temp", "Disc Temp", "", 0, 1, 0.6, 0.01, "0.60", "tempRow", func(v): return U.fixed(v, 2))
 
 	# Suns
-	s = _section(p, "Suns")
+	s = _section(b, "Suns")
 	reg("starPanel", sections[-1].head)
-	E(s, {"display": "flex", "dir": "column", "gapr": 6.0, "mb": 14.0}, null, "sunList")
+	var sl := VBoxContainer.new()
+	sl.add_theme_constant_override("separation", 6)
+	sl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m(sl, 0.0, 14.0)
+	s.add_child(sl)
+	reg("sunList", sl)
 
-	# Climate — a self-contained block: its own div, heading first
-	var cp := E(p, {}, null, "climatePanel")
-	var clock := E(null if false else self, {"c": T.ACCENT_2, "fw": 400, "ls": C.em(0.05, 10)}, "0 yr", "simClock")
-	remove_child(clock)
-	s = _section(p, "Climate", [clock], cp)
-	E(s, {"ta": "center", "p": 7, "mb": 4.0, "fs": 12.0, "ls": C.em(0.18, 12), "up": true, "b": [1, HudCss.ERA["era-stable"].c],
-		"c": HudCss.ERA["era-stable"].c}, "Stable Era", "eraBadge")
-	E(s, {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5, "mb": 10.0}, "", "eraDesc")
+	# Climate — a self-contained block, heading first
+	var cp := stack(b)
+	reg("climatePanel", cp)
+	var clock := L(null, "0 yr", {"fs": 10.0, "c": T.ACCENT_2, "ls": 0.5}, "simClock")
+	s = _section(b, "Climate", [clock], cp)
+	var era: Dictionary = C.ERA["era-stable"]
+	var badge_l := L(null, "Stable Era", {"fs": 12.0, "ls": 2.16, "up": true, "c": era.c}, "eraLabel")
+	badge_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var badge := frame(badge_l, {"bc": era.c, "pad": [7, 7, 7, 7]})
+	s.add_child(m(badge, 0.0, 4.0))
+	reg("eraBadge", badge)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "eraDesc", true), 0.0, 10.0)
 	var chart := ClimateChart.new()
 	s.add_child(chart)
 	reg("climateChart", chart)
-	var key := E(s, {"display": "flex", "gapc": 12.0, "mt": 5.0, "mb": 10.0, "fs": 9.0, "c": T.TEXT_DIM})
+	var key := hbox(s, 12.0, 5.0, 10.0)
 	for kk in [[T.hexc(0xff6a5a), "surface temp"], [T.rgba(255, 190, 90, 0.8), "insolation"]]:
-		var item := _Swatch.new({"pl": 13.0}, kk[0])
-		item.runs = [{"t": kk[1]}]
-		key.add_child(item)
-	var sg := E(s, C.STAT_GRID)
+		var item := hbox(key, 4.0)
+		var sw := ColorRect.new()
+		sw.color = kk[0]
+		sw.custom_minimum_size = Vector2(9, 2)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		item.add_child(sw)
+		L(item, kk[1], {"fs": 9.0, "c": T.TEXT_DIM})
+	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 12.0)
 	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["ice", "cIce"], ["cloud", "cCloud"], ["τ response", "cTau"], ["range", "cExtremes"]]:
-		var cell := E(sg, C.STAT_CELL)
-		E(cell, C.STAT_K, kv[0])
-		E(cell, C.STAT_V, "—", kv[1])
+		_stat(sg, kv[0], kv[1])
 	_row(s, "mixed", "Ocean depth", "Depth of the ocean mixed layer — the planet's thermal flywheel. Shallow oceans let the temperature whip around with the orbit; deep ones damp it.",
 		2, 120, 12, 1, "12 m", "", func(v): return U.fixed(v, 0) + " m")
 	_row(s, "greenhouse", "Greenhouse ε", "Effective emissivity. Lower = stronger greenhouse = warmer world. 0.61 reproduces Earth.",
 		0.3, 1, 0.61, 0.01, "0.61", "", func(v): return U.fixed(v, 2))
-	B(s, C.ghost_btn(), "Reset Climate to 15 °C", "climateReset", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): climate_reset.emit())
+	m(B(s, "Ghost", "Reset Climate to 15 °C", "climateReset"), 0.0, 10.0).pressed.connect(func(): climate_reset.emit())
 	_hide(cp, "inline", true)
 
 	# Imaging Band
-	s = _section(p, "Imaging Band")
-	E(s, {"display": "grid", "cols": [1.0, 1.0, 1.0, 1.0], "gapc": 4.0, "gapr": 4.0}, null, "bandGrid")
-	E(s, {"mt": 8.0, "fs": 9.5, "lh": 1.55, "c": T.TEXT_DIM, "bl": 2.0, "bcl": T.BORDER_STRONG, "pl": 8.0}, "", "bandNote")
+	s = _section(b, "Imaging Band")
+	reg("bandGrid", grid(s, [1.0, 1.0, 1.0, 1.0], 4.0, 4.0))
+	var bn := L(null, "", {"fs": 9.5, "lh": 1.55, "c": T.TEXT_DIM}, "bandNote", true)
+	s.add_child(m(frame(bn, {"bw": 0, "bl": 2, "bc": T.BORDER_STRONG, "pad": [0, 0, 0, 8]}), 8.0))
 
 	# View & Camera
-	s = _section(p, "View & Camera")
-	var tvars := [["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]
-	var tr := E(s, C.TOGGLE_ROW)
+	s = _section(b, "View & Camera")
+	var tr := grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
 	for v in [["mesh", "Mesh ON"], ["lens", "Lens ON"]]:
-		var b := B(tr, C.toggle_btn(), v[1], "[data-view=%s]" % v[0], tvars)
-		b.set_state("active", true)
-		b.pressed.connect(func(): view_toggle.emit(v[0]))
-	tr = E(s, C.TOGGLE_ROW)
-	B(tr, C.toggle_btn(), "Sizes: Boosted", "[data-view=scale]", tvars,
+		var bt := B(tr, "Toggle", v[1], "[data-view=%s]" % v[0])
+		bt.set_active(true)
+		bt.pressed.connect(func(): view_toggle.emit(v[0]))
+	tr = grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	B(tr, "Toggle", "Sizes: Boosted", "[data-view=scale]",
 		"Real: bodies are drawn at their true physical radius, so a planet is a point of light until you fly to it. Boosted: radii are exaggerated so the system is readable at a glance.").pressed.connect(func(): view_toggle.emit("scale"))
-	tr = E(s, C.TOGGLE_ROW)
-	var bo := B(tr, C.toggle_btn(), "Orbit", "camOrbit", tvars)
-	bo.set_state("active", true)
+	tr = grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	var bo := B(tr, "Toggle", "Orbit", "camOrbit")
+	bo.set_active(true)
 	bo.pressed.connect(func(): cam_mode.emit("orbit"))
-	B(tr, C.toggle_btn(), "Free Fly", "camFree", tvars).pressed.connect(func(): cam_mode.emit("free"))
-	var bs := B(tr, C.toggle_btn(), "Stand on it", "camSurface", tvars)
+	B(tr, "Toggle", "Free Fly", "camFree").pressed.connect(func(): cam_mode.emit("free"))
+	var bs := B(tr, "Toggle", "Stand on it", "camSurface")
 	bs.pressed.connect(func(): cam_mode.emit("surface"))
 	_hide(bs, "inline", true)
-	B(s, C.ghost_btn(), "Reset View", "resetView", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): reset_view.emit())
-	_note(s, [_t("Render scale and lens detail moved to "), _t("Settings › Render", {"fw": 700}),
-		_t(", top left — they are properties of the renderer rather than of this view, and they survive a scenario change.")])
-	var sky_row := E(s, {}, null, "skyRow")
+	m(B(s, "Ghost", "Reset View", "resetView"), 0.0, 10.0).pressed.connect(func(): reset_view.emit())
+	_rnote(s, "Render scale and lens detail moved to [b]Settings › Render[/b], top left — they are properties of the renderer rather than of this view, and they survive a scenario change.")
+	var sky_row := stack(s)
+	reg("skyRow", sky_row)
 	_row(sky_row, "lat", "Latitude", "Where on the planet you are standing. High latitudes see the suns skim the horizon.",
 		-80, 80, 22, 1, "22°", "", func(v): return str(int(U.jround(v))) + "°")
 	_row(sky_row, "daylen", "Day length", "Length of the planet's rotation period. Shorter = the suns race across the sky.",
@@ -693,226 +882,253 @@ func _build_control_panel() -> void:
 	_hide(sky_row, "inline", true)
 
 	# Time
-	s = _section(p, "Time")
-	var tg := E(s, {"display": "grid", "cols": [1.0, 1.0, 1.0, 1.0], "gapc": 4.0, "gapr": 4.0, "mb": 12.0})
+	s = _section(b, "Time")
+	var tg := grid(s, [1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 12.0)
 	for t in [["sunset", "Sunset", "A single sunset, at a watchable pace. One rotation ≈ 45 s."],
 			["day", "Days", "Days flick past. One rotation ≈ 8 s."],
 			["season", "Seasons", "One orbit ≈ 90 s — watch a Chaotic Era arrive."],
 			["era", "Eras", "Centuries per minute — the long climate record."]]:
-		B(tg, C.time_btn(), t[1], "[data-time=%s]" % t[0], [["hover", C.TOGGLE_HOVER], ["active", C.BLUE_ACTIVE]], t[2]) \
-			.pressed.connect(func(): time_regime.emit(t[0]))
+		B(tg, "TimeBtn", t[1], "[data-time=%s]" % t[0], t[2]).pressed.connect(func(): time_regime.emit(t[0]))
 	_row(s, "timescale", "Time scale", "Simulated years per real second.", -5, 1.3, -0.46, 0.01, "0.35 yr/s", "",
 		func(v): return time_label(clampf(pow(10.0, v), 1e-5, 20.0)))
 	_row(s, "speed", "Sim Speed", "", 0, 4, 1, 0.05, "1.00", "", func(v): return U.fixed(v, 2))
 
 	# Focused Object — self-contained
-	var fp := E(p, {"mt": 18.0, "b": [1, T.ACCENT_2], "p": 10}, null, "focusPanel")
-	s = _section(p, "Focused Object", [], fp)
-	sections[-1].head.set_style({"c": T.ACCENT_2, "mb": 8.0})
-	E(s, {"fs": 11.0, "c": T.TEXT, "mb": 8.0, "ls": C.em(0.05, 11)}, "—", "focusName")
-	B(s, C.ghost_btn(), "Cross-section & edit ▸", "xsecOpen", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): xsec_open.emit())
-	B(s, C.merge(C.action_btn(), {"mt": 0.0}), "Delete Object", "delFocus", [["hover", C.ACTION_HOVER]]).pressed.connect(func(): delete_focus.emit())
+	var fstack := HudStack.new(false)
+	var fp := frame(fstack, {"bc": T.ACCENT_2, "pad": [10, 10, 10, 10]})
+	b.add_child(m(fp, 18.0))
+	reg("focusPanel", fp)
+	s = _section(b, "Focused Object", [], fstack, "SectionHeadFocus", fp)
+	m(sections[-1].head, 0.0, 8.0)
+	m(L(s, "—", {"fs": 11.0, "c": T.TEXT, "ls": 0.55}, "focusName"), 0.0, 8.0)
+	m(B(s, "Ghost", "Cross-section & edit ▸", "xsecOpen"), 0.0, 10.0).pressed.connect(func(): xsec_open.emit())
+	B(s, "Action", "Delete Object", "delFocus").pressed.connect(func(): delete_focus.emit())
 	_hide(fp, "inline", true)
 
 	# Object Foundry
-	s = _section(p, "Object Foundry")
-	_note(s, [_t("Four inputs, no menu of outcomes. Everything below — the size, the colour, the shape, the verdict — is derived from mass, spin, composition and age by the same interior model the rest of the sim runs on.")])
-	_mounts["foundry"] = E(s, {}, null, "foundry")
+	s = _section(b, "Object Foundry")
+	_note(s, "Four inputs, no menu of outcomes. Everything below — the size, the colour, the shape, the verdict — is derived from mass, spin, composition and age by the same interior model the rest of the sim runs on.")
+	var fd := ElHost.new()
+	s.add_child(fd)
+	_mounts["foundry"] = fd
+	reg("foundry", fd)
 
 	# Painter
-	s = _section(p, "Painter")
-	_note(s, [_t("Adds the things that are made of too many pieces to integrate — rings, belts, ejecta. They are test particles on real Keplerian orbits, so a ring shears the way a ring does and a belt has its resonance gaps. Acts on the focused body.")])
-	var ag := E(s, {"display": "grid", "cols": [1.0, 1.0], "gapc": 6.0, "gapr": 6.0})
+	s = _section(b, "Painter")
+	_note(s, "Adds the things that are made of too many pieces to integrate — rings, belts, ejecta. They are test particles on real Keplerian orbits, so a ring shears the way a ring does and a belt has its resonance gaps. Acts on the focused body.")
+	var ag := grid(s, [1.0, 1.0], 6.0, 6.0)
 	for pt in [["ring", "◎", "Ring", "A ring can only exist INSIDE the Roche limit, where tides beat self-gravity and the material cannot collect into a moon. The span is computed from the body's own density, not chosen."],
 			["belt", "⋰", "Belt", "An asteroid belt, with Kirkwood gaps cleared at the 3:1, 5:2, 7:3 and 2:1 resonances with the next body out."],
 			["cloud", "◍", "Ejecta", "An expanding shell of ejecta. Optically thin, so it limb-brightens into a rim, and homologous, so it expands without changing shape."],
 			["clear", "✕", "Clear paint", ""]]:
-		var b := _add_btn(ag, pt[1], pt[2], "[data-paint=%s]" % pt[0], pt[3])
-		b.pressed.connect(func(): paint.emit(pt[0]))
+		_add_btn(ag, pt[1], pt[2], "[data-paint=%s]" % pt[0], pt[3]).pressed.connect(func(): paint.emit(pt[0]))
 
 	# Spaceflight
-	s = _section(p, "Spaceflight")
-	_note(s, [_t("Real vehicles, real stage masses, real engines. A stage's Δv is computed from its own dry and propellant mass, so if a rocket cannot reach orbit here it could not reach orbit. Time runs "),
-		_t("1:1", {"fw": 700}), _t(" — one second per second — until you warp it yourself.")])
-	E(s, {"display": "grid", "cols": [1.0, 1.0], "gapc": 5.0, "gapr": 5.0, "m": [8, 0, 4, 0]}, null, "craftGrid")
-	B(s, C.ghost_btn(), "Model viewer ▸", "modelOpen", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): model_open.emit())
-	var fr := E(s, C.TOGGLE_ROW, null, "flightRow")
-	B(fr, C.toggle_btn(), "Cam: Chase", "flightCam", tvars, "Chase · Orbit · Cockpit · Pad").pressed.connect(func(): flight_cam_cycle.emit())
-	B(fr, C.toggle_btn(), "Exit flight", "flightExit", tvars).pressed.connect(func(): flight_exit.emit())
+	s = _section(b, "Spaceflight")
+	_rnote(s, "Real vehicles, real stage masses, real engines. A stage's Δv is computed from its own dry and propellant mass, so if a rocket cannot reach orbit here it could not reach orbit. Time runs [b]1:1[/b] — one second per second — until you warp it yourself.")
+	reg("craftGrid", grid(s, [1.0, 1.0], 5.0, 5.0, 8.0, 4.0))
+	m(B(s, "Ghost", "Model viewer ▸", "modelOpen"), 0.0, 10.0).pressed.connect(func(): model_open.emit())
+	var fr := grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	reg("flightRow", fr)
+	B(fr, "Toggle", "Cam: Chase", "flightCam", "Chase · Orbit · Cockpit · Pad").pressed.connect(func(): flight_cam_cycle.emit())
+	B(fr, "Toggle", "Exit flight", "flightExit").pressed.connect(func(): flight_exit.emit())
 	_hide(fr, "inline", true)
 
 	# Quick Spawn
-	s = _section(p, "Quick Spawn")
-	tr = E(s, C.TOGGLE_ROW)
-	B(tr, C.toggle_btn(), "Spawn: In orbit", "[data-view=spawnrest]", tvars,
+	s = _section(b, "Quick Spawn")
+	tr = grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	B(tr, "Toggle", "Spawn: In orbit", "[data-view=spawnrest]",
 		"At rest: a new body is placed where you are looking with exactly zero velocity, and only moves if gravity moves it. In orbit: it arrives on a circular orbit about the heaviest body present, which is the only start that does not immediately fall in.") \
 		.pressed.connect(func(): view_toggle.emit("spawnrest"))
-	ag = E(s, {"display": "grid", "cols": [1.0, 1.0], "gapc": 6.0, "gapr": 6.0})
+	ag = grid(s, [1.0, 1.0], 6.0, 6.0)
 	for sp in [["planet", "·", "Rocky Planet"], ["gas-giant", "○", "Gas Giant"], ["star", "☉", "Star"], ["neutron", "◉", "Neutron Star"]]:
 		_add_btn(ag, sp[1], sp[2], "[data-spawn=%s]" % sp[0]).pressed.connect(func(): spawn.emit(sp[0]))
-	B(s, C.action_btn(), "Clear All Bodies", "clear", [["hover", C.ACTION_HOVER]]).pressed.connect(func(): clear_bodies.emit())
+	m(B(s, "Action", "Clear All Bodies", "clear"), 8.0).pressed.connect(func(): clear_bodies.emit())
 
 	# Bodies
-	var count := E(self, {"c": T.ACCENT}, "(0)", "count")
-	remove_child(count)
-	s = _section(p, "Bodies", [count])
-	E(s, {"maxh": 150.0, "scroll": true, "sbw": 3.0, "b": [1, T.BORDER]}, null, "bodyList")
+	var count := L(null, "(0)", {"fs": 10.0, "ls": 2.0, "c": T.ACCENT}, "count")
+	s = _section(b, "Bodies", [count])
+	var list := CapScroll.new(148.0, VBoxContainer.new())
+	(list.content as VBoxContainer).add_theme_constant_override("separation", 0)
+	s.add_child(frame(list, {"bc": T.BORDER}))
+	reg("bodyList", list.content)
 	render_body_list([], -1)
 
-func _add_btn(parent: El, sym: String, label: String, sel: String, tip := "") -> El:
-	var b := B(parent, C.add_btn(), null, sel, [["hover", C.ADD_HOVER]], tip)
-	E(b, {"fs": 16.0, "c": T.ACCENT}, sym)
-	E(b, {}, label)
+func _add_btn(parent: Node, sym: String, label: String, sel: String, tip := "") -> BoxButton:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	var b := BoxButton.new("Add", col, tip)
+	var sl := L(col, sym, {"fs": 16.0, "c": T.ACCENT})
+	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var ll := b.tint(L(col, label, {"fs": 10.0, "ls": 0.8, "up": true, "c": T.TEXT}))
+	ll.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	parent.add_child(b)
+	reg(sel, b)
 	return b
 
-## A .chart-key entry: the 9 × 2 swatch (vertical-align: middle) and a label.
-class _Swatch extends El:
-	var sw: Color
-	func _init(style: Dictionary, col: Color) -> void:
-		super(style)
-		sw = col
-	func _draw_extra() -> void:
-		if _lines.is_empty():
-			return
-		var fs := gf("fs")
-		var xh := 0.53 * fs          # Menlo's x-height
-		var by: float = gf("pt") + _lines[0].top + _lines[0].base
-		draw_rect(_snap(Rect2(0, by - xh * 0.5 - 1.0, 9, 2)), sw)
-
-# ---- MODEL VIEWER -------------------------------------------------------------------------
+# MODEL VIEWER
 func _build_model_panel() -> void:
-	var p := root(E(self, C.panel(268.0), null, "modelPanel"))
+	var p := _panel("modelPanel")
 	model_panel = p
-	_panel_head(p, "Model viewer", "modelPanel", "Close")
-	reg("modelClose", p.get_child(0).get_child(1))
-	E(p, {"fs": 14.0, "c": T.ACCENT, "mb": 10.0, "ls": C.em(0.04, 14)}, "—", "mvName")
-	E(p, {"display": "grid", "cols": [1.0, 1.0], "gapc": 4.0, "gapr": 4.0, "mb": 12.0}, null, "mvGrid")
-	var mc := E(p, {"bt": 1.0, "bct": T.BORDER, "pt": 10.0, "mb": 10.0})
-	var sl := E(mc, {"display": "flex", "ai": "center", "gapc": 8.0, "fs": 10.0, "c": T.TEXT_DIM, "mb": 8.0})
-	E(sl, {"minw": 62.0}, "Exploded")
-	_range(sl, "mvExplode", {"grow": 1.0, "shrink": 1.0, "basis": 0.0, "m": 2}, 0, 1, 0, 0.01)
-	var tr := E(mc, C.TOGGLE_ROW)
-	var tvars := [["hover", C.TOGGLE_HOVER], ["active", C.TOGGLE_ACTIVE]]
-	# `.toggle-btn.on` has no rule in the stylesheet: the page marks these two
-	# with `on`, and they look the same either way. Faithfully so here.
-	tvars = [["hover", C.TOGGLE_HOVER], ["on", {}]]
-	var dep := B(tr, C.toggle_btn(), "Deployed", "mvDeploy", tvars, "Legs, fins, arrays and radiators in their deployed position")
-	dep.set_state("on", true)
+	var head := _panel_head(p, "Model viewer", "modelPanel", "Close")
+	reg("modelClose", head.get_child(1))
+	m(L(p.body, "—", {"fs": 14.0, "c": T.ACCENT, "ls": 0.56}, "mvName"), 0.0, 10.0)
+	reg("mvGrid", grid(p.body, [1.0, 1.0], 4.0, 4.0, 0.0, 12.0))
+	var mc := HudStack.new(false)
+	p.body.add_child(m(frame(mc, {"bw": 0, "bt": 1, "bc": T.BORDER, "pad": [10, 0, 0, 0]}), 0.0, 10.0))
+	var sl := hbox(mc, 8.0, 0.0, 8.0)
+	var el := L(sl, "Exploded", {"fs": 10.0, "c": T.TEXT_DIM})
+	el.custom_minimum_size.x = 62.0
+	var r := _range(sl, "mvExplode", 0, 1, 0, 0.01)
+	r.inset = 2.0
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var tr := grid(mc, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	var dep := B(tr, "ToggleFlat", "Deployed", "mvDeploy", "Legs, fins, arrays and radiators in their deployed position")
+	dep.set_active(true)
 	dep.pressed.connect(func():
-		dep.set_state("on", not dep.has_state("on"))
-		model_deploy.emit(dep.has_state("on")))
-	var spin := B(tr, C.toggle_btn(), "Turntable", "mvSpin", tvars, "Idle turntable")
+		dep.set_active(not dep.active)
+		model_deploy.emit(dep.active))
+	var spin := B(tr, "ToggleFlat", "Turntable", "mvSpin", "Idle turntable")
 	spin.pressed.connect(func():
-		spin.set_state("on", not spin.has_state("on"))
-		model_spin.emit(spin.has_state("on")))
-	var bg := B(tr, C.toggle_btn(), "Light", "mvLight", tvars, "Light backdrop instead of the dark studio")
+		spin.set_active(not spin.active)
+		model_spin.emit(spin.active))
+	var bg := B(tr, "ToggleFlat", "Light", "mvLight", "Light backdrop instead of the dark studio")
 	bg.pressed.connect(func():
-		bg.set_state("on", not bg.has_state("on"))
-		model_backdrop.emit(bg.has_state("on")))
-	E(p, {"display": "grid", "cols": [1.0, 1.0], "gapr": 3.0, "gapc": 10.0, "mb": 12.0}, null, "mvList")
-	E(p, {}, null, "mvStages")
-	B(p, C.action_btn(), "Fly this vehicle", "mvFly", [["hover", C.ACTION_HOVER]]).pressed.connect(func(): model_fly.emit())
+		bg.set_active(not bg.active)
+		model_backdrop.emit(bg.active))
+	reg("mvList", grid(p.body, [1.0, 1.0], 10.0, 3.0, 0.0, 12.0))
+	reg("mvStages", stack(p.body))
+	m(B(p.body, "Action", "Fly this vehicle", "mvFly"), 8.0).pressed.connect(func(): model_fly.emit())
 	_hide(p, "inline", true)
 
-# ---- CROSS-SECTION frame ----------------------------------------------------------------------
+# CROSS-SECTION frame
 func _build_xsec_panel() -> void:
-	var p := root(E(self, C.panel(348.0), null, "xsecPanel"))
+	var p := _panel("xsecPanel")
 	xsec_panel = p
 	_panel_head(p, "Cross-section", "xsecPanel", "Close")
-	E(p, {"fs": 11.0, "c": T.ACCENT, "ls": C.em(0.08, 11), "mb": 8.0, "up": true}, "—", "xsecName")
-	var ed := E(p, {"b": [1, T.BORDER], "bl": 2.0, "bcl": T.ACCENT, "bg": Color(1, 1, 1, 0.02), "p": [9, 10, 2, 10], "mb": 10.0}, null, "xsecEdit")
-	_note(ed, [_t("Editing is the same operation as building — the object is re-derived and its limits rechecked immediately. The curve is R(M) for this body's own composition and spin; drag the handle along it. Dashed lines are where the model changes its mind about what this is.")], {"mb": 9.0})
+	m(L(p.body, "—", {"fs": 11.0, "c": T.ACCENT, "ls": 0.88, "up": true}, "xsecName"), 0.0, 8.0)
+	# The inspector and live editor still build El content: the mounts are Els in a host.
+	var host := ElHost.new()
+	p.body.add_child(host)
+	var ed := E(host, {"b": [1, T.BORDER], "bl": 2.0, "bcl": T.ACCENT, "bg": Color(1, 1, 1, 0.02), "p": [9, 10, 2, 10], "mb": 10.0}, null, "xsecEdit")
+	E(ed, C.merge(C.section_note(), {"mb": 9.0}), [{"t": "Editing is the same operation as building — the object is re-derived and its limits rechecked immediately. The curve is R(M) for this body's own composition and spin; drag the handle along it. Dashed lines are where the model changes its mind about what this is."}])
 	_mounts["liveEdit"] = E(ed, {}, null, "liveEdit")
-	# the two canvases: width 100%, height auto, so their height follows the
-	# bitmap's aspect (330 × 260 and 330 × 26)
-	_mounts["xsecCanvas"] = E(p, {"aspect": 260.0 / 330.0, "b": [1, T.BORDER], "bg": T.rgba(0, 0, 0, 0.42)}, null, "xsecCanvas")
-	_mounts["xsecLegend"] = E(p, {"aspect": 26.0 / 330.0, "m": [4, 0, 8, 0]}, null, "xsecLegend")
-	_mounts["xsecVerdict"] = E(p, {}, null, "xsecVerdict")
-	_mounts["xsecFacts"] = E(p, {}, null, "xsecFacts")
-	_mounts["xsecNotes"] = E(p, {}, null, "xsecNotes")
+	_mounts["xsecCanvas"] = E(host, {"aspect": 260.0 / 330.0, "b": [1, T.BORDER], "bg": T.rgba(0, 0, 0, 0.42)}, null, "xsecCanvas")
+	_mounts["xsecLegend"] = E(host, {"aspect": 26.0 / 330.0, "m": [4, 0, 8, 0]}, null, "xsecLegend")
+	_mounts["xsecVerdict"] = E(host, {}, null, "xsecVerdict")
+	_mounts["xsecFacts"] = E(host, {}, null, "xsecFacts")
+	_mounts["xsecNotes"] = E(host, {}, null, "xsecNotes")
+	for k in ["xsecEdit", "liveEdit", "xsecCanvas", "xsecLegend", "xsecVerdict", "xsecFacts", "xsecNotes"]:
+		(ids[k] as El).el_id = k
 
-# ---- FLIGHT frame -----------------------------------------------------------------------------
+# FLIGHT frame
 func _build_flight_panel() -> void:
-	var p := root(E(self, C.panel(306.0), null, "flightPanel"))
+	var p := _panel("flightPanel", [16, 16, 16, 16])
 	flight_panel = p
-	var head := E(p, C.PANEL_HEAD)
-	E(head, C.merge(C.h3(true), {"grow": 1.0, "basis": 0.0, "minw": 0.0}), "Flight")
-	var warp := E(head, {"display": "flex", "ai": "center", "gapc": 4.0, "mlauto": true, "mr": 6.0})
-	B(warp, C.merge(C.warp_btn(), {"ff": "lucida"}), "◂", "[data-warp=-1]", [["hover", {"bcol": T.ACCENT}]], "Slow time (,)").pressed.connect(func(): warp_step.emit(-1))
-	E(warp, {"fs": 11.0, "c": T.ACCENT, "minw": 46.0, "ta": "center"}, "1×", "warpLabel")
-	B(warp, C.merge(C.warp_btn(), {"ff": "lucida"}), "▸", "[data-warp=1]", [["hover", {"bcol": T.ACCENT}]], "Speed time (.)").pressed.connect(func(): warp_step.emit(1))
-	B(head, C.panel_close(), "✕", "", [["hover", C.PANEL_CLOSE_HOVER]], "Collapse").pressed.connect(func(): set_panel_open("flightPanel", false))
-	_mounts["flightHud"] = E(p, {}, null, "flightHud")
+	var head := hbox(p.body, 8.0)
+	head.add_child(_head_title("Flight"))
+	var warp := hbox(head, 4.0)
+	warp.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var wd := B(warp, "Warp", "◂", "[data-warp=-1]", "Slow time (,)")
+	wd.custom_minimum_size = Vector2(20, 18)
+	wd.pressed.connect(func(): warp_step.emit(-1))
+	var wl := L(warp, "1×", {"fs": 11.0, "c": T.ACCENT}, "warpLabel")
+	wl.custom_minimum_size.x = 46.0
+	wl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var wu := B(warp, "Warp", "▸", "[data-warp=1]", "Speed time (.)")
+	wu.custom_minimum_size = Vector2(20, 18)
+	wu.pressed.connect(func(): warp_step.emit(1))
+	var gap := Control.new()
+	gap.custom_minimum_size.x = 6.0
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	warp.add_child(gap)
+	var x := B(head, "PanelClose", "✕", "", "Collapse")
+	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	x.pressed.connect(func(): set_panel_open("flightPanel", false))
+	var host := ElHost.new()
+	p.body.add_child(host)
+	_mounts["flightHud"] = host
+	reg("flightHud", host)
 
-# ---- tabs ------------------------------------------------------------------------------------
+# tabs
+func _tab(text: String, id: String) -> HudButton:
+	var b := HudButton.new("PanelTab", text)
+	HudBlur.attach(b, T.PANEL, 10.0)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	reg("[data-open=%s]" % id, b)
+	b.pressed.connect(func(): set_panel_open(id, true))
+	tabs[id] = b
+	_hide(b, "inline", true)
+	return b
+
 func _build_tabs() -> void:
-	tab_col = root(E(self, {"display": "flex", "dir": "column", "ai": "start", "gapr": 6.0}))
+	tab_col = VBoxContainer.new()
+	tab_col.add_theme_constant_override("separation", 6)
+	tab_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(tab_col)
 	for t in [["scenarioPanel", "▸ Scenario"], ["coursePanel", "▸ Course"], ["flightPanel", "▸ Flight"]]:
-		var b := B(tab_col, C.panel_tab(), t[1], "[data-open=%s]" % t[0], [["hover", C.PANEL_TAB_HOVER]])
-		b.pressed.connect(func(): set_panel_open(t[0], true))
-		tabs[t[0]] = b
-		_hide(b, "inline", true)
-	tab_right = root(B(self, C.panel_tab(), "Controls ◂", "[data-open=controlPanel]", [["hover", C.PANEL_TAB_HOVER]]))
-	tab_right.pressed.connect(func(): set_panel_open("controlPanel", true))
-	tabs["controlPanel"] = tab_right
-	_hide(tab_right, "inline", true)
+		tab_col.add_child(_tab(t[1], t[0]))
+	tab_col.minimum_size_changed.connect(_queue_layout)
+	tab_right = _tab("Controls ◂", "controlPanel")
+	add_child(tab_right)
 
-# ---- readout ---------------------------------------------------------------------------
+# readout
 func _build_readout() -> void:
-	readout = root(E(self, {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.7, "ls": C.em(0.08, 10)}, null, "readout"))
-	var v := {"c": T.ACCENT_2}
-	_rich(readout, [_t("band"), _t(" "), _t("VIS", C.merge(v, {"id": "bandLabel"})), _t(" · "), _t("0.00", C.merge(v, {"id": "rs"})),
-		_t(" r_s AU · ISCO "), _t("0.00", C.merge(v, {"id": "isco"}))])
-	_rich(readout, [_t("bodies "), _t("0", C.merge(v, {"id": "bc"})), _t(" consumed "), _t("0", C.merge(v, {"id": "cc"}))])
-	_rich(readout, [_t("fps "), _t("--", C.merge(v, {"id": "fps"}))])
+	readout = VBoxContainer.new()
+	readout.add_theme_constant_override("separation", 0)
+	readout.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(readout)
+	reg("readout", readout)
+	var dim := {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.7, "ls": 0.8}
+	var v := C.merge(dim, {"c": T.ACCENT_2})
+	for line in [[["band ", dim], ["VIS", v, "bandLabel"], [" · ", dim], ["0.00", v, "rs"], [" r_s AU · ISCO ", dim], ["0.00", v, "isco"]],
+			[["bodies ", dim], ["0", v, "bc"], [" consumed ", dim], ["0", v, "cc"]],
+			[["fps ", dim], ["--", v, "fps"]]]:
+		var row := hbox(readout, 0.0)
+		for run in line:
+			L(row, run[0], run[1], run[2] if run.size() > 2 else "")
+	readout.minimum_size_changed.connect(_queue_layout)
 
-func _rich(parent: El, runs: Array, style := {}) -> El:
-	var e := E(parent, style, runs)
-	for r in runs:
-		if r.has("id"):
-			run_ids[r.id] = [e, r]
-	return e
-
-# ---- START SCREEN -----------------------------------------------------------------------------
-class _StartEl extends El:
-	func _blur_extra(m: ShaderMaterial) -> void:
-		m.set_shader_parameter("mode", 1)
-		m.set_shader_parameter("inner", Color(14 / 255.0, 18 / 255.0, 28 / 255.0, 0.90))
-		m.set_shader_parameter("outer", Color(4 / 255.0, 5 / 255.0, 9 / 255.0, 0.985))
-		m.set_shader_parameter("centre", Vector2(0.5, 0.4))
-		# radial-gradient(120% 90% at 50% 40%) — the ellipse's radii
-		m.set_shader_parameter("radii", Vector2(1.2, 0.9))
-
+# START SCREEN
 func _build_start() -> void:
-	start_screen = _StartEl.new({"bg": T.CLEAR})
+	start_screen = Control.new()
+	start_screen.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(start_screen)
 	reg("startScreen", start_screen)
-	root(start_screen)
-	start_screen.mouse_filter = Control.MOUSE_FILTER_STOP
-	var inner := E(start_screen, {"ta": "center"})
-	inner.set_meta("inner", true)
-	E(inner, {"ff": "mono", "fw": 700, "fs": 42.0, "lh": 1.2, "mb": 30.0, "ls": C.em(0.22, 42), "c": T.hexc(0xdfe6f0)}, "ASTRARIUM")
-	start_cards = E(inner, {"display": "grid", "cols": [1.0, 1.0, 1.0], "gapc": 16.0, "gapr": 16.0})
+	_start_inner = VBoxContainer.new()
+	_start_inner.add_theme_constant_override("separation", 30)
+	_start_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	start_screen.add_child(_start_inner)
+	var title := L(_start_inner, "ASTRARIUM", {"ff": "mono", "fw": 700, "fs": 42.0, "lh": 1.2, "ls": 9.24, "c": T.hexc(0xdfe6f0)})
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	start_cards = HudGrid.new([1.0, 1.0, 1.0], 16.0, 16.0)
+	_start_inner.add_child(start_cards)
+	_start_inner.minimum_size_changed.connect(_queue_layout)
 	for c in [["sandbox", "Sandbox", "Build and break systems. N-body gravity, real interiors, black holes, climate, and the imaging bands to look at it all in."],
 			["learn", "Learn astronomy", "A beginner’s course, thirty-five lessons, built on the same physics as the rest of this. Seasons and moon phases through to gravitational waves — in order, or jump to what you came for."],
 			["flight", "Spaceflight", "Fly real vehicles off a real pad. Staging, guidance, landings, time dilation — and a model viewer to see what you are flying."]]:
-		var card := B(start_cards, C.button({"display": "block", "ta": "left", "bg": T.rgba(12, 15, 23, 0.85), "b": [1, T.BORDER],
-			"p": [22, 22, 20, 22], "c": T.TEXT, "ff": "mono", "fs": 13.333, "fit": false}), null, "[data-start=%s]" % c[0],
-			[["hover", {"bcol": T.ACCENT, "bg": T.rgba(20, 24, 34, 0.9)}]])
+		var col := HudStack.new(false)
+		var card := BoxButton.new("Start", col)
+		# a block button centres its content in the row's height
+		card.center = true
 		card.set_meta("start", c[0])
-		card.add_child(StartIcon.new(c[0]))
-		E(card, {"fs": 15.0, "ls": C.em(0.06, 15), "mb": 8.0, "c": T.hexc(0xe6ecf4)}, c[1])
-		E(card, {"fs": 11.0, "lh": 1.65, "c": T.TEXT_DIM}, c[2])
+		col.add_child(m(StartIcon.new(c[0]), 0.0, 14.0))
+		m(L(col, c[1], {"fs": 15.0, "ls": 0.9, "c": T.hexc(0xe6ecf4)}), 0.0, 8.0)
+		L(col, c[2], {"fs": 11.0, "lh": 1.65, "c": T.TEXT_DIM}, "", true)
+		start_cards.add_child(card)
+		reg("[data-start=%s]" % c[0], card)
 		card.pressed.connect(func(): start_chosen.emit(c[0]))
 
-## Fade the start screen out (opacity and a 3% scale over 0.4 s), then remove it
-## 420 ms later.
+## Fade the start screen out (opacity and a 3% scale over 0.4 s), then remove it.
 func dismiss_start() -> void:
 	if not start_screen.visible:
 		return
 	_start_generation += 1
 	var generation := _start_generation
+	# the cards fade out with it and must not take a click while they do
 	start_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	start_screen.mouse_behavior_recursive = Control.MOUSE_BEHAVIOR_DISABLED
 	start_screen.pivot_offset = size * 0.5
 	if _start_tween: _start_tween.kill()
 	_start_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -928,21 +1144,44 @@ func show_start() -> void:
 	start_screen.modulate.a = 1.0
 	start_screen.scale = Vector2.ONE
 	start_screen.mouse_filter = Control.MOUSE_FILTER_STOP
-	El.any_dirty = true
+	start_screen.mouse_behavior_recursive = Control.MOUSE_BEHAVIOR_INHERITED
+	_queue_layout()
 
 func set_settings_open(open: bool) -> void:
 	settings_open = open
 	settings_backdrop.visible = open
 	set_panel_open("settingsPanel", open)
-	El.any_dirty = true
+
+# toast
+func _build_toast() -> void:
+	_toast_label = Label.new()
+	var st := {"fs": 10.0, "ls": 1.4, "up": true, "c": T.TEXT}
+	_toast_label.set_meta("st", st)
+	T.apply_label(_toast_label, st)
+	_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	toast_el = frame(_toast_label, {"bg": T.CLEAR if HudBlur.enabled else T.PANEL, "bc": T.BORDER_STRONG, "pad": [9, 16, 9, 16]})
+	HudBlur.attach(toast_el, T.PANEL, 10.0)
+	toast_el.modulate.a = 0.0
+	add_child(toast_el)
+	toast_el.minimum_size_changed.connect(_queue_layout)
+	reg("toast", _toast_label)
+
+## Transient message, at the top of the free band between the panels.
+func toast(msg: String, ms := 2200) -> void:
+	_toast_label.text = msg
+	_layout_all()
+	if _toast_tween: _toast_tween.kill()
+	_toast_tween = create_tween()
+	_toast_tween.tween_property(toast_el, "modulate:a", 1.0, 0.35)
+	_toast_timer = ms / 1000.0
 
 # VISIBILITY
 
 ## An element can be hidden for several independent reasons (inline, mode, folded
 ## section) and shows only when none holds, so no writer undoes another's.
-func _hide(e: El, why: String, hidden: bool) -> void:
+func _hide(e: Control, why: String, hidden: bool) -> void:
 	if not hidden_flags.has(e):
-		# Flight panel rows are rebuilt per launch; drop the freed ones' entries.
 		for k in hidden_flags.keys():
 			if not is_instance_valid(k): hidden_flags.erase(k)
 		hidden_flags[e] = {}
@@ -953,21 +1192,18 @@ func _hide(e: El, why: String, hidden: bool) -> void:
 			vis = false
 	if e.visible != vis:
 		e.visible = vis
-		e.touch()
-		El.any_dirty = true
+		if e is El: (e as El).touch()
+		_queue_layout()
 
 func _apply_body_classes() -> void:
 	var fl := body.has("flight-mode")
 	var le := body.has("learn-mode")
 	var mo := body.has("model-open")
 	var hh := body.has("hud-hidden")
-	# body.hud-hidden .hud { display: none }
-	for r in roots:
-		if r == toast_el or r == start_screen or r == settings_panel or r == settings_backdrop or corners.has(r):
-			continue
+	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout]:
 		_hide(r, "hud", hh)
-	# In flight mode the orrery's own instruments are not merely folded — they
-	# are gone: the scenario list, its tab, and the cross-section.
+	# In flight mode the orrery's own instruments are gone, not folded: the
+	# scenario list, its tab and the cross-section.
 	_hide(scenario_panel, "cls", fl or le)
 	_hide(xsec_panel, "cls", fl)
 	_hide(tabs.scenarioPanel, "cls", fl or le)
@@ -975,7 +1211,7 @@ func _apply_body_classes() -> void:
 	_hide(tabs.flightPanel, "cls", not fl)
 	_hide(course_panel, "cls", not le)
 	_hide(tabs.coursePanel, "cls", not le)
-	# The model viewer takes the FRAME, tabs included.
+	# The model viewer takes the frame, tabs included.
 	_hide(tab_col, "cls", mo)
 	_hide(tab_right, "cls", mo)
 
@@ -985,12 +1221,12 @@ func _set_body(cls: String, on: bool) -> void:
 
 # THE ORCHESTRATOR's API
 
-## setPanelOpen: a panel's own collapsed state, and the tab it leaves behind.
+## A panel's own collapsed state, and the tab it leaves behind.
 func set_panel_open(id: String, open: bool) -> void:
 	if id == "settingsPanel":
 		settings_open = open
 		settings_backdrop.visible = open
-	var p: El = ids.get(id)
+	var p: Control = ids.get(id)
 	if p == null:
 		return
 	if open: collapsed.erase(id)
@@ -1000,34 +1236,30 @@ func set_panel_open(id: String, open: bool) -> void:
 		_hide(tabs[id], "inline", open)
 	if id == "controlPanel":
 		_set_body("panel-open-right", open)
-	# the left column is a stack: the editor being open squeezes the settings
 	if id == "xsecPanel":
 		_set_body("xsec-open", open)
-	El.any_dirty = true
+	_queue_layout()
 	panel_changed.emit(id, open)
 
 func is_collapsed(id: String) -> bool:
 	return collapsed.has(id)
 
-## The mode switch's visuals and the section filter. Which panels a mode
-## opens stays with the orchestrator (it calls set_panel_open).
+## The section filter for a mode. Which panels a mode opens stays with the
+## orchestrator (it calls set_panel_open).
 func set_app_mode(mode: String) -> void:
 	app_mode = mode
-	for m in ["sandbox", "learn", "flight"]:
-		for b in sels.get("[data-mode=%s]" % m, []):
-			b.set_state("on", m == mode)
 	apply_section_modes(mode)
 	_set_body("flight-mode", mode == "flight")
 	_set_body("learn-mode", mode == "learn")
 	_apply_body_classes()
 
-## body.model-open: the studio takes the frame, and the tabs go with it.
+## The studio takes the frame, and the tabs go with it.
 func set_model_open(on: bool) -> void:
 	_set_body("model-open", on)
 	_apply_body_classes()
 
-## H hides the HUD. One class, so every panel keeps the state that IS its
-## collapsed state and comes back exactly as it was.
+## H hides the HUD. One flag, so every panel keeps the state that IS its collapsed
+## state and comes back exactly as it was.
 func set_hud_hidden(hidden: bool) -> void:
 	hud_hidden = hidden
 	_set_body("hud-hidden", hidden)
@@ -1036,29 +1268,28 @@ func set_hud_hidden(hidden: bool) -> void:
 func mount(n: String) -> Control:
 	return _mounts.get(n, ids.get(n))
 
-func get_el(id: String) -> El:
+func get_el(id: String) -> Control:
 	return ids.get(id)
 
 func _targets(sel: String) -> Array:
 	var s := sel.replace("\"", "").replace("'", "")
 	if s.begins_with("#"): s = s.substr(1)
-	if sels.has(s): return sels[s]
-	if run_ids.has(s): return []
-	return []
+	var out: Array = []
+	for e in sels.get(s, []):
+		if is_instance_valid(e): out.append(e)
+	return out
 
-## Text of any element or inline span by id — including every "<range>-val".
+## Text of any element by id — including every "<range>-val".
 func set_text(id: String, text: String) -> void:
-	if run_ids.has(id):
-		var pr: Array = run_ids[id]
-		if pr[1].t != text:
-			pr[1].t = text
-			(pr[0] as El)._invalidate()
-			(pr[0] as El).touch()
-		return
 	for e in _targets(id):
-		if e is RangeInput:
-			continue
-		e.set_text(text)
+		if e is HudButton:
+			(e as HudButton).set_label(text)
+		elif e is Label:
+			if (e as Label).text != text: (e as Label).text = text
+		elif e is RichTextLabel:
+			(e as RichTextLabel).text = text
+		elif e is El:
+			(e as El).set_text(text)
 
 func set_shown(id: String, shown: bool) -> void:
 	for e in _targets(id):
@@ -1067,49 +1298,50 @@ func set_shown(id: String, shown: bool) -> void:
 		if shown: collapsed.erase(id)
 		else: collapsed[id] = true
 
-## `.active` / `.on` on a button, by id or by "[data-x=v]" — whichever of the
-## two classes that element's stylesheet rules are written against.
+## A button's active state, by id or by "[data-x=v]".
 func set_active(sel: String, on: bool) -> void:
 	for e in _targets(sel):
-		var has_on := false
-		for v in e.variants:
-			if v[0] == "on": has_on = true
-		e.set_state("on" if has_on else "active", on)
-		if e.has_state("tri"):
-			e.set_state("triactive", on)
+		if e is HudButton:
+			(e as HudButton).set_active(on)
+		elif e is El:
+			(e as El).set_state("active", on)
 
 func set_button_text(sel: String, text: String) -> void:
 	for e in _targets(sel):
-		e.set_text(text)
+		if e is HudButton: (e as HudButton).set_label(text)
+		elif e is El: (e as El).set_text(text)
 
 ## A range input's value, WITHOUT an input event (the orchestrator's own write).
 func set_slider(id: String, value: float, label_text = null) -> void:
-	var r: RangeInput = sliders.get(id)
-	if r: r.set_value(value)
+	var r: HudSlider = sliders.get(id)
+	if r: r.set_v(value)
 	if label_text != null:
 		set_text(id + "-val", str(label_text))
 
-## setControl: move a slider AS IF the user had — the learner sees it move and
-## every downstream binding fires.
+## Move a slider AS IF the user had — the learner sees it move and every downstream
+## binding fires.
 func drive_slider(id: String, value: float) -> void:
-	var r: RangeInput = sliders.get(id)
+	var r: HudSlider = sliders.get(id)
 	if r == null:
 		return
-	r.set_value(value)
+	r.set_v(value)
 	_on_slider(r.value, id)
 
 func get_slider(id: String) -> float:
-	var r: RangeInput = sliders.get(id)
+	var r: HudSlider = sliders.get(id)
 	return r.value if r else 0.0
 
 ## The step counter goes red, and says why, when the integrator hit its guard.
 func set_warn(id: String, on: bool, tooltip := "") -> void:
 	for e in _targets(id):
-		e.set_state("warn", on)
+		if e is Label:
+			var st: Dictionary = (e.get_meta("st", STAT_V) as Dictionary).duplicate()
+			st.c = T.WARN if on else STAT_V.c
+			T.apply_label(e, st)
 		e.tooltip_text = tooltip
 		e.mouse_filter = Control.MOUSE_FILTER_PASS if tooltip != "" else Control.MOUSE_FILTER_IGNORE
 
-## updateSimStats' display half: steps (capped at the guard) and drift.
+## The display half of the sim stats: steps (capped at the guard) and drift.
 func set_sim_stats(steps: int, drift_rel: float) -> void:
 	var capped := steps >= STEP_GUARD
 	set_text("setSteps", ("%d capped" % steps) if capped else str(steps))
@@ -1120,18 +1352,7 @@ func pointer_over_ui() -> bool:
 	var h := get_viewport().gui_get_hovered_control()
 	return h != null and h != self and is_ancestor_of(h)
 
-# ---- toast -------------------------------------------------------------------------------------
-## Transient message, at the top of the free band between the panels.
-func toast(msg: String, ms := 2200) -> void:
-	toast_el.set_text(msg)
-	# placed in whatever gap the panels have left, computed as it appears
-	_layout_all()
-	if _toast_tween: _toast_tween.kill()
-	_toast_tween = create_tween()
-	_toast_tween.tween_property(toast_el, "modulate:a", 1.0, 0.35)
-	_toast_timer = ms / 1000.0
-
-# ---- presets -------------------------------------------------------------------------------------
+# presets
 func render_preset_groups(groups: Array, presets: Dictionary, active_key: String) -> void:
 	_groups = groups
 	_presets = presets
@@ -1141,14 +1362,11 @@ func render_preset_groups(groups: Array, presets: Dictionary, active_key: String
 ## Preset groups. Search owns the open state while active; hand-opened groups are
 ## remembered when the query clears.
 func _render_presets() -> void:
-	var q := _search.edit.text.strip_edges().to_lower()
+	var q := _search.text.strip_edges().to_lower()
 	var searching := q.length() > 0
-	for k in _preset_list.get_children():
-		_preset_list.remove_child(k)
-		k.queue_free()
-	_preset_list.touch()
+	_clear(_preset_list)
 	for sel in sels.keys():
-		if str(sel).begins_with("[data-preset="):
+		if str(sel).begins_with("[data-preset=") or str(sel).begins_with("[data-group="):
 			sels.erase(sel)
 	var visible_groups := 0
 	for g in _groups:
@@ -1164,54 +1382,56 @@ func _render_presets() -> void:
 		visible_groups += 1
 		var cnt := ("%d/%d" % [keys.size(), g.keys.size()]) if searching and not gmatch else str(g.keys.size())
 		var open := searching or _open_groups.has(gid)
-		var det := E(_preset_list, {"b": [1, T.BORDER], "minw": 0.0})
-		var summ := E(det, {"display": "flex", "ai": "center", "gapc": 7.0, "p": [8, 9], "c": T.TEXT_DIM, "fs": 10.0,
-			"ls": C.em(0.1, 10), "up": true}, null, "",
-			[["open", {"c": T.TEXT, "bg": Color(1, 1, 1, 0.025), "bb": 1.0, "bcb": T.BORDER}],
-			["hover", {"c": T.TEXT, "bg": T.rgba(180, 200, 230, 0.06)}]])
-		summ.make_clickable()
-		summ.set_state("open", open)
-		E(summ, {"c": T.ACCENT_2, "fs": 11.0, "lh": 1.0}, "▸", "", [["open", {}]]).set_meta("marker", true)
-		var mk: El = summ.get_child(0)
-		if open:
-			mk.set_style({"c": T.ACCENT})
-			mk.set_text("▾")
-		E(summ, {"grow": 1.0, "basis": 0.0, "minw": 0.0}, g.label)
-		E(summ, {"c": T.TEXT_DIM, "fs": 9.0, "ls": C.em(0.04, 9)}, cnt)
-		var items := E(det, {"display": "grid", "cols": [1.0], "gapr": 5.0, "p": 5})
-		_hide(items, "closed", not open)
+		var det := VBoxContainer.new()
+		det.add_theme_constant_override("separation", 0)
+		_preset_list.add_child(frame(det, {"bc": T.BORDER}))
+		var row := hbox(null, 7.0)
+		var summ := BoxButton.new("GroupHead", row)
+		summ.set_active(open)
+		var mk := L(row, "▾" if open else "▸", {"fs": 11.0, "lh": 1.0, "c": T.ACCENT if open else T.ACCENT_2})
+		mk.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var tl := summ.tint(L(row, g.label, {"fs": 10.0, "ls": 1.0, "up": true, "c": T.TEXT_DIM}, "", true))
+		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var cl := L(row, cnt, {"fs": 9.0, "ls": 0.36, "c": T.TEXT_DIM})
+		cl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		det.add_child(summ)
+		reg("[data-group=%s]" % gid, summ)
+		var items := VBoxContainer.new()
+		items.add_theme_constant_override("separation", 5)
+		items.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var pad := MarginContainer.new()
+		pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for side in ["margin_top", "margin_right", "margin_bottom", "margin_left"]:
+			pad.add_theme_constant_override(side, 5)
+		pad.add_child(items)
+		det.add_child(pad)
+		pad.visible = open
 		for key in keys:
 			var tri: bool = gid == "trisolaris"
-			var b := B(items, C.preset_btn(), _presets.get(key, {}).get("name", key), "[data-preset=%s]" % key,
-				[["hover", {"c": T.TEXT, "bcol": T.BORDER_STRONG}], ["active", C.BLUE_ACTIVE],
-				["tri", {"bcol": T.rgba(255, 170, 70, 0.4), "c": T.hexc(0xffc98a)}],
-				["triactive", {"bg": T.ACCENT, "c": Color.BLACK, "bcol": T.ACCENT}]])
-			b.set_state("tri", tri)
-			b.set_state("active", key == _active_preset)
-			b.set_state("triactive", tri and key == _active_preset)
+			var b := B(items, "PresetTri" if tri else "Preset", _presets.get(key, {}).get("name", key), "[data-preset=%s]" % key)
+			b.set_active(key == _active_preset)
 			b.pressed.connect(func(): preset_chosen.emit(key))
 		summ.pressed.connect(func():
 			if searching:
 				return
 			if _open_groups.has(gid): _open_groups.erase(gid)
 			else: _open_groups[gid] = true
-			_render_presets())
+			_render_presets.call_deferred())
 	_hide(_preset_list, "inline", visible_groups == 0)
 	_hide(_preset_empty, "inline", visible_groups != 0)
 	if searching:
-		_preset_empty.set_text("No scenarios or categories match \"%s\"" % _search.edit.text.strip_edges())
+		(_preset_empty.get_child(0) as Label).text = "No scenarios or categories match \"%s\"" % _search.text.strip_edges()
 	_hide(_search_clear, "inline", not searching)
-	El.any_dirty = true
 
-## Mark the running scenario in the list (loadPreset's `[data-preset]` toggle).
+## Mark the running scenario in the list.
 func set_active_preset(key: String) -> void:
 	_active_preset = key
 	for sel in sels.keys():
 		if str(sel).begins_with("[data-preset="):
 			var k := str(sel).trim_prefix("[data-preset=").trim_suffix("]")
 			for b in sels[sel]:
-				b.set_state("active", k == key)
-				b.set_state("triactive", b.has_state("tri") and k == key)
+				if is_instance_valid(b): b.set_active(k == key)
 
 func open_preset_group(gid: String, open := true) -> void:
 	if open: _open_groups[gid] = true
@@ -1219,45 +1439,71 @@ func open_preset_group(gid: String, open := true) -> void:
 	_render_presets()
 
 func set_search(text: String) -> void:
-	_search.edit.text = text
+	_search.text = text
 	_render_presets()
 
-# ---- refreshUI's body list -------------------------------------------------------------------------
+# the body list
 func render_body_list(bodies: Array, focus_id) -> void:
-	var list: El = ids.bodyList
-	list.touch()
-	for k in list.get_children():
-		if k is El:
-			list.remove_child(k)
-			k.queue_free()
+	var list: VBoxContainer = ids.bodyList
+	_clear(list)
 	if bodies.is_empty():
-		E(list, {"p": 10, "c": T.TEXT_DIM, "ta": "center", "fs": 10.0, "fi": true}, "— empty —")
+		var e := L(null, "— empty —", {"fs": 10.0, "c": T.TEXT_DIM, "fi": true})
+		e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		list.add_child(frame(e, {"bw": 0, "pad": [10, 10, 10, 10]}))
 		return
 	for i in bodies.size():
 		var bd: Dictionary = bodies[i]
 		var bid: int = bd.id
-		var it := E(list, {"display": "flex", "jc": "space-between", "ai": "center", "p": [6, 8],
-			"bb": 0.0 if i == bodies.size() - 1 else 1.0, "bcb": T.BORDER, "fs": 10.0}, null, "",
-			[["sel", {"bg": T.rgba(78, 168, 255, 0.12)}], ["hover", {"bg": T.rgba(180, 200, 230, 0.06)}]])
-		it.make_clickable()
-		it.set_state("sel", focus_id != null and int(focus_id) == bid)
+		var row := hbox(null, 6.0)
+		var it := BoxButton.new("BodyItemLast" if i == bodies.size() - 1 else "BodyItem", row)
+		it.set_active(focus_id != null and int(focus_id) == bid)
 		it.pressed.connect(func(): body_focus.emit(bid))
-		E(it, {"c": T.TEXT_DIM, "ls": 1.0}, "#%d %s" % [bid, bd.name])
-		var rm := B(it, C.button({"bg": T.CLEAR, "b": [0, T.CLEAR], "c": T.WARN, "ff": "mono", "fs": 12.0, "lh": 12.0}), "✕")
+		var nl := L(row, "#%d %s" % [bid, bd.name], {"fs": 10.0, "c": T.TEXT_DIM, "ls": 1.0})
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		nl.clip_text = true
+		var rm := B(row, "Remove", "✕")
+		rm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		rm.pressed.connect(func(): body_remove.emit(bid))
+		list.add_child(it)
 
-# ---- updateHUD: suns --------------------------------------------------------------------------------
+# suns
+## A sun's colour dot with its glow (box-shadow 0 0 8px), level with the name line.
+class SunDot extends Control:
+	var col := Color.WHITE
+	func _init() -> void:
+		custom_minimum_size = Vector2(10, 13)
+		size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		var c := Vector2(4.5, 6.5)
+		for i in 8:
+			var t := (i + 1) / 8.0
+			draw_circle(c, 4.5 + 8.0 * t, Color(col, 0.16 * (1.0 - t) * (1.0 - t)), true, -1.0, true)
+		draw_circle(c, 4.5, col, true, -1.0, true)
+
 ## rows: [{name, cls, mass, teff, dist_au, intensity, color (LINEAR), flaring}]
 func render_sun_list(rows: Array) -> void:
-	var list: El = ids.sunList
+	var list: VBoxContainer = ids.sunList
 	while _sun_rows.size() < rows.size():
-		var row := E(list, {"display": "grid", "cols": [-10.0, 1.0], "gapr": 1.0, "gapc": 8.0, "ai": "center",
-			"p": [6, 8], "b": [1, T.BORDER], "bg": Color(1, 1, 1, 0.015)})
-		var dot := E(row, {"w": 9.0, "h": 9.0, "area": [0, 0], "glow": 8.0, "bg": Color.WHITE})
-		var sn := E(row, {"area": [1, 0], "fs": 11.0, "c": T.TEXT, "ls": C.em(0.04, 11)}, "")
-		var sc := E(row, {"area": [1, 1], "fs": 9.5, "c": T.TEXT_DIM}, "")
-		var sf := E(row, {"area": [1, 2], "fs": 9.5, "c": T.ACCENT_2}, "")
-		_sun_rows.append([row, dot, sn, sc, sf])
+		var h := hbox(null, 8.0)
+		var fr := frame(h, {"bg": Color(1, 1, 1, 0.015), "bc": T.BORDER, "pad": [6, 8, 6, 8]})
+		list.add_child(fr)
+		var dot := SunDot.new()
+		h.add_child(dot)
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 1)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.add_child(col)
+		var sn := L(col, "", {"fs": 11.0, "c": T.TEXT, "ls": 0.44})
+		var sc := L(col, "", {"fs": 9.5, "c": T.TEXT_DIM})
+		var fl := hbox(col, 4.0)
+		var sf := L(fl, "", {"fs": 9.5, "c": T.ACCENT_2})
+		var fb := frame(L(null, "FLARE", {"fs": 8.5, "ls": 0.85, "c": Color.BLACK}), {"bg": T.hexc(0xffcc44), "bw": 0, "pad": [0, 4, 0, 4]})
+		fb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		fl.add_child(fb)
+		_sun_rows.append([fr, dot, sn, sc, sf, fb])
 	for i in _sun_rows.size():
 		var r: Array = _sun_rows[i]
 		var on := i < rows.size()
@@ -1265,25 +1511,29 @@ func render_sun_list(rows: Array) -> void:
 		if not on:
 			continue
 		var s: Dictionary = rows[i]
-		var col: Color = s.color
-		# '#' + color.getHexString(): the sun's LINEAR colour, encoded to sRGB
-		var css := Color.html(U.css_of(col))
-		r[1].set_style({"bg": css})
-		r[2].set_text(str(s.name))
-		r[3].set_text("%s · %s M☉ · %d K" % [s.get("cls", ""), U.fixed(float(s.mass), 2), int(U.jround(float(s.teff)))])
-		var runs: Array = [{"t": "%s AU · %s S⊕" % [U.fixed(float(s.dist_au), 2), U.fixed(float(s.intensity), 2)]}]
-		if s.get("flaring", false):
-			runs.append({"t": "FLARE", "c": Color.BLACK, "fs": 8.5, "ls": C.em(0.1, 8.5), "pulse": true,
-				"box": {"bg": T.hexc(0xffcc44), "pl": 4, "pr": 4, "ml": 4}})
-		r[4].set_runs(runs)
+		# the sun's LINEAR colour, encoded to sRGB for the page
+		var css := Color.html(U.css_of(s.color))
+		if (r[1] as SunDot).col != css:
+			(r[1] as SunDot).col = css
+			(r[1] as SunDot).queue_redraw()
+		_set_label(r[2], str(s.name))
+		_set_label(r[3], "%s · %s M☉ · %d K" % [s.get("cls", ""), U.fixed(float(s.mass), 2), int(U.jround(float(s.teff)))])
+		_set_label(r[4], "%s AU · %s S⊕" % [U.fixed(float(s.dist_au), 2), U.fixed(float(s.intensity), 2)])
+		(r[5] as Control).visible = bool(s.get("flaring", false))
 
-# ---- updateHUD: climate ---------------------------------------------------------------------------------
+static func _set_label(l: Label, t: String) -> void:
+	if l.text != t: l.text = t
+
+# climate
 ## cl: {label, cls, desc, celsius, S, ice, clouds, tauYears, Tmin, Tmax, history}
 func update_climate(cl: Dictionary) -> void:
-	var badge: El = ids.eraBadge
-	var era: Dictionary = HudCss.ERA.get(cl.get("cls", "era-stable"), HudCss.ERA["era-stable"])
-	badge.set_style({"c": era.c, "bcol": era.c, "bg": era.bg})
-	badge.set_text(str(cl.get("label", "")))
+	var era: Dictionary = C.ERA.get(cl.get("cls", "era-stable"), C.ERA["era-stable"])
+	var badge: PanelContainer = ids.eraBadge
+	if badge.get_meta("era", "") != cl.get("cls", "era-stable"):
+		badge.set_meta("era", cl.get("cls", "era-stable"))
+		badge.add_theme_stylebox_override("panel", T.stylebox({"bg": era.bg, "bc": era.c, "pad": [7, 7, 7, 7]}))
+		T.apply_label(ids.eraLabel, {"fs": 12.0, "ls": 2.16, "up": true, "c": era.c})
+	set_text("eraLabel", str(cl.get("label", "")))
 	set_text("eraDesc", str(cl.get("desc", "")))
 	set_text("cTemp", "%s °C" % U.fixed(cl.celsius, 1))
 	set_text("cFlux", "%s S⊕" % U.fixed(cl.S, 2))
@@ -1301,13 +1551,11 @@ static func time_label(yr_per_sec: float) -> String:
 	if yr_per_sec < 1.0: return "%s d/s" % U.fixed(yr_per_sec * 365.25, 2)
 	return "%s yr/s" % U.fixed(yr_per_sec, 1)
 
-# ---- imaging band ------------------------------------------------------------------------------------------
+# imaging band
 func build_band_grid(bands: Array) -> void:
-	var g: El = ids.bandGrid
+	var g: HudGrid = ids.bandGrid
 	for i in bands.size():
-		var b := B(g, C.band_btn(), str(bands[i].short), "[data-band=%d]" % i,
-			[["hover", C.TOGGLE_HOVER], ["active", C.BLUE_ACTIVE]], str(bands[i].get("note", "")))
-		b.pressed.connect(func(): band_chosen.emit(i))
+		B(g, "Band", str(bands[i].short), "[data-band=%d]" % i, str(bands[i].get("note", ""))).pressed.connect(func(): band_chosen.emit(i))
 	_band_count = bands.size()
 
 func set_band(i: int, band: Dictionary) -> void:
@@ -1316,37 +1564,35 @@ func set_band(i: int, band: Dictionary) -> void:
 	set_text("bandNote", str(band.get("note", "")))
 	set_text("bandLabel", str(band.get("short", "")))
 
-# ---- sky settings --------------------------------------------------------------------------------------------
-## The environment rows and the amplitude rows, built from the sky module's
-## own lists — a sixth environment grows a row here without this file changing.
+# sky settings
+## The environment rows and the amplitude rows, built from the sky module's own
+## lists — a sixth environment grows a row here without this file changing.
 func build_sky_settings(envs, params: Array) -> void:
-	# SkyModel.SKY_ENVIRONMENTS is a Dictionary in web order; its keys are the rows
 	if envs is Dictionary:
 		envs = (envs as Dictionary).keys()
 	_envs = envs; _params = params
-	var list: El = ids.skyEnvList
+	var list: HudStack = ids.skyEnvList
 	for name in envs:
-		var row := E(list, {"mb": 13.0})
-		var head := E(row, {"display": "flex", "jc": "space-between", "ai": "baseline", "gapc": 6.0, "fs": 11.0, "c": T.TEXT_DIM, "mb": 2.0},
-			null, "", [["on", {"c": T.TEXT}]])
-		reg("[data-env=%s]" % name, head)
-		var left := E(head, {"display": "flex", "ai": "baseline"})
-		E(left, {}, str(name))
-		var solo := B(left, C.button({"bg": T.CLEAR, "b": [0, T.CLEAR], "p": [0, 0, 0, 6], "ff": "mono", "fs": 9.0,
-			"ls": C.em(0.08, 9), "c": T.TEXT_DIM, "up": true}), "solo", "[data-solo=%s]" % name, [["hover", {"c": T.ACCENT}]],
-			"Show this environment alone")
+		var row := stack(list, 0.0, 13.0)
+		row.collapse = false
+		var head := hbox(row, 6.0, 0.0, 2.0)
+		var left := hbox(head, 0.0)
+		left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var nl := L(left, str(name), {"fs": 11.0, "c": T.TEXT_DIM})
+		reg("[data-env=%s]" % name, nl)
+		var solo := B(left, "Solo", "solo", "[data-solo=%s]" % name, "Show this environment alone")
+		solo.size_flags_vertical = Control.SIZE_SHRINK_END
 		solo.pressed.connect(func(): sky_solo.emit(name))
-		E(head, {"ff": "mono", "fs": 10.0, "c": T.ACCENT}, "0.00", "env-w:" + str(name), [["off", {"c": T.TEXT_DIM}]])
-		_range(row, "env:" + str(name), {"wp": 1.0, "mt": 8.0}, 0, 3, 0, 0.05,
-			func(v): return U.fixed(v, 2) if v > 0.0 else "—")
-		val_fmt.erase("env:" + str(name))
-	var adv: El = ids.skyAdv
+		var wl := L(head, "0.00", {"fs": 10.0, "c": T.ACCENT}, "env-w:" + str(name))
+		wl.size_flags_vertical = Control.SIZE_SHRINK_END
+		m(_range(row, "env:" + str(name), 0, 3, 0, 0.05), 8.0)
+	var adv: HudStack = ids.skyAdv
 	for pm in params:
 		var add: bool = pm.get("add", true)
 		var tip := "An amount of something — blends by ADDING, because two populations along one line of sight superpose." if add \
 			else "A shape of the one galaxy you are in — blends by weighted MEAN, because there is only one galactic plane."
 		_set_row(adv, "skyp:" + str(pm.key), str(pm.label), tip, 0, float(pm.max), 0, float(pm.max) / 200.0, "0")
-	B(adv, C.ghost_btn(), "Unpin all — back to the blend", "skyAdvClear", [["hover", C.GHOST_HOVER]]).pressed.connect(func(): sky_adv_clear.emit())
+	m(B(adv, "Ghost", "Unpin all — back to the blend", "skyAdvClear"), 0.0, 10.0).pressed.connect(func(): sky_adv_clear.emit())
 
 ## `eff` is the blend merged with pinned values; `skip_inputs` updates only the
 ## numbers, never a slider under the pointer.
@@ -1354,10 +1600,10 @@ func sync_sky_controls(sky: Dictionary, eff: Dictionary, skip_inputs := false) -
 	var env: Dictionary = sky.get("env", {})
 	for name in _envs:
 		var w := float(env.get(name, 0.0))
-		for h in sels.get("[data-env=%s]" % name, []):
-			h.set_state("on", w > 0.0)
+		for h in _targets("[data-env=%s]" % name):
+			T.apply_label(h, {"fs": 11.0, "c": T.TEXT if w > 0.0 else T.TEXT_DIM})
 		for e in _targets("env-w:" + str(name)):
-			e.set_state("off", w <= 0.0)
+			T.apply_label(e, {"fs": 10.0, "c": T.ACCENT if w > 0.0 else T.TEXT_DIM})
 		set_text("env-w:" + str(name), U.fixed(w, 2) if w > 0.0 else "—")
 		if not skip_inputs:
 			set_slider("env:" + str(name), w)
@@ -1373,75 +1619,76 @@ func sync_sky_controls(sky: Dictionary, eff: Dictionary, skip_inputs := false) -
 	set_text("skyTilt-val", U.fixed(float(sky.get("tilt", 0.34)), 2))
 	set_text("skyRoll-val", U.fixed(float(sky.get("roll", 0.9)), 2))
 
-# ---- spaceflight ---------------------------------------------------------------------------------------------
+# spaceflight
 ## rows: [{key, name, desc ("2.86 kt · 14.3 km/s · launch"), blurb}]
 func render_craft_grid(rows: Array) -> void:
-	var g: El = ids.craftGrid
-	g.touch()
-	for k in g.get_children():
-		g.remove_child(k); k.queue_free()
+	var g: HudGrid = ids.craftGrid
+	_clear(g)
 	for r in rows:
 		var key: String = r.key
-		var b := B(g, C.craft_btn(), null, "[data-craft=%s]" % key, [["hover", C.CRAFT_HOVER], ["on", C.CRAFT_ON]], str(r.get("blurb", "")))
-		E(b, {"fw": 600, "c": T.hexc(0xdbeaff)}, str(r.name))
-		E(b, {"c": T.hexc(0x7d93ae), "fs": 9.5}, str(r.desc))
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 2)
+		var b := BoxButton.new("Craft", col, str(r.get("blurb", "")))
+		L(col, str(r.name), {"fs": 10.5, "lh": 1.25, "fw": 600, "c": T.hexc(0xdbeaff)}, "", true)
+		L(col, str(r.desc), {"fs": 9.5, "lh": 1.25, "c": T.hexc(0x7d93ae)}, "", true)
+		g.add_child(b)
+		reg("[data-craft=%s]" % key, b)
 		b.pressed.connect(func(): craft_launch.emit(key))
-		# Warm the mesh on hover: pointing at a button is a reliable signal that
-		# it is about to be pressed.
+		# Warm the mesh on hover: pointing at a button is a reliable signal that it
+		# is about to be pressed.
 		b.mouse_entered.connect(func(): craft_hover.emit(key))
 
 func render_model_grid(list: Array) -> void:
-	var g: El = ids.mvGrid
-	g.touch()
-	for k in g.get_children():
-		g.remove_child(k); k.queue_free()
+	var g: HudGrid = ids.mvGrid
+	_clear(g)
 	for v in list:
 		var key: String = v.key
-		B(g, C.mv_chip(), str(v.name), "[data-mv=%s]" % key, [["hover", C.TOGGLE_HOVER], ["on", C.MV_CHIP_ON]]) \
-			.pressed.connect(func(): model_show.emit(key))
+		B(g, "MvChip", str(v.name), "[data-mv=%s]" % key).pressed.connect(func(): model_show.emit(key))
 
 static func mv_mass(kg: float) -> String:
 	if kg >= 1e6: return "%s kt" % U.fixed(kg / 1e6, 2)
 	if kg >= 1e3: return "%s t" % U.fixed(kg / 1e3, 1)
 	return "%s kg" % U.fixed(kg, 0)
 
-## showModel's markup: st = {key?, name, height, gross, dv, twr, rows: [{name,
-## L, D, dry, prop, engine, thrust, isp, dv}]}
+## st = {key?, name, height, gross, dv, twr, rows: [{name, L, D, dry, prop, engine,
+## thrust, isp, dv}]}
 func show_model_stats(st: Dictionary) -> void:
 	set_text("mvName", str(st.name))
 	if st.has("key"):
 		for sel in sels.keys():
 			if str(sel).begins_with("[data-mv="):
-				for b in sels[sel]:
-					b.set_state("on", sel == "[data-mv=%s]" % st.key)
-	var list: El = ids.mvList
-	list.touch()
-	ids.mvStages.touch()
-	for k in list.get_children():
-		list.remove_child(k); k.queue_free()
+				for b in _targets(sel):
+					b.set_active(sel == "[data-mv=%s]" % st.key)
+	var list: HudGrid = ids.mvList
+	_clear(list)
 	for kv in [["height", "%s m" % U.fixed(st.height, 1)], ["gross", mv_mass(st.gross)],
 			["ideal Δv", "%s km/s" % U.fixed(st.dv / 1000.0, 2)], ["pad TWR", U.fixed(st.twr, 2) if st.twr > 0.0 else "—"]]:
-		var cell := E(list, {"display": "flex", "jc": "space-between", "fs": 10.0})
-		E(cell, {"c": T.TEXT_DIM}, kv[0])
-		E(cell, {"c": T.TEXT}, kv[1])
-	var stg: El = ids.mvStages
-	for k in stg.get_children():
-		stg.remove_child(k); k.queue_free()
+		var cell := hbox(list, 4.0)
+		var kl := L(cell, kv[0], {"fs": 10.0, "c": T.TEXT_DIM})
+		kl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		L(cell, kv[1], {"fs": 10.0, "c": T.TEXT})
+	var stg: HudStack = ids.mvStages
+	_clear(stg)
 	var i := 0
 	for r in st.get("rows", []):
 		i += 1
-		var s := E(stg, {"bl": 2.0, "bcl": T.BORDER_STRONG, "p": [5, 0, 5, 8], "mb": 6.0})
-		var top := E(s, {"display": "flex", "ai": "baseline", "gapc": 6.0, "fs": 11.0})
-		E(top, {"c": T.ACCENT}, str(i))
-		E(top, {"grow": 1.0, "basis": 0.0, "minw": 0.0, "c": T.TEXT}, str(r.name))
-		E(top, {"c": T.ACCENT_2, "fs": 10.0}, "%s km/s" % U.fixed(r.dv / 1000.0, 2))
-		E(s, {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.5}, "%s × %s m · %s dry + %s prop" % [U.fixed(r.L, 1), U.fixed(r.D, 1), mv_mass(r.dry), mv_mass(r.prop)])
+		var s := HudStack.new(false)
+		stg.add_child(m(frame(s, {"bw": 0, "bl": 2, "bc": T.BORDER_STRONG, "pad": [5, 0, 5, 8]}), 0.0, 6.0))
+		var top := hbox(s, 6.0)
+		var il := L(top, str(i), {"fs": 11.0, "c": T.ACCENT})
+		il.size_flags_vertical = Control.SIZE_SHRINK_END
+		var nl := L(top, str(r.name), {"fs": 11.0, "c": T.TEXT})
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.size_flags_vertical = Control.SIZE_SHRINK_END
+		var dl := L(top, "%s km/s" % U.fixed(r.dv / 1000.0, 2), {"fs": 10.0, "c": T.ACCENT_2})
+		dl.size_flags_vertical = Control.SIZE_SHRINK_END
+		L(s, "%s × %s m · %s dry + %s prop" % [U.fixed(r.L, 1), U.fixed(r.D, 1), mv_mass(r.dry), mv_mass(r.prop)], {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.5}, "", true)
 		var eng := str(r.engine)
 		if float(r.get("thrust", 0.0)) > 0.0:
 			eng += " · %s MN vac · Isp %s s" % [U.fixed(r.thrust / 1e6, 2), U.fixed(r.isp, 0)]
-		E(s, {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.5}, eng)
+		L(s, eng, {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.5}, "", true)
 
-# LAYOUT — layoutLeftColumn and every position:fixed rule
+# LAYOUT — the left column, the control column and the free band between them
 
 func _process(dt: float) -> void:
 	_time += dt
@@ -1451,125 +1698,129 @@ func _process(dt: float) -> void:
 			if _toast_tween: _toast_tween.kill()
 			_toast_tween = create_tween()
 			_toast_tween.tween_property(toast_el, "modulate:a", 0.0, 0.35)
-	# @keyframes flare-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .45 } },
-	# 0.7 s ease-in-out
+	# the FLARE badge pulses: opacity 1 → 0.45 → 1 over 0.7 s, eased
 	var ph := fmod(_time, 0.7) / 0.7
 	var tt := 1.0 - absf(2.0 * ph - 1.0)
 	var ease := tt * tt * (3.0 - 2.0 * tt)
 	for r in _sun_rows:
-		var sf: El = r[4]
-		if sf.visible and sf.runs.size() > 1:
-			sf.pulse = 1.0 - 0.55 * ease
-			sf.queue_redraw()
-	if size != _last_size:
-		_last_size = size
-		_full = true
-		El.any_dirty = true
-	if El.any_dirty:
+		var fb: Control = r[5]
+		if fb.is_visible_in_tree():
+			fb.modulate.a = 1.0 - 0.55 * ease
+	if lesson_card.visible and lesson_card._ldirty:
+		_queue_layout()
+	# Once a frame at most: a panel's height feeds back into its width (a
+	# scrollbar), and a re-placement inside the same message flush could cycle.
+	if _layout_pending:
 		_layout_all()
 
 func layout_left_column() -> void:
 	_layout_all()
 
-func _fit_w(e: El, avail: float) -> float:
-	return minf(e.max_content_w(), avail)
+## A complete relayout (a resize, a font change).
+func relayout() -> void:
+	_layout_all()
 
-func _shown(e: El) -> bool:
+func _queue_layout() -> void:
+	_layout_pending = true
+
+func _shown(e: Control) -> bool:
 	return e != null and e.is_visible_in_tree() and e.size.y > 0.0
 
-func _set_quiet(e: El, k: String, v) -> void:
-	e.base[k] = v
-	e.cs[k] = v
+## Place a panel at its content's height, capped at `maxh`.
+func _place(p: HudPanel, x: float, y: float, w: float, maxh := -1.0) -> void:
+	p.position = Vector2(x, y)
+	if not p.visible:
+		return
+	if absf(p.size.x - w) > 0.01:
+		p.size = Vector2(w, p.size.y)
+	var h := p.natural_height()
+	if maxh >= 0.0:
+		h = minf(h, maxh)
+	p.size = Vector2(w, maxf(h, 0.0))
 
-## Place an element, re-laying it out only if something in it changed or its size
-## cap did (texts change ten times a second).
-func _lay(e: El, x: float, y: float, w: float, maxh := -1.0) -> void:
-	_set_quiet(e, "maxh", maxh)
+func _fit(c: Control, x: float, y: float) -> void:
+	c.position = Vector2(x, y)
+	c.size = c.get_combined_minimum_size()
+
+func _lay_el(e: El, x: float, y: float, w: float, maxh := -1.0) -> void:
+	e.base["maxh"] = maxh
+	e.cs["maxh"] = maxh
 	e.position = Vector2(x, y)
 	if not e.visible:
 		e.size = Vector2(w, 0)
-		e.set_meta("lk", null)
 		return
-	var key := [w, maxh]
-	if _full or _dirty.has(e) or e.get_meta("lk", null) != key:
-		e._ldirty = true
-		e.layout(w)
-		e.set_meta("lk", key)
-
-var _dirty := {}
-var _full := true
-
-## A complete relayout of every element (a resize, a font change).
-func relayout() -> void:
-	_full = true
-	_layout_all()
+	e._ldirty = true
+	e.layout(w)
+	El.dirty_roots.erase(e)
 
 func _layout_all() -> void:
-	_dirty = El.dirty_roots.duplicate()
-	El.any_dirty = false
-	El.dirty_roots.clear()
+	_layout_pending = false
 	var W := size.x
 	var H := size.y
 	if W <= 0.0 or H <= 0.0:
 		return
-	# corners
 	for c in corners:
-		var k: String = c.get_meta("corner")
-		c.layout(14)
+		var k: String = c.k
 		c.position = Vector2(10 if k.ends_with("l") else W - 24, 10 if k.begins_with("t") else H - 24)
 	settings_backdrop.position = Vector2.ZERO
 	settings_backdrop.size = Vector2(W, H)
-	settings_backdrop.queue_redraw()
-	# .readout { bottom: 18px; left: 20px }
-	_lay(readout, 20, 0, _fit_w(readout, W - 20))
+	_fit(readout, 20, 0)
 	readout.position.y = H - 18 - readout.size.y
-	# The column's own top and bottom edges are MEASURED, not assumed.
+	# The column's own top and bottom edges are measured, not assumed.
 	var col_top := 18.0
 	var hud_bottom := roundf(readout.size.y) + 30.0 if _shown(readout) else 30.0
 
-	# Settings is a centered Esc overlay; the scenario column starts at the top.
+	# Settings is a centred Esc overlay; the scenario column starts at the top.
 	var sw := minf(460.0, W - 48.0)
-	_lay(settings_panel, (W - sw) * 0.5, 0, sw, H - 72.0)
-	settings_panel.position.y = (H - settings_panel.size.y) * 0.5
-	var tab_top := col_top
-	_lay(tab_col, 20, tab_top, _fit_w(tab_col, W - 20))
-	# A collapsed panel leaves a tab behind at the top of the column, so the
-	# first free y is the bottom of that stack, not the bare top of the column.
-	var free := roundf(tab_col.position.y + tab_col.size.y) + 12.0 if _shown(tab_col) else tab_top
-	_lay(scenario_panel, 20, free, 232, H - free - hud_bottom)
-	_lay(course_panel, 20, free, 250, H - free - hud_bottom)
-	var top: El = null
+	_place(settings_panel, (W - sw) * 0.5, 0, sw, H - 72.0)
+	settings_panel.position.y = roundf((H - settings_panel.size.y) * 0.5)
+	_fit(tab_col, 20, col_top)
+	# A collapsed panel leaves a tab at the top of the column, so the first free y
+	# is the bottom of that stack, not the bare top of the column.
+	var any_tab := false
+	for t in tab_col.get_children():
+		if (t as Control).visible: any_tab = true
+	var free := roundf(tab_col.position.y + tab_col.size.y) + 12.0 if any_tab and tab_col.is_visible_in_tree() else col_top
+	_place(scenario_panel, 20, free, 232, H - free - hud_bottom)
+	_place(course_panel, 20, free, 250, H - free - hud_bottom)
+	var top: Control = null
 	for p in [scenario_panel, course_panel]:
 		if _shown(p):
 			top = p; break
 	var y := roundf(top.position.y + top.size.y) + 12.0 if top else free
 	var xsec_top := y
-	_lay(flight_panel, 12, y, 306, H - y - hud_bottom)
+	_place(flight_panel, 12, y, 306, H - y - hud_bottom)
 	if _shown(flight_panel):
 		xsec_top = roundf(flight_panel.position.y + flight_panel.size.y) + 12.0
-	_lay(xsec_panel, 20, xsec_top, 348, H - xsec_top - hud_bottom)
-	_lay(model_panel, 20, col_top, 268, H - col_top - hud_bottom)
-	# the control column and its tab
-	_lay(control_panel, W - 18 - 300, 18, 300, H - 36)
-	_lay(tab_right, 0, col_top, _fit_w(tab_right, W))
+	_place(xsec_panel, 20, xsec_top, 348, H - xsec_top - hud_bottom)
+	_place(model_panel, 20, col_top, 268, H - col_top - hud_bottom)
+	_place(control_panel, W - 18 - 300, 18, 300, H - 36)
+	_fit(tab_right, 0, col_top)
 	tab_right.position.x = W - 18 - tab_right.size.x
 
-	# The toast sits at the top of the FREE BAND, not the middle of the window.
+	# The toast sits at the top of the free band, not the middle of the window.
 	var band_l := 16.0
-	for e in [settings_panel, scenario_panel, course_panel, model_panel, flight_panel, xsec_panel, tab_col]:
+	for e in [settings_panel, scenario_panel, course_panel, model_panel, flight_panel, xsec_panel]:
 		if not _shown(e): continue
 		if e.position.y < col_top + 48.0:
 			band_l = maxf(band_l, e.position.x + e.size.x + 16.0)
+	if any_tab and _shown(tab_col):
+		band_l = maxf(band_l, tab_col.position.x + tab_col.size.x + 16.0)
 	var band_r := control_panel.position.x - 16.0 if _shown(control_panel) else W - 16.0
 	var toast_x := roundf((band_l + band_r) * 0.5)
 	var tmax := minf(420.0, 0.76 * W)
-	_lay(toast_el, 0, col_top, _fit_w(toast_el, tmax))
-	toast_el.position.x = toast_x - toast_el.size.x * 0.5
+	var tf: Font = _toast_label.label_settings.font
+	var tw := tf.get_string_size(_toast_label.text.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, _toast_label.label_settings.font_size).x + 34.0
+	toast_el.size = Vector2(minf(ceilf(tw), tmax), 0)
+	toast_el.size = Vector2(toast_el.size.x, toast_el.get_combined_minimum_size().y)
+	toast_el.position = Vector2(toast_x - toast_el.size.x * 0.5, col_top)
 
 	# The lesson card gets its own band, measured over every left panel.
 	var card_l := 16.0
-	for e in [settings_panel, scenario_panel, course_panel, flight_panel, xsec_panel, tab_col]:
+	for e in [settings_panel, scenario_panel, course_panel, flight_panel, xsec_panel]:
 		if _shown(e): card_l = maxf(card_l, e.position.x + e.size.x + 16.0)
+	if any_tab and _shown(tab_col):
+		card_l = maxf(card_l, tab_col.position.x + tab_col.size.x + 16.0)
 	var card_r := roundf(maxf(W - band_r, 16.0))
 	card_l = roundf(card_l)
 	var cmax := minf(0.42 * H, 380.0)
@@ -1581,51 +1832,37 @@ func _layout_all() -> void:
 		var avail := W - card_l - card_r
 		cw = maxf(minf(avail, 880.0), 360.0)
 		cx = card_l + maxf((avail - cw) * 0.5, 0.0)
-	_lay(lesson_card, cx, 0, cw, cmax)
+	_lay_el(lesson_card, cx, 0, cw, cmax)
 	lesson_card.position.y = H - 16.0 - lesson_card.size.y
 
 	# the start screen
 	start_screen.position = Vector2.ZERO
-	start_screen.pivot_offset = Vector2(W, H) * 0.5
-	var inner: El = start_screen.get_child(0) as El
-	for k in start_screen.get_children():
-		if k is El and k.has_meta("inner"): inner = k
-	_start_cards_responsive(W)
-	start_cards._ldirty = true
-	inner._ldirty = true
-	var iw := minf(860.0, 0.9 * W)
-	var ih := inner.layout(iw)
-	inner.position = Vector2((W - iw) * 0.5, (H - ih) * 0.5)
 	start_screen.size = Vector2(W, H)
-	start_screen._sync_blur()
-	start_screen.queue_redraw()
-	# the scenario search's ✕ is absolutely positioned inside the field
-	if _search_clear.visible:
-		_search_clear.layout(_search_clear.max_content_w())
-		_search_clear.position = Vector2(_search.size.x - 1 - 6 - _search_clear.size.x, (_search.size.y - _search_clear.size.y) * 0.5)
-	El.any_dirty = false
-	El.dirty_roots.clear()
-	_full = false
+	start_screen.pivot_offset = Vector2(W, H) * 0.5
+	_start_cards_responsive(W)
+	var iw := minf(860.0, 0.9 * W)
+	_start_inner.size = Vector2(iw, 0)
+	var ih := _start_inner.get_combined_minimum_size().y
+	_start_inner.position = Vector2(roundf((W - iw) * 0.5), roundf((H - ih) * 0.5))
+	_start_inner.size = Vector2(iw, ih)
 
 ## Three doors, stepping down rather than wrapping to an orphan: at 1040 px the
 ## course card goes full width above the other two, at 720 px one column.
 func _start_cards_responsive(W: float) -> void:
 	var cards := start_cards.get_children()
+	var learn := cards_by("learn")
 	if W > 1040.0:
-		_set_quiet(start_cards, "cols", [1.0, 1.0, 1.0])
-		for c in cards:
-			c.base.erase("span"); c.cs.erase("span")
-		start_cards.move_child(cards_by("learn"), 1)
+		if start_cards.cols.size() != 3: start_cards.set_cols([1.0, 1.0, 1.0])
+		for c in cards: c.set_meta("span", 1)
+		start_cards.move_child(learn, 1)
 	elif W > 720.0:
-		_set_quiet(start_cards, "cols", [1.0, 1.0])
-		start_cards.move_child(cards_by("learn"), 0)
-		for c in cards:
-			var sp := 2 if c.get_meta("start") == "learn" else 1
-			c.base["span"] = sp; c.cs["span"] = sp
+		if start_cards.cols.size() != 2: start_cards.set_cols([1.0, 1.0])
+		start_cards.move_child(learn, 0)
+		for c in cards: c.set_meta("span", 2 if c == learn else 1)
 	else:
-		_set_quiet(start_cards, "cols", [1.0])
-		for c in cards:
-			c.base.erase("span"); c.cs.erase("span")
+		if start_cards.cols.size() != 1: start_cards.set_cols([1.0])
+		for c in cards: c.set_meta("span", 1)
+	start_cards.queue_sort()
 
 func cards_by(k: String) -> Node:
 	for c in start_cards.get_children():
@@ -1635,6 +1872,6 @@ func cards_by(k: String) -> Node:
 
 func _input(e: InputEvent) -> void:
 	# Clicking anywhere but the search box gives the keyboard back to the view.
-	if e is InputEventMouseButton and e.pressed and _search and _search.edit.has_focus():
+	if e is InputEventMouseButton and e.pressed and _search and _search.has_focus():
 		if not _search.get_global_rect().has_point(e.position):
-			_search.edit.release_focus()
+			_search.release_focus()

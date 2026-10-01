@@ -1,14 +1,42 @@
 class_name HudBlur
 extends RefCounted
 
-# backdrop-filter: blur(σ), and the start screen's radial gradient over it. The
-# screen behind is read through hint_screen_texture with mipmaps: a 7 × 7 tap
+# The panels' frosted backdrop. The screen behind is read through hint_screen_texture with mipmaps: a 7 × 7 tap
 # Gaussian spaced σ/2 from the matching mip is a σ-wide blur for 49 taps. The
-# panel's rgba background is mixed over it, in sRGB as the browser does.
+# panel's rgba background is mixed over it in sRGB.
 
-## The HUD test harness turns this off to compare against flat backgrounds.
+## Off, panels draw their flat background instead.
 static var enabled := true
 static var _shader: Shader = null
+
+## A backdrop behind `c`'s own drawing (its border and text draw over it), sized to
+## it by anchors.
+static func attach(c: Control, tint: Color, sigma := 10.0) -> Backdrop:
+	var r := Backdrop.new()
+	r.tint = tint
+	r.sigma = sigma
+	c.add_child(r, false, Node.INTERNAL_MODE_FRONT)
+	r.visible = enabled
+	return r
+
+class Backdrop extends ColorRect:
+	var tint := Color.TRANSPARENT
+	var sigma := 10.0
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		show_behind_parent = true
+		set_anchors_preset(Control.PRESET_FULL_RECT)
+		var m := ShaderMaterial.new()
+		m.shader = HudBlur.shader()
+		material = m
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_ENTER_TREE or what == NOTIFICATION_RESIZED:
+			var m: ShaderMaterial = material
+			m.set_shader_parameter("tint", tint)
+			m.set_shader_parameter("sigma", sigma)
+			m.set_shader_parameter("px_scale", get_window().content_scale_factor if is_inside_tree() else 1.0)
 
 static func shader() -> Shader:
 	if _shader != null:
@@ -19,16 +47,8 @@ shader_type canvas_item;
 render_mode unshaded;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform vec4 tint = vec4(0.0);
-uniform float sigma = 10.0;        // CSS px
-uniform float px_scale = 1.0;      // physical px per CSS px
-// radial-gradient(RX RY at CX CY, inner, outer) — the start screen. mode 1.
-uniform int mode = 0;
-uniform vec4 inner = vec4(0.0);
-uniform vec4 outer = vec4(0.0);
-uniform vec2 centre = vec2(0.5, 0.4);
-uniform vec2 radii = vec2(1.2, 0.9);
-varying vec2 local_uv;
-void vertex() { local_uv = UV; }
+uniform float sigma = 10.0;        // logical px
+uniform float px_scale = 1.0;      // physical px per logical px
 void fragment() {
 	vec2 px = SCREEN_PIXEL_SIZE;
 	float s = sigma * px_scale;
@@ -45,19 +65,7 @@ void fragment() {
 		}
 	}
 	vec3 blur = acc / wsum;
-	vec4 top = tint;
-	if (mode == 1) {
-		// the ending shape is an ellipse of the given radii (fractions of the
-		// box) centred at `centre`; colour runs from inner at 0 to outer at 1
-		vec2 d = (local_uv - centre) / radii;
-		float t = clamp(length(d), 0.0, 1.0);
-		// CSS interpolates gradients in premultiplied sRGB
-		vec4 a = vec4(inner.rgb * inner.a, inner.a);
-		vec4 b = vec4(outer.rgb * outer.a, outer.a);
-		vec4 m = mix(a, b, t);
-		top = vec4(m.a > 0.0 ? m.rgb / m.a : vec3(0.0), m.a);
-	}
-	COLOR = vec4(mix(blur, top.rgb, top.a), 1.0);
+	COLOR = vec4(mix(blur, tint.rgb, tint.a), 1.0);
 }
 """
 	return _shader

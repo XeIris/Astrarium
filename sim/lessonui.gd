@@ -202,7 +202,7 @@ class Underlined extends El:
 
 # THE CONTROLLER — createLessons()'s closure, as an object
 class Course extends RefCounted:
-	var panel: El
+	var panel
 	var card: El
 	var stage: Dictionary
 	var hud = null
