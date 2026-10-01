@@ -58,6 +58,10 @@ static var _k_a3 := DVec3.new()
 static var _k_a4 := DVec3.new()
 
 static var _next_vessel_id := 1
+# Engine-output scratch for propulsion(), _stage_mdot() and authority(), none of
+# which calls another.
+static var _th1 := Rocketry.Thrust.new()
+static var _th2 := Rocketry.Thrust.new()
 
 ## What accel() saw at one trial state; sample() turns the last one into telemetry
 ## and check_structure() judges it.
@@ -75,7 +79,8 @@ class Sample extends RefCounted:
 	var gees: float = 0.0       # sensed acceleration, g (set by sample())
 	var alpha: float = 0.0      # angle of attack, rad (set by sample())
 
-## Every lit stage together; `plume` is the first one's look.
+## Every lit stage together; `plume` is the first one's look. propulsion() refills
+## the same instance on every call, so read it before calling again.
 class Propulsion extends RefCounted:
 	var F: float = 0.0
 	var mdot: float = 0.0
@@ -172,6 +177,7 @@ var chute_deploy: float = 0.0       # 0..1 inflation
 var bank = null                     # lift bank angle, rad; null = π/3
 var auto_stage: bool = false
 var pending_stage: bool = false
+var _prop := Propulsion.new()
 
 ## opts: { vehicle: Dictionary, name?: String, parent: Body, bodies: Array[Body],
 ## payload?: float }.
@@ -277,12 +283,13 @@ func live_stages() -> Array:
 
 ## A photon drive holds constant proper acceleration: F = m·a, ṁ = F/c. The plate's
 ## rating is a ceiling, so a ship too heavy for it accelerates at less.
-func photon_output(engine: Dictionary, n: float) -> Rocketry.Thrust:
+func photon_output(engine: Dictionary, n: float, out: Rocketry.Thrust = null) -> Rocketry.Thrust:
+	if out == null: out = Rocketry.Thrust.new()
 	var th: float = 0.0 if throttle <= 0.0 \
 		else minf(maxf(throttle, engine.get("throttleMin", 1.0)), engine.get("maxThrottle", 1.0))
-	if th <= 0.0 or n <= 0.0: return Rocketry.Thrust.of(0.0, 0.0, engine.ispVac, 0.0)
+	if th <= 0.0 or n <= 0.0: return out.set_to(0.0, 0.0, engine.ispVac, 0.0)
 	var F: float = minf(engine.holdAccel * maxf(mass, 1.0), engine.thrustVac * n) * th
-	return Rocketry.Thrust.of(F, F / Rocketry.C_MS, engine.ispVac, th)
+	return out.set_to(F, F / Rocketry.C_MS, engine.ispVac, th)
 
 ## Total thrust (N) and flow (kg/s) right now, at ambient pressure `pa`.
 func propulsion(pa: float) -> Propulsion:
@@ -297,16 +304,16 @@ func propulsion(pa: float) -> Propulsion:
 		var s: Dictionary = st.spec
 		if s.get("engine") == null or st.prop <= 0.0: continue
 		var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
-		var o: Rocketry.Thrust = photon_output(s.engine, st.live) \
+		var o: Rocketry.Thrust = photon_output(s.engine, st.live, _th1) \
 			if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
-			else Rocketry.engine_output(s.engine, st.live, pa, throttle, burned)
+			else Rocketry.engine_output(s.engine, st.live, pa, throttle, burned, _th1)
 		if s.get("vacEngine") != null:
-			var ov := Rocketry.engine_output(s.vacEngine, s.vacCount, pa, throttle, burned)
+			var ov := Rocketry.engine_output(s.vacEngine, s.vacCount, pa, throttle, burned, _th2)
 			o.F += ov.F; o.mdot += ov.mdot
 		F += o.F; mdot += o.mdot; isp_sum += o.isp * o.F; w += o.F
 		count += st.live + int(s.get("vacCount", 0))
 		if plume == null: plume = s.engine.plume
-	var out := Propulsion.new()
+	var out := _prop
 	out.F = F; out.mdot = mdot; out.isp = isp_sum / w if w > 0.0 else 0.0
 	out.plume = plume; out.count = count
 	return out
@@ -449,7 +456,7 @@ func authority(pa: float) -> Dictionary:
 		var s: Dictionary = st.spec
 		var lit: bool = st.ignited and not st.spent
 		if lit and s.get("engine") != null and st.prop > 0.0 and throttle > 0.0 and s.gimbalDeg > 0.0:
-			var o := Rocketry.engine_output(s.engine, st.live, pa, throttle)
+			var o := Rocketry.engine_output(s.engine, st.live, pa, throttle, 0.0, _th1)
 			# The gimbal acts at the engine plane, roughly a half-length from the
 			# centre of mass.
 			tau += o.F * sin(s.gimbalDeg * PI / 180.0) * (L * 0.45)
@@ -848,12 +855,12 @@ func _stage_mdot(st) -> float:
 	var s: Dictionary = st.spec
 	if s.get("engine") == null or st.prop <= 0.0: return 0.0
 	var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
-	var o: Rocketry.Thrust = photon_output(s.engine, st.live) \
+	var o: Rocketry.Thrust = photon_output(s.engine, st.live, _th1) \
 		if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
-		else Rocketry.engine_output(s.engine, st.live, 0.0, throttle, burned)
+		else Rocketry.engine_output(s.engine, st.live, 0.0, throttle, burned, _th1)
 	var m: float = o.mdot
 	if s.get("vacEngine") != null:
-		m += Rocketry.engine_output(s.vacEngine, s.vacCount, 0.0, throttle, burned).mdot
+		m += Rocketry.engine_output(s.vacEngine, s.vacCount, 0.0, throttle, burned, _th2).mdot
 	return m
 
 ## Draw `kg` from the live stages, each in proportion to its own engines' flow, and

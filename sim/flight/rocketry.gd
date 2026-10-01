@@ -201,22 +201,25 @@ class Thrust extends RefCounted:
 	var isp: float = 0.0
 	var throttle: float = 0.0
 
-	static func of(p_F: float, p_mdot: float, p_isp: float, p_throttle: float) -> Thrust:
-		var t := Thrust.new()
-		t.F = p_F; t.mdot = p_mdot; t.isp = p_isp; t.throttle = p_throttle
-		return t
+	func set_to(p_F: float, p_mdot: float, p_isp: float, p_throttle: float) -> Thrust:
+		F = p_F; mdot = p_mdot; isp = p_isp; throttle = p_throttle
+		return self
 
-static func engine_output(engine: Dictionary, n: float, pa: float, throttle: float, burned_frac: float = 0.0) -> Thrust:
+## `out` is filled and returned when given: the integrator passes scratch, since
+## allocating an object costs more than the Dictionary it replaced.
+static func engine_output(engine: Dictionary, n: float, pa: float, throttle: float, burned_frac: float = 0.0,
+		out: Thrust = null) -> Thrust:
+	if out == null: out = Thrust.new()
 	var th: float = 0.0 if throttle <= 0.0 else minf(maxf(throttle, engine.get("throttleMin", 1.0)), engine.get("maxThrottle", 1.0))
 	# A solid ignores the throttle entirely and follows its grain.
 	if engine.get("solid", false):
 		th = solid_thrust_fraction(burned_frac, engine.get("profile")) if throttle > 0.0 else 0.0
 	if th <= 0.0 or n <= 0.0:
-		return Thrust.of(0.0, 0.0, engine.ispVac, 0.0)
+		return out.set_to(0.0, 0.0, engine.ispVac, 0.0)
 	var mdot_vac: float = engine.thrustVac / (G0 * engine.ispVac)
 	var isp := isp_at(engine, pa)
 	var mdot := mdot_vac * th * n
-	return Thrust.of(mdot * G0 * isp, mdot, isp, th)
+	return out.set_to(mdot * G0 * isp, mdot, isp, th)
 
 ## Burn time for a Δv at the current thrust and mass:
 ##   t = (m·g₀·Isp/F)·(1 − exp(−Δv/(g₀·Isp)))
