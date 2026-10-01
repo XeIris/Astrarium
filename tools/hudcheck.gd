@@ -504,6 +504,8 @@ func _dump(c: Node, depth: int) -> void:
 		var r := (c as Control).get_global_rect()
 		print("%s%s %s [%.1f %.1f %.1f %.1f] min %s %s" % ["  ".repeat(depth), c.get_class(), c.get_script().resource_path.get_file() if c.get_script() else "",
 			r.position.x, r.position.y, r.size.x, r.size.y, (c as Control).get_combined_minimum_size(), _text_of(c as Control).left(24)])
+		if c is Label and (c as Label).autowrap_mode != TextServer.AUTOWRAP_OFF:
+			print("%s  lines %d hang %s" % ["  ".repeat(depth), (c as Label).get_line_count(), c.get("hang")])
 		for k in c.get_children():
 			_dump(k, depth + 1)
 

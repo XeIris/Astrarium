@@ -11,7 +11,7 @@ extends CrossSection.BitmapCanvas
 # sim/structure.gd appears on its own and marks move with spin. A region with no
 # equilibrium (radiusAU = 0, e.g. past Chandrasekhar) is a hatched dead zone.
 #
-# An El over a 330 × 152 bitmap scaled into the panel, drawing in bitmap pixels. A
+# A canvas over a 330 × 152 bitmap scaled into the panel, drawing in bitmap pixels. A
 # Control that takes the press keeps the drag until release.
 
 const N := 240                 # samples across the range
@@ -44,15 +44,15 @@ var _down := false
 static func type_color(t) -> Color:
 	return HudTheme.hexc(TYPE_COLOR.get(t, 0x9fc4ff))
 
-func _init(style: Dictionary = {}, w := 330.0, h := 152.0) -> void:
-	super(w, h, style)
+func _init(bg_col := HudTheme.CLEAR, border_col := HudTheme.CLEAR, w := 330.0, h := 152.0) -> void:
+	super(w, h, bg_col, border_col)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_default_cursor_shape = Control.CURSOR_HSIZE
 
 ## createMassCurve({ canvas, onPick }) — the canvas is this node; put it in the
 ## page where the <canvas> went.
 static func create_mass_curve(opts: Dictionary = {}) -> MassCurve:
-	var c := MassCurve.new(opts.get("style", {}))
+	var c := MassCurve.new(opts.get("bg", HudTheme.CLEAR), opts.get("border", HudTheme.CLEAR))
 	if opts.has("on_pick"): c.on_pick = opts.on_pick
 	return c
 

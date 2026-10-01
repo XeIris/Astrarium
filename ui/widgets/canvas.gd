@@ -1,9 +1,9 @@
 class_name HudCanvas
 extends Control
 
-# A drawn box in the HUD: a fixed height, or one proportional to its width (`aspect`
-# = h / w, a canvas at 100% width). Draws its background and border, then
-# _draw_content(), which subclasses override.
+# A drawn box in the HUD: a fixed height, or one whose content box keeps an aspect
+# (`aspect` = h / w, a canvas at 100% width inside its border). Draws its background
+# and border, then _draw_content(), which subclasses override.
 
 var aspect := 0.0
 var fixed_h := -1.0
@@ -25,7 +25,8 @@ func set_aspect(a: float) -> void:
 func _get_minimum_size() -> Vector2:
 	if fixed_h >= 0.0:
 		return Vector2(0, fixed_h)
-	return Vector2(0, roundf(size.x * aspect))
+	var b := 2.0 if border.a > 0.0 else 0.0
+	return Vector2(0, (size.x - b) * aspect + b)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED and aspect > 0.0 and absf(size.x - _w) > 0.01:

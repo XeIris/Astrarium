@@ -271,11 +271,17 @@ func build_legend(parent: El) -> void:
 			c.queue_free()
 	parent.set_style({"display": "grid", "cols": [1.0], "gapr": 2.0, "gapc": 2.0, "mt": 4.0, "maxh": 108.0, "scroll": true, "sbw": 3.0})
 	for row in legend():
-		var r := Foundry.E(parent, {"display": "flex", "ai": "center", "gapc": 6.0, "fs": 9.5, "c": HudTheme.TEXT_DIM})
-		Foundry.E(r, {"w": 8.0, "h": 8.0, "bg": row.color, "shrink": 0.0})
-		Foundry.E(r, {"grow": 1.0, "basis": -1.0, "minw": 0.0, "c": HudTheme.TEXT}, row.name)
-		Foundry.E(r, {"fs": 9.0}, row.num)
+		var r := _el(parent, {"display": "flex", "ai": "center", "gapc": 6.0, "fs": 9.5, "c": HudTheme.TEXT_DIM})
+		_el(r, {"w": 8.0, "h": 8.0, "bg": row.color, "shrink": 0.0})
+		_el(r, {"grow": 1.0, "basis": -1.0, "minw": 0.0, "c": HudTheme.TEXT}, row.name)
+		_el(r, {"fs": 9.0}, row.num)
 	parent.touch()
+
+static func _el(parent: Node, style: Dictionary, text = null) -> El:
+	var e := El.new(style)
+	if text is String: e.runs = [{"t": text}]
+	parent.add_child(e)
+	return e
 
 func dispose() -> void:
 	clear()

@@ -223,7 +223,10 @@ static func text_font(s: Dictionary) -> Font:
 	# carries the face's own (embolden, slant, optical size) over the system font.
 	var fv := FontVariation.new()
 	fv.base_font = base.base_font
-	fv.variation_embolden = base.variation_embolden
+	# Godot widens the advance of an emboldened glyph, which the design's widths
+	# never had (CoreText's dilation is drawn, not measured); above 0.1 a line of
+	# prose gains a few px and wraps a word early.
+	fv.variation_embolden = minf(base.variation_embolden, 0.1) if int(st.fw) < 600 else base.variation_embolden
 	fv.variation_transform = base.variation_transform
 	fv.variation_opentype = base.variation_opentype
 	fv.spacing_glyph = int(roundf(ls))
@@ -247,6 +250,18 @@ static func label_settings(s: Dictionary) -> LabelSettings:
 	ls.line_spacing = 0.0
 	_label_settings[key] = ls
 	return ls
+
+## Let a Prose label's trailing spaces hang (ui/widgets/prose.gd): one space of
+## its style, as an advance (a string size rounds it up).
+static func hang(c: Control, s: Dictionary) -> void:
+	var st := style(s)
+	var f := text_font(st)
+	c.set("hang", f.get_char_size(32, px(st.fs)).x + float((f as FontVariation).spacing_glyph))
+	c.call("say", c.call("said"))
+
+static func unhang(c: Control) -> void:
+	c.set("hang", 0.0)
+	c.call("say", c.call("said"))
 
 ## Style a Label in place.
 static func apply_label(l: Label, s: Dictionary) -> void:

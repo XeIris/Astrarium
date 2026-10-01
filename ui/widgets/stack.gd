@@ -5,7 +5,8 @@ extends Container
 # Adjacent margins collapse to the larger, and a stack with `collapse` passes its
 # first child's top and last child's bottom margin outward, so a section's last row
 # and the next heading are 20 px apart, not 30. Children fill the width unless their
-# horizontal size flags say shrink; meta "maxw" caps a child's width.
+# horizontal size flags say shrink; meta "maxw" caps a child's width. Prose gets
+# its overhang (ui/widgets/prose.gd).
 
 var collapse := true
 
@@ -85,4 +86,4 @@ func _notification(what: int) -> void:
 			w = minf(ms.x, size.x)
 			if flags & Control.SIZE_SHRINK_CENTER: x = (size.x - w) * 0.5
 			elif flags & Control.SIZE_SHRINK_END: x = size.x - w
-		fit_child_in_rect(k, Rect2(x, r[1], maxf(w, ms.x), r[2]))
+		fit_child_in_rect(k, Rect2(x, r[1], maxf(w, ms.x) + Prose.overhang(k), r[2]))

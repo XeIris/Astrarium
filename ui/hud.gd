@@ -169,32 +169,50 @@ func _notification(what: int) -> void:
 
 # BUILDERS
 
+# The builders below are static so the modules that fill the HUD's mounts (the
+# Foundry, the flight instruments, the course) build with the same pieces.
+
 ## A label in a text style (T.style keys); `wrap` breaks it to the width it is given.
-func L(parent: Node, text: String, st: Dictionary, id := "", wrap := false) -> Label:
-	var l := Label.new()
+static func label(parent: Node, text: String, st: Dictionary, wrap := false) -> Label:
+	var l: Label = Prose.new() if wrap else Label.new()
 	l.set_meta("st", st)
 	T.apply_label(l, st)
-	l.text = text
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if wrap:
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		(l as Prose).say(text)
+		T.hang(l, st)
+	else:
+		l.text = text
 	if parent != null:
 		parent.add_child(l)
+	return l
+
+func L(parent: Node, text: String, st: Dictionary, id := "", wrap := false) -> Label:
+	var l := label(parent, text, st, wrap)
 	if id != "":
 		reg(id, l)
 	return l
 
 ## Text with inline runs, as BBCode ([b], [i], [color], [font_size]).
 func RT(parent: Node, bbcode: String, st: Dictionary, id := "") -> RichTextLabel:
-	var r := rich(bbcode, st)
-	if parent != null:
-		parent.add_child(r)
+	var r := rich_in(parent, bbcode, st)
 	if id != "":
 		reg(id, r)
 	return r
 
+static func rich_in(parent: Node, bbcode: String, st: Dictionary) -> RichTextLabel:
+	var r := rich(bbcode, st)
+	if parent != null:
+		parent.add_child(r)
+	return r
+
+## Plain text made safe for BBCode.
+static func esc(s: String) -> String:
+	return s.replace("[", "[lb]")
+
 static func rich(bbcode: String, st: Dictionary) -> RichTextLabel:
-	var r := RichTextLabel.new()
+	var r := Prose.Rich.new()
 	r.bbcode_enabled = true
 	r.fit_content = true
 	r.scroll_active = false
@@ -211,7 +229,8 @@ static func rich(bbcode: String, st: Dictionary) -> RichTextLabel:
 		r.add_theme_font_size_override(k, T.px(float(s.fs)))
 	r.add_theme_color_override("default_color", s.c)
 	r.add_theme_constant_override("line_separation", 0)
-	r.text = bbcode
+	r.say(bbcode)
+	T.hang(r, s)
 	return r
 
 ## A button of a theme kind; `sel` registers it under an id or a "[data-x=v]" selector.
@@ -223,11 +242,16 @@ func B(parent: Node, kind: String, text: String, sel := "", tip := "") -> HudBut
 		reg(sel, b)
 	return b
 
-## A box of a look (T.stylebox keys) around one child.
+## A box of a look (T.stylebox keys) around one child. Prose goes through a stack,
+## which gives it its overhang.
 static func frame(child: Control, look: Dictionary) -> PanelContainer:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_theme_stylebox_override("panel", T.stylebox(look))
+	if child is Prose or child is Prose.Rich:
+		var s := HudStack.new(false)
+		s.add_child(child)
+		child = s
 	if child != null:
 		p.add_child(child)
 	return p
@@ -327,7 +351,7 @@ class TipLabel extends Label:
 			draw_rect(Rect2(x, size.y - 1.0, minf(1.0, w - x), 1.0), col)
 			x += 2.0
 
-func _tip_label(parent: Node, text: String, st: Dictionary, tip: String, whole := true) -> Label:
+static func tip_label(parent: Node, text: String, st: Dictionary, tip: String, whole := true) -> Label:
 	var l: Label = TipLabel.new(tip, whole) if tip != "" else Label.new()
 	l.set_meta("st", st)
 	T.apply_label(l, st)
@@ -342,29 +366,38 @@ func _tip_label(parent: Node, text: String, st: Dictionary, tip: String, whole :
 	return l
 
 ## A control-column range row: label · slider · value.
-func _row(parent: Node, id: String, label: String, tip: String, mn: float, mx: float, v: float, st: float,
+func _row(parent: Node, id: String, text: String, tip: String, mn: float, mx: float, v: float, st: float,
 		val_text: String, row_id := "", fmt: Callable = Callable()) -> HBoxContainer:
-	var row := hbox(parent, 10.0, 0.0, 10.0)
-	if row_id != "":
-		reg(row_id, row)
-	var lab := _tip_label(row, label, ROW_LABEL, tip)
-	lab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var r := _range(row, id, mn, mx, v, st, fmt)
+	var r := _range(null, id, mn, mx, v, st, fmt)
 	r.inset = 2.0
-	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var val := L(row, val_text, ROW_VAL, id + "-val")
-	val.custom_minimum_size.x = 60.0
-	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	val.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	return row
+	var parts := range_row(parent, text, tip, r, val_text)
+	if row_id != "":
+		reg(row_id, parts.row)
+	reg(id + "-val", parts.val)
+	return parts.row
+
+## A range row: the label (its title a tooltip), the control, and the readout.
+static func range_row(parent: Node, text: String, tip: String, control: Control, val_text = null, mb := 10.0) -> Dictionary:
+	var row := hbox(parent, 10.0, 0.0, mb)
+	var lab := tip_label(row, text, ROW_LABEL, tip)
+	lab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(control)
+	var val: Label = null
+	if val_text != null:
+		val = label(row, str(val_text), ROW_VAL)
+		val.custom_minimum_size.x = 60.0
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		val.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return {"row": row, "label": lab, "val": val}
 
 ## A settings-panel range row: label and value on one line, slider under them.
-func _set_row(parent: Node, id: String, label: String, tip: String, mn: float, mx: float, v: float, st: float,
+func _set_row(parent: Node, id: String, text: String, tip: String, mn: float, mx: float, v: float, st: float,
 		val_text: String, fmt: Callable = Callable()) -> HudStack:
 	var row := stack(parent, 0.0, 13.0)
 	row.collapse = false
 	var head := hbox(row, 8.0)
-	var lab := _tip_label(head, label, ROW_LABEL, tip, false)
+	var lab := tip_label(head, text, ROW_LABEL, tip, false)
 	lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lab.size_flags_vertical = Control.SIZE_SHRINK_END
 	var val := L(head, val_text, ROW_VAL, id + "-val")
@@ -376,7 +409,8 @@ func _set_row(parent: Node, id: String, label: String, tip: String, mn: float, m
 func _range(parent: Node, id: String, mn: float, mx: float, v: float, st: float,
 		fmt: Callable = Callable()) -> HudSlider:
 	var r := HudSlider.new(mn, mx, st, v)
-	parent.add_child(r)
+	if parent != null:
+		parent.add_child(r)
 	if id != "":
 		reg(id, r)
 		sliders[id] = r
@@ -617,6 +651,7 @@ var _search: LineEdit
 var _search_clear: HudButton
 var _preset_list: VBoxContainer
 var _preset_empty: PanelContainer
+var _preset_empty_label: Label
 
 func _build_scenario() -> void:
 	var p := _panel("scenarioPanel")
@@ -653,7 +688,9 @@ func _build_scenario() -> void:
 	p.body.add_child(_preset_list)
 	reg("presetList", _preset_list)
 	var empty := L(null, "No matching scenarios", {"fs": 10.0, "c": T.TEXT_DIM, "fi": true}, "", true)
+	_preset_empty_label = empty
 	empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	T.unhang(empty)
 	_preset_empty = frame(empty, {"bc": T.BORDER, "pad": [10, 8, 10, 8]})
 	p.body.add_child(_preset_empty)
 	reg("presetEmpty", _preset_empty)
@@ -908,10 +945,7 @@ func _build_control_panel() -> void:
 	# Object Foundry
 	s = _section(b, "Object Foundry")
 	_note(s, "Four inputs, no menu of outcomes. Everything below — the size, the colour, the shape, the verdict — is derived from mass, spin, composition and age by the same interior model the rest of the sim runs on.")
-	var fd := ElHost.new()
-	s.add_child(fd)
-	_mounts["foundry"] = fd
-	reg("foundry", fd)
+	reg("foundry", stack(s))
 
 	# Painter
 	s = _section(b, "Painter")
@@ -1007,19 +1041,28 @@ func _build_xsec_panel() -> void:
 	xsec_panel = p
 	_panel_head(p, "Cross-section", "xsecPanel", "Close")
 	m(L(p.body, "—", {"fs": 11.0, "c": T.ACCENT, "ls": 0.88, "up": true}, "xsecName"), 0.0, 8.0)
-	# The inspector and live editor still build El content: the mounts are Els in a host.
-	var host := ElHost.new()
-	p.body.add_child(host)
-	var ed := E(host, {"b": [1, T.BORDER], "bl": 2.0, "bcl": T.ACCENT, "bg": Color(1, 1, 1, 0.02), "p": [9, 10, 2, 10], "mb": 10.0}, null, "xsecEdit")
-	E(ed, C.merge(C.section_note(), {"mb": 9.0}), [{"t": "Editing is the same operation as building — the object is re-derived and its limits rechecked immediately. The curve is R(M) for this body's own composition and spin; drag the handle along it. Dashed lines are where the model changes its mind about what this is."}])
-	_mounts["liveEdit"] = E(ed, {}, null, "liveEdit")
-	_mounts["xsecCanvas"] = E(host, {"aspect": 260.0 / 330.0, "b": [1, T.BORDER], "bg": T.rgba(0, 0, 0, 0.42)}, null, "xsecCanvas")
-	_mounts["xsecLegend"] = E(host, {"aspect": 26.0 / 330.0, "m": [4, 0, 8, 0]}, null, "xsecLegend")
-	_mounts["xsecVerdict"] = E(host, {}, null, "xsecVerdict")
-	_mounts["xsecFacts"] = E(host, {}, null, "xsecFacts")
-	_mounts["xsecNotes"] = E(host, {}, null, "xsecNotes")
-	for k in ["xsecEdit", "liveEdit", "xsecCanvas", "xsecLegend", "xsecVerdict", "xsecFacts", "xsecNotes"]:
-		(ids[k] as El).el_id = k
+	# the live editor's box: a 1 px border with a 2 px accent rule down its left
+	var ed := HudStack.new(false)
+	var pad := MarginContainer.new()
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in [["margin_top", 9], ["margin_right", 10], ["margin_bottom", 2], ["margin_left", 10]]:
+		pad.add_theme_constant_override(side[0], side[1])
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(ed)
+	var rule := ColorRect.new()
+	rule.color = T.ACCENT
+	rule.custom_minimum_size.x = 2.0
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var row := hbox(null, 0.0)
+	row.add_child(rule)
+	row.add_child(pad)
+	var box := frame(row, {"bg": Color(1, 1, 1, 0.02), "bc": T.BORDER, "bl": 0})
+	p.body.add_child(m(box, 0.0, 10.0))
+	reg("xsecEdit", box)
+	_note(ed, "Editing is the same operation as building — the object is re-derived and its limits rechecked immediately. The curve is R(M) for this body's own composition and spin; drag the handle along it. Dashed lines are where the model changes its mind about what this is.", 9.0)
+	reg("liveEdit", stack(ed))
+	# the inspector builds its canvas, legend, verdict, facts and notes in here
+	reg("xsecCanvas", stack(p.body))
 
 # FLIGHT frame
 func _build_flight_panel() -> void:
@@ -1284,6 +1327,10 @@ func set_text(id: String, text: String) -> void:
 	for e in _targets(id):
 		if e is HudButton:
 			(e as HudButton).set_label(text)
+		elif e is Prose:
+			(e as Prose).say(text)
+		elif e is Prose.Rich:
+			(e as Prose.Rich).say(text)
 		elif e is Label:
 			if (e as Label).text != text: (e as Label).text = text
 		elif e is RichTextLabel:
@@ -1421,7 +1468,7 @@ func _render_presets() -> void:
 	_hide(_preset_list, "inline", visible_groups == 0)
 	_hide(_preset_empty, "inline", visible_groups != 0)
 	if searching:
-		(_preset_empty.get_child(0) as Label).text = "No scenarios or categories match \"%s\"" % _search.text.strip_edges()
+		(_preset_empty_label as Prose).say("No scenarios or categories match \"%s\"" % _search.text.strip_edges())
 	_hide(_search_clear, "inline", not searching)
 
 ## Mark the running scenario in the list.
