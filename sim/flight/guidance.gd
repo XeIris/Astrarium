@@ -412,7 +412,7 @@ class Autopilot extends RefCounted:
 		var dir := DQuat.nrm(Guidance._a.copy_from(node_vec))
 		# Nothing lit: light the next stage first (the S-IVB after S-II cutoff).
 		if full_thrust(pa) <= 0.0 and v.next_stage != null: v.stage()
-		var prop := v.propulsion(pa)
+		var prop_f := v.propulsion(pa).F
 		var ft := full_thrust(pa)
 		var t_burn := Rocketry.burn_time_for(burn_remaining, v.mass, ft, current_isp(pa))
 		node_t -= dt
@@ -433,7 +433,7 @@ class Autopilot extends RefCounted:
 		# whose only authority is its gimbal.
 		var err := DQuat.angle_between(v.forward(Guidance._b), dir)
 		v.throttle = limit_throttle(1.0, pa, dt) if err < 0.35 else 0.0
-		if prop.F > 0.0: burn_remaining -= (prop.F / v.mass) * cos(err) * dt
+		if prop_f > 0.0: burn_remaining -= (prop_f / v.mass) * cos(err) * dt
 		if burn_remaining <= 0.05 or v.delta_v_remaining(pa) < 0.01:
 			v.throttle = 0.0; burning = false
 			note("%s — cutoff" % label)

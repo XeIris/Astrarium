@@ -193,17 +193,33 @@ static func solid_thrust_fraction(burned_frac: float, prof = null) -> float:
 ## Thrust (N) and flow (kg/s) for `n` engines at a throttle: { F, mdot, isp, throttle }.
 ## ṁ comes from the vacuum figures and doesn't depend on altitude; thrust follows
 ## the pressure-dependent Isp.
-static func engine_output(engine: Dictionary, n: float, pa: float, throttle: float, burned_frac: float = 0.0) -> Dictionary:
+## What a set of engines delivers right now: thrust (N), flow (kg/s), Isp (s) and
+## the throttle actually applied.
+class Thrust extends RefCounted:
+	var F: float = 0.0
+	var mdot: float = 0.0
+	var isp: float = 0.0
+	var throttle: float = 0.0
+
+	func set_to(p_F: float, p_mdot: float, p_isp: float, p_throttle: float) -> Thrust:
+		F = p_F; mdot = p_mdot; isp = p_isp; throttle = p_throttle
+		return self
+
+## `out` is filled and returned when given: the integrator passes scratch, since
+## allocating an object costs more than the Dictionary it replaced.
+static func engine_output(engine: Dictionary, n: float, pa: float, throttle: float, burned_frac: float = 0.0,
+		out: Thrust = null) -> Thrust:
+	if out == null: out = Thrust.new()
 	var th: float = 0.0 if throttle <= 0.0 else minf(maxf(throttle, engine.get("throttleMin", 1.0)), engine.get("maxThrottle", 1.0))
 	# A solid ignores the throttle entirely and follows its grain.
 	if engine.get("solid", false):
 		th = solid_thrust_fraction(burned_frac, engine.get("profile")) if throttle > 0.0 else 0.0
 	if th <= 0.0 or n <= 0.0:
-		return { "F": 0.0, "mdot": 0.0, "isp": engine.ispVac, "throttle": 0.0 }
+		return out.set_to(0.0, 0.0, engine.ispVac, 0.0)
 	var mdot_vac: float = engine.thrustVac / (G0 * engine.ispVac)
 	var isp := isp_at(engine, pa)
 	var mdot := mdot_vac * th * n
-	return { "F": mdot * G0 * isp, "mdot": mdot, "isp": isp, "throttle": th }
+	return out.set_to(mdot * G0 * isp, mdot, isp, th)
 
 ## Burn time for a Δv at the current thrust and mass:
 ##   t = (m·g₀·Isp/F)·(1 − exp(−Δv/(g₀·Isp)))

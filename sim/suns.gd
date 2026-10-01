@@ -7,8 +7,7 @@ extends RefCounted
 
 const MAX_SUNS := 4
 
-## Point every sun-aware material at the current star set. `suns` entries:
-## { pos_rel: Vector3 (camera-relative), color: Color (linear), intensity: float };
+## Point every sun-aware material at the current star set (VisualCtx.Sun entries);
 ## `target_rel` is the lit body's camera-relative position. Directions come from two
 ## camera-relative positions, never absolute ones.
 static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> void:
@@ -19,10 +18,10 @@ static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> vo
 	for i in MAX_SUNS:
 		dirs[i] = Vector3(1, 0, 0); cols[i] = Vector3(1, 1, 1); ints[i] = 0.0
 	for i in n:
-		dirs[i] = (suns[i].pos_rel - target_rel).normalized()
-		var c: Color = suns[i].color
-		cols[i] = Vector3(c.r, c.g, c.b)
-		ints[i] = suns[i].intensity
+		var s: VisualCtx.Sun = suns[i]
+		dirs[i] = (s.pos_rel - target_rel).normalized()
+		cols[i] = Vector3(s.color.r, s.color.g, s.color.b)
+		ints[i] = s.intensity
 	for m in materials:
 		if m == null: continue
 		m.set_shader_parameter("uSunDir", dirs)
@@ -35,7 +34,7 @@ static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> vo
 static func insolation_at(body: Body, suns: Array) -> float:
 	if suns == null or suns.is_empty(): return 0.0
 	var S := 0.0
-	for s in suns:
+	for s: VisualCtx.Sun in suns:
 		var star: Body = s.body
 		if star == null or star == body: continue
 		var L: float = U.nz(star.luminosity, 1.0)
@@ -46,8 +45,8 @@ static func insolation_at(body: Body, suns: Array) -> float:
 # The light in a starless scene: a modest stand-in with a disc's colour temperature
 # so a body beside a black hole isn't a flat silhouette (the lens pass exports no
 # disc luminosity). If one is ever derived, read it here.
-static func lit_by(ctx: Dictionary):
-	if ctx.has("suns") and not ctx.suns.is_empty(): return ctx.suns
-	if not ctx.has("holes") or ctx.holes.is_empty(): return null
-	var near: Dictionary = ctx.holes[0]
-	return [{"pos_rel": near.pos_rel, "color": U.lin(0xffd2a0), "intensity": 1.2}]
+static func lit_by(ctx: VisualCtx):
+	if not ctx.suns.is_empty(): return ctx.suns
+	if ctx.holes.is_empty(): return null
+	var near: VisualCtx.Hole = ctx.holes[0]
+	return [VisualCtx.Sun.stand_in(near.pos_rel, U.lin(0xffd2a0), 1.2)]

@@ -69,6 +69,7 @@ const lifted = [
   block(/^function discPeakTemp\(/m),
   block(/^function refreshStructure\(/m),
   block(/^function deriveBody\(/m),
+  'const starScratch = [];',
   block(/^function getStars\(/m),
   block(/^function getHome\(/m),
   block(/^function dynamicStep\(/m),

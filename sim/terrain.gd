@@ -28,13 +28,13 @@ static func crust_threshold(land: float) -> float:
 ## Defaults for the uniforms terrain.gdshaderinc declares. A preset can
 ## override any of them per body. Keys are camelCase option names; values are
 ## what the shader receives.
-static func terrain_uniforms(opts: Dictionary = {}) -> Dictionary:
+static func terrain_uniforms(opts: VisualOpts) -> Dictionary:
 	return {
-		"uPlateScale": float(U.nz(opts.get("plateScale"), 2.6)),
-		"uLandRelief": float(U.nz(opts.get("landRelief"), 3.2)),
-		"uOceanDepth": float(U.nz(opts.get("oceanDepth"), 4.6)),
-		"uCrustT": crust_threshold(float(U.nz(opts.get("continent"), 0.35))),
-		"uMeanK": float(U.nz(opts.get("meanK"), 288.0)),
-		"uTransport": float(U.nz(opts.get("transport"), 0.42)),
-		"uArid": float(U.nz(opts.get("arid"), 0.0)),
+		"uPlateScale": float(U.nz(opts.plate_scale, 2.6)),
+		"uLandRelief": float(U.nz(opts.land_relief, 3.2)),
+		"uOceanDepth": float(U.nz(opts.ocean_depth, 4.6)),
+		"uCrustT": crust_threshold(float(U.nz(opts.continent, 0.35))),
+		"uMeanK": 288.0,
+		"uTransport": float(U.nz(opts.transport, 0.42)),
+		"uArid": float(U.nz(opts.arid, 0.0)),
 	}

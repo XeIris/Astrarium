@@ -167,7 +167,7 @@ static func _beam_cone(open: float, length: float, radial: int = 40, rows: int =
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return m
 
-static func create_neutron_visual(b: Body, opts: Dictionary) -> NeutronViz:
+static func create_neutron_visual(b: Body, opts: VisualOpts) -> NeutronViz:
 	var viz := NeutronViz.new(b, opts)
 	b.viz = viz
 	return viz
@@ -191,10 +191,10 @@ class NeutronViz:
 	var time := 0.0                 # surface uTime
 	var beam_time := 0.0
 
-	func _init(b: Body, opts: Dictionary) -> void:
+	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
 		group = Node3D.new()
-		var R: float = opts.radiusScene
+		var R: float = opts.radius_scene
 
 		# r_s/R for a real neutron star: r_s ≈ 4.1 km per M☉, R ≈ 12 km ⇒ ~0.4 at
 		# 1.4 M☉. Taken from the body's own numbers when they exist.
@@ -279,7 +279,7 @@ class NeutronViz:
 		base_r = R
 		r = R
 
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		time += dt
 		surf_mat.set_shader_parameter("uTime", time)
 		spin_axis.rotation.y += float(body.spin) * dt
@@ -293,9 +293,9 @@ class NeutronViz:
 		# --- the lighthouse: beaming makes the pulse a sharp spike.
 		var wp := group.global_position if group.is_inside_tree() else group.position
 		var cam_p := Vector3.ZERO
-		var cam = ctx.get("camera")
-		if cam is Node3D and (cam as Node3D).is_inside_tree():
-			cam_p = (cam as Node3D).global_position
+		var cam := ctx.camera
+		if cam != null and cam.is_inside_tree():
+			cam_p = cam.global_position
 		var to_cam := (cam_p - wp).normalized()
 		var align := absf(beam_dir.dot(to_cam))
 		var flash := pow(align, 14.0)

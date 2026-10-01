@@ -61,7 +61,7 @@ func _setup() -> void:
 			var o: Dictionary = e.opts.duplicate()
 			o.color = _col(o.get("color"))
 			if o.get("glow") != null: o.glow = int(o.glow)
-			var viz = Bodies.create_body_visual(b, o)
+			var viz = Bodies.create_body_visual(b, VisualOpts.from_dict(o))
 			viz.group.scale = Vector3(e.scale[0], e.scale[1], e.scale[2])
 			viz.group.set_meta("base_scale", float(e.scale[0]))
 			pipe.world_root.add_child(viz.group)
@@ -156,10 +156,9 @@ func update_camera() -> void:
 
 var _checked := false
 func _step(_dt: float) -> void:
-	var ctx := {
-		"holes": [], "camera": pipe.scene_cam, "cam_pos": cam_pos, "time": float(d.time),
-		"scene_scale": float(d.sceneScale), "sim_dt": 0.0, "viewport_h": viewport_h, "bodies": bodies,
-	}
+	var ctx := VisualCtx.new()
+	ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = float(d.time)
+	ctx.scene_scale = float(d.sceneScale); ctx.viewport_h = viewport_h; ctx.bodies = bodies
 	for b in bodies:
 		if b.viz != null:
 			b.viz.update(0.0, ctx)

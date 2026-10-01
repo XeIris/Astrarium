@@ -59,11 +59,11 @@ class LegacyStarViz:
 	var time := 0.0
 	var layer_time := 0.0
 
-	func _init(b: Body, opts: Dictionary) -> void:
+	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
 		group = Node3D.new()
-		var R: float = opts.radiusScene
-		var col := Bodies._col(opts.get("color"), 0xffe0a0)
+		var R: float = opts.radius_scene
+		var col := Bodies._col(opts.color, 0xffe0a0)
 		mat = ShaderMaterial.new()
 		mat.shader = Bodies.BASIC_SHADER
 		mat.set_shader_parameter("uColor", Vector3(col.r, col.g, col.b))
@@ -83,7 +83,7 @@ class LegacyStarViz:
 		layer.material_override = layer_mat
 		group.add_child(layer)
 
-		var glow: int = int(U.nz(opts.get("glow"), 0xff8040))
+		var glow: int = int(U.nz(opts.glow, 0xff8040))
 		corona = Bodies.glow_sprite(glow, [[0.0, "88"], [0.3, "40"], [1.0, "00"]])
 		corona.scale = Vector3.ONE * (R * 6.0)
 		group.add_child(corona)
@@ -101,8 +101,8 @@ class LegacyStarViz:
 		r = R
 		color_hex = U.hex_of(col)
 
-	func update(dt: float, ctx: Dictionary) -> void:
-		var t: float = float(ctx.get("time", 0.0))
+	func update(dt: float, ctx: VisualCtx) -> void:
+		var t: float = ctx.time
 		time += dt
 		layer_time += dt * 0.6
 		mat.set_shader_parameter("uTime", time)
@@ -121,16 +121,16 @@ class LegacyStarViz:
 		if stream != null:
 			Bodies.accrete(body, ctx, stream, dt)
 
-static func create_star(b: Body, opts: Dictionary) -> LegacyStarViz:
+static func create_star(b: Body, opts: VisualOpts) -> LegacyStarViz:
 	var viz := LegacyStarViz.new(b, opts)
-	viz.stream = AccretionStream.new(int(U.nz(opts.get("glow"), 0xff8040)))
+	viz.stream = AccretionStream.new(int(U.nz(opts.glow, 0xff8040)))
 	viz.group.add_child(viz.stream.points)
 	b.viz = viz
 	return viz
 
 # NEUTRON STAR — see sim/neutron_visual.gd. Like the star, it still has to be
 # edible by a black hole, so it gets the same accretion stream chained on.
-static func create_neutron(b: Body, opts: Dictionary):
+static func create_neutron(b: Body, opts: VisualOpts):
 	var viz = NeutronVisual.create_neutron_visual(b, opts)
 	viz.stream = AccretionStream.new(0x8fc4ff)
 	viz.group.add_child(viz.stream.points)
@@ -148,20 +148,22 @@ static func _load_visual(path: String):
 		return null
 	return load(path)
 
-static func create_rocky(b: Body, opts: Dictionary):
+static func create_rocky(b: Body, opts: VisualOpts):
 	var S = _load_visual("res://sim/rocky_visual.gd")
 	var viz = S.create_rocky_visual(b, opts) if S != null else PlainViz.new(b, opts)
-	return with_accretion(viz, b, opts.get("glow"))
+	return with_accretion(viz, b, opts.glow)
 
-static func create_giant(b: Body, opts: Dictionary):
+static func create_giant(b: Body, opts: VisualOpts):
 	var S = _load_visual("res://sim/giant_visual.gd")
 	if S == null:
-		return with_accretion(PlainViz.new(b, opts), b, opts.get("glow"))
+		return with_accretion(PlainViz.new(b, opts), b, opts.glow)
 	var pals: Dictionary = S.GIANT_PALETTES
-	var pal = pals.get(opts.get("paletteName"), pals.get("jupiter"))
-	return with_accretion(S.create_giant_visual(b, U.merged(opts, {"giantPalette": pal})), b, opts.get("glow"))
+	var pal = pals.get(opts.palette_name, pals.get("jupiter"))
+	var o := opts.copy()
+	o.giant_palette = pal
+	return with_accretion(S.create_giant_visual(b, o), b, opts.glow)
 
-static func create_world(b: Body, opts: Dictionary):
+static func create_world(b: Body, opts: VisualOpts):
 	var S = _load_visual("res://sim/world.gd")
 	if S == null:
 		var v := PlainViz.new(b, opts)
@@ -180,11 +182,11 @@ class PlainViz:
 	var is_star := false
 	var is_hole := false
 	var is_neutron := false
-	func _init(_b: Body, opts: Dictionary) -> void:
+	func _init(_b: Body, opts: VisualOpts) -> void:
 		group = Node3D.new()
-		var R: float = opts.radiusScene
+		var R: float = opts.radius_scene
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Bodies._col(opts.get("color"), 0x6a90c0)
+		m.albedo_color = Bodies._col(opts.color, 0x6a90c0)
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		core = MeshInstance3D.new()
 		var s := SphereMesh.new(); s.radius = R; s.height = 2.0 * R
@@ -193,7 +195,7 @@ class PlainViz:
 		group.add_child(core)
 		base_r = R
 		r = R
-	func update(_dt: float, _ctx: Dictionary) -> void:
+	func update(_dt: float, _ctx: VisualCtx) -> void:
 		pass
 
 ## A planet viz with an accretion stream after its update(). Every property the
@@ -210,7 +212,7 @@ class AccretionWrap:
 		var g: Node3D = inner.get("group")
 		if g != null:
 			g.add_child(stream.points)
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		inner.update(dt, ctx)
 		Bodies.accrete(body, ctx, stream, dt)
 	func _get(property: StringName):
@@ -234,10 +236,10 @@ class HoleViz:
 	var is_star := false
 	var is_neutron := false
 	var stream = null
-	func update(_dt: float, _ctx: Dictionary) -> void:
+	func update(_dt: float, _ctx: VisualCtx) -> void:
 		pass
 
-static func create_black_hole(b: Body, _opts: Dictionary) -> HoleViz:
+static func create_black_hole(b: Body, _opts: VisualOpts) -> HoleViz:
 	var viz := HoleViz.new()
 	b.viz = viz
 	return viz
@@ -311,18 +313,18 @@ class AccretionStream:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arr, [], {},
 			Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 
-static func accrete(b: Body, ctx: Dictionary, stream: AccretionStream, dt: float) -> void:
+static func accrete(b: Body, ctx: VisualCtx, stream: AccretionStream, dt: float) -> void:
 	stream.step(dt)
-	var holes: Array = ctx.get("holes", [])
+	var holes: Array = ctx.holes
 	var viz = b.viz
 	if holes.is_empty() or viz == null or viz.get("is_hole"): return
 	var group: Node3D = viz.get("group")
 	var xf := group.global_transform if group.is_inside_tree() else group.transform
 	var wpos := xf.origin
-	var nearest = null
+	var nearest: VisualCtx.Hole = null
 	var nd := INF
-	for h in holes:
-		var d := (h.pos_rel as Vector3).distance_to(wpos)
+	for h: VisualCtx.Hole in holes:
+		var d := h.pos_rel.distance_to(wpos)
 		if d < nd: nd = d; nearest = h
 	if nearest == null: return
 	var R: float = float(U.nz(viz.get("r"), b.radius_scene))
@@ -332,7 +334,7 @@ static func accrete(b: Body, ctx: Dictionary, stream: AccretionStream, dt: float
 	if nd > reach: return
 	var strength := clampf(1.0 - (nd - rs_scene * 2.0) / reach, 0.0, 1.0)
 	# local-space direction toward hole
-	var hole_local: Vector3 = xf.affine_inverse() * (nearest.pos_rel as Vector3)
+	var hole_local: Vector3 = xf.affine_inverse() * nearest.pos_rel
 	var dir := hole_local.normalized() * (R * (4.0 + 6.0 * strength))
 	var emit_n := (1 + int(floor(strength * 2.0))) if randf() < strength * 0.9 else 0
 	var core = viz.get("core")
@@ -352,22 +354,23 @@ static func accrete(b: Body, ctx: Dictionary, stream: AccretionStream, dt: float
 
 # The high-fidelity star still has to be able to be eaten by a black hole, so
 # give it the same accretion stream the legacy star had and chain the updates.
-static func create_star_hifi(b: Body, opts: Dictionary):
+static func create_star_hifi(b: Body, opts: VisualOpts):
 	var viz = StarVisual.create_star_visual(b, opts)
 	viz.stream = AccretionStream.new(viz.hot)
 	viz.group.add_child(viz.stream.points)
 	return viz
 
-## Dispatch per body type; sets and returns b.viz. `opts` from attach_visual:
-## radiusScene, oblate, spinFrac, tPole, tEq, gdBeta, radiusSun, color, teff, glow,
-## seed, …
-static func create_body_visual(b: Body, opts: Dictionary):
+## Dispatch per body type; sets and returns b.viz.
+static func create_body_visual(b: Body, opts: VisualOpts):
 	match b.type:
 		"bh": return create_black_hole(b, opts)
 		"star": return create_star_hifi(b, opts)
 		# A white dwarf is a small hot photosphere with no convective envelope: `quiet`
 		# turns off spots and flares.
-		"white-dwarf": return create_star_hifi(b, U.merged(opts, {"quiet": true}))
+		"white-dwarf":
+			var o := opts.copy()
+			o.quiet = true
+			return create_star_hifi(b, o)
 		"star-basic": return create_star(b, opts)
 		"world": return create_world(b, opts)
 		"neutron": return create_neutron(b, opts)

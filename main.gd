@@ -213,31 +213,30 @@ func attach_visual(b: Body) -> void:
 	if is_star_like and b.teff != null:
 		gd = Structure.gravity_darkened_temps(float(b.teff), b.spin_frac)
 	var flat: float = float(st.get("flattening", 0.0)) if st else 0.0
-	var opts := {
-		"radiusScene": radius_scene,
-		"oblate": 1.0 / (1.0 - flat) if flat else 1.0,
-		"spinFrac": b.spin_frac,
-		"tPole": gd.tPole if gd else null, "tEq": gd.tEq if gd else null, "gdBeta": gd.beta if gd else null,
-		"radiusSun": b.radius_sun if b.radius_sun != null else (b.radius / Physics.AU_PER_RSUN if b.radius else null),
-		"color": star_color if is_star_like else U.nz(spec.get("color"), def.color),
-		"teff": b.teff,
-		"glow": U.nz(spec.get("glow"), def.glow),
-		"seed": spec.get("seed"),
-		"obliquity": spec.get("obliquity"), "tidalLock": spec.get("tidalLock"),
-		"paletteName": spec.get("palette"),
-		"hot": spec.get("hot"), "atmosphere": spec.get("atmosphere"), "atmColor": spec.get("atmColor"),
-		"seaLevel": spec.get("seaLevel"), "rings": spec.get("rings"), "ringColor": spec.get("ringColor"),
-		# Surface/atmosphere model parameters. Every one of them has a physical
-		# default, so a preset only names the ones where the body is unusual.
-		"land": spec.get("land"), "albedo": spec.get("albedo"), "greenhouse": spec.get("greenhouse"),
-		"surfaceK": spec.get("surfaceK"), "frostK": spec.get("frostK"), "biota": spec.get("biota"),
-		"crater": spec.get("crater"), "regolith": spec.get("regolith"), "haze": spec.get("haze"),
-		"cloudCover": spec.get("cloudCover"), "cloudColor": spec.get("cloudColor"), "atmThick": spec.get("atmThick"),
-		"ringInner": spec.get("ringInner"), "ringOuter": spec.get("ringOuter"),
-		"internalHeat": spec.get("internalHeat"), "vortices": spec.get("vortices"),
-		"transport": spec.get("transport"), "season": spec.get("season"), "arid": spec.get("arid"),
-		"plateScale": spec.get("plateScale"), "landRelief": spec.get("landRelief"), "oceanDepth": spec.get("oceanDepth"),
-	}
+	var opts := VisualOpts.new()
+	opts.radius_scene = radius_scene
+	opts.oblate = 1.0 / (1.0 - flat) if flat else 1.0
+	opts.spin_frac = b.spin_frac
+	if gd: opts.t_pole = gd.tPole; opts.t_eq = gd.tEq; opts.gd_beta = gd.beta
+	opts.radius_sun = b.radius_sun if b.radius_sun != null else (b.radius / Physics.AU_PER_RSUN if b.radius else null)
+	opts.color = star_color if is_star_like else U.nz(spec.get("color"), def.color)
+	opts.teff = b.teff
+	opts.glow = U.nz(spec.get("glow"), def.glow)
+	opts.spec_seed = spec.get("seed")
+	opts.obliquity = spec.get("obliquity"); opts.tidal_lock = spec.get("tidalLock")
+	opts.palette_name = spec.get("palette")
+	opts.hot = spec.get("hot"); opts.atmosphere = spec.get("atmosphere"); opts.atm_color = spec.get("atmColor")
+	opts.sea_level = spec.get("seaLevel"); opts.rings = spec.get("rings"); opts.ring_color = spec.get("ringColor")
+	# Surface/atmosphere model parameters. Every one of them has a physical
+	# default, so a preset only names the ones where the body is unusual.
+	opts.land = spec.get("land"); opts.albedo = spec.get("albedo"); opts.greenhouse = spec.get("greenhouse")
+	opts.surface_k = spec.get("surfaceK"); opts.frost_k = spec.get("frostK"); opts.biota = spec.get("biota")
+	opts.crater = spec.get("crater"); opts.regolith = spec.get("regolith"); opts.haze = spec.get("haze")
+	opts.cloud_cover = spec.get("cloudCover"); opts.cloud_color = spec.get("cloudColor"); opts.atm_thick = spec.get("atmThick")
+	opts.ring_inner = spec.get("ringInner"); opts.ring_outer = spec.get("ringOuter")
+	opts.internal_heat = spec.get("internalHeat"); opts.vortices = spec.get("vortices")
+	opts.transport = spec.get("transport"); opts.season = spec.get("season"); opts.arid = spec.get("arid")
+	opts.plate_scale = spec.get("plateScale"); opts.land_relief = spec.get("landRelief"); opts.ocean_depth = spec.get("oceanDepth")
 	var viz = Bodies.create_body_visual(b, opts)
 	b.viz = viz
 	var g: Node3D = viz.group
@@ -597,19 +596,17 @@ func update_suns() -> void:
 	for s in stars:
 		var L: float = float(U.nz(s.luminosity, Stellar.luminosity(s.mass))) * (s.activity.flux if s.activity != null else 1.0)
 		var d := maxf(home.pos.distance_to(s.pos), 1e-3) if home else 1.0
-		state.suns.append({
-			"body": s,
-			"pos_rel": s.scene_pos.rel_v3(cam_pos),
-			"pos_abs": s.scene_pos,
-			"color": Stellar.blackbody_color(float(U.nz(s.teff, Stellar.effective_temp(s.mass)))),
-			"intensity": L / (d * d) if home else L,
-			"dist_au": d,
-			# true angular RADIUS as rendered, for the sky pass
-			"ang_radius": atan(s.radius_scene / maxf(d * state.scene_scale, 1e-4)),
-			# and the physically true one, for the readout
-			"ang_true": atan(Physics.stellar_radius(s.mass) / d),
-		})
-	state.suns.sort_custom(func(a, b): return a.intensity > b.intensity)
+		var sun := VisualCtx.Sun.new()
+		sun.body = s
+		sun.pos_rel = s.scene_pos.rel_v3(cam_pos)
+		sun.pos_abs = s.scene_pos
+		sun.color = Stellar.blackbody_color(float(U.nz(s.teff, Stellar.effective_temp(s.mass))))
+		sun.intensity = L / (d * d) if home else L
+		sun.dist_au = d
+		sun.ang_radius = atan(s.radius_scene / maxf(d * state.scene_scale, 1e-4))
+		sun.ang_true = atan(Physics.stellar_radius(s.mass) / d)
+		state.suns.append(sun)
+	state.suns.sort_custom(func(a: VisualCtx.Sun, b: VisualCtx.Sun): return a.intensity > b.intensity)
 
 # Smallest resolved-needs timescale among bodies — the dynamical time of the
 # tightest/fastest pair (sim/derive.gd).
@@ -970,7 +967,7 @@ func aim_at_brightest_sun() -> void:
 	# prefer a sun that is actually above the horizon
 	var best = null
 	var best_score := -INF
-	for s in state.suns:
+	for s: VisualCtx.Sun in state.suns:
 		var d: Vector3 = (s.pos_abs as DVec3).sub(observer.eye).to_v3().normalized()
 		var elev := d.dot(up)
 		var score: float = s.intensity * (elev + 0.2) if elev > -0.05 else -1.0 + s.intensity * 1e-3
@@ -1221,7 +1218,7 @@ func update_hud(dt: float) -> void:
 	# --- star readout: what each sun actually is, and how bright it is here
 	if not state.suns.is_empty():
 		var rows := []
-		for s in state.suns:
+		for s: VisualCtx.Sun in state.suns:
 			var b: Body = s.body
 			rows.append({"name": b.name, "cls": U.nz(b.spectral, ""), "mass": b.mass, "teff": float(U.nz(b.teff, 0.0)),
 				"dist_au": s.dist_au, "intensity": s.intensity, "color": s.color,
@@ -1978,7 +1975,7 @@ func _stage_collapse(n: String) -> void:
 func set_local_time(when = "noon") -> void:
 	var home := get_home()
 	if home == null or home.viz == null or state.suns.is_empty(): return
-	var sun: Dictionary = state.suns[0]
+	var sun: VisualCtx.Sun = state.suns[0]
 	var g: Node3D = home.viz.group
 	var q := g.global_transform.basis.get_rotation_quaternion()
 	var sun_dir := (sun.pos_abs as DVec3).sub(home.scene_pos).to_v3().normalized()
@@ -2133,13 +2130,11 @@ func animate(dt: float) -> void:
 	# ---- place everything relative to the camera (the floating origin)
 	update_suns()
 	var holes := []
-	for h in get_holes():
-		holes.append({"pos_rel": h.scene_pos.rel_v3(cam_pos), "pos_abs": h.scene_pos, "rs_scene": h.rs_scene, "mass": h.mass, "body": h})
-	var ctx := {
-		"holes": holes, "camera": pipe.scene_cam, "cam_pos": cam_pos, "time": state.time,
-		"scene_scale": state.scene_scale, "sim_dt": sim_stepped, "suns": state.suns,
-		"climate": state.climate, "bodies": state.bodies, "viewport_h": float(pipe.view_size.y),
-	}
+	for h in get_holes(): holes.append(VisualCtx.Hole.of(h, h.scene_pos.rel_v3(cam_pos)))
+	var ctx := VisualCtx.new()
+	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
+	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
+	ctx.climate = state.climate; ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
 	for b in state.bodies:
 		if b.type == "bh":
 			b.rs_scene = b.rs * state.scene_scale

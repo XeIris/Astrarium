@@ -82,8 +82,8 @@ design.
 
 A factory returns an object with `group: Node3D` and `update(dt, ctx)`, stored
 on `b.viz`. The orchestrator owns `group.position` and `group.scale`, so a visual
-puts its own offsets on inner nodes. The `ctx` keys are in
-[docs/godot.md](docs/godot.md#the-body-visual-contract).
+puts its own offsets on inner nodes. `ctx` is a `VisualCtx`
+([docs/godot.md](docs/godot.md#the-body-visual-contract)).
 
 ## The course
 

@@ -127,13 +127,13 @@ static func _limb_material(pal: Dictionary) -> ShaderMaterial:
 	m.set_shader_parameter("uTint", RockyVisual.v3(U.lin(int(pal.haze))))
 	return m
 
-static func _ring_material(opts: Dictionary, seed: float) -> ShaderMaterial:
+static func _ring_material(opts: VisualOpts, seed: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = RING_SHADER
 	Suns.apply_suns([m], [], Vector3.ZERO)
-	m.set_shader_parameter("uColor", RockyVisual.v3(RockyVisual.lin_of(U.nz(opts.get("ringColor"), 0xd8c9a6))))
-	m.set_shader_parameter("uInner", float(U.nz(opts.get("ringInner"), 1.24)))
-	m.set_shader_parameter("uOuter", float(U.nz(opts.get("ringOuter"), 2.27)))
+	m.set_shader_parameter("uColor", RockyVisual.v3(RockyVisual.lin_of(U.nz(opts.ring_color, 0xd8c9a6))))
+	m.set_shader_parameter("uInner", float(U.nz(opts.ring_inner, 1.24)))
+	m.set_shader_parameter("uOuter", float(U.nz(opts.ring_outer, 2.27)))
 	m.set_shader_parameter("uBodyR", 1.0)
 	m.set_shader_parameter("uSeed", seed)
 	var so := PackedVector3Array(); so.resize(Suns.MAX_SUNS)
@@ -141,7 +141,7 @@ static func _ring_material(opts: Dictionary, seed: float) -> ShaderMaterial:
 	m.set_shader_parameter("uSunObj", so)
 	return m
 
-static func create_giant_visual(b: Body, opts: Dictionary = {}) -> GiantViz:
+static func create_giant_visual(b: Body, opts: VisualOpts) -> GiantViz:
 	return GiantViz.new(b, opts)
 
 ## The visual object: group, core, body_mesh, limb, rings, mat, limb_mat, ring_mat,
@@ -166,15 +166,15 @@ class GiantViz extends RefCounted:
 	var internal: float
 	var tilt_q := Quaternion()
 
-	func _init(b: Body, opts: Dictionary) -> void:
+	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
 		group = Node3D.new()
 		group.name = "Giant_%s" % b.name
-		R = float(opts.get("radiusScene", 1.0))
+		R = float(opts.radius_scene)
 		base_r = R
-		var p = opts.get("giantPalette")
+		var p = opts.giant_palette
 		if p == null:
-			p = GiantVisual.GIANT_PALETTES.get(str(U.nz(opts.get("paletteName"), "jupiter")), GiantVisual.GIANT_PALETTES.jupiter)
+			p = GiantVisual.GIANT_PALETTES.get(str(U.nz(opts.palette_name, "jupiter")), GiantVisual.GIANT_PALETTES.jupiter)
 		pal = (p as Dictionary).duplicate()
 		var seed := float(RockyVisual.id_hash(b.id) % 997) / 5.9
 
@@ -193,14 +193,13 @@ class GiantViz extends RefCounted:
 		# Great Red Spot has sat at 22°S for 190+ years).
 		var rnd := GiantVisual.Mulberry.new(int(seed * 1000.0 + 7.0))
 		var contrast := float(pal.contrast)
-		var nV := int(U.nz(opts.get("vortices"), 3 if contrast > 0.6 else (2 if contrast > 0.3 else 1)))
-		var vscale := float(U.nz(opts.get("vortexScale"), 1.0))
+		var nV := int(U.nz(opts.vortices, 3 if contrast > 0.6 else (2 if contrast > 0.3 else 1)))
 		for i in mini(nV, GiantVisual.MAX_VORTEX):
 			# pick a latitude at an anticyclonic phase of the jet system
 			# (draw order matters for the seeded sequence)
 			var lat := -0.39 if i == 0 else (rnd.next() - 0.5) * 1.6
 			var lon := rnd.next() * TAU
-			var size := (0.135 if i == 0 else 0.045 + rnd.next() * 0.04) * vscale
+			var size := 0.135 if i == 0 else 0.045 + rnd.next() * 0.04
 			var strength := 0.85 if i == 0 else 0.45 + rnd.next() * 0.3
 			var c0 := U.lin(int(pal.spot) if i == 0 else int(pal.zone))
 			var col := c0.lerp(U.lin(int(pal.deep)), rnd.next() * 0.4)
@@ -212,9 +211,9 @@ class GiantViz extends RefCounted:
 		mat.set_shader_parameter("uVortexCol", vc)
 
 		# --- rings
-		if RockyVisual.truthy(opts.get("rings")):
-			var inner := float(U.nz(opts.get("ringInner"), 1.24))
-			var outer := float(U.nz(opts.get("ringOuter"), 2.27))
+		if RockyVisual.truthy(opts.rings):
+			var inner := float(U.nz(opts.ring_inner, 1.24))
+			var outer := float(U.nz(opts.ring_outer, 2.27))
 			# Rings are built in body radii and scale with the body (they sit at resonances).
 			ring_mat = GiantVisual._ring_material(opts, seed)
 			ring_mat.set_shader_parameter("uBodyR", R)
@@ -227,20 +226,20 @@ class GiantViz extends RefCounted:
 
 		# Axial tilt. Rings are equatorial, so they are inside this group and tip
 		# with it — which is the whole reason Saturn's rings open and close.
-		var obl := float(U.nz(opts.get("obliquity"), 0.05))
+		var obl := float(U.nz(opts.obliquity, 0.05))
 		group.rotation.z = obl
 		tilt_q = Quaternion(Vector3(0, 0, 1), obl)
 
 		# System III: the rigid interior rate. Everything above moves relative to it.
 		if b.spin == null:
 			b.spin = 0.9 + randf() * 0.5
-		albedo = float(U.nz(opts.get("albedo"), 0.5))
+		albedo = float(U.nz(opts.albedo, 0.5))
 		# Internal heat: Jupiter radiates 1.67x what it absorbs, Saturn 1.78x, from
 		# contraction and (on Saturn) helium rain. Neptune 2.6x; Uranus, oddly, ~1.
-		internal = float(U.nz(opts.get("internalHeat"), 1.67))
+		internal = float(U.nz(opts.internal_heat, 1.67))
 		b.viz = self
 
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		var b := body
 		b.spin_phase = fmod(b.spin_phase + float(b.spin) * dt, TAU)
 		body_mesh.rotation.y = b.spin_phase               # the core, and only the core
@@ -261,8 +260,7 @@ class GiantViz extends RefCounted:
 			if ring_mat != null: mats.append(ring_mat)
 			Suns.apply_suns(mats, suns, group.position)
 			# Effective temperature: what it absorbs plus what it makes.
-			var real_suns: bool = ctx.has("suns") and ctx.suns != null and not ctx.suns.is_empty()
-			var S: float = Suns.insolation_at(b, ctx.suns) if real_suns else float(suns[0].intensity)
+			var S: float = Suns.insolation_at(b, ctx.suns) if not ctx.suns.is_empty() else float(suns[0].intensity)
 			var Teq := 278.6 * pow(maxf(S, 1e-9) * (1.0 - albedo), 0.25)
 			mat.set_shader_parameter("uTeff", Teq * pow(internal, 0.25))
 			# Sun directions in the body frame; the group carries the tilt.

@@ -111,7 +111,7 @@ static func _init_suns(m: ShaderMaterial) -> void:
 	Suns.apply_suns([m], [], Vector3.ZERO)
 
 # SURFACE MATERIAL. See rocky_surface.gdshader for the model.
-static func surface_material(seed: float, opts: Dictionary = {}) -> ShaderMaterial:
+static func surface_material(seed: float, opts: VisualOpts) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = SURFACE_SHADER
 	_init_suns(m)
@@ -120,17 +120,17 @@ static func surface_material(seed: float, opts: Dictionary = {}) -> ShaderMateri
 		m.set_shader_parameter(k, tu[k])
 	m.set_shader_parameter("uSeed", seed)
 	# Sea-level datum height, km. −60 means no liquid at all (airless or boiled dry).
-	m.set_shader_parameter("uSeaKm", float(U.nz(opts.get("seaKm"), 0.0)))
+	m.set_shader_parameter("uSeaKm", float(U.nz(opts.sea_km, 0.0)))
 	m.set_shader_parameter("uIce", 0.0)        # glaciated fraction FORCED by an EBM, if any
 	m.set_shader_parameter("uScorch", 0.0)
 	# Annual-mean insolation's second Legendre coefficient. See create_rocky_visual.
 	m.set_shader_parameter("uS2", -0.477)
-	m.set_shader_parameter("uFrostK", float(U.nz(opts.get("frostK"), 273.0)))
-	m.set_shader_parameter("uBiota", float(U.nz(opts.get("biota"), 0.0)))
-	m.set_shader_parameter("uCrater", float(U.nz(opts.get("crater"), 0.0)))
-	m.set_shader_parameter("uRegolith", v3(lin_of(U.nz(opts.get("regolith"), 0x8b8178))))
-	m.set_shader_parameter("uHaze", float(U.nz(opts.get("haze"), 0.0)))
-	m.set_shader_parameter("uAmbient", v3(lin_of(U.nz(opts.get("ambient"), 0x070b14))))
+	m.set_shader_parameter("uFrostK", float(U.nz(opts.frost_k, 273.0)))
+	m.set_shader_parameter("uBiota", float(U.nz(opts.biota, 0.0)))
+	m.set_shader_parameter("uCrater", float(U.nz(opts.crater, 0.0)))
+	m.set_shader_parameter("uRegolith", v3(lin_of(U.nz(opts.regolith, 0x8b8178))))
+	m.set_shader_parameter("uHaze", float(U.nz(opts.haze, 0.0)))
+	m.set_shader_parameter("uAmbient", v3(U.lin(0x070b14)))
 	m.set_shader_parameter("uTime", 0.0)
 	# Exposure: one shared constant, as a camera exposes for the planet (albedos are
 	# real reflectances), so worlds side by side stay comparable.
@@ -138,7 +138,7 @@ static func surface_material(seed: float, opts: Dictionary = {}) -> ShaderMateri
 	# Seasons, in K of pole-to-pole swing. The annual mean can't grow Mars's 148 K CO₂
 	# cap; winter does. uDecl is the sine of the sub-solar latitude; uSeason is how far
 	# the surface follows it (small under an ocean, large on bare rock).
-	m.set_shader_parameter("uSeason", float(U.nz(opts.get("season"), 8.0)))
+	m.set_shader_parameter("uSeason", float(U.nz(opts.season, 8.0)))
 	m.set_shader_parameter("uDecl", 0.0)
 	m.set_shader_parameter("uMapKind", 0.0)   # 0 procedural, 1 Earth land/water, 2 dry mission mosaic
 	m.set_shader_parameter("uMapScale", 1.0)
@@ -188,7 +188,7 @@ static func surface_temp_k(S: float, albedo: float, eps: float) -> float:
 	var Teq := 278.6 * pow(maxf(S, 1e-9) * (1.0 - albedo), 0.25)
 	return Teq / pow(maxf(eps, 1e-3), 0.25)
 
-static func create_rocky_visual(b: Body, opts: Dictionary = {}) -> RockyViz:
+static func create_rocky_visual(b: Body, opts: VisualOpts) -> RockyViz:
 	return RockyViz.new(b, opts)
 
 ## The visual object: group, core, surface, clouds, atmo, surf_mat, cloud_mat,
@@ -206,39 +206,38 @@ class RockyViz extends RefCounted:
 	var R: float
 	var is_rocky := true
 	var body: Body
-	var opts: Dictionary
+	var opts: VisualOpts
 	var albedo: float
 	var eps: float
 	var sea_km0: float
 	var tilt_q := Quaternion()
 
-	func _init(b: Body, o: Dictionary) -> void:
+	func _init(b: Body, o: VisualOpts) -> void:
 		body = b
 		opts = o
 		group = Node3D.new()
 		group.name = "Rocky_%s" % b.name
-		R = float(o.get("radiusScene", 1.0))
+		R = float(o.radius_scene)
 		base_r = R
-		# (opts.seed || 0): a preset's seed nudges the terrain without re-rolling it
-		var seed_opt := float(o.seed) if RockyVisual.truthy(o.get("seed")) else 0.0
+		# A preset's seed nudges the terrain without re-rolling it.
+		var seed_opt := float(o.spec_seed) if RockyVisual.truthy(o.spec_seed) else 0.0
 		var seed := float(RockyVisual.id_hash(b.id) % 1000) / 7.3 + seed_opt * 0.017
 
 		# A world with no liquid at all is expressed by putting the sea-level datum
 		# below the deepest point there is, not by a second branch in the shader.
-		var dry := RockyVisual.truthy(o.get("hot")) or RockyVisual.truthy(o.get("airless")) \
-				or float(U.nz(o.get("water"), 1.0)) <= 0.0
-		var atm := RockyVisual.truthy(o.get("atmosphere"))
-		var surf_opts := o.duplicate()
-		var land = o.get("land")
+		var dry := RockyVisual.truthy(o.hot)
+		var atm := RockyVisual.truthy(o.atmosphere)
+		var surf_opts := o.copy()
+		var land = o.land
 		if land == null:
-			land = (1.0 - float(o.seaLevel) * 0.72) if o.get("seaLevel") != null else 0.34
-		surf_opts["continent"] = land
-		surf_opts["seaKm"] = -60.0 if dry else float(U.nz(o.get("seaKm"), 0.0))
-		surf_opts["crater"] = U.nz(o.get("crater"), 0.0 if atm else 0.85)
-		surf_opts["biota"] = U.nz(o.get("biota"), 0.0)
-		surf_opts["haze"] = U.nz(o.get("haze"), 0.45 if atm else 0.0)
-		surf_opts["regolith"] = U.nz(o.get("regolith"), 0xb08058 if RockyVisual.truthy(o.get("hot")) else 0x8d8478)
-		surf_opts["frostK"] = U.nz(o.get("frostK"), 273.0)
+			land = (1.0 - float(o.sea_level) * 0.72) if o.sea_level != null else 0.34
+		surf_opts.continent = land
+		surf_opts.sea_km = -60.0 if dry else float(U.nz(o.sea_km, 0.0))
+		surf_opts.crater = U.nz(o.crater, 0.0 if atm else 0.85)
+		surf_opts.biota = U.nz(o.biota, 0.0)
+		surf_opts.haze = U.nz(o.haze, 0.45 if atm else 0.0)
+		surf_opts.regolith = U.nz(o.regolith, 0xb08058 if RockyVisual.truthy(o.hot) else 0x8d8478)
+		surf_opts.frost_k = U.nz(o.frost_k, 273.0)
 
 		surf_mat = RockyVisual.surface_material(seed, surf_opts)
 		RockyVisual.bind_planet_map(surf_mat, b.name)
@@ -249,30 +248,30 @@ class RockyViz extends RefCounted:
 
 		if atm:
 			cloud_mat = RockyVisual.cloud_material(seed + 3.7)
-			if RockyVisual.truthy(o.get("cloudColor")):
-				cloud_mat.set_shader_parameter("uTint", RockyVisual.v3(RockyVisual.lin_of(o.cloudColor)))
-			cloud_mat.set_shader_parameter("uCover", float(U.nz(o.get("cloudCover"), 0.45)))
+			if RockyVisual.truthy(o.cloud_color):
+				cloud_mat.set_shader_parameter("uTint", RockyVisual.v3(RockyVisual.lin_of(o.cloud_color)))
+			cloud_mat.set_shader_parameter("uCover", float(U.nz(o.cloud_cover, 0.45)))
 			clouds = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.008, 64, 48), cloud_mat)
 			clouds.name = "Clouds"
 			group.add_child(clouds)
 
-			atmo_mat = RockyVisual.atmosphere_material(o.get("atmColor"))
-			atmo_mat.set_shader_parameter("uThick", float(U.nz(o.get("atmThick"), 1.0)))
+			atmo_mat = RockyVisual.atmosphere_material(o.atm_color)
+			atmo_mat.set_shader_parameter("uThick", float(U.nz(o.atm_thick, 1.0)))
 			atmo = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.035, 72, 48), atmo_mat)
 			atmo.name = "Atmosphere"
 			group.add_child(atmo)
 
 		# Obliquity is what gives a world seasons on top of whatever its orbit is
 		# already doing, and it also sets the insolation profile below.
-		var obliquity := float(U.nz(o.get("obliquity"), 0.35))
+		var obliquity := float(U.nz(o.obliquity, 0.35))
 		group.rotation.z = obliquity
 		tilt_q = Quaternion(Vector3(0, 0, 1), obliquity)
 		surf_mat.set_shader_parameter("uS2", RockyVisual.insolation_s2(obliquity))
 
-		albedo = float(U.nz(o.get("albedo"), 0.3))
-		eps = float(U.nz(o.get("greenhouse"), 0.61 if atm else 1.0))
+		albedo = float(U.nz(o.albedo, 0.3))
+		eps = float(U.nz(o.greenhouse, 0.61 if atm else 1.0))
 		# The sea datum as built, kept so a baked-dry world can refill when it cools.
-		sea_km0 = float(surf_opts.seaKm)
+		sea_km0 = float(surf_opts.sea_km)
 
 		if b.spin == null:
 			b.spin = (0.4 + randf() * 1.2) * (-1.0 if randf() < 0.1 else 1.0)
@@ -281,13 +280,13 @@ class RockyViz extends RefCounted:
 	func _u(m: ShaderMaterial, k: String) -> float:
 		return float(m.get_shader_parameter(k))
 
-	func update(dt: float, ctx: Dictionary) -> void:
+	func update(dt: float, ctx: VisualCtx) -> void:
 		var b := body
 		# Wrap both phases: past ~1e5 a float32 rotation stops advancing.
 		var parent: Body = null
-		var tl = opts.get("tidalLock")
-		if RockyVisual.truthy(tl) and ctx.has("bodies") and ctx.bodies != null:
-			for x in ctx.bodies:
+		var tl = opts.tidal_lock
+		if RockyVisual.truthy(tl):
+			for x: Body in ctx.bodies:
 				if x.name == tl:
 					parent = x
 					break
@@ -313,15 +312,14 @@ class RockyViz extends RefCounted:
 		if suns != null:
 			# Insolation from real stars, or the stand-in light's own intensity when there are
 			# none, so temperature and lighting agree.
-			var real_suns: bool = ctx.has("suns") and ctx.suns != null and not ctx.suns.is_empty()
-			var S: float = Suns.insolation_at(b, ctx.suns) if real_suns else float(suns[0].intensity)
+			var S: float = Suns.insolation_at(b, ctx.suns) if not ctx.suns.is_empty() else float(suns[0].intensity)
 			var T: float
-			if opts.get("surfaceK") != null:
-				T = float(opts.surfaceK)
+			if opts.surface_k != null:
+				T = float(opts.surface_k)
 			elif S > 1e-8:
 				T = RockyVisual.surface_temp_k(S, albedo, eps)
 			else:
-				T = float(U.nz(opts.get("meanK"), 60.0))
+				T = 60.0
 			var mk := _u(surf_mat, "uMeanK")
 			surf_mat.set_shader_parameter("uMeanK", mk + (T - mk) * minf(1.0, dt * 2.0))
 
@@ -329,7 +327,7 @@ class RockyViz extends RefCounted:
 			# 388 K planet inside its habitable zone's inner edge loses its oceans. Only for a
 			# body with an atmosphere: an airless rock at 440 K is just warm. A stated surface
 			# temperature counts (Venus's 737 K).
-			if RockyVisual.truthy(opts.get("atmosphere")):
+			if RockyVisual.truthy(opts.atmosphere):
 				# Near-Earth-pressure teaching model: dry out by water's boiling point.
 				var boil := clampf((T - 350.0) / 23.15, 0.0, 1.0)
 				surf_mat.set_shader_parameter("uSeaKm", sea_km0 + (-60.0 - sea_km0) * boil)
@@ -338,7 +336,7 @@ class RockyViz extends RefCounted:
 				if cloud_mat != null:
 					# A runaway greenhouse ends under more cloud, not less (Venus); only the fair-weather
 					# structure goes.
-					var base := float(U.nz(opts.get("cloudCover"), 0.45))
+					var base := float(U.nz(opts.cloud_cover, 0.45))
 					cloud_mat.set_shader_parameter("uCover", base + (1.0 - base) * clampf((T - 340.0) / 110.0, 0.0, 1.0))
 			# Season from the star's direction relative to the spin axis (sine of the sub-solar
 			# latitude), so any orbit gets its own seasons.

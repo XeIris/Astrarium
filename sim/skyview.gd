@@ -96,8 +96,8 @@ class SkyPass extends RefCounted:
 	## observer frame, camera, clock and climate, then commit().
 	##   observer  SkyView.SurfaceObserver, already update()d this frame
 	##   camera    the orrery camera it placed (pipe.scene_cam)
-	##   suns      the frame's sun list, brightest first: {body, color (linear),
-	##             intensity, ang_radius}; `pos_rel` only if `body` is absent
+	##   suns      the frame's VisualCtx.Sun list, brightest first (`pos_rel` is
+	##             used only when `body` is null)
 	##   climate   the home world's Climate (object or Dictionary) or null
 	##   dt        wall-clock step, s
 	##   aspect    render width / height
@@ -108,19 +108,19 @@ class SkyPass extends RefCounted:
 		var ints: PackedFloat32Array = u.uSunInt
 		var angs: PackedFloat32Array = u.uSunAng
 		for i in n:
-			var s: Dictionary = suns[i]
+			var s: VisualCtx.Sun = suns[i]
 			var d: Vector3
-			if s.get("body") != null:
+			if s.body != null:
 				# s.posScene − observer.eye, subtracted in double precision
-				d = (s.body.scene_pos as DVec3).sub(observer.eye).normalized().to_v3()
+				d = s.body.scene_pos.sub(observer.eye).normalized().to_v3()
 			else:
-				d = (s.pos_rel as Vector3).normalized()
+				d = s.pos_rel.normalized()
 			dirs[i] = d
 			u.uSunColor[i] = s.color
-			ints[i] = float(s.intensity)
-			angs[i] = float(s.get("ang_radius", 0.0))
+			ints[i] = s.intensity
+			angs[i] = s.ang_radius
 			# horizontal illuminance from this sun: flux × cos(zenith angle)
-			illum += float(s.intensity) * maxf(d.dot(observer.up), 0.0)
+			illum += s.intensity * maxf(d.dot(observer.up), 0.0)
 		u.uSunInt = ints
 		u.uSunAng = angs
 		u.uSunCount = n
