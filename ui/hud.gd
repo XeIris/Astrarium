@@ -1089,10 +1089,7 @@ func _build_flight_panel() -> void:
 	var x := B(head, "PanelClose", "✕", "", "Collapse")
 	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	x.pressed.connect(func(): set_panel_open("flightPanel", false))
-	var host := ElHost.new()
-	p.body.add_child(host)
-	_mounts["flightHud"] = host
-	reg("flightHud", host)
+	reg("flightHud", stack(p.body))
 
 # tabs
 func _tab(text: String, id: String) -> HudButton:

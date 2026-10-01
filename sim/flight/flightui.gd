@@ -12,12 +12,11 @@ extends RefCounted
 # The two clocks: MET is proper time, UT coordinate time; their difference is the
 # GPS correction in LEO and years at relativistic speed.
 #
-# Built from El nodes with the `.fl-*` rules, once; only text and state change. The
-# navball is a 188 px El whose disc background clips its children. Its hemispheres
-# are a canvas_item shader (navball.gdshader, even-odd fill as XOR); ladder,
-# meridians, horizon, markers, reticle, bezel and numbers are _draw() calls.
-# plan_block / cruise_block return data ({kind, rows, note, bar}) the panel renders.
-# The <select> is an El that opens a PopupMenu.
+# Built once from HUD controls; only text and state change after that. The navball
+# is a 188 px disc that clips its children: the hemispheres are a canvas_item shader
+# (navball.gdshader, even-odd fill as XOR), and ladder, meridians, horizon,
+# markers, reticle, bezel and numbers are _draw() calls. plan_block / cruise_block
+# return data ({kind, rows, note, bar}) the panel renders.
 
 const MARKERS := [
 	{"key": "prograde",   "glyph": "⊙", "color": 0xffe27a},
@@ -44,7 +43,7 @@ const PROGRAMS := [
 	["cruise", "Interstellar cruise", "Fly to the target on the exact constant-proper-acceleration solution: accelerate, coast, flip and burn. Pick a star (★) or a planet under Target first — with none picked it flies the mission. Two clocks, and the sky aberrates."],
 ]
 
-# ---- colours of the .fl-* rules (sRGB, as the page draws them) ---------------
+# colours (sRGB)
 static func _c(h: int, a: float = 1.0) -> Color: return HudTheme.hexc(h, a)
 static func _rgba(r: int, g: int, b: int, a: float) -> Color: return HudTheme.rgba(r, g, b, a)
 
@@ -147,7 +146,7 @@ static func cruise_block(r) -> Dictionary:
 		], "note": note}
 
 # THE NAVBALL
-class Navball extends El:
+class Navball extends Control:
 	const W := 188.0
 	const H := 188.0
 	var fill: ColorRect
@@ -163,9 +162,11 @@ class Navball extends El:
 	var roll = null
 
 	func _init() -> void:
-		# .fl-navball: 188×188, border-radius 50%, background #05080e, flex none
-		super({"w": W, "h": H, "rad": 94.0, "bg": HudTheme.hexc(0x05080e), "grow": 0.0, "shrink": 0.0})
-		# border-radius on a <canvas> clips what it draws
+		custom_minimum_size = Vector2(W, H)
+		size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# the disc clips what is drawn in it
 		clip_children = CanvasItem.CLIP_CHILDREN_AND_DRAW
 		fill = ColorRect.new()
 		fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -181,6 +182,9 @@ class Navball extends El:
 		over.size = Vector2(W, H)
 		over.draw.connect(_draw_over)
 		add_child(over)
+
+	func _draw() -> void:
+		draw_circle(Vector2(W, H) * 0.5, W * 0.5, HudTheme.hexc(0x05080e), true, -1.0, true)
 
 	##   q        vessel attitude (body +Y is the nose)
 	##   up_w     local up, world
@@ -207,8 +211,8 @@ class Navball extends El:
 	func to_view(w: Vector3) -> Vector3:
 		return Vector3(w.dot(rgt), w.dot(upv), -w.dot(fwd))
 
-	## An ellipse centred at `c`, semi-axes (rx, ry), rotated by `rot` as the
-	## canvas's rotate() turns it, clipped to the ball as ctx.clip() did.
+	## An ellipse centred at `c`, semi-axes (rx, ry), rotated by `rot`, clipped to
+	## the ball.
 	func _ellipse(c: Vector2, rx: float, ry: float, rot: float, col: Color, width: float, clip_r: float) -> void:
 		var centre := Vector2(W / 2.0, H / 2.0)
 		# A great circle seen edge-on is the rim: draw exactly its inner half.
@@ -263,7 +267,7 @@ class Navball extends El:
 			var x := cx + v.x * R; var y := cy - v.y * R
 			var col := HudTheme.hexc(M.color, 1.0 if v.z > 0.0 else 0.30)
 			var tw := sys.get_string_size(M.glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, gsz).x
-			# textBaseline 'middle': the em box's middle on y
+			# centred on the em box's middle
 			var asc := sys.get_ascent(gsz); var desc := sys.get_descent(gsz)
 			over.draw_string(sys, Vector2(x - tw * 0.5, y + (asc - desc) * 0.5), M.glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, gsz, col)
 		# the fixed reticle: where the nose is pointing, always dead centre
@@ -291,28 +295,41 @@ class Navball extends El:
 			var rw := mono.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz).x
 			over.draw_string(mono, Vector2(W / 2.0 - rw * 0.5, H - 6), rt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz, tc)
 
-# THE TAPES — .fl-throttle and .fl-vs: a fill, a centre line, a marker and a
-# label, all absolutely positioned inside a clipped, rounded box.
-class Tape extends El:
+## A rounded box drawn by hand: the tapes and the cruise bar.
+static func _box(ci: CanvasItem, r: Rect2, bg: Color, border: Color, rad: int) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = border
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(rad)
+	sb.anti_aliasing = true
+	sb.anti_aliasing_size = 0.6
+	ci.draw_style_box(sb, r)
+
+# THE TAPES: throttle and vertical speed. A fill, a centre line, a mark and a label
+# inside a clipped, rounded box.
+class Tape extends Control:
 	var label := ""
 	var is_vs := false
 	var frac := 0.0            # throttle 0..1, or the V/S mark's bottom as a fraction
 
 	func _init(lbl: String, vs: bool) -> void:
 		label = lbl; is_vs = vs
-		super({"grow": 1.0, "shrink": 1.0, "basis": 0.0, "b": [1, HudTheme.rgba(120, 190, 255, 0.20)],
-			"rad": 3.0, "bg": HudTheme.rgba(8, 14, 24, 0.7), "clip": true})
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		clip_contents = true
 
 	func set_frac(f: float) -> void:
 		if absf(f - frac) > 1e-4:
 			frac = f
 			queue_redraw()
 
-	func _draw_extra() -> void:
-		# the padding box: inset by the 1 px border
+	func _draw() -> void:
+		FlightUI._box(self, Rect2(Vector2.ZERO, size), HudTheme.rgba(8, 14, 24, 0.7), HudTheme.rgba(120, 190, 255, 0.20), 3)
+		# the padding box: inside the 1 px border
 		var inner := Rect2(Vector2(1, 1), size - Vector2(2, 2))
 		if not is_vs:
-			# linear-gradient(0deg, #2a7fd0, #7fd0ff) over the fill's own height
+			# a vertical gradient, #2a7fd0 at the foot to #7fd0ff at the top of the fill
 			var h := inner.size.y * frac
 			if h > 0.0:
 				var y0 := inner.end.y - h
@@ -321,141 +338,167 @@ class Tape extends El:
 					Vector2(inner.end.x, inner.end.y), Vector2(inner.position.x, inner.end.y)])
 				draw_polygon(pts, PackedColorArray([c1, c1, c0, c0]))
 		else:
-			# ::before — a dashed 1 px line at 50%
+			# a dashed 1 px line at 50%
 			var y := roundf(inner.position.y + inner.size.y * 0.5)
 			var x := inner.position.x
 			var dc := HudTheme.rgba(120, 190, 255, 0.35)
 			while x < inner.end.x:
 				draw_rect(Rect2(x, y, minf(3.0, inner.end.x - x), 1.0), dc)
 				x += 6.0
-			# the mark: left/right 2 px, 2 px tall, bottom at frac, with a glow
+			# the mark: 2 px tall, its foot at frac, with a glow
 			var yb := inner.end.y - inner.size.y * frac
 			var r := Rect2(inner.position.x + 2.0, yb - 2.0, inner.size.x - 4.0, 2.0)
 			for i in 4:
 				var g := 1.5 * (i + 1)
 				draw_rect(r.grow(g), HudTheme.rgba(255, 207, 77, 0.7 * 0.12 * (1.0 - i / 4.0)))
 			draw_rect(r, HudTheme.hexc(0xffcf4d))
-		# the label: absolute, bottom 2 px, centred, 8.5 px, letter-spacing .08em
-		var f := HudTheme.font("mono")
-		var fs := 8.5
-		var ls := 0.08 * fs
-		var tw := HudTheme.text_w(f, label, fs, ls) - ls
-		var ad := HudTheme.asc_desc(f, fs)
-		var by := inner.end.y - 2.0 - ad.y
-		_draw_chars(f, label, Vector2(inner.position.x + (inner.size.x - tw) * 0.5, by), fs, ls, HudTheme.hexc(0x7d93ae))
+		# the label: 2 px off the foot, centred, 8.5 px, letter-spacing .08em
+		var st := {"fs": 8.5, "ls": 0.68}
+		var f := HudTheme.text_font(st)
+		var fs := HudTheme.px(8.5)
+		var tw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var by := inner.end.y - 2.0 - f.get_descent(fs)
+		draw_string(f, Vector2(inner.position.x + roundf((inner.size.x - tw) * 0.5), roundf(by)), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, HudTheme.hexc(0x7d93ae))
 
-# A STAGE ROW — .fl-stage: a proportional bar behind three spans.
-class StageRow extends El:
+# A STAGE ROW: a proportional bar behind the name, the propellant and the engine count.
+class StageRow extends PanelContainer:
 	var frac := 0.0
 	var live := false
-	var n: El
-	var m: El
-	var e: El
-	var strike := false
+	var n: Span
+	var m: Span
+	var e: Span = null
 
 	func _init() -> void:
-		super({"display": "flex", "ai": "center", "gapc": 6.0, "fs": 10.0, "p": [3, 6], "mb": 2.0,
-			"rad": 3.0, "bg": HudTheme.rgba(12, 20, 32, 0.7), "clip": true})
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		Hud.m(self, 0.0, 2.0)
+		add_theme_stylebox_override("panel", HudTheme.stylebox({"bg": HudTheme.rgba(12, 20, 32, 0.7), "bw": 0, "rad": 3, "pad": [3, 6, 3, 6]}))
+		clip_contents = true
 
-	func _draw_extra() -> void:
-		# .fl-stage-bar i: full height, width%, over the padding box
+	func _draw() -> void:
+		# the bar: full height, frac of the width, over the background
 		var w := size.x * frac
 		if w > 0.0:
 			draw_rect(Rect2(0, 0, w, size.y), HudTheme.rgba(60, 190, 130, 0.30) if live else HudTheme.rgba(60, 130, 200, 0.28))
 
-## A span whose text can be struck through (text-decoration: line-through,
-## which .fl-stage.gone puts on every descendant's text).
-class Span extends El:
+## A label whose text can be struck through (a separated stage).
+class Span extends Label:
 	var strike := false
-	func _draw_extra() -> void:
-		if not strike or _lines.is_empty(): return
-		var font := HudTheme.font(g("ff"), int(g("fw")))
-		var fs := gf("fs")
-		var ln = _lines[0]
-		var by: float = gf("bt") + gf("pt") + ln.top + ln.base
-		var y := roundf(by - HudTheme.metrics(font).x * fs * 0.3)
-		var w := 0.0
-		for it in ln.items: w = maxf(w, it.x + it.a.w)
-		draw_rect(Rect2(ln.off, y, w, 1.0), g("c"))
-
-## .fl-target: a <select>. Chrome draws the value and a chevron.
-class Select extends El:
-	var popup: PopupMenu
-	var options: Array = []     # [value, label]
-	var value := ""
-	signal changed(v: String)
-
-	func _init() -> void:
-		super({"wp": 1.0, "p": [4, 6], "fs": 10.5, "c": HudTheme.hexc(0xcfe6ff), "bg": HudTheme.rgba(12, 20, 32, 0.85),
-			"b": [1, HudTheme.rgba(120, 190, 255, 0.22)], "rad": 3.0, "nw": true})
-		make_clickable()
-		popup = PopupMenu.new()
-		add_child(popup)
-		popup.id_pressed.connect(func(i: int):
-			value = options[i][0]
-			set_text(options[i][1])
-			changed.emit(value))
-		pressed.connect(func():
-			popup.clear()
-			for i in options.size(): popup.add_item(options[i][1], i)
-			popup.position = Vector2i(get_screen_position() + Vector2(0, size.y))
-			popup.popup())
-
-	func set_options(opts: Array, current: String) -> void:
-		options = opts
-		value = current
-		var label: String = opts[0][1] if not opts.is_empty() else ""
-		for o in opts:
-			if o[0] == current: label = o[1]
-		set_text(label)
-
-	func _draw_extra() -> void:
-		# the chevron, 10 px from the right edge
-		var c: Color = g("c")
-		var x := size.x - 12.0; var y := size.y * 0.5
-		draw_polyline(PackedVector2Array([Vector2(x - 3.5, y - 2.0), Vector2(x, y + 1.5), Vector2(x + 3.5, y - 2.0)]), c, 1.2, true)
+	func _draw() -> void:
+		if not strike or label_settings == null: return
+		var f := label_settings.font
+		var fs := label_settings.font_size
+		var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var x := size.x - w if horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT else 0.0
+		var y := roundf(f.get_ascent(fs) - HudTheme.metrics(f).x * float(fs) * 0.3)
+		draw_rect(Rect2(x, y, w, 1.0), label_settings.font_color)
 
 # THE PANEL
+const K := {"fs": 10.0, "c": 0x6f86a0}
+const V := {"fs": 10.0, "c": 0xdbeaff}
+const NOTE := {"mt": 5.0, "fs": 9.5, "lh": 1.35, "c": 0x7d93ae, "fi": true}
+
+static func _st(d: Dictionary) -> Dictionary:
+	var o := d.duplicate()
+	if o.get("c") is int: o.c = HudTheme.hexc(o.c)
+	o.erase("mt")
+	return o
+
 var root: Control
 var hooks: Dictionary
 var nav: Navball
 var thr: Tape
 var vs: Tape
-var status_el: El
-var grid: El
-var grid_v: Array = []          # value El per row
+var status_box: PanelContainer
+var status_el: Prose
+var _status_cls := "?"
+var grid: HudGrid
+var grid_v: Array = []          # value label per row
 var grid_k: Array = []
-var met_v: El
-var ut_v: El
-var dt_v: El
-var stages_el: El
+var met_v: KV
+var ut_v: KV
+var dt_v: KV
+var stages_el: HudStack
 var stage_rows: Array = []
 var mode_btns := {}
 var prog_btns := {}
-var target_sel: Select
-var plan_el: El
+var target_sel: HudSelect
+var plan_el: HudStack
 var plan_key := ""
-var log_el: El
+var log_el: VBoxContainer
 var last_log := -1
 var rec_v: Array = []           # the records strip's value cells (see flight_records)
 
-static func _el(parent: Node, style: Dictionary, text = null, vars: Array = []) -> El:
-	var e := El.new(style, vars)
-	if text is String: e.runs = [{"t": text}]
-	elif text is Array: e.runs = text
-	parent.add_child(e)
-	return e
+## A key and its value at the cell's two edges. Short of room, both shrink in
+## proportion to their width, no narrower than their longest word, and wrap (a
+## flex row with space-between, which no stock container lays out).
+class KV extends Container:
+	var k: Prose
+	var v: Prose
+	var gap := 6.0
 
-static func _kv(parent: Node, k: String, v: String, cell: Dictionary = {}) -> Array:
-	var d := _el(parent, HudCss.merge({"display": "flex", "jc": "space-between", "gapc": 6.0}, cell))
-	var ke := _el(d, {"c": HudTheme.hexc(K_COL)}, k)
-	var ve := _el(d, {"c": HudTheme.hexc(V_COL)}, v)
-	return [ke, ve]
+	func _init(kt: String, vt: String, key_st: Dictionary, val_st: Dictionary, g := 6.0) -> void:
+		gap = g
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		k = Hud.label(self, "", key_st, true) as Prose
+		v = Hud.label(self, "", val_st, true) as Prose
+		set_k(kt); set_v(vt)
 
-static func _section(parent: Node, t: String) -> El:
-	# .fl-section
-	return _el(parent, {"mt": 10.0, "mb": 4.0, "fs": 9.5, "ls": 0.12 * 9.5, "up": true, "c": HudTheme.hexc(K_COL),
-		"bb": 1.0, "bcb": HudTheme.rgba(120, 190, 255, 0.14), "pb": 3.0}, t)
+	func set_k(t: String) -> void:
+		if k.said() != t:
+			k.say(t)
+			update_minimum_size(); queue_sort()
+
+	func set_v(t: String) -> void:
+		# a word joiner keeps "km/s" whole: the browser has no break after a slash
+		t = t.replace("/", "/\u2060")
+		if v.said() != t:
+			v.say(t)
+			update_minimum_size(); queue_sort()
+
+	## [max-content, min-content] width of a label's text.
+	static func _widths(l: Prose) -> Vector2:
+		var f := l.label_settings.font
+		var fs := l.label_settings.font_size
+		var t := l.said()
+		var longest := 0.0
+		for w in t.split(" ", false):
+			longest = maxf(longest, f.get_string_size(w, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x)
+		return Vector2(f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x, longest)
+
+	func _split() -> Array:
+		var a := _widths(k)
+		var b := _widths(v)
+		var room := size.x - gap
+		if a.x + b.x <= room:
+			return [a.x, b.x]
+		var over := a.x + b.x - room
+		var wk := maxf(a.x - over * a.x / (a.x + b.x), a.y)
+		var wv := room - wk
+		if wv < b.y:
+			wv = b.y
+			wk = maxf(room - wv, a.y)
+		return [wk, wv]
+
+	func _get_minimum_size() -> Vector2:
+		var a := _widths(k)
+		var b := _widths(v)
+		return Vector2(a.y + gap + b.y, maxf(k.get_combined_minimum_size().y, v.get_combined_minimum_size().y))
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_SORT_CHILDREN:
+			var w := _split()
+			fit_child_in_rect(k, Rect2(0, 0, w[0] + k.hang, k.get_combined_minimum_size().y))
+			fit_child_in_rect(v, Rect2(size.x - w[1], 0, w[1] + v.hang, v.get_combined_minimum_size().y))
+			update_minimum_size()
+
+static func _kv(parent: Node, k: String, v: String, gap := 6.0) -> KV:
+	var kv := KV.new(k, v, _st(K), _st(V), gap)
+	parent.add_child(kv)
+	return kv
+
+static func _section(parent: Node, t: String) -> void:
+	var l := Hud.label(null, t, {"fs": 9.5, "ls": 1.14, "up": true, "c": HudTheme.hexc(K_COL)})
+	parent.add_child(Hud.m(Hud.frame(l, {"bw": 0, "bb": 1, "bc": HudTheme.rgba(120, 190, 255, 0.14), "pad": [0, 0, 3, 0]}), 10.0, 4.0))
 
 static func create_flight_hud(r: Control, h: Dictionary) -> FlightUI:
 	return FlightUI.new(r, h)
@@ -464,65 +507,78 @@ func _init(r: Control, h: Dictionary) -> void:
 	root = r
 	hooks = h
 	for c in root.get_children(): c.queue_free()
-	# .fl-top
-	var top := _el(root, {"display": "flex", "gapc": 8.0, "ai": "stretch", "mt": 6.0, "mb": 8.0})
+	var top := Hud.hbox(root, 8.0, 6.0, 8.0)
 	nav = Navball.new()
 	top.add_child(nav)
-	var tape := _el(top, {"display": "flex", "gapc": 6.0, "grow": 1.0, "shrink": 1.0})
+	var tape := Hud.hbox(top, 6.0)
+	tape.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	thr = Tape.new("THR", false); tape.add_child(thr)
 	vs = Tape.new("V/S", true); tape.add_child(vs)
-	# .fl-status
-	status_el = _el(root, {"fs": 10.5, "c": HudTheme.hexc(0xa8c4e0), "bg": HudTheme.rgba(10, 20, 34, 0.7),
-		"bl": 2.0, "bcl": HudTheme.ACCENT, "p": [4, 7], "minh": 15.0 + 8.0, "mb": 7.0},
-		"", [["fail", {"bcl": HudTheme.hexc(0xff5a4a), "c": HudTheme.hexc(0xffb0a6)}],
-			["good", {"bcl": HudTheme.hexc(0x57d98a), "c": HudTheme.hexc(0xb6f0cd)}]])
-	# .fl-grid
-	grid = _el(root, {"display": "grid", "cols": [1.0, 1.0], "gapr": 1.0, "gapc": 8.0, "fs": 10.0})
+	status_el = Hud.label(null, "", {"fs": 10.5, "c": HudTheme.hexc(0xa8c4e0)}, true) as Prose
+	status_el.custom_minimum_size.y = 15.0
+	status_box = Hud.m(Hud.frame(status_el, {}), 0.0, 7.0)
+	root.add_child(status_box)
+	_set_status("")
+	grid = Hud.grid(root, [1.0, 1.0], 8.0, 1.0)
 	for i in 20:
 		var kv := _kv(grid, "", "")
-		grid_k.append(kv[0]); grid_v.append(kv[1])
-	# .fl-clocks
-	var clocks := _el(root, {"m": [8, 0], "p": [6, 7], "b": [1, HudTheme.rgba(120, 190, 255, 0.18)], "rad": 4.0,
-		"bg": HudTheme.rgba(8, 14, 24, 0.6)})
-	met_v = _kv(clocks, "MET · ship", "—", {"fs": 10.0, "gapc": 0.0})[1]
-	ut_v = _kv(clocks, "UT · coordinate", "—", {"fs": 10.0, "gapc": 0.0})[1]
-	dt_v = _kv(clocks, "ship − ground", "—", {"fs": 10.0, "gapc": 0.0, "mt": 3.0, "pt": 3.0, "bt": 1.0,
-		"bct": HudTheme.rgba(120, 190, 255, 0.2)})[1]
-	dt_v.set_style({"c": HudTheme.hexc(0xffcf4d)})
+		grid_k.append(kv); grid_v.append(kv)
+	var clocks := HudStack.new(false)
+	root.add_child(Hud.m(Hud.frame(clocks, {"bg": HudTheme.rgba(8, 14, 24, 0.6), "bc": HudTheme.rgba(120, 190, 255, 0.18), "rad": 4, "pad": [6, 7, 6, 7]}), 8.0, 8.0))
+	met_v = _kv(clocks, "MET · ship", "—", 0.0)
+	ut_v = _kv(clocks, "UT · coordinate", "—", 0.0)
+	var dkv := KV.new("ship − ground", "—", _st(K), _st({"fs": 10.0, "c": 0xffcf4d}), 0.0)
+	clocks.add_child(Hud.m(Hud.frame(dkv, {"bw": 0, "bt": 1, "bc": HudTheme.rgba(120, 190, 255, 0.2), "pad": [3, 0, 0, 0]}), 3.0))
+	dt_v = dkv
 	_section(root, "Stages")
-	stages_el = _el(root, {})
+	stages_el = Hud.stack(root)
 	_section(root, "Autopilot")
-	var modes := _el(root, {"display": "grid", "cols": [1.0, 1.0, 1.0, 1.0], "gapc": 3.0, "gapr": 3.0})
+	var modes := Hud.grid(root, [1.0, 1.0, 1.0, 1.0], 3.0, 3.0)
 	for md in MODES:
-		var b := _el(modes, HudCss.button({"p": [4, 2], "fs": 9.0, "ls": 0.04 * 9.0, "b": [1, HudTheme.rgba(120, 190, 255, 0.2)],
-			"rad": 3.0, "bg": HudTheme.rgba(20, 32, 50, 0.55), "c": HudTheme.hexc(0xa8c4e0)}), md[1],
-			[["hover", {"bcol": HudTheme.ACCENT}], ["on", {"bg": HudTheme.rgba(40, 90, 140, 0.85), "c": HudTheme.hexc(0xeaf4ff), "bcol": HudTheme.ACCENT}]])
-		b.make_clickable()
-		var key: String = md[0]
-		b.pressed.connect(func(): if hooks.has("setMode"): hooks.setMode.call(key))
-		mode_btns[key] = b
-	var progs := _el(root, {"display": "grid", "cols": [1.0], "gapr": 3.0, "mt": 5.0})
+		var b := HudButton.new("FlMode", md[1])
+		modes.add_child(b)
+		b.pressed.connect(_on_mode.bind(md[0]))
+		mode_btns[md[0]] = b
+	var progs := Hud.grid(root, [1.0], 0.0, 3.0, 5.0)
 	for pg in PROGRAMS:
-		var b := _el(progs, HudCss.button({"p": [5, 8], "fs": 10.0, "ta": "left", "b": [1, HudTheme.rgba(120, 190, 255, 0.2)],
-			"rad": 3.0, "bg": HudTheme.rgba(20, 32, 50, 0.55), "c": HudTheme.hexc(0xcfe6ff)}), pg[1],
-			[["hover", {"bcol": HudTheme.ACCENT, "bg": HudTheme.rgba(30, 52, 80, 0.7)}], ["on", {"bg": HudTheme.rgba(40, 90, 140, 0.85), "bcol": HudTheme.ACCENT}]])
-		b.make_clickable(pg[2])
-		var key: String = pg[0]
-		b.pressed.connect(func(): if hooks.has("runProgram"): hooks.runProgram.call(key))
-		prog_btns[key] = b
+		var b := HudButton.new("FlProg", pg[1], pg[2])
+		progs.add_child(b)
+		b.pressed.connect(_on_program.bind(pg[0]))
+		prog_btns[pg[0]] = b
 	_section(root, "Target")
-	target_sel = Select.new()
+	target_sel = HudSelect.new("FlSelect")
 	root.add_child(target_sel)
 	target_sel.set_options([["", "— none —"]], "")
-	target_sel.changed.connect(func(v: String): if hooks.has("setTarget"): hooks.setTarget.call(v))
-	plan_el = _el(root, {})
+	target_sel.chosen.connect(_on_target)
+	plan_el = Hud.stack(root)
 	_section(root, "Flight log")
-	var recs := _el(root, {"display": "grid", "cols": [1.0, 1.0], "gapr": 1.0, "gapc": 8.0, "fs": 10.0, "mb": 5.0})
+	var recs := Hud.grid(root, [1.0, 1.0], 8.0, 1.0, 0.0, 5.0)
 	for rec in flight_records(null):
-		rec_v.append(_kv(recs, rec[0], rec[1])[1])
-	log_el = _el(root, {"fs": 9.5, "lh": 1.4, "maxh": 150.0, "scroll": true})
-	log_el.make_hoverable()
-	log_el.mouse_filter = Control.MOUSE_FILTER_STOP
+		rec_v.append(_kv(recs, rec[0], rec[1]))
+	var log_scroll := CapScroll.new(150.0, VBoxContainer.new())
+	log_el = log_scroll.content
+	log_el.add_theme_constant_override("separation", 0)
+	root.add_child(log_scroll)
+
+func _on_mode(key: String) -> void:
+	if hooks.has("setMode"): hooks.setMode.call(key)
+
+func _on_program(key: String) -> void:
+	if hooks.has("runProgram"): hooks.runProgram.call(key)
+
+func _on_target(v: String) -> void:
+	if hooks.has("setTarget"): hooks.setTarget.call(v)
+
+## The status line's look: plain, failed or landed.
+func _set_status(cls: String) -> void:
+	if cls == _status_cls and status_box.has_theme_stylebox_override("panel"):
+		return
+	_status_cls = cls
+	var bar: int = {"fail": 0xff5a4a, "good": 0x57d98a}.get(cls, -1)
+	var text: int = {"fail": 0xffb0a6, "good": 0xb6f0cd}.get(cls, 0xa8c4e0)
+	status_box.add_theme_stylebox_override("panel", HudTheme.stylebox({"bg": HudTheme.rgba(10, 20, 34, 0.7), "bw": 0, "bl": 2,
+		"bc": HudTheme.ACCENT if bar < 0 else HudTheme.hexc(bar), "pad": [4, 7, 4, 7]}))
+	HudTheme.apply_label(status_el, {"fs": 10.5, "c": HudTheme.hexc(text)})
 
 func set_targets(names: Array, current) -> void:
 	var opts := [["", "— none —"]]
@@ -535,15 +591,13 @@ func update(s: Dictionary) -> void:
 	var t: Dictionary = s.telemetry
 	var v: Vessel = s.vessel
 	nav.draw_ball(v.q.to_quaternion(), s.up, s.north, s.markers, {"roll": s.get("roll")})
-	status_el.set_text(str(s.status))
-	status_el.set_state("fail", v.failure != null)
-	status_el.set_state("good", v.failure == null and v.phase == "landed")
+	status_el.say(str(s.status))
+	_set_status("fail" if v.failure != null else ("good" if v.phase == "landed" else ""))
 
 	thr.set_frac(float(U.jround(v.throttle * 100.0)) / 100.0)
 	var vsv := clampf(float(U.nz(t.get("vertical"), 0.0)) / 400.0, -1.0, 1.0)
 	vs.set_frac(float(U.fixed(50.0 + vsv * 46.0, 1)) / 100.0)
 
-	# `(t.x || 0)` in the page, for the rows that wrote it that way ...
 	var tf := func(k: String) -> float: return float(U.nz(t.get(k), 0.0))
 	# Missing telemetry reads as a dash (in cruise there is no altitude about a parent).
 	var tn := func(k: String) -> float: return float(U.nz(t.get(k), NAN))
@@ -572,39 +626,46 @@ func update(s: Dictionary) -> void:
 		["body", str(s.parentName)],
 	]
 	if s.get("cruise", false):
-		# In cruise the parent-relative orbit and TWR are meaningless; the cruise block
-		# replaces them.
+		# In cruise the parent-relative orbit and TWR are meaningless; the cruise
+		# block replaces them.
 		for i in [4, 5, 6, 7, 14, 17]: rows[i][1] = "—"
 		# A photon drive's Δv in units of c is the rapidity left.
 		rows[16][1] = "%s c" % U.fixed(tf.call("dv") / 299792458.0, 3)
 	for i in rows.size():
-		(grid_k[i] as El).set_text(rows[i][0])
-		(grid_v[i] as El).set_text(rows[i][1])
+		(grid_k[i] as KV).set_k(rows[i][0])
+		(grid_v[i] as KV).set_v(rows[i][1])
 
-	met_v.set_text(Guidance.fmt_dur(v.met))
-	ut_v.set_text(Guidance.fmt_dur(v.coord))
-	dt_v.set_text(fmt_clock_delta(v.clock_delta))
+	met_v.set_v(Guidance.fmt_dur(v.met))
+	ut_v.set_v(Guidance.fmt_dur(v.coord))
+	dt_v.set_v(fmt_clock_delta(v.clock_delta))
 
 	_update_stages(v)
 
-	for k in mode_btns: (mode_btns[k] as El).set_state("on", k == s.get("mode"))
-	for k in prog_btns: (prog_btns[k] as El).set_state("on", k == s.get("program"))
+	for k in mode_btns: (mode_btns[k] as HudButton).set_active(k == s.get("mode"))
+	for k in prog_btns: (prog_btns[k] as HudButton).set_active(k == s.get("program"))
 
 	_update_plan(s.get("plan", {}))
 
 	# The flight's records: the numbers a post-flight report leads with.
 	var recs := flight_records(v)
-	for i in recs.size(): (rec_v[i] as El).set_text(recs[i][1])
+	for i in recs.size(): (rec_v[i] as KV).set_v(recs[i][1])
 
 	if v.events.size() != last_log:
 		last_log = v.events.size()
-		for c in log_el.get_children():
-			log_el.remove_child(c); c.queue_free()
+		Hud._clear(log_el)
 		var ev: Array = v.events.slice(-40)
 		ev.reverse()
+		var tcol := HudTheme.hexc(0x5f7590).to_html(false)
 		for e in ev:
-			_el(log_el, {"c": HudTheme.hexc(0xa8c4e0), "p": [1, 0], "bb": 1.0, "bcb": HudTheme.rgba(120, 190, 255, 0.06)},
-				[{"t": Guidance.fmt_dur(e.t), "c": HudTheme.hexc(0x5f7590), "box": {"mr": 5.0}}, {"t": " " + str(e.msg)}])
+			var r := Hud.rich("[color=#%s]%s[/color]  %s" % [tcol, Guidance.fmt_dur(e.t), Hud.esc(str(e.msg))],
+				{"fs": 9.5, "lh": 1.4, "c": HudTheme.hexc(0xa8c4e0)})
+			log_el.add_child(Hud.frame(r, {"bw": 0, "bb": 1, "bc": HudTheme.rgba(120, 190, 255, 0.06), "pad": [1, 0, 1, 0]}))
+
+static func _put(l: Label, t: String) -> void:
+	if l is Prose:
+		(l as Prose).say(t)
+	elif l.text != t:
+		l.text = t
 
 ## The flight log's records strip (four numbers). `v` null gives the labels with
 ## empty values.
@@ -619,33 +680,39 @@ static func flight_records(v) -> Array:
 
 func _update_stages(v: Vessel) -> void:
 	if stage_rows.size() != v.stages.size():
-		for c in stages_el.get_children():
-			stages_el.remove_child(c); c.queue_free()
+		Hud._clear(stages_el)
 		stage_rows.clear()
 		for st in v.stages:
 			var row := StageRow.new()
 			stages_el.add_child(row)
-			row.n = Span.new({"grow": 1.0, "shrink": 1.0, "c": HudTheme.hexc(0xcfe6ff)}, [["live", {"c": HudTheme.hexc(0x9ff0c0)}], ["pending", {"c": HudTheme.hexc(0x8fa8c4)}]])
-			row.m = Span.new({"c": HudTheme.hexc(0x8fa8c4)})
-			row.add_child(row.n); row.add_child(row.m)
+			var h := Hud.hbox(row, 6.0)
+			row.n = Span.new(); h.add_child(row.n)
+			row.n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.n.clip_text = true
+			row.m = Span.new(); h.add_child(row.m)
 			if st.spec.get("count", 0):
-				row.e = Span.new({"c": HudTheme.hexc(0x8fa8c4), "minw": 26.0, "ta": "right"})
-				row.add_child(row.e)
+				row.e = Span.new(); h.add_child(row.e)
+				row.e.custom_minimum_size.x = 26.0
+				row.e.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+				HudTheme.apply_label(row.e, {"fs": 10.0, "c": HudTheme.hexc(0x8fa8c4)})
+			HudTheme.apply_label(row.m, {"fs": 10.0, "c": HudTheme.hexc(0x8fa8c4)})
 			stage_rows.append(row)
 	for i in v.stages.size():
 		var st = v.stages[i]
 		var row: StageRow = stage_rows[i]
 		var frac: float = st.prop / st.prop0 if st.prop0 > 0.0 else 0.0
 		var cls: String = "gone" if not st.attached else (("spent" if st.spent else "live") if st.ignited else "pending")
-		row.frac = float(U.fixed(frac * 100.0, 1)) / 100.0
-		row.live = cls == "live"
-		row.queue_redraw()
-		row.set_style({"op": 0.28 if cls == "gone" else (0.55 if cls == "spent" else 1.0)})
-		row.n.set_state("live", cls == "live")
-		row.n.set_state("pending", cls == "pending")
-		row.n.set_text(str(st.spec.name))
-		row.m.set_text(fmt_mass_t(st.prop) if st.prop0 > 0.0 else fmt_mass_t(st.spec.dry))
-		if row.e != null: row.e.set_text("%d/%d" % [st.live, st.spec.count])
+		var f := float(U.fixed(frac * 100.0, 1)) / 100.0
+		if f != row.frac or row.live != (cls == "live"):
+			row.frac = f
+			row.live = cls == "live"
+			row.queue_redraw()
+		row.modulate.a = 0.28 if cls == "gone" else (0.55 if cls == "spent" else 1.0)
+		var nc := 0x9ff0c0 if cls == "live" else (0x8fa8c4 if cls == "pending" else 0xcfe6ff)
+		HudTheme.apply_label(row.n, {"fs": 10.0, "c": HudTheme.hexc(nc)})
+		_put(row.n, str(st.spec.name))
+		_put(row.m, fmt_mass_t(st.prop) if st.prop0 > 0.0 else fmt_mass_t(st.spec.dry))
+		if row.e != null: _put(row.e, "%d/%d" % [st.live, st.spec.count])
 		for sp in [row.n, row.m, row.e]:
 			if sp != null and sp.strike != (cls == "gone"):
 				sp.strike = cls == "gone"
@@ -655,32 +722,31 @@ func _update_plan(p: Dictionary) -> void:
 	var key := JSON.stringify(p)
 	if key == plan_key: return
 	plan_key = key
-	for c in plan_el.get_children():
-		plan_el.remove_child(c); c.queue_free()
+	Hud._clear(plan_el)
 	if p.is_empty(): return
-	var note_style := {"mt": 5.0, "fs": 9.5, "lh": 1.35, "c": HudTheme.hexc(0x7d93ae), "fi": true}
 	match p.kind:
 		"none":
-			_el(plan_el, note_style, str(p.text))
+			Hud.m(Hud.label(plan_el, str(p.text), _st(NOTE), true), 5.0)
 		"rows":
-			var body := _el(plan_el, {"display": "grid", "cols": [1.0], "gapr": 1.0, "fs": 10.0, "mt": 5.0})
-			for r in p.rows: _kv(body, r[0], r[1], {"gapc": 0.0})
-			if p.has("note"): _el(body, note_style, str(p.note))
+			var body := Hud.grid(plan_el, [1.0], 0.0, 1.0, 5.0)
+			for r in p.rows: _kv(body, r[0], r[1], 0.0)
+			if p.has("note"): Hud.m(Hud.label(body, str(p.note), _st(NOTE), true), 5.0)
 		"cruise":
-			var wrap := _el(plan_el, {})
-			var bar := CruiseBar.new(p.bar)
-			wrap.add_child(bar)
-			var g := _el(wrap, {"display": "grid", "cols": [1.0, 1.0], "gapr": 1.0, "gapc": 8.0, "fs": 10.0})
+			var wrap := Hud.stack(plan_el)
+			wrap.add_child(Hud.m(CruiseBar.new(p.bar), 6.0, 8.0))
+			var g := Hud.grid(wrap, [1.0, 1.0], 8.0, 1.0)
 			for r in p.grid: _kv(g, r[0], r[1])
-			_el(wrap, note_style, str(p.note))
+			Hud.m(Hud.label(wrap, str(p.note), _st(NOTE), true), 5.0)
 
-## .fl-cruise-bar: progress with the two burn markers.
-class CruiseBar extends El:
+## Progress across an interstellar crossing, with the two burn markers.
+class CruiseBar extends Control:
 	var vals: Array
 	func _init(v: Array) -> void:
 		vals = v
-		super({"h": 8.0, "rad": 4.0, "bg": HudTheme.rgba(12, 20, 32, 0.9), "b": [1, HudTheme.rgba(120, 190, 255, 0.2)], "m": [6, 0, 8, 0]})
-	func _draw_extra() -> void:
+		custom_minimum_size.y = 8.0
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		FlightUI._box(self, Rect2(Vector2.ZERO, size), HudTheme.rgba(12, 20, 32, 0.9), HudTheme.rgba(120, 190, 255, 0.2), 4)
 		var inner := Rect2(Vector2(1, 1), size - Vector2(2, 2))
 		var w := inner.size.x * clampf(float(vals[0]) / 100.0, 0.0, 1.0)
 		if w > 0.0:
