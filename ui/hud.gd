@@ -64,7 +64,6 @@ signal lesson_next()
 signal lesson_close()
 
 const T = preload("res://ui/theme.gd")
-const C = preload("res://ui/hud_css.gd")
 
 # Control column sections by mode. Spaceflight hides every orrery control.
 const SECTION_MODE := {
@@ -81,6 +80,14 @@ const OPEN_BY_DEFAULT := {
 	"flight": ["Spaceflight"],
 }
 const STEP_GUARD := 8000
+# the climate badge's colours per era
+const ERA := {
+	"era-stable": {"c": Color(0x4e / 255.0, 0xe3 / 255.0, 0x9a / 255.0), "bg": T.CLEAR},
+	"era-cold": {"c": Color(0x6f / 255.0, 0xb6 / 255.0, 1.0), "bg": T.CLEAR},
+	"era-freeze": {"c": Color(0xb9 / 255.0, 0xe2 / 255.0, 1.0), "bg": Color(120 / 255.0, 190 / 255.0, 1.0, 0.10)},
+	"era-hot": {"c": Color(1.0, 0xab / 255.0, 0x52 / 255.0), "bg": T.CLEAR},
+	"era-scorch": {"c": Color(1.0, 0x5a / 255.0, 0x4a / 255.0), "bg": Color(1.0, 70 / 255.0, 50 / 255.0, 0.12)},
+}
 
 # text styles
 const H3 := {"fs": 10.0, "ls": 2.0, "up": true, "c": T.TEXT_DIM, "fw": 500}
@@ -222,10 +229,10 @@ static func rich(bbcode: String, st: Dictionary) -> RichTextLabel:
 	r.selection_enabled = false
 	var s := T.style(st)
 	r.add_theme_font_override("normal_font", T.text_font(s))
-	r.add_theme_font_override("bold_font", T.text_font(C.merge(s, {"fw": 700})))
-	r.add_theme_font_override("italics_font", T.text_font(C.merge(s, {"fi": true})))
-	r.add_theme_font_override("bold_italics_font", T.text_font(C.merge(s, {"fw": 700, "fi": true})))
-	r.add_theme_font_override("mono_font", T.text_font(C.merge(s, {"ff": "mono"})))
+	r.add_theme_font_override("bold_font", T.text_font(U.merged(s, {"fw": 700})))
+	r.add_theme_font_override("italics_font", T.text_font(U.merged(s, {"fi": true})))
+	r.add_theme_font_override("bold_italics_font", T.text_font(U.merged(s, {"fw": 700, "fi": true})))
+	r.add_theme_font_override("mono_font", T.text_font(U.merged(s, {"ff": "mono"})))
 	for k in ["normal_font_size", "bold_font_size", "italics_font_size", "bold_italics_font_size", "mono_font_size"]:
 		r.add_theme_font_size_override(k, T.px(float(s.fs)))
 	r.add_theme_color_override("default_color", s.c)
@@ -423,7 +430,7 @@ func _on_slider(v: float, id: String) -> void:
 		set_text(id + "-val", val_fmt[id].call(v))
 	slider.emit(id, v)
 
-# THE PAGE
+# BUILDING THE HUD
 
 func _build() -> void:
 	for k in ["tl", "tr", "bl", "br"]:
@@ -800,6 +807,8 @@ func _section(parent: Node, title: String, head_extra: Array = [], host: Node = 
 	var row := hbox(null, 6.0)
 	var head := BoxButton.new(kind, row)
 	m(head, 0.0 if host else 20.0, 10.0)
+	# a heading, not an inline button: its margins collapse with its neighbours'
+	head.set_meta("block", true)
 	var arrow := L(row, "▸", {"fs": 9.0, "c": T.TEXT_DIM})
 	arrow.size_flags_vertical = Control.SIZE_SHRINK_END
 	arrow.rotation_degrees = 90.0
@@ -873,7 +882,7 @@ func _build_control_panel() -> void:
 	reg("climatePanel", cp)
 	var clock := L(null, "0 yr", {"fs": 10.0, "c": T.ACCENT_2, "ls": 0.5}, "simClock")
 	s = _section(b, "Climate", [clock], cp)
-	var era: Dictionary = C.ERA["era-stable"]
+	var era: Dictionary = ERA["era-stable"]
 	var badge_l := L(null, "Stable Era", {"fs": 12.0, "ls": 2.16, "up": true, "c": era.c}, "eraLabel")
 	badge_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var badge := frame(badge_l, {"bc": era.c, "pad": [7, 7, 7, 7]})
@@ -1139,7 +1148,7 @@ func _build_readout() -> void:
 	add_child(readout)
 	reg("readout", readout)
 	var dim := {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.7, "ls": 0.8}
-	var v := C.merge(dim, {"c": T.ACCENT_2})
+	var v := U.merged(dim, {"c": T.ACCENT_2})
 	for line in [[["band ", dim], ["VIS", v, "bandLabel"], [" · ", dim], ["0.00", v, "rs"], [" r_s AU · ISCO ", dim], ["0.00", v, "isco"]],
 			[["bodies ", dim], ["0", v, "bc"], [" consumed ", dim], ["0", v, "cc"]],
 			[["fps ", dim], ["--", v, "fps"]]]:
@@ -1250,7 +1259,6 @@ func _hide(e: Control, why: String, hidden: bool) -> void:
 			vis = false
 	if e.visible != vis:
 		e.visible = vis
-		if e is El: (e as El).touch()
 		_queue_layout()
 
 func _apply_body_classes() -> void:
@@ -1350,8 +1358,6 @@ func set_text(id: String, text: String) -> void:
 			if (e as Label).text != text: (e as Label).text = text
 		elif e is RichTextLabel:
 			(e as RichTextLabel).text = text
-		elif e is El:
-			(e as El).set_text(text)
 
 func set_shown(id: String, shown: bool) -> void:
 	for e in _targets(id):
@@ -1365,13 +1371,10 @@ func set_active(sel: String, on: bool) -> void:
 	for e in _targets(sel):
 		if e is HudButton:
 			(e as HudButton).set_active(on)
-		elif e is El:
-			(e as El).set_state("active", on)
 
 func set_button_text(sel: String, text: String) -> void:
 	for e in _targets(sel):
 		if e is HudButton: (e as HudButton).set_label(text)
-		elif e is El: (e as El).set_text(text)
 
 ## A range input's value, WITHOUT an input event (the orchestrator's own write).
 func set_slider(id: String, value: float, label_text = null) -> void:
@@ -1573,7 +1576,7 @@ func render_sun_list(rows: Array) -> void:
 		if not on:
 			continue
 		var s: Dictionary = rows[i]
-		# the sun's LINEAR colour, encoded to sRGB for the page
+		# the sun's colour is linear; Controls take sRGB
 		var css := Color.html(U.css_of(s.color))
 		if (r[1] as SunDot).col != css:
 			(r[1] as SunDot).col = css
@@ -1589,7 +1592,7 @@ static func _set_label(l: Label, t: String) -> void:
 # climate
 ## cl: {label, cls, desc, celsius, S, ice, clouds, tauYears, Tmin, Tmax, history}
 func update_climate(cl: Dictionary) -> void:
-	var era: Dictionary = C.ERA.get(cl.get("cls", "era-stable"), C.ERA["era-stable"])
+	var era: Dictionary = ERA.get(cl.get("cls", "era-stable"), ERA["era-stable"])
 	var badge: PanelContainer = ids.eraBadge
 	if badge.get_meta("era", "") != cl.get("cls", "era-stable"):
 		badge.set_meta("era", cl.get("cls", "era-stable"))

@@ -163,10 +163,6 @@ func _reveal(c: Control) -> void:
 		if p is ScrollContainer:
 			(p as ScrollContainer).ensure_control_visible(c)
 			return
-		if p.has_method("scroll_by") and p.overflowing:
-			var dy: float = c.get_global_rect().position.y - (p as Control).get_global_rect().position.y
-			p.scroll_by(dy - 40.0)
-			return
 		p = p.get_parent()
 
 func _scroll_panel(panel: Control, frac: float) -> void:
@@ -174,8 +170,6 @@ func _scroll_panel(panel: Control, frac: float) -> void:
 		var bar := (sc as ScrollContainer).get_v_scroll_bar()
 		(sc as ScrollContainer).scroll_vertical = int(frac * (bar.max_value - bar.page))
 		return
-	if panel.has_method("scroll_by"):
-		panel.scroll_by(frac * 100000.0 - panel.scroll_y)
 
 func _push(e: InputEvent) -> void:
 	get_viewport().push_input(e, true)
@@ -358,7 +352,7 @@ func _interaction_walk() -> void:
 	_push(u)
 	await _steps(1)
 	check("a drag that starts on a panel does not orbit the camera", absf(main.cam.theta - th) < 1e-9)
-	if hud.control_panel.has_method("scroll_by") or not cp.find_children("*", "ScrollContainer", true, false).is_empty():
+	if not cp.find_children("*", "ScrollContainer", true, false).is_empty():
 		_open_all_sections()
 		await _steps(3)
 		var y0 := _panel_scroll(cp)
@@ -482,7 +476,7 @@ func _interaction_walk() -> void:
 func _panel_scroll(p: Control) -> float:
 	for sc in p.find_children("*", "ScrollContainer", true, false):
 		return float((sc as ScrollContainer).scroll_vertical)
-	return float(p.scroll_y) if "scroll_y" in p else 0.0
+	return 0.0
 
 func _panel_close(p: Control) -> Control:
 	for b in p.find_children("*", "", true, false):
@@ -490,9 +484,8 @@ func _panel_close(p: Control) -> Control:
 			return b
 	return null
 
-func _search_edit() -> Control:
-	var s = hud.get_el("presetSearch")
-	return s if s is LineEdit else s.edit
+func _search_edit() -> LineEdit:
+	return hud.get_el("presetSearch") as LineEdit
 
 func _search_text() -> String:
 	return str(_search_edit().text)

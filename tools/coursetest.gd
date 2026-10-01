@@ -38,7 +38,6 @@ func _ready() -> void:
 	win.content_scale_factor = 1.0
 	win.size = Vector2i(w, h)
 	HudBlur.enabled = args.get("blur", "1") != "0"
-	El.scrollbars = args.get("sb", "0") == "1"
 	await get_tree().process_frame
 	# A fresh learner, and nothing written back: progress in memory only, and
 	# empty BEFORE Learn is entered, because entering it resumes the course —

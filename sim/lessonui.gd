@@ -294,6 +294,7 @@ class Course extends RefCounted:
 		Hud.m(Hud.label(prog, "%d of %d lessons · %d%%" % [done_count, Lessons.LESSON_COUNT, pct], {"fs": 10.0, "c": T.TEXT_DIM}), 5.0)
 
 		var cont := HudButton.new("Continue", "Continue" if done_count > 0 else "Start the course")
+		cont.set_meta("block", true)
 		panel.add_child(Hud.m(cont, 0.0, 10.0))
 		cont.pressed.connect(resume)
 
@@ -356,6 +357,7 @@ class Course extends RefCounted:
 			summ.pressed.connect(_toggle_mod.bind(rec))
 
 		var reset := LessonUI.Underlined.new("Reset", "reset progress")
+		reset.set_meta("block", true)
 		reset.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		panel.add_child(Hud.m(reset, 10.0))
 		reset.pressed.connect(_reset_progress)

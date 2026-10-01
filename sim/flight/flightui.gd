@@ -449,7 +449,7 @@ class KV extends Container:
 			update_minimum_size(); queue_sort()
 
 	func set_v(t: String) -> void:
-		# a word joiner keeps "km/s" whole: the browser has no break after a slash
+		# a word joiner keeps "km/s" whole, as the design breaks only at spaces
 		t = t.replace("/", "/\u2060")
 		if v.said() != t:
 			v.say(t)

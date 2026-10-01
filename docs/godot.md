@@ -11,7 +11,7 @@ core/          DVec3, Body, SimState, U (helpers)
 render/        pipeline.gd, postfx.gd, lens_pass.gd, rd_util.gd, hook_effect.gd
 sim/           one domain per file; sim/flight/ is spaceflight
 shaders/       common/ sky/ lens/ post/ bodies/ flight/ ui/
-ui/            theme.gd, hud.gd, control_bindings.gd, widgets/
+ui/            theme.gd, hud.gd (the HUD and its builders), control_bindings.gd, widgets/
 tools/         harness.gd, per-module harness scenes, checks
 ```
 
@@ -166,10 +166,27 @@ position.
 
 ## UI
 
-Controls are styled by `ui/theme.gd`. Sizes are logical px, with the window's
-`content_scale_factor` as the display scale. Panels blur what's behind them
-with a screen-texture shader. Charts, the cross-section, instruments and the
-navball are `Control._draw()` overrides.
+The HUD is Godot Controls under one Theme built in `ui/theme.gd`: each button
+kind in `KINDS` becomes a type variation (and `<kind>On` for its active state),
+and text styles become cached `LabelSettings`. Sizes are logical px, with the
+window's `content_scale_factor` as the display scale. Panels blur what's behind
+them with a screen-texture shader. Charts, the cross-section, instruments and
+the navball are `Control._draw()` overrides (`HudCanvas` keeps a bitmap's aspect).
+
+- Font sizes are whole px, so a 9.5 px style draws at 9 (`px()`); `text_font`
+  pads the face so a line is still the design's height, and carries
+  letter-spacing as whole-px glyph spacing.
+- Layout is stock containers plus four small ones in `ui/widgets/`: `HudStack`
+  (a column spaced by each child's own margins, collapsed), `HudGrid` (equal
+  columns), `HudRow` (an HBox that places prose with its overhang) and the
+  lesson card's two columns. `HudPanel.natural_height()` is what the measured
+  left column places.
+- Wrapping text is `Prose`: Godot counts a line's trailing space toward its
+  width and would break a word early, so prose is placed one space wider and
+  ends with a space.
+- Text is written only when it changes; a container re-sorts when a child's
+  minimum size does. The left column is placed at most once a frame, since a
+  panel's scrollbar feeds its height back into its width.
 
 ## Harnesses
 

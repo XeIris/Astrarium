@@ -30,7 +30,7 @@ static func rgba(r: int, g: int, b: int, a: float = 1.0) -> Color:
 static func hexc(h: int, a: float = 1.0) -> Color:
 	return Color((h >> 16 & 255) / 255.0, (h >> 8 & 255) / 255.0, (h & 255) / 255.0, a)
 
-## The Blink brightness(1.12) filter the course's filled buttons use on hover.
+## brightness(1.12): the course's filled buttons on hover.
 static func bright(c: Color) -> Color:
 	return Color(minf(c.r * 1.12, 1.0), minf(c.g * 1.12, 1.0), minf(c.b * 1.12, 1.0), c.a)
 
@@ -70,30 +70,7 @@ static func font_sized(ff: String, fw: int, fi: bool, fs: float) -> Font:
 	mv.variation_opentype = axes
 	_fonts[key] = fv
 	_metric[fv.get_instance_id()] = mv
-	_kerned[fv.get_instance_id()] = true
 	return fv
-
-## Pair kerning of the display face, in em: shaping each pair on the metric face
-## less the two advances. (Menlo has none.)
-static var _kerned := {}
-static var _kern := {}
-
-static func kern_em(f: Font, a: int, b: int) -> float:
-	var fid := f.get_instance_id()
-	if not _kerned.has(fid):
-		return 0.0
-	var tbl: Dictionary = _kern.get(fid, {})
-	if tbl.is_empty():
-		_kern[fid] = tbl
-	var key := a * 0x110000 + b
-	if tbl.has(key):
-		return tbl[key]
-	var mf: Font = _metric.get(fid, f)
-	var pair := String.chr(a) + String.chr(b)
-	var k := mf.get_string_size(pair, HORIZONTAL_ALIGNMENT_LEFT, -1, 1000).x / 1000.0 - adv_em(f, a) - adv_em(f, b)
-	if absf(k) > 0.25: k = 0.0
-	tbl[key] = k
-	return k
 
 ## Extra letter-spacing, px, that CoreText's tracking adds at this size.
 static func tracking(ff: String, fs: float) -> float:
@@ -178,11 +155,8 @@ static func asc_desc(f: Font, size: float) -> Vector2:
 ## Width of a canvas string: em advances × size plus letter-spacing per character.
 static func text_w(f: Font, s: String, size: float, ls: float) -> float:
 	var w := 0.0
-	var kerned := _kerned.has(f.get_instance_id())
 	for i in s.length():
 		w += adv_em(f, s.unicode_at(i)) * size + ls
-		if kerned and i + 1 < s.length():
-			w += kern_em(f, s.unicode_at(i), s.unicode_at(i + 1)) * size
 	return w
 
 # ---- text styles ------------------------------------------------------------------
@@ -432,8 +406,7 @@ static func theme() -> Theme:
 		_add_kind(t, k)
 	t.set_constant("line_spacing", "Label", 0)
 	t.set_color("font_color", "Label", TEXT)
-	# Tooltips are the one part of the design the browser styled itself; they take
-	# the panel look here.
+	# tooltips take the panel look
 	var tip := StyleBoxFlat.new()
 	tip.bg_color = Color(0.04, 0.05, 0.07, 0.96)
 	tip.border_color = BORDER_STRONG

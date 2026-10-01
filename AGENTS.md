@@ -100,10 +100,19 @@ puts its own offsets on inner nodes. The `ctx` keys are in
 
 ## UI
 
+- The HUD is native Controls styled by the Theme in `ui/theme.gd`; add a look
+  as a kind in `KINDS`, not as per-node overrides. `ui/hud.gd` keeps the
+  orchestrator's API (`set_text`, `set_active`, `set_shown`, `set_slider`,
+  `mount`) and its static builders (`label`, `range_row`, `frame`, `stack`,
+  `grid`, `hbox`) are what the Foundry, flight panel and course build with.
 - The left column is a measured chain: each panel is placed from the previous
-  one's measured bottom. A collapsed panel leaves a tab, and nothing overlaps.
-  Settings is an Esc overlay outside the chain, for settings that outlive a
-  scenario.
+  one's measured bottom (`HudPanel.natural_height`). A collapsed panel leaves a
+  tab, and nothing overlaps. Settings is an Esc overlay outside the chain, for
+  settings that outlive a scenario.
+- Wrapping text goes through `Hud.label(..., wrap)` (a `Prose`) and is set with
+  `say()`, or it breaks a word early. Check HUD changes with
+  `tools/hudcheck.tscn` (screenshots of named states, `htest=1` for the
+  interaction walk).
 - Key bindings: `ui/control_bindings.gd` owns the defaults, conflicts and
   `user://controls.json`. `main.gd` resolves keys before passing flight actions on.
 - The step cap is the one setting that changes the answer. The HUD reports
@@ -118,6 +127,8 @@ There is no test suite; there are checks, listed in
 
 - presets, structure or contact radii: `tools/presetcheck.sh`
 - lessons, presets or the stage: `tools/coursecheck.tscn`
+- the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
+  touches)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
   `assets=0`
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero

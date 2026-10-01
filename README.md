@@ -134,6 +134,7 @@ There is no test suite, as in the web build; there are checks.
 | `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript |
 | `tools/nbodycheck.gd` | native kernel vs the GDScript loop |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()` |
+| `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps; `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
 | `tools/padcheck.gd` | launch complexes: reports any pad structure inside its vehicle (`-- padmodels=0` for the fallback pads) |
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
