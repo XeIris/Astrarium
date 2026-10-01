@@ -7,8 +7,8 @@ render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 
 void fragment() {
 	vec4 t = sprite_texel();
-	float a = t.a * opacity;
+	float a = t.a * v_opacity;
 	if (a <= 0.0) discard;
-	ALBEDO = tint * t.rgb * a;
+	ALBEDO = v_tint * t.rgb * a;
 	ALPHA = 0.0;
 }

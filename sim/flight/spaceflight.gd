@@ -1038,6 +1038,8 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	local.camera.near = maxf(fly_cam.near, local.camera.far * 1.0e-7)
 	local.camera.fov = 55.0
 	local.apply_origin(fly_cam.basis)
+	# Back to front for this frame's camera, now that it is placed.
+	smoke.draw(local.camera, site.steam if site != null else null)
 
 	# Map the local camera into the orrery, in double (it is the floating origin).
 	if main != null:

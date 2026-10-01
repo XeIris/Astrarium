@@ -1,23 +1,32 @@
 // Camera-facing sprites (engine glow, RCS puffs, launch smoke): a unit quad centred on
-// the object, scaled by its world scale and turned in the screen plane by `rotation`.
-// Output is (color · texel.rgb, opacity · texel.a). Colour, opacity and rotation are
-// instance uniforms (one material), and each sprite stays its own object so the
-// transparent queue sorts puffs back to front. Gradients are analytic and linear;
-// the smoke puff is value noise baked into an ImageTexture without conversion.
+// the instance, scaled by its world scale and turned in the screen plane by its
+// rotation. Output is (color · texel.rgb, opacity · texel.a). A sprite set is a
+// MultiMesh (Plume.Sprites): instance colour is (tint, opacity), custom.x the rotation,
+// drawn in instance order, so Plume sorts the blended puffs back to front itself. A
+// lone sprite (the engine glow) is a MeshInstance3D with the instance uniforms below,
+// so that Godot can merge every glow into one draw; outside a MultiMesh COLOR is 1 and
+// INSTANCE_CUSTOM 0, and inside one the uniforms keep their identity defaults.
+// Gradients are analytic and linear; the smoke puff is value noise baked into an
+// ImageTexture without conversion.
 instance uniform vec3 tint = vec3(1.0);
-instance uniform float opacity = 0.0;
+instance uniform float opacity = 1.0;
 instance uniform float rot = 0.0;
 // 0: the engine glow gradient, 1: the RCS puff gradient, 2: the smoke texture
 uniform int uKind = 0;
 uniform sampler2D uMap : filter_linear_mipmap, repeat_disable;
 
 varying vec2 vQ;
+varying flat vec3 v_tint;
+varying flat float v_opacity;
 
 void vertex() {
 	vQ = VERTEX.xy;
+	v_tint = tint * COLOR.rgb;
+	v_opacity = opacity * COLOR.a;
+	float a = rot + INSTANCE_CUSTOM.x;
 	vec2 sc = vec2(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[1].xyz));
 	vec2 al = VERTEX.xy * sc;
-	vec2 r = vec2(cos(rot) * al.x - sin(rot) * al.y, sin(rot) * al.x + cos(rot) * al.y);
+	vec2 r = vec2(cos(a) * al.x - sin(a) * al.y, sin(a) * al.x + cos(a) * al.y);
 	vec4 centre = MODELVIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0);
 	POSITION = PROJECTION_MATRIX * (centre + vec4(r, 0.0, 0.0));
 }

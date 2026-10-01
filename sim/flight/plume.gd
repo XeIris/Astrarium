@@ -17,8 +17,8 @@ extends RefCounted
 #
 # Factories return inner-class objects (mesh/group, the ShaderMaterial, reach,
 # update(), emit(), clear()). Sprites are camera-facing quads (sprite*.gdshader)
-# with per-instance colour, opacity and rotation. Draw order is render_priority
-# (LocalView.ORDER), transparent list only.
+# with per-instance colour, opacity and rotation; the smoke and RCS sets are each a
+# MultiMesh. Draw order is render_priority (LocalView.ORDER), transparent list only.
 
 const ORDER_SMOKE := 10
 const ORDER_FLAME := 20
@@ -143,7 +143,7 @@ static func quad() -> QuadMesh:
 
 static var _sprite_mats := {}
 ## One material per (blend, kind): every sprite shares it and carries its own
-## colour, opacity and rotation as instance uniforms.
+## colour, opacity and rotation (sprite.gdshaderinc).
 static func sprite_material(additive: bool, kind: int, priority: int) -> ShaderMaterial:
 	var k := "%s:%d:%d" % [additive, kind, priority]
 	if not _sprite_mats.has(k):
@@ -155,7 +155,8 @@ static func sprite_material(additive: bool, kind: int, priority: int) -> ShaderM
 		_sprite_mats[k] = m
 	return _sprite_mats[k]
 
-## A sprite: a quad MeshInstance3D whose instance uniforms are its SpriteMaterial.
+## A lone sprite: a quad MeshInstance3D whose instance uniforms are its tint,
+## opacity and rotation. Godot merges consecutive ones into one draw.
 static func make_sprite(mat: ShaderMaterial) -> MeshInstance3D:
 	var s := MeshInstance3D.new()
 	s.mesh = quad()
@@ -166,6 +167,46 @@ static func make_sprite(mat: ShaderMaterial) -> MeshInstance3D:
 	s.extra_cull_margin = 1.0
 	s.set_instance_shader_parameter("opacity", 0.0)
 	return s
+
+## A set of sprites drawn in one call, in instance order. Instance colour is
+## (tint, opacity) and custom.x the rotation (sprite.gdshaderinc).
+class Sprites extends RefCounted:
+	var node := MultiMeshInstance3D.new()
+	var mm := MultiMesh.new()
+	## 20 floats per instance: a 3×4 transform, the colour, the custom data.
+	var buf := PackedFloat32Array()
+
+	func _init(mat: ShaderMaterial, count: int) -> void:
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.use_custom_data = true
+		mm.mesh = Plume.quad()
+		mm.instance_count = count
+		mm.visible_instance_count = 0
+		node.visible = false
+		buf.resize(count * 20)
+		node.multimesh = mm
+		node.material_override = mat
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# The quad turns to face the camera in the vertex shader, so its own AABB
+		# (a flat square in XY) is not where it draws; the margin covers the turn.
+		node.extra_cull_margin = 1.0
+
+	## Instance i: a sprite of size `s` at `p`.
+	func put(i: int, p: Vector3, s: float, tint: Color, opacity: float, rot: float) -> void:
+		var o := i * 20
+		buf[o] = s; buf[o + 1] = 0.0; buf[o + 2] = 0.0; buf[o + 3] = p.x
+		buf[o + 4] = 0.0; buf[o + 5] = s; buf[o + 6] = 0.0; buf[o + 7] = p.y
+		buf[o + 8] = 0.0; buf[o + 9] = 0.0; buf[o + 10] = s; buf[o + 11] = p.z
+		buf[o + 12] = tint.r; buf[o + 13] = tint.g; buf[o + 14] = tint.b; buf[o + 15] = opacity
+		buf[o + 16] = rot
+
+	## Draw the first n instances as put().
+	func commit(n: int) -> void:
+		mm.buffer = buf
+		mm.visible_instance_count = n
+		# an empty MultiMesh still costs a draw call
+		node.visible = n > 0
 
 # ONE ENGINE'S PLUME
 class PlumeFx extends RefCounted:
@@ -315,47 +356,41 @@ static func add_flame_light(fx: PlumeFx, scale_d: float) -> void:
 # visible sign that the vehicle is holding attitude.
 class RCSPuffs extends RefCounted:
 	var group: Node3D
-	var puffs: Array = []          # [{sprite, life, dir, size}]
+	var sprites: Plume.Sprites
+	var tint := U.lin(0xbfd8ff)
+	var pos := PackedVector3Array()
+	var dir := PackedVector3Array()
+	var life := PackedFloat64Array()
+	var size := PackedFloat64Array()
 	var next := 0
 
 	## Fire a puff at a local position, in a local direction.
-	func fire(pos: Vector3, dir: Vector3, size: float = 1.0) -> void:
-		next = (next + 1) % puffs.size()
-		var p: Dictionary = puffs[next]
-		var s: MeshInstance3D = p.sprite
-		s.position = pos + dir * (size * 0.6)
-		s.scale = Vector3(size, size, size)
-		p.life = 1.0; s.visible = true; p.dir = dir; p.size = size
+	func fire(p: Vector3, d: Vector3, s: float = 1.0) -> void:
+		next = (next + 1) % life.size()
+		pos[next] = p + d * (s * 0.6)
+		life[next] = 1.0; dir[next] = d; size[next] = s
 
 	func update(dt: float) -> void:
-		for p in puffs:
-			if p.life <= 0.0: continue
-			p.life -= dt * 4.5
-			var s: MeshInstance3D = p.sprite
-			if p.life <= 0.0:
-				s.visible = false
-				continue
-			s.set_instance_shader_parameter("opacity", p.life * 0.55)
-			var k: float = p.size * (1.0 + (1.0 - p.life) * 2.2)
-			s.scale = Vector3(k, k, k)
-			s.position += p.dir * (dt * p.size * 4.0)
+		var n := 0
+		for i in life.size():
+			if life[i] <= 0.0: continue
+			life[i] -= dt * 4.5
+			if life[i] <= 0.0: continue
+			var k: float = size[i] * (1.0 + (1.0 - life[i]) * 2.2)
+			pos[i] += dir[i] * (dt * size[i] * 4.0)
+			sprites.put(n, pos[i], k, tint, life[i] * 0.55, 0.0)
+			n += 1
+		if n > 0 or sprites.mm.visible_instance_count > 0: sprites.commit(n)
 
 static func create_rcs_puffs(count: int = 12) -> RCSPuffs:
 	var o := RCSPuffs.new()
 	o.group = Node3D.new()
 	o.group.name = "rcs"
-	var mat := sprite_material(true, 1, ORDER_FLAME)
-	for i in count:
-		var s := make_sprite(mat)
-		s.set_instance_shader_parameter("tint", _lin3(0xbfd8ff))
-		s.visible = false
-		o.group.add_child(s)
-		o.puffs.append({"sprite": s, "life": 0.0, "dir": Vector3.ZERO, "size": 1.0})
+	o.sprites = Sprites.new(sprite_material(true, 1, ORDER_FLAME), count)
+	o.group.add_child(o.sprites.node)
+	o.pos.resize(count); o.dir.resize(count); o.life.resize(count); o.size.resize(count)
+	o.size.fill(1.0)
 	return o
-
-static func _lin3(hex: int) -> Vector3:
-	var c := U.lin(hex)
-	return Vector3(c.r, c.g, c.b)
 
 # RE-ENTRY PLASMA: a bow-shock cap whose brightness and colour follow the
 # Sutton–Graves heat flux, the same number that loads the shield.
@@ -392,8 +427,22 @@ static func create_entry_glow(radius: float) -> EntryGlow:
 # LAUNCH SMOKE: the ground cloud (needs air and a surface), as billboards.
 class SmokeColumn extends RefCounted:
 	var group: Node3D
-	var parts: Array = []     # [{s, life, rate, spin, rot, vel, color, dirty}]
+	## The live puffs, back to front, split where the deluge sorts: `far` draws
+	## before it and `near` after, as each puff would if it were its own object.
+	var far: Plume.Sprites
+	var near: Plume.Sprites
+	var pos := PackedVector3Array()
+	var vel := PackedVector3Array()
+	var life := PackedFloat64Array()
+	var rate := PackedFloat64Array()
+	var spin := PackedFloat64Array()
+	var rot := PackedFloat64Array()
+	var size := PackedFloat64Array()
+	var color := PackedColorArray()
+	var dirty := PackedByteArray()
 	var next := 0
+	var _depth := PackedFloat64Array()
+	var _keys := PackedInt64Array()
 	# Two clouds: white steam from the deluge (most of the volume, gone quickly) and
 	# dark soot or alumina from the exhaust (what's left a minute later). The mix follows
 	# the propellant's soot fraction.
@@ -404,75 +453,103 @@ class SmokeColumn extends RefCounted:
 	func emit(origin: Vector3, power: float, spread: float, dt: float, soot: float = 0.7) -> void:
 		var n := mini(9, int(ceil(power * 44.0 * dt)))
 		for k in n:
-			next = (next + 1) % parts.size()
-			var p: Dictionary = parts[next]
-			var s: MeshInstance3D = p.s
+			next = (next + 1) % life.size()
+			var i := next
 			var a := randf() * PI * 2.0
 			var r := spread * (0.2 + randf() * 0.9)
-			s.position = Vector3(origin.x + cos(a) * r, origin.y + randf() * spread * 0.2, origin.z + sin(a) * r)
+			pos[i] = Vector3(origin.x + cos(a) * r, origin.y + randf() * spread * 0.2, origin.z + sin(a) * r)
 			# The cloud rolls OUTWARD first and only then rises — the deflected
 			# exhaust is going sideways at the speed of sound.
-			p.vel = Vector3(cos(a) * spread * (0.7 + randf()), spread * 0.25 * randf(),
+			vel[i] = Vector3(cos(a) * spread * (0.7 + randf()), spread * 0.25 * randf(),
 				sin(a) * spread * (0.7 + randf()))
 			# Soot starts low and central, steam across the deck.
-			var dirty := randf() < soot * (1.0 - 0.55 * (r / spread))
-			var c: Color = SOOT if dirty else STEAM
+			var is_soot := randf() < soot * (1.0 - 0.55 * (r / spread))
+			var c: Color = SOOT if is_soot else STEAM
 			# No two puffs the same value, or several hundred of them read as
 			# one flat sheet however well each is shaded.
 			var k2 := 0.80 + randf() * 0.35
-			p.color = Color(c.r * k2, c.g * k2, c.b * k2)
-			s.set_instance_shader_parameter("tint", Vector3(p.color.r, p.color.g, p.color.b))
-			p.dirty = dirty
+			color[i] = Color(c.r * k2, c.g * k2, c.b * k2)
+			dirty[i] = 1 if is_soot else 0
 			# Soot survives; steam condenses out. That difference in lifetime is
 			# what leaves a dark column standing after the white has gone.
-			p.rate = 0.10 if dirty else 0.30
-			p.life = 1.0; s.visible = true
-			var sc := spread * (0.6 + randf() * 0.8)
-			s.scale = Vector3(sc, sc, sc)
-			p.rot = randf() * 6.28
-			s.set_instance_shader_parameter("rot", p.rot)
+			rate[i] = 0.10 if is_soot else 0.30
+			life[i] = 1.0
+			size[i] = spread * (0.6 + randf() * 0.8)
+			rot[i] = randf() * 6.28
 			# Rolling, because a puff that holds its orientation while it grows
 			# reads as a decal rather than as a turbulent lump.
-			p.spin = (randf() - 0.5) * 0.5
+			spin[i] = (randf() - 0.5) * 0.5
 
 	func update(dt: float) -> void:
-		for p in parts:
-			if p.life <= 0.0: continue
-			p.life -= dt * p.rate
-			var s: MeshInstance3D = p.s
-			if p.life <= 0.0:
-				s.visible = false
-				continue
-			s.position += p.vel * dt
-			p.vel *= 1.0 - dt * 0.7
-			p.vel.y += dt * 2.4                       # buoyancy: it is hot
-			s.scale *= 1.0 + dt * 0.55
-			p.rot += p.spin * dt
-			s.set_instance_shader_parameter("rot", p.rot)
+		for i in life.size():
+			if life[i] <= 0.0: continue
+			life[i] -= dt * rate[i]
+			if life[i] <= 0.0: continue
+			pos[i] += vel[i] * dt
+			var v := vel[i] * (1.0 - dt * 0.7)
+			v.y += dt * 2.4                           # buoyancy: it is hot
+			vel[i] = v
+			size[i] *= 1.0 + dt * 0.55
+			rot[i] += spin[i] * dt
 			# Entrained air cools and dilutes it, so a puff pales as it ages —
 			# the dark core is dark because it is YOUNG, not for ever.
-			if p.dirty:
-				p.color = p.color.lerp(STEAM, dt * 0.10)
-				s.set_instance_shader_parameter("tint", Vector3(p.color.r, p.color.g, p.color.b))
-			s.set_instance_shader_parameter("opacity", pow(p.life, 1.4) * (0.62 if p.dirty else 0.45))
+			if dirty[i]: color[i] = color[i].lerp(STEAM, dt * 0.10)
+
+	## Order the live puffs back to front for `camera`. `deluge` is the launch
+	## site's steam, the one other object in this render_priority.
+	func draw(camera: Camera3D, deluge: GeometryInstance3D) -> void:
+		var xf := group.global_transform
+		var eye := camera.global_position
+		var fwd := -camera.global_basis.z
+		_keys.clear()
+		for i in life.size():
+			if life[i] <= 0.0: continue
+			_depth[i] = fwd.dot(xf * pos[i] - eye)
+			# depth to 1/1024 m, then the slot: one native sort, farthest first
+			_keys.append(int(floor(-_depth[i] * 1024.0)) * 256 + i)
+		_keys.sort()
+		var split := -INF
+		if deluge != null and deluge.is_visible_in_tree():
+			split = fwd.dot(deluge.global_transform * deluge.custom_aabb.get_center() - eye)
+		var nf := 0; var nn := 0
+		for key in _keys:
+			var i := key & 255
+			var op := pow(life[i], 1.4) * (0.62 if dirty[i] else 0.45)
+			if _depth[i] > split:
+				far.put(nf, pos[i], size[i], color[i], op, rot[i]); nf += 1
+			else:
+				near.put(nn, pos[i], size[i], color[i], op, rot[i]); nn += 1
+		if nf > 0 or far.mm.visible_instance_count > 0: far.commit(nf)
+		if nn > 0 or near.mm.visible_instance_count > 0: near.commit(nn)
+		# Sorted by origin (sorting_use_aabb_center off): the depth Godot sorts
+		# on is near-plane distance − sorting_offset, so these put each set just
+		# either side of the deluge.
+		if is_finite(split):
+			var d0 := fwd.dot(xf.origin - eye)
+			var eps := maxf(absf(split), absf(d0)) * 1.0e-4 + 1.0e-3
+			far.node.sorting_offset = d0 - split - eps
+			near.node.sorting_offset = d0 - split + eps
 
 	func clear() -> void:
-		for p in parts:
-			p.life = 0.0
-			(p.s as MeshInstance3D).visible = false
+		life.fill(0.0)
+		far.commit(0)
+		near.commit(0)
 
 static func create_smoke_column(count: int = 150) -> SmokeColumn:
+	assert(count <= 256)    # the sort key's slot bits
 	var o := SmokeColumn.new()
 	o.group = Node3D.new()
 	o.group.name = "smoke"
 	var mat := sprite_material(false, 2, ORDER_SMOKE)
-	for i in count:
-		var s := make_sprite(mat)
-		s.set_instance_shader_parameter("tint", _lin3(0xd8d8d4))
-		s.visible = false
-		o.group.add_child(s)
-		o.parts.append({"s": s, "life": 0.0, "rate": 1.0, "spin": 0.0, "rot": 0.0, "vel": Vector3.ZERO,
-			"color": Color(1, 1, 1), "dirty": false})
+	o.far = Sprites.new(mat, count)
+	o.near = Sprites.new(mat, count)
+	for s in [o.far, o.near]:
+		s.node.sorting_use_aabb_center = false
+		o.group.add_child(s.node)
+	# Packed arrays are values: resizing them through a list would resize copies.
+	o.pos.resize(count); o.vel.resize(count); o.life.resize(count); o.rate.resize(count)
+	o.spin.resize(count); o.rot.resize(count); o.size.resize(count); o.color.resize(count)
+	o.dirty.resize(count); o._depth.resize(count)
 	return o
 
 # A smoke puff: value-noise alpha (sin·cos is separable and cross-hatches) and a
