@@ -37,18 +37,32 @@ func _ready() -> void:
 	if args.get("assets", "1") != "0":
 		CraftAssets.craft_models_ready()
 	if args.has("audit") or args.has("clearance"):
+		var failed := not CraftAssets.VALIDATION_ERRORS.is_empty()
+		for id in CraftAssets.VALIDATION_ERRORS:
+			printerr("CRAFTCHECK invalid %s: %s" % [id, CraftAssets.VALIDATION_ERRORS[id]])
 		if args.has("audit"):
-			print_audit(audit())
+			var rows := audit()
+			print_audit(rows)
+			for row in rows:
+				if not is_finite(row.h) or row.h <= 0.0 or row.tris <= 0:
+					printerr("CRAFTCHECK invalid geometry for ", row.k)
+					failed = true
 		if args.has("clearance"):
-			print_clearance(clearance())
+			var rows := clearance()
+			print_clearance(rows)
+			for row in rows:
+				for cluster in row.clusters:
+					if not is_finite(cluster.gap) or cluster.gap < -0.001:
+						printerr("CRAFTCHECK overlapping engines: %s/%s gap %s m" % [row.k, cluster.stage, cluster.gap])
+						failed = true
 		CraftAssets.clear()
-		get_tree().quit()
+		await get_tree().process_frame
+		print("CRAFTCHECK DONE ", "FAIL" if failed else "PASS")
+		get_tree().quit(1 if failed else 0)
 		return
 	_build_studio()
 
-# THE NUMBERS
-## Build every vehicle and report measured extents: the regression check (a builder
-## that throws or a height that drifts shows up as a number).
+## Measured extents in metres and triangle counts; no authored/fallback parity assertion.
 static func audit() -> Array:
 	var out := []
 	var V: Dictionary = CM.vehicles()
@@ -105,7 +119,6 @@ static func print_clearance(rows: Array) -> void:
 			print("CLEAR  %-11s %-8s n=%2d  gap=%7.3f" % [r.k, c.stage, c.n, c.gap])
 	print("CLEAR_JSON ", JSON.stringify(rows))
 
-# THE STUDIO
 ## three's ACESFilmicToneMapping (r160): exposure / 0.6, Hill RRT+ODT fit, clamp, then
 ## linear → sRGB. Background composited after the curve.
 const TONEMAP_SHADER := """

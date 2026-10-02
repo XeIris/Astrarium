@@ -149,11 +149,11 @@ static func _build_vehicles() -> Dictionary:
 		"stages": [
 			stage({ "key": "sic", "name": "S-IC", "dry": 137000.0, "prop": 2077000.0,
 				"engine": E.F1, "count": 5, "L": 42.0, "D": 10.06,
-				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5 } }),
+				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5, "fixedGimbals": [0] } }),
 			stage({ "key": "sii", "name": "S-II", "dry": 36200.0, "prop": 443000.0,
 				"engine": E.J2, "count": 5, "L": 24.9, "D": 10.06,
 				"rcs": { "thrust": 3300.0, "isp": 190.0, "prop": 400.0, "count": 8 },
-				"look": { "skin": "white", "interstage": 2.0 } }),
+				"look": { "skin": "white", "interstage": 2.0, "fixedGimbals": [0] } }),
 			stage({ "key": "sivb", "name": "S-IVB", "dry": 13500.0, "prop": 109500.0,
 				"engine": E.J2, "count": 1, "L": 17.8, "D": 6.60, "restarts": 1,
 				# The auxiliary propulsion modules — also what settles the propellant
@@ -205,7 +205,7 @@ static func _build_vehicles() -> Dictionary:
 			stage({ "key": "f9pl", "name": "Payload", "dry": 13000.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 5.0, "D": 3.4, "sep": "none",
 				# The payload rides inside the fairing.
-				"look": { "satellite": true, "mount": { "y": 61.0 } } }),
+				"look": { "satellite": true, "arrays": 2, "mount": { "y": 61.0 } } }),
 		],
 	},
 
@@ -237,7 +237,7 @@ static func _build_vehicles() -> Dictionary:
 				# z = tank radius (4.2 m) plus the orbiter's half-depth. y from the aft attach
 				# points: the tank's 2.8 m above its base (ET station 2058), the orbiter's 27.4 m
 				# behind its nose (Xo 1317), putting the nose at 40.5 m, level with the intertank.
-				"look": { "skin": "tiles", "orbiter": true, "mount": { "y": 3.3, "z": 7.05 } } }),
+				"look": { "skin": "tiles", "orbiter": true, "flaps": 1, "staticEngines": true, "mount": { "y": 3.3, "z": 7.05 } } }),
 		],
 	},
 
@@ -254,7 +254,7 @@ static func _build_vehicles() -> Dictionary:
 				"engine": E.RAPTOR2, "count": 33, "L": 71.0, "D": 9.0,
 				"recover": "tower", "gridFins": 4, "reserve": 0.06,
 				"rcs": { "thrust": 8000.0, "isp": 80.0, "prop": 3000.0, "count": 8 },
-				"look": { "skin": "steel", "hotStage": true } }),
+				"look": { "skin": "steel", "hotStage": true, "fixedGimbals": range(13, 33) } }),
 			stage({ "key": "ss", "name": "Starship", "dry": 120000.0, "prop": 1200000.0,
 				"engine": E.RAPTOR2, "count": 3, "vacEngine": E.RAPTOR_VAC, "vacCount": 3,
 				"L": 52.0, "D": 9.0, "recover": "tower", "restarts": 3,
@@ -276,7 +276,7 @@ static func _build_vehicles() -> Dictionary:
 				"engine": E.DPS, "count": 1, "L": 3.05, "D": 4.27, "legs": 4,
 				"gear": { "vVert": 3.0, "vHoriz": 1.2 },       # the qualified Apollo rating
 				"rcs": { "thrust": 445.0, "isp": 290.0, "prop": 287.0, "count": 16 },
-				"look": { "skin": "mli-gold", "octagon": true, "legs": true, "ladder": true } }),
+				"look": { "skin": "mli-gold", "octagon": true, "legs": true, "fixedLegs": true, "ladder": true } }),
 			stage({ "key": "asc", "name": "Ascent stage", "dry": 2150.0, "prop": 2376.0,
 				"engine": E.APS, "count": 1, "L": 3.76, "D": 4.29, "sep": "none",
 				"rcs": { "thrust": 445.0, "isp": 290.0, "prop": 287.0, "count": 16 },
@@ -312,13 +312,13 @@ static func _build_vehicles() -> Dictionary:
 			stage({ "key": "desc", "name": "Descent stage", "dry": 829.0, "prop": 390.0,
 				"engine": E.MLE, "count": 8, "L": 2.0, "D": 3.2, "sep": "skycrane",
 				"rcs": { "thrust": 60.0, "isp": 220.0, "prop": 25.0, "count": 8 },
-				"look": { "skin": "metal", "skycrane": true } }),
+				"look": { "skin": "metal", "skycrane": true, "enginesPerPivot": 2 } }),
 			stage({ "key": "rover", "name": "Rover", "dry": 1025.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 2.2, "D": 2.7, "sep": "none",
 				# The six wheels ARE the landing gear — the rover is lowered onto them
 				# on cables and they take the touchdown load. It has no other legs.
 				"legs": 6, "gear": { "vVert": 3.0, "vHoriz": 1.0 },
-				"look": { "skin": "metal", "rover": true, "rtg": true } }),
+				"look": { "skin": "metal", "rover": true, "fixedLegs": true, "rtg": true } }),
 		],
 		"edl": {
 			"entry":      { "alt": 125000.0, "v": 5800.0, "fpa": -15.5 },

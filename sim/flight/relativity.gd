@@ -97,6 +97,7 @@ class Cruise extends RefCounted:
 	var leg: String = "accel"    # accel | coast | decel | arrived
 	var leg_tau: float = 0.0
 	var throttle: float = 1.0
+	var time_limited := false
 	var log: Array = []          # [{tau, m}]
 
 	var beta: float:
@@ -140,16 +141,17 @@ class Cruise extends RefCounted:
 	## every leg boundary it crosses, at the exact proper time: cutoff, turnover (when
 	## the remaining distance equals the deceleration leg's), arrival. Checked only per
 	## step, turnover at 10⁶× warp came 0.0005 ly late.
-	func step(dtau: float) -> void:
+	func step(dtau: float, advance_coordinate: Callable = Callable()) -> void:
+		time_limited = false
 		var left := dtau
 		var guard := 0
-		while left > 0.0 and leg != "arrived" and guard < 8:
+		while left > 0.0 and leg != "arrived" and guard < 8 and not time_limited:
 			guard += 1
-			left = _advance(left)
+			left = _advance(left, advance_coordinate)
 
 	## One piece of a step, inside a single leg. Returns the proper time left
 	## over once the leg's boundary has been reached (0 if it was not).
-	func _advance(dtau: float) -> float:
+	func _advance(dtau: float, advance_coordinate: Callable = Callable()) -> float:
 		if leg == "arrived" or dtau <= 0.0: return 0.0
 		var leg_phi: float = plan.phi
 		# decide the leg
@@ -184,11 +186,29 @@ class Cruise extends RefCounted:
 		var dphi := sgn * acc * h / Rocketry.C_MS
 		var phi0 := phi
 		var phi1 := phi + dphi if burning else phi
+		var coordinate: float
+		if burning and absf(dphi) > 1e-15:
+			coordinate = Rocketry.C_MS / (sgn * acc) * (sinh(phi1) - sinh(phi0))
+		else:
+			coordinate = h * cosh(phi)
+		if coordinate > 0.0 and advance_coordinate.is_valid():
+			var accepted: float = advance_coordinate.call(coordinate)
+			if accepted < coordinate * (1.0 - 1e-12):
+				time_limited = true
+				if accepted <= 0.0: return dtau
+				# Invert t(τ) inside this constant-acceleration leg, preserving the world budget.
+				if burning and absf(dphi) > 1e-15:
+					phi1 = asinh(sinh(phi0) + sgn * acc * accepted / Rocketry.C_MS)
+					dphi = phi1 - phi0
+					h = dphi * Rocketry.C_MS / (sgn * acc)
+				else:
+					h = accepted / cosh(phi)
+			coordinate = accepted
 		# Coordinate time and distance are integrals of cosh and sinh; with constant
 		# a they are exact, and with a = 0 they reduce to the coasting case.
 		if burning and absf(dphi) > 1e-15:
 			var k := Rocketry.C_MS / (sgn * acc)
-			t += k * (sinh(phi1) - sinh(phi0))
+			t += coordinate
 			s += (Rocketry.C_MS * k) * (cosh(phi1) - cosh(phi0))
 			# Fuel: dm/m = −dφ·c/v_e , the relativistic rocket equation differentiated.
 			var frac := exp(-absf(dphi) * Rocketry.C_MS / exhaust)
@@ -198,7 +218,7 @@ class Cruise extends RefCounted:
 				note("Astrophage exhausted — coasting"); leg = "coast"
 			phi = phi1
 		else:
-			t += h * cosh(phi)
+			t += coordinate
 			s += h * Rocketry.C_MS * sinh(phi)
 		tau += h
 

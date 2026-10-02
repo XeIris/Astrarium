@@ -200,10 +200,10 @@ const STEP_GUARD := 8000
 ## the guard trips, and anything on the simulated clock must use it. Each merger goes
 ## to `on_merger` inside the sub-step loop (which removes the absorbed body); with no
 ## callback the absorbed body is just removed.
-static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost: float, on_merger: Callable = Callable()) -> Dictionary:
-	if sim_dt <= 0.0: return { "stepped": 0.0, "steps": 0 }
+static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost: float, on_merger: Callable = Callable(), initial_steps: int = 0) -> Dictionary:
+	if sim_dt <= 0.0: return { "stepped": 0.0, "steps": initial_steps }
 	var remaining := sim_dt
-	var guard := 0
+	var guard := initial_steps
 	var stepped := 0.0
 	while remaining > 1e-12 and guard < STEP_GUARD:
 		guard += 1

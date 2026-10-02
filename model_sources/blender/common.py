@@ -1,16 +1,7 @@
-# COMMON — the material set, the optimiser and the exporter, shared by every
-# authored vehicle.
-# The .py files beside this one are the MODELS. This file is what they all
-# agree on, and it exists for one reason above the others: a vehicle whose
-# authored mesh is a different colour from the procedural fallback it replaces
-# is a vehicle that changes appearance depending on whether a build has been
-# run. So the palette here is the materials in sim/flight/craftmodel.gd,
-# converted rather than re-picked — see srgb() below.
-#
-# NAMING IS AN INTERFACE. craftassets.gd binds moving parts by name, so the
-# prefixes in NODE_PREFIXES are load-bearing: rename one here and the legs stop
-# deploying, silently, with no error anywhere.
+# Shared materials match the procedural fallback. Node names are the rig contract
+# validated by CraftAssets; optimisation must preserve each driven subtree.
 import math
+import re
 import bpy, os, sys
 from mathutils import Matrix
 
@@ -182,6 +173,14 @@ def optimise():
     export_apply: once meshes are joined there is no per-object modifier stack
     left to apply, and the exporter would write the unbevelled cages.
     """
+    # Runtime assigns driven Euler angles; carry authored orientation on a mount.
+    for ob in list(bpy.context.scene.objects):
+        if ob.type == 'EMPTY' and re.fullmatch(r'(gimbal|leg|fin|array|flap|half)_[A-Za-z0-9]+_\d+(_fixed)?', ob.name) and max(abs(a) for a in ob.rotation_euler) > 1e-6:
+            mount = empty(f'mount_{ob.name}', (0, 0, 0), parent=ob.parent)
+            mount.matrix_basis = ob.matrix_basis.copy()
+            ob.parent = mount
+            ob.matrix_parent_inverse = Matrix()
+            ob.matrix_basis = Matrix()
     vl = bpy.context.view_layer
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -280,7 +279,8 @@ def build(label, fn, default_out=None):
     The whole outer shell of a model script: reset, materials, build, optimise,
     export. Every vehicle file ends in one call to this.
     """
-    out = out_path(default_out or f'web/assets/{label}.glb')
+    directory = 'assets/pads' if label.startswith('pad_') else 'assets/craft'
+    out = out_path(default_out or f'{directory}/{label}.glb')
     reset_scene()
     build_materials()
     fn(M)

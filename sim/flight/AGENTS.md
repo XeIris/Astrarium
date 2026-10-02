@@ -1,7 +1,8 @@
 # sim/flight — spaceflight
 
-SI units throughout (see the root AGENTS.md); `vessel.gd` is the only bridge to
-AU, and `spaceflight.gd` is the only file that knows the orrery exists. Local
+Vessel dynamics use SI units (see the root AGENTS.md). `vessel.gd` converts body
+positions and gravity to its local environment; `spaceflight.gd` coordinates
+orrery bodies, cruise endpoints and cameras. Local
 space is a second pass with its own camera, in metres (`localview.gd`), and the
 orrery camera is slaved to it. No single projection spans a 100 m rocket and an
 AU-scale scene.
@@ -26,13 +27,17 @@ to the procedural builds too.
   V should stage near AS-506's (67 km, 2.4 km/s, 21°).
 - Above the air, explicit guidance (a_v = 6Δh/T² − 4ḣ/T, T_go from the rocket
   equation) aims at a low perigee cutoff, then circularizes. Regression: all four
-  launchers in orbit within a few km of target, matching `flightref.mjs` to
-  0.1 km.
+  launchers in orbit within the target gates in `tools/sharedflightcheck.gd`.
+  The legacy `flightref.mjs` comparison supplements this production-driver check.
 - Descents share one `descent_law`, and every powered phase shares one
   `limit_throttle`.
 
 ## Vessel (`vessel.gd`)
 
+- During flight, the vessel requests coordinate seconds from the world's
+  integrator before advancing. Both clocks use the accepted duration; all calls
+  share the frame's world step budget. Cruise integrates proper time and requests
+  its corresponding coordinate duration. Commit trails and visuals once per frame.
 - Each stage pays for its own engines: `burn()` splits the flow by each lit
   stage's mass flow. A separation lights the next stage only if nothing is still
   burning. A solid is never shut down to meet a g limit; its thrust is read at

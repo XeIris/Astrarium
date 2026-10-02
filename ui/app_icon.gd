@@ -13,6 +13,9 @@ const ICONS := [
 ]
 const DEFAULT := "ember"
 const FILE := "user://app.json"
+const JsonFile = preload("res://core/json_file.gd")
+static var file_path := FILE
+static var last_error := ""
 
 static func _path(key: String) -> String:
 	for i in ICONS:
@@ -20,30 +23,45 @@ static func _path(key: String) -> String:
 	return ""
 
 static func saved() -> String:
-	var file := FileAccess.open(FILE, FileAccess.READ)
-	if file == null: return DEFAULT
-	var data = JSON.parse_string(file.get_as_text())
-	var key: String = String(data.get("icon", DEFAULT)) if data is Dictionary else DEFAULT
-	return key if _path(key) != "" else DEFAULT
+	var result := _load_saved()
+	return str(result.data.get("icon", DEFAULT)) if result.error == OK else DEFAULT
+
+static func _valid_saved(data: Dictionary) -> bool:
+	return not data.has("icon") or (data.icon is String and _path(data.icon) != "")
+
+static func _load_saved() -> Dictionary:
+	last_error = ""
+	var result := JsonFile.read_dict(file_path, _valid_saved)
+	if result.error != OK and result.error != ERR_FILE_NOT_FOUND:
+		last_error = result.message + " Repair %s before changing the saved icon." % file_path
+	elif result.pending:
+		last_error = result.message + " Repair %s before changing the saved icon." % file_path
+	elif result.error == OK:
+		last_error = result.message
+		if JsonFile.finish_recovery(file_path) != OK:
+			last_error = "Icon loaded, but recovery file %s.bak could not be removed; make its folder writable." % file_path
+	if last_error != "": push_warning(last_error)
+	return result
 
 ## Set the running app's icon and remember the choice. Returns false for an
-## unknown key; a platform with no settable icon (web) still saves it.
+## unknown key or failed save; a platform with no settable icon still saves it.
 static func apply(key: String, persist := true) -> bool:
 	var p := _path(key)
-	if p == "": return false
+	if p == "":
+		last_error = "Unknown app icon: %s." % key
+		return false
+	if persist:
+		var result := _load_saved()
+		if result.pending or (result.error != OK and result.error != ERR_FILE_NOT_FOUND): return false
+		var data: Dictionary = result.data if result.error == OK else {}
+		data.icon = key
+		result = JsonFile.write_dict(file_path, data)
+		last_error = result.message
+		if last_error != "": push_warning(last_error)
+		if result.error != OK: return false
 	if DisplayServer.has_feature(DisplayServer.FEATURE_ICON):
 		var tex := load(p) as Texture2D
 		if tex != null: DisplayServer.set_icon(tex.get_image())
-	if persist:
-		var data := {}
-		var file := FileAccess.open(FILE, FileAccess.READ)
-		if file != null:
-			var old = JSON.parse_string(file.get_as_text())
-			if old is Dictionary: data = old
-			file.close()
-		data.icon = key
-		file = FileAccess.open(FILE, FileAccess.WRITE)
-		if file != null: file.store_string(JSON.stringify(data, "\t"))
 	return true
 
 ## A small, properly filtered copy for the settings swatch — the 512 px import

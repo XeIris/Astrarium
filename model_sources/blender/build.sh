@@ -4,8 +4,8 @@
 #   model_sources/blender/build.sh                  9 vehicles, 4 pads and the facilities
 #   model_sources/blender/build.sh shuttle pad_fss  selected models
 #
-# The .py files are the models; the .glb output in web/assets/ and assets/pads/ is
-# ignored build artifacts (tools/sync_assets.sh copies craft into assets/craft/). A
+# The .py files are the models; the .glb output in assets/craft/ and assets/pads/ is
+# ignored build artifacts loaded directly by Godot. A
 # fresh clone uses procedural fallbacks until this has run. lib.py and common.py
 # aren't models. Vehicle ids in ALL match craftassets.gd; pad_* use launchpads.py.
 #
@@ -59,7 +59,7 @@ for m in "${MODELS[@]}"; do
     dst="assets/pads/facilities.glb"
   else
     script="model_sources/blender/${m}.py"
-    dst="web/assets/${m}.glb"
+    dst="assets/craft/${m}.glb"
   fi
   [ -f "$script" ] || { echo "error: no such model '$m' ($script)" >&2; exit 1; }
   echo "--- building $m"

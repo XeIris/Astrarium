@@ -60,6 +60,9 @@ func _ready() -> void:
 	await get_tree().process_frame
 	var boot := catch.take()
 	for e in boot: report.errors.append("boot: " + str(e))
+	if not boot.is_empty():
+		_finish()
+		return
 	_walk()
 
 func _walk() -> void:
@@ -101,6 +104,9 @@ func _walk() -> void:
 				for e in catch.take():
 					report.errors.append("%s: %s" % [where, e])
 
+	_finish()
+
+func _finish() -> void:
 	report.warnings = catch.warnings.duplicate()
 	report.ok = report.errors.is_empty()
 	for e in report.errors: print("COURSECHECK ERROR ", e)

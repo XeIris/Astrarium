@@ -37,8 +37,10 @@ design.
   `bodyScale`. Scene units ≠ AU: `state.scene_scale` converts. Collision radii on
   a body are in AU; rendered radii are in scene units.
 - `sim/flight/` is SI (metres, seconds), because an ascent in AU loses most of a
-  float's mantissa. The bridge (`GM☉ = 1.32712440018e20 m³/s²`) is crossed only
-  in `sim/flight/vessel.gd`.
+  float's mantissa. `Rocketry` supplies conversion constants (`GM☉ =
+  1.32712440018e20 m³/s²`); vessel environments, guidance targets and Spaceflight
+  convert world bodies at their boundaries. The frame coordinator converts
+  accepted coordinate seconds to orrery years. Keep local integration in SI.
 - Physics state is double: `DVec3`, never `Vector3`. Orrery and flight cameras
   sit at the origin and nodes are placed at `abs.rel_v3(cam_pos)` (a floating
   origin), so world space is camera-relative. The isolated model studio uses

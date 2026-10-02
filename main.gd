@@ -184,6 +184,10 @@ func _ready() -> void:
 		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")))
+	var save_errors := []
+	for error in [controls.last_error, lessons.last_error, AppIcon.last_error]:
+		if error != "": save_errors.append(error)
+	if not save_errors.is_empty(): toast(" ".join(save_errors), 6000)
 
 # BODY CREATION
 # Stars are coloured by blackbody temperature unless a preset overrides it.
@@ -199,9 +203,7 @@ func attach_visual(b: Body) -> void:
 	var def := b.def
 	var radius_scene := Derive.render_radius(b, spec, b.mass0, state.scene_scale, state.body_scale, state.true_scale)
 	b.radius_scene = radius_scene
-	# Destruction distance: by default the visible disc. A spec may give a real
-	# distance in AU (the Roche limits in presets), and a measured radius is one.
-	b.contact_au = Derive.contact_au(b, spec, radius_scene, state.scene_scale)
+	b.contact_au = Derive.contact_au(b, spec)
 	if spec.type == "bh": b.rs_scene = radius_scene
 
 	var star_color = _star_color(b)
@@ -620,23 +622,32 @@ func dynamic_step() -> float:
 
 # Returns the simulated time actually integrated (< sim_dt when the sub-step guard
 # trips). Drive anything on the simulated clock from the return value.
-func step_physics(sim_dt: float) -> float:
+func step_physics(sim_dt: float, coupled := false) -> float:
 	if sim_dt <= 0.0:
-		state.last_steps = 0
-		_commit_positions(false)
+		if not coupled:
+			state.last_steps = 0
+			_commit_positions(false)
 		return 0.0
 	# The sub-step loop runs natively when native/ is built, in GDScript otherwise.
-	var r := NBody.step_physics(state.bodies, sim_dt, state.max_step, state.gw_boost, handle_merger)
+	var r := NBody.step_physics(state.bodies, sim_dt, state.max_step, state.gw_boost, handle_merger,
+		state.last_steps if coupled else 0)
 	var stepped: float = r.stepped
 	state.last_steps = int(r.steps)
 	# Advance the clock by what was actually integrated, not by what was asked
 	# for: the deficit during a guarded close encounter is never repaid.
 	state.sim_years += stepped
+	if coupled: return stepped
 	_commit_positions(true)
+	_step_climate(stepped)
+	return stepped
+
+func _step_climate(stepped: float) -> void:
 	# advance the climate on the same simulated clock
 	var home := get_home()
 	if state.climate != null and home: state.climate.step(stepped, home, get_stars())
-	return stepped
+
+func _advance_flight_world(coordinate_seconds: float) -> float:
+	return step_physics(coordinate_seconds / Rocketry.YR_S, true) * Rocketry.YR_S
 
 # commit scene positions + trails after the sub-steps
 func _commit_positions(push: bool) -> void:
@@ -753,9 +764,9 @@ func set_follow(body: Body) -> void:
 	state.follow_id = body.id if body else null
 	state.focus_id = body.id if body else null
 	if body:
-		glide_target_to(body.scene_pos)
-		# frame the body itself — a 4-unit floor put small worlds a hundred radii away
 		jump_cam_radius(frame_radius(body))
+		# Decide a long-distance cut using the destination's framing radius.
+		glide_target_to(body.scene_pos)
 		if state.cam_mode == "orbit": update_orbit_cam()
 	refresh_ui()
 
@@ -886,7 +897,7 @@ func _finish_capture(binding: Array) -> void:
 	capture_modifier = 0
 	hud.update_binding_labels(controls.bindings)
 	keys.clear()
-	if not accepted: toast("Choose a key not reserved for Settings")
+	if not accepted: toast(controls.last_error if controls.last_error != "" else "Choose a key not reserved for Settings", 6000)
 
 func _choose_binding(action: String) -> void:
 	capture_action = "" if capture_action == action else action
@@ -1368,7 +1379,9 @@ func sync_sky_controls(skip_inputs := false) -> void:
 
 ## The window/dock icon, remembered across launches (ui/app_icon.gd).
 func set_app_icon(key: String, persist := true) -> void:
-	if not AppIcon.apply(key, persist): return
+	if not AppIcon.apply(key, persist):
+		if AppIcon.last_error != "": toast(AppIcon.last_error, 6000)
+		return
 	for icon in AppIcon.ICONS:
 		hud.set_active("[data-app-icon=%s]" % icon[0], icon[0] == key)
 
@@ -1533,6 +1546,7 @@ func apply_sky_boost_all(beta: Vector3) -> void:
 
 # THE HUD'S SIGNALS
 func _bind_hud() -> void:
+	controls.persistence_failed.connect(func(message: String): toast(message, 6000))
 	hud.start_chosen.connect(_start)
 	hud.quit_to_start.connect(quit_to_start)
 	hud.quit_app.connect(func(): get_tree().quit())
@@ -2056,8 +2070,8 @@ func _shot_tick() -> void:
 	if _shot_frame == 1:
 		if _cmd.has("band"): set_band(int(_cmd.band))
 		if _cmd.get("hud", "1") == "0": set_hud_hidden(true); hud.toast("", 1)
-		if _cmd.has("focus"): _stage_set_focus(String(_cmd.focus))
 		if _cmd.get("truescale", "0") == "1": set_true_scale(true)
+		if _cmd.has("focus"): _stage_set_focus(String(_cmd.focus))
 		if _cmd.has("cammode"): set_cam_mode(String(_cmd.cammode))
 		if _cmd.has("localtime"): set_local_time(String(_cmd.localtime))
 		if (_cmd.has("padaz") or _cmd.has("padel")) and flight.active:
@@ -2097,7 +2111,16 @@ func animate(dt: float) -> void:
 
 	# Everything downstream runs on the time that was integrated, so a guarded
 	# frame slows the spin, the clouds and the lens together with the bodies.
-	var sim_stepped := step_physics(sim_dt)
+	var sim_stepped := 0.0
+	if flight.active:
+		state.last_steps = 0
+		var coordinate_seconds: float = flight.update(dt, state.time, _advance_flight_world)
+		sim_stepped = coordinate_seconds / Rocketry.YR_S
+		_commit_positions(sim_stepped > 0.0)
+		_step_climate(sim_stepped)
+		flight.finish_frame(dt, coordinate_seconds)
+	else:
+		sim_stepped = step_physics(sim_dt)
 	run_pending_collapse()
 	painter.update(sim_stepped)
 	pipe.postfx.set_scene_temp(scene_max_temp())
@@ -2105,7 +2128,6 @@ func animate(dt: float) -> void:
 	# ---- spaceflight. It owns the camera while it is active, so this runs
 	# before the orrery's own camera update and that update is skipped.
 	if flight.active:
-		flight.update(dt, state.time)
 		if flight.vessel != null and state.cam_mode != "flight": set_cam_mode("flight")
 		# Relativistic aberration and Doppler of the star field, from the ship's
 		# own velocity. Zero except in interstellar cruise, where it is the view.
@@ -2400,9 +2422,12 @@ func _soak_check() -> void:
 				await get_tree().process_frame
 			set_app_mode("sandbox"),
 		"model_viewer": func():
+			CraftAssets.craft_models_ready(["saturnv", "shuttle", "starship"])
 			for k in ["saturnv", "shuttle", "starship"]:
 				show_model(k)
-				for i in 5: await get_tree().process_frame
+				for i in 5:
+					animate(1.0 / 60.0)
+					await get_tree().process_frame
 			close_model_viewer(),
 		"flight_stage": func():
 			await launch_craft("saturnv")
@@ -2413,7 +2438,16 @@ func _soak_check() -> void:
 				for i in 30: animate(1.0 / 60.0)
 			_on_flight_cam_cycle(); _on_flight_cam_cycle()
 			for i in 5: await get_tree().process_frame
-			end_flight(),
+			end_flight()
+			hud.toast("", 1)
+			var deadline := Time.get_ticks_msec() + 3000
+			while hud._toast_timer > 0.0 or (hud._toast_tween and hud._toast_tween.is_running()):
+				animate(1.0 / 60.0)
+				await get_tree().process_frame
+				if Time.get_ticks_msec() >= deadline:
+					printerr("SOAK FAILED: flight notification did not settle")
+					get_tree().quit(1)
+					return,
 		"start_screen": func():
 			quit_to_start(); await get_tree().process_frame
 			_start("sandbox"); load_preset("solar"); set_process(false),

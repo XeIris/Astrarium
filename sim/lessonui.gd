@@ -20,6 +20,7 @@ extends RefCounted
 # SVG; Godot's loader has no <text>, so labels are pulled out and set here (`Fig`).
 
 const T = preload("res://ui/theme.gd")
+const JsonFile = preload("res://core/json_file.gd")
 const STORE := "user://bh.course.v1.json"
 const EM_COL := "e6ecf6"
 const PROSE := {"ff": "disp", "fs": 13.5, "lh": 1.62}
@@ -212,6 +213,9 @@ class Course extends RefCounted:
 	var lc: Dictionary = {}
 	var store := LessonUI.STORE
 	var progress := {"done": {}, "last": null}
+	var last_error := ""
+	var _save_blocked := false
+	var _blocked_reason := ""
 	var key = null          # 'moduleId/lessonId'
 	var step_ix := 0
 	var instrument = null   # the name the current step asked for
@@ -253,21 +257,56 @@ class Course extends RefCounted:
 	# progress
 	func _load_progress() -> void:
 		progress = {"done": {}, "last": null}
-		if store == "" or not FileAccess.file_exists(store): return
-		var f := FileAccess.open(store, FileAccess.READ)
-		if f == null: return
-		var p = JSON.parse_string(f.get_as_text())
-		if not (p is Dictionary): return
-		var d = p.get("done")
-		for e in Lessons.LESSON_ORDER:
-			if d is Dictionary and d.get(e.key) == true: progress.done[e.key] = true
+		last_error = ""
+		_save_blocked = false
+		_blocked_reason = ""
+		if store == "": return
+		var result := JsonFile.read_dict(store, _valid_progress)
+		if result.error == ERR_FILE_NOT_FOUND: return
+		if result.error != OK:
+			_progress_error(result.message + " Repair the file or Reset progress; automatic saving is paused.", true)
+			return
+		var p: Dictionary = result.data
+		var unavailable: Array = []
+		for key in p.done:
+			if Lessons.find_lesson(key) == null: unavailable.append(str(key))
+			elif p.done[key]: progress.done[key] = true
 		var last = p.get("last")
 		progress.last = last if last != null and Lessons.find_lesson(last) != null else null
+		if last != null and progress.last == null: unavailable.append(str(last))
+		_save_blocked = result.pending
+		if result.pending: _blocked_reason = result.message + " Repair the file or Reset progress; automatic saving is paused."
+		if result.message != "": _progress_error(result.message)
+		if not result.pending and JsonFile.finish_recovery(store) != OK:
+			_progress_error("Progress loaded, but recovery file %s.bak could not be removed; make its folder writable." % store)
+		if not unavailable.is_empty(): _progress_error("Unavailable lessons in %s were ignored: %s." % [store, ", ".join(unavailable)])
 
-	func _save_progress() -> void:
-		if store == "": return
-		var f := FileAccess.open(store, FileAccess.WRITE)
-		if f: f.store_string(JSON.stringify(progress))
+	func _valid_progress(data: Dictionary) -> bool:
+		if not data.get("done") is Dictionary or not data.has("last") or not (data.last == null or data.last is String): return false
+		for value in data.done.values():
+			if not value is bool: return false
+		return true
+
+	func _save_progress(reset_file := false) -> bool:
+		if store == "": return true
+		if _save_blocked:
+			_progress_error(_blocked_reason)
+			return false
+		var result := JsonFile.write_dict(store, progress, false, Callable(), reset_file, _valid_progress)
+		if result.error != OK:
+			_progress_error(result.message)
+			return false
+		last_error = ""
+		if result.message != "": _progress_error(result.message)
+		return true
+
+	func _progress_error(message: String, block: bool = false) -> void:
+		_save_blocked = _save_blocked or block
+		if block: _blocked_reason = message
+		if last_error == message: return
+		last_error = message
+		push_warning(message)
+		_st("toast", [message])
 
 	# the stage: a directive it does not implement is ignored, not thrown
 	func _has(k: String) -> bool:
@@ -372,7 +411,16 @@ class Course extends RefCounted:
 		else: open.erase(rec.id)
 
 	func _reset_progress() -> void:
-		progress.done = {}; progress.last = null; _save_progress(); render_panel()
+		var previous := progress.duplicate(true)
+		var blocked := _save_blocked
+		progress.done = {}; progress.last = null
+		_save_blocked = false
+		if not _save_progress(true):
+			progress = previous
+			_save_blocked = blocked
+		else:
+			_blocked_reason = ""
+		render_panel()
 
 	var _render_gen := 0
 

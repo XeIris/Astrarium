@@ -2,9 +2,7 @@
 .godot/
 **/__pycache__/
 .DS_Store
-# The authored vehicle meshes are BUILD ARTIFACTS of model_sources/blender/*.py, exactly
-# as they are for the web build (see the repo's .gitignore). tools/sync_assets.sh
-# copies them in from web/assets after model_sources/blender/build.sh has produced them.
+# Blender scripts build optional runtime models directly into assets/.
 assets/craft/*.glb
 assets/craft/*.glb.import
 assets/pads/*.glb

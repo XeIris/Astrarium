@@ -2,7 +2,10 @@
 
 The script is the model; nothing is clicked. `build.sh` builds the `.glb`
 artifacts (gitignored); pass names to build fewer (`build.sh shuttle pad_fss`).
-`tools/sync_assets.sh` copies them into `assets/craft/`. `lib.py` holds the
+Vehicle builds write directly to `assets/craft/`; pads write to `assets/pads/`.
+`tools/sync_assets.sh /external/artifact/directory` can copy separately built
+vehicles into `assets/craft/`. Its default confirms the local build without
+copying files onto themselves. `lib.py` holds the
 primitives (lathe, loft, wing, sphere-cone, bevel) and `common.py` the palette,
 optimiser and exporter; neither is buildable.
 
@@ -31,9 +34,10 @@ with and without `assets=0`; only triangle counts should differ.
 
 ## Names are an interface
 
-`common.py` writes node names and `craftassets.gd`'s `bind_parts` matches them,
-and nothing checks that the two agree. Rename one and the part stops moving
-without any error.
+`common.py` writes node names and `craftassets.gd` validates them before caching
+and binding parts. Required counts and swing limits come from vehicle metadata,
+including engine ownership and fixed pivots. Missing optional assets may use the
+procedural build; present malformed assets must fail the checks.
 
 - One `stage_<key>` empty per stage, then `gimbal_` / `leg_` / `fin_` / `array_` /
   `flap_` / `half_`, each scoped by stage key (`gimbal_sic_3`), because Blender
@@ -41,6 +45,12 @@ without any error.
 - A pivot that can't swing is suffixed `_fixed` (e.g. 20 of Super Heavy's 33
   Raptors, the S-IC's centre F-1).
 - Opting out is done by not matching: the LM's gear is `gear_`, not `leg_`.
+  Declare fixed gear with `look.fixedLegs`; deployable arrays with `look.arrays`.
+  `look.enginesPerPivot` must divide the engine count exactly for grouped rigs.
+
+Run `tools/assetcheck.gd` and `tools/crafttest.tscn -- audit clearance`, each
+with authored models and with `assets=0`, after changing rigs or metadata.
+The asset check exercises stowed/deployed poses and rejects malformed rigs.
 
 ## Moving parts
 

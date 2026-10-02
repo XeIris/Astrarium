@@ -478,6 +478,7 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	_hold.copy_from(_a); _holding = true
 	var fwd := forward(_b)
 	var err := DQuat.angle_between(fwd, _a)
+	if dt <= 0.0: return err
 	var auth := authority(pa)
 	var alpha: float = auth.alpha
 	# Feed-forward: a held attitude usually turns (prograde, a pitch program), so the
@@ -753,13 +754,20 @@ func potential(rr: DVec3) -> float:
 ## unpowered, out of the air and off the ground, since thrust and drag aren't
 ## evaluated there. Entering and leaving rails re-seeds from the analytic state.
 ## Returns the coordinate time advanced; the guard can shorten an RK4 step.
+## opts.advance_world(seconds) accepts world time before each vessel interval;
+## opts.controls runs only for an interval accepting positive time.
 func step(dt: float, opts: Dictionary = {}) -> float:
 	var was_guarded := step_guard_hit
 	step_guard_hit = false
 	if phase == PHASE.DESTROYED:
+		dt = _advance_world(dt, opts)
 		coord += dt
 		return dt
 	if phase == PHASE.LANDED and throttle <= 0.0:
+		dt = _advance_world(dt, opts)
+		if phase == PHASE.DESTROYED:
+			coord += dt
+			return dt
 		# Landed: sit on the surface, turning with it. +Ω dt, not −: with ω on −Y only the
 		# positive sign agrees with ω × r (see guidance.gd spin_site).
 		var w: float = env.rotRate * dt
@@ -775,7 +783,22 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 		return dt
 
 	if opts.get("rails", false) and can_rail():
-		if Orbit.propagate(r, v, env.mu, dt, r, v):
+		var rail_r := DVec3.new()
+		var rail_v := DVec3.new()
+		# A failed conic must leave the world budget available to RK4.
+		if Orbit.propagate(r, v, env.mu, dt, rail_r, rail_v):
+			var requested := dt
+			var rail_parent := parent
+			dt = _advance_world(dt, opts)
+			if phase == PHASE.DESTROYED:
+				coord += dt
+				return dt
+			if (dt != requested or parent != rail_parent) and not Orbit.propagate(r, v, env.mu, dt, rail_r, rail_v):
+				phase = PHASE.DESTROYED
+				coord += dt
+				log_event("Analytic orbit failed after world time was accepted — flight stopped")
+				return dt
+			r.copy_from(rail_r); v.copy_from(rail_v)
 			# On rails, hold whatever point_at last asked for (nothing integrates attitude).
 			if _holding and authority(0.0).alpha > 0.0:
 				_dq.set_from_unit_vectors(forward(_b), _hold)
@@ -795,11 +818,18 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 	while remaining > 1e-9 and guard < STEP_GUARD:
 		guard += 1
 		var h := minf(remaining, step_bound())
+		# A frame's pending guidance can ignite an engine at the accepted boundary.
+		if opts.get("control_may_thrust", false): h = minf(h, 0.25)
+		h = _advance_world(h, opts)
+		if h <= 0.0: break
+		if phase == PHASE.DESTROYED:
+			coord += elapsed + h
+			return elapsed + h
 		rk4(h, s)
 		remaining -= h
 		elapsed += h
 	step_guard_hit = remaining > 1e-9
-	if not step_guard_hit: elapsed = dt
+	if not step_guard_hit and not opts.get("advance_world", Callable()).is_valid(): elapsed = dt
 	step_clocks(elapsed)
 	sample(elapsed, s)
 	auto_jettison()
@@ -808,6 +838,16 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 	if step_guard_hit and not was_guarded:
 		log_event("Flight integrator limit — advanced %s of %s s; reduce time warp" % [U.fixed(elapsed, 3), U.fixed(dt, 3)])
 	return elapsed
+
+func _advance_world(seconds: float, opts: Dictionary) -> float:
+	var advance: Callable = opts.get("advance_world", Callable())
+	if advance.is_valid():
+		var accepted: float = advance.call(seconds)
+		if accepted < seconds - maxf(1e-9, seconds * 1e-12): step_guard_hit = true
+		seconds = clampf(accepted, 0.0, seconds)
+	var controls: Callable = opts.get("controls", Callable())
+	if seconds > 0.0 and controls.is_valid(): controls.call(seconds)
+	return seconds
 
 ## Conditional separations. The fairing goes when free-molecular heating drops below
 ## ~1135 W/m² (usually near 110 km), so a lofted trajectory sheds it earlier.

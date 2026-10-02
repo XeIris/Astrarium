@@ -23,9 +23,14 @@ func _run() -> void:
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
 	LaunchSite.use_authored_pads = str(args.get("padmodels", "1")) != "0"
+	var authored_craft: bool = str(args.get("assets", "1")) != "0"
 	var worst_all := 0.0
+	var failed := false
 	for key in ["saturnv", "shuttle", "falcon9", "starship"]:
-		await CraftAssets.craft_models_ready([key])
+		if authored_craft: CraftAssets.craft_models_ready([key])
+		if CraftAssets.VALIDATION_ERRORS.has(key):
+			printerr("PADCHECK invalid craft ", key, ": ", CraftAssets.VALIDATION_ERRORS[key])
+			failed = true
 		var veh: Dictionary = Vehicles.VEHICLES[key]
 		var craft := CraftModel.build_craft(veh)
 		root.add_child(craft.group)
@@ -33,6 +38,14 @@ func _run() -> void:
 		var site := LaunchSite.create_launch_site(veh, craft.height, null, craft.group)
 		var fit_ms := Time.get_ticks_msec() - t0
 		root.add_child(site.group)
+		if args.get("inject_intrusion", "0") == "1" and key == "saturnv":
+			var obstruction := MeshInstance3D.new()
+			obstruction.name = "intrusion_probe"
+			var mesh := BoxMesh.new()
+			mesh.size = Vector3.ONE * 0.1
+			obstruction.mesh = mesh
+			obstruction.position.y = 20.0
+			site.group.add_child(obstruction)
 		site.update({"released": false, "throttle": 0.0, "dt": 100.0})
 		var skin: LaunchSite.Envelope = site.skin
 		var hits := {}
@@ -45,13 +58,13 @@ func _run() -> void:
 			[key, site.style, LaunchSite.use_authored_pads, craft.authored, fit_ms, samples[0], hits.size(), worst])
 		for k in hits:
 			if hits[k] > 0.05: print("    %-40s %.2f m" % [k, hits[k]])
-		# Neither is in a tree, so free them now: queue_free would wait for a frame
-		# that quit() never runs.
 		site.group.free()
 		craft.group.free()
 	print("padcheck: worst intrusion %.2f m" % worst_all)
 	CraftAssets.clear()
-	quit()
+	failed = failed or worst_all > 0.0
+	print("PADCHECK DONE ", "FAIL" if failed else "PASS")
+	quit(1 if failed else 0)
 
 func _walk(n: Node, inv: Transform3D, skin, hits: Dictionary, samples: Array) -> void:
 	if n is Node3D and not (n as Node3D).visible: return
@@ -62,7 +75,8 @@ func _walk(n: Node, inv: Transform3D, skin, hits: Dictionary, samples: Array) ->
 		var xf := inv * mi.global_transform
 		var mesh := mi.mesh
 		for s in mesh.get_surface_count():
-			if mesh.surface_get_primitive_type(s) != Mesh.PRIMITIVE_TRIANGLES: continue
+			if mesh is ArrayMesh and mesh.surface_get_primitive_type(s) != Mesh.PRIMITIVE_TRIANGLES: continue
+			if mesh is PointMesh: continue
 			var arr := mesh.surface_get_arrays(s)
 			var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
 			var ix = arr[Mesh.ARRAY_INDEX]

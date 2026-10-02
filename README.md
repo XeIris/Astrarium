@@ -137,13 +137,18 @@ records known issues, ownership and acceptance evidence.
 | `tools/physcheck.sh` | compatibility report against frozen JavaScript; numeric differences are printed, not rejected; child/engine failures and missing output fail |
 | `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript |
 | `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
+| `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
+| `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
 | `tools/sciencecheck.gd` | synthetic/frozen-state instruments and independent live transit/RV/convergence checks; `-- compatibility=web` additionally enforces strict frozen live trajectories and currently fails two intentional differences |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary forces, matching energy, and presentation-independent contact distances |
 | `tools/transitioncheck.tscn` | rendered measured-star collapse to WD/NS/BH; rejects stale progenitor radius/contact and incorrect remnant temperature/luminosity |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()` |
+| `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; `inject_invalid=1` must fail on a missing driven part |
+| `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
 | `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps; `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
-| `tools/padcheck.gd` | launch complexes: reports any pad structure inside its vehicle (`-- padmodels=0` for the fallback pads) |
+| `tools/padcheck.gd` | rejects pad structure inside its vehicle; `padmodels=0` / `assets=0` select fallback pads / craft; `inject_intrusion=1` must fail |
+| `python3 tools/exportcheck.py /abs/game.zip` | checks a `Godot --headless --path . --export-pack macOS /abs/game.zip` resource archive for development files, missing boot files and broken import/remap targets; native libraries and rendering still need an exported-app smoke run |
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
 | `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry |

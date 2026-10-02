@@ -1,21 +1,16 @@
 #!/bin/sh
-# Copy the authored vehicle meshes into the Godot project.
-#
-# web/assets/*.glb are BUILD ARTIFACTS of model_sources/blender/*.py (run
-# model_sources/blender/build.sh) and are gitignored, in the web build and here alike.
-# The Godot port loads them at runtime from res://assets/craft/ and falls back
-# to its procedural builds when they are missing — a missing asset is not an
-# error (AGENTS.md). Pass a different source directory as $1 if the meshes live
-# in another checkout.
-set -e
+# Import separately built vehicle meshes; the local Blender build needs no copy.
+set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SRC="${1:-$HERE/../web/assets}"
+SRC="${1:-$HERE/../assets/craft}"
 DST="$HERE/../assets/craft"
 mkdir -p "$DST"
+SRC="$(cd "$SRC" && pwd -P)"
+DST="$(cd "$DST" && pwd -P)"
 n=0
 for f in "$SRC"/*.glb; do
   [ -e "$f" ] || continue
-  cp "$f" "$DST/"
+  if [ "$SRC" != "$DST" ]; then cp "$f" "$DST/"; fi
   n=$((n + 1))
 done
 echo "synced $n vehicle mesh(es) from $SRC into $DST"

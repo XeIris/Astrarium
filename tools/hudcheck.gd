@@ -42,8 +42,8 @@ func _ready() -> void:
 		var temp_dir := OS.get_environment("TMPDIR")
 		if temp_dir.is_empty(): temp_dir = OS.get_environment("TEMP")
 		if temp_dir.is_empty(): temp_dir = "/tmp"
+		main.controls = ControlBindings.new("")
 		main.controls.file_path = temp_dir.path_join("astrarium-hudcheck-controls-%d.json" % OS.get_process_id())
-		main.controls.bindings = ControlBindings.DEFAULTS.duplicate(true)
 		hud.update_binding_labels(main.controls.bindings)
 		main.lessons.store = ""
 		main.lessons.progress = {"done": {}, "last": null}

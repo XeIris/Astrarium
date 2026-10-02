@@ -500,6 +500,7 @@ func begin_cruise(target_body, accel_g = null, mission = null) -> void:
 		return
 	cruise = c
 	cruise_ctx = {
+		"coord0": vessel.coord, "met0": vessel.met, "clock_delta0": vessel.clock_delta,
 		"parent": vessel.parent, "parent0": vessel.parent.pos.clone(),
 		"target": target_body, "target0": (target_body as Body).pos.clone() if target_body != null else null,
 		"stage": st, "name": dname, "arrived": false,
@@ -582,10 +583,12 @@ func _adopt_parent(body: Body) -> void:
 
 ## One frame of cruise: advance the exact solution, place the ship, refill the
 ## orbital readouts.
-func _step_cruise(dt: float, sim_seconds: float) -> void:
+func _step_cruise(dt: float, sim_seconds: float, advance_world: Callable = Callable()) -> float:
 	# One call whatever the warp: the step splits itself at every leg boundary
 	# (see Relativity.Cruise.step), so a big one lands exactly as a small one.
-	cruise.step(sim_seconds)
+	var before: float = cruise.t
+	cruise.step(sim_seconds, advance_world)
+	var elapsed: float = cruise.t - before
 	var ctx: Dictionary = cruise_ctx
 	# The line's ends move with their bodies, blended by progress, so there's no jump
 	# at either end.
@@ -602,8 +605,9 @@ func _step_cruise(dt: float, sim_seconds: float) -> void:
 		if f > 0.5: _adopt_parent(tb)
 	vessel.r.copy_from(_a).sub_in(vessel.parent.pos).scale_in(Rocketry.AU_M)
 	vessel.v.copy_from(cruise.dir).scale_in(cruise.beta * Rocketry.C_MS)
-	vessel.met = cruise.tau; vessel.coord = cruise.t
-	vessel.clock_delta = cruise.tau - cruise.t
+	vessel.met = float(ctx.get("met0", 0.0)) + cruise.tau
+	vessel.coord = float(ctx.get("coord0", 0.0)) + cruise.t
+	vessel.clock_delta = float(ctx.get("clock_delta0", 0.0)) + cruise.tau - cruise.t
 	var st = ctx.stage
 	st.prop = cruise.prop
 	var burning: bool = cruise.leg == "accel" or cruise.leg == "decel"
@@ -639,6 +643,7 @@ func _step_cruise(dt: float, sim_seconds: float) -> void:
 	if cruise.leg == "arrived" and not ctx.arrived:
 		ctx.arrived = true
 		_arrive(tb)
+	return elapsed
 
 ## End of a crossing: a parking orbit at a body, or a stop at a star.
 func _arrive(body) -> void:
@@ -657,8 +662,8 @@ func _arrive(body) -> void:
 	vessel.place_in_orbit(alt, 0.0, atan2(vessel.r.z, vessel.r.x))
 	var st = cruise_ctx.stage
 	st.prop = cruise.prop
-	var met: float = cruise.tau
-	var coord: float = cruise.t
+	var met: float = vessel.met
+	var coord: float = vessel.coord
 	cruise = null; cruise_ctx = null
 	boost = Vector3.ZERO
 	vessel.met = met; vessel.coord = coord
@@ -809,33 +814,61 @@ func set_target(n) -> void:
 		autopilot.plan = null
 
 # UPDATE
-func update(dt: float, _frame = null) -> void:
-	if not active or vessel == null: return
+## dt is wall time; returns accepted coordinate seconds (cruise requests ship proper time).
+## advance_world advances the orrery and returns its accepted coordinate seconds.
+func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> float:
+	if not active or vessel == null: return 0.0
 	vessel.bodies = bodies()
 	if not vessel.bodies.has(vessel.parent):
 		var d := dominant()
-		if d != null: vessel.set_parent(d, vessel.bodies)
-		else: return
+		if d != null: vessel.rebase(d)
+		else:
+			active = false
+			return 0.0
 
 	# Slave the orrery's clock every frame, or the slider desyncs planets and vehicle.
 	state.time_scale = WARPS[warp_idx] / Rocketry.YR_S
 	# At warp 1 flight time is wall-clock time; the orrery multiplier is forced to 1.
 	var w: float = warp() * (0.0 if state.paused else 1.0)
 	var sim_seconds := dt * w
+	var control_frame := {"guided": false, "fraction": 1.0}
+	var world := func(seconds: float) -> float:
+		var accepted: float = advance_world.call(seconds)
+		control_frame.fraction = clampf(accepted / seconds, 0.0, 1.0) if seconds > 0.0 else 0.0
+		vessel.bodies = bodies()
+		if not vessel.bodies.has(vessel.parent) or not vessel.parent.alive:
+			var d := dominant()
+			if d != null: vessel.rebase(d)
+			else:
+				active = false
+				vessel.phase = Vessel.PHASE.DESTROYED
+		return accepted
+	var opts := {}
+	if advance_world.is_valid(): opts.advance_world = world
 
 	if cruise != null:
 		# Ship proper time is the natural variable in cruise — the drive, the
 		# fuel and the crew all live on it.
-		_step_cruise(dt, sim_seconds)
+		sim_seconds = _step_cruise(dt, sim_seconds, world if advance_world.is_valid() else Callable())
 	else:
 		boost = Vector3.ZERO
-		if count != null: step_count(sim_seconds)
-		if autopilot != null: autopilot.update(minf(dt, 0.1))
+		if not advance_world.is_valid():
+			if count != null: step_count(sim_seconds)
+			if sim_seconds > 0.0 and autopilot != null: autopilot.update(minf(dt, 0.1))
+		else:
+			# Stateful guidance keeps its frame cadence; countdown uses every accepted interval.
+			opts.controls = func(seconds: float) -> void:
+				if count != null: step_count(seconds)
+				if not control_frame.guided and autopilot != null:
+					control_frame.guided = true
+					autopilot.update(minf(dt * control_frame.fraction, 0.1))
+			opts.control_may_thrust = count != null or (autopilot != null and autopilot.program != null)
 		# Physics warp up to 4×; above that the vessel goes on rails, which is
 		# only legal unpowered and out of the air (checked inside step()).
-		var rails := w > 4.0 and vessel.can_rail()
+		var rails: bool = w > 4.0 and vessel.can_rail() and not opts.get("control_may_thrust", false)
 		if rails:
-			sim_seconds = vessel.step(sim_seconds, {"rails": true})
+			opts.rails = true
+			sim_seconds = vessel.step(sim_seconds, opts)
 		else:
 			# Sub-step so a big real-time dt never becomes one huge integration.
 			var rem := sim_seconds
@@ -845,7 +878,7 @@ func update(dt: float, _frame = null) -> void:
 			while rem > 1e-6 and guard < 24:
 				guard += 1
 				var h := minf(rem, 0.5 * maxf(w, 1.0))
-				var advanced: float = vessel.step(h)
+				var advanced: float = vessel.step(h, opts)
 				elapsed += advanced
 				rem -= advanced
 				if vessel.step_guard_hit: break
@@ -858,7 +891,12 @@ func update(dt: float, _frame = null) -> void:
 		if pending_cruise != null:
 			begin_cruise(pending_cruise.body, pending_cruise.accel, pending_cruise.mission)
 
-	update_visual(dt, sim_seconds)
+	if not advance_world.is_valid(): finish_frame(dt, sim_seconds)
+	return sim_seconds
+
+func finish_frame(dt: float, coordinate_seconds: float) -> void:
+	if not active or vessel == null: return
+	update_visual(dt, coordinate_seconds)
 	if hud != null: update_hud()
 
 func _local_up_north() -> Array:

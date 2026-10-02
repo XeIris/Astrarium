@@ -19,12 +19,12 @@ static func native_available() -> bool:
 	return _native == 1
 
 ## Returns { stepped, steps } exactly as Derive.step_physics does.
-static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost: float, on_merger: Callable = Callable()) -> Dictionary:
+static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost: float, on_merger: Callable = Callable(), initial_steps: int = 0) -> Dictionary:
 	if not native_available():
-		return Derive.step_physics(bodies, sim_dt, max_step, gw_boost, on_merger)
-	if sim_dt <= 0.0: return {"stepped": 0.0, "steps": 0}
+		return Derive.step_physics(bodies, sim_dt, max_step, gw_boost, on_merger, initial_steps)
+	if sim_dt <= 0.0: return {"stepped": 0.0, "steps": initial_steps}
 	var remaining := sim_dt
-	var guard := 0
+	var guard := initial_steps
 	var stepped := 0.0
 	while true:
 		var n := bodies.size()

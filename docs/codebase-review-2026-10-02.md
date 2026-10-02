@@ -41,21 +41,22 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R03 | P1 | Verified | Source-specific softening gives unequal opposing forces; energy diagnostic uses a different potential. | Ordinary pairs use symmetric forces and a matching potential; compact/GW approximation limits explicitly identified. |
 | R04 | P2 | Verified | Course harness never starts the simulation, exposing an incomplete surface-camera clipping update. | Full course walk has zero errors; surface, free, flight and true-scale Earth cameras remain useful; rendered evidence inspected. |
 | R05 | P2 | Verified: targeted gates | Wrappers can mask child failure, missing completion or reported defects; some checks only print comparisons. | Nonzero exits for defects, child failure and incomplete runs; comparison validates bodies, positions, velocities and finite values; deliberate failure probes reject correctly. |
-| R06 | P2 | Partial: flight-local | Vessel integration guard advances clocks by requested time even when integration is truncated. | Guard exhaustion reproduced; clocks/downstream operations use integrated time; exhaustion visible and normal flight remains equivalent. Shared orrery frame ordering remains unresolved. |
+| R06 | P2 | Verified: batch 2 | Vessel integration guard advances clocks by requested time even when integration is truncated. | World and flight share accepted coordinate time and a frame budget; moving-parent guards, rails fallback and cruise arrival pass production-driver checks. |
 | R07 | P2 | Verified | FPS uses clamped simulation time and averages reciprocal frame durations. | FPS measures frame count divided by actual elapsed time, independently of simulation/screenshot stepping. |
 | R08 | P2 | Verified | Guidance conflicts with behavior and relies on prose where invariants should be checked. | Instructions accurately describe physics/display separation, checks, API contracts and camera scope; no blanket silent acceptance of malformed authored data. |
 | R09 | P2 | Backlog | `main.gd` concentrates body events, camera control, mode coordination, UI wiring and checks. | Extract one coherent responsibility at a time, retain visible frame order and lifecycle ownership, run affected checks after each extraction. |
 | R10 | P2 | Backlog | Important interfaces use unchecked dictionary keys and optional dynamic method calls. | Prioritize typed subsystem dependencies and validated input schemas; malformed authored data produces actionable diagnostics. |
-| R11 | P2 | Partial: lesson keys | Lesson directives may silently disappear; missing asset parts may silently stop moving. | All authored lesson keys and expected asset stage/part contracts validated; deliberate typo/renaming probes fail. |
+| R11 | P2 | Verified: batch 2 | Lesson directives may silently disappear; missing asset parts may silently stop moving. | Authored lesson keys and asset stage/part contracts validated; deliberate typo/part-removal probes fail. |
 | R12 | P2 | Backlog | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
 | R13 | P3 | Partial: lesson header | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
 | R14 | P2 | Profiling backlog | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Measure launch/studio GPU cost; preserve close detail while distant geometry and genuinely closed surfaces avoid unnecessary work. |
 | R15 | P2 | Profiling backlog | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
 | R16 | P3 | Profiling backlog | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | CPU/render-thread profile establishes material cost before changing lifetime or cache ownership. |
-| R17 | P2 | Backlog | All-resource export can include development/archived resources. | Inspect an exported package and exclude development/reference content without losing dynamically loaded runtime assets. |
+| R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
 | R18 | P3 | Backlog | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
-| R19 | P2 | Backlog | Progress/settings writes are direct and lack atomic replacement. | Interrupted writes preserve a last valid file; malformed/unwritable files handled visibly and safely. |
+| R19 | P2 | Verified: POSIX and simulated recovery | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows integration remains pending. |
 | R20 | P2 | Backlog | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
+| R21 | P2 | Open: reproduced at batch-1 baseline | Five-round staged-flight soak gains one ObjectCount after warmup while resource/node/orphan counts stay flat. | Identify the retained object or unfinished lifecycle; exact flat-count gate must pass without wider tolerances. |
 
 ## Evidence at the reviewed revision
 
@@ -243,7 +244,7 @@ integrated **6.25 s**, while the old clock advanced **10 s**, creating about
 **1,531 m** of launch-site divergence. Vessel clocks, sampling, contact and the
 flight driver's local effects now use integrated time. Both inner and outer guards
 report through the existing event log and recover without repeated warnings.
-R06 remains partial: `main.animate()` advances the orrery before flight, so the
+At the end of batch 1, R06 remained partial: `main.animate()` advanced the orrery before flight, so the
 shared world can still run ahead when flight truncates its requested time. Fixing
 that requires a coherent frame-order/time contract; reordering blindly would
 risk the existing parent/anchor/cruise dependencies.
@@ -256,7 +257,7 @@ unsupported `speed` / misplaced `instrument` vocabulary removed. Broader comment
 cleanup, profiling, architectural extraction and release work remain the bounded
 backlog above.
 
-## Suggested next assignments
+## Suggested assignments after batch 1
 
 1. Finish the shared flight/orrery time contract (R06), then validate a forced
    guard with moving parents and cruise transitions.
@@ -268,3 +269,107 @@ backlog above.
    order and teardown ownership. Add atomic progress/settings replacement (R19).
 5. Trim redundant comments while touching their owners (R13); retain the physical
    rationale and lifetime contracts. Avoid a repo-wide cosmetic purge.
+
+## Batch 2
+
+Batch 1 was committed as `a017a2c` (`fix(sim): correct physical invariants and make
+verification reliable`) at the user's request. Batch 2 begins from that clean
+revision and retains distinct agent ownership:
+
+| Owner | Assignment |
+|---|---|
+| Rendering/flight agent | R06: shared coordinate time, per-frame integration budgets, moving parents and cruise transitions |
+| Verification/asset agent | R11: validate authored stage/engine/articulation contracts; fix discovered procedural/authored inconsistencies |
+| Persistence agent | R19: safe controls/course saves, malformed-file handling, isolated failure/recovery checks |
+| Coordinator | R17: inspect exported resources and remove development content; review and integrate the combined changes |
+
+The export inspection established a narrower issue than the initial suspicion:
+the archived web tree was absent, but the resource ZIP included **67 tool entries**
+and a prior app bundle's icon. Those 68 development entries occupied **621,691
+uncompressed bytes**. Excluding development directories reduced the local ZIP from
+**53,071,690** to **52,477,832 bytes**, with zero development entries and retained
+craft/map imports. This is release hygiene, not a significant performance claim.
+The final resource ZIP passes the remap/boot checks with **305 entries** and
+**52,495,410 bytes**. The macOS debug bundle includes the universal native dylib;
+running its executable from `/tmp`, without `--path`, renders the authored Shuttle
+and launch complex with no script/shader errors. This is a local debug smoke,
+not release signing/notarization or clean-clone evidence.
+
+Flight now requests world coordinate time at integration boundaries, accepts the
+world's actual duration, and commits trails/climate/rendering once per frame.
+Cruise converts each proper-time leg to coordinate time and inverts a truncated
+accepted duration. MET and coordinate clocks remain continuous across entry and
+arrival. Stateful guidance retains one update per frame; running it per RK4
+interval initially caused a Shuttle insertion failure that the new production
+driver caught. Countdown advances on accepted time. Active guidance programs stay
+on RK4; rails are reserved for unpowered commands. Root/scoped instructions now
+describe the actual world/local conversions rather than asserting every
+conversion occurs in one file.
+
+Shared-time checks pass **75/75** with both native and GDScript kernels. Sequential
+CPU batch samples on the local Apple M5 measured orbit frames **1.241→1.263 ms**
+and guided ascent **2.101→2.117 ms** versus `a017a2c`, about **1.8% / 0.8%**
+overhead. These are local samples, not GPU timings or general performance bounds.
+
+The four live-parent launches meet the authored apoapsis targets within 3 km;
+periapsis meets guidance's 92% cutoff criterion, with a 3 km test allowance. These
+are insertion gates, not proof of fully circular orbits. Final apo/peri (km):
+Saturn V **184.9/176.6**, Falcon 9 **200.6/184.9**, Shuttle **301.0/276.0**,
+Starship **250.1/231.0**. Coordinate clock disagreement remains below 6e-10 s.
+The eleven legacy scenarios retain their batch-1 numerical results exactly.
+
+Craft templates validate stage scope, required driven parts, numeric ordering,
+geometry, identity pivot rotation and fixed/gimballed authority once at load.
+Shuttle engine authority follows the external-tank engine specification; the
+procedural CSM now registers its pivot. Blender output goes directly to runtime
+assets, resolving a documented workflow that previously wrote into frozen `web/`.
+The local Shuttle artifact was rebuilt to move fixed flap orientation onto a
+mount. Generated GLBs remain gitignored: rebuild/import them on other machines.
+
+Geometry parity remains R12: authored/procedural audit heights differ for Sky
+Crane **6.9/6.6 m**, Ion Cruiser **17.7/17.1 m**, and Beetle **4.5/4.9 m**.
+The audit checks valid geometry and clearance; it does not assert parity.
+
+The shared 100-line JSON helper verifies same-directory temporary output before
+publication. POSIX rename replaces atomically; Godot's Windows replacement has a
+delete-before-rename window, so it retains/restores a validated recovery backup.
+Malformed data blocks automatic overwrite; explicit Reset rolls back on failure.
+Controls/course/icon failures reach the HUD. **64/64** isolated assertions cover
+truncation, backup/restore and destructive publication failures, invalid schemas,
+conflicts and Reset. No power-loss/fsync durability or actual Windows result is
+claimed.
+
+Integrated validation: **54 HUD interactions**, **35 lessons / 108 steps / zero
+errors**, **129 physics invariants**, **20 science checks**, **360 authored rig
+assertions**, **348 fallback assertions**, all four authored/fallback pad/craft
+combinations with zero intrusion. Deliberate malformed rigs and pad obstructions
+exit 1. Model-viewer counts stay exactly flat over five rendered rounds after
+the harness actually drives asynchronous loading to completion.
+
+The five-round staged-flight soak still **fails**: objects **7276→7277**, resources
+**210**, nodes **1810**, orphans **47**. Notification quiescence removes transient
+Tween spikes but does not explain the retained extra object. The same +1 failure
+reproduces at `a017a2c`; verbose shutdown reports no leaked instances. This remains
+R21, not a proven craft leak and not a green lifecycle result. The strict gate is
+unchanged. Local logs: `/tmp/b2-soak-flight-quiesced.log` and
+`/tmp/b2-soak-baseline-flight.log`.
+
+The exported Earth smoke exposed another framing defect shared with the source:
+the glide/cut decision used the old camera radius before framing the destination.
+At true scale, a 60-frame capture could still be far from Earth. The destination
+radius now governs that decision, and CLI size convention precedes focus.
+Source and packaged 60-frame true-scale Earth captures were inspected after the
+fix; the complete course and 54 HUD interactions pass again. Course boot failures
+now report and exit immediately instead of entering a walk on a broken stage;
+the unsupported headless renderer provides a negative boot probe (exit 1).
+
+Next batch should investigate R21 first, establish repeatable frame/GPU profiles
+and an integrated check entry point (R20), then choose one measured performance
+fix or one bounded extraction from `main.gd` (R09). Resolve R12's geometry parity
+before introducing shared vehicle-generation infrastructure. Avoid a framework
+rewrite or comment purge merely to shrink files.
+
+After the remediation batches, re-review the current codebase independently:
+rerun correctness/failure probes, inspect the actual architecture and instruction
+files, and measure frame-time costs. Do not treat completed checkmarks or agents'
+reports as a substitute for that review.

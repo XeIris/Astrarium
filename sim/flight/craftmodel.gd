@@ -853,6 +853,13 @@ static func _new_parts() -> Dictionary:
 	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "nozzles": []}
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
+	var built := _build_stage(spec, ctx)
+	var limits := CraftAssets.gimbal_limits(spec, ctx.get("vehicle", {}))
+	for i in mini(built.parts.gimbals.size(), limits.size()):
+		built.parts.gimbals[i].set_meta("gimbal_deg", limits[i])
+	return built
+
+static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	_init_mats()
 	var look: Dictionary = spec.get("look", {}) if spec.get("look") != null else {}
 	var skin: StandardMaterial3D = SKIN.get(look.get("skin", ""), M.white)
@@ -865,7 +872,7 @@ static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if authored != null:
 		var ga := _grp()
 		ga.add_child(authored)
-		CraftAssets.bind_parts(authored, parts, spec)
+		CraftAssets.bind_parts(authored, parts, spec, ctx.get("vehicle", {}))
 		return {"group": ga, "parts": parts}
 
 	if _t(look.get("srb")): return build_srb(spec, parts)
@@ -1294,7 +1301,9 @@ static func build_csm(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		seam.position = Vector3(cos(a) * r, sm_l / 2.0, sin(a) * r)
 		seam.rotation.y = -a; g.add_child(seam)
 	g.add_child(rcs_ring(sm_d, sm_l * 0.86, 4))
-	var b := bell(2.24, 62); b.scale = Vector3(1.15, 1.15, 1.15); g.add_child(b)
+	var pivot := _grp()
+	var b := bell(2.24, 62); b.scale = Vector3(1.15, 1.15, 1.15)
+	pivot.add_child(b); g.add_child(pivot); parts.gimbals.append(pivot)
 	var hd := dish(1.0); hd.position = Vector3(2.3, 1.1, 0); hd.rotation.z = -1.15; g.add_child(hd)
 	# ---- command module: the 33° cone, apex up, on its heat shield.
 	var cm_y := sm_l; var cm_h := 3.20; var cm_r := 1.955
@@ -2108,7 +2117,7 @@ static func build_craft(vehicle: Dictionary) -> Craft:
 		var spec: Dictionary = specs[i]
 		# The next stage's diameter, for an adapting interstage.
 		var next_d: float = specs[i + 1].D if i + 1 < specs.size() else spec.D
-		var built := build_stage(spec, {"id": vehicle.get("id", ""), "nextD": next_d})
+		var built := build_stage(spec, {"id": vehicle.get("id", ""), "nextD": next_d, "vehicle": vehicle})
 		var group: Node3D = built.group
 		# NOT "stage_<key>": that prefix is the authored file's own stage node,
 		# which sits INSIDE this group, and is_authored() looks for it there.
