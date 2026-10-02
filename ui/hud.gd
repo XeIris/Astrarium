@@ -561,7 +561,7 @@ func _build_settings() -> void:
 	var sg := grid(sim, [1.0, 1.0], 10.0, 5.0, 10.0, 12.0)
 	for kv in [["steps/frame", "setSteps"], ["energy drift", "setDrift"]]:
 		_stat(sg, kv[0], kv[1])
-	_note(sim, "Drift is the relative change in total energy since the scenario loaded. It is the honest measure of whether the step is short enough: a stable hierarchy holds ~1e-7 over tens of thousands of years, and a number climbing through 1e-3 means the cap is too long for what the bodies are currently doing.")
+	_note(sim, "Drift is the relative energy change since loading or a body-count change. For ordinary bodies with fixed masses and softening, it measures integration error. Black-hole and gravitational-wave scenarios show ≈ because their energy diagnostic is approximate. Edits and accretion also change the energy budget.")
 	m(B(sim, "Ghost", "Reset to scenario’s values", "simReset"), 0.0, 10.0).pressed.connect(func(): sim_reset.emit())
 
 	# CONTROLS

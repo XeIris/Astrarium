@@ -26,6 +26,11 @@ extends Node
 const TEMP_LAYER_BIT := 1 << 19
 const ALL_LAYERS := 0xFFFFF
 
+static func set_scene_clip(camera: Camera3D, near_plane: float) -> void:
+	# Float32 culling planes degenerate at larger ratios, even with reverse-Z depth.
+	camera.near = near_plane
+	camera.far = minf(100000.0, near_plane * 1.0e7)
+
 enum Mode { ORRERY, FLIGHT, MODEL }
 
 var hook_vp: SubViewport

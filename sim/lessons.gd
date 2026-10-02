@@ -1,50 +1,13 @@
 class_name Lessons
 extends RefCounted
 
-# THE COURSE: a beginner's astronomy syllabus written against the running sim.
-# Module order follows OpenStax *Astronomy 2e*; lessons are chosen against the
-# Nebraska Astronomy Applet Project's lab modules (the ideas that need a simulator,
-# not a paragraph); the framing is the IAU's Big Ideas in Astronomy.
-#
-# Two rules from the education research:
-#   · Name the misconception (`myth`). Seasons-from-distance and phases-from-shadow
-#     survive being told the answer; testing the wrong idea and watching it fail
-#     dislodges them.
-#   · The simulation is the argument: every lesson opens a real scenario and every
-#     claim is produced by the sim. Where it can't show something (parallax,
-#     cosmic expansion, the binding energy curve) the lesson says so and uses a
-#     figure.
-#
-# This file is data: no scene access, no imports. A step's `do` block is a
-# declarative request that sim/lessonui.gd executes against the stage; unknown
-# directives are ignored. Most steps give no `cam.radius`: `focus` frames at seven
-# radii, which works at both size conventions, and a stated distance ends up inside
-# the planet at true scale.
-#
-# THE `do` VOCABULARY
-#   preset      scenario key (sim/presets.gd, sim/edupresets.gd)
-#   focus       body name to follow
-#   cam         { radius, theta, phi, mode }; mode: orbit | free | surface
-#   band        imaging band 0–6 (Spectrum.BANDS)
-#   timeScale   simulated years per second
-#   speed       the dimensionless multiplier on top
-#   trueScale   true = real radii, false = readable exaggeration
-#   sky         { env, tilt, roll }, overriding the scenario's sky
-#   control     { id: value }: set a slider by its HUD id
-#   panel       { id: true|false }: open or collapse a panel. Opening the
-#               cross-section also collapses the course list (`coursePanel: false`),
-#               since they share the left column.
-#   localTime   'dawn' | 'morning' | 'noon' | 'dusk' | 'midnight' or a day fraction:
-#               turns the home world so the surface observer is at that time
-#   paused      true | false
-#   flare       body name: force an eruption
-#   collapse    body name: trigger core collapse
-#   instrument  photometer | gw | hr | cutaway (also settable per step)
-#
-# Dictionaries with camelCase keys. Bodies are HTML fragments using <p>, <em>,
-# <strong>, <kbd> (and <b> in myth and look-for boxes), interpreted by lessonui.gd.
-# Integers stay integers; the executor converts scales. Originally generated from
-# web/sim/lessons.js (tools/gen_lessons.mjs); web/ is frozen, so edit this file.
+# Syllabus sources: OpenStax Astronomy 2e, Nebraska Astronomy Applet Project,
+# and the IAU's Big Ideas in Astronomy. `myth` prompts test misconceptions;
+# figures cover claims the running simulation cannot demonstrate.
+# Stage requests use LessonUI.DO_KEYS and Course.apply_do(); coursecheck rejects
+# unknown keys. `instrument` belongs to the step, outside its `do` dictionary.
+# Prefer `focus` to frame a body at either size convention; explicit cam distances
+# are for wider views. Prose uses the HTML subset interpreted by LessonUI.html_bbcode.
 
 # FIGURES, only for what the sim can't show: too slow (cosmic expansion), too small
 # (a one-arcsecond parallax), or not in space (the binding energy curve). Stored as

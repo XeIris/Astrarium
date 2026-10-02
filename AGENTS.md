@@ -20,6 +20,8 @@ design.
 
 - Comment *why*, not *what*: a non-obvious reason, a source for a number, a trap.
   One or two lines is the default.
+- API documentation may state units, ownership, lifetime and failure behavior;
+  avoid narrating assignments that the code already makes clear.
 - A derivation longer than ~10 lines goes in `docs/physics/<topic>.md`, with a
   one-line pointer in the code.
 - No history (what the code used to do, which bug a line fixed). That belongs in
@@ -37,9 +39,10 @@ design.
 - `sim/flight/` is SI (metres, seconds), because an ascent in AU loses most of a
   float's mantissa. The bridge (`GM☉ = 1.32712440018e20 m³/s²`) is crossed only
   in `sim/flight/vessel.gd`.
-- Physics state is double: `DVec3`, never `Vector3`. Every camera sits at the
-  origin and nodes are placed at `abs.rel_v3(cam_pos)` (a floating origin), so
-  world space is camera-relative. See [docs/godot.md](docs/godot.md).
+- Physics state is double: `DVec3`, never `Vector3`. Orrery and flight cameras
+  sit at the origin and nodes are placed at `abs.rel_v3(cam_pos)` (a floating
+  origin), so world space is camera-relative. The isolated model studio uses
+  its own camera convention. See [docs/godot.md](docs/godot.md).
 
 ## What a body is
 
@@ -51,6 +54,10 @@ design.
 - Measured beats modelled: a spec with `radiusSun` / `teff` / `luminosity` /
   `radiusKm` (e.g. from `sim/starcat.gd`) overrides the evolutionary track. A
   measured `radiusKm` is also the contact distance.
+- Collision distance is physical: black holes use their horizon; other bodies
+  use an explicit `contactAU`, otherwise their physical radius. Scene/body scale and
+  true-scale toggles must not change physics. Check conservation independently
+  of the archived numeric reference; matching it can reproduce its defects.
 - Spawning and editing are the same operation: both end in `derive_body()`
   re-reading `b.spec`. Anything a spec implies belongs in `derive_body`, or it
   exists on spawn and vanishes on the first edit.
@@ -89,12 +96,14 @@ puts its own offsets on inner nodes. `ctx` is a `VisualCtx`
 
 - `sim/lessons.gd` is data with no scene access. A step's `do` block is a
   declarative request that `sim/lessonui.gd` executes against the stage. An
-  unimplemented directive is ignored, not thrown.
+  unavailable optional stage operation may be skipped at runtime; checks must
+  reject unknown authored directives so spelling mistakes are visible.
 - A `do` block is a patch, not a state: `apply_do` reloads only when the preset
   changes, then applies focus, then distances, then local time. The order is
   load-bearing.
-- Don't state a camera distance in a step. `focus` already frames a body at seven
-  radii, which works at both size conventions.
+- Prefer `focus` for body framing: it uses seven radii at either size convention.
+  An explicit distance is appropriate for system-wide or pedagogical framing;
+  check it under the size convention the step requests.
 - Instruments in a lesson card (light curve, strain, HR diagram) measure the live
   bodies every frame, never a table.
 
@@ -115,17 +124,22 @@ puts its own offsets on inner nodes. `ctx` is a `VisualCtx`
   interaction walk).
 - Key bindings: `ui/control_bindings.gd` owns the defaults, conflicts and
   `user://controls.json`. `main.gd` resolves keys before passing flight actions on.
-- The step cap is the one setting that changes the answer. The HUD reports
-  sub-steps per frame and energy drift, and says when `STEP_GUARD` is hit
+- Integrator step size changes numerical accuracy. The HUD reports sub-steps,
+  identifies approximate energy diagnostics, and says when `STEP_GUARD` is hit
   (otherwise the sim silently runs slow). Drift rebases when the body count
-  changes.
+  changes. FPS uses actual elapsed time, independently of simulation stepping.
 
 ## Checks
 
-There is no test suite; there are checks, listed in
-[README.md](README.md#verifying). Run the one that covers your change:
+Checks are listed in [README.md](README.md#verifying). Run the ones that cover
+your change. A check must reject defects and incomplete runs with a nonzero exit;
+printing a comparison alone is insufficient. Intentional differences from the
+frozen numeric reference must be explained, never hidden by wider tolerances.
 
 - presets, structure or contact radii: `tools/presetcheck.sh`
+- ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`
+  and `tools/nbodycheck.gd`
+- flight time/integration guards: `tools/flighttimecheck.gd` and the flight checks
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
@@ -137,5 +151,6 @@ There is no test suite; there are checks, listed in
 - parse errors: `Godot --headless --path . --import`, then `--quit`. Shader
   errors print as `SHADER ERROR` on first render.
 
-Long-run stability: Trisolaris stays stable for 60k+ years at ~1e-7 relative
-energy drift. For screenshots, use `frames=60 out=/abs/shot.png` (see README).
+Recheck long-run Trisolaris stability after changing forces or integration;
+short reference agreement does not establish a long-run bound. For screenshots,
+use `frames=60 out=/abs/shot.png` (see README).

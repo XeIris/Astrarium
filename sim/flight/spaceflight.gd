@@ -835,16 +835,25 @@ func update(dt: float, _frame = null) -> void:
 		# only legal unpowered and out of the air (checked inside step()).
 		var rails := w > 4.0 and vessel.can_rail()
 		if rails:
-			vessel.step(sim_seconds, {"rails": true})
+			sim_seconds = vessel.step(sim_seconds, {"rails": true})
 		else:
 			# Sub-step so a big real-time dt never becomes one huge integration.
 			var rem := sim_seconds
 			var guard := 0
+			var elapsed := 0.0
+			var was_guarded: bool = vessel.step_guard_hit
 			while rem > 1e-6 and guard < 24:
 				guard += 1
 				var h := minf(rem, 0.5 * maxf(w, 1.0))
-				vessel.step(h)
-				rem -= h
+				var advanced: float = vessel.step(h)
+				elapsed += advanced
+				rem -= advanced
+				if vessel.step_guard_hit: break
+			if rem > 1e-6 and not vessel.step_guard_hit:
+				vessel.step_guard_hit = true
+				if not was_guarded:
+					vessel.log_event("Flight frame limit — advanced %s of %s s; reduce time warp" % [U.fixed(elapsed, 3), U.fixed(sim_seconds, 3)])
+			sim_seconds = elapsed
 		if w > 4.0 and not vessel.can_rail(): set_warp(2)
 		if pending_cruise != null:
 			begin_cruise(pending_cruise.body, pending_cruise.accel, pending_cruise.mission)

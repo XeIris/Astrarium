@@ -9,7 +9,7 @@ extends RefCounted
 #     inspiral and merge with the right chirp.
 # DVec3 doubles. The pair loops read components directly: this is the hot loop (up
 # to 8000 sub-steps a frame). tools/physcheck.sh compares it against the JS
-# reference to the last bit, so operation order matters below.
+# reference; tools/invariantcheck.gd verifies conservation independently.
 
 const G := 4.0 * PI * PI                # 39.478 AU³ M☉⁻¹ yr⁻²
 const C := 63241.077                    # speed of light, AU/yr
@@ -63,21 +63,34 @@ static func compute_accel(bodies: Array) -> void:
 			rx *= inv; ry *= inv; rz *= inv           # unit vector a→b
 			# Pull strength of each body on the other. Compact bodies use the
 			# Paczyński–Wiita denominator (r − r_s)² so the ISCO/plunge are correct.
-			var fA := _pull_mag(b, dist)             # accel of A toward B
-			var fB := _pull_mag(a, dist)             # accel of B toward A
+			var fA: float
+			var fB: float
+			if a.type == "bh" or b.type == "bh":
+				# Source-wise PW is an educational approximation, not a conservative pair law.
+				fA = _pull_mag(b, dist)
+				fB = _pull_mag(a, dist)
+			else:
+				var d2 := dist * dist + pair_softening_sq(a, b)
+				var kernel := G * dist / (d2 * sqrt(d2))
+				fA = kernel * b.mass
+				fB = kernel * a.mass
 			a.acc.x += rx * fA; a.acc.y += ry * fA; a.acc.z += rz * fA
 			b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
 
-## |acceleration| from `source` at `dist`. Only black holes use Paczyński–Wiita.
+## RMS softening preserves each body's scale while giving a symmetric pair potential.
+static func pair_softening_sq(a: Body, b: Body) -> float:
+	var sa := a.softening if a.softening != 0.0 else a.radius * 0.5 + 1e-4
+	var sb := b.softening if b.softening != 0.0 else b.radius * 0.5 + 1e-4
+	return 0.5 * (sa * sa + sb * sb)
+
+## Source-wise field used only by pairs involving a black hole.
 static func _pull_mag(source: Body, dist: float) -> float:
 	var GM := G * source.mass
 	if source.type == "bh":
 		var denom := maxf(dist - source.rs, source.rs * 0.05)
 		return GM / (denom * denom)
-	# Plummer softening for extended bodies so close passes don't blow up.
-	var soft := source.softening if source.softening != 0.0 else (source.radius * 0.5 + 1e-4)
-	var d2 := dist * dist + soft * soft
-	return GM / d2
+	var soft := source.softening if source.softening != 0.0 else source.radius * 0.5 + 1e-4
+	return GM / (dist * dist + soft * soft)
 
 # GW radiation reaction for a bound compact binary: 2.5-PN energy loss as a drag,
 # scaled by `boost` (keeping the r(t) ∝ (t_c − t)^¼ chirp shape). Powers of G and C
@@ -164,7 +177,7 @@ static func resolve_collisions(bodies: Array) -> Array:
 			if not b.alive: continue
 			var d := a.pos.distance_to(b.pos)
 
-			# contact distance: event horizon for BHs, rendered surface otherwise.
+			# Physical contact only; drawing magnification must not affect mergers.
 			var ca := a.rs if a.type == "bh" else (a.contact_au if a.contact_au != 0.0 else a.radius)
 			var cb := b.rs if b.type == "bh" else (b.contact_au if b.contact_au != 0.0 else b.radius)
 			if d > ca + cb: continue
@@ -178,8 +191,7 @@ static func resolve_collisions(bodies: Array) -> Array:
 			big.mass = M
 			small.alive = false
 			events.append({"survivor": big, "absorbed": small, "separation": d})
-			# The inner loop carries on even if `a` was absorbed, so a three-way
-			# pile-up resolves as the reference does.
+			if not a.alive: break
 	return events
 
 ## Orbital speed for a circular orbit of radius r (AU) about mass M (M☉).

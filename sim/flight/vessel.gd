@@ -29,6 +29,7 @@ const PHASE := {
 
 # The orrery's year in seconds, for the AU/yr → m/s bridge.
 const _YR := 3.15576e7
+const STEP_GUARD := 400
 
 static var _a := DVec3.new()
 static var _b := DVec3.new()
@@ -142,6 +143,7 @@ var met: float = 0.0
 var coord: float = 0.0
 var clock_delta: float = 0.0
 var time_rate: float = 1.0
+var step_guard_hit := false
 
 # ---- telemetry / records
 var max_q: float = 0.0
@@ -750,10 +752,13 @@ func potential(rr: DVec3) -> float:
 ## Advance `dt` seconds; opts.rails = true asks for the analytic conic. Rails only
 ## unpowered, out of the air and off the ground, since thrust and drag aren't
 ## evaluated there. Entering and leaving rails re-seeds from the analytic state.
-func step(dt: float, opts: Dictionary = {}) -> void:
+## Returns the coordinate time advanced; the guard can shorten an RK4 step.
+func step(dt: float, opts: Dictionary = {}) -> float:
+	var was_guarded := step_guard_hit
+	step_guard_hit = false
 	if phase == PHASE.DESTROYED:
 		coord += dt
-		return
+		return dt
 	if phase == PHASE.LANDED and throttle <= 0.0:
 		# Landed: sit on the surface, turning with it. +Ω dt, not −: with ω on −Y only the
 		# positive sign agrees with ω × r (see guidance.gd spin_site).
@@ -767,7 +772,7 @@ func step(dt: float, opts: Dictionary = {}) -> void:
 		v.copy_from(_a)
 		step_clocks(dt)
 		sample(0.0)
-		return
+		return dt
 
 	if opts.get("rails", false) and can_rail():
 		if Orbit.propagate(r, v, env.mu, dt, r, v):
@@ -780,22 +785,29 @@ func step(dt: float, opts: Dictionary = {}) -> void:
 			step_clocks(dt)
 			sample(dt)
 			check_soi()
-			return
+			return dt
 
 	# ---- RK4, with the substep bounded by how fast the state is changing.
 	var remaining := dt
+	var elapsed := 0.0
 	var guard := 0
 	var s := Sample.new()
-	while remaining > 1e-9 and guard < 400:
+	while remaining > 1e-9 and guard < STEP_GUARD:
 		guard += 1
 		var h := minf(remaining, step_bound())
 		rk4(h, s)
 		remaining -= h
-	step_clocks(dt)
-	sample(dt, s)
+		elapsed += h
+	step_guard_hit = remaining > 1e-9
+	if not step_guard_hit: elapsed = dt
+	step_clocks(elapsed)
+	sample(elapsed, s)
 	auto_jettison()
 	check_soi()
-	contact(dt)
+	contact(elapsed)
+	if step_guard_hit and not was_guarded:
+		log_event("Flight integrator limit — advanced %s of %s s; reduce time warp" % [U.fixed(elapsed, 3), U.fixed(dt, 3)])
+	return elapsed
 
 ## Conditional separations. The fairing goes when free-molecular heating drops below
 ## ~1135 W/m² (usually near 110 km), so a lofted trajectory sheds it earlier.

@@ -9,8 +9,8 @@ extends Node
 #         [report=/abs/report.json] [only=<module>/<lesson>,...] [selftest=1]
 #
 # `selftest=1` plants a script error, a push_error and a push_warning in the first
-# step, and must report 2 errors, 1 warning. Prints one line per problem and a
-# summary (`COURSE 35L 170S 0E`), optionally writes JSON, and exits 1 on errors.
+# step plus an unknown directive, and must report 3 errors, 1 warning. Prints
+# one line per problem, optionally writes JSON, and exits 1 on errors.
 #
 # GDScript runtime errors print rather than throw, so a Logger (OS.add_logger)
 # catches script, shader and engine errors and attributes them to the running step.
@@ -64,13 +64,13 @@ func _ready() -> void:
 
 func _walk() -> void:
 	var only: PackedStringArray = String(args.get("only", "")).split(",", false)
-	main.hud.dismiss_start()
-	main.set_app_mode("learn", {"quiet": true})
+	main._start("sandbox")
 	var L = main.lessons
 	# The walk must not write the learner's progress file, and must start from
 	# nothing: a lesson marked done changes what resume() and the panel do.
 	L.store = ""
 	L.progress = {"done": {}, "last": null}
+	main.set_app_mode("learn", {"quiet": true})
 
 	for mod in Lessons.MODULES:
 		for lesson in mod.lessons:
@@ -89,6 +89,7 @@ func _walk() -> void:
 				report.steps += 1
 				_check(where, step)
 				if args.get("selftest", "0") == "1" and report.steps == 1:
+					_check(where, {"do": {"foucs": "Earth"}})
 					push_warning("coursecheck selftest warning")
 					push_error("coursecheck selftest push_error")
 					_selftest_throw()
@@ -118,7 +119,12 @@ func _selftest_throw() -> void:
 func _check(where: String, step: Dictionary) -> void:
 	var state = main.state
 	var hud = main.hud
+	if step.has("do") and not step.do is Dictionary:
+		report.errors.append("%s: do must be a dictionary" % where)
 	var d: Dictionary = step.get("do", {}) if step.get("do") is Dictionary else {}
+	for key in d:
+		if not LessonUI.DO_KEYS.has(key):
+			report.errors.append("%s: unknown directive \"%s\"" % [where, key])
 	if d.get("preset") and state.preset_key != d.preset:
 		report.errors.append("%s: asked for scenario \"%s\", got \"%s\"" % [where, d.preset, state.preset_key])
 	if d.get("focus"):

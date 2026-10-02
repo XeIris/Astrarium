@@ -21,8 +21,11 @@ var n := 0
 var frames := 45
 var fails := 0
 var passes := 0
+var mouse_inside := false
 
 func _ready() -> void:
+	get_window().mouse_entered.connect(func(): mouse_inside = true)
+	get_window().mouse_exited.connect(func(): mouse_inside = false)
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
@@ -35,6 +38,15 @@ func _ready() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0
 	hud = main.hud
+	if args.get("htest", "0") == "1":
+		var temp_dir := OS.get_environment("TMPDIR")
+		if temp_dir.is_empty(): temp_dir = OS.get_environment("TEMP")
+		if temp_dir.is_empty(): temp_dir = "/tmp"
+		main.controls.file_path = temp_dir.path_join("astrarium-hudcheck-controls-%d.json" % OS.get_process_id())
+		main.controls.bindings = ControlBindings.DEFAULTS.duplicate(true)
+		hud.update_binding_labels(main.controls.bindings)
+		main.lessons.store = ""
+		main.lessons.progress = {"done": {}, "last": null}
 	await get_tree().process_frame
 	await _setup(str(args.get("hstate", "sandbox")))
 	if args.get("htest", "0") == "1":
@@ -56,9 +68,13 @@ func _ready() -> void:
 		main.set_process(false)
 		await get_tree().process_frame
 		await RenderingServer.frame_post_draw
-		get_viewport().get_texture().get_image().save_png(str(args.hout))
-		print("HUDCHECK saved ", args.hout)
-	get_tree().quit()
+		var save_error := get_viewport().get_texture().get_image().save_png(str(args.hout))
+		if save_error == OK:
+			print("HUDCHECK saved ", args.hout)
+		else:
+			fails += 1
+			printerr("HUDCHECK failed to save ", args.hout, ": ", error_string(save_error))
+	get_tree().quit(1 if fails > 0 else 0)
 
 func _steps(k: int) -> void:
 	for i in k:
@@ -172,6 +188,9 @@ func _scroll_panel(panel: Control, frac: float) -> void:
 		return
 
 func _push(e: InputEvent) -> void:
+	if e is InputEventMouse and not mouse_inside:
+		get_viewport().notify_mouse_entered()
+		mouse_inside = true
 	get_viewport().push_input(e, true)
 
 func _click_at(p: Vector2) -> void:
@@ -182,7 +201,8 @@ func _click_at(p: Vector2) -> void:
 		e.position = p
 		e.global_position = p
 		_push(e)
-		await get_tree().process_frame
+	# Native mouse-exit notifications must not split the synthetic click.
+	await get_tree().process_frame
 
 func _move(p: Vector2, rel := Vector2.ZERO, held := true) -> void:
 	var m := InputEventMouseMotion.new()
@@ -253,7 +273,7 @@ func _key(code: Key, shift := false) -> void:
 		k.pressed = pressed
 		k.shift_pressed = shift
 		_push(k)
-		await get_tree().process_frame
+	await get_tree().process_frame
 
 func _type(text: String) -> void:
 	for ch in text:
@@ -281,8 +301,10 @@ func check(name: String, ok: bool) -> void:
 # ---- the interaction walk --------------------------------------------------------
 func _interaction_walk() -> void:
 	var st = main.state
-	if not st.app_mode == "sandbox":
-		await _start("sandbox")
+	hud.set_settings_open(false)
+	await _start("sandbox")
+	st.paused = true
+	st.speed = 1.0
 	for sec in ["View & Camera", "Imaging Band", "Time", "Suns"]:
 		hud.set_section_open(hud.section(sec), true)
 	await _steps(3)

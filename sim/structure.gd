@@ -418,6 +418,12 @@ static func structure_of(spec: Dictionary) -> Dictionary:
 		"gas-giant": return _giant_structure(spec, mass, spin_frac)
 		_: return _rocky_structure(spec, mass, spin_frac)
 
+# Radius measurements take precedence before density, gravity and rotation derive.
+static func _measured_radius_au(spec: Dictionary, modeled_au: float) -> float:
+	if _pos(spec.get("radiusKm")): return float(spec.radiusKm) * Physics.AU_PER_KM
+	if _pos(spec.get("radiusSun")): return float(spec.radiusSun) * Physics.AU_PER_RSUN
+	return modeled_au
+
 # Shared tail: apply rotation to a finished non-rotating structure.
 static func _with_rotation(s: Dictionary, mass: float, kind: String, spin_frac: float) -> Dictionary:
 	var omega_crit := breakup_omega(mass, s.radiusAU, kind)
@@ -456,7 +462,8 @@ static func _rocky_structure(spec: Dictionary, mass: float, spin_frac: float) ->
 			"Above 13 M_J the core burns deuterium. This is a brown dwarf, not a planet.")
 
 	var r_earth := rocky_radius_earth(m_earth, comp)
-	var radius_au := r_earth * R_EARTH / 1000.0 * Physics.AU_PER_KM
+	var radius_au := _measured_radius_au(spec, r_earth * R_EARTH / 1000.0 * Physics.AU_PER_KM)
+	r_earth = radius_au / (R_EARTH / 1000.0 * Physics.AU_PER_KM)
 	var rho_mean := (mass * M_SUN) / ((4.0 / 3.0) * PI * pow(r_earth * R_EARTH, 3.0))
 	var cc := central_conditions(mass, radius_au / Physics.AU_PER_RSUN, 0.0, 1.0)
 	# A cold solid isn't virial: use Earth's 5700 K core, scaling ~M^0.6.
@@ -529,7 +536,8 @@ static func _giant_structure(spec: Dictionary, mass: float, spin_frac: float) ->
 			"Above %s M☉ the core sustains hydrogen fusion. This is a star." % U.fixed(h_limit, 3))
 	var m_jup := mass / M_JUP_SUN
 	var r_jup := giant_radius_jup(m_jup)
-	var radius_au := r_jup * R_JUP / 1000.0 * Physics.AU_PER_KM
+	var radius_au := _measured_radius_au(spec, r_jup * R_JUP / 1000.0 * Physics.AU_PER_KM)
+	r_jup = radius_au / (R_JUP / 1000.0 * Physics.AU_PER_KM)
 	var rho := (mass * M_SUN) / ((4.0 / 3.0) * PI * pow(r_jup * R_JUP, 3.0))
 	var brown := mass >= float(LIMITS.deuteriumBurn)
 	# Jupiter's centre is ~20 000 K; brown dwarfs reach ~3e6 K.
@@ -619,23 +627,23 @@ static func _star_structure(spec: Dictionary, mass: float, spin_frac: float) -> 
 	if not wolf_rayet: R = minf(R, sqrt(L) * pow(5772.0 / 3200.0, 2.0))
 
 	# Measured values override the track.
-	if _pos(spec.get("radiusSun")): R = float(spec.radiusSun)
+	var radius_au := _measured_radius_au(spec, R * Physics.AU_PER_RSUN)
+	R = radius_au / Physics.AU_PER_RSUN
 	if _pos(spec.get("luminosity")): L = float(spec.luminosity)
 	var gamma := L / L_edd
 
 	var teff: float = float(spec.teff) if _pos(spec.get("teff")) else 5772.0 * pow(L / (R * R), 0.25)
 	var gd := gravity_darkened_temps(teff, spin_frac)
-	var radius_au := R * Physics.AU_PER_RSUN
 	var cc := central_conditions(mass, R, ph.X, Z)
 	var convective_envelope := teff < 7000.0
 	var convective_core := mass > 1.2
 
 	var s := {
 		"type": "star", "kind": "star", "mass": mass, "Z": Z,
-		"measured": _pos(spec.get("radiusSun")) or _pos(spec.get("teff")),
+		"measured": _pos(spec.get("radiusSun")) or _pos(spec.get("radiusKm")) or _pos(spec.get("teff")),
 		"label": "%s · %s" % [spectral_full(teff, luminosity_class(R, mass)), ph.label],
 		"phase": ph, "phaseF": ph_f,
-		"radiusAU": radius_au, "radiusSun": R, "radiusKm": R * R_SUN / 1000.0,
+		"radiusAU": radius_au, "radiusSun": R, "radiusKm": radius_au / Physics.AU_PER_KM,
 		"luminosity": L, "teff": teff, "tPole": gd.tPole, "tEq": gd.tEq, "gdBeta": gd.beta,
 		"Tc": cc.Tc, "Pc": cc.Pc, "rhoC": cc.rhoC, "density": cc.rhoMean, "mu": cc.mu,
 		"X": ph.X, "eddington": gamma, "msLifetime": t_ms,
@@ -767,7 +775,8 @@ static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) 
 		}
 
 	var r_km := neutron_radius_km(mass)
-	var radius_au := r_km * Physics.AU_PER_KM
+	var radius_au := _measured_radius_au(spec, r_km * Physics.AU_PER_KM)
+	r_km = radius_au / Physics.AU_PER_KM
 	var rs := Physics.schwarzschild(mass)
 	var compactness := rs / radius_au              # 2GM/Rc² — how relativistic
 	var rho := (mass * M_SUN) / ((4.0 / 3.0) * PI * pow(r_km * 1000.0, 3.0))
@@ -826,14 +835,15 @@ static func _white_dwarf_structure(spec: Dictionary, mass: float, spin_frac: flo
 			},
 		}
 	var R := white_dwarf_radius_sun(mass)
-	var radius_au := R * Physics.AU_PER_RSUN
+	var radius_au := _measured_radius_au(spec, R * Physics.AU_PER_RSUN)
+	R = radius_au / Physics.AU_PER_RSUN
 	var teff := float(U.nz(spec.get("teff"), 12000.0))
 	var rho := (mass * M_SUN) / ((4.0 / 3.0) * PI * pow(R * R_SUN, 3.0))
 	var s := {
 		"type": "white-dwarf", "kind": "wd", "mass": mass,
-		"label": "White dwarf", "radiusAU": radius_au, "radiusSun": R, "radiusKm": R * R_SUN / 1000.0,
+		"label": "White dwarf", "radiusAU": radius_au, "radiusSun": R, "radiusKm": radius_au / Physics.AU_PER_KM,
 		"density": rho, "teff": teff, "Tc": 1e7,
-		"luminosity": 4.0 * PI * pow(R * R_SUN, 2.0) * SIGMA * pow(teff, 4.0) / L_SUN,
+		"luminosity": float(U.nz(spec.get("luminosity"), 4.0 * PI * pow(R * R_SUN, 2.0) * SIGMA * pow(teff, 4.0) / L_SUN)),
 		"verdict": {
 			"state": VERDICT.ok if mass > float(LIMITS.chandrasekhar) * 0.93 else VERDICT.degenerate,
 			"label": "Electron degeneracy",
@@ -905,6 +915,9 @@ static func _hole_layers(M: float, r_plus: float, r_isco: float, a: float) -> Ar
 # Rebuild a body that crossed a threshold as what it is, with the reason.
 static func _reclassified(new_type: String, spec: Dictionary, mass: float, spin_frac: float, why: String) -> Dictionary:
 	var sp := spec.duplicate()
+	# Measurements describe the previous object, not its ignited/collapsed model.
+	for key in ["radiusKm", "radiusSun", "teff", "luminosity", "rs", "contactAU"]:
+		sp.erase(key)
 	sp.type = new_type; sp.mass = mass; sp.spinFrac = spin_frac
 	var s := structure_of(sp)
 	if spec.get("type") != null:

@@ -59,7 +59,6 @@ var xsec_open := false
 var learn_entered := false
 var last_craft := "saturnv"
 var rest_spawn_angle := 0.0
-var fps_acc := 0.0
 var fps_count := 0
 var fps_time := 0.0
 var hud_acc := 0.0
@@ -466,11 +465,18 @@ func edit_body(b: Body, patch: Dictionary):
 
 # STRUCTURAL CONSEQUENCES: when the interior model says a body can't hold itself
 # up, it becomes something else (collapse, core collapse, reclassification).
-func transmute(b: Body, new_type: String, why) -> void:
+func transmute(b: Body, new_type: String, why, remnant_spec: Dictionary = {}) -> void:
 	var wpos := b.scene_pos.clone()
+	# Measurements describe the original object, not its remnant or reclassification.
+	if b.type != new_type:
+		for key in ["radiusKm", "radiusSun", "contactAU", "rs", "teff", "luminosity"]:
+			b.spec.erase(key)
+		b.radius_sun = null; b.teff = null; b.luminosity = null; b.spectral = null
+		b.rs = 0.0
 	b.type = new_type
 	# spinFrac rides in the spec because derive_body reads it from there.
 	b.spec = U.merged(b.spec, {"type": new_type, "mass": b.mass, "spinFrac": b.spin_frac})
+	b.spec.merge(remnant_spec, true)
 	b.def = Derive.TYPE_DEFAULTS.get(new_type, Derive.TYPE_DEFAULTS.planet)
 	if new_type == "bh":
 		b.rs = Physics.schwarzschild(b.mass)
@@ -521,8 +527,7 @@ func core_collapse(b: Body) -> void:
 		b.radius_sun = Structure.white_dwarf_radius_sun(b.mass)
 		b.radius = float(b.radius_sun) * Physics.AU_PER_RSUN
 		b.teff = 30000.0
-		b.spec = U.merged(b.spec, {"type": "white-dwarf", "mass": b.mass, "teff": 30000.0})
-		transmute(b, "white-dwarf", "%s: envelope shed → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))])
+		transmute(b, "white-dwarf", "%s: envelope shed → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))], {"teff": 30000.0})
 
 # Stand back from an explosion you were watching from close up — but only for
 # whoever was following the body, never pulling IN, and as a glide.
@@ -670,6 +675,8 @@ func handle_merger(ev: Dictionary) -> void:
 		spawn_flash(wpos, 0xbfe0ff, surv.radius_scene * 34.0, 0.28, {"kind": "shell", "grow": 10.0})
 	else:
 		spawn_flash(wpos, 0xffaa66, surv.radius_scene * 14.0, 0.8, {"kind": "shell", "grow": 6.0})
+	# The next sub-step needs the merged body's physical contact radius.
+	Derive.refresh_structure(surv)
 	state.consumed += 1
 	remove_body(gone.id)
 	refresh_ui()
@@ -1458,14 +1465,18 @@ func update_sim_stats() -> void:
 	var capped := state.last_steps >= STEP_GUARD
 	hud.set_text("setSteps", ("%d capped" % state.last_steps) if capped else str(state.last_steps))
 	hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. The answer is still correct — it advances the clock by what it actually integrated — but simulated time is now running slower than the Time panel says. Raise the step cap." if capped else "")
-	# A merger removes mass and its binding energy with it, so the reference is
-	# rebased on a body count change.
+	# Body creation/removal changes the energy budget independently of integration.
 	var E := Derive.total_energy(state.bodies)
 	if state.energy0 == null or state.energy_n != state.bodies.size():
 		state.energy0 = E
 		state.energy_n = state.bodies.size()
 	var rel := absf((E - float(state.energy0)) / float(state.energy0)) if state.energy0 else 0.0
-	hud.set_text("setDrift", "0" if rel < 1e-12 else U.expo(rel, 1))
+	var approximate := state.gw_boost != 0.0
+	for b in state.bodies:
+		if b.type == "bh": approximate = true
+	var drift := "0" if rel < 1e-12 else U.expo(rel, 1)
+	hud.set_text("setDrift", ("≈ " if approximate else "") + drift)
+	hud.set_warn("setDrift", approximate, "Approximate diagnostic: black-hole forces and gravitational-wave losses are not represented by a conserved pair potential." if approximate else "")
 
 # TIME CONTROL. The scale is logarithmic and backed by named regimes that are
 # computed FROM the current world's day length and orbital period.
@@ -2006,6 +2017,7 @@ func frame(dt: float = 1.0 / 60.0) -> void:
 	manual_dt = dt
 
 func _process(real_dt: float) -> void:
+	update_fps(real_dt)
 	# Cap dt at 50 ms: a slow machine runs the sim slow rather than jumping.
 	var dt: float = float(manual_dt) if manual_dt != null else minf(real_dt, 0.05)
 	manual_dt = null
@@ -2014,6 +2026,15 @@ func _process(real_dt: float) -> void:
 	if _cmd.has("out"): dt = float(_cmd.dt) if _cmd.has("dt") else 1.0 / 60.0
 	animate(dt)
 	_shot_tick()
+
+func update_fps(real_dt: float) -> void:
+	if at_start or real_dt <= 0.0: return
+	fps_count += 1
+	fps_time += real_dt
+	if fps_time >= 0.5:
+		hud.set_text("fps", str(int(U.jround(float(fps_count) / fps_time))))
+		fps_count = 0
+		fps_time = 0.0
 
 # ---- command-line screenshot mode:
 #   Godot --path . -- preset=vega band=5 frames=60 dt=0.0166 hud=0 \
@@ -2073,11 +2094,6 @@ func animate(dt: float) -> void:
 		return
 	var sim_dt := 0.0 if state.paused else dt * state.speed * state.time_scale
 	state.time += dt
-
-	fps_acc += 1.0 / maxf(dt, 1e-4); fps_count += 1; fps_time += dt
-	if fps_time > 0.5:
-		hud.set_text("fps", str(int(U.jround(fps_acc / fps_count))))
-		fps_acc = 0.0; fps_count = 0; fps_time = 0.0
 
 	# Everything downstream runs on the time that was integrated, so a guarded
 	# frame slows the spin, the clouds and the lens together with the bodies.
@@ -2241,9 +2257,7 @@ func _apply_camera() -> void:
 	var c := pipe.scene_cam
 	c.transform = Transform3D(cam_basis, Vector3.ZERO)
 	c.fov = cam_fov
-	c.near = cam_near
-	# Keep far/near ≤ 1e7 (docs/godot.md).
-	c.far = minf(100000.0, cam_near * 1.0e7)
+	RenderPipeline.set_scene_clip(c, cam_near)
 
 ## The surface view's per-frame block: sun directions, eye adaptation, climate sky.
 func _surface_frame(_home: Body, dt: float) -> void:
@@ -2260,32 +2274,41 @@ func _observe(home: Body) -> void:
 	cam_fov = pipe.scene_cam.fov
 	cam_near = pipe.scene_cam.near
 
-# eval=_preset_check: load every scenario, run a second of frames, report errors and
-# lost bodies. Runtime errors print rather than throw, so each preset is bracketed
-# by markers for tools/presetcheck.sh.
+# Yield rendered frames so the wrapper can detect first-use shader errors.
 func _preset_check() -> void:
+	set_process(false)
 	var rows := []
 	var errs := []
+	var expected_mergers := ["bhmerger", "nsmerger", "feeding", "binarystar", "stellar_zoo"]
 	for key in Presets.PRESET_ORDER:
 		print("PRESETCHECK BEGIN ", key)
 		load_preset(key)
 		var n0 := state.bodies.size()
-		for i in 60: animate(1.0 / 60.0)
+		for i in 60:
+			animate(1.0 / 60.0)
+			await get_tree().process_frame
 		var n1 := state.bodies.size()
 		rows.append("%s: %d->%d" % [key, n0, n1])
-		if n1 < n0 and not (key.contains("merger") or key.contains("feeding") or key.contains("binarystar") or key.contains("zoo")):
+		# These scenarios intentionally contain collisions or an accretion feed.
+		if n1 < n0 and not expected_mergers.has(key):
 			errs.append("%s: lost %d bodies in one second (%s)" % [key, n0 - n1, Presets.PRESETS[key].name])
+		for b in state.bodies:
+			if not b.pos.is_finite_v() or not b.vel.is_finite_v() or not is_finite(b.mass):
+				errs.append("%s: nonfinite state for body %d" % [key, b.id])
 		print("PRESETCHECK END ", key)
 	print("PRESETCHECK ROWS ", " | ".join(rows))
 	print("PRESETCHECK LOST ", errs)
 	print("PRESETCHECK DONE ", Presets.PRESET_ORDER.size())
-	get_tree().quit()
+	get_tree().quit(1 if not errs.is_empty() else 0)
 
-## `eval=_leak_check`: load every scenario five times with launches between, and
-## print object counts per pass. Refcounting doesn't collect cycles, so a count that
-## grows is a leak.
+# Compare settled lifecycle counts after one cache-warming pass.
 func _leak_check() -> void:
+	set_process(false)
+	lessons.store = ""
+	lessons.progress = {"done": {}, "last": null}
 	var keys: Array = Presets.PRESET_ORDER
+	var baseline := []
+	var failures := []
 	for pass_i in 5:
 		for key in keys:
 			load_preset(key)
@@ -2296,25 +2319,44 @@ func _leak_check() -> void:
 		# and a launch/abort cycle per pass: flight builds a vehicle, a pad and
 		# a plume set, and tears all of it down again
 		for k in ["falcon9", "saturnv"]:
-			launch_craft(k)
+			await launch_craft(k)
 			for i in 20: await get_tree().process_frame
 			end_flight()
 			for i in 3: await get_tree().process_frame
 		# let toast and fade timers run out, or they read as leaked objects
 		await get_tree().create_timer(5.0).timeout
+		# A timed-out SceneTreeTimer is released after the frame's callbacks.
+		for i in 2: await get_tree().process_frame
+		var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
+			int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
+			int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+			int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))]
+		if pass_i == 0:
+			baseline = current
+		else:
+			for metric in 4:
+				if current[metric] > baseline[metric]:
+					failures.append("pass %d metric %s grew %d->%d" % [pass_i,
+						["objects", "resources", "nodes", "orphans"][metric], baseline[metric], current[metric]])
 		print("LEAKCHECK pass %d objects=%d resources=%d nodes=%d vmem=%.1fMB" % [pass_i,
 			Performance.get_monitor(Performance.OBJECT_COUNT),
 			Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT),
 			Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
 			Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0])
-	get_tree().quit()
+	print("LEAKCHECK FAILURES ", failures)
+	print("LEAKCHECK DONE")
+	get_tree().quit(1 if not failures.is_empty() else 0)
 
-## `eval=_soak_check [soak=a,b] [rounds=n]`: repeat each feature on its own and
-## print the object, resource, node and orphan counts after each round. The first
-## round warms caches; a feature whose counts still grow after it leaks. Run it
-## with `--verbose` too: a node dropped once is flat here but leaked at exit.
+# Post-warmup growth fails; --verbose additionally exposes leaks on shutdown.
 func _soak_check() -> void:
+	set_process(false)
+	lessons.store = ""
+	lessons.progress = {"done": {}, "last": null}
 	var rounds := int(_cmd.get("rounds", 4))
+	if rounds < 3:
+		printerr("SOAK FAILED: at least three rounds are required")
+		get_tree().quit(1)
+		return
 	var only: PackedStringArray = str(_cmd.get("soak", "")).split(",", false)
 	var feats := {
 		"spawn_remove": func():
@@ -2374,25 +2416,42 @@ func _soak_check() -> void:
 			end_flight(),
 		"start_screen": func():
 			quit_to_start(); await get_tree().process_frame
-			_start("sandbox"); load_preset("solar"),
+			_start("sandbox"); load_preset("solar"); set_process(false),
 	}
+	for key in only:
+		if not feats.has(key):
+			printerr("SOAK FAILED: unknown feature ", key)
+			get_tree().quit(1)
+			return
+	var failures := []
 	load_preset("solar")
 	for i in 5: await get_tree().process_frame
 	for key in feats:
 		if not only.is_empty() and not only.has(key): continue
 		var counts := []
+		var baseline := []
 		for r in rounds:
 			if key != "start_screen" and state.preset_key != "solar": load_preset("solar")
 			await feats[key].call()
 			for i in 3: await get_tree().process_frame
 			await get_tree().create_timer(3.0).timeout
-			counts.append("%d/%d/%d/%d" % [Performance.get_monitor(Performance.OBJECT_COUNT),
-				Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT),
-				Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
-				Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT)])
+			for i in 2: await get_tree().process_frame
+			var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
+				int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
+				int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+				int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))]
+			counts.append("%d/%d/%d/%d" % current)
+			if r == 0:
+				baseline = current
+			else:
+				for metric in 4:
+					if current[metric] > baseline[metric]:
+						failures.append("%s round %d metric %s grew %d->%d" % [key, r,
+							["objects", "resources", "nodes", "orphans"][metric], baseline[metric], current[metric]])
 		print("SOAK %-14s %s" % [key, "  ".join(counts)])
+	print("SOAK FAILURES ", failures)
 	print("SOAK DONE")
-	get_tree().quit()
+	get_tree().quit(1 if not failures.is_empty() else 0)
 
 ## `eval=_shutdown_check`: drag render scale both ways, open a cutaway lesson, the
 ## model viewer and a launch, then quit. With `--verbose`, a clean pass prints no

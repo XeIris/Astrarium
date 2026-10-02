@@ -65,17 +65,12 @@ static func render_radius(b: Body, spec: Dictionary, mass: float, scene_scale: f
 	if true_scale and b.radius > 0.0: return b.radius * scene_scale
 	return base_radius(b, spec, mass) * body_scale
 
-# Destruction distance. By default the visible disc, which keeps the exaggerated
-# view self-consistent but ties outcomes to drawing (an exaggerated Trisolaris star
-# reaches ~9× its photosphere). A spec may give a real distance in AU (Roche limits
-# in presets), and a measured radiusKm is one: the Moon orbits 0.00257 AU from an
-# Earth drawn 0.15 AU across. Assigned to b.contact_au whenever a visual is (re)built.
-static func contact_au(b: Body, spec: Dictionary, radius_scene: float, scene_scale: float) -> float:
+# Contact is physical even when the displayed body is magnified. A stated
+# contactAU can represent a prescribed destruction distance such as a Roche limit.
+static func contact_au(b: Body, spec: Dictionary, _radius_scene: float = 0.0, _scene_scale: float = 1.0) -> float:
+	if b.type == "bh": return b.rs
 	var c = spec.get("contactAU")
-	if c != null: return float(c)
-	var rk = spec.get("radiusKm")
-	if rk != null and float(rk) != 0.0: return b.radius
-	return radius_scene / scene_scale
+	return float(c) if c != null else b.radius
 
 # Peak Shakura–Sunyaev disc temperature: T ∝ (Ṁ/M²)^¼ with Ṁ ∝ M gives T ∝ M^(−¼)
 # (~10⁷ K, X-ray, for a stellar-mass hole). The lens pass and a sub-pixel hole's
@@ -90,12 +85,22 @@ static func refresh_structure(b: Body) -> Dictionary:
 	var q := {
 		"type": b.type, "mass": b.mass, "spinFrac": b.spin_frac,
 		"phase": b.phase, "composition": b.composition, "Z": b.Z,
-		"radiusSun": b.radius_sun, "teff": sp.get("teff"), "luminosity": sp.get("luminosity"),
+		"radiusSun": sp.get("radiusSun"), "teff": sp.get("teff"), "luminosity": sp.get("luminosity"),
 		"radiusKm": sp.get("radiusKm"),
 		# Body.rs defaults to 0, which means "unset" (stars, planets).
 		"rs": b.rs if b.rs != 0.0 else null,
 	}
 	b.structure = Structure.structure_of(q)
+	if b.type != "bh" and float(b.structure.get("radiusAU", 0.0)) > 0.0:
+		b.radius = b.structure.radiusAU
+		if b.structure.has("radiusSun"):
+			b.radius_sun = b.structure.radiusSun
+
+	if b.structure.get("type") == b.type and b.type in ["star", "white-dwarf"] and b.structure.has("luminosity"):
+		b.teff = b.structure.teff
+		b.luminosity = b.structure.luminosity
+		b.spectral = Stellar.spectral_class(b.teff) if b.type == "star" else "D"
+	b.contact_au = contact_au(b, sp)
 	return b.structure
 
 # Derive everything a spec implies (horizon, radius, temperature, luminosity, spin,
@@ -144,21 +149,6 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 	b.spec = spec; b.def = def
 	refresh_structure(b)
 
-	# The interior model sets a star's teff and luminosity for its phase, so a star
-	# walked to the red giant branch turns red. A stated value still wins, and at the
-	# default mid-main-sequence phase nothing moves.
-	if type == "star" and b.structure.get("type") == "star":
-		if spec.get("teff") == null: b.teff = b.structure.teff
-		if spec.get("luminosity") == null: b.luminosity = b.structure.luminosity
-		if spec.get("radiusSun") == null: b.radius_sun = b.structure.radiusSun
-		b.spectral = Stellar.spectral_class(b.teff)
-
-	# A measured radius, else the interior model's (which turns over; no rocky planet
-	# exceeds ~3.06 R⊕).
-	var rk = spec.get("radiusKm")
-	var has_rk: bool = rk != null and float(rk) != 0.0
-	if not has_rk and type != "bh" and float(U.nz(b.structure.get("radiusAU"), 0.0)) > 0.0:
-		b.radius = b.structure.radiusAU
 	return b
 
 ## The non-visual half of spawning: id, type, name, masses, state vectors, GW flag,
@@ -228,9 +218,10 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 		stepped += h
 	return { "stepped": stepped, "steps": guard }
 
-# Total energy (AU/M☉/yr): kinetic plus Newtonian pair potential. Paczyński–Wiita
-# and GW reaction are left out, since the check is on what the integrator conserves;
-# with them active the drift includes real physics.
+# Conservative Plummer energy for ordinary pairs. BH pairs retain a Newtonian
+# comparison value: source-wise PW has no matching symmetric pair potential.
+# GW drag, mergers, changing radii/masses and BH pairs invalidate drift as an
+# integrator-only diagnostic.
 static func total_energy(bodies: Array) -> float:
 	var bs := []
 	for b in bodies:
@@ -242,5 +233,6 @@ static func total_energy(bodies: Array) -> float:
 		for j in range(i + 1, bs.size()):
 			var bj: Body = bs[j]
 			var r := bi.pos.distance_to(bj.pos)
-			E -= Physics.G * bi.mass * bj.mass / maxf(r, 1e-9)
+			var denom := maxf(r, 1e-9) if bi.type == "bh" or bj.type == "bh" else sqrt(r * r + Physics.pair_softening_sq(bi, bj))
+			E -= Physics.G * bi.mass * bj.mass / denom
 	return E

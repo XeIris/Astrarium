@@ -113,8 +113,9 @@ the vehicle meshes **before** exporting, or the app uses procedural fallbacks.
 `native/` holds one small GDExtension, written in plain C against Godot's own
 `gdextension_interface.h`: the N-body sub-step loop. GDScript runs that loop
 ~50–125× slower than the browser's JIT does, and the `solar` scenario needed
-38 ms of physics per frame; the kernel does it in 0.1 ms, bit-identically
-(`tools/nbodycheck.gd` proves both). The universal `.dylib` is **committed
+38 ms of physics per frame; the kernel did it in 0.1 ms in that local benchmark.
+`tools/nbodycheck.gd` checks both implementations with strict numerical
+tolerances; timings depend on the scenario and hardware. The universal `.dylib` is **committed
 prebuilt**, so nothing needs compiling to run or export. If it is missing, the
 same GDScript loop runs instead — identical results, just slower. Rebuild after
 editing `astrarium_native.c`:
@@ -124,21 +125,28 @@ native/build.sh                    # needs only Xcode's command line tools
 
 ## Verifying
 
-There is no test suite, as in the web build; there are checks.
+Run the checks relevant to the change; defects and incomplete runs must return a
+nonzero exit. Independent physics invariants supplement comparisons with the
+frozen numeric reference. The [codebase review and remediation log](docs/codebase-review-2026-10-02.md)
+records known issues, ownership and acceptance evidence.
 
 | check | what it does |
 |---|---|
 | `tools/presetcheck.sh` | loads all 35 scenarios, runs a second of each, reports script/shader errors and lost bodies |
-| `tools/coursecheck.tscn` | walks all 35 lessons / 108 steps in order (port of `web/.claude/coursecheck.js`) |
-| `tools/physcheck.sh` | the interior model, presets, climate and integrator vs the JavaScript, number by number |
+| `tools/coursecheck.tscn` | renders all 35 lessons / 108 steps; rejects engine errors, missing subjects and unknown directives; `selftest=1` must exit 1 with three errors and one warning |
+| `tools/physcheck.sh` | compatibility report against frozen JavaScript; numeric differences are printed, not rejected; child/engine failures and missing output fail |
 | `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript |
-| `tools/nbodycheck.gd` | native kernel vs the GDScript loop |
+| `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
+| `tools/sciencecheck.gd` | synthetic/frozen-state instruments and independent live transit/RV/convergence checks; `-- compatibility=web` additionally enforces strict frozen live trajectories and currently fails two intentional differences |
+| `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
+| `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary forces, matching energy, and presentation-independent contact distances |
+| `tools/transitioncheck.tscn` | rendered measured-star collapse to WD/NS/BH; rejects stale progenitor radius/contact and incorrect remnant temperature/luminosity |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()` |
 | `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps; `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
 | `tools/padcheck.gd` | launch complexes: reports any pad structure inside its vehicle (`-- padmodels=0` for the fallback pads) |
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
-| `eval=_leak_check` | loads all 35 scenarios and two launches, five times over; object, resource, node and VRAM counts should stay flat |
+| `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry |
 | `eval=_soak_check` | repeats each feature (spawning, edits, true scale, painting, cross-section, camera modes, quality, every lesson step, the model viewer, a staged launch, the start screen) four times and prints object/resource/node/orphan counts after each round; after the first round they should not change |
 | `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 

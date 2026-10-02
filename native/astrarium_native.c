@@ -55,7 +55,7 @@ static double pull_mag(const double *s, double dist) {
 		double denom = jmax(dist - s[RS], s[RS] * 0.05);
 		return GM / (denom * denom);
 	}
-	/* Plummer softening for extended bodies so close passes don't blow up. */
+	/* Legacy extended-source field for pairs involving a black hole. */
 	double soft = jor(s[SOFT], s[RADIUS] * 0.5 + 1e-4);
 	double d2 = dist * dist + soft * soft;
 	return GM / d2;
@@ -74,8 +74,18 @@ static void compute_accel(double *B, int n, Scratch *S) {
 			if (dist < 1e-9) continue;
 			double inv = 1.0 / dist;
 			rx *= inv; ry *= inv; rz *= inv;          /* unit vector a→b */
-			double fA = pull_mag(b, dist);            /* accel of A toward B */
-			double fB = pull_mag(a, dist);            /* accel of B toward A */
+			double fA, fB;
+			if (a[ISBH] != 0.0 || b[ISBH] != 0.0) {
+				fA = pull_mag(b, dist);
+				fB = pull_mag(a, dist);
+			} else {
+				double sa = jor(a[SOFT], a[RADIUS] * 0.5 + 1e-4);
+				double sb = jor(b[SOFT], b[RADIUS] * 0.5 + 1e-4);
+				double d2 = dist * dist + 0.5 * (sa * sa + sb * sb);
+				double kernel = G * dist / (d2 * sqrt(d2));
+				fA = kernel * b[MASS];
+				fB = kernel * a[MASS];
+			}
 			S[i].ax += rx * fA; S[i].ay += ry * fA; S[i].az += rz * fA;
 			S[j].ax += rx * -fB; S[j].ay += ry * -fB; S[j].az += rz * -fB;
 		}
@@ -157,8 +167,7 @@ static void apply_gw(double *B, int n, double dt, double boost) {
 	}
 }
 
-/* Collision / accretion resolution (Physics collisions), including
- * its quirk: the inner loop carries on even after `a` has been absorbed. */
+/* Collision / accretion resolution (Physics collisions). */
 static int resolve_collisions(double *B, int n, double *ev) {
 	int count = 0;
 	for (int i = 0; i < n; i++) {
@@ -189,6 +198,7 @@ static int resolve_collisions(double *B, int n, double *ev) {
 				ev[count * 3 + 2] = d;
 			}
 			count++;
+			if (a[ALIVE] == 0.0) break;
 		}
 	}
 	return count;

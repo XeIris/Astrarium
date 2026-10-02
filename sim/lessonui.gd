@@ -23,6 +23,9 @@ const T = preload("res://ui/theme.gd")
 const STORE := "user://bh.course.v1.json"
 const EM_COL := "e6ecf6"
 const PROSE := {"ff": "disp", "fs": 13.5, "lh": 1.62}
+# Authored requests are checked separately from optional runtime stage support.
+const DO_KEYS := ["preset", "mesh", "sky", "trueScale", "paused", "focus", "cam",
+	"timeScale", "band", "control", "localTime", "panel", "flare", "collapse"]
 
 static func create_lessons(opts: Dictionary) -> Course:
 	return Course.new(opts)

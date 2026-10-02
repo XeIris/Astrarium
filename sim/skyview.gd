@@ -237,7 +237,7 @@ class SurfaceObserver extends RefCounted:
 		# same frame THREE's lookAt did (z = −look, x = up × z, y = z × x).
 		camera.transform = Transform3D(Basis.looking_at(lk, up), Vector3.ZERO)
 		camera.fov = fov
-		camera.near = NEAR
+		RenderPipeline.set_scene_clip(camera, NEAR)
 
 	func look(dx: float, dy: float) -> void:
 		azimuth += dx
