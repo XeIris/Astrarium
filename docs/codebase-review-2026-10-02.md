@@ -63,9 +63,9 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R25 | P2 | Partial: input domain enforced, batch 9 | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define supported input domain and reject unsupported equilibrium requests before mutation; preserve modeled threshold events. Mass-shedding/subminimum evolution remains unmodeled. |
 | R26 | P1 | Verified: batch 7 | Visual accretion removed physical mass/momentum without a receiving body and could delete the rest of a donor. | Cosmetic streams cannot mutate physical state; production frames match the kernel and contact mergers conserve mass/momentum, with pause/zero-time gates. |
 | R27 | P1 | Partial: conservative orbits and physical strain, batch 10 | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
-| R28 | P1 | Open: long-run scenario failure | The flagship Trisolaris world leaves its declared orbital extent near 18,095 years and is ejected in the 60,000-year numerical trajectory, despite small total-energy drift. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep failures visible until resolved. |
+| R28 | P1 | Open: long-run scenario failure | The flagship Trisolaris world breaches its declared extent before 60,000 years despite small energy drift; the observed failure time changes with numerical stepping. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep failures visible until resolved. |
 | R29 | P2 | Verified: bounded display model, batch 9 | Neutron self-lensing used an analytic approximation outside its stated domain, while lessons called it exact ray tracing and comments understated visible area. | Bound the display parameter without changing physics; document approximation/stylization, correct claims and inspect affected views. |
-| R30 | P2 | Open: numerical request domain | Authored tiny systems can fall below the 1e-9 AU force cutoff or 1e-8 year timestep floor despite passing structural validation. | Establish a resolved dynamical domain or change the regularization with matching potentials; reject unsupported requests and verify both kernels at boundaries. |
+| R30 | P2 | Partial: cutoffs and unsafe arithmetic fixed | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose spatial increments or underflow diagnostics. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
 
 ## Evidence at the reviewed revision
 
@@ -1059,3 +1059,59 @@ states: `/tmp/astrarium-b10-verified/report.json` and `stability.json`.
 Python's decimal decoder matches all **56** initial/final physical doubles
 against the binary payloads. The observed one-ULP discrepancy is specific to
 the tested Godot decoding path; no broader parser claim is inferred.
+
+
+### Batch 11: numerical cutoffs, rollback and accepted clocks
+
+Removed the fixed `1e-9 AU` force cutoff, `1e-8 year` step floor and
+`1e-12 year` request remainder cutoff. Tiny resolved systems now retain their
+Newtonian force/potential and requested cap. Scaled distance and free-fall
+calculations avoid false zero separations from squared-norm underflow. Positive
+calls resolve existing contacts before choosing a step; nonpositive calls remain
+no-ops. The work guard counts successful steps and accepts only their time.
+
+Both kernels restore a failed position/velocity or GW update and reject unsafe
+merger candidates while retaining earlier valid events. An explicit native status
+survives callbacks, final steps and an exhausted work guard. Review caught a
+second defect: resetting the native accumulator after a merger allowed later
+tiny steps to move bodies without increasing accepted time. The ten-slot header
+now carries the whole call's accepted time and original budget. The production
+clock also retains a compensated remainder; assigning a new epoch clears it.
+The HUD distinguishes detected numerical stops from the work limit. The unused
+HUD statistics method and its misleading larger-step advice were removed.
+
+Spawn/edit/preset preflight validates three finite position/velocity components
+and finite nonnegative contact/softening distances. Derivation now applies
+explicit softening on both spawn and edit. Tiny black-hole structure uses its
+actual mass, rejects underflow/overflow of derived scales, and describes hot
+Hawking emission without promising background-driven growth or simulating
+evaporation. The remaining ordinary structural mass clamp and extreme
+floating-point limits are documented; **R30 remains partial**, not a guarantee
+of arbitrary finite-double dynamics. Spatial increments below an absolute
+coordinate's ULP and underflow in extreme force/energy/strain products remain.
+
+The new strict numerical harness passes **128/128** assertions, including
+analytic tiny forces/potentials, short durations down to `1e-200` years,
+512-to-1024-step orbital refinement, rollback, valid merger prefixes and the
+native restart regression. Isolated HEAD rejects **42 of the original 83**
+assertions; an isolated old-wrapper mutation rejects **3/128**. Evidence:
+`/tmp/astrarium-b11-domain`. These negatives retain their actual test versions.
+
+The updated authored Trisolaris gate still exits **1**, now at the first sampled
+extent violation near **56,332.5000096394 years**: world **13.5535453609774 AU**,
+maximum energy drift **5.248293e-8**. The changed remainder and budget arithmetic
+changes floating-point stepping and the chaotic trajectory; this later violation does
+not establish improved stability. No authored orbit, cap or bounds changed.
+**R28 stays open**; `/tmp/astrarium-b11-stability` retains the failed report and
+exact binary states. The batch-10 refinement matrix remains historical evidence
+for its implementation, not a convergence result for this one.
+
+All seven final fast/native checks and four full launches pass:
+`/tmp/astrarium-b11-final-cpu/report.json`. Final native/rendered results and
+production input/clock assertions are retained under
+`/tmp/astrarium-b11-final-rendered`. The final compensated-clock overflow check
+also passes **231/231** production input/clock assertions in
+`/tmp/astrarium-b11-visual/structure-final.log`. The precision-warning screenshot and
+five-round lifecycle evidence are in `/tmp/astrarium-b11-visual`; post-warmup
+objects/resources/nodes/orphans remain flat at **6390/137/1619/0** (spawn/remove),
+**6789/137/1720/0** (mass edits), **6809/137/1720/0** (true scale).

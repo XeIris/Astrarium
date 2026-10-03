@@ -4,10 +4,9 @@
 containing a black hole, with potential `−G m₁ m₂ / r`. Ordinary pairs use the
 shared Plummer softening. Both forces match `Derive.total_energy`; with fixed
 mass/softening and no drag or mergers, energy drift measures numerical error.
-These claims apply to resolved separations: both kernels skip forces below
-`1e-9 AU`, and integration has a `1e-8 year` step floor. Arbitrarily tiny authored
-systems are not validated by the structural input gate. The adaptive timestep
-does not make the entire integration symplectic.
+Nonzero separations have no fixed force cutoff, and requested step caps have no
+fixed lower floor. The adaptive timestep does not make the entire integration
+symplectic.
 
 This is a weak-field orbital model. It has no dynamical ISCO, relativistic
 precession, frame dragging or relativistic plunge. Contact remains the
@@ -21,6 +20,31 @@ the Schwarzschild angular frequency. Applying a different source field to each
 member of a moving pair gives unequal opposing forces; it is not a conservative
 binary model. A future strong-field mode needs a separately validated dynamical
 model, rather than a renamed symmetric pseudo-potential.
+
+## Numerical limits
+
+A positive duration is integrated while representable steps remain and the
+8,000-step work budget permits. Caps are upper bounds, including below `1e-8`
+years. Existing physical contacts are resolved before selecting the first step;
+zero or negative durations do not trigger contacts. Accepted time and successful
+step counts remain separate from requested time.
+
+Nonfinite forces, candidate positions/velocities or GW kicks stop integration
+and restore that substep's physical state. Unsafe contact candidates are not
+published; earlier valid contact events and accepted steps remain committed.
+The native wrapper carries accepted time across merger callbacks, so restarting
+the kernel cannot silently lose a smaller later increment. The HUD distinguishes
+a numerical stop from exhausting the work budget. Elapsed time uses a compensated
+remainder to retain accepted intervals smaller than the displayed epoch's ULP.
+An explicit epoch assignment clears that remainder.
+
+These guards do not establish scientific accuracy for every finite input.
+Extreme products can still underflow in force/energy/strain estimates, ordinary
+position increments can disappear below their coordinate's ULP, ordinary body
+structures use approximate radius fits, and black-hole inputs must retain
+finite positive horizon and evaporation scales. There is no general quantum-gravity
+or arbitrary-scale model. `tools/numericalcheck.gd` verifies representative small
+resolved systems with analytic forces and orbital convergence in both kernels.
 
 ## Illustrative radiation drag
 

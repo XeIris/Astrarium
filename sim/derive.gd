@@ -115,6 +115,7 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 	var type = spec.get("type")
 	var def := type_default(type)
 	var mass := b.mass
+	b.softening = float(U.nz(spec.get("softening"), 0.0))
 	b.emits_gw = bool(U.nz(spec.get("emitsGW"), type == "bh" or type == "neutron"))
 	if type == "bh":
 		b.rs = Physics.schwarzschild(mass)
@@ -185,8 +186,6 @@ static func new_body(id: int, spec: Dictionary) -> Body:
 	derive_body(b, spec)
 	return b
 
-# THE INTEGRATOR LOOP
-
 # The smallest dynamical time among bodies, to shrink the step in close encounters.
 static func dynamic_step(bodies: Array, max_step: float) -> float:
 	var t_min := max_step
@@ -197,39 +196,74 @@ static func dynamic_step(bodies: Array, max_step: float) -> float:
 		for j in range(i + 1, n):
 			var bj: Body = bodies[j]
 			if not bj.alive: continue
-			var sep := bi.pos.distance_to(bj.pos)
+			var sep := Physics.distance_xyz(bi.pos.x - bj.pos.x, bi.pos.y - bj.pos.y, bi.pos.z - bj.pos.z)
 			var mu := Physics.G * (bi.mass + bj.mass)
-			var t_fall := sqrt((sep * sep * sep) / maxf(mu, 1e-9))   # free-fall time
-			var vrel := bi.vel.distance_to(bj.vel)
-			var t_fly := sep / maxf(vrel, 1e-6)                      # crossing time
+			if not is_finite(sep) or not is_finite(mu) or mu <= 0.0: return NAN
+			var fall_squared := (sep * sep * sep) / mu
+			var t_fall := sqrt(fall_squared)
+			if sep > 0.0 and (fall_squared == 0.0 or not is_finite(fall_squared)):
+				t_fall = (sqrt(sep) / sqrt(mu)) * sep
+			var vrel := Physics.distance_xyz(bi.vel.x - bj.vel.x, bi.vel.y - bj.vel.y, bi.vel.z - bj.vel.z)
+			if not is_finite(vrel): return NAN
+			var t_fly := sep / vrel if vrel > 0.0 else INF
 			t_min = minf(t_min, minf(0.05 * t_fall, 0.08 * t_fly))
-	return maxf(t_min, 1e-8)
+	return t_min
 
 # The sub-step guard: past it the clock advances only what was integrated, so the
 # sim runs slow; main.gd reports it.
 const STEP_GUARD := 8000
 
-## The physics half of stepping. Returns { stepped, steps }; `stepped` ≤ sim_dt when
-## the guard trips, and anything on the simulated clock must use it. Each merger goes
-## to `on_merger` inside the sub-step loop (which removes the absorbed body); with no
-## callback the absorbed body is just removed.
+## Returns accepted years, successful sub-steps and `resolution_limited` for unsafe
+## time/state arithmetic. Clocks use accepted time, including after the work guard.
+## `on_merger` removes absorbed bodies between steps; otherwise this loop removes them.
 static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost: float, on_merger: Callable = Callable(), initial_steps: int = 0) -> Dictionary:
-	if sim_dt <= 0.0: return { "stepped": 0.0, "steps": initial_steps }
+	var result := {"stepped": 0.0, "steps": initial_steps, "resolution_limited": false}
+	if not is_finite(sim_dt) or not is_finite(max_step) or not is_finite(gw_boost):
+		result.resolution_limited = true
+		return result
+	if sim_dt <= 0.0: return result
+	if max_step <= 0.0 or not Physics.finite_state(bodies):
+		result.resolution_limited = true
+		return result
 	var remaining := sim_dt
 	var guard := initial_steps
 	var stepped := 0.0
-	while remaining > 1e-12 and guard < STEP_GUARD:
-		guard += 1
+	if guard >= STEP_GUARD: return result
+	var contacts := Physics.resolve_collisions(bodies)
+	var contact_limited := Physics.collision_limited
+	for ev in contacts:
+		if on_merger.is_valid(): on_merger.call(ev)
+		else: bodies.erase(ev.absorbed)
+	if contact_limited:
+		result.resolution_limited = true
+		return result
+	while remaining > 0.0 and guard < STEP_GUARD:
 		var h := minf(remaining, dynamic_step(bodies, max_step))
-		Physics.integrate(bodies, h)
+		if not is_finite(h) or h <= 0.0 or not is_finite(stepped + h) or stepped + h <= stepped:
+			result.resolution_limited = true
+			break
+		if not Physics.integrate(bodies, h):
+			result.resolution_limited = true
+			break
 		if gw_boost != 0.0: Physics.apply_gw_reaction(bodies, h, gw_boost)
+		if not Physics.finite_state(bodies):
+			Physics.restore_step(bodies)
+			result.resolution_limited = true
+			break
+		guard += 1
+		stepped += h
+		remaining = minf(remaining - h, sim_dt - stepped)
 		var events := Physics.resolve_collisions(bodies)
+		contact_limited = Physics.collision_limited
 		for ev in events:
 			if on_merger.is_valid(): on_merger.call(ev)
 			else: bodies.erase(ev.absorbed)
-		remaining -= h
-		stepped += h
-	return { "stepped": stepped, "steps": guard }
+		if contact_limited:
+			result.resolution_limited = true
+			break
+	result.stepped = stepped
+	result.steps = guard
+	return result
 
 # Matches conservative forces: Plummer for ordinary pairs, Newtonian for BH pairs.
 # GW drag, mergers and changing radii/masses invalidate integrator-only drift.
@@ -243,7 +277,8 @@ static func total_energy(bodies: Array) -> float:
 		E += 0.5 * bi.mass * bi.vel.length_sq()
 		for j in range(i + 1, bs.size()):
 			var bj: Body = bs[j]
-			var r := bi.pos.distance_to(bj.pos)
-			var denom := maxf(r, 1e-9) if bi.type == "bh" or bj.type == "bh" else sqrt(r * r + Physics.pair_softening_sq(bi, bj))
+			var r := Physics.distance_xyz(bi.pos.x - bj.pos.x, bi.pos.y - bj.pos.y, bi.pos.z - bj.pos.z)
+			var denom := r if bi.type == "bh" or bj.type == "bh" else sqrt(r * r + Physics.pair_softening_sq(bi, bj))
+			if denom == 0.0: return -INF
 			E -= Physics.G * bi.mass * bj.mass / denom
 	return E

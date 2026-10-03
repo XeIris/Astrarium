@@ -13,6 +13,8 @@ var pos := DVec3.new()        # AU
 var vel := DVec3.new()        # AU/yr
 var acc := DVec3.new()        # AU/yr²
 var a_prev := DVec3.new()     # integrator scratch
+var step_pos := DVec3.new()   # last accepted state for transactional stepping
+var step_vel := DVec3.new()
 var alive: bool = true
 var emits_gw: bool = false
 

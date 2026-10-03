@@ -79,7 +79,6 @@ const OPEN_BY_DEFAULT := {
 	"learn": ["Imaging Band", "View & Camera"],
 	"flight": ["Spaceflight"],
 }
-const STEP_GUARD := 8000
 # the climate badge's colours per era
 const ERA := {
 	"era-stable": {"c": Color(0x4e / 255.0, 0xe3 / 255.0, 0x9a / 255.0), "bg": T.CLEAR},
@@ -1396,7 +1395,7 @@ func get_slider(id: String) -> float:
 	var r: HudSlider = sliders.get(id)
 	return r.value if r else 0.0
 
-## The step counter goes red, and says why, when the integrator hit its guard.
+## Apply warning styling and an optional explanation to the named controls.
 func set_warn(id: String, on: bool, tooltip := "") -> void:
 	for e in _targets(id):
 		if e is Label:
@@ -1405,13 +1404,6 @@ func set_warn(id: String, on: bool, tooltip := "") -> void:
 			T.apply_label(e, st)
 		e.tooltip_text = tooltip
 		e.mouse_filter = Control.MOUSE_FILTER_PASS if tooltip != "" else Control.MOUSE_FILTER_IGNORE
-
-## The display half of the sim stats: steps (capped at the guard) and drift.
-func set_sim_stats(steps: int, drift_rel: float) -> void:
-	var capped := steps >= STEP_GUARD
-	set_text("setSteps", ("%d capped" % steps) if capped else str(steps))
-	set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. The answer is still correct — it advances the clock by what it actually integrated — but simulated time is now running slower than the Time panel says. Raise the step cap." if capped else "")
-	set_text("setDrift", "0" if drift_rel < 1e-12 else U.expo(drift_rel, 1))
 
 func pointer_over_ui() -> bool:
 	var h := get_viewport().gui_get_hovered_control()

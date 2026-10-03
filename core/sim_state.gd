@@ -35,7 +35,13 @@ var bodies: Array = []         # Array of Body
 var consumed: int = 0
 var next_id: int = 1
 var time: float = 0.0          # wall-clock seconds accumulated
-var sim_years: float = 0.0     # elapsed SIMULATED time (yr) — what the climate runs on
+var _sim_years: float = 0.0
+var year_remainder: float = 0.0
+var sim_years: float:
+	get: return _sim_years
+	set(value):
+		_sim_years = value
+		year_remainder = 0.0
 var home_id = null             # the inhabited world, if the preset has one
 var climate = null             # Climate or null
 var exposure: float = 1.0      # surface-view eye adaptation
@@ -49,6 +55,7 @@ var app_mode: String = "sandbox"
 # environment.
 var sky: Dictionary = {"env": {"disc": 1.0}, "tilt": 0.34, "roll": 0.9}
 var last_steps: int = 0        # integrator sub-steps in the last frame
+var last_resolution_limited: bool = false
 var energy0 = null             # total energy when the scenario loaded (drift reference)
 var energy_n: int = -1
 
@@ -65,3 +72,20 @@ func body_named(n: String) -> Body:
 		if b.name == n:
 			return b
 	return null
+
+# Retain accepted intervals smaller than the elapsed clock's current ULP.
+# Assigning sim_years explicitly starts a new epoch and clears this remainder.
+func advance_years(accepted: float) -> void:
+	var total := _sim_years + accepted
+	year_remainder += _year_correction(total, accepted)
+	_sim_years = total + year_remainder
+	var folded := _sim_years - total
+	year_remainder = (total - (_sim_years - folded)) + (year_remainder - folded)
+
+func can_advance_years(requested: float) -> bool:
+	var total := _sim_years + requested
+	return is_finite(total) and is_finite(year_remainder) and is_finite(
+		total + (year_remainder + _year_correction(total, requested)))
+
+func _year_correction(total: float, increment: float) -> float:
+	return (_sim_years - total) + increment if absf(_sim_years) >= absf(increment) else (increment - total) + _sim_years

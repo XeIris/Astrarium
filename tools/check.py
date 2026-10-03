@@ -47,6 +47,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
+        yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")
     elif suite == "stability":
         yield script("stabilitycheck", r"^STABILITYCHECK DONE mode=baseline target_years=60000(?:\.0+)? accepted_years=60000(?:\.0+)? failures=0$",
                      "years=60000", f"report={output / 'stability.json'}", timeout=900)

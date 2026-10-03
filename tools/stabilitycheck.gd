@@ -8,7 +8,6 @@ const MOMENTUM_BOUND := 1e-7 # M☉ AU/year
 const WORLD_BOUND_AU := 10.0
 const GAMMA_BOUND_AU := 100.0
 const SAMPLE_FRAMES := 1000
-const STEP_FLOOR := 1e-8 # Derive.dynamic_step/native floor; a smaller requested cap is not honored.
 
 var bodies := []
 var merged := 0
@@ -70,8 +69,8 @@ func _run() -> void:
 	var mode := "diagnostic" if args.has("max_step") or args.has("world_rotation") else "baseline"
 	marker = "STABILITYDIAGNOSTIC" if mode == "diagnostic" else "STABILITYCHECK"
 	var report_path: String = args.get("report", "")
-	if not is_finite(target_years) or target_years <= 0.0 or not is_finite(max_step) or max_step < STEP_FLOOR or max_step > float(preset.maxStep) or not is_finite(world_rotation):
-		reject("years must be finite and positive; max_step must be between integrator floor and authored cap; world_rotation must be finite")
+	if not is_finite(target_years) or target_years <= 0.0 or not is_finite(max_step) or max_step <= 0.0 or max_step > float(preset.maxStep) or not is_finite(world_rotation):
+		reject("years must be finite and positive; max_step must be positive and no larger than the authored cap; world_rotation must be finite")
 		quit(1)
 		return
 	if not report_path.is_empty() and not report_path.is_absolute_path():

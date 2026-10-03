@@ -24,7 +24,7 @@ func snapshot() -> Dictionary:
 		"body_scale": stage.state.body_scale, "true_scale": stage.state.true_scale,
 		"focus": stage.state.focus_id, "follow": stage.state.follow_id,
 		"home": stage.state.home_id, "climate": stage.state.climate,
-		"years": stage.state.sim_years, "consumed": stage.state.consumed,
+		"years": stage.state.sim_years, "year_remainder": stage.state.year_remainder, "consumed": stage.state.consumed,
 		"cam_radius": stage.cam.radius, "cam_radius_to": stage.cam.radius_to,
 		"cam_theta": stage.cam.theta, "cam_phi": stage.cam.phi,
 		"cam_target": [stage.cam.target.x, stage.cam.target.y, stage.cam.target.z]}
@@ -45,13 +45,26 @@ func rejected_inputs() -> void:
 		{"type": "star", "radiusSun": INF},
 		{"type": "star", "radiusSun": -1.0},
 		{"type": "neutron", "radiusKm": 1e200, "spinHz": 1.4},
+		{"type": "bh", "mass": 1e200},
+		{"type": "bh", "mass": 1e-200},
+		{"type": "planet", "pos": "here"},
+		{"type": "planet", "pos": [1.0, 2.0]},
+		{"type": "planet", "pos": [1.0, 2.0, 3.0, 4.0]},
+		{"type": "planet", "pos": [1.0, NAN, 3.0]},
+		{"type": "planet", "vel": [1.0, "fast", 3.0]},
+		{"type": "planet", "vel": [1.0, INF, 3.0]},
+		{"type": "planet", "softening": -1.0},
+		{"type": "planet", "softening": INF},
+		{"type": "planet", "contactAU": -1.0},
+		{"type": "planet", "contactAU": "near"},
 	]:
 		check("raw spawn rejects %s" % spec, stage.spawn_body(spec) == null)
 		check("rejected spawn keeps scene/IDs/visuals/camera", snapshot() == original)
 	check("overflowing critical rate has an explicit numerical rejection reason", Structure.input_error(
 		stage._normalized_body_spec({"type": "neutron", "radiusKm": 1e200, "spinHz": 1.4})).contains("numerical range"))
 	var b: Body = stage.state.bodies[0]
-	for patch in [{"spinFrac": 1.01}, {"mass": "many"}, {"spinFrac": INF}]:
+	for patch in [{"spinFrac": 1.01}, {"mass": "many"}, {"spinFrac": INF},
+		{"pos": [NAN, 0.0, 0.0]}, {"vel": []}, {"softening": -1.0}, {"contactAU": INF}]:
 		check("raw edit rejects %s" % patch, stage.edit_body(b, patch) == null)
 		check("rejected edit keeps spec/mass/visuals/camera", snapshot() == original)
 	stage._on_foundry_spawn({"type": "neutron", "mass": 0.05}, {})
@@ -72,6 +85,73 @@ func supported_inputs() -> void:
 	check("overcritical rejection preserves accepted limit", snapshot() == initial)
 	var low: Body = stage.spawn_body({"type": "neutron", "mass": 0.1, "pos": [1.0, 0.0, 0.0]})
 	check("model's exact neutron lower endpoint is accepted", low != null and low.mass == 0.1)
+	stage.clear_bodies()
+	var tiny: Body = stage.spawn_body({"type": "bh", "mass": 1e-15,
+		"pos": PackedFloat64Array([1.0, 0.0, 0.0]), "vel": [0.0, 1.0, 0.0], "softening": 0.2})
+	check("small wide-orbit hole is accepted without a mass floor", tiny != null)
+	if tiny != null:
+		check("small hole structure keeps actual mass and horizon", tiny.structure.mass == tiny.mass
+			and tiny.structure.rs == tiny.rs and tiny.rs == Physics.schwarzschild(1e-15))
+		check("small hot hole does not promise background-driven growth", tiny.structure.verdict.detail.contains("lose energy")
+			and tiny.structure.verdict.detail.contains("not simulated"))
+		check("authored softening is derived", tiny.softening == 0.2)
+		check("edited softening is derived", stage.edit_body(tiny, {"softening": 0.3}) == tiny and tiny.softening == 0.3)
+
+func numerical_time() -> void:
+	stage.clear_bodies()
+	var b: Body = stage.spawn_body({"type": "star", "vel": [1.0, 0.0, 0.0]})
+	stage.state.sim_years = 0.0
+	stage.state.max_step = 1e-13
+	stage.state.gw_boost = 0.0
+	var accepted: float = stage.step_physics(5e-13)
+	check("production clock accepts a short positive duration", accepted == 5e-13
+		and stage.state.sim_years == accepted and b.pos.x == accepted and not stage.state.last_resolution_limited)
+	stage.state.max_step = 0.0
+	var original := snapshot()
+	check("invalid step cap accepts no time", stage.step_physics(1e-6) == 0.0)
+	check("invalid cap leaves physical scene and clock unchanged", snapshot() == original and stage.state.last_resolution_limited)
+	stage.update_sim_stats()
+	var label: Label = stage.hud.get_el("setSteps")
+	check("production HUD exposes a numerical stop", label.text.contains("precision limit")
+		and label.tooltip_text.contains("Unsafe steps were not accepted"))
+	stage.state.max_step = 1e-13
+	accepted = stage.step_physics(1e-6)
+	check("work guard keeps partial accepted time", accepted > 0.0 and accepted < 1e-6
+		and stage.state.last_steps == Derive.STEP_GUARD and not stage.state.last_resolution_limited)
+	stage.update_sim_stats()
+	check("work guard has a distinct warning", label.text.contains("capped")
+		and label.tooltip_text.contains("8000 sub-step guard"))
+	stage.state.sim_years = 1e10
+	stage.state.max_step = 1e-12
+	accepted = stage.step_physics(1e-3)
+	check("partial accepted time survives a large elapsed clock", accepted > 0.0
+		and stage.state.sim_years == 1e10 and stage.state.year_remainder == accepted)
+	for i in 250: stage.step_physics(1e-3)
+	check("small accepted intervals eventually advance the large clock", stage.state.sim_years > 1e10)
+	stage.state.sim_years = 0.0
+	check("assigning a new epoch clears fractional time", stage.state.year_remainder == 0.0)
+	var clock := SimState.new()
+	clock.sim_years = -1e10
+	clock.advance_years(1e10)
+	clock.advance_years(1e-200)
+	check("compensated clock handles cancellation and a new tiny epoch", clock.sim_years == 1e-200 and clock.year_remainder == 0.0)
+	clock.sim_years = 1.7976931348623157e308
+	check("clock permits a finite increment at its upper edge", clock.can_advance_years(5e291))
+	clock.advance_years(5e291)
+	check("clock preflight includes accumulated remainder at overflow", not clock.can_advance_years(5e291))
+	stage.state.sim_years = 1e308
+	original = snapshot()
+	check("overflowing global clock request stops before integration", stage.step_physics(1e308) == 0.0
+		and snapshot() == original and stage.state.last_resolution_limited)
+	stage.state.sim_years = 0.0
+	stage.state.max_step = 1e-6
+	check("later resolved request clears the numerical warning", stage.step_physics(1e-6) == 1e-6
+		and not stage.state.last_resolution_limited)
+	stage.state.max_step = 0.0
+	stage.step_physics(1e-6, true)
+	stage.state.max_step = 1e-6
+	stage.step_physics(1e-6, true)
+	check("coupled callbacks retain an earlier numerical warning", stage.state.last_resolution_limited)
 
 func measured_inputs() -> void:
 	stage.clear_bodies()
@@ -205,6 +285,7 @@ func _ready() -> void:
 	stage.state.paused = true
 	rejected_inputs()
 	supported_inputs()
+	numerical_time()
 	measured_inputs()
 	await pending_editor_input()
 	editor_and_preset_inputs()

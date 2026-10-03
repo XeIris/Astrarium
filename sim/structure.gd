@@ -410,6 +410,18 @@ static func input_error(spec: Dictionary) -> String:
 	var mass = spec.get("mass", 1.0)
 	if not _finite_number(mass) or float(mass) <= 0.0:
 		return "Mass must be a finite positive number."
+	for field in ["pos", "vel"]:
+		var vector = spec.get(field)
+		if vector == null: continue
+		if not (vector is Array or vector is PackedFloat64Array or vector is PackedFloat32Array) or vector.size() != 3:
+			return "%s must contain exactly three finite numbers." % field
+		for component in vector:
+			if not _finite_number(component):
+				return "%s must contain exactly three finite numbers." % field
+	for field in ["softening", "contactAU"]:
+		var value = spec.get(field)
+		if value != null and (not _finite_number(value) or float(value) < 0.0):
+			return "%s must be a finite nonnegative distance in AU." % field
 	var spin = U.nz(spec.get("spinFrac"), 0.0)
 	if not _finite_number(spin) or float(spin) < 0.0:
 		return "Spin must be a finite nonnegative number."
@@ -417,7 +429,12 @@ static func input_error(spec: Dictionary) -> String:
 		var radius = spec.get(field)
 		if radius != null and (not _finite_number(radius) or float(radius) <= 0.0):
 			return "Measured radius must be a finite positive number."
-	if spec.get("type") == "bh": return ""
+	if spec.get("type") == "bh":
+		var rs := Physics.schwarzschild(float(mass))
+		var lifetime := _hole_evaporation_years(float(mass))
+		if not is_finite(rs) or rs <= 0.0 or not is_finite(lifetime) or lifetime <= 0.0:
+			return "Derived black-hole scales exceed this model's numerical range."
+		return ""
 	if spec.get("type") == "neutron":
 		if float(mass) < float(LIMITS.neutronMin):
 			return "Neutron mass is below this model's %s M☉ equilibrium range." % _num(LIMITS.neutronMin)
@@ -438,7 +455,8 @@ static func _finite_number(value) -> bool:
 static func structure_of(spec: Dictionary) -> Dictionary:
 	var t = spec.get("type")
 	var type: String = t if (t != null and t != "") else "planet"
-	var mass := maxf(float(U.nz(spec.get("mass"), 1.0)), 1e-12)
+	var mass := float(U.nz(spec.get("mass"), 1.0))
+	if type != "bh": mass = maxf(mass, 1e-12)
 	var spin_frac := minf(maxf(float(U.nz(spec.get("spinFrac"), 0.0)), 0.0), 1.15)
 	match type:
 		"bh": return _hole_structure(spec, mass, spin_frac)
@@ -898,7 +916,9 @@ static func _white_dwarf_structure(spec: Dictionary, mass: float, spin_frac: flo
 	}
 	return _with_rotation(s, mass, "wd", spin_frac)
 
-# A black hole's layers are surfaces of the spacetime outside it.
+static func _hole_evaporation_years(mass: float) -> float:
+	return 2.10e67 * pow(mass, 3.0)
+
 static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) -> Dictionary:
 	var a := minf(spin_frac, 0.998)                  # dimensionless Kerr spin a/M
 	var rs_au := Physics.schwarzschild(mass)
@@ -911,7 +931,10 @@ static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) ->
 	var r_isco := M * (3.0 + z2 - sqrt(maxf((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0)))
 	# Hawking temperature and evaporation time.
 	var t_hawk := 6.169e-8 / mass                    # K
-	var t_evap := 2.10e67 * pow(mass, 3.0)           # yr (2.10: see the SI-constants note)
+	var t_evap := _hole_evaporation_years(mass)
+	var thermal_note := "Below the current microwave-background temperature, the hole absorbs more than it radiates."
+	if t_hawk >= 2.7:
+		thermal_note = "Above the current microwave-background temperature, an isolated hole can lose energy through Hawking radiation."
 
 	return {
 		"type": "bh", "kind": "bh", "mass": mass,
@@ -924,8 +947,8 @@ static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) ->
 		"teff": 2.0e7 * pow(maxf(mass, 0.1), -0.25),
 		"verdict": {
 			"state": VERDICT.ok, "label": "No equilibrium",
-			"detail": "There is no pressure here at all — nothing is holding anything up. The Hawking temperature is %s K, far below the 2.7 K microwave background, so this hole absorbs more than it radiates and will keep growing for another 10^%d years before it can even begin to evaporate." % [
-				U.expo(t_hawk, 2), int(U.jround(U.log10(t_evap)))],
+			"detail": "The model Hawking temperature is %s K. %s The isolated, nonrotating evaporation-time estimate is 10^%d years; evaporation is not simulated." % [
+				U.expo(t_hawk, 2), thermal_note, int(U.jround(U.log10(t_evap)))],
 		},
 		"layers": _hole_layers(M, r_plus, r_isco, a),
 	}

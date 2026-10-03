@@ -136,9 +136,11 @@ mass, position or velocity. `ctx` is a `VisualCtx`
 - Key bindings: `ui/control_bindings.gd` owns the defaults, conflicts and
   `user://controls.json`. `main.gd` resolves keys before passing flight actions on.
 - Integrator step size changes numerical accuracy. The HUD reports sub-steps,
-  identifies approximate energy diagnostics, and says when `STEP_GUARD` is hit
-  (otherwise the sim silently runs slow). Drift rebases when the body count
-  changes. FPS uses actual elapsed time, independently of simulation stepping.
+  identifies approximate energy diagnostics, and distinguishes numerical stops
+  from the `STEP_GUARD` work limit. Accepted time uses `state.advance_years`;
+  assigning `sim_years` resets its compensated remainder.
+  Drift rebases when the body count changes. FPS uses actual elapsed time,
+  independently of simulation stepping.
 
 ## Checks
 
@@ -149,8 +151,8 @@ printing a comparison alone is insufficient. Intentional differences from the
 frozen numeric reference must be explained, never hidden by wider tolerances.
 
 - presets, structure or contact radii: `tools/presetcheck.sh`
-- ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`
-  and `tools/nbodycheck.gd`
+- ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`,
+  `tools/nbodycheck.gd` and `tools/numericalcheck.gd`
 - flight time/integration guards: `tools/flighttimecheck.gd` and the flight checks
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`

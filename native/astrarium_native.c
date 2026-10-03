@@ -4,7 +4,8 @@
  *   step(state: PackedFloat64Array) -> PackedFloat64Array (same layout)
  *   header  [0] length   [1] n bodies   [2] remaining sim dt (yr, in/out)
  *           [3] max step [4] gw boost   [5] guard (sub-steps so far, in/out)
- *           [6] stepped (out)           [7] merger events (out)
+ *           [6] accepted call time (in/out)  [7] merger events (out)
+ *           [8] resolution limited (out) [9] requested call time (in)
  *   body k at HDR + k·STRIDE:
  *           px py pz vx vy vz mass rs is_bh softening radius contact_au
  *           emits_gw alive (then 2 spare)
@@ -18,7 +19,7 @@
 #include <string.h>
 #include "gdextension_interface.h"
 
-#define HDR 8
+#define HDR 10
 #define STRIDE 16
 #define STEP_GUARD 8000
 
@@ -33,9 +34,36 @@ static double jmax(double a, double b) { if (isnan(a) || isnan(b)) return NAN; r
 /* `a || b` over numbers: 0 and NaN are falsy. */
 static double jor(double a, double b) { return (a != 0.0 && !isnan(a)) ? a : b; }
 
-typedef struct { double ax, ay, az, px, py, pz; } Scratch;
+typedef struct { double ax, ay, az, px, py, pz, old_pos[3], old_vel[3]; } Scratch;
 
-static void compute_accel(double *B, int n, Scratch *S) {
+static double distance_xyz(double x, double y, double z) {
+	double squared = x * x + y * y + z * z;
+	if (isfinite(squared) && squared > 0.0) return sqrt(squared);
+	double scale = jmax(fabs(x), jmax(fabs(y), fabs(z)));
+	if (scale == 0.0 || !isfinite(scale)) return scale;
+	x /= scale; y /= scale; z /= scale;
+	return scale * sqrt(x * x + y * y + z * z);
+}
+
+static int finite_state(const double *B, int n) {
+	for (int k = 0; k < n; k++) {
+		const double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		if (!isfinite(b[MASS]) || b[MASS] <= 0.0) return 0;
+		for (int c = PX; c <= VZ; c++) if (!isfinite(b[c])) return 0;
+	}
+	return 1;
+}
+
+static void restore_step(double *B, int n, const Scratch *S) {
+	for (int k = 0; k < n; k++) {
+		double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		for (int c = 0; c < 3; c++) { b[PX+c] = S[k].old_pos[c]; b[VX+c] = S[k].old_vel[c]; }
+	}
+}
+
+static int compute_accel(double *B, int n, Scratch *S) {
 	for (int k = 0; k < n; k++) { S[k].ax = 0.0; S[k].ay = 0.0; S[k].az = 0.0; }
 	for (int i = 0; i < n; i++) {
 		double *a = B + i * STRIDE;
@@ -44,8 +72,9 @@ static void compute_accel(double *B, int n, Scratch *S) {
 			double *b = B + j * STRIDE;
 			if (b[ALIVE] == 0.0) continue;
 			double rx = b[PX] - a[PX], ry = b[PY] - a[PY], rz = b[PZ] - a[PZ];
-			double dist = sqrt(rx * rx + ry * ry + rz * rz);
-			if (dist < 1e-9) continue;
+			double dist = distance_xyz(rx, ry, rz);
+			if (dist == 0.0) continue;
+			if (!isfinite(dist)) return 0;
 			double inv = 1.0 / dist;
 			rx *= inv; ry *= inv; rz *= inv;          /* unit vector a→b */
 			double kernel;
@@ -63,6 +92,8 @@ static void compute_accel(double *B, int n, Scratch *S) {
 			S[j].ax += rx * -fB; S[j].ay += ry * -fB; S[j].az += rz * -fB;
 		}
 	}
+	for (int k = 0; k < n; k++) if (!isfinite(S[k].ax) || !isfinite(S[k].ay) || !isfinite(S[k].az)) return 0;
+	return 1;
 }
 
 /* Smallest resolved-needs timescale among bodies (Derive.dynamic_step). */
@@ -75,21 +106,28 @@ static double dynamic_step(const double *B, int n, double max_step) {
 			const double *b = B + j * STRIDE;
 			if (b[ALIVE] == 0.0) continue;
 			double dx = a[PX] - b[PX], dy = a[PY] - b[PY], dz = a[PZ] - b[PZ];
-			double sep = sqrt(dx * dx + dy * dy + dz * dz);
+			double sep = distance_xyz(dx, dy, dz);
 			double mu = G * (a[MASS] + b[MASS]);
-			double t_fall = sqrt((sep * sep * sep) / jmax(mu, 1e-9));     /* free-fall time */
+			if (!isfinite(sep) || !isfinite(mu) || mu <= 0.0) return NAN;
+			double fall_squared = (sep * sep * sep) / mu;
+			double t_fall = sqrt(fall_squared);
+			if (sep > 0.0 && (fall_squared == 0.0 || !isfinite(fall_squared))) t_fall = (sqrt(sep) / sqrt(mu)) * sep;
 			double ux = a[VX] - b[VX], uy = a[VY] - b[VY], uz = a[VZ] - b[VZ];
-			double vrel = sqrt(ux * ux + uy * uy + uz * uz);
-			double t_fly = sep / jmax(vrel, 1e-6);                         /* crossing time */
+			double vrel = distance_xyz(ux, uy, uz);
+			if (!isfinite(vrel)) return NAN;
+			double t_fly = vrel > 0.0 ? sep / vrel : INFINITY;
 			t_min = jmin(t_min, jmin(0.05 * t_fall, 0.08 * t_fly));
 		}
 	}
-	return jmax(t_min, 1e-8);
+	return t_min;
 }
 
 /* One velocity-Verlet step, in the reference's rounding order. */
-static void integrate(double *B, int n, double dt, Scratch *S) {
-	compute_accel(B, n, S);
+static int integrate(double *B, int n, double dt, Scratch *S) {
+	for (int k = 0; k < n; k++) for (int c = 0; c < 3; c++) {
+		S[k].old_pos[c] = B[k*STRIDE+PX+c]; S[k].old_vel[c] = B[k*STRIDE+VX+c];
+	}
+	if (!compute_accel(B, n, S)) return 0;
 	double h2 = 0.5 * dt * dt;
 	for (int k = 0; k < n; k++) {
 		double *b = B + k * STRIDE;
@@ -98,7 +136,7 @@ static void integrate(double *B, int n, double dt, Scratch *S) {
 		b[PX] += S[k].ax * h2; b[PY] += S[k].ay * h2; b[PZ] += S[k].az * h2;
 		S[k].px = S[k].ax; S[k].py = S[k].ay; S[k].pz = S[k].az;
 	}
-	compute_accel(B, n, S);
+	if (!finite_state(B, n) || !compute_accel(B, n, S)) { restore_step(B, n, S); return 0; }
 	double hd = 0.5 * dt;
 	for (int k = 0; k < n; k++) {
 		double *b = B + k * STRIDE;
@@ -107,6 +145,8 @@ static void integrate(double *B, int n, double dt, Scratch *S) {
 		b[VY] += (S[k].py + S[k].ay) * hd;
 		b[VZ] += (S[k].pz + S[k].az) * hd;
 	}
+	if (!finite_state(B, n)) { restore_step(B, n, S); return 0; }
+	return 1;
 }
 
 /* Illustrative circular-power drag; window, boost and kick cap alter rates. */
@@ -120,7 +160,7 @@ static void apply_gw(double *B, int n, double dt, double boost) {
 			double *b = B + j * STRIDE;
 			if (b[ALIVE] == 0.0 || b[EMITSGW] == 0.0) continue;
 			double rx = b[PX] - a[PX], ry = b[PY] - a[PY], rz = b[PZ] - a[PZ];
-			double r = sqrt(rx * rx + ry * ry + rz * rz);
+			double r = distance_xyz(rx, ry, rz);
 			double cSum = jor(jor(a[CONTACT], a[RADIUS]), a[RS]) + jor(jor(b[CONTACT], b[RADIUS]), b[RS]);
 			if (r > 400.0 * cSum || r < cSum * 0.5) continue;
 			double vx = b[VX] - a[VX], vy = b[VY] - a[VY], vz = b[VZ] - a[VZ];
@@ -141,7 +181,7 @@ static void apply_gw(double *B, int n, double dt, double boost) {
 }
 
 /* Collision / accretion resolution (Physics collisions). */
-static int resolve_collisions(double *B, int n, double *ev) {
+static int resolve_collisions(double *B, int n, double *ev, int *limited) {
 	int count = 0;
 	for (int i = 0; i < n; i++) {
 		double *a = B + i * STRIDE;
@@ -150,19 +190,23 @@ static int resolve_collisions(double *B, int n, double *ev) {
 			double *b = B + j * STRIDE;
 			if (b[ALIVE] == 0.0) continue;
 			double dx = b[PX] - a[PX], dy = b[PY] - a[PY], dz = b[PZ] - a[PZ];
-			double d = sqrt(dx * dx + dy * dy + dz * dz);
+			double d = distance_xyz(dx, dy, dz);
 			double ca = a[ISBH] != 0.0 ? a[RS] : jor(a[CONTACT], a[RADIUS]);
 			double cb = b[ISBH] != 0.0 ? b[RS] : jor(b[CONTACT], b[RADIUS]);
+			if (!isfinite(d) || !isfinite(ca + cb)) { *limited = 1; return count; }
 			if (d > ca + cb) continue;
 			int big = a[MASS] >= b[MASS] ? i : j;
 			int small = big == i ? j : i;
 			double *g = B + big * STRIDE, *s = B + small * STRIDE;
 			double M = g[MASS] + s[MASS];
-			double invM = 1.0 / M;
+			double invM = 1.0 / M, pos[3], vel[3];
+			if (!isfinite(M) || M <= 0.0) { *limited = 1; return count; }
 			for (int c = 0; c < 3; c++) {
-				g[VX + c] = (g[VX + c] * g[MASS] + s[VX + c] * s[MASS]) * invM;
-				g[PX + c] = (g[PX + c] * g[MASS] + s[PX + c] * s[MASS]) * invM;
+				vel[c] = (g[VX + c] * g[MASS] + s[VX + c] * s[MASS]) * invM;
+				pos[c] = (g[PX + c] * g[MASS] + s[PX + c] * s[MASS]) * invM;
+				if (!isfinite(vel[c]) || !isfinite(pos[c])) { *limited = 1; return count; }
 			}
+			for (int c = 0; c < 3; c++) { g[PX+c] = pos[c]; g[VX+c] = vel[c]; }
 			g[MASS] = M;
 			s[ALIVE] = 0.0;
 			if (count < n) {
@@ -179,25 +223,29 @@ static int resolve_collisions(double *B, int n, double *ev) {
 
 static void run(double *A) {
 	int n = (int)A[1];
-	double remaining = A[2], max_step = A[3], gw = A[4];
+	double remaining = A[2], requested = A[9], max_step = A[3], gw = A[4];
 	int guard = (int)A[5];
-	double stepped = 0.0;
+	double stepped = A[6];
 	int events = 0;
 	double *B = A + HDR;
 	double *ev = A + HDR + n * STRIDE;
 	Scratch *S = (Scratch *)calloc((size_t)(n > 0 ? n : 1), sizeof(Scratch));
-	while (remaining > 1e-12 && guard < STEP_GUARD) {
-		guard++;
-		double h = jmin(remaining, dynamic_step(B, n, max_step));
-		integrate(B, n, h, S);
+	int limited = 0;
+	if (!isfinite(remaining) || !isfinite(requested) || !isfinite(stepped) || !isfinite(max_step) || !isfinite(gw) || max_step <= 0.0 || !finite_state(B, n)) limited = 1;
+	if (!limited && remaining > 0.0 && guard < STEP_GUARD) events = resolve_collisions(B, n, ev, &limited);
+	while (!limited && events == 0 && remaining > 0.0 && guard < STEP_GUARD) {
+		double h = jmin(jmin(remaining, requested - stepped), dynamic_step(B, n, max_step));
+		if (!isfinite(h) || h <= 0.0 || !isfinite(stepped + h) || stepped + h <= stepped) { limited = 1; break; }
+		if (!integrate(B, n, h, S)) { limited = 1; break; }
 		if (gw != 0.0) apply_gw(B, n, h, gw);
-		events = resolve_collisions(B, n, ev);
-		remaining -= h;
+		if (!finite_state(B, n)) { restore_step(B, n, S); limited = 1; break; }
+		guard++;
 		stepped += h;
-		if (events > 0) break;
+		remaining = jmin(remaining - h, requested - stepped);
+		events = resolve_collisions(B, n, ev, &limited);
 	}
 	free(S);
-	A[2] = remaining; A[5] = (double)guard; A[6] = stepped; A[7] = (double)events;
+	A[2] = remaining; A[5] = (double)guard; A[6] = stepped; A[7] = (double)events; A[8] = (double)limited;
 }
 
 /* ============================================================================

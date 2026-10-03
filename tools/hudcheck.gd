@@ -10,7 +10,7 @@ extends Node
 #         hstate=sandbox hout=/abs/x.png [hframes=45] [htest=1] [hperf=1]
 #
 # States: sandbox allopen allbottom foundry xsec closed settings_sky
-# settings_render settings_sim settings_controls search zoo learn lesson_hr
+# settings_render settings_sim settings_precision settings_controls search zoo learn lesson_hr
 # lesson_photometer lesson_gw lesson_cutaway lesson_fig flight ascent model start
 # toast hidden. Args are h-prefixed: main.gd reads its own from the same line.
 
@@ -77,6 +77,10 @@ func _ready() -> void:
 			_quiet_toast()
 		else:
 			hud.set_text("fps", "60")
+		if str(args.get("hstate", "")) == "settings_precision":
+			main.state.last_steps = Derive.STEP_GUARD
+			main.step_physics(1e-6, true)
+			main.update_sim_stats()
 		main.set_process(false)
 		await get_tree().process_frame
 		await RenderingServer.frame_post_draw
@@ -142,10 +146,15 @@ func _setup(s: String) -> void:
 			await _start("sandbox")
 			main.set_panel_open("scenarioPanel", false)
 			main.set_panel_open("controlPanel", false)
-		"settings_sky", "settings_render", "settings_sim", "settings_controls":
+		"settings_sky", "settings_render", "settings_sim", "settings_controls", "settings_precision":
 			await _start("sandbox")
 			hud.set_settings_open(true)
-			hud.set_settings_page(s.substr(9))
+			hud.set_settings_page("sim" if s == "settings_precision" else s.substr(9))
+			if s == "settings_precision":
+				main.state.max_step = 0.0
+				main.step_physics(1e-6)
+				main.state.paused = true
+				main.update_sim_stats()
 			if s == "settings_render":
 				_find("renderAdvancedToggle").pressed.emit()
 		"search":

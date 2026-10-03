@@ -136,7 +136,7 @@ The runner retains child logs and a JSON report, rejects errors, timeouts and
 missing completion markers, and stops on the first failure. Use `--godot` to
 select an engine and `--log-dir` to retain results at a chosen location.
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
-`perf` need a working graphical renderer. `flight` runs the four full launches.
+`perf` need a working graphical renderer. `flight` runs the four full launches. `native` includes the numerical boundary checks.
 `stability` runs the strict 60,000-year Trisolaris check; it currently fails the inner-orbit bound (R28), so it remains
 an explicit suite rather than part of the fast default.
 `compatibility` keeps the known strict frozen-reference differences failing.
@@ -164,6 +164,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
 | `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
 | `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
+| `tools/numericalcheck.gd` | requires native kernel; checks tiny forces, potentials, step caps, positive durations, orbital convergence and unsafe-update rollback in both implementations |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary and black-hole pair forces, matching energy, and presentation-independent contact distances |
 | `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year flagship Trisolaris bounds; `years=<n>` labels a shorter probe, `max_step=<years>` and `world_rotation=<radians>` select separately marked diagnostics, `report=/abs/result.json` retains configuration and double states; currently fails the orbital bound |

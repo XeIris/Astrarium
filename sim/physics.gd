@@ -36,7 +36,7 @@ static func roche_limit(mass_sun: float, body_density: float = 5.5) -> float:
 	return 2.44 * r_au * U.cbrt(rho_star / body_density)
 
 # Acceleration field. Fills every live body's `acc`.
-static func compute_accel(bodies: Array) -> void:
+static func compute_accel(bodies: Array) -> bool:
 	for b in bodies:
 		b.acc.x = 0.0; b.acc.y = 0.0; b.acc.z = 0.0
 	var n := bodies.size()
@@ -50,8 +50,9 @@ static func compute_accel(bodies: Array) -> void:
 			var rx := b.pos.x - ap.x
 			var ry := b.pos.y - ap.y
 			var rz := b.pos.z - ap.z
-			var dist := sqrt(rx * rx + ry * ry + rz * rz)
-			if dist < 1e-9: continue
+			var dist := distance_xyz(rx, ry, rz)
+			if dist == 0.0: continue
+			if not is_finite(dist): return false
 			var inv := 1.0 / dist
 			rx *= inv; ry *= inv; rz *= inv           # unit vector a→b
 			var kernel: float
@@ -65,6 +66,30 @@ static func compute_accel(bodies: Array) -> void:
 			var fB := kernel * a.mass
 			a.acc.x += rx * fA; a.acc.y += ry * fA; a.acc.z += rz * fA
 			b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
+
+	for b in bodies:
+		if b.alive and not b.acc.is_finite_v(): return false
+	return true
+
+# Keep ordinary rounding; scale only when the squared norm over/underflows.
+static func distance_xyz(x: float, y: float, z: float) -> float:
+	var squared := x * x + y * y + z * z
+	if is_finite(squared) and squared > 0.0: return sqrt(squared)
+	var scale := maxf(absf(x), maxf(absf(y), absf(z)))
+	if scale == 0.0 or not is_finite(scale): return scale
+	x /= scale; y /= scale; z /= scale
+	return scale * sqrt(x * x + y * y + z * z)
+
+static func finite_state(bodies: Array) -> bool:
+	for b in bodies:
+		if b.alive and (not b.pos.is_finite_v() or not b.vel.is_finite_v() or not is_finite(b.mass) or b.mass <= 0.0): return false
+	return true
+
+static func restore_step(bodies: Array) -> void:
+	for b in bodies:
+		if b.alive:
+			b.pos.copy_from(b.step_pos)
+			b.vel.copy_from(b.step_vel)
 
 ## RMS softening preserves each body's scale while giving a symmetric pair potential.
 static func pair_softening_sq(a: Body, b: Body) -> float:
@@ -84,7 +109,7 @@ static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
 		for j in range(i + 1, compact.size()):
 			var a: Body = compact[i]; var b: Body = compact[j]
 			var rx := b.pos.x - a.pos.x; var ry := b.pos.y - a.pos.y; var rz := b.pos.z - a.pos.z
-			var r := sqrt(rx * rx + ry * ry + rz * rz)
+			var r := distance_xyz(rx, ry, rz)
 			# The illustrative drag window uses physical contact distances.
 			var cSum := _or3(a.contact_au, a.radius, a.rs) + _or3(b.contact_au, b.radius, b.rs)
 			if r > 400.0 * cSum or r < cSum * 0.5: continue
@@ -116,13 +141,15 @@ static func _or3(a: float, b: float, c: float) -> float:
 	return c
 
 # A fixed step is symplectic for unchanged conservative pair potentials.
-static func integrate(bodies: Array, dt: float) -> void:
+static func integrate(bodies: Array, dt: float) -> bool:
 	var live := []
 	for b in bodies:
 		if b.alive: live.append(b)
-	if live.is_empty(): return
-
-	compute_accel(live)
+	if live.is_empty(): return true
+	for b in live:
+		b.step_pos.copy_from(b.pos)
+		b.step_vel.copy_from(b.vel)
+	if not compute_accel(live): return false
 	var hdt2 := 0.5 * dt * dt
 	for b in live:
 		# x += v·dt + ½a·dt² as two additions, the reference's rounding order.
@@ -133,7 +160,9 @@ static func integrate(bodies: Array, dt: float) -> void:
 		b.pos.y += b.acc.y * hdt2
 		b.pos.z += b.acc.z * hdt2
 		b.a_prev.x = b.acc.x; b.a_prev.y = b.acc.y; b.a_prev.z = b.acc.z
-	compute_accel(live)
+	if not finite_state(live) or not compute_accel(live):
+		restore_step(live)
+		return false
 	var hdt := 0.5 * dt
 	for b in live:
 		# v += ½(a_old + a_new)·dt
@@ -141,9 +170,17 @@ static func integrate(bodies: Array, dt: float) -> void:
 		b.vel.y += (b.a_prev.y + b.acc.y) * hdt
 		b.vel.z += (b.a_prev.z + b.acc.z) * hdt
 
+	if not finite_state(live):
+		restore_step(live)
+		return false
+	return true
+
+static var collision_limited := false
+
 # Collision / accretion resolution. Returns an array of merger events
 # ({survivor, absorbed, separation}).
 static func resolve_collisions(bodies: Array) -> Array:
+	collision_limited = false
 	var events := []
 	var n := bodies.size()
 	for i in n:
@@ -152,19 +189,28 @@ static func resolve_collisions(bodies: Array) -> Array:
 		for j in range(i + 1, n):
 			var b: Body = bodies[j]
 			if not b.alive: continue
-			var d := a.pos.distance_to(b.pos)
+			var d := distance_xyz(b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z)
 
 			# Physical contact only; drawing magnification must not affect mergers.
 			var ca := a.rs if a.type == "bh" else (a.contact_au if a.contact_au != 0.0 else a.radius)
 			var cb := b.rs if b.type == "bh" else (b.contact_au if b.contact_au != 0.0 else b.radius)
+			if not is_finite(d) or not is_finite(ca + cb):
+				collision_limited = true
+				return events
 			if d > ca + cb: continue
 
 			# merge lighter into heavier; conserve momentum
 			var big: Body = a if a.mass >= b.mass else b
 			var small: Body = b if big == a else a
 			var M := big.mass + small.mass
-			big.vel.scale_in(big.mass).add_scaled_in(small.vel, small.mass).scale_in(1.0 / M)
-			big.pos.scale_in(big.mass).add_scaled_in(small.pos, small.mass).scale_in(1.0 / M)
+			var inv_mass := 1.0 / M
+			big.step_vel.copy_from(big.vel).scale_in(big.mass).add_scaled_in(small.vel, small.mass).scale_in(inv_mass)
+			big.step_pos.copy_from(big.pos).scale_in(big.mass).add_scaled_in(small.pos, small.mass).scale_in(inv_mass)
+			if not is_finite(M) or M <= 0.0 or not big.step_pos.is_finite_v() or not big.step_vel.is_finite_v():
+				collision_limited = true
+				return events
+			big.vel.copy_from(big.step_vel)
+			big.pos.copy_from(big.step_pos)
 			big.mass = M
 			small.alive = false
 			events.append({"survivor": big, "absorbed": small, "separation": d})

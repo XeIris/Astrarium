@@ -37,6 +37,18 @@ destruction instruction. Failed edits preserve the body and restore its controls
 an invalid body specification rejects the whole preset before the live scenario
 is cleared. This input gate does not establish stability of every accepted body.
 
+Authored positions and velocities must have exactly three finite numeric components;
+contact distances and softening must be finite and nonnegative AU. Zero softening
+selects the ordinary-pair default. Black-hole structures retain the actual mass,
+including below the ordinary structure fit's lower clamp, and reject horizon or
+isolated evaporation scales that underflow or overflow. This is a numerical guard,
+not a claimed physical lower mass boundary.
+
+The black-hole card compares its modeled Hawking temperature with the current
+microwave background rather than assuming every hole is colder. Hot isolated holes
+can lose energy through thermal emission; evaporation is not integrated. See
+[Hawking's original calculation](https://authors.library.caltech.edu/records/2wsvj-qrt68).
+
 ## Solid planets (Seager et al. 2007)
 
 Every solid composition collapses onto one curve in scaled variables, because

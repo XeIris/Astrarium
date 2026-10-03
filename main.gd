@@ -670,6 +670,14 @@ func dynamic_step() -> float:
 # Returns the simulated time actually integrated (< sim_dt when the sub-step guard
 # trips). Drive anything on the simulated clock from the return value.
 func step_physics(sim_dt: float, coupled := false) -> float:
+	if not coupled: state.last_resolution_limited = false
+	if not is_finite(sim_dt) or not is_finite(state.sim_years) or (sim_dt > 0.0 and
+		not state.can_advance_years(sim_dt)):
+		state.last_resolution_limited = true
+		if not coupled:
+			state.last_steps = 0
+			_commit_positions(false)
+		return 0.0
 	if sim_dt <= 0.0:
 		if not coupled:
 			state.last_steps = 0
@@ -680,9 +688,10 @@ func step_physics(sim_dt: float, coupled := false) -> float:
 		state.last_steps if coupled else 0)
 	var stepped: float = r.stepped
 	state.last_steps = int(r.steps)
+	state.last_resolution_limited = state.last_resolution_limited or bool(r.get("resolution_limited", false))
 	# Advance the clock by what was actually integrated, not by what was asked
 	# for: the deficit during a guarded close encounter is never repaid.
-	state.sim_years += stepped
+	state.advance_years(stepped)
 	if coupled: return stepped
 	_commit_positions(true)
 	_step_climate(stepped)
@@ -1535,7 +1544,11 @@ func update_sim_stats() -> void:
 	# Say when step_physics hits STEP_GUARD: it then runs simulated time slow, silently.
 	var capped := state.last_steps >= STEP_GUARD
 	hud.set_text("setSteps", ("%d capped" % state.last_steps) if capped else str(state.last_steps))
-	hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. Only the integrated time advances the clock, so the simulation is running slower than the requested rate. Reduce the time scale to give each frame less work; increasing Max step trades accuracy for speed." if capped else "")
+	if state.last_resolution_limited:
+		hud.set_text("setSteps", "%d · precision limit" % state.last_steps)
+		hud.set_warn("setSteps", true, "Integration stopped at a numerical precision limit. Unsafe steps were not accepted. Check the body inputs and step cap; reduce the requested time scale for tiny systems. A larger step does not fix this limit.")
+	else:
+		hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. Only the integrated time advances the clock, so the simulation is running slower than the requested rate. Reduce the time scale to give each frame less work; increasing Max step trades accuracy for speed." if capped else "")
 	# Body creation/removal changes the energy budget independently of integration.
 	var E := Derive.total_energy(state.bodies)
 	if state.energy0 == null or state.energy_n != state.bodies.size():
@@ -2195,6 +2208,7 @@ func animate(dt: float) -> void:
 	var sim_stepped := 0.0
 	if flight.active:
 		state.last_steps = 0
+		state.last_resolution_limited = false
 		var coordinate_seconds: float = flight.update(dt, state.time, _advance_flight_world)
 		sim_stepped = coordinate_seconds / Rocketry.YR_S
 		_commit_positions(sim_stepped > 0.0)

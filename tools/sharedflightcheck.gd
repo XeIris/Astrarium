@@ -41,7 +41,7 @@ func _init() -> void:
 		var world := func(seconds: float) -> float:
 			var result := NBody.step_physics(flight.state.bodies, seconds / Rocketry.YR_S, 1e-4, 0.0, Callable(), flight.state.last_steps)
 			flight.state.last_steps = result.steps
-			flight.state.sim_years += result.stepped
+			flight.state.advance_years(result.stepped)
 			return result.stepped * Rocketry.YR_S
 		var frames := 0
 		var worst_clock_error := 0.0

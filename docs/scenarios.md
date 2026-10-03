@@ -15,14 +15,17 @@ with a hierarchy:
 - Gamma (2.00 M☉, A, 11 L☉): a 51-year orbit at 25° around the whole system.
 
 The standing long-run target is 60 000 years, but the current native-kernel
-trajectory fails the declared inner-orbit bound near 18 095 years and later
-ejects the world, despite relative energy drift below 5.3e-8. The earlier
+trajectory fails the declared inner-orbit bound near 56 333 years, despite
+relative energy drift below 5.3e-8. The preceding implementation crossed the
+bound near 18 095 years and later ejected the world. Changed remainder
+and budget arithmetic changed the chaotic numerical trajectory; the later failure
+does not establish improved stability. The earlier
 60 000-year stability claim is not supported by this recheck; see R28 in the
 [review log](codebase-review-2026-10-02.md). Earlier insolation samples swung
 ~9× (0.34 to 3.1 Earth-suns); these climate statistics have not been revalidated
 as an ensemble against the current kernel.
 
-The 2026-10-04 timestep probes keep the authored frame interval and observation
+The batch-10 (2026-10-04) timestep probes used the preceding stepping rules and keep the authored frame interval and observation
 cadence, with unchanged bounds. All request 60 000 years:
 
 | maximum step (years) | world orientation offset (radians) | first sampled extent failure (years) | maximum relative energy drift |
@@ -38,7 +41,8 @@ One passing refinement amid failures does not establish convergence. The tiny
 world-orientation probes rotate position and velocity relative to the inner
 binary barycenter; they change apsidal orientation, not anomaly along the same
 ellipse. No authored timestep or orbit was changed to obtain a passing gate.
-These six trajectories are not a statistical stability ensemble.
+These six trajectories are not a statistical stability ensemble or a convergence
+result for the subsequent stepping changes.
 
 Run the strict authored gate with `python3 tools/check.py stability`. For a
 separately marked probe, run Godot headlessly with
