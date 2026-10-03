@@ -58,8 +58,8 @@ static func base_radius(b: Body, spec: Dictionary, mass: float) -> float:
 	# clickable and a brown dwarf still has to fit beside the star it orbits.
 	return base * clampf(r / ref, 0.18, 9.0)
 
-# Rendered radius in scene units: black holes are always their true horizon;
-# everything else is the real radius at true scale, or the readable stand-in.
+# Rendered radius in scene units: black holes use their mass-derived Schwarzschild
+# scale; everything else is the real radius at true scale, or the readable stand-in.
 static func render_radius(b: Body, spec: Dictionary, mass: float, scene_scale: float, body_scale: float, true_scale: bool) -> float:
 	if spec.get("type") == "bh": return b.rs * scene_scale
 	if true_scale and b.radius > 0.0: return b.radius * scene_scale
@@ -110,11 +110,12 @@ static func refresh_structure(b: Body) -> Dictionary:
 	return b.structure
 
 # Derive everything a spec implies (horizon, radius, temperature, luminosity, spin,
-# interior), re-runnable on an existing body without touching id, state or trail.
+# GW eligibility, interior), re-runnable without touching id, state or trail.
 static func derive_body(b: Body, spec: Dictionary) -> Body:
 	var type = spec.get("type")
 	var def := type_default(type)
 	var mass := b.mass
+	b.emits_gw = bool(U.nz(spec.get("emitsGW"), type == "bh" or type == "neutron"))
 	if type == "bh":
 		b.rs = Physics.schwarzschild(mass)
 		b.radius = 0.0
@@ -165,7 +166,7 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 
 	return b
 
-## The non-visual half of spawning: id, type, name, masses, state vectors, GW flag,
+## The non-visual half of spawning: id, type, name, masses, state vectors,
 ## then derive_body. main.gd's attach_visual does the rest.
 static func new_body(id: int, spec: Dictionary) -> Body:
 	var type = spec.get("type")
@@ -181,7 +182,6 @@ static func new_body(id: int, spec: Dictionary) -> Body:
 	b.vel = DVec3.from_array(U.nz(spec.get("vel"), [0.0, 0.0, 0.0]))     # AU/yr
 	b.acc = DVec3.new()
 	b.alive = true
-	b.emits_gw = bool(U.nz(spec.get("emitsGW"), type == "bh" or type == "neutron"))
 	derive_body(b, spec)
 	return b
 

@@ -226,7 +226,8 @@ static func _make() -> Dictionary:
 	}
 
 	# A LIGHTHOUSE MADE OF NEUTRONS: 1.4 M☉ in 12 km, surface gravity 2×10¹¹ g, and
-	# light bent enough to show over half the sphere (ray-traced in neutron_visual.gd).
+	# light bent enough to show over half the sphere (analytic approximation;
+	# docs/physics/neutron-light-bending.md).
 	# The beams leave the magnetic poles, off the rotation axis, so they sweep.
 	P.edu_pulsar = {
 		"sky": { "env": ["disc", "halo"], "tilt": 0.58, "roll": 2.2 },

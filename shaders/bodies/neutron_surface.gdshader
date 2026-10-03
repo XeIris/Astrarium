@@ -1,4 +1,4 @@
-// NEUTRON-STAR SURFACE (physics in sim/neutron_visual.gd). Camera-relative: world
+// NEUTRON-STAR SURFACE (model: docs/physics/neutron-light-bending.md). Camera-relative: world
 // space is camera-relative under the floating origin, so the view offset rotates back
 // to world with mat3(INV_VIEW_MATRIX).
 shader_type spatial;
@@ -48,8 +48,8 @@ void fragment() {
 	vec3 N  = normalize(vWN);
 	float mu = clamp(dot(N, V), 0.0, 1.0);
 
-	// --- gravitational self-lensing: cos(psi) = 1 − (1 − mu) / (1 − rs/R), uCompact =
-	// rs/R. The apparent disc maps to larger colatitudes, bringing the far side into view.
+	// Beloborodov's approximation: mu on the mesh disc stands in for cos(alpha).
+	// uCompact = r_s/R; the relation's domain is R >= 2 r_s (see model note).
 	float cosPsi = 1.0 - (1.0 - mu) / max(1.0 - uCompact, 0.05);
 	cosPsi = clamp(cosPsi, -1.0, 1.0);
 
@@ -78,9 +78,7 @@ void fragment() {
 	// --- limb darkening. Hot, mostly-scattering atmosphere: shallow law.
 	col *= 1.0 - 0.35 * (1.0 - mu);
 
-	// --- the lensed rim. Light from the far side piles up into a bright
-	// ring right at the apparent edge, which is a real signature of a compact
-	// enough object and the thing that makes it read as *dense*.
+	// A stylized bright rim emphasizes the edge; this is not a computed lensing flux.
 	float rim = pow(1.0 - mu, 3.5);
 	col += uColor * rim * 2.6;
 

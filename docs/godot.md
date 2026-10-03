@@ -158,6 +158,8 @@ The display clock is independent of the orrery time scale.
 The orchestrator owns `group.position` (floating origin) and `group.scale`
 (size ease, oblateness). `b.scene_pos` (`DVec3`) is the body's absolute scene
 position. Visual updates must not change physical mass, position or velocity.
+Neutron self-lensing uses an analytic display approximation; see
+[its domain and limits](physics/neutron-light-bending.md).
 Accretion streams illustrate gas flow using visible geometry; mass transfer is
 handled by physical contact mergers, not by the particle effect.
 
@@ -182,6 +184,11 @@ derivation discards authored `rs` overrides; refresh updates it and contact afte
 a merger. Contact, lensing and compact forces use this scale. The structural
 model also reports Kerr radii for spin, but the dynamics and image do not implement
 a full Kerr spacetime. Use `sceneScale` and camera framing for close-up images.
+
+`derive_body` also recomputes `emits_gw`: black holes and neutron stars default to
+eligible, other bodies to ineligible; a non-null `spec.emitsGW` overrides that
+default. Spawn, edit and transformation paths use the same policy. Eligibility
+does not validate the radiation-reaction approximation or its preset multiplier.
 
 ## UI
 

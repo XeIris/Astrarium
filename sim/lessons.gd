@@ -1060,7 +1060,7 @@ const MODULES := [
           teaspoon of it would weigh as much as a mountain range.</p>
           <p>Its surface gravity is two hundred billion times Earth's, and it bends the light leaving its
           own surface so hard that you can see well past the limb — more than half of the sphere at once.
-          That is being ray-traced here, not approximated.</p>""",
+          This view uses an analytic approximation to show how gravity brings the far side into view.</p>""",
 			},
 			{
 				"title": "The lighthouse",

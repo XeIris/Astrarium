@@ -298,6 +298,7 @@ class FoundryPanel extends RefCounted:
 		rows.z_val.text = U.fixed(draft.Z, 4)
 
 		structure = Structure.structure_of(draft)
+		spawn_btn.disabled = not Structure.input_error(draft).is_empty()
 
 		var v = structure.get("verdict")
 		if not (v is Dictionary): v = {"state": Structure.VERDICT.ok, "label": "", "detail": ""}
@@ -326,6 +327,7 @@ class FoundryPanel extends RefCounted:
 		return s
 
 	func spawn() -> void:
+		if not Structure.input_error(draft).is_empty(): return
 		if on_spawn.is_valid():
 			on_spawn.call(spawn_spec(), structure)
 
@@ -479,6 +481,11 @@ class LiveEditor extends RefCounted:
 		if ph is String: return float(Structure.phase_by_id(ph).f)
 		return float(ph)
 
+	func reject_edit(b: Body) -> void:
+		dragging = ""
+		pending = null
+		sync(b)
+
 	# Push the body's current state into the controls. Called on attach and on every
 	# panel refresh; skips whatever the user has hold of.
 	func sync(b) -> void:
@@ -514,8 +521,7 @@ class LiveEditor extends RefCounted:
 		readouts()
 		_draw_curve(b)
 
-	# The graph reads the LIVE body, so a star being eaten walks its handle down its
-	# own curve without anyone touching a control.
+	# Re-read live mass after edits and physical events.
 	func _draw_curve(b) -> void:
 		curve.draw_curve({
 			"type": "planet" if b.type == "world" else b.type,

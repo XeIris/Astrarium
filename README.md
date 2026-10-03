@@ -165,6 +165,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary forces, matching energy, and presentation-independent contact distances |
 | `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year flagship Trisolaris run with declared orbital, energy, conservation and accepted-time bounds; `years=<n>` labels a shorter probe, `report=/abs/result.json` retains details; currently fails the orbital bound |
 | `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
+| `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; `inject_invalid=1` must fail on a missing driven part |

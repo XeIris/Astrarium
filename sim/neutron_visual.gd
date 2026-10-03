@@ -1,31 +1,16 @@
 class_name NeutronVisual
 extends RefCounted
 
-# NEUTRON STAR: ~12 km, a solar mass, a ~10⁶ K surface, a 10⁸–10¹⁵ G field.
-#   · Colour: the Planck peak is soft X-ray, so the visible tail is Rayleigh–Jeans
-#     blue-white (RX J1856−3754), driven well past 1.0 so the core clips white and
-#     the limb keeps its colour.
-#   · Self-lensing: at R ≈ 2.5 r_s,
-#         cos ψ = 1 − (1 − μ)/(1 − r_s/R)
-#     (μ the cosine on the apparent disc). At r_s/R = 0.4 the limb maps to ψ ≈ 132°,
-#     so ~60% of the surface is visible and a polar cap stays in view longer.
-#   · Hot magnetic polar caps, the source of the pulse.
-#   · A misaligned dipole, so caps and beams sweep; relativistic beaming sharpens
-#     the pulse into a spike.
-#   · Dipole field lines r = r₀·sin²θ as glowing tubes.
-#   · Hollow radio/X-ray beams: emission from the cone wall near the last open field
-#     lines.
-# Camera-relative throughout. Shaders: neutron_surface, neutron_beam, neutron_field.
+# Camera-relative pulsar surface, magnetic field lines and hollow beams.
+# Light-bending approximation and limits: docs/physics/neutron-light-bending.md.
 
 const SURF_SHADER := preload("res://shaders/bodies/neutron_surface.gdshader")
 const BEAM_SHADER := preload("res://shaders/bodies/neutron_beam.gdshader")
 const FIELD_SHADER := preload("res://shaders/bodies/neutron_field.gdshader")
 
-# THREE.CatmullRomCurve3 (centripetal) and TubeGeometry, reproduced: arc-length
-# sampling over 200 divisions, parallel-transported frame, CCW index order (see
-# neutron_field.gdshader's cull note).
+# Centripetal Catmull–Rom with parallel-transported frames. Arc-length sampling
+# avoids uneven tube tessellation at curve bends (see the field shader's cull note).
 static func _cubic(x0: float, x1: float, x2: float, x3: float, dt0: float, dt1: float, dt2: float, t: float) -> float:
-	# initNonuniformCatmullRom, then init() and calc()
 	var t1 := (x1 - x0) / dt0 - (x2 - x0) / (dt0 + dt1) + (x2 - x1) / dt1
 	var t2 := (x2 - x1) / dt1 - (x3 - x1) / (dt1 + dt2) + (x3 - x2) / dt2
 	t1 *= dt1; t2 *= dt1
@@ -196,12 +181,12 @@ class NeutronViz:
 		group = Node3D.new()
 		var R: float = opts.radius_scene
 
-		# r_s/R for a real neutron star: r_s ≈ 4.1 km per M☉, R ≈ 12 km ⇒ ~0.4 at
-		# 1.4 M☉. Taken from the body's own numbers when they exist.
-		var compact := clampf(b.rs / b.radius if (b.rs > 0.0 and b.radius > 0.0) else 0.4, 0.15, 0.65)
+		# Dimensionless r_s/R from physical AU radii, independent of rendered size.
+		# Cap at the cosine relation's domain; 0.15 is an illustrative display floor.
+		var compact := clampf(b.rs / b.radius if (b.rs > 0.0 and b.radius > 0.0) else 0.4, 0.15, 0.5)
 
 		# ~10⁶ K: we are on the Rayleigh–Jeans tail, so a hard blue-white.
-		# (THREE.Color from floats: linear, not colour-managed.)
+		# Linear colors avoid a second sRGB conversion.
 		var surf_color := Color(0.30, 0.52, 1.0)
 		var cap_color := Color(0.80, 0.90, 1.0)
 		var mag_color := Color(0.45, 0.72, 1.0)

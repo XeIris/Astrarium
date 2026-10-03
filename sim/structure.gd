@@ -35,6 +35,8 @@ const LIMITS := {
 	"chandrasekhar": 1.44,
 	# Non-rotating TOV maximum; the literature range is 2.0–2.3.
 	"tov": 2.20,
+	# Lower domain of this equilibrium model; EOS and rotation change physical minima.
+	"neutronMin": 0.1,
 	# Rigid rotation supports up to ~20% more.
 	"tovSpinBoost": 0.20,
 	# Humphreys–Davidson: no stable supergiant is observed above it.
@@ -106,7 +108,7 @@ static func white_dwarf_radius_sun(mass_sun: float) -> float:
 
 # Neutron stars: a smooth stand-in for stiff modern EOSs (NICER: ~12.4 km).
 static func neutron_radius_km(mass_sun: float) -> float:
-	var m := maxf(mass_sun, 0.1)
+	var m := maxf(mass_sun, float(LIMITS.neutronMin))
 	var x := minf(m / float(LIMITS.tov), 0.999)
 	# 12.6 km plateau, collapsing as x → 1
 	return 12.6 * pow(1.0 - 0.62 * pow(x, 6.0), 0.22)
@@ -403,8 +405,36 @@ static func _jmax(a: float, b: float) -> float:
 static func _pos(v) -> bool:
 	return v != null and float(v) > 0.0
 
-# THE MAIN ENTRY POINT. `spec`:
-#   { type, mass (M☉), spinFrac (0–1), phase (f), composition, Z, radiusKm }
+## Takes normalized type/mass; empty allows input, including modeled event verdicts.
+static func input_error(spec: Dictionary) -> String:
+	var mass = spec.get("mass", 1.0)
+	if not _finite_number(mass) or float(mass) <= 0.0:
+		return "Mass must be a finite positive number."
+	var spin = U.nz(spec.get("spinFrac"), 0.0)
+	if not _finite_number(spin) or float(spin) < 0.0:
+		return "Spin must be a finite nonnegative number."
+	for field in ["radiusKm", "radiusSun"]:
+		var radius = spec.get(field)
+		if radius != null and (not _finite_number(radius) or float(radius) <= 0.0):
+			return "Measured radius must be a finite positive number."
+	if spec.get("type") == "bh": return ""
+	if spec.get("type") == "neutron":
+		if float(mass) < float(LIMITS.neutronMin):
+			return "Neutron mass is below this model's %s M☉ equilibrium range." % _num(LIMITS.neutronMin)
+		var hz = spec.get("spinHz")
+		if hz != null and (not _finite_number(hz) or float(hz) < 0.0):
+			return "Spin frequency must be a finite nonnegative number."
+		spin = _neutron_spin_fraction(spec, float(mass), float(spin))
+	if not is_finite(float(spin)):
+		return "Rotation is outside this model's numerical range."
+	if float(spin) > 1.0:
+		return "Rotation exceeds this model's mass-shedding limit."
+	return ""
+
+static func _finite_number(value) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
+
+# `spec`: type, mass (M☉), spinFrac, phase, composition, Z, measured radius.
 static func structure_of(spec: Dictionary) -> Dictionary:
 	var t = spec.get("type")
 	var type: String = t if (t != null and t != "") else "planet"
@@ -437,8 +467,8 @@ static func _with_rotation(s: Dictionary, mass: float, kind: String, spin_frac: 
 	if spin_frac >= 0.999:
 		s.verdict = {
 			"state": VERDICT.breakup,
-			"label": "Rotational break-up",
-			"detail": "At the mass-shedding limit the equator is in orbit: R_eq/R_pol = 3/2 and material leaves the surface. Nothing rotating faster stays in one piece.",
+			"label": "Near rotational break-up" if spin_frac <= 1.0 else "Beyond rotational limit",
+			"detail": "Rotation reaches the model's mass-shedding limit. This equilibrium model does not follow the loss of surface material.",
 		}
 	return s
 
@@ -751,12 +781,19 @@ static func _star_layers(mass: float, ph: Dictionary, cc: Dictionary, conv_core:
 		"note": "A million kelvin above a 5800 K surface — magnetically heated, and still not fully explained." })
 	return L
 
+static func _neutron_spin_fraction(spec: Dictionary, mass: float, spin_frac: float) -> float:
+	if spec.get("spinHz") != null:
+		var radius := _measured_radius_au(spec, neutron_radius_km(mass) * Physics.AU_PER_KM)
+		var critical := breakup_omega(mass, radius, "neutron")
+		if not is_finite(critical) or critical <= 0.0: return INF
+		return TAU * maxf(float(spec.spinHz), 0.0) / critical
+	return spin_frac
+
 static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) -> Dictionary:
-	var radius_au := _measured_radius_au(spec, neutron_radius_km(maxf(mass, 0.1)) * Physics.AU_PER_KM)
+	var radius_au := _measured_radius_au(spec, neutron_radius_km(mass) * Physics.AU_PER_KM)
 	var omega_c := breakup_omega(mass, radius_au, "neutron")
 	# A measured frequency overrides the rotational model before testing support.
-	if spec.get("spinHz") != null:
-		spin_frac = TAU * maxf(float(spec.spinHz), 0.0) / omega_c
+	spin_frac = _neutron_spin_fraction(spec, mass, spin_frac)
 	var max_m := tov_limit(spin_frac)
 	if mass > max_m:
 		var hs := spec.duplicate()
@@ -772,12 +809,12 @@ static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) 
 		}
 		s.wasNeutron = true
 		return s
-	if mass < 0.1:
+	if mass < float(LIMITS.neutronMin):
 		return {
-			"type": "neutron", "kind": "neutron", "mass": mass, "radiusAU": neutron_radius_km(0.1) * Physics.AU_PER_KM,
+			"type": "neutron", "kind": "neutron", "mass": mass, "radiusAU": neutron_radius_km(float(LIMITS.neutronMin)) * Physics.AU_PER_KM,
 			"label": "Sub-minimum-mass", "layers": [],
-			"verdict": { "state": VERDICT.explode, "label": "Below the minimum mass",
-				"detail": "Under about 0.1 M☉ a neutron star is not gravitationally bound against its own degeneracy pressure. It expands and disintegrates." },
+			"verdict": { "state": VERDICT.explode, "label": "Outside the equilibrium model",
+				"detail": "This model does not support neutron equilibria below %s M☉. The physical minimum depends on the equation of state and rotation." % _num(LIMITS.neutronMin) },
 		}
 
 	var r_km := radius_au / Physics.AU_PER_KM

@@ -13,6 +13,30 @@ gravity:
 
 Public functions use AU / M☉ / yr; interior equations of state work in SI.
 
+## Supported requests and physical events
+
+The stage preflights complete spawn, edit and preset requests before changing
+live bodies. Mass must be finite and positive; physical spin must be finite and
+nonnegative. Non-black-hole rotation above the model's mass-shedding rate is
+unsupported. The near-limit warning at fractions 0.999–1 is still allowed;
+this equilibrium model does not evolve shed material. Neutron `spinHz` takes
+precedence over `spinFrac` when checking rotational support.
+
+`Structure.LIMITS.neutronMin` is the stand-in model's lower mass domain,
+0.1 M☉. It is not a universal physical destruction threshold. Published
+[cold equilibrium calculations](https://arxiv.org/abs/astro-ph/0201434) give
+EOS-dependent minima and show that rotation changes them. Likewise, the
+[mass-shedding collapse study](https://arxiv.org/abs/astro-ph/0205091) starts
+with a star already unstable to radial collapse; rotation alone does not justify
+deleting it. Unsupported requests are rejected rather than assigned a made-up
+explosion or mass-loss law.
+
+TOV collapse, Chandrasekhar detonation and reclassification remain supported
+events. A stellar radiation/evolution warning is not automatically an immediate
+destruction instruction. Failed edits preserve the body and restore its controls;
+an invalid body specification rejects the whole preset before the live scenario
+is cleared. This input gate does not establish stability of every accepted body.
+
 ## Solid planets (Seager et al. 2007)
 
 Every solid composition collapses onto one curve in scaled variables, because

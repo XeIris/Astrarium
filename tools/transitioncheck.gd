@@ -63,6 +63,7 @@ func spin_checks() -> void:
 	stage.edit_body(b, {"spinHz": 20.0})
 	stage.transmute(b, "planet", null)
 	check("transmutation discards progenitor spin measurement and default", not b.spec.has("spinHz") and b.default_visual_spin_rad_s != default_rate)
+	check("ordinary reclassification clears default compact GW eligibility", not b.emits_gw)
 	var model := Structure.structure_of({"type": "neutron", "mass": 1.4, "spinFrac": 0.02})
 	check("fraction-only period units agree", absf(float(model.spinPeriodMs) - float(model.spinPeriodSec) * 1000.0) < 1e-10)
 	var radius := Structure.neutron_radius_km(2.4) * Physics.AU_PER_KM
@@ -92,6 +93,49 @@ func canonical_horizon(label: String, b: Body) -> void:
 	check(label + " structure and rendered horizon", horizon_close(float(b.structure.rs), expected)
 		and horizon_close(b.rs_scene, expected * stage.state.scene_scale) and horizon_close(b.radius_scene, expected * stage.state.scene_scale))
 	check(label + " canonical authored state", b.spec.mass == b.mass and (not b.spec.has("rs") or horizon_close(float(b.spec.rs), expected)))
+
+func radiation_checks() -> void:
+	stage.state.paused = true
+	for case in [["star", 1.0, false], ["white-dwarf", 0.6, false], ["neutron", 1.4, true], ["bh", 8.0, true]]:
+		stage.clear_bodies()
+		var b: Body = stage.spawn_body({"type": case[0], "mass": case[1]})
+		check("%s spawn defaults GW eligibility" % case[0], b.emits_gw == case[2])
+		for override in [true, false, null]:
+			stage.edit_body(b, {"emitsGW": override})
+			var expected: bool = case[2] if override == null else bool(override)
+			check("%s edit emitsGW=%s" % [case[0], override], b.emits_gw == expected)
+			var spawned := Derive.new_body(-1, b.spec)
+			check("%s spawn/edit agree emitsGW=%s" % [case[0], override], spawned.emits_gw == expected and spawned.emits_gw == b.emits_gw)
+		# A poisoned derived cache must be repaired by a normal edit, not only spawn.
+		b.emits_gw = not bool(case[2])
+		stage.edit_body(b, {"mass": case[1]})
+		check("%s ordinary edit restores spec-implied GW eligibility" % case[0], b.emits_gw == case[2])
+	for case in [[10.0, "neutron"], [30.0, "bh"]]:
+		for override in [true, false]:
+			stage.clear_bodies()
+			var b: Body = stage.spawn_body({"type": "star", "mass": case[0], "emitsGW": override})
+			stage.core_collapse(b)
+			check("%s collapse preserves emitsGW=%s" % [case[1], override], b.type == case[1] and b.spec.emitsGW == override and b.emits_gw == override)
+			var spawned := Derive.new_body(-1, b.spec)
+			check("%s collapse/spawn agree emitsGW=%s" % [case[1], override], spawned.emits_gw == override and spawned.emits_gw == b.emits_gw)
+
+func neutron_domain_checks() -> void:
+	stage.state.paused = true
+	for mass in [1.4, 2.0]:
+		stage.clear_bodies()
+		var spec := {"type": "neutron", "mass": mass}
+		var physical := Derive.new_body(-1, spec)
+		var compact := physical.rs / physical.radius
+		var b: Body = stage.spawn_body(spec)
+		await render_frames()
+		# Beloborodov (2002), eq. 1: R >= 2 r_s; docs/physics/neutron-light-bending.md.
+		check("%s M☉ neutron exercises physical compactness domain" % mass,
+			(compact > 0.15 and compact < 0.5) if mass == 1.4 else compact > 0.5)
+		var shader_compact := float(b.viz.surf_mat.get_shader_parameter("uCompact"))
+		check("%s M☉ neutron shader uses supported compactness" % mass,
+			absf(shader_compact - compact) < 1e-12 if mass == 1.4 else shader_compact == 0.5)
+		check("%s M☉ neutron display preserves physical radii and mass" % mass,
+			b.type == "neutron" and b.rs == physical.rs and b.radius == physical.radius and b.mass == physical.mass)
 
 func horizon_checks() -> void:
 	stage.load_preset("sandbox")
@@ -131,6 +175,7 @@ func horizon_checks() -> void:
 		check("contact mixed=%s mass/momentum conserved" % mixed, a.mass == 22.0
 			and a.vel.scaled(a.mass).distance_to(momentum) < 1e-12)
 		canonical_horizon("contact mixed=%s" % mixed, a)
+		check("contact mixed=%s defaults to BH GW eligibility" % mixed, a.emits_gw and Derive.new_body(-1, a.spec).emits_gw == a.emits_gw)
 		if mixed:
 			check("absorbed lighter hole discards stellar measurements", not a.spec.has("radiusSun")
 				and not a.spec.has("radiusKm") and not a.spec.has("luminosity") and not a.spec.has("teff") and not a.spec.has("contactAU"))
@@ -148,6 +193,8 @@ func _ready() -> void:
 	stage.state.paused = true
 	stage.set_process(false)
 	spin_checks()
+	radiation_checks()
+	await neutron_domain_checks()
 	await horizon_checks()
 	for case in [[1.0, "white-dwarf"], [10.0, "neutron"], [30.0, "bh"]]:
 		stage.clear_bodies()
@@ -157,6 +204,8 @@ func _ready() -> void:
 		stage.core_collapse(b)
 		await render_frames()
 		check("%s remnant type" % case[1], b.type == case[1])
+		check("%s remnant defaults GW eligibility" % case[1], b.emits_gw == (case[1] in ["neutron", "bh"]))
+		check("%s remnant/spawn agree GW eligibility" % case[1], Derive.new_body(-1, b.spec).emits_gw == b.emits_gw)
 		check("%s discards progenitor radius/contact" % case[1], not b.spec.has("radiusSun") and not b.spec.has("radiusKm") and not b.spec.has("contactAU"))
 		if b.type == "bh":
 			check("BH contact is new horizon", b.contact_au == Physics.schwarzschild(b.mass) and b.radius == 0.0)

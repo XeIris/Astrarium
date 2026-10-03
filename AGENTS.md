@@ -65,7 +65,9 @@ design.
   exists on spawn and vanishes on the first edit.
 - A structural limit is an event: `check_structural_limits()` in `main.gd` must
   act on it (a neutron star past the TOV mass collapses; a white dwarf at the
-  Chandrasekhar mass detonates). A verdict the sim only prints is a bug.
+  Chandrasekhar mass detonates). Unsupported equilibrium requests are rejected
+  before spawn/edit/preset mutation by `Structure.input_error`; near-limit
+  warnings are not destruction commands. See [the model domain](docs/physics/structure.md#supported-requests-and-physical-events).
 - Appearance is a consequence. A planet derives its insolation from where it is
   and which stars light it (`insolation_at`), then its temperature, ice line and
   biomes. A preset states a value only when it can't be derived (Venus's 737 K is
@@ -148,6 +150,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   and `tools/nbodycheck.gd`
 - flight time/integration guards: `tools/flighttimecheck.gd` and the flight checks
 - lessons, presets or the stage: `tools/coursecheck.tscn`
+- spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without

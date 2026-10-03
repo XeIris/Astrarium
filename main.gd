@@ -349,7 +349,23 @@ func rebuild_visuals() -> void:
 func refresh_structure(b: Body) -> Dictionary:
 	return Derive.refresh_structure(b)
 
+static func _normalized_body_spec(spec: Dictionary) -> Dictionary:
+	var out := spec.duplicate()
+	out.type = str(U.nz(out.get("type"), "planet"))
+	if out.type == "": out.type = "planet"
+	out.mass = U.nz(out.get("mass"), Derive.type_default(out.type).mass)
+	return out
+
+func _reject_body_input(reason: String, b: Body = null) -> void:
+	toast("Cannot apply body: " + reason, 5000)
+	if b != null and live_editor != null and live_editor.body == b: live_editor.reject_edit(b)
+
 func spawn_body(spec: Dictionary) -> Body:
+	spec = _normalized_body_spec(spec)
+	var reason := Structure.input_error(spec)
+	if not reason.is_empty():
+		_reject_body_input(reason)
+		return null
 	var b := Derive.new_body(state.next_id, spec)
 	state.next_id += 1
 	b.scene_pos = b.pos.scaled(state.scene_scale)
@@ -464,13 +480,19 @@ func place_spawn(spec: Dictionary) -> Dictionary:
 func edit_body(b: Body, patch: Dictionary):
 	if b == null or not b.alive: return null
 	var spec := U.merged(b.spec, patch)
+	spec.type = b.type
+	spec.mass = U.nz(patch.get("mass"), b.mass)
 	if patch.has("spinFrac") and not patch.has("spinHz"): spec.erase("spinHz")
 	if patch.get("mass") != null:
-		b.mass = float(patch.mass); b.mass0 = float(patch.mass)
-		spec.mass = float(patch.mass)
 		# Measured beats modelled — but a measurement describes ONE star. Once you
 		# have changed its mass those numbers are no longer about this object.
 		for k in ["radiusSun", "teff", "luminosity", "radiusKm", "rs"]: spec.erase(k)
+	var reason := Structure.input_error(spec)
+	if not reason.is_empty():
+		_reject_body_input(reason, b)
+		return null
+	if patch.get("mass") != null:
+		b.mass = float(spec.mass); b.mass0 = b.mass
 		b.radius_sun = null
 	b.spec = spec
 	var before := b.radius_scene
@@ -515,7 +537,6 @@ func transmute(b: Body, new_type: String, why, remnant_spec: Dictionary = {}) ->
 		# re-imaging it as a star in the non-visible bands.
 		b.teff = null; b.spectral = null; b.luminosity = null
 		b.radius_sun = null
-		b.emits_gw = true
 		spawn_flash(wpos, 0xffffff, maxf(b.rs * state.scene_scale * 9.0, 0.6), 1.4)
 		spawn_flash(wpos, 0x9fd0ff, maxf(b.rs * state.scene_scale * 5.0, 0.4), 0.3)
 	detach_visual(b)
@@ -1033,9 +1054,31 @@ func update_free_cam(dt: float) -> void:
 	cam_basis = Basis.looking_at(fwd, Vector3.UP)
 
 # PRESET LOADING
-func load_preset(key: String) -> void:
-	if not Presets.PRESETS.has(key): return
+func load_preset(key: String) -> bool:
+	if not Presets.PRESETS.has(key): return false
 	var p: Dictionary = Presets.PRESETS[key]
+	var built
+	if _cmd.has("seed"):
+		var rng := GiantVisual.Mulberry.new(int(_cmd.seed))
+		Presets.rand_override = rng.next
+		built = p.build.call()
+		Presets.rand_override = Callable()
+	else:
+		built = p.build.call()
+	if not built is Array:
+		_reject_body_input("Preset bodies must be an array.")
+		return false
+	var specs: Array = []
+	for source in built:
+		if not source is Dictionary:
+			_reject_body_input("Preset body must be a specification.")
+			return false
+		var spec := _normalized_body_spec(source)
+		var reason := Structure.input_error(spec)
+		if not reason.is_empty():
+			_reject_body_input("Preset %s: %s" % [key, reason])
+			return false
+		specs.append(spec)
 	clear_bodies()          # bodies, painted swarms and any flash still burning
 
 	state.preset = p
@@ -1067,15 +1110,6 @@ func load_preset(key: String) -> void:
 	state.home_id = null
 	state.suns.clear()
 
-	# `seed=N` makes the scenario's random choices reproducible (mulberry32(N)).
-	var specs: Array
-	if _cmd.has("seed"):
-		var rng := GiantVisual.Mulberry.new(int(_cmd.seed))
-		Presets.rand_override = rng.next
-		specs = p.build.call()
-		Presets.rand_override = Callable()
-	else:
-		specs = p.build.call()
 	for spec in specs: spawn_body(spec)
 
 	# Anything the scenario paints on: rings, belts, ejecta. Applied after the
@@ -1126,6 +1160,7 @@ func load_preset(key: String) -> void:
 	spacetime_mesh.node.visible = state.show_mesh
 	render_preset_groups()
 	refresh_ui()
+	return true
 
 # PAINTING: parameters come from the body (Roche limit for rings, resonances for
 # belt gaps).
@@ -1727,7 +1762,9 @@ func _on_slider(id: String, v: float) -> void:
 			var holes := get_holes()
 			if not holes.is_empty() and state.preset_key == "sandbox":
 				var bh: Body = holes[0]
-				edit_body(bh, {"mass": state.mass})
+				if edit_body(bh, {"mass": state.mass}) == null:
+					state.mass = bh.mass
+					hud.set_slider("mass", state.mass, U.fixed(state.mass, 1))
 		"disc":
 			state.disc_intensity = v; hud.set_text("disc-val", U.fixed(v, 2))
 		"temp":
@@ -1885,6 +1922,7 @@ func _build_foundry() -> void:
 
 func _on_foundry_spawn(spec: Dictionary, structure) -> void:
 	var b := spawn_body(place_spawn(U.merged(spec, {"seed": randi() % 1000000000, "atmosphere": spec.type == "planet"})))
+	if b == null: return
 	set_follow(b)
 	# A star built at the end of its life collapses shortly after it is placed.
 	if spec.type == "star" and float(spec.get("phase", 0.0)) >= 1.93:

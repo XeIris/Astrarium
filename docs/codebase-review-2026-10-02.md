@@ -60,10 +60,11 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
 | R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
 | R24 | P2 | Verified: current Mac, batch 6 | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
-| R25 | P2 | Open: structural event gap | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define and execute their physical consequences; a warning alone cannot satisfy the structural-event contract. |
+| R25 | P2 | Partial: input domain enforced, batch 9 | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define supported input domain and reject unsupported equilibrium requests before mutation; preserve modeled threshold events. Mass-shedding/subminimum evolution remains unmodeled. |
 | R26 | P1 | Verified: batch 7 | Visual accretion removed physical mass/momentum without a receiving body and could delete the rest of a donor. | Cosmetic streams cannot mutate physical state; production frames match the kernel and contact mergers conserve mass/momentum, with pause/zero-time gates. |
-| R27 | P1 | Partial: mass-derived horizons, batch 8 | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
+| R27 | P1 | Partial: horizons and remnant eligibility | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
 | R28 | P1 | Open: long-run scenario failure | The flagship Trisolaris world leaves its declared orbital extent near 18,095 years and is ejected in the 60,000-year numerical trajectory, despite small total-energy drift. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep failures visible until resolved. |
+| R29 | P2 | Verified: bounded display model, batch 9 | Neutron self-lensing used an analytic approximation outside its stated domain, while lessons called it exact ray tracing and comments understated visible area. | Bound the display parameter without changing physics; document approximation/stylization, correct claims and inspect affected views. |
 
 ## Evidence at the reviewed revision
 
@@ -873,3 +874,91 @@ passes again (**35 lessons / 108 steps / 0 errors**):
 `/tmp/astrarium-b8-copy-final/report.json`. Independent final diff review found
 no further blocker for the bounded horizon fix; the radiation-eligibility
 follow-up above remains open.
+
+
+## Batch 9 — supported structural requests and derived remnant state, 2026-10-04
+
+R25 now has an explicit supported input domain. `Structure.input_error` rejects
+nonfinite/nonpositive mass, invalid measured radii, invalid physical spin,
+non-black-hole rotation above the modeled mass-shedding rate, and neutron mass
+below the stand-in's shared minimum. Measured `spinHz` retains precedence over
+`spinFrac`; 0.999–1 remains an allowed near-limit warning. The 0.1 M☉ lower
+boundary is a model limit, not a universal physical disintegration threshold.
+[The structure note](physics/structure.md#supported-requests-and-physical-events)
+links the primary EOS/rotation studies and distinguishes requests from events.
+Mass shedding and subminimum evolution remain unmodeled; R25 is **partial**.
+
+The stage validates copied candidates before changing IDs, bodies, visuals or
+camera state. Editing starts from live mass, including after a merger, and
+removes superseded measurements before validating the new mass/frequency pair.
+A preset's entire body list is built and checked before clearing the live scene.
+Failed live edits restore controls, clear pending requests and safely settle an
+already-running throttle timer; unrelated open editors are preserved. Unsupported
+Foundry drafts cannot spawn, and the callback handles rejection. Existing TOV
+collapse and Chandrasekhar detonation still execute. This gate covers the stated
+structural fields, not a comprehensive schema for every body/preset field.
+
+The R27 remnant-eligibility defect is corrected: `derive_body` owns `emits_gw`
+for spawn, edit and transformation. Black holes and neutron stars default true,
+ordinary bodies false; explicit non-null `emitsGW` values override the default.
+A heavier star absorbing a hole now becomes radiation-eligible, neutron remnants
+inherit the same policy, and compact-to-ordinary reclassification resets it.
+Reaction multipliers, source-dependent compact forces and full Kerr behavior
+remain outside this fix.
+
+R29's neutron display parameter is capped at **u=0.5**, the supported boundary
+of [Beloborodov's approximate relation](https://arxiv.org/html/astro-ph/0201117v1).
+Physical radius, mass and compactness are unchanged. The retained lower display
+floor is explicitly illustrative. At u=0.4 the approximation predicts 83.33%
+visibility; it is neither the former 60% comment nor an exact ray-traced result.
+The lesson and preset comment are corrected; the shader's stylized rim and
+mesh-disc proxy are identified. Equations, angular/domain accuracy and omissions
+live in [the model note](physics/neutron-light-bending.md), and the long visual
+header/port narration is reduced to useful pointers.
+
+Independent reviews found no remaining blocker in these bounded changes. The
+new production input gate passes **179/179** assertions: rejected-state snapshots,
+defaults, measured spin, accepted warnings, actual merged mass, preset atomicity,
+control/timer recovery, existing events and all authored preset body specs. A
+finite extreme radius that overflows the critical-rate calculation rejects with
+a numerical-range reason before frequency division. The expanded transition
+check passes **115/115**, covering eligibility defaults/overrides, remnant paths
+and actual neutron shader uniforms on either side of the supported domain.
+
+All six fast/native children pass. Across the original integration and repaired
+targeted reruns, all **nine** rendered-suite children pass: course **35/108/0**,
+HUD **54/0**, layout **124/0**, shared time **76/0**, transitions, input gate,
+accretion **106/0** with each kernel and all **35 presets**. The first input
+harness lacked a dictionary type annotation and failed to parse; its stalled
+child was terminated and the failed report retained. It is not counted as a pass.
+After correcting that and adding timer/radius edge cases, the gate passed; the
+final critical-rate guard was followed by transitions/input/preset reruns.
+Evidence: `/tmp/astrarium-b9-integrated/report.json`,
+`/tmp/astrarium-b9-final/report.json`, `/tmp/astrarium-b9-verified/report.json`.
+
+A temporary injected stage deliberately advances an ID after rejected spawning
+and changes camera radius after rejected edits. The input harness detects **22**
+assertion failures, completes and exits **1**, without engine errors; the strict
+runner rejects it. It does not mask failures as expected passes. The negative
+fixture predates the final numerical edge case and runs **176** assertions.
+
+The combined five-round soak is exactly flat after warmup
+(objects/resources/nodes/orphans): spawn/remove **6391/137/1619/0**, mass edits
+**6770/137/1720/0**, true scale **6790/137/1720/0**. Evidence:
+`/tmp/astrarium-b9-final/05-targeted-soak.log`. Inspected visible-band images show
+1.4 M☉ physical/display compactness **0.33120065**, and 2.0 M☉ physical compactness
+**0.51538421** with display **0.5**. The X-ray image renders without shader errors;
+the image does not establish quantitative flux accuracy. Final lesson-card and
+import evidence is retained in `/tmp/astrarium-b9-cleanup`; the accepted lesson
+image/report is `/tmp/astrarium-b9-lesson-final`. Earlier screenshot helpers
+targeted an incomplete lesson key and then retained a body across reload; those
+attempts are not accepted lesson evidence. The corrected helper checks the full
+lesson key and reacquires the live body. The card text, Next and Close are visible.
+
+R28 remains an explicit failure. The stability suite repeats the same observed
+extent violation at **18,094.9999990768 years**, world distance **20.659937165 AU**,
+and exits **1** with unchanged bounds. Eligibility changes do not affect its
+ordinary-body trajectory. Evidence: `/tmp/astrarium-b9-stability/report.json` and
+`stability.json`. Its known macOS system-CA diagnostic is specifically allowed
+and retained; the orbital failure is independently numerical. Convergence and
+initial-condition sensitivity work still precede any replacement stability claim.
