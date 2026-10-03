@@ -496,8 +496,8 @@ const MODULES := [
 				"body": """<p>Bring anything close enough to a heavy object and the stretch across it exceeds the object's
           own gravity holding it together. That distance is the <em>Roche limit</em>, and inside it nothing
           held together only by its own weight can survive.</p>
-          <p>Here a star is being stripped by a black hole: the material is being pulled off the near side
-          faster than the star can hold it, and it trails away into a stream.</p>""",
+          <p>The gas stream in this view illustrates tidal stripping beside an orbiting companion.
+          A collision combines the bodies' masses.</p>""",
 			},
 			{
 				"title": "Which is why there are rings",
@@ -1180,7 +1180,8 @@ const MODULES := [
 				"body": """<p>Gas falling toward a black hole cannot fall straight in — it has angular momentum, so it
           settles into a disc and spirals slowly inward while friction between neighbouring rings drags on
           it. That friction turns orbital energy into heat, and the inner disc reaches millions of kelvin.</p>
-          <p>So the brightest objects in the universe are powered by things that emit nothing at all.</p>""",
+          <p>So the brightest objects in the universe are powered by things that emit nothing at all.
+          This view illustrates the disc and gas stream beside an orbiting companion.</p>""",
 			},
 			{
 				"title": "The most efficient engine there is",

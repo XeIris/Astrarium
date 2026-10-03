@@ -383,4 +383,4 @@ class StarViz:
 		corona_mat.set_shader_parameter("uFlux", 0.15 + (activity.flux - 1.0) * 0.8)
 
 		if stream != null:
-			Bodies.accrete(body, ctx, stream, dt)
+			Bodies.update_accretion_stream(body, ctx, stream, dt)

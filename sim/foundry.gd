@@ -369,7 +369,7 @@ class Inspector extends RefCounted:
 # the orchestrator, which re-derives and rebuilds in place, so every threshold is
 # live.
 #   · The mass range widens to hold the body's actual value rather than snapping it.
-#   · Sliders re-read the body each refresh (accretion is continuous), except the
+#   · Sliders re-read the body each refresh, except the
 #     one being dragged.
 static func create_live_editor(opts: Dictionary) -> LiveEditor:
 	return LiveEditor.new(opts.get("mount"), opts.get("on_edit", Callable()))

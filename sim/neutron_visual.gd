@@ -311,4 +311,4 @@ class NeutronViz:
 		field_mat.set_shader_parameter("uAlpha", 0.5 + flash * 0.9)
 
 		if stream != null:
-			Bodies.accrete(body, ctx, stream, dt)
+			Bodies.update_accretion_stream(body, ctx, stream, dt)

@@ -1,9 +1,5 @@
 extends Harness
-# Accretion stream + legacy star + spacetime slab + marker, in one frame, with
-# a (lens-less) hole at the origin pulling on a star 1.2 units out. No web
-# counterpart: no preset uses 'star-basic', and a stripping star needs the
-# lens to look like anything on the web side. This checks the GPU point pool
-# (POINT_SIZE, CUSTOM0 alpha), the legacy star's sprites and the mesh wells.
+# Render cosmetic gas streams, legacy-star sprites and spacetime wells.
 #   Godot --path . res://tools/accretion_test.tscn -- out=/abs.png frames=90
 var star: Body
 var legacy: Body
@@ -21,7 +17,6 @@ func _setup() -> void:
 	legacy.scene_pos = DVec3.new(-0.9, 0.4, -0.6)
 	for b in [hole, star, legacy]:
 		var v = Bodies.create_body_visual(b, VisualOpts.from_dict({"radiusScene": 0.25, "teff": 5772.0, "glow": 0xff8040}))
-		v.group.set_meta("base_scale", 1.0)
 		pipe.world_root.add_child(v.group)
 		place(v.group, b.scene_pos)
 		b.radius_scene = 0.25
@@ -38,3 +33,10 @@ func _step(dt: float) -> void:
 	slab.update(bodies, cam_target.x, cam_target.z, dt, cam_pos)
 	if frame == frames:
 		print("accretion: star mass ", star.mass, " live stream ", star.viz.stream.points.visible)
+
+func _exit_tree() -> void:
+	# Break the body/visual ownership cycle before renderer shutdown.
+	for b: Body in bodies: b.viz = null
+	bodies.clear()
+	star = null; legacy = null; hole = null; slab = null
+	super._exit_tree()

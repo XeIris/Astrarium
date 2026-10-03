@@ -157,7 +157,9 @@ The display clock is independent of the orrery time scale.
 
 The orchestrator owns `group.position` (floating origin) and `group.scale`
 (size ease, oblateness). `b.scene_pos` (`DVec3`) is the body's absolute scene
-position.
+position. Visual updates must not change physical mass, position or velocity.
+Accretion streams illustrate gas flow using visible geometry; mass transfer is
+handled by physical contact mergers, not by the particle effect.
 
 `VisualCtx` (`core/visual_ctx.gd`) is a typed class, so a misspelt field is a parse
 error rather than a silent null.

@@ -1,17 +1,8 @@
 class_name Bodies
 extends RefCounted
 
-# BODY VISUALS: each factory builds a Node3D group and an object with
-# `update(dt, ctx)`, stored on b.viz (ctx: docs/godot.md). Rendered radii are scene
-# units; physical radii in AU live on the body.
-#
-# StarViz, NeutronViz and LegacyStarViz carry a `stream` member and call accrete()
-# at the end of update(). The planet visuals (rocky_visual.gd, giant_visual.gd,
-# world.gd) are loaded by path and wrapped in an AccretionWrap that forwards every
-# property; a missing one falls back to PlainViz. The orchestrator owns
-# group.position and group.scale, except that accrete() shrinks a body being
-# stripped by a hole relative to the group's "base_scale" meta, which the
-# orchestrator sets when it attaches the visual.
+# Factories return b.viz with update(dt, ctx); see docs/godot.md for ownership.
+# Rendered radii use scene units; body physics uses AU.
 
 const ACCRETION_SHADER := preload("res://shaders/bodies/accretion_points.gdshader")
 const BASIC_SHADER := preload("res://shaders/bodies/star_basic.gdshader")
@@ -119,7 +110,7 @@ class LegacyStarViz:
 			Bodies._sprite_opacity(f.node, e)
 			(f.node as Node3D).scale = Vector3.ONE * (r * (1.0 + e * 1.2))
 		if stream != null:
-			Bodies.accrete(body, ctx, stream, dt)
+			Bodies.update_accretion_stream(body, ctx, stream, dt)
 
 static func create_star(b: Body, opts: VisualOpts) -> LegacyStarViz:
 	var viz := LegacyStarViz.new(b, opts)
@@ -128,16 +119,12 @@ static func create_star(b: Body, opts: VisualOpts) -> LegacyStarViz:
 	b.viz = viz
 	return viz
 
-# NEUTRON STAR — see sim/neutron_visual.gd. Like the star, it still has to be
-# edible by a black hole, so it gets the same accretion stream chained on.
 static func create_neutron(b: Body, opts: VisualOpts):
 	var viz = NeutronVisual.create_neutron_visual(b, opts)
 	viz.stream = AccretionStream.new(0x8fc4ff)
 	viz.group.add_child(viz.stream.points)
 	return viz
 
-# PLANETS: rocky_visual.gd and giant_visual.gd; this adds only the accretion stream,
-# so a planet can still be eaten by a black hole.
 static func with_accretion(viz, b: Body, color_hex) -> AccretionWrap:
 	var w := AccretionWrap.new(viz, b, AccretionStream.new(color_hex if color_hex != null else 0x886644))
 	b.viz = w
@@ -214,7 +201,7 @@ class AccretionWrap:
 			g.add_child(stream.points)
 	func update(dt: float, ctx: VisualCtx) -> void:
 		inner.update(dt, ctx)
-		Bodies.accrete(body, ctx, stream, dt)
+		Bodies.update_accretion_stream(body, ctx, stream, dt)
 	func _get(property: StringName):
 		return inner.get(property) if inner != null else null
 	func _set(property: StringName, value) -> bool:
@@ -244,9 +231,7 @@ static func create_black_hole(b: Body, _opts: VisualOpts) -> HoleViz:
 	b.viz = viz
 	return viz
 
-# ACCRETION STREAM: a GPU point pool. A body inside a hole's tidal radius sheds
-# particles that spiral in, and loses mass and radius. Rebuilt each frame it has
-# anything alive; hidden when empty.
+# Cosmetic gas stream in local scene units; it does not transfer physical mass.
 class AccretionStream:
 	extends RefCounted
 	var max_n := 240
@@ -277,7 +262,7 @@ class AccretionStream:
 		points.custom_aabb = AABB(Vector3(-1.0e6, -1.0e6, -1.0e6), Vector3(2.0e6, 2.0e6, 2.0e6))
 		points.visible = false
 
-	# emit a particle in the group's LOCAL space heading toward toward_local
+	## Positions and velocities are local scene units and scene units per render second.
 	func emit(origin_local: Vector3, toward_local: Vector3) -> void:
 		var i := head
 		head = (head + 1) % max_n
@@ -287,6 +272,7 @@ class AccretionStream:
 		life_arr[i] = 1.0
 
 	func step(dt: float) -> void:
+		if dt <= 0.0: return
 		var any := false
 		for i in max_n:
 			if life_arr[i] <= 0.0:
@@ -313,7 +299,8 @@ class AccretionStream:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arr, [], {},
 			Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 
-static func accrete(b: Body, ctx: VisualCtx, stream: AccretionStream, dt: float) -> void:
+static func update_accretion_stream(b: Body, ctx: VisualCtx, stream: AccretionStream, dt: float) -> void:
+	if dt <= 0.0: return
 	stream.step(dt)
 	var holes: Array = ctx.holes
 	var viz = b.viz
@@ -329,11 +316,10 @@ static func accrete(b: Body, ctx: VisualCtx, stream: AccretionStream, dt: float)
 	if nearest == null: return
 	var R: float = float(U.nz(viz.get("r"), b.radius_scene))
 	var rs_scene: float = nearest.rs_scene
-	# tidal (Roche-ish) reach ~ a few times the rendered horizon
+	# Illustrative reach follows visible geometry, not a physical Roche limit.
 	var reach := rs_scene * 14.0 + R * 3.0
 	if nd > reach: return
 	var strength := clampf(1.0 - (nd - rs_scene * 2.0) / reach, 0.0, 1.0)
-	# local-space direction toward hole
 	var hole_local: Vector3 = xf.affine_inverse() * nearest.pos_rel
 	var dir := hole_local.normalized() * (R * (4.0 + 6.0 * strength))
 	var emit_n := (1 + int(floor(strength * 2.0))) if randf() < strength * 0.9 else 0
@@ -341,19 +327,7 @@ static func accrete(b: Body, ctx: VisualCtx, stream: AccretionStream, dt: float)
 	var core_s: float = (core as Node3D).scale.x if core is Node3D else 1.0
 	for k in emit_n:
 		stream.emit(U.random_dir() * (R * core_s), dir)
-	# visible mass loss + accretion drag → a slow inward death-spiral
-	if strength > 0.03:
-		if b.mass > 0.02:
-			var loss := b.mass * strength * dt * 0.18
-			b.mass = maxf(0.01, b.mass - loss)
-			var m0 := b.mass0 if b.mass0 != 0.0 else b.mass
-			var shrink := maxf(0.18, pow(b.mass / m0, 0.33))
-			group.scale = Vector3.ONE * (shrink * float(group.get_meta("base_scale", 1.0)))
-		# bleed a little orbital energy so it gradually descends rather than orbiting forever
-		if b.vel != null: b.vel.scale_in(1.0 - strength * dt * 0.06)
 
-# The high-fidelity star still has to be able to be eaten by a black hole, so
-# give it the same accretion stream the legacy star had and chain the updates.
 static func create_star_hifi(b: Body, opts: VisualOpts):
 	var viz = StarVisual.create_star_visual(b, opts)
 	viz.stream = AccretionStream.new(viz.hot)

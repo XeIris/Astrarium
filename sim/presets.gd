@@ -250,7 +250,7 @@ static func _make_presets() -> Dictionary:
 	P.sandbox = {
 		"sky": { "env": "disc", "tilt": 0.42, "roll": 0.7 },
 		"name": "Black Hole Sandbox",
-		"blurb": "A 10 M☉ black hole with a live accretion disc & lensing. Spawn bodies and watch them orbit, get shredded, and fall in.",
+		"blurb": "A 10 M☉ black hole with an illustrated accretion disc and lensing. Spawn bodies and watch their orbits and contact mergers.",
 		"sceneScale": 2.0, "bodyScale": 1.0, "camRadius": 34.0, "lensing": true,
 		"build": func() -> Array: return _build_sandbox(),
 	}
@@ -412,8 +412,8 @@ static func _make_presets() -> Dictionary:
 
 	P.feeding = {
 		"sky": { "env": "core", "tilt": 0.36, "roll": 1.2 },
-		"name": "Black Hole Devouring a Star",
-		"blurb": "A star on a plunging orbit is tidally stripped, trailing a stream of gas onto the black hole.",
+		"name": "Black Hole and Companion",
+		"blurb": "An orbiting star beside a black hole's illustrated disc and gas stream. Bodies merge on contact.",
 		"sceneScale": 2.0, "bodyScale": 1.0, "camRadius": 30.0, "lensing": true, "discOuter": 9.0,
 		"build": func() -> Array: return _build_feeding(),
 	}
@@ -665,15 +665,14 @@ static func _build_trisolaris_chaos() -> Array:
 	return bodies
 
 static func _build_feeding() -> Array:
-	# The star starts on a Paczyński–Wiita circular orbit at the outer edge of the
-	# tidal reach, and accretion drag spirals it in.
+	# The Paczyński–Wiita circular speed gives the illustrated stream an orbiting source.
 	var Mbh := 12.0
 	var rs := 0.5
 	var a := 6.0
 	var v := sqrt(Physics.G * Mbh * a) / (a - rs)   # PW circular speed
 	return [
 		{ "type": "bh", "name": "Singularity", "mass": Mbh, "rs": rs, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] },
-		{ "type": "star", "name": "Doomed Star", "mass": 1.8, "color": 0xffe0a0, "glow": 0xff8040, "pos": [a, 0.0, 0.0], "vel": [0.0, 0.0, v] },
+		{ "type": "star", "name": "Companion Star", "mass": 1.8, "color": 0xffe0a0, "glow": 0xff8040, "pos": [a, 0.0, 0.0], "vel": [0.0, 0.0, v] },
 	]
 
 static func _build_betelgeuse() -> Array:

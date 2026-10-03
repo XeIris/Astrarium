@@ -50,9 +50,8 @@ design.
 
 - `structure_of(spec)` in `sim/structure.gd` is the single source of truth for
   radius, shape, interior and stability. Every consumer reads `b.structure`.
-  Call `refresh_structure(b)` whenever mass or spin changes (accretion changes
-  mass continuously). New thresholds go in `structure.gd`, never in a second
-  place.
+  Call `refresh_structure(b)` whenever mass or spin changes, including after a
+  merger. New thresholds go in `structure.gd`, never in a second place.
 - Measured beats modelled: a spec with `radiusSun` / `teff` / `luminosity` /
   `radiusKm` (e.g. from `sim/starcat.gd`) overrides the evolutionary track. A
   measured `radiusKm` is also the contact distance.
@@ -94,7 +93,8 @@ design.
 
 A factory returns an object with `group: Node3D` and `update(dt, ctx)`, stored
 on `b.viz`. The orchestrator owns `group.position` and `group.scale`, so a visual
-puts its own offsets on inner nodes. `ctx` is a `VisualCtx`
+puts its own offsets on inner nodes. Visual updates must not change physical
+mass, position or velocity. `ctx` is a `VisualCtx`
 ([docs/godot.md](docs/godot.md#the-body-visual-contract)).
 
 ## The course

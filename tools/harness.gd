@@ -108,3 +108,9 @@ func _unhandled_input(e: InputEvent) -> void:
 	elif e is InputEventMouseMotion and _dragging:
 		cam_phi -= e.relative.x * 0.005
 		cam_theta = clampf(cam_theta - e.relative.y * 0.005, 0.05, PI - 0.05)
+
+func _exit_tree() -> void:
+	if pipe != null:
+		pipe.postfx.release()
+		pipe.lens.release()
+	_placed.clear()

@@ -78,8 +78,7 @@ static func contact_au(b: Body, spec: Dictionary) -> float:
 static func disc_peak_temp(mass: float) -> float:
 	return 2.0e7 * pow(maxf(mass, 0.1), -0.25)
 
-# Recompute the interior model into b.structure, the one place that decides what a
-# body is. Re-run whenever mass or spin changes (accretion does continuously).
+## Recompute the canonical interior model after physical mass or spin changes.
 static func refresh_structure(b: Body) -> Dictionary:
 	var sp := b.spec
 	var q := {

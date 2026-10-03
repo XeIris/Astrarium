@@ -274,7 +274,6 @@ func attach_visual(b: Body) -> void:
 		var k := float(st.radiusEqAU) / (float(st.radiusAU) if st.radiusAU else 1.0)
 		g.scale = Vector3(k, k * (1.0 - flat), k)
 	g.set_meta("body_id", b.id)
-	g.set_meta("base_scale", g.scale.x if g.scale.x else 1.0)
 	# The full (possibly oblate) scale, kept so the size ease can multiply it
 	# without flattening a spheroid back into a sphere.
 	g.set_meta("base_vec", g.scale)
@@ -2235,14 +2234,6 @@ func animate(dt: float) -> void:
 		apply_size_ease(b, dt)
 	# Structural limits, on anything whose mass moved this frame.
 	for b in state.bodies.duplicate(): check_structural_limits(b)
-
-	# Fully consumed bodies, measured against their original mass (a planet starts
-	# below the threshold).
-	for b in state.bodies.duplicate():
-		if b.type != "bh" and b.mass0 > 0.05 and b.mass <= maxf(0.012, b.mass0 * 0.02):
-			spawn_flash(b.scene_pos.clone(), 0xffcaa0, b.radius_scene * 10.0, 0.7)
-			state.consumed += 1
-			remove_body(b.id)
 
 	# Sample after this frame's camera and body updates: a photometer's line of
 	# sight must match the image rather than lag a camera move by one frame.

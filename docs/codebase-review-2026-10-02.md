@@ -61,7 +61,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
 | R24 | P2 | Verified: current Mac, batch 6 | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
 | R25 | P2 | Open: structural event gap | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define and execute their physical consequences; a warning alone cannot satisfy the structural-event contract. |
-| R26 | P1 | Open: visual/physics coupling | `Bodies.accrete` changes physical mass and velocity using render seconds and rendered radii, without transferring the lost mass to the hole. | Physical evolution uses accepted simulation time and physical geometry, independently of visuals; check conservation and pause/zero-time behavior. |
+| R26 | P1 | Verified: batch 7 | Visual accretion removed physical mass/momentum without a receiving body and could delete the rest of a donor. | Cosmetic streams cannot mutate physical state; production frames match the kernel and contact mergers conserve mass/momentum, with pause/zero-time gates. |
 | R27 | P1 | Open: demonstration physics conflict | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
 
 ## Evidence at the reviewed revision
@@ -695,3 +695,69 @@ The visual header also claims 60% visibility at compactness 0.4, although its ow
 mapping gives about 83%. Correcting these claims and documenting the supported
 visual-model domain belongs in the next content/model review; the UI change does
 not establish physical accuracy.
+
+
+## Batch 7 — conserve physics across visual updates, 2026-10-03
+
+R26 is resolved by removing unsupported physical behavior, rather than inventing
+a gas-transfer law. `update_accretion_stream` changes only its particle pool;
+rendered reach affects the illustration but cannot remove mass, damp velocity or
+shrink the body's owned transform. Nonpositive visual time performs no pool update
+or emission. The stage no longer deletes a separated donor merely because its
+mass is small compared with its original mass. Physical contact mergers remain
+in the integrator/event path. Continuous hydrodynamic accretion is not modeled.
+
+The feeding scenario and affected lesson cards now describe an orbiting companion
+and illustrated gas flow; they no longer promise live stripping or a drag-driven
+death spiral. Root instructions, the visual contract and stale comments were
+corrected, and unused shrink metadata removed. R27's inflated horizons, compact
+force approximation and reaction boosts remain open; cosmetic correctness does
+not validate those models. Force laws and integration algorithms did not change.
+
+The new rendered production gate passes **106/106** assertions with the native
+kernel and **106/106** with forced GDScript. It covers eight true/exaggerated,
+scene-scale and body-scale combinations with positive render time and zero
+accepted world time; paused/zero-time pool snapshots; direct positive cosmetic
+animation; positive accepted frames compared with cloned kernel-only evolution;
+a diminished separated donor; and physical contact mass/momentum conservation.
+The contact fixture isolates merger conservation from the known compact-force
+asymmetry; the moving pair is compared to its kernel rather than incorrectly
+asserting Newtonian pair symmetry.
+
+An injected visual mutation deliberately drains mass, damps velocity and changes
+scale. It exits **1** and the strict runner rejects it, establishing that the new
+gate detects a physical/visual boundary violation (**35 failed assertions**).
+Feeding also loses its preset-check exemption for disappearing bodies. All six
+fast/native children pass. Evidence: `/tmp/astrarium-b7-fast/report.json` and
+`/tmp/astrarium-b7-accretion-run/report.json`; commands and engine logs are retained
+in those directories. The rendered suite runs both kernel variants.
+
+All **eight** rendered-suite children pass, including both new accretion gates,
+course **35/108/0**, HUD **54/0**, layout **124/0**, shared time **76/0**, transitions
+**39/0** and all **35 presets**. After removing feeding's lost-body exemption,
+the complete preset gate was rerun and passed. The targeted five-round soak
+stays exactly flat after warmup: spawn/remove **6389/137/1619/0**, true scale
+**6788/137/1720/0** (objects/resources/nodes/orphans). Evidence:
+`/tmp/astrarium-b7-rendered/report.json` and `/tmp/astrarium-b7-final/report.json`.
+
+The optional stream screenshot exposed shutdown leaks in the older isolated
+render harness. The harness now releases its lens/post-processing RD resources;
+the accretion fixture breaks its body/visual reference cycles. Its repeated shot
+passes the strict error/leak gate, shows live particles and retains donor mass
+**1 M☉**. The original failed run remains in the evidence directory; it is not
+counted as a pass. Corrected evidence is `stream-fixed-report.json` and
+`03-stream-shot-fixed.log`, with inspected `stream.png`. The real lens/post-processing harness and final headless import also pass
+(`cleanup-report.json`). Other isolated fixtures' object ownership has not been
+comprehensively reviewed.
+
+R25 follow-up remains open. A rotational endpoint alone does not justify deleting
+a body: the [mass-shedding collapse study](https://arxiv.org/abs/astro-ph/0205091)
+starts with a radially unstable star. The model's 0.1 M☉ neutron minimum is approximate;
+[cold-equilibrium calculations](https://arxiv.org/abs/astro-ph/0201434) find
+EOS-dependent minima and a rotation dependence. Do not invent mass shedding or
+a universal destruction law to satisfy the event contract. A next implementation
+should define the supported equilibrium domain, distinguish warning thresholds
+from unsupported inputs, and validate complete spawn/edit/preset requests before
+mutating state. Edits must use current mass rather than stale merged-body specs;
+failed requests need synchronized controls and atomic scenario loading. This is
+a proposed approach, not a verified fix.

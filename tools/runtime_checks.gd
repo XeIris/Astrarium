@@ -21,7 +21,7 @@ func _preset_check() -> void:
 	stage.set_process(false)
 	var rows := []
 	var errs := []
-	var expected_mergers := ["bhmerger", "nsmerger", "feeding", "binarystar", "stellar_zoo"]
+	var expected_mergers := ["bhmerger", "nsmerger", "binarystar", "stellar_zoo"]
 	for key in Presets.PRESET_ORDER:
 		print("PRESETCHECK BEGIN ", key)
 		stage.load_preset(key)
@@ -31,7 +31,7 @@ func _preset_check() -> void:
 			await stage.get_tree().process_frame
 		var n1 := state.bodies.size()
 		rows.append("%s: %d->%d" % [key, n0, n1])
-		# These scenarios intentionally contain collisions or an accretion feed.
+		# These scenarios intentionally contain contact mergers.
 		if n1 < n0 and not expected_mergers.has(key):
 			errs.append("%s: lost %d bodies in one second (%s)" % [key, n0 - n1, Presets.PRESETS[key].name])
 		for b in state.bodies:

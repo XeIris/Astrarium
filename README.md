@@ -162,6 +162,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary forces, matching energy, and presentation-independent contact distances |
 | `tools/transitioncheck.tscn` | rendered measured-star collapse to WD/NS/BH; rejects stale progenitor radius/contact and incorrect remnant temperature/luminosity |
+| `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
