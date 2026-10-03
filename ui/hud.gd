@@ -1805,6 +1805,36 @@ func _fit(c: Control, x: float, y: float) -> void:
 	c.position = Vector2(x, y)
 	c.size = c.get_combined_minimum_size()
 
+func _place_lesson_card(x: float, w: float, h: float, bottom := -1.0) -> void:
+	lesson_card.size.x = w
+	var cmax := minf(0.42 * h, 380.0)
+	var fixed := lesson_card.natural_height() - _lc_scroll.custom_minimum_size.y
+	var cap := maxf(cmax - fixed, 40.0)
+	if absf(_lc_scroll.cap - cap) > 0.5:
+		_lc_scroll.cap = cap
+		_lc_scroll._fit()
+	_place(lesson_card, x, 0, w)
+	lesson_card.position.y = (bottom if bottom >= 0.0 else h - 16.0) - lesson_card.size.y
+
+func _place_columns(free: float, bottom: float, right_bottom: float, W: float) -> void:
+	var lower_count := int(flight_panel.is_visible_in_tree()) + int(xsec_panel.is_visible_in_tree())
+	# Leave a scrollable share for downstream panels instead of hiding their headers.
+	var top_cap := maxf((bottom - free - 12.0 * lower_count) / (lower_count + 1), 0.0)
+	_place(scenario_panel, 20, free, 232, top_cap)
+	_place(course_panel, 20, free, 250, top_cap)
+	var top: Control = null
+	for p in [scenario_panel, course_panel]:
+		if _shown(p):
+			top = p; break
+	var y := roundf(top.position.y + top.size.y) + 12.0 if top else free
+	var xsec_top := y
+	var after_flight := int(xsec_panel.is_visible_in_tree())
+	_place(flight_panel, 12, y, 306, maxf((bottom - y - 12.0 * after_flight) / (after_flight + 1), 0.0))
+	if _shown(flight_panel):
+		xsec_top = roundf(flight_panel.position.y + flight_panel.size.y) + 12.0
+	_place(xsec_panel, 20, xsec_top, 348, maxf(bottom - xsec_top, 0.0))
+	_place(control_panel, W - 18 - 300, 18, 300, right_bottom - 18.0)
+
 func _layout_all() -> void:
 	_layout_pending = false
 	var W := size.x
@@ -1833,22 +1863,29 @@ func _layout_all() -> void:
 	for t in tab_col.get_children():
 		if (t as Control).visible: any_tab = true
 	var free := roundf(tab_col.position.y + tab_col.size.y) + 12.0 if any_tab and tab_col.is_visible_in_tree() else col_top
-	_place(scenario_panel, 20, free, 232, H - free - hud_bottom)
-	_place(course_panel, 20, free, 250, H - free - hud_bottom)
-	var top: Control = null
-	for p in [scenario_panel, course_panel]:
-		if _shown(p):
-			top = p; break
-	var y := roundf(top.position.y + top.size.y) + 12.0 if top else free
-	var xsec_top := y
-	_place(flight_panel, 12, y, 306, H - y - hud_bottom)
-	if _shown(flight_panel):
-		xsec_top = roundf(flight_panel.position.y + flight_panel.size.y) + 12.0
-	_place(xsec_panel, 20, xsec_top, 348, H - xsec_top - hud_bottom)
+	_place_columns(free, H - hud_bottom, H - 18.0, W)
 	_place(model_panel, 20, col_top, 268, H - col_top - hud_bottom)
-	_place(control_panel, W - 18 - 300, 18, 300, H - 36)
 	_fit(tab_right, 0, col_top)
 	tab_right.position.x = W - 18 - tab_right.size.x
+
+	var band_r := control_panel.position.x - 16.0 if _shown(control_panel) else W - 16.0
+	# The lesson card gets its own band, measured over every left panel.
+	var card_l := 16.0
+	for e in [settings_panel, scenario_panel, course_panel, flight_panel, xsec_panel]:
+		if _shown(e): card_l = maxf(card_l, e.position.x + e.size.x + 16.0)
+	if any_tab and _shown(tab_col):
+		card_l = maxf(card_l, tab_col.position.x + tab_col.size.x + 16.0)
+	var card_r := roundf(maxf(W - band_r, 16.0))
+	card_l = roundf(card_l)
+	var avail := W - card_l - card_r
+	if W <= 1040.0 or avail < 360.0:
+		_place_lesson_card(16.0, W - 32.0, H, H - hud_bottom if _shown(readout) else H - 16.0)
+		if lesson_card.is_visible_in_tree():
+			var bottom := lesson_card.position.y - 12.0
+			_place_columns(free, minf(H - hud_bottom, bottom), minf(H - 18.0, bottom), W)
+	else:
+		var cw := minf(avail, 880.0)
+		_place_lesson_card(card_l + (avail - cw) * 0.5, cw, H)
 
 	# The toast sits at the top of the free band, not the middle of the window.
 	var band_l := 16.0
@@ -1858,7 +1895,6 @@ func _layout_all() -> void:
 			band_l = maxf(band_l, e.position.x + e.size.x + 16.0)
 	if any_tab and _shown(tab_col):
 		band_l = maxf(band_l, tab_col.position.x + tab_col.size.x + 16.0)
-	var band_r := control_panel.position.x - 16.0 if _shown(control_panel) else W - 16.0
 	var toast_x := roundf((band_l + band_r) * 0.5)
 	var tmax := minf(420.0, 0.76 * W)
 	var tf: Font = _toast_label.label_settings.font
@@ -1866,31 +1902,6 @@ func _layout_all() -> void:
 	toast_el.size = Vector2(minf(ceilf(tw), tmax), 0)
 	toast_el.size = Vector2(toast_el.size.x, toast_el.get_combined_minimum_size().y)
 	toast_el.position = Vector2(toast_x - toast_el.size.x * 0.5, col_top)
-
-	# The lesson card gets its own band, measured over every left panel.
-	var card_l := 16.0
-	for e in [settings_panel, scenario_panel, course_panel, flight_panel, xsec_panel]:
-		if _shown(e): card_l = maxf(card_l, e.position.x + e.size.x + 16.0)
-	if any_tab and _shown(tab_col):
-		card_l = maxf(card_l, tab_col.position.x + tab_col.size.x + 16.0)
-	var card_r := roundf(maxf(W - band_r, 16.0))
-	card_l = roundf(card_l)
-	var cmax := minf(0.42 * H, 380.0)
-	var cw: float
-	var cx: float
-	if W <= 1040.0:
-		cx = 16.0; cw = W - 32.0
-	else:
-		var avail := W - card_l - card_r
-		cw = maxf(minf(avail, 880.0), 360.0)
-		cx = card_l + maxf((avail - cw) * 0.5, 0.0)
-	# the text scrolls inside the card once the card reaches its cap
-	var fixed := lesson_card.natural_height() - _lc_scroll.custom_minimum_size.y
-	if absf(_lc_scroll.cap - maxf(cmax - fixed, 40.0)) > 0.5:
-		_lc_scroll.cap = maxf(cmax - fixed, 40.0)
-		_lc_scroll._fit()
-	_place(lesson_card, cx, 0, cw)
-	lesson_card.position.y = H - 16.0 - lesson_card.size.y
 
 	# the start screen
 	start_screen.position = Vector2.ZERO

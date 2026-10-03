@@ -4,7 +4,7 @@ extends Node
 # named HUD state and screenshotted after fixed steps, so two builds' shots differ
 # only where the HUD does. `htest=1` walks the controls with real mouse and key
 # events and checks that main's state follows; `hperf=1` times whole frames with
-# the HUD shown and hidden.
+# the HUD shown and hidden. `hlayout=1` checks narrow layouts at scales 1/1.5/2.
 #
 #   Godot --path . --resolution 1280x720 res://tools/hudcheck.tscn -- \
 #         hstate=sandbox hout=/abs/x.png [hframes=45] [htest=1] [hperf=1]
@@ -30,25 +30,27 @@ func _ready() -> void:
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
 	frames = int(args.get("hframes", "45"))
+	var requested_size := get_window().size
 	if args.get("assets", "1") == "0":
 		for id in CraftAssets.CRAFT_ASSETS: CraftAssets.CACHE[id] = null
 	main = load("res://main.tscn").instantiate()
 	add_child(main)
 	await get_tree().process_frame
 	var win := get_window()
-	win.content_scale_factor = 1.0
+	main.configure_window_scale(float(args.get("hscale", "1.0")))
+	win.size = requested_size.max(win.min_size)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0
 	hud = main.hud
-	if args.get("htest", "0") == "1":
+	main.lessons.store = ""
+	main.lessons.progress = {"done": {}, "last": null}
+	if args.get("htest", "0") == "1" or args.get("hlayout", "0") == "1":
 		var temp_dir := OS.get_environment("TMPDIR")
 		if temp_dir.is_empty(): temp_dir = OS.get_environment("TEMP")
 		if temp_dir.is_empty(): temp_dir = "/tmp"
 		main.controls = ControlBindings.new("")
 		main.controls.file_path = temp_dir.path_join("astrarium-hudcheck-controls-%d.json" % OS.get_process_id())
 		hud.update_binding_labels(main.controls.bindings)
-		main.lessons.store = ""
-		main.lessons.progress = {"done": {}, "last": null}
 	await get_tree().process_frame
 	await _setup(str(args.get("hstate", "sandbox")))
 	if args.get("assets", "1") == "0":
@@ -59,6 +61,9 @@ func _ready() -> void:
 	if args.get("htest", "0") == "1":
 		await _interaction_walk()
 		print("HUDCHECK TEST %d passed, %d failed" % [passes, fails])
+	if args.get("hlayout", "0") == "1":
+		await _layout_walk()
+		print("HUDCHECK LAYOUT %d passed, %d failed" % [passes, fails])
 	if args.get("hperf", "0") == "1":
 		await _perf()
 	if args.has("hdump"):
@@ -272,6 +277,10 @@ func _wheel_at(p: Vector2, down := true) -> void:
 		e.global_position = p
 		_push(e)
 	await _steps(2)
+	# Native mouse-exit notifications can clear hover while the wheel settles.
+	var hover := InputEventMouseMotion.new()
+	hover.position = p; hover.global_position = p
+	_push(hover)
 
 func _key(code: Key, shift := false) -> void:
 	for pressed in [true, false]:
@@ -507,6 +516,73 @@ func _panel_scroll(p: Control) -> float:
 	for sc in p.find_children("*", "ScrollContainer", true, false):
 		return float((sc as ScrollContainer).scroll_vertical)
 	return 0.0
+
+func _layout_walk() -> void:
+	check("automatic scale fits a smaller usable display", is_equal_approx(main.fitted_window_scale(2.0, Vector2i(1280, 720)), 1.2))
+	for usable in [Vector2i(1280, 720), Vector2i(1000, 1000), Vector2i(903, 1000)]:
+		main.configure_window_scale(main.fitted_window_scale(2.0, usable))
+		check("fitted physical minimum fits %s usable pixels" % usable, get_window().min_size.x <= usable.x and get_window().min_size.y <= usable.y)
+	check("automatic scale retains native scale when it fits", main.fitted_window_scale(2.0, Vector2i(2560, 1538)) == 2.0)
+	var fits := true
+	for width in range(900, 4001):
+		var minimum: Vector2i = main.minimum_window_size(main.fitted_window_scale(4.0, Vector2i(width, 4000)))
+		if minimum.x > width or minimum.y > 4000: fits = false; break
+	check("fitted minimum stays inside usable widths 900 through 4000", fits)
+	for scale in [1.0, 1.5, 2.0]:
+		for logical in [Vector2i(900, 600), Vector2i(1024, 600), Vector2i(1041, 600), Vector2i(1078, 600), Vector2i(1280, 600)]:
+			# Retina windows have even physical widths; scale 2 preserves logical 1041.
+			if logical.x == 1041:
+				if scale != 2.0: continue
+			elif logical.x > 1024 and scale != 1.0: continue
+			main.configure_window_scale(scale)
+			get_window().size = Vector2i((Vector2(logical) * scale).ceil())
+			await _steps(8)
+			var tag := "%dx%d scale %.1f" % [logical.x, logical.y, scale]
+			print("HUDCHECK LAYOUT CONFIG ", tag, " physical=", get_window().size, " logical=", hud.size)
+			check(tag + " logical viewport", hud.size.is_equal_approx(Vector2(logical)))
+			await _start("learn")
+			var L = main.lessons
+			L.open_lesson(Lessons.LESSON_ORDER[0].key, 0)
+			for module in Lessons.MODULES: L.open[module.id] = true
+			L.render_panel()
+			await _steps(8)
+			check(tag + " lesson leaves both columns unobscured", not hud.lesson_card.get_global_rect().intersects(hud.course_panel.get_global_rect()) and not hud.lesson_card.get_global_rect().intersects(hud.control_panel.get_global_rect()))
+			var full_width: bool = is_equal_approx(hud.lesson_card.size.x, hud.size.x - 32.0)
+			check(tag + " lesson leaves the readout band clear", not hud.lesson_card.get_global_rect().intersects(hud.readout.get_global_rect()) and (not full_width or hud.lesson_card.get_global_rect().end.y <= hud.readout.position.y - 12.0 + 0.5))
+			var last: Control = null
+			for c in hud.course_panel.find_children("*", "Control", true, false):
+				if c is BoxButton and c.kind in ["LessonItem", "LessonDone"]: last = c
+			await _click(last)
+			check(tag + " bottom course lesson can be clicked", L.key == Lessons.LESSON_ORDER[-1].key)
+			L.open_lesson(Lessons.LESSON_ORDER[0].key, 0)
+			await _steps(5)
+			await _click(hud.lc.next)
+			check(tag + " lesson Next can be clicked", L.step_ix == 1)
+			await _click(hud.lc.close)
+			check(tag + " lesson Close can be clicked", L.key == null)
+			await _setup("lesson_cutaway")
+			await _steps(5)
+			var editor: Control = hud.xsec_panel
+			check(tag + " cutaway editor and controls do not overlap the lesson", editor.is_visible_in_tree() and editor.size.y > 60.0 and not editor.get_global_rect().intersects(hud.lesson_card.get_global_rect()) and not hud.control_panel.get_global_rect().intersects(hud.lesson_card.get_global_rect()))
+			await _click(_panel_close(editor))
+			check(tag + " cutaway editor Close can be clicked", not main.xsec_open)
+
+			main.last_craft = "saturnv"
+			await _start("flight")
+			for i in 60:
+				if main.flight.vessel != null: break
+				await get_tree().process_frame
+			await _steps(5)
+			check(tag + " flight started", main.flight.vessel != null)
+			await _click(main.flight.hud.prog_btns["ascent"])
+			check(tag + " launch program can be clicked", main.flight.count != null or main.flight.autopilot.program == "ascent")
+			await _click(main.flight.hud.mode_btns["prograde"])
+			check(tag + " attitude mode can be clicked", main.flight.autopilot.mode == "prograde")
+			var warp: int = main.flight.warp_idx
+			await _click(_find("[data-warp=1]"))
+			check(tag + " forward warp can be clicked", main.flight.warp_idx != warp)
+			await _click(_find("flightExit"))
+			check(tag + " flight exit can be clicked", not main.flight.active)
 
 func _panel_close(p: Control) -> Control:
 	for b in p.find_children("*", "", true, false):

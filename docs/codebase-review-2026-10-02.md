@@ -58,10 +58,11 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R20 | P2 | Partial: runner and local baseline | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
 | R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
 | R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
-| R23 | P2 | Open: reproduced at minimum window | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
-| R24 | P2 | Open: reproduced on Retina | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
+| R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
+| R24 | P2 | Verified: current Mac, batch 6 | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
 | R25 | P2 | Open: structural event gap | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define and execute their physical consequences; a warning alone cannot satisfy the structural-event contract. |
 | R26 | P1 | Open: visual/physics coupling | `Bodies.accrete` changes physical mass and velocity using render seconds and rendered radii, without transferring the lost mass to the hole. | Physical evolution uses accepted simulation time and physical geometry, independently of visuals; check conservation and pause/zero-time behavior. |
+| R27 | P1 | Open: demonstration physics conflict | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
 
 ## Evidence at the reviewed revision
 
@@ -624,3 +625,73 @@ its velocity; the 12 M☉ hole gains nothing. The same physical geometry at true
 radius leaves donor mass and velocity unchanged. Evidence:
 `/tmp/astrarium-b5-profile/accretion_cpu.gd` and `.log`. The probe's headless macOS
 certificate diagnostic is retained, not presented as a clean engine run.
+
+
+R27 follows from checking R26's scenario, not from speculative optimization.
+`_build_sandbox` assigns a **0.5 AU** horizon to **10 M☉** (the mass-derived
+Schwarzschild radius is about **1.974×10⁻⁷ AU**). `_build_feeding` similarly uses
+0.5 AU for 12 M☉, and the sandbox mass control writes `mass × 0.05` directly
+to `bh.rs`. These radii enter the Paczyński–Wiita force and contact distance;
+they are not merely magnified meshes. Merger presets also use reaction boosts
+up to **4×10¹⁷**, multiplying physical drag while keeping the orbital clock.
+This conflicts with the root AGENTS prohibition on physics scaling fudges.
+R02's corrected contact boundary and R03's ordinary-pair symmetry do not verify
+these demonstration models. They need an explicit scientific/product decision
+and independently tested replacements or clearly scoped approximation contracts.
+
+
+## Batch 6 — usable HUD layouts, 2026-10-03
+
+Batch 5 committed as **`48c7c62`** (`fix(sim): separate physical spin from display rotation`).
+
+R23 reserves a full-width lesson card's measured height in both column budgets,
+and places it above the measured diagnostics band. Visible downstream panels
+receive a scrollable share; their placement still follows the previous panel's
+measured bottom. A narrow-to-wide breakpoint alone was insufficient: with a
+cross-section open at logical width 1041, the remaining gap could not hold the
+minimum-width card. Full-width placement now also follows the measured available
+gap. Settings keeps its independent modal layout.
+
+R24 treats **900×600** as the logical minimum. Automatic display scale is fitted
+to usable screen space, the physical minimum scales with it, and normal startup
+fits the decorated window's size and position. Explicit screenshot sizing remains
+available. Scalar double arithmetic avoids Vector2's float32 rounding; subpixel
+roundoff is discarded before ceiling the physical minimum. The actual 903-pixel
+fit exposed a one-double-ULP error, and bounded checks now cover widths 900–4000.
+This is window/display-scale coverage, not a claim of accessibility text-zoom support.
+
+The new strict layout gate exercises real clicks at logical **900/1024×600** with
+scales **1/1.5/2**, plus **1041/1078/1280×600** breakpoint/cutaway cases. It checks
+course-bottom access, Next/Close, cross-section access, diagnostics separation,
+launch program, attitude mode, forward warp and exit. The final matrix passes
+**124/124** assertions. A temporary inherited-harness injection restores the
+right-panel overlap and fails **25** assertions with exit **1**, without script
+errors. No tolerance or expected-failure exception masks occlusion.
+
+All **six** rendered suite children pass: course **35/108/0**, HUD interactions
+**54/0**, layout, shared time **76/0**, transitions **39/0** and all **35 presets**.
+After the final numeric-only correction, the layout matrix and clean import were
+rerun. Nine affected screenshots were inspected by the UI agent; the coordinator
+also inspected narrow course, breakpoint cutaway and Retina flight screenshots.
+Native decorated bounds fit the current display's usable rectangle. Other platforms
+and monitor arrangements remain unverified. Production node/cache ownership did
+not change, so an additional lifecycle soak was not required for this layout pass.
+
+Evidence: `/tmp/astrarium-b5-ui/rendered-final/report.json`,
+`numeric-final-layout.log`, `final-import.log`, `occlusion-negative.log`,
+`nativebounds-fixed.log`, and `final-shots/` in the same directory.
+
+R26's visual/physical coupling and R27's demonstration physics are the next
+correctness priorities, ahead of speculative optimization. R25's structural event
+gaps, remaining main ownership boundaries, craft silhouette parity, portable CI,
+Windows save behavior and supported-backend GPU attribution remain open.
+
+A further content precision issue was verified against the actual shader:
+`shaders/bodies/neutron_surface.gdshader` uses a closed-form light-bending relation,
+while the neutron lesson says it is ray-traced and not approximated. The
+[original Beloborodov paper](https://arxiv.org/abs/astro-ph/0201117) explicitly
+identifies that relation as approximate, with a limited compactness domain.
+The visual header also claims 60% visibility at compactness 0.4, although its own
+mapping gives about 83%. Correcting these claims and documenting the supported
+visual-model domain belongs in the next content/model review; the UI change does
+not establish physical accuracy.

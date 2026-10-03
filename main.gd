@@ -69,6 +69,21 @@ var last_pos := Vector2.ZERO
 var _world_placed: Array = []     # other nodes held at an absolute scene position [node, DVec3]
 var _cmd := {}
 var at_start := true
+const HUD_MIN_SIZE := Vector2(900, 600)
+
+static func fitted_window_scale(native_scale: float, usable_size: Vector2i) -> float:
+	if usable_size.x <= 0 or usable_size.y <= 0: return native_scale
+	return minf(native_scale, minf(usable_size.x / HUD_MIN_SIZE.x, usable_size.y / HUD_MIN_SIZE.y))
+
+static func minimum_window_size(scale: float) -> Vector2i:
+	# Fitted integer bounds can round one double ULP above a pixel.
+	return Vector2i(ceili(HUD_MIN_SIZE.x * scale - 1e-9), ceili(HUD_MIN_SIZE.y * scale - 1e-9))
+
+func configure_window_scale(scale: float) -> void:
+	var win := get_window()
+	win.content_scale_factor = scale
+	win.min_size = minimum_window_size(scale)
+	win.size = win.size.max(win.min_size)
 
 # Scenario list groups: navigation only; PRESETS is the source of truth.
 func _preset_group(id: String, label: String, keys_in: Array) -> Dictionary:
@@ -91,9 +106,21 @@ func _ready() -> void:
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
 	# Logical px, with the display scale as content scale. Screenshot mode takes
 	# window pixels 1:1.
-	var scale := DisplayServer.screen_get_scale(DisplayServer.window_get_current_screen())
-	get_window().content_scale_factor = 1.0 if _cmd.has("out") else scale
-	get_window().min_size = Vector2i(900, 600)
+	var screen := DisplayServer.window_get_current_screen()
+	var win := get_window()
+	var usable_rect := DisplayServer.screen_get_usable_rect(screen)
+	var usable := usable_rect.size - (win.get_size_with_decorations() - win.size)
+	# Fit the automatic display scale without placing the logical minimum off-screen.
+	var scale := fitted_window_scale(DisplayServer.screen_get_scale(screen), usable)
+	configure_window_scale(1.0 if _cmd.has("out") else scale)
+	if not _cmd.has("out") and usable.x > 0 and usable.y > 0:
+		win.size = win.size.min(usable)
+		var frame_offset := win.position - win.get_position_with_decorations()
+		var frame_pos := win.get_position_with_decorations()
+		var frame_limit := usable_rect.end - win.get_size_with_decorations()
+		win.position = Vector2i(
+			clampi(frame_pos.x, usable_rect.position.x, frame_limit.x),
+			clampi(frame_pos.y, usable_rect.position.y, frame_limit.y)) + frame_offset
 
 	PRESET_GROUPS = [
 		# The course's own scenarios are in the list like everything else. A lesson
