@@ -516,7 +516,6 @@ func transmute(b: Body, new_type: String, why, remnant_spec: Dictionary = {}) ->
 		b.teff = null; b.spectral = null; b.luminosity = null
 		b.radius_sun = null
 		b.emits_gw = true
-		b.spec.rs = b.rs      # so derive_body keeps this horizon rather than re-deriving one
 		spawn_flash(wpos, 0xffffff, maxf(b.rs * state.scene_scale * 9.0, 0.6), 1.4)
 		spawn_flash(wpos, 0x9fd0ff, maxf(b.rs * state.scene_scale * 5.0, 0.4), 0.3)
 	detach_visual(b)
@@ -689,19 +688,13 @@ func handle_merger(ev: Dictionary) -> void:
 	if surv.type == "bh" or gone.type == "bh":
 		var was_bh := surv.type == "bh"
 		surv.type = "bh"
-		if was_bh:
-			# r_s ∝ M, so summed horizons are the merged mass's horizon (and keep a preset's
-			# enlarged horizon).
-			surv.rs = surv.rs + (gone.rs if gone.type == "bh" else Physics.schwarzschild(gone.mass))
-		else:
-			# The heavier body survives; scale the absorbed horizon by the mass it now holds.
-			surv.rs = gone.rs * (surv.mass / gone.mass)
-		if not surv.rs: surv.rs = Physics.schwarzschild(surv.mass)
+		surv.rs = Physics.schwarzschild(surv.mass)
 		# The physics type changed, so the spec and the meshes have to follow it.
 		if not was_bh:
-			surv.spec = U.merged(surv.spec, {"type": "bh", "mass": surv.mass, "rs": surv.rs})
-			surv.def = Derive.TYPE_DEFAULTS.bh
-			surv.teff = null; surv.spectral = null
+			surv.spec = U.merged(surv.spec, {"type": "bh", "mass": surv.mass})
+			for key in ["radiusSun", "radiusKm", "contactAU", "teff", "luminosity", "spinHz", "visualSpinRadS"]:
+				surv.spec.erase(key)
+			Derive.derive_body(surv, surv.spec)
 			detach_visual(surv)
 			attach_visual(surv)
 		var rs_s := surv.rs * state.scene_scale
@@ -1229,8 +1222,9 @@ func refresh_ui() -> void:
 	hud.set_text("bc", str(state.bodies.size()))
 	hud.set_text("cc", str(state.consumed))
 	var holes := get_holes()
-	hud.set_text("rs", U.fixed(holes[0].rs, 3) if not holes.is_empty() else "0.000")
-	hud.set_text("isco", U.fixed(3.0 * holes[0].rs, 3) if not holes.is_empty() else "0.000")
+	var rs: float = holes[0].rs if not holes.is_empty() else 0.0
+	hud.set_text("rs", fmt_radius_au(rs))
+	hud.set_text("isco", fmt_radius_au(3.0 * rs))
 	# focus panel
 	var fb := state.body_by_id(state.focus_id)
 	if fb:
@@ -1238,6 +1232,9 @@ func refresh_ui() -> void:
 		hud.set_text("focusName", "%s · %s M☉" % [fb.name, U.expo(fb.mass, 2) if fb.mass < 0.01 else U.fixed(fb.mass, 2)])
 	else:
 		hud.set_shown("focusPanel", false)
+
+static func fmt_radius_au(radius: float) -> String:
+	return U.expo(radius, 2) if radius > 0.0 and radius < 0.001 else U.fixed(radius, 3)
 
 static func fmt_years(y: float) -> String:
 	if y < 1.0: return "%s d" % U.fixed(y * 365.25, 1)
@@ -1250,8 +1247,7 @@ func update_hud(dt: float) -> void:
 	hud_acc = 0.0
 	hud.set_text("simClock", fmt_years(state.sim_years))
 
-	# An open cross-section tracks the focused body. Bodies change — a star
-	# being eaten loses mass every frame, and the diagram should say so.
+	# Keep the open editor and diagram synchronized after physical events and edits.
 	if xsec_open and not state.hud_hidden and not hud.is_collapsed("xsecPanel"):
 		var fb := state.body_by_id(state.focus_id)
 		if fb:
@@ -1731,9 +1727,7 @@ func _on_slider(id: String, v: float) -> void:
 			var holes := get_holes()
 			if not holes.is_empty() and state.preset_key == "sandbox":
 				var bh: Body = holes[0]
-				bh.mass = state.mass; bh.rs = state.mass * 0.05
-				bh.rs_scene = bh.rs * state.scene_scale; bh.radius_scene = bh.rs_scene
-				refresh_ui()
+				edit_body(bh, {"mass": state.mass})
 		"disc":
 			state.disc_intensity = v; hud.set_text("disc-val", U.fixed(v, 2))
 		"temp":

@@ -55,7 +55,8 @@ design.
 - Measured beats modelled: a spec with `radiusSun` / `teff` / `luminosity` /
   `radiusKm` (e.g. from `sim/starcat.gd`) overrides the evolutionary track. A
   measured `radiusKm` is also the contact distance.
-- Collision distance is physical: black holes use their horizon; other bodies
+- Collision distance is physical: black holes use their mass-derived Schwarzschild
+  scale (`Physics.schwarzschild`); a spec cannot override `rs`. Other bodies
   use an explicit `contactAU`, otherwise their physical radius. Scene/body scale and
   true-scale toggles must not change physics. Check conservation independently
   of the archived numeric reference; matching it can reproduce its defects.
@@ -75,8 +76,8 @@ design.
 
 ## Size and the camera
 
-- Rendered size goes through `render_radius`. Black holes are always the true
-  horizon. Everything else is the true radius under `state.true_scale`, and
+- Rendered size goes through `render_radius`. Black holes use the mass-derived
+  Schwarzschild scale. Everything else is the true radius under `state.true_scale`, and
   otherwise a magnified stand-in (`base_radius` scaled by real/reference radius,
   so the mass slider still changes size). Switching conventions at runtime means
   `rebuild_visuals()`.
@@ -157,6 +158,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - parse errors: `Godot --headless --path . --import`, then `--quit`. Shader
   errors print as `SHADER ERROR` on first render.
 
-Recheck long-run Trisolaris stability after changing forces or integration;
+Recheck long-run Trisolaris stability after changing forces or integration with
+`python3 tools/check.py stability` (currently fails R28 in the review log);
 short reference agreement does not establish a long-run bound. For screenshots,
 use `frames=60 out=/abs/shot.png` (see README).

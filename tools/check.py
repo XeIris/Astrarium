@@ -15,7 +15,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("fast", "native", "flight", "rendered", "assets", "lifecycle", "export", "compatibility", "perf")
+SUITES = ("fast", "native", "flight", "rendered", "assets", "lifecycle", "export", "compatibility", "perf", "stability")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 CA_ERROR = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: ""\n'
                       r'\s+at: get_system_ca_certificates \(platform/macos/os_macos\.mm:\d+\)\n?', re.MULTILINE)
@@ -47,6 +47,9 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
+    elif suite == "stability":
+        yield script("stabilitycheck", r"^STABILITYCHECK DONE target_years=60000(?:\.0+)? accepted_years=60000(?:\.0+)? failures=0$",
+                     "years=60000", f"report={output / 'stability.json'}", timeout=900)
     elif suite == "flight":
         yield script("sharedflightcheck", r"^SHARED FLIGHT DONE failures=0$", timeout=900)
     elif suite == "rendered":
@@ -137,7 +140,7 @@ def run_check(check, output, index, options):
             "seconds": elapsed, "log": str(log), "engine_log": str(engine_log) if engine_log else None,
             "allowed_ca_diagnostics": ignored,
             "renderer": next((line for line in raw.splitlines() if re.match(r"^(?:Metal|Vulkan|OpenGL).*Using Device", line)), None),
-            "metrics": [line for line in raw.splitlines() if line.startswith(("SHARED TIME BENCH", "SHARED TIME CONFIG", "HUDCHECK PERF", "HUDCHECK CONFIG", "NBODYCHECK PASS"))]}
+            "metrics": [line for line in raw.splitlines() if line.startswith(("SHARED TIME BENCH", "SHARED TIME CONFIG", "HUDCHECK PERF", "HUDCHECK CONFIG", "NBODYCHECK PASS", "STABILITYCHECK"))]}
 
 
 def metadata(command):

@@ -43,9 +43,9 @@ func fixture(true_scale := false, scene_scale := 1.0, body_scale := 1.0) -> Arra
 	stage.state.max_step = 1e-4
 	stage.state.gw_boost = 0.0
 	var hole: Body = stage.spawn_body({"type": "bh", "name": "hole", "mass": 12.0,
-		"rs": 0.1, "pos": [0.0, 0.0, 0.0], "vel": [0.1, -0.2, 0.3]})
+		"pos": [0.0, 0.0, 0.0], "vel": [0.1, -0.2, 0.3]})
 	var donor: Body = stage.spawn_body({"type": "star", "name": "donor", "mass": 1.0,
-		"radiusSun": 1.0, "pos": [1.0, 0.0, 0.0], "vel": [-0.3, 0.4, 0.2]})
+		"radiusSun": 1.0, "pos": [0.1, 0.0, 0.0], "vel": [-0.3, 0.4, 0.2]})
 	if inject_mutation: donor.viz = MutatingVisual.new(donor.viz, donor)
 	check("fixture separated at physical contact", donor.pos.distance_to(hole.pos) > donor.contact_au + hole.rs)
 	return [hole, donor]

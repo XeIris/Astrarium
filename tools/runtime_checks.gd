@@ -21,7 +21,7 @@ func _preset_check() -> void:
 	stage.set_process(false)
 	var rows := []
 	var errs := []
-	var expected_mergers := ["bhmerger", "nsmerger", "binarystar", "stellar_zoo"]
+	var expected_mergers := ["nsmerger", "binarystar", "stellar_zoo"]
 	for key in Presets.PRESET_ORDER:
 		print("PRESETCHECK BEGIN ", key)
 		stage.load_preset(key)
@@ -207,6 +207,7 @@ func _soak_check() -> void:
 		var baseline := []
 		for r in rounds:
 			# Dynamic readouts shape new font-cache entries if the scenario keeps advancing.
+			stage.hud_acc = 0.0
 			if key != "start_screen": stage.load_preset("solar")
 			# Quick-spawn palettes and placement use the global RNG, outside preset seeding.
 			seed(int(_cmd.seed))

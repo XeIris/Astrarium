@@ -295,10 +295,11 @@ static func _make() -> Dictionary:
 		"name": "A black hole, alone",
 		"discIntensity": 0.0,
 		"blurb": "Eight solar masses and nothing else in the frame. There is nothing to see here in the ordinary sense — a black hole emits nothing — so everything you can see is the sky BEHIND it being bent. The dark disc is the shadow, and it is 5.2 Schwarzschild radii across rather than 2, because any light that comes closer than the photon sphere at 1.5 r_s spirals in. The bright circle round it is the photon ring: light that went most of the way round and came back out. Turn the accretion disc up and the same geometry shows you the far side of the disc over the top of the hole.",
-		"sceneScale": 2.4, "bodyScale": 1.0, "camRadius": 26.0, "lensing": true, "mesh": false,
+		# Frame the isolated physical horizon at 1.2 scene units.
+		"sceneScale": 1.2 / Physics.schwarzschild(8.0), "bodyScale": 1.0, "camRadius": 26.0, "lensing": true, "mesh": false,
 		"timeScale": 0.4,
 		"build": func() -> Array:
-			return [{ "type": "bh", "name": "Hole", "mass": 8.0, "rs": 0.5, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }],
+			return [{ "type": "bh", "name": "Hole", "mass": 8.0, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }],
 	}
 
 	# THE SKY FROM INSIDE THE GALAXY: an empty scene. We're two thirds out in a disc, so

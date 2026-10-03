@@ -62,7 +62,8 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R24 | P2 | Verified: current Mac, batch 6 | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
 | R25 | P2 | Open: structural event gap | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define and execute their physical consequences; a warning alone cannot satisfy the structural-event contract. |
 | R26 | P1 | Verified: batch 7 | Visual accretion removed physical mass/momentum without a receiving body and could delete the rest of a donor. | Cosmetic streams cannot mutate physical state; production frames match the kernel and contact mergers conserve mass/momentum, with pause/zero-time gates. |
-| R27 | P1 | Open: demonstration physics conflict | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
+| R27 | P1 | Partial: mass-derived horizons, batch 8 | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
+| R28 | P1 | Open: long-run scenario failure | The flagship Trisolaris world leaves its declared orbital extent near 18,095 years and is ejected in the 60,000-year numerical trajectory, despite small total-energy drift. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep failures visible until resolved. |
 
 ## Evidence at the reviewed revision
 
@@ -761,3 +762,114 @@ from unsupported inputs, and validate complete spawn/edit/preset requests before
 mutating state. Edits must use current mass rather than stale merged-body specs;
 failed requests need synchronized controls and atomic scenario loading. This is
 a proposed approach, not a verified fix.
+
+
+## Batch 8 — physical black-hole scale and long-run recheck, 2026-10-03
+
+R27's horizon component is corrected. Body derivation, structure and mass refresh
+use the mass-derived Schwarzschild length; authored `rs` overrides are discarded.
+The sandbox slider goes through the ordinary edit path. Contact mergers derive
+from merged mass, including the case where a heavier measured star absorbs a
+lighter black hole; stellar measurements and photospheric fields are removed.
+The independent golden checks use the repository's stated G/c convention rather
+than calling the same helper as the implementation. The linear mass relation
+follows [NASA's Schwarzschild-radius explanation](https://imagine.gsfc.nasa.gov/educators/blackholes/imagine/page22.html).
+
+The isolated lesson preserves its useful close view through `sceneScale`.
+Feeding now uses a close, barycentric companion orbit with separated physical
+surfaces and physical-size rendering. Its gas stream remains illustrative and
+conserves the bodies' state. Sandbox framing uses the existing focus control.
+Small AU radii remain readable in scientific notation instead of rounding to
+zero. These presentation changes do not multiply physical radii.
+
+Correcting the horizons exposes the wide black-hole pair's actual behavior: it
+does not demonstrate an inspiral on the lesson's timescale. Scenario/course copy
+now describes the wide orbit and leading-order strain estimate; the preset check
+no longer permits disappearing bodies in that pair. Disc lessons use the isolated
+close view. The neutron merger is identified as an accelerated illustration.
+R27 remains **partial**: reaction multipliers and the source-dependent compact
+force approximation still need independent model review. The structural model
+reports Kerr surfaces, while contact, dynamics and lensing still use a
+Schwarzschild scale; a full Kerr implementation is not claimed. The review also
+found that a heavier star absorbing a lighter hole retains `emits_gw=false`;
+compact-remnant radiation eligibility belongs in the remaining dynamics fix.
+
+The new independent horizon checks fail **121/250** assertions against the old
+implementation, then pass **250/250** after correction. All six fast/native
+children pass, as do all eight rendered-suite children: course **35/108/0**, HUD
+**54/0**, layout **124/0**, shared time **76/0**, transitions **59/0**, accretion
+**106/0** under each kernel and all **35 presets**. The final HUD-format assertion
+increases the transition gate to **60**; its final rerun is recorded below.
+Evidence: `/tmp/astrarium-r27-before.log`, `/tmp/astrarium-b8-fast/report.json`,
+`/tmp/astrarium-b8-rendered/report.json`, `/tmp/astrarium-b8-final/report.json`.
+The old-code negative probe contains a macOS CA diagnostic; its numerical
+assertion failure is independent of that diagnostic.
+
+A combined lifecycle run initially gained one object in later true-scale rounds.
+The isolated repeat passed. Investigation confirmed that `hud_acc` survived
+between rounds, so identical accepted simulation times produced different clock
+and drift text. The harness now resets that timer before each reload/action;
+count limits and cache ownership are unchanged. The extra object's class was
+not established, so this is a verified endpoint-control defect rather than a
+proven identification of that object. Original failed evidence remains in
+`/tmp/astrarium-b8-final`; temporary diagnostics are in
+`/tmp/astrarium-b8-huddiag`. Inspected images in `/tmp/astrarium-b8-shots` show the
+isolated shadow, sandbox focus and readable physical-size companion with live
+particles. Final lifecycle/HUD evidence is recorded below.
+
+### R28: the stability claim fails its own long-run recheck
+
+No ordinary force, native integrator or Trisolaris initial condition changed in
+this batch. A strict current-native-kernel run uses the authored timestep and
+actual 60 FPS mapping (`0.35/60` years/frame, `maxStep=4e-4` years). Before the run,
+we declared four finite bodies, no mergers, unchanged mass, complete accepted
+time without guards, momentum error <=1e-7 M☉ AU/year, sampled relative energy
+drift <=1e-6, world-to-inner-barycenter distance <=10 AU and Gamma-to-inner distance
+<=100 AU. These broad extent bounds detect hierarchy loss; they are not an
+analytical stability theorem. Sampling occurs every 1,000 frames.
+
+The first observed extent failure is at **18,094.9999990768 years**, with world
+separation **20.659937165 AU**. A repeat reproduces it. A separate continuous
+60,000-year diagnostic retains that failure and exits **1**, reaching a world
+separation of **53,538.925912 AU** from the stellar barycenter, outward speed
+**1.277974887 AU/year** and positive instantaneous far-field binding proxy.
+This is evidence of ejection in that numerical trajectory. Sampled maximum
+relative energy drift is only **5.2622578e-8**; small whole-system energy error
+cannot establish orbital stability. Four bodies, zero mergers, accepted time,
+mass, momentum and guard checks remain valid. The full diagnostic performs
+**154,285,715 substeps**, with at most **15/frame**.
+
+`tools/stabilitycheck.gd` makes the strict test reproducible. The opt-in
+`python3 tools/check.py stability` suite requires both target and accepted time
+to be 60,000 years and zero failures; a shorter `years=10` smoke cannot satisfy
+that marker. The repository gate reproduces the first failure and exits **1**;
+it is deliberately not relabeled an expected pass. The fast default omits this
+long-running suite, and README explicitly identifies its current failure. The
+unsupported stability statements in `docs/scenarios.md` and the flagship
+in-app description are corrected. Unrevalidated 60,000-year promises are also
+removed from the three neighboring hierarchy variants; this does not establish
+that those variants fail.
+
+Evidence: `/tmp/astrarium-b8-stability/report.json` and `stability.json`; the
+continuous trajectory, serialized endpoint and commands are in
+`/tmp/astrarium-b8-trisolaris/REPORT.md`. These headless diagnostics retain the
+known macOS system-CA message, specifically allowed by the runner; the numerical
+failure is not an engine-message inference. This is one trajectory at one
+step configuration. A convergence and initial-condition perturbation study is
+needed before choosing new scenario parameters or making a stronger physical
+claim. Do not widen the bounds to preserve the former narrative.
+
+
+Final import, transitions **60/60**, HUD **54/0**, layout **124/0**, and the combined
+five-round soak pass after the final numeric-format/harness changes. Exact
+post-warmup counts (objects/resources/nodes/orphans): spawn/remove
+**6389/137/1619/0**, mass edits **6768/137/1720/0**, true scale
+**6788/137/1720/0** in every round. The refreshed sandbox screenshot was inspected:
+physical radius/ISCO values are readable and focusing still reveals the shadow.
+Evidence: `/tmp/astrarium-b8-verified/report.json` and `sandbox-focus.png`.
+
+After removing the remaining in-app stability promises, the full course gate
+passes again (**35 lessons / 108 steps / 0 errors**):
+`/tmp/astrarium-b8-copy-final/report.json`. Independent final diff review found
+no further blocker for the bounded horizon fix; the radiation-eligibility
+follow-up above remains open.

@@ -81,6 +81,11 @@ static func disc_peak_temp(mass: float) -> float:
 ## Recompute the canonical interior model after physical mass or spin changes.
 static func refresh_structure(b: Body) -> Dictionary:
 	var sp := b.spec
+	if b.type == "bh":
+		b.rs = Physics.schwarzschild(b.mass)
+		b.radius = 0.0
+		sp.mass = b.mass
+		sp.erase("rs")
 	var q := {
 		"type": b.type, "mass": b.mass, "spinFrac": b.spin_frac,
 		"phase": b.phase, "composition": b.composition, "Z": b.Z,
@@ -111,7 +116,9 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 	var def := type_default(type)
 	var mass := b.mass
 	if type == "bh":
-		b.rs = float(U.nz(spec.get("rs"), Physics.schwarzschild(mass)))   # effective horizon (AU)
+		b.rs = Physics.schwarzschild(mass)
+		b.radius = 0.0
+		b.radius_sun = null; b.teff = null; b.luminosity = null; b.spectral = null
 	elif type == "neutron":
 		b.radius = Physics.neutron_radius(mass)
 		b.rs = Physics.schwarzschild(mass)
@@ -147,7 +154,7 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 
 	# the spec is kept so the visual can be rebuilt at a different size without
 	# disturbing the physics state (see rebuildVisuals)
-	b.spec = spec; b.def = def
+	b.spec = spec.duplicate(); b.def = def
 	refresh_structure(b)
 	b.visual_spin_rad_s = spec.get("visualSpinRadS")
 	if b.visual_spin_rad_s == null:

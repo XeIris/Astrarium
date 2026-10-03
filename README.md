@@ -137,6 +137,8 @@ missing completion markers, and stops on the first failure. Use `--godot` to
 select an engine and `--log-dir` to retain results at a chosen location.
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
 `perf` need a working graphical renderer. `flight` runs the four full launches.
+`stability` runs the strict 60,000-year Trisolaris check; it currently fails the inner-orbit bound (R28), so it remains
+an explicit suite rather than part of the fast default.
 `compatibility` keeps the known strict frozen-reference differences failing.
 
 `python3 tools/check.py perf --repeat 3` records fixed-step CPU flight timings and
@@ -161,7 +163,8 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/sciencecheck.gd` | synthetic/frozen-state instruments and independent live transit/RV/convergence checks; `-- compatibility=web` additionally enforces strict frozen live trajectories and currently fails two intentional differences |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary forces, matching energy, and presentation-independent contact distances |
-| `tools/transitioncheck.tscn` | rendered measured-star collapse to WD/NS/BH; rejects stale progenitor radius/contact and incorrect remnant temperature/luminosity |
+| `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year flagship Trisolaris run with declared orbital, energy, conservation and accepted-time bounds; `years=<n>` labels a shorter probe, `report=/abs/result.json` retains details; currently fails the orbital bound |
+| `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; `inject_invalid=1` must fail on a missing driven part |

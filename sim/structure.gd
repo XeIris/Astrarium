@@ -862,9 +862,9 @@ static func _white_dwarf_structure(spec: Dictionary, mass: float, spin_frac: flo
 	return _with_rotation(s, mass, "wd", spin_frac)
 
 # A black hole's layers are surfaces of the spacetime outside it.
-static func _hole_structure(spec: Dictionary, mass: float, spin_frac: float) -> Dictionary:
+static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) -> Dictionary:
 	var a := minf(spin_frac, 0.998)                  # dimensionless Kerr spin a/M
-	var rs_au := float(U.nz(spec.get("rs"), Physics.schwarzschild(mass)))
+	var rs_au := Physics.schwarzschild(mass)
 	var M := rs_au / 2.0                             # geometric mass, AU
 	# Kerr horizon: r₊ = M + √(M² − a²M²)
 	var r_plus := M * (1.0 + sqrt(maxf(1.0 - a * a, 0.0)))

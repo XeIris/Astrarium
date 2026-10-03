@@ -4,20 +4,23 @@ Code: `sim/presets.gd`, `sim/edupresets.gd`. [web/README.md](../web/README.md)
 describes the scenarios for readers; this file keeps the design constraints and
 measurements behind them.
 
-## Trisolaris (stable hierarchy)
+## Trisolaris (hierarchical initial conditions)
 
-A raw three-body system with a planet disintegrates within a few hundred years,
-so the flagship uses a hierarchy:
+Close stellar encounters can disrupt a planetary orbit, so the flagship starts
+with a hierarchy:
 
 - Alpha (1.20 M☉, F) and Beta (0.85 M☉, K): a 0.35 AU pair, 53-day period.
 - Trisolaris orbits both at 1.80 AU, e = 0.42: circumbinary (P-type), outside
   the Holman–Wiegert limit (a_crit ≈ 2.3 a_bin ≈ 0.8 AU).
 - Gamma (2.00 M☉, A, 11 L☉): a 51-year orbit at 25° around the whole system.
 
-Stable for 60 000+ years at ~1e-7 relative energy drift. Insolation swings
-~9× (0.34 to 3.1 Earth-suns), which drives the Stable and Chaotic Eras. The
-chaos is in the climate, not the orbits. This is the standing long-run
-regression case.
+The standing long-run target is 60 000 years, but the current native-kernel
+trajectory fails the declared inner-orbit bound near 18 095 years and later
+ejects the world, despite relative energy drift below 5.3e-8. The earlier
+60 000-year stability claim is not supported by this recheck; see R28 in the
+[review log](codebase-review-2026-10-02.md). Earlier insolation samples swung
+~9× (0.34 to 3.1 Earth-suns); these climate statistics have not been revalidated
+as an ensemble against the current kernel.
 
 ## Wandering suns (`trisolaris_wander`)
 

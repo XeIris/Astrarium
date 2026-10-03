@@ -1,6 +1,6 @@
 extends Node
 
-# Verify neutron spin and measured-star remnants through the real stage.
+# Verify spin, physical horizons and remnants through the real stage.
 # Godot --path . res://tools/transitioncheck.tscn -- mode=sandbox
 const CourseCheck = preload("res://tools/coursecheck.gd")
 var catcher := CourseCheck.Catch.new()
@@ -80,6 +80,64 @@ func spin_checks() -> void:
 	var edu: Body = Derive.new_body(1, Presets.PRESETS.edu_pulsar.build.call()[0])
 	check("lesson has physical 30 Hz and explicit slower display", absf(float(edu.structure.spinPeriodMs) - 1000.0 / 30.0) < 1e-10 and edu.visual_spin_rad_s == 30.0)
 
+# Independent golden radius in AU/M☉ for the orrery's G and c convention.
+const RS_PER_MSUN := 1.9742003183427407e-8
+
+func horizon_close(actual: float, expected: float) -> bool:
+	return is_finite(actual) and absf(actual - expected) <= absf(expected) * 1e-13
+
+func canonical_horizon(label: String, b: Body) -> void:
+	var expected := b.mass * RS_PER_MSUN
+	check(label + " physical horizon/contact", b.type == "bh" and horizon_close(b.rs, expected) and horizon_close(b.contact_au, expected) and b.radius == 0.0)
+	check(label + " structure and rendered horizon", horizon_close(float(b.structure.rs), expected)
+		and horizon_close(b.rs_scene, expected * stage.state.scene_scale) and horizon_close(b.radius_scene, expected * stage.state.scene_scale))
+	check(label + " canonical authored state", b.spec.mass == b.mass and (not b.spec.has("rs") or horizon_close(float(b.spec.rs), expected)))
+
+func horizon_checks() -> void:
+	stage.load_preset("sandbox")
+	stage.state.paused = true
+	var holes: Array = stage.get_holes()
+	check("sandbox provides one editable black hole", holes.size() == 1)
+	if holes.is_empty(): return
+	var hole: Body = holes[0]
+	stage._stage_set_control("mass", 25.0)
+	check("production sandbox slider edits body mass", hole.mass == 25.0 and stage.state.mass == 25.0)
+	canonical_horizon("sandbox slider", hole)
+	check("small physical horizon remains readable in HUD", stage.hud.get_el("rs").text != "0.000" and stage.hud.get_el("isco").text != "0.000")
+	stage.edit_body(hole, {"mass": 15.0, "rs": 0.5, "contactAU": 0.7})
+	canonical_horizon("mass edit cannot restore authored horizon", hole)
+	for mixed in [false, true]:
+		stage.clear_bodies()
+		stage.state.scene_scale = 2.0
+		stage.state.true_scale = false
+		stage.state.speed = 1.0
+		stage.state.time_scale = 1.0
+		stage.state.max_step = 1e-6
+		stage.state.gw_boost = 0.0
+		stage.state.paused = false
+		var common := [0.3, -0.2, 0.1]
+		var spec := {"type": "star" if mixed else "bh", "name": "heavier", "mass": 20.0,
+			"rs": 0.5, "pos": [0.0, 0.0, 0.0], "vel": common}
+		if mixed: spec.merge({"radiusSun": 120.0, "luminosity": 900.0, "teff": 4500.0, "contactAU": 0.3})
+		var a: Body = stage.spawn_body(spec)
+		var b: Body = stage.spawn_body({"type": "bh", "name": "lighter", "mass": 2.0,
+			"rs": 0.25, "pos": [0.0, 0.0, 0.0], "vel": common})
+		var momentum := a.vel.scaled(a.mass).add_scaled_in(b.vel, b.mass)
+		var years: float = stage.state.sim_years
+		# Matching positions and velocities leave no force direction at either kick.
+		stage.animate(1e-6)
+		check("contact mixed=%s merges through production" % mixed, stage.state.bodies.size() == 1
+			and stage.state.bodies[0] == a and stage.state.sim_years > years)
+		check("contact mixed=%s mass/momentum conserved" % mixed, a.mass == 22.0
+			and a.vel.scaled(a.mass).distance_to(momentum) < 1e-12)
+		canonical_horizon("contact mixed=%s" % mixed, a)
+		if mixed:
+			check("absorbed lighter hole discards stellar measurements", not a.spec.has("radiusSun")
+				and not a.spec.has("radiusKm") and not a.spec.has("luminosity") and not a.spec.has("teff") and not a.spec.has("contactAU"))
+			check("absorbed lighter hole discards photosphere", a.radius == 0.0 and a.radius_sun == null and a.teff == null and a.luminosity == null)
+		stage.state.paused = true
+		await render_frames()
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -90,6 +148,7 @@ func _ready() -> void:
 	stage.state.paused = true
 	stage.set_process(false)
 	spin_checks()
+	await horizon_checks()
 	for case in [[1.0, "white-dwarf"], [10.0, "neutron"], [30.0, "bh"]]:
 		stage.clear_bodies()
 		var b: Body = stage.spawn_body({"type": "star", "mass": case[0], "radiusSun": 120.0,

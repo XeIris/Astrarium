@@ -113,6 +113,47 @@ func contact_cases() -> void:
 			body.contact_au = Derive.contact_au(body, body.spec)
 		check("separate photospheres survive true scale %s" % true_scale, Physics.resolve_collisions([a, b]).is_empty())
 
+# Golden value uses the project's exact G=4π² and c=63241.077 AU/yr convention.
+const RS_PER_MSUN := 1.9742003183427407e-8
+
+func horizon_close(actual: float, expected: float) -> bool:
+	return is_finite(actual) and absf(actual - expected) <= absf(expected) * 1e-13
+
+func horizon_cases() -> void:
+	for mass in [1.0, 12.0, 4e6]:
+		var expected: float = mass * RS_PER_MSUN
+		for override in [-1.0, 0.0, 0.5, 1e9]:
+			var spec := {"type": "bh", "mass": mass, "rs": override, "contactAU": 0.7,
+				"radiusSun": 120.0, "radiusKm": 900000.0}
+			var b := Derive.new_body(1, spec.duplicate(true))
+			check("BH override %s mass %s cannot change physical horizon" % [override, mass],
+				horizon_close(b.rs, expected) and horizon_close(b.contact_au, expected))
+			check("BH authored horizon is absent or canonical", not b.spec.has("rs") or horizon_close(float(b.spec.rs), expected))
+			for spin in [0.0, 0.6]:
+				var spinning := spec.duplicate(true)
+				spinning.spinFrac = spin
+				var st := Structure.structure_of(spinning)
+				var horizon: float = expected * 0.5 * (1.0 + sqrt(1.0 - spin * spin))
+				check("BH override cannot change structure mass %s spin %s" % [mass, spin],
+					horizon_close(float(st.rs), expected) and horizon_close(float(st.horizonAU), horizon)
+					and horizon_close(float(st.shadowAU), sqrt(27.0) * expected / 2.0))
+			b.rs = 0.25
+			b.contact_au = 0.75
+			b.spec.rs = 0.5
+			b.mass *= 2.0
+			Derive.refresh_structure(b)
+			check("mass refresh repairs cached BH horizon/contact/structure", horizon_close(b.rs, expected * 2.0)
+				and horizon_close(b.contact_au, expected * 2.0) and horizon_close(float(b.structure.rs), expected * 2.0))
+			check("mass refresh sanitizes authored horizon", not b.spec.has("rs") or horizon_close(float(b.spec.rs), expected * 2.0))
+			for scene_scale in [0.5, 1000.0]:
+				for true_scale in [false, true]:
+					var rendered := Derive.render_radius(b, b.spec, b.mass, scene_scale, 100.0, true_scale)
+					check("BH physical/rendered horizon ignores magnification", horizon_close(rendered, expected * 2.0 * scene_scale)
+						and horizon_close(Derive.contact_au(b, b.spec), expected * 2.0))
+	var a := Derive.new_body(1, {"type": "bh", "mass": 12.0, "rs": 0.5})
+	var b := Derive.new_body(2, {"type": "bh", "mass": 8.0, "rs": 0.5, "pos": [0.05, 0.0, 0.0]})
+	check("authored horizons cannot create distant physical contact", Physics.resolve_collisions([a, b]).is_empty() and a.alive and b.alive)
+
 func measured_structure_cases() -> void:
 	for spec in [
 		{"type": "planet", "mass": 3e-6, "radiusKm": 6371.0},
@@ -178,6 +219,7 @@ func _init() -> void:
 	collision_cases()
 	force_and_energy()
 	contact_cases()
+	horizon_cases()
 	measured_structure_cases()
 	equivalent_kernels()
 	print("INVARIANTCHECK DONE checks=%s failures=%s native=%s" % [checks, failures, NBody.native_available()])

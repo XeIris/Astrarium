@@ -177,6 +177,12 @@ error rather than a silent null.
 | `bodies` | all bodies |
 | `viewport_h` | logical viewport height in px |
 
+Black-hole `rs` is the mass-derived Schwarzschild length `2GM/c²` in AU. Body
+derivation discards authored `rs` overrides; refresh updates it and contact after
+a merger. Contact, lensing and compact forces use this scale. The structural
+model also reports Kerr radii for spin, but the dynamics and image do not implement
+a full Kerr spacetime. Use `sceneScale` and camera framing for close-up images.
+
 ## UI
 
 The HUD is Godot Controls under one Theme built in `ui/theme.gd`: each button

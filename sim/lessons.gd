@@ -492,7 +492,7 @@ const MODULES := [
 			},
 			{
 				"title": "Close enough, and it wins",
-				"do": {"preset": "feeding", "cam": {"radius": 30}, "timeScale": 0.4},
+				"do": {"preset": "feeding", "cam": {"radius": 30}, "timeScale": 1e-4},
 				"body": """<p>Bring anything close enough to a heavy object and the stretch across it exceeds the object's
           own gravity holding it together. That distance is the <em>Roche limit</em>, and inside it nothing
           held together only by its own weight can survive.</p>
@@ -1158,7 +1158,7 @@ const MODULES := [
 			},
 			{
 				"title": "Turn the disc on",
-				"do": {"preset": "sandbox", "cam": {"radius": 34}, "control": {"disc": 0.9}},
+				"do": {"preset": "edu_hole", "cam": {"radius": 34}, "control": {"disc": 0.9}},
 				"body": """<p>Now add an accretion disc. The extraordinary thing here is that you can see the <em>far
           side</em> of the disc — the part that should be hidden behind the hole — bent up and over the top,
           and again underneath. Light from behind the hole is being steered around it into your eye.</p>
@@ -1176,16 +1176,16 @@ const MODULES := [
 		"steps": [
 			{
 				"title": "Friction in a spiral",
-				"do": {"preset": "feeding", "cam": {"radius": 30}, "timeScale": 0.4},
+				"do": {"preset": "edu_hole", "cam": {"radius": 30}, "control": {"disc": 0.9}},
 				"body": """<p>Gas falling toward a black hole cannot fall straight in — it has angular momentum, so it
           settles into a disc and spirals slowly inward while friction between neighbouring rings drags on
           it. That friction turns orbital energy into heat, and the inner disc reaches millions of kelvin.</p>
           <p>So the brightest objects in the universe are powered by things that emit nothing at all.
-          This view illustrates the disc and gas stream beside an orbiting companion.</p>""",
+          This close view illustrates the disc around a black hole at its physical scale.</p>""",
 			},
 			{
 				"title": "The most efficient engine there is",
-				"do": {"preset": "feeding", "cam": {"radius": 18}, "band": 5},
+				"do": {"preset": "edu_hole", "cam": {"radius": 18}, "band": 5},
 				"body": """<p>Nuclear fusion converts about 0.7% of mass into energy. Accretion onto a black hole
           converts between 6% and 40%, depending on spin — an order of magnitude better than the process
           that powers stars.</p>
@@ -1212,34 +1212,32 @@ const MODULES := [
 		"goal": "What a gravitational wave is, and what it does to a detector.",
 		"steps": [
 			{
-				"title": "Two holes, spiralling in",
+				"title": "Two holes in orbit",
 				"do": {"preset": "bhmerger", "cam": {"radius": 72}, "timeScale": 0.08},
 				"instrument": "gw",
-				"body": """<p>Two black holes in orbit stir spacetime, and the stirring carries energy away. The orbit
-          therefore shrinks, which makes them go faster, which radiates harder — a runaway that ends in a
-          collision. This is not an animation: the energy loss is applied to the orbit as a force, and the
-          speed-up follows from it.</p>
-          <p>The trace on the left is the <em>strain</em> — the fractional stretch of space — that a detector
-          on Earth could receive in an ideal orientation. This is a rescaled, leading-order inspiral
-          illustration, not a detector waveform prediction: the demo accelerates the inspiral and does
-          not model merger or ringdown.</p>""",
+				"body": """<p>Close black-hole pairs radiate orbital energy as gravitational waves. As their orbit
+          shrinks they go faster and radiate more strongly, eventually merging.</p>
+          <p>This view shows a wider pair whose separation scarcely changes here. The trace is a
+          leading-order estimate of <em>strain</em> — the fractional stretch of space — for an ideal
+          detector orientation. It does not demonstrate an inspiral, merger or ringdown, or predict
+          a detector waveform.</p>""",
 			},
 			{
-				"title": "Read the chirp",
+				"title": "Why close pairs chirp",
 				"do": {"preset": "bhmerger", "cam": {"radius": 50}},
 				"instrument": "gw",
-				"body": """<p>Two things rise together: the frequency and the amplitude. That characteristic sweep is
+				"body": """<p>During an inspiral, two things rise together: the frequency and the amplitude. That sweep is
           called a chirp, and its shape encodes the <em>chirp mass</em> — a particular combination of the
           two masses that the waveform alone determines.</p>
           <p>The wave comes out at twice the orbital frequency. A binary looks the same after half a turn
           — swap the two objects and nothing has changed — so the pattern repeats twice per orbit.</p>""",
-				"look": "Watch the frequency readout climb into the LIGO band as the separation shrinks.",
+				"look": "Compare the wave frequency with the orbital frequency. This wide pair stays below the LIGO band.",
 			},
 			{
 				"title": "How absurdly small it is",
 				"do": {"preset": "bhmerger", "cam": {"radius": 28}},
 				"instrument": "gw",
-				"body": """<p>The L-shaped figure is an interferometer, and the numbers beside it are real. A strain of
+				"body": """<p>The L-shaped figure illustrates an interferometer. For scale, a strain of
           10⁻²¹ gives a differential change of about 4×10⁻¹⁸ metres between 4 km arms
           (about 2×10⁻¹⁸ metres per arm) — one thousandth of the width
           of a proton.</p>
@@ -1256,7 +1254,8 @@ const MODULES := [
           looked at it.</p>
           <p>The debris turned out to be manufacturing heavy elements: several Earth-masses of gold and
           platinum in one event. This is where that part of the periodic table comes from, and we did not
-          know it for certain until that night.</p>""",
+          know it for certain until that night.</p>
+          <p>The pair in this view is an accelerated illustration; it does not model the ejecta or predict a detector waveform.</p>""",
 			},
 		],
 	},

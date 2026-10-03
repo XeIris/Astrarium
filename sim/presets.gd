@@ -250,7 +250,7 @@ static func _make_presets() -> Dictionary:
 	P.sandbox = {
 		"sky": { "env": "disc", "tilt": 0.42, "roll": 0.7 },
 		"name": "Black Hole Sandbox",
-		"blurb": "A 10 M☉ black hole with an illustrated accretion disc and lensing. Spawn bodies and watch their orbits and contact mergers.",
+		"blurb": "A 10 M☉ black hole with orbiting companions. Spawn bodies and watch their orbits and contact mergers. Focus Singularity for a close view of its shadow and illustrated disc.",
 		"sceneScale": 2.0, "bodyScale": 1.0, "camRadius": 34.0, "lensing": true,
 		"build": func() -> Array: return _build_sandbox(),
 	}
@@ -274,28 +274,24 @@ static func _make_presets() -> Dictionary:
 		"build": func() -> Array: return _build_threebody(),
 	}
 
-	# TRISOLARIS: a hierarchy, since a raw three-body system with a planet breaks up
-	# within centuries. Alpha + Beta are a 0.35 AU pair; the world is circumbinary at
-	# 1.80 AU, e = 0.42; Gamma circles everything on a 51-year orbit. Stable 60 000+
-	# years at ~1e-7 drift; insolation swings 0.34–3.1 Earth-suns (docs/scenarios.md).
+	# Hierarchy design and long-run validation limits: docs/scenarios.md.
 	P.trisolaris = {
 		"sky": { "env": "disc", "tilt": 0.55, "roll": 0.35 },
 		"name": "Trisolaris",
-		"blurb": "Three suns, one world. A tight binary (Alpha + Beta) with Trisolaris on a wide eccentric circumbinary orbit, and hot Gamma sweeping past every 51 years. Insolation swings 9× — the Stable and Chaotic Eras are emergent, not scripted. Stable for 60 000+ years.",
+		"blurb": "Three suns, one world. A tight binary (Alpha + Beta) with Trisolaris on a wide eccentric circumbinary orbit, and hot Gamma sweeping past every 51 years. The changing sunlight drives the climate; the world can eventually be ejected.",
 		"sceneScale": 4.0, "bodyScale": 0.55, "camRadius": 20.0, "lensing": false,
-		# The tighter cap keeps the 60 000-year phase error bounded; 8e-4 is fast
-		# enough to look fine but eventually lets this particular hierarchy drift.
+		# Resolve the short inner-binary period; long-run orbital extent needs a separate check.
 		"timeScale": 0.35, "maxStep": 4e-4,
 		"surface": true, "focus": "Alpha", "mesh": false,                  # offers the view-from-the-ground camera
 		"climate": { "mixedLayer": 12.0, "T0": 288.0 },
 		"build": func() -> Array: return _build_trisolaris(),
 	}
 
-	# A more compact P-type hierarchy, still well inside its stability margins.
+	# A more compact P-type hierarchy with brighter illumination.
 	P.trisolaris_compact = {
 		"sky": { "env": "disc", "tilt": 0.50, "roll": 0.65 },
 		"name": "Trisolaris - Compact Haven",
-		"blurb": "A compact, bright hierarchy: Trisolaris circles Alpha and Beta at 1.35 AU while Gamma sweeps the 15 AU outer orbit. Three suns, stronger encounters, and a stable 60 000-year architecture.",
+		"blurb": "A compact, bright hierarchy: Trisolaris circles Alpha and Beta at 1.35 AU while Gamma sweeps the 15 AU outer orbit. Three suns and stronger encounters change the sunlight reaching the world.",
 		"sceneScale": 4.0, "bodyScale": 0.55, "camRadius": 20.0, "lensing": false,
 		"timeScale": 0.35, "maxStep": 4e-4,
 		"surface": true, "focus": "Alpha", "mesh": false,
@@ -312,7 +308,7 @@ static func _make_presets() -> Dictionary:
 	P.trisolaris_wide = {
 		"sky": { "env": "disc", "tilt": 0.60, "roll": 0.10 },
 		"name": "Trisolaris - Wide Seasons",
-		"blurb": "A wide circumbinary world: Alpha and Beta are 0.55 AU apart, Trisolaris follows a 2.6 AU eccentric orbit, and Gamma returns every century from 36 AU. Verified stable for 60 000 simulated years.",
+		"blurb": "A wide circumbinary world: Alpha and Beta are 0.55 AU apart, Trisolaris follows a 2.6 AU eccentric orbit, and Gamma returns every century from 36 AU.",
 		"sceneScale": 3.0, "bodyScale": 0.55, "camRadius": 28.0, "lensing": false,
 		"timeScale": 0.35, "maxStep": 4e-4,
 		"surface": true, "focus": "Alpha", "mesh": false,
@@ -329,7 +325,7 @@ static func _make_presets() -> Dictionary:
 	P.trisolaris_alpha = {
 		"sky": { "env": "disc", "tilt": 0.46, "roll": 1.05 },
 		"name": "Trisolaris - Alpha's Refuge",
-		"blurb": "An S-type solution: Trisolaris orbits Alpha at 0.8 AU, Beta circles the pair at 6.5 AU, and Gamma stays out at 52 AU. The planet remains bound to its home sun for 60 000+ simulated years.",
+		"blurb": "An S-type solution: Trisolaris orbits Alpha at 0.8 AU, Beta circles the pair at 6.5 AU, and Gamma stays out at 52 AU.",
 		"sceneScale": 2.4, "bodyScale": 0.55, "camRadius": 24.0, "lensing": false,
 		"timeScale": 0.35, "maxStep": 4e-4,
 		"surface": true, "focus": "Alpha", "mesh": false,
@@ -382,12 +378,12 @@ static func _make_presets() -> Dictionary:
 
 	P.bhmerger = {
 		"sky": { "env": "halo", "tilt": 0.22, "roll": 2.6 },
-		"name": "Binary Black Hole Merger",
-		"blurb": "Two stellar-mass black holes spiral together, shedding orbital energy to gravitational waves until they coalesce (à la GW150914). Inspiral rate exaggerated.",
+		"name": "Binary Black Hole Orbit",
+		"blurb": "A wide binary of 36 and 29 solar masses. The horizons are too small to resolve in this view; focus a hole to inspect lensing.",
 		"sceneScale": 60.0, "bodyScale": 1.0, "camRadius": 72.0, "lensing": true, "gwBoost": 3e10, "timeScale": 0.15, "maxStep": 5e-5,
 		"build": func() -> Array: return binary(36.0, 29.0, 0.45,
-			{ "type": "bh", "name": "BH-A", "rs": 0.02 },
-			{ "type": "bh", "name": "BH-B", "rs": 0.016 }),
+			{ "type": "bh", "name": "BH-A" },
+			{ "type": "bh", "name": "BH-B" }),
 	}
 
 	P.nsmerger = {
@@ -413,8 +409,9 @@ static func _make_presets() -> Dictionary:
 	P.feeding = {
 		"sky": { "env": "core", "tilt": 0.36, "roll": 1.2 },
 		"name": "Black Hole and Companion",
-		"blurb": "An orbiting star beside a black hole's illustrated disc and gas stream. Bodies merge on contact.",
-		"sceneScale": 2.0, "bodyScale": 1.0, "camRadius": 30.0, "lensing": true, "discOuter": 9.0,
+		"blurb": "A star orbits a 12 M☉ black hole, with both bodies drawn at their physical sizes. The gas stream illustrates how stripped material could flow toward the hole; the star keeps its mass until contact. Focus Singularity for a close view of its shadow and illustrated disc.",
+		"sceneScale": 200.0, "bodyScale": 1.0, "camRadius": 30.0, "lensing": true, "discOuter": 9.0,
+		"trueScale": true, "timeScale": 1e-4, "maxStep": 1e-5,
 		"build": func() -> Array: return _build_feeding(),
 	}
 
@@ -516,8 +513,7 @@ static func _make_presets() -> Dictionary:
 # table above stays readable.
 static func _build_sandbox() -> Array:
 	var Mbh := 10.0
-	var rs := 0.5   # 0.5 AU "fat" horizon → self-consistent & visible
-	var bodies: Array = [{ "type": "bh", "name": "Singularity", "mass": Mbh, "rs": rs, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }]
+	var bodies: Array = [{ "type": "bh", "name": "Singularity", "mass": Mbh, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }]
 	bodies.append(orbiter(Mbh, 4.5, { "type": "gas-giant", "name": "Gas Giant", "palette": "jupiter" }, 0.6))
 	bodies.append(orbiter(Mbh, 7.0, { "type": "star", "name": "Companion Star", "mass": 1.2 }, 3.4))
 	return bodies
@@ -665,15 +661,10 @@ static func _build_trisolaris_chaos() -> Array:
 	return bodies
 
 static func _build_feeding() -> Array:
-	# The Paczyński–Wiita circular speed gives the illustrated stream an orbiting source.
-	var Mbh := 12.0
-	var rs := 0.5
-	var a := 6.0
-	var v := sqrt(Physics.G * Mbh * a) / (a - rs)   # PW circular speed
-	return [
-		{ "type": "bh", "name": "Singularity", "mass": Mbh, "rs": rs, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] },
-		{ "type": "star", "name": "Companion Star", "mass": 1.8, "color": 0xffe0a0, "glow": 0xff8040, "pos": [a, 0.0, 0.0], "vel": [0.0, 0.0, v] },
-	]
+	# Close enough to show the illustrative stream, with physical surfaces still separated.
+	return binary(12.0, 1.8, 0.018,
+		{ "type": "bh", "name": "Singularity" },
+		{ "type": "star", "name": "Companion Star", "color": 0xffe0a0, "glow": 0xff8040 })
 
 static func _build_betelgeuse() -> Array:
 	var B := Starcat.star_spec("betelgeuse", { "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] })
