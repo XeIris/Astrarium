@@ -44,19 +44,19 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R06 | P2 | Verified: batch 2 | Vessel integration guard advances clocks by requested time even when integration is truncated. | World and flight share accepted coordinate time and a frame budget; moving-parent guards, rails fallback and cruise arrival pass production-driver checks. |
 | R07 | P2 | Verified | FPS uses clamped simulation time and averages reciprocal frame durations. | FPS measures frame count divided by actual elapsed time, independently of simulation/screenshot stepping. |
 | R08 | P2 | Verified | Guidance conflicts with behavior and relies on prose where invariants should be checked. | Instructions accurately describe physics/display separation, checks, API contracts and camera scope; no blanket silent acceptance of malformed authored data. |
-| R09 | P2 | Backlog | `main.gd` concentrates body events, camera control, mode coordination, UI wiring and checks. | Extract one coherent responsibility at a time, retain visible frame order and lifecycle ownership, run affected checks after each extraction. |
-| R10 | P2 | Backlog | Important interfaces use unchecked dictionary keys and optional dynamic method calls. | Prioritize typed subsystem dependencies and validated input schemas; malformed authored data produces actionable diagnostics. |
+| R09 | P2 | Partial: development checks extracted | `main.gd` concentrates body events, camera control, mode coordination and UI wiring. | Extract one coherent responsibility at a time, retain visible frame order and lifecycle ownership, run affected checks after each extraction. |
+| R10 | P2 | Partial: validated assets/saves, contact API | Important interfaces use unchecked dictionary keys and optional dynamic method calls. | Prioritize typed subsystem dependencies and validated input schemas; malformed authored data produces actionable diagnostics. |
 | R11 | P2 | Verified: batch 2 | Lesson directives may silently disappear; missing asset parts may silently stop moving. | Authored lesson keys and asset stage/part contracts validated; deliberate typo/part-removal probes fail. |
-| R12 | P2 | Backlog | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
-| R13 | P3 | Partial: lesson header | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
+| R12 | P2 | Partial: height/datum parity | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
+| R13 | P3 | Partial: touched owners | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
 | R14 | P2 | Profiling backlog | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Measure launch/studio GPU cost; preserve close detail while distant geometry and genuinely closed surfaces avoid unnecessary work. |
 | R15 | P2 | Profiling backlog | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
 | R16 | P3 | Profiling backlog | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | CPU/render-thread profile establishes material cost before changing lifetime or cache ownership. |
 | R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
 | R18 | P3 | Backlog | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
 | R19 | P2 | Verified: POSIX and simulated recovery | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows integration remains pending. |
-| R20 | P2 | Backlog | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
-| R21 | P2 | Open: reproduced at batch-1 baseline | Five-round staged-flight soak gains one ObjectCount after warmup while resource/node/orphan counts stay flat. | Identify the retained object or unfinished lifecycle; exact flat-count gate must pass without wider tolerances. |
+| R20 | P2 | Partial: runner and local baseline | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
+| R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
 
 ## Evidence at the reviewed revision
 
@@ -272,6 +272,9 @@ backlog above.
 
 ## Batch 2
 
+Committed as `03ce2f0` (`fix(sim): synchronize flight time and harden assets and
+saves`), including the known R21 failure, at the user's request.
+
 Batch 1 was committed as `a017a2c` (`fix(sim): correct physical invariants and make
 verification reliable`) at the user's request. Batch 2 begins from that clean
 revision and retains distinct agent ownership:
@@ -373,3 +376,130 @@ After the remediation batches, re-review the current codebase independently:
 rerun correctness/failure probes, inspect the actual architecture and instruction
 files, and measure frame-time costs. Do not treat completed checkmarks or agents'
 reports as a substitute for that review.
+
+## Batch 3 — 2026-10-03
+
+Begins from `03ce2f0`. Ownership is separated to keep changes reviewable:
+
+| Owner | Assignment |
+|---|---|
+| Lifecycle agent | R21: identify the extra object and verify exact post-warmup counts |
+| Verification agent | R20: one strict check entry point and repeatable measurements; assess CI prerequisites |
+| Geometry agent | R12: correct measured craft height/datum differences and enforce parity |
+| Coordinator | R09: move development checks out of the runtime orchestrator; integration review and this log |
+
+### Verified geometry and measurement changes
+
+R12 is partially addressed. Sky Crane, Ion Cruiser and Beetle had missing or
+misplaced parts and incorrect shape/datum details. Corrections use physical
+geometry rather than global scale factors. Sky Crane's Blender PICA strips now
+stop at the spherical-cap tangent, and fallback cable rotations follow the
+Blender-to-Godot axis conversion. All nine craft pass whole-vehicle height and
+minimum-Y comparisons in **18 stowed/deployed poses**, within **2 cm** for bevel
+and tessellation bounds. A deliberate 5% Beetle height error fails both poses
+and exits 1. This does not establish per-stage, width, material or full silhouette
+parity: Beetle spans remain **3.9 m authored / 3.7 m fallback**.
+
+Authored/fallback asset checks pass **360/348** assertions; all four pad/craft
+combinations report zero intrusion. Six final rendered craft images were
+inspected without runtime or shader errors. All nine authored model viewers
+retain exact **7894 objects / 718 resources / 1748 nodes / 401 cached-template
+orphans** over five rendered rounds.
+
+`tools/check.py` provides selected suites with retained logs, commands, engine,
+platform and Git state in a JSON report. It rejects nonzero exits, errors,
+timeouts and missing/duplicate completion markers. Its authored-assets gate
+requires all nine models. R20 remains partial: clean-machine CI needs a portable
+native build, generated models and a graphical runner; no CI coverage is claimed.
+
+The performance harnesses now assert that `assets=0` selects procedural craft.
+HUD timing disables automatic processing and advances exactly once per measured
+frame; an independent simulation-clock assertion covers all 640 warmup/measured
+frames. Earlier samples did not enforce the requested fallback configuration.
+
+Three serial repetitions on **Godot 4.7.2 / macOS arm64 / Metal 4.0 / Apple M5**,
+at **1280×720**, with procedural models and fixed 1/60-second simulation steps:
+
+| Measurement | GDScript | Native |
+|---|---:|---:|
+| Solar-orbit CPU, median ms/frame | 0.835 | 0.651 |
+| Falcon 9 ascent CPU, median ms/frame | 1.358 | 1.165 |
+
+Independent review corrected the p99 nearest-rank calculation; the nine HUD
+measurements were rerun. Rendered wall-frame mean medians with HUD shown/hidden:
+sandbox **6.94/6.71 ms**, flight **6.94/6.95 ms**, studio **5.82/5.65 ms**.
+Median shown/hidden p99: **8.81/9.02**, **9.37/9.46**, **13.07/13.10 ms**,
+respectively. Studio shown means span **4.28–5.95 ms**. These are local telemetry,
+not GPU timings, general performance bounds or evidence of an optimization win.
+All sixteen original performance children and nine corrected HUD children pass.
+Local reports: `/tmp/astrarium-b3-perf-final/report.json` and
+`/tmp/astrarium-b3-hud-perf-final/report.json`.
+
+R10: `Derive.contact_au` now accepts only body/spec inputs. Removed ignored
+render-radius/scene-scale parameters from every caller; presentation-independence
+tests still vary the body's rendered radius. **129 invariants** and all **nine
+native/GDScript equivalence scenarios** pass.
+
+### Lifecycle diagnosis
+
+The old staged-flight check did not perform its claimed separations: a burning,
+fueled stage rejects a manual stage command. It also allowed pause/input changes
+and advanced a randomly initialized Solar System between rounds. The check now
+asserts that ascent executes and all three separations occur, disables external
+main input, fixes the default seed, reloads identical initial conditions and lets
+HUD notifications settle without advancing the world.
+
+Godot ObjectDB snapshots identify the extra object as **TextLine**, with no other
+class growth after accounting for the profiler's own lazy physics diagnostics.
+The native owner is not exposed. [Godot's font measurement cache](https://github.com/godotengine/godot/blob/4.7-stable/scene/resources/font.cpp#L286-L310)
+retains TextLine objects with [bounded capacities](https://github.com/godotengine/godot/blob/4.7-stable/scene/resources/font.cpp#L534-L537);
+changing readout strings is the supported explanation, not a proven craft leak.
+Five and eight seeded, controlled rounds with real staging keep exactly **7310 objects /
+210 resources / 1825 nodes / 47 orphans**, with no engine errors or shutdown
+leaks. No tolerance was widened and no font cache was cleared. Temporary debugger
+code and snapshot hooks remain outside the committed source.
+
+All nine procedural model viewers keep exactly **6853 objects / 135 resources /
+1748 nodes / zero orphans** over five rounds, with fallback selection asserted.
+The separate all-nine authored run is also flat. R21's original counter alarm is
+resolved by repeatable test inputs; production ownership was not changed to hide
+the font-cache behavior.
+
+R09's bounded extraction moves the four development check methods to
+`tools/runtime_checks.gd`. `main.gd` retains a small `eval=` dispatcher that loads
+the tool only when requested, retains its asynchronous owner and rejects unknown
+methods or unavailable exported tooling. Multiple methods execute in order.
+Game frame order and subsystem ownership are unchanged. `main.gd` is still a
+large orchestrator; this is partial debt reduction, not an architecture rewrite.
+
+The exported resource pack remains **305 entries**, with **zero development
+entries** including the new check script/UID. Normal gameplay has no static
+dependency on the tooling. Headless import and direct loading of both scripts
+pass. **14** runner probes confirm acceptance of complete runs and rejection of
+faults, including errors present only in the engine log and timed-out POSIX
+descendants.
+
+The first integrated run passed all five rendered gates but rejected two more
+unequal lifecycle endpoints. Spawn/remove left live flashes while the main
+process was disabled; a wall-clock wait did not advance their lifetime. The
+check now drives their normal animation with physics paused, asserts completion
+within 900 fixed steps, and seeds quick-spawn's separate global RNG. The lesson
+walk populated completion progress on its first pass, changing the subsequent
+UI state; test-owned progress now resets before each walk. Five targeted rounds
+stay exactly flat for spawn/remove (**6391/137/1619/0**) and the complete course
+(**7272/137/1876/0**). No production lifecycle was changed to make these checks
+pass.
+
+The packaged debug app boots from `/tmp` without a project path, renders
+true-scale Earth and exits 0. An exported development-check request exits 1 with
+a clear unavailable diagnostic. A source request for an unknown method also
+exits 1, including with a one-frame screenshot request; it creates no screenshot.
+
+Final integrated lifecycle validation passes all three children. All **eleven
+feature groups** remain exactly flat over **five rounds**, including all nine
+model viewers and actual staged flight. Five complete preset/launch passes stay
+at **7434 objects / 307 resources / 1810 nodes**, with no orphan growth. VRAM
+**382.0–382.7 MB** is telemetry, not an asserted memory bound. Shutdown awaits the
+launch and reports no leaked instances. No engine/script/shader errors occur.
+Final report: `/tmp/astrarium-b3-lifecycle-final/report.json`; the earlier failing
+integrated report is retained separately for traceability.

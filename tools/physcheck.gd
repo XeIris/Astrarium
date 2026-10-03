@@ -60,7 +60,7 @@ func load_preset(key: String, seed_value: int = 12345) -> Dictionary:
 		var b := Derive.new_body(next_id, spec)
 		next_id += 1
 		b.radius_scene = Derive.render_radius(b, spec, b.mass0, scene_scale, body_scale, true_scale)
-		b.contact_au = Derive.contact_au(b, spec, b.radius_scene, scene_scale)
+		b.contact_au = Derive.contact_au(b, spec)
 		if spec.get("type") == "world" and spec.get("home", false): home_id = b.id
 		bodies.append(b)
 	climate = Climate.new(p.climate) if p.has("climate") else null

@@ -19,7 +19,7 @@ double-precision build).
    buildings use their procedural fallbacks.
    ```sh
    model_sources/blender/build.sh       # needs Blender 4.1+; 9 craft, 4 pads, facilities
-   tools/sync_assets.sh                 # copies web/assets/*.glb into assets/craft/
+   tools/sync_assets.sh /abs/source     # optional: import existing GLBs from elsewhere
    ```
 2. Open `project.godot` in the Godot editor and press **Play** (F5).
    The first open imports everything, which takes a minute.
@@ -89,7 +89,7 @@ and its `SIM` console handle:
 | `band=5` | imaging band 0–6 |
 | `focus=Earth`, `truescale=1`, `cammode=surface`, `localtime=noon` | camera and view |
 | `frames=60 dt=0.0166 out=/abs/shot.png [hud=0] [shot3d=1]` | run N fixed steps, save a screenshot, quit |
-| `eval=_preset_check` | run a method of `main.gd` (checks, below) |
+| `eval=_preset_check` | run a development check (below); tools are excluded from exports |
 
 ## Building the macOS app
 
@@ -105,8 +105,8 @@ open build/Astrarium.app
 The app is signed ad hoc, which runs on the Mac that built it. On another Mac,
 Gatekeeper will refuse it the first time: right-click → *Open*, or sign it with
 a Developer ID (set `codesign/identity` and `notarization/*` in the preset, or
-use *Project → Export…* in the editor). Build the launchpad meshes and sync
-the vehicle meshes **before** exporting, or the app uses procedural fallbacks.
+use *Project → Export…* in the editor). Build the authored meshes **before**
+exporting, or the app uses procedural fallbacks.
 
 ## The native physics kernel
 
@@ -130,6 +130,25 @@ nonzero exit. Independent physics invariants supplement comparisons with the
 frozen numeric reference. The [codebase review and remediation log](docs/codebase-review-2026-10-02.md)
 records known issues, ownership and acceptance evidence.
 
+`python3 tools/check.py` runs the fast headless suite. Select additional suites,
+for example `python3 tools/check.py fast native assets rendered lifecycle export`.
+The runner retains child logs and a JSON report, rejects errors, timeouts and
+missing completion markers, and stops on the first failure. Use `--godot` to
+select an engine and `--log-dir` to retain results at a chosen location.
+`assets` requires all nine generated craft models; `rendered`, `lifecycle` and
+`perf` need a working graphical renderer. `flight` runs the four full launches.
+`compatibility` keeps the known strict frozen-reference differences failing.
+
+`python3 tools/check.py perf --repeat 3` records fixed-step CPU flight timings and
+rendered frame wall times for the HUD shown/hidden in three states, at 1280×720
+with procedural craft. These are local measurements, without GPU timers or a
+performance budget gate. Clean-machine CI remains pending a portable native
+build, generated assets and a supported graphical runner.
+
+The `eval=` development methods live in `tools/runtime_checks.gd` and load only
+when requested. Unknown methods and development checks requested from an export
+fail explicitly. Multiple requested methods run in order.
+
 | check | what it does |
 |---|---|
 | `tools/presetcheck.sh` | loads all 35 scenarios, runs a second of each, reports script/shader errors and lost bodies |
@@ -143,7 +162,7 @@ records known issues, ownership and acceptance evidence.
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary forces, matching energy, and presentation-independent contact distances |
 | `tools/transitioncheck.tscn` | rendered measured-star collapse to WD/NS/BH; rejects stale progenitor radius/contact and incorrect remnant temperature/luminosity |
-| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()` |
+| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
 | `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps; `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
@@ -152,7 +171,7 @@ records known issues, ownership and acceptance evidence.
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
 | `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry |
-| `eval=_soak_check` | repeats each feature (spawning, edits, true scale, painting, cross-section, camera modes, quality, every lesson step, the model viewer, a staged launch, the start screen) four times and prints object/resource/node/orphan counts after each round; after the first round they should not change |
+| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft |
 | `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 
 `tools/ref/` holds the side-by-side evidence each part of the port was

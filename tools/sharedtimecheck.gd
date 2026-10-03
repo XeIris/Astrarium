@@ -50,6 +50,11 @@ func orbit(vehicle := "saturnv") -> void:
 func _ready() -> void:
 	benchmark_only = OS.get_cmdline_user_args().has("bench=1")
 	if OS.get_cmdline_user_args().has("native=0"): NBody._native = 0
+	var procedural := OS.get_cmdline_user_args().has("assets=0")
+	if procedural:
+		for id in CraftAssets.CRAFT_ASSETS: CraftAssets.CACHE[id] = null
+	if OS.get_cmdline_user_args().has("native=1"):
+		check("requested native kernel available", NBody.native_available())
 	OS.add_logger(logger)
 	stage = load("res://main.tscn").instantiate()
 	add_child(stage)
@@ -60,12 +65,15 @@ func _ready() -> void:
 	stage.lessons.store = ""
 	stage.load_preset("solar")
 	orbit()
+	if procedural: check("procedural craft selected", not stage.flight.craft.authored)
+	print("SHARED TIME CONFIG assets=%s native=%s fixed_dt=%.9f" % ["procedural" if procedural else "optional-authored", NBody.native_available(), 1.0 / 60.0])
 	for i in 60: stage.animate(1.0 / 60.0)
 	var start := Time.get_ticks_usec()
 	for i in 240: stage.animate(1.0 / 60.0)
 	print("SHARED TIME BENCH solar-orbit CPU ms/frame=", float(Time.get_ticks_usec() - start) / 240000.0)
 	if benchmark_only:
 		stage.flight.begin("falcon9", {"body": "Earth", "mode": "pad"})
+		if procedural: check("procedural ascent craft selected", not stage.flight.craft.authored)
 		stage.flight.start_count()
 		for i in 900: stage.animate(1.0 / 60.0)
 		start = Time.get_ticks_usec()

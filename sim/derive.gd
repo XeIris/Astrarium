@@ -67,7 +67,7 @@ static func render_radius(b: Body, spec: Dictionary, mass: float, scene_scale: f
 
 # Contact is physical even when the displayed body is magnified. A stated
 # contactAU can represent a prescribed destruction distance such as a Roche limit.
-static func contact_au(b: Body, spec: Dictionary, _radius_scene: float = 0.0, _scene_scale: float = 1.0) -> float:
+static func contact_au(b: Body, spec: Dictionary) -> float:
 	if b.type == "bh": return b.rs
 	var c = spec.get("contactAU")
 	return float(c) if c != null else b.radius

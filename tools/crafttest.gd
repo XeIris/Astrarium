@@ -1,24 +1,9 @@
 extends Node
 
-# CRAFT STUDIO: sim/flight/craftmodel.gd on its own, matched to the web
-# crafttest.html for side-by-side comparison, so deliberately not on harness.gd:
-# one HDR SubViewport, three's exact ACES curve (exposure / 0.6, Hill fit, sRGB),
-# and the background composited after the curve. Same camera, rig, figure, ground
-# and framing as the page.
-#
-#   Godot --path . res://tools/crafttest.tscn -- v=saturnv view=side out=/abs.png
-#     v=<id>        vehicle (default saturnv)
-#     view=side|iso|front|top|detail|under|nose   (default side)
-#     z=<zoom>      zoom (default 1)
-#     stage=<n>     frame one stage only
-#     deploy=0      stowed pose (default is deployed: a folded leg shows nothing)
-#     w=, h=        frame size (default 1280×720)
-#     assets=0      skip the authored meshes: the procedural fallback
-#     out=<png>     write the frame and quit
-#
-#   Godot --headless --path . res://tools/crafttest.tscn -- audit [assets=0]
-#   Godot --headless --path . res://tools/crafttest.tscn -- clearance [assets=0]
-#     print audit() / clearance() as tables (and JSON) and quit.
+# Isolated craft studio; the archived web studio supplied the comparison rig.
+# -- audit clearance [assets=0] checks geometry and engine spacing, then quits.
+# -- parity requires all authored models and compares height/datums in both poses.
+# -- v=<id> view=side|iso|front|top|detail|under|nose deploy=0 z=1 out=/abs.png
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 
@@ -36,7 +21,7 @@ func _ready() -> void:
 	# Fill the model cache before building anything, or this measures the fallback.
 	if args.get("assets", "1") != "0":
 		CraftAssets.craft_models_ready()
-	if args.has("audit") or args.has("clearance"):
+	if args.has("audit") or args.has("clearance") or args.has("parity"):
 		var failed := not CraftAssets.VALIDATION_ERRORS.is_empty()
 		for id in CraftAssets.VALIDATION_ERRORS:
 			printerr("CRAFTCHECK invalid %s: %s" % [id, CraftAssets.VALIDATION_ERRORS[id]])
@@ -55,6 +40,10 @@ func _ready() -> void:
 					if not is_finite(cluster.gap) or cluster.gap < -0.001:
 						printerr("CRAFTCHECK overlapping engines: %s/%s gap %s m" % [row.k, cluster.stage, cluster.gap])
 						failed = true
+		if args.has("parity") or (args.has("audit") and args.get("assets", "1") != "0"):
+			var parity_errors := height_parity(args.has("parity"), args.get("inject_parity", "0") == "1")
+			for error in parity_errors: printerr("CRAFTCHECK ", error)
+			failed = failed or not parity_errors.is_empty()
 		CraftAssets.clear()
 		await get_tree().process_frame
 		print("CRAFTCHECK DONE ", "FAIL" if failed else "PASS")
@@ -62,7 +51,7 @@ func _ready() -> void:
 		return
 	_build_studio()
 
-## Measured extents in metres and triangle counts; no authored/fallback parity assertion.
+## Measured extents in metres and triangle counts in the stowed pose.
 static func audit() -> Array:
 	var out := []
 	var V: Dictionary = CM.vehicles()
@@ -75,6 +64,41 @@ static func audit() -> Array:
 			"base": _r1(b.position.y), "tris": CM.triangles(c.group), "authored": c.authored})
 		c.group.free()
 	return out
+
+# Bevels and primitive tessellation may move skin bounds by at most two centimetres.
+const HEIGHT_TOLERANCE := 0.02
+
+static func height_parity(require_authored := false, inject := false) -> Array:
+	var errors := []
+	var compared := 0
+	for id in Vehicles.VEHICLE_ORDER:
+		if not CraftAssets.has_model(id):
+			if require_authored: errors.append("parity requires authored " + id)
+			continue
+		var vehicle: Dictionary = Vehicles.get_vehicle(id)
+		var authored = CM.build_craft(vehicle)
+		var cache := CraftAssets.CACHE
+		CraftAssets.CACHE = {}
+		var fallback = CM.build_craft(vehicle)
+		CraftAssets.CACHE = cache
+		if not authored.authored or fallback.authored:
+			errors.append(id + " parity did not compare both build paths")
+		if inject and id == "beetle": fallback.group.scale.y = 1.05
+		for deployed in [false, true]:
+			var deploy := {}
+			for st in authored.stages: deploy[st.key] = 1.0 if deployed else 0.0
+			for craft in [authored, fallback]: craft.update({"dt": 4.0, "deploy": deploy})
+			var a: AABB = CM.measure(authored.group)
+			var p: AABB = CM.measure(fallback.group)
+			var pose := "deployed" if deployed else "stowed"
+			print("PARITY %s %s height Δ=%.5f base Δ=%.5f m" % [id, pose, p.size.y - a.size.y, p.position.y - a.position.y])
+			if not is_finite(a.size.y) or not is_finite(p.size.y) or not is_finite(a.position.y) or not is_finite(p.position.y) or absf(p.size.y - a.size.y) > HEIGHT_TOLERANCE or absf(p.position.y - a.position.y) > HEIGHT_TOLERANCE:
+				errors.append("%s %s authored/fallback height or datum mismatch" % [id, pose])
+			compared += 1
+		authored.group.free()
+		fallback.group.free()
+	print("PARITY DONE %d poses, %d failures" % [compared, errors.size()])
+	return errors
 
 ## ENGINE CLEARANCE: per stage with more than one engine, the smallest gap between
 ## any two bells (nearest neighbour over the whole cluster). Negative means they

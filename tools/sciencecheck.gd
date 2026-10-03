@@ -42,7 +42,7 @@ func build(key: String) -> Array:
 	var id := 1
 	for spec in p.build.call():
 		var b := Derive.new_body(id, spec); id += 1
-		b.contact_au = Derive.contact_au(b, spec, Derive.render_radius(b, spec, b.mass0, float(p.sceneScale), float(p.get("bodyScale", 1.0)), bool(p.get("trueScale", false))), float(p.sceneScale))
+		b.contact_au = Derive.contact_au(b, spec)
 		out.append(b)
 	return out
 

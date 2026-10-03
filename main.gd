@@ -2057,6 +2057,28 @@ func update_fps(real_dt: float) -> void:
 #         timescale=<yr/s> paused=1 panel=<id>[,<id>] closed=<id>[,<id>]
 # Runs `frames` fixed steps, writes the root viewport (`hud=0` hides the HUD,
 # `shot3d=1` writes the 3D frame alone) and quits.
+const DEVELOPMENT_CHECKS := ["_preset_check", "_leak_check", "_soak_check", "_shutdown_check"]
+
+func _run_eval(method: String) -> bool:
+	if DEVELOPMENT_CHECKS.has(method):
+		var path := "res://tools/runtime_checks.gd"
+		if not ResourceLoader.exists(path):
+			printerr("Development checks are unavailable in this export: ", method)
+			return false
+		var script := load(path) as Script
+		if script == null or not script.can_instantiate():
+			printerr("Cannot load development checks: ", method)
+			return false
+		# Retain the check owner until its asynchronous method finishes.
+		var checks: RefCounted = script.new(self)
+		await checks.call(method)
+	elif has_method(method):
+		await call(method)
+	else:
+		printerr("Unknown eval method: ", method)
+		return false
+	return true
+
 var _shot_frame := 0
 func _shot_tick() -> void:
 	if not _cmd.has("out"):
@@ -2064,7 +2086,9 @@ func _shot_tick() -> void:
 		if _shot_frame == 0 and _cmd.has("eval"):
 			_shot_frame = 1
 			for m in String(_cmd.eval).split(",", false):
-				if has_method(m): call(m)
+				if not (await _run_eval(m)):
+					get_tree().quit(1)
+					return
 		return
 	_shot_frame += 1
 	if _shot_frame == 1:
@@ -2085,7 +2109,9 @@ func _shot_tick() -> void:
 		if _cmd.has("closed"):
 			for pid in String(_cmd.closed).split(",", false): _stage_set_panel(pid, false)
 		for m in String(_cmd.get("eval", "")).split(",", false):
-			if has_method(m): call(m)
+			if not (await _run_eval(m)):
+				get_tree().quit(1)
+				return
 	if _shot_frame != int(_cmd.get("frames", "30")): return
 	if _cmd.get("sunview", "0") == "1" and flight.active:
 		var toward_sun: Vector3 = flight.local.sky_mat.get_shader_parameter("uSunDir")
@@ -2295,218 +2321,3 @@ func _observe(home: Body) -> void:
 	cam_basis = pipe.scene_cam.transform.basis
 	cam_fov = pipe.scene_cam.fov
 	cam_near = pipe.scene_cam.near
-
-# Yield rendered frames so the wrapper can detect first-use shader errors.
-func _preset_check() -> void:
-	set_process(false)
-	var rows := []
-	var errs := []
-	var expected_mergers := ["bhmerger", "nsmerger", "feeding", "binarystar", "stellar_zoo"]
-	for key in Presets.PRESET_ORDER:
-		print("PRESETCHECK BEGIN ", key)
-		load_preset(key)
-		var n0 := state.bodies.size()
-		for i in 60:
-			animate(1.0 / 60.0)
-			await get_tree().process_frame
-		var n1 := state.bodies.size()
-		rows.append("%s: %d->%d" % [key, n0, n1])
-		# These scenarios intentionally contain collisions or an accretion feed.
-		if n1 < n0 and not expected_mergers.has(key):
-			errs.append("%s: lost %d bodies in one second (%s)" % [key, n0 - n1, Presets.PRESETS[key].name])
-		for b in state.bodies:
-			if not b.pos.is_finite_v() or not b.vel.is_finite_v() or not is_finite(b.mass):
-				errs.append("%s: nonfinite state for body %d" % [key, b.id])
-		print("PRESETCHECK END ", key)
-	print("PRESETCHECK ROWS ", " | ".join(rows))
-	print("PRESETCHECK LOST ", errs)
-	print("PRESETCHECK DONE ", Presets.PRESET_ORDER.size())
-	get_tree().quit(1 if not errs.is_empty() else 0)
-
-# Compare settled lifecycle counts after one cache-warming pass.
-func _leak_check() -> void:
-	set_process(false)
-	lessons.store = ""
-	lessons.progress = {"done": {}, "last": null}
-	var keys: Array = Presets.PRESET_ORDER
-	var baseline := []
-	var failures := []
-	for pass_i in 5:
-		for key in keys:
-			load_preset(key)
-			for i in 10: animate(1.0 / 60.0)
-			await get_tree().process_frame
-		load_preset("solar")
-		for i in 3: await get_tree().process_frame
-		# and a launch/abort cycle per pass: flight builds a vehicle, a pad and
-		# a plume set, and tears all of it down again
-		for k in ["falcon9", "saturnv"]:
-			await launch_craft(k)
-			for i in 20: await get_tree().process_frame
-			end_flight()
-			for i in 3: await get_tree().process_frame
-		# let toast and fade timers run out, or they read as leaked objects
-		await get_tree().create_timer(5.0).timeout
-		# A timed-out SceneTreeTimer is released after the frame's callbacks.
-		for i in 2: await get_tree().process_frame
-		var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
-			int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
-			int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
-			int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))]
-		if pass_i == 0:
-			baseline = current
-		else:
-			for metric in 4:
-				if current[metric] > baseline[metric]:
-					failures.append("pass %d metric %s grew %d->%d" % [pass_i,
-						["objects", "resources", "nodes", "orphans"][metric], baseline[metric], current[metric]])
-		print("LEAKCHECK pass %d objects=%d resources=%d nodes=%d vmem=%.1fMB" % [pass_i,
-			Performance.get_monitor(Performance.OBJECT_COUNT),
-			Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT),
-			Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
-			Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0])
-	print("LEAKCHECK FAILURES ", failures)
-	print("LEAKCHECK DONE")
-	get_tree().quit(1 if not failures.is_empty() else 0)
-
-# Post-warmup growth fails; --verbose additionally exposes leaks on shutdown.
-func _soak_check() -> void:
-	set_process(false)
-	lessons.store = ""
-	lessons.progress = {"done": {}, "last": null}
-	var rounds := int(_cmd.get("rounds", 4))
-	if rounds < 3:
-		printerr("SOAK FAILED: at least three rounds are required")
-		get_tree().quit(1)
-		return
-	var only: PackedStringArray = str(_cmd.get("soak", "")).split(",", false)
-	var feats := {
-		"spawn_remove": func():
-			for t in ["star", "planet", "gas-giant", "bh", "neutron", "white-dwarf", "world"]:
-				spawn_orbiting(t)
-			for i in 20: animate(1.0 / 60.0)
-			while state.bodies.size() > 1: remove_body(state.bodies[-1].id),
-		"edit_mass": func():
-			for b in state.bodies.duplicate():
-				if b.type == "star": edit_body(b, {"mass": b.mass * 1.1}); edit_body(b, {"mass": b.mass / 1.1})
-			for i in 10: animate(1.0 / 60.0),
-		"true_scale": func():
-			set_true_scale(true); for i in 5: animate(1.0 / 60.0)
-			set_true_scale(false); for i in 5: animate(1.0 / 60.0),
-		"paint": func():
-			var b: Body = get_stars()[0] if not get_stars().is_empty() else state.bodies[0]
-			state.focus_id = b.id
-			for k in ["ring", "belt", "cloud", "clear"]: _on_paint(k)
-			for i in 5: animate(1.0 / 60.0),
-		"xsec": func():
-			var b: Body = state.bodies[0]
-			state.focus_id = b.id
-			open_cross_section(true); for i in 5: animate(1.0 / 60.0)
-			open_cross_section(false),
-		"cam_modes": func():
-			for m in ["free", "surface", "orbit"]:
-				set_cam_mode(m); for i in 5: animate(1.0 / 60.0),
-		"quality": func():
-			for q in ["high", "low", "medium"]:
-				set_render_quality(q); set_lighting_quality("high" if q == "high" else "low")
-				await get_tree().process_frame
-			for i in 4: set_band(i); await get_tree().process_frame
-			set_band(0),
-		"lessons": func():
-			set_app_mode("learn", {"quiet": true})
-			for e in Lessons.LESSON_ORDER:
-				var steps: Array = Lessons.find_lesson(e.key).lesson.steps
-				for si in steps.size():
-					lessons.open_lesson(e.key, si)
-					for i in 2: animate(1.0 / 60.0)
-				await get_tree().process_frame
-			set_app_mode("sandbox"),
-		"model_viewer": func():
-			CraftAssets.craft_models_ready(["saturnv", "shuttle", "starship"])
-			for k in ["saturnv", "shuttle", "starship"]:
-				show_model(k)
-				for i in 5:
-					animate(1.0 / 60.0)
-					await get_tree().process_frame
-			close_model_viewer(),
-		"flight_stage": func():
-			await launch_craft("saturnv")
-			flight.run_program("ascent")
-			for i in 900: animate(1.0 / 60.0)
-			for s in 3:
-				flight.key_action("stage")
-				for i in 30: animate(1.0 / 60.0)
-			_on_flight_cam_cycle(); _on_flight_cam_cycle()
-			for i in 5: await get_tree().process_frame
-			end_flight()
-			hud.toast("", 1)
-			var deadline := Time.get_ticks_msec() + 3000
-			while hud._toast_timer > 0.0 or (hud._toast_tween and hud._toast_tween.is_running()):
-				animate(1.0 / 60.0)
-				await get_tree().process_frame
-				if Time.get_ticks_msec() >= deadline:
-					printerr("SOAK FAILED: flight notification did not settle")
-					get_tree().quit(1)
-					return,
-		"start_screen": func():
-			quit_to_start(); await get_tree().process_frame
-			_start("sandbox"); load_preset("solar"); set_process(false),
-	}
-	for key in only:
-		if not feats.has(key):
-			printerr("SOAK FAILED: unknown feature ", key)
-			get_tree().quit(1)
-			return
-	var failures := []
-	load_preset("solar")
-	for i in 5: await get_tree().process_frame
-	for key in feats:
-		if not only.is_empty() and not only.has(key): continue
-		var counts := []
-		var baseline := []
-		for r in rounds:
-			if key != "start_screen" and state.preset_key != "solar": load_preset("solar")
-			await feats[key].call()
-			for i in 3: await get_tree().process_frame
-			await get_tree().create_timer(3.0).timeout
-			for i in 2: await get_tree().process_frame
-			var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
-				int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
-				int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
-				int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))]
-			counts.append("%d/%d/%d/%d" % current)
-			if r == 0:
-				baseline = current
-			else:
-				for metric in 4:
-					if current[metric] > baseline[metric]:
-						failures.append("%s round %d metric %s grew %d->%d" % [key, r,
-							["objects", "resources", "nodes", "orphans"][metric], baseline[metric], current[metric]])
-		print("SOAK %-14s %s" % [key, "  ".join(counts)])
-	print("SOAK FAILURES ", failures)
-	print("SOAK DONE")
-	get_tree().quit(1 if not failures.is_empty() else 0)
-
-## `eval=_shutdown_check`: drag render scale both ways, open a cutaway lesson, the
-## model viewer and a launch, then quit. With `--verbose`, a clean pass prints no
-## "Attempted to free" and no leaks.
-func _shutdown_check() -> void:
-	load_preset("solar")
-	for i in 5: await get_tree().process_frame
-	for v in [0.9, 0.75, 0.6, 0.5, 0.65, 0.8, 1.0]:
-		_on_slider("renderScale", v)
-		await get_tree().process_frame
-	for e in Lessons.LESSON_ORDER:
-		var steps: Array = Lessons.find_lesson(e.key).lesson.steps
-		var si := steps.find_custom(func(s): return str(s).contains("cutaway"))
-		if si >= 0:
-			lessons.open_lesson(e.key, si)
-			print("SHUTDOWNCHECK cutaway lesson ", e.key, " step ", si)
-			break
-	for i in 10: await get_tree().process_frame
-	open_model_world()
-	for i in 10: await get_tree().process_frame
-	launch_craft("saturnv")
-	for i in 60: await get_tree().process_frame
-	print("SHUTDOWNCHECK DONE")
-	get_tree().quit()

@@ -27,10 +27,13 @@ def build_shell(M, root):
     # PICA gores. The long axis is local X so the rotation about Z lays each radially,
     # pitched onto the 70° flank (Blender's XYZ order applies pitch before azimuth).
     flank = pi / 2 - 70 * pi / 180
+    # Stop at the spherical-cap tangent: a full-diameter strip pierces the apex.
+    inner_r = nose_r * sin(flank)
+    outer_r = D / 2 - D / 2 * 0.06 * cos(70 * pi / 180)
+    r_gore = (inner_r + outer_r) / 2
     for i in range(16):
         a = i / 16 * TAU
-        r_gore = D * 0.24
-        gore = box(f'gore{i}', (D * 0.46, 0.035, 0.03),
+        gore = box(f'gore{i}', ((outer_r - inner_r) / cos(flank), 0.035, 0.03),
                    (cos(a) * r_gore, sin(a) * r_gore,
                     joint - (D / 2 - r_gore) * tan(flank)),
                    M['dirty'], rot=(0, -flank, a), parent=g)

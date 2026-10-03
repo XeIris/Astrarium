@@ -133,8 +133,9 @@ puts its own offsets on inner nodes. `ctx` is a `VisualCtx`
 
 ## Checks
 
-Checks are listed in [README.md](README.md#verifying). Run the ones that cover
-your change. A check must reject defects and incomplete runs with a nonzero exit;
+Checks and the `tools/check.py` suite runner are listed in
+[README.md](README.md#verifying). Run the ones that cover your change.
+A check must reject defects and incomplete runs with a nonzero exit;
 printing a comparison alone is insufficient. Intentional differences from the
 frozen numeric reference must be explained, never hidden by wider tolerances.
 
@@ -146,7 +147,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
-  `assets=0`
+  `assets=0`; `-- parity` requires all nine authored models and checks both poses
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero
 - anything that creates or frees nodes, visuals or caches: `eval=_soak_check`;
   the counts must stay flat after the first round

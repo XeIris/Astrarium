@@ -1,16 +1,9 @@
 class_name CraftModel
 extends RefCounted
 
-# Procedural spacecraft at real dimensions in metres, from the same stage lengths
-# and diameters the physics uses (sim/flight/vehicles.gd). The authored meshes
-# (assets/craft/<id>.glb, craftassets.gd) replace a stage's contents when present;
-# this build is the fallback and must keep working. Each stage is its own Node3D,
-# so separation is a re-parent, and every moving part is driven from update().
-#
-# The primitives reproduce THREE.*Geometry vertex for vertex, so audit()'s
-# triangle counts stay a regression number. Three winds CCW and Godot CW, so
-# _to_mesh() swaps every index triple once. Nodes use EULER_ORDER_XYZ.
-# Pivot authority is node metadata `gimbal_deg`; a pivot without it is unclamped.
+# Procedural fallback spacecraft in metres. Stage placement and driven pivots use
+# the same contract as assets/craft; see model_sources/blender/AGENTS.md.
+# Primitive winding is reversed once in _to_mesh. Nodes use XYZ Euler.
 
 # VEHICLE DATA: the one accessor for Vehicles (camelCase keys). `script` is the
 # Vehicles script, for the derived stats the studio reports.
@@ -1463,8 +1456,9 @@ static func build_aeroshell(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	# Parachute cone and its cover, on the axis.
 	var pc := _mesh(_cylinder(D * 0.155, D * 0.19, D * 0.10, 24), M.white)
 	pc.position.y = D * 0.30 + D * 0.36 + D * 0.05; g.add_child(pc)
-	var lid := _mesh(_sphere(D * 0.155, 20, 8, 0.0, TAU, 0.0, PI / 2.0), M.dirty)
-	lid.position.y = D * 0.30 + D * 0.36 + D * 0.10; g.add_child(lid)
+	var lid_profile := PackedVector2Array([Vector2(D * 0.155, D * 0.76),
+		Vector2(D * 0.150, D * 0.80), Vector2(D * 0.115, D * 0.84), Vector2(0, D * 0.86)])
+	g.add_child(_mesh(_lathe(lid_profile, 24), M.dirty))
 	# Cruise-stage RCS quads and the tungsten balance masses whose offset CoM gives the
 	# capsule its L/D of 0.24.
 	for i in 4:
@@ -1515,8 +1509,9 @@ static func build_sky_crane(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	for i in 3:
 		var a := i / 3.0 * TAU
 		var c := _mesh(_cylinder(0.018, 0.018, 1.5, 5), M.dirty)
-		c.position = Vector3(cos(a) * D * 0.20, deck_y - 0.85, sin(a) * D * 0.20)
-		c.rotation = Vector3(sin(a) * 0.16, 0, -cos(a) * 0.16)
+		c.basis = Basis(Vector3.UP, -a) * Basis(Vector3.RIGHT, 0.16)
+		# Cable origin is the spool end; the cylinder primitive is centered.
+		c.position = Vector3(cos(a) * D * 0.20, deck_y - 0.85, -sin(a) * D * 0.20) + c.basis * Vector3(0, -0.75, 0)
 		g.add_child(c)
 	return {"group": g, "parts": parts}
 
@@ -1555,6 +1550,8 @@ static func build_rover(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	for dx in [-0.20, 0.20]:
 		var eye := _mesh(_cylinder(0.055, 0.055, 0.08, 12), M.glass)
 		eye.position = Vector3(0.72 + dx, body_y + 1.55, 0.41); eye.rotation.x = PI / 2.0; g.add_child(eye)
+	var chemcam := _mesh(_cylinder(0.12, 0.12, 0.16, 12), M.dirty)
+	chemcam.position = Vector3(0.72, body_y + 1.76, 0.30); g.add_child(chemcam)
 	# High-gain antenna and the robotic arm, stowed against the front.
 	var hga := _mesh(_box(0.30, 0.30, 0.05), M.dirty)
 	hga.position = Vector3(-0.55, body_y + 0.55, -0.55); hga.rotation = Vector3(0.5, 0.6, 0); g.add_child(hga)
@@ -1597,10 +1594,17 @@ static func build_ion_bus(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	bus.position.y = 0.9; g.add_child(bus)
 	for side in [1.0, -1.0]:
 		var arm := _grp()
-		arm.position = Vector3(side * 0.82, 0.9, 0)
-		var a := solar_array(8.3, 2.2); a.position.x = side * 4.4; arm.add_child(a)
+		arm.position = Vector3(side * 0.92, 0.9, 0)
+		arm.add_child(beam(Vector3.ZERO, Vector3(side * 0.55, 0, 0), 0.05))
+		var a := solar_array(8.3, 2.2); a.position.x = side * 4.7; arm.add_child(a)
 		g.add_child(arm); parts.arrays.append(arm)
-	var d := dish(0.82); d.position.y = 1.9; g.add_child(d)
+	var adapter := _mesh(_cylinder(1.64 * 0.46, 1.64 * 0.30, 0.22, 20), M.alu)
+	adapter.position.y = 0.11; g.add_child(adapter)
+	var d := dish(0.82); d.position.y = 1.58; g.add_child(d)
+	var feed := _mesh(_cylinder(0.03, 0.03, 0.46, 8), M.dirty)
+	feed.position.y = 1.91; g.add_child(feed)
+	var horn := _mesh(_sphere(0.09, 12, 8), M.dirty)
+	horn.position.y = 2.16; g.add_child(horn)
 	# Three gridded ion thrusters. They are small, and they should look it.
 	for i in 3:
 		var a := i / 3.0 * TAU
@@ -1972,16 +1976,56 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 
 static func build_beetle(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
-	var D: float = spec.D; var L: float = spec.L
-	var body := _mesh(_capsule(D / 2.0, L * 0.55, 6, 16), M.dirty)
-	body.position.y = L * 0.5; g.add_child(body)
+	var D: float = spec.D
+	var R := D / 2.0
+	var cap := R * 0.42
+	# Barrel stations and dome depth match model_sources/blender/beetle.py.
+	var h0 := 1.55; var h1 := 3.70
+	var profile := PackedVector2Array([Vector2(0, h0 - cap)])
+	for i in range(1, 9):
+		var a := i / 8.0 * PI / 2.0
+		profile.append(Vector2(R * sin(a), h0 - cap * cos(a)))
+	profile.append(Vector2(R, h1))
+	for i in range(1, 9):
+		var a := i / 8.0 * PI / 2.0
+		profile.append(Vector2(R * cos(a), h1 + cap * sin(a)))
+	g.add_child(_mesh(_lathe(profile, 24), M.dirty))
 	for k in 4:
-		var r := _mesh(_torus(D / 2.0 * 1.02, D * 0.02, 5, 20), M.alu)
-		r.rotation.x = PI / 2.0; r.position.y = L * (0.22 + k * 0.19); g.add_child(r)
-	var dr := _grp()
-	dr.add_child(_mesh(_cylinder(D * 0.30, D * 0.40, D * 0.30, 16, 1, true), M.hot))
-	dr.position.y = -D * 0.05; g.add_child(dr); parts.gimbals.append(dr)
-	var d := dish(D * 0.34); d.position = Vector3(D * 0.4, L * 0.75, 0); d.rotation.z = -1.2; g.add_child(d)
+		var hoop := _mesh(_torus(R * 1.015, D * 0.018, 8, 24), M.alu)
+		hoop.rotation.x = PI / 2.0; hoop.position.y = h0 + (h1 - h0) * (k + 0.5) / 4.0
+		g.add_child(hoop)
+	# The drive exits at y=0; its shallow reflector and can sit forward of it.
+	var dr := R * 0.46; var neck := dr * 1.42
+	var drive := _grp()
+	var reflector := PackedVector2Array()
+	for i in 9:
+		var u := i / 8.0
+		reflector.append(Vector2(dr * u, neck * (1.0 - u * u) * 0.62))
+	reflector.append(Vector2(dr * 1.06, -0.02))
+	drive.add_child(_mesh(_lathe(reflector, 24), M.alu))
+	var lip := _mesh(_torus(dr * 1.05, dr * 0.055, 8, 24), M.alu)
+	lip.rotation.x = PI / 2.0; lip.position.y = -0.01; drive.add_child(lip)
+	var plate := _mesh(_cylinder(dr * 0.90, dr * 0.90, neck * 0.06, 20), M.emitPlate)
+	plate.position.y = neck * 0.37; drive.add_child(plate)
+	var can := _mesh(_cylinder(dr * 0.72, dr * 0.82, neck * 0.75, 20), M.dirty)
+	can.position.y = neck * 0.775; drive.add_child(can)
+	g.add_child(drive); parts.gimbals.append(drive)
+	var skirt := _mesh(_cylinder(R * 0.92, dr * 1.15, 1.30 - neck * 1.15 * 0.94, 24), M.dirty)
+	skirt.position.y = (1.30 + neck * 1.15 * 0.94) / 2.0; g.add_child(skirt)
+	var antenna := _grp()
+	antenna.position = Vector3(R * 0.98 + D * 0.19, h1 - 0.30, 0)
+	antenna.rotation.z = -0.62
+	var dish_profile := PackedVector2Array()
+	var rd := D * 0.33
+	for i in 13:
+		var u := i / 12.0
+		dish_profile.append(Vector2(rd * u, rd * 0.30 * u * u))
+	antenna.add_child(_mesh(_lathe(dish_profile, 24), M.white))
+	var feed := _mesh(_cylinder(rd * 0.14, rd * 0.11, rd * 0.14, 12), M.dirty)
+	feed.position.y = rd * 0.83; antenna.add_child(feed); g.add_child(antenna)
+	var horn_profile := PackedVector2Array([Vector2(0.05, h1 + cap * 0.96),
+		Vector2(0.05, h1 + cap + 0.16), Vector2(0.17, h1 + cap + 0.30)])
+	g.add_child(_mesh(_lathe(horn_profile, 16), M.alu))
 	return {"group": g, "parts": parts}
 
 # MEASUREMENT — three's Box3.setFromObject, which several callers depend on.

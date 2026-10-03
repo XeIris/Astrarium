@@ -92,8 +92,8 @@ func contact_cases() -> void:
 		check("%s derives contact without visuals" % spec, b.contact_au == expected)
 		for scene_scale in [0.5, 2.0, 1000.0]:
 			for true_scale in [false, true]:
-				var rendered := Derive.render_radius(b, spec, b.mass, scene_scale, 4.0, true_scale)
-				check("%s contact at scale %s true %s" % [spec, scene_scale, true_scale], Derive.contact_au(b, spec, rendered, scene_scale) == expected)
+				b.radius_scene = Derive.render_radius(b, spec, b.mass, scene_scale, 4.0, true_scale)
+				check("%s contact at scale %s true %s" % [spec, scene_scale, true_scale], Derive.contact_au(b, spec) == expected)
 	var model := Derive.new_body(1, {"type": "star", "mass": 1.0})
 	var old_radius := model.radius
 	model.mass = 2.0
@@ -109,7 +109,8 @@ func contact_cases() -> void:
 	var b := Derive.new_body(2, {"type": "star", "mass": 1.0, "pos": [0.05, 0.0, 0.0]})
 	for true_scale in [false, true]:
 		for body: Body in [a, b]:
-			body.contact_au = Derive.contact_au(body, body.spec, Derive.render_radius(body, body.spec, body.mass, 2.0, 1.0, true_scale), 2.0)
+			body.radius_scene = Derive.render_radius(body, body.spec, body.mass, 2.0, 1.0, true_scale)
+			body.contact_au = Derive.contact_au(body, body.spec)
 		check("separate photospheres survive true scale %s" % true_scale, Physics.resolve_collisions([a, b]).is_empty())
 
 func measured_structure_cases() -> void:

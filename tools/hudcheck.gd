@@ -30,6 +30,8 @@ func _ready() -> void:
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
 	frames = int(args.get("hframes", "45"))
+	if args.get("assets", "1") == "0":
+		for id in CraftAssets.CRAFT_ASSETS: CraftAssets.CACHE[id] = null
 	main = load("res://main.tscn").instantiate()
 	add_child(main)
 	await get_tree().process_frame
@@ -49,6 +51,11 @@ func _ready() -> void:
 		main.lessons.progress = {"done": {}, "last": null}
 	await get_tree().process_frame
 	await _setup(str(args.get("hstate", "sandbox")))
+	if args.get("assets", "1") == "0":
+		if main.flight.craft != null: check("procedural flight craft selected", not main.flight.craft.authored)
+		if main.model_view.craft != null: check("procedural studio craft selected", not main.model_view.craft.authored)
+		check("authored cache disabled", CraftAssets.PENDING.is_empty() and CraftAssets.CACHE.values().all(func(model): return model == null))
+	print("HUDCHECK CONFIG assets=%s state=%s" % ["procedural" if args.get("assets", "1") == "0" else "optional-authored", args.get("hstate", "sandbox")])
 	if args.get("htest", "0") == "1":
 		await _interaction_walk()
 		print("HUDCHECK TEST %d passed, %d failed" % [passes, fails])
@@ -78,7 +85,8 @@ func _ready() -> void:
 
 func _steps(k: int) -> void:
 	for i in k:
-		main.frame(1.0 / 60.0)
+		if main.is_processing(): main.frame(1.0 / 60.0)
+		else: main.animate(1.0 / 60.0)
 		await get_tree().process_frame
 
 ## The toast and the fps readout run on wall time; pin them so two runs compare.
@@ -526,6 +534,9 @@ func _dump(c: Node, depth: int) -> void:
 
 # ---- frame timing ------------------------------------------------------------------
 func _perf() -> void:
+	var processing: bool = main.is_processing()
+	main.set_process(false)
+	var clock: float = main.state.time
 	await _steps(120)
 	var shown: Array = []
 	var hidden: Array = []
@@ -535,12 +546,14 @@ func _perf() -> void:
 		await _steps(5)
 		var t := Time.get_ticks_usec()
 		for i in 60:
-			main.frame(1.0 / 60.0)
+			main.animate(1.0 / 60.0)
 			await get_tree().process_frame
 			var now := Time.get_ticks_usec()
 			(shown if on else hidden).append((now - t) / 1000.0)
 			t = now
+	check("performance frames advance the simulation clock once each", absf(main.state.time - clock - 640.0 / 60.0) < 1e-7)
 	hud.visible = true
+	main.set_process(processing)
 	print("HUDCHECK PERF %s shown %s hidden %s" % [args.get("hstate", ""), _stats(shown), _stats(hidden)])
 
 static func _stats(a: Array) -> String:
@@ -548,4 +561,4 @@ static func _stats(a: Array) -> String:
 	s.sort()
 	var sum := 0.0
 	for v in s: sum += v
-	return "mean %.2f p99 %.2f max %.2f ms" % [sum / s.size(), s[int(s.size() * 0.99) - 1], s[-1]]
+	return "mean %.2f p99 %.2f max %.2f ms" % [sum / s.size(), s[ceili(s.size() * 0.99) - 1], s[-1]]
