@@ -181,7 +181,9 @@ error rather than a silent null.
 
 Black-hole `rs` is the mass-derived Schwarzschild length `2GM/c²` in AU. Body
 derivation discards authored `rs` overrides; refresh updates it and contact after
-a merger. Contact, lensing and compact forces use this scale. The structural
+a merger. Contact and lensing use this scale. Body motion uses conservative
+Newtonian pair gravity; [the compact-dynamics note](physics/compact-dynamics.md)
+states its weak-field domain and the illustrative drag policy. The structural
 model also reports Kerr radii for spin, but the dynamics and image do not implement
 a full Kerr spacetime. Use `sceneScale` and camera framing for close-up images.
 

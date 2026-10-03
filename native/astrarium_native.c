@@ -1,19 +1,6 @@
-/* ASTRARIUM NATIVE: the N-body sub-step loop in C.
- *
- * GDScript runs the O(N²) pair loops 24–125× slower than V8 did (the `solar`
- * preset cost 33.5 ms of physics a frame), so this one hot loop (dynamic step,
- * velocity-Verlet, GW back-reaction, collision test) runs natively. It is
- * sim/physics.gd + sim/derive.gd line for line; those stay the reference and the
- * fallback, and sim/nbody.gd uses whichever is present.
- *
- * Plain C against the raw GDExtension interface: one static method, one `cc`
- * line (build.sh), no godot-cpp.
- *
- * ARITHMETIC PARITY. Expressions keep the reference's evaluation order, compiled
- * with -ffp-contract=off (no fused a·b + c), pow() where the reference used it,
- * so runs take the same sub-steps and agree to rounding (tools/nbodycheck.gd).
- *
- * THE CONTRACT (sim/nbody.gd builds and reads it):
+/* Native N-body loop; sim/physics.gd and sim/derive.gd remain the fallback.
+ * Preserve arithmetic order and -ffp-contract=off for tools/nbodycheck.gd parity.
+ * Buffer contract (sim/nbody.gd builds and reads it):
  *   step(state: PackedFloat64Array) -> PackedFloat64Array (same layout)
  *   header  [0] length   [1] n bodies   [2] remaining sim dt (yr, in/out)
  *           [3] max step [4] gw boost   [5] guard (sub-steps so far, in/out)
@@ -48,19 +35,6 @@ static double jor(double a, double b) { return (a != 0.0 && !isnan(a)) ? a : b; 
 
 typedef struct { double ax, ay, az, px, py, pz; } Scratch;
 
-/* |acceleration| imparted by body s at separation dist (Physics._pull_mag). */
-static double pull_mag(const double *s, double dist) {
-	double GM = G * s[MASS];
-	if (s[ISBH] != 0.0) {
-		double denom = jmax(dist - s[RS], s[RS] * 0.05);
-		return GM / (denom * denom);
-	}
-	/* Legacy extended-source field for pairs involving a black hole. */
-	double soft = jor(s[SOFT], s[RADIUS] * 0.5 + 1e-4);
-	double d2 = dist * dist + soft * soft;
-	return GM / d2;
-}
-
 static void compute_accel(double *B, int n, Scratch *S) {
 	for (int k = 0; k < n; k++) { S[k].ax = 0.0; S[k].ay = 0.0; S[k].az = 0.0; }
 	for (int i = 0; i < n; i++) {
@@ -74,18 +48,17 @@ static void compute_accel(double *B, int n, Scratch *S) {
 			if (dist < 1e-9) continue;
 			double inv = 1.0 / dist;
 			rx *= inv; ry *= inv; rz *= inv;          /* unit vector a→b */
-			double fA, fB;
+			double kernel;
 			if (a[ISBH] != 0.0 || b[ISBH] != 0.0) {
-				fA = pull_mag(b, dist);
-				fB = pull_mag(a, dist);
+				/* Weak-field point masses; horizons determine contact only. */
+				kernel = G / (dist * dist);
 			} else {
 				double sa = jor(a[SOFT], a[RADIUS] * 0.5 + 1e-4);
 				double sb = jor(b[SOFT], b[RADIUS] * 0.5 + 1e-4);
 				double d2 = dist * dist + 0.5 * (sa * sa + sb * sb);
-				double kernel = G * dist / (d2 * sqrt(d2));
-				fA = kernel * b[MASS];
-				fB = kernel * a[MASS];
+				kernel = G * dist / (d2 * sqrt(d2));
 			}
+			double fA = kernel * b[MASS], fB = kernel * a[MASS];
 			S[i].ax += rx * fA; S[i].ay += ry * fA; S[i].az += rz * fA;
 			S[j].ax += rx * -fB; S[j].ay += ry * -fB; S[j].az += rz * -fB;
 		}
@@ -136,7 +109,7 @@ static void integrate(double *B, int n, double dt, Scratch *S) {
 	}
 }
 
-/* 2.5-PN radiation reaction as a drag (Physics GW reaction). */
+/* Illustrative circular-power drag; window, boost and kick cap alter rates. */
 static void apply_gw(double *B, int n, double dt, double boost) {
 	static double G4 = 0.0, C5 = 0.0;
 	if (G4 == 0.0) { G4 = pow(G, 4.0); C5 = pow(C_LIGHT, 5.0); }

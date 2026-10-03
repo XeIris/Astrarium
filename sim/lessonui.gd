@@ -543,7 +543,7 @@ class Course extends RefCounted:
 			built.photometer = LightCurve.create_photometer({"canvas": cv.plot, "width": W, "height": H})
 		elif instrument == "gw":
 			built.gw = GWDetector.create_gw_detector({"canvas": cv.plot, "width": W, "height": H, "distMpc": 410.0})
-			note.say("rescaled inspiral · ideal orientation at 410 Mpc · arm motion exaggerated")
+			note.say("circular strain estimate · ideal orientation at 410 Mpc · arm motion exaggerated")
 		elif instrument == "hr":
 			built.hr = HRDiagram.create_hr_diagram({"canvas": cv.plot, "width": W, "height": H})
 			note.say("the band is sampled from the interior model, not drawn")

@@ -96,6 +96,7 @@ func transit_quadrature(bodies: Array) -> float:
 	return blocked
 
 func _init() -> void:
+	var strict_compatibility := OS.get_cmdline_user_args().has("compatibility=web")
 	# ---- 1. synthetic
 	var star := body("star", 1.0, [0, 0, 0], 1.0)
 	var p := body("planet", 0.1, [0, 0, 2])
@@ -114,6 +115,22 @@ func _init() -> void:
 	check("GW amplitude scales as inverse distance", absf(h.h0 / h2.h0 - 2.0) < 1e-12)
 	star.type = "star"; p.type = "planet"
 	check("GW ignores noncompact objects", GWDetector.find_binary([star, p]) == null)
+	# Independently evaluated SI circular-quadrupole values at 410 Mpc; see compact-dynamics.md.
+	for golden in [["bhmerger", 0.45, 1.6928225522507842e-6, 1.0696661987299107e-26],
+		["nsmerger", 0.35, 5.122128596227925e-7, 2.578659586223892e-29]]:
+		var bodies := build(golden[0])
+		var pr = GWDetector.find_binary(bodies)
+		var reading: Dictionary = GWDetector.strain_of(pr)
+		check("%s physical separation" % golden[0], rel_err(reading.rAU, golden[1]) < 1e-12)
+		check("%s circular frequency SI golden" % golden[0], rel_err(reading.fGW, golden[2]) < 1e-12)
+		check("%s quadrupole amplitude SI golden" % golden[0], rel_err(reading.h0, golden[3]) < 1e-12)
+		for b: Body in bodies:
+			b.radius *= 100.0; b.contact_au *= 200.0; b.rs *= 300.0; b.radius_scene = 999.0
+		var resized: Dictionary = GWDetector.strain_of(pr)
+		check("%s strain independent of contact/render sizes" % golden[0], resized == reading)
+		pr.b.pos = pr.a.pos.add(pr.b.pos.sub(pr.a.pos).scaled(2.0))
+		var wider: Dictionary = GWDetector.strain_of(pr)
+		check("%s frequency/amplitude separation scaling" % golden[0], rel_err(wider.fGW / reading.fGW, 1.0 / sqrt(8.0)) < 1e-12 and rel_err(wider.h0 / reading.h0, 0.5) < 1e-12)
 
 	# ---- 2. fixture replay
 	var fx = load_json("res://tools/fixtures/course/instruments.json")
@@ -143,7 +160,10 @@ func _init() -> void:
 				for k in ["Mc", "rAU", "rSchwarz", "omega", "fGW", "h0", "hPlus", "hCross"]:
 					worst = maxf(worst, rel_err(float(got[k]), float(want[k])))
 				if bool(got.inBand) != bool(want.inBand): worst = INF
-			check("GW replay %s (pair %s): worst rel err" % [key, str(fx[key].pair)], same_pair and worst < 1e-10, worst)
+			check("GW frozen pair selection %s" % key, same_pair)
+			print("SCIENCECHECK COMPATIBILITY GW %s separation_mapping_rel=%s strict=%s" % [key, worst, strict_compatibility])
+			if strict_compatibility:
+				check("GW replay %s: obsolete contact-scaled strain" % key, worst < 1e-10, worst)
 
 	var coarse := sample_live(1)
 	var medium := sample_live(2)
@@ -157,7 +177,6 @@ func _init() -> void:
 		var coarse_gap := absf(float(coarse[key]) - float(medium[key]))
 		var fine_gap := absf(float(medium[key]) - float(fine[key]))
 		check("live %s converges under timestep halving" % key, fine_gap <= 0.5 * coarse_gap + 1e-12 and rel_err(float(medium[key]), float(fine[key])) < 1e-4, {"coarse_gap": coarse_gap, "fine_gap": fine_gap})
-	var strict_compatibility := OS.get_cmdline_user_args().has("compatibility=web")
 	var sci = load_json("res://tools/fixtures/course/science.json")
 	var web_depth := -1.0
 	var web_k := -1.0

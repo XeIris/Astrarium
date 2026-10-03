@@ -78,6 +78,55 @@ func force_and_energy() -> void:
 	for i in 1000: Physics.integrate([a, b], 1e-6)
 	check("fixed-softening Verlet energy", absf(Derive.total_energy([a, b]) / E - 1.0) < 1e-8)
 
+func compact_force_cases() -> void:
+	for companion_type in ["bh", "star"]:
+		var label := "unequal BH/%s" % companion_type
+		var separation := 0.03
+		var m1 := 2.0
+		var m2 := 5.0
+		var speed := Physics.circular_speed(m1 + m2, separation)
+		var specs := [
+			{"type": "bh", "mass": m1, "pos": [-separation * m2 / (m1 + m2), 0.0, 0.0], "vel": [0.0, -speed * m2 / (m1 + m2), 0.0]},
+			{"type": companion_type, "mass": m2, "pos": [separation * m1 / (m1 + m2), 0.0, 0.0], "vel": [0.0, speed * m1 / (m1 + m2), 0.0]},
+		]
+		var a := Derive.new_body(1, specs[0])
+		var b := Derive.new_body(2, specs[1])
+		check(label + " outside physical contact", separation > a.contact_au + b.contact_au)
+		Physics.compute_accel([a, b])
+		var force := a.acc.scaled(a.mass)
+		check(label + " force antisymmetry", force.add_scaled_in(b.acc, b.mass).length() < a.acc.length() * a.mass * 1e-12)
+		var acceleration := a.acc.clone()
+		Physics.compute_accel([b, a])
+		check(label + " force order independence", a.acc.distance_to(acceleration) < acceleration.length() * 1e-12)
+		var x := a.pos.x
+		var h := separation * 1e-5
+		a.pos.x = x + h
+		var plus := Derive.total_energy([a, b])
+		a.pos.x = x - h
+		var minus := Derive.total_energy([a, b])
+		a.pos.x = x
+		check(label + " force matches energy gradient", absf(-(plus - minus) / (2.0 * h) - a.mass * a.acc.x) < absf(a.mass * a.acc.x) * 1e-8)
+		var period := TAU * separation / speed
+		var dt := period / 2000.0
+		for kernel in ["gd", "native"]:
+			if kernel == "native" and not NBody.native_available(): continue
+			var bodies: Array = [Derive.new_body(1, specs[0]), Derive.new_body(2, specs[1])]
+			var before := totals(bodies)
+			var energy := Derive.total_energy(bodies)
+			var max_energy_error := 0.0
+			var accepted := 0.0
+			for i in 2000:
+				var result: Dictionary = Derive.step_physics(bodies, dt, dt, 0.0) if kernel == "gd" else NBody.step_physics(bodies, dt, dt, 0.0)
+				accepted += result.stepped
+				if i % 100 == 0:
+					max_energy_error = maxf(max_energy_error, absf(Derive.total_energy(bodies) / energy - 1.0))
+			var after := totals(bodies)
+			check(label + " %s accepted orbit" % kernel, bodies.size() == 2 and absf(accepted / period - 1.0) < 1e-12)
+			check(label + " %s momentum" % kernel, after.momentum.distance_to(before.momentum) < 1e-9)
+			var expected: DVec3 = before.center.add(before.momentum.scaled(period / before.mass))
+			check(label + " %s center trajectory" % kernel, after.center.distance_to(expected) < 1e-12)
+			check(label + " %s orbit energy" % kernel, max_energy_error < 1e-8)
+
 func contact_cases() -> void:
 	for spec in [
 		{"type": "star", "mass": 1.0},
@@ -218,6 +267,7 @@ func equivalent_kernels() -> void:
 func _init() -> void:
 	collision_cases()
 	force_and_energy()
+	compact_force_cases()
 	contact_cases()
 	horizon_cases()
 	measured_structure_cases()

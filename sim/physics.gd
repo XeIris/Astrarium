@@ -1,15 +1,8 @@
 class_name Physics
 extends RefCounted
 
-# PHYSICS, in AU, M☉ and years: G = 4π² exactly, c ≈ 63241 AU/yr.
-# Full pairwise N-body, velocity-Verlet (symplectic).
-#   - Black holes attract via the Paczyński–Wiita pseudo-potential (ISCO at 3·r_s
-#     and the plunge, without geodesics).
-#   - Tight compact binaries lose energy to 2.5-PN radiation reaction, so they
-#     inspiral and merge with the right chirp.
-# DVec3 doubles. The pair loops read components directly: this is the hot loop (up
-# to 8000 sub-steps a frame). tools/physcheck.sh compares it against the JS
-# reference; tools/invariantcheck.gd verifies conservation independently.
+# AU, M☉, years; DVec3 doubles. Newtonian pair gravity with velocity-Verlet;
+# optional circular-power drag illustrates GW losses. See docs/physics/compact-dynamics.md.
 
 const G := 4.0 * PI * PI                # 39.478 AU³ M☉⁻¹ yr⁻²
 const C := 63241.077                    # speed of light, AU/yr
@@ -61,19 +54,15 @@ static func compute_accel(bodies: Array) -> void:
 			if dist < 1e-9: continue
 			var inv := 1.0 / dist
 			rx *= inv; ry *= inv; rz *= inv           # unit vector a→b
-			# Pull strength of each body on the other. Compact bodies use the
-			# Paczyński–Wiita denominator (r − r_s)² so the ISCO/plunge are correct.
-			var fA: float
-			var fB: float
+			var kernel: float
 			if a.type == "bh" or b.type == "bh":
-				# Source-wise PW is an educational approximation, not a conservative pair law.
-				fA = _pull_mag(b, dist)
-				fB = _pull_mag(a, dist)
+				# Weak-field point masses; horizons set contact, not a binary force law.
+				kernel = G / (dist * dist)
 			else:
 				var d2 := dist * dist + pair_softening_sq(a, b)
-				var kernel := G * dist / (d2 * sqrt(d2))
-				fA = kernel * b.mass
-				fB = kernel * a.mass
+				kernel = G * dist / (d2 * sqrt(d2))
+			var fA := kernel * b.mass
+			var fB := kernel * a.mass
 			a.acc.x += rx * fA; a.acc.y += ry * fA; a.acc.z += rz * fA
 			b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
 
@@ -83,18 +72,8 @@ static func pair_softening_sq(a: Body, b: Body) -> float:
 	var sb := b.softening if b.softening != 0.0 else b.radius * 0.5 + 1e-4
 	return 0.5 * (sa * sa + sb * sb)
 
-## Source-wise field used only by pairs involving a black hole.
-static func _pull_mag(source: Body, dist: float) -> float:
-	var GM := G * source.mass
-	if source.type == "bh":
-		var denom := maxf(dist - source.rs, source.rs * 0.05)
-		return GM / (denom * denom)
-	var soft := source.softening if source.softening != 0.0 else source.radius * 0.5 + 1e-4
-	return GM / (dist * dist + soft * soft)
-
-# GW radiation reaction for a bound compact binary: 2.5-PN energy loss as a drag,
-# scaled by `boost` (keeping the r(t) ∝ (t_c − t)^¼ chirp shape). Powers of G and C
-# are hoisted; pow(), since G·G·G·G rounds differently.
+# Circular weak-field quadrupole power converted to illustrative relative-velocity
+# drag, not general 2.5-PN dynamics. Boost, window and kick cap alter physical rates.
 static var G4 := pow(G, 4.0)
 static var C5 := pow(C, 5.0)
 static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
@@ -106,8 +85,7 @@ static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
 			var a: Body = compact[i]; var b: Body = compact[j]
 			var rx := b.pos.x - a.pos.x; var ry := b.pos.y - a.pos.y; var rz := b.pos.z - a.pos.z
 			var r := sqrt(rx * rx + ry * ry + rz * rz)
-			# The "tight pair" window uses physical/rendered size, not r_s (a neutron star's is
-			# microscopic).
+			# The illustrative drag window uses physical contact distances.
 			var cSum := _or3(a.contact_au, a.radius, a.rs) + _or3(b.contact_au, b.radius, b.rs)
 			if r > 400.0 * cSum or r < cSum * 0.5: continue
 
@@ -120,11 +98,10 @@ static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
 			# Convert power loss into a velocity-space drag opposing relative motion.
 			var vrelMag := maxf(sqrt(vx * vx + vy * vy + vz * vz), 1e-6)
 			var dragAcc := dEdt / (mu * vrelMag)
-			# Cap the fractional speed bled off per sub-step, so the final plunge spans many
-			# frames.
+			# This numerical cap makes saturated drag timestep-dependent.
 			var maxKick := 0.0025 * vrelMag
 			if dragAcc * dt > maxKick: dragAcc = maxKick / dt
-			var inv_v := 1.0 / vrelMag                       # multiplyScalar(1 / vrelMag)
+			var inv_v := 1.0 / vrelMag
 			vx *= inv_v; vy *= inv_v; vz *= inv_v            # unit
 			# share the kick by reduced mass
 			var ka := dragAcc * (mu / m1) * dt
@@ -138,7 +115,7 @@ static func _or3(a: float, b: float, c: float) -> float:
 	if b != 0.0: return b
 	return c
 
-# One velocity-Verlet step (symplectic).
+# A fixed step is symplectic for unchanged conservative pair potentials.
 static func integrate(bodies: Array, dt: float) -> void:
 	var live := []
 	for b in bodies:

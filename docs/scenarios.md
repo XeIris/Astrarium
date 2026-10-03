@@ -22,6 +22,34 @@ ejects the world, despite relative energy drift below 5.3e-8. The earlier
 ~9× (0.34 to 3.1 Earth-suns); these climate statistics have not been revalidated
 as an ensemble against the current kernel.
 
+The 2026-10-04 timestep probes keep the authored frame interval and observation
+cadence, with unchanged bounds. All request 60 000 years:
+
+| maximum step (years) | world orientation offset (radians) | first sampled extent failure (years) | maximum relative energy drift |
+|---:|---:|---:|---:|
+| 0.0004 | 0 | 18 095 | 5.26e-8 |
+| 0.0002 | 0 | 8 482 | 1.04e-8 |
+| 0.0001 | 0 | none through 60 000 | 2.49e-9 |
+| 0.00005 | 0 | 12 460 | 6.19e-10 |
+| 0.0004 | +1e-6 | 27 224 | 5.21e-8 |
+| 0.0004 | −1e-6 | 14 578 | 5.17e-8 |
+
+One passing refinement amid failures does not establish convergence. The tiny
+world-orientation probes rotate position and velocity relative to the inner
+binary barycenter; they change apsidal orientation, not anomaly along the same
+ellipse. No authored timestep or orbit was changed to obtain a passing gate.
+These six trajectories are not a statistical stability ensemble.
+
+Run the strict authored gate with `python3 tools/check.py stability`. For a
+separately marked probe, run Godot headlessly with
+`--script res://tools/stabilitycheck.gd -- max_step=0.0002 report=/abs/result.json`;
+`world_rotation=0.000001` selects the orientation perturbation. A diagnostic
+cannot satisfy the runner's baseline completion marker. Reports keep decimal
+states plus versioned binary64 hex, with the field order and byte order stated
+in the report. The binary encoding preserves exact doubles independently of
+decimal-parser rounding. Extent is sampled every 1 000 frames (about 5.83 years),
+so the recorded time is the first observed violation, not an exact event time.
+
 ## Wandering suns (`trisolaris_wander`)
 
 Built for the sky rather than stability: a 2+2 hierarchy parked just inside

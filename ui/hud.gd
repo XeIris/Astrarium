@@ -556,12 +556,12 @@ func _build_settings() -> void:
 	_rnote(sim, "The integrator is velocity-Verlet in AU, M[font_size=8]☉[/font_size] and years with [i]G[/i] = 4π². The step cap is the one setting that changes the ANSWER rather than the picture: a close pass is only resolved if the step is short compared with the time spent in it.")
 	_set_row(sim, "maxStep", "Max step", "Longest integrator step, in years. Lower is more accurate and slower; too high and a close encounter is stepped straight over, which shows up as energy appearing from nowhere.",
 		-5, -1, -2.3, 0.05, "5.0e-3 yr", func(v): return U.expo(pow(10.0, v), 1) + " yr")
-	_set_row(sim, "gwBoost", "GW boost", "Multiplier on the gravitational-wave radiation reaction. 1 is the real rate; presets raise it so an inspiral that truly takes megayears is watchable. 0 turns the back-reaction off entirely.",
+	_set_row(sim, "gwBoost", "GW boost", "Multiplier on illustrative circular-power drag for tight eligible pairs. Its contact window and numerical cap prevent a physical merger-time prediction, even at 1. Zero disables drag.",
 		0, 6, 0, 0.05, "off", func(v): return (U.fixed(v, 2) + "×") if v != 0.0 else "off")
 	var sg := grid(sim, [1.0, 1.0], 10.0, 5.0, 10.0, 12.0)
 	for kv in [["steps/frame", "setSteps"], ["energy drift", "setDrift"]]:
 		_stat(sg, kv[0], kv[1])
-	_note(sim, "Drift is the relative energy change since loading or a body-count change. For ordinary bodies with fixed masses and softening, it measures integration error. Black-hole and gravitational-wave scenarios show ≈ because their energy diagnostic is approximate. Edits and accretion also change the energy budget.")
+	_note(sim, "Drift is the relative energy change since loading or a body-count change. With fixed masses and softening and no gravitational-wave drag, it measures integration error. Drag shows ≈ because the change includes intentional energy loss. Edits and accretion also change the energy budget.")
 	m(B(sim, "Ghost", "Reset to scenario’s values", "simReset"), 0.0, 10.0).pressed.connect(func(): sim_reset.emit())
 
 	# CONTROLS

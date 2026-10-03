@@ -1,20 +1,8 @@
 class_name GWDetector
 extends RefCounted
 
-# GRAVITATIONAL-WAVE DETECTOR: the strain a detector on Earth would record from the
-# binary on screen (the integrator already applies 2.5-PN radiation reaction).
-# For a circular binary at inclination ι and distance D:
-#     h₊ = (4 G² μ M / c⁴ D r) · (1+cos²ι)/2 · cos 2Φ
-#     h× = (4 G² μ M / c⁴ D r) · cos ι       · sin 2Φ
-# M total mass, μ = m₁m₂/M, r separation, Φ orbital phase. The wave is at twice the
-# orbital frequency, and h ∝ 1/D (twice the sensitivity, eight times the volume).
-#
-# Scale: the drawn binary (a 36 M☉ horizon drawn at 0.02 AU, 28 000× real) and the
-# real one are placed at the same fraction of their own merger separation (contact
-# in the sim, ~1 r_s of the total mass in reality). One factor on the separation
-# makes frequency, amplitude and chirp real. The detector clock advances by
-# ΔΦ/ω_real. The demo's accelerated reaction is not a physical chirp rate;
-# merger/ringdown and antenna response are outside the model.
+# Circular, leading-quadrupole strain estimate from live masses and AU separation.
+# Ideal orientation and phase-derived time; see docs/physics/compact-dynamics.md.
 
 const G_SI := 6.67430e-11
 const C := 2.99792458e8
@@ -26,8 +14,7 @@ const MPC_M := 3.0857e22
 const BAND_LO := 20.0
 const BAND_HI := 2000.0
 
-# Pick the binary: the two heaviest bodies that are close enough together to be
-# a pair rather than two unrelated objects in the same scene.
+# Selects the two heaviest compact bodies; it does not establish a bound binary.
 static func find_binary(bodies: Array) -> Variant:
 	var live: Array = []
 	for b in bodies:
@@ -40,14 +27,6 @@ static func find_binary(bodies: Array) -> Variant:
 	live.sort_custom(func(a, b): return a.mass > b.mass or (a.mass == b.mass and ix[a] < ix[b]))
 	if live.size() < 2: return null
 	return {"a": live[0], "b": live[1]}
-
-# The separation at which THIS simulation will call it a merger: the sum of the
-# radii the collision test actually uses.
-static func _contact_au(b) -> float:
-	if b.contact_au > 0.0: return b.contact_au
-	if b.radius > 0.0: return b.radius
-	if b.rs > 0.0: return b.rs
-	return 1e-9
 
 # One reading. `distMpc` is where the source is put — 410 Mpc is GW150914's
 # measured luminosity distance, 40 Mpc is GW170817's.
@@ -63,11 +42,7 @@ static func strain_of(pair, opts: Dictionary = {}) -> Variant:
 	var r_sim: float = a.pos.distance_to(b.pos)
 	if not (r_sim > 0.0): return null
 
-	# The merger-referenced mapping described in the header.
-	var merge_sim := _contact_au(a) + _contact_au(b)
-	var merge_real := Physics.schwarzschild(Msun)            # AU
-	var scale := merge_real / maxf(merge_sim, 1e-12)
-	var r_au := r_sim * scale
+	var r_au := r_sim
 	var r := r_au * AU_M                                     # metres
 
 	var M := Msun * M_SUN
@@ -82,7 +57,7 @@ static func strain_of(pair, opts: Dictionary = {}) -> Variant:
 	var Mc := pow(m1 * m2, 3.0 / 5.0) / pow(Msun, 1.0 / 5.0)
 
 	return {
-		"m1": m1, "m2": m2, "Msun": Msun, "Mc": Mc, "rAU": r_au, "rSchwarz": r_au / merge_real,
+		"m1": m1, "m2": m2, "Msun": Msun, "Mc": Mc, "rAU": r_au, "rSchwarz": r_au / Physics.schwarzschild(Msun),
 		"omega": omega, "fGW": f_gw, "h0": h0, "distMpc": dist_mpc,
 		"hPlus": h0 * (1.0 + cos(incl) * cos(incl)) / 2.0,
 		"hCross": h0 * cos(incl),
@@ -140,7 +115,7 @@ class Detector extends RefCounted:
 			while d < -PI: d += 2.0 * PI
 			if absf(d) < 1e-12: return s
 			phase += d
-			# Real seconds from the shared phase: ΔΦ over the real angular rate.
+			# Circular estimate time from projected phase, not the simulation clock.
 			t_real += absf(d) / float(s.omega)
 		last_theta = theta
 
@@ -162,7 +137,7 @@ class Detector extends RefCounted:
 		var lab := Color(190 / 255.0, 205 / 255.0, 230 / 255.0, 0.85)
 
 		# ---- strain trace
-		var amp := 1e-24
+		var amp := maxf(absf(float(last.hPlus)), 1e-300) if last != null else 1.0
 		for h in hs: amp = maxf(amp, absf(h))
 		Canvas2D.stroke_rect(canvas, 0.5, 0.5, W - 1.0, trace_h - 1.0, Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.16), 1.0)
 		Canvas2D.line(canvas, 0.0, trace_h / 2.0, W, trace_h / 2.0, Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.12), 1.0)
@@ -179,9 +154,11 @@ class Detector extends RefCounted:
 			Canvas2D.fill_text(canvas, "waiting for a binary…", 10.0, 20.0, 10.0, Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.55))
 
 		Canvas2D.fill_text(canvas, "strain  h(t)", 6.0, 12.0, 10.0, lab)
-		Canvas2D.fill_text(canvas, "±%s×10⁻²¹" % U.fixed(amp * 1e21, 2), W - 6.0, 12.0, 10.0, dim, "right")
+		Canvas2D.fill_text(canvas, "±%s" % U.expo(amp, 2), W - 6.0, 12.0, 10.0, dim, "right")
 		if ts.size() > 1:
-			Canvas2D.fill_text(canvas, "%s s of detector time" % U.fixed(float(ts[-1]) - float(ts[0]), 3), W - 6.0, trace_h - 6.0, 10.0, dim, "right")
+			var span := float(ts[-1]) - float(ts[0])
+			var span_text := U.expo(span, 2) if span >= 1e6 else U.fixed(span, 3)
+			Canvas2D.fill_text(canvas, "%s s (circular estimate)" % span_text, W - 6.0, trace_h - 6.0, 10.0, dim, "right")
 
 		# ---- the interferometer, arms stretched with bounded adaptive gain; the readout
 		# gives the real displacement per arm, h L / 2.
@@ -190,8 +167,7 @@ class Detector extends RefCounted:
 		var cx := 54.0
 		var cy := y0 + arm_h - 16.0
 		var L := 46.0
-		# Keep the schematic inside its box at high strain; report the actual
-		# displacement numerically. A fixed 10^23 gain inverted the arms.
+		# Adaptive gain keeps the schematic visible and bounded; the readout is physical.
 		var stretch := 0.3 * tanh(h / amp)
 		var ex := 1.0 + stretch
 		var ey := 1.0 - stretch

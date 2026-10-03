@@ -1,43 +1,87 @@
 extends SceneTree
 
 # Sampled extent bounds flag hierarchy loss/ejection; passing is not a stability theorem.
-# Run headlessly with -- years=60000 [report=/abs/result.json]. Shorter runs label their target.
+# max_step and world_rotation select diagnostics; only the authored state emits the baseline marker.
 const DEFAULT_YEARS := 60000.0
 const ENERGY_BOUND := 1e-6
 const MOMENTUM_BOUND := 1e-7 # M☉ AU/year
 const WORLD_BOUND_AU := 10.0
 const GAMMA_BOUND_AU := 100.0
 const SAMPLE_FRAMES := 1000
+const STEP_FLOOR := 1e-8 # Derive.dynamic_step/native floor; a smaller requested cap is not honored.
 
 var bodies := []
 var merged := 0
 var failures := 0
 var first_failure := ""
+var marker := "STABILITYCHECK"
 
 func reject(reason: String) -> void:
 	failures += 1
 	if first_failure.is_empty(): first_failure = reason
-	printerr("STABILITYCHECK FAIL ", reason)
+	printerr(marker, " FAIL ", reason)
 
 func _initialize() -> void:
 	call_deferred("_run")
+
+func body_states() -> Array:
+	var states := []
+	for b: Body in bodies:
+		var exact := PackedByteArray()
+		exact.resize(56)
+		var values := [b.mass, b.pos.x, b.pos.y, b.pos.z, b.vel.x, b.vel.y, b.vel.z]
+		for i in values.size(): exact.encode_double(i * 8, values[i])
+		states.append({"id": b.id, "mass": b.mass, "pos_au": b.pos.to_array(), "vel_au_per_year": b.vel.to_array(),
+			"physical_f64_le_hex": exact.hex_encode()})
+	return states
+
+func rotate_world_orientation(angle: float) -> void:
+	var binary_mass: float = bodies[0].mass + bodies[1].mass
+	var center: DVec3 = bodies[0].pos.scaled(bodies[0].mass).add_scaled_in(bodies[1].pos, bodies[1].mass).scale_in(1.0 / binary_mass)
+	var velocity: DVec3 = bodies[0].vel.scaled(bodies[0].mass).add_scaled_in(bodies[1].vel, bodies[1].mass).scale_in(1.0 / binary_mass)
+	var c := cos(angle)
+	var s := sin(angle)
+	for pair in [[bodies[3].pos, center], [bodies[3].vel, velocity]]:
+		var value: DVec3 = pair[0]
+		var origin: DVec3 = pair[1]
+		var x := value.x - origin.x
+		var z := value.z - origin.z
+		value.x = origin.x + c * x - s * z
+		value.z = origin.z + s * x + c * z
 
 func _run() -> void:
 	var args := {}
 	for arg in OS.get_cmdline_user_args():
 		var kv := arg.split("=", true, 1)
+		if kv[0] not in ["years", "report", "max_step", "world_rotation"] or args.has(kv[0]):
+			reject("unknown or repeated option: %s" % kv[0])
+			quit(1)
+			return
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
+	for key in ["years", "max_step", "world_rotation"]:
+		if args.has(key) and not String(args[key]).is_valid_float():
+			reject("%s must be a number" % key)
+			quit(1)
+			return
+	var preset: Dictionary = Presets.PRESETS.trisolaris
 	var target_years := float(args.get("years", DEFAULT_YEARS))
+	var max_step := float(args.get("max_step", preset.maxStep))
+	var world_rotation := float(args.get("world_rotation", 0.0))
+	var mode := "diagnostic" if args.has("max_step") or args.has("world_rotation") else "baseline"
+	marker = "STABILITYDIAGNOSTIC" if mode == "diagnostic" else "STABILITYCHECK"
 	var report_path: String = args.get("report", "")
-	if not is_finite(target_years) or target_years <= 0.0 or (not report_path.is_empty() and not report_path.is_absolute_path()):
-		reject("years must be finite and positive; report must be an absolute path")
+	if not is_finite(target_years) or target_years <= 0.0 or not is_finite(max_step) or max_step < STEP_FLOOR or max_step > float(preset.maxStep) or not is_finite(world_rotation):
+		reject("years must be finite and positive; max_step must be between integrator floor and authored cap; world_rotation must be finite")
+		quit(1)
+		return
+	if not report_path.is_empty() and not report_path.is_absolute_path():
+		reject("report must be an absolute path")
 		quit(1)
 		return
 	if not NBody.native_available():
 		reject("native kernel required for bounded long run")
 		quit(1)
 		return
-	var preset: Dictionary = Presets.PRESETS.trisolaris
 	var initial_masses := {}
 	for spec in preset.build.call():
 		var body := Derive.new_body(bodies.size() + 1, spec)
@@ -47,6 +91,8 @@ func _run() -> void:
 		reject("Trisolaris must start with four bodies")
 		quit(1)
 		return
+	if world_rotation != 0.0: rotate_world_orientation(world_rotation)
+	var initial_states := body_states()
 	var initial_mass := 0.0
 	var initial_momentum := DVec3.new()
 	for b: Body in bodies:
@@ -68,12 +114,13 @@ func _run() -> void:
 	var wall_start := Time.get_ticks_usec()
 	var frame_years := float(preset.timeScale) / 60.0
 	var on_merger := func(_ev): merged += 1
-	print("STABILITYCHECK CONFIG target_years=", target_years, " frame_years=", frame_years, " max_step=", preset.maxStep,
+	print(marker, " CONFIG mode=", mode, " target_years=", target_years, " frame_years=", frame_years, " max_step=", max_step,
+		" authored_max_step=", preset.maxStep, " world_rotation=", world_rotation,
 		" energy_bound=", ENERGY_BOUND, " momentum_bound=", MOMENTUM_BOUND, " world_bound_au=", WORLD_BOUND_AU,
 		" gamma_bound_au=", GAMMA_BOUND_AU, " sample_frames=", SAMPLE_FRAMES, " native=true")
 	while years < target_years and failures == 0:
 		var requested := minf(frame_years, target_years - years)
-		var result := NBody.step_physics(bodies, requested, float(preset.maxStep), 0.0, on_merger)
+		var result := NBody.step_physics(bodies, requested, max_step, 0.0, on_merger)
 		var accepted: float = result.stepped
 		years += accepted
 		frames += 1
@@ -109,9 +156,15 @@ func _run() -> void:
 			if not is_finite(world_distance) or not is_finite(gamma_distance) or world_distance > WORLD_BOUND_AU or gamma_distance > GAMMA_BOUND_AU:
 				reject("sampled hierarchy extent exceeded at year %s: world=%s AU gamma=%s AU" % [years, world_distance, gamma_distance])
 			if frames % 171000 == 0:
-				print("STABILITYCHECK PROGRESS accepted_years=", years, " max_drift=", max_drift)
+				print(marker, " PROGRESS accepted_years=", years, " max_drift=", max_drift)
 	if failures == 0 and years != target_years: reject("incomplete target integration")
-	var report := {"target_years": target_years, "accepted_years": years, "frames": frames, "substeps": steps,
+	var report := {"mode": mode, "authored_max_step": float(preset.maxStep), "max_step": max_step,
+		"state_encoding_version": 1,
+		"exact_state_layout": "little-endian binary64: mass, position xyz (AU), velocity xyz (AU/year)",
+		"world_rotation_radians": world_rotation, "frame_years": frame_years, "native": true,
+		"initial_energy": initial_energy, "initial_momentum": initial_momentum.to_array(),
+		"initial_states": initial_states, "final_states": body_states(),
+		"target_years": target_years, "accepted_years": years, "frames": frames, "substeps": steps,
 		"max_substeps_per_frame": max_steps, "energy_bound": ENERGY_BOUND, "sampled_max_relative_energy_drift": max_drift,
 		"momentum_bound": MOMENTUM_BOUND, "sampled_max_momentum_error": max_momentum_error,
 		"world_bound_au": WORLD_BOUND_AU, "gamma_bound_au": GAMMA_BOUND_AU,
@@ -123,9 +176,9 @@ func _run() -> void:
 		if file == null:
 			reject("cannot write report: %s" % report_path)
 		else:
-			file.store_string(JSON.stringify(report, "\t"))
+			file.store_string(JSON.stringify(report, "\t", true, true))
 			file.close()
-	print("STABILITYCHECK METRICS max_world_distance_au=", max_world_distance, " max_gamma_distance_au=", max_gamma_distance,
+	print(marker, " METRICS max_world_distance_au=", max_world_distance, " max_gamma_distance_au=", max_gamma_distance,
 		" max_relative_energy_drift=", max_drift, " max_momentum_error=", max_momentum_error, " frames=", frames, " substeps=", steps)
-	print("STABILITYCHECK DONE target_years=", target_years, " accepted_years=", years, " failures=", failures)
+	print(marker, " DONE mode=", mode, " target_years=", target_years, " accepted_years=", years, " failures=", failures)
 	quit(1 if failures else 0)

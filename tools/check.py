@@ -48,7 +48,7 @@ def checks(suite, godot, output, repeat, export_preset):
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
     elif suite == "stability":
-        yield script("stabilitycheck", r"^STABILITYCHECK DONE target_years=60000(?:\.0+)? accepted_years=60000(?:\.0+)? failures=0$",
+        yield script("stabilitycheck", r"^STABILITYCHECK DONE mode=baseline target_years=60000(?:\.0+)? accepted_years=60000(?:\.0+)? failures=0$",
                      "years=60000", f"report={output / 'stability.json'}", timeout=900)
     elif suite == "flight":
         yield script("sharedflightcheck", r"^SHARED FLIGHT DONE failures=0$", timeout=900)
@@ -132,6 +132,8 @@ def run_check(check, output, index, options):
         problem = "engine error"
     if problem is None and marker is not None and len(re.findall(marker, text, re.MULTILINE)) != 1:
         problem = "missing or duplicated successful completion marker"
+    if problem is None and name == "stabilitycheck" and len(re.findall(r"^STABILITY(?:CHECK|DIAGNOSTIC) DONE\b.*$", text, re.MULTILINE)) != 1:
+        problem = "conflicting stability completion markers"
     if problem is None and re.search(r"ObjectDB instances leaked at exit|(?:SOAK|LEAKCHECK) FAILURES \[(?!\])", errors):
         problem = "lifecycle leak"
     elapsed = round(time.monotonic() - start, 3)
@@ -141,7 +143,7 @@ def run_check(check, output, index, options):
             "seconds": elapsed, "log": str(log), "engine_log": str(engine_log) if engine_log else None,
             "allowed_ca_diagnostics": ignored,
             "renderer": next((line for line in raw.splitlines() if re.match(r"^(?:Metal|Vulkan|OpenGL).*Using Device", line)), None),
-            "metrics": [line for line in raw.splitlines() if line.startswith(("SHARED TIME BENCH", "SHARED TIME CONFIG", "HUDCHECK PERF", "HUDCHECK CONFIG", "NBODYCHECK PASS", "STABILITYCHECK"))]}
+            "metrics": [line for line in raw.splitlines() if line.startswith(("SHARED TIME BENCH", "SHARED TIME CONFIG", "HUDCHECK PERF", "HUDCHECK CONFIG", "NBODYCHECK PASS", "STABILITYCHECK", "STABILITYDIAGNOSTIC"))]}
 
 
 def metadata(command):

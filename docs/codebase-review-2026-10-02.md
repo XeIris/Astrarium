@@ -62,9 +62,10 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R24 | P2 | Verified: current Mac, batch 6 | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
 | R25 | P2 | Partial: input domain enforced, batch 9 | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define supported input domain and reject unsupported equilibrium requests before mutation; preserve modeled threshold events. Mass-shedding/subminimum evolution remains unmodeled. |
 | R26 | P1 | Verified: batch 7 | Visual accretion removed physical mass/momentum without a receiving body and could delete the rest of a donor. | Cosmetic streams cannot mutate physical state; production frames match the kernel and contact mergers conserve mass/momentum, with pause/zero-time gates. |
-| R27 | P1 | Partial: horizons and remnant eligibility | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
+| R27 | P1 | Partial: conservative orbits and physical strain, batch 10 | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
 | R28 | P1 | Open: long-run scenario failure | The flagship Trisolaris world leaves its declared orbital extent near 18,095 years and is ejected in the 60,000-year numerical trajectory, despite small total-energy drift. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep failures visible until resolved. |
 | R29 | P2 | Verified: bounded display model, batch 9 | Neutron self-lensing used an analytic approximation outside its stated domain, while lessons called it exact ray tracing and comments understated visible area. | Bound the display parameter without changing physics; document approximation/stylization, correct claims and inspect affected views. |
+| R30 | P2 | Open: numerical request domain | Authored tiny systems can fall below the 1e-9 AU force cutoff or 1e-8 year timestep floor despite passing structural validation. | Establish a resolved dynamical domain or change the regularization with matching potentials; reject unsupported requests and verify both kernels at boundaries. |
 
 ## Evidence at the reviewed revision
 
@@ -962,3 +963,99 @@ ordinary-body trajectory. Evidence: `/tmp/astrarium-b9-stability/report.json` an
 `stability.json`. Its known macOS system-CA diagnostic is specifically allowed
 and retained; the orbital failure is independently numerical. Convergence and
 initial-condition sensitivity work still precede any replacement stability claim.
+
+
+## Batch 10 — conservative compact orbits and stability diagnostics, 2026-10-04
+
+R27's source-dependent black-hole forces are replaced in both kernels with
+symmetric Newtonian pair gravity. Unequal holes and mixed hole/star pairs now
+have equal opposing forces and the existing Newtonian energy potential matches
+the force. Ordinary Plummer gravity is unchanged. This deliberately limits body
+motion to weak-field orbits: it does not promise a dynamical ISCO, relativistic
+precession or plunge. A fixed-source
+[Paczyński–Wiita model](https://arxiv.org/html/0904.0913v1) does not justify
+the former self-consistent binary force. The universal native library is rebuilt.
+
+Independent invariants pass **274/274**, including 24 compact-force/orbit checks
+across native and GDScript. They test action/reaction, body order, finite-difference
+energy gradients, integrated time, momentum, center trajectory and orbital energy.
+All nine native-parity scenarios pass at unchanged tolerances. In an isolated
+copy, restoring the old source-wise force produces **9 failures / exit 1**.
+Evidence: `/tmp/astrarium-b10-compact-invariants.log`,
+`/tmp/astrarium-b10-compact-native.log`, `/tmp/astrarium-b10-legacy-force.log`.
+
+The strain instrument now reads actual AU separation, without contact-radius
+rescaling. Independent SI goldens and separation/contact invariance checks pass;
+the science gate completes **30/30**. Restoring the old instrument produces
+**7 failures / exit 1**. Strict frozen compatibility still fails explicitly,
+now with four intentional differences: two obsolete contact-scaled strain
+readings and two existing live-transit comparisons. Frozen fixtures are retained
+and no tolerances are widened. Evidence: `/tmp/astrarium-b10-negative`.
+
+The GW instrument's long fake-size/chirp introduction is removed; its adaptive
+plot scale and scientific labels show the corrected tiny amplitudes. The caption,
+phase-derived time axis and boost tooltip identify circular estimates and
+illustrative drag. Ineffective boosts are removed from the wide black-hole and
+neutron-star views; their saved IDs remain, while the neutron preset no longer
+advertises a merger or kilonova. The ordinary-star inspiral description also
+states its exaggerated drag and missing hydrodynamics. R27 remains **partial**:
+contact-window drag has no bound-orbit test, arbitrary boosts and a per-step cap;
+strong-field dynamics and full detector waveforms are not implemented. The
+[compact model note](physics/compact-dynamics.md) records those limits and primary
+sources. The native header loses unsupported historical timing/port narration
+while retaining the buffer ownership/layout contract. Guard guidance recommends
+reducing requested simulation rate and makes the accuracy cost of larger steps
+explicit.
+
+R28's authored baseline still fails at **18,094.9999990768 years**. A six-run study
+keeps bounds and observation cadence fixed: half-step fails around 8,482 years,
+quarter-step passes sampled bounds through 60,000, eighth-step fails around
+12,460. World apsidal-orientation offsets of ±1e-6 radians fail around 27,224
+and 14,578 years. The next refinement defeats the isolated quarter-step pass;
+there is no justified timestep-only fix or converged stability claim. No authored
+Trisolaris orbit/timestep is changed.
+[Scenario notes](scenarios.md#trisolaris-hierarchical-initial-conditions) retain
+the table, limitations and reproduction instructions; experiment logs/reports
+are under `/tmp/astrarium-b10-convergence`. The early option `phase_offset` was
+renamed `world_rotation` because rotating the ellipse changes orientation, not
+anomaly along that ellipse. Earlier commands/JSON names remain as actually run.
+
+The stability tool rejects unknown/repeated/malformed arguments, larger caps,
+caps below the integrator floor and invalid report paths. Any explicit cap or
+orientation selects a diagnostic marker, even if numerically unchanged. The
+runner accepts only one authored 60,000-year baseline completion and rejects
+conflicting success/failure or baseline/diagnostic terminals. **8/8** marker
+cases match expectations after fixing a conflict loophole found during review:
+`/tmp/astrarium-b10-negative/marker-fixed/report.json`. The earlier failing
+marker probe is preserved separately.
+
+Reports use full-precision decimals plus versioned little-endian binary64 hex
+for mass, position and velocity, with field order recorded. A probe of Godot
+4.7.2's decimal decoding found three one-ULP differences in 28 final physical
+values even with full-precision output; it does not independently isolate the
+parser's internal cause. The binary round-trip preserves **28/28** exactly.
+Earlier matrix reports predate this encoding and are trajectory summaries, not
+accepted exact state archives. Failed precision probes remain in
+`/tmp/astrarium-b10-precision` and `...-precision-final`; accepted evidence is
+`/tmp/astrarium-b10-precision-binary/report.json`. This is an evidence-retention
+limitation under R18. Independent review also exposed R30: the structural gate
+does not reject arbitrary tiny systems below numerical force/time cutoffs.
+
+All six fast/native and all nine rendered children pass in the integrated run:
+`/tmp/astrarium-b10-integrated/report.json`. After final caption/plot fixes, the
+course (**35 lessons / 108 steps / 0 errors**) and HUD (**54/0**) pass again;
+black-hole/neutron lesson plots and the fresh simulation-settings overlay are
+inspected. The first settings screenshot followed the interaction walk and was
+not an overlay image; the fresh one is accepted. Final visible evidence is under
+`/tmp/astrarium-b10-visual-final`. Five-round post-warmup counts
+(objects/resources/nodes/orphans) are exactly flat: spawn/remove
+**6388/137/1619/0**, mass edits **6767/137/1720/0**, true scale
+**6787/137/1720/0**.
+
+After the final native-header rebuild and state-encoding changes, all six
+fast/native children pass again. The authored long-run gate still exits **1**
+at the same extent violation, and its final report retains schema-1 exact
+states: `/tmp/astrarium-b10-verified/report.json` and `stability.json`.
+Python's decimal decoder matches all **56** initial/final physical doubles
+against the binary payloads. The observed one-ULP discrepancy is specific to
+the tested Godot decoding path; no broader parser claim is inferred.

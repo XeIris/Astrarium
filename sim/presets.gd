@@ -4,7 +4,7 @@ extends RefCounted
 # PRESET SCENARIOS, in real units: mass M☉, pos AU, vel AU/yr. `sceneScale` =
 # scene units per AU (rendering only). `bodyScale` exaggerates drawn sizes;
 # `trueScale: true` draws real sizes and relies on the point-source markers.
-# `radiusKm` gives a measured radius. `gwBoost` speeds GW inspiral.
+# `radiusKm` gives a measured radius. `gwBoost` scales illustrative tight-pair drag.
 #
 # `sky` places the system in the galaxy (sim/sky.gd): `env` is one or several of
 # SKY_ENVIRONMENTS (["globular", "disc"], or {globular: 1, disc: 0.4}), `tilt`/`roll`
@@ -380,7 +380,7 @@ static func _make_presets() -> Dictionary:
 		"sky": { "env": "halo", "tilt": 0.22, "roll": 2.6 },
 		"name": "Binary Black Hole Orbit",
 		"blurb": "A wide binary of 36 and 29 solar masses. The horizons are too small to resolve in this view; focus a hole to inspect lensing.",
-		"sceneScale": 60.0, "bodyScale": 1.0, "camRadius": 72.0, "lensing": true, "gwBoost": 3e10, "timeScale": 0.15, "maxStep": 5e-5,
+		"sceneScale": 60.0, "bodyScale": 1.0, "camRadius": 72.0, "lensing": true, "timeScale": 0.15, "maxStep": 5e-5,
 		"build": func() -> Array: return binary(36.0, 29.0, 0.45,
 			{ "type": "bh", "name": "BH-A" },
 			{ "type": "bh", "name": "BH-B" }),
@@ -388,9 +388,9 @@ static func _make_presets() -> Dictionary:
 
 	P.nsmerger = {
 		"sky": { "env": "starburst", "tilt": 0.48, "roll": 1.9 },
-		"name": "Neutron Star Merger",
-		"blurb": "Two neutron stars inspiral and collide in a kilonova (à la GW170817). Watch the pulsar beams sweep as they whirl together.",
-		"sceneScale": 45.0, "bodyScale": 1.0, "camRadius": 26.0, "lensing": false, "gwBoost": 1.8e14, "timeScale": 0.15, "maxStep": 5e-5,
+		"name": "Binary Neutron Star Orbit",
+		"blurb": "A wide pair of neutron stars with sweeping pulsar beams. This view illustrates their orbit; it does not simulate an inspiral, kilonova or merger waveform.",
+		"sceneScale": 45.0, "bodyScale": 1.0, "camRadius": 26.0, "lensing": false, "timeScale": 0.15, "maxStep": 5e-5,
 		"build": func() -> Array: return binary(1.45, 1.35, 0.35,
 			{ "type": "neutron", "name": "NS-A", "visualSpinRadS": 22.0 },
 			{ "type": "neutron", "name": "NS-B", "visualSpinRadS": 16.0 }),
@@ -398,8 +398,8 @@ static func _make_presets() -> Dictionary:
 
 	P.binarystar = {
 		"sky": { "env": "starburst", "tilt": 0.50, "roll": 0.9 },
-		"name": "Binary Star Merger",
-		"blurb": "A close contact binary: the two stars slowly spiral together and merge into one more massive star (a luminous red nova). Takes ~30 s — speed it up or slow it down with the slider.",
+		"name": "Illustrative Stellar Inspiral",
+		"blurb": "Two stars lose orbital energy through exaggerated drag and can reach physical contact. This illustrates orbital decay; it does not model mass transfer, stellar envelopes or a luminous red nova.",
 		"sceneScale": 3.0, "bodyScale": 1.0, "camRadius": 16.0, "lensing": false, "gwBoost": 4e17, "timeScale": 0.5,
 		"build": func() -> Array: return binary(1.1, 0.9, 2.5,
 			{ "type": "star", "name": "Star A", "mass": 1.1, "color": 0xfff0d0, "glow": 0xffaa44, "emitsGW": true },

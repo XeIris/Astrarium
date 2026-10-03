@@ -1535,7 +1535,7 @@ func update_sim_stats() -> void:
 	# Say when step_physics hits STEP_GUARD: it then runs simulated time slow, silently.
 	var capped := state.last_steps >= STEP_GUARD
 	hud.set_text("setSteps", ("%d capped" % state.last_steps) if capped else str(state.last_steps))
-	hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. The answer is still correct — it advances the clock by what it actually integrated — but simulated time is now running slower than the Time panel says. Raise the step cap." if capped else "")
+	hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. Only the integrated time advances the clock, so the simulation is running slower than the requested rate. Reduce the time scale to give each frame less work; increasing Max step trades accuracy for speed." if capped else "")
 	# Body creation/removal changes the energy budget independently of integration.
 	var E := Derive.total_energy(state.bodies)
 	if state.energy0 == null or state.energy_n != state.bodies.size():
@@ -1543,11 +1543,9 @@ func update_sim_stats() -> void:
 		state.energy_n = state.bodies.size()
 	var rel := absf((E - float(state.energy0)) / float(state.energy0)) if state.energy0 else 0.0
 	var approximate := state.gw_boost != 0.0
-	for b in state.bodies:
-		if b.type == "bh": approximate = true
 	var drift := "0" if rel < 1e-12 else U.expo(rel, 1)
 	hud.set_text("setDrift", ("≈ " if approximate else "") + drift)
-	hud.set_warn("setDrift", approximate, "Approximate diagnostic: black-hole forces and gravitational-wave losses are not represented by a conserved pair potential." if approximate else "")
+	hud.set_warn("setDrift", approximate, "Energy change includes the illustrative gravitational-wave drag; it does not isolate integration error." if approximate else "")
 
 # TIME CONTROL. The scale is logarithmic and backed by named regimes that are
 # computed FROM the current world's day length and orbital period.

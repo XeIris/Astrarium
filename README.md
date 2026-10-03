@@ -140,6 +140,9 @@ select an engine and `--log-dir` to retain results at a chosen location.
 `stability` runs the strict 60,000-year Trisolaris check; it currently fails the inner-orbit bound (R28), so it remains
 an explicit suite rather than part of the fast default.
 `compatibility` keeps the known strict frozen-reference differences failing.
+Body motion uses conservative Newtonian pair gravity; relativistic visuals and
+the illustrative tight-pair drag have separate limits described in
+[the compact-dynamics model](docs/physics/compact-dynamics.md).
 
 `python3 tools/check.py perf --repeat 3` records fixed-step CPU flight timings and
 rendered frame wall times for the HUD shown/hidden in three states, at 1280×720
@@ -160,10 +163,10 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
 | `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
-| `tools/sciencecheck.gd` | synthetic/frozen-state instruments and independent live transit/RV/convergence checks; `-- compatibility=web` additionally enforces strict frozen live trajectories and currently fails two intentional differences |
+| `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
-| `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary forces, matching energy, and presentation-independent contact distances |
-| `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year flagship Trisolaris run with declared orbital, energy, conservation and accepted-time bounds; `years=<n>` labels a shorter probe, `report=/abs/result.json` retains details; currently fails the orbital bound |
+| `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary and black-hole pair forces, matching energy, and presentation-independent contact distances |
+| `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year flagship Trisolaris bounds; `years=<n>` labels a shorter probe, `max_step=<years>` and `world_rotation=<radians>` select separately marked diagnostics, `report=/abs/result.json` retains configuration and double states; currently fails the orbital bound |
 | `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
 | `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |

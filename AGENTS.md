@@ -60,6 +60,9 @@ design.
   use an explicit `contactAU`, otherwise their physical radius. Scene/body scale and
   true-scale toggles must not change physics. Check conservation independently
   of the archived numeric reference; matching it can reproduce its defects.
+- Black-hole pair motion is conservative Newtonian gravity, not a strong-field
+  binary model. Displayed ISCO/Kerr radii do not govern these orbits; GW drag is
+  illustrative. See [the compact model](docs/physics/compact-dynamics.md).
 - Spawning and editing are the same operation: both end in `derive_body()`
   re-reading `b.spec`. Anything a spec implies belongs in `derive_body`, or it
   exists on spawn and vanishes on the first edit.

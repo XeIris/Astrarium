@@ -231,10 +231,8 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 		stepped += h
 	return { "stepped": stepped, "steps": guard }
 
-# Conservative Plummer energy for ordinary pairs. BH pairs retain a Newtonian
-# comparison value: source-wise PW has no matching symmetric pair potential.
-# GW drag, mergers, changing radii/masses and BH pairs invalidate drift as an
-# integrator-only diagnostic.
+# Matches conservative forces: Plummer for ordinary pairs, Newtonian for BH pairs.
+# GW drag, mergers and changing radii/masses invalidate integrator-only drift.
 static func total_energy(bodies: Array) -> float:
 	var bs := []
 	for b in bodies:

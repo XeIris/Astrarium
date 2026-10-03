@@ -1255,7 +1255,8 @@ const MODULES := [
           <p>The debris turned out to be manufacturing heavy elements: several Earth-masses of gold and
           platinum in one event. This is where that part of the periodic table comes from, and we did not
           know it for certain until that night.</p>
-          <p>The pair in this view is an accelerated illustration; it does not model the ejecta or predict a detector waveform.</p>""",
+          <p>This wide pair illustrates the orbit and a leading-order strain estimate. It does not
+          demonstrate an inspiral or merger, model ejecta or predict a detector waveform.</p>""",
 			},
 		],
 	},
