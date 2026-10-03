@@ -1,13 +1,8 @@
 class_name Scale
 extends RefCounted
 
-# TRUE-SCALE RENDERING. Earth's radius is 1 : 23 000 of its orbit, so at a distance
-# that fits Neptune's orbit Earth is 0.001 of a pixel. Below the resolution limit a
-# body becomes a point source (sim/marker.gd): true size, cross-fading into a fixed-
-# pixel glow. Why the numerical hazards don't bite:
-#   Depth: a body goes sub-pixel beyond z ≈ 2317·R, well before depth precision
-#   degrades below its own size (Godot's reverse-Z float depth helps further).
-#   float32: the floating origin (docs/godot.md) keeps positions camera-relative.
+# Unresolved true-scale bodies cross-fade into sim/marker.gd point sources.
+# Camera-relative placement preserves precision; see docs/godot.md.
 
 # Physical radius (AU) for a non-degenerate body. A measured radius wins; otherwise:
 #   rocky  R/R⊕ ≈ (M/M⊕)^0.27 over 0.1–10 M⊕ (a near-incompressible lattice)
@@ -30,5 +25,3 @@ static func pixels_per_world_unit(dist: float, fov_rad: float, viewport_h: float
 
 static func apparent_pixels(radius_scene: float, dist: float, fov_rad: float, viewport_h: float) -> float:
 	return 2.0 * radius_scene * pixels_per_world_unit(dist, fov_rad, viewport_h)
-
-# ---- MARKER (visual): sim/marker.gd

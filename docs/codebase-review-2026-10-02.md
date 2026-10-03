@@ -57,6 +57,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R19 | P2 | Verified: POSIX and simulated recovery | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows integration remains pending. |
 | R20 | P2 | Partial: runner and local baseline | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
 | R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
+| R22 | P2 | Open: visual spin units | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
 
 ## Evidence at the reviewed revision
 
@@ -503,3 +504,32 @@ at **7434 objects / 307 resources / 1810 nodes**, with no orphan growth. VRAM
 launch and reports no leaked instances. No engine/script/shader errors occur.
 Final report: `/tmp/astrarium-b3-lifecycle-final/report.json`; the earlier failing
 integrated report is retained separately for traceability.
+
+Batch 3 committed as **`a14eabc`** (`fix(dev): enforce craft parity and reliable
+lifecycle checks`).
+
+## Batch 4 — 2026-10-03
+
+The next bounded pass removes repeated usage narration, archived API references
+and banner comments from `core/body.gd`, `sim/flash.gd` and `sim/scale.gd`.
+It retains units, floating-origin precision, lifetime ownership, raw colour
+channels, mass-radius assumptions and the numeric-literal trap. Stale references
+to the marker owner and structural accessor are corrected. All three files have
+identical executable token streams before/after; no gameplay tests were added
+or repeated for this comment-only change.
+
+Rechecking the vague `Body.spin` annotation exposed R22. `starcat.gd` converts a
+catalogue period in milliseconds to **1000 / period_ms**, a frequency in Hz.
+`neutron_visual.gd` adds that value times rendered-frame seconds directly to
+`rotation.y`, whose [Godot unit is radians](https://docs.godotengine.org/en/stable/classes/class_node3d.html#class-node3d-property-rotation).
+The field is also used for illustrative planet rotation. A literal catalogue
+frequency therefore needs an explicit 2π conversion and a declared time mapping;
+the present interface leaves that intention implicit. Structural `spin_frac` is
+a separate input. Rotation behavior is preserved in this batch; R22 requires a
+clear physical-frequency/visual-speed contract and a period regression check.
+
+The broad re-review remains pending. Priorities now are R22's unit contract,
+R14–R16's actual GPU/allocation/interaction profiles, and small-window/text-scale
+coverage from R20. Further `main.gd` extraction should establish useful ownership
+boundaries rather than merely move lines. Full craft silhouette parity, portable
+CI and an actual Windows save/recovery run remain unverified.

@@ -1,21 +1,8 @@
 class_name Flash
 extends RefCounted
 
-# FLASH SPRITES, the two looks of a violent event.
-#   `flash` (default)  a compact glow that grows a little and fades: light, with
-#                      nothing moving out (a ringdown, a horizon forming)
-#   `shell`            matter: ejecta expanding as t^½ with brightness falling as
-#                      size⁻¹ on top of the fade, so a supernova thins into a wash
-#                      instead of leaving a ball where the star was
-#
-# USE (the orchestrator):
-#   var f := Flash.create(0xffffff, size, 0.55)          # or kind = "shell"
-#   pipe.world_root.add_child(f.node)                    # placed each frame at
-#   flashes.append([f, wpos_dvec3])                      #   wpos.rel_v3(cam_pos)
-#   … each frame: if not f.step(dt): f.kill()            # and drop it
-#
-# The gradient is evaluated in shaders/bodies/flash_sprite.gdshader, so kill() only
-# frees the node.
+# Event sprites: compact light or expanding ejecta. The orchestrator owns their
+# camera-relative placement and steps their lifetime; the shader draws the gradient.
 
 const SPRITE_SHADER := preload("res://shaders/bodies/flash_sprite.gdshader")
 const NO_CULL_AABB := AABB(Vector3(-1.0e6, -1.0e6, -1.0e6), Vector3(2.0e6, 2.0e6, 2.0e6))
@@ -30,9 +17,8 @@ var shell: bool
 
 static var _quad: QuadMesh = null
 
-## A THREE.Sprite with a radial-gradient CanvasTexture: `stops` is up to three
-## [position, Color] pairs whose colours are RAW (U.raw — canvas pixels are
-## never colour-managed). The node's scale is the sprite's size.
+## Up to three [position, Color] gradient stops, in raw channels (U.raw).
+## The returned node's scale sets its size.
 static func make_sprite(stops: Array) -> MeshInstance3D:
 	if _quad == null:
 		_quad = QuadMesh.new()
@@ -54,11 +40,9 @@ static func make_sprite(stops: Array) -> MeshInstance3D:
 	n.custom_aabb = NO_CULL_AABB
 	return n
 
-## spawnFlash(worldPos, color, size, decay = 0.8, { grow = 2, kind = 'flash' }).
-## The caller places `node` (it has no position of its own to keep).
+## The caller owns node placement and must call step() to advance the lifetime.
 static func create(color_hex: int, p_size: float, p_decay: float = 0.8, p_grow: float = 2.0, kind: String = "flash") -> Flash:
 	var f := Flash.new()
-	# rg.addColorStop(0, '#ffffff'); (0.3, hex + 'cc'); (1, hex + '00')
 	f.node = make_sprite([
 		[0.0, U.raw(0xffffff, 1.0)],
 		[0.3, U.raw(color_hex, 204.0 / 255.0)],
@@ -73,8 +57,7 @@ static func create(color_hex: int, p_size: float, p_decay: float = 0.8, p_grow: 
 	f.node.scale = Vector3.ONE * p_size
 	return f
 
-## Advance one frame. Returns false once the flash has burnt out — the caller
-## then kill()s it and drops it.
+## Returns false after burnout; the caller must kill() and release the flash.
 func step(dt: float) -> bool:
 	life -= dt * decay
 	if life <= 0.0:
