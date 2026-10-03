@@ -231,14 +231,14 @@ static func _make() -> Dictionary:
 	P.edu_pulsar = {
 		"sky": { "env": ["disc", "halo"], "tilt": 0.58, "roll": 2.2 },
 		"name": "A pulsar",
-		"blurb": "One and a half solar masses inside a sphere 24 km across, turning 30 times a second. Its gravity bends the light leaving its own surface far enough that you see well past the limb — more than half the star at once. The beams come out of the magnetic poles, which are not the rotation poles, so they sweep: a pulsar does not blink, it rotates, and we only call it a pulsar because the beam happens to cross us. Switch to the RADIO band to see what a radio telescope sees.",
+		"blurb": "One and a half solar masses inside a sphere 24 km across, turning 30 times a second. Rotation is slowed in this view so you can follow the sweep. Its gravity bends the light leaving its own surface far enough that you see well past the limb — more than half the star at once. The beams come out of the magnetic poles, which are not the rotation poles, so they sweep: a pulsar does not blink, it rotates, and we only call it a pulsar because the beam happens to cross us. Switch to the RADIO band to see what a radio telescope sees.",
 		# 12.5 km at true scale, so sceneScale makes the star about one unit wide
 		# (8.35e-8 AU × 1.2e7).
 		"sceneScale": 1.2e7, "bodyScale": 1.0, "camRadius": 6.5, "lensing": false, "mesh": false,
 		"trueScale": true, "timeScale": 2.0e-7, "maxStep": 1e-8,
 		"focus": "Pulsar",
 		"build": func() -> Array:
-			return [{ "type": "neutron", "name": "Pulsar", "mass": 1.4, "spin": 30.0, "spinFrac": 0.02,
+			return [{ "type": "neutron", "name": "Pulsar", "mass": 1.4, "spinHz": 30.0, "visualSpinRadS": 30.0,
 				"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }],
 	}
 

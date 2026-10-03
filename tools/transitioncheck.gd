@@ -1,6 +1,6 @@
 extends Node
 
-# Render measured-star remnants through the real stage.
+# Verify neutron spin and measured-star remnants through the real stage.
 # Godot --path . res://tools/transitioncheck.tscn -- mode=sandbox
 const CourseCheck = preload("res://tools/coursecheck.gd")
 var catcher := CourseCheck.Catch.new()
@@ -18,6 +18,68 @@ func render_frames() -> void:
 		stage.animate(1.0 / 60.0)
 		await get_tree().process_frame
 
+func spin_checks() -> void:
+	stage.clear_bodies()
+	var b: Body = stage.spawn_body(Starcat.star_spec("crab"))
+	var period := 0.0335
+	check("catalogue spin period is 33.5 ms", absf(float(b.structure.spinPeriodMs) - 33.5) < 1e-10)
+	check("neutron period units agree", absf(float(b.structure.spinPeriodSec) * 1000.0 - float(b.structure.spinPeriodMs)) < 1e-10)
+	check("measured frequency becomes angular rate", absf(float(b.visual_spin_rad_s) - TAU / period) < 1e-10)
+	stage.state.paused = false
+	stage.animate(0.0)
+	check("zero-time production frame preserves spin", b.spin_phase == 0.0)
+	stage.animate(period / 4.0)
+	check("quarter physical period rotates by pi/2", absf(b.spin_phase - PI / 2.0) < 1e-10 and absf(b.viz.spin_axis.rotation.y - PI / 2.0) < 1e-6)
+	stage.animate(period * 3.0 / 4.0)
+	check("full physical period returns phase", absf(sin(b.spin_phase)) < 1e-10 and cos(b.spin_phase) > 0.999999)
+	stage.state.paused = true
+	var phase := b.spin_phase
+	stage.animate(1.0)
+	check("paused production frame preserves spin", b.spin_phase == phase)
+	var ctx := VisualCtx.new()
+	b.spin_phase = 0.0
+	for i in 10: b.viz.update(period / 10.0, ctx)
+	check("rotation is independent of frame partition", absf(sin(b.spin_phase)) < 1e-10 and cos(b.spin_phase) > 0.999999)
+	b.viz.update(100000.0, ctx)
+	check("long visual interval keeps phase bounded", absf(b.spin_phase) < TAU and is_finite(b.viz.spin_axis.rotation.y))
+	stage.edit_body(b, {"spinHz": 20.0})
+	check("frequency edit refreshes body and period", absf(float(b.visual_spin_rad_s) - TAU * 20.0) < 1e-10 and absf(float(b.structure.spinPeriodMs) - 50.0) < 1e-10)
+	var fraction := b.spin_frac
+	stage.edit_body(b, {"mass": 1.5})
+	check("mass edit preserves measured frequency and rederives fraction", b.spec.spinHz == 20.0 and b.spin_frac != fraction and absf(float(b.structure.spinPeriodMs) - 50.0) < 1e-10)
+	stage.edit_body(b, {"visualSpinRadS": 6.0})
+	check("display override does not change physical period", b.visual_spin_rad_s == 6.0 and absf(float(b.structure.spinPeriodMs) - 50.0) < 1e-10)
+	stage.edit_body(b, {"visualSpinRadS": null})
+	check("removing display override restores measured rate", absf(float(b.visual_spin_rad_s) - TAU * 20.0) < 1e-10)
+	stage.edit_body(b, {"spinFrac": 0.02})
+	check("fraction edit replaces measured frequency", not b.spec.has("spinHz") and absf(b.spin_frac - 0.02) < 1e-10)
+	check("modelled neutron period units agree", absf(float(b.structure.spinPeriodMs) - float(b.structure.spinPeriodSec) * 1000.0) < 1e-10)
+	var default_rate: float = b.visual_spin_rad_s
+	stage.edit_body(b, {"visualSpinRadS": 2.0})
+	stage.edit_body(b, {"visualSpinRadS": null})
+	check("removing override restores sampled default", b.visual_spin_rad_s == default_rate)
+	stage.edit_body(b, {"mass": 1.4})
+	check("sampled default survives visual rebuild", b.visual_spin_rad_s == default_rate)
+	stage.edit_body(b, {"spinHz": 20.0})
+	stage.transmute(b, "planet", null)
+	check("transmutation discards progenitor spin measurement and default", not b.spec.has("spinHz") and b.default_visual_spin_rad_s != default_rate)
+	var model := Structure.structure_of({"type": "neutron", "mass": 1.4, "spinFrac": 0.02})
+	check("fraction-only period units agree", absf(float(model.spinPeriodMs) - float(model.spinPeriodSec) * 1000.0) < 1e-10)
+	var radius := Structure.neutron_radius_km(2.4) * Physics.AU_PER_KM
+	var critical := Structure.breakup_omega(2.4, radius, "neutron")
+	var supported := Structure.structure_of({"type": "neutron", "mass": 2.4, "spinHz": critical * 0.9 / TAU})
+	check("measured spin affects TOV before verdict", supported.type == "neutron" and supported.verdict.state == Structure.VERDICT.ok and supported.tovMax > 2.4)
+	var supported_body: Body = stage.spawn_body({"type": "neutron", "mass": 2.4, "spinHz": critical * 0.9 / TAU, "visualSpinRadS": 10.0})
+	stage.check_structural_limits(supported_body)
+	check("production accepts measured rotational support", supported_body.type == "neutron" and absf(supported_body.spin_frac - 0.9) < 1e-10)
+	var collapsed: Body = stage.spawn_body({"type": "neutron", "mass": 3.0, "spinHz": critical * 0.9 / TAU})
+	stage.check_structural_limits(collapsed)
+	check("production acts on unsupported measured neutron", collapsed.type == "bh" and not collapsed.spec.has("spinHz"))
+	var overcritical := Structure.structure_of({"type": "neutron", "mass": 2.4, "spinHz": critical * 1.1 / TAU})
+	check("overcritical measurement reaches breakup", overcritical.verdict.state == Structure.VERDICT.breakup and overcritical.spinFrac > 1.0)
+	var edu: Body = Derive.new_body(1, Presets.PRESETS.edu_pulsar.build.call()[0])
+	check("lesson has physical 30 Hz and explicit slower display", absf(float(edu.structure.spinPeriodMs) - 1000.0 / 30.0) < 1e-10 and edu.visual_spin_rad_s == 30.0)
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -27,6 +89,7 @@ func _ready() -> void:
 	stage._start("sandbox")
 	stage.state.paused = true
 	stage.set_process(false)
+	spin_checks()
 	for case in [[1.0, "white-dwarf"], [10.0, "neutron"], [30.0, "bh"]]:
 		stage.clear_bodies()
 		var b: Body = stage.spawn_body({"type": "star", "mass": case[0], "radiusSun": 120.0,
@@ -46,6 +109,7 @@ func _ready() -> void:
 				check("WD recomputes luminosity", b.luminosity == b.structure.luminosity and b.luminosity < 1.0 and not b.spec.has("luminosity"))
 			else:
 				check("neutron discards stellar photosphere", b.teff == null and b.luminosity == null)
+				check("neutron remnant retains intended display rate", b.visual_spin_rad_s == 30.0)
 	var errors := catcher.take()
 	for error in errors: print("TRANSITIONCHECK ENGINE ", error)
 	check("rendered remnant transitions have no engine errors", errors.is_empty())

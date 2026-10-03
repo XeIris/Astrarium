@@ -183,7 +183,7 @@ static func star_spec(key: String, extra: Dictionary = {}) -> Dictionary:
 		if c.has("flare"): spec.activityBoost = c.flare
 	if type == "neutron":
 		spec.radiusKm = float(c.radius) * 696340.0
-		spec.spin = (1000.0 / float(c.spinMs)) if c.has("spinMs") else 10.0
+		if c.has("spinMs"): spec.spinHz = 1000.0 / float(c.spinMs)
 	return spec
 
 # SCENARIO BUILDERS

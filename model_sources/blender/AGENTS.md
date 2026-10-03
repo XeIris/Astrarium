@@ -15,9 +15,10 @@ check `mdfind -name Blender.app` before concluding it's missing, or set
 
 The procedural builds in `sim/flight/craftmodel.gd` are the fallback when a
 `.glb` is missing. Keep them working, and keep `build_craft` synchronous: assets
-are preloaded into a cache (`craft_models_ready(id)` / `preload_craft(id)`), and
-only one vehicle is loaded at a time. `crafttest -- audit` heights must match
-with and without `assets=0`; only triangle counts should differ.
+are preloaded into a cache with `preload_craft(id)`, or settled with
+`craft_models_ready([id])` before an audit. Authored and fallback height/datums
+must match in stowed and deployed poses; run `crafttest -- parity` with all nine
+models. This gate does not establish full silhouette or material parity.
 
 ## Axes and datum
 
@@ -91,8 +92,8 @@ The asset check exercises stowed/deployed poses and rejects malformed rigs.
 ## Materials and export
 
 - Craft materials are double-sided (bells, skirts and interstages are open
-  shells) and low-metalness (there's no environment map, so a PBR metal renders
-  black).
+  shells) and low-metalness: reflections are unavailable in some quality modes
+  and environments.
 - Emitters are lit by themselves at HDR values; a hex emissive that looks right
   is nearly black after ACES.
 - Meshes are joined by material within each node before export (the Hail Mary

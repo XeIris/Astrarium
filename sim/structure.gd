@@ -752,11 +752,17 @@ static func _star_layers(mass: float, ph: Dictionary, cc: Dictionary, conv_core:
 	return L
 
 static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) -> Dictionary:
+	var radius_au := _measured_radius_au(spec, neutron_radius_km(maxf(mass, 0.1)) * Physics.AU_PER_KM)
+	var omega_c := breakup_omega(mass, radius_au, "neutron")
+	# A measured frequency overrides the rotational model before testing support.
+	if spec.get("spinHz") != null:
+		spin_frac = TAU * maxf(float(spec.spinHz), 0.0) / omega_c
 	var max_m := tov_limit(spin_frac)
 	if mass > max_m:
 		var hs := spec.duplicate()
 		hs.type = "bh"
 		var s := _hole_structure(hs, mass, spin_frac)
+		s.spinFrac = spin_frac
 		var rot_note := ""
 		if spin_frac > 0.02:
 			rot_note = " (%s M☉ at rest, raised %d%% by rotation)" % [_num(LIMITS.tov), int(U.jround((max_m / float(LIMITS.tov) - 1.0) * 100.0))]
@@ -774,14 +780,11 @@ static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) 
 				"detail": "Under about 0.1 M☉ a neutron star is not gravitationally bound against its own degeneracy pressure. It expands and disintegrates." },
 		}
 
-	var r_km := neutron_radius_km(mass)
-	var radius_au := _measured_radius_au(spec, r_km * Physics.AU_PER_KM)
-	r_km = radius_au / Physics.AU_PER_KM
+	var r_km := radius_au / Physics.AU_PER_KM
 	var rs := Physics.schwarzschild(mass)
 	var compactness := rs / radius_au              # 2GM/Rc² — how relativistic
 	var rho := (mass * M_SUN) / ((4.0 / 3.0) * PI * pow(r_km * 1000.0, 3.0))
 	var surface_g := G_SI * mass * M_SUN / pow(r_km * 1000.0, 2.0)
-	var omega_c := breakup_omega(mass, radius_au)
 	var period_ms := (2.0 * PI / (spin_frac * omega_c) * 1000.0) if spin_frac > 0.0 else INF
 
 	var verdict: Dictionary

@@ -87,10 +87,12 @@ static func refresh_structure(b: Body) -> Dictionary:
 		"phase": b.phase, "composition": b.composition, "Z": b.Z,
 		"radiusSun": sp.get("radiusSun"), "teff": sp.get("teff"), "luminosity": sp.get("luminosity"),
 		"radiusKm": sp.get("radiusKm"),
+		"spinHz": sp.get("spinHz"),
 		# Body.rs defaults to 0, which means "unset" (stars, planets).
 		"rs": b.rs if b.rs != 0.0 else null,
 	}
 	b.structure = Structure.structure_of(q)
+	b.spin_frac = float(b.structure.get("spinFrac", b.spin_frac))
 	if b.type != "bh" and float(b.structure.get("radiusAU", 0.0)) > 0.0:
 		b.radius = b.structure.radiusAU
 		if b.structure.has("radiusSun"):
@@ -148,11 +150,17 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 	# disturbing the physics state (see rebuildVisuals)
 	b.spec = spec; b.def = def
 	refresh_structure(b)
+	b.visual_spin_rad_s = spec.get("visualSpinRadS")
+	if b.visual_spin_rad_s == null:
+		if type == "neutron" and spec.get("spinHz") != null:
+			b.visual_spin_rad_s = TAU * maxf(float(spec.spinHz), 0.0)
+		else:
+			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 
 	return b
 
 ## The non-visual half of spawning: id, type, name, masses, state vectors, GW flag,
-## spin, then derive_body. main.gd's attach_visual does the rest.
+## then derive_body. main.gd's attach_visual does the rest.
 static func new_body(id: int, spec: Dictionary) -> Body:
 	var type = spec.get("type")
 	var def := type_default(type)
@@ -168,7 +176,6 @@ static func new_body(id: int, spec: Dictionary) -> Body:
 	b.acc = DVec3.new()
 	b.alive = true
 	b.emits_gw = bool(U.nz(spec.get("emitsGW"), type == "bh" or type == "neutron"))
-	b.spin = spec.get("spin")
 	derive_body(b, spec)
 	return b
 

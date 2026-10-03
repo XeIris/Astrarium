@@ -1068,7 +1068,7 @@ const MODULES := [
 				"body": """<p>Collapse conserves angular momentum, so a star that turned once a month ends up turning
           thirty times a second. It also concentrates the magnetic field to a trillion times the Sun's.</p>
           <p>Beams of radiation come out of the magnetic poles — which are not the rotation poles, so they
-          sweep round like a lighthouse. If one happens to cross the Earth, we see a pulse every rotation,
+          sweep round like a lighthouse. Rotation is slowed in this view so you can follow the sweep. If one happens to cross the Earth, we see a pulse every rotation,
           regular to better than an atomic clock.</p>""",
 				"look": "You are in the radio band now — this is roughly what a radio telescope sees.",
 			},

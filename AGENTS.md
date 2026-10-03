@@ -70,6 +70,9 @@ design.
   and which stars light it (`insolation_at`), then its temperature, ice line and
   biomes. A preset states a value only when it can't be derived (Venus's 737 K is
   stated; Mercury's temperature is not).
+- Neutron `spinHz` is physical cycles per second and overrides modelled
+  `spinFrac`. `visualSpinRadS` is an explicit display rate per unpaused render
+  second; it must not alter structural support. See the visual contract.
 
 ## Size and the camera
 

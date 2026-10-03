@@ -396,8 +396,8 @@ static func _make_presets() -> Dictionary:
 		"blurb": "Two neutron stars inspiral and collide in a kilonova (à la GW170817). Watch the pulsar beams sweep as they whirl together.",
 		"sceneScale": 45.0, "bodyScale": 1.0, "camRadius": 26.0, "lensing": false, "gwBoost": 1.8e14, "timeScale": 0.15, "maxStep": 5e-5,
 		"build": func() -> Array: return binary(1.45, 1.35, 0.35,
-			{ "type": "neutron", "name": "NS-A", "spin": 22.0 },
-			{ "type": "neutron", "name": "NS-B", "spin": 16.0 }),
+			{ "type": "neutron", "name": "NS-A", "visualSpinRadS": 22.0 },
+			{ "type": "neutron", "name": "NS-B", "visualSpinRadS": 16.0 }),
 	}
 
 	P.binarystar = {

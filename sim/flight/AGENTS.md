@@ -20,8 +20,8 @@ to the procedural builds too.
   the full available deceleration (no margin is left for the lag), and never put
   a discrete choice (engine count) inside a continuous predicate, or the burn
   stutters.
-- Attitude commands are rate-limited to 1°/s of simulated time; unfiltered, they
-  step at every handover and staging.
+- Closed-loop ascent and circularization pitch commands are limited to 1° per
+  vessel proper-time second, including handovers and staging.
 - Ascent pitch program: θ = 90°·v₀/(v₀ + v − v_start), clamped to within α_max
   of the velocity vector. Check the staging state, not the final orbit: a Saturn
   V should stage near AS-506's (67 km, 2.4 km/s, 21°).

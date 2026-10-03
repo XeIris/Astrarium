@@ -231,8 +231,10 @@ class GiantViz extends RefCounted:
 		tilt_q = Quaternion(Vector3(0, 0, 1), obl)
 
 		# System III: the rigid interior rate. Everything above moves relative to it.
-		if b.spin == null:
-			b.spin = 0.9 + randf() * 0.5
+		if b.visual_spin_rad_s == null:
+			if b.default_visual_spin_rad_s == null:
+				b.default_visual_spin_rad_s = 0.9 + randf() * 0.5
+			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		albedo = float(U.nz(opts.albedo, 0.5))
 		# Internal heat: Jupiter radiates 1.67x what it absorbs, Saturn 1.78x, from
 		# contraction and (on Saturn) helium rain. Neptune 2.6x; Uranus, oddly, ~1.
@@ -241,7 +243,7 @@ class GiantViz extends RefCounted:
 
 	func update(dt: float, ctx: VisualCtx) -> void:
 		var b := body
-		b.spin_phase = fmod(b.spin_phase + float(b.spin) * dt, TAU)
+		b.spin_phase = fmod(b.spin_phase + float(b.visual_spin_rad_s) * dt, TAU)
 		body_mesh.rotation.y = b.spin_phase               # the core, and only the core
 		mat.set_shader_parameter("uTime", float(mat.get_shader_parameter("uTime")) + dt)
 

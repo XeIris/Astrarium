@@ -67,7 +67,7 @@ func _setup() -> void:
 	for cb in cap.bodies:
 		var b: Body = by_name[str(cb.name)]
 		b.mass = float(cb.mass)
-		b.spin = cb.spin
+		b.visual_spin_rad_s = cb.spin
 		b.spin_phase = float(cb.spinPhase)
 		b.cloud_phase = float(cb.cloudPhase)
 		b.day_length = float(cb.dayLength)

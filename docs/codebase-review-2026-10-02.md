@@ -57,7 +57,11 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R19 | P2 | Verified: POSIX and simulated recovery | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows integration remains pending. |
 | R20 | P2 | Partial: runner and local baseline | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
 | R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
-| R22 | P2 | Open: visual spin units | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
+| R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
+| R23 | P2 | Open: reproduced at minimum window | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
+| R24 | P2 | Open: reproduced on Retina | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
+| R25 | P2 | Open: structural event gap | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define and execute their physical consequences; a warning alone cannot satisfy the structural-event contract. |
+| R26 | P1 | Open: visual/physics coupling | `Bodies.accrete` changes physical mass and velocity using render seconds and rendered radii, without transferring the lost mass to the hole. | Physical evolution uses accepted simulation time and physical geometry, independently of visuals; check conservation and pause/zero-time behavior. |
 
 ## Evidence at the reviewed revision
 
@@ -533,3 +537,90 @@ R14–R16's actual GPU/allocation/interaction profiles, and small-window/text-sc
 coverage from R20. Further `main.gd` extraction should establish useful ownership
 boundaries rather than merely move lines. Full craft silhouette parity, portable
 CI and an actual Windows save/recovery run remain unverified.
+
+
+## Batch 5 — spin contract and renewed review, 2026-10-03
+
+R22 separates physical neutron frequency (`spinHz`, cycles/second) from the
+explicit display angular rate (`visualSpinRadS`, radians/unpaused render second).
+Catalogue periods now produce a 2π conversion at the display boundary. Measured
+frequency overrides the modelled structural spin fraction before the TOV verdict;
+the existing neutron breakup model supplies that conversion. Two formerly
+inconsistent period calculations now use the same neutron angular velocity.
+The course pulsar has a physical 30 Hz frequency and an explicitly slower display,
+labelled in the preset and lesson. This does not claim the display clock follows
+orrery time or that a sampled image can resolve frequencies above its frame rate.
+
+Live derivation rereads authored display rates and frequency. Removing an override
+restores the measured rate or a stable sampled visual default. Transmutation drops
+progenitor measurements and defaults; remnant display rates are explicit. Neutron
+phase uses a bounded double accumulator. Removing the per-frame 0.0001-second
+increment fixes pause/zero-time rotation and frame-count-dependent period inflation.
+The obsolete comment claiming all visuals follow accepted world time is removed.
+Frozen visual fixture adapters retain their original angular rates; `web/` is untouched.
+
+Independent review confirmed the unit/clock boundaries. The rendered transition
+check passes **39 assertions**, including the Crab's **33.5 ms** period, quarter/full
+turns, frame partitioning, large elapsed intervals, production pause, frequency and
+mass edits, override removal, TOV support ordering, unsupported collapse and remnant
+rates. Overcritical frequency remains visible to the breakup verdict; executing that
+verdict is the separate R25 gap. Fast checks and all five rendered gates pass,
+including **35 lessons / 108 steps / zero errors**, **54 HUD assertions**, shared
+flight/world time, and all **35 presets**. Reports are retained under
+`/tmp/astrarium-b5-fast/` and `/tmp/astrarium-b5-rendered-final/`.
+
+The renewed instruction audit corrected four stale scopes: procedural noise has no
+mip chain, but imported maps do; only closed-loop ascent/circularization pitch uses
+the stated rate limit; `craft_models_ready` takes an array and may request several
+models; height/datum parity does not prove complete silhouette/material parity.
+The material guidance now acknowledges quality-dependent reflection environments.
+These are documentation corrections, not additional rendering or guidance behavior.
+
+The profiling agent measured three repetitions at 1280×720 on Apple M5, medium
+rendering/low lighting, with asserted Saturn V authored/procedural selection:
+
+| State | Craft | Update CPU ms | Render CPU ms |
+|---|---|---:|---:|
+| Studio | Authored / procedural | 0.582 / 0.613 | 0.299 / 0.302 |
+| Launchpad | Authored / procedural | 1.183 / 1.181 | 0.397 / 0.428 |
+
+These are medians of run means, not GPU times or a portable frame budget.
+All supported GPU timestamp readings are unavailable: the
+[installed Metal backend](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/drivers/metal/rendering_device_driver_metal.cpp#L2108-L2120)
+clears timestamp results. A distant authored LOD probe reduced submitted primitives
+24,133→9,547 (60.4%) without establishing a timing gain. An Earth edit probe measured
+2.068 ms per edit plus 0.624 ms for inspector refresh; further attribution is needed
+before caching. R14–R16 remain profiling work, with no optimization claimed.
+Temporary instrumentation, commands, raw JSON/logs and screenshots remain in
+`/tmp/astrarium-b5-profile/`; durable reproducible evidence storage (R18) is still partial.
+
+The UI agent reproduced R23 at both 900×600 and 1024×600 with actual pointer hit tests.
+Existing HUD interaction checks at 1024×600 fail Next and Close (**53 passed,
+2 failed**, nonzero exit). At content scale 2, a physical 1024×600 becomes logical
+512×300 and the right panel covers forward warp. A temporary scale-aware minimum
+restores logical 900×600 and reaches all eight tested flight actions on this display.
+Settings bindings remain scrollable at scale 1.5. Evidence is in
+`/tmp/astrarium-b5-ui/`; production UI fixes are the next batch.
+
+The broader review also exposed R25 and R26. Neither is hidden by widened test
+tolerances or an assertion that current behavior is correct. R26 is especially
+serious: a visual size/time convention still affects physical evolution even after
+the collision contact fixes. The broad re-review remains in progress.
+
+Five-round targeted lifecycle checks remain exactly flat after warmup:
+spawn/remove **6389/137/1619/0**, mass edits **6768/137/1720/0**, true-scale
+rebuilds **6788/137/1720/0** (objects/resources/nodes/orphans). No shutdown,
+script or shader error appears in `/tmp/astrarium-b5-soak.log`.
+
+Screenshot validation found another stale instruction: X-ray is band **5**,
+whereas band **6** is Gamma (`Spectrum.BANDS`). The shader AGENTS examples now
+use the actual X-ray index. Both bands render without errors; the neutron surface
+is bright in X-ray and dark in Gamma as the band model states.
+
+R26's CPU-only probe invokes the actual accretion function on a separated donor
+and hole with **zero accepted simulation time**. At exaggerated radius it removes
+**0.0020000667 M☉** from a 1 M☉ donor in one 1/60-second render call and damps
+its velocity; the 12 M☉ hole gains nothing. The same physical geometry at true
+radius leaves donor mass and velocity unchanged. Evidence:
+`/tmp/astrarium-b5-profile/accretion_cpu.gd` and `.log`. The probe's headless macOS
+certificate diagnostic is retained, not presented as a clean engine run.

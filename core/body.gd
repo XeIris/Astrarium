@@ -15,7 +15,6 @@ var acc := DVec3.new()        # AU/yr²
 var a_prev := DVec3.new()     # integrator scratch
 var alive: bool = true
 var emits_gw: bool = false
-var spin = null               # visual rotation input; distinct from structural spin_frac
 
 var spec: Dictionary = {}     # the spec this body was derived from (kept for rebuilds)
 var def: Dictionary = {}      # TYPE_DEFAULTS entry
@@ -39,6 +38,8 @@ var softening: float = 0.0      # optional Plummer softening override, AU
 
 # Rendering state.
 var viz = null                # the body visual (see docs/godot.md: visual contract)
+var visual_spin_rad_s = null  # radians per unpaused render second
+var default_visual_spin_rad_s = null  # sampled once, survives visual rebuilds
 var marker = null             # sim/marker.gd point-source marker
 var radius_scene: float = 0.0
 var rs_scene: float = 0.0

@@ -53,7 +53,7 @@ func _setup() -> void:
 		b.mass = float(e.mass); b.mass0 = float(U.nz(e.mass0, e.mass))
 		b.radius = float(U.nz(e.radius, 0.0)); b.rs = float(U.nz(e.rs, 0.0))
 		b.teff = e.teff; b.spin_frac = float(U.nz(e.spinFrac, 0.0)); b.radius_sun = e.radiusSun
-		b.spin = e.spin
+		b.visual_spin_rad_s = e.spin
 		b.radius_scene = float(e.radiusScene); b.rs_scene = float(U.nz(e.rsScene, 0.0))
 		b.scene_pos = DVec3.from_array(e.pos)
 		bodies.append(b)

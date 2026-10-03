@@ -11,14 +11,14 @@ and the temperature pass are in [docs/godot.md](../docs/godot.md).
   itself.
 - Every emitter publishes its true temperature through the temperature pass
   (`shaders/common/temp_pass.gdshaderinc`, `is_temp_pass`). Without it, X-ray and
-  radio bands guess T from colour. Check in band 6 (X-ray).
+  radio bands guess T from colour. Check in band 5 (X-ray).
 - The sky is the exception: `SKY_ALPHA` (0.995) means "already imaged in this
   band". It is composited per band in `sky.gdshaderinc`, because most of the
   non-visible sky is non-thermal. A new sky component is a row in the band-weight
   table, not a temperature.
 - Flare plasma adds colour but replaces the temperature value; absorption passes
   `discard` in the temperature pass. Check: `preset=alphacen`, Proxima, a forced
-  flare, band 6.
+  flare, band 5.
 - Body shaders are `render_mode unshaded` and light themselves from the sun
   uniforms (`suns.gdshaderinc`).
 - A transparent object is drawn after every opaque one, whatever its
@@ -35,8 +35,8 @@ and the temperature pass are in [docs/godot.md](../docs/godot.md).
 
 ## Resolution
 
-- There is no mip chain, so detail finer than a pixel is aliasing. Choose octave
-  counts against the screen, and look at the running sim, not a paused one.
+- Procedural noise has no mip chain: filter subpixel detail and choose octave
+  counts against the screen. Inspect motion as well as still frames.
 - Nothing in the sky may depend on a fixed angular resolution: lensing
   magnification is unbounded near the photon ring. Stars are analytic and
   filtered through the screen-space Jacobian. Check: `preset=bhmerger`, where the

@@ -273,8 +273,10 @@ class RockyViz extends RefCounted:
 		# The sea datum as built, kept so a baked-dry world can refill when it cools.
 		sea_km0 = float(surf_opts.sea_km)
 
-		if b.spin == null:
-			b.spin = (0.4 + randf() * 1.2) * (-1.0 if randf() < 0.1 else 1.0)
+		if b.visual_spin_rad_s == null:
+			if b.default_visual_spin_rad_s == null:
+				b.default_visual_spin_rad_s = (0.4 + randf() * 1.2) * (-1.0 if randf() < 0.1 else 1.0)
+			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		b.viz = self
 
 	func _u(m: ShaderMaterial, k: String) -> float:
@@ -297,12 +299,12 @@ class RockyViz extends RefCounted:
 			var toward := tilt_q.inverse() * Vector3(d.x, d.y, d.z)
 			b.spin_phase = atan2(-toward.z, toward.x)
 		else:
-			b.spin_phase = fmod(b.spin_phase + float(b.spin) * dt, TAU)
+			b.spin_phase = fmod(b.spin_phase + float(b.visual_spin_rad_s) * dt, TAU)
 		surface.rotation.y = b.spin_phase
 		if clouds != null:
 			# The deck super-rotates slightly; it also needs its own accumulator
 			# rather than a scaled read of spinPhase, which would jump at each wrap.
-			b.cloud_phase = fmod(b.cloud_phase + float(b.spin) * dt * 0.985, TAU)
+			b.cloud_phase = fmod(b.cloud_phase + float(b.visual_spin_rad_s) * dt * 0.985, TAU)
 			clouds.rotation.y = b.cloud_phase
 			cloud_mat.set_shader_parameter("uTime", _u(cloud_mat, "uTime") + dt)
 		surf_mat.set_shader_parameter("uTime", _u(surf_mat, "uTime") + dt)

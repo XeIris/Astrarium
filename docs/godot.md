@@ -147,6 +147,14 @@ var group: Node3D            # added under pipe.world_root by the orchestrator
 func update(dt: float, ctx: VisualCtx) -> void
 ```
 
+`dt` is unpaused render seconds (zero while paused); `ctx.sim_dt` is the accepted
+orrery interval in years. Physical neutron-star frequency is `spec.spinHz`
+(cycles per second), and overrides modelled `spinFrac` in the structure.
+`spec.visualSpinRadS` explicitly sets illustrative angular speed per render
+second; absent that override, a measured neutron frequency renders at `TAU × Hz`.
+Other bodies retain their sampled visual rates; world day length is separate.
+The display clock is independent of the orrery time scale.
+
 The orchestrator owns `group.position` (floating origin) and `group.scale`
 (size ease, oblateness). `b.scene_pos` (`DVec3`) is the body's absolute scene
 position.

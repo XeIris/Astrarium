@@ -438,6 +438,7 @@ func place_spawn(spec: Dictionary) -> Dictionary:
 func edit_body(b: Body, patch: Dictionary):
 	if b == null or not b.alive: return null
 	var spec := U.merged(b.spec, patch)
+	if patch.has("spinFrac") and not patch.has("spinHz"): spec.erase("spinHz")
 	if patch.get("mass") != null:
 		b.mass = float(patch.mass); b.mass0 = float(patch.mass)
 		spec.mass = float(patch.mass)
@@ -471,8 +472,9 @@ func transmute(b: Body, new_type: String, why, remnant_spec: Dictionary = {}) ->
 	var wpos := b.scene_pos.clone()
 	# Measurements describe the original object, not its remnant or reclassification.
 	if b.type != new_type:
-		for key in ["radiusKm", "radiusSun", "contactAU", "rs", "teff", "luminosity"]:
+		for key in ["radiusKm", "radiusSun", "contactAU", "rs", "teff", "luminosity", "spinHz", "visualSpinRadS"]:
 			b.spec.erase(key)
+		b.default_visual_spin_rad_s = null
 		b.radius_sun = null; b.teff = null; b.luminosity = null; b.spectral = null
 		b.rs = 0.0
 	b.type = new_type
@@ -520,9 +522,8 @@ func core_collapse(b: Body) -> void:
 	b.spin_frac = minf(b.spin_frac + 0.55, 0.95)   # collapse spins it up
 	if end.type == "neutron":
 		b.radius = Physics.neutron_radius(b.mass)
-		b.spec = U.merged(b.spec, {"type": "neutron", "mass": b.mass, "spin": 30})
 		b.teff = null
-		transmute(b, "neutron", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))])
+		transmute(b, "neutron", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))], {"visualSpinRadS": 30.0})
 	elif end.type == "bh":
 		transmute(b, "bh", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))])
 	else:
@@ -2135,8 +2136,6 @@ func animate(dt: float) -> void:
 	var sim_dt := 0.0 if state.paused else dt * state.speed * state.time_scale
 	state.time += dt
 
-	# Everything downstream runs on the time that was integrated, so a guarded
-	# frame slows the spin, the clouds and the lens together with the bodies.
 	var sim_stepped := 0.0
 	if flight.active:
 		state.last_steps = 0
@@ -2205,7 +2204,7 @@ func animate(dt: float) -> void:
 			b.radius_scene = b.rs_scene
 		if b.viz != null:
 			b.viz.group.position = b.scene_pos.rel_v3(cam_pos)
-			b.viz.update(dt * (0.0 if state.paused else 1.0) + 0.0001, ctx)   # keep shaders animating even paused-ish
+			b.viz.update(0.0 if state.paused else dt, ctx)
 		apply_size_ease(b, dt)
 	# Structural limits, on anything whose mass moved this frame.
 	for b in state.bodies.duplicate(): check_structural_limits(b)

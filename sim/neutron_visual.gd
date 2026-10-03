@@ -273,8 +273,10 @@ class NeutronViz:
 			mag_axis.add_child(cone)
 			beams.append(m)
 
-		if b.spin == null:
-			b.spin = 8.0 + randf() * 20.0
+		if b.visual_spin_rad_s == null:
+			if b.default_visual_spin_rad_s == null:
+				b.default_visual_spin_rad_s = 8.0 + randf() * 20.0
+			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 
 		base_r = R
 		r = R
@@ -282,7 +284,8 @@ class NeutronViz:
 	func update(dt: float, ctx: VisualCtx) -> void:
 		time += dt
 		surf_mat.set_shader_parameter("uTime", time)
-		spin_axis.rotation.y += float(body.spin) * dt
+		body.spin_phase = fmod(body.spin_phase + float(body.visual_spin_rad_s) * dt, TAU)
+		spin_axis.rotation.y = body.spin_phase
 
 		# Keep the shader's cap axis on the rotating dipole, in object space (spin × tilt).
 		var local_dir := (spin_axis.basis * mag_axis.basis * Vector3.UP).normalized()
