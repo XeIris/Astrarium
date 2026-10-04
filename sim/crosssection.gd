@@ -1,19 +1,8 @@
 class_name CrossSection
 extends RefCounted
 
-# CROSS-SECTION: the interior, which is inferred, never imaged, and not equally
-# well: a planet's core from its moment of inertia and seismology (a few percent),
-# a star from models constrained by helioseismology and neutrinos, a neutron star's
-# inner core genuinely unknown, a black hole's interior unmeasurable (the
-# coordinate structure of a solution, drawn as such). Each layer carries its note.
-#
-# Layers are filled by a ramp over log T from 100 K to 10¹⁰ K, dark violet → red →
-# orange → yellow → white: brighter is hotter.
-#
-# Drawn in bitmap coordinates (330 × 260 and 330 × 26) inside _draw(), scaled onto
-# the laid-out box (`XsecCanvas`, `LegendCanvas`, content height = width × H/W).
-# Colours are CSS sRGB and pass straight through. Text is drawn glyph by glyph at
-# Blink's advances (HudTheme.adv_em) in Menlo, so labels land on their leader lines.
+# Draw the inferred canonical interior, including each layer's model uncertainty.
+# Canvas coordinates scale with layout; UI colours remain sRGB.
 
 const AU_PER_KM := Physics.AU_PER_KM
 const AU_PER_RSUN := Physics.AU_PER_RSUN

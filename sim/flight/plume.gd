@@ -1,24 +1,9 @@
 class_name Plume
 extends RefCounted
 
-# EXHAUST, PLASMA AND SMOKE. The plume's shape follows ambient pressure alone, so
-# one shader covers the whole climb:
-#   over-expanded (p_e < p_a)   the air squeezes the jet into a column that
-#                               recompresses through shock diamonds, spacing
-#                               growing as the air thins
-#   under-expanded (p_e > p_a)  a huge translucent bell, no diamonds
-# Colour is the propellant (see LOOK); an ion beam is dim, narrow and steady.
-#
-# The local pass has no temperature channel (its alpha is coverage; compose.glsl
-# treats it as no data), so emitters (jet, entry sheath, ground flame, glow, RCS)
-# blend ONE, ONE (blend_premul_alpha, ALPHA = 0) and add light without coverage;
-# smoke is blend_mix, the one thing that hides what's behind it. In non-visible
-# bands the local pass images from colour.
-#
-# Factories return inner-class objects (mesh/group, the ShaderMaterial, reach,
-# update(), emit(), clear()). Sprites are camera-facing quads (sprite*.gdshader)
-# with per-instance colour, opacity and rotation; the smoke and RCS sets are each a
-# MultiMesh. Draw order is render_priority (LocalView.ORDER), transparent list only.
+# Pressure-dependent plume shape and propellant-dependent colour.
+# The local pass has no temperature channel: emitters add RGB with zero coverage,
+# smoke covers with blend_mix. Transparent order comes from LocalView.ORDER.
 
 const ORDER_SMOKE := 10
 const ORDER_FLAME := 20

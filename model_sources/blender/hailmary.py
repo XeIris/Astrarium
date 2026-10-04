@@ -10,12 +10,14 @@ from math import cos, sin, pi, radians, hypot
 from mathutils import Vector
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from common import build, stage
+from common import build, stage, vehicle_stages
+
+S = vehicle_stages("hailmary")
 from lib import (reset_scene, material, revolve, tube, ring_on, box, strut,
                  fin, finish, smooth, bevel, empty, group, frames, TAU)
 
 # THE NUMBERS: identical to sim/flight/vehicles.gd and build_hail_mary().
-L, D = 47.0, 12.0
+L, D = S["hm"]["L"], S["hm"]["D"]
 f = lambda u: u * L
 AFT = f(0.132)                     # the aft plane, in build coords
 TR = D * 0.265                     # tank centreline radius      3.180

@@ -1,19 +1,9 @@
 class_name StarVisual
 extends RefCounted
 
-# STAR RENDERING. The photosphere shader (star_photo.gdshader) does, in one pass:
-#   · granulation: two advected fBm octaves
-#   · differential rotation (Sun: 25 d equator, 34 d poles)
-#   · starspots: umbra, penumbra and faculae at the ActivityModel's active regions
-#   · flare ribbons: the two ribbons that separate as reconnection climbs
-#     (sim/prominence.gd)
-#   · limb darkening, I(μ)/I(0) = 1 − u(1 − μ)
-#   · a chromospheric H-α rim past the limb
-# All driven by mass → Teff → colour.
-#
-# StarViz fields: group, core, mat, corona, base_r, r, color_hex, is_star, activity,
-# plus stream (attached by sim/bodies.gd). Uniform clocks are kept in members and
-# pushed. Photosphere colours are Planck fits (linear, raw); the H-α hex is U.lin().
+# Photosphere, corona and activity pools driven by the canonical body.
+# Physical temperatures stay separate from HDR display gain.
+# Shader contracts: shaders/AGENTS.md; models: docs/physics/structure.md.
 
 const MAX_SPOTS := 8
 const MAX_FLARES := 4
@@ -23,7 +13,7 @@ const CORONA_SHADER := preload("res://shaders/bodies/star_corona.gdshader")
 const CME_SHADER := preload("res://shaders/bodies/star_cme.gdshader")
 
 ## The corona is a screen-space billboard; its quad carries no shape the
-## culler could reason about (web: frustumCulled = false).
+## culler could reason about.
 const NO_CULL_AABB := AABB(Vector3(-1.0e6, -1.0e6, -1.0e6), Vector3(2.0e6, 2.0e6, 2.0e6))
 
 # Smoothstep on the CPU side, for driving the eruption timeline.
@@ -33,36 +23,6 @@ static func smoothstep01(a: float, b: float, x: float) -> float:
 
 static func _v3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
-
-# Fallback copies for _structure(). Structure exports both, so these are unused.
-const _G_SI := 6.67430e-11
-const _M_SUN := 1.98892e30      # kg
-const _R_SUN := 6.957e8         # m
-const _K_B := 1.380649e-23
-const _M_H := 1.6735575e-27
-const _HP_OVER_R_SUN := 4.16e-4
-
-## Granule size from the pressure scale height H_p = kT/(μ m_H g) as a fraction of
-## the radius, normalised to the Sun's tuned value.
-static func _granule_frequency(teff: float, radius_sun: float, mass_sun: float) -> float:
-	var R := maxf(radius_sun, 1e-6) * _R_SUN
-	var M := maxf(mass_sun, 1e-6) * _M_SUN
-	var hp := (_K_B * teff * R) / (0.62 * _M_H * _G_SI * M)
-	var cells := _HP_OVER_R_SUN / maxf(hp, 1e-9)
-	# The floor is not physical, it is the shader's: below ~1.5 the fBm has less
-	# than one full period across the sphere and stops reading as cells at all.
-	return minf(maxf(40.0 * cells, 1.5), 80.0)
-
-## How bright to DRAW a photosphere: the eye's response to σT⁴, (T/T☉)^(4/3),
-## capped where the bloom kernel runs out of extent.
-static func _surface_brightness(teff: float) -> float:
-	return minf(pow(maxf(teff, 500.0) / 5772.0, 4.0 / 3.0), 12.0)
-
-static func _structure(fn: String, args: Array, fallback: Callable) -> float:
-	var S = load("res://sim/structure.gd")
-	if S != null and fn in S.get_script_method_list().map(func(m): return m.name):
-		return float(S.callv(fn, args))
-	return float(fallback.callv(args))
 
 static func _photosphere_material(color: Color, hot_color: Color, limb_u: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
@@ -141,6 +101,19 @@ class StarViz:
 	var erupt: Array = []             # [{holder, rope, arcade}]
 	var cmes: Array = []              # [{holder, front, core, front_mat, core_mat, seed, time}]
 
+
+	## Spin edits change shader deformation and colours; the flare pools retain their lifetime.
+	func refresh_rotation() -> void:
+		var teff := float(body.teff)
+		var temps := Structure.gravity_darkened_temps(teff, body.spin_frac)
+		mat.set_shader_parameter("uSpin", clampf(body.spin_frac, 0.0, 1.0))
+		mat.set_shader_parameter("uGdBeta", temps.beta)
+		mat.set_shader_parameter("uTpole", temps.tPole)
+		mat.set_shader_parameter("uColPole", StarVisual._v3(Stellar.blackbody_color(temps.tPole)))
+		mat.set_shader_parameter("uColEq", StarVisual._v3(Stellar.blackbody_color(temps.tEq)))
+		var flattening := float(body.structure.get("flattening", 0.0))
+		corona_mat.set_shader_parameter("uSize", core.mesh.radius * 4.0 / (1.0 - flattening))
+
 	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
 		group = Node3D.new()
@@ -154,26 +127,14 @@ class StarViz:
 
 		mat = StarVisual._photosphere_material(photo, hot, limb_u)
 		mat.set_shader_parameter("uTeff", teff)
-		# Rotation, from the structure model (sim/structure.gd) via sim/bodies.gd.
-		var spin := clampf(float(U.nz(opts.spin_frac, 0.0)), 0.0, 1.0)
-		mat.set_shader_parameter("uSpin", spin)
-		mat.set_shader_parameter("uGdBeta", float(U.nz(opts.gd_beta, 0.25)))
-		var t_pole = opts.t_pole
-		var t_eq = opts.t_eq
-		mat.set_shader_parameter("uTpole", float(U.nz(t_pole, teff)))
-		# `opts.t_pole ? … : photo` — a 0 or missing temperature falls back.
-		mat.set_shader_parameter("uColPole", StarVisual._v3(Stellar.blackbody_color(t_pole) if (t_pole != null and t_pole > 0) else photo))
-		mat.set_shader_parameter("uColEq", StarVisual._v3(Stellar.blackbody_color(t_eq) if (t_eq != null and t_eq > 0) else photo))
 		omega = Stellar.rotation_rate(b.mass) * 0.02   # slowed for legibility
 		mat.set_shader_parameter("uOmega", omega)
 		# Granule size from the pressure scale height (a red supergiant has a few vast cells).
 		var rad_sun: float = float(U.nz(opts.radius_sun, (b.radius / 0.00465047) if b.radius > 0.0 else 1.0))
-		mat.set_shader_parameter("uGranScale", StarVisual._structure("granule_frequency",
-			[teff, rad_sun, b.mass], StarVisual._granule_frequency))
+		mat.set_shader_parameter("uGranScale", Structure.granule_frequency(teff, rad_sun, b.mass))
 		# Disc brightness from Stefan–Boltzmann (0.15 to 200 across the sim's stars), carried
 		# in HDR and rolled off once.
-		mat.set_shader_parameter("uGain", StarVisual._structure("surface_brightness",
-			[teff], StarVisual._surface_brightness))
+		mat.set_shader_parameter("uGain", Structure.surface_brightness(teff))
 		core = MeshInstance3D.new()
 		core.name = "Photosphere"
 		core.mesh = StarVisual._sphere(R, 64, 48)
@@ -201,6 +162,7 @@ class StarViz:
 		corona.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		corona_mat.render_priority = -1
 		group.add_child(corona)
+		refresh_rotation()
 
 		# Prominence pool, two arcades per concurrent flare (sim/prominence.gd): the erupting
 		# flux rope, which rises and fades, and the post-flare arcade, which stays, grows and

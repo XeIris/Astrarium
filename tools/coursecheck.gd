@@ -1,21 +1,8 @@
 extends Node
 
-# COURSE WALK, the education mode's regression check: runs the real orchestrator,
-# opens every lesson, steps through every step with frames at each, and reports
-# errors, empty scenarios, missing focus bodies (a wrong name fails silently), and
-# cameras inside their subject.
-#
+# COURSE WALK, the education mode's regression check: runs the real orchestrator,. See README.md for verification usage.
 #   Godot --path . --resolution 1280x720 res://tools/coursecheck.tscn -- \
 #         [report=/abs/report.json] [only=<module>/<lesson>,...] [selftest=1]
-#
-# `selftest=1` plants a script error, a push_error and a push_warning in the first
-# step plus an unknown directive, and must report 3 errors, 1 warning. Prints
-# one line per problem, optionally writes JSON, and exits 1 on errors.
-#
-# GDScript runtime errors print rather than throw, so a Logger (OS.add_logger)
-# catches script, shader and engine errors and attributes them to the running step.
-# Controls resolve through hud.get_el, as the stage does. Each step runs
-# main.animate(dt) and then two real frames, so a shader that fails to compile shows.
 
 class Catch extends Logger:
 	var mutex := Mutex.new()
@@ -131,6 +118,12 @@ func _check(where: String, step: Dictionary) -> void:
 	for key in d:
 		if not LessonUI.DO_KEYS.has(key):
 			report.errors.append("%s: unknown directive \"%s\"" % [where, key])
+	if d.has("cam"):
+		var camera_error := OrreryCamera.request_error(d.cam)
+		if not camera_error.is_empty(): report.errors.append("%s: %s" % [where, camera_error])
+	if d.has("sky"):
+		var sky_error := SkyModel.request_error(d.sky)
+		if not sky_error.is_empty(): report.errors.append("%s: %s" % [where, sky_error])
 	if d.get("preset") and state.preset_key != d.preset:
 		report.errors.append("%s: asked for scenario \"%s\", got \"%s\"" % [where, d.preset, state.preset_key])
 	if d.get("focus"):

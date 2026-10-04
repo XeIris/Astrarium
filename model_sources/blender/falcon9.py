@@ -12,13 +12,15 @@ from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, dish, disc, empty,
                  finish, smooth, strut, bell, ball, ogive, grid_fin,
                  landing_leg, solar_array, stripe, rcs_ring, TAU)
-from common import build, stage, hinge, ring_radius
+from common import build, stage, hinge, ring_radius, vehicle_stages
 
-S1_L, S1_D = 41.2, 3.66
-S1_IS = 4.0                        # interstage, black composite
-S2_L, S2_D = 13.8, 3.66
-FR_L, FR_D = 13.1, 5.2
-PL_L, PL_D = 5.0, 3.4
+S = vehicle_stages("falcon9")
+
+S1_L, S1_D = S["f9s1"]["L"], S["f9s1"]["D"]
+S1_IS = S["f9s1"]["look"]["interstage"]                        # interstage, black composite
+S2_L, S2_D = S["f9s2"]["L"], S["f9s2"]["D"]
+FR_L, FR_D = S["f9fair"]["L"], S["f9fair"]["D"]
+PL_L, PL_D = S["f9pl"]["L"], S["f9pl"]["D"]
 
 
 # STAGE 1
@@ -51,15 +53,15 @@ def build_s1(M, root):
 
     # ---- nine Merlins, eight around one (the centre one lands the stage). The ring
     # clears the centre engine and its neighbours (a naive 1.11 m ring overlaps by 0.07 m).
-    spread = max(S1_D * 0.30, ring_radius(8, 0.92, centre=True))
+    spread = max(S1_D * 0.30, ring_radius(S["f9s1"]["count"] - 1, S["f9s1"]["engine"]["exitD"], centre=True))
     def place(i, x, y):
         piv = empty(f'gimbal_f9s1_{i}', (x, y, -0.02), g)
-        b = bell(f'merlin{i}', 0.92, M['nozzle'], ratio=16, seg=20, parent=piv)
+        b = bell(f'merlin{i}', S['f9s1']['engine']['exitD'], M['nozzle'], ratio=16, seg=20, parent=piv)
         finish(b, 0.006, 2, 50)
         return piv
     place(0, 0, 0)
-    for i in range(8):
-        a = i / 8 * TAU + 0.39
+    for i in range(S["f9s1"]["count"] - 1):
+        a = i / (S["f9s1"]["count"] - 1) * TAU + 0.39
         place(i + 1, cos(a) * spread, sin(a) * spread)
     # The thrust structure the bells hang out of.
     ts = cyl('thruststruct', r * 0.80, r * 0.92, S1_D * 0.13, S1_D * 0.21,
@@ -144,7 +146,7 @@ def build_s2(M, root):
     # ---- MVac: a 3.3 m niobium extension on a 0.92 m Merlin, glowing cherry red in
     # flight, so the skirt is its own material.
     piv = empty('gimbal_f9s2_0', (0, 0, -0.02), g)
-    b = bell('mvac', 3.30, M['nozzle'], ratio=165, seg=32, parent=piv)
+    b = bell('mvac', S['f9s2']['engine']['exitD'], M['nozzle'], ratio=165, seg=32, parent=piv)
     finish(b, 0.010, 2, 50)
     ext = cyl('mvac_ext', 1.30, 1.65, -4.0, -2.2, M['hot'], seg=32, parent=piv)
     smooth(ext, 30)

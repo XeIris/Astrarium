@@ -40,7 +40,7 @@ class Diagram extends RefCounted:
 		W = float(opts.get("width", 340.0))
 		H = float(opts.get("height", 260.0))
 
-		# ---- the main sequence, sampled over mass at f = 0.5 (today's Sun, where most
+		# the main sequence, sampled over mass at f = 0.5 (today's Sun, where most
 		# observed stars sit).
 		var lm := U.log10(0.08)
 		while lm <= U.log10(80.0):
@@ -50,13 +50,13 @@ class Diagram extends RefCounted:
 			if s.get("type") != "star" or not (float(U.nz(s.get("luminosity"), 0.0)) > 0.0): continue
 			MS.append({"m": m, "teff": s.teff, "L": s.luminosity})
 
-		# ---- two evolutionary tracks, the same function walked over the phases.
+		# two evolutionary tracks, the same function walked over the phases.
 		TRACKS = [
 			{"mass": 1, "color": Color(1.0, 190 / 255.0, 120 / 255.0, 0.75), "pts": _track(1.0)},
 			{"mass": 8, "color": Color(160 / 255.0, 200 / 255.0, 1.0, 0.7), "pts": _track(8.0)},
 		]
 
-		# ---- white dwarf cooling: constant radius, sliding down and right as it cools.
+		# white dwarf cooling: constant radius, sliding down and right as it cools.
 		for M in [0.6]:
 			var R := Structure.white_dwarf_radius_sun(M)
 			var T := 40000.0
@@ -102,7 +102,7 @@ class Diagram extends RefCounted:
 		Canvas2D.begin(canvas, W)
 		var fs := 9.0
 
-		# ---- frame and the luminosity decades
+		# frame and the luminosity decades
 		Canvas2D.stroke_rect(canvas, PAD.l + 0.5, PAD.t + 0.5, W - PAD.l - PAD.r - 1.0, H - PAD.t - PAD.b - 1.0,
 			Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.18), 1.0)
 		var e := -4
@@ -112,7 +112,7 @@ class Diagram extends RefCounted:
 				Canvas2D.line(canvas, PAD.l, y, W - PAD.r, y, Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.07), 1.0)
 				Canvas2D.fill_text(canvas, "10" + HRDiagram.sup(e), PAD.l - 4.0, y + 3.0, fs, Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.55), "right")
 			e += 2
-		# ---- spectral classes across the top, at their own boundaries
+		# spectral classes across the top, at their own boundaries
 		for i in CLASSES.size():
 			var cname: String = CLASSES[i][0]
 			var t_lo: float = CLASSES[i][1]
@@ -122,19 +122,19 @@ class Diagram extends RefCounted:
 			Canvas2D.line(canvas, x1, PAD.t, x1, H - PAD.b, Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.10), 1.0)
 			Canvas2D.fill_text(canvas, cname, (x0 + x1) / 2.0, PAD.t - 5.0, fs, Color(190 / 255.0, 205 / 255.0, 230 / 255.0, 0.6), "center")
 
-		# ---- the sequences
+		# the sequences
 		_poly(MS, Color(1, 1, 1, 0.55), 2.2)
 		_poly(WD, Color(190 / 255.0, 215 / 255.0, 1.0, 0.6), 1.6, [3.0, 3.0])
 		for t in TRACKS: _poly(t.pts, t.color, 1.2, [2.0, 3.0])
 
-		# ---- named regions, placed where the curves actually put them
+		# named regions, placed where the curves actually put them
 		var rc := Color(190 / 255.0, 205 / 255.0, 230 / 255.0, 0.5)
 		_label("main sequence", 9000.0, 10.0, -18.0, 8.0, rc)
 		_label("giants", 4200.0, 300.0, 6.0, 0.0, rc)
 		_label("supergiants", 6000.0, 1e5, 0.0, 0.0, rc)
 		_label("white dwarfs", 14000.0, 5e-3, 6.0, 10.0, rc)
 
-		# ---- the live stars in the scene
+		# the live stars in the scene
 		for b in bodies:
 			if b.teff == null or b.luminosity == null: continue
 			if not (float(b.teff) > 0.0) or not (float(b.luminosity) > 0.0): continue

@@ -1,17 +1,9 @@
 class_name Cutaway
 extends HudCanvas
 
-# THE 3D CUTAWAY: the interior model as an object, so the core reads as a sphere
-# inside shells. Each layer is a double-sided sphere at its own radius, and two
-# clipping planes (intersection) remove one octant pair, so the notch shows the far
-# inner wall of every shell for free. StandardMaterial3D has no clip planes, so
-# shells use shaders/ui/cutaway_layer.gdshader (Lambert + GGX plus the discard).
-#
-# Its own SubViewport with its own World3D, camera and lights, drawn into this
-# canvas's content box. Linear tonemapper at unity (clamp, sRGB). Light intensities are /π,
-# as in modelviewer.gd. Radii are real: a red giant's core is a dot, and that is the
-# lesson. Full width over a 320 × 210 bitmap's aspect, rendered at laid-out size ×
-# display scale (capped at 2).
+# Double-sided interior shells clipped into an octant cutaway.
+# Its isolated viewport uses local coordinates and scales with the HUD.
+# Light energies compensate the Lambert normalization; see docs/godot.md.
 
 const LAYER_SHADER := preload("res://shaders/ui/cutaway_layer.gdshader")
 const LAYER_ALPHA_SHADER := preload("res://shaders/ui/cutaway_layer_alpha.gdshader")
@@ -116,7 +108,7 @@ func clear() -> void:
 		root3d.remove_child(c)
 		c.queue_free()
 
-# ---- build from a structure
+# build from a structure
 func show_structure(st: Dictionary) -> void:
 	clear()
 	current = st
@@ -157,7 +149,7 @@ func show_structure(st: Dictionary) -> void:
 	if not (f > 0.0): f = 0.0
 	root3d.scale = Vector3(1.0, 1.0 - f, 1.0)
 
-## THREE.SphereGeometry(r, 64, 40), vertex for vertex: SphereMesh's grid differs,
+## UV sphere mesh at 64 × 40 samples: SphereMesh's grid differs,
 ## which a wireframe shell would show. (w+1) × (h+1) vertices, seam and poles
 ## duplicated, degenerate pole triangles skipped, normal = position / r, each
 ## triangle reversed for Godot's CW front faces (cull_disabled still flips normals by
@@ -206,8 +198,8 @@ static func _sphere(r: float, mat: Material) -> Mesh:
 	m.surface_set_material(0, mat)
 	return m
 
-## The same sphere drawn `wireframe: true`: three turns each triangle (a, b, c)
-## into the three lines ab, bc, ca (shared edges are drawn twice, as there).
+## The same sphere drawn `wireframe: true`: each triangle is expanded (a, b, c)
+## into the three lines ab, bc, ca (shared edges are drawn twice).
 static func _wire_sphere(r: float, mat: Material) -> Mesh:
 	var g := _three_sphere(r)
 	var idx: PackedInt32Array = g.tris

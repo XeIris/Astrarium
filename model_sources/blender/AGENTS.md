@@ -2,6 +2,10 @@
 
 The script is the model; nothing is clicked. `build.sh` builds the `.glb`
 artifacts (gitignored); pass names to build fewer (`build.sh shuttle pad_fss`).
+Vehicle dimensions and rig counts come from a Godot export of
+`sim/flight/vehicles.gd` through `tools/craftspec.gd`, consumed by
+`vehicle_data.py`. Use `build.sh` so it imports the project and supplies that
+catalogue; do not restore independent physical constants in model scripts.
 Vehicle builds write directly to `assets/craft/`; pads write to `assets/pads/`.
 `tools/sync_assets.sh /external/artifact/directory` can copy separately built
 vehicles into `assets/craft/`. Its default confirms the local build without
@@ -18,7 +22,9 @@ The procedural builds in `sim/flight/craftmodel.gd` are the fallback when a
 are preloaded into a cache with `preload_craft(id)`, or settled with
 `craft_models_ready([id])` before an audit. Authored and fallback height/datums
 must match in stowed and deployed poses; run `crafttest -- parity` with all nine
-models. This gate does not establish full silhouette or material parity.
+models. This gate does not establish full silhouette or material parity. Decorative
+shape differences remain explicit; `assetcheck` checks metadata-driven part
+counts, authority and actual articulation for both build paths.
 
 ## Axes and datum
 

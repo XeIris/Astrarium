@@ -127,7 +127,7 @@ static func field_line_geometry(R: float, r0: float, segments: int = 48) -> Arra
 	if pts.size() < 2: return null
 	return _tube(pts, 40, R * 0.010, 5)
 
-# THREE.ConeGeometry(open, len, 40, 24, openEnded), shifted and flipped: apex at the
+# Open cone mesh, shifted and flipped: apex at the
 # star, mouth at +len. Positions only.
 static func _beam_cone(open: float, length: float, radial: int = 40, rows: int = 24) -> ArrayMesh:
 	var verts := PackedVector3Array()

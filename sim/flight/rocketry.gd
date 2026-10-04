@@ -1,19 +1,10 @@
 class_name Rocketry
 extends RefCounted
 
-# ROCKETRY: propulsion, atmosphere, aerodynamics and flight environment, in SI
-# (vessel.gd is the only bridge to AU). The bridge is exact: G = 4π² AU³/M☉/yr² is
-# GM☉ = 1.32712440018e20 m³/s², re-expressed.
-#   · Thrust ṁ·g₀·Isp(p_a), Isp linear in ambient pressure between the measured
-#     sea-level and vacuum values (the A_e(p_e − p_a) term is linear in p_a).
-#   · Exponential atmospheres; Earth's troposphere is a lapse-rate layer so max-Q
-#     lands at 11–13 km.
-#   · A transonic drag curve, which makes max-Q a sharp event.
-#   · Sutton–Graves stagnation heating, q̇ ∝ √(ρ/R_n)·v³.
-# Plain data (atmospheres, engines, outputs, flight environments) are Dictionaries
-# with camelCase keys, read by name.
+# SI propulsion, aerodynamic and atmosphere models; derived outputs use the
+# vehicle catalogue. Source record: web/docs/spaceflight-research.md.
 
-# ---- defined constants ------------------------------------------------------
+# defined constants
 const G0 := 9.80665                 # m/s² — DEFINED, not local gravity
 const C_MS := 299792458.0           # m/s — defined
 const AU_M := 1.495978707e11        # m — defined

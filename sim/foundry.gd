@@ -150,6 +150,8 @@ class Verdict extends PanelContainer:
 ## The derived-quantities grid: name and value per cell, two columns.
 class Facts extends HudGrid:
 	var _sig := ""
+	var _names: Array = []
+	var _values: Array = []
 	func _init() -> void:
 		super([1.0, 1.0], 10.0, 4.0)
 		Hud.m(self, 0.0, 10.0)
@@ -157,6 +159,12 @@ class Facts extends HudGrid:
 		var sig := var_to_str(facts)
 		if sig == _sig: return
 		_sig = sig
+		var names := facts.map(func(kv): return kv[0])
+		if names == _names and _values.size() == facts.size():
+			for i in facts.size(): _values[i].say(str(facts[i][1]))
+			return
+		_names = names
+		_values.clear()
 		Hud._clear(self)
 		for kv in facts:
 			var cell := Hud.hbox(self, 6.0)
@@ -167,6 +175,7 @@ class Facts extends HudGrid:
 			v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 			T.unhang(v)
+			_values.append(v)
 
 ## The layer notes: each layer's name and what is known about it.
 class Notes extends HudStack:

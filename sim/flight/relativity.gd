@@ -1,21 +1,9 @@
 class_name Relativity
 extends RefCounted
 
-# RELATIVISTIC CRUISE: its own exact integrator, since between stars the motion is
-# one-dimensional with no gravity to speak of. At constant proper acceleration a
-# and proper time τ:
-#     v(τ) = c·tanh(aτ/c)          γ(τ) = cosh(aτ/c)
-#     t(τ) = (c/a)·sinh(aτ/c)      d(τ) = (c²/a)·(cosh(aτ/c) − 1)
-# Everything works in rapidity φ = aτ/c, which adds linearly; the rocket equation is
-# Δφ = (v_e/c)·ln(m₀/m₁).
-#
-# Profiles: flip-and-burn is fastest; without the Δv for it, burn to what the tanks
-# allow, coast, and turn over. `solve_profile` finds the coast. For the Hail Mary,
-# ln(21) = 3.05 isn't enough to flip-and-burn 11.9 ly but is enough to coast,
-# arriving in 13.9 Earth years (the book's figure).
-#
-# `Relativity.Cruise.new({...})`; beta, gamma and remaining are properties. Positions
-# are DVec3 in AU: the Cruise lives in the orrery's frame, with no parent body.
+# One-dimensional constant-proper-acceleration cruise without gravity.
+# Rapidity adds across burns; proper and coordinate time remain separate.
+# Cruise positions are DVec3 in orrery AU; equations: docs/physics/flight.md.
 
 const LY_M := 9.4607304725808e15            # light year, metres (exact by definition of c)
 const LY_AU := LY_M / Rocketry.AU_M          # 63241.077 AU — the same number as physics.gd's C

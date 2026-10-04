@@ -1,19 +1,7 @@
 extends Node
 
-# CONTACT SHEET — every vehicle in one frame, each in its own viewport, all at
-# the same light and the same fraction of its own height. The Godot
-# counterpart of .claude/craftsheet.html. One image is the only way to judge
-# whether the SET looks like it belongs together, which is a different
-# question from whether any one of them is right.
-#
+# CONTACT SHEET. See README.md for verification usage.
 #   Godot --path . res://tools/craftsheet.tscn -- out=/abs.png
-#     v=saturnv,falcon9,...   vehicles (default saturnv,falcon9,shuttle,skycrane,hailmary)
-#     cols=<n>                columns (default min(count, 5))
-#     cw=, ch=                cell size (default 340×560)
-#     assets=0                procedural fallback
-#
-# Each cell is tone mapped exactly as crafttest.gd's frame is (three's
-# ACESFilmic, background composited after the curve); see make_frame() there.
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 const CT := preload("res://tools/crafttest.gd")

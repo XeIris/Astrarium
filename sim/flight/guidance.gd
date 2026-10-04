@@ -1,18 +1,8 @@
 class_name Guidance
 extends RefCounted
 
-# The autopilot and the attitude references it steers to. Every program is a
-# closed loop on the vessel's own state.
-#   ascent     vertical rise, pitch program, then explicit guidance to a low cutoff
-#   node       ignite at T − t_burn/2; cut off when the remaining Δv along the node
-#              goes negative, never on elapsed time
-#   descent    Apollo's quadratic law, a = 6·Δr/t_go² − 2·Δv/t_go with
-#              Δr = r_T − r − v·t_go (the minimum-∫a² solution P63/P64 compute), plus g
-#   hoverslam  h_burn = v²/(2·(F/m − g)); minimum throttle has TWR > 1, so no hovering
-# The scratch vectors are static and shared, and several functions return one
-# (attitude_for → _a, descent_law → _e): clone a result you keep. Nodes are compared
-# by identity (is_same). engage() sets each camelCase key of `opts` on the
-# snake_case member.
+# Closed-loop guidance consumes current vessel state, with shared throttle and
+# attitude limits. Preserve actual coast, staging and landing gates; see AGENTS.md.
 
 static var _a := DVec3.new()
 static var _b := DVec3.new()
@@ -192,10 +182,10 @@ class Autopilot extends RefCounted:
 		var a_thrust := full_thrust(pa) / maxf(v.mass, 1.0)
 		var g_loc: float = env.mu / v.r.length_sq()
 
-		# ---- throttle: the shared limiter
+		# throttle: the shared limiter
 		v.throttle = limit_throttle(1.0, pa, dt)
 
-		# ---- phase 1: vertical rise, until the fins and gimbal have authority.
+		# phase 1: vertical rise, until the fins and gimbal have authority.
 		if v_surf < A.pitchStart and alt < 2500.0:
 			v.throttle = 1.0; last_throttle = 1.0
 			state_name = "vertical"
@@ -204,7 +194,7 @@ class Autopilot extends RefCounted:
 			_pitch_cmd = PI / 2.0; _pitch_met = v.met
 			return Guidance._a.copy_from(Guidance._up)
 
-		# ---- phase 2: pitch θ = 90°·v₀/(v₀ + v − v_start), clamped within α_max of the
+		# phase 2: pitch θ = 90°·v₀/(v₀ + v − v_start), clamped within α_max of the
 		# velocity vector (α_max from the airframe's q·α limit), so thick air flies a
 		# gravity turn. Saturn V stages at 62 km / 2.45 km/s / 19° (AS-506: 67 / 2.4 / 21°).
 		if t.q > 1200.0 or alt < 42000.0:
@@ -223,7 +213,7 @@ class Autopilot extends RefCounted:
 			var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
 			return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 
-		# ---- phase 3: explicit guidance, out of the air.
+		# phase 3: explicit guidance, out of the air.
 		state_name = "closed"
 		var el: Dictionary = t.el
 		var apo_alt: float = el.ra - env.radius

@@ -1,24 +1,8 @@
 extends SceneTree
 
-# FLIGHT CHECK — the GDScript port of the spaceflight model, flown headlessly
-# through exactly the scenarios tools/flightref.mjs flies in Node, so the two
-# result files can be diffed number by number.
-#
+# FLIGHT CHECK. See README.md for verification usage.
 #   Godot --headless --path . --script res://tools/flightcheck.gd -- out=/abs/gd.json
 #   node tools/flightref.mjs --compare js.json gd.json
-#
-# Options (after `--`):  out=<path>   only=<id,id>   bench=1   (RK4 timing)
-#
-# Everything the scenarios need comes from tools/fixtures/flight_fixture.json,
-# written by flightref.mjs: the solar-system bodies (frozen) and each scenario's
-# parameters, with every double carried as its exact IEEE-754 bits so the two
-# runners start from the same state to the last place.
-#
-# The driver below is spaceflight.js's — begin(), the terminal count, setWarp's
-# interlock, update()'s sub-stepping and the cruise block — transcribed line for
-# line from the same lines flightref.mjs transcribes. It is NOT the Godot port of
-# spaceflight.js (that is a separate module with rendering in it); it is the
-# minimum that drives a Vessel the way the page does.
 
 const WARPS := [1, 2, 5, 10, 50, 100, 1000, 10000, 100000, 1000000]
 const EARTH_PADS := {

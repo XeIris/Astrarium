@@ -1,33 +1,11 @@
 class_name PlanetMaps
 extends RefCounted
 
-# PLANET MAPS — mission imagery for the three bodies we have it for.
-# These are offline copies of mission maps (assets/planet-maps/, credits in
-# the README there), not network dependencies at run time. Only real Solar
-# System bodies use them; invented worlds keep terrain(). The maps supply
-# colour and mapped features; the simulator supplies lighting, atmosphere,
-# clouds and the extreme-climate overlays (shaders/bodies/rocky_surface
-# .gdshader reads them through uMapKind / uColorMap / uLandMask).
-#
-#   kind 1  Earth: a colour composite AND a land/water mask, because the sea
-#           is still a sea — it glints, and it can boil away.
-#   kind 2  a dry mission mosaic (Mars, the Moon): colour only, scaled by
-#           `scale` into an albedo.
-#
-# All three colour maps have north at the top, 0° longitude in the middle and
-# cover 360° × 180°, which is exactly the UV layout of the THREE-compatible
-# sphere in RockyVisual.sphere_geometry (0° longitude at +X).
-#
-# The API (the flight view's ground patch uses it too):
-#   PlanetMaps.load_planet_map(name, ready: Callable) -> bool
-#     false  → no map for this body (or it failed to load): use terrain().
-#     true   → ready({color, mask, kind, scale}) is called once the textures
-#              are resident — immediately if they already are, otherwise on
-#              the main thread a frame or two later.
-# Loads are THREADED (ResourceLoader.load_threaded_request, polled from the
-# SceneTree's process_frame), because a 4096×2048 map decoded synchronously is
-# a visible hitch the moment Earth spawns. `synchronous = true` makes every load
-# blocking, for harnesses that need the map in the first frame.
+# Offline mission maps; sources and projection: assets/planet-maps/README.md.
+# Earth carries colour and a land mask; Mars/Moon carry colour-only albedo.
+# load_planet_map returns false on absence/failure, otherwise calls ready once
+# on the main thread, immediately if cached or after threaded decoding.
+# The synchronous option is for deterministic harness startup.
 
 const DIR := "res://assets/planet-maps/"
 

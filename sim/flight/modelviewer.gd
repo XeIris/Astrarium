@@ -1,21 +1,9 @@
 class_name ModelViewer
 extends RefCounted
 
-# THE MODEL VIEWER: a studio (neutral ground, three-point light, turntable) for
-# what flight can't show:
-#   HOW BIG IS IT?      a 1.75 m figure at the base and a 10 m rule up the side
-#   WHAT IS IT MADE OF? the stack pulled apart along its axis
-#   WHAT MOVES?         legs, fins, arrays and gimbals, driven by the same update()
-# Lighting is photographic: key 35° up and left, fill at a quarter opposite, rim
-# behind.
-#
-# Everything is under pipe.model_root, drawn by pipe.model_cam in pipe.model_vp
-# through render/postfx.gd; the orchestrator sets Mode.MODEL. neutral_env() turns
-# ambient off, so the studio lights itself, with energies divided by π (measured,
-# see tools/crafttest.gd add_rig()). The hemisphere light is ambient plus two
-# diffuse-only directionals on ±Y, one negative:
-# mix(ground, sky, ½ + ½ n·y) = (sky+ground)/2 + (sky−ground)/2 · n·y.
-# The studio is metres across, so no floating origin.
+# Metre-scale craft studio in pipe.model_vp; its camera is local.
+# Lights compensate Lambert's π normalization; see docs/godot.md.
+# Craft articulation uses the same update path as flight.
 
 const CM := preload("res://sim/flight/craftmodel.gd")
 
@@ -114,7 +102,7 @@ static func _lin3(hex: int) -> Vector3:
 	var c := U.lin(hex)
 	return Vector3(c.r, c.g, c.b)
 
-## THREE.HemisphereLight(sky, ground, intensity), exactly, for diffuse — see
+## Hemispherical diffuse light — see
 ## the header.
 func _hemisphere(sky_hex: int, ground_hex: int, intensity: float) -> void:
 	var sky := U.lin(sky_hex); var gnd := U.lin(ground_hex)
@@ -123,7 +111,7 @@ func _hemisphere(sky_hex: int, ground_hex: int, intensity: float) -> void:
 	var env := pipe.env_model
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	var am := maxf(maxf(avg.r, avg.g), maxf(avg.b, 1e-6))
-	# Environment colours are sRGB and converted, like three's hex; these are
+	# Environment colours are sRGB and converted, like sRGB hex; these are
 	# linear sums, so they go back through linear_to_srgb first.
 	env.ambient_light_color = Color(avg.r / am, avg.g / am, avg.b / am).linear_to_srgb()
 	env.ambient_light_energy = am * intensity / PI

@@ -12,10 +12,12 @@ import math
 from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, disc, empty, finish,
                  smooth, strut, bell, ogive, grid_fin, rcs_ring, TAU)
-from common import build, stage, hinge
+from common import build, stage, hinge, vehicle_stages
 
-SH_L, D = 71.0, 9.0
-SS_L = 52.0
+S = vehicle_stages("starship")
+
+SH_L, D = S["sh"]["L"], S["sh"]["D"]
+SS_L = S["ss"]["L"]
 R = D / 2
 RING = 1.83                        # weld-ring pitch: the coil width, not a guess
 
@@ -25,8 +27,8 @@ RING = 1.83                        # weld-ring pitch: the coil width, not a gues
 # want a 4.16 m ring inside a 4.50 m radius, so the drawn bell shrinks.
 K1, K2, K3 = 0.90, 2.05, 3.45          # ring radii, in exit diameters
 R_MAX = R * 0.95                       # the outermost bell edge, inside the skirt
-RAPTOR_D = min(1.30, R_MAX / (K3 + 0.5))
-RVAC_D = 2.40                          # vacuum Raptor: nearly twice over
+RAPTOR_D = min(S["sh"]["engine"]["exitD"], R_MAX / (K3 + 0.5))
+RVAC_D = S["ss"]["vacEngine"]["exitD"]                          # vacuum Raptor: nearly twice over
 SH_RINGS = ((3, K1 * RAPTOR_D, 0.0, False),
             (10, K2 * RAPTOR_D, pi / 10, False),
             (20, K3 * RAPTOR_D, pi / 20, True))

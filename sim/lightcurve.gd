@@ -1,19 +1,9 @@
 class_name LightCurve
 extends RefCounted
 
-# PHOTOMETER: the two numbers a telescope actually gets, measured from the running
-# sim at the camera's direction each frame.
-#   FLUX: every star's luminosity minus what is blocked, with linear limb darkening
-#     I(μ)/I(0) = 1 − u(1 − μ),  u ≈ 0.6 for a solar-type star,
-#   integrated by sampling the occulter's disc (honest for any law).
-#   RADIAL VELOCITY: the star's velocity along the line of sight, straight from the
-#   integrator (127 m/s for a hot Jupiter, 9 cm/s for an Earth), so it agrees with
-#   the transit.
-# The observer is the camera's direction, at infinity: a transit needs the orbit
-# edge-on to it (R☉/a = 0.47% for an Earth round a Sun), so climbing out of the plane
-# makes the dips disappear.
-#
-# DVec3 throughout. The chart is drawn at 340 × 210 and scaled to the card's width.
+# Live luminosity and line-of-sight velocity for a distant observer.
+# Occultation samples the disc with linear limb darkening; viewing direction
+# controls whether transits occur. Physics vectors remain double.
 
 const AU_PER_YR_TO_MS := 1.495978707e11 / 3.15576e7   # 4740.57 m/s
 

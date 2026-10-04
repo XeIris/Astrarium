@@ -1,25 +1,10 @@
 class_name Vessel
 extends RefCounted
 
-# THE VESSEL: state, forces, staging, structure and clocks, in SI, in a frame
-# centred on the parent body with axes parallel to the orrery's. This file is the
-# AU↔SI boundary: the only place Body.pos / Body.vel become metres.
-#
-# The frame accelerates with the parent, so gravity carries one extra term:
-#     a = Σᵢ GMᵢ (Rᵢ − R_v)/|Rᵢ − R_v|³  −  Σᵢ≠p GMᵢ (Rᵢ − R_p)/|Rᵢ − R_p|³
-# The parent's pull stays whole and every other body's becomes a tidal difference
-# (LEO feels the Moon, not the Sun's 6e-3 m/s²).
-#
-# Attitude: body +Y is the thrust axis. The controller is the time-optimal
-# rest-to-rest slew, ω_des = sign(e)·min(k|e|, √(2α|e|)), with α from the real
-# gimbal deflection and RCS authority.
-#
-# Vectors are DVec3 and attitude a DQuat (float32 is 0.4 m at planet radius).
-# DQuat.nrm / set_len / angle_between reproduce three.js's arithmetic, since
-# trajectories are diffed against flightref.mjs. The scratch vectors are static
-# and shared, and callers pass them in as `dir`/`out` on purpose. `log_event`, not
-# `log` (that would shadow the math function). Telemetry is a Dictionary with
-# camelCase keys, read by name by the HUD.
+# SI dynamics in an accelerating parent-centred frame; other bodies contribute
+# tidal differences rather than their full absolute pull. Attitude is DQuat,
+# position/velocity are DVec3. Coordinate and proper clocks remain distinct.
+# Model and integration contracts: sim/flight/AGENTS.md and docs/physics/flight.md.
 
 const PHASE := {
 	"PRELAUNCH": "prelaunch", "ASCENT": "ascent", "COAST": "coast", "ORBIT": "orbit",
@@ -123,7 +108,7 @@ var vehicle_key: String = ""        # set by spaceflight
 var stages: Array = []              # of StageState
 var stage_index: int = 0            # the lowest still-attached stage
 
-# ---- kinematics (SI, parent-centred)
+# kinematics (SI, parent-centred)
 var r := DVec3.new()
 var v := DVec3.new()
 var q := DQuat.new()
@@ -136,7 +121,7 @@ var _holding := false
 var throttle: float = 0.0
 var rcs_on: bool = true
 
-# ---- clocks. `met` is proper time, `coord` coordinate time; `clock_delta` is the
+# clocks. `met` is proper time, `coord` coordinate time; `clock_delta` is the
 # difference against a clock on the parent's surface at the launch site (GPS:
 # +38.7 µs/day in LEO; years at 0.99c).
 var met: float = 0.0
@@ -145,7 +130,7 @@ var clock_delta: float = 0.0
 var time_rate: float = 1.0
 var step_guard_hit := false
 
-# ---- telemetry / records
+# telemetry / records
 var max_q: float = 0.0
 var max_q_t: float = 0.0            # T+ (s after liftoff), altitude and Mach of the max-Q
 var max_q_alt: float = 0.0
@@ -166,7 +151,7 @@ var stage_events: int = 0
 var landed_at = null                # {met, vVert, vHoriz} or null
 var t0: float = 0.0                 # MET of liftoff
 
-# ---- frame
+# frame
 var parent: Body = null
 var env = null                      # Rocketry.flight_env(parent) Dictionary
 var bodies: Array = []              # of Body
@@ -371,12 +356,12 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 	var h := altitude(rr)
 	var pa := Rocketry.pressure(atm, h) if atm != null else 0.0
 
-	# ---- thrust
+	# thrust
 	var prop := propulsion(pa)
 	var m := maxf(mass, 1.0)
 	if prop.F > 0.0: out.add_scaled_in(forward(_e), prop.F / m)
 
-	# ---- aerodynamics
+	# aerodynamics
 	var qd := 0.0
 	var mach := 0.0
 	var drag := 0.0
@@ -810,7 +795,7 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 			check_soi()
 			return dt
 
-	# ---- RK4, with the substep bounded by how fast the state is changing.
+	# RK4, with the substep bounded by how fast the state is changing.
 	var remaining := dt
 	var elapsed := 0.0
 	var guard := 0

@@ -1,23 +1,7 @@
 extends Harness
-# ISOLATED SKY VIEWER, the Godot counterpart of web/.claude/skytest.html: the sky
-# alone through the full post chain with an exactly aimed camera.
-#
-#   keys   1-7 band   e environment   arrows aim   z/x zoom
-#
+# ISOLATED SKY VIEWER, the Godot counterpart of web/.claude/skytest.html: the sky. See README.md for verification usage.
 #   Godot --path . res://tools/skytest.tscn -- out=/abs/x.png \
 #         band=3 env=disc yaw=0 pitch=0 fov=50 tilt=0 roll=0 w=1280 h=720
-#
-# yaw/pitch in radians, fov in degrees; the galactic frame is { tilt: 0, roll: 0 }
-# unless given. `env` takes a name or a comma list (weight 1 each). `beta=x,y,z`
-# sets the observer's boost (v/c).
-#
-# SURFACE MODE (`surface=/abs/state.json`): sim/skyview.gd's atmosphere over this
-# sky, from a web state dump (tools/ref/sky/README.md): the home world's scene
-# position, radius, spin phase and group quaternion; the suns; the observer's
-# latitude, azimuth, elevation and fov; exposure, climate and sky spec. The
-# stand-in is a Body plus a Node3D "group" with that quaternion (what
-# SurfaceObserver reads); the world itself isn't drawn. The observer frame is
-# printed beside the web's.
 
 var yaw := 0.0
 var pitch := 0.0

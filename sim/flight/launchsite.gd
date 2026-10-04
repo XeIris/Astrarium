@@ -1,27 +1,9 @@
 class_name LaunchSite
 extends RefCounted
 
-# The launch complex at real dimensions. The tower is the one object of known
-# height next to a climbing vehicle; without it the first seconds read as a
-# vehicle sitting still.
-#
-#   LC-39A hardstand   390 × 325 m octagon, raised 12.8 m above grade
-#   flame trench       137 m long, 18 m wide, 12.2 m deep, wedge deflector
-#   Mobile Launcher    49.4 × 41.1 m, 7.6 m deep, one 13.7 m square opening
-#   LUT (Saturn V)     115.8 m to the crane, 12 m square, nine swing arms
-#   FSS (Shuttle)      75.3 m, vent arm and "beanie cap", rotating service structure
-#   Falcon 9 TE        ~63 m strongback, retracts at T−4 min, falls back at liftoff
-#   Starship tower     146 m, two catch arms
-#   lightning masts    three on a catenary (181 m at 39B)
-#   water tower        88 m, 1.135 Ml for the sound-suppression deluge
-#
-# Swing arms carry live umbilicals and retract on ignition; the deluge starts
-# before ignition to damp acoustic energy.
-#
-# The four Earth pads load authored meshes from assets/pads/, falling back to the
-# geometry here, built with CraftModel's three-exact primitives (CCW, swapped once
-# in _to_mesh). The deluge is a PRIMITIVE_POINTS mesh rebuilt each frame
-# (steam.gdshader). Euler order is XYZ.
+# Authored launch complexes with procedural fallback in metres.
+# Measured skin envelopes define vehicle clearances; motion includes umbilicals,
+# strongbacks and deluge. See model_sources/blender/AGENTS.md.
 
 static var _mats := {}
 ## Diagnostic switch for checking that a fresh clone still renders its pads.
@@ -171,7 +153,7 @@ static func pipe_between(a: Vector3, b: Vector3, radius: float, m: Material) -> 
 	p.basis = Basis(Quaternion(Vector3.UP, d.normalized()))
 	return p
 
-## THREE.RingGeometry(inner, outer, thetaSegments, 1), in XY facing +Z.
+## Annulus with one radial segment, in XY facing +Z.
 static func _ring(inner: float, outer: float, seg: int) -> CraftModel.Geo:
 	var g := CraftModel.Geo.new()
 	for j in 2:
@@ -394,7 +376,7 @@ static func lightning_masts(R: float, H: float) -> Node3D:
 			var p := A.lerp(B, u)
 			p.y = A.y + drop
 			pts.append(p)
-	# setFromPoints draws it as one strip (THREE.Line)
+	# Draw the catenary as one continuous strip.
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = pts
@@ -658,7 +640,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 	var B := Batch.new()
 	var toe := radius + PAD_RISE * 2.6 + 8.0            # the mound's footprint
 	var Rp := radius + 300.0                            # perimeter road
-	# ---- perimeter road (an octagon, broken where the crawlerway crosses it)
+	# perimeter road (an octagon, broken where the crawlerway crosses it)
 	var roads := Batch.new()
 	var ring: Array[Vector2] = []
 	for i in 8:
@@ -673,7 +655,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 			roads.strip(a, cut_a, 8.0, ASPHALT()); roads.strip(cut_b, b, 8.0, ASPHALT())
 		else:
 			roads.strip(a, b, 8.0, ASPHALT())
-	# ---- fence: posts every 12 m and three strands, just outside the road
+	# fence: posts every 12 m and three strands, just outside the road
 	var Rf := Rp + 22.0
 	var fence := Struts.new()
 	for i in 8:
@@ -692,7 +674,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 	fm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	g.add_child(fm)
 
-	# ---- the second cryogen farm: LH2 on the KSC pads (a 3200 m³ sphere), vaporizers
+	# the second cryogen farm: LH2 on the KSC pads (a 3200 m³ sphere), vaporizers
 	# and the burn pond.
 	var h2 := Vector2(toe + 95.0, radius * 0.15)
 	if authored:
@@ -724,7 +706,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 	B.footprint(pond, 34.0, 34.0)
 	roads.strip(Vector2(Rp * 0.924, h2.y), Vector2(h2.x + 31.0, h2.y), 6.0, ASPHALT())
 
-	# ---- high-pressure gas: nitrogen and helium in racks of long bottles
+	# high-pressure gas: nitrogen and helium in racks of long bottles
 	var gas := Vector2(radius * 0.35, toe + 70.0)
 	B.box(44.0, 0.25, 26.0, DARKCON(), Vector3(gas.x, 0.0, gas.y))
 	for row in 2:
@@ -736,7 +718,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 	B.footprint(gas, 44.0, 26.0)
 	roads.strip(Vector2(gas.x, gas.y + 13.0), Vector2(gas.x, Rp * 0.924), 6.0, ASPHALT())
 
-	# ---- electrical substation: gravel, transformers, bus structure, fence
+	# electrical substation: gravel, transformers, bus structure, fence
 	var sub := Vector2(-radius * 0.45, toe + 95.0)
 	B.box(42.0, 0.12, 30.0, GRAVEL(), Vector3(sub.x, 0.0, sub.y))
 	for k in 3:
@@ -755,7 +737,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 
 	_grounds_common(g, B, roads, radius, Rp, Rf, toe, false)
 
-	# ---- floodlight towers, the tall landmarks every pad has at night
+	# floodlight towers, the tall landmarks every pad has at night
 	for k in 4:
 		var a := (float(k) + 0.5) * TAU / 4.0 + 0.2
 		var p := Vector2(cos(a), sin(a)) * (Rp - 40.0)
@@ -765,7 +747,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 		B.box(5.6, 0.3, 1.6, STEEL(), Vector3(p.x, 32.6, p.y), a)
 		B.footprint(p, 6.0, 6.0)
 
-	# ---- where the vehicle is built horizontally, the hangar it rolls out
+	# where the vehicle is built horizontally, the hangar it rolls out
 	# of: SpaceX's integration facility sits by the ramp at 39A and at SLC-40
 	if style == "strongback":
 		var hf := Vector2(95.0, -(Rp + 95.0))
@@ -780,7 +762,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 		B.box(HW * 0.8, HH * 0.85, 0.3, GREY(), Vector3(hf.x, 0.25, hf.y + HD * 0.5 + 0.15))
 		B.footprint(hf, HW + 20.0, HD + 40.0)
 		roads.strip(Vector2(hf.x - 30.0, hf.y + HD * 0.5 + 20.0), Vector2(20.0, -(Rp - 10.0)), 14.0, DARKCON())
-	# ---- Starbase: the GSE farm is a street of tanks
+	# Starbase: the GSE farm is a street of tanks
 	if style == "chopsticks":
 		var tf := Vector2(-(toe + 60.0), radius * 0.9)
 		B.box(120.0, 0.25, 34.0, DARKCON(), Vector3(tf.x, 0.0, tf.y))
@@ -799,7 +781,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 ## Common to every complex: car park, roads, retention pond. Office and gatehouse
 ## are procedural only when the library is missing.
 static func _grounds_common(g: Node3D, B: Batch, roads: Batch, radius: float, Rp: float, Rf: float, toe: float, authored: bool) -> void:
-	# ---- operations building and its car park, outside the fence by the
+	# operations building and its car park, outside the fence by the
 	# gate where the crawlerway comes in
 	var ops := Vector2(-(Rf + 70.0), -(Rp * 0.55))
 	if not authored: _office(B, ops, 64.0, 20.0, 3, 0.0)
@@ -812,7 +794,7 @@ static func _grounds_common(g: Node3D, B: Batch, roads: Batch, radius: float, Rp
 		B.box(7.0, 0.3, 5.0, GREY(), Vector3(34.0, 3.2, -(Rf + 16.0)))
 		B.footprint(Vector2(34.0, -(Rf + 16.0)), 7.0, 5.0)
 
-	# ---- the deluge water's retention pond (a million litres a launch go
+	# the deluge water's retention pond (a million litres a launch go
 	# somewhere), low and dark
 	var ret := Vector2(toe + 60.0, -(toe + 70.0))
 	B.box(84.0, 0.5, 46.0, GRAVEL(), Vector3(ret.x, 0.0, ret.y))
@@ -872,7 +854,7 @@ static func site_plan(r: float, style: String, mast_r: float) -> Array:
 	var plan: Array = []
 	var add := func(name: String, p: Vector2, yaw: float, half: float, road := false) -> void:
 		plan.append([name, p, yaw, half, road])
-	# ---- every complex
+	# every complex
 	add.call("substation", Vector2(-r * 0.45, toe + 95.0), 0.0, 24.0, true)
 	add.call("gas_farm", Vector2(r * 0.35, toe + 70.0), 0.0, 27.0, true)
 	add.call("ops_building", Vector2(-(Rf + 70.0), -(Rp * 0.55)), 0.0, 36.0)
@@ -890,7 +872,7 @@ static func site_plan(r: float, style: String, mast_r: float) -> Array:
 		var a := deg_to_rad(deg)
 		var p := Vector2(cos(a), sin(a)) * (toe + 6.0)
 		add.call("camera_site", p, _face_pad(p), 2.5)
-	# ---- the LC-39 pads: Apollo and Shuttle
+	# the LC-39 pads: Apollo and Shuttle
 	if style == "lut" or style == "fss" or style == "strongback":
 		var lox := Vector2(-(toe + 45.0), toe * 0.4)
 		var lox_yaw := _face_pad(lox)
@@ -915,7 +897,7 @@ static func site_plan(r: float, style: String, mast_r: float) -> Array:
 		for sx in [-1.0, 1.0]:
 			var hy := Vector2(sx * (toe + 35.0), -toe * 0.2)
 			add.call("hypergol", hy, _face_pad(hy), 18.0, true)
-	# ---- SpaceX: the hangar at the foot of the ramp, and horizontal tanks in
+	# SpaceX: the hangar at the foot of the ramp, and horizontal tanks in
 	# place of the hydrogen sphere a Falcon has no use for
 	if style == "strongback":
 		var ht := Vector2(toe + 45.0, toe * 0.4)
@@ -923,7 +905,7 @@ static func site_plan(r: float, style: String, mast_r: float) -> Array:
 		add.call("hif", Vector2(0.0, -(Rp + 150.0)), 0.0, 70.0)
 		add.call("containers", Vector2(72.0, -(Rp + 130.0)), 0.0, 16.0)
 		add.call("trailers", Vector2(-72.0, -(Rp + 125.0)), PI / 2.0, 21.0)
-	# ---- Starbase
+	# Starbase
 	if style == "chopsticks":
 		# north of the 150° mast, clear of its catenary's foot
 		var farm := Vector2(-(toe + 70.0), mast_r * 0.5 + 45.0)
@@ -1150,7 +1132,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		else (minf(height * 0.86, 63.0) if style == "strongback"
 		else (75.3 if style == "fss" else maxf(height + 12.0, 116.0)))
 
-	# ---- ground works, common to every complex
+	# ground works, common to every complex
 	var ground := _node()
 	ground.position.y = GRADE
 	group.add_child(ground)
@@ -1201,7 +1183,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		keep_out.append(Rect2(-(top_r + 60.0) - 10.0, top_r * 0.8 - 10.0, 20.0, 20.0))
 	plain.add_child(coastal_scrub(top_r, keep_out))
 
-	# ---- the launch mount: built upward from zero, then dropped onto grade in one move.
+	# the launch mount: built upward from zero, then dropped onto grade in one move.
 	var mount := _node()
 	mount.position.y = GRADE
 	group.add_child(mount)
@@ -1420,7 +1402,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 			mount.add_child(pivot)
 			arms.append({"group": pivot, "axis": "yaw", "rest": -0.10 if z > 0.0 else 0.10, "open": -1.15 if z > 0.0 else 1.15})
 
-	# ---- the deluge. Points rather than geometry: it is a cloud, and a cloud
+	# the deluge. Points rather than geometry: it is a cloud, and a cloud
 	# made of triangles is a worse cloud than a few hundred camera-facing quads.
 	s_pos.resize(STEAM_N); s_vel.resize(STEAM_N); s_age.resize(STEAM_N)
 	s_age.fill(-1.0)

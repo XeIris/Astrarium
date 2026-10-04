@@ -55,6 +55,20 @@ func edits() -> void:
 	stage.clear_bodies()
 	var star: Body = stage.spawn_body({"type": "star", "mass": 1.0, "radiusSun": 2.0, "teff": 6200.0, "luminosity": 5.0})
 	unchanged_views(star)
+	stage._on_live_edit(star, {"spinFrac": 0.2})
+	var visual = star.viz
+	var marker = star.marker
+	var row: Node = stage.hud.ids.bodyList.get_child(0)
+	var fact: Node = stage.inspector.facts_el.get_child(0)
+	stage._on_live_edit(star, {"spinFrac": 0.3})
+	check("spin edit retains visual, marker and activity ownership", is_same(star.viz, visual) and is_same(star.marker, marker))
+	check("spin edit retains fact controls when the schema is unchanged", stage.inspector.facts_el.get_child(0) == fact)
+	check("spin edit updates photosphere deformation", absf(float(visual.mat.get_shader_parameter("uSpin")) - 0.3) < 1e-6)
+	var temps := Structure.gravity_darkened_temps(float(star.teff), star.spin_frac)
+	check("spin edit updates pole temperature", absf(float(visual.mat.get_shader_parameter("uTpole")) - float(temps.tPole)) < 0.01)
+	check("unchanged body list retains native controls during edits", stage.hud.ids.bodyList.get_child(0) == row)
+	stage.edit_body(star, {"name": "Renamed"})
+	check("body list refreshes when its displayed name changes", stage.hud.ids.bodyList.get_child(0) != row)
 	var curve: MassCurve = stage.live_editor.curve
 	var samples: Array = curve.samples
 	var previous: Dictionary = star.structure

@@ -11,12 +11,14 @@ from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, dish, disc, empty,
                  finish, smooth, strut, bell, ball, ogive, lattice, wing,
                  stripe, rcs_ring, TAU)
-from common import build, stage, ring_radius
+from common import build, stage, ring_radius, vehicle_stages
 
-SIC_L, SIC_D = 42.0, 10.06
-SII_L = 24.9
-SIVB_L, SIVB_D = 17.8, 6.60
-CSM_L, CSM_D = 11.0, 3.90
+S = vehicle_stages("saturnv")
+
+SIC_L, SIC_D = S["sic"]["L"], S["sic"]["D"]
+SII_L = S["sii"]["L"]
+SIVB_L, SIVB_D = S["sivb"]["L"], S["sivb"]["D"]
+CSM_L, CSM_D = S["csm"]["L"], S["csm"]["D"]
 
 
 def engines(M, g, key, count, spread, exit_d, ratio, z=-0.02, seg=24):
@@ -72,7 +74,7 @@ def build_sic(M, root):
 
     # ---- five F-1s: 7.77 MN each, 3.53 m bells; the four outboard gimbal 5.15°, the
     # stage's entire control authority.
-    engines(M, g, 'sic', 5, D * 0.30, 3.53, 16, seg=28)
+    engines(M, g, 'sic', S['sic']['count'], D * 0.30, S['sic']['engine']['exitD'], 16, seg=28)
     ts = cyl('sic_thrust', r * 0.80, r * 0.92, D * 0.02, D * 0.13, M['soot'],
              seg=40, parent=g)
     # The heat shield across the base, which is what you actually see between
@@ -137,7 +139,7 @@ def build_sii(M, root):
             (cos(a) * r * 1.01, sin(a) * r * 1.01, L * 0.50),
             M['white'], rot=(0, 0, a), parent=g)
 
-    engines(M, g, 'sii', 5, D * 0.30, 2.01, 28, seg=24)
+    engines(M, g, 'sii', S['sii']['count'], D * 0.30, S['sii']['engine']['exitD'], 28, seg=24)
     cyl('sii_thrust', r * 0.80, r * 0.92, D * 0.02, D * 0.13, M['soot'],
         seg=40, parent=g)
     disc('sii_base', r * 0.94, D * 0.14, M['soot'], seg=48, parent=g)
@@ -165,7 +167,7 @@ def build_sivb(M, root):
 
     # One J-2, restartable: the only engine on the vehicle that has to light a
     # second time, three hours later, to leave Earth entirely.
-    engines(M, g, 'sivb', 1, 0, 2.01, 28, seg=24)
+    engines(M, g, 'sivb', S['sivb']['count'], 0, S['sivb']['engine']['exitD'], 28, seg=24)
 
     # The two auxiliary propulsion modules, on opposite sides.
     for sgn in (-1, 1):
@@ -221,7 +223,7 @@ def build_csm(M, root):
     # The SPS: one engine, no backup, and the only thing that could get them
     # out of lunar orbit. Its bell is nearly as wide as the module.
     piv = empty('gimbal_csm_0', (0, 0, 0.0), g)
-    b = bell('sps', 2.24, M['nozzle'], ratio=62, seg=28, parent=piv)
+    b = bell('sps', S['csm']['engine']['exitD'], M['nozzle'], ratio=62, seg=28, parent=piv)
     b.scale = (1.15, 1.15, 1.15)
     finish(b, 0.012, 2, 50)
     # High-gain antenna: four dishes on a boom, folded against the SM at launch.

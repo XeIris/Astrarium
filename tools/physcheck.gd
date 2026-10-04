@@ -1,20 +1,12 @@
 extends SceneTree
 
-# PHYSICS-CORE CHECK — the GDScript half of the numeric comparison.
+# PHYSICS-CORE CHECK. See README.md for verification usage.
 #   node tools/physref.mjs ref /abs/ref.json
 #   Godot --headless --path . --script res://tools/physcheck.gd -- \
 #         mode=ref in=/abs/ref.json out=/abs/gd.json
 #   node tools/physdiff.mjs /abs/ref.json /abs/gd.json
-#
 #   Godot --headless --path . --script res://tools/physcheck.gd -- \
 #         mode=long preset=trisolaris years=2000 [fps=60]
-#
-# `ref` recomputes, in GDScript, every case physref.mjs ran through the web
-# build (structure_of over ~1000 specs, every helper over its grid, the star
-# catalogue and builders, every preset's build and derive_body at both size
-# conventions, the climate model, and 240 frames of eleven presets through the
-# exact stepPhysics loop). `long` is the integration regression: a preset at its
-# own pace, frame by frame, reporting energy drift and sub-steps per second.
 
 var pm_seed := 1
 func _pm() -> float:

@@ -40,7 +40,7 @@ static func bright(c: Color) -> Color:
 static func px(fs: float) -> int:
 	return int(fs) if fs >= 9.5 else int(fs + 0.5)
 
-# ---- faces ----------------------------------------------------------------------
+# faces
 static var _fonts := {}
 ## A small embolden matches CoreText's stem dilation.
 static var EMBOLDEN := 0.3
@@ -159,7 +159,7 @@ static func text_w(f: Font, s: String, size: float, ls: float) -> float:
 		w += adv_em(f, s.unicode_at(i)) * size + ls
 	return w
 
-# ---- text styles ------------------------------------------------------------------
+# text styles
 # A text style is {ff, fw, fi, fs, c, ls (px), lh (-1 normal, ≤ 8 a multiple, else
 # px), up}; missing keys take DEFAULT.
 const DEFAULT := {"ff": "mono", "fw": 400, "fi": false, "fs": 12.0, "c": TEXT, "ls": 0.0, "lh": -1.0, "up": false}
@@ -243,7 +243,7 @@ static func apply_label(l: Label, s: Dictionary) -> void:
 	l.label_settings = label_settings(st)
 	l.uppercase = st.up
 
-# ---- button and box kinds ----------------------------------------------------------
+# button and box kinds
 # Each kind is a Theme type variation (and "<kind>On" for its active state) over
 # Button, PanelContainer and the composite BoxButton: base, hover and on are
 # overrides of {bg, bc (border), bw, rad, pad [t, r, b, l], c}; text keys as above;
@@ -393,7 +393,7 @@ static func _add_kind(t: Theme, kind: String) -> void:
 			t.set_color(c, name, hover.c)
 		t.set_constant("h_separation", name, 0)
 
-# ---- the Theme ------------------------------------------------------------------------
+# the Theme
 static var _theme: Theme = null
 
 static func theme() -> Theme:

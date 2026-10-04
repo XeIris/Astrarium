@@ -9,3 +9,9 @@ assets/pads/*.glb
 assets/pads/*.glb.import
 # Export output.
 build/
+# Linux/Windows kernels are built on their target platform; macOS remains prebuilt.
+native/bin/*.so
+native/bin/*.dll
+
+# Generated comparisons and performance reports belong outside the reference archive.
+/tools/evidence/

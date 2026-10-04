@@ -6,22 +6,12 @@ import bpy, os, sys
 from mathutils import Matrix
 
 from lib import reset_scene, material, empty
+from vehicle_data import vehicle_stages
 
 
 # PALETTE
 def srgb(hex_):
-    """
-    An sRGB hex triple as LINEAR floats, which is what Blender's Base Color
-    wants and what the glTF exporter writes.
-
-    This conversion is the whole reason the palette is not hand-picked. Three
-    reads `new MeshStandardMaterial({ color: 0xe8e8ea })` as sRGB and converts
-    it on the way in (ColorManagement has been on by default since r152), so
-    writing 0.91 into Blender because the hex says 0xe8 gives a material that is
-    visibly lighter than the fallback it is standing in for. Eyeballing the
-    difference across fifteen materials is exactly the kind of drift that makes
-    an authored asset stop matching the code it replaced.
-    """
+    """sRGB palette values become linear Blender Base Color values for glTF."""
     r, g, b = ((hex_ >> 16) & 255) / 255, ((hex_ >> 8) & 255) / 255, (hex_ & 255) / 255
     f = lambda c: c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
     return (f(r), f(g), f(b))
@@ -284,6 +274,27 @@ def build(label, fn, default_out=None):
     reset_scene()
     build_materials()
     fn(M)
+    if not label.startswith('pad_') and label != 'facilities':
+        validate_vehicle(label)
     bpy.ops.object.select_all(action='DESELECT')
     optimise()
     export(out, label)
+
+
+def validate_vehicle(label):
+    """Reject stale stage/rig assumptions before publishing the artifact."""
+    specs = vehicle_stages(label)
+    stages = {o.name[6:]: o for o in bpy.context.scene.objects if o.name.startswith('stage_')}
+    if set(stages) != set(specs):
+        raise ValueError(f'{label}: stage roots disagree with runtime catalogue')
+    prefixes = {'gimbals': 'gimbal', 'legs': 'leg', 'fins': 'fin',
+                'arrays': 'array', 'flaps': 'flap', 'halves': 'half'}
+    for key, spec in specs.items():
+        root = stages[key]
+        descendants = root.children_recursive
+        for role, prefix in prefixes.items():
+            pattern = re.compile(rf'^{prefix}_{key}_(\d+)(_fixed)?$')
+            indices = sorted(int(match.group(1)) for o in descendants
+                             if (match := pattern.fullmatch(o.name)))
+            if indices != list(range(spec['partCounts'][role])):
+                raise ValueError(f'{label}/{key}: {role} disagree with runtime catalogue')

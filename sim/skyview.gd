@@ -1,20 +1,9 @@
 class_name SkyView
 extends RefCounted
 
-# SURFACE VIEW: standing on the planet looking up, as a full-screen composite pass
-# (no depth or draw-order fights across the sky's dynamic range). Single-scattering
-# Rayleigh + Mie, per sun, summed:
-#   L(v) = Σ_i I_i · T(m_sun,i) · (β_s·P(θ_i)/β_e) · (1 − exp(−β_e·m_view))
-#   β_R ∝ 1/λ⁴   blue sky, red low sun
-#   P_M          Henyey–Greenstein, g = 0.76: the aureole round each sun
-#   m            Kasten–Young air mass, so each sun reddens on its own schedule
-# So one sun can set red while another burns white overhead.
-#
-# The kernel is shaders/sky/surface.glsl; SkyPass is `pipe.surface_pass`, run on the
-# render thread by PostFX.render_rt between compose and the band remap, with the
-# composed HDR buffer as tScene. The orchestrator writes `SkyPass.u` on the main
-# thread and calls commit() (or update_frame(), which commits), packing the std140
-# block.
+# Single-scattering multi-sun atmosphere; see docs/physics/sky.md.
+# The render-thread surface pass runs between HDR compose and spectral remap.
+# Main-thread uniform changes reach it through commit().
 
 const MAX_SUNS := Suns.MAX_SUNS
 
@@ -234,7 +223,7 @@ class SurfaceObserver extends RefCounted:
 		look_dir = lk
 
 		# camera.up = up; camera.lookAt(eye + look): Basis.looking_at builds the
-		# same frame THREE's lookAt did (z = −look, x = up × z, y = z × x).
+		# Camera basis (z = −look, x = up × z, y = z × x).
 		camera.transform = Transform3D(Basis.looking_at(lk, up), Vector3.ZERO)
 		camera.fov = fov
 		RenderPipeline.set_scene_clip(camera, NEAR)

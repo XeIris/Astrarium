@@ -1,22 +1,8 @@
 class_name FlightUI
 extends RefCounted
 
-# FLIGHT INSTRUMENTS: navball, telemetry, stage stack, two clocks, targeting menu.
-#
-# The navball is a true orthographic projection of a sphere fixed in the surface
-# frame, seen from the nose:
-#   · a great circle (the horizon) projects to an ellipse with semi-minor axis
-#     R·|n·z|, n the local up in view coordinates;
-#   · a pitch line at latitude φ projects to semi-axes R·cos φ, offset R·sin φ
-#     along n's projection.
-# The two clocks: MET is proper time, UT coordinate time; their difference is the
-# GPS correction in LEO and years at relativistic speed.
-#
-# Built once from HUD controls; only text and state change after that. The navball
-# is a 188 px disc that clips its children: the hemispheres are a canvas_item shader
-# (navball.gdshader, even-odd fill as XOR), and ladder, meridians, horizon,
-# markers, reticle, bezel and numbers are _draw() calls. plan_block / cruise_block
-# return data ({kind, rows, note, bar}) the panel renders.
+# Native flight instruments and controls through Hud builders/theme.
+# Telemetry keeps coordinate and proper clocks separate; see sim/flight/AGENTS.md.
 
 const MARKERS := [
 	{"key": "prograde",   "glyph": "⊙", "color": 0xffe27a},

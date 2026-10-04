@@ -1,15 +1,13 @@
 class_name RDU
 extends RefCounted
 
-# RENDERINGDEVICE HELPERS for the compute passes in render/: GLSL 450 compute on the
-# main RenderingDevice, writing RD textures handed on as Texture2DRD. Compute rather
-# than canvas_item SubViewports because order is explicit (one callback, in order,
-# this frame), passes can have several outputs (the lens marcher writes two), and
-# the shaders stay GLSL. Render thread only (a CompositorEffect callback or
-# RenderingServer.call_on_render_thread).
+# Compute helpers on the main RenderingDevice, render thread only.
+# Explicit dispatch order and Texture2DRD ownership: docs/godot.md.
 
 const RGBA16F := RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
 const RGBA8 := RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+static var profiling := false
+static var cache_uniforms := true
 
 static func rd() -> RenderingDevice:
 	return RenderingServer.get_rendering_device()
@@ -29,7 +27,7 @@ static func free_rid(r: RID) -> void:
 	if r.is_valid():
 		rd().free_rid(r)
 
-## Linear-filtered, clamp-to-edge: THREE.LinearFilter + ClampToEdgeWrapping.
+## Linear-filtered, clamp-to-edge: linear sampling without wrap.
 static func linear_sampler() -> RID:
 	var s := RDSamplerState.new()
 	s.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
@@ -98,12 +96,13 @@ static func pack(vals: Array) -> PackedByteArray:
 	return f.to_byte_array()
 
 ## Dispatch `k` over a w×h grid in 8×8 groups (every kernel here declares
-## local_size 8×8). The uniform set is transient: built, bound, freed.
-static func dispatch(k: Kernel, uniforms: Array, w: int, h: int, push := PackedByteArray()) -> void:
+## local_size 8×8). Godot invalidates cached uniform sets when their dependent RIDs are freed.
+static func dispatch(k: Kernel, uniforms: Array[RDUniform], w: int, h: int, push := PackedByteArray()) -> void:
 	if not k.valid():
 		return
 	var dev := rd()
-	var us := dev.uniform_set_create(uniforms, k.shader, 0)
+	if profiling: dev.capture_timestamp("astrarium:start:" + k.path)
+	var us := UniformSetCacheRD.get_cache(k.shader, 0, uniforms) if cache_uniforms else dev.uniform_set_create(uniforms, k.shader, 0)
 	var cl := dev.compute_list_begin()
 	dev.compute_list_bind_compute_pipeline(cl, k.pipeline)
 	dev.compute_list_bind_uniform_set(cl, us, 0)
@@ -111,7 +110,8 @@ static func dispatch(k: Kernel, uniforms: Array, w: int, h: int, push := PackedB
 		dev.compute_list_set_push_constant(cl, push, push.size())
 	dev.compute_list_dispatch(cl, (w + 7) / 8, (h + 7) / 8, 1)
 	dev.compute_list_end()
-	dev.free_rid(us)
+	if not cache_uniforms: dev.free_rid(us)
+	if profiling: dev.capture_timestamp("astrarium:end:" + k.path)
 
 ## The RD texture behind any engine Texture (a ViewportTexture, an image
 ## texture) — how a compute pass reads what a SubViewport rendered.

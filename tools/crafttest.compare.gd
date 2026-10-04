@@ -1,19 +1,8 @@
 extends SceneTree
 
-# WEB vs GODOT, AS NUMBERS — compare pairs of crafttest/craftsheet frames.
-#
+# WEB vs GODOT, AS NUMBERS. See README.md for verification usage.
 #   Godot --headless --path . --script res://tools/crafttest.compare.gd -- \
 #         web_dir godot_dir [pairs_dir]
-#
-# For every PNG present in both directories (same name), prints:
-#   mad     mean absolute difference over all pixels, 0–255, mean of R, G, B
-#   grid    the largest difference between the two frames' 16×9 coarse
-#           LUMINANCE grids (the .claude/art.js idea) — a feature that is
-#           missing, moved or a different brightness shows up here even when
-#           the per-pixel number is dominated by antialiasing
-#   fg      the fraction of pixels that differ by more than 24 levels
-# and, with pairs_dir, writes <name>.png there: web on the left, Godot on the
-# right, which is the evidence image kept in tools/ref/craft/.
 
 func _init() -> void:
 	var a := OS.get_cmdline_user_args()

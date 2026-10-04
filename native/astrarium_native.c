@@ -358,7 +358,11 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 
 static void deinitialize(void *ud, GDExtensionInitializationLevel level) { (void)ud; (void)level; }
 
+#ifdef _WIN32
+__declspec(dllexport)
+#else
 __attribute__((visibility("default")))
+#endif
 GDExtensionBool astrarium_native_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_init) {
 	gp = p_get_proc_address;
 	lib = p_library;

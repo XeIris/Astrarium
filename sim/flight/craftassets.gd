@@ -146,8 +146,8 @@ static func _prepare(root: Node) -> void:
 		(root as Node3D).rotation_order = EULER_ORDER_XYZ
 	if root is MeshInstance3D:
 		var mi := root as MeshInstance3D
-		# Hold the top LOD at any distance: bevels are what a decimator removes first.
-		mi.lod_bias = 128.0
+		# Preserve imported screen-space LOD selection as craft recede.
+		mi.lod_bias = 1.0
 		var mesh := mi.mesh
 		if mesh != null:
 			for s in mesh.get_surface_count():
@@ -155,7 +155,7 @@ static func _prepare(root: Node) -> void:
 				if m == null: continue
 				# Double-sided: most of the set is open shells.
 				m.cull_mode = BaseMaterial3D.CULL_DISABLED
-				# three's MeshStandardMaterial is Lambert + GGX; Godot's
+				# The craft material is Lambert + GGX; Godot's
 				# importer leaves Burley diffuse, which is not.
 				m.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT
 				m.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX

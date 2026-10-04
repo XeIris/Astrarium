@@ -8,6 +8,12 @@ traps. `sim/flight/`, `model_sources/blender/` and `shaders/` have their own
 AGENTS.md. Read `shaders/AGENTS.md` before editing how a body looks
 (`sim/*_visual.gd`, `sim/terrain.gd`, `sim/prominence.gd`, `sim/sky.gd`).
 
+## Git commits
+
+Use descriptive conventional messages and append
+`Co-Authored-By: Codex (<model>) <codex@openai.com>`. Explain non-obvious changes
+in the commit body.
+
 ## `web/` is frozen
 
 `web/` is the archived Three.js build. Do not edit it and do not port changes
@@ -146,6 +152,13 @@ mass, position or velocity. `ctx` is a `VisualCtx`
   Drift rebases when the body count changes. FPS uses actual elapsed time,
   independently of simulation stepping.
 
+## Camera and authored requests
+
+`core/orrery_camera.gd` owns orbit/free motion; the stage keeps frame order and
+flight/surface camera ownership. Authored camera/sky patches must pass their
+shared validators before mutation. Explicit camera distances use the supported
+1e-6–20000 scene-unit interval; derived focus framing has its own size rules.
+
 ## Checks
 
 Checks and the `tools/check.py` suite runner are listed in
@@ -177,3 +190,9 @@ coverage after changing its design. Passing establishes sampled survival over
 the tested duration, not indefinite stability or exact long-run phase.
 Short reference agreement does not establish a long-run bound. For screenshots,
 use `frames=60 out=/abs/shot.png` (see README).
+
+Performance measurements and missing-GPU-timer handling are in
+[docs/performance.md](docs/performance.md). Keep generated evidence under an
+absolute output directory or ignored `tools/evidence/`; see
+[docs/evidence.md](docs/evidence.md). Clean/platform CI does not replace rendered
+or authored-asset checks.

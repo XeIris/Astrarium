@@ -27,7 +27,7 @@ static func jround(x: float) -> float:
 	return floor(x + 0.5)
 
 static func smooth(x: float, lo: float, hi: float) -> float:
-	# THREE.MathUtils.smoothstep(x, min, max)
+	# Cubic smoothstep
 	if x <= lo: return 0.0
 	if x >= hi: return 1.0
 	var t := (x - lo) / (hi - lo)
@@ -77,16 +77,16 @@ static func grouped(x: float) -> String:
 			out = "," + out
 	return ("-" if neg else "") + out
 
-## sRGB hex → linear Color, exactly as `new THREE.Color(hex)` does it.
+## sRGB hex → linear Color, exactly as sRGB decoding does it.
 static func lin(hex: int) -> Color:
 	return Color.hex((hex << 8) | 0xff).srgb_to_linear()
 
-## linear Color → the sRGB hex THREE's Color.getHex() would give.
+## linear Color → the sRGB hex sRGB conversion would give.
 static func hex_of(c: Color) -> int:
 	var s := c.linear_to_srgb()
 	return (clampi(int(round(s.r * 255.0)), 0, 255) << 16) | (clampi(int(round(s.g * 255.0)), 0, 255) << 8) | clampi(int(round(s.b * 255.0)), 0, 255)
 
-## "#rrggbb" of a linear colour, as THREE's getHexString() (sRGB).
+## "#rrggbb" of a linear colour, as sRGB conversion (sRGB).
 static func css_of(c: Color) -> String:
 	return "#%06x" % hex_of(c)
 

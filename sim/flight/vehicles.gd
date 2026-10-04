@@ -1,19 +1,9 @@
 class_name Vehicles
 extends RefCounted
 
-# THE VEHICLE CATALOGUE: published numbers for vehicles that flew, derived ones for
-# the two that didn't. Nothing is tuned: Δv comes from each stage's masses through
-# the rocket equation. Sources: docs/spaceflight-research.md. kg, N, m, s.
-#
-# `limits` are structural margins, not flown values (a Saturn V flew 34 kPa max-q;
-# its airframe fails higher), so a bad profile finds the limit.
-#
-# `thrustVac` and both Isps are measured per engine; sea-level thrust follows from
-# ispSL (Rocketry.engine_output). A quoted sea-level thrust was used to back out ispSL.
-#
-# Data stays Dictionaries (craftmodel, launch site, plumes, HUD and Foundry read it
-# by name). ENGINES and VEHICLES are built once at class load, and stages hold their
-# engine Dictionary by identity, so editing ENGINES.F1 edits every stage flying it.
+# Vehicle and engine catalogue in kg, N, m and s.
+# Vacuum thrust/Isps are per engine; Rocketry derives pressure-dependent output.
+# Stages share engine dictionaries by identity. Source record: web/docs/spaceflight-research.md.
 
 # ENGINES. `throttleMin` is the real deep-throttle limit: a Merlin can't go below
 # 57%, so an empty first stage lands by hoverslam. The Apollo DPS has a forbidden

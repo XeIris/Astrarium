@@ -34,7 +34,7 @@ func to_array() -> Array:
 func clone() -> DVec3:
 	return DVec3.new(x, y, z)
 
-# ---- mutating (THREE-style, return self) -----------------------------------
+# mutating (return self)
 func set_v(px: float, py: float, pz: float) -> DVec3:
 	x = px; y = py; z = pz
 	return self
@@ -92,7 +92,7 @@ func lerp_in(o: DVec3, t: float) -> DVec3:
 	x += (o.x - x) * t; y += (o.y - y) * t; z += (o.z - z) * t
 	return self
 
-## THREE's applyQuaternion, with the quaternion given as float components so a
+## Quaternion rotation, with the quaternion given as float components so a
 ## float32 Quaternion can rotate a double vector without losing the vector.
 func apply_quat_in(q: Quaternion) -> DVec3:
 	var qx := float(q.x); var qy := float(q.y); var qz := float(q.z); var qw := float(q.w)
@@ -113,7 +113,7 @@ func apply_basis_in(b: Basis) -> DVec3:
 	x = nx; y = ny; z = nz
 	return self
 
-# ---- pure -------------------------------------------------------------------
+# pure
 func add(o: DVec3) -> DVec3:
 	return DVec3.new(x + o.x, y + o.y, z + o.z)
 

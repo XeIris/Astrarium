@@ -10,9 +10,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from math import pi, cos, sin
 from lib import (revolve, cyl, lathe, tank, box, torus_z, dish, disc, empty, group,
                  finish, smooth, strut, ball, ring_on, TAU)
-from common import build, stage
+from common import build, stage, vehicle_stages
 
-L, D = 4.2, 2.4
+S = vehicle_stages("beetle")
+
+L, D = S["beetle"]["L"], S["beetle"]["D"]
 R = D / 2
 DR = R * 0.46                       # drive aperture radius
 NECK = DR * 1.42                    # drive neck height

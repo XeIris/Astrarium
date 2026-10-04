@@ -1,23 +1,9 @@
 class_name Marker
 extends RefCounted
 
-# THE POINT-SOURCE MARKER (physics half: sim/scale.gd). Below the resolution limit
-# a body becomes a point source: its apparent size pins at the PSF while its
-# brightness keeps falling as 1/r². So bodies render at true size and cross-fade
-# into a fixed-pixel glow once under a few pixels (as Celestia and Space Engine do).
-# A camera-facing quad with an Airy-like core and faint halo.
-#
-# RGB adds (premultiplied by coverage); alpha would take the MAX (it is the
-# temperature code, and the hottest contributor wins). In the temperature pass that
-# max is a no-op against the sky, so it discards (marker_point.gdshader).
-#
-# Depth-tested, not writing, at render_priority 3, so anything writing depth in
-# front cuts it. Orbit trails do write depth (trail.gd), striping the Sun's marker
-# where inner orbits cross it; without that the Sun on `solar` reads 30–50 levels
-# too bright against the reference.
-#
-# Added under world_root, not the body's group, so the body visual's transform
-# never touches it. update() takes the camera-relative position and places the mesh.
+# Point-source fallback below the pixel limit; brightness falls with distance.
+# Depth-tested, additive, no depth write; temperature-pass coverage is discarded.
+# Placed under world_root independently of the body visual. See docs/godot.md.
 
 const SHADER := preload("res://shaders/bodies/marker_point.gdshader")
 

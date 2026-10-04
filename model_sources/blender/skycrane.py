@@ -10,13 +10,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from math import pi, cos, sin, tan
 from lib import (revolve, cyl, lathe, box, torus_z, dish, disc, empty, finish,
                  smooth, strut, bell, ball, sphere_cone, loft, TAU)
-from common import build, stage
+from common import build, stage, vehicle_stages
+
+S = vehicle_stages("skycrane")
 
 
 # AEROSHELL
 def build_shell(M, root):
     g = stage('shell', root)
-    D = 4.5
+    D = S["shell"]["D"]
     nose_r = 1.125
     joint = D * 0.30                        # the plane the two halves split on
 
@@ -82,7 +84,7 @@ def build_shell(M, root):
 # DESCENT STAGE — the sky crane itself
 def build_desc(M, root):
     g = stage('desc', root)
-    D = 3.2
+    D = S["desc"]["D"]
     deck_z = 1.05
 
     # ---- octagonal deck, ribbed underneath the way a real truss deck is.

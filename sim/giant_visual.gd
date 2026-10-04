@@ -1,21 +1,8 @@
 class_name GiantVisual
 extends RefCounted
 
-# GAS GIANTS: the visible cloud deck doesn't turn as one object.
-#   · The interior rotates rigidly (System III, 9h55m29.7s for Jupiter): the mesh's
-#     own rotation.
-#   · The atmosphere is a dozen alternating zonal jets (the equatorial one 100 m/s
-#     ahead of the interior), advected in the shader by
-#         dλ(φ) = [u(φ) / (R cos φ)] · t
-#     so adjacent bands shear: filamented edges, vortices drawn into ovals.
-#   · Jets sit at belt/zone boundaries, 90° out of phase with vertical motion:
-#     zones are rising ammonia cloud, belts subsiding clearer air showing deeper,
-#     browner layers.
-#   · Three optical levels (deep, deck, high haze), each advected at its own rate
-#     and composited by optical depth.
-# The poles are not banded (Juno: jets break into packed cyclones past ~60°).
-# Shaders: giant_body.gdshader (deck, flow map, vortices, ring shadow),
-# giant_limb.gdshader (limb haze), ring_system.gdshader (rings' optical depth).
+# Differentially advected cloud levels and rings; the poles are unbanded.
+# See shaders/AGENTS.md for the flow clocks and noise filtering contract.
 
 const BODY_SHADER := preload("res://shaders/bodies/giant_body.gdshader")
 const LIMB_SHADER := preload("res://shaders/bodies/giant_limb.gdshader")
@@ -60,7 +47,7 @@ class Mulberry extends RefCounted:
 		t = ((t + imul(t ^ (t >> 7), 61 | t)) & 0xFFFFFFFF) ^ t
 		return float((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296.0
 
-# THREE.RingGeometry(inner, outer, thetaSegments, phiSegments) in its own XY
+# Annulus geometry in its own XY
 # plane (the shader reads the radius from the local position).
 static func ring_geometry(inner: float, outer: float, tseg: int, pseg: int) -> ArrayMesh:
 	var verts := PackedVector3Array()

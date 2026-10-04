@@ -114,8 +114,8 @@ static func decal_mat(material: StandardMaterial3D) -> StandardMaterial3D:
 		_decal_cache[k] = m
 	return _decal_cache[k]
 
-# GEOMETRY — three.js's primitives, reproduced exactly.
-## Positions, normals and a three-convention (CCW) index list.
+# Mesh primitives use counter-clockwise source indices, swapped once for Godot.
+## Positions, normals and a counter-clockwise index list.
 class Geo:
 	var pos := PackedVector3Array()
 	var nrm := PackedVector3Array()
@@ -127,8 +127,8 @@ static func _to_mesh(g: Geo, material: Material) -> ArrayMesh:
 	for i in g.nrm.size():
 		var v := g.nrm[i]
 		n[i] = v.normalized() if v.length_squared() > 1e-20 else Vector3.UP
-	# three's front faces are counter-clockwise, Godot's clockwise: swap each
-	# triple once, here, so every builder can use three's order.
+	# Procedural front faces are counter-clockwise, Godot's clockwise: swap each
+	# triple once, here, so every builder can use counter-clockwise order.
 	var ix := PackedInt32Array()
 	ix.resize(g.idx.size())
 	for t in range(0, g.idx.size(), 3):
@@ -145,21 +145,21 @@ static func _to_mesh(g: Geo, material: Material) -> ArrayMesh:
 	am.surface_set_material(0, material)
 	return am
 
-## A mesh node, three's `new THREE.Mesh(geometry, material)`.
+## Mesh node with a material override.
 static func _mesh(g: Geo, material: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.rotation_order = EULER_ORDER_XYZ
 	mi.mesh = _to_mesh(g, material)
 	return mi
 
-## `new THREE.Group()`.
+## Untransformed parent for independently placed parts.
 static func _grp() -> Node3D:
 	var n := Node3D.new()
 	n.rotation_order = EULER_ORDER_XYZ
 	return n
 
 ## BufferGeometry.computeVertexNormals(): area-weighted face normals summed
-## per index (so a lathe's duplicated seam stays a crease, as in three).
+## per index (so a lathe's duplicated seam stays a crease, at split seams).
 static func _compute_normals(g: Geo) -> void:
 	var n := PackedVector3Array()
 	n.resize(g.pos.size())
@@ -169,7 +169,7 @@ static func _compute_normals(g: Geo) -> void:
 		n[a] += cb; n[b] += cb; n[c] += cb
 	g.nrm = n
 
-## THREE.CylinderGeometry (ConeGeometry is this with radiusTop = 0).
+## Cylinder mesh (zero top radius gives a cone).
 static func _cylinder(rt: float, rb: float, h: float, radial := 32, hseg := 1,
 		open_ended := false, ts := 0.0, tl := TAU) -> Geo:
 	var g := Geo.new()
@@ -215,7 +215,7 @@ static func _cone(r: float, h: float, radial := 32, hseg := 1, open_ended := fal
 		ts := 0.0, tl := TAU) -> Geo:
 	return _cylinder(0.0, r, h, radial, hseg, open_ended, ts, tl)
 
-## THREE.SphereGeometry.
+## UV sphere mesh.
 static func _sphere(radius: float, ws := 32, hs := 16, ps := 0.0, pl := TAU,
 		ts := 0.0, tl := PI) -> Geo:
 	ws = maxi(3, ws); hs = maxi(2, hs)
@@ -242,7 +242,7 @@ static func _sphere(radius: float, ws := 32, hs := 16, ps := 0.0, pl := TAU,
 			if iy != hs - 1 or the < PI: g.idx.append_array([b, c, d])
 	return g
 
-## THREE.TorusGeometry — the ring lies in XY, so callers turn it with rotation.x.
+## Torus mesh — the ring lies in XY, so callers turn it with rotation.x.
 static func _torus(radius: float, tube: float, rseg := 12, tseg := 48, arc := TAU) -> Geo:
 	var g := Geo.new()
 	for j in rseg + 1:
@@ -261,10 +261,10 @@ static func _torus(radius: float, tube: float, rseg := 12, tseg := 48, arc := TA
 			g.idx.append_array([a, b, d, b, c, d])
 	return g
 
-## THREE.BoxGeometry(w, h, d) with one segment per side: 24 vertices, flat normals.
+## Box mesh with one segment per side: 24 vertices, flat normals.
 static func _box(w: float, h: float, d: float) -> Geo:
 	var g := Geo.new()
-	# buildPlane(u, v, w, udir, vdir, width, height, depth) in three's order:
+	# buildPlane(u, v, w, udir, vdir, width, height, depth) in counter-clockwise order:
 	# px, nx, py, ny, pz, nz.
 	var planes := [
 		["z", "y", "x", -1, -1, d, h, w], ["z", "y", "x", 1, -1, d, h, -w],
@@ -290,7 +290,7 @@ static func _box(w: float, h: float, d: float) -> Geo:
 		g.idx.append_array([a, b, e, b, c, e])
 	return g
 
-## THREE.CircleGeometry, in XY facing +Z.
+## Disc mesh, in XY facing +Z.
 static func _circle(radius: float, seg := 32, ts := 0.0, tl := TAU) -> Geo:
 	seg = maxi(3, seg)
 	var g := Geo.new()
@@ -302,7 +302,7 @@ static func _circle(radius: float, seg := 32, ts := 0.0, tl := TAU) -> Geo:
 		g.idx.append_array([i, i + 1, 0])
 	return g
 
-## THREE.PlaneGeometry(w, h), one segment, in XY facing +Z.
+## Plane mesh, one segment, in XY facing +Z.
 static func _plane(w: float, h: float) -> Geo:
 	var g := Geo.new()
 	for iy in 2:
@@ -311,7 +311,7 @@ static func _plane(w: float, h: float) -> Geo:
 	g.idx.append_array([0, 2, 1, 2, 3, 1])
 	return g
 
-## THREE.LatheGeometry, including its averaged meridian normals.
+## Lathed mesh, including its averaged meridian normals.
 static func _lathe(points: PackedVector2Array, segments := 12, ps := 0.0, pl := TAU) -> Geo:
 	pl = clampf(pl, 0.0, TAU)
 	var g := Geo.new()
@@ -345,7 +345,7 @@ static func _lathe(points: PackedVector2Array, segments := 12, ps := 0.0, pl := 
 			g.idx.append_array([a, b, d, c, d, b])
 	return g
 
-## THREE.CapsuleGeometry (r160): a lathe of absarc + line + absarc.
+## Capsule mesh: a lathe of absarc + line + absarc.
 static func _capsule(radius: float, length: float, cap_seg := 4, radial := 8) -> Geo:
 	var pts := PackedVector2Array()
 	var n := cap_seg * 2
@@ -358,7 +358,7 @@ static func _capsule(radius: float, length: float, cap_seg := 4, radial := 8) ->
 		pts.append(Vector2(radius * cos(a), length / 2.0 + radius * sin(a)))
 	return _lathe(pts, radial)
 
-# ---- THREE.CatmullRomCurve3 (centripetal) and TubeGeometry ---------------
+# Centripetal Catmull–Rom curve and tube
 class CatmullRom:
 	var pts: Array   # of Vector3
 	var _lengths := PackedFloat64Array()
@@ -469,8 +469,8 @@ static func _tube(curve: CatmullRom, tseg: int, radius: float, rseg: int) -> Geo
 			g.idx.append_array([a, b, d, b, c, d])
 	return g
 
-# ---- three's Object3D helpers --------------------------------------------
-## Quaternion.setFromUnitVectors, three's algorithm (its antiparallel fallback
+# Transform helpers
+## Quaternion.setFromUnitVectors, the shortest-arc algorithm (its antiparallel fallback
 ## differs from Godot's Quaternion(from, to)).
 static func quat_from_unit_vectors(vf: Vector3, vt: Vector3) -> Quaternion:
 	var r := vf.dot(vt) + 1.0
@@ -884,7 +884,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	# Created only now: a Node3D is not refcounted, so one made before those returns leaks.
 	var g := _grp()
 
-	# ---- the default: a cylindrical stage with engines under it. `L` is the whole
+	# the default: a cylindrical stage with engines under it. `L` is the whole
 	# length, so a nose eats into the barrel.
 	var nose_l := D * 1.45 if _t(look.get("tank")) else (D * 1.55 if _t(look.get("nosecone")) else 0.0)
 	var interstage := _n(look.get("interstage"), 0.0)
@@ -1123,7 +1123,7 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
 	var L: float = spec.L                                  # 37.2 m
 	var f := func(u: float) -> float: return u * L
-	# ---- fuselage: stations from the base up, half-width / half-height in m. `n`
+	# fuselage: stations from the base up, half-width / half-height in m. `n`
 	# goes from near-circular at the nose to the payload bay's rounded square.
 	var sec := [
 		{"y": f.call(0.000), "w": 2.35, "h": 2.60, "cz": 0.10, "n": 3.0},
@@ -1143,7 +1143,7 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	g.add_child(loft(sec, M.white, 30, 0.0, PI))
 	g.add_child(loft(sec, M.tiles, 30, PI, TAU))
 
-	# ---- wing: a double delta, kinked at x = 5.4 m (79° glove, 45° outer panel).
+	# wing: a double delta, kinked at x = 5.4 m (79° glove, 45° outer panel).
 	var ws := [
 		{"x": 2.52, "yLE": f.call(0.700), "chord": f.call(0.673), "thick": 0.055, "cz": -1.30},
 		{"x": 3.80, "yLE": f.call(0.560), "chord": f.call(0.533), "thick": 0.060, "cz": -1.20},
@@ -1155,7 +1155,7 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	for sgn in [1.0, -1.0]:
 		g.add_child(wing_panel(ws, M.white, M.tiles, 14, sgn))
 
-	# ---- vertical tail. Built in the wing's own frame (span on X) and rotated
+	# vertical tail. Built in the wing's own frame (span on X) and rotated
 	# upright, so one function serves both surfaces.
 	var ts := [
 		{"x": 0.0, "yLE": f.call(0.185), "chord": 6.10, "thick": 0.13},
@@ -1168,7 +1168,7 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	tail.position.z = 2.55
 	g.add_child(tail)
 
-	# ---- OMS pods: the two bulges either side of the fin root. They are the
+	# OMS pods: the two bulges either side of the fin root. They are the
 	# orbiter's own engines, and the only ones it keeps after the tank is gone.
 	for sgn in [-1.0, 1.0]:
 		var pod := loft([
@@ -1191,7 +1191,7 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 			n2.position = Vector3(sgn * (2.7 + k * 0.1), f.call(0.19 + k * 0.006), 2.3 - k * 0.5)
 			n2.rotation.z = sgn * PI / 2.0; g.add_child(n2)
 
-	# ---- three SSMEs, in the triangle they actually sit in: one high on the
+	# three SSMEs, in the triangle they actually sit in: one high on the
 	# centreline, two low and outboard. They gimbal, so each gets a pivot.
 	var ec := _grp()
 	var piv := []
@@ -1206,13 +1206,13 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		{"y": f.call(0.055), "w": 2.70, "h": 2.90, "cz": 0.05, "n": 3.4}], M.black, 24)
 	g.add_child(aft)
 
-	# ---- body flap: the slab under the engines that trims the vehicle in
+	# body flap: the slab under the engines that trims the vehicle in
 	# hypersonic flight and shields the bells. Small, and very recognisable.
 	var flap := _mesh(_box(4.3, 2.3, 0.36), M.tiles)
 	flap.position = Vector3(0, f.call(0.028), -2.35); flap.rotation.x = 0.12
 	g.add_child(flap); parts.flaps.append(flap)
 
-	# ---- payload bay doors, closed: two long panels along the top with the
+	# payload bay doors, closed: two long panels along the top with the
 	# radiator lines that live on their inner face showing as seams.
 	for sgn in [-1.0, 1.0]:
 		var door := loft([
@@ -1221,7 +1221,7 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		], M.dirty, 14, 0.10 if sgn > 0 else PI - 0.10, PI / 2.0 - 0.03 if sgn > 0 else PI / 2.0 + 0.03)
 		g.add_child(door)
 
-	# ---- flight deck windows, placed by solving the superellipse section for z at
+	# flight deck windows, placed by solving the superellipse section for z at
 	# the window's x and standing the glass a few cm proud.
 	var win_sec := {"w": 1.72, "h": 1.56, "cz": 0.11, "n": 2.7}
 	var surf_z := func(x: float) -> float:
@@ -1284,7 +1284,7 @@ static func build_satellite(spec: Dictionary, parts: Dictionary) -> Dictionary:
 static func build_csm(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
 	var sm_d := 3.90; var sm_l := 4.70; var r := sm_d / 2.0
-	# ---- service module: a plain cylinder, and almost all of it is propellant.
+	# service module: a plain cylinder, and almost all of it is propellant.
 	var sm := _mesh(_cylinder(r, r, sm_l, 28, 1, true), M.alu)
 	sm.position.y = sm_l / 2.0; g.add_child(sm)
 	# Its six radiator/RCS bays read as vertical seams around the drum.
@@ -1298,7 +1298,7 @@ static func build_csm(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var b := bell(2.24, 62); b.scale = Vector3(1.15, 1.15, 1.15)
 	pivot.add_child(b); g.add_child(pivot); parts.gimbals.append(pivot)
 	var hd := dish(1.0); hd.position = Vector3(2.3, 1.1, 0); hd.rotation.z = -1.15; g.add_child(hd)
-	# ---- command module: the 33° cone, apex up, on its heat shield.
+	# command module: the 33° cone, apex up, on its heat shield.
 	var cm_y := sm_l; var cm_h := 3.20; var cm_r := 1.955
 	var cm := _mesh(_cylinder(cm_r * 0.28, cm_r, cm_h, 24, 1, true), M.alu)
 	cm.position.y = cm_y + cm_h / 2.0; g.add_child(cm)
@@ -1306,7 +1306,7 @@ static func build_csm(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	shield.position.y = cm_y + cm_r * 1.62; g.add_child(shield)
 	var tunnel := _mesh(_cylinder(cm_r * 0.26, cm_r * 0.28, 0.42, 16), M.alu)
 	tunnel.position.y = cm_y + cm_h + 0.18; g.add_child(tunnel)
-	# ---- launch escape system: tower, motor, and the canted nozzles that pull
+	# launch escape system: tower, motor, and the canted nozzles that pull
 	# the command module off a failing stack fast enough to matter.
 	var tow_y := cm_y + cm_h + 0.40; var tow_h := 3.05
 	var tower := lattice(tow_h, cm_r * 1.05, cm_r * 0.62, M.dirty)
@@ -1557,7 +1557,7 @@ static func build_rover(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	hga.position = Vector3(-0.55, body_y + 0.55, -0.55); hga.rotation = Vector3(0.5, 0.6, 0); g.add_child(hga)
 	var arm := _mesh(_cylinder(0.07, 0.07, 1.05, 8), M.alu)
 	arm.position = Vector3(1.18, body_y - 0.18, 0); arm.rotation.z = 1.15; g.add_child(arm)
-	# ---- rocker-bogie. The rocker runs the length of each side; the bogie is
+	# rocker-bogie. The rocker runs the length of each side; the bogie is
 	# the short rear link that carries two of the three wheels.
 	for sz in [1.0, -1.0]:
 		var side := _grp()
@@ -1688,13 +1688,13 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var aft_y: float = f.call(0.132)
 	var dR := tank_r * 0.62                # 0.82 m — the drive is SMALLER than its tank
 
-	# ---- the central drive, on the axis, where the spine's load path ends.
+	# the central drive, on the axis, where the spine's load path ends.
 	var axial := spin_drive(dR)
 	axial.mount.position = Vector3(0, aft_y, 0)
 	g.add_child(axial.mount); parts.gimbals.append(axial.pivot)
 	var plate_y: float = aft_y + axial.topY + f.call(0.006)
 
-	# ---- the central body: a fat cone the tanks lie against. Its radius equals the
+	# the central body: a fat cone the tanks lie against. Its radius equals the
 	# tank centreline's radius minus the tank radius, and it ends on a thrust plate at
 	# plate_y for the axial drive and aft truss.
 	var cone_y1: float = f.call(0.468)
@@ -1729,7 +1729,7 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		box.position = Vector3(cos(a) * D * 0.172, f.call(0.288), sin(a) * D * 0.172)
 		box.rotation.y = -a; g.add_child(box)
 
-	# ---- three tanks: straight, then bent in around the cone. The turn is limited at
+	# three tanks: straight, then bent in around the cone. The turn is limited at
 	# the drive faces: three faces of radius r clear on a ring of R only while R·√3 > 2r.
 	var path := bent_path(tr, f.call(0.679), f.call(0.245), D * 0.55, 16, D * 0.14)
 	var end_p: Vector3 = path[path.size() - 1]
@@ -1813,7 +1813,7 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 			box.rotation.y = atan2(cos(phi), -sin(phi))
 			t.add_child(box)
 
-		# ---- the aft end: a bulkhead, a thrust block, and the drive square under it.
+		# the aft end: a bulkhead, a thrust block, and the drive square under it.
 		var end_t: Vector3 = tan[tan.size() - 1]
 		var cap_plate := _mesh(_circle(tank_r, 24), M.dirty)
 		cap_plate.position = end_p
@@ -1848,7 +1848,7 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		t.add_child(_mesh(_tube(feed, 16, 0.12, 5), M.alu))
 		g.add_child(t)
 
-	# ---- structure: radial struts to the spine at two stations, girth ties between
+	# structure: radial struts to the spine at two stations, girth ties between
 	# tanks, and an aft truss tying the four drive blocks together.
 	for yy in [f.call(0.290), f.call(0.584)]:
 		for i in nT:
@@ -1872,7 +1872,7 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 			g.add_child(beam(p, q, 0.075))
 		g.add_child(beam(p, ring_pt.call(float(i + 1), end_p.x, aft_y + dR * 2.0), 0.065))
 
-	# ---- the module stack, standing on the cone and running past the tanks.
+	# the module stack, standing on the cone and running past the tanks.
 	var mod := func(y0: float, y1: float, dia: float, m: Material) -> void:
 		var c := _mesh(_cylinder(dia / 2.0, dia / 2.0, y1 - y0, 22, 1, true), m)
 		c.position.y = (y0 + y1) / 2.0; g.add_child(c)
@@ -1918,7 +1918,7 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var hg_dish := dish(D * 0.105)
 	hg_dish.position = Vector3(hg_x, hg_y + D * 0.030, 0); hg_dish.rotation.z = -0.56; g.add_child(hg_dish)
 
-	# ---- radiators: fixed structure, not parts.arrays (which flies stowed). On the
+	# radiators: fixed structure, not parts.arrays (which flies stowed). On the
 	# hull above the tank tops, the one band of spine with a clear horizon.
 	var n_rad := int(_n(look.get("radiators"), 0.0))
 	for i in n_rad:
@@ -1933,7 +1933,7 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		arm.add_child(beam(Vector3(hull_d * 0.46, 0, 0), Vector3(hull_d * 0.5 + D * 0.09, 0, 0), 0.07))
 		g.add_child(arm)
 
-	# ---- solar wings: two long flat panels, the widest thing on the ship.
+	# solar wings: two long flat panels, the widest thing on the ship.
 	for side in [1.0, -1.0]:
 		var wing := _grp()
 		var nP := 7; var pw := D * 0.235; var ph := D * 0.40
@@ -1952,7 +1952,7 @@ static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		# Fixed structure, NOT a deployable — see the note on `parts.arrays`.
 		g.add_child(wing)
 
-	# ---- beetles on the spine below the pressure vessel. Next to the ship they
+	# beetles on the spine below the pressure vessel. Next to the ship they
 	# are deliberately tiny, and they are the only way an answer gets home.
 	var nB := int(_n(look.get("beetles"), 0.0))
 	for i in nB:
@@ -2028,7 +2028,7 @@ static func build_beetle(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	g.add_child(_mesh(_lathe(horn_profile, 16), M.alu))
 	return {"group": g, "parts": parts}
 
-# MEASUREMENT — three's Box3.setFromObject, which several callers depend on.
+# Bounds include each mesh transformed through its full parent chain.
 ## `n`'s transform relative to the top of its hierarchy (global in a tree; the
 ## product of locals up to the parentless root otherwise, since crafts are built
 ## before being added).

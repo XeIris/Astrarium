@@ -65,7 +65,7 @@ func copy() -> VisualOpts:
 			c.set(p.name, get(p.name))
 	return c
 
-## From a camelCase Dictionary (the web build's opts, as the harness fixtures hold
+## From a camelCase fixture Dictionary (the render harnesses hold
 ## them). An unknown key is an error, not a silent drop.
 static func from_dict(d: Dictionary) -> VisualOpts:
 	var o := VisualOpts.new()

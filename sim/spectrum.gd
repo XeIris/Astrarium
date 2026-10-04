@@ -1,22 +1,9 @@
 class_name Spectrum
 extends RefCounted
 
-# MULTI-WAVELENGTH IMAGING: re-image the frame through a chosen band, from each
-# pixel's emitting temperature. Emitters (disc, photospheres, neutron-star
-# surfaces) publish their true temperature through the temperature pass, zipped
-# into the HDR alpha by shaders/post/compose.glsl (docs/godot.md). Lit geometry
-# without data falls back to T from colour (it was coloured from the Planck locus).
-# The sky is composited per band by sim/sky.gd and marked SKY_ALPHA.
-#
-# PER PIXEL (shaders/post/remap.glsl):
-#   1. T from alpha, else from the blue/red ratio (monotonic on the Planck locus).
-#   2. The band's surface brightness relative to its reference temperature: with
-#      B_ν = 2hν³/c² / (exp(hν/kT) − 1) the ν³ cancels, leaving the Planck
-#      exponent (the Wien cutoff). Computed in logs: hν/kT reaches ~1750.
-#   3. Rendered luminance is only a coverage mask.
-#   4. Per-band gain, log stretch, false-colour ramp.
-# Blackbody continuum only: no synchrotron, lines, reflected light or planetary
-# thermal glow, so worlds go dark outside the visible.
+# Blackbody imaging from physical temperature encoded in HDR alpha.
+# Sky bands are composited separately; reflected and planetary thermal spectra
+# are outside this approximation. See docs/godot.md and docs/physics/sky.md.
 
 ## h/k, in kelvin·seconds — converts a frequency straight to the temperature
 ## scale where that frequency's Planck exponent is unity.

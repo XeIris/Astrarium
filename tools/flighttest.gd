@@ -1,30 +1,8 @@
 extends Node
 
-# FLIGHT TEST: drives the real orchestrator through a scripted spaceflight scenario
-# and writes frames and telemetry, for comparison with the web build
-# (tools/flightshots.json through webref.mjs).
-#
+# FLIGHT TEST: drives the real orchestrator through a scripted spaceflight scenario. See README.md for verification usage.
 #   Godot --path . res://tools/flighttest.tscn -- scen=sv_launch out=/abs/dir/ \
 #         seed=7 [only=name,name]
-#
-# Scenarios are in tools/flight_scenarios.json (also read by flightshots.mjs). Steps:
-#   ["launch", key]                   main.launch_craft(key) (await its mesh)
-#   ["begin", key, opts]              flight.begin(key, opts) directly
-#   ["booster"]                       register the lone Falcon 9 booster
-#   ["init", {alt, vVert, vHoriz}]    set r, v, q as tools/flightref.mjs does
-#   ["program", name]                 the flight panel's program button
-#   ["target", name]                  a body, or "★ <star>" for a mission
-#   ["cam", mode] / ["warp", i]
-#   ["call", method, args...]         main.<method>(args...)
-#   ["backdrop", light]               the model viewer's backdrop
-#   ["sunaim", yaw, pitch]            turntable to the far side from the sun
-#   ["look", yaw, pitch, dist?]       aim the chase/orbit turntable (rad, m)
-#   ["pad", az°, el, scale]           walk the pad camera round (pad_orbit)
-#   ["frames", n]                     n fixed steps of main.animate(dt)
-#   ["shot", name, hud?]              write <out>/<name>.png (+ .json telemetry)
-#
-# Pass the world on main.gd's command line: preset=solar seed=<table seed>
-# mode=flight (tools/flightshots.sh does).
 
 ## The scenario table is shared with the web side (tools/flightshots.mjs).
 const SCENARIO_FILE := "res://tools/flight_scenarios.json"

@@ -1,21 +1,9 @@
 class_name Starcat
 extends RefCounted
 
-# A CATALOGUE OF REAL STARS: measured mass, radius, temperature, luminosity and
-# rotation, not what the scaling relations predict (Betelgeuse's 16.5 M☉ gives
-# 4.9 R☉ on the main-sequence relation; it is 764. Sirius B's 1.02 M☉ gives 1.0 R☉;
-# it is 0.0084). Each entry carries its evolutionary `phase` for the interior model.
-#
-# Sources: interferometry (CHARA, VLTI/AMBER, NPOI), asteroseismology and binary
-# orbital solutions; distances from Hipparcos/Gaia. Contested values (Betelgeuse's
-# radius and distance) are noted.
-#
-# `oblate` is the measured R_eq/R_pol, and the spin fraction is derived from it
-# (Structure.inverse_roche_shape), since interferometry measures shape better than
-# equatorial velocity. Vega's 236 km/s independently predicts 1.192 against a
-# measured 1.193.
-#
-# Entries and specs are Dictionaries; `pos`/`vel` are 3-element Arrays.
+# Measured stellar mass, radius, temperature, luminosity and rotation.
+# Measured radii override tracks; oblate ratios imply spin through inverse Roche
+# shape. Entry notes retain disputed values and observational sources.
 
 # mass  M☉        radius R☉ (polar, if oblate is given)
 # teff  K         luminosity L☉         dist  light years

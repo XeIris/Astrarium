@@ -1,18 +1,7 @@
 extends SceneTree
 
-# PAD CHECK — does any part of a launch complex stand inside its vehicle?
+# PAD CHECK. See README.md for verification usage.
 #   Godot --headless --path . --script res://tools/padcheck.gd [-- padmodels=0]
-#
-# Builds each launcher and the complex fitted to it (the authored pads, or the
-# procedural fallback with padmodels=0), puts the arms in their pre-launch
-# pose, and samples every triangle of the complex near the stack — corners,
-# edge midpoints, centroid. A sample is reported when it is ENCLOSED by the
-# vehicle's own skin (LaunchSite.Envelope): every one of eight horizontal rays
-# out of it meets the skin. A point in a concavity — between the Shuttle's
-# boosters, say — has a way out and is not reported; the reported depth is the
-# shortest way out. The measured skin is the same one
-# the complex was fitted to, so this is a check on the fitting, and on every
-# piece of the complex that was NOT fitted.
 
 func _initialize() -> void:
 	_run.call_deferred()

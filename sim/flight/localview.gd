@@ -1,27 +1,10 @@
 class_name LocalView
 extends RefCounted
 
-# LOCAL SPACE: spaceflight's own metre-scale pass. At AU scale a 100 m rocket is
-# 7e-10 units and the near plane, depth buffer and float32 precision all fail, so
-# the vehicle is drawn in a second scene with its own camera and composited over
-# the orrery (KSP's "scaled" and "local" space). Contents: the vehicle and plumes,
-# a ground patch with real curvature (horizon at √(2Rh)), and an atmosphere that
-# thins on the body's scale height.
-#
-# The ground is the parabola y = −r²/2R, identical to a sphere to well under a metre
-# over a few hundred km, without 6.4e6 in a float32 vertex.
-#
-# The pass is pipeline.gd's local_vp (own World3D, pipe.local_cam, transparent,
-# composited premultiplied). A floating origin one level down: the local origin is
-# the ground point under the vehicle, the camera sits at the origin, `cam_pos` is a
-# DVec3, and place()/apply_origin() put every object at (local position − cam_pos)
-# in double.
-#
-# Lights: Godot's energies include the π that a Lambert BRDF divides out, so
-# intensities are /π (measured, see modelviewer.gd). The hemisphere light becomes
-# ambient (fill + the hemisphere's mean) plus two diffuse-only directionals on ±Y,
-# one negative: mix(ground, sky, ½ + ½ n·y) rewritten as a constant plus
-# ±(sky − ground)/2 · max(0, ±n·y).
+# Metre-scale transparent flight pass with a second floating origin.
+# Camera-relative placements subtract doubles before conversion to Vector3.
+# Ground curvature, atmospheric lighting and cloud sampling contracts: AGENTS.md.
+# Light energy compensates Lambert normalization; see docs/godot.md.
 
 # THE TRANSPARENT QUEUE, declared (a centroid sort is noise within metres of the
 # nozzle). Outside in:
@@ -156,7 +139,7 @@ func _init(p: RenderPipeline) -> void:
 		hemi.append(l)
 	_set_ambient(0.55)
 
-	# ---- ground: a unit disc re-tessellated radially so there are rings, not
+	# ground: a unit disc re-tessellated radially so there are rings, not
 	# one fan — 90 rings of 128.
 	var rings := 90
 	var segs := 128
@@ -173,7 +156,7 @@ func _init(p: RenderPipeline) -> void:
 			var b := r * segs + (s + 1) % segs
 			var c := (r + 1) * segs + s
 			var d := (r + 1) * segs + (s + 1) % segs
-			# three: (a, c, b), (b, c, d) — swapped once for Godot's winding
+			# (a, c, b), (b, c, d) — swapped once for Godot's winding
 			idx.append_array([a, b, c, b, d, c])
 	var nrm := PackedVector3Array()
 	nrm.resize(pos.size())
@@ -206,7 +189,7 @@ func _init(p: RenderPipeline) -> void:
 	ground.custom_aabb = AABB(Vector3(-1.3e6, -2.0e5, -1.3e6), Vector3(2.6e6, 2.1e5, 2.6e6))
 	root.add_child(ground)
 
-	# ---- sky dome: after the ground, no depth write (it hazes the ground near the
+	# sky dome: after the ground, no depth write (it hazes the ground near the
 	# horizon), depth-tested. Radius 1.2e6, past the ground patch and inside far.
 	sky_mat = ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/flight/sky_dome.gdshader")
@@ -226,7 +209,7 @@ func _init(p: RenderPipeline) -> void:
 	sky.custom_aabb = AABB(Vector3(-3.1e6, -3.1e6, -3.1e6), Vector3(6.2e6, 6.2e6, 6.2e6))
 	root.add_child(sky)
 
-	# ---- cloud layer: a sphere round the camera marching the field per pixel and
+	# cloud layer: a sphere round the camera marching the field per pixel and
 	# stopping at the depth buffer.
 	cloud_mat = ShaderMaterial.new()
 	cloud_mat.shader = load("res://shaders/flight/clouds.gdshader")
@@ -240,7 +223,7 @@ func _init(p: RenderPipeline) -> void:
 	clouds.visible = false
 	root.add_child(clouds)
 
-	# ---- the sun. After the sky and the clouds, before the smoke and flames,
+	# the sun. After the sky and the clouds, before the smoke and flames,
 	# so a launch cloud still passes in front of it.
 	sun_mat = ShaderMaterial.new()
 	sun_mat.shader = load("res://shaders/flight/sun_disc.gdshader")
@@ -255,7 +238,7 @@ func _init(p: RenderPipeline) -> void:
 	# the vertex shader turns and sizes it; never cull it
 	sun_disc.custom_aabb = AABB(Vector3(-2.0e6, -2.0e6, -2.0e6), Vector3(4.0e6, 4.0e6, 4.0e6))
 	root.add_child(sun_disc)
-	# ---- its ghosts: a full-screen pass, last of all, since they are in the
+	# its ghosts: a full-screen pass, last of all, since they are in the
 	# lens and in front of everything
 	flare_mat = ShaderMaterial.new()
 	flare_mat.shader = load("res://shaders/flight/lens_flare.gdshader")
@@ -302,7 +285,7 @@ func _set_ambient(bounce: float) -> void:
 		return
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	var am := maxf(maxf(amb.r, amb.g), maxf(amb.b, 1e-6))
-	# Environment colours are sRGB and converted like three's hex; these are
+	# Environment colours are sRGB and converted like sRGB hex; these are
 	# linear sums, so they go back through linear_to_srgb first.
 	env.ambient_light_color = Color(amb.r / am, amb.g / am, amb.b / am).linear_to_srgb()
 	env.ambient_light_energy = am / PI
@@ -506,8 +489,7 @@ func update(o: Dictionary) -> Dictionary:
 	flare_mat.set_shader_parameter("uSunRGB", _sun_entering * sun_through)
 	ground_mat.set_shader_parameter("uSunDir", sun_l)
 	sky_mat.set_shader_parameter("uSunDir", sun_l)
-	# A DirectionalLight3D shines along its own −Z; three's shines from its
-	# position toward its target (the origin).
+	# A DirectionalLight3D shines along its own −Z; orient that axis toward the surface.
 	if sun_l.length_squared() > 0.0:
 		var ref := Vector3(0, 0, 1) if absf(sun_l.y) > 0.99 else Vector3.UP
 		sun.basis = Basis.looking_at(-sun_l, ref)
@@ -692,7 +674,7 @@ func _update_sun2(o: Dictionary, h: float, R: float, east: DVec3, up: DVec3, nor
 
 func set_size(_w: float, _h: float) -> void:
 	# The render camera keeps its aspect from the viewport (keep_height, as
-	# THREE's vertical fov).
+	# vertical fov).
 	pass
 
 func dispose() -> void:
@@ -728,8 +710,8 @@ class FlightCamera extends RefCounted:
 		if absf(n / near - 1.0) > 0.02:
 			near = n
 
-	## THREE's Object3D.lookAt for a camera: z = eye − target, x = up × z,
-	## y = z × x, with three's own nudge when up is parallel to the view.
+	## Camera look-at basis: z = eye − target, x = up × z,
+	## y = z × x, with a fixed nudge when up is parallel to the view.
 	func look_at(target: DVec3, up: Vector3) -> void:
 		var z := target.sub(pos).to_v3() * -1.0
 		if z.length_squared() == 0.0: z = Vector3(0, 0, 1)

@@ -1,16 +1,8 @@
 class_name PostFX
 extends RefCounted
 
-# POST-PROCESSING: HDR bloom and filmic tone mapping, the one tone curve (Godot's
-# tonemapper, glow and auto-exposure are off on every viewport; render/pipeline.gd).
-# The chain (shaders/post/*.glsl, compute, in order in one callback):
-#   compose    → HDR buffer (half-float, temperature in a)
-#   [surface   → the atmosphere, when standing on a world: sim/skyview.gd]
-#   [remap     → spectral re-imaging, outside visible light]
-#   bright pass, then a 5-level dual-filter down/upsample bloom
-#   composite: ACES RRT+ODT fit, vignette, grain, ordered dither → 8-bit sRGB
-# The curve compresses rather than clips, so an emitter 40× over white keeps its
-# colour at the edges.
+# HDR compose, optional surface/band passes, bloom, then one ACES/sRGB output.
+# Pass order and temperature-alpha contract: docs/godot.md.
 
 const MIPS := 5
 

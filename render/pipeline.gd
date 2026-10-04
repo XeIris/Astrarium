@@ -1,27 +1,9 @@
 class_name RenderPipeline
 extends Node
 
-# THE RENDER PIPELINE. Everything draws into half-float targets and is tone mapped
-# once (render/postfx.gd).
-#
-#   hook_vp  (4×4, empty world, a Compositor whose callback runs the post chain)
-#    ├─ scene_vp   the orrery. HDR-2D, linear, Godot's tonemap/glow/exposure off.
-#    │    │        Background = shaders/sky/background.gdshader (sky or lens
-#    │    │        resolve). Objects go under `world_root`.
-#    │    └─ temp_vp  the same world, a second camera with TEMP_LAYER_BIT: every
-#    │               shader writes its temperature code into R instead of colour.
-#    ├─ local_vp   spaceflight's metre-scale world, transparent, composited over
-#    │             the orrery.
-#    └─ model_vp   the model-viewer studio, which takes the whole frame.
-#   display  (TextureRect)  the 8-bit composite, stretched to the window.
-#
-# Why this shape (all measured): a SubViewport renders before the viewport
-# containing it, frame-exact, so the hook's callback is the first moment every input
-# is finished, and the root viewport draws `display` after it. The lens marcher is
-# dispatched from _process via call_on_render_thread, which runs before any viewport
-# draws, so the sky samples this frame's march.
-#
-# Every camera sits at the origin (rotation only); see docs/godot.md.
+# HDR viewports render before the containing compositor hook, so post-processing
+# sees this frame's inputs. Lens compute runs before scene rendering.
+# Tone mapping occurs once; layout and floating origin: docs/godot.md.
 
 const TEMP_LAYER_BIT := 1 << 19
 const ALL_LAYERS := 0xFFFFF
@@ -127,7 +109,7 @@ func _camera(near := 0.01, far := 100000.0, fov := 50.0) -> Camera3D:
 	return c
 
 func _build() -> void:
-	# ---- the hook
+	# the hook
 	hook_vp = _viewport(World3D.new())
 	hook_vp.size = Vector2i(4, 4)
 	add_child(hook_vp)
@@ -142,7 +124,7 @@ func _build() -> void:
 	hcam.compositor = comp
 	hook_vp.add_child(hcam)
 
-	# ---- the orrery
+	# the orrery
 	scene_vp = _viewport(World3D.new())
 	hook_vp.add_child(scene_vp)
 	scene_cam = _camera()
@@ -164,7 +146,7 @@ func _build() -> void:
 	world_root.name = "World"
 	scene_vp.add_child(world_root)
 
-	# ---- the temperature pass: same world, a second camera
+	# the temperature pass: same world, a second camera
 	temp_vp = _viewport(scene_vp.world_3d)
 	scene_vp.add_child(temp_vp)
 	temp_cam = _camera()
@@ -185,7 +167,7 @@ func _build() -> void:
 	temp_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	sky_materials = [sky_mat, sky_temp_mat]
 
-	# ---- spaceflight's local world (metres)
+	# spaceflight's local world (metres)
 	local_vp = _viewport(World3D.new(), true)
 	hook_vp.add_child(local_vp)
 	local_cam = _camera(0.05, 4.0e6, 55.0)
@@ -198,7 +180,7 @@ func _build() -> void:
 	local_vp.add_child(local_root)
 	local_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 
-	# ---- the model viewer's studio
+	# the model viewer's studio
 	model_vp = _viewport(World3D.new())
 	hook_vp.add_child(model_vp)
 	model_cam = _camera(0.05, 5000.0, 32.0)
@@ -212,7 +194,7 @@ func _build() -> void:
 	model_vp.add_child(model_root)
 	model_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 
-	# ---- the screen
+	# the screen
 	display = TextureRect.new()
 	display.name = "Display"
 	display.texture = postfx.final_tex

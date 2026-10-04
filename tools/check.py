@@ -15,7 +15,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("fast", "native", "flight", "rendered", "assets", "lifecycle", "export", "compatibility", "perf", "stability", "stability-study")
+SUITES = ("fast", "native", "flight", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 CA_ERROR = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: ""\n'
                       r'\s+at: get_system_ca_certificates \(platform/macos/os_macos\.mm:\d+\)\n?', re.MULTILINE)
@@ -41,9 +41,11 @@ def checks(suite, godot, output, repeat, export_preset):
 
     if suite == "fast":
         yield ("import", base + ["--headless", "--import", "--quit"], None, 180)
+        yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
+        yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$")
-        yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(POSIX \+ simulated backup protocol\)\.$")
+        yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
@@ -78,29 +80,37 @@ def checks(suite, godot, output, repeat, export_preset):
         yield ("accretion-gdscript", *accretion_gd[1:])
         yield ("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log")],
                r"^PRESETCHECK DONE 35$", 300)
-    elif suite == "assets":
-        yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
-               r"^PARITY DONE 18 poses, 0 failures$", 180)
-        for assets in ("1", "0"):
+    elif suite in ("assets", "procedural"):
+        if suite == "assets":
+            yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
+                   r"^PARITY DONE 18 poses, 0 failures$", 180)
+        for assets in (("1", "0") if suite == "assets" else ("0",)):
             # The authored gate cannot pass by silently substituting optional fallback models.
             yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'9' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)
-            for pads in ("1", "0"):
+            for pads in (("1", "0") if suite == "assets" else ("0",)):
                 yield script("padcheck", r"^PADCHECK DONE PASS$", f"assets={assets}", f"padmodels={pads}")
+    elif suite == "clean":
+        yield ("cleancheck", [sys.executable, str(ROOT / "tools/cleancheck.py"), "--godot", godot,
+                             "--log-dir", str(output / "clean"), "--export-preset", export_preset],
+               r"^CLEANCHECK DONE failures=0$", 1800)
     elif suite == "lifecycle":
         for method, marker in (("_soak_check", r"^SOAK DONE$"), ("_leak_check", r"^LEAKCHECK DONE$"), ("_shutdown_check", r"^SHUTDOWNCHECK DONE$")):
             yield (method, base + ["--verbose", "--resolution", "1280x720", "--", "mode=sandbox", "preset=solar", "rounds=5", f"eval={method}"], marker, 900)
     elif suite == "export":
         archive = output / "game.zip"
         yield ("export-pack", base + ["--headless", "--export-pack", export_preset, str(archive)], None, 300)
+        yield ("package-native", [sys.executable, str(ROOT / "tools/package_native.py"), str(archive), export_preset],
+               r"^NATIVEPACKAGE DONE .+$", 30)
         yield ("exportcheck", [sys.executable, str(ROOT / "tools/exportcheck.py"), str(archive)], r"^EXPORTCHECK PASS:.* 0 failures$", 30)
     elif suite == "compatibility":
         # Known strict trajectory differences remain failures; no widened tolerances or expected-failure masking.
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "perf":
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=8 failures=0$", f"report={output / 'render-profile.json'}")
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         for _ in range(repeat):
             for native in ("0", "1"):
@@ -172,7 +182,7 @@ def main():
     parser.add_argument("--timeout", type=float, help="override each child timeout in seconds")
     parser.add_argument("--allow-macos-ca-error", action="store_true", help="allow only Godot's get_system_ca_certificates diagnostic")
     parser.add_argument("--repeat", type=int, default=3, help="performance repetitions (default 3)")
-    parser.add_argument("--export-preset", default="macOS")
+    parser.add_argument("--export-preset", default={"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}.get(platform.system(), "macOS"))
     options = parser.parse_args()
     options.suites = options.suites or ["fast"]
     if any(suite not in SUITES for suite in options.suites):
@@ -189,7 +199,7 @@ def main():
               "performance": ({"resolution": "1280x720", "craft_models": "procedural (asserted by each harness)",
                                "shared_time": "fixed 1/60s steps; CPU animate timing; native=0 and required native=1",
                                "hud": "fixed 1/60s frames; wall time across rendered frames; vsync disabled",
-                               "repetitions": options.repeat, "limitations": "local baseline; no GPU timer or budget gate"}
+                               "repetitions": options.repeat, "limitations": "local baseline; GPU availability recorded separately, no portable budget gate"}
                               if "perf" in options.suites else None),
               "complete": False, "results": []}
     try:

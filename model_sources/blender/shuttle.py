@@ -15,11 +15,13 @@ from math import pi, cos, sin, copysign
 from mathutils import Vector
 from lib import (revolve, cyl, lathe, tank, box, torus_z, disc, empty, finish,
                  smooth, strut, bell, ball, ogive, loft, wing, rcs_ring, naca, _obj, TAU)
-from common import build, stage
+from common import build, stage, vehicle_stages
 
-SRB_L, SRB_D = 45.5, 3.71
-ET_L, ET_D = 46.9, 8.40
-ORB_L = 37.2
+S = vehicle_stages("shuttle")
+
+SRB_L, SRB_D = S["srb"]["L"], S["srb"]["D"]
+ET_L, ET_D = S["et"]["L"], S["et"]["D"]
+ORB_L = S["orbiter"]["L"]
 f = lambda u: u * ORB_L
 
 
@@ -164,7 +166,7 @@ def build_srb(M, root):
         # vectors 8°, the stack's only control until the SSMEs have authority.
         piv = empty(f'gimbal_srb_{0 if side < 0 else 1}',
                     (side * 6.35, 0, SRB_L * 0.085), g)
-        nz = bell(f'srbnoz{side}', 3.75, M['nozzle'], ratio=7.7, chamber=False,
+        nz = bell(f'srbnoz{side}', S['srb']['engine']['exitD'], M['nozzle'], ratio=7.7, chamber=False,
                   seg=32, parent=piv)
         finish(nz, 0.015, 2, 50)
 
@@ -351,7 +353,7 @@ def build_orbiter(M, root):
     # 10.5°, the most in the set.
     for i, (x, zc) in enumerate(((0, 1.30), (-1.55, -0.55), (1.55, -0.55))):
         piv = empty(f'gimbal_orbiter_{i}', (x, -zc, f(0.045)), g)
-        b = bell(f'ssme{i}', 2.30, M['nozzle'], ratio=69, seg=26, parent=piv)
+        b = bell(f'ssme{i}', S['et']['engine']['exitD'], M['nozzle'], ratio=69, seg=26, parent=piv)
         finish(b, 0.010, 2, 50)
     # The boat-tail shroud the engines hang out of.
     aft = loft('boattail', [

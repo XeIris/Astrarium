@@ -1,22 +1,9 @@
 class_name Painter
 extends RefCounted
 
-# PAINTER: rings, belts and clouds, far too many particles for the N-body loop. So
-# they are test particles on analytic Keplerian orbits (mean anomaly at √(GM/a³),
-# Kepler's equation solved), which for negligible masses is exact. Mutual effects
-# are dropped; resonances are added by hand.
-#
-# A ring lies inside the Roche limit, d = 2.44 R_p (ρ_p/ρ_m)^⅓, where tides beat
-# self-gravity; outside it material forms moons. `ring_span()` returns that
-# interval. Kirkwood gaps (3:1, 5:2, 7:3, 2:1 with Jupiter) are depopulated by
-# `_in_resonance_gap`, as the dynamics does over the solar system's age.
-#
-# The Kepler solution runs in the vertex shader (painter_swarm.gdshader), with
-# elements as attributes and the clock split in two uniforms so the float32 phase
-# doesn't step. Floating origin: particle positions are group-relative and
-# place(cam_pos) puts each group at its body's scene position minus the camera's,
-# in double. Call update(sim_dt) with the physics and place(cam_pos) once the camera
-# is final, or update(sim_dt, cam_pos) for both.
+# Massless decorations on analytic Kepler orbits; no mutual perturbations.
+# Resonance gaps are authored approximations. Update the simulation clock before
+# placing groups relative to the final camera, in double.
 
 const SWARM_SHADER := preload("res://shaders/bodies/painter_swarm.gdshader")
 const CLOUD_SHADER := preload("res://shaders/bodies/painter_cloud.gdshader")

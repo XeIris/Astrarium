@@ -1,29 +1,8 @@
 extends Node
 
-# THE FOUNDRY / CROSS-SECTION HARNESS — the Godot half of the side-by-side.
-#
+# THE FOUNDRY / CROSS-SECTION HARNESS. See README.md for verification usage.
 #   node tools/foundrytest.shots.mjs /tmp/fd/shots.json
-#   PORT=8803 WEB_ROOT=<checkout> node tools/webref.mjs /tmp/fd/shots.json /tmp/fd/web
 #   Godot --path . res://tools/foundrytest.tscn -- fix=/tmp/fd/web state=xsec_sun out=/tmp/fd/godot/xsec_sun.png
-#
-# The web shots isolate one panel on the page background; this puts a real Hud
-# in a viewport with only that panel open, fed from the fixture the web page
-# dumped (<state>.json):
-#   xsec_*  the cross-section panel, with the inspector and live editor created
-#           exactly as main.gd creates them (the xsecCanvas and liveEdit mounts),
-#           the editor synced to a Body carrying the web body's fields. The
-#           structure is recomputed HERE from the same structureOf query, so
-#           the diagram is also a check on sim/structure.gd.
-#   fd_*    the control panel with only the Foundry section open, driven to the
-#           same type and slider values.
-# It prints the facts and verdict text beside the web's, the Foundry's spawn
-# spec beside the one the web actually spawned, and the measured rects. The
-# picture is rendered in a fixed 400 × 1400 SubViewport (the window may be
-# smaller than the page) and saved to `out`.
-#
-#   behave=1   also runs the behaviour checks: dragging the mass-curve handle
-#              past the TOV / Chandrasekhar limits must call on_edit with the
-#              picked mass, and the slider drag must coalesce into one patch.
 
 const T = preload("res://ui/theme.gd")
 

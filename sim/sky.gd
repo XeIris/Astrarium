@@ -229,7 +229,7 @@ const SKY_PARAMS := [
 ##   [["globular", 1], ["disc", .4]] explicit weights
 ##   { "globular": 1, "disc": 0.4 }  the same, as a map — what the UI holds
 ##
-## Unknown names are dropped, so a typo shows as a missing component.
+## Normalize already validated input; empty components use the default disc.
 static func sky_env_weights(env) -> Array:
 	var pairs: Array = []
 	if env == null or (env is String and env == "") :
@@ -251,6 +251,42 @@ static func sky_env_weights(env) -> Array:
 		if SKY_ENVIRONMENTS.has(p[0]) and w > 0.0 and is_finite(w):
 			out.append(p)
 	return out
+
+static func _finite_number(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
+
+## Authored patches are checked before normalization can discard misspelled components.
+static func request_error(spec: Variant) -> String:
+	if not spec is Dictionary: return "sky must be a dictionary."
+	var fields := ["env", "tilt", "roll"]
+	for parameter in SKY_PARAMS: fields.append(parameter.key)
+	for key in spec:
+		if key not in fields: return "Unknown sky field \"%s\"." % str(key)
+		if key == "env" or spec[key] == null: continue
+		if not _finite_number(spec[key]): return "sky.%s must be a finite number." % key
+		for parameter in SKY_PARAMS:
+			if key == parameter.key and (float(spec[key]) < 0.0 or float(spec[key]) > float(parameter.max)):
+				return "sky.%s must be between zero and %s." % [key, str(parameter.max)]
+	var env: Variant = spec.get("env")
+	if env == null: return ""
+	var entries := []
+	if env is String or env is StringName:
+		entries = [[env, 1.0]]
+	elif env is Dictionary:
+		for key in env: entries.append([key, env[key]])
+	elif env is Array:
+		for entry in env:
+			if entry is Array:
+				if entry.size() != 2: return "sky.env weighted entries need a name and weight."
+				entries.append(entry)
+			else: entries.append([entry, 1.0])
+	else: return "sky.env must name environments or their weights."
+	for entry in entries:
+		if not (entry[0] is String or entry[0] is StringName) or not SKY_ENVIRONMENTS.has(entry[0]):
+			return "Unknown sky environment \"%s\"." % str(entry[0])
+		if not _finite_number(entry[1]) or float(entry[1]) < 0.0 or float(entry[1]) > 100.0:
+			return "sky.env weights must be finite numbers between zero and 100."
+	return ""
 
 # Numbers pass, numeric strings parse, anything else is NaN (and fails w > 0).
 static func _num(v) -> float:

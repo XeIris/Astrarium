@@ -9,7 +9,7 @@ extends RefCounted
 #   · setLength(l) is normalize then multiply: two roundings.
 #   · angleTo() is acos of the clamped dot/sqrt(|a|²|b|²), not atan2.
 # Quaternion methods likewise (setFromUnitVectors normalises at the end, multiply is
-# the euclideanspace formula, slerp keeps three's two special cases).
+# the euclideanspace formula, slerp keeps the near-parallel and antipodal special cases).
 
 var x: float = 0.0
 var y: float = 0.0
@@ -103,7 +103,7 @@ func set_from_basis_columns(c0: DVec3, c1: DVec3, c2: DVec3) -> DQuat:
 func angle_to(q: DQuat) -> float:
 	return 2.0 * acos(absf(clampf(dot(q), -1.0, 1.0)))
 
-## invert() — THREE assumes unit length, so it is the conjugate.
+## invert() — Unit quaternions, so it is the conjugate.
 func invert() -> DQuat:
 	x *= -1.0; y *= -1.0; z *= -1.0
 	return self
@@ -143,7 +143,7 @@ func multiply_quaternions(a: DQuat, b: DQuat) -> DQuat:
 	w = qaw * qbw - qax * qbx - qay * qby - qaz * qbz
 	return self
 
-## Quaternion.slerp(qb, t), three's version including both special cases.
+## Quaternion.slerp(qb, t), including near-parallel and antipodal cases.
 func slerp_in(qb: DQuat, t: float) -> DQuat:
 	if t == 0.0: return self
 	if t == 1.0: return copy_from(qb)
@@ -179,7 +179,7 @@ func slerp_in(qb: DQuat, t: float) -> DQuat:
 func _to_string() -> String:
 	return "DQuat(%s, %s, %s, %s)" % [x, y, z, w]
 
-# THREE.Vector3 OPERATIONS, EXACTLY — static, on DVec3, in place.
+# Double vector operations — static, on DVec3, in place.
 
 ## Vector3.normalize(): multiply by 1/(length || 1).
 static func nrm(v: DVec3) -> DVec3:
@@ -218,10 +218,10 @@ static func rotate(v: DVec3, q: DQuat) -> DVec3:
 
 static var _aa := DQuat.new()
 ## Vector3.applyAxisAngle(axis, angle) — through a shared scratch quaternion,
-## as three does it.
+## in double precision.
 static func apply_axis_angle(v: DVec3, axis: DVec3, angle: float) -> DVec3:
 	return rotate(v, _aa.set_from_axis_angle(axis, angle))
 
-## THREE.MathUtils.clamp(v, lo, hi) = max(lo, min(hi, v)).
+## Clamp order is max(lo, min(hi, v)).
 static func jclamp(v: float, lo: float, hi: float) -> float:
 	return maxf(lo, minf(hi, v))

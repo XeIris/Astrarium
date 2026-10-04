@@ -1,21 +1,9 @@
 class_name Presets
 extends RefCounted
 
-# PRESET SCENARIOS, in real units: mass M☉, pos AU, vel AU/yr. `sceneScale` =
-# scene units per AU (rendering only). `bodyScale` exaggerates drawn sizes;
-# `trueScale: true` draws real sizes and relies on the point-source markers.
-# `radiusKm` gives a measured radius. `gwBoost` scales illustrative tight-pair drag.
-#
-# `sky` places the system in the galaxy (sim/sky.gd): `env` is one or several of
-# SKY_ENVIRONMENTS (["globular", "disc"], or {globular: 1, disc: 0.4}), `tilt`/`roll`
-# orient the galactic plane, and any parameter on the spec overrides the blend.
-#
-# A preset is a Dictionary (name, blurb, sceneScale, bodyScale, camRadius,
-# lensing, sky, timeScale, maxStep, trueScale, surface, focus, mesh, climate,
-# gwBoost, paint, discOuter, discIntensity, spawnAtRest), with `build` a Callable
-# returning spec Dictionaries. Unstated keys are absent, so use .get() with a
-# default. Spec pos/vel are 3-element Arrays; colours are sRGB hex ints (U.lin()).
-# Design notes and measurements: docs/scenarios.md.
+# Scenario data in M☉, AU and AU/yr; scene/body scales affect rendering only.
+# build returns body specs; omitted settings use consumer defaults.
+# Design, scientific bounds and sky schema: docs/scenarios.md.
 
 # The one source of randomness: `orbiter`'s default phase. randf() unless a harness
 # installs a deterministic generator here.

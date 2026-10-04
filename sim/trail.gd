@@ -1,23 +1,9 @@
 class_name Trail
 extends RefCounted
 
-# ORBIT TRAILS. The ring buffer is double precision (Body.trail_buf). Its float32
-# copy is a one-row texture, one texel per slot, written in place as slots fill. The
-# mesh is a fixed list of segments along the trail, oldest first; the vertex shader
-# reads the ring's head and count to find each point's slot and drops the segments
-# not yet filled. Oldest-first matters: the segments write depth, so where a trail
-# overlaps itself the order decides which one shows.
-#
-# Points are offsets from an anchor, and the node sits at that anchor minus the
-# camera origin. The anchor is the newest point when the texture was last rewritten.
-# The float32 error at a point p is ~2⁻²⁴·(|p − anchor| + |anchor − camera|), so
-# rewriting once the newest point is REANCHOR camera distances from the anchor keeps
-# it within a few ulps of an anchor on the newest point: precise where the body is.
-#
-# A gradient from black (oldest slot) to the body's colour (newest),
-# additive at the body's opacity, fixed to buffer slots (an unfilled trail uses only
-# the dim end). It writes depth (as three's LineBasicMaterial does), so inner orbits
-# stripe the Sun's marker drawn after them.
+# Double ring buffer uploaded to a float32 texture, oldest segments first.
+# Points are anchor-relative; reanchor near the body to limit float32 error.
+# Depth-writing trails may occlude the point-source marker.
 
 const SHADER := """
 shader_type spatial;

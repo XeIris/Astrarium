@@ -1,24 +1,9 @@
 class_name Prominence
 extends RefCounted
 
-# PROMINENCES, FILAMENTS AND THE POST-FLARE ARCADE.
-#   · Plasma is tied to field lines (β ≪ 1), so an eruption is a bundle of separate
-#     threads, each a flux tube lit along its length.
-#   · A flare makes an arcade: reconnection runs along a neutral line and climbs, so
-#     loops come in a row anchored in two ribbons, each taller than the last.
-#   · The shear is the energy: a pre-flare arcade is strongly skewed, a post-flare
-#     one relaxed toward square.
-#   · Hale's and Joy's laws: bipoles lie near east-west, tilted by about half the
-#     latitude with leading polarity equatorward, so every arcade in a hemisphere
-#     leans the same way (see create_arcade's caller in star_visual.gd).
-#   · On the disc it is dark: the same material is a bright prominence off the limb
-#     and a dark filament against the photosphere, so the arcade is drawn twice,
-#     emission and absorption, each discarding where the other applies.
-#   · Footpoints are brightest (particles dump energy where density rises), apexes
-#     thin, and material drains back as coronal rain.
-# Geometry is generated in the vertex shader from a parametric field line, so an
-# arcade rises, stretches, shears and untwists without rewriting a buffer. Shaders:
-# prom_arcade.gdshaderinc (shared), prom_emit.gdshader, prom_absorb.gdshader.
+# Parametric field-line threads deform in the vertex shader.
+# Emission off the limb and absorption on the disc require separate draws.
+# See shaders/AGENTS.md for the shared geometry and temperature contract.
 
 const THREADS := 22     # flux tubes across the arcade
 const SEGS := 44        # samples along each

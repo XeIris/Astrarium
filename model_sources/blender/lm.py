@@ -16,10 +16,12 @@ import math
 from math import pi, cos, sin, atan2
 from lib import (revolve, cyl, lathe, box, torus_z, dish, disc, empty, group, finish,
                  smooth, strut, bell, ball, landing_leg, TAU)
-from common import build, stage
+from common import build, stage, vehicle_stages
 
-DES_L, DES_D = 3.05, 4.27
-ASC_L, ASC_D = 3.76, 4.29
+S = vehicle_stages("lm")
+
+DES_L, DES_D = S["des"]["L"], S["des"]["D"]
+ASC_L, ASC_D = S["asc"]["L"], S["asc"]["D"]
 
 # THE STANCE: ~1.5 m clear of the surface on a gear 9.4 m across the pads; the legs
 # follow from those two numbers.
@@ -67,7 +69,7 @@ def build_descent(M, root):
     # 60–92.5%, in ENGINES). Foreshortened so the lip sits a hand's breadth above the
     # surface.
     piv = empty('gimbal_des_0', (0, 0, z0), g)
-    b = bell('dps', 1.52, M['nozzle'], ratio=47.5, chamber=True, seg=36, parent=piv)
+    b = bell('dps', S['des']['engine']['exitD'], M['nozzle'], ratio=47.5, chamber=True, seg=36, parent=piv)
     b.scale = (1.0, 1.0, 0.70)
     finish(b, 0.010, 2, 50)
     # The engine bay skirt it hangs out of, and the blast shield around it.
@@ -199,7 +201,7 @@ def build_ascent(M, root):
     # ---- the APS. Fixed — no gimbal at all — so the ascent stage steers on
     # RCS alone, which is why there are sixteen of those and why they matter.
     piv = empty('gimbal_asc_0', (0, 0, B + 0.06), g)
-    b = bell('aps', 0.86, M['nozzle'], ratio=45, chamber=True, seg=32, parent=piv)
+    b = bell('aps', S['asc']['engine']['exitD'], M['nozzle'], ratio=45, chamber=True, seg=32, parent=piv)
     finish(b, 0.008, 2, 50)
 
     # ---- four RCS quads on outriggers, canted 45° for two-axis authority, nozzles up,

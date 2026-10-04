@@ -1,21 +1,13 @@
 class_name LensPass
 extends RefCounted
 
-# BLACK HOLE: a general-relativistic ray marcher and volumetric accretion disc.
-# Null geodesics are integrated backwards from the eye with the exact Schwarzschild
-# acceleration d²x/dλ² = −(3/2) r_s h² x̂ / r⁵ (RK2, step shrinking toward r_s); the
-# shadow and photon ring fall out of the integration. A Shakura–Sunyaev disc with
-# Doppler + gravitational shift g (T_obs = g·T_emit, I_obs ∝ g⁴), a flared volume,
-# and sheared filaments. Derivation: docs/physics/lensing.md.
-#
-# The marcher runs at the lens scale and writes the direction field; the sky is
-# evaluated at full resolution in shaders/sky/background.gdshader over it. A compute
-# shader writing two images.
+# Schwarzschild ray marching and illustrated volumetric accretion disc.
+# The half-resolution direction field is resolved against a full-resolution sky.
+# Derivation and limitations: docs/physics/lensing.md.
 
 const MAX_HOLES := 2
 
-## Default lens scale (a fraction of display resolution); cost is nearly linear in
-## pixels (3.89× faster for 4× fewer).
+## Half resolution dispatches one quarter of the display pixels.
 const DEFAULT_LENS_SCALE := 0.5
 
 var scale := DEFAULT_LENS_SCALE

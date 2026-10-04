@@ -52,7 +52,7 @@ func publication() -> void:
 	for backup_mode in [false, true]:
 		for operations in [["write"], ["replace"], ["backup"]]:
 			var result := JsonFile.write_dict(path, newer, backup_mode, fail_at(operations))
-			if not backup_mode and operations == ["backup"]:
+			if not backup_mode and OS.get_name() != "Windows" and operations == ["backup"]:
 				expect(result.error == OK, "POSIX does not rename the old file away")
 				JsonFile.write_dict(path, old)
 			else:
@@ -203,5 +203,5 @@ func _init() -> void:
 	for name in DirAccess.get_files_at(folder): DirAccess.remove_absolute(folder.path_join(name))
 	DirAccess.remove_absolute(folder)
 	for failure in failures: push_error(failure)
-	print("SAVECHECK %d/%d checks passed (POSIX + simulated backup protocol)." % [checks - failures.size(), checks])
+	print("SAVECHECK %d/%d checks passed (platform=%s; native + forced backup publication)." % [checks - failures.size(), checks, OS.get_name()])
 	quit(0 if failures.is_empty() else 1)

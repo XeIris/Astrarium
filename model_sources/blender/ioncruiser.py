@@ -8,9 +8,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from math import pi, cos, sin
 from lib import (revolve, cyl, box, torus_z, dish, disc, empty, finish, smooth,
                  strut, solar_array, ball, TAU)
-from common import build, stage
+from common import build, stage, vehicle_stages
 
-BUS_W, BUS_H = 1.64, 1.36          # the bus is 1.64 x 1.36 x 1.64 m
+S = vehicle_stages("ioncruiser")
+
+BUS_W, BUS_H = S["bus"]["D"], 1.36          # the bus is 1.64 x 1.36 x 1.64 m
 BUS_Z = 0.9                        # its centre, matching the procedural build
 
 
@@ -77,8 +79,8 @@ def build_ioncruiser(M):
 
     # ---- three NEXT gridded ion thrusters on a shallow aft ring: 0.36 m across, a
     # quarter newton each, drawn small.
-    for i in range(3):
-        a = i / 3 * TAU
+    for i in range(S["bus"]["count"]):
+        a = i / S["bus"]["count"] * TAU
         piv = empty(f'gimbal_bus_{i}', (cos(a) * 0.42, sin(a) * 0.42, 0.10), root)
         # The discharge chamber, then the grids. The grids are the engine: two
         # perforated molybdenum discs a millimetre apart holding 1 800 V.

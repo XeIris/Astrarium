@@ -1,21 +1,9 @@
 class_name Spaceflight
 extends RefCounted
 
-# The spaceflight integration layer: the only file in sim/flight/ that knows the
-# orrery exists. Everything under it is pure.
-#
-# One clock: entering flight takes over state.time_scale and drives it from the
-# flight warp, state.time_scale = warp / YR_S, so at 1× the planets advance a
-# second per second.
-#
-# Two spaces: the vehicle is drawn in localview.gd's metre-scale pass
-# (pipeline.gd draws pipe.local_vp in Mode.FLIGHT). Each frame this places the
-# local camera (at the origin) and every local object, and slaves the orrery
-# camera: main.cam_pos is computed in double as parent.scene_pos +
-# r·sceneScale/AU_M + the local camera's offset rotated out of the local frame,
-# plus main.cam_basis, cam_fov and cam_near. `boost` is β for
-# SkyModel.apply_sky_boost. key() maps physical keycodes; wheel(delta_y) takes a
-# browser-style deltaY. The HUD (flightui.gd) mounts into ctx.panel.
+# Coordinate local SI flight, AU-world motion, modes and camera placement.
+# Accepted coordinate seconds cross the world boundary as years; the local
+# floating origin and rotated camera offset slave the orrery camera. See AGENTS.md.
 
 const WARPS := [1, 2, 5, 10, 50, 100, 1000, 10000, 100000, 1000000]
 const EARTH_PADS := {
@@ -972,7 +960,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	craft.group.position = Vector3.ZERO
 	craft.group.basis = craft_basis.orthonormalized()
 
-	# ---- the launch complex. The local origin is under the vehicle, so the pad moves
+	# the launch complex. The local origin is under the vehicle, so the pad moves
 	# back through the frame. Exact: a point θ away is (R sinθ, R(cosθ−1), …), the same
 	# drop the ground patch uses, so the pad sits on the ground.
 	if site != null and site_pos != null:
@@ -1074,7 +1062,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		fly_cam.set_mode("chase")
 		vessel.log_event("Camera — pad view lost, tracking from the vehicle")
 
-	# ---- cameras. The local camera is real; the orrery camera is slaved to it.
+	# cameras. The local camera is real; the orrery camera is slaved to it.
 	var sun_l := Vector3(sun.dot(east), sun.dot(up), sun.dot(north)).normalized()
 	fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
 		"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),

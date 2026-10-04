@@ -1,21 +1,8 @@
 extends Node
 
-# THE COURSE HARNESS — the Godot half of the course's side-by-side check.
-#
+# THE COURSE HARNESS. See README.md for verification usage.
 #   Godot --path . res://tools/coursetest.tscn -- lesson=lives/giants steps=1 \
 #       cframes=30 cout=/abs/x.png [cdump=/abs/x.json] [w=1280 h=720] [cdt=0.016667]
-# (prefixed: main.gd reads out=/frames=/dt= for its own screenshot mode)
-#
-# It runs the REAL orchestrator (main.tscn) in Learn mode at CSS-pixel scale
-# (content scale 1, the window at the page's size), resets the progress, opens
-# the lesson and presses Next `steps` times — exactly what the web reference
-# does with SIM.lessons.openLesson(key) and .next() — then runs `frames` fixed
-# steps through main.frame(dt), so the instruments sample the live scene, and
-# writes the root viewport. `dump` writes the instruments' own numbers and the
-# card's measured rect beside it.
-#
-# The web side is tools/course.shots.mjs through tools/webref.mjs;
-# tools/coursetest.sh runs the whole list here. Pairs: tools/ref/course/.
 
 var args := {}
 var main: Node

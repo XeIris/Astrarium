@@ -1,21 +1,10 @@
 class_name RockyVisual
 extends RefCounted
 
-# SOLID-SURFACE WORLDS: every non-giant planet (Earth, Mars, the Moon, Mercury,
-# Pluto, Foundry bodies). Earth, Mars and the Moon use mission imagery for
-# geography; everything else uses procedural terrain (sim/terrain.gd). Both share
-# the shader, lighting, volatile and climate uniforms:
-#   S        insolation, derived from wherever the body is and whatever lights it
-#   eps      the greenhouse (how far the surface runs above equilibrium)
-#   T_frost  the dominant volatile's condensation temperature (273 K water,
-#            148 K Mars's CO₂, 37 K Pluto's N₂)
-#   crater   whether anything erases impacts
-# Shaders: rocky_surface, cloud_deck and rocky_atmosphere.gdshader.
-#
-# sphere_geometry() copies THREE.SphereGeometry vertex for vertex (not SphereMesh):
-# the maps sample its UVs, and a tidally locked moon keeps its +X meridian toward its
-# parent. The orchestrator owns group.position and group.scale; this owns
-# group.rotation (obliquity) and everything under it.
+# Mission geography and procedural terrain share lighting/climate shaders.
+# Sphere UV orientation puts the +X meridian toward a tidally locked parent.
+# The stage owns group position/scale; this visual owns obliquity and inner nodes.
+# See shaders/AGENTS.md for physical albedo, volatiles and surface datum.
 
 const SURFACE_SHADER := preload("res://shaders/bodies/rocky_surface.gdshader")
 const CLOUD_SHADER := preload("res://shaders/bodies/cloud_deck.gdshader")
@@ -35,7 +24,7 @@ static func truthy(v) -> bool:
 static func v3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
 
-## `new THREE.Color(x)` for an option that may be a hex int or already a Color.
+## `A colour` for an option that may be a hex int or already a Color.
 static func lin_of(x) -> Color:
 	if x is Color: return x
 	return U.lin(int(x))
@@ -44,7 +33,7 @@ static func lin_of(x) -> Color:
 static func id_hash(id: int) -> int:
 	return (id * 2654435761) & 0xFFFFFFFF
 
-# THREE.SphereGeometry(radius, widthSegments, heightSegments): x = −r cos φ sin θ,
+# UV sphere parameterization: x = −r cos φ sin θ,
 # y = r cos θ, z = r sin φ sin θ, seam and pole rows duplicated. UVs in Godot's
 # convention (v = 0 at north), winding reversed for Godot's CW front faces.
 static var _sphere_cache := {}
@@ -62,7 +51,7 @@ static func sphere_geometry(radius: float, wseg: int, hseg: int) -> ArrayMesh:
 	for iy in hseg + 1:
 		var row := []
 		var v := float(iy) / float(hseg)
-		# poles: THREE offsets the u of the pole row by half a segment
+		# poles: Offset the pole row UV by half a segment
 		var u_off := 0.0
 		if iy == 0: u_off = 0.5 / float(wseg)
 		elif iy == hseg: u_off = -0.5 / float(wseg)
@@ -83,7 +72,7 @@ static func sphere_geometry(radius: float, wseg: int, hseg: int) -> ArrayMesh:
 			var b: int = grid[iy][ix]
 			var c: int = grid[iy + 1][ix]
 			var d: int = grid[iy + 1][ix + 1]
-			# THREE: (a, b, d) and (b, c, d), counter-clockwise; reversed here
+			# (a, b, d) and (b, c, d), counter-clockwise; reversed here
 			if iy != 0: idx.append_array([a, d, b])
 			if iy != hseg - 1: idx.append_array([b, d, c])
 	var arr := []

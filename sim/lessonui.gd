@@ -1,23 +1,10 @@
 class_name LessonUI
 extends RefCounted
 
-# THE COURSE, AS AN INTERFACE. sim/lessons.gd is data; this renders it and executes
-# a step's `do` block against the stage API the orchestrator hands in. A directive
-# the stage doesn't implement is skipped, not thrown.
-#
-#   THE PANEL (left column) is the map: modules, lessons, progress. It takes the
-#   scenario list's slot.
-#   THE CARD (bottom centre) is the lesson: wide for prose, at the bottom so it
-#   doesn't cover what it describes. A step with an instrument gets an instrument
-#   column, driven every frame through update().
-#
-# Progress is per lesson (done once its last step is seen), stored as JSON under
-# user:// (opts.store; "" keeps it in memory, for the checks).
-#
-# The card's frame is built by ui/hud.gd (`lc` parts); this fills it with HUD
-# controls. Bodies are HTML fragments using <p>, <em>, <strong>, <kbd> (and <b> in
-# the myth and look-for boxes), turned into BBCode by `html_bbcode`. Figures are
-# SVG; Godot's loader has no <text>, so labels are pulled out and set here (`Fig`).
+# Render declarative course data and execute patches against the stage API.
+# Optional unavailable operations may be skipped; authored directives are checked.
+# Progress uses opts.store under user://; an empty path keeps it in memory.
+# Figures need native text labels because Godot's SVG loader omits text.
 
 const T = preload("res://ui/theme.gd")
 const JsonFile = preload("res://core/json_file.gd")

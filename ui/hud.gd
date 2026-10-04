@@ -1,17 +1,8 @@
 class_name Hud
 extends Control
 
-# THE HUD: every panel, control and caption, as Godot Controls styled by
-# ui/theme.gd. Elements with an id are registered under it, and the orchestrator
-# reaches them through set_text / set_shown / set_active; it hears input through the
-# signals below. The orchestrator keeps every decision.
-#
-# The HUD owns the panels, the measured left column (tabs for collapsed panels),
-# section folding and modes, settings pages, range labels and formatters, and the
-# preset, body, sun, band, craft, model-viewer and sky rows.
-#
-# A full-rect Control that ignores the mouse, so input on empty screen reaches the
-# orchestrator's _unhandled_input.
+# Native HUD controls styled by ui/theme.gd.
+# Measured panel layout, wrapping prose and supported builders: AGENTS.md.
 
 signal start_chosen(mode: String)
 signal quit_to_start()
@@ -1500,7 +1491,15 @@ func set_search(text: String) -> void:
 	_render_presets()
 
 # the body list
+var _body_list_rows: Array = []
+var _body_list_focus: Variant = null
+var _body_list_valid := false
+
 func render_body_list(bodies: Array, focus_id) -> void:
+	if _body_list_valid and _body_list_rows == bodies and _body_list_focus == focus_id: return
+	_body_list_valid = true
+	_body_list_rows = bodies.duplicate(true)
+	_body_list_focus = focus_id
 	var list: VBoxContainer = ids.bodyList
 	_clear(list)
 	if bodies.is_empty():

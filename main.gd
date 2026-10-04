@@ -23,16 +23,7 @@ var cam_basis := Basis()
 var cam_fov := 50.0
 var cam_near := 0.01
 
-# The orbit/free camera. Distances in scene units.
-var cam := {
-	"target": DVec3.new(), "radius": 24.0, "theta": PI / 2.0 - 0.35, "phi": PI / 2.0,
-	# Where the viewing distance is HEADING, when something asked for a new one
-	# smoothly. null means the camera is exactly where it was put.
-	"radius_to": null,
-	# free fly
-	"yaw": 0.0, "pitch": 0.0, "free_speed": 12.0,
-}
-var cam_offset := DVec3.new()
+var cam := OrreryCamera.new(cam_pos)
 
 var spacetime_mesh = null         # SpacetimeMesh
 var painter = null                # Painter
@@ -513,9 +504,13 @@ func edit_body(b: Body, patch: Dictionary):
 	b.scene_pos.copy_from(b.pos).scale_in(state.scene_scale)
 	b.spec = spec
 	var before := b.radius_scene
-	detach_visual(b)
+	var rotation_only := not patch.is_empty() and b.viz is StarVisual.StarViz
+	for key in patch:
+		if key not in ["spinFrac", "spinHz"]: rotation_only = false
+	if not rotation_only: detach_visual(b)
 	Derive.derive_body(b, spec)
-	attach_visual(b)
+	if rotation_only: b.viz.refresh_rotation()
+	else: attach_visual(b)
 	if moved and b.trail != null:
 		# A teleport must not draw an orbit segment connecting unrelated positions.
 		b.trail_head = 0
@@ -779,62 +774,18 @@ func push_trail(b: Body) -> void:
 	b.trail_count = mini(b.trail_count + 1, M)
 	b.trail.pending += 1
 
-# CAMERA — orbit + free-fly + click-to-focus
-# Put the camera at a distance immediately, cancelling any glide in progress.
+# Public framing operations used by body events and course requests.
 func jump_cam_radius(r: float) -> void:
-	cam.radius = r
-	cam.radius_to = null
+	cam.jump_radius(r)
 
-# Frame a body from seven of its radii, with a floor at what the scene can resolve.
 func frame_radius(b: Body) -> float:
-	var geometric := maxf(b.radius_scene, b.rs_scene) * 7.0
-	var resolvable := maxf(1e-6, b.scene_pos.length() * 1e-5)
-	if geometric >= resolvable: return geometric
-	return maxf(cam.radius, resolvable)
+	return cam.frame_radius(b)
 
-# Ask for a distance instead of taking one. Geometric (log-space) easing,
-# because viewing distance is a scale.
-func ease_cam_radius(dt: float) -> void:
-	if cam.radius_to == null: return
-	var ratio: float = cam.radius_to / cam.radius
-	if absf(log(ratio)) < 0.01:
-		cam.radius = cam.radius_to
-		cam.radius_to = null
-		return
-	# frame-rate independent: same time constant at 30 and 144 fps
-	cam.radius *= pow(ratio, 1.0 - exp(-dt * 6.0))
-
-# ---- following a moving body: exact tracking plus a decaying offset. A fractional
-# catch-up is a first-order lag and rubber-bands.
-func track_follow(b: Body, dt: float) -> void:
-	if cam_offset.length_sq() > 0.0:
-		cam_offset.scale_in(exp(-dt * 5.0))
-		if cam_offset.length_sq() < pow(cam.radius * 1e-4, 2.0): cam_offset.set_v(0, 0, 0)
-	cam.target.copy_from(b.scene_pos).add_in(cam_offset)
-
-# Hand the camera a new target without teleporting the view: the difference
-# becomes the decaying offset, so the glide happens in track_follow.
 func glide_target_to(p: DVec3) -> void:
-	cam_offset.copy_from(cam.target).sub_in(p)
-	# A jump across the whole system is not a glide, it is a cut.
-	if cam_offset.length_sq() > pow(cam.radius * 40.0, 2.0): cam_offset.set_v(0, 0, 0)
-	cam.target.copy_from(p).add_in(cam_offset)
-
-func _look_at(target: DVec3, up := Vector3.UP) -> void:
-	var d := target.rel_v3(cam_pos)
-	if d.length_squared() > 0.0:
-		cam_basis = Basis.looking_at(d.normalized(), up)
+	cam.glide_target_to(p)
 
 func update_orbit_cam() -> void:
-	var r: float = cam.radius; var th: float = cam.theta; var ph: float = cam.phi
-	cam_pos.set_v(r * sin(th) * cos(ph), r * cos(th), r * sin(th) * sin(ph)).add_in(cam.target)
-	_look_at(cam.target)
-
-# Pick radius: the rendered disc, or the marker's footprint once it has taken over.
-func pick_radius_scene(b: Body) -> float:
-	var geometric := maxf(b.radius_scene, b.rs_scene) * 1.6
-	if b.marker == null or not b.marker.mesh.visible: return geometric
-	return maxf(geometric, b.marker.mesh.scale.x * 0.42)
+	cam_basis = cam.update_orbit(cam_basis)
 
 func set_follow(body: Body) -> void:
 	state.follow_id = body.id if body else null
@@ -851,21 +802,7 @@ func _view_size() -> Vector2:
 
 func handle_pick(pos: Vector2) -> void:
 	if state.cam_mode == "flight": return
-	var vs := _view_size()
-	var ndc := Vector2(pos.x / vs.x * 2.0 - 1.0, -(pos.y / vs.y) * 2.0 + 1.0)
-	var f := tan(deg_to_rad(cam_fov) * 0.5)
-	var dir := (cam_basis * Vector3(ndc.x * f * vs.x / vs.y, ndc.y * f, -1.0)).normalized()
-	var best: Body = null
-	var best_d := INF
-	for b in state.bodies:
-		var wp: Vector3 = b.scene_pos.rel_v3(cam_pos)       # the ray starts at the origin
-		var along: float = wp.dot(dir)
-		if along < 0.0: continue
-		var d: float = (wp - dir * along).length()
-		if d < pick_radius_scene(b) and along < best_d:
-			best = b
-			best_d = along
-	set_follow(best)
+	set_follow(cam.pick(state.bodies, pos, _view_size(), cam_fov, cam_basis))
 
 # SHUTDOWN. Bodies and visuals hold each other, and the post chain and lens
 # marcher own RenderingDevice RIDs, so tear down explicitly, in scenario-switch order.
@@ -922,16 +859,14 @@ func _unhandled_input(e: InputEvent) -> void:
 		elif state.cam_mode == "flight":
 			flight.drag(dx, dy)
 		elif state.cam_mode == "orbit":
-			cam.phi -= dx * 0.005
-			cam.theta = clampf(cam.theta - dy * 0.005, 0.05, PI - 0.05)
+			cam.drag_orbit(dx, dy)
 			update_orbit_cam()
 		elif state.cam_mode == "surface":
 			# scale the look speed with the zoom, so a narrow FOV pans slowly
 			var k: float = observer.fov / 62.0 * 0.0032
 			observer.look(-dx * k, -dy * k)
 		else:
-			cam.yaw -= dx * 0.0025
-			cam.pitch = clampf(cam.pitch - dy * 0.0025, -1.5, 1.5)
+			cam.drag_free(dx, dy)
 	elif e is InputEventKey:
 		_key(e as InputEventKey)
 
@@ -986,7 +921,7 @@ func _wheel(delta_y: float) -> void:
 	if model_open: model_view.wheel(delta_y)
 	elif state.cam_mode == "flight": flight.wheel(delta_y)
 	elif state.cam_mode == "orbit":
-		jump_cam_radius(clampf(cam.radius * (1.0 + delta_y * 0.001), 1e-6, 20000.0))
+		cam.zoom_orbit(delta_y)
 		update_orbit_cam()
 	elif state.cam_mode == "surface": observer.zoom(1.0 + delta_y * 0.0012)
 	else: cam.free_speed = maxf(0.5, cam.free_speed * (1.0 - delta_y * 0.001))
@@ -1008,7 +943,7 @@ func _key(e: InputEventKey) -> void:
 				sync_warp_label()
 				return
 	if controls.matches("reset_view", e):
-		cam.target.set_v(0, 0, 0); cam_offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
+		cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
 		cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 		if state.cam_mode == "orbit": update_orbit_cam()
 	if controls.matches("pause", e):
@@ -1031,9 +966,7 @@ func set_cam_mode(mode: String) -> void:
 		apply_sky_boost_all(Vector3.ZERO)
 	if mode == "free" and state.cam_mode != "free":
 		# seed yaw/pitch from current look direction
-		var dir: Vector3 = (cam.target as DVec3).rel_v3(cam_pos).normalized()
-		cam.yaw = atan2(dir.x, dir.z)
-		cam.pitch = asin(clampf(dir.y, -1.0, 1.0))
+		cam.seed_free()
 	var was_surface := state.cam_mode == "surface"
 	state.cam_mode = mode
 	if mode == "surface":
@@ -1074,24 +1007,14 @@ func aim_at_brightest_sun() -> void:
 	var sun_elev := asin(clampf(best.dot(up), -1.0, 1.0))
 	observer.elevation = 0.12 if sun_elev < 0.05 else clampf(sun_elev, 0.05, 1.1)
 
-func update_free_cam(dt: float) -> void:
-	var fwd := Vector3(sin(cam.yaw) * cos(cam.pitch), sin(cam.pitch), cos(cam.yaw) * cos(cam.pitch)).normalized()
-	var right := fwd.cross(Vector3.UP).normalized()
-	var sp: float = cam.free_speed * (4.0 if controls.held("move_fast", keys) else 1.0) * dt
-	var mv := Vector3.ZERO
-	if controls.held("move_forward", keys): mv += fwd * sp
-	if controls.held("move_back", keys): mv -= fwd * sp
-	if controls.held("move_right", keys): mv += right * sp
-	if controls.held("move_left", keys): mv -= right * sp
-	if controls.held("move_up", keys): mv += Vector3.UP * sp
-	if controls.held("move_down", keys): mv -= Vector3.UP * sp
-	cam_pos.x += mv.x; cam_pos.y += mv.y; cam_pos.z += mv.z
-	cam_basis = Basis.looking_at(fwd, Vector3.UP)
-
 # PRESET LOADING
 func load_preset(key: String) -> bool:
 	if not Presets.PRESETS.has(key): return false
 	var p: Dictionary = Presets.PRESETS[key]
+	var sky_error := SkyModel.request_error(p.get("sky", {}))
+	if not sky_error.is_empty():
+		_reject_body_input("Preset %s: %s" % [key, sky_error])
+		return false
 	var built
 	if _cmd.has("seed"):
 		var rng := GiantVisual.Mulberry.new(int(_cmd.seed))
@@ -1160,7 +1083,7 @@ func load_preset(key: String) -> bool:
 
 	# Camera reset. In a hierarchical system the total barycentre is nowhere near
 	# the stars, so presets with a home world start the camera following it.
-	cam.target.set_v(0, 0, 0); cam_offset.set_v(0, 0, 0); jump_cam_radius(float(p.camRadius))
+	cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(p.camRadius))
 	cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 	set_cam_mode("orbit")
 	if p.get("focus"):
@@ -1416,7 +1339,7 @@ func quit_to_start() -> void:
 	spacetime_mesh.node.visible = false
 	set_cam_mode("orbit")
 	cam.target.set_v(0, 0, 0)
-	cam_offset.set_v(0, 0, 0)
+	cam.offset.set_v(0, 0, 0)
 	jump_cam_radius(24.0)
 	update_orbit_cam()
 	set_sky(SimState.new().sky)
@@ -1727,7 +1650,7 @@ func _on_view_toggle(v: String) -> void:
 
 func _on_reset_view() -> void:
 	set_follow(null)
-	cam.target.set_v(0, 0, 0); cam_offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
+	cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
 	cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 	set_cam_mode("orbit"); update_orbit_cam()
 
@@ -2055,20 +1978,26 @@ func _stage_set_focus(n: String) -> void:
 	var b := state.body_named(n)
 	if b: set_follow(b)
 
-func _stage_set_cam(o: Dictionary) -> void:
+func _stage_set_cam(o: Variant) -> bool:
+	var error := OrreryCamera.request_error(o)
+	if not error.is_empty():
+		push_error("Course camera: " + error)
+		return false
 	if o.get("mode"): set_cam_mode(o.mode)
-	if o.get("theta") != null: cam.theta = clampf(float(o.theta), 0.02, PI - 0.02)
-	if o.get("phi") != null: cam.phi = float(o.phi)
-	# jump_cam_radius rather than an assignment: an ease left running from the
-	# last step would otherwise drag the view back out a frame later.
-	if o.get("radius") != null: jump_cam_radius(float(o.radius))
+	cam.apply_request(o)
 	if state.cam_mode == "orbit": update_orbit_cam()
+	return true
 
 func _stage_set_true_scale(on) -> void:
 	if bool(on) != state.true_scale: set_true_scale(bool(on))
 
-func _stage_set_sky(spec: Dictionary) -> void:
+func _stage_set_sky(spec: Variant) -> bool:
+	var error := SkyModel.request_error(spec)
+	if not error.is_empty():
+		push_error("Course sky: " + error)
+		return false
 	set_sky(preset_sky(U.merged(state.preset.get("sky", {}) if state.preset else {}, spec)))
+	return true
 
 func _stage_set_panel(id: String, open) -> void:
 	# The cross-section is the one panel that is not just a box: see
@@ -2262,29 +2191,16 @@ func animate(dt: float) -> void:
 	elif state.cam_mode == "surface" and home:
 		_observe(home)
 	elif state.cam_mode == "free":
-		update_free_cam(dt)
+		cam_basis = cam.update_free(dt, controls, keys)
 	else:
 		if state.follow_id != null:
 			var fb := state.body_by_id(state.follow_id)
-			if fb: track_follow(fb, dt)
-		ease_cam_radius(dt)
+			if fb: cam.track_follow(fb, dt)
+		cam.ease_radius(dt)
 		update_orbit_cam()
 
-	# ---- near plane, tied to how far the camera actually is.
 	if state.cam_mode != "surface" and state.cam_mode != "flight":
-		var cam_dist: float = cam.radius
-		if state.cam_mode == "free":
-			cam_dist = INF
-			for b in state.bodies:
-				var surf := cam_pos.distance_to(b.scene_pos) - maxf(b.radius_scene, b.rs_scene)
-				if surf < cam_dist: cam_dist = surf
-			cam_dist = maxf(cam_dist, 1e-6) if is_finite(cam_dist) else 1.0
-		# Near at 5% of the viewing distance (the framed surface is at 6/7 of it): Godot's
-		# culling frustum is float32 and degenerates past far/near ~1e7, and reverse-Z
-		# float depth doesn't need a close near plane. far = near·1e7 still reaches
-		# ~150 scene units at a true-scale Earth close-up.
-		var near := clampf(cam_dist * 0.05, 1e-7, 0.01)
-		if absf(log(near / cam_near)) > 0.05: cam_near = near
+		cam_near = cam.near_plane(state.bodies, state.cam_mode == "free", cam_near)
 	_apply_camera()
 
 	# ---- place everything relative to the camera (the floating origin)

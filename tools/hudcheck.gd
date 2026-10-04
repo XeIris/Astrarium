@@ -1,18 +1,8 @@
 extends Node
 
-# THE HUD CHECK: the real orchestrator (main.tscn) at content scale 1, put into a
-# named HUD state and screenshotted after fixed steps, so two builds' shots differ
-# only where the HUD does. `htest=1` walks the controls with real mouse and key
-# events and checks that main's state follows; `hperf=1` times whole frames with
-# the HUD shown and hidden. `hlayout=1` checks narrow layouts at scales 1/1.5/2.
-#
+# THE HUD CHECK: the real orchestrator (main.tscn) at content scale 1, put into a. See README.md for verification usage.
 #   Godot --path . --resolution 1280x720 res://tools/hudcheck.tscn -- \
 #         hstate=sandbox hout=/abs/x.png [hframes=45] [htest=1] [hperf=1]
-#
-# States: sandbox allopen allbottom foundry xsec xsec_focus xsec_measured xsec_tiny closed settings_sky
-# settings_render settings_sim settings_precision settings_controls search zoo learn lesson_hr
-# lesson_photometer lesson_gw lesson_cutaway lesson_fig flight ascent model start
-# toast hidden. Args are h-prefixed: main.gd reads its own from the same line.
 
 var args := {}
 var main: Node

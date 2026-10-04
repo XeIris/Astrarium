@@ -136,7 +136,7 @@ class Detector extends RefCounted:
 		var dim := Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.6)
 		var lab := Color(190 / 255.0, 205 / 255.0, 230 / 255.0, 0.85)
 
-		# ---- strain trace
+		# strain trace
 		var amp := maxf(absf(float(last.hPlus)), 1e-300) if last != null else 1.0
 		for h in hs: amp = maxf(amp, absf(h))
 		Canvas2D.stroke_rect(canvas, 0.5, 0.5, W - 1.0, trace_h - 1.0, Color(150 / 255.0, 170 / 255.0, 200 / 255.0, 0.16), 1.0)
@@ -160,7 +160,7 @@ class Detector extends RefCounted:
 			var span_text := U.expo(span, 2) if span >= 1e6 else U.fixed(span, 3)
 			Canvas2D.fill_text(canvas, "%s s (circular estimate)" % span_text, W - 6.0, trace_h - 6.0, 10.0, dim, "right")
 
-		# ---- the interferometer, arms stretched with bounded adaptive gain; the readout
+		# the interferometer, arms stretched with bounded adaptive gain; the readout
 		# gives the real displacement per arm, h L / 2.
 		var h: float = float(last.hPlus) * cos(2.0 * phase) if last != null else 0.0
 		var y0 := trace_h + gap

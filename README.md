@@ -93,8 +93,9 @@ and its `SIM` console handle:
 
 ## Building the macOS app
 
-The export preset is in `export_presets.cfg` (universal arm64 + x86_64,
-ad-hoc signed). Install the export templates once — *Editor → Manage Export
+The macOS export preset in `export_presets.cfg` is universal arm64 + x86_64,
+ad-hoc signed, with a minimum macOS version of 11. Linux and Windows presets
+target x86_64; build their native kernel on the target OS with `sh native/build.sh`. Install the export templates once — *Editor → Manage Export
 Templates → Download and Install* — then:
 
 ```sh
@@ -146,11 +147,27 @@ Body motion uses conservative Newtonian pair gravity; relativistic visuals and
 the illustrative tight-pair drag have separate limits described in
 [the compact-dynamics model](docs/physics/compact-dynamics.md).
 
-`python3 tools/check.py perf --repeat 3` records fixed-step CPU flight timings and
-rendered frame wall times for the HUD shown/hidden in three states, at 1280×720
-with procedural craft. These are local measurements, without GPU timers or a
-performance budget gate. Clean-machine CI remains pending a portable native
-build, generated assets and a supported graphical runner.
+`python3 tools/check.py perf --repeat 3` records rendered scenario/editor/LOD
+measurements, fixed-step CPU flight timings and HUD shown/hidden timings.
+See [the measurement contract and local results](docs/performance.md). Missing
+GPU timestamps are reported as unavailable; these measurements are not portable
+performance budgets.
+
+`python3 tools/check.py clean` requires a committed clean working tree, clones it
+without local import caches/generated models, builds the native kernel, checks
+procedural assets and validates an export pack plus isolated resource/native
+startup. To also render the exported application, run
+`python3 tools/cleancheck.py --godot /absolute/Godot --log-dir /absolute/evidence --rendered-boot`.
+The pack distribution contains **both `game.zip` and its `native/bin/` sidecar**;
+`--export-pack` alone does not ship the OS library. Normal full application
+exports include it through the extension descriptor.
+
+[Portable CI](.github/workflows/verify.yml) pins Godot 4.7.2 and runs the clean
+procedural gate on macOS, Linux and Windows. It does not establish authored
+Blender fidelity, graphical performance or device budgets. Windows/Linux
+execution evidence remains pending until the workflow runs on those hosts.
+[Evidence retention](docs/evidence.md) keeps new generated captures out of the
+frozen migration reference archive.
 
 The `eval=` development methods live in `tools/runtime_checks.gd` and load only
 when requested. Unknown methods and development checks requested from an export

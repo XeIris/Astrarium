@@ -23,9 +23,9 @@ before continuing remediation. Publication remains outside this work.
 | Rendering/flight agent | Camera/frustum fixes; vessel and flight-driver elapsed time |
 | Coordinator | This log, guidance/docs, FPS measurement, integration review |
 
-Large architectural changes and unmeasured optimization candidates remain
-backlog work. Their acceptance criteria below make them suitable for subsequent
-bounded assignments.
+The implementation history below records bounded changes and their checks.
+The closure disposition distinguishes completed fixes, unsupported model behavior
+and verification that requires another platform or usable GPU timers.
 
 ## Findings
 
@@ -44,18 +44,18 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R06 | P2 | Verified: batch 2 | Vessel integration guard advances clocks by requested time even when integration is truncated. | World and flight share accepted coordinate time and a frame budget; moving-parent guards, rails fallback and cruise arrival pass production-driver checks. |
 | R07 | P2 | Verified | FPS uses clamped simulation time and averages reciprocal frame durations. | FPS measures frame count divided by actual elapsed time, independently of simulation/screenshot stepping. |
 | R08 | P2 | Verified | Guidance conflicts with behavior and relies on prose where invariants should be checked. | Instructions accurately describe physics/display separation, checks, API contracts and camera scope; no blanket silent acceptance of malformed authored data. |
-| R09 | P2 | Partial: development checks extracted | `main.gd` concentrates body events, camera control, mode coordination and UI wiring. | Extract one coherent responsibility at a time, retain visible frame order and lifecycle ownership, run affected checks after each extraction. |
-| R10 | P2 | Partial: validated body inputs/assets/saves, contact API | Important interfaces use unchecked dictionary keys and optional dynamic method calls. | Prioritize typed subsystem dependencies and validated input schemas; malformed authored data produces actionable diagnostics. |
+| R09 | P2 | Verified bounded extraction: checks and camera | `main.gd` concentrates body events, camera control, mode coordination and UI wiring. | Extract one coherent responsibility at a time, retain visible frame order and lifecycle ownership, run affected checks after each extraction. |
+| R10 | P2 | Verified targeted boundaries: bodies/assets/saves/camera/sky | Important interfaces use unchecked dictionary keys and optional dynamic method calls. | Prioritize typed subsystem dependencies and validated input schemas; malformed authored data produces actionable diagnostics. |
 | R11 | P2 | Verified: batch 2 | Lesson directives may silently disappear; missing asset parts may silently stop moving. | Authored lesson keys and asset stage/part contracts validated; deliberate typo/part-removal probes fail. |
-| R12 | P2 | Partial: height/datum parity | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
-| R13 | P3 | Partial: touched owners | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
-| R14 | P2 | Profiling backlog | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Measure launch/studio GPU cost; preserve close detail while distant geometry and genuinely closed surfaces avoid unnecessary work. |
-| R15 | P2 | Partial: measured inspector/curve invalidation, batch 12 | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
-| R16 | P3 | Profiling backlog | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | CPU/render-thread profile establishes material cost before changing lifetime or cache ownership. |
+| R12 | P2 | Verified shared physical metadata and bounded parity | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
+| R13 | P3 | Verified broad cleanup, batch 15 | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
+| R14 | P2 | Partial: LOD verified; GPU/culling deferred | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Measure launch/studio GPU cost; preserve close detail while distant geometry and genuinely closed surfaces avoid unnecessary work. |
+| R15 | P2 | Verified bounded invalidation; spikes remain measurable | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
+| R16 | P3 | Partial: uniform cache verified; array allocations deferred | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | CPU/render-thread profile establishes material cost before changing lifetime or cache ownership. |
 | R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
-| R18 | P3 | Backlog | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
+| R18 | P3 | Verified retention policy; archive retained | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
 | R19 | P2 | Verified: POSIX and simulated recovery | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows integration remains pending. |
-| R20 | P2 | Partial: runner and local baseline | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
+| R20 | P2 | Partial: portable gate/CI implemented; external runs pending | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
 | R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
 | R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
 | R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
@@ -1295,7 +1295,7 @@ The required five-round soak also stays exactly flat after warmup:
 
 ### Closing the review cycle
 
-R28 was the remaining fully open P1 finding. The correctness remediation is
+At the end of batch 14, R28 was the remaining fully open P1 finding. The correctness remediation was
 close to closure; the entire cycle still has twelve partial/profiling/backlog
 findings and an actual-Windows verification gap. The next work should be bounded
 around evidence and final disposition, rather than expanding the product's
@@ -1311,3 +1311,74 @@ scientific model whenever another approximation is noticed:
    deferred or bounded-model disposition. Windows evidence remains unverified
    until an actual Windows run exists; the rotational/compact/extreme-numeric
    limitations (R25/R27/R30) retain their documented scope.
+
+### Batch 15: ownership, measured churn and reproducible release gates
+
+The typed `OrreryCamera` owns orbit/free motion, framing, picking and near-plane
+calculation. The stage retains frame order and flight/surface ownership. Fifty
+regressions cover floating-origin precision, tracking/easing, controls and atomic
+schema rejection. Independent review caught huge finite camera distances that
+overflow float scene calculations; authored radius requests now use the existing
+wheel interval, 1e-6–20000 scene units. Derived body framing keeps its own rules.
+Sky patches and preset sky data share an explicit validator; 58 checks reject
+unknown fields/environments, malformed weights and unsafe parameter values.
+R09/R10 close for these targeted boundaries, not every dynamic dictionary.
+
+Continuous stellar spin edits retain their visual/activity pools and update
+deformation and temperature uniforms. Stable body lists and inspector fact
+schemas retain their Controls. The editor gate passes 121 checks, including
+control identity, changed shader values and changed-name invalidation. Other
+intrinsic edits still rebuild visuals. The settled eight-case profiler records
+CPU action/submission, geometry and explicitly unavailable GPU timings. Local
+spin-edit medians fall from 15.983 ms to 8.596 ms in the first before/after runs;
+the final idle-machine probe records 4.275 ms, p95 5.264 ms, maximum 17.705 ms.
+Scheduling affects these observations; this is not a portable frame budget.
+Toggling only the compute uniform cache in final code changes the sum of solar
+dispatch CPU medians from 0.184 to 0.010 ms. Godot owns dependency invalidation.
+The same backend returns zero GPU timestamps, so GPU time remains unverified.
+Methodology and limits are in [performance notes](performance.md).
+
+Crafts use ordinary screen-space LOD. Settled Saturn V near-view primitives are
+24,323 / 12,205 at biases 128 / 1; the distant comparison is 21,053 / 8,835.
+Both near renders were inspected. Open shells remain double-sided; per-mesh
+culling needs measured GPU evidence. The screenshot harness now releases its
+craft cache at shutdown, removing the mesh/material leaks found during this
+comparison. Per-sun packed-array caching is deferred because copy-on-write
+submission can preserve allocations despite a reused array variable.
+
+Blender builds consume exported runtime vehicle dimensions/engine metadata and
+validate stage/part counts before export. All 14 vehicle/pad/facility builds pass;
+all nine authored craft pass asset articulation, audit and clearance checks.
+Authored/procedural height and datum parity passes all 18 poses at the unchanged
+2 cm tolerance. Procedural fallback remains a product requirement; decorative
+width/silhouette and material differences are not falsely called full parity.
+
+Redundant introductions, banner separators, port-history narration and unused
+stellar fallback implementations are removed across runtime owners and tools.
+Units, ownership and numerical reasons remain; flight derivations move to
+[their canonical document](physics/flight.md). Root and scoped guidance now
+describe camera/schema ownership, physical metadata, measured performance and
+verification limits. The [evidence policy](evidence.md) retains the 553-image,
+78.90 MiB historical archive and directs new output to ignored/CI evidence.
+Deleting useful archived verification is not an optimization of the game.
+
+Native builds/descriptors and export presets cover macOS universal, Linux and
+Windows x64. The clean-check gate clones committed source without generated
+models or import caches, rebuilds native code and verifies procedural contracts,
+export resources and isolated native startup; optional rendered boot exercises
+the production application. Pack exports now include an explicit native sidecar
+because the OS loader cannot load its library from the resource ZIP. CI is wired
+for the three operating systems. Actual Windows/Linux execution remains pending;
+native save publication assertions now identify the platform being tested.
+
+Integrated evidence: 25 headless/native/asset/procedural/export children pass in
+`/tmp/astrarium-closure-headless/report.json`; 22 fast/native/rendered/lifecycle
+children pass in `/tmp/astrarium-closure-integrated/report.json`, including all
+35 presets, 108 course steps, HUD interactions/layout and 370 input checks.
+Five-round soak counts stay exactly flat after warm-up: **6393/138/1619/0** for
+spawn/remove, **6792/138/1720/0** for mass edits and **6812/138/1720/0** for true
+scale (object/resource/node/orphan order). Leak and shutdown gates pass.
+Strict 60,000-year Trisolaris and all four full flight gates pass in
+`/tmp/astrarium-closure-final-science/report.json`. Independent review found the
+camera range defect above and no further blockers in these bounded changes.
+Clean-clone execution and the final numerical boundary pass follow this commit.

@@ -1,19 +1,11 @@
 class_name Orbit
 extends RefCounted
 
-# TWO-BODY ORBITAL MECHANICS, in SI about one body. The real force model is the
-# n-body sum (vessel.gd); this is for:
-#   1. The instruments: apoapsis and friends describe the current conic,
-#      recomputed every frame from the live state.
-#   2. On-rails warp: an unpowered vessel out of the air is advanced along its conic
-#      analytically (exact, dropping perturbations).
-# Universal-variable (Stumpff) propagation: one series covers ellipse, parabola and
-# hyperbola, with no branch to divide by zero at e = 1.
-#
-# DVec3 in metres and m/s. `elements()` returns {a, e, inc, raan, argp, nu, rp, ra, h,
-# energy, period, r, v}, INF where unbounded.
+# SI two-body osculating elements, transfer estimates and conic propagation.
+# Perturbations are integrated by Vessel; analytic rails have an explicit
+# failure path. See sim/flight/AGENTS.md.
 
-# ---- Stumpff functions C(z), S(z). The series near z = 0 matter: the closed forms
+# Stumpff functions C(z), S(z). The series near z = 0 matter: the closed forms
 # are 0/0 there (the parabolic case).
 static func stumpff_c(z: float) -> float:
 	if z > 1e-6:
@@ -95,7 +87,7 @@ static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_
 	v_out.set_v(fd * _r0.x + gd * _v0.x, fd * _r0.y + gd * _v0.y, fd * _r0.z + gd * _v0.z)
 	return is_finite(r_out.x) and is_finite(v_out.x)
 
-# ---- classical elements -----------------------------------------------------
+# classical elements
 static var _h := DVec3.new()
 static var _n := DVec3.new()
 static var _e := DVec3.new()
@@ -152,7 +144,7 @@ static func _mean_anomaly(e: float, nu: float) -> float:
 static func time_to_apoapsis(el: Dictionary, mu: float) -> float:  return time_to_anomaly(el, mu, PI)
 static func time_to_periapsis(el: Dictionary, mu: float) -> float: return time_to_anomaly(el, mu, 0.0)
 
-# ---- transfers --------------------------------------------------------------
+# transfers
 
 ## Hohmann transfer between circular orbits r1, r2 about `mu`:
 ## { dv1, dv2, dv, tof, aT, phase, synodic }.

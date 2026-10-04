@@ -1,0 +1,63 @@
+name: Verify
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            archive: linux.x86_64
+            preset: Linux
+          - os: macos-14
+            archive: macos.universal
+            preset: macOS
+          - os: windows-2022
+            archive: win64.exe
+            preset: Windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GODOT_VERSION: 4.7.2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Windows compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          install: mingw-w64-x86_64-gcc
+          msystem: MINGW64
+          update: true
+      - name: Install pinned Godot
+        shell: python
+        run: |
+          import os, pathlib, urllib.request, zipfile
+          version = os.environ['GODOT_VERSION']
+          filename = f"Godot_v{version}-stable_${{ matrix.archive }}.zip"
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'godot'
+          root.mkdir()
+          archive = root / filename
+          urllib.request.urlretrieve(f"https://github.com/godotengine/godot-builds/releases/download/{version}-stable/{filename}", archive)
+          with zipfile.ZipFile(archive) as package:
+              package.extractall(root)
+          executable = next(root.rglob('Godot')) if '${{ runner.os }}' == 'macOS' else next(root.glob('*_console.exe')) if '${{ runner.os }}' == 'Windows' else next(root.glob('Godot_v*.x86_64'))
+          executable.chmod(0o755)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'GODOT={executable}\n')
+      - name: Expose Windows compiler to clean-clone check
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
+      - name: Verify clean procedural checkout and export
+        run: python tools/check.py clean --export-preset "${{ matrix.preset }}" --log-dir "${{ runner.temp }}/verification"
+      - name: Retain verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ matrix.preset }}
+          path: ${{ runner.temp }}/verification
