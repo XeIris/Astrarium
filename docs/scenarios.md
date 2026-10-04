@@ -6,53 +6,103 @@ measurements behind them.
 
 ## Trisolaris (hierarchical initial conditions)
 
-Close stellar encounters can disrupt a planetary orbit, so the flagship starts
-with a hierarchy:
+The flagship starts with a Keplerian hierarchy:
 
-- Alpha (1.20 M☉, F) and Beta (0.85 M☉, K): a 0.35 AU pair, 53-day period.
-- Trisolaris orbits both at 1.80 AU, e = 0.42: circumbinary (P-type), outside
-  the Holman–Wiegert limit (a_crit ≈ 2.3 a_bin ≈ 0.8 AU).
-- Gamma (2.00 M☉, A, 11 L☉): a 51-year orbit at 25° around the whole system.
+- Alpha (1.20 M☉) and Beta (0.85 M☉): a 0.35 AU pair, 53-day period.
+- Trisolaris: a coplanar 1.80 AU circumbinary orbit, eccentricity **0.20**,
+  initially at apoapsis. Initial periapsis/apoapsis are 1.44/2.16 AU.
+- Gamma (2.00 M☉): a 22 AU orbit with e = 0.35, inclination 25° and a
+  51.3-year Kepler period.
 
-The standing long-run target is 60 000 years, but the current native-kernel
-trajectory fails the declared inner-orbit bound near 56 333 years, despite
-relative energy drift below 5.3e-8. The preceding implementation crossed the
-bound near 18 095 years and later ejected the world. Changed remainder
-and budget arithmetic changed the chaotic numerical trajectory; the later failure
-does not establish improved stability. The earlier
-60 000-year stability claim is not supported by this recheck; see R28 in the
-[review log](codebase-review-2026-10-02.md). Earlier insolation samples swung
-~9× (0.34 to 3.1 Earth-suns); these climate statistics have not been revalidated
-as an ensemble against the current kernel.
+Batch 14 replaces only the world's former eccentricity of 0.42. The old orbit
+passed an inappropriate circular-planet screening argument but breached the
+declared extent bound at 56 332.5 years. The
+[Holman–Wiegert study](https://arxiv.org/pdf/astro-ph/9809315) initializes
+circular, coplanar test particles around an isolated binary; its roughly
+0.852 AU cutoff does not validate an eccentric world perturbed by Gamma.
 
-The batch-10 (2026-10-04) timestep probes used the preceding stepping rules and keep the authored frame interval and observation
-cadence, with unchanged bounds. All request 60 000 years:
+The candidate e = 0.20 was chosen before measuring its lifetime. The coplanar,
+test-particle Mardling–Aarseth screening expression,
+`a_crit = 2.8 a_bin (1 + e_world)^0.4 / (1 - e_world)^1.2`, gives 2.168 AU
+for the former e = 0.42 and 1.378 AU for e = 0.20. The 1.80 AU candidate has
+about 31% initial semimajor-axis margin under that screen. These are design
+estimates, not proof: published eccentricity-aware criteria disagree and do not
+include this complete four-body softened model. See the
+[comparison and Eq. 11](https://academic.oup.com/mnras/article/532/2/1580/7700715)
+and [Adelbert's single-planet controls](https://arxiv.org/abs/2310.07575).
 
-| maximum step (years) | world orientation offset (radians) | first sampled extent failure (years) | maximum relative energy drift |
-|---:|---:|---:|---:|
-| 0.0004 | 0 | 18 095 | 5.26e-8 |
-| 0.0002 | 0 | 8 482 | 1.04e-8 |
-| 0.0001 | 0 | none through 60 000 | 2.49e-9 |
-| 0.00005 | 0 | 12 460 | 6.19e-10 |
-| 0.0004 | +1e-6 | 27 224 | 5.21e-8 |
-| 0.0004 | −1e-6 | 14 578 | 5.17e-8 |
+### Bounded survival and numerical accuracy
 
-One passing refinement amid failures does not establish convergence. The tiny
-world-orientation probes rotate position and velocity relative to the inner
-binary barycenter; they change apsidal orientation, not anomaly along the same
-ellipse. No authored timestep or orbit was changed to obtain a passing gate.
-These six trajectories are not a statistical stability ensemble or a convergence
-result for the subsequent stepping changes.
+All **nine predeclared 60 000-year runs** pass the original limits: four live
+bodies, no mergers, sampled world/binary distance below 10 AU, Gamma below
+100 AU, relative total-energy drift below 1e-6 and momentum error below
+1e-7 M☉ AU/year. Stars, orbit sizes, Gamma's orbit, authored cap and bounds
+are unchanged. The check now accumulates accepted time with the production
+compensated clock; every passing run reaches 60 000 years with zero remainder.
 
-Run the strict authored gate with `python3 tools/check.py stability`. For a
-separately marked probe, run Godot headlessly with
-`--script res://tools/stabilitycheck.gd -- max_step=0.0002 report=/abs/result.json`;
-`world_rotation=0.000001` selects the orientation perturbation. A diagnostic
-cannot satisfy the runner's baseline completion marker. Reports keep decimal
-states plus versioned binary64 hex, with the field order and byte order stated
-in the report. The binary encoding preserves exact doubles independently of
-decimal-parser rounding. Extent is sampled every 1 000 frames (about 5.83 years),
-so the recorded time is the first observed violation, not an exact event time.
+| maximum step (years) | maximum sampled world distance (AU) | maximum relative energy drift |
+|---:|---:|---:|
+| 0.0004, authored | 2.279197 | 5.19544e-8 |
+| 0.0002 | 2.268883 | 1.04481e-8 |
+| 0.0001 | 2.275204 | 2.49480e-9 |
+| 0.00005 | 2.286518 | 6.33114e-10 |
+
+The remaining five runs rotate the world position and velocity around the inner
+binary barycenter by +1e-6, −1e-6, π/2, π and 3π/2 radians at the authored cap.
+These change apsidal orientation rather than anomaly on a fixed ellipse.
+Across all nine runs, sampled world distance stays below **2.287 AU** and Gamma
+below **29.700 AU**. Maximum inferred world eccentricity is **0.2984** and
+minimum inferred periapsis **1.2793 AU**. This sparse study supports survival
+under the tested settings, not indefinite stability or statistical lifetime
+estimates. Sampled extrema need not capture every closest approach.
+
+A separate 20-year refinement uses h, h/2, h/4 and h/8 against h/32. All-body
+position RMS errors are 0.0106542, 0.00271354, 0.000670718 and 0.000159987 AU;
+velocity RMS errors are 0.463146, 0.117968, 0.0291591 and 0.00695536 AU/year.
+Adjacent position-error ratios 3.926/4.046/4.192 agree with finite-reference
+second-order expectations. World position errors relative to the binary
+barycenter fall from 1.56733e-4 to 2.35107e-6 AU. Accumulated binary phase error
+at the authored cap is appreciable: small energy drift and bounded survival do
+not establish exact positions or phase over 60 000 years. The finest trajectory
+is a numerical reference, not an exact solution.
+
+The original e = 0.42 control still fails at 56 332.5 years under the compensated
+clock. Its inferred eccentricity reaches 0.9355 and periapsis 0.5048 AU; negative
+point-mass orbital energy at that sample is not an escape verdict. The former
+step-sensitive failures and single lucky passing refinement remain in the
+[review log](codebase-review-2026-10-02.md).
+
+### Sunlight, reporting and reproduction
+
+A 200-year probe samples every accepted frame through the production `Climate`
+model with quiet stars. Insolation ranges **0.5343–1.6418 S⊕** and temperature
+**267.14–305.42 K**; approximately 154.97 years are temperate, 44.94 cold and
+0.09 hot under the model's labels. This validates short-term changing seasons,
+not a 60 000-year climate envelope. Flares and stellar variability are excluded.
+
+Run `python3 tools/check.py stability` for the strict authored baseline, or
+`python3 tools/check.py stability-study` for all nine cases. Direct headless
+options include `step_divisor=2` (also 1/4/8), `max_step=0.0002`,
+`world_rotation=0.000001` and `world_eccentricity=0.42`. Any supplied override
+selects diagnostic mode, even if its value equals the authored configuration;
+`step_divisor` cannot accompany `max_step`. For the short refinement use
+`years=20 max_step=0.0000125` as the reference. Use `report=/abs/result.json`.
+
+Reports retain runtime/force/clock metadata, decimal states and versioned binary64
+hex. `softening_au=0` records the raw request: the ordinary force uses
+`radius / 2 + 1e-4 AU` as its default, not zero softening. Osculating elements
+are unsoftened Jacobi two-body snapshots, not the actual four-body potential;
+their energy signs and separation ratios are descriptive, not gate criteria.
+An inferred periapsis minimum is not a measured star/world minimum separation.
+The constructor preserves its tiny-world approximation (Kepler mass excludes
+the 3e-6 M☉ world and the stellar binary has no world recoil); the diagnostic
+includes that world mass. This accounts for a small difference between authored
+and initial inferred eccentricity. Extent is sampled every 1 000 frames
+(about 5.83 years); failure times are first observed violations.
+
+Batch-14 exact states, logs and computations are retained in
+`/tmp/astrarium-b14-study` and `/tmp/astrarium-b14-convergence`. Future checks
+regenerate reports; these measurements apply to Godot 4.7.2/native on this Mac.
 
 ## Wandering suns (`trisolaris_wander`)
 

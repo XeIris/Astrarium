@@ -15,7 +15,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("fast", "native", "flight", "rendered", "assets", "lifecycle", "export", "compatibility", "perf", "stability")
+SUITES = ("fast", "native", "flight", "rendered", "assets", "lifecycle", "export", "compatibility", "perf", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 CA_ERROR = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: ""\n'
                       r'\s+at: get_system_ca_certificates \(platform/macos/os_macos\.mm:\d+\)\n?', re.MULTILINE)
@@ -51,6 +51,17 @@ def checks(suite, godot, output, repeat, export_preset):
     elif suite == "stability":
         yield script("stabilitycheck", r"^STABILITYCHECK DONE mode=baseline target_years=60000(?:\.0+)? accepted_years=60000(?:\.0+)? failures=0$",
                      "years=60000", f"report={output / 'stability.json'}", timeout=900)
+    elif suite == "stability-study":
+        yield from checks("stability", godot, output, repeat, export_preset)
+        probes = [(f"step-{divisor}", f"step_divisor={divisor}") for divisor in (2, 4, 8)]
+        probes += [(label, f"world_rotation={angle}") for label, angle in (
+            ("orientation-plus-tiny", "0.000001"), ("orientation-minus-tiny", "-0.000001"),
+            ("orientation-quarter", "1.5707963267948966"), ("orientation-half", "3.141592653589793"),
+            ("orientation-three-quarters", "4.71238898038469"))]
+        for label, option in probes:
+            probe = script("stabilitycheck", r"^STABILITYDIAGNOSTIC DONE mode=diagnostic target_years=60000(?:\.0+)? accepted_years=60000(?:\.0+)? failures=0$",
+                           "years=60000", option, f"report={output / (label + '.json')}", timeout=900)
+            yield ("stability-" + label, *probe[1:])
     elif suite == "flight":
         yield script("sharedflightcheck", r"^SHARED FLIGHT DONE failures=0$", timeout=900)
     elif suite == "rendered":
@@ -134,7 +145,7 @@ def run_check(check, output, index, options):
         problem = "engine error"
     if problem is None and marker is not None and len(re.findall(marker, text, re.MULTILINE)) != 1:
         problem = "missing or duplicated successful completion marker"
-    if problem is None and name == "stabilitycheck" and len(re.findall(r"^STABILITY(?:CHECK|DIAGNOSTIC) DONE\b.*$", text, re.MULTILINE)) != 1:
+    if problem is None and name.startswith("stability") and len(re.findall(r"^STABILITY(?:CHECK|DIAGNOSTIC) DONE\b.*$", text, re.MULTILINE)) != 1:
         problem = "conflicting stability completion markers"
     if problem is None and re.search(r"ObjectDB instances leaked at exit|(?:SOAK|LEAKCHECK) FAILURES \[(?!\])", errors):
         problem = "lifecycle leak"

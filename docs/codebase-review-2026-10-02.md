@@ -63,7 +63,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R25 | P2 | Partial: input domain enforced, batch 9 | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define supported input domain and reject unsupported equilibrium requests before mutation; preserve modeled threshold events. Mass-shedding/subminimum evolution remains unmodeled. |
 | R26 | P1 | Verified: batch 7 | Visual accretion removed physical mass/momentum without a receiving body and could delete the rest of a donor. | Cosmetic streams cannot mutate physical state; production frames match the kernel and contact mergers conserve mass/momentum, with pause/zero-time gates. |
 | R27 | P1 | Partial: conservative orbits and physical strain, batch 10 | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
-| R28 | P1 | Open: long-run scenario failure | The flagship Trisolaris world breaches its declared extent before 60,000 years despite small energy drift; the observed failure time changes with numerical stepping. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep failures visible until resolved. |
+| R28 | P1 | Verified: bounded survival, batch 14 | The original flagship Trisolaris world breaches its declared extent before 60,000 years despite small energy drift; the observed failure time changes with numerical stepping. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep original failed controls visible. |
 | R29 | P2 | Verified: bounded display model, batch 9 | Neutron self-lensing used an analytic approximation outside its stated domain, while lessons called it exact ray tracing and comments understated visible area. | Bound the display parameter without changing physics; document approximation/stylization, correct claims and inspect affected views. |
 | R30 | P2 | Partial: cutoffs and unsafe arithmetic fixed | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose spatial increments or underflow diagnostics. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
 | R31 | P1 | Verified: batch 12 | A structural mass memo ignores changes below 0.1%, suppressing a Chandrasekhar event after a small merger. | A real small contact merger crossing the threshold detonates during the production frame; exact event checks cannot use a mass tolerance. |
@@ -1220,3 +1220,94 @@ Five-round post-warmup object/resource/node/orphan counts are exactly flat:
 zero failures or shutdown leaks in `/tmp/astrarium-b13/soak.log`. Independent
 subagent review found no remaining blockers. Physics forces/integration and
 authored Trisolaris settings are unchanged; **R28 remains open**.
+
+### Batch 14: a bounded Trisolaris design and honest orbital diagnostics
+
+R28's unchanged baseline reproduces the 56 332.5000096394-year sampled extent
+failure with exit 1 in `/tmp/astrarium-b14-baseline/report.json`. The design
+argument applied an isolated circular-planet cutoff to an eccentric four-body
+configuration. Primary-source screening supports increasing planetary periapsis;
+the single candidate **e = 0.20** was declared before its lifetime was measured.
+Only the former world eccentricity **0.42** changes. Masses, semimajor axes,
+Gamma's orbit, authored step cap and every gate bound remain unchanged. Sources,
+screening calculations and limitations are in
+[scenario notes](scenarios.md#trisolaris-hierarchical-initial-conditions).
+
+The flagship now reuses the existing circumbinary constructor instead of a
+duplicate body builder. At e = 0.42 the shared builder matches **all 28 physical
+binary64 values** of the original initial state. Its small planetary-mass/recoil
+approximation remains explicit, avoiding another simultaneous dynamical change.
+The check adopts the production compensated accepted-time clock and reports its
+remainder, explicit numerical stops, runtime/force metadata and exact states.
+Jacobi two-body osculating snapshots supply eccentricity, energy, inferred apses
+and hierarchy ratios. These are descriptive approximations, not new pass bounds
+or definitive escape criteria; raw zero softening selects the radius-based default.
+
+All **nine predeclared runs** reach **60 000 accepted years / zero remainder /
+zero failures**: h, h/2, h/4, h/8, plus authored-cap world-orientation offsets
+±1e-6, π/2, π and 3π/2. Worst sampled world/binary extent is **2.286519 AU**,
+Gamma **29.699423 AU**, momentum error **1.516e-11 M☉ AU/year**. Energy-drift
+maxima at the four caps are **5.19544e-8 / 1.04481e-8 / 2.49480e-9 / 6.33114e-10**.
+No merger, mass change or frame/numerical guard occurs. Maximum inferred world
+eccentricity is **0.2984**, minimum inferred periapsis **1.2793 AU**. The complete
+matrix and exact reports are in `/tmp/astrarium-b14-study/matrix-report.json`;
+two independent headless processes ran concurrently, so wall times are not
+performance comparisons. `python3 tools/check.py stability-study` regenerates
+the same nine cases sequentially with strict baseline/diagnostic marker separation.
+
+The e = 0.42 control still fails at **56 332.5 years** under the corrected clock,
+with the same physical final state and first failing frame. Its inferred world
+eccentricity reaches **0.9355**, periapsis **0.5048 AU** and extent **13.553545 AU**.
+Point-mass orbital energy remains negative at that sample, so the extent failure
+is not mislabeled as definitive ejection. The failed control is retained in
+`original-control.{json,log}`. The earlier step-sensitive results remain historical
+evidence rather than being reclassified as successful validation.
+
+A five-run 20-year refinement against h/32 shares exact initial states and shows
+second-order convergence: all-body position error ratios **3.926 / 4.046 / 4.192**
+against finite-reference expectations **4.012 / 4.048 / 4.200**. World barycentric
+position error falls from **1.56733e-4** to **2.35107e-6 AU**. The full position/
+velocity tables and calculations are in `/tmp/astrarium-b14-convergence/REPORT.md`.
+Authored-cap all-body position RMS error is **0.0106542 AU** after 20 years:
+accumulated binary phase error remains material, even with small energy drift.
+R28 closes as bounded survival across tested settings, not exact long-run phase,
+indefinite stability or a statistical lifetime theorem.
+
+The production climate model, sampled every accepted frame for 200 years with
+quiet stars, retains changing seasons: **0.5343–1.6418 S⊕**, **267.14–305.42 K**,
+about **154.97 temperate / 44.94 cold / 0.09 hot years**. This is a short-term
+product-behavior check, not a full-lifetime climate envelope. The description is
+updated accordingly and the rendered Trisolaris screenshot is inspected.
+
+All **17 fast/native/rendered children** pass in
+`/tmp/astrarium-b14-integrated/report.json`; this includes the complete course,
+presets, numerical domain, inputs and editor regressions. Diagnostic formula
+checks pass **15/15**, option checks **16/16**, and **10/10** runner-negative cases
+reject forged success, short/incomplete targets, errors and conflicting terminal
+markers. Five complete preset/launch cycles remain flat at **7456 objects /
+307 resources / 1810 nodes**, with no shutdown leaks in `leak.log`. Independent
+scientific review found no blockers.
+
+The required five-round soak also stays exactly flat after warmup:
+**6393/137/1619/0** (spawn/remove), **6792/137/1720/0** (mass edits), and
+**6812/137/1720/0** (true scale), in object/resource/node/orphan order.
+`/tmp/astrarium-b14-study/soak.log` reports zero failures and shutdown leaks.
+
+### Closing the review cycle
+
+R28 was the remaining fully open P1 finding. The correctness remediation is
+close to closure; the entire cycle still has twelve partial/profiling/backlog
+findings and an actual-Windows verification gap. The next work should be bounded
+around evidence and final disposition, rather than expanding the product's
+scientific model whenever another approximation is noticed:
+
+1. Measure launch/studio GPU cost, visual-edit spikes and per-frame submissions
+   (R14–R16), then fix the costs the measurements establish.
+2. Finish a bounded architecture/interface pass (R09/R10), settle geometry
+   ownership (R12), and address remaining comment/evidence/release hygiene
+   (R13/R18/R20). Portable CI and clean-clone verification remain unfinished.
+3. Re-review the final code and AGENTS.md, rerun the relevant integrated/export/
+   lifecycle/long-run checks, and give every remaining finding a clear verified,
+   deferred or bounded-model disposition. Windows evidence remains unverified
+   until an actual Windows run exists; the rotational/compact/extreme-numeric
+   limitations (R25/R27/R30) retain their documented scope.

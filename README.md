@@ -137,8 +137,10 @@ missing completion markers, and stops on the first failure. Use `--godot` to
 select an engine and `--log-dir` to retain results at a chosen location.
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
 `perf` need a working graphical renderer. `flight` runs the four full launches. `native` includes the numerical boundary checks.
-`stability` runs the strict 60,000-year Trisolaris check; it currently fails the inner-orbit bound (R28), so it remains
-an explicit suite rather than part of the fast default.
+`stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
+three timestep refinements and five orientation probes. Both remain explicit
+suites because of their runtime; the redesigned scenario passes the tested bounds
+(see [scenario limits and results](docs/scenarios.md#trisolaris-hierarchical-initial-conditions)).
 `compatibility` keeps the known strict frozen-reference differences failing.
 Body motion uses conservative Newtonian pair gravity; relativistic visuals and
 the illustrative tight-pair drag have separate limits described in
@@ -167,7 +169,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/numericalcheck.gd` | requires native kernel; checks tiny forces, potentials, step caps, positive durations, orbital convergence and unsafe-update rollback in both implementations |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary and black-hole pair forces, matching energy, and presentation-independent contact distances |
-| `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year flagship Trisolaris bounds; `years=<n>` labels a shorter probe, `max_step=<years>` and `world_rotation=<radians>` select separately marked diagnostics, `report=/abs/result.json` retains configuration and double states; currently fails the orbital bound |
+| `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year Trisolaris bounds and compensated accepted time; `years=<n>` selects a shorter probe; `max_step=<years>`, `step_divisor=2`, `world_rotation=<radians>` and `world_eccentricity=<e>` select separately marked diagnostics; `report=/abs/result.json` retains runtime/force metadata, exact double states and approximate orbital elements |
 | `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
 | `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |

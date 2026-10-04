@@ -64,8 +64,8 @@ static func _num(x: float) -> String:
 		return str(int(x))
 	return str(x)
 
-# Three-sun constructors: each level is placed at its own barycentre before the
-# outer orbit, avoiding a secular kick.
+# Hierarchy constructors use barycentric stellar orbits; the circumbinary world's
+# tiny recoil is neglected (docs/scenarios.md).
 static func _tri_star(name: String, mass: float, extra: Dictionary = {}) -> Dictionary:
 	return U.merged({
 		"type": "star", "name": name, "mass": mass,
@@ -278,7 +278,7 @@ static func _make_presets() -> Dictionary:
 	P.trisolaris = {
 		"sky": { "env": "disc", "tilt": 0.55, "roll": 0.35 },
 		"name": "Trisolaris",
-		"blurb": "Three suns, one world. A tight binary (Alpha + Beta) with Trisolaris on a wide eccentric circumbinary orbit, and hot Gamma sweeping past every 51 years. The changing sunlight drives the climate; the world can eventually be ejected.",
+		"blurb": "Three suns, one world. Alpha and Beta form a tight binary; Trisolaris follows an eccentric orbit around both, while hot Gamma returns every 51 years. Changing sunlight drives temperate seasons and cold spells.",
 		"sceneScale": 4.0, "bodyScale": 0.55, "camRadius": 20.0, "lensing": false,
 		# Resolve the short inner-binary period; long-run orbital extent needs a separate check.
 		"timeScale": 0.35, "maxStep": 4e-4,
@@ -583,53 +583,13 @@ static func _build_threebody() -> Array:
 		U.merged(star.call(3), { "pos": [0.0, 0.0, 0.0], "vel": [v3[0] * k, 0.0, v3[1] * k] }),
 	]
 
-static func _build_trisolaris() -> Array:
-	var mA := 1.20
-	var mB := 0.85
-	var mC := 2.00
-	var mp := 3.0e-6
-	var aBin := 0.35                        # Alpha–Beta separation
-	var aP := 1.80                          # Trisolaris' circumbinary orbit
-	var eP := 0.42
-	var aC := 22.0
-	var eC := 0.35
-	var iC := 25.0 * PI / 180.0
-
-	var star := func(name: String, mass: float, extra: Dictionary = {}) -> Dictionary:
-		return U.merged({
-			"type": "star", "name": name, "mass": mass,
-			"luminosity": Stellar.luminosity(mass), "teff": Stellar.effective_temp(mass),
-		}, extra)
-
-	# -- inner binary about its own barycentre
-	var Mab := mA + mB
-	var kb := kepler(Mab, aBin, 0.0, 0.0, 0.0)
-	var A: Dictionary = U.merged(star.call("Alpha", mA), { "pos": mulv(kb.pos, -mB / Mab), "vel": mulv(kb.vel, -mB / Mab) })
-	var B: Dictionary = U.merged(star.call("Beta", mB), { "pos": mulv(kb.pos, mA / Mab), "vel": mulv(kb.vel, mA / Mab) })
-
-	# -- Trisolaris on a circumbinary orbit about that barycentre,
-	#    started at apoapsis: the world begins in a long, cold winter.
-	var kp := kepler(Mab, aP, eP, 0.0, PI)
-	var P := {
-		"type": "world", "name": "Trisolaris", "mass": mp,
-		"pos": kp.pos, "vel": kp.vel,
-		"dayLength": 1.0 / 90.0,         # ~4 sim-day rotation, slow enough to watch
-		"obliquity": 0.41,
-		"home": true,
-	}
-
-	# -- Gamma about the whole inner system, started near apoapsis so its
-	#    approach (and the heat that comes with it) plays out as you watch.
-	var Min := Mab + mp
-	var Mtot := Min + mC
-	var kc := kepler(Mtot, aC, eC, iC, PI * 0.55)
-	var C: Dictionary = U.merged(star.call("Gamma", mC), { "pos": mulv(kc.pos, Min / Mtot), "vel": mulv(kc.vel, Min / Mtot) })
-	var off := mulv(kc.pos, -mC / Mtot)
-	var offv := mulv(kc.vel, -mC / Mtot)
-	for b in [A, B, P]:
-		b.pos = addv(b.pos, off); b.vel = addv(b.vel, offv)
-
-	return [A, B, C, P]
+static func _build_trisolaris(world_eccentricity: float = 0.20) -> Array:
+	# Eccentricity-aware screening and the bounded numerical study: docs/scenarios.md.
+	return circumbinary_triad({
+		"mA": 1.20, "mB": 0.85, "mC": 2.00,
+		"aBin": 0.35, "aWorld": 1.80, "eWorld": world_eccentricity,
+		"aOuter": 22.0, "eOuter": 0.35, "outerIncl": 25.0 * PI / 180.0,
+	})
 
 static func _build_trisolaris_chaos() -> Array:
 	var star := func(name: String, mass: float, extra: Dictionary = {}) -> Dictionary:

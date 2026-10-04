@@ -171,7 +171,9 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - parse errors: `Godot --headless --path . --import`, then `--quit`. Shader
   errors print as `SHADER ERROR` on first render.
 
-Recheck long-run Trisolaris stability after changing forces or integration with
-`python3 tools/check.py stability` (currently fails R28 in the review log);
-short reference agreement does not establish a long-run bound. For screenshots,
+Recheck long-run Trisolaris bounds after changing forces or integration with
+`python3 tools/check.py stability`; use `stability-study` for timestep/orientation
+coverage after changing its design. Passing establishes sampled survival over
+the tested duration, not indefinite stability or exact long-run phase.
+Short reference agreement does not establish a long-run bound. For screenshots,
 use `frames=60 out=/abs/shot.png` (see README).
