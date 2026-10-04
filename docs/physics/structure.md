@@ -17,8 +17,11 @@ Public functions use AU / M☉ / yr; interior equations of state work in SI.
 
 The stage preflights complete spawn, edit and preset requests before changing
 live bodies. Mass must be finite and positive; physical spin must be finite and
-nonnegative. Non-black-hole rotation above the model's mass-shedding rate is
-unsupported. The near-limit warning at fractions 0.999–1 is still allowed;
+nonnegative. Ordinary body inputs must also meet the structure fit's existing
+1e-12 M☉ floor, so an accepted body's structure cannot silently use a different
+mass. This is a model boundary, not a physical minimum mass. Non-black-hole
+rotation above the model's mass-shedding rate is unsupported. The near-limit
+warning at fractions 0.999–1 is still allowed;
 this equilibrium model does not evolve shed material. Neutron `spinHz` takes
 precedence over `spinFrac` when checking rotational support.
 
@@ -62,7 +65,8 @@ contact distances and softening must be finite and nonnegative AU. Zero softenin
 selects the ordinary-pair default. Black-hole structures retain the actual mass,
 including below the ordinary structure fit's lower clamp, and reject horizon or
 isolated evaporation scales that underflow or overflow. This is a numerical guard,
-not a claimed physical lower mass boundary.
+not a claimed physical lower mass boundary. Integration and diagnostic
+representability have [additional limits](numerics.md).
 
 The black-hole card compares its modeled Hawking temperature with the current
 microwave background rather than assuming every hole is colder. Hot isolated holes

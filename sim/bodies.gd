@@ -158,8 +158,7 @@ static func create_world(b: Body, opts: VisualOpts):
 		return v
 	return S.create_world_visual(b, opts)
 
-## A plain sphere in the body's colour: the stand-in for a planet visual whose
-## port is not in this checkout.
+## A plain sphere when an optional planet visual is unavailable.
 class PlainViz:
 	extends RefCounted
 	var group: Node3D

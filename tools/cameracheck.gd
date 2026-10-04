@@ -75,7 +75,7 @@ func _init() -> void:
 	var previous_phi := camera.phi
 	var previous_radius := camera.radius
 	check("rejected mixed patch leaves distance, angles and pending ease intact", not camera.apply_request({"theta": 2, "phi": 7, "radius": -1}) and camera.theta == previous_theta and camera.phi == previous_phi and camera.radius == previous_radius and camera.radius_to == 100)
-	for distance in [1e300, 1e-310, 1e-6 - 1e-12, 20000.0 + 1e-6]:
+	for distance in [1e300, pow(2.0, -1030.0), 1e-6 - 1e-12, 20000.0 + 1e-6]:
 		var request := {"theta": 2, "phi": 7, "radius": distance}
 		check("unsupported finite authored distance rejected %s" % str(distance), not OrreryCamera.request_error(request).is_empty())
 		check("unsupported distance leaves complete patch untouched %s" % str(distance), not camera.apply_request(request) and camera.theta == previous_theta and camera.phi == previous_phi and camera.radius == previous_radius and camera.radius_to == 100)

@@ -60,12 +60,12 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
 | R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
 | R24 | P2 | Verified: current Mac, batch 6 | The physical window minimum ignores content scale; logical columns overlap at scale 2. | Maintain sufficient logical layout space at supported scales and verify flight actions remain reachable. |
-| R25 | P2 | Partial: input domain enforced, batch 9 | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define supported input domain and reject unsupported equilibrium requests before mutation; preserve modeled threshold events. Mass-shedding/subminimum evolution remains unmodeled. |
+| R25 | P2 | Verified supported domain; evolution outside scope | Rotational breakup and below-minimum neutron verdicts are returned by Structure but not acted on by the stage. | Define supported input domain and reject unsupported equilibrium requests before mutation; preserve modeled threshold events. Mass-shedding/subminimum evolution remains unmodeled. |
 | R26 | P1 | Verified: batch 7 | Visual accretion removed physical mass/momentum without a receiving body and could delete the rest of a donor. | Cosmetic streams cannot mutate physical state; production frames match the kernel and contact mergers conserve mass/momentum, with pause/zero-time gates. |
-| R27 | P1 | Partial: conservative orbits and physical strain, batch 10 | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
+| R27 | P1 | Verified bounded Newtonian/illustrative model | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
 | R28 | P1 | Verified: bounded survival, batch 14 | The original flagship Trisolaris world breaches its declared extent before 60,000 years despite small energy drift; the observed failure time changes with numerical stepping. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep original failed controls visible. |
 | R29 | P2 | Verified: bounded display model, batch 9 | Neutron self-lensing used an analytic approximation outside its stated domain, while lessons called it exact ray tracing and comments understated visible area. | Bound the display parameter without changing physics; document approximation/stylization, correct claims and inspect affected views. |
-| R30 | P2 | Partial: cutoffs and unsafe arithmetic fixed | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose spatial increments or underflow diagnostics. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
+| R30 | P2 | Partial: targeted precision/domain guards verified | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose individual spatial/force components. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
 | R31 | P1 | Verified: batch 12 | A structural mass memo ignores changes below 0.1%, suppressing a Chandrasekhar event after a small merger. | A real small contact merger crossing the threshold detonates during the production frame; exact event checks cannot use a mass tolerance. |
 | R32 | P1 | Verified: batch 12 | Trailing live edits can move to a different selected body, including reused IDs, or rebuild visuals on a removed body. | Cancel pending work on instance changes/removal/rejection; stale callbacks require exact scene membership; asynchronous regression and lifecycle checks pass. |
 | R33 | P2 | Verified: batch 13 | Accepted position, velocity and name edits change the spec but leave live state unchanged; manual force/potential edits contaminate the drift reference. | Explicit vector/name edits reach live state atomically, ordinary edits preserve integrated coordinates, teleports restart trails, and energy-changing edits rebase diagnostics. |
@@ -1381,4 +1381,59 @@ scale (object/resource/node/orphan order). Leak and shutdown gates pass.
 Strict 60,000-year Trisolaris and all four full flight gates pass in
 `/tmp/astrarium-closure-final-science/report.json`. Independent review found the
 camera range defect above and no further blockers in these bounded changes.
-Clean-clone execution and the final numerical boundary pass follow this commit.
+The committed candidate `80e46b8` also passes the clean-clone gate with all 16
+children and a rendered exported boot outside the source checkout. Evidence:
+`/tmp/astrarium-closure-clean/report.json`, `complete: true`, `rendered_boot: true`.
+
+### Batch 16: targeted representability and final disposition
+
+R30's next bounded fix stops entirely lost **force-free** drift in both kernels.
+Old/new acceleration must both be zero, velocity nonzero and the entire position
+unchanged; rejected candidates roll back without accepting elapsed time. A later
+failed candidate preserves its accepted prefix. Tiny accelerated velocity kicks
+remain supported. The original native binary fails the new drift/prefix probes,
+so these tests distinguish the defect from parity alone.
+
+Energy diagnostics preserve ordinary arithmetic exactly, rescaling exceptional
+kinetic/potential/softened-distance intermediates with binary powers. Analytic
+fixtures recover representable terms after intermediate underflow/overflow and
+verify subnormal rounding. Truly unrepresentable positive terms report `NAN`,
+with visible unavailable/recovery behavior in the HUD. A zero-energy reference
+cannot silently report zero drift after energy becomes nonzero. Ordinary body
+requests below the existing 1e-12 M☉ structure floor now reject atomically instead
+of publishing a structure with a different mass. Black holes keep their separate
+domain. The [numerical contract](physics/numerics.md) states the remaining limits.
+
+Verification: **156 numerical / 274 invariant checks**, all nine native comparison
+presets at unchanged tolerances, **377 structure input / 127 editor checks**,
+and all ten rendered-suite children pass. The subnormal camera rejection fixture
+uses a runtime binary power so decimal parsing cannot turn its input into zero;
+all 50 camera checks pass. The required strict **60,000-year Trisolaris** gate
+passes again after the integration change. Logs are in
+`/tmp/astrarium-r30-*.log`, `/tmp/astrarium-closure-r30-rendered/`,
+`/tmp/astrarium-closure-r30-editor-final.log` and
+`/tmp/astrarium-closure-r30-stability/`. The native library was rebuilt.
+
+Every finding now has an explicit disposition. Four remain partial:
+
+| Finding | Completed evidence | Remaining work and trigger |
+|---|---|---|
+| R14 | Normal craft LOD, settled primitive comparisons, inspected near renders | Obtain usable launch/studio GPU timings, then classify closed meshes before changing culling. Current Metal timestamp APIs return zero. |
+| R16 | Engine-owned uniform cache with controlled submission comparison and flat lifecycle counts | Measure per-sun packed-array allocations before choosing a cache that actually removes copy-on-write cost. |
+| R20 | Integrated runner, portable build/descriptors, CI definition, clean macOS clone/export/rendered boot, prior interaction/layout gates | Execute actual Linux/Windows CI and define supported-device GPU/frame budgets. CI configuration is not a passing remote run. R19's actual-Windows publication gap shares this gate. |
+| R30 | Independent convergence/extreme arithmetic tests, whole force-free drift stops, diagnostic availability and ordinary input floor | Individual components, accelerated kicks and extreme force intermediates can still lose precision; any broader domain must have predeclared representability and convergence gates. |
+
+R25/R27 close as supported model boundaries: unsupported equilibrium inputs reject
+before mutation, and compact motion is labeled Newtonian with illustrative drag.
+Mass-shedding evolution, arbitrary compact strong-field binaries and indefinite
+Trisolaris stability are additional scientific models, not implemented fixes.
+The procedural/authored silhouette differences are explicit product choices.
+
+Final architecture review still finds `main.gd` substantial (2338 lines before
+the final diagnostic addition), and visual-specific options remain an open
+dictionary. Further extraction should target scenario lifecycle or UI wiring
+when changing that responsibility, with typed ownership and affected gates;
+splitting functions just to lower a file's line count adds maintenance work.
+The revised guidance records executable contracts and admits verification gaps.
+This review has fixed the demonstrated correctness defects; it has not certified
+every behavior, every device or every finite scientific input.

@@ -279,6 +279,28 @@ func edited_energy_reference() -> void:
 	stage.edit_body(neutron, {"spinFrac": 0.0})
 	check("fixed-mass collapse changes type and rebases energy", neutron.type == "bh" and stage.state.energy0 == null)
 
+func unavailable_energy() -> void:
+	stage.clear_bodies()
+	var body: Body = stage.spawn_body({"type": "bh", "mass": 1.0, "vel": [1e-300, 0.0, 0.0]})
+	stage.update_sim_stats()
+	check("unrepresentable nonzero energy is visibly unavailable", stage.hud.ids.setDrift.text == "unavailable"
+		and not stage.hud.ids.setDrift.tooltip_text.is_empty())
+	check("invalid energy cannot become a drift reference", stage.state.energy0 == null)
+	stage.edit_body(body, {"vel": [1.0, 0.0, 0.0]})
+	stage.update_sim_stats()
+	check("representable energy recovers a finite reference", stage.state.energy0 == 0.5 and stage.hud.ids.setDrift.text == "0"
+		and stage.hud.ids.setDrift.tooltip_text.is_empty())
+	stage.state.energy0 = NAN
+	stage.update_sim_stats()
+	check("invalid stored reference is discarded", stage.state.energy0 == 0.5 and stage.hud.ids.setDrift.text == "0")
+	stage.state.energy0 = 0.0
+	stage.update_sim_stats()
+	check("zero reference cannot hide a nonzero energy change", stage.hud.ids.setDrift.text == "unavailable"
+		and stage.hud.ids.setDrift.tooltip_text.contains("zero-energy"))
+	stage.edit_body(body, {"vel": [0.0, 0.0, 0.0]})
+	stage.update_sim_stats()
+	check("physical zero energy remains a valid diagnostic", stage.state.energy0 == 0.0 and stage.hud.ids.setDrift.text == "0")
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -293,6 +315,7 @@ func _ready() -> void:
 	small_body()
 	live_state_edits()
 	edited_energy_reference()
+	unavailable_energy()
 	await pending_body_switch()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)

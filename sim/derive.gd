@@ -268,6 +268,7 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 
 # Matches conservative forces: Plummer for ordinary pairs, Newtonian for BH pairs.
 # GW drag, mergers and changing radii/masses invalidate integrator-only drift.
+# Nonzero terms outside double precision return NAN; a singular potential is -INF.
 static func total_energy(bodies: Array) -> float:
 	var bs := []
 	for b in bodies:
@@ -275,11 +276,53 @@ static func total_energy(bodies: Array) -> float:
 	var E := 0.0
 	for i in bs.size():
 		var bi: Body = bs[i]
-		E += 0.5 * bi.mass * bi.vel.length_sq()
+		if not is_finite(bi.mass) or bi.mass <= 0.0 or not bi.pos.is_finite_v() or not bi.vel.is_finite_v(): return NAN
+		var speed_sq := bi.vel.length_sq()
+		var half_mass := 0.5 * bi.mass
+		var kinetic := half_mass * speed_sq
+		var speed_scale := maxf(absf(bi.vel.x), maxf(absf(bi.vel.y), absf(bi.vel.z)))
+		if speed_scale > 0.0 and (not is_finite(kinetic) or kinetic == 0.0 or speed_sq < DOUBLE_MIN_NORMAL or half_mass < DOUBLE_MIN_NORMAL):
+			var vx := bi.vel.x / speed_scale; var vy := bi.vel.y / speed_scale; var vz := bi.vel.z / speed_scale
+			kinetic = _energy_product([0.5, bi.mass, speed_scale, speed_scale, vx * vx + vy * vy + vz * vz])
+		E += kinetic
 		for j in range(i + 1, bs.size()):
 			var bj: Body = bs[j]
 			var r := Physics.distance_xyz(bi.pos.x - bj.pos.x, bi.pos.y - bj.pos.y, bi.pos.z - bj.pos.z)
 			var denom := r if bi.type == "bh" or bj.type == "bh" else sqrt(r * r + Physics.pair_softening_sq(bi, bj))
+			if bi.type != "bh" and bj.type != "bh" and (not is_finite(denom) or denom * denom < DOUBLE_MIN_NORMAL):
+				var sa := bi.softening if bi.softening != 0.0 else bi.radius * 0.5 + 1e-4
+				var sb := bj.softening if bj.softening != 0.0 else bj.radius * 0.5 + 1e-4
+				var scale := maxf(r, maxf(absf(sa), absf(sb)))
+				if not is_finite(scale): return NAN
+				if scale > 0.0: denom = scale * sqrt(pow(r / scale, 2.0) + 0.5 * (pow(sa / scale, 2.0) + pow(sb / scale, 2.0)))
 			if denom == 0.0: return -INF
-			E -= Physics.G * bi.mass * bj.mass / denom
+			if not is_finite(denom): return NAN
+			var weighted_mass := Physics.G * bi.mass
+			var numerator := weighted_mass * bj.mass
+			var potential := numerator / denom
+			if not is_finite(potential) or potential == 0.0 or numerator < DOUBLE_MIN_NORMAL or weighted_mass < DOUBLE_MIN_NORMAL:
+				potential = _energy_product([Physics.G, bi.mass, bj.mass], denom)
+			E -= potential
 	return E
+
+# Construct the IEEE boundary without relying on subnormal decimal-literal parsing.
+static var DOUBLE_MIN_NORMAL := pow(2.0, -1022.0)
+
+# Exceptional diagnostic products: scale by exact binary powers before multiplying.
+static func _energy_product(factors: Array, denominator: float = 1.0) -> float:
+	var mantissa := 1.0
+	var exponent := 0
+	for i in factors.size() + 1:
+		var value: float = denominator if i == factors.size() else factors[i]
+		if not is_finite(value) or value <= 0.0: return NAN
+		var shift := clampi(int(floor(log(value) / log(2.0))), -1022, 1023)
+		value /= pow(2.0, shift)
+		while value < 1.0: value *= 2.0; shift -= 1
+		while value >= 2.0: value *= 0.5; shift += 1
+		if i == factors.size(): mantissa /= value; exponent -= shift
+		else: mantissa *= value; exponent += shift
+	while mantissa < 1.0: mantissa *= 2.0; exponent -= 1
+	while mantissa >= 2.0: mantissa *= 0.5; exponent += 1
+	if exponent > 1023 or exponent < -1075: return NAN
+	var value := mantissa * pow(2.0, exponent) if exponent >= -1022 else (mantissa * pow(2.0, exponent + 1022)) * DOUBLE_MIN_NORMAL
+	return value if is_finite(value) and value > 0.0 else NAN

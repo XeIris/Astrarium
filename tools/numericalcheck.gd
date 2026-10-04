@@ -110,6 +110,71 @@ func request_cases(kernel: String) -> void:
 	check(kernel + " guard counts actual bounded substeps", guarded.steps == Derive.STEP_GUARD and near(guarded.stepped, float(Derive.STEP_GUARD) * 1e-10))
 	check(kernel + " guard advances accepted clock only", near(b.pos.x, guarded.stepped) and guarded.stepped < 1e-4 and not guarded.get("resolution_limited", false))
 
+func lost_drift_cases(kernel: String) -> void:
+	for fixture in [[1e16, 1.0, 0.01], [0.0, 1e-200, 1e-200]]:
+		var b := hole(1.0, fixture[0])
+		b.vel.x = fixture[1]
+		var initial := snapshot([b])
+		var result := step([b], fixture[2], fixture[2], kernel)
+		check(kernel + " entirely lost force-free drift stops accepted time %s" % str(fixture), result.stepped == 0.0 and result.steps == 0 and result.get("resolution_limited", false) and snapshot([b]) == initial)
+	var b := hole(1.0, 1e16)
+	b.vel.x = 2.1
+	var result := step([b], 1.1, 1.0, kernel)
+	check(kernel + " lost later drift preserves accepted prefix", result.stepped == 1.0 and result.steps == 1 and result.get("resolution_limited", false) and b.pos.x == 1e16 + 2.0 and b.vel.x == 2.1)
+	b = hole(1.0, 1e16)
+	b.vel.set_v(1.0, 1.0, 0.0)
+	result = step([b], 0.01, 0.01, kernel)
+	check(kernel + " representable component prevents false whole-drift stop", result.stepped == 0.01 and not result.get("resolution_limited", false) and b.pos.y == 0.01)
+	b = hole(1.0, 1e16)
+	result = step([b], 0.01, 0.01, kernel)
+	check(kernel + " stationary force-free body may advance time", result.stepped == 0.01 and not result.get("resolution_limited", false))
+	var moving := hole(1.0, 1e16)
+	moving.vel.x = 1.0
+	var resolved := hole(1e-100, 0.0)
+	resolved.vel.y = 1.0
+	var bodies: Array = [moving, resolved]
+	# This pair has a representable nonzero kick, even though the mover's position rounds away.
+	result = step(bodies, 0.01, 0.01, kernel)
+	check(kernel + " tiny accelerated kick is retained despite unresolved position", result.stepped == 0.01 and not result.get("resolution_limited", false) and resolved.vel.x > 0.0)
+
+func energy_scale_cases() -> void:
+	for fixture in [[900, -600, -300], [-900, 600, 300]]:
+		var b := hole(pow(2.0, fixture[0]))
+		b.vel.x = pow(2.0, fixture[1])
+		check("kinetic energy recovers extreme intermediate square %s" % str(fixture), near(Derive.total_energy([b]), 0.5 * pow(2.0, fixture[2])))
+	var b := hole(pow(2.0, 700.0))
+	b.vel.x = 3.0 * pow(2.0, -538.0)
+	check("subnormal velocity square does not distort representable energy", near(Derive.total_energy([b]), 4.5 * pow(2.0, -376.0)))
+	b = hole(3.0 * pow(2.0, -1074.0))
+	b.vel.x = pow(2.0, 500.0)
+	check("subnormal half-mass does not distort representable energy", near(Derive.total_energy([b]), 1.5 * pow(2.0, -74.0)))
+	for mass in [2.0, 3.0]:
+		b = hole(mass)
+		b.vel.x = pow(2.0, -537.0)
+		check("representable final subnormal energy rounds once m=%s" % mass, Derive.total_energy([b]) == (1.0 if mass == 2.0 else 2.0) * pow(2.0, -1074.0))
+	var uneven: Array = [hole(pow(2.0, -1074.0)), hole(pow(2.0, 1000.0), 1.0)]
+	check("subnormal weighted mass does not distort potential energy", near(Derive.total_energy(uneven), -Physics.G * pow(2.0, -74.0)))
+	for fixture in [[-600, -500, -700], [600, 700, 500]]:
+		var mass := pow(2.0, fixture[0])
+		var pair: Array = [hole(mass), hole(mass, pow(2.0, fixture[1]))]
+		check("potential energy recovers extreme intermediate product %s" % str(fixture), near(Derive.total_energy(pair), -Physics.G * pow(2.0, fixture[2])))
+	for exponent in [-600, 600]:
+		var scale := pow(2.0, exponent)
+		var pair: Array = [ordinary(1.0, 0.0, 0.0), ordinary(1.0, scale, 0.0)]
+		for particle: Body in pair: particle.softening = scale
+		check("softened distance rescales extreme square %s" % exponent, near(Derive.total_energy(pair), -Physics.G * pow(2.0, -exponent) / sqrt(2.0)))
+	b = hole(1.0)
+	b.vel.x = pow(2.0, -600.0)
+	check("unrepresentable nonzero kinetic energy is unavailable", is_nan(Derive.total_energy([b])))
+	check("unrepresentable nonzero potential energy is unavailable", is_nan(Derive.total_energy([hole(pow(2.0, -600.0)), hole(pow(2.0, -600.0), 1.0)])))
+	check("truly overflowing energy is unavailable", is_nan(Derive.total_energy([hole(1.0, 0.0, 1e200)])))
+	check("stationary isolated body has valid zero energy", Derive.total_energy([hole(1.0)]) == 0.0)
+	var a := ordinary(0.7, -0.4, 0.02, 0.13)
+	b = ordinary(1.3, 0.9, 0.03, -0.27)
+	a.vel.y = -0.9; b.vel.z = 0.4
+	var expected := 0.5 * a.mass * a.vel.length_sq() - Physics.G * a.mass * b.mass / sqrt(pow(a.pos.x - b.pos.x, 2.0) + Physics.pair_softening_sq(a, b)) + 0.5 * b.mass * b.vel.length_sq()
+	check("ordinary diagnostic preserves original arithmetic exactly", Derive.total_energy([a, b]) == expected)
+
 func contact_and_limits(kernel: String) -> void:
 	var bodies: Array = [hole(1.0), hole(1.0)]
 	var blocked_initial := snapshot(bodies)
@@ -244,8 +309,10 @@ func run() -> void:
 		quit(1)
 		return
 	tiny_forces()
+	energy_scale_cases()
 	for kernel in ["gd", "native"]:
 		request_cases(kernel)
+		lost_drift_cases(kernel)
 		contact_and_limits(kernel)
 		merger_prefix_cases(kernel)
 		merger_clock_case(kernel)

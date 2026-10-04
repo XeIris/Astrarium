@@ -39,6 +39,8 @@ func rejected_inputs() -> void:
 		{"type": "star", "mass": "one"},
 		{"type": "star", "mass": NAN},
 		{"type": "star", "mass": -1.0},
+		{"type": "planet", "mass": 1e-30},
+		{"type": "star", "mass": 1e-30},
 		{"type": "neutron", "spinHz": INF},
 		{"type": "planet", "spinFrac": "fast"},
 		{"type": "neutron", "radiusKm": "small"},
@@ -64,7 +66,7 @@ func rejected_inputs() -> void:
 	check("overflowing critical rate has an explicit numerical rejection reason", Structure.input_error(
 		stage._normalized_body_spec({"type": "neutron", "radiusKm": 1e200, "spinHz": 1.4})).contains("numerical range"))
 	var b: Body = stage.state.bodies[0]
-	for patch in [{"spinFrac": 1.01}, {"mass": "many"}, {"spinFrac": INF},
+	for patch in [{"spinFrac": 1.01}, {"mass": "many"}, {"mass": 1e-30}, {"spinFrac": INF},
 		{"pos": [NAN, 0.0, 0.0]}, {"vel": []}, {"softening": -1.0}, {"contactAU": INF}]:
 		check("raw edit rejects %s" % patch, stage.edit_body(b, patch) == null)
 		check("rejected edit keeps spec/mass/visuals/camera", snapshot() == original)
@@ -72,6 +74,10 @@ func rejected_inputs() -> void:
 	check("Foundry callback handles rejected spawn without following null", snapshot() == original)
 
 func supported_inputs() -> void:
+	stage.clear_bodies()
+	var minimum: Body = stage.spawn_body({"type": "planet", "mass": Structure.ORDINARY_MASS_MIN})
+	check("ordinary structure floor is an inclusive supported endpoint", minimum != null
+		and minimum.mass == Structure.ORDINARY_MASS_MIN and minimum.structure.mass == minimum.mass)
 	stage.clear_bodies()
 	var defaults: Body = stage.spawn_body({"type": "neutron"})
 	check("spawn validates neutron's actual default mass", defaults != null and defaults.mass == 1.4)

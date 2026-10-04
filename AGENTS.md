@@ -51,6 +51,9 @@ design.
   sit at the origin and nodes are placed at `abs.rel_v3(cam_pos)` (a floating
   origin), so world space is camera-relative. The isolated model studio uses
   its own camera convention. See [docs/godot.md](docs/godot.md).
+- Finite inputs do not guarantee resolved motion or diagnostics. Preserve accepted
+  time on numerical stops and show unavailable energy explicitly; see
+  [the numerical limits](docs/physics/numerics.md).
 
 ## What a body is
 

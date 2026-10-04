@@ -146,6 +146,16 @@ static int integrate(double *B, int n, double dt, Scratch *S) {
 		b[VZ] += (S[k].pz + S[k].az) * hd;
 	}
 	if (!finite_state(B, n)) { restore_step(B, n, S); return 0; }
+	for (int k = 0; k < n; k++) {
+		const double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		/* Accept no time when a force-free mover's entire drift disappears. */
+		if (S[k].px == 0.0 && S[k].py == 0.0 && S[k].pz == 0.0 && S[k].ax == 0.0 && S[k].ay == 0.0 && S[k].az == 0.0 &&
+			(S[k].old_vel[0] != 0.0 || S[k].old_vel[1] != 0.0 || S[k].old_vel[2] != 0.0) &&
+			b[PX] == S[k].old_pos[0] && b[PY] == S[k].old_pos[1] && b[PZ] == S[k].old_pos[2]) {
+			restore_step(B, n, S); return 0;
+		}
+	}
 	return 1;
 }
 

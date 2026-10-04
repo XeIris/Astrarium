@@ -173,6 +173,14 @@ static func integrate(bodies: Array, dt: float) -> bool:
 	if not finite_state(live):
 		restore_step(live)
 		return false
+	for b in live:
+		# A force-free mover must not spend accepted time with its entire drift lost.
+		if (b.a_prev.x == 0.0 and b.a_prev.y == 0.0 and b.a_prev.z == 0.0
+				and b.acc.x == 0.0 and b.acc.y == 0.0 and b.acc.z == 0.0
+				and (b.step_vel.x != 0.0 or b.step_vel.y != 0.0 or b.step_vel.z != 0.0)
+				and b.pos.x == b.step_pos.x and b.pos.y == b.step_pos.y and b.pos.z == b.step_pos.z):
+			restore_step(live)
+			return false
 	return true
 
 static var collision_limited := false

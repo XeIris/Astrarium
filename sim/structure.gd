@@ -413,6 +413,8 @@ static func input_error(spec: Dictionary) -> String:
 	var mass = spec.get("mass", 1.0)
 	if not _finite_number(mass) or float(mass) <= 0.0:
 		return "Mass must be a finite positive number."
+	if type != "bh" and float(mass) < ORDINARY_MASS_MIN:
+		return "Mass is below this ordinary-body structure model's 1e-12 M☉ range."
 	for field in ["pos", "vel"]:
 		var vector = spec.get(field)
 		if vector == null: continue
@@ -475,11 +477,13 @@ static func _finite_number(value) -> bool:
 	return (value is int or value is float) and is_finite(float(value))
 
 # `spec`: type, mass (M☉), spinFrac, phase, composition, Z, measured radius.
+const ORDINARY_MASS_MIN := 1e-12
+
 static func structure_of(spec: Dictionary) -> Dictionary:
 	var t = spec.get("type")
 	var type: String = t if (t != null and t != "") else "planet"
 	var mass := float(U.nz(spec.get("mass"), 1.0))
-	if type != "bh": mass = maxf(mass, 1e-12)
+	if type != "bh": mass = maxf(mass, ORDINARY_MASS_MIN)
 	var spin_frac := minf(maxf(float(U.nz(spec.get("spinFrac"), 0.0)), 0.0), 1.15)
 	match type:
 		"bh": return _hole_structure(spec, mass, spin_frac)

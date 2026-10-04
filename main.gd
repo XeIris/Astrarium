@@ -1500,10 +1500,25 @@ func update_sim_stats() -> void:
 		hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. Only the integrated time advances the clock, so the simulation is running slower than the requested rate. Reduce the time scale to give each frame less work; increasing Max step trades accuracy for speed." if capped else "")
 	# Body creation/removal changes the energy budget independently of integration.
 	var E := Derive.total_energy(state.bodies)
-	if state.energy0 == null or state.energy_n != state.bodies.size():
+	if not is_finite(E):
+		state.energy0 = null
+		state.energy_n = state.bodies.size()
+		hud.set_text("setDrift", "unavailable")
+		hud.set_warn("setDrift", true, "Energy cannot be represented reliably for these body inputs. The drift reference will restart when the diagnostic is available.")
+		return
+	if state.energy0 == null or not is_finite(float(state.energy0)) or state.energy_n != state.bodies.size():
 		state.energy0 = E
 		state.energy_n = state.bodies.size()
+	if float(state.energy0) == 0.0 and E != 0.0:
+		hud.set_text("setDrift", "unavailable")
+		hud.set_warn("setDrift", true, "Relative energy drift is undefined for a zero-energy reference.")
+		return
 	var rel := absf((E - float(state.energy0)) / float(state.energy0)) if state.energy0 else 0.0
+	if not is_finite(rel): rel = absf(E / float(state.energy0) - 1.0)
+	if not is_finite(rel):
+		hud.set_text("setDrift", "unavailable")
+		hud.set_warn("setDrift", true, "The relative energy change exceeds the diagnostic's numerical range.")
+		return
 	var approximate := state.gw_boost != 0.0
 	var drift := "0" if rel < 1e-12 else U.expo(rel, 1)
 	hud.set_text("setDrift", ("≈ " if approximate else "") + drift)
