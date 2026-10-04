@@ -12,9 +12,9 @@ rolls back; its elapsed time is not accepted. A stationary body may advance time
 An accelerated body can gain a resolved velocity before position changes become
 representable, so an unchanged position alone is insufficient to reject a step.
 
-`Derive.total_energy` retains ordinary operation order. Exceptional kinetic,
-potential and softened-distance intermediates are rescaled by binary powers to
-recover representable terms without introducing a physics cutoff. A genuinely
+`Derive.total_energy` retains ordinary operation order. Exceptional intermediates
+are rescaled to recover representable terms without a physics cutoff: energy
+products use binary powers, and softened distances use their largest magnitude. A genuinely
 unrepresentable positive term makes the diagnostic unavailable (`NAN`); singular
 potential remains `-INF`. This is strict term availability even when another term
 would dominate the sum. True zero energy remains valid. The HUD discards invalid

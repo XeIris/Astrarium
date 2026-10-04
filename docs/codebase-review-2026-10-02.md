@@ -1395,7 +1395,7 @@ remain supported. The original native binary fails the new drift/prefix probes,
 so these tests distinguish the defect from parity alone.
 
 Energy diagnostics preserve ordinary arithmetic exactly, rescaling exceptional
-kinetic/potential/softened-distance intermediates with binary powers. Analytic
+energy products with binary powers and softened distances by magnitude. Analytic
 fixtures recover representable terms after intermediate underflow/overflow and
 verify subnormal rounding. Truly unrepresentable positive terms report `NAN`,
 with visible unavailable/recovery behavior in the HUD. A zero-energy reference
@@ -1437,3 +1437,12 @@ splitting functions just to lower a file's line count adds maintenance work.
 The revised guidance records executable contracts and admits verification gaps.
 This review has fixed the demonstrated correctness defects; it has not certified
 every behavior, every device or every finite scientific input.
+
+The final committed code candidate `afbaacd` passes the clean clone/native rebuild,
+all 16 procedural/export children, isolated native startup and rendered exported
+boot: `/tmp/astrarium-review-final-clean/report.json` records `complete: true`
+and `rendered_boot: true`. The subsequent documentation-only closure records
+this evidence and updates the engineering notes; it changes no executable code.
+Independent final re-review of `afbaacd` found no blockers in diagnostic recovery,
+atomic input rejection or their regressions; it corrected the scaling description
+above and confirmed that external/numerical gaps remain explicit.

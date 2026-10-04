@@ -7,7 +7,7 @@ rules every change must follow are in the root [AGENTS.md](../AGENTS.md).
 
 ```
 main.gd        orchestrator: state, spawning, physics stepping, camera, UI bindings
-core/          DVec3, Body, SimState, VisualCtx, VisualOpts, U (helpers)
+core/          DVec3, Body, SimState, OrreryCamera, VisualCtx, VisualOpts, U (helpers)
 render/        pipeline.gd, postfx.gd, lens_pass.gd, rd_util.gd, hook_effect.gd
 sim/           one domain per file; sim/flight/ is spaceflight
 shaders/       common/ sky/ lens/ post/ bodies/ flight/ ui/
@@ -22,7 +22,8 @@ tools/         harness.gd, per-module harness scenes, checks
   static `create_foo()`: GDScript lambdas capture locals by value.
 - Plain data (presets, specs, lesson steps, flare events) is `Dictionary` with
   camelCase keys, since the course, Foundry and presets pass it around as data.
-  Use `spec.get("mass")` for optional keys.
+  Use `spec.get("mass")` for optional keys. Authored body, camera and sky requests
+  pass their shared schemas before stage mutation.
 
 ## GDScript traps
 
@@ -36,6 +37,7 @@ tools/         harness.gd, per-module harness scenes, checks
 | `smoothstep(a, b, x)` argument order | `U.smooth(x, a, b)` |
 | number formatting | `U.fixed(x, n)`, `U.expo(x, n)` |
 | `log10`, `cbrt` | `U.log10`, `U.cbrt` |
+| extreme decimal literals can parse as zero | binary powers such as `pow(2.0, -1030.0)` and runtime assertions for boundary fixtures |
 
 ## Double precision and the floating origin
 
@@ -44,7 +46,8 @@ tools/         harness.gd, per-module harness scenes, checks
 - Physics state is `DVec3` (three doubles). `sim/flight/` integrates in metres
   about a 6.4e6 m planet, where float32 quantises to 0.4 m, so it uses `DVec3`
   too.
-- Every camera sits at the origin (rotation only). Each frame the orchestrator
+- Orrery and flight cameras sit at the origin (rotation only). The isolated
+  model studio uses its own local camera distances. Each frame the orchestrator
   picks the camera's absolute position `cam_pos` and places every node at
   `abs.rel_v3(cam_pos)`, subtracting in double. World space is camera-relative:
   `CAMERA_POSITION_WORLD` ≈ 0, `MODEL_MATRIX[3].xyz` is the camera-relative
