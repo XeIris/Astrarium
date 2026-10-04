@@ -1,18 +1,8 @@
 class_name MassCurve
 extends CrossSection.BitmapCanvas
 
-# THE MASS–RADIUS CURVE: R(M) for the body's composition and spin, log–log, with the
-# body as a draggable handle. Both axes are logarithmic (ten decades of mass, eight
-# of radius), so R ∝ M^⅓, M^(−⅓) and M are straight lines and regime changes show as
-# kinks.
-#
-# The marks are sampled, not listed: structure_of() is called across the range and a
-# boundary is drawn wherever the type or verdict changes, so a new threshold in
-# sim/structure.gd appears on its own and marks move with spin. A region with no
-# equilibrium (radiusAU = 0, e.g. past Chandrasekhar) is a hatched dead zone.
-#
-# A canvas over a 330 × 152 bitmap scaled into the panel, drawing in bitmap pixels. A
-# Control that takes the press keeps the drag until release.
+# Hypothetical mass edits supply the curve; the canonical body supplies its handle.
+# Regime boundaries are sampled from Structure rather than copied thresholds.
 
 const N := 240                 # samples across the range
 const PAD_L := 34.0
@@ -39,6 +29,9 @@ var view := [-6.0, 1.0]
 var dead: Array = []                     # [lo, hi] spans with no equilibrium
 var focus := false                       # zoomed to the nearest boundary
 var _cache_key := ""
+var _draw_key := ""
+var _view_key := ""
+var _live_structure: Dictionary = {}
 var _down := false
 
 static func type_color(t) -> Color:
@@ -49,13 +42,6 @@ func _init(bg_col := HudTheme.CLEAR, border_col := HudTheme.CLEAR, w := 330.0, h
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_default_cursor_shape = Control.CURSOR_HSIZE
 
-## createMassCurve({ canvas, onPick }) — the canvas is this node; put it in the
-## page where the <canvas> went.
-static func create_mass_curve(opts: Dictionary = {}) -> MassCurve:
-	var c := MassCurve.new(opts.get("bg", HudTheme.CLEAR), opts.get("border", HudTheme.CLEAR))
-	if opts.has("on_pick"): c.on_pick = opts.on_pick
-	return c
-
 func _X(lm: float) -> float:
 	return PAD_L + (lm - view[0]) / (view[1] - view[0]) * (bw - PAD_L - PAD_R)
 
@@ -64,6 +50,9 @@ func _unX(px: float) -> float:
 
 static func _with_mass(s: Dictionary, m: float) -> Dictionary:
 	var o := s.duplicate()
+	# The curve predicts a mass edit, which replaces measured values with the model.
+	for field in Derive.MASS_EDIT_MEASUREMENTS:
+		o.erase(field)
 	o["mass"] = m
 	return o
 
@@ -108,9 +97,10 @@ static func radius_unit(max_au: float) -> Dictionary:
 	if max_au < 4e-3: return {"k": 1.0 / (6.371e6 / 1000.0 * Physics.AU_PER_KM), "name": "R⊕"}
 	return {"k": 1.0 / Physics.AU_PER_RSUN, "name": "R☉"}
 
-# --- sampling -------------------------------------------------------------
 func _resample() -> void:
-	var key := str([spec.get("type"), spec.get("spinFrac"), spec.get("composition"), spec.get("phase"), spec.get("Z"), view])
+	var inputs := _with_mass(spec, 0.0)
+	inputs.erase("mass")
+	var key := var_to_str([inputs, view])
 	if key == _cache_key:
 		return
 	_cache_key = key
@@ -147,7 +137,6 @@ func nearest_mark(lm: float):
 			d = dd; best = mk
 	return best
 
-# --- drawing --------------------------------------------------------------
 func _paint(ci: CanvasItem) -> void:
 	var W := bw; var H := bh
 	var plotH := H - PAD_T - PAD_B
@@ -161,6 +150,11 @@ func _paint(ci: CanvasItem) -> void:
 	var y0 := INF; var y1 := -INF
 	for s in live:
 		y0 = minf(y0, s.ly); y1 = maxf(y1, s.ly)
+	var handle_structure := _live_structure if not _live_structure.is_empty() else Structure.structure_of(spec)
+	var handle_radius := CrossSection.num(handle_structure.get("radiusAU"))
+	if handle_radius > 0.0:
+		# A measured body may sit beyond the modeled radii along its mass-edit curve.
+		y0 = minf(y0, U.log10(handle_radius)); y1 = maxf(y1, U.log10(handle_radius))
 	# A flat curve (a neutron star barely changes radius over its whole range)
 	# would otherwise be drawn with the noise amplified to fill the panel.
 	if y1 - y0 < 0.5:
@@ -170,7 +164,7 @@ func _paint(ci: CanvasItem) -> void:
 	y0 -= padY; y1 += padY
 	var Y := func(ly: float) -> float: return PAD_T + (1.0 - (ly - y0) / (y1 - y0)) * plotH
 
-	# --- decade grid. Log axes are only honest if the reader can see the
+	# decade grid. Log axes are only honest if the reader can see the
 	# decades, so both sets of gridlines are drawn at powers of ten.
 	var grid := Color8(140, 170, 210, 26)
 	var lab := Color8(150, 175, 210, 140)
@@ -191,18 +185,18 @@ func _paint(ci: CanvasItem) -> void:
 		if posmod(d, label_every) != 0: continue
 		CrossSection.fill_text(ci, fmt_mass_short(pow(10.0, d)), x, H - PAD_B + 4.0, 9, Color8(150, 175, 210, 115), "center", "top")
 
-	# --- dead zones: masses with no equilibrium at all
+	# dead zones: masses with no equilibrium at all
 	for ab in dead:
 		ci.draw_rect(Rect2(_X(ab[0]), PAD_T, maxf(_X(ab[1]) - _X(ab[0]), 1.5), plotH), Color8(255, 90, 90, 26))
 
-	# --- regime boundaries, drawn before the curve so the curve sits on top
+	# regime boundaries, drawn before the curve so the curve sits on top
 	for mk in marks:
 		var x := _X(mk.lm)
 		if x < PAD_L or x > W - PAD_R: continue
 		var c := Color8(255, 120, 120, 191) if mk.bad else Color8(150, 200, 255, 140)
 		CrossSection.stroke_line(ci, Vector2(x, PAD_T), Vector2(x, H - PAD_B), c, 1.0, [3.0, 3.0])
 
-	# --- the curve, coloured by what the object IS at that mass
+	# the curve, coloured by what the object IS at that mass
 	var run: Array = []
 	var flush := func(r: Array) -> void:
 		if r.size() < 2: return
@@ -219,7 +213,7 @@ func _paint(ci: CanvasItem) -> void:
 		run.append(s)
 	flush.call(run)
 
-	# --- boundary labels last, alternating two rows; a label that would still overlap
+	# boundary labels last, alternating two rows; a label that would still overlap
 	# is dropped.
 	var row_end := [-1e9, -1e9]
 	for mk in marks:
@@ -235,19 +229,17 @@ func _paint(ci: CanvasItem) -> void:
 		ci.draw_rect(Rect2(tx - 2.0, ty, w + 4.0, 11.0), Color8(8, 10, 16, 184))
 		CrossSection.fill_text(ci, txt, tx, ty + 1.0, 9, HudTheme.hexc(0xff9a9a) if mk.bad else HudTheme.hexc(0xa9cdf5), "left", "top")
 
-	# --- the handle: where this body sits on its own curve
-	var lm := U.log10(maxf(float(spec.mass), 1e-12))
+	# The measured live handle may differ from the hypothetical mass-edit curve.
+	var lm := U.log10(float(spec.mass))
 	if lm >= view[0] and lm <= view[1]:
-		var st := Structure.structure_of(_with_mass(spec, pow(10.0, lm)))
-		var r := CrossSection.num(st.get("radiusAU"))
 		var x := _X(lm)
 		CrossSection.stroke_line(ci, Vector2(x, PAD_T), Vector2(x, H - PAD_B), Color(1, 1, 1, 0.35), 1.0, [2.0, 3.0])
-		if r > 0.0:
-			var y: float = Y.call(U.log10(r))
+		if handle_radius > 0.0:
+			var y: float = Y.call(U.log10(handle_radius))
 			ci.draw_circle(Vector2(x, y), 4.5, Color.WHITE, true, -1.0, true)
-			ci.draw_arc(Vector2(x, y), 4.5, 0.0, TAU, 32, DEAD if _bad(st) else type_color(st.get("type")), 2.0, true)
+			ci.draw_arc(Vector2(x, y), 4.5, 0.0, TAU, 32, DEAD if _bad(handle_structure) else type_color(handle_structure.get("type")), 2.0, true)
 
-# --- interaction: dragging the handle is the same edit as the mass slider.
+# interaction: dragging the handle is the same edit as the mass slider.
 func _pick(p: Vector2) -> void:
 	var px := to_bitmap(p).x
 	var lm := minf(maxf(_unX(px), view[0]), view[1])
@@ -270,31 +262,39 @@ func is_dragging() -> bool:
 
 # spec: the body's current parameters (type, mass, spinFrac, composition…).
 # range: [log10 lo, log10 hi] of the type's full mass range.
-func draw_curve(new_spec: Dictionary, new_range = null) -> void:
-	spec = new_spec
-	if new_range != null: range_ = new_range
-	var lm := U.log10(maxf(float(spec.mass), 1e-12))
-	if focus:
+# live_structure: optional canonical model for the handle, including measured values.
+func draw_curve(new_spec: Dictionary, new_range = null, live_structure: Dictionary = {}) -> void:
+	var next_range = new_range if new_range != null else range_
+	var key := var_to_str([new_spec, next_range, focus])
+	var same_live := is_same(live_structure, _live_structure) or (live_structure.is_empty() and _live_structure.is_empty())
+	if key == _draw_key and same_live:
+		return
+	_draw_key = key
+	_live_structure = live_structure
+	spec = new_spec.duplicate(true)
+	range_ = next_range.duplicate()
+	var lm := U.log10(float(spec.mass))
+	var view_key := var_to_str([_with_mass(spec, float(spec.mass)), range_, focus])
+	if focus and view_key != _view_key:
 		# Zoomed: the nearest boundary and the body in one ±0.35 dex window.
-		_cache_key = ""                    # the window moves, so re-sample
 		view = [minf(lm, range_[0]), maxf(lm, range_[1])]
 		_resample()
 		var mk = nearest_mark(lm)
 		var c: float = (float(mk.lm) + lm) / 2.0 if mk != null else lm
 		var half := maxf(0.35, absf(float(mk.lm) - lm) * 0.75 + 0.2 if mk != null else 0.35)
 		view = [c - half, c + half]
-	else:
+	elif not focus:
 		view = [minf(range_[0], lm - 0.02), maxf(range_[1], lm + 0.02)]
+	_view_key = view_key
 	repaint()
 
 func set_focus(v: bool) -> void:
 	focus = v
-	_cache_key = ""
 
 # What the body is closest to becoming, for the caption. Needs draw_curve() first.
 func nearest(mass: float):
 	if spec != null: _resample()
-	var lm := U.log10(maxf(mass, 1e-12))
+	var lm := U.log10(mass)
 	var mk = nearest_mark(lm)
 	if mk == null: return null
 	return {"label": mk.label, "mass": pow(10.0, mk.lm), "above": float(mk.lm) < lm, "bad": mk.bad}

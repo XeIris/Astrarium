@@ -1,6 +1,8 @@
 class_name Derive
 extends RefCounted
 
+const MASS_EDIT_MEASUREMENTS := ["radiusSun", "teff", "luminosity", "radiusKm", "rs"]
+
 # BODY DERIVATION: what a spec implies, and the integrator loop. Pure (no meshes,
 # UI or camera); main.gd keeps the half that owns the scene. Values the orchestrator
 # holds in `state` are parameters here.

@@ -126,6 +126,25 @@ func _soak_check() -> void:
 		"true_scale": func():
 			stage.set_true_scale(true); for i in 5: stage.animate(1.0 / 60.0)
 			stage.set_true_scale(false); for i in 5: stage.animate(1.0 / 60.0),
+		"editor": func():
+			for spec in [{"type": "star", "mass": 1.0, "radiusSun": 100.0},
+				{"type": "neutron", "mass": 1.4}, {"type": "planet", "mass": 3e-6},
+				{"type": "bh", "mass": 1e-15}]:
+				stage.clear_bodies()
+				var body: Body = stage.spawn_body(spec)
+				state.focus_id = body.id
+				stage.open_cross_section()
+				stage.live_editor.curve.set_focus(true)
+				for spin in [0.1, 0.2]:
+					stage.edit_body(body, {"spinFrac": spin})
+					stage.show_cross_section(body)
+					stage.live_editor.sync(body)
+					await stage.get_tree().process_frame
+				stage.live_editor._last_apply = Time.get_ticks_msec()
+				stage.live_editor.queue({"spinFrac": 0.3})
+				stage.remove_body(body.id)
+				if stage.live_editor.pending != null or stage.live_editor.body != null:
+					failures.append("editor: removed body retained pending work"),
 		"paint": func():
 			var b: Body = stage.get_stars()[0] if not stage.get_stars().is_empty() else state.bodies[0]
 			state.focus_id = b.id

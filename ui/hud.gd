@@ -1085,7 +1085,7 @@ func _build_xsec_panel() -> void:
 	var box := frame(row, {"bg": Color(1, 1, 1, 0.02), "bc": T.BORDER, "bl": 0})
 	p.body.add_child(m(box, 0.0, 10.0))
 	reg("xsecEdit", box)
-	_note(ed, "Editing is the same operation as building — the object is re-derived and its limits rechecked immediately. The curve is R(M) for this body's own composition and spin; drag the handle along it. Dashed lines are where the model changes its mind about what this is.", 9.0)
+	_note(ed, "Editing recalculates the body and checks its structural limits. The point shows its current size; the curve predicts a mass edit, which replaces measured size, temperature and brightness with estimates. Dashed lines mark changes in type or structural support.", 9.0)
 	reg("liveEdit", stack(ed))
 	# the inspector builds its canvas, legend, verdict, facts and notes in here
 	reg("xsecCanvas", stack(p.body))

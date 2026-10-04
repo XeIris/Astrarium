@@ -469,13 +469,13 @@ class XsecCanvas extends BitmapCanvas:
 	func _init(w := 330.0, h := 260.0, bg_col := HudTheme.CLEAR, border_col := HudTheme.CLEAR) -> void:
 		super(w, h, bg_col, border_col)
 	func set_structure(structure: Dictionary, o: Dictionary = {}) -> void:
+		st = structure; opts = o
 		# the inspector re-shows the focused body ten times a second; a
 		# structure that has not changed needs no new bitmap
 		var sig := var_to_str([structure, o])
 		if sig == _sig:
 			return
 		_sig = sig
-		st = structure; opts = o
 		repaint()
 	func _paint(ci: CanvasItem) -> void:
 		CrossSection.draw_cross_section(ci, bw, bh, st, opts)

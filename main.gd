@@ -396,6 +396,10 @@ func remove_body(id) -> void:
 			break
 	if idx < 0: return
 	var b: Body = state.bodies[idx]
+	if live_editor != null and is_same(live_editor.body, b):
+		live_editor.sync(null)
+		open_cross_section(false)
+	b.alive = false
 	detach_visual(b)
 	if b.trail != null:
 		b.trail.node.queue_free()
@@ -486,7 +490,7 @@ func edit_body(b: Body, patch: Dictionary):
 	if patch.get("mass") != null:
 		# Measured beats modelled — but a measurement describes ONE star. Once you
 		# have changed its mass those numbers are no longer about this object.
-		for k in ["radiusSun", "teff", "luminosity", "radiusKm", "rs"]: spec.erase(k)
+		for k in Derive.MASS_EDIT_MEASUREMENTS: spec.erase(k)
 	var reason := Structure.input_error(spec)
 	if not reason.is_empty():
 		_reject_body_input(reason, b)
@@ -584,11 +588,10 @@ func recoil_camera(b: Body, blast_size: float) -> void:
 	if b.id != state.follow_id or state.cam_mode != "orbit": return
 	cam.radius_to = minf(maxf(cam.radius, blast_size * 2.4), 20000.0)
 
-# Called for any body whose mass has moved. Cheap — it only recomputes the
-# structure when the mass actually changed by more than a part in a thousand.
+# Every mass change can cross a hard structural threshold, even a small merger.
 func check_structural_limits(b: Body) -> void:
 	if not b.alive or b.type == "bh": return
-	if b.m_check != null and absf(b.mass - float(b.m_check)) < float(b.m_check) * 1e-3: return
+	if b.m_check != null and b.mass == float(b.m_check): return
 	b.m_check = b.mass
 	var st := refresh_structure(b)
 
@@ -1943,6 +1946,7 @@ func _on_foundry_spawn(spec: Dictionary, structure) -> void:
 		toast(String(structure.verdict.label) + " — " + String(structure.verdict.detail).substr(0, 120) + "…", 7000)
 
 func _on_live_edit(b: Body, patch: Dictionary) -> void:
+	if b == null or not is_same(state.body_by_id(b.id), b): return
 	edit_body(b, patch)
 	# The body may no longer be the object it was — a neutron star dragged past
 	# the TOV mass is now a black hole — so re-read whatever survived.
@@ -1964,7 +1968,7 @@ func run_pending_collapse() -> void:
 func show_cross_section(b: Body) -> void:
 	if inspector == null or b == null: return
 	hud.set_text("xsecName", "#%d %s" % [b.id, b.name])
-	inspector.show(refresh_structure(b), b.structure.get("label"))
+	inspector.show(b.structure, b.structure.get("label"))
 
 # Opening the cross-section is more than showing the panel: it has to be
 # pointed at a body and told to keep tracking it.

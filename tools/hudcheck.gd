@@ -9,7 +9,7 @@ extends Node
 #   Godot --path . --resolution 1280x720 res://tools/hudcheck.tscn -- \
 #         hstate=sandbox hout=/abs/x.png [hframes=45] [htest=1] [hperf=1]
 #
-# States: sandbox allopen allbottom foundry xsec closed settings_sky
+# States: sandbox allopen allbottom foundry xsec xsec_focus xsec_measured xsec_tiny closed settings_sky
 # settings_render settings_sim settings_precision settings_controls search zoo learn lesson_hr
 # lesson_photometer lesson_gw lesson_cutaway lesson_fig flight ascent model start
 # toast hidden. Args are h-prefixed: main.gd reads its own from the same line.
@@ -138,10 +138,22 @@ func _setup(s: String) -> void:
 			hud.set_section_open(hud.section("Object Foundry"), true)
 			await _steps(2)
 			_reveal(hud.mount("foundry"))
-		"xsec":
+		"xsec", "xsec_focus", "xsec_measured", "xsec_tiny":
 			await _start("sandbox")
-			main._stage_set_focus("Earth")
+			if s in ["xsec_measured", "xsec_tiny"]:
+				main.clear_bodies()
+				var spec := {"type": "star", "mass": 1.0, "radiusSun": 100.0, "name": "Measured radius"}
+				if s == "xsec_tiny": spec = {"type": "bh", "mass": 1e-15, "name": "Small black hole"}
+				var body: Body = main.spawn_body(spec)
+				main.state.focus_id = body.id
+				main.state.paused = true
+			else:
+				main._stage_set_focus("Earth")
 			main.open_cross_section(true)
+			if s != "xsec":
+				main.live_editor._toggle_focus()
+				await _steps(2)
+				_reveal(main.live_editor.curve)
 		"closed":
 			await _start("sandbox")
 			main.set_panel_open("scenarioPanel", false)

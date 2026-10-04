@@ -52,6 +52,8 @@ design.
   radius, shape, interior and stability. Every consumer reads `b.structure`.
   Call `refresh_structure(b)` whenever mass or spin changes, including after a
   merger. New thresholds go in `structure.gd`, never in a second place.
+  Consumers treat each published structure dictionary as immutable; inspection
+  reads it without deriving another. Even a small mass change can cross a limit.
 - Measured beats modelled: a spec with `radiusSun` / `teff` / `luminosity` /
   `radiusKm` (e.g. from `sim/starcat.gd`) overrides the evolutionary track. A
   measured `radiusKm` is also the contact distance.
@@ -156,6 +158,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - flight time/integration guards: `tools/flighttimecheck.gd` and the flight checks
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
+- inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without

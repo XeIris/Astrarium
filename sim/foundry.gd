@@ -1,16 +1,7 @@
 class_name Foundry
 extends RefCounted
 
-# THE OBJECT FOUNDRY: four inputs (mass, spin, composition, life burned) and
-# everything shown is what sim/structure.gd derives from them. No outcome is
-# scripted: a rocky planet's radius turns over near 300 M⊕; 13 M_J lights
-# deuterium and 0.075 M☉ hydrogen; stars pass the Eddington, pair-instability and
-# direct-collapse limits; a neutron star collapses at TOV (moved by spin); spin
-# flattens anything along the Roche sequence to R_eq/R_pol = 3/2; life burned walks
-# a star along its track to the onion.
-#
-# Built from HUD controls (ui/hud.gd's static builders). create_foundry,
-# create_inspector and create_live_editor each return a class instance.
+# The draft previews Structure; live views read the canonical body snapshot.
 
 const T = preload("res://ui/theme.gd")
 
@@ -195,7 +186,6 @@ class Notes extends HudStack:
 			var text := "[color=%s]%s[/color] — %s" % [name_col, Hud.esc(str(L.get("name", ""))), Hud.esc(str(L.get("note", "")))]
 			Hud.m(Hud.rich_in(self, text, {"fs": 9.0, "c": T.TEXT_DIM, "lh": 1.6}), 0.0, 5.0)
 
-# THE FOUNDRY
 ## createFoundry({ mount, onSpawn }). `on_spawn` is called with (spec, structure).
 static func create_foundry(opts: Dictionary) -> FoundryPanel:
 	return FoundryPanel.new(opts.get("mount"), opts.get("on_spawn", Callable()))
@@ -345,6 +335,8 @@ class Inspector extends RefCounted:
 	var facts_el: Facts
 	var verdict_el: Verdict
 	var notes_el: Notes
+	var _shown_structure: Dictionary = {}
+	var _shown_title = null
 
 	func _init(m: Control) -> void:
 		canvas = CrossSection.XsecCanvas.new(330.0, 260.0, T.rgba(0, 0, 0, 0.42), T.BORDER)
@@ -361,18 +353,19 @@ class Inspector extends RefCounted:
 	func show(st: Dictionary, title = null) -> void:
 		if st.is_empty():
 			return
-		canvas.set_structure(st, {"title": title if title != null else st.get("label")})
+		var heading = title if title != null else st.get("label")
+		# Derivation replaces the canonical dictionary after each physical edit.
+		if is_same(st, _shown_structure) and heading == _shown_title:
+			return
+		_shown_structure = st
+		_shown_title = heading
+		canvas.set_structure(st, {"title": heading})
 		facts_el.show_facts(CrossSection.structure_facts(st))
 		if st.get("verdict") is Dictionary:
 			verdict_el.show_verdict(st.verdict)
 		notes_el.show_notes(st.get("layers", []))
 
-# THE LIVE EDITOR: the same inputs, on the focused body. Each move hands a patch to
-# the orchestrator, which re-derives and rebuilds in place, so every threshold is
-# live.
-#   · The mass range widens to hold the body's actual value rather than snapping it.
-#   · Sliders re-read the body each refresh, except the
-#     one being dragged.
+# A trailing edit belongs to the body instance that received the input.
 static func create_live_editor(opts: Dictionary) -> LiveEditor:
 	return LiveEditor.new(opts.get("mount"), opts.get("on_edit", Callable()))
 
@@ -386,7 +379,6 @@ class LiveEditor extends RefCounted:
 	var rows: ControlRows
 	var body = null           # the body being edited
 	var dragging := ""        # id of the control currently under the pointer
-	var last_id = null        # which body the controls are currently showing
 	var pending = null        # patch coalesced between applies
 	var _timer: SceneTreeTimer = null
 	var _last_apply := -1000000
@@ -397,6 +389,7 @@ class LiveEditor extends RefCounted:
 		# The graph is a second view of the mass, not a second number: dragging its
 		# handle emits exactly the patch the mass slider emits.
 		curve = MassCurve.new(T.rgba(0, 0, 0, 0.42), T.BORDER)
+		curve.tooltip_text = "The point shows the body as it is. The curve predicts a mass edit. Changing mass replaces measured size, temperature and brightness with model estimates."
 		curve.on_pick = _on_pick
 		curve.gui_input.connect(_on_curve_input)
 		mount.add_child(curve)
@@ -465,6 +458,13 @@ class LiveEditor extends RefCounted:
 			_timer = mount.get_tree().create_timer(wait / 1000.0, true, false, true)
 			_timer.timeout.connect(_flush)
 
+	func _cancel_pending() -> void:
+		pending = null
+		if _timer != null:
+			if _timer.timeout.is_connected(_flush):
+				_timer.timeout.disconnect(_flush)
+			_timer = null
+
 	func readouts() -> void:
 		var mm := pow(10.0, rows.mass.value)
 		rows.mass_val.text = Foundry.mass_label(mm)
@@ -483,22 +483,22 @@ class LiveEditor extends RefCounted:
 
 	func reject_edit(b: Body) -> void:
 		dragging = ""
-		pending = null
+		_cancel_pending()
 		sync(b)
 
 	# Push the body's current state into the controls. Called on attach and on every
 	# panel refresh; skips whatever the user has hold of.
 	func sync(b) -> void:
-		# Switching bodies always loads the new body's values.
-		if b != null and b.id != last_id:
-			last_id = b.id
+		# A delayed patch belongs to its object, even when a preset reuses its id.
+		if not is_same(b, body):
+			_cancel_pending()
 			dragging = ""
 		body = b
 		if b == null:
 			return
 		var type: String = b.type
 		var rg := Foundry.range_for(type)
-		var lm := U.log10(maxf(b.mass, 1e-12))
+		var lm := U.log10(b.mass)
 		var el := rows.mass
 		el.min_value = minf(rg[0], lm - 0.01)
 		el.max_value = maxf(rg[1], lm + 0.01)
@@ -523,11 +523,13 @@ class LiveEditor extends RefCounted:
 
 	# Re-read live mass after edits and physical events.
 	func _draw_curve(b) -> void:
-		curve.draw_curve({
-			"type": "planet" if b.type == "world" else b.type,
-			"mass": b.mass, "spinFrac": b.spin_frac,
-			"composition": b.composition, "phase": b.phase, "Z": U.nz(b.Z, 0.014),
-		}, Foundry.range_for(b.type))
+		var s: Dictionary = b.spec.duplicate()
+		s.merge({
+			"type": "planet" if b.type == "world" else b.type, "mass": b.mass,
+			"spinFrac": b.spin_frac, "composition": b.composition,
+			"phase": b.phase, "Z": U.nz(b.Z, 0.014),
+		}, true)
+		curve.draw_curve(s, Foundry.range_for(b.type), b.structure)
 		var near = curve.nearest(b.mass)
 		var t := "no threshold in range"
 		if near != null:

@@ -50,7 +50,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R12 | P2 | Partial: height/datum parity | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
 | R13 | P3 | Partial: touched owners | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
 | R14 | P2 | Profiling backlog | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Measure launch/studio GPU cost; preserve close detail while distant geometry and genuinely closed surfaces avoid unnecessary work. |
-| R15 | P2 | Profiling backlog | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
+| R15 | P2 | Partial: measured inspector/curve invalidation, batch 12 | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
 | R16 | P3 | Profiling backlog | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | CPU/render-thread profile establishes material cost before changing lifetime or cache ownership. |
 | R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
 | R18 | P3 | Backlog | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
@@ -66,6 +66,8 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R28 | P1 | Open: long-run scenario failure | The flagship Trisolaris world breaches its declared extent before 60,000 years despite small energy drift; the observed failure time changes with numerical stepping. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep failures visible until resolved. |
 | R29 | P2 | Verified: bounded display model, batch 9 | Neutron self-lensing used an analytic approximation outside its stated domain, while lessons called it exact ray tracing and comments understated visible area. | Bound the display parameter without changing physics; document approximation/stylization, correct claims and inspect affected views. |
 | R30 | P2 | Partial: cutoffs and unsafe arithmetic fixed | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose spatial increments or underflow diagnostics. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
+| R31 | P1 | Verified: batch 12 | A structural mass memo ignores changes below 0.1%, suppressing a Chandrasekhar event after a small merger. | A real small contact merger crossing the threshold detonates during the production frame; exact event checks cannot use a mass tolerance. |
+| R32 | P1 | Verified: batch 12 | Trailing live edits can move to a different selected body, including reused IDs, or rebuild visuals on a removed body. | Cancel pending work on instance changes/removal/rejection; stale callbacks require exact scene membership; asynchronous regression and lifecycle checks pass. |
 
 ## Evidence at the reviewed revision
 
@@ -1115,3 +1117,60 @@ also passes **231/231** production input/clock assertions in
 five-round lifecycle evidence are in `/tmp/astrarium-b11-visual`; post-warmup
 objects/resources/nodes/orphans remain flat at **6390/137/1619/0** (spawn/remove),
 **6789/137/1720/0** (mass edits), **6809/137/1720/0** (true scale).
+
+
+### Batch 12: measured editor work and safe edit ownership
+
+R15 profiling against `828c5e9` identified a specific avoidable cost: unchanged focused graph
+refreshes sampled 240 structures over the broad range, then another 240 over
+the focused range, at every 10 Hz refresh. Local warmed headless CPU fixtures
+(five batches, Godot 4.7.2, Apple M5) measured **5.85–7.70 ms** per unchanged
+focused refresh. Input/view invalidation reduces that fixture to **16–19 µs**;
+unchanged inspector formatting falls from **41–61 µs** to about **0.25 µs**.
+Full-range unchanged sync adds roughly **4–6 µs** of snapshot/serialization
+work, and genuinely changed spin still costs **3.1–4.1 ms** to resample. These
+measurements exclude GPU work, drawing/layout and input-to-display latency;
+they are not frame-rate promises. Visual factory construction/disposal was
+measured separately, but visual rebuild/interaction spikes remain **R15 partial**.
+Final baselines, fixture commands, all five batches and limitations are retained
+in `/tmp/astrarium-b12-profile/REPORT.md` and `profile-final-{head,fixed}.log`.
+
+The inspector now consumes the canonical body structure. Equal-valued replacement
+dictionaries update canvas ownership while retaining the no-redraw optimization.
+The curve retains one sampled result and skips unchanged view work; it snapshots
+its inputs and includes physical `spinHz`. Hypothetical mass edits share the
+production measurement-removal list. The live handle uses the canonical measured
+radius, and the axes include it even when it lies outside the hypothetical curve.
+Valid tiny black-hole masses remain their actual value in controls and the graph.
+The explanation distinguishes current measurements from mass-edit estimates.
+Touched introductions/banner comments and an unused port-era graph factory
+wrapper were removed; no second threshold or structure schema was introduced.
+
+Two correctness defects found while profiling are fixed. **R31:** a white dwarf
+at **1.439999 M☉** absorbing **3e-6 M☉** crosses Chandrasekhar, yet the old 0.1%
+memo skipped the event. The clean pre-fix probe exits **1**; exact mass comparison
+now allows the production frame to detonate it. **R32:** switching targets during
+a trailing edit moved a queued mass change to the next body. The isolated HEAD
+fixture fails **2/4** assertions with the second body's mass changed from 2 to
+1.2; the corrected fixture passes **4/4**. Pending edits now belong to body
+instances, are cancelled on switches/rejection/removal, and stale stage callbacks
+must still match exact scene membership. Removed bodies are marked inactive,
+preventing orphan visual reconstruction. Negative logs are retained under
+`/tmp/astrarium-b12-profile`.
+
+The strict production editor harness passes **83/83** assertions across measured
+radius/frequency edits, equal-valued snapshots, sample predictions, mergers,
+collapse/reclassification, tiny bodies, timer cancellation, removal and reused
+IDs. All seven fast/native and ten rendered children pass in the integrated and
+reviewed runs: `/tmp/astrarium-b12-integrated/report.json` and
+`/tmp/astrarium-b12-reviewed/report.json`. The final tiny-body assertions and
+HUD explanation are additionally checked under `/tmp/astrarium-b12`; the course
+remains **35 lessons / 108 steps / 0 errors**, with **54/0** HUD interactions.
+Focused, measured-radius and tiny-body screenshots are inspected there.
+
+Five-round post-warmup objects/resources/nodes/orphans are exactly flat:
+**6390/137/1619/0** (spawn/remove), **6789/137/1720/0** (mass edits),
+**6809/137/1720/0** (true scale), and **6340/136/1593/0** for the new editor soak,
+which opens focused graphs, edits multiple body types and cancels a pending edit
+on removal. No physics kernel or authored Trisolaris configuration changed;
+**R28 remains open** at the batch-11 failed baseline.
