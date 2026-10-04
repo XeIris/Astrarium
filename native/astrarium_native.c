@@ -15,6 +15,7 @@
  * handle_merger (which changes horizons and types and removes bodies) and call
  * again with what remains. */
 #include <math.h>
+#include <float.h>
 #include <stdlib.h>
 #include <string.h>
 #include "gdextension_interface.h"
@@ -38,11 +39,29 @@ typedef struct { double ax, ay, az, px, py, pz, old_pos[3], old_vel[3]; } Scratc
 
 static double distance_xyz(double x, double y, double z) {
 	double squared = x * x + y * y + z * z;
-	if (isfinite(squared) && squared > 0.0) return sqrt(squared);
+	if (isfinite(squared) && squared >= DBL_MIN) return sqrt(squared);
 	double scale = jmax(fabs(x), jmax(fabs(y), fabs(z)));
 	if (scale == 0.0 || !isfinite(scale)) return scale;
 	x /= scale; y /= scale; z /= scale;
 	return scale * sqrt(x * x + y * y + z * z);
+}
+
+static double scaled_acceleration(double mass, double dist, double softened) {
+	double factors[] = {G, mass, dist, softened, softened, softened};
+	double mantissa = 1.0;
+	int exponent = 0;
+	for (int i = 0; i < 6; i++) {
+		if (!isfinite(factors[i]) || factors[i] <= 0.0) return NAN;
+		int shift;
+		double value = frexp(factors[i], &shift) * 2.0;
+		shift--;
+		if (i < 3) { mantissa *= value; exponent += shift; }
+		else { mantissa /= value; exponent -= shift; }
+	}
+	while (mantissa < 1.0) { mantissa *= 2.0; exponent--; }
+	while (mantissa >= 2.0) { mantissa *= 0.5; exponent++; }
+	double result = scalbn(mantissa, exponent);
+	return isfinite(result) ? result : NAN;
 }
 
 static int finite_state(const double *B, int n) {
@@ -76,18 +95,33 @@ static int compute_accel(double *B, int n, Scratch *S) {
 			if (dist == 0.0) continue;
 			if (!isfinite(dist)) return 0;
 			double inv = 1.0 / dist;
-			rx *= inv; ry *= inv; rz *= inv;          /* unit vector a→b */
-			double kernel;
+			double kernel, denominator, sa = 0.0, sb = 0.0;
 			if (a[ISBH] != 0.0 || b[ISBH] != 0.0) {
 				/* Weak-field point masses; horizons determine contact only. */
-				kernel = G / (dist * dist);
+				denominator = dist * dist;
+				kernel = G / denominator;
 			} else {
-				double sa = jor(a[SOFT], a[RADIUS] * 0.5 + 1e-4);
-				double sb = jor(b[SOFT], b[RADIUS] * 0.5 + 1e-4);
+				sa = jor(a[SOFT], a[RADIUS] * 0.5 + 1e-4);
+				sb = jor(b[SOFT], b[RADIUS] * 0.5 + 1e-4);
 				double d2 = dist * dist + 0.5 * (sa * sa + sb * sb);
-				kernel = G * dist / (d2 * sqrt(d2));
+				denominator = d2 * sqrt(d2);
+				kernel = G * dist / denominator;
 			}
 			double fA = kernel * b[MASS], fB = kernel * a[MASS];
+			if (!isfinite(fA) || !isfinite(fB) || fA == 0.0 || fB == 0.0 || (kernel > 0.0 && kernel < DBL_MIN) || denominator < DBL_MIN || !isfinite(inv)) {
+				double softened = dist;
+				if (a[ISBH] == 0.0 && b[ISBH] == 0.0) {
+					double scale = jmax(dist, jmax(fabs(sa), fabs(sb)));
+					double r = dist / scale, s1 = sa / scale, s2 = sb / scale;
+					softened = scale * sqrt(r * r + 0.5 * (s1 * s1 + s2 * s2));
+				}
+				fA = scaled_acceleration(b[MASS], dist, softened);
+				fB = scaled_acceleration(a[MASS], dist, softened);
+				if (!isfinite(fA) || !isfinite(fB)) return 0;
+				rx /= dist; ry /= dist; rz /= dist;
+			} else {
+				rx *= inv; ry *= inv; rz *= inv;          /* unit vector a→b */
+			}
 			S[i].ax += rx * fA; S[i].ay += ry * fA; S[i].az += rz * fA;
 			S[j].ax += rx * -fB; S[j].ay += ry * -fB; S[j].az += rz * -fB;
 		}

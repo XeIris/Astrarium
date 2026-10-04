@@ -8,6 +8,7 @@ const G := 4.0 * PI * PI                # 39.478 AU³ M☉⁻¹ yr⁻²
 const C := 63241.077                    # speed of light, AU/yr
 const AU_PER_RSUN := 0.00465047         # solar radius in AU
 const AU_PER_KM := 6.68459e-9
+static var DOUBLE_MIN_NORMAL := pow(2.0, -1022.0)
 
 ## Schwarzschild radius (AU) for a given mass in M☉.
 static func schwarzschild(mass_sun: float) -> float:
@@ -54,16 +55,28 @@ static func compute_accel(bodies: Array) -> bool:
 			if dist == 0.0: continue
 			if not is_finite(dist): return false
 			var inv := 1.0 / dist
-			rx *= inv; ry *= inv; rz *= inv           # unit vector a→b
 			var kernel: float
+			var denominator: float
 			if a.type == "bh" or b.type == "bh":
 				# Weak-field point masses; horizons set contact, not a binary force law.
-				kernel = G / (dist * dist)
+				denominator = dist * dist
+				kernel = G / denominator
 			else:
 				var d2 := dist * dist + pair_softening_sq(a, b)
-				kernel = G * dist / (d2 * sqrt(d2))
+				denominator = d2 * sqrt(d2)
+				kernel = G * dist / denominator
 			var fA := kernel * b.mass
 			var fB := kernel * a.mass
+			if not is_finite(fA) or not is_finite(fB) or fA == 0.0 or fB == 0.0 or (kernel > 0.0 and kernel < DOUBLE_MIN_NORMAL) or denominator < DOUBLE_MIN_NORMAL or not is_finite(inv):
+				var softened := dist
+				if a.type != "bh" and b.type != "bh":
+					softened = _softened_distance(dist, a, b)
+				fA = _scaled_acceleration(b.mass, dist, softened)
+				fB = _scaled_acceleration(a.mass, dist, softened)
+				if not is_finite(fA) or not is_finite(fB): return false
+				rx /= dist; ry /= dist; rz /= dist
+			else:
+				rx *= inv; ry *= inv; rz *= inv           # unit vector a→b
 			a.acc.x += rx * fA; a.acc.y += ry * fA; a.acc.z += rz * fA
 			b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
 
@@ -74,11 +87,39 @@ static func compute_accel(bodies: Array) -> bool:
 # Keep ordinary rounding; scale only when the squared norm over/underflows.
 static func distance_xyz(x: float, y: float, z: float) -> float:
 	var squared := x * x + y * y + z * z
-	if is_finite(squared) and squared > 0.0: return sqrt(squared)
+	if is_finite(squared) and squared >= DOUBLE_MIN_NORMAL: return sqrt(squared)
 	var scale := maxf(absf(x), maxf(absf(y), absf(z)))
 	if scale == 0.0 or not is_finite(scale): return scale
 	x /= scale; y /= scale; z /= scale
 	return scale * sqrt(x * x + y * y + z * z)
+
+static func _softened_distance(dist: float, a: Body, b: Body) -> float:
+	var sa := a.softening if a.softening != 0.0 else a.radius * 0.5 + 1e-4
+	var sb := b.softening if b.softening != 0.0 else b.radius * 0.5 + 1e-4
+	var scale := maxf(dist, maxf(absf(sa), absf(sb)))
+	if not is_finite(scale): return NAN
+	return scale * sqrt(pow(dist / scale, 2.0) + 0.5 * (pow(sa / scale, 2.0) + pow(sb / scale, 2.0)))
+
+# Recover G·mass·distance/softened³ without overflowing an intermediate power.
+static func _scaled_acceleration(mass: float, dist: float, softened: float) -> float:
+	var mantissa := 1.0
+	var exponent := 0
+	var factors := [G, mass, dist, softened, softened, softened]
+	for i in factors.size():
+		var value: float = factors[i]
+		if not is_finite(value) or value <= 0.0: return NAN
+		var shift := clampi(int(floor(log(value) / log(2.0))), -1022, 1023)
+		value /= pow(2.0, shift)
+		while value < 1.0: value *= 2.0; shift -= 1
+		while value >= 2.0: value *= 0.5; shift += 1
+		if i < 3: mantissa *= value; exponent += shift
+		else: mantissa /= value; exponent -= shift
+	while mantissa < 1.0: mantissa *= 2.0; exponent -= 1
+	while mantissa >= 2.0: mantissa *= 0.5; exponent += 1
+	if exponent > 1023: return NAN
+	if exponent < -1075: return 0.0
+	var value := mantissa * pow(2.0, exponent) if exponent >= -1022 else (mantissa * pow(2.0, exponent + 1022)) * DOUBLE_MIN_NORMAL
+	return value if is_finite(value) else NAN
 
 static func finite_state(bodies: Array) -> bool:
 	for b in bodies:

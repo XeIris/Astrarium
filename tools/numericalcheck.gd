@@ -175,6 +175,51 @@ func energy_scale_cases() -> void:
 	var expected := 0.5 * a.mass * a.vel.length_sq() - Physics.G * a.mass * b.mass / sqrt(pow(a.pos.x - b.pos.x, 2.0) + Physics.pair_softening_sq(a, b)) + 0.5 * b.mass * b.vel.length_sq()
 	check("ordinary diagnostic preserves original arithmetic exactly", Derive.total_energy([a, b]) == expected)
 
+func force_scale_cases(kernel: String) -> void:
+	for fixture in [[600.0, 200.0, false], [400.0, 0.0, true], [635.0, 200.0, false]]:
+		var distance_exp: float = fixture[0]
+		var mass_exp: float = fixture[1]
+		var softened: bool = fixture[2]
+		var r := pow(2.0, distance_exp)
+		var mass := pow(2.0, mass_exp)
+		var a := ordinary(mass, 0.0, 1e-10) if softened else hole(mass)
+		var b := ordinary(mass, r, 1e-10) if softened else hole(mass, r)
+		if softened: a.softening = r; b.softening = r
+		var bodies: Array = [a, b]
+		var expected := Physics.G * pow(2.0, mass_exp - 2.0 * distance_exp)
+		if softened: expected /= 2.0 * sqrt(2.0)
+		var label := kernel + " scaled force " + str(fixture)
+		check(label + " structural mass domain", Structure.input_error({"type": a.type, "mass": mass}).is_empty())
+		check(label + " independent finite acceleration", Physics.compute_accel(bodies) and expected > 0.0 and near(a.acc.x, expected) and a.acc.x == -b.acc.x)
+		var result := step(bodies, 1.0, 1.0, kernel)
+		check(label + " accepts tiny resolved kick", result.stepped == 1.0 and result.steps == 1 and not result.get("resolution_limited", false) and near(a.vel.x, expected) and a.vel.x == -b.vel.x)
+	for fixture in [[-174.0, 300.0], [-30.0, 340.0]]:
+		var r := pow(2.0, fixture[0])
+		var mass := pow(2.0, 200.0)
+		var softening := pow(2.0, fixture[1])
+		var a := ordinary(mass, 0.0, 1e-80)
+		var b := ordinary(mass, r, 1e-80)
+		a.softening = softening; b.softening = softening
+		var expected := Physics.G * pow(2.0, 200.0 + fixture[0] - 3.0 * fixture[1])
+		var label := kernel + " subnormal kernel restored by mass " + str(fixture)
+		check(label + " structural request", Structure.input_error({"type": a.type, "mass": mass, "softening": softening, "radiusKm": 1e-80}).is_empty())
+		check(label + " independent acceleration", Physics.compute_accel([a, b]) and near(a.acc.x, expected) and a.acc.x == -b.acc.x)
+		if fixture[0] == -30.0:
+			var dt := pow(2.0, -160.0)
+			var result := step([a, b], dt, dt, kernel)
+			check(label + " resolved integrated kick", result.steps == 1 and result.stepped == dt and not result.get("resolution_limited", false) and near(a.vel.x, expected * dt) and a.vel.x == -b.vel.x)
+	var tiny := 3.0 * pow(2.0, -538.0)
+	check(kernel + " subnormal squared norm retains exact axis distance", Physics.distance_xyz(tiny, 0.0, 0.0) == tiny)
+	var far: Array = [hole(1.0), hole(1.0, pow(2.0, 600.0))]
+	var result := step(far, 1.0, 1.0, kernel)
+	check(kernel + " genuinely sub-ULP force may round to zero", result.stepped == 1.0 and result.steps == 1 and not result.get("resolution_limited", false) and far[0].vel.x == 0.0 and far[1].vel.x == 0.0)
+	var a := ordinary(0.7, -0.4, 0.02)
+	var b := ordinary(1.3, 0.9, 0.03)
+	var distance := b.pos.x - a.pos.x
+	var d2 := distance * distance + Physics.pair_softening_sq(a, b)
+	var expected := (distance * (1.0 / distance)) * ((Physics.G * distance / (d2 * sqrt(d2))) * b.mass)
+	check(kernel + " ordinary force arithmetic remains bit exact", Physics.compute_accel([a, b]) and a.acc.x == expected)
+
 func contact_and_limits(kernel: String) -> void:
 	var bodies: Array = [hole(1.0), hole(1.0)]
 	var blocked_initial := snapshot(bodies)
@@ -200,7 +245,8 @@ func contact_and_limits(kernel: String) -> void:
 	result = step([b], 5.0, 1.0, kernel)
 	check(kernel + " later overflow retains accepted time", result.stepped == 3.0 and result.steps == 3 and result.get("resolution_limited", false))
 	check(kernel + " later overflow restores last accepted state", near(b.pos.x, 1.6e308) and b.vel.x == 2e307)
-	bodies = [hole(1e-210, 0.0), hole(1e-210, 1e-200)]
+	bodies = [ordinary(1e-12, 0.0, 1e-220), ordinary(1e-12, 1e-200, 1e-220)]
+	for particle: Body in bodies: particle.softening = 1e-220
 	initial = snapshot(bodies)
 	result = step(bodies, 1e-8, 1e-8, kernel)
 	check(kernel + " nonzero underflow-scale separation does not merge", bodies.size() == 2 and bodies[0].alive and bodies[1].alive)
@@ -313,6 +359,7 @@ func run() -> void:
 	for kernel in ["gd", "native"]:
 		request_cases(kernel)
 		lost_drift_cases(kernel)
+		force_scale_cases(kernel)
 		contact_and_limits(kernel)
 		merger_prefix_cases(kernel)
 		merger_clock_case(kernel)

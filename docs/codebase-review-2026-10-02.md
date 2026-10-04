@@ -65,7 +65,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R27 | P1 | Verified bounded Newtonian/illustrative model | Several presets inflate black-hole horizons or multiply reaction forces, contradicting the physical-unit guidance. | Mass-consistent horizons and justified force/time mapping; explicitly separate and label any retained demonstration approximation, with independent checks. |
 | R28 | P1 | Verified: bounded survival, batch 14 | The original flagship Trisolaris world breaches its declared extent before 60,000 years despite small energy drift; the observed failure time changes with numerical stepping. | Reproducible long-run gate, timestep/convergence and initial-condition sensitivity study; supported scenario behavior and lesson claims agree. Keep original failed controls visible. |
 | R29 | P2 | Verified: bounded display model, batch 9 | Neutron self-lensing used an analytic approximation outside its stated domain, while lessons called it exact ray tracing and comments understated visible area. | Bound the display parameter without changing physics; document approximation/stylization, correct claims and inspect affected views. |
-| R30 | P2 | Partial: targeted precision/domain guards verified | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose individual spatial/force components. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
+| R30 | P2 | Verified bounded binary64 contract, batch 19 | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose individual spatial/force components. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
 | R31 | P1 | Verified: batch 12 | A structural mass memo ignores changes below 0.1%, suppressing a Chandrasekhar event after a small merger. | A real small contact merger crossing the threshold detonates during the production frame; exact event checks cannot use a mass tolerance. |
 | R32 | P1 | Verified: batch 12 | Trailing live edits can move to a different selected body, including reused IDs, or rebuild visuals on a removed body. | Cancel pending work on instance changes/removal/rejection; stale callbacks require exact scene membership; asynchronous regression and lifecycle checks pass. |
 | R33 | P2 | Verified: batch 13 | Accepted position, velocity and name edits change the spec but leave live state unchanged; manual force/potential edits contaminate the drift reference. | Explicit vector/name edits reach live state atomically, ordinary edits preserve integrated coordinates, teleports restart trails, and energy-changing edits rebase diagnostics. |
@@ -1580,3 +1580,43 @@ The final pose baseline includes the craft root as well as every descendant;
 samples, zero failures and the same primitive counts.
 Its near timing deltas change sign across cycles (−0.042 / +0.044 ms), further
 limiting any general GPU-speedup interpretation; both measured runs are retained.
+
+
+### Batch 19: recovered force intermediates and actual platform proof
+
+Both kernels retain the ordinary force expression order and use binary exponent
+scaling only for zero/nonfinite or subnormal kernels/denominators. Supported
+black-hole mass `2^200` at distance `2^600` previously produced zero acceleration
+although `G·2^-1000` is representable. A softened ordinary pair at `2^400` had the
+same defect. Magnitude-scaled norms also avoid inaccurate subnormal squared
+lengths. Independent review found a third case: a nonzero subnormal kernel,
+subsequently multiplied by a large mass, left the normal acceleration **1.2% low**.
+That kernel now enters the same recovery branch.
+
+The rebuilt native and GDScript implementations pass **190 numerical checks**,
+**274 invariants**, and nine-preset parity at unchanged `1e-13` absolute / `1e-11`
+relative tolerances. Strict Trisolaris survival completes **60,000 years**, with
+maximum relative energy drift `5.195438e-8`. Evidence is retained under
+`tools/evidence/batch19/numerics-final/` and `invariants.log`.
+R30 closes within the [binary64 contract](physics/numerics.md): this establishes
+recoverable force arithmetic and independent convergence, not universal finite-input
+safety. Final force underflow may round to zero; individual direction/drift
+components, accelerated kicks and cancellation remain explicit precision limits.
+No arbitrary tiny-kick rejection or softened physical law was added.
+
+[Actual CI](https://github.com/XeIris/Astrarium/actions/runs/37183785382) passed at
+`d3e76559efebf6836f2f6802528c00b6655d9061` on Windows Server 2022 AMD64,
+Ubuntu and macOS. Every platform completed all **16 clean children**, including
+**64/64 save checks**, native invariants/parity, numerical boundaries, 279-entry
+export validation and isolated native/resource startup. This closes the earlier
+actual-Windows publication gap for that tested source; newer changes need their
+own remote evidence. Pinned engine archives now require their official SHA256
+before ZIP extraction. R20 remains partial until final-revision CI and the
+selected **M5 / Metal / 3024×1964 / 30 FPS** rendered gate are verified.
+
+The first native-pixel scenario gate passes nine cases but rejects lensing:
+**19.85 mean FPS**, **50.443 ms p95**, against a predeclared **33.333 ms** frame
+budget. Solar/editor cases sustain about 36.7–37.1 FPS; flight about 32.7 FPS.
+The full-resolution scene targets are 3024×1964; the notch-safe fullscreen HUD
+window is 3024×1898. This failed baseline is retained in
+`tools/evidence/batch19/m5-budget-native/`; it is not a passing device guarantee.
