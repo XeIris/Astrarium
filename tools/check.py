@@ -111,6 +111,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "perf":
         yield scene("perfcheck", r"^PERFCHECK DONE cases=10 failures=0$", f"report={output / 'render-profile.json'}")
+        abba = scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
+        yield ("studio-abba", *abba[1:])
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         for _ in range(repeat):
             for native in ("0", "1"):
@@ -196,7 +198,9 @@ def main():
               "platform": platform.platform(), "machine": platform.machine(), "processor": platform.processor(),
               "godot": metadata([options.godot, "--version"]), "commit": metadata(["git", "rev-parse", "HEAD"]),
               "working_tree": metadata(["git", "status", "--short"]), "suites": options.suites,
-              "performance": ({"resolution": "1280x720", "craft_models": "procedural (asserted by each harness)",
+              "performance": ({"resolution": "1280x720", "rendered_craft": "authored Saturn V/Falcon 9 (required)",
+                               "cpu_flight_craft": "procedural (asserted by each harness)",
+                               "studio_abba": "frozen stage; two ABBA cycles per distance; distinct model viewport timestamp batches",
                                "shared_time": "fixed 1/60s steps; CPU animate timing; native=0 and required native=1",
                                "hud": "fixed 1/60s frames; wall time across rendered frames; vsync disabled",
                                "repetitions": options.repeat, "limitations": "local baseline; GPU availability recorded separately, no portable budget gate"}

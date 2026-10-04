@@ -49,7 +49,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R11 | P2 | Verified: batch 2 | Lesson directives may silently disappear; missing asset parts may silently stop moving. | Authored lesson keys and asset stage/part contracts validated; deliberate typo/part-removal probes fail. |
 | R12 | P2 | Verified shared physical metadata and bounded parity | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
 | R13 | P3 | Verified broad cleanup, batch 15 | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
-| R14 | P2 | Partial: LOD verified; provisional Vulkan GPU profile | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Repeat controlled GPU comparisons and classify closed meshes before changing culling; default Metal timing APIs remain unavailable. |
+| R14 | P2 | Resolved/bounded: normal LOD, winding and authored culling verified | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Controlled GPU comparisons support normal LOD; shared open shells retain interiors. Further surface splits need measured benefit. Device budgets remain R20. |
 | R15 | P2 | Verified bounded invalidation; spikes remain measurable | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
 | R16 | P3 | Partial: uniform cache verified; unsafe/ineffective array caches rejected | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | Rendered allocation/lifetime evidence must justify any different packing ownership. |
 | R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
@@ -1506,3 +1506,77 @@ Python parsing and whitespace checks pass. Independent re-review confirms the
 unit conversion, phase guards, completion marker and evidence limits; no blockers
 remain in this batch. Logs/reports are `/tmp/astrarium-b17-{gpu-guarded,
 metal-guarded,metal-strict,headless-negative,import}.*`.
+
+### Batch 18: outward winding, import authority and controlled LOD evidence
+
+The R14 surface audit found actual geometry defects hidden by double-sided
+materials: lathed apex fans disagreed with their surrounding edges, and fin and
+torus faces pointed inward. These three primitive builders now wind outward.
+The native Blender gate tests both shared-edge consistency and independent
+analytic exterior normals; closed but globally inverted geometry must fail.
+It rejects the original source with **358 failures** and passes five corrected
+fixtures, including unchanged box/capped-tube controls. `build.sh` runs it before
+publishing any model. All **14 authored craft/site/facility builds** complete.
+
+Runtime asset preparation now preserves authored glTF culling instead of forcing
+every material double-sided. Regression probes cover both single- and
+double-sided materials and prove Lambert preparation still runs. Existing shared
+palettes retain double-sided rendering because material-joined surfaces combine
+open shells and closed pieces. No automatic closed-mesh culling or extra material
+buckets are introduced. Scoped guidance now requires consistent outward winding,
+visible interiors and measured benefit; the unsupported comment claiming culling
+could save nothing is removed.
+
+Verification also exposed stale import evidence: a changed source GLB could still
+load its previous Godot import. The build refreshes imports after all publications
+when Godot is present, and explicitly requests manual import otherwise. Exploratory
+checks before that refresh are discarded. The refreshed asset/procedural report
+passes all **15 children**, including **18 parity poses** at the unchanged 2 cm
+tolerance, **364 authored / 352 procedural asset checks**, audits, clearance and
+launchpads. Evidence: `/tmp/astrarium-b18-assets-final/report.json`.
+
+The opt-in studio profiler now uses two ABBA cycles per distance. It freezes and
+checks time, camera and craft pose across all eight blocks at each distance;
+only LOD bias changes. Model viewport start/end timestamps and distinct frame
+IDs come from one acknowledged render-thread batch. Every block needs exactly
+180 distinct samples within bounded attempts. Screenshots occur after collection,
+outside timings, with main-thread acknowledgement. Invalid spans, state changes,
+mixed GPU availability or a 240-second timeout fail explicitly. The runner keeps
+authored rendered models separate from procedural CPU-flight metadata.
+
+Fresh-import Vulkan evidence passes **16 blocks × 180 distinct samples**, zero
+failures, and no backend diagnostics: `/tmp/astrarium-b18-abba-verified.json`.
+Normal LOD reduces near primitives from **22,851 to 9,575**, and distant primitives
+from **15,893 to 7,051**. Across the two ABBA cycles, normal LOD's near model GPU
+times are **0.013–0.035 ms higher**, while distant times are **0.007–0.008 ms
+lower**. This does not establish a broad GPU speedup. Default Metal passes the
+16-block path with 30 distinct samples per block and explicit unavailable GPU
+timing. Near LOD renders and the rebuilt Hail Mary before/after views were
+inspected. [The measurement notes](performance.md#controlled-lod-comparison-after-winding-repair)
+retain the paired values and interpretation.
+
+R14 closes within this measured scope: ordinary LOD, outward primitive winding,
+authored culling authority and mixed-shell defaults are verified. A further
+surface split needs evidence that its cost and visual risk are worthwhile.
+Three findings remain partial: R16's rendered material/allocation cost, R20's
+Windows/remote CI/device budgets, and R30's broader component/intermediate
+representability limits. This batch changes authored geometry and preparation,
+not flight dynamics or orrery integration.
+
+Lifecycle verification passes all three children in
+`/tmp/astrarium-b18-lifecycle/report.json`: five-round feature soak, leak checks
+and resource shutdown. Counts remain flat after warm-up, including
+**6393/138/1619/0** for spawn/remove, **6792/138/1720/0** for mass edits and
+**6812/138/1720/0** for true scale (object/resource/node/orphan order).
+
+The ordinary ten-case profiler still passes. Headless ABBA rejects before sampling;
+Metal ABBA with `require_gpu=1` exits nonzero with exactly 16 unavailable-timing
+failures. The runner's updated completion patterns match the successful ten- and
+sixteen-case logs exactly once. Godot import, Python parsing, shell syntax and
+whitespace checks pass. Independent re-review confirms the winding corrections,
+material regression probes, post-export import order and measurement limits.
+The final pose baseline includes the craft root as well as every descendant;
+`/tmp/astrarium-b18-abba-root-guard.json` repeats all 16 blocks with 180 distinct
+samples, zero failures and the same primitive counts.
+Its near timing deltas change sign across cycles (−0.042 / +0.044 ms), further
+limiting any general GPU-speedup interpretation; both measured runs are retained.

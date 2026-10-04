@@ -1,17 +1,5 @@
-# BLENDER BUILD LIBRARY — the primitives the Hail Mary is assembled from.
-# Everything here generates a mesh from numbers rather than from a click, for
-# the same reason the rest of this repo does: a shape you can re-derive is a
-# shape you can argue with. The script is the model; the .glb is a build
-# artifact.
-#
-# CONVENTIONS
-#   · Blender is Z-UP and the glTF exporter converts to the Y-up that Godot
-#     expects, so the ship is built with its THRUST AXIS ALONG +Z and its nose
-#     toward +Z. After conversion that is +Y, which is what vessel.gd thrusts
-#     along (BODY_FWD) and what build_craft stacks along.
-#   · z = 0 is the DRIVE EXIT PLANE, because y = 0 on a craft is whatever the
-#     vehicle stands on and this one stands on its own exhaust.
-#   · Metres. Blender's default unit, and the sim's.
+# Authoring primitives in metres, stack axis +Z. Export converts to Godot Y-up.
+# Datum, winding and material ownership: model_sources/blender/AGENTS.md.
 import bpy, bmesh, math
 from math import cos, sin, pi, hypot
 from mathutils import Vector, Quaternion
@@ -29,18 +17,8 @@ def reset_scene():
 
 def material(name, base, rough=0.6, metal=0.05, emit=None, emit_strength=1.0,
              alpha=1.0):
-    """
-    A Principled BSDF that survives the trip through glTF.
-
-    METALNESS IS DELIBERATELY LOW, for exactly the reason the procedural
-    materials keep it low: nothing in this renderer sets `scene.environment`,
-    local space is lit by punctual lights only, and a PBR metal is entirely
-    reflection with no diffuse term — so at metalness 0.8 it renders BLACK.
-    Until there is an environment to sample, the base colour carries it.
-
-    Backface culling is left OFF, which the exporter writes as doubleSided.
-    Most of this vehicle is open shells — lathed reflectors, aft skirts, an
-    interstage — and a single-sided shell has no inner wall.
+    """Shared palettes include open shells that need visible interiors.
+    Low metalness preserves diffuse colour where environment reflections are absent.
     """
     m = bpy.data.materials.new(name)
     m.use_nodes = True
@@ -97,10 +75,10 @@ def revolve(name, profile, mat, seg=64, parent=None, close=False):
         k1, i1 = rings[i + 1]
         if k0 == 'apex' and k1 == 'ring':
             for j in range(seg):
-                faces.append((i0, i1 + j, i1 + (j + 1) % seg))
+                faces.append((i0, i1 + (j + 1) % seg, i1 + j))
         elif k0 == 'ring' and k1 == 'apex':
             for j in range(seg):
-                faces.append((i0 + j, i1, i0 + (j + 1) % seg))
+                faces.append((i0 + j, i0 + (j + 1) % seg, i1))
         elif k0 == 'ring' and k1 == 'ring':
             for j in range(seg):
                 j2 = (j + 1) % seg
@@ -184,7 +162,7 @@ def ring_on(path_pt, tangent, r, tube_r, mat, name, seg=32, minor=10, parent=Non
         i2 = (i + 1) % seg
         for j in range(minor):
             j2 = (j + 1) % minor
-            faces.append((i * minor + j, i * minor + j2, i2 * minor + j2, i2 * minor + j))
+            faces.append((i * minor + j, i2 * minor + j, i2 * minor + j2, i * minor + j2))
     return _obj(name, verts, faces, mat, parent)
 
 
@@ -210,11 +188,11 @@ def fin(name, profile, angle, out, thick, mat, parent=None, r_pad=0.01):
     for i in range(n - 1):
         a0, b0 = i * 4, (i + 1) * 4
         # 0,1 inner pair  2,3 outer pair
-        faces += [(a0 + 0, a0 + 2, b0 + 2, b0 + 0),      # +t face
-                  (a0 + 3, a0 + 1, b0 + 1, b0 + 3),      # -t face
-                  (a0 + 2, a0 + 3, b0 + 3, b0 + 2),      # outer edge
-                  (a0 + 1, a0 + 0, b0 + 0, b0 + 1)]      # inner edge
-    faces += [(0, 1, 3, 2), ((n - 1) * 4 + 2, (n - 1) * 4 + 3, (n - 1) * 4 + 1, (n - 1) * 4 + 0)]
+        faces += [(a0 + 0, b0 + 0, b0 + 2, a0 + 2),      # +t face
+                  (a0 + 3, b0 + 3, b0 + 1, a0 + 1),      # -t face
+                  (a0 + 2, b0 + 2, b0 + 3, a0 + 3),      # outer edge
+                  (a0 + 1, b0 + 1, b0 + 0, a0 + 0)]      # inner edge
+    faces += [(0, 2, 3, 1), ((n - 1) * 4 + 2, (n - 1) * 4 + 0, (n - 1) * 4 + 1, (n - 1) * 4 + 3)]
     return _obj(name, verts, faces, mat, parent)
 
 

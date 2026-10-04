@@ -11,6 +11,102 @@ var report := ""
 var samples := 180
 var require_gpu := false
 var gpu_available := true
+var studio_abba := false
+signal model_sample(data: Dictionary)
+signal studio_capture_done
+
+# Match the viewport span and frame ID in one completed render-thread batch.
+func capture_model(rid: RID) -> void:
+	var dev := RDU.rd()
+	if dev == null:
+		call_deferred("acknowledge_model", {"frame": -1, "valid": false})
+		return
+	var begin := -1
+	var end := -1
+	for i in dev.get_captured_timestamps_count():
+		var name := dev.get_captured_timestamp_name(i)
+		if name == "vp_begin_%d" % rid.get_id(): begin = i
+		elif name == "vp_end_%d" % rid.get_id(): end = i
+	var data := {"frame": dev.get_captured_timestamps_frame(), "valid": begin >= 0 and end > begin}
+	if data.valid:
+		data["cpu_ms"] = float(dev.get_captured_timestamp_cpu_time(end) - dev.get_captured_timestamp_cpu_time(begin)) / 1000.0
+		data["gpu_ms"] = float(dev.get_captured_timestamp_gpu_time(end) - dev.get_captured_timestamp_gpu_time(begin)) / 1000000.0
+	call_deferred("acknowledge_model", data)
+
+func acknowledge_model(data: Dictionary) -> void:
+	model_sample.emit(data)
+
+func stable_studio(baseline: Dictionary) -> bool:
+	return stage.state.time == baseline.time and stage.model_view.camera.transform == baseline.camera \
+		and not baseline.pose.keys().any(func(node: Node3D): return node.transform != baseline.pose[node])
+
+func measure_studio_block(label: String, bias: float, baseline: Dictionary) -> void:
+	meshes(stage.model_view.craft.group, bias)
+	for i in 90:
+		stage.animate(0.0)
+		await RenderingServer.frame_post_draw
+	var cpu := []
+	var gpu := []
+	var frames := []
+	var rid: RID = stage.pipe.model_vp.get_viewport_rid()
+	if not stable_studio(baseline): failures += 1
+	for attempt in samples * 2:
+		stage.animate(0.0)
+		await RenderingServer.frame_post_draw
+		RenderingServer.call_on_render_thread(capture_model.bind(rid))
+		var data: Dictionary = await model_sample
+		if not data.valid or (not frames.is_empty() and data.frame <= frames.back()): continue
+		cpu.append(data.cpu_ms); gpu.append(data.gpu_ms); frames.append(data.frame)
+		if frames.size() == samples: break
+	if frames.size() != samples or not stable_studio(baseline) \
+			or not cpu.all(func(value: float): return is_finite(value) and value >= 0.0):
+		failures += 1
+	var available := not gpu.is_empty() and gpu.all(func(value: float): return is_finite(value) and value > 0.0)
+	if not available:
+		gpu_available = false
+		if gpu.any(func(value: float): return value != 0.0): failures += 1
+		if require_gpu: failures += 1
+		print("PERFCHECK GPU unavailable: ", label)
+	var row := {"case": label, "lod_bias": bias, "distance": stage.model_view.cam.dist,
+		"model_cpu_ms": summary(cpu), "model_gpu_ms": summary(gpu), "distinct_frames": frames.size(),
+		"first_frame": frames.front() if not frames.is_empty() else -1, "last_frame": frames.back() if not frames.is_empty() else -1,
+		"primitives": RenderingServer.viewport_get_render_info(rid, RenderingServer.VIEWPORT_RENDER_INFO_TYPE_VISIBLE, RenderingServer.VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME)}
+	results.append(row)
+	print("PERFCHECK METRIC ", JSON.stringify(row))
+
+func capture_studio(label: String) -> void:
+	stage.pipe.capture_next(func(img: Image):
+		call_deferred("save_studio_capture", img, label))
+	stage.animate(0.0)
+	await studio_capture_done
+
+func save_studio_capture(img: Image, label: String) -> void:
+	if img == null or img.is_empty() or img.save_png(report.get_basename() + "-" + label + ".png") != OK: failures += 1
+	studio_capture_done.emit()
+
+func measure_studio_abba() -> void:
+	stage.state.paused = true
+	CraftAssets.craft_models_ready(["saturnv"])
+	stage.show_model("saturnv")
+	if not stage.model_view.craft.authored: failures += 1
+	stage.model_view.cam.spin = 0.0
+	stage.model_view.cam.held = true
+	for i in 90:
+		stage.animate(1.0 / 60.0)
+		await RenderingServer.frame_post_draw
+	for distance in [1.95, 30.0]:
+		stage.model_view.cam.dist = distance
+		stage.animate(0.0)
+		await RenderingServer.frame_post_draw
+		var baseline := {"time": stage.state.time, "camera": stage.model_view.camera.transform, "pose": {}}
+		baseline.pose[stage.model_view.craft.group] = stage.model_view.craft.group.transform
+		for node: Node3D in stage.model_view.craft.group.find_children("*", "Node3D", true, false): baseline.pose[node] = node.transform
+		for cycle in 2:
+			for block in 4:
+				var bias := 128.0 if block == 0 or block == 3 else 1.0
+				var label := "studio-%s-cycle-%d-block-%d" % [distance, cycle, block]
+				await measure_studio_block(label, bias, baseline)
+				if cycle == 0 and block < 2 and not report.is_empty(): await capture_studio(label)
 
 func summary(values: Array) -> Dictionary:
 	if values.is_empty(): return {}
@@ -96,14 +192,18 @@ func _ready() -> void:
 		elif arg == "require_gpu=1": require_gpu = true
 		elif arg == "uniform_cache=0": RDU.cache_uniforms = false
 		elif arg.begins_with("samples="): samples = int(arg.trim_prefix("samples="))
+		elif arg == "studio_abba=1": studio_abba = true
 		else: failures += 1
 	if samples < 30 or (not report.is_empty() and not report.is_absolute_path()) or DisplayServer.get_name() == "headless":
 		printerr("PERFCHECK requires graphical rendering, >=30 samples and an absolute report path")
 		get_tree().quit(1)
 		return
 	OS.add_logger(logger)
+	get_tree().create_timer(240.0).timeout.connect(func():
+		printerr("PERFCHECK timed out before completion")
+		get_tree().quit(1))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
-	RDU.profiling = true
+	RDU.profiling = not studio_abba
 	stage = load("res://main.tscn").instantiate()
 	add_child(stage)
 	await get_tree().process_frame
@@ -114,6 +214,11 @@ func _ready() -> void:
 	stage.pipe.set_view_size(Vector2i(1280, 720))
 	for vp in [get_viewport(), stage.pipe.hook_vp, stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp]:
 		RenderingServer.viewport_set_measure_render_time(vp.get_viewport_rid(), true)
+	if studio_abba:
+		await measure_studio_abba()
+		await get_tree().process_frame
+		finish_report()
+		return
 	stage.load_preset("solar")
 	stage.state.paused = true
 	await measure("solar")
@@ -150,6 +255,9 @@ func _ready() -> void:
 		if stage.flight.vessel.phase != "ascent": failures += 1
 		await measure("flight-ascent")
 	await get_tree().process_frame
+	finish_report()
+
+func finish_report() -> void:
 	var profiles := {}
 	for label in compute:
 		profiles[label] = {}
@@ -160,6 +268,7 @@ func _ready() -> void:
 		failures += errors.size()
 		for error in errors: printerr("PERFCHECK ENGINE ", error)
 	var data := {"godot": Engine.get_version_info(), "device": RenderingServer.get_video_adapter_name(),
+		"profile": "studio_abba" if studio_abba else "scenarios",
 		"driver": RenderingServer.get_current_rendering_driver_name(), "method": RenderingServer.get_current_rendering_method(),
 		"resolution": [1280, 720], "render_scale": 1.0, "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
 	if not report.is_empty():

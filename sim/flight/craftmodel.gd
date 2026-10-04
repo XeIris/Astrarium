@@ -40,9 +40,8 @@ static func _n(v, d := 0.0) -> float:
 # MATERIALS
 static var MAT := {}
 
-## MeshStandardMaterial → StandardMaterial3D with Lambert diffuse and Schlick-GGX
-## specular. Every craft material is double-sided: bells, skirts and interstages are
-## open shells, and culling saves nothing measurable at ~16 k triangles.
+## Lambert diffuse and Schlick-GGX specular. Shared fallback materials include
+## open bells, skirts and interstages whose interiors must remain visible.
 static func _mat(name: String, color: int, rough: float, metal: float,
 		emissive := -1, emissive_intensity := 1.0) -> StandardMaterial3D:
 	if MAT.has(name):

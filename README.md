@@ -149,10 +149,15 @@ the illustrative tight-pair drag have separate limits described in
 
 `python3 tools/check.py perf --repeat 3` records rendered scenario/editor/LOD
 measurements (including authored launchpad/ascent), fixed-step CPU flight timings
-and HUD shown/hidden timings.
+and HUD shown/hidden timings. It also runs a frozen studio LOD comparison with
+two ABBA cycles at each distance and distinct model-viewport timestamp batches.
 See [the measurement contract and local results](docs/performance.md). Missing
 GPU timestamps are reported as unavailable; these measurements are not portable
 performance budgets.
+
+Authored builds run a Blender primitive-winding check before publishing models,
+then refresh Godot imports when the engine is available. This prevents checks
+from measuring an older imported mesh after the source GLB changes.
 
 `python3 tools/check.py clean` requires a committed clean working tree, clones it
 without local import caches/generated models, builds the native kernel, checks

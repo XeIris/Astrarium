@@ -97,11 +97,17 @@ The asset check exercises stowed/deployed poses and rejects malformed rigs.
 
 ## Materials and export
 
-- Craft materials are double-sided (bells, skirts and interstages are open
-  shells) and low-metalness: reflections are unavailable in some quality modes
-  and environments.
+- Shared materials remain double-sided where bells, skirts or interstages need
+  visible interiors. Closed geometry must have consistent outward winding before
+  considering culling; material-joined meshes can contain both kinds. Preserve
+  authored glTF culling at import and measure before splitting material buckets.
+  Keep metalness low: reflections are unavailable in some quality modes.
 - Emitters are lit by themselves at HDR values; a hex emissive that looks right
   is nearly black after ACES.
 - Meshes are joined by material within each node before export (the Hail Mary
   goes from 612 draw calls to 34), never across nodes, or moving parts weld to
   the body. Bevels are baked in the same pass.
+- `build.sh` runs `primitivecheck.py` before building. It checks shared-edge
+  winding and analytic exterior normals; watertightness alone is insufficient.
+  The build refreshes Godot imports after publication when the engine is present;
+  otherwise import manually before checking the generated models.

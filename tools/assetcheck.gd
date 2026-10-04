@@ -7,6 +7,19 @@ func expect(ok: bool, message: String) -> void:
 	checks += 1
 	if not ok: failures.append(message)
 
+func material_probes() -> void:
+	for culling in [BaseMaterial3D.CULL_BACK, BaseMaterial3D.CULL_DISABLED]:
+		var node := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		var material := StandardMaterial3D.new()
+		material.cull_mode = culling
+		mesh.material = material
+		node.mesh = mesh
+		CraftAssets._prepare(node)
+		expect(material.cull_mode == culling, "authored culling overwritten")
+		expect(material.diffuse_mode == BaseMaterial3D.DIFFUSE_LAMBERT, "authored diffuse preparation skipped")
+		node.free()
+
 func part_errors(craft, vehicle: Dictionary) -> Array:
 	var errors := []
 	for st in craft.stages:
@@ -130,6 +143,7 @@ func run() -> void:
 			pivot.remove_meta("gimbal_deg")
 			expect(not part_errors(craft, vehicle).is_empty(), "missing swing metadata accepted")
 		craft.group.free()
+	material_probes()
 	if authored: scene_probes()
 	CraftAssets.clear()
 	for error in failures: printerr("ASSETCHECK FAIL ", error)

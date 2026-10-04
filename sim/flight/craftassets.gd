@@ -153,8 +153,6 @@ static func _prepare(root: Node) -> void:
 			for s in mesh.get_surface_count():
 				var m := mesh.surface_get_material(s) as BaseMaterial3D
 				if m == null: continue
-				# Double-sided: most of the set is open shells.
-				m.cull_mode = BaseMaterial3D.CULL_DISABLED
 				# The craft material is Lambert + GGX; Godot's
 				# importer leaves Burley diffuse, which is not.
 				m.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT

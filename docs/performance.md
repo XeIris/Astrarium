@@ -12,6 +12,21 @@ Flight rows record phase, elapsed mission seconds and altitude; prelaunch,
 landed and destroyed phases cannot pass the ascent case. Reports identify the actual
 rendering driver and method, including command-line overrides.
 
+`studio_abba=1` instead compares only Saturn V LOD bias 128 / 1, with two ABBA
+cycles at each of the two distances (16 blocks). After articulation settles,
+simulation time, camera and every craft-node pose are held fixed and checked
+against one baseline per distance. Each block warms for 90 frames and collects
+180 distinct completed timestamp batches, with at most twice that many attempts.
+Its primary metric is the model viewport's matched start/end timestamps from
+the same acknowledged render-thread batch, excluding the HUD and compositor.
+This uses the pinned engine's [viewport markers](https://github.com/godotengine/godot/blob/4.7.2-stable/servers/rendering/renderer_viewport.cpp#L310-L313)
+and [completed timestamp frame identity](https://docs.godotengine.org/en/stable/classes/class_renderingdevice.html#class-renderingdevice-method-get-captured-timestamps-frame).
+It is not a same-frame CPU/GPU latency measurement. Missing spans, insufficient
+distinct frames, mixed zero/nonzero GPU times, changed state and timeout fail.
+All-zero GPU timing is reported as unavailable and fails with `require_gpu=1`.
+Four composited screenshots are saved outside sampling, beside the report with
+its filename prefix. The suite runner includes this comparison separately.
+
 Run with `report=/absolute/profile.json`. `samples=90` is a shorter probe;
 `uniform_cache=0` compares transient uniform sets. `require_gpu=1` makes missing
 GPU measurements a failure. Without that flag, unsupported GPU timing is
@@ -108,6 +123,41 @@ packing remains. This is headless material-cache/submission evidence, not a
 rendered lifetime or whole-frame allocation budget. Reproduction and normalized
 stacks are listed in `/tmp/astrarium-sun-allocation-findings.md`; compact results
 are in `/tmp/astrarium-sun-allocation-comparison.json`.
+
+## Controlled LOD comparison after winding repair
+
+Freshly imported authored meshes, Godot 4.7.2 Vulkan/Forward+, M5, 1280×720,
+180 distinct timestamp batches per block. Each value below averages the two
+block medians for that bias in one ABBA cycle; frames within a block are not
+independent experiment repetitions.
+
+| Distance / cycle | Bias 128 GPU | Bias 1 GPU | Bias 1 minus 128 | Primitives 128 / 1 |
+|---|---:|---:|---:|---:|
+| Near / 0 | 0.267 ms | 0.302 ms | +0.035 ms | 22,851 / 9,575 |
+| Near / 1 | 0.289 ms | 0.302 ms | +0.013 ms | 22,851 / 9,575 |
+| Distant / 0 | 0.220 ms | 0.212 ms | −0.008 ms | 15,893 / 7,051 |
+| Distant / 1 | 0.188 ms | 0.181 ms | −0.007 ms | 15,893 / 7,051 |
+
+All 16 blocks pass with nonzero GPU timing and no backend diagnostics in this
+run. Evidence: `/tmp/astrarium-b18-abba-verified.json` and its adjacent raw log.
+The final guard also includes the craft root's transform and passes another
+16×180-sample run in `/tmp/astrarium-b18-abba-root-guard.json`.
+That rerun's near deltas are −0.042 / +0.044 ms across its two cycles, while
+distant deltas are −0.043 / −0.026 ms. Even the near comparison changes sign;
+these few cycles do not establish a statistically reliable speedup.
+The older pre-import exploratory report is discarded. Normal LOD reduces
+geometry; near timing is slightly worse and distant savings are tiny on this
+device. These results support retaining ordinary LOD and do not justify another
+material split or blanket culling change. Near captures and the rebuilt Hail Mary
+before/after renders were inspected. Winding repair also changes bevel-generated
+geometry, so earlier primitive counts are historical, not the current baseline.
+
+Closed topology alone does not establish culling safety. The Blender primitive
+gate rejects inconsistent cap winding and inward fins/tori, including closed
+surfaces with no boundary edges. Exported surfaces often combine closed solids
+with open shells under one material. Runtime import now preserves authored
+culling; the shared open-shell palettes retain visible interiors. A later split
+needs component-wise outward orientation, visual checks and measured benefit.
 
 Portable budgets require named hardware, renderer, quality, asset mode and frame
 conditions. The CI headless checks establish correctness/export contracts, not

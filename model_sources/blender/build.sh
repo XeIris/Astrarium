@@ -50,12 +50,12 @@ ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle pad
 if [ "$#" -gt 0 ]; then MODELS=("$@"); else MODELS=("${ALL[@]}"); fi
 craft_spec="$(mktemp "${TMPDIR:-/tmp}/astrarium-craft-spec.XXXXXX")"
 trap 'rm -f "$craft_spec"' EXIT
+GODOT="${GODOT:-$(command -v godot || true)}"
+if [ -z "$GODOT" ] && [ -x /Applications/Godot.app/Contents/MacOS/Godot ]; then
+  GODOT=/Applications/Godot.app/Contents/MacOS/Godot
+fi
 for m in "${MODELS[@]}"; do
   if [[ "$m" != pad_* && "$m" != facilities ]]; then
-    GODOT="${GODOT:-$(command -v godot || true)}"
-    if [ -z "$GODOT" ] && [ -x /Applications/Godot.app/Contents/MacOS/Godot ]; then
-      GODOT=/Applications/Godot.app/Contents/MacOS/Godot
-    fi
     [ -n "$GODOT" ] || { echo "error: set GODOT to export runtime vehicle dimensions" >&2; exit 1; }
     "$GODOT" --headless --path . --import --quit
     "$GODOT" --headless --path . --script res://tools/craftspec.gd -- "$craft_spec"
@@ -63,6 +63,7 @@ for m in "${MODELS[@]}"; do
   fi
 done
 export ASTRARIUM_CRAFT_SPEC="$craft_spec"
+"$BLENDER" --background --factory-startup --python-exit-code 1 --python model_sources/blender/primitivecheck.py
 for m in "${MODELS[@]}"; do
   extra=()
   if [[ "$m" == pad_* ]]; then
@@ -93,5 +94,10 @@ for m in "${MODELS[@]}"; do
   [ -f "$tmp" ] || { echo "error: $m produced no .glb" >&2; exit 1; }
   mv "$tmp" "$dst"
 done
+if [ -n "$GODOT" ]; then
+  "$GODOT" --headless --path . --import --quit
+else
+  echo "Import the generated assets in Godot before running verification."
+fi
 
 echo "--- built ${#MODELS[@]} model(s)"
