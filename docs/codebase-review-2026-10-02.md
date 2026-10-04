@@ -49,13 +49,13 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R11 | P2 | Verified: batch 2 | Lesson directives may silently disappear; missing asset parts may silently stop moving. | Authored lesson keys and asset stage/part contracts validated; deliberate typo/part-removal probes fail. |
 | R12 | P2 | Verified shared physical metadata and bounded parity | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
 | R13 | P3 | Verified broad cleanup, batch 15 | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
-| R14 | P2 | Partial: LOD verified; GPU/culling deferred | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Measure launch/studio GPU cost; preserve close detail while distant geometry and genuinely closed surfaces avoid unnecessary work. |
+| R14 | P2 | Partial: LOD verified; provisional Vulkan GPU profile | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Repeat controlled GPU comparisons and classify closed meshes before changing culling; default Metal timing APIs remain unavailable. |
 | R15 | P2 | Verified bounded invalidation; spikes remain measurable | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
-| R16 | P3 | Partial: uniform cache verified; array allocations deferred | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | CPU/render-thread profile establishes material cost before changing lifetime or cache ownership. |
+| R16 | P3 | Partial: uniform cache verified; unsafe/ineffective array caches rejected | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | Rendered allocation/lifetime evidence must justify any different packing ownership. |
 | R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
 | R18 | P3 | Verified retention policy; archive retained | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
 | R19 | P2 | Verified: POSIX and simulated recovery | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows integration remains pending. |
-| R20 | P2 | Partial: portable gate/CI implemented; external runs pending | Performance and release confidence lack a reproducible integrated baseline. | One check entry point and CI, clean-clone/export smoke checks, scenario CPU/GPU and frame-time budgets, keyboard/text-scaling/small-window checks. |
+| R20 | P2 | Partial: macOS/Linux clean gates passed; Windows/remote CI pending | Performance and release confidence lack a reproducible integrated baseline. | Actual Windows verification, remote CI execution and supported-device GPU/frame budgets remain. |
 | R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
 | R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
 | R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
@@ -1446,3 +1446,63 @@ this evidence and updates the engineering notes; it changes no executable code.
 Independent final re-review of `afbaacd` found no blockers in diagnostic recovery,
 atomic input rejection or their regressions; it corrected the scaling description
 above and confirmed that external/numerical gaps remain explicit.
+
+### Batch 17: usable profiling and actual Linux verification
+
+The profiler now identifies the actual driver/method and exercises authored
+Falcon 9 launchpad and ascent scenes in addition to the original eight cases.
+Flight rows retain phase, mission seconds and altitude. Both the pre-sample and
+post-sample guards require ascent, so prelaunch, landed or destroyed craft cannot
+be reported as an ascent measurement. The runner requires a ten-case completion
+marker with zero failures.
+
+A Vulkan/Forward+ probe on Apple M5 returned GPU timings and exposed a profiler
+units defect: pinned Godot 4.7.2 returns compute GPU timestamps in nanoseconds,
+despite the public documentation saying microseconds. Conversion is corrected;
+prior compute GPU numbers from the exploratory Vulkan probe were 1000× too
+large and are discarded. Metal's earlier zero values and CPU measurements are
+unaffected. Two corrected ten-case probes complete with zero harness failures.
+The guarded rerun measures pad/ascent viewport GPU medians of **8.361 / 7.933 ms**
+and lens-march compute median **5.549 ms**. These overlap and cannot be added.
+MoltenVK prints a pipeline-cache `VK_INCOMPLETE` diagnostic; these measurements
+remain provisional alternate-backend evidence. The default Metal timing APIs
+remain unavailable. A separate Metal System Trace confirms actual GPU execution,
+with 33,408 active intervals attributed only to the test process; its overlapping,
+unlabeled intervals do not establish per-case budgets. See
+[measurement scope and evidence](performance.md#additional-backend-and-allocation-probes).
+
+Normal LOD still reduces primitives, but distant GPU timing order changes across
+short probes. R14 remains partial for controlled comparisons and surface-specific
+culling. A blanket material change is not supported by this evidence.
+
+R16's isolated native allocation-history experiment counts both freed and live
+allocations. Production sun packing makes **six loop-specific events / 376
+requested bytes per call**, confirmed by a second run with half the calls.
+Direct retained-array mutation appears cheaper but changes material uniforms
+before resubmission. Copy-on-write-safe wrapper retention preserves the old
+material value and makes the same six events / 376 bytes. Both candidates are
+rejected as production optimizations; no extra cache ownership is introduced.
+Rendered lifetime and whole-frame material cost remain the trigger for a
+different design, rather than array reuse alone.
+
+The committed candidate `d3e7655` passes an actual **Linux x86_64 Ubuntu 22.04**
+clean-clone run under Docker's amd64 emulation on the ARM64 Mac. GCC 11.4 builds
+the Linux native library; pinned official Godot 4.7.2 passes all **16 children**,
+including **274 invariants, 64 Linux save checks**, numerical boundaries and all
+nine native/GDScript comparisons at unchanged tolerances. Exported resources
+and the native sidecar validate, then isolated exported startup confirms
+`NBodyKernel`. Engine SHA256/SHA512 checks pass. Reproduction, environment and
+logs are retained in `/tmp/astrarium-linux-evidence/`. This closes R20's missing
+Linux functional run; it establishes neither Linux GPU costs nor remote CI
+success. Actual Windows execution, including R19's publication contract, and
+supported-device performance budgets remain pending. No production physics or
+visual code changes in this batch; earlier science/lifecycle proofs still apply.
+
+Final harness verification: the guarded Vulkan probe passes all ten 90-sample
+cases; default Metal passes all ten 30-sample cases while reporting unavailable
+GPU timings. Metal with `require_gpu=1` exits nonzero with exactly ten unavailable
+timing failures, and headless execution rejects before sampling. Script import,
+Python parsing and whitespace checks pass. Independent re-review confirms the
+unit conversion, phase guards, completion marker and evidence limits; no blockers
+remain in this batch. Logs/reports are `/tmp/astrarium-b17-{gpu-guarded,
+metal-guarded,metal-strict,headless-negative,import}.*`.

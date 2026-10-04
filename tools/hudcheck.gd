@@ -1,6 +1,6 @@
 extends Node
 
-# THE HUD CHECK: the real orchestrator (main.tscn) at content scale 1, put into a. See README.md for verification usage.
+# Production HUD interaction, layout and screenshot checks. Usage: README.md.
 #   Godot --path . --resolution 1280x720 res://tools/hudcheck.tscn -- \
 #         hstate=sandbox hout=/abs/x.png [hframes=45] [htest=1] [hperf=1]
 

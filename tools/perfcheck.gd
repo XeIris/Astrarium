@@ -33,8 +33,9 @@ func capture_compute(label: String) -> void:
 		elif name.begins_with("astrarium:end:"):
 			var key := name.trim_prefix("astrarium:end:")
 			if not pending.has(key): continue
+			# Godot 4.7.2 driver GPU timestamps are nanoseconds; CPU timestamps are microseconds.
 			var duration := [float(dev.get_captured_timestamp_cpu_time(i) - pending[key][0]) / 1000.0,
-				float(dev.get_captured_timestamp_gpu_time(i) - pending[key][1]) / 1000.0]
+				float(dev.get_captured_timestamp_gpu_time(i) - pending[key][1]) / 1000000.0]
 			var total: Array = totals.get(key, [0.0, 0.0])
 			total[0] += duration[0]; total[1] += duration[1]
 			totals[key] = total
@@ -78,6 +79,10 @@ func measure(label: String, action := Callable()) -> void:
 	await get_tree().process_frame
 	var row := {"case": label, "animate_ms": summary(animate_ms), "action_ms": summary(action_ms),
 		"viewport_cpu_ms": summary(render_cpu_ms), "viewport_gpu_ms": summary(render_gpu_ms), "primitives": summary(primitives)}
+	if label.begins_with("flight-"):
+		row["flight"] = {"phase": stage.flight.vessel.phase, "met_s": stage.flight.vessel.met,
+			"altitude_m": stage.flight.vessel.altitude()}
+		if label == "flight-ascent" and stage.flight.vessel.phase != "ascent": failures += 1
 	if row.viewport_gpu_ms.median <= 0.0:
 		gpu_available = false
 		if require_gpu: failures += 1
@@ -123,6 +128,7 @@ func _ready() -> void:
 	await measure("lens")
 	CraftAssets.craft_models_ready(["saturnv"])
 	stage.show_model("saturnv")
+	if not stage.model_view.craft.authored: failures += 1
 	stage.model_view.cam.spin = 0.0
 	stage.model_view.cam.held = true
 	for distance in [1.95, 30.0]:
@@ -130,6 +136,19 @@ func _ready() -> void:
 		for bias in [128.0, 1.0]:
 			meshes(stage.model_view.craft.group, bias)
 			await measure("studio-%s-lod-%s" % [distance, bias])
+	stage.close_model_viewer()
+	stage.load_preset("solar")
+	await stage.launch_craft("falcon9")
+	if stage.flight.vessel == null or not stage.flight.craft.authored:
+		failures += 1
+	else:
+		stage.state.paused = true
+		await measure("flight-pad")
+		stage.state.paused = false
+		stage.flight.start_count()
+		for i in 900: stage.animate(1.0 / 60.0)
+		if stage.flight.vessel.phase != "ascent": failures += 1
+		await measure("flight-ascent")
 	await get_tree().process_frame
 	var profiles := {}
 	for label in compute:
@@ -141,6 +160,7 @@ func _ready() -> void:
 		failures += errors.size()
 		for error in errors: printerr("PERFCHECK ENGINE ", error)
 	var data := {"godot": Engine.get_version_info(), "device": RenderingServer.get_video_adapter_name(),
+		"driver": RenderingServer.get_current_rendering_driver_name(), "method": RenderingServer.get_current_rendering_method(),
 		"resolution": [1280, 720], "render_scale": 1.0, "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
 	if not report.is_empty():
 		var file := FileAccess.open(report, FileAccess.WRITE)

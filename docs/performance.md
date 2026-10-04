@@ -6,6 +6,11 @@ settles for 90 rendered frames before collecting 180 samples. It records median,
 p95 and maximum for the stage call, any edit action, viewport rendering CPU/GPU
 times and visible primitives. Render-thread timestamps measure each compute
 shader dispatch separately, including repeated bloom mip passes.
+Cases cover the solar system, idle/continuous editing, lensing, two studio
+distances with two LOD biases, and an authored Falcon 9 on the pad and in ascent.
+Flight rows record phase, elapsed mission seconds and altitude; prelaunch,
+landed and destroyed phases cannot pass the ascent case. Reports identify the actual
+rendering driver and method, including command-line overrides.
 
 Run with `report=/absolute/profile.json`. `samples=90` is a shorter probe;
 `uniform_cache=0` compares transient uniform sets. `require_gpu=1` makes missing
@@ -19,8 +24,14 @@ separately. Compute measurements overlap the compositor's viewport measurements,
 so adding both would double-count. The action cost includes editor/inspector
 work and visual changes; it does not include deferred GPU execution.
 
-These APIs follow Godot's [viewport timing contract](https://docs.godotengine.org/en/latest/classes/class_renderingserver.html#class-renderingserver-method-viewport-get-measured-render-time-gpu)
-and [RenderingDevice timestamp contract](https://docs.godotengine.org/en/4.4/classes/class_renderingdevice.html#class-renderingdevice-method-capture-timestamp).
+Viewport GPU measurements are milliseconds under Godot's
+[timing contract](https://docs.godotengine.org/en/stable/classes/class_renderingserver.html#class-renderingserver-method-viewport-get-measured-render-time-gpu).
+Compute CPU timestamps are microseconds, but GPU timestamps are nanoseconds in
+the pinned 4.7.2 [Vulkan driver](https://github.com/godotengine/godot/blob/4.7.2-stable/drivers/vulkan/rendering_device_driver_vulkan.cpp#L6107-L6137).
+The public RenderingDevice documentation currently calls both microseconds;
+using that GPU unit inflated the original compute reports by 1000×. Corrected
+reports divide GPU differences by 1,000,000 to obtain milliseconds. Earlier
+zero-valued Metal GPU observations and CPU measurements are unaffected.
 The [engine uniform-set cache](https://docs.godotengine.org/en/stable/classes/class_uniformsetcacherd.html)
 invalidates sets when dependent resources are freed, including resized targets.
 
@@ -43,7 +54,7 @@ The final probe with other science checks idle measured a 4.275 ms edit median,
 5.264 ms p95 and 17.705 ms maximum. Background work and scheduling materially
 change wall timings; the earlier before/after samples are observations, not an
 isolated speedup attribution. The uniform-set comparison toggles only that cache
-in the final code. All eight cases complete, and authored models settle before
+in the final code. All eight original cases complete, and authored models settle before
 LOD overrides so asynchronous fallback replacement cannot change the comparison.
 
 The edit still occasionally exceeds a 16.67 ms frame interval; graph sampling
@@ -57,6 +68,46 @@ skirts and interstages remain double-sided; a global culling change would remove
 visible surfaces. Per-sun uniform packing remains uncached: packed arrays use
 copy-on-write across material submissions, so storing arrays alone does not prove
 that allocations disappear. Optimize it only after isolated allocation evidence.
+
+## Additional backend and allocation probes
+
+An October 4 probe on the same M5 used Vulkan/Forward+ through MoltenVK, 90
+samples per case and the ten-case harness. It returned nonzero viewport and
+compute GPU timings. The lens march median was **4.783 ms** (p95 5.143 ms).
+Viewport GPU medians were **8.664 ms on the pad** and **8.445 ms during ascent**;
+these overlap post-processing and must not be added to compute totals.
+The probe completed with zero harness/Godot failures, but MoltenVK printed
+`VK_INCOMPLETE` while serializing its pipeline cache. Retain that diagnostic;
+this is provisional backend evidence, not a clean default-renderer release gate.
+Reports: `/tmp/astrarium-b17-gpu-final.json` and its adjacent raw log. The stricter
+phase-guard rerun (`/tmp/astrarium-b17-gpu-guarded.json`) also passed ten cases;
+the flight row confirms ascent at 18 mission seconds and 131.086 m altitude.
+It measured pad/ascent viewport medians of 8.361 / 7.933 ms and a lens march
+median of 5.549 ms, reinforcing the variability of short local samples.
+
+Near studio GPU medians were 3.497 / 2.675 ms at LOD biases 128 / 1. Distant
+medians were 3.333 / 3.287 ms, and a preceding probe reversed that ordering.
+Primitive reduction is repeatable; these ordered, short timing samples do not
+establish a distant GPU speedup or justify blanket back-face culling. The default
+Metal backend still reports zero through the timing APIs. A separate Metal
+System Trace independently captured 33,408 active GPU intervals attributed to
+the test's Godot process, including compute, fragment and vertex work. Interval
+durations are nested/overlapping and have no case markers; they are not frame
+times and cannot be summed into a frame budget. Filtered evidence is retained in
+`/tmp/astrarium-b17-metal-trace-summary.json`.
+
+An isolated macOS native allocation-history experiment counted freed as well as
+live allocations around production `Suns.apply_suns`, with three ShaderMaterials
+and three lights. Current packing made **six loop-specific allocation events and
+376 requested bytes per call**. Naive retained-array mutation removed those
+events but changed a material's cached uniforms before submission. A candidate
+that duplicated the packed wrappers before mutation preserved isolation and made
+the same six events / 376 bytes as current code. The proposed cache therefore
+adds ownership without demonstrating a safe allocation reduction; current
+packing remains. This is headless material-cache/submission evidence, not a
+rendered lifetime or whole-frame allocation budget. Reproduction and normalized
+stacks are listed in `/tmp/astrarium-sun-allocation-findings.md`; compact results
+are in `/tmp/astrarium-sun-allocation-comparison.json`.
 
 Portable budgets require named hardware, renderer, quality, asset mode and frame
 conditions. The CI headless checks establish correctness/export contracts, not

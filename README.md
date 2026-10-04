@@ -148,7 +148,8 @@ the illustrative tight-pair drag have separate limits described in
 [the compact-dynamics model](docs/physics/compact-dynamics.md).
 
 `python3 tools/check.py perf --repeat 3` records rendered scenario/editor/LOD
-measurements, fixed-step CPU flight timings and HUD shown/hidden timings.
+measurements (including authored launchpad/ascent), fixed-step CPU flight timings
+and HUD shown/hidden timings.
 See [the measurement contract and local results](docs/performance.md). Missing
 GPU timestamps are reported as unavailable; these measurements are not portable
 performance budgets.
@@ -164,8 +165,10 @@ exports include it through the extension descriptor.
 
 [Portable CI](.github/workflows/verify.yml) pins Godot 4.7.2 and runs the clean
 procedural gate on macOS, Linux and Windows. It does not establish authored
-Blender fidelity, graphical performance or device budgets. Windows/Linux
-execution evidence remains pending until the workflow runs on those hosts.
+Blender fidelity, graphical performance or device budgets. A Linux x86_64
+Ubuntu clean-clone/native/export run passed locally under Docker emulation on
+macOS; this establishes the functional platform contract, not Linux GPU costs.
+Actual Windows execution and remote CI evidence remain pending.
 [Evidence retention](docs/evidence.md) keeps new generated captures out of the
 frozen migration reference archive.
 

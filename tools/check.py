@@ -110,7 +110,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "perf":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=8 failures=0$", f"report={output / 'render-profile.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=10 failures=0$", f"report={output / 'render-profile.json'}")
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         for _ in range(repeat):
             for native in ("0", "1"):
