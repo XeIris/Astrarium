@@ -182,6 +182,89 @@ func small_threshold_crossing() -> void:
 	stage.animate(1e-6)
 	check("small threshold crossing detonates in the production frame", stage.state.body_by_id(dwarf.id) == null)
 
+func live_state_edits() -> void:
+	stage.clear_bodies()
+	var b: Body = stage.spawn_body({"type": "planet", "name": "Original", "pos": [2.0, 0.0, 0.0], "vel": [1.0, 0.0, 0.0]})
+	stage.state.max_step = 0.25
+	stage.state.gw_boost = 0.0
+	stage.step_physics(0.25)
+	var pos := b.pos.to_array()
+	var vel := b.vel.to_array()
+	check("ordinary edit preserves integrated vectors", stage.edit_body(b, {"spinFrac": 0.1}) == b
+		and b.pos.to_array() == pos and b.vel.to_array() == vel)
+	check("accepted spec snapshots current vectors", b.spec.pos == pos and b.spec.vel == vel)
+	show(b)
+	var samples: Array = stage.live_editor.curve.samples
+	check("name edit reaches the live body", stage.edit_body(b, {"name": "Renamed"}) == b and b.name == "Renamed")
+	check("name lookup follows the accepted edit", stage.state.body_named("Renamed") == b and stage.state.body_named("Original") == null)
+	show(b)
+	check("name edit preserves equilibrium samples", is_same(stage.live_editor.curve.samples, samples))
+	stage.push_trail(b)
+	stage.push_trail(b)
+	b.trail.update(b, stage.cam_pos)
+	stage.update_sim_stats()
+	check("teleport edit applies exact doubles", stage.edit_body(b, {"pos": PackedFloat64Array([7.123456789012345, -3.0, 4.0])}) == b
+		and b.pos.x == 7.123456789012345 and b.pos.y == -3.0 and b.pos.z == 4.0 and b.vel.to_array() == vel)
+	check("teleport immediately updates scene and visual placement", b.scene_pos.to_array() == b.pos.scaled(stage.state.scene_scale).to_array()
+		and b.viz.group.position == b.scene_pos.rel_v3(stage.cam_pos))
+	check("teleport breaks trail continuity even while paused", b.trail_count == 1
+		and b.trail.mat.get_shader_parameter("u_ring").y == 1)
+	check("teleport rebases manual energy change", stage.state.energy0 == null)
+	show(b)
+	check("vector edit preserves equilibrium samples", is_same(stage.live_editor.curve.samples, samples))
+	stage.update_sim_stats()
+	pos = b.pos.to_array()
+	check("velocity-only edit preserves position", stage.edit_body(b, {"vel": [0.0, -2.0, 0.0]}) == b
+		and b.pos.to_array() == pos and b.vel.to_array() == [0.0, -2.0, 0.0])
+	check("velocity edit rebases manual energy change", stage.state.energy0 == null)
+	check("unset vectors preserve live state", stage.edit_body(b, {"pos": null, "vel": null}) == b
+		and b.pos.to_array() == pos and b.vel.to_array() == [0.0, -2.0, 0.0])
+	stage.step_physics(0.25)
+	check("next integration uses edited velocity", b.pos.y == -3.5)
+	var spec: Dictionary = b.spec.duplicate(true)
+	var viz = b.viz
+	pos = b.pos.to_array()
+	check("mixed invalid edit is rejected atomically", stage.edit_body(b, {"pos": [99.0, 0.0, 0.0], "vel": [NAN, 0.0, 0.0], "name": "Bad"}) == null
+		and b.spec == spec and b.pos.to_array() == pos and b.name == "Renamed" and b.viz == viz)
+	check("explicit type change is rejected atomically", stage.edit_body(b, {"type": "bh", "mass": 2.0, "pos": [99.0, 0.0, 0.0]}) == null
+		and b.spec == spec and b.pos.to_array() == pos and b.viz == viz and b.type == "planet")
+	check("same-type edit remains supported", stage.edit_body(b, {"type": "planet"}) == b)
+	check("combined vectors apply without float32 rounding", stage.edit_body(b, {"pos": [9.123456789012345, 1.0, 2.0], "vel": [3.0, 4.0, 5.0]}) == b
+		and b.pos.x == 9.123456789012345 and b.vel.to_array() == [3.0, 4.0, 5.0])
+	check("empty name restores creation fallback", stage.edit_body(b, {"name": ""}) == b and b.name == "PLANET")
+	check("unset name restores creation fallback", stage.edit_body(b, {"name": null}) == b and b.name == "PLANET")
+	pos = b.pos.to_array()
+	vel = b.vel.to_array()
+	stage.transmute(b, "world", null)
+	check("structural derivation preserves live vectors", b.pos.to_array() == pos and b.vel.to_array() == vel)
+	var orphan := Derive.new_body(b.id, {"type": "planet", "mass": 3e-6})
+	var orphan_spec: Dictionary = orphan.spec.duplicate(true)
+	check("public edit rejects an alive same-ID orphan", stage.edit_body(orphan, {"mass": 6e-6}) == null
+		and orphan.spec == orphan_spec and orphan.viz == null and orphan.mass == 3e-6)
+	if orphan.viz != null: stage.detach_visual(orphan)
+	stage.remove_body(b.id)
+	b.alive = true
+	check("public edit rejects a removed body even if marked alive", stage.edit_body(b, {"mass": 6e-6}) == null and b.viz == null)
+	if b.viz != null: stage.detach_visual(b)
+	stage.state.max_step = 1e-6
+
+func edited_energy_reference() -> void:
+	stage.clear_bodies()
+	var star: Body = stage.spawn_body({"type": "star", "radiusSun": 1.0})
+	stage.spawn_body({"type": "planet", "pos": [1.0, 0.0, 0.0]})
+	stage.update_sim_stats()
+	var energy: float = stage.state.energy0
+	stage.edit_body(star, {"name": "Named"})
+	check("name-only edits retain energy reference", stage.state.energy0 == energy)
+	stage.edit_body(star, {"radiusSun": 2.0})
+	check("radius-dependent softening change rebases energy", stage.state.energy0 == null)
+	stage.clear_bodies()
+	var neutron: Body = stage.spawn_body({"type": "neutron", "mass": 2.4, "spinFrac": 0.8})
+	stage.spawn_body({"type": "planet", "pos": [1.0, 0.0, 0.0]})
+	stage.update_sim_stats()
+	stage.edit_body(neutron, {"spinFrac": 0.0})
+	check("fixed-mass collapse changes type and rebases energy", neutron.type == "bh" and stage.state.energy0 == null)
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -194,6 +277,8 @@ func _ready() -> void:
 	events()
 	small_threshold_crossing()
 	small_body()
+	live_state_edits()
+	edited_energy_reference()
 	await pending_body_switch()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)

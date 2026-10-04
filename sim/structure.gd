@@ -407,6 +407,9 @@ static func _pos(v) -> bool:
 
 ## Takes normalized type/mass; empty allows input, including modeled event verdicts.
 static func input_error(spec: Dictionary) -> String:
+	var type = spec.get("type")
+	if not type is String or type not in ["planet", "world", "gas-giant", "star", "white-dwarf", "neutron", "bh"]:
+		return "Body type must be a supported type name."
 	var mass = spec.get("mass", 1.0)
 	if not _finite_number(mass) or float(mass) <= 0.0:
 		return "Mass must be a finite positive number."
@@ -429,6 +432,29 @@ static func input_error(spec: Dictionary) -> String:
 		var radius = spec.get(field)
 		if radius != null and (not _finite_number(radius) or float(radius) <= 0.0):
 			return "Measured radius must be a finite positive number."
+	var teff = spec.get("teff")
+	if teff != null and (not _finite_number(teff) or float(teff) <= 0.0):
+		return "Measured temperature must be a finite positive number in kelvin."
+	var luminosity = spec.get("luminosity")
+	if luminosity != null and (not _finite_number(luminosity) or float(luminosity) < 0.0):
+		return "Measured luminosity must be a finite nonnegative number in solar units."
+	var Z = spec.get("Z")
+	if Z != null and (not _finite_number(Z) or float(Z) < 0.0 or float(Z) > 1.0):
+		return "Metallicity Z must be a finite mass fraction between zero and one."
+	var composition = spec.get("composition")
+	if composition != null and (not composition is String or not ROCK_COMPOSITIONS.has(composition)):
+		return "Composition must name a supported solid mixture."
+	for field in ["phase", "visualSpinRadS", "dayLength", "obliquity"]:
+		var value = spec.get(field)
+		if value != null and not _finite_number(value):
+			return "%s must be a finite number." % field
+	for field in ["emitsGW", "home"]:
+		var value = spec.get(field)
+		if value != null and not value is bool:
+			return "%s must be a boolean." % field
+	var hz = spec.get("spinHz")
+	if hz != null and (not _finite_number(hz) or float(hz) < 0.0):
+		return "Spin frequency must be a finite nonnegative number."
 	if spec.get("type") == "bh":
 		var rs := Physics.schwarzschild(float(mass))
 		var lifetime := _hole_evaporation_years(float(mass))
@@ -438,9 +464,6 @@ static func input_error(spec: Dictionary) -> String:
 	if spec.get("type") == "neutron":
 		if float(mass) < float(LIMITS.neutronMin):
 			return "Neutron mass is below this model's %s M☉ equilibrium range." % _num(LIMITS.neutronMin)
-		var hz = spec.get("spinHz")
-		if hz != null and (not _finite_number(hz) or float(hz) < 0.0):
-			return "Spin frequency must be a finite nonnegative number."
 		spin = _neutron_spin_fraction(spec, float(mass), float(spin))
 	if not is_finite(float(spin)):
 		return "Rotation is outside this model's numerical range."

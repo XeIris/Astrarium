@@ -53,6 +53,8 @@ static func _with_mass(s: Dictionary, m: float) -> Dictionary:
 	# The curve predicts a mass edit, which replaces measured values with the model.
 	for field in Derive.MASS_EDIT_MEASUREMENTS:
 		o.erase(field)
+	# Live trajectories and names do not change hypothetical equilibrium radii.
+	for field in ["pos", "vel", "name"]: o.erase(field)
 	o["mass"] = m
 	return o
 

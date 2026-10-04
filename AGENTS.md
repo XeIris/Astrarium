@@ -65,9 +65,11 @@ design.
 - Black-hole pair motion is conservative Newtonian gravity, not a strong-field
   binary model. Displayed ISCO/Kerr radii do not govern these orbits; GW drag is
   illustrative. See [the compact model](docs/physics/compact-dynamics.md).
-- Spawning and editing are the same operation: both end in `derive_body()`
-  re-reading `b.spec`. Anything a spec implies belongs in `derive_body`, or it
-  exists on spawn and vanishes on the first edit.
+- Spawning and editing validate complete requests before mutation and share
+  `derive_body()` for intrinsic properties. The stage's edit boundary applies
+  explicit position/velocity patches in double; omitted/null vectors preserve
+  live integrated state. Derivation during mergers/reclassification must not
+  restore stored spawn coordinates. Type changes belong to structural events.
 - A structural limit is an event: `check_structural_limits()` in `main.gd` must
   act on it (a neutron star past the TOV mass collapses; a white dwarf at the
   Chandrasekhar mass detonates). Unsupported equilibrium requests are rejected

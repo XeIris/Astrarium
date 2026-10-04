@@ -111,12 +111,13 @@ static func refresh_structure(b: Body) -> Dictionary:
 	b.contact_au = contact_au(b, sp)
 	return b.structure
 
-# Derive everything a spec implies (horizon, radius, temperature, luminosity, spin,
-# GW eligibility, interior), re-runnable without touching id, state or trail.
+# Derive intrinsic properties; construction/edits own the live state vectors.
 static func derive_body(b: Body, spec: Dictionary) -> Body:
 	var type = spec.get("type")
 	var def := type_default(type)
 	var mass := b.mass
+	var name = spec.get("name")
+	b.name = str(name) if name != null and str(name) != "" else b.type.to_upper()
 	b.softening = float(U.nz(spec.get("softening"), 0.0))
 	b.emits_gw = bool(U.nz(spec.get("emitsGW"), type == "bh" or type == "neutron"))
 	if type == "bh":
@@ -178,8 +179,6 @@ static func new_body(id: int, spec: Dictionary) -> Body:
 	var b := Body.new()
 	b.id = id
 	b.type = str(type) if type != null else ""
-	var nm = spec.get("name")
-	b.name = str(nm) if (nm != null and str(nm) != "") else b.type.to_upper()
 	b.mass = mass; b.mass0 = mass
 	b.pos = DVec3.from_array(U.nz(spec.get("pos"), [0.0, 0.0, 0.0]))     # AU
 	b.vel = DVec3.from_array(U.nz(spec.get("vel"), [0.0, 0.0, 0.0]))     # AU/yr

@@ -140,6 +140,8 @@ func _soak_check() -> void:
 					stage.show_cross_section(body)
 					stage.live_editor.sync(body)
 					await stage.get_tree().process_frame
+				stage.edit_body(body, {"name": "Edited", "pos": [1.0, 2.0, 3.0], "vel": [0.1, 0.0, 0.0]})
+				stage.edit_body(body, {"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0]})
 				stage.live_editor._last_apply = Time.get_ticks_msec()
 				stage.live_editor.queue({"spinFrac": 0.3})
 				stage.remove_body(body.id)

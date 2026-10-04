@@ -37,6 +37,26 @@ destruction instruction. Failed edits preserve the body and restore its controls
 an invalid body specification rejects the whole preset before the live scenario
 is cleared. This input gate does not establish stability of every accepted body.
 
+Body type names must match the seven supported types; an omitted or null type
+defaults to `planet`. Supplied structural fields are validated before derivation:
+measured temperature is finite positive kelvin, luminosity is finite nonnegative solar units,
+metallicity `Z` is a mass fraction in [0, 1], and solid composition names come
+from `ROCK_COMPOSITIONS`. Phase, display angular speed, day length and obliquity
+must be finite numbers; `home` and `emitsGW` are booleans. Phase keeps the track's
+endpoint clamping, signed rotation remains supported, and a zero day length uses
+the world's existing fallback. Optional null fields select existing defaults.
+Visual-specific options remain an open dictionary; this is not a complete
+overflow or physical-validity guarantee for every finite combination.
+
+Edits require the exact body instance in the live stage. Explicit non-null
+`pos`/`vel` patches replace live vectors; omitted/null vectors preserve the
+integrated values, which are copied into the accepted spec. A position change
+immediately updates scene placement and restarts the trail at the new location.
+Manual changes to mass, position, velocity, softening, radius or type rebase the energy drift
+diagnostic. Names use the same derivation on spawn and edit; null/empty names
+restore the generated type name. An edit cannot request a different body type;
+structural events use the reclassification path while preserving live vectors.
+
 Authored positions and velocities must have exactly three finite numeric components;
 contact distances and softening must be finite and nonnegative AU. Zero softening
 selects the ordinary-pair default. Black-hole structures retain the actual mass,

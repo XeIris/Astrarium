@@ -15,10 +15,11 @@ func check(label: String, ok: bool) -> void:
 func snapshot() -> Dictionary:
 	var bodies := []
 	for b: Body in stage.state.bodies:
-		bodies.append({"body": b, "mass": b.mass, "mass0": b.mass0, "type": b.type,
+		bodies.append({"body": b, "name": b.name, "mass": b.mass, "mass0": b.mass0, "type": b.type,
 			"spec": b.spec.duplicate(true), "structure": b.structure.duplicate(true),
 			"viz": b.viz, "marker": b.marker, "trail": b.trail,
-			"pos": [b.pos.x, b.pos.y, b.pos.z], "vel": [b.vel.x, b.vel.y, b.vel.z]})
+			"pos": [b.pos.x, b.pos.y, b.pos.z], "vel": [b.vel.x, b.vel.y, b.vel.z],
+			"scene_pos": [b.scene_pos.x, b.scene_pos.y, b.scene_pos.z]})
 	return {"bodies": bodies, "next_id": stage.state.next_id,
 		"preset": stage.state.preset_key, "scene_scale": stage.state.scene_scale,
 		"body_scale": stage.state.body_scale, "true_scale": stage.state.true_scale,
@@ -96,6 +97,64 @@ func supported_inputs() -> void:
 			and tiny.structure.verdict.detail.contains("not simulated"))
 		check("authored softening is derived", tiny.softening == 0.2)
 		check("edited softening is derived", stage.edit_body(tiny, {"softening": 0.3}) == tiny and tiny.softening == 0.3)
+
+func schema_inputs() -> void:
+	stage.load_preset("solar")
+	var original := snapshot()
+	for spec in [{"type": "starr"}, {"type": ""}, {"type": 7}, {"type": false},
+		{"type": "star", "phase": "ms-mid"}, {"type": "star", "phase": NAN},
+		{"type": "star", "Z": "solar"}, {"type": "star", "Z": INF},
+		{"type": "star", "Z": -0.001}, {"type": "star", "Z": 1.001},
+		{"type": "planet", "composition": "eath"}, {"type": "planet", "composition": {}},
+		{"type": "star", "teff": "warm"}, {"type": "star", "teff": NAN},
+		{"type": "star", "teff": 0.0}, {"type": "star", "teff": -1.0},
+		{"type": "white-dwarf", "luminosity": "dim"}, {"type": "star", "luminosity": INF},
+		{"type": "star", "luminosity": -1.0}, {"type": "star", "visualSpinRadS": "fast"},
+		{"type": "planet", "visualSpinRadS": NAN}, {"type": "world", "dayLength": "long"},
+		{"type": "world", "dayLength": INF}, {"type": "world", "obliquity": []},
+		{"type": "world", "obliquity": NAN}, {"type": "world", "home": "false"},
+		{"type": "star", "emitsGW": 1}, {"type": "bh", "spinHz": INF}]:
+		check("schema spawn rejects %s" % spec, stage.spawn_body(spec) == null)
+		check("schema spawn rejection is atomic", snapshot() == original)
+	var star: Body = stage.state.bodies[0]
+	for patch in [{"type": "starr"}, {"type": 7}, {"phase": false}, {"Z": true},
+		{"composition": "unknown"}, {"teff": INF}, {"luminosity": -1.0},
+		{"visualSpinRadS": []}, {"dayLength": NAN}, {"obliquity": INF}, {"emitsGW": "false"}]:
+		check("schema edit rejects %s" % patch, stage.edit_body(star, patch) == null)
+		check("schema edit rejection is atomic", snapshot() == original)
+	for patch in [{"type": "starr"}, {"teff": "warm"}, {"home": "false"}]:
+		var invalid: Dictionary = Presets.PRESETS.solar.duplicate()
+		invalid.build = func() -> Array: return [{"type": "star", "mass": 1.0}, U.merged({"type": "planet"}, patch)]
+		Presets.PRESETS["__invalid_schema"] = invalid
+		check("schema preset rejects %s" % patch, not stage.load_preset("__invalid_schema"))
+		check("schema preset rejection is atomic", snapshot() == original)
+	Presets.PRESETS.erase("__invalid_schema")
+	for type in Derive.TYPE_DEFAULTS:
+		check("every derived type is supported: " + type, Structure.input_error(stage._normalized_body_spec({"type": type})).is_empty())
+	for key in Starcat.STAR_CATALOG:
+		check("every measured catalog entry is supported: " + key,
+			Structure.input_error(stage._normalized_body_spec(Starcat.star_spec(key))).is_empty())
+	for patch in [{"phase": -100.0}, {"phase": 100.0}, {"Z": 0.0}, {"Z": 1.0},
+		{"visualSpinRadS": -4.0}, {"visualSpinRadS": 0.0}, {"dayLength": -0.01},
+		{"dayLength": 0.0}, {"obliquity": -TAU}, {"luminosity": 0.0},
+		{"phase": null, "Z": null, "composition": null, "teff": null, "luminosity": null,
+			"spinHz": null, "visualSpinRadS": null, "dayLength": null, "obliquity": null,
+			"home": null, "emitsGW": null}]:
+		check("supported schema endpoint/unset value: %s" % patch,
+			Structure.input_error(stage._normalized_body_spec(U.merged({"type": "star"}, patch))).is_empty())
+	for composition in Structure.ROCK_COMPOSITIONS:
+		check("every solid mixture is supported: " + composition,
+			Structure.input_error(stage._normalized_body_spec({"type": "planet", "composition": composition})).is_empty())
+	stage.clear_bodies()
+	for spec in [{}, {"type": null}]:
+		var default: Body = stage.spawn_body(spec)
+		check("missing or null type defaults to planet", default != null and default.type == "planet")
+	var retrograde: Body = stage.spawn_body({"type": "world", "dayLength": -0.01,
+		"visualSpinRadS": -4.0, "obliquity": -0.4, "home": false})
+	check("signed rotation fields survive real derivation", retrograde != null and retrograde.day_length == -0.01
+		and retrograde.visual_spin_rad_s == -4.0 and retrograde.obliquity == -0.4 and not retrograde.home)
+	var dark: Body = stage.spawn_body({"type": "white-dwarf", "luminosity": 0.0})
+	check("zero measured dwarf luminosity stays zero", dark != null and dark.luminosity == 0.0)
 
 func numerical_time() -> void:
 	stage.clear_bodies()
@@ -285,6 +344,7 @@ func _ready() -> void:
 	stage.state.paused = true
 	rejected_inputs()
 	supported_inputs()
+	schema_inputs()
 	numerical_time()
 	measured_inputs()
 	await pending_editor_input()

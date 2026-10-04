@@ -45,7 +45,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R07 | P2 | Verified | FPS uses clamped simulation time and averages reciprocal frame durations. | FPS measures frame count divided by actual elapsed time, independently of simulation/screenshot stepping. |
 | R08 | P2 | Verified | Guidance conflicts with behavior and relies on prose where invariants should be checked. | Instructions accurately describe physics/display separation, checks, API contracts and camera scope; no blanket silent acceptance of malformed authored data. |
 | R09 | P2 | Partial: development checks extracted | `main.gd` concentrates body events, camera control, mode coordination and UI wiring. | Extract one coherent responsibility at a time, retain visible frame order and lifecycle ownership, run affected checks after each extraction. |
-| R10 | P2 | Partial: validated assets/saves, contact API | Important interfaces use unchecked dictionary keys and optional dynamic method calls. | Prioritize typed subsystem dependencies and validated input schemas; malformed authored data produces actionable diagnostics. |
+| R10 | P2 | Partial: validated body inputs/assets/saves, contact API | Important interfaces use unchecked dictionary keys and optional dynamic method calls. | Prioritize typed subsystem dependencies and validated input schemas; malformed authored data produces actionable diagnostics. |
 | R11 | P2 | Verified: batch 2 | Lesson directives may silently disappear; missing asset parts may silently stop moving. | Authored lesson keys and asset stage/part contracts validated; deliberate typo/part-removal probes fail. |
 | R12 | P2 | Partial: height/datum parity | Blender and procedural vehicle implementations duplicate shape and moving-part knowledge. | Decide whether runtime procedural builds remain a product requirement; validate dimensions, engine/part counts and articulation if retained. |
 | R13 | P3 | Partial: touched owners | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
@@ -68,6 +68,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R30 | P2 | Partial: cutoffs and unsafe arithmetic fixed | Fixed force/time cutoffs are removed; both kernels honor tiny caps and report detected numerical stops. Extreme finite inputs can still lose spatial increments or underflow diagnostics. | Bound the remaining scientific/numerical domain; test convergence and unsupported extremes independently of reference agreement. |
 | R31 | P1 | Verified: batch 12 | A structural mass memo ignores changes below 0.1%, suppressing a Chandrasekhar event after a small merger. | A real small contact merger crossing the threshold detonates during the production frame; exact event checks cannot use a mass tolerance. |
 | R32 | P1 | Verified: batch 12 | Trailing live edits can move to a different selected body, including reused IDs, or rebuild visuals on a removed body. | Cancel pending work on instance changes/removal/rejection; stale callbacks require exact scene membership; asynchronous regression and lifecycle checks pass. |
+| R33 | P2 | Verified: batch 13 | Accepted position, velocity and name edits change the spec but leave live state unchanged; manual force/potential edits contaminate the drift reference. | Explicit vector/name edits reach live state atomically, ordinary edits preserve integrated coordinates, teleports restart trails, and energy-changing edits rebase diagnostics. |
 
 ## Evidence at the reviewed revision
 
@@ -1174,3 +1175,48 @@ Five-round post-warmup objects/resources/nodes/orphans are exactly flat:
 which opens focused graphs, edits multiple body types and cancels a pending edit
 on removal. No physics kernel or authored Trisolaris configuration changed;
 **R28 remains open** at the batch-11 failed baseline.
+
+### Batch 13: atomic body edits and bounded input schemas
+
+**R33:** valid position, velocity and name patches were accepted into the spec
+without updating the live body. Edits now validate effective live-state snapshots
+before mutation, preserve integrated coordinates for omitted/null vectors, apply
+explicit vectors in double precision, and derive names through the shared spawn/
+edit path. Teleports immediately update scene placement and restart the trail,
+including while paused. Energy-changing edits reset the drift reference after
+structural consequences; radius-dependent softening and fixed-mass neutron
+collapse are covered. Ordinary name changes retain the energy reference.
+
+The public edit boundary also requires exact scene membership, extending R32's
+callback protection to direct callers and revived removed objects. Unsupported
+type changes are rejected instead of silently discarded. R10's input gate now
+rejects unknown/non-string types and malformed temperature, luminosity, phase,
+metallicity, composition, rotation and boolean fields before spawn/edit/preset
+mutation. Existing catalog entries, null defaults, signed rotation, phase
+endpoint clamping and zero day-length fallback remain supported. This is a
+bounded schema: visual options remain open and finite values do not establish
+safe arithmetic for every combination, so **R10/R30 remain partial**.
+
+Refreshing accepted specs exposed an overly broad mass-curve cache key. Name and
+trajectory fields are now excluded from hypothetical equilibrium sampling;
+rename/teleport checks require the sampled array to remain the same instance.
+AGENTS.md now distinguishes intrinsic derivation from state-vector ownership,
+avoiding guidance that would rewind a body during a merger/reclassification.
+
+The rendered pre-fix regression fails **12/98** assertions with exit 1 in
+`/tmp/astrarium-b13/editor-baseline.log`. An intermediate non-string type edit
+also exposed GDScript's invalid mixed-type comparison; the guard now checks the
+type before comparing, with the failed engine log retained as
+`structureinput-type-probe-engine.log`. The final editor check passes **115/115**,
+the input check **370/370**, and all ten rendered children pass in
+`/tmp/astrarium-b13-reviewed/report.json`. The seven fast/native children passed
+in `/tmp/astrarium-b13-integrated/report.json`; that earlier rendered run correctly
+stopped on the graph-cache regression instead of hiding it. The course remains
+**35 lessons / 108 steps / 0 errors**, and HUD interactions remain **54/0**.
+
+Five-round post-warmup object/resource/node/orphan counts are exactly flat:
+**6390/137/1619/0** (spawn/remove), **6789/137/1720/0** (mass edits), and
+**6396/137/1613/0** (editor, now including position/velocity/name changes), with
+zero failures or shutdown leaks in `/tmp/astrarium-b13/soak.log`. Independent
+subagent review found no remaining blockers. Physics forces/integration and
+authored Trisolaris settings are unchanged; **R28 remains open**.

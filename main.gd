@@ -351,8 +351,7 @@ func refresh_structure(b: Body) -> Dictionary:
 
 static func _normalized_body_spec(spec: Dictionary) -> Dictionary:
 	var out := spec.duplicate()
-	out.type = str(U.nz(out.get("type"), "planet"))
-	if out.type == "": out.type = "planet"
+	out.type = U.nz(out.get("type"), "planet")
 	out.mass = U.nz(out.get("mass"), Derive.type_default(out.type).mass)
 	return out
 
@@ -479,13 +478,18 @@ func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
 func place_spawn(spec: Dictionary) -> Dictionary:
 	return rest_spec_at_rest(spec) if (state.spawn_at_rest or state.bodies.is_empty()) else orbit_spec_around_dominant(spec)
 
-# LIVE EDIT: patch the spec, re-derive, rebuild the meshes, then run
-# check_structural_limits, so every threshold is reachable from the sliders.
+# Validate the complete request before changing live state or scene resources.
 func edit_body(b: Body, patch: Dictionary):
-	if b == null or not b.alive: return null
+	if b == null or not b.alive or not is_same(state.body_by_id(b.id), b): return null
+	if patch.has("type") and (not patch.type is String or patch.type != b.type):
+		_reject_body_input("Type changes are structural events; edits must keep the body's current type.", b)
+		return null
 	var spec := U.merged(b.spec, patch)
 	spec.type = b.type
 	spec.mass = U.nz(patch.get("mass"), b.mass)
+	# Stored spawn vectors can be stale after integration. Unset edits keep live state.
+	spec.pos = U.nz(patch.get("pos"), b.pos.to_array())
+	spec.vel = U.nz(patch.get("vel"), b.vel.to_array())
 	if patch.has("spinFrac") and not patch.has("spinHz"): spec.erase("spinHz")
 	if patch.get("mass") != null:
 		# Measured beats modelled — but a measurement describes ONE star. Once you
@@ -495,14 +499,30 @@ func edit_body(b: Body, patch: Dictionary):
 	if not reason.is_empty():
 		_reject_body_input(reason, b)
 		return null
+	var old_mass := b.mass
+	var old_softening := b.softening
+	var old_radius := b.radius
+	var old_type := b.type
+	var moved: bool = b.pos.to_array() != Array(spec.pos)
+	var accelerated: bool = b.vel.to_array() != Array(spec.vel)
 	if patch.get("mass") != null:
 		b.mass = float(spec.mass); b.mass0 = b.mass
 		b.radius_sun = null
+	b.pos.set_v(spec.pos[0], spec.pos[1], spec.pos[2])
+	b.vel.set_v(spec.vel[0], spec.vel[1], spec.vel[2])
+	b.scene_pos.copy_from(b.pos).scale_in(state.scene_scale)
 	b.spec = spec
 	var before := b.radius_scene
 	detach_visual(b)
 	Derive.derive_body(b, spec)
 	attach_visual(b)
+	if moved and b.trail != null:
+		# A teleport must not draw an orbit segment connecting unrelated positions.
+		b.trail_head = 0
+		b.trail_count = 0
+		b.trail.pending = b.trail_max
+		push_trail(b)
+		b.trail.update(b, cam_pos)
 	# Keep the followed body framed while it is being edited: the camera glides
 	# and the mesh eases from its old size over the same time constant.
 	var r := maxf(b.radius_scene, b.rs_scene)
@@ -515,6 +535,9 @@ func edit_body(b: Body, patch: Dictionary):
 	# A verdict the sim only prints is a bug.
 	b.m_check = null
 	check_structural_limits(b)
+	if moved or accelerated or b.mass != old_mass or b.softening != old_softening or b.radius != old_radius or b.type != old_type:
+		# Radius sets default softening; reclassification can change the pair potential.
+		state.energy0 = null
 	refresh_ui()
 	return b
 
