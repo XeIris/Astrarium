@@ -155,6 +155,10 @@ See [the measurement contract and local results](docs/performance.md). Missing
 GPU timestamps are reported as unavailable; these measurements are not portable
 performance budgets.
 
+`python3 tools/check.py m5-medium` applies the same frame budget to the full
+native Medium preset (MSAA, lens detail 0.5). Both M5 gates need the fullscreen
+Space visible on the built-in display; while it is hidden, macOS withholds
+drawables and the watchdog fails the run.
 `python3 tools/check.py m5-budget` runs the selected M5 Metal gate: native
 3024×1964 scene targets, Low-based settings, MSAA disabled, lens detail 0.35,
 native pixel scaling,
@@ -202,6 +206,8 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
 | `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
 | `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
+| `tools/skycachecheck.tscn` | rendered sky: the point-source cull must match an exhaustive walk pixel for pixel; the diffuse cache must stay within its stated error of live evaluation across bands, aberration and lensing. `timing=1` prints native-size frame medians, `reference=/abs/sky.gdshaderinc` requires the live sky to match another revision (e.g. from `git show`), `dump=/abs/dir` saves live/cached images and the cache atlas |
+| `tools/skycost.tscn` | frame cost of each sky component (point tiers, dust, clusters, galaxies, nebulae, cache, constant sky) by editing the shader source; a renamed component fails. Options `preset=`, `band=`, `view=WxH`, `scale=`, `samples=` |
 | `tools/lenscheck.tscn` | graphical GPU check of independent single-hole shadow size, horizon-scale invariance, finite fields and weak-field deflection |
 | `tools/numericalcheck.gd` | requires native kernel; checks tiny forces, potentials, step caps, positive durations, orbital convergence and unsafe-update rollback in both implementations |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |

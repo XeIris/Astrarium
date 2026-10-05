@@ -13,6 +13,10 @@ var require_gpu := false
 var gpu_available := true
 var studio_abba := false
 var m5_native := false
+## Empty: the named Low-based custom configuration below. Otherwise a whole render
+## preset ("low", "medium", "high"), applied exactly as Settings applies it.
+var m5_preset := ""
+const PRESET_MSAA := {"low": Viewport.MSAA_DISABLED, "medium": Viewport.MSAA_2X, "high": Viewport.MSAA_4X}
 var native_screen := -1
 var native_window_pixels := Vector2i.ZERO
 var native_frame_pixels := Vector2i.ZERO
@@ -206,10 +210,12 @@ func measure(label: String, action := Callable()) -> void:
 			or DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED):
 		failures += 1
 		printerr("PERFCHECK native display configuration changed: ", label)
-	if m5_native and (stage.render_quality != M5_QUALITY or stage.flight.local.render_quality != M5_QUALITY \
-			or stage.lighting_quality != "low" or stage.pipe.render_scale != 2.0 \
-			or stage.pipe.lens.get_scale() != M5_LENS_SCALE or stage.pipe.lens.march_size() != M5_LENS_PIXELS \
-			or stage.pipe.local_vp.msaa_3d != Viewport.MSAA_DISABLED or stage.pipe.model_vp.msaa_3d != Viewport.MSAA_DISABLED \
+	var quality := M5_QUALITY if m5_preset.is_empty() else m5_preset
+	var lens_ok: bool = stage.pipe.lens.get_scale() == M5_LENS_SCALE and stage.pipe.lens.march_size() == M5_LENS_PIXELS \
+		if m5_preset.is_empty() else stage.pipe.lens.get_scale() == float(stage.RENDER_QUALITY[m5_preset].lens)
+	if m5_native and (stage.render_quality != quality or stage.flight.local.render_quality != quality \
+			or stage.lighting_quality != "low" or stage.pipe.render_scale != 2.0 or not lens_ok \
+			or stage.pipe.local_vp.msaa_3d != PRESET_MSAA[quality] or stage.pipe.model_vp.msaa_3d != PRESET_MSAA[quality] \
 			or [stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp].any(func(vp: SubViewport): return vp.size != M5_PIXELS)):
 		failures += 1
 		printerr("PERFCHECK named rendering configuration changed: ", label)
@@ -239,7 +245,12 @@ func _ready() -> void:
 		elif arg.begins_with("samples="): samples = int(arg.trim_prefix("samples="))
 		elif arg == "studio_abba=1": studio_abba = true
 		elif arg == "m5_native=1": m5_native = true
+		elif arg.begins_with("m5_preset=") and PRESET_MSAA.has(arg.trim_prefix("m5_preset=")): m5_preset = arg.trim_prefix("m5_preset=")
 		else: failures += 1
+	if not m5_preset.is_empty() and not m5_native:
+		printerr("PERFCHECK m5_preset applies only with m5_native=1")
+		get_tree().quit(1)
+		return
 	if samples < 30 or (not report.is_empty() and not report.is_absolute_path()) or DisplayServer.get_name() == "headless":
 		printerr("PERFCHECK requires graphical rendering, >=30 samples and an absolute report path")
 		get_tree().quit(1)
@@ -273,9 +284,9 @@ func _ready() -> void:
 		native_screen = screen
 		get_window().current_screen = screen
 		stage.configure_window_scale(DisplayServer.screen_get_scale(screen))
-		stage.set_render_quality(M5_QUALITY)
+		stage.set_render_quality(M5_QUALITY if m5_preset.is_empty() else m5_preset)
 		stage.set_lighting_quality("low")
-		stage.pipe.lens.set_scale(M5_LENS_SCALE)
+		if m5_preset.is_empty(): stage.pipe.lens.set_scale(M5_LENS_SCALE)
 		for i in 10: await RenderingServer.frame_post_draw
 		get_window().borderless = true
 		get_window().size = M5_PIXELS
@@ -369,7 +380,7 @@ func finish_report() -> void:
 		"window_frame_pixels": [get_window().get_size_with_decorations().x, get_window().get_size_with_decorations().y],
 		"root_logical_resolution": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
 		"lens_scale": stage.pipe.lens.get_scale(), "lens_field_pixels": [stage.pipe.lens.march_size().x, stage.pipe.lens.march_size().y], "msaa": stage.pipe.local_vp.msaa_3d,
-		"render_quality": stage.render_quality, "lighting_quality": stage.lighting_quality,
+		"render_quality": stage.render_quality, "m5_preset": m5_preset if m5_native else null, "lighting_quality": stage.lighting_quality,
 		"frame_budget_ms": FRAME_BUDGET_MS if m5_native else null, "target_fps": 30 if m5_native else null,
 		"simulation_dt": "elapsed process delta" if m5_native else "fixed 1/60 s", "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft != null and stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
 	if not report.is_empty():

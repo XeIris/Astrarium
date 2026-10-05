@@ -261,3 +261,45 @@ targets remain 3024×1964. This separately labeled run is retained in
 `tools/evidence/batch19/m5-final-code/`; it records a clean source tree and
 unchanged per-case native geometry/quality. The earlier 3024×1900-client sample
 remains historical evidence of macOS client-size variation.
+
+## Sky shader cost
+
+The frames above were dominated by the procedural sky, not by lensing or the
+quality preset. At 3024×1964, solar measured 26.85–26.94 ms under Low and
+Medium with MSAA on or off. Replacing only the sky shader with a constant
+colour left 4–7 ms. Removing one component at a time attributed about 16 ms to
+the six point-source tiers. Dust, clusters and nebulae cost about 3 ms each, and
+galaxies about 1 ms.
+
+Two changes address it ([the sky model](physics/sky.md#evaluation-cost)):
+
+- Point-source neighbourhoods skip only cells whose sources must fail the
+  existing rejects. The image is unchanged: `tools/skycachecheck.tscn` requires
+  identical pixels against an exhaustive walk.
+- Diffuse emission and dust depth come from a per-direction cube-face cache
+  below 4× magnification. They differ from live evaluation by at most one 8-bit
+  level on all but isolated pixels.
+
+`tools/skycost.tscn` re-measures the component attribution against the current
+shader. `tools/skycachecheck.tscn -- timing=1` (window `--resolution 1512x982`)
+prints native-size medians for each path:
+
+| case | exhaustive | culled | culled + cache |
+|---|---:|---:|---:|
+| solar, visible | 26.41 ms | 16.31 ms | 11.70 ms |
+| solar, X-ray | 43.80 ms | 24.40 ms | 19.67 ms |
+| solar, aberrated | 26.38 ms | 18.05 ms | 13.40 ms |
+| sandbox, lensed | 38.81 ms | 34.62 ms | 32.31 ms |
+| bhmerger, lensed | 42.28 ms | 38.01 ms | 35.61 ms |
+
+The M5 gate (`python3 tools/check.py m5-budget`, unchanged Low-based settings)
+now measures solar at 12.67 ms, lens-focus at 24.32 ms and flight
+pad/ascent at 16.33/16.40 ms. The same build at the full native Medium preset
+(MSAA, lens detail 0.5; `python3 tools/check.py m5-medium`) measured solar at 12.72 ms, lens-focus at 30.3 FPS
+(p95 33.03 ms) and flight pad/ascent at 31.6/33.4 FPS. Medium now meets the
+declared budget in this sample, but focused lensing has almost no margin; the
+lens march is the remaining cost there. The first two gate runs of this build
+hit the 240-second watchdog with no engine error, while files were still being
+edited and a Godot editor had the project open; the next six completed. A later
+failure recorded one 73.6-second frame while an external display was main,
+consistent with the fullscreen Space being hidden.
