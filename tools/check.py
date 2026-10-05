@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -130,6 +131,57 @@ def checks(suite, godot, output, repeat, export_preset):
                 yield scene("hudcheck", rf"^HUDCHECK PERF {state} shown .* hidden .* ms$", f"hstate={state}", "hperf=1", "assets=0")
 
 
+class FocusGuard:
+    """macOS: Godot activates itself as its window opens. Return focus to the app
+    the user last had in front. Only processes in the check's own session match
+    (wrapper scripts launch Godot as a grandchild), so other Godot windows, such
+    as an open editor, are left alone. Windowed rendering continues behind."""
+
+    def __init__(self, pid):
+        self.pid = pid
+        self.restored = 0
+        self.stop = threading.Event()
+        self.bundle = self.front()[1]
+        self.thread = threading.Thread(target=self.watch, daemon=True)
+
+    @staticmethod
+    def front():
+        try:
+            asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2).stdout.strip()
+            info = subprocess.run(["lsappinfo", "info", "-only", "pid", "-only", "bundleid", asn],
+                                  capture_output=True, text=True, timeout=2).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None, None
+        pid = re.search(r'"pid"=(\d+)', info)
+        bundle = re.search(r'"CFBundleIdentifier"="([^"]+)"', info)
+        return (int(pid.group(1)) if pid else None), (bundle.group(1) if bundle else None)
+
+    def watch(self):
+        while not self.stop.wait(0.05):
+            pid, bundle = self.front()
+            if self.owns(pid) and self.bundle:
+                subprocess.run(["open", "-b", self.bundle], capture_output=True, timeout=5)
+                self.restored += 1
+            elif pid is not None and bundle:
+                self.bundle = bundle
+
+    def owns(self, pid):
+        if pid is None:
+            return False
+        try:
+            return pid == self.pid or os.getsid(pid) == self.pid
+        except OSError:
+            return False
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.stop.set()
+        self.thread.join()
+
+
 def run_check(check, output, index, options):
     name, command, marker, timeout = check
     log = output / f"{index:02d}-{name}.log"
@@ -143,7 +195,9 @@ def run_check(check, output, index, options):
     with log.open("w") as stream:
         process = subprocess.Popen(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
                                    env={**os.environ, "GODOT": options.godot}, start_new_session=os.name == "posix")
+        guard = FocusGuard(process.pid) if options.background and "--headless" not in command else None
         try:
+            if guard: guard.__enter__()
             code = process.wait(timeout=options.timeout or timeout)
             problem = None if code == 0 else f"child exited {code}"
         except subprocess.TimeoutExpired:
@@ -153,6 +207,8 @@ def run_check(check, output, index, options):
                 process.kill()
             process.wait()
             code, problem = 124, "timeout"
+        finally:
+            if guard: guard.__exit__()
     raw = log.read_text(errors="replace")
     text, ignored = CA_ERROR.subn("", raw) if options.allow_macos_ca_error else (raw, 0)
     engine_text = engine_log.read_text(errors="replace") if engine_log and engine_log.exists() else ""
@@ -175,7 +231,7 @@ def run_check(check, output, index, options):
     print(f"  {log}", flush=True)
     return {"name": name, "command": command, "exit_code": code, "problem": problem,
             "seconds": elapsed, "log": str(log), "engine_log": str(engine_log) if engine_log else None,
-            "allowed_ca_diagnostics": ignored,
+            "allowed_ca_diagnostics": ignored, "focus_restored": guard.restored if guard else None,
             "renderer": next((line for line in raw.splitlines() if re.match(r"^(?:Metal|Vulkan|OpenGL).*Using Device", line)), None),
             "metrics": [line for line in raw.splitlines() if line.startswith(("SHARED TIME BENCH", "SHARED TIME CONFIG", "HUDCHECK PERF", "HUDCHECK CONFIG", "NBODYCHECK PASS", "STABILITYCHECK", "STABILITYDIAGNOSTIC"))]}
 
@@ -192,6 +248,8 @@ def main():
     parser.add_argument("--log-dir", type=Path)
     parser.add_argument("--timeout", type=float, help="override each child timeout in seconds")
     parser.add_argument("--allow-macos-ca-error", action="store_true", help="allow only Godot's get_system_ca_certificates diagnostic")
+    parser.add_argument("--background", action="store_true",
+                        help="macOS: hand focus back whenever a windowed check activates (not for the fullscreen M5 gates)")
     parser.add_argument("--repeat", type=int, default=3, help="performance repetitions (default 3)")
     parser.add_argument("--export-preset", default={"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}.get(platform.system(), "macOS"))
     options = parser.parse_args()
@@ -200,6 +258,8 @@ def main():
         parser.error("unknown suite; choose from " + ", ".join(SUITES))
     if options.repeat < 1 or (options.timeout is not None and options.timeout <= 0):
         parser.error("repeat and timeout must be positive")
+    if options.background and (platform.system() != "Darwin" or any(s.startswith("m5-") for s in options.suites)):
+        parser.error("--background is macOS-only; the M5 gates need their fullscreen Space visible")
     options.godot = godot_path(options.godot)
     output = options.log_dir.resolve() if options.log_dir else Path(tempfile.mkdtemp(prefix="astrarium-check-"))
     output.mkdir(parents=True, exist_ok=True)
@@ -207,6 +267,7 @@ def main():
               "platform": platform.platform(), "machine": platform.machine(), "processor": platform.processor(),
               "godot": metadata([options.godot, "--version"]), "commit": metadata(["git", "rev-parse", "HEAD"]),
               "working_tree": metadata(["git", "status", "--short"]), "suites": options.suites,
+              "background": options.background,
               "performance": ({"resolution": "1280x720", "rendered_craft": "authored Saturn V/Falcon 9 (required)",
                                "cpu_flight_craft": "procedural (asserted by each harness)",
                                "studio_abba": "frozen stage; two ABBA cycles per distance; distinct model viewport timestamp batches",

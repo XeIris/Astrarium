@@ -131,7 +131,12 @@ nonzero exit. Independent physics invariants supplement comparisons with the
 frozen numeric reference. The [codebase review and remediation log](docs/codebase-review-2026-10-02.md)
 records known issues, ownership and acceptance evidence.
 
-`python3 tools/check.py` runs the fast headless suite. Select additional suites,
+`python3 tools/check.py` runs the fast headless suite. Rendered checks need a
+real window (headless Godot has no GPU renderer), and Godot activates itself
+as each window opens. On macOS, `--background` returns focus to the app you
+last used within about 50 ms of each activation. Checks keep rendering behind
+other windows, but not minimized or on a hidden Space, so the fullscreen M5
+gates reject it. Select additional suites,
 for example `python3 tools/check.py fast native assets rendered lifecycle export`.
 The runner retains child logs and a JSON report, rejects errors, timeouts and
 missing completion markers, and stops on the first failure. Use `--godot` to
