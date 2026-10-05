@@ -118,7 +118,7 @@ float discDensity(vec3 p, float rs, float r, float H){
 
 	// Anisotropic noise: small azimuthal radius, large radial multiplier, so features
 	// are long and thin. The y term keeps it 3D.
-	float yv = p.y / max(H, 1e-5) * 0.35;
+	float yv = y * 0.35;
 	vec3 q1 = vec3(cos(psi), sin(psi), 0.0) * 0.80 + vec3(0.0, yv, lr * 11.0);
 	vec3 q2 = vec3(cos(psi), sin(psi), 0.0) * 2.20 + vec3(0.0, yv * 2.0, lr * 30.0);
 	float f1 = fbm(q1 + vec3(0.0, 0.0,  time * 0.035));   // slow decorrelation
@@ -176,15 +176,21 @@ vec3 discSource(vec3 p, vec3 rd, float rs, float r, float dens, out float Tphys)
 	return col * emis * heat * discIntensity * 0.62;
 }
 
-// null geodesic:  d²x/dλ² = −(3/2) r_s h² x̂ / r⁵
+// Null geodesic: d²x/dλ² = −(3/2) r_s h² x / r⁵.
+vec3 holeAccel(vec3 rv, vec3 vel, float rs, float distanceToHole){
+	// Unit-direction factors avoid scene-unit fifth powers and absolute floors.
+	float r = max(distanceToHole, rs * 1e-5);
+	vec3 rhat = rv / r;
+	vec3 hhat = cross(rhat, vel);
+	return -1.5 * (rs / r) * (1.0 / r) * dot(hhat, hhat) * rhat;
+}
+
 vec3 geoAccel(vec3 pos, vec3 vel){
 	vec3 a = vec3(0.0);
 	for(int k = 0; k < MAX_HOLES; k++){
 		if(k >= holeCount) break;
 		vec3 rv = pos - holePos(k);
-		float r = max(length(rv), 1e-5);
-		vec3 hv = cross(rv, vel);
-		a += -1.5 * holeRs(k) * dot(hv, hv) * rv / (r * r * r * r * r);
+		a += holeAccel(rv, vel, holeRs(k), length(rv));
 	}
 	return a;
 }
@@ -193,8 +199,7 @@ void main(){
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	ivec2 sz = imageSize(gMarch0);
 	if(px.x >= sz.x || px.y >= sz.y) return;
-	// vUv as WebGL had it: origin bottom-left, so ndc.y points UP. The image's
-	// row 0 is the TOP of the frame, which SCREEN_UV also puts at the top.
+	// Image row zero and SCREEN_UV are top-down; NDC points up.
 	vec2 vUv = vec2((float(px.x) + 0.5) / float(sz.x), 1.0 - (float(px.y) + 0.5) / float(sz.y));
 	vec2 ndc = vUv * 2.0 - 1.0;
 	ndc.x *= aspect;
@@ -204,10 +209,26 @@ void main(){
 
 	vec3 pos = camPos;
 	vec3 vel = rd;
+	if(holeCount == 1){
+		vec3 rv = camPos - holePos(0);
+		float r = length(rv);
+		if(r > holeRs(0)){
+			// Static observer's local ray to a coordinate tangent: docs/physics/lensing.md.
+			vec3 rhat = rv / r;
+			vec3 radial = dot(rd, rhat) * rhat;
+			vel = normalize(radial + (rd - radial) / sqrt(1.0 - holeRs(0) / r));
+		}
+	}
 	vec3 color = vec3(0.0);
 	float trans = 1.0;
 	bool captured = false;
 	float tSum = 0.0, tWeight = 0.0;      // luminance-weighted mean disc temperature
+
+	float maxDiscH[MAX_HOLES];
+	for(int k = 0; k < MAX_HOLES; k++){
+		if(k >= holeCount) break;
+		maxDiscH[k] = scaleHeight(discOuter * holeRs(k), holeRs(k));
+	}
 
 	float rsMax = holeRs(0);
 	for(int k = 1; k < MAX_HOLES; k++){ if(k < holeCount) rsMax = max(rsMax, holeRs(k)); }
@@ -217,9 +238,10 @@ void main(){
 	float far  = max(camR * 1.4 + 40.0 * rsMax, 120.0 * rsMax);
 
 	for(int i = 0; i < STEPS; i++){
-		// ---- adaptive step: fine near a horizon and near a disc plane
-		float step = 1e9;
-		float minr = 1e9;
+		// adaptive step: fine near a horizon and near a disc plane
+		float step = uintBitsToFloat(0x7f7fffffu);
+		float minr = step;
+		vec3 k1 = vec3(0.0);
 		for(int k = 0; k < MAX_HOLES; k++){
 			if(k >= holeCount) break;
 			float rs = holeRs(k);
@@ -233,29 +255,34 @@ void main(){
 
 			// never leap over the slab: cap by the distance to the equatorial plane
 			float rcyl = length(pl.xz);
-			if(rcyl < discOuter * rs * 1.5 && abs(pl.y) < discOuter * rs){
+			if(rcyl + step >= R_ISCO * rs && rcyl - step <= discOuter * rs && abs(pl.y) < discOuter * rs){
 				float H = scaleHeight(max(rcyl, R_ISCO * rs), rs);
 				step = min(step, max(abs(pl.y) * 0.45, H * 0.7));
 			}
+			// Avoid a second distance evaluation for this curvature stage.
+			k1 += holeAccel(pl, vel, rs, r);
 		}
 		if(captured) break;
 		if(minr > far) break;
-		step = clamp(step, rsMax * 0.010, 12.0 * rsMax);
+		step = clamp(step, rsMax * 0.010, max(12.0 * rsMax, 0.16 * minr));
+		k1 -= vel * dot(k1, vel);
 
-		// ---- RK2 midpoint on the exact null-geodesic equation
-		vec3 k1  = geoAccel(pos, vel);
+		// Arclength curvature is the transverse part of the affine acceleration.
 		vec3 vh  = normalize(vel + k1 * (step * 0.5));
 		vec3 ph  = pos + vel * (step * 0.5);
 		vec3 k2  = geoAccel(ph, vh);
+		k2 -= vh * dot(k2, vh);
 		vec3 nvel = normalize(vel + k2 * step);
-		vec3 npos = pos + nvel * step;
+		vec3 npos = pos + vh * step;
 
-		// ---- volumetric disc sample at the segment midpoint
+		// volumetric disc sample at the segment midpoint
 		vec3 mid = mix(pos, npos, 0.5);
 		for(int k = 0; k < MAX_HOLES; k++){
 			if(k >= holeCount) break;
 			float rs = holeRs(k);
 			vec3 pl = mid - holePos(k);
+			// H(r) increases to the outer edge; density vanishes above 2.6 H(r).
+			if(abs(pl.y) > 3.0 * maxDiscH[k]) continue;
 			float r = length(pl.xz);
 			if(r < R_ISCO * rs || r > discOuter * rs) continue;
 			float H = scaleHeight(r, rs);
@@ -264,7 +291,7 @@ void main(){
 
 			// Exact dI/dτ = S − I over the segment: I += S(1 − e^−τ). Path length in horizon
 			// radii.
-			float dl  = step / max(rs, 1e-20);
+			float dl  = step / rs;
 			float tau = dens * dl * 4.5;
 			float att = exp(-tau);
 			float Tphys;
@@ -281,7 +308,7 @@ void main(){
 		pos = npos;
 	}
 
-	// ---- hand over to the resolve pass. The direction is stored as a delta from the
+	// hand over to the resolve pass. The direction is stored as a delta from the
 	// undeflected ray, so fp16 spends its mantissa on the bend.
 	vec3 d = normalize(vel);
 	// Zeroing transmittance on capture retires a separate captured flag.

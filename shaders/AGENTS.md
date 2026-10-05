@@ -45,6 +45,11 @@ and the temperature pass are in [docs/godot.md](../docs/godot.md).
   (scale height, plane concentration, bulge size) take the weighted mean. Each
   parameter declares which on `SKY_PARAMS`, which also builds the settings panel.
 
+The lens uses scene-relative float coordinates and horizon-relative lengths.
+Single-hole ray geometry has independent shadow/weak-field checks in
+`tools/lenscheck.tscn`; two-hole superposition and disc transfer remain illustrative.
+See [the ray contract](../docs/physics/lensing.md#ray-coordinates-and-numerical-scope).
+
 ## Solid surfaces (`rocky_surface.gdshader`, `terrain.gdshaderinc`)
 
 - Land fraction goes through the inverse normal CDF (`crust_threshold(0.29)`),

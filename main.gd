@@ -173,9 +173,7 @@ func _ready() -> void:
 	set_mesh_style(state.mesh_style)
 	hud.build_bindings(Bindings.GROUPS, controls.bindings)
 	set_app_icon(AppIcon.saved(), false)
-	_init_fx_rows()
-	if _cmd.has("quality"): set_render_quality(String(_cmd.quality))
-	if _cmd.has("lighting"): set_lighting_quality(String(_cmd.lighting))
+	_init_render_settings()
 	render_preset_groups()
 	render_craft_grid()
 	hud.render_model_grid(model_view.list())
@@ -1401,7 +1399,6 @@ func set_app_icon(key: String, persist := true) -> void:
 	for icon in AppIcon.ICONS:
 		hud.set_active("[data-app-icon=%s]" % icon[0], icon[0] == key)
 
-const FX_DEFAULTS := {"bloom": 0.55, "threshold": 1.0, "radius": 1.0, "vignette": 0.35, "grain": 0.02, "exposure": 1.0}
 const FX_ROWS := [["fxBloom", "bloom", 2], ["fxThreshold", "threshold", 2], ["fxRadius", "radius", 2], ["fxVignette", "vignette", 2], ["fxGrain", "grain", 3], ["fxExposure", "exposure", 2]]
 const RENDER_QUALITY := {
 	"low": {"render": 0.65, "lens": 0.30, "bloom": 0.25, "threshold": 1.25, "radius": 0.7, "vignette": 0.2, "grain": 0.0, "exposure": 1.0},
@@ -1412,13 +1409,10 @@ var render_quality := "medium"
 var lighting_quality := "low"
 var lighting_effects := {"shadows": false, "ao": false, "reflections": false, "indirect": false}
 
-func _init_fx_rows() -> void:
-	for row in FX_ROWS: _set_fx(row[0], FX_DEFAULTS[row[1]], true)
-	var ls := pipe.lens.get_scale()
-	hud.set_slider("lensScale", ls, "%sx" % U.fixed(ls, 2))
-	hud.set_slider("renderScale", 1.0, "%sx" % U.fixed(pipe.render_scale, 2))
-	_sync_render_quality()
-	_sync_lighting_quality()
+func _init_render_settings() -> void:
+	var requested_quality := String(_cmd.get("quality", render_quality))
+	set_render_quality(requested_quality if RENDER_QUALITY.has(requested_quality) else render_quality)
+	set_lighting_quality(String(_cmd.get("lighting", lighting_quality)))
 
 func _sync_render_quality() -> void:
 	for q in RENDER_QUALITY:

@@ -155,6 +155,13 @@ See [the measurement contract and local results](docs/performance.md). Missing
 GPU timestamps are reported as unavailable; these measurements are not portable
 performance budgets.
 
+`python3 tools/check.py m5-budget` runs the selected M5 Metal gate: native
+3024×1964 scene targets, Low-based settings, MSAA disabled, lens detail 0.35,
+native pixel scaling,
+elapsed simulation steps, at least 30 mean FPS and p95 frame intervals within
+33.33 ms. The HUD client/frame dimensions are recorded separately. See the performance
+notes for the custom configuration and measured results.
+
 Authored builds run a Blender primitive-winding check before publishing models,
 then refresh Godot imports when the engine is available. This prevents checks
 from measuring an older imported mesh after the source GLB changes.
@@ -173,7 +180,11 @@ procedural gate on macOS, Linux and Windows. It does not establish authored
 Blender fidelity, graphical performance or device budgets. A Linux x86_64
 Ubuntu clean-clone/native/export run passed locally under Docker emulation on
 macOS; this establishes the functional platform contract, not Linux GPU costs.
-Actual Windows execution and remote CI evidence remain pending.
+An [actual three-platform CI run](https://github.com/XeIris/Astrarium/actions/runs/37183785382)
+passed all 16 clean children per platform at `d3e7655`, including native kernels,
+64 save checks and isolated exported startup. Engine downloads now require
+the pinned official SHA256 before extraction. Later revisions require their own
+remote run; headless CI supplies no rendered frame budget.
 [Evidence retention](docs/evidence.md) keeps new generated captures out of the
 frozen migration reference archive.
 
@@ -191,6 +202,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
 | `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
 | `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
+| `tools/lenscheck.tscn` | graphical GPU check of independent single-hole shadow size, horizon-scale invariance, finite fields and weak-field deflection |
 | `tools/numericalcheck.gd` | requires native kernel; checks tiny forces, potentials, step caps, positive durations, orbital convergence and unsafe-update rollback in both implementations |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary and black-hole pair forces, matching energy, and presentation-independent contact distances |

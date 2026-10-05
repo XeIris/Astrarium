@@ -14,7 +14,8 @@ with it is useful evidence of compatibility, not proof of physical correctness.
 The first remediation batch was implemented in parallel. Agents shared a
 checkout with distinct file ownership; the coordinator reviewed the combined
 diff and ran integration checks. The user requested committing this verified batch
-before continuing remediation. Publication remains outside this work.
+before continuing remediation. That initial batch did not include publication;
+final platform verification now publishes the reviewed branch for CI.
 
 | Owner | Scope |
 |---|---|
@@ -51,11 +52,11 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R13 | P3 | Verified broad cleanup, batch 15 | Long introductions, port history, banner comments and repeated documentation reduce signal. | Remove redundant narration; retain units, precision, ownership and algorithm rationale; keep substantial explanations in canonical docs. |
 | R14 | P2 | Resolved/bounded: normal LOD, winding and authored culling verified | Authored models strongly favor top LOD; materials frequently disable back-face culling. | Controlled GPU comparisons support normal LOD; shared open shells retain interiors. Further surface splits need measured benefit. Device budgets remain R20. |
 | R15 | P2 | Verified bounded invalidation; spikes remain measurable | Body slider edits rebuild visuals; inspector repeatedly recomputes structure. | Measure interaction spikes and apply bounded invalidation/caching only where justified; lifecycle counts stay flat. |
-| R16 | P3 | Partial: uniform cache verified; unsafe/ineffective array caches rejected | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | Rendered allocation/lifetime evidence must justify any different packing ownership. |
+| R16 | P3 | Verified bounded rendered allocation/lifetime evidence, batch 19 | Per-frame shader arrays and transient compute uniform sets may add submission/allocation cost. | Rendered allocation/lifetime evidence must justify any different packing ownership. |
 | R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
 | R18 | P3 | Verified retention policy; archive retained | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
-| R19 | P2 | Verified: POSIX and simulated recovery | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows integration remains pending. |
-| R20 | P2 | Partial: macOS/Linux clean gates passed; Windows/remote CI pending | Performance and release confidence lack a reproducible integrated baseline. | Actual Windows verification, remote CI execution and supported-device GPU/frame budgets remain. |
+| R19 | P2 | Verified: POSIX and actual Windows publication | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows native and backup publication verified in portable CI. |
+| R20 | P2 | Partial: M5 custom native gate passes; final-source CI pending | Performance and release confidence lack a reproducible integrated baseline. | Fresh final-source Linux/macOS/Windows CI and the declared M5 native frame gate must pass. |
 | R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
 | R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
 | R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
@@ -69,6 +70,8 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R31 | P1 | Verified: batch 12 | A structural mass memo ignores changes below 0.1%, suppressing a Chandrasekhar event after a small merger. | A real small contact merger crossing the threshold detonates during the production frame; exact event checks cannot use a mass tolerance. |
 | R32 | P1 | Verified: batch 12 | Trailing live edits can move to a different selected body, including reused IDs, or rebuild visuals on a removed body. | Cancel pending work on instance changes/removal/rejection; stale callbacks require exact scene membership; asynchronous regression and lifecycle checks pass. |
 | R33 | P2 | Verified: batch 13 | Accepted position, velocity and name edits change the spec but leave live state unchanged; manual force/potential edits contaminate the drift reference. | Explicit vector/name edits reach live state atomically, ordinary edits preserve integrated coordinates, teleports restart trails, and energy-changing edits rebase diagnostics. |
+| R34 | P2 | Verified bounded single-hole ray geometry, batch 19 | Lens scene-unit floors change physical-sized shadows; the global horizon-step cap wastes far-view work, and endpoint position integration contradicts the RK2 claim. | Independent rendered shadow/weak-field targets, scale invariance, matched visible/X-ray inspection and measured native frame cost. Two-hole geometry remains illustrative. |
+| R35 | P2 | Verified: startup and selection quality contract, batch 19 | Startup labels itself Medium without applying its MSAA/cloud settings; selecting Medium later changes the workload. | Startup uses the same quality setters as selection; HUD checks actual MSAA and flight detail, and benchmarks enforce the declared configuration. |
 
 ## Evidence at the reviewed revision
 
@@ -1620,3 +1623,98 @@ budget. Solar/editor cases sustain about 36.7–37.1 FPS; flight about 32.7 FPS.
 The full-resolution scene targets are 3024×1964; the notch-safe fullscreen HUD
 window is 3024×1898. This failed baseline is retained in
 `tools/evidence/batch19/m5-budget-native/`; it is not a passing device guarantee.
+
+
+Rendered R16 evidence is complete. Production packing and the copy-safe
+candidate both allocate **six blocks / 376 requested bytes per call** in full
+native histories, including freed allocations. Production costs **2.025 µs/call**
+in the three-material/four-light case; the safe dictionary candidate costs
+**3.323 µs/call** (medians of twenty 1000-call batch means, not per-call tails).
+Shared-packet submissions across independently lit materials corrupt actual
+rendered directions; fresh and copy-safe images are byte-identical.
+R16 closes by retaining current packing, with publication ownership and measured
+limits explicit. There is no demonstrated allocation or CPU benefit from this
+cache candidate. [The measurement notes](performance.md#rendered-sun-uniform-ownership)
+record the fixture scope and evidence. At this checkpoint R20 remained partial:
+final-revision remote CI and the native-resolution frame budget.
+
+
+A further rendering audit found R34 while diagnosing R20. The lens kernel used
+absolute scene-unit distance/height floors, so changing physical horizon scale
+changed its image. Its global `12 r_s` step cap also exhausted 240 steps in a
+system-wide view without reaching the useful ray path. The position update used
+endpoint velocity despite claiming midpoint RK2; single-hole camera directions
+also omitted the finite static observer's local-to-coordinate mapping.
+
+The revised marcher factors unit directions, uses horizon-relative ratios and
+proper projected arclength midpoint stages. Far steps retain their existing
+fractional-distance bounds without a global tiny-horizon cap. Disc-specific step
+restrictions apply only when a segment could enter the emitting annulus; a
+conservative height envelope excludes known zero-density samples. Noise detail
+and the 240-step limit are retained.
+
+The independent GPU check passes **20 checks**: static-observer shadows at 7/20
+horizon radii, horizon scales 1/1e-7, finite fields, scale invariance and a far
+weak-field bend. Measured radii are **162 / 56 px**, against independent targets
+**162.243 / 56.597 px**. The old shader's physical-size 20-radius shadow is
+**22 px**, and its scale-invariance control fails. Far bending measures
+`7.9274e-6` radians against first-order `7.9688e-6`, at both scales.
+[The ray contract](physics/lensing.md#ray-coordinates-and-numerical-scope) distinguishes
+single-hole geometry, float precision, finite iterations, two-hole superposition
+and the illustrated disc transfer.
+
+At native pixels the expanded profiler also measures a genuinely focused hole,
+which the earlier wide-only case did not exercise. Wide lensing improves from
+**19.85 to 34.04 FPS**; focused lensing at field scale 0.5 still fails at
+**25.76 FPS / 38.867 ms p95**. A separately labeled 0.35 field probe keeps native
+scene/analytic-star output and reaches **33.16 FPS / 30.202 ms p95**. This is an
+explicit quality trade, not a silent relaxation of the 30 FPS or native-output
+requirements. The subsequent full configuration gate and startup audit are recorded below.
+
+
+The per-case quality checks exposed R35: startup displayed Medium but left both
+flight/studio MSAA off and flight cloud detail uninitialized. Selecting Medium
+later applied a different workload. Startup now uses the same render/lighting
+setters as selection, and duplicate post-processing defaults are removed. The
+HUD regression checks actual MSAA and flight cloud initialization. Earlier
+Medium-labeled native reports had MSAA **off**; they do not establish a passing
+fully applied Medium preset. A fully applied native Medium/0.35 probe fails
+flight at **21.58 / 22.50 FPS** (pad/ascent); its evidence remains visible.
+
+The selected, reproducible M5 configuration is **Low-based custom**, native
+3024×1964 scene/flight/studio targets, render scale 2, lens detail 0.35 and MSAA
+off. All **eleven cases pass**: focused lensing **33.13 FPS / 30.310 ms p95**,
+flight pad **32.57 / 30.733**, ascent **33.08 / 30.352**. Per-case guards enforce
+quality, lighting, field dimensions, MSAA, viewport sizes and display geometry.
+Evidence: `tools/evidence/batch19/m5-low-native/`. This is a measured custom
+quality target, not a passing native Medium guarantee or a universal M5 claim.
+The current macOS window client is 3024×1900 within a 3024×1964 decorated frame;
+the 3D targets retain every native pixel. Earlier 3024×1898 client evidence is
+historical. The harness checks actual OS/native extents instead of hardcoding
+one notch/menu configuration. R20 still needs fresh final-source platform CI.
+
+
+Final rendered integration passes all **12 children**, including **57 HUD
+interaction checks** in each default-Medium and cold-Low startup, all 35 lessons /
+108 steps, input/edit/time/transition boundaries and both accretion kernels.
+The five-round soak retains exact flat counts after warmup; the all-preset leak
+check and shutdown check pass. Evidence is retained in
+`tools/evidence/batch19/rendered-current/` and `final-integration/`. Cold Low
+startup skips Medium cloud resources instead of creating them before an override.
+
+Six fixed-time/camera visible and X-ray captures cover single-hole focus, two-hole
+focus and the authored binary wide view. The capture fixture requires 60 distinct
+drawn warmup frames after each band change and records the diagnostic close-camera
+override. Images are inspected; the binary wide view's physical horizons remain
+sub-pixel at its authored separation. X-ray rendering retains categorical
+source-dominance boundaries and half-field edge artifacts; the temperature/disc
+transfer remains illustrative. These checks establish the declared rendering
+contract, not complete mixed-source spectral transport.
+
+The exact prior committed lens shader is retained as a negative-control kernel.
+Six matched fixture records have identical clocks, camera, bodies, quality and
+band settings; only the shader hash differs. Its close physical-size shadow is
+visibly too small, consistent with the independent numeric failure. X-ray source
+switching seams also appear in that control. Current/control evidence and
+regeneration fixtures are under `tools/evidence/batch19/lens-visuals*`; these
+generated images are excluded from version control and exports.

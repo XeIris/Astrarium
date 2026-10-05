@@ -26,6 +26,13 @@ func _ready() -> void:
 	main = load("res://main.tscn").instantiate()
 	add_child(main)
 	await get_tree().process_frame
+	if args.get("htest", "0") == "1":
+		if args.get("quality", "medium") == "low":
+			check("cold Low startup disables flight/studio MSAA", main.render_quality == "low" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_DISABLED and main.pipe.model_vp.msaa_3d == Viewport.MSAA_DISABLED)
+			check("cold Low startup skips flight cloud resources", main.flight.local.render_quality == "low" and main.flight.local.cloud_shape == null)
+		else:
+			check("startup Medium applies flight/studio MSAA", main.render_quality == "medium" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_2X and main.pipe.model_vp.msaa_3d == Viewport.MSAA_2X)
+			check("startup Medium initializes flight cloud detail", main.flight.local.render_quality == "medium" and main.flight.local.cloud_shape != null)
 	var win := get_window()
 	main.configure_window_scale(float(args.get("hscale", "1.0")))
 	win.size = requested_size.max(win.min_size)
@@ -445,8 +452,9 @@ func _interaction_walk() -> void:
 	check("Esc opens Settings", hud.settings_open and hud.settings_panel.is_visible_in_tree())
 	await _click(_find("[data-set=render]"))
 	await _click(_find("[data-render-quality=low]"))
-	check("a render quality button sets the quality", main.render_quality == "low")
+	check("Low disables flight/studio MSAA and flight cloud mode", main.render_quality == "low" and main.flight.local.render_quality == "low" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_DISABLED and main.pipe.model_vp.msaa_3d == Viewport.MSAA_DISABLED)
 	await _click(_find("[data-render-quality=medium]"))
+	check("selecting Medium matches startup MSAA and flight detail", main.render_quality == "medium" and main.flight.local.render_quality == "medium" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_2X and main.pipe.model_vp.msaa_3d == Viewport.MSAA_2X and main.flight.local.cloud_shape != null)
 	await _click(_find("[data-set=controls]"))
 	var bb: Control = hud.binding_buttons.get("pause")
 	await _click(bb)

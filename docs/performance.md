@@ -163,3 +163,92 @@ Portable budgets require named hardware, renderer, quality, asset mode and frame
 conditions. The CI headless checks establish correctness/export contracts, not
 rendering performance. Retain raw reports as CI artifacts or temporary evidence,
 following [the retention policy](evidence.md).
+
+
+## Rendered sun-uniform ownership
+
+The isolated Metal/M5 fixture now renders three spatial materials using the
+production sun-array declarations and `Suns.apply_suns`. Fresh packing and a
+copy-before-mutation candidate produce byte-identical images. Sharing one packet
+across independently lit materials before a render flush changes the middle
+material's cached direction and actual pixels to the last submitted direction.
+Same-direction resubmission alone renders correctly; this fixture does not prove
+that every per-visual cache is unsafe. Any cache must establish its publication
+lifetime and ownership boundary.
+
+Full native allocation history includes both allocations and frees. Both fresh
+packing and the copy-safe candidate make **six packing allocations / 376 requested
+bytes per call**: two vector wrapper/storage pairs and one float wrapper/storage
+pair. Counts normalize exactly over 4003 calls on the resumed render call path.
+Whole-process totals differ with idle rendering and are not packing-cost comparisons;
+block types are inferred from operations, sizes and multiplicity in the stripped
+binary. The reducer records representative stacks and rejects live-only captures.
+
+After 1000 warmup calls, twenty batches of 1000 changing-light calls measure
+production cost at **1.520–2.025 µs/call** across one/three materials and
+one/three/four lights. The three-material/four-light case is **2.025 µs median /
+2.173 µs p95 batch mean**; the safe dictionary candidate is **3.323 / 3.380 µs**.
+These are batch averages including caller light movement, not individual-call tails
+or a whole-frame allocation budget. Production packing remains unchanged: this
+candidate adds ownership and CPU work without removing allocations.
+Evidence and reproduction: `tools/evidence/batch19/suns/FINDINGS.md`, its diagnostic
+fixture, native-history reducer, compact reports and rendered images.
+
+## M5 native frame gate
+
+`python3 tools/check.py m5-budget` selects Metal on Apple M5 and the built-in
+3024×1964 display. Scene, flight and model targets render all native pixels at
+pixel ratio 2; Low shader/post-processing settings, MSAA disabled, and lens field
+scale 0.35 (1058×687 field). This named configuration overrides the Low preset's
+pixel ratio 0.65 and lens field scale 0.30. Reproduce its quality in Settings
+with Low,
+Render scale 2.0 and Lens detail 0.35 (the UI labels these slider overrides Custom);
+Medium remains the startup preset and now applies its declared settings.
+The gate allocates the full panel height,
+including rows outside the available client area, so ordinary fullscreen can
+have fewer scene rows at those same quality settings. The HUD client and
+decorated frame dimensions are recorded separately from scene targets. Native fullscreen must cover the panel or match the OS-reported usable
+rectangle; its client size depends on macOS decorations and menu/notch handling.
+Window, root viewport, display selection, VSync and scene-target dimensions are
+checked in every case, together with the named quality, lens field and MSAA;
+a resized or reduced workload fails.
+
+The gate uses elapsed process delta for animation, VSync off, 90 warmup frames
+and at least 180 samples per case. Consecutive completed-draw notifications must
+advance the engine's drawn-frame counter. Wall intervals include application and
+render submission/backpressure; they measure sustained frame cadence, not display
+latency or an isolated GPU span. Mean FPS is sampled frame count divided by elapsed
+time. Every case needs **mean FPS ≥30** and **p95 frame interval ≤33.333 ms**.
+All eleven authored scenario/editor/studio/flight cases, including wide and
+focused lensing, must complete; phase, engine errors and a bounded watchdog remain failures. Missing Metal GPU timestamps are
+unavailable and do not prevent a wall-frame cadence measurement.
+
+The original ten-case baseline passes nine cases and fails lensing: **19.85 mean FPS /
+50.443 ms p95**. Solar/editor sustain about 36.7–37.1 FPS; flight about 32.7 FPS.
+`tools/evidence/batch19/m5-budget-native/` retains this failure. A named target
+and a working gate do not establish that the target is met.
+
+The selected Low-based custom run passes all eleven cases. Representative results:
+
+| Case | Mean FPS | p95 frame interval |
+|---|---:|---:|
+| Solar | 35.07 | 27.077 ms |
+| Editor spin | 36.76 | 27.231 ms |
+| Wide lens | 35.65 | 28.093 ms |
+| Focused lens | 33.13 | 30.310 ms |
+| Flight pad | 32.57 | 30.733 ms |
+| Flight ascent | 33.08 | 30.352 ms |
+
+Evidence: `tools/evidence/batch19/m5-low-native/`. Current window client/frame
+sizes are 3024×1900 / 3024×1964; the scene targets are 3024×1964. This finite
+sample establishes the named configuration and cases, not arbitrary scenarios,
+thermal states or frame latency. Metal GPU timestamps remain unavailable.
+
+The startup audit also found that earlier Medium-labeled measurements used
+MSAA off and uninitialized flight cloud detail. Startup now applies the same
+preset setters as selecting a quality in Settings. A fully applied native
+Medium configuration with lens detail 0.35 fails flight at 21.58/22.50 FPS
+(pad/ascent), retained in `tools/evidence/batch19/m5-selected-native/`.
+The earlier Medium-labeled/MSAA-off 0.5-field probe also misses the focused-lens
+budget. These failures are not masked
+by the explicitly different passing Low-based custom configuration.

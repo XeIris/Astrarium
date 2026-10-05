@@ -1,6 +1,6 @@
 extends Node
 
-# Local rendered measurements, not portable device budgets. See docs/performance.md.
+# Rendered measurements and the opt-in M5 native frame gate. See docs/performance.md.
 const Catch = preload("res://tools/coursecheck.gd").Catch
 var stage: Node
 var logger := Catch.new()
@@ -12,6 +12,15 @@ var samples := 180
 var require_gpu := false
 var gpu_available := true
 var studio_abba := false
+var m5_native := false
+var native_screen := -1
+var native_window_pixels := Vector2i.ZERO
+var native_frame_pixels := Vector2i.ZERO
+const M5_PIXELS := Vector2i(3024, 1964)
+const M5_QUALITY := "low"
+const M5_LENS_SCALE := 0.35
+const M5_LENS_PIXELS := Vector2i(1058, 687)
+const FRAME_BUDGET_MS := 1000.0 / 30.0
 signal model_sample(data: Dictionary)
 signal studio_capture_done
 
@@ -74,7 +83,7 @@ func measure_studio_block(label: String, bias: float, baseline: Dictionary) -> v
 	results.append(row)
 	print("PERFCHECK METRIC ", JSON.stringify(row))
 
-func capture_studio(label: String) -> void:
+func capture_frame(label: String) -> void:
 	stage.pipe.capture_next(func(img: Image):
 		call_deferred("save_studio_capture", img, label))
 	stage.animate(0.0)
@@ -106,7 +115,7 @@ func measure_studio_abba() -> void:
 				var bias := 128.0 if block == 0 or block == 3 else 1.0
 				var label := "studio-%s-cycle-%d-block-%d" % [distance, cycle, block]
 				await measure_studio_block(label, bias, baseline)
-				if cycle == 0 and block < 2 and not report.is_empty(): await capture_studio(label)
+				if cycle == 0 and block < 2 and not report.is_empty(): await capture_frame(label)
 
 func summary(values: Array) -> Dictionary:
 	if values.is_empty(): return {}
@@ -144,23 +153,36 @@ func record_compute(label: String, totals: Dictionary) -> void:
 		compute[label][key].cpu_ms.append(totals[key][0])
 		compute[label][key].gpu_ms.append(totals[key][1])
 
+func native_display_extent() -> bool:
+	var client := get_window().size
+	return client == M5_PIXELS or get_window().get_size_with_decorations() == M5_PIXELS or client == DisplayServer.screen_get_usable_rect(native_screen).size
+
 func measure(label: String, action := Callable()) -> void:
 	for i in 90:
-		stage.animate(1.0 / 60.0)
+		stage.animate(get_process_delta_time() if m5_native else 1.0 / 60.0)
 		await RenderingServer.frame_post_draw
 	var animate_ms := []
 	var action_ms := []
 	var render_cpu_ms := []
 	var render_gpu_ms := []
 	var primitives := []
+	var frame_ms := []
+	var previous_draw := Time.get_ticks_usec()
+	var previous_frame := Engine.get_frames_drawn()
 	for i in samples:
 		var start := Time.get_ticks_usec()
 		if action.is_valid(): action.call(i)
 		action_ms.append(float(Time.get_ticks_usec() - start) / 1000.0)
 		start = Time.get_ticks_usec()
-		stage.animate(1.0 / 60.0)
+		stage.animate(get_process_delta_time() if m5_native else 1.0 / 60.0)
 		animate_ms.append(float(Time.get_ticks_usec() - start) / 1000.0)
 		await RenderingServer.frame_post_draw
+		var now := Time.get_ticks_usec()
+		var drawn := Engine.get_frames_drawn()
+		if drawn <= previous_frame: failures += 1
+		frame_ms.append(float(now - previous_draw) / 1000.0)
+		previous_draw = now
+		previous_frame = drawn
 		var cpu := RenderingServer.get_frame_setup_time_cpu()
 		var gpu := 0.0
 		var triangles := 0
@@ -174,7 +196,29 @@ func measure(label: String, action := Callable()) -> void:
 		RenderingServer.call_on_render_thread(capture_compute.bind(label))
 	await get_tree().process_frame
 	var row := {"case": label, "animate_ms": summary(animate_ms), "action_ms": summary(action_ms),
+		"frame_ms": summary(frame_ms), "mean_fps": 1000.0 * samples / frame_ms.reduce(func(total: float, value: float): return total + value, 0.0),
 		"viewport_cpu_ms": summary(render_cpu_ms), "viewport_gpu_ms": summary(render_gpu_ms), "primitives": summary(primitives)}
+	if m5_native and (DisplayServer.window_get_current_screen() != native_screen \
+			or get_window().mode != Window.MODE_FULLSCREEN or get_window().size != native_window_pixels \
+			or get_window().get_size_with_decorations() != native_frame_pixels \
+			or get_viewport().get_visible_rect().size != Vector2(native_window_pixels) / get_window().content_scale_factor \
+			or DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED):
+		failures += 1
+		printerr("PERFCHECK native display configuration changed: ", label)
+	if m5_native and (stage.render_quality != M5_QUALITY or stage.flight.local.render_quality != M5_QUALITY \
+			or stage.lighting_quality != "low" or stage.pipe.render_scale != 2.0 \
+			or stage.pipe.lens.get_scale() != M5_LENS_SCALE or stage.pipe.lens.march_size() != M5_LENS_PIXELS \
+			or stage.pipe.local_vp.msaa_3d != Viewport.MSAA_DISABLED or stage.pipe.model_vp.msaa_3d != Viewport.MSAA_DISABLED \
+			or [stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp].any(func(vp: SubViewport): return vp.size != M5_PIXELS)):
+		failures += 1
+		printerr("PERFCHECK named rendering configuration changed: ", label)
+	if m5_native and (row.frame_ms.p95 > FRAME_BUDGET_MS or row.mean_fps < 30.0 or stage.pipe.render_size != M5_PIXELS):
+		failures += 1
+		printerr("PERFCHECK frame budget exceeded: ", label)
+	if label.begins_with("lens-"):
+		var hole: Body = stage.state.bodies.filter(func(b: Body): return b.type == "bh")[0]
+		row["lens"] = {"camera_radius_scene": stage.cam.radius, "horizon_scene": hole.rs_scene, "following": stage.state.follow_id == hole.id}
+		if label == "lens-focus" and (stage.state.follow_id != hole.id or stage.cam.radius > 8.0 * hole.rs_scene): failures += 1
 	if label.begins_with("flight-"):
 		row["flight"] = {"phase": stage.flight.vessel.phase, "met_s": stage.flight.vessel.met,
 			"altitude_m": stage.flight.vessel.altitude()}
@@ -193,9 +237,14 @@ func _ready() -> void:
 		elif arg == "uniform_cache=0": RDU.cache_uniforms = false
 		elif arg.begins_with("samples="): samples = int(arg.trim_prefix("samples="))
 		elif arg == "studio_abba=1": studio_abba = true
+		elif arg == "m5_native=1": m5_native = true
 		else: failures += 1
 	if samples < 30 or (not report.is_empty() and not report.is_absolute_path()) or DisplayServer.get_name() == "headless":
 		printerr("PERFCHECK requires graphical rendering, >=30 samples and an absolute report path")
+		get_tree().quit(1)
+		return
+	if m5_native and (studio_abba or samples < 180 or not RenderingServer.get_video_adapter_name().contains("M5") or RenderingServer.get_current_rendering_driver_name() != "metal"):
+		printerr("PERFCHECK M5 native gate requires Metal, Apple M5, >=180 samples and scenarios")
 		get_tree().quit(1)
 		return
 	OS.add_logger(logger)
@@ -212,6 +261,45 @@ func _ready() -> void:
 	stage.lessons.store = ""
 	stage.pipe.set_render_scale(1.0)
 	stage.pipe.set_view_size(Vector2i(1280, 720))
+	if m5_native:
+		var screen := -1
+		for candidate in DisplayServer.get_screen_count():
+			if DisplayServer.screen_get_size(candidate) == M5_PIXELS: screen = candidate
+		if screen < 0:
+			printerr("PERFCHECK requires the built-in 3024x1964 display")
+			get_tree().quit(1)
+			return
+		native_screen = screen
+		get_window().current_screen = screen
+		stage.configure_window_scale(DisplayServer.screen_get_scale(screen))
+		stage.set_render_quality(M5_QUALITY)
+		stage.set_lighting_quality("low")
+		stage.pipe.lens.set_scale(M5_LENS_SCALE)
+		for i in 10: await RenderingServer.frame_post_draw
+		get_window().borderless = true
+		get_window().size = M5_PIXELS
+		get_window().mode = Window.MODE_FULLSCREEN
+		# macOS applies display moves and fullscreen asynchronously.
+		var display_deadline := Time.get_ticks_msec() + 5000
+		var settled_frames := 0
+		while Time.get_ticks_msec() < display_deadline:
+			await RenderingServer.frame_post_draw
+			var ready := DisplayServer.window_get_current_screen() == screen and get_window().mode == Window.MODE_FULLSCREEN and native_display_extent()
+			settled_frames = settled_frames + 1 if ready else 0
+			if settled_frames >= 10: break
+		native_window_pixels = get_window().size
+		native_frame_pixels = get_window().get_size_with_decorations()
+		if settled_frames < 10:
+			printerr("PERFCHECK unexpected built-in fullscreen extent: ", native_window_pixels)
+			get_tree().quit(1)
+			return
+		stage.resize()
+		stage.pipe.set_view_size(M5_PIXELS / int(DisplayServer.screen_get_scale(screen)))
+		stage.pipe.set_render_scale(DisplayServer.screen_get_scale(screen))
+		if stage.pipe.render_size != M5_PIXELS:
+			printerr("PERFCHECK native backing targets differ: ", stage.pipe.render_size)
+			get_tree().quit(1)
+			return
 	for vp in [get_viewport(), stage.pipe.hook_vp, stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp]:
 		RenderingServer.viewport_set_measure_render_time(vp.get_viewport_rid(), true)
 	if studio_abba:
@@ -230,7 +318,11 @@ func _ready() -> void:
 	stage.set_panel_open("xsecPanel", false)
 	stage.load_preset("sandbox")
 	if not stage.state.bodies.any(func(b: Body): return b.type == "bh"): failures += 1
-	await measure("lens")
+	await measure("lens-wide")
+	var hole: Body = stage.state.bodies.filter(func(b: Body): return b.type == "bh")[0]
+	stage.set_follow(hole)
+	await measure("lens-focus")
+	if m5_native and not report.is_empty(): await capture_frame("native-lens-focus")
 	CraftAssets.craft_models_ready(["saturnv"])
 	stage.show_model("saturnv")
 	if not stage.model_view.craft.authored: failures += 1
@@ -270,7 +362,15 @@ func finish_report() -> void:
 	var data := {"godot": Engine.get_version_info(), "device": RenderingServer.get_video_adapter_name(),
 		"profile": "studio_abba" if studio_abba else "scenarios",
 		"driver": RenderingServer.get_current_rendering_driver_name(), "method": RenderingServer.get_current_rendering_method(),
-		"resolution": [1280, 720], "render_scale": 1.0, "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
+		"resolution": [stage.pipe.render_size.x, stage.pipe.render_size.y], "render_scale": stage.pipe.render_scale,
+		"logical_resolution": [stage.pipe.view_size.x, stage.pipe.view_size.y],
+		"window_pixels": [get_window().size.x, get_window().size.y],
+		"window_frame_pixels": [get_window().get_size_with_decorations().x, get_window().get_size_with_decorations().y],
+		"root_logical_resolution": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
+		"lens_scale": stage.pipe.lens.get_scale(), "lens_field_pixels": [stage.pipe.lens.march_size().x, stage.pipe.lens.march_size().y], "msaa": stage.pipe.local_vp.msaa_3d,
+		"render_quality": stage.render_quality, "lighting_quality": stage.lighting_quality,
+		"frame_budget_ms": FRAME_BUDGET_MS if m5_native else null, "target_fps": 30 if m5_native else null,
+		"simulation_dt": "elapsed process delta" if m5_native else "fixed 1/60 s", "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft != null and stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
 	if not report.is_empty():
 		var file := FileAccess.open(report, FileAccess.WRITE)
 		if file == null: failures += 1

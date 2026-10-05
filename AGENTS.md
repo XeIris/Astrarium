@@ -184,6 +184,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero
 - anything that creates or frees nodes, visuals or caches: `eval=_soak_check`;
   the counts must stay flat after the first round
+- lens ray geometry: `tools/lenscheck.tscn`, plus focused visible/X-ray views
 - parse errors: `Godot --headless --path . --import`, then `--quit`. Shader
   errors print as `SHADER ERROR` on first render.
 
