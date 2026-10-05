@@ -61,6 +61,13 @@ uniform float uwBlazar = 0.0;
 // Observer velocity/c in world coordinates; nonzero only in interstellar cruise.
 uniform vec3 uBeta = vec3(0.0);
 
+// Cube-face atlas of the diffuse emission (rgb) and dust depth (a), rendered by
+// render/sky_cache.gd. Face size in texels; 0 evaluates them live.
+uniform sampler2D uSkyCache : filter_linear, repeat_disable;
+uniform float uSkyCacheFace = 0.0;
+// Checks evaluate every neighbour cell to prove the point-source cull is exact.
+uniform bool uSkyExhaustive = false;
+
 /**
  * Alpha sentinel meaning "this pixel is sky, already imaged in the current
  * band - do not infer a temperature, do not apply a Planck ratio". The value
@@ -89,6 +96,10 @@ const float SKY_ALPHA = 0.995;
 #define SKY_1E_16 uintBitsToFloat(0x24e69595u)   // 1e-16
 #define SKY_1E_24 uintBitsToFloat(0x179abe15u)   // 1e-24
 #define SKY_1E_30 uintBitsToFloat(0x0da24260u)   // 1e-30
+
+// Diffuse layers come from the cache only below 4x magnification; the photon ring
+// keeps evaluating them, since no fixed resolution survives it.
+#define SKY_CACHE_MIN_W2 0.25
 
 // smoothstep with reversed edges, written out: the spec leaves it undefined, and
 // this is what WebGL/ANGLE evaluates. It sets the star-tier LOD boundary.
@@ -297,6 +308,17 @@ float sky_cellWeight(vec2 fc){
 	return (1.0 + fc.x * fc.x) * (1.0 + fc.y * fc.y) / (s * sqrt(s));
 }
 
+// Neighbour offsets (x0, y0, x1, y1) whose sources can lie within `reach` radians
+// of a ray at fractional cell position f. The equiangular map spans at least π/6
+// radians per grid unit (its smallest singular value, at a face corner); 0.9 covers
+// chord and tangent-projection slack. Skipped cells only held rejected sources.
+ivec4 sky_neighbours(vec2 f, float cells, float reach){
+	if (uSkyExhaustive) return ivec4(-1, -1, 1, 1);
+	float span = reach * cells * (3.0 / SKY_PI) / 0.9;
+	return ivec4(f.x < span ? -1 : 0, f.y < span ? -1 : 0,
+	             1.0 - f.x < span ? 1 : 0, 1.0 - f.y < span ? 1 : 0);
+}
+
 // ---- stellar temperature, weighted for a magnitude-limited sample (mostly B/A
 // stars and distant giants), not the IMF.
 float sky_starTemp(float u_in, float tier){
@@ -374,10 +396,13 @@ vec2 sky_clusterField(vec3 dir, float face, vec2 g){
 float sky_galaxies(vec3 dir, float face, vec2 g, float w2){
 	float acc = 0.0;
 	float cells = 9.0;
-	vec2 cell = floor((g * 0.5 + 0.5) * cells);
+	vec2 cellPos = (g * 0.5 + 0.5) * cells;
+	vec2 cell = floor(cellPos);
+	// The widest galaxy (2.82e-3 rad) bounds the r2 > 30 sig2 reject below.
+	ivec4 nb = sky_neighbours(cellPos - cell, cells, sqrt(30.0) * max(2.82e-3, uPsfPx * sqrt(w2)));
 
-	for (int oy = -1; oy <= 1; oy++) {
-		for (int ox = -1; ox <= 1; ox++) {
+	for (int oy = nb.y; oy <= nb.w; oy++) {
+		for (int ox = nb.x; ox <= nb.z; ox++) {
 			vec2 cc = cell + vec2(float(ox), float(oy));
 			if (cc.x < 0.0 || cc.y < 0.0 || cc.x >= cells || cc.y >= cells) continue;
 			vec3 h  = sky_hash33(vec3(cc + 0.5, face * 17.0 + 3.7));
@@ -401,13 +426,15 @@ float sky_galaxies(vec3 dir, float face, vec2 g, float w2){
 // Compact non-thermal sources (pulsars, XRBs, blazars), in pixel space like stars.
 // "plane" gates onto the disc; blazars are extragalactic, so 0.
 float sky_compact(vec3 dir, vec3 ddx, vec3 ddy, float ga, float gb, float gc,
-                  float gdet, float w2, float face, vec2 g, float cells, float seed,
+                  float gdet, float w2, float reach, float face, vec2 g, float cells, float seed,
                   float plane, float accept, float flux){
 	float acc = 0.0;
-	vec2 cell = floor((g * 0.5 + 0.5) * cells);
+	vec2 cellPos = (g * 0.5 + 0.5) * cells;
+	vec2 cell = floor(cellPos);
+	ivec4 nb = sky_neighbours(cellPos - cell, cells, reach);
 
-	for (int oy = -1; oy <= 1; oy++) {
-		for (int ox = -1; ox <= 1; ox++) {
+	for (int oy = nb.y; oy <= nb.w; oy++) {
+		for (int ox = nb.x; ox <= nb.z; ox++) {
 			vec2 cc = cell + vec2(float(ox), float(oy));
 			if (cc.x < 0.0 || cc.y < 0.0 || cc.x >= cells || cc.y >= cells) continue;
 			vec3 h = sky_hash33(vec3(cc + 0.5, face * 23.0 + seed));
@@ -454,135 +481,24 @@ float sky_snr(vec3 dir, float face, vec2 g, float w2){
 	return acc;
 }
 
-// skyRadianceD / skyRadiance
-//   dir      outgoing ray direction, normalised (after lensing)
-//   ddx,ddy  its screen derivatives: their cross product is the pixel's source
-//            solid angle, and the pair carries the anisotropy
-//   D        the observer's Doppler factor (sky_doppler), 1.0 with no boost
-vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
-	vec3 total = vec3(0.0);
-	vec3 ddx = ddx_in;
-	vec3 ddy = ddy_in;
+// ---- footprint-independent layers. Diffuse emission and dust ignore the pixel
+// Jacobian (docs/physics/sky.md), so they depend on rest-frame direction alone and
+// render/sky_cache.gd may sample them from a per-direction cache.
 
-	// Cull threshold for this band's component weights - see SKY_W_EPS_VIS.
+// Dust optical depth, only where something in this band consumes it (not radio or gamma).
+float sky_tau(vec3 dir){
 	float wEps = uVisibleBand > 0.5 ? SKY_W_EPS_VIS : SKY_W_EPS_LOG;
+	if (uVisibleBand > 0.5 || uExtCoef > wEps || uwDustEm > wEps
+	    || uwRefl > wEps || uwXrayBg > wEps) return sky_dustTau(dir);
+	return 0.0;
+}
 
-	// Source solid angle per pixel, clamped by scaling the basis so J stays consistent.
-	// The lower cap bounds magnification at ~1000×; the upper stops rays that wind the
-	// photon sphere (where the derivative is noise) from blowing up the ring.
-	float w2 = max(length(cross(ddx, ddy)), SKY_1E_16);
-	float pix2 = max(uPixAngle * uPixAngle, SKY_1E_16);
-	float s = 1.0;
-	if (w2 < pix2 * 1.0e-3) s = sqrt(pix2 * 1.0e-3 / w2);
-	if (w2 > pix2 * 144.0)  s = sqrt(pix2 * 144.0 / w2);
-	ddx *= s; ddy *= s; w2 *= s * s;
-
-	// Normal equations for the least-squares pixel offset, hoisted out of the
-	// star loop: p = (JtJ)^-1 Jt delta.
-	float ga = dot(ddx, ddx);
-	float gb = dot(ddx, ddy);
-	float gc = dot(ddy, ddy);
-	float gdet = max(ga * gc - gb * gb, SKY_1E_24);
-
-	// Characteristic source-plane radius of the PSF, used only to decide which
-	// tiers are still resolvable as points.
-	float sigma = uPsfPx * sqrt(w2);
-
-	// The cube cell decomposition, once: every population walks a 3x3 neighbourhood on
-	// the same face and differs only in cell count.
-	float face;
-	vec2 fc;
-	sky_cube(dir, face, fc);
-	vec2 g = sky_toGrid(fc);                      // [-1,1] on this face
-
+// Adds the diffuse emission to `total` term by term, behind dust extinction `ext`.
+vec3 sky_diffuseAdd(vec3 total_in, vec3 dir, float tau, vec3 ext){
+	vec3 total = total_in;
+	float wEps = uVisibleBand > 0.5 ? SKY_W_EPS_VIS : SKY_W_EPS_LOG;
 	float band  = sky_bandProfile(dir);
 	float bulge = sky_bulgeProfile(dir);
-
-	// Dust only where something in this band consumes it (not radio or gamma).
-	float tau = 0.0;
-	if (uVisibleBand > 0.5 || uExtCoef > wEps || uwDustEm > wEps
-	    || uwRefl > wEps || uwXrayBg > wEps) tau = sky_dustTau(dir);
-	vec3 ext = sky_extinction(tau);
-
-	// ---- stars, crowding toward the plane.
-	vec2 clus = sky_clusterField(dir, face, g);
-	float density = uStarDensity * (1.0 + uPlaneConc * band + clus.x);
-
-	for (int t = 0; t < SKY_TIERS; t++) {
-		float tier  = float(t);
-		float cells = 4.0 * exp2(tier);             // cells per face edge
-		// Angular size of one cell. Tier k has 4x the cells and 1/2.512 the flux of
-		// tier k-1: one magnitude bin per tier, N(<m) ~ 10^(0.6m) for free.
-		float cellAng = (SKY_PI * 0.5) / cells;
-		float flux    = uStarFlux * pow(0.398, tier);
-
-		// Points while the cell is wider than the PSF, otherwise mean surface brightness.
-		// The crossfade conserves flux, and since w shrinks under magnification the ring
-		// resolves deeper into the luminosity function. (Reversed edges: see sky_hermite.)
-		float diffuseMix = sky_hermite(cellAng * 2.2, cellAng * 0.7, sigma);
-		diffuseMix = 1.0 - diffuseMix;
-
-		if (diffuseMix < 0.999) {
-			vec2 cell = floor((g * 0.5 + 0.5) * cells);
-			for (int oy = -1; oy <= 1; oy++) {
-				for (int ox = -1; ox <= 1; ox++) {
-					vec2 cc = cell + vec2(float(ox), float(oy));
-					// Off-face cells belong to the neighbouring face.
-					if (cc.x < 0.0 || cc.y < 0.0 || cc.x >= cells || cc.y >= cells) continue;
-
-					vec3 key = vec3(cc + 0.5, face * 64.0 + tier * 7.31);
-					vec3 h   = sky_hash33(key);
-					vec3 h2  = sky_hash33(key + 19.73);
-
-					vec2 sg  = (cc + h.xy) / cells * 2.0 - 1.0;   // grid coords of the star
-					vec2 sfc = sky_fromGrid(sg);
-					// Clamped: a cell holds one star, so an acceptance above 1 would make the
-					// resolved and unresolved branches disagree (by ~100× in a globular).
-					float pAccept = min(density * sky_cellWeight(sfc) * 0.62, 1.0);
-					if (h2.x > pAccept) continue;
-
-					vec3 sdir = sky_uncube(face, sfc);
-					vec3 delta = sdir - dir;
-					// Cheap reject before the projection: nothing further than a few
-					// footprints away can land inside the kernel.
-					if (dot(delta, delta) > 400.0 * w2 * uPsfPx * uPsfPx) continue;
-
-					// Least-squares offset in pixels.
-					float pu = dot(ddx, delta);
-					float pv = dot(ddy, delta);
-					vec2 p = vec2(gc * pu - gb * pv, ga * pv - gb * pu) / gdet;
-					if (dot(p, p) > 64.0) continue;
-
-					// half a magnitude of scatter within the bin, so the tiers do not
-					// read as five discrete brightness classes
-					float f = flux * pow(10.0, -0.4 * (h.z - 0.5));
-					// the cluster bias is what makes an open cluster read blue and a
-					// globular read amber, rather than both being a local density bump
-					float T = sky_starTemp(clamp(h2.y + clus.y, 0.0, 0.9999), tier);
-
-					// Dividing by w2 is what turns the shrinking footprint into flux
-					// amplification: peak radiance rises exactly as mu.
-					float amp = f * (sky_psf(p) + sky_spike(p) * step(tier, 0.5)) / w2;
-					amp *= sky_starBand(T) * uStarGain * (1.0 - diffuseMix);
-
-					total += sky_emit(sky_blackbody(T, D), 1.0, amp);
-				}
-			}
-		}
-
-		// the unresolved remainder of this tier, as surface brightness
-		if (diffuseMix > 0.001) {
-			float cellOmega = (4.0 * SKY_PI / 6.0) / (cells * cells);
-			float meanT = sky_starTemp(0.45, tier);
-			// Same clamped acceptance; cellWeight at the ray's cell is close enough.
-			float pMean = min(density * sky_cellWeight(fc) * 0.62, 1.0);
-			float amp = diffuseMix * pMean * flux / cellOmega
-			          * sky_starBand(meanT) * uStarGain;
-			total += sky_emit(sky_blackbody(meanT, D), 1.0, amp);
-		}
-	}
-
-	total *= ext;
 
 	// ---- unresolved starlight: the galactic band itself, behind the same dust.
 	float glow = uGlow * band * 0.30;
@@ -651,6 +567,156 @@ vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 		total += sky_emit(vec3(0.0), uwXrayBg, xbg * 0.12);
 	}
 
+	return total;
+}
+
+// Texel centres sit on face edges, so bilinear filtering never crosses a face.
+vec2 sky_cacheUV(float face, vec2 g){
+	float n = uSkyCacheFace;
+	vec2 origin = vec2(mod(face, 3.0), floor(face / 3.0)) * n;
+	return (origin + 0.5 + (g * 0.5 + 0.5) * (n - 1.0)) / vec2(3.0 * n, 2.0 * n);
+}
+
+
+// skyRadianceD / skyRadiance
+//   dir      outgoing ray direction, normalised (after lensing)
+//   ddx,ddy  its screen derivatives: their cross product is the pixel's source
+//            solid angle, and the pair carries the anisotropy
+//   D        the observer's Doppler factor (sky_doppler), 1.0 with no boost
+vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
+	vec3 total = vec3(0.0);
+	vec3 ddx = ddx_in;
+	vec3 ddy = ddy_in;
+
+	// Cull threshold for this band's component weights - see SKY_W_EPS_VIS.
+	float wEps = uVisibleBand > 0.5 ? SKY_W_EPS_VIS : SKY_W_EPS_LOG;
+
+	// Source solid angle per pixel, clamped by scaling the basis so J stays consistent.
+	// The lower cap bounds magnification at ~1000×; the upper stops rays that wind the
+	// photon sphere (where the derivative is noise) from blowing up the ring.
+	float w2 = max(length(cross(ddx, ddy)), SKY_1E_16);
+	float pix2 = max(uPixAngle * uPixAngle, SKY_1E_16);
+	float s = 1.0;
+	if (w2 < pix2 * 1.0e-3) s = sqrt(pix2 * 1.0e-3 / w2);
+	if (w2 > pix2 * 144.0)  s = sqrt(pix2 * 144.0 / w2);
+	ddx *= s; ddy *= s; w2 *= s * s;
+
+	// Normal equations for the least-squares pixel offset, hoisted out of the
+	// star loop: p = (JtJ)^-1 Jt delta.
+	float ga = dot(ddx, ddx);
+	float gb = dot(ddx, ddy);
+	float gc = dot(ddy, ddy);
+	float gdet = max(ga * gc - gb * gb, SKY_1E_24);
+
+	// Characteristic source-plane radius of the PSF, used only to decide which
+	// tiers are still resolvable as points.
+	float sigma = uPsfPx * sqrt(w2);
+
+	// The cube cell decomposition, once: every population walks up to a 3x3
+	// neighbourhood on the same face and differs only in cell count.
+	float face;
+	vec2 fc;
+	sky_cube(dir, face, fc);
+	vec2 g = sky_toGrid(fc);                      // [-1,1] on this face
+
+	bool cached = uSkyCacheFace > 0.5 && w2 >= pix2 * SKY_CACHE_MIN_W2;
+	vec4 diffuse = cached ? textureLod(uSkyCache, sky_cacheUV(face, g), 0.0) : vec4(0.0);
+	float tau = cached ? diffuse.a : sky_tau(dir);
+	vec3 ext = sky_extinction(tau);
+
+	// ---- stars, crowding toward the plane. Density stays live: interpolating it
+	// would move the acceptance threshold and add or remove individual stars.
+	vec2 clus = sky_clusterField(dir, face, g);
+	float density = uStarDensity * (1.0 + uPlaneConc * sky_bandProfile(dir) + clus.x);
+	// A source farther than `reach` fails the footprint reject. The pixel-offset
+	// reject gives a tighter bound, |p| >= |P delta| / sigma_max(J), when J is
+	// invertible and its plane is nearly tangent (so |P delta| tracks the angle).
+	float reach = 20.0 * uPsfPx * sqrt(w2);
+	vec3 jn = cross(ddx, ddy);
+	if (ga * gc - gb * gb > SKY_1E_24 && abs(dot(jn, dir)) > 0.99 * length(jn)) {
+		float lmax = 0.5 * (ga + gc) + sqrt(0.25 * (ga - gc) * (ga - gc) + gb * gb);
+		reach = min(reach, 8.0 * sqrt(lmax));
+	}
+
+	for (int t = 0; t < SKY_TIERS; t++) {
+		float tier  = float(t);
+		float cells = 4.0 * exp2(tier);             // cells per face edge
+		// Angular size of one cell. Tier k has 4x the cells and 1/2.512 the flux of
+		// tier k-1: one magnitude bin per tier, N(<m) ~ 10^(0.6m) for free.
+		float cellAng = (SKY_PI * 0.5) / cells;
+		float flux    = uStarFlux * pow(0.398, tier);
+
+		// Points while the cell is wider than the PSF, otherwise mean surface brightness.
+		// The crossfade conserves flux, and since w shrinks under magnification the ring
+		// resolves deeper into the luminosity function. (Reversed edges: see sky_hermite.)
+		float diffuseMix = sky_hermite(cellAng * 2.2, cellAng * 0.7, sigma);
+		diffuseMix = 1.0 - diffuseMix;
+
+		if (diffuseMix < 0.999) {
+			vec2 cellPos = (g * 0.5 + 0.5) * cells;
+			vec2 cell = floor(cellPos);
+			ivec4 nb = sky_neighbours(cellPos - cell, cells, reach);
+			for (int oy = nb.y; oy <= nb.w; oy++) {
+				for (int ox = nb.x; ox <= nb.z; ox++) {
+					vec2 cc = cell + vec2(float(ox), float(oy));
+					// Off-face cells belong to the neighbouring face.
+					if (cc.x < 0.0 || cc.y < 0.0 || cc.x >= cells || cc.y >= cells) continue;
+
+					vec3 key = vec3(cc + 0.5, face * 64.0 + tier * 7.31);
+					vec3 h   = sky_hash33(key);
+					vec3 h2  = sky_hash33(key + 19.73);
+
+					vec2 sg  = (cc + h.xy) / cells * 2.0 - 1.0;   // grid coords of the star
+					vec2 sfc = sky_fromGrid(sg);
+					// Clamped: a cell holds one star, so an acceptance above 1 would make the
+					// resolved and unresolved branches disagree (by ~100× in a globular).
+					float pAccept = min(density * sky_cellWeight(sfc) * 0.62, 1.0);
+					if (h2.x > pAccept) continue;
+
+					vec3 sdir = sky_uncube(face, sfc);
+					vec3 delta = sdir - dir;
+					// Cheap reject before the projection: nothing further than a few
+					// footprints away can land inside the kernel.
+					if (dot(delta, delta) > 400.0 * w2 * uPsfPx * uPsfPx) continue;
+
+					// Least-squares offset in pixels.
+					float pu = dot(ddx, delta);
+					float pv = dot(ddy, delta);
+					vec2 p = vec2(gc * pu - gb * pv, ga * pv - gb * pu) / gdet;
+					if (dot(p, p) > 64.0) continue;
+
+					// half a magnitude of scatter within the bin, so the tiers do not
+					// read as five discrete brightness classes
+					float f = flux * pow(10.0, -0.4 * (h.z - 0.5));
+					// the cluster bias is what makes an open cluster read blue and a
+					// globular read amber, rather than both being a local density bump
+					float T = sky_starTemp(clamp(h2.y + clus.y, 0.0, 0.9999), tier);
+
+					// Dividing by w2 is what turns the shrinking footprint into flux
+					// amplification: peak radiance rises exactly as mu.
+					float amp = f * (sky_psf(p) + sky_spike(p) * step(tier, 0.5)) / w2;
+					amp *= sky_starBand(T) * uStarGain * (1.0 - diffuseMix);
+
+					total += sky_emit(sky_blackbody(T, D), 1.0, amp);
+				}
+			}
+		}
+
+		// the unresolved remainder of this tier, as surface brightness
+		if (diffuseMix > 0.001) {
+			float cellOmega = (4.0 * SKY_PI / 6.0) / (cells * cells);
+			float meanT = sky_starTemp(0.45, tier);
+			// Same clamped acceptance; cellWeight at the ray's cell is close enough.
+			float pMean = min(density * sky_cellWeight(fc) * 0.62, 1.0);
+			float amp = diffuseMix * pMean * flux / cellOmega
+			          * sky_starBand(meanT) * uStarGain;
+			total += sky_emit(sky_blackbody(meanT, D), 1.0, amp);
+		}
+	}
+
+	total *= ext;
+	total = cached ? total + diffuse.rgb : sky_diffuseAdd(total, dir, tau, ext);
+
 	// ---- galaxies and compact sources, behind the full dust column.
 	if (uwGalaxies > wEps) {
 		float gal = sky_galaxies(dir, face, g, w2) * uGalaxies;
@@ -665,13 +731,13 @@ vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 	float cf = uStarFlux * 0.030;
 	if (uwPulsar > wEps)
 		total += sky_emit(vec3(0.0), uwPulsar,
-			sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, face, g, 13.0,  5.0, 1.0, 0.16, cf * 0.6));
+			sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, reach, face, g, 13.0,  5.0, 1.0, 0.16, cf * 0.6));
 	if (uwXrb > wEps)
 		total += sky_emit(vec3(0.0), uwXrb,
-			sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, face, g,  9.0, 61.0, 1.0, 0.13, cf * 0.9));
+			sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, reach, face, g,  9.0, 61.0, 1.0, 0.13, cf * 0.9));
 	if (uwBlazar > wEps)
 		total += sky_emit(vec3(0.0), uwBlazar,
-			sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, face, g, 11.0, 29.0, 0.0, 0.05, cf * 0.7));
+			sky_compact(dir, ddx, ddy, ga, gb, gc, gdet, w2, reach, face, g, 11.0, 29.0, 0.0, 0.05, cf * 0.7));
 
 	return total * uSkyGain;
 }

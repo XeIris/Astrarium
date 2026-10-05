@@ -68,6 +68,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sharedflightcheck", r"^SHARED FLIGHT DONE failures=0$", timeout=900)
     elif suite == "rendered":
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
+        yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("coursecheck", r"^COURSE 35L 108S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")

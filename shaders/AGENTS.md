@@ -41,6 +41,10 @@ and the temperature pass are in [docs/godot.md](../docs/godot.md).
   magnification is unbounded near the photon ring. Stars are analytic and
   filtered through the screen-space Jacobian. Check: `preset=bhmerger`, where the
   lensed arcs must be strings of crisp points.
+- Only J-independent layers (diffuse emission, dust depth) may come from the
+  per-direction cache (`render/sky_cache.gd`). A new diffuse uniform joins
+  `SkyCache.INPUTS`; anything that gates a point source stays live. Run
+  `tools/skycachecheck.tscn` after changing the sky.
 - Sky environments are populations and add (`blend_environments`). Shape terms
   (scale height, plane concentration, bulge size) take the weighted mean. Each
   parameter declares which on `SKY_PARAMS`, which also builds the settings panel.

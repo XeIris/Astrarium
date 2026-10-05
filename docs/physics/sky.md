@@ -19,7 +19,7 @@ So the sky is split by how lensing treats it:
 | layer | contents | treatment |
 |---|---|---|
 | point | stars, pulsars, X-ray binaries, quasars | analytic, no texture |
-| diffuse | galactic band, nebulae, CMB, X-ray background | plain radiance; surface brightness conserved |
+| diffuse | galactic band, nebulae, CMB, X-ray background | plain radiance; surface brightness conserved; cacheable per direction |
 | absorbing | dust | multiplies everything behind it, per band |
 
 ## The screen-space Jacobian
@@ -56,6 +56,37 @@ Each star hashes a temperature and takes its colour from the Planck locus, so
 colour and band response can't disagree. The temperature draw is weighted for a
 magnitude-limited (Malmquist-biased) sample: the naked-eye sky is dominated by
 hot B/A stars and distant giants, not by M dwarfs.
+
+## Evaluation cost
+
+Each pixel walks up to a 3×3 neighbourhood of cells in each of six star tiers.
+A neighbour is skipped only when every source in it must fail the existing
+rejects (more than 20 PSF footprints away, or more than 8 pixels of offset). On
+a face, one grid unit spans at least π/6 radians: π/4 times 2/3, the smallest
+singular value of the equiangular map, reached at a corner. With a 0.9 margin
+for chord and tangent-plane slack, a neighbour at fractional distance f is
+skipped when f·π/(3·cells)·0.9 exceeds the reach. The 8-pixel bound uses
+|p| ≥ |P δ|/σ_max(J), so it applies only when J is invertible and its plane is
+within 8° of tangent; otherwise the footprint bound alone is used. Galaxies use
+their own r² > 30σ² reject. Skipped cells contributed nothing, so the image is
+unchanged: `tools/skycachecheck.tscn` compares against an exhaustive walk
+(`uSkyExhaustive`) and requires identical pixels.
+
+### The diffuse cache
+
+Diffuse emission and dust depth ignore J, so they are functions of rest-frame
+direction alone. `render/sky_cache.gd` renders them through the same
+`sky_diffuseAdd`/`sky_tau` into a 3×2 cube-face atlas (512² per face, RGBA16F,
+equiangular, texel centres on face edges), re-rendering only when an input
+uniform changes. Rays sample it when magnification is below 4×; nearer the
+photon ring, every layer stays live. The star-density field (band profile and
+clusters) stays live too: interpolating it moves the acceptance threshold and
+adds or removes individual stars. The temperature pass also stays live, because
+it chooses disc or sky by an exact luminance comparison.
+
+The cached image differs from live evaluation by at most one 8-bit level on all
+but isolated pixels (the check's bound: 8 levels, and at most 0.01% of pixels
+beyond 2 levels), across visible, X-ray, radio, aberrated and lensed views.
 
 ## Bands
 

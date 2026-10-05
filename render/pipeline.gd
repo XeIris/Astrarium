@@ -38,6 +38,7 @@ var env_model: Environment
 
 var postfx: PostFX
 var lens: LensPass
+var sky_cache: SkyCache
 
 var mode: int = Mode.ORRERY
 var use_lens := false
@@ -165,7 +166,10 @@ func _build() -> void:
 	temp_cam.environment = env_temp
 	temp_vp.add_child(temp_cam)
 	temp_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	# The temperature pass stays live: it picks disc or sky by an exact luminance comparison.
+	sky_cache = SkyCache.new(scene_vp, [sky_mat])
 	sky_materials = [sky_mat, sky_temp_mat]
+	sky_materials.append(sky_cache.material)
 
 	# spaceflight's local world (metres)
 	local_vp = _viewport(World3D.new(), true)
@@ -253,8 +257,9 @@ func prepare_frame(lens_params, t: float) -> void:
 	temp_cam.near = scene_cam.near
 	temp_cam.far = scene_cam.far
 	use_lens = lens_params != null
-	for m in sky_materials:
-		m.set_shader_parameter("u_lens", use_lens)
+	sky_mat.set_shader_parameter("u_lens", use_lens)
+	sky_temp_mat.set_shader_parameter("u_lens", use_lens)
+	sky_cache.sync()
 	if use_lens:
 		lens.dispatch(lens_params)
 
