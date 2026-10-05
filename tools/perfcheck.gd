@@ -155,7 +155,8 @@ func record_compute(label: String, totals: Dictionary) -> void:
 
 func native_display_extent() -> bool:
 	var client := get_window().size
-	return client == M5_PIXELS or get_window().get_size_with_decorations() == M5_PIXELS or client == DisplayServer.screen_get_usable_rect(native_screen).size
+	var usable := DisplayServer.screen_get_usable_rect(native_screen).size
+	return client.x == M5_PIXELS.x and client.y >= usable.y and client.y <= M5_PIXELS.y
 
 func measure(label: String, action := Callable()) -> void:
 	for i in 90:

@@ -1690,8 +1690,9 @@ Evidence: `tools/evidence/batch19/m5-low-native/`. This is a measured custom
 quality target, not a passing native Medium guarantee or a universal M5 claim.
 The current macOS window client is 3024×1900 within a 3024×1964 decorated frame;
 the 3D targets retain every native pixel. Earlier 3024×1898 client evidence is
-historical. The harness checks actual OS/native extents instead of hardcoding
-one notch/menu configuration. R20 still needs fresh final-source platform CI.
+historical. The harness requires native width and a client height covering the OS-reported
+usable height without exceeding the panel, then guards those extents in every
+case. It avoids hardcoding one notch/menu configuration. R20 still needs fresh final-source platform CI.
 
 
 Final rendered integration passes all **12 children**, including **57 HUD

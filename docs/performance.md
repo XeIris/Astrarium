@@ -207,8 +207,8 @@ Medium remains the startup preset and now applies its declared settings.
 The gate allocates the full panel height,
 including rows outside the available client area, so ordinary fullscreen can
 have fewer scene rows at those same quality settings. The HUD client and
-decorated frame dimensions are recorded separately from scene targets. Native fullscreen must cover the panel or match the OS-reported usable
-rectangle; its client size depends on macOS decorations and menu/notch handling.
+decorated frame dimensions are recorded separately from scene targets. Native fullscreen must retain native width and at least the OS-reported
+usable client height (never more than panel height); its client size depends on macOS decorations and menu/notch handling.
 Window, root viewport, display selection, VSync and scene-target dimensions are
 checked in every case, together with the named quality, lens field and MSAA;
 a resized or reduced workload fails.
