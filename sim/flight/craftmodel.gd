@@ -2116,6 +2116,14 @@ class Craft extends RefCounted:
 			var gs = s.get("gearStage")
 			if (gs != null and str(gs) == st.key) or live:
 				want = float(U.nz(deploy.get(st.key), 0.0))
+			var cover_key := str(st.spec.get("look", {}).get("arrayCover", ""))
+			if cover_key != "":
+				var cover := stage(cover_key)
+				var cover_live = attached.get(cover_key)
+				# Keep arrays folded until the jettisoned shell finishes its visible drift.
+				if cover == null or not (cover_live is bool and cover_live == false) or cover.sep != null:
+					want = 0.0
+					st.deploy = 0.0
 			st.deploy += clampf(want - st.deploy, -dt * 0.55, dt * 0.55)
 			var d := st.deploy
 			for leg: Node3D in st.parts.legs: leg.rotation.z = -d * 1.15

@@ -195,7 +195,7 @@ static func _build_vehicles() -> Dictionary:
 			stage({ "key": "f9pl", "name": "Payload", "dry": 13000.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 5.0, "D": 3.4, "sep": "none",
 				# The payload rides inside the fairing.
-				"look": { "satellite": true, "arrays": 2, "mount": { "y": 61.0 } } }),
+				"look": { "satellite": true, "arrays": 2, "arrayCover": "f9fair", "mount": { "y": 61.0 } } }),
 		],
 	},
 

@@ -40,9 +40,13 @@ func pose(craft, vehicle: Dictionary, deployed: bool) -> void:
 			for pivot: Node3D in st.parts[role]:
 				before[pivot] = {"rotation": pivot.rotation, "point": mesh_point(pivot)}
 	var deploy := {}
-	for st in craft.stages: deploy[st.key] = 1.0 if deployed else 0.0
+	var attached := {}
+	for st in craft.stages:
+		deploy[st.key] = 1.0 if deployed else 0.0
+		var cover := str(st.spec.get("look", {}).get("arrayCover", ""))
+		if cover != "": attached[cover] = not deployed
 	var command := 100.0 if deployed else -100.0
-	craft.update({"dt": 4.0, "attached": {}, "deploy": deploy, "gimbal": {"x": command, "z": command}, "flap": command / 100.0})
+	craft.update({"dt": 4.0, "attached": attached, "deploy": deploy, "gimbal": {"x": command, "z": command}, "flap": command / 100.0})
 	for st in craft.stages:
 		for role in ["legs", "fins", "arrays", "flaps"]:
 			var angle: float = {"legs": -1.15 if deployed else 0.0, "fins": -1.35 if deployed else 0.0,
@@ -56,6 +60,32 @@ func pose(craft, vehicle: Dictionary, deployed: bool) -> void:
 			expect(absf(pivot.rotation.x - wanted) < 1e-4 and absf(pivot.rotation.z + wanted) < 1e-4,
 				"%s/%s gimbal failed clamp/fixed pose" % [vehicle.id, st.key])
 			check_geometry_motion(pivot, before[pivot], vehicle.id + "/" + st.key + "/gimbal")
+
+func payload_cover(craft) -> void:
+	var payload = craft.stage("f9pl")
+	var cover = craft.stage("f9fair")
+	var state := {"dt": 4.0, "deploy": {"f9pl": 1.0}}
+	craft.update(state)
+	expect(payload.deploy == 0.0, "Falcon payload deployed inside an attached fairing")
+	for array: Node3D in payload.parts.arrays:
+		expect(is_equal_approx(array.rotation.z, PI / 2.0), "Falcon enclosed panel is not folded")
+	state.attached = {"f9fair": false}
+	state.dt = 1.0
+	craft.separate("f9fair", 4.0, 0.3)
+	for i in 6:
+		craft.update(state)
+		expect(cover.group.visible and payload.deploy == 0.0, "Falcon panels opened during fairing separation")
+	state.dt = 0.1
+	craft.update(state)
+	expect(not cover.group.visible and is_equal_approx(payload.deploy, 0.055), "Falcon clear panels did not begin eased deployment")
+	state.dt = 2.0
+	craft.update(state)
+	for array: Node3D in payload.parts.arrays:
+		expect(is_zero_approx(array.rotation.z), "Falcon clear panel did not fully deploy")
+	state.attached = {}
+	state.dt = 0.0
+	craft.update(state)
+	expect(payload.deploy == 0.0, "Falcon reassembled studio kept payload panels deployed")
 
 func mesh_point(node: Node) -> Variant:
 	if node is MeshInstance3D and node.mesh != null:
@@ -139,6 +169,7 @@ func run() -> void:
 		pose(craft, vehicle, true)
 		pose(craft, vehicle, false)
 		if id == "falcon9":
+			payload_cover(craft)
 			var pivot: Node3D = craft.stages[0].parts.gimbals[0]
 			pivot.remove_meta("gimbal_deg")
 			expect(not part_errors(craft, vehicle).is_empty(), "missing swing metadata accepted")

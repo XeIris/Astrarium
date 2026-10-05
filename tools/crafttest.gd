@@ -86,8 +86,12 @@ static func height_parity(require_authored := false, inject := false) -> Array:
 		if inject and id == "beetle": fallback.group.scale.y = 1.05
 		for deployed in [false, true]:
 			var deploy := {}
-			for st in authored.stages: deploy[st.key] = 1.0 if deployed else 0.0
-			for craft in [authored, fallback]: craft.update({"dt": 4.0, "deploy": deploy})
+			var attached := {}
+			for st in authored.stages:
+				deploy[st.key] = 1.0 if deployed else 0.0
+				var cover := str(st.spec.get("look", {}).get("arrayCover", ""))
+				if cover != "": attached[cover] = not deployed
+			for craft in [authored, fallback]: craft.update({"dt": 4.0, "deploy": deploy, "attached": attached})
 			var a: AABB = CM.measure(authored.group)
 			var p: AABB = CM.measure(fallback.group)
 			var pose := "deployed" if deployed else "stowed"
