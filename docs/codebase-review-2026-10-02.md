@@ -56,7 +56,7 @@ recorded acceptance evidence, not an agent's assertion alone.
 | R17 | P2 | Verified: local macOS export | All-resource export can include development/archived resources. | Development files excluded, runtime remaps retained, exported native/flight rendering exercised outside the source checkout. |
 | R18 | P3 | Verified retention policy; archive retained | Tracked screenshot/reference evidence dominates repository storage. | Define evidence retention and regenerate/retain useful baselines; do not delete verification evidence indiscriminately. |
 | R19 | P2 | Verified: POSIX and actual Windows publication | Progress/settings writes are direct and lack atomic replacement. | Validated temporary publication, retained recovery data and visible failures; actual Windows native and backup publication verified in portable CI. |
-| R20 | P2 | Partial: M5 custom native gate passes; final-source CI pending | Performance and release confidence lack a reproducible integrated baseline. | Fresh final-source Linux/macOS/Windows CI and the declared M5 native frame gate must pass. |
+| R20 | P2 | Verified bounded: final-source platforms and M5 native custom gate, batch 19 | Performance and release confidence lack a reproducible integrated baseline. | Fresh final-source Linux/macOS/Windows CI and the declared M5 native frame gate must pass. |
 | R21 | P2 | Verified: controlled flight/model rounds | The uncontrolled staged-flight soak compared changing inputs and gained a cached TextLine. | Repeat seeded initial conditions, exercise real separations and verify exact flat counts without clearing caches or widening tolerances. |
 | R22 | P2 | Verified: batch 5 | Catalogue pulsar spin periods become Hz in `spec.spin`, while the neutron visual consumes the same value as an angular rate per rendered second. | Separate measured frequency from illustrative angular speed; document the time mapping and verify catalogue-derived rotation periods. |
 | R23 | P2 | Verified: batch 6 | Full-width lesson cards overlap both side panels, blocking course items, Next and Close. | At 900/1024×600, all course entries remain scrollable and card navigation receives real pointer events. |
@@ -1719,3 +1719,35 @@ visibly too small, consistent with the independent numeric failure. X-ray source
 switching seams also appear in that control. Current/control evidence and
 regeneration fixtures are under `tools/evidence/batch19/lens-visuals*`; these
 generated images are excluded from version control and exports.
+
+
+## Closure: 5 October 2026
+
+R20 closes at code revision `7773b7f98d7da5292ffc767880305ed026a68020`.
+[Fresh three-platform CI](https://github.com/XeIris/Astrarium/actions/runs/37246714048)
+passes on actual Windows Server 2022 AMD64, Linux x86_64 and macOS arm64. The
+downloaded artifacts confirm all **16 clean children per platform**, **64/64
+save checks**, **274 native invariants**, **190 numerical checks**, nine-preset
+parity and **279 export entries**, plus isolated resource/native startup. Each
+report records this exact source revision; evidence is retained under
+`tools/evidence/batch19/ci777/`. The local clean clone additionally passes a
+rendered exported-app boot (`clean-final/`), outside the source checkout.
+
+The clean-tree M5 gate records that same committed revision and passes all
+**eleven cases**: focused lensing **33.19 FPS / 30.174 ms p95**, flight pad
+**33.19 / 30.175**, ascent **33.17 / 30.304**. The slowest mean is **33.17 FPS**
+and worst p95 is **30.304 ms**. It renders native 3024×1964 scene targets with
+the declared Low-based custom settings, field 0.35, MSAA off, VSync off and
+elapsed animation time. Actual client/frame dimensions are 3024×1898 in this
+run; per-case guards hold them fixed. `tools/evidence/batch19/m5-final-code/`
+contains the complete report and focused native capture. Metal GPU timestamps
+remain unavailable; this is sustained frame cadence, not isolated GPU latency.
+
+All **35 recorded findings** now have verified fixes or explicit bounded
+model/design decisions. R16 retains measured current packing; R09 is a bounded
+responsibility extraction, not a claim that the stage needs no further design
+work. R25/R27–R30/R34 preserve their stated model/numerical limits. Native Medium
+performance remains a documented failure; the passing custom configuration does
+not erase it. Wider hardware/thermal workloads, stronger binary dynamics and
+complete spectral transfer would require new product scope and evidence.
+Subsequent closure-log edits do not change the tested runtime code.

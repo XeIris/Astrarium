@@ -180,9 +180,9 @@ procedural gate on macOS, Linux and Windows. It does not establish authored
 Blender fidelity, graphical performance or device budgets. A Linux x86_64
 Ubuntu clean-clone/native/export run passed locally under Docker emulation on
 macOS; this establishes the functional platform contract, not Linux GPU costs.
-An [actual three-platform CI run](https://github.com/XeIris/Astrarium/actions/runs/37183785382)
-passed all 16 clean children per platform at `d3e7655`, including native kernels,
-64 save checks and isolated exported startup. Engine downloads now require
+An [actual three-platform CI run](https://github.com/XeIris/Astrarium/actions/runs/37246714048)
+passed all 16 clean children per platform at `7773b7f`, including 190 numerical
+checks, native invariants/parity, 64 save checks and isolated exported startup. Engine downloads now require
 the pinned official SHA256 before extraction. Later revisions require their own
 remote run; headless CI supplies no rendered frame budget.
 [Evidence retention](docs/evidence.md) keeps new generated captures out of the

@@ -252,3 +252,12 @@ Medium configuration with lens detail 0.35 fails flight at 21.58/22.50 FPS
 The earlier Medium-labeled/MSAA-off 0.5-field probe also misses the focused-lens
 budget. These failures are not masked
 by the explicitly different passing Low-based custom configuration.
+
+A repeated clean-tree run at final code revision `7773b7f` also passes all
+eleven cases: focused lensing **33.19 FPS / 30.174 ms p95**, flight pad
+**33.19 / 30.175**, ascent **33.17 / 30.304**. The slowest case is **33.17 FPS**,
+worst p95 **30.304 ms**. Its actual client/frame is 3024×1898 while all scene
+targets remain 3024×1964. This separately labeled run is retained in
+`tools/evidence/batch19/m5-final-code/`; it records a clean source tree and
+unchanged per-case native geometry/quality. The earlier 3024×1900-client sample
+remains historical evidence of macOS client-size variation.
