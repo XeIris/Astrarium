@@ -9,6 +9,7 @@ const C := 63241.077                    # speed of light, AU/yr
 const AU_PER_RSUN := 0.00465047         # solar radius in AU
 const AU_PER_KM := 6.68459e-9
 static var DOUBLE_MIN_NORMAL := pow(2.0, -1022.0)
+static var DOUBLE_MAX := (2.0 - pow(2.0, -52.0)) * pow(2.0, 1023.0)
 
 ## Schwarzschild radius (AU) for a given mass in M☉.
 static func schwarzschild(mass_sun: float) -> float:
@@ -36,52 +37,89 @@ static func roche_limit(mass_sun: float, body_density: float = 5.5) -> float:
 	var rho_star := RHO_SUN * mass_sun / (r_sun * r_sun * r_sun)
 	return 2.44 * r_au * U.cbrt(rho_star / body_density)
 
-# Acceleration field. Fills every live body's `acc`.
+# Acceleration field. Fills every live body's `acc`; false when a force is not
+# representable. Pairs at ordinary distances take the inline path; the rest use
+# _accumulate_pair, which yields identical bits wherever both apply.
 static func compute_accel(bodies: Array) -> bool:
-	for b in bodies:
-		b.acc.x = 0.0; b.acc.y = 0.0; b.acc.z = 0.0
 	var n := bodies.size()
+	var soft_sq := PackedFloat64Array()
+	soft_sq.resize(n)
+	var is_bh := PackedByteArray()
+	is_bh.resize(n)
+	for k in n:
+		var b: Body = bodies[k]
+		b.acc.x = 0.0; b.acc.y = 0.0; b.acc.z = 0.0
+		var soft := softening_of(b)
+		soft_sq[k] = soft * soft
+		is_bh[k] = 1 if b.type == "bh" else 0
 	for i in n:
 		var a: Body = bodies[i]
 		if not a.alive: continue
 		var ap := a.pos
+		var aa := a.acc
 		for j in range(i + 1, n):
 			var b: Body = bodies[j]
 			if not b.alive: continue
 			var rx := b.pos.x - ap.x
 			var ry := b.pos.y - ap.y
 			var rz := b.pos.z - ap.z
-			var dist := distance_xyz(rx, ry, rz)
-			if dist == 0.0: continue
-			if not is_finite(dist): return false
-			var inv := 1.0 / dist
-			var kernel: float
-			var denominator: float
-			if a.type == "bh" or b.type == "bh":
-				# Weak-field point masses; horizons set contact, not a binary force law.
-				denominator = dist * dist
-				kernel = G / denominator
-			else:
-				var d2 := dist * dist + pair_softening_sq(a, b)
-				denominator = d2 * sqrt(d2)
-				kernel = G * dist / denominator
-			var fA := kernel * b.mass
-			var fB := kernel * a.mass
-			if not is_finite(fA) or not is_finite(fB) or fA == 0.0 or fB == 0.0 or (kernel > 0.0 and kernel < DOUBLE_MIN_NORMAL) or denominator < DOUBLE_MIN_NORMAL or not is_finite(inv):
-				var softened := dist
-				if a.type != "bh" and b.type != "bh":
-					softened = _softened_distance(dist, a, b)
-				fA = _scaled_acceleration(b.mass, dist, softened)
-				fB = _scaled_acceleration(a.mass, dist, softened)
-				if not is_finite(fA) or not is_finite(fB): return false
-				rx /= dist; ry /= dist; rz /= dist
-			else:
-				rx *= inv; ry *= inv; rz *= inv           # unit vector a→b
-			a.acc.x += rx * fA; a.acc.y += ry * fA; a.acc.z += rz * fA
-			b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
+			var squared := rx * rx + ry * ry + rz * rz
+			if squared >= DOUBLE_MIN_NORMAL and squared <= DOUBLE_MAX:
+				var dist := sqrt(squared)
+				var kernel: float
+				var denominator: float
+				if is_bh[i] != 0 or is_bh[j] != 0:
+					# Weak-field point masses; horizons set contact, not a binary force law.
+					denominator = dist * dist
+					kernel = G / denominator
+				else:
+					var d2 := dist * dist + 0.5 * (soft_sq[i] + soft_sq[j])
+					denominator = d2 * sqrt(d2)
+					kernel = G * dist / denominator
+				var fA := kernel * b.mass
+				var fB := kernel * a.mass
+				if fA > 0.0 and fA <= DOUBLE_MAX and fB > 0.0 and fB <= DOUBLE_MAX \
+						and kernel >= DOUBLE_MIN_NORMAL and denominator >= DOUBLE_MIN_NORMAL:
+					var inv := 1.0 / dist
+					rx *= inv; ry *= inv; rz *= inv           # unit vector a→b
+					aa.x += rx * fA; aa.y += ry * fA; aa.z += rz * fA
+					b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
+					continue
+			if not _accumulate_pair(a, b, rx, ry, rz): return false
 
 	for b in bodies:
 		if b.alive and not b.acc.is_finite_v(): return false
+	return true
+
+# One pair's mutual acceleration with exceptional intermediates rescaled.
+static func _accumulate_pair(a: Body, b: Body, rx: float, ry: float, rz: float) -> bool:
+	var dist := distance_xyz(rx, ry, rz)
+	if dist == 0.0: return true
+	if not is_finite(dist): return false
+	var inv := 1.0 / dist
+	var kernel: float
+	var denominator: float
+	if a.type == "bh" or b.type == "bh":
+		denominator = dist * dist
+		kernel = G / denominator
+	else:
+		var d2 := dist * dist + pair_softening_sq(a, b)
+		denominator = d2 * sqrt(d2)
+		kernel = G * dist / denominator
+	var fA := kernel * b.mass
+	var fB := kernel * a.mass
+	if not is_finite(fA) or not is_finite(fB) or fA == 0.0 or fB == 0.0 or (kernel > 0.0 and kernel < DOUBLE_MIN_NORMAL) or denominator < DOUBLE_MIN_NORMAL or not is_finite(inv):
+		var softened := dist
+		if a.type != "bh" and b.type != "bh":
+			softened = softened_distance(dist, a, b)
+		fA = scaled_product([G, b.mass, dist], [softened, softened, softened])
+		fB = scaled_product([G, a.mass, dist], [softened, softened, softened])
+		if not is_finite(fA) or not is_finite(fB): return false
+		rx /= dist; ry /= dist; rz /= dist
+	else:
+		rx *= inv; ry *= inv; rz *= inv
+	a.acc.x += rx * fA; a.acc.y += ry * fA; a.acc.z += rz * fA
+	b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
 	return true
 
 # Keep ordinary rounding; scale only when the squared norm over/underflows.
@@ -93,50 +131,62 @@ static func distance_xyz(x: float, y: float, z: float) -> float:
 	x /= scale; y /= scale; z /= scale
 	return scale * sqrt(x * x + y * y + z * z)
 
-static func _softened_distance(dist: float, a: Body, b: Body) -> float:
-	var sa := a.softening if a.softening != 0.0 else a.radius * 0.5 + 1e-4
-	var sb := b.softening if b.softening != 0.0 else b.radius * 0.5 + 1e-4
+## Plummer softening length (AU): the explicit override, else half the radius plus 1e-4.
+static func softening_of(b: Body) -> float:
+	return b.softening if b.softening != 0.0 else b.radius * 0.5 + 1e-4
+
+## RMS softening preserves each body's scale while giving a symmetric pair potential.
+static func pair_softening_sq(a: Body, b: Body) -> float:
+	var sa := softening_of(a)
+	var sb := softening_of(b)
+	return 0.5 * (sa * sa + sb * sb)
+
+## sqrt(dist² + pair_softening_sq) without overflowing or underflowing the squares.
+static func softened_distance(dist: float, a: Body, b: Body) -> float:
+	var sa := softening_of(a)
+	var sb := softening_of(b)
 	var scale := maxf(dist, maxf(absf(sa), absf(sb)))
 	if not is_finite(scale): return NAN
 	return scale * sqrt(pow(dist / scale, 2.0) + 0.5 * (pow(sa / scale, 2.0) + pow(sb / scale, 2.0)))
 
-# Recover G·mass·distance/softened³ without overflowing an intermediate power.
-static func _scaled_acceleration(mass: float, dist: float, softened: float) -> float:
+## Product of positive factors over positive divisors, normalised by exact powers of
+## two so no intermediate overflows or underflows. Returns 0 below the subnormal
+## range, INF above double range and NAN for a non-finite or non-positive input.
+static func scaled_product(factors: Array, divisors: Array = []) -> float:
 	var mantissa := 1.0
 	var exponent := 0
-	var factors := [G, mass, dist, softened, softened, softened]
-	for i in factors.size():
-		var value: float = factors[i]
+	for k in factors.size() + divisors.size():
+		var divide := k >= factors.size()
+		var value: float = divisors[k - factors.size()] if divide else factors[k]
 		if not is_finite(value) or value <= 0.0: return NAN
 		var shift := clampi(int(floor(log(value) / log(2.0))), -1022, 1023)
 		value /= pow(2.0, shift)
 		while value < 1.0: value *= 2.0; shift -= 1
 		while value >= 2.0: value *= 0.5; shift += 1
-		if i < 3: mantissa *= value; exponent += shift
-		else: mantissa /= value; exponent -= shift
+		if divide: mantissa /= value; exponent -= shift
+		else: mantissa *= value; exponent += shift
 	while mantissa < 1.0: mantissa *= 2.0; exponent -= 1
 	while mantissa >= 2.0: mantissa *= 0.5; exponent += 1
-	if exponent > 1023: return NAN
+	if exponent > 1023: return INF
 	if exponent < -1075: return 0.0
-	var value := mantissa * pow(2.0, exponent) if exponent >= -1022 else (mantissa * pow(2.0, exponent + 1022)) * DOUBLE_MIN_NORMAL
-	return value if is_finite(value) else NAN
+	return mantissa * pow(2.0, exponent) if exponent >= -1022 else (mantissa * pow(2.0, exponent + 1022)) * DOUBLE_MIN_NORMAL
 
+## Live bodies have positive finite masses and finite positions and velocities
+## (x·0 is ±0 for finite x and NaN otherwise, so one sum covers every component).
 static func finite_state(bodies: Array) -> bool:
-	for b in bodies:
-		if b.alive and (not b.pos.is_finite_v() or not b.vel.is_finite_v() or not is_finite(b.mass) or b.mass <= 0.0): return false
-	return true
+	var zero := 0.0
+	for b: Body in bodies:
+		if not b.alive: continue
+		if not (b.mass > 0.0 and b.mass <= DOUBLE_MAX): return false
+		var p := b.pos; var v := b.vel
+		zero += p.x * 0.0 + p.y * 0.0 + p.z * 0.0 + v.x * 0.0 + v.y * 0.0 + v.z * 0.0
+	return zero == 0.0
 
 static func restore_step(bodies: Array) -> void:
 	for b in bodies:
 		if b.alive:
 			b.pos.copy_from(b.step_pos)
 			b.vel.copy_from(b.step_vel)
-
-## RMS softening preserves each body's scale while giving a symmetric pair potential.
-static func pair_softening_sq(a: Body, b: Body) -> float:
-	var sa := a.softening if a.softening != 0.0 else a.radius * 0.5 + 1e-4
-	var sb := b.softening if b.softening != 0.0 else b.radius * 0.5 + 1e-4
-	return 0.5 * (sa * sa + sb * sb)
 
 # Circular weak-field quadrupole power converted to illustrative relative-velocity
 # drag, not general 2.5-PN dynamics. Boost, window and kick cap alter physical rates.
@@ -187,9 +237,10 @@ static func integrate(bodies: Array, dt: float) -> bool:
 	for b in bodies:
 		if b.alive: live.append(b)
 	if live.is_empty(): return true
-	for b in live:
-		b.step_pos.copy_from(b.pos)
-		b.step_vel.copy_from(b.vel)
+	for b: Body in live:
+		var sp := b.step_pos; var sv := b.step_vel
+		sp.x = b.pos.x; sp.y = b.pos.y; sp.z = b.pos.z
+		sv.x = b.vel.x; sv.y = b.vel.y; sv.z = b.vel.z
 	if not compute_accel(live): return false
 	var hdt2 := 0.5 * dt * dt
 	for b in live:
@@ -238,7 +289,9 @@ static func resolve_collisions(bodies: Array) -> Array:
 		for j in range(i + 1, n):
 			var b: Body = bodies[j]
 			if not b.alive: continue
-			var d := distance_xyz(b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z)
+			var dx := b.pos.x - a.pos.x; var dy := b.pos.y - a.pos.y; var dz := b.pos.z - a.pos.z
+			var sq := dx * dx + dy * dy + dz * dz
+			var d := sqrt(sq) if sq >= DOUBLE_MIN_NORMAL and sq <= DOUBLE_MAX else distance_xyz(dx, dy, dz)
 
 			# Physical contact only; drawing magnification must not affect mergers.
 			var ca := a.rs if a.type == "bh" else (a.contact_au if a.contact_au != 0.0 else a.radius)

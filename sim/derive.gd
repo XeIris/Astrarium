@@ -197,15 +197,20 @@ static func dynamic_step(bodies: Array, max_step: float) -> float:
 		for j in range(i + 1, n):
 			var bj: Body = bodies[j]
 			if not bj.alive: continue
-			var sep := Physics.distance_xyz(bi.pos.x - bj.pos.x, bi.pos.y - bj.pos.y, bi.pos.z - bj.pos.z)
+			var dx := bi.pos.x - bj.pos.x; var dy := bi.pos.y - bj.pos.y; var dz := bi.pos.z - bj.pos.z
+			var sq := dx * dx + dy * dy + dz * dz
+			# Inline sqrt where Physics.distance_xyz would take its unscaled branch.
+			var sep := sqrt(sq) if sq >= DOUBLE_MIN_NORMAL and sq <= DOUBLE_MAX else Physics.distance_xyz(dx, dy, dz)
 			var mu := Physics.G * (bi.mass + bj.mass)
-			if not is_finite(sep) or not is_finite(mu) or mu <= 0.0: return NAN
+			if not (sep <= DOUBLE_MAX and mu > 0.0 and mu <= DOUBLE_MAX): return NAN
 			var fall_squared := (sep * sep * sep) / mu
 			var t_fall := sqrt(fall_squared)
-			if sep > 0.0 and (fall_squared == 0.0 or not is_finite(fall_squared)):
+			if sep > 0.0 and not (fall_squared > 0.0 and fall_squared <= DOUBLE_MAX):
 				t_fall = (sqrt(sep) / sqrt(mu)) * sep
-			var vrel := Physics.distance_xyz(bi.vel.x - bj.vel.x, bi.vel.y - bj.vel.y, bi.vel.z - bj.vel.z)
-			if not is_finite(vrel): return NAN
+			var ux := bi.vel.x - bj.vel.x; var uy := bi.vel.y - bj.vel.y; var uz := bi.vel.z - bj.vel.z
+			sq = ux * ux + uy * uy + uz * uz
+			var vrel := sqrt(sq) if sq >= DOUBLE_MIN_NORMAL and sq <= DOUBLE_MAX else Physics.distance_xyz(ux, uy, uz)
+			if not (vrel <= DOUBLE_MAX): return NAN
 			var t_fly := sep / vrel if vrel > 0.0 else INF
 			t_min = minf(t_min, minf(0.05 * t_fall, 0.08 * t_fly))
 	return t_min
@@ -283,46 +288,28 @@ static func total_energy(bodies: Array) -> float:
 		var speed_scale := maxf(absf(bi.vel.x), maxf(absf(bi.vel.y), absf(bi.vel.z)))
 		if speed_scale > 0.0 and (not is_finite(kinetic) or kinetic == 0.0 or speed_sq < DOUBLE_MIN_NORMAL or half_mass < DOUBLE_MIN_NORMAL):
 			var vx := bi.vel.x / speed_scale; var vy := bi.vel.y / speed_scale; var vz := bi.vel.z / speed_scale
-			kinetic = _energy_product([0.5, bi.mass, speed_scale, speed_scale, vx * vx + vy * vy + vz * vz])
+			kinetic = _energy_product([0.5, bi.mass, speed_scale, speed_scale, vx * vx + vy * vy + vz * vz], [])
 		E += kinetic
 		for j in range(i + 1, bs.size()):
 			var bj: Body = bs[j]
 			var r := Physics.distance_xyz(bi.pos.x - bj.pos.x, bi.pos.y - bj.pos.y, bi.pos.z - bj.pos.z)
 			var denom := r if bi.type == "bh" or bj.type == "bh" else sqrt(r * r + Physics.pair_softening_sq(bi, bj))
 			if bi.type != "bh" and bj.type != "bh" and (not is_finite(denom) or denom * denom < DOUBLE_MIN_NORMAL):
-				var sa := bi.softening if bi.softening != 0.0 else bi.radius * 0.5 + 1e-4
-				var sb := bj.softening if bj.softening != 0.0 else bj.radius * 0.5 + 1e-4
-				var scale := maxf(r, maxf(absf(sa), absf(sb)))
-				if not is_finite(scale): return NAN
-				if scale > 0.0: denom = scale * sqrt(pow(r / scale, 2.0) + 0.5 * (pow(sa / scale, 2.0) + pow(sb / scale, 2.0)))
+				denom = Physics.softened_distance(r, bi, bj)
 			if denom == 0.0: return -INF
 			if not is_finite(denom): return NAN
 			var weighted_mass := Physics.G * bi.mass
 			var numerator := weighted_mass * bj.mass
 			var potential := numerator / denom
 			if not is_finite(potential) or potential == 0.0 or numerator < DOUBLE_MIN_NORMAL or weighted_mass < DOUBLE_MIN_NORMAL:
-				potential = _energy_product([Physics.G, bi.mass, bj.mass], denom)
+				potential = _energy_product([Physics.G, bi.mass, bj.mass], [denom])
 			E -= potential
 	return E
 
-# Construct the IEEE boundary without relying on subnormal decimal-literal parsing.
-static var DOUBLE_MIN_NORMAL := pow(2.0, -1022.0)
+static var DOUBLE_MIN_NORMAL := Physics.DOUBLE_MIN_NORMAL
+static var DOUBLE_MAX := Physics.DOUBLE_MAX
 
-# Exceptional diagnostic products: scale by exact binary powers before multiplying.
-static func _energy_product(factors: Array, denominator: float = 1.0) -> float:
-	var mantissa := 1.0
-	var exponent := 0
-	for i in factors.size() + 1:
-		var value: float = denominator if i == factors.size() else factors[i]
-		if not is_finite(value) or value <= 0.0: return NAN
-		var shift := clampi(int(floor(log(value) / log(2.0))), -1022, 1023)
-		value /= pow(2.0, shift)
-		while value < 1.0: value *= 2.0; shift -= 1
-		while value >= 2.0: value *= 0.5; shift += 1
-		if i == factors.size(): mantissa /= value; exponent -= shift
-		else: mantissa *= value; exponent += shift
-	while mantissa < 1.0: mantissa *= 2.0; exponent -= 1
-	while mantissa >= 2.0: mantissa *= 0.5; exponent += 1
-	if exponent > 1023 or exponent < -1075: return NAN
-	var value := mantissa * pow(2.0, exponent) if exponent >= -1022 else (mantissa * pow(2.0, exponent + 1022)) * DOUBLE_MIN_NORMAL
+# A diagnostic product outside binary64 is unavailable, not zero or infinite.
+static func _energy_product(factors: Array, divisors: Array) -> float:
+	var value := Physics.scaled_product(factors, divisors)
 	return value if is_finite(value) and value > 0.0 else NAN
