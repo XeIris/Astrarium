@@ -5,7 +5,8 @@
 > lessons and flight have since changed. Use [README.md](README.md) for current
 > commands, [docs/godot.md](docs/godot.md) for architecture, and the
 > [review log](docs/codebase-review-2026-10-02.md) for remediation evidence.
-> The archived `web/` build and `tools/ref/` evidence are frozen.
+> The archived `web/` build is frozen; the `tools/ref/` evidence is archived
+> (see [tools/ref/README.md](tools/ref/README.md)).
 
 **What was done:** the whole of Astrarium (the relativistic orrery, the 35-lesson
 astronomy course, the spaceflight simulator, the Object Foundry, the model
@@ -139,8 +140,8 @@ was re-run on the final tree.
 | Instruments | transit depth and RV K = 152.4 m/s; GW f = 9.5676 Hz, h₀ = 3.39e-22, both matching the web to ~1e-11 |
 | macOS build | exported universal `.app` (188 MB, ad-hoc signed, native kernel bundled); runs sandbox, Learn, Spaceflight and the X-ray band with 0 errors |
 
-The evidence behind each row is in `tools/ref/` (web and Godot image pairs,
-plus state dumps).
+The evidence behind each row was kept in `tools/ref/` (web and Godot image pairs,
+plus state dumps), now archived as described below.
 
 ## 3. What still differs, and why
 
@@ -176,7 +177,10 @@ plus state dumps).
 
 ## 4. Housekeeping notes
 
-- `tools/ref/` is **80 MB** of historical comparison evidence. Keep it for
-  interpreting this snapshot; new output follows [docs/evidence.md](docs/evidence.md).
+- The 80 MB `tools/ref/` comparison archive (553 files) was removed from the
+  tree after this snapshot. It remains in git history at `2f338cd`, and
+  [tools/ref/MANIFEST.sha256](tools/ref/MANIFEST.sha256) identifies every file;
+  [tools/ref/README.md](tools/ref/README.md) describes the archive. New output
+  follows [docs/evidence.md](docs/evidence.md).
 - The parallel migration used per-agent git worktrees under `.claude/worktrees/`.
   This note records the workflow, not the current worktree or publication state.
