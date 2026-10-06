@@ -1,0 +1,63 @@
+{
+ "rows": [
+  {
+   "name": "central limb-darkened transit",
+   "ok": true,
+   "value": 0.012481218633077273
+  },
+  {
+   "name": "face-on has no transit",
+   "ok": true
+  },
+  {
+   "name": "overlapping silhouettes counted once",
+   "ok": true
+  },
+  {
+   "name": "large occulter total eclipse",
+   "ok": true
+  },
+  {
+   "name": "luminous companion eclipse",
+   "ok": true
+  },
+  {
+   "name": "GW amplitude scales as inverse distance",
+   "ok": true
+  },
+  {
+   "name": "GW ignores noncompact objects",
+   "ok": true
+  },
+  {
+   "name": "live hot Jupiter transit depth",
+   "ok": true,
+   "value": 0.02094144213735538
+  },
+  {
+   "name": "live hot Jupiter RV amplitude",
+   "ok": true,
+   "value": 152.41819072770772
+  },
+  {
+   "name": "35 lessons direct entry and reverse navigation",
+   "ok": true
+  },
+  {
+   "name": "hot world loses its oceans",
+   "ok": true,
+   "value": -60
+  },
+  {
+   "name": "temperate world retains oceans",
+   "ok": true,
+   "value": 0
+  },
+  {
+   "name": "Moon keeps its near side toward Earth",
+   "ok": true
+  }
+ ],
+ "errors": [],
+ "ok": true
+}

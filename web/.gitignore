@@ -1,0 +1,10 @@
+# Build artifacts from model_sources/blender/*.py — the SCRIPT is the model, the mesh
+# is what falls out of it. Run model_sources/blender/build.sh to produce them; the sim
+# falls back to its procedural build when they are absent.
+assets/*.glb
+assets/.*.build.glb
+
+__pycache__/
+.DS_Store
+
+*.import

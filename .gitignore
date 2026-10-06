@@ -1,7 +1,17 @@
-# Build artifacts from assets/blender/*.py — the SCRIPT is the model, the mesh
-# is what falls out of it. Run assets/blender/build.sh to produce them; the sim
-# falls back to its procedural build when they are absent.
-assets/*.glb
-
-__pycache__/
+# Godot's import cache and per-machine state.
+.godot/
+**/__pycache__/
 .DS_Store
+# Blender scripts build optional runtime models directly into assets/.
+assets/craft/*.glb
+assets/craft/*.glb.import
+assets/pads/*.glb
+assets/pads/*.glb.import
+# Export output.
+build/
+# Linux/Windows kernels are built on their target platform; macOS remains prebuilt.
+native/bin/*.so
+native/bin/*.dll
+
+# Generated comparisons and performance reports belong outside the reference archive.
+/tools/evidence/

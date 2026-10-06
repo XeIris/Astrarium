@@ -1,860 +1,240 @@
 # Astrarium
 
-*A relativistic orrery.*
+The main version of Astrarium is a **Godot 4.7 / GDScript** relativistic orrery,
+astronomy course, and spaceflight simulator. Open [project.godot](project.godot)
+to run it. The original HTML/Three.js version is archived as a runnable project
+in [web/](web/). Its [README](web/README.md) describes the physics and scenarios;
+the shared engineering guidance is in [AGENTS.md](AGENTS.md), Godot-specific
+decisions are in [docs/godot.md](docs/godot.md), and the initial migration's historical
+verification record is in [PORT_REPORT.md](PORT_REPORT.md).
 
-An interactive space simulator built with Three.js. It started as a single-prompt
-black-hole renderer (gravitational lensing, accretion disc, spacetime mesh) and has
-grown into a small N-body sandbox with real orbital mechanics and a set of
-ready-made astrophysical scenarios.
+## Running it
 
-![A 10 M☉ black hole: the accretion disc lensed over the top of the shadow and
-back under it, the photon ring at the rim, a companion star visible through the
-lensing, and the spacetime well dimpling the mesh below.](docs/preview.png)
+You need Godot **4.7.x** (standard build — not the .NET one, and not a
+double-precision build).
 
-## Physics
+1. *(optional, once)* Build the authored vehicle, launchpad and launch-site
+   facility meshes. They are build artifacts of `model_sources/blender/*.py`
+   and are gitignored; without them the vehicles, launchpads and site
+   buildings use their procedural fallbacks.
+   ```sh
+   model_sources/blender/build.sh       # needs Blender 4.1+; 9 craft, 4 pads, facilities
+   tools/sync_assets.sh /abs/source     # optional: import existing GLBs from elsewhere
+   ```
+2. Open `project.godot` in the Godot editor and press **Play** (F5).
+   The first open imports everything, which takes a minute.
 
-Everything runs in **astronomical units**: length in AU, mass in solar masses (M☉),
-time in years. In these units the gravitational constant is exactly **G = 4π²** and
-the speed of light is ≈ 63 241 AU/yr — so a body at 1 AU around a 1 M☉ star orbits in
-exactly one year, with no fudge factors.
+The app opens on a star-field start screen. Choose **Sandbox**, **Learn astronomy**,
+or **Spaceflight** to load that mode. Press **Esc** during play for Settings;
+its **Controls** tab lists the bindings and has **Quit to start** and **Quit app**.
+Select a key in that tab to remap it. Keyboard bindings are saved between runs;
+**Reset all bindings** restores the defaults.
+The **Render** tab switches the spacetime mesh between a connected grid and
+deforming dots. The **Mesh** button in Controls still shows or hides it.
+It also offers Low, Medium and High rendering presets. Tick **Advanced rendering
+controls** to adjust resolution, black-hole lens detail, exposure and post-processing
+individually. **Lighting detail** affects the local flight scene and craft studio:
+Medium adds shadows and ambient occlusion; High also adds screen-space
+indirect light and reflections in the craft studio. The flight view uses a
+transparent render pass, where Godot does not support screen-space reflections.
+These effects are not hardware ray tracing.
+High rendering quality adds seven photo-style material textures to spacecraft
+and launchpads, with subtle roughness and normal detail. The same set works on
+authored Blender models and procedural vehicle fallbacks; see
+[the material guide](assets/materials/README.md). Lower presets keep the lighter
+flat-colour materials.
+In Earth's flight view, High also uses sky radiance for material reflections,
+a raymarched volumetric cumulus layer (1.5–4.6 km, visible from below,
+inside and above, casting shadows on the ground and dimming the vehicle's
+sunlight when it is under or in a cloud) and subtle near-field atmospheric
+scattering. Medium marches the same clouds more coarsely; Low skips them.
+The sun is drawn at its true angular size at every altitude, reddened by the
+air mass along its line and occluded by the vehicle, the ground, the planet
+and clouds, with the camera's glare: a 14-ray starburst from a 7-blade iris,
+fine scatter rays, and coloured aperture ghosts strung across the frame
+(`shaders/flight/lens_flare.gdshader`). The sky is integrated through a
+spherical atmosphere, so climbing out of it the horizon becomes a thin blue
+limb, and the ground is hazed along the true slant path; from altitude the
+10 km/px Earth map gets noise-warped coastlines, kilometre-scale land
+texture and a sun glint on the sea. The star field is dimmed by the camera's
+daylight exposure (stars vanish beside a sunlit vehicle and return in the
+planet's shadow or far from the Sun). Daylight exposure is calibrated in the
+flight view, and the Advanced exposure slider gives manual control.
+Engine exhaust is a raymarched volume per engine: shock diamonds and Mach
+disks from the real exit-to-ambient pressure ratio, afterburning, soot, and a
+look per propellant and engine (see `sim/flight/plume.gd`); large clusters
+draw one merged far field.
+The four Blender pad builds add railings, catwalks, structural framing and
+service hardware to Saturn V, Shuttle, Falcon 9 and Starship launch sites. The
+surrounding hardstand now has joints, marked access roads, utility cabinets,
+storage tanks, pump buildings, lighting and instanced coastal vegetation.
 
-- **Full pairwise N-body gravity**, integrated with **velocity-Verlet** (symplectic —
-  conserves energy far better than the old semi-implicit Euler).
-- **Black holes** attract via the **Paczyński–Wiita pseudo-potential**, which
-  reproduces the correct ISCO at 3·r_s and the relativistic plunge.
-- **Compact binaries** (BH–BH, NS–NS) lose orbital energy to **gravitational waves**
-  via the leading-order (2.5-PN) radiation-reaction term, so they genuinely inspiral
-  and merge with the right chirp shape. (The inspiral *rate* is exaggerated in the
-  merger presets so it's watchable; the morphology is real.)
-- Neutron stars follow a mass–radius relation (heavier ⇒ smaller, floored near the
-  ~10 km limit); main-sequence stars use R ∝ M^0.8.
+Or from a terminal, without the editor UI:
+```sh
+/Applications/Godot.app/Contents/MacOS/Godot --path .
+```
+Command-line options go after `--` and stand in for the web build's URL hash
+and its `SIM` console handle:
 
-### What holds a body up
+| option | effect |
+|---|---|
+| `preset=vega` | start in a scenario (the web build's `#vega`) |
+| `mode=sandbox\|learn\|flight` | skip the start screen and load that mode |
+| `craft=saturnv\|falcon9\|shuttle\|starship` | select a launcher when starting flight mode |
+| `padaz=180 padel=-0.2` | rotate and lower the flight pad camera for a screenshot |
+| `padmodels=0` | check the procedural launchpad fallback |
+| `sunview=1` | aim the final flight screenshot directly at the sun |
+| `seed=7` | make the scenario's random choices reproducible |
+| `quality=low\|medium\|high`, `lighting=low\|medium\|high` | rendering and local lighting presets |
+| `band=5` | imaging band 0–6 |
+| `focus=Earth`, `truescale=1`, `cammode=surface`, `localtime=noon` | camera and view |
+| `frames=60 dt=0.0166 out=/abs/shot.png [hud=0] [shot3d=1]` | run N fixed steps, save a screenshot, quit |
+| `eval=_preset_check` | run a development check (below); tools are excluded from exports |
 
-`sim/structure.js` answers a different question from the rest of the physics: not where
-a body is, but what it *is* — what is supporting it against its own gravity, how big
-that makes it, what is inside it, and at what point the support fails. Everything the
-Object Foundry does is derived from it, and none of the outcomes below are scripted;
-they are all consequences of the same competition between pressure and gravity.
+## Building the macOS app
 
-- **Solid planets** follow the scaled mass–radius law of
-  [Seager et al. (2007)](https://arxiv.org/abs/0707.2895) — every composition collapses
-  onto one curve, because the equations of state are all well fitted by a modified
-  polytrope. Fed the Earth-like coefficients it returns 0.97 R⊕ at 1 M⊕. Differentiate
-  it and the curve **turns over at about 300 M⊕**: past roughly one Jupiter mass,
-  electron degeneracy stiffens faster than gravity loads the planet, and adding rock
-  makes it *smaller*. There is a largest possible rocky planet, and it is ~3 R⊕.
-- **Ignition thresholds** are where the identity changes: deuterium at 13 M_J,
-  hydrogen at 0.075 M☉. Drag a planet's mass past either and it stops being one.
-- **Degenerate stars** shrink as they gain mass. White dwarfs use the Nauenberg (1972)
-  form of R ∝ M^−⅓ carried to the Chandrasekhar mass, which returns 0.0084 R☉ at
-  1.02 M☉ — Sirius B, measured at 0.0084 R☉. Past 1.44 M☉ there is no equilibrium and
-  it detonates as a Type Ia.
-- **Neutron stars** collapse past the **TOV limit** (~2.2 M☉ at rest), and rigid
-  rotation raises that by up to 20% because centrifugal support is real support. Feed
-  one in the sim and you can watch the moment it gives up.
-- **Massive stars** run into their own light. `L/L_Edd` rises with mass; above the
-  Humphreys–Davidson limit no stable supergiant is observed; between **140 and 260 M☉**
-  the **pair instability** disassembles the star completely, leaving no remnant at all;
-  above that it collapses directly to a black hole without exploding.
-- **Evolution** moves along a track rather than sitting on the main sequence. The core
-  hydrogen fraction falls, the mean molecular weight rises, and the star brightens and
-  swells — calibrated on the solar track, so the ZAMS Sun really is 0.70 L☉ and 0.90 R☉
-  and today's is exactly 1.00. Past the main sequence it becomes a subgiant, then a red
-  giant with a degenerate helium core, and — if it is heavy enough — an onion of burning
-  shells around an inert iron core. Above ~40 M☉ it goes the other way: its own wind
-  strips the envelope and it ends as a hot, small **Wolf–Rayet** star.
+The macOS export preset in `export_presets.cfg` is universal arm64 + x86_64,
+ad-hoc signed, with a minimum macOS version of 11. Linux and Windows presets
+target x86_64; build their native kernel on the target OS with `sh native/build.sh`. Install the export templates once — *Editor → Manage Export
+Templates → Download and Install* — then:
 
-### Rotation, shape and gravity darkening
-
-Spin is stored as one dimensionless number: Ω/Ω_crit, the fraction of the rate at which
-the body's own equator would be in orbit. That single number sets the shape and the
-surface temperature map, and both are checked against measurements.
-
-- **Planets** use the **Darwin–Radau** relation, which ties flattening to the measured
-  moment-of-inertia factor. It returns Earth's flattening as 1/300 against a measured
-  1/298.25, and Jupiter's as 0.0652 against 0.0649.
-- **Stars** use the **Roche model**, exact in the centrally-condensed limit, which
-  carries one famous consequence: at break-up, **R_equator/R_pole = 3/2 exactly**, for
-  any star. Nothing that stays in one piece can be flatter, which is why the spin
-  control has a principled hard stop rather than an arbitrary one.
-- **Gravity darkening** (von Zeipel 1924) follows: flux tracks effective gravity, so
-  T_eff ∝ g^β, with β = ¼ for a radiative envelope and ≈ 0.08 for a convective one
-  (Lucy 1967). The equator of a fast rotator is further out *and* centrifugally
-  supported, so it is cooler and dimmer than the poles.
-
-Vega is the test case, and it is a strong one. Its measured 236 km/s equatorial velocity
-predicts an equator-to-pole radius ratio of **1.192** against **1.193** observed, and a
-**10 260 K** pole over an **8 610 K** equator against **10 070 / 8 910** measured — with
-no free parameters anywhere in between.
-
-> Visual sizes of compact objects and horizons are exaggerated so they're not
-> sub-pixel — a true-to-scale stellar black hole or planet would be invisible next to
-> its orbit. Orbital *distances* and dynamics are always real.
-
-### True scale
-
-The **Sizes** toggle switches every body between that exaggerated stand-in and its real
-geometric radius. The Solar System preset starts in true scale, and there the bodies are
-built from measured radii: Earth is 4.26 × 10⁻⁵ AU across in a 1 AU orbit, a ratio of
-1 : 23 000, so from a camera that fits Neptune on screen it covers about a thousandth of
-a pixel.
-
-What makes that usable rather than an empty screen is the same thing that makes a real
-telescope usable. Below its resolution limit a body stops being a disc and becomes a
-**point source**: its apparent size stops shrinking — pinned at the instrument's
-point-spread function — while its brightness keeps falling as 1/r². So each body is drawn
-at its true size and, once that drops under a few pixels, cross-fades into a fixed-pixel
-glow with the correct colour and temperature. Fly toward one and the marker fades back out
-as the real sphere resolves. The geometry is never falsified; only the visibility floor is.
-
-This means a planet at true scale really is indistinguishable from a background star, which
-is honest and also inconvenient — so the **Bodies** list is the reliable way to travel. Pick
-one and the camera flies to it; its marker also gains a selection reticle so you can see
-where it is. Clicking in the viewport still works down to the marker's own footprint, and
-stops working below that, which is roughly where aiming at it stopped being possible anyway.
-
-Two numerical hazards come with a 10⁷ dynamic range, and both are handled rather than
-tolerated: the camera's near plane tracks its viewing distance (a fixed 0.01 AU near plane
-sits *outside* a true-scale Earth, clipping it away entirely), and the follow camera tracks
-its target exactly instead of smoothly once the residual is large compared to the viewing
-distance — at 6 yr/s Earth crosses most of an AU per frame while the camera sits 3 × 10⁻⁴ AU
-from it, and a fractional catch-up never arrives. Depth precision needs no special handling:
-a body hands over to its marker about an order of magnitude before the depth buffer could
-degrade below the body's own size. The derivation is in [sim/scale.js](sim/scale.js).
-
-## Trisolaris
-
-A full model of the *Three-Body Problem* system: three suns, one world, and a climate
-that tries to kill it.
-
-**The system is a hierarchy**, because that is the only arrangement in which a
-multiple-star system with a planet actually survives:
-
-| body                 | mass     | class     | role                                                    |
-| -------------------- | -------- | --------- | ------------------------------------------------------- |
-| **Alpha**      | 1.20 M☉ | F, 6576 K | inner binary, with Beta — 0.35 AU apart, 53-day period |
-| **Beta**       | 0.85 M☉ | K, 5236 K | inner binary, with Alpha                                |
-| **Gamma**      | 2.00 M☉ | A, 9451 K | wide 25°-inclined orbit, 22 AU, ~51-year period        |
-| **Trisolaris** | 1 M⊕    | —        | circumbinary orbit at 1.80 AU, e = 0.42                 |
-
-The planet's orbit sits well outside the Holman–Wiegert circumbinary stability limit
-(a_crit ≈ 2.3 a_bin ≈ 0.8 AU). **Verified by direct integration: stable for 60 000+
-simulated years** with a relative energy drift of ~1e-7 — several hours of continuous
-watching before anything drifts. Closer-in variants of Gamma's orbit were tested and
-did disintegrate (at 22 AU it survives; at 14 AU the planet is ejected after ~1900 yr).
-
-Three additional stable architectures are available in the Trisolaris scenario group:
-
-| scenario | architecture | defining scales |
-| -------- | ------------ | --------------- |
-| **Compact Haven** | tighter circumbinary hierarchy | binary 0.24 AU, world 1.35 AU, Gamma 15 AU |
-| **Wide Seasons** | wide circumbinary hierarchy | binary 0.55 AU, world 2.60 AU, Gamma 36 AU |
-| **Alpha's Refuge** | S-type nested hierarchy | world around Alpha at 0.80 AU, Beta 6.5 AU, Gamma 52 AU |
-
-All four deterministic architectures complete the 60 000-year headless stability check;
-the first three are P-type circumbinary worlds and Alpha's Refuge is the S-type
-counterexample. The numerical check uses the same browser-loaded physics module as the
-visual simulation:
-
-```bash
-cd desktop
-ASTRARIUM_STABILITY=1 ./node_modules/.bin/electron .
+```sh
+/Applications/Godot.app/Contents/MacOS/Godot --headless --export-release "macOS" build/Astrarium.app
+open build/Astrarium.app
 ```
 
-In these four the chaos therefore lives in the **climate**, not in the orbits — and
-that is real chaos, not a script. (For the version where the *orbits* misbehave too,
-see **Wandering Suns** below.) Insolation swings by a factor of ~8 (0.40 → 3.08 S⊕) every
-1.7-year orbit, and a zero-dimensional energy-balance model turns that into eras:
+The app is signed ad hoc, which runs on the Mac that built it. On another Mac,
+Gatekeeper will refuse it the first time: right-click → *Open*, or sign it with
+a Developer ID (set `codesign/identity` and `notarization/*` in the preset, or
+use *Project → Export…* in the editor). Build the authored meshes **before**
+exporting, or the app uses procedural fallbacks.
 
-```text
-C · dT/dt = (1 − α(T)) · S/4 − ε σ T⁴
+## The native physics kernel
+
+`native/` holds one small GDExtension, written in plain C against Godot's own
+`gdextension_interface.h`: the N-body sub-step loop. GDScript runs that loop
+~50–125× slower than the browser's JIT does, and the `solar` scenario needed
+38 ms of physics per frame; the kernel did it in 0.1 ms in that local benchmark.
+`tools/nbodycheck.gd` checks both implementations with strict numerical
+tolerances; timings depend on the scenario and hardware. The universal `.dylib` is **committed
+prebuilt**, so nothing needs compiling to run or export. If it is missing, the
+same GDScript loop runs instead — identical results, just slower. Rebuild after
+editing `astrarium_native.c`:
+```sh
+native/build.sh                    # needs only Xcode's command line tools
 ```
 
-with `α(T)` rising as the world freezes — the **ice-albedo feedback**, the runaway that
-can snowball a planet permanently. At the default 12 m ocean mixed layer the world
-spends roughly **42% Chaotic-Cold, 38% Stable, 20% Chaotic-Hot**, ranging −18 °C to
-+55 °C. Deepen the ocean to 25 m and it is temperate 94% of the time; shallow it to 8 m
-and the swings become lethal. That slider is the whole story of the book in one knob.
-
-**Stand on the planet** (`V`, or the *On Trisolaris* button) to see the sky directly:
-Rayleigh + Mie single scattering evaluated **separately for each sun**, with Kasten–Young
-air mass, so each sun reddens on its own schedule as it sets, casts its own terminator,
-and the sky colour is the sum of all three. The suns rise and set because the ground is
-turning — the observer rides the planet's real rotation at a latitude you choose.
-
-The scattering integral **saturates** (`1 − exp(−β_e·m)`) rather than growing linearly
-with air mass, so the horizon stays pale and bright instead of blowing out, and the sun's
-own disc is extinguished through the same air mass — which is what turns it blood red on
-the horizon. Output goes through a filmic curve with **eye adaptation**: exposure tracks
-the actual horizontal illuminance with a ~1.6 s lag, so a sunrise dazzles briefly and
-then settles instead of flash-banging the whole frame.
-
-Because a sunset takes minutes while an era takes centuries, time is logarithmic with
-four named regimes — **Sunset · Days · Seasons · Eras**.
-
-### Wandering Suns — the sky the book actually describes
-
-Stability has a cost, and it is paid in the sky. In all four architectures above the
-two near suns keep a fixed apparent size and the third sits 20 AU out contributing
-0.04 S⊕ — a sun you have to be *told* about. Nobody would build a religion around it.
-
-**Trisolaris — Wandering Suns** is built the other way round, for the view from the
-ground. It is a 2+2 hierarchy parked just inside the region where secular evolution
-turns chaotic: the world orbits Alpha (0.58 M☉, K5) at 0.34 AU, while Beta (1.25 M☉,
-F5) and Gamma (0.78 M☉, K2) form a tight 0.45 AU pair on a wide *e* = 0.50 orbit
-inclined 22°, whose periapsis dives to 1.68 AU — five times the world's own orbit.
-
-Every 3.8 years the pair comes back, and each passage delivers an impulsive kick to the
-world's orbit. This close to the Mardling–Aarseth stability boundary those kicks are
-strong enough to compound chaotically instead of averaging away, so no two returns find
-the world where the last one left it. (The 22° inclination is not doing the work — it is
-below the ~39.2° Kozai–Lidov critical angle, so there is no eccentricity–inclination
-libration here. It simply denies the encounters a shared plane, which keeps the suns
-from tracing one repeated line across the sky.) The ratio of the pair's periapsis to the
-world's orbit is the whole knob: below ~4 the world is stripped within decades, above ~6
-the kicks weaken and the one-sun fraction climbs from 21% back over 70%.
-
-Counting how many suns are near enough to show a real disc (at least a quarter the
-width Earth's Sun shows us — a statement about distance, not about how big the sim
-draws them):
-
-| suns showing a disc | Wandering Suns | flagship Trisolaris |
-| --- | --- | --- |
-| none | 3% | 0% |
-| one | 21% | 0% |
-| two | 44% | **100%** |
-| three | 32% | 0% |
-
-Insolation runs **0.64 → 3.68 S⊕** (5th–95th percentile, tailing to 7.8 at the 99th) and
-stays in the liquid-water band 91% of the time. How many are above the *horizon* at any
-moment is then the world's own 4-day rotation on top of that: near a close approach a
-single day carries you through all four skies — a two-sun night, a tri-solar day, a lone
-sun, and true darkness — and back.
-
-**On determinism.** A chaotic system's Lyapunov time is of order its orbital period, so
-after a few decades this scenario's trajectory is set by floating-point rounding rather
-than by its initial conditions. Your run will not match those numbers shot for shot and
-cannot; every figure above is pooled over a **24-run ensemble** (75 203 samples) at the
-preset's own step cap, differing only in starting phase — which is the only kind of claim
-that means anything about a system like this. On that ensemble the world lives a median
-of **382 years** (shortest 92, longest 3437) and always ends: 14 runs ejected it into the
-dark, the other 10 fed it to a star's Roche limit. It is *supposed* to end. Worst-case
-relative energy drift across those runs is 5.3e-4.
-
-This one also fixes a quiet distortion. A body used to be destroyed on contact with its
-**drawn** radius, and these stars are drawn several times oversize — at the flagship
-preset's scale a star reached ~9× further out than its real photosphere, silently
-deciding which close passes a world walks away from. A preset can now give a real
-destruction distance in AU; this one uses the **Roche limit**, `d = 2.44 R★ (ρ★/ρ)^⅓`,
-the distance at which a rocky world is pulled apart before it ever reaches the surface.
-
-Finally there is **Trisolaris — Chaotic Era**: the same three suns with *no* hierarchy at
-all, a genuine chaotic three-body system. The planet is thrown around and usually ejected
-or consumed within a few centuries. That is the honest limit of the idea, and it is why
-the Trisolarans want to leave.
-
-## Spaceflight
-
-A rocket is a different kind of object from everything else in this sim, and it
-gets a different treatment: its own integrator, its own units, its own render
-pass and its own instrument panel. Pick a vehicle from the **Spaceflight**
-section and it is built on the pad, in the local morning, at its real size.
-
-Everything below is in `sim/flight/`; the numbers and their sources are in
-[docs/spaceflight-research.md](docs/spaceflight-research.md).
-
-### The vehicles are the real ones
-
-Published stage masses, engines and specific impulses — nothing tuned for
-playability. A stage's Δv is **computed** from its own dry and propellant mass
-through the rocket equation, so if a vehicle cannot reach orbit here, it could
-not reach orbit.
-
-| vehicle | gross | liftoff thrust | pad TWR | ideal Δv |
-| --- | --- | --- | --- | --- |
-| **Saturn V / Apollo** | 2 862 t | 33.6 MN | 1.20 | 16.7 km/s |
-| **Falcon 9 Block 5** | 564 t | 7.6 MN | 1.37 | 9.7 km/s |
-| **Space Shuttle** | 2 031 t | 30.8 MN | 1.55 | 11.0 km/s |
-| **Starship / Super Heavy** | 4 995 t | 74.4 MN | 1.52 | 11.6 km/s |
-| **Apollo LM** | 15.2 t | 45 kN | 1.86 (lunar) | 4.7 km/s |
-| **Mars sky crane** | 2.8 t | 24.5 kN | — | 0.36 km/s |
-| **Ion cruiser** (Dawn-class) | 1.2 t | **0.24 N** | — | 18.5 km/s |
-| **Hail Mary** | 2 100 t | photon drive | — | rapidity 3.05 |
-
-The details that matter are in there too, because they change how the thing
-flies: a solid rocket booster's thrust **drops by a third** through the middle
-of its burn (that is what the star-shaped grain is for, and it is what holds the
-Shuttle stack under its limits when nothing aboard can throttle); the Apollo
-descent engine has a **forbidden throttle band** between 60% and 92.5% that
-eroded the valve, so the guidance really does have to sit on one side of it or
-the other; a Merlin cannot go below 57%, which is why a Falcon 9 booster cannot
-hover and has to land by hoverslam.
-
-### What is actually simulated
-
-- **Thrust** as `ṁ·g₀·Isp(p_a)`, with Isp interpolated between the engine's
-  published sea-level and vacuum values. Mass flow is constant at a given
-  throttle — the turbopump does not know what the outside pressure is.
-- **Atmosphere** to the US Standard tables: a lapse-rate troposphere and
-  exponential layers above, accurate to better than 1% below 20 km. Mars, Venus
-  and Titan get their own, from their measured surface conditions.
-- **Drag** with a transonic Cd curve, not a constant — which is what puts max-Q
-  where it belongs. The launchers above fly it at **25–33 kPa around 7–13 km**.
-- **Aerodynamic heating** from Sutton–Graves, `q̇ ∝ √ρ · v³`. The cube is the
-  whole story of re-entry, and it drives the ablation budget and the plasma
-  sheath from the same number.
-- **Full n-body gravity** in a frame centred on whichever body the vessel is
-  near, so the third-body terms are real rather than added on. Sphere-of-
-  influence handovers are computed against each body's **own primary**, which is
-  what keeps a vessel in low lunar orbit from being handed back and forth
-  between the Earth and the Moon every frame.
-- **Four ways to lose the vehicle**, each against a real limit: dynamic
-  pressure, axial g, `q·α`, and heat load. None of them are warnings.
-
-### Flying it
-
-The autopilot is a set of **closed loops on the vehicle's own state**, not a
-stored trajectory. A heavier rocket flies differently, and one that genuinely
-cannot make orbit gives up rather than pretending.
-
-- **Ascent** — vertical rise, a pitch program flown inside an angle-of-attack
-  limit set by the airframe's own `q·α`, then a closed loop that holds a climb
-  rate until apoapsis reaches its target. The Saturn V's timeline comes out as
-  centre-engine shutdown at **143 s**, S-IC staging at **164 s**, orbit at
-  **709 s** — against 135 s, 168 s and 703 s as flown.
-- **Orbital insertion** steered live rather than as an impulse, because a
-  thousand-metre-per-second circularisation is a burn two minutes long and the
-  orbit rotates out from under a direction frozen at ignition.
-- **Powered descent** on Apollo's own program structure and published gates:
-  **P63** braking, **hi-gate** at 2 377 m and 129 m/s, **P64** approach,
-  **lo-gate**, **P66** terminal. The lunar module touches down at **2.2 m/s
-  vertical and 0.5 m/s lateral after 687 s** — Apollo 11 took 756 s.
-- **Propulsive recovery** — an entry burn scheduled by the dynamic pressure it
-  exists to prevent, then a hoverslam whose ignition altitude is `v²/2(F/m − g)`
-  solved every step, together with how many engines to light. The booster lights
-  two Merlins at **1 598 m** and touches down at 3.2 m/s.
-- **Entry, descent and landing** — the Mars sequence, on its real gates: guided
-  lifting entry at L/D 0.24, supersonic parachute at **Mach 1.70**, backshell
-  separation at **1.80 km and 107 m/s**, powered descent, sky crane at 20 m.
-- **Transfers** — Hohmann with the launch window computed and waited for. The
-  planner reports the departure burn and the heliocentric Δv **separately**,
-  because they are not the same number and confusing them is the classic way to
-  be 2 km/s wrong.
-
-Flight time is **1:1 with the wall clock** at 1×: one minute of your time is one
-minute of the vehicle's, and the warp ladder is the only thing that changes it.
-
-**Time warp** works the way it has to: physics warp while anything is acting,
-and an exact two-body propagation on rails above that — with the same interlocks
-KSP uses, because on rails the thrust and drag terms are not evaluated at all.
-A launch itself runs at 1×, through a real terminal count: T−10, ignition at the
-vehicle's own lead — **T−8.9 s** for a Saturn V, T−6.6 for a Shuttle, T−3 for
-Falcon 9 and Starship — the engines coming up against the hold-downs, and
-release at T−0. Nine seconds of a vehicle straining on the pad is not ceremony;
-it is the only part of a launch that changes fast enough to see, and without it
-an ascent that really is running in real time still reads as instantaneous.
-
-### The pad
-
-A rocket rising over an empty plain does not look like it is rising: there is
-nothing in the frame whose size is known, so there is no parallax to read. So
-the complexes are modelled too, at the dimensions of the pads these vehicles
-actually flew from — the LC-39A hardstand raised **12.8 m**, the **137 m** flame
-trench and its deflector, the **49.4 × 41.1 m** Mobile Launcher, the **115.8 m**
-umbilical tower with nine swing arms that retract on ignition because they are
-carrying live propellant until then, Falcon 9's strongback, Starship's OLM and
-its 146 m catch tower, lightning masts on a catenary, and the sound-suppression
-deluge, which exists to stop the acoustic energy reflecting off the deck rather
-than to cool anything.
-
-### The model viewer
-
-The vehicles are built at real dimensions from the same numbers the physics
-integrates, and in flight you never get to look at them. The viewer is a studio:
-neutral ground, a turntable, a three-point light rig carried on the camera so
-there is no shadow side, the stack pulled apart along its own axis, and a
-**1.75 m figure standing next to it** — because scale is a comparison, and
-110 m means nothing until there is a person beside it. Every number in the panel
-is derived on the spot: a stage's Δv from its own dry and propellant mass, the
-pad TWR from the engines actually fitted.
-
-### Interstellar
-
-The **Hail Mary** is built from the book and the 2026 film: three parallel
-astrophage tanks, the pressure vessel forward of them, four beetles in the nose.
-
-Its performance is not asserted, it is derived. The book puts a gram of
-astrophage at ~9 × 10¹³ J — which is *mc²* to two figures — so the spin drive
-converts fuel completely into light and its exhaust velocity is exactly **c**.
-Two thousand tonnes of it on a hundred-tonne ship is a mass ratio of 21, so the
-whole mission has **ln 21 = 3.05 of rapidity** to spend. That is *not* enough for
-a flip-and-burn crossing of the 11.9 light years to Tau Ceti, which needs 6.03.
-It is comfortably enough for accelerate–coast–decelerate, and the planner solves
-for the coast rather than assuming it:
-
-> burn to β = 0.909 (γ = 2.39), coast 10.1 ly, turn over —
-> **13.9 years of Earth time and 6.6 aboard.**
-
-Thirteen years is what the book says the outbound trip takes.
-
-The cruise runs on the exact constant-proper-acceleration solution rather than
-on a relativistic patch over the Newtonian integrator — `v = c·tanh(aτ/c)`,
-`t = (c/a)·sinh(aτ/c)`, `d = (c²/a)(cosh(aτ/c) − 1)` — and reproduces the
-standard 1 g reference journeys exactly.
-
-And the sky changes, from one boost vector:
-
-- **Aberration** compresses the whole sky into a forward cone,
-  `cos θ = (cos θ′ − β)/(1 − β cos θ′)`. It is applied to the ray direction
-  *before* the screen-space derivatives are taken, so the crowding is measured
-  by the same Jacobian that already measures lensing magnification — no new
-  resolution assumption anywhere.
-- **Doppler** shifts each star's temperature by `D`, applied at source, because
-  `sim/sky.js` colours its stars from a Planck locus and a blackbody at `T` seen
-  through `D` *is* a blackbody at `T·D`.
-- The **headlight effect** brightens it as `D⁴`. At β = 0.91 the sky ahead is a
-  single blazing cone and everything behind is black.
-
-### Two clocks
-
-The vessel carries its own proper time and the coordinate time, and the readout
-between them is their accumulated difference:
-
-```
-dτ/dt = √(1 − v²/c² − 2Φ/c²)
-```
-
-Because the difference is accumulated through `√A − √B = (A − B)/(√A + √B)`, it
-never subtracts two nearly-equal numbers, and one expression covers twelve orders
-of magnitude. In low orbit it is tens of microseconds a day — the same
-calculation, and the same +38.7 µs/day, that GPS has to correct for. At β = 0.91
-it is years.
-
-## Real stars
-
-`sim/starcat.js` is a catalogue of measured objects, and the numbers in it are the
-measurements rather than what the scaling relations would have predicted. That
-distinction matters more than it sounds: feed Betelgeuse's 16.5 M☉ into a
-main-sequence radius relation and you get 4.9 R☉, and Betelgeuse is 764. So each entry
-also carries the evolutionary phase it is actually in, which is what lets the
-cross-section show a red supergiant's shells instead of a scaled-up Sun.
-
-Scenarios built from it:
-
-- **The Stellar Zoo** — ten famous stars at their true relative sizes, from Betelgeuse
-  down to Sirius B. That is a range of 90 000 to 1, so most of them are points until you
-  fly to one. They start on genuinely circular orbits, computed from the real N-body
-  force at t = 0; a ring of unequal masses has no stable mode and will come apart, which
-  is the correct answer rather than a bug.
-- **Sirius A & B** — the real orbit (a = 7.50 AU, e = 0.59, P = 50.13 yr), an ordinary
-  A1 star beside an Earth-sized white dwarf.
-- **Vega** — the rapid rotator seen pole-on that was the photometric zero point for a
-  century, which is why the calibration was quietly wrong.
-- **Achernar** — the flattest known star, at 1.35, against the hard limit of 1.5, and
-  close enough to break-up that it is throwing off a disc of its own gas.
-- **Betelgeuse** — with Jupiter's and Saturn's orbits drawn to scale beside it, so you
-  can see that Jupiter's is the first one that clears the star.
-- **Alpha Centauri** — the real nearest system, with the real 80-year orbit.
-- **Eta Carinae** — a hundred solar masses hard against its own Eddington limit, with
-  the Homunculus it threw off in the 1840s.
-- **The Main Sequence, end to end** — eleven stars from 0.1 to 60 M☉, all doing the same
-  thing, over a factor of 600 in mass and 400 000 in luminosity.
-
-## Blank Canvas
-
-An empty scene, and the one place where **Spawn puts things down at rest** instead of
-into an orbit. Nothing moves until gravity moves it, so whatever happens next is entirely
-yours — release two bodies and watch them fall together, or place three and find out what
-the three-body problem does to your arrangement. The `Spawn: In orbit / At rest` toggle
-works everywhere; the Blank Canvas just defaults to the other setting.
-
-(Nothing in it emits light, so until you spawn a star the scene is lit by a lamp riding
-the camera. It is a viewing aid, it is labelled as one, and it switches off the moment
-there is a real star to light things.)
-
-## The Object Foundry
-
-An editor with no catalogue of outcomes in it. There are four inputs — mass, spin,
-composition, and how much of its life it has burned — and everything shown is derived
-from them by the interior model. So one slider produces behaviour nobody wrote:
-
-- Drag a **rocky planet's** mass up and the radius grows, flattens, **stops at ~300 M⊕
-  and then falls** — 0.67 R⊕ at 0.3 M⊕, 2.34 at 30, 3.06 at the peak, and back down to
-  2.79 at 900. The drawn size follows it, in true scale and in the exaggerated view
-  alike. Keep going: at 13 M_J it lights deuterium and the panel stops
-  calling it a planet, at 0.075 M☉ it lights hydrogen and it is a star.
-- Drag a **star's** mass up and the colour tracks temperature from a 2800 K red dwarf to
-  a 45 000 K O star; past 120 M☉ it is a luminous blue variable, from 140 to 260 it is
-  destroyed completely by the pair instability, and above that it collapses without
-  exploding at all.
-- Drag a **neutron star's** mass up and nothing happens — until the TOV mass, where
-  everything does. Spin it first and the limit moves.
-- Drag **spin** on anything and it visibly deforms along the Roche sequence while its
-  equator cools relative to its poles, stopping at the 3/2 mass-shedding limit.
-- Drag **life burned** on a star and it walks its evolutionary track, ending — if you
-  take it all the way — in a core collapse you watch happen in the scene.
-
-## Editing a body in flight
-
-The Foundry's sliders appear again at the top of the cross-section panel, aimed at the
-focused body instead of at a draft — because building an object and changing one are the
-same operation here. The mass, spin, composition, age and metallicity of anything already
-in the scene can be moved while it orbits: the object is re-derived from the new numbers,
-its meshes are rebuilt, and its structural limits are rechecked immediately. What it is
-orbiting, where it is and how fast it is moving are untouched.
-
-The editor sits in the left column under the scenario list, and its top edge is
-measured rather than fixed: collapse the scenarios and it slides up into the space.
-
-Above the sliders is the body's own **mass–radius curve**, log–log, with the object
-drawn on it as a handle you can drag. A slider tells you where you are; it cannot tell
-you where the interesting places are, and here that is the whole point — a rocky
-planet's radius turns over at ~300 M⊕ and *falls* thereafter, a neutron star's is flat
-for a solar mass and then drops off a cliff. On log axes the power laws are straight
-lines (R ∝ M^⅓ cold, R ∝ M^−⅓ degenerate, R ∝ M for a horizon) and the kinks between
-them are where the physics changes. Dashed lines mark those crossings, red where the
-object is destroyed rather than reclassified, and `focus limit` narrows the graph to
-the nearest one so a transition takes a whole drag instead of one pixel.
-
-Nothing in the graph knows that 13 M_J is the deuterium limit. It is sampled by calling
-the same interior model across the range and marking wherever the *answer* changes
-regime, so the lines move when they should: spin a neutron star up and the TOV mark
-slides right, because rotation really is support.
-
-Which means the thresholds are live rather than something you can only build up to.
-Drag a 2.0 M☉ neutron star's mass and it collapses to a black hole under you at exactly
-the TOV mass — spin it up first and it survives further, because centrifugal support is
-real support. Push a white dwarf to 1.44 M☉ and it detonates and is gone. Take Earth to
-300 M⊕ and watch the radius stop growing at 3.06 R⊕, then to 26 M_J and watch it stop
-being a planet. Age the Sun through to core helium burning and it swells into a K giant
-with the planets still in orbit around it.
-
-One deliberate loss: changing the mass of a catalogue star discards its *measured*
-radius, temperature and luminosity and hands it back to the evolutionary track. Those
-numbers described Betelgeuse; a 1 M☉ object is not Betelgeuse, and keeping its 764 R☉
-would be the one place in the sim where a measurement outlived the thing it measured.
-
-## Cross-section
-
-Every body can be cut open (`Cross-section & edit` on a focused object): concentric layers
-colour-coded by temperature over a log scale spanning 100 K to 10¹⁰ K, labelled with
-radii and temperatures, plus the derived quantities and a note per layer on what it is.
-
-The notes are deliberately uneven about confidence, because the *inference* is uneven. A
-planet's core radius comes from its moment of inertia and is known to a few percent; a
-neutron star's inner core is genuinely unknown and is what the whole TOV question turns
-on; and a black hole's interior is not unmeasured but unmeasurABLE — what the diagram
-draws there is the coordinate structure of a solution to Einstein's equations, and it
-says so. (It is still worth drawing: the horizon, ergosphere, photon sphere and ISCO are
-all real, locatable surfaces, and the Kerr ISCO comes out at 2.321 M for a* = 0.9, which
-is the textbook value.)
-
-## Painter
-
-The things made of too many pieces to integrate — rings, belts, ejecta — added as **test
-particles on real Keplerian orbits**, advanced analytically rather than integrated. For a
-particle of negligible mass the two-body solution *is* the exact answer, so this neither
-drifts nor needs a step size.
-
-- **Rings** can only exist **inside the Roche limit**, where tides beat self-gravity and
-  the material cannot collect into a moon. That is why every ring in the solar system is
-  inside its planet's Roche limit and every major moon is outside it — so the painter
-  computes the span from the body's own density and refuses when there isn't one.
-- **Belts** get **Kirkwood gaps** cleared at the 3:1, 5:2, 7:3 and 2:1 resonances with
-  whatever lies outside them, which is what actually carved the ones in our own belt.
-- **Ejecta** are optically thin hollow shells, so they **limb-brighten** into a rim, and
-  they expand homologously — the one shape that grows without changing shape.
-
-## Features
-
-- **Scenarios:** **Trisolaris** · **Wandering Suns** · **Compact Haven** · **Wide Seasons** ·
-  **Alpha's Refuge** · **Trisolaris — Chaotic Era** · **The Stellar Zoo** ·
-  **Sirius A & B** · **Vega** · **Achernar** · **Betelgeuse** · **Alpha Centauri** ·
-  **Eta Carinae** · **The Main Sequence, end to end** · **Blank Canvas** ·
-  Black Hole Sandbox ·
-  Solar System (real distances & masses — zoom way out for Pluto) · Three-Body
-  figure-eight (an exact choreography solution) · Binary Star · Binary Black Hole
-  Merger · Neutron Star Merger (kilonova) · BH Devouring a Star.
-- **Stars derived from one number.** Give a star a mass and everything else follows from
-  main-sequence scaling relations: luminosity (piecewise M–L), radius, effective
-  temperature via Stefan–Boltzmann, and colour from a Planck-locus fit. A 2 M☉ star
-  really is bigger, hotter, bluer and ~30× more luminous than a 0.85 M☉ one
-  (Gamma puts out ~16 L☉; Beta, ~0.5 L☉).
-- **Live stellar activity.** Starspots emerge in mid-latitude activity belts, grow, decay
-  and are replaced; **differential rotation** laps the equator past the poles (Ω ∝
-  1 − 0.19 sin²lat, as on the Sun); **flares** follow a power-law energy distribution with
-  a fast rise and exponential decay, firing more often on cool convective stars than hot
-  ones; the biggest events launch expanding **coronal mass ejections**. Flares brighten
-  the star, and that extra flux feeds straight into the planet's climate.
-- Physically correct **limb darkening** (I(μ)/I(0) = 1 − u(1 − μ)), a chromospheric H-α
-  limb, and a smooth streamered corona.
-- **Eruptions with the structure eruptions actually have.** Coronal plasma cannot cross
-  the magnetic field, only slide along it, so a prominence is a bundle of separate
-  threads rather than one body; reconnection runs along a magnetic neutral line and works
-  upward, so a flare produces an *arcade* — a row of nested loops — anchored in **two
-  ribbons** that visibly draw apart as the event proceeds. The arcade is sheared, because
-  the shear is the free energy the flare is spending, and it relaxes toward square as it
-  goes. It is oriented by **Joy's law**: active regions are bipoles lying nearly
-  east–west with a tilt that grows with latitude, so every arcade in a hemisphere leans
-  the same way. The same cool material glows as a bright **prominence** off the limb and
-  is seen dark in absorption as a **filament** against the disc — one object, drawn twice,
-  and which one you get depends only on where it is. A CME carries the classic three-part
-  structure: bright swept-up leading edge, dark evacuated cavity, and the erupted
-  prominence material as a bright core. Flare plasma publishes its ~10⁷ K temperature into
-  the imaging pipeline, so an eruption is the brightest thing on the star in the X-ray
-  band and invisible in the visible one — which is exactly why flares were found in X-rays.
-- **Granule size from the pressure scale height**, not from taste. A convection cell is
-  about as wide as H_p = kT/(μm_H g) at the surface, so the number of cells across a star
-  is R/H_p — 2400 for the Sun, under a hundred for Betelgeuse. That is why a red
-  supergiant here is a handful of *enormous* cells rather than a scaled-up Sun, which is
-  what Schwarzschild (1975) predicted and what the VLTI and ALMA images show.
-- **Disc brightness from temperature.** Surface brightness goes as σT⁴, so a 3600 K
-  supergiant's disc is 0.15 of the Sun's per unit area and an O star's is 230 times it;
-  every star used to be drawn at the same brightness and so came out the same white.
-  (What is drawn is the eye's response to that ratio — Stevens' power law, L^⅓ — rather
-  than the raw ratio, because the orbit view has no adapted exposure. It is a display
-  transform and `sim/structure.js` says so.)
-- **Neutron stars** that spin and sweep two lighthouse **pulsar beams**.
-- **Real worlds use real maps; invented worlds use a terrain model.** Earth uses
-  NASA's July 2004 Blue Marble imagery and a Natural Earth land mask, so its
-  continents and ocean basins have their actual shapes and proportions. Mars
-  uses a Viking/USGS color mosaic, and the Moon uses an LRO color mosaic.
-  Spaceflight's ground uses the same Earth map, tied to the Cape Canaveral or
-  Starbase launch site. These are global color maps, not metre-scale elevation
-  meshes; nearby ground detail and weather remain simulated. For an invented
-  rocky world, relief comes from
-  isostasy (continental crust floats ~4.5 km higher than oceanic, which is why Earth's
-  hypsometric curve is bimodal and why coastlines are sharp) and from plate boundaries,
-  where the sign of the closing rate picks a mountain belt, a trench-and-arc, or a
-  mid-ocean ridge. Its colours come from a Whittaker diagram — biome as a function of
-  temperature and precipitation — over the three cells of the general circulation, which
-  is why the deserts land at 30° and the forests at 50°. Its temperature it works out for
-  itself from wherever it is and whatever stars are lighting it, so the ice line and the
-  desert belts move when the orbit does, and its caps are made of whatever freezes at its
-  own temperature: water at 273 K, CO₂ at 148 K on Mars, nitrogen at 37 K on Pluto. A
-  body with no air and no tectonics keeps its craters instead.
-- **Gas giants that do not turn as one object.** The interior rotates rigidly (System III,
-  the magnetic field's rate) and the visible cloud is advected over it by the zonal jets,
-  so adjacent bands *shear* past each other — which is where the ragged band edges, the
-  drawn-out ovals and the drifting spots all come from. Belts and zones are a quarter
-  cycle out of phase with the jets, because the jets sit on their boundaries. Saturn's
-  rings carry the real radial optical-depth profile (C, B, Cassini, A, Encke), cast the
-  planet's shadow across themselves and the ring shadow back onto the planet.
-- **Accretion:** bodies near a black hole are tidally stripped, shedding a visible
-  particle stream and **losing mass** (they shrink) as they feed it.
-- **Living worlds** whose surface is generated in-shader from 3D noise (no seam, no polar
-  pinch) and driven by the climate model: ice caps advance and retreat with the glaciated
-  fraction, seas shrink as they boil off, cloud decks thicken with humidity, and the
-  ground glows when it is hot enough to. Lit by every star at once — several terminators
-  in several colours crossing one disc.
-- **Spaceflight:** real launch vehicles with published stage masses and engines,
-  flown by closed-loop guidance — ascent, orbital insertion, transfers, Apollo's
-  own descent programs, propulsive booster recovery, Mars EDL, and relativistic
-  interstellar cruise with two clocks and an aberrated sky.
-- **Camera:** orbit camera, **free-fly mode** (WASD + mouse look), **surface view** from
-  the planet's ground (`V`), **flight cameras** while a vessel exists (`C` cycles
-  chase / orbit / cockpit / pad), and **click any object to focus and zoom** onto it.
-- Gravitational lensing (now up to two black holes), accretion-disc shader with
-  Doppler beaming & gravitational redshift, and a deformable spacetime mesh.
-
-## Learn — a beginner's astronomy course
-
-The third door. **Thirty-five lessons in eight modules**, from why there are
-seasons to how two black holes were heard colliding, each one opening a real
-scenario in this simulator and arguing from what it does. It runs in order or
-you can jump anywhere; progress is remembered.
-
-    The sky from here      scale · the turning sky · seasons · phases · eclipses
-    Gravity and orbits     ellipses · the harmonic law · three bodies · tides
-    Light                  inverse square · blackbody · the seven bands
-    The Sun and the stars  the Sun · activity · distances · the HR diagram · binaries
-    The lives of stars     birth · mass is destiny · giants · supernova · neutron stars
-    Black holes            escape velocity · the shadow · accretion · gravitational waves
-    Galaxies               the Milky Way · clusters · other galaxies · the Big Bang
-    Other worlds           planets · transits · wobbles · the habitable zone · are we alone
-
-**The syllabus is not invented.** The module order follows the standard
-introductory university sequence — OpenStax *Astronomy 2e*, the free text most
-US first-year courses now use — and the individual lessons are chosen against
-the [Nebraska Astronomy Applet Project's](https://astro.unl.edu/naap) fifteen
-lab modules, which are in effect a published answer to "which ideas in
-introductory astronomy need a simulator rather than a paragraph?". The framing
-of what a non-specialist should come away with is the IAU's
-[Big Ideas in Astronomy](https://astro4edu.org/bigideas/).
-
-**Two lessons exist to break a specific wrong idea.** That the seasons come from
-the Earth's distance to the Sun, and that the Moon's phases are the Earth's
-shadow, are the two best-documented misconceptions in the subject: most adults
-hold them, including most graduates, and they survive being told the right
-answer. What dislodges them is testing the wrong idea and watching it fail — so
-those lessons name the misconception out loud and open a scenario where it makes
-a prediction you can check. Earth's orbit here is its real one, eccentricity
-0.0167, and perihelion is in January.
-
-**Nothing is scripted.** A lesson loads a scenario, points the camera and says
-what to look at; everything after that is the integrator, the interior model and
-the shaders. Where the simulator genuinely cannot show something — parallax at
-one arcsecond, the expansion of the universe, the nuclear binding-energy curve —
-the lesson says so and draws a diagram instead of pretending.
-
-### Four instruments that measure the running scene
-
-Lessons that need a number carry a live instrument in the card, and each one is
-derived from the running scene, with the gravitational-wave trace explicitly rescaled:
-
-- **The photometer** (`sim/lightcurve.js`) sums the light of every star in the
-  scene and subtracts whatever is in front of it, integrating the limb darkening
-  over the planet's disc — which is why a transit here has a rounded floor and
-  reads about 2.1% deep for a planet covering 1.7% of the star. It reads the
-  star's radial velocity off the same orbit, so the dip and the wobble agree
-  because they have to. **The observer is the camera**: climb out of the orbital
-  plane and the transits stop, which is the honest statement of why the planets
-  we know about are a biased sample.
-- **The gravitational-wave detector** (`sim/gwdetector.js`) reads the real
-  binary and illustrates ideal-orientation strain for a 4 km interferometer, from the
-  quadrupole formula. The scenario draws a 36 M☉ horizon twenty-eight thousand
-  times life size so you can see it, so the mapping is the one invariant both
-  versions share — the drawn binary and the real one are at the same fraction of
-  their own merger separation — and the chirp then sweeps up through the LIGO
-  band with leading-order frequency and amplitude estimates. The accelerated
-  inspiral is not a physical chirp rate; merger, ringdown and detector antenna
-  response are not modelled. For h = 10⁻²¹, the differential displacement is
-  4×10⁻¹⁸ m and each arm changes by 2×10⁻¹⁸ m. Arm motion is exaggerated.
-- **The HR diagram** (`sim/hrdiagram.js`) plots the stars in the scene live. The
-  main sequence, the giant branches and the white-dwarf cooling line are not
-  drawn — they are *sampled out of* `sim/structure.js`, so a change to the
-  stellar model moves them and the two can never disagree.
-- **The 3D cutaway** (`sim/cutaway.js`) is the interior model as an object
-  rather than as a chart: nested shells with a quarter clipped away, built from
-  the same layers the flat cross-section uses. A flat disc cannot make a
-  beginner believe the core is a sphere, and that belief is most of what an
-  interior model is for.
-
-### Thirteen scenarios written for it
-
-`#edu_seasons` `#edu_moon` `#edu_kepler` `#edu_habitable` `#edu_starbirth`
-`#edu_sun` `#edu_lifecycle` `#edu_supernova` `#edu_pulsar` `#edu_transit`
-`#edu_hole` `#edu_galaxy` `#edu_cluster` — all in the scenario list under
-*Learning scenarios*, and all reachable without the course. What makes one of
-these different from any other scenario is only what it is **for**: the minimum
-arrangement that makes one idea visible and nothing else. The Kepler scenario is
-the clearest case — two planets with the same semi-major axis and wildly
-different eccentricities, which keep arriving back together forever, and a third
-at exactly 4^⅓ times the axis, which takes exactly two of their years. Nothing
-in the code makes them do that.
-
-## Three doors
-
-Astrarium is three simulators sharing one renderer, and one stacked control
-column could not serve them — by the time spaceflight was at the bottom of it,
-changing the imaging band meant scrolling past a climate model. So the page
-opens with a choice, **Sandbox**, **Learn** or **Spaceflight**, and the switch
-in the top left changes mode at any time.
-
-They share the physics and little else. **Spaceflight is for flying**: it opens
-already on the pad at Earth, at **1:1** — one second per second, with the warp
-ladder the only handle on it — and the orrery's own instruments are simply not
-there. No scenario list, no interior editor, no painter, no spawner, no body
-list, no imaging bands, and above all no time-scale slider. Those are things you
-do to a universe you are looking at, and none of them mean anything while you
-are holding a vehicle down on a launch mount. Editing happens in the sandbox.
-
-**Learn is the sandbox with a course over it.** It keeps every control, because
-the lessons send you to them by name — drag this slider, press 6 for X-ray — and
-replaces the scenario list with the syllabus, because in that mode the course is
-how you choose what to look at. Leaving it does not throw anything away: every
-scenario a lesson opened is still in the list.
-
-## Running
-
-It's static — serve the folder and open `blackhole_sim.html`:
-
-```bash
-node .claude/serve.mjs
-# then open http://localhost:8777/blackhole_sim.html
-```
-
-Deep-link a scenario with a URL hash, e.g. `blackhole_sim.html#bhmerger`.
-
-There is no test suite, and for the course there is the next best thing:
-`.claude/coursecheck.js`, injected into the page, walks every lesson and every
-step in order, runs a frame at each, and reports any scenario that failed to
-load, any body a lesson asked to focus on that does not exist in it, any control
-or panel it named that is not there, and any step whose viewing distance puts
-the camera inside the thing it is pointing at. `.claude/sciencecheck.js` also
-checks direct-entry and backward navigation, transit/eclipsing geometry, inverse-distance
-strain scaling, and synchronous lunar rotation. `.claude/presetcheck.js` walks
-all 35 scenarios. Run them through `.claude/review.html?mode=course|science|presets`
-(one mode at a time). The harness preserves saved course progress.
-
-### Controls
-
-`drag` look · `scroll` zoom / fly-speed / FOV · `click` focus object · **`V` stand on the
-planet** · `F` free cam · `WASD` fly (`Shift` boost, `Q/E` down/up) · `R` reset view ·
-`space` pause · `del` remove focused · `1`–`7` imaging band · `H` hide the HUD.
-
-**In flight:** `Z` / `X` full and cut throttle · `shift`+`space` stage ·
-`,` / `.` time warp · `C` flight camera · drag orbits the vehicle.
-
-## Layout
-
-- `blackhole_sim.html` / `.css` — shell & UI
-- `blackhole_sim.js` — scene, lensing/disc shader, camera, picking, render loop, UI
-- `sim/physics.js` — N-body integrator, GR pseudo-potential, GW inspiral, collisions
-- `sim/bodies.js` — body visual dispatch and the accretion streams
-- `sim/lessons.js` — the course: eight modules, thirty-five lessons, pure data
-- `sim/lessonui.js` — the course panel, the lesson card, and the stage API a step
-  is executed against
-- `sim/edupresets.js` — the thirteen scenarios written for the lessons
-- `sim/lightcurve.js` — the photometer: transit depth with limb darkening, and
-  radial velocity
-- `sim/gwdetector.js` — the strain a detector would record from the binary on
-  screen
-- `sim/hrdiagram.js` — the HR diagram, sampled from the interior model
-- `sim/cutaway.js` — the interior as a clipped 3D object
-- `sim/terrain.js` — isostasy, plate tectonics, craters and the surface climate belts,
-  as shared GLSL
-- `sim/rocky_visual.js` — every solid-surface world: terrain, biomes, volatiles, clouds,
-  atmosphere
-- `sim/planetmaps.js` and `assets/planet-maps/` — cached mission imagery and
-  the Earth coastline mask for named Solar System worlds
-- `sim/giant_visual.js` — gas giants: zonal jets, differential advection, vortices, rings
-- `sim/suns.js` — the multi-sun lighting block every lit surface declares
-- `sim/presets.js` — scenario definitions with real initial conditions
-- `sim/stellar.js` — mass → luminosity / radius / temperature / colour, and the
-  starspot-flare-CME activity model
-- `sim/star_visual.js` — photosphere, corona, flare ribbons and CME rendering
-- `sim/prominence.js` — the post-flare arcade and the erupting flux rope, as threads on
-  field lines; bright off the limb, dark against the disc
-- `sim/world.js` — the climate-driven planet (surface, clouds, atmosphere), multi-sun lit
-- `sim/climate.js` — the energy-balance climate model and era classification
-- `sim/skyview.js` — surface observer + multi-sun atmospheric scattering pass
-- `sim/scale.js` — true-scale rendering: real mass–radius relations and the
-  point-source markers that keep a sub-pixel body visible
-- `sim/structure.js` — what holds a body up: mass–radius laws, ignition and support
-  limits, rotational shape, gravity darkening, and the layer model everything else reads
-- `sim/starcat.js` — the catalogue of measured stars and the scenarios built from it
-- `sim/foundry.js` — the Object Foundry editor and the live editor
-- `sim/masscurve.js` — the draggable mass–radius graph and its model-derived marks
-- `sim/crosssection.js` — the labelled interior diagram and its temperature ramp
-- `sim/painter.js` — rings, belts and ejecta as analytically-advanced test particles
-- `sim/flight/` — spaceflight: SI-unit vehicle physics, the vehicle catalogue,
-  two-body mechanics and on-rails propagation, the autopilot, relativistic
-  cruise, procedural spacecraft, exhaust and plasma effects, the metre-scale
-  local render pass, and the instrument panel
-
-## Disclaimer
-
-For education and play. The orbital dynamics, stellar scaling relations and the climate
-model are real. Compact-object sizes, horizon radii and merger timescales are deliberately
-exaggerated for visibility — and so are **stellar radii in the surface view**: the suns of
-Trisolaris are drawn about 10× their true angular size (a real one would subtend ~0.3°),
-because a physically-sized sun is a bright dot and the point of that view is the sky.
-
-The spacecraft are the exception to the exaggeration: they are modelled at their
-real dimensions and drawn in their own metre-scale pass, because at AU scale a
-rocket is 7 × 10⁻¹⁰ of a scene unit and no single projection covers both. The
-one piece of genuine science fiction is the Hail Mary's astrophage, which is the
-book's, and even there the drive is treated as the photon rocket the book's own
-energy density implies.
+## Verifying
+
+Run the checks relevant to the change; defects and incomplete runs must return a
+nonzero exit. Independent physics invariants supplement comparisons with the
+frozen numeric reference. The [codebase review and remediation log](docs/codebase-review-2026-10-02.md)
+records known issues, ownership and acceptance evidence.
+
+`python3 tools/check.py` runs the fast headless suite. Rendered checks need a
+real window (headless Godot has no GPU renderer), and Godot activates itself
+as each window opens. On macOS, `--background` returns focus to the app you
+last used within about 50 ms of each activation. Checks keep rendering behind
+other windows, but not minimized or on a hidden Space, so the fullscreen M5
+gates reject it. Select additional suites,
+for example `python3 tools/check.py fast native assets rendered lifecycle export`.
+The runner retains child logs and a JSON report, rejects errors, timeouts and
+missing completion markers, and stops on the first failure. Use `--godot` to
+select an engine and `--log-dir` to retain results at a chosen location.
+`assets` requires all nine generated craft models; `rendered`, `lifecycle` and
+`perf` need a working graphical renderer. `flight` runs the four full launches and the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit). `native` includes the numerical boundary checks.
+`stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
+three timestep refinements and five orientation probes. Both remain explicit
+suites because of their runtime; the redesigned scenario passes the tested bounds
+(see [scenario limits and results](docs/scenarios.md#trisolaris-hierarchical-initial-conditions)).
+`compatibility` keeps the known strict frozen-reference differences failing.
+Body motion uses conservative Newtonian pair gravity; relativistic visuals and
+the illustrative tight-pair drag have separate limits described in
+[the compact-dynamics model](docs/physics/compact-dynamics.md).
+
+`python3 tools/check.py perf --repeat 3` records rendered scenario/editor/LOD
+measurements (including authored launchpad/ascent), fixed-step CPU flight timings
+and HUD shown/hidden timings. It also runs a frozen studio LOD comparison with
+two ABBA cycles at each distance and distinct model-viewport timestamp batches.
+See [the measurement contract and local results](docs/performance.md). Missing
+GPU timestamps are reported as unavailable; these measurements are not portable
+performance budgets.
+
+`python3 tools/check.py m5-medium` applies the same frame budget to the full
+native Medium preset (MSAA, lens detail 0.5). Both M5 gates need the fullscreen
+Space visible on the built-in display; while it is hidden, macOS withholds
+drawables and the watchdog fails the run.
+`python3 tools/check.py m5-budget` runs the selected M5 Metal gate: native
+3024×1964 scene targets, Low-based settings, MSAA disabled, lens detail 0.35,
+native pixel scaling,
+elapsed simulation steps, at least 30 mean FPS and p95 frame intervals within
+33.33 ms. The HUD client/frame dimensions are recorded separately. See the performance
+notes for the custom configuration and measured results.
+
+Authored builds run a Blender primitive-winding check before publishing models,
+then refresh Godot imports when the engine is available. This prevents checks
+from measuring an older imported mesh after the source GLB changes.
+
+`python3 tools/check.py clean` requires a committed clean working tree, clones it
+without local import caches/generated models, builds the native kernel, checks
+procedural assets and validates an export pack plus isolated resource/native
+startup. To also render the exported application, run
+`python3 tools/cleancheck.py --godot /absolute/Godot --log-dir /absolute/evidence --rendered-boot`.
+The pack distribution contains **both `game.zip` and its `native/bin/` sidecar**;
+`--export-pack` alone does not ship the OS library. Normal full application
+exports include it through the extension descriptor.
+
+[Portable CI](.github/workflows/verify.yml) pins Godot 4.7.2 and runs the clean
+procedural gate on macOS, Linux and Windows. It does not establish authored
+Blender fidelity, graphical performance or device budgets. A Linux x86_64
+Ubuntu clean-clone/native/export run passed locally under Docker emulation on
+macOS; this establishes the functional platform contract, not Linux GPU costs.
+An [actual three-platform CI run](https://github.com/XeIris/Astrarium/actions/runs/37246714048)
+passed all 16 clean children per platform at `7773b7f`, including 190 numerical
+checks, native invariants/parity, 64 save checks and isolated exported startup. Engine downloads now require
+the pinned official SHA256 before extraction. Later revisions require their own
+remote run; headless CI supplies no rendered frame budget.
+[Evidence retention](docs/evidence.md) keeps new generated captures out of the
+frozen migration reference archive.
+
+The `eval=` development methods live in `tools/runtime_checks.gd` and load only
+when requested. Unknown methods and development checks requested from an export
+fail explicitly. Multiple requested methods run in order.
+
+| check | what it does |
+|---|---|
+| `tools/presetcheck.sh` | loads all 35 scenarios, runs a second of each, reports script/shader errors and lost bodies |
+| `tools/coursecheck.tscn` | renders all 35 lessons / 108 steps; rejects engine errors, missing subjects and unknown directives; `selftest=1` must exit 1 with three errors and one warning |
+| `tools/physcheck.sh` | compatibility report against frozen JavaScript; numeric differences are printed, not rejected; child/engine failures and missing output fail |
+| `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript; rejects a descent that does not land inside its gear rating, a Super Heavy return that is not caught by the tower, and a deorbit that does not burn once and hand back. These three intentionally diverge from the frozen build, which fails them |
+| `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
+| `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
+| `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
+| `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
+| `tools/skycachecheck.tscn` | rendered sky: the point-source cull must match an exhaustive walk pixel for pixel; the diffuse cache must stay within its stated error of live evaluation across bands, aberration and lensing. `timing=1` prints native-size frame medians, `reference=/abs/sky.gdshaderinc` requires the live sky to match another revision (e.g. from `git show`), `dump=/abs/dir` saves live/cached images and the cache atlas |
+| `tools/skycost.tscn` | frame cost of each sky component (point tiers, dust, clusters, galaxies, nebulae, cache, constant sky) by editing the shader source; a renamed component fails. Options `preset=`, `band=`, `view=WxH`, `scale=`, `samples=` |
+| `tools/lenscheck.tscn` | graphical GPU check of independent single-hole shadow size, horizon-scale invariance, finite fields and weak-field deflection |
+| `tools/numericalcheck.gd` | requires native kernel; checks tiny forces, potentials, step caps, positive durations, orbital convergence and unsafe-update rollback in both implementations |
+| `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, merger order, steps and integrated time against GDScript |
+| `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary and black-hole pair forces, matching energy, and presentation-independent contact distances |
+| `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year Trisolaris bounds and compensated accepted time; `years=<n>` selects a shorter probe; `max_step=<years>`, `step_divisor=2`, `world_rotation=<radians>` and `world_eccentricity=<e>` select separately marked diagnostics; `report=/abs/result.json` retains runtime/force metadata, exact double states and approximate orbital elements |
+| `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
+| `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
+| `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
+| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
+| `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; `inject_invalid=1` must fail on a missing driven part |
+| `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
+| `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps; `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
+| `tools/editorcheck.tscn` | canonical inspector and graph invalidation, measured/tiny bodies, structural threshold crossings, and delayed edits across selection/removal/reused IDs |
+| `tools/padcheck.gd` | rejects pad structure inside its vehicle; `padmodels=0` / `assets=0` select fallback pads / craft; `inject_intrusion=1` must fail |
+| `python3 tools/exportcheck.py /abs/game.zip` | checks a `Godot --headless --path . --export-pack macOS /abs/game.zip` resource archive for development files, missing boot files and broken import/remap targets; native libraries and rendering still need an exported-app smoke run |
+| `tools/reference_shots.py` | shared runner for `startest_all.sh`, `coursetest.sh` and `flightshots.sh`; rejects child/engine failures, timeouts, missing completion markers and missing/invalid captures; retains `reference-report.json`. `TIMEOUT=<seconds>` overrides each child deadline |
+| `python3 tools/reference_shots_test.py` | failure-contract self-checks for the reference runners, without a renderer |
+| `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks; use `flightshots.sh` for validated flight captures |
+| `tools/shots.sh` | screenshots of this build via the command-line options above |
+| `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry |
+| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
+| `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
+
+The historical side-by-side migration evidence was archived out of the working
+tree; `tools/ref/` now keeps the manifest and retention note.

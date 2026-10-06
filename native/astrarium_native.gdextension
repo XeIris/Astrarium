@@ -1,0 +1,16 @@
+[configuration]
+
+entry_symbol = "astrarium_native_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+macos.debug = "res://native/bin/libastrarium_native.dylib"
+macos.release = "res://native/bin/libastrarium_native.dylib"
+linux.debug.x86_64 = "res://native/bin/libastrarium_native.linux.x86_64.so"
+linux.release.x86_64 = "res://native/bin/libastrarium_native.linux.x86_64.so"
+linux.debug.arm64 = "res://native/bin/libastrarium_native.linux.arm64.so"
+linux.release.arm64 = "res://native/bin/libastrarium_native.linux.arm64.so"
+windows.debug.x86_64 = "res://native/bin/astrarium_native.windows.x86_64.dll"
+windows.release.x86_64 = "res://native/bin/astrarium_native.windows.x86_64.dll"
