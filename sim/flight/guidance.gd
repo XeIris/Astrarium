@@ -99,6 +99,7 @@ class Autopilot extends RefCounted:
 	var slamming: bool = false
 	var entry_burning: bool = false
 	var entry_done: bool = false
+	var q_guarding: bool = false
 	var shield_gone: bool = false
 	var crane_out: bool = false
 	var _integ: float = 0.0
@@ -445,7 +446,10 @@ class Autopilot extends RefCounted:
 		var tq: float = t.get("q", 0.0)
 		var tdrag: float = t.get("drag", 0.0)
 		var q_target: float = lim.maxQ * 0.70
-		if tq > q_target: th = minf(th, 1.0 - 2.2 * (tq / q_target - 1.0))
+		# Throttling down sheds q only when thrust is along the airflow; a retro burn
+		# that throttled down on high q would brake least when it most needs to.
+		var with_air: bool = v.forward(Guidance._f).dot(v.airspeed(v.r, v.v, Guidance._air)) > 0.0
+		if tq > q_target and with_air: th = minf(th, 1.0 - 2.2 * (tq / q_target - 1.0))
 		var g_target: float = lim.maxG * 0.88
 		var f_full := full_thrust(pa)
 		if f_full > 0.0: th = minf(th, (g_target * Rocketry.G0 * v.mass + tdrag) / f_full)
@@ -830,22 +834,24 @@ class Autopilot extends RefCounted:
 		var terminal_ceiling: float = env.atm.top * 0.08 if env.atm != null else INF
 		# Ignite at h_burn, not before: with TWR > 1 at minimum throttle, early ignition climbs.
 		var must_land: bool = slamming or (alt <= sel_pre.hBurn * 1.05 and alt < terminal_ceiling)
-		# Hysteresis on q: start at a tenth of the limit (~40 km on a booster), stop at 6%.
-		var q_on := q_lim * (0.06 if entry_burning else 0.10)
+		# Start at a tenth of the limit (~40 km on a booster). Throttle on how far q is over
+		# that line; the burn ends, once, when that asks for nothing.
 		var tq: float = v.telemetry.get("q", 0.0)
+		var servo := DQuat.jclamp(0.45 + (tq / (q_lim * 0.10) - 1.0) * 2.5, 0.0, 1.0)
+		var lit: bool = servo > 0.0 if entry_burning else (not entry_done and tq > q_lim * 0.10)
 		# The entry burn stops by half the terminal ceiling; otherwise near-surface q keeps
 		# it lit all the way down.
 		if env.atm != null and not must_land and alt > terminal_ceiling * 0.5 \
-				and alt > h_burn_pre * 1.6 and tq > q_on:
-			# Throttle on how far q is over the line, on three engines as the real booster uses.
-			v.set_engine_count(3)
-			manual_engines = true
-			var over := tq / (q_lim * 0.10) - 1.0
-			# Through the shared limiter, so the g cap and engine shutdown apply here too.
-			v.throttle = limit_throttle(DQuat.jclamp(0.45 + over * 2.5, 0.0, 1.0), pa, dt)
+				and alt > h_burn_pre * 1.6 and lit:
 			if not entry_burning:
 				entry_burning = true
+				# Three engines, as the real booster uses. Not manual: limit_throttle may shut
+				# more down when a light booster's floor would exceed the g limit.
+				v.set_engine_count(3)
+				manual_engines = false
 				note("Entry burn — %s km, %s m/s, q %s kPa" % [U.fixed(alt / 1000.0, 0), U.fixed(speed, 0), U.fixed(tq / 1000.0, 1)])
+			else: _relight_if_saturated(servo, per_e)
+			v.throttle = limit_throttle(servo, pa, dt)
 			say("Entry burn — %s km, %s m/s, q %s kPa" % [U.fixed(alt / 1000.0, 0), U.fixed(speed, 0), U.fixed(tq / 1000.0, 1)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
 		if entry_burning:
@@ -855,6 +861,21 @@ class Autopilot extends RefCounted:
 		var sel := sel_pre
 		var h_burn: float = sel.hBurn
 		if not must_land:
+			# A heavy booster's terminal q is over the limit: brake, from one engine, to hold
+			# q at limit_throttle's 70% target, ending when the servo asks for nothing.
+			var q_guard := q_lim * 0.70
+			var guard_servo := DQuat.jclamp(0.45 + (tq / q_guard - 1.0) * 2.5, 0.0, 1.0)
+			if env.atm != null and (guard_servo > 0.0 if q_guarding else tq > q_guard):
+				if not q_guarding:
+					q_guarding = true
+					v.set_engine_count(1)
+					manual_engines = false
+					note("Dynamic-pressure guard — %s km, q %s kPa" % [U.fixed(alt / 1000.0, 1), U.fixed(tq / 1000.0, 1)])
+				else: _relight_if_saturated(guard_servo, per_e)
+				v.throttle = limit_throttle(guard_servo, pa, dt)
+				say("Dynamic-pressure guard — %s km, %s m/s, q %s kPa" % [U.fixed(alt / 1000.0, 1), U.fixed(speed, 0), U.fixed(tq / 1000.0, 1)])
+				return Guidance.attitude_for(MODE.RETROGRADE, v)
+			q_guarding = false
 			v.throttle = 0.0
 			say("Falling — %s km, %s m/s, ignite at %s km" % [U.fixed(alt / 1000.0, 1), U.fixed(-v_vert, 0), U.fixed(h_burn / 1000.0, 2)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
@@ -871,6 +892,16 @@ class Autopilot extends RefCounted:
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Booster recovered")
 		return aero_limit(cmd, Guidance._a)
+
+	## A q servo at full throttle with q still over its line lights one more engine
+	## a second, while the floor stays under limit_throttle's g target (above it,
+	## limit_throttle would shut the engine down again). `per_e`: one engine's F/m.
+	func _relight_if_saturated(servo: float, per_e: float) -> void:
+		var st = v.current_stage
+		if servo < 1.0 or v.throttle < 0.999 or shut_cool > 0.0 or st == null or st.live >= st.spec.count: return
+		if (st.live + 1) * per_e * throttle_floor() > v.vehicle.limits.maxG * 0.88 * Rocketry.G0: return
+		v.set_engine_count(st.live + 1)
+		shut_cool = 1.0
 
 	## Engine count and ignition altitude for the landing burn: { n: int, hBurn: float }.
 	func solve_landing_burn(_alt: float, v_vert: float, pa: float, g: float) -> Dictionary:

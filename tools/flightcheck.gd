@@ -30,6 +30,14 @@ func _init() -> void:
 	var only: Array = args.only.split(",") if args.has("only") else []
 	var results := { "runner": "gd", "spot": spot(fixture.bodies), "scenarios": {} }
 	var failures := 0
+	# Light and heavy boosters exercise the entry burn's g limit and the q guard. They
+	# have no counterpart in the frozen reference.
+	for variant in [["f9booster_light", 25000.0], ["f9booster_heavy", 100000.0]]:
+		for sc in fixture.scenarios.duplicate():
+			if sc.id == "f9booster":
+				var d: Dictionary = sc.duplicate(true)
+				d.id = variant[0]; d.prop = variant[1]
+				fixture.scenarios.append(d)
 	for sc in fixture.scenarios:
 		if not only.is_empty() and not only.has(sc.id): continue
 		var res := run(sc, fixture.bodies, dt)
@@ -52,11 +60,11 @@ func _init() -> void:
 	quit(1 if failures else 0)
 
 ## Descents must land inside the gear rating, and a deorbit must burn once and hand
-## back. These diverge from the frozen web build, which fails all three.
+## back. These diverge from the frozen web build, which fails them.
 static func outcome_error(id: String, res: Dictionary) -> String:
 	var s: Dictionary = res.summary
 	match id:
-		"lm", "f9booster", "skycrane", "skycrane_staged":
+		"lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane", "skycrane_staged":
 			if s.phase != Vessel.PHASE.LANDED: return "%s, not landed (%s)" % [s.phase, s.failure]
 		"lmdeorbit":
 			var burns := 0
@@ -186,7 +194,7 @@ func make_state(sc: Dictionary, fix_bodies: Array) -> S:
 	if sc.get("program") != null:
 		var ap := st.ap
 		ap.plan = null; ap.node = null; ap.site = null; ap.burning = false
-		ap.slamming = false; ap.entry_done = false; ap.shield_gone = false; ap.crane_out = false
+		ap.slamming = false; ap.entry_done = false; ap.q_guarding = false; ap.shield_gone = false; ap.crane_out = false
 		if sc.program == "ascent" and vessel.phase == Vessel.PHASE.PRELAUNCH:
 			start_count(st, float(sc.get("count", 10)))
 		else:

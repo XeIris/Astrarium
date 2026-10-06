@@ -707,7 +707,7 @@ func run_program(p: String) -> void:
 		return
 	var ap = autopilot
 	ap.plan = null; ap.node = null; ap.site = null; ap.burning = false
-	ap.slamming = false; ap.entry_done = false; ap.shield_gone = false; ap.crane_out = false
+	ap.slamming = false; ap.entry_done = false; ap.q_guarding = false; ap.shield_gone = false; ap.crane_out = false
 	if p == "ascent" and vessel.phase == Vessel.PHASE.PRELAUNCH:
 		start_count()
 		return

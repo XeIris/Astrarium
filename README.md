@@ -142,7 +142,7 @@ The runner retains child logs and a JSON report, rejects errors, timeouts and
 missing completion markers, and stops on the first failure. Use `--godot` to
 select an engine and `--log-dir` to retain results at a chosen location.
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
-`perf` need a working graphical renderer. `flight` runs the four full launches and the descent gates (three landings, the sky crane and a deorbit). `native` includes the numerical boundary checks.
+`perf` need a working graphical renderer. `flight` runs the four full launches and the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, and a deorbit). `native` includes the numerical boundary checks.
 `stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
 three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
