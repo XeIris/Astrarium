@@ -30,6 +30,11 @@ func _init() -> void:
 	var only: Array = args.only.split(",") if args.has("only") else []
 	var results := { "runner": "gd", "spot": spot(fixture.bodies), "scenarios": {} }
 	var failures := 0
+	# A Super Heavy return to the tower, from its post-boostback apogee; also at 2×,
+	# where guidance runs at half the integration rate.
+	for w in [1, 2]:
+		fixture.scenarios.append({"id": "shcatch" if w == 1 else "shcatch_2x", "vehicle": "starship", "body": "Earth",
+			"place": "return", "program": "catch", "maxFrames": 30000, "warp": w})
 	# Light and heavy boosters exercise the entry burn's g limit and the q guard. They
 	# have no counterpart in the frozen reference.
 	for variant in [["f9booster_light", 25000.0], ["f9booster_heavy", 100000.0]]:
@@ -66,6 +71,9 @@ static func outcome_error(id: String, res: Dictionary) -> String:
 	match id:
 		"lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane", "skycrane_staged":
 			if s.phase != Vessel.PHASE.LANDED: return "%s, not landed (%s)" % [s.phase, s.failure]
+		"shcatch", "shcatch_2x":
+			if s.phase != Vessel.PHASE.LANDED or s.landedAt == null or not s.landedAt.get("caught", false):
+				return "%s, not caught (%s)" % [s.phase, s.failure]
 		"lmdeorbit":
 			var burns := 0
 			for e in res.events:
@@ -160,7 +168,7 @@ func make_state(sc: Dictionary, fix_bodies: Array) -> S:
 	st.sc = sc
 	st.bodies = body_objects(fix_bodies)
 	var home: Body = find_body(st.bodies, sc.body)
-	var veh := vehicle_for(sc)
+	var veh: Dictionary = Vehicles.booster_return(sc.vehicle) if sc.place == "return" else vehicle_for(sc)
 	st.veh = veh
 	var vessel := Vessel.new({ "vehicle": veh, "parent": home, "bodies": st.bodies,
 		"payload": veh.carries.mass if veh.get("carries") != null else 0.0 })
@@ -169,6 +177,12 @@ func make_state(sc: Dictionary, fix_bodies: Array) -> S:
 		var earth_pad = (EARTH_PADS.get(sc.vehicle, EARTH_PADS.default)) if home.name == "Earth" else null
 		var lat: float = earth_pad.lat if earth_pad != null else (veh.target.get("inclination", 28.5) if veh.get("target") != null else 28.5)
 		vessel.place_on_pad(lat, morning_longitude(st.bodies, home))
+	elif sc.place == "return":
+		var pad_ll: Dictionary = EARTH_PADS.get(sc.vehicle, EARTH_PADS.default)
+		vessel.place_on_pad(pad_ll.lat, morning_longitude(st.bodies, home))
+		var up := DQuat.nrm(vessel.r.clone())
+		var east := DQuat.nrm(DVec3.new().cross_vectors(DVec3.new(0.0, -1.0, 0.0), up))
+		CatchTower.begin_return(vessel, vessel.r.clone(), east)
 	else:
 		vessel.place_in_orbit(float(sc.alt), float(sc.get("inc", 0.0)), float(sc.get("phase", 0.0)))
 	if sc.get("init") != null and sc.init.get("r") != null:

@@ -71,7 +71,8 @@ def build_materials():
 # two stages both wanting `gimbal_0` would silently become `gimbal_0` and
 # `gimbal_0.001`, and the second would never be found. `gimbal_sic_0` cannot
 # collide, and sorting by name keeps the bind order deterministic.
-NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_')
+# `chopstick_` is a pad's catch arm (launchpads.py), driven by launchsite.gd.
+NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'chopstick_')
 
 
 def is_node(ob):

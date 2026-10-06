@@ -297,6 +297,77 @@ def starship_deck(M, parent):
              0.19, M['oxidized-copper'], parent)
 
 
+# The catch arms, mirrored in sim/flight/launchsite.gd (ARM_* there): pivots at
+# (6.8, 0, ±5.6) from the tower axis on a carriage that rides the tower, arms 36 m
+# along +x, 1.6 m wide and 3.0 m deep, catch rails on top of the inner edge.
+ARM_PIVOT_X, ARM_PIVOT_Z = 6.8, 5.6
+ARM_LEN, ARM_W, ARM_D = 36.0, 1.6, 3.0
+TOWER_HALF = 6.0
+CARRIAGE_LAUNCH_Y = 62.0
+
+
+def chopsticks(M, carriage):
+    """The carriage frame around the tower, and two arms on driven pivots.
+
+    Each `chopstick_<i>` empty is the driven node (identity rotation, yawed by
+    launchsite.gd); everything that swings hangs under it, built along +x.
+    """
+    steel, grey, paint, rail = M['steel'], M['grey'], M['paint'], M['safety-yellow']
+    half = TOWER_HALF + 1.0
+    # A box frame girdling the tower: top and bottom rings, corner posts, braces.
+    for y in (-1.5, 3.9):
+        for s in (-1, 1):
+            block(f'carriage_ring_x_{y}_{s}', half * 2.0 + 1.2, 0.6, 1.2, 0, y, s * half, grey, carriage, 0.05)
+            block(f'carriage_ring_z_{y}_{s}', 1.2, 0.6, half * 2.0, s * half, y, 0, grey, carriage, 0.05)
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            block(f'carriage_post_{sx}_{sz}', 1.0, 6.0, 1.0, sx * half, -1.5, sz * half, steel, carriage, 0.05)
+            beam(f'carriage_brace_{sx}_{sz}', (sx * half, -0.9, sz * half), (sx * half, 3.9, -sz * half * 0.2),
+                 0.35, steel, carriage)
+    # Skate pads riding the tower's corner columns.
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            block(f'carriage_skate_{sx}_{sz}', 0.8, 2.4, 0.8, sx * (TOWER_HALF + 0.4), 0.3, sz * (TOWER_HALF + 0.4),
+                  M['oxidized-copper'], carriage, 0.05)
+    for i, sgn in enumerate((-1, 1)):
+        z = sgn * ARM_PIVOT_Z
+        # The pivot housing on the carriage's face, and its hinge pin.
+        block(f'pivot_housing_{i}', 2.4, 4.5, 2.4, ARM_PIVOT_X - 0.6, -0.75, z, paint, carriage, 0.12)
+        pipe(f'pivot_pin_{i}', (ARM_PIVOT_X, -1.2, z), (ARM_PIVOT_X, 4.2, z), 0.45, steel, carriage)
+        pivot = empty(f'chopstick_{i}', xyz((ARM_PIVOT_X, 0, z)), carriage)
+        arm_truss(M, pivot, i, sgn)
+
+
+def arm_truss(M, pivot, i, sgn):
+    steel, paint, rail = M['steel'], M['paint'], M['safety-yellow']
+    hw = ARM_W * 0.5
+    # Four chords, tapering toward the tip.
+    for y0 in (0.0, ARM_D):
+        for z0 in (-hw, hw):
+            y1 = y0 if y0 == ARM_D else ARM_D * 0.45
+            beam(f'arm{i}_chord_{y0}_{z0}', (0.0, y0, z0), (ARM_LEN, y1, z0), 0.34, steel, pivot)
+    bays = 12
+    for b in range(bays + 1):
+        x = ARM_LEN * b / bays
+        yb = ARM_D * 0.45 * (x / ARM_LEN)        # the bottom chord's rise toward the tip
+        for z0 in (-hw, hw):
+            beam(f'arm{i}_post_{b}_{z0}', (x, yb, z0), (x, ARM_D, z0), 0.24, steel, pivot)
+        beam(f'arm{i}_tie_top_{b}', (x, ARM_D, -hw), (x, ARM_D, hw), 0.22, steel, pivot)
+        beam(f'arm{i}_tie_bot_{b}', (x, yb, -hw), (x, yb, hw), 0.22, steel, pivot)
+        if b < bays:
+            x2 = ARM_LEN * (b + 1) / bays
+            yb2 = ARM_D * 0.45 * (x2 / ARM_LEN)
+            for z0 in (-hw, hw):
+                beam(f'arm{i}_diag_{b}_{z0}', (x, yb, z0), (x2, ARM_D, z0), 0.2, steel, pivot)
+    # The catch rail on the inner top edge (toward the booster), where the pins land,
+    # with its shock-absorber housing.
+    inner = -sgn * hw * 0.5
+    block(f'arm{i}_rail', ARM_LEN * 0.5, 0.3, ARM_W * 0.5, ARM_LEN * 0.55, ARM_D - 0.3, inner, rail, pivot, 0.04)
+    block(f'arm{i}_absorber', 3.0, 1.4, ARM_W * 0.9, ARM_LEN * 0.53, ARM_D - 1.7, 0, paint, pivot, 0.08)
+    # The hydraulic ram that swings the arm, mounted on the arm's root.
+    pipe(f'arm{i}_ram', (0.8, ARM_D * 0.5, 0.0), (7.0, ARM_D * 0.85, 0.0), 0.32, M['oxidized-copper'], pivot)
+
+
 def build_pad(M):
     for name, color, rough, metal in (
         ('grey', 0x6e7276, 0.75, 0.35),
@@ -329,6 +400,8 @@ def build_pad(M):
         starship_deck(M, deck)
         tower_node = empty('stage_tower', xyz((-26.0, 0, 0)))
         tower(M, 0, 0, 146.0, 12.0, tower_node, STYLE)
+        carriage = empty('stage_carriage', xyz((-26.0, CARRIAGE_LAUNCH_Y, 0)))
+        chopsticks(M, carriage)
 
 
 build('pad_' + STYLE, build_pad)

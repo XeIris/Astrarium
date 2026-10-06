@@ -204,7 +204,8 @@ func light_sources() -> Array:
 ## opts: {mode: "pad"|"orbit", body, lat, lon, alt, inc}, plus harness hooks
 ## `phase` (orbit phase) and `vehicle` (a vehicle Dictionary to fly instead).
 func begin(vehicle_key: String, opts: Dictionary = {}):
-	var veh = opts.get("vehicle", Vehicles.VEHICLES.get(vehicle_key))
+	var returning: bool = opts.get("mode") == "return"
+	var veh = opts.get("vehicle", Vehicles.booster_return(vehicle_key) if returning else Vehicles.VEHICLES.get(vehicle_key))
 	if veh == null: return null
 	teardown()
 
@@ -217,7 +218,18 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 
 	vessel = Vessel.new({"vehicle": veh, "parent": home, "bodies": bodies(),
 		"payload": float(veh.carries.mass) if veh.get("carries") != null else 0.0})
-	if veh.role == "launch" and opts.get("mode") != "orbit":
+	if returning:
+		# The booster comes home to the tower it left (CatchTower.begin_return).
+		var pad_ll = EARTH_PADS.get(vehicle_key, EARTH_PADS.default) if home.name == "Earth" else {"lat": 28.5, "lon": 0.0}
+		vessel.place_on_pad(float(pad_ll.lat), morning_longitude(home))
+		map_site = {"lat": float(pad_ll.lat), "lon": float(pad_ll.lon)} if home.name == "Earth" else null
+		site_pos = vessel.r.clone()
+		var pad_up := DQuat.nrm(site_pos.clone())
+		var east := DQuat.nrm(DVec3.new().cross_vectors(DVec3.new(0.0, -1.0, 0.0), pad_up))
+		CatchTower.begin_return(vessel, site_pos.clone(), east)
+		fly_cam.set_mode("chase")
+		fly_cam.state.hasPad = true
+	elif veh.role == "launch" and opts.get("mode") != "orbit":
 		var earth_pad = EARTH_PADS.get(vehicle_key, EARTH_PADS.default) if home.name == "Earth" else null
 		# Pad in the local morning unless asked otherwise.
 		var lat = opts.get("lat")
@@ -269,7 +281,9 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 		var cb := (fb.transposed() * Basis(vessel.q.to_quaternion())).orthonormalized()
 		craft.group.basis = cb
 		site = LaunchSite.create_launch_site(veh, H, vessel.env, craft.group)
-		site.group.rotation.y = atan2(-cb.x.z, cb.x.x)
+		# A returning booster's tower stands west of the pad, arms reaching east
+		# (CatchTower.out); a launch turns the complex to the vehicle's roll.
+		site.group.rotation.y = 0.0 if returning else atan2(-cb.x.z, cb.x.x)
 		local.root.add_child(site.group)
 		local.place(site.group, site_local)
 		# The ground flame belongs to the pad, parented to the complex.
@@ -705,6 +719,14 @@ func run_program(p: String) -> void:
 	if p == "transfer" and target == null:
 		_toast("Pick a target body first")
 		return
+	if p == "catch" and vessel.catch_tower == null:
+		# Start over as the booster coming home, if this stack's booster is caught.
+		var key: String = vessel.vehicle_key
+		if Vehicles.booster_return(key) == null:
+			_toast("This vehicle's booster is not caught by a tower")
+			return
+		begin(key, {"mode": "return"})
+		_toast("Super Heavy return — after boostback, 95 km up")
 	var ap = autopilot
 	ap.plan = null; ap.node = null; ap.site = null; ap.burning = false
 	ap.slamming = false; ap.entry_done = false; ap.q_guarding = false; ap.shield_gone = false; ap.crane_out = false
@@ -925,7 +947,9 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	# Advance the fixed launch site before sampling the map. Its rotation and
 	# the local ground's geographic frame must describe the same instant.
 	if site != null and site_pos != null:
-		if vessel.phase == Vessel.PHASE.PRELAUNCH:
+		if vessel.catch_tower != null:
+			site_pos.copy_from(vessel.catch_tower.pos)
+		elif vessel.phase == Vessel.PHASE.PRELAUNCH:
 			site_pos.copy_from(vessel.r)
 		else:
 			# ω × r — see AGENTS.md: a point fixed to a rotating body.
@@ -975,10 +999,19 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# the ground patch's own detail is the better picture.
 		site.group.visible = alt < 8e4 and rng < 1.2e5
 		if site.group.visible:
+			var tw = vessel.catch_tower
+			var catch_pose = null
+			if tw != null:
+				# The booster's base in the complex's frame (the craft is at the local origin).
+				var rel: Vector3 = site.group.basis.inverse() * Vector3(-sx, 0.0, -sz)
+				catch_pose = {"rail": tw.rail_alt, "closed": tw.closed, "settle": tw.settle,
+					"booster": rel, "radius": vessel.diameter * 0.5}
 			site.update({
 				"released": vessel.phase != Vessel.PHASE.PRELAUNCH and alt > 1.0,
-				"throttle": vessel.throttle if float(vessel.telemetry.get("thrust", 0.0)) > 0.0 else 0.0,
+				# No deluge for a catch: the engines are 80 m up.
+				"throttle": 0.0 if tw != null else (vessel.throttle if float(vessel.telemetry.get("thrust", 0.0)) > 0.0 else 0.0),
 				"dt": minf(sim_seconds, 0.25),
+				"catch": catch_pose,
 			})
 		# Put the camera on the sunlit side once the sun's local azimuth is known.
 		if not pad_aimed:

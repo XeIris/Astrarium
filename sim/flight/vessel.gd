@@ -163,6 +163,7 @@ var chute_open = null               # the stage's chute Dictionary while deploye
 var chute_deploy: float = 0.0       # 0..1 inflation
 var bank = null                     # lift bank angle, rad; null = π/3
 var auto_stage: bool = false
+var catch_tower = null              # CatchTower this vessel can be caught by, or null
 var pending_stage: bool = false
 var _prop := Propulsion.new()
 
@@ -343,6 +344,9 @@ func airspeed(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, rr)
 	return out.sub_vectors(vv, _d)
 
+func up_now(out: DVec3) -> DVec3:
+	return DQuat.nrm(out.copy_from(r))
+
 func _first_attached():
 	for s in stages:
 		if s.attached: return s
@@ -459,7 +463,9 @@ func authority(pa: float) -> Dictionary:
 ## Steer the +Y axis toward a world direction; returns the pointing error, rad.
 ## Time-optimal rest-to-rest: never command a rate that can't be stopped within the
 ## remaining error.
-func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
+## `roll_ref`, a world direction or null, also rolls body ±X onto it (either sign:
+## a booster's catch pins are symmetric); null leaves roll to the rate damping.
+func point_at(dir, dt: float, pa: float, roll_ref = null) -> float:
 	if dir == null or dir.length_sq() < 1e-12: return 0.0
 	DQuat.nrm(_a.copy_from(dir))
 	_hold.copy_from(_a); _holding = true
@@ -468,6 +474,29 @@ func point_at(dir, dt: float, pa: float, _roll_ref = null) -> float:
 	if dt <= 0.0: return err
 	var auth := authority(pa)
 	var alpha: float = auth.alpha
+	if roll_ref != null and alpha > 0.0:
+		err = _point(fwd, err, alpha, auth, dt)
+		_roll_to(roll_ref, forward(_b), alpha, dt)
+		return err
+	return _point(fwd, err, alpha, auth, dt)
+
+## Roll about the thrust axis toward `ref`, time-optimally, with point_at's caps.
+## Set after pointing, whose damping would otherwise take the roll rate out.
+func _roll_to(ref: DVec3, fwd: DVec3, alpha: float, dt: float) -> void:
+	_e.copy_from(ref).add_scaled_in(fwd, -ref.dot(fwd))
+	if _e.length_sq() < 1e-10: return
+	DQuat.nrm(_e)
+	var bx := DQuat.rotate(_f.set_v(1.0, 0.0, 0.0), q)
+	var phi := atan2(_c.cross_vectors(bx, _e).dot(fwd), bx.dot(_e))
+	# Both pin directions serve: the nearer within ±90°.
+	if phi > PI / 2.0: phi -= PI
+	elif phi < -PI / 2.0: phi += PI
+	var w_now := omega.dot(fwd)
+	var w_want := signf(phi) * minf(sqrt(2.0 * alpha * absf(phi)), 0.35)
+	var w_new := w_now + DQuat.jclamp(w_want - w_now, -alpha * dt, alpha * dt)
+	omega.add_scaled_in(fwd, w_new - w_now)
+
+func _point(fwd: DVec3, err: float, alpha: float, auth: Dictionary, dt: float) -> float:
 	# Feed-forward: a held attitude usually turns (prograde, a pitch program), so the
 	# target's own rate is measured from its last direction and the law works on the
 	# rate relative to it. Without this the controller stops in its deadband, falls
@@ -543,6 +572,11 @@ func stage(force := false):
 		# the bottom is finished, so this event only ignites.
 		if not done and st.ignited and not force: break
 		if st.spec.sep == "none": break
+		# Never the last stage: dropping it would leave a vessel of nothing.
+		var others := false
+		for o in stages:
+			if o != st and o.attached: others = true
+		if not others: break
 		st.attached = false; st.spent = true
 		dropped = st; stage_events += 1
 		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name + _where())
@@ -755,6 +789,16 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 		if phase == PHASE.DESTROYED:
 			coord += dt
 			return dt
+		if catch_tower != null and catch_tower.caught:
+			# Hanging from the arms, which turn with the planet and ride their absorbers.
+			catch_tower.step(dt, env.rotRate)
+			var cst = _first_attached()
+			catch_tower.held_position(CatchTower.pin_height(cst.spec), r)
+			_a.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_a, r)
+			v.copy_from(_a)
+			step_clocks(dt)
+			sample(0.0)
+			return dt
 		# Landed: sit on the surface, turning with it. +Ω dt, not −: with ω on −Y only the
 		# positive sign agrees with ω × r (see guidance.gd spin_site).
 		var w: float = env.rotRate * dt
@@ -821,6 +865,7 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 	sample(elapsed, s)
 	auto_jettison()
 	check_soi()
+	if catch_tower != null: catch_tower.step(elapsed, env.rotRate)
 	contact(elapsed)
 	if step_guard_hit and not was_guarded:
 		log_event("Flight integrator limit — advanced %s of %s s; reduce time warp" % [U.fixed(elapsed, 3), U.fixed(dt, 3)])
@@ -1006,6 +1051,22 @@ func contact(_dt: float) -> void:
 		_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 		v.copy_from(_c)
 		return
+	if catch_tower != null and phase != PHASE.LANDED and phase != PHASE.PRELAUNCH:
+		var outcome: String = catch_tower.contact(self)
+		if outcome == "caught":
+			throttle = 0.0
+			omega.set_v(0.0, 0.0, 0.0)
+			phase = PHASE.LANDED
+			up_now(_a)
+			airspeed(r, v, _vrel)
+			var vv := _vrel.dot(_a)
+			var vh := _b.copy_from(_vrel).add_scaled_in(_a, -vv).length()
+			landed_at = { "met": met, "vVert": vv, "vHoriz": vh, "caught": true }
+			log_event("Caught by the tower — %s m/s vertical, %s m/s lateral" % [U.fixed(absf(vv), 2), U.fixed(vh, 2)])
+			return
+		if outcome != "":
+			destroy(outcome)
+			return
 	if alt > 0.0:
 		# Liftoff is detected here: at TWR 1.4 the vehicle is off the pad in one step.
 		if phase == PHASE.PRELAUNCH:

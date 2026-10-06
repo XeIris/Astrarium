@@ -1075,6 +1075,8 @@ var grade_drop: float
 ## same expression the tower was BUILT from, not a second guess at it.
 var tower_height: float
 var arms: Array = []           # [{group, axis: "yaw"|"tilt", rest, open}]
+var carriage: Node3D = null    # chopsticks: rides the tower; its origin is on the tower axis
+var chopsticks: Array = []     # the two arm pivots, built along +x, yawed open
 var open := 0.0
 var D := 5.0
 var steam: MeshInstance3D
@@ -1393,14 +1395,19 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 			var tower := lattice_tower(146.0, 12.0, {"bay": 8.4, "leg": 0.7, "brace": 0.32})
 			tower.position = Vector3(-26.0, 0.0, 0.0)
 			mount.add_child(tower)
-		for z in [-9.0, 9.0]:
-			var pivot := _node()
-			pivot.position = Vector3(-26.0, 62.0, z)
-			var arm := truss(26.0, 5.0, 4.5, 0.34)
-			arm.position = Vector3(6.0, 0.0, 0.0)
-			pivot.add_child(arm)
-			mount.add_child(pivot)
-			arms.append({"group": pivot, "axis": "yaw", "rest": -0.10 if z > 0.0 else 0.10, "open": -1.15 if z > 0.0 else 1.15})
+		# The catch arms ride a carriage up and down the tower (CatchTower is the
+		# physics; launchpads.py builds the same nodes).
+		carriage = art.get_node_or_null("stage_carriage") if art != null else null
+		# An authored carriage without its arm pivots (an older build) is replaced.
+		if carriage != null and (carriage.find_child("chopstick_0", true, false) == null \
+				or carriage.find_child("chopstick_1", true, false) == null):
+			carriage.free()
+			carriage = null
+		if carriage == null:
+			carriage = chopsticks_carriage()
+			mount.add_child(carriage)
+		carriage.position = Vector3(-CatchTower.TOWER_OFFSET, CARRIAGE_LAUNCH_Y, 0.0)
+		chopsticks = [carriage.find_child("chopstick_0", true, false), carriage.find_child("chopstick_1", true, false)]
 
 	# the deluge. Points rather than geometry: it is a cloud, and a cloud
 	# made of triangles is a worse cloud than a few hundred camera-facing quads.
@@ -1420,6 +1427,59 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	steam.custom_aabb = AABB(Vector3(-2000, -100, -2000), Vector3(4000, 2000, 4000))
 	group.add_child(steam)
 
+## Chopsticks, mirrored in model_sources/blender/launchpads.py: arm pivots on the
+## carriage at (ARM_PIVOT_X, 0, ±ARM_PIVOT_Z) from the tower axis, arms ARM_LEN
+## along +x, ARM_W wide and ARM_D deep with the catch rails on top. Open swings
+## each arm outward by ARM_OPEN.
+const ARM_PIVOT_X := 6.8
+const ARM_PIVOT_Z := 5.6
+const ARM_LEN := 36.0
+const ARM_W := 1.6
+const ARM_D := 3.0
+const ARM_OPEN := 1.15
+## Pivot height above grade during a launch.
+const CARRIAGE_LAUNCH_Y := 62.0
+
+## A procedural carriage: a frame around the tower, the arm pivots on its face.
+static func chopsticks_carriage() -> Node3D:
+	var c := _node()
+	c.name = "stage_carriage"
+	var half := CatchTower.TOWER_HALF + 1.0
+	for sx in [-1.0, 1.0]:
+		c.add_child(box(1.2, 6.0, half * 2.0, GREY(), sx * half, -1.5, 0.0))
+		c.add_child(box(half * 2.0, 6.0, 1.2, GREY(), 0.0, -1.5, sx * half))
+	for i in 2:
+		var sgn := -1.0 if i == 0 else 1.0
+		c.add_child(box(2.4, 4.5, 2.4, PAINT(), ARM_PIVOT_X - 0.6, -0.75, sgn * ARM_PIVOT_Z))
+		var pivot := _node()
+		pivot.name = "chopstick_%d" % i
+		pivot.position = Vector3(ARM_PIVOT_X, 0.0, sgn * ARM_PIVOT_Z)
+		var arm := truss(ARM_LEN, ARM_W, ARM_D, 0.30)
+		pivot.add_child(arm)
+		# The catch rail on top of the inner edge, where the pins land.
+		pivot.add_child(box(ARM_LEN * 0.5, 0.3, ARM_W * 0.5, SAFETY(), ARM_LEN * 0.55, ARM_D - 0.3, -sgn * ARM_W * 0.25))
+		c.add_child(pivot)
+	return c
+
+## Yaw that brings an arm's inner face to `gap` from a booster axis at (bx, bz),
+## both in carriage coordinates; `sgn` is the arm's side. Found by bisection on
+## the face's signed distance, which grows monotonically as the arm opens.
+static func arm_contact_yaw(sgn: float, bx: float, bz: float, gap: float) -> float:
+	var lo := -0.3
+	var hi := ARM_OPEN
+	for i in 24:
+		var mid := 0.5 * (lo + hi)
+		# The arm's centreline direction after yawing outward by `mid`.
+		var dx := cos(mid)
+		var dz := sgn * sin(mid)
+		var rx := bx - ARM_PIVOT_X
+		var rz := bz - sgn * ARM_PIVOT_Z
+		# Distance from the axis to the inner face, toward the axis.
+		var d := -sgn * (dx * rz - dz * rx) - ARM_W * 0.5
+		if d < gap: lo = mid
+		else: hi = mid
+	return hi
+
 ##   s.released  true once the vehicle has committed to leaving
 ##   s.throttle  0..1, drives the deluge
 ##   s.dt        seconds
@@ -1429,6 +1489,7 @@ func update(s: Dictionary) -> void:
 	# are heavy and hydraulic; the real ones take a couple of seconds.
 	var want := 1.0 if s.released else 0.0
 	open += (want - open) * (1.0 - exp(-dt / 1.6))
+	if carriage != null: _pose_chopsticks(s.get("catch"))
 	for a in arms:
 		var ang: float = a.rest + (a.open - a.rest) * open
 		var g: Node3D = a.group
@@ -1475,6 +1536,23 @@ func update(s: Dictionary) -> void:
 		arr[Mesh.ARRAY_VERTEX] = pts
 		arr[Mesh.ARRAY_TEX_UV] = ages
 		steam_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arr)
+
+## Chopsticks pose from CatchTower state (null: a launch, arms open at their launch
+## height). catch: {rail: rails above the deck, closed: 0..1, settle: m, booster:
+## Vector3 booster base in this complex's frame, radius: hull radius}.
+func _pose_chopsticks(c) -> void:
+	if c == null:
+		carriage.position.y = CARRIAGE_LAUNCH_Y
+		for i in chopsticks.size(): chopsticks[i].rotation.y = ARM_OPEN * (1.0 if i == 0 else -1.0)
+		return
+	carriage.position.y = deck_height + float(c.rail) - ARM_D - float(c.settle)
+	var b: Vector3 = c.booster
+	var k := smoothstep(0.0, 1.0, float(c.closed))
+	for i in chopsticks.size():
+		var sgn := -1.0 if i == 0 else 1.0
+		var shut := arm_contact_yaw(sgn, b.x - carriage.position.x, b.z - carriage.position.z, float(c.radius) + 0.1)
+		# rotation.y = θ turns +x toward −z: arm 0 (−z side) opens with +θ.
+		chopsticks[i].rotation.y = -sgn * lerpf(ARM_OPEN, shut, k)
 
 func dispose() -> void:
 	if is_instance_valid(group): group.queue_free()

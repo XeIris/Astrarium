@@ -107,10 +107,11 @@ def build_sh(M, root):
         strut(f'shfinhinge{i}', (0, 0, 0), (D * 0.14, 0, 0), 0.24, M['hot'],
               seg=10, parent=arm)
 
-    # The catch pins the tower's arms actually take the booster's weight on.
+    # The catch pins the tower's arms actually take the booster's weight on, at the
+    # height CatchTower hangs the booster from (the stage's catch.pinFrac).
     for sgn in (-1, 1):
         box(f'catchpin{sgn}', (0.9, 0.36, 0.36),
-            (sgn * R * 1.06, 0, SH_L * 0.93), M['hot'], parent=g)
+            (sgn * R * 1.06, 0, SH_L * S["sh"]["catch"]["pinFrac"]), M['hot'], parent=g)
     rcs_ring('sh_rcs', D * 1.055, SH_L * 0.905, M['dirty'], M['nozzle'], 4, parent=g)
     return g
 

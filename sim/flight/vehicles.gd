@@ -244,6 +244,19 @@ static func _build_vehicles() -> Dictionary:
 				"engine": E.RAPTOR2, "count": 33, "L": 71.0, "D": 9.0,
 				"recover": "tower", "gridFins": 4, "reserve": 0.06,
 				"rcs": { "thrust": 8000.0, "isp": 80.0, "prop": 3000.0, "count": 8 },
+				# Returning alone (Vehicles.booster_return; docs/physics/booster-catch.md).
+				# Pins at 93% of the length take the weight on the tower's arms. The
+				# tolerances, base clearance and landing propellant are estimates: none
+				# are published.
+				"catch": { "pinFrac": 0.93, "radius": 1.5, "vVert": 3.0, "vHoriz": 1.0,
+					"baseClear": 8.0, "prop": 130000.0 },
+				# Inner 13, then the centre 3 (SpaceX's flight descriptions).
+				"landingEngines": [13, 3],
+				# Falling engines first the load is axial: about 5 g peak on the flown
+				# unpowered descent (webcast), well past the stack's 45 kPa ascent max-Q.
+				# That descent peaks near 210 kPa in this drag model; the limit above it
+				# is an estimate.
+				"returnLimits": { "maxQ": 350e3, "maxG": 6.5, "qAlpha": 6e3, "heatLoad": 1.4e9 },
 				"look": { "skin": "steel", "hotStage": true, "fixedGimbals": range(13, 33) } }),
 			stage({ "key": "ss", "name": "Starship", "dry": 120000.0, "prop": 1200000.0,
 				"engine": E.RAPTOR2, "count": 3, "vacEngine": E.RAPTOR_VAC, "vacCount": 3,
@@ -382,6 +395,25 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 	}
+
+## A stack's first stage flying home alone for a tower catch, with its landing
+## propellant and descent limits, or null when that stage has no catch spec. `id`
+## stays the stack's, so the authored model and the launch complex are its own.
+static func booster_return(key: String):
+	var stack = VEHICLES.get(key)
+	if stack == null or stack.stages.is_empty(): return null
+	var s0: Dictionary = stack.stages[0]
+	if s0.get("catch") == null: return null
+	var st := s0.duplicate(true)
+	st.prop = float(s0.catch.prop)
+	st.sep = "none"
+	var veh: Dictionary = stack.duplicate(false)
+	veh.name = "%s return" % s0.name
+	veh.role = "booster"
+	veh.limits = s0.get("returnLimits", stack.limits)
+	veh.stages = [st]
+	veh.erase("target")
+	return veh
 
 const VEHICLE_ORDER := [
 	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane",

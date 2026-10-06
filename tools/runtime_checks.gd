@@ -211,6 +211,24 @@ func _soak_check() -> void:
 					printerr("SOAK FAILED: flight notification did not settle")
 					stage.get_tree().quit(1)
 					return,
+		"flight_catch": func():
+			# The program button restarts the flight as a booster coming home to a
+			# tower, which builds the complex and its arms mid-flight.
+			await stage.launch_craft("starship")
+			state.paused = false
+			flight.run_program("catch")
+			for i in 300: stage.animate(1.0 / 60.0)
+			if flight.vessel.catch_tower == null or flight.site == null or flight.autopilot.program != "catch":
+				failures.append("flight_catch: the return did not start")
+			stage.end_flight()
+			hud.toast("", 1)
+			var deadline := Time.get_ticks_msec() + 3000
+			while hud._toast_timer > 0.0 or (hud._toast_tween and hud._toast_tween.is_running()):
+				await stage.get_tree().process_frame
+				if Time.get_ticks_msec() >= deadline:
+					printerr("SOAK FAILED: flight notification did not settle")
+					stage.get_tree().quit(1)
+					return,
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),

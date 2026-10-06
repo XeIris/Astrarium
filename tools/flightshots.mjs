@@ -14,7 +14,9 @@ import { readFile } from 'node:fs/promises';
 
 // TABLE=/abs/other.json flies another table of the same shape (a debugging set).
 const table = JSON.parse(await readFile(process.env.TABLE || new URL('./flight_scenarios.json', import.meta.url), 'utf8'));
-const only = process.argv[2] ? process.argv[2].split(',') : Object.keys(table.scenarios);
+// godotOnly scenarios fly programs the frozen web build does not have.
+const only = (process.argv[2] ? process.argv[2].split(',') : Object.keys(table.scenarios))
+  .filter((n) => !(table.godotOnly || []).includes(n));
 
 const PRELUDE = (seed) => `
   const mb = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);

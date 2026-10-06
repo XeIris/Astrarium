@@ -667,6 +667,81 @@
     "shot",
     "ss_grounds_d"
    ]
+  ],
+  "sh_catch": [
+   [
+    "launch",
+    "starship"
+   ],
+   [
+    "program",
+    "catch"
+   ],
+   [
+    "warp",
+    1
+   ],
+   [
+    "frames",
+    4380
+   ],
+   [
+    "shot",
+    "sh_catch_burn"
+   ],
+   [
+    "frames",
+    660
+   ],
+   [
+    "cam",
+    "pad"
+   ],
+   [
+    "shot",
+    "sh_catch_hover",
+    true
+   ],
+   [
+    "frames",
+    210
+   ],
+   [
+    "pad",
+    0,
+    0,
+    0.45
+   ],
+   [
+    "shot",
+    "sh_catch_slide"
+   ],
+   [
+    "frames",
+    300
+   ],
+   [
+    "shot",
+    "sh_catch_arms"
+   ],
+   [
+    "frames",
+    240
+   ],
+   [
+    "pad",
+    80,
+    0.4,
+    0.8
+   ],
+   [
+    "shot",
+    "sh_catch_caught",
+    true
+   ]
   ]
- }
+ },
+ "godotOnly": [
+  "sh_catch"
+ ]
 }

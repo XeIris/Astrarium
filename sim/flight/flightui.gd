@@ -25,6 +25,7 @@ const PROGRAMS := [
 	["deorbit", "Deorbit", "Drop periapsis into the atmosphere (or into the ground, where there is no atmosphere)."],
 	["land", "Land (airless)", "Apollo's own P63 / P64 / P66 sequence, on its published gate conditions."],
 	["hoverslam", "Propulsive landing", "Entry burn, then a hoverslam: ignition altitude solved from v²/2(F/m − g) every step."],
+	["catch", "Booster return & tower catch", "Super Heavy from its post-boostback apogee: no entry burn, a 13-engine landing burn, the centre three to hover beside the tower, then onto the arms."],
 	["edl", "Entry, descent & landing", "Aeroshell, supersonic parachute, backshell separation, powered descent, sky crane."],
 	["cruise", "Interstellar cruise", "Fly to the target on the exact constant-proper-acceleration solution: accelerate, coast, flip and burn. Pick a star (★) or a planet under Target first — with none picked it flies the mission. Two clocks, and the sky aberrates."],
 ]

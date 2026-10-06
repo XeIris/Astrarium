@@ -141,6 +141,7 @@ func _shot(name: String, with_hud: bool) -> void:
 		"peri": t.get("peri"), "phase": v.phase if v else "", "cam": _flight().camera_mode(),
 		"status": _flight().autopilot.status if _flight().autopilot else "",
 		"warp": _flight().warp(), "parent": v.parent.name if v else "",
+		"failure": v.failure if v else null,
 		"cruise": _flight().cruise.readout() if _flight().cruise != null else null}
 	var fj := FileAccess.open(out + name + ".json", FileAccess.WRITE)
 	fj.store_string(JSON.stringify(tel, " "))

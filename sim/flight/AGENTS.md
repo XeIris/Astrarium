@@ -31,6 +31,10 @@ to the procedural builds too.
   The legacy `flightref.mjs` comparison supplements this production-driver check.
 - Descents share one `descent_law`, and every powered phase shares one
   `limit_throttle`.
+- A tower catch is physics in `CatchTower` (arms, rails, absorbers, outcomes);
+  `LaunchSite` only draws its state. Estimates and sources are in
+  [booster-catch.md](../../docs/physics/booster-catch.md). Regression: `shcatch`
+  and `shcatch_2x` in `tools/flightcheck.gd`.
 
 ## Vessel (`vessel.gd`)
 

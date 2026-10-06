@@ -79,6 +79,7 @@ class Autopilot extends RefCounted:
 	var ascent: Dictionary
 	var last_throttle: float = 1.0
 	var aim = null               # DVec3 (a clone) — what the vessel is steering to
+	var aim_roll = null          # DVec3 the program wants body ±X rolled onto, or null
 
 	# program state
 	var state_name = null
@@ -129,6 +130,7 @@ class Autopilot extends RefCounted:
 	func engage(prog: String, opts: Dictionary = {}) -> void:
 		program = prog
 		state_name = null
+		aim_roll = null
 		_integ = 0.0
 		_pitch_cmd = null
 		for k in opts:
@@ -156,8 +158,9 @@ class Autopilot extends RefCounted:
 			"hoverslam":   aim_dir = hoverslam_guidance(dt, pa)
 			"edl":         aim_dir = edl_guidance(dt, pa)
 			"deorbit":     aim_dir = deorbit_guidance(dt, pa)
+			"catch":       aim_dir = catch_guidance(dt, pa)
 			_:             aim_dir = Guidance.attitude_for(mode, v, target)
-		if aim_dir != null: v.point_at(aim_dir, dt, pa)
+		if aim_dir != null: v.point_at(aim_dir, dt, pa, aim_roll)
 		aim = aim_dir.clone() if aim_dir != null else null
 
 	# ASCENT
@@ -600,10 +603,16 @@ class Autopilot extends RefCounted:
 	##   vertical  v_ref(h) = −√(v_touch² + 2·a_dec·h) (a_dec from profile_decel), closed
 	##             over τ and clamped at zero (free fall above the profile is fuel-optimal)
 	##   lateral   null the drift and close on the site, capped at a maximum tilt
+	##   floor_alt is where "the ground" is (a catch tower's rails); site_k is the
+	##   site-seeking gain, 1/s², over the first site_cap metres. With t_go > 0 the
+	##   lateral channel is instead the quadratic law to stop over the site in t_go:
+	##   a = 6Δr/t² − 4v/t, as P63 flies.
 	func descent_law(a_max: float, v_touch: float, max_tilt_rad: float, tau: float,
-			dec_frac: float = 0.6, v_cap: float = INF, hold_below: float = 0.0) -> DVec3:
+			dec_frac: float = 0.6, v_cap: float = INF, hold_below: float = 0.0,
+			floor_alt: float = 0.0, site_k: float = 0.02, site_cap: float = 25.0,
+			t_go: float = 0.0) -> DVec3:
 		var env: Dictionary = v.env
-		var alt := maxf(v.altitude(), 0.0)
+		var alt := maxf(v.altitude() - floor_alt, 0.0)
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var g: float = env.mu / maxf(v.r.length_sq(), 1.0)
 		v.airspeed(v.r, v.v, Guidance._g)
@@ -617,15 +626,17 @@ class Autopilot extends RefCounted:
 		if a_floor > g: hold_below = 0.0
 		# The reference is capped (Apollo's approach is ~45 m/s at hi-gate). Below
 		# `hold_below` it is the touchdown rate: a held-rate final descent.
-		var vref := -v_touch if alt < hold_below else -minf(sqrt(v_touch * v_touch + 2.0 * a_dec * alt), v_cap)
+		var vref := -v_touch if alt < hold_below \
+			else -minf(sqrt(v_touch * v_touch + 2.0 * a_dec * (alt - hold_below)), v_cap)
 		# Feed forward the deceleration that stops this state at v_touch on the ground,
 		# (v² − v_touch²)/2h: a_dec on the profile, less below it, so a slow vehicle falls
 		# back to the profile instead of braking further. None in the held-rate region.
 		var a_ff := 0.0
 		if v_vert < -v_touch and alt >= hold_below:
 			a_ff = minf((v_vert * v_vert - v_touch * v_touch) / (2.0 * maxf(alt - hold_below, 0.5)), a_max)
-		# Near the ground, floor at g instead of free fall: no altitude is left to recover.
-		var floor_a := g if alt < hold_below * 5.0 else 0.0
+		# Near the ground, no free fall: no altitude is left to recover. Below g, so a
+		# held rate can still be corrected downward.
+		var floor_a := 0.8 * g if alt < hold_below * 5.0 else 0.0
 		# The air brakes too; leaving it out makes a booster over-brake by drag·τ and stop short.
 		var va := Guidance._g.length()
 		var drag_up: float = float(v.telemetry.get("drag", 0.0)) / maxf(v.mass, 1.0) * (-v_vert / va) if va > 1.0 else 0.0
@@ -638,8 +649,13 @@ class Autopilot extends RefCounted:
 			Guidance._c.add_scaled_in(Guidance._up, -Guidance._c.dot(Guidance._up))
 			var off := Guidance._c.length()
 			# Site-seeking is deliberately weak, or it fights the drift damping.
-			if off > 1e-3: Guidance._c.scale_in(minf(off, 25.0) / off * 0.02)
-		Guidance._d.copy_from(Guidance._b).scale_in(-1.0 / (tau * 0.7)).add_in(Guidance._c)
+			if off > 1e-3: Guidance._c.scale_in(minf(off, site_cap) / off * site_k)
+		if t_go > 0.0 and site != null:
+			Guidance._c.sub_vectors(site, v.r)
+			Guidance._c.add_scaled_in(Guidance._up, -Guidance._c.dot(Guidance._up))
+			Guidance._d.copy_from(Guidance._c).scale_in(6.0 / (t_go * t_go)).add_scaled_in(Guidance._b, -4.0 / t_go)
+		else:
+			Guidance._d.copy_from(Guidance._b).scale_in(-1.0 / (tau * 0.7)).add_in(Guidance._c)
 		# Lateral authority is a fraction of the engine, not of the vertical command (on
 		# the Moon that would allow a tenth of a g).
 		var max_lat := a_max * sin(max_tilt_rad)
@@ -861,21 +877,8 @@ class Autopilot extends RefCounted:
 		var sel := sel_pre
 		var h_burn: float = sel.hBurn
 		if not must_land:
-			# A heavy booster's terminal q is over the limit: brake, from one engine, to hold
-			# q at limit_throttle's 70% target, ending when the servo asks for nothing.
-			var q_guard := q_lim * 0.70
-			var guard_servo := DQuat.jclamp(0.45 + (tq / q_guard - 1.0) * 2.5, 0.0, 1.0)
-			if env.atm != null and (guard_servo > 0.0 if q_guarding else tq > q_guard):
-				if not q_guarding:
-					q_guarding = true
-					v.set_engine_count(1)
-					manual_engines = false
-					note("Dynamic-pressure guard — %s km, q %s kPa" % [U.fixed(alt / 1000.0, 1), U.fixed(tq / 1000.0, 1)])
-				else: _relight_if_saturated(guard_servo, per_e)
-				v.throttle = limit_throttle(guard_servo, pa, dt)
-				say("Dynamic-pressure guard — %s km, %s m/s, q %s kPa" % [U.fixed(alt / 1000.0, 1), U.fixed(speed, 0), U.fixed(tq / 1000.0, 1)])
+			if q_guard(pa, dt, per_e):
 				return Guidance.attitude_for(MODE.RETROGRADE, v)
-			q_guarding = false
 			v.throttle = 0.0
 			say("Falling — %s km, %s m/s, ignite at %s km" % [U.fixed(alt / 1000.0, 1), U.fixed(-v_vert, 0), U.fixed(h_burn / 1000.0, 2)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
@@ -892,6 +895,26 @@ class Autopilot extends RefCounted:
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Booster recovered")
 		return aero_limit(cmd, Guidance._a)
+
+	## A falling booster whose terminal q is over the limit brakes, from one engine,
+	## to hold q at limit_throttle's 70% target, ending when the servo asks for
+	## nothing. Returns whether it is braking. `per_e`: one engine's F/m.
+	func q_guard(pa: float, dt: float, per_e: float) -> bool:
+		var tq: float = v.telemetry.get("q", 0.0)
+		var q_on: float = v.vehicle.limits.maxQ * 0.70
+		var servo := DQuat.jclamp(0.45 + (tq / q_on - 1.0) * 2.5, 0.0, 1.0)
+		if v.env.atm == null or not (servo > 0.0 if q_guarding else tq > q_on):
+			q_guarding = false
+			return false
+		if not q_guarding:
+			q_guarding = true
+			v.set_engine_count(1)
+			manual_engines = false
+			note("Dynamic-pressure guard — %s km, q %s kPa" % [U.fixed(v.altitude() / 1000.0, 1), U.fixed(tq / 1000.0, 1)])
+		else: _relight_if_saturated(servo, per_e)
+		v.throttle = limit_throttle(servo, pa, dt)
+		say("Dynamic-pressure guard — %s km, %s m/s, q %s kPa" % [U.fixed(v.altitude() / 1000.0, 1), U.fixed(v.telemetry.get("airspeed", 0.0), 0), U.fixed(tq / 1000.0, 1)])
+		return true
 
 	## A q servo at full throttle with q still over its line lights one more engine
 	## a second, while the floor stays under limit_throttle's g target (above it,
@@ -983,6 +1006,132 @@ class Autopilot extends RefCounted:
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Touchdown")
 		return aero_limit(cmd, Guidance._b)
+
+	# TOWER CATCH — a returning booster (docs/physics/booster-catch.md). No entry burn:
+	# boostback has already killed the downrange speed, and the air brakes the rest.
+	const CATCH_GATE := 6.0        # the pins hover this far above the rails until the arms close, m
+	const CATCH_APPROACH := 15.0   # held this far out over the pad, then slid in, m
+	const CATCH_HANDOVER := 80.0   # m/s at which the centre engines take over
+	const CATCH_ONTO := 2.0        # m/s down onto the rails
+	# The divert and slide: a position loop with the descent law's drift damping,
+	# closing at up to ~0.1 m/s per metre of offset.
+	const CATCH_SITE_K := 0.08
+	const CATCH_ENTRY_Q := 1000.0  # Pa: below this the coast holds engines down
+	# The slide's position loop: ω 0.55 rad/s against the hover's drift damping, ζ ≈ 0.7.
+	const CATCH_SLIDE_K := 0.3
+	const CATCH_SITE_CAP := 300.0
+	var _approach := CATCH_APPROACH
+
+	## Time to the hover gate at constant deceleration, 2h/|v|, floored so the
+	## lateral gains stay finite; 0 (the hover's own loop) once descending slowly.
+	func _catch_t_go(above: float, v_vert: float) -> float:
+		if v_vert > -1.0: return 0.0
+		return maxf(2.0 * maxf(above, 0.0) / -v_vert, 4.0)
+
+	## Height lost braking from (alt, v_vert) at net deceleration `a` plus this
+	## model's engines-first drag, until slower than `v_end`, m. Drag is several g
+	## here and falls as the booster slows, so no constant stands in for it.
+	func _braking_height(alt: float, v_vert: float, a: float, v_end: float) -> float:
+		var atm = v.env.atm
+		var h := alt
+		var vz := v_vert
+		var m := maxf(v.mass, 1.0)
+		for i in 3000:
+			if vz >= -v_end: break
+			var drag := 0.0
+			if atm != null:
+				var hh := maxf(h, 0.0)
+				var cd := Rocketry.blunt_drag_coefficient(-vz / Rocketry.speed_of_sound(atm, hh))
+				drag = 0.5 * Rocketry.density(atm, hh) * vz * vz * cd * v.area / m
+			vz += (a + drag) * 0.1
+			h += vz * 0.1
+		return alt - h
+
+	func catch_guidance(dt: float, pa: float):
+		var st = v.current_stage if v.current_stage != null else v._first_attached()
+		if v.catch_tower == null or st == null or st.spec.get("catch") == null:
+			note("No catch tower — propulsive landing instead")
+			program = "hoverslam"
+			return hoverslam_guidance(dt, pa)
+		var tower: CatchTower = v.catch_tower
+		aim_roll = tower.side
+		DQuat.nrm(Guidance._up.copy_from(v.r))
+		if v.phase == Vessel.PHASE.LANDED:
+			program = null; v.throttle = 0.0; note("Booster caught")
+			return Guidance._a.copy_from(Guidance._up)
+		var g: float = v.env.mu / v.r.length_sq()
+		var per: float = Rocketry.engine_output(st.spec.engine, 1, pa, 1.0).F / maxf(v.mass, 1.0)
+		var engines: Array = st.spec.get("landingEngines", [st.spec.count, 1])
+		var floor_alt := tower.rail_alt - CatchTower.pin_height(st.spec)
+		var above := v.altitude() - floor_alt - CATCH_GATE
+		var v_vert := v.airspeed(v.r, v.v, Guidance._g).dot(Guidance._up)
+		var a_max := full_thrust(pa) / v.mass
+		# The handover: where the centre engines alone can still stop at the gate, with margin.
+		var a_c := profile_decel(float(engines[1]) * per, g, HOVERSLAM_DEC)
+		var h_hand := CATCH_HANDOVER * CATCH_HANDOVER / (2.0 * a_c * 0.8)
+		if state_name == null:
+			state_name = "coast"; _approach = CATCH_APPROACH
+			note("Return — coasting on the grid fins, %s km" % U.fixed(v.altitude() / 1000.0, 1))
+		# Out over the pad until hovering, then the slide in to the arms.
+		site = tower.pos.clone().add_scaled_in(tower.out, _approach)
+
+		if state_name == "coast":
+			if q_guard(pa, dt, per):
+				return Guidance.attitude_for(MODE.RETROGRADE, v)
+			var a_ign := profile_decel(float(engines[0]) * per, g, HOVERSLAM_DEC)
+			var h_ign := _braking_height(v.altitude(), v_vert, a_ign, CATCH_HANDOVER)
+			if above <= h_hand and v_vert > -CATCH_HANDOVER:
+				# Already slow and low: the centre engines alone.
+				state_name = "landing"
+				manual_engines = true
+			elif above - h_hand <= h_ign:
+				state_name = "landing"
+				v.set_engine_count(engines[0]); manual_engines = true
+				note("Landing burn — %d engines, %s m" % [int(engines[0]), U.fixed(v.altitude(), 0)])
+			else:
+				v.throttle = 0.0
+				say("Return — %s km, %s m/s, landing burn at %s km" % [U.fixed(v.altitude() / 1000.0, 1),
+					U.fixed(-v_vert, 0), U.fixed((floor_alt + CATCH_GATE + h_hand + h_ign) / 1000.0, 2)])
+				# Engines down through the near-vacuum coast, the attitude the air will want;
+				# chasing a near-horizontal apogee airflow is a 90° slew on RCS alone.
+				if float(v.telemetry.get("q", 0.0)) < CATCH_ENTRY_Q:
+					return Guidance._a.copy_from(Guidance._up)
+				return Guidance.attitude_for(MODE.RETROGRADE, v)
+
+		if state_name == "landing":
+			if v_vert >= -CATCH_HANDOVER or v_vert * v_vert <= 2.0 * a_c * 0.9 * maxf(above, 0.0):
+				state_name = "terminal"
+				v.set_engine_count(engines[1])
+				note("Centre engines — %d, %s m, %s m/s" % [int(engines[1]), U.fixed(v.altitude(), 0), U.fixed(-v_vert, 0)])
+			else:
+				var cmd := descent_law(a_max, CATCH_HANDOVER, 0.20, 1.0, HOVERSLAM_DEC, INF, 0.0,
+					floor_alt + CATCH_GATE + h_hand, CATCH_SITE_K, CATCH_SITE_CAP, _catch_t_go(above, v_vert))
+				v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
+				say("Landing burn — %s m, %s of %s m/s" % [U.fixed(v.altitude(), 0), U.fixed(v_vert_now, 0), U.fixed(v_ref, 0)])
+				# Through high q, thrust along the airflow: what q·α allows there is less
+				# than the flight path's own tilt, and retro thrust kills drift anyway.
+				if cmd.length_sq() < 1e-9 or float(v.telemetry.get("q", 0.0)) * 0.05 > v.vehicle.limits.qAlpha:
+					return Guidance.attitude_for(MODE.RETROGRADE, v)
+				return aero_limit(cmd, Guidance._a)
+
+		# Centre engines: down to the gate, hover, slide in, and down onto the arms once
+		# they have closed.
+		a_max = full_thrust(pa) / v.mass
+		var onto := CATCH_ONTO if tower.closed >= 1.0 else 0.0
+		var off := tower.offset(v.r, Guidance._f).length()
+		# The slide starts in the last tens of metres, once over the approach point.
+		if _approach < CATCH_APPROACH or (above < 30.0 and absf(off - _approach) < 2.0):
+			_approach = move_toward(_approach, 0.0, 2.0 * dt)
+		var sliding := _approach < CATCH_APPROACH
+		var cmd := descent_law(a_max, onto, 0.35, 1.8, 0.55, 120.0, CATCH_GATE, floor_alt,
+			CATCH_SLIDE_K if sliding else CATCH_SITE_K, CATCH_SITE_CAP,
+			0.0 if sliding or above <= 1.0 else _catch_t_go(above, v_vert))
+		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
+		var what := "onto the arms" if onto > 0.0 else ("arms closing" if tower.closing else ("sliding in" if _approach < CATCH_APPROACH else "hover"))
+		say("Catch — %s · pins %s m above the rails, %s m off the axis, %s m/s" % [what,
+			U.fixed(v.altitude() - floor_alt, 1), U.fixed(off, 1), U.fixed(v_vert, 2)])
+		if cmd.length_sq() < 1e-9: return Guidance._a.copy_from(Guidance._up)
+		return aero_limit(cmd, Guidance._a)
 
 	func deorbit_guidance(dt: float, pa: float):
 		var el: Dictionary = v.telemetry.el
