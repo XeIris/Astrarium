@@ -593,7 +593,7 @@ class Autopilot extends RefCounted:
 	## The terminal descent law, shared by every landing. Returns the commanded thrust
 	## acceleration in Guidance._e, ground-relative. Vertical and lateral are separate
 	## channels; a combined law saturates on a large lateral error and falls on course.
-	##   vertical  v_ref(h) = −(v_touch + √(2·a_dec·h)), a_dec = k·(F/m − g), closed
+	##   vertical  v_ref(h) = −√(v_touch² + 2·a_dec·h) (a_dec from profile_decel), closed
 	##             over τ and clamped at zero (free fall above the profile is fuel-optimal)
 	##   lateral   null the drift and close on the site, capped at a maximum tilt
 	func descent_law(a_max: float, v_touch: float, max_tilt_rad: float, tau: float,
@@ -606,16 +606,26 @@ class Autopilot extends RefCounted:
 		var v_vert := Guidance._g.dot(Guidance._up)
 		Guidance._b.copy_from(Guidance._g).add_scaled_in(Guidance._up, -v_vert)           # lateral drift
 
-		var a_dec := maxf(dec_frac * (a_max - g), 0.05)
+		var a_dec := profile_decel(a_max, g, dec_frac)
+		# A vehicle whose throttle floor out-lifts its weight cannot hold a rate: it
+		# would stop and climb. It flies the stopping profile to the ground instead.
+		var a_floor := a_max * throttle_floor()
+		if a_floor > g: hold_below = 0.0
 		# The reference is capped (Apollo's approach is ~45 m/s at hi-gate). Below
 		# `hold_below` it is the touchdown rate: a held-rate final descent.
-		var vref := -v_touch if alt < hold_below else -minf(v_touch + sqrt(2.0 * a_dec * alt), v_cap)
-		# Feed forward a_dec, the profile's own deceleration: without it a vehicle on the
-		# profile is only told to hold speed. None in the held-rate region.
-		var a_ff := a_dec if (v_vert < 0.0 and alt >= hold_below) else 0.0
+		var vref := -v_touch if alt < hold_below else -minf(sqrt(v_touch * v_touch + 2.0 * a_dec * alt), v_cap)
+		# Feed forward the deceleration that stops this state at v_touch on the ground,
+		# (v² − v_touch²)/2h: a_dec on the profile, less below it, so a slow vehicle falls
+		# back to the profile instead of braking further. None in the held-rate region.
+		var a_ff := 0.0
+		if v_vert < -v_touch and alt >= hold_below:
+			a_ff = minf((v_vert * v_vert - v_touch * v_touch) / (2.0 * maxf(alt - hold_below, 0.5)), a_max)
 		# Near the ground, floor at g instead of free fall: no altitude is left to recover.
 		var floor_a := g if alt < hold_below * 5.0 else 0.0
-		var a_vert := maxf(g + a_ff + (vref - v_vert) / tau, floor_a)
+		# The air brakes too; leaving it out makes a booster over-brake by drag·τ and stop short.
+		var va := Guidance._g.length()
+		var drag_up: float = float(v.telemetry.get("drag", 0.0)) / maxf(v.mass, 1.0) * (-v_vert / va) if va > 1.0 else 0.0
+		var a_vert := maxf(g + a_ff + (vref - v_vert) / tau - drag_up, floor_a)
 
 		# lateral: kill the drift, and lean gently toward the site
 		Guidance._c.set_v(0.0, 0.0, 0.0)
@@ -630,9 +640,23 @@ class Autopilot extends RefCounted:
 		# the Moon that would allow a tenth of a g).
 		var max_lat := a_max * sin(max_tilt_rad)
 		if Guidance._d.length() > max_lat: DQuat.set_len(Guidance._d, max_lat)
+		# Steering alone never lights an engine the vertical channel wants off.
+		if a_vert <= 0.0: Guidance._d.set_v(0.0, 0.0, 0.0)
 
 		v_ref = vref; v_vert_now = v_vert; lat_now = Guidance._b.length()
-		return Guidance._e.copy_from(Guidance._up).scale_in(a_vert).add_in(Guidance._d)
+		Guidance._e.copy_from(Guidance._up).scale_in(a_vert).add_in(Guidance._d)
+		# Such a vehicle stopped short must choose between the floor (climbing) and off
+		# (falling): take the nearer, or it hovers by relighting at the floor.
+		if a_floor > g and Guidance._e.length() < 0.5 * a_floor: Guidance._e.set_v(0.0, 0.0, 0.0)
+		return Guidance._e
+
+	## The descent profile's net deceleration: `dec_frac` of the way from the
+	## throttle floor's to limit_throttle's g ceiling. Below the floor the vehicle
+	## over-brakes and stops short; above the ceiling it cannot keep up.
+	func profile_decel(a_max: float, g: float, dec_frac: float) -> float:
+		var a_lo := maxf(a_max * throttle_floor() - g, 0.0)
+		var a_hi := minf(a_max, v.vehicle.limits.maxG * 0.88 * Rocketry.G0) - g
+		return maxf(a_lo + dec_frac * (a_hi - a_lo), 0.05)
 
 	## Rotate a thrust command back toward the airstream until α ≤ α_max = qα_limit / q.
 	func aero_limit(cmd: DVec3, out: DVec3) -> DVec3:
@@ -752,6 +776,13 @@ class Autopilot extends RefCounted:
 			if hi - lo < 0.5: break
 		return 0.5 * (lo + hi)
 
+	## The lowest nonzero throttle of the first burning engine stage, or 0 if none.
+	func throttle_floor() -> float:
+		for s in v.live_stages():
+			if s.spec.get("engine") != null and s.prop > 0.0:
+				return s.spec.engine.get("throttleMin", 0.0)
+		return 0.0
+
 	## Respect the engine's real throttle limits, including a forbidden band.
 	func throttle_for(x: float) -> float:
 		var st = null
@@ -771,6 +802,7 @@ class Autopilot extends RefCounted:
 		return th
 
 	# HOVERSLAM — propulsive booster recovery
+	const HOVERSLAM_DEC := 0.55
 	func hoverslam_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var alt := v.altitude()
@@ -833,7 +865,7 @@ class Autopilot extends RefCounted:
 			note("Landing burn — %d engine%s, ignition at %s m" % [sel.n, "s" if sel.n > 1 else "", U.fixed(h_burn, 0)])
 		# Same terminal law; for a booster the reference is the hoverslam profile. Keep the
 		# tilt small: 6° at 25 kPa is already half the airframe's q·α.
-		var cmd := descent_law(a_max, 2.0, 0.10, 1.0, 0.55, INF, 30.0)
+		var cmd := descent_law(a_max, 2.0, 0.10, 1.0, HOVERSLAM_DEC, INF, 30.0)
 		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
 		say("Landing burn — %s m, %s of %s m/s, throttle %s%%" % [U.fixed(alt, 0), U.fixed(v_vert_now, 1), U.fixed(v_ref, 1), U.fixed(v.throttle * 100.0, 0)])
 		if v.phase == Vessel.PHASE.LANDED:
@@ -849,9 +881,9 @@ class Autopilot extends RefCounted:
 		# and less time holding the vehicle up.
 		var g_limit: float = (v.vehicle.limits.maxG * 0.85 * Rocketry.G0 + g)
 		var n := int(DQuat.jclamp(floor(g_limit / maxf(per, 1e-6)), 1.0, float(st.spec.count)))
-		# Size ignition on a deceleration margin like the descent law's, not on the full
-		# deceleration, or any lag arrives short.
-		var a := maxf(0.58 * (n * per - g), 0.3)
+		# Ignite on the descent law's own profile, not on the full deceleration, or any
+		# lag arrives short.
+		var a := profile_decel(n * per, g, HOVERSLAM_DEC)
 		return { "n": n, "hBurn": (v_vert * v_vert) / (2.0 * a) }
 
 	# ENTRY, DESCENT AND LANDING — the atmospheric one
@@ -898,7 +930,8 @@ class Autopilot extends RefCounted:
 			# Release the backshell low and slow (~1.8 km, 100 m/s): the chute does the braking.
 			var bs: Dictionary = plan_edl.backshell if (plan_edl != null and plan_edl.get("backshell") != null) else { "alt": 1800.0, "v": 100.0 }
 			if (alt < bs.alt or speed < bs.v) and not shield_gone:
-				shield_gone = true; v.jettison("shell"); v.chute_open = null
+				# stage(), not jettison(): it drops the shell and lights the descent stage.
+				shield_gone = true; v.stage(); v.chute_open = null
 				state_name = "powered"
 				note("Backshell separation — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
@@ -923,6 +956,12 @@ class Autopilot extends RefCounted:
 	func deorbit_guidance(dt: float, pa: float):
 		var el: Dictionary = v.telemetry.el
 		var mu: float = v.env.mu
+		# Burned: hand back to manual, nose retrograde for entry. Re-planning here
+		# would execute a zero-Δv node every frame.
+		if state_name == "done":
+			program = null; mode = MODE.RETROGRADE
+			note("Deorbit complete — periapsis %s km" % U.fixed(v.telemetry.peri / 1000.0, 0))
+			return Guidance.attitude_for(MODE.RETROGRADE, v)
 		if node == null:
 			# Drop the periapsis to a target inside the atmosphere (or just under the
 			# surface for an airless body), from the current apoapsis.

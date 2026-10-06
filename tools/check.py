@@ -69,6 +69,9 @@ def checks(suite, godot, output, repeat, export_preset):
             yield ("stability-" + label, *probe[1:])
     elif suite == "flight":
         yield script("sharedflightcheck", r"^SHARED FLIGHT DONE failures=0$", timeout=900)
+        descent = script("flightcheck", r"^FLIGHT CHECK DONE scenarios=5 failures=0$",
+                         "only=lm,f9booster,skycrane,skycrane_staged,lmdeorbit", f"out={output / 'flight_descent.json'}", timeout=600)
+        yield ("flight-descent", *descent[1:])
     elif suite == "rendered":
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")

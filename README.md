@@ -142,7 +142,7 @@ The runner retains child logs and a JSON report, rejects errors, timeouts and
 missing completion markers, and stops on the first failure. Use `--godot` to
 select an engine and `--log-dir` to retain results at a chosen location.
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
-`perf` need a working graphical renderer. `flight` runs the four full launches. `native` includes the numerical boundary checks.
+`perf` need a working graphical renderer. `flight` runs the four full launches and the descent gates (three landings, the sky crane and a deorbit). `native` includes the numerical boundary checks.
 `stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
 three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
@@ -206,7 +206,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/presetcheck.sh` | loads all 35 scenarios, runs a second of each, reports script/shader errors and lost bodies |
 | `tools/coursecheck.tscn` | renders all 35 lessons / 108 steps; rejects engine errors, missing subjects and unknown directives; `selftest=1` must exit 1 with three errors and one warning |
 | `tools/physcheck.sh` | compatibility report against frozen JavaScript; numeric differences are printed, not rejected; child/engine failures and missing output fail |
-| `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript |
+| `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript; rejects a descent that does not land inside its gear rating and a deorbit that does not burn once and hand back. These three intentionally diverge from the frozen build, which fails them |
 | `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
 | `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |

@@ -169,9 +169,10 @@ plus state dumps).
      impact unless the pilot stages it).
   4. `deorbit` re-plans a zero-Δv node every frame after cutoff.
 
-  These are findings from the initial migration. The Shuttle issue was later
-  fixed in the Godot build; the other three are not recorded as resolved.
-  The archived web build is not a target for fixes.
+  These are findings from the initial migration. All four are fixed in the
+  Godot build (the Shuttle first; the descent and deorbit fixes are gated by
+  `tools/flightcheck.gd` in the `flight` suite), so those scenarios no longer
+  match the frozen reference. The archived web build is not a target for fixes.
 
 ## 4. Housekeeping notes
 

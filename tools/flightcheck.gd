@@ -29,11 +29,16 @@ func _init() -> void:
 		return
 	var only: Array = args.only.split(",") if args.has("only") else []
 	var results := { "runner": "gd", "spot": spot(fixture.bodies), "scenarios": {} }
+	var failures := 0
 	for sc in fixture.scenarios:
 		if not only.is_empty() and not only.has(sc.id): continue
 		var res := run(sc, fixture.bodies, dt)
 		results.scenarios[sc.id] = res
 		var s: Dictionary = res.summary
+		var why := outcome_error(sc.id, res)
+		if why != "":
+			failures += 1
+			printerr("FLIGHT CHECK FAIL %s: %s" % [sc.id, why])
 		print("%-16s %-9s met %.1f s frames %d maxQ %.2f kPa @ %.1f s  %s %s (%d ms)" % [
 			sc.id, s.phase, s.met, s.frames, s.maxQ / 1000.0, s.maxQMet,
 			("touchdown %.2f / %.2f m/s" % [s.landedAt.vVert, s.landedAt.vHoriz]) if s.landedAt != null else "",
@@ -43,7 +48,25 @@ func _init() -> void:
 	f.store_string(JSON.stringify(sanitize(results), "", false, true))
 	f.close()
 	print("wrote ", out)
-	quit()
+	print("FLIGHT CHECK DONE scenarios=%d failures=%d" % [results.scenarios.size(), failures])
+	quit(1 if failures else 0)
+
+## Descents must land inside the gear rating, and a deorbit must burn once and hand
+## back. These diverge from the frozen web build, which fails all three.
+static func outcome_error(id: String, res: Dictionary) -> String:
+	var s: Dictionary = res.summary
+	match id:
+		"lm", "f9booster", "skycrane", "skycrane_staged":
+			if s.phase != Vessel.PHASE.LANDED: return "%s, not landed (%s)" % [s.phase, s.failure]
+		"lmdeorbit":
+			var burns := 0
+			for e in res.events:
+				if String(e[1]).begins_with("Deorbit burn — ignition"): burns += 1
+			var last: Dictionary = res.samples[-1]
+			if burns != 1: return "%d deorbit ignitions, want 1" % burns
+			if last.prog != null: return "program still %s after cutoff" % last.prog
+			if not (s.peri != null and s.peri < 0.0): return "periapsis %s km is not below the surface" % s.peri
+	return ""
 
 ## JSON.stringify(Infinity) is null in JS; Godot would print `inf`. Mirror JS.
 static func sanitize(x):
