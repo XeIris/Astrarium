@@ -236,5 +236,5 @@ fail explicitly. Multiple requested methods run in order.
 | `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
 | `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 
-`tools/ref/` holds the side-by-side evidence each part of the port was
-accepted on.
+The historical side-by-side migration evidence was archived out of the working
+tree; `tools/ref/` now keeps the manifest and retention note.

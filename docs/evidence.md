@@ -1,10 +1,9 @@
 # Verification evidence retention
 
-`tools/ref/` is the frozen migration reference archive: 553 tracked images,
-78.90 MiB at closure review. It contains source references, comparisons and
-historical investigation captures. It is excluded from game exports. Keep this
-archive for interpreting the port's existing evidence rather than using it as
-the destination for each new test run.
+`tools/ref/` is the pointer to the archived migration references, not the
+archive itself. The removed tree contained 553 tracked files, about 80 MiB, and
+is identified by `tools/ref/MANIFEST.sha256`. Keep historical screenshots in
+external release/object storage when they need to outlive normal git history.
 
 New runner logs, performance JSON, contact sheets and investigation screenshots
 belong in an absolute temporary/output directory (`tools/check.py --log-dir`)

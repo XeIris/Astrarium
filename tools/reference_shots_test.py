@@ -92,7 +92,7 @@ if case == "duplicate": print("capture done")
     def test_wrapper_failure_and_report(self):
         # An existing executable that cannot render must never produce a passing report.
         env = {**os.environ, "GODOT": sys.executable, "TIMEOUT": "2"}
-        for script, args in (("startest_all.sh", [str(ROOT / "tools/ref/stars/state"), str(self.output), "sun"]),
+        for script, args in (("startest_all.sh", [str(ROOT / "tools/fixtures/stars/state"), str(self.output), "sun"]),
                              ("coursetest.sh", [str(self.output), "kepler"]),
                              ("flightshots.sh", [str(self.output), "sv_launch", "godot"])):
             with self.subTest(script=script):
