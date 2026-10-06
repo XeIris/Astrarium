@@ -1,8 +1,7 @@
 extends Harness
-# Render cosmetic gas streams, legacy-star sprites and spacetime wells.
+# Render cosmetic gas streams and spacetime wells.
 #   Godot --path . res://tools/accretion_test.tscn -- out=/abs.png frames=90
 var star: Body
-var legacy: Body
 var hole: Body
 var slab: SpacetimeMesh
 var bodies: Array = []
@@ -11,11 +10,9 @@ func _setup() -> void:
 	cam_target = DVec3.new(0.6, 0.0, 0.0)
 	cam_radius = 4.0
 	hole = Body.new(); hole.type = "bh"; hole.mass = 10.0; hole.rs_scene = 0.1; hole.id = 1
-	star = Body.new(); star.type = "star"; star.id = 2; star.mass = 1.0; star.mass0 = 1.0; star.radius = 0.00465
+	star = Derive.new_body(2, {"type": "star", "mass": 1.0, "teff": 5772.0})
 	star.scene_pos = DVec3.new(1.2, 0.0, 0.0)
-	legacy = Body.new(); legacy.type = "star-basic"; legacy.id = 3; legacy.mass = 1.0; legacy.mass0 = 1.0
-	legacy.scene_pos = DVec3.new(-0.9, 0.4, -0.6)
-	for b in [hole, star, legacy]:
+	for b in [hole, star]:
 		var v = Bodies.create_body_visual(b, VisualOpts.from_dict({"radiusScene": 0.25, "teff": 5772.0, "glow": 0xff8040}))
 		pipe.world_root.add_child(v.group)
 		place(v.group, b.scene_pos)
@@ -38,5 +35,5 @@ func _exit_tree() -> void:
 	# Break the body/visual ownership cycle before renderer shutdown.
 	for b: Body in bodies: b.viz = null
 	bodies.clear()
-	star = null; legacy = null; hole = null; slab = null
+	star = null; hole = null; slab = null
 	super._exit_tree()

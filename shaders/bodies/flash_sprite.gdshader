@@ -1,4 +1,4 @@
-// A RADIAL-GRADIENT SPRITE (the flash sprites and bodies.gd glow_sprite): up to three
+// A RADIAL-GRADIENT SPRITE for flashes: up to three
 // colour stops interpolated in straight RGBA, zero past the outer stop, with raw
 // (linear, U.raw(hex)) colours. A unit camera-facing quad scaled by the world scale;
 // output (texel.rgb, texel.a · opacity) formed here and blended ONE, ONE; the

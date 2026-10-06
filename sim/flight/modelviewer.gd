@@ -323,11 +323,6 @@ func update(dt: float) -> void:
 	camera.near = maxf(H * 0.002, 0.02)
 	camera.far = H * 200.0
 
-## The camera's aspect follows the viewport the pipeline sized
-## (RenderPipeline.set_view_size), so this is a no-op.
-func set_size(_w: int, _h: int) -> void:
-	pass
-
 ## Every vehicle, in VEHICLE_ORDER, each {key, ...spec}.
 func list() -> Array:
 	var out := []

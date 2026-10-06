@@ -13,9 +13,14 @@ static func _col(a) -> Variant:
 	return Color(a[0], a[1], a[2]) if a != null else null
 
 func _check(label: String, godot_v, web_v) -> void:
-	var ok := true
+	var ok: bool = godot_v == web_v
 	if godot_v is float or godot_v is int:
 		ok = absf(float(godot_v) - float(web_v)) <= 1e-4 * maxf(1.0, absf(float(web_v)))
+	elif godot_v is Array and web_v is Array:
+		# Shader buffers are float32; compare components, not rounded display text.
+		ok = godot_v.size() == web_v.size()
+		for i in mini(godot_v.size(), web_v.size()):
+			ok = ok and absf(float(godot_v[i]) - float(web_v[i])) <= 1e-4 * maxf(1.0, absf(float(web_v[i])))
 	print("CHECK %s %s godot=%s web=%s" % ["ok  " if ok else "DIFF", label, str(godot_v), str(web_v)])
 
 func _setup() -> void:
@@ -47,7 +52,7 @@ func _setup() -> void:
 		b.radius_scene = float(e.radiusScene); b.rs_scene = float(U.nz(e.rsScene, 0.0))
 		b.scene_pos = DVec3.from_array(e.pos)
 		bodies.append(b)
-		if e.type in ["star", "white-dwarf", "neutron", "bh", "star-basic"]:
+		if e.type in ["star", "white-dwarf", "neutron", "bh"]:
 			var o: Dictionary = e.opts.duplicate()
 			o.color = _col(o.get("color"))
 			if o.get("glow") != null: o.glow = int(o.glow)
@@ -107,7 +112,7 @@ func _inject_star(b: Body, viz, e: Dictionary) -> void:
 		_check("%s.%s" % [b.name, k], float(viz.mat.get_shader_parameter(k)), u[k])
 	for k in ["uColPole", "uColEq", "uHot"]:
 		var g: Vector3 = viz.mat.get_shader_parameter(k)
-		_check("%s.%s" % [b.name, k], "%.4f,%.4f,%.4f" % [g.x, g.y, g.z], "%.4f,%.4f,%.4f" % u[k])
+		_check("%s.%s" % [b.name, k], [g.x, g.y, g.z], u[k])
 	viz.time = float(u.uTime)
 	viz.corona_time = float(e.coronaTime)
 	for i in viz.erupt.size():
@@ -160,12 +165,14 @@ func _step(_dt: float) -> void:
 			_check("%s.marker.opacity" % b.name, op, mk[2].opacity)
 			if op > 0.002: _check("%s.marker.scale" % b.name, m.mesh.scale.x, mk[2].scale)
 	if slab != null:
-		slab.update(bodies, float(d.mesh.pos[0]), float(d.mesh.pos[2]), 0.0, cam_pos)
+		slab.update(bodies, float(d.mesh.pos[0]), float(d.mesh.pos[2]), 0.0, cam_pos,
+			Vector2(pipe.render_size), pipe.scene_cam.fov)
 		if not _checked:
-			_check("mesh.wellCount", slab.mat.get_shader_parameter("wellCount"), d.mesh.wellCount)
-			var w: PackedVector4Array = slab.mat.get_shader_parameter("wells")
+			var material: ShaderMaterial = slab.node.material_override
+			_check("mesh.wellCount", material.get_shader_parameter("wellCount"), d.mesh.wellCount)
+			var w: PackedVector4Array = material.get_shader_parameter("wells")
 			for i in int(d.mesh.wellCount):
-				_check("mesh.well%d" % i, "%.4f,%.4f,%.4f,%.0f" % [w[i].x, w[i].y, w[i].z, w[i].w], "%.4f,%.4f,%.4f,%.0f" % d.mesh.wells[i])
+				_check("mesh.well%d" % i, [w[i].x, w[i].y, w[i].z, w[i].w], d.mesh.wells[i])
 	if not _checked:
 		for b in bodies:
 			if b.viz != null and b.viz.get("is_star") and b.viz.get("core") != null:
@@ -176,3 +183,11 @@ func _step(_dt: float) -> void:
 						_check("%s.uSpotCount" % b.name, b.viz.mat.get_shader_parameter("uSpotCount"), e.u.uSpotCount)
 						_check("%s.coronaFlux" % b.name, b.viz.corona_mat.get_shader_parameter("uFlux"), e.coronaFlux)
 	_checked = true
+
+func _exit_tree() -> void:
+	for b: Body in bodies: b.viz = null
+	bodies.clear()
+	markers.clear()
+	flashes.clear()
+	slab = null
+	super._exit_tree()

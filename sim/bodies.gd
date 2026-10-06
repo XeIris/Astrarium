@@ -5,119 +5,11 @@ extends RefCounted
 # Rendered radii use scene units; body physics uses AU.
 
 const ACCRETION_SHADER := preload("res://shaders/bodies/accretion_points.gdshader")
-const BASIC_SHADER := preload("res://shaders/bodies/star_basic.gdshader")
-const BASIC_LAYER_SHADER := preload("res://shaders/bodies/star_basic_layer.gdshader")
-
-# Radial-gradient sprite (corona, glow, flare): `stops` are [[position, 'aa'], …]
-# with alpha as two-digit hex (or a float), one colour, raw (not colour-managed).
-# Returns the node; its scale is its size and uOpacity its opacity.
-static func glow_sprite(color_hex: int, stops = null) -> MeshInstance3D:
-	var st: Array = stops if stops != null else [[0.0, "ff"], [0.4, "66"], [1.0, "00"]]
-	var out := []
-	for s in st:
-		var a: float = (("0x" + str(s[1])).hex_to_int() / 255.0) if s[1] is String else float(s[1])
-		out.append([float(s[0]), U.raw(color_hex, a)])
-	return Flash.make_sprite(out)
-
-static func _sprite_opacity(sp: MeshInstance3D, o: float) -> void:
-	(sp.material_override as ShaderMaterial).set_shader_parameter("uOpacity", o)
 
 static func _col(c, fallback: int) -> Color:
 	if c is Color: return c
 	if c == null: return U.lin(fallback)
 	return U.lin(int(c))
-
-# LEGACY STAR ('star-basic'): granulation, limb darkening, flicker, a gassy outer
-# layer, a glow corona and four flame sprites. The high-fidelity star is
-# sim/star_visual.gd.
-class LegacyStarViz:
-	extends RefCounted
-	var body: Body
-	var group: Node3D
-	var core: MeshInstance3D
-	var mat: ShaderMaterial
-	var layer: MeshInstance3D
-	var layer_mat: ShaderMaterial
-	var corona: MeshInstance3D
-	var flares: Array = []          # [{node, phase, a}]
-	var stream = null
-	var base_r: float
-	var r: float
-	var color_hex: int
-	var is_star := false
-	var is_hole := false
-	var is_neutron := false
-	var time := 0.0
-	var layer_time := 0.0
-
-	func _init(b: Body, opts: VisualOpts) -> void:
-		body = b
-		group = Node3D.new()
-		var R: float = opts.radius_scene
-		var col := Bodies._col(opts.color, 0xffe0a0)
-		mat = ShaderMaterial.new()
-		mat.shader = Bodies.BASIC_SHADER
-		mat.set_shader_parameter("uColor", Vector3(col.r, col.g, col.b))
-		core = MeshInstance3D.new()
-		var s := SphereMesh.new(); s.radius = R; s.height = 2.0 * R; s.radial_segments = 48; s.rings = 48
-		core.mesh = s
-		core.material_override = mat
-		group.add_child(core)
-
-		# gassy outer layer — slightly larger, additive
-		layer_mat = ShaderMaterial.new()
-		layer_mat.shader = Bodies.BASIC_LAYER_SHADER
-		layer_mat.set_shader_parameter("uColor", Vector3(col.r, col.g, col.b))
-		layer = MeshInstance3D.new()
-		var s2 := SphereMesh.new(); s2.radius = R * 1.08; s2.height = 2.16 * R; s2.radial_segments = 32; s2.rings = 32
-		layer.mesh = s2
-		layer.material_override = layer_mat
-		group.add_child(layer)
-
-		var glow: int = int(U.nz(opts.glow, 0xff8040))
-		corona = Bodies.glow_sprite(glow, [[0.0, "88"], [0.3, "40"], [1.0, "00"]])
-		corona.scale = Vector3.ONE * (R * 6.0)
-		group.add_child(corona)
-
-		# prominences / flares: a few flame sprites that wax & wane
-		for i in 4:
-			var f := Bodies.glow_sprite(glow, [[0.0, "cc"], [0.5, "30"], [1.0, "00"]])
-			var a := randf() * TAU
-			f.position = Vector3(cos(a) * R, sin(a) * R * 0.6, (randf() - 0.5) * R)
-			f.scale = Vector3.ONE * (R * 1.5)
-			group.add_child(f)
-			flares.append({"node": f, "phase": randf() * 6.28, "a": a})
-
-		base_r = R
-		r = R
-		color_hex = U.hex_of(col)
-
-	func update(dt: float, ctx: VisualCtx) -> void:
-		var t: float = ctx.time
-		time += dt
-		layer_time += dt * 0.6
-		mat.set_shader_parameter("uTime", time)
-		layer_mat.set_shader_parameter("uTime", layer_time)
-		# slow swelling pulsation (stellar variability)
-		var pulse := 1.0 + sin(t * 0.6 + body.id) * 0.04
-		core.scale = Vector3.ONE * pulse
-		layer.scale = Vector3.ONE * pulse
-		# uPulse is driven on the core's material only
-		mat.set_shader_parameter("uPulse", 0.9 + sin(t * 4.0 + body.id) * 0.04)
-		Bodies._sprite_opacity(corona, 0.8 + sin(t * 1.3 + body.id) * 0.15)
-		for f in flares:
-			var e := 0.4 + 0.6 * pow(maxf(0.0, sin(t * 1.1 + f.phase)), 3.0)
-			Bodies._sprite_opacity(f.node, e)
-			(f.node as Node3D).scale = Vector3.ONE * (r * (1.0 + e * 1.2))
-		if stream != null:
-			Bodies.update_accretion_stream(body, ctx, stream, dt)
-
-static func create_star(b: Body, opts: VisualOpts) -> LegacyStarViz:
-	var viz := LegacyStarViz.new(b, opts)
-	viz.stream = AccretionStream.new(int(U.nz(opts.glow, 0xff8040)))
-	viz.group.add_child(viz.stream.points)
-	b.viz = viz
-	return viz
 
 static func create_neutron(b: Body, opts: VisualOpts):
 	var viz = NeutronVisual.create_neutron_visual(b, opts)
@@ -344,7 +236,6 @@ static func create_body_visual(b: Body, opts: VisualOpts):
 			var o := opts.copy()
 			o.quiet = true
 			return create_star_hifi(b, o)
-		"star-basic": return create_star(b, opts)
 		"world": return create_world(b, opts)
 		"neutron": return create_neutron(b, opts)
 		"gas-giant": return create_giant(b, opts)

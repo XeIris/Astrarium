@@ -42,6 +42,8 @@ def checks(suite, godot, output, repeat, export_preset):
 
     if suite == "fast":
         yield ("import", base + ["--headless", "--import", "--quit"], None, 180)
+        yield ("reference-shots-selfcheck", [sys.executable, str(ROOT / "tools/reference_shots_test.py")],
+               r"^REFERENCE SHOTS SELF-CHECK PASS$", 30)
         yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")

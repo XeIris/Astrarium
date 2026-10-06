@@ -1,4 +1,11 @@
-# The Godot port — report
+# The Godot port — historical report (26 September 2026)
+
+> This is the initial migration snapshot, not the current architecture or a
+> current verification claim. The HUD now uses native Godot Controls; physics,
+> lessons and flight have since changed. Use [README.md](README.md) for current
+> commands, [docs/godot.md](docs/godot.md) for architecture, and the
+> [review log](docs/codebase-review-2026-10-02.md) for remediation evidence.
+> The archived `web/` build and `tools/ref/` evidence are frozen.
 
 **What was done:** the whole of Astrarium (the relativistic orrery, the 35-lesson
 astronomy course, the spaceflight simulator, the Object Foundry, the model
@@ -162,14 +169,13 @@ plus state dumps).
      impact unless the pilot stages it).
   4. `deorbit` re-plans a zero-Δv node every frame after cutoff.
 
-  All four are worth fixing in the web build first; the port will follow.
+  These are findings from the initial migration. The Shuttle issue was later
+  fixed in the Godot build; the other three are not recorded as resolved.
+  The archived web build is not a target for fixes.
 
 ## 4. Housekeeping notes
 
-- `tools/ref/` is **80 MB** of comparison images. They are the evidence
-  for this report but don't need to live in the repo. Deleting that folder
-  changes nothing about running or building.
-- The parallel porting work used git worktrees under `.claude/worktrees/` (historical), one
-  per agent branch. Every branch is merged into `godot-port`, so they can be
-  removed with `git worktree remove`.
-- Nothing has been pushed.
+- `tools/ref/` is **80 MB** of historical comparison evidence. Keep it for
+  interpreting this snapshot; new output follows [docs/evidence.md](docs/evidence.md).
+- The parallel migration used per-agent git worktrees under `.claude/worktrees/`.
+  This note records the workflow, not the current worktree or publication state.

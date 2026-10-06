@@ -1382,10 +1382,6 @@ func drive_slider(id: String, value: float) -> void:
 	r.set_v(value)
 	_on_slider(r.value, id)
 
-func get_slider(id: String) -> float:
-	var r: HudSlider = sliders.get(id)
-	return r.value if r else 0.0
-
 ## Apply warning styling and an optional explanation to the named controls.
 func set_warn(id: String, on: bool, tooltip := "") -> void:
 	for e in _targets(id):
@@ -1471,15 +1467,6 @@ func _render_presets() -> void:
 	if searching:
 		(_preset_empty_label as Prose).say("No scenarios or categories match \"%s\"" % _search.text.strip_edges())
 	_hide(_search_clear, "inline", not searching)
-
-## Mark the running scenario in the list.
-func set_active_preset(key: String) -> void:
-	_active_preset = key
-	for sel in sels.keys():
-		if str(sel).begins_with("[data-preset="):
-			var k := str(sel).trim_prefix("[data-preset=").trim_suffix("]")
-			for b in sels[sel]:
-				if is_instance_valid(b): b.set_active(k == key)
 
 func open_preset_group(gid: String, open := true) -> void:
 	if open: _open_groups[gid] = true

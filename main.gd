@@ -1792,8 +1792,6 @@ func resize() -> void:
 	pipe.set_view_size(Vector2i(int(s.x), int(s.y)))
 	# The PSF is pinned to the default fov, so zooming spreads a star as a telescope does.
 	SkyModel.apply_sky_optics(pipe.sky_materials, deg_to_rad(cam_fov), float(pipe.render_size.y))
-	if flight: flight.set_size(s.x, s.y)
-	if model_view: model_view.set_size(s.x, s.y)
 	if hud: hud.layout_left_column()
 
 # SPACEFLIGHT: the feature lives in sim/flight/; this is the wiring. It takes the

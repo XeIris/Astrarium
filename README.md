@@ -5,8 +5,8 @@ astronomy course, and spaceflight simulator. Open [project.godot](project.godot)
 to run it. The original HTML/Three.js version is archived as a runnable project
 in [web/](web/). Its [README](web/README.md) describes the physics and scenarios;
 the shared engineering guidance is in [AGENTS.md](AGENTS.md), Godot-specific
-decisions are in [docs/godot.md](docs/godot.md), and the port's verification
-record is in [PORT_REPORT.md](PORT_REPORT.md).
+decisions are in [docs/godot.md](docs/godot.md), and the initial migration's historical
+verification record is in [PORT_REPORT.md](PORT_REPORT.md).
 
 ## Running it
 
@@ -228,7 +228,9 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/editorcheck.tscn` | canonical inspector and graph invalidation, measured/tiny bodies, structural threshold crossings, and delayed edits across selection/removal/reused IDs |
 | `tools/padcheck.gd` | rejects pad structure inside its vehicle; `padmodels=0` / `assets=0` select fallback pads / craft; `inject_intrusion=1` must fail |
 | `python3 tools/exportcheck.py /abs/game.zip` | checks a `Godot --headless --path . --export-pack macOS /abs/game.zip` resource archive for development files, missing boot files and broken import/remap targets; native libraries and rendering still need an exported-app smoke run |
-| `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks |
+| `tools/reference_shots.py` | shared runner for `startest_all.sh`, `coursetest.sh` and `flightshots.sh`; rejects child/engine failures, timeouts, missing completion markers and missing/invalid captures; retains `reference-report.json`. `TIMEOUT=<seconds>` overrides each child deadline |
+| `python3 tools/reference_shots_test.py` | failure-contract self-checks for the reference runners, without a renderer |
+| `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks; use `flightshots.sh` for validated flight captures |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
 | `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry |
 | `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |

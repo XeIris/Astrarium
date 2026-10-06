@@ -78,10 +78,6 @@ func update(camera: Camera3D, pos_rel: Vector3, radius_scene: float, viewport_h:
 	mesh.scale = Vector3.ONE * maxf(s, 1e-30)
 	return opacity
 
-## The quad's current world size, for the pick radius.
-func quad_scale() -> float:
-	return mesh.scale.x
-
 func dispose() -> void:
 	if is_instance_valid(mesh):
 		mesh.queue_free()

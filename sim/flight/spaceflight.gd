@@ -1128,9 +1128,6 @@ func update_hud() -> void:
 		"cruise": cruise != null,
 	})
 
-func set_size(w: float, h: float) -> void:
-	local.set_size(w, h)
-
 # INPUT
 ## The orchestrator resolves configurable physical keys before dispatching the
 ## flight action. Returns true when the active vessel accepted it.

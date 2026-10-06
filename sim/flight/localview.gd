@@ -672,11 +672,6 @@ func _update_sun2(o: Dictionary, h: float, R: float, east: DVec3, up: DVec3, nor
 	var ref := Vector3(0, 0, 1) if absf(l.y) > 0.99 else Vector3.UP
 	sun2.basis = Basis.looking_at(-l, ref)
 
-func set_size(_w: float, _h: float) -> void:
-	# The render camera keeps its aspect from the viewport (keep_height, as
-	# vertical fov).
-	pass
-
 func dispose() -> void:
 	if is_instance_valid(root): root.queue_free()
 
