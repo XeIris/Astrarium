@@ -486,6 +486,26 @@ func _interaction_walk() -> void:
 	await _click(_find("[data-mv=falcon9]"))
 	for i in 20: await get_tree().process_frame
 	check("a model chip shows that vehicle", _text_of(_find("mvName")).to_lower().contains("falcon"))
+	# A panel whose content just fits must hold one height; the scrollbar
+	# appearing and re-wrapping its text flickered between two on tall windows.
+	var studio_size := get_window().size
+	var unstable := 0
+	var sizes := 0
+	for vehicle in ["saturnv", "falcon9"]:
+		main.show_model(vehicle)
+		for h in range(700, 1400, 20):
+			get_window().size = Vector2i(studio_size.x, int(h * get_window().content_scale_factor))
+			await _steps(4)
+			var rect: Rect2 = hud.model_panel.get_global_rect()
+			var steady := true
+			for i in 4:
+				await _steps(1)
+				if not hud.model_panel.get_global_rect().is_equal_approx(rect): steady = false
+			sizes += 1
+			if not steady: unstable += 1
+	get_window().size = studio_size
+	await _steps(4)
+	check("the model panel holds one height at every window height (%d/%d unstable)" % [unstable, sizes], unstable == 0 and sizes > 0)
 	await _click(_find("modelClose"))
 	check("the model panel's ✕ closes the studio", not main.model_open)
 

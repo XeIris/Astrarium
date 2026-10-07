@@ -34,6 +34,10 @@ func _init(padding: Array = [16, 16, 16, 16], scrolls := true, bg := HudTheme.PA
 	if scrolls:
 		scroll = ScrollContainer.new()
 		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		# Reserve the thumb's width even when hidden. Otherwise wrapped content
+		# re-wraps as the thumb appears, its height crosses the fit, and the
+		# panel alternates between two heights every frame.
+		scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_RESERVE
 		scroll.follow_focus = false
 		scroll.mouse_filter = Control.MOUSE_FILTER_PASS
 		add_child(scroll)
