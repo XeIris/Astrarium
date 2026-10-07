@@ -195,13 +195,20 @@ func horizon_cases() -> void:
 				and horizon_close(b.contact_au, expected * 2.0) and horizon_close(float(b.structure.rs), expected * 2.0))
 			check("mass refresh sanitizes authored horizon", not b.spec.has("rs") or horizon_close(float(b.spec.rs), expected * 2.0))
 			for scene_scale in [0.5, 1000.0]:
-				for true_scale in [false, true]:
-					var rendered := Derive.render_radius(b, b.spec, b.mass, scene_scale, 100.0, true_scale)
-					check("BH physical/rendered horizon ignores magnification", horizon_close(rendered, expected * 2.0 * scene_scale)
-						and horizon_close(Derive.contact_au(b, b.spec), expected * 2.0))
+				var true_size := Derive.render_radius(b, b.spec, b.mass, scene_scale, 100.0, true)
+				var boosted := Derive.render_radius(b, b.spec, b.mass, scene_scale, 100.0, false)
+				check("BH true-scale render is the physical horizon", horizon_close(true_size, expected * 2.0 * scene_scale))
+				check("BH boosted render is never below the physical horizon", is_finite(boosted) and boosted >= true_size)
+				check("BH contact ignores rendered magnification", horizon_close(Derive.contact_au(b, b.spec), expected * 2.0))
 	var a := Derive.new_body(1, {"type": "bh", "mass": 12.0, "rs": 0.5})
 	var b := Derive.new_body(2, {"type": "bh", "mass": 8.0, "rs": 0.5, "pos": [0.05, 0.0, 0.0]})
 	check("authored horizons cannot create distant physical contact", Physics.resolve_collisions([a, b]).is_empty() and a.alive and b.alive)
+	# The sandbox hole is ~30 km; boosted mode must still draw it beside its boosted neighbours.
+	var drawn := []
+	for mass in [1.0, 10.0, 50.0]:
+		drawn.append(Derive.hole_render_radius(mass * RS_PER_MSUN, 2.0, 1.0, false))
+	check("boosted stellar-mass hole is drawn at planet scale or larger", drawn[1] >= Derive.BOOST_RADIUS.planet)
+	check("boosted hole size follows mass", drawn[0] < drawn[1] and drawn[1] < drawn[2])
 
 func measured_structure_cases() -> void:
 	for spec in [

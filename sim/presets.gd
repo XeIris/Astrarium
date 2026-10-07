@@ -238,7 +238,7 @@ static func _make_presets() -> Dictionary:
 	P.sandbox = {
 		"sky": { "env": "disc", "tilt": 0.42, "roll": 0.7 },
 		"name": "Black Hole Sandbox",
-		"blurb": "A 10 M☉ black hole with orbiting companions. Spawn bodies and watch their orbits and contact mergers. Focus Singularity for a close view of its shadow and illustrated disc.",
+		"blurb": "A 10 M☉ black hole with an illustrated accretion disc and lensing. Spawn bodies and watch their orbits and contact mergers.",
 		"sceneScale": 2.0, "bodyScale": 1.0, "camRadius": 34.0, "lensing": true,
 		"build": func() -> Array: return _build_sandbox(),
 	}
@@ -367,7 +367,7 @@ static func _make_presets() -> Dictionary:
 	P.bhmerger = {
 		"sky": { "env": "halo", "tilt": 0.22, "roll": 2.6 },
 		"name": "Binary Black Hole Orbit",
-		"blurb": "A wide binary of 36 and 29 solar masses. The horizons are too small to resolve in this view; focus a hole to inspect lensing.",
+		"blurb": "A wide binary of 36 and 29 solar masses, lensing the sky behind them.",
 		"sceneScale": 60.0, "bodyScale": 1.0, "camRadius": 72.0, "lensing": true, "timeScale": 0.15, "maxStep": 5e-5,
 		"build": func() -> Array: return binary(36.0, 29.0, 0.45,
 			{ "type": "bh", "name": "BH-A" },

@@ -557,8 +557,8 @@ func transmute(b: Body, new_type: String, why, remnant_spec: Dictionary = {}) ->
 		# re-imaging it as a star in the non-visible bands.
 		b.teff = null; b.spectral = null; b.luminosity = null
 		b.radius_sun = null
-		spawn_flash(wpos, 0xffffff, maxf(b.rs * state.scene_scale * 9.0, 0.6), 1.4)
-		spawn_flash(wpos, 0x9fd0ff, maxf(b.rs * state.scene_scale * 5.0, 0.4), 0.3)
+		spawn_flash(wpos, 0xffffff, maxf(_hole_render_radius(b) * 9.0, 0.6), 1.4)
+		spawn_flash(wpos, 0x9fd0ff, maxf(_hole_render_radius(b) * 5.0, 0.4), 0.3)
 	detach_visual(b)
 	# Re-derive, don't just re-measure: building a body and editing one are the
 	# same operation.
@@ -746,7 +746,7 @@ func handle_merger(ev: Dictionary) -> void:
 			Derive.derive_body(surv, surv.spec)
 			detach_visual(surv)
 			attach_visual(surv)
-		var rs_s := surv.rs * state.scene_scale
+		var rs_s := _hole_render_radius(surv)
 		spawn_flash(wpos, 0xffffff, rs_s * 9.0, 1.6)             # bright ringdown burst
 		spawn_flash(wpos, 0xffd2a0, rs_s * 5.0, 0.32)            # slow lingering afterglow
 	elif surv.type == "neutron" and gone.type == "neutron":
@@ -784,6 +784,9 @@ func glide_target_to(p: DVec3) -> void:
 
 func update_orbit_cam() -> void:
 	cam_basis = cam.update_orbit(cam_basis)
+
+func _hole_render_radius(b: Body) -> float:
+	return Derive.hole_render_radius(b.rs, state.scene_scale, state.body_scale, state.true_scale)
 
 func set_follow(body: Body) -> void:
 	state.follow_id = body.id if body else null
@@ -2220,7 +2223,7 @@ func animate(dt: float) -> void:
 	ctx.climate = state.climate; ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
 	for b in state.bodies:
 		if b.type == "bh":
-			b.rs_scene = b.rs * state.scene_scale
+			b.rs_scene = _hole_render_radius(b)
 			b.radius_scene = b.rs_scene
 		if b.viz != null:
 			b.viz.group.position = b.scene_pos.rel_v3(cam_pos)

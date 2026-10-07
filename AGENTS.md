@@ -94,11 +94,12 @@ design.
 
 ## Size and the camera
 
-- Rendered size goes through `render_radius`. Black holes use the mass-derived
-  Schwarzschild scale. Everything else is the true radius under `state.true_scale`, and
-  otherwise a magnified stand-in (`base_radius` scaled by real/reference radius,
-  so the mass slider still changes size). Switching conventions at runtime means
-  `rebuild_visuals()`.
+- Rendered size goes through `render_radius`: the true radius (a black hole's
+  horizon) under `state.true_scale`, and otherwise a magnified stand-in
+  (`base_radius`, or `hole_render_radius` for black holes, scaled by real/reference
+  radius so the mass slider still changes size). Lensing, the disc and mesh wells
+  size from a hole's rendered horizon; contact never does. Switching conventions
+  at runtime means `rebuild_visuals()`.
 - A true-scale body is usually sub-pixel and is drawn by the point-source marker
   (`sim/marker.gd`). Picking, the near plane and the follow camera must work at a
   rendered radius of 1e-5. Check: `solar`, true scale, fly to Earth.

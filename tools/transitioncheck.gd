@@ -89,9 +89,10 @@ func horizon_close(actual: float, expected: float) -> bool:
 
 func canonical_horizon(label: String, b: Body) -> void:
 	var expected := b.mass * RS_PER_MSUN
+	var rendered := Derive.hole_render_radius(expected, stage.state.scene_scale, stage.state.body_scale, stage.state.true_scale)
 	check(label + " physical horizon/contact", b.type == "bh" and horizon_close(b.rs, expected) and horizon_close(b.contact_au, expected) and b.radius == 0.0)
 	check(label + " structure and rendered horizon", horizon_close(float(b.structure.rs), expected)
-		and horizon_close(b.rs_scene, expected * stage.state.scene_scale) and horizon_close(b.radius_scene, expected * stage.state.scene_scale))
+		and horizon_close(b.rs_scene, rendered) and horizon_close(b.radius_scene, rendered))
 	check(label + " canonical authored state", b.spec.mass == b.mass and (not b.spec.has("rs") or horizon_close(float(b.spec.rs), expected)))
 
 func radiation_checks() -> void:

@@ -12,7 +12,7 @@ const MASS_EDIT_MEASUREMENTS := ["radiusSun", "teff", "luminosity", "radiusKm", 
 # invisible at orbital scale; this buys enough pixels for its surface detail.
 const BOOST_RADIUS := {
 	"star": 0.34, "white-dwarf": 0.12, "neutron": 0.30,
-	"gas-giant": 0.30, "world": 0.13, "planet": 0.15, "bh": 0.2,
+	"gas-giant": 0.30, "world": 0.13, "planet": 0.15, "bh": 1.0,
 }
 
 # Colours are sRGB hex ints: U.lin() them for a uniform or a light.
@@ -60,12 +60,22 @@ static func base_radius(b: Body, spec: Dictionary, mass: float) -> float:
 	# clickable and a brown dwarf still has to fit beside the star it orbits.
 	return base * clampf(r / ref, 0.18, 9.0)
 
-# Rendered radius in scene units: black holes use their mass-derived Schwarzschild
-# scale; everything else is the real radius at true scale, or the readable stand-in.
+# Rendered radius in scene units: the real radius (a black hole's horizon) at true
+# scale, otherwise the readable stand-in.
 static func render_radius(b: Body, spec: Dictionary, mass: float, scene_scale: float, body_scale: float, true_scale: bool) -> float:
-	if spec.get("type") == "bh": return b.rs * scene_scale
+	if spec.get("type") == "bh": return hole_render_radius(b.rs, scene_scale, body_scale, true_scale)
 	if true_scale and b.radius > 0.0: return b.radius * scene_scale
 	return base_radius(b, spec, mass) * body_scale
+
+# Lensing, the disc, mesh wells and framing all size from this. A 10 M☉ horizon is
+# ~30 km, so the stand-in compresses r_s like stellar radii and never draws a hole
+# smaller than its true horizon. Contact stays at the physical r_s (contact_au).
+static func hole_render_radius(rs_au: float, scene_scale: float, body_scale: float, true_scale: bool) -> float:
+	var horizon := rs_au * scene_scale
+	if true_scale: return horizon
+	var ref := Physics.schwarzschild(float(TYPE_DEFAULTS.bh.mass))
+	var stand_in: float = BOOST_RADIUS.bh * clampf(pow(rs_au / ref, 0.45), 0.18, 9.0) * body_scale
+	return maxf(horizon, stand_in)
 
 # Contact is physical even when the displayed body is magnified. A stated
 # contactAU can represent a prescribed destruction distance such as a Roche limit.
