@@ -90,6 +90,9 @@ var warp_list := WARPS
 var local_camera: Camera3D
 ## A console handle on local space, in the same spirit as window.SIM.
 var local_view: LocalView
+## Optional (fly_cam, craft_pos, site_local, dt): repositions fly_cam after its own
+## update. The title reel frames its launch shot through it.
+var camera_override := Callable()
 
 var _q := DQuat.new()
 var _a := DVec3.new()
@@ -328,8 +331,15 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 func build_plumes(_veh: Dictionary) -> void:
 	for p in plumes:
 		if is_instance_valid(p.mesh) and p.mesh.get_parent() != null: p.mesh.get_parent().remove_child(p.mesh)
-	plumes = []
-	plume_reach = 0.0
+	var built := attach_plumes(craft)
+	plumes = built.plumes
+	plume_reach = built.reach
+
+## Hang each engine's plume on a built craft. Returns {plumes, reach}: reach is how
+## far the first stage's jet carries, m.
+static func attach_plumes(craft: CraftModel.Craft) -> Dictionary:
+	var plumes: Array = []
+	var plume_reach := 0.0
 	for st in craft.stages:
 		var spec: Dictionary = st.spec
 		var eng = spec.get("engine")
@@ -386,10 +396,11 @@ func build_plumes(_veh: Dictionary) -> void:
 			plumes.append(far)
 			lead = far
 		if lead != null: Plume.add_flame_light(lead, lead.exit_d)
+	return {"plumes": plumes, "reach": plume_reach}
 
 ## A pivot's exit plane and width, measured off the mesh, and which engine it is
 ## (Starship mixes sea-level and vacuum Raptors, told apart by bell size).
-func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
+static func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
 	var eng: Dictionary = spec.engine
 	var inv := pv.global_transform.affine_inverse()
 	var lo := INF
@@ -440,6 +451,8 @@ func teardown() -> void:
 		state.speed = saved_speed
 		saved_speed = null
 	active = false
+	camera_override = Callable()
+	fly_cam.state.fov = 55.0
 	boost = Vector3.ZERO
 	sky_gain = 1.0
 	SkyModel.apply_day_gain(pipe.sky_materials, 1.0)
@@ -1100,11 +1113,12 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
 		"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
 		"dt": dt, "sunLocal": sun_l})
+	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
 	local.cam_pos.copy_from(fly_cam.pos)
 	# Keep far/near ≤ ~1e7 (docs/godot.md): near is floored at far·1e-7 = 0.4 m.
 	local.camera.far = 4.0e6
 	local.camera.near = maxf(fly_cam.near, local.camera.far * 1.0e-7)
-	local.camera.fov = 55.0
+	local.camera.fov = float(fly_cam.state.fov)
 	local.apply_origin(fly_cam.basis)
 	# Back to front for this frame's camera, now that it is placed.
 	smoke.draw(local.camera, site.steam if site != null else null)
@@ -1117,9 +1131,10 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# rotate the local offset out of the local frame back into world axes
 		var world_off := east.scaled(cl.x).add_scaled_in(up, cl.y).add_scaled_in(north, cl.z)
 		var k := ss / Rocketry.AU_M
-		main.cam_pos = parent_scene.clone().add_scaled_in(vessel.r, k).add_scaled_in(world_off, k)
+		# In place: the orbit camera holds this same DVec3 as its position.
+		main.cam_pos.copy_from(parent_scene).add_scaled_in(vessel.r, k).add_scaled_in(world_off, k)
 		main.cam_basis = (frame_basis * fly_cam.basis).orthonormalized()
-		main.cam_fov = 55.0
+		main.cam_fov = float(fly_cam.state.fov)
 		# Near stated explicitly: main.gd ties far to it, and a close-up's 1e-6 would cull
 		# every planet past 10 scene units.
 		main.cam_near = 0.01

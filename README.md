@@ -24,8 +24,10 @@ double-precision build).
 2. Open `project.godot` in the Godot editor and press **Play** (F5).
    The first open imports everything, which takes a minute.
 
-The app opens on a star-field start screen. Choose **Sandbox**, **Learn astronomy**,
-or **Spaceflight** to load that mode. Press **Esc** during play for Settings;
+The app opens on a title screen over a reel of live scenes rendered by the game
+itself: the Hail Mary passing a lensed black hole, a Saturn V clearing its tower,
+and Jupiter seen past Io at true scale ([sim/titlereel.gd](sim/titlereel.gd)).
+Choose **Sandbox**, **Spaceflight** or **Learn** to load that mode, or **Settings**. Press **Esc** during play for Settings;
 its **Controls** tab lists the bindings and has **Quit to start** and **Quit app**.
 Select a key in that tab to remap it. Keyboard bindings are saved between runs;
 **Reset all bindings** restores the defaults.
@@ -80,6 +82,7 @@ and its `SIM` console handle:
 |---|---|
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
 | `mode=sandbox\|learn\|flight` | skip the start screen and load that mode |
+| `title=hole\|launch\|jupiter` | hold the title on one reel shot (for screenshots); `title=0` shows it over the bare sky |
 | `craft=saturnv\|falcon9\|shuttle\|starship` | select a launcher when starting flight mode |
 | `padaz=180 padel=-0.2` | rotate and lower the flight pad camera for a screenshot |
 | `padmodels=0` | check the procedural launchpad fallback |

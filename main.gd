@@ -60,6 +60,7 @@ var last_pos := Vector2.ZERO
 var _world_placed: Array = []     # other nodes held at an absolute scene position [node, DVec3]
 var _cmd := {}
 var at_start := true
+var title_reel: TitleReel
 const HUD_MIN_SIZE := Vector2(900, 600)
 
 static func fitted_window_scale(native_scale: float, usable_size: Vector2i) -> float:
@@ -160,7 +161,8 @@ func _ready() -> void:
 	flight = Spaceflight.create_spaceflight({
 		"pipe": pipe, "state": state, "main": self,
 		"panel": hud.mount("flightHud"),
-		"toast": func(m): toast(m),
+		# The title reel flies vehicles too, silently.
+		"toast": func(m): if not at_start: toast(m),
 	})
 	model_view = ModelViewer.create_model_viewer(pipe)
 	_build_stage()
@@ -195,11 +197,19 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(resize)
 	resize()
 	# `preset=key` on the command line picks the scenario.
-	if _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
+	title_reel = TitleReel.new(self)
+	# `title=<shot>` holds the title on one shot (for screenshots), `title=0` keeps it still.
+	if _cmd.has("title"):
+		if _cmd.title != "0": title_reel.begin(String(_cmd.title))
+	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
 		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") == "flight" else "sandbox")
 		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")))
+	else:
+		# Deferred: a harness that instantiates the stage and starts a mode at once
+		# never builds the reel's scenes.
+		(func(): if at_start and not title_reel.running: title_reel.begin()).call_deferred()
 	var save_errors := []
 	for error in [controls.last_error, lessons.last_error, AppIcon.last_error]:
 		if error != "": save_errors.append(error)
@@ -879,7 +889,8 @@ func _input(e: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if key.pressed and not key.echo and (key.keycode == KEY_ESCAPE or controls.matches("settings", key)):
-		if not at_start:
+		# The title opens Settings from its menu; Esc only closes it there.
+		if not at_start or hud.settings_open:
 			hud.set_settings_open(not hud.settings_open)
 			keys.clear()
 		get_viewport().set_input_as_handled()
@@ -1011,7 +1022,10 @@ func aim_at_brightest_sun() -> void:
 # PRESET LOADING
 func load_preset(key: String) -> bool:
 	if not Presets.PRESETS.has(key): return false
-	var p: Dictionary = Presets.PRESETS[key]
+	return load_preset_spec(key, Presets.PRESETS[key])
+
+## A scenario that is not in the list (the title reel's), under its own key.
+func load_preset_spec(key: String, p: Dictionary) -> bool:
 	var sky_error := SkyModel.request_error(p.get("sky", {}))
 	if not sky_error.is_empty():
 		_reject_body_input("Preset %s: %s" % [key, sky_error])
@@ -1314,6 +1328,9 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 	hud.layout_left_column()
 
 func _start(m: String) -> void:
+	if at_start and title_reel.running:
+		title_reel.stop()
+		reset_stage()
 	if at_start and state.preset == null:
 		load_preset("solar" if m == "flight" else "sandbox")
 	at_start = false
@@ -1324,6 +1341,14 @@ func _start(m: String) -> void:
 
 func quit_to_start() -> void:
 	hud.set_settings_open(false)
+	reset_stage()
+	at_start = true
+	hud.set_hud_hidden(true)
+	hud.show_start()
+	title_reel.begin()
+
+## Back to an empty universe with the default camera and sky.
+func reset_stage() -> void:
 	if flight.active: end_flight()
 	close_model_viewer()
 	if lessons: lessons.close()
@@ -1339,15 +1364,13 @@ func quit_to_start() -> void:
 	state.show_mesh = false
 	spacetime_mesh.node.visible = false
 	set_cam_mode("orbit")
+	cam_fov = 50.0
 	cam.target.set_v(0, 0, 0)
 	cam.offset.set_v(0, 0, 0)
 	jump_cam_radius(24.0)
 	update_orbit_cam()
 	set_sky(SimState.new().sky)
 	pipe.set_mode(RenderPipeline.Mode.ORRERY)
-	at_start = true
-	hud.set_hud_hidden(true)
-	hud.show_start()
 
 # IMAGING BAND
 func set_band(i: int) -> void:
@@ -2166,8 +2189,10 @@ func _shot_tick() -> void:
 
 func animate(dt: float) -> void:
 	if at_start:
-		pipe.prepare_frame(null, state.time)
-		return
+		# Between shots (or with no reel) the title is the bare sky.
+		if not title_reel.update(dt):
+			pipe.prepare_frame(null, state.time)
+			return
 	var sim_dt := 0.0 if state.paused else dt * state.speed * state.time_scale
 	state.time += dt
 
@@ -2196,7 +2221,10 @@ func animate(dt: float) -> void:
 
 	# camera follow / movement — BEFORE anything is placed (floating origin)
 	var home := get_home()
-	if state.cam_mode == "flight":
+	var reel_cam := at_start and title_reel.drives_camera()
+	if reel_cam:
+		title_reel.place_camera(dt)
+	elif state.cam_mode == "flight":
 		pass    # the flight pass has already placed it (flight.update)
 	elif state.cam_mode == "surface" and home:
 		_observe(home)
@@ -2209,7 +2237,7 @@ func animate(dt: float) -> void:
 		cam.ease_radius(dt)
 		update_orbit_cam()
 
-	if state.cam_mode != "surface" and state.cam_mode != "flight":
+	if state.cam_mode != "surface" and state.cam_mode != "flight" and not reel_cam:
 		cam_near = cam.near_plane(state.bodies, state.cam_mode == "free", cam_near)
 	_apply_camera()
 
@@ -2309,7 +2337,8 @@ func animate(dt: float) -> void:
 		if home and home.viz: home.viz.group.visible = true
 		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active)
 
-	pipe.set_mode(RenderPipeline.Mode.FLIGHT if (state.cam_mode == "flight" and flight.active) else RenderPipeline.Mode.ORRERY)
+	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay)
+	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
 	pipe.prepare_frame(lens_params, state.time)
 	update_hud(dt)
 
