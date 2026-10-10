@@ -278,7 +278,7 @@ func _set_ambient(bounce: float) -> void:
 	var env := pipe.env_local
 	# High uses the sky's directional diffuse irradiance. The old constant
 	# colour left backlit vehicles almost black in bright daylight.
-	if render_quality == "high" and _has_air:
+	if render_quality in ["high", "ultra"] and _has_air:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 		env.ambient_light_energy = 0.7
 		for l: DirectionalLight3D in hemi: l.light_energy = 0.0
@@ -311,9 +311,10 @@ func set_render_quality(q: String) -> void:
 			m.set_shader_parameter("uCloudDetail", cloud_detail)
 	# High: fine march, erosion, long light march. Medium: coarser. Low: no clouds.
 	# _cloud_lod() cuts these with altitude.
-	_cloud_steps = 64 if q == "high" else 28
-	_cloud_light = 6 if q == "high" else 3
-	_cloud_detail = 1.0 if q == "high" else 0.0
+	# Ultra: a finer march and a longer light march again.
+	_cloud_steps = {"high": 64, "ultra": 104}.get(q, 28)
+	_cloud_light = {"high": 6, "ultra": 9}.get(q, 3)
+	_cloud_detail = 1.0 if q in ["high", "ultra"] else 0.0
 	_cloud_lod(0.0)
 
 static func _noise3d(size: int, seed: int, type: int, freq: float, octaves: int, invert: bool) -> NoiseTexture3D:
@@ -379,10 +380,10 @@ func update(o: Dictionary) -> Dictionary:
 	var has_air := 1.0 if atm != null else 0.0
 	_has_air = atm != null
 	pipe.env_local.reflected_light_source = Environment.REFLECTION_SOURCE_SKY \
-		if render_quality == "high" and atm != null else Environment.REFLECTION_SOURCE_DISABLED
+		if render_quality in ["high", "ultra"] and atm != null else Environment.REFLECTION_SOURCE_DISABLED
 	# Near-field aerial perspective gives the tower and vehicle a shared air
 	# volume. The long-range ground shader still handles the horizon.
-	pipe.env_local.volumetric_fog_enabled = render_quality == "high" and atm != null \
+	pipe.env_local.volumetric_fog_enabled = render_quality in ["high", "ultra"] and atm != null \
 		and float(o.altitude) < 3000.0
 	pipe.env_local.volumetric_fog_density = 0.00018
 	pipe.env_local.volumetric_fog_length = 1100.0

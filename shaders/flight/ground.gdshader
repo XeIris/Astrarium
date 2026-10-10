@@ -69,6 +69,36 @@ float noise(vec2 p) {
 }
 float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.13; a *= 0.5; } return v; }
 
+// LAND COVER round a coastal pad (Kennedy's is typical): mown lawn inside the
+// perimeter, saw-palmetto scrub beyond, sandy tracks and dry patches, and wet
+// hollows with standing water. Linear albedos of the right order (lawn ~0.13,
+// scrub ~0.07, sand ~0.38). Returns the colour; `relief` is a height for shading.
+vec3 land_cover(vec2 gp, float fp, float from_pad, out float relief, out float wet) {
+	// Domain-warped so boundaries meander like vegetation, not like noise.
+	vec2 w = gp + 60.0 * vec2(fbm(gp * 0.004 + 3.1), fbm(gp * 0.004 + 8.4)) - 30.0;
+	float scrub = smoothstep(0.46, 0.58, fbm(w * 0.0021 + vec2(4.0, 1.0)));
+	// The mown perimeter: everything near the pad is lawn.
+	scrub *= smoothstep(380.0, 900.0, from_pad + (fbm(w * 0.01) - 0.5) * 220.0);
+	float sand = smoothstep(0.6, 0.72, fbm(w * 0.006 + vec2(11.0, 5.0)));
+	float dry = smoothstep(0.45, 0.7, fbm(w * 0.013 + vec2(2.0, 9.0)));
+	wet = smoothstep(0.62, 0.72, fbm(w * 0.0016 + vec2(7.0, 13.0))) * (1.0 - sand);
+	vec3 lawn = mix(vec3(0.115, 0.15, 0.055), vec3(0.2, 0.19, 0.095), dry * 0.7);
+	vec3 brush = vec3(0.05, 0.075, 0.034);
+	vec3 col = mix(lawn, brush, scrub);
+	col = mix(col, vec3(0.4, 0.35, 0.25), sand * 0.85);
+	col = mix(col, mix(vec3(0.05, 0.065, 0.045), vec3(0.025, 0.04, 0.05), smoothstep(0.75, 0.85, wet)), wet * 0.8);
+	// Metres: tussocks and mower stripes on the lawn, crowns in the scrub, faded on
+	// the pixel footprint.
+	float k1 = 1.0 - smoothstep(1.5, 6.0, fp);
+	float k2 = 1.0 - smoothstep(12.0, 50.0, fp);
+	float tuft = fbm(gp * 0.7) - 0.5;
+	float crown = fbm(gp * 0.12 + 40.0) - 0.5;
+	float stripe = (step(0.5, fract(dot(gp, vec2(0.6, 0.8)) / 9.0)) - 0.5) * (1.0 - scrub) * (1.0 - sand);
+	col *= 1.0 + tuft * 0.35 * k1 + crown * mix(0.25, 0.7, scrub) * k2 + stripe * 0.06 * k2;
+	relief = fbm(gp * 0.008) * 3.0 + crown * 1.4 * scrub;
+	return col;
+}
+
 // A 4x4 ordered dither, built by the recursion that defines a Bayer matrix —
 // M(2n) = 4·M(n) tiled plus M(2) — rather than by looking one up.
 float b2(vec2 p) { p = mod(p, 2.0); return mod(2.0 * p.y + 3.0 * p.x, 4.0); }
@@ -98,6 +128,7 @@ void fragment() {
 		col = mix(col, uSea, dep * 0.92);
 		water_frac = dep;
 	}
+	float relief = 0.0;
 	if (uGeoReady > 0.5) {
 		// The ground patch is a tangent sheet. Convert each point back to a
 		// direction on the real sphere, then into the NASA map's lat/lon frame.
@@ -133,12 +164,16 @@ void fragment() {
 		vec3 landCol = mapped * lum;
 		landCol = mix(landCol, landCol * vec3(1.18, 1.06, 0.80) + vec3(0.015, 0.012, 0.0), dry * 0.55);
 		landCol = mix(landCol, landCol * vec3(0.72, 0.84, 0.66), wood * 0.6);
-		// Within a few kilometres of the pad the metre-scale fields above take
-		// over: stone, scrub and sand at a scale the map knows nothing about.
-		float parcel = 1.0 - smoothstep(1300.0, 4200.0, distance(vWorld.xz, uPadLocal));
-		float sand = smoothstep(0.48, 0.69, fbm(gp * 0.0018 + vec2(17.0, 31.0)));
-		landCol = mix(landCol, col, parcel * 0.62);
-		landCol = mix(landCol, uRock * 1.28, sand * parcel * 0.28);
+		// Within a few kilometres of the pad, land cover at a scale the map knows
+		// nothing about takes over (land_cover).
+		float from_pad = distance(vWorld.xz, uPadLocal);
+		float parcel = (1.0 - smoothstep(1800.0, 5200.0, from_pad)) * uHasPad;
+		if (parcel > 0.0) {
+			float wetc;
+			vec3 cover = land_cover(gp, fp, from_pad, relief, wetc);
+			landCol = mix(landCol, cover, parcel * 0.92);
+			relief *= parcel;
+		}
 		// WATER: the map's own shallows (the Bahamas banks are in it), with a
 		// little large-scale variation so open ocean is not one flat colour.
 		vec3 water = max(mapped * 0.8, uSea * 0.8) * (0.92 + 0.16 * d1);
@@ -167,7 +202,18 @@ void fragment() {
 		// direct beam, or what diffuses through (two-stream, as the cloud pass)
 		shade = max(exp(-od), 1.0 / (1.0 + 0.11 * od));
 	}
-	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade + uSkyI * (0.35 + 0.65 * clamp(uSunDir.y + 0.25, 0.0, 1.0)));
+	// Relief: the land cover's height tilts the normal a little, so low sun picks out
+	// the scrub's crowns and the ground's swells.
+	// (Derivatives taken in uniform control flow.)
+	vec2 rg = vec2(dFdx(relief), dFdy(relief));
+	vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+	float lit_k = 1.0;
+	if (relief != 0.0) {
+		vec3 n = normalize(cross(dpy + vec3(0.0, rg.y, 0.0), dpx + vec3(0.0, rg.x, 0.0)));
+		n *= sign(n.y);
+		lit_k = clamp(dot(n, uSunDir) / max(uSunDir.y, 0.15), 0.4, 1.6);
+	}
+	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade * lit_k + uSkyI * (0.35 + 0.65 * clamp(uSunDir.y + 0.25, 0.0, 1.0)));
 
 	// SUN GLINT: a GGX lobe with Cox & Munk's σ² ≈ 0.04 (~7 m/s wind).
 	vec3 to_eye = uCamLocal - vLocal;

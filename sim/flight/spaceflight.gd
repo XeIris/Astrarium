@@ -31,6 +31,7 @@ var rcs_puffs: Plume.RCSPuffs
 
 var vessel: Vessel = null
 var autopilot = null              # Guidance.Autopilot
+var cryo: Cryo = null             # frost and boil-off on the vehicle's cold tanks
 var craft = null                  # CraftModel.Craft
 var plumes: Array = []            # Plume.PlumeFx
 var entry = null                  # Plume.EntryGlow
@@ -306,6 +307,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	fly_cam.state.padPos = DVec3.from_v3(pad_offset)
 	pad_aimed = false
 	build_plumes(veh)
+	cryo = Cryo.build(craft)
 	entry = Plume.create_entry_glow(maxf(vessel.diameter * 0.75, 2.0))
 	craft.group.add_child(entry.mesh)
 
@@ -388,6 +390,7 @@ static func attach_plumes(craft: CraftModel.Craft) -> Dictionary:
 				ey += ep.y
 			centre.y = ey / float(exits.size())
 			var far := Plume.create_plume(eng.get("plume"), rad * 2.0, 12.0, eng, "far", float(hash(str(spec.key)) % 53))
+			far.thrust *= pivots.size()
 			far.mesh.position = centre
 			st.group.add_child(far.mesh)
 			if st == craft.stages[0] or plume_reach == 0.0: plume_reach = maxf(plume_reach, far.reach)
@@ -429,6 +432,60 @@ func release() -> void:
 	target = null
 	state = null
 
+## Near-ground wind for the smoke, m/s in the local frame: a light easterly drift
+## (+x is east) and a little from the south.
+const PAD_WIND := Vector3(5.0, 0.0, 1.5)
+
+var _smoke_basis := Basis()
+var _smoke_origin := DVec3.new()
+var _smoke_framed := false
+
+## The local frame moves with the vehicle and the planet turns under it; the smoke
+## belongs to the air, so re-express it: x' = B'ᵀ(B x + O + ω×O·t − O').
+func _reframe_smoke(new_basis: Basis, up: DVec3, radius: float, spin: float) -> void:
+	var origin := up.scaled(radius)
+	if _smoke_framed:
+		# ω = −Ŷ·rate; the small angle carries the old origin round with the ground.
+		var turned := _smoke_origin.clone().add_in(DVec3.new(0.0, -1.0, 0.0).cross(_smoke_origin).scale_in(spin))
+		var d := turned.sub_in(origin)
+		var e := new_basis.x; var u := new_basis.y; var n := new_basis.z
+		var t := Vector3(d.dot(DVec3.from_v3(e)), d.dot(DVec3.from_v3(u)), d.dot(DVec3.from_v3(n)))
+		smoke.reframe(new_basis.transposed() * _smoke_basis, t)
+	_smoke_basis = new_basis
+	_smoke_origin.copy_from(origin)
+	_smoke_framed = true
+
+## Lay exhaust trail where the first lit stage's flame turns to smoke, spaced by its
+## width, so the column the vehicle leaves is continuous.
+func _lay_trail(craft_basis: Basis) -> void:
+	var lead: Plume.PlumeFx = null
+	for pl in plumes:
+		if pl.mesh.visible and pl.trail_k > 0.0 and (lead == null or pl.last_len > lead.last_len): lead = pl
+	if lead == null: return
+	var dir := craft_basis * Vector3(0, -1, 0)
+	var p := craft_pos.to_v3() + dir * (lead.last_len * 0.88)
+	var w := lead.trail_r * 2.0
+	var grey := Plume.smoke_grey(lead.propellant)
+	var tint := U.lin(0xffffff) * grey
+	if smoke.trail_last == Vector3.INF:
+		smoke.trail_last = p
+	var gap := p - smoke.trail_last
+	var spacing := maxf(w * 0.42, 2.0)
+	var n := mini(int(gap.length() / spacing), 6)
+	for k in n:
+		var q := smoke.trail_last + gap * (float(k + 1) / float(n))
+		smoke.emit_trail(q, dir * 15.0 + PAD_WIND, w, clampf(lead.trail_k * 0.6, 0.0, 0.7), Color(tint.r, tint.g, tint.b))
+	if n > 0: smoke.trail_last = p
+
+## The rendering preset's share of the flight scene: clouds and sky (LocalView),
+## plume march density and the smoke's form.
+func set_render_quality(q: String) -> void:
+	local.set_render_quality(q)
+	Plume.detail = {"low": 0.6, "medium": 0.8, "high": 1.0, "ultra": 1.8}.get(q, 1.0)
+	Plume.smoke_steps = [9, 1] if q == "ultra" else [5, 0]
+	Plume.smoke_rate = 40.0 if q == "ultra" else 26.0
+	Plume.set_smoke_volume(smoke, q == "high" or q == "ultra", local.cloud_shape)
+
 func teardown() -> void:
 	if craft != null:
 		if is_instance_valid(craft.group):
@@ -443,8 +500,9 @@ func teardown() -> void:
 	map_site = null
 	pad_fire = null
 	ground_pos.y = 0.0
-	plumes = []; entry = null
+	plumes = []; entry = null; cryo = null
 	smoke.clear()
+	_smoke_framed = false
 	vessel = null; autopilot = null; cruise = null; plan = null; count = null
 	cruise_ctx = null; pending_cruise = null; star_target = null
 	if saved_speed != null:
@@ -991,7 +1049,9 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 
 	# Attitude in the local frame (+Y = local up).
 	var east := DQuat.nrm(DVec3.new().cross_vectors(up, north))
-	frame_basis = Basis(east.to_v3(), up.to_v3(), north.to_v3())
+	var new_basis := Basis(east.to_v3(), up.to_v3(), north.to_v3())
+	_reframe_smoke(new_basis, up, float(env.radius), float(env.rotRate) * sim_seconds)
+	frame_basis = new_basis
 	var craft_basis := frame_basis.transposed() * Basis(vessel.q.to_quaternion())
 	craft_pos.set_v(0.0, alt, 0.0)
 	craft.group.position = Vector3.ZERO
@@ -1066,7 +1126,19 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var sl: Vector3 = fr.get("sun_local", Vector3.UP)
 	Plume.daylight = clampf(sl.y * 2.0 + 0.25, 0.0, 1.0) * local.sun_through * clampf(star_flux, 0.05, 4.0) + 0.04
 	Plume.sprite_material(false, 2, Plume.ORDER_SMOKE).set_shader_parameter("uLight", clampf(Plume.daylight, 0.08, 1.4))
+	if Plume.smoke_volume:
+		Plume.sun_local = sl
+		var sc := local.sun.light_color
+		var day := Plume.daylight
+		var vm := Plume.smoke_volume_material(null)
+		vm.set_shader_parameter("uSunDir", sl)
+		vm.set_shader_parameter("uSun", Vector3(sc.r, sc.g, sc.b) * day * 1.15)
+		# Skylight from above and the ground's bounce from below, under the same light.
+		vm.set_shader_parameter("uSky", Vector3(0.30, 0.38, 0.52) * day * 0.75)
+		vm.set_shader_parameter("uGround", Vector3(0.17, 0.15, 0.12) * day * 0.6)
+		vm.set_shader_parameter("uTime", vessel.met)
 	# plumes — each engine's own, at the ambient pressure it is actually in
+	Plume.freestream_q = float(vessel.telemetry.get("q", 0.0)) if env.atm != null else 0.0
 	var pa: float = Rocketry.pressure(env.atm, maxf(alt, 0.0)) if env.atm != null else 0.0
 	var p0: float = float(env.atm.p0) if env.atm != null else 101325.0
 	for pl in plumes:
@@ -1090,16 +1162,31 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	if pad_fire != null:
 		var lit: float = vessel.throttle if float(vessel.telemetry.get("thrust", 0.0)) > 0.0 else 0.0
 		pad_fire.update(lit if site.group.visible else 0.0, alt + site.deck_height, plume_reach, vessel.met)
+		# The same fire lights the smoke from below while the jet still reaches the deck.
+		Plume.fire_level = lit * clampf(1.0 - (alt + site.deck_height) / maxf(plume_reach * 1.5, 1.0), 0.0, 1.0)
+		smoke.fire_pos = Vector3(site_local.x, 0.0, site_local.z)
+	else:
+		Plume.fire_level = 0.0
 
-	# launch smoke: only where there is an atmosphere and a surface to hit
-	if env.atm != null and alt < 900.0 and vessel.throttle > 0.0 and float(vessel.telemetry.get("thrust", 0.0)) > 0.0:
+	# launch smoke: the pad cloud while the jet still reaches the deck, then the trail
+	var thrusting := vessel.throttle > 0.0 and float(vessel.telemetry.get("thrust", 0.0)) > 0.0
+	smoke.wind = PAD_WIND
+	if env.atm != null and thrusting and site != null and site.group.visible and alt < 900.0:
 		# Soot from the propellant: alumina (solid), carbon (RP-1), steam (hydrogen).
 		var soot := 0.7
 		var s0 = vessel.stages[0].spec if not vessel.stages.is_empty() else null
 		if s0 != null and s0.get("engine") != null and Plume.PROPELLANT.has(s0.engine.get("plume", "")):
 			soot = Plume.PROPELLANT[s0.engine.plume].soot
-		smoke.emit(Vector3(0.0, maxf(alt - vessel.length * 0.5, 0.0), 0.0),
-			vessel.throttle, maxf(vessel.diameter * 2.2, 12.0), dt, soot)
+		var spread := maxf(vessel.diameter * 2.2, 12.0)
+		var reach_k := clampf(1.0 - (alt + site.deck_height) / maxf(plume_reach * 1.5, 1.0), 0.0, 1.0)
+		# A trench throws it out of both ends; an open deflector every way.
+		var axis: Vector3 = Vector3.ZERO if site.style == "chopsticks" else (site.group.basis * Vector3(1, 0, 0)).normalized()
+		smoke.emit(Vector3(site_local.x, -site.deck_height * 0.6, site_local.z), vessel.throttle * reach_k, spread, dt, soot, axis)
+	if env.atm != null and thrusting and alt > 20.0:
+		_lay_trail(craft_basis)
+	if cryo != null:
+		var fuelled := vessel.phase == Vessel.PHASE.PRELAUNCH and env.atm != null
+		cryo.update(dt, fuelled, vessel.met, smoke)
 	smoke.update(dt)
 	rcs_puffs.update(dt)
 

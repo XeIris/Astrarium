@@ -501,10 +501,10 @@ func _build_settings() -> void:
 
 	# RENDER
 	var ren := _page(p, "render")
-	_note(ren, "Choose a preset for frame rate and image quality. High adds photo-style craft and launchpad materials. Advanced controls expose resolution and post-processing settings.")
+	_note(ren, "Choose a preset for frame rate and image quality. High adds photo-style craft and launchpad materials and volumetric launch smoke. Ultra renders at the display's full pixel density, with finer clouds, plumes and smoke and soft sun shadows. Advanced controls expose resolution and post-processing settings.")
 	_h3(ren, "Rendering quality")
-	var quality_choices := grid(ren, [1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
-	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"]]:
+	var quality_choices := grid(ren, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
+	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]]:
 		B(quality_choices, "Toggle", q[1], "[data-render-quality=%s]" % q[0]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
 	var advanced_btn := B(ren, "Toggle", "☐ Advanced rendering controls", "renderAdvancedToggle")
 	advanced_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN

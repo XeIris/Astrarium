@@ -191,6 +191,13 @@ class GiantViz extends RefCounted:
 			var c0 := U.lin(int(pal.spot) if i == 0 else int(pal.zone))
 			var col := c0.lerp(U.lin(int(pal.deep)), rnd.next() * 0.4)
 			vortices.append({"lat": lat, "lon": lon, "size": size, "strength": strength, "color": col})
+		# A measured map already holds the real vortices, the Great Red Spot among them.
+		PlanetMaps.load_planet_map(b.name, func(e: Dictionary) -> void:
+			if int(e.kind) != 3: return
+			mat.set_shader_parameter("uMap", e.color)
+			mat.set_shader_parameter("uMapOn", 1.0)
+			vortices.clear()
+			mat.set_shader_parameter("uVortexN", 0))
 		mat.set_shader_parameter("uVortexN", vortices.size())
 		var vc: PackedVector3Array = mat.get_shader_parameter("uVortexCol")
 		for i in vortices.size():

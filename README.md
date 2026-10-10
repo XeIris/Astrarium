@@ -26,14 +26,15 @@ double-precision build).
 
 The app opens on a title screen over a reel of live scenes rendered by the game
 itself: the Hail Mary passing a lensed black hole, a Saturn V clearing its tower,
-and Jupiter seen past Io at true scale ([sim/titlereel.gd](sim/titlereel.gd)).
+and Jupiter seen past Io at true scale, both drawn from Cassini and Galileo
+maps ([sim/titlereel.gd](sim/titlereel.gd), [map sources](assets/planet-maps/README.md)).
 Choose **Sandbox**, **Spaceflight** or **Learn** to load that mode, or **Settings**. Press **Esc** during play for Settings;
 its **Controls** tab lists the bindings and has **Quit to start** and **Quit app**.
 Select a key in that tab to remap it. Keyboard bindings are saved between runs;
 **Reset all bindings** restores the defaults.
 The **Render** tab switches the spacetime mesh between a connected grid and
 deforming dots. The **Mesh** button in Controls still shows or hides it.
-It also offers Low, Medium and High rendering presets. Tick **Advanced rendering
+It also offers Low, Medium, High and Ultra rendering presets. Tick **Advanced rendering
 controls** to adjust resolution, black-hole lens detail, exposure and post-processing
 individually. **Lighting detail** affects the local flight scene and craft studio:
 Medium adds shadows and ambient occlusion; High also adds screen-space
@@ -41,7 +42,12 @@ indirect light and reflections in the craft studio. The flight view uses a
 transparent render pass, where Godot does not support screen-space reflections.
 These effects are not hardware ray tracing.
 High rendering quality adds seven photo-style material textures to spacecraft
-and launchpads, with subtle roughness and normal detail. The same set works on
+and launchpads, with subtle roughness and normal detail, a semi-gloss clearcoat
+on painted skins and faint run-off weathering, and draws launch smoke as
+raymarched volumes lit by the sun, sky and fire ([plumes](docs/physics/plumes.md)).
+Ultra adds the display's full pixel density, finer cloud, plume and smoke
+marches, soft (PCSS) sun shadows and full-quality ambient occlusion. It is a
+heavy tier: about 20 fps for the launch scene on an M5 at 2× pixel density. The same set works on
 authored Blender models and procedural vehicle fallbacks; see
 [the material guide](assets/materials/README.md). Lower presets keep the lighter
 flat-colour materials.
@@ -62,6 +68,14 @@ texture and a sun glint on the sea. The star field is dimmed by the camera's
 daylight exposure (stars vanish beside a sunlit vehicle and return in the
 planet's shadow or far from the Sun). Daylight exposure is calibrated in the
 flight view, and the Advanced exposure slider gives manual control.
+In air a kerosene flame burns out within about a vehicle length and leaves a
+grey smoke trail standing in the sky; the pad cloud is thrown out of both ends
+of the flame trench. Above the dense air a plume swells to the radius where its
+pressure meets the ambient plus the freestream's dynamic pressure, so a Saturn
+V's first stage trails a billowing fire tens of metres across by staging. On the
+pad, cryogenic tanks carry rime and vent cold vapour until liftoff, and the
+ground round a coastal pad is lawn, scrub, sand and marsh
+([plumes and smoke](docs/physics/plumes.md)).
 Engine exhaust is a raymarched volume per engine: shock diamonds and Mach
 disks from the real exit-to-ambient pressure ratio, afterburning, soot, and a
 look per propellant and engine (see `sim/flight/plume.gd`); large clusters

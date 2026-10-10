@@ -1430,6 +1430,8 @@ const RENDER_QUALITY := {
 	"low": {"render": 0.65, "lens": 0.30, "bloom": 0.25, "threshold": 1.25, "radius": 0.7, "vignette": 0.2, "grain": 0.0, "exposure": 1.0},
 	"medium": {"render": 1.0, "lens": 0.5, "bloom": 0.55, "threshold": 1.0, "radius": 1.0, "vignette": 0.35, "grain": 0.02, "exposure": 1.0},
 	"high": {"render": 1.5, "lens": 1.0, "bloom": 0.65, "threshold": 0.9, "radius": 1.15, "vignette": 0.3, "grain": 0.012, "exposure": 1.0},
+	# Render scale is capped by the display's own pixel ratio (set_render_scale).
+	"ultra": {"render": 2.0, "lens": 1.4, "bloom": 0.65, "threshold": 0.9, "radius": 1.2, "vignette": 0.3, "grain": 0.01, "exposure": 1.0},
 }
 var render_quality := "medium"
 var lighting_quality := "low"
@@ -1447,9 +1449,9 @@ func _sync_render_quality() -> void:
 func set_render_quality(q: String) -> void:
 	if not RENDER_QUALITY.has(q): return
 	render_quality = q
-	MaterialDetail.set_enabled(q == "high")
-	flight.local.set_render_quality(q)
-	var aa := Viewport.MSAA_DISABLED if q == "low" else (Viewport.MSAA_4X if q == "high" else Viewport.MSAA_2X)
+	MaterialDetail.set_enabled(q == "high" or q == "ultra")
+	flight.set_render_quality(q)
+	var aa: int = {"low": Viewport.MSAA_DISABLED, "medium": Viewport.MSAA_2X, "high": Viewport.MSAA_4X, "ultra": Viewport.MSAA_4X}[q]
 	pipe.local_vp.msaa_3d = aa
 	pipe.model_vp.msaa_3d = aa
 	var settings: Dictionary = RENDER_QUALITY[q]
@@ -1457,9 +1459,21 @@ func set_render_quality(q: String) -> void:
 	resize()
 	hud.set_slider("renderScale", settings.render, "%sx" % U.fixed(eff, 2))
 	pipe.lens.set_scale(settings.lens)
+	_apply_shadow_quality(q == "ultra")
 	hud.set_slider("lensScale", settings.lens, "%sx" % U.fixed(settings.lens, 2))
 	for row in FX_ROWS: _set_fx(row[0], settings[row[1]], true)
 	_sync_render_quality()
+
+## Ultra: soft (PCSS) shadows from the sun's real 0.53° disc, a larger shadow map,
+## and full-quality ambient occlusion and indirect light.
+func _apply_shadow_quality(ultra: bool) -> void:
+	RenderingServer.directional_shadow_atlas_set_size(8192 if ultra else 4096, true)
+	RenderingServer.directional_soft_shadow_filter_set_quality(
+		RenderingServer.SHADOW_QUALITY_SOFT_ULTRA if ultra else RenderingServer.SHADOW_QUALITY_SOFT_LOW)
+	RenderingServer.environment_set_ssao_quality(
+		RenderingServer.ENV_SSAO_QUALITY_ULTRA if ultra else RenderingServer.ENV_SSAO_QUALITY_MEDIUM, true, 0.5, 2, 50, 300)
+	RenderingServer.environment_set_ssil_quality(
+		RenderingServer.ENV_SSIL_QUALITY_ULTRA if ultra else RenderingServer.ENV_SSIL_QUALITY_MEDIUM, true, 0.5, 4, 50, 300)
 
 func _sync_lighting_quality() -> void:
 	for q in ["low", "medium", "high", "custom"]:

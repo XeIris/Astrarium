@@ -123,8 +123,8 @@ func _quiet_stage() -> void:
 
 const JOVIAN := [
 	# name, orbit km, M☉, radius km, look
-	# Io's volatile is SO₂, which frosts near its ~110 K surface: patches, not a sheet.
-	["Io", 421700.0, 4.49e-8, 1821.6, {"crater": 0.15, "regolith": 0xc9b25c, "albedo": 0.63, "frostK": 105.0}],
+	# Io draws its Galileo mosaic (PlanetMaps); the rest stand in procedurally.
+	["Io", 421700.0, 4.49e-8, 1821.6, {"crater": 0.0, "regolith": 0xc9b25c, "albedo": 0.63}],
 	["Europa", 671034.0, 2.41e-8, 1560.8, {"crater": 0.08, "regolith": 0xcfc6b4, "albedo": 0.67}],
 	["Ganymede", 1070412.0, 7.45e-8, 2634.1, {"crater": 0.6, "regolith": 0x8a8274, "albedo": 0.43}],
 	["Callisto", 1882709.0, 5.41e-8, 2410.3, {"crater": 1.0, "regolith": 0x5e564b, "albedo": 0.22}],
@@ -132,12 +132,17 @@ const JOVIAN := [
 ## Each moon's phase from the Sun's direction, rad (+ is the orbital sense).
 const JOVIAN_PHASE := {"Io": 0.75, "Europa": -2.6, "Ganymede": 2.2, "Callisto": -1.2}
 
+## The Jupiter shot's pace: five minutes a second.
+const JOVIAN_TIME := 300.0
+
 static func jovian_system() -> Array:
 	var a_j := 5.203
 	var m_j := 9.54e-4
 	var v_j := Physics.circular_speed(1.0, a_j)
 	var jupiter := {"type": "gas-giant", "name": "Jupiter", "mass": m_j, "radiusKm": 69911.0,
 		"palette": "jupiter", "obliquity": 0.0546, "internalHeat": 1.67, "albedo": 0.503,
+		# System III (9 h 55.5 m) at the shot's pace, so the turn on screen is real.
+		"visualSpinRadS": TAU / 35730.0 * JOVIAN_TIME,
 		"pos": [a_j, 0.0, 0.0], "vel": [0.0, 0.0, v_j]}
 	var out: Array = [
 		{"type": "star", "name": "Sun", "mass": 1.0, "color": 0xfff2cc, "glow": 0xffaa33,
@@ -159,8 +164,7 @@ func _stage_jupiter() -> void:
 		"sky": {"env": "disc", "tilt": 0.22, "roll": 2.6},
 		"name": "Jupiter", "sceneScale": 1.0, "bodyScale": 1.0, "trueScale": true,
 		"camRadius": 1.0, "lensing": false, "mesh": false,
-		# 25 minutes a second: Jupiter's ten-hour day visibly turns.
-		"timeScale": 1500.0 / Rocketry.YR_S, "maxStep": 2e-7,
+		"timeScale": JOVIAN_TIME / Rocketry.YR_S, "maxStep": 2e-7,
 		"build": func() -> Array: return jovian_system(),
 	})
 	_quiet_stage()
@@ -317,11 +321,20 @@ func _launch_camera(fly_cam: LocalView.FlightCamera, craft_pos: DVec3, site_loca
 	var flight: Spaceflight = main.flight
 	var H: float = flight.craft.height
 	var u := clampf(_t / LENGTH.launch, 0.0, 1.0)
-	# High over the deck on the sunlit side, turned so the tower stands behind the
-	# stack rather than across it, and rising with the climb.
-	var sun_w := flight.sun_direction(DVec3.new()).to_v3()
-	var sun_l := flight.frame_basis.transposed() * sun_w
-	var az := atan2(sun_l.z, sun_l.x) - 0.6
+	# High over the deck, rising with the climb, on the mount's +x side so the tower
+	# (on its −x side) stands behind the stack; of the angles round that side, the
+	# one most toward the sun, so the stack is front-lit.
+	var away: Vector3 = flight.site.group.basis * Vector3(1.0, 0.0, 0.0) if flight.site != null else Vector3.RIGHT
+	var sun_l := flight.frame_basis.transposed() * flight.sun_direction(DVec3.new()).to_v3()
+	var az0 := atan2(away.z, away.x)
+	var sun_az := atan2(sun_l.z, sun_l.x)
+	var az := az0
+	var best := -INF
+	for off in [-1.1, -0.55, 0.55, 1.1]:
+		var score := cos(az0 + off - sun_az) + 0.3 * cos(off)
+		if score > best:
+			best = score
+			az = az0 + off
 	var reach := H * lerpf(1.05, 0.95, u)
 	var height := H * lerpf(1.55, 1.75, u) + craft_pos.y * 0.6
 	var pos := site_local.clone().add_in(DVec3.new(cos(az) * reach, height, sin(az) * reach))

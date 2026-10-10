@@ -1529,6 +1529,9 @@ func update(s: Dictionary) -> void:
 		# a stable per-slot angle for the puff (steam.gdshader)
 		ages.append(Vector2(s_age[i], fmod(float(i) * 0.6180339, 1.0)))
 	(steam.material_override as ShaderMaterial).set_shader_parameter("uLight", clampf(Plume.daylight, 0.08, 1.4))
+	# With volume smoke the pad cloud carries the deluge's steam; these points would
+	# read as specks in front of it.
+	steam.visible = not Plume.smoke_volume
 	steam_mesh.clear_surfaces()
 	if not pts.is_empty():
 		var arr := []
