@@ -22,7 +22,7 @@ const GROUPS := [
 		["throttle_cut", "Cut throttle"], ["throttle_full", "Full throttle"],
 		["throttle_up", "Increase throttle"], ["throttle_down", "Decrease throttle"],
 		["stage", "Separate stage"], ["gear", "Toggle gear"],
-		["flight_camera", "Cycle flight camera"]]],
+		["flight_camera", "Cycle flight camera"], ["space_map", "Space map"]]],
 ]
 
 const DEFAULTS := {
@@ -56,6 +56,7 @@ const DEFAULTS := {
 	"stage": [KEY_SPACE, true, false, false],
 	"gear": [KEY_G, false, false, false],
 	"flight_camera": [KEY_C, false, false, false],
+	"space_map": [KEY_M, false, false, false],
 }
 
 const DEFAULT_FILE := "user://controls.json"

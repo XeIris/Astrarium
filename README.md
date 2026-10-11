@@ -28,7 +28,30 @@ The app opens on a title screen over a reel of live scenes rendered by the game
 itself: the Hail Mary passing a lensed black hole, a Saturn V clearing its tower,
 and Jupiter seen past Io at true scale, both drawn from Cassini and Galileo
 maps ([sim/titlereel.gd](sim/titlereel.gd), [map sources](assets/planet-maps/README.md)).
-Choose **Sandbox**, **Spaceflight** or **Learn** to load that mode, or **Settings**. Press **Esc** during play for Settings;
+Choose **Sandbox**, **Spaceflight** or **Learn** to load that mode, or **Settings**.
+
+**Spaceflight** opens on the hangar. The craft stands on the studio turntable,
+the line-up runs down the left, and a card gives the craft's numbers and the
+missions it can fly: free flight, Earth orbit, lunar orbit, a lunar landing,
+Mars or Venus orbit. Each is priced in Δv against what the craft carries, and a
+mission it cannot fly says why. **Start mission** puts the craft on the pad. The
+autopilot then flies every leg (launch, transfer, course corrections, capture,
+landing) and chooses the time warp, so the whole mission can be watched. Change
+the warp yourself and auto warp stops until you turn it back on.
+
+Flying shows a console along the bottom: the attitude ball between its
+throttle and climb tapes, altitude, speed, the orbit, Δv, the live stage's
+propellant, time warp, and the mission's legs as a route. **Systems** opens the
+full telemetry, stages, autopilot programs and flight log. **M** opens the
+space map, a flat view of the system from above the ecliptic. The 3D frame
+stops rendering behind it. Scroll to zoom and drag to pan. Click a world to
+follow it; right-click it to orbit or land there. The route card gives the
+transfer's type, Δv, propellant, the wait for the window and the time en route.
+**Fly mission** hands it to the autopilot. **Skip to arrival** charges the
+propellant and the time and puts the craft in the parking orbit, without flying
+the trajectory. See [missions](docs/physics/missions.md).
+
+Press **Esc** during play for Settings;
 its **Controls** tab lists the bindings and has **Quit to start** and **Quit app**.
 Select a key in that tab to remap it. Keyboard bindings are saved between runs;
 **Reset all bindings** restores the defaults.
@@ -227,6 +250,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
 | `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
+| `tools/missioncheck.tscn` | whole missions flown by the autopilot with no input: launch to Earth orbit, Earth orbit → lunar orbit, an LM landing, and a skip to the Moon (`long=1` adds Earth orbit → Mars orbit); rejects a mission that fails, stalls or ends in the wrong orbit |
 | `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
 | `tools/skycachecheck.tscn` | rendered sky: the point-source cull must match an exhaustive walk pixel for pixel; the diffuse cache must stay within its stated error of live evaluation across bands, aberration and lensing. `timing=1` prints native-size frame medians, `reference=/abs/sky.gdshaderinc` requires the live sky to match another revision (e.g. from `git show`), `dump=/abs/dir` saves live/cached images and the cache atlas |
 | `tools/skycost.tscn` | frame cost of each sky component (point tiers, dust, clusters, galaxies, nebulae, cache, constant sky) by editing the shader source; a renamed component fails. Options `preset=`, `band=`, `view=WxH`, `scale=`, `samples=` |

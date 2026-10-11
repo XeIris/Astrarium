@@ -662,6 +662,30 @@ func delta_v_remaining(pa: float = 0.0) -> float:
 		above += st.prop
 	return dv
 
+## Spend `dv` impulsively from the attached stages, lowest first, staging each as it
+## empties (a skipped flight's burns). Returns the Δv it could not pay for.
+func spend_dv(dv: float) -> float:
+	var rem := dv
+	var guard := 0
+	while rem > 0.01 and guard < 12:
+		guard += 1
+		var st = null
+		for s in stages:
+			if s.attached and s.spec.get("engine") != null and s.prop > 1e-6:
+				st = s; break
+		if st == null: break
+		var ve: float = Rocketry.G0 * float(st.spec.engine.ispVac)
+		var m0 := mass
+		var take := minf(m0 * (1.0 - exp(-rem / ve)), st.prop)
+		st.prop -= take
+		st.ignited = true
+		rem -= ve * log(m0 / (m0 - take))
+		if st.prop <= 1e-6:
+			st.prop = 0.0
+			st.spent = true
+			stage(true)
+	return maxf(rem, 0.0)
+
 # Structure
 ## Four ways to lose a vehicle, each against a real limit. A failure destroys the
 ## vessel and says which.

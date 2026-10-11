@@ -80,7 +80,7 @@ const ERA := {
 }
 
 # text styles
-const H3 := {"fs": 10.0, "ls": 2.0, "up": true, "c": T.TEXT_DIM, "fw": 500}
+const H3 := {"fs": 10.0, "ls": 2.6, "up": true, "c": T.TEXT_DIM, "fw": 500}
 const NOTE := {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.55}
 const ROW_LABEL := {"fs": 11.0, "c": T.TEXT_DIM}
 const ROW_VAL := {"fs": 11.0, "c": T.ACCENT}
@@ -126,6 +126,8 @@ var control_panel: HudPanel
 var model_panel: HudPanel
 var xsec_panel: HudPanel
 var flight_panel: HudPanel
+## The flight console's place along the bottom (ui/flight_console.gd lives in it).
+var flight_console_host: Control
 var tab_col: VBoxContainer
 var tab_right: HudButton
 var readout: VBoxContainer
@@ -1088,7 +1090,7 @@ func _build_flight_panel() -> void:
 	var p := _panel("flightPanel", [16, 16, 16, 16])
 	flight_panel = p
 	var head := hbox(p.body, 8.0)
-	head.add_child(_head_title("Flight"))
+	head.add_child(_head_title("Systems"))
 	var warp := hbox(head, 4.0)
 	warp.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var wd := B(warp, "Warp", "◂", "[data-warp=-1]", "Slow time (,)")
@@ -1109,6 +1111,10 @@ func _build_flight_panel() -> void:
 	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	x.pressed.connect(func(): set_panel_open("flightPanel", false))
 	reg("flightHud", stack(p.body))
+	flight_console_host = Control.new()
+	flight_console_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(flight_console_host)
+	reg("flightConsole", flight_console_host)
 
 # tabs
 func _tab(text: String, id: String) -> HudButton:
@@ -1126,7 +1132,7 @@ func _build_tabs() -> void:
 	tab_col.add_theme_constant_override("separation", 6)
 	tab_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(tab_col)
-	for t in [["scenarioPanel", "▸ Scenario"], ["coursePanel", "▸ Course"], ["flightPanel", "▸ Flight"]]:
+	for t in [["scenarioPanel", "▸ Scenario"], ["coursePanel", "▸ Course"], ["flightPanel", "▸ Systems"]]:
 		tab_col.add_child(_tab(t[1], t[0]))
 	tab_col.minimum_size_changed.connect(_queue_layout)
 	tab_right = _tab("Controls ◂", "controlPanel")
@@ -1274,8 +1280,11 @@ func _apply_body_classes() -> void:
 	var le := body.has("learn-mode")
 	var mo := body.has("model-open")
 	var hh := body.has("hud-hidden")
-	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout]:
+	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout, flight_console_host]:
 		_hide(r, "hud", hh)
+	_hide(flight_console_host, "cls", not fl or mo)
+	# The console takes the bottom of the frame in flight.
+	_hide(readout, "cls", fl)
 	# In flight mode the orrery's own instruments are gone, not folded: the
 	# scenario list, its tab and the cross-section.
 	_hide(scenario_panel, "cls", fl or le)
@@ -1769,6 +1778,9 @@ func _process(dt: float) -> void:
 			fb.modulate.a = 1.0 - 0.55 * ease
 	# Once a frame at most: a panel's height feeds back into its width (a
 	# scrollbar), and a re-placement inside the same message flush could cycle.
+	if not _layout_pending and flight_console_host.visible and flight_console_host.get_child_count() > 0:
+		var con: Control = flight_console_host.get_child(0)
+		if absf(float(con.call("height")) - flight_console_host.size.y) > 0.5: _layout_pending = true
 	if _layout_pending:
 		_layout_all()
 
@@ -1844,9 +1856,19 @@ func _layout_all() -> void:
 	settings_backdrop.size = Vector2(W, H)
 	_fit(readout, 20, 0)
 	readout.position.y = H - 18 - readout.size.y
+	if flight_console_host.visible and flight_console_host.get_child_count() > 0:
+		var con: Control = flight_console_host.get_child(0)
+		var cw := minf(1080.0, W - 40.0)
+		var ch: float = con.call("height")
+		flight_console_host.position = Vector2(roundf((W - cw) * 0.5), roundf(H - 14.0 - ch))
+		flight_console_host.size = Vector2(cw, ch)
+		con.size = Vector2(cw, ch)
 	# The column's own top and bottom edges are measured, not assumed.
 	var col_top := 18.0
 	var hud_bottom := roundf(readout.size.y) + 30.0 if _shown(readout) else 30.0
+	# The left column stops above the flight console.
+	if flight_console_host.visible and flight_console_host.size.y > 0.0:
+		hud_bottom = maxf(hud_bottom, H - flight_console_host.position.y + 12.0)
 
 	# Settings is a centred Esc overlay; the scenario column starts at the top.
 	var sw := minf(460.0, W - 48.0)

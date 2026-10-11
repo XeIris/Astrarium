@@ -51,6 +51,9 @@ var radius := 1.0
 ## spin / held directly.
 var cam := {"yaw": 0.9, "pitch": 0.20, "dist": 3.0, "spin": 0.10, "held": false, "explode": 0.0, "want_explode": 0.0}
 var deploy_all := 1.0
+## How far right of centre the subject sits, as a fraction of the frame's width (the
+## hangar's menu takes the left).
+var frame_offset := 0.0
 ## Dark studio, or a light cyclorama (better for a dark vehicle's silhouette).
 var light_backdrop := false
 var _ambient_base := 0.0
@@ -322,6 +325,9 @@ func update(dt: float) -> void:
 
 	camera.near = maxf(H * 0.002, 0.02)
 	camera.far = H * 200.0
+	var vp := camera.get_viewport()
+	var aspect := vp.get_visible_rect().size.aspect() if vp != null else 1.6
+	camera.h_offset = -frame_offset * 2.0 * d * tan(deg_to_rad(camera.fov) * 0.5) * aspect
 
 ## Every vehicle, in VEHICLE_ORDER, each {key, ...spec}.
 func list() -> Array:

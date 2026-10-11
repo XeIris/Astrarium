@@ -185,3 +185,55 @@ static func phase_angle(r: DVec3, r_target: DVec3) -> float:
 static func sphere_of_influence(a_m: float, mass_body: float, mass_primary: float) -> float:
 	if not (mass_primary > 0.0) or not (a_m > 0.0): return INF
 	return a_m * pow(mass_body / mass_primary, 0.4)
+
+## Time to the next periapsis on any conic, seconds; INF once a hyperbola is past it.
+static func time_to_periapsis_any(el: Dictionary, mu: float) -> float:
+	if el.e < 1.0: return time_to_periapsis(el, mu)
+	if not is_finite(el.a) or el.a >= 0.0: return INF
+	var n := sqrt(mu / pow(-el.a, 3.0))
+	var nu: float = el.nu
+	if nu > PI: nu -= 2.0 * PI
+	var F := 2.0 * atanh(DQuat.jclamp(sqrt((el.e - 1.0) / (el.e + 1.0)) * tan(nu * 0.5), -0.999999, 0.999999))
+	var M: float = el.e * sinh(F) - F
+	return -M / n if M < 0.0 else INF
+
+static var _l1 := DVec3.new()
+
+## Lambert's problem, one revolution: the velocities at r1 and r2 of the conic about
+## `mu` that joins them in `dt` seconds, turning the way `normal` points (r × v).
+## Universal variables (Bate, Mueller & White §5.3), solved by bisection on z, since
+## F(z) increases monotonically there. Returns false if no single-revolution conic fits.
+static func lambert(r1: DVec3, r2: DVec3, dt: float, mu: float, normal: DVec3, v1_out: DVec3, v2_out: DVec3) -> bool:
+	var R1 := r1.length()
+	var R2 := r2.length()
+	if R1 <= 0.0 or R2 <= 0.0 or dt <= 0.0: return false
+	var cos_th := DQuat.jclamp(r1.dot(r2) / (R1 * R2), -1.0, 1.0)
+	var th := acos(cos_th)
+	if _l1.cross_vectors(r1, r2).dot(normal) < 0.0: th = 2.0 * PI - th
+	if absf(1.0 - cos_th) < 1e-12: return false
+	var A := sin(th) * sqrt(R1 * R2 / (1.0 - cos_th))
+	if absf(A) < 1e-9: return false
+	var sq_mu := sqrt(mu)
+	var y_of := func(z: float) -> float:
+		return R1 + R2 + A * (z * stumpff_s(z) - 1.0) / sqrt(stumpff_c(z))
+	var f_of := func(z: float) -> float:
+		var y: float = y_of.call(z)
+		if y < 0.0: return -INF
+		var C := stumpff_c(z)
+		return pow(y / C, 1.5) * stumpff_s(z) + A * sqrt(y) - sq_mu * dt
+	var lo := -4.0 * PI * PI
+	while float(y_of.call(lo)) < 0.0 and lo < 4.0 * PI * PI: lo += 0.25
+	var hi := 4.0 * PI * PI - 1e-6
+	if float(f_of.call(lo)) > 0.0 or float(f_of.call(hi)) < 0.0: return false
+	for i in 90:
+		var mid := (lo + hi) * 0.5
+		if float(f_of.call(mid)) < 0.0: lo = mid
+		else: hi = mid
+	var z := (lo + hi) * 0.5
+	var y: float = y_of.call(z)
+	var f := 1.0 - y / R1
+	var g := A * sqrt(y / mu)
+	var gd := 1.0 - y / R2
+	v1_out.set_v((r2.x - f * r1.x) / g, (r2.y - f * r1.y) / g, (r2.z - f * r1.z) / g)
+	v2_out.set_v((gd * r2.x - r1.x) / g, (gd * r2.y - r1.y) / g, (gd * r2.z - r1.z) / g)
+	return is_finite(v1_out.x) and is_finite(v2_out.x)

@@ -177,12 +177,31 @@ func _setup(s: String) -> void:
 		"flight", "ascent":
 			main.last_craft = "saturnv"
 			await _start("flight")
+			await main.hangar_start("saturnv", "", "")
 			for i in 30:
 				if main.flight.vessel != null: break
 				await get_tree().process_frame
 			if s == "ascent":
 				main.flight.run_program("ascent")
 				await _steps(1500)
+		"hangar":
+			main.last_craft = "saturnv"
+			await _start("flight")
+			for i in 90: await get_tree().process_frame
+		"map", "mission", "mapmars":
+			main.last_craft = "saturnv"
+			await _start("flight")
+			await main.hangar_start("saturnv", "Moon" if s == "mission" else "", "orbit")
+			for i in 30:
+				if main.flight.vessel != null: break
+				await get_tree().process_frame
+			if s == "mission":
+				await _steps(400)
+			else:
+				main.open_map()
+				main.space_map.dest = main.state.body_named("Mars" if s == "mapmars" else "Moon")
+				main.space_map.frame_route()
+				await _steps(40)
 		"model":
 			await _start("sandbox")
 			main._on_model_open()
@@ -516,7 +535,16 @@ func _interaction_walk() -> void:
 		await get_tree().process_frame
 	await _steps(3)
 	check("a craft button launches it", main.flight.active and main.flight.vessel != null)
-	check("the flight panel opens", hud.flight_panel.is_visible_in_tree())
+	check("the flight console shows", main.flight.console != null and main.flight.console.is_visible_in_tree())
+	await _click(main.flight.console.buttons["systems"])
+	await _steps(2)
+	check("the console's Systems opens the systems panel", hud.flight_panel.is_visible_in_tree())
+	await _click(main.flight.console.buttons["map"])
+	await _steps(2)
+	check("the console's Map opens the space map and stops the 3D frame", main.space_map.visible and main.pipe.map_open)
+	main.close_map()
+	await _steps(1)
+	check("closing the map renders the frame again", not main.space_map.visible and not main.pipe.map_open)
 	var fui = main.flight.hud
 	await _click(fui.prog_btns["ascent"])
 	await _steps(5)
@@ -608,11 +636,23 @@ func _layout_walk() -> void:
 
 			main.last_craft = "saturnv"
 			await _start("flight")
+			for i in 30: await get_tree().process_frame
+			check(tag + " Spaceflight opens the hangar", main.hangar.visible and main.hangar.card.is_visible_in_tree())
+			check(tag + " the hangar's card fits the frame", Rect2(Vector2.ZERO, hud.size).encloses(main.hangar.card.get_global_rect()))
+			var go: Control = null
+			for b in main.hangar.card.find_children("*", "HudButton", true, false):
+				if (b as HudButton).kind == "Primary": go = b
+			await _click(go)
 			for i in 60:
 				if main.flight.vessel != null: break
 				await get_tree().process_frame
 			await _steps(5)
-			check(tag + " flight started", main.flight.vessel != null)
+			check(tag + " Start mission flies the craft", main.flight.vessel != null)
+			var con: Control = main.flight.console
+			check(tag + " the flight console fits the frame", con != null and Rect2(Vector2.ZERO, hud.size).encloses(con.get_global_rect().grow(-0.5)))
+			await _click(con.buttons["systems"])
+			await _steps(2)
+			check(tag + " Systems opens above the console", hud.flight_panel.is_visible_in_tree() and not hud.flight_panel.get_global_rect().intersects(con.get_global_rect()))
 			await _click(main.flight.hud.prog_btns["ascent"])
 			check(tag + " launch program can be clicked", main.flight.count != null or main.flight.autopilot.program == "ascent")
 			await _click(main.flight.hud.mode_btns["prograde"])
@@ -620,8 +660,8 @@ func _layout_walk() -> void:
 			var warp: int = main.flight.warp_idx
 			await _click(_find("[data-warp=1]"))
 			check(tag + " forward warp can be clicked", main.flight.warp_idx != warp)
-			await _click(_find("flightExit"))
-			check(tag + " flight exit can be clicked", not main.flight.active)
+			await _click(con.buttons["exit"])
+			check(tag + " the console's Exit leaves flight", not main.flight.active)
 
 func _panel_close(p: Control) -> Control:
 	for b in p.find_children("*", "", true, false):

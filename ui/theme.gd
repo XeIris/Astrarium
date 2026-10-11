@@ -5,23 +5,32 @@ extends RefCounted
 # uses. Control colours are sRGB, so nothing is converted (docs/godot.md); the only
 # linear colours are sim-computed ones, converted where they cross (the sun dot).
 #
-# Faces are the design's stacks resolved as CoreText does: mono is Menlo, and
-# `system-ui` is spelled `.AppleSystemUIFont`. Godot font sizes are whole px, so a
-# 9.5 px style draws at 9 px (px()); its line box keeps the design's height (text_font).
+# The title screen's language: light geometric type, hairlines, white on dark glass,
+# one cool accent for what is selected. The UI face (the "mono" family key, which every
+# style defaults to) is the title's Avenir, asked for tabular figures so readouts do
+# not jitter; its smaller x-height is made up by UI_SCALE. (SystemFont resolves Avenir
+# Next at weight 400 to its Demi Bold.) `system-ui` is spelled
+# `.AppleSystemUIFont`. Godot font sizes are whole px, so a 9.5 px style draws at 9 px
+# (px()); its line box keeps the design's height (text_font).
 
 const BG := Color(0x05 / 255.0, 0x06 / 255.0, 0x0a / 255.0)
-const PANEL := Color(10 / 255.0, 12 / 255.0, 18 / 255.0, 0.82)
-const BORDER := Color(180 / 255.0, 200 / 255.0, 230 / 255.0, 0.12)
-const BORDER_STRONG := Color(180 / 255.0, 200 / 255.0, 230 / 255.0, 0.3)
-const TEXT := Color(0xc8 / 255.0, 0xd0 / 255.0, 0xdc / 255.0)
-const TEXT_DIM := Color(0x6a / 255.0, 0x73 / 255.0, 0x82 / 255.0)
-const ACCENT := Color(0xff / 255.0, 0x8c / 255.0, 0x42 / 255.0)
-const ACCENT_2 := Color(0x4e / 255.0, 0xa8 / 255.0, 0xff / 255.0)
-const WARN := Color(0xff / 255.0, 0x4e / 255.0, 0x6b / 255.0)
+const PANEL := Color(8 / 255.0, 10 / 255.0, 15 / 255.0, 0.74)
+const BORDER := Color(1, 1, 1, 0.09)
+const BORDER_STRONG := Color(1, 1, 1, 0.24)
+const TEXT := Color(0xe6 / 255.0, 0xea / 255.0, 0xf0 / 255.0)
+const TEXT_DIM := Color(0x8a / 255.0, 0x92 / 255.0, 0x9e / 255.0)
+const ACCENT := Color(0xf4 / 255.0, 0xf6 / 255.0, 0xfa / 255.0)
+const ACCENT_2 := Color(0xa9 / 255.0, 0xc9 / 255.0, 0xf2 / 255.0)
+const WARN := Color(0xff / 255.0, 0x6b / 255.0, 0x7a / 255.0)
 const CLEAR := Color(0, 0, 0, 0)
+## A selected or lit control: the title menu's soft band.
+const LIT := Color(1, 1, 1, 0.12)
+const LIT_HOVER := Color(1, 1, 1, 0.06)
 
-const MONO_STACK := ["JetBrains Mono", "SF Mono", "Menlo", "monospace"]
-const DISPLAY_STACK := ["Neue Haas Grotesk Display Pro", "Inter", ".AppleSystemUIFont", "sans-serif"]
+const UI_STACK := ["Avenir", "Avenir Next", "Helvetica Neue", ".AppleSystemUIFont", "sans-serif"]
+const UI_SCALE := 1.12
+const MONO_STACK := UI_STACK
+const DISPLAY_STACK := ["Avenir", "Avenir Next", "Helvetica Neue", ".AppleSystemUIFont", "sans-serif"]
 const SYSTEM_STACK := [".AppleSystemUIFont", "sans-serif"]
 
 static func rgba(r: int, g: int, b: int, a: float = 1.0) -> Color:
@@ -43,7 +52,7 @@ static func px(fs: float) -> int:
 # faces
 static var _fonts := {}
 ## A small embolden matches CoreText's stem dilation.
-static var EMBOLDEN := 0.3
+static var EMBOLDEN := 0.0
 static var _adv := {}
 static var _met := {}
 static var _metric := {}
@@ -113,11 +122,10 @@ static func font(ff: String, fw: int = 400, fi: bool = false) -> Font:
 	var fv := FontVariation.new()
 	fv.base_font = sf
 	fv.variation_embolden = EMBOLDEN
-	# Menlo's bold and italic are synthesised (SystemFont won't select them).
-	if ff == "mono" and fw >= 600:
-		fv.variation_embolden = EMBOLDEN + 0.55
-	if ff == "mono" and fi:
-		fv.variation_transform = Transform2D(Vector2(1, 0), Vector2(-0.2, 1), Vector2.ZERO)
+	if ff == "mono":
+		# Tabular figures: a changing readout keeps its width.
+		var ts := TextServerManager.get_primary_interface()
+		fv.opentype_features = {ts.name_to_tag("tnum"): 1}
 	_fonts[key] = fv
 	_metric[fv.get_instance_id()] = _metric[key]
 	return fv
@@ -167,6 +175,9 @@ const DEFAULT := {"ff": "mono", "fw": 400, "fi": false, "fs": 12.0, "c": TEXT, "
 static func style(s: Dictionary) -> Dictionary:
 	var o := DEFAULT.duplicate()
 	o.merge(s, true)
+	if not o.has("_k"):
+		if o.ff == "mono": o.fs = float(o.fs) * UI_SCALE
+		o["_k"] = true
 	return o
 
 ## Line-box height of a style, px.
@@ -203,6 +214,7 @@ static func text_font(s: Dictionary) -> Font:
 	fv.variation_embolden = minf(base.variation_embolden, 0.1) if int(st.fw) < 600 else base.variation_embolden
 	fv.variation_transform = base.variation_transform
 	fv.variation_opentype = base.variation_opentype
+	fv.opentype_features = base.opentype_features
 	fv.spacing_glyph = int(roundf(ls))
 	fv.spacing_top = int(roundf((L - ad.x - ad.y) * 0.5 + ad.x - ga))
 	fv.spacing_bottom = int(L - ga - gd) - fv.spacing_top
@@ -214,7 +226,7 @@ static var _label_settings := {}
 ## A LabelSettings for a style, shared by every label in that style.
 static func label_settings(s: Dictionary) -> LabelSettings:
 	var st := style(s)
-	var key := var_to_str([st.ff, st.fw, st.fi, st.fs, st.c, st.ls, st.lh])
+	var key := var_to_str([st.ff, st.fw, st.fi, st.fs, st.c, st.ls, st.lh, st.up])
 	if _label_settings.has(key):
 		return _label_settings[key]
 	var ls := LabelSettings.new()
@@ -257,53 +269,53 @@ static var KINDS := {
 	"Action": {"base": {"c": WARN, "bc": WARN, "pad": [8, 8, 8, 8], "fs": 10.0, "ls": 1.0, "up": true},
 		"hover": {"bg": WARN, "c": Color.BLACK}},
 	"Toggle": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 8, 7, 8], "fs": 10.0, "ls": 1.0, "up": true},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT, "c": Color.BLACK, "bc": ACCENT}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG, "bg": LIT_HOVER}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
 	"ToggleIcon": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [5, 8, 5, 8], "fs": 10.0, "ls": 1.0, "up": true},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT, "c": Color.BLACK, "bc": ACCENT}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG, "bg": LIT_HOVER}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
 	# `.toggle-btn.on` has no rule: the model viewer's toggles look the same either way
 	"ToggleFlat": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 8, 7, 8], "fs": 10.0, "ls": 1.0, "up": true},
 		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {}},
-	"Band": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 2, 7, 2], "fs": 9.0, "ls": 0.54},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT_2, "c": Color.BLACK, "bc": ACCENT_2}},
+	"Band": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 2, 7, 2], "fs": 9.0, "ls": 0.8},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": Color(ACCENT_2, 0.16), "c": ACCENT, "bc": Color(ACCENT_2, 0.5)}},
 	"TimeBtn": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [6, 2, 6, 2], "fs": 9.5, "ls": 0.57},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT_2, "c": Color.BLACK, "bc": ACCENT_2}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": Color(ACCENT_2, 0.16), "c": ACCENT, "bc": Color(ACCENT_2, 0.5)}},
 	"Add": {"base": {"c": TEXT, "bc": BORDER_STRONG, "pad": [10, 6, 10, 6], "fs": 10.0, "ls": 0.8, "up": true},
-		"hover": {"c": ACCENT, "bc": ACCENT}},
+		"hover": {"c": ACCENT, "bc": ACCENT, "bg": LIT_HOVER}},
 	"SetTab": {"base": {"bg": Color(1, 1, 1, 0.03), "c": TEXT_DIM, "bc": BORDER, "pad": [5, 0, 5, 0], "fs": 10.0, "ls": 1.0, "up": true},
 		"hover": {"c": TEXT}, "on": {"c": ACCENT, "bc": ACCENT, "bg": Color(1, 1, 1, 0.06)}},
-	"PanelTab": {"base": {"bg": PANEL, "c": TEXT_DIM, "bc": BORDER, "pad": [8, 10, 8, 10], "fs": 10.0, "ls": 1.2, "up": true, "blur": true},
+	"PanelTab": {"base": {"bg": PANEL, "c": TEXT_DIM, "bc": BORDER, "pad": [8, 10, 8, 10], "fs": 10.0, "ls": 2.0, "up": true, "blur": true},
 		"hover": {"c": ACCENT, "bc": BORDER_STRONG}},
 	"Preset": {"base": {"wrap": true, "c": TEXT_DIM, "bc": BORDER, "pad": [7, 9, 7, 9], "fs": 10.0, "ls": 0.8, "align": "left"},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT_2, "c": Color.BLACK, "bc": ACCENT_2}},
-	"PresetTri": {"base": {"wrap": true, "c": hexc(0xffc98a), "bc": rgba(255, 170, 70, 0.4), "pad": [7, 9, 7, 9], "fs": 10.0, "ls": 0.8, "align": "left"},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT, "c": Color.BLACK, "bc": ACCENT}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": Color(ACCENT_2, 0.16), "c": ACCENT, "bc": Color(ACCENT_2, 0.5)}},
+	"PresetTri": {"base": {"wrap": true, "c": hexc(0xf0d6b4), "bc": rgba(240, 214, 180, 0.3), "pad": [7, 9, 7, 9], "fs": 10.0, "ls": 0.8, "align": "left"},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
 	"MvChip": {"base": {"wrap": true, "bg": Color(1, 1, 1, 0.03), "c": TEXT_DIM, "bc": BORDER, "pad": [6, 5, 6, 5], "fs": 9.5, "align": "left"},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"c": ACCENT, "bc": ACCENT, "bg": rgba(255, 140, 66, 0.08)}},
-	"Craft": {"base": {"bg": rgba(20, 32, 50, 0.55), "c": TEXT, "bc": rgba(120, 190, 255, 0.22), "rad": 4, "pad": [7, 8, 7, 8], "fs": 10.5, "lh": 1.25},
-		"hover": {"bc": ACCENT, "bg": rgba(30, 52, 80, 0.7)}, "on": {"bc": ACCENT, "bg": rgba(40, 80, 120, 0.75)}},
-	"Warp": {"base": {"bg": rgba(20, 32, 50, 0.6), "c": hexc(0xcfe6ff), "bc": rgba(120, 190, 255, 0.25), "rad": 3, "pad": [0, 0, 0, 0],
-		"ff": "lucida", "fs": 10.0, "lh": 1.0}, "hover": {"bc": ACCENT}},
-	"LcNav": {"base": {"c": TEXT, "bc": BORDER_STRONG, "pad": [5, 13, 5, 13], "fs": 11.0}, "hover": {"bc": ACCENT, "c": ACCENT}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
+	"Craft": {"base": {"bg": rgba(255, 255, 255, 0.03), "c": TEXT, "bc": BORDER, "pad": [7, 8, 7, 8], "fs": 10.5, "lh": 1.25},
+		"hover": {"bc": BORDER_STRONG, "bg": LIT_HOVER}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
+	"Warp": {"base": {"bg": rgba(255, 255, 255, 0.03), "c": TEXT, "bc": BORDER, "pad": [0, 0, 0, 0],
+		"ff": "lucida", "fs": 10.0, "lh": 1.0}, "hover": {"bc": BORDER_STRONG, "bg": LIT_HOVER}},
+	"LcNav": {"base": {"c": TEXT, "bc": BORDER_STRONG, "pad": [5, 13, 5, 13], "fs": 11.0}, "hover": {"bc": ACCENT, "c": ACCENT, "bg": LIT_HOVER}},
 	"LcNext": {"base": {"bg": ACCENT, "c": hexc(0x0a0c12), "bc": ACCENT, "pad": [5, 13, 5, 13], "fs": 11.0}},
 	"Clear": {"base": {"c": TEXT_DIM, "bw": 0, "pad": [3, 3, 3, 3], "fs": 10.0, "lh": 1.0}, "hover": {"c": TEXT}},
 	"Remove": {"base": {"c": WARN, "bw": 0, "pad": [1, 6, 1, 6], "fs": 12.0, "lh": 12.0}},
 	"Solo": {"base": {"c": TEXT_DIM, "bw": 0, "pad": [0, 0, 0, 6], "fs": 9.0, "ls": 0.72, "up": true}, "hover": {"c": ACCENT}},
 	"Start": {"base": {"bg": rgba(12, 15, 23, 0.85), "c": TEXT, "bc": BORDER, "pad": [22, 22, 20, 22], "fs": 13.333},
-		"hover": {"bc": ACCENT, "bg": rgba(20, 24, 34, 0.9)}},
+		"hover": {"bc": BORDER_STRONG, "bg": rgba(20, 24, 34, 0.9)}},
 	# the section heading (.panel h3) and the preset / module accordions
-	"SectionHead": {"base": {"c": TEXT_DIM, "bw": 0, "bb": 1, "bc": BORDER, "pad": [0, 0, 6, 0], "fs": 10.0, "ls": 2.0, "up": true, "fw": 500},
+	"SectionHead": {"base": {"c": TEXT_DIM, "bw": 0, "bb": 1, "bc": BORDER, "pad": [0, 0, 6, 0], "fs": 10.0, "ls": 2.6, "up": true, "fw": 500},
 		"hover": {"c": ACCENT}},
-	"SectionHeadFocus": {"base": {"c": ACCENT_2, "bw": 0, "bb": 1, "bc": BORDER, "pad": [0, 0, 6, 0], "fs": 10.0, "ls": 2.0, "up": true, "fw": 500},
+	"SectionHeadFocus": {"base": {"c": ACCENT_2, "bw": 0, "bb": 1, "bc": BORDER, "pad": [0, 0, 6, 0], "fs": 10.0, "ls": 2.6, "up": true, "fw": 500},
 		"hover": {"c": ACCENT}},
 	"GroupHead": {"base": {"c": TEXT_DIM, "bw": 0, "pad": [8, 9, 8, 9], "fs": 10.0, "ls": 1.0, "up": true},
 		"hover": {"c": TEXT, "bg": rgba(180, 200, 230, 0.06)}, "on": {"c": TEXT, "bg": Color(1, 1, 1, 0.025), "bb": 1, "bc": BORDER}},
 	"BodyItem": {"base": {"c": TEXT_DIM, "bw": 0, "bb": 1, "bc": BORDER, "pad": [6, 8, 6, 8], "fs": 10.0},
-		"hover": {"bg": rgba(180, 200, 230, 0.06)}, "on": {"bg": rgba(78, 168, 255, 0.12)}},
+		"hover": {"bg": LIT_HOVER}, "on": {"bg": Color(ACCENT_2, 0.14), "c": TEXT}},
 	"BodyItemLast": {"base": {"c": TEXT_DIM, "bw": 0, "pad": [6, 8, 6, 8], "fs": 10.0},
-		"hover": {"bg": rgba(180, 200, 230, 0.06)}, "on": {"bg": rgba(78, 168, 255, 0.12)}},
+		"hover": {"bg": LIT_HOVER}, "on": {"bg": Color(ACCENT_2, 0.14), "c": TEXT}},
 	# the Foundry
 	"FdType": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 2, 7, 2], "fs": 8.5, "ls": 0.34},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bc": ACCENT, "c": ACCENT, "bg": rgba(255, 140, 66, 0.08)}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
 	"FocusLimit": {"base": {"c": TEXT_DIM, "bc": BORDER_STRONG, "pad": [2, 6, 2, 6], "fs": 9.0, "ls": 0.72},
 		"hover": {"c": TEXT, "bc": ACCENT}, "on": {"c": BG, "bg": ACCENT, "bc": ACCENT}},
 	# the course
@@ -312,18 +324,27 @@ static var KINDS := {
 	"ModHead": {"base": {"c": TEXT_DIM, "bw": 0, "pad": [6, 8, 6, 8], "fs": 11.0},
 		"hover": {"c": TEXT, "bg": rgba(180, 200, 230, 0.06)}, "on": {"c": TEXT, "bb": 1, "bc": BORDER}},
 	"LessonItem": {"base": {"c": TEXT_DIM, "bc": CLEAR, "pad": [5, 7, 5, 7], "fs": 11.0, "align": "left"},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT_2, "c": Color.BLACK, "bc": ACCENT_2}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": Color(ACCENT_2, 0.16), "c": ACCENT, "bc": Color(ACCENT_2, 0.5)}},
 	"LessonDone": {"base": {"c": rgba(143, 224, 192, 0.85), "bc": CLEAR, "pad": [5, 7, 5, 7], "fs": 11.0, "align": "left"},
-		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": ACCENT_2, "c": Color.BLACK, "bc": ACCENT_2}},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": Color(ACCENT_2, 0.16), "c": ACCENT, "bc": Color(ACCENT_2, 0.5)}},
 	"Reset": {"base": {"c": TEXT_DIM, "bw": 0, "pad": [0, 0, 0, 0], "fs": 9.0, "align": "left"}, "hover": {"c": WARN}},
 	"Act": {"base": {"bg": WARN, "c": hexc(0x12070a), "bw": 0, "pad": [6, 14, 6, 14], "fs": 11.0, "ls": 0.44},
 		"hover": {"bg": bright(WARN)}},
 	# the flight panel
-	"FlMode": {"base": {"bg": rgba(20, 32, 50, 0.55), "c": hexc(0xa8c4e0), "bc": rgba(120, 190, 255, 0.2), "rad": 3, "pad": [4, 2, 4, 2], "fs": 9.0, "ls": 0.36},
-		"hover": {"bc": ACCENT}, "on": {"bg": rgba(40, 90, 140, 0.85), "c": hexc(0xeaf4ff), "bc": ACCENT}},
-	"FlProg": {"base": {"bg": rgba(20, 32, 50, 0.55), "c": hexc(0xcfe6ff), "bc": rgba(120, 190, 255, 0.2), "rad": 3, "pad": [5, 8, 5, 8], "fs": 10.0, "align": "left"},
-		"hover": {"bc": ACCENT, "bg": rgba(30, 52, 80, 0.7)}, "on": {"bg": rgba(40, 90, 140, 0.85), "bc": ACCENT}},
-	"FlSelect": {"base": {"bg": rgba(12, 20, 32, 0.85), "c": hexc(0xcfe6ff), "bc": rgba(120, 190, 255, 0.22), "rad": 3, "pad": [4, 22, 4, 6], "fs": 10.5, "align": "left"}},
+	"FlMode": {"base": {"bg": rgba(255, 255, 255, 0.03), "c": TEXT_DIM, "bc": BORDER, "pad": [4, 2, 4, 2], "fs": 9.0, "ls": 0.8},
+		"hover": {"bc": BORDER_STRONG, "c": TEXT}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
+	"FlProg": {"base": {"bg": rgba(255, 255, 255, 0.03), "c": TEXT, "bc": BORDER, "pad": [5, 8, 5, 8], "fs": 10.0, "align": "left"},
+		"hover": {"bc": BORDER_STRONG, "bg": LIT_HOVER}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
+	"FlSelect": {"base": {"bg": rgba(0, 0, 0, 0.3), "c": TEXT, "bc": BORDER, "pad": [4, 22, 4, 6], "fs": 10.5, "align": "left"}},
+	# the flight console and the space map: the title menu's language
+	"Console": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [6, 12, 6, 12], "fs": 9.0, "ls": 2.0, "up": true},
+		"hover": {"c": ACCENT, "bc": BORDER_STRONG, "bg": LIT_HOVER}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
+	"Primary": {"base": {"bg": rgba(255, 255, 255, 0.9), "c": hexc(0x0a0c12), "bw": 0, "pad": [10, 18, 10, 18], "fs": 10.0, "ls": 2.4, "up": true, "fw": 600},
+		"hover": {"bg": Color.WHITE}},
+	"Secondary": {"base": {"c": ACCENT, "bc": rgba(255, 255, 255, 0.4), "pad": [10, 18, 10, 18], "fs": 10.0, "ls": 2.4, "up": true},
+		"hover": {"bg": LIT_HOVER, "bc": rgba(255, 255, 255, 0.7)}},
+	"Chip": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [6, 10, 6, 10], "fs": 9.5, "ls": 1.2, "up": true},
+		"hover": {"c": TEXT, "bc": BORDER_STRONG, "bg": LIT_HOVER}, "on": {"bg": LIT, "c": ACCENT, "bc": rgba(255, 255, 255, 0.42)}},
 	"FdSelect": {"base": {"bg": rgba(0, 0, 0, 0.4), "c": TEXT, "bc": BORDER, "pad": [4, 26, 4, 6], "fs": 10.0, "lh": 13.0, "align": "left"}},
 }
 
@@ -386,7 +407,7 @@ static func _add_kind(t: Theme, kind: String) -> void:
 			t.set_stylebox(sb, name, stylebox(hover if sb.begins_with("hover") or sb.begins_with("pressed") else normal, blur))
 		var f := text_font(normal)
 		t.set_font("font", name, f)
-		t.set_font_size("font_size", name, px(float(normal.get("fs", 12.0))))
+		t.set_font_size("font_size", name, px(float(style(normal).fs)))
 		for c in ["font_color", "font_disabled_color", "font_focus_color"]:
 			t.set_color(c, name, normal.c)
 		for c in ["font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:

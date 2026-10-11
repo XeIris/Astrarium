@@ -52,10 +52,17 @@ var pad_fire = null               # Plume.GroundFlame — the deflected exhaust
 var plume_reach := 0.0            # how far the first stage's jet carries, m
 # The terminal count, so a launch has a visible beginning.
 var count = null
+## The mission the autopilot is flying end to end, or null (sim/flight/mission.gd).
+var mission: Mission = null
+## A skip in progress: {until: coordinate s, mission}. The world runs at SKIP_WARP
+## while the vessel waits on rails, then it is put in the destination's parking orbit.
+var skip = null
+const SKIP_WARP := 10000000.0
 var saved_speed = null            # the orrery's own speed multiplier, parked for the flight
 var warp_idx := 0
 var active := false
 var hud: FlightUI = null
+var console: FlightConsole = null
 var target: Body = null
 var plan = null
 ## Relativistic aberration of the sky, β as a vector (zero outside cruise).
@@ -127,7 +134,12 @@ func _init(ctx: Dictionary) -> void:
 		v["key"] = k
 		vehicles.append(v)
 	if panel != null:
+		var con = ctx.get("console")
+		if con != null:
+			console = FlightConsole.new()
+			con.add_child(console)
 		hud = FlightUI.create_flight_hud(panel, {
+			"console": console,
 			"setMode": func(m: String) -> void:
 				if autopilot != null:
 					autopilot.program = null; autopilot.mode = m; autopilot.say("Manual control"),
@@ -313,6 +325,8 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 
 	fly_cam.state.dist = 3.2
 	active = true
+	mission = null
+	skip = null
 	cruise = null; cruise_ctx = null; pending_cruise = null
 	count = null
 	exposure = -1.0
@@ -501,6 +515,7 @@ func teardown() -> void:
 	pad_fire = null
 	ground_pos.y = 0.0
 	plumes = []; entry = null; cryo = null
+	mission = null; skip = null
 	smoke.clear()
 	_smoke_framed = false
 	vessel = null; autopilot = null; cruise = null; plan = null; count = null
@@ -879,6 +894,78 @@ func refresh_targets() -> void:
 	elif star_target != null: cur = MISSION_PREFIX + str(star_target.name)
 	hud.set_targets(names, cur)
 
+# MISSIONS
+## Fly to `dest_name` and orbit it or land on it, with no further input. Returns the
+## Mission (check its `failed` for why it could not start).
+func start_mission(dest_name: String, goal: String = "orbit") -> Mission:
+	if vessel == null: return null
+	var b := body_named(dest_name)
+	if b == null: return null
+	abort_mission()
+	var m := Mission.create(self, b, goal)
+	if m.failed != "":
+		_toast("Cannot fly this mission — %s" % m.failed)
+		return m
+	mission = m
+	set_target(b.name)
+	refresh_targets()
+	return m
+
+func abort_mission() -> void:
+	if mission != null and not mission.done and mission.failed == "":
+		mission.abort()
+	mission = null
+	skip = null
+
+func _manual_warp() -> void:
+	if mission != null and mission.auto_warp and not mission.done:
+		mission.auto_warp = false
+		_toast("Auto warp off — the mission keeps flying")
+
+## Skip to the mission's destination: charge its propellant and time, then arrive.
+func begin_skip(m: Mission) -> void:
+	if vessel == null or m == null or not m.plan.get("flyable", false): return
+	mission = m
+	var grounded: bool = vessel.phase == Vessel.PHASE.PRELAUNCH or vessel.phase == Vessel.PHASE.LANDED
+	count = null
+	vessel.held_down = false
+	vessel.throttle = 0.0
+	autopilot.disengage()
+	# The flight is not flown, so its staging is done here: everything the burns empty.
+	var dv := 0.0
+	for l in m.plan.legs:
+		if l.key in ["land", "descend"]: continue
+		dv += float(l.dv)
+	vessel.spend_dv(dv)
+	if grounded:
+		vessel.place_in_orbit(Mission.park_radius(vessel.parent) - float(vessel.env.radius), 28.5, randf() * TAU)
+	var t := 0.0
+	for l in m.plan.legs:
+		if l.key in ["land", "descend"]: continue
+		t += float(l.t)
+	skip = {"until": vessel.coord + t, "mission": m}
+	vessel.log_event("Skipping to %s — %s of flight, %s km/s of Δv charged" % [m.dest.name, Guidance.fmt_dur(t), U.fixed(dv / 1000.0, 2)])
+	fly_cam.set_mode("chase")
+
+func _arrive_skip() -> void:
+	var m: Mission = skip.mission
+	skip = null
+	if not m.dest.alive:
+		m.abort("%s is gone" % m.dest.name)
+		return
+	vessel.rebase(m.dest)
+	vessel.place_in_orbit(float(m.plan.r_cap) - float(vessel.env.radius), 0.0, randf() * TAU)
+	set_warp(0)
+	vessel.log_event("Arrived — parking orbit around %s" % m.dest.name)
+	# What is left is flown: the landing, if the mission is one.
+	m.leg = 0
+	var keep: Array = []
+	for l in m.plan.legs:
+		if l.key in ["descend", "land"]: keep.append(l)
+	m.plan.legs = keep
+	m.leg = -1
+	m._next()
+
 func set_target(n) -> void:
 	star_target = null
 	target = null
@@ -907,10 +994,15 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 			active = false
 			return 0.0
 
+	if skip != null and vessel.coord >= float(skip.until): _arrive_skip()
+	if mission != null and skip == null: mission.update(dt)
 	# Slave the orrery's clock every frame, or the slider desyncs planets and vehicle.
 	state.time_scale = WARPS[warp_idx] / Rocketry.YR_S
 	# At warp 1 flight time is wall-clock time; the orrery multiplier is forced to 1.
 	var w: float = warp() * (0.0 if state.paused else 1.0)
+	if skip != null:
+		w = 0.0 if state.paused else minf(SKIP_WARP, maxf((float(skip.until) - vessel.coord) / maxf(dt, 1e-3), 1.0))
+		state.time_scale = w / Rocketry.YR_S
 	var sim_seconds := dt * w
 	var control_frame := {"guided": false, "fraction": 1.0}
 	var world := func(seconds: float) -> float:
@@ -1261,6 +1353,8 @@ func update_hud() -> void:
 		"parentName": vessel.parent.name,
 		"plan": plan_data,
 		"cruise": cruise != null,
+		"mission": mission,
+		"skip": skip != null,
 	})
 
 # INPUT
@@ -1270,9 +1364,9 @@ func key_action(action: String) -> bool:
 	if not active or vessel == null: return false
 	match action:
 		"warp_down":
-			set_warp(warp_idx - 1); return true
+			_manual_warp(); set_warp(warp_idx - 1); return true
 		"warp_up":
-			set_warp(warp_idx + 1); return true
+			_manual_warp(); set_warp(warp_idx + 1); return true
 		"throttle_cut":
 			vessel.throttle = 0.0; return true
 		"throttle_full":

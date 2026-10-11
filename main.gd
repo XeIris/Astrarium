@@ -45,6 +45,9 @@ var capture_action := ""
 var capture_modifier := 0
 var manual_dt = null
 var model_open := false
+var hangar: Hangar = null           # spaceflight's craft selection (ui/hangar.gd)
+var hangar_open := false
+var space_map: SpaceMap = null      # the M map (ui/space_map.gd)
 var model_restore = null
 var xsec_open := false
 var learn_entered := false
@@ -161,10 +164,30 @@ func _ready() -> void:
 	flight = Spaceflight.create_spaceflight({
 		"pipe": pipe, "state": state, "main": self,
 		"panel": hud.mount("flightHud"),
+		"console": hud.mount("flightConsole"),
 		# The title reel flies vehicles too, silently.
 		"toast": func(m): if not at_start: toast(m),
 	})
 	model_view = ModelViewer.create_model_viewer(pipe)
+	hangar = Hangar.new()
+	hangar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hud.add_child(hangar)
+	hangar.pick.connect(_select_hangar)
+	hangar.start.connect(hangar_start)
+	hangar.back.connect(quit_to_start)
+	space_map = SpaceMap.new()
+	space_map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hud.add_child(space_map)
+	space_map.fly.connect(func(d: String, g: String):
+		close_map()
+		flight.start_mission(d, g))
+	space_map.skip.connect(func(d: String, g: String):
+		close_map()
+		var m = flight.start_mission(d, g)
+		if m != null and m.failed == "": m.skip())
+	space_map.abort.connect(func(): flight.abort_mission())
+	space_map.closed.connect(func(): pipe.set_map_open(false))
+	if flight.console != null: flight.console.action.connect(_on_console_action)
 	_build_stage()
 	lessons = LessonUI.create_lessons({"panel": hud.mount("courseMount"), "card": hud.mount("lessonCard"), "stage": stage})
 	_build_foundry()
@@ -205,7 +228,7 @@ func _ready() -> void:
 		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") == "flight" else "sandbox")
 		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
-		_start(String(_cmd.get("mode", "sandbox")))
+		_start(String(_cmd.get("mode", "sandbox")), true)
 	else:
 		# Deferred: a harness that instantiates the stage and starts a mode at once
 		# never builds the reel's scenes.
@@ -888,6 +911,16 @@ func _input(e: InputEvent) -> void:
 		_capture_key(key)
 		get_viewport().set_input_as_handled()
 		return
+	if key.pressed and not key.echo and space_map != null and space_map.visible \
+			and (key.keycode == KEY_ESCAPE or controls.matches("space_map", key)):
+		close_map()
+		get_viewport().set_input_as_handled()
+		return
+	if key.pressed and not key.echo and controls.matches("space_map", key) and not hud.settings_open \
+			and flight != null and flight.active and not at_start:
+		open_map()
+		get_viewport().set_input_as_handled()
+		return
 	if key.pressed and not key.echo and (key.keycode == KEY_ESCAPE or controls.matches("settings", key)):
 		# The title opens Settings from its menu; Esc only closes it there.
 		if not at_start or hud.settings_open:
@@ -1324,10 +1357,12 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		set_panel_open("scenarioPanel", false)
 		# Spaceflight starts on Earth's pad, so the scenario must contain an Earth.
 		if state.body_named("Earth") == null: load_preset("solar")
-		launch_craft(last_craft)
+		if opts.get("direct", false): launch_craft(last_craft)
+		else: open_hangar()
 	hud.layout_left_column()
 
-func _start(m: String) -> void:
+## `direct`: straight onto the pad with last_craft, past the hangar (command-line runs).
+func _start(m: String, direct := false) -> void:
 	if at_start and title_reel.running:
 		title_reel.stop()
 		reset_stage()
@@ -1336,10 +1371,13 @@ func _start(m: String) -> void:
 	at_start = false
 	hud.dismiss_start()
 	hud.set_hud_hidden(false)
-	set_app_mode(m)
-	if m == "flight": set_panel_open("controlPanel", true)
+	set_app_mode(m, {"direct": direct})
+	# The console carries flight's controls; the orrery's column stays folded.
+	if m == "flight": set_panel_open("controlPanel", false)
 
 func quit_to_start() -> void:
+	close_map()
+	close_hangar()
 	hud.set_settings_open(false)
 	reset_stage()
 	at_start = true
@@ -1349,6 +1387,7 @@ func quit_to_start() -> void:
 
 ## Back to an empty universe with the default camera and sky.
 func reset_stage() -> void:
+	close_map()
 	if flight.active: end_flight()
 	close_model_viewer()
 	if lessons: lessons.close()
@@ -1738,8 +1777,112 @@ func _on_flight_cam_cycle() -> void:
 	sync_warp_label()
 
 func _on_warp_step(d: int) -> void:
+	flight._manual_warp()
 	flight.set_warp(flight.warp_index() + d)
 	sync_warp_label()
+
+# THE CONSOLE, THE MAP AND THE HANGAR
+
+func _on_console_action(a: String) -> void:
+	match a:
+		"map": open_map()
+		"systems":
+			set_panel_open("flightPanel", hud.is_collapsed("flightPanel"))
+			hud.layout_left_column()
+		"camera": _on_flight_cam_cycle()
+		"warp-": _on_warp_step(-1)
+		"warp+": _on_warp_step(1)
+		"autowarp": if flight.mission != null: flight.mission.auto_warp = true
+		"abort": flight.abort_mission()
+		"hangar": open_hangar()
+		"exit": quit_to_start()
+
+func open_map() -> void:
+	if not flight.active or flight.vessel == null: return
+	space_map.open(flight)
+	pipe.set_map_open(true)
+
+func close_map() -> void:
+	if space_map != null and space_map.visible: space_map.close()
+
+## The hangar: every panel folded, the studio on, the line-up down the left.
+func open_hangar() -> void:
+	close_map()
+	if flight.active: end_flight()
+	if state.body_named("Earth") == null: load_preset("solar")
+	if hangar.list.get_child_count() == 0:
+		var rows := []
+		for v in flight.vehicles: rows.append({"key": v.key, "name": v.name, "role": v.role})
+		hangar.set_crafts(rows)
+	hangar_open = true
+	hangar.visible = true
+	for id in MODEL_WORLD: set_panel_open(id, false)
+	hud.set_model_open(true)
+	model_view.frame_offset = 0.17
+	model_view.cam.spin = 0.07
+	model_view.cam.held = false
+	_select_hangar(last_craft if Vehicles.VEHICLES.has(last_craft) else "saturnv")
+	hangar._layout()
+
+func close_hangar() -> void:
+	if not hangar_open: return
+	hangar_open = false
+	hangar.visible = false
+	model_open = false
+	model_view.frame_offset = 0.0
+	hud.set_model_open(false)
+	pipe.set_mode(RenderPipeline.Mode.FLIGHT if (flight and flight.active) else RenderPipeline.Mode.ORRERY)
+
+func _select_hangar(key: String) -> void:
+	await CraftAssets.craft_models_ready([key])
+	if not hangar_open: return
+	model_view.load_vehicle(key)
+	model_open = true
+	last_craft = key
+	hangar.set_info(key, _hangar_info(key))
+	hangar.select(key)
+
+## A craft's numbers and the hangar's missions, each priced from its launch site by
+## the same planner the map uses.
+func _hangar_info(key: String) -> Dictionary:
+	var veh: Dictionary = Vehicles.VEHICLES[key]
+	var pay: float = float(veh.carries.mass) if veh.get("carries") != null else 0.0
+	var home := state.body_named(str(veh.get("launchFrom", "Earth")))
+	if home == null: home = state.body_named("Earth")
+	var rows := [
+		["Gross mass", FlightUI.fmt_mass_t(Vehicles.gross_mass(veh, pay))],
+		["Stages", str(veh.stages.size())],
+		["Δv, vacuum", FlightUI.fmt_speed(Vehicles.total_delta_v(veh, pay))],
+	]
+	if veh.role == "launch":
+		rows.append(["Liftoff thrust", "%s MN" % U.fixed(Vehicles.liftoff_thrust(veh) / 1e6, 1)])
+		rows.append(["Pad TWR", U.fixed(Vehicles.pad_twr(veh, 9.80665, pay), 2)])
+	rows.append(["Starts", ("on the pad, " if veh.role == "launch" else "in orbit, ") + (home.name if home else "—")])
+	var missions := []
+	var v = null
+	if home != null:
+		v = Vessel.new({"vehicle": veh, "parent": home, "bodies": flight.bodies(), "payload": pay})
+		if veh.role == "launch": v.place_on_pad(28.5, 0.0)
+		else: v.place_in_orbit(15000.0 if veh.role == "lander" else 250000.0)
+	for m in Hangar.MISSIONS:
+		if m[1] == "":
+			missions.append({"label": m[0], "dest": "", "goal": "", "ok": true, "why": "", "dv": 0.0})
+			continue
+		var b := state.body_named(m[1])
+		if v == null or b == null:
+			missions.append({"label": m[0], "dest": m[1], "goal": m[2], "ok": false, "why": "Not in this scenario", "dv": 0.0})
+			continue
+		var p := Mission.plan_route(v, b, m[2])
+		var why: String = str(p.why) if p.why != "" else ("" if p.flyable else "Needs %s; %s on board" % [FlightUI.fmt_speed(float(p.dv)), FlightUI.fmt_speed(float(p.dv_avail))])
+		missions.append({"label": m[0], "dest": m[1], "goal": m[2], "ok": p.flyable, "why": why, "dv": float(p.dv)})
+	return {"name": veh.name, "role": {"launch": "Launch vehicle", "lander": "Lander", "cruiser": "Ion cruiser", "interstellar": "Interstellar ship"}.get(veh.role, str(veh.role)),
+		"blurb": veh.get("blurb", ""), "rows": rows, "missions": missions, "dv": v.delta_v_remaining(0.0) if v != null else 0.0}
+
+## Start mission: onto the pad (or into orbit), and the autopilot takes the mission.
+func hangar_start(key: String, dest: String, goal: String) -> void:
+	close_hangar()
+	await launch_craft(key)
+	if dest != "" and flight.active: flight.start_mission(dest, goal)
 
 func _on_model_open() -> void:
 	show_model(model_view.vehicle.key if model_view.vehicle else "saturnv")
@@ -1861,7 +2004,7 @@ func launch_craft(key: String) -> void:
 	# orbit around whatever dominates the scenario.
 	var v = flight.begin(key, {"mode": "pad" if veh.role == "launch" else "orbit"})
 	if v == null: return
-	set_panel_open("flightPanel", true)
+	set_panel_open("flightPanel", false)
 	hud.layout_left_column()
 	set_cam_mode("flight")
 	hud.set_shown("flightRow", true)
@@ -1869,7 +2012,15 @@ func launch_craft(key: String) -> void:
 	toast("%s — %s" % [veh.name, "ready on the pad" if v.phase == "prelaunch" else "in orbit"])
 	sync_warp_label()
 
+## Fly the current vessel to `dest` with no further input (sim/flight/mission.gd).
+func start_mission(dest: String, goal: String = "orbit") -> void:
+	if flight.active: flight.start_mission(dest, goal)
+
+func skip_mission() -> void:
+	if flight.active and flight.mission != null: flight.mission.skip()
+
 func end_flight() -> void:
+	close_map()
 	# Ending a flight is not leaving the planet: in flight mode the camera stays
 	# on Earth, framed.
 	var was_flight_mode := state.app_mode == "flight"
