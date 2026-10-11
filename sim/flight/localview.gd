@@ -12,6 +12,8 @@ extends RefCounted
 #   smoke  ground cloud and deluge, which really hide what's behind them
 #   flame  plume and entry sheath last: additive, so a flame lights the steam
 # render_priority only sorts within the transparent list.
+## The physical sky's energy at sea level; see where reflection_sky is built.
+const SKY_ENERGY := 6.0
 const ORDER := {"sky": -10, "clouds": -8, "sun": -6, "smoke": 10, "flame": 20, "flare": 40}
 
 var pipe: RenderPipeline
@@ -127,7 +129,7 @@ func _init(p: RenderPipeline) -> void:
 	reflection_sky.radiance_size = Sky.RADIANCE_SIZE_64
 	reflection_material = PhysicalSkyMaterial.new()
 	reflection_material.turbidity = 3.0
-	reflection_material.energy_multiplier = 6.0
+	reflection_material.energy_multiplier = SKY_ENERGY
 	reflection_sky.sky_material = reflection_material
 	pipe.env_local.sky = reflection_sky
 	for s in [1.0, -1.0]:
@@ -404,6 +406,14 @@ func update(o: Dictionary) -> Dictionary:
 	var horizon := sqrt(2.0 * float(env.radius) * maxf(h, 3.0)) * 1.35
 	var patch := clampf(horizon, 2.5e4, 1.2e6)
 	var sh := Rocketry.scale_height(atm, h) if atm != null else 1.0
+	if atm != null:
+		# Skylight comes from the air above, which thins with the pressure; the third
+		# that stays stands in for the bright ground and cloud below.
+		var column := clampf(Rocketry.pressure(atm, h) / maxf(Rocketry.pressure(atm, 0.0), 1e-9), 0.0, 1.0)
+		var sky_e := SKY_ENERGY * (0.3 + 0.7 * column)
+		# Every change re-integrates the radiance, so only a real one.
+		if absf(sky_e - reflection_material.energy_multiplier) > 0.02 * SKY_ENERGY:
+			reflection_material.energy_multiplier = sky_e
 	ground_mat.set_shader_parameter("uPatch", patch)
 	ground_mat.set_shader_parameter("uRadius", float(env.radius))
 	ground_mat.set_shader_parameter("uEye", h)

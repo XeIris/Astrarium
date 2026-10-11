@@ -53,6 +53,29 @@ which stays constant along a streamline, so they fan out from the base as the
 plume swells. They are cut with a hard threshold so they read as separate
 sheets. Without them the boundary reads as a smooth cone.
 
+### One surface from the nozzle to the far field
+
+Near the nozzle the shader's `jet_radius` widens the jet in two ways. Turbulent
+mixing spreads it by ~0.14 exit radii per exit diameter in air, and less in
+vacuum. An under-expanded jet also turns outward at the lip by a vacuum law,
+`1 + 2.6·u·x^0.62`, which depends only on the pressure ratio. In air that
+expansion stops where the boundary's pressure meets `p_a + q`, which is the
+balloon. So the radius is
+
+    R_j(x) = max(spreading, min(vacuum expansion, R_b(x)))
+
+and the box `PlumeFx.update` sizes for the jet uses the same expression at its
+far end. Without the cap, between ~15 and ~40 km the pressure-ratio cone was
+about ten times wider than the balloon. It was drawn around the balloon's dome
+as a second, wider cone.
+
+The balloon's fire ends where the jet's flame does (`uFlame`), so the two burn
+out together. In vacuum `R_b` grows without bound and the cap no longer applies.
+
+The supersonic core of an under-expanded jet cools as it expands. Its light per
+metre is spread over `R_j²`, as the mixing layer's is. Otherwise a merged far
+field's core filled the swollen plume with a white glow at the nozzles.
+
 ## Brightness
 
 Three things decide how much the ballooned plume glows.
@@ -86,7 +109,12 @@ in the rest of its box (`uTrailK`, `uTrail`), widening and broken by the large
 eddies. `Plume.SmokeColumn` then continues it as a world-fixed trail.
 
 Its density is the propellant's soot plus 0.3 for condensation, times
-`(p_a / p_0)^¼`, which thins it with altitude. Its reflectance is
+`(p_a / p_0)^¼`, which thins it with altitude. It does not depend on how far
+the plume has ballooned: an SRB's trail stays dense to separation. The box
+carries the column past the flame, `L ≥ flame_len·(1 + 1.2·c)` with
+`c = clamp(trail_k / 0.15)`, so the box shrinks smoothly as the column fades
+instead of jumping. The world trail is laid at 0.88 of that length, with the
+jet's radius there. Its reflectance is
 `Plume.smoke_grey`: 0.42 for kerosene soot, 0.72 for a solid's white alumina,
 and near-white condensation for hydrogen.
 

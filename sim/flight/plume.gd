@@ -256,7 +256,8 @@ class PlumeFx extends RefCounted:
 		var push := pa + Plume.freestream_q
 		var r_eq := sqrt(thrust * throttle / (PI * 2.5 * maxf(push, 1.0))) if thrust > 0.0 else 0.0
 		var balloon := maxf(r_eq / (exit_d * 0.5), 1.0)
-		var hi := 0.0 if (beam or near) else U.smooth(balloon, 2.5, 6.0)
+		var swell := U.smooth(balloon, 2.5, 6.0)
+		var hi := 0.0 if (beam or near) else swell
 		# Shock heating where the freestream meets the boundary; none in vacuum.
 		var shell_k := sqrt(clampf(push / 4000.0, 0.0, 1.0))
 		material.set_shader_parameter("uBalloon", balloon)
@@ -269,28 +270,32 @@ class PlumeFx extends RefCounted:
 		var sm: Vector3 = Plume._v3(look.smoke) * Plume.daylight
 		material.set_shader_parameter("uSmoke", sm)
 		# The bounding cylinder follows the jet: a pencil at the pad, a wide bell in vacuum,
-		# shorter when throttled.
+		# shorter when throttled. Its radius is the shader's jet_radius at the far end.
 		var under := clampf(log(maxf(pr, 1.0)) / log(300.0), 0.0, 1.0)
 		var re := exit_d * 0.5
 		var L := reach * (1.0 + 1.3 * under) * (0.55 + 0.45 * throttle)
 		if beam: L = reach
+		# In air the afterburning burns out within about a vehicle length and the rest
+		# is smoke: soot, plus condensing water in the humid lower air. The column
+		# thins with the air, not with the balloon: an SRB's trail stays dense to
+		# separation.
+		var air := clampf(pow(pa / 101325.0, 0.25), 0.0, 1.0) if not beam else 0.0
+		var flame_len := exit_d * (8.0 + 30.0 * under)
+		var trail_k := 0.0 if near else clampf(float(propellant.soot) + 0.3, 0.0, 1.2) * air
+		# The box carries the column past the flame, fading out with it rather than
+		# switching off, so the length never jumps.
+		var column := clampf(trail_k / 0.15, 0.0, 1.0)
+		L = maxf(L, flame_len * (1.0 + 1.2 * column))
 		var lx := L / exit_d
-		var rj := 1.0 + under * 2.6 * pow(lx, 0.62) + maxf(0.14 * (1.0 - under), 0.05) * lx
+		var spread := lerpf(1.0 + 0.14 * lx, 1.0 + 0.05 * lx, under)
+		var rj := maxf(spread, minf(1.0 + under * 2.6 * pow(lx, 0.62), balloon))
 		if beam: rj = 1.0 + 0.03 * lx
-		var R := re * rj * 1.9
+		var R := re * rj * lerpf(1.9, 2.6, column)
 		# The ballooned plume: widest a little downstream, trailing several widths.
 		L = maxf(L, r_eq * 6.5 * hi)
 		R = maxf(R, r_eq * 1.45 * hi)
-		# In air the afterburning burns out within about a vehicle length and the rest
-		# is smoke: soot, plus condensing water in the humid lower air.
-		var air := clampf(pow(pa / 101325.0, 0.25), 0.0, 1.0) if not beam else 0.0
-		var flame_len := exit_d * (8.0 + 30.0 * under)
-		var trail_k := 0.0 if near else clampf(float(propellant.soot) + 0.3, 0.0, 1.2) * air * (1.0 - hi)
-		if trail_k > 0.0:
-			L = maxf(L, flame_len * 2.2)
-			R = maxf(R, re * rj * 2.6)
 		var grey := Plume.smoke_grey(propellant)
-		material.set_shader_parameter("uFlame", clampf(flame_len / L, 0.2, 1.0) if trail_k > 0.0 else 1.0)
+		material.set_shader_parameter("uFlame", clampf(flame_len / L, 0.2, 1.0))
 		material.set_shader_parameter("uTrailK", trail_k)
 		# The shader scales everything by its calibration; the smoke's light is a reflectance.
 		material.set_shader_parameter("uTrail", Vector3(grey, grey * 0.985, grey * 0.96) * Plume.daylight / (temp_code * 2.4))
@@ -305,7 +310,8 @@ class PlumeFx extends RefCounted:
 			var s := exit_d * (1.6 + 2.4 * under) * (0.6 + 0.4 * throttle) * (0.35 if beam else 1.0)
 			glow.scale = Vector3(s, s, s)
 			# Inside a ballooned plume the exit is a source seen through its own fire.
-			glow.set_instance_shader_parameter("opacity", (0.18 if beam else 0.75) * float(propellant.glow) * (0.45 + 0.55 * throttle) * (1.0 - 0.95 * hi))
+			# A cluster's single engines swell too, though their far field is drawn merged.
+			glow.set_instance_shader_parameter("opacity", (0.18 if beam else 0.75) * float(propellant.glow) * (0.45 + 0.55 * throttle) * (1.0 - 0.6 * (0.0 if beam else swell)))
 		if light != null:
 			light.light_energy = light_scale * throttle * (0.4 if beam else 1.0)
 

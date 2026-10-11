@@ -90,25 +90,27 @@ float ign(vec2 p) {
 	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
-// The jet's radius at axial distance x (both in De), in exit radii.
-float jet_radius(float x, float over, float under) {
-	// over-expanded: pinched toward the first cell, then a slow ~4° spread
-	float pinch = 1.0 - 0.16 * over * sin(3.14159 * clamp(x / 1.2, 0.0, 1.0));
-	float sea = pinch + 0.14 * x;
-	// under-expanded: turns the corner at the lip — nearly all of the spread
-	// happens inside the first diameter, then it is ballistic
-	float vac = 1.0 + under * 2.6 * pow(max(x, 0.0), 0.62) + 0.05 * x;
-	float r = mix(sea, vac, clamp(under, 0.0, 1.0));
-	// a beam does not spread: that is the whole difference from a flame
-	return mix(r, 1.0 + 0.03 * x, uBeam);
-}
-
 // The ballooned boundary at x (in equilibrium radii), in exit radii: it turns the
 // corner within one radius, holds, then the freestream slowly narrows it.
 float balloon_radius(float xr) {
 	float B = uBalloon;
 	float grow = 1.0 - exp(-xr * 2.6);
 	return (1.0 + (B - 1.0) * grow) * (1.0 - 0.38 * smoothstep(1.2, 6.5, xr));
+}
+
+// The jet's radius at axial distance x (both in De), in exit radii: the wider of
+// its turbulent spreading and its pressure expansion. In air the expansion stops at
+// the balloon, where the boundary's pressure meets the air's and the freestream's,
+// so the near field and the far field are one surface (docs/physics/plumes.md).
+float jet_radius(float x, float over, float under) {
+	// over-expanded: pinched toward the first cell, then a slow ~4° spread
+	float pinch = 1.0 - 0.16 * over * sin(3.14159 * clamp(x / 1.2, 0.0, 1.0));
+	float spread = mix(pinch + 0.14 * x, 1.0 + 0.05 * x, clamp(under, 0.0, 1.0));
+	// under-expanded: turns the corner at the lip — nearly all of the expansion
+	float expand = 1.0 + under * 2.6 * pow(max(x, 0.0), 0.62);
+	float r = max(spread, min(expand, balloon_radius(x * 2.0 / max(uBalloon, 1.0))));
+	// a beam does not spread: that is the whole difference from a flame
+	return mix(r, 1.0 + 0.03 * x, uBeam);
 }
 
 void fragment() {
@@ -173,7 +175,8 @@ void fragment() {
 			float Rb0 = balloon_radius(xr);
 			float Rb = Rb0 * (1.0 + 0.55 * (lobe - 0.5));
 			float rb = r / Rb;
-			float tail = 1.0 - smoothstep(3.0, 6.3, xr);
+			// It burns out where the jet's flame does, so the two end together.
+			float tail = 1.0 - smoothstep(0.55 * uFlame * L, uFlame * L, -p.y);
 			if (rb < 1.35 && tail > 0.0) {
 				// Tongues long along the flow, cut hard so they read as separate sheets.
 				// Across the flow they are placed by the fraction of the boundary's radius,
@@ -220,8 +223,9 @@ void fragment() {
 
 		// ---- 1. the supersonic core: hot, bright, smooth
 		float inCore = 1.0 - smoothstep(coreLen * 0.55, coreLen * 1.25, x);
-		// An under-expanded core cools as it expands: it dims with the pressure ratio.
-		float core = exp(-rho * rho * 3.5) * inCore * (1.0 - 0.75 * under);
+		// An under-expanded core cools as it expands, and its light spreads over the
+		// wider jet as the mixing layer's does: ∝ 1/Rj² per metre.
+		float core = exp(-rho * rho * 3.5) * inCore * (1.0 - 0.75 * under) / mix(1.0, Rj * Rj, under);
 
 		// ---- 2. shock structure: X-shaped oblique shocks and bright cells
 		float ph = x / cell;
