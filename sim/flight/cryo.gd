@@ -25,6 +25,8 @@ var shells: Array[MeshInstance3D] = []
 var materials: Array[ShaderMaterial] = []
 ## Vent outlets, carried on their stages: [{node, out: Vector3 (stage frame)}].
 var vents: Array = []
+## The widest frosted stage, m: the cylinder that shades the vapour.
+var radius := 0.0
 var _acc := 0.0
 
 static func build(craft: CraftModel.Craft) -> Cryo:
@@ -64,7 +66,8 @@ static func build(craft: CraftModel.Craft) -> Cryo:
 			st.group.add_child(mi)
 			c.shells.append(mi)
 			c.materials.append(m)
-			# A vent pair at the top of each stage's upper tank, either side.
+			c.radius = maxf(c.radius, r)
+		# A vent pair at the top of each stage's upper tank, either side.
 			if b != bands[-1]: continue
 			for side in [0.0, PI]:
 				var a: float = seed * 0.37 + side
@@ -83,10 +86,15 @@ func update(dt: float, fuelled: bool, moving_s: float, smoke: Plume.SmokeColumn)
 	for i in shells.size():
 		shells[i].visible = amount > 0.01 and shells[i].get_parent().visible
 		materials[i].set_shader_parameter("uAmount", amount)
-	if not fuelled or dt <= 0.0 or vents.is_empty(): return
-	# Boil-off: a thin stream, many faint puffs a second from each outlet.
-	_acc += dt * 6.0 * vents.size()
+	if not fuelled or dt <= 0.0 or vents.is_empty():
+		smoke.body_axis = Vector3.INF
+		return
+	# Boil-off: a continuous stream, many small faint puffs a second from each outlet.
+	_acc += dt * 16.0 * vents.size()
 	var to_smoke := smoke.group.global_transform.affine_inverse()
+	var stage: Node3D = vents[0].node.get_parent()
+	smoke.body_axis = to_smoke * stage.global_position
+	smoke.body_r = radius
 	while _acc >= 1.0:
 		_acc -= 1.0
 		var v: Dictionary = vents[randi() % vents.size()]
@@ -95,4 +103,4 @@ func update(dt: float, fuelled: bool, moving_s: float, smoke: Plume.SmokeColumn)
 		var xf := node.global_transform
 		var p: Vector3 = to_smoke * xf.origin
 		var out: Vector3 = (to_smoke.basis * (xf.basis * v.out)).normalized()
-		smoke.emit_vent(p, out * (2.0 + randf() * 2.0), 0.7 + randf() * 0.7, 0.16 * float(v.rate) + 0.06)
+		smoke.emit_vent(p, out * (3.0 + randf() * 3.0), 0.35 + randf() * 0.4, 0.14 * float(v.rate) + 0.08)

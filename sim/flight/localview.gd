@@ -119,12 +119,15 @@ func _init(p: RenderPipeline) -> void:
 	sun2.shadow_enabled = false
 	sun2.light_energy = 0.0
 	root.add_child(sun2)
-	# A physical sky for reflections only, so PBR metal has something to reflect.
+	# A physical sky that is never drawn: PBR metal reflects it, and on High it is
+	# the ambient light. Its energy sets the skylight, because ambient_light_energy
+	# does nothing while the sky contributes all of it. At 6 a white wall in shade
+	# is about a fifth as bright as in sun, as a clear sky and the ground make it.
 	reflection_sky = Sky.new()
 	reflection_sky.radiance_size = Sky.RADIANCE_SIZE_64
 	reflection_material = PhysicalSkyMaterial.new()
 	reflection_material.turbidity = 3.0
-	reflection_material.energy_multiplier = 0.7
+	reflection_material.energy_multiplier = 6.0
 	reflection_sky.sky_material = reflection_material
 	pipe.env_local.sky = reflection_sky
 	for s in [1.0, -1.0]:
@@ -272,15 +275,17 @@ func _set_ambient(bounce: float) -> void:
 	# plus the starlight, isotropic and a little blue (the sky's mean star
 	# is hotter than the Sun), on the same 3× scale as the sun's irradiance
 	var sl := 3.0 * _starlight
-	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * 0.5 * bounce + sl * 0.85,
-		fill.g * 0.30 + (skyc.g + gnd.g) * 0.5 * bounce + sl * 0.92,
-		fill.b * 0.30 + (skyc.b + gnd.b) * 0.5 * bounce + sl * 1.0)
+	# Under a clear sky a wall facing away from the sun still gets ~15% of the sun's
+	# light from the sky and the ground. The ±Y pair gives a vertical wall none, so
+	# the isotropic part carries it.
+	var k := bounce * (1.5 if _has_air else 0.5)
+	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * k + sl * 0.85,
+		fill.g * 0.30 + (skyc.g + gnd.g) * k + sl * 0.92,
+		fill.b * 0.30 + (skyc.b + gnd.b) * k + sl * 1.0)
 	var env := pipe.env_local
-	# High uses the sky's directional diffuse irradiance. The old constant
-	# colour left backlit vehicles almost black in bright daylight.
+	# High takes the sky's directional irradiance from the physical sky.
 	if render_quality in ["high", "ultra"] and _has_air:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_energy = 0.7
 		for l: DirectionalLight3D in hemi: l.light_energy = 0.0
 		return
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR

@@ -42,13 +42,16 @@ not balloon, since they hand over to it within a few diameters.
 
 `balloon_radius` in the shader turns the corner within about one `R_eq`
 (`1 − e^(−2.6 x/R_eq)`), holds, and then narrows by about a third over six
-`R_eq` as the freestream folds it back. Noise lobes stretched about 4.5:1
-along the flow, advected downstream, displace the boundary by ±30%. At
+`R_eq` as the freestream folds it back. Noise lobes stretched about 5.7:1
+along the flow, advected downstream, displace the boundary by ±27%. At
 altitude the F-1's fuel-rich film coolant is recirculated toward the base and
 burns along the plume boundary ([NASA MSFC base-heating
 analyses](https://ntrs.nasa.gov/citations/19950017010)). In staging footage
-that reads as long sheets of fire streaming back from the base, which the
-stretched lobes imitate. Without them the boundary reads as a smooth cone.
+that reads as long sheets of fire streaming back from the base. The shader
+places these tongues by `r / R_b(x)`, the fraction of the boundary's radius,
+which stays constant along a streamline, so they fan out from the base as the
+plume swells. They are cut with a hard threshold so they read as separate
+sheets. Without them the boundary reads as a smooth cone.
 
 ## Brightness
 
@@ -67,8 +70,8 @@ Three things decide how much the ballooned plume glows.
   boundary, downstream. (Scaling by the local radius instead put a white hot
   spot at the nozzles.)
 
-Brown absorbing soot sits between the hot tongues (`sig_hi`), which gives the
-plume its dark streaks. A cluster's single-engine near fields dim and redden
+Brown absorbing soot sits in the gaps between the hot tongues (`sig_hi`,
+weighted by `(1 − tongue)²`), which gives the plume its dark streaks. A cluster's single-engine near fields dim and redden
 with the pressure ratio as well: their expanded cores have cooled, so their
 light is the mixing layer's colour, not the white core's.
 
@@ -105,11 +108,14 @@ the vehicle, and `ω` the planet's spin.
   of its width and jittered in size and position so the column is not a tube.
   They slow to the wind, widen as `√(1 + 0.35·age)` and last 70–110 s.
 - **Boil-off.** `Cryo` (`sim/flight/cryo.gd`) vents cold vapour from the top of
-  each cryogenic stage's upper tank while the vehicle sits fuelled. It is
-  denser than air, so it slumps as it spreads and evaporates in 2.5–4 s. The
-  same module draws rime on those tanks: on the oxygen tank of a kerosene
+  each cryogenic stage's upper tank while the vehicle sits fuelled: sixteen
+  small, faint puffs a second per vent, which overlap into a stream. It is
+  denser than air, so it slumps as it spreads and evaporates in 2–4 s. The
+  vehicle, a vertical cylinder, shades the vapour on its far side from the sun.
+  The same module draws rime on those tanks: on the oxygen tank of a kerosene
   stage, lightly on an insulated hydrogen stage, on both tanks of a methane
-  stage. The rime sheds over the first ~20 s of flight.
+  stage. The rime forms in broad patches, streaked vertically where condensate
+  froze running down the stringers. It sheds over the first ~20 s of flight.
 
 ## Launch smoke as volumes
 
@@ -131,6 +137,9 @@ added only along the view ray.
 - **Fire light.** The deflected exhaust lights the low puffs from underneath,
   falling off with distance from the flame in puff diameters. It goes out
   as the jet stops reaching the deck.
+- **Vapour.** Boil-off is drawn as thin sheets: the sharpened ridges of the
+  noise inside a ragged envelope. Most of each puff is empty, so the
+  overlapping puffs read as wisps, not balls.
 - **Soot albedo.** Smoke is optically thick, so multiple scattering raises its
   effective albedo to about 0.35. A volume puff of soot uses that rather than
   the near-black single-scattering colour the flat sprites use.

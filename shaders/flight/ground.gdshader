@@ -227,7 +227,7 @@ void fragment() {
 		float a2 = 0.04;
 		float dd = nh * nh * (a2 - 1.0) + 1.0;
 		float D = a2 / (3.14159265 * dd * dd);
-		float F = 0.02 + 0.98 * pow(1.0 - max(dot(V, Hh), 0.0), 5.0);
+		float F = 0.02 + 0.98 * pow(clamp(1.0 - dot(V, Hh), 0.0, 1.0), 5.0);
 		col += vec3(1.0, 0.96, 0.9) * water_frac * F * D / (4.0 * nv) * uSunI * shade;
 	}
 

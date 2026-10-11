@@ -2,7 +2,7 @@ class_name TitleLogo
 extends Control
 
 # The ASTRARIUM wordmark: hairline geometric capitals (the A drawn as Λ), an orbit
-# arc round the word with a planet on it, and a four-point star over the middle.
+# arc round the word with a planet on it, and a four-point star over the middle A.
 # Drawn as strokes so it scales without a font. Units are cap heights, y down.
 
 const WORD := "ASTRARIUM"
@@ -13,6 +13,8 @@ const GAP := 1.02
 ## The wordmark sits this many cap heights below the top: room for the arc and star.
 const TOP := 4.1
 const BOTTOM := 3.0
+## The letter the star stands on: the second A, whose apex points at it.
+const STAR_OVER := 4
 
 var color := Color(1.0, 1.0, 1.0, 0.94)
 
@@ -65,7 +67,10 @@ func _draw() -> void:
 	var line := maxf(1.1, cap * 0.05)
 	var base_y := TOP * cap
 	var x := 0.0
-	for ch in WORD:
+	var star_x := 0.0
+	for i in WORD.length():
+		var ch := WORD[i]
+		if i == STAR_OVER: star_x = x + WIDTH[ch] * 0.5 * cap
 		for s: PackedVector2Array in strokes(ch):
 			var pts := PackedVector2Array()
 			for p in s: pts.append(Vector2(x, base_y) + p * cap)
@@ -93,7 +98,7 @@ func _draw() -> void:
 	draw_circle(planet, cap * 0.12, color, true, -1.0, true)
 
 	# The star: four concave points, the vertical pair longer, and a faint halo.
-	var sc := Vector2(c.x, base_y - cap * 1.05)
+	var sc := Vector2(star_x, base_y - cap * 1.05)
 	var sy := cap * 0.62
 	var sx := cap * 0.46
 	draw_circle(sc, cap * 0.36, Color(color, 0.06), true, -1.0, true)

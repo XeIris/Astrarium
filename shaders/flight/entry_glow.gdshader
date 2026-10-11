@@ -24,7 +24,7 @@ void fragment() {
 	vec3 n = normalize(vN);
 	// The sheath is brightest at the stagnation point and streams back.
 	float front = clamp(-n.y * 0.5 + 0.5, 0.0, 1.0);
-	float rim = pow(1.0 - abs(n.z), 2.0);
+	float rim = pow(max(1.0 - abs(n.z), 0.0), 2.0);
 	float flick = 0.75 + 0.25 * hash(floor(vP * 9.0 + uTime * 26.0));
 	float i = uHeat * (pow(front, 2.4) * 1.6 + rim * 0.5) * flick;
 	// colour runs dull red → orange → blue-white as the flux climbs, which

@@ -169,28 +169,34 @@ void fragment() {
 			vec3 qb = vec3(p.x / Req, xr - uTime * 0.9, p.z / Req);
 			// Stretched along the flow: the recirculated film coolant burns in sheets
 			// streaming back from the base, not round lobes (docs/physics/plumes.md).
-			float lobe = fbm3(qb * vec3(1.7, 0.38, 1.7) + uSeed);
-			float Rb = balloon_radius(xr) * (1.0 + 0.6 * (lobe - 0.5));
+			float lobe = fbm3(qb * vec3(1.7, 0.3, 1.7) + uSeed);
+			float Rb0 = balloon_radius(xr);
+			float Rb = Rb0 * (1.0 + 0.55 * (lobe - 0.5));
 			float rb = r / Rb;
 			float tail = 1.0 - smoothstep(3.0, 6.3, xr);
 			if (rb < 1.35 && tail > 0.0) {
-				float fine = fbm3(vec3(p.x / Req * 5.5, xr * 1.1 - uTime * 2.4, p.z / Req * 5.5) - uSeed);
-				float sb = (rb - 0.86) / 0.2;
+				// Tongues long along the flow, cut hard so they read as separate sheets.
+				// Across the flow they are placed by the fraction of the boundary's radius,
+				// which is constant along a streamline, so they fan out from the base.
+				vec2 sl = p.xz / (uRe * Rb0);
+				float fine = fbm3(vec3(sl.x * 6.0, xr * 0.8 - uTime * 2.4, sl.y * 6.0) - uSeed);
+				float tongue = smoothstep(0.42, 0.66, fine);
+				float sb = (rb - 0.86) / 0.18;
 				float shell = exp(-sb * sb);
 				float fill = exp(-rb * rb * 1.8) * 0.35;
-				float tongue = clamp(fine * 1.9 - 0.45, 0.0, 1.0);
 				// Incandescent soot carries the light; a clean hydrogen plume barely shows.
 				float inc = clamp(uSoot * 1.15 + uAfterburn * 0.12, 0.0, 1.0);
 				float coolB = smoothstep(0.0, 4.5, xr);
 				// Hottest in the tongues the shock heats, cooling to dull red downstream.
 				vec3 c = mix(uMix, uTail, coolB);
-				float dens = (shell * (0.25 + 2.2 * tongue * tongue) + fill * (0.3 + 0.7 * lobe)) * tail;
+				float dens = (shell * (0.12 + 2.8 * tongue) + fill * (0.1 + 1.5 * tongue) * (0.5 + lobe)) * tail;
 				// Per metre ∝ 1/R_eq, so a path across the swollen plume carries the light
 				// and the narrow neck at the exit stays dim: the heating develops
 				// where the freestream meets the boundary.
 				em_hi = c * dens * inc * (0.2 + 0.8 * uShellK) * uHi * 1.1 * (1.3 - 0.5 * coolB) / Req;
-				// Soot that has stopped glowing: the brown streaks between the tongues.
-				sig_hi = uSoot * dens * (1.0 - 0.6 * tongue) * 1.7 * uHi / Req;
+				// Soot that has stopped glowing lies between the tongues: the dark streaks.
+				float gap = (1.0 - tongue) * (1.0 - tongue);
+				sig_hi = uSoot * (shell + fill * 1.5) * tail * gap * 2.6 * uHi / Req;
 				in_hi = true;
 			}
 		}

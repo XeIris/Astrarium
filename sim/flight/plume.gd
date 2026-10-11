@@ -484,7 +484,7 @@ static func create_entry_glow(radius: float) -> EntryGlow:
 class SmokeColumn extends RefCounted:
 	const PAD_N := 620
 	const TRAIL_N := 300
-	const VENT_N := 100
+	const VENT_N := 320
 	const N := PAD_N + TRAIL_N + VENT_N
 	const STEAM_KIND := 0
 	const SOOT_KIND := 1
@@ -521,6 +521,10 @@ class SmokeColumn extends RefCounted:
 	var _pad_acc := 0.0
 	## Where the deflected exhaust burns, in the group's frame.
 	var fire_pos := Vector3.ZERO
+	## The fuelled vehicle as a vertical cylinder that shades its own boil-off:
+	## a point on its axis (group frame) and its radius, m. INF when there is none.
+	var body_axis := Vector3.INF
+	var body_r := 0.0
 	## The wind the smoke drifts with, m/s in the local frame.
 	var wind := Vector3.ZERO
 	## Where the last trail puff was laid, in the group's frame (reframed with them).
@@ -603,7 +607,20 @@ class SmokeColumn extends RefCounted:
 		_vent_next = PAD_N + TRAIL_N + (_vent_next - PAD_N - TRAIL_N + 1) % VENT_N
 		var k2 := 0.95 + randf() * 0.08
 		_spawn(_vent_next, p, v, s, Color(STEAM.r * k2, STEAM.g * k2, STEAM.b * k2), VENT_KIND,
-			1.0 / (2.5 + randf() * 1.5), 14.0, opacity)
+			1.0 / (2.0 + randf() * 2.0), 10.0, opacity)
+		shade[_vent_next] = _body_shade(p)
+
+	## Sunlight reaching `p` past the vehicle: vapour on its far side is in its shadow.
+	func _body_shade(p: Vector3) -> float:
+		if body_axis == Vector3.INF: return 1.0
+		var sun := Vector2(Plume.sun_local.x, Plume.sun_local.z)
+		if sun.length_squared() < 1e-6: return 1.0
+		sun = sun.normalized()
+		var d := Vector2(p.x - body_axis.x, p.z - body_axis.z)
+		if d.dot(sun) > 0.0: return 1.0
+		var miss := absf(d.x * sun.y - d.y * sun.x)
+		# Not to black: thin vapour takes light scattered round the vehicle's edges.
+		return lerpf(0.35, 1.0, smoothstep(body_r * 0.7, body_r * 1.3, miss))
 
 	## The frame moved: positions and velocities through the affine map `A·x + t`.
 	func reframe(A: Basis, t: Vector3) -> void:
@@ -629,6 +646,7 @@ class SmokeColumn extends RefCounted:
 			elif kind[i] == VENT_KIND:
 				# Colder and denser than the air: it slumps down the vehicle as it drifts.
 				v += (wind * 0.6 - v) * minf(dt * 0.8, 1.0) + Vector3(0.0, -1.4 * dt, 0.0)
+				shade[i] = lerpf(shade[i], _body_shade(pos[i]), minf(dt * 4.0, 1.0))
 			else:
 				var hv := Vector3(v.x, 0.0, v.z)
 				hv += (Vector3(wind.x, 0.0, wind.z) - hv) * minf(dt * 0.45, 1.0)
@@ -676,21 +694,23 @@ class SmokeColumn extends RefCounted:
 			_depth[i] = fwd.dot(xf * pos[i] - eye)
 			if _depth[i] < -size[i]: continue
 			# depth to 1/1024 m, then the slot: one native sort, farthest first
-			_keys.append(int(floor(-_depth[i] * 1024.0)) * 1024 + i)
+			_keys.append(int(floor(-_depth[i] * 1024.0)) * 2048 + i)
 		_keys.sort()
 		var split := -INF
 		if deluge != null and deluge.is_visible_in_tree():
 			split = fwd.dot(deluge.global_transform * deluge.custom_aabb.get_center() - eye)
 		var nf := 0; var nn := 0
 		for key in _keys:
-			var i := key & 1023
+			var i := key & 2047
 			# A new puff condenses in over half a second rather than appearing whole.
 			var op := pow(life[i], 1.4) * op0[i] * minf(age[i] * 2.0, 1.0)
 			# Nearly gone: not worth a raymarch.
 			if op < 0.05: continue
 			# The fire lights the low, near puffs from underneath.
 			var fd := (pos[i] - fire_pos).length() / maxf(size[i], 1.0)
-			var ex := Vector3(shade[i] if kind[i] != TRAIL_KIND else 0.92, Plume.fire_level * exp(-fd * 0.7), seed[i])
+			# custom.z < 0 marks boil-off vapour, drawn as wisps (smoke_volume.gdshader).
+			var fire := -1.0 if kind[i] == VENT_KIND else Plume.fire_level * exp(-fd * 0.7)
+			var ex := Vector3(shade[i] if kind[i] != TRAIL_KIND else 0.92, fire, seed[i])
 			if _depth[i] > split:
 				far.put(nf, pos[i], size[i], color[i], op, rot[i], ex); nf += 1
 			else:
@@ -716,7 +736,7 @@ class SmokeColumn extends RefCounted:
 static func create_smoke_column() -> SmokeColumn:
 	var o := SmokeColumn.new()
 	var n := SmokeColumn.N
-	assert(n <= 1024)    # the sort key's slot bits
+	assert(n <= 2048)    # the sort key's slot bits
 	o.group = Node3D.new()
 	o.group.name = "smoke"
 	var mat := sprite_material(false, 2, ORDER_SMOKE)

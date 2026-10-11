@@ -4,6 +4,7 @@
 // and through this puff (a short march toward it), Henyey–Greenstein forward
 // scattering, sky from above, ground bounce from below, and the fire underneath
 // (custom.z). Instance colour is (albedo, opacity); custom.x the spin, custom.w a seed.
+// custom.z < 0 marks boil-off vapour: thin sheets and filaments instead of billows.
 // Output for blend_mix: the scattered light over the coverage, and the coverage.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled;
@@ -48,10 +49,18 @@ float hg(float c, float g) {
 
 // Density at a point given in the puff's own units (centre 0, surface 1). The
 // noise rides with the puff and grows with it; the spin turns it slowly.
-float density(vec3 q, mat3 spin, vec3 seed) {
+float density(vec3 q, mat3 spin, vec3 seed, bool wisp) {
 	float r0 = length(q);
 	if (r0 >= 1.0) return 0.0;
 	vec3 w = spin * q;
+	if (wisp) {
+		// Condensing vapour mixes in sheets: the ridges of the noise, sharpened, inside
+		// a ragged envelope. Mostly empty, so overlapping puffs make streams, not balls.
+		float e = texture(uNoise, w * 0.7 + seed).r;
+		float ridge = 1.0 - abs(2.0 * texture(uNoise, w * 1.9 - seed * 1.3).r - 1.0);
+		float env = 1.0 - r0 * r0 * (1.0 + (e - 0.5) * 1.4);
+		return smoothstep(0.0, 0.4, env) * pow(ridge, 5.0) * 1.6;
+	}
 	// Billows: the large octave folded (|2n − 1|) into rounded lobes, finer ones on top.
 	float n0 = texture(uNoise, w * 0.55 + seed).r;
 	float n1 = texture(uNoise, w * 1.3 - seed * 1.7).r;
@@ -89,6 +98,7 @@ void fragment() {
 	mat3 toWorld = mat3(INV_VIEW_MATRIX);
 	float phase = mix(0.0796, hg(dot(rd, sunV), 0.55), 0.7);
 	float sigma0 = uDensity * vCol.a / vR;
+	bool wisp = vCustom.z < 0.0;
 
 	float dt = (t1 - t0) / float(uSteps);
 	float jit = fract(52.9829189 * fract(dot(FRAGCOORD.xy, vec2(0.06711056, 0.00583715))));
@@ -98,18 +108,18 @@ void fragment() {
 		if (i >= uSteps) break;
 		vec3 p = rd * (t0 + (float(i) + jit) * dt);
 		vec3 q = (p - vCentre) / vR;
-		float dn = density(toWorld * q, spin, seed);
+		float dn = density(toWorld * q, spin, seed, wisp);
 		if (dn <= 0.0) continue;
 		// Toward the sun through this puff; the rest of the cloud is custom.y.
 		float od = 0.0;
 		for (int k = 1; k <= 3; k++) {
 			if (k > uLightSteps) break;
-			od += density(toWorld * (q + sunV * 0.3 * float(k)), spin, seed);
+			od += density(toWorld * (q + sunV * 0.3 * float(k)), spin, seed, wisp);
 		}
 		float sunT = vCustom.y * exp(-od * uDensity * 0.3 * vCol.a);
 		float up = dot(normalize(q), upV);
 		vec3 amb = mix(uGround, uSky, 0.5 + 0.5 * up) * (0.55 + 0.45 * vCustom.y);
-		vec3 fire = uFire * vCustom.z * clamp(0.6 - 0.6 * up, 0.0, 1.2);
+		vec3 fire = uFire * max(vCustom.z, 0.0) * clamp(0.6 - 0.6 * up, 0.0, 1.2);
 		vec3 Ls = vCol.rgb * (uSun * sunT * phase * 12.566371 * 0.35 + amb) + fire;
 		float a_s = 1.0 - exp(-sigma0 * dn * dt);
 		L += T * Ls * a_s;

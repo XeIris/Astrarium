@@ -31,7 +31,7 @@ void fragment() {
 	if (uPower < 0.002) discard;
 	float r = length(vP.xz);               // 0 on the axis, 1 at the rim
 	// A THIN SHELL IS BRIGHTEST WHERE YOU LOOK ALONG IT.
-	float grazing = pow(1.0 - abs(normalize(vN).y), 1.6);
+	float grazing = pow(max(1.0 - abs(normalize(vN).y), 0.0), 1.6);
 	// Thin on the axis (the jet is coming down there), thickest part-way out.
 	float band = smoothstep(0.08, 0.38, r) * (1.0 - smoothstep(0.58, 1.0, r));
 	// LOBES, not a disc: a low-order azimuthal mode drifting at its own rate.
