@@ -844,7 +844,7 @@ static func lattice(h: float, w_bot: float, w_top: float, material: Material) ->
 
 # STAGE BUILDERS — one per `look` flavour
 static func _new_parts() -> Dictionary:
-	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "nozzles": []}
+	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "nozzles": []}
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	var built := _build_stage(spec, ctx)
@@ -869,8 +869,9 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 		CraftAssets.bind_parts(authored, parts, spec, ctx.get("vehicle", {}))
 		return {"group": ga, "parts": parts}
 
-	if _t(look.get("srb")): return build_srb(spec, parts)
-	if _t(look.get("orbiter")): return build_orbiter(spec, parts)
+	if _t(look.get("srb")): return ShuttleLines.build_srb(spec, parts)
+	if _t(look.get("orbiter")): return ShuttleLines.build_orbiter(spec, parts)
+	if _t(look.get("tank")): return ShuttleLines.build_et(spec, parts)
 	if _t(look.get("aeroshell")): return build_aeroshell(spec, parts)
 	if _t(look.get("skycrane")): return build_sky_crane(spec, parts)
 	if _t(look.get("rover")): return build_rover(spec, parts)
@@ -889,7 +890,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 
 	# the default: a cylindrical stage with engines under it. `L` is the whole
 	# length, so a nose eats into the barrel.
-	var nose_l := D * 1.45 if _t(look.get("tank")) else (D * 1.55 if _t(look.get("nosecone")) else 0.0)
+	var nose_l := D * 1.55 if _t(look.get("nosecone")) else 0.0
 	var interstage := _n(look.get("interstage"), 0.0)
 	# A stage carrying a nose or interstage gets a flat top, or the dome leaves a gap
 	# at the joint. The aft end is near-flat too.
@@ -937,28 +938,6 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 		# heat tiles on the windward half only, which is what they are for
 		var sh := _mesh(_cylinder(D / 2.0 * 1.005, D / 2.0 * 1.005, L * 0.9, 28, 1, true, -PI / 2.0, PI), decal_mat(M.tiles))
 		sh.position.y = L * 0.45; g.add_child(sh)
-	if _t(look.get("tank")):
-		# Shuttle ET: its 46.9 m includes the ogive, so the barrel is shortened for it.
-		var nose := ogive(nose_l, D, skin, 24)
-		nose.position.y = L - nose_l; g.add_child(nose)
-		# The intertank is the one stringered band on an otherwise smooth tank,
-		# and it is the feature that stops 47 m of orange foam reading as a crayon.
-		var it_y := L * 0.545; var it_h := L * 0.115
-		for i in 40:
-			var a := i / 40.0 * TAU
-			var rib := _mesh(_box(0.16, it_h, 0.16), M.foam)
-			rib.position = Vector3(cos(a) * D / 2.0 * 1.005, it_y + it_h / 2.0, sin(a) * D / 2.0 * 1.005)
-			rib.rotation.y = -a; g.add_child(rib)
-		for yy in [it_y, it_y + it_h]:
-			var b := _mesh(_torus(D / 2.0 * 1.012, 0.10, 6, 40), M.foam)
-			b.rotation.x = PI / 2.0; b.position.y = yy; g.add_child(b)
-		# The LO2 feedline and the pressurisation lines run the length of the
-		# tank on the orbiter's side — the only straight lines on the whole object.
-		for ar in [[0.34, 0.24], [-0.34, 0.13]]:
-			var pipe := _mesh(_cylinder(ar[1], ar[1], L * 0.80, 10), M.dirty)
-			pipe.position = Vector3(sin(ar[0]) * D / 2.0 * 1.06, L * 0.40, cos(ar[0]) * D / 2.0 * 1.06)
-			g.add_child(pipe)
-
 	# engines. `engineOn` means another stage carries them (the SSMEs are on the
 	# orbiter), so the tank doesn't draw bells.
 	var eng = spec.get("engine")
@@ -1248,190 +1227,6 @@ static func _flap_plate(s0: float, s1: float, chord: float, th: float) -> Geo:
 		g.idx.append_array([a, b + 1, b, a, a + 1, b + 1])
 	_compute_normals(g)
 	return g
-
-## THE SOLIDS. y = 0 is the nozzle exit plane, level with the pad, so the 45.5 m is
-## measured as published. Four casting segments with raised field joints and a
-## full-length systems tunnel.
-static func build_srb(spec: Dictionary, parts: Dictionary) -> Dictionary:
-	var g := _grp()
-	var D: float = spec.D; var L: float = spec.L; var r := D / 2.0
-	for side in [-1.0, 1.0]:
-		var b := _grp()
-		b.position.x = side * 6.35
-		# Aft skirt: the flared structure that actually carries the stack, with
-		# the nozzle recessed inside it. It is wider than the motor case.
-		var skirt := _mesh(_cylinder(r * 1.02, r * 1.30, L * 0.098, 24, 1, true), M.dirty)
-		skirt.position.y = L * 0.049; b.add_child(skirt)
-		# The nozzle hangs on a pivot because plumes parent to parts.gimbals. The RSRM
-		# nozzle vectors 8°.
-		var nzp := _grp()
-		nzp.position.y = L * 0.085
-		nzp.set_meta("gimbal_deg", float(spec.engine.gimbal))
-		var exd := _n(spec.engine.get("exitD"), 0.0)
-		nzp.add_child(bell(exd if exd != 0.0 else D * 0.95, 7.7, false))
-		b.add_child(nzp); parts.gimbals.append(nzp)
-		# Motor case: four segments, so four field joints.
-		var case_y := L * 0.098; var case_l := L * 0.735
-		var body := _mesh(_cylinder(r, r, case_l, 28, 1, true), M.white)
-		body.position.y = case_y + case_l / 2.0; b.add_child(body)
-		for i in range(1, 5):
-			var j := _mesh(_torus(r * 1.018, D * 0.022, 6, 28), M.dirty)
-			j.rotation.x = PI / 2.0; j.position.y = case_y + case_l * i / 5.0; b.add_child(j)
-		# Systems tunnel — the cable raceway down the outboard face.
-		var tun := _mesh(_box(D * 0.10, case_l * 0.98, D * 0.07), M.dirty)
-		tun.position = Vector3(side * r * 0.99, case_y + case_l / 2.0, 0); b.add_child(tun)
-		# Forward skirt, frustum (the parachutes) and nose cap.
-		var fs_y := case_y + case_l; var fs_l := L * 0.070
-		var fs := _mesh(_cylinder(r, r, fs_l, 24, 1, true), M.white)
-		fs.position.y = fs_y + fs_l / 2.0; b.add_child(fs)
-		var fr_l := L * 0.048
-		var fr := _mesh(_cylinder(r * 0.72, r, fr_l, 24, 1, true), M.white)
-		fr.position.y = fs_y + fs_l + fr_l / 2.0; b.add_child(fr)
-		var cap_y := fs_y + fs_l + fr_l; var cap_l := L - cap_y
-		var cap := ogive(cap_l, r * 1.44, M.white, 24); cap.position.y = cap_y; b.add_child(cap)
-		# The forward attach fitting and the aft struts: the booster does not
-		# touch the tank, it is held off it, and the gap is a structural fact.
-		for yl in [[fs_y + fs_l * 0.4, 0.9], [case_y + case_l * 0.06, 1.1], [case_y + case_l * 0.13, 1.1]]:
-			var st := _mesh(_cylinder(0.16, 0.16, yl[1], 8), M.dirty)
-			st.position = Vector3(-side * (r + yl[1] / 2.0), yl[0], 0); st.rotation.z = PI / 2.0
-			b.add_child(st)
-		g.add_child(b)
-	return {"group": g, "parts": parts}
-
-## THE ORBITER, nose-up along +Y, wings on ±X, belly on −Z (toward the tank). Lofted
-## fuselage and a kinked wing. Black tiles and RCC where the plasma goes, white
-## blanket where only space does.
-static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
-	var g := _grp()
-	var L: float = spec.L                                  # 37.2 m
-	var f := func(u: float) -> float: return u * L
-	# fuselage: stations from the base up, half-width / half-height in m. `n`
-	# goes from near-circular at the nose to the payload bay's rounded square.
-	var sec := [
-		{"y": f.call(0.000), "w": 2.35, "h": 2.60, "cz": 0.10, "n": 3.0},
-		{"y": f.call(0.030), "w": 2.62, "h": 2.86, "cz": 0.06, "n": 3.4},
-		{"y": f.call(0.090), "w": 2.78, "h": 2.92, "cz": 0.02, "n": 3.6},
-		{"y": f.call(0.200), "w": 2.80, "h": 2.86, "cz": 0.00, "n": 3.6},
-		{"y": f.call(0.400), "w": 2.80, "h": 2.80, "cz": 0.00, "n": 3.6},
-		{"y": f.call(0.640), "w": 2.80, "h": 2.74, "cz": 0.00, "n": 3.5},
-		{"y": f.call(0.720), "w": 2.72, "h": 2.58, "cz": 0.02, "n": 3.2},
-		{"y": f.call(0.800), "w": 2.44, "h": 2.26, "cz": 0.06, "n": 2.9},
-		{"y": f.call(0.865), "w": 2.02, "h": 1.84, "cz": 0.10, "n": 2.7},
-		{"y": f.call(0.925), "w": 1.42, "h": 1.30, "cz": 0.12, "n": 2.5},
-		{"y": f.call(0.968), "w": 0.78, "h": 0.72, "cz": 0.12, "n": 2.3},
-		{"y": f.call(1.000), "w": 0.10, "h": 0.10, "cz": 0.10, "n": 2.2},
-	]
-	# Two shells, split at the waterline: white blanket over, black tile under.
-	g.add_child(loft(sec, M.white, 30, 0.0, PI))
-	g.add_child(loft(sec, M.tiles, 30, PI, TAU))
-
-	# wing: a double delta, kinked at x = 5.4 m (79° glove, 45° outer panel).
-	var ws := [
-		{"x": 2.52, "yLE": f.call(0.700), "chord": f.call(0.673), "thick": 0.055, "cz": -1.30},
-		{"x": 3.80, "yLE": f.call(0.560), "chord": f.call(0.533), "thick": 0.060, "cz": -1.20},
-		{"x": 5.40, "yLE": f.call(0.360), "chord": f.call(0.333), "thick": 0.070, "cz": -1.10},
-		{"x": 8.60, "yLE": f.call(0.245), "chord": f.call(0.218), "thick": 0.085, "cz": -0.85},
-		{"x": 11.30, "yLE": f.call(0.147), "chord": f.call(0.112), "thick": 0.100, "cz": -0.62},
-		{"x": 11.90, "yLE": f.call(0.138), "chord": f.call(0.062), "thick": 0.110, "cz": -0.58},
-	]
-	for sgn in [1.0, -1.0]:
-		g.add_child(wing_panel(ws, M.white, M.tiles, 14, sgn))
-
-	# vertical tail. Built in the wing's own frame (span on X) and rotated
-	# upright, so one function serves both surfaces.
-	var ts := [
-		{"x": 0.0, "yLE": f.call(0.185), "chord": 6.10, "thick": 0.13},
-		{"x": 3.4, "yLE": f.call(0.140), "chord": 4.85, "thick": 0.13},
-		{"x": 6.6, "yLE": f.call(0.100), "chord": 3.55, "thick": 0.14},
-		{"x": 7.9, "yLE": f.call(0.083), "chord": 2.75, "thick": 0.15},
-	]
-	var tail := wing_panel(ts, M.white, M.white)
-	tail.rotation.y = -PI / 2.0                        # span X → +Z, i.e. up
-	tail.position.z = 2.55
-	g.add_child(tail)
-
-	# OMS pods: the two bulges either side of the fin root. They are the
-	# orbiter's own engines, and the only ones it keeps after the tank is gone.
-	for sgn in [-1.0, 1.0]:
-		var pod := loft([
-			{"y": f.call(0.020), "w": 0.55, "h": 0.55, "n": 2.4},
-			{"y": f.call(0.060), "w": 1.05, "h": 1.00, "n": 2.6},
-			{"y": f.call(0.120), "w": 1.25, "h": 1.15, "n": 2.6},
-			{"y": f.call(0.175), "w": 1.05, "h": 0.95, "n": 2.5},
-			{"y": f.call(0.215), "w": 0.45, "h": 0.42, "n": 2.4},
-		], M.white, 18)
-		pod.position = Vector3(sgn * 2.05, 0, 1.95)
-		g.add_child(pod)
-		# The OMS bell itself, canted out and down the way the real one is.
-		var b := bell(1.35, 55)
-		b.position = Vector3(sgn * 2.15, f.call(0.035), 1.55)
-		b.rotation = Vector3(-0.30, b.rotation.y, sgn * 0.18)
-		g.add_child(b)
-		# Forward RCS in the nose, aft RCS in the pods.
-		for k in 3:
-			var n2 := _mesh(_cylinder(0.11, 0.13, 0.22, 8), M.black)
-			n2.position = Vector3(sgn * (2.7 + k * 0.1), f.call(0.19 + k * 0.006), 2.3 - k * 0.5)
-			n2.rotation.z = sgn * PI / 2.0; g.add_child(n2)
-
-	# three SSMEs, in the triangle they actually sit in: one high on the
-	# centreline, two low and outboard. They gimbal, so each gets a pivot.
-	var ec := _grp()
-	var piv := []
-	for xz in [[0.0, 1.30], [-1.55, -0.55], [1.55, -0.55]]:
-		var p := _grp()
-		p.position = Vector3(xz[0], f.call(0.045), xz[1])
-		p.add_child(bell(2.30, 69))
-		ec.add_child(p); piv.append(p)
-	g.add_child(ec); parts.gimbals = piv
-	# The boat-tail shroud the engines hang out of.
-	var aft := loft([{"y": f.call(0.000), "w": 2.30, "h": 2.45, "cz": 0.10, "n": 3.0},
-		{"y": f.call(0.055), "w": 2.70, "h": 2.90, "cz": 0.05, "n": 3.4}], M.black, 24)
-	g.add_child(aft)
-
-	# body flap: the slab under the engines that trims the vehicle in
-	# hypersonic flight and shields the bells. Small, and very recognisable.
-	var flap := _mesh(_box(4.3, 2.3, 0.36), M.tiles)
-	flap.position = Vector3(0, f.call(0.028), -2.35); flap.rotation.x = 0.12
-	g.add_child(flap); parts.flaps.append(flap)
-
-	# payload bay doors, closed: two long panels along the top with the
-	# radiator lines that live on their inner face showing as seams.
-	for sgn in [-1.0, 1.0]:
-		var door := loft([
-			{"y": f.call(0.215), "w": 2.62, "h": 2.62, "n": 3.4},
-			{"y": f.call(0.640), "w": 2.62, "h": 2.60, "n": 3.4},
-		], M.dirty, 14, 0.10 if sgn > 0 else PI - 0.10, PI / 2.0 - 0.03 if sgn > 0 else PI / 2.0 + 0.03)
-		g.add_child(door)
-
-	# flight deck windows, placed by solving the superellipse section for z at
-	# the window's x and standing the glass a few cm proud.
-	var win_sec := {"w": 1.72, "h": 1.56, "cz": 0.11, "n": 2.7}
-	var surf_z := func(x: float) -> float:
-		return win_sec.cz + win_sec.h * pow(maxf(1.0 - pow(absf(x) / win_sec.w, win_sec.n), 0.0), 1.0 / win_sec.n)
-	for i in 6:
-		var a := (i - 2.5) / 2.5                       # −1 … +1 across the front
-		var x := a * 1.30
-		var win := _mesh(_box(0.52, 0.46, 0.10), M.glass)
-		win.position = Vector3(x, f.call(0.897), surf_z.call(x) + 0.02)
-		win.rotation = Vector3(-0.62, -a * 0.42, 0)
-		g.add_child(win)
-	# The two overhead windows, flat on the crown behind the forward six.
-	for dx in [-0.42, 0.42]:
-		var ov := _mesh(_box(0.44, 0.44, 0.10), M.glass)
-		ov.position = Vector3(dx, f.call(0.856), surf_z.call(dx) + 0.10)
-		ov.rotation.x = -0.05; g.add_child(ov)
-	# Side hatch, on the port side of the crew cabin.
-	var hatch := _mesh(_cylinder(0.50, 0.50, 0.08, 18), M.dirty)
-	hatch.position = Vector3(-1.86, f.call(0.845), 0.55)
-	hatch.rotation = Vector3(0, 0, PI / 2.0); g.add_child(hatch)
-	# Black nose cap: the hottest single point on the vehicle, ~1 600 °C.
-	var cap := loft([
-		{"y": f.call(0.962), "w": 0.90, "h": 0.84, "cz": 0.10, "n": 2.3},
-		{"y": f.call(0.985), "w": 0.56, "h": 0.52, "cz": 0.10, "n": 2.2},
-		{"y": f.call(1.000), "w": 0.10, "h": 0.10, "cz": 0.10, "n": 2.2},
-	], M.tiles, 20)
-	g.add_child(cap)
-	return {"group": g, "parts": parts}
 
 static func build_fairing(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
@@ -2125,15 +1920,19 @@ static func triangles(obj: Node) -> int:
 	return tris
 
 # THE VEHICLE
+## How far the orbiter's payload bay doors swing open, rad.
+const DOOR_OPEN := 175.5 * PI / 180.0
+
 ## One stage of a built craft: {key, spec, group, parts, base_y, deploy, sep}.
 class CraftStage extends RefCounted:
 	var key: String
 	var spec: Dictionary
 	var group: Node3D
-	## {gimbals, fins, legs, arrays, flaps, halves, nozzles}: Arrays of Node3D.
+	## {gimbals, fins, legs, arrays, flaps, halves, doors, nozzles}: Arrays of Node3D.
 	var parts: Dictionary
 	var base_y := 0.0
 	var deploy := 0.0
+	var gear := 0.0
 	## null, or {t, v, spin} while a separated stage drifts off.
 	var sep = null
 
@@ -2146,8 +1945,8 @@ class Craft extends RefCounted:
 	var authored := false
 
 	## Drive every moving part from the flight state; nothing is on a timer. `s` is
-	## {dt, attached: {key: bool}, deploy: {key: 0..1}, gimbal: {x, z}, flap (float or
-	## Array, rad), finTwist (Array, rad), gearStage}.
+	## {dt, attached: {key: bool}, deploy: {key: 0..1}, gear: {key: 0..1}, gimbal: {x, z},
+	## flap (float or Array, rad), finTwist (Array, rad), gearStage}.
 	func update(s: Dictionary) -> void:
 		var dt := float(s.get("dt", 0.0))
 		var attached: Dictionary = s.get("attached", {}) if s.get("attached") != null else {}
@@ -2181,7 +1980,16 @@ class Craft extends RefCounted:
 					st.deploy = 0.0
 			st.deploy += clampf(want - st.deploy, -dt * 0.55, dt * 0.55)
 			var d := st.deploy
-			for leg: Node3D in st.parts.legs: leg.rotation.z = -d * 1.15
+			# Landing gear that swings its own angle (`look.gearSwing`, the orbiter's
+			# wheels) runs on the `gear` channel, apart from the stage's other deployables.
+			var swing := float(st.spec.get("look", {}).get("gearSwing", 0.0))
+			if swing > 0.0:
+				var gin = s.get("gear", {})
+				var gw := float(gin.get(st.key, 0.0)) if gin is Dictionary else 0.0
+				st.gear += clampf(gw - st.gear, -dt * 0.45, dt * 0.45)
+				for leg: Node3D in st.parts.legs: leg.rotation.z = -st.gear * swing
+			else:
+				for leg: Node3D in st.parts.legs: leg.rotation.z = -d * 1.15
 			# A grid fin steers by twisting about its own span: its local X, outboard.
 			var twist = s.get("finTwist")
 			for i in st.parts.fins.size():
@@ -2189,6 +1997,7 @@ class Craft extends RefCounted:
 				fin.rotation.z = -d * 1.35
 				fin.rotation.x = float(twist[i]) if twist is Array and i < twist.size() else 0.0
 			for arr: Node3D in st.parts.arrays: arr.rotation.z = (1.0 - d) * (PI / 2.0)
+			for door: Node3D in st.parts.doors: door.rotation.z = d * DOOR_OPEN
 			for h: Node3D in st.parts.halves:
 				h.rotation.z = 0.0; h.position.x = 0.0
 			# gimbal: the commanded deflection, clamped per pivot to its `gimbal_deg`; a pivot

@@ -33,6 +33,7 @@ const ROLES := [
 	["arrays", "^array_([A-Za-z0-9]+)_(\\d+)$"],
 	["flaps", "^flap_([A-Za-z0-9]+)_(\\d+)$"],
 	["halves", "^half_([A-Za-z0-9]+)_(\\d+)$"],
+	["doors", "^door_([A-Za-z0-9]+)_(\\d+)$"],
 ]
 
 static var _re := []
@@ -70,7 +71,7 @@ static func part_counts(spec: Dictionary, vehicle: Dictionary) -> Dictionary:
 	return {"gimbals": gimbal_limits(spec, vehicle).size(), "fins": int(spec.get("gridFins", 0)),
 		"legs": 0 if look.get("fixedLegs", false) else int(spec.get("legs", 0)),
 		"arrays": int(look.get("arrays", 0)), "flaps": int(spec.get("flaps", look.get("flaps", 0))),
-		"halves": 2 if look.get("fairing", false) else 0}
+		"halves": 2 if look.get("fairing", false) else 0, "doors": int(look.get("doors", 0))}
 
 static func validate_scene(scene: Node, vehicle: Dictionary) -> Array:
 	var issues := []

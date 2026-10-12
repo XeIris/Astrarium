@@ -135,6 +135,7 @@ class Autopilot extends RefCounted:
 		v.roll_signed = false
 		flap_cmd = [0.0, 0.0, 0.0, 0.0]
 		_ins_set = false
+		_roll_noted = 0
 		_integ = 0.0
 		_pitch_cmd = null
 		for k in opts:
@@ -164,6 +165,7 @@ class Autopilot extends RefCounted:
 			"deorbit":     aim_dir = deorbit_guidance(dt, pa)
 			"catch":       aim_dir = catch_guidance(dt, pa)
 			"bellyflop":   aim_dir = bellyflop_guidance(dt, pa)
+			"glide":       aim_dir = glide_guidance(dt, pa)
 			_:             aim_dir = Guidance.attitude_for(mode, v, target)
 		if aim_dir != null: v.point_at(aim_dir, dt, pa, aim_roll)
 		aim = aim_dir.clone() if aim_dir != null else null
@@ -201,6 +203,7 @@ class Autopilot extends RefCounted:
 			note("Ascent — vertical rise")
 			pitch_deg = 90.0
 			_pitch_cmd = PI / 2.0; _pitch_met = v.met
+			if alt > 120.0: _ascent_roll(Guidance._up, heading)
 			return Guidance._a.copy_from(Guidance._up)
 
 		# phase 2: pitch θ = 90°·v₀/(v₀ + v − v_start), clamped within α_max of the
@@ -220,7 +223,9 @@ class Autopilot extends RefCounted:
 			# orbital plane to follow, then the plane itself.
 			Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 			var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
-			return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+			DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+			_ascent_roll(Guidance._a, heading)
+			return Guidance._a
 
 		# phase 3: explicit guidance, out of the air.
 		state_name = "closed"
@@ -276,7 +281,9 @@ class Autopilot extends RefCounted:
 		say("Ascent — closed loop · apo %s/%s km, pitch %s°" % [U.fixed(apo_alt / 1000.0, 0), U.fixed(A.targetApo / 1000.0, 0), U.fixed(pitch * 180.0 / PI, 0)])
 		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 		var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
-		return DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+		DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
+		_ascent_roll(Guidance._a, heading)
+		return Guidance._a
 
 	## The speed at perigee altitude `h` of an orbit whose apoapsis radius is r_a.
 	func _perigee_speed(env: Dictionary, h: float, r_a: float) -> float:
@@ -417,6 +424,7 @@ class Autopilot extends RefCounted:
 	##     has turned is a burn in the wrong direction;
 	##   · ignite at T − t_burn/2, from the rocket equation at the current mass;
 	##   · cut when the remaining Δv projected onto the node goes negative.
+	var _burn_met := 0.0
 	func node_guidance(dt: float, pa: float, nd):
 		if nd == null:
 			say("No node"); v.throttle = 0.0
@@ -447,12 +455,17 @@ class Autopilot extends RefCounted:
 		# ignition
 		if not burning:
 			burning = true
+			_burn_met = v.met
 			note("%s — ignition, Δv %s m/s" % [label, U.fixed(burn_remaining, 1)])
 		# Burn within 20° and charge the cosine loss. A tighter gate deadlocks a vehicle
 		# whose only authority is its gimbal.
 		var err := DQuat.angle_between(v.forward(Guidance._b), dir)
 		v.throttle = limit_throttle(1.0, pa, dt) if err < 0.35 else 0.0
-		if prop_f > 0.0: burn_remaining -= (prop_f / v.mass) * cos(err) * dt
+		# Charged in simulated seconds: guidance runs once a frame, and under physics warp a
+		# frame's dt is a fraction of the burn it covers.
+		var dt_sim := maxf(v.met - _burn_met, 0.0)
+		_burn_met = v.met
+		if prop_f > 0.0: burn_remaining -= (prop_f / v.mass) * cos(err) * dt_sim
 		if burn_remaining <= 0.05 or v.delta_v_remaining(pa) < 0.01:
 			v.throttle = 0.0; burning = false
 			note("%s — cutoff" % label)
@@ -821,19 +834,25 @@ class Autopilot extends RefCounted:
 			if hi - lo < 0.5: break
 		return 0.5 * (lo + hi)
 
-	## The lowest nonzero throttle of the first burning engine stage, or 0 if none.
-	func throttle_floor() -> float:
+	## The stage the throttle commands: the first burning one that can throttle. A
+	## solid follows its grain, so with the Shuttle's SRBs and SSMEs both lit the
+	## throttle (and the max-q bucket) belongs to the SSMEs.
+	func _throttle_stage():
+		var first = null
 		for s in v.live_stages():
 			if s.spec.get("engine") != null and s.prop > 0.0:
-				return s.spec.engine.get("throttleMin", 0.0)
-		return 0.0
+				if not s.spec.engine.get("solid", false): return s
+				if first == null: first = s
+		return first
+
+	## The lowest nonzero throttle of the throttled stage, or 0 if none.
+	func throttle_floor() -> float:
+		var s = _throttle_stage()
+		return s.spec.engine.get("throttleMin", 0.0) if s != null else 0.0
 
 	## Respect the engine's real throttle limits, including a forbidden band.
 	func throttle_for(x: float) -> float:
-		var st = null
-		for s in v.live_stages():
-			if s.spec.get("engine") != null and s.prop > 0.0:
-				st = s; break
+		var st = _throttle_stage()
 		if st == null: return 0.0
 		var eng: Dictionary = st.spec.engine
 		var th := DQuat.jclamp(x, 0.0, eng.get("maxThrottle", 1.0))
@@ -974,6 +993,30 @@ class Autopilot extends RefCounted:
 	## the leeward side, out of the flow.
 	var flap_cmd := [0.0, 0.0, 0.0, 0.0]
 	var _heading := DVec3.new()
+	var _roll_ref := DVec3.new()
+	var _roll_z := DVec3.new()
+	var _roll_noted := 0
+
+	## The Shuttle's roll program (`vehicle.ascentRoll`): from tower clear the stack
+	## rolls so that it pitches over heads-down, the orbiter under the tank, and from
+	## `headsUpAt` (MET, s) it rolls heads-up for the TDRS link. Body X = Y × Z, with
+	## Z (the orbiter's top) on the ground side of the nose, or the sky side.
+	func _ascent_roll(fwd: DVec3, heading: DVec3) -> void:
+		var r = v.vehicle.get("ascentRoll")
+		if r == null: return
+		var z := _roll_z.copy_from(Guidance._up).add_scaled_in(fwd, -Guidance._up.dot(fwd))
+		if z.length_sq() < 1e-6:
+			z.copy_from(heading)                     # vertical: the pitch-over side
+		else:
+			DQuat.nrm(z).scale_in(-1.0)
+		var up := v.met >= float(r.get("headsUpAt", INF))
+		if up: z.scale_in(-1.0)
+		var phase := 2 if up else 1
+		if _roll_noted != phase:
+			_roll_noted = phase
+			note("Roll to heads-up" if up else "Roll program — heads down")
+		aim_roll = _roll_ref.cross_vectors(fwd, z)
+		v.roll_signed = true
 
 	## Drag deceleration the entry flies at, m/s²: about 1.5 g.
 	const ENTRY_DRAG := 15.0
@@ -997,6 +1040,150 @@ class Autopilot extends RefCounted:
 			vv_ref = clampf(-150.0 * (1.0 - drag / ENTRY_DRAG), -150.0, 40.0)
 		var want := 0.08 * (vv_ref - v_vert) + g - vh2 / r + drag * (v_vert / maxf(va, 1.0))
 		return acos(clampf(want / lift, -1.0, 1.0))
+
+	# ORBITER ENTRY AND LANDING (docs/physics/orbiter-entry.md)
+	## Drag reference, m/s², by speed: ~5 while the air is thin and the heating is the
+	## limit, the constant-drag phase's 33 ft/s² from 5 km/s, 8 by TAEM.
+	func _shuttle_drag(va: float) -> float:
+		return lerpf(lerpf(8.0, 10.0, smoothstep(900.0, 2500.0, va)), 5.0, smoothstep(4500.0, 6500.0, va))
+	const REVERSAL := 0.17              # rad off the entry plane before a roll reversal
+	const OUTER_GS := -20.0 * PI / 180.0
+	const INNER_GS := -1.5 * PI / 180.0
+	const EAS_REF := 150.0              # m/s, 290 KEAS down the outer glide slope
+	var _bank_sign := 1.0
+	var _drag_f := 0.0
+	var _ref_set := false
+	var _ref_n := DVec3.new()
+	var _p := DVec3.new()
+
+	## Angle of attack (rad) that gives lift coefficient `cl` at this Mach and speed
+	## brake, by bisection: winged_coeffs' C_L rises monotonically to 45°.
+	func _alpha_for(cl: float, mach: float, sb: float) -> float:
+		var lo := 0.0
+		var hi := deg_to_rad(40.0)
+		if cl <= 0.0: return 0.0
+		for i in 24:
+			var mid := 0.5 * (lo + hi)
+			if Vessel.winged_coeffs(mid, mach, sb).x < cl: lo = mid
+			else: hi = mid
+		return 0.5 * (lo + hi)
+
+	func glide_guidance(dt: float, pa: float):
+		var st = v._first_attached()
+		DQuat.nrm(Guidance._up.copy_from(v.r))
+		var alt := v.altitude()
+		v.airspeed(v.r, v.v, Guidance._g)
+		var va := Guidance._g.length()
+		var v_vert := Guidance._g.dot(Guidance._up)
+		var g: float = v.env.mu / v.r.length_sq()
+		if v.phase == Vessel.PHASE.LANDED:
+			program = null; v.speedbrake = 0.0; v.roll_signed = false
+			note("Wheels stop")
+			return null
+		if st == null or st.spec.get("wings") == null:
+			note("Only a winged orbiter glides"); program = null
+			return null
+		if state_name == null or state_name == "done":
+			var top: float = float(v.env.atm.top) if v.env.atm != null else 0.0
+			if state_name == null and float(v.telemetry.get("peri", 0.0)) > top * 0.35 and alt > top:
+				state_name = "deorbit"
+			else:
+				state_name = "entry"
+				v.roll_signed = true
+				_bank_sign = 1.0
+				_ref_set = false
+				_drag_f = 0.0
+				note("Entry — 40° nose up, %s km, %s m/s" % [U.fixed(alt / 1000.0, 0), U.fixed(va, 0)])
+		if state_name == "deorbit":
+			if node == null:
+				var el: Dictionary = v.telemetry.el
+				var R: float = el.r
+				# A shallower perigee than a capsule's: a lifting entry needs less of a dive.
+				var a_new: float = (R + float(v.env.radius) + float(v.env.atm.top) * 0.5) / 2.0
+				var dv: float = sqrt(maxf(v.env.mu * (2.0 / R - 1.0 / a_new), 0.0)) - float(el.v)
+				node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
+			return node_guidance(dt, pa, node)
+
+		var mach: float = float(v.telemetry.get("mach", 0.0))
+		var q: float = float(v.telemetry.get("q", 0.0))
+		var S: float = st.spec.wings.area
+		var vh := Guidance._b.copy_from(Guidance._g)
+		if va > 1.0: vh.scale_in(1.0 / va)
+		var p := _p.copy_from(Guidance._up).add_scaled_in(vh, -Guidance._up.dot(vh))
+		if p.length_sq() < 1e-8: p.copy_from(v.forward(Guidance._d))
+		DQuat.nrm(p)
+		var aoa := 0.0
+		var bank := 0.0
+		if state_name == "entry" and va < 760.0:
+			state_name = "taem"
+			note("TAEM — Mach %s, %s km" % [U.fixed(mach, 1), U.fixed(alt / 1000.0, 1)])
+		if state_name == "entry":
+			# 40° until 3.5 km/s, easing to 14° by Mach 2.5; the speed brake opens to keep
+			# the rudder working once the flow is slower than Mach 10.
+			aoa = deg_to_rad(lerpf(14.0, 40.0, smoothstep(900.0, 3500.0, va)))
+			v.speedbrake = 0.0 if mach > 10.0 else 0.65
+			flap_cmd = [0.25, 0.0, 0.0, 0.0]
+			if q > 300.0:
+				# Bank to track the drag reference: sinking while the air is thin, level as
+				# drag reaches it. Lift at this α, from the same coefficients the vessel flies.
+				var lift: float = q * Vessel.winged_coeffs(aoa, mach, v.speedbrake).x * S / v.mass
+				# Filtered: the drag dips and jumps while the vehicle rolls through a reversal.
+				_drag_f += (float(v.telemetry.get("drag", 0.0)) / v.mass - _drag_f) * minf(dt / 2.0, 1.0)
+				var drag := _drag_f
+				var vh2 := va * va - v_vert * v_vert
+				var vv_ref := clampf(-150.0 * (1.0 - drag / _shuttle_drag(va)), -150.0, 40.0)
+				var want := 0.08 * (vv_ref - v_vert) + g - vh2 / v.r.length() + drag * (v_vert / maxf(va, 1.0))
+				bank = acos(clampf(want / maxf(lift, 1e-6), -1.0, 1.0))
+				# Roll reversals: a bank turns the vehicle toward its lifted wing, out of the
+				# orbital plane it entered in. Past the deadband, bank the other way. (The real
+				# ones manage crossrange toward the runway; there is no runway to aim at here.)
+				if not _ref_set:
+					_ref_set = true
+					DQuat.nrm(_ref_n.cross_vectors(Guidance._up, vh))
+				var err := asin(clampf(vh.dot(_ref_n), -1.0, 1.0))
+				if (_bank_sign > 0.0 and err < -REVERSAL) or (_bank_sign < 0.0 and err > REVERSAL):
+					_bank_sign = -_bank_sign
+					note("Roll reversal — Mach %s, %s km" % [U.fixed(mach, 1), U.fixed(alt / 1000.0, 1)])
+			say("Entry — α %s°, bank %s°, %s km, Mach %s" % [U.fixed(rad_to_deg(aoa), 0),
+				U.fixed(rad_to_deg(bank) * _bank_sign, 0), U.fixed(alt / 1000.0, 1), U.fixed(mach, 1)])
+		else:
+			# TAEM and approach: wings level, the flight-path angle steered with α and the
+			# speed with the speed brake. Outer glide slope −20°; preflare from 600 m (2000 ft),
+			# a pull-up of at most 1.6 g onto the −1.5° inner slope by 40 m; gear at 90 m
+			# (300 ft); flare to about a metre a second (3 ft/s).
+			var h := v.contact_altitude()
+			var gam := asin(clampf(v_vert / maxf(va, 1.0), -1.0, 1.0))
+			var gref := lerpf(OUTER_GS, -8.0 * PI / 180.0, smoothstep(4000.0, 20000.0, h))
+			if h < 600.0: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0) / 560.0, 0.0, 1.0)))
+			var sink := 0.9 + 0.11 * maxf(h, 0.0)
+			if h < 30.0: gref = maxf(gref, -asin(clampf(sink / maxf(va, 1.0), 0.0, 1.0)))
+			var k := 0.8 if h < 600.0 else 0.5
+			var a_n := clampf(g * cos(gam) + va * k * (gref - gam), 0.2 * g, 1.6 * g)
+			var eas := sqrt(2.0 * q / 1.225)
+			v.speedbrake = clampf(0.3 + 3.0 * (eas - EAS_REF) / EAS_REF, 0.0, 1.0) if h > 600.0 else 0.0
+			aoa = _alpha_for(v.mass * a_n / maxf(q * S, 1.0), mach, v.speedbrake)
+			flap_cmd = [0.1, 0.0, 0.0, 0.0]
+			if h < 90.0 and not st.gear_out:
+				st.gear_out = true
+				note("Gear down — %s m, %s m/s" % [U.fixed(h, 0), U.fixed(va, 0)])
+			if h < 600.0 and state_name != "flare":
+				state_name = "flare"
+				note("Preflare — %s m, %s KEAS" % [U.fixed(h, 0), U.fixed(eas * 1.944, 0)])
+			elif state_name == "taem" and h < 4000.0:
+				state_name = "approach"
+				note("Outer glide slope — %s m, %s KEAS" % [U.fixed(h, 0), U.fixed(eas * 1.944, 0)])
+			say("%s — %s m, %s KEAS, γ %s°, α %s°" % [("Approach" if state_name != "taem" else "TAEM"),
+				U.fixed(h, 0), U.fixed(eas * 1.944, 0), U.fixed(rad_to_deg(gam), 1), U.fixed(rad_to_deg(aoa), 1)])
+		# Lift turned about the velocity by the bank; the nose α above it in that plane, and
+		# the belly into the flow (signed roll: tiles, not the payload bay doors).
+		var side := Guidance._e.cross_vectors(vh, p)
+		p.scale_in(cos(bank)).add_scaled_in(side, sin(bank) * _bank_sign)
+		var fwd := Guidance._a.copy_from(vh).scale_in(cos(aoa)).add_scaled_in(p, sin(aoa))
+		DQuat.nrm(fwd)
+		var top := Guidance._f.copy_from(p).scale_in(cos(aoa)).add_scaled_in(vh, -sin(aoa))
+		aim_roll = _roll_ref.cross_vectors(fwd, top)
+		v.roll_signed = true
+		return fwd
 
 	func bellyflop_guidance(dt: float, pa: float):
 		var st = v.current_stage if v.current_stage != null else v._first_attached()

@@ -1255,8 +1255,8 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		# cut to the skin at its own height.
 		var n := 9 if style == "lut" else 5
 		var pivot_x := -(HOLE / 2.0 + 16.0)
-		# On the FSS the crew access arm goes to the orbiter's hatch (0.834 of the way up,
-		# in the orbiter's off-axis lane).
+		# On the FSS the crew access arm goes to the orbiter's side hatch (Xo 525, 0.803 of
+		# its length up from the fin tip, on the port side, in the orbiter's off-axis lane).
 		var hatch_y := -1.0
 		var hatch_z := 0.0
 		if style == "fss":
@@ -1264,7 +1264,7 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 				var lk: Dictionary = st.get("look", {})
 				var mt = lk.get("mount")
 				if CraftModel._t(lk.get("orbiter")) and mt != null:
-					hatch_y = float(mt.get("y", 0.0)) + float(st.L) * 0.834
+					hatch_y = float(mt.get("y", 0.0)) + float(st.L) * 0.803
 					hatch_z = float(mt.get("z", 0.0))
 		for i in n:
 			var y := PH + 10.0 + (float(i) / (n - 1)) * (height * 0.92 - 10.0)

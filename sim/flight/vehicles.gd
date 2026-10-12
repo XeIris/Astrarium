@@ -32,10 +32,12 @@ static func _build_engines() -> Dictionary:
 			"thrustVac": 981e3, "ispSL": 200.0, "ispVac": 348.0, "throttleMin": 0.39, "gimbal": 5.0,
 			"exitD": 3.30, "plume": "kerolox",
 		},
+		# Full throttle is 104.5% of rated power level, what the Block II engines flew;
+		# the floor is 67% RPL and the 109% emergency level is the headroom above it.
 		"RS25": {
 			"name": "RS-25 (SSME)", "prop": "LH2/LOX",
-			"thrustVac": 2279e3, "ispSL": 366.0, "ispVac": 452.3, "throttleMin": 0.67, "gimbal": 10.5,
-			"maxThrottle": 1.09, "exitD": 2.30, "plume": "hydrolox",
+			"thrustVac": 2183.7e3, "ispSL": 366.0, "ispVac": 452.3, "throttleMin": 0.641, "gimbal": 10.5,
+			"maxThrottle": 1.043, "exitD": 2.30, "plume": "hydrolox",
 		},
 		"SRB_RSRM": {
 			"name": "RSRM solid booster", "prop": "APCP solid",
@@ -208,8 +210,11 @@ static func _build_vehicles() -> Dictionary:
 		"id": "shuttle", "name": "Space Shuttle", "role": "launch", "launchFrom": "Earth",
 		"era": "1981–2011",
 		"blurb": "Two solids that cannot be shut down, three engines fed from a tank that is not part of the orbiter, and a wing that only matters for the last twenty minutes of the mission.",
-		"limits": { "maxQ": 45e3, "maxG": 3.2, "qAlpha": 4e3, "heatLoad": 900e6 },
+		# The guidance holds 88% of maxG, which is the Shuttle's 3 g ascent limit.
+		"limits": { "maxQ": 45e3, "maxG": 3.41, "qAlpha": 4e3, "heatLoad": 900e6 },
 		"target": { "apoapsis": 300e3, "inclination": 51.6 },
+		# Heads-down from tower clear, heads-up for TDRS late in the burn (flown from 1998).
+		"ascentRoll": { "headsUpAt": 345.0 },
 		"stages": [
 			stage({ "key": "srb", "name": "SRB pair", "dry": 172000.0, "prop": 1004000.0,
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,
@@ -222,15 +227,24 @@ static func _build_vehicles() -> Dictionary:
 				# The SSMEs can't relight, so the tank drops 18 s after MECO and OMS inserts at apogee.
 				"sepAfterCutoff": 18.0,
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 800.0, "count": 44 },
-				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.3 } } }),
+				# Its aft dome is 365 in above the solids' nozzle exits (XS 2169 vs 2534).
+				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.379 } } }),
 			stage({ "key": "orbiter", "name": "Orbiter + payload", "dry": 99000.0, "prop": 10800.0,
-				"engine": E.SPS, "count": 2, "L": 37.2, "D": 5.6, "sep": "none",
+				"engine": E.SPS, "count": 2, "L": 37.24, "D": 5.6, "sep": "none",
 				"wings": { "span": 23.8, "area": 250.0, "clMax": 1.4 },
+				# Nose and main gear. Main-gear sink rate 9.6 ft/s, tyres rated to 225 kt
+				# (JSC-12770 vol. 10D); `point` is the main tyres' contact patch in the stage
+				# frame (Xo 1180, Zo 150).
+				"legs": 3, "gear": { "vVert": 2.9, "vHoriz": 116.0, "point": [0.0, 13.26, -6.35] },
+				# Alone it flies at 40° α by design, under 2.5 g and ~16 kPa on the way down.
+				"soloLimits": { "maxQ": 25e3, "maxG": 3.0, "qAlpha": 1e12, "heatLoad": 1.2e9 },
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 1460.0, "count": 44 },
-				# z = tank radius (4.2 m) plus the orbiter's half-depth. y from the aft attach
-				# points: the tank's 2.8 m above its base (ET station 2058), the orbiter's 27.4 m
-				# behind its nose (Xo 1317), putting the nose at 40.5 m, level with the intertank.
-				"look": { "skin": "tiles", "orbiter": true, "flaps": 1, "staticEngines": true, "mount": { "y": 3.3, "z": 7.05 } } }),
+				# The datum is the fin's tip (Xo 1702.2, L behind the Xo 236 nose). Xo = XS − 741
+				# puts it 91 in above the solids' nozzle exits; the payload bay axis (Zo 400) is
+				# 336.5 in off the tank's (News Reference, coordinate system). Doors: the
+				# payload bay's two, open in orbit.
+				"look": { "skin": "tiles", "orbiter": true, "flaps": 1, "doors": 2, "gearSwing": 1.5708, "staticEngines": true,
+					"mount": { "y": 3.414, "z": 8.547 } } }),
 		],
 	},
 

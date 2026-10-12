@@ -40,6 +40,15 @@ to the procedural builds too.
   glide, a flip and a landing burn
   ([ship-return.md](../../docs/physics/ship-return.md)). Regression: `ship_return`
   in `tools/missioncheck.tscn`.
+- A lone stage with `wings` (the orbiter) flies `Vessel.winged_coeffs`; `glide`
+  brings it from orbit to its main gear: 40° entry banking on a drag reference with
+  roll reversals, the glide slopes, a flare
+  ([orbiter-entry.md](../../docs/physics/orbiter-entry.md)). A stage's `gear.point`
+  is where it touches down once it is alone. Regression: `orbiter_return` in
+  `tools/missioncheck.tscn`.
+- The Shuttle's lines (orbiter, tank, boosters) are one set of station tables in
+  `shuttlelines.gd` and `model_sources/blender/shuttle.py`; change both
+  ([shuttle-geometry.md](../../docs/physics/shuttle-geometry.md)).
 
 ## Vessel (`vessel.gd`)
 

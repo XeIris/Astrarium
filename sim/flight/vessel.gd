@@ -26,6 +26,8 @@ static var _up := DVec3.new()
 static var _vrel := DVec3.new()
 static var _g1 := DVec3.new()
 static var _g2 := DVec3.new()
+static var _gp := DVec3.new()
+static var _gu := DVec3.new()
 static var BODY_FWD := DVec3.new(0.0, 1.0, 0.0)
 # RK4 scratch. One set for the whole class: only one vessel integrates at a
 # time and the alternative is four vector allocations per substep per frame.
@@ -125,6 +127,9 @@ var _holding := false
 ## point_at's roll reference is signed: body +X goes onto it, not the nearer of ±X
 ## (a ship's tiled belly has to face the airflow, not away from it).
 var roll_signed := false
+## Speed-brake opening, 0..1, for a winged stage (winged_coeffs).
+var speedbrake := 0.0
+var _roll_axis := DVec3.new()
 var throttle: float = 0.0
 var rcs_on: bool = true
 
@@ -393,7 +398,10 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			# and it is why flying off-prograde in thick air is expensive.
 			var cos_a := absf(fwd.dot(_vrel) / va)
 			var flapped: bool = st != null and int(st.spec.get("flaps", 0)) > 0
-			if flapped:
+			var winged: bool = st != null and st.spec.get("wings") != null and _alone(st)
+			if winged:
+				drag = _winged_aero(st, qd, mach, va, fwd, out, m)
+			elif flapped:
 				# A slender body broadside (Starship's belly-first fall): Allen's crossflow
 				# model. Axial drag on the end area ∝ cos²α, a normal force on the planform
 				# ∝ sin²α; it pushes the body sideways off the flow, so it is both drag and
@@ -437,7 +445,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 				if not s3.attached or not s3.ignited or s3.spent: continue
 				if s3.spec.get("wings") != null or s3.spec.get("flaps", 0):
 					wing = s3; break
-			if wing != null and cos_a < 0.999 and not flapped:
+			if wing != null and cos_a < 0.999 and not flapped and not winged:
 				var alpha := acos(DQuat.jclamp(cos_a, -1.0, 1.0))
 				var cl_max: float = wing.spec.wings.clMax if wing.spec.get("wings") != null else 1.1
 				var area_w: float = wing.spec.wings.area if wing.spec.get("wings") != null else area * 2.2
@@ -457,6 +465,58 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 		sample.thrust = prop.F; sample.mdot = prop.mdot; sample.isp = prop.isp; sample.plume = prop.plume
 		sample.engines = prop.count
 	return out
+
+## True when `st` is the only stage still attached.
+func _alone(st) -> bool:
+	for s2 in stages:
+		if s2.attached and s2 != st: return false
+	return true
+
+## A lone winged stage (the orbiter after the tank is gone): lift and drag on its wing
+## area from winged_coeffs. Returns the drag force, N.
+func _winged_aero(st, qd: float, mach: float, va: float, fwd: DVec3, out: DVec3, m: float) -> float:
+	var S: float = st.spec.wings.area
+	var alpha := acos(DQuat.jclamp(fwd.dot(_vrel) / va, -1.0, 1.0))
+	var c := winged_coeffs(alpha, mach, speedbrake)
+	out.add_scaled_in(_vrel, -qd * c.y * S / (m * va))
+	# Lift: across the airstream, on the side the nose points (toward the orbiter's top
+	# when its belly is in the flow).
+	_c.copy_from(fwd).add_scaled_in(_vrel, -fwd.dot(_vrel) / (va * va))
+	if _c.length_sq() > 1e-12: out.add_scaled_in(DQuat.nrm(_c), qd * c.x * S / m)
+	return qd * c.y * S
+
+## Lift and drag coefficients (x, y) of a Shuttle-like orbiter on its wing area, at
+## angle of attack `alpha` (rad), Mach and speed-brake fraction: hypersonic, a normal
+## force linear plus Newtonian in α (L/D 1.08 at 40°); slower, a low-aspect-ratio
+## delta's drag polar (L/D 4.6 subsonic); blended Mach 2.5–6
+## (docs/physics/orbiter-entry.md).
+static func winged_coeffs(alpha: float, mach: float, sb: float) -> Vector2:
+	var a := clampf(alpha, 0.0, PI / 2.0)
+	var cn := 0.6 * sin(a) + 1.6 * sin(a) * sin(a)
+	var cl_h := cn * cos(a) - 0.05 * sin(a)
+	var cd_h := cn * sin(a) + 0.05 * cos(a)
+	var sup := smoothstep(1.0, 3.0, mach)
+	var cl_s := lerpf(2.3, 1.6, sup) * sin(a) * cos(a)
+	var cd0 := 0.06 + 0.08 * smoothstep(0.85, 1.2, mach) - 0.03 * smoothstep(1.5, 4.0, mach)
+	var cd_s := cd0 + 0.2 * (1.0 + 0.5 * sup) * cl_s * cl_s + 0.09 * clampf(sb, 0.0, 1.0)
+	var w := smoothstep(2.5, 6.0, mach)
+	return Vector2(lerpf(cl_s, cl_h, w), lerpf(cd_s, cd_h, w))
+
+## How far the landing gear's contact point is above the ground, m: the vessel's own
+## altitude for anything without a `gear.point` (stage frame, m; the orbiter's main
+## wheels), which sits off the vessel's reference point once the stack has staged.
+func contact_altitude() -> float:
+	var alt := altitude()
+	var st = _first_attached()
+	if st == null or st.spec.get("gear") == null or st.spec.gear.get("point") == null: return alt
+	var gp: Array = st.spec.gear.point
+	var mt = st.spec.get("look", {}).get("mount")
+	var ox := float(mt.get("x", 0.0)) if mt != null else 0.0
+	var oy := float(mt.get("y", 0.0)) if mt != null else 0.0
+	var oz := float(mt.get("z", 0.0)) if mt != null else 0.0
+	_gp.set_v(float(gp[0]) + ox, float(gp[1]) + oy, float(gp[2]) + oz)
+	DQuat.rotate(_gp, q)
+	return alt + _gp.dot(DQuat.nrm(_gu.copy_from(r)))
 
 ## A circular cylinder's crossflow drag coefficient: ~1.2 subsonic, rising to the
 ## Newtonian 4/3 and a little over in the transonic and hypersonic flow.
@@ -504,6 +564,10 @@ func _aero_control(L: float) -> float:
 		return q * 25.0 * float(s.flaps) * 0.6 * (L * 0.4)
 	if int(s.get("gridFins", 0)) > 0 and float(telemetry.get("vertical", 0.0)) < 0.0:
 		return q * 30.0 * float(s.gridFins) * 0.8 * (L * 0.45)
+	# A lone winged stage steers on its elevons: the orbiter's two pairs, 19.5 m² a
+	# side, near its tail.
+	if s.get("wings") != null and _alone(st):
+		return q * 39.0 * 0.5 * (L * 0.4)
 	return 0.0
 
 ## Steer the +Y axis toward a world direction; returns the pointing error, rad.
@@ -521,7 +585,11 @@ func point_at(dir, dt: float, pa: float, roll_ref = null) -> float:
 	var auth := authority(pa)
 	var alpha: float = auth.alpha
 	if roll_ref != null and alpha > 0.0:
+		# Pointing damps every axis in its deadband; the roll axis belongs to _roll_to.
+		var w_roll := omega.dot(fwd)
+		_roll_axis.copy_from(fwd)
 		err = _point(fwd, err, alpha, auth, dt)
+		omega.add_scaled_in(_roll_axis, w_roll - omega.dot(_roll_axis))
 		_roll_to(roll_ref, forward(_b), alpha, dt)
 		return err
 	return _point(fwd, err, alpha, auth, dt)
@@ -539,6 +607,10 @@ func _roll_to(ref: DVec3, fwd: DVec3, alpha: float, dt: float) -> void:
 		if phi > PI / 2.0: phi -= PI
 		elif phi < -PI / 2.0: phi += PI
 	var w_now := omega.dot(fwd)
+	# A half-turn (the Shuttle's heads-up roll) is ±π either way: commit to the way
+	# it is already turning, or the sign can flip between steps.
+	if absf(phi) > PI - 0.25:
+		phi = absf(phi) * (signf(w_now) if absf(w_now) > 1e-4 else 1.0)
 	var w_want := signf(phi) * minf(sqrt(2.0 * alpha * absf(phi)), 0.35)
 	var w_new := w_now + DQuat.jclamp(w_want - w_now, -alpha * dt, alpha * dt)
 	omega.add_scaled_in(fwd, w_new - w_now)
@@ -1126,6 +1198,11 @@ func rebase(body: Body) -> void:
 ## gear rating, otherwise a crash.
 func contact(_dt: float) -> void:
 	var alt := altitude()
+	# Off the stack, a geared stage touches down on its wheels (contact_altitude).
+	var gear_off := 0.0
+	if phase != PHASE.PRELAUNCH:
+		gear_off = contact_altitude() - alt
+		alt += gear_off
 	# Held down on the mount: before the airborne branch, since the integrator moves
 	# the vehicle a few cm before contact() runs.
 	if phase == PHASE.PRELAUNCH and held_down:
@@ -1183,7 +1260,7 @@ func contact(_dt: float) -> void:
 	if v_vert < -limit_v or v_horiz > limit_h * 3.0:
 		destroy("impact at %s m/s vertical, %s m/s lateral — gear rated to %s m/s" % [U.fixed(absf(v_vert), 1), U.fixed(v_horiz, 1), js_num(limit_v)])
 		return
-	DQuat.set_len(r, env.radius)
+	DQuat.set_len(r, env.radius - gear_off)
 	_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 	v.copy_from(_c)
 	omega.set_v(0.0, 0.0, 0.0)

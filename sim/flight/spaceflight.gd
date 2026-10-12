@@ -446,6 +446,34 @@ static func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
 	var y := lo if is_finite(lo) else -d * 1.3
 	return {"engine": eng, "exit_d": d, "exit_y": minf(y, 0.0)}
 
+## A lone winged stage (the orbiter) meets the plasma with its belly, not its nose:
+## the sheath goes round that stage, sized to its frontal area at 40°, its
+## stagnation point turned into the airflow.
+func _wrap_winged_sheath() -> void:
+	var lone = null
+	for st in vessel.stages:
+		if not st.attached: continue
+		if lone != null: return
+		lone = st
+	if lone == null or lone.spec.get("wings") == null: return
+	var cs = craft.stage(str(lone.spec.key))
+	if cs == null: return
+	var air: Vector3 = vessel.airspeed(vessel.r, vessel.v, _b).to_v3()
+	if air.length_squared() < 1.0: return
+	var y_ax: Vector3 = (craft.group.basis.inverse() * (frame_basis.transposed() * air)).normalized()
+	var x_ax: Vector3 = y_ax.cross(Vector3(0, 0, 1))
+	if x_ax.length_squared() < 1e-6: x_ax = y_ax.cross(Vector3(1, 0, 0))
+	x_ax = x_ax.normalized()
+	var z_ax: Vector3 = x_ax.cross(y_ax)
+	var r0: float = maxf(vessel.diameter * 0.75, 2.0)
+	var span: float = float(lone.spec.wings.span) * 0.42 / r0
+	var L := float(lone.spec.L)
+	# A shallow shell whose stagnation point sits a few metres ahead of the belly.
+	entry.mesh.basis = Basis(x_ax * span, y_ax * (L * 0.12 / r0), z_ax * span)
+	entry.material.set_shader_parameter("uRimFade", 1.0)
+	entry.material.set_shader_parameter("uCapR", r0)
+	entry.mesh.position = cs.group.position + Vector3(0.0, L * 0.5, 0.0) - y_ax * L * 0.02
+
 ## Shutdown only: the flight panel's lambdas capture this object, and the panel is
 ## held here, so the cycle has to be broken.
 func release() -> void:
@@ -1225,16 +1253,24 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 
 	# moving parts
 	var deploy := {}
+	var gear := {}
 	for st in vessel.stages:
 		var s: Dictionary = st.spec
 		var d := 0.0
 		var v_up := vessel.v.dot(up)
-		if s.get("legs"): d = 1.0 if (vessel.phase == Vessel.PHASE.LANDED or (alt < 3000.0 and v_up < 0.0)) else 0.0
+		var look = s.get("look")
+		if s.get("legs") and not (look != null and look.get("gearSwing")):
+			d = 1.0 if (vessel.phase == Vessel.PHASE.LANDED or (alt < 3000.0 and v_up < 0.0)) else 0.0
 		# Super Heavy's grid fins are fixed out; they steer by twisting.
 		if s.get("gridFins"): d = 1.0
-		var look = s.get("look")
 		if s.get("solar") or (look != null and look.get("arrays")): d = 1.0
+		# The payload bay doors open once in orbit (the radiators are inside them) and
+		# close again for the deorbit.
+		if look != null and look.get("doors") and vessel.phase == Vessel.PHASE.ORBIT \
+				and (autopilot == null or not ["deorbit", "glide"].has(autopilot.program)):
+			d = 1.0
 		deploy[s.key] = d
+		gear[s.key] = 1.0 if (st.gear_out or vessel.phase == Vessel.PHASE.LANDED) else 0.0
 	# Gimbal deflection, from the attitude error the controller is working on.
 	var gerr := 0.0
 	if autopilot != null and autopilot.aim != null:
@@ -1250,15 +1286,19 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var steer := clampf(gerr * 3.0, 0.0, 0.45) * (sg if sg != 0.0 else 1.0) * clampf(q_now / 2000.0, 0.0, 1.0)
 	var twist := [steer, -steer, steer * 0.6] if float(vessel.telemetry.get("vertical", 0.0)) < 0.0 else [0.0, 0.0, 0.0]
 	var flaps := [0.0, 0.0, 0.0, 0.0]
+	if autopilot != null and autopilot.program == "glide":
+		flaps = [float(autopilot.flap_cmd[0])]
 	if autopilot != null and autopilot.program == "bellyflop":
 		var fc: Array = autopilot.flap_cmd
 		flaps = [-float(fc[0]), float(fc[1]), -float(fc[2]), float(fc[3])]
-	craft.update({"dt": dt, "attached": attached, "deploy": deploy, "gimbal": {"x": gx, "z": 0.0},
-		"flap": flaps, "finTwist": twist})
+	# A stage that has just let go drifts off. Before update(), which hides a detached
+	# stage that is not drifting; a stage already gone stays gone.
 	for st in vessel.stages:
 		var cs = craft.stage(str(st.spec.key))
 		if not st.attached and cs != null and cs.sep == null and cs.group.visible:
 			craft.separate(str(st.spec.key), 4.0 + randf() * 4.0, 0.2 + randf() * 0.5)
+	craft.update({"dt": dt, "attached": attached, "deploy": deploy, "gear": gear, "gimbal": {"x": gx, "z": 0.0},
+		"flap": flaps, "finTwist": twist})
 
 	# The light the plumes' smoke scatters: the sun where it reaches the
 	# vehicle (clouds included), with a floor for the sky's own light.
@@ -1303,6 +1343,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	if entry != null:
 		entry.mesh.basis = craft.group.basis.inverse()
 		entry.mesh.position = Vector3.ZERO
+		_wrap_winged_sheath()
 		entry.update(float(U.nz(vessel.telemetry.get("heat"), 0.0)), vessel.met)
 
 	# The deflected exhaust. Only while the jet still lands on the deck, which

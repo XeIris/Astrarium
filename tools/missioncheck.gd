@@ -38,6 +38,7 @@ func _ready() -> void:
 		if not only.is_empty() and not only.has(c[0]): continue
 		await _fly(c[0], c[1], c[2], c[3], c[4], c[5])
 	if only.is_empty() or only.has("ship_return"): await _ship_return()
+	if only.is_empty() or only.has("orbiter_return"): await _orbiter_return()
 	print("MISSION CHECK DONE failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -101,6 +102,55 @@ func _ship_return() -> void:
 	else:
 		print("MISSION ship_return ok — touchdown %s m/s vertical, %s m/s lateral, %d frames" % [
 			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 2), frames])
+	main.end_flight()
+
+## A lone orbiter from a 300 km orbit: deorbit, the 40° entry with its roll
+## reversals, the glide slopes and a touchdown on the main gear inside its rating.
+func _orbiter_return() -> void:
+	main.load_preset("solar")
+	await CraftAssets.craft_models_ready(["shuttle"])
+	var f = main.flight
+	f.begin("shuttle", {"mode": "orbit", "alt": 300000.0, "inc": 51.6})
+	main.set_cam_mode("flight")
+	for i in 5: main.animate(dt)
+	var v: Vessel = f.vessel
+	v.stage(true)
+	v.stage(true)
+	f.run_program("glide")
+	var rp := v.r.clone()
+	var arc := 0.0
+	var arc_taem := -1.0
+	var t0 := v.met
+	var frames := 0
+	var reversals := 0
+	var seen := 0
+	while frames < 600000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
+		f.set_warp(3 if v.altitude() > 120000.0 else 0)
+		main.animate(dt)
+		frames += 1
+		arc += DQuat.angle_between(rp, v.r); rp.copy_from(v.r)
+		if arc_taem < 0.0 and f.autopilot.state_name == "taem": arc_taem = arc
+		while seen < v.events.size():
+			var msg := str(v.events[seen].msg)
+			seen += 1
+			if args.has("verbose"): print("ORBITER T+%s %s" % [U.fixed(float(v.events[seen - 1].t), 0), msg])
+			if msg.begins_with("Roll reversal"): reversals += 1
+		if args.has("verbose") and frames % 600 == 0 and v.altitude() < 130000.0:
+			var t: Dictionary = v.telemetry
+			print("ORBITER   %s km  %s m/s  M %s  q %s kPa  drag %s  vs %s  %s" % [U.fixed(v.altitude() / 1000.0, 1),
+				U.fixed(float(t.speed), 0), U.fixed(float(t.mach), 1), U.fixed(float(t.q) / 1000.0, 2),
+				U.fixed(float(t.drag) / v.mass, 1), U.fixed(float(t.vertical), 0), f.autopilot.status])
+		if frames % 600 == 0: await get_tree().process_frame
+	if args.has("verbose"):
+		print("ORBITER deorbit→touchdown %s s, %s° round the planet, TAEM→touchdown %s°" % [U.fixed(v.met - t0, 0),
+			U.fixed(rad_to_deg(arc), 1), U.fixed(rad_to_deg(arc - arc_taem), 2)])
+	if v.phase != Vessel.PHASE.LANDED:
+		_fail("orbiter_return", "%s (%s)" % [v.phase, v.failure])
+	elif reversals < 2 or not v.stages[2].gear_out:
+		_fail("orbiter_return", "%d roll reversals, gear %s" % [reversals, "down" if v.stages[2].gear_out else "up"])
+	else:
+		print("MISSION orbiter_return ok — touchdown %s m/s sink, %s m/s ground speed, %d reversals, %d frames" % [
+			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), reversals, frames])
 	main.end_flight()
 
 func _fail(id: String, why: String) -> void:
