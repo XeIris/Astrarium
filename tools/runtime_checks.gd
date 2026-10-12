@@ -254,6 +254,7 @@ func _soak_check() -> void:
 			for i in 3: await stage.get_tree().process_frame
 			await stage.get_tree().create_timer(3.0).timeout
 			for i in 2: await stage.get_tree().process_frame
+			_fill_glyph_caches()
 			var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 				int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
 				int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
@@ -270,6 +271,36 @@ func _soak_check() -> void:
 	print("SOAK FAILURES ", failures)
 	print("SOAK DONE")
 	stage.get_tree().quit(1 if not failures.is_empty() else 0)
+
+# HUD faces use quarter-pixel positioning, so the TextServer caches each glyph once
+# per phase it is drawn at, and a full cache page adds an Image and an ImageTexture.
+# Body ids are session-unique, so "#<id> NAME" headings land on new phases every
+# round. Rasterizing every phase at each size already in use makes the cache's
+# bounded fill a warm-up; new sizes, faces and glyphs outside this set still count.
+const _GLYPH_WARMUP_EXTRA := "☉⊕−–—…→←"
+
+func _fill_glyph_caches() -> void:
+	var ts := TextServerManager.get_primary_interface()
+	var chars := ""
+	for c in range(0x20, 0x7f): chars += char(c)
+	for c in range(0xa1, 0x100): chars += char(c)
+	chars += _GLYPH_WARMUP_EXTRA
+	# Shaping gives the glyphs actually drawn: tabular-figure alternates, fallbacks.
+	var glyphs := {}
+	for f in HudTheme._fonts.values():
+		var line := TextLine.new()
+		line.add_string(chars, f, 16)
+		for g in ts.shaped_text_get_glyphs(line.get_rid()):
+			if not glyphs.has(g.font_rid): glyphs[g.font_rid] = {}
+			glyphs[g.font_rid][int(g.index)] = true
+	for rid in glyphs:
+		for info in ts.font_get_size_cache_info(rid):
+			for index in glyphs[rid]:
+				for phase in 4:
+					var g: int = index | (phase << 27)
+					ts.font_render_glyph(rid, info.size_px, g)
+					# Uploads the page, which a draw would otherwise do later.
+					ts.font_get_glyph_texture_rid(rid, info.size_px, g)
 
 # Exercise renderer/view teardown; --verbose must report no shutdown leaks.
 func _shutdown_check() -> void:
