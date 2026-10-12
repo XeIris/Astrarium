@@ -109,6 +109,7 @@ class Autopilot extends RefCounted:
 	var _pitch_met: float = 0.0
 	var _last_note = null
 	var _node_ref = null
+	var _ins_set := false        # the insertion burn's engines are chosen
 
 	func _init(vessel: Vessel) -> void:
 		v = vessel
@@ -131,6 +132,9 @@ class Autopilot extends RefCounted:
 		program = prog
 		state_name = null
 		aim_roll = null
+		v.roll_signed = false
+		flap_cmd = [0.0, 0.0, 0.0, 0.0]
+		_ins_set = false
 		_integ = 0.0
 		_pitch_cmd = null
 		for k in opts:
@@ -139,7 +143,7 @@ class Autopilot extends RefCounted:
 		note("Autopilot — %s" % prog)
 
 	func disengage() -> void:
-		program = null; mode = MODE.OFF; note("Manual control")
+		program = null; mode = MODE.OFF; v.roll_signed = false; note("Manual control")
 
 	func update(dt: float) -> void:
 		if v.phase == Vessel.PHASE.DESTROYED:
@@ -159,6 +163,7 @@ class Autopilot extends RefCounted:
 			"edl":         aim_dir = edl_guidance(dt, pa)
 			"deorbit":     aim_dir = deorbit_guidance(dt, pa)
 			"catch":       aim_dir = catch_guidance(dt, pa)
+			"bellyflop":   aim_dir = bellyflop_guidance(dt, pa)
 			_:             aim_dir = Guidance.attitude_for(mode, v, target)
 		if aim_dir != null: v.point_at(aim_dir, dt, pa, aim_roll)
 		aim = aim_dir.clone() if aim_dir != null else null
@@ -355,6 +360,10 @@ class Autopilot extends RefCounted:
 				or (t.ecc < 0.014 and t.peri > safe and t.apo < (target_r - env.radius) * 0.9):
 			v.throttle = 0.0; program = null; mode = MODE.PROGRADE
 			v.phase = Vessel.PHASE.ORBIT
+			if _ins_set and cs != null:
+				cs.vac_live = int(cs.spec.get("vacCount", 0))
+				v.set_engine_count(int(cs.spec.count))
+				manual_engines = false
 			note("Orbit — %s × %s km, e = %s" % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 4)])
 			return Guidance.attitude_for(MODE.PROGRADE, v)
 		# Periapsis clear of the air: coast to apoapsis. Otherwise: burn now. Don't gate
@@ -383,9 +392,25 @@ class Autopilot extends RefCounted:
 		# Burn only within 20° of the command, as for a node: after a coast on rails the
 		# nose is off by however far the orbit turned.
 		var err := DQuat.angle_between(v.forward(Guidance._d), dir)
+		if err < 0.35 and not _ins_set: _insertion_engines(dv_need, pa)
 		v.throttle = limit_throttle(1.0, pa, dt) if err < 0.35 else 0.0
 		say(("Insertion burn — %s × %s km, e %s, Δv %s m/s" if err < 0.35 else "Insertion — aligning, %s × %s km, e %s, Δv %s m/s") % [U.fixed(t.apo / 1000.0, 0), U.fixed(t.peri / 1000.0, 0), U.fixed(t.ecc, 3), U.fixed(dv_need, 0)])
 		return dir
+
+	## The fewest engines that make the insertion burn last 20 s, on a stage with
+	## several (Starship's three sea-level and three vacuum Raptors): a light stage at
+	## full thrust is through a short burn in a frame or two, and its cutoff lands
+	## metres per second off. One sea-level engine stays lit; the vacuum ones add to it.
+	func _insertion_engines(dv_need: float, pa: float) -> void:
+		_ins_set = true
+		var st = v.current_stage
+		if st == null or st.spec.get("engine") == null or st.spec.get("vacEngine") == null: return
+		var f1: float = Rocketry.engine_output(st.spec.engine, 1, pa, 1.0).F
+		var fv: float = Rocketry.engine_output(st.spec.vacEngine, 1, pa, 1.0).F
+		var f_need := dv_need * v.mass / 20.0
+		st.vac_live = clampi(int(ceil((f_need - f1) / maxf(fv, 1.0))), 0, int(st.spec.vacCount))
+		v.set_engine_count(1)
+		manual_engines = true
 
 	## Execute a node. The three parts that make this reliable:
 	##   · point at the node vector and WAIT — a burn started before the vehicle
@@ -489,8 +514,8 @@ class Autopilot extends RefCounted:
 			# A solid's thrust is read at its current point in the grain.
 			var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
 			F += Rocketry.engine_output(st.spec.engine, st.live, pa, 1.0, burned).F
-			if st.spec.get("vacEngine") != null:
-				F += Rocketry.engine_output(st.spec.vacEngine, st.spec.vacCount, pa, 1.0, burned).F
+			if st.spec.get("vacEngine") != null and st.vac_live > 0:
+				F += Rocketry.engine_output(st.spec.vacEngine, st.vac_live, pa, 1.0, burned).F
 		return F
 
 	func current_isp(pa: float) -> float:
@@ -940,6 +965,159 @@ class Autopilot extends RefCounted:
 		var a := profile_decel(n * per, g, HOVERSLAM_DEC)
 		return { "n": n, "hBurn": (v_vert * v_vert) / (2.0 * a) }
 
+	# SHIP RETURN — Starship's own: belly first through entry and the subsonic fall,
+	# the flaps steering; then the flip on the sea-level engines and a landing burn to a
+	# soft touchdown (docs/physics/ship-return.md). From orbit it deorbits first.
+	const FLIP_TIME := 6.0         # s of fall the flip takes, broadside to engines-down
+	const SHIP_TOUCH := 0.8        # m/s at touchdown: no legs to absorb more
+	## Flap angles for the picture, rad, [forward ×2, aft ×2]: + folds the flap toward
+	## the leeward side, out of the flow.
+	var flap_cmd := [0.0, 0.0, 0.0, 0.0]
+	var _heading := DVec3.new()
+
+	## Drag deceleration the entry flies at, m/s²: about 1.5 g.
+	const ENTRY_DRAG := 15.0
+	## Bank angle, rad, for the belly-first entry: the lift's vertical share holds the
+	## sink rate at its reference. The lift is the crossflow model's (Vessel.accel) at
+	## this α.
+	func _entry_bank(vh: DVec3, p: DVec3, aoa: float, alt: float, v_vert: float, va: float, g: float) -> float:
+		var q: float = float(v.telemetry.get("q", 0.0))
+		if q < 50.0: return 0.0
+		var n_force := q * Vessel.crossflow_cn(float(v.telemetry.get("mach", 0.0))) * v.length * v.diameter * 0.85 * sin(aoa) * sin(aoa)
+		var lift := n_force * cos(aoa) / v.mass
+		if lift < 0.05 * g: return 0.0
+		var drag: float = float(v.telemetry.get("drag", 0.0)) / v.mass
+		var r := v.r.length()
+		var vh2 := va * va - v_vert * v_vert
+		# Fast, it tracks a drag deceleration (as entry guidance does): sinking while the
+		# air is thin, level as the drag reaches ENTRY_DRAG, climbing past it. Slow, a sink
+		# rate that eases off toward the ground.
+		var vv_ref := -clampf(alt / 400.0, 20.0, 150.0)
+		if va > 1500.0:
+			vv_ref = clampf(-150.0 * (1.0 - drag / ENTRY_DRAG), -150.0, 40.0)
+		var want := 0.08 * (vv_ref - v_vert) + g - vh2 / r + drag * (v_vert / maxf(va, 1.0))
+		return acos(clampf(want / lift, -1.0, 1.0))
+
+	func bellyflop_guidance(dt: float, pa: float):
+		var st = v.current_stage if v.current_stage != null else v._first_attached()
+		DQuat.nrm(Guidance._up.copy_from(v.r))
+		var alt := v.altitude()
+		v.airspeed(v.r, v.v, Guidance._g)
+		var va := Guidance._g.length()
+		var v_vert := Guidance._g.dot(Guidance._up)
+		var g: float = v.env.mu / v.r.length_sq()
+		if v.phase == Vessel.PHASE.LANDED:
+			program = null; v.throttle = 0.0; v.roll_signed = false
+			if st != null: st.vac_live = int(st.spec.get("vacCount", 0))
+			note("Ship down")
+			return Guidance._a.copy_from(Guidance._up)
+		if st == null or st.spec.get("engine") == null:
+			note("Nothing to land on"); program = null
+			return null
+		if state_name == null or state_name == "done":
+			var top: float = float(v.env.atm.top) if v.env.atm != null else 0.0
+			if state_name == null and float(v.telemetry.get("peri", 0.0)) > top * 0.35 and alt > top:
+				state_name = "deorbit"
+			else:
+				state_name = "entry"
+				v.roll_signed = true
+				st.vac_live = 0
+				note("Ship return — belly first, %s km, %s m/s" % [U.fixed(alt / 1000.0, 0), U.fixed(va, 0)])
+		if state_name == "deorbit":
+			if node == null:
+				var el: Dictionary = v.telemetry.el
+				var R: float = el.r
+				var a_new: float = (R + float(v.env.radius) + float(v.env.atm.top) * 0.35) / 2.0
+				var dv: float = sqrt(maxf(v.env.mu * (2.0 / R - 1.0 / a_new), 0.0)) - float(el.v)
+				node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
+			return node_guidance(dt, pa, node)
+		var per: float = Rocketry.engine_output(st.spec.engine, 1, pa, 1.0).F / maxf(v.mass, 1.0)
+		var n_sea := int(st.spec.count)
+
+		if state_name == "entry":
+			v.throttle = 0.0
+			# The flip starts high enough for the fall it takes plus the stopping distance on
+			# the sea-level engines' profile.
+			var a_dec := profile_decel(n_sea * per, g, HOVERSLAM_DEC)
+			var h_flip := v_vert * v_vert / (2.0 * a_dec) + maxf(-v_vert, 0.0) * FLIP_TIME + 40.0
+			if v_vert < 0.0 and alt <= h_flip and alt < 8000.0:
+				state_name = "flip"
+				v.set_engine_count(n_sea); st.vac_live = 0
+				manual_engines = true
+				aim_roll = null
+				note("Flip — %d engines, %s m, %s m/s" % [n_sea, U.fixed(alt, 0), U.fixed(-v_vert, 0)])
+			else:
+				# Angle of attack: ~60° hypersonic, broadside below Mach 0.8.
+				var mach: float = float(v.telemetry.get("mach", 0.0))
+				var aoa := deg_to_rad(lerpf(90.0, 60.0, smoothstep(0.8, 3.0, mach)))
+				var vh := Guidance._b.copy_from(Guidance._g)
+				if va > 1.0: vh.scale_in(1.0 / va)
+				else: vh.copy_from(Guidance._up).scale_in(-1.0)
+				# "Up" across the flow: the nose rises from the velocity toward it. Falling
+				# straight down that is undefined, and the last heading holds.
+				var p := Guidance._c.copy_from(Guidance._up).add_scaled_in(vh, -Guidance._up.dot(vh))
+				if p.length() > 0.05:
+					DQuat.nrm(p)
+					_heading.copy_from(p).add_scaled_in(Guidance._up, -p.dot(Guidance._up))
+					if _heading.length_sq() > 1e-6: DQuat.nrm(_heading)
+				else:
+					if _heading.length_sq() < 1e-6:
+						_heading.copy_from(v.forward(Guidance._d)).add_scaled_in(Guidance._up, -Guidance._d.dot(Guidance._up))
+						if _heading.length_sq() < 1e-6: _heading.set_v(1.0, 0.0, 0.0)
+						DQuat.nrm(_heading)
+					p.copy_from(_heading)
+				# Bank: the lift is turned about the velocity until its vertical part holds a
+				# sink rate (an equilibrium glide), or a lifting entry skips back out.
+				var bank := _entry_bank(vh, p, aoa, alt, v_vert, va, g)
+				var side := Guidance._f.copy_from(vh).cross_vectors(vh, p)
+				p.scale_in(cos(bank)).add_scaled_in(side, sin(bank))
+				var fwd := Guidance._d.copy_from(vh).scale_in(cos(aoa)).add_scaled_in(p, sin(aoa))
+				DQuat.nrm(fwd)
+				# Belly into the flow: body +X onto belly × nose, signed.
+				var belly := Guidance._e.copy_from(vh).add_scaled_in(fwd, -vh.dot(fwd))
+				if belly.length_sq() > 1e-9:
+					DQuat.nrm(belly)
+					aim_roll = belly.cross(fwd)
+				# The flaps trim pitch: the nose high, the forward pair folds out of the flow.
+				var nose_err: float = v.forward(Guidance._f).dot(Guidance._up) - fwd.dot(Guidance._up)
+				var e := clampf(nose_err * 2.0, -0.4, 0.4)
+				flap_cmd = [0.35 + e, 0.35 + e, 0.25 - e, 0.25 - e]
+				say("%s — %s km, %s m/s, flip at %s m" % ["Entry, belly first" if mach > 0.8 else "Belly-flop",
+					U.fixed(alt / 1000.0, 1), U.fixed(va, 0), U.fixed(h_flip, 0)])
+				return fwd.clone()
+
+		if state_name == "flip":
+			# The forward flaps fold away and the aft pair stays out: the drag at the tail and
+			# the gimballed engines swing the nose up.
+			flap_cmd = [1.3, 1.3, -0.1, -0.1]
+			# At the throttle floor: while it is still broadside the thrust only pushes it
+			# sideways.
+			v.throttle = limit_throttle(throttle_floor(), pa, dt)
+			var err := DQuat.angle_between(v.forward(Guidance._b), Guidance._up)
+			say("Flip — %s° to vertical, %s m" % [U.fixed(rad_to_deg(err), 0), U.fixed(alt, 0)])
+			if err < 0.35:
+				state_name = "landing"
+				note("Landing burn — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(-v_vert, 0)])
+			return Guidance._a.copy_from(Guidance._up)
+
+		# The landing burn, down to one engine once one can stop it: three cannot hover at
+		# their throttle floor.
+		flap_cmd = [1.3, 1.3, 0.0, 0.0]
+		var a1 := profile_decel(per, g, HOVERSLAM_DEC)
+		if st.live > 1 and v_vert * v_vert <= 2.0 * a1 * 0.8 * maxf(alt, 0.0):
+			v.set_engine_count(1)
+			note("One engine — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(-v_vert, 0)])
+		# The profile is the running engines', or it waits for thrust that is shut down.
+		var a_max := per * float(st.live)
+		# Low q: it can lean further than a booster to kill the drift the flip left, but
+		# slowly (τ 2.5 s): a 52 m ship turns too slowly for a tighter loop, which
+		# rings at a few m/s.
+		var cmd := descent_law(a_max, SHIP_TOUCH, 0.35, 2.5, HOVERSLAM_DEC, INF, 15.0)
+		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
+		say("Landing burn — %s m, %s of %s m/s" % [U.fixed(alt, 1), U.fixed(v_vert_now, 1), U.fixed(v_ref, 1)])
+		if cmd.length_sq() < 1e-9: return Guidance._a.copy_from(Guidance._up)
+		return aero_limit(cmd, Guidance._a)
+
 	# ENTRY, DESCENT AND LANDING — the atmospheric one
 	func edl_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
@@ -1061,7 +1239,13 @@ class Autopilot extends RefCounted:
 			return Guidance._a.copy_from(Guidance._up)
 		var g: float = v.env.mu / v.r.length_sq()
 		var per: float = Rocketry.engine_output(st.spec.engine, 1, pa, 1.0).F / maxf(v.mass, 1.0)
-		var engines: Array = st.spec.get("landingEngines", [st.spec.count, 1])
+		var engines: Array = (st.spec.get("landingEngines", [st.spec.count, 1]) as Array).duplicate()
+		# The centre engines must be able to hover: at most as many as can sit at their
+		# throttle floor under the dry weight. Fixed per vehicle, so the choice never
+		# flips during the burn (Raptor 3's 2.45 MN floors three above V3's dry weight).
+		var floor_th: float = float(st.spec.engine.get("throttleMin", 1.0))
+		var n_hover := int(floor(float(st.spec.dry) * g / maxf(per * v.mass * floor_th, 1.0)))
+		engines[1] = clampi(n_hover, 1, int(engines[1]))
 		var floor_alt := tower.rail_alt - CatchTower.pin_height(st.spec)
 		var above := v.altitude() - floor_alt - CATCH_GATE
 		var v_vert := v.airspeed(v.r, v.v, Guidance._g).dot(Guidance._up)

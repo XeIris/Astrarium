@@ -35,6 +35,11 @@ to the procedural builds too.
   `LaunchSite` only draws its state. Estimates and sources are in
   [booster-catch.md](../../docs/physics/booster-catch.md). Regression: `shcatch`
   and `shcatch_2x` in `tools/flightcheck.gd`.
+- A lone ship with flaps flies Allen's crossflow aerodynamics, and its own
+  `soloLimits`. `bellyflop` brings it home belly first: bank for a drag-tracking
+  glide, a flip and a landing burn
+  ([ship-return.md](../../docs/physics/ship-return.md)). Regression: `ship_return`
+  in `tools/missioncheck.tscn`.
 
 ## Vessel (`vessel.gd`)
 

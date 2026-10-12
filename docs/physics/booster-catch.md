@@ -18,15 +18,21 @@ Flight 5 (13 October 2024) was the first catch. Flights 7 and 8 followed, then a
 
 - Hot staging happens at about 66 km and 5,710 km/h (Flight 3 webcast telemetry).
 - During boostback the inner engines relight. For the landing burn the booster lights its inner 13
-  engines, then shuts down all but the centre 3 (SpaceX's flight descriptions).
+  engines, then shuts down all but the centre 3 (SpaceX's flight descriptions). Here the hover
+  runs on as many centre engines as can sit at their 40 % throttle floor under the dry weight.
+  Three Raptor 2s could; three V3 Raptor 3s (2.45 MN each) cannot, so V3 hovers on two. Raptor 3's
+  real throttle floor is unpublished, and a deeper one would allow three.
 - The booster flies no entry burn. Viewers reading the webcast quoted a fall of about 4,500 km/h
   (1.25 km/s) half a minute before the catch, drag near 40 m/s² at 3,000 km/h, and about 1,250 km/h
   at landing-burn start. A peak deceleration near 5.5 g has also been reported. All of these are
   second-hand webcast readings.
 - The booster slows to a near hover, slides sideways to the arms, and the arms close
-  around it before the engines shut down. It hangs from two pins between its grid fins.
+  around it before the engines shut down. On V2 it hung from two pins between its grid fins;
+  on V3 (2026) the port and starboard grid fins are the catch points themselves.
 - The tower is about 146 m tall. The catch arms are reported as roughly 36 m long and ride a
-  carriage on the tower. The booster is 71 m long and 9 m across, with a dry mass of 275 t.
+  carriage on the tower. The V3 booster is 72.3 m long with its engines and 9 m across. Its dry
+  mass is unpublished; V2's was 275 t, and V3 drops the jettisoned interstage and the engine
+  shrouds, so 265 t is used.
 
 Sources: Wikipedia ([SpaceX Super Heavy](https://en.wikipedia.org/wiki/SpaceX_Super_Heavy),
 [Starship flight test 5](https://en.wikipedia.org/wiki/Starship_flight_test_5),
@@ -88,8 +94,9 @@ catch masses.
 
 ### Known differences
 
-- **Grid fins** are drawn but neither steer nor add drag. The real booster steers its
-  coast on them. Here, the start state's homeward speed stands in for that steering.
+- **Grid fins** give attitude authority once the booster is descending (`Vessel._aero_control`),
+  and twist with the steering error in the picture. They add no drag and no lift, so the coast
+  is not steered toward the tower: the start state's homeward speed stands in for that.
 - **The landing burn** lights at about 6.6 km and lasts about 45 s, against roughly
   24 s on the real flights. This booster reaches the lower atmosphere faster than the
   real one, so the 13 engines start higher and run longer.

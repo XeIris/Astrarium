@@ -1230,7 +1230,8 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var d := 0.0
 		var v_up := vessel.v.dot(up)
 		if s.get("legs"): d = 1.0 if (vessel.phase == Vessel.PHASE.LANDED or (alt < 3000.0 and v_up < 0.0)) else 0.0
-		if s.get("gridFins"): d = 1.0 if (alt < (float(env.atm.top) if env.atm != null else 0.0) and v_up < 0.0) else 0.0
+		# Super Heavy's grid fins are fixed out; they steer by twisting.
+		if s.get("gridFins"): d = 1.0
 		var look = s.get("look")
 		if s.get("solar") or (look != null and look.get("arrays")): d = 1.0
 		deploy[s.key] = d
@@ -1242,7 +1243,18 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var gx := clampf(gerr * 2.4, 0.0, 0.12) * (sg if sg != 0.0 else 1.0)
 	var attached := {}
 	for st in vessel.stages: attached[st.spec.key] = st.attached
-	craft.update({"dt": dt, "attached": attached, "deploy": deploy, "gimbal": {"x": gx, "z": 0.0}, "flap": 0.0})
+	# Control surfaces. A falling booster's grid fins twist with the attitude error; a
+	# ship's flaps take what the return program asks (+ folds leeward; the two sides of
+	# the ship turn opposite ways to do it).
+	var q_now := float(vessel.telemetry.get("q", 0.0))
+	var steer := clampf(gerr * 3.0, 0.0, 0.45) * (sg if sg != 0.0 else 1.0) * clampf(q_now / 2000.0, 0.0, 1.0)
+	var twist := [steer, -steer, steer * 0.6] if float(vessel.telemetry.get("vertical", 0.0)) < 0.0 else [0.0, 0.0, 0.0]
+	var flaps := [0.0, 0.0, 0.0, 0.0]
+	if autopilot != null and autopilot.program == "bellyflop":
+		var fc: Array = autopilot.flap_cmd
+		flaps = [-float(fc[0]), float(fc[1]), -float(fc[2]), float(fc[3])]
+	craft.update({"dt": dt, "attached": attached, "deploy": deploy, "gimbal": {"x": gx, "z": 0.0},
+		"flap": flaps, "finTwist": twist})
 	for st in vessel.stages:
 		var cs = craft.stage(str(st.spec.key))
 		if not st.attached and cs != null and cs.sep == null and cs.group.visible:

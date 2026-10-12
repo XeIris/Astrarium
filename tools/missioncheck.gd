@@ -1,7 +1,9 @@
 extends Node
 
 # MISSION CHECK: flies whole missions through the real orchestrator with no input
-# (sim/flight/mission.gd) and rejects any that does not end where it should.
+# (sim/flight/mission.gd) and rejects any that does not end where it should. Also a
+# lone Starship from orbit through its own return (`bellyflop`): deorbit, belly-first
+# entry, flip and landing burn, which must touch down inside 1 m/s.
 #   Godot --path . res://tools/missioncheck.tscn -- [only=name,name] [long=1]
 # `long=1` adds Earth orbit → Mars orbit (about ten minutes).
 
@@ -35,6 +37,7 @@ func _ready() -> void:
 	for c in cases:
 		if not only.is_empty() and not only.has(c[0]): continue
 		await _fly(c[0], c[1], c[2], c[3], c[4], c[5])
+	if only.is_empty() or only.has("ship_return"): await _ship_return()
 	print("MISSION CHECK DONE failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -71,6 +74,33 @@ func _fly(id: String, craft: String, opts: Dictionary, dest: String, goal: Strin
 		elif float(el.e) > 0.05 or alt < 50.0: why = "orbit %s km periapsis, e %s" % [U.fixed(alt, 0), U.fixed(el.e, 3)]
 	if why != "": _fail(id, why)
 	else: print("MISSION %s ok — %s, %s, Δv left %s, %d frames" % [id, m.title(), v.parent.name, FlightUI.fmt_speed(v.delta_v_remaining(0.0)), frames])
+	main.end_flight()
+
+## Starship's ship alone in a 200 km orbit with 40 t of landing propellant (what a
+## real one comes home with), through the return program.
+func _ship_return() -> void:
+	main.load_preset("solar")
+	await CraftAssets.craft_models_ready(["starship"])
+	var f = main.flight
+	f.begin("starship", {"mode": "orbit", "alt": 200000.0, "inc": 28.5})
+	main.set_cam_mode("flight")
+	for i in 5: main.animate(dt)
+	var v: Vessel = f.vessel
+	v.stage(true)
+	v.stages[1].prop = 40000.0
+	f.run_program("bellyflop")
+	var frames := 0
+	while frames < 400000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
+		# Warp through the coast to the air; physics rate inside it.
+		f.set_warp(3 if v.altitude() > 90000.0 else 0)
+		main.animate(dt)
+		frames += 1
+		if frames % 600 == 0: await get_tree().process_frame
+	if v.phase != Vessel.PHASE.LANDED:
+		_fail("ship_return", "%s (%s)" % [v.phase, v.failure])
+	else:
+		print("MISSION ship_return ok — touchdown %s m/s vertical, %s m/s lateral, %d frames" % [
+			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 2), frames])
 	main.end_flight()
 
 func _fail(id: String, why: String) -> void:

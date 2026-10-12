@@ -89,6 +89,9 @@ class StageState extends RefCounted:
 	## Engines running on this stage. Shutdown is a non-throttleable engine's only
 	## throttle (the Saturn V cut its centre F-1 at T+135 s and centre J-2 at T+460 s).
 	var live: int
+	## Vacuum engines running (Starship's three RVacs), set apart from the sea-level
+	## ones so a landing burn can leave them dark.
+	var vac_live: int
 	var gear_out: bool = false    # spaceflight's G key toggles it
 
 	func _init(s: Dictionary, i: int) -> void:
@@ -99,6 +102,7 @@ class StageState extends RefCounted:
 		restarts = s.get("restarts", 0)
 		rcs_prop = s.rcs.prop if s.get("rcs") != null else 0.0
 		live = s.count
+		vac_live = int(s.get("vacCount", 0))
 
 var id: int
 var vehicle: Dictionary
@@ -118,6 +122,9 @@ var _prev_dir := DVec3.new()        # the last direction point_at was given, and
 var _prev_met := -1.0
 var _w_t := DVec3.new()             # the target direction's own angular velocity, rad/s
 var _holding := false
+## point_at's roll reference is signed: body +X goes onto it, not the nearer of ±X
+## (a ship's tiled belly has to face the airflow, not away from it).
+var roll_signed := false
 var throttle: float = 0.0
 var rcs_on: bool = true
 
@@ -295,11 +302,11 @@ func propulsion(pa: float) -> Propulsion:
 		var o: Rocketry.Thrust = photon_output(s.engine, st.live, _th1) \
 			if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
 			else Rocketry.engine_output(s.engine, st.live, pa, throttle, burned, _th1)
-		if s.get("vacEngine") != null:
-			var ov := Rocketry.engine_output(s.vacEngine, s.vacCount, pa, throttle, burned, _th2)
+		if s.get("vacEngine") != null and st.vac_live > 0:
+			var ov := Rocketry.engine_output(s.vacEngine, st.vac_live, pa, throttle, burned, _th2)
 			o.F += ov.F; o.mdot += ov.mdot
 		F += o.F; mdot += o.mdot; isp_sum += o.isp * o.F; w += o.F
-		count += st.live + int(s.get("vacCount", 0))
+		count += st.live + st.vac_live
 		if plume == null: plume = s.engine.plume
 	var out := _prop
 	out.F = F; out.mdot = mdot; out.isp = isp_sum / w if w > 0.0 else 0.0
@@ -385,9 +392,27 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			# Angle of attack costs drag. cos²α is the standard slender-body form,
 			# and it is why flying off-prograde in thick air is expensive.
 			var cos_a := absf(fwd.dot(_vrel) / va)
-			var cd_eff := cd * (1.0 + 2.2 * (1.0 - cos_a * cos_a))
-			drag = qd * cd_eff * area
-			out.add_scaled_in(_vrel, -drag / (m * va))
+			var flapped: bool = st != null and int(st.spec.get("flaps", 0)) > 0
+			if flapped:
+				# A slender body broadside (Starship's belly-first fall): Allen's crossflow
+				# model. Axial drag on the end area ∝ cos²α, a normal force on the planform
+				# ∝ sin²α; it pushes the body sideways off the flow, so it is both drag and
+				# lift (docs/physics/ship-return.md).
+				var sin2 := 1.0 - cos_a * cos_a
+				var axial := qd * cd * area * cos_a * cos_a
+				var normal := qd * Vessel.crossflow_cn(mach) * length * diameter * 0.85 * sin2
+				out.add_scaled_in(_vrel, -axial / (m * va))
+				# The normal force acts across the body: along −(the airflow's component
+				# off the axis), i.e. away from the side the air strikes.
+				_c.copy_from(_vrel).add_scaled_in(fwd, -fwd.dot(_vrel))
+				if _c.length_sq() > 1e-9:
+					DQuat.nrm(_c)
+					out.add_scaled_in(_c, -normal / m)
+				drag = axial + normal * sqrt(sin2)
+			else:
+				var cd_eff := cd * (1.0 + 2.2 * (1.0 - cos_a * cos_a))
+				drag = qd * cd_eff * area
+				out.add_scaled_in(_vrel, -drag / (m * va))
 			# Parachutes, if any are out.
 			if chute_open != null:
 				var ch: Dictionary = chute_open
@@ -412,7 +437,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 				if not s3.attached or not s3.ignited or s3.spent: continue
 				if s3.spec.get("wings") != null or s3.spec.get("flaps", 0):
 					wing = s3; break
-			if wing != null and cos_a < 0.999:
+			if wing != null and cos_a < 0.999 and not flapped:
 				var alpha := acos(DQuat.jclamp(cos_a, -1.0, 1.0))
 				var cl_max: float = wing.spec.wings.clMax if wing.spec.get("wings") != null else 1.1
 				var area_w: float = wing.spec.wings.area if wing.spec.get("wings") != null else area * 2.2
@@ -432,6 +457,11 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 		sample.thrust = prop.F; sample.mdot = prop.mdot; sample.isp = prop.isp; sample.plume = prop.plume
 		sample.engines = prop.count
 	return out
+
+## A circular cylinder's crossflow drag coefficient: ~1.2 subsonic, rising to the
+## Newtonian 4/3 and a little over in the transonic and hypersonic flow.
+static func crossflow_cn(mach: float) -> float:
+	return lerpf(1.2, 1.45, smoothstep(0.6, 1.4, mach))
 
 # Attitude
 
@@ -458,7 +488,23 @@ func authority(pa: float) -> Dictionary:
 			# A quarter of the thrusters bear on any one axis, at a lever arm of
 			# roughly the radius plus a fraction of the length.
 			tau += s.rcs.thrust * maxf(float(s.rcs.count) / 4.0, 1.0) * (diameter * 0.5 + L * 0.25)
+	tau += _aero_control(L)
 	return { "alpha": tau / maxf(I.pitch, 1.0), "tau": tau, "I": I, "gimballed": gimballed }
+
+## Steering torque from control surfaces in the airflow, N·m: a lone ship's flaps
+## (about 25 m² each, at the ends of the body), or a falling booster's grid fins
+## near its top. Both work by q, so this is zero in vacuum and on the way up.
+func _aero_control(L: float) -> float:
+	var q: float = float(telemetry.get("q", 0.0))
+	if q <= 0.0: return 0.0
+	var st = _first_attached()
+	if st == null: return 0.0
+	var s: Dictionary = st.spec
+	if int(s.get("flaps", 0)) > 0:
+		return q * 25.0 * float(s.flaps) * 0.6 * (L * 0.4)
+	if int(s.get("gridFins", 0)) > 0 and float(telemetry.get("vertical", 0.0)) < 0.0:
+		return q * 30.0 * float(s.gridFins) * 0.8 * (L * 0.45)
+	return 0.0
 
 ## Steer the +Y axis toward a world direction; returns the pointing error, rad.
 ## Time-optimal rest-to-rest: never command a rate that can't be stopped within the
@@ -489,8 +535,9 @@ func _roll_to(ref: DVec3, fwd: DVec3, alpha: float, dt: float) -> void:
 	var bx := DQuat.rotate(_f.set_v(1.0, 0.0, 0.0), q)
 	var phi := atan2(_c.cross_vectors(bx, _e).dot(fwd), bx.dot(_e))
 	# Both pin directions serve: the nearer within ±90°.
-	if phi > PI / 2.0: phi -= PI
-	elif phi < -PI / 2.0: phi += PI
+	if not roll_signed:
+		if phi > PI / 2.0: phi -= PI
+		elif phi < -PI / 2.0: phi += PI
 	var w_now := omega.dot(fwd)
 	var w_want := signf(phi) * minf(sqrt(2.0 * alpha * absf(phi)), 0.35)
 	var w_new := w_now + DQuat.jclamp(w_want - w_now, -alpha * dt, alpha * dt)
@@ -689,8 +736,19 @@ func spend_dv(dv: float) -> float:
 # Structure
 ## Four ways to lose a vehicle, each against a real limit. A failure destroys the
 ## vessel and says which.
+## The limits the airframe is held to: the vehicle's, or once a stage flies on its
+## own, that stage's `soloLimits` if it has them (a ship built to fly broadside).
+func limits() -> Dictionary:
+	var only = null
+	for st in stages:
+		if not st.attached: continue
+		if only != null: return vehicle.limits
+		only = st
+	if only != null and only.spec.get("soloLimits") != null: return only.spec.soloLimits
+	return vehicle.limits
+
 func check_structure(s: Sample, _dt: float) -> void:
-	var lim: Dictionary = vehicle.limits
+	var lim: Dictionary = limits()
 	if phase == PHASE.DESTROYED: return
 	var sq := s.q
 	var sg := s.gees
@@ -967,8 +1025,8 @@ func _stage_mdot(st) -> float:
 		if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
 		else Rocketry.engine_output(s.engine, st.live, 0.0, throttle, burned, _th1)
 	var m: float = o.mdot
-	if s.get("vacEngine") != null:
-		m += Rocketry.engine_output(s.vacEngine, s.vacCount, 0.0, throttle, burned, _th2).mdot
+	if s.get("vacEngine") != null and st.vac_live > 0:
+		m += Rocketry.engine_output(s.vacEngine, st.vac_live, 0.0, throttle, burned, _th2).mdot
 	return m
 
 ## Draw `kg` from the live stages, each in proportion to its own engines' flow, and

@@ -43,14 +43,17 @@ static func _build_engines() -> Dictionary:
 			# A solid follows its grain, not the throttle — see solid_thrust_fraction.
 			"solid": true, "exitD": 3.75, "plume": "solid",
 		},
-		"RAPTOR2": {
-			"name": "Raptor 2", "prop": "CH4/LOX",
-			"thrustVac": 2394e3, "ispSL": 327.0, "ispVac": 347.0, "throttleMin": 0.40, "gimbal": 15.0,
+		# Raptor 3, as flown on V3 (Flight 12 briefing): 250 tf at sea level, Isp 330 /
+		# 350 s, so 2.60 MN in vacuum. 33 of them are the booster's 80.8 MN.
+		"RAPTOR3": {
+			"name": "Raptor 3", "prop": "CH4/LOX",
+			"thrustVac": 2600e3, "ispSL": 330.0, "ispVac": 350.0, "throttleMin": 0.40, "gimbal": 15.0,
 			"exitD": 1.30, "plume": "methalox",
 		},
-		"RAPTOR_VAC": {
-			"name": "Raptor Vacuum", "prop": "CH4/LOX",
-			"thrustVac": 2530e3, "ispSL": 200.0, "ispVac": 380.0, "throttleMin": 0.40, "gimbal": 0.0,
+		# Raptor 3 Vacuum: 275 tf.
+		"RAPTOR3_VAC": {
+			"name": "Raptor 3 Vacuum", "prop": "CH4/LOX",
+			"thrustVac": 2697e3, "ispSL": 200.0, "ispVac": 380.0, "throttleMin": 0.40, "gimbal": 0.0,
 			"exitD": 2.40, "plume": "methalox",
 		},
 		"DPS": {
@@ -231,18 +234,20 @@ static func _build_vehicles() -> Dictionary:
 		],
 	},
 
-	# SUPER HEAVY / STARSHIP — both halves come back, which makes it the only
-	# vehicle here with two landings per flight.
+	# SUPER HEAVY / STARSHIP V3 (Block 3, first flown May 2026) — both halves come back,
+	# which makes it the only vehicle here with two landings per flight. 124.4 m stacked.
 	"starship": {
 		"id": "starship", "name": "Starship / Super Heavy", "role": "launch", "launchFrom": "Earth",
-		"era": "2023–",
-		"blurb": "33 Raptors under 3 400 t of methalox. Both stages return: the booster to the tower, the ship belly-first through the atmosphere and then flipped upright in the last seconds.",
+		"era": "2026– (V3)",
+		"blurb": "V3: 33 Raptor 3s under 3 650 t of methalox, the hot-staging interstage built into the booster and three grid fins that double as catch points. Both stages return: the booster to the tower, the ship belly-first through the atmosphere, flaps steering, then flipped upright in the last seconds.",
 		"limits": { "maxQ": 45e3, "maxG": 4.0, "qAlpha": 6e3, "heatLoad": 1.4e9 },
 		"target": { "apoapsis": 250e3, "inclination": 28.5 },
 		"stages": [
-			stage({ "key": "sh", "name": "Super Heavy", "dry": 275000.0, "prop": 3400000.0,
-				"engine": E.RAPTOR2, "count": 33, "L": 71.0, "D": 9.0,
-				"recover": "tower", "gridFins": 4, "reserve": 0.06,
+			# 72.3 m with its engines (L is the body above them). Its dry mass is not
+			# published: V2's 275 t, less the jettisoned ring and the engine shrouds.
+			stage({ "key": "sh", "name": "Super Heavy", "dry": 265000.0, "prop": 3650000.0,
+				"engine": E.RAPTOR3, "count": 33, "L": 70.9, "D": 9.0,
+				"recover": "tower", "gridFins": 3, "reserve": 0.06,
 				"rcs": { "thrust": 8000.0, "isp": 80.0, "prop": 3000.0, "count": 8 },
 				# Returning alone (Vehicles.booster_return; docs/physics/booster-catch.md).
 				# Pins at 93% of the length take the weight on the tower's arms. The
@@ -257,13 +262,18 @@ static func _build_vehicles() -> Dictionary:
 				# That descent peaks near 210 kPa in this drag model; the limit above it
 				# is an estimate.
 				"returnLimits": { "maxQ": 350e3, "maxG": 6.5, "qAlpha": 6e3, "heatLoad": 1.4e9 },
-				"look": { "skin": "steel", "hotStage": true, "fixedGimbals": range(13, 33) } }),
-			stage({ "key": "ss", "name": "Starship", "dry": 120000.0, "prop": 1200000.0,
-				"engine": E.RAPTOR2, "count": 3, "vacEngine": E.RAPTOR_VAC, "vacCount": 3,
-				"L": 52.0, "D": 9.0, "recover": "tower", "restarts": 3,
+				"look": { "skin": "steel", "superHeavy": true, "fixedGimbals": range(13, 33) } }),
+			# 1 600 t of propellant (V3). Dry mass unpublished; V2's was 85 t, and V3 is longer
+			# in its tanks and carries docking hardware.
+			stage({ "key": "ss", "name": "Starship", "dry": 100000.0, "prop": 1600000.0,
+				"engine": E.RAPTOR3, "count": 3, "vacEngine": E.RAPTOR3_VAC, "vacCount": 3,
+				"L": 52.1, "D": 9.0, "recover": "tower", "restarts": 3,
 				"rcs": { "thrust": 6000.0, "isp": 300.0, "prop": 2000.0, "count": 12 },
 				"flaps": 4, "heatShield": { "area": 400.0, "ablator": false, "tiles": true },
-				"look": { "skin": "steel", "tiles": true, "nosecone": true } }),
+				# On its own it enters and falls broadside by design: no q·α limit; the
+				# q and g ceilings are estimates (entry peaks near 15 kPa and 3 g).
+				"soloLimits": { "maxQ": 60e3, "maxG": 6.0, "qAlpha": 1e12, "heatLoad": 1.4e9 },
+				"look": { "skin": "steel", "starship": true } }),
 		],
 	},
 
