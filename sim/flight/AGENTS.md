@@ -43,9 +43,12 @@ to the procedural builds too.
 - A lone stage with `wings` (the orbiter) flies `Vessel.winged_coeffs`; `glide`
   brings it from orbit to its main gear: 40° entry banking on a drag reference with
   roll reversals, the glide slopes, a flare
-  ([orbiter-entry.md](../../docs/physics/orbiter-entry.md)). A stage's `gear.point`
-  is where it touches down once it is alone. Regression: `orbiter_return` in
-  `tools/missioncheck.tscn`.
+  ([orbiter-entry.md](../../docs/physics/orbiter-entry.md)). With a launch site it
+  waits for the deorbit opportunity a conic predictor finds, flies range-to-go drag
+  and reversals toward the site, and aims TAEM at it. The site comes from
+  `Vessel.site_at(coord)`, never from integrating frame `dt`. A stage's `gear.point`
+  is where it touches down once it is alone. Regression: `orbiter_return` and
+  `orbiter_home` in `tools/missioncheck.tscn`.
 - The Shuttle's lines (orbiter, tank, boosters) are one set of station tables in
   `shuttlelines.gd` and `model_sources/blender/shuttle.py`; change both
   ([shuttle-geometry.md](../../docs/physics/shuttle-geometry.md)).

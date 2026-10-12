@@ -27,7 +27,7 @@ const PROGRAMS := [
 	["hoverslam", "Propulsive landing", "Entry burn, then a hoverslam: ignition altitude solved from v²/2(F/m − g) every step."],
 	["catch", "Booster return & tower catch", "Super Heavy from its post-boostback apogee: no entry burn, a 13-engine landing burn, then as many centre engines as can hover (two Raptor 3s on V3) beside the tower, then onto the arms."],
 	["bellyflop", "Ship return: belly-flop & flip", "Starship's own descent: deorbit if in orbit, belly first through entry (60° to broadside) with the flaps trimming, then the flip on the three sea-level Raptors and a landing burn on one, to a soft touchdown."],
-	["glide", "Orbiter entry & landing", "The Shuttle's way home: deorbit burn, 40° nose-up entry banking to hold a 10 m/s² drag, with roll reversals, then a glide down the −20° outer glide slope, preflare onto the −1.5° inner one, gear at 300 ft and touchdown on the main wheels."],
+	["glide", "Orbiter entry & landing", "The Shuttle's way home: a deorbit burn timed to bring the launch site within reach, a 40° nose-up entry banking to fly the drag the range to go needs, with roll reversals toward the site, then a glide down the −20° outer glide slope, preflare onto the −1.5° inner one, gear at 300 ft and touchdown on the main wheels."],
 	["edl", "Entry, descent & landing", "Aeroshell, supersonic parachute, backshell separation, powered descent, sky crane."],
 	["cruise", "Interstellar cruise", "Fly to the target on the exact constant-proper-acceleration solution: accelerate, coast, flip and burn. Pick a star (★) or a planet under Target first — with none picked it flies the mission. Two clocks, and the sky aberrates."],
 ]

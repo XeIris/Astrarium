@@ -218,8 +218,20 @@ func place_on_pad(lat_deg: float = 28.5, lon_deg: float = 0.0) -> Vessel:
 	omega.set_v(0.0, 0.0, 0.0)
 	phase = PHASE.PRELAUNCH
 	held_down = false
-	launch_site = { "lat": lat, "lon": lon, "r": r.clone(), "v": v.clone() }
+	launch_site = { "lat": lat, "lon": lon, "r": r.clone(), "v": v.clone(), "r0": r.clone(), "coord0": coord }
 	return self
+
+## Where the launch site is at coordinate time `t` (s), turned with the body from where
+## it was placed. Exact in t, so it doesn't drift with the step size or time warp the
+## way integrating ω × r per frame does. Null without a launch site.
+func site_at(t: float, out: DVec3):
+	if launch_site == null: return null
+	var r0: DVec3 = launch_site.r0
+	# +Ω t: with ω on −Y only the positive sign agrees with ω × r (see the landed step).
+	var w: float = env.rotRate * (t - float(launch_site.coord0))
+	var cw := cos(w)
+	var sw := sin(w)
+	return out.set_v(r0.x * cw - r0.z * sw, r0.y, r0.x * sw + r0.z * cw)
 
 ## Place the vessel on a circular orbit of altitude `alt_m`.
 func place_in_orbit(alt_m: float, inc_deg: float = 0.0, phase_rad: float = 0.0) -> Vessel:
@@ -1292,11 +1304,7 @@ func sample(dt: float, s: Sample = null) -> Dictionary:
 	if s.mach > max_mach: max_mach = s.mach
 	if a_net / Rocketry.G0 > max_g: max_g = a_net / Rocketry.G0
 	if launch_site != null:
-		# Carry the pad round with the body (ω × r) before measuring against it.
-		var site_r: DVec3 = launch_site.r
-		if dt > 0.0:
-			_a.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_a, site_r)
-			DQuat.set_len(site_r.add_scaled_in(_a, dt), env.radius)
+		var site_r: DVec3 = site_at(coord, launch_site.r)
 		# great-circle distance from the pad, along the surface
 		var ang := DQuat.angle_between(site_r, r)
 		downrange = ang * env.radius

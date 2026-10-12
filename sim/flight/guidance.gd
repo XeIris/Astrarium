@@ -1047,14 +1047,36 @@ class Autopilot extends RefCounted:
 	func _shuttle_drag(va: float) -> float:
 		return lerpf(lerpf(8.0, 10.0, smoothstep(900.0, 2500.0, va)), 5.0, smoothstep(4500.0, 6500.0, va))
 	const REVERSAL := 0.17              # rad off the entry plane before a roll reversal
+	const REVERSAL_LOW := 0.30          # rad off the site below 2.5 km/s
+	const ENTRY_Q_MAX := 14000.0        # Pa the drag reference may ask for, ~the Shuttle's
 	const OUTER_GS := -20.0 * PI / 180.0
 	const INNER_GS := -1.5 * PI / 180.0
 	const EAS_REF := 150.0              # m/s, 290 KEAS down the outer glide slope
+	const V_TAEM := 760.0               # m/s air speed, the TAEM interface (about Mach 2.5)
+	const TAEM_ALT := 26000.0           # m, where the entry nominally hands over to TAEM
+	const PREFLARE_ALT := 600.0
+	const PREFLARE_RANGE := 3500.0      # m flown from the preflare to touchdown
+	const ENTRY_INTERFACE := 121920.0   # m, 400,000 ft
+	## Ground range, m, from entry interface to where the drag reference takes hold: the
+	## thin-air descent, flown at nearly orbital speed before the bank has much authority.
+	const THIN_RANGE := 3.65e6
+	const ENTRY_TIME := 1850.0          # s from entry interface to touchdown, as flown
+	const DEORBIT_LEAD := 600.0         # s before the burn that it is re-solved and committed
+	const CROSSRANGE_REACH := 1.1e6     # m: 1130 km was made good, 1210 km was not
 	var _bank_sign := 1.0
+	var _s_side := 0.0                  # which way TAEM turns off the line to the site
 	var _drag_f := 0.0
 	var _ref_set := false
 	var _ref_n := DVec3.new()
 	var _p := DVec3.new()
+	var _site_now := DVec3.new()
+	var _deorbit_at := -1.0             # coordinate time of the planned deorbit burn, s; <0 unplanned
+	var _deorbit_xr := 0.0              # its predicted crossrange, m
+	var _pr := DVec3.new()
+	var _pv := DVec3.new()
+	var _pn := DVec3.new()
+	var _pf := DVec3.new()
+	var _ps := DVec3.new()
 
 	## Angle of attack (rad) that gives lift coefficient `cl` at this Mach and speed
 	## brake, by bisection: winged_coeffs' C_L rises monotonically to 45°.
@@ -1068,6 +1090,134 @@ class Autopilot extends RefCounted:
 			else: hi = mid
 		return 0.5 * (lo + hi)
 
+	## The angle of attack of best L/D at this Mach and speed brake, rad.
+	func _alpha_best(mach: float, sb: float) -> float:
+		var best := 0.0
+		var a_best := deg_to_rad(10.0)
+		for i in 33:
+			var a := deg_to_rad(4.0 + i * 0.75)
+			var c := Vessel.winged_coeffs(a, mach, sb)
+			if c.x / c.y > best:
+				best = c.x / c.y
+				a_best = a
+		return a_best
+
+	## The launch site now, or null for a vessel that wasn't launched from one.
+	func _home_site():
+		return v.site_at(v.coord, _site_now)
+
+	## Entry angle of attack, rad: 40° until 3.5 km/s, easing to 14° by Mach 2.5.
+	func _entry_alpha(va: float) -> float:
+		return deg_to_rad(lerpf(14.0, 40.0, smoothstep(900.0, 3500.0, va)))
+
+	## Ground range, m, flown slowing from air speed `va` to V_TAEM at the nominal drag
+	## profile: dR = u du / D(u).
+	func _profile_range(va: float) -> float:
+		if va <= V_TAEM: return 0.0
+		var du := (va - V_TAEM) / 32.0
+		var rg := 0.0
+		for i in 32:
+			var u := V_TAEM + (i + 0.5) * du
+			rg += u * du / _shuttle_drag(u)
+		return rg
+
+	## Flight-path angle the glide is scheduled to fly at height h: −8° high in TAEM,
+	## steepening to the outer glide slope by 4 km.
+	func _glide_gamma(h: float) -> float:
+		return lerpf(OUTER_GS, -8.0 * PI / 180.0, smoothstep(4000.0, 20000.0, h))
+
+	## Ground range, m, the scheduled glide flies from height h to touchdown.
+	func _glide_range(h: float) -> float:
+		if h <= PREFLARE_ALT: return PREFLARE_RANGE * maxf(h, 0.0) / PREFLARE_ALT
+		var dh := (h - PREFLARE_ALT) / 40.0
+		var x := PREFLARE_RANGE
+		for i in 40:
+			x += dh / tan(-_glide_gamma(PREFLARE_ALT + (i + 0.5) * dh))
+		return x
+
+	## Ground range, m, from entry interface at air speed `va` to touchdown.
+	func _entry_range(va: float) -> float:
+		return THIN_RANGE + _profile_range(va) + _glide_range(TAEM_ALT)
+
+	## Where a deorbit burn `t_b` s from now brings the orbiter down, against the launch
+	## site: x the downrange miss (rad, + while the site lies beyond), y the crossrange
+	## (rad, + to the left). The post-burn conic is propagated to entry interface, and the
+	## modelled entry range added from there. Null if the burn misses the air.
+	## `dv_out` receives the burn's Δv vector.
+	func _deorbit_miss(t_b: float, dv_out: DVec3 = null):
+		var mu: float = v.env.mu
+		var Re: float = v.env.radius
+		var top: float = Re + ENTRY_INTERFACE
+		var rb := _pr
+		var vb := _pv
+		if not Orbit.propagate(v.r, v.v, mu, t_b, rb, vb): return null
+		# The same burn the program flies: retrograde, perigee to half the atmosphere's height.
+		var R := rb.length()
+		var a_new := (R + Re + float(v.env.atm.top) * 0.5) / 2.0
+		var speed := vb.length()
+		var dv := sqrt(maxf(mu * (2.0 / R - 1.0 / a_new), 0.0)) - speed
+		if dv_out != null: dv_out.copy_from(vb).scale_in(dv / speed)
+		vb.scale_in(1.0 + dv / speed)
+		var t_ei := Orbit.time_to_radius_descending(Orbit.elements(rb, vb, mu), mu, top)
+		if not is_finite(t_ei): return null
+		if not Orbit.propagate(rb, vb, mu, t_ei, rb, vb): return null
+		# Crossrange against the orbit's plane, which the flight stays near, and the site
+		# where the planet has carried it by touchdown.
+		var n := DQuat.nrm(_pn.cross_vectors(rb, vb))
+		var site: DVec3 = DQuat.nrm(v.site_at(v.coord + t_b + t_ei + ENTRY_TIME, _ps))
+		var xr := asin(clampf(site.dot(n), -1.0, 1.0))
+		# Downrange over the ground, where the range model is: the track along the air
+		# velocity, and the site as it is at entry interface.
+		v.airspeed(rb, vb, vb)
+		var up := DQuat.nrm(rb)
+		DQuat.nrm(n.cross_vectors(up, vb))
+		var fwd := _pf.cross_vectors(n, up)
+		DQuat.nrm(v.site_at(v.coord + t_b + t_ei, site))
+		var theta := _entry_range(vb.length()) / Re
+		var phi := atan2(site.dot(fwd), site.dot(up))
+		return Vector2(wrapf(phi - theta, -PI, PI), xr)
+
+	## The burn time, s from now, in (lo, hi) at which the downrange miss falls through
+	## zero, by bisection; -1 if it doesn't there.
+	func _deorbit_root(lo: float, hi: float) -> float:
+		var m_lo = _deorbit_miss(lo)
+		var m_hi = _deorbit_miss(hi)
+		if m_lo == null or m_hi == null or m_lo.x <= 0.0 or m_hi.x > 0.0 or m_lo.x - m_hi.x > PI / 2.0:
+			return -1.0
+		for i in 40:
+			var mid := 0.5 * (lo + hi)
+			var m = _deorbit_miss(mid)
+			if m == null: return -1.0
+			if m.x > 0.0: lo = mid
+			else: hi = mid
+		return 0.5 * (lo + hi)
+
+	## The first deorbit opportunity within `horizon` s that brings the site within
+	## crossrange reach, s from now, or the one closest to reach. Delaying the burn
+	## carries the touchdown ahead at the orbital rate and the site at the planet's, so
+	## the downrange miss falls through zero once a revolution. -1 if none in the horizon.
+	func _plan_deorbit(t0: float, horizon: float) -> float:
+		var best := -1.0
+		_deorbit_xr = INF
+		var step := 120.0
+		var t := t0
+		while t < t0 + horizon:
+			var tb := _deorbit_root(t, t + step)
+			t += step
+			if tb < 0.0: continue
+			var xr := absf(float(_deorbit_miss(tb).y)) * float(v.env.radius)
+			if xr < _deorbit_xr:
+				_deorbit_xr = xr
+				best = tb
+			if xr < CROSSRANGE_REACH: break
+		return best
+
+	## Signed heading error to the site, rad: + when it lies to the left of the ground track.
+	func _heading_error(site: DVec3, vh: DVec3) -> float:
+		var hv := Guidance._c.copy_from(vh).add_scaled_in(Guidance._up, -Guidance._up.dot(vh))
+		var ts := Guidance._d.copy_from(site).add_scaled_in(Guidance._up, -Guidance._up.dot(site))
+		return atan2(Guidance._up.dot(Guidance._e.cross_vectors(hv, ts)), hv.dot(ts))
+
 	func glide_guidance(dt: float, pa: float):
 		var st = v._first_attached()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
@@ -1076,9 +1226,11 @@ class Autopilot extends RefCounted:
 		var va := Guidance._g.length()
 		var v_vert := Guidance._g.dot(Guidance._up)
 		var g: float = v.env.mu / v.r.length_sq()
+		var Re: float = v.env.radius
+		var site = _home_site()
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.speedbrake = 0.0; v.roll_signed = false
-			note("Wheels stop")
+			note("Wheels stop" if site == null else "Wheels stop — %s km from the launch site" % U.fixed(Re * DQuat.angle_between(v.r, site) / 1000.0, 1))
 			return null
 		if st == null or st.spec.get("wings") == null:
 			note("Only a winged orbiter glides"); program = null
@@ -1087,21 +1239,53 @@ class Autopilot extends RefCounted:
 			var top: float = float(v.env.atm.top) if v.env.atm != null else 0.0
 			if state_name == null and float(v.telemetry.get("peri", 0.0)) > top * 0.35 and alt > top:
 				state_name = "deorbit"
+				_deorbit_at = -1.0
 			else:
 				state_name = "entry"
 				v.roll_signed = true
-				_bank_sign = 1.0
+				_bank_sign = 0.0
 				_ref_set = false
 				_drag_f = 0.0
 				note("Entry — 40° nose up, %s km, %s m/s" % [U.fixed(alt / 1000.0, 0), U.fixed(va, 0)])
 		if state_name == "deorbit":
+			if node == null and site != null:
+				if _deorbit_at < 0.0:
+					# Room to turn to the burn attitude first.
+					var tb := _plan_deorbit(240.0, 86400.0)
+					if tb < 0.0:
+						note("No deorbit opportunity within a day — deorbiting now")
+						site = null
+					else:
+						_deorbit_at = v.coord + tb
+						note("Deorbit opportunity in %s — %s km crossrange%s" % [Guidance.fmt_dur(tb), U.fixed(_deorbit_xr / 1000.0, 0),
+							"" if _deorbit_xr < CROSSRANGE_REACH else ", the closest in a day, out of reach"])
+				var to_go := _deorbit_at - v.coord
+				if site != null and to_go > DEORBIT_LEAD:
+					v.throttle = 0.0
+					say("Deorbit burn in %s for the launch site, %s km crossrange" % [Guidance.fmt_dur(to_go), U.fixed(_deorbit_xr / 1000.0, 0)])
+					return Guidance.attitude_for(MODE.PROGRADE, v)
+				if site != null:
+					# Committed: re-solved from the state as it is now, which fixes the burn's
+					# direction where it will be flown.
+					var tb := _deorbit_root(maxf(to_go - 120.0, 30.0), to_go + 120.0)
+					if tb > 0.0: _deorbit_at = v.coord + tb
+					var dvv := DVec3.new()
+					if _deorbit_miss(_deorbit_at - v.coord, dvv) != null:
+						node = { "dv": dvv, "t": _deorbit_at - v.coord, "label": "Deorbit burn" }
+					else:
+						_deorbit_at = -1.0       # plan again next cycle
+						return Guidance.attitude_for(MODE.PROGRADE, v)
 			if node == null:
 				var el: Dictionary = v.telemetry.el
 				var R: float = el.r
 				# A shallower perigee than a capsule's: a lifting entry needs less of a dive.
-				var a_new: float = (R + float(v.env.radius) + float(v.env.atm.top) * 0.5) / 2.0
+				var a_new: float = (R + Re + float(v.env.atm.top) * 0.5) / 2.0
 				var dv: float = sqrt(maxf(v.env.mu * (2.0 / R - 1.0 / a_new), 0.0)) - float(el.v)
 				node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
+			# The node counts down in frame seconds, which time warp outruns; hold it to the
+			# planned coordinate time instead.
+			elif _deorbit_at >= 0.0 and not burning and is_same(_node_ref, node):
+				node_t = _deorbit_at - v.coord
 			return node_guidance(dt, pa, node)
 
 		var mach: float = float(v.telemetry.get("mach", 0.0))
@@ -1114,66 +1298,132 @@ class Autopilot extends RefCounted:
 		DQuat.nrm(p)
 		var aoa := 0.0
 		var bank := 0.0
-		if state_name == "entry" and va < 760.0:
+		var togo := Re * DQuat.angle_between(v.r, site) if site != null else 0.0
+		if state_name == "entry" and va < V_TAEM:
 			state_name = "taem"
-			note("TAEM — Mach %s, %s km" % [U.fixed(mach, 1), U.fixed(alt / 1000.0, 1)])
+			note("TAEM — Mach %s, %s km%s" % [U.fixed(mach, 1), U.fixed(alt / 1000.0, 1),
+				"" if site == null else ", %s km to go" % U.fixed(togo / 1000.0, 0)])
 		if state_name == "entry":
 			# 40° until 3.5 km/s, easing to 14° by Mach 2.5; the speed brake opens to keep
 			# the rudder working once the flow is slower than Mach 10.
-			aoa = deg_to_rad(lerpf(14.0, 40.0, smoothstep(900.0, 3500.0, va)))
+			aoa = _entry_alpha(va)
 			v.speedbrake = 0.0 if mach > 10.0 else 0.65
 			flap_cmd = [0.25, 0.0, 0.0, 0.0]
-			if q > 300.0:
+			var d_ref := _shuttle_drag(va)
+			if q > 50.0:
 				# Bank to track the drag reference: sinking while the air is thin, level as
 				# drag reaches it. Lift at this α, from the same coefficients the vessel flies.
-				var lift: float = q * Vessel.winged_coeffs(aoa, mach, v.speedbrake).x * S / v.mass
+				# From the first wisp of air, or the lift alone skips it back out at ~85 km.
+				var cf := Vessel.winged_coeffs(aoa, mach, v.speedbrake)
+				var lift: float = q * cf.x * S / v.mass
 				# Filtered: the drag dips and jumps while the vehicle rolls through a reversal.
 				_drag_f += (float(v.telemetry.get("drag", 0.0)) / v.mass - _drag_f) * minf(dt / 2.0, 1.0)
 				var drag := _drag_f
-				var vh2 := va * va - v_vert * v_vert
-				var vv_ref := clampf(-150.0 * (1.0 - drag / _shuttle_drag(va)), -150.0, 40.0)
-				var want := 0.08 * (vv_ref - v_vert) + g - vh2 / v.r.length() + drag * (v_vert / maxf(va, 1.0))
+				# Inertial speed for the centrifugal relief: over the turning planet the air
+				# speed eastward is ~400 m/s short of it, ~1 m/s² of lift.
+				var vh2 := v.v.length_sq() - v_vert * v_vert
+				var lift_need := g - vh2 / v.r.length()
+				# Never more drag than ENTRY_Q_MAX gives.
+				var d_q := ENTRY_Q_MAX * S * cf.y / v.mass
+				if site != null:
+					# Range control (the Shuttle's): the nominal profile scaled so that what it
+					# flies from here to TAEM is the range left. For constant drag that is
+					# D = (v² − v_TAEM²) / 2R. Floored where the lift, banked 30°, still holds
+					# the vehicle level, so that it can still turn; capped at 1.5× nominal.
+					var r_ent := maxf(togo - _glide_range(TAEM_ALT), 1.0e4)
+					var d_lo := maxf(lift_need, 0.0) * cf.y / cf.x * 1.15
+					d_ref = clampf(d_ref * _profile_range(va) / r_ent, d_lo, maxf(d_lo, minf(1.5 * d_ref, d_q)))
+				else:
+					d_ref = minf(d_ref, d_q)
+				# Holding a drag profile means sinking into denser air as the speed and α fall:
+				# from D ∝ ρv²C_D and v̇ = −D, ḣ = −H (2D/v − dD/dv + D dlnC_D/dv). Without it
+				# the drag lags its reference by ~20%.
+				var slope := (_shuttle_drag(va + 50.0) - _shuttle_drag(va - 50.0)) / 100.0 * d_ref / _shuttle_drag(va)
+				var cd_hi := Vessel.winged_coeffs(_entry_alpha(va + 50.0), mach * (va + 50.0) / va, v.speedbrake).y
+				var cd_lo := Vessel.winged_coeffs(_entry_alpha(va - 50.0), mach * (va - 50.0) / va, v.speedbrake).y
+				var dlncd := log(cd_hi / cd_lo) / 100.0
+				var hdot := -Rocketry.scale_height(v.env.atm, alt) * (2.0 * d_ref / maxf(va, 1.0) - slope + d_ref * dlncd)
+				var vv_ref := clampf(hdot - 150.0 * (1.0 - drag / d_ref), -150.0, 40.0)
+				var want := 0.08 * (vv_ref - v_vert) + lift_need + drag * (v_vert / maxf(va, 1.0))
 				bank = acos(clampf(want / maxf(lift, 1e-6), -1.0, 1.0))
-				# Roll reversals: a bank turns the vehicle toward its lifted wing, out of the
-				# orbital plane it entered in. Past the deadband, bank the other way. (The real
-				# ones manage crossrange toward the runway; there is no runway to aim at here.)
-				if not _ref_set:
-					_ref_set = true
-					DQuat.nrm(_ref_n.cross_vectors(Guidance._up, vh))
-				var err := asin(clampf(vh.dot(_ref_n), -1.0, 1.0))
-				if (_bank_sign > 0.0 and err < -REVERSAL) or (_bank_sign < 0.0 and err > REVERSAL):
-					_bank_sign = -_bank_sign
-					note("Roll reversal — Mach %s, %s km" % [U.fixed(mach, 1), U.fixed(alt / 1000.0, 1)])
-			say("Entry — α %s°, bank %s°, %s km, Mach %s" % [U.fixed(rad_to_deg(aoa), 0),
-				U.fixed(rad_to_deg(bank) * _bank_sign, 0), U.fixed(alt / 1000.0, 1), U.fixed(mach, 1)])
+				if site != null:
+					# Roll reversals toward the site: bank toward it, and once the ground track
+					# has swung past it by the deadband, bank the other way. The deadband widens
+					# late, where TAEM's turn takes over. A minimum bank keeps some turn when the
+					# drag channel wants the lift straight up.
+					bank = maxf(bank, deg_to_rad(15.0))
+					var err := -_heading_error(site, vh)
+					var band := lerpf(REVERSAL_LOW, REVERSAL, smoothstep(2500.0, 4000.0, va))
+					if _bank_sign == 0.0:
+						_bank_sign = 1.0 if err > 0.0 else -1.0
+					elif (_bank_sign > 0.0 and err < -band) or (_bank_sign < 0.0 and err > band):
+						_bank_sign = -_bank_sign
+						note("Roll reversal — Mach %s, %s km, %s km to go" % [U.fixed(mach, 1),
+							U.fixed(alt / 1000.0, 1), U.fixed(togo / 1000.0, 0)])
+				else:
+					# Roll reversals: a bank turns the vehicle toward its lifted wing, out of the
+					# orbital plane it entered in. Past the deadband, bank the other way.
+					if _bank_sign == 0.0: _bank_sign = 1.0
+					if not _ref_set:
+						_ref_set = true
+						DQuat.nrm(_ref_n.cross_vectors(Guidance._up, vh))
+					var err := asin(clampf(vh.dot(_ref_n), -1.0, 1.0))
+					var band := lerpf(REVERSAL_LOW, REVERSAL, smoothstep(2500.0, 4000.0, va))
+					if (_bank_sign > 0.0 and err < -band) or (_bank_sign < 0.0 and err > band):
+						_bank_sign = -_bank_sign
+						note("Roll reversal — Mach %s, %s km" % [U.fixed(mach, 1), U.fixed(alt / 1000.0, 1)])
+			say("Entry — α %s°, bank %s°, %s km, Mach %s%s" % [U.fixed(rad_to_deg(aoa), 0),
+				U.fixed(rad_to_deg(bank) * _bank_sign, 0), U.fixed(alt / 1000.0, 1), U.fixed(mach, 1),
+				"" if site == null else ", %s km to go, drag %s/%s" % [U.fixed(togo / 1000.0, 0), U.fixed(_drag_f, 1), U.fixed(d_ref, 1)]])
 		else:
-			# TAEM and approach: wings level, the flight-path angle steered with α and the
-			# speed with the speed brake. Outer glide slope −20°; preflare from 600 m (2000 ft),
-			# a pull-up of at most 1.6 g onto the −1.5° inner slope by 40 m; gear at 90 m
-			# (300 ft); flare to about a metre a second (3 ft/s).
+			# TAEM and approach: the flight-path angle steered with α and the speed with the
+			# speed brake. Outer glide slope −20°; preflare from 600 m (2000 ft), a pull-up of
+			# at most 1.6 g onto the −1.5° inner slope by 40 m; gear at 90 m (300 ft); flare to
+			# about a metre a second (3 ft/s).
 			var h := v.contact_altitude()
 			var gam := asin(clampf(v_vert / maxf(va, 1.0), -1.0, 1.0))
-			var gref := lerpf(OUTER_GS, -8.0 * PI / 180.0, smoothstep(4000.0, 20000.0, h))
-			if h < 600.0: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0) / 560.0, 0.0, 1.0)))
+			var gref := _glide_gamma(h)
+			var a_cap := deg_to_rad(40.0)
+			if site != null:
+				# Aimed at the site. Short of energy for the range, a shallower glide, at no
+				# more than the α of best L/D (more only adds drag). With energy to spare, the
+				# track turns off the line to the site so that it closes at the rate the
+				# glide uses range, cos ψ = range / glide range: an S-turn, and when far too
+				# high a circle round the site, as the heading-alignment cone is. Steeper only
+				# down the outer glide slope, onto its line.
+				var ratio := _glide_range(h) / maxf(togo, 1.0)
+				if h > PREFLARE_ALT:
+					gref = -atan(tan(-gref) * clampf(ratio, 0.6, 1.0 if h > 4000.0 else 1.25))
+					a_cap = _alpha_best(mach, v.speedbrake)
+				var off := acos(clampf(1.0 / ratio, 0.0, 1.0)) if h > 3000.0 else 0.0
+				var psi := _heading_error(site, vh)
+				if off < 0.02: _s_side = 0.0
+				elif _s_side == 0.0: _s_side = 1.0 if psi >= 0.0 else -1.0
+				var lim := deg_to_rad(lerpf(5.0, 45.0, smoothstep(150.0, 4000.0, h))) * smoothstep(1000.0, 3000.0, togo)
+				var sig := clampf(-1.5 * (psi - off * _s_side), -lim, lim)
+				bank = absf(sig)
+				_bank_sign = 1.0 if sig >= 0.0 else -1.0
+			if h < PREFLARE_ALT: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0) / 560.0, 0.0, 1.0)))
 			var sink := 0.9 + 0.11 * maxf(h, 0.0)
 			if h < 30.0: gref = maxf(gref, -asin(clampf(sink / maxf(va, 1.0), 0.0, 1.0)))
-			var k := 0.8 if h < 600.0 else 0.5
+			var k := 0.8 if h < PREFLARE_ALT else 0.5
 			var a_n := clampf(g * cos(gam) + va * k * (gref - gam), 0.2 * g, 1.6 * g)
 			var eas := sqrt(2.0 * q / 1.225)
-			v.speedbrake = clampf(0.3 + 3.0 * (eas - EAS_REF) / EAS_REF, 0.0, 1.0) if h > 600.0 else 0.0
-			aoa = _alpha_for(v.mass * a_n / maxf(q * S, 1.0), mach, v.speedbrake)
+			v.speedbrake = clampf(0.3 + 3.0 * (eas - EAS_REF) / EAS_REF, 0.0, 1.0) if h > PREFLARE_ALT else 0.0
+			aoa = minf(_alpha_for(v.mass * a_n / maxf(q * S * cos(bank), 1.0), mach, v.speedbrake), a_cap)
 			flap_cmd = [0.1, 0.0, 0.0, 0.0]
 			if h < 90.0 and not st.gear_out:
 				st.gear_out = true
 				note("Gear down — %s m, %s m/s" % [U.fixed(h, 0), U.fixed(va, 0)])
-			if h < 600.0 and state_name != "flare":
+			if h < PREFLARE_ALT and state_name != "flare":
 				state_name = "flare"
 				note("Preflare — %s m, %s KEAS" % [U.fixed(h, 0), U.fixed(eas * 1.944, 0)])
 			elif state_name == "taem" and h < 4000.0:
 				state_name = "approach"
 				note("Outer glide slope — %s m, %s KEAS" % [U.fixed(h, 0), U.fixed(eas * 1.944, 0)])
-			say("%s — %s m, %s KEAS, γ %s°, α %s°" % [("Approach" if state_name != "taem" else "TAEM"),
-				U.fixed(h, 0), U.fixed(eas * 1.944, 0), U.fixed(rad_to_deg(gam), 1), U.fixed(rad_to_deg(aoa), 1)])
+			say("%s — %s m, %s KEAS, γ %s°, α %s°%s" % [("Approach" if state_name != "taem" else "TAEM"),
+				U.fixed(h, 0), U.fixed(eas * 1.944, 0), U.fixed(rad_to_deg(gam), 1), U.fixed(rad_to_deg(aoa), 1),
+				"" if site == null else ", %s km to go" % U.fixed(togo / 1000.0, 1)])
 		# Lift turned about the velocity by the bank; the nose α above it in that plane, and
 		# the belly into the flow (signed roll: tiles, not the payload bay doors).
 		var side := Guidance._e.cross_vectors(vh, p)

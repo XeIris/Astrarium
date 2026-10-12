@@ -141,6 +141,15 @@ static func _mean_anomaly(e: float, nu: float) -> float:
 	var ecc := 2.0 * atan2(sqrt(1.0 - e) * sin(nu / 2.0), sqrt(1.0 + e) * cos(nu / 2.0))
 	return ecc - e * sin(ecc)
 
+## Time from now until a closed orbit next descends through radius `r_target`, s;
+## INF if it never reaches it.
+static func time_to_radius_descending(el: Dictionary, mu: float, r_target: float) -> float:
+	if not (el.e < 1.0) or el.e < 1e-9: return INF
+	var p: float = el.a * (1.0 - el.e * el.e)
+	var c: float = (p / r_target - 1.0) / el.e
+	if absf(c) > 1.0: return INF
+	return time_to_anomaly(el, mu, 2.0 * PI - acos(c))
+
 static func time_to_apoapsis(el: Dictionary, mu: float) -> float:  return time_to_anomaly(el, mu, PI)
 static func time_to_periapsis(el: Dictionary, mu: float) -> float: return time_to_anomaly(el, mu, 0.0)
 
