@@ -32,6 +32,7 @@ var rcs_puffs: Plume.RCSPuffs
 var vessel: Vessel = null
 var autopilot = null              # Guidance.Autopilot
 var cryo: Cryo = null             # frost and boil-off on the vehicle's cold tanks
+var vapour: Vapour = null         # condensation collars round its shoulders, in humid air
 var craft = null                  # CraftModel.Craft
 var plumes: Array = []            # Plume.PlumeFx
 var entry = null                  # Plume.EntryGlow
@@ -101,6 +102,11 @@ var local_view: LocalView
 ## Optional (fly_cam, craft_pos, site_local, dt): repositions fly_cam after its own
 ## update. The title reel frames its launch shot through it.
 var camera_override := Callable()
+## The effects lab (tools/fxlab.gd): {alt (m), speed (m/s of airspeed), pitch (rad from
+## vertical, toward the east), throttle}. The vehicle is held there with the air
+## streaming past it, which for the plume, the trail and the vapour is the same as
+## flying through still air. Null in flight.
+var lab = null
 
 var _q := DQuat.new()
 var _a := DVec3.new()
@@ -320,6 +326,8 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	pad_aimed = false
 	build_plumes(veh)
 	cryo = Cryo.build(craft)
+	var atm = vessel.env.get("atm")
+	vapour = Vapour.create(craft) if atm != null and atm.get("humid", false) else null
 	entry = Plume.create_entry_glow(maxf(vessel.diameter * 0.75, 2.0))
 	craft.group.add_child(entry.mesh)
 
@@ -474,7 +482,7 @@ func _reframe_smoke(new_basis: Basis, up: DVec3, radius: float, spin: float) -> 
 func _lay_trail(craft_basis: Basis) -> void:
 	var lead: Plume.PlumeFx = null
 	for pl in plumes:
-		if pl.mesh.visible and pl.trail_k > 0.0 and (lead == null or pl.last_len > lead.last_len): lead = pl
+		if pl.mesh.visible and pl.trail_op > 0.0 and (lead == null or pl.last_len > lead.last_len): lead = pl
 	if lead == null: return
 	var dir := craft_basis * Vector3(0, -1, 0)
 	var p := craft_pos.to_v3() + dir * (lead.last_len * 0.88)
@@ -486,9 +494,11 @@ func _lay_trail(craft_basis: Basis) -> void:
 	var gap := p - smoke.trail_last
 	var spacing := maxf(w * 0.42, 2.0)
 	var n := mini(int(gap.length() / spacing), 6)
+	# Fully in before the vehicle has gone half a puff's width.
+	var fade := maxf(Plume.airspeed / (w * 0.5), 2.0)
 	for k in n:
 		var q := smoke.trail_last + gap * (float(k + 1) / float(n))
-		smoke.emit_trail(q, dir * 15.0 + PAD_WIND, w, clampf(lead.trail_k * 0.6, 0.0, 0.7), Color(tint.r, tint.g, tint.b))
+		smoke.emit_trail(q, dir * 15.0 + smoke.wind, w, lead.trail_op, Color(tint.r, tint.g, tint.b), fade)
 	if n > 0: smoke.trail_last = p
 
 ## The rendering preset's share of the flight scene: clouds and sky (LocalView),
@@ -514,7 +524,7 @@ func teardown() -> void:
 	map_site = null
 	pad_fire = null
 	ground_pos.y = 0.0
-	plumes = []; entry = null; cryo = null
+	plumes = []; entry = null; cryo = null; vapour = null
 	mission = null; skip = null
 	smoke.clear()
 	_smoke_framed = false
@@ -994,6 +1004,10 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 			active = false
 			return 0.0
 
+	if lab != null:
+		_hold_lab(dt)
+		if not advance_world.is_valid(): finish_frame(dt, 0.0)
+		return 0.0
 	if skip != null and vessel.coord >= float(skip.until): _arrive_skip()
 	if mission != null and skip == null: mission.update(dt)
 	# Slave the orrery's clock every frame, or the slider desyncs planets and vehicle.
@@ -1066,6 +1080,27 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 
 	if not advance_world.is_valid(): finish_frame(dt, sim_seconds)
 	return sim_seconds
+
+func _hold_lab(dt: float) -> void:
+	var env: Dictionary = vessel.env
+	var up := DQuat.nrm(vessel.r.clone())
+	var spin := DVec3.new(0.0, -float(env.rotRate), 0.0)
+	var east := DVec3.new(0.0, -1.0, 0.0).cross(up)
+	if east.length() < 1e-6: east.set_v(1.0, 0.0, 0.0)
+	DQuat.nrm(east)
+	var p := float(lab.get("pitch", 0.0))
+	var fwd := up.clone().scale_in(cos(p)).add_scaled_in(east, sin(p))
+	vessel.r.copy_from(up).scale_in(float(env.radius) + float(lab.alt))
+	# Airspeed along the axis, on top of the air turning with the planet.
+	vessel.v.copy_from(fwd).scale_in(float(lab.speed)).add_in(spin.cross(vessel.r))
+	vessel.q.set_from_unit_vectors(Vessel.BODY_FWD, fwd)
+	vessel.omega.set_v(0.0, 0.0, 0.0)
+	vessel.throttle = float(lab.get("throttle", 1.0))
+	vessel.held_down = false
+	if vessel.phase == Vessel.PHASE.PRELAUNCH: vessel.t0 = vessel.met
+	vessel.phase = Vessel.PHASE.ASCENT
+	vessel.met += dt
+	vessel.sample(0.0)
 
 func finish_frame(dt: float, coordinate_seconds: float) -> void:
 	if not active or vessel == null: return
@@ -1231,6 +1266,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		vm.set_shader_parameter("uTime", vessel.met)
 	# plumes — each engine's own, at the ambient pressure it is actually in
 	Plume.freestream_q = float(vessel.telemetry.get("q", 0.0)) if env.atm != null else 0.0
+	Plume.airspeed = float(vessel.telemetry.get("airspeed", 0.0)) if env.atm != null else 0.0
 	var pa: float = Rocketry.pressure(env.atm, maxf(alt, 0.0)) if env.atm != null else 0.0
 	var p0: float = float(env.atm.p0) if env.atm != null else 101325.0
 	for pl in plumes:
@@ -1242,6 +1278,14 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	if cruise != null:
 		for pl in plumes:
 			pl.update(0.0 if (cruise.leg == "coast" or cruise.leg == "arrived") else 1.0, 0.0, cruise.tau / 100.0, 101325.0)
+
+	if vapour != null:
+		var vatt := {}
+		for st in vessel.stages: vatt[str(st.spec.key)] = st.attached
+		vapour.update({"mach": float(vessel.telemetry.get("mach", 0.0)),
+			"T": Rocketry.temperature(env.atm, maxf(alt, 0.0)), "rh": Plume.humidity, "alt": alt,
+			"time": vessel.met, "attached": vatt, "sun": craft_basis.inverse() * sl,
+			"light": Plume.daylight})
 
 	# re-entry sheath, from the same heat flux that is burning the shield down
 	if entry != null:
@@ -1263,6 +1307,8 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	# launch smoke: the pad cloud while the jet still reaches the deck, then the trail
 	var thrusting := vessel.throttle > 0.0 and float(vessel.telemetry.get("thrust", 0.0)) > 0.0
 	smoke.wind = PAD_WIND
+	# Held in the lab, the vehicle stands still and the air goes by.
+	if lab != null: smoke.wind -= craft_basis * Vector3.UP * float(lab.speed)
 	if env.atm != null and thrusting and site != null and site.group.visible and alt < 900.0:
 		# Soot from the propellant: alumina (solid), carbon (RP-1), steam (hydrogen).
 		var soot := 0.7

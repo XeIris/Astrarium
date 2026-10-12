@@ -108,15 +108,47 @@ water: a grey column that scatters daylight. The plume shader draws that column
 in the rest of its box (`uTrailK`, `uTrail`), widening and broken by the large
 eddies. `Plume.SmokeColumn` then continues it as a world-fixed trail.
 
-Its density is the propellant's soot plus 0.3 for condensation, times
-`(p_a / p_0)^¼`, which thins it with altitude. It does not depend on how far
-the plume has ballooned: an SRB's trail stays dense to separation. The box
-carries the column past the flame, `L ≥ flame_len·(1 + 1.2·c)` with
-`c = clamp(trail_k / 0.15)`, so the box shrinks smoothly as the column fades
-instead of jumping. The world trail is laid at 0.88 of that length, with the
-jet's radius there. Its reflectance is
-`Plume.smoke_grey`: 0.42 for kerosene soot, 0.72 for a solid's white alumina,
-and near-white condensation for hydrogen.
+### How dense the smoke is
+
+The smoke is the exhaust laid along the path. Each metre of trail holds
+`ṁ / v` kilograms: the mass flow over the airspeed. A slow vehicle near the pad
+leaves a thick column and a fast one high up leaves a thin one. How much of that
+mass shows depends on the propellant:
+
+    smoky = soot + water · (0.3 · (p_a / p_0)^¼ + 0.7 · cold)
+
+`water` is the exhaust's water relative to kerosene's (kerosene ≈ 30 % by mass,
+hydrogen nearly all, methane about half). Low down the water condenses in the
+humid air, which thins with altitude. Above the tropopause (−55 °C, `cold`
+rising from 12 to 26 kPa) it freezes to ice, which is why a trail stays bright to
+staging. Spread over a column of radius `R` the optical depth across it is
+
+    τ = SMOKE_K · smoky · ṁ / (v · R),        SMOKE_K = 2
+
+The shader carries this line density as `uTrailK` and gives every metre of its
+column `σ = uTrailK / (2 R²)`. The trail puffs take opacity `1 − e^{−τ/1.7}`,
+since about 1.7 puffs overlap at any point seen across. Near-field column,
+ballooned column and world trail are three shapes of the same smoke, so
+handing it from one to the next changes the shape, not the density.
+
+**Where the flame stops.** In the ballooned far field the luminous tongues fade
+out by `uFlame·L`, and the same lobes carry on as smoke inside the narrowing
+balloon (`smk_hi`). The smoke fills the radius `0.62·R_eq` that the balloon has
+narrowed to, and the trail picks up at that width. Light from the balloon comes
+from incandescent soot and from afterburning in the shock. A clean methane plume
+still glows (`inc = soot·1.15 + afterburn·0.35`).
+
+**Continuity.** The box carries the column past the flame,
+`L ≥ flame_len·(1 + 1.2·c)` with `c = clamp(τ/0.08)`, so the box shrinks
+smoothly as the column fades instead of jumping. Trail puffs are laid at 0.88 of
+that length with the column's width. They appear before the vehicle has gone half
+a puff's width (`fade = v / (w/2)`). A slower fade would leave a gap of hundreds
+of metres at 2 km/s. The last puff laid drifts with the wind, so a vehicle held
+still with the air streaming past (`tools/fxlab.tscn`) lays the same trail as one
+flying through still air.
+
+The smoke's reflectance is `Plume.smoke_grey`: 0.42 for kerosene soot, 0.72 for
+a solid's white alumina, and near-white condensation for hydrogen.
 
 ## The pad cloud and the trail
 

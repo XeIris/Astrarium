@@ -357,15 +357,17 @@ static func _build_vehicles() -> Dictionary:
 	"hailmary": {
 		"id": "hailmary", "name": "Hail Mary", "role": "interstellar", "launchFrom": null,
 		"era": "Project Hail Mary",
-		"blurb": "Three parallel astrophage tanks around a central spine, a pressure vessel forward of them, and a nose that holds four beetles. Four spin drives on one thrust plane, 1.5 g and 2 000 t of fuel — enough to reach Tau Ceti in thirteen Earth years and six and a half aboard.",
+		"blurb": "104 m from drives to docking port: three astrophage tanks in a triangle round a drive drum, a train of crew modules (lab, dormitory, control room) between them, and two solar wings astern. Four spin drives on one thrust plane, 1.5 g and 2 000 t of fuel — enough to reach Tau Ceti in thirteen Earth years and six and a half aboard.",
 		"limits": { "maxQ": 1e9, "maxG": 4.0, "qAlpha": 1e9, "heatLoad": 0.0 },
 		"stages": [
 			stage({ "key": "hm", "name": "Hail Mary", "dry": 100000.0, "prop": 2000000.0,
-				# Four drives (one under each tank, one on the axis), matching the model.
-				"engine": E.SPIN_DRIVE, "count": 4, "L": 47.0, "D": 12.0, "sep": "none",
+				# Four drives (one at each tank's tip, one on the axis), matching the model.
+				# Proportions from the film; a suited figure on a module sets the scale.
+				# D is the tanks' envelope; the wings span 104 m.
+				"engine": E.SPIN_DRIVE, "count": 4, "L": 104.0, "D": 31.0, "sep": "none",
 				"rcs": { "thrust": 2200.0, "isp": 300.0, "prop": 900.0, "count": 16 },
 				"centrifuge": false,
-				"look": { "skin": "panel-white", "hailmary": true, "tanks": 3, "beetles": 4, "radiators": 4 } }),
+				"look": { "skin": "panel-white", "hailmary": true, "tanks": 3, "beetles": 4 } }),
 		],
 		# Mission stars: distance in ly, J2000 `ra` (h) and `dec` (°) for the departure
 		# direction (Spaceflight.mission_direction), and measured `lum`, `teff`, `radius`

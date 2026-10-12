@@ -185,7 +185,7 @@ func _setup(s: String) -> void:
 				main.flight.run_program("ascent")
 				await _steps(1500)
 		"hangar":
-			main.last_craft = "saturnv"
+			main.last_craft = str(args.get("hcraft", "saturnv"))
 			await _start("flight")
 			for i in 90: await get_tree().process_frame
 		"map", "mission", "mapmars":

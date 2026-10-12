@@ -1,33 +1,75 @@
-# THE HAIL MARY, the Blender build (model_sources/blender/build.sh). Its shape is
-# three bent pressure vessels nested against a lathed spine, and it reads through
-# many small bevelled pieces, which the primitive build can't do. The procedural
-# build in craftmodel.gd stays as the fallback, with the same numbers.
+# THE HAIL MARY, the Blender build (model_sources/blender/build.sh), after the 2026
+# film's ship: three tanks in a triangle round a central drive drum, a train of crew
+# modules standing forward of the drum between them, and two long solar wings astern.
+# Each tank tapers aft through an S-bend to its own drive beside the drum. The
+# proportions are measured off the film's concept art and stills; a suited figure
+# on a module in one still sets the scale (modules ~6 m across, 104 m overall). The
+# procedural build in craftmodel.gd is the fallback, from the same LAYOUT.
 #
 # Stack axis +Z (the exporter makes it Y-up), nose toward +Z; z = 0 is the drive
 # exit plane. Metres.
 import bpy, sys, os, math
-from math import cos, sin, pi, radians, hypot
+from math import cos, sin, pi
 from mathutils import Vector
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from common import build, stage, vehicle_stages
 
 S = vehicle_stages("hailmary")
-from lib import (reset_scene, material, revolve, tube, ring_on, box, strut,
-                 fin, finish, smooth, bevel, empty, group, frames, TAU)
+from lib import (material, revolve, tube, ring_on, box, strut, fin, finish, empty,
+                 group, disc, dish, TAU)
 
-# THE NUMBERS: identical to sim/flight/vehicles.gd and build_hail_mary().
+# THE LAYOUT, in metres at the film's 104 m; `k` scales it to the catalogue's L.
+# Identical to build_hail_mary() in sim/flight/craftmodel.gd.
 L, D = S["hm"]["L"], S["hm"]["D"]
-f = lambda u: u * L
-AFT = f(0.132)                     # the aft plane, in build coords
-TR = D * 0.265                     # tank centreline radius      3.180
-TANK_R = D * 0.110                 # tank radius                 1.320
-DR = TANK_R * 0.62                 # drive aperture radius       0.818
-NECK_Z = DR * 1.42                 # drive neck height
-TOP_Z = NECK_Z + DR * 0.62         # full drive height
-PLATE_Z = AFT + TOP_Z + f(0.006)   # the spine's thrust plate
+k = L / 104.0
+TR = 11.4 * k             # tank centreline off the axis
+TANK_R = 4.0 * k
+TAPER_Z = 29.4 * k        # where a barrel starts to taper aft
+TANK_TOP = 100.0 * k
+TIP_X, TIP_Z, TIP_R = 6.6 * k, 1.6 * k, 1.45 * k     # each tank's aft end, over its drive
+BAY = (42.7 * k, 51.5 * k)                           # the open truss bay, core exposed
+CORE_R = 2.6 * k
+DRUM_R, DRUM_Z0, DRUM_Z1 = 5.0 * k, 9.5 * k, 34.0 * k
+DR = 0.82 * k             # a tank drive's aperture radius
+DR0 = 1.1 * k             # the central drive's
+UNIT_RING, UNIT_R = 2.9 * k, 0.75 * k                # thrust units round the central drive
+WING_Z, WING_R0, WING_R1 = (5.5 * k, 13.9 * k, 15.6 * k, 24.0 * k), 15.0 * k, 52.0 * k
+# The crew stack: (z0, z1, radius, material, kind), stern to bow.
+MODULES = [(35.0, 42.0, 4.0, 'white', 'hub'), (42.0, 44.6, 2.6, 'gold', 'plain'),
+           (44.6, 47.5, 2.1, 'alu', 'node'), (47.5, 54.0, 3.1, 'white', 'ringed'),
+           (54.0, 55.6, 2.2, 'dirty', 'plain'), (55.6, 62.3, 3.0, 'white', 'quilt'),
+           (62.3, 67.5, 3.0, 'white', 'berth'), (67.5, 77.8, 3.0, 'white', 'banded'),
+           (77.8, 83.4, 2.1, 'white', 'plain'), (83.4, 86.0, 2.35, 'soot', 'plain'),
+           (86.0, 93.4, 2.3, 'white', 'greeble'), (93.4, 100.6, 2.3, 'white', 'hatch'),
+           (100.6, 104.0, 2.3, 'alu', 'dock')]
 
-BAY = 2.6                          # tank barrel section length
+
+def taper_path(n=40):
+    """A tank's centreline, bow to stern: straight down the barrel, then an S-bend in
+       to the drive, vertical at both ends so the barrel and the drive stay square."""
+    pts = []
+    for i in range(24):
+        z = TANK_TOP + (TAPER_Z - TANK_TOP) * i / 24
+        pts.append((TR, 0.0, z))
+    for i in range(n + 1):
+        t = 1.0 - i / n                         # 1 at the barrel, 0 at the tip
+        s = t * t * (3 - 2 * t)
+        pts.append((TIP_X + (TR - TIP_X) * s, 0.0, TIP_Z + (TAPER_Z - TIP_Z) * t))
+    return pts
+
+
+def tank_radius(z):
+    """The skin's radius at height z: the barrel, the waist of the truss bay, and the
+       taper, slightly full, down to the tip."""
+    if z >= TAPER_Z:
+        w0, w1 = BAY
+        if w0 < z < w1:
+            e = min(z - w0, w1 - z) / (0.8 * k)
+            return TANK_R + (CORE_R - TANK_R) * min(e, 1.0)
+        return TANK_R
+    t = max((z - TIP_Z) / (TAPER_Z - TIP_Z), 0.0)
+    return TIP_R + (TANK_R - TIP_R) * t ** 0.85
 
 
 # MATERIALS
@@ -42,558 +84,328 @@ def build_materials():
     M['nozzle'] = material('nozzle', (0.16, 0.155, 0.145), 0.38, 0.30)
     M['solar']  = material('solar',  (0.016, 0.030, 0.13), 0.28, 0.22)
     M['glass']  = material('glass',  (0.01, 0.02, 0.035), 0.10, 0.20)
-    M['rad']    = material('rad',    (0.78, 0.78, 0.80), 0.50, 0.06)
     # Emitters light themselves at HDR values (the drive faces point away from every
-    # light). Astrophage fires at 4.26 and 18.31 µm, so the visible tail is deep red.
+    # light). Astrophage fires in the infrared, so the visible tail is deep red.
     M['emitPlate'] = material('emitPlate', (0.10, 0.09, 0.085), 0.52, 0.15,
                               emit=(0.55, 0.17, 0.07), emit_strength=1.4)
     M['emitCell']  = material('emitCell',  (0.05, 0.02, 0.015), 0.45, 0.08,
                               emit=(1.0, 0.38, 0.15), emit_strength=3.2)
 
 
-# PATHS
-def bent_path(x0, z0, zbend, turn_r, turn_deg, runout, n_straight=16, n_arc=28):
-    """
-    A centreline that runs straight and then bends in through a circular arc,
-    ending with a short straight run on the new heading. Same construction as
-    bentPath() in craftmodel.js and the same endpoints — only sampled finer,
-    because here there is no per-ring cost to a smooth curve.
-    """
-    pts, th, cx = [], radians(turn_deg), x0 - turn_r
-    for i in range(n_straight + 1):
-        pts.append((x0, 0.0, z0 + (zbend - z0) * i / n_straight))
-    for i in range(1, n_arc + 1):
-        t = th * i / n_arc
-        pts.append((cx + turn_r * cos(t), 0.0, zbend - turn_r * sin(t)))
-    ex, _, ez = pts[-1]
-    pts.append((ex - sin(th) * runout, 0.0, ez - cos(th) * runout))
-    return pts
-
-
-def resample(path, step):
-    """Uniform arc-length resampling, so a panel line lands where it is asked
-       for rather than wherever the source polyline happened to have a point."""
-    P = [Vector(p) for p in path]
-    seg = [0.0]
-    for i in range(1, len(P)):
-        seg.append(seg[-1] + (P[i] - P[i - 1]).length)
-    total = seg[-1]
-    n = max(2, int(round(total / step)))
-    out, arc = [], []
-    for k in range(n + 1):
-        s = total * k / n
-        i = 1
-        while i < len(seg) - 1 and seg[i] < s:
-            i += 1
-        u = (s - seg[i - 1]) / max(seg[i] - seg[i - 1], 1e-9)
-        out.append(tuple(P[i - 1].lerp(P[i], u)))
-        arc.append(s)
-    return out, arc, total
-
-
 # THE SPIN DRIVE
 def spin_drive(name, R, parent, loc, tag):
     """
-    A spin drive, and deliberately NOT a bell.
-
-    Astrophage radiates its energy as light, so there is no gas to expand and
-    nothing for a nozzle contour to do: the drive is a plate of emitters behind
-    a shallow reflector that collimates the beam. It is therefore SHORT — a
-    chemical bell is long because gas needs length to expand — and SMALL, since
-    a photon drive's thrust is P/c and the aperture is set by what the plate can
-    radiate, not by an area ratio.
-
-    The returned pivot's origin is ON THE EXIT PLANE, because spaceflight.js
-    parents the plume straight to it; anywhere else and the beam starts inside
-    the hardware. Its rotation is identity, which is what craftmodel's update()
-    requires of anything it drives.
+    A spin drive, not a bell: Astrophage radiates its energy as light, so there is
+    no gas to expand. A plate of emitters behind a shallow reflector, short and small
+    (thrust is P/c). The pivot's origin is on the exit plane, where the plume
+    parents, and its rotation is identity, as craftmodel's update() requires.
     """
     piv = empty(name, loc, parent)
-    name = tag          # parts are named for the drive, not for the pivot
-
-    prof = []
-    for i in range(17):                              # the reflector
-        u = i / 16
-        prof.append((R * (1 - 0.42 * u * u), R * 1.05 * u))
-    prof.append((R * 0.58, NECK_Z))
-    finish(revolve(name + '_reflector', prof, M['nozzle'], seg=64, parent=piv),
-           bevel_w=0.012)
-
-    finish(ring_on((0, 0, 0), (0, 0, 1), R, R * 0.055, M['alu'],
-                   name + '_lip', seg=64, minor=12, parent=piv), bevel_w=0.006)
-
-    # The emitter plate, recessed inside the reflector.
+    name = tag
+    neck_z = R * 1.42
+    top_z = neck_z + R * 0.62
+    prof = [(R * (1 - 0.42 * (i / 16) ** 2), R * 1.05 * i / 16) for i in range(17)]
+    prof.append((R * 0.58, neck_z))
+    finish(revolve(name + '_reflector', prof, M['nozzle'], seg=64, parent=piv), bevel_w=0.012)
+    finish(ring_on((0, 0, 0), (0, 0, 1), R, R * 0.055, M['alu'], name + '_lip',
+                   seg=64, minor=12, parent=piv), bevel_w=0.006)
     pr, pz = R * 0.80, R * 0.55
-    finish(revolve(name + '_plate',
-                   [(0, pz), (pr, pz), (pr, pz + R * 0.07), (0, pz + R * 0.07)],
+    finish(revolve(name + '_plate', [(0, pz), (pr, pz), (pr, pz + R * 0.07), (0, pz + R * 0.07)],
                    M['emitPlate'], seg=48, parent=piv), bevel_w=0.008)
-    for ring in range(1, 4):                          # the emitter array
+    for ring in range(1, 4):
         rr, cnt = pr * 0.27 * ring, 6 * ring
-        for k in range(cnt):
-            b = k / cnt * TAU + ring * 0.4
-            c = revolve(f'{name}_cell{ring}_{k}',
+        for j in range(cnt):
+            b = j / cnt * TAU + ring * 0.4
+            c = revolve(f'{name}_cell{ring}_{j}',
                         [(0, 0), (pr * 0.105, 0), (pr * 0.105, R * 0.045), (0, R * 0.045)],
                         M['emitCell'], seg=6, parent=piv)
             c.location = (cos(b) * rr, sin(b) * rr, pz - R * 0.01)
-            finish(c, bevel_w=0.004)
-    # Cooling ribs standing off the reflector and following its curve.
     for i in range(12):
         finish(fin(f'{name}_rib{i}', prof[2:], i / 12 * TAU, R * 0.085, R * 0.055,
                    M['alu'], parent=piv), bevel_w=0.006)
-    # The emitter can — the machinery the plate is the front face of — and a
-    # closing disc so you cannot see up inside the ship.
-    finish(revolve(name + '_can',
-                   [(0, NECK_Z), (R * 0.58, NECK_Z), (R * 0.64, NECK_Z + R * 0.06),
-                    (R * 0.64, TOP_Z), (0, TOP_Z)],
-                   M['dirty'], seg=48, parent=piv), bevel_w=0.010)
-    finish(ring_on((0, 0, NECK_Z + R * 0.12), (0, 0, 1), R * 0.66, R * 0.05,
-                   M['alu'], name + '_collar', seg=48, minor=10, parent=piv),
-           bevel_w=0.006)
-    for i in range(16):                               # fasteners round the collar
-        a = i / 16 * TAU
-        bo = revolve(f'{name}_bolt{i}',
-                     [(0, 0), (R * 0.035, 0), (R * 0.035, R * 0.035), (0, R * 0.035)],
-                     M['steel'], seg=6, parent=piv)
-        bo.location = (cos(a) * R * 0.70, sin(a) * R * 0.70, NECK_Z + R * 0.24)
-        finish(bo, bevel_w=0.004)
+    finish(revolve(name + '_can', [(0, neck_z), (R * 0.58, neck_z), (R * 0.64, neck_z + R * 0.06),
+                                   (R * 0.64, top_z), (0, top_z)], M['dirty'], seg=48, parent=piv),
+           bevel_w=0.010)
+    finish(ring_on((0, 0, neck_z + R * 0.12), (0, 0, 1), R * 0.66, R * 0.05, M['alu'],
+                   name + '_collar', seg=48, minor=10, parent=piv), bevel_w=0.006)
     return piv
 
 
 # A TANK
-def build_tank(idx, root, path):
-    """One astrophage tank, its hardware, and the drive square underneath it."""
+def build_tank(idx, root):
     a = idx / 3 * TAU + pi / 2
     g = group(f'tank{idx}', root, rot_z=a)
-
-    pts, arc, total = resample(path, 0.125)
-    tan, nrm, bi = frames(pts)
-
-    # Panel grooves cut into the skin: the radius dips at every barrel joint, spaced by
-    # arc length (the polyline is 18× denser round the bend).
-    seams = [n * BAY for n in range(1, int(total / BAY) + 1)]
-    W = 0.17
+    pts = taper_path()
+    # Panel grooves every 4 m of barrel and round the taper: the skin dips at each joint.
     def rfun(i, j, ang):
-        s, r = arc[i], TANK_R
-        for sm in seams:
-            d = abs(s - sm)
-            if d < W:
-                r -= TANK_R * 0.020 * (1 - (d / W) ** 2)
-        # Six longitudinal seams; the half-width must exceed the angular step (0.087 rad at
-        # 72 segments) or the groove is smoothed away.
-        for k in range(6):
-            da = abs(((ang - k * TAU / 6 + pi) % TAU) - pi)
-            if da < 0.075:
-                r -= TANK_R * 0.015 * (1 - (da / 0.075) ** 2)
+        z = pts[i][2]
+        r = tank_radius(z)
+        if z > TAPER_Z:
+            d = abs(((z - TAPER_Z) / (4.0 * k) + 0.5) % 1.0 - 0.5) * 4.0 * k
+            if d < 0.14 * k:
+                r -= TANK_R * 0.018 * (1 - (d / (0.14 * k)) ** 2)
+        for s in range(6):
+            da = abs(((ang - s * TAU / 6 + pi) % TAU) - pi)
+            if da < 0.06:
+                r -= r * 0.012 * (1 - (da / 0.06) ** 2)
         return r
-    finish(tube(f'tank{idx}_skin', pts, TANK_R, M['white'], seg=84, parent=g,
-                rfun=rfun), bevel_w=0.010)
-
-    def at(s):
-        i = 1
-        while i < len(arc) - 1 and arc[i] < s:
-            i += 1
-        u = (s - arc[i - 1]) / max(arc[i] - arc[i - 1], 1e-9)
-        return (Vector(pts[i - 1]).lerp(Vector(pts[i]), u),
-                tan[i - 1].lerp(tan[i], u).normalized(),
-                nrm[i - 1].lerp(nrm[i], u).normalized(),
-                bi[i - 1].lerp(bi[i], u).normalized())
-
-    # Ring frames, halfway between the grooves.
-    for n in range(int(total / BAY) + 1):
-        s = BAY * (n + 0.5)
-        if s > total - 0.45:
-            break
-        p, t, _, _ = at(s)
-        finish(ring_on(p, t, TANK_R * 1.012, TANK_R * 0.038, M['alu'],
-                       f'tank{idx}_frame{n}', seg=64, minor=10, parent=g),
-               bevel_w=0.006)
-
-    def surf(s, phi, rr):
-        p, t, nv, bv = at(s)
-        return p + nv * (cos(phi) * rr) + bv * (sin(phi) * rr)
-
-    # Cable trays, an inboard propellant trunk and an outboard conduit, carried round
-    # the bend on the tank frame.
-    runs = [(0.62, TANK_R * 1.05, 0.085, 'alu'), (-0.62, TANK_R * 1.05, 0.085, 'alu'),
-            (pi * 0.5, TANK_R * 1.09, 0.135, 'dirty'),
-            (pi * 1.5, TANK_R * 1.06, 0.090, 'soot'),
-            (pi * 1.5 - 0.30, TANK_R * 1.04, 0.055, 'alu')]
-    for ri, (phi, rr, rad, mk) in enumerate(runs):
-        line = [tuple(surf(s, phi, rr)) for s in
-                [total * k / 60 for k in range(61)]]
-        finish(tube(f'tank{idx}_run{ri}', line, rad, M[mk], seg=12, parent=g,
-                    caps=(True, True)), bevel_w=0.010)
-    # Standoff brackets, so the runs are held off the skin rather than sunk in it.
-    for n in range(1, int(total / 2.0)):
-        s = n * 2.0
-        for phi in (pi * 0.5, pi * 1.5):
-            finish(strut(f'tank{idx}_brk{n}_{phi:.1f}', surf(s, phi, TANK_R * 0.99),
-                         surf(s, phi, TANK_R * 1.11), 0.05, M['alu'], parent=g),
-                   bevel_w=0.006)
-
-    p0 = Vector(pts[0])
-    # ---- FORWARD DOME: an ellipsoidal head with its rim on the barrel and apex above,
-    # moved onto the tank's own centreline, so the vessel is closed.
-    hd = TANK_R * 0.72                      # a sqrt(2) ellipsoidal head
-    dome = [(TANK_R * cos(i / 12 * pi / 2), p0.z + hd * sin(i / 12 * pi / 2))
-            for i in range(13)]
-    dm = revolve(f'tank{idx}_dome', dome, M['white'], seg=72, parent=g)
-    dm.location = (p0.x, 0, 0)
-    finish(dm, bevel_w=0.010)
-    finish(ring_on((p0.x, 0, p0.z), (0, 0, 1), TANK_R * 1.015, TANK_R * 0.05,
-                   M['alu'], f'tank{idx}_collar', seg=64, minor=10, parent=g),
-           bevel_w=0.006)
-    v = revolve(f'tank{idx}_vent',
-                [(0, 0), (TANK_R * 0.22, 0), (TANK_R * 0.18, TANK_R * 0.30),
-                 (0, TANK_R * 0.30)], M['dirty'], seg=20, parent=g)
-    v.location = (p0.x + TANK_R * 0.40, 0, p0.z + hd * 0.86)
-    finish(v, bevel_w=0.008)
-
-    # MLI: one band on the straight run above the bend, one under the dome.
-    for bi2, (z, h) in enumerate([(f(0.285), f(0.030)), (f(0.640), f(0.022))]):
-        finish(revolve(f'tank{idx}_mli{bi2}',
-                       [(TANK_R * 1.018, z), (TANK_R * 1.022, z + h * 0.5),
-                        (TANK_R * 1.018, z + h)], M['gold'], seg=72, parent=g),
-               bevel_w=0.004).location = (p0.x, 0, 0)
-
-    # Equipment boxes on the outboard flanks, clear of the conduit.
-    for n, (z, w, h2, phi) in enumerate([(f(0.330), 1.5, 1.1, pi * 1.5 + 0.62),
-                                         (f(0.455), 0.9, 0.8, pi * 1.5 - 0.62),
-                                         (f(0.545), 1.2, 0.6, pi * 1.5 + 0.62),
-                                         (f(0.612), 0.7, 0.9, pi * 1.5 - 0.62)]):
-        px = p0.x - sin(phi) * TANK_R * 1.06
-        py = cos(phi) * TANK_R * 1.06
-        finish(box(f'tank{idx}_box{n}', (0.34, w, h2), (px, py, z), M['dirty'],
-                   rot=(0, 0, math.atan2(cos(phi), -sin(phi))), parent=g),
-               bevel_w=0.020)
-
-    # ---- the aft end: a bulkhead, a thrust block, and the drive square under it.
-    endP, endT = Vector(pts[-1]), tan[-1]
-    finish(ring_on(endP, endT, TANK_R * 1.005, TANK_R * 0.055, M['alu'],
-                   f'tank{idx}_capring', seg=64, minor=10, parent=g), bevel_w=0.006)
-    cap = revolve(f'tank{idx}_cap',
-                  [(0, 0), (TANK_R, 0), (TANK_R, 0.10), (0, 0.10)],
-                  M['dirty'], seg=64, parent=g)
-    cap.rotation_mode = 'QUATERNION'
-    cap.rotation_quaternion = Vector((0, 0, 1)).rotation_difference(endT)
-    cap.location = endP
-    finish(cap, bevel_w=0.010)
-
-    # The thrust block takes the oblique tank end to the square drive, absorbing the
-    # 16° in one short piece.
-    b_bot, b_top = AFT + TOP_Z, endP.z + TANK_R * 0.62
-    blk = revolve(f'tank{idx}_block',
-                  [(0, b_bot), (DR * 0.80, b_bot), (DR * 0.92, b_top), (0, b_top)],
-                  M['dirty'], seg=40, parent=g)
-    blk.location = (endP.x, 0, 0)
-    finish(blk, bevel_w=0.012)
-    # Gussets to the bulkhead ring (all different lengths).
-    for k in range(8):
-        phi = k / 8 * TAU
-        p2 = endP + nrm[-1] * (cos(phi) * TANK_R * 0.90) + bi[-1] * (sin(phi) * TANK_R * 0.90)
-        p1 = Vector((endP.x - sin(phi) * DR * 0.88, cos(phi) * DR * 0.88, b_bot + 0.22))
-        finish(strut(f'tank{idx}_gusset{k}', p1, p2, 0.055, M['alu'], parent=g),
-               bevel_w=0.008)
-    # The feed line into the emitter can, routed outboard of the spine's thrust plate.
-    feed = [tuple(surf(total * 0.90, pi * 0.5, TANK_R * 1.09)),
-            tuple(surf(total * 0.97, pi * 0.5, TANK_R * 1.15)),
-            (endP.x - DR * 1.05, 0, b_bot + 0.75),
-            (endP.x - DR * 0.90, 0, b_bot + 0.30)]
-    dense = []
-    for i in range(len(feed) - 1):
-        for t2 in range(6):
-            dense.append(tuple(Vector(feed[i]).lerp(Vector(feed[i + 1]), t2 / 6)))
-    dense.append(feed[-1])
-    finish(tube(f'tank{idx}_feed', dense, 0.12, M['alu'], seg=12, parent=g,
-                caps=(True, True)), bevel_w=0.010)
-
-    spin_drive(f'gimbal_hm_{idx + 1}', DR, g, (endP.x, 0, AFT), f'drv{idx + 1}')
-    return g, endP
+    finish(tube(f'tank{idx}_skin', pts, TANK_R, M['white'], seg=96, parent=g, rfun=rfun),
+           bevel_w=0.010)
+    # The forward end: a narrower cap ring and a shallow dome, closing the vessel.
+    cap_r = TANK_R * 0.93
+    top = [(TANK_R * 0.999, TANK_TOP), (cap_r, TANK_TOP + 0.25 * k), (cap_r, TANK_TOP + 1.0 * k)]
+    for i in range(1, 9):
+        u = i / 8 * pi / 2
+        top.append((cap_r * cos(u), TANK_TOP + 1.0 * k + 0.7 * k * sin(u)))
+    cap = revolve(f'tank{idx}_cap', top, M['dirty'], seg=72, parent=g)
+    cap.location = (TR, 0, 0)
+    finish(cap, bevel_w=0.012)
+    def band(name, z0, z1, mat, grow=1.012):
+        b = revolve(name, [(TANK_R * grow, z0), (TANK_R * grow * 1.004, (z0 + z1) / 2), (TANK_R * grow, z1)],
+                    mat, seg=96, parent=g)
+        b.location = (TR, 0, 0)
+        finish(b, bevel_w=0.006)
+    band(f'tank{idx}_soot', 57.7 * k, 61.8 * k, M['soot'])
+    band(f'tank{idx}_mli', 87.0 * k, 89.6 * k, M['gold'], 1.016)
+    band(f'tank{idx}_cuff', 94.0 * k, 94.6 * k, M['soot'])
+    band(f'tank{idx}_box', 36.6 * k, 42.7 * k, M['dirty'], 1.006)
+    # The collar where the taper starts, with its lattice.
+    finish(ring_on((TR, 0, TAPER_Z + 0.2 * k), (0, 0, 1), TANK_R * 1.03, 0.16 * k, M['alu'],
+                   f'tank{idx}_collar0', seg=96, minor=10, parent=g), bevel_w=0.006)
+    finish(ring_on((TR, 0, 33.0 * k), (0, 0, 1), TANK_R * 1.03, 0.16 * k, M['alu'],
+                   f'tank{idx}_collar1', seg=96, minor=10, parent=g), bevel_w=0.006)
+    for s in range(16):
+        a0 = s / 16 * TAU
+        a1 = a0 + TAU / 16
+        p0 = (TR + cos(a0) * TANK_R * 1.03, sin(a0) * TANK_R * 1.03, TAPER_Z + 0.2 * k)
+        p1 = (TR + cos(a1) * TANK_R * 1.03, sin(a1) * TANK_R * 1.03, 33.0 * k)
+        finish(strut(f'tank{idx}_lat{s}', p0, p1, 0.07 * k, M['alu'], parent=g), bevel_w=0.004)
+    # The open bay: longerons and hoops round the exposed core.
+    w0, w1 = BAY
+    for z in (w0, w1, (w0 + w1) / 2):
+        finish(ring_on((TR, 0, z), (0, 0, 1), TANK_R * 1.0, 0.18 * k, M['alu'],
+                       f'tank{idx}_hoop{z:.0f}', seg=96, minor=10, parent=g), bevel_w=0.006)
+    for s in range(10):
+        b = s / 10 * TAU
+        p0 = (TR + cos(b) * TANK_R, sin(b) * TANK_R, w0)
+        p1 = (TR + cos(b) * TANK_R, sin(b) * TANK_R, w1)
+        finish(strut(f'tank{idx}_lon{s}', p0, p1, 0.12 * k, M['alu'], parent=g), bevel_w=0.006)
+        q1 = (TR + cos(b + TAU / 10) * TANK_R, sin(b + TAU / 10) * TANK_R, (w0 + w1) / 2)
+        finish(strut(f'tank{idx}_dia{s}', p0, q1, 0.06 * k, M['alu'], parent=g), bevel_w=0.004)
+    for s in range(5):                                     # plumbing in the bay
+        b = s / 5 * TAU + 0.3
+        rr = CORE_R + 0.35 * k
+        finish(strut(f'tank{idx}_pipe{s}', (TR + cos(b) * rr, sin(b) * rr, w0 - 0.4 * k),
+                     (TR + cos(b) * rr, sin(b) * rr, w1 + 0.4 * k), 0.14 * k,
+                     M['gold'] if s % 2 else M['dirty'], parent=g), bevel_w=0.006)
+    # Equipment on the outboard flank and a black access panel.
+    for n, (z, w, h) in enumerate([(39.6, 1.8, 1.4), (65.0, 1.2, 1.2), (75.0, 2.2, 0.9), (83.0, 1.0, 1.6)]):
+        side = 1 if n % 2 else -1
+        ang = side * 0.45
+        px = TR + cos(ang) * TANK_R * 1.03
+        py = sin(ang) * TANK_R * 1.03
+        finish(box(f'tank{idx}_eq{n}', (0.35 * k, w * k, h * k), (px, py, z * k),
+                   M['dirty'], rot=(0, 0, ang), parent=g), bevel_w=0.02)
+    finish(box(f'tank{idx}_door', (0.08 * k, 2.4 * k, 2.4 * k), (TR + TANK_R * 1.01, 0, 63.5 * k),
+               M['soot'], parent=g), bevel_w=0.01)
+    # A conduit down the inboard side and round the bend.
+    run = []
+    for p in pts[::2]:
+        r = tank_radius(p[2]) * 1.06 + 0.15 * k
+        run.append((p[0] - r, 0.0, p[2]))
+    finish(tube(f'tank{idx}_trunk', run, 0.22 * k, M['dirty'], seg=12, parent=g, caps=(True, True)),
+           bevel_w=0.010)
+    # The tip: a bulkhead ring and the drive square under it.
+    finish(ring_on((TIP_X, 0, TIP_Z), (0, 0, 1), TIP_R * 1.01, 0.12 * k, M['alu'],
+                   f'tank{idx}_tipring', seg=64, minor=10, parent=g), bevel_w=0.006)
+    cap0 = disc(f'tank{idx}_tipcap', TIP_R, 0, M['dirty'], seg=64, parent=g)
+    cap0.rotation_euler = (pi, 0, 0)
+    cap0.location = (TIP_X, 0, TIP_Z)
+    spin_drive(f'gimbal_hm_{idx + 1}', DR, g, (TIP_X, 0, 0), f'drv{idx + 1}')
+    return g
 
 
-# THE SPINE, THE MODULE STACK AND EVERYTHING BOLTED TO THEM
-def build_spine(root):
-    """
-    The central body: a FAT cone the tanks lie AGAINST, not a spike they bend
-    past. Its radius at any height is set by the geometry around it — it has to
-    equal the tank centreline's radius there minus the tank's own radius, or the
-    bend curves around nothing — and it terminates on a THRUST PLATE rather than
-    closing to a point, because that plate is what the axial drive hangs from
-    and what the aft truss ties to.
-    """
-    prof = [(0, PLATE_Z), (DR * 1.55, PLATE_Z),
-            (DR * 1.75, PLATE_Z + f(0.014)), (D * 0.132, f(0.212)),
-            (D * 0.146, f(0.238)), (D * 0.155, f(0.266)), (D * 0.155, f(0.468))]
-    finish(revolve('spine', prof, M['dirty'], seg=72, parent=root), bevel_w=0.020)
-    finish(revolve('spine_rim',
-                   [(DR * 1.42, PLATE_Z - f(0.016)), (DR * 1.57, PLATE_Z - f(0.008)),
-                    (DR * 1.55, PLATE_Z)], M['alu'], seg=72, parent=root),
-           bevel_w=0.008)
-    finish(revolve('spine_neck',
-                   [(0, AFT + TOP_Z - 0.05), (DR * 0.66, AFT + TOP_Z - 0.05),
-                    (DR * 0.66, PLATE_Z + 0.05), (0, PLATE_Z + 0.05)],
-                   M['dirty'], seg=40, parent=root), bevel_w=0.010)
-    for rr, u in [(D * 0.142, 0.222), (D * 0.152, 0.252),
-                  (D * 0.158, 0.330), (D * 0.158, 0.420)]:
-        finish(ring_on((0, 0, f(u)), (0, 0, 1), rr, D * 0.006, M['alu'],
-                       f'spine_ring{u}', seg=72, minor=10, parent=root), bevel_w=0.006)
-    # MLI on the spine between the tanks, and the cross-feed plumbing.
-    finish(revolve('spine_mli',
-                   [(D * 0.157, f(0.300)), (D * 0.160, f(0.315)), (D * 0.157, f(0.330))],
-                   M['gold'], seg=72, parent=root), bevel_w=0.004)
-    for i in range(8):
-        a = i / 8 * TAU + 0.5
-        h = f(0.150 + 0.055 * ((i * 5) % 7) / 7)
-        z0 = f(0.352) - f(0.075)
-        finish(tube(f'spine_run{i}', [(cos(a) * D * 0.163, sin(a) * D * 0.163, z0),
-                                      (cos(a) * D * 0.163, sin(a) * D * 0.163, z0 + h)],
-                    D * 0.008, M['alu'] if i % 3 else M['soot'], seg=10,
-                    parent=root, caps=(True, True)), bevel_w=0.008)
-    for i in range(3):                                # valve packages
-        a = i / 3 * TAU + 0.9
-        finish(box(f'spine_valve{i}', (D * 0.055, D * 0.045, D * 0.075),
-                   (cos(a) * D * 0.172, sin(a) * D * 0.172, f(0.288)), M['alu'],
-                   rot=(0, 0, a), parent=root), bevel_w=0.018)
-    # Greebling on the aft bay — small hardware at a size the eye can measure
-    # the ship against. Nothing here is structural; it is all scale reference.
-    for i in range(22):
-        a = i / 22 * TAU + 0.21
-        z = f(0.150) + (i % 5) * f(0.014)
-        r = D * 0.128 + (i % 3) * 0.05
-        finish(box(f'spine_greeble{i}', (0.22 + 0.10 * (i % 3), 0.34, 0.18 + 0.09 * (i % 4)),
-                   (cos(a) * r, sin(a) * r, z), M['alu'] if i % 4 else M['soot'],
-                   rot=(0, 0, a), parent=root), bevel_w=0.012)
+# THE DRUM AND THE CENTRAL DRIVE
+def build_drum(root):
+    prof = [(0, DRUM_Z0), (3.6 * k, DRUM_Z0), (4.5 * k, DRUM_Z0 + 0.6 * k), (DRUM_R, DRUM_Z0 + 1.6 * k)]
+    for n in range(1, 6):                     # grooves between the drum's sections
+        z = DRUM_Z0 + 1.6 * k + (DRUM_Z1 - DRUM_Z0 - 2.6 * k) * n / 6
+        prof += [(DRUM_R, z - 0.15 * k), (DRUM_R * 0.985, z), (DRUM_R, z + 0.15 * k)]
+    prof += [(DRUM_R, DRUM_Z1 - 1.0 * k), (5.6 * k, DRUM_Z1), (5.7 * k, DRUM_Z1 + 0.6 * k),
+             (5.4 * k, DRUM_Z1 + 0.9 * k), (4.4 * k, DRUM_Z1 + 0.7 * k), (0, DRUM_Z1 + 0.7 * k)]
+    finish(revolve('drum', prof, M['dirty'], seg=96, parent=root), bevel_w=0.02)
+    for z in (15.0, 28.0):
+        finish(ring_on((0, 0, z * k), (0, 0, 1), DRUM_R * 1.01, 0.14 * k, M['alu'], f'drum_band{z:.0f}',
+                       seg=96, minor=10, parent=root), bevel_w=0.006)
+    # Stringers, and rows of brackets: small hardware the eye measures the drum by.
+    for i in range(12):
+        finish(fin(f'drum_str{i}', [(DRUM_R, DRUM_Z0 + 2 * k), (DRUM_R, DRUM_Z1 - 1.2 * k)],
+                   i / 12 * TAU + 0.13, 0.16 * k, 0.18 * k, M['alu'], parent=root), bevel_w=0.006)
+    for row, z in enumerate((12.5, 21.0, 31.0)):
+        for i in range(16):
+            b = i / 16 * TAU + row * 0.2
+            finish(box(f'drum_brk{row}_{i}', (0.35 * k, 0.6 * k, 0.8 * k),
+                       (cos(b) * DRUM_R * 1.03, sin(b) * DRUM_R * 1.03, z * k), M['alu'],
+                       rot=(0, 0, b), parent=root), bevel_w=0.01)
+    # The central drive, and the thrust units ringed round it under the drum.
+    spin_drive('gimbal_hm_0', DR0, root, (0, 0, 0), 'drv0')
+    top0 = DR0 * 2.04
+    finish(revolve('drum_neck', [(0, top0 - 0.05 * k), (0.9 * k, top0 - 0.05 * k),
+                                 (1.2 * k, DRUM_Z0 + 0.05 * k), (0, DRUM_Z0 + 0.05 * k)],
+                   M['dirty'], seg=48, parent=root), bevel_w=0.010)
+    for i in range(6):
+        b = i / 6 * TAU + pi / 6
+        z0 = (0.7 + 0.45 * ((i * 3) % 5)) * k
+        u = empty(f'unit{i}', (cos(b) * UNIT_RING, sin(b) * UNIT_RING, 0), root)
+        finish(revolve(f'unit{i}_body', [(0, z0), (UNIT_R * 0.9, z0), (UNIT_R, z0 + 0.15 * k),
+                                         (UNIT_R, DRUM_Z0 + 0.1 * k), (0, DRUM_Z0 + 0.1 * k)],
+                       M['nozzle'], seg=32, parent=u), bevel_w=0.01)
+        face = disc(f'unit{i}_face', UNIT_R * 0.72, 0, M['emitPlate'], seg=24, parent=u)
+        face.rotation_euler = (pi, 0, 0)
+        face.location = (0, 0, z0 - 0.01 * k)
+        for z in (z0 + 1.2 * k, (z0 + DRUM_Z0) / 2 + 0.6 * k):
+            finish(ring_on((0, 0, z), (0, 0, 1), UNIT_R * 1.04, 0.07 * k, M['alu'], f'unit{i}_r{z:.1f}',
+                           seg=32, minor=8, parent=u), bevel_w=0.004)
 
 
+# THE CREW STACK
 def build_modules(root):
-    """The module stack, standing on the cone and running past the tanks."""
-    hull_z0, hull_z1, hull_d = f(0.566), f(0.855), D * 0.205
-
-    def band(z, dia, h, mat, name):
-        finish(revolve(name, [(dia / 2 * 1.02, z), (dia / 2 * 1.03, z + h * 0.5),
-                              (dia / 2 * 1.02, z + h)], mat, seg=64, parent=root),
-               bevel_w=0.004)
-
-    band(f(0.468), D * 0.150, f(0.022), M['gold'], 'mod_band0')
-    finish(revolve('mod_machinery',
-                   [(0, f(0.468)), (D * 0.075, f(0.468)), (D * 0.075, f(0.560)),
-                    (0, f(0.560))], M['dirty'], seg=64, parent=root), bevel_w=0.014)
-    band(f(0.560), D * 0.180, f(0.022), M['gold'], 'mod_band1')
-
-    # The pressure hull, with its panel joints CUT IN rather than painted on.
-    r = hull_d / 2
-    prof = [(0, hull_z0), (r, hull_z0)]
-    for k in range(1, 4):
-        z = hull_z0 + (hull_z1 - hull_z0) * (0.17 + (k - 1) * 0.30)
-        prof += [(r, z - 0.10), (r * 0.982, z), (r, z + 0.10)]
-    prof += [(r, hull_z1), (0, hull_z1)]
-    finish(revolve('mod_hull', prof, M['white'], seg=72, parent=root), bevel_w=0.014)
-    for side in (1, -1):
-        w = revolve('mod_window' + ('a' if side > 0 else 'b'),
-                    [(0, 0), (0.30, 0), (0.30, 0.12), (0, 0.12)], M['glass'],
-                    seg=24, parent=root)
-        w.rotation_euler = (0, side * pi / 2, 0)
-        w.location = (side * r * 0.99, 0, hull_z0 + (hull_z1 - hull_z0) * 0.78)
-        finish(w, bevel_w=0.010)
-    lock = revolve('mod_airlock', [(0, 0), (0.55, 0), (0.55, 0.26), (0.44, 0.30), (0, 0.30)],
-                   M['alu'], seg=32, parent=root)
-    lock.rotation_euler = (-pi / 2, 0, 0)
-    lock.location = (0, r * 0.98, hull_z0 + (hull_z1 - hull_z0) * 0.40)
-    finish(lock, bevel_w=0.012)
-    band(hull_z1, D * 0.170, f(0.022), M['gold'], 'mod_band2')
-
-    finish(revolve('mod_instr',
-                   [(0, f(0.861)), (D * 0.070, f(0.861)), (D * 0.070, f(1.013)),
-                    (0, f(1.013))], M['dirty'], seg=64, parent=root), bevel_w=0.014)
-    # ---- THE NOSE IS ONE OBJECT: the node overlaps the module it stands on, a collar
-    # closes the joint, and the mast starts inside the node.
-    NODE_R, NODE_Z = D * 0.088, f(1.028)
-    node = revolve('mod_node',
-                   [(NODE_R * sin(i / 16 * pi), NODE_Z - NODE_R * cos(i / 16 * pi))
-                    for i in range(17)], M['alu'], seg=48, parent=root)
-    finish(node, bevel_w=0.010)
-    finish(revolve('mod_node_collar',
-                   [(D * 0.082, f(0.998)), (D * 0.082, f(1.010)), (D * 0.072, f(1.018))],
-                   M['dirty'], seg=48, parent=root), bevel_w=0.008)
+    for n, (z0, z1, r, mk, kind) in enumerate(MODULES):
+        z0, z1, r = z0 * k, z1 * k, r * k
+        c = 0.25 * k
+        if kind == 'dock':
+            prof = [(0, z0), (r, z0), (r, z0 + 1.0 * k), (1.6 * k, z1 - 0.4 * k), (1.6 * k, z1), (0, z1)]
+        elif kind == 'node':
+            prof = [(0, z0)] + [(r * (0.75 + 0.25 * sin(i / 8 * pi)), z0 + (z1 - z0) * i / 8) for i in range(9)] + [(0, z1)]
+        else:
+            prof = [(0, z0), (r * 0.92, z0), (r, z0 + c), (r, z1 - c), (r * 0.92, z1), (0, z1)]
+        finish(revolve(f'mod{n}', prof, M[mk], seg=72, parent=root), bevel_w=0.012)
+        if kind == 'hub':
+            for z in (z0 + 1.2 * k, z1 - 1.2 * k):
+                finish(ring_on((0, 0, z), (0, 0, 1), r * 1.01, 0.12 * k, M['alu'], f'mod{n}_band{z:.1f}',
+                               seg=72, minor=8, parent=root), bevel_w=0.004)
+        elif kind == 'ringed':
+            for i in range(4):
+                z = z0 + (z1 - z0) * (i + 0.5) / 4
+                finish(ring_on((0, 0, z), (0, 0, 1), r * 1.02, 0.10 * k, M['alu'], f'mod{n}_frame{i}',
+                               seg=72, minor=8, parent=root), bevel_w=0.004)
+        elif kind == 'quilt':
+            for row in range(3):
+                for i in range(10):
+                    b = i / 10 * TAU + row * 0.31
+                    z = z0 + (z1 - z0) * (row + 0.5) / 3
+                    finish(box(f'mod{n}_pad{row}_{i}', (0.08 * k, 1.5 * k, 1.7 * k),
+                               (cos(b) * r * 1.01, sin(b) * r * 1.01, z), M['dirty'],
+                               rot=(0, 0, b), parent=root), bevel_w=0.02)
+        elif kind == 'berth':
+            zc = (z0 + z1) / 2
+            finish(ring_on((r * 1.0, 0, zc), (1, 0, 0), 1.25 * k, 0.16 * k, M['alu'], f'mod{n}_berth',
+                           seg=48, minor=10, parent=root), bevel_w=0.006)
+            hatch = disc(f'mod{n}_hatch', 1.1 * k, 0, M['dirty'], seg=32, parent=root)
+            hatch.rotation_euler = (0, pi / 2, 0)
+            hatch.location = (r * 1.02, 0, zc)
+        elif kind == 'banded':
+            zc = (z0 + z1) / 2
+            finish(revolve(f'mod{n}_band', [(r * 1.01, zc - 0.5 * k), (r * 1.015, zc), (r * 1.01, zc + 0.5 * k)],
+                           M['soot'], seg=72, parent=root), bevel_w=0.004)
+        elif kind == 'greeble':
+            for i in range(9):
+                b = i / 9 * TAU + 0.4
+                z = z0 + (z1 - z0) * (0.2 + 0.6 * ((i * 4) % 9) / 8)
+                finish(box(f'mod{n}_gb{i}', ((0.4 + 0.2 * (i % 3)) * k, (0.6 + 0.3 * (i % 2)) * k, (0.8 + 0.4 * (i % 4)) * k),
+                           (cos(b) * r * 1.08, sin(b) * r * 1.08, z), M['alu'] if i % 3 else M['soot'],
+                           rot=(0, 0, b), parent=root), bevel_w=0.012)
+        elif kind == 'hatch':
+            zc = z0 + (z1 - z0) * 0.55
+            finish(ring_on((0, -r, zc), (0, 1, 0), 0.8 * k, 0.10 * k, M['alu'], f'mod{n}_hring',
+                           seg=40, minor=8, parent=root), bevel_w=0.004)
+            w = disc(f'mod{n}_window', 0.3 * k, 0, M['glass'], seg=20, parent=root)
+            w.rotation_euler = (0, pi / 2, 0)
+            w.location = (r * 1.01, 0, zc)
+        elif kind == 'dock':
+            finish(ring_on((0, 0, z1), (0, 0, 1), 1.45 * k, 0.12 * k, M['alu'], f'mod{n}_ring',
+                           seg=48, minor=8, parent=root), bevel_w=0.004)
+    # The mast and the high-gain antenna, forward.
+    finish(strut('mast', (0, 2.2 * k, 97.0 * k), (0, 5.5 * k, 97.0 * k), 0.09 * k, M['alu'], parent=root),
+           bevel_w=0.004)
+    hga = empty('hga', (-2.3 * k, 0, 90.0 * k), root)
+    finish(strut('hga_boom', (0, 0, 0), (-1.8 * k, 0, 0), 0.10 * k, M['alu'], parent=hga), bevel_w=0.006)
+    yoke = empty('hga_yoke', (-1.8 * k, 0, 0), hga)
+    yoke.rotation_euler = (0, -0.9, 0)
+    finish(dish('hga_dish', 1.2 * k, M['white'], seg=40, parent=yoke), bevel_w=0.006)
+    # RCS quads, and four beetles on the narrow module.
+    for zq, rq in ((65.0, 3.0), (98.5, 2.3)):
+        for i in range(4):
+            b = i / 4 * TAU + pi / 4
+            pod = group(f'rcs{zq:.0f}_{i}', root, loc=(cos(b) * rq * k, sin(b) * rq * k, zq * k), rot_z=b)
+            finish(box(f'rcs{zq:.0f}_{i}_b', (0.35 * k, 0.5 * k, 0.5 * k), (0, 0, 0), M['dirty'], parent=pod), bevel_w=0.01)
     for i in range(4):
-        a = i / 4 * TAU
-        # CLOSED at both ends: an open tube is a hole you can see the sky
-        # through from the far side, and there are four of them on the nose.
-        p = revolve(f'mod_port{i}', [(0, 0), (D * 0.030, 0), (D * 0.034, D * 0.055),
-                                     (D * 0.030, D * 0.062), (0, D * 0.062)],
-                    M['dirty'], seg=24, parent=root)
-        p.rotation_euler = (pi / 2, 0, a + pi / 2)
-        p.location = (cos(a) * D * 0.082, sin(a) * D * 0.082, NODE_Z)
-        finish(p, bevel_w=0.008)
-    mast_z0 = NODE_Z + NODE_R * 0.55
-    finish(revolve('mod_mast', [(0, mast_z0), (0.07, mast_z0), (0.07, f(1.148)),
-                                (0, f(1.148))], M['alu'], seg=12, parent=root), bevel_w=0.006)
-
-    # ---- THE HIGH-GAIN ANTENNA on a two-axis yoke, opening forward (Earth is astern
-    # outbound, ahead coming home). Stood off far enough that the 2.5 m reflector
-    # clears the instrument module.
-    hga = group('mod_hga', root, loc=(D * 0.172, 0, f(1.000)), rot_z=0.0)
-    finish(strut('mod_hga_boom', (-D * 0.102, 0, 0), (0, 0, 0), 0.075, M['alu'],
-                 seg=10, parent=hga), bevel_w=0.008)
-    trn = revolve('mod_hga_trunnion', [(0, -D * 0.026), (D * 0.030, -D * 0.026),
-                                       (D * 0.030, D * 0.026), (0, D * 0.026)],
-                  M['dirty'], seg=16, parent=hga)
-    trn.rotation_euler = (pi / 2, 0, 0)
-    finish(trn, bevel_w=0.010)
-    # Tipped 32° off the thrust axis, opening forward: rotating about +Y by θ takes the
-    # dish's +Z to (sin θ, 0, cos θ), so positive is outboard and ahead.
-    yoke = empty('mod_hga_yoke', (0, 0, D * 0.030), hga)
-    yoke.rotation_euler = (0, 0.56, 0)
-    rD = D * 0.105
-    dsh = revolve('mod_dish',
-                  [(rD * (i / 10), rD * 0.30 * (i / 10) ** 2) for i in range(11)],
-                  M['white'], seg=48, parent=yoke)
-    finish(dsh, bevel_w=0.008)
-    # The ribbed back face sits behind the reflector (lower z at the same radius).
-    def back_z(u):                       # the reflector's own surface, offset aft
-        return rD * (0.30 * u * u - 0.075)
-    finish(revolve('mod_dish_back',
-                   [(0, back_z(0)), (rD * 0.36, back_z(0.36)), (rD * 0.74, back_z(0.74)),
-                    (rD * 0.99, back_z(0.99))], M['dirty'], seg=48, parent=yoke),
-           bevel_w=0.008)
-    for k in range(8):
-        ak = k / 8 * TAU
-        finish(strut(f'mod_dish_rib{k}', (0, 0, back_z(0) - rD * 0.04),
-                     (cos(ak) * rD * 0.95, sin(ak) * rD * 0.95, back_z(0.95)),
-                     0.030, M['alu'], seg=6, parent=yoke), bevel_w=0.005)
-    # Subreflector at the focus, on a tripod. Without it a dish reads as a bowl.
-    sub = revolve('mod_dish_sub', [(0, rD * 0.40), (rD * 0.13, rD * 0.40),
-                                   (rD * 0.10, rD * 0.46), (0, rD * 0.46)],
-                  M['alu'], seg=20, parent=yoke)
-    finish(sub, bevel_w=0.006)
-    for k in range(3):
-        ak = k / 3 * TAU + 0.4
-        finish(strut(f'mod_dish_leg{k}',
-                     (cos(ak) * rD * 0.86, sin(ak) * rD * 0.86, rD * 0.30 * 0.86 ** 2),
-                     (cos(ak) * rD * 0.09, sin(ak) * rD * 0.09, rD * 0.40),
-                     0.022, M['alu'], seg=6, parent=yoke), bevel_w=0.004)
-    # RCS quads. Small detail that does more for realism than anything its size.
-    for i in range(4):
-        a = i / 4 * TAU + pi / 4
-        pod = group(f'rcs{i}', root, loc=(cos(a) * r, sin(a) * r,
-                                          hull_z0 + (hull_z1 - hull_z0) * 0.55), rot_z=a)
-        finish(box(f'rcs{i}_body', (D * 0.05, D * 0.07, D * 0.07), (0, 0, 0),
-                   M['dirty'], parent=pod), bevel_w=0.014)
-        for k, s in enumerate((1, -1)):
-            n = revolve(f'rcs{i}_nz{k}', [(D * 0.014, 0), (D * 0.022, D * 0.028)],
-                        M['nozzle'], seg=12, parent=pod)
-            n.rotation_euler = (0, 0, 0) if s > 0 else (pi, 0, 0)
-            n.location = (0, 0, s * D * 0.036)
-            finish(n, bevel_w=0.005)
-    return hull_z0, hull_z1, hull_d
+        b = i / 4 * TAU
+        pod = group(f'beetle{i}', root, loc=(cos(b) * 2.75 * k, sin(b) * 2.75 * k, 80.6 * k), rot_z=b)
+        body = [(0, -0.9 * k)] + [(0.42 * k * sin(j / 6 * pi / 2), -0.9 * k + 0.42 * k * (1 - cos(j / 6 * pi / 2))) for j in range(1, 7)]
+        body += [(0.42 * k, 0.9 * k)] + [(0.42 * k * cos(j / 6 * pi / 2), 0.9 * k + 0.42 * k * sin(j / 6 * pi / 2)) for j in range(1, 7)]
+        finish(revolve(f'beetle{i}_body', body, M['dirty'], seg=24, parent=pod), bevel_w=0.006)
 
 
-def build_structure(root, endP):
-    """Radial struts, girth ties between adjacent tanks, and an aft truss tying
-       all four drive blocks into ONE thrust structure: four drives on one plane
-       are only one thrust structure if something actually ties them together."""
+def build_structure(root):
+    """Struts tying the tanks to the drum and the stack, girth ties between them, and
+       an aft truss from each tip to the drum's base: one structure, not four parts."""
     def rp(i, r, z):
         a = i / 3 * TAU + pi / 2
         return (cos(a) * r, sin(a) * r, z)
-
-    for z in (f(0.290), f(0.584)):
+    for z, r_in in ((22.0, DRUM_R), (38.0, 4.0 * k), (60.0, 3.0 * k), (91.0, 2.3 * k)):
+        z *= k
         for i in range(3):
-            finish(strut(f'strut_r{i}_{z:.0f}', rp(i, D * 0.075, z),
-                         rp(i, TR - TANK_R * 0.9, z), 0.09, M['alu'], parent=root),
-                   bevel_w=0.010)
-    for z in (f(0.330), f(0.620)):
+            # Both sides of the tank's inboard face, so each tie is a V, not a pin.
+            for s in (-0.035, 0.035):
+                finish(strut(f'tie{i}_{z:.0f}_{s}', rp(i, r_in * 0.98, z), rp(i + s * 3, TR - TANK_R * 0.97, z),
+                             0.16 * k, M['alu'], parent=root), bevel_w=0.008)
+    for z in (70.0, 97.0):
         for i in range(3):
-            finish(strut(f'strut_g{i}_{z:.0f}', rp(i, TR - TANK_R * 0.2, z),
-                         rp(i + 1, TR - TANK_R * 0.2, z), 0.075, M['alu'], parent=root),
-                   bevel_w=0.010)
-    for i in range(3):
-        p = rp(i, endP.x, AFT + DR * 2.0)
-        for s in (-1, 1):
-            finish(strut(f'truss_{i}_{s}', p, rp(i + s * 0.22, DR * 1.5, PLATE_Z - f(0.010)),
-                         0.075, M['alu'], parent=root), bevel_w=0.010)
-        finish(strut(f'truss_ring{i}', p, rp(i + 1, endP.x, AFT + DR * 2.0),
-                     0.065, M['alu'], parent=root), bevel_w=0.010)
-
-
-def build_appendages(root, hull_z0, hull_z1, hull_d):
-    # ---- solar wings: two long flat panels, the widest thing on the ship.
-    for si, side in enumerate((1, -1)):
-        wing = group(f'wing{si}', root, loc=(0, 0, f(0.360)),
-                     rot_z=0.0 if side > 0 else pi)
-        nP, pw, ph = 7, D * 0.235, D * 0.40
-        for k in range(nP):
-            finish(box(f'wing{si}_p{k}', (pw, 0.06, ph),
-                       (D * 0.46 + pw * (k + 0.5) * 1.02, 0, 0), M['solar'], parent=wing),
-                   bevel_w=0.012)
-            finish(box(f'wing{si}_rib{k}', (0.07, 0.11, ph),
-                       (D * 0.46 + pw * k * 1.02, 0, 0), M['alu'], parent=wing),
-                   bevel_w=0.010)
-        sp = revolve(f'wing{si}_spar', [(0, 0), (0.10, 0), (0.10, D * 1.20), (0, D * 1.20)],
-                     M['alu'], seg=12, parent=wing)
-        sp.rotation_euler = (0, pi / 2, 0)
-        sp.location = (D * 0.46, 0, 0)
-        finish(sp, bevel_w=0.008)
-
-    # ---- radiators: fixed structure, on the hull above the tank tops.
-    for i in range(4):
-        arm = group(f'rad{i}', root, loc=(0, 0, f(0.775)), rot_z=i / 4 * TAU + pi / 4)
-        finish(box(f'rad{i}_panel', (D * 0.22, 0.07, f(0.085)),
-                   (hull_d * 0.5 + D * 0.175, 0, 0), M['rad'], parent=arm), bevel_w=0.012)
-        for k in range(7):
-            finish(box(f'rad{i}_fin{k}', (D * 0.207, 0.10, 0.09),
-                       (hull_d * 0.5 + D * 0.175, 0,
-                        -f(0.085) / 2 + f(0.085) * (k + 0.5) / 7), M['soot'], parent=arm),
+            finish(strut(f'girth{i}_{z:.0f}', rp(i + 0.13, TR - TANK_R * 0.2, z * k),
+                         rp(i + 0.87, TR - TANK_R * 0.2, z * k), 0.14 * k, M['alu'], parent=root),
                    bevel_w=0.008)
-        finish(strut(f'rad{i}_arm', (hull_d * 0.46, 0, 0),
-                     (hull_d * 0.5 + D * 0.09, 0, 0), 0.07, M['alu'], parent=arm),
-               bevel_w=0.008)
-
-    # ---- four beetles on the spine below the pressure vessel. Next to the ship
-    # they are deliberately tiny, and they are the only way an answer gets home.
-    for i in range(4):
-        a = i / 4 * TAU + pi / 4
-        b = group(f'beetle{i}', root, loc=(cos(a) * D * 0.105, sin(a) * D * 0.105,
-                                           f(0.520)), rot_z=a)
-        body = [(0, -D * 0.063)]
-        for k in range(9):
-            body.append((D * 0.028 * sin(k / 8 * pi / 2), -D * 0.063 + D * 0.028 * (1 - cos(k / 8 * pi / 2))))
-        body.append((D * 0.028, D * 0.063))
-        for k in range(1, 9):
-            body.append((D * 0.028 * cos(k / 8 * pi / 2), D * 0.063 + D * 0.028 * sin(k / 8 * pi / 2)))
-        finish(revolve(f'beetle{i}_body', body, M['dirty'], seg=32, parent=b), bevel_w=0.008)
-        for k in range(3):
-            finish(ring_on((0, 0, -D * 0.03 + k * D * 0.035), (0, 0, 1), D * 0.029,
-                           D * 0.005, M['alu'], f'beetle{i}_r{k}', seg=32, minor=8,
-                           parent=b), bevel_w=0.003)
-        nz = revolve(f'beetle{i}_nz', [(D * 0.026, -D * 0.096), (D * 0.018, -D * 0.070)],
-                     M['emitPlate'], seg=20, parent=b)
-        finish(nz, bevel_w=0.005)
-
-
-# OPTIMISE
-def build_hailmary(_M):
-    """
-    The build proper. common.build() has already reset the scene; this file
-    keeps its OWN palette rather than common's because the ship carries two
-    materials nothing else has — the radiator white and the two emitter
-    materials, whose strengths are tuned to the drive's own scale.
-    """
-    build_materials()
-
-    root = stage('hm')
-    spin_drive('gimbal_hm_0', DR, root, (0, 0, AFT), 'drv0')
-    build_spine(root)
-    path = bent_path(TR, f(0.679), f(0.245), D * 0.55, 16, D * 0.14)
-    endP = None
     for i in range(3):
-        _, endP = build_tank(i, root, path)
-    build_structure(root, endP)
-    hz0, hz1, hd = build_modules(root)
-    build_appendages(root, hz0, hz1, hd)
+        tip = rp(i, TIP_X, TIP_Z + 0.6 * k)
+        for s in (-1, 1):
+            finish(strut(f'aft{i}_{s}', tip, rp(i + s * 0.25, 3.8 * k, DRUM_Z0 + 0.3 * k), 0.13 * k,
+                         M['alu'], parent=root), bevel_w=0.008)
 
-    # Shift the ship so the drive exit plane is the origin, on the stage root (a
-    # builder never writes its own group's transform).
-    root.location = (0, 0, -AFT)
+
+def build_wings(root):
+    """Two wings astern, between the tanks: a mast from the drum, each wing two
+       columns of cells either side of it, from just outside the tanks to 52 m out."""
+    zc = (WING_Z[1] + WING_Z[2]) / 2
+    for si, az in enumerate((0.0, pi)):
+        w = group(f'wing{si}', root, rot_z=az)
+        finish(strut(f'wing{si}_mast', (DRUM_R * 0.98, 0, zc), (WING_R1 + 0.6 * k, 0, zc), 0.30 * k,
+                     M['alu'], parent=w), bevel_w=0.01)
+        for z in (WING_Z[0], WING_Z[3]):
+            finish(strut(f'wing{si}_brace{z:.0f}', (DRUM_R * 0.98, 0, z + 1.5 * k), (WING_R0, 0, zc), 0.14 * k,
+                         M['alu'], parent=w), bevel_w=0.006)
+        n = 9
+        seg = (WING_R1 - WING_R0) / n
+        for c, (z0, z1) in enumerate(((WING_Z[0], WING_Z[1]), (WING_Z[2], WING_Z[3]))):
+            for j in range(n):
+                x = WING_R0 + seg * (j + 0.5)
+                finish(box(f'wing{si}_c{c}_{j}', (seg * 0.96, 0.08 * k, z1 - z0), (x, 0, (z0 + z1) / 2),
+                           M['solar'], parent=w), bevel_w=0.01)
+                finish(box(f'wing{si}_rib{c}_{j}', (0.10 * k, 0.14 * k, z1 - z0), (WING_R0 + seg * j, 0, (z0 + z1) / 2),
+                           M['alu'], parent=w), bevel_w=0.006)
+            for z in (z0, z1):
+                finish(box(f'wing{si}_edge{c}_{z:.0f}', (WING_R1 - WING_R0, 0.12 * k, 0.12 * k),
+                           ((WING_R0 + WING_R1) / 2, 0, z), M['alu'], parent=w), bevel_w=0.006)
+
+
+def build_hailmary(_M):
+    build_materials()
+    root = stage('hm')
+    build_drum(root)
+    for i in range(3):
+        build_tank(i, root)
+    build_structure(root)
+    build_modules(root)
+    build_wings(root)
 
 
 build('hailmary', build_hailmary)

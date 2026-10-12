@@ -30,6 +30,8 @@ const ATMOSPHERES := {
 			{ "base": 50000.0, "H": 7465.0 },                # mesosphere
 		],
 		"top": 140e3, "tint": 0x4a7fd0, "haze": 0x8fb6e8,
+		# Water vapour to condense in the expansions round a vehicle (Vapour).
+		"humid": true,
 	},
 	# The standard Mars model, H = 11.1 km. rho0 follows from 610 Pa of CO₂ at 210 K
 	# (0.0151 kg/m³). A second layer above 60 km. Deep enough to burn you, too thin to

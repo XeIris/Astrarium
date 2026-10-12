@@ -9,18 +9,20 @@ const ORDER_SMOKE := 10
 const ORDER_FLAME := 20
 
 # Flame temperature and appearance per propellant. Chamber temperatures are the
-# real ones; what is drawn is the plume, which is cooler.
+# real ones; what is drawn is the plume, which is cooler. `water` is the exhaust's
+# water by mass relative to kerosene's (≈30 %): hydrogen's is nearly all water,
+# methane's about half, a solid's mostly alumina and HCl.
 const PROPELLANT := {
-	"kerolox":    { "T": 3400.0, "core": [1.00, 0.72, 0.34], "edge": [1.00, 0.36, 0.08], "soot": 0.85, "glow": 1.0 },
-	"hydrolox":   { "T": 3200.0, "core": [0.72, 0.80, 1.00], "edge": [0.42, 0.36, 0.95], "soot": 0.06, "glow": 0.34 },
-	"methalox":   { "T": 3500.0, "core": [0.62, 0.80, 1.00], "edge": [1.00, 0.55, 0.22], "soot": 0.30, "glow": 0.75 },
-	"solid":      { "T": 3000.0, "core": [1.00, 0.90, 0.70], "edge": [1.00, 0.55, 0.20], "soot": 1.00, "glow": 1.35 },
-	"hypergolic": { "T": 3050.0, "core": [1.00, 0.94, 0.72], "edge": [0.95, 0.72, 0.35], "soot": 0.18, "glow": 0.55 },
+	"kerolox":    { "T": 3400.0, "water": 0.30, "core": [1.00, 0.72, 0.34], "edge": [1.00, 0.36, 0.08], "soot": 0.85, "glow": 1.0 },
+	"hydrolox":   { "T": 3200.0, "water": 1.00, "core": [0.72, 0.80, 1.00], "edge": [0.42, 0.36, 0.95], "soot": 0.06, "glow": 0.34 },
+	"methalox":   { "T": 3500.0, "water": 0.45, "core": [0.62, 0.80, 1.00], "edge": [1.00, 0.55, 0.22], "soot": 0.30, "glow": 0.75 },
+	"solid":      { "T": 3000.0, "water": 0.10, "core": [1.00, 0.90, 0.70], "edge": [1.00, 0.55, 0.20], "soot": 1.00, "glow": 1.35 },
+	"hypergolic": { "T": 3050.0, "water": 0.35, "core": [1.00, 0.94, 0.72], "edge": [0.95, 0.72, 0.35], "soot": 0.18, "glow": 0.55 },
 	# Not thermal at all: a beam of ions recombining, so it gets a low nominal
 	# temperature and is dominated by line emission rather than a continuum.
-	"ion":        { "T": 1200.0, "core": [0.55, 0.62, 1.00], "edge": [0.40, 0.20, 0.95], "soot": 0.0, "glow": 0.25, "beam": true },
+	"ion":        { "T": 1200.0, "water": 0.0, "core": [0.55, 0.62, 1.00], "edge": [0.40, 0.20, 0.95], "soot": 0.0, "glow": 0.25, "beam": true },
 	# The spin drive radiates at 25.98 µm; what's drawn is its faint visible tail.
-	"spin":       { "T": 1500.0, "core": [1.00, 0.30, 0.18], "edge": [0.55, 0.06, 0.04], "soot": 0.0, "glow": 0.45, "beam": true },
+	"spin":       { "T": 1500.0, "water": 0.0, "core": [1.00, 0.30, 0.18], "edge": [0.55, 0.06, 0.04], "soot": 0.0, "glow": 0.45, "beam": true },
 }
 
 # Emission per unit path in HDR, integrated along the ray by plume.gdshader:
@@ -83,6 +85,15 @@ const ENGINE_LOOK := {
 static var daylight := 1.0
 ## Dynamic pressure of the air the vehicle is flying through, Pa (spaceflight.gd).
 static var freestream_q := 0.0
+## The vehicle's speed through the air, m/s (spaceflight.gd): it sets how much exhaust
+## each metre of trail holds.
+static var airspeed := 0.0
+## Optical depth of a trail holding 1 kg/m of fully smoky exhaust across a 1 m radius
+## (docs/physics/plumes.md#flame-then-smoke).
+const SMOKE_K := 2.0
+## Relative humidity of the air the vehicle is in, 0..1: whether the expansion round
+## it condenses a vapour cone (Plume.VapourCone).
+static var humidity := 0.6
 ## Raymarch steps scale with the rendering preset (1 at High).
 static var detail := 1.0
 ## The exhaust smoke's reflectance: grey soot from kerosene, white alumina from a
@@ -235,14 +246,17 @@ class PlumeFx extends RefCounted:
 	var light_scale := 1.0
 	## Vacuum thrust this plume carries at full throttle, N (a merged far field: all of it).
 	var thrust := 0.0
+	## Vacuum specific impulse, s: with the thrust, the mass the exhaust carries.
+	var isp := 300.0
 	var steps := 26
 	## One engine of a merged cluster: the far field balloons for all of them.
 	var near := false
 	var temp_code := 0.32
-	## Last update's box length and smoke-column radius, m (where the trail picks up).
+	## Last update's box length and smoke-column radius, m (where the trail picks up),
+	## and the trail's opacity there.
 	var last_len := 0.0
 	var trail_r := 0.0
-	var trail_k := 0.0
+	var trail_op := 0.0
 
 	## @param throttle 0..1 @param pa ambient pressure, Pa @param p0 reference (sea level)
 	func update(throttle: float, pa: float, time: float, _p0: float = 101325.0) -> void:
@@ -276,33 +290,41 @@ class PlumeFx extends RefCounted:
 		var L := reach * (1.0 + 1.3 * under) * (0.55 + 0.45 * throttle)
 		if beam: L = reach
 		# In air the afterburning burns out within about a vehicle length and the rest
-		# is smoke: soot, plus condensing water in the humid lower air. The column
-		# thins with the air, not with the balloon: an SRB's trail stays dense to
-		# separation.
+		# is smoke.
 		var air := clampf(pow(pa / 101325.0, 0.25), 0.0, 1.0) if not beam else 0.0
 		var flame_len := exit_d * (8.0 + 30.0 * under)
-		var trail_k := 0.0 if near else clampf(float(propellant.soot) + 0.3, 0.0, 1.2) * air
+		# The smoke is the exhaust laid along the path: mass flow over airspeed, kg/m,
+		# times how smoky it is. Soot, plus the exhaust's own water: it condenses in
+		# the humid lower air and freezes to ice above the tropopause (−55 °C), which
+		# is why a trail stays bright to separation. Spread over the column's width it
+		# hides τ ≈ SMOKE_K·line/radius.
+		var cold := 1.0 - smoothstep(12000.0, 26000.0, pa)
+		var water := float(propellant.get("water", 0.3)) / 0.3
+		var smoky := 0.0 if (near or beam) else float(propellant.soot) + water * (0.3 * air + 0.7 * cold)
+		var mdot := thrust * throttle / (maxf(isp, 1.0) * 9.80665)
+		var line := Plume.SMOKE_K * smoky * mdot / maxf(Plume.airspeed, 60.0)
+		var col_r := maxf(re * _rj(flame_len * 2.2 / exit_d, under, balloon) * 1.5, r_eq * 0.62 * hi)
 		# The box carries the column past the flame, fading out with it rather than
 		# switching off, so the length never jumps.
-		var column := clampf(trail_k / 0.15, 0.0, 1.0)
+		var column := clampf(line / maxf(col_r, 0.1) / 0.08, 0.0, 1.0)
 		L = maxf(L, flame_len * (1.0 + 1.2 * column))
-		var lx := L / exit_d
-		var spread := lerpf(1.0 + 0.14 * lx, 1.0 + 0.05 * lx, under)
-		var rj := maxf(spread, minf(1.0 + under * 2.6 * pow(lx, 0.62), balloon))
-		if beam: rj = 1.0 + 0.03 * lx
-		var R := re * rj * lerpf(1.9, 2.6, column)
 		# The ballooned plume: widest a little downstream, trailing several widths.
 		L = maxf(L, r_eq * 6.5 * hi)
-		R = maxf(R, r_eq * 1.45 * hi)
+		var lx := L / exit_d
+		var rj := _rj(lx, under, balloon)
+		if beam: rj = 1.0 + 0.03 * lx
+		var R := maxf(re * rj * lerpf(1.9, 2.6, column), r_eq * 1.45 * hi)
 		var grey := Plume.smoke_grey(propellant)
 		material.set_shader_parameter("uFlame", clampf(flame_len / L, 0.2, 1.0))
-		material.set_shader_parameter("uTrailK", trail_k)
+		material.set_shader_parameter("uTrailK", line)
 		# The shader scales everything by its calibration; the smoke's light is a reflectance.
 		material.set_shader_parameter("uTrail", Vector3(grey, grey * 0.985, grey * 0.96) * Plume.daylight / (temp_code * 2.4))
 		material.set_shader_parameter("uBox", Vector3(R, L, R))
 		last_len = L
-		trail_r = re * rj * 1.6
-		self.trail_k = trail_k
+		# The column where the box ends: the near field's, or the narrowed balloon's.
+		trail_r = maxf(re * rj * 1.5, r_eq * 0.62 * hi)
+		# Seen across, about 1.7 trail puffs overlap at any point.
+		trail_op = clampf(1.0 - exp(-line / trail_r / 1.7), 0.0, 0.85) if line > 0.0 else 0.0
 		jet.custom_aabb = AABB(Vector3(-R * 1.1, -L * 1.05, -R * 1.1), Vector3(R * 2.2, L * 1.05 + 1.0, R * 2.2))
 		# Exit glow a little inside the exit plane, growing with the plume.
 		if glow != null:
@@ -314,6 +336,12 @@ class PlumeFx extends RefCounted:
 			glow.set_instance_shader_parameter("opacity", (0.18 if beam else 0.75) * float(propellant.glow) * (0.45 + 0.55 * throttle) * (1.0 - 0.6 * (0.0 if beam else swell)))
 		if light != null:
 			light.light_energy = light_scale * throttle * (0.4 if beam else 1.0)
+
+	## The jet's radius `lx` exit diameters downstream, in exit radii: as jet_radius in
+	## plume.gdshader, at its far end.
+	static func _rj(lx: float, under: float, balloon: float) -> float:
+		var spread := lerpf(1.0 + 0.14 * lx, 1.0 + 0.05 * lx, under)
+		return maxf(spread, minf(1.0 + under * 2.6 * pow(lx, 0.62), balloon))
 
 ## One engine's plume, scaled by `exit_d` and driven per frame. `engine` is the
 ## vehicles.gd entry; `role` is "single", "near" (one engine of a merged cluster) or
@@ -339,6 +367,7 @@ static func create_plume(propellant, exit_d: float, length_scale: float = 18.0,
 	fx.exit_d = exit_d
 	fx.pe = float(look.get("pe", 1000.0 if beam else 50000.0))
 	fx.thrust = float(engine.get("thrustVac", 0.0)) if engine is Dictionary else 0.0
+	fx.isp = float(engine.get("ispVac", 300.0)) if engine is Dictionary else 300.0
 	var m := ShaderMaterial.new()
 	m.shader = shader("plume")
 	m.set_shader_parameter("uRe", exit_d * 0.5)
@@ -512,6 +541,8 @@ class SmokeColumn extends RefCounted:
 	var age := PackedFloat64Array()
 	## Turbulent diffusion: the puff's width goes as √(1 + grow·age).
 	var grow := PackedFloat64Array()
+	## How fast a new puff condenses in, 1/s.
+	var fade_in := PackedFloat64Array()
 	var op0 := PackedFloat64Array()
 	var color := PackedColorArray()
 	var kind := PackedByteArray()
@@ -556,6 +587,7 @@ class SmokeColumn extends RefCounted:
 		pos[i] = p; vel[i] = v; size0[i] = s; size[i] = s; age[i] = 0.0
 		color[i] = c; kind[i] = k; rate[i] = r; grow[i] = g; op0[i] = op
 		life[i] = 1.0
+		fade_in[i] = 2.0
 		rot[i] = randf() * TAU
 		# Rolling, because a puff that holds its orientation while it grows reads as
 		# a decal rather than a turbulent lump.
@@ -599,7 +631,9 @@ class SmokeColumn extends RefCounted:
 				0.05 if is_soot else 0.06, 2.4, 0.62 if is_soot else 0.5)
 
 	## One trail puff where the flame ends: `p` in the group's frame, moving at `v`.
-	func emit_trail(p: Vector3, v: Vector3, s: float, opacity: float, tint: Color) -> void:
+	## `fade` (1/s) is how fast it appears: the shader's column already shows the smoke
+	## there, so it is there before the vehicle has gone half its width.
+	func emit_trail(p: Vector3, v: Vector3, s: float, opacity: float, tint: Color, fade := 2.0) -> void:
 		var i := _slot_trail()
 		var k2 := 0.9 + randf() * 0.15
 		# Ragged: sizes and offsets vary, so overlapping puffs read as a column of
@@ -607,6 +641,7 @@ class SmokeColumn extends RefCounted:
 		_spawn(i, p + Vector3(randf() - 0.5, randf() - 0.5, randf() - 0.5) * s * 0.5, v,
 			s * (0.6 + randf() * 0.7), Color(tint.r * k2, tint.g * k2, tint.b * k2), TRAIL_KIND,
 			1.0 / (70.0 + randf() * 40.0), 0.35, opacity)
+		fade_in[i] = fade
 
 	## Boil-off from a tank vent: cold, so it sinks as it spreads and soon evaporates.
 	func emit_vent(p: Vector3, v: Vector3, s: float, opacity: float) -> void:
@@ -639,6 +674,8 @@ class SmokeColumn extends RefCounted:
 	func update(dt: float) -> void:
 		if dt <= 0.0: return
 		if Plume.smoke_volume: _shade_slice(PAD_N / 10)
+		# The last puff laid drifts with the air, so the next is laid where it now is.
+		if trail_last != Vector3.INF: trail_last += wind * dt
 		for i in N:
 			if life[i] <= 0.0: continue
 			life[i] -= dt * rate[i]
@@ -709,7 +746,7 @@ class SmokeColumn extends RefCounted:
 		for key in _keys:
 			var i := key & 2047
 			# A new puff condenses in over half a second rather than appearing whole.
-			var op := pow(life[i], 1.4) * op0[i] * minf(age[i] * 2.0, 1.0)
+			var op := pow(life[i], 1.4) * op0[i] * minf(age[i] * fade_in[i], 1.0)
 			# Nearly gone: not worth a raymarch.
 			if op < 0.05: continue
 			# The fire lights the low, near puffs from underneath.
@@ -754,7 +791,7 @@ static func create_smoke_column() -> SmokeColumn:
 	# Packed arrays are values: resizing them through a list would resize copies.
 	o.pos.resize(n); o.vel.resize(n); o.life.resize(n); o.rate.resize(n)
 	o.spin.resize(n); o.rot.resize(n); o.size0.resize(n); o.size.resize(n); o.age.resize(n)
-	o.grow.resize(n); o.op0.resize(n); o.color.resize(n); o.kind.resize(n)
+	o.grow.resize(n); o.fade_in.resize(n); o.op0.resize(n); o.color.resize(n); o.kind.resize(n)
 	o.seed.resize(n); o.shade.resize(n); o._depth.resize(n)
 	o.shade.fill(1.0)
 	return o

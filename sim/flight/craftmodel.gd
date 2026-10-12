@@ -743,7 +743,8 @@ static func wing_panel(stations: Array, mat_up: Material, mat_lo: Material, n_ch
 
 ## A tube along a curved centreline, framed by parallel transport so it never
 ## flips where the tangent passes vertical and the seams stay straight.
-static func bent_tube(pts: Array, r: float, material: Material, radial := 20) -> Dictionary:
+## `radii`, if given, is the radius at each point (a taper).
+static func bent_tube(pts: Array, r: float, material: Material, radial := 20, radii: Array = []) -> Dictionary:
 	var N := pts.size()
 	var tan := []
 	for i in N:
@@ -759,9 +760,10 @@ static func bent_tube(pts: Array, r: float, material: Material, radial := 20) ->
 	var g := Geo.new()
 	for i in N:
 		var bi: Vector3 = tan[i].cross(nrm[i]).normalized()
+		var ri: float = radii[i] if i < radii.size() else r
 		for j in radial:
 			var a := (float(j) / radial) * TAU
-			var c := cos(a) * r; var sn := sin(a) * r
+			var c := cos(a) * ri; var sn := sin(a) * ri
 			g.pos.append(pts[i] + nrm[i] * c + bi * sn)
 	for i in N - 1:
 		for j in radial:
@@ -1670,307 +1672,178 @@ static func spin_drive(R: float) -> Dictionary:
 	collar.rotation.x = PI / 2.0; collar.position.y = neck_y + R * 0.10; pivot.add_child(collar)
 	return {"mount": mount, "pivot": pivot, "neckR": neck_r, "topY": neck_y + R * 0.62}
 
-## The Hail Mary: three astrophage tanks around a central spine, a pressure vessel
-## forward, and four spin drives (one under each tank, one on the axis). All four
-## fire parallel to the axis through one plane, since a canted drive wastes
-## 1 − cos θ and adds a torque held for thirteen years. The tanks bend in around the
-## spine; the drives hang square beneath the bend. Fallback for the authored .glb.
+## The Hail Mary, after the 2026 film: three tanks in a triangle round a central
+## drive drum, a train of crew modules forward of it between them, two solar wings
+## astern. Each tank tapers aft through an S-bend to its own drive beside the drum;
+## all four drives fire parallel to the axis through one plane. The layout is in
+## metres at the film's 104 m, shared with model_sources/blender/hailmary.py.
+## Fallback for the authored .glb.
+const HM_MODULES := [[35.0, 42.0, 4.0, "white", "hub"], [42.0, 44.6, 2.6, "gold", "plain"],
+	[44.6, 47.5, 2.1, "alu", "node"], [47.5, 54.0, 3.1, "white", "ringed"],
+	[54.0, 55.6, 2.2, "dirty", "plain"], [55.6, 62.3, 3.0, "white", "quilt"],
+	[62.3, 67.5, 3.0, "white", "berth"], [67.5, 77.8, 3.0, "white", "banded"],
+	[77.8, 83.4, 2.1, "white", "plain"], [83.4, 86.0, 2.35, "soot", "plain"],
+	[86.0, 93.4, 2.3, "white", "greeble"], [93.4, 100.6, 2.3, "white", "hatch"],
+	[100.6, 104.0, 2.3, "alu", "dock"]]
+
 static func build_hail_mary(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
-	var L: float = spec.L; var D: float = spec.D       # 47 m × 12 m
-	var f := func(u: float) -> float: return u * L
+	var k: float = float(spec.L) / 104.0
 	var look: Dictionary = spec.get("look", {})
-	var nT := int(_n(look.get("tanks"), 3.0)) if _t(look.get("tanks")) else 3
-	var tr := D * 0.265; var tank_r := D * 0.110
-	var Y := Vector3(0, 1, 0); var Z := Vector3(0, 0, 1)
-	# The aft plane. Every drive's exit sits on it.
-	var aft_y: float = f.call(0.132)
-	var dR := tank_r * 0.62                # 0.82 m — the drive is SMALLER than its tank
+	var tr := 11.4 * k; var tank_r := 4.0 * k; var taper_y := 29.4 * k; var top_y := 100.0 * k
+	var tip_x := 6.6 * k; var tip_y := 1.6 * k; var tip_r := 1.45 * k
+	var bay0 := 42.7 * k; var bay1 := 51.5 * k; var core_r := 2.6 * k
+	var drum_r := 5.0 * k; var drum_y0 := 9.5 * k; var drum_y1 := 34.0 * k
+	var dR := 0.82 * k; var dR0 := 1.1 * k
+	var radius_at := func(y: float) -> float:
+		if y >= taper_y:
+			if y > bay0 and y < bay1:
+				return tank_r + (core_r - tank_r) * minf(minf(y - bay0, bay1 - y) / (0.8 * k), 1.0)
+			return tank_r
+		return tip_r + (tank_r - tip_r) * pow(maxf((y - tip_y) / (taper_y - tip_y), 0.0), 0.85)
 
-	# the central drive, on the axis, where the spine's load path ends.
-	var axial := spin_drive(dR)
-	axial.mount.position = Vector3(0, aft_y, 0)
+	# the drum, its bands and brackets
+	var prof := PackedVector2Array([Vector2(0, drum_y0), Vector2(3.6 * k, drum_y0),
+		Vector2(4.5 * k, drum_y0 + 0.6 * k), Vector2(drum_r, drum_y0 + 1.6 * k), Vector2(drum_r, drum_y1 - 1.0 * k),
+		Vector2(5.6 * k, drum_y1), Vector2(5.7 * k, drum_y1 + 0.6 * k), Vector2(5.4 * k, drum_y1 + 0.9 * k),
+		Vector2(4.4 * k, drum_y1 + 0.7 * k), Vector2(0, drum_y1 + 0.7 * k)])
+	g.add_child(_mesh(_lathe(prof, 36), M.dirty))
+	for yb in [15.0 * k, 28.0 * k]:
+		var b := _mesh(_torus(drum_r * 1.01, 0.14 * k, 4, 36), M.alu)
+		b.rotation.x = PI / 2.0; b.position.y = yb; g.add_child(b)
+	for row in 3:
+		var yb: float = [12.5, 21.0, 31.0][row] * k
+		for i in 16:
+			var a := i / 16.0 * TAU + row * 0.2
+			var br := _mesh(_box(0.35 * k, 0.8 * k, 0.6 * k), M.alu)
+			br.position = Vector3(cos(a) * drum_r * 1.03, yb, -sin(a) * drum_r * 1.03)
+			br.rotation.y = a; g.add_child(br)
+	# the central drive, its neck, and the thrust units round it
+	var axial := spin_drive(dR0)
 	g.add_child(axial.mount); parts.gimbals.append(axial.pivot)
-	var plate_y: float = aft_y + axial.topY + f.call(0.006)
+	g.add_child(_mesh(_lathe(PackedVector2Array([Vector2(0, axial.topY - 0.05 * k), Vector2(0.9 * k, axial.topY - 0.05 * k),
+		Vector2(1.2 * k, drum_y0 + 0.05 * k), Vector2(0, drum_y0 + 0.05 * k)]), 18), M.dirty))
+	for i in 6:
+		var a := i / 6.0 * TAU + PI / 6.0
+		var y0 := (0.7 + 0.45 * ((i * 3) % 5)) * k
+		var c := Vector3(cos(a) * 2.9 * k, 0, -sin(a) * 2.9 * k)
+		var u := _mesh(_cylinder(0.75 * k, 0.75 * k, drum_y0 + 0.1 * k - y0, 14), M.nozzle)
+		u.position = c + Vector3(0, (y0 + drum_y0 + 0.1 * k) / 2.0, 0); g.add_child(u)
+		var face := _mesh(_circle(0.54 * k, 14), M.emitPlate)
+		face.position = c + Vector3(0, y0 - 0.01 * k, 0); face.rotation.x = PI / 2.0; g.add_child(face)
 
-	# the central body: a fat cone the tanks lie against. Its radius equals the
-	# tank centreline's radius minus the tank radius, and it ends on a thrust plate at
-	# plate_y for the axial drive and aft truss.
-	var cone_y1: float = f.call(0.468)
-	var cone_prof := PackedVector2Array([
-		Vector2(0, plate_y), Vector2(dR * 1.55, plate_y),
-		Vector2(dR * 1.75, plate_y + f.call(0.014)), Vector2(D * 0.132, f.call(0.212)),
-		Vector2(D * 0.146, f.call(0.238)), Vector2(D * 0.155, f.call(0.266)), Vector2(D * 0.155, f.call(0.468)),
-		Vector2(D * 0.075, f.call(0.468))])
-	g.add_child(_mesh(_lathe(cone_prof, 30), M.dirty))
-	# The plate's rim and the neck down to the drive.
-	var rim := _mesh(_cylinder(dR * 1.55, dR * 1.42, f.call(0.016), 24, 1, true), M.alu)
-	rim.position.y = plate_y - f.call(0.008); g.add_child(rim)
-	var neck := _mesh(_cylinder(axial.neckR * 1.14, axial.neckR * 1.14,
-		plate_y - (aft_y + axial.topY) + 0.1, 18, 1, true), M.dirty)
-	neck.position.y = (plate_y + aft_y + axial.topY) / 2.0; g.add_child(neck)
-	for ru in [[D * 0.142, 0.222], [D * 0.152, 0.252], [D * 0.158, 0.330], [D * 0.158, 0.420]]:
-		var b := _mesh(_torus(ru[0], D * 0.006, 4, 28), M.alu)
-		b.rotation.x = PI / 2.0; b.position.y = f.call(ru[1]); g.add_child(b)
-	# MLI on the spine between the tanks, and the cross-feed plumbing.
-	var mli_band := _mesh(_cylinder(D * 0.157, D * 0.157, f.call(0.030), 28, 1, true), M.gold)
-	mli_band.position.y = f.call(0.300); g.add_child(mli_band)
-	for i in 8:
-		var a := i / 8.0 * TAU + 0.5
-		# Staggered in length and height, as a real trunk run is.
-		var h: float = f.call(0.150 + 0.055 * ((i * 5) % 7) / 7.0)
-		var run := _mesh(_cylinder(D * 0.008, D * 0.008, h, 6, 1, true), M.alu if i % 3 else M.soot)
-		run.position = Vector3(cos(a) * D * 0.163, f.call(0.352) + h * 0.5 - f.call(0.075), sin(a) * D * 0.163)
-		g.add_child(run)
-	for i in 3:                                        # valve packages
-		var a := i / 3.0 * TAU + 0.9
-		var box := _mesh(_box(D * 0.055, D * 0.075, D * 0.045), M.alu)
-		box.position = Vector3(cos(a) * D * 0.172, f.call(0.288), sin(a) * D * 0.172)
-		box.rotation.y = -a; g.add_child(box)
-
-	# three tanks: straight, then bent in around the cone. The turn is limited at
-	# the drive faces: three faces of radius r clear on a ring of R only while R·√3 > 2r.
-	var path := bent_path(tr, f.call(0.679), f.call(0.245), D * 0.55, 16, D * 0.14)
-	var end_p: Vector3 = path[path.size() - 1]
-	for i in nT:
-		var a := float(i) / nT * TAU + PI / 2.0
+	# the three tanks: barrel, open bay, S-bend taper to a drive
+	var path := []
+	for i in 24:
+		path.append(Vector3(tr, top_y + (taper_y - top_y) * i / 24.0, 0))
+	for i in 21:
+		var t := 1.0 - i / 20.0
+		var sm := t * t * (3.0 - 2.0 * t)
+		path.append(Vector3(tip_x + (tr - tip_x) * sm, tip_y + (taper_y - tip_y) * t, 0))
+	var radii := []
+	for p in path: radii.append(radius_at.call((p as Vector3).y))
+	for i in 3:
+		var a := i / 3.0 * TAU + PI / 2.0
 		var t := _grp()
-		t.rotation.y = -a                              # the path is radial/axial
-		var bt := bent_tube(path, tank_r, M.white, 24)
-		var tan: Array = bt.tan; var nrm: Array = bt.nrm
-		t.add_child(bt.mesh)
-		# The tube's transported frame, reused for hardware that follows the bend: `nrm`
-		# is out of plane, `bi` in plane; φ = 0 is the ±z flank, φ = π/2 inboard.
-		var bi := func(k: int) -> Vector3: return (tan[k] as Vector3).cross(nrm[k]).normalized()
-		var surf := func(k: int, phi: float, rr: float) -> Vector3:
-			return path[k] + (nrm[k] as Vector3) * (cos(phi) * rr) + (bi.call(k) as Vector3) * (sin(phi) * rr)
-
-		# Ring frames and weld seams, spaced by arc length (the path's points are 3.4 m
-		# apart on the barrel and 0.18 m round the bend).
-		var arc := [0.0]
-		for k in range(1, path.size()):
-			arc.append(arc[k - 1] + (path[k] as Vector3).distance_to(path[k - 1]))
-		var at := func(sT: float) -> Array:            # position + tangent at an arc length
-			var k := 1
-			while k < arc.size() - 1 and arc[k] < sT: k += 1
-			var u: float = (sT - arc[k - 1]) / maxf(arc[k] - arc[k - 1], 1e-6)
-			return [(path[k - 1] as Vector3).lerp(path[k], u), (tan[k - 1] as Vector3).lerp(tan[k], u).normalized()]
-		var BAY := 2.6                                 # barrel section length, m
-		var n := 1
-		while n * BAY * 0.5 < arc[arc.size() - 1] - 0.35:
-			var pq: Array = at.call(n * BAY * 0.5)
-			if n % 2:                                  # frame
-				var ring := _mesh(_torus(tank_r * 1.016, tank_r * 0.038, 4, 24), M.alu)
-				ring.position = pq[0]
-				ring.quaternion = quat_from_unit_vectors(Z, pq[1])
-				t.add_child(ring)
-			else:                                      # weld seam
-				# A seam stands proud and uses the tube's segment count, or the polygons cross and
-				# z-fight into dashes.
-				var seam := _mesh(_cylinder(tank_r * 1.012, tank_r * 1.012, tank_r * 0.05, 24, 1, true), M.soot)
-				seam.position = pq[0]
-				seam.quaternion = quat_from_unit_vectors(Y, pq[1])
-				t.add_child(seam)
-			n += 1
-		# Cable trays, an inboard propellant trunk and an outboard conduit, carried round
-		# the bend on the tank frame.
-		for rail_def in [
-				[0.62, tank_r * 1.05, 0.085, M.alu],
-				[-0.62, tank_r * 1.05, 0.085, M.alu],
-				[PI * 0.5, tank_r * 1.09, 0.135, M.dirty],      # inboard: the feed trunk
-				[PI * 1.5, tank_r * 1.06, 0.090, M.soot],       # outboard: conduit
-				[PI * 1.5 - 0.30, tank_r * 1.04, 0.055, M.alu]]:
-			var rpts := []
-			for k in path.size():
-				rpts.append(surf.call(k, rail_def[0], rail_def[1]))
-			t.add_child(_mesh(_tube(CatmullRom.new(rpts), 24, rail_def[2], 4), rail_def[3]))
-		# Standoff brackets, so the runs are held off the skin rather than sunk in it.
-		var kk := 2
-		while kk < path.size() - 1:
-			for phi in [PI * 0.5, PI * 1.5]:
-				t.add_child(beam(surf.call(kk, phi, tank_r * 0.99), surf.call(kk, phi, tank_r * 1.10), 0.05))
-			kk += 3
-		# Forward dome, collar and cap.
-		var dome := _mesh(_sphere(tank_r, 24, 10, 0.0, TAU, 0.0, PI / 2.0), M.white)
-		dome.position = path[0]; t.add_child(dome)
-		var collar := _mesh(_torus(tank_r * 1.02, tank_r * 0.05, 4, 24), M.alu)
-		collar.rotation.x = PI / 2.0; collar.position = path[0]; t.add_child(collar)
-		var vent := _mesh(_cylinder(tank_r * 0.18, tank_r * 0.22, tank_r * 0.30, 12), M.dirty)
-		vent.position = Vector3(tr + tank_r * 0.40, (path[0] as Vector3).y + tank_r * 0.95, 0); t.add_child(vent)
-		# MLI: one band on the straight run above the bend, one under the dome.
-		for yh in [[f.call(0.285), f.call(0.030)], [f.call(0.640), f.call(0.022)]]:
-			var gb := _mesh(_cylinder(tank_r * 1.02, tank_r * 1.02, yh[1], 24, 1, true), M.gold)
-			gb.position = Vector3(tr, yh[0], 0); t.add_child(gb)
-		# Equipment boxes on the outboard flanks, clear of the conduit.
-		for eq in [[f.call(0.330), 1.5, 1.1, PI * 1.5 + 0.62],
-				[f.call(0.455), 0.9, 0.8, PI * 1.5 - 0.62],
-				[f.call(0.545), 1.2, 0.6, PI * 1.5 + 0.62],
-				[f.call(0.612), 0.7, 0.9, PI * 1.5 - 0.62]]:
-			var phi: float = eq[3]
-			var box := _mesh(_box(0.34, eq[2], eq[1]), M.dirty)
-			box.position = Vector3(tr - sin(phi) * tank_r * 1.08, eq[0], cos(phi) * tank_r * 1.08)
-			box.rotation.y = atan2(cos(phi), -sin(phi))
-			t.add_child(box)
-
-		# the aft end: a bulkhead, a thrust block, and the drive square under it.
-		var end_t: Vector3 = tan[tan.size() - 1]
-		var cap_plate := _mesh(_circle(tank_r, 24), M.dirty)
-		cap_plate.position = end_p
-		cap_plate.quaternion = quat_from_unit_vectors(Z, end_t); t.add_child(cap_plate)
-		var cap_ring := _mesh(_torus(tank_r * 1.01, tank_r * 0.055, 4, 24), M.alu)
-		cap_ring.position = end_p
-		cap_ring.quaternion = quat_from_unit_vectors(Z, end_t); t.add_child(cap_ring)
-		# The thrust block: takes the oblique tank end to a square drive and carries 31 MN.
+		# Blender's +Y is Godot's −Z, so its turn about +Z is this one about +Y.
+		t.rotation.y = a
+		t.add_child(bent_tube(path, tank_r, M.white, 28, radii).mesh)
+		var cap_r := tank_r * 0.93
+		var cap_prof := PackedVector2Array([Vector2(tank_r * 0.999, top_y), Vector2(cap_r, top_y + 0.25 * k), Vector2(cap_r, top_y + 1.0 * k)])
+		for j in range(1, 9):
+			var w := j / 8.0 * PI / 2.0
+			cap_prof.append(Vector2(cap_r * cos(w), top_y + 1.0 * k + 0.7 * k * sin(w)))
+		var cap := _mesh(_lathe(cap_prof, 28), M.dirty)
+		cap.position.x = tr; t.add_child(cap)
+		for bd in [[57.7, 61.8, M.soot, 1.012], [87.0, 89.6, M.gold, 1.016], [94.0, 94.6, M.soot, 1.012], [36.6, 42.7, M.dirty, 1.006]]:
+			var h: float = (bd[1] - bd[0]) * k
+			var band := _mesh(_cylinder(tank_r * bd[3], tank_r * bd[3], h, 28, 1, true), bd[2])
+			band.position = Vector3(tr, (bd[0] + bd[1]) * 0.5 * k, 0); t.add_child(band)
+		for yc in [taper_y + 0.2 * k, 33.0 * k, bay0, bay1, (bay0 + bay1) / 2.0]:
+			var ring := _mesh(_torus(tank_r * 1.02, 0.17 * k, 4, 28), M.alu)
+			ring.rotation.x = PI / 2.0; ring.position = Vector3(tr, yc, 0); t.add_child(ring)
+		for j in 10:
+			var b := j / 10.0 * TAU
+			var p0 := Vector3(tr + cos(b) * tank_r, bay0, sin(b) * tank_r)
+			t.add_child(beam(p0, Vector3(p0.x, bay1, p0.z), 0.12 * k))
+		var door := _mesh(_box(0.08 * k, 2.4 * k, 2.4 * k), M.soot)
+		door.position = Vector3(tr + tank_r * 1.01, 63.5 * k, 0); t.add_child(door)
+		var tip_ring := _mesh(_torus(tip_r * 1.01, 0.12 * k, 4, 24), M.alu)
+		tip_ring.rotation.x = PI / 2.0; tip_ring.position = Vector3(tip_x, tip_y, 0); t.add_child(tip_ring)
+		var tip_cap := _mesh(_circle(tip_r, 24), M.dirty)
+		tip_cap.rotation.x = PI / 2.0; tip_cap.position = Vector3(tip_x, tip_y, 0); t.add_child(tip_cap)
 		var drv := spin_drive(dR)
-		drv.mount.position = Vector3(end_p.x, aft_y, 0)
+		drv.mount.position = Vector3(tip_x, 0, 0)
 		t.add_child(drv.mount); parts.gimbals.append(drv.pivot)
-		# Buried in the tank's aft end at the top and square to the ship at the bottom, so
-		# the 16° is taken up in one short piece.
-		var block_top := end_p.y + tank_r * 0.62; var block_bot: float = aft_y + drv.topY
-		var block := _mesh(_cylinder(dR * 0.92, dR * 0.80, block_top - block_bot, 18, 1, true), M.dirty)
-		block.position = Vector3(end_p.x, (block_top + block_bot) / 2.0, 0); t.add_child(block)
-		# Gussets to the bulkhead ring (all different lengths: oblique cap, square block).
-		var n_end: Vector3 = nrm[nrm.size() - 1]
-		var b_end := end_t.cross(n_end).normalized()
-		for k in 6:
-			var phi := k / 6.0 * TAU
-			var p2 := end_p + n_end * (cos(phi) * tank_r * 0.90) + b_end * (sin(phi) * tank_r * 0.90)
-			var p1 := Vector3(end_p.x - sin(phi) * dR * 0.88, block_bot + 0.22, cos(phi) * dR * 0.88)
-			t.add_child(beam(p1, p2, 0.06))
-		# The feed line from the inboard trunk into the emitter can, routed outboard of the
-		# spine's thrust plate.
-		var feed := CatmullRom.new([
-			surf.call(path.size() - 6, PI * 0.5, tank_r * 1.09),
-			surf.call(path.size() - 2, PI * 0.5, tank_r * 1.15),
-			Vector3(end_p.x - dR * 1.05, block_bot + 0.75, 0),
-			Vector3(end_p.x - dR * 0.90, block_bot + 0.30, 0)])
-		t.add_child(_mesh(_tube(feed, 16, 0.12, 5), M.alu))
 		g.add_child(t)
 
-	# structure: radial struts to the spine at two stations, girth ties between
-	# tanks, and an aft truss tying the four drive blocks together.
-	for yy in [f.call(0.290), f.call(0.584)]:
-		for i in nT:
-			var a := float(i) / nT * TAU + PI / 2.0
-			var inner := D * 0.075
-			g.add_child(beam(Vector3(cos(a) * inner, yy, sin(a) * inner),
-				Vector3(cos(a) * (tr - tank_r * 0.9), yy, sin(a) * (tr - tank_r * 0.9)), 0.09))
-	var ring_pt := func(i: float, r: float, y: float) -> Vector3:
-		var a := i / nT * TAU + PI / 2.0
-		return Vector3(cos(a) * r, y, sin(a) * r)
-	for yr in [[f.call(0.330), tr], [f.call(0.620), tr]]:
-		for i in nT:
-			g.add_child(beam(ring_pt.call(float(i), yr[1] - tank_r * 0.2, yr[0]),
-				ring_pt.call(float(i + 1), yr[1] - tank_r * 0.2, yr[0]), 0.075))
-	# The aft truss: two struts from the thrust plate to each drive block, and a
-	# girth ring between blocks.
-	for i in nT:
-		var p: Vector3 = ring_pt.call(float(i), end_p.x, aft_y + dR * 2.0)
-		for s in [-1.0, 1.0]:
-			var q: Vector3 = ring_pt.call(i + s * 0.22, dR * 1.5, plate_y - f.call(0.010))
-			g.add_child(beam(p, q, 0.075))
-		g.add_child(beam(p, ring_pt.call(float(i + 1), end_p.x, aft_y + dR * 2.0), 0.065))
+	# struts to the drum and the stack, girth ties, the aft truss
+	var rp := func(i: float, r: float, y: float) -> Vector3:
+		var a := i / 3.0 * TAU + PI / 2.0
+		return Vector3(cos(a) * r, y, -sin(a) * r)
+	for tie in [[22.0, drum_r], [38.0, 4.0 * k], [60.0, 3.0 * k], [91.0, 2.3 * k]]:
+		for i in 3:
+			for sd in [-0.035, 0.035]:
+				g.add_child(beam(rp.call(float(i), tie[1] * 0.98, tie[0] * k),
+					rp.call(i + sd * 3.0, tr - tank_r * 0.97, tie[0] * k), 0.16 * k))
+	for yg in [70.0 * k, 97.0 * k]:
+		for i in 3:
+			g.add_child(beam(rp.call(i + 0.13, tr - tank_r * 0.2, yg), rp.call(i + 0.87, tr - tank_r * 0.2, yg), 0.14 * k))
+	for i in 3:
+		for sd in [-1.0, 1.0]:
+			g.add_child(beam(rp.call(float(i), tip_x, tip_y + 0.6 * k), rp.call(i + sd * 0.25, 3.8 * k, drum_y0 + 0.3 * k), 0.13 * k))
 
-	# the module stack, standing on the cone and running past the tanks.
-	var mod := func(y0: float, y1: float, dia: float, m: Material) -> void:
-		var c := _mesh(_cylinder(dia / 2.0, dia / 2.0, y1 - y0, 22, 1, true), m)
-		c.position.y = (y0 + y1) / 2.0; g.add_child(c)
-	var band := func(y: float, dia: float, h: float, m: StandardMaterial3D) -> void:
-		var c := _mesh(_cylinder(dia / 2.0 * 1.02, dia / 2.0 * 1.02, h, 22, 1, true), decal_mat(m))
-		c.position.y = y; g.add_child(c)
-	band.call(cone_y1, D * 0.150, f.call(0.022), M.gold)
-	mod.call(f.call(0.468), f.call(0.560), D * 0.150, M.dirty)     # machinery / stores
-	band.call(f.call(0.560), D * 0.180, f.call(0.022), M.gold)
-
-	var hull_y0: float = f.call(0.566); var hull_y1: float = f.call(0.855); var hull_d := D * 0.205
-	mod.call(hull_y0, hull_y1, hull_d, M.white)
-	for k in 3:                                        # control / lab / dorm
-		band.call(hull_y0 + (hull_y1 - hull_y0) * (0.17 + k * 0.30), hull_d, f.call(0.006), M.black)
-	for side in [1.0, -1.0]:
-		var w := _mesh(_cylinder(0.30, 0.30, 0.10, 14), M.glass)
-		w.position = Vector3(side * hull_d * 0.5, hull_y0 + (hull_y1 - hull_y0) * 0.78, 0)
-		w.rotation.z = PI / 2.0; g.add_child(w)
-	var lock := _mesh(_cylinder(0.55, 0.55, 0.22, 16), M.alu)
-	lock.position = Vector3(0, hull_y0 + (hull_y1 - hull_y0) * 0.40, hull_d * 0.5)
-	lock.rotation.x = PI / 2.0; g.add_child(lock)
-	band.call(hull_y1, D * 0.170, f.call(0.022), M.gold)
-
-	mod.call(f.call(0.861), f.call(1.013), D * 0.140, M.dirty)     # instruments
-	# The nose is one object: the node overlaps the module it sits on, and the mast
-	# starts inside the node.
-	var node_r := D * 0.088; var node_y: float = f.call(1.028)
-	var node := _mesh(_sphere(node_r, 20, 14), M.alu)
-	node.position.y = node_y; g.add_child(node)
-	var collar2 := _mesh(_cylinder(D * 0.082, D * 0.072, f.call(0.020), 24), M.dirty)
-	collar2.position.y = f.call(1.008); g.add_child(collar2)
-	for i in 4:
-		var a := i / 4.0 * TAU
-		var port := _mesh(_cylinder(D * 0.030, D * 0.034, D * 0.055, 14), M.dirty)
-		port.position = Vector3(cos(a) * D * 0.095, node_y, sin(a) * D * 0.095)
-		port.rotation = Vector3(0, -a, PI / 2.0); g.add_child(port)
-	var mast_y0 := node_y + node_r * 0.55; var mast_l: float = f.call(1.148) - mast_y0
-	var mast := _mesh(_cylinder(0.07, 0.07, mast_l, 8), M.alu)
-	mast.position.y = mast_y0 + mast_l / 2.0; g.add_child(mast)
-	# The high-gain antenna on a boom, opening forward.
-	var hg_y: float = f.call(1.000); var hg_x := D * 0.172
-	g.add_child(beam(Vector3(D * 0.070, hg_y, 0), Vector3(hg_x, hg_y, 0), 0.075, M.alu, 6))
-	var hg_dish := dish(D * 0.105)
-	hg_dish.position = Vector3(hg_x, hg_y + D * 0.030, 0); hg_dish.rotation.z = -0.56; g.add_child(hg_dish)
-
-	# radiators: fixed structure, not parts.arrays (which flies stowed). On the
-	# hull above the tank tops, the one band of spine with a clear horizon.
-	var n_rad := int(_n(look.get("radiators"), 0.0))
-	for i in n_rad:
-		var arm := _grp()
-		arm.rotation.y = -(float(i) / n_rad * TAU + PI / 4.0)
-		arm.position.y = f.call(0.775)
-		# Azimuth on the parent and tilt on a child, so the two angles don't compose.
-		var rad := radiator(D * 0.22, f.call(0.085))
-		rad.rotation.x = PI / 2.0
-		rad.position.x = hull_d * 0.5 + D * 0.175
-		arm.add_child(rad)
-		arm.add_child(beam(Vector3(hull_d * 0.46, 0, 0), Vector3(hull_d * 0.5 + D * 0.09, 0, 0), 0.07))
-		g.add_child(arm)
-
-	# solar wings: two long flat panels, the widest thing on the ship.
-	for side in [1.0, -1.0]:
-		var wing := _grp()
-		var nP := 7; var pw := D * 0.235; var ph := D * 0.40
-		for k in nP:
-			# Turned through 90°: the panel's plane contains the ship's axis, so
-			# it stands off the hull like a wing instead of lying flat like a table.
-			var pnl := _mesh(_box(pw, ph, 0.05), M.solar)
-			pnl.position = Vector3(D * 0.46 + pw * (k + 0.5) * 1.02, 0, 0); wing.add_child(pnl)
-			var rib := _mesh(_box(0.06, ph, 0.10), M.alu)
-			rib.position = Vector3(D * 0.46 + pw * k * 1.02, 0, 0); wing.add_child(rib)
-		var spar := _mesh(_cylinder(0.10, 0.10, D * 1.20, 6), M.alu)
-		spar.position = Vector3(D * 0.46 + D * 0.60, 0, 0); spar.rotation.z = PI / 2.0
-		wing.add_child(spar)
-		wing.position = Vector3(0, f.call(0.360), 0)
-		wing.rotation.y = 0.0 if side > 0 else PI
-		# Fixed structure, NOT a deployable — see the note on `parts.arrays`.
-		g.add_child(wing)
-
-	# beetles on the spine below the pressure vessel. Next to the ship they
-	# are deliberately tiny, and they are the only way an answer gets home.
+	# the crew stack
+	for md in HM_MODULES:
+		var y0: float = md[0] * k; var y1: float = md[1] * k; var r: float = md[2] * k
+		var kind: String = md[4]
+		var mp := PackedVector2Array()
+		if kind == "dock":
+			mp = PackedVector2Array([Vector2(0, y0), Vector2(r, y0), Vector2(r, y0 + 1.0 * k), Vector2(1.6 * k, y1 - 0.4 * k), Vector2(1.6 * k, y1), Vector2(0, y1)])
+		elif kind == "node":
+			mp.append(Vector2(0, y0))
+			for j in 9: mp.append(Vector2(r * (0.75 + 0.25 * sin(j / 8.0 * PI)), y0 + (y1 - y0) * j / 8.0))
+			mp.append(Vector2(0, y1))
+		else:
+			mp = PackedVector2Array([Vector2(0, y0), Vector2(r * 0.92, y0), Vector2(r, y0 + 0.25 * k), Vector2(r, y1 - 0.25 * k), Vector2(r * 0.92, y1), Vector2(0, y1)])
+		g.add_child(_mesh(_lathe(mp, 28), M[md[3]]))
+		if kind == "ringed" or kind == "hub":
+			var n := 4 if kind == "ringed" else 2
+			for j in n:
+				var fr := _mesh(_torus(r * 1.02, 0.10 * k, 4, 28), M.alu)
+				fr.rotation.x = PI / 2.0; fr.position.y = y0 + (y1 - y0) * (j + 0.5) / n; g.add_child(fr)
+		elif kind == "banded":
+			var bd := _mesh(_cylinder(r * 1.012, r * 1.012, 1.0 * k, 28, 1, true), M.soot)
+			bd.position.y = (y0 + y1) / 2.0; g.add_child(bd)
+		elif kind == "berth":
+			var br := _mesh(_torus(1.25 * k, 0.16 * k, 4, 20), M.alu)
+			br.rotation.y = PI / 2.0; br.position = Vector3(r, (y0 + y1) / 2.0, 0); g.add_child(br)
+		elif kind == "dock":
+			var dr := _mesh(_torus(1.45 * k, 0.12 * k, 4, 20), M.alu)
+			dr.rotation.x = PI / 2.0; dr.position.y = y1; g.add_child(dr)
+	g.add_child(beam(Vector3(0, 97.0 * k, -2.2 * k), Vector3(0, 97.0 * k, -5.5 * k), 0.09 * k))
+	g.add_child(beam(Vector3(-2.3 * k, 90.0 * k, 0), Vector3(-4.1 * k, 90.0 * k, 0), 0.10 * k))
+	var hg := dish(1.2 * k)
+	hg.position = Vector3(-4.1 * k, 90.0 * k, 0); hg.rotation.z = 0.9; g.add_child(hg)
 	var nB := int(_n(look.get("beetles"), 0.0))
 	for i in nB:
-		var a := float(i) / nB * TAU + PI / 4.0
-		var b := _grp()
-		b.position = Vector3(cos(a) * D * 0.105, f.call(0.520), sin(a) * D * 0.105)
-		b.rotation.y = -a
-		b.add_child(_mesh(_capsule(D * 0.028, D * 0.070, 5, 12), M.dirty))
-		var nz := _mesh(_cylinder(D * 0.018, D * 0.026, D * 0.028, 12), M.emitPlate)
-		nz.position.y = -D * 0.068; b.add_child(nz)
-		g.add_child(b)
-	g.add_child(rcs_ring(hull_d, hull_y0 + (hull_y1 - hull_y0) * 0.55, 4))
-	# Shift the ship so the drives' exit plane is the origin. On an inner group:
-	# build_craft overwrites `g.position`.
-	var body := _grp()
-	for c in g.get_children():
-		g.remove_child(c); body.add_child(c)
-	body.position.y = -aft_y
-	g.add_child(body)
+		var a := float(i) / nB * TAU
+		var bt := _mesh(_capsule(0.42 * k, 1.8 * k, 5, 12), M.dirty)
+		bt.position = Vector3(cos(a) * 2.75 * k, 80.6 * k, -sin(a) * 2.75 * k); g.add_child(bt)
+
+	# two solar wings astern, between the tanks: fixed structure, not parts.arrays
+	var wy := (13.9 + 15.6) * 0.5 * k
+	for side in [1.0, -1.0]:
+		var wing := _grp()
+		wing.rotation.y = 0.0 if side > 0 else PI
+		wing.add_child(beam(Vector3(drum_r * 0.98, wy, 0), Vector3(52.6 * k, wy, 0), 0.30 * k))
+		var nP := 9; var seg := (52.0 - 15.0) * k / nP
+		for col in [[5.5, 13.9], [15.6, 24.0]]:
+			for j in nP:
+				var pnl := _mesh(_box(seg * 0.96, (col[1] - col[0]) * k, 0.08 * k), M.solar)
+				pnl.position = Vector3(15.0 * k + seg * (j + 0.5), (col[0] + col[1]) * 0.5 * k, 0); wing.add_child(pnl)
+		g.add_child(wing)
+	g.add_child(rcs_ring(6.0 * k, 65.0 * k, 4))
 	return {"group": g, "parts": parts}
 
 static func build_beetle(spec: Dictionary, parts: Dictionary) -> Dictionary:

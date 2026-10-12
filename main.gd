@@ -175,6 +175,7 @@ func _ready() -> void:
 	hangar.pick.connect(_select_hangar)
 	hangar.start.connect(hangar_start)
 	hangar.back.connect(quit_to_start)
+	hangar.stage_moved.connect(_hangar_stage)
 	space_map = SpaceMap.new()
 	space_map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hud.add_child(space_map)
@@ -1818,11 +1819,13 @@ func open_hangar() -> void:
 	hangar.visible = true
 	for id in MODEL_WORLD: set_panel_open(id, false)
 	hud.set_model_open(true)
-	model_view.frame_offset = 0.17
 	model_view.cam.spin = 0.07
 	model_view.cam.held = false
 	_select_hangar(last_craft if Vehicles.VEHICLES.has(last_craft) else "saturnv")
 	hangar._layout()
+
+func _hangar_stage(frac: float) -> void:
+	if hangar_open: model_view.frame_offset = frac - 0.5
 
 func close_hangar() -> void:
 	if not hangar_open: return
@@ -1844,6 +1847,12 @@ func _select_hangar(key: String) -> void:
 
 ## A craft's numbers and the hangar's missions, each priced from its launch site by
 ## the same planner the map uses.
+## The rocket equation's Δv is a rapidity: with exhaust at c it reaches c·tanh(Δv/c),
+## so a photon ship's is shown as the speed it can reach from rest, in c.
+func _hangar_dv(dv: float) -> String:
+	if dv < 0.01 * Rocketry.C_MS: return FlightUI.fmt_speed(dv)
+	return "%s c" % U.fixed(tanh(dv / Rocketry.C_MS), 3)
+
 func _hangar_info(key: String) -> Dictionary:
 	var veh: Dictionary = Vehicles.VEHICLES[key]
 	var pay: float = float(veh.carries.mass) if veh.get("carries") != null else 0.0
@@ -1852,7 +1861,7 @@ func _hangar_info(key: String) -> Dictionary:
 	var rows := [
 		["Gross mass", FlightUI.fmt_mass_t(Vehicles.gross_mass(veh, pay))],
 		["Stages", str(veh.stages.size())],
-		["Δv, vacuum", FlightUI.fmt_speed(Vehicles.total_delta_v(veh, pay))],
+		["Δv, vacuum", _hangar_dv(Vehicles.total_delta_v(veh, pay))],
 	]
 	if veh.role == "launch":
 		rows.append(["Liftoff thrust", "%s MN" % U.fixed(Vehicles.liftoff_thrust(veh) / 1e6, 1)])

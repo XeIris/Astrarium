@@ -16,7 +16,9 @@
 //   FLAME AND SMOKE  in air the afterburning burns out within about a vehicle length
 //     (uFlame, a fraction of the box); past it the exhaust is soot and condensing
 //     water, a grey column scattering daylight (uTrail) that hands over to the
-//     world-fixed trail (Plume.SmokeColumn).
+//     world-fixed trail (Plume.SmokeColumn). The same smoke per metre (uTrailK)
+//     fills the near-field column and the ballooned one, so its optical depth is
+//     uTrailK / radius whichever shape it has.
 //   BALLOON  high up, the far field swells to the radius where its pressure meets the
 //     ambient plus the freestream's dynamic pressure (uBalloon, in exit radii). Its
 //     boundary is a shock-heated, turbulent shell. See docs/physics/plumes.md.
@@ -57,7 +59,7 @@ uniform float uHi = 0.0;              // 0 near the ground, 1 fully ballooned
 uniform float uShellK = 0.0;          // shock heating of the boundary, 0 in vacuum
 uniform float uFlame = 1.0;           // where the luminous flame ends, fraction of the length
 uniform vec3 uTrail = vec3(0.0);      // the exhaust smoke's colour in this light (premultiplied by 1/calibration)
-uniform float uTrailK = 0.0;          // its density: soot and condensation, thinning with altitude
+uniform float uTrailK = 0.0;          // smoke laid per metre of path × extinction: τ·m across a column (plume.gd)
 
 varying vec3 vLocal;                  // this fragment, in the plume's frame, m
 varying flat vec3 vCam;               // the camera, in the plume's frame, m
@@ -164,6 +166,7 @@ void fragment() {
 		bool in_hi = false;
 		vec3 em_hi = vec3(0.0);
 		float sig_hi = 0.0;
+		float smk_hi = 0.0;
 		if (uHi > 0.0) {
 			// ---- the ballooned far field. Large lobes carried downstream, so the
 			// boundary billows like a fire rather than a cone.
@@ -175,9 +178,11 @@ void fragment() {
 			float Rb0 = balloon_radius(xr);
 			float Rb = Rb0 * (1.0 + 0.55 * (lobe - 0.5));
 			float rb = r / Rb;
-			// It burns out where the jet's flame does, so the two end together.
+			// It burns out where the jet's flame does, so the two end together, and the
+			// cooled tongues carry on as smoke of the same shape.
 			float tail = 1.0 - smoothstep(0.55 * uFlame * L, uFlame * L, -p.y);
-			if (rb < 1.35 && tail > 0.0) {
+			float smokeB = (1.0 - tail) * (1.0 - smoothstep(0.85 * L, L, -p.y)) * uHi;
+			if (rb < 1.35 && (tail > 0.0 || (uTrailK > 0.0 && smokeB > 0.0))) {
 				// Tongues long along the flow, cut hard so they read as separate sheets.
 				// Across the flow they are placed by the fraction of the boundary's radius,
 				// which is constant along a streamline, so they fan out from the base.
@@ -188,7 +193,8 @@ void fragment() {
 				float shell = exp(-sb * sb);
 				float fill = exp(-rb * rb * 1.8) * 0.35;
 				// Incandescent soot carries the light; a clean hydrogen plume barely shows.
-				float inc = clamp(uSoot * 1.15 + uAfterburn * 0.12, 0.0, 1.0);
+				// A clean methane plume still glows where it afterburns in the shock.
+				float inc = clamp(uSoot * 1.15 + uAfterburn * 0.35, 0.0, 1.0);
 				float coolB = smoothstep(0.0, 4.5, xr);
 				// Hottest in the tongues the shock heats, cooling to dull red downstream.
 				vec3 c = mix(uMix, uTail, coolB);
@@ -200,6 +206,9 @@ void fragment() {
 				// Soot that has stopped glowing lies between the tongues: the dark streaks.
 				float gap = (1.0 - tongue) * (1.0 - tongue);
 				sig_hi = uSoot * (shell + fill * 1.5) * tail * gap * 2.6 * uHi / Req;
+				// Past the flame, the smoke fills the narrowing balloon: σ = τ / (2 R).
+				float Rs = Rb0 * uRe * 0.85;
+				smk_hi = uTrailK * smoothstep(1.15, 0.5, rb) * (0.3 + 2.1 * fine * fine) * smokeB / (2.0 * Rs * Rs);
 				in_hi = true;
 			}
 		}
@@ -286,15 +295,18 @@ void fragment() {
 		float sigma = soot * 0.8 / De;   // per metre
 		// The exhaust column past the flame: widening, billowed by the large eddies,
 		// thinning toward the box's end where the world trail takes over.
-		float smk = 0.0;
-		if (uTrailK > 0.0) {
-			float rs = rho / (1.0 + 0.9 * smoothstep(uFlame * 0.4, 1.0, fx));
+		float smk = smk_hi;
+		if (uTrailK > 0.0 && uHi < 1.0) {
+			float widen = 1.0 + 0.9 * smoothstep(uFlame * 0.4, 1.0, fx);
+			float rs = rho / widen;
 			// Lumpy, not a tube: the eddies push the edge in and out and leave clear gaps.
 			float body = smoothstep(1.2, 0.45, rs + (turb - 0.5) * 1.3);
-			smk = uTrailK * body * smoothstep(uFlame * 0.35, uFlame * 0.95, fx)
-			    * (1.0 - smoothstep(0.85, 1.0, fx)) * (0.15 + 1.6 * turb2 * turb2);
+			// The same smoke per metre in a column of half-density radius Rs: σ = τ / (2 Rs).
+			float Rs = 0.82 * Rj * uRe * widen;
+			smk += uTrailK * body * smoothstep(uFlame * 0.35, uFlame * 0.95, fx)
+			    * (1.0 - smoothstep(0.85, 1.0, fx)) * (0.3 + 2.1 * turb2 * turb2) * (1.0 - uHi) / (2.0 * Rs * Rs);
 		}
-		sigma += smk * 1.6 / De;
+		sigma += smk;
 
 		vec3 em = e * uBright * thr * along / De + em_hi * uBright * thr;    // emission per metre
 		sigma += sig_hi;
@@ -302,7 +314,7 @@ void fragment() {
 		float Ts = exp(-sigma * ds);
 		// emission + in-scattered smoke, integrated across the step
 		// the in-scattered light shares the step's extinction between soot and smoke
-		float sk = sigma > 0.0 ? smk * 1.6 / De / sigma : 0.0;
+		float sk = sigma > 0.0 ? smk / sigma : 0.0;
 		col += T * (em * ds + mix(uSmoke * along, uTrail, sk) * (1.0 - Ts));
 		T *= Ts;
 		if (T < 0.02) break;

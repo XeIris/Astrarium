@@ -9,6 +9,9 @@ extends Control
 signal pick(key: String)
 signal start(key: String, dest: String, goal: String)
 signal back()
+## The centre of the open floor between the line-up and the card, as a fraction of the
+## width, whenever the layout changes; the turntable frames the craft there.
+signal stage_moved(frac: float)
 
 const NAME := {"fs": 24.0, "ls": 5.0, "up": true, "c": HudTheme.ACCENT, "lh": 1.25}
 const KICK := {"fs": 8.5, "ls": 3.0, "up": true, "c": HudTheme.TEXT_DIM, "fw": 500}
@@ -157,3 +160,5 @@ func _layout() -> void:
 	# A short window scrolls the card rather than pushing it off the frame.
 	card.size = Vector2(cw, minf(card.natural_height(), H - 2.0 * margin))
 	card.position = Vector2(W - cw - roundf(W * 0.035), H - card.size.y - margin)
+	var menu_r := list.position.x + list.size.x
+	stage_moved.emit(clampf((menu_r + card.position.x) * 0.5 / W, 0.35, 0.65))
