@@ -144,11 +144,26 @@ static func _build_vehicles() -> Dictionary:
 		"stages": [
 			stage({ "key": "sic", "name": "S-IC", "dry": 137000.0, "prop": 2077000.0,
 				"engine": E.F1, "count": 5, "L": 42.0, "D": 10.06,
-				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5, "fixedGimbals": [0] } }),
+				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5, "fixedGimbals": [0],
+					# Separation (docs/physics/stage-separation.md): eight retros in pairs in the
+					# engine fairings, 7.5° off the axis, firing forward out of the fairings' noses
+					# (MSFC-MAN-503 fig. 4-25). `thrust` is per pair, N; sites are [y, r, az°].
+					# The S-II's four ullage rockets push the stack meanwhile: 101 kN each, 10° out,
+					# 3.7 s from 0.2 s before the separation signal.
+					"sep": { "motors": { "thrust": 782.1e3, "web": 0.633, "cant": 7.5, "exitD": 0.39,
+							"sites": [[10.8, 4.53, 45.0], [10.8, 4.53, 135.0], [10.8, 4.53, 225.0], [10.8, 4.53, 315.0]] },
+						"stack": { "thrust": 397.8e3, "dir": [0.0, 1.0, 0.0], "start": -0.2, "time": 3.7 } } } }),
 			stage({ "key": "sii", "name": "S-II", "dry": 36200.0, "prop": 443000.0,
 				"engine": E.J2, "count": 5, "L": 24.9, "D": 10.06,
 				"rcs": { "thrust": 3300.0, "isp": 190.0, "prop": 400.0, "count": 8 },
-				"look": { "skin": "white", "interstage": 2.0, "fixedGimbals": [0] } }),
+				"look": { "skin": "white", "interstage": 2.0, "fixedGimbals": [0],
+					# Four 154.8 kN retros, 1.52 s, 90° apart in the aft end of the S-IVB's
+					# interstage (it stays with the S-II), nozzles 9.5° out (MSFC-MAN-503 p. 5-25).
+					# Their clocking is unpublished. The S-IVB's two 15.1 kN ullage rockets push
+					# the stack for 3.87 s from 0.1 s before the signal.
+					"sep": { "motors": { "thrust": 154.8e3, "web": 1.52, "cant": 9.5, "exitD": 0.23,
+							"sites": [[25.2, 4.75, 0.0], [25.2, 4.75, 90.0], [25.2, 4.75, 180.0], [25.2, 4.75, 270.0]] },
+						"stack": { "thrust": 30.16e3, "dir": [0.0, 1.0, 0.0], "start": -0.1, "time": 3.87 } } } }),
 			stage({ "key": "sivb", "name": "S-IVB", "dry": 13500.0, "prop": 109500.0,
 				"engine": E.J2, "count": 1, "L": 17.8, "D": 6.60, "restarts": 1,
 				# The auxiliary propulsion modules — also what settles the propellant
@@ -196,7 +211,9 @@ static func _build_vehicles() -> Dictionary:
 				# Free-molecular heating below ~1135 W/m² is the real criterion, not an
 				# altitude — so a lofted ascent sheds it earlier, as it should.
 				"jettisonAt": { "heat": 1135.0 },
-				"look": { "fairing": true } }),
+				# Pneumatic pushers on the seam push the halves apart (Falcon User's Guide §2.4).
+				# Their speed is unpublished; ~10 m/s for a 5.4 m Ariane 5 half stands in.
+				"look": { "fairing": true, "sep": { "push": 10.0 } } }),
 			stage({ "key": "f9pl", "name": "Payload", "dry": 13000.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 5.0, "D": 3.4, "sep": "none",
 				# The payload rides inside the fairing.
@@ -220,14 +237,16 @@ static func _build_vehicles() -> Dictionary:
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,
 				# A solid cannot be throttled or shut down. Once lit, it burns out.
 				"look": { "skin": "white", "srb": true, "chutes": 3, "mount": { "y": 1.1 }, "pieces": 2,
-					# Separation motors, four forward and four aft per booster (TM X-64967):
-					# thrust per cluster of four, s timing, deg resultant angles; `at` is each
-					# cluster's [y, skin radius], m, in the booster's frame (XB 390 frustum,
-					# XB 1884.5 aft skirt); `exitD` the cluster's merged exhaust, m; `cgY` the
-					# spent case's mid-length (no published inert c.g.); `rates` the memo's
-					# nominal (P, Q, R) deg/s 3 s after separation.
-					"bsm": { "thrust": 332.1e3, "ignite": 0.09, "web": 0.75, "tail": 0.107,
-						"cant": 40.0, "dip": 20.0, "at": [[40.67, 1.78], [2.71, 2.25]], "exitD": 0.65,
+					# Separation motors, four forward and four aft per booster (TM X-64967;
+					# docs/physics/srb-separation.md): thrust per cluster of four, s timing; the
+					# resultant is 40° off the axis and 20° off the inboard line toward the orbiter,
+					# so each cluster's site [y, skin radius, az°] in the booster's frame sits at
+					# az 160° (the starboard booster; port mirrors). XB 390 frustum, XB 1884.5 aft
+					# skirt. `exitD` the cluster's merged exhaust, m; `cgY` the spent case's
+					# mid-length (no published inert c.g.); `rates` the memo's nominal (P, Q, R)
+					# deg/s 3 s after separation.
+					"sep": { "motors": { "thrust": 332.1e3, "ignite": 0.09, "web": 0.75, "tail": 0.107,
+							"cant": 40.0, "sites": [[40.67, 1.78, 160.0], [2.71, 2.25, 160.0]], "exitD": 0.65 },
 						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] } } } }),
 			stage({ "key": "et", "name": "External Tank + SSME", "dry": 26500.0, "prop": 719000.0,
 				"engine": E.RS25, "count": 3, "L": 46.9, "D": 8.40,
@@ -237,7 +256,11 @@ static func _build_vehicles() -> Dictionary:
 				"sepAfterCutoff": 18.0,
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 800.0, "count": 44 },
 				# Its aft dome is 365 in above the solids' nozzle exits (XS 2169 vs 2534).
-				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.379 } } }),
+				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.379 },
+					# At separation the orbiter translates −Z (+Z here, out of the bay) on four
+					# forward and six aft down-firing 3.87 kN jets until it has 4 ft/s
+					# (JSC-10559 §2.6.1.3, §4.3.1.12). Nothing else pushes the tank.
+					"sep": { "stack": { "thrust": 38.7e3, "dir": [0.0, 0.0, 1.0], "dv": 1.219 } } } }),
 			stage({ "key": "orbiter", "name": "Orbiter + payload", "dry": 99000.0, "prop": 10800.0,
 				"engine": E.SPS, "count": 2, "L": 37.24, "D": 5.6, "sep": "none",
 				"wings": { "span": 23.8, "area": 250.0, "clMax": 1.4 },

@@ -1,80 +1,131 @@
 class_name Separation
 extends RefCounted
-## A stage made of pieces that leave on their own (the Shuttle's two boosters): each
-## piece is pushed out by its separation motors, falls behind the accelerating stack
-## and tumbles. Display only: the vessel has already dropped the stage's mass.
-## Sources and numbers: docs/physics/srb-separation.md.
+## A dropped stage leaving the stack: the stage, or each of its pieces (the Shuttle's
+## two boosters, a fairing's two halves), is flown in the frame held at separation.
+## Its own separation impulse pushes it, the stack's acceleration leaves it behind,
+## and gravity pulls both alike. Display only: the vessel has already dropped the
+## stage's mass. Per-stage data is `look.sep` in vehicles.gd; sources and numbers are
+## in docs/physics/stage-separation.md (the Shuttle's boosters: srb-separation.md).
 
-## Seconds a separated piece stays drawn.
+## Seconds a separated stage stays drawn.
 const SHOWN := 30.0
+## Longest integration step, s, so a coarse frame still resolves a motor burn.
+const STEP := 0.05
 
-## Thrust fraction of one separation-motor cluster `t` s after the command:
-## ignition, web action at full thrust, linear tail-off (TM X-64967 fig. 2).
+## Thrust fraction of a separation motor `t` s after the command: ignition, web action
+## at full thrust, linear tail-off (TM X-64967 fig. 2).
 static func motor_fraction(t: float, m: Dictionary) -> float:
-	var t0 := float(m.ignite)
+	var t0 := float(m.get("ignite", 0.0))
 	var t1 := t0 + float(m.web)
-	var t2 := t1 + float(m.tail)
+	var t2 := t1 + float(m.get("tail", 0.0))
 	if t < t0 or t >= t2: return 0.0
 	if t < t1: return 1.0
 	return (t2 - t) / (t2 - t1)
 
-## The motors' resultant push on the piece on `side` (+1 starboard), a unit vector in
-## the stage frame: aft along the axis by the cant, outboard, and dipped away from
-## the orbiter (+Z) so the booster passes under its wing.
-static func push_dir(m: Dictionary, side: float) -> Vector3:
+## A site's azimuth, rad, from +X toward +Z. A port piece (side −1) mirrors X.
+static func _azimuth(site: Array, side: float) -> float:
+	var az := deg_to_rad(float(site[2]))
+	return az if side > 0.0 else PI - az
+
+## Where a motor site's exhaust runs, a unit vector in the stage frame: forward (+Y)
+## and out at the site's azimuth by the cant. The push on the stage is its opposite.
+static func exhaust_dir(m: Dictionary, site: Array, side: float) -> Vector3:
 	var cant := deg_to_rad(float(m.cant))
-	var dip := deg_to_rad(float(m.dip))
-	return Vector3(side * sin(cant) * cos(dip), -cos(cant), -sin(cant) * sin(dip))
+	var az := _azimuth(site, side)
+	return Vector3(sin(cant) * cos(az), cos(cant), sin(cant) * sin(az))
 
-## Where a cluster's exhaust leaves, piece-local: on the skin facing the exhaust.
-static func motor_point(m: Dictionary, side: float, k: int) -> Vector3:
-	var at: Array = m.at[k]
-	var e := -push_dir(m, side)
-	var lateral := Vector3(e.x, 0.0, e.z).normalized()
-	return Vector3(0.0, float(at[0]), 0.0) + lateral * float(at[1])
+## Where a site's exhaust leaves, in its body's frame: `[y, r, az]` is its height,
+## distance off the axis and azimuth.
+static func motor_point(site: Array, side: float) -> Vector3:
+	var az := _azimuth(site, side)
+	return Vector3(float(site[1]) * cos(az), float(site[0]), float(site[1]) * sin(az))
 
-## Body rates three seconds after separation, rad/s in the stage frame. Authored as
-## the memo's (P, Q, R): roll about the booster's axis, pitch about the orbiter's
-## starboard axis, yaw about the orbiter's down (−Z).
-static func rates(m: Dictionary, side: float) -> Vector3:
-	var r: Array = m.rates.starboard if side > 0.0 else m.rates.port
+## Body rates once spun up, rad/s in the stage frame. Authored as (P, Q, R): roll about
+## the stage's axis, pitch about +X, yaw about −Z; one triple, or one per side.
+static func rates(sep: Dictionary, side: float) -> Vector3:
+	var r = sep.get("rates")
+	if r is Dictionary: r = r.starboard if side > 0.0 else r.port
+	if not r is Array: return Vector3.ZERO
 	return Vector3(float(r[1]), float(r[0]), -float(r[2])) * (PI / 180.0)
 
-## Begin the drift of `pieces` (Node3D, children of the stage group). `frame` is the
-## craft's attitude now; the drift is integrated in that frame so the stack's later
-## pitching does not swing the boosters with it.
-static func start(spec: Dictionary, pieces: Array, frame: Basis) -> Dictionary:
+## A node's mesh bounds in its parent's frame.
+static func _bounds(n: Node3D) -> AABB:
+	var acc := [false, AABB()]
+	CraftModel._measure_into(n, n.transform, acc, null)
+	return acc[1] if acc[0] else AABB(n.position, Vector3.ZERO)
+
+## Begin the drift of `nodes`: the stage's pieces (children of `group`), or the stage
+## group itself. `frame` is the craft's attitude now; `ctx` is {mass: what is left of
+## the stack, kg, for its own unmodelled push (`look.sep.stack`); support: the
+## non-gravitational acceleration, craft frame, m/s², the ground gives a stage left
+## standing on it (the LM's descent stage), else zero}.
+static func start(spec: Dictionary, group: Node3D, nodes: Array, frame: Basis, ctx := {}) -> Dictionary:
+	var sep: Dictionary = spec.get("look", {}).get("sep", {})
+	var whole: bool = nodes.size() == 1 and nodes[0] == group
+	var support: Vector3 = ctx.get("support", Vector3.ZERO)
 	var bodies := []
-	for n: Node3D in pieces:
-		bodies.append({"node": n, "base": n.transform, "side": signf(n.position.x) if n.position.x != 0.0 else 1.0,
-			"p": Vector3.ZERO, "v": Vector3.ZERO, "R": Basis()})
-	return {"t": 0.0, "frame": frame, "bodies": bodies, "motors": spec.look.bsm,
-		"mass": float(spec.dry) / maxf(float(pieces.size()), 1.0)}
+	for n: Node3D in nodes:
+		# The mesh middle (plumes hung on the body count too: only a fallback). A fairing
+		# half sits on the axis, so only its shape says which side it is.
+		var centre := _bounds(n).get_center()
+		var at_x := n.position.x if n.position.x != 0.0 else centre.x
+		# Which way a piece mirrors its motors and rates; a whole stage does not.
+		var side := signf(at_x) if not whole and absf(at_x) > 1e-3 else 1.0
+		# The pivot: an authored height on the axis of the body, or its middle.
+		var cg: Vector3 = n.transform * Vector3(0.0, float(sep.cgY), 0.0) if sep.has("cgY") else centre
+		# A piece pushed sideways (`push`, m/s) leaves straight out from the stack's axis.
+		var v := Vector3.ZERO
+		var out := Vector3(centre.x, 0.0, centre.z)
+		if sep.has("push") and out.length() > 1e-3:
+			v = out.normalized() * float(sep.push)
+		bodies.append({"node": n, "base": n.transform, "side": side, "cg": cg,
+			"p": Vector3.ZERO, "v": v, "R": Basis(), "support": support})
+	var stack = sep.get("stack")
+	return {"t": 0.0, "frame": frame, "bodies": bodies, "sep": sep, "motors": sep.get("motors"),
+		# Pieces sit in the stage group, which rides with the craft; held-frame rotations
+		# turn about the craft's origin, so they need where the group is.
+		"offset": Vector3.ZERO if whole else group.position,
+		"mass": float(spec.dry) / maxf(float(nodes.size()), 1.0),
+		"stack_a": float(stack.thrust) / maxf(float(ctx.get("mass", 0.0)), 1.0) if stack != null else 0.0}
 
 ## Advance by `dt` s. `basis` is the craft's attitude now and `accel` the stack's
-## non-gravitational acceleration along its own +Y, m/s²; gravity pulls both alike.
-## Returns false once the pieces are done.
-static func step(s: Dictionary, dt: float, basis: Basis, accel: float) -> bool:
-	var m: Dictionary = s.motors
+## non-gravitational acceleration, craft frame, m/s². Returns false once done.
+static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool:
+	var sep: Dictionary = s.sep
+	var m = s.motors
 	var t0 := float(s.t)
 	s.t = t0 + dt
 	var F: Basis = basis.inverse() * (s.frame as Basis)
-	var a_stack: Vector3 = F.inverse() * Vector3(0.0, accel, 0.0)
-	# Both clusters, midpoint in time so a coarse frame still delivers the impulse.
-	var a_motor := 2.0 * float(m.thrust) * motor_fraction(t0 + dt * 0.5, m) / float(s.mass)
-	var cg := Vector3(0.0, float(m.cgY), 0.0)
-	# The memo's rates are reached by 3 s and then held: the plume and proximity
-	# aerodynamics that drive them are not modelled.
-	var spin_k := minf(float(s.t) / 3.0, 1.0)
+	var a_stack: Vector3 = F.inverse() * accel
+	# What is left of the stack makes its own push that the vessel does not fly (the
+	# S-II's ullage rockets, the orbiter's −Z translation), in its own frame.
+	var stack = sep.get("stack")
+	if stack != null:
+		var tm := float(t0 + dt * 0.5) - float(stack.get("start", 0.0))
+		var dur := float(stack.time) if stack.has("time") else float(stack.dv) / maxf(float(s.stack_a), 1e-6)
+		if tm >= 0.0 and tm < dur:
+			var d: Array = stack.dir
+			a_stack += F.inverse() * Vector3(float(d[0]), float(d[1]), float(d[2])).normalized() * float(s.stack_a)
+	# Midpoint in time, so a coarse frame still delivers a motor's impulse.
+	var thrust := float(m.thrust) * motor_fraction(t0 + dt * 0.5, m) / float(s.mass) if m != null else 0.0
+	# Authored rates are reached by `spinUp` s and then held: the plume and proximity
+	# aerodynamics that drive them are not modelled (the boosters' memo gives 3 s).
+	var spin_k := minf(float(s.t) / float(sep.get("spinUp", 3.0)), 1.0)
+	var off: Vector3 = s.offset
 	for b: Dictionary in s.bodies:
 		var R: Basis = b.R
-		var a: Vector3 = R * push_dir(m, b.side) * a_motor - a_stack
+		var a: Vector3 = (b.support as Vector3) - a_stack
+		if thrust > 0.0:
+			for site: Array in m.sites:
+				a -= R * exhaust_dir(m, site, b.side) * thrust
 		b.v += a * dt
 		b.p += b.v * dt
-		var w: Vector3 = rates(m, b.side) * spin_k
+		var w: Vector3 = rates(sep, b.side) * spin_k
 		if w.length_squared() > 0.0:
 			b.R = (R * Basis(w.normalized(), w.length() * dt)).orthonormalized()
+		# Turn about the pivot, move by p, then carry the held frame into the craft's.
 		var base: Transform3D = b.base
-		var origin: Vector3 = base.origin + b.p + cg - (b.R as Basis) * cg
-		(b.node as Node3D).transform = Transform3D(F * (b.R as Basis), F * origin)
+		var cg: Vector3 = b.cg
+		var o: Vector3 = cg + (b.R as Basis) * (base.origin - cg) + (b.p as Vector3)
+		(b.node as Node3D).transform = Transform3D(F * (b.R as Basis) * base.basis, F * (off + o) - off)
 	return float(s.t) < SHOWN

@@ -1091,7 +1091,7 @@ def build_srb(M, root):
         # Separation motors: four in the frustum and four on the aft skirt, all on the
         # side facing the tank. They fire forward, inboard and toward the orbiter at 40°
         # to the axis and 20° off the inboard line (TM X-64967 fig. 1), so the push
-        # takes the booster aft, outboard and under the wing (Separation.push_dir).
+        # takes the booster aft, outboard and under the wing (Separation.exhaust_dir).
         c40, s40, c20, s20 = cos(radians(40)), sin(radians(40)), cos(radians(20)), sin(radians(20))
         ex = Vector((-side * s40 * c20, -s40 * s20, c40))
         az = atan2(-s20, -side * c20)

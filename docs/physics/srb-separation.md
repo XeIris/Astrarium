@@ -4,6 +4,8 @@ The Shuttle's two solid boosters leave the tank one by one, each on its own path
 `Separation` (`sim/flight/separation.gd`) flies each booster as a separate piece
 (`piece_srb_0` port, `piece_srb_1` starboard; each carries its own nozzle). This is
 display only: the vessel has already dropped the boosters' mass when they detach.
+The other stages use the same model; see [stage-separation.md](stage-separation.md).
+The data is `look.sep` on the `srb` stage in `vehicles.gd`.
 
 Source: D. D. Tomlin, *Space Shuttle Solid Rocket Booster (SRB) Separation*,
 NASA TM X-64967 (MSFC, 1975), NTRS 19760006102.
@@ -71,7 +73,7 @@ residual thrust the boosters also fall back somewhat faster than the memo's.
 
 ## Display
 
-- `Spaceflight.attach_bsm` hangs one plume per cluster on each booster. Each plume
+- `Spaceflight.attach_sep_motors` hangs one plume per cluster on each booster. Each plume
   uses the clusters' merged exhaust, 0.65 m across, sized from the motor's 12.9 in
   case. It is dark until the stage separates, then follows `motor_fraction`.
 - While the motors burn they leave alumina smoke in the air, through the same smoke

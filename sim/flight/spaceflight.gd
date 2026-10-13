@@ -35,8 +35,8 @@ var cryo: Cryo = null             # frost and boil-off on the vehicle's cold tan
 var vapour: Vapour = null         # condensation collars round its shoulders, in humid air
 var craft = null                  # CraftModel.Craft
 var plumes: Array = []            # Plume.PlumeFx
-var bsm_plumes: Array = []        # separation motors: [{fx, stage, mount}], see attach_bsm
-var _bsm_smoke_acc := 0.0
+var sep_plumes: Array = []        # separation motors: [{fx, stage, mount}], see attach_sep_motors
+var _sep_smoke_acc := 0.0
 var entry = null                  # Plume.EntryGlow
 var cruise = null                 # Relativity.Cruise
 ## What the cruise flies between, so the line moves with its end bodies: {parent,
@@ -360,31 +360,33 @@ func build_plumes(_veh: Dictionary) -> void:
 	var built := attach_plumes(craft)
 	plumes = built.plumes
 	plume_reach = built.reach
-	for b in bsm_plumes:
+	for b in sep_plumes:
 		if is_instance_valid(b.mount): b.mount.queue_free()
-	bsm_plumes = attach_bsm(craft)
+	sep_plumes = attach_sep_motors(craft)
 
-## Separation-motor plumes, one per cluster, on each piece of a stage with `look.bsm`.
-## They stay dark until the stage separates. Returns [{fx, stage, mount}].
-static func attach_bsm(craft: CraftModel.Craft) -> Array:
+## Separation-motor plumes, one per site in `look.sep.motors`, on each piece of the
+## stage (or on the stage). Dark until the stage separates. Returns [{fx, stage, mount}].
+static func attach_sep_motors(craft: CraftModel.Craft) -> Array:
 	var out := []
 	for st: CraftModel.CraftStage in craft.stages:
-		var m = st.spec.get("look", {}).get("bsm")
+		var m = st.spec.get("look", {}).get("sep", {}).get("motors")
 		if m == null: continue
 		# Isp is a solid's; it only sets how much exhaust the plume carries.
 		var eng := {"name": "BSM", "thrustVac": float(m.thrust), "ispVac": 250.0}
-		for piece: Node3D in st.parts.pieces:
-			var side := signf(piece.position.x) if piece.position.x != 0.0 else 1.0
-			# The jet runs down its mount's −Y, against the push.
-			var y_ax := Separation.push_dir(m, side)
-			var x_ax := y_ax.cross(Vector3(0, 0, 1)).normalized()
-			for k in (m.at as Array).size():
+		var bodies: Array = st.parts.pieces if not st.parts.pieces.is_empty() else [st.group]
+		for body: Node3D in bodies:
+			var side := signf(body.position.x) if body.position.x != 0.0 else 1.0
+			for k in (m.sites as Array).size():
+				var site: Array = m.sites[k]
+				# The jet runs down its mount's −Y, against the push.
+				var y_ax := -Separation.exhaust_dir(m, site, side)
+				var x_ax := y_ax.cross(Vector3(0, 0, 1) if absf(y_ax.z) < 0.9 else Vector3(1, 0, 0)).normalized()
 				var mount := Node3D.new()
-				mount.name = "bsm_%d" % k
-				mount.transform = Transform3D(Basis(x_ax, y_ax, x_ax.cross(y_ax)), Separation.motor_point(m, side, k))
-				var fx := Plume.create_plume(st.spec.engine.get("plume"), float(m.exitD), 18.0, eng, "single", float(k) + side * 7.0)
+				mount.name = "sepmotor_%d" % k
+				mount.transform = Transform3D(Basis(x_ax, y_ax, x_ax.cross(y_ax)), Separation.motor_point(site, side))
+				var fx := Plume.create_plume("solid", float(m.exitD), 18.0, eng, "single", float(k) + side * 7.0)
 				mount.add_child(fx.mesh)
-				piece.add_child(mount)
+				body.add_child(mount)
 				fx.stage_key = st.key
 				out.append({"fx": fx, "stage": st, "mount": mount})
 	return out
@@ -536,13 +538,13 @@ func _reframe_smoke(new_basis: Basis, up: DVec3, radius: float, spin: float) -> 
 	_smoke_framed = true
 
 ## Alumina smoke from the lit separation motors, left in the air where they fire.
-func _bsm_smoke(dt: float) -> void:
-	_bsm_smoke_acc += dt * 30.0
-	var n := int(_bsm_smoke_acc)
-	_bsm_smoke_acc -= n
+func _sep_smoke(dt: float) -> void:
+	_sep_smoke_acc += dt * 30.0
+	var n := int(_sep_smoke_acc)
+	_sep_smoke_acc -= n
 	if n == 0: return
 	var tint := U.lin(0xffffff) * Plume.smoke_grey(Plume.PROPELLANT.solid)
-	for b in bsm_plumes:
+	for b in sep_plumes:
 		var fx: Plume.PlumeFx = b.fx
 		if not fx.mesh.visible: continue
 		var m: Node3D = b.mount
@@ -600,7 +602,7 @@ func teardown() -> void:
 	map_site = null
 	pad_fire = null
 	ground_pos.y = 0.0
-	plumes = []; bsm_plumes = []; entry = null; cryo = null; vapour = null
+	plumes = []; sep_plumes = []; entry = null; cryo = null; vapour = null
 	mission = null; skip = null
 	smoke.clear()
 	_smoke_framed = false
@@ -1339,14 +1341,20 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	if autopilot != null and autopilot.program == "bellyflop":
 		var fc: Array = autopilot.flap_cmd
 		flaps = [-float(fc[0]), float(fc[1]), -float(fc[2]), float(fc[3])]
-	# A stage that has just let go drifts off. Before update(), which hides a detached
-	# stage that is not drifting; a stage already gone stays gone.
+	# The stack's non-gravitational acceleration in the craft frame: what a dropped stage
+	# falls behind at. Standing on the ground, the ground's push.
+	var to_craft := Basis(vessel.q.to_quaternion()).inverse()
+	var g_craft := to_craft * vessel.gravity(vessel.r, DVec3.new()).to_v3()
+	var accel := -g_craft
+	if vessel.phase != Vessel.PHASE.LANDED:
+		accel = to_craft * vessel.accel(vessel.r, vessel.v, DVec3.new()).to_v3() - g_craft
+	# A stage that has just let go leaves under Separation. Before update(), which hides
+	# a detached stage that is not leaving; a stage already gone stays gone.
 	for st in vessel.stages:
 		var cs = craft.stage(str(st.spec.key))
 		if not st.attached and cs != null and cs.sep == null and cs.group.visible:
-			craft.separate(str(st.spec.key), 4.0 + randf() * 4.0, 0.2 + randf() * 0.5)
-	var tm := maxf(float(vessel.telemetry.get("mass", 0.0)), 1.0)
-	var accel := (float(vessel.telemetry.get("thrust", 0.0)) - float(vessel.telemetry.get("drag", 0.0))) / tm
+			craft.separate(str(st.spec.key), {"mass": vessel.mass,
+				"support": -g_craft if vessel.phase == Vessel.PHASE.LANDED else Vector3.ZERO})
 	craft.update({"dt": dt, "simDt": sim_seconds, "attached": attached, "deploy": deploy, "gear": gear,
 		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel})
 
@@ -1378,15 +1386,15 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var on: bool = st != null and st.attached and st.ignited and not st.spent and st.prop > 0.0 and vessel.throttle > 0.0
 		pl.update(vessel.throttle if on else 0.0, pa, vessel.met, p0)
 	# Separation motors run on their stage's clock from the moment it let go.
-	var bsm_lit := false
-	for b in bsm_plumes:
+	var sep_lit := false
+	for b in sep_plumes:
 		var cs: CraftModel.CraftStage = b.stage
 		var thr := 0.0
-		if cs.sep != null and cs.sep.has("bodies"):
+		if cs.sep != null and cs.sep.motors != null:
 			thr = Separation.motor_fraction(float(cs.sep.t), cs.sep.motors)
 		b.fx.update(thr, pa, vessel.met, p0)
-		bsm_lit = bsm_lit or thr > 0.0
-	if bsm_lit and env.atm != null: _bsm_smoke(dt)
+		sep_lit = sep_lit or thr > 0.0
+	if sep_lit and env.atm != null: _sep_smoke(dt)
 	if cruise != null:
 		for pl in plumes:
 			pl.update(0.0 if (cruise.leg == "coast" or cruise.leg == "arrived") else 1.0, 0.0, cruise.tau / 100.0, 101325.0)

@@ -1933,8 +1933,7 @@ class CraftStage extends RefCounted:
 	var base_y := 0.0
 	var deploy := 0.0
 	var gear := 0.0
-	## null, or {t, v, spin} while a separated stage drifts off (Separation.start's
-	## state for one that leaves in pieces).
+	## null, or Separation.start's state while a separated stage leaves.
 	var sep = null
 
 ## A built vehicle: `group` (root), `stages` (CraftStage, bottom to top),
@@ -1948,35 +1947,28 @@ class Craft extends RefCounted:
 	## Drive every moving part from the flight state; nothing is on a timer. `s` is
 	## {dt, attached: {key: bool}, deploy: {key: 0..1}, gear: {key: 0..1}, gimbal: {x, z},
 	## flap (float or Array, rad), finTwist (Array, rad), gearStage, accel (the stack's
-	## thrust less drag over mass, m/s², for pieces falling behind), simDt (simulated
-	## seconds this frame, which pieces fly on; dt when absent)}.
+	## non-gravitational acceleration, m/s², a Vector3 in the craft frame or a float
+	## along +Y, which separated stages fall behind at), simDt (simulated seconds this
+	## frame, which separated stages fly on; dt when absent)}.
 	func update(s: Dictionary) -> void:
 		var dt := float(s.get("dt", 0.0))
 		var attached: Dictionary = s.get("attached", {}) if s.get("attached") != null else {}
 		var deploy: Dictionary = s.get("deploy", {}) if s.get("deploy") != null else {}
 		var gim: Dictionary = s.get("gimbal", {}) if s.get("gimbal") != null else {}
+		var acc = s.get("accel", 0.0)
+		var a_stack: Vector3 = acc if acc is Vector3 else Vector3(0.0, float(acc), 0.0)
 		for st: CraftStage in stages:
 			var a = attached.get(st.key)
 			var live: bool = not (a is bool and a == false)
 			st.group.visible = live or st.sep != null
-			if st.sep != null and st.sep.has("bodies"):
-				# Pieces that leave one by one, each on its own path.
+			if st.sep != null:
 				var go := true
 				var left := float(s.get("simDt", dt))
 				while left > 0.0 and go:
-					var h := minf(left, 0.05)
-					go = Separation.step(st.sep, h, group.basis, float(s.get("accel", 0.0)))
+					var h := minf(left, Separation.STEP)
+					go = Separation.step(st.sep, h, group.basis, a_stack)
 					left -= h
 				if not go:
-					st.group.visible = false; st.sep = null
-				continue
-			if st.sep != null:
-				# A separated stage drifts and tumbles away for a moment.
-				st.sep.t += dt
-				st.group.position.y = st.base_y - st.sep.t * st.sep.v
-				st.group.rotation.x = st.sep.t * st.sep.spin
-				st.group.rotation.z = st.sep.t * st.sep.spin * 0.6
-				if st.sep.t > 6.0:
 					st.group.visible = false; st.sep = null
 				continue
 			# deployables, eased so they take a real second or two
@@ -2028,17 +2020,21 @@ class Craft extends RefCounted:
 				var f: Node3D = st.parts.flaps[i]
 				f.rotation.z = (float(flap[i]) if i < flap.size() else 0.0) if flap is Array else float(U.nz(flap, 0.0)) * 0.6
 
-	## Detach a stage: it stops following the stack and drifts off. A stage with
-	## separation motors (`look.bsm`) sends each of its pieces off on its own.
-	func separate(key: String, dv := 3.0, spin := 0.25) -> void:
-		for st: CraftStage in stages:
-			if st.key == key:
-				if st.sep != null: return
-				if st.spec.get("look", {}).has("bsm") and not st.parts.pieces.is_empty():
-					st.sep = Separation.start(st.spec, st.parts.pieces, group.basis)
-				else:
-					st.sep = {"t": 0.0, "v": dv, "spin": spin}
-				return
+	## Detach a stage: it stops following the stack and leaves under Separation. A
+	## stage made of pieces (`look.pieces`, a fairing's halves) sends each off on its
+	## own. `ctx`: Separation.start's {mass, support}; without a mass, the specs of the
+	## stages still flying stand in.
+	func separate(key: String, ctx := {}) -> void:
+		var st := stage(key)
+		if st == null or st.sep != null: return
+		var nodes: Array = st.parts.pieces if not st.parts.pieces.is_empty() else st.parts.halves
+		if nodes.is_empty(): nodes = [st.group]
+		if not ctx.has("mass"):
+			var m := 0.0
+			for o: CraftStage in stages:
+				if o != st and o.sep == null and o.group.visible: m += float(o.spec.dry) + float(o.spec.prop)
+			ctx = ctx.duplicate(); ctx.mass = m
+		st.sep = Separation.start(st.spec, st.group, nodes, group.basis, ctx)
 
 	## Find a stage record by key, or null.
 	func stage(key: String) -> CraftStage:
