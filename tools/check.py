@@ -72,7 +72,10 @@ def checks(suite, godot, output, repeat, export_preset):
         descent = script("flightcheck", r"^FLIGHT CHECK DONE scenarios=9 failures=0$",
                          "only=lm,f9booster,f9booster_light,f9booster_heavy,skycrane,skycrane_staged,lmdeorbit,shcatch,shcatch_2x", f"out={output / 'flight_descent.json'}", timeout=600)
         yield ("flight-descent", *descent[1:])
-        yield scene("missioncheck", r"^MISSION CHECK DONE failures=0$", timeout=900)
+        # ~560 s on an idle M-series Mac and ~1190 s with other work running. Most of it is
+        # entry flown at 1× (guidance runs once per frame), so it can't be warped away.
+        # Each mission fails on its own at a frame cap, so this limit only catches a hang.
+        yield scene("missioncheck", r"^MISSION CHECK DONE failures=0$", timeout=2400)
     elif suite == "rendered":
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
