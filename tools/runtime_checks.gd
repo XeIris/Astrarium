@@ -72,6 +72,15 @@ func _leak_check() -> void:
 		await stage.get_tree().create_timer(5.0).timeout
 		# A timed-out SceneTreeTimer is released after the frame's callbacks.
 		for i in 2: await stage.get_tree().process_frame
+		var marked := false
+		for i in 600:
+			marked = _mark_input()
+			if marked: break
+			await stage.get_tree().process_frame
+		if not marked:
+			printerr("LEAKCHECK FAILED: OS input arrived in every frame for 600 frames")
+			stage.get_tree().quit(1)
+			return
 		_fill_glyph_caches()
 		var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 			int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
@@ -261,6 +270,15 @@ func _soak_check() -> void:
 			for i in 3: await stage.get_tree().process_frame
 			await stage.get_tree().create_timer(3.0).timeout
 			for i in 2: await stage.get_tree().process_frame
+			var marked := false
+			for i in 600:
+				marked = _mark_input()
+				if marked: break
+				await stage.get_tree().process_frame
+			if not marked:
+				printerr("SOAK FAILED: OS input arrived in every frame for 600 frames")
+				stage.get_tree().quit(1)
+				return
 			_fill_glyph_caches()
 			var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 				int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
@@ -279,18 +297,35 @@ func _soak_check() -> void:
 	print("SOAK DONE")
 	stage.get_tree().quit(1 if not failures.is_empty() else 0)
 
-# The check window still receives the desktop pointer. The engine keeps the latest
-# motion event, and hovering the GUI creates state (hover LabelSettings, a 2D space
-# state, timers), so the pointer's first pass would add objects in a random round.
-# Measurements ignore input; one off-window motion fills the slot that real motion
-# only replaces.
+# The check window still receives the desktop pointer, and keys while it has focus.
+# Hovering the GUI creates state (hover LabelSettings, a 2D space state, timers), so
+# measurements ignore input.
 func _isolate_input() -> void:
 	stage.get_viewport().set_disable_input(true)
+	# window_input still fires with input disabled.
+	stage.get_window().window_input.connect(_on_window_input)
+
+var _input_frame := -1
+var _marker_id := 0
+
+func _on_window_input(e: InputEvent) -> void:
+	if e.get_instance_id() != _marker_id: _input_frame = Engine.get_process_frames()
+
+# Debug builds keep every event parsed in the latest frame that had input (Input's
+# same-frame reuse guard) until a later frame parses one, so the last OS burst stays
+# alive. OS events are parsed before scripts run, so in a frame without any, one
+# off-window motion leaves the guard holding just it. Callers await between tries
+# themselves: an awaiting helper holds an extra GDScriptFunctionState when it waits.
+func _mark_input() -> bool:
+	if _input_frame == Engine.get_process_frames():
+		return false
 	var e := InputEventMouseMotion.new()
 	e.position = Vector2(-1, -1)
 	e.global_position = e.position
+	_marker_id = e.get_instance_id()
 	Input.parse_input_event(e)
 	Input.flush_buffered_events()
+	return true
 
 # HUD faces use quarter-pixel positioning, so the TextServer caches each glyph once
 # per phase it is drawn at, and a full cache page adds an Image and an ImageTexture.
