@@ -46,12 +46,17 @@ func _preset_check() -> void:
 # Compare settled lifecycle counts after one cache-warming pass.
 func _leak_check() -> void:
 	stage.set_process(false)
+	_isolate_input()
 	lessons.store = ""
 	lessons.progress = {"done": {}, "last": null}
 	var keys: Array = Presets.PRESET_ORDER
 	var baseline := []
 	var failures := []
 	for pass_i in 5:
+		# Star flares draw from the global RNG, and a FLARE badge first shown in a
+		# later pass adds a font size cache. Seeded passes repeat the same work.
+		seed(int(_cmd.get("seed", 0)))
+		stage.hud_acc = 0.0
 		for key in keys:
 			stage.load_preset(key)
 			for i in 10: stage.animate(1.0 / 60.0)
@@ -67,6 +72,7 @@ func _leak_check() -> void:
 		await stage.get_tree().create_timer(5.0).timeout
 		# A timed-out SceneTreeTimer is released after the frame's callbacks.
 		for i in 2: await stage.get_tree().process_frame
+		_fill_glyph_caches()
 		var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 			int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
 			int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
@@ -92,6 +98,7 @@ func _soak_check() -> void:
 	stage.set_process(false)
 	stage.set_process_input(false)
 	stage.set_process_unhandled_input(false)
+	_isolate_input()
 	if not _cmd.has("seed"): _cmd.seed = 0
 	lessons.store = ""
 	lessons.progress = {"done": {}, "last": null}
@@ -271,6 +278,19 @@ func _soak_check() -> void:
 	print("SOAK FAILURES ", failures)
 	print("SOAK DONE")
 	stage.get_tree().quit(1 if not failures.is_empty() else 0)
+
+# The check window still receives the desktop pointer. The engine keeps the latest
+# motion event, and hovering the GUI creates state (hover LabelSettings, a 2D space
+# state, timers), so the pointer's first pass would add objects in a random round.
+# Measurements ignore input; one off-window motion fills the slot that real motion
+# only replaces.
+func _isolate_input() -> void:
+	stage.get_viewport().set_disable_input(true)
+	var e := InputEventMouseMotion.new()
+	e.position = Vector2(-1, -1)
+	e.global_position = e.position
+	Input.parse_input_event(e)
+	Input.flush_buffered_events()
 
 # HUD faces use quarter-pixel positioning, so the TextServer caches each glyph once
 # per phase it is drawn at, and a full cache page adds an Image and an ImageTexture.
