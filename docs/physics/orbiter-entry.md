@@ -142,8 +142,7 @@ The speed brake follows the Shuttle's autoland schedule [3, §2.5, §4.4]:
   (`_touchdown_eas`), and the brake setting that lands at the target is found by
   bisection. Limits are 15° (the linkage minimum) to 80°.
 - **At 500 ft**: one adjustment, recomputed the same way and limited to 50°.
-- **At touchdown**: no further change. The real brake goes full open at
-  weight-on-wheels for the rollout, which is not simulated.
+- **At touchdown**: full open at weight on wheels, for the rollout (below).
 
 The flight-path reference is:
 
@@ -157,6 +156,68 @@ The flight-path reference is:
 Touchdown is on the main wheels. `gear.point`, in the stage frame, is the contact
 patch, which sits off the vessel's reference point once the stack has staged
 (`Vessel.contact_altitude`). The rating is 9.6 ft/s (2.9 m/s) of sink.
+
+## Rollout
+
+From main-gear touchdown the vessel is in `ROLLOUT` (`Vessel.Rollout`) until wheel
+stop. It is physics on the ground, not a scripted slide:
+
+- **Wheels**: the runway pushes on the wheels with whatever force keeps them on its
+  curved surface, and never pulls. Enough lift would lift the vehicle off. Rolling
+  friction is μN with μ = 0.025 on concrete [3, App. C.2]. The brakes act on the main
+  wheels at up to 4 × 25,000 ft-lb on 44.5 in tyres [3, App. C.3]. The tyres' side
+  force holds the track. The air still acts: lift and drag come from `winged_coeffs`
+  at α = pitch, with the speed brake full open (100%, [3, §5.3.6.7]) and the gear down.
+  Below θ = 0 the lift presses down on the wheels, as [3, §4.12] describes.
+- **Derotation**: flight control slews the pitch rate about the main wheels to its
+  command at the beep trim's 0.6°/s² ramp, and the nose wheels are the stop. The
+  command is the design rate of 2°/s; beep trim commands 1.5°/s, and flights
+  averaged 2.1°/s [3, §4.12]. The nose comes down at 185 KEAS whatever the weight,
+  or at once if touchdown is slower [3, §5.3.6.7].
+- **Drag chute** (flown from STS-49, May 1992): 40 ft conical ribbon, free-stream
+  C_D 0.575, times a wake factor of 0.65–0.9 behind the orbiter (0.8 is used),
+  reefed to 40% of its drag area [4]. It deploys at 195 KEAS. Seconds after the
+  button: mortar at 1, out and reefed at 2.5, disreef at 6 [3, §5.3.6.7]. The 0.5 s
+  fill after disreef is an estimate. It is jettisoned at 60 KGS [3].
+- **Braking**: not before midfield, which is 5,000 ft past the nominal touchdown
+  point (2,500 ft past the threshold of a 15,000 ft runway), and below 140 KGS. The
+  target is 9 ft/s² overall, eased to 5.5 ft/s² below 40 KGS [3, §5.3.6.7, App. C.3].
+  The pedal makes up whatever the air, the chute and the rolling friction do not
+  supply.
+- **Visuals**: the nose gear comes down with the pitch. The chute streams downstream
+  on its riser (87.5 ft from the base to the skirt [4]), with its pilot chute behind
+  it. The speed brake halves and four elevons are moving parts: during derotation
+  the elevons go trailing-edge up to 10°, and with weight on the nose gear load
+  relief takes them to 10° down at 20°/s [3, §4.12]. These are drawn only; their
+  aerodynamics are not modelled.
+
+| | Simulated (99–111 t) | Real |
+|---|---|---|
+| Main gear → nose gear touchdown | 9–11 s | 6 s (STS-115), 13 s (STS-118) |
+| Nose gear touchdown | 133–136 KEAS, 0.63 m/s nose sink | typically 150 KEAS [4]; 147, 158 KEAS (STS-50, -49) |
+| Peak non-braking deceleration | 11.3 ft/s² near disreef | 11–13 ft/s² at disreef [3, §4.11] |
+| Braking starts | midfield, 91–100 KGS | 110 KGS on average with the chute [3, §4.13] |
+| Rollout | 6,200–6,700 ft, 44 s | nominally stops 9,000–11,000 ft down the runway, i.e. 6,500–8,500 ft from a 2,500 ft touchdown [3, §4]; flown at KSC 7,771–10,708 ft in 50–65 s [5] |
+
+`tools/missioncheck.tscn` requires, for `orbiter_return` and `orbiter_home`:
+
+- a wheel stop;
+- nose-gear touchdown at 130–170 KEAS;
+- the chute deployed and jettisoned;
+- wheel stop at 6,000–11,000 ft. The lower bound is the nominal 6,500 ft less the
+  500 ft dispersion in [3, App. C.1]. The upper bound is just past the longest
+  flown at Kennedy.
+
+Known residuals:
+
+- The sim touches down at about 12° pitch, against about 8° in reality, because
+  ground effect is not modelled. Derotation therefore takes longer, and the nose
+  gear comes down about 15 kt slower than typical.
+- The sim brakes firmly to the cue card, while crews were often gentler. Its
+  rollouts are at the short end of the flown ones.
+- The elevons' and the chute's pitching moments are not modelled, so derotation
+  is rate-commanded.
+- There is no crosswind, nose-wheel steering or antiskid limit.
 
 ## Results, from 300 km
 
@@ -200,4 +261,13 @@ setting carries the difference.
    (NASA JSC, May 2005). §2.5 and §4.4: the speed brake; §4.5: preflare, gear, inner
    glide slope; §4.7: touchdown targets and constraints; App. B.2–B.4: outer
    glide slope design, the ~310 KEAS peak after the retract, the IGS
-   deceleration, and ground effect.
+   deceleration, and ground effect; §4.8–4.14, §5.3.6.7–5.3.6.8 and App. C:
+   rollout, drag chute, derotation, braking, rolling friction and brake torque.
+4. R. E. Meyerson, *Space Shuttle Orbiter Drag Parachute Design*, AIAA 2001-2051
+   (NTRS 20110001620): C_D 0.575, wake factor 0.65–0.9, 40% reefing, 87.5 ft
+   trailing distance, NGTD ~150 KEAS, STS-47 to -62 deploy data. Also C. H. Lowry,
+   *Space Shuttle Orbiter Drag Chute Summary* (NTRS 20130010383): 40 ft ribbon
+   canopy, 9 ft pilot chute, introduced on STS-49.
+5. NASA mission pages (nasa.gov/mission/sts-NN), landing data: STS-47 8,567 ft
+   51 s; -52 10,708 ft 63 s; -56 9,530 ft 63 s; -57 9,954 ft 65 s; -61 7,922 ft
+   53 s; -60 7,771 ft 50 s; -62 10,151 ft 55 s; -49 (Edwards) 9,490 ft 58 s.

@@ -4,8 +4,9 @@ extends Node
 # (sim/flight/mission.gd) and rejects any that does not end where it should. Also a
 # lone Starship from orbit through its own return (`bellyflop`): deorbit, belly-first
 # entry, flip and landing burn, which must touch down inside 1 m/s. And the Shuttle
-# from Pad 39A to orbit and back to Kennedy (`glide` with a launch site). And what
-# becomes of the Shuttle's dropped stages (`shuttle_fates`, Fall).
+# from Pad 39A to orbit and back to Kennedy (`glide` with a launch site), both orbiter
+# cases through the rollout to wheel stop. And what becomes of the Shuttle's dropped
+# stages (`shuttle_fates`, Fall).
 #   Godot --path . res://tools/missioncheck.tscn -- [only=name,name] [long=1]
 # `long=1` adds Earth orbit → Mars orbit (about ten minutes).
 
@@ -111,7 +112,8 @@ func _ship_return() -> void:
 	main.end_flight()
 
 ## A lone orbiter from a 300 km orbit: deorbit, the 40° entry with its roll
-## reversals, the glide slopes and a touchdown on the main gear inside its rating.
+## reversals, the glide slopes, a touchdown on the main gear inside its rating and the
+## rollout to wheel stop.
 func _orbiter_return() -> void:
 	main.load_preset("solar")
 	await CraftAssets.craft_models_ready(["shuttle"])
@@ -156,9 +158,11 @@ func _orbiter_return() -> void:
 		_fail("orbiter_return", "%d roll reversals, gear %s" % [reversals, "down" if v.stages[2].gear_out else "up"])
 	elif not _touchdown_speed_ok(v):
 		_fail("orbiter_return", "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
+	elif _rollout_error(v) != "":
+		_fail("orbiter_return", _rollout_error(v))
 	else:
-		print("MISSION orbiter_return ok — touchdown %s m/s sink, %s m/s ground speed, %d reversals, %d frames" % [
-			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), reversals, frames])
+		print("MISSION orbiter_return ok — touchdown %s m/s sink, %s m/s ground speed, %d reversals, %s, %d frames" % [
+			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), reversals, _rollout_summary(v), frames])
 	main.end_flight()
 
 ## The Shuttle from Pad 39A to orbit, then `glide`: it waits for the deorbit
@@ -199,9 +203,11 @@ func _orbiter_home() -> void:
 		_fail("orbiter_home", "landed %s km from the pad" % U.fixed(miss, 1))
 	elif not _touchdown_speed_ok(v):
 		_fail("orbiter_home", "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
+	elif _rollout_error(v) != "":
+		_fail("orbiter_home", _rollout_error(v))
 	else:
-		print("MISSION orbiter_home ok — touchdown %s km from the pad, %s m/s sink, %s m/s ground speed, %d frames" % [
-			U.fixed(miss, 2), U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), frames])
+		print("MISSION orbiter_home ok — touchdown %s km from the pad, %s m/s sink, %s m/s ground speed, %s, %d frames" % [
+			U.fixed(miss, 2), U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), _rollout_summary(v), frames])
 	main.end_flight()
 
 ## The Shuttle from the pad until its dropped stages are down. Each booster must stay
@@ -349,6 +355,27 @@ func _over_land(geo: Vector2) -> bool:
 func _touchdown_speed_ok(v: Vessel) -> bool:
 	var kt := float(v.landed_at.vHoriz) / 0.514444
 	return kt >= 195.0 and kt <= 215.0
+
+## The rollout against the flown ones (docs/physics/orbiter-entry.md#rollout): stopped
+## on the ground; the nose gear down at 130–170 KEAS (typically 150; 147 and 158 on
+## STS-50 and -49); the drag chute out and jettisoned; wheel stop 6,000–11,000 ft from
+## main-gear touchdown (JSC-23266's nominal 6,500 ft less its 500 ft dispersion, to just
+## past the longest flown at Kennedy, 10,708 ft). "" when it passes.
+func _rollout_error(v: Vessel) -> String:
+	var rs: Vessel.Rollout = v.rolling
+	if rs == null or rs.stop == null: return "no rollout to wheel stop"
+	if rs.ngtd == null: return "stopped with the nose gear up"
+	var ng := float(rs.ngtd.eas) / 0.514444
+	if ng < 130.0 or ng > 170.0: return "nose gear touchdown at %s KEAS" % U.fixed(ng, 0)
+	if rs.chute_t < 0.0 or not rs.chute_gone: return "drag chute %s" % ("never deployed" if rs.chute_t < 0.0 else "not jettisoned")
+	var ft := float(rs.stop.x) / 0.3048
+	if ft < 6000.0 or ft > 11000.0: return "rollout %s ft" % U.fixed(ft, 0)
+	return ""
+
+func _rollout_summary(v: Vessel) -> String:
+	var rs: Vessel.Rollout = v.rolling
+	return "nose gear %s KEAS at %s s, wheel stop %s ft in %s s" % [U.fixed(float(rs.ngtd.eas) / 0.514444, 0),
+		U.fixed(float(rs.ngtd.t), 1), U.fixed(float(rs.stop.x) / 0.3048, 0), U.fixed(float(rs.stop.t), 0)]
 
 func _fail(id: String, why: String) -> void:
 	failures += 1

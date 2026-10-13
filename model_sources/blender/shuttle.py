@@ -464,6 +464,7 @@ WING = [
 ]
 LOWER = 0.30          # share of the thickness below the chord line: a flat belly
 ELEVON_X = 1387.0
+ELEVONS = [(115.0, 285.0), (285.0, 455.0)]     # inboard and outboard panels, BL
 
 
 def _thick(u, um):
@@ -496,21 +497,52 @@ def _cos_u(n, u0, u1):
     return [u0 + (u1 - u0) * (1 - cos(pi * i / n)) / 2 for i in range(n + 1)]
 
 
+def wing_span(bl0, bl1):
+    """The stations from BL bl0 to bl1: both ends and the table's own between them."""
+    return [wing_at(bl0)] + [st for st in WING if bl0 + 1e-6 < st[0] < bl1 - 1e-6] + [wing_at(bl1)]
+
+
+def hinge_u(st):
+    """Chord fraction of the elevon hinge line at a station."""
+    return (ELEVON_X - st[1]) / (st[2] - st[1])
+
+
+def axis_mount(name, origin, axis, side, parent):
+    """A driven surface on a mount at `origin`. craftmodel turns the node about its
+    Godot Z, which is this mount's -Y, so -Y lies along the hinge `axis` and X toward
+    `side`. Returns (node, mount matrix)."""
+    k = axis.normalized()
+    x = (side - k * k.dot(side)).normalized()
+    y = -k
+    m = Matrix((x, y, x.cross(y))).transposed().to_4x4()
+    m.translation = origin
+    mnt = empty(f'mount_{name}', (0, 0, 0), parent)
+    mnt.matrix_basis = m
+    return empty(name, (0, 0, 0), mnt), m
+
+
 def build_wing(M, g):
     le_u = 0.022
     band = 0.075            # the black tile border along the upper leading edge
+    lo, hi = ELEVONS[0][0], ELEVONS[-1][1]
+    spans = [(wing_span(WING[0][0], lo), False), (wing_span(lo, hi), True), (wing_span(hi, WING[-1][0]), False)]
     for sgn in (1, -1):
-        def surf(name, sts, u0, u1, side, mat, n):
-            rows = [[wing_point(st, u, side, sgn) for u in _cos_u(n, u0, u1)] for st in sts]
+        def surf(name, sts, u0, u1, side, mat, n, cut=False):
+            rows = [[wing_point(st, u, side, sgn) for u in _cos_u(n, u0, hinge_u(st) if cut else u1)] for st in sts]
             ob = strip(name, rows, mat, g)
             up = Vector((0, -1, 0)) if side > 0 else Vector((0, 1, 0))
             orient(ob, lambda p, up=up: up)
             smooth(ob, 38)
             return ob
 
+        # The skins stop at the elevon hinge line between BL 115 and 455 (build_elevons).
         surf(f'wing_top_b{sgn}', WING, le_u, band, 1, M['tiles'], 4)
-        surf(f'wing_top_w{sgn}', WING, band, 1.0, 1, M['white'], 18)
-        surf(f'wing_bot{sgn}', WING, le_u, 1.0, -1, M['tiles'], 20)
+        for k, (sts, cut) in enumerate(spans):
+            surf(f'wing_top_w{sgn}_{k}', sts, band, 1.0, 1, M['white'], 18, cut)
+            surf(f'wing_bot{sgn}_{k}', sts, le_u, 1.0, -1, M['tiles'], 20, cut)
+        face = [[wing_point(st, hinge_u(st), 1, sgn), wing_point(st, hinge_u(st), -1, sgn)] for st in spans[1][0]]
+        ob = strip(f'elevon_cove{sgn}', face, M['soot'], g)
+        orient(ob, lambda p: Vector((0, 0, -1)))
         # The leading edge itself: black tile on the glove, grey RCC panels (22 a
         # side) on the main wing, where it runs at ~1500 °C.
         for nm, sts, mat in (('glove_le', WING[:4], M['tiles']), ('rcc', WING[3:], M['soot'])):
@@ -530,18 +562,39 @@ def build_wing(M, g):
         ob = _obj(f'wingtip{sgn}', verts, [tuple(range(len(verts)))], M['tiles'], g)
         orient(ob, lambda p, sg=sgn: Vector((sg, 0, 0)))
 
-        # Elevon hinge line and the inboard/outboard split, as seams on the top.
+        # The elevon hinge line, as a seam on the top.
         seam = []
         for bl in [115 + (455 - 115) * i / 12 for i in range(13)]:
             st = wing_at(bl)
-            u = (ELEVON_X - st[1]) / (st[2] - st[1])
-            seam.append(wing_point(st, u, 1, sgn) + Vector((0, -0.006, 0)))
+            seam.append(wing_point(st, hinge_u(st), 1, sgn) + Vector((0, -0.006, 0)))
         ribbon(f'elevon_hinge{sgn}', seam, 0.035, M['soot'], g)
-        for bl in (115.0, 285.0, 455.0):
-            st = wing_at(bl)
-            u = (ELEVON_X - st[1]) / (st[2] - st[1])
-            pts = [wing_point(st, u + (1 - u) * k / 6, 1, sgn) + Vector((0, -0.006, 0)) for k in range(7)]
-            ribbon(f'elevon_edge{sgn}_{int(bl)}', pts, 0.03, M['soot'], g, across=Vector((1, 0, 0)))
+
+
+def build_elevons(M, g):
+    """The elevons: four panels aft of the Xo 1387 hinge line (CR-134087), inboard BL
+    115-285 and outboard 285-455, each turning about its hinge toward starboard, so a
+    positive angle is trailing edge down on either wing. flap_orbiter_1-4, port first."""
+    for sgn in (-1, 1):
+        for i, (b0, b1) in enumerate(ELEVONS):
+            sts = wing_span(b0, b1)
+
+            def hinge(st):
+                return P(ELEVON_X, sgn * st[0], st[5] + (st[6] - st[5]) * hinge_u(st))
+            idx = 1 + (0 if sgn < 0 else 2) + i
+            node, mw = axis_mount(f'flap_orbiter_{idx}', hinge(sts[0]), (hinge(sts[-1]) - hinge(sts[0])) * sgn,
+                                  Vector((0, -1, 0)), g)
+            for side, mat, up in ((1, M['white'], Vector((0, -1, 0))), (-1, M['tiles'], Vector((0, 1, 0)))):
+                rows = [[wing_point(st, u, side, sgn) for u in _cos_u(6, hinge_u(st), 1.0)] for st in sts]
+                ob = strip(f'elevon{idx}_{side}', local_to(mw, rows), mat, node)
+                _orient_world(ob, mw, lambda p, up=up: up, 1)
+                smooth(ob, 38)
+            front = [[wing_point(st, hinge_u(st), 1, sgn), wing_point(st, hinge_u(st), -1, sgn)] for st in sts]
+            ob = strip(f'elevon{idx}_front', local_to(mw, front), M['soot'], node)
+            _orient_world(ob, mw, lambda p: Vector((0, 0, 1)), 1)
+            for st, out in ((sts[0], -sgn), (sts[-1], sgn)):
+                rows = [[wing_point(st, u, 1, sgn), wing_point(st, u, -1, sgn)] for u in _cos_u(6, hinge_u(st), 1.0)]
+                ob = strip(f'elevon{idx}_end{out}', local_to(mw, rows), M['tiles'], node)
+                _orient_world(ob, mw, lambda p, o=out: Vector((o, 0, 0)), 1)
 
 
 def ribbon_rows(pts, width, across=None):
@@ -576,46 +629,63 @@ def tail_half(u, ch):
     return T / 2 * max((1.0 - u) / 0.4, 0.0) + 0.15
 
 
+RUDDER = (573.0, 787.0)        # the rudder/speed brake, Zo, aft of RUDDER_U chord
+RUDDER_U = 0.6
+
+
 def build_tail(M, g):
-    zs = [494.0, 500.0, 540.0, 600.0, 670.0, 740.0, 790.0, 815.72]
+    lower = [494.0, 500.0, 540.0, RUDDER[0]]
+    middle = [RUDDER[0], 600.0, 640.0, 680.0, 720.0, 760.0, RUDDER[1]]
+    upper = [RUDDER[1], 790.0, 815.72]
+    out = lambda p: Vector((p.x, 0, 0)) if abs(p.x) > 1e-4 else Vector((0, 0, 1))
     us = _cos_u(18, 0.0, 1.0)
-    rows_w, rows_b = [], []
-    for zo in zs:
-        le, ch = tail_section(zo)
-        ring = [P(le + u * ch, tail_half(u, ch), zo) for u in reversed(us)]
-        ring += [P(le + u * ch, -tail_half(u, ch), zo) for u in us[1:]]
-        rows_w.append(ring)
-    # one mesh, the leading-edge band in black tile
-    n = len(us)
-    ob = strip('fin', rows_w, M['white'], g)
-    orient(ob, lambda p: Vector((p.x, 0, 0)) if abs(p.x) > 1e-4 else Vector((0, 0, 1)))
-    smooth(ob, 40)
+    # Behind the 60% hinge from Zo 573 to 787 are the speed brake's halves (build_speedbrake).
+    for k, (zs, u1) in enumerate(((lower, 1.0), (middle, RUDDER_U), (upper, 1.0))):
+        uk = _cos_u(18, 0.0, u1)
+        rows = []
+        for zo in zs:
+            le, ch = tail_section(zo)
+            ring = [P(le + u * ch, tail_half(u, ch), zo) for u in reversed(uk)]
+            ring += [P(le + u * ch, -tail_half(u, ch), zo) for u in uk[1:]]
+            rows.append(ring)
+        ob = strip(f'fin{k}', rows, M['white'], g)
+        orient(ob, out)
+        smooth(ob, 40)
     le_rows = []
-    for zo in zs:
+    for zo in lower + middle[1:] + upper[1:]:
         le, ch = tail_section(zo)
         ring = [P(le + u * ch, tail_half(u, ch) + 0.25, zo) for u in reversed(_cos_u(3, 0.0, 0.05))]
         ring += [P(le + u * ch, -tail_half(u, ch) - 0.25, zo) for u in _cos_u(3, 0.0, 0.05)[1:]]
         le_rows.append(ring)
     ob = strip('fin_le', le_rows, M['tiles'], g)
-    orient(ob, lambda p: Vector((p.x, 0, 0)) if abs(p.x) > 1e-4 else Vector((0, 0, 1)))
+    orient(ob, out)
     # tip cap
     le, ch = tail_section(815.72)
     cap = [P(le + u * ch, tail_half(u, ch), 815.72) for u in reversed(us)]
     cap += [P(le + u * ch, -tail_half(u, ch), 815.72) for u in us[1:-1]]
     ob = _obj('fin_tip', [tuple(p) for p in cap], [tuple(range(len(cap)))], M['white'], g)
     orient(ob, lambda p: Vector((0, -1, 0)))
-    # Rudder/speed brake: hinge at 60% chord, Zo 573 → 787, split into upper and
-    # lower panels, each opening as a V.
+    # The hinge's face, and the fin's own top and bottom over the panels.
+    face = []
+    for zo in (RUDDER[0], 640.0, 720.0, RUDDER[1]):
+        le, ch = tail_section(zo)
+        h = tail_half(RUDDER_U, ch)
+        face.append([P(le + RUDDER_U * ch, h, zo), P(le + RUDDER_U * ch, -h, zo)])
+    ob = strip('rudder_cove', face, M['soot'], g)
+    orient(ob, lambda p: Vector((0, 0, -1)))
+    for zo, up in ((RUDDER[0], Vector((0, -1, 0))), (RUDDER[1], Vector((0, 1, 0)))):
+        le, ch = tail_section(zo)
+        rows = [[P(le + u * ch, tail_half(u, ch), zo), P(le + u * ch, -tail_half(u, ch), zo)]
+                for u in _cos_u(6, RUDDER_U, 1.0)]
+        ob = strip(f'rudder_well{int(zo)}', rows, M['white'], g)
+        orient(ob, lambda p, up=up: up)
+    # The hinge line, as a seam either side.
     for sgn in (1, -1):
         hinge = []
         for zo in [573 + (787 - 573) * i / 6 for i in range(7)]:
             le, ch = tail_section(zo)
             hinge.append(P(le + 0.6 * ch, sgn * (tail_half(0.6, ch) + 0.3), zo))
         ribbon(f'rudder_hinge{sgn}', hinge, 0.03, M['soot'], g, across=Vector((0, 0, 1)))
-        for zo in (573.0, 680.0, 787.0):
-            le, ch = tail_section(zo)
-            pts = [P(le + u * ch, sgn * (tail_half(u, ch) + 0.3), zo) for u in (0.6, 0.7, 0.8, 0.9, 1.0)]
-            ribbon(f'rudder_edge{sgn}_{int(zo)}', pts, 0.03, M['soot'], g, across=Vector((0, 1, 0)))
     # The drag-chute housing at the foot of the rudder (flown from 1992).
     hs = [P(1528, 0, 503), P(1600, 0, 503)]
     b = box('chute', (24 * IN, 34 * IN, 70 * IN), tuple((hs[0] + hs[1]) / 2 + Vector((0, -17 * IN, 0))), M['white'], parent=g)
@@ -713,6 +783,40 @@ def build_engines(M, g):
 
 # BODY FLAP (F7): Xo 1520 → 1613, 262 in wide, 23 in deep at its root; hinge Xo
 # 1532.3, Zo 284.3. Driven about its own span (the mount turns local Z onto X).
+def build_speedbrake(M, g):
+    """The rudder/speed brake's two halves, split on the fin's chord plane, each
+    turning about the hinge line (up for the starboard half, down for the port), so a
+    positive angle opens either half outward; fully open is 98.6 deg between them.
+    flap_orbiter_5 (port) and 6. The seams split each half into its upper and lower
+    panels."""
+    zs = [RUDDER[0], 600.0, 640.0, 680.0, 720.0, 760.0, RUDDER[1]]
+
+    def hinge(zo):
+        le, ch = tail_section(zo)
+        return P(le + RUDDER_U * ch, 0.0, zo)
+    for sgn, idx in ((-1, 5), (1, 6)):
+        node, mw = axis_mount(f'flap_orbiter_{idx}', hinge(zs[0]), (hinge(zs[-1]) - hinge(zs[0])) * sgn,
+                              Vector((sgn, 0, 0)), g)
+        outer, inner = [], []
+        for zo in zs:
+            le, ch = tail_section(zo)
+            us = _cos_u(6, RUDDER_U, 1.0)
+            outer.append([P(le + u * ch, sgn * tail_half(u, ch), zo) for u in us])
+            inner.append([P(le + u * ch, 0.0, zo) for u in us])
+        front = [[o[0], i[0]] for o, i in zip(outer, inner)]
+        lo = [[o, i] for o, i in zip(outer[0], inner[0])]
+        hi = [[o, i] for o, i in zip(outer[-1], inner[-1])]
+        for nm, rows, up in (('skin', outer, Vector((sgn, 0, 0))), ('inner', inner, Vector((-sgn, 0, 0))),
+                             ('front', front, Vector((0, 0, 1))), ('foot', lo, Vector((0, 1, 0))),
+                             ('top', hi, Vector((0, -1, 0)))):
+            ob = strip(f'speedbrake{idx}_{nm}', local_to(mw, rows), M['white'], node)
+            _orient_world(ob, mw, lambda p, up=up: up, 1)
+        for zo in (573.0, 680.0, 787.0):
+            le, ch = tail_section(zo)
+            pts = [P(le + u * ch, sgn * (tail_half(u, ch) + 0.3), zo) for u in (0.6, 0.7, 0.8, 0.9, 1.0)]
+            strip(f'rudder_edge{sgn}_{int(zo)}', local_to(mw, ribbon_rows(pts, 0.03, Vector((0, 1, 0)))), M['soot'], node)
+
+
 def build_body_flap(M, g):
     hinge = P(1532.3, 0.0, 284.3)
     mnt = empty('mount_flap_orbiter_0', tuple(hinge), g)
@@ -914,6 +1018,60 @@ def build_gear(M, g):
               seg=8, parent=node)
 
 
+# DRAG CHUTE (flown from STS-49), packed in its compartment at the foot of the fin
+# (Xo 1529-1599, Zo 503-537): built deployed along the pivot's -Z (aft) and scaled
+# down by CHUTE_PACK; craftmodel's drive_chute unpacks it. A 40 ft conical ribbon
+# canopy of 44 gores in red, white and blue, its skirt 87.5 ft aft of the base
+# (Meyerson, AIAA 2001-2051), suspension lines a nominal diameter long on one riser,
+# and the 9 ft pilot chute behind. Inflated, a ribbon canopy is about 0.7 of its
+# nominal diameter across. Same table as shuttlelines.gd `_chute`.
+CHUTE_PIVOT = (1564.0, 0.0, 520.0)
+CHUTE_SKIRT = 1014.3
+CHUTE_PACK = 0.004
+CHUTE_GORES = 44
+CHUTE_PROFILE = [(0.0, 0.90), (0.15, 1.0), (0.40, 0.95), (0.62, 0.78), (0.78, 0.50), (0.85, 0.15)]
+PILOT_D0 = 2.74
+
+
+def canopy(cloth, skirt, R, gores, pattern):
+    """Gores of a canopy inflated to radius R, aft of `skirt`, into
+    cloth[pattern[k % n]], each bulging a little between its seams."""
+    for k in range(gores):
+        verts, faces = cloth[pattern[k % len(pattern)]]
+        base = len(verts)
+        for s, r in CHUTE_PROFILE:
+            for j in range(3):
+                a = TAU * (k + j * 0.5) / gores
+                rr = r * R * (1.04 if j == 1 else 1.0)
+                verts.append((rr * cos(a), -rr * sin(a), -(skirt + s * R)))
+        for i in range(len(CHUTE_PROFILE) - 1):
+            for j in range(2):
+                a = base + i * 3 + j
+                faces.append((a, a + 1, a + 4, a + 3))
+
+
+def build_chute(M, g):
+    d0 = S['orbiter']['dragChute']['D0']
+    node = empty('chute_orbiter_0', tuple(P(*CHUTE_PIVOT)), g)
+    skirt = CHUTE_SKIRT * IN
+    R = 0.35 * d0
+    cloth = [([], []), ([], []), ([], [])]
+    canopy(cloth, skirt, R, CHUTE_GORES, (0, 1, 2, 1))
+    crown = skirt + CHUTE_PROFILE[-1][0] * R
+    canopy(cloth, crown + 6.0, 0.35 * PILOT_D0, 12, (1,))
+    for (verts, faces), nm in zip(cloth, ('red', 'white', 'blue')):
+        ob = _obj(f'canopy_{nm}', verts, faces, M[nm], node)
+        orient(ob, lambda p: Vector((p.x, p.y, 0)))
+    conf = skirt - sqrt(d0 * d0 - (0.9 * R) ** 2)
+    for k in range(CHUTE_GORES // 2):
+        a = TAU * 2 * k / CHUTE_GORES
+        strut(f'chute_line{k}', (0, 0, -conf), (0.9 * R * cos(a), -0.9 * R * sin(a), -skirt), 0.02,
+              M['dirty'], seg=4, parent=node)
+    strut('chute_riser', (0, 0, 0), (0, 0, -conf), 0.06, M['dirty'], seg=6, parent=node)
+    strut('chute_bridle', (0, 0, -crown), (0, 0, -(crown + 6.0)), 0.03, M['dirty'], seg=4, parent=node)
+    node.scale = (CHUTE_PACK,) * 3
+
+
 def build_orbiter(M, root):
     g = stage('orbiter', root)
     build_fuselage(M, g)
@@ -922,8 +1080,11 @@ def build_orbiter(M, root):
     build_pods(M, g)
     build_engines(M, g)
     build_body_flap(M, g)
+    build_elevons(M, g)
+    build_speedbrake(M, g)
     build_bay(M, g)
     build_gear(M, g)
+    build_chute(M, g)
     return g
 
 

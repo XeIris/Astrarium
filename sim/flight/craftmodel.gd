@@ -83,6 +83,7 @@ static func craft_materials() -> Dictionary:
 		"hot": _mat("hot", 0x3a322c, 0.56, 0.26),
 		"glass": _mat("glass", 0x16242e, 0.14, 0.24),
 		"red": _mat("red", 0xa02a22, 0.7, 0.05),
+		"blue": _mat("blue", 0x1f3a7a, 0.7, 0.05),
 		# Spin-drive faces are emitters and light themselves (they face away from every
 		# light). HDR values: a hex-scaled emissive is nearly black after ACES.
 		# Astrophage emits at 4.26 and 18.31 μm, so the visible tail is deep red.
@@ -903,7 +904,7 @@ static func lattice(h: float, w_bot: float, w_top: float, material: Material) ->
 
 # STAGE BUILDERS — one per `look` flavour
 static func _new_parts() -> Dictionary:
-	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nosecaps": [], "frustums": [], "nozzles": []}
+	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nosecaps": [], "frustums": [], "nozzles": [], "chutes": []}
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	var built := _build_stage(spec, ctx)
@@ -1978,6 +1979,38 @@ static func triangles(obj: Node) -> int:
 		tris += triangles(c)
 	return tris
 
+## Pose a drag chute (`chutes` part, built deployed along its −Y and packed by
+## ShuttleLines.CHUTE_PACK) from `ch` = {t: s since the deploy command, gone: s since
+## the jettison or < 0, dir: downstream in the stage frame, gs: ground speed, m/s}, or
+## null while stowed. Out on the riser after the mortar, its canopy as wide as the
+## square root of the drag area it is giving; jettisoned, it stays on the runway and
+## collapses as the vehicle rolls away from it.
+static func drive_chute(node: Node3D, ch, dc: Dictionary) -> void:
+	if not node.has_meta("base"): node.set_meta("base", node.position)
+	var base: Vector3 = node.get_meta("base")
+	if ch == null or dc.is_empty() or float(ch.t) < float(dc.mortar):
+		node.visible = false
+		node.position = base
+		node.basis = Basis.from_scale(Vector3.ONE * ShuttleLines.CHUTE_PACK)
+		return
+	var t := float(ch.t)
+	var ext := smoothstep(float(dc.mortar), float(dc.mortar) + 0.7, t)
+	var wide := maxf(sqrt(Vessel.drag_chute_area(t, dc)), 0.08)
+	# Reefed, the canopy is long and narrow.
+	var length := ext * lerpf(1.15, 1.0, clampf((wide - 0.6) / 0.4, 0.0, 1.0))
+	var gone := float(ch.get("gone", -1.0))
+	var drift := 0.0
+	if gone >= 0.0:
+		if gone > 3.0:
+			node.visible = false
+			return
+		wide *= lerpf(1.0, 0.15, clampf(gone / 1.5, 0.0, 1.0))
+		drift = float(ch.get("gs", 0.0)) * gone
+	var dir: Vector3 = ch.get("dir", Vector3.DOWN)
+	node.visible = true
+	node.position = base + dir * drift
+	node.basis = Basis(Quaternion(Vector3.DOWN, dir.normalized())) * Basis.from_scale(Vector3(wide, maxf(length, 1e-3), wide))
+
 # THE VEHICLE
 ## How far the orbiter's payload bay doors swing open, rad.
 const DOOR_OPEN := 175.5 * PI / 180.0
@@ -1987,7 +2020,7 @@ class CraftStage extends RefCounted:
 	var key: String
 	var spec: Dictionary
 	var group: Node3D
-	## {gimbals, fins, legs, arrays, flaps, halves, doors, pieces, nozzles}: Arrays of Node3D.
+	## {gimbals, fins, legs, arrays, flaps, halves, doors, pieces, nozzles, chutes}: Arrays of Node3D.
 	var parts: Dictionary
 	var base_y := 0.0
 	var deploy := 0.0
@@ -2012,7 +2045,8 @@ class Craft extends RefCounted:
 	## along +Y, which separated stages fall behind at), simDt (simulated seconds this
 	## frame, which separated stages fly on; dt when absent), release (Callable(stage,
 	## sep): takes the pieces of a stage with a fate, `look.fall`, once Separation is
-	## done with them; without it they stay drawn for Separation.SHOWN)}.
+	## done with them; without it they stay drawn for Separation.SHOWN), chute: {key: {t,
+	## gone, dir, gs}} for a drag chute out (drive_chute)}.
 	func update(s: Dictionary) -> void:
 		var dt := float(s.get("dt", 0.0))
 		var attached: Dictionary = s.get("attached", {}) if s.get("attached") != null else {}
@@ -2088,6 +2122,9 @@ class Craft extends RefCounted:
 			for i in st.parts.flaps.size():
 				var f: Node3D = st.parts.flaps[i]
 				f.rotation.z = (float(flap[i]) if i < flap.size() else 0.0) if flap is Array else float(U.nz(flap, 0.0)) * 0.6
+			var chutes = s.get("chute")
+			for c: Node3D in st.parts.chutes:
+				CraftModel.drive_chute(c, chutes.get(st.key) if chutes is Dictionary else null, st.spec.get("dragChute", {}))
 
 	## Detach a stage: it stops following the stack and leaves under Separation. A
 	## stage made of pieces (`look.pieces`, a fairing's halves) sends each off on its

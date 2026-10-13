@@ -8,7 +8,7 @@ extends RefCounted
 
 const PHASE := {
 	"PRELAUNCH": "prelaunch", "ASCENT": "ascent", "COAST": "coast", "ORBIT": "orbit",
-	"BURN": "burn", "ENTRY": "entry", "DESCENT": "descent", "LANDED": "landed",
+	"BURN": "burn", "ENTRY": "entry", "DESCENT": "descent", "ROLLOUT": "rollout", "LANDED": "landed",
 	"CRUISE": "cruise", "DESTROYED": "destroyed",
 }
 
@@ -28,6 +28,9 @@ static var _g1 := DVec3.new()
 static var _g2 := DVec3.new()
 static var _gp := DVec3.new()
 static var _gu := DVec3.new()
+static var _w1 := DVec3.new()
+static var _w2 := DVec3.new()
+static var _w3 := DVec3.new()
 static var BODY_FWD := DVec3.new(0.0, 1.0, 0.0)
 # RK4 scratch. One set for the whole class: only one vessel integrates at a
 # time and the alternative is four vector allocations per substep per frame.
@@ -66,6 +69,8 @@ class Sample extends RefCounted:
 	var engines: int = 0
 	var gees: float = 0.0       # sensed acceleration, g (set by sample())
 	var alpha: float = 0.0      # angle of attack, rad (set by sample())
+	var wheel: float = 0.0      # rolling friction and brakes against the motion, N
+	var normal: float = 0.0     # the runway's push on the wheels, N
 
 ## Every lit stage together; `plume` is the first one's look. propulsion() refills
 ## the same instance on every call, so read it before calling again.
@@ -105,6 +110,28 @@ class StageState extends RefCounted:
 		rcs_prop = s.rcs.prop if s.get("rcs") != null else 0.0
 		live = s.count
 		vac_live = int(s.get("vacCount", 0))
+
+## A winged stage on its wheels, from main-gear touchdown to wheel stop: the pitch about
+## the main gear, the brakes and the drag chute (docs/physics/orbiter-entry.md#rollout).
+## Guidance sets `rate_cmd` and `brake`; the vessel integrates the rest.
+class Rollout extends RefCounted:
+	var spec: Dictionary            # the stage's `rollout`
+	var heading := DVec3.new()      # down the runway, horizontal; turns with the planet
+	var theta: float = 0.0          # pitch of the body axis above the horizon, rad
+	var rate: float = 0.0           # pitch rate, rad/s, + nose up
+	var rate_cmd: float = 0.0       # the pitch rate flight control is asked for, rad/s
+	var theta_3pt: float = 0.0      # the pitch with the nose wheels down too, rad
+	var nose_arm: float = 0.0       # main to nose wheels along the body, m
+	var main_share: float = 1.0     # of the runway's push the main wheels carry, nose down
+	var nose: bool = false          # weight on the nose gear
+	var brake: float = 0.0          # pedal, 0..1 of `brakes` × `brakeTorque`
+	var chute_t: float = -1.0       # s since the drag chute was commanded; < 0 not yet
+	var chute_gone: bool = false
+	var chute_gone_met: float = 0.0 # proper time of the jettison, s
+	var x: float = 0.0              # ground distance from main-gear touchdown, m
+	var t: float = 0.0              # s since main-gear touchdown
+	var ngtd = null                 # {eas, gs, sink, x, t} at nose-gear touchdown
+	var stop = null                 # {x, t} at wheel stop
 
 var id: int
 var vehicle: Dictionary
@@ -176,6 +203,7 @@ var chute_deploy: float = 0.0       # 0..1 inflation
 var bank = null                     # lift bank angle, rad; null = π/3
 var auto_stage: bool = false
 var catch_tower = null              # CatchTower this vessel can be caught by, or null
+var rolling: Rollout = null         # the rollout, from main-gear touchdown on; kept after the stop
 var pending_stage: bool = false
 var _prop := Propulsion.new()
 
@@ -479,6 +507,10 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 				nose_r = fa.spec.heatShield.noseR
 			heat = Rocketry.heat_flux(rho, va, nose_r)
 	if sample != null:
+		sample.wheel = 0.0; sample.normal = 0.0
+	if phase == PHASE.ROLLOUT and rolling != null:
+		_wheels(rr, vv, out, m, sample)
+	if sample != null:
 		sample.q = qd; sample.mach = mach; sample.drag = drag; sample.heat = heat; sample.pa = pa
 		sample.thrust = prop.F; sample.mdot = prop.mdot; sample.isp = prop.isp; sample.plume = prop.plume
 		sample.engines = prop.count
@@ -548,14 +580,41 @@ func contact_altitude() -> float:
 	var alt := altitude()
 	var st = _first_attached()
 	if st == null or st.spec.get("gear") == null or st.spec.gear.get("point") == null: return alt
-	var gp: Array = st.spec.gear.point
+	return alt + _stage_offset(st, st.spec.gear.point, _gp).dot(DQuat.nrm(_gu.copy_from(r)))
+
+## A point `p` of stage `st` (its frame, m) as an offset from the vessel's reference
+## point, world axes, at the current attitude.
+func _stage_offset(st, p: Array, out: DVec3) -> DVec3:
 	var mt = st.spec.get("look", {}).get("mount")
 	var ox := float(mt.get("x", 0.0)) if mt != null else 0.0
 	var oy := float(mt.get("y", 0.0)) if mt != null else 0.0
 	var oz := float(mt.get("z", 0.0)) if mt != null else 0.0
-	_gp.set_v(float(gp[0]) + ox, float(gp[1]) + oy, float(gp[2]) + oz)
-	DQuat.rotate(_gp, q)
-	return alt + _gp.dot(DQuat.nrm(_gu.copy_from(r)))
+	out.set_v(float(p[0]) + ox, float(p[1]) + oy, float(p[2]) + oz)
+	return DQuat.rotate(out, q)
+
+## The runway on the wheels during the rollout: the push that keeps them on its curved
+## surface (never a pull, so enough lift takes them off it), and against the motion
+## down the runway rolling friction μN and the brakes. The pitch is held at the step's
+## start, so the main wheels' offset is the current one.
+func _wheels(rr: DVec3, vv: DVec3, out: DVec3, m: float, sample: Sample) -> void:
+	var rs := rolling
+	var up := DQuat.nrm(_w1.copy_from(rr))
+	var R := rr.length()
+	var st = _first_attached()
+	if R - env.radius + _stage_offset(st, st.spec.gear.point, _w2).dot(up) > 0.02: return
+	var vr := vv.dot(up)
+	var a_n := -out.dot(up) - (vv.length_sq() - vr * vr) / R
+	if a_n <= 0.0: return
+	out.add_scaled_in(up, a_n)
+	var sp: Dictionary = rs.spec
+	var f: float = float(sp.mu) * m * a_n + rs.brake * float(sp.brakes) * float(sp.brakeTorque) / float(sp.tyreR)
+	# Against the motion, eased through zero so a stopped vehicle does not chatter.
+	var u := airspeed(rr, vv, _w3).dot(rs.heading)
+	var dir := clampf(u / 0.2, -1.0, 1.0)
+	out.add_scaled_in(rs.heading, -f * dir / m)
+	if sample != null:
+		sample.wheel = f * dir
+		sample.normal = m * a_n
 
 ## A circular cylinder's crossflow drag coefficient: ~1.2 subsonic, rising to the
 ## Newtonian 4/3 and a little over in the transonic and hypersonic flow.
@@ -892,7 +951,7 @@ func _where() -> String:
 ## Milestones, each logged once. Max-Q and peak heating are logged once the value has
 ## fallen 10% (20% for heating) off its peak, reporting the peak and its T+.
 func _milestones(t: Dictionary) -> void:
-	if phase == PHASE.PRELAUNCH or phase == PHASE.LANDED or phase == PHASE.DESTROYED: return
+	if phase == PHASE.PRELAUNCH or phase == PHASE.LANDED or phase == PHASE.ROLLOUT or phase == PHASE.DESTROYED: return
 	if env.atm == null: return
 	var alt: float = t.alt
 	if not _logged.has("mach1") and t.mach >= 1.0 and t.vertical > 0.0:
@@ -1002,6 +1061,9 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 		r.set_v(x * cw - z * sw, r.y, x * sw + z * cw)
 		_a.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_a, r)
 		v.copy_from(_a)
+		if rolling != null:
+			_dq.set_from_axis_angle(_w1.set_v(0.0, -1.0, 0.0), w)
+			q.premultiply(_dq).normalize_in()
 		step_clocks(dt)
 		sample(0.0)
 		return dt
@@ -1088,6 +1150,7 @@ func auto_jettison() -> void:
 
 ## Largest safe substep, seconds.
 func step_bound() -> float:
+	if phase == PHASE.ROLLOUT: return 0.05
 	var alt := altitude()
 	var atm = env.atm
 	# In the air, move at most a fraction of a scale height per step.
@@ -1164,7 +1227,7 @@ func burn(kg: float) -> void:
 
 func can_rail() -> bool:
 	if throttle > 0.0: return false
-	if phase == PHASE.LANDED or phase == PHASE.PRELAUNCH: return false
+	if phase == PHASE.LANDED or phase == PHASE.PRELAUNCH or phase == PHASE.ROLLOUT: return false
 	var atm = env.atm
 	if atm != null and altitude() < atm.top: return false
 	if chute_open != null: return false
@@ -1235,7 +1298,10 @@ func rebase(body: Body) -> void:
 
 ## Ground contact: a landing if the legs are down and vertical speed is within the
 ## gear rating, otherwise a crash.
-func contact(_dt: float) -> void:
+func contact(dt: float) -> void:
+	if phase == PHASE.ROLLOUT:
+		_roll(dt)
+		return
 	var alt := altitude()
 	# Off the stack, a geared stage touches down on its wheels (contact_altitude).
 	var gear_off := 0.0
@@ -1299,6 +1365,9 @@ func contact(_dt: float) -> void:
 	if v_vert < -limit_v or v_horiz > limit_h * 3.0:
 		destroy("impact at %s m/s vertical, %s m/s lateral — gear rated to %s m/s" % [U.fixed(absf(v_vert), 1), U.fixed(v_horiz, 1), js_num(limit_v)])
 		return
+	if geared != null and geared.spec.get("rollout") != null and phase != PHASE.LANDED and v_horiz > 1.0:
+		_touchdown_roll(geared, up, v_vert, v_horiz)
+		return
 	DQuat.set_len(r, env.radius - gear_off)
 	_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 	v.copy_from(_c)
@@ -1307,6 +1376,105 @@ func contact(_dt: float) -> void:
 		phase = PHASE.LANDED
 		landed_at = { "met": met, "vVert": v_vert, "vHoriz": v_horiz }
 		log_event("Touchdown — %s m/s vertical, %s m/s lateral" % [U.fixed(absf(v_vert), 2), U.fixed(v_horiz, 2)])
+
+## Main-gear touchdown of a stage with `rollout` data: the rollout starts, down the
+## runway along the ground track, at the pitch it touched down with.
+func _touchdown_roll(st, up: DVec3, v_vert: float, v_horiz: float) -> void:
+	phase = PHASE.ROLLOUT
+	landed_at = { "met": met, "vVert": v_vert, "vHoriz": v_horiz }
+	log_event("Main gear touchdown — %s m/s sink, %s m/s" % [U.fixed(absf(v_vert), 2), U.fixed(v_horiz, 1)])
+	var rs := Rollout.new()
+	rs.spec = st.spec.rollout
+	airspeed(r, v, _vrel)
+	DQuat.nrm(rs.heading.copy_from(_vrel).add_scaled_in(up, -_vrel.dot(up)))
+	rs.theta = asin(clampf(forward(_e).dot(up), -1.0, 1.0))
+	var gp: Array = st.spec.gear.point
+	var gn: Array = st.spec.gear.nose
+	var dy := float(gn[1]) - float(gp[1])
+	var dz := float(gn[2]) - float(gp[2])
+	rs.theta_3pt = -atan2(dz, dy)
+	rs.nose_arm = sqrt(dy * dy + dz * dz)
+	# Static moments about the c.g. split the push between the main and nose wheels.
+	rs.main_share = (float(gn[1]) - float(rs.spec.cgY)) / dy
+	rolling = rs
+	omega.set_v(0.0, 0.0, 0.0)
+	_roll(0.0)
+
+## One step of the rollout after the integrator has moved the vehicle: flight control's
+## pitch rate about the main wheels until the nose wheels are down; the main wheels
+## kept on the runway, with no speed into it or sideways (the tyres' side force); the
+## drag chute's inflation; and wheel stop.
+func _roll(dt: float) -> void:
+	var rs := rolling
+	var up := DQuat.nrm(_w1.copy_from(r))
+	DQuat.apply_axis_angle(rs.heading, _w2.set_v(0.0, -1.0, 0.0), env.rotRate * dt)
+	DQuat.nrm(rs.heading.add_scaled_in(up, -rs.heading.dot(up)))
+	rs.t += dt
+	var ramp := deg_to_rad(float(rs.spec.pitchAccel)) * dt
+	rs.rate += clampf(rs.rate_cmd - rs.rate, -ramp, ramp)
+	rs.theta += rs.rate * dt
+	if not rs.nose and rs.theta <= rs.theta_3pt:
+		rs.nose = true
+		var gs := airspeed(r, v, _vrel).length()
+		var eas := gs * sqrt(Rocketry.density(env.atm, maxf(altitude(), 0.0)) / 1.225)
+		rs.ngtd = { "eas": eas, "gs": gs, "sink": -rs.rate * rs.nose_arm, "x": rs.x, "t": rs.t }
+		log_event("Nose gear touchdown — %s KEAS, %s m/s sink, %s m from main-gear touchdown" % [
+			U.fixed(eas / 0.514444, 0), U.fixed(-rs.rate * rs.nose_arm, 2), U.fixed(rs.x, 0)])
+	if rs.nose:
+		rs.theta = rs.theta_3pt; rs.rate = 0.0; rs.rate_cmd = 0.0
+	# Down the runway at that pitch, wings level: body +Y forward, +Z the top, +X = Y × Z.
+	var ct := cos(rs.theta)
+	var stt := sin(rs.theta)
+	var fwd := _w2.copy_from(rs.heading).scale_in(ct).add_scaled_in(up, stt)
+	var top := _w3.copy_from(rs.heading).scale_in(-stt).add_scaled_in(up, ct)
+	var side := _e.cross_vectors(fwd, top)
+	q.set_from_basis_columns(side, fwd, top).normalize_in()
+	omega.set_v(0.0, 0.0, 0.0)
+	var h := contact_altitude()
+	if h < 0.0: r.add_scaled_in(up, -h)
+	airspeed(r, v, _vrel)
+	var vn := _vrel.dot(up)
+	if h < 0.01 and vn < 0.0: _vrel.add_scaled_in(up, -vn)
+	_vrel.add_scaled_in(side, -_vrel.dot(side))
+	_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
+	v.copy_from(_c).add_in(_vrel)
+	var u := _vrel.dot(rs.heading)
+	rs.x += u * dt
+	if rs.chute_t >= 0.0 and not rs.chute_gone:
+		rs.chute_t += dt
+		chute_deploy = drag_chute_area(rs.chute_t, _first_attached().spec.dragChute)
+	if u < 0.3:
+		v.copy_from(_c)
+		phase = PHASE.LANDED
+		rs.stop = { "x": rs.x, "t": rs.t }
+		log_event("Wheel stop — %s m (%s ft) from main-gear touchdown, %s s" % [
+			U.fixed(rs.x, 0), U.fixed(rs.x / 0.3048, 0), U.fixed(rs.t, 0)])
+
+## Fire the drag chute's mortar during the rollout; false without one, or a second time.
+func deploy_drag_chute() -> bool:
+	var st = _first_attached()
+	if rolling == null or rolling.chute_t >= 0.0 or st == null or st.spec.get("dragChute") == null: return false
+	var dc: Dictionary = st.spec.dragChute
+	rolling.chute_t = 0.0
+	chute_open = { "Cd": float(dc.Cd) * float(dc.wake), "area": PI * float(dc.D0) * float(dc.D0) / 4.0 }
+	chute_deploy = 0.0
+	log_event("Drag chute deploy — %s KEAS" % U.fixed(sqrt(2.0 * float(telemetry.get("q", 0.0)) / 1.225) / 0.514444, 0))
+	return true
+
+func jettison_drag_chute() -> void:
+	if rolling == null or rolling.chute_t < 0.0 or rolling.chute_gone: return
+	rolling.chute_gone = true
+	rolling.chute_gone_met = met
+	chute_open = null
+	chute_deploy = 0.0
+	log_event("Drag chute jettison — %s kt ground speed" % U.fixed(float(telemetry.get("airspeed", 0.0)) / 0.514444, 0))
+
+## The drag chute's share of its full drag area `t` s after the deploy command: nothing
+## until the mortar, out and reefed by `reefed`, full a `fill` after the disreef.
+static func drag_chute_area(t: float, dc: Dictionary) -> float:
+	if t < float(dc.reefed):
+		return float(dc.reef) * smoothstep(float(dc.mortar), float(dc.reefed), t)
+	return lerpf(float(dc.reef), 1.0, smoothstep(float(dc.disreef), float(dc.disreef) + float(dc.fill), t))
 
 # Telemetry
 ## Refresh `telemetry` (and the records) from the current state. `s` is the
@@ -1320,7 +1488,7 @@ func sample(dt: float, s: Sample = null) -> Dictionary:
 	airspeed(r, v, _vrel)
 	# g-load is what an accelerometer reads: every force EXCEPT gravity, which
 	# is why a coasting vessel reads zero however hard it is falling.
-	var a_net: float = absf(s.thrust - s.drag) / m
+	var a_net: float = absf(s.thrust - s.drag - s.wheel) / m
 	var fwd := forward(_e)
 	var va := _vrel.length()
 	# Angle of attack is unsigned: entry vehicles fly heat shield first, α ≈ 180° signed.
@@ -1342,6 +1510,7 @@ func sample(dt: float, s: Sample = null) -> Dictionary:
 	t.horizontal = sqrt(maxf(t.speed * t.speed - t.vertical * t.vertical, 0.0))
 	t.q = s.q; t.mach = s.mach; t.drag = s.drag; t.heat = s.heat
 	t.thrust = s.thrust; t.isp = s.isp; t.mdot = s.mdot
+	t.wheel = s.wheel; t.normal = s.normal
 	t.plume = s.plume; t.engines = s.engines
 	t.mass = m; t.gees = a_net / Rocketry.G0; t.alpha = alpha
 	var rl2 := r.length_sq()

@@ -1099,6 +1099,21 @@ class Autopilot extends RefCounted:
 	const SB_TRIM := 65.0 / 98.6        # the outer glide slope's design trim
 	const HEAVY_KG := 100698.0          # 222,000 lb: lands at 205 KEAS above, 195 below
 	const KT := 0.514444
+	# Rollout (JSC-23266 §4.11–4.14, §5.3.6.7, App. C.3). The derotation rate is the
+	# design's 2°/s: beep trim commands 1.5°/s, and flights averaged 2.1°/s.
+	const CHUTE_EAS := 195.0 * KT
+	const DEROTATE_EAS := 185.0 * KT
+	const DEROTATE_RATE := 2.0 * PI / 180.0
+	const CHUTE_JETT_GS := 60.0 * KT
+	# No braking before midfield: 5000 ft on from the nominal touchdown, 2500 ft past the
+	# threshold of a 15,000 ft runway. Then 8–10 ft/s² below 140 KGS, under 6 below 40.
+	const MIDFIELD := 1524.0
+	const BRAKE_GS := 140.0 * KT
+	const BRAKE_EASE_GS := 40.0 * KT
+	const BRAKE_DECEL := 9.0 * 0.3048
+	const BRAKE_DECEL_SLOW := 5.5 * 0.3048
+	const ELEVON_RELIEF := 10.0 * PI / 180.0
+	const ELEVON_RATE := 20.0 * PI / 180.0
 	const V_TAEM := 760.0               # m/s air speed, the TAEM interface (about Mach 2.5)
 	const TAEM_ALT := 26000.0           # m, where the entry nominally hands over to TAEM
 	const PREFLARE_ALT := 600.0
@@ -1310,9 +1325,14 @@ class Autopilot extends RefCounted:
 		var g: float = v.env.mu / v.r.length_sq()
 		var Re: float = v.env.radius
 		var site = _home_site()
+		if v.phase == Vessel.PHASE.ROLLOUT:
+			return _rollout(dt)
 		if v.phase == Vessel.PHASE.LANDED:
-			program = null; v.speedbrake = 0.0; v.roll_signed = false
-			note("Wheels stop" if site == null else "Wheels stop — %s km from the launch site" % U.fixed(Re * DQuat.angle_between(v.r, site) / 1000.0, 1))
+			program = null; v.roll_signed = false
+			var stop := ""
+			if v.rolling != null and v.rolling.stop != null:
+				stop = ", %s ft rollout" % U.fixed(float(v.rolling.stop.x) / 0.3048, 0)
+			note(("Wheel stop" if site == null else "Wheel stop — %s km from the launch site" % U.fixed(Re * DQuat.angle_between(v.r, site) / 1000.0, 1)) + stop)
 			return null
 		if st == null or st.spec.get("wings") == null:
 			note("Only a winged orbiter glides"); program = null
@@ -1527,6 +1547,42 @@ class Autopilot extends RefCounted:
 		aim_roll = _roll_ref.cross_vectors(fwd, top)
 		v.roll_signed = true
 		return fwd
+
+	## The rollout, as JSC-23266 flies it (§4.8–4.14, §5.3.6.7): speed brake full open at
+	## weight on wheels; the drag chute at 195 KEAS and derotation at 185 KEAS (at once
+	## if slower); braking past midfield below 140 KGS, eased below 40 KGS; the chute
+	## jettisoned at 60 KGS. The vessel flies the pitch and the wheels.
+	func _rollout(dt: float):
+		var rs: Vessel.Rollout = v.rolling
+		state_name = "rollout"
+		v.speedbrake = 1.0
+		var eas := sqrt(2.0 * float(v.telemetry.get("q", 0.0)) / 1.225)
+		# Still air: the speed over the runway is the air speed.
+		var gs := v.airspeed(v.r, v.v, Guidance._g).length()
+		if rs.chute_t < 0.0 and eas <= CHUTE_EAS: v.deploy_drag_chute()
+		if not rs.nose and rs.rate_cmd == 0.0 and eas <= DEROTATE_EAS:
+			rs.rate_cmd = -DEROTATE_RATE
+			note("Derotation — %s KEAS, %s m down the runway" % [U.fixed(eas / KT, 0), U.fixed(rs.x, 0)])
+		if rs.chute_t >= 0.0 and not rs.chute_gone and gs <= CHUTE_JETT_GS: v.jettison_drag_chute()
+		var want := 0.0
+		if rs.nose and rs.x >= MIDFIELD and gs < BRAKE_GS:
+			want = BRAKE_DECEL if gs > BRAKE_EASE_GS else BRAKE_DECEL_SLOW
+		# The pedals make up what the air, the chute and the rolling friction do not.
+		var sp: Dictionary = rs.spec
+		var f_max := float(sp.brakes) * float(sp.brakeTorque) / float(sp.tyreR)
+		var other := float(v.telemetry.get("drag", 0.0)) + float(sp.mu) * float(v.telemetry.get("normal", 0.0))
+		rs.brake = clampf((v.mass * want - other) / f_max, 0.0, 1.0) if want > 0.0 else 0.0
+		# Elevons: trailing edge up to hold the derotation rate, to the 10° the flight
+		# controls allow, then held from θ 1.5°; with weight on the nose gear, load relief
+		# takes them to 10° down at 20°/s (JSC-23266 §4.12, §5.3.6.7). Drawn, not flown.
+		var e_want := float(flap_cmd[1])
+		if rs.nose: e_want = ELEVON_RELIEF
+		elif rs.rate_cmd != 0.0 and rs.theta > deg_to_rad(1.5): e_want = -ELEVON_RELIEF
+		flap_cmd = [0.1, move_toward(float(flap_cmd[1]), e_want, ELEVON_RATE * dt), 0.0, 0.0]
+		var decel := (float(v.telemetry.get("drag", 0.0)) + float(v.telemetry.get("wheel", 0.0))) / v.mass
+		say("Rollout — %s kt, %s ft, %s ft/s²%s%s" % [U.fixed(gs / KT, 0), U.fixed(rs.x / 0.3048, 0), U.fixed(decel / 0.3048, 1),
+			", chute" if rs.chute_t >= 0.0 and not rs.chute_gone else "", ", brakes" if rs.brake > 0.0 else ""])
+		return null
 
 	func bellyflop_guidance(dt: float, pa: float):
 		var st = v.current_stage if v.current_stage != null else v._first_attached()

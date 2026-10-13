@@ -41,6 +41,7 @@ _PALETTE = [
     ('hot',     0x3a322c, 0.56, 0.26),
     ('glass',   0x16242e, 0.14, 0.24),
     ('red',     0xa02a22, 0.70, 0.05),
+    ('blue',    0x1f3a7a, 0.70, 0.05),
 ]
 
 
@@ -72,7 +73,7 @@ def build_materials():
 # `gimbal_0.001`, and the second would never be found. `gimbal_sic_0` cannot
 # collide, and sorting by name keeps the bind order deterministic.
 # `chopstick_` is a pad's catch arm (launchpads.py), driven by launchsite.gd.
-NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chopstick_')
+NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chute_', 'chopstick_')
 
 
 def is_node(ob):

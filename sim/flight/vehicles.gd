@@ -300,16 +300,29 @@ static func _build_vehicles() -> Dictionary:
 				"wings": { "span": 23.8, "area": 250.0, "clMax": 1.4 },
 				# Nose and main gear. Main-gear sink rate 9.6 ft/s, tyres rated to 225 kt
 				# (JSC-12770 vol. 10D); `point` is the main tyres' contact patch in the stage
-				# frame (Xo 1180, Zo 150).
-				"legs": 3, "gear": { "vVert": 2.9, "vHoriz": 116.0, "point": [0.0, 13.26, -6.35] },
+				# frame (Xo 1180, Zo 150), `nose` the nose tyres' (Xo 470, Zo 160).
+				"legs": 3, "gear": { "vVert": 2.9, "vHoriz": 116.0, "point": [0.0, 13.26, -6.35], "nose": [0.0, 31.30, -6.10] },
+				# Rollout (JSC-23266 §4.8–4.14, App. C): rolling friction 0.025 on concrete;
+				# four brakes at the nominal procedure's ~25,000 ft-lb each on 44.5 in tyres;
+				# the derotation's pitch rate ramps in at the beep trim's 0.6°/s². `cgY` puts the
+				# c.g. at Xo 1090 (1076.7–1109 flown, Meyerson AIAA 2001-2051).
+				"rollout": { "mu": 0.025, "brakes": 4, "brakeTorque": 33895.0, "tyreR": 0.565,
+					"pitchAccel": 0.6, "cgY": 15.55 },
+				# Drag chute, flown from STS-49: a 40 ft conical ribbon canopy, free-stream C_D
+				# 0.575 times a wake factor of 0.65–0.9 behind the orbiter, reefed to 40% of its
+				# drag area (Meyerson). Seconds after the button: mortar 1, reefed 2.5, disreef 6
+				# (JSC-23266 §5.3.6.7); the fill after disreef is an estimate.
+				"dragChute": { "D0": 12.19, "Cd": 0.575, "wake": 0.8, "reef": 0.4,
+					"mortar": 1.0, "reefed": 2.5, "disreef": 6.0, "fill": 0.5 },
 				# Alone it flies at 40° α by design, under 2.5 g and ~16 kPa on the way down.
 				"soloLimits": { "maxQ": 25e3, "maxG": 3.0, "qAlpha": 1e12, "heatLoad": 1.2e9 },
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 1460.0, "count": 44 },
 				# The datum is the fin's tip (Xo 1702.2, L behind the Xo 236 nose). Xo = XS − 741
 				# puts it 91 in above the solids' nozzle exits; the payload bay axis (Zo 400) is
 				# 336.5 in off the tank's (News Reference, coordinate system). Doors: the
-				# payload bay's two, open in orbit.
-				"look": { "skin": "tiles", "orbiter": true, "flaps": 1, "doors": 2, "gearSwing": 1.5708, "staticEngines": true,
+				# payload bay's two, open in orbit. Flaps: the body flap, the four elevons
+				# and the speed brake's two halves.
+				"look": { "skin": "tiles", "orbiter": true, "flaps": 7, "doors": 2, "gearSwing": 1.5708, "staticEngines": true,
 					"mount": { "y": 3.414, "z": 8.547 } } }),
 		],
 	},

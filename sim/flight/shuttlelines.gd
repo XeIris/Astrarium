@@ -60,6 +60,12 @@ const WING := [
 	[468.34, 1335.0, 1441.8, 5.0, 0.45, 308.6, 306.6],
 ]
 const LOWER := 0.30
+## Elevon hinge line, Xo (unswept), and the panels' spans, BL: inboard, outboard.
+const ELEVON_X := 1387.0
+const ELEVONS := [[115.0, 285.0], [285.0, 455.0]]
+## The rudder/speed brake: behind the fin's 60% chord, Zo 573 to 787.
+const RUDDER := [573.0, 787.0]
+const RUDDER_U := 0.6
 ## OMS pod: Xo, half-width, half-height, centre Zo; centred Yo ±100.
 const POD := [
 	[1233.0, 1.0, 1.0, 472.0], [1240.0, 12.0, 13.0, 472.5], [1255.0, 23.0, 25.0, 474.0],
@@ -232,8 +238,11 @@ static func build_orbiter(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	_pods(g, datum)
 	_engines(g, datum, parts)
 	_body_flap(g, datum, parts)
+	_elevons(g, datum, parts)
+	_speedbrake(g, datum, parts)
 	_bay(g, datum, parts, out)
 	_gear(g, datum, parts)
+	_chute(g, datum, parts, float(spec.dragChute.D0))
 	return {"group": g, "parts": parts}
 
 ## Pivot (Xo, Yo, Zo), strut, tyre diameter and width, in: nose gear under the cabin,
@@ -257,6 +266,79 @@ static func _gear(g: Node3D, datum: float, parts: Dictionary) -> void:
 			node.add_child(CraftModel.beam(inv * c0, inv * c1, e[4] * 0.5 * IN, M.black, 16))
 		mnt.add_child(node); g.add_child(mnt)
 		parts.legs.append(node)
+
+## The drag chute (flown from STS-49), packed in its compartment at the foot of the fin
+## (Xo 1529–1599, Zo 503–537) and drawn deployed along the pivot's −Y: a 40 ft conical
+## ribbon canopy of 44 gores in red, white and blue, its skirt 87.5 ft aft of the base
+## (Meyerson, AIAA 2001-2051), suspension lines a nominal diameter long on one riser, and
+## the 9 ft pilot chute behind. Inflated, a ribbon canopy is about 0.7 of its nominal
+## diameter across. The profile is (aft of the skirt, radius) in inflated radii.
+const CHUTE_PIVOT := [1564.0, 0.0, 520.0]
+const CHUTE_SKIRT := 1014.3
+const CHUTE_PACK := 0.004
+const CHUTE_GORES := 44
+const CHUTE_PROFILE := [[0.0, 0.90], [0.15, 1.0], [0.40, 0.95], [0.62, 0.78], [0.78, 0.50], [0.85, 0.15]]
+const PILOT_D0 := 2.74
+
+static func _chute(g: Node3D, datum: float, parts: Dictionary, d0: float) -> void:
+	var M := CraftModel.M
+	var node := CraftModel._grp()
+	node.position = P(CHUTE_PIVOT[0], CHUTE_PIVOT[1], CHUTE_PIVOT[2], datum)
+	var skirt := CHUTE_SKIRT * IN
+	var R := 0.35 * d0
+	var cloth := [CraftModel.Geo.new(), CraftModel.Geo.new(), CraftModel.Geo.new()]
+	_canopy(cloth, skirt, R, CHUTE_GORES, [0, 1, 2, 1])
+	var crown: float = skirt + float(CHUTE_PROFILE[CHUTE_PROFILE.size() - 1][0]) * R
+	var pr := 0.35 * PILOT_D0
+	_canopy(cloth, crown + 6.0, pr, 12, [1])
+	var mats := [M.red, M.white, M.blue]
+	for i in 3: node.add_child(CraftModel._mesh(cloth[i], mats[i]))
+	# The lines: suspension lines from the confluence to every other gore seam, the riser
+	# to the pivot, and the pilot's bridle from the vent.
+	var lines := CraftModel.Geo.new()
+	var conf := skirt - sqrt(d0 * d0 - pow(0.9 * R, 2.0))
+	for k in CHUTE_GORES / 2:
+		var a := TAU * 2.0 * k / CHUTE_GORES
+		_rod(lines, Vector3(0.0, -conf, 0.0), Vector3(0.9 * R * cos(a), -skirt, 0.9 * R * sin(a)), 0.02)
+	_rod(lines, Vector3.ZERO, Vector3(0.0, -conf, 0.0), 0.06)
+	_rod(lines, Vector3(0.0, -crown, 0.0), Vector3(0.0, -(crown + 6.0), 0.0), 0.03)
+	CraftModel._compute_normals(lines)
+	node.add_child(CraftModel._mesh(lines, M.dirty))
+	node.scale = Vector3.ONE * CHUTE_PACK
+	g.add_child(node)
+	parts.chutes.append(node)
+
+## Gores of a canopy inflated to radius R, along −Y from `skirt`, into
+## cloth[pattern[k % n]], each bulging a little between its seams.
+static func _canopy(cloth: Array, skirt: float, R: float, gores: int, pattern: Array) -> void:
+	for k in gores:
+		var geo: CraftModel.Geo = cloth[pattern[k % pattern.size()]]
+		var base := geo.pos.size()
+		for pf in CHUTE_PROFILE:
+			for j in 3:
+				var a := TAU * (k + j * 0.5) / gores
+				var r: float = float(pf[1]) * R * (1.04 if j == 1 else 1.0)
+				geo.pos.append(Vector3(r * cos(a), -(skirt + float(pf[0]) * R), r * sin(a)))
+		for i in CHUTE_PROFILE.size() - 1:
+			for j in 2:
+				var a := base + i * 3 + j; var b := a + 1; var c := a + 4; var d := a + 3
+				var ctr: Vector3 = (geo.pos[a] + geo.pos[c]) * 0.5
+				var nrm: Vector3 = (geo.pos[b] - geo.pos[a]).cross(geo.pos[d] - geo.pos[a])
+				if nrm.dot(Vector3(ctr.x, 0.0, ctr.z)) >= 0.0: geo.idx.append_array([a, b, c, a, c, d])
+				else: geo.idx.append_array([a, c, b, a, d, c])
+	for geo: CraftModel.Geo in cloth: CraftModel._compute_normals(geo)
+
+## A thin square tube from a to b into `geo` (normals left to the caller).
+static func _rod(geo: CraftModel.Geo, a: Vector3, b: Vector3, r: float) -> void:
+	var ax := (b - a).normalized()
+	var u := ax.cross(Vector3.RIGHT if absf(ax.x) < 0.9 else Vector3.UP).normalized() * r
+	var w := ax.cross(u).normalized() * r
+	var base := geo.pos.size()
+	for p in [a, b]:
+		for c in [u + w, u - w, -u - w, -u + w]: geo.pos.append(p + c)
+	for k in 4:
+		var i0 := base + k; var i1 := base + (k + 1) % 4
+		geo.idx.append_array([i0, i1, i1 + 4, i0, i1 + 4, i0 + 4])
 
 ## A point on the roof at plan position (xo, yo).
 static func roof_point(xo: float, yo: float, datum: float, off := 0.0) -> Vector3:
@@ -316,20 +398,32 @@ static func _cos_u(n: int, u0: float, u1: float) -> Array:
 	return out
 
 ## The double delta: black tile underneath and along the upper leading edge, grey
-## RCC on the main wing's leading edge, white above.
+## RCC on the main wing's leading edge, white above. The skins stop at the elevon
+## hinge line between BL 115 and 455 (`_elevons`).
 static func _wing(g: Node3D, datum: float) -> void:
 	var M := CraftModel.M
+	var lo: float = ELEVONS[0][0]
+	var hi: float = ELEVONS[ELEVONS.size() - 1][1]
+	var spans := [[_wing_span(WING[0][0], lo), false], [_wing_span(lo, hi), true],
+		[_wing_span(hi, WING[WING.size() - 1][0]), false]]
 	for sg in [1.0, -1.0]:
-		var surf := func(sts: Array, u0: float, u1: float, side: float, mat: Material, n: int, up: Vector3) -> void:
+		var surf := func(sts: Array, u0: float, u1: float, cut: bool, side: float, mat: Material, n: int, up: Vector3) -> void:
 			var rows := []
 			for st in sts:
 				var row := []
-				for u in _cos_u(n, u0, u1): row.append(wing_point(st, u, side, sg, datum))
+				for u in _cos_u(n, u0, _hinge_u(st) if cut else u1): row.append(wing_point(st, u, side, sg, datum))
 				rows.append(row)
 			g.add_child(grid(rows, mat, func(_c): return up))
-		surf.call(WING, 0.022, 0.075, 1.0, M.tiles, 3, Vector3.BACK)
-		surf.call(WING, 0.075, 1.0, 1.0, M.white, 14, Vector3.BACK)
-		surf.call(WING, 0.022, 1.0, -1.0, M.tiles, 16, Vector3.FORWARD)
+		surf.call(WING, 0.022, 0.075, false, 1.0, M.tiles, 3, Vector3.BACK)
+		for sp in spans:
+			surf.call(sp[0], 0.075, 1.0, sp[1], 1.0, M.white, 14, Vector3.BACK)
+			surf.call(sp[0], 0.022, 1.0, sp[1], -1.0, M.tiles, 16, Vector3.FORWARD)
+		# The face of the hinge line, behind which the elevons swing.
+		var face := []
+		for st in spans[1][0]:
+			var u := _hinge_u(st)
+			face.append([wing_point(st, u, 1.0, sg, datum), wing_point(st, u, -1.0, sg, datum)])
+		g.add_child(grid(face, M.soot, func(_c): return Vector3.DOWN))
 		for part in [[WING.slice(0, 4), M.tiles], [WING.slice(3), M.soot]]:
 			var rows := []
 			for st in part[0]:
@@ -339,29 +433,162 @@ static func _wing(g: Node3D, datum: float) -> void:
 				rows.append(row)
 			g.add_child(grid(rows, part[1], func(_c): return Vector3.UP))
 
+## A wing station interpolated at any BL.
+static func wing_at(bl: float) -> Array:
+	for i in WING.size() - 1:
+		var a: Array = WING[i]
+		var b: Array = WING[i + 1]
+		if bl >= a[0] and bl <= b[0]:
+			var t: float = (bl - a[0]) / (b[0] - a[0])
+			var out := []
+			for k in 7: out.append(lerpf(a[k], b[k], t))
+			return out
+	return WING[WING.size() - 1]
+
+## The stations from BL bl0 to bl1: both ends and the table's own between them.
+static func _wing_span(bl0: float, bl1: float) -> Array:
+	var out := [wing_at(bl0)]
+	for st in WING:
+		if st[0] > bl0 + 1e-6 and st[0] < bl1 - 1e-6: out.append(st)
+	out.append(wing_at(bl1))
+	return out
+
+## Chord fraction of the elevon hinge line at a station.
+static func _hinge_u(st: Array) -> float:
+	return (ELEVON_X - st[1]) / (st[2] - st[1])
+
+## A driven surface's mount: at `origin`, its Z along the hinge `axis`, X toward `side`.
+static func _hinge_mount(origin: Vector3, axis: Vector3, side: Vector3) -> Node3D:
+	var mnt := CraftModel._grp()
+	var z := axis.normalized()
+	var x := (side - z * z.dot(side)).normalized()
+	mnt.position = origin
+	mnt.basis = Basis(x, z.cross(x), z)
+	return mnt
+
+## The elevons: four panels aft of the Xo 1387 hinge line (CR-134087), inboard BL
+## 115–285 and outboard 285–455, each turning about its hinge toward starboard, so a
+## positive angle is trailing edge down on either wing.
+static func _elevons(g: Node3D, datum: float, parts: Dictionary) -> void:
+	var M := CraftModel.M
+	for sg in [-1.0, 1.0]:
+		for span in ELEVONS:
+			var sts := _wing_span(span[0], span[1])
+			var hinge := func(st: Array) -> Vector3:
+				var u := _hinge_u(st)
+				return P(ELEVON_X, sg * st[0], st[5] + (st[6] - st[5]) * u, datum)
+			var h0: Vector3 = hinge.call(sts[0])
+			var mnt := _hinge_mount(h0, (hinge.call(sts[sts.size() - 1]) - h0) * sg, Vector3.BACK)
+			var node := CraftModel._grp()
+			var inv := mnt.transform.affine_inverse()
+			var skin := func(rows: Array, mat: Material, up: Vector3) -> void:
+				var local := []
+				for r in rows: local.append(r.map(func(p): return inv * p))
+				node.add_child(grid(local, mat, func(_c): return inv.basis * up))
+			for side in [1.0, -1.0]:
+				var rows := []
+				for st in sts:
+					var row := []
+					for u in _cos_u(6, _hinge_u(st), 1.0): row.append(wing_point(st, u, side, sg, datum))
+					rows.append(row)
+				skin.call(rows, M.white if side > 0.0 else M.tiles, Vector3.BACK if side > 0.0 else Vector3.FORWARD)
+			var front := []
+			for st in sts: front.append([wing_point(st, _hinge_u(st), 1.0, sg, datum), wing_point(st, _hinge_u(st), -1.0, sg, datum)])
+			skin.call(front, M.soot, Vector3.UP)
+			for end in [[sts[0], -sg], [sts[sts.size() - 1], sg]]:
+				var rows := []
+				for u in _cos_u(6, _hinge_u(end[0]), 1.0):
+					rows.append([wing_point(end[0], u, 1.0, sg, datum), wing_point(end[0], u, -1.0, sg, datum)])
+				skin.call(rows, M.tiles, Vector3(end[1], 0.0, 0.0))
+			mnt.add_child(node); g.add_child(mnt)
+			parts.flaps.append(node)
+
+static func _fin_section(zo: float) -> Vector2:
+	return Vector2(1278.0 + (zo - 500.0), 268.5 + (108.47 - 268.5) * (zo - 500.0) / 315.72)
+
+static func _fin_half(u: float, ch: float) -> float:
+	var T := 0.105 * ch
+	return T * 0.5 * pow(minf(u / 0.6, 1.0), 0.62) if u < 0.6 else T * 0.5 * maxf((1.0 - u) / 0.4, 0.0) + 0.15
+
 ## The fin: 45° leading edge, root chord 268.5 in at WP 500, tip 108.47 at 815.72,
-## a 10° wedge thickest at 60% chord.
+## a 10° wedge thickest at 60% chord. Behind the 60% hinge from Zo 573 to 787 are the
+## rudder/speed brake's two halves (`_speedbrake`).
 static func _tail(g: Node3D, datum: float) -> void:
 	var M := CraftModel.M
-	var sect := func(zo: float) -> Vector2:
-		return Vector2(1278.0 + (zo - 500.0), 268.5 + (108.47 - 268.5) * (zo - 500.0) / 315.72)
-	var half := func(u: float, ch: float) -> float:
-		var T := 0.105 * ch
-		return T * 0.5 * pow(minf(u / 0.6, 1.0), 0.62) if u < 0.6 else T * 0.5 * maxf((1.0 - u) / 0.4, 0.0) + 0.15
-	var us := _cos_u(14, 0.0, 1.0)
-	var rows := []
+	var outward := func(c: Vector3) -> Vector3: return Vector3(c.x, 0.0, 0.0) if absf(c.x) > 1e-4 else Vector3.UP
 	var cap := []
-	for zo in [494.0, 500.0, 600.0, 700.0, 790.0, 815.72]:
-		var sc: Vector2 = sect.call(zo)
-		var ring := []
-		for k in range(us.size() - 1, -1, -1): ring.append(P(sc.x + us[k] * sc.y, half.call(us[k], sc.y), zo, datum))
-		for k in range(1, us.size()): ring.append(P(sc.x + us[k] * sc.y, -half.call(us[k], sc.y), zo, datum))
-		rows.append(ring)
-		cap = ring
-	g.add_child(grid(rows, M.white, func(c: Vector3): return Vector3(c.x, 0.0, 0.0) if absf(c.x) > 1e-4 else Vector3.UP))
+	for part in [[[494.0, 500.0, 540.0, RUDDER[0]], 1.0], [[RUDDER[0], 600.0, 640.0, 680.0, 720.0, 760.0, RUDDER[1]], RUDDER_U],
+			[[RUDDER[1], 790.0, 815.72], 1.0]]:
+		var us := _cos_u(14, 0.0, part[1])
+		var rows := []
+		for zo in part[0]:
+			var sc := _fin_section(zo)
+			var ring := []
+			for k in range(us.size() - 1, -1, -1): ring.append(P(sc.x + us[k] * sc.y, _fin_half(us[k], sc.y), zo, datum))
+			for k in range(1, us.size()): ring.append(P(sc.x + us[k] * sc.y, -_fin_half(us[k], sc.y), zo, datum))
+			rows.append(ring)
+		g.add_child(grid(rows, M.white, outward))
+		cap = rows[rows.size() - 1]
 	g.add_child(fan(cap, M.white, Vector3.BACK))
+	# The hinge's face, and the fin's own top and bottom over the panels.
+	var face := []
+	for zo in [RUDDER[0], 640.0, 720.0, RUDDER[1]]:
+		var sc := _fin_section(zo)
+		var h := _fin_half(RUDDER_U, sc.y)
+		face.append([P(sc.x + RUDDER_U * sc.y, h, zo, datum), P(sc.x + RUDDER_U * sc.y, -h, zo, datum)])
+	g.add_child(grid(face, M.soot, func(_c): return Vector3.DOWN))
+	for end in [[RUDDER[0], Vector3.BACK], [RUDDER[1], Vector3.FORWARD]]:
+		var sc := _fin_section(end[0])
+		var rows := []
+		for u in _cos_u(6, RUDDER_U, 1.0):
+			var h := _fin_half(u, sc.y)
+			rows.append([P(sc.x + u * sc.y, h, end[0], datum), P(sc.x + u * sc.y, -h, end[0], datum)])
+		g.add_child(grid(rows, M.white, func(_c): return end[1]))
 	var hs := CraftModel._mesh(CraftModel._box(24.0 * IN, 70.0 * IN, 34.0 * IN), M.white)
 	hs.position = P(1564.0, 0.0, 520.0, datum); g.add_child(hs)
+
+## The rudder/speed brake's two halves, split on the fin's chord plane, each turning
+## about the hinge line (up for the starboard half, down for the port), so a positive
+## angle opens either half outward. Fully open is 98.6° between them.
+static func _speedbrake(g: Node3D, datum: float, parts: Dictionary) -> void:
+	var M := CraftModel.M
+	var zs := [RUDDER[0], 600.0, 640.0, 680.0, 720.0, 760.0, RUDDER[1]]
+	var hinge := func(zo: float) -> Vector3:
+		var sc := _fin_section(zo)
+		return P(sc.x + RUDDER_U * sc.y, 0.0, zo, datum)
+	for sg in [-1.0, 1.0]:
+		var h0: Vector3 = hinge.call(RUDDER[0])
+		var mnt := _hinge_mount(h0, (hinge.call(RUDDER[1]) - h0) * sg, Vector3(sg, 0.0, 0.0))
+		var node := CraftModel._grp()
+		var inv := mnt.transform.affine_inverse()
+		var skin := func(rows: Array, up: Vector3) -> void:
+			var local := []
+			for r in rows: local.append(r.map(func(p): return inv * p))
+			node.add_child(grid(local, M.white, func(_c): return inv.basis * up))
+		var outer := []
+		var inner := []
+		for zo in zs:
+			var sc := _fin_section(zo)
+			var o := []
+			var i := []
+			for u in _cos_u(6, RUDDER_U, 1.0):
+				o.append(P(sc.x + u * sc.y, sg * _fin_half(u, sc.y), zo, datum))
+				i.append(P(sc.x + u * sc.y, 0.0, zo, datum))
+			outer.append(o); inner.append(i)
+		skin.call(outer, Vector3(sg, 0.0, 0.0))
+		skin.call(inner, Vector3(-sg, 0.0, 0.0))
+		var front := []
+		for k in zs.size(): front.append([outer[k][0], inner[k][0]])
+		skin.call(front, Vector3.UP)
+		var lo := []
+		var hi := []
+		for j in outer[0].size():
+			lo.append([outer[0][j], inner[0][j]])
+			hi.append([outer[zs.size() - 1][j], inner[zs.size() - 1][j]])
+		skin.call(lo, Vector3.FORWARD)
+		skin.call(hi, Vector3.BACK)
+		mnt.add_child(node); g.add_child(mnt)
+		parts.flaps.append(node)
 
 ## OMS pods on the aft fuselage's shoulders, with their engines at null position
 ## (15°49' up, 12°17' outboard).

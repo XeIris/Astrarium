@@ -1354,8 +1354,14 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var steer := clampf(gerr * 3.0, 0.0, 0.45) * (sg if sg != 0.0 else 1.0) * clampf(q_now / 2000.0, 0.0, 1.0)
 	var twist := [steer, -steer, steer * 0.6] if float(vessel.telemetry.get("vertical", 0.0)) < 0.0 else [0.0, 0.0, 0.0]
 	var flaps := [0.0, 0.0, 0.0, 0.0]
-	if autopilot != null and autopilot.program == "glide":
-		flaps = [float(autopilot.flap_cmd[0])]
+	# A lone orbiter: the body flap and elevons as glide left them, and the speed brake's
+	# halves each opening half its angle.
+	var orb = vessel._first_attached()
+	if orb != null and orb.spec.get("wings") != null and vessel._alone(orb):
+		var fc: Array = autopilot.flap_cmd if autopilot != null else [0.0, 0.0]
+		var e := float(fc[1])
+		var sb := vessel.speedbrake * deg_to_rad(98.6) * 0.5
+		flaps = [float(fc[0]), e, e, e, e, sb, sb]
 	if autopilot != null and autopilot.program == "bellyflop":
 		var fc: Array = autopilot.flap_cmd
 		flaps = [-float(fc[0]), float(fc[1]), -float(fc[2]), float(fc[3])]
@@ -1373,8 +1379,18 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		if not st.attached and cs != null and cs.sep == null and not cs.handed and cs.group.visible:
 			craft.separate(str(st.spec.key), {"mass": vessel.mass,
 				"support": -g_craft if vessel.phase == Vessel.PHASE.LANDED else Vector3.ZERO})
+	# The drag chute streams downstream of the vehicle, in the air it moves through.
+	var chute := {}
+	var rs: Vessel.Rollout = vessel.rolling
+	if rs != null and rs.chute_t >= 0.0:
+		var wind := vessel.airspeed(vessel.r, vessel.v, DVec3.new()).to_v3()
+		var st0 = vessel._first_attached()
+		chute[str(st0.spec.key) if st0 != null else ""] = {"t": rs.chute_t,
+			"gone": vessel.met - rs.chute_gone_met if rs.chute_gone else -1.0,
+			"dir": to_craft * -wind.normalized() if wind.length() > 1.0 else Vector3.DOWN, "gs": wind.length()}
 	craft.update({"dt": dt, "simDt": sim_seconds, "attached": attached, "deploy": deploy, "gear": gear,
-		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release})
+		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release,
+		"chute": chute})
 	_place_falls(east, up, north, float(env.radius))
 
 	# The light the plumes' smoke scatters: the sun where it reaches the

@@ -222,6 +222,28 @@ func payload_cover(craft) -> void:
 	craft.update(state)
 	expect(payload.deploy == 0.0, "Falcon reassembled studio kept payload panels deployed")
 
+## The orbiter's drag chute: packed inside its compartment, then out behind the vehicle
+## on its riser, reefed narrower than disreefed, and gone a while after the jettison.
+func drag_chute(craft) -> void:
+	var st = craft.stage("orbiter")
+	expect(st.parts.chutes.size() == 1, "orbiter has no drag chute")
+	if st.parts.chutes.is_empty(): return
+	var node: Node3D = st.parts.chutes[0]
+	var dc: Dictionary = st.spec.dragChute
+	var poses := {}
+	for t in [0.0, 4.0, 10.0]:
+		craft.update({"dt": 0.0, "chute": {"orbiter": {"t": t, "gone": -1.0, "dir": Vector3.DOWN, "gs": 30.0}} if t > 0.0 else {}})
+		poses[t] = CraftModel.measure(node)
+		poses[str(t)] = node.visible
+	expect(not poses["0.0"] and poses[0.0].size.length() < 1.0, "shuttle drag chute is not packed in its compartment")
+	expect(poses["10.0"] and poses[10.0].size.y > 30.0, "shuttle drag chute does not stream behind on its riser")
+	var full: float = poses[10.0].size.x
+	expect(absf(full - 0.7 * float(dc.D0)) < 0.5, "shuttle drag canopy is %.1f m across, not 0.7 of 40 ft" % full)
+	expect(absf(poses[4.0].size.x / full - sqrt(float(dc.reef))) < 0.05, "shuttle drag chute is not reefed at 4 s")
+	craft.update({"dt": 0.0, "chute": {"orbiter": {"t": 30.0, "gone": 5.0, "dir": Vector3.DOWN, "gs": 30.0}}})
+	expect(not node.visible, "shuttle drag chute still shown after its jettison")
+	craft.update({"dt": 0.0})
+
 func mesh_point(node: Node) -> Variant:
 	if node is MeshInstance3D and node.mesh != null:
 		return CraftModel.world_xform(node) * node.get_aabb().get_endpoint(7)
@@ -307,6 +329,7 @@ func run() -> void:
 		stage_handoffs(vehicle)
 		if id == "shuttle":
 			booster_pieces(craft)
+			drag_chute(craft)
 		if id == "falcon9":
 			payload_cover(craft)
 			var pivot: Node3D = craft.stages[0].parts.gimbals[0]
