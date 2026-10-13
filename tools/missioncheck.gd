@@ -34,6 +34,8 @@ func _ready() -> void:
 	]
 	if args.get("long", "0") == "1":
 		cases.append(["mars_orbit", "saturnv", {"mode": "orbit", "alt": 200000.0, "inc": 0.0}, "Mars", "orbit", false])
+	# check.py runs one case per process and compares this list with its own.
+	print("MISSION CHECK CASES %s" % ",".join(cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_home"]))
 	var only: Array = str(args.get("only", "")).split(",", false)
 	for c in cases:
 		if not only.is_empty() and not only.has(c[0]): continue

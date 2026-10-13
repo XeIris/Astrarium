@@ -179,10 +179,16 @@ other windows, but not minimized or on a hidden Space, so the fullscreen M5
 gates reject it. Select additional suites,
 for example `python3 tools/check.py fast native assets rendered lifecycle export`.
 The runner retains child logs and a JSON report, rejects errors, timeouts and
-missing completion markers, and stops on the first failure. Use `--godot` to
-select an engine and `--log-dir` to retain results at a chosen location.
+missing completion markers, and starts nothing new after the first failure.
+Use `--godot` to select an engine and `--log-dir` to retain results at a chosen location.
+`--jobs N` runs up to N independent checks at once (default: the performance-core
+count; `--jobs 1` runs them one after another). Each keeps its own log and timeout,
+the longest start first, and results print and enter the report in suite order.
+Nothing runs beside the `fast` import or any check in `perf`, `m5-*`,
+`stability*`, `lifecycle`, `export` and `clean`; other checks' logged timings
+are taken under concurrent load.
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
-`perf` need a working graphical renderer. `flight` runs the four full launches and the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit). `native` includes the numerical boundary checks.
+`perf` need a working graphical renderer. `flight` runs the four full launches, the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit) and the missions, one process per descent and per mission. `native` includes the numerical boundary checks.
 `stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
 three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
