@@ -16,10 +16,30 @@ stacked vehicles use.
   `C_L` 0.77, `C_D` 0.71, L/D 1.08 (the orbiter's measured hypersonic L/D is about
   1.0–1.1). At 20° it is L/D 1.9.
 - **Subsonic to supersonic**: a low-aspect-ratio delta. `C_L = k sin α cos α`, with
-  `k` from 2.3 (subsonic) to 1.6 (Mach 3), and a drag polar
+  `k` from 3.0 (subsonic) to 1.6 (Mach 3), and a drag polar
   `C_D = C_D0(M) + 0.2 C_L²` with `C_D0` 0.06 subsonic, rising through the transonic
-  drag rise. Maximum L/D is about 4.6 near 14°. The speed brake adds up to 0.09.
+  drag rise. Maximum L/D is about 4.6 near 11°.
 - Blended between Mach 2.5 and 6.
+
+The subsonic numbers are checked against the Approach and Landing Tests (ALT)
+flown without the tailcone [1]:
+
+- **Lift slope**: about 0.052 per degree, linear to 13°. That is where `k = 3.0`
+  comes from (k is the slope per radian).
+- **Drag polar**: the parabola agrees with the flight L/D within about 5% from
+  `C_L` 0.2 to 0.6. Maximum L/D was about 4.7, at `C_L` 0.45–0.5.
+- **Landing gear**: adds `ΔC_D` 0.020, the flight-derived value. The wind-tunnel
+  prediction was 0.027. The gear counts from the moment it is commanded down.
+- **Speed brake** (98.6° fully open): adds `ΔC_D = 0.00075 (δ − 20°)` past 20°,
+  and nothing below. This fits the Rockwell Aerodynamic Design Data Book curves
+  reproduced in NASA TM-81365 [2] (fig. 3, `C_L` 0.25–0.5): 0.003–0.006 at 25°,
+  0.021–0.026 at 55°, 0.050 at 87°. With 0.020 for the gear, deploying the gear
+  costs about as much as opening the brake a further 27°. JSC-23266 [3] gives
+  40° for the operational data.
+
+Ground effect is not modelled. In the ALT data it adds `ΔC_L` up to about 0.12,
+almost all of it below 20 ft of main-wheel height, with negligible effect on
+drag [1].
 
 The elevons give pitch authority in proportion to dynamic pressure.
 
@@ -109,7 +129,23 @@ The flight-path angle is steered with α, solved from the lift the path needs:
 
     a_n = g cos γ + v k (γ_ref − γ),   C_L = m a_n / (q S cos σ)
 
-The speed brake holds 290 KEAS. The flight-path reference is:
+The speed brake follows the Shuttle's autoland schedule [3, §2.5, §4.4]:
+
+- **Down to 3000 ft**: it holds 300 KEAS. The command is proportional to the EAS
+  error, about a trim that follows the error below 14,000 ft. The trim starts
+  from the design's 65°.
+- **At 3000 ft**: it is retracted to a value computed for the touchdown energy,
+  and held there. Touchdown energy is targeted at 195 KEAS, or 205 KEAS above
+  222,000 lb (100.7 t). The real logic sums I-loaded downrange sensitivities to
+  wind, weight, velocity error and density altitude. Here the rest of the
+  approach is flown in fast time, by the same laws, in still air
+  (`_touchdown_eas`), and the brake setting that lands at the target is found by
+  bisection. Limits are 15° (the linkage minimum) to 80°.
+- **At 500 ft**: one adjustment, recomputed the same way and limited to 50°.
+- **At touchdown**: no further change. The real brake goes full open at
+  weight-on-wheels for the rollout, which is not simulated.
+
+The flight-path reference is:
 
 - **TAEM**: −8°, steepening to −20° by 4 km.
 - **Outer glide slope**: −20°.
@@ -128,12 +164,40 @@ patch, which sits off the vessel's reference point once the stack has staged
 |---|---|---|
 | Deorbit burn | 62–68 m/s | ~90 m/s (lower perigee target) |
 | Roll reversals | 4–7, Mach 21 → 3 | typically 4 |
-| Max dynamic pressure | ~17 kPa, outer glide slope | ~14 kPa |
+| Max dynamic pressure | ~18 kPa near 33 km (Mach 5.5) | ~14 kPa |
 | TAEM interface | Mach 2.6, 25 km | Mach 2.5, ~25 km |
-| Outer glide slope | −20°, ~300 KEAS | −18 to −20°, ~290–300 KEAS |
-| Touchdown | ~1.3 m/s sink, ~235 kt | 1–3 ft/s, 195–215 kt |
+| Outer glide slope | −20°, 298–308 KEAS, brake 72–78° | −20° light, −18° heavy; 300 KEAS, brake ~65° mid-weight [3] |
+| Speed brake set at 3000 ft | 37–41° | 15–80° (computed) [3] |
+| Peak after the retract | 308 KEAS | ≈310 KEAS [3] |
+| 3000 ft → 500 ft | 16 s | ~16 s [3] |
+| 500 ft → touchdown | 19 s | ~23 s [3] |
+| Deceleration, gear down | ~5 KEAS/s | just over 4 KEAS/s [3] |
+| Touchdown | 1.1 m/s sink; 202–206 kt (107 t), 194 kt (99 t) | ~3 ft/s; 205 KEAS heavy, 195 light [3] |
+| Touchdown α | 12° | pitch < 14.6° (tail scrape) [3] |
 | Deorbit burn to touchdown | ~61 min | ~1 h |
 | Miss at the launch site | 0.6–2.2 km | (runway) |
 
 The miss is from 250–400 km circular and eccentric orbits, 28.5–51.6°, with up to
 1130 km of crossrange.
+
+The orbiter lands at 107 t, a heavyweight. The real one would have flown the −18°
+outer glide slope, which accounts for the brake trimming above 65° on −20°. The
+sim leaves the inner glide slope ~4 s sooner than the real one and decelerates
+faster on it. The extra drag comes from the flight-derived gear increment over a
+polar without ground effect, and STS flights did better than the ALT-era data on
+L/D. Over the shorter time the two give the same touchdown energy. The brake
+setting carries the difference.
+
+## Sources
+
+1. I. Hooks, D. Homan, P. Romere, "Aerodynamic Challenges of ALT", NASA JSC
+   (1985), NTRS 19850008602. Figs. 12–15: tailcone-off L/D, lift and
+   drag against α, ground effect, and the landing-gear increment.
+2. H. J. Walker, *Analytic Study of Orbiter Landing Profiles*, NASA TM-81365
+   (1981), NTRS 19820002128. Fig. 3: trimmed L/D against `C_L` for speed brake 0°,
+   25°, 55° and 87°, gear up and down, Mach 0.25 and 0.6, from the Rockwell ADDB.
+3. *Approach, Landing and Rollout Flight Procedures Handbook*, JSC-23266 Rev. B
+   (NASA JSC, May 2005). §2.5 and §4.4: the speed brake; §4.5: preflare, gear, inner
+   glide slope; §4.7: touchdown targets and constraints; App. B.2–B.4: outer
+   glide slope design, the ~310 KEAS peak after the retract, the IGS
+   deceleration, and ground effect.

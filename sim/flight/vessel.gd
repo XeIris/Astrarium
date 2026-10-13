@@ -489,7 +489,7 @@ func _alone(st) -> bool:
 func _winged_aero(st, qd: float, mach: float, va: float, fwd: DVec3, out: DVec3, m: float) -> float:
 	var S: float = st.spec.wings.area
 	var alpha := acos(DQuat.jclamp(fwd.dot(_vrel) / va, -1.0, 1.0))
-	var c := winged_coeffs(alpha, mach, speedbrake)
+	var c := winged_coeffs(alpha, mach, speedbrake, st.gear_out)
 	out.add_scaled_in(_vrel, -qd * c.y * S / (m * va))
 	# Lift: across the airstream, on the side the nose points (toward the orbiter's top
 	# when its belly is in the flow).
@@ -498,21 +498,42 @@ func _winged_aero(st, qd: float, mach: float, va: float, fwd: DVec3, out: DVec3,
 	return qd * c.y * S
 
 ## Lift and drag coefficients (x, y) of a Shuttle-like orbiter on its wing area, at
-## angle of attack `alpha` (rad), Mach and speed-brake fraction: hypersonic, a normal
-## force linear plus Newtonian in α (L/D 1.08 at 40°); slower, a low-aspect-ratio
-## delta's drag polar (L/D 4.6 subsonic); blended Mach 2.5–6
+## angle of attack `alpha` (rad), Mach, speed-brake fraction (of 98.6°) and gear:
+## hypersonic, a normal force linear plus Newtonian in α (L/D 1.08 at 40°); slower, a
+## low-aspect-ratio delta's drag polar (L/D 4.6 subsonic); blended Mach 2.5–6
 ## (docs/physics/orbiter-entry.md).
-static func winged_coeffs(alpha: float, mach: float, sb: float) -> Vector2:
+static func winged_coeffs(alpha: float, mach: float, sb: float, gear: bool = false) -> Vector2:
 	var a := clampf(alpha, 0.0, PI / 2.0)
 	var cn := 0.6 * sin(a) + 1.6 * sin(a) * sin(a)
 	var cl_h := cn * cos(a) - 0.05 * sin(a)
 	var cd_h := cn * sin(a) + 0.05 * cos(a)
 	var sup := smoothstep(1.0, 3.0, mach)
-	var cl_s := lerpf(2.3, 1.6, sup) * sin(a) * cos(a)
+	var cl_s := _winged_k(mach) * sin(a) * cos(a)
 	var cd0 := 0.06 + 0.08 * smoothstep(0.85, 1.2, mach) - 0.03 * smoothstep(1.5, 4.0, mach)
-	var cd_s := cd0 + 0.2 * (1.0 + 0.5 * sup) * cl_s * cl_s + 0.09 * clampf(sb, 0.0, 1.0)
+	# Speed brake: 0.00075 per degree past 20° (Rockwell ADDB via NASA TM-81365 fig. 3).
+	# Gear: 0.020, flight-derived in the Approach and Landing Tests.
+	var cd_s := cd0 + 0.2 * (1.0 + 0.5 * sup) * cl_s * cl_s + 0.074 * maxf(clampf(sb, 0.0, 1.0) - 0.2, 0.0) \
+		+ (0.02 if gear else 0.0)
 	var w := smoothstep(2.5, 6.0, mach)
 	return Vector2(lerpf(cl_s, cl_h, w), lerpf(cd_s, cd_h, w))
+
+## Subsonic-to-supersonic lift factor k in C_L = k sin α cos α: 3.0 (0.052/deg, the
+## Approach and Landing Tests' flight lift slope at Mach 0.4) to 1.6 by Mach 3.
+static func _winged_k(mach: float) -> float:
+	return lerpf(3.0, 1.6, smoothstep(1.0, 3.0, mach))
+
+## Angle of attack, rad, at which winged_coeffs gives lift coefficient `cl`, at most
+## 40°. Closed form up to Mach 2.5, where only the delta's lift acts; bisection above.
+static func winged_alpha(cl: float, mach: float) -> float:
+	if cl <= 0.0: return 0.0
+	if mach <= 2.5: return minf(0.5 * asin(minf(2.0 * cl / _winged_k(mach), 1.0)), deg_to_rad(40.0))
+	var lo := 0.0
+	var hi := deg_to_rad(40.0)
+	for i in 24:
+		var mid := 0.5 * (lo + hi)
+		if winged_coeffs(mid, mach, 0.0).x < cl: lo = mid
+		else: hi = mid
+	return 0.5 * (lo + hi)
 
 ## How far the landing gear's contact point is above the ground, m: the vessel's own
 ## altitude for anything without a `gear.point` (stage frame, m; the orbiter's main

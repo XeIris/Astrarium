@@ -150,6 +150,8 @@ func _orbiter_return() -> void:
 		_fail("orbiter_return", "%s (%s)" % [v.phase, v.failure])
 	elif reversals < 2 or not v.stages[2].gear_out:
 		_fail("orbiter_return", "%d roll reversals, gear %s" % [reversals, "down" if v.stages[2].gear_out else "up"])
+	elif not _touchdown_speed_ok(v):
+		_fail("orbiter_return", "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
 	else:
 		print("MISSION orbiter_return ok — touchdown %s m/s sink, %s m/s ground speed, %d reversals, %d frames" % [
 			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), reversals, frames])
@@ -191,10 +193,17 @@ func _orbiter_home() -> void:
 		_fail("orbiter_home", "%s (%s), %s km from the pad" % [v.phase, v.failure, U.fixed(miss, 1)])
 	elif miss > 10.0:
 		_fail("orbiter_home", "landed %s km from the pad" % U.fixed(miss, 1))
+	elif not _touchdown_speed_ok(v):
+		_fail("orbiter_home", "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
 	else:
-		print("MISSION orbiter_home ok — touchdown %s km from the pad, %s m/s sink, %d frames" % [
-			U.fixed(miss, 2), U.fixed(absf(float(v.landed_at.vVert)), 2), frames])
+		print("MISSION orbiter_home ok — touchdown %s km from the pad, %s m/s sink, %s m/s ground speed, %d frames" % [
+			U.fixed(miss, 2), U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), frames])
 	main.end_flight()
+
+## Inside the flown touchdown range, 195–215 kt, in still air at sea level.
+func _touchdown_speed_ok(v: Vessel) -> bool:
+	var kt := float(v.landed_at.vHoriz) / 0.514444
+	return kt >= 195.0 and kt <= 215.0
 
 func _fail(id: String, why: String) -> void:
 	failures += 1

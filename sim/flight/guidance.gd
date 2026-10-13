@@ -1051,7 +1051,18 @@ class Autopilot extends RefCounted:
 	const ENTRY_Q_MAX := 14000.0        # Pa the drag reference may ask for, ~the Shuttle's
 	const OUTER_GS := -20.0 * PI / 180.0
 	const INNER_GS := -1.5 * PI / 180.0
-	const EAS_REF := 150.0              # m/s, 290 KEAS down the outer glide slope
+	const EAS_REF := 154.3              # m/s, 300 KEAS down the outer glide slope
+	# Speed brake on the approach (JSC-23266 §4.4): held to EAS_REF below 14,000 ft, set at
+	# 3000 ft for the touchdown energy, adjusted at 500 ft; 15° to 80°, 50° after 500 ft.
+	const SB_EAS_ALT := 4267.0
+	const SB_RETRACT_ALT := 914.4
+	const SB_ADJUST_ALT := 152.4
+	const SB_MIN := 15.0 / 98.6
+	const SB_MAX_HI := 80.0 / 98.6
+	const SB_MAX_LO := 50.0 / 98.6
+	const SB_TRIM := 65.0 / 98.6        # the outer glide slope's design trim
+	const HEAVY_KG := 100698.0          # 222,000 lb: lands at 205 KEAS above, 195 below
+	const KT := 0.514444
 	const V_TAEM := 760.0               # m/s air speed, the TAEM interface (about Mach 2.5)
 	const TAEM_ALT := 26000.0           # m, where the entry nominally hands over to TAEM
 	const PREFLARE_ALT := 600.0
@@ -1066,6 +1077,9 @@ class Autopilot extends RefCounted:
 	var _bank_sign := 1.0
 	var _s_side := 0.0                  # which way TAEM turns off the line to the site
 	var _drag_f := 0.0
+	var _sb_trim := SB_TRIM
+	var _sb_set := -1.0                 # the speed brake held from 3000 ft; <0 not yet set
+	var _sb_adjusted := false
 	var _ref_set := false
 	var _ref_n := DVec3.new()
 	var _p := DVec3.new()
@@ -1077,18 +1091,6 @@ class Autopilot extends RefCounted:
 	var _pn := DVec3.new()
 	var _pf := DVec3.new()
 	var _ps := DVec3.new()
-
-	## Angle of attack (rad) that gives lift coefficient `cl` at this Mach and speed
-	## brake, by bisection: winged_coeffs' C_L rises monotonically to 45°.
-	func _alpha_for(cl: float, mach: float, sb: float) -> float:
-		var lo := 0.0
-		var hi := deg_to_rad(40.0)
-		if cl <= 0.0: return 0.0
-		for i in 24:
-			var mid := 0.5 * (lo + hi)
-			if Vessel.winged_coeffs(mid, mach, sb).x < cl: lo = mid
-			else: hi = mid
-		return 0.5 * (lo + hi)
 
 	## The angle of attack of best L/D at this Mach and speed brake, rad.
 	func _alpha_best(mach: float, sb: float) -> float:
@@ -1134,6 +1136,50 @@ class Autopilot extends RefCounted:
 		for i in 40:
 			x += dh / tan(-_glide_gamma(PREFLARE_ALT + (i + 0.5) * dh))
 		return x
+
+	## Normal acceleration, m/s², that steers the flight-path angle γ toward `gref`; below
+	## the preflare toward the pull-up onto the inner glide slope, and below 30 m no
+	## steeper than the flare's sink rate.
+	func _approach_an(h: float, va: float, gam: float, gref: float, g: float) -> float:
+		if h < PREFLARE_ALT: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0) / 560.0, 0.0, 1.0)))
+		if h < 30.0: gref = maxf(gref, -asin(clampf((0.9 + 0.11 * maxf(h, 0.0)) / maxf(va, 1.0), 0.0, 1.0)))
+		var k := 0.8 if h < PREFLARE_ALT else 0.5
+		return clampf(g * cos(gam) + va * k * (gref - gam), 0.2 * g, 1.6 * g)
+
+	## Equivalent air speed, m/s, at touchdown from height h (m), air speed va and
+	## flight-path angle gam with the speed brake held at `sb`: the rest of the approach
+	## flown by _approach_an, wings level in still air, gear down at 90 m.
+	func _touchdown_eas(h: float, va: float, gam: float, sb: float, g: float) -> float:
+		var atm = v.env.atm
+		var S: float = v._first_attached().spec.wings.area
+		var dt := 0.1
+		var rho := 0.0
+		for i in 1500:
+			rho = Rocketry.density(atm, maxf(h, 0.0))
+			var q := 0.5 * rho * va * va
+			var mach := va / Rocketry.speed_of_sound(atm, maxf(h, 0.0))
+			var a_n := _approach_an(h, va, gam, OUTER_GS, g)
+			var cd := Vessel.winged_coeffs(Vessel.winged_alpha(v.mass * a_n / maxf(q * S, 1.0), mach), mach, sb, h < 90.0).y
+			va = maxf(va - (q * cd * S / v.mass + g * sin(gam)) * dt, 1.0)
+			gam += (a_n - g * cos(gam)) / va * dt
+			h += va * sin(gam) * dt
+			if h <= 0.0: break
+		return va * sqrt(rho / 1.225)
+
+	## The speed brake, 0..1, to hold from height h to touchdown for the targeted
+	## touchdown energy, between SB_MIN and `sb_max`. Touchdown speed falls as the
+	## brake opens.
+	func _sb_retract(h: float, va: float, gam: float, g: float, sb_max: float) -> float:
+		var target := (205.0 if v.mass > HEAVY_KG else 195.0) * KT
+		var lo := SB_MIN
+		var hi := sb_max
+		if _touchdown_eas(h, va, gam, lo, g) <= target: return lo
+		if _touchdown_eas(h, va, gam, hi, g) >= target: return hi
+		for i in 12:
+			var mid := 0.5 * (lo + hi)
+			if _touchdown_eas(h, va, gam, mid, g) > target: lo = mid
+			else: hi = mid
+		return 0.5 * (lo + hi)
 
 	## Ground range, m, from entry interface at air speed `va` to touchdown.
 	func _entry_range(va: float) -> float:
@@ -1246,6 +1292,9 @@ class Autopilot extends RefCounted:
 				_bank_sign = 0.0
 				_ref_set = false
 				_drag_f = 0.0
+				_sb_trim = SB_TRIM
+				_sb_set = -1.0
+				_sb_adjusted = false
 				note("Entry — 40° nose up, %s km, %s m/s" % [U.fixed(alt / 1000.0, 0), U.fixed(va, 0)])
 		if state_name == "deorbit":
 			if node == null and site != null:
@@ -1377,7 +1426,8 @@ class Autopilot extends RefCounted:
 				"" if site == null else ", %s km to go, drag %s/%s" % [U.fixed(togo / 1000.0, 0), U.fixed(_drag_f, 1), U.fixed(d_ref, 1)]])
 		else:
 			# TAEM and approach: the flight-path angle steered with α and the speed with the
-			# speed brake. Outer glide slope −20°; preflare from 600 m (2000 ft), a pull-up of
+			# speed brake, which is set at 3000 ft for the touchdown energy and held there.
+			# Outer glide slope −20°; preflare from 600 m (2000 ft), a pull-up of
 			# at most 1.6 g onto the −1.5° inner slope by 40 m; gear at 90 m (300 ft); flare to
 			# about a metre a second (3 ft/s).
 			var h := v.contact_altitude()
@@ -1403,14 +1453,21 @@ class Autopilot extends RefCounted:
 				var sig := clampf(-1.5 * (psi - off * _s_side), -lim, lim)
 				bank = absf(sig)
 				_bank_sign = 1.0 if sig >= 0.0 else -1.0
-			if h < PREFLARE_ALT: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0) / 560.0, 0.0, 1.0)))
-			var sink := 0.9 + 0.11 * maxf(h, 0.0)
-			if h < 30.0: gref = maxf(gref, -asin(clampf(sink / maxf(va, 1.0), 0.0, 1.0)))
-			var k := 0.8 if h < PREFLARE_ALT else 0.5
-			var a_n := clampf(g * cos(gam) + va * k * (gref - gam), 0.2 * g, 1.6 * g)
+			var a_n := _approach_an(h, va, gam, gref, g)
 			var eas := sqrt(2.0 * q / 1.225)
-			v.speedbrake = clampf(0.3 + 3.0 * (eas - EAS_REF) / EAS_REF, 0.0, 1.0) if h > PREFLARE_ALT else 0.0
-			aoa = minf(_alpha_for(v.mass * a_n / maxf(q * S * cos(bank), 1.0), mach, v.speedbrake), a_cap)
+			if h > SB_RETRACT_ALT:
+				# Proportional to the EAS error, about a trim that follows it below 14,000 ft.
+				var e := (eas - EAS_REF) / EAS_REF
+				if h < SB_EAS_ALT: _sb_trim = clampf(_sb_trim + 0.15 * e * dt, 0.0, 1.0)
+				v.speedbrake = clampf(_sb_trim + 3.0 * e, 0.0, 1.0)
+			elif _sb_set < 0.0 or (h < SB_ADJUST_ALT and not _sb_adjusted):
+				var first := _sb_set < 0.0
+				_sb_adjusted = not first
+				_sb_set = _sb_retract(h, va, gam, g, SB_MAX_HI if first else SB_MAX_LO)
+				v.speedbrake = _sb_set
+				note("Speed brake %s — %s m, %s°, for %s KEAS" % ["set" if first else "adjusted", U.fixed(h, 0),
+					U.fixed(_sb_set * 98.6, 0), "205" if v.mass > HEAVY_KG else "195"])
+			aoa = minf(Vessel.winged_alpha(v.mass * a_n / maxf(q * S * cos(bank), 1.0), mach), a_cap)
 			flap_cmd = [0.1, 0.0, 0.0, 0.0]
 			if h < 90.0 and not st.gear_out:
 				st.gear_out = true
@@ -1421,8 +1478,8 @@ class Autopilot extends RefCounted:
 			elif state_name == "taem" and h < 4000.0:
 				state_name = "approach"
 				note("Outer glide slope — %s m, %s KEAS" % [U.fixed(h, 0), U.fixed(eas * 1.944, 0)])
-			say("%s — %s m, %s KEAS, γ %s°, α %s°%s" % [("Approach" if state_name != "taem" else "TAEM"),
-				U.fixed(h, 0), U.fixed(eas * 1.944, 0), U.fixed(rad_to_deg(gam), 1), U.fixed(rad_to_deg(aoa), 1),
+			say("%s — %s m, %s KEAS, γ %s°, α %s°, speed brake %s°%s" % [("Approach" if state_name != "taem" else "TAEM"),
+				U.fixed(h, 0), U.fixed(eas * 1.944, 0), U.fixed(rad_to_deg(gam), 1), U.fixed(rad_to_deg(aoa), 1), U.fixed(v.speedbrake * 98.6, 0),
 				"" if site == null else ", %s km to go" % U.fixed(togo / 1000.0, 1)])
 		# Lift turned about the velocity by the bank; the nose α above it in that plane, and
 		# the belly into the flow (signed roll: tiles, not the payload bay doors).
