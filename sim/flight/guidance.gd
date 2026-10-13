@@ -106,6 +106,9 @@ class Autopilot extends RefCounted:
 	var _integ: float = 0.0
 	var _pitch_cmd = null        # the last commanded ascent pitch, rad (see _rate_limit_pitch)
 	var _meco_met: float = -1.0  # when the ascent cut off (for a tank dropped after MECO)
+	var _dve_prev := 0.0         # the cutoff speed still missing, when, and its closing rate
+	var _dve_met := -1.0
+	var _dve_rate := 0.0
 	var _pitch_met: float = 0.0
 	var _last_note = null
 	var _node_ref = null
@@ -254,6 +257,18 @@ class Autopilot extends RefCounted:
 		var h_ins: float = minf(A.targetApo, env.atm.top * 0.8) if env.atm != null else A.targetApo
 		var r_a: float = env.radius + A.targetApo
 		var v_ins: float = _perigee_speed(env, h_ins, r_a)
+		# A tank dropped at cutoff has to come down (`disposalPerigee`): cut off at h_ins
+		# past the perigee of a lower ellipse, still climbing at that ellipse's rate. The
+		# burn ends when the energy is there, so T_go is from the speed still missing.
+		var hdot_f := 0.0
+		var dv_e := -1.0
+		var r_p := _disposal_perigee(env)
+		if r_p > 0.0 and r_p < env.radius + h_ins:
+			var r_c: float = env.radius + h_ins
+			var v2: float = env.mu * (2.0 / r_c - 2.0 / (r_a + r_p))
+			v_ins = sqrt(2.0 * env.mu * r_a * r_p / (r_a + r_p)) / r_c
+			hdot_f = sqrt(maxf(v2 - v_ins * v_ins, 0.0))
+			dv_e = sqrt(env.mu * (2.0 / v.r.length() - 2.0 / (r_a + r_p))) - v.v.length()
 		# With a fairing on, raise the insertion perigee until the Sutton–Graves flux there
 		# is under its jettison limit (why a Falcon 9's second stage lofts).
 		var q_lim := _fairing_heat_limit()
@@ -263,9 +278,19 @@ class Autopilot extends RefCounted:
 					v_ins * air_frac, v.diameter * 0.25) > q_lim:
 				h_ins = minf(h_ins + 2000.0, A.targetApo)
 				v_ins = _perigee_speed(env, h_ins, r_a)
-		var dv_h: float = maxf(v_ins - v_horiz, 0.0)
+		var dv_h: float = maxf(v_ins - v_horiz, 0.0) if dv_e < 0.0 else dv_e
 		var T_go: float = DQuat.jclamp(Rocketry.burn_time_for(dv_h, v.mass, full_thrust(pa), current_isp(pa)), 20.0, 900.0)
-		var a_v: float = 6.0 * (h_ins - alt) / (T_go * T_go) - 4.0 * v_vert / T_go
+		if dv_e >= 0.0:
+			# Aiming at a climb rate needs the real time to cutoff: the g limit and the
+			# pitch slow the speed gain, so T_go is the missing speed over its measured rate.
+			if _dve_met >= 0.0 and v.met > _dve_met:
+				var rate := (_dve_prev - dv_e) / (v.met - _dve_met)
+				_dve_rate = rate if _dve_rate <= 0.0 else lerpf(_dve_rate, rate, 0.1)
+			_dve_prev = dv_e; _dve_met = v.met
+			if _dve_rate > 0.0: T_go = DQuat.jclamp(dv_e / _dve_rate, 1.0, 900.0)
+		var a_v: float = 6.0 * (h_ins - alt) / (T_go * T_go) - (4.0 * v_vert + 2.0 * hdot_f) / T_go
+		# In the last seconds 1/T_go² would take over: steer the climb rate alone.
+		if dv_e >= 0.0 and T_go < 10.0: a_v = (hdot_f - v_vert) / maxf(T_go, 2.0)
 		# Thrust holds the vehicle up (g), less what horizontal speed already supplies
 		# (v²/R), plus guidance. At orbital speed the pitch goes to zero by itself.
 		var a_vert: float = g_loc - (v_horiz * v_horiz) / R + a_v
@@ -284,6 +309,13 @@ class Autopilot extends RefCounted:
 		DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 		_ascent_roll(Guidance._a, heading)
 		return Guidance._a
+
+	## The perigee radius a still-attached tank must be left on, m, or 0.
+	func _disposal_perigee(env: Dictionary) -> float:
+		for st in v.stages:
+			if st.attached and st.spec.get("disposalPerigee") != null:
+				return env.radius + float(st.spec.disposalPerigee)
+		return 0.0
 
 	## The speed at perigee altitude `h` of an orbit whose apoapsis radius is r_a.
 	func _perigee_speed(env: Dictionary, h: float, r_a: float) -> float:

@@ -26,7 +26,9 @@ to the procedural builds too.
   of the velocity vector. Check the staging state, not the final orbit: a Saturn
   V should stage near AS-506's (67 km, 2.4 km/s, 21°).
 - Above the air, explicit guidance (a_v = 6Δh/T² − 4ḣ/T, T_go from the rocket
-  equation) aims at a low perigee cutoff, then circularizes. Regression: all four
+  equation) aims at a low perigee cutoff, then circularizes. A tank that must come
+  down (`disposalPerigee`) is left on a lower ellipse: the law aims at that ellipse's
+  climb rate too ([stage-separation.md](../../docs/physics/stage-separation.md#where-the-tank-goes)). Regression: all four
   launchers in orbit within the target gates in `tools/sharedflightcheck.gd`.
   The legacy `flightref.mjs` comparison supplements this production-driver check.
 - Descents share one `descent_law`, and every powered phase shares one
@@ -62,6 +64,14 @@ to the procedural builds too.
   [stage-separation.md](../../docs/physics/stage-separation.md). Display only: the
   vessel has already shed the stage's mass. Regression: `stage_separations` and
   `booster_pieces` in `tools/assetcheck.gd`.
+- A stage with a fate (`look.fall`) is handed on by `Craft.update`'s `release` once
+  Separation's pushes are over: each piece becomes a `Fall` (`fall.gd`), a ballistic
+  body in the vessel's frame with drag against the turning air and its recovery
+  events (chutes, a part shed, splashdown) or breakup. It never acts on the vessel.
+  Spaceflight draws it in the local frame and can follow it (`follow`, key B); the
+  local frame then sits under the piece. Regression: `shuttle_fates` in
+  `tools/missioncheck.tscn`
+  ([srb-separation.md](../../docs/physics/srb-separation.md#recovery)).
 
 ## Vessel (`vessel.gd`)
 

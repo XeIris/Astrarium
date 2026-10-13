@@ -88,6 +88,21 @@ static func start(spec: Dictionary, group: Node3D, nodes: Array, frame: Basis, c
 		"mass": float(spec.dry) / maxf(float(nodes.size()), 1.0),
 		"stack_a": float(stack.thrust) / maxf(float(ctx.get("mass", 0.0)), 1.0) if stack != null else 0.0}
 
+## Seconds after separation when everything this model adds is over (the motors' burn,
+## the stack's own push, the spin-up), so a stage with a fate (`look.fall`) can be handed
+## on to Fall. Past this the pieces only coast, which Fall flies in absolute terms.
+static func handoff_time(s: Dictionary) -> float:
+	var sep: Dictionary = s.sep
+	var t := float(sep.get("spinUp", 3.0)) if sep.has("rates") else 0.0
+	var m = s.motors
+	if m != null:
+		t = maxf(t, float(m.get("ignite", 0.0)) + float(m.web) + float(m.get("tail", 0.0)))
+	var stack = sep.get("stack")
+	if stack != null:
+		var dur := float(stack.time) if stack.has("time") else float(stack.dv) / maxf(float(s.stack_a), 1e-6)
+		t = maxf(t, float(stack.get("start", 0.0)) + dur)
+	return t
+
 ## Advance by `dt` s. `basis` is the craft's attitude now and `accel` the stack's
 ## non-gravitational acceleration, craft frame, m/s². Returns false once done.
 static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool:

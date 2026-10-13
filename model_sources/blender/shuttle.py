@@ -1083,10 +1083,14 @@ def build_srb(M, root):
         finish(tun, 0.015, 2, 40)
 
         # Forward skirt, frustum and nose cap. The frustum carries the drogue and
-        # main parachutes and comes off separately.
+        # main parachutes and comes off separately, as does the cap before it, so
+        # each is a node of its own (`frustum_srb_i`, `nosecap_srb_i`).
         fs = cyl(f'fwdskirt{side}', r, r, y(532.0), y(402.0), M['white'], seg=48, parent=b)
+        i = 0 if side < 0 else 1
+        fn = empty(f'frustum_srb_{i}', (0, 0, 0), b)
+        cn = empty(f'nosecap_srb_{i}', (0, 0, 0), b)
         r_fr = 54.0 * IN
-        fr = cyl(f'frustum{side}', r, r_fr, y(402.0), y(326.0), M['white'], seg=48, parent=b)
+        fr = cyl(f'frustum{side}', r, r_fr, y(402.0), y(326.0), M['white'], seg=48, parent=fn)
         finish(fr, 0.02, 2, 45)
         # Separation motors: four in the frustum and four on the aft skirt, all on the
         # side facing the tank. They fire forward, inboard and toward the orbiter at 40°
@@ -1099,11 +1103,11 @@ def build_srb(M, root):
             ar = r - (r - r_fr) * (402.0 - 390.0) / 76.0
             a = az + (k % 2 - 0.5) * 0.18
             port(f'bsm_fwd{side}{k}', Vector((cos(a) * ar, sin(a) * ar, y(390.0) + (k // 2 - 0.5) * 0.32)),
-                 ex, 0.09, 0.15, M['black'], b)
+                 ex, 0.09, 0.15, M['black'], fn)
             sr = r + (106.0 * IN - r) * (1884.5 - 1819.0) / 139.0
             a = az + (k - 1.5) * 0.1355
             port(f'bsm_aft{side}{k}', Vector((cos(a) * sr, sin(a) * sr, y(1884.5))), ex, 0.09, 0.15, M['black'], b)
-        cap = ogive(f'cap{side}', y(200.0) - y(326.0), r_fr * 2, M['white'], seg=48, parent=b, z0=y(326.0))
+        cap = ogive(f'cap{side}', y(200.0) - y(326.0), r_fr * 2, M['white'], seg=48, parent=cn, z0=y(326.0))
         finish(cap, 0.02, 2, 45)
         # The forward attach fitting on the skirt: the booster's thrust goes into the
         # tank's intertank here, not at the aft struts.

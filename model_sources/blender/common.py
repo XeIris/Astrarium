@@ -72,7 +72,7 @@ def build_materials():
 # `gimbal_0.001`, and the second would never be found. `gimbal_sic_0` cannot
 # collide, and sorting by name keeps the bind order deterministic.
 # `chopstick_` is a pad's catch arm (launchpads.py), driven by launchsite.gd.
-NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'chopstick_')
+NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chopstick_')
 
 
 def is_node(ob):
@@ -289,7 +289,8 @@ def validate_vehicle(label):
     if set(stages) != set(specs):
         raise ValueError(f'{label}: stage roots disagree with runtime catalogue')
     prefixes = {'gimbals': 'gimbal', 'legs': 'leg', 'fins': 'fin',
-                'arrays': 'array', 'flaps': 'flap', 'halves': 'half', 'doors': 'door', 'pieces': 'piece'}
+                'arrays': 'array', 'flaps': 'flap', 'halves': 'half', 'doors': 'door', 'pieces': 'piece',
+                'nosecaps': 'nosecap', 'frustums': 'frustum'}
     for key, spec in specs.items():
         root = stages[key]
         descendants = root.children_recursive

@@ -236,7 +236,7 @@ static func _build_vehicles() -> Dictionary:
 			stage({ "key": "srb", "name": "SRB pair", "dry": 172000.0, "prop": 1004000.0,
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,
 				# A solid cannot be throttled or shut down. Once lit, it burns out.
-				"look": { "skin": "white", "srb": true, "chutes": 3, "mount": { "y": 1.1 }, "pieces": 2,
+				"look": { "skin": "white", "srb": true, "mount": { "y": 1.1 }, "pieces": 2,
 					# Separation motors, four forward and four aft per booster (TM X-64967;
 					# docs/physics/srb-separation.md): thrust per cluster of four, s timing; the
 					# resultant is 40° off the axis and 20° off the inboard line toward the orbiter,
@@ -247,20 +247,43 @@ static func _build_vehicles() -> Dictionary:
 					# deg/s 3 s after separation.
 					"sep": { "motors": { "thrust": 332.1e3, "ignite": 0.09, "web": 0.75, "tail": 0.107,
 							"cant": 40.0, "sites": [[40.67, 1.78, 160.0], [2.71, 2.25, 160.0]], "exitD": 0.65 },
-						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] } } } }),
+						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] } },
+					# Recovery (Fall; docs/physics/srb-separation.md#recovery). Baroswitch
+					# altitudes, m, from KSC FS-2004-07-012's timeline; `at` the attach height
+					# on the booster, m (XB 326 frustum top, XB 402 forward skirt). Drag areas,
+					# m², from flown states: the drogue from STS-1–3 at main deployment
+					# (TM-82490), the 136 ft mains from their 75 ft/s nominal impact (Bacchus
+					# 1985). Reefing [s after deployment, fraction of full drag area]: the
+					# drogue's 60/80% and the drop-test disreef times (Bacchus fig. 3, fig. 16);
+					# the mains' 20/40% are Ares I's, built like the SRB's (Schmidt 2009).
+					# `reach` to the canopy apex: 250 ft for the mains (TM-82490), the others
+					# scaled by diameter. `float` the forward end's height afloat (KSC).
+					"fall": { "name": "booster", "noseCap": { "alt": 4877.0, "mass": 230.0 },
+						"drogue": { "delay": 1.0, "CdA": 118.0, "D": 16.46, "reach": 30.2, "at": 42.30,
+							"reef": [[0.0, 0.6], [6.86, 0.8], [11.86, 1.0]], "pilot": 3.51 },
+						"frustum": { "alt": 1966.0, "mass": 2400.0 },
+						"mains": { "count": 3, "delay": 2.33, "CdA": 2360.0, "D": 41.45, "reach": 76.2, "at": 40.37,
+							"spread": 13.3, "reef": [[0.0, 0.2], [9.65, 0.4], [16.65, 1.0]] },
+						"float": 9.14 } } }),
 			stage({ "key": "et", "name": "External Tank + SSME", "dry": 26500.0, "prop": 719000.0,
 				"engine": E.RS25, "count": 3, "L": 46.9, "D": 8.40,
 				# The SSMEs light with the solids and burn six minutes past them (`liftoff`).
 				"liftoff": true, "engineOn": "orbiter",
 				# The SSMEs can't relight, so the tank drops 18 s after MECO and OMS inserts at apogee.
 				"sepAfterCutoff": 18.0,
+				# MECO leaves the perigee in the air so the tank re-enters: STS-31 cut off on
+				# 330 × 48 nmi (its mission report), and OMS-2 raised the perigee.
+				"disposalPerigee": 88.9e3,
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 800.0, "count": 44 },
 				# Its aft dome is 365 in above the solids' nozzle exits (XS 2169 vs 2534).
 				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.379 },
 					# At separation the orbiter translates −Z (+Z here, out of the bay) on four
 					# forward and six aft down-firing 3.87 kN jets until it has 4 ft/s
 					# (JSC-10559 §2.6.1.3, §4.3.1.12). Nothing else pushes the tank.
-					"sep": { "stack": { "thrust": 38.7e3, "dir": [0.0, 0.0, 1.0], "dv": 1.219 } } } }),
+					"sep": { "stack": { "thrust": 38.7e3, "dir": [0.0, 0.0, 1.0], "dv": 1.219 } },
+					# On through entry (Fall): STS-31's tank tumbled at 8.6–8.8°/s in the air and
+					# ruptured at 247,935 ft (Snyder & Pitts 1992; Maley's observation).
+					"fall": { "name": "External Tank", "tumble": 8.7, "breakup": 75570.0 } } }),
 			stage({ "key": "orbiter", "name": "Orbiter + payload", "dry": 99000.0, "prop": 10800.0,
 				"engine": E.SPS, "count": 2, "L": 37.24, "D": 5.6, "sep": "none",
 				"wings": { "span": 23.8, "area": 250.0, "clMax": 1.4 },

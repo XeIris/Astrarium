@@ -612,6 +612,65 @@ static func beam(p1: Vector3, p2: Vector3, r: float, material: Material = null, 
 	b.quaternion = quat_from_unit_vectors(Vector3(0, 1, 0), (p2 - p1).normalized())
 	return b
 
+## A ribbon parachute rigged along +Y from its attach point (the origin): riser,
+## suspension lines and an inflated canopy whose apex is `reach` m out. `D0` is the
+## nominal diameter, m. Fall scales x and z with how far it is open. The inflated
+## diameter (0.67 D0), canopy depth, line length (D0), 24 gores and the ribbons' gaps
+## are drawn proportions, not data.
+static func parachute(D0: float, reach: float) -> Node3D:
+	var cloth := _mat("nylon", 0xeeeae0, 0.9, 0.0)
+	var cord := _mat("cord", 0xcfc8b8, 0.95, 0.0)
+	var g := _grp()
+	var rp := 0.335 * D0
+	var hc := 0.9 * rp
+	var y_skirt := reach - hc
+	var y_conf := maxf(y_skirt - sqrt(maxf(D0 * D0 - rp * rp, 0.0)), reach * 0.15)
+	const GORES := 24
+	const SUB := 3
+	const BANDS := 10
+	var canopy := Geo.new()
+	var cols := GORES * SUB
+	for band in BANDS:
+		# Each ribbon covers 80% of its band; the gaps are the canopy's porosity.
+		var s0 := float(band) / BANDS * 0.94
+		var s1 := s0 + 0.8 / BANDS * 0.94
+		var base := canopy.pos.size()
+		for s: float in [s0, s1]:
+			var phi := s * PI / 2.0
+			for c in cols + 1:
+				var a := TAU * float(c) / cols
+				# The cloth bulges between the radials.
+				var r := rp * cos(phi) * (1.0 + 0.05 * sin(PI * float(c % SUB) / SUB))
+				canopy.pos.append(Vector3(r * cos(a), y_skirt + hc * sin(phi), r * sin(a)))
+				canopy.nrm.append(Vector3.ZERO)
+		for c in cols:
+			var a0 := base + c
+			var b0 := base + cols + 1 + c
+			canopy.idx.append_array([a0, b0, a0 + 1, a0 + 1, b0, b0 + 1])
+	_compute_normals(canopy)
+	g.add_child(_mesh(canopy, cloth))
+	var lines := Geo.new()
+	var w := maxf(0.05, D0 * 0.0025)
+	var conf := Vector3(0.0, y_conf, 0.0)
+	var cords := [[Vector3.ZERO, conf, w * 3.0]]
+	for k in GORES:
+		var a := TAU * float(k) / GORES
+		cords.append([conf, Vector3(rp * cos(a), y_skirt, rp * sin(a)), w])
+	for cd: Array in cords:
+		var p0: Vector3 = cd[0]
+		var p1: Vector3 = cd[1]
+		var ax := (p1 - p0).normalized()
+		var side := ax.cross(Vector3(1, 0, 0) if absf(ax.x) < 0.9 else Vector3(0, 0, 1)).normalized()
+		# Two crossed ribbons, so a line reads from any side.
+		for d: Vector3 in [side, ax.cross(side)]:
+			var o: Vector3 = d * (float(cd[2]) * 0.5)
+			var i0 := lines.pos.size()
+			lines.pos.append_array([p0 - o, p0 + o, p1 - o, p1 + o])
+			for n in 4: lines.nrm.append(d.cross(ax))
+			lines.idx.append_array([i0, i0 + 1, i0 + 2, i0 + 1, i0 + 3, i0 + 2])
+	g.add_child(_mesh(lines, cord))
+	return g
+
 ## A landing leg: primary strut, two secondaries splayed in ±Z, footpad at -len,
 ## optional contact probe. The caller sets the deployment angle.
 static func landing_leg(len: float, foot_r: float, probe := 0.0) -> Node3D:
@@ -844,7 +903,7 @@ static func lattice(h: float, w_bot: float, w_top: float, material: Material) ->
 
 # STAGE BUILDERS — one per `look` flavour
 static func _new_parts() -> Dictionary:
-	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nozzles": []}
+	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nosecaps": [], "frustums": [], "nozzles": []}
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	var built := _build_stage(spec, ctx)
@@ -1935,6 +1994,8 @@ class CraftStage extends RefCounted:
 	var gear := 0.0
 	## null, or Separation.start's state while a separated stage leaves.
 	var sep = null
+	## Its pieces were handed on to Fall (`update`'s `release`): no longer the craft's.
+	var handed := false
 
 ## A built vehicle: `group` (root), `stages` (CraftStage, bottom to top),
 ## `height` (measured, m), `authored` (any stage used the .glb), update(), separate().
@@ -1949,7 +2010,9 @@ class Craft extends RefCounted:
 	## flap (float or Array, rad), finTwist (Array, rad), gearStage, accel (the stack's
 	## non-gravitational acceleration, m/s², a Vector3 in the craft frame or a float
 	## along +Y, which separated stages fall behind at), simDt (simulated seconds this
-	## frame, which separated stages fly on; dt when absent)}.
+	## frame, which separated stages fly on; dt when absent), release (Callable(stage,
+	## sep): takes the pieces of a stage with a fate, `look.fall`, once Separation is
+	## done with them; without it they stay drawn for Separation.SHOWN)}.
 	func update(s: Dictionary) -> void:
 		var dt := float(s.get("dt", 0.0))
 		var attached: Dictionary = s.get("attached", {}) if s.get("attached") != null else {}
@@ -1957,7 +2020,9 @@ class Craft extends RefCounted:
 		var gim: Dictionary = s.get("gimbal", {}) if s.get("gimbal") != null else {}
 		var acc = s.get("accel", 0.0)
 		var a_stack: Vector3 = acc if acc is Vector3 else Vector3(0.0, float(acc), 0.0)
+		var release = s.get("release")
 		for st: CraftStage in stages:
+			if st.handed: continue
 			var a = attached.get(st.key)
 			var live: bool = not (a is bool and a == false)
 			st.group.visible = live or st.sep != null
@@ -1968,7 +2033,11 @@ class Craft extends RefCounted:
 					var h := minf(left, Separation.STEP)
 					go = Separation.step(st.sep, h, group.basis, a_stack)
 					left -= h
-				if not go:
+				if go and release is Callable and (release as Callable).is_valid() \
+						and st.spec.get("look", {}).has("fall") and float(st.sep.t) >= Separation.handoff_time(st.sep):
+					(release as Callable).call(st, st.sep)
+					st.handed = true; st.sep = null
+				elif not go:
 					st.group.visible = false; st.sep = null
 				continue
 			# deployables, eased so they take a real second or two
@@ -2026,7 +2095,7 @@ class Craft extends RefCounted:
 	## stages still flying stand in.
 	func separate(key: String, ctx := {}) -> void:
 		var st := stage(key)
-		if st == null or st.sep != null: return
+		if st == null or st.sep != null or st.handed: return
 		var nodes: Array = st.parts.pieces if not st.parts.pieces.is_empty() else st.parts.halves
 		if nodes.is_empty(): nodes = [st.group]
 		if not ctx.has("mass"):

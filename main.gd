@@ -983,7 +983,7 @@ func _key(e: InputEventKey) -> void:
 	# through to the orrery's own bindings.
 	if state.cam_mode == "flight":
 		for action in ["stage", "warp_down", "warp_up", "throttle_cut", "throttle_full",
-			"throttle_up", "throttle_down", "gear", "flight_camera"]:
+			"throttle_up", "throttle_down", "gear", "flight_camera", "flight_follow"]:
 			if controls.matches(action, e) and flight.key_action(action):
 				get_viewport().set_input_as_handled()
 				sync_warp_label()

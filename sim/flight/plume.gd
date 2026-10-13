@@ -418,6 +418,8 @@ static func create_plume(propellant, exit_d: float, length_scale: float = 18.0,
 		g.add_child(glow)
 		fx.glow = glow
 	g.visible = false
+	# Not structure: what measures a craft's shape skips it (Fall).
+	g.set_meta("fx", true)
 	fx.mesh = g
 	return fx
 

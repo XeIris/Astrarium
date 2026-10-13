@@ -4,7 +4,8 @@ extends Node
 # (sim/flight/mission.gd) and rejects any that does not end where it should. Also a
 # lone Starship from orbit through its own return (`bellyflop`): deorbit, belly-first
 # entry, flip and landing burn, which must touch down inside 1 m/s. And the Shuttle
-# from Pad 39A to orbit and back to Kennedy (`glide` with a launch site).
+# from Pad 39A to orbit and back to Kennedy (`glide` with a launch site). And what
+# becomes of the Shuttle's dropped stages (`shuttle_fates`, Fall).
 #   Godot --path . res://tools/missioncheck.tscn -- [only=name,name] [long=1]
 # `long=1` adds Earth orbit → Mars orbit (about ten minutes).
 
@@ -35,7 +36,7 @@ func _ready() -> void:
 	if args.get("long", "0") == "1":
 		cases.append(["mars_orbit", "saturnv", {"mode": "orbit", "alt": 200000.0, "inc": 0.0}, "Mars", "orbit", false])
 	# check.py runs one case per process and compares this list with its own.
-	print("MISSION CHECK CASES %s" % ",".join(cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_home"]))
+	print("MISSION CHECK CASES %s" % ",".join(cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_home", "shuttle_fates"]))
 	var only: Array = str(args.get("only", "")).split(",", false)
 	for c in cases:
 		if not only.is_empty() and not only.has(c[0]): continue
@@ -43,6 +44,7 @@ func _ready() -> void:
 	if only.is_empty() or only.has("ship_return"): await _ship_return()
 	if only.is_empty() or only.has("orbiter_return"): await _orbiter_return()
 	if only.is_empty() or only.has("orbiter_home"): await _orbiter_home()
+	if only.is_empty() or only.has("shuttle_fates"): await _shuttle_fates()
 	print("MISSION CHECK DONE failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -201,6 +203,141 @@ func _orbiter_home() -> void:
 		print("MISSION orbiter_home ok — touchdown %s km from the pad, %s m/s sink, %s m/s ground speed, %d frames" % [
 			U.fixed(miss, 2), U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), frames])
 	main.end_flight()
+
+## The Shuttle from the pad until its dropped stages are down. Each booster must stay
+## drawn to splashdown, run its recovery at the flown altitudes and speeds and hang
+## under three open mains; the tank must leave MECO on a low perigee and break up in
+## the air. Flown values and tolerances: docs/physics/srb-separation.md#check and
+## stage-separation.md (the tank).
+func _shuttle_fates() -> void:
+	const FT := 0.3048
+	const MPH := 0.44704
+	main.load_preset("solar")
+	await CraftAssets.craft_models_ready(["shuttle"])
+	var f = main.flight
+	f.begin("shuttle", {"mode": "pad"})
+	main.set_cam_mode("flight")
+	for i in 5: main.animate(dt)
+	var v: Vessel = f.vessel
+	var mu := Rocketry.GM_SUN * v.parent.mass
+	var R := float(v.env.radius)
+	f.run_program("ascent")
+	var seen := {}            # every main piece: {vacuum apogee at hand-off, perigee, mains seen open}
+	var parts := []           # what the boosters shed
+	var why := []
+	var frames := 0
+	while frames < 600000:
+		var ap = f.autopilot
+		var low := false
+		for fl: Fall in f.falls:
+			if fl.follow and fl.state == "fall" and fl.altitude(v) < 130000.0: low = true
+		# Physics rate while anything is coming down; 10× on coasts above the air, 100× in orbit.
+		var w := 0
+		if not low and v.altitude() > 125000.0 and v.throttle == 0.0 and not ap.burning:
+			w = 5 if v.phase == Vessel.PHASE.ORBIT and ap.program == null else 3
+		if f.warp_index() != w: f.set_warp(w)
+		main.animate(dt)
+		frames += 1
+		for fl: Fall in f.falls:
+			if fl.follow and not seen.has(fl):
+				var el := Orbit.elements(fl.r, fl.v, mu)
+				seen[fl] = {"apo": float(el.ra) - R, "peri": float(el.rp) - R, "mains": 0, "open": 0.0}
+			elif not fl.follow and not parts.has(fl):
+				parts.append(fl)
+		for fl: Fall in seen:
+			var rec: Dictionary = seen[fl]
+			# Drawn until it is down: placed in the local scene and visible, its body with it.
+			if fl.ended < 0.0 and fl.state != "gone" and not rec.has("vanished"):
+				if not (f.falls.has(fl) and fl.holder.is_inside_tree() and fl.holder.visible and fl.body.get_parent() == fl.holder):
+					why.append("%s vanished at %s km before it was down" % [fl.name, U.fixed(fl.altitude(v) / 1000.0, 1)])
+					rec.vanished = true
+			# Afloat, it stays drawn for Fall.LINGER s.
+			if fl.ended >= 0.0 and not rec.has("kept") and not f.falls.has(fl):
+				rec.kept = fl.t - fl.ended
+			for ch: Dictionary in fl.chutes:
+				if ch.key != "mains": continue
+				rec.mains = maxi(rec.mains, (ch.nodes as Array).filter(func(n): return is_instance_valid(n) and n.is_inside_tree()).size())
+				rec.open = maxf(rec.open, fl.open_fraction(ch))
+		var all_down := not seen.is_empty() and seen.keys().all(func(fl): return fl.ended >= 0.0 or fl.state == "gone" or seen[fl].has("vanished"))
+		if seen.size() >= 3 and all_down: break
+		if frames % 600 == 0: await get_tree().process_frame
+	var boosters := seen.keys().filter(func(fl): return fl.data.has("mains"))
+	var tank := seen.keys().filter(func(fl): return fl.data.has("breakup"))
+	if boosters.size() != 2: why.append("%d boosters flown on their own, not 2" % boosters.size())
+	if tank.size() != 1: why.append("the tank was not flown on its own")
+	var near := func(x: float, want: float, tol: float) -> bool: return absf(x - want) <= tol * absf(want)
+	for b: Fall in boosters:
+		var rec: Dictionary = seen[b]
+		var order := ["apogee", "noseCap", "drogue", "frustum", "mains", "splashdown"]
+		var got := b.events.map(func(e): return e.name)
+		if got != order:
+			why.append("%s ran %s, not %s" % [b.name, got, order])
+			continue
+		var e := {}
+		for x: Dictionary in b.events: e[x.name] = x
+		var ap: Dictionary = e.apogee
+		var cap: Dictionary = e.noseCap
+		var dro: Dictionary = e.drogue
+		var fru: Dictionary = e.frustum
+		var spl: Dictionary = e.splashdown
+		var checks := [
+			# Apogee is the ascent's; the fall model is answerable for coasting there.
+			["apogee vs its vacuum apogee", ap.alt, rec.apo, 0.10],
+			["nose cap at 16,000 ft", cap.alt, 16000.0 * FT, 0.02],
+			["nose cap at 360 mph", cap.speed, 360.0 * MPH, 0.15],
+			["drogue at 15,530 ft", dro.alt, 15530.0 * FT, 0.03],
+			["frustum at 6,450 ft", fru.alt, 6450.0 * FT, 0.02],
+			["frustum at 250 mph", fru.speed, 250.0 * MPH, 0.15],
+			["splashdown at 50 mph", spl.speed, 50.0 * MPH, 0.12],
+			["nose cap to frustum in 22 s", float(fru.t) - float(cap.t), 22.0, 0.25],
+			["frustum to splashdown in 43 s", float(spl.t) - float(fru.t), 43.0, 0.20],
+		]
+		for c: Array in checks:
+			if not near.call(float(c[1]), float(c[2]), float(c[3])):
+				why.append("%s: %s is %s, want %s ±%d%%" % [b.name, c[0], U.fixed(float(c[1]), 1), U.fixed(float(c[2]), 1), int(float(c[3]) * 100.0)])
+		if int(rec.mains) != 3 or float(rec.open) < 0.999:
+			why.append("%s: %d main chutes drawn, %s open" % [b.name, rec.mains, U.fixed(float(rec.open), 2)])
+		if b.state != "rest" or float(rec.get("kept", INF)) < Fall.LINGER - 0.5:
+			why.append("%s afloat for %s s, state %s" % [b.name, U.fixed(float(rec.get("kept", INF)), 0), b.state])
+		print("MISSION shuttle_fates %s: apogee %s km at T+%s (vacuum %s), nose cap %s m/s, frustum %s m/s, splashdown %s m/s at T+%s" % [
+			b.name, U.fixed(float(ap.alt) / 1000.0, 1), U.fixed(float(ap.met) - v.t0, 0), U.fixed(float(rec.apo) / 1000.0, 1),
+			U.fixed(float(cap.speed), 0), U.fixed(float(fru.speed), 0), U.fixed(float(spl.speed), 1), U.fixed(float(spl.met) - v.t0, 0)])
+	# The pieces a booster sheds: the frustum comes down on the drogue (KSC: 40 mph), the cap sinks.
+	var frusta := parts.filter(func(fl): return fl.name.ends_with("frustum"))
+	if frusta.size() != 2: why.append("%d frustums afloat, not 2" % frusta.size())
+	for fr: Fall in frusta:
+		var s = fr.event("splashdown")
+		if s == null or not near.call(float(s.speed), 40.0 * MPH, 0.15):
+			why.append("%s splashdown %s" % [fr.name, "missing" if s == null else U.fixed(float(s.speed), 1) + " m/s, want 17.9 ±15%"])
+	var caps := parts.filter(func(fl): return fl.name.ends_with("nosecap"))
+	if caps.size() != 2 or caps.any(func(fl): return fl.state != "gone" or fl.event("splashdown") == null):
+		why.append("%d nose caps came off, and each must sink at the sea" % caps.size())
+	for t: Fall in tank:
+		var rec: Dictionary = seen[t]
+		var brk = t.event("breakup")
+		if not near.call(float(rec.peri), 48.0 * 1852.0, 0.12):
+			why.append("tank left MECO on a %s km perigee, want 89 ±12%%" % U.fixed(float(rec.peri) / 1000.0, 0))
+		if brk == null:
+			why.append("the tank never broke up (%s)" % t.state)
+		else:
+			var geo = f.geo_of(t.r)
+			print("MISSION shuttle_fates tank: perigee %s km at hand-off, breakup %s km at T+%s min, %s" % [
+				U.fixed(float(rec.peri) / 1000.0, 0), U.fixed(float(brk.alt) / 1000.0, 1), U.fixed((float(brk.met) - v.t0) / 60.0, 0), geo])
+			if not near.call(float(brk.alt), 247935.0 * FT, 0.01): why.append("tank breakup at %s m" % U.fixed(float(brk.alt), 0))
+			if geo == null or _over_land(geo): why.append("tank broke up over land at %s" % geo)
+	if not why.is_empty():
+		_fail("shuttle_fates", "; ".join(why))
+	else:
+		print("MISSION shuttle_fates ok — boosters recovered, tank broken up, %d frames" % frames)
+	main.end_flight()
+
+## Whether the Earth map's land mask has land at (lat, lon), degrees.
+func _over_land(geo: Vector2) -> bool:
+	var img: Image = (load("res://assets/planet-maps/earth-land.png") as Texture2D).get_image()
+	if img.is_compressed(): img.decompress()
+	var x := clampi(int((geo.y / 360.0 + 0.5) * img.get_width()), 0, img.get_width() - 1)
+	var y := clampi(int((0.5 - geo.x / 180.0) * img.get_height()), 0, img.get_height() - 1)
+	return img.get_pixel(x, y).r > 0.5
 
 ## Inside the flown touchdown range, 195–215 kt, in still air at sea level.
 func _touchdown_speed_ok(v: Vessel) -> bool:

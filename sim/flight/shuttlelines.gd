@@ -563,9 +563,17 @@ static func build_srb(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		for xb in [851.5, 1171.5, 1491.5]: b.add_child(seg.call(r * 1.012, r * 1.012, xb + 9.0, xb - 9.0, M.dirty))
 		b.add_child(seg.call(r * 1.03, r * 1.03, 1517.0, 1505.0, M.dirty))  # tank attach ring
 		b.add_child(seg.call(r, r, 532.0, 402.0, M.white))                  # forward skirt
-		b.add_child(seg.call(r, 54.0 * IN, 402.0, 326.0, M.white))          # frustum
+		# The frustum and nose cap come off on the way down (Fall), so each is a node.
+		var i := 0 if side < 0.0 else 1
+		var fr := CraftModel._grp()
+		fr.name = "frustum_srb_%d" % i
+		fr.add_child(seg.call(r, 54.0 * IN, 402.0, 326.0, M.white))
+		b.add_child(fr); parts.frustums.append(fr)
+		var nc := CraftModel._grp()
+		nc.name = "nosecap_srb_%d" % i
 		var cap := CraftModel.ogive(y.call(200.0) - y.call(326.0), 108.0 * IN, M.white, 24)
-		cap.position.y = y.call(326.0); b.add_child(cap)
+		cap.position.y = y.call(326.0); nc.add_child(cap)
+		b.add_child(nc); parts.nosecaps.append(nc)
 		var tun := CraftModel._mesh(CraftModel._box(0.32, (1819.0 - 540.0) * IN, 0.22), M.dirty)
 		tun.position = Vector3(side * r * 0.99, (y.call(540.0) + y.call(1819.0)) / 2.0, 0.0); b.add_child(tun)
 		g.add_child(b); parts.pieces.append(b)

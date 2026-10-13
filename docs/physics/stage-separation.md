@@ -22,7 +22,11 @@ mass, and nothing here feeds back into its flight.
   - `stack`: a push on what is left that the vessel does not fly (ullage rockets,
     the orbiter's translation), as a thrust on the remaining mass.
   - `rates`: body rates reached by `spinUp` s and then held.
-- **Shown** for 30 s (`Separation.SHOWN`).
+- **Shown** for 30 s (`Separation.SHOWN`), unless the stage has a fate (`look.fall`):
+  then once its motors, the stack's push and the spin-up are over
+  (`Separation.handoff_time`), each piece flies on as a `Fall`, a body of its own in
+  the vessel's frame, to the sea or its breakup. The Shuttle's boosters and tank have
+  one ([srb-separation.md](srb-separation.md#recovery), and the tank below).
 
 The stage's own drag is left out. For the boosters it is under 4% of the stack's
 acceleration ([srb-separation.md](srb-separation.md)); higher up it is smaller still.
@@ -113,9 +117,47 @@ Sources:
   away from the Orbiter, tumbles", which covers its whole fall. The only measured
   rate found is 8.6–8.8°/s, from video of the STS-31 tank (tumble valve
   deactivated) breaking up at reentry: M. W. Snyder and D. E. Pitts, IGARSS '92,
-  NTRS 19930063598. That rate builds up in the air, long after the 30 s shown.
+  NTRS 19930063598. That rate builds up in the air; `Fall` turns the tank at
+  8.7°/s once it is below the top of the atmosphere.
 - The tank's relief valves stay closed for at least 100 s after separation, and its
   LO2 vent is non-propulsive (under 50 lbf) (SLWT handbook §3.3.1, §4).
+
+### Where the tank goes
+
+The tank is not in orbit when it drops. MECO leaves the perigee in the atmosphere, and
+the orbiter's OMS-2 raises it at apogee.
+
+Sources:
+- *STS-31 National Space Transportation System Mission Report* (JSC, 1990): MECO at
+  T+8:31, "an orbit of 330 by 48 nmi"; OMS-2 then made it 330 × 311 nmi.
+- P. D. Maley, *Observing U.S. Manned Orbiters* (pauldmaley.com/shuttle), who watched
+  the STS-31 tank from Mauna Kea: separated 8.5 min after launch at 369,000 ft;
+  reentry "began at an altitude of 247,935 feet at 17.48 north latitude and 156.11
+  west longitude", tumbling end over end at about 8°/s; at least 50 pieces 7 s after
+  the rupture, followed down to 214,000 ft. Snyder and Pitts (above) analysed the
+  same video.
+- SETI Institute, *STS-125 External Tank Reentry Observing Campaign*
+  (shuttle.seti.org): another Hubble flight's tank was due to reenter just south-east
+  of Hawaii, about 80 minutes after launch.
+
+The model:
+- **Guidance** (`guidance.gd`): a stage with `disposalPerigee` (the tank, 48 nmi =
+  88.9 km from STS-31) makes the ascent cut off at the same insertion altitude, but
+  on the ellipse from that perigee to the target apoapsis, still climbing at its
+  rate. The vertical law aims at that final rate,
+  a_v = 6Δh/T² − (4ḣ + 2ḣ_f)/T. T is the missing speed over its measured closing
+  rate, since the 3 g limit stretches the burn; the last 10 s steer the climb rate
+  alone. The Shuttle now cuts off near 301 × 90 km at 112 km, climbing about 80 m/s.
+- **Fall**: the tank coasts on that ellipse, drag (the same tumble average as the
+  boosters, `look.fall.tumble` 8.7°/s) takes it down on its first return to perigee,
+  and it is retired at the rupture altitude, 247,935 ft (75.57 km). Fragments are not
+  drawn.
+- **Result** (the `shuttle_fates` check): the tank leaves MECO on a 90 km perigee,
+  reaches 286 km (drag on the climb out costs it 15 km) and ruptures 84 min after
+  liftoff at 21.9° N, 143.7° W, in the Pacific north-east of Hawaii. STS-31's, on a
+  28.5° direct insertion, ruptured at 17.5° N, 156.1° W; this flight goes to 51.6°.
+  Where it comes down is a consequence of the launch and the orbit, so the check
+  requires only that it is over the sea on the Earth map's land mask.
 
 ## Others
 
@@ -141,3 +183,8 @@ Sources:
   from the orbiter by its translation.
 
 The old constant-speed drift fails every case.
+
+`shuttle_fates` in `tools/missioncheck.tscn` follows the Shuttle's pieces past the
+hand-off: the boosters' recovery ([srb-separation.md](srb-separation.md#check)), and
+the tank, which must leave MECO on an 89 km perigee (±12%) and break up at
+247,935 ft (±1%) over the sea.

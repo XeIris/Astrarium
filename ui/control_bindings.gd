@@ -22,7 +22,8 @@ const GROUPS := [
 		["throttle_cut", "Cut throttle"], ["throttle_full", "Full throttle"],
 		["throttle_up", "Increase throttle"], ["throttle_down", "Decrease throttle"],
 		["stage", "Separate stage"], ["gear", "Toggle gear"],
-		["flight_camera", "Cycle flight camera"], ["space_map", "Space map"]]],
+		["flight_camera", "Cycle flight camera"], ["flight_follow", "Follow a dropped stage"],
+		["space_map", "Space map"]]],
 ]
 
 const DEFAULTS := {
@@ -56,6 +57,7 @@ const DEFAULTS := {
 	"stage": [KEY_SPACE, true, false, false],
 	"gear": [KEY_G, false, false, false],
 	"flight_camera": [KEY_C, false, false, false],
+	"flight_follow": [KEY_B, false, false, false],
 	"space_map": [KEY_M, false, false, false],
 }
 
@@ -193,7 +195,7 @@ func _same_context(a: String, b: String) -> bool:
 
 func _is_flight(action: String) -> bool:
 	return ["warp_down", "warp_up", "throttle_cut", "throttle_full", "throttle_up",
-		"throttle_down", "stage", "gear", "flight_camera"].has(action)
+		"throttle_down", "stage", "gear", "flight_camera", "flight_follow"].has(action)
 
 func matches(action: String, event: InputEventKey) -> bool:
 	var b: Array = bindings[action]

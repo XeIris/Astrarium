@@ -159,6 +159,40 @@ func stage_separations(vehicle: Dictionary) -> void:
 					expect(h.length() < 0.5, tag + ": whole stage drifted sideways")
 		craft.group.free()
 
+## A stage with a fate (`look.fall`) is handed on, every piece at once, as soon as
+## Separation's pushes are over and not before; then the craft lets it go: it neither
+## draws it nor separates it again.
+func stage_handoffs(vehicle: Dictionary) -> void:
+	for spec: Dictionary in vehicle.stages:
+		if not spec.get("look", {}).has("fall"): continue
+		var craft = CraftModel.build_craft(vehicle)
+		var st = craft.stage(spec.key)
+		var nodes: Array = st.parts.pieces if not st.parts.pieces.is_empty() else [st.group]
+		# Staging drops the stack bottom first: the stages below this one are gone.
+		for o in craft.stages:
+			if o == st: break
+			o.group.visible = false
+		var got := []
+		var release := func(cs, s: Dictionary) -> void:
+			got.append({"stage": cs, "t": float(s.t), "due": Separation.handoff_time(s), "bodies": (s.bodies as Array).size()})
+		craft.separate(spec.key)
+		for i in 80:
+			craft.update({"dt": 0.1, "attached": {spec.key: false}, "accel": 9.0, "release": release})
+		var tag := "%s/%s" % [vehicle.id, spec.key]
+		expect(got.size() == 1, tag + ": handed on %d times, not once" % got.size())
+		if got.size() != 1:
+			craft.group.free()
+			continue
+		var h: Dictionary = got[0]
+		expect(h.stage == st and h.bodies == nodes.size(), tag + ": did not hand on all its pieces")
+		expect(h.t >= h.due and h.t < h.due + 0.1 + 1e-6, tag + ": handed on at %.2f s, not when its pushes end (%.2f s)" % [h.t, h.due])
+		expect(st.handed and st.sep == null, tag + ": still the craft's after the hand-off")
+		var shown: bool = st.group.visible
+		craft.separate(spec.key)
+		craft.update({"dt": 0.1, "attached": {spec.key: false}, "accel": 9.0, "release": release})
+		expect(st.sep == null and st.group.visible == shown and got.size() == 1, tag + ": separated or redrawn after the hand-off")
+		craft.group.free()
+
 func payload_cover(craft) -> void:
 	var payload = craft.stage("f9pl")
 	var cover = craft.stage("f9fair")
@@ -270,6 +304,7 @@ func run() -> void:
 		pose(craft, vehicle, true)
 		pose(craft, vehicle, false)
 		stage_separations(vehicle)
+		stage_handoffs(vehicle)
 		if id == "shuttle":
 			booster_pieces(craft)
 		if id == "falcon9":

@@ -84,6 +84,8 @@ static func build(craft: CraftModel.Craft) -> Cryo:
 func update(dt: float, fuelled: bool, moving_s: float, smoke: Plume.SmokeColumn) -> void:
 	var amount := 1.0 if fuelled else exp(-moving_s / SHED_S * 3.0)
 	for i in shells.size():
+		# A dropped tank is freed once its Fall ends.
+		if not is_instance_valid(shells[i]): continue
 		shells[i].visible = amount > 0.01 and shells[i].get_parent().visible
 		materials[i].set_shader_parameter("uAmount", amount)
 	if not fuelled or dt <= 0.0 or vents.is_empty():
