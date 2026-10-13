@@ -93,39 +93,81 @@ nominal first stage in *Flight Procedures Handbook: Ascent/Aborts*, JSC-10559 Re
 - **Ignition**: the SSMEs start at T−6.6 s and the solids at T−0 (JSC-10559 §2.2).
   A solid lights at hold-down release (`Vessel.lit`), since nothing could shut it
   down for a scrub.
+- **Thrust**: each solid follows the RSRM population-nominal vacuum thrust at 60 °F
+  and the standard 0.368 in/s burn rate, the average of the static-test and flight
+  motors through RSRM-4: A. S. Drendel, M. C. Richards, *RSRM-4 (360T004) Final
+  Report, Ballistics/Mass Properties*, Thiokol TWR-17543-10, NTRS 19900003336 (1989),
+  fig. 3.8. Below.
 - **Steering**: first-stage guidance is an open-loop attitude table against relative
   speed, I-loaded per flight; it holds pad attitude until 127 ft/s. The shared law
   θ = 90°·v₀/(v₀ + v − v_start) stands in for the table, with the Shuttle's own
-  v_start (38.7 m/s) and v₀ (800 m/s, from `ascent` in `vehicles.gd`). v₀ is
+  v_start (38.7 m/s) and v₀ (720 m/s, from `ascent` in `vehicles.gd`). v₀ is
   fitted to the staging altitude; the table's other altitudes are a check on it.
   The table lofts more than the shared default (600 m/s): after staging the stack's
   thrust barely exceeds its weight, so the solids make the climb.
 - **Drag**: the parallel stack's frontal area is the sum of the tank's, both
   boosters' and the orbiter's, 102 m² (80 m² once the boosters are gone).
 
-| | Simulated | Flown |
+### The solids' thrust
+
+`Rocketry.RSRM_PROFILE` is fig. 3.8's population average, read at 0.1 s from a
+300 dpi scan, smoothed over 1 s before the tail-off knee at 108 s, and cut at the
+123.4 s action time. Each sample's x is the vacuum impulse delivered so far over the
+impulse to action time, and its y is the thrust over the 3.32 Mlbf peak (`thrustVac`
+14.77 MN). The knots keep every sample within 0.008 of the peak. Total impulse is
+the 502 t of propellant × 268 s, 296.6 Mlbf·s, so the profile gives only the shape.
+The engine burns the profile in time (dx/dt = F/I):
+
+| | Model | Thiokol nominal (TWR-17543-10) |
 |---|---|---|
-| 450 ft/s (137 m/s) | 1.69 km, T+25 s | 3,963 ft (1.21 km), T+20 s |
-| 900 ft/s (274 m/s) | 5.92 km, T+47 s | 15,275 ft (4.66 km), T+38 s |
-| 1,335 ft/s (407 m/s) | 10.41 km, T+62 s | 34,150 ft (10.41 km), T+58 s |
-| 1,504 ft/s (458 m/s) | 12.14 km, T+67 s | 41,058 ft (12.51 km), T+64 s |
-| Max-q | 32.8 kPa (685 psf), T+64 s | about 33 kPa at 1,335 ft/s, 34,150 ft; "just prior to throttle up" |
-| SRB separation | T+127 s, 47.2 km | T+124 s, 155,315 ft (47.3 km); KSC: 156,000 ft |
-| Relative speed | 1.41 km/s (4,640 ft/s) | 4,139 ft/s (1.26 km/s); STS-30: 4,212 ft/s; Bacchus: about 4,600 ft/s |
-| Climb rate, flight path | 733 m/s, 31° | about 700 m/s, for KSC's apogee |
+| Vacuum thrust at ignition, peak | 3.15, 3.32 Mlbf at 21 s | fig. 3.8 |
+| Vacuum thrust in the max-q bucket | 2.38 Mlbf at 52 s | fig. 3.8 |
+| Impulse to 20 s | 65.2 Mlbf·s | 64.5 (table 3.6; at least 63.1) |
+| Impulse to 60 s | 173.5 Mlbf·s | 172.7 (171.2–178.1) |
+| Impulse to web time, 111.7 s | 289.5 Mlbf·s | 288.9 (table 3.4) |
+| Burnout | 123.3 s | 123.4 s action time |
+| Sea-level thrust at liftoff | 2.85 Mlbf | 2.8 Mlbf (Kanner et al. 2012, NTRS 20120001534) |
+| Peak sea-level thrust | 3.00 Mlbf | 3.06 Mlbf (table 3.4) |
+
+The sea-level figures come from the engine's fixed 242 s sea-level Isp, which
+scales thrust rather than subtracting p·A_e: 2% low at the peak. The 0.25 s
+ignition rise is not modelled. Separation follows burnout in the model; RSRM-4
+(STS-30, 71 °F) commanded it 2.8 s after its action time.
+
+### Against the flown first stage
+
+Relative speeds are the table's events; the altitudes and times are where the model
+reaches them.
+
+| | Simulated | Flown (table 2.2-I) |
+|---|---|---|
+| 127 ft/s (38.7 m/s), tower clear | 0.13 km, T+7 s | 387 ft (0.12 km), T+7 s |
+| 450 ft/s (137 m/s) | 1.26 km, T+20 s | 3,963 ft (1.21 km), T+20 s |
+| 658 ft/s (201 m/s) | 2.48 km, T+27 s | 8,157 ft (2.49 km), T+27 s |
+| 900 ft/s (274 m/s) | 4.45 km, T+36 s | 15,275 ft (4.66 km), T+38 s |
+| 1,335 ft/s (407 m/s) | 9.71 km, T+54 s | 34,150 ft (10.41 km), T+58 s |
+| 1,504 ft/s (458 m/s) | 11.72 km, T+59 s | 41,058 ft (12.51 km), T+64 s |
+| 2,628 ft/s (801 m/s) | 22.14 km, T+83 s | 79,029 ft (24.09 km) |
+| Max-q | 35.6 kPa (743 psf), T+50 s, 8.6 km | about 33 kPa at 1,335 ft/s, 34,150 ft; "just prior to throttle up" |
+| SRB separation | T+123.3 s, 47.4 km | T+124 s, 155,315 ft (47.3 km); KSC: 156,000 ft |
+| Relative speed | 1.44 km/s (4,711 ft/s) | 4,139 ft/s (1.26 km/s); STS-30: 4,212 ft/s; Bacchus: about 4,600 ft/s |
+| Inertial speed | 1.81 km/s (5,945 ft/s) | 5,336 ft/s (1.63 km/s) |
+| Climb rate, flight path | 651 m/s, 27° | about 700 m/s, for KSC's apogee |
+
+The table gives 2,628 ft/s at "01:18", which its own altitudes rule out (41,058 to
+79,029 ft in 14 s at under 2,628 ft/s), so only the altitude is compared.
 
 Known differences:
-- The stack leaves the pad slower than flown and reaches each low speed about 5 s
-  late. The solids' grain profile (`Rocketry.RSRM_PROFILE`) gives 2.5 million lbf
-  each at sea level at liftoff, against 2.8 million lbf rising to 3.3 million lbf in
-  H. S. Kanner et al., *Solid Rocket Booster (SRB) — Evolution and Lessons Learned
-  During the Shuttle Program*, NTRS 20120001534 (2012).
 - The SSMEs fly no throttle bucket of their own. The flown one (65% from 658 to
-  1,358 ft/s) is an I-load; here the shared q limit throttles them, and barely,
-  because the slower start keeps q down.
-- At staging the stack carries about 150 m/s more inertial speed than table 2.2-I
-  (1,778 m/s against 5,336 ft/s, 1,626 m/s), at the flown altitude. The steering
-  cannot remove that energy; it is in the thrust and drag histories above.
+  1,358 ft/s) is an I-load; here the shared q limit throttles them, to 71% at
+  T+50 s. From T+40 s the model is ahead of the table, and max-q comes 8 s early
+  and 8% high. With the flown throttle schedule the SSMEs would deliver about
+  27 m/s less by staging.
+- At staging the stack carries 186 m/s more inertial speed than table 2.2-I, at
+  the flown altitude. The steering cannot remove that energy. The solids now
+  deliver their measured impulse on their measured schedule, and the missing
+  throttle bucket explains only 27 m/s. The rest is in the drag or the masses,
+  which nothing here measures.
 
 ## Recovery
 
@@ -220,12 +262,12 @@ now drops the boosters where the flown one did ([Ascent](#ascent)):
 
 | | Simulated | Flown | Tolerance |
 |---|---|---|---|
-| Apogee | 75.7 km | 238,000 ft (72.5 km) | 8% |
-| Apogee time | T+205 s | T+196 s | 8% |
-| Splashdown time | T+431 s | T+414 s | 8% |
+| Apogee | 69.7 km | 238,000 ft (72.5 km) | 8% |
+| Apogee time | T+193 s | T+196 s | 8% |
+| Splashdown time | T+415 s | T+414 s | 8% |
 
-They separate 2.6 s late and climbing a little fast, so the apogee is 4% high and
-everything after it about 10 s late. Bacchus's lower apogee, 220,000 ft (67 km), is
+They separate 0.7 s early and climbing a little slowly (651 m/s), so the apogee is
+4% low. Bacchus's lower apogee, 220,000 ft (67 km), is
 read off fig. 1 of Bacchus et al. and is not checked. The fall is held to what it
 controls separately: the apogee within 10% of the vacuum apogee from the hand-off
 state (the tumbling booster's drag on the way up costs about 0.5 km).

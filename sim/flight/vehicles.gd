@@ -41,7 +41,8 @@ static func _build_engines() -> Dictionary:
 		},
 		"SRB_RSRM": {
 			"name": "RSRM solid booster", "prop": "APCP solid",
-			"thrustVac": 14000e3, "ispSL": 242.0, "ispVac": 268.0, "throttleMin": 1.0, "gimbal": 8.0,
+			# thrustVac is the grain's peak, 3.32 Mlbf (RSRM_PROFILE).
+			"thrustVac": 14770e3, "ispSL": 242.0, "ispVac": 268.0, "throttleMin": 1.0, "gimbal": 8.0,
 			# A solid follows its grain, not the throttle — see solid_thrust_fraction.
 			"solid": true, "exitD": 3.75, "plume": "solid",
 		},
@@ -237,7 +238,7 @@ static func _build_vehicles() -> Dictionary:
 		# go, the stack's thrust barely exceeds its weight, so they make the climb.
 		# v₀ fits the nominal SRB staging state, 155,315 ft at T+124 s (table 2.2-I);
 		# docs/physics/srb-separation.md#ascent.
-		"ascent": { "pitchStart": 38.7, "turnV0": 800.0 },
+		"ascent": { "pitchStart": 38.7, "turnV0": 720.0 },
 		"stages": [
 			stage({ "key": "srb", "name": "SRB pair", "dry": 172000.0, "prop": 1004000.0,
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,
@@ -554,7 +555,7 @@ static func liftoff_thrust(vehicle: Dictionary, pa: float = 101325.0) -> float:
 		var s: Dictionary = st[i]
 		if s.get("engine") == null or not (i == 0 or s.get("liftoff", false)): continue
 		# Through engine_output, which owns the pressure and grain terms (an RSRM starts at
-		# 0.86 of its rating).
+		# 0.95 of its rating).
 		F += Rocketry.engine_output(s.engine, s.count, pa, 1.0, 0.0).F
 	return F
 
