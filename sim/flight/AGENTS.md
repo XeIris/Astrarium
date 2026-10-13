@@ -52,6 +52,12 @@ to the procedural builds too.
 - The Shuttle's lines (orbiter, tank, boosters) are one set of station tables in
   `shuttlelines.gd` and `model_sources/blender/shuttle.py`; change both
   ([shuttle-geometry.md](../../docs/physics/shuttle-geometry.md)).
+- A stage whose parts leave separately (`piece_<stage>_<i>` nodes, `look.pieces`)
+  and that has separation motors (`look.bsm`) flies each piece with `Separation`.
+  The motors push it out, the stack's own acceleration leaves it behind, and it
+  tumbles. This is display only: the vessel has already shed the stage's mass
+  ([srb-separation.md](../../docs/physics/srb-separation.md)). Regression:
+  `booster_pieces` in `tools/assetcheck.gd`.
 
 ## Vessel (`vessel.gd`)
 

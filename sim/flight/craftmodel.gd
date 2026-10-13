@@ -844,7 +844,7 @@ static func lattice(h: float, w_bot: float, w_top: float, material: Material) ->
 
 # STAGE BUILDERS — one per `look` flavour
 static func _new_parts() -> Dictionary:
-	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "nozzles": []}
+	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nozzles": []}
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	var built := _build_stage(spec, ctx)
@@ -1928,12 +1928,13 @@ class CraftStage extends RefCounted:
 	var key: String
 	var spec: Dictionary
 	var group: Node3D
-	## {gimbals, fins, legs, arrays, flaps, halves, doors, nozzles}: Arrays of Node3D.
+	## {gimbals, fins, legs, arrays, flaps, halves, doors, pieces, nozzles}: Arrays of Node3D.
 	var parts: Dictionary
 	var base_y := 0.0
 	var deploy := 0.0
 	var gear := 0.0
-	## null, or {t, v, spin} while a separated stage drifts off.
+	## null, or {t, v, spin} while a separated stage drifts off (Separation.start's
+	## state for one that leaves in pieces).
 	var sep = null
 
 ## A built vehicle: `group` (root), `stages` (CraftStage, bottom to top),
@@ -1946,7 +1947,9 @@ class Craft extends RefCounted:
 
 	## Drive every moving part from the flight state; nothing is on a timer. `s` is
 	## {dt, attached: {key: bool}, deploy: {key: 0..1}, gear: {key: 0..1}, gimbal: {x, z},
-	## flap (float or Array, rad), finTwist (Array, rad), gearStage}.
+	## flap (float or Array, rad), finTwist (Array, rad), gearStage, accel (the stack's
+	## thrust less drag over mass, m/s², for pieces falling behind), simDt (simulated
+	## seconds this frame, which pieces fly on; dt when absent)}.
 	func update(s: Dictionary) -> void:
 		var dt := float(s.get("dt", 0.0))
 		var attached: Dictionary = s.get("attached", {}) if s.get("attached") != null else {}
@@ -1956,6 +1959,17 @@ class Craft extends RefCounted:
 			var a = attached.get(st.key)
 			var live: bool = not (a is bool and a == false)
 			st.group.visible = live or st.sep != null
+			if st.sep != null and st.sep.has("bodies"):
+				# Pieces that leave one by one, each on its own path.
+				var go := true
+				var left := float(s.get("simDt", dt))
+				while left > 0.0 and go:
+					var h := minf(left, 0.05)
+					go = Separation.step(st.sep, h, group.basis, float(s.get("accel", 0.0)))
+					left -= h
+				if not go:
+					st.group.visible = false; st.sep = null
+				continue
 			if st.sep != null:
 				# A separated stage drifts and tumbles away for a moment.
 				st.sep.t += dt
@@ -2014,11 +2028,16 @@ class Craft extends RefCounted:
 				var f: Node3D = st.parts.flaps[i]
 				f.rotation.z = (float(flap[i]) if i < flap.size() else 0.0) if flap is Array else float(U.nz(flap, 0.0)) * 0.6
 
-	## Detach a stage: it stops following the stack and drifts off.
+	## Detach a stage: it stops following the stack and drifts off. A stage with
+	## separation motors (`look.bsm`) sends each of its pieces off on its own.
 	func separate(key: String, dv := 3.0, spin := 0.25) -> void:
 		for st: CraftStage in stages:
 			if st.key == key:
-				if st.sep == null: st.sep = {"t": 0.0, "v": dv, "spin": spin}
+				if st.sep != null: return
+				if st.spec.get("look", {}).has("bsm") and not st.parts.pieces.is_empty():
+					st.sep = Separation.start(st.spec, st.parts.pieces, group.basis)
+				else:
+					st.sep = {"t": 0.0, "v": dv, "spin": spin}
 				return
 
 	## Find a stage record by key, or null.

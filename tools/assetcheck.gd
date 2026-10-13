@@ -63,6 +63,30 @@ func pose(craft, vehicle: Dictionary, deployed: bool) -> void:
 				"%s/%s gimbal failed clamp/fixed pose" % [vehicle.id, st.key])
 			check_geometry_motion(pivot, before[pivot], vehicle.id + "/" + st.key + "/gimbal")
 
+## The two boosters leave on their own paths, each with its own nozzle: apart, aft,
+## below the orbiter, and turning differently; the stage frame itself stays put.
+func booster_pieces(craft) -> void:
+	var st = craft.stage("srb")
+	expect(st.parts.pieces.size() == 2, "shuttle boosters are not separate pieces")
+	if st.parts.pieces.size() != 2: return
+	for pivot: Node3D in st.parts.gimbals:
+		expect(st.parts.pieces.any(func(p): return p.is_ancestor_of(pivot)), "booster nozzle does not ride its booster")
+	var start: Array = st.parts.pieces.map(func(p): return (p as Node3D).position)
+	var stage_at: Vector3 = st.group.position
+	craft.separate("srb")
+	for i in 30: craft.update({"dt": 0.1, "attached": {"srb": false}, "accel": 9.0})
+	var a: Node3D = st.parts.pieces[0]
+	var b: Node3D = st.parts.pieces[1]
+	# Each booster's centre of mass: its nozzle end swings toward the orbiter as it tumbles.
+	var cg := Vector3(0.0, float(st.spec.look.bsm.cgY), 0.0)
+	var da: Vector3 = a.transform * cg - (start[0] + cg)
+	var db: Vector3 = b.transform * cg - (start[1] + cg)
+	expect(st.group.visible and st.group.position == stage_at, "booster stage frame moved or hid while its pieces fly")
+	expect(da.x * signf(start[0].x) > 3.0 and db.x * signf(start[1].x) > 3.0, "boosters did not move apart: %s %s" % [da, db])
+	expect(da.y < -30.0 and db.y < -30.0, "boosters did not fall behind the stack: %s %s" % [da, db])
+	expect(da.z < 0.0 and db.z < 0.0, "boosters moved toward the orbiter: %s %s" % [da, db])
+	expect(not a.basis.is_equal_approx(Basis()) and not a.basis.is_equal_approx(b.basis), "boosters do not tumble on their own")
+
 func payload_cover(craft) -> void:
 	var payload = craft.stage("f9pl")
 	var cover = craft.stage("f9fair")
@@ -170,6 +194,8 @@ func run() -> void:
 		failures.append_array(part_errors(craft, vehicle))
 		pose(craft, vehicle, true)
 		pose(craft, vehicle, false)
+		if id == "shuttle":
+			booster_pieces(craft)
 		if id == "falcon9":
 			payload_cover(craft)
 			var pivot: Node3D = craft.stages[0].parts.gimbals[0]

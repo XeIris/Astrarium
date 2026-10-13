@@ -219,7 +219,16 @@ static func _build_vehicles() -> Dictionary:
 			stage({ "key": "srb", "name": "SRB pair", "dry": 172000.0, "prop": 1004000.0,
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,
 				# A solid cannot be throttled or shut down. Once lit, it burns out.
-				"look": { "skin": "white", "srb": true, "chutes": 3, "mount": { "y": 1.1 } } }),
+				"look": { "skin": "white", "srb": true, "chutes": 3, "mount": { "y": 1.1 }, "pieces": 2,
+					# Separation motors, four forward and four aft per booster (TM X-64967):
+					# thrust per cluster of four, s timing, deg resultant angles; `at` is each
+					# cluster's [y, skin radius], m, in the booster's frame (XB 390 frustum,
+					# XB 1884.5 aft skirt); `exitD` the cluster's merged exhaust, m; `cgY` the
+					# spent case's mid-length (no published inert c.g.); `rates` the memo's
+					# nominal (P, Q, R) deg/s 3 s after separation.
+					"bsm": { "thrust": 332.1e3, "ignite": 0.09, "web": 0.75, "tail": 0.107,
+						"cant": 40.0, "dip": 20.0, "at": [[40.67, 1.78], [2.71, 2.25]], "exitD": 0.65,
+						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] } } } }),
 			stage({ "key": "et", "name": "External Tank + SSME", "dry": 26500.0, "prop": 719000.0,
 				"engine": E.RS25, "count": 3, "L": 46.9, "D": 8.40,
 				# The SSMEs light with the solids and burn six minutes past them (`liftoff`).

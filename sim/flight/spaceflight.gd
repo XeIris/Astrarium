@@ -35,6 +35,8 @@ var cryo: Cryo = null             # frost and boil-off on the vehicle's cold tan
 var vapour: Vapour = null         # condensation collars round its shoulders, in humid air
 var craft = null                  # CraftModel.Craft
 var plumes: Array = []            # Plume.PlumeFx
+var bsm_plumes: Array = []        # separation motors: [{fx, stage, mount}], see attach_bsm
+var _bsm_smoke_acc := 0.0
 var entry = null                  # Plume.EntryGlow
 var cruise = null                 # Relativity.Cruise
 ## What the cruise flies between, so the line moves with its end bodies: {parent,
@@ -358,6 +360,34 @@ func build_plumes(_veh: Dictionary) -> void:
 	var built := attach_plumes(craft)
 	plumes = built.plumes
 	plume_reach = built.reach
+	for b in bsm_plumes:
+		if is_instance_valid(b.mount): b.mount.queue_free()
+	bsm_plumes = attach_bsm(craft)
+
+## Separation-motor plumes, one per cluster, on each piece of a stage with `look.bsm`.
+## They stay dark until the stage separates. Returns [{fx, stage, mount}].
+static func attach_bsm(craft: CraftModel.Craft) -> Array:
+	var out := []
+	for st: CraftModel.CraftStage in craft.stages:
+		var m = st.spec.get("look", {}).get("bsm")
+		if m == null: continue
+		# Isp is a solid's; it only sets how much exhaust the plume carries.
+		var eng := {"name": "BSM", "thrustVac": float(m.thrust), "ispVac": 250.0}
+		for piece: Node3D in st.parts.pieces:
+			var side := signf(piece.position.x) if piece.position.x != 0.0 else 1.0
+			# The jet runs down its mount's −Y, against the push.
+			var y_ax := Separation.push_dir(m, side)
+			var x_ax := y_ax.cross(Vector3(0, 0, 1)).normalized()
+			for k in (m.at as Array).size():
+				var mount := Node3D.new()
+				mount.name = "bsm_%d" % k
+				mount.transform = Transform3D(Basis(x_ax, y_ax, x_ax.cross(y_ax)), Separation.motor_point(m, side, k))
+				var fx := Plume.create_plume(st.spec.engine.get("plume"), float(m.exitD), 18.0, eng, "single", float(k) + side * 7.0)
+				mount.add_child(fx.mesh)
+				piece.add_child(mount)
+				fx.stage_key = st.key
+				out.append({"fx": fx, "stage": st, "mount": mount})
+	return out
 
 ## Hang each engine's plume on a built craft. Returns {plumes, reach}: reach is how
 ## far the first stage's jet carries, m.
@@ -505,6 +535,24 @@ func _reframe_smoke(new_basis: Basis, up: DVec3, radius: float, spin: float) -> 
 	_smoke_origin.copy_from(origin)
 	_smoke_framed = true
 
+## Alumina smoke from the lit separation motors, left in the air where they fire.
+func _bsm_smoke(dt: float) -> void:
+	_bsm_smoke_acc += dt * 30.0
+	var n := int(_bsm_smoke_acc)
+	_bsm_smoke_acc -= n
+	if n == 0: return
+	var tint := U.lin(0xffffff) * Plume.smoke_grey(Plume.PROPELLANT.solid)
+	for b in bsm_plumes:
+		var fx: Plume.PlumeFx = b.fx
+		if not fx.mesh.visible: continue
+		var m: Node3D = b.mount
+		var p: Vector3 = craft.group.to_local(m.global_position)
+		var e: Vector3 = (craft.group.basis * (craft.group.global_basis.inverse() * m.global_basis) * Vector3.DOWN).normalized()
+		var at: Vector3 = craft_pos.to_v3() + craft.group.basis * p
+		for k in n:
+			smoke.emit_trail(at + e * (fx.exit_d * 4.0), e * 80.0 + smoke.wind, fx.exit_d * 8.0, 0.55,
+				Color(tint.r, tint.g, tint.b), 6.0)
+
 ## Lay exhaust trail where the first lit stage's flame turns to smoke, spaced by its
 ## width, so the column the vehicle leaves is continuous.
 func _lay_trail(craft_basis: Basis) -> void:
@@ -552,7 +600,7 @@ func teardown() -> void:
 	map_site = null
 	pad_fire = null
 	ground_pos.y = 0.0
-	plumes = []; entry = null; cryo = null; vapour = null
+	plumes = []; bsm_plumes = []; entry = null; cryo = null; vapour = null
 	mission = null; skip = null
 	smoke.clear()
 	_smoke_framed = false
@@ -1297,8 +1345,10 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var cs = craft.stage(str(st.spec.key))
 		if not st.attached and cs != null and cs.sep == null and cs.group.visible:
 			craft.separate(str(st.spec.key), 4.0 + randf() * 4.0, 0.2 + randf() * 0.5)
-	craft.update({"dt": dt, "attached": attached, "deploy": deploy, "gear": gear, "gimbal": {"x": gx, "z": 0.0},
-		"flap": flaps, "finTwist": twist})
+	var tm := maxf(float(vessel.telemetry.get("mass", 0.0)), 1.0)
+	var accel := (float(vessel.telemetry.get("thrust", 0.0)) - float(vessel.telemetry.get("drag", 0.0))) / tm
+	craft.update({"dt": dt, "simDt": sim_seconds, "attached": attached, "deploy": deploy, "gear": gear,
+		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel})
 
 	# The light the plumes' smoke scatters: the sun where it reaches the
 	# vehicle (clouds included), with a floor for the sky's own light.
@@ -1327,6 +1377,16 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			if str(s.spec.key) == pl.stage_key: st = s
 		var on: bool = st != null and st.attached and st.ignited and not st.spent and st.prop > 0.0 and vessel.throttle > 0.0
 		pl.update(vessel.throttle if on else 0.0, pa, vessel.met, p0)
+	# Separation motors run on their stage's clock from the moment it let go.
+	var bsm_lit := false
+	for b in bsm_plumes:
+		var cs: CraftModel.CraftStage = b.stage
+		var thr := 0.0
+		if cs.sep != null and cs.sep.has("bodies"):
+			thr = Separation.motor_fraction(float(cs.sep.t), cs.sep.motors)
+		b.fx.update(thr, pa, vessel.met, p0)
+		bsm_lit = bsm_lit or thr > 0.0
+	if bsm_lit and env.atm != null: _bsm_smoke(dt)
 	if cruise != null:
 		for pl in plumes:
 			pl.update(0.0 if (cruise.leg == "coast" or cruise.leg == "arrived") else 1.0, 0.0, cruise.tau / 100.0, 101325.0)

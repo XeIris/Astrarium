@@ -553,8 +553,10 @@ static func build_srb(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		var m := CraftModel._mesh(CraftModel._cylinder(r1, r0, y.call(xb1) - y.call(xb0), 28, 1, true), mat)
 		m.position.y = (y.call(xb0) + y.call(xb1)) / 2.0
 		return m
+	# Each booster is its own piece, nozzle included: they separate on their own paths.
 	for side in [-1.0, 1.0]:
 		var b := CraftModel._grp()
+		b.name = "piece_srb_%d" % (0 if side < 0.0 else 1)
 		b.position.x = side * 250.5 * IN
 		b.add_child(seg.call(106.0 * IN, r, 1958.0, 1819.0, M.white))       # aft skirt
 		b.add_child(seg.call(r, r, 1819.0, 532.0, M.white))                 # motor case
@@ -566,13 +568,13 @@ static func build_srb(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		cap.position.y = y.call(326.0); b.add_child(cap)
 		var tun := CraftModel._mesh(CraftModel._box(0.32, (1819.0 - 540.0) * IN, 0.22), M.dirty)
 		tun.position = Vector3(side * r * 0.99, (y.call(540.0) + y.call(1819.0)) / 2.0, 0.0); b.add_child(tun)
-		g.add_child(b)
+		g.add_child(b); parts.pieces.append(b)
 		# The nozzle hangs on a pivot (plumes parent to parts.gimbals); the RSRM
 		# vectors 8°, and its throat sits up inside the case.
 		var exd := CraftModel._n(spec.engine.get("exitD"), r * 2.0)
 		var nzp := CraftModel._grp()
-		nzp.position = Vector3(side * 250.5 * IN, exd / 2.0 * 2.6, 0.0)
+		nzp.position = Vector3(0.0, exd / 2.0 * 2.6, 0.0)
 		nzp.set_meta("gimbal_deg", float(spec.engine.gimbal))
 		nzp.add_child(CraftModel.bell(exd, 7.7, false))
-		g.add_child(nzp); parts.gimbals.append(nzp)
+		b.add_child(nzp); parts.gimbals.append(nzp)
 	return {"group": g, "parts": parts}

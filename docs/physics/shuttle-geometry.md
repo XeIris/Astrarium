@@ -63,3 +63,10 @@ forward bipod is at XT 1129.9 under the orbiter's Xo 378 bulkhead.
 146 in across, 149.16 ft long. Field joints at XB 851.5, 1171.5 and 1491.5, the tank
 attach ring at XB 1511, the aft skirt flaring to 212 in at its foot. The nose cap,
 frustum and forward-skirt split is estimated from photographs.
+
+Each booster has eight separation motors, all on the side facing the tank: four in
+the frustum and four on the aft skirt at XB 1884.5. They are laid out from TM X-64967
+fig. 1: the aft four 12 in apart round the skirt, the forward four a 2 × 2 block.
+The memo's 1975 configuration puts the forward cluster at XB 287.5. That is inside
+this nose cap, so the motors sit in the frustum at XB 390. Their direction and
+firing are in [srb-separation.md](srb-separation.md).

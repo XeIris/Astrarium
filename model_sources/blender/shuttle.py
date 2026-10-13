@@ -1040,8 +1040,10 @@ def build_srb(M, root):
     def y(xb):
         return (XB_EXIT - xb) * IN
 
+    # Each booster is a piece of its own (`piece_srb_i`, port first), nozzle included,
+    # because at separation the two fly apart on their own paths.
     for side in (-1, 1):
-        b = empty(f'srb{side}', (side * SRB_Y, 0, 0), g)
+        b = empty(f'piece_srb_{0 if side < 0 else 1}', (side * SRB_Y, 0, 0), g)
         # Aft skirt, carrying the whole stack on four hold-down posts.
         sk = cyl(f'skirt{side}', 106.0 * IN, r, y(1958.0), y(1819.0), M['white'], seg=48, parent=b)
         finish(sk, 0.02, 2, 45)
@@ -1055,7 +1057,7 @@ def build_srb(M, root):
         # throat sits up inside the case, as the real submerged nozzle's does.
         exd = S['srb']['engine']['exitD']
         L_bell = exd / 2 * 2.6
-        piv = empty(f'gimbal_srb_{0 if side < 0 else 1}', (side * SRB_Y, 0, L_bell), g)
+        piv = empty(f'gimbal_srb_{0 if side < 0 else 1}', (0, 0, L_bell), b)
         nz = bell(f'srbnoz{side}', exd, M['nozzle'], ratio=7.7, chamber=False, seg=40, parent=piv)
         finish(nz, 0.015, 2, 50)
 
@@ -1086,11 +1088,21 @@ def build_srb(M, root):
         r_fr = 54.0 * IN
         fr = cyl(f'frustum{side}', r, r_fr, y(402.0), y(326.0), M['white'], seg=48, parent=b)
         finish(fr, 0.02, 2, 45)
+        # Separation motors: four in the frustum and four on the aft skirt, all on the
+        # side facing the tank. They fire forward, inboard and toward the orbiter at 40°
+        # to the axis and 20° off the inboard line (TM X-64967 fig. 1), so the push
+        # takes the booster aft, outboard and under the wing (Separation.push_dir).
+        c40, s40, c20, s20 = cos(radians(40)), sin(radians(40)), cos(radians(20)), sin(radians(20))
+        ex = Vector((-side * s40 * c20, -s40 * s20, c40))
+        az = atan2(-s20, -side * c20)
         for k in range(4):
-            a = pi / 4 + k * pi / 2
-            rr = (r + r_fr) / 2
-            port(f'bsm{side}{k}', Vector((cos(a) * rr, sin(a) * rr, y(390.0))),
-                 Vector((cos(a), sin(a), -0.6)), 0.09, 0.15, M['black'], b)
+            ar = r - (r - r_fr) * (402.0 - 390.0) / 76.0
+            a = az + (k % 2 - 0.5) * 0.18
+            port(f'bsm_fwd{side}{k}', Vector((cos(a) * ar, sin(a) * ar, y(390.0) + (k // 2 - 0.5) * 0.32)),
+                 ex, 0.09, 0.15, M['black'], b)
+            sr = r + (106.0 * IN - r) * (1884.5 - 1819.0) / 139.0
+            a = az + (k - 1.5) * 0.1355
+            port(f'bsm_aft{side}{k}', Vector((cos(a) * sr, sin(a) * sr, y(1884.5))), ex, 0.09, 0.15, M['black'], b)
         cap = ogive(f'cap{side}', y(200.0) - y(326.0), r_fr * 2, M['white'], seg=48, parent=b, z0=y(326.0))
         finish(cap, 0.02, 2, 45)
         # The forward attach fitting on the skirt: the booster's thrust goes into the
