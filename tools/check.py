@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SUITES = ("fast", "native", "flight", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
-# themselves (clean) or read the previous step's output (export).
+# themselves (clean), read the previous step's output (export), or need exact object
+# counts (lifecycle).
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The descent gates, one flightcheck process each.
 DESCENTS = ("lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane", "skycrane_staged", "lmdeorbit", "shcatch", "shcatch_2x")
