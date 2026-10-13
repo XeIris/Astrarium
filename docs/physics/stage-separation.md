@@ -147,14 +147,14 @@ The model:
   rate. The vertical law aims at that final rate,
   a_v = 6Δh/T² − (4ḣ + 2ḣ_f)/T. T is the missing speed over its measured closing
   rate, since the 3 g limit stretches the burn; the last 10 s steer the climb rate
-  alone. The Shuttle now cuts off near 301 × 90 km at 112 km, climbing about 80 m/s.
+  alone. The Shuttle now cuts off near 300 × 92 km at 112 km, climbing about 73 m/s.
 - **Fall**: the tank coasts on that ellipse, drag (the same tumble average as the
   boosters, `look.fall.tumble` 8.7°/s) takes it down on its first return to perigee,
   and it is retired at the rupture altitude, 247,935 ft (75.57 km). Fragments are not
   drawn.
-- **Result** (the `shuttle_fates` check): the tank leaves MECO on a 90 km perigee,
-  reaches 286 km (drag on the climb out costs it 15 km) and ruptures 84 min after
-  liftoff at 21.9° N, 143.7° W, in the Pacific north-east of Hawaii. STS-31's, on a
+- **Result** (the `shuttle_fates` check): the tank leaves MECO on a 93 km perigee,
+  reaches 283 km (drag on the climb out costs it 16 km) and ruptures 85 min after
+  liftoff near 23.5° N, 137.5° W, in the Pacific north-east of Hawaii. STS-31's, on a
   28.5° direct insertion, ruptured at 17.5° N, 156.1° W; this flight goes to 51.6°.
   Where it comes down is a consequence of the launch and the orbit, so the check
   requires only that it is over the sea on the Earth map's land mask.

@@ -281,8 +281,12 @@ func _shuttle_fates() -> void:
 		var fru: Dictionary = e.frustum
 		var spl: Dictionary = e.splashdown
 		var checks := [
-			# Apogee is the ascent's; the fall model is answerable for coasting there.
+			# The fall is answerable for coasting to the vacuum apogee, the ascent for
+			# where that is.
 			["apogee vs its vacuum apogee", ap.alt, rec.apo, 0.10],
+			["apogee at 238,000 ft", ap.alt, 238000.0 * FT, 0.08],
+			["apogee at T+196 s", float(ap.met) - v.t0, 196.0, 0.08],
+			["splashdown at T+414 s", float(spl.met) - v.t0, 414.0, 0.08],
 			["nose cap at 16,000 ft", cap.alt, 16000.0 * FT, 0.02],
 			["nose cap at 360 mph", cap.speed, 360.0 * MPH, 0.15],
 			["drogue at 15,530 ft", dro.alt, 15530.0 * FT, 0.03],
@@ -321,8 +325,10 @@ func _shuttle_fates() -> void:
 			why.append("the tank never broke up (%s)" % t.state)
 		else:
 			var geo = f.geo_of(t.r)
-			print("MISSION shuttle_fates tank: perigee %s km at hand-off, breakup %s km at T+%s min, %s" % [
-				U.fixed(float(rec.peri) / 1000.0, 0), U.fixed(float(brk.alt) / 1000.0, 1), U.fixed((float(brk.met) - v.t0) / 60.0, 0), geo])
+			print("MISSION shuttle_fates tank: %s × %s km at hand-off (vacuum), apogee %s km, breakup %s km at T+%s min, %s" % [
+				U.fixed(float(rec.apo) / 1000.0, 0), U.fixed(float(rec.peri) / 1000.0, 0),
+				U.fixed(float(t.event("apogee").alt) / 1000.0, 0) if t.event("apogee") != null else "?",
+				U.fixed(float(brk.alt) / 1000.0, 1), U.fixed((float(brk.met) - v.t0) / 60.0, 0), geo])
 			if not near.call(float(brk.alt), 247935.0 * FT, 0.01): why.append("tank breakup at %s m" % U.fixed(float(brk.alt), 0))
 			if geo == null or _over_land(geo): why.append("tank broke up over land at %s" % geo)
 	if not why.is_empty():

@@ -54,13 +54,13 @@ NASA TM X-64967 (MSFC, 1975), NTRS 19760006102.
   mass for the flown booster is published in the sources above.
 - **Residual thrust**: left out. The memo starts its runs with each booster still
   making 30,000 lbf (133 kN, 1.5 m/s² on 86 t), decaying, but gives no decay law.
-- **Booster drag**: left out. About 0.3 m/s² at the ~3 kPa of separation, under 4%
+- **Booster drag**: left out. About 0.15 m/s² at the 1.5 kPa of separation, under 2%
   of the stack's acceleration.
 
 ## Check against the memo
 
-In the flown ascent the boosters separate at T+130 s and 40 km, with the stack at
-9.6 m/s². Each booster's movement, relative to the stack:
+Each booster's movement, relative to a stack accelerating at 9.6 m/s² (the ascent
+gives 9.9 m/s² once the boosters are gone):
 
 | | Simulated | Memo |
 |---|---|---|
@@ -82,6 +82,50 @@ residual thrust the boosters also fall back somewhat faster than the memo's.
   on to `Fall` (below) and stays drawn to splashdown. Without that hand-off (a bare
   `Craft`, as the asset checks build) a piece stays drawn for 30 s
   (`Separation.SHOWN`), by which time it is about 4 km behind.
+
+## Ascent
+
+Where the boosters are let go is set by the ascent, which every launcher shares
+(`Guidance.ascent_guidance`). The Shuttle's part of it is checked against the
+nominal first stage in *Flight Procedures Handbook: Ascent/Aborts*, JSC-10559 Rev. A
+(1988), table 2.2-I, and the STS-30 press-kit timeline.
+
+- **Ignition**: the SSMEs start at T−6.6 s and the solids at T−0 (JSC-10559 §2.2).
+  A solid lights at hold-down release (`Vessel.lit`), since nothing could shut it
+  down for a scrub.
+- **Steering**: first-stage guidance is an open-loop attitude table against relative
+  speed, I-loaded per flight; it holds pad attitude until 127 ft/s. The shared law
+  θ = 90°·v₀/(v₀ + v − v_start) stands in for the table, with the Shuttle's own
+  v_start (38.7 m/s) and v₀ (800 m/s, from `ascent` in `vehicles.gd`). v₀ is
+  fitted to the staging altitude; the table's other altitudes are a check on it.
+  The table lofts more than the shared default (600 m/s): after staging the stack's
+  thrust barely exceeds its weight, so the solids make the climb.
+- **Drag**: the parallel stack's frontal area is the sum of the tank's, both
+  boosters' and the orbiter's, 102 m² (80 m² once the boosters are gone).
+
+| | Simulated | Flown |
+|---|---|---|
+| 450 ft/s (137 m/s) | 1.69 km, T+25 s | 3,963 ft (1.21 km), T+20 s |
+| 900 ft/s (274 m/s) | 5.92 km, T+47 s | 15,275 ft (4.66 km), T+38 s |
+| 1,335 ft/s (407 m/s) | 10.41 km, T+62 s | 34,150 ft (10.41 km), T+58 s |
+| 1,504 ft/s (458 m/s) | 12.14 km, T+67 s | 41,058 ft (12.51 km), T+64 s |
+| Max-q | 32.8 kPa (685 psf), T+64 s | about 33 kPa at 1,335 ft/s, 34,150 ft; "just prior to throttle up" |
+| SRB separation | T+127 s, 47.2 km | T+124 s, 155,315 ft (47.3 km); KSC: 156,000 ft |
+| Relative speed | 1.41 km/s (4,640 ft/s) | 4,139 ft/s (1.26 km/s); STS-30: 4,212 ft/s; Bacchus: about 4,600 ft/s |
+| Climb rate, flight path | 733 m/s, 31° | about 700 m/s, for KSC's apogee |
+
+Known differences:
+- The stack leaves the pad slower than flown and reaches each low speed about 5 s
+  late. The solids' grain profile (`Rocketry.RSRM_PROFILE`) gives 2.5 million lbf
+  each at sea level at liftoff, against 2.8 million lbf rising to 3.3 million lbf in
+  H. S. Kanner et al., *Solid Rocket Booster (SRB) — Evolution and Lessons Learned
+  During the Shuttle Program*, NTRS 20120001534 (2012).
+- The SSMEs fly no throttle bucket of their own. The flown one (65% from 658 to
+  1,358 ft/s) is an I-load; here the shared q limit throttles them, and barely,
+  because the slower start keeps q down.
+- At staging the stack carries about 150 m/s more inertial speed than table 2.2-I
+  (1,778 m/s against 5,336 ft/s, 1,626 m/s), at the flown altitude. The steering
+  cannot remove that energy; it is in the thrust and drag histories above.
 
 ## Recovery
 
@@ -171,10 +215,17 @@ The speeds run 6–13% fast and the drogue phase short: this booster is 12% heav
 than the sources'. The altitudes are baroswitch settings, so they check that the
 events fire where set, at the 0.05 s step.
 
-The apogee is not checked against the sources, and it differs. The shared ascent
-drops the boosters at T+120 s, 39.8 km and 1.75 km/s, against KSC's T+124 s and
-156,000 ft (47.5 km). They coast to 57.8 km at T+182 s, against 238,000 ft
-(72.5 km, KSC) or 220,000 ft (67 km, Bacchus), and come down 22 s earlier
-(T+393 s). That is the ascent's lower lofting, not the fall. The check holds the fall
-to what it controls: the apogee within 10% of the vacuum apogee from the hand-off
-state (the tumbling booster's drag on the way up costs about 1 km).
+The apogee and the timeline are checked against KSC's table too, since the ascent
+now drops the boosters where the flown one did ([Ascent](#ascent)):
+
+| | Simulated | Flown | Tolerance |
+|---|---|---|---|
+| Apogee | 75.7 km | 238,000 ft (72.5 km) | 8% |
+| Apogee time | T+205 s | T+196 s | 8% |
+| Splashdown time | T+431 s | T+414 s | 8% |
+
+They separate 2.6 s late and climbing a little fast, so the apogee is 4% high and
+everything after it about 10 s late. Bacchus's lower apogee, 220,000 ft (67 km), is
+read off fig. 1 of Bacchus et al. and is not checked. The fall is held to what it
+controls separately: the apogee within 10% of the vacuum apogee from the hand-off
+state (the tumbling booster's drag on the way up costs about 0.5 km).

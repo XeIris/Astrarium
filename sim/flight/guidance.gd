@@ -123,6 +123,10 @@ class Autopilot extends RefCounted:
 			"pitchStart": 55.0,       # m/s at which the pitch program starts
 			"turnV0": 600.0,          # m/s past pitchStart at which the program is at 45°
 		}
+		# A vehicle's own first-stage steering, as each flown one had (see vehicles.gd).
+		var own = vessel.vehicle.get("ascent")
+		if own != null:
+			for k in own: ascent[k] = float(own[k])
 		last_throttle = 1.0
 
 	# `say` sets the transient status line; `note` also writes the event log, once.

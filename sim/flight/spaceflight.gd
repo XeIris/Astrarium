@@ -1402,7 +1402,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var st = null
 		for s in vessel.stages:
 			if str(s.spec.key) == pl.stage_key: st = s
-		var on: bool = st != null and st.attached and st.ignited and not st.spent and st.prop > 0.0 and vessel.throttle > 0.0
+		var on: bool = st != null and vessel.lit(st) and vessel.throttle > 0.0
 		pl.update(vessel.throttle if on else 0.0, pa, vessel.met, p0)
 	# Separation motors run on their stage's clock from the moment it let go.
 	var sep_lit := false

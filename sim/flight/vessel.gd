@@ -293,6 +293,12 @@ func live_stages() -> Array:
 		if s.attached and s.ignited and not s.spent: out.append(s)
 	return out
 
+## Whether a live stage's engines are firing. A solid lights at hold-down release:
+## nothing could shut it down for a scrub.
+func lit(st) -> bool:
+	return st.attached and st.ignited and not st.spent and st.prop > 0.0 \
+		and not (held_down and st.spec.get("engine") != null and st.spec.engine.get("solid", false))
+
 ## A photon drive holds constant proper acceleration: F = m·a, ṁ = F/c. The plate's
 ## rating is a ceiling, so a ship too heavy for it accelerates at less.
 func photon_output(engine: Dictionary, n: float, out: Rocketry.Thrust = null) -> Rocketry.Thrust:
@@ -312,9 +318,9 @@ func propulsion(pa: float) -> Propulsion:
 	var plume = null
 	var count := 0
 	for st in stages:
-		if not st.attached or not st.ignited or st.spent: continue
+		if not lit(st): continue
 		var s: Dictionary = st.spec
-		if s.get("engine") == null or st.prop <= 0.0: continue
+		if s.get("engine") == null: continue
 		var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
 		var o: Rocketry.Thrust = photon_output(s.engine, st.live, _th1) \
 			if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \
@@ -1124,7 +1130,7 @@ func rk4(h: float, s: Sample) -> void:
 ## term. Flow is set by the vacuum rating, so no ambient pressure is needed.
 func _stage_mdot(st) -> float:
 	var s: Dictionary = st.spec
-	if s.get("engine") == null or st.prop <= 0.0: return 0.0
+	if s.get("engine") == null or not lit(st): return 0.0
 	var burned: float = 1.0 - st.prop / maxf(st.prop0, 1.0)
 	var o: Rocketry.Thrust = photon_output(s.engine, st.live, _th1) \
 		if (s.engine.get("photon", false) and s.engine.get("holdAccel", 0.0) > 0.0) \

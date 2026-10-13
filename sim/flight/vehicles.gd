@@ -232,9 +232,18 @@ static func _build_vehicles() -> Dictionary:
 		"target": { "apoapsis": 300e3, "inclination": 51.6 },
 		# Heads-down from tower clear, heads-up for TDRS late in the burn (flown from 1998).
 		"ascentRoll": { "headsUpAt": 345.0 },
+		# First-stage steering is an I-loaded attitude table against relative speed, held
+		# at pad attitude until 127 ft/s (JSC-10559 §2.2). The table lofts: once the solids
+		# go, the stack's thrust barely exceeds its weight, so they make the climb.
+		# v₀ fits the nominal SRB staging state, 155,315 ft at T+124 s (table 2.2-I);
+		# docs/physics/srb-separation.md#ascent.
+		"ascent": { "pitchStart": 38.7, "turnV0": 800.0 },
 		"stages": [
 			stage({ "key": "srb", "name": "SRB pair", "dry": 172000.0, "prop": 1004000.0,
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,
+				# Side by side, the stack meets the air with its tank, both solids and the
+				# orbiter: the sum of their frontal areas, m².
+				"area": PI / 4.0 * (8.40 * 8.40 + 2.0 * 3.71 * 3.71 + 5.6 * 5.6),
 				# A solid cannot be throttled or shut down. Once lit, it burns out.
 				"look": { "skin": "white", "srb": true, "mount": { "y": 1.1 }, "pieces": 2,
 					# Separation motors, four forward and four aft per booster (TM X-64967;
@@ -267,6 +276,7 @@ static func _build_vehicles() -> Dictionary:
 						"float": 9.14 } } }),
 			stage({ "key": "et", "name": "External Tank + SSME", "dry": 26500.0, "prop": 719000.0,
 				"engine": E.RS25, "count": 3, "L": 46.9, "D": 8.40,
+				"area": PI / 4.0 * (8.40 * 8.40 + 5.6 * 5.6),
 				# The SSMEs light with the solids and burn six minutes past them (`liftoff`).
 				"liftoff": true, "engineOn": "orbiter",
 				# The SSMEs can't relight, so the tank drops 18 s after MECO and OMS inserts at apogee.
