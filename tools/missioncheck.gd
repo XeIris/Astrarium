@@ -20,6 +20,13 @@ func _ready() -> void:
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
 	PlanetMaps.synchronous = true
+	# A windowed check still gets the desktop's keys while it has focus, and Space
+	# pauses: a paused flight never fails, it waits out the frame cap.
+	get_viewport().set_disable_input(true)
+	# The solar preset draws each planet's phase; fixed, so a failure repeats.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	Presets.rand_override = func(): return rng.randf()
 	main = Node.new()
 	main.name = "Main"
 	main.set_script(load("res://main.gd"))
@@ -30,12 +37,12 @@ func _ready() -> void:
 	main._start("sandbox")
 	var cases := [
 		["launch_orbit", "saturnv", {"mode": "pad"}, "Earth", "orbit", false],
-		["lunar_orbit", "saturnv", {"mode": "orbit", "alt": 185000.0, "inc": 28.5}, "Moon", "orbit", false],
-		["lunar_landing", "lm", {"mode": "orbit"}, "Moon", "land", false],
+		["lunar_orbit", "saturnv", {"mode": "orbit", "alt": 185000.0, "inc": 28.5, "phase": 0.0}, "Moon", "orbit", false],
+		["lunar_landing", "lm", {"mode": "orbit", "phase": 0.0}, "Moon", "land", false],
 		["skip_moon", "saturnv", {"mode": "pad"}, "Moon", "orbit", true],
 	]
 	if args.get("long", "0") == "1":
-		cases.append(["mars_orbit", "saturnv", {"mode": "orbit", "alt": 200000.0, "inc": 0.0}, "Mars", "orbit", false])
+		cases.append(["mars_orbit", "saturnv", {"mode": "orbit", "alt": 200000.0, "inc": 0.0, "phase": 0.0}, "Mars", "orbit", false])
 	# check.py runs one case per process and compares this list with its own.
 	print("MISSION CHECK CASES %s" % ",".join(cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_home", "shuttle_fates"]))
 	var only: Array = str(args.get("only", "")).split(",", false)
@@ -47,6 +54,8 @@ func _ready() -> void:
 	if only.is_empty() or only.has("orbiter_home"): await _orbiter_home()
 	if only.is_empty() or only.has("shuttle_fates"): await _shuttle_fates()
 	print("MISSION CHECK DONE failures=%d" % failures)
+	# A lambda left in a static var aborts the engine at exit.
+	Presets.rand_override = Callable()
 	get_tree().quit(1 if failures > 0 else 0)
 
 func _fly(id: String, craft: String, opts: Dictionary, dest: String, goal: String, skip: bool) -> void:
@@ -90,7 +99,7 @@ func _ship_return() -> void:
 	main.load_preset("solar")
 	await CraftAssets.craft_models_ready(["starship"])
 	var f = main.flight
-	f.begin("starship", {"mode": "orbit", "alt": 200000.0, "inc": 28.5})
+	f.begin("starship", {"mode": "orbit", "alt": 200000.0, "inc": 28.5, "phase": 0.0})
 	main.set_cam_mode("flight")
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
@@ -105,7 +114,7 @@ func _ship_return() -> void:
 		frames += 1
 		if frames % 600 == 0: await get_tree().process_frame
 	if v.phase != Vessel.PHASE.LANDED:
-		_fail("ship_return", "%s (%s)" % [v.phase, v.failure])
+		_fail("ship_return", _stuck(f, v))
 	else:
 		print("MISSION ship_return ok — touchdown %s m/s vertical, %s m/s lateral, %d frames" % [
 			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 2), frames])
@@ -118,7 +127,7 @@ func _orbiter_return() -> void:
 	main.load_preset("solar")
 	await CraftAssets.craft_models_ready(["shuttle"])
 	var f = main.flight
-	f.begin("shuttle", {"mode": "orbit", "alt": 300000.0, "inc": 51.6})
+	f.begin("shuttle", {"mode": "orbit", "alt": 300000.0, "inc": 51.6, "phase": 0.0})
 	main.set_cam_mode("flight")
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
@@ -153,7 +162,7 @@ func _orbiter_return() -> void:
 		print("ORBITER deorbit→touchdown %s s, %s° round the planet, TAEM→touchdown %s°" % [U.fixed(v.met - t0, 0),
 			U.fixed(rad_to_deg(arc), 1), U.fixed(rad_to_deg(arc - arc_taem), 2)])
 	if v.phase != Vessel.PHASE.LANDED:
-		_fail("orbiter_return", "%s (%s)" % [v.phase, v.failure])
+		_fail("orbiter_return", _stuck(f, v))
 	elif reversals < 2 or not v.stages[2].gear_out:
 		_fail("orbiter_return", "%d roll reversals, gear %s" % [reversals, "down" if v.stages[2].gear_out else "up"])
 	elif not _touchdown_speed_ok(v):
@@ -198,7 +207,7 @@ func _orbiter_home() -> void:
 	var pad = v.site_at(v.coord, DVec3.new())
 	var miss := float(v.env.radius) * DQuat.angle_between(v.r, pad) / 1000.0 if pad != null else INF
 	if v.phase != Vessel.PHASE.LANDED:
-		_fail("orbiter_home", "%s (%s), %s km from the pad" % [v.phase, v.failure, U.fixed(miss, 1)])
+		_fail("orbiter_home", "%s, %s km from the pad" % [_stuck(f, v), U.fixed(miss, 1)])
 	elif miss > 10.0:
 		_fail("orbiter_home", "landed %s km from the pad" % U.fixed(miss, 1))
 	elif not _touchdown_speed_ok(v):
@@ -376,6 +385,14 @@ func _rollout_summary(v: Vessel) -> String:
 	var rs: Vessel.Rollout = v.rolling
 	return "nose gear %s KEAS at %s s, wheel stop %s ft in %s s" % [U.fixed(float(rs.ngtd.eas) / 0.514444, 0),
 		U.fixed(float(rs.ngtd.t), 1), U.fixed(float(rs.stop.x) / 0.3048, 0), U.fixed(float(rs.stop.t), 0)]
+
+## Where an unfinished flight stopped: the vessel phase (which stays `orbit` from an
+## orbit start until touchdown), the program and its state, and the clock.
+func _stuck(f, v: Vessel) -> String:
+	var ap = f.autopilot
+	return "%s%s, %s in state %s at %s km, T+%s s%s: %s" % [v.phase, " (%s)" % v.failure if v.failure != null else "",
+		ap.program, ap.state_name, U.fixed(v.altitude() / 1000.0, 1), U.fixed(v.met, 0),
+		", paused" if main.state.paused else "", ap.status]
 
 func _fail(id: String, why: String) -> void:
 	failures += 1
