@@ -47,6 +47,7 @@ func _init() -> void:
 			flight.state.advance_years(result.stepped)
 			return result.stepped * Rocketry.YR_S
 		var frames := 0
+		var staged := []
 		var worst_clock_error := 0.0
 		var finite := true
 		var start := Time.get_ticks_usec()
@@ -58,6 +59,8 @@ func _init() -> void:
 			finite = finite and is_finite(ship.coord) and is_finite(ship.met) and is_finite(flight.state.sim_years)
 			worst_clock_error = maxf(worst_clock_error, absf(ship.coord - flight.state.sim_years * Rocketry.YR_S))
 			frames += 1
+			if staged.is_empty() and ship.stages[0].dropped_met >= 0.0:
+				staged = [ship.stages[0].dropped_met - ship.t0, ship.altitude()]
 			if ship.phase == Vessel.PHASE.DESTROYED or (flight.autopilot.program == null and flight.count == null and ship.phase == Vessel.PHASE.ORBIT): break
 		var valid: bool = ship.phase == Vessel.PHASE.ORBIT and flight.autopilot.program == null and frames < int(sc.maxFrames)
 		valid = valid and is_finite(ship.telemetry.apo) and is_finite(ship.telemetry.peri)
@@ -79,6 +82,15 @@ func _init() -> void:
 				and gap >= float(j.afterBelow) and gap < float(j.afterBelow) + 2.0 * number(fixture.dt)
 			if not on_time: print("SHARED FLIGHT %s %s dropped %s s after the stage below" % [sc.id, st.spec.key, gap])
 			valid = valid and on_time
+		# The Shuttle's first stage against JSC-10559 table 2.2-I: SRB separation at
+		# 47.3 km, T+124 s, and max-q about 33 kPa, held down by the SSMEs' throttle
+		# bucket (docs/physics/srb-separation.md#ascent).
+		if sc.id == "shuttle":
+			var stage_ok: bool = not staged.is_empty() and absf(float(staged[1]) - 47300.0) < 1000.0 and absf(float(staged[0]) - 124.0) < 2.0
+			var q_ok: bool = ship.max_q > 30e3 and ship.max_q < 35e3
+			if not stage_ok: print("SHARED FLIGHT shuttle SRB separation %s (T+ s, m), want T+124 s at 47.3 km" % [staged])
+			if not q_ok: print("SHARED FLIGHT shuttle max-q %.1f kPa at T+%.1f s, want 30–35 kPa" % [ship.max_q / 1000.0, ship.max_q_t])
+			valid = valid and stage_ok and q_ok
 		if sc.id == "saturnv" and timed == 0:
 			print("SHARED FLIGHT saturnv has no timed second separation plane")
 			valid = false

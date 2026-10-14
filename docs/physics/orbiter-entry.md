@@ -245,7 +245,7 @@ Known residuals:
 | Touchdown | 1.1 m/s sink; 202–206 kt (107 t), 194 kt (99 t) | ~3 ft/s; 205 KEAS heavy, 195 light [3] |
 | Touchdown pitch | 9.4° | about 8°; < 14.6° (tail scrape) [3] |
 | Deorbit burn to touchdown | ~61 min | ~1 h |
-| Miss at the launch site | 0.6–2.2 km | (runway) |
+| Miss at the launch site | 0.6–2.7 km | (runway) |
 
 The miss is from 250–400 km circular and eccentric orbits, 28.5–51.6°, with up to
 1130 km of crossrange.
