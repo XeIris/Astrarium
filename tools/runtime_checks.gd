@@ -251,8 +251,9 @@ func _soak_check() -> void:
 			for spec in ["falcon9:fairing", "starship:tower_catch"]:
 				if await stage.jump_scenario(spec) != "": failures.append("scenario: %s did not jump" % spec)
 				for i in 30: stage.animate(1.0 / 60.0)
+			# Left in flight mode: the first switch from the sandbox shapes the flight
+			# HUD's text once, which is not the jump's to answer for.
 			stage.end_flight()
-			stage.set_app_mode("sandbox")
 			hud.toast("", 1)
 			var deadline := Time.get_ticks_msec() + 3000
 			while hud._toast_timer > 0.0 or (hud._toast_tween and hud._toast_tween.is_running()):

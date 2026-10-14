@@ -2129,12 +2129,8 @@ func jump_scenario(spec: String) -> String:
 	for vv in flight.vehicles: hud.set_active("[data-craft=%s]" % vv.key, vv.key == sc.vehicle)
 	var jump = FlightScenarios.Jump.new(self, sc)
 	scenario_jump = jump
-	var shown := -1
+	if not jump.done: toast("Jumping to %s…" % sc.title, 60000)
 	while not jump.step(60.0):
-		# The toast relays out the HUD; four times a second is enough.
-		if int(jump.wall_ms() / 250.0) != shown:
-			shown = int(jump.wall_ms() / 250.0)
-			toast("Jumping to %s — %s flown" % [sc.title, Guidance.fmt_dur(jump.sim_s)], 600)
 		await get_tree().process_frame
 	scenario_jump = null
 	if jump.error != "": return _dev_fail("%s: %s" % [sc.title, jump.error])
