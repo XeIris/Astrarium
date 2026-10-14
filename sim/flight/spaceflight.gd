@@ -40,7 +40,6 @@ var sep_plumes: Array = []        # separation motors: [{fx, stage, mount}], see
 var falls: Array = []
 ## The Fall the camera and the local frame follow, or null for the vehicle.
 var subject: Fall = null
-var _sep_smoke_acc := 0.0
 var entry = null                  # Plume.EntryGlow
 var cruise = null                 # Relativity.Cruise
 ## What the cruise flies between, so the line moves with its end bodies: {parent,
@@ -512,47 +511,31 @@ func _reframe_smoke(new_basis: Basis, up: DVec3, radius: float, spin: float) -> 
 	_smoke_origin.copy_from(origin)
 	_smoke_framed = true
 
-## Alumina smoke from the lit separation motors, left in the air where they fire.
-func _sep_smoke(dt: float) -> void:
-	_sep_smoke_acc += dt * 30.0
-	var n := int(_sep_smoke_acc)
-	_sep_smoke_acc -= n
-	if n == 0: return
-	var tint := U.lin(0xffffff) * Plume.smoke_grey(Plume.PROPELLANT.solid)
-	for b in sep_plumes:
-		var fx: Plume.PlumeFx = b.fx
-		if not fx.mesh.visible: continue
-		var m: Node3D = b.mount
-		var p: Vector3 = craft.group.to_local(m.global_position)
-		var e: Vector3 = (craft.group.basis * (craft.group.global_basis.inverse() * m.global_basis) * Vector3.DOWN).normalized()
-		var at: Vector3 = craft_pos.to_v3() + craft.group.basis * p
-		for k in n:
-			smoke.emit_trail(at + e * (fx.exit_d * 4.0), e * 80.0 + smoke.wind, fx.exit_d * 8.0, 0.55,
-				Color(tint.r, tint.g, tint.b), 6.0)
+## The exhaust trail: one strand behind the longest smoky plume, and one behind each
+## lit separation motor, each starting as that plume's own smoke column.
+func _lay_trails(in_air: bool, main_on: bool) -> void:
+	smoke.trail_begin()
+	if main_on:
+		var lead: Plume.PlumeFx = null
+		for pl in plumes:
+			if pl.mesh.visible and pl.trail_k > 0.0 and (lead == null or pl.last_len > lead.last_len): lead = pl
+		if lead != null: _plume_trail(lead)
+	if in_air:
+		for b in sep_plumes:
+			if b.fx.mesh.visible and b.fx.trail_k > 0.0: _plume_trail(b.fx)
+	smoke.trail_finish()
 
-## Lay exhaust trail where the first lit stage's flame turns to smoke, spaced by its
-## width, so the column the vehicle leaves is continuous.
-func _lay_trail(craft_basis: Basis) -> void:
-	var lead: Plume.PlumeFx = null
-	for pl in plumes:
-		if pl.mesh.visible and pl.trail_op > 0.0 and (lead == null or pl.last_len > lead.last_len): lead = pl
-	if lead == null: return
-	var dir := craft_basis * Vector3(0, -1, 0)
-	var p := craft_pos.to_v3() + dir * (lead.last_len * 0.88)
-	var w := lead.trail_r * 2.0
-	var grey := Plume.smoke_grey(lead.propellant)
-	var tint := U.lin(0xffffff) * grey
-	if smoke.trail_last == Vector3.INF:
-		smoke.trail_last = p
-	var gap := p - smoke.trail_last
-	var spacing := maxf(w * 0.42, 2.0)
-	var n := mini(int(gap.length() / spacing), 6)
-	# Fully in before the vehicle has gone half a puff's width.
-	var fade := maxf(Plume.airspeed / (w * 0.5), 2.0)
-	for k in n:
-		var q := smoke.trail_last + gap * (float(k + 1) / float(n))
-		smoke.emit_trail(q, dir * 15.0 + smoke.wind, w, lead.trail_op, Color(tint.r, tint.g, tint.b), fade)
-	if n > 0: smoke.trail_last = p
+func _plume_trail(fx: Plume.PlumeFx) -> void:
+	# The plume hangs on its engine's gimbal or motor mount: its exit and axis in the
+	# local frame.
+	var rel: Transform3D = craft.group.global_transform.affine_inverse() * fx.mesh.global_transform
+	var at: Vector3 = craft_pos.to_v3() + craft.group.basis * rel.origin
+	var dir: Vector3 = (craft.group.basis * rel.basis * Vector3.DOWN).normalized()
+	# Close enough to follow the column's width and the path's curve; no more than
+	# eight a second, so a whole trail's life fits SmokeColumn.NODE_N.
+	var spacing := maxf(maxf(fx.trail_a * 3.0, Plume.airspeed * 0.125), 4.0)
+	smoke.trail_to(str(fx.get_instance_id()), at, dir, fx.last_len, fx.column_fx, fx.column_a, fx.column_k,
+		Plume.smoke_grey(fx.propellant), dir * 15.0 + smoke.wind, spacing)
 
 ## The rendering preset's share of the flight scene: clouds and sky (LocalView),
 ## plume march density and the smoke's form.
@@ -561,6 +544,11 @@ func set_render_quality(q: String) -> void:
 	Plume.detail = {"low": 0.6, "medium": 0.8, "high": 1.0, "ultra": 1.8}.get(q, 1.0)
 	Plume.smoke_steps = [9, 1] if q == "ultra" else [5, 0]
 	Plume.smoke_rate = 40.0 if q == "ultra" else 26.0
+	# The plume's column marches about 0.15 of its radius scale a step; coarser steps in
+	# a dense trail light it from deeper inside, darker than the plume it continues.
+	Plume.trail_steps = {"low": [8, 0], "medium": [10, 0], "high": [12, 0], "ultra": [12, 1]}.get(q, [10, 0])
+	Plume.trail_fine = q == "high" or q == "ultra"
+	Plume.trail_material()
 	Plume.set_smoke_volume(smoke, q == "high" or q == "ultra", local.cloud_shape)
 
 func teardown() -> void:
@@ -1381,16 +1369,16 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var sl: Vector3 = fr.get("sun_local", Vector3.UP)
 	Plume.daylight = clampf(sl.y * 2.0 + 0.25, 0.0, 1.0) * local.sun_through * clampf(star_flux, 0.05, 4.0) + 0.04
 	Plume.sprite_material(false, 2, Plume.ORDER_SMOKE).set_shader_parameter("uLight", clampf(Plume.daylight, 0.08, 1.4))
+	Plume.sun_local = sl
+	var sc := local.sun.light_color
+	var day := Plume.daylight
+	Plume.light_sun = Vector3(sc.r, sc.g, sc.b) * day * 1.15
+	# Skylight from above and the ground's bounce from below, under the same light.
+	Plume.light_sky = Vector3(0.30, 0.38, 0.52) * day * 0.75
+	Plume.light_ground = Vector3(0.17, 0.15, 0.12) * day * 0.6
 	if Plume.smoke_volume:
-		Plume.sun_local = sl
-		var sc := local.sun.light_color
-		var day := Plume.daylight
 		var vm := Plume.smoke_volume_material(null)
-		vm.set_shader_parameter("uSunDir", sl)
-		vm.set_shader_parameter("uSun", Vector3(sc.r, sc.g, sc.b) * day * 1.15)
-		# Skylight from above and the ground's bounce from below, under the same light.
-		vm.set_shader_parameter("uSky", Vector3(0.30, 0.38, 0.52) * day * 0.75)
-		vm.set_shader_parameter("uGround", Vector3(0.17, 0.15, 0.12) * day * 0.6)
+		Plume.apply_smoke_light(vm)
 		vm.set_shader_parameter("uTime", vessel.met)
 	# plumes — each engine's own, at the ambient pressure it is actually in
 	Plume.freestream_q = float(vessel.telemetry.get("q", 0.0)) if env.atm != null else 0.0
@@ -1404,15 +1392,12 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var on: bool = st != null and vessel.lit(st) and vessel.throttle > 0.0
 		pl.update(vessel.throttle if on else 0.0, pa, vessel.met, p0)
 	# Separation motors run on their stage's clock from the moment it let go.
-	var sep_lit := false
 	for b in sep_plumes:
 		var cs: CraftModel.CraftStage = b.stage
 		var thr := 0.0
 		if cs.sep != null and cs.sep.motors != null:
 			thr = Separation.motor_fraction(float(cs.sep.t), cs.sep.motors)
 		b.fx.update(thr, pa, vessel.met, p0)
-		sep_lit = sep_lit or thr > 0.0
-	if sep_lit and env.atm != null: _sep_smoke(dt)
 	if cruise != null:
 		for pl in plumes:
 			pl.update(0.0 if (cruise.leg == "coast" or cruise.leg == "arrived") else 1.0, 0.0, cruise.tau / 100.0, 101325.0)
@@ -1469,8 +1454,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# A trench throws it out of both ends; an open deflector every way.
 		var axis: Vector3 = Vector3.ZERO if site.style == "chopsticks" else (site.group.basis * Vector3(1, 0, 0)).normalized()
 		smoke.emit(Vector3(site_local.x, -site.deck_height * 0.6, site_local.z), vessel.throttle * reach_k, spread, dt, soot, axis)
-	if env.atm != null and thrusting and alt > 20.0:
-		_lay_trail(craft_basis)
+	_lay_trails(env.atm != null, env.atm != null and thrusting and alt > 20.0)
 	if cryo != null:
 		var fuelled := vessel.phase == Vessel.PHASE.PRELAUNCH and env.atm != null
 		cryo.update(dt, fuelled, vessel.met, smoke)

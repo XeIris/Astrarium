@@ -1,8 +1,9 @@
 # Exhaust plumes at altitude, and launch smoke
 
 How `shaders/flight/plume.gdshader` sizes and lights a plume in air and as the
-vehicle climbs, and how `Plume.SmokeColumn` and `shaders/flight/smoke_volume.gdshader`
-make the pad cloud, the exhaust trail and the tanks' boil-off. The near field (shock cells, Mach disk, mixing layer) is described in the
+vehicle climbs, and how `Plume.SmokeColumn`, `shaders/flight/smoke_trail.gdshader`
+and `shaders/flight/smoke_volume.gdshader` make the pad cloud, the exhaust trail
+and the tanks' boil-off. The near field (shock cells, Mach disk, mixing layer) is described in the
 shader's header. Everything here is an appearance model driven by flight
 state; nothing feeds back into thrust or trajectory.
 
@@ -104,9 +105,9 @@ In air a kerosene plume's luminous part is short. Fuel-rich exhaust
 afterburns in the mixing layer and burns out within about a vehicle length
 (`flame_len = d_exit (8 + 30·u)`, with `u` the under-expansion measure, so it
 lengthens as the air thins). Past it the exhaust is soot and condensing
-water: a grey column that scatters daylight. The plume shader draws that column
-in the rest of its box (`uTrailK`, `uTrail`), widening and broken by the large
-eddies. `Plume.SmokeColumn` then continues it as a world-fixed trail.
+water: a grey column that scatters daylight. That column is drawn by the trail
+([below](#the-trail)), from where it grows out of the flame onward; the plume
+shader's own soot fades out over the same stretch.
 
 ### How dense the smoke is
 
@@ -125,27 +126,20 @@ staging. Spread over a column of radius `R` the optical depth across it is
 
     τ = SMOKE_K · smoky · ṁ / (v · R),        SMOKE_K = 2
 
-The shader carries this line density as `uTrailK` and gives every metre of its
-column `σ = uTrailK / (2 R²)`. The trail puffs take opacity `1 − e^{−τ/1.7}`,
-since about 1.7 puffs overlap at any point seen across. Near-field column,
-ballooned column and world trail are three shapes of the same smoke, so
-handing it from one to the next changes the shape, not the density.
+This line density `K` is the column's whole budget: whatever its width, every
+metre of it holds `σ ≈ K / (2 R²)` with `R` its half-density radius, so the
+near-field column, the ballooned one and the trail far behind are shapes of the
+same smoke. Widening changes its shape and thins it; it never steps.
 
 **Where the flame stops.** In the ballooned far field the luminous tongues fade
-out by `uFlame·L`, and the same lobes carry on as smoke inside the narrowing
-balloon (`smk_hi`). The smoke fills the radius `0.62·R_eq` that the balloon has
-narrowed to, and the trail picks up at that width. Light from the balloon comes
+out by `uFlame·L` while the column grows in, filling the radius the balloon has
+narrowed to (`0.62·R_eq` at the box's end). Light from the balloon comes
 from incandescent soot and from afterburning in the shock. A clean methane plume
 still glows (`inc = soot·1.15 + afterburn·0.35`).
 
-**Continuity.** The box carries the column past the flame,
-`L ≥ flame_len·(1 + 1.2·c)` with `c = clamp(τ/0.08)`, so the box shrinks
-smoothly as the column fades instead of jumping. Trail puffs are laid at 0.88 of
-that length with the column's width. They appear before the vehicle has gone half
-a puff's width (`fade = v / (w/2)`). A slower fade would leave a gap of hundreds
-of metres at 2 km/s. The last puff laid drifts with the wind, so a vehicle held
-still with the air streaming past (`tools/fxlab.tscn`) lays the same trail as one
-flying through still air.
+**The box's length.** The plume's box still runs past the flame,
+`L ≥ flame_len·(1 + 1.2·c)` with `c = clamp(τ/0.08)`, so it shrinks smoothly as
+the column thins instead of jumping. Its end is where the trail's nodes are laid.
 
 The smoke's reflectance is `Plume.smoke_grey`: 0.42 for kerosene soot, 0.72 for
 a solid's white alumina, and near-white condensation for hydrogen.
@@ -164,9 +158,8 @@ the vehicle, and `ω` the planet's spin.
   throws them every way. Forty small puffs a second, growing as
   `√(1 + 2.4·age)`, fading in over half a second and living about 15 s,
   overlap into one billowing cloud. A few large ones read as separate balls.
-- **Trail.** Puffs are laid where the shader's column fades, spaced by 0.42
-  of its width and jittered in size and position so the column is not a tube.
-  They slow to the wind, widen as `√(1 + 0.35·age)` and last 70–110 s.
+- **Trail.** One continuous column along nodes laid in the air
+  ([next section](#the-trail)).
 - **Boil-off.** `Cryo` (`sim/flight/cryo.gd`) vents cold vapour from the top of
   each cryogenic stage's upper tank while the vehicle sits fuelled: sixteen
   small, faint puffs a second per vent, which overlap into a stream. It is
@@ -176,6 +169,88 @@ the vehicle, and `ω` the planet's spin.
   stage, lightly on an insulated hydrogen stage, on both tanks of a methane
   stage. The rime forms in broad patches, streaked vertically where condensate
   froze running down the stringers. It sheds over the first ~20 s of flight.
+
+## The trail
+
+The exhaust trail is one tube of smoke, not a string of puffs. A column of
+puffs reads as beads however they are jittered: each puff is densest at its
+centre, so the column's density rises and falls at their spacing, and puffs laid
+per frame gap apart at speed. Puffs also show less than their nominal size (a
+sprite's visible radius is well inside its quad, a volume puff's eroded radius
+inside its sphere), so a trail of them is narrower than the column it continues.
+
+**Strands.** Each smoky plume lays its own strand: the longest lit one, and each
+lit separation motor (solid, so its column is alumina). A strand whose plume goes
+out (cutoff, staging, a burnt-out motor) leaves its column in the air as its end,
+and the next stage starts a new one.
+
+**Nodes.** `SmokeColumn.trail_to` lays a node where the plume's box ends each
+time the vehicle has gone a fixed distance past the last one, interpolated
+along the frame's path: three column radius scales, or an eighth of a second's
+flight when that is longer, so 110 s of the main strand fits in half of the
+2048 nodes. Nodes link to their neighbours by slot and sequence number, so
+strands can interleave in the ring and a reused slot ends a strand cleanly. A node records
+the column's radius scale `a` and line density `K` there. It drifts with the
+air, slows to the wind, widens by turbulent diffusion as `a √(1 + 0.35·age)`,
+and its `K` disperses over the last 40 % of a 70–110 s life, each node on its
+own clock so an old trail breaks up raggedly.
+
+**The live end.** Ahead of the newest node the column hangs from the plume:
+eight samples along the plume's axis (`PlumeFx.column_*`) from where it grows
+out of the flame (35 % of the flame's length, `K = 0`) to the box's end. Their
+widths and weights are the plume's own: the near field's column widens with the
+jet as `R_j · (1 + 0.9·ramp)` exit radii; the balloon's fills it as it narrows
+(`balloon_radius`); `uHi` weights them. The plume shader's soot fades on the
+same ramp, so the column replaces it rather than covering it. Because the column
+and the trail are the same geometry in the same shader, there is no hand-over.
+A column drawn in the plume's own box cannot hand over to a trail starting at
+its end: no fade between two separately composited volumes matches one medium,
+whichever is drawn first, and the plume is always drawn after the smoke.
+
+**One column, many segments.** Each instance is the box round one segment
+between two points, but its march counts only the slab between the segment's end
+planes. Each end plane bisects the bend into the neighbouring segment, so
+neighbours share it and the segments partition the column. Overlapping them and
+cross-fading the density does not work: two half-density volumes composited one
+over the other average their light from deeper inside than one full-density
+volume would, and show bands at every joint. Along a segment, `a` and `K` are
+interpolated by the distances to the two end planes, so they agree with the
+neighbour's on the plane they share. Segments are sorted by the distance from
+the eye to their nearest point, which along a chain draws each one behind its
+neighbour nearer the eye; sorting by centre puts thin seams at the joints seen
+side-on.
+
+**Density** (`smoke_column.gdshaderinc`). In a column of radius scale `a`:
+
+    σ = K · body · (0.3 + 2.1 n²) / (2 (0.82 a)²)
+    body = smoothstep(1.2, 0.45, r/a + 1.3 (lobe − ½))
+
+`lobe` is noise with features about `2.2 a` across, pushing the edge in and
+out to 1.85 `a`; `n` is noise about `0.8 a` across, looked up through the lobes
+(domain warping), so the detail curls round them. The noise is fixed in the air,
+not the vehicle (`uAir`, carried through every reframe and the wind), so the
+column streams back past a climbing vehicle. Its scale follows `a` without the
+pattern sliding: two power-of-two octaves either side of the wanted size are
+cross-faded by `log₂ a` and restored to full contrast, and each octave keeps its
+own texture offset, or the pattern jumps where the width crosses a power of two.
+High and Ultra add a finer octave at full contrast, so it adds detail but not
+density.
+
+**Light.** The sun reaches a point through the column's mean extinction
+`K/(2a²)` along its chord to the sun (`tube_chord`), capped at four radius scales
+when the sun is down the axis. Smoke is optically thick: light scattered many
+times reaches deeper than the direct beam, so a second, weaker and more forgiving
+term carries it, `e^{−τ}·phase + 0.4 e^{−0.4τ}` (the octave approximation of
+Wrenninge, *Art-Directable Multiple Volumetric Scattering*, SIGGRAPH 2015 talk).
+The phase function is Henyey–Greenstein, g = 0.55, mixed 70:30 with isotropic,
+as for the pad cloud's volumes; the sky lights the column from above and the
+ground from below. On Ultra two steps toward the sun through the noise add the
+billows' own shadows, as a departure from the mean so the column is no darker on
+average.
+
+**March.** Low, Medium, High and Ultra take 8, 10, 12 and 12 steps through each
+segment's chord, about 0.3 `a` on High. Coarser steps in a dense column light it
+from deeper inside and darken it.
 
 ## Launch smoke as volumes
 
