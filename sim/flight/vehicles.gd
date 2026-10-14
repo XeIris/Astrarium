@@ -143,9 +143,11 @@ static func _build_vehicles() -> Dictionary:
 		"limits": { "maxQ": 42e3, "maxG": 4.5, "qAlpha": 5e3, "heatLoad": 0.0 },
 		"target": { "apoapsis": 185e3, "inclination": 32.5 },
 		"stages": [
-			stage({ "key": "sic", "name": "S-IC", "dry": 137000.0, "prop": 2077000.0,
+			# Dry mass with the small interstage ring that leaves with it at the first plane
+			# (615 kg, AS-510 flight evaluation table 16-9).
+			stage({ "key": "sic", "name": "S-IC", "dry": 137615.0, "prop": 2077000.0,
 				"engine": E.F1, "count": 5, "L": 42.0, "D": 10.06,
-				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5, "fixedGimbals": [0],
+				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "flatTop": true, "fixedGimbals": [0],
 					# Separation (docs/physics/stage-separation.md): eight retros in pairs in the
 					# engine fairings, 7.5° off the axis, firing forward out of the fairings' noses
 					# (MSFC-MAN-503 fig. 4-25). `thrust` is per pair, N; sites are [y, r, az°].
@@ -154,6 +156,14 @@ static func _build_vehicles() -> Dictionary:
 					"sep": { "motors": { "thrust": 782.1e3, "web": 0.633, "cant": 7.5, "exitD": 0.39,
 							"sites": [[10.8, 4.53, 45.0], [10.8, 4.53, 135.0], [10.8, 4.53, 225.0], [10.8, 4.53, 315.0]] },
 						"stack": { "thrust": 397.8e3, "dir": [0.0, 1.0, 0.0], "start": -0.2, "time": 3.7 } } } }),
+			# The S-II's aft interstage: the dual-plane separation leaves it on the S-II, over
+			# the J-2s, and drops it 30.5 s after S-IC cutoff, 29.8 s after the first plane
+			# (MSFC-MAN-503 fig. 2-1). 3,504 kg (AS-510 table 16-9). The S-II's ullage
+			# rockets ride on it.
+			stage({ "key": "sii_aft_is", "name": "S-II aft interstage", "dry": 3504.0, "prop": 0.0,
+				"engine": null, "count": 0, "L": 1.5, "D": 10.06,
+				"jettisonAt": { "afterBelow": 29.8 },
+				"look": { "ring": true } }),
 			stage({ "key": "sii", "name": "S-II", "dry": 36200.0, "prop": 443000.0,
 				"engine": E.J2, "count": 5, "L": 24.9, "D": 10.06,
 				"rcs": { "thrust": 3300.0, "isp": 190.0, "prop": 400.0, "count": 8 },

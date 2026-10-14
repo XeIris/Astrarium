@@ -56,6 +56,18 @@ Source: *Saturn V Flight Manual SA-503*, MSFC-MAN-503 (1968), NTRS 19750063889.
   (y 10.8 m, r 4.53 m, at 45° + k·90°). The stack's push is 4 × 101 kN × cos 10°,
   starting 0.2 s before the stage separates.
 
+**Dual-plane separation** (MSFC-MAN-503 p. 5-24, fig. 2-1; AS-510 table 16-9). The
+S-IC/S-II interstage is cut at two planes. At the first, the S-IC leaves with a small
+ring (615 kg, included in its dry mass). The large interstage, the S-II's aft
+interstage, stays on the S-II, around its J-2s. It carries the ullage rockets. It drops
+30.5 s after S-IC cutoff: 29.8 s after the first plane.
+
+- The model: the stage `sii_aft_is`, 3,504 kg (AS-510 table 16-9), 1.5 m tall,
+  dropped by `jettisonAt.afterBelow` 29.8 s after the S-IC. The S-II flies those
+  seconds with its mass, then the ring falls behind on the S-II's acceleration alone.
+- AS-510 reports the second plane separation as predicted, with no significant
+  attitude disturbance (§10.6). No push or rates are published for it.
+
 **S-II/S-IVB** (figure 2-1, page 5-25):
 
 - There are four retrorockets, 34,810 lbf (154.8 kN) for 1.52 s. They are 90° apart
@@ -69,15 +81,13 @@ Source: *Saturn V Flight Manual SA-503*, MSFC-MAN-503 (1968), NTRS 19750063889.
 Not modelled:
 - The F-1 thrust tail-off. A NASA JANNAF review of AS-510 (NTRS 20100023317)
   attributes a separation distance below prediction to a larger tail-off impulse.
-- The dual-plane separation. The S-II's aft interstage drops 30.5 s after S-IC
-  cutoff. Here it is drawn on the S-IC and leaves with it.
 - Post-separation rates. The AS-506 flight evaluation (MPR-SAT-FE-69-9, §12)
   reports the separations as nominal, within staging limits, but publishes no rates
   for the spent stages.
 
 **Check**: the manual says seven retrorockets (one out) separate the S-IC by at
-least 6 ft in under one second. With seven, the retros give 19.8 m/s² on the 137 t
-stage for 0.633 s. The ullage rockets add 0.58 m/s² on the stack. That is 8.9 m at
+least 6 ft in under one second. With seven, the retros give 19.7 m/s² on the 137.6 t
+stage for 0.633 s. The ullage rockets add 0.59 m/s² on the stack. That is 8.8 m at
 1 s, before the S-II lights.
 
 ## Falcon 9

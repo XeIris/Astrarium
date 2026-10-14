@@ -944,6 +944,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if _t(look.get("cabin")): return build_lm_ascent(spec, parts)
 	if _t(look.get("capsule")): return build_csm(spec, parts)
 	if _t(look.get("fairing")): return build_fairing(spec, parts)
+	if _t(look.get("ring")): return build_ring(spec, parts)
 	if _t(look.get("satellite")): return build_satellite(spec, parts)
 	# Created only now: a Node3D is not refcounted, so one made before those returns leaks.
 	var g := _grp()
@@ -954,7 +955,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	var interstage := _n(look.get("interstage"), 0.0)
 	# A stage carrying a nose or interstage gets a flat top, or the dome leaves a gap
 	# at the joint. The aft end is near-flat too.
-	var flat := nose_l > 0.0 or interstage != 0.0
+	var flat := nose_l > 0.0 or interstage != 0.0 or _t(look.get("flatTop"))
 	g.add_child(tank(L - nose_l, D, skin, 0.0 if flat else 0.12, 0.02))
 	if _t(look.get("soot")): g.add_child(stripe(D, 0, L * 0.12, M.soot))
 	if _t(look.get("band")): g.add_child(stripe(D, L * 0.62, L * 0.10, M.black))
@@ -1302,6 +1303,18 @@ static func build_fairing(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		h.add_child(_mesh(_lathe(pts, 20, -PI / 2.0 if side > 0 else PI / 2.0, PI), M.white))
 		g.add_child(h)
 		parts.halves.append(h)
+	return {"group": g, "parts": parts}
+
+## An interstage that is a stage of its own (the S-II's aft interstage, dropped at the
+## second plane): an open cylinder sunk into its neighbours, the plane banded on top.
+static func build_ring(spec: Dictionary, parts: Dictionary) -> Dictionary:
+	var g := _grp()
+	var D: float = spec.D; var L: float = spec.L
+	var ov := minf(0.35, L * 0.18)
+	var m := _mesh(_cylinder(D / 2.0, D / 2.0, L + ov * 2.0, 28, 1, true), M.dirty)
+	m.position.y = L / 2.0; g.add_child(m)
+	var bd := _mesh(_torus(D / 2.0 * 1.005, D * 0.006, 6, 32), M.black)
+	bd.rotation.x = PI / 2.0; bd.position.y = L; g.add_child(bd)
 	return {"group": g, "parts": parts}
 
 static func build_satellite(spec: Dictionary, parts: Dictionary) -> Dictionary:

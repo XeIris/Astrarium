@@ -90,6 +90,7 @@ class StageState extends RefCounted:
 	var prop0: float
 	var ignited: bool
 	var attached: bool = true
+	var dropped_met: float = -1.0  # proper time it left the stack, s; < 0 while attached
 	var spent: bool
 	var restarts: int
 	var rcs_prop: float
@@ -794,7 +795,7 @@ func stage(force := false):
 		for o in stages:
 			if o != st and o.attached: others = true
 		if not others: break
-		st.attached = false; st.spent = true
+		st.attached = false; st.spent = true; st.dropped_met = met
 		dropped = st; stage_events += 1
 		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name + _where())
 		break
@@ -811,11 +812,14 @@ func stage(force := false):
 		st.ignited = true
 		log_event("Ignition — %s" % st.spec.name)
 		break
+	_find_stage_index()
+	return dropped
+
+func _find_stage_index() -> void:
 	stage_index = -1
 	for i in stages.size():
 		if stages[i].attached:
 			stage_index = i; break
-	return dropped
 
 ## Shut down `n` engines, symmetrically: the centre first, then pairs.
 func shutdown_engines(n: int = 1) -> int:
@@ -846,7 +850,8 @@ func jettison(key: String):
 		if s.spec.key == key and s.attached:
 			st = s; break
 	if st == null: return null
-	st.attached = false; st.spent = true; stage_events += 1
+	st.attached = false; st.spent = true; st.dropped_met = met; stage_events += 1
+	_find_stage_index()
 	log_event("Separation — %s" % st.spec.name + _where())
 	return st
 
@@ -1146,6 +1151,10 @@ func auto_jettison() -> void:
 		if j.get("heat") != null and t.get("heat") != null and t.heat < j.heat and altitude() > 60000.0:
 			jettison(st.spec.key)
 		elif j.get("alt") != null and altitude() > j.alt:
+			jettison(st.spec.key)
+		# A timed second plane (the S-II's aft interstage): seconds after the stage below left.
+		elif j.get("afterBelow") != null and st.index > 0 and stages[st.index - 1].dropped_met >= 0.0 \
+				and met - stages[st.index - 1].dropped_met >= float(j.afterBelow):
 			jettison(st.spec.key)
 
 ## Largest safe substep, seconds.
