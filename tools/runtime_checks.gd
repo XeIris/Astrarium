@@ -254,6 +254,8 @@ func _soak_check() -> void:
 			printerr("SOAK FAILED: unknown feature ", key)
 			stage.get_tree().quit(1)
 			return
+	# check.py runs one feature per process and compares this list with its own.
+	print("SOAK FEATURES ", ",".join(feats.keys()))
 	stage.load_preset("solar")
 	for i in 5: await stage.get_tree().process_frame
 	for key in feats:

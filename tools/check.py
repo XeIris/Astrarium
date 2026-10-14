@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import datetime
+import fnmatch
 import json
 import os
 from pathlib import Path
@@ -19,17 +20,59 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("fast", "native", "flight", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("dev", "fast", "native", "flight", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
 # themselves (clean), read the previous step's output (export), or need exact object
-# counts (lifecycle).
+# counts (lifecycle; its checks run beside each other only, see `alone`).
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
+# The soak's features in runtime_checks.gd's order, one process each.
+SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
+                 "lessons", "model_viewer", "flight_stage", "flight_catch", "start_screen")
+# The full launches sharedflightcheck flies, one process each.
+SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
 DESCENTS = ("lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane", "skycrane_staged", "lmdeorbit", "shcatch", "shcatch_2x")
-# missioncheck's cases in its own order, with idle seconds on an M-series Mac (only for launch order).
-MISSIONS = {"launch_orbit": 71, "lunar_orbit": 92, "lunar_landing": 37, "skip_moon": 2,
-            "ship_return": 77, "orbiter_return": 101, "orbiter_home": 183, "shuttle_fates": 150}
+# missioncheck's cases in its own order, with headless undrawn seconds on an M-series
+# Mac (only for launch order).
+MISSIONS = {"launch_orbit": 40, "lunar_orbit": 55, "lunar_landing": 28, "skip_moon": 4,
+            "ship_return": 45, "orbiter_return": 60, "orbiter_home": 110, "shuttle_fates": 90}
+# The frames of shuttle_fates flown both undrawn and drawn by the parity check: liftoff
+# from the pad and booster separation; at the end both boosters are coming down under
+# their chutes, so their own state is in the digest.
+PARITY_FRAMES = 20000
+# --changed: repository paths (fnmatch, `*` crosses directories) → the checks (fnmatch
+# on check names) that cover them. A tools/ file also selects every check whose command
+# names it. Documentation selects nothing; any other unmapped path selects `dev`.
+# Keep this in step with AGENTS.md "Checks" when a check or a subsystem is added.
+CHANGED_RULES = (
+    (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
+    (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
+     ("invariantcheck", "nbodycheck", "numericalcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
+      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck")),
+    (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
+      "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/suns.gd", "sim/bodies.gd"),
+     ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
+      "sciencecheck", "savecheck", "accretion*", "_soak_check-*")),
+    (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
+      "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd"),
+     ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
+    (("sim/flight/*", "tools/fixtures/flight_fixture.json"),
+     ("flighttimecheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*")),
+    (("sim/flight/vehicles.gd", "sim/flight/craftmodel.gd", "sim/flight/craftassets.gd", "sim/flight/separation.gd",
+      "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
+    (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"), ("padcheck",)),
+    (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
+      "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
+      "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
+      "sim/flight/cloudfield.gd", "sim/flight/vapour.gd", "sim/flight/cryo.gd"),
+     ("lenscheck", "skycachecheck", "presetcheck", "hud*", "_soak_check-*", "_leak_check", "missioncheck-parity-*")),
+    (("ui/*",), ("hud*", "editorcheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
+    (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
+    # Any other tool (fxlab, harnesses): at least it must still parse.
+    (("tools/*",), ("import",)),
+)
+CHANGED_IGNORED = ("*.md", "docs/*", "web/*", "LICENSE*", ".github/*", "tools/evidence/*")
 CA_ERROR = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: ""\n'
                       r'\s+at: get_system_ca_certificates \(platform/macos/os_macos\.mm:\d+\)\n?', re.MULTILINE)
 
@@ -40,7 +83,41 @@ class Check(NamedTuple):
     markers: object  # None, or a regex (or tuple of them) that must each match exactly one line
     timeout: float
     cost: float = 0  # rough idle seconds; --jobs launches the longest first
-    alone: bool = False
+    alone: object = False  # True: nothing beside it; a string: only beside checks with the same string
+
+
+def changed_files(ref):
+    """Paths changed since the merge base with `ref`, staged, unstaged and untracked."""
+    base = subprocess.run(["git", "merge-base", ref, "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    listed = subprocess.run(["git", "diff", "--name-only", base], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], cwd=ROOT,
+                               capture_output=True, text=True, check=True).stdout
+    return sorted({path.removesuffix(".uid") for path in (listed + untracked).splitlines() if path})
+
+
+def changed_plan(plan, files, dev):
+    """The checks in `plan` that cover `files` (CHANGED_RULES), import first; `dev` is
+    the dev suite's checks, run for an unmapped path. Returns (plan, unmapped paths)."""
+    wanted, unmapped = set(), []
+    for path in files:
+        if any(fnmatch.fnmatch(path, ignored) for ignored in CHANGED_IGNORED):
+            continue
+        hit = False
+        for paths, selectors in CHANGED_RULES:
+            if any(fnmatch.fnmatch(path, pattern) for pattern in paths):
+                hit = True
+                wanted.update(check.name for check in plan if any(fnmatch.fnmatch(check.name, s) for s in selectors))
+        if path.startswith("tools/"):
+            stem = "tools/" + Path(path).stem + "."
+            named = [check.name for check in plan if any(stem in str(part) for part in check.command)]
+            hit = hit or bool(named)
+            wanted.update(named)
+        if not hit:
+            unmapped.append(path)
+            wanted.update(check.name for check in dev)
+    if wanted:
+        wanted.add("import")
+    return [check for check in plan if check.name in wanted], unmapped
 
 
 def godot_path(value):
@@ -58,10 +135,35 @@ def checks(suite, godot, output, repeat, export_preset):
     def script(name, marker, *args, timeout=180):
         return Check(name, base + ["--headless", "--script", f"res://tools/{name}.gd", "--", *args], marker, timeout)
 
+    # Windowed: only for checks that judge a rendered frame, read a GPU result or must
+    # see SHADER ERRORs (printed on first render). The dummy renderer has none of these.
     def scene(name, marker, *args, timeout=300):
         return Check(name, base + ["--resolution", "1280x720", f"res://tools/{name}.tscn", "--", *args], marker, timeout)
 
-    if suite == "fast":
+    # Headless: the scene tree, visual nodes and their updates all run, nothing is drawn.
+    def headless_scene(name, marker, *args, timeout=300):
+        return Check(name, base + ["--headless", f"res://tools/{name}.tscn", "--", *args], marker, timeout)
+
+    def mission(case, *args, timeout=1200):
+        markers = (rf"^MISSION CHECK CASES {','.join(MISSIONS)}$", rf"^MISSION {case} ok\b", r"^MISSION CHECK DONE failures=0$")
+        return headless_scene("missioncheck", markers, f"only={case}", *args, timeout=timeout)._replace(
+            name=f"missioncheck-{case}", cost=MISSIONS[case])
+
+    # Flies the same frames undrawn and drawn in one process; any difference in the
+    # final state fails. Guards main.set_drawn's promise that skipping presentation
+    # leaves physics bit-identical.
+    def mission_parity(case, frames):
+        markers = (rf"^MISSION PARITY {case} [0-9a-f]{{16}} ", r"^MISSION CHECK DONE failures=0$")
+        return headless_scene("missioncheck", markers, f"only={case}", "parity=1", f"frames={frames}", timeout=900)._replace(
+            name=f"missioncheck-parity-{case}")
+
+    if suite == "dev":
+        # The inner loop, under a minute: import, the numeric checks, one short mission
+        # and a short drawn/undrawn parity flight. Nothing windowed.
+        yield from (c for c in checks("fast", godot, output, repeat, export_preset) if c[0] != "reference-shots-selfcheck")
+        yield mission("skip_moon", timeout=120)
+        yield mission_parity("shuttle_fates", 1500)._replace(cost=8)
+    elif suite == "fast":
         # Everything else reads the import cache, so nothing runs beside the import.
         yield Check("import", base + ["--headless", "--import", "--quit"], None, 180, alone=True)
         yield ("reference-shots-selfcheck", [sys.executable, str(ROOT / "tools/reference_shots_test.py")],
@@ -90,18 +192,25 @@ def checks(suite, godot, output, repeat, export_preset):
                            "years=60000", option, f"report={output / (label + '.json')}", timeout=900)
             yield ("stability-" + label, *probe[1:])
     elif suite == "flight":
-        yield script("sharedflightcheck", r"^SHARED FLIGHT DONE failures=0$", timeout=900)._replace(cost=70)
+        for case in SHARED_FLIGHTS:
+            shared = script("sharedflightcheck", (rf"^SHARED FLIGHT {case} PASS ", r"^SHARED FLIGHT DONE failures=0$"), f"only={case}", timeout=600)
+            yield shared._replace(name=f"sharedflightcheck-{case}", cost=30)
         for case in DESCENTS:
             descent = script("flightcheck", r"^FLIGHT CHECK DONE scenarios=1 failures=0$",
                              f"only={case}", f"out={output / f'flight_descent-{case}.json'}", timeout=600)
             yield descent._replace(name=f"flight-descent-{case}", cost=10)
-        # One mission per process. The case list guards against a mission check.py does not know.
-        # Each mission fails on its own at a frame cap, so the limit only catches a hang; it
-        # allows several times the idle time because entry is flown at 1× under --jobs load.
-        for case, cost in MISSIONS.items():
-            markers = (rf"^MISSION CHECK CASES {','.join(MISSIONS)}$", rf"^MISSION {case} ok\b", r"^MISSION CHECK DONE failures=0$")
-            yield scene("missioncheck", markers, f"only={case}", timeout=1200)._replace(name=f"missioncheck-{case}", cost=cost)
+        # One mission per process, headless and undrawn: each is judged on its flown state,
+        # and shuttle_fates' "still drawn" tests read node state, which headless keeps.
+        # The case list guards against a mission check.py does not know. Each mission
+        # fails on its own at a frame cap, so the limit only catches a hang.
+        for case in MISSIONS:
+            yield mission(case)
+        yield mission_parity("shuttle_fates", PARITY_FRAMES)._replace(cost=60)
     elif suite == "rendered":
+        # Windowed: lens and skycache read GPU results and pixels; coursecheck and the
+        # accretion checks collect the errors a drawn frame raises (SHADER ERROR included);
+        # hudcheck screenshots and drives real input over laid-out Controls; presetcheck
+        # attributes each scenario's render errors. The rest judge state and run headless.
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("coursecheck", r"^COURSE 35L 108S 0E$")
@@ -110,10 +219,10 @@ def checks(suite, godot, output, repeat, export_preset):
         yield ("hud-low-startup", *startup_low[1:])
         layout = scene("hudcheck", r"^HUDCHECK LAYOUT [1-9]\d* passed, 0 failed$", "hlayout=1", "assets=0", "padmodels=0")
         yield ("hud-layout", *layout[1:])
-        yield scene("sharedtimecheck", r"^SHARED TIME DONE checks=[1-9]\d* failures=0$", "assets=0")
-        yield scene("transitioncheck", r"^TRANSITIONCHECK DONE checks=[1-9]\d* failures=0$")
-        yield scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
-        yield scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("sharedtimecheck", r"^SHARED TIME DONE checks=[1-9]\d* failures=0$", "assets=0")
+        yield headless_scene("transitioncheck", r"^TRANSITIONCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
@@ -136,8 +245,18 @@ def checks(suite, godot, output, repeat, export_preset):
                              "--log-dir", str(output / "clean"), "--export-preset", export_preset],
                r"^CLEANCHECK DONE failures=0$", 1800)
     elif suite == "lifecycle":
-        for method, marker in (("_soak_check", r"^SOAK DONE$"), ("_leak_check", r"^LEAKCHECK DONE$"), ("_shutdown_check", r"^SHUTDOWNCHECK DONE$")):
-            yield (method, base + ["--verbose", "--resolution", "1280x720", "--", "mode=sandbox", "preset=solar", "rounds=5", f"eval={method}"], marker, 900)
+        # Windowed: the dummy renderer creates the visual nodes but none of the RenderingDevice
+        # or render-thread resources a leak could hide in. One soak feature per process, so
+        # their fixed settle waits overlap; the counts are per process, as each feature's
+        # rounds are compared only with its own first round.
+        def lifecycle(name, method, marker, *args):
+            return Check(name, base + ["--verbose", "--resolution", "1280x720", "--", "mode=sandbox", "preset=solar", "rounds=5",
+                                       f"eval={method}", *args], marker, 900, cost=40, alone="lifecycle")
+        for feature in SOAK_FEATURES:
+            yield lifecycle(f"_soak_check-{feature}", "_soak_check",
+                            (rf"^SOAK FEATURES {','.join(SOAK_FEATURES)}$", rf"^SOAK {feature} +\d", r"^SOAK DONE$"), f"soak={feature}")
+        yield lifecycle("_leak_check", "_leak_check", r"^LEAKCHECK DONE$")
+        yield lifecycle("_shutdown_check", "_shutdown_check", r"^SHUTDOWNCHECK DONE$")
     elif suite == "export":
         archive = output / "game.zip"
         yield ("export-pack", base + ["--headless", "--export-pack", export_preset, str(archive)], None, 300)
@@ -261,8 +380,9 @@ def run_child(check, output, index, options, guard, live):
         live[index] = process
         guarded = guard is not None and "--headless" not in command
         if guarded: guard.add(process.pid)
+        cpu = None
         try:
-            code = process.wait(timeout=options.timeout or timeout)
+            code, cpu = wait_child(process, options.timeout or timeout)
             problem = None if code == 0 else f"child exited {code}"
         except subprocess.TimeoutExpired:
             if os.name == "posix":
@@ -293,13 +413,48 @@ def run_child(check, output, index, options, guard, live):
     if problem is None and re.search(r"ObjectDB instances leaked at exit|(?:SOAK|LEAKCHECK) FAILURES \[(?!\])", errors):
         problem = "lifecycle leak"
     elapsed = round(time.monotonic() - start, 3)
-    lines.append(f"{'FAIL' if problem else 'PASS'} {name} {elapsed}s" + (f": {problem}" if problem else ""))
+    cpu_text = f" cpu {cpu}s" if cpu is not None else ""
+    lines.append(f"{'FAIL' if problem else 'PASS'} {name} {elapsed}s{cpu_text}" + (f": {problem}" if problem else ""))
     lines.append(f"  {log}")
     return {"name": name, "command": command, "exit_code": code, "problem": problem,
-            "seconds": elapsed, "log": str(log), "engine_log": str(engine_log) if engine_log else None,
+            "seconds": elapsed, "cpu_seconds": cpu, "log": str(log), "engine_log": str(engine_log) if engine_log else None,
             "allowed_ca_diagnostics": ignored, "focus_restored": restored,
             "renderer": next((line for line in raw.splitlines() if re.match(r"^(?:Metal|Vulkan|OpenGL).*Using Device", line)), None),
             "metrics": [line for line in raw.splitlines() if line.startswith(("SHARED TIME BENCH", "SHARED TIME CONFIG", "HUDCHECK PERF", "HUDCHECK CONFIG", "NBODYCHECK PASS", "STABILITYCHECK", "STABILITYDIAGNOSTIC"))]}, lines
+
+
+def wait_child(process, timeout):
+    """Wait for `process`; returns (exit code, CPU seconds of it and the children it
+    reaped, or None where wait4 is unavailable). Raises TimeoutExpired."""
+    if not hasattr(os, "wait4"):
+        return process.wait(timeout=timeout), None
+    deadline = time.monotonic() + timeout
+    while True:
+        pid, status, usage = os.wait4(process.pid, os.WNOHANG)
+        if pid:
+            process.returncode = os.waitstatus_to_exitcode(status)
+            return process.returncode, round(usage.ru_utime + usage.ru_stime, 3)
+        if time.monotonic() > deadline:
+            raise subprocess.TimeoutExpired(process.args, timeout)
+        time.sleep(0.05)
+
+
+def print_times(report, compare):
+    """Each check's wall and CPU seconds, slowest first, so a check that has grown
+    slower shows. With an earlier report, flag checks over 1.25× and 5 s slower."""
+    earlier = {}
+    if compare:
+        for result in json.loads(Path(compare).read_text()).get("results", []):
+            earlier[result["name"]] = result.get("seconds")
+    print("TIMES wall s / cpu s" + (f" / was (wall s) from {compare}" if compare else ""), flush=True)
+    for result in sorted(report["results"], key=lambda r: -r["seconds"]):
+        was = earlier.get(result["name"])
+        cpu = result.get("cpu_seconds")
+        flag = " SLOWER" if was and result["seconds"] > 1.25 * was and result["seconds"] - was > 5 else ""
+        print(f"  {result['name']:<44} {result['seconds']:>8.1f} {cpu if cpu is not None else float('nan'):>8.1f}"
+              + (f" {was:>8.1f}{flag}" if was is not None else ""), flush=True)
+    cpu = sum(r.get("cpu_seconds") or 0.0 for r in report["results"])
+    print(f"TOTAL wall {report['wall_seconds']}s, check cpu {round(cpu, 1)}s, {len(report['results'])} checks", flush=True)
 
 
 def run_plan(plan, output, options, guard, report):
@@ -331,7 +486,8 @@ def run_plan(plan, output, options, guard, report):
     # Segments: runs of parallel checks between checks that run alone.
     segments = []
     for index, check in enumerate(plan):
-        if check.alone or not segments or plan[segments[-1][-1]].alone:
+        last = plan[segments[-1][-1]] if segments else None
+        if last is None or check.alone is True or last.alone is True or check.alone != last.alone:
             segments.append([])
         segments[-1].append(index)
     try:
@@ -395,9 +551,15 @@ def main():
     parser.add_argument("--jobs", type=int, default=default_jobs(),
                         help="checks run at once (default: performance cores); timing suites always run alone")
     parser.add_argument("--repeat", type=int, default=3, help="performance repetitions (default 3)")
+    parser.add_argument("--changed", nargs="?", const="HEAD", metavar="REF",
+                        help="run only the checks covering files changed since REF's merge base (default HEAD: "
+                             "uncommitted work), from the selected suites or else dev..lifecycle")
+    parser.add_argument("--list", action="store_true", help="print the planned checks and exit")
+    parser.add_argument("--compare", type=Path, metavar="REPORT", help="show each check's time against an earlier report.json")
     parser.add_argument("--export-preset", default={"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}.get(platform.system(), "macOS"))
     options = parser.parse_args()
-    options.suites = options.suites or ["fast"]
+    options.suites = options.suites or (["dev", "fast", "native", "flight", "rendered", "assets", "procedural", "lifecycle"]
+                                        if options.changed else ["fast"])
     if any(suite not in SUITES for suite in options.suites):
         parser.error("unknown suite; choose from " + ", ".join(SUITES))
     if options.repeat < 1 or options.jobs < 1 or (options.timeout is not None and options.timeout <= 0):
@@ -423,6 +585,23 @@ def main():
     plan = [check._replace(alone=check.alone or suite in ALONE)
             for suite in options.suites
             for check in map(lambda c: Check(*c), checks(suite, options.godot, output, options.repeat, options.export_preset))]
+    # Suites share checks (dev runs fast's); each runs once.
+    seen = set()
+    plan = [check for check in plan if (check.name, tuple(map(str, check.command))) not in seen
+            and not seen.add((check.name, tuple(map(str, check.command))))]
+    if options.changed:
+        files = changed_files(options.changed)
+        dev = [Check(*c) for c in checks("dev", options.godot, output, options.repeat, options.export_preset)]
+        plan, unmapped = changed_plan(plan, files, dev)
+        report["changed"] = {"ref": options.changed, "files": files, "unmapped": unmapped}
+        print(f"CHANGED {len(files)} files since {options.changed}; {len(plan)} checks"
+              + (f"; unmapped (dev suite): {', '.join(unmapped)}" if unmapped else ""), flush=True)
+    if options.list:
+        for check in plan:
+            print(f"{check.name}{'' if not check.alone else ' (alone)' if check.alone is True else f' ({check.alone})'}"
+                  f"{' headless' if '--headless' in check.command else ' windowed' if check.command[0] == options.godot else ''}")
+        return 0
+    started = time.monotonic()
     try:
         with FocusGuard() if options.background else contextlib.nullcontext() as guard:
             if not run_plan(plan, output, options, guard, report):
@@ -430,8 +609,10 @@ def main():
         report["complete"] = True
         return 0
     finally:
+        report["wall_seconds"] = round(time.monotonic() - started, 1)
         path = output / "report.json"
         path.write_text(json.dumps(report, indent=2) + "\n")
+        print_times(report, options.compare)
         print(f"REPORT {path}", flush=True)
 
 
