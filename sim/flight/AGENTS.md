@@ -102,7 +102,10 @@ to the procedural builds too.
   visible start.
 - A launch complex is fitted to its vehicle's measured skin
   (`LaunchSite.Envelope`) and yawed to the vehicle's roll, never sized from a
-  diameter. `tools/padcheck.gd` must report zero.
+  diameter. Anything that reaches the vehicle retracts on its own schedule
+  (`arms[].at`, seconds before hold-down release, from the real counts), and
+  nothing fixed may stand in its ascent column. `tools/padcheck.gd` must report
+  zero.
 - The grounds are a plan (`LaunchSite.site_plan`) plus a library
   (`model_sources/blender/facilities.py`, one `stage_fac_<name>` node each).
   They keep clear of the lightning masts, the trench axis (±x) and the

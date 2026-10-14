@@ -1303,7 +1303,10 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 				catch_pose = {"rail": tw.rail_alt, "closed": tw.closed, "settle": tw.settle,
 					"booster": rel, "radius": vessel.diameter * 0.5}
 			site.update({
-				"released": vessel.phase != Vessel.PHASE.PRELAUNCH and alt > 1.0,
+				# Seconds to hold-down release. Without a count, engines lit on the pad
+				# count as release, so nothing is left in the vehicle's way.
+				"t_minus": float(count.t) if count != null else (INF if vessel.phase == Vessel.PHASE.PRELAUNCH \
+					and vessel.throttle <= 0.0 else -1.0),
 				# No deluge for a catch: the engines are 80 m up.
 				"throttle": 0.0 if tw != null else (vessel.throttle if float(vessel.telemetry.get("thrust", 0.0)) > 0.0 else 0.0),
 				"dt": minf(sim_seconds, 0.25),

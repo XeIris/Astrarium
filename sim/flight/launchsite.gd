@@ -39,6 +39,20 @@ static func SCRUB() -> StandardMaterial3D:
 	var m := _std("scrub", 0x4a6740, 0.96, 0.0)
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
+# Tower paints, sampled from KSC and Starbase photography: the Apollo LUT's red, the
+# Shuttle-era FSS's grey, SpaceX's dark cladding, bare stainless at Starbase.
+static func LUT_RED() -> StandardMaterial3D: return _std("lut-red", 0xb3402a, 0.78, 0.12)
+static func FSS_GREY() -> StandardMaterial3D: return _std("fss-grey", 0x9a9fa3, 0.74, 0.22)
+static func DARK() -> StandardMaterial3D: return _std("dark-clad", 0x2e3236, 0.82, 0.15)
+static func STAINLESS() -> StandardMaterial3D: return _std("stainless", 0xa9afb4, 0.48, 0.32)
+static func ML_GREY() -> StandardMaterial3D: return _std("ml-grey", 0x7d8186, 0.8, 0.2)
+## Work lights. Their emission follows the daylight in update(), so they read at dusk
+## (as in every night photograph of a pad) and not at noon.
+static func LAMP() -> StandardMaterial3D:
+	var m := _std("lamp", 0xfff1d6, 0.6, 0.0)
+	m.emission_enabled = true
+	m.emission = Color(1.0, 0.86, 0.62)
+	return m
 
 # Decals are separate materials (see decal.gdshader), since the same concrete is
 # structural elsewhere.
@@ -70,31 +84,29 @@ static func _mesh(g: CraftModel.Geo, m: Material) -> MeshInstance3D:
 # A merged box soup: a lattice tower's thousands of struts as one mesh.
 class Struts extends RefCounted:
 	var g := CraftModel.Geo.new()
-	var n := 0
 	## A box from a→b with cross-section w×w, oriented to the segment.
 	func strut(ax: float, ay: float, az: float, bx: float, by: float, bz: float, w: float) -> void:
-		var d := Vector3(bx - ax, by - ay, bz - az)
-		var L := d.length()
-		if L < 1e-6: return
-		d /= L
-		var ref := Vector3(1, 0, 0) if absf(d.y) > 0.95 else Vector3(0, 1, 0)
-		var u := d.cross(ref).normalized() * (w * 0.5)
-		var v := d.cross(u).normalized() * (w * 0.5)
-		var A := Vector3(ax, ay, az); var B := Vector3(bx, by, bz)
-		var corners: Array[Vector3] = []
-		for end in [A, B]:
-			for sv in [[1, 1], [1, -1], [-1, -1], [-1, 1]]:
-				corners.append(end + u * sv[0] + v * sv[1])
-		var base := n
-		for i in 8:
-			g.pos.append(corners[i])
-			# Flat-ish normals: a strut is thin enough that a radial normal
-			# reads fine and costs no extra vertices.
-			var c: Vector3 = corners[i] - (A if i < 4 else B)
-			g.nrm.append(c.normalized() if c.length() > 0.0 else c)
-		for f in [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]:
-			g.idx.append_array([base + f[0], base + f[1], base + f[2], base + f[0], base + f[2], base + f[3]])
-		n += 8
+		LaunchSite.beam_into(g, Vector3(ax, ay, az), Vector3(bx, by, bz), w)
+
+## Appends a w×w box from A to B to `g`.
+static func beam_into(g: CraftModel.Geo, A: Vector3, B: Vector3, w: float) -> void:
+	var d := B - A
+	var L := d.length()
+	if L < 1e-6: return
+	d /= L
+	var ref := Vector3(1, 0, 0) if absf(d.y) > 0.95 else Vector3(0, 1, 0)
+	var u := d.cross(ref).normalized() * (w * 0.5)
+	var v := d.cross(u).normalized() * (w * 0.5)
+	var base := g.pos.size()
+	for end in [A, B]:
+		for sv in [[1, 1], [1, -1], [-1, -1], [-1, 1]]:
+			var c: Vector3 = u * sv[0] + v * sv[1]
+			g.pos.append(end + c)
+			# Radial normals: a strut is thin enough that they read fine and
+			# cost no extra vertices.
+			g.nrm.append(c.normalized())
+	for f in [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]:
+		g.idx.append_array([base + f[0], base + f[1], base + f[2], base + f[0], base + f[2], base + f[3]])
 
 ## A square lattice tower: four legs, ties every `bay`, and diagonals in every bay
 ## of every face (they carry the wind load, and make it read as a lattice).
@@ -123,7 +135,7 @@ static func lattice_tower(H: float, side: float, opts: Dictionary = {}) -> MeshI
 	return _mesh(s.g, STEEL())
 
 ## A horizontal truss boom — the swing arms, the catch arms, the crane jib.
-static func truss(L: float, w: float, d: float, chord: float = 0.22) -> MeshInstance3D:
+static func truss(L: float, w: float, d: float, chord: float = 0.22, m: Material = null) -> MeshInstance3D:
 	var s := Struts.new()
 	var hw := w / 2.0
 	for z in [-hw, hw]:
@@ -137,7 +149,96 @@ static func truss(L: float, w: float, d: float, chord: float = 0.22) -> MeshInst
 	for i in bays:
 		var x0 := (float(i) / bays) * L; var x1 := (float(i + 1) / bays) * L
 		for z in [-hw, hw]: s.strut(x0, 0.0, z, x1, d, z, chord * 0.8)
-	return _mesh(s.g, STEEL())
+	return _mesh(s.g, m if m != null else STEEL())
+
+## A service tower into `B`, standing on (x, base, z): corner columns, a girt and a
+## floor at every `level` (the KSC towers are floored every 20 ft), X bracing on each
+## face every `brace` levels, an elevator core and enclosed rooms. Options:
+##   paint   structural material             flare  base width / side (legs splay out
+##   level   floor pitch, m                         over the lowest flare_h metres)
+##   clad    cladding material, or null      lamps  work lights at every floor
+##   open_x  keep the +x face free of floor overhang (it faces the vehicle)
+static func service_tower(B: Batch, x: float, base: float, z: float, H: float, side: float, o: Dictionary = {}) -> void:
+	var paint: Material = o.get("paint", STEEL())
+	var level: float = o.get("level", 6.1)
+	var brace: int = o.get("brace", 2)
+	var flare: float = o.get("flare", 1.0)
+	var flare_h: float = o.get("flare_h", 0.0)
+	var col: float = o.get("col", 0.9)
+	var h := side * 0.5
+	var levels := maxi(2, int(floor(H / level)))
+	# The half-width at height y above the base.
+	var half_at := func(y: float) -> float:
+		if flare_h <= 0.0 or y >= flare_h: return h
+		return lerpf(h * flare, h, y / flare_h)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var a := Vector3(x + sx * h * flare, base, z + sz * h * flare)
+			var k := Vector3(x + sx * h, base + flare_h, z + sz * h)
+			if flare_h > 0.0: B.beam(a, k, col * 1.15, paint)
+			B.beam(k, Vector3(x + sx * h, base + H, z + sz * h), col, paint)
+	# A column at the middle of each face splits it into two bays, as on the LUT
+	# and the FSS.
+	if o.get("mid", false):
+		for f in 4:
+			var u := Vector3(cos(f * PI * 0.5), 0.0, sin(f * PI * 0.5))
+			B.beam(Vector3(x, base + flare_h, z) + u * h, Vector3(x, base + H, z) + u * h, col * 0.6, paint)
+			if flare_h > 0.0: B.beam(Vector3(x, base, z) + u * h * flare, Vector3(x, base + flare_h, z) + u * h, col * 0.7, paint)
+	var ys: Array[float] = []
+	for i in levels + 1: ys.append(minf(float(i) * level, H))
+	if ys[ys.size() - 1] < H - 0.5: ys.append(H)
+	for i in ys.size():
+		var y: float = ys[i]
+		var hh: float = half_at.call(y)
+		var c: Array[Vector3] = [Vector3(x - hh, base + y, z - hh), Vector3(x + hh, base + y, z - hh),
+			Vector3(x + hh, base + y, z + hh), Vector3(x - hh, base + y, z + hh)]
+		for k in 4: B.beam(c[k], c[(k + 1) % 4], col * 0.55, paint)
+		if i > 0 and o.get("floors", true):
+			B.box(2.0 * hh - 0.3, 0.22, 2.0 * hh - 0.3, ML_GREY(), Vector3(x, base + y - 0.22, z))
+		if o.get("lamps", true) and i > 0:
+			for k in 4:
+				var p := c[k] + (Vector3(x, base + y, z) - c[k]).normalized() * 0.9
+				B.box(0.35, 0.28, 0.35, LAMP(), p + Vector3(0.0, 2.4, 0.0))
+	# X bracing on every face, `brace` floors to a bay; the flared bays get a K.
+	var i0 := 0
+	while i0 < ys.size() - 1:
+		var i1 := mini(i0 + brace, ys.size() - 1)
+		var y0: float = ys[i0]; var y1: float = ys[i1]
+		var h0: float = half_at.call(y0); var h1: float = half_at.call(y1)
+		for f in 4:
+			var ang := float(f) * PI * 0.5
+			var u := Vector3(cos(ang), 0.0, sin(ang))     # face normal
+			var t := Vector3(-u.z, 0.0, u.x)              # along the face
+			var p00 := Vector3(x, base + y0, z) + u * h0 - t * h0
+			var p01 := Vector3(x, base + y0, z) + u * h0 + t * h0
+			var p10 := Vector3(x, base + y1, z) + u * h1 - t * h1
+			var p11 := Vector3(x, base + y1, z) + u * h1 + t * h1
+			if o.get("mid", false):
+				var m0 := (p00 + p01) * 0.5; var m1 := (p10 + p11) * 0.5
+				B.beam(p00, m1, col * 0.42, paint); B.beam(m0, p11, col * 0.42, paint)
+				B.beam(p01, m1, col * 0.42, paint); B.beam(m0, p10, col * 0.42, paint)
+			else:
+				B.beam(p00, p11, col * 0.42, paint)
+				B.beam(p01, p10, col * 0.42, paint)
+		i0 = i1
+	# The elevator core and the rooms on some floors are what make a real tower read
+	# as a building rather than a scaffold.
+	if o.get("core", true):
+		B.box(side * 0.28, H - 0.5, side * 0.34, o.get("core_mat", ML_GREY()), Vector3(x - side * 0.18, base, z + side * 0.12))
+	var rooms: int = o.get("rooms", 3)
+	for i in range(1, ys.size() - 1):
+		if rooms > 0 and i % rooms == 1:
+			var w := side * (0.55 if i % 2 == 0 else 0.38)
+			B.box(w, minf(level * 0.7, 3.6), side * 0.42, o.get("room_mat", WHITE()),
+				Vector3(x - h + w * 0.5 + 0.4, base + ys[i], z - h * 0.35 * (1.0 if i % 3 == 0 else -1.0)))
+	var clad = o.get("clad")
+	if clad != null:
+		# Cladding on the three faces away from the vehicle (+x), as on the crew
+		# tower at 39A.
+		var from: float = o.get("clad_from", 0.0)
+		B.box(0.12, H - from, side, clad, Vector3(x - h - 0.25, base + from, z))
+		for sz in [-1.0, 1.0]:
+			B.box(side, H - from, 0.12, clad, Vector3(x, base + from, z + sz * (h + 0.25)))
 
 static func box(w: float, h: float, d: float, m: Material, x := 0.0, y := 0.0, z := 0.0) -> MeshInstance3D:
 	var b := _mesh(CraftModel._box(w, h, d), m)
@@ -267,6 +368,96 @@ class Envelope extends RefCounted:
 				out.append(a.lerp(b, da / (da - db)))
 		return out
 
+	## The lowest skin over the plan rectangle centred on (cx, cz), from triangles
+	## whose plan bounds overlap it (conservative: never above the true floor).
+	func lowest_over(cx: float, cz: float, hx: float, hz: float) -> float:
+		var lo := INF
+		for t in tri.size() / 3:
+			var a := tri[t * 3]; var b := tri[t * 3 + 1]; var c := tri[t * 3 + 2]
+			if maxf(a.x, maxf(b.x, c.x)) < cx - hx or minf(a.x, minf(b.x, c.x)) > cx + hx: continue
+			if maxf(a.z, maxf(b.z, c.z)) < cz - hz or minf(a.z, minf(b.z, c.z)) > cz + hz: continue
+			lo = minf(lo, minf(a.y, minf(b.y, c.y)))
+		return lo
+
+	# THE ASCENT ENVELOPE: the skin swept straight up. Per plan cell, the lowest
+	# height at which the rising vehicle covers it (INF where it never does), as
+	# measured (sw_y0) and dilated by a drift allowance (sw_y). Built on demand
+	# (tools/padcheck.gd).
+	var sw_cell := 0.1
+	var sw_x0 := 0.0
+	var sw_z0 := 0.0
+	var sw_nx := 0
+	var sw_nz := 0
+	var sw_y := PackedFloat32Array()
+	var sw_y0 := PackedFloat32Array()
+
+	func build_sweep(drift: float, cell := 0.1) -> void:
+		var n := tri.size() / 3
+		if n == 0: return
+		var lo := Vector2(INF, INF); var hi := Vector2(-INF, -INF)
+		for p in tri:
+			lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.z)); hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.z))
+		var pad := drift + 2.0 * cell
+		sw_cell = cell
+		sw_x0 = lo.x - pad; sw_z0 = lo.y - pad
+		sw_nx = int(ceil((hi.x - lo.x + 2.0 * pad) / cell)) + 1
+		sw_nz = int(ceil((hi.y - lo.y + 2.0 * pad) / cell)) + 1
+		sw_y.resize(sw_nx * sw_nz)
+		sw_y.fill(INF)
+		var reach := cell * 0.75
+		for t in n:
+			var a := tri[t * 3]; var b := tri[t * 3 + 1]; var c := tri[t * 3 + 2]
+			var a2 := Vector2(a.x, a.z); var b2 := Vector2(b.x, b.z); var c2 := Vector2(c.x, c.z)
+			var ymin := minf(a.y, minf(b.y, c.y)); var ymax := maxf(a.y, maxf(b.y, c.y))
+			var nrm := (b - a).cross(c - a)
+			var flat := absf(nrm.y) > 0.05 * nrm.length()
+			var i0 := maxi(0, int(floor((minf(a.x, minf(b.x, c.x)) - reach - sw_x0) / cell)))
+			var i1 := mini(sw_nx - 1, int(floor((maxf(a.x, maxf(b.x, c.x)) + reach - sw_x0) / cell)))
+			var j0 := maxi(0, int(floor((minf(a.z, minf(b.z, c.z)) - reach - sw_z0) / cell)))
+			var j1 := mini(sw_nz - 1, int(floor((maxf(a.z, maxf(b.z, c.z)) + reach - sw_z0) / cell)))
+			for j in range(j0, j1 + 1):
+				for i in range(i0, i1 + 1):
+					var q := Vector2(sw_x0 + (float(i) + 0.5) * cell, sw_z0 + (float(j) + 0.5) * cell)
+					if _dist_tri2(q, a2, b2, c2) > reach: continue
+					var y := ymin
+					if flat:
+						y = clampf(a.y - (nrm.x * (q.x - a.x) + nrm.z * (q.y - a.z)) / nrm.y, ymin, ymax)
+					var k := j * sw_nx + i
+					if y < sw_y[k]: sw_y[k] = y
+		sw_y0 = sw_y.duplicate()
+		# Square dilation, rows then columns: conservative for a round allowance.
+		var r := int(ceil(drift / cell))
+		if r <= 0: return
+		var tmp := PackedFloat32Array()
+		tmp.resize(sw_y.size())
+		for j in sw_nz:
+			for i in sw_nx:
+				var m := INF
+				for di in range(maxi(0, i - r), mini(sw_nx - 1, i + r) + 1): m = minf(m, sw_y[j * sw_nx + di])
+				tmp[j * sw_nx + i] = m
+		for j in sw_nz:
+			for i in sw_nx:
+				var m := INF
+				for dj in range(maxi(0, j - r), mini(sw_nz - 1, j + r) + 1): m = minf(m, tmp[dj * sw_nx + i])
+				sw_y[j * sw_nx + i] = m
+
+	## The lowest height at which the ascending vehicle passes over (x, z), with or
+	## without the drift allowance; INF if it never does.
+	func swept_floor(x: float, z: float, drifted := true) -> float:
+		var i := int(floor((x - sw_x0) / sw_cell)); var j := int(floor((z - sw_z0) / sw_cell))
+		if i < 0 or j < 0 or i >= sw_nx or j >= sw_nz: return INF
+		return sw_y[j * sw_nx + i] if drifted else sw_y0[j * sw_nx + i]
+
+	static func _dist_tri2(q: Vector2, a: Vector2, b: Vector2, c: Vector2) -> float:
+		var d1 := (b - a).cross(q - a); var d2 := (c - b).cross(q - b); var d3 := (a - c).cross(q - c)
+		if (d1 >= 0.0 and d2 >= 0.0 and d3 >= 0.0) or (d1 <= 0.0 and d2 <= 0.0 and d3 <= 0.0): return 0.0
+		return minf(_dist_seg2(q, a, b), minf(_dist_seg2(q, b, c), _dist_seg2(q, c, a)))
+
+	static func _dist_seg2(q: Vector2, a: Vector2, b: Vector2) -> float:
+		var ab := b - a
+		var t := clampf((q - a).dot(ab) / maxf(ab.length_squared(), 1e-12), 0.0, 1.0)
+		return q.distance_to(a + ab * t)
+
 	## The farthest the skin comes from the axis anywhere in y ∈ [ya, yb].
 	func radius_in(ya: float, yb: float) -> float:
 		if bins.is_empty() or yb < y_min or ya > y_max: return 0.0
@@ -289,19 +480,67 @@ class Envelope extends RefCounted:
 # the mound's top off the ground patch; coplanar, they z-fight.
 const PAD_RISE := 12.8
 
-## The raised hardstand: an octagonal mound with sloped flanks. Its top face is
-## at local y = 0 — the pad deck — and grade is PAD_RISE below that.
-static func hardstand(across: float) -> MeshInstance3D:
-	var m := _mesh(CraftModel._cylinder(across * 0.5, across * 0.5 + PAD_RISE * 2.6, PAD_RISE, 8, 1), CONCRETE())
-	m.position.y = -PAD_RISE * 0.5   # top face at local y = 0, i.e. at the pad deck
-	m.rotation.y = PI / 8.0
-	return m
+## The pad's rise above the surrounding grade. Starbase's mount stands on a slab on
+## flat ground by the beach (high enough not to z-fight the ground patch); the KSC
+## pads sit on a mound.
+static func rise_of(pad_style: String) -> float:
+	return 0.6 if pad_style == "chopsticks" else PAD_RISE
+
+## The raised hardstand: an octagonal mound with sloped flanks, its top face at local
+## y = 0 (the pad's surface) and grade `rise` below. `slot` (length along x, width) is
+## the flame trench's opening, left open in the top.
+static func hardstand(across: float, rise: float, slot := Vector2.ZERO) -> Node3D:
+	var g := _node()
+	var top_r := across * 0.5
+	if rise > 0.0:
+		var flank := _mesh(CraftModel._cylinder(top_r, top_r + rise * 2.6, rise, 8, 1, true), CONCRETE())
+		flank.position.y = -rise * 0.5
+		flank.rotation.y = PI / 8.0
+		g.add_child(flank)
+	# The top, the octagon less the slot: four convex pieces, each fanned.
+	var oct: Array[Vector2] = []
+	for i in 8:
+		var th := float(i) / 8.0 * TAU + PI / 8.0
+		oct.append(Vector2(top_r * sin(th), top_r * cos(th)))
+	var pieces: Array = []
+	if slot == Vector2.ZERO:
+		pieces.append(oct)
+	else:
+		var L := slot.x * 0.5; var W := slot.y * 0.5
+		pieces.append(_clip2(oct, Vector2(0, 1), W))
+		pieces.append(_clip2(oct, Vector2(0, -1), W))
+		for sx in [-1.0, 1.0]:
+			var p := _clip2(_clip2(_clip2(oct, Vector2(0, 1), -W), Vector2(0, -1), -W), Vector2(sx, 0), L)
+			pieces.append(p)
+	var geo := CraftModel.Geo.new()
+	for poly in pieces:
+		if poly.size() < 3: continue
+		var base := geo.pos.size()
+		for q in poly:
+			geo.pos.append(Vector3(q.x, 0.0, q.y)); geo.nrm.append(Vector3.UP)
+		for k in range(1, poly.size() - 1):
+			var A: Vector2 = poly[0]; var Bq: Vector2 = poly[k]; var C: Vector2 = poly[k + 1]
+			# counter-clockwise seen from above (+y), as the builders expect
+			if (Bq - A).cross(C - A) < 0.0: geo.idx.append_array([base, base + k, base + k + 1])
+			else: geo.idx.append_array([base, base + k + 1, base + k])
+	g.add_child(_mesh(geo, CONCRETE()))
+	return g
+
+## Keeps the part of a convex polygon where p·n ≥ d.
+static func _clip2(poly: Array[Vector2], n: Vector2, d: float) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for i in poly.size():
+		var a := poly[i]; var b := poly[(i + 1) % poly.size()]
+		var da := a.dot(n) - d; var db := b.dot(n) - d
+		if da >= 0.0: out.append(a)
+		if (da >= 0.0) != (db >= 0.0): out.append(a.lerp(b, da / (da - db)))
+	return out
 
 ## THE CRAWLERWAY is a ramp up the mound's flank (a 5% grade, the most a loaded
 ## crawler may climb). Stations in (z, y) along the run, widened into a ribbon.
-static func crawlerway(top_r: float, width: float = 40.0, len: float = 1400.0) -> MeshInstance3D:
-	var toe := top_r + PAD_RISE * 2.6                 # where the flank meets grade
-	var stations := [[0.0, 0.0], [-top_r, 0.0], [-toe, -PAD_RISE], [-len, -PAD_RISE]]
+static func crawlerway(top_r: float, rise: float, width: float = 40.0, len: float = 1400.0) -> MeshInstance3D:
+	var toe := top_r + rise * 2.6                     # where the flank meets grade
+	var stations := [[0.0, 0.0], [-top_r, 0.0], [-toe, -rise], [-len, -rise]]
 	var g := CraftModel.Geo.new()
 	for i in stations.size():
 		var z: float = stations[i][0]; var y: float = stations[i][1]
@@ -311,13 +550,13 @@ static func crawlerway(top_r: float, width: float = 40.0, len: float = 1400.0) -
 			# Counter-clockwise seen from above; the stations run toward −z.
 			var b := (i - 1) * 2
 			g.idx.append_array([b, b + 1, b + 2, b + 1, b + 3, b + 2])
-	return _mesh(g, decal(DARKCON()))
+	return _mesh(g, decal(GRAVEL()))
 
 ## Narrow edge paint follows the same grade as the crawlerway, including its
 ## ramp down the mound. A flat stripe would float above the road beyond it.
-static func crawlerway_marks(top_r: float, width: float = 40.0, len: float = 1400.0) -> MeshInstance3D:
-	var toe := top_r + PAD_RISE * 2.6
-	var stations := [[0.0, 0.025], [-top_r, 0.025], [-toe, -PAD_RISE + 0.025], [-len, -PAD_RISE + 0.025]]
+static func crawlerway_marks(top_r: float, rise: float, width: float = 40.0, len: float = 1400.0) -> MeshInstance3D:
+	var toe := top_r + rise * 2.6
+	var stations := [[0.0, 0.025], [-top_r, 0.025], [-toe, -rise + 0.025], [-len, -rise + 0.025]]
 	var g := CraftModel.Geo.new()
 	for side in [-1.0, 1.0]:
 		var x: float = float(side) * (width * 0.5 - 0.7)
@@ -346,52 +585,6 @@ static func flame_trench(len: float, wide: float, deep: float) -> Node3D:
 	holder.add_child(wedge)
 	holder.rotation.y = PI / 2.0
 	g.add_child(holder)
-	return g
-
-## Three masts on a catenary, which is what a real lightning protection system
-## is: the wire is the conductor and the masts only hold it up.
-static func lightning_masts(R: float, H: float) -> Node3D:
-	var g := _node()
-	var tops: Array[Vector3] = []
-	for i in 3:
-		var a := (float(i) / 3.0) * PI * 2.0 + PI / 6.0
-		var x := cos(a) * R; var z := sin(a) * R
-		var m := lattice_tower(H * 0.72, 4.5, {"bay": 7.0, "leg": 0.3, "brace": 0.16})
-		m.position = Vector3(x, 0.0, z)
-		g.add_child(m)
-		var spire := _mesh(CraftModel._cylinder(0.12, 0.5, H * 0.28, 6), STEEL())
-		spire.position = Vector3(x, H * 0.72 + H * 0.14, z)
-		g.add_child(spire)
-		tops.append(Vector3(x, H, z))
-	# catenary: y = a·cosh(x/a) — the shape a hanging cable actually takes, and
-	# over this span it sags about a tenth of the run.
-	var pts := PackedVector3Array()
-	for i in 3:
-		var A := tops[i]; var B := tops[(i + 1) % 3]
-		var span := A.distance_to(B); var sag := span * 0.10
-		var a := span * span / (8.0 * sag)
-		for t in 17:
-			var u := float(t) / 16.0; var x := (u - 0.5) * span
-			var drop := a * (cosh(x / a) - cosh(span / (2.0 * a)))
-			var p := A.lerp(B, u)
-			p.y = A.y + drop
-			pts.append(p)
-	# Draw the catenary as one continuous strip.
-	var arr := []
-	arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = pts
-	var lm := ArrayMesh.new()
-	lm.add_surface_from_arrays(Mesh.PRIMITIVE_LINE_STRIP, arr)
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = Color.hex(0x3a3f44ff)
-	var line := MeshInstance3D.new()
-	line.mesh = lm
-	line.material_override = mat
-	# No shadow: a 2 cm conductor 100 m up casts only penumbra, but the shadow map drew
-	# a crawling texel-wide stripe.
-	line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	g.add_child(line)
 	return g
 
 ## The sound-suppression water tower. 88 m, and the tank on top holds 1.135 Ml
@@ -460,11 +653,12 @@ static func deck_services(radius: float) -> Node3D:
 ## Ground support: cryogenic storage, pump houses, piping and lights, simplified.
 static func support_facilities(radius: float, pad_style: String, lamps_only := false) -> Node3D:
 	var g := _node()
+	var rise := rise_of(pad_style)
 	if lamps_only:
-		_mound_lamps(g, radius)
+		_mound_lamps(g, radius, rise)
 		return g
 	var farm := _node()
-	# At grade, so clear of the mound's flank (radius + 2.6 × PAD_RISE).
+	# At grade, so clear of the mound's flank (radius + 2.6 × rise).
 	farm.position = Vector3(-radius - 95.0, 0.0, -radius * 0.35)
 	g.add_child(farm)
 	farm.add_child(box(90.0, 0.24, 56.0, DARKCON()))
@@ -502,18 +696,18 @@ static func support_facilities(radius: float, pad_style: String, lamps_only := f
 		service.add_child(box(3.8, 3.3, 0.09, STEEL(), x, 0.25, 8.06))
 	for x in [-7.0, 7.0]:
 		service.add_child(box(3.0, 1.5, 2.7, WHITE(), x, 7.55, 0.0))
-	_mound_lamps(g, radius)
+	_mound_lamps(g, radius, rise)
 	return g
 
 ## Short lamp poles make the apron and mound size legible from the pad camera.
-static func _mound_lamps(g: Node3D, radius: float) -> void:
+static func _mound_lamps(g: Node3D, radius: float, rise: float) -> void:
 	for x_sign in [-1.0, 1.0]:
 		for z_sign in [-1.0, 1.0]:
 			var x: float = float(x_sign) * radius * 0.66
 			var z: float = float(z_sign) * radius * 0.66
-			g.add_child(pipe_between(Vector3(x, PAD_RISE, z), Vector3(x, PAD_RISE + 15.0, z), 0.16, STEEL()))
+			g.add_child(pipe_between(Vector3(x, rise, z), Vector3(x, rise + 15.0, z), 0.16, STEEL()))
 			for side in [-1.0, 1.0]:
-				g.add_child(box(1.8, 0.75, 0.6, WHITE(), x + side * 1.0, PAD_RISE + 14.7, z))
+				g.add_child(box(1.8, 0.75, 0.6, WHITE(), x + side * 1.0, rise + 14.7, z))
 
 # THE REST OF THE COMPLEX — what a launch site is when it is not the pad.
 ## One draw call per material: parts go into a shared buffer per material and are
@@ -530,6 +724,16 @@ class Batch extends RefCounted:
 			dst.pos.append(xf * g.pos[i])
 			dst.nrm.append(xf.basis * g.nrm[i])
 		for i in g.idx: dst.idx.append(base + i)
+	## A w×w beam from a to b.
+	func beam(a: Vector3, b: Vector3, w: float, m: Material) -> void:
+		if not geos.has(m): geos[m] = CraftModel.Geo.new()
+		LaunchSite.beam_into(geos[m], a, b, w)
+	## A pipe run from a to b.
+	func pipe(a: Vector3, b: Vector3, r: float, m: Material) -> void:
+		var d := b - a
+		if d.length() < 1e-4: return
+		add(CraftModel._cylinder(r, r, d.length(), 8, 1, true), m,
+			Transform3D(Basis(Quaternion(Vector3.UP, d.normalized())), (a + b) * 0.5))
 	## An upright box standing on `at` (its base centre), turned by `yaw`.
 	func box(w: float, h: float, d: float, m: Material, at: Vector3, yaw := 0.0) -> void:
 		add(CraftModel._box(w, h, d), m, Transform3D(Basis(Vector3.UP, yaw), at + Vector3(0.0, h * 0.5, 0.0)))
@@ -638,7 +842,7 @@ static func complex_grounds(radius: float, style: String, authored := false) -> 
 	var g := _node()
 	g.name = "grounds"
 	var B := Batch.new()
-	var toe := radius + PAD_RISE * 2.6 + 8.0            # the mound's footprint
+	var toe := radius + rise_of(style) * 2.6 + 8.0      # the mound's footprint
 	var Rp := radius + 300.0                            # perimeter road
 	# perimeter road (an octagon, broken where the crawlerway crosses it)
 	var roads := Batch.new()
@@ -848,7 +1052,7 @@ static func _at(p: Vector2, yaw: float, local: Vector2) -> Vector2:
 ## hangar at the foot of the ramp; Starbase's tank farm beside the mount. Clear of
 ## the masts (30°, 150°, 270° at `mast_r`), the trench axis (±x) and crawlerway (−z).
 static func site_plan(r: float, style: String, mast_r: float) -> Array:
-	var toe := r + PAD_RISE * 2.6 + 8.0
+	var toe := r + rise_of(style) * 2.6 + 8.0
 	var Rp := r + 300.0
 	var Rf := Rp + 22.0
 	var plan: Array = []
@@ -1074,10 +1278,11 @@ var grade_drop: float
 ## Height of the tallest structure, m — the camera uses it for framing. The
 ## same expression the tower was BUILT from, not a second guess at it.
 var tower_height: float
-var arms: Array = []           # [{group, axis: "yaw"|"tilt", rest, open}]
+## [{group, axis: "yaw"|"tilt", rest, open, at: t-minus (s) it starts to swing,
+## dur: s, p: progress 0..1}]
+var arms: Array = []
 var carriage: Node3D = null    # chopsticks: rides the tower; its origin is on the tower axis
 var chopsticks: Array = []     # the two arm pivots, built along +x, yawed open
-var open := 0.0
 var D := 5.0
 var steam: MeshInstance3D
 var steam_mesh: ArrayMesh
@@ -1105,6 +1310,15 @@ static func _authored_pad(pad_style: String) -> Node3D:
 	if art != null: CraftAssets._prepare(art)
 	return art
 
+## Authored work lights take the shared LAMP material, whose glow update() sets.
+static func _share_lamps(n: Node) -> void:
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+		var mi := n as MeshInstance3D
+		for k in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(k)
+			if m != null and m.resource_name == "lamp": mi.set_surface_override_material(k, LAMP())
+	for c in n.get_children(): _share_lamps(c)
+
 ## The measured skin (see Envelope). Clearances between it and anything that
 ## reaches toward the vehicle.
 var skin: Envelope
@@ -1126,13 +1340,15 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	D = float(vehicle.stages[0].D) if not vehicle.stages.is_empty() else 5.0
 
 	# The vehicle's height above its mount. The deck is at local y = 0 (the vessel reads
-	# zero altitude on the pad), and everything on the ground sits at −deck.
-	deck_height = 23.5 if style == "chopsticks" else (9.6 if style == "strongback" else 7.6)
+	# zero altitude on the pad), and everything on the ground sits at −deck. A mobile
+	# launcher stands on 22 ft pedestals over the trench, so its deck is 47 ft up.
+	deck_height = DECK_HEIGHT.get(style, ML_DECK)
 	var GRADE := -deck_height
-	grade_drop = deck_height + PAD_RISE
+	var rise := rise_of(style)
+	grade_drop = deck_height + rise
 	tower_height = 146.0 if style == "chopsticks" \
-		else (minf(height * 0.86, 63.0) if style == "strongback"
-		else (75.3 if style == "fss" else maxf(height + 12.0, 116.0)))
+		else (CREW_TOWER_H - deck_height if style == "strongback"
+		else (FSS_H + MAST_H - deck_height if style == "fss" else _lut_height(height) + 9.0))
 
 	# ground works, common to every complex
 	var ground := _node()
@@ -1140,26 +1356,27 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	group.add_child(ground)
 	var across := maxf(height * 2.6, 200.0)
 	var top_r := across * 0.5
-	ground.add_child(hardstand(across))
+	var trench := style != "chopsticks"
+	ground.add_child(hardstand(across, rise, Vector2(TRENCH_L, TRENCH_W) if trench else Vector2.ZERO))
 	ground.add_child(hardstand_joints(top_r))
 	ground.add_child(deck_services(top_r))
-	ground.add_child(flame_trench(137.0, 18.0, 12.2))
+	if trench: ground.add_child(flame_trench(TRENCH_L, TRENCH_W, 12.2))
 	# The scorched apron, a decal on the deck.
 	var apron := scorch_apron(maxf(D * 2.5, 18.0))
 	apron.position.y = 0.01
 	ground.add_child(apron)
-	# The crawlerway out to the VAB — a 40 m wide river-rock road, and the only
-	# thing in the scene that says which way "away" is.
-	ground.add_child(crawlerway(top_r))
-	ground.add_child(crawlerway_marks(top_r))
+	# The crawlerway out to the VAB, a 40 m wide river-rock road and the only thing in
+	# the scene that says which way "away" is. Starbase has an ordinary road.
+	ground.add_child(crawlerway(top_r, rise, 40.0 if trench else 14.0))
+	ground.add_child(crawlerway_marks(top_r, rise, 40.0 if trench else 14.0))
 
-	# Everything that stands OFF the mound stands at grade, PAD_RISE lower.
+	# Everything that stands OFF the mound stands at grade, `rise` lower.
 	var plain := _node()
-	plain.position.y = GRADE - PAD_RISE
+	plain.position.y = GRADE - rise
 	group.add_child(plain)
-	# Masts stand well clear (~200 m out on a 300 m span at 39B).
+	# The grounds keep clear of where 39B's catenary masts stand (none of these four
+	# pads has them: the LUT, FSS and Starbase tower carry their own).
 	var mast_r := maxf(height * 2.4, top_r + 140.0)
-	plain.add_child(lightning_masts(mast_r, maxf(height * 1.2, 100.0)))
 	# The buildings: authored (model_sources/blender/facilities.py) when the
 	# library has been built, the procedural blocks when it has not.
 	var lib := _facility_library()
@@ -1172,9 +1389,10 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		keep_out.append_array(place_facilities(plain, lib, site_plan(top_r, style, mast_r), top_r + 300.0))
 		lib.free()
 	else:
-		var wt := water_tower(88.0)
-		wt.position = Vector3(-(top_r + 60.0), 0.0, top_r * 0.8)
-		plain.add_child(wt)
+		if style != "chopsticks":
+			var wt := water_tower(88.0)
+			wt.position = Vector3(-(top_r + 60.0), 0.0, top_r * 0.8)
+			plain.add_child(wt)
 		plain.add_child(support_facilities(top_r, style))
 		var grounds := complex_grounds(top_r, style)
 		plain.add_child(grounds[0])
@@ -1185,229 +1403,22 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 		keep_out.append(Rect2(-(top_r + 60.0) - 10.0, top_r * 0.8 - 10.0, 20.0, 20.0))
 	plain.add_child(coastal_scrub(top_r, keep_out))
 
-	# the launch mount: built upward from zero, then dropped onto grade in one move.
+	# the launch mount: built upward from grade, then dropped onto it in one move.
 	var mount := _node()
 	mount.position.y = GRADE
 	group.add_child(mount)
 	var art := _authored_pad(style)
-	if art != null: mount.add_child(art)
-	var authored_deck: Node3D = art.get_node_or_null("stage_deck") if art != null else null
-	var authored_tower: Node3D = art.get_node_or_null("stage_tower") if art != null else null
-	var authored_strongback: Node3D = art.get_node_or_null("stage_strongback") if art != null else null
-	var authored_rss: Node3D = art.get_node_or_null("stage_rss") if art != null else null
-
-	if style == "lut" or style == "fss":
-		# Mobile Launcher Platform: 49.4 × 41.1 m, 7.6 m deep, with a square
-		# exhaust opening — four slabs around the hole, so the hole is real.
-		var PW := 49.4; var PD := 41.1; var PH := 7.6; var HOLE := 13.7
-		var holes: Array = DECK_HOLES[style]
-		if authored_deck == null:
-			for c in deck_cells(PW, PD, holes):
-				mount.add_child(box(c[1] - c[0], PH, c[3] - c[2], GREY(), (c[0] + c[1]) * 0.5, 0.0, (c[2] + c[3]) * 0.5))
-			var hx := 0.0
-			for h in holes: hx = maxf(hx, absf(h[0]) + h[2] * 0.5)
-			# hazard lines a metre outside each opening, cut where they would
-			# cross a neighbouring one
-			for h in holes:
-				for signum in [-1.0, 1.0]:
-					for ln in [[0.34, h[3] + 2.35, h[0] + signum * (h[2] * 0.5 + 1.0), h[1]],
-							[h[2] + 2.35, 0.34, h[0], h[1] + signum * (h[3] * 0.5 + 1.0)]]:
-						for c in deck_cells(ln[0], ln[1], holes, ln[2], ln[3]):
-							mount.add_child(box(c[1] - c[0], 0.035, c[3] - c[2], SAFETY(),
-								(c[0] + c[1]) * 0.5, PH, (c[2] + c[3]) * 0.5))
-			for signum in [-1.0, 1.0]:
-				for i in 7:
-					mount.add_child(box(0.18, 0.04, 2.1, DARKCON(), signum * (hx + 3.2), PH,
-						(float(i) - 3.0) * 2.7))
-		# HOLD-DOWN ARMS between the fins: of two candidate sets of four, keep the one that
-		# stands closer in, and stand each arm off the skin it faces.
-		var best_set := 0.0
-		var best_r := INF
-		for set_off in [PI / 4.0, 0.0]:
-			var worst := 0.0
-			for i in 4:
-				var a: float = (float(i) / 4.0) * TAU + set_off
-				worst = maxf(worst, _stop(0.0, 3.4, -1.1, 1.1, D * 0.5, a))
-			if worst < best_r:
-				best_r = worst; best_set = set_off
-		for i in 4:
-			var a: float = (float(i) / 4.0) * TAU + best_set
-			var r := maxf(D * 0.62, _stop(0.0, 3.4, -1.1, 1.1, D * 0.5, a) + 1.1)
-			mount.add_child(box(2.2, 3.4, 2.2, PAINT(), cos(a) * r, PH, sin(a) * r))
-		var tower_h := maxf(height + 12.0, 116.0) if style == "lut" else 75.3
-		var tower_x := -(HOLE / 2.0 + 16.0)
-		if authored_tower == null:
-			var tower := lattice_tower(tower_h, 12.2, {"bay": 6.1})
-			tower.position = Vector3(tower_x, PH, 0.0)
-			mount.add_child(tower)
-		elif style == "lut":
-			authored_tower.scale.y = tower_h / 116.0
-		# Feed and return lines are separate runs on the tower's outside face.
-		for z in [-3.2, 3.2]:
-			mount.add_child(pipe_between(Vector3(tower_x - 6.4, PH, z),
-				Vector3(tower_x - 6.4, PH + tower_h * 0.88, z), 0.18, COPPER()))
-		# hammerhead crane
-		var jib := truss(22.0, 3.0, 3.0)
-		jib.position = Vector3(-(HOLE / 2.0 + 16.0) + 6.0, PH + tower_h + 2.0, 0.0)
-		mount.add_child(jib)
-		mount.add_child(box(3.0, 4.0, 3.0, STEEL(), -(HOLE / 2.0 + 16.0), PH + tower_h, 0.0))
-		# SWING ARMS (nine on the LUT) at the service levels, retracting on ignition. Each is
-		# cut to the skin at its own height.
-		var n := 9 if style == "lut" else 5
-		var pivot_x := -(HOLE / 2.0 + 16.0)
-		# On the FSS the crew access arm goes to the orbiter's side hatch (Xo 525, 0.803 of
-		# its length up from the fin tip, on the port side, in the orbiter's off-axis lane).
-		var hatch_y := -1.0
-		var hatch_z := 0.0
-		if style == "fss":
-			for st in vehicle.stages:
-				var lk: Dictionary = st.get("look", {})
-				var mt = lk.get("mount")
-				if CraftModel._t(lk.get("orbiter")) and mt != null:
-					hatch_y = float(mt.get("y", 0.0)) + float(st.L) * 0.803
-					hatch_z = float(mt.get("z", 0.0))
-		for i in n:
-			var y := PH + 10.0 + (float(i) / (n - 1)) * (height * 0.92 - 10.0)
-			var top_arm := i == n - 1
-			var lane_z := 0.0
-			if top_arm and hatch_y > 0.0:
-				y = PH + hatch_y
-				lane_z = hatch_z
-			var vy := y - PH                       # the same height in the craft's frame
-			var pivot := _node()
-			pivot.position = Vector3(pivot_x, y, lane_z)
-			# The white room is the top arm and larger. (`across` is to the left of an approach
-			# from −x, i.e. −z.)
-			var stop := _stop(vy - 2.3, vy + 2.4, -lane_z - 2.6, -lane_z + 2.6, 0.0) if top_arm \
-				else _stop(vy - 1.3, vy + 1.3, -1.5, 1.5, 0.0)
-			var tip := -pivot_x - stop             # arm-local x of the skin, less the gap
-			var arm_end := tip - 4.5 * 0.5 if top_arm else tip
-			var arm := truss(maxf(arm_end - 6.0, 2.0), 2.6, 2.4)
-			arm.position = Vector3(6.0, -1.2, 0.0)
-			pivot.add_child(arm)
-			if top_arm:
-				pivot.add_child(box(4.5, 4.5, 5.0, WHITE(), tip - 2.25, -2.2, 0.0))
-			mount.add_child(pivot)
-			arms.append({"group": pivot, "axis": "yaw", "rest": 0.0, "open": -PI * 0.62})
-		if style == "fss":
-			# the Rotating Service Structure, swung clear before launch
-			var rss := _node()
-			rss.position = Vector3(-(HOLE / 2.0 + 16.0), PH, 0.0)
-			if authored_rss != null:
-				authored_rss.owner = null
-				art.remove_child(authored_rss)
-				rss.add_child(authored_rss)
-			else:
-				rss.add_child(box(18.0, 40.0, 14.0, WHITE(), 14.0, 12.0, 0.0))
-			mount.add_child(rss)
-			arms.append({"group": rss, "axis": "yaw", "rest": -PI * 0.66, "open": -PI * 0.66})
-			# The vent arm's "beanie cap" sits over the ET's ogive tip, on the axis, at the
-			# measured top of the stack.
-			var nose := skin.tip(1.5) if skin != null else -INF
-			if nose == -INF: nose = height * 0.93
-			var vent := _node()
-			vent.position = Vector3(pivot_x, PH + nose + 2.0, 0.0)
-			var v_arm := truss(-pivot_x - 6.0, 2.2, 2.0)
-			v_arm.position = Vector3(5.0, 0.0, 0.0)
-			vent.add_child(v_arm)
-			# A 5 m cone, apex up: rim 1 m below the tip, crown 4 m above.
-			var cap := _mesh(CraftModel._cone(3.4, 5.0, 16, 1, true), WHITE())
-			cap.position = Vector3(-pivot_x, -0.5, 0.0)
-			vent.add_child(cap)
-			mount.add_child(vent)
-			arms.append({"group": vent, "axis": "yaw", "rest": 0.0, "open": -PI * 0.55})
-	elif style == "strongback":
-		# Falcon 9: a four-legged mount, and a transporter-erector alongside until liftoff.
-		var leg_h := 8.0
-		if authored_deck == null:
-			for i in 4:
-				var a := (float(i) / 4.0) * PI * 2.0 + PI / 4.0
-				mount.add_child(box(1.6, leg_h, 1.6, GREY(), cos(a) * 4.4, 0.0, sin(a) * 4.4))
-			# A ring: the nine Merlins fire through the middle.
-			for signum in [-1.0, 1.0]:
-				mount.add_child(box(11.0, 1.6, 2.1, GREY(), 0.0, leg_h, signum * 4.45))
-				mount.add_child(box(2.1, 1.6, 6.8, GREY(), signum * 4.45, leg_h, 0.0))
-			for i in 4:
-				var a := float(i) * TAU / 4.0
-				var stripe := box(0.42, 0.045, 8.7, SAFETY(), cos(a) * 5.2, leg_h + 1.6,
-					sin(a) * 5.2)
-				stripe.rotation.y = a
-				mount.add_child(stripe)
-		# The strongback stands 0.9 m off the measured skin over its whole height.
-		var te := _node()
-		var sb_h := minf(height * 0.86, 63.0)
-		var sb_face := _stop(leg_h - deck_height, leg_h - deck_height + sb_h, -1.9, 1.9, D * 0.5) + 0.55
-		te.position = Vector3(-(sb_face + 1.7), leg_h, 0.0)
-		if authored_strongback != null:
-			authored_strongback.owner = null
-			art.remove_child(authored_strongback)
-			te.add_child(authored_strongback)
-			authored_strongback.scale.y = minf(height * 0.86, 63.0) / 63.0
-		else:
-			te.add_child(lattice_tower(minf(height * 0.86, 63.0), 3.4,
-				{"bay": 5.0, "leg": 0.3, "brace": 0.16}))
-		# Quick-disconnect plates bridge to the skin and stop at it.
-		for f in [0.30, 0.62]:
-			var qy: float = height * f
-			var vy: float = leg_h - deck_height + qy
-			var reach := sb_face + 1.7 - _stop(vy, vy + 3.0, -1.2, 1.2, D * 0.5) + 0.2
-			te.add_child(box(maxf(reach - 1.7, 0.2), 3.0, 2.4, WHITE(), 1.7 + (reach - 1.7) * 0.5, qy, 0.0))
-		# Two hydraulic rams are visually separate from the umbilical truss.
-		for z in [-1.1, 1.1]:
-			te.add_child(pipe_between(Vector3(-2.5, 1.0, z), Vector3(-0.9, height * 0.35, z), 0.22, STEEL()))
-		mount.add_child(te)
-		# The strongback falls back about its base, away from the vehicle: positive z
-		# (rotation.z = θ moves height y to x = −y·sin θ; the vehicle is on +x). Plumb
-		# until release.
-		arms.append({"group": te, "axis": "tilt", "rest": 0.0, "open": 0.30})
-	else:
-		# Starship: an Orbital Launch Mount on six legs with the vehicle over a
-		# water-cooled steel deck, and a 146 m tower carrying two catch arms.
-		var leg_h := 20.0
-		if authored_deck == null:
-			for i in 6:
-				var a := (float(i) / 6.0) * PI * 2.0
-				mount.add_child(box(3.0, leg_h, 3.0, GREY(), cos(a) * 12.0, 0.0, sin(a) * 12.0))
-			var ring := _mesh(_ring(6.5, 14.0, 32), GREY())
-			ring.rotation.x = -PI / 2.0
-			ring.position.y = leg_h + 3.5
-			mount.add_child(ring)
-			var deck := _mesh(_ring(6.5, 14.0, 32), decal(SCORCH(), 2))
-			deck.rotation.x = -PI / 2.0
-			deck.position.y = leg_h + 3.515
-			mount.add_child(deck)
-		# Individual water-cooled deck plates, plumbing underneath, and launch
-		# clamps distinguish this mount from a single featureless grey cylinder.
-		if authored_deck == null:
-			for i in 12:
-				var a := (float(i) + 0.5) * TAU / 12.0
-				var x := cos(a) * 10.0; var z := sin(a) * 10.0
-				var plate := box(3.7, 0.10, 4.4, STEEL(), x, leg_h + 3.5, z)
-				plate.rotation.y = -a
-				mount.add_child(plate)
-				if i % 2 == 0:
-					mount.add_child(box(1.4, 2.6, 1.5, PAINT(), cos(a) * 7.5, leg_h + 3.5,
-						sin(a) * 7.5))
-		for z in [-13.0, 13.0]:
-			mount.add_child(pipe_between(Vector3(-28.0, 1.0, z), Vector3(-13.0, leg_h + 2.0, z),
-				0.34, COPPER()))
-		if authored_tower == null:
-			var tower := lattice_tower(146.0, 12.0, {"bay": 8.4, "leg": 0.7, "brace": 0.32})
-			tower.position = Vector3(-26.0, 0.0, 0.0)
-			mount.add_child(tower)
-		# The catch arms ride a carriage up and down the tower (CatchTower is the
-		# physics; launchpads.py builds the same nodes).
-		carriage = art.get_node_or_null("stage_carriage") if art != null else null
-		# An authored carriage without its arm pivots (an older build) is replaced.
-		if carriage != null and (carriage.find_child("chopstick_0", true, false) == null \
-				or carriage.find_child("chopstick_1", true, false) == null):
-			carriage.free()
-			carriage = null
-		if carriage == null:
-			carriage = chopsticks_carriage()
-			mount.add_child(carriage)
-		carriage.position = Vector3(-CatchTower.TOWER_OFFSET, CARRIAGE_LAUNCH_Y, 0.0)
-		chopsticks = [carriage.find_child("chopstick_0", true, false), carriage.find_child("chopstick_1", true, false)]
+	if art != null:
+		mount.add_child(art)
+		_share_lamps(art)
+	# The procedural stand-ins and the fitted parts, one mesh per material.
+	var B := Batch.new()
+	match style:
+		"lut": _build_lut(vehicle, craft, height, mount, art, B)
+		"fss": _build_fss(vehicle, height, mount, art, B)
+		"strongback": _build_falcon(height, mount, art, B)
+		_: _build_starbase(vehicle, craft, mount, art, B)
+	B.build(mount)
 
 	# the deluge. Points rather than geometry: it is a cloud, and a cloud
 	# made of triangles is a worse cloud than a few hundred camera-facing quads.
@@ -1426,6 +1437,495 @@ func _init(vehicle: Dictionary, height: float, _env = null, craft: Node3D = null
 	steam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	steam.custom_aabb = AABB(Vector3(-2000, -100, -2000), Vector3(4000, 2000, 4000))
 	group.add_child(steam)
+
+# THE MOBILE LAUNCHERS AND TOWERS. Dimensions are mirrored in
+# model_sources/blender/launchpads.py, which builds the authored versions.
+## Mobile launcher base, 25 ft deep, on six 22 ft mount pedestals at the pad.
+const ML_H := 7.6
+const ML_PED := 6.7
+const ML_HALF_Z := 20.55
+const ML_DECK := ML_PED + ML_H
+## Deck height above grade for the pads that are not mobile launchers.
+const DECK_HEIGHT := {"chopsticks": 23.5, "strongback": 9.6}
+## LC-39's flame trench: 450 ft long, 58 ft wide (along x).
+const TRENCH_L := 137.0
+const TRENCH_W := 18.0
+## Apollo ML: the vehicle stands off-centre and the LUT on the deck at the far end.
+const LUT_ML := [-32.0, 17.4]
+const LUT_X := -22.85
+const LUT_SIDE := 12.2
+## The authored LUT is built this tall above the deck and scaled to the vehicle.
+const LUT_H := 118.0
+## Shuttle MLP, and the Fixed Service Structure on the pad beside it: 40 ft square,
+## 247 ft to the roof, an 80 ft fibreglass lightning mast above the crane.
+const MLP_X := [-21.5, 27.9]
+const FSS_X := -28.1
+const FSS_SIDE := 12.2
+const FSS_H := 75.3
+const MAST_H := 24.4
+## Pad 39A today: the FSS rebuilt as SpaceX's crew access tower, beside the TE.
+const CREW_TOWER_Z := 28.0
+const CREW_TOWER_H := 84.0
+## The Shuttle's parked Rotating Service Structure, 102 × 50 ft and 130 ft tall, its
+## underside 59 ft up: hinge at the FSS corner, swung out to azimuth RSS_YAW.
+const RSS_HINGE := Vector2(-22.0, -6.1)
+const RSS_YAW := 2.618
+## Arms that real counts retract before the last ten seconds start moving as soon as
+## a count is running; the rest wait for hold-down release.
+const PRE_COUNT := 1.0e6
+## Falcon's TE falls back this far (rad) before launch.
+const TE_OPEN := 0.05
+
+static func _lut_height(height: float) -> float:
+	return maxf(height + 7.4, LUT_H)
+
+static func _art(art: Node3D, name: String) -> Node3D:
+	return art.get_node_or_null(name) if art != null else null
+
+## A stage's [base height, length] in the craft's frame; [] when absent.
+static func _stage_span(craft: Node3D, vehicle: Dictionary, key: String) -> Array:
+	var n := craft.get_node_or_null("st_" + key) if craft != null else null
+	if n == null: return []
+	for st in vehicle.stages:
+		if str(st.key) == key: return [n.position.y, float(st.L)]
+	return []
+
+## Mobile launcher base [x0, x1] × [−ML_HALF_Z, ML_HALF_Z] with its exhaust holes, on
+## its pedestals: the deck is two storeys of steel box girder, lit along its edges.
+static func ml_platform(B: Batch, x0: float, x1: float, holes: Array) -> void:
+	var cx := (x0 + x1) * 0.5
+	var pw := x1 - x0
+	var hz := ML_HALF_Z
+	for c in deck_cells(pw, hz * 2.0, holes, cx, 0.0):
+		B.box(c[1] - c[0], ML_H, c[3] - c[2], ML_GREY(), Vector3((c[0] + c[1]) * 0.5, ML_PED, (c[2] + c[3]) * 0.5))
+	# six mount pedestals and four extensible columns, clear of the trench
+	for k in 3:
+		var x := lerpf(x0 + 5.0, x1 - 5.0, float(k) * 0.5)
+		for sz in [-1.0, 1.0]:
+			B.box(3.4, ML_PED, 3.4, CONCRETE(), Vector3(x, 0.0, sz * (hz - 4.5)))
+			B.box(2.2, 0.6, 2.2, STEEL(), Vector3(x, ML_PED - 0.6, sz * (hz - 4.5)))
+	for sx in [x0 + 2.0, x1 - 2.0]:
+		for sz in [-1.0, 1.0]:
+			B.box(1.3, ML_PED, 1.3, STEEL(), Vector3(sx, 0.0, sz * (hz - 1.6)))
+	# the girder storeys: a belt at mid-height and ribs, proud of the side plating
+	for sz in [-1.0, 1.0]:
+		B.box(pw + 0.3, 0.55, 0.3, DARKCON(), Vector3(cx, ML_PED + 3.6, sz * (hz + 0.1)))
+		B.box(pw + 0.3, 0.4, 0.3, STEEL(), Vector3(cx, ML_PED + ML_H - 0.4, sz * (hz + 0.1)))
+		var nr := int(pw / 4.1)
+		for i in nr + 1:
+			B.box(0.32, ML_H, 0.3, STEEL(), Vector3(x0 + pw * float(i) / nr, ML_PED, sz * (hz + 0.12)))
+		# exposed service piping along the long sides
+		for k in 2:
+			var py := ML_PED + 1.4 + float(k) * 1.1
+			B.pipe(Vector3(x0 + 1.0, py, sz * (hz + 0.65)), Vector3(x1 - 1.0, py, sz * (hz + 0.65)), 0.32, WHITE())
+		for i in 12:
+			var x := lerpf(x0 + 1.0, x1 - 1.0, float(i) / 11.0)
+			B.box(0.6, 0.2, 0.5, LAMP(), Vector3(x, ML_PED + ML_H - 1.0, sz * (hz + 0.35)))
+	for sx in [-1.0, 1.0]:
+		var ex: float = x1 if sx > 0.0 else x0
+		B.box(0.3, 0.55, hz * 2.0 + 0.3, DARKCON(), Vector3(ex + sx * 0.1, ML_PED + 3.6, 0.0))
+		var nr := int(hz * 2.0 / 4.1)
+		for i in nr + 1:
+			B.box(0.3, ML_H, 0.32, STEEL(), Vector3(ex + sx * 0.12, ML_PED, -hz + hz * 2.0 * float(i) / nr))
+	# deck furniture: guard rail, hazard lines a metre outside each opening
+	var PH := ML_PED + ML_H
+	for sz in [-1.0, 1.0]:
+		B.pipe(Vector3(x0, PH + 1.1, sz * (hz - 0.3)), Vector3(x1, PH + 1.1, sz * (hz - 0.3)), 0.05, SAFETY())
+	for h in holes:
+		for signum in [-1.0, 1.0]:
+			for ln in [[0.34, h[3] + 2.35, h[0] + signum * (h[2] * 0.5 + 1.0), h[1]],
+					[h[2] + 2.35, 0.34, h[0], h[1] + signum * (h[3] * 0.5 + 1.0)]]:
+				for c in deck_cells(ln[0], ln[1], holes, ln[2], ln[3]):
+					B.box(c[1] - c[0], 0.035, c[3] - c[2], SAFETY(), Vector3((c[0] + c[1]) * 0.5, PH, (c[2] + c[3]) * 0.5))
+
+## A hammerhead crane on a tower top at `at`, its jib parked toward azimuth `yaw`
+## (Basis(UP, yaw) turns the jib's +x), with a lightning mast of height `mast`.
+static func crane(B: Batch, at: Vector3, yaw: float, paint: Material, mast: float) -> void:
+	var r := Basis(Vector3.UP, yaw)
+	B.box(3.2, 4.2, 3.2, paint, at)
+	B.box(4.6, 3.4, 3.4, WHITE(), at + r * Vector3(-7.0, 4.2, 0.0), yaw)
+	var top := at + Vector3(0.0, 4.2, 0.0)
+	for z in [-1.1, 1.1]:
+		for y in [0.0, 2.2]:
+			B.beam(top + r * Vector3(-9.0, y, z), top + r * Vector3(20.0, y * (1.0 - 0.0), z), 0.3, paint)
+	for i in 10:
+		var x := -9.0 + float(i) * 2.9
+		B.beam(top + r * Vector3(x, 0.0, -1.1), top + r * Vector3(x + 2.9, 2.2, -1.1), 0.18, paint)
+		B.beam(top + r * Vector3(x, 0.0, 1.1), top + r * Vector3(x + 2.9, 2.2, 1.1), 0.18, paint)
+		B.beam(top + r * Vector3(x, 2.2, -1.1), top + r * Vector3(x, 2.2, 1.1), 0.16, paint)
+	B.box(1.4, 1.6, 1.4, SAFETY(), top + r * Vector3(12.0, -1.6, 0.0))
+	if mast > 0.0:
+		B.pipe(top + Vector3(0.0, 2.2, 0.0), top + Vector3(0.0, 2.2 + mast, 0.0), 0.22, paint)
+
+## The lightning mast's catenary: from the mast top down to two ground anchors
+## `span` away each way along `along`, which must keep the wires off the vehicle's
+## path (tools/padcheck.gd samples them). Wires are lines; a 2 cm conductor is
+## sub-pixel.
+static func catenary_wires(top: Vector3, anchor_y: float, span: float, along := Vector3(0, 0, 1)) -> MeshInstance3D:
+	var pts := PackedVector3Array()
+	for sz in [-1.0, 1.0]:
+		var A := top
+		var Bp: Vector3 = Vector3(top.x, anchor_y, top.z) + along * (sz * span)
+		for t in 25:
+			var u := float(t) / 24.0
+			var p := A.lerp(Bp, u)
+			p.y -= sin(u * PI) * span * 0.035
+			pts.append(p)
+			if t > 0 and t < 24: pts.append(p)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = pts
+	var lm := ArrayMesh.new()
+	lm.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arr)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color.hex(0x3a3f44ff)
+	var line := MeshInstance3D.new()
+	line.name = "catenary"
+	line.mesh = lm
+	line.material_override = mat
+	line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return line
+
+## A swing arm reaching in +x from the tower face at x = `face`, along the lane
+## z = lane_z, to the measured skin at craft height `vy` (mount height `y`). Its hinge
+## stands proud of the face on the lane's centreline: an arm hinged off its centreline
+## swings its far tip corner toward the vehicle before away. It folds toward +z, along
+## the face. `room` is a white room's size at its tip (or zero). Retracts `at` seconds
+## before release over `dur` seconds.
+func _swing_arm(mount: Node3D, face: float, y: float, vy: float, lane_z: float, w: float, d: float,
+		paint: Material, at: float, dur: float, room := Vector3.ZERO) -> void:
+	var proud := maxf(w, room.z) * 0.5 + 0.3
+	var hinge := Vector3(face + proud, y, lane_z)
+	mount.add_child(box(proud, d * 0.8, 1.2, paint, face + proud * 0.5, y - d * 0.4, lane_z - 0.6))
+	var pivot := _node()
+	pivot.name = "swing_arm_%d" % arms.size()
+	pivot.position = hinge
+	var lz := 0.0
+	var stop: float
+	if room != Vector3.ZERO:
+		stop = _stop(vy - room.y * 0.5 - 0.2, vy + room.y * 0.5 + 0.2, -lane_z - room.z * 0.5 - 0.2,
+			-lane_z + room.z * 0.5 + 0.2, 0.0)
+	else:
+		stop = _stop(vy - d * 0.5 - 0.2, vy + d * 0.5 + 0.2, -lane_z - w * 0.5 - 0.2, -lane_z + w * 0.5 + 0.2, 0.0)
+	var reach := -stop - hinge.x
+	var body := maxf(reach - room.x, 2.0)
+	var arm := truss(body, w, d, 0.42, paint)
+	arm.position = Vector3(0.0, -d * 0.5, lz)
+	pivot.add_child(arm)
+	pivot.add_child(box(body, 0.2, w * 0.85, ML_GREY(), body * 0.5, -d * 0.5 + 0.15, lz))
+	# umbilical hoses along the top chord, and the carrier plate at the tip
+	for k in [-0.35, 0.35]:
+		pivot.add_child(pipe_between(Vector3(0.4, d * 0.5 + 0.25, lz + k * w), Vector3(body - 0.6, d * 0.5 - 0.3, lz + k * w), 0.14, WHITE()))
+	if room != Vector3.ZERO:
+		pivot.add_child(box(room.x, room.y, room.z, WHITE(), body + room.x * 0.5, -room.y * 0.5, lz))
+	else:
+		pivot.add_child(box(0.7, d * 0.8, w * 0.75, WHITE(), body - 0.35, -d * 0.4, lz))
+	mount.add_child(pivot)
+	arms.append({"group": pivot, "axis": "yaw", "rest": 0.0, "open": -PI * 0.5, "at": at, "dur": dur, "p": 0.0})
+
+## A deck mast (tail service mast) beside the vehicle: as tall as `want`, but never
+## above the lowest skin over its footprint, so the vehicle rises clear of it.
+func _tail_mast(B: Batch, at: Vector3, w: float, d: float, want: float, paint: Material) -> void:
+	var floor_y := skin.lowest_over(at.x, at.z, w * 0.5 + 0.6, d * 0.5 + 0.6) if skin != null else INF
+	var h := minf(want, floor_y + deck_height - at.y - 0.5)
+	if h < 1.5: return
+	B.box(w, h, d, paint, at)
+	B.box(w + 0.3, 0.5, d + 0.3, WHITE(), at + Vector3(0.0, h - 0.5, 0.0))
+	B.box(w * 0.7, 0.18, 0.5, LAMP(), at + Vector3(0.0, h * 0.6, d * 0.5 + 0.05))
+
+## SATURN V on its Mobile Launcher and LUT (Apollo 12 and Apollo 11 on 39A).
+func _build_lut(vehicle: Dictionary, craft: Node3D, height: float, mount: Node3D, art: Node3D, B: Batch) -> void:
+	var PH := ML_DECK
+	var H := _lut_height(height)
+	if _art(art, "stage_deck") == null: ml_platform(B, LUT_ML[0], LUT_ML[1], DECK_HOLES.lut)
+	var tower := _art(art, "stage_tower")
+	if tower == null:
+		service_tower(B, LUT_X, PH, 0.0, H, LUT_SIDE, {"paint": LUT_RED(), "flare": 1.3, "flare_h": 12.2,
+			"rooms": 2, "brace": 1, "mid": true, "col": 1.0})
+		crane(B, Vector3(LUT_X, PH + H, 0.0), -1.75, LUT_RED(), 9.0)
+		# feed lines and the elevator machinery on the vehicle face
+		for z in [-3.6, -2.9, 3.0]:
+			B.pipe(Vector3(LUT_X + LUT_SIDE * 0.5 + 0.5, PH, z), Vector3(LUT_X + LUT_SIDE * 0.5 + 0.5, PH + H * 0.9, z), 0.2, WHITE())
+	else:
+		tower.scale.y = H / LUT_H
+	_hold_downs(mount, PH)
+	# three S-IC tail service masts between the hold-downs and the fins
+	for k in 3:
+		var a := _holddown_set + PI / 8.0 + float(k) * PI * 0.5
+		var r := maxf(D * 0.68, _stop(0.0, 4.0, -1.8, 1.8, D * 0.5, a) + 2.0)
+		_tail_mast(B, Vector3(cos(a) * r, PH, sin(a) * r), 2.4, 2.4, 4.6, LUT_RED())
+	# The nine swing arms, at the stage interfaces they serve. Arms 1, 2 and 9 are
+	# retracted before the terminal count; 3 to 8 swing at liftoff.
+	var face := LUT_X + LUT_SIDE * 0.5
+	var levels: Array = []
+	var sic := _stage_span(craft, vehicle, "sic"); var sii := _stage_span(craft, vehicle, "sii")
+	var sivb := _stage_span(craft, vehicle, "sivb"); var csm := _stage_span(craft, vehicle, "csm")
+	if not (sic.is_empty() or sii.is_empty() or sivb.is_empty() or csm.is_empty()):
+		levels = [[sic[0] + sic[1] * 0.52, PRE_COUNT], [sic[0] + sic[1] - 2.0, PRE_COUNT],
+			[sii[0] + 2.2, 0.0], [sii[0] + sii[1] * 0.5, 0.0], [sii[0] + sii[1] - 1.6, 0.0],
+			[sivb[0] + 3.4, 0.0], [sivb[0] + sivb[1] - 0.8, 0.0], [csm[0] + 3.2, 0.0]]
+		var cm_hatch: float = csm[0] + csm[1] - 1.7
+		for lv in levels:
+			_swing_arm(mount, face, PH + float(lv[0]), float(lv[0]), 0.0, 2.6, 3.0, LUT_RED(), float(lv[1]), 3.5)
+		_swing_arm(mount, face, PH + cm_hatch, cm_hatch, 0.0, 2.4, 2.6, LUT_RED(), PRE_COUNT, 6.0,
+			Vector3(4.2, 3.6, 4.4))
+	else:
+		for i in 9:
+			var vy := 10.0 + float(i) / 8.0 * (height * 0.92 - 10.0)
+			_swing_arm(mount, face, PH + vy, vy, 0.0, 2.6, 3.0, LUT_RED(), 0.0, 3.5)
+
+var _holddown_set := 0.0
+## Four hold-down arms between the fins: of two candidate sets of four, keep the one
+## that stands closer in, and stand each arm off the skin it faces.
+func _hold_downs(mount: Node3D, PH: float) -> void:
+	var best_r := INF
+	for set_off in [PI / 4.0, 0.0]:
+		var worst := 0.0
+		for i in 4:
+			var a: float = (float(i) / 4.0) * TAU + set_off
+			worst = maxf(worst, _stop(0.0, 3.4, -1.1, 1.1, D * 0.5, a))
+		if worst < best_r:
+			best_r = worst; _holddown_set = set_off
+	# They fall back outward at release, about their outer foot, as the engine bells
+	# below the deck pass up through where they stood.
+	for i in 4:
+		var a: float = (float(i) / 4.0) * TAU + _holddown_set
+		var r := maxf(D * 0.62, _stop(0.0, 3.4, -1.1, 1.1, D * 0.5, a) + 1.1) + 1.1
+		var base := _node()
+		base.position = Vector3(cos(a) * r, PH, sin(a) * r)
+		base.rotation.y = PI - a                    # local +x toward the axis
+		var pivot := _node()
+		pivot.name = "hold_down_%d" % i
+		pivot.add_child(box(2.2, 3.4, 2.2, PAINT(), 1.1, 0.0, 0.0))
+		base.add_child(pivot)
+		mount.add_child(base)
+		arms.append({"group": pivot, "axis": "tilt", "rest": 0.0, "open": 1.1, "at": 0.0, "dur": 0.8, "p": 0.0})
+
+## THE SHUTTLE on its MLP beside 39A's Fixed and Rotating Service Structures.
+func _build_fss(vehicle: Dictionary, height: float, mount: Node3D, art: Node3D, B: Batch) -> void:
+	var PH := ML_DECK
+	if _art(art, "stage_deck") == null: ml_platform(B, MLP_X[0], MLP_X[1], DECK_HOLES.fss)
+	# the two tail service masts either side of the main engines' opening
+	for sx in [-1.0, 1.0]:
+		_tail_mast(B, Vector3(sx * 8.6, PH, 10.0), 2.7, 4.6, 9.4, ML_GREY())
+	if _art(art, "stage_tower") == null:
+		service_tower(B, FSS_X, 0.0, 0.0, FSS_H, FSS_SIDE, {"paint": FSS_GREY(), "rooms": 2, "brace": 1, "mid": true})
+		crane(B, Vector3(FSS_X, FSS_H, 0.0), PI, FSS_GREY(), 0.0)
+		B.box(2.4, 3.0, 2.4, STEEL(), Vector3(FSS_X, FSS_H + 6.4, 0.0))
+		B.add(CraftModel._cylinder(0.32, 0.75, MAST_H, 12), WHITE(),
+			Transform3D(Basis(), Vector3(FSS_X, FSS_H + 9.4 + MAST_H * 0.5, 0.0)))
+	if _art(art, "stage_rss") == null: rotating_service_structure(B)
+	mount.add_child(catenary_wires(Vector3(FSS_X, FSS_H + 9.4 + MAST_H, 0.0), -rise_of(style), 300.0))
+	var face := FSS_X + FSS_SIDE * 0.5
+	# The crew access arm goes to the orbiter's side hatch (Xo 525, 0.803 of its
+	# length up from the fin tip, on the port side, in the orbiter's off-axis lane).
+	for st in vehicle.stages:
+		var lk: Dictionary = st.get("look", {})
+		var mt = lk.get("mount")
+		if CraftModel._t(lk.get("orbiter")) and mt != null:
+			var hy := float(mt.get("y", 0.0)) + float(st.L) * 0.803
+			var hz := float(mt.get("z", 0.0))
+			_swing_arm(mount, face, PH + hy, hy, hz, 2.4, 2.6, FSS_GREY(), PRE_COUNT, 8.0, Vector3(4.0, 3.8, 4.6))
+	# The GOX vent arm's hood sits over the external tank's nose, at the measured top
+	# of the stack, and swings clear two and a half minutes before launch. The real
+	# one lifts off the nose first; this one hovers just clear of it.
+	var nose := skin.tip(1.5) if skin != null else -INF
+	if nose == -INF: nose = height * 0.93
+	var vent := _node()
+	vent.name = "gox_vent_arm"
+	var hx := face + 1.4
+	vent.position = Vector3(hx, PH + nose + 1.2, 0.0)
+	mount.add_child(box(1.4, 2.0, 2.2, FSS_GREY(), face + 0.7, PH + nose + 0.2, 0.0))
+	var v_arm := truss(-hx - 3.4, 2.2, 2.0, 0.24, FSS_GREY())
+	v_arm.position = Vector3(0.0, 0.0, 0.0)
+	vent.add_child(v_arm)
+	# A 5 m hood, apex up, its rim a few tens of centimetres over the tip.
+	var cap := _mesh(CraftModel._cone(3.4, 5.0, 16, 1, true), WHITE())
+	cap.position = Vector3(-hx, 1.6, 0.0)
+	vent.add_child(cap)
+	mount.add_child(vent)
+	arms.append({"group": vent, "axis": "yaw", "rest": 0.0, "open": -PI * 0.5, "at": PRE_COUNT, "dur": 6.0, "p": 0.0})
+
+## The parked RSS: a clad box 31 × 40 × 15 m whose underside is 18 m up, its near end
+## on the hinge column at the FSS, its far end on a two-legged wheeled column.
+static func rotating_service_structure(B: Batch) -> void:
+	var r := Basis(Vector3.UP, RSS_YAW)
+	var h := Vector3(RSS_HINGE.x, 0.0, RSS_HINGE.y)
+	var at := func(u: float, y: float, v: float) -> Vector3: return h + r * Vector3(u, y, v)
+	B.box(31.0, 40.0, 15.0, WHITE(), at.call(17.5, 18.0, 7.5), RSS_YAW)
+	# a set-back storey on the roof and the floor lines, which give it its scale
+	B.box(22.0, 6.0, 11.0, FSS_GREY(), at.call(20.0, 58.0, 7.5), RSS_YAW)
+	for k in 9:
+		B.box(31.3, 0.45, 15.3, FSS_GREY(), at.call(17.5, 22.0 + float(k) * 4.2, 7.5), RSS_YAW)
+	# the payload changeout room's door on the side that mates with the orbiter
+	B.box(18.0, 19.0, 0.3, ML_GREY(), at.call(17.5, 22.0, -0.1), RSS_YAW)
+	# the steel frame, proud of the cladding
+	for u in [2.0, 12.3, 22.6, 33.0]:
+		for v in [-0.2, 15.2]:
+			B.beam(at.call(u, 18.0, v), at.call(u, 58.0, v), 0.7, STEEL())
+	for y in [18.0, 31.3, 44.6, 58.0]:
+		for v in [-0.2, 15.2]:
+			B.beam(at.call(2.0, y, v), at.call(33.0, y, v), 0.55, STEEL())
+	for k in 6:
+		var y := 21.0 + float(k) * 6.4
+		B.box(0.6, 0.2, 0.6, LAMP(), at.call(33.4, y, 7.5))
+	# hinge column and the wheeled far column on its circular rail
+	B.beam(at.call(0.0, 0.0, 0.0), at.call(0.0, 58.0, 0.0), 1.3, STEEL())
+	B.beam(at.call(2.0, 18.0, 0.0), at.call(0.0, 30.0, 0.0), 0.6, STEEL())
+	for v in [1.0, 14.0]:
+		B.beam(at.call(37.0, 0.0, v), at.call(32.0, 18.0, v), 1.1, STEEL())
+		B.beam(at.call(37.0, 0.0, v), at.call(37.0, 9.0, 7.5), 0.6, STEEL())
+		B.box(3.0, 1.6, 2.2, ML_GREY(), at.call(37.0, 0.0, v), RSS_YAW)
+
+## FALCON 9 on 39A: the launch mount, the transporter-erector alongside until just
+## before launch, and the crew access tower with its arm parked.
+func _build_falcon(height: float, mount: Node3D, art: Node3D, B: Batch) -> void:
+	var leg_h := 8.0
+	if _art(art, "stage_deck") == null:
+		for i in 4:
+			var a := (float(i) / 4.0) * PI * 2.0 + PI / 4.0
+			mount.add_child(box(1.6, leg_h, 1.6, GREY(), cos(a) * 4.4, 0.0, sin(a) * 4.4))
+		# A ring: the nine Merlins fire through the middle.
+		for signum in [-1.0, 1.0]:
+			mount.add_child(box(11.0, 1.6, 2.1, GREY(), 0.0, leg_h, signum * 4.45))
+			mount.add_child(box(2.1, 1.6, 6.8, GREY(), signum * 4.45, leg_h, 0.0))
+		for i in 4:
+			var a := float(i) * TAU / 4.0
+			var stripe := box(0.42, 0.045, 8.7, SAFETY(), cos(a) * 5.2, leg_h + 1.6, sin(a) * 5.2)
+			stripe.rotation.y = a
+			mount.add_child(stripe)
+	# The strongback stands 0.9 m off the measured skin over its whole height.
+	var te := _node()
+	te.name = "transporter_erector"
+	var sb_h := minf(height * 0.86, 63.0)
+	var sb_face := _stop(leg_h - deck_height, leg_h - deck_height + sb_h, -1.9, 1.9, D * 0.5) + 0.55
+	te.position = Vector3(-(sb_face + 1.7), leg_h, 0.0)
+	var authored := _art(art, "stage_strongback")
+	if authored != null:
+		authored.owner = null
+		art.remove_child(authored)
+		te.add_child(authored)
+		authored.scale.y = sb_h / 63.0
+	else:
+		var T := Batch.new()
+		strongback(T, sb_h)
+		T.build(te)
+	# Quick-disconnect plates bridge to the skin and stop at it.
+	for f in [0.30, 0.62]:
+		var qy: float = height * f
+		var vy: float = leg_h - deck_height + qy
+		var reach := sb_face + 1.7 - _stop(vy, vy + 3.0, -1.2, 1.2, D * 0.5) + 0.2
+		te.add_child(box(maxf(reach - 1.7, 0.2), 3.0, 2.4, WHITE(), 1.7 + (reach - 1.7) * 0.5, qy, 0.0))
+	mount.add_child(te)
+	# The strongback falls back about its base, away from the vehicle: positive z
+	# (rotation.z = θ moves height y to x = −y·sin θ; the vehicle is on +x).
+	arms.append({"group": te, "axis": "tilt", "rest": 0.0, "open": TE_OPEN, "at": PRE_COUNT, "dur": 8.0, "p": 0.0})
+	# The crew access tower, its local +x toward the vehicle (−z).
+	var crew := _node()
+	crew.name = "crew_access_tower"
+	crew.position = Vector3(0.0, 0.0, CREW_TOWER_Z)
+	crew.rotation.y = PI * 0.5
+	mount.add_child(crew)
+	var arm_y := deck_height + height - 6.0
+	if _art(art, "stage_crew") == null:
+		var C := Batch.new()
+		service_tower(C, 0.0, 0.0, 0.0, CREW_TOWER_H, FSS_SIDE, {"paint": FSS_GREY(), "rooms": 0, "brace": 1,
+			"clad": DARK(), "clad_from": 4.0})
+		C.box(2.4, 3.0, 2.4, STEEL(), Vector3(0.0, CREW_TOWER_H, 0.0))
+		C.add(CraftModel._cylinder(0.32, 0.75, MAST_H, 12), WHITE(),
+			Transform3D(Basis(), Vector3(0.0, CREW_TOWER_H + 3.0 + MAST_H * 0.5, 0.0)))
+		# the crew access arm, parked along the tower face for a flight without crew
+		var ax := FSS_SIDE * 0.5 + 1.8
+		C.box(3.0, 3.4, 19.0, WHITE(), Vector3(ax, arm_y - 1.7, 9.5 + FSS_SIDE * 0.5 - 6.1))
+		C.box(4.2, 4.0, 4.0, WHITE(), Vector3(ax, arm_y - 2.0, 19.0 + 2.0))
+		C.build(crew)
+	else:
+		_art(art, "stage_crew").owner = null
+		var ct := _art(art, "stage_crew")
+		art.remove_child(ct)
+		crew.add_child(ct)
+	mount.add_child(catenary_wires(Vector3(0.0, CREW_TOWER_H + 3.0 + MAST_H, CREW_TOWER_Z), -rise_of(style), 300.0,
+		Vector3(1, 0, 0)))
+
+## Falcon's TE: a white closed-box spine with lattice cheeks, an A-frame base out to
+## its hinge beam and four hydraulic rams (the 39A TE, from photographs).
+## Its vehicle face is at local x = 1.7, like the authored one.
+static func strongback(B: Batch, h: float) -> void:
+	B.box(2.4, h, 2.0, WHITE(), Vector3(0.5, 0.0, 0.0))
+	for sz in [-1.0, 1.0]:
+		var z: float = sz * 1.15
+		var n := int(h / 3.2)
+		for i in n:
+			var y0 := float(i) * h / n; var y1 := float(i + 1) * h / n
+			B.beam(Vector3(1.5, y0, z), Vector3(-0.5, y1, z), 0.16, WHITE())
+	# the A-frame base
+	for sz in [-1.0, 1.0]:
+		B.beam(Vector3(0.3, 16.0, sz * 1.0), Vector3(-0.2, 0.6, sz * 9.0), 1.0, WHITE())
+		B.beam(Vector3(0.3, 9.0, sz * 1.0), Vector3(-0.2, 1.6, sz * 6.0), 0.5, WHITE())
+	B.box(2.6, 1.8, 19.0, WHITE(), Vector3(-0.2, 0.0, 0.0))
+	for z in [-2.2, -0.8, 0.8, 2.2]:
+		B.pipe(Vector3(-2.2, -7.0, z), Vector3(-0.6, 10.0, z), 0.24, STEEL())
+	# the clamp arms at the second stage
+	for sz in [-1.0, 1.0]:
+		B.box(0.5, 1.2, 0.8, WHITE(), Vector3(1.95, h - 2.5, sz * 1.0))
+
+## STARSHIP at Starbase: the Orbital Launch Mount, the tower and its arms.
+func _build_starbase(vehicle: Dictionary, craft: Node3D, mount: Node3D, art: Node3D, B: Batch) -> void:
+	var leg_h := 20.0
+	if _art(art, "stage_deck") == null:
+		for i in 6:
+			var a := (float(i) / 6.0) * PI * 2.0
+			B.add(CraftModel._cylinder(1.6, 2.4, leg_h, 12), DARKCON(), Transform3D(Basis(), Vector3(cos(a) * 12.0, leg_h * 0.5, sin(a) * 12.0)))
+		var ring := _mesh(CraftModel._cylinder(14.0, 14.0, 3.5, 48, 1, true), GREY())
+		ring.position.y = leg_h + 1.75
+		mount.add_child(ring)
+		var top := _mesh(_ring(6.5, 14.0, 48), GREY())
+		top.rotation.x = -PI / 2.0
+		top.position.y = leg_h + 3.5
+		mount.add_child(top)
+		var under := _mesh(_ring(6.5, 14.0, 48), GREY())
+		under.rotation.x = PI / 2.0
+		under.position.y = leg_h
+		mount.add_child(under)
+		var deck := _mesh(_ring(6.5, 14.0, 32), decal(SCORCH(), 2))
+		deck.rotation.x = -PI / 2.0
+		deck.position.y = leg_h + 3.515
+		mount.add_child(deck)
+		# water-cooled deflector plate on the ground under the mount
+		B.add(CraftModel._cylinder(11.0, 11.0, 0.6, 32), STEEL(), Transform3D(Basis(), Vector3(0.0, 0.3, 0.0)))
+		for i in 12:
+			var a := (float(i) + 0.5) * TAU / 12.0
+			if i % 2 == 0:
+				mount.add_child(box(1.4, 2.6, 1.5, PAINT(), cos(a) * 7.5, leg_h + 3.5, sin(a) * 7.5))
+		# the booster quick-disconnect on the tower side
+		B.box(4.0, 5.0, 5.0, DARK(), Vector3(-13.5, leg_h + 3.5, 0.0))
+	for z in [-13.0, 13.0]:
+		mount.add_child(pipe_between(Vector3(-28.0, 1.0, z), Vector3(-13.0, leg_h + 2.0, z), 0.34, COPPER()))
+	var tx := -CatchTower.TOWER_OFFSET
+	if _art(art, "stage_tower") == null:
+		service_tower(B, tx, 0.0, 0.0, 146.0, 12.0, {"paint": STAINLESS(), "level": 9.1, "brace": 1,
+			"floors": false, "rooms": 0, "col": 1.1, "core_mat": STAINLESS()})
+		B.box(16.0, 9.0, 16.0, CONCRETE(), Vector3(tx - 1.0, 0.0, 0.0))
+		B.pipe(Vector3(tx, 146.0, 0.0), Vector3(tx, 156.0, 0.0), 0.2, STEEL())
+	# The catch arms ride a carriage up and down the tower (CatchTower is the
+	# physics; launchpads.py builds the same nodes).
+	carriage = _art(art, "stage_carriage")
+	# An authored carriage without its arm pivots (an older build) is replaced.
+	if carriage != null and (carriage.find_child("chopstick_0", true, false) == null \
+			or carriage.find_child("chopstick_1", true, false) == null):
+		carriage.free()
+		carriage = null
+	if carriage == null:
+		carriage = chopsticks_carriage()
+		mount.add_child(carriage)
+	carriage.position = Vector3(tx, CARRIAGE_LAUNCH_Y, 0.0)
+	chopsticks = [carriage.find_child("chopstick_0", true, false), carriage.find_child("chopstick_1", true, false)]
+	# The ship quick-disconnect arm reaches the ship's base from the tower and swings
+	# away during the count.
+	var ss := _stage_span(craft, vehicle, "ss")
+	var qy: float = (ss[0] + 2.0) if not ss.is_empty() else 73.0
+	_swing_arm(mount, tx + 6.0, deck_height + qy, qy, 0.0, 2.4, 3.6, DARK(), PRE_COUNT, 8.0)
 
 ## Chopsticks, mirrored in model_sources/blender/launchpads.py: arm pivots on the
 ## carriage at (ARM_PIVOT_X, 0, ±ARM_PIVOT_Z) from the tower axis, arms ARM_LEN
@@ -1446,15 +1946,15 @@ static func chopsticks_carriage() -> Node3D:
 	c.name = "stage_carriage"
 	var half := CatchTower.TOWER_HALF + 1.0
 	for sx in [-1.0, 1.0]:
-		c.add_child(box(1.2, 6.0, half * 2.0, GREY(), sx * half, -1.5, 0.0))
-		c.add_child(box(half * 2.0, 6.0, 1.2, GREY(), 0.0, -1.5, sx * half))
+		c.add_child(box(1.2, 6.0, half * 2.0, DARK(), sx * half, -1.5, 0.0))
+		c.add_child(box(half * 2.0, 6.0, 1.2, DARK(), 0.0, -1.5, sx * half))
 	for i in 2:
 		var sgn := -1.0 if i == 0 else 1.0
 		c.add_child(box(2.4, 4.5, 2.4, PAINT(), ARM_PIVOT_X - 0.6, -0.75, sgn * ARM_PIVOT_Z))
 		var pivot := _node()
 		pivot.name = "chopstick_%d" % i
 		pivot.position = Vector3(ARM_PIVOT_X, 0.0, sgn * ARM_PIVOT_Z)
-		var arm := truss(ARM_LEN, ARM_W, ARM_D, 0.30)
+		var arm := truss(ARM_LEN, ARM_W, ARM_D, 0.34, DARK())
 		pivot.add_child(arm)
 		# The catch rail on top of the inner edge, where the pins land.
 		pivot.add_child(box(ARM_LEN * 0.5, 0.3, ARM_W * 0.5, SAFETY(), ARM_LEN * 0.55, ARM_D - 0.3, -sgn * ARM_W * 0.25))
@@ -1480,21 +1980,24 @@ static func arm_contact_yaw(sgn: float, bx: float, bz: float, gap: float) -> flo
 		else: hi = mid
 	return hi
 
-##   s.released  true once the vehicle has committed to leaving
+##   s.t_minus   seconds to hold-down release: INF on the pad with no count
+##               running, ≤ 0 once released
 ##   s.throttle  0..1, drives the deluge
 ##   s.dt        seconds
 func update(s: Dictionary) -> void:
 	var dt := float(s.dt)
-	# Retraction state: 0 = stowed against the vehicle, 1 = fully clear. Arms
-	# are heavy and hydraulic; the real ones take a couple of seconds.
-	var want := 1.0 if s.released else 0.0
-	open += (want - open) * (1.0 - exp(-dt / 1.6))
+	var t_minus := float(s.get("t_minus", INF))
 	if carriage != null: _pose_chopsticks(s.get("catch"))
+	# Each arm swings once the count reaches its `at`, hydraulically: easing in and
+	# out over `dur` seconds. A scrub brings it back.
 	for a in arms:
-		var ang: float = a.rest + (a.open - a.rest) * open
+		var want := 1.0 if t_minus <= float(a.at) else 0.0
+		a.p = move_toward(float(a.p), want, dt / float(a.dur))
+		var ang: float = a.rest + (a.open - a.rest) * smoothstep(0.0, 1.0, float(a.p))
 		var g: Node3D = a.group
 		if a.axis == "yaw": g.rotation.y = ang
 		else: g.rotation.z = ang
+	LAMP().emission_energy_multiplier = 3.5 * clampf(1.0 - Plume.daylight / 0.45, 0.0, 1.0)
 
 	# deluge: on whenever the engines are, plus the pre-ignition flow
 	var rate := 1.0 if float(s.throttle) > 0.0 else 0.0
