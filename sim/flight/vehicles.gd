@@ -153,9 +153,16 @@ static func _build_vehicles() -> Dictionary:
 					# (MSFC-MAN-503 fig. 4-25). `thrust` is per pair, N; sites are [y, r, az°].
 					# The S-II's four ullage rockets push the stack meanwhile: 101 kN each, 10° out,
 					# 3.7 s from 0.2 s before the separation signal.
+					# The four outboard F-1s' thrust decay, as a fraction of their 7,067,700 lbf at
+					# cutoff against s after it (AS-510 flight evaluation fig. 5-4, read off the
+					# plot); the stage separates 0.7 s after cutoff.
 					"sep": { "motors": { "thrust": 782.1e3, "web": 0.633, "cant": 7.5, "exitD": 0.39,
 							"sites": [[10.8, 4.53, 45.0], [10.8, 4.53, 135.0], [10.8, 4.53, 225.0], [10.8, 4.53, 315.0]] },
-						"stack": { "thrust": 397.8e3, "dir": [0.0, 1.0, 0.0], "start": -0.2, "time": 3.7 } } } }),
+						"stack": { "thrust": 397.8e3, "dir": [0.0, 1.0, 0.0], "start": -0.2, "time": 3.7 },
+						"residual": { "thrust": 31.438e6, "from": 0.7, "curve": [[0.67, 0.030], [0.75, 0.0229],
+							[0.83, 0.0208], [1.0, 0.0210], [1.19, 0.0233], [1.5, 0.0203], [2.0, 0.0162],
+							[2.5, 0.0144], [3.0, 0.0131], [3.5, 0.0115], [4.0, 0.0094], [4.5, 0.0054],
+							[4.85, 0.0]] } } } }),
 			# The S-II's aft interstage: the dual-plane separation leaves it on the S-II, over
 			# the J-2s, and drops it 30.5 s after S-IC cutoff, 29.8 s after the first plane
 			# (MSFC-MAN-503 fig. 2-1). 3,504 kg (AS-510 table 16-9). The S-II's ullage

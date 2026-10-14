@@ -56,6 +56,23 @@ Source: *Saturn V Flight Manual SA-503*, MSFC-MAN-503 (1968), NTRS 19750063889.
   (y 10.8 m, r 4.53 m, at 45° + k·90°). The stack's push is 4 × 101 kN × cos 10°,
   starting 0.2 s before the stage separates.
 
+**F-1 tail-off** (`look.sep.residual`). The F-1s are still pushing the S-IC when it
+separates. Source: *Saturn V Launch Vehicle Flight Evaluation Report AS-510*,
+MPR-SAT-FE-71-2, NTRS 19730025086, §5.4 and fig. 5-4.
+
+- Fig. 5-4 is the four outboard engines' thrust decay against time from cutoff, as a
+  fraction of their 7,067,700 lbf (31.44 MN) at cutoff. It falls through 10% at
+  0.62 s, bottoms near 2.1% at 0.83 s, peaks at 2.3% at 1.2 s and reaches zero at
+  4.85 s. The model reads it from 0.67 s on; separation comes at 0.7 s, where it is
+  2.7% (0.86 MN, 6.2 m/s² on the S-IC).
+- After separation it is worth 1.80 MN·s, 13 m/s on the 137.6 t stage, almost as much
+  as the eight retros' 2.0 MN·s. The retros win early, the tail-off over the next
+  four seconds.
+- The report measured 2,646,945 lbf·s from cutoff to zero (0.374 s at the cutoff
+  thrust). The curve from 0.67 s carries 0.058 s of it, so the off-scale first
+  0.67 s carry 0.316 s, an average of 47% of cutoff thrust. That part is the stack's,
+  which in the model burns its propellant at full thrust to separation instead.
+
 **Dual-plane separation** (MSFC-MAN-503 p. 5-24, fig. 2-1; AS-510 table 16-9). The
 S-IC/S-II interstage is cut at two planes. At the first, the S-IC leaves with a small
 ring (615 kg, included in its dry mass). The large interstage, the S-II's aft
@@ -79,16 +96,32 @@ interstage, stays on the S-II, around its J-2s. It carries the ullage rockets. I
   180° and 270°.
 
 Not modelled:
-- The F-1 thrust tail-off. A NASA JANNAF review of AS-510 (NTRS 20100023317)
-  attributes a separation distance below prediction to a larger tail-off impulse.
 - Post-separation rates. The AS-506 flight evaluation (MPR-SAT-FE-69-9, §12)
   reports the separations as nominal, within staging limits, but publishes no rates
   for the spent stages.
 
 **Check**: the manual says seven retrorockets (one out) separate the S-IC by at
 least 6 ft in under one second. With seven, the retros give 19.7 m/s² on the 137.6 t
-stage for 0.633 s. The ullage rockets add 0.59 m/s² on the stack. That is 8.8 m at
-1 s, before the S-II lights.
+stage for 0.633 s, and the ullage rockets 0.59 m/s² on the stack. Less the tail-off,
+that is 6.3 m at 1 s, before the S-II lights (8.8 m without it).
+
+**Check against AS-510**: AS-510 flew with four retros, no ullage rockets and the
+staging delayed by a second (separation 1.64 s after cutoff, S-II start valves open
+at 3.4 s). Its separation distance fell short of the prediction, and the JANNAF
+lessons-learned review (S. Richards, NTRS 20100023317) and the report put that down to
+the F-1 tail-off impulse. The same sequence against the 157 t S-IC, with the stack
+unpushed until the J-2s start:
+
+| s after cutoff | 2.35 | 2.65 | 3.0 | 3.5 | 4.0 |
+|---|---|---|---|---|---|
+| Reconstructed (fig. 10-15), ft | 2.5 | 9.5 | 13.7 | 17.6 | 20.2 |
+| Model, with the tail-off, ft | 5.2 | 8.6 | 11.5 | 13.9 | 14.4 |
+| Model, without it, ft | 8.1 | 14.2 | 21.4 | 31.7 | 41.9 |
+
+The reconstructed values are read off the figure. With the tail-off the model follows
+the flight to 3 s. By 4 s it falls 6 ft short; the J-2s' start transient and the
+stages' drag are not in this sequence. It is a one-dimensional integration of the
+numbers above, not a run of `Separation`, whose S-II lights at once.
 
 ## Falcon 9
 
