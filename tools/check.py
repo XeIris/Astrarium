@@ -38,9 +38,9 @@ DESCENTS = ("lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane",
 MISSIONS = {"launch_orbit": 40, "lunar_orbit": 55, "lunar_landing": 28, "skip_moon": 4,
             "ship_return": 45, "orbiter_return": 60, "orbiter_home": 110, "shuttle_fates": 90}
 # The frames of shuttle_fates flown both undrawn and drawn by the parity check: liftoff
-# from the pad and booster separation; at the end both boosters are coming down under
-# their chutes, so their own state is in the digest.
-PARITY_FRAMES = 20000
+# from the pad and booster separation; at the end both boosters are falling on their
+# own past apogee, so their state is in the digest.
+PARITY_FRAMES = 13000
 # --changed: repository paths (fnmatch, `*` crosses directories) → the checks (fnmatch
 # on check names) that cover them. A tools/ file also selects every check whose command
 # names it. Documentation selects nothing; any other unmapped path selects `dev`.
@@ -442,13 +442,18 @@ def wait_child(process, timeout):
 def print_times(report, compare):
     """Each check's wall and CPU seconds, slowest first, so a check that has grown
     slower shows. With an earlier report, flag checks over 1.25× and 5 s slower."""
+    def keyed(results):
+        # Several checks share a name (padcheck per asset/pad option): match them in order.
+        seen = {}
+        for result in results:
+            seen[result["name"]] = seen.get(result["name"], -1) + 1
+            yield (result["name"], seen[result["name"]]), result
     earlier = {}
     if compare:
-        for result in json.loads(Path(compare).read_text()).get("results", []):
-            earlier[result["name"]] = result.get("seconds")
+        earlier = {key: r.get("seconds") for key, r in keyed(json.loads(Path(compare).read_text()).get("results", []))}
     print("TIMES wall s / cpu s" + (f" / was (wall s) from {compare}" if compare else ""), flush=True)
-    for result in sorted(report["results"], key=lambda r: -r["seconds"]):
-        was = earlier.get(result["name"])
+    for key, result in sorted(keyed(report["results"]), key=lambda kr: -kr[1]["seconds"]):
+        was = earlier.get(key)
         cpu = result.get("cpu_seconds")
         flag = " SLOWER" if was and result["seconds"] > 1.25 * was and result["seconds"] - was > 5 else ""
         print(f"  {result['name']:<44} {result['seconds']:>8.1f} {cpu if cpu is not None else float('nan'):>8.1f}"
