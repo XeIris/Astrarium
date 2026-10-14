@@ -129,6 +129,8 @@ and its `SIM` console handle:
 | `band=5` | imaging band 0–6 |
 | `focus=Earth`, `truescale=1`, `cammode=surface`, `localtime=noon` | camera and view |
 | `frames=60 dt=0.0166 out=/abs/shot.png [hud=0] [shot3d=1]` | run N fixed steps, save a screenshot, quit |
+| `program=ascent` | with `mode=flight`, start an autopilot program on the vehicle before the shot |
+| `ff=alt:12000\|t:124\|event:staging` | before the `frames` steps, step undrawn until the vehicle crosses an altitude (m), until seconds after liftoff (stage seconds outside flight) or until a vehicle event containing the text (`staging` matches separations); `frames` then counts only the drawn frames that settle the picture |
 | `eval=_preset_check` | run a development check (below); tools are excluded from exports |
 
 ## Building the macOS app
@@ -171,8 +173,12 @@ nonzero exit. Independent physics invariants supplement comparisons with the
 frozen numeric reference. The [codebase review and remediation log](docs/codebase-review-2026-10-02.md)
 records known issues, ownership and acceptance evidence.
 
-`python3 tools/check.py` runs the fast headless suite. Rendered checks need a
-real window (headless Godot has no GPU renderer), and Godot activates itself
+`python3 tools/check.py` runs the fast headless suite. Checks that judge state
+or numbers run `--headless`; only those that judge a rendered frame, read a GPU
+result or must see a `SHADER ERROR` (printed on first render) open a window,
+because headless Godot has no RenderingDevice. Under `--headless` the compute
+passes (`render/rd_util.gd`) allocate and dispatch nothing; a check that needs
+their output tests `RDU.available()` and fails. Godot activates itself
 as each window opens. On macOS, `--background` returns focus to the app you
 last used within about 50 ms of each activation. Checks keep rendering behind
 other windows, but not minimized or on a hidden Space, so the fullscreen M5
@@ -181,14 +187,41 @@ for example `python3 tools/check.py fast native assets rendered lifecycle export
 The runner retains child logs and a JSON report, rejects errors, timeouts and
 missing completion markers, and starts nothing new after the first failure.
 Use `--godot` to select an engine and `--log-dir` to retain results at a chosen location.
+Every check reports its wall and CPU seconds; the run ends with a table, slowest
+first, and `--compare /abs/old/report.json` flags any check over 1.25× and 5 s
+slower than in that report. `--list` prints the plan without running it.
 `--jobs N` runs up to N independent checks at once (default: the performance-core
 count; `--jobs 1` runs them one after another). Each keeps its own log and timeout,
 the longest start first, and results print and enter the report in suite order.
 Nothing runs beside the `fast` import or any check in `perf`, `m5-*`,
-`stability*`, `lifecycle`, `export` and `clean`; other checks' logged timings
-are taken under concurrent load.
+`stability*`, `export` and `clean`; the `lifecycle` checks (one process per soak
+feature, plus the leak and shutdown checks) run beside each other only. Other
+checks' logged timings are taken under concurrent load.
+### The fast path
+
+For the inner loop, run what the change touches, headless, and replay whole
+missions only when the change can alter flight:
+
+- `python3 tools/check.py dev` (under a minute): the import, the fast numeric
+  checks, the `skip_moon` mission and a short undrawn/drawn parity flight.
+- `python3 tools/check.py --changed` runs only the checks covering files changed
+  since `HEAD` (`--changed main` since the branch left `main`), from the mapping
+  `CHANGED_RULES` in `tools/check.py`. Documentation selects nothing; a path no
+  rule covers selects `dev`. Add suites to narrow it (`--changed flight`).
+- Missions are judged on their flown state, so they run headless and undrawn:
+  `main.set_drawn(false, false)` steps physics, structural events and what physics
+  reads, and skips body visuals, markers, trails, the HUD, plumes, smoke and the
+  cameras. `missioncheck-parity-shuttle_fates` flies the same frames both ways and
+  fails unless the final states are bit-identical (`inject_coupling=1` must fail).
+- For a visual before/after, fast-forward instead of flying in real time:
+  `Godot --path . -- mode=flight craft=falcon9 program=ascent ff=alt:12000 frames=20 hud=0 out=/abs/f9_12km.png`,
+  or one process for a whole matrix with
+  `res://tools/fxlab.tscn -- crafts=falcon9,shuttle alts=12000,30000 qualities=low,high views=20:0,90:10 out=/abs/dir`.
+  The fast-forward keeps the smoke trail, plumes and pad simulating undrawn, so
+  the settle frames only present them.
+
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
-`perf` need a working graphical renderer. `flight` runs the four full launches, the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit) and the missions, one process per descent and per mission. `native` includes the numerical boundary checks.
+`perf` need a working graphical renderer. `flight` runs the four full launches (one process each), the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit) and the missions, one process per descent and per mission. `native` includes the numerical boundary checks.
 `stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
 three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
@@ -255,8 +288,8 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript; rejects a descent that does not land inside its gear rating, a Super Heavy return that is not caught by the tower, and a deorbit that does not burn once and hand back. These three intentionally diverge from the frozen build, which fails them. So does `starship`: V3 Raptor 3s and propellant, where the frozen build flies V1; and `shuttle`, whose solids light at T−0 and whose first stage lofts to JSC-10559's staging state |
 | `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |
-| `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets |
-| `tools/missioncheck.tscn` | whole missions flown by the autopilot with no input: launch to Earth orbit, Earth orbit → lunar orbit, an LM landing, a skip to the Moon, a lone Starship from orbit through its own return (deorbit, belly-first entry, flip, landing burn inside 1 m/s), and a lone Shuttle orbiter from orbit to its main gear (deorbit, 40° entry with roll reversals, glide slopes, flare inside the gear's 2.9 m/s at 195–215 kt), and the Shuttle from Pad 39A to orbit and home (it waits for the deorbit opportunity that brings Kennedy within crossrange and lands within 10 km of the pad), and the Shuttle's dropped stages (`shuttle_fates`: each booster's recovery at the flown altitudes and speeds to splashdown, the tank to its breakup) (`long=1` adds Earth orbit → Mars orbit); rejects a mission that fails, stalls or ends in the wrong orbit |
+| `tools/sharedflightcheck.gd` | four powered launches through `Spaceflight.update()` with moving world bodies; rejects clock divergence and missed orbit targets; `only=saturnv,shuttle` selects launches |
+| `tools/missioncheck.tscn` | whole missions flown by the autopilot with no input: launch to Earth orbit, Earth orbit → lunar orbit, an LM landing, a skip to the Moon, a lone Starship from orbit through its own return (deorbit, belly-first entry, flip, landing burn inside 1 m/s), and a lone Shuttle orbiter from orbit to its main gear (deorbit, 40° entry with roll reversals, glide slopes, flare inside the gear's 2.9 m/s at 195–215 kt), and the Shuttle from Pad 39A to orbit and home (it waits for the deorbit opportunity that brings Kennedy within crossrange and lands within 10 km of the pad), and the Shuttle's dropped stages (`shuttle_fates`: each booster's recovery at the flown altitudes and speeds to splashdown, the tank to its breakup) (`long=1` adds Earth orbit → Mars orbit); rejects a mission that fails, stalls or ends in the wrong orbit. Runs `--headless` and undrawn; `drawn=1` presents every step; `parity=1 [frames=N]` flies each case undrawn and drawn and rejects any difference in the final state |
 | `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
 | `tools/skycachecheck.tscn` | rendered sky: the point-source cull must match an exhaustive walk pixel for pixel; the diffuse cache must stay within its stated error of live evaluation across bands, aberration and lensing. `timing=1` prints native-size frame medians, `reference=/abs/sky.gdshaderinc` requires the live sky to match another revision (e.g. from `git show`), `dump=/abs/dir` saves live/cached images and the cache atlas |
 | `tools/skycost.tscn` | frame cost of each sky component (point tiers, dust, clusters, galaxies, nebulae, cache, constant sky) by editing the shader source; a renamed component fails. Options `preset=`, `band=`, `view=WxH`, `scale=`, `samples=` |
@@ -271,7 +304,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; every dropped stage must leave by its separation physics (`stage_separations`, `booster_pieces`); `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
-| `tools/fxlab.tscn` | the effects lab: one vehicle held at an altitude and airspeed with the air streaming past, through the real flight renderer, for the plume, trail, condensation collars and re-entry plasma (`alpha=` holds the nose above the airflow, belly into it: `craft=shuttle stage=2 alt=70000 speed=7000 pitch=91 alpha=40 throttle=0`). Interactive with no arguments (sliders, `[ ]` vehicle, `1`–`4` stage); `crafts=a,b alts=10000,30000 out=/abs/dir` writes one picture per vehicle and altitude; `mode=fly` photographs a real ascent as it passes each altitude; `humidity=`, `speed=`, `pitch=`, `az=`/`el=`/`dist=`/`aim=` set the air and camera. Prints the shoulders it found for vapour |
+| `tools/fxlab.tscn` | the effects lab: one vehicle held at an altitude and airspeed with the air streaming past, through the real flight renderer, for the plume, trail, condensation collars and re-entry plasma (`alpha=` holds the nose above the airflow, belly into it: `craft=shuttle stage=2 alt=70000 speed=7000 pitch=91 alpha=40 throttle=0`). Interactive with no arguments (sliders, `[ ]` vehicle, `1`–`4` stage); `crafts=a,b alts=10000,30000 out=/abs/dir` writes one picture per vehicle and altitude; `mode=fly` photographs a real ascent as it passes each altitude; `qualities=low,high` and `views=az:el[:dist],…` add a quality × camera matrix, each cell drawn at the same instant after an undrawn approach; `humidity=`, `speed=`, `pitch=`, `az=`/`el=`/`dist=`/`aim=` set the air and camera. Prints the shoulders it found for vapour |
 | `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps (`hcraft=<id>` picks the hangar's vehicle); `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
 | `tools/editorcheck.tscn` | canonical inspector and graph invalidation, measured/tiny bodies, structural threshold crossings, and delayed edits across selection/removal/reused IDs |
 | `tools/padcheck.gd` | rejects pad structure inside its vehicle at rest, an arm that touches it through the terminal count and liftoff, and anything (wires included) left in its ascent column; `padmodels=0` / `assets=0` select fallback pads / craft; `inject_intrusion=1`, `inject_fixed_arm=1` and `inject_late_arm=1` must fail |
