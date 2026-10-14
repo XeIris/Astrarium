@@ -557,6 +557,12 @@ class EntryUnit extends RefCounted:
 	var wake: MultiMeshInstance3D
 	var wake_mat: ShaderMaterial
 	var buf := PackedFloat32Array()
+	## Newtonian shelter for the layer: per column of the projection along the flow, the
+	## most upstream skin depth (root frame), read by the shells; rows e1, e2, m of that
+	## projection, root frame.
+	var shelter_img: Image
+	var shelter: ImageTexture
+	var grid_rows := Basis()
 	## Where the shock-layer gas leaves the skin (root frame), and the running sum of
 	## their weights, to draw from.
 	var edge_p := PackedVector3Array()
@@ -583,6 +589,8 @@ class EntryGlow extends RefCounted:
 	const EDGE_EVERY := 0.1
 	## Visible above this stagnation flux, W/m² (with hysteresis).
 	const Q_ON := 4400.0
+	## A shelter-map column with no skin in it: nothing upstream.
+	const NO_SHELTER := -1e6
 	var units: Array[EntryUnit] = []
 	var _rng := RandomNumberGenerator.new()
 
@@ -668,6 +676,8 @@ class EntryGlow extends RefCounted:
 		if u.edge_t <= 0.0:
 			u.edge_t = EDGE_EVERY
 			_find_edges(u, m_loc)
+		var to_grid := u.grid_rows * u.root.global_basis.inverse()
+		for m in u.mats: m.set_shader_parameter("uToGrid", to_grid)
 		_stream(u, dt, h, m_loc)
 
 	## Where the gas leaves: windward skin samples the air reaches first (in their
@@ -676,8 +686,11 @@ class EntryGlow extends RefCounted:
 	## a leading edge, mid-belly or anything in the body's lee. Weighted by the flux.
 	func _find_edges(u: EntryUnit, m: Vector3) -> void:
 		u.edge_p.clear(); u.edge_cdf.clear()
+		u.shelter_img.fill(Color(NO_SHELTER, 0.0, 0.0))
 		var n := u.s_mesh.size()
-		if n == 0: return
+		if n == 0:
+			u.shelter.update(u.shelter_img)
+			return
 		var e1 := m.cross(Vector3.UP if absf(m.y) < 0.9 else Vector3.RIGHT).normalized()
 		var e2 := m.cross(e1)
 		var xfs := {}
@@ -701,7 +714,9 @@ class EntryGlow extends RefCounted:
 			A[i] = p.dot(e1); B[i] = p.dot(e2)
 			ok[i] = 1
 			lo = Vector2(minf(lo.x, A[i]), minf(lo.y, B[i])); hi = Vector2(maxf(hi.x, A[i]), maxf(hi.y, B[i]))
-		if not is_finite(lo.x): return
+		if not is_finite(lo.x):
+			u.shelter.update(u.shelter_img)
+			return
 		var cell := maxf((hi - lo)[(hi - lo).max_axis_index()] / GRID, 1e-3)
 		var nx := int((hi.x - lo.x) / cell) + 1
 		var ny := int((hi.y - lo.y) / cell) + 1
@@ -714,6 +729,9 @@ class EntryGlow extends RefCounted:
 			occ[K[i]] = 1
 			s_hi[K[i]] = maxf(s_hi[K[i]], P[i].dot(m))
 		var tol := maxf(u.size * 0.04, cell * 0.6)
+		_shelter_map(u, s_hi, nx, ny)
+		u.grid_rows = Basis(e1, e2, m).transposed()
+		for mat in u.mats: mat.set_shader_parameter("uGrid", Vector4(lo.x, lo.y, cell, tol))
 		var total := 0.0
 		for i in n:
 			# Windward, and the first of its column the air meets (not shadowed).
@@ -727,6 +745,26 @@ class EntryGlow extends RefCounted:
 			total += C[i] * C[i]
 			u.edge_p.append(P[i])
 			u.edge_cdf.append(total)
+
+	## The columns' upstream depths as the layer's shelter texture. The samples are
+	## sparse, so an empty column flanked by skin on both sides (within two cells, in
+	## either grid direction) is a hole and takes the lower flank; the silhouette does
+	## not grow.
+	func _shelter_map(u: EntryUnit, s_hi: PackedFloat32Array, nx: int, ny: int) -> void:
+		var at := func(x: int, y: int) -> float:
+			return s_hi[x + nx * y] if x >= 0 and y >= 0 and x < nx and y < ny else -INF
+		for y in ny:
+			for x in nx:
+				var v: float = s_hi[x + nx * y]
+				if not is_finite(v):
+					for d in [1, 2]:
+						var a: float = at.call(x - d, y); var b: float = at.call(x + d, y)
+						var c: float = at.call(x, y - d); var e: float = at.call(x, y + d)
+						if is_finite(a) and is_finite(b): v = minf(a, b)
+						elif is_finite(c) and is_finite(e): v = minf(c, e)
+						if is_finite(v): break
+				if is_finite(v): u.shelter_img.set_pixel(x, y, Color(v, 0.0, 0.0))
+		u.shelter.update(u.shelter_img)
 
 	func _stream(u: EntryUnit, dt: float, h: float, m: Vector3) -> void:
 		var down := -m
@@ -791,6 +829,10 @@ static func create_entry_glow(craft) -> EntryGlow:
 
 ## Materials and wake for `u`; with `collect`, also its skin meshes and samples.
 static func _entry_unit_build(u: EntryUnit, collect: bool) -> void:
+	# A projection is at most GRID + 1 cells each way.
+	u.shelter_img = Image.create_empty(EntryGlow.GRID + 1, EntryGlow.GRID + 1, false, Image.FORMAT_RF)
+	u.shelter_img.fill(Color(EntryGlow.NO_SHELTER, 0.0, 0.0))
+	u.shelter = ImageTexture.create_from_image(u.shelter_img)
 	var prev: ShaderMaterial = null
 	for L in EntryGlow.LAYERS:
 		var m := ShaderMaterial.new()
@@ -801,6 +843,7 @@ static func _entry_unit_build(u: EntryUnit, collect: bool) -> void:
 		m.set_shader_parameter("uEdge", float(L[2]))
 		m.set_shader_parameter("uScale", u.size)
 		m.set_shader_parameter("uNoseR", u.nose_r)
+		m.set_shader_parameter("uShelter", u.shelter)
 		if prev != null: prev.next_pass = m
 		prev = m
 		u.mats.append(m)
