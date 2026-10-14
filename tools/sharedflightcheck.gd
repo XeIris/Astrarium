@@ -17,8 +17,11 @@ func _init() -> void:
 	var fixture: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tools/fixtures/flight_fixture.json"))
 	var failures := 0
 	var completed := 0
+	var ids := ["saturnv", "falcon9", "shuttle", "starship"]
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("only="): ids = Array(arg.trim_prefix("only=").split(",", false))
 	for sc in fixture.scenarios:
-		if not ["saturnv", "falcon9", "shuttle", "starship"].has(sc.id): continue
+		if not ids.has(sc.id): continue
 		var flight := Driver.new({})
 		flight.state = SimState.new()
 		for spec in fixture.bodies:
@@ -66,21 +69,26 @@ func _init() -> void:
 		valid = valid and earth.pos.distance_to(start_pos) > 0.0 and worst_clock_error < 1e-5
 		# A timed second plane (the Saturn V's S-II aft interstage) drops within two frames
 		# of `afterBelow` after the stage below it.
+		var timed := 0
 		for st in ship.stages:
 			var j = st.spec.get("jettisonAt")
 			if j == null or j.get("afterBelow") == null: continue
+			timed += 1
 			var gap: float = st.dropped_met - ship.stages[st.index - 1].dropped_met
 			var on_time: bool = st.dropped_met >= 0.0 and ship.stages[st.index - 1].dropped_met >= 0.0 \
 				and gap >= float(j.afterBelow) and gap < float(j.afterBelow) + 2.0 * number(fixture.dt)
 			if not on_time: print("SHARED FLIGHT %s %s dropped %s s after the stage below" % [sc.id, st.spec.key, gap])
 			valid = valid and on_time
+		if sc.id == "saturnv" and timed == 0:
+			print("SHARED FLIGHT saturnv has no timed second separation plane")
+			valid = false
 		if not valid: failures += 1
 		completed += 1
 		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])
 	var errors := logger.take()
 	for error in errors: printerr("SHARED FLIGHT ENGINE ", error)
 	failures += errors.size()
-	if completed != 4: failures += 1
+	if completed != ids.size(): failures += 1
 	OS.remove_logger(logger)
 	print("SHARED FLIGHT DONE failures=", failures)
 	quit(1 if failures else 0)
