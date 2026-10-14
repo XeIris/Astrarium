@@ -52,10 +52,23 @@ NASA TM X-64967 (MSFC, 1975), NTRS 19760006102.
   torque gives only about 2°/s.
 - **Pivot**: the spent case's mid-length (`cgY`, XB ≈ 1175). No inert centre of
   mass for the flown booster is published in the sources above.
-- **Residual thrust**: left out. The memo starts its runs with each booster still
-  making 30,000 lbf (133 kN, 1.5 m/s² on 86 t), decaying, but gives no decay law.
+- **Residual thrust**: the boosters are still burning when they let go. Below.
 - **Booster drag**: left out. About 0.15 m/s² at the 1.5 kPa of separation, under 2%
   of the stack's acceleration.
+
+### Residual thrust
+
+The sequence starts when chamber pressure falls to 50 psia, and the bolts are cut
+2.5 s later. By then the memo puts each booster's thrust at about 30,000 lbf
+(133 kN), and it starts its runs from that value. It gives no decay law, so the model
+derives one. Vacuum thrust is proportional to chamber pressure:
+`F/p = 2.59 Mlbf / 660.8 psia` over web time (TWR-17543-10 table 3.4), so 50 psia is
+196,000 lbf. A chamber blowing down decays exponentially, and 196,000 to 30,000 lbf
+in 2.5 s gives `τ = 2.5 / ln 6.53 = 1.33 s`. Each booster is pushed along its own
+axis by `133 kN · e^(−t/τ)` from separation, 176 kN·s or 2.0 m/s in all, until it is
+down to 1% at 6.1 s. A pure gas blowdown of the empty case would be faster (about
+0.35 s from its volume, throat and c*); the slower decay the memo implies is
+consistent with propellant slivers still burning.
 
 ## Check against the memo
 
@@ -64,12 +77,13 @@ gives 9.9 m/s² once the boosters are gone):
 
 | | Simulated | Memo |
 |---|---|---|
-| Aft, 0.25 s | 0.50 m | 0.28 m, forward attach (fig. 16) |
+| Aft, 0.25 s | 0.39 m | 0.28 m, forward attach (fig. 16) |
 | Sideways velocity after the burn | 3.8 m/s | the specified 60,000 lb·s per cluster, at 40°/20° |
-| Aft, 3 s | 56 m | "primary relative motion of the SRB is rearward" |
+| Aft, 3 s | 52 m | "primary relative motion of the SRB is rearward" |
 
-The 0.25 s value includes one frame of the pre-separation acceleration. Without the
-residual thrust the boosters also fall back somewhat faster than the memo's.
+Without the residual thrust the boosters fell back 0.45 m by 0.25 s. The memo flew a
+Vandenberg mission's separation state with proximity aerodynamics, so the rest of the
+difference is not attributed to any one term.
 
 ## Display
 
@@ -78,10 +92,11 @@ residual thrust the boosters also fall back somewhat faster than the memo's.
   case. It is dark until the stage separates, then follows `motor_fraction`.
 - While the motors burn they leave alumina smoke in the air, through the same smoke
   pool as the exhaust trail.
-- Once the motors are out and the tumble has built up (3 s), each booster is handed
-  on to `Fall` (below) and stays drawn to splashdown. Without that hand-off (a bare
-  `Craft`, as the asset checks build) a piece stays drawn for 30 s
-  (`Separation.SHOWN`), by which time it is about 4 km behind.
+- Once the motors are out, the tumble has built up (3 s) and the residual thrust is
+  down to 1% (6.1 s), each booster is handed on to `Fall` (below) and stays drawn to
+  splashdown. Without that hand-off (a bare `Craft`, as the asset checks build) a
+  piece stays drawn for 30 s (`Separation.SHOWN`), by which time it is about 4 km
+  behind.
 
 ## Ascent
 

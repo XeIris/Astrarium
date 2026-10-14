@@ -254,10 +254,13 @@ static func _build_vehicles() -> Dictionary:
 					# az 160° (the starboard booster; port mirrors). XB 390 frustum, XB 1884.5 aft
 					# skirt. `exitD` the cluster's merged exhaust, m; `cgY` the spent case's
 					# mid-length (no published inert c.g.); `rates` the memo's nominal (P, Q, R)
-					# deg/s 3 s after separation.
+					# deg/s 3 s after separation. `residual` each booster's own thrust at separation,
+					# 30,000 lbf (memo §II.E), blowing down with the time constant its 50 psia cue
+					# 2.5 s earlier implies (docs/physics/srb-separation.md#residual-thrust).
 					"sep": { "motors": { "thrust": 332.1e3, "ignite": 0.09, "web": 0.75, "tail": 0.107,
 							"cant": 40.0, "sites": [[40.67, 1.78, 160.0], [2.71, 2.25, 160.0]], "exitD": 0.65 },
-						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] } },
+						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] },
+						"residual": { "thrust": 133.4e3, "tau": 1.33 } },
 					# Recovery (Fall; docs/physics/srb-separation.md#recovery). Baroswitch
 					# altitudes, m, from KSC FS-2004-07-012's timeline; `at` the attach height
 					# on the booster, m (XB 326 frustum top, XB 402 forward skirt). Drag areas,

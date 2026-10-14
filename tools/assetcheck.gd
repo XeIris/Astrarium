@@ -130,6 +130,28 @@ func stage_separations(vehicle: Dictionary) -> void:
 			var dv := float(m.thrust) * (float(m.web) + 0.5 * float(m.get("tail", 0.0))) * (m.sites as Array).size() \
 				/ (float(spec.dry) / nodes.size()) * cos(deg_to_rad(float(m.cant)))
 			aft += dv * (T - float(m.get("ignite", 0.0)) - 0.5 * float(m.web))
+		# The stage's own engines still pushing it forward: ∫ a(s)·(T − s) ds by T.
+		var r = sep.get("residual")
+		if r != null:
+			var a0 := float(r.thrust) / (float(spec.dry) / nodes.size())
+			var fwd := 0.0
+			if r.has("tau"):
+				var tau := float(r.tau)
+				fwd = a0 * tau * (T - tau * (1.0 - exp(-T / tau)))
+			else:
+				var c: Array = r.curve
+				var off := float(r.get("from", 0.0))
+				for i in range(1, c.size()):
+					var s0 := maxf(float(c[i - 1][0]) - off, 0.0)
+					var s1 := minf(float(c[i][0]) - off, T)
+					if s1 <= s0: continue
+					var slope := (float(c[i][1]) - float(c[i - 1][1])) / (float(c[i][0]) - float(c[i - 1][0]))
+					var f0 := float(c[i - 1][1]) + slope * (s0 + off - float(c[i - 1][0]))
+					# A linear fraction on [s0, s1], weighted by (T − s): exact.
+					var h := s1 - s0
+					fwd += a0 * (f0 * (T - s0) * h - (f0 - slope * (T - s0)) * h * h / 2.0 - slope * h * h * h / 3.0)
+			expect(fwd > 0.0, "%s/%s: residual thrust adds no push" % [vehicle.id, spec.key])
+			aft -= fwd
 		var stack = sep.get("stack")
 		var lateral := Vector3.ZERO
 		if stack != null:

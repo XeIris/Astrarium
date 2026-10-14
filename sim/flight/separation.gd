@@ -12,6 +12,28 @@ const SHOWN := 30.0
 ## Longest integration step, s, so a coarse frame still resolves a motor burn.
 const STEP := 0.05
 
+## Fraction of a stage's own engines' cutoff thrust still left `t` s after separation
+## (`look.sep.residual`): a solid's chamber blowing down, `F₀ e^(−t/tau)`, or a liquid
+## engine's measured decay, `curve` [[s after cutoff, fraction]] entered `from` s after
+## cutoff. Pushes the stage forward along its own axis.
+static func residual_fraction(t: float, r: Dictionary) -> float:
+	if t < 0.0: return 0.0
+	if r.has("tau"):
+		return exp(-t / float(r.tau)) if t < residual_end(r) else 0.0
+	var c: Array = r.curve
+	var x := t + float(r.get("from", 0.0))
+	if x < float(c[0][0]) or x >= float(c[-1][0]): return 0.0
+	for i in range(1, c.size()):
+		if x < float(c[i][0]):
+			return lerpf(float(c[i - 1][1]), float(c[i][1]), (x - float(c[i - 1][0])) / (float(c[i][0]) - float(c[i - 1][0])))
+	return 0.0
+
+## Seconds after separation when a residual is over: a measured curve's end, or a
+## blowdown once it is down to 1% (the last 1% of its impulse is dropped).
+static func residual_end(r: Dictionary) -> float:
+	if r.has("tau"): return float(r.tau) * log(100.0)
+	return float((r.curve as Array)[-1][0]) - float(r.get("from", 0.0))
+
 ## Thrust fraction of a separation motor `t` s after the command: ignition, web action
 ## at full thrust, linear tail-off (TM X-64967 fig. 2).
 static func motor_fraction(t: float, m: Dictionary) -> float:
@@ -94,6 +116,7 @@ static func start(spec: Dictionary, group: Node3D, nodes: Array, frame: Basis, c
 static func handoff_time(s: Dictionary) -> float:
 	var sep: Dictionary = s.sep
 	var t := float(sep.get("spinUp", 3.0)) if sep.has("rates") else 0.0
+	if sep.has("residual"): t = maxf(t, residual_end(sep.residual))
 	var m = s.motors
 	if m != null:
 		t = maxf(t, float(m.get("ignite", 0.0)) + float(m.web) + float(m.get("tail", 0.0)))
@@ -123,6 +146,8 @@ static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool
 			a_stack += F.inverse() * Vector3(float(d[0]), float(d[1]), float(d[2])).normalized() * float(s.stack_a)
 	# Midpoint in time, so a coarse frame still delivers a motor's impulse.
 	var thrust := float(m.thrust) * motor_fraction(t0 + dt * 0.5, m) / float(s.mass) if m != null else 0.0
+	var r = sep.get("residual")
+	var push := float(r.thrust) * residual_fraction(t0 + dt * 0.5, r) / float(s.mass) if r != null else 0.0
 	# Authored rates are reached by `spinUp` s and then held: the plume and proximity
 	# aerodynamics that drive them are not modelled (the boosters' memo gives 3 s).
 	var spin_k := minf(float(s.t) / float(sep.get("spinUp", 3.0)), 1.0)
@@ -133,6 +158,8 @@ static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool
 		if thrust > 0.0:
 			for site: Array in m.sites:
 				a -= R * exhaust_dir(m, site, b.side) * thrust
+		if push > 0.0:
+			a += R * Vector3.UP * push
 		b.v += a * dt
 		b.p += b.v * dt
 		var w: Vector3 = rates(sep, b.side) * spin_k

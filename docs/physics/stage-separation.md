@@ -22,6 +22,9 @@ mass, and nothing here feeds back into its flight.
   - `stack`: a push on what is left that the vessel does not fly (ullage rockets,
     the orbiter's translation), as a thrust on the remaining mass.
   - `rates`: body rates reached by `spinUp` s and then held.
+  - `residual`: the stage's own engines still pushing it along its axis: a solid's
+    blowdown (`tau`) or a liquid engine's measured decay (`curve`). A stage with a fate
+    is handed on once it is over.
 - **Shown** for 30 s (`Separation.SHOWN`), unless the stage has a fate (`look.fall`):
   then once its motors, the stack's push and the spin-up are over
   (`Separation.handoff_time`), each piece flies on as a `Fall`, a body of its own in
