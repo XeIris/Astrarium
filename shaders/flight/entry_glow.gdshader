@@ -1,43 +1,57 @@
-// RE-ENTRY PLASMA: a bow-shock cap following the Sutton–Graves heat flux, inner wall
-// only (cull_front). The view-space normal is a varying from vertex(), since Godot's
-// fragment NORMAL flips on back faces and the shading reads the sign of vN.y.
-// Colour weighted by the temperature code, blended ONE, ONE.
+// RE-ENTRY PLASMA, the shock layer: one shell of the vehicle's own skin pushed out
+// along its normals, as a material_overlay (three chained by next_pass make the layer),
+// so it fits every part, flap and piece. Lit by how squarely the skin meets the air:
+// local flux ≈ q₀·cos²θ, and the leeward side stays dark (docs/physics/entry-plasma.md).
+// Added ONE, ONE, depth-tested so the vehicle hides its own far side.
 shader_type spatial;
-render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_front;
+render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_back, world_vertex_coords;
+#include "res://shaders/flight/entry_plasma.gdshaderinc"
 
-uniform float uHeat = 0.0;
+uniform float uHeat = 0.0;                     // stagnation flux / 1.1 MW/m²
+uniform float uTemp = 2000.0;                  // shock-layer temperature there, K
 uniform float uTime = 0.0;
-uniform float uTemp = 2000.0;
-// 0: the cap's cut edge is a hard rim (a capsule hides it behind the shield). 1: fade
-// to nothing toward it, for a sheath wrapped round an orbiter, whose rim stands clear.
-uniform float uRimFade = 0.0;
-uniform float uCapR = 1.0;
+uniform vec3 uMotion = vec3(0.0, 1.0, 0.0);    // world: the body's way through the air
+uniform vec3 uOrigin = vec3(0.0);              // world: the body's origin, the noise frame
+uniform float uScale = 5.0;                    // m: the body's diameter
+uniform float uNoseR = 1.0;                    // m: the radius the stagnation flux is for
+uniform float uStandoff = 0.1;                 // m off the skin at the stagnation point
+uniform float uWeight = 1.0;                   // this shell's share of the emission
+uniform float uEdge = 0.0;                     // 1: fade toward this shell's silhouette
 
 varying vec3 vN;
-varying vec3 vP;
+varying vec3 vQ;
 
 void vertex() {
-	vN = normalize(MODELVIEW_NORMAL_MATRIX * NORMAL);
-	vP = VERTEX;
+	vec3 n = normalize(NORMAL);
+	// Thinnest at the stagnation point, thickening round the shoulders.
+	float c = clamp(dot(n, uMotion), 0.0, 1.0);
+	VERTEX += n * uStandoff * (1.0 + 1.5 * (1.0 - c));
+	vN = n;
+	vQ = VERTEX - uOrigin;
 }
 
-float hash(vec3 p) { return fract(sin(dot(p, vec3(17.1, 113.5, 7.9))) * 43758.5); }
-
 void fragment() {
-	if (uHeat < 0.001) discard;
 	vec3 n = normalize(vN);
-	// The sheath is brightest at the stagnation point and streams back.
-	float front = clamp(-n.y * 0.5 + 0.5, 0.0, 1.0);
-	float rim = pow(max(1.0 - abs(n.z), 0.0), 2.0);
-	float flick = 0.75 + 0.25 * hash(floor(vP * 9.0 + uTime * 26.0));
-	float i = uHeat * (pow(front, 2.4) * 1.6 + rim * 0.5) * flick;
-	// the cap runs from its pole (y = R) to its cut (y = R cos 0.62π ≈ −0.37 R)
-	i *= mix(1.0, smoothstep(-0.37 * uCapR, 0.55 * uCapR, vP.y), uRimFade);
-	// colour runs dull red → orange → blue-white as the flux climbs, which
-	// is the real progression from a shallow entry to a lunar-return one
-	vec3 c = mix(vec3(1.0, 0.24, 0.06), vec3(1.0, 0.72, 0.35), clamp(uHeat * 1.6, 0.0, 1.0));
-	c = mix(c, vec3(0.75, 0.86, 1.0), clamp(uHeat * 0.65 - 0.55, 0.0, 1.0));
-	float code = clamp(log(uTemp) / 25.33, 0.006, 0.984);
-	ALBEDO = c * i * 5.0 * code;
+	float c = dot(n, uMotion);
+	if (uHeat < 0.001 || c <= 0.0) discard;
+	// Wall flux q₀·cos²θ, and ∝ 1/√R for the local radius of curvature R (from the
+	// normal's change across the pixel), so a nose cap or a leading edge outshines
+	// the flat belly. The gas's own radiance climbs faster than the flux: flux^1.5.
+	float k = length(fwidth(n)) / max(length(fwidth(vQ)), 1e-5);
+	float q = c * c * smoothstep(0.0, 0.3, c) * clamp(sqrt(k * uNoseR), 0.6, 1.8);
+	float glow = q * sqrt(q);
+	vec3 V = normalize((INV_VIEW_MATRIX * vec4(VIEW, 0.0)).xyz);
+	float mu = abs(dot(n, V));
+	// A thin glowing layer brightens toward its limb (a longer path through it).
+	float path = mix(1.0 / max(mu, 0.3), smoothstep(0.0, 0.7, mu), uEdge);
+	// Turbulence: streaks along the flow, running aft.
+	float along = dot(vQ, uMotion);
+	vec3 across = vQ - uMotion * along;
+	vec3 x = across / (0.12 * uScale) + uMotion * ((along + uTime * 2.0 * uScale) / (1.2 * uScale));
+	float t = plasma_noise(x) * 0.7 + plasma_noise(x * 2.3 + 7.1) * 0.3;
+	float flick = 0.7 + 0.6 * t;
+	// The local wall flux sets the local temperature, T ∝ q^¼ as for radiative equilibrium.
+	float T = uTemp * pow(q, 0.25);
+	ALBEDO = plasma_colour(T) * (uHeat * uWeight * glow * path * flick * 22.0 * plasma_code(T));
 	ALPHA = 0.0;
 }
