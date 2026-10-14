@@ -7,13 +7,22 @@ extends Node
 # from Pad 39A to orbit and back to Kennedy (`glide` with a launch site), both orbiter
 # cases through the rollout to wheel stop. And what becomes of the Shuttle's dropped
 # stages (`shuttle_fates`, Fall).
-#   Godot --path . res://tools/missioncheck.tscn -- [only=name,name] [long=1]
-# `long=1` adds Earth orbit → Mars orbit (about ten minutes).
+#   Godot --headless --path . res://tools/missioncheck.tscn -- [only=name,name] [long=1]
+# `long=1` adds Earth orbit → Mars orbit (about ten minutes). Nothing is judged from
+# pixels, so the steps are undrawn (main.set_drawn) and headless is enough; `drawn=1`
+# presents every step. `parity=1` flies each case undrawn, then drawn, and fails unless
+# the two final states are identical; `frames=N` stops each case there (parity only).
+# `inject_coupling=1` lets the flight camera (presentation only) nudge the vehicle, which
+# a parity run must reject.
 
 var args := {}
 var main: Node
 var failures := 0
 var dt := 1.0 / 60.0
+var rng := RandomNumberGenerator.new()
+var cases := []
+var limit := 0          # frames per case in a parity run; 0 flies each to its end
+var digests := {}       # case → digest of its final state
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -24,8 +33,6 @@ func _ready() -> void:
 	# pauses: a paused flight never fails, it waits out the frame cap.
 	get_viewport().set_disable_input(true)
 	# The solar preset draws each planet's phase; fixed, so a failure repeats.
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1
 	Presets.rand_override = func(): return rng.randf()
 	main = Node.new()
 	main.name = "Main"
@@ -35,7 +42,7 @@ func _ready() -> void:
 	for i in 4: await get_tree().process_frame
 	# Off the title screen, or its reel takes the stage (and the flight) back.
 	main._start("sandbox")
-	var cases := [
+	cases = [
 		["launch_orbit", "saturnv", {"mode": "pad"}, "Earth", "orbit", false],
 		["lunar_orbit", "saturnv", {"mode": "orbit", "alt": 185000.0, "inc": 28.5, "phase": 0.0}, "Moon", "orbit", false],
 		["lunar_landing", "lm", {"mode": "orbit", "phase": 0.0}, "Moon", "land", false],
@@ -46,17 +53,52 @@ func _ready() -> void:
 	# check.py runs one case per process and compares this list with its own.
 	print("MISSION CHECK CASES %s" % ",".join(cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_home", "shuttle_fates"]))
 	var only: Array = str(args.get("only", "")).split(",", false)
-	for c in cases:
-		if not only.is_empty() and not only.has(c[0]): continue
-		await _fly(c[0], c[1], c[2], c[3], c[4], c[5])
-	if only.is_empty() or only.has("ship_return"): await _ship_return()
-	if only.is_empty() or only.has("orbiter_return"): await _orbiter_return()
-	if only.is_empty() or only.has("orbiter_home"): await _orbiter_home()
-	if only.is_empty() or only.has("shuttle_fates"): await _shuttle_fates()
+	var ids: Array = cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_home", "shuttle_fates"]
+	ids = ids.filter(func(id): return only.is_empty() or only.has(id))
+	if args.get("parity", "0") == "1":
+		limit = int(args.get("frames", "0"))
+		for id in ids:
+			var got := []
+			for on in [false, true]:
+				main.set_drawn(on, false)
+				await _case(id)
+				got.append(digests.get(id, "none"))
+			if got[0] == "none" or got[0] != got[1]: _fail(id, "undrawn final state %s, drawn %s" % got)
+			else: print("MISSION PARITY %s %s" % [id, got[0]])
+	else:
+		main.set_drawn(args.get("drawn", "0") == "1", false)
+		for id in ids: await _case(id)
 	print("MISSION CHECK DONE failures=%d" % failures)
 	# A lambda left in a static var aborts the engine at exit.
 	Presets.rand_override = Callable()
 	get_tree().quit(1 if failures > 0 else 0)
+
+## One case from a known state: the flight's, the presets' and the global generator are
+## seeded, so a failure repeats and a parity run compares like with like.
+func _case(id: String) -> void:
+	seed(1)
+	rng.seed = 1
+	main.flight.phase_rng.seed = 1
+	digests.erase(id)
+	for c in cases:
+		if c[0] == id: await _fly(c[0], c[1], c[2], c[3], c[4], c[5])
+	match id:
+		"ship_return": await _ship_return()
+		"orbiter_return": await _orbiter_return()
+		"orbiter_home": await _orbiter_home()
+		"shuttle_fates": await _shuttle_fates()
+
+## Record the case's final state; true when the run was cut at `limit` and is not judged.
+func _stop(id: String, f, frames: int) -> bool:
+	var v: Vessel = f.vessel
+	var x := PackedFloat64Array([frames, v.met, v.coord, v.mass, v.throttle, v.q.x, v.q.y, v.q.z, v.q.w])
+	for d: DVec3 in [v.r, v.v, v.omega, v.parent.pos, v.parent.vel]: x.append_array([d.x, d.y, d.z])
+	for st in v.stages: x.append_array([st.prop, 1.0 if st.attached else 0.0])
+	for fl: Fall in f.falls: x.append_array([fl.t, fl.mass, fl.r.x, fl.r.y, fl.r.z, fl.v.x, fl.v.y, fl.v.z, fl.ended])
+	var tag := "%s %s %d events %d falls" % [v.phase, f.autopilot.state_name if f.autopilot != null else "", v.events.size(), f.falls.size()]
+	digests[id] = "%s (%s)" % [x.to_byte_array().hex_encode().sha256_text().substr(0, 16), tag]
+	print("MISSION STATE %s %s" % [id, digests[id]])
+	return limit > 0 and frames >= limit
 
 func _fly(id: String, craft: String, opts: Dictionary, dest: String, goal: String, skip: bool) -> void:
 	main.load_preset("solar")
@@ -64,6 +106,7 @@ func _fly(id: String, craft: String, opts: Dictionary, dest: String, goal: Strin
 	var f = main.flight
 	f.begin(craft, opts)
 	main.set_cam_mode("flight")
+	_inject(f)
 	for i in 30: main.animate(dt)
 	var m = f.start_mission(dest, goal)
 	if m == null or m.failed != "":
@@ -74,11 +117,14 @@ func _fly(id: String, craft: String, opts: Dictionary, dest: String, goal: Strin
 	# A generous cap in frames: the slowest case (Mars) waits a year for its window
 	# and still finishes well inside it.
 	var frames := 0
-	while not m.done and m.failed == "" and frames < 600000:
+	while not m.done and m.failed == "" and frames < (limit if limit > 0 else 600000):
 		main.animate(dt)
 		frames += 1
 		if frames % 600 == 0: await get_tree().process_frame
 	var v: Vessel = f.vessel
+	if _stop(id, f, frames):
+		main.end_flight()
+		return
 	var why := ""
 	if m.failed != "": why = m.failed
 	elif not m.done: why = "unfinished after %d frames (%s)" % [frames, m.status]
@@ -101,18 +147,22 @@ func _ship_return() -> void:
 	var f = main.flight
 	f.begin("starship", {"mode": "orbit", "alt": 200000.0, "inc": 28.5, "phase": 0.0})
 	main.set_cam_mode("flight")
+	_inject(f)
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
 	v.stage(true)
 	v.stages[1].prop = 40000.0
 	f.run_program("bellyflop")
 	var frames := 0
-	while frames < 400000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
+	while frames < (limit if limit > 0 else 400000) and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
 		# Warp through the coast to the air; physics rate inside it.
 		f.set_warp(3 if v.altitude() > 90000.0 else 0)
 		main.animate(dt)
 		frames += 1
 		if frames % 600 == 0: await get_tree().process_frame
+	if _stop("ship_return", f, frames):
+		main.end_flight()
+		return
 	if v.phase != Vessel.PHASE.LANDED:
 		_fail("ship_return", _stuck(f, v))
 	else:
@@ -129,6 +179,7 @@ func _orbiter_return() -> void:
 	var f = main.flight
 	f.begin("shuttle", {"mode": "orbit", "alt": 300000.0, "inc": 51.6, "phase": 0.0})
 	main.set_cam_mode("flight")
+	_inject(f)
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
 	v.stage(true)
@@ -141,7 +192,7 @@ func _orbiter_return() -> void:
 	var frames := 0
 	var reversals := 0
 	var seen := 0
-	while frames < 600000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
+	while frames < (limit if limit > 0 else 600000) and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
 		f.set_warp(3 if v.altitude() > 120000.0 else 0)
 		main.animate(dt)
 		frames += 1
@@ -161,6 +212,9 @@ func _orbiter_return() -> void:
 	if args.has("verbose"):
 		print("ORBITER deorbit→touchdown %s s, %s° round the planet, TAEM→touchdown %s°" % [U.fixed(v.met - t0, 0),
 			U.fixed(rad_to_deg(arc), 1), U.fixed(rad_to_deg(arc - arc_taem), 2)])
+	if _stop("orbiter_return", f, frames):
+		main.end_flight()
+		return
 	if v.phase != Vessel.PHASE.LANDED:
 		_fail("orbiter_return", _stuck(f, v))
 	elif reversals < 2 or not v.stages[2].gear_out:
@@ -182,13 +236,14 @@ func _orbiter_home() -> void:
 	var f = main.flight
 	f.begin("shuttle", {"mode": "pad"})
 	main.set_cam_mode("flight")
+	_inject(f)
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
 	f.run_program("ascent")
 	var frames := 0
 	var gliding := false
 	var seen := 0
-	while frames < 600000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
+	while frames < (limit if limit > 0 else 600000) and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
 		var ap = f.autopilot
 		if not gliding and ap.program == null and f.count == null and v.phase == Vessel.PHASE.ORBIT:
 			gliding = true
@@ -204,6 +259,9 @@ func _orbiter_home() -> void:
 			if args.has("verbose"): print("HOME T+%s %s" % [U.fixed(float(v.events[seen].t), 0), str(v.events[seen].msg)])
 			seen += 1
 		if frames % 600 == 0: await get_tree().process_frame
+	if _stop("orbiter_home", f, frames):
+		main.end_flight()
+		return
 	var pad = v.site_at(v.coord, DVec3.new())
 	var miss := float(v.env.radius) * DQuat.angle_between(v.r, pad) / 1000.0 if pad != null else INF
 	if v.phase != Vessel.PHASE.LANDED:
@@ -232,6 +290,7 @@ func _shuttle_fates() -> void:
 	var f = main.flight
 	f.begin("shuttle", {"mode": "pad"})
 	main.set_cam_mode("flight")
+	_inject(f)
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
 	var mu := Rocketry.GM_SUN * v.parent.mass
@@ -241,7 +300,7 @@ func _shuttle_fates() -> void:
 	var parts := []           # what the boosters shed
 	var why := []
 	var frames := 0
-	while frames < 600000:
+	while frames < (limit if limit > 0 else 600000):
 		var ap = f.autopilot
 		var low := false
 		for fl: Fall in f.falls:
@@ -276,6 +335,9 @@ func _shuttle_fates() -> void:
 		var all_down := not seen.is_empty() and seen.keys().all(func(fl): return fl.ended >= 0.0 or fl.state == "gone" or seen[fl].has("vanished"))
 		if seen.size() >= 3 and all_down: break
 		if frames % 600 == 0: await get_tree().process_frame
+	if _stop("shuttle_fates", f, frames):
+		main.end_flight()
+		return
 	var boosters := seen.keys().filter(func(fl): return fl.data.has("mains"))
 	var tank := seen.keys().filter(func(fl): return fl.data.has("breakup"))
 	if boosters.size() != 2: why.append("%d boosters flown on their own, not 2" % boosters.size())
@@ -398,6 +460,11 @@ func _stuck(f, v: Vessel) -> String:
 	return "%s%s, %s in state %s at %s km, T+%s s%s: %s" % [v.phase, " (%s)" % v.failure if v.failure != null else "",
 		ap.program, ap.state_name, U.fixed(v.altitude() / 1000.0, 1), U.fixed(v.met, 0),
 		", paused" if main.state.paused else "", ap.status]
+
+## `inject_coupling=1`: presentation that writes physics (begin() clears the override).
+func _inject(f) -> void:
+	if args.get("inject_coupling", "0") == "1":
+		f.camera_override = func(_cam, _pos, _site, _dt): f.vessel.v.x += 1e-9
 
 func _fail(id: String, why: String) -> void:
 	failures += 1

@@ -44,6 +44,11 @@ var controls = Bindings.new()
 var capture_action := ""
 var capture_modifier := 0
 var manual_dt = null
+## False while physics is stepped without being looked at (a check, a screenshot's
+## fast-forward): animate skips the presentation and keeps physics, structural events
+## and everything physics reads unchanged. Set with set_drawn().
+var drawn := true
+var _held_dt := 0.0               # wall time skipped while undrawn, handed to the next drawn visual update
 var model_open := false
 var hangar: Hangar = null           # spaceflight's craft selection (ui/hangar.gd)
 var hangar_open := false
@@ -2260,6 +2265,16 @@ func set_local_time(when = "noon") -> void:
 	_observe(home)
 
 # ANIMATION LOOP
+## `history` keeps the flight's own presentation simulating while undrawn (plumes,
+## smoke and its trail, the pad, the flight camera), so the first drawn frame after a
+## fast-forward shows them as if every frame had been drawn. Without it a check skips
+## those too. Presentation draws from the global generator and physics does not
+## (Spaceflight.phase_rng), so skipping it cannot change a flight.
+func set_drawn(on: bool, history := true) -> void:
+	drawn = on
+	flight.drawn = on
+	flight.history = on or history
+
 ## Step one frame by hand at a fixed step, so a harness run is reproducible.
 func frame(dt: float = 1.0 / 60.0) -> void:
 	manual_dt = dt
@@ -2272,6 +2287,8 @@ func _process(real_dt: float) -> void:
 	# 1.0/60.0 exactly, as SIM.frame(1 / 60): "0.0166666667" is 1e-11 off, which
 	# a flight at 10⁶× warp turns into whole seconds of MET.
 	if _cmd.has("out"): dt = float(_cmd.dt) if _cmd.has("dt") else 1.0 / 60.0
+	# A fast-forward steps the stage itself; it awaits frames only to keep the window alive.
+	if _ff_running: return
 	animate(dt)
 	_shot_tick()
 
@@ -2289,8 +2306,10 @@ func update_fps(real_dt: float) -> void:
 #         eval=<method>[,<method>...] out=/abs/shot.png [shot3d=1]
 #         focus=<body> truescale=1 cammode=surface|free localtime=noon
 #         timescale=<yr/s> paused=1 panel=<id>[,<id>] closed=<id>[,<id>]
+#         mode=flight craft=<key> program=<name> ff=alt:<m>|t:<s>|event:<text>
 # Runs `frames` fixed steps, writes the root viewport (`hud=0` hides the HUD,
-# `shot3d=1` writes the 3D frame alone) and quits.
+# `shot3d=1` writes the 3D frame alone) and quits. `ff=` first steps undrawn to that
+# point (see _fast_forward); `frames` then counts the drawn frames that settle it.
 const DEVELOPMENT_CHECKS := ["_preset_check", "_leak_check", "_soak_check", "_shutdown_check"]
 
 func _run_eval(method: String) -> bool:
@@ -2346,6 +2365,12 @@ func _shot_tick() -> void:
 			if not (await _run_eval(m)):
 				get_tree().quit(1)
 				return
+		if (_cmd.has("program") or _cmd.has("ff")) and not await _ff_flight():
+			get_tree().quit(1)
+			return
+		if _cmd.has("ff") and not await _fast_forward(String(_cmd.ff)):
+			get_tree().quit(1)
+			return
 	if _shot_frame != int(_cmd.get("frames", "30")): return
 	if _cmd.get("sunview", "0") == "1" and flight.active:
 		var toward_sun: Vector3 = flight.local.sky_mat.get_shader_parameter("uSunDir")
@@ -2361,6 +2386,67 @@ func _shot_tick() -> void:
 		get_viewport().get_texture().get_image().save_png(out)
 		print("main: saved ", out)
 		get_tree().quit()
+
+var _ff_running := false
+const FF_CAP := 216000    # an hour of flight at 1×
+
+## The vehicle `mode=flight` is putting on the pad (its model loads first), running
+## `program=` when given. True when there is one, or when no flight was asked for.
+func _ff_flight() -> bool:
+	if _cmd.get("mode", "") != "flight": return true
+	_ff_running = true
+	for i in 600:
+		if flight.active and flight.vessel != null: break
+		await get_tree().process_frame
+	_ff_running = false
+	if not flight.active or flight.vessel == null:
+		printerr("main: no vehicle for the shot")
+		return false
+	if _cmd.has("program"): flight.run_program(String(_cmd.program))
+	return true
+
+## `ff=alt:<m>` until the vehicle crosses that altitude, `ff=t:<s>` until that long after
+## liftoff (in flight) or that much stage time, `ff=event:<text>` until a vehicle event
+## containing it (`staging` matches separations). Steps undrawn with the flight's history
+## kept (set_drawn), so smoke, trail and pad are as if drawn throughout.
+func _fast_forward(spec: String) -> bool:
+	var kv := spec.split(":", true, 1)
+	var kind := kv[0]
+	var arg := kv[1] if kv.size() > 1 else ""
+	var v: Vessel = flight.vessel if flight.active else null
+	if not ["alt", "t", "event"].has(kind) or arg == "" or (kind != "t" and v == null):
+		printerr("main: ff=%s needs alt:<m>, t:<s> or event:<text>, and alt/event a flight" % spec)
+		return false
+	var want := "separation" if arg.to_lower() == "staging" else arg.to_lower()
+	var side := signf(v.altitude() - float(arg)) if kind == "alt" else 0.0
+	var seen: int = v.events.size() if v != null else 0
+	var dt := float(_cmd.dt) if _cmd.has("dt") else 1.0 / 60.0
+	var t := 0.0
+	var frames := 0
+	var hit := false
+	_ff_running = true
+	set_drawn(false)
+	while frames < FF_CAP and not hit:
+		animate(dt)
+		frames += 1
+		t += dt
+		if v != null and (not flight.active or flight.vessel != v): break
+		match kind:
+			"alt": hit = signf(v.altitude() - float(arg)) != side
+			"t": hit = (v.met - v.t0 >= float(arg) and v.phase != Vessel.PHASE.PRELAUNCH) if v != null else t >= float(arg)
+			"event":
+				while seen < v.events.size() and not hit:
+					hit = str(v.events[seen].msg).to_lower().contains(want)
+					seen += 1
+		if frames % 600 == 0: await get_tree().process_frame
+	set_drawn(true)
+	_ff_running = false
+	if not hit:
+		printerr("main: ff=%s not reached in %d frames" % [spec, frames])
+		return false
+	print("main: ff=%s reached after %d frames%s" % [spec, frames,
+		" at %s km, T+%s s" % [U.fixed(v.altitude() / 1000.0, 2), U.fixed(v.met - v.t0, 1)] if v != null else ""])
+	return true
 
 func animate(dt: float) -> void:
 	if at_start:
@@ -2392,7 +2478,7 @@ func animate(dt: float) -> void:
 		if flight.vessel != null and state.cam_mode != "flight": set_cam_mode("flight")
 		# Relativistic aberration and Doppler of the star field, from the ship's
 		# own velocity. Zero except in interstellar cruise, where it is the view.
-		apply_sky_boost_all(flight.boost)
+		if drawn: apply_sky_boost_all(flight.boost)
 
 	# camera follow / movement — BEFORE anything is placed (floating origin)
 	var home := get_home()
@@ -2424,13 +2510,21 @@ func animate(dt: float) -> void:
 	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
 	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
 	ctx.climate = state.climate; ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
+	var vis_dt := 0.0 if state.paused else dt
+	if not drawn: _held_dt += vis_dt
+	else:
+		vis_dt += _held_dt
+		_held_dt = 0.0
 	for b in state.bodies:
 		if b.type == "bh":
 			b.rs_scene = _hole_render_radius(b)
 			b.radius_scene = b.rs_scene
-		if b.viz != null:
+		if b.viz != null and drawn:
 			b.viz.group.position = b.scene_pos.rel_v3(cam_pos)
-			b.viz.update(0.0 if state.paused else dt, ctx)
+			b.viz.update(vis_dt, ctx)
+		elif not drawn and b.activity != null:
+			# A star's visual steps its activity, whose flares the climate reads.
+			b.activity.step(sim_stepped)
 		apply_size_ease(b, dt)
 	# Structural limits, on anything whose mass moved this frame.
 	for b in state.bodies.duplicate(): check_structural_limits(b)
@@ -2441,14 +2535,14 @@ func animate(dt: float) -> void:
 
 	# ---- trails and painted swarms follow the floating origin
 	for b in state.bodies:
-		if b.trail != null:
+		if b.trail != null and drawn:
 			b.trail.update(b, cam_pos)
-	painter.place(cam_pos)
+	if drawn: painter.place(cam_pos)
 
 	# ---- point-source markers. Not in surface view: the sky pass draws the suns
 	# itself, with real angular radii and atmospheric scattering.
 	for b in state.bodies:
-		if b.marker == null: continue
+		if b.marker == null or not drawn: continue
 		if state.cam_mode == "surface":
 			b.marker.mesh.visible = false
 			continue
@@ -2464,6 +2558,9 @@ func animate(dt: float) -> void:
 		if not fl.flash.step(dt):
 			fl.flash.kill()
 			flashes.remove_at(i)
+	if not drawn:
+		_lens_time += sim_stepped
+		return
 
 	# mesh wells — recenter the slab under the camera's focus so fast/distant
 	# bodies never wander off it

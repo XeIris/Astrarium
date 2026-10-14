@@ -67,6 +67,14 @@ const SKIP_WARP := 10000000.0
 var saved_speed = null            # the orrery's own speed multiplier, parked for the flight
 var warp_idx := 0
 var active := false
+## Off while the orchestrator is undrawn (main.set_drawn): no HUD and no smoke drawn.
+## Without `history` only what physics reads goes on (falls, the pad's rotation, the
+## separation hand-offs); plumes, smoke, the pad's motion and the cameras wait.
+var drawn := true
+var history := true
+## The flight's own random choices (parking phases). The presentation draws from the
+## global generator, so with this one drawing or not cannot change a flight.
+var phase_rng := RandomNumberGenerator.new()
 var hud: FlightUI = null
 var console: FlightConsole = null
 var target: Body = null
@@ -277,7 +285,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 		var alt = opts.get("alt")
 		if alt == null: alt = 15000.0 if veh.role == "lander" else 250000.0
 		var ph = opts.get("phase")
-		if ph == null: ph = randf() * 6.28
+		if ph == null: ph = phase_rng.randf() * 6.28
 		vessel.place_in_orbit(float(alt), float(opts.get("inc", 0.0)), float(ph))
 		fly_cam.set_mode("chase")
 		fly_cam.state.hasPad = false
@@ -991,7 +999,7 @@ func begin_skip(m: Mission) -> void:
 		dv += float(l.dv)
 	vessel.spend_dv(dv)
 	if grounded:
-		vessel.place_in_orbit(Mission.park_radius(vessel.parent) - float(vessel.env.radius), 28.5, randf() * TAU)
+		vessel.place_in_orbit(Mission.park_radius(vessel.parent) - float(vessel.env.radius), 28.5, phase_rng.randf() * TAU)
 	var t := 0.0
 	for l in m.plan.legs:
 		if l.key in ["land", "descend"]: continue
@@ -1007,7 +1015,7 @@ func _arrive_skip() -> void:
 		m.abort("%s is gone" % m.dest.name)
 		return
 	vessel.rebase(m.dest)
-	vessel.place_in_orbit(float(m.plan.r_cap) - float(vessel.env.radius), 0.0, randf() * TAU)
+	vessel.place_in_orbit(float(m.plan.r_cap) - float(vessel.env.radius), 0.0, phase_rng.randf() * TAU)
 	set_warp(0)
 	vessel.log_event("Arrived — parking orbit around %s" % m.dest.name)
 	# What is left is flown: the landing, if the mission is one.
@@ -1157,7 +1165,7 @@ func _hold_lab(dt: float) -> void:
 func finish_frame(dt: float, coordinate_seconds: float) -> void:
 	if not active or vessel == null: return
 	update_visual(dt, coordinate_seconds)
-	if hud != null: update_hud()
+	if hud != null and drawn: update_hud()
 
 ## Where the local frame sits: under the followed piece, else under the vehicle.
 func _subject_r() -> DVec3:
@@ -1217,7 +1225,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	planet_spin = fposmod(planet_spin + float(env.rotRate) * sim_seconds, TAU)
 	_a.set_v(0.0, -float(env.rotRate), 0.0).cross_vectors(_a, anchor_pos)
 	DQuat.set_len(anchor_pos.add_scaled_in(_a, sim_seconds), float(env.radius))
-	var fr := local.update({"env": env, "altitude": eye_alt, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
+	var fr: Dictionary = {} if not history else local.update({"env": env, "altitude": eye_alt, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
 		"starFlux": star_flux, "padWorld": site_pos, "mapSite": map_site,
 		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt,
 		# a steady 9 m/s westerly, the trade-wind belt's upper flow reversed
@@ -1262,7 +1270,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# Past a few tens of kilometres the whole complex is under a pixel, and
 		# the ground patch's own detail is the better picture.
 		site.group.visible = eye_alt < 8e4 and rng < 1.2e5
-		if site.group.visible:
+		if site.group.visible and history:
 			var tw = vessel.catch_tower
 			var catch_pose = null
 			if tw != null:
@@ -1363,6 +1371,9 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release,
 		"chute": chute})
 	_place_falls(east, up, north, float(env.radius))
+	if not history:
+		_pad_view_lost(alt)
+		return
 
 	# The light the plumes' smoke scatters: the sun where it reaches the
 	# vehicle (clouds included), with a floor for the sky's own light.
@@ -1461,10 +1472,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	smoke.update(dt)
 	rcs_puffs.update(dt)
 
-	# Hand the pad camera over to chase once the vehicle climbs out of frame.
-	if fly_cam.state.mode == "pad" and alt > maxf(craft.height * 22.0, 1500.0):
-		fly_cam.set_mode("chase")
-		vessel.log_event("Camera — pad view lost, tracking from the vehicle")
+	_pad_view_lost(alt)
 
 	# cameras. The local camera is real; the orrery camera is slaved to it.
 	var sun_l := Vector3(sun.dot(east), sun.dot(up), sun.dot(north)).normalized()
@@ -1488,7 +1496,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	local.camera.fov = float(fly_cam.state.fov)
 	local.apply_origin(fly_cam.basis)
 	# Back to front for this frame's camera, now that it is placed.
-	smoke.draw(local.camera, site.steam if site != null else null)
+	if drawn: smoke.draw(local.camera, site.steam if site != null else null)
 
 	# Map the local camera into the orrery, in double (it is the floating origin).
 	if main != null:
@@ -1505,6 +1513,12 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# Near stated explicitly: main.gd ties far to it, and a close-up's 1e-6 would cull
 		# every planet past 10 scene units.
 		main.cam_near = 0.01
+
+## Hand the pad camera over to chase once the vehicle climbs out of frame.
+func _pad_view_lost(alt: float) -> void:
+	if fly_cam.state.mode == "pad" and alt > maxf(craft.height * 22.0, 1500.0):
+		fly_cam.set_mode("chase")
+		vessel.log_event("Camera — pad view lost, tracking from the vehicle")
 
 # DROPPED PIECES
 ## Separation is done with a stage that has a fate (`look.fall`): each of its pieces
