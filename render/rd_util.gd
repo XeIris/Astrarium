@@ -12,7 +12,15 @@ static var cache_uniforms := true
 static func rd() -> RenderingDevice:
 	return RenderingServer.get_rendering_device()
 
+## False under --headless (the dummy renderer has no RenderingDevice). The compute
+## passes then allocate nothing and dispatch nothing; a check that needs a GPU
+## result must test this and fail rather than read an empty frame.
+static func available() -> bool:
+	return RenderingServer.get_rendering_device() != null
+
 static func make_tex(w: int, h: int, fmt := RGBA16F) -> RID:
+	if not available():
+		return RID()
 	var f := RDTextureFormat.new()
 	f.width = maxi(w, 1)
 	f.height = maxi(h, 1)
@@ -24,11 +32,13 @@ static func make_tex(w: int, h: int, fmt := RGBA16F) -> RID:
 	return rd().texture_create(f, RDTextureView.new())
 
 static func free_rid(r: RID) -> void:
-	if r.is_valid():
+	if r.is_valid() and available():
 		rd().free_rid(r)
 
 ## Linear-filtered, clamp-to-edge: linear sampling without wrap.
 static func linear_sampler() -> RID:
+	if not available():
+		return RID()
 	var s := RDSamplerState.new()
 	s.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	s.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
@@ -54,6 +64,8 @@ class Kernel:
 		var err := spirv.compile_error_compute
 		if err != "":
 			push_error("RDU: " + p + " failed to compile:\n" + err)
+			return
+		if not RDU.available():
 			return
 		shader = RDU.rd().shader_create_from_spirv(spirv)
 		pipeline = RDU.rd().compute_pipeline_create(shader)

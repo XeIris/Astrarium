@@ -47,7 +47,8 @@ class SkyPass extends RefCounted:
 		_kernel = RDU.Kernel.new("res://shaders/sky/surface.glsl")
 		_sampler = RDU.linear_sampler()
 		var zero := PackedFloat32Array(); zero.resize(UBO_FLOATS)
-		_ubo = RDU.rd().uniform_buffer_create(UBO_FLOATS * 4, zero.to_byte_array())
+		if RDU.available():
+			_ubo = RDU.rd().uniform_buffer_create(UBO_FLOATS * 4, zero.to_byte_array())
 
 	## Pack `u` into the kernel's std140 block (MAIN THREAD). Call after writing
 	## `u` each frame; update_frame() does it for you.
