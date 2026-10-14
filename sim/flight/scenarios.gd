@@ -3,17 +3,18 @@ extends RefCounted
 
 # Named, reproducible flight states for the developer menu, `scenario=<vehicle>:<id>`
 # and tools/scenariocheck.gd. A scenario builds its base directly (on the pad in the
-# count, in orbit, a booster at its return apogee, a lander at the top of its descent)
-# and then, when `until` is set, flies the real frame loop undrawn until that moment.
-# Fidelity, tolerances and the replay comparison: docs/flight-scenarios.md.
+# count, in orbit, a descent's start, or part-way through a return as a played flight
+# passed it) and then, when `until` is set, flies the real frame loop undrawn until
+# that moment. Fidelity and the replay comparison: docs/flight-scenarios.md.
 #
 # Scenario keys:
 #   id, title, group       menu entry (group: Ascent, Orbit, Return, Booster, Landing)
-#   base                   {kind: pad|orbit|return|descent, ...}; see build()
+#   base                   {kind: pad|orbit|return|descent|air, ...}; see build()
 #   until                  conditions that must all hold (see reached()); none = the base
 #   after                  seconds flown on once `until` holds
 #   dt                     the fast-forward's frame, where guidance is sensitive to it
 #   expect                 what tools/scenariocheck.gd requires at the hand-over
+#   tol                    its replay tolerances, where they differ from TOLERANCE
 
 ## The frame interval of the fast-forward: the longest a played frame can be
 ## (main.gd caps dt at 50 ms), so it is a flight played at 20 fps.
@@ -275,7 +276,7 @@ static func build(main, sc: Dictionary) -> String:
 	if b.kind == "air": _air_state(v, b)
 	if b.get("program") != null:
 		f.run_program(str(b.program))
-	if b.kind == "air": _settle(f, b)
+	if b.kind == "air" or b.has("at"): _settle(f, b)
 	if b.kind == "pad":
 		# run_program("ascent") on the pad starts the count; hold it at the base's T−.
 		if f.count == null: f.start_count(float(b.get("count", 10.0)))
@@ -307,8 +308,9 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 	v.omega.set_v(0.0, 0.0, 0.0)
 	v.phase = Vessel.PHASE.DESCENT
 
-## In the air: `airspeed` m/s along the orbit's track, `fpa` degrees of climb (below the
-## horizon when negative, through air that turns with the planet. The attitude is set by _settle.
+## In the air: `airspeed` m/s through air that turns with the planet, along the
+## orbit's track, `fpa` degrees above the horizon (negative descending). _settle sets
+## the attitude.
 static func _air_state(v: Vessel, b: Dictionary) -> void:
 	var up := DQuat.nrm(v.r.clone())
 	var track := v.v.clone().add_scaled_in(up, -v.v.dot(up))
