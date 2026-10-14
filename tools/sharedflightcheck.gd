@@ -64,6 +64,16 @@ func _init() -> void:
 		valid = valid and ship.telemetry.peri >= target * 0.92 - 3000.0 and ship.telemetry.peri <= ship.telemetry.apo
 		valid = valid and finite
 		valid = valid and earth.pos.distance_to(start_pos) > 0.0 and worst_clock_error < 1e-5
+		# A timed second plane (the Saturn V's S-II aft interstage) drops within two frames
+		# of `afterBelow` after the stage below it.
+		for st in ship.stages:
+			var j = st.spec.get("jettisonAt")
+			if j == null or j.get("afterBelow") == null: continue
+			var gap: float = st.dropped_met - ship.stages[st.index - 1].dropped_met
+			var on_time: bool = st.dropped_met >= 0.0 and ship.stages[st.index - 1].dropped_met >= 0.0 \
+				and gap >= float(j.afterBelow) and gap < float(j.afterBelow) + 2.0 * number(fixture.dt)
+			if not on_time: print("SHARED FLIGHT %s %s dropped %s s after the stage below" % [sc.id, st.spec.key, gap])
+			valid = valid and on_time
 		if not valid: failures += 1
 		completed += 1
 		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])

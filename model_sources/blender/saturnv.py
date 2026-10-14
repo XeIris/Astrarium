@@ -110,11 +110,19 @@ def build_sic(M, root):
             (cos(a) * r * 1.01, sin(a) * r * 1.01, L * 0.55),
             M['white'], rot=(0, 0, a), parent=g)
 
-    # ---- interstage to the S-II. Cylindrical here (both stages are 10.06 m),
-    # so it gets the separation band a real one has.
-    isg = cyl('sic_is', r, r, SIC_L, SIC_L + 1.5, M['dirty'], seg=64, parent=g)
+    return g
+
+
+# The S-II's aft interstage: a stage of its own, since the dual-plane separation
+# leaves it on the S-II for half a minute. Cylindrical (both stages are 10.06 m),
+# banded at the second plane on top.
+def build_sii_aft_is(M, root):
+    g = stage('sii_aft_is', root)
+    L, D = S["sii_aft_is"]["L"], S["sii_aft_is"]["D"]
+    r = D / 2
+    isg = cyl('sii_aft_ring', r, r, 0.0, L, M['dirty'], seg=64, parent=g)
     finish(isg, 0.02, 2, 40)
-    bd = torus_z('sic_band', r * 1.005, D * 0.006, SIC_L + 1.5, M['black'],
+    bd = torus_z('sii_aft_band', r * 1.005, D * 0.006, L, M['black'],
                  seg=48, minor=6, parent=g)
     smooth(bd, 30)
     return g
@@ -278,6 +286,7 @@ def build_csm(M, root):
 def build_saturnv(M):
     root = empty('SaturnV', (0, 0, 0))
     build_sic(M, root)
+    build_sii_aft_is(M, root)
     build_sii(M, root)
     build_sivb(M, root)
     build_csm(M, root)

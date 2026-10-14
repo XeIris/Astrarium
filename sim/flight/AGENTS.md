@@ -61,8 +61,8 @@ to the procedural builds too.
   the frame held at separation: the stack's non-gravitational acceleration leaves
   it behind (gravity cancels), and its sourced `look.sep` data adds separation or
   retro motors, a sideways push, the stack's own unmodelled push (ullage, the
-  orbiter's −Z translation) and body rates. Never a canned drift, and never a
-  number without a source in
+  orbiter's −Z translation), the stage's residual thrust and body rates. Never a
+  canned drift, and never a number without a source in
   [stage-separation.md](../../docs/physics/stage-separation.md). Display only: the
   vessel has already shed the stage's mass. Regression: `stage_separations` and
   `booster_pieces` in `tools/assetcheck.gd`.

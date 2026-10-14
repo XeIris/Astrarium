@@ -29,6 +29,8 @@ static var _g2 := DVec3.new()
 static var _gp := DVec3.new()
 static var _gu := DVec3.new()
 static var _w1 := DVec3.new()
+static var _ge1 := DVec3.new()
+static var _ge2 := DVec3.new()
 static var _w2 := DVec3.new()
 static var _w3 := DVec3.new()
 static var BODY_FWD := DVec3.new(0.0, 1.0, 0.0)
@@ -90,6 +92,7 @@ class StageState extends RefCounted:
 	var prop0: float
 	var ignited: bool
 	var attached: bool = true
+	var dropped_met: float = -1.0  # proper time it left the stack, s; < 0 while attached
 	var spent: bool
 	var restarts: int
 	var rcs_prop: float
@@ -121,6 +124,7 @@ class Rollout extends RefCounted:
 	var rate: float = 0.0           # pitch rate, rad/s, + nose up
 	var rate_cmd: float = 0.0       # the pitch rate flight control is asked for, rad/s
 	var theta_3pt: float = 0.0      # the pitch with the nose wheels down too, rad
+	var theta_td: float = 0.0       # the pitch at main-gear touchdown, rad
 	var nose_arm: float = 0.0       # main to nose wheels along the body, m
 	var main_share: float = 1.0     # of the runway's push the main wheels carry, nose down
 	var nose: bool = false          # weight on the nose gear
@@ -446,7 +450,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			var flapped: bool = st != null and int(st.spec.get("flaps", 0)) > 0
 			var winged: bool = st != null and st.spec.get("wings") != null and _alone(st)
 			if winged:
-				drag = _winged_aero(st, qd, mach, va, fwd, out, m)
+				drag = _winged_aero(st, rr, qd, mach, va, fwd, out, m)
 			elif flapped:
 				# A slender body broadside (Starship's belly-first fall): Allen's crossflow
 				# model. Axial drag on the end area ∝ cos²α, a normal force on the planform
@@ -524,10 +528,14 @@ func _alone(st) -> bool:
 
 ## A lone winged stage (the orbiter after the tank is gone): lift and drag on its wing
 ## area from winged_coeffs. Returns the drag force, N.
-func _winged_aero(st, qd: float, mach: float, va: float, fwd: DVec3, out: DVec3, m: float) -> float:
+func _winged_aero(st, rr: DVec3, qd: float, mach: float, va: float, fwd: DVec3, out: DVec3, m: float) -> float:
 	var S: float = st.spec.wings.area
 	var alpha := acos(DQuat.jclamp(fwd.dot(_vrel) / va, -1.0, 1.0))
-	var c := winged_coeffs(alpha, mach, speedbrake, st.gear_out)
+	# Main-wheel height for ground effect; none on the runway, where the ALT data end.
+	var hw := INF
+	if phase != PHASE.ROLLOUT and st.spec.get("gear") != null and st.spec.gear.get("point") != null:
+		hw = altitude(rr) + _stage_offset(st, st.spec.gear.point, _ge1).dot(DQuat.nrm(_ge2.copy_from(rr)))
+	var c := winged_coeffs(alpha, mach, speedbrake, st.gear_out, hw)
 	out.add_scaled_in(_vrel, -qd * c.y * S / (m * va))
 	# Lift: across the airstream, on the side the nose points (toward the orbiter's top
 	# when its belly is in the flow).
@@ -539,8 +547,8 @@ func _winged_aero(st, qd: float, mach: float, va: float, fwd: DVec3, out: DVec3,
 ## angle of attack `alpha` (rad), Mach, speed-brake fraction (of 98.6°) and gear:
 ## hypersonic, a normal force linear plus Newtonian in α (L/D 1.08 at 40°); slower, a
 ## low-aspect-ratio delta's drag polar (L/D 4.6 subsonic); blended Mach 2.5–6
-## (docs/physics/orbiter-entry.md).
-static func winged_coeffs(alpha: float, mach: float, sb: float, gear: bool = false) -> Vector2:
+## (docs/physics/orbiter-entry.md). `hw`, the main wheels' height, m, adds ground effect.
+static func winged_coeffs(alpha: float, mach: float, sb: float, gear: bool = false, hw: float = INF) -> Vector2:
 	var a := clampf(alpha, 0.0, PI / 2.0)
 	var cn := 0.6 * sin(a) + 1.6 * sin(a) * sin(a)
 	var cl_h := cn * cos(a) - 0.05 * sin(a)
@@ -553,7 +561,22 @@ static func winged_coeffs(alpha: float, mach: float, sb: float, gear: bool = fal
 	var cd_s := cd0 + 0.2 * (1.0 + 0.5 * sup) * cl_s * cl_s + 0.074 * maxf(clampf(sb, 0.0, 1.0) - 0.2, 0.0) \
 		+ (0.02 if gear else 0.0)
 	var w := smoothstep(2.5, 6.0, mach)
-	return Vector2(lerpf(cl_s, cl_h, w), lerpf(cd_s, cd_h, w))
+	return Vector2(lerpf(cl_s, cl_h, w) + ground_effect(hw), lerpf(cd_s, cd_h, w))
+
+## Lift coefficient ground effect adds at main-wheel height `hw`, m: the prediction the
+## Approach and Landing Tests' flights matched, gear down (Hooks et al. 1985, fig. 14,
+## tailcone off). Its effect on drag was negligible.
+const GROUND_EFFECT := [[0.0, 0.108], [1.524, 0.074], [2.438, 0.0525], [3.048, 0.041],
+	[4.572, 0.0246], [6.096, 0.0145], [7.62, 0.0069], [9.144, 0.003], [11.28, 0.0]]
+static func ground_effect(hw: float) -> float:
+	if hw >= GROUND_EFFECT[-1][0]: return 0.0
+	if hw <= 0.0: return GROUND_EFFECT[0][1]
+	for i in range(1, GROUND_EFFECT.size()):
+		if hw < GROUND_EFFECT[i][0]:
+			var a: Array = GROUND_EFFECT[i - 1]
+			var b: Array = GROUND_EFFECT[i]
+			return lerpf(a[1], b[1], (hw - a[0]) / (b[0] - a[0]))
+	return 0.0
 
 ## Subsonic-to-supersonic lift factor k in C_L = k sin α cos α: 3.0 (0.052/deg, the
 ## Approach and Landing Tests' flight lift slope at Mach 0.4) to 1.6 by Mach 3.
@@ -562,7 +585,8 @@ static func _winged_k(mach: float) -> float:
 
 ## Angle of attack, rad, at which winged_coeffs gives lift coefficient `cl`, at most
 ## 40°. Closed form up to Mach 2.5, where only the delta's lift acts; bisection above.
-static func winged_alpha(cl: float, mach: float) -> float:
+static func winged_alpha(cl: float, mach: float, hw: float = INF) -> float:
+	cl -= ground_effect(hw)
 	if cl <= 0.0: return 0.0
 	if mach <= 2.5: return minf(0.5 * asin(minf(2.0 * cl / _winged_k(mach), 1.0)), deg_to_rad(40.0))
 	var lo := 0.0
@@ -794,7 +818,7 @@ func stage(force := false):
 		for o in stages:
 			if o != st and o.attached: others = true
 		if not others: break
-		st.attached = false; st.spent = true
+		st.attached = false; st.spent = true; st.dropped_met = met
 		dropped = st; stage_events += 1
 		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name + _where())
 		break
@@ -811,11 +835,14 @@ func stage(force := false):
 		st.ignited = true
 		log_event("Ignition — %s" % st.spec.name)
 		break
+	_find_stage_index()
+	return dropped
+
+func _find_stage_index() -> void:
 	stage_index = -1
 	for i in stages.size():
 		if stages[i].attached:
 			stage_index = i; break
-	return dropped
 
 ## Shut down `n` engines, symmetrically: the centre first, then pairs.
 func shutdown_engines(n: int = 1) -> int:
@@ -846,7 +873,8 @@ func jettison(key: String):
 		if s.spec.key == key and s.attached:
 			st = s; break
 	if st == null: return null
-	st.attached = false; st.spent = true; stage_events += 1
+	st.attached = false; st.spent = true; st.dropped_met = met; stage_events += 1
+	_find_stage_index()
 	log_event("Separation — %s" % st.spec.name + _where())
 	return st
 
@@ -1147,6 +1175,10 @@ func auto_jettison() -> void:
 			jettison(st.spec.key)
 		elif j.get("alt") != null and altitude() > j.alt:
 			jettison(st.spec.key)
+		# A timed second plane (the S-II's aft interstage): seconds after the stage below left.
+		elif j.get("afterBelow") != null and st.index > 0 and stages[st.index - 1].dropped_met >= 0.0 \
+				and met - stages[st.index - 1].dropped_met >= float(j.afterBelow):
+			jettison(st.spec.key)
 
 ## Largest safe substep, seconds.
 func step_bound() -> float:
@@ -1388,6 +1420,7 @@ func _touchdown_roll(st, up: DVec3, v_vert: float, v_horiz: float) -> void:
 	airspeed(r, v, _vrel)
 	DQuat.nrm(rs.heading.copy_from(_vrel).add_scaled_in(up, -_vrel.dot(up)))
 	rs.theta = asin(clampf(forward(_e).dot(up), -1.0, 1.0))
+	rs.theta_td = rs.theta
 	var gp: Array = st.spec.gear.point
 	var gn: Array = st.spec.gear.nose
 	var dy := float(gn[1]) - float(gp[1])

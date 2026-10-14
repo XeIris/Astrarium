@@ -143,17 +143,34 @@ static func _build_vehicles() -> Dictionary:
 		"limits": { "maxQ": 42e3, "maxG": 4.5, "qAlpha": 5e3, "heatLoad": 0.0 },
 		"target": { "apoapsis": 185e3, "inclination": 32.5 },
 		"stages": [
-			stage({ "key": "sic", "name": "S-IC", "dry": 137000.0, "prop": 2077000.0,
+			# Dry mass with the small interstage ring that leaves with it at the first plane
+			# (615 kg, AS-510 flight evaluation table 16-9).
+			stage({ "key": "sic", "name": "S-IC", "dry": 137615.0, "prop": 2077000.0,
 				"engine": E.F1, "count": 5, "L": 42.0, "D": 10.06,
-				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5, "fixedGimbals": [0],
+				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "flatTop": true, "fixedGimbals": [0],
 					# Separation (docs/physics/stage-separation.md): eight retros in pairs in the
 					# engine fairings, 7.5° off the axis, firing forward out of the fairings' noses
 					# (MSFC-MAN-503 fig. 4-25). `thrust` is per pair, N; sites are [y, r, az°].
 					# The S-II's four ullage rockets push the stack meanwhile: 101 kN each, 10° out,
 					# 3.7 s from 0.2 s before the separation signal.
+					# The four outboard F-1s' thrust decay, as a fraction of their 7,067,700 lbf at
+					# cutoff against s after it (AS-510 flight evaluation fig. 5-4, read off the
+					# plot); the stage separates 0.7 s after cutoff.
 					"sep": { "motors": { "thrust": 782.1e3, "web": 0.633, "cant": 7.5, "exitD": 0.39,
 							"sites": [[10.8, 4.53, 45.0], [10.8, 4.53, 135.0], [10.8, 4.53, 225.0], [10.8, 4.53, 315.0]] },
-						"stack": { "thrust": 397.8e3, "dir": [0.0, 1.0, 0.0], "start": -0.2, "time": 3.7 } } } }),
+						"stack": { "thrust": 397.8e3, "dir": [0.0, 1.0, 0.0], "start": -0.2, "time": 3.7 },
+						"residual": { "thrust": 31.438e6, "from": 0.7, "curve": [[0.67, 0.030], [0.75, 0.0229],
+							[0.83, 0.0208], [1.0, 0.0210], [1.19, 0.0233], [1.5, 0.0203], [2.0, 0.0162],
+							[2.5, 0.0144], [3.0, 0.0131], [3.5, 0.0115], [4.0, 0.0094], [4.5, 0.0054],
+							[4.85, 0.0]] } } } }),
+			# The S-II's aft interstage: the dual-plane separation leaves it on the S-II, over
+			# the J-2s, and drops it 30.5 s after S-IC cutoff, 29.8 s after the first plane
+			# (MSFC-MAN-503 fig. 2-1). 3,504 kg (AS-510 table 16-9). The S-II's ullage
+			# rockets ride on it.
+			stage({ "key": "sii_aft_is", "name": "S-II aft interstage", "dry": 3504.0, "prop": 0.0,
+				"engine": null, "count": 0, "L": 1.5, "D": 10.06,
+				"jettisonAt": { "afterBelow": 29.8 },
+				"look": { "ring": true } }),
 			stage({ "key": "sii", "name": "S-II", "dry": 36200.0, "prop": 443000.0,
 				"engine": E.J2, "count": 5, "L": 24.9, "D": 10.06,
 				"rcs": { "thrust": 3300.0, "isp": 190.0, "prop": 400.0, "count": 8 },
@@ -254,10 +271,13 @@ static func _build_vehicles() -> Dictionary:
 					# az 160° (the starboard booster; port mirrors). XB 390 frustum, XB 1884.5 aft
 					# skirt. `exitD` the cluster's merged exhaust, m; `cgY` the spent case's
 					# mid-length (no published inert c.g.); `rates` the memo's nominal (P, Q, R)
-					# deg/s 3 s after separation.
+					# deg/s 3 s after separation. `residual` each booster's own thrust at separation,
+					# 30,000 lbf (memo §II.E), blowing down with the time constant its 50 psia cue
+					# 2.5 s earlier implies (docs/physics/srb-separation.md#residual-thrust).
 					"sep": { "motors": { "thrust": 332.1e3, "ignite": 0.09, "web": 0.75, "tail": 0.107,
 							"cant": 40.0, "sites": [[40.67, 1.78, 160.0], [2.71, 2.25, 160.0]], "exitD": 0.65 },
-						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] } },
+						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] },
+						"residual": { "thrust": 133.4e3, "tau": 1.33 } },
 					# Recovery (Fall; docs/physics/srb-separation.md#recovery). Baroswitch
 					# altitudes, m, from KSC FS-2004-07-012's timeline; `at` the attach height
 					# on the booster, m (XB 326 frustum top, XB 402 forward skirt). Drag areas,
