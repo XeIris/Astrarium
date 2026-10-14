@@ -376,6 +376,10 @@ func _rollout_error(v: Vessel) -> String:
 	if rs.ngtd == null: return "stopped with the nose gear up"
 	var ng := float(rs.ngtd.eas) / 0.514444
 	if ng < 130.0 or ng > 170.0: return "nose gear touchdown at %s KEAS" % U.fixed(ng, 0)
+	# Ground effect lets the flare end lower than the 12° the polar alone needs; flown
+	# touchdowns were near 8°, and 14.6° scrapes the tail (JSC-23266 §4.7).
+	var pitch := rad_to_deg(rs.theta_td)
+	if pitch > 11.0: return "touchdown pitch %s°" % U.fixed(pitch, 1)
 	if rs.chute_t < 0.0 or not rs.chute_gone: return "drag chute %s" % ("never deployed" if rs.chute_t < 0.0 else "not jettisoned")
 	var ft := float(rs.stop.x) / 0.3048
 	if ft < 6000.0 or ft > 11000.0: return "rollout %s ft" % U.fixed(ft, 0)
@@ -383,8 +387,9 @@ func _rollout_error(v: Vessel) -> String:
 
 func _rollout_summary(v: Vessel) -> String:
 	var rs: Vessel.Rollout = v.rolling
-	return "nose gear %s KEAS at %s s, wheel stop %s ft in %s s" % [U.fixed(float(rs.ngtd.eas) / 0.514444, 0),
-		U.fixed(float(rs.ngtd.t), 1), U.fixed(float(rs.stop.x) / 0.3048, 0), U.fixed(float(rs.stop.t), 0)]
+	return "pitch %s° at touchdown, nose gear %s KEAS at %s s, wheel stop %s ft in %s s" % [U.fixed(rad_to_deg(rs.theta_td), 1),
+		U.fixed(float(rs.ngtd.eas) / 0.514444, 0), U.fixed(float(rs.ngtd.t), 1), U.fixed(float(rs.stop.x) / 0.3048, 0),
+		U.fixed(float(rs.stop.t), 0)]
 
 ## Where an unfinished flight stopped: the vessel phase (which stays `orbit` from an
 ## orbit start until touchdown), the program and its state, and the clock.

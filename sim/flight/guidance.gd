@@ -1210,7 +1210,7 @@ class Autopilot extends RefCounted:
 			var q := 0.5 * rho * va * va
 			var mach := va / Rocketry.speed_of_sound(atm, maxf(h, 0.0))
 			var a_n := _approach_an(h, va, gam, OUTER_GS, g)
-			var cd := Vessel.winged_coeffs(Vessel.winged_alpha(v.mass * a_n / maxf(q * S, 1.0), mach), mach, sb, h < 90.0).y
+			var cd := Vessel.winged_coeffs(Vessel.winged_alpha(v.mass * a_n / maxf(q * S, 1.0), mach, h), mach, sb, h < 90.0).y
 			va = maxf(va - (q * cd * S / v.mass + g * sin(gam)) * dt, 1.0)
 			gam += (a_n - g * cos(gam)) / va * dt
 			h += va * sin(gam) * dt
@@ -1523,7 +1523,7 @@ class Autopilot extends RefCounted:
 				v.speedbrake = _sb_set
 				note("Speed brake %s — %s m, %s°, for %s KEAS" % ["set" if first else "adjusted", U.fixed(h, 0),
 					U.fixed(_sb_set * 98.6, 0), "205" if v.mass > HEAVY_KG else "195"])
-			aoa = minf(Vessel.winged_alpha(v.mass * a_n / maxf(q * S * cos(bank), 1.0), mach), a_cap)
+			aoa = minf(Vessel.winged_alpha(v.mass * a_n / maxf(q * S * cos(bank), 1.0), mach, h), a_cap)
 			flap_cmd = [0.1, 0.0, 0.0, 0.0]
 			if h < 90.0 and not st.gear_out:
 				st.gear_out = true

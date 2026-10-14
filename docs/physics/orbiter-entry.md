@@ -37,9 +37,13 @@ flown without the tailcone [1]:
   costs about as much as opening the brake a further 27°. JSC-23266 [3] gives
   40° for the operational data.
 
-Ground effect is not modelled. In the ALT data it adds `ΔC_L` up to about 0.12,
-almost all of it below 20 ft of main-wheel height, with negligible effect on
-drag [1].
+- **Ground effect**: `ΔC_L` against main-wheel height, the prediction the ALT
+  flights matched (fig. 14 of [1], tailcone off, gear down): 0.108 on the runway,
+  0.041 at 10 ft, 0.015 at 20 ft, nothing above 37 ft. Its effect on drag was
+  negligible, so only lift changes. Flight control closes on normal acceleration, so
+  the commanded α near the ground is the one the extra lift allows
+  (`Vessel.winged_alpha` takes the wheel height). On the runway it is left out: the
+  ALT data end at touchdown, and there it would only relieve the rolling friction.
 
 The elevons give pitch authority in proportion to dynamic pressure.
 
@@ -193,16 +197,18 @@ stop. It is physics on the ground, not a scripted slide:
 
 | | Simulated (99–111 t) | Real |
 |---|---|---|
-| Main gear → nose gear touchdown | 9–11 s | 6 s (STS-115), 13 s (STS-118) |
-| Nose gear touchdown | 133–136 KEAS, 0.63 m/s nose sink | typically 150 KEAS [4]; 147, 158 KEAS (STS-50, -49) |
+| Main gear → nose gear touchdown | 10–11 s | 6 s (STS-115), 13 s (STS-118) |
+| Nose gear touchdown | 144 KEAS, 0.63 m/s nose sink | typically 150 KEAS [4]; 147, 158 KEAS (STS-50, -49) |
 | Peak non-braking deceleration | 11.3 ft/s² near disreef | 11–13 ft/s² at disreef [3, §4.11] |
 | Braking starts | midfield, 91–100 KGS | 110 KGS on average with the chute [3, §4.13] |
-| Rollout | 6,200–6,700 ft, 44 s | nominally stops 9,000–11,000 ft down the runway, i.e. 6,500–8,500 ft from a 2,500 ft touchdown [3, §4]; flown at KSC 7,771–10,708 ft in 50–65 s [5] |
+| Rollout | 6,800–6,900 ft, 44 s | nominally stops 9,000–11,000 ft down the runway, i.e. 6,500–8,500 ft from a 2,500 ft touchdown [3, §4]; flown at KSC 7,771–10,708 ft in 50–65 s [5] |
 
 `tools/missioncheck.tscn` requires, for `orbiter_return` and `orbiter_home`:
 
 - a wheel stop;
 - nose-gear touchdown at 130–170 KEAS;
+- main-gear touchdown at no more than 11° pitch. Without ground effect the polar
+  needs 12°; flown touchdowns were near 8°, and 14.6° scrapes the tail [3, §4.7];
 - the chute deployed and jettisoned;
 - wheel stop at 6,000–11,000 ft. The lower bound is the nominal 6,500 ft less the
   500 ft dispersion in [3, App. C.1]. The upper bound is just past the longest
@@ -210,9 +216,8 @@ stop. It is physics on the ground, not a scripted slide:
 
 Known residuals:
 
-- The sim touches down at about 12° pitch, against about 8° in reality, because
-  ground effect is not modelled. Derotation therefore takes longer, and the nose
-  gear comes down about 15 kt slower than typical.
+- The sim touches down at 9.4° pitch, against about 8° in reality (12° before ground
+  effect was modelled). The nose gear comes down at 144 KEAS, against a typical 150.
 - The sim brakes firmly to the cue card, while crews were often gentler. Its
   rollouts are at the short end of the flown ones.
 - The elevons' and the chute's pitching moments are not modelled, so derotation
@@ -234,7 +239,7 @@ Known residuals:
 | 500 ft → touchdown | 19 s | ~23 s [3] |
 | Deceleration, gear down | ~5 KEAS/s | just over 4 KEAS/s [3] |
 | Touchdown | 1.1 m/s sink; 202–206 kt (107 t), 194 kt (99 t) | ~3 ft/s; 205 KEAS heavy, 195 light [3] |
-| Touchdown α | 12° | pitch < 14.6° (tail scrape) [3] |
+| Touchdown pitch | 9.4° | about 8°; < 14.6° (tail scrape) [3] |
 | Deorbit burn to touchdown | ~61 min | ~1 h |
 | Miss at the launch site | 0.6–2.2 km | (runway) |
 
@@ -244,9 +249,8 @@ The miss is from 250–400 km circular and eccentric orbits, 28.5–51.6°, with
 The orbiter lands at 107 t, a heavyweight. The real one would have flown the −18°
 outer glide slope, which accounts for the brake trimming above 65° on −20°. The
 sim leaves the inner glide slope ~4 s sooner than the real one and decelerates
-faster on it. The extra drag comes from the flight-derived gear increment over a
-polar without ground effect, and STS flights did better than the ALT-era data on
-L/D. Over the shorter time the two give the same touchdown energy. The brake
+faster on it. The extra drag comes from the flight-derived gear increment, and STS
+flights did better than the ALT-era data on L/D. Over the shorter time the two give the same touchdown energy. The brake
 setting carries the difference.
 
 ## Sources
