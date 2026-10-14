@@ -57,11 +57,18 @@ CHANGED_RULES = (
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
       "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
-    (("sim/flight/*", "tools/fixtures/flight_fixture.json"),
+    # Flight physics, guidance and what hands state to them (craftmodel separates stages).
+    (("sim/flight/vessel.gd", "sim/flight/guidance.gd", "sim/flight/mission.gd", "sim/flight/rocketry.gd",
+      "sim/flight/orbit.gd", "sim/flight/fall.gd", "sim/flight/separation.gd", "sim/flight/spaceflight.gd",
+      "sim/flight/relativity.gd", "sim/flight/dquat.gd", "sim/flight/catchtower.gd", "sim/flight/vehicles.gd",
+      "sim/flight/craftmodel.gd", "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*")),
+    # Any other flight file is presentation: the parity flight shows it cannot move physics.
+    (("sim/flight/*",), ("flighttimecheck", "missioncheck-skip_moon", "missioncheck-parity-*")),
     (("sim/flight/vehicles.gd", "sim/flight/craftmodel.gd", "sim/flight/craftassets.gd", "sim/flight/separation.gd",
       "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
-    (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"), ("padcheck",)),
+    (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"),
+     ("padcheck", "flight-descent-shcatch*")),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
@@ -162,7 +169,7 @@ def checks(suite, godot, output, repeat, export_preset):
         # and a short drawn/undrawn parity flight. Nothing windowed.
         yield from (c for c in checks("fast", godot, output, repeat, export_preset) if c[0] != "reference-shots-selfcheck")
         yield mission("skip_moon", timeout=120)
-        yield mission_parity("shuttle_fates", 1500)._replace(cost=8)
+        yield mission_parity("shuttle_fates", 1500)._replace(name="missioncheck-parity-short", cost=8)
     elif suite == "fast":
         # Everything else reads the import cache, so nothing runs beside the import.
         yield Check("import", base + ["--headless", "--import", "--quit"], None, 180, alone=True)
