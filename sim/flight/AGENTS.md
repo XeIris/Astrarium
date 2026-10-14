@@ -64,8 +64,8 @@ to the procedural builds too.
   orbiter's −Z translation), the stage's residual thrust and body rates. Never a
   canned drift, and never a number without a source in
   [stage-separation.md](../../docs/physics/stage-separation.md). Display only: the
-  vessel has already shed the stage's mass. Regression: `stage_separations` and
-  `booster_pieces` in `tools/assetcheck.gd`.
+  vessel has already shed the stage's mass. Regression: `stage_separations`,
+  `residual_push` and `booster_pieces` in `tools/assetcheck.gd`.
 - A stage with a fate (`look.fall`) is handed on by `Craft.update`'s `release` once
   Separation's pushes are over: each piece becomes a `Fall` (`fall.gd`), a ballistic
   body in the vessel's frame with drag against the turning air and its recovery

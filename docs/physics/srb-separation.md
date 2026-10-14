@@ -84,13 +84,15 @@ gives 9.9 m/s² once the boosters are gone):
 
 | | Simulated | Memo |
 |---|---|---|
-| Aft, 0.25 s | 0.39 m | 0.28 m, forward attach (fig. 16) |
+| Aft, 0.25 s | 0.33 m | 0.28 m, forward attach (fig. 16) |
 | Sideways velocity after the burn | 3.8 m/s | the specified 60,000 lb·s per cluster, at 40°/20° |
-| Aft, 3 s | 52 m | "primary relative motion of the SRB is rearward" |
+| Aft, 3 s | 51 m | "primary relative motion of the SRB is rearward" |
 
-Without the residual thrust the boosters fell back 0.45 m by 0.25 s. The memo flew a
-Vandenberg mission's separation state with proximity aerodynamics, so the rest of the
-difference is not attributed to any one term.
+Without the residual thrust the boosters fall back 0.38 m by 0.25 s. `residual_push`
+in `tools/assetcheck.gd` holds the 0.33 m row to ±0.015 m, and the residual's own
+travel to its closed form. The memo flew a Vandenberg mission's separation state with
+proximity aerodynamics, so the rest of the difference is not attributed to any one
+term.
 
 ## Display
 

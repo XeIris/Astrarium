@@ -160,8 +160,11 @@ static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool
 				a -= R * exhaust_dir(m, site, b.side) * thrust
 		if push > 0.0:
 			a += R * Vector3.UP * push
+		# Trapezoidal in position: exact for a constant push over the step, so the drift
+		# does not depend on the step (semi-implicit Euler put a 5-step separation 20% long).
+		var v0: Vector3 = b.v
 		b.v += a * dt
-		b.p += b.v * dt
+		b.p += (v0 + (b.v as Vector3)) * 0.5 * dt
 		var w: Vector3 = rates(sep, b.side) * spin_k
 		if w.length_squared() > 0.0:
 			b.R = (R * Basis(w.normalized(), w.length() * dt)).orthonormalized()
