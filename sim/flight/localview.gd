@@ -12,6 +12,8 @@ extends RefCounted
 #   smoke  ground cloud and deluge, which really hide what's behind them
 #   flame  plume and entry sheath last: additive, so a flame lights the steam
 # render_priority only sorts within the transparent list.
+## The physical sky's energy at sea level; see where reflection_sky is built.
+const SKY_ENERGY := 6.0
 const ORDER := {"sky": -10, "clouds": -8, "sun": -6, "smoke": 10, "flame": 20, "flare": 40}
 
 var pipe: RenderPipeline
@@ -119,12 +121,15 @@ func _init(p: RenderPipeline) -> void:
 	sun2.shadow_enabled = false
 	sun2.light_energy = 0.0
 	root.add_child(sun2)
-	# A physical sky for reflections only, so PBR metal has something to reflect.
+	# A physical sky that is never drawn: PBR metal reflects it, and on High it is
+	# the ambient light. Its energy sets the skylight, because ambient_light_energy
+	# does nothing while the sky contributes all of it. At 6 a white wall in shade
+	# is about a fifth as bright as in sun, as a clear sky and the ground make it.
 	reflection_sky = Sky.new()
 	reflection_sky.radiance_size = Sky.RADIANCE_SIZE_64
 	reflection_material = PhysicalSkyMaterial.new()
 	reflection_material.turbidity = 3.0
-	reflection_material.energy_multiplier = 0.7
+	reflection_material.energy_multiplier = SKY_ENERGY
 	reflection_sky.sky_material = reflection_material
 	pipe.env_local.sky = reflection_sky
 	for s in [1.0, -1.0]:
@@ -272,15 +277,17 @@ func _set_ambient(bounce: float) -> void:
 	# plus the starlight, isotropic and a little blue (the sky's mean star
 	# is hotter than the Sun), on the same 3× scale as the sun's irradiance
 	var sl := 3.0 * _starlight
-	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * 0.5 * bounce + sl * 0.85,
-		fill.g * 0.30 + (skyc.g + gnd.g) * 0.5 * bounce + sl * 0.92,
-		fill.b * 0.30 + (skyc.b + gnd.b) * 0.5 * bounce + sl * 1.0)
+	# Under a clear sky a wall facing away from the sun still gets ~15% of the sun's
+	# light from the sky and the ground. The ±Y pair gives a vertical wall none, so
+	# the isotropic part carries it.
+	var k := bounce * (1.5 if _has_air else 0.5)
+	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * k + sl * 0.85,
+		fill.g * 0.30 + (skyc.g + gnd.g) * k + sl * 0.92,
+		fill.b * 0.30 + (skyc.b + gnd.b) * k + sl * 1.0)
 	var env := pipe.env_local
-	# High uses the sky's directional diffuse irradiance. The old constant
-	# colour left backlit vehicles almost black in bright daylight.
-	if render_quality == "high" and _has_air:
+	# High takes the sky's directional irradiance from the physical sky.
+	if render_quality in ["high", "ultra"] and _has_air:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_energy = 0.7
 		for l: DirectionalLight3D in hemi: l.light_energy = 0.0
 		return
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
@@ -311,9 +318,10 @@ func set_render_quality(q: String) -> void:
 			m.set_shader_parameter("uCloudDetail", cloud_detail)
 	# High: fine march, erosion, long light march. Medium: coarser. Low: no clouds.
 	# _cloud_lod() cuts these with altitude.
-	_cloud_steps = 64 if q == "high" else 28
-	_cloud_light = 6 if q == "high" else 3
-	_cloud_detail = 1.0 if q == "high" else 0.0
+	# Ultra: a finer march and a longer light march again.
+	_cloud_steps = {"high": 64, "ultra": 104}.get(q, 28)
+	_cloud_light = {"high": 6, "ultra": 9}.get(q, 3)
+	_cloud_detail = 1.0 if q in ["high", "ultra"] else 0.0
 	_cloud_lod(0.0)
 
 static func _noise3d(size: int, seed: int, type: int, freq: float, octaves: int, invert: bool) -> NoiseTexture3D:
@@ -379,10 +387,10 @@ func update(o: Dictionary) -> Dictionary:
 	var has_air := 1.0 if atm != null else 0.0
 	_has_air = atm != null
 	pipe.env_local.reflected_light_source = Environment.REFLECTION_SOURCE_SKY \
-		if render_quality == "high" and atm != null else Environment.REFLECTION_SOURCE_DISABLED
+		if render_quality in ["high", "ultra"] and atm != null else Environment.REFLECTION_SOURCE_DISABLED
 	# Near-field aerial perspective gives the tower and vehicle a shared air
 	# volume. The long-range ground shader still handles the horizon.
-	pipe.env_local.volumetric_fog_enabled = render_quality == "high" and atm != null \
+	pipe.env_local.volumetric_fog_enabled = render_quality in ["high", "ultra"] and atm != null \
 		and float(o.altitude) < 3000.0
 	pipe.env_local.volumetric_fog_density = 0.00018
 	pipe.env_local.volumetric_fog_length = 1100.0
@@ -398,6 +406,14 @@ func update(o: Dictionary) -> Dictionary:
 	var horizon := sqrt(2.0 * float(env.radius) * maxf(h, 3.0)) * 1.35
 	var patch := clampf(horizon, 2.5e4, 1.2e6)
 	var sh := Rocketry.scale_height(atm, h) if atm != null else 1.0
+	if atm != null:
+		# Skylight comes from the air above, which thins with the pressure; the third
+		# that stays stands in for the bright ground and cloud below.
+		var column := clampf(Rocketry.pressure(atm, h) / maxf(Rocketry.pressure(atm, 0.0), 1e-9), 0.0, 1.0)
+		var sky_e := SKY_ENERGY * (0.3 + 0.7 * column)
+		# Every change re-integrates the radiance, so only a real one.
+		if absf(sky_e - reflection_material.energy_multiplier) > 0.02 * SKY_ENERGY:
+			reflection_material.energy_multiplier = sky_e
 	ground_mat.set_shader_parameter("uPatch", patch)
 	ground_mat.set_shader_parameter("uRadius", float(env.radius))
 	ground_mat.set_shader_parameter("uEye", h)

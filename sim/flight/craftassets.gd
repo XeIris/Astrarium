@@ -33,6 +33,12 @@ const ROLES := [
 	["arrays", "^array_([A-Za-z0-9]+)_(\\d+)$"],
 	["flaps", "^flap_([A-Za-z0-9]+)_(\\d+)$"],
 	["halves", "^half_([A-Za-z0-9]+)_(\\d+)$"],
+	["doors", "^door_([A-Za-z0-9]+)_(\\d+)$"],
+	["pieces", "^piece_([A-Za-z0-9]+)_(\\d+)$"],
+	# What a piece sheds as it comes down (`look.fall`): a booster's nose cap and frustum.
+	["nosecaps", "^nosecap_([A-Za-z0-9]+)_(\\d+)$"],
+	["frustums", "^frustum_([A-Za-z0-9]+)_(\\d+)$"],
+	["chutes", "^chute_([A-Za-z0-9]+)_(\\d+)$"],
 ]
 
 static var _re := []
@@ -70,7 +76,10 @@ static func part_counts(spec: Dictionary, vehicle: Dictionary) -> Dictionary:
 	return {"gimbals": gimbal_limits(spec, vehicle).size(), "fins": int(spec.get("gridFins", 0)),
 		"legs": 0 if look.get("fixedLegs", false) else int(spec.get("legs", 0)),
 		"arrays": int(look.get("arrays", 0)), "flaps": int(spec.get("flaps", look.get("flaps", 0))),
-		"halves": 2 if look.get("fairing", false) else 0}
+		"halves": 2 if look.get("fairing", false) else 0, "doors": int(look.get("doors", 0)), "pieces": int(look.get("pieces", 0)),
+		"nosecaps": int(look.get("pieces", 0)) if look.get("fall", {}).has("noseCap") else 0,
+		"frustums": int(look.get("pieces", 0)) if look.get("fall", {}).has("frustum") else 0,
+		"chutes": 1 if spec.get("dragChute") != null else 0}
 
 static func validate_scene(scene: Node, vehicle: Dictionary) -> Array:
 	var issues := []

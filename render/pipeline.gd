@@ -14,6 +14,7 @@ static func set_scene_clip(camera: Camera3D, near_plane: float) -> void:
 	camera.far = minf(100000.0, near_plane * 1.0e7)
 
 enum Mode { ORRERY, FLIGHT, MODEL }
+var map_open := false
 
 var hook_vp: SubViewport
 var scene_vp: SubViewport
@@ -236,12 +237,18 @@ func set_mode(m: int) -> void:
 	mode = m
 	_sync_update_modes()
 
+## The space map covers the frame: nothing 3D needs drawing behind it.
+func set_map_open(on: bool) -> void:
+	map_open = on
+	_sync_update_modes()
+
 func _sync_update_modes() -> void:
-	var need_temp := postfx.band != Spectrum.VISIBLE_BAND and mode != Mode.MODEL
-	temp_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if need_temp else SubViewport.UPDATE_DISABLED
-	scene_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED if mode == Mode.MODEL else SubViewport.UPDATE_ALWAYS
-	local_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if mode == Mode.FLIGHT else SubViewport.UPDATE_DISABLED
-	model_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if mode == Mode.MODEL else SubViewport.UPDATE_DISABLED
+	var off := SubViewport.UPDATE_DISABLED
+	var need_temp := postfx.band != Spectrum.VISIBLE_BAND and mode != Mode.MODEL and not map_open
+	temp_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if need_temp else off
+	scene_vp.render_target_update_mode = off if mode == Mode.MODEL or map_open else SubViewport.UPDATE_ALWAYS
+	local_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if mode == Mode.FLIGHT and not map_open else off
+	model_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if mode == Mode.MODEL and not map_open else off
 
 ## Set a uniform on every material that includes the sky block.
 func sky_set(name: StringName, value) -> void:

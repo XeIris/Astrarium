@@ -23,10 +23,14 @@ to the procedural builds too.
 - Closed-loop ascent and circularization pitch commands are limited to 1° per
   vessel proper-time second, including handovers and staging.
 - Ascent pitch program: θ = 90°·v₀/(v₀ + v − v_start), clamped to within α_max
-  of the velocity vector. Check the staging state, not the final orbit: a Saturn
-  V should stage near AS-506's (67 km, 2.4 km/s, 21°).
+  of the velocity vector. v_start and v₀ are shared unless a vehicle's `ascent`
+  states its own flown first-stage steering. Check the staging state, not the final
+  orbit: a Saturn V should stage near AS-506's (67 km, 2.4 km/s, 21°) and the
+  Shuttle near JSC-10559's (47 km at T+124 s; docs/physics/srb-separation.md#ascent).
 - Above the air, explicit guidance (a_v = 6Δh/T² − 4ḣ/T, T_go from the rocket
-  equation) aims at a low perigee cutoff, then circularizes. Regression: all four
+  equation) aims at a low perigee cutoff, then circularizes. A tank that must come
+  down (`disposalPerigee`) is left on a lower ellipse: the law aims at that ellipse's
+  climb rate too ([stage-separation.md](../../docs/physics/stage-separation.md#where-the-tank-goes)). Regression: all four
   launchers in orbit within the target gates in `tools/sharedflightcheck.gd`.
   The legacy `flightref.mjs` comparison supplements this production-driver check.
 - Descents share one `descent_law`, and every powered phase shares one
@@ -35,6 +39,41 @@ to the procedural builds too.
   `LaunchSite` only draws its state. Estimates and sources are in
   [booster-catch.md](../../docs/physics/booster-catch.md). Regression: `shcatch`
   and `shcatch_2x` in `tools/flightcheck.gd`.
+- A lone ship with flaps flies Allen's crossflow aerodynamics, and its own
+  `soloLimits`. `bellyflop` brings it home belly first: bank for a drag-tracking
+  glide, a flip and a landing burn
+  ([ship-return.md](../../docs/physics/ship-return.md)). Regression: `ship_return`
+  in `tools/missioncheck.tscn`.
+- A lone stage with `wings` (the orbiter) flies `Vessel.winged_coeffs`; `glide`
+  brings it from orbit to its main gear: 40° entry banking on a drag reference with
+  roll reversals, the glide slopes, a flare
+  ([orbiter-entry.md](../../docs/physics/orbiter-entry.md)). With a launch site it
+  waits for the deorbit opportunity a conic predictor finds, flies range-to-go drag
+  and reversals toward the site, and aims TAEM at it. The site comes from
+  `Vessel.site_at(coord)`, never from integrating frame `dt`. A stage's `gear.point`
+  is where it touches down once it is alone. Regression: `orbiter_return` and
+  `orbiter_home` in `tools/missioncheck.tscn`.
+- The Shuttle's lines (orbiter, tank, boosters) are one set of station tables in
+  `shuttlelines.gd` and `model_sources/blender/shuttle.py`; change both
+  ([shuttle-geometry.md](../../docs/physics/shuttle-geometry.md)).
+- Every dropped stage leaves under `Separation`: whole, or as its pieces
+  (`piece_<stage>_<i>` nodes, `look.pieces`; a fairing's halves). It is flown in
+  the frame held at separation: the stack's non-gravitational acceleration leaves
+  it behind (gravity cancels), and its sourced `look.sep` data adds separation or
+  retro motors, a sideways push, the stack's own unmodelled push (ullage, the
+  orbiter's −Z translation) and body rates. Never a canned drift, and never a
+  number without a source in
+  [stage-separation.md](../../docs/physics/stage-separation.md). Display only: the
+  vessel has already shed the stage's mass. Regression: `stage_separations` and
+  `booster_pieces` in `tools/assetcheck.gd`.
+- A stage with a fate (`look.fall`) is handed on by `Craft.update`'s `release` once
+  Separation's pushes are over: each piece becomes a `Fall` (`fall.gd`), a ballistic
+  body in the vessel's frame with drag against the turning air and its recovery
+  events (chutes, a part shed, splashdown) or breakup. It never acts on the vessel.
+  Spaceflight draws it in the local frame and can follow it (`follow`, key B); the
+  local frame then sits under the piece. Regression: `shuttle_fates` in
+  `tools/missioncheck.tscn`
+  ([srb-separation.md](../../docs/physics/srb-separation.md#recovery)).
 
 ## Vessel (`vessel.gd`)
 

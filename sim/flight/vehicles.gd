@@ -32,25 +32,31 @@ static func _build_engines() -> Dictionary:
 			"thrustVac": 981e3, "ispSL": 200.0, "ispVac": 348.0, "throttleMin": 0.39, "gimbal": 5.0,
 			"exitD": 3.30, "plume": "kerolox",
 		},
+		# Full throttle is 104.5% of rated power level, what the Block II engines flew;
+		# the floor is 67% RPL and the 109% emergency level is the headroom above it.
 		"RS25": {
 			"name": "RS-25 (SSME)", "prop": "LH2/LOX",
-			"thrustVac": 2279e3, "ispSL": 366.0, "ispVac": 452.3, "throttleMin": 0.67, "gimbal": 10.5,
-			"maxThrottle": 1.09, "exitD": 2.30, "plume": "hydrolox",
+			"thrustVac": 2183.7e3, "ispSL": 366.0, "ispVac": 452.3, "throttleMin": 0.641, "gimbal": 10.5,
+			"maxThrottle": 1.043, "exitD": 2.30, "plume": "hydrolox",
 		},
 		"SRB_RSRM": {
 			"name": "RSRM solid booster", "prop": "APCP solid",
-			"thrustVac": 14000e3, "ispSL": 242.0, "ispVac": 268.0, "throttleMin": 1.0, "gimbal": 8.0,
+			# thrustVac is the grain's peak, 3.32 Mlbf (RSRM_PROFILE).
+			"thrustVac": 14770e3, "ispSL": 242.0, "ispVac": 268.0, "throttleMin": 1.0, "gimbal": 8.0,
 			# A solid follows its grain, not the throttle — see solid_thrust_fraction.
 			"solid": true, "exitD": 3.75, "plume": "solid",
 		},
-		"RAPTOR2": {
-			"name": "Raptor 2", "prop": "CH4/LOX",
-			"thrustVac": 2394e3, "ispSL": 327.0, "ispVac": 347.0, "throttleMin": 0.40, "gimbal": 15.0,
+		# Raptor 3, as flown on V3 (Flight 12 briefing): 250 tf at sea level, Isp 330 /
+		# 350 s, so 2.60 MN in vacuum. 33 of them are the booster's 80.8 MN.
+		"RAPTOR3": {
+			"name": "Raptor 3", "prop": "CH4/LOX",
+			"thrustVac": 2600e3, "ispSL": 330.0, "ispVac": 350.0, "throttleMin": 0.40, "gimbal": 15.0,
 			"exitD": 1.30, "plume": "methalox",
 		},
-		"RAPTOR_VAC": {
-			"name": "Raptor Vacuum", "prop": "CH4/LOX",
-			"thrustVac": 2530e3, "ispSL": 200.0, "ispVac": 380.0, "throttleMin": 0.40, "gimbal": 0.0,
+		# Raptor 3 Vacuum: 275 tf.
+		"RAPTOR3_VAC": {
+			"name": "Raptor 3 Vacuum", "prop": "CH4/LOX",
+			"thrustVac": 2697e3, "ispSL": 200.0, "ispVac": 380.0, "throttleMin": 0.40, "gimbal": 0.0,
 			"exitD": 2.40, "plume": "methalox",
 		},
 		"DPS": {
@@ -139,11 +145,26 @@ static func _build_vehicles() -> Dictionary:
 		"stages": [
 			stage({ "key": "sic", "name": "S-IC", "dry": 137000.0, "prop": 2077000.0,
 				"engine": E.F1, "count": 5, "L": 42.0, "D": 10.06,
-				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5, "fixedGimbals": [0] } }),
+				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "interstage": 1.5, "fixedGimbals": [0],
+					# Separation (docs/physics/stage-separation.md): eight retros in pairs in the
+					# engine fairings, 7.5° off the axis, firing forward out of the fairings' noses
+					# (MSFC-MAN-503 fig. 4-25). `thrust` is per pair, N; sites are [y, r, az°].
+					# The S-II's four ullage rockets push the stack meanwhile: 101 kN each, 10° out,
+					# 3.7 s from 0.2 s before the separation signal.
+					"sep": { "motors": { "thrust": 782.1e3, "web": 0.633, "cant": 7.5, "exitD": 0.39,
+							"sites": [[10.8, 4.53, 45.0], [10.8, 4.53, 135.0], [10.8, 4.53, 225.0], [10.8, 4.53, 315.0]] },
+						"stack": { "thrust": 397.8e3, "dir": [0.0, 1.0, 0.0], "start": -0.2, "time": 3.7 } } } }),
 			stage({ "key": "sii", "name": "S-II", "dry": 36200.0, "prop": 443000.0,
 				"engine": E.J2, "count": 5, "L": 24.9, "D": 10.06,
 				"rcs": { "thrust": 3300.0, "isp": 190.0, "prop": 400.0, "count": 8 },
-				"look": { "skin": "white", "interstage": 2.0, "fixedGimbals": [0] } }),
+				"look": { "skin": "white", "interstage": 2.0, "fixedGimbals": [0],
+					# Four 154.8 kN retros, 1.52 s, 90° apart in the aft end of the S-IVB's
+					# interstage (it stays with the S-II), nozzles 9.5° out (MSFC-MAN-503 p. 5-25).
+					# Their clocking is unpublished. The S-IVB's two 15.1 kN ullage rockets push
+					# the stack for 3.87 s from 0.1 s before the signal.
+					"sep": { "motors": { "thrust": 154.8e3, "web": 1.52, "cant": 9.5, "exitD": 0.23,
+							"sites": [[25.2, 4.75, 0.0], [25.2, 4.75, 90.0], [25.2, 4.75, 180.0], [25.2, 4.75, 270.0]] },
+						"stack": { "thrust": 30.16e3, "dir": [0.0, 1.0, 0.0], "start": -0.1, "time": 3.87 } } } }),
 			stage({ "key": "sivb", "name": "S-IVB", "dry": 13500.0, "prop": 109500.0,
 				"engine": E.J2, "count": 1, "L": 17.8, "D": 6.60, "restarts": 1,
 				# The auxiliary propulsion modules — also what settles the propellant
@@ -191,7 +212,9 @@ static func _build_vehicles() -> Dictionary:
 				# Free-molecular heating below ~1135 W/m² is the real criterion, not an
 				# altitude — so a lofted ascent sheds it earlier, as it should.
 				"jettisonAt": { "heat": 1135.0 },
-				"look": { "fairing": true } }),
+				# Pneumatic pushers on the seam push the halves apart (Falcon User's Guide §2.4).
+				# Their speed is unpublished; ~10 m/s for a 5.4 m Ariane 5 half stands in.
+				"look": { "fairing": true, "sep": { "push": 10.0 } } }),
 			stage({ "key": "f9pl", "name": "Payload", "dry": 13000.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 5.0, "D": 3.4, "sep": "none",
 				# The payload rides inside the fairing.
@@ -205,50 +228,126 @@ static func _build_vehicles() -> Dictionary:
 		"id": "shuttle", "name": "Space Shuttle", "role": "launch", "launchFrom": "Earth",
 		"era": "1981–2011",
 		"blurb": "Two solids that cannot be shut down, three engines fed from a tank that is not part of the orbiter, and a wing that only matters for the last twenty minutes of the mission.",
-		"limits": { "maxQ": 45e3, "maxG": 3.2, "qAlpha": 4e3, "heatLoad": 900e6 },
+		# The guidance holds 88% of maxG, which is the Shuttle's 3 g ascent limit.
+		"limits": { "maxQ": 45e3, "maxG": 3.41, "qAlpha": 4e3, "heatLoad": 900e6 },
 		"target": { "apoapsis": 300e3, "inclination": 51.6 },
+		# Heads-down from tower clear, heads-up for TDRS late in the burn (flown from 1998).
+		"ascentRoll": { "headsUpAt": 345.0 },
+		# First-stage steering is an I-loaded attitude table against relative speed, held
+		# at pad attitude until 127 ft/s (JSC-10559 §2.2). The table lofts: once the solids
+		# go, the stack's thrust barely exceeds its weight, so they make the climb.
+		# v₀ fits the nominal SRB staging state, 155,315 ft at T+124 s (table 2.2-I);
+		# docs/physics/srb-separation.md#ascent.
+		"ascent": { "pitchStart": 38.7, "turnV0": 720.0 },
 		"stages": [
 			stage({ "key": "srb", "name": "SRB pair", "dry": 172000.0, "prop": 1004000.0,
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,
+				# Side by side, the stack meets the air with its tank, both solids and the
+				# orbiter: the sum of their frontal areas, m².
+				"area": PI / 4.0 * (8.40 * 8.40 + 2.0 * 3.71 * 3.71 + 5.6 * 5.6),
 				# A solid cannot be throttled or shut down. Once lit, it burns out.
-				"look": { "skin": "white", "srb": true, "chutes": 3, "mount": { "y": 1.1 } } }),
+				"look": { "skin": "white", "srb": true, "mount": { "y": 1.1 }, "pieces": 2,
+					# Separation motors, four forward and four aft per booster (TM X-64967;
+					# docs/physics/srb-separation.md): thrust per cluster of four, s timing; the
+					# resultant is 40° off the axis and 20° off the inboard line toward the orbiter,
+					# so each cluster's site [y, skin radius, az°] in the booster's frame sits at
+					# az 160° (the starboard booster; port mirrors). XB 390 frustum, XB 1884.5 aft
+					# skirt. `exitD` the cluster's merged exhaust, m; `cgY` the spent case's
+					# mid-length (no published inert c.g.); `rates` the memo's nominal (P, Q, R)
+					# deg/s 3 s after separation.
+					"sep": { "motors": { "thrust": 332.1e3, "ignite": 0.09, "web": 0.75, "tail": 0.107,
+							"cant": 40.0, "sites": [[40.67, 1.78, 160.0], [2.71, 2.25, 160.0]], "exitD": 0.65 },
+						"cgY": 20.7, "rates": { "starboard": [-1.1, -11.96, 6.49], "port": [3.22, -8.21, 3.30] } },
+					# Recovery (Fall; docs/physics/srb-separation.md#recovery). Baroswitch
+					# altitudes, m, from KSC FS-2004-07-012's timeline; `at` the attach height
+					# on the booster, m (XB 326 frustum top, XB 402 forward skirt). Drag areas,
+					# m², from flown states: the drogue from STS-1–3 at main deployment
+					# (TM-82490), the 136 ft mains from their 75 ft/s nominal impact (Bacchus
+					# 1985). Reefing [s after deployment, fraction of full drag area]: the
+					# drogue's 60/80% and the drop-test disreef times (Bacchus fig. 3, fig. 16);
+					# the mains' 20/40% are Ares I's, built like the SRB's (Schmidt 2009).
+					# `reach` to the canopy apex: 250 ft for the mains (TM-82490), the others
+					# scaled by diameter. `float` the forward end's height afloat (KSC).
+					"fall": { "name": "booster", "noseCap": { "alt": 4877.0, "mass": 230.0 },
+						"drogue": { "delay": 1.0, "CdA": 118.0, "D": 16.46, "reach": 30.2, "at": 42.30,
+							"reef": [[0.0, 0.6], [6.86, 0.8], [11.86, 1.0]], "pilot": 3.51 },
+						"frustum": { "alt": 1966.0, "mass": 2400.0 },
+						"mains": { "count": 3, "delay": 2.33, "CdA": 2360.0, "D": 41.45, "reach": 76.2, "at": 40.37,
+							"spread": 13.3, "reef": [[0.0, 0.2], [9.65, 0.4], [16.65, 1.0]] },
+						"float": 9.14 } } }),
 			stage({ "key": "et", "name": "External Tank + SSME", "dry": 26500.0, "prop": 719000.0,
 				"engine": E.RS25, "count": 3, "L": 46.9, "D": 8.40,
+				"area": PI / 4.0 * (8.40 * 8.40 + 5.6 * 5.6),
 				# The SSMEs light with the solids and burn six minutes past them (`liftoff`).
 				"liftoff": true, "engineOn": "orbiter",
 				# The SSMEs can't relight, so the tank drops 18 s after MECO and OMS inserts at apogee.
 				"sepAfterCutoff": 18.0,
+				# MECO leaves the perigee in the air so the tank re-enters: STS-31 cut off on
+				# 330 × 48 nmi (its mission report), and OMS-2 raised the perigee.
+				"disposalPerigee": 88.9e3,
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 800.0, "count": 44 },
-				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.3 } } }),
+				# Its aft dome is 365 in above the solids' nozzle exits (XS 2169 vs 2534).
+				"look": { "skin": "foam", "tank": true, "mount": { "y": 10.379 },
+					# At separation the orbiter translates −Z (+Z here, out of the bay) on four
+					# forward and six aft down-firing 3.87 kN jets until it has 4 ft/s
+					# (JSC-10559 §2.6.1.3, §4.3.1.12). Nothing else pushes the tank.
+					"sep": { "stack": { "thrust": 38.7e3, "dir": [0.0, 0.0, 1.0], "dv": 1.219 } },
+					# On through entry (Fall): STS-31's tank tumbled at 8.6–8.8°/s in the air and
+					# ruptured at 247,935 ft (Snyder & Pitts 1992; Maley's observation).
+					"fall": { "name": "External Tank", "tumble": 8.7, "breakup": 75570.0 } } }),
 			stage({ "key": "orbiter", "name": "Orbiter + payload", "dry": 99000.0, "prop": 10800.0,
-				"engine": E.SPS, "count": 2, "L": 37.2, "D": 5.6, "sep": "none",
+				"engine": E.SPS, "count": 2, "L": 37.24, "D": 5.6, "sep": "none",
 				"wings": { "span": 23.8, "area": 250.0, "clMax": 1.4 },
+				# Nose and main gear. Main-gear sink rate 9.6 ft/s, tyres rated to 225 kt
+				# (JSC-12770 vol. 10D); `point` is the main tyres' contact patch in the stage
+				# frame (Xo 1180, Zo 150), `nose` the nose tyres' (Xo 470, Zo 160).
+				"legs": 3, "gear": { "vVert": 2.9, "vHoriz": 116.0, "point": [0.0, 13.26, -6.35], "nose": [0.0, 31.30, -6.10] },
+				# Rollout (JSC-23266 §4.8–4.14, App. C): rolling friction 0.025 on concrete;
+				# four brakes at the nominal procedure's ~25,000 ft-lb each on 44.5 in tyres;
+				# the derotation's pitch rate ramps in at the beep trim's 0.6°/s². `cgY` puts the
+				# c.g. at Xo 1090 (1076.7–1109 flown, Meyerson AIAA 2001-2051).
+				"rollout": { "mu": 0.025, "brakes": 4, "brakeTorque": 33895.0, "tyreR": 0.565,
+					"pitchAccel": 0.6, "cgY": 15.55 },
+				# Drag chute, flown from STS-49: a 40 ft conical ribbon canopy, free-stream C_D
+				# 0.575 times a wake factor of 0.65–0.9 behind the orbiter, reefed to 40% of its
+				# drag area (Meyerson). Seconds after the button: mortar 1, reefed 2.5, disreef 6
+				# (JSC-23266 §5.3.6.7); the fill after disreef is an estimate.
+				"dragChute": { "D0": 12.19, "Cd": 0.575, "wake": 0.8, "reef": 0.4,
+					"mortar": 1.0, "reefed": 2.5, "disreef": 6.0, "fill": 0.5 },
+				# Alone it flies at 40° α by design, under 2.5 g and ~16 kPa on the way down.
+				"soloLimits": { "maxQ": 25e3, "maxG": 3.0, "qAlpha": 1e12, "heatLoad": 1.2e9 },
 				"rcs": { "thrust": 3870.0, "isp": 289.0, "prop": 1460.0, "count": 44 },
-				# z = tank radius (4.2 m) plus the orbiter's half-depth. y from the aft attach
-				# points: the tank's 2.8 m above its base (ET station 2058), the orbiter's 27.4 m
-				# behind its nose (Xo 1317), putting the nose at 40.5 m, level with the intertank.
-				"look": { "skin": "tiles", "orbiter": true, "flaps": 1, "staticEngines": true, "mount": { "y": 3.3, "z": 7.05 } } }),
+				# The datum is the fin's tip (Xo 1702.2, L behind the Xo 236 nose). Xo = XS − 741
+				# puts it 91 in above the solids' nozzle exits; the payload bay axis (Zo 400) is
+				# 336.5 in off the tank's (News Reference, coordinate system). Doors: the
+				# payload bay's two, open in orbit. Flaps: the body flap, the four elevons
+				# and the speed brake's two halves.
+				"look": { "skin": "tiles", "orbiter": true, "flaps": 7, "doors": 2, "gearSwing": 1.5708, "staticEngines": true,
+					"mount": { "y": 3.414, "z": 8.547 } } }),
 		],
 	},
 
-	# SUPER HEAVY / STARSHIP — both halves come back, which makes it the only
-	# vehicle here with two landings per flight.
+	# SUPER HEAVY / STARSHIP V3 (Block 3, first flown May 2026) — both halves come back,
+	# which makes it the only vehicle here with two landings per flight. 124.4 m stacked.
 	"starship": {
 		"id": "starship", "name": "Starship / Super Heavy", "role": "launch", "launchFrom": "Earth",
-		"era": "2023–",
-		"blurb": "33 Raptors under 3 400 t of methalox. Both stages return: the booster to the tower, the ship belly-first through the atmosphere and then flipped upright in the last seconds.",
+		"era": "2026– (V3)",
+		"blurb": "V3: 33 Raptor 3s under 3 650 t of methalox, the hot-staging interstage built into the booster and three grid fins that double as catch points. Both stages return: the booster to the tower, the ship belly-first through the atmosphere, flaps steering, then flipped upright in the last seconds.",
 		"limits": { "maxQ": 45e3, "maxG": 4.0, "qAlpha": 6e3, "heatLoad": 1.4e9 },
 		"target": { "apoapsis": 250e3, "inclination": 28.5 },
 		"stages": [
-			stage({ "key": "sh", "name": "Super Heavy", "dry": 275000.0, "prop": 3400000.0,
-				"engine": E.RAPTOR2, "count": 33, "L": 71.0, "D": 9.0,
-				"recover": "tower", "gridFins": 4, "reserve": 0.06,
+			# 72.3 m with its engines (L is the body above them). Its dry mass is not
+			# published: V2's 275 t, less the jettisoned ring and the engine shrouds.
+			stage({ "key": "sh", "name": "Super Heavy", "dry": 265000.0, "prop": 3650000.0,
+				"engine": E.RAPTOR3, "count": 33, "L": 70.9, "D": 9.0,
+				"recover": "tower", "gridFins": 3, "reserve": 0.06,
 				"rcs": { "thrust": 8000.0, "isp": 80.0, "prop": 3000.0, "count": 8 },
 				# Returning alone (Vehicles.booster_return; docs/physics/booster-catch.md).
-				# Pins at 93% of the length take the weight on the tower's arms. The
+				# The V3 catch points are the port and starboard grid fins, 3.4 m below
+				# the top (FIN_Y in model_sources/blender/starship.py): 67.5 / 70.9. The
 				# tolerances, base clearance and landing propellant are estimates: none
 				# are published.
-				"catch": { "pinFrac": 0.93, "radius": 1.5, "vVert": 3.0, "vHoriz": 1.0,
+				"catch": { "pinFrac": 0.952, "radius": 1.5, "vVert": 3.0, "vHoriz": 1.0,
 					"baseClear": 8.0, "prop": 130000.0 },
 				# Inner 13, then the centre 3 (SpaceX's flight descriptions).
 				"landingEngines": [13, 3],
@@ -257,13 +356,18 @@ static func _build_vehicles() -> Dictionary:
 				# That descent peaks near 210 kPa in this drag model; the limit above it
 				# is an estimate.
 				"returnLimits": { "maxQ": 350e3, "maxG": 6.5, "qAlpha": 6e3, "heatLoad": 1.4e9 },
-				"look": { "skin": "steel", "hotStage": true, "fixedGimbals": range(13, 33) } }),
-			stage({ "key": "ss", "name": "Starship", "dry": 120000.0, "prop": 1200000.0,
-				"engine": E.RAPTOR2, "count": 3, "vacEngine": E.RAPTOR_VAC, "vacCount": 3,
-				"L": 52.0, "D": 9.0, "recover": "tower", "restarts": 3,
+				"look": { "skin": "steel", "superHeavy": true, "fixedGimbals": range(13, 33) } }),
+			# 1 600 t of propellant (V3). Dry mass unpublished; V2's was 85 t, and V3 is longer
+			# in its tanks and carries docking hardware.
+			stage({ "key": "ss", "name": "Starship", "dry": 100000.0, "prop": 1600000.0,
+				"engine": E.RAPTOR3, "count": 3, "vacEngine": E.RAPTOR3_VAC, "vacCount": 3,
+				"L": 52.1, "D": 9.0, "recover": "tower", "restarts": 3,
 				"rcs": { "thrust": 6000.0, "isp": 300.0, "prop": 2000.0, "count": 12 },
 				"flaps": 4, "heatShield": { "area": 400.0, "ablator": false, "tiles": true },
-				"look": { "skin": "steel", "tiles": true, "nosecone": true } }),
+				# On its own it enters and falls broadside by design: no q·α limit; the
+				# q and g ceilings are estimates (entry peaks near 15 kPa and 3 g).
+				"soloLimits": { "maxQ": 60e3, "maxG": 6.0, "qAlpha": 1e12, "heatLoad": 1.4e9 },
+				"look": { "skin": "steel", "starship": true } }),
 		],
 	},
 
@@ -357,15 +461,17 @@ static func _build_vehicles() -> Dictionary:
 	"hailmary": {
 		"id": "hailmary", "name": "Hail Mary", "role": "interstellar", "launchFrom": null,
 		"era": "Project Hail Mary",
-		"blurb": "Three parallel astrophage tanks around a central spine, a pressure vessel forward of them, and a nose that holds four beetles. Four spin drives on one thrust plane, 1.5 g and 2 000 t of fuel — enough to reach Tau Ceti in thirteen Earth years and six and a half aboard.",
+		"blurb": "104 m from drives to docking port: three astrophage tanks in a triangle round a drive drum, a train of crew modules (lab, dormitory, control room) between them, and two solar wings astern. Four spin drives on one thrust plane, 1.5 g and 2 000 t of fuel — enough to reach Tau Ceti in thirteen Earth years and six and a half aboard.",
 		"limits": { "maxQ": 1e9, "maxG": 4.0, "qAlpha": 1e9, "heatLoad": 0.0 },
 		"stages": [
 			stage({ "key": "hm", "name": "Hail Mary", "dry": 100000.0, "prop": 2000000.0,
-				# Four drives (one under each tank, one on the axis), matching the model.
-				"engine": E.SPIN_DRIVE, "count": 4, "L": 47.0, "D": 12.0, "sep": "none",
+				# Four drives (one at each tank's tip, one on the axis), matching the model.
+				# Proportions from the film; a suited figure on a module sets the scale.
+				# D is the tanks' envelope; the wings span 104 m.
+				"engine": E.SPIN_DRIVE, "count": 4, "L": 104.0, "D": 31.0, "sep": "none",
 				"rcs": { "thrust": 2200.0, "isp": 300.0, "prop": 900.0, "count": 16 },
 				"centrifuge": false,
-				"look": { "skin": "panel-white", "hailmary": true, "tanks": 3, "beetles": 4, "radiators": 4 } }),
+				"look": { "skin": "panel-white", "hailmary": true, "tanks": 3, "beetles": 4 } }),
 		],
 		# Mission stars: distance in ly, J2000 `ra` (h) and `dec` (°) for the departure
 		# direction (Spaceflight.mission_direction), and measured `lum`, `teff`, `radius`
@@ -463,7 +569,7 @@ static func liftoff_thrust(vehicle: Dictionary, pa: float = 101325.0) -> float:
 		var s: Dictionary = st[i]
 		if s.get("engine") == null or not (i == 0 or s.get("liftoff", false)): continue
 		# Through engine_output, which owns the pressure and grain terms (an RSRM starts at
-		# 0.86 of its rating).
+		# 0.95 of its rating).
 		F += Rocketry.engine_output(s.engine, s.count, pa, 1.0, 0.0).F
 	return F
 

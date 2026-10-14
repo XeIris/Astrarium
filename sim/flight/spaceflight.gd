@@ -31,8 +31,16 @@ var rcs_puffs: Plume.RCSPuffs
 
 var vessel: Vessel = null
 var autopilot = null              # Guidance.Autopilot
+var cryo: Cryo = null             # frost and boil-off on the vehicle's cold tanks
+var vapour: Vapour = null         # condensation collars round its shoulders, in humid air
 var craft = null                  # CraftModel.Craft
 var plumes: Array = []            # Plume.PlumeFx
+var sep_plumes: Array = []        # separation motors: [{fx, stage, mount}], see attach_sep_motors
+## Dropped pieces flying on their own (Fall) once Separation is done with them.
+var falls: Array = []
+## The Fall the camera and the local frame follow, or null for the vehicle.
+var subject: Fall = null
+var _sep_smoke_acc := 0.0
 var entry = null                  # Plume.EntryGlow
 var cruise = null                 # Relativity.Cruise
 ## What the cruise flies between, so the line moves with its end bodies: {parent,
@@ -51,10 +59,17 @@ var pad_fire = null               # Plume.GroundFlame — the deflected exhaust
 var plume_reach := 0.0            # how far the first stage's jet carries, m
 # The terminal count, so a launch has a visible beginning.
 var count = null
+## The mission the autopilot is flying end to end, or null (sim/flight/mission.gd).
+var mission: Mission = null
+## A skip in progress: {until: coordinate s, mission}. The world runs at SKIP_WARP
+## while the vessel waits on rails, then it is put in the destination's parking orbit.
+var skip = null
+const SKIP_WARP := 10000000.0
 var saved_speed = null            # the orrery's own speed multiplier, parked for the flight
 var warp_idx := 0
 var active := false
 var hud: FlightUI = null
+var console: FlightConsole = null
 var target: Body = null
 var plan = null
 ## Relativistic aberration of the sky, β as a vector (zero outside cruise).
@@ -78,7 +93,7 @@ var anchor_pos := DVec3.new()
 var wind_dir := Vector3.ZERO
 var pad_offset := Vector3.ZERO
 var pad_aimed := false
-var craft_pos := DVec3.new()      # the vehicle in the local frame: (0, alt, 0)
+var craft_pos := DVec3.new()      # the vehicle in the local frame: (0, alt, 0) unless following a Fall
 var ground_pos := DVec3.new()     # the ground patch's own offset (0, −gradeDrop, 0)
 var site_local := DVec3.new()     # the complex in the local frame
 var origin_pos := DVec3.new()     # (0, 0, 0): the sky dome and the smoke
@@ -90,6 +105,14 @@ var warp_list := WARPS
 var local_camera: Camera3D
 ## A console handle on local space, in the same spirit as window.SIM.
 var local_view: LocalView
+## Optional (fly_cam, craft_pos, site_local, dt): repositions fly_cam after its own
+## update. The title reel frames its launch shot through it.
+var camera_override := Callable()
+## The effects lab (tools/fxlab.gd): {alt (m), speed (m/s of airspeed), pitch (rad from
+## vertical, toward the east), throttle}. The vehicle is held there with the air
+## streaming past it, which for the plume, the trail and the vapour is the same as
+## flying through still air. Null in flight.
+var lab = null
 
 var _q := DQuat.new()
 var _a := DVec3.new()
@@ -123,7 +146,12 @@ func _init(ctx: Dictionary) -> void:
 		v["key"] = k
 		vehicles.append(v)
 	if panel != null:
+		var con = ctx.get("console")
+		if con != null:
+			console = FlightConsole.new()
+			con.add_child(console)
 		hud = FlightUI.create_flight_hud(panel, {
+			"console": console,
 			"setMode": func(m: String) -> void:
 				if autopilot != null:
 					autopilot.program = null; autopilot.mode = m; autopilot.say("Manual control"),
@@ -303,11 +331,16 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	fly_cam.state.padPos = DVec3.from_v3(pad_offset)
 	pad_aimed = false
 	build_plumes(veh)
+	cryo = Cryo.build(craft)
+	var atm = vessel.env.get("atm")
+	vapour = Vapour.create(craft) if atm != null and atm.get("humid", false) else null
 	entry = Plume.create_entry_glow(maxf(vessel.diameter * 0.75, 2.0))
 	craft.group.add_child(entry.mesh)
 
 	fly_cam.state.dist = 3.2
 	active = true
+	mission = null
+	skip = null
 	cruise = null; cruise_ctx = null; pending_cruise = null
 	count = null
 	exposure = -1.0
@@ -328,8 +361,45 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 func build_plumes(_veh: Dictionary) -> void:
 	for p in plumes:
 		if is_instance_valid(p.mesh) and p.mesh.get_parent() != null: p.mesh.get_parent().remove_child(p.mesh)
-	plumes = []
-	plume_reach = 0.0
+	var built := attach_plumes(craft)
+	plumes = built.plumes
+	plume_reach = built.reach
+	for b in sep_plumes:
+		if is_instance_valid(b.mount): b.mount.queue_free()
+	sep_plumes = attach_sep_motors(craft)
+
+## Separation-motor plumes, one per site in `look.sep.motors`, on each piece of the
+## stage (or on the stage). Dark until the stage separates. Returns [{fx, stage, mount}].
+static func attach_sep_motors(craft: CraftModel.Craft) -> Array:
+	var out := []
+	for st: CraftModel.CraftStage in craft.stages:
+		var m = st.spec.get("look", {}).get("sep", {}).get("motors")
+		if m == null: continue
+		# Isp is a solid's; it only sets how much exhaust the plume carries.
+		var eng := {"name": "BSM", "thrustVac": float(m.thrust), "ispVac": 250.0}
+		var bodies: Array = st.parts.pieces if not st.parts.pieces.is_empty() else [st.group]
+		for body: Node3D in bodies:
+			var side := signf(body.position.x) if body.position.x != 0.0 else 1.0
+			for k in (m.sites as Array).size():
+				var site: Array = m.sites[k]
+				# The jet runs down its mount's −Y, against the push.
+				var y_ax := -Separation.exhaust_dir(m, site, side)
+				var x_ax := y_ax.cross(Vector3(0, 0, 1) if absf(y_ax.z) < 0.9 else Vector3(1, 0, 0)).normalized()
+				var mount := Node3D.new()
+				mount.name = "sepmotor_%d" % k
+				mount.transform = Transform3D(Basis(x_ax, y_ax, x_ax.cross(y_ax)), Separation.motor_point(site, side))
+				var fx := Plume.create_plume("solid", float(m.exitD), 18.0, eng, "single", float(k) + side * 7.0)
+				mount.add_child(fx.mesh)
+				body.add_child(mount)
+				fx.stage_key = st.key
+				out.append({"fx": fx, "stage": st, "mount": mount})
+	return out
+
+## Hang each engine's plume on a built craft. Returns {plumes, reach}: reach is how
+## far the first stage's jet carries, m.
+static func attach_plumes(craft: CraftModel.Craft) -> Dictionary:
+	var plumes: Array = []
+	var plume_reach := 0.0
 	for st in craft.stages:
 		var spec: Dictionary = st.spec
 		var eng = spec.get("engine")
@@ -378,6 +448,7 @@ func build_plumes(_veh: Dictionary) -> void:
 				ey += ep.y
 			centre.y = ey / float(exits.size())
 			var far := Plume.create_plume(eng.get("plume"), rad * 2.0, 12.0, eng, "far", float(hash(str(spec.key)) % 53))
+			far.thrust *= pivots.size()
 			far.mesh.position = centre
 			st.group.add_child(far.mesh)
 			if st == craft.stages[0] or plume_reach == 0.0: plume_reach = maxf(plume_reach, far.reach)
@@ -386,10 +457,11 @@ func build_plumes(_veh: Dictionary) -> void:
 			plumes.append(far)
 			lead = far
 		if lead != null: Plume.add_flame_light(lead, lead.exit_d)
+	return {"plumes": plumes, "reach": plume_reach}
 
 ## A pivot's exit plane and width, measured off the mesh, and which engine it is
 ## (Starship mixes sea-level and vacuum Raptors, told apart by bell size).
-func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
+static func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
 	var eng: Dictionary = spec.engine
 	var inv := pv.global_transform.affine_inverse()
 	var lo := INF
@@ -410,6 +482,34 @@ func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
 	var y := lo if is_finite(lo) else -d * 1.3
 	return {"engine": eng, "exit_d": d, "exit_y": minf(y, 0.0)}
 
+## A lone winged stage (the orbiter) meets the plasma with its belly, not its nose:
+## the sheath goes round that stage, sized to its frontal area at 40°, its
+## stagnation point turned into the airflow.
+func _wrap_winged_sheath() -> void:
+	var lone = null
+	for st in vessel.stages:
+		if not st.attached: continue
+		if lone != null: return
+		lone = st
+	if lone == null or lone.spec.get("wings") == null: return
+	var cs = craft.stage(str(lone.spec.key))
+	if cs == null: return
+	var air: Vector3 = vessel.airspeed(vessel.r, vessel.v, _b).to_v3()
+	if air.length_squared() < 1.0: return
+	var y_ax: Vector3 = (craft.group.basis.inverse() * (frame_basis.transposed() * air)).normalized()
+	var x_ax: Vector3 = y_ax.cross(Vector3(0, 0, 1))
+	if x_ax.length_squared() < 1e-6: x_ax = y_ax.cross(Vector3(1, 0, 0))
+	x_ax = x_ax.normalized()
+	var z_ax: Vector3 = x_ax.cross(y_ax)
+	var r0: float = maxf(vessel.diameter * 0.75, 2.0)
+	var span: float = float(lone.spec.wings.span) * 0.42 / r0
+	var L := float(lone.spec.L)
+	# A shallow shell whose stagnation point sits a few metres ahead of the belly.
+	entry.mesh.basis = Basis(x_ax * span, y_ax * (L * 0.12 / r0), z_ax * span)
+	entry.material.set_shader_parameter("uRimFade", 1.0)
+	entry.material.set_shader_parameter("uCapR", r0)
+	entry.mesh.position = cs.group.position + Vector3(0.0, L * 0.5, 0.0) - y_ax * L * 0.02
+
 ## Shutdown only: the flight panel's lambdas capture this object, and the panel is
 ## held here, so the cycle has to be broken.
 func release() -> void:
@@ -417,6 +517,80 @@ func release() -> void:
 	hud = null
 	target = null
 	state = null
+
+## Near-ground wind for the smoke, m/s in the local frame: a light easterly drift
+## (+x is east) and a little from the south.
+const PAD_WIND := Vector3(5.0, 0.0, 1.5)
+
+var _smoke_basis := Basis()
+var _smoke_origin := DVec3.new()
+var _smoke_framed := false
+
+## The local frame moves with the vehicle and the planet turns under it; the smoke
+## belongs to the air, so re-express it: x' = B'ᵀ(B x + O + ω×O·t − O').
+func _reframe_smoke(new_basis: Basis, up: DVec3, radius: float, spin: float) -> void:
+	var origin := up.scaled(radius)
+	if _smoke_framed:
+		# ω = −Ŷ·rate; the small angle carries the old origin round with the ground.
+		var turned := _smoke_origin.clone().add_in(DVec3.new(0.0, -1.0, 0.0).cross(_smoke_origin).scale_in(spin))
+		var d := turned.sub_in(origin)
+		var e := new_basis.x; var u := new_basis.y; var n := new_basis.z
+		var t := Vector3(d.dot(DVec3.from_v3(e)), d.dot(DVec3.from_v3(u)), d.dot(DVec3.from_v3(n)))
+		smoke.reframe(new_basis.transposed() * _smoke_basis, t)
+	_smoke_basis = new_basis
+	_smoke_origin.copy_from(origin)
+	_smoke_framed = true
+
+## Alumina smoke from the lit separation motors, left in the air where they fire.
+func _sep_smoke(dt: float) -> void:
+	_sep_smoke_acc += dt * 30.0
+	var n := int(_sep_smoke_acc)
+	_sep_smoke_acc -= n
+	if n == 0: return
+	var tint := U.lin(0xffffff) * Plume.smoke_grey(Plume.PROPELLANT.solid)
+	for b in sep_plumes:
+		var fx: Plume.PlumeFx = b.fx
+		if not fx.mesh.visible: continue
+		var m: Node3D = b.mount
+		var p: Vector3 = craft.group.to_local(m.global_position)
+		var e: Vector3 = (craft.group.basis * (craft.group.global_basis.inverse() * m.global_basis) * Vector3.DOWN).normalized()
+		var at: Vector3 = craft_pos.to_v3() + craft.group.basis * p
+		for k in n:
+			smoke.emit_trail(at + e * (fx.exit_d * 4.0), e * 80.0 + smoke.wind, fx.exit_d * 8.0, 0.55,
+				Color(tint.r, tint.g, tint.b), 6.0)
+
+## Lay exhaust trail where the first lit stage's flame turns to smoke, spaced by its
+## width, so the column the vehicle leaves is continuous.
+func _lay_trail(craft_basis: Basis) -> void:
+	var lead: Plume.PlumeFx = null
+	for pl in plumes:
+		if pl.mesh.visible and pl.trail_op > 0.0 and (lead == null or pl.last_len > lead.last_len): lead = pl
+	if lead == null: return
+	var dir := craft_basis * Vector3(0, -1, 0)
+	var p := craft_pos.to_v3() + dir * (lead.last_len * 0.88)
+	var w := lead.trail_r * 2.0
+	var grey := Plume.smoke_grey(lead.propellant)
+	var tint := U.lin(0xffffff) * grey
+	if smoke.trail_last == Vector3.INF:
+		smoke.trail_last = p
+	var gap := p - smoke.trail_last
+	var spacing := maxf(w * 0.42, 2.0)
+	var n := mini(int(gap.length() / spacing), 6)
+	# Fully in before the vehicle has gone half a puff's width.
+	var fade := maxf(Plume.airspeed / (w * 0.5), 2.0)
+	for k in n:
+		var q := smoke.trail_last + gap * (float(k + 1) / float(n))
+		smoke.emit_trail(q, dir * 15.0 + smoke.wind, w, lead.trail_op, Color(tint.r, tint.g, tint.b), fade)
+	if n > 0: smoke.trail_last = p
+
+## The rendering preset's share of the flight scene: clouds and sky (LocalView),
+## plume march density and the smoke's form.
+func set_render_quality(q: String) -> void:
+	local.set_render_quality(q)
+	Plume.detail = {"low": 0.6, "medium": 0.8, "high": 1.0, "ultra": 1.8}.get(q, 1.0)
+	Plume.smoke_steps = [9, 1] if q == "ultra" else [5, 0]
+	Plume.smoke_rate = 40.0 if q == "ultra" else 26.0
+	Plume.set_smoke_volume(smoke, q == "high" or q == "ultra", local.cloud_shape)
 
 func teardown() -> void:
 	if craft != null:
@@ -432,14 +606,20 @@ func teardown() -> void:
 	map_site = null
 	pad_fire = null
 	ground_pos.y = 0.0
-	plumes = []; entry = null
+	plumes = []; sep_plumes = []; entry = null; cryo = null; vapour = null
+	for f: Fall in falls: _drop_fall(f)
+	falls = []; subject = null
+	mission = null; skip = null
 	smoke.clear()
+	_smoke_framed = false
 	vessel = null; autopilot = null; cruise = null; plan = null; count = null
 	cruise_ctx = null; pending_cruise = null; star_target = null
 	if saved_speed != null:
 		state.speed = saved_speed
 		saved_speed = null
 	active = false
+	camera_override = Callable()
+	fly_cam.state.fov = 55.0
 	boost = Vector3.ZERO
 	sky_gain = 1.0
 	SkyModel.apply_day_gain(pipe.sky_materials, 1.0)
@@ -808,6 +988,78 @@ func refresh_targets() -> void:
 	elif star_target != null: cur = MISSION_PREFIX + str(star_target.name)
 	hud.set_targets(names, cur)
 
+# MISSIONS
+## Fly to `dest_name` and orbit it or land on it, with no further input. Returns the
+## Mission (check its `failed` for why it could not start).
+func start_mission(dest_name: String, goal: String = "orbit") -> Mission:
+	if vessel == null: return null
+	var b := body_named(dest_name)
+	if b == null: return null
+	abort_mission()
+	var m := Mission.create(self, b, goal)
+	if m.failed != "":
+		_toast("Cannot fly this mission — %s" % m.failed)
+		return m
+	mission = m
+	set_target(b.name)
+	refresh_targets()
+	return m
+
+func abort_mission() -> void:
+	if mission != null and not mission.done and mission.failed == "":
+		mission.abort()
+	mission = null
+	skip = null
+
+func _manual_warp() -> void:
+	if mission != null and mission.auto_warp and not mission.done:
+		mission.auto_warp = false
+		_toast("Auto warp off — the mission keeps flying")
+
+## Skip to the mission's destination: charge its propellant and time, then arrive.
+func begin_skip(m: Mission) -> void:
+	if vessel == null or m == null or not m.plan.get("flyable", false): return
+	mission = m
+	var grounded: bool = vessel.phase == Vessel.PHASE.PRELAUNCH or vessel.phase == Vessel.PHASE.LANDED
+	count = null
+	vessel.held_down = false
+	vessel.throttle = 0.0
+	autopilot.disengage()
+	# The flight is not flown, so its staging is done here: everything the burns empty.
+	var dv := 0.0
+	for l in m.plan.legs:
+		if l.key in ["land", "descend"]: continue
+		dv += float(l.dv)
+	vessel.spend_dv(dv)
+	if grounded:
+		vessel.place_in_orbit(Mission.park_radius(vessel.parent) - float(vessel.env.radius), 28.5, randf() * TAU)
+	var t := 0.0
+	for l in m.plan.legs:
+		if l.key in ["land", "descend"]: continue
+		t += float(l.t)
+	skip = {"until": vessel.coord + t, "mission": m}
+	vessel.log_event("Skipping to %s — %s of flight, %s km/s of Δv charged" % [m.dest.name, Guidance.fmt_dur(t), U.fixed(dv / 1000.0, 2)])
+	fly_cam.set_mode("chase")
+
+func _arrive_skip() -> void:
+	var m: Mission = skip.mission
+	skip = null
+	if not m.dest.alive:
+		m.abort("%s is gone" % m.dest.name)
+		return
+	vessel.rebase(m.dest)
+	vessel.place_in_orbit(float(m.plan.r_cap) - float(vessel.env.radius), 0.0, randf() * TAU)
+	set_warp(0)
+	vessel.log_event("Arrived — parking orbit around %s" % m.dest.name)
+	# What is left is flown: the landing, if the mission is one.
+	m.leg = 0
+	var keep: Array = []
+	for l in m.plan.legs:
+		if l.key in ["descend", "land"]: keep.append(l)
+	m.plan.legs = keep
+	m.leg = -1
+	m._next()
+
 func set_target(n) -> void:
 	star_target = null
 	target = null
@@ -836,10 +1088,19 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 			active = false
 			return 0.0
 
+	if lab != null:
+		_hold_lab(dt)
+		if not advance_world.is_valid(): finish_frame(dt, 0.0)
+		return 0.0
+	if skip != null and vessel.coord >= float(skip.until): _arrive_skip()
+	if mission != null and skip == null: mission.update(dt)
 	# Slave the orrery's clock every frame, or the slider desyncs planets and vehicle.
 	state.time_scale = WARPS[warp_idx] / Rocketry.YR_S
 	# At warp 1 flight time is wall-clock time; the orrery multiplier is forced to 1.
 	var w: float = warp() * (0.0 if state.paused else 1.0)
+	if skip != null:
+		w = 0.0 if state.paused else minf(SKIP_WARP, maxf((float(skip.until) - vessel.coord) / maxf(dt, 1e-3), 1.0))
+		state.time_scale = w / Rocketry.YR_S
 	var sim_seconds := dt * w
 	var control_frame := {"guided": false, "fraction": 1.0}
 	var world := func(seconds: float) -> float:
@@ -904,13 +1165,39 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 	if not advance_world.is_valid(): finish_frame(dt, sim_seconds)
 	return sim_seconds
 
+func _hold_lab(dt: float) -> void:
+	var env: Dictionary = vessel.env
+	var up := DQuat.nrm(vessel.r.clone())
+	var spin := DVec3.new(0.0, -float(env.rotRate), 0.0)
+	var east := DVec3.new(0.0, -1.0, 0.0).cross(up)
+	if east.length() < 1e-6: east.set_v(1.0, 0.0, 0.0)
+	DQuat.nrm(east)
+	var p := float(lab.get("pitch", 0.0))
+	var fwd := up.clone().scale_in(cos(p)).add_scaled_in(east, sin(p))
+	vessel.r.copy_from(up).scale_in(float(env.radius) + float(lab.alt))
+	# Airspeed along the axis, on top of the air turning with the planet.
+	vessel.v.copy_from(fwd).scale_in(float(lab.speed)).add_in(spin.cross(vessel.r))
+	vessel.q.set_from_unit_vectors(Vessel.BODY_FWD, fwd)
+	vessel.omega.set_v(0.0, 0.0, 0.0)
+	vessel.throttle = float(lab.get("throttle", 1.0))
+	vessel.held_down = false
+	if vessel.phase == Vessel.PHASE.PRELAUNCH: vessel.t0 = vessel.met
+	vessel.phase = Vessel.PHASE.ASCENT
+	vessel.met += dt
+	vessel.sample(0.0)
+
 func finish_frame(dt: float, coordinate_seconds: float) -> void:
 	if not active or vessel == null: return
 	update_visual(dt, coordinate_seconds)
 	if hud != null: update_hud()
 
-func _local_up_north() -> Array:
-	var up := DQuat.nrm(vessel.r.clone())
+## Where the local frame sits: under the followed piece, else under the vehicle.
+func _subject_r() -> DVec3:
+	return subject.r if subject != null else vessel.r
+
+## Local up and north at `rr` (the vehicle by default), in the parent frame.
+func _local_up_north(rr: DVec3 = null) -> Array:
+	var up := DQuat.nrm((rr if rr != null else vessel.r).clone())
 	var north := DVec3.new(0.0, -1.0, 0.0)
 	if absf(north.dot(up)) > 0.98: north.set_v(1.0, 0.0, 0.0)
 	north.add_scaled_in(up, -north.dot(up))
@@ -920,7 +1207,10 @@ func _local_up_north() -> Array:
 func update_visual(dt: float, sim_seconds: float) -> void:
 	var env: Dictionary = vessel.env
 	var alt := vessel.altitude()
-	var un := _local_up_north()
+	for f: Fall in falls: f.step(sim_seconds, vessel)
+	# The local frame and the view run from the followed piece when there is one.
+	var eye_alt := subject.altitude(vessel) if subject != null else alt
+	var un := _local_up_north(_subject_r())
 	var up: DVec3 = un[0]
 	var north: DVec3 = un[1]
 	var sun := sun_direction(DVec3.new())
@@ -936,7 +1226,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	# eased in log over ~1.5 s.
 	var shown := f_total if f_total >= 1.0 else maxf(pow(f_total, 0.3), 0.06)
 	# Metering: away from a planet's shine, open up by up to 1.8× (800 km → a few 1000 km).
-	shown *= lerpf(1.0, 1.8, U.smooth(alt, 8.0e5, 5.0e6))
+	shown *= lerpf(1.0, 1.8, U.smooth(eye_alt, 8.0e5, 5.0e6))
 	var want_e := shown / f_total
 	if exposure <= 0.0: exposure = want_e
 	else: exposure = exp(lerpf(log(exposure), log(want_e), 1.0 - exp(-maxf(dt, 0.0) / 1.5)))
@@ -959,7 +1249,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	planet_spin = fposmod(planet_spin + float(env.rotRate) * sim_seconds, TAU)
 	_a.set_v(0.0, -float(env.rotRate), 0.0).cross_vectors(_a, anchor_pos)
 	DQuat.set_len(anchor_pos.add_scaled_in(_a, sim_seconds), float(env.radius))
-	var fr := local.update({"env": env, "altitude": alt, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
+	var fr := local.update({"env": env, "altitude": eye_alt, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
 		"starFlux": star_flux, "padWorld": site_pos, "mapSite": map_site,
 		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt,
 		# a steady 9 m/s westerly, the trade-wind belt's upper flow reversed
@@ -978,9 +1268,14 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 
 	# Attitude in the local frame (+Y = local up).
 	var east := DQuat.nrm(DVec3.new().cross_vectors(up, north))
-	frame_basis = Basis(east.to_v3(), up.to_v3(), north.to_v3())
+	var new_basis := Basis(east.to_v3(), up.to_v3(), north.to_v3())
+	_reframe_smoke(new_basis, up, float(env.radius), float(env.rotRate) * sim_seconds)
+	frame_basis = new_basis
 	var craft_basis := frame_basis.transposed() * Basis(vessel.q.to_quaternion())
-	craft_pos.set_v(0.0, alt, 0.0)
+	# The local origin is on the ground under the subject: the vehicle is at (0, alt, 0)
+	# unless a dropped piece is followed.
+	_a.copy_from(vessel.r).add_scaled_in(up, -float(env.radius))
+	craft_pos.set_v(_a.dot(east), _a.dot(up), _a.dot(north))
 	craft.group.position = Vector3.ZERO
 	craft.group.basis = craft_basis.orthonormalized()
 
@@ -993,11 +1288,12 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var sz: float = site_pos.dot(north)
 		site_local.set_v(sx, sy, sz)
 		# Drop the ground patch by the deck height and the hardstand's rise (grade_drop).
-		ground_pos.y = -site.grade_drop
+		# A followed piece is out over the sea, which is at altitude zero.
+		ground_pos.y = -site.grade_drop if subject == null else 0.0
 		var rng := Vector2(sx, sz).length()
 		# Past a few tens of kilometres the whole complex is under a pixel, and
 		# the ground patch's own detail is the better picture.
-		site.group.visible = alt < 8e4 and rng < 1.2e5
+		site.group.visible = eye_alt < 8e4 and rng < 1.2e5
 		if site.group.visible:
 			var tw = vessel.catch_tower
 			var catch_pose = null
@@ -1025,15 +1321,24 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 
 	# moving parts
 	var deploy := {}
+	var gear := {}
+	var v_up := vessel.v.dot(DQuat.nrm(vessel.r.clone()))
 	for st in vessel.stages:
 		var s: Dictionary = st.spec
 		var d := 0.0
-		var v_up := vessel.v.dot(up)
-		if s.get("legs"): d = 1.0 if (vessel.phase == Vessel.PHASE.LANDED or (alt < 3000.0 and v_up < 0.0)) else 0.0
-		if s.get("gridFins"): d = 1.0 if (alt < (float(env.atm.top) if env.atm != null else 0.0) and v_up < 0.0) else 0.0
 		var look = s.get("look")
+		if s.get("legs") and not (look != null and look.get("gearSwing")):
+			d = 1.0 if (vessel.phase == Vessel.PHASE.LANDED or (alt < 3000.0 and v_up < 0.0)) else 0.0
+		# Super Heavy's grid fins are fixed out; they steer by twisting.
+		if s.get("gridFins"): d = 1.0
 		if s.get("solar") or (look != null and look.get("arrays")): d = 1.0
+		# The payload bay doors open once in orbit (the radiators are inside them) and
+		# close again for the deorbit.
+		if look != null and look.get("doors") and vessel.phase == Vessel.PHASE.ORBIT \
+				and (autopilot == null or not ["deorbit", "glide"].has(autopilot.program)):
+			d = 1.0
 		deploy[s.key] = d
+		gear[s.key] = 1.0 if (st.gear_out or vessel.phase == Vessel.PHASE.LANDED) else 0.0
 	# Gimbal deflection, from the attitude error the controller is working on.
 	var gerr := 0.0
 	if autopilot != null and autopilot.aim != null:
@@ -1042,34 +1347,106 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var gx := clampf(gerr * 2.4, 0.0, 0.12) * (sg if sg != 0.0 else 1.0)
 	var attached := {}
 	for st in vessel.stages: attached[st.spec.key] = st.attached
-	craft.update({"dt": dt, "attached": attached, "deploy": deploy, "gimbal": {"x": gx, "z": 0.0}, "flap": 0.0})
+	# Control surfaces. A falling booster's grid fins twist with the attitude error; a
+	# ship's flaps take what the return program asks (+ folds leeward; the two sides of
+	# the ship turn opposite ways to do it).
+	var q_now := float(vessel.telemetry.get("q", 0.0))
+	var steer := clampf(gerr * 3.0, 0.0, 0.45) * (sg if sg != 0.0 else 1.0) * clampf(q_now / 2000.0, 0.0, 1.0)
+	var twist := [steer, -steer, steer * 0.6] if float(vessel.telemetry.get("vertical", 0.0)) < 0.0 else [0.0, 0.0, 0.0]
+	var flaps := [0.0, 0.0, 0.0, 0.0]
+	# A lone orbiter: the body flap and elevons as glide left them, and the speed brake's
+	# halves each opening half its angle.
+	var orb = vessel._first_attached()
+	if orb != null and orb.spec.get("wings") != null and vessel._alone(orb):
+		var fc: Array = autopilot.flap_cmd if autopilot != null else [0.0, 0.0]
+		var e := float(fc[1])
+		var sb := vessel.speedbrake * deg_to_rad(98.6) * 0.5
+		flaps = [float(fc[0]), e, e, e, e, sb, sb]
+	if autopilot != null and autopilot.program == "bellyflop":
+		var fc: Array = autopilot.flap_cmd
+		flaps = [-float(fc[0]), float(fc[1]), -float(fc[2]), float(fc[3])]
+	# The stack's non-gravitational acceleration in the craft frame: what a dropped stage
+	# falls behind at. Standing on the ground, the ground's push.
+	var to_craft := Basis(vessel.q.to_quaternion()).inverse()
+	var g_craft := to_craft * vessel.gravity(vessel.r, DVec3.new()).to_v3()
+	var accel := -g_craft
+	if vessel.phase != Vessel.PHASE.LANDED:
+		accel = to_craft * vessel.accel(vessel.r, vessel.v, DVec3.new()).to_v3() - g_craft
+	# A stage that has just let go leaves under Separation. Before update(), which hides
+	# a detached stage that is not leaving; a stage already gone stays gone.
 	for st in vessel.stages:
 		var cs = craft.stage(str(st.spec.key))
-		if not st.attached and cs != null and cs.sep == null and cs.group.visible:
-			craft.separate(str(st.spec.key), 4.0 + randf() * 4.0, 0.2 + randf() * 0.5)
+		if not st.attached and cs != null and cs.sep == null and not cs.handed and cs.group.visible:
+			craft.separate(str(st.spec.key), {"mass": vessel.mass,
+				"support": -g_craft if vessel.phase == Vessel.PHASE.LANDED else Vector3.ZERO})
+	# The drag chute streams downstream of the vehicle, in the air it moves through.
+	var chute := {}
+	var rs: Vessel.Rollout = vessel.rolling
+	if rs != null and rs.chute_t >= 0.0:
+		var wind := vessel.airspeed(vessel.r, vessel.v, DVec3.new()).to_v3()
+		var st0 = vessel._first_attached()
+		chute[str(st0.spec.key) if st0 != null else ""] = {"t": rs.chute_t,
+			"gone": vessel.met - rs.chute_gone_met if rs.chute_gone else -1.0,
+			"dir": to_craft * -wind.normalized() if wind.length() > 1.0 else Vector3.DOWN, "gs": wind.length()}
+	craft.update({"dt": dt, "simDt": sim_seconds, "attached": attached, "deploy": deploy, "gear": gear,
+		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release,
+		"chute": chute})
+	_place_falls(east, up, north, float(env.radius))
 
 	# The light the plumes' smoke scatters: the sun where it reaches the
 	# vehicle (clouds included), with a floor for the sky's own light.
 	var sl: Vector3 = fr.get("sun_local", Vector3.UP)
 	Plume.daylight = clampf(sl.y * 2.0 + 0.25, 0.0, 1.0) * local.sun_through * clampf(star_flux, 0.05, 4.0) + 0.04
 	Plume.sprite_material(false, 2, Plume.ORDER_SMOKE).set_shader_parameter("uLight", clampf(Plume.daylight, 0.08, 1.4))
+	if Plume.smoke_volume:
+		Plume.sun_local = sl
+		var sc := local.sun.light_color
+		var day := Plume.daylight
+		var vm := Plume.smoke_volume_material(null)
+		vm.set_shader_parameter("uSunDir", sl)
+		vm.set_shader_parameter("uSun", Vector3(sc.r, sc.g, sc.b) * day * 1.15)
+		# Skylight from above and the ground's bounce from below, under the same light.
+		vm.set_shader_parameter("uSky", Vector3(0.30, 0.38, 0.52) * day * 0.75)
+		vm.set_shader_parameter("uGround", Vector3(0.17, 0.15, 0.12) * day * 0.6)
+		vm.set_shader_parameter("uTime", vessel.met)
 	# plumes — each engine's own, at the ambient pressure it is actually in
+	Plume.freestream_q = float(vessel.telemetry.get("q", 0.0)) if env.atm != null else 0.0
+	Plume.airspeed = float(vessel.telemetry.get("airspeed", 0.0)) if env.atm != null else 0.0
 	var pa: float = Rocketry.pressure(env.atm, maxf(alt, 0.0)) if env.atm != null else 0.0
 	var p0: float = float(env.atm.p0) if env.atm != null else 101325.0
 	for pl in plumes:
 		var st = null
 		for s in vessel.stages:
 			if str(s.spec.key) == pl.stage_key: st = s
-		var on: bool = st != null and st.attached and st.ignited and not st.spent and st.prop > 0.0 and vessel.throttle > 0.0
+		var on: bool = st != null and vessel.lit(st) and vessel.throttle > 0.0
 		pl.update(vessel.throttle if on else 0.0, pa, vessel.met, p0)
+	# Separation motors run on their stage's clock from the moment it let go.
+	var sep_lit := false
+	for b in sep_plumes:
+		var cs: CraftModel.CraftStage = b.stage
+		var thr := 0.0
+		if cs.sep != null and cs.sep.motors != null:
+			thr = Separation.motor_fraction(float(cs.sep.t), cs.sep.motors)
+		b.fx.update(thr, pa, vessel.met, p0)
+		sep_lit = sep_lit or thr > 0.0
+	if sep_lit and env.atm != null: _sep_smoke(dt)
 	if cruise != null:
 		for pl in plumes:
 			pl.update(0.0 if (cruise.leg == "coast" or cruise.leg == "arrived") else 1.0, 0.0, cruise.tau / 100.0, 101325.0)
+
+	if vapour != null:
+		var vatt := {}
+		for st in vessel.stages: vatt[str(st.spec.key)] = st.attached
+		vapour.update({"mach": float(vessel.telemetry.get("mach", 0.0)),
+			"T": Rocketry.temperature(env.atm, maxf(alt, 0.0)), "rh": Plume.humidity, "alt": alt,
+			"time": vessel.met, "attached": vatt, "sun": craft_basis.inverse() * sl,
+			"light": Plume.daylight})
 
 	# re-entry sheath, from the same heat flux that is burning the shield down
 	if entry != null:
 		entry.mesh.basis = craft.group.basis.inverse()
 		entry.mesh.position = Vector3.ZERO
+		_wrap_winged_sheath()
 		entry.update(float(U.nz(vessel.telemetry.get("heat"), 0.0)), vessel.met)
 
 	# The deflected exhaust. Only while the jet still lands on the deck, which
@@ -1077,16 +1454,33 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	if pad_fire != null:
 		var lit: float = vessel.throttle if float(vessel.telemetry.get("thrust", 0.0)) > 0.0 else 0.0
 		pad_fire.update(lit if site.group.visible else 0.0, alt + site.deck_height, plume_reach, vessel.met)
+		# The same fire lights the smoke from below while the jet still reaches the deck.
+		Plume.fire_level = lit * clampf(1.0 - (alt + site.deck_height) / maxf(plume_reach * 1.5, 1.0), 0.0, 1.0)
+		smoke.fire_pos = Vector3(site_local.x, 0.0, site_local.z)
+	else:
+		Plume.fire_level = 0.0
 
-	# launch smoke: only where there is an atmosphere and a surface to hit
-	if env.atm != null and alt < 900.0 and vessel.throttle > 0.0 and float(vessel.telemetry.get("thrust", 0.0)) > 0.0:
+	# launch smoke: the pad cloud while the jet still reaches the deck, then the trail
+	var thrusting := vessel.throttle > 0.0 and float(vessel.telemetry.get("thrust", 0.0)) > 0.0
+	smoke.wind = PAD_WIND
+	# Held in the lab, the vehicle stands still and the air goes by.
+	if lab != null: smoke.wind -= craft_basis * Vector3.UP * float(lab.speed)
+	if env.atm != null and thrusting and site != null and site.group.visible and alt < 900.0:
 		# Soot from the propellant: alumina (solid), carbon (RP-1), steam (hydrogen).
 		var soot := 0.7
 		var s0 = vessel.stages[0].spec if not vessel.stages.is_empty() else null
 		if s0 != null and s0.get("engine") != null and Plume.PROPELLANT.has(s0.engine.get("plume", "")):
 			soot = Plume.PROPELLANT[s0.engine.plume].soot
-		smoke.emit(Vector3(0.0, maxf(alt - vessel.length * 0.5, 0.0), 0.0),
-			vessel.throttle, maxf(vessel.diameter * 2.2, 12.0), dt, soot)
+		var spread := maxf(vessel.diameter * 2.2, 12.0)
+		var reach_k := clampf(1.0 - (alt + site.deck_height) / maxf(plume_reach * 1.5, 1.0), 0.0, 1.0)
+		# A trench throws it out of both ends; an open deflector every way.
+		var axis: Vector3 = Vector3.ZERO if site.style == "chopsticks" else (site.group.basis * Vector3(1, 0, 0)).normalized()
+		smoke.emit(Vector3(site_local.x, -site.deck_height * 0.6, site_local.z), vessel.throttle * reach_k, spread, dt, soot, axis)
+	if env.atm != null and thrusting and alt > 20.0:
+		_lay_trail(craft_basis)
+	if cryo != null:
+		var fuelled := vessel.phase == Vessel.PHASE.PRELAUNCH and env.atm != null
+		cryo.update(dt, fuelled, vessel.met, smoke)
 	smoke.update(dt)
 	rcs_puffs.update(dt)
 
@@ -1097,14 +1491,24 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 
 	# cameras. The local camera is real; the orrery camera is slaved to it.
 	var sun_l := Vector3(sun.dot(east), sun.dot(up), sun.dot(north)).normalized()
-	fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
-		"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
-		"dt": dt, "sunLocal": sun_l})
+	if subject != null:
+		# A falling piece tumbles: frame it world-locked, chutes and all.
+		fly_cam.update({"craftPos": subject.pos, "craftBasis": Basis(), "length": subject.frame_length(),
+			"up": Vector3(0, 1, 0), "dt": dt, "sunLocal": sun_l})
+		# A piece afloat sits partly under the sea; keep the eye above it.
+		if fly_cam.pos.y < 2.0:
+			fly_cam.pos.y = 2.0
+			fly_cam.look_at(subject.pos, Vector3.UP)
+	else:
+		fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
+			"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
+			"dt": dt, "sunLocal": sun_l})
+	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
 	local.cam_pos.copy_from(fly_cam.pos)
 	# Keep far/near ≤ ~1e7 (docs/godot.md): near is floored at far·1e-7 = 0.4 m.
 	local.camera.far = 4.0e6
 	local.camera.near = maxf(fly_cam.near, local.camera.far * 1.0e-7)
-	local.camera.fov = 55.0
+	local.camera.fov = float(fly_cam.state.fov)
 	local.apply_origin(fly_cam.basis)
 	# Back to front for this frame's camera, now that it is placed.
 	smoke.draw(local.camera, site.steam if site != null else null)
@@ -1117,12 +1521,108 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# rotate the local offset out of the local frame back into world axes
 		var world_off := east.scaled(cl.x).add_scaled_in(up, cl.y).add_scaled_in(north, cl.z)
 		var k := ss / Rocketry.AU_M
-		main.cam_pos = parent_scene.clone().add_scaled_in(vessel.r, k).add_scaled_in(world_off, k)
+		# In place: the orbit camera holds this same DVec3 as its position.
+		main.cam_pos.copy_from(parent_scene).add_scaled_in(vessel.r, k).add_scaled_in(world_off, k)
 		main.cam_basis = (frame_basis * fly_cam.basis).orthonormalized()
-		main.cam_fov = 55.0
+		main.cam_fov = float(fly_cam.state.fov)
 		# Near stated explicitly: main.gd ties far to it, and a close-up's 1e-6 would cull
 		# every planet past 10 scene units.
 		main.cam_near = 0.01
+
+# DROPPED PIECES
+## Separation is done with a stage that has a fate (`look.fall`): each of its pieces
+## flies on as a Fall, drawn in the local frame and no longer part of the craft.
+func _release(cs: CraftModel.CraftStage, s: Dictionary) -> void:
+	for b: Dictionary in s.bodies:
+		var f := Fall.handoff(vessel, craft, cs, s, b)
+		# Plumes that hang on the piece go with it; nothing drives them now.
+		plumes = plumes.filter(func(pl): return not f.body.is_ancestor_of(pl.mesh))
+		sep_plumes = sep_plumes.filter(func(sp): return not f.body.is_ancestor_of(sp.mount))
+		f.holder = Node3D.new()
+		f.body.reparent(f.holder, false)
+		_adopt(f)
+
+func _adopt(f: Fall) -> void:
+	f.holder.name = "fall_" + f.name.to_snake_case()
+	local.root.add_child(f.holder)
+	local.place(f.holder, f.pos)
+	falls.append(f)
+
+func _drop_fall(f: Fall) -> void:
+	if f.holder != null and is_instance_valid(f.holder):
+		local.unplace(f.holder)
+		f.holder.queue_free()
+
+## Take in what the pieces shed this frame, retire the finished ones, and draw the rest
+## in the local frame (origin `up`·R, axes east, up, north).
+func _place_falls(east: DVec3, up: DVec3, north: DVec3, radius: float) -> void:
+	var i := 0
+	while i < falls.size():
+		var f: Fall = falls[i]
+		for c: Fall in f.shed: _adopt(c)
+		f.shed.clear()
+		i += 1
+	var origin := up.scaled(radius)
+	var to_local := frame_basis.transposed()
+	for f: Fall in falls:
+		if f.follow: _log_fall(f)
+	for f: Fall in falls.duplicate():
+		if f.retired(f == subject):
+			if f == subject: follow(null)
+			_drop_fall(f)
+			falls.erase(f)
+			continue
+		f.place(vessel, origin, to_local, east, up, north)
+		# Past a couple of thousand kilometres it is under a pixel and over the horizon.
+		f.holder.visible = f.pos.length() < 2.0e6
+
+const FALL_EVENTS := {"apogee": "apogee", "noseCap": "nose cap off, pilot chute", "drogue": "drogue",
+	"frustum": "frustum away, main chutes", "splashdown": "splashdown", "breakup": "breaks up"}
+
+## A main piece's events in the mission log, with where they happened.
+func _log_fall(f: Fall) -> void:
+	while f.logged < f.events.size():
+		var e: Dictionary = f.events[f.logged]
+		f.logged += 1
+		if not FALL_EVENTS.has(e.name): continue
+		var msg := "%s — %s · %s km, %s m/s" % [f.name, FALL_EVENTS[e.name], U.fixed(float(e.alt) / 1000.0, 1),
+			U.fixed(float(e.speed), 0)]
+		if e.name == "splashdown" and site_pos != null:
+			msg += ", %s km downrange" % U.fixed(float(vessel.env.radius) * DQuat.angle_between(site_pos, f.r) / 1000.0, 0)
+		var geo = geo_of(f.r)
+		if e.name == "breakup" and geo != null:
+			msg += ", %s° %s %s° %s" % [U.fixed(absf(geo.x), 1), "N" if geo.x >= 0.0 else "S",
+				U.fixed(absf(geo.y), 1), "E" if geo.y >= 0.0 else "W"]
+		vessel.log_event(msg)
+
+## Latitude and longitude, degrees, of a point in the parent frame: from the pad, which
+## turns with the planet, and its mapped coordinates. Null with no mapped pad.
+func geo_of(p: DVec3):
+	if map_site == null or site_pos == null: return null
+	var pole := DVec3.new(0.0, -1.0, 0.0)
+	var u := DQuat.nrm(p.clone())
+	var s := DQuat.nrm(site_pos.clone().add_scaled_in(pole, -site_pos.dot(pole)))
+	# East at the pad: ω̂ × r̂, with ω̂ = −Y.
+	var e := pole.cross(s)
+	var dlon := rad_to_deg(atan2(u.dot(e), u.dot(s)))
+	return Vector2(rad_to_deg(asin(clampf(u.dot(pole), -1.0, 1.0))), wrapf(float(map_site.lon) + dlon, -180.0, 180.0))
+
+## Follow a dropped piece with the camera and the local frame, or the vehicle (null).
+func follow(f) -> void:
+	if f == subject: return
+	subject = f
+	if fly_cam.state.mode == "cockpit": fly_cam.set_mode("chase")
+	if vessel != null:
+		vessel.log_event("Camera — following the %s" % f.name.to_lower() if f != null else "Camera — back on the vehicle")
+
+## The next piece the camera can follow, then back to the vehicle.
+func follow_next() -> void:
+	var can := falls.filter(func(f: Fall) -> bool: return f.follow and f.state != "gone")
+	if can.is_empty():
+		follow(null)
+		return
+	var i := can.find(subject)
+	follow(can[i + 1] if i + 1 < can.size() else null)
 
 func update_hud() -> void:
 	var t: Dictionary = vessel.telemetry
@@ -1159,6 +1659,8 @@ func update_hud() -> void:
 		"parentName": vessel.parent.name,
 		"plan": plan_data,
 		"cruise": cruise != null,
+		"mission": mission,
+		"skip": skip != null,
 	})
 
 # INPUT
@@ -1168,9 +1670,9 @@ func key_action(action: String) -> bool:
 	if not active or vessel == null: return false
 	match action:
 		"warp_down":
-			set_warp(warp_idx - 1); return true
+			_manual_warp(); set_warp(warp_idx - 1); return true
 		"warp_up":
-			set_warp(warp_idx + 1); return true
+			_manual_warp(); set_warp(warp_idx + 1); return true
 		"throttle_cut":
 			vessel.throttle = 0.0; return true
 		"throttle_full":
@@ -1187,6 +1689,8 @@ func key_action(action: String) -> bool:
 					st.gear_out = not st.gear_out
 					break
 			return true
+		"flight_follow":
+			follow_next(); return true
 		"flight_camera":
 			var modes := ["chase", "orbit", "cockpit", "pad"]
 			var i := modes.find(fly_cam.state.mode)

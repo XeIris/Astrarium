@@ -46,14 +46,14 @@ func _init() -> void:
 	var arr: Node3D = f9.stages[3].parts.arrays[0]
 	check("stowed array folds to 90°", is_equal_approx(arr.rotation.z, PI / 2.0), str(arr.rotation.z))
 
-	# separation: drifts, tumbles, disappears after 6 s
-	f9.separate("f9s1", 4.0, 0.3)
+	# separation: falls behind at the stack's acceleration, gone after Separation.SHOWN
+	f9.separate("f9s1")
 	var s1 = f9.stage("f9s1")
-	f9.update({"dt": 1.0, "attached": {"f9s1": false}})
-	check("separated stage drifts down 4 m/s", is_equal_approx(s1.group.position.y, s1.base_y - 4.0), str(s1.group.position.y))
-	check("separated stage still visible while drifting", s1.group.visible)
-	for i in 6: f9.update({"dt": 1.0, "attached": {"f9s1": false}})
-	check("separated stage hidden after 6 s", not s1.group.visible and s1.sep == null)
+	f9.update({"dt": 1.0, "attached": {"f9s1": false}, "accel": 8.0})
+	check("separated stage falls behind at the stack's 8 m/s²", absf(s1.group.position.y - (s1.base_y - 4.0)) < 0.3, str(s1.group.position.y))
+	check("separated stage still visible while leaving", s1.group.visible)
+	for i in int(Separation.SHOWN): f9.update({"dt": 1.0, "attached": {"f9s1": false}, "accel": 8.0})
+	check("separated stage hidden after %d s" % int(Separation.SHOWN), not s1.group.visible and s1.sep == null)
 	f9.update({"dt": 1.0, "attached": {"f9s1": false}})
 	check("detached stage stays hidden", not s1.group.visible)
 

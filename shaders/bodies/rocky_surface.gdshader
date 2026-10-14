@@ -181,14 +181,16 @@ void fragment() {
 		lit += sc * spec * 0.30 * step(0.0, ndl);
 		// The sea reflects the sky with Fresnel reflectance near 1 at grazing incidence, so
 		// it brightens toward the limb and terminator.
-		float fres = pow(1.0 - max(dot(N, V), 0.0), 5.0);
+		float fres = pow(clamp(1.0 - dot(N, V), 0.0, 1.0), 5.0);
 		lit += sc * (1.0 - rough) * mix(0.02, 0.35, fres) * diff * uHaze;
 		skylight += sc * diff;
 	}
 	lit += albedo * uAmbient;
 
 	// --- aerial perspective: bluer, hazier limbs on a world with air.
-	float limb = pow(1.0 - abs(dot(N, V)), 2.2);
+	// Rounding can put the dot of two unit vectors just past 1; pow of a negative is
+	// NaN, and glow spreads one NaN pixel into a black square over the disc.
+	float limb = pow(max(1.0 - abs(dot(N, V)), 0.0), 2.2);
 	lit = mix(lit, lit * 0.75 + skylight * vec3(0.20, 0.34, 0.62) * 0.45, uHaze * limb);
 
 	// --- incandescent once it is truly scorching

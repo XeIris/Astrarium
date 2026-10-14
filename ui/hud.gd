@@ -80,7 +80,7 @@ const ERA := {
 }
 
 # text styles
-const H3 := {"fs": 10.0, "ls": 2.0, "up": true, "c": T.TEXT_DIM, "fw": 500}
+const H3 := {"fs": 10.0, "ls": 2.6, "up": true, "c": T.TEXT_DIM, "fw": 500}
 const NOTE := {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.55}
 const ROW_LABEL := {"fs": 11.0, "c": T.TEXT_DIM}
 const ROW_VAL := {"fs": 11.0, "c": T.ACCENT}
@@ -126,13 +126,17 @@ var control_panel: HudPanel
 var model_panel: HudPanel
 var xsec_panel: HudPanel
 var flight_panel: HudPanel
+## The flight console's place along the bottom (ui/flight_console.gd lives in it).
+var flight_console_host: Control
 var tab_col: VBoxContainer
 var tab_right: HudButton
 var readout: VBoxContainer
 var toast_el: PanelContainer
 var _toast_label: Label
 var start_screen: Control
-var start_cards: HudGrid
+var _title_veil: ColorRect
+var _title_shade: TextureRect
+var _title_logo: TitleLogo
 var _start_inner: VBoxContainer
 var binding_buttons := {}
 var _start_tween: Tween = null
@@ -499,10 +503,10 @@ func _build_settings() -> void:
 
 	# RENDER
 	var ren := _page(p, "render")
-	_note(ren, "Choose a preset for frame rate and image quality. High adds photo-style craft and launchpad materials. Advanced controls expose resolution and post-processing settings.")
+	_note(ren, "Choose a preset for frame rate and image quality. High adds photo-style craft and launchpad materials and volumetric launch smoke. Ultra renders at the display's full pixel density, with finer clouds, plumes and smoke and soft sun shadows. Advanced controls expose resolution and post-processing settings.")
 	_h3(ren, "Rendering quality")
-	var quality_choices := grid(ren, [1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
-	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"]]:
+	var quality_choices := grid(ren, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
+	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]]:
 		B(quality_choices, "Toggle", q[1], "[data-render-quality=%s]" % q[0]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
 	var advanced_btn := B(ren, "Toggle", "☐ Advanced rendering controls", "renderAdvancedToggle")
 	advanced_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
@@ -1086,7 +1090,7 @@ func _build_flight_panel() -> void:
 	var p := _panel("flightPanel", [16, 16, 16, 16])
 	flight_panel = p
 	var head := hbox(p.body, 8.0)
-	head.add_child(_head_title("Flight"))
+	head.add_child(_head_title("Systems"))
 	var warp := hbox(head, 4.0)
 	warp.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var wd := B(warp, "Warp", "◂", "[data-warp=-1]", "Slow time (,)")
@@ -1107,6 +1111,10 @@ func _build_flight_panel() -> void:
 	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	x.pressed.connect(func(): set_panel_open("flightPanel", false))
 	reg("flightHud", stack(p.body))
+	flight_console_host = Control.new()
+	flight_console_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(flight_console_host)
+	reg("flightConsole", flight_console_host)
 
 # tabs
 func _tab(text: String, id: String) -> HudButton:
@@ -1124,7 +1132,7 @@ func _build_tabs() -> void:
 	tab_col.add_theme_constant_override("separation", 6)
 	tab_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(tab_col)
-	for t in [["scenarioPanel", "▸ Scenario"], ["coursePanel", "▸ Course"], ["flightPanel", "▸ Flight"]]:
+	for t in [["scenarioPanel", "▸ Scenario"], ["coursePanel", "▸ Course"], ["flightPanel", "▸ Systems"]]:
 		tab_col.add_child(_tab(t[1], t[0]))
 	tab_col.minimum_size_changed.connect(_queue_layout)
 	tab_right = _tab("Controls ◂", "controlPanel")
@@ -1147,35 +1155,48 @@ func _build_readout() -> void:
 			L(row, run[0], run[1], run[2] if run.size() > 2 else "")
 	readout.minimum_size_changed.connect(_queue_layout)
 
-# START SCREEN
+# START SCREEN: the title over the reel (sim/titlereel.gd). The left of the frame
+# is shaded for the menu; the veil is the reel's fade to black between shots.
 func _build_start() -> void:
 	start_screen = Control.new()
 	start_screen.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(start_screen)
 	reg("startScreen", start_screen)
+	_title_veil = ColorRect.new()
+	_title_veil.color = Color(0, 0, 0, 1)
+	_title_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	start_screen.add_child(_title_veil)
+	_title_shade = TextureRect.new()
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.24, 0.46, 0.68])
+	g.colors = PackedColorArray([Color(0, 0, 0, 0.94), Color(0, 0, 0, 0.86), Color(0, 0, 0, 0.42), Color(0, 0, 0, 0.0)])
+	var gt := GradientTexture2D.new()
+	gt.gradient = g
+	gt.width = 256
+	gt.height = 4
+	_title_shade.texture = gt
+	_title_shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_title_shade.stretch_mode = TextureRect.STRETCH_SCALE
+	_title_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	start_screen.add_child(_title_shade)
+	_title_logo = TitleLogo.new()
+	start_screen.add_child(_title_logo)
 	_start_inner = VBoxContainer.new()
-	_start_inner.add_theme_constant_override("separation", 30)
+	_start_inner.add_theme_constant_override("separation", 0)
 	_start_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	start_screen.add_child(_start_inner)
-	var title := L(_start_inner, "ASTRARIUM", {"ff": "mono", "fw": 700, "fs": 42.0, "lh": 1.2, "ls": 9.24, "c": T.hexc(0xdfe6f0)})
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	start_cards = HudGrid.new([1.0, 1.0, 1.0], 16.0, 16.0)
-	_start_inner.add_child(start_cards)
-	_start_inner.minimum_size_changed.connect(_queue_layout)
-	for c in [["sandbox", "Sandbox", "Build and break systems. N-body gravity, real interiors, black holes, climate, and the imaging bands to look at it all in."],
-			["learn", "Learn astronomy", "A beginner’s course, thirty-five lessons, built on the same physics as the rest of this. Seasons and moon phases through to gravitational waves — in order, or jump to what you came for."],
-			["flight", "Spaceflight", "Fly real vehicles off a real pad. Staging, guidance, landings, time dilation — and a model viewer to see what you are flying."]]:
-		var col := HudStack.new(false)
-		var card := BoxButton.new("Start", col)
-		# a block button centres its content in the row's height
-		card.center = true
-		card.set_meta("start", c[0])
-		col.add_child(m(StartIcon.new(c[0]), 0.0, 14.0))
-		m(L(col, c[1], {"fs": 15.0, "ls": 0.9, "c": T.hexc(0xe6ecf4)}), 0.0, 8.0)
-		L(col, c[2], {"fs": 11.0, "lh": 1.65, "c": T.TEXT_DIM}, "", true)
-		start_cards.add_child(card)
-		reg("[data-start=%s]" % c[0], card)
-		card.pressed.connect(func(): start_chosen.emit(c[0]))
+	for c in [["sandbox", "Sandbox"], ["flight", "Spaceflight"], ["learn", "Learn"], ["settings", "Settings"]]:
+		var item := TitleItem.new(c[1])
+		_start_inner.add_child(item)
+		reg("[data-start=%s]" % c[0], item)
+		if c[0] == "settings":
+			item.pressed.connect(func(): set_settings_open(true))
+		else:
+			item.pressed.connect(func(): start_chosen.emit(c[0]))
+
+## The reel's fade: 0 shows the scene, 1 is black. The menu stays above it.
+func set_title_veil(a: float) -> void:
+	_title_veil.color.a = a
 
 ## Fade the start screen out (opacity and a 3% scale over 0.4 s), then remove it.
 func dismiss_start() -> void:
@@ -1187,6 +1208,7 @@ func dismiss_start() -> void:
 	start_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	start_screen.mouse_behavior_recursive = Control.MOUSE_BEHAVIOR_DISABLED
 	start_screen.pivot_offset = size * 0.5
+	set_shown("quitToStart", true)
 	if _start_tween: _start_tween.kill()
 	_start_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_start_tween.tween_property(start_screen, "modulate:a", 0.0, 0.4)
@@ -1202,6 +1224,8 @@ func show_start() -> void:
 	start_screen.scale = Vector2.ONE
 	start_screen.mouse_filter = Control.MOUSE_FILTER_STOP
 	start_screen.mouse_behavior_recursive = Control.MOUSE_BEHAVIOR_INHERITED
+	# Nothing to quit to from the title itself.
+	set_shown("quitToStart", false)
 	_queue_layout()
 
 func set_settings_open(open: bool) -> void:
@@ -1256,8 +1280,11 @@ func _apply_body_classes() -> void:
 	var le := body.has("learn-mode")
 	var mo := body.has("model-open")
 	var hh := body.has("hud-hidden")
-	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout]:
+	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout, flight_console_host]:
 		_hide(r, "hud", hh)
+	_hide(flight_console_host, "cls", not fl or mo)
+	# The console takes the bottom of the frame in flight.
+	_hide(readout, "cls", fl)
 	# In flight mode the orrery's own instruments are gone, not folded: the
 	# scenario list, its tab and the cross-section.
 	_hide(scenario_panel, "cls", fl or le)
@@ -1751,6 +1778,9 @@ func _process(dt: float) -> void:
 			fb.modulate.a = 1.0 - 0.55 * ease
 	# Once a frame at most: a panel's height feeds back into its width (a
 	# scrollbar), and a re-placement inside the same message flush could cycle.
+	if not _layout_pending and flight_console_host.visible and flight_console_host.get_child_count() > 0:
+		var con: Control = flight_console_host.get_child(0)
+		if absf(float(con.call("height")) - flight_console_host.size.y) > 0.5: _layout_pending = true
 	if _layout_pending:
 		_layout_all()
 
@@ -1826,9 +1856,19 @@ func _layout_all() -> void:
 	settings_backdrop.size = Vector2(W, H)
 	_fit(readout, 20, 0)
 	readout.position.y = H - 18 - readout.size.y
+	if flight_console_host.visible and flight_console_host.get_child_count() > 0:
+		var con: Control = flight_console_host.get_child(0)
+		var cw := minf(1080.0, W - 40.0)
+		var ch: float = con.call("height")
+		flight_console_host.position = Vector2(roundf((W - cw) * 0.5), roundf(H - 14.0 - ch))
+		flight_console_host.size = Vector2(cw, ch)
+		con.size = Vector2(cw, ch)
 	# The column's own top and bottom edges are measured, not assumed.
 	var col_top := 18.0
 	var hud_bottom := roundf(readout.size.y) + 30.0 if _shown(readout) else 30.0
+	# The left column stops above the flight console.
+	if flight_console_host.visible and flight_console_host.size.y > 0.0:
+		hud_bottom = maxf(hud_bottom, H - flight_console_host.position.y + 12.0)
 
 	# Settings is a centred Esc overlay; the scenario column starts at the top.
 	var sw := minf(460.0, W - 48.0)
@@ -1881,40 +1921,27 @@ func _layout_all() -> void:
 	toast_el.size = Vector2(toast_el.size.x, toast_el.get_combined_minimum_size().y)
 	toast_el.position = Vector2(toast_x - toast_el.size.x * 0.5, col_top)
 
-	# the start screen
+	# the start screen: the wordmark and the menu down the left, sized from the height
 	start_screen.position = Vector2.ZERO
 	start_screen.size = Vector2(W, H)
 	start_screen.pivot_offset = Vector2(W, H) * 0.5
-	_start_cards_responsive(W)
-	var iw := minf(860.0, 0.9 * W)
-	_start_inner.size = Vector2(iw, 0)
-	var ih := _start_inner.get_combined_minimum_size().y
-	_start_inner.position = Vector2(roundf((W - iw) * 0.5), roundf((H - ih) * 0.5))
-	_start_inner.size = Vector2(iw, ih)
-
-## Three doors, stepping down rather than wrapping to an orphan: at 1040 px the
-## course card goes full width above the other two, at 720 px one column.
-func _start_cards_responsive(W: float) -> void:
-	var cards := start_cards.get_children()
-	var learn := cards_by("learn")
-	if W > 1040.0:
-		if start_cards.cols.size() != 3: start_cards.set_cols([1.0, 1.0, 1.0])
-		for c in cards: c.set_meta("span", 1)
-		start_cards.move_child(learn, 1)
-	elif W > 720.0:
-		if start_cards.cols.size() != 2: start_cards.set_cols([1.0, 1.0])
-		start_cards.move_child(learn, 0)
-		for c in cards: c.set_meta("span", 2 if c == learn else 1)
-	else:
-		if start_cards.cols.size() != 1: start_cards.set_cols([1.0])
-		for c in cards: c.set_meta("span", 1)
-	start_cards.queue_sort()
-
-func cards_by(k: String) -> Node:
-	for c in start_cards.get_children():
-		if c.get_meta("start", "") == k:
-			return c
-	return null
+	_title_veil.position = Vector2.ZERO
+	_title_veil.size = Vector2(W, H)
+	_title_shade.position = Vector2.ZERO
+	_title_shade.size = Vector2(W, H)
+	var left := roundf(clampf(W * 0.055, 40.0, 110.0))
+	var lw := roundf(clampf(minf(W * 0.4, H * 0.68), 340.0, 760.0))
+	var lh := TitleLogo.height_for(lw)
+	_title_logo.position = Vector2(left, roundf(H * 0.05))
+	_title_logo.size = Vector2(lw, lh)
+	var fs := int(clampf(H * 0.021, 15.0, 28.0))
+	for item: TitleItem in _start_inner.get_children():
+		item.set_font_size(fs)
+	_start_inner.add_theme_constant_override("separation", int(H * 0.045))
+	_start_inner.size = Vector2(0, 0)
+	var ms := _start_inner.get_combined_minimum_size()
+	_start_inner.position = Vector2(left + 4.0, roundf(maxf(_title_logo.position.y + lh * 0.92, H * 0.38)))
+	_start_inner.size = ms
 
 func _input(e: InputEvent) -> void:
 	# Clicking anywhere but the search box gives the keyboard back to the view.

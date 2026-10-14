@@ -1,431 +1,1279 @@
 # SPACE SHUTTLE, the Blender build. Nothing is stacked: vehicles.gd mounts all
 # three (`look.mount`), the solids hang below the tank's base, and the orbiter is
-# bolted to its side. Three non-revolved shapes:
-#   · the fuselage: a rounded-square section whose width and height vary
-#     independently (`loft`)
-#   · the wing: a double delta kinked at x = 5.4 m (79° glove, 45° outer panel)
-#   · the white/black split: RCC and black HRSI where the plasma goes (underside,
-#     leading edges, nose cap), white LRSI and felt elsewhere
-# The orbiter is nose-up along +Z, wings on ±X, belly toward the tank. `loft` and
-# `wing` take vertical terms up-positive (see lib.py's axis note).
+# bolted to its side.
+#
+# Every station is in the program's own coordinates, inches, and converted once:
+#   Xo/Yo/Zo  orbiter: nose tip Xo 236, payload bay axis Zo 400, +Yo starboard
+#   XT        tank: nose tip XT 322.5;  XB  booster: nose tip XB 200
+#   XS = XT = XB + 543 = Xo + 741, and the orbiter's Zo 400 plane is 336.5 in off
+#   the tank axis (Space Shuttle News Reference, "Coordinate system").
+# Sources for the lines (docs/physics/shuttle-geometry.md has the table):
+#   NASA CR-134087 (DMS-DR-2083, configuration 140A/B): body, wing W116, vertical
+#   V8, elevons, body flap, OMS pods and nozzles, full-scale; its model three-view
+#   gives the side profile and the nose planform.
+#   NASA TM X-58153: SSME gimbal centres and cant angles.
+#   HAER TX-116: ET ring frames at XT 745, 852, 1129, 2058.
+# Axes: the stage axis is Blender +Z (nose up), Yo is Blender X, and the orbiter's
+# top (+Zo) is Blender -Y (lib.py's axis note).
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from math import pi, cos, sin, copysign
-from mathutils import Vector
-from lib import (revolve, cyl, lathe, tank, box, torus_z, disc, empty, finish,
-                 smooth, strut, bell, ball, ogive, loft, wing, rcs_ring, naca, _obj, TAU)
+from math import pi, cos, sin, sqrt, atan2, radians, log
+from mathutils import Vector, Matrix, Euler
+import bmesh
+from lib import (revolve, cyl, lathe, box, torus_z, disc, empty, finish, smooth,
+                 strut, bell, ogive, _obj, TAU)
 from common import build, stage, vehicle_stages
 
 S = vehicle_stages("shuttle")
+IN = 0.0254
 
 SRB_L, SRB_D = S["srb"]["L"], S["srb"]["D"]
 ET_L, ET_D = S["et"]["L"], S["et"]["D"]
 ORB_L = S["orbiter"]["L"]
-f = lambda u: u * ORB_L
+
+# The orbiter's datum (stage z = 0) is its aft-most point, the vertical tail's tip
+# trailing edge, so the stage's L is the published 37.24 m overall length.
+XO_NOSE = 236.0
+XO_DATUM = XO_NOSE + ORB_L / IN
+XT_AFT = 322.5 + ET_L / IN            # tank datum: the LH2 aft dome
+XB_EXIT = 200.0 + SRB_L / IN          # booster datum: the nozzle exit plane
+SRB_Y = 250.5 * IN                    # booster axes at Ys ±250.5
 
 
-# The orbiter's hull as a function, so details can be placed on it:
-# (u, belly, back, half-width, superellipse n, black-line angle s). Heights are
-# up-positive from the payload bay axis; s is the angle above the section's middle
-# where the black tile stops (negative: below it).
-_FUS = [
-    (0.000, -2.50, 2.70, 2.35, 3.0, -0.30),
-    (0.030, -2.80, 2.92, 2.62, 3.4, -0.30),
-    (0.090, -2.90, 2.94, 2.78, 3.6, -0.30),
-    (0.200, -2.86, 2.86, 2.80, 3.6, -0.30),
-    (0.400, -2.80, 2.80, 2.80, 3.6, -0.30),
-    (0.640, -2.76, 2.76, 2.80, 3.5, -0.30),
-    (0.762, -2.76, 2.78, 2.80, 3.4, -0.28),
-    (0.800, -2.76, 2.88, 2.74, 3.2, -0.22),
-    (0.835, -2.72, 2.90, 2.62, 3.0, -0.12),
-    (0.855, -2.64, 2.66, 2.50, 2.9, 0.00),
-    (0.880, -2.52, 1.95, 2.30, 2.8, 0.14),
-    (0.905, -2.36, 1.30, 2.05, 2.6, 0.26),
-    (0.935, -2.12, 0.78, 1.72, 2.5, 0.22),
-    (0.960, -1.84, 0.30, 1.30, 2.4, 0.14),
-    (0.980, -1.56, -0.18, 0.86, 2.3, 0.10),
-    (0.993, -1.32, -0.55, 0.46, 2.2, 0.10),
-    (1.000, -1.05, -0.85, 0.10, 2.2, 0.10),
-]
+def P(xo, yo, zo):
+    """Orbiter station → stage frame."""
+    return Vector((yo * IN, -(zo - 400.0) * IN, (XO_DATUM - xo) * IN))
 
 
-def orbiter_sections():
-    return [{'u': u, 'z': f(u), 'w': w, 'h': (top - bot) / 2, 'cz': (top + bot) / 2, 'n': n, 's': sp}
-            for (u, bot, top, w, n, sp) in _FUS]
+def PT(xt, yt, zt):
+    """Tank station → stage frame; zt measured from the tank axis toward the orbiter."""
+    return Vector((yt * IN, -zt * IN, (XT_AFT - xt) * IN))
 
 
-def _sec_at(secs, u):
-    for a, b in zip(secs, secs[1:]):
-        if a['u'] <= u <= b['u']:
-            k = (u - a['u']) / max(b['u'] - a['u'], 1e-9)
-            return {key: a[key] + (b[key] - a[key]) * k for key in ('z', 'w', 'h', 'cz', 'n', 's')}
-    return dict(secs[-1] if u > secs[-1]['u'] else secs[0])
+def orient(ob, outward):
+    """Flip any face whose normal disagrees with `outward(centre)`: hand-built
+    strips are easy to wind backwards, and the shading shows it."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    for f in bm.faces:
+        if f.normal.dot(outward(f.calc_center_median())) < 0.0:
+            f.normal_flip()
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    return ob
 
 
-def _pt(c, t):
-    e = 2.0 / c['n']
-    ct, st = cos(t), sin(t)
-    x = c['w'] * copysign(abs(ct) ** e, ct)
-    upv = c['h'] * copysign(abs(st) ** e, st) + c['cz']
-    return Vector((x, -upv, c['z']))
-
-
-def hull(secs, u, t, off=0.0):
-    """The point of the hull at (u, t), stood `off` metres out along its normal."""
-    p = _pt(_sec_at(secs, u), t)
-    if off == 0.0:
-        return p
-    du, dt = 1e-3, 1e-3
-    a = _pt(_sec_at(secs, min(u + du, 1.0)), t) - _pt(_sec_at(secs, max(u - du, 0.0)), t)
-    b = _pt(_sec_at(secs, u), t + dt) - _pt(_sec_at(secs, u), t - dt)
-    n = b.cross(a)
-    if n.length < 1e-9:
-        n = Vector((0, 0, 1))
-    # outward: away from the section's own axis (the tip, where the section
-    # has shrunk to nothing, is outward along +z)
-    c = _sec_at(secs, u)
-    axis = Vector((0.0, -c['cz'], c['z']))
-    if n.dot(p - axis) < 0 or (u > 0.999 and n.z < 0):
-        n = -n
-    return p + n.normalized() * off
-
-
-def hull_normal(secs, u, t):
-    return (hull(secs, u, t, 1.0) - hull(secs, u, t)).normalized()
-
-
-def loft_split(name, secs, mat, rng, seg=32, parent=None):
-    """`loft`, with each section's angular range its own (rng(section) ->
-    (t0, t1)): what lets the black/white boundary climb toward the nose."""
-    ring = seg + 1
-    verts, faces = [], []
-    for c in secs:
-        t0, t1 = rng(c)
-        for j in range(ring):
-            verts.append(tuple(_pt(c, t0 + (t1 - t0) * j / seg)))
-    for i in range(len(secs) - 1):
-        for j in range(seg):
-            a0 = i * ring + j
-            faces.append((a0, a0 + ring, a0 + ring + 1, a0 + 1))
+def strip(name, rows, mat, parent=None, closed=False):
+    """A quad mesh through rows of points (every row the same length)."""
+    n = len(rows[0])
+    verts = [tuple(p) for r in rows for p in r]
+    faces = []
+    m = n if closed else n - 1
+    for i in range(len(rows) - 1):
+        for j in range(m):
+            j2 = (j + 1) % n
+            a, b = i * n + j, i * n + j2
+            faces.append((a, b, b + n, a + n))
     return _obj(name, verts, faces, mat, parent)
 
 
-def surf_patch(name, secs, u0, u1, t0, t1, off, mat, parent, nu=4, nt=4):
-    """A patch OF the hull over u0..u1 × t0..t1, stood `off` off it."""
-    verts, faces = [], []
-    for i in range(nu + 1):
-        u = u0 + (u1 - u0) * i / nu
-        for j in range(nt + 1):
-            verts.append(tuple(hull(secs, u, t0 + (t1 - t0) * j / nt, off)))
-    R = nt + 1
-    for i in range(nu):
-        for j in range(nt):
-            a = i * R + j
-            faces.append((a, a + R, a + R + 1, a + 1))
-    ob = _obj(name, verts, faces, mat, parent)
+def local_to(node_matrix, rows):
+    inv = node_matrix.inverted()
+    return [[inv @ p for p in r] for r in rows]
+
+
+def pchip(xs, ys):
+    """A monotone cubic through tabulated stations: lines that are smooth between
+    table rows without overshooting them (Fritsch–Carlson)."""
+    n = len(xs)
+    d = [(ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]) for i in range(n - 1)]
+    m = [d[0]] + [0.0 if d[i - 1] * d[i] <= 0 else
+                  (3 * (xs[i + 1] - xs[i - 1])) / ((2 * xs[i + 1] - xs[i] - xs[i - 1]) / d[i - 1] +
+                                                   (xs[i + 1] + xs[i] - 2 * xs[i - 1]) / d[i])
+                  for i in range(1, n - 1)] + [d[-1]]
+
+    def f(x):
+        if x <= xs[0]:
+            return ys[0]
+        if x >= xs[-1]:
+            return ys[-1]
+        i = max(k for k in range(n - 1) if xs[k] <= x)
+        h = xs[i + 1] - xs[i]
+        t = (x - xs[i]) / h
+        h00, h10 = 2 * t ** 3 - 3 * t * t + 1, t ** 3 - 2 * t * t + t
+        h01, h11 = -2 * t ** 3 + 3 * t * t, t ** 3 - t * t
+        return h00 * ys[i] + h10 * h * m[i] + h01 * ys[i + 1] + h11 * h * m[i + 1]
+    return f
+
+
+# THE FUSELAGE LINES
+# Per station: belly Zo, top Zo, half-width, the height where the sides turn into
+# the roof, the chine radius, the roof's superellipse exponent, and the height of
+# the black/white tile boundary. Belly and top are the model three-view's profile;
+# the half-widths are its planform to Xo 505 (where the wing glove meets the
+# body), then the bay's 17 ft, flaring to the base's 262 in (CR-134087).
+_FUS = [
+    # Xo     belly  top    w      z_s    r_c   n_t   z_line
+    (236.0, 335.6, 336.4, 0.4, 336.0, 0.4, 2.0, 999),
+    (238.0, 327.0, 343.0, 9.0, 334.5, 7.5, 2.0, 999),
+    (241.0, 320.0, 349.0, 14.0, 334.0, 12.0, 2.0, 999),
+    (245.0, 313.5, 353.0, 19.0, 334.0, 17.0, 2.0, 999),
+    (250.0, 308.5, 358.0, 24.0, 334.0, 21.0, 2.0, 999),
+    (256.0, 304.0, 364.0, 29.0, 335.0, 25.0, 2.0, 999),
+    (265.0, 300.0, 372.0, 34.0, 337.0, 29.0, 2.0, 380),
+    (275.0, 296.0, 379.0, 39.0, 339.0, 32.0, 2.05, 375),
+    (290.0, 291.5, 389.0, 46.0, 342.0, 35.0, 2.1, 370),
+    (310.0, 288.0, 397.0, 53.0, 346.0, 37.0, 2.15, 365),
+    (335.0, 283.5, 405.0, 62.0, 350.0, 37.0, 2.2, 358),
+    (360.0, 281.0, 414.0, 69.0, 355.0, 35.0, 2.2, 352),
+    (385.0, 279.5, 422.0, 75.0, 360.0, 33.0, 2.2, 346),
+    (410.0, 278.5, 431.5, 80.5, 366.0, 30.0, 2.2, 340),
+    (435.0, 277.5, 444.0, 84.8, 372.0, 28.0, 2.25, 335),
+    (460.0, 276.5, 463.0, 88.7, 380.0, 26.0, 2.3, 330),
+    (485.0, 275.5, 481.0, 92.8, 388.0, 24.0, 2.35, 325),
+    (510.0, 274.5, 491.5, 96.5, 396.0, 22.0, 2.4, 320),
+    (540.0, 273.5, 494.5, 100.0, 404.0, 20.0, 2.3, 316),
+    (582.0, 272.0, 496.0, 102.0, 410.0, 18.0, 2.1, 312),
+    (700.0, 267.5, 496.5, 102.0, 410.0, 18.0, 2.1, 308),
+    (850.0, 264.0, 497.5, 102.0, 410.0, 18.0, 2.1, 306),
+    (1000.0, 261.0, 498.5, 102.0, 410.0, 18.0, 2.1, 305),
+    (1150.0, 259.2, 500.0, 102.0, 410.0, 17.0, 2.1, 305),
+    (1307.0, 259.5, 501.0, 102.0, 410.0, 16.0, 2.1, 305),
+    (1340.0, 260.0, 503.0, 107.0, 411.0, 15.0, 1.8, 304),
+    (1400.0, 263.5, 510.0, 118.0, 412.0, 14.0, 1.45, 302),
+    (1460.0, 268.0, 518.0, 126.0, 412.0, 12.0, 1.3, 300),
+    (1500.0, 272.0, 522.0, 129.5, 411.0, 12.0, 1.3, 298),
+    (1528.3, 275.6, 525.0, 131.0, 410.0, 12.0, 1.3, 296),
+]
+_KEYS = ('zb', 'zt', 'w', 'zs', 'rc', 'nt', 'zl')
+_F = {k: pchip([r[0] for r in _FUS], [r[i + 1] for r in _FUS]) for i, k in enumerate(_KEYS)}
+XO_BAY0, XO_BAY1, XO_BASE = 582.0, 1307.0, 1528.3
+
+
+def sec(xo):
+    c = {k: _F[k](xo) for k in _KEYS}
+    c['xo'] = xo
+    c['rc'] = min(c['rc'], c['w'], max(c['zs'] - c['zb'], 0.0))
+    return c
+
+
+def half_profile(c, n=96):
+    """The right half of a section, bottom centre to top centre, as (yo, zo)
+    points: flat belly, chine arc, side wall, roof superellipse."""
+    w, zb, zt, zs, rc, nt = c['w'], c['zb'], c['zt'], c['zs'], c['rc'], c['nt']
+    pts = [(0.0, zb)]
+    if w - rc > 1e-3:
+        pts.append((w - rc, zb))
+    for i in range(1, 9):
+        a = -pi / 2 + (i / 8) * pi / 2
+        pts.append((w - rc + rc * cos(a), zb + rc + rc * sin(a)))
+    if zs > zb + rc + 1e-3:
+        pts.append((w, zs))
+    e = 2.0 / nt
+    for i in range(1, n + 1):
+        a = (i / n) * pi / 2
+        pts.append((w * cos(a) ** e, zs + (zt - zs) * sin(a) ** e))
+    return pts
+
+
+def _cum(pts):
+    s = [0.0]
+    for (a, b) in zip(pts, pts[1:]):
+        s.append(s[-1] + ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5)
+    return s
+
+
+class Ring:
+    """One station's half-profile, evaluated by arc-length fraction s ∈ [0, 1]
+    (0 bottom centre, 1 top centre); negative s is the port side."""
+
+    def __init__(self, xo):
+        self.c = sec(xo)
+        self.pts = half_profile(self.c)
+        self.cum = _cum(self.pts)
+        self.L = max(self.cum[-1], 1e-6)
+
+    def at(self, s):
+        sign = -1.0 if s < 0 else 1.0
+        d = min(abs(s), 1.0) * self.L
+        k = 0
+        while k < len(self.cum) - 2 and self.cum[k + 1] < d:
+            k += 1
+        seg = max(self.cum[k + 1] - self.cum[k], 1e-9)
+        t = (d - self.cum[k]) / seg
+        y = self.pts[k][0] + (self.pts[k + 1][0] - self.pts[k][0]) * t
+        z = self.pts[k][1] + (self.pts[k + 1][1] - self.pts[k][1]) * t
+        return P(self.c['xo'], sign * y, z)
+
+    def s_at_z(self, z):
+        """The first s (from the belly up) where the profile reaches height z."""
+        for k in range(len(self.pts) - 1):
+            z0, z1 = self.pts[k][1], self.pts[k + 1][1]
+            if (z0 - z) * (z1 - z) <= 0 and abs(z1 - z0) > 1e-9:
+                t = (z - z0) / (z1 - z0)
+                return (self.cum[k] + t * (self.cum[k + 1] - self.cum[k])) / self.L
+        return 1.0 if z > self.pts[-1][1] else 0.0
+
+
+def stations(x0, x1, step):
+    n = max(int(round((x1 - x0) / step)), 1)
+    return [x0 + (x1 - x0) * i / n for i in range(n + 1)]
+
+
+FWD_X = stations(236.0, 262.0, 2.6) + stations(262.0, 582.0, 10.0)[1:]
+BAY_X = stations(XO_BAY0, XO_BAY1, 36.25)
+AFT_X = stations(XO_BAY1, XO_BASE, 13.0)
+
+
+def hull_outward(c_axis_z=400.0):
+    """Outward for the hull: away from the section's own centre line."""
+    def f(p):
+        xo = XO_DATUM - p.z / IN
+        c = sec(min(max(xo, XO_NOSE), XO_BASE))
+        mid = (c['zb'] + c['zt']) / 2
+        v = Vector((p.x, p.y + (mid - 400.0) * IN, 0.0))
+        if xo < XO_NOSE + 2.0:
+            v.z = 1.0
+        return v
+    return f
+
+
+def hull_strip(name, xs, s_fn, n, mat, parent):
+    """A band of hull between per-station arc fractions s_fn(ring) -> (s0, s1)."""
+    rows = []
+    for xo in xs:
+        r = Ring(xo)
+        s0, s1 = s_fn(r)
+        rows.append([r.at(s0 + (s1 - s0) * j / n) for j in range(n + 1)])
+    ob = strip(name, rows, mat, parent)
+    orient(ob, hull_outward())
     smooth(ob, 40)
     return ob
 
 
-def port(parent, secs, u, t, r, depth, mat, name):
-    """A round feature — a thruster mouth, a hatch — set into the hull along
-    its normal, half sunk."""
-    n = hull_normal(secs, u, t)
-    ob = cyl(name, r, r, -depth * 0.5, depth * 0.5, mat, seg=14, parent=parent)
-    cap = disc(name + '_c', r, depth * 0.5, mat, seg=14, parent=parent)
+def hull_point(xo, s, off=0.0):
+    """A point on the hull, `off` inches out along its normal."""
+    r = Ring(xo)
+    p = r.at(s)
+    if off == 0.0:
+        return p
+    d = 0.6
+    a = Ring(xo + d).at(s) - Ring(xo - d).at(s)
+    b = r.at(s + 0.003) - r.at(s - 0.003)
+    nrm = b.cross(a) if s >= 0 else a.cross(b)
+    if nrm.length < 1e-9:
+        return p
+    nrm.normalize()
+    if nrm.dot(hull_outward()(p)) < 0:
+        nrm = -nrm
+    return p + nrm * off * IN
+
+
+def roof_point(xo, yo, off=0.0):
+    """A point on the roof at (xo, yo), for features laid out in plan: the
+    windows, the overhead jets."""
+    r = Ring(xo)
+    c = r.c
+    yo = max(min(yo, c['w'] - 0.01), -c['w'] + 0.01)
+    # roof superellipse solved for its height at |yo|
+    u = 1.0 - (abs(yo) / c['w']) ** c['nt']
+    z = c['zs'] + (c['zt'] - c['zs']) * max(u, 0.0) ** (1.0 / c['nt'])
+    s = r.s_at_z(z)
+    return hull_point(xo, s if yo >= 0 else -s, off)
+
+
+def roof_patch(name, xa, xb, ya0, ya1, yb0, yb1, off, mat, parent, nu=6, nv=6):
+    """A quad patch on the roof, its plan a trapezoid: at Xo xa it spans ya0..ya1,
+    at xb yb0..yb1."""
+    rows = []
+    for i in range(nu + 1):
+        t = i / nu
+        xo = xa + (xb - xa) * t
+        y0 = ya0 + (yb0 - ya0) * t
+        y1 = ya1 + (yb1 - ya1) * t
+        rows.append([roof_point(xo, y0 + (y1 - y0) * j / nv, off) for j in range(nv + 1)])
+    ob = strip(name, rows, mat, parent)
+    orient(ob, hull_outward())
+    return ob
+
+
+def roof_band(name, y0, y1, x_lo, x_hi, off, mat, parent, nu=4, nv=8):
+    """A roof patch spanning yo ∈ [y0, y1], each column from x_lo(yo) to x_hi(yo)."""
+    cols = []
+    for j in range(nv + 1):
+        yo = y0 + (y1 - y0) * j / nv
+        cols.append([roof_point(x_lo(yo) + (x_hi(yo) - x_lo(yo)) * i / nu, yo, off) for i in range(nu + 1)])
+    rows = [[cols[j][i] for j in range(nv + 1)] for i in range(nu + 1)]
+    ob = strip(name, rows, mat, parent)
+    orient(ob, hull_outward())
+    return ob
+
+
+def hull_patch(name, xa, xb, sa, sb, off, mat, parent, nu=4, nv=4):
+    rows = []
+    for i in range(nu + 1):
+        xo = xa + (xb - xa) * i / nu
+        rows.append([hull_point(xo, sa + (sb - sa) * j / nv, off) for j in range(nv + 1)])
+    ob = strip(name, rows, mat, parent)
+    orient(ob, hull_outward())
+    return ob
+
+
+def port(name, base, nrm, r, depth, mat, parent):
+    """A thruster mouth set into the skin along `nrm`, half sunk."""
+    ob = cyl(name, r, r, -depth * 0.5, depth * 0.5, mat, seg=12, parent=parent)
+    cap = disc(name + '_c', r * 0.8, depth * 0.1, mat, seg=12, parent=parent)
+    q = Vector((0, 0, 1)).rotation_difference(nrm.normalized())
     for o in (ob, cap):
         o.rotation_mode = 'QUATERNION'
-        o.rotation_quaternion = Vector((0, 0, 1)).rotation_difference(n)
-        o.location = hull(secs, u, t)
+        o.rotation_quaternion = q
+        o.location = base
+    return ob
 
 
-# THE SOLIDS
-def build_srb(M, root):
-    """
-    A PAIR, and the vehicle stands on them: z = 0 here is the NOZZLE EXIT
-    PLANE, level with the pad, so the whole 45.5 m is measured the way the
-    published number is rather than from an arbitrary datum.
-
-    A solid's read is its JOINTS. The RSRM ships as four casting segments
-    bolted together with tang-and-clevis field joints, and those four raised
-    bands — plus the systems tunnel running the full length between them — are
-    what separate a booster from a white pipe at any distance you see one from.
-    """
-    g = stage('srb', root)
-    r = SRB_D / 2
-    for side in (-1, 1):
-        b = empty(f'srb{side}', (side * 6.35, 0, 0), g)
-
-        # Aft skirt: the flared structure that actually carries the whole stack
-        # on the pad, with the nozzle recessed inside it. Wider than the case.
-        sk = cyl(f'skirt{side}', r * 1.30, r * 1.02, 0.0, SRB_L * 0.098,
-                 M['dirty'], seg=40, parent=b)
-        finish(sk, 0.02, 2, 45)
-        # The nozzle hangs on a pivot, since plumes parent to parts.gimbals. The RSRM
-        # vectors 8°, the stack's only control until the SSMEs have authority.
-        piv = empty(f'gimbal_srb_{0 if side < 0 else 1}',
-                    (side * 6.35, 0, SRB_L * 0.085), g)
-        nz = bell(f'srbnoz{side}', S['srb']['engine']['exitD'], M['nozzle'], ratio=7.7, chamber=False,
-                  seg=32, parent=piv)
-        finish(nz, 0.015, 2, 50)
-
-        # Motor case: four segments, so four field joints.
-        case_z, case_l = SRB_L * 0.098, SRB_L * 0.735
-        body = cyl(f'case{side}', r, r, case_z, case_z + case_l, M['white'],
-                   seg=48, parent=b)
-        finish(body, 0.02, 2, 40)
-        for i in range(1, 5):
-            j = torus_z(f'joint{side}_{i}', r * 1.018, SRB_D * 0.022,
-                        case_z + case_l * i / 5, M['dirty'], seg=48, minor=8, parent=b)
-            smooth(j, 30)
-        # Systems tunnel — the cable raceway down the outboard face.
-        tun = box(f'tunnel{side}', (SRB_D * 0.10, SRB_D * 0.07, case_l * 0.98),
-                  (side * r * 0.99, 0, case_z + case_l / 2), M['dirty'], parent=b)
-        finish(tun, 0.015, 2, 40)
-
-        # Forward skirt, frustum and nose cap. The frustum is where the drogue
-        # and main parachutes live, which is why it comes off separately.
-        fs_z, fs_l = case_z + case_l, SRB_L * 0.070
-        fs = cyl(f'fwdskirt{side}', r, r, fs_z, fs_z + fs_l, M['white'],
-                 seg=40, parent=b)
-        fr_l = SRB_L * 0.048
-        fr = cyl(f'frustum{side}', r, r * 0.72, fs_z + fs_l, fs_z + fs_l + fr_l,
-                 M['white'], seg=40, parent=b)
-        finish(fr, 0.02, 2, 45)
-        cap_z = fs_z + fs_l + fr_l
-        cap = ogive(f'cap{side}', SRB_L - cap_z, r * 1.44, M['white'], seg=40,
-                    parent=b, z0=cap_z)
-        finish(cap, 0.02, 2, 45)
-
-        # The forward attach fitting and the aft struts: the booster does not
-        # touch the tank, it is HELD OFF it, and the gap is a structural fact.
-        for k, (z, ln) in enumerate(((fs_z + fs_l * 0.4, 0.9),
-                                     (case_z + case_l * 0.06, 1.1),
-                                     (case_z + case_l * 0.13, 1.1))):
-            strut(f'attach{side}{k}', (-side * r, 0, z),
-                  (-side * (r + ln), 0, z), 0.16, M['dirty'], seg=8, parent=b)
-    return g
+def hull_port(name, xo, s, r_in, mat, parent):
+    p = hull_point(xo, s)
+    n = hull_point(xo, s, 1.0) - p
+    return port(name, p, n, r_in * IN, r_in * 1.6 * IN, mat, parent)
 
 
-# EXTERNAL TANK
-def build_et(M, root):
-    """
-    46.9 m is the WHOLE tank, ogive included, so the barrel is SHORTENED to
-    make room for the nose rather than the nose added on top — otherwise the
-    stack stands 8 m taller than the real one.
+def build_fuselage(M, g):
+    # Black where the plasma goes (the belly, the chines, the chin), white above.
+    # The split follows each station's own boundary height, so it climbs toward
+    # the nose cap the way the tile map does.
+    def black(r):
+        sl = r.s_at_z(r.c['zl'])
+        return (-sl, sl)
 
-    The tank draws no engines. `engineOn: 'orbiter'` in vehicles.js says the
-    SSMEs are on the orbiter and merely fed from here; a tank that drew them
-    too would fly the stack with six main engines, three of them bolted to
-    something it throws away.
-    """
-    g = stage('et', root)
-    r = ET_D / 2
-    nose_l = ET_D * 1.45
+    def white(r):
+        sl = r.s_at_z(r.c['zl'])
+        return (sl, 2.0 - sl)
 
-    body = tank('et_body', ET_L - nose_l, ET_D, M['foam'], dome_top=0.0,
-                dome_bot=0.02, seg=56, parent=g)
-    finish(body, 0.03, 2, 40)
-    nose = ogive('et_nose', nose_l, ET_D, M['foam'], seg=56, parent=g,
-                 z0=ET_L - nose_l)
-    finish(nose, 0.03, 2, 40)
+    def white_bay(side):
+        def f(r):
+            sl = r.s_at_z(r.c['zl'])
+            sh = r.s_at_z(r.c['zs'])
+            return (sl, sh) if side > 0 else (-sh, -sl)
+        return f
 
-    # ---- the intertank: the one stringered band on an otherwise smooth tank,
-    # and the feature that stops 47 m of orange foam reading as a crayon.
-    it_z, it_h = ET_L * 0.545, ET_L * 0.115
-    for i in range(44):
-        a = i / 44 * TAU
-        box(f'stringer{i}', (0.16, 0.16, it_h),
-            (cos(a) * r * 1.005, sin(a) * r * 1.005, it_z + it_h / 2),
-            M['foam'], rot=(0, 0, a), parent=g)
-    for k, zz in enumerate((it_z, it_z + it_h)):
-        b_ = torus_z(f'itband{k}', r * 1.012, 0.10, zz, M['foam'],
-                     seg=56, minor=8, parent=g)
-        smooth(b_, 30)
+    # forward fuselage, closed rings; the white band wraps over the top, so its
+    # port half is the mirror of `at` past s = 1
+    class Wrap:
+        def __init__(self, xo):
+            self.r = Ring(xo)
+            self.c = self.r.c
 
-    # ---- the LO2 feedline and the pressurisation lines, which run the length
-    # of the tank on the orbiter's side. The only straight lines on the object.
-    for k, (ax, pr) in enumerate(((0.34, 0.24), (-0.34, 0.13))):
-        pipe = cyl(f'feedline{k}', pr, pr, ET_L * 0.05, ET_L * 0.85,
-                   M['dirty'], seg=14, parent=g)
-        pipe.location = (sin(ax) * r * 1.06, -cos(ax) * r * 1.06, 0)
-        finish(pipe, 0.012, 2, 45)
-        # Standoff brackets, every few metres, so the line is plumbed rather
-        # than glued to the foam.
-        for i in range(7):
-            box(f'standoff{k}{i}', (0.10, 0.30, 0.10),
-                (sin(ax) * r * 1.02, -cos(ax) * r * 1.02, ET_L * (0.10 + i * 0.12)),
-                M['dirty'], parent=g)
+        def at(self, s):
+            return self.r.at(s) if s <= 1.0 else self.r.at(-(2.0 - s))
 
-    # ---- the bipod fitting the orbiter's nose hangs on, and the aft attach ring (the
-    # foam ramp over the bipod is what came off on STS-107).
+        def s_at_z(self, z):
+            return self.r.s_at_z(z)
+
+    def wrap_strip(name, xs, fn, n, mat):
+        rows = []
+        for xo in xs:
+            r = Wrap(xo)
+            s0, s1 = fn(r)
+            rows.append([r.at(s0 + (s1 - s0) * j / n) for j in range(n + 1)])
+        ob = strip(name, rows, mat, g)
+        orient(ob, hull_outward())
+        smooth(ob, 40)
+        return ob
+
+    # The RCC nose cap is its own colour: carbon-carbon, grey-black, to Xo ~262.
+    nose_x = [x for x in FWD_X if x <= 262.0]
+    wrap_strip('nosecap', nose_x, lambda r: (-1.0, 1.0), 40, M['soot'])
+    rest = [x for x in FWD_X if x >= 262.0]
+    wrap_strip('fwd_black', rest, black, 24, M['tiles'])
+    wrap_strip('fwd_white', rest, white, 36, M['white'])
+    hull_strip('bay_black', BAY_X, black, 16, M['tiles'], g)
+    for side in (1, -1):
+        hull_strip(f'bay_side{side}', BAY_X, white_bay(side), 8, M['white'], g)
+    wrap_strip('aft_black', AFT_X, black, 16, M['tiles'])
+    wrap_strip('aft_white', AFT_X, white, 36, M['white'])
+
+    # The base heat shield behind the engines.
+    r = Ring(XO_BASE)
+    rim = [r.at(-1.0 + 2.0 * j / 48) for j in range(49)]
+    ctr = sum(rim, Vector()) / len(rim)
+    verts = [tuple(ctr)] + [tuple(p) for p in rim]
+    faces = [(0, j + 1, j + 2) for j in range(48)]
+    base = _obj('base', verts, faces, M['tiles'], g)
+    orient(base, lambda p: Vector((0, 0, -1)))
+
+    # The cabin's windows: six forward panes in one C-shaped band round the cabin
+    # front, the centre pair leading (planform from the three-view), and two
+    # overhead; each set in black tile.
+    lo = lambda yo: 444.0 + 0.0098 * yo * yo
+    hi = lambda yo: lo(yo) + 27.0 - 0.10 * abs(yo)
+    roof_band('ws_mask', -82.0, 82.0, lambda yo: lo(yo) - 4.0, lambda yo: hi(yo) + 4.0, 0.35, M['tiles'], g, nu=4, nv=40)
+    edges = (0.0, 28.0, 54.0, 77.0)
+    for sgn in (1, -1):
+        for k in range(3):
+            y0, y1 = edges[k] + 1.5, edges[k + 1] - 1.5
+            a0, a1 = (y0, y1) if sgn > 0 else (-y1, -y0)
+            roof_band(f'ws{sgn}{k}', a0, a1, lo, hi, 0.9, M['glass'], g, nu=3, nv=4)
+    roof_band('oh_mask', -31.0, 31.0, lambda yo: 520.0, lambda yo: 552.0, 0.35, M['tiles'], g, nu=3, nv=8)
+    for y0, y1 in ((4.0, 27.0), (-27.0, -4.0)):
+        roof_band(f'oh{int(y0)}', y0, y1, lambda yo: 524.0, lambda yo: 548.0, 0.9, M['glass'], g, nu=2, nv=3)
+
+    # Side hatch, port, middeck, with its window.
+    r = Ring(525.0)
+    s = -r.s_at_z(350.0)
+    p = hull_point(525.0, s)
+    n = hull_point(525.0, s, 1.0) - p
+    port('hatch', p, n, 20 * IN, 0.8 * IN, M['dirty'], g)
+    port('hatch_win', p + n * 0.6 * IN, n, 5 * IN, 0.8 * IN, M['glass'], g)
+
+    # Forward RCS: three up-firing jets on the module's crown, a row of side jets
+    # each side, and the down-firing pairs under the chin.
+    for k, yo in enumerate((-15, 0, 15)):
+        p = roof_point(352.0 + abs(yo) * 0.3, yo)
+        n = roof_point(352.0 + abs(yo) * 0.3, yo, 1.0) - p
+        port(f'frcs_up{k}', p, n, 5.5 * IN, 8 * IN, M['black'], g)
+    for sgn in (1, -1):
+        for k, xo in enumerate((322.0, 336.0, 350.0)):
+            s = Ring(xo).s_at_z(372.0)
+            hull_port(f'frcs_side{sgn}{k}', xo, sgn * s, 5.0, M['black'], g)
+        for k, xo in enumerate((300.0, 314.0)):
+            hull_port(f'frcs_dn{sgn}{k}', xo, sgn * 0.22, 5.0, M['black'], g)
+
+
+# THE WING
+# Spanwise stations: BL (in from the centreline), leading- and trailing-edge Xo,
+# thickness (in), where the thickness peaks (fraction of chord), and the chord
+# line's height at the leading and trailing edge. The main panel is CR-134087's
+# W116: 45° leading edge from a theoretical root LE at Xo 835.7 (0.25 MAC at
+# Xo 1136.7, BL 182.3), trailing edge swept −10.06°, 3.5° dihedral, 0.113 → 0.12
+# thick. The glove meets the body at Xo 505 and the main leading edge at Xo 1003.5
+# (81° sweep). Elevon hinge line Xo 1387, unswept.
+WING = [
+    # BL      LE      TE      T      u_max  zc_LE  zc_TE
+    (95.0, 505.0, 1508.0, 66.0, 0.49, 296.0, 280.0),
+    (110.0, 607.7, 1505.4, 65.0, 0.46, 294.5, 282.0),
+    (140.0, 813.2, 1500.1, 62.0, 0.42, 291.5, 284.0),
+    (165.0, 990.0, 1495.6, 57.0, 0.40, 290.0, 286.0),
+    (190.0, 1025.7, 1491.2, 53.0, 0.40, 291.5, 289.5),
+    (300.0, 1135.7, 1471.7, 39.0, 0.40, 298.2, 296.2),
+    (420.0, 1255.7, 1450.4, 23.2, 0.40, 305.6, 303.6),
+    (455.0, 1293.0, 1444.2, 18.0, 0.40, 307.8, 305.8),
+    (466.0, 1312.0, 1442.2, 13.0, 0.42, 308.5, 306.5),
+    (468.34, 1335.0, 1441.8, 5.0, 0.45, 308.6, 306.6),
+]
+LOWER = 0.30          # share of the thickness below the chord line: a flat belly
+ELEVON_X = 1387.0
+ELEVONS = [(115.0, 285.0), (285.0, 455.0)]     # inboard and outboard panels, BL
+
+
+def _thick(u, um):
+    """Normalised thickness (1 at its peak) at chord fraction u, peaking at um."""
+    p = log(0.3) / log(um)
+    v = max(min(u, 1.0), 0.0) ** p
+    return 5 * 0.2 * (0.2969 * sqrt(v) - 0.1260 * v - 0.3516 * v * v
+                      + 0.2843 * v ** 3 - 0.1015 * v ** 4) / 0.10002
+
+
+def wing_point(st, u, side, sgn):
+    bl, le, te, T, um, z0, z1 = st
+    xo = le + (te - le) * u
+    zc = z0 + (z1 - z0) * u
+    t = T * _thick(u, um)
+    zo = zc + (1.0 - LOWER) * t if side > 0 else zc - LOWER * t
+    return P(xo, sgn * bl, zo)
+
+
+def wing_at(bl):
+    """A wing station interpolated at any BL."""
+    for a, b in zip(WING, WING[1:]):
+        if a[0] <= bl <= b[0]:
+            t = (bl - a[0]) / (b[0] - a[0])
+            return tuple(a[i] + (b[i] - a[i]) * t for i in range(7))
+    return WING[-1]
+
+
+def _cos_u(n, u0, u1):
+    return [u0 + (u1 - u0) * (1 - cos(pi * i / n)) / 2 for i in range(n + 1)]
+
+
+def wing_span(bl0, bl1):
+    """The stations from BL bl0 to bl1: both ends and the table's own between them."""
+    return [wing_at(bl0)] + [st for st in WING if bl0 + 1e-6 < st[0] < bl1 - 1e-6] + [wing_at(bl1)]
+
+
+def hinge_u(st):
+    """Chord fraction of the elevon hinge line at a station."""
+    return (ELEVON_X - st[1]) / (st[2] - st[1])
+
+
+def axis_mount(name, origin, axis, side, parent):
+    """A driven surface on a mount at `origin`. craftmodel turns the node about its
+    Godot Z, which is this mount's -Y, so -Y lies along the hinge `axis` and X toward
+    `side`. Returns (node, mount matrix)."""
+    k = axis.normalized()
+    x = (side - k * k.dot(side)).normalized()
+    y = -k
+    m = Matrix((x, y, x.cross(y))).transposed().to_4x4()
+    m.translation = origin
+    mnt = empty(f'mount_{name}', (0, 0, 0), parent)
+    mnt.matrix_basis = m
+    return empty(name, (0, 0, 0), mnt), m
+
+
+def build_wing(M, g):
+    le_u = 0.022
+    band = 0.075            # the black tile border along the upper leading edge
+    lo, hi = ELEVONS[0][0], ELEVONS[-1][1]
+    spans = [(wing_span(WING[0][0], lo), False), (wing_span(lo, hi), True), (wing_span(hi, WING[-1][0]), False)]
+    for sgn in (1, -1):
+        def surf(name, sts, u0, u1, side, mat, n, cut=False):
+            rows = [[wing_point(st, u, side, sgn) for u in _cos_u(n, u0, hinge_u(st) if cut else u1)] for st in sts]
+            ob = strip(name, rows, mat, g)
+            up = Vector((0, -1, 0)) if side > 0 else Vector((0, 1, 0))
+            orient(ob, lambda p, up=up: up)
+            smooth(ob, 38)
+            return ob
+
+        # The skins stop at the elevon hinge line between BL 115 and 455 (build_elevons).
+        surf(f'wing_top_b{sgn}', WING, le_u, band, 1, M['tiles'], 4)
+        for k, (sts, cut) in enumerate(spans):
+            surf(f'wing_top_w{sgn}_{k}', sts, band, 1.0, 1, M['white'], 18, cut)
+            surf(f'wing_bot{sgn}_{k}', sts, le_u, 1.0, -1, M['tiles'], 20, cut)
+        face = [[wing_point(st, hinge_u(st), 1, sgn), wing_point(st, hinge_u(st), -1, sgn)] for st in spans[1][0]]
+        ob = strip(f'elevon_cove{sgn}', face, M['soot'], g)
+        orient(ob, lambda p: Vector((0, 0, -1)))
+        # The leading edge itself: black tile on the glove, grey RCC panels (22 a
+        # side) on the main wing, where it runs at ~1500 °C.
+        for nm, sts, mat in (('glove_le', WING[:4], M['tiles']), ('rcc', WING[3:], M['soot'])):
+            rows = []
+            for st in sts:
+                row = [wing_point(st, u, -1, sgn) for u in _cos_u(4, le_u, 0.0)]
+                row += [wing_point(st, u, 1, sgn) for u in _cos_u(4, 0.0, le_u)[1:]]
+                rows.append(row)
+            ob = strip(f'{nm}{sgn}', rows, mat, g)
+            orient(ob, lambda p, sg=sgn: Vector((0, 0, 1)))
+            smooth(ob, 60)
+        # Tip closure: the last station's two surfaces sewn together.
+        st = WING[-1]
+        us = _cos_u(10, 0.0, 1.0)
+        tip = [wing_point(st, u, 1, sgn) for u in us] + [wing_point(st, u, -1, sgn) for u in reversed(us[1:-1])]
+        verts = [tuple(p) for p in tip]
+        ob = _obj(f'wingtip{sgn}', verts, [tuple(range(len(verts)))], M['tiles'], g)
+        orient(ob, lambda p, sg=sgn: Vector((sg, 0, 0)))
+
+        # The elevon hinge line, as a seam on the top.
+        seam = []
+        for bl in [115 + (455 - 115) * i / 12 for i in range(13)]:
+            st = wing_at(bl)
+            seam.append(wing_point(st, hinge_u(st), 1, sgn) + Vector((0, -0.006, 0)))
+        ribbon(f'elevon_hinge{sgn}', seam, 0.035, M['soot'], g)
+
+
+def build_elevons(M, g):
+    """The elevons: four panels aft of the Xo 1387 hinge line (CR-134087), inboard BL
+    115-285 and outboard 285-455, each turning about its hinge toward starboard, so a
+    positive angle is trailing edge down on either wing. flap_orbiter_1-4, port first."""
     for sgn in (-1, 1):
-        strut(f'bipod{sgn}', (sgn * 0.9, -r * 0.98, ET_L * 0.60),
-              (sgn * 1.4, -r * 1.9, ET_L * 0.56), 0.16, M['dirty'], seg=8, parent=g)
-    ar = torus_z('aftring', r * 1.01, 0.14, ET_L * 0.15, M['dirty'],
-                 seg=48, minor=8, parent=g)
-    smooth(ar, 30)
-    return g
+        for i, (b0, b1) in enumerate(ELEVONS):
+            sts = wing_span(b0, b1)
+
+            def hinge(st):
+                return P(ELEVON_X, sgn * st[0], st[5] + (st[6] - st[5]) * hinge_u(st))
+            idx = 1 + (0 if sgn < 0 else 2) + i
+            node, mw = axis_mount(f'flap_orbiter_{idx}', hinge(sts[0]), (hinge(sts[-1]) - hinge(sts[0])) * sgn,
+                                  Vector((0, -1, 0)), g)
+            for side, mat, up in ((1, M['white'], Vector((0, -1, 0))), (-1, M['tiles'], Vector((0, 1, 0)))):
+                rows = [[wing_point(st, u, side, sgn) for u in _cos_u(6, hinge_u(st), 1.0)] for st in sts]
+                ob = strip(f'elevon{idx}_{side}', local_to(mw, rows), mat, node)
+                _orient_world(ob, mw, lambda p, up=up: up, 1)
+                smooth(ob, 38)
+            front = [[wing_point(st, hinge_u(st), 1, sgn), wing_point(st, hinge_u(st), -1, sgn)] for st in sts]
+            ob = strip(f'elevon{idx}_front', local_to(mw, front), M['soot'], node)
+            _orient_world(ob, mw, lambda p: Vector((0, 0, 1)), 1)
+            for st, out in ((sts[0], -sgn), (sts[-1], sgn)):
+                rows = [[wing_point(st, u, 1, sgn), wing_point(st, u, -1, sgn)] for u in _cos_u(6, hinge_u(st), 1.0)]
+                ob = strip(f'elevon{idx}_end{out}', local_to(mw, rows), M['tiles'], node)
+                _orient_world(ob, mw, lambda p, o=out: Vector((o, 0, 0)), 1)
 
 
-# ORBITER
+def ribbon_rows(pts, width, across=None):
+    rows = []
+    for i, p in enumerate(pts):
+        t = (pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]).normalized()
+        a = across if across is not None else t.cross(Vector((0, 1, 0))).normalized()
+        rows.append([p - a * width / 2, p + a * width / 2])
+    return rows
+
+
+def ribbon(name, pts, width, mat, parent, across=None):
+    """A thin flat strip along a polyline: a seam, a panel line."""
+    return strip(name, ribbon_rows(pts, width, across), mat, parent)
+
+
+# THE VERTICAL TAIL (V8): 413.25 ft², 45° leading edge, root chord 268.5 in at
+# WP 500, tip 108.47 in at WP 815.72, so the tip's trailing edge is the
+# orbiter's aft-most point (Xo 1702.2). A 10° wedge forward and 14.9° aft: the
+# section is thickest at 60% chord, where the rudder/speed brake hinges.
+def tail_section(zo):
+    f = (zo - 500.0) / 315.72
+    le = 1278.0 + (zo - 500.0)
+    ch = 268.5 + (108.47 - 268.5) * f
+    return le, ch
+
+
+def tail_half(u, ch):
+    T = 0.105 * ch
+    if u < 0.6:
+        return T / 2 * min(u / 0.6, 1.0) ** 0.62
+    return T / 2 * max((1.0 - u) / 0.4, 0.0) + 0.15
+
+
+RUDDER = (573.0, 787.0)        # the rudder/speed brake, Zo, aft of RUDDER_U chord
+RUDDER_U = 0.6
+
+
+def build_tail(M, g):
+    lower = [494.0, 500.0, 540.0, RUDDER[0]]
+    middle = [RUDDER[0], 600.0, 640.0, 680.0, 720.0, 760.0, RUDDER[1]]
+    upper = [RUDDER[1], 790.0, 815.72]
+    out = lambda p: Vector((p.x, 0, 0)) if abs(p.x) > 1e-4 else Vector((0, 0, 1))
+    us = _cos_u(18, 0.0, 1.0)
+    # Behind the 60% hinge from Zo 573 to 787 are the speed brake's halves (build_speedbrake).
+    for k, (zs, u1) in enumerate(((lower, 1.0), (middle, RUDDER_U), (upper, 1.0))):
+        uk = _cos_u(18, 0.0, u1)
+        rows = []
+        for zo in zs:
+            le, ch = tail_section(zo)
+            ring = [P(le + u * ch, tail_half(u, ch), zo) for u in reversed(uk)]
+            ring += [P(le + u * ch, -tail_half(u, ch), zo) for u in uk[1:]]
+            rows.append(ring)
+        ob = strip(f'fin{k}', rows, M['white'], g)
+        orient(ob, out)
+        smooth(ob, 40)
+    le_rows = []
+    for zo in lower + middle[1:] + upper[1:]:
+        le, ch = tail_section(zo)
+        ring = [P(le + u * ch, tail_half(u, ch) + 0.25, zo) for u in reversed(_cos_u(3, 0.0, 0.05))]
+        ring += [P(le + u * ch, -tail_half(u, ch) - 0.25, zo) for u in _cos_u(3, 0.0, 0.05)[1:]]
+        le_rows.append(ring)
+    ob = strip('fin_le', le_rows, M['tiles'], g)
+    orient(ob, out)
+    # tip cap
+    le, ch = tail_section(815.72)
+    cap = [P(le + u * ch, tail_half(u, ch), 815.72) for u in reversed(us)]
+    cap += [P(le + u * ch, -tail_half(u, ch), 815.72) for u in us[1:-1]]
+    ob = _obj('fin_tip', [tuple(p) for p in cap], [tuple(range(len(cap)))], M['white'], g)
+    orient(ob, lambda p: Vector((0, -1, 0)))
+    # The hinge's face, and the fin's own top and bottom over the panels.
+    face = []
+    for zo in (RUDDER[0], 640.0, 720.0, RUDDER[1]):
+        le, ch = tail_section(zo)
+        h = tail_half(RUDDER_U, ch)
+        face.append([P(le + RUDDER_U * ch, h, zo), P(le + RUDDER_U * ch, -h, zo)])
+    ob = strip('rudder_cove', face, M['soot'], g)
+    orient(ob, lambda p: Vector((0, 0, -1)))
+    for zo, up in ((RUDDER[0], Vector((0, -1, 0))), (RUDDER[1], Vector((0, 1, 0)))):
+        le, ch = tail_section(zo)
+        rows = [[P(le + u * ch, tail_half(u, ch), zo), P(le + u * ch, -tail_half(u, ch), zo)]
+                for u in _cos_u(6, RUDDER_U, 1.0)]
+        ob = strip(f'rudder_well{int(zo)}', rows, M['white'], g)
+        orient(ob, lambda p, up=up: up)
+    # The hinge line, as a seam either side.
+    for sgn in (1, -1):
+        hinge = []
+        for zo in [573 + (787 - 573) * i / 6 for i in range(7)]:
+            le, ch = tail_section(zo)
+            hinge.append(P(le + 0.6 * ch, sgn * (tail_half(0.6, ch) + 0.3), zo))
+        ribbon(f'rudder_hinge{sgn}', hinge, 0.03, M['soot'], g, across=Vector((0, 0, 1)))
+    # The drag-chute housing at the foot of the rudder (flown from 1992).
+    hs = [P(1528, 0, 503), P(1600, 0, 503)]
+    b = box('chute', (24 * IN, 34 * IN, 70 * IN), tuple((hs[0] + hs[1]) / 2 + Vector((0, -17 * IN, 0))), M['white'], parent=g)
+    finish(b, 0.03, 2, 40)
+
+
+# OMS PODS (CR-134087 M7): Xo 1233 → 1560, 94.5 in wide at Xo 1450, 109 in deep at
+# 1493, centred Yo ±100 on the aft fuselage's shoulders. Engines: gimbal Xo 1518,
+# Yo ±88, Zo 492; null position 15°49' pitch-up and 12°17' outboard.
+POD = [
+    # Xo     hw     hh     zc
+    (1233.0, 1.0, 1.0, 472.0),
+    (1240.0, 12.0, 13.0, 472.5),
+    (1255.0, 23.0, 25.0, 474.0),
+    (1280.0, 32.0, 35.0, 476.0),
+    (1320.0, 39.5, 44.0, 478.0),
+    (1370.0, 44.0, 50.0, 479.5),
+    (1420.0, 46.5, 53.0, 480.5),
+    (1450.0, 47.25, 54.0, 481.0),
+    (1493.0, 46.5, 54.5, 481.5),
+    (1530.0, 45.0, 53.5, 481.5),
+    (1560.0, 43.5, 52.0, 481.5),
+]
+POD_Y = 100.0
+POD_N = 2.3
+
+
+def pod_point(row, a, sgn):
+    xo, hw, hh, zc = row
+    e = 2.0 / POD_N
+    ca, sa = cos(a), sin(a)
+    y = hw * (abs(ca) ** e) * (1 if ca >= 0 else -1)
+    z = hh * (abs(sa) ** e) * (1 if sa >= 0 else -1)
+    return P(xo, sgn * (POD_Y + y), zc + z)
+
+
+def build_pods(M, g):
+    for sgn in (1, -1):
+        seg = 28
+        rows = [[pod_point(r, TAU * j / seg, sgn) for j in range(seg + 1)] for r in POD]
+        cut = 2                                      # the black-tiled nose
+        for nm, rr, mat in (('pod_nose', rows[:cut + 1], M['tiles']), ('pod', rows[cut:], M['white'])):
+            ob = strip(f'{nm}{sgn}', rr, mat, g)
+            orient(ob, lambda p, sg=sgn: Vector((p.x - sg * POD_Y * IN, p.y + 481 * IN - 400 * IN, 0)))
+            smooth(ob, 45)
+        # aft face
+        last = rows[-1][:-1]
+        ctr = sum(last, Vector()) / len(last)
+        verts = [tuple(ctr)] + [tuple(p) for p in last]
+        faces = [(0, j + 1, (j + 1) % len(last) + 1) for j in range(len(last))]
+        ob = _obj(f'pod_aft{sgn}', verts, faces, M['soot'], g)
+        orient(ob, lambda p: Vector((0, 0, -1)))
+        # The OMS engine (static: the stage's SPS has no gimbal nodes).
+        mnt = empty(f'oms_mount{sgn}', tuple(P(1518.0, sgn * 88.0, 492.0)), g)
+        mnt.rotation_euler = (radians(-15.82), radians(-sgn * 12.28), 0.0)
+        bl = bell(f'omsbell{sgn}', 1.17, M['nozzle'], ratio=55, seg=24, parent=mnt, loc=(0, 0, -0.30))
+        finish(bl, 0.006, 2, 50)
+        # Aft RCS: a row of side jets on the outboard face, up-firing on top,
+        # down-firing below, two firing aft.
+        for k, xo in enumerate((1512.0, 1524.0, 1536.0, 1548.0)):
+            row = (xo, 46.0, 53.8, 481.5)
+            p = pod_point(row, 0.0, sgn)
+            port(f'arcs_side{sgn}{k}', p, Vector((sgn, 0, 0)), 5 * IN, 8 * IN, M['black'], g)
+        for k, xo in enumerate((1515.0, 1530.0, 1545.0)):
+            row = (xo, 46.0, 53.8, 481.5)
+            p = pod_point(row, pi / 2 - sgn * 0.25, sgn)
+            port(f'arcs_up{sgn}{k}', p, Vector((0, -1, 0)), 5 * IN, 8 * IN, M['black'], g)
+            p = pod_point(row, -pi / 2 + sgn * 0.6, sgn)
+            port(f'arcs_dn{sgn}{k}', p, Vector((sgn * 0.5, 0.85, 0)), 5 * IN, 8 * IN, M['black'], g)
+        for k, dz in enumerate((-22.0, 22.0)):
+            port(f'arcs_aft{sgn}{k}', P(1560.5, sgn * (POD_Y + 18.0), 481.5 + dz), Vector((0, 0, -1)),
+                 5 * IN, 4 * IN, M['black'], g)
+
+
+# MAIN ENGINES (TM X-58153): gimbal centres Xo 1445 / Yo 0 / Zo 443 and Xo 1468.17 /
+# Yo ±53 / Zo 342.64; engine 1 canted 16° pitch-up, 2 and 3 10° pitch-up and 3.5°
+# outboard, so all three thrust lines pass near the mated stack's centre of mass.
+# The pivot is the gimbal; the throat is 0.95 m aft of it along the engine axis.
+SSME = [(1445.0, 0.0, 443.0, 16.0, 0.0), (1468.17, -53.0, 342.64, 10.0, -3.5),
+        (1468.17, 53.0, 342.64, 10.0, 3.5)]
+
+
+def build_engines(M, g):
+    exit_d = S['et']['engine']['exitD']
+    for i, (xo, yo, zo, pitch, yaw) in enumerate(SSME):
+        mnt = empty(f'mount_gimbal_orbiter_{i}', tuple(P(xo, yo, zo)), g)
+        mnt.rotation_euler = (radians(-pitch), radians(-yaw), 0.0)
+        piv = empty(f'gimbal_orbiter_{i}', (0, 0, 0), mnt)
+        b = bell(f'ssme{i}', exit_d, M['nozzle'], ratio=69, seg=32, parent=piv, loc=(0, 0, -0.95))
+        finish(b, 0.008, 2, 50)
+        # the powerhead's main combustion chamber, between gimbal and throat
+        mcc = cyl(f'mcc{i}', 0.24, 0.30, -0.95, -0.15, M['hot'], seg=16, parent=piv)
+        smooth(mcc, 40)
+
+
+# BODY FLAP (F7): Xo 1520 → 1613, 262 in wide, 23 in deep at its root; hinge Xo
+# 1532.3, Zo 284.3. Driven about its own span (the mount turns local Z onto X).
+def build_speedbrake(M, g):
+    """The rudder/speed brake's two halves, split on the fin's chord plane, each
+    turning about the hinge line (up for the starboard half, down for the port), so a
+    positive angle opens either half outward; fully open is 98.6 deg between them.
+    flap_orbiter_5 (port) and 6. The seams split each half into its upper and lower
+    panels."""
+    zs = [RUDDER[0], 600.0, 640.0, 680.0, 720.0, 760.0, RUDDER[1]]
+
+    def hinge(zo):
+        le, ch = tail_section(zo)
+        return P(le + RUDDER_U * ch, 0.0, zo)
+    for sgn, idx in ((-1, 5), (1, 6)):
+        node, mw = axis_mount(f'flap_orbiter_{idx}', hinge(zs[0]), (hinge(zs[-1]) - hinge(zs[0])) * sgn,
+                              Vector((sgn, 0, 0)), g)
+        outer, inner = [], []
+        for zo in zs:
+            le, ch = tail_section(zo)
+            us = _cos_u(6, RUDDER_U, 1.0)
+            outer.append([P(le + u * ch, sgn * tail_half(u, ch), zo) for u in us])
+            inner.append([P(le + u * ch, 0.0, zo) for u in us])
+        front = [[o[0], i[0]] for o, i in zip(outer, inner)]
+        lo = [[o, i] for o, i in zip(outer[0], inner[0])]
+        hi = [[o, i] for o, i in zip(outer[-1], inner[-1])]
+        for nm, rows, up in (('skin', outer, Vector((sgn, 0, 0))), ('inner', inner, Vector((-sgn, 0, 0))),
+                             ('front', front, Vector((0, 0, 1))), ('foot', lo, Vector((0, 1, 0))),
+                             ('top', hi, Vector((0, -1, 0)))):
+            ob = strip(f'speedbrake{idx}_{nm}', local_to(mw, rows), M['white'], node)
+            _orient_world(ob, mw, lambda p, up=up: up, 1)
+        for zo in (573.0, 680.0, 787.0):
+            le, ch = tail_section(zo)
+            pts = [P(le + u * ch, sgn * (tail_half(u, ch) + 0.3), zo) for u in (0.6, 0.7, 0.8, 0.9, 1.0)]
+            strip(f'rudder_edge{sgn}_{int(zo)}', local_to(mw, ribbon_rows(pts, 0.03, Vector((0, 1, 0)))), M['soot'], node)
+
+
+def build_body_flap(M, g):
+    hinge = P(1532.3, 0.0, 284.3)
+    mnt = empty('mount_flap_orbiter_0', tuple(hinge), g)
+    mnt.rotation_euler = (0.0, 0.0, pi / 2)
+    node = empty('flap_orbiter_0', (0, 0, 0), mnt)
+    mw = Matrix.Translation(hinge) @ Euler((0.0, 0.0, pi / 2)).to_matrix().to_4x4()
+    xs = (1520.0, 1560.0, 1613.0)
+    tops = (296.0, 294.0, 288.0)
+    bots = (273.0, 275.0, 281.0)
+    for nm, zz, up in (('bf_top', tops, -1.0), ('bf_bot', bots, 1.0)):
+        rows = [[P(x, y, z) for y in (-131.0, -60.0, 0.0, 60.0, 131.0)] for x, z in zip(xs, zz)]
+        ob = strip(nm, local_to(mw, rows), M['tiles'], node)
+        _orient_world(ob, mw, lambda p, u=up: Vector((0, u, 0)), 1)
+    # edges: the two side faces and the trailing edge
+    for sgn in (-1, 1):
+        rows = [[P(x, sgn * 131.0, zt), P(x, sgn * 131.0, zb)] for x, zt, zb in zip(xs, tops, bots)]
+        ob = strip(f'bf_side{sgn}', local_to(mw, rows), M['tiles'], node)
+        _orient_world(ob, mw, lambda p, s=sgn: Vector((s, 0, 0)), 1)
+    rows = [[P(1613.0, y, 288.0), P(1613.0, y, 281.0)] for y in (-131.0, 131.0)]
+    ob = strip('bf_te', local_to(mw, rows), M['tiles'], node)
+    _orient_world(ob, mw, lambda p: Vector((0, 0, -1)), 1)
+
+
+# PAYLOAD BAY: 60 × 15 ft, Xo 582 → 1307. Two doors, hinged at the sill longerons
+# and opening 175°; radiators on their inner faces. Inside: the RMS on the port
+# sill, the docking system forward and a logistics module aft (a station flight).
+DOOR_SEGMENTS = 5
+
+
+def build_bay(M, g):
+    for sgn in (1, -1):
+        hinge = P(XO_BAY0, sgn * 102.0, 410.0)
+        hinge.z = 0.0
+        mnt_rot = (-pi / 2 if sgn > 0 else pi / 2, 0.0, 0.0)
+        mnt = empty(f'mount_door_orbiter_{0 if sgn > 0 else 1}', (hinge.x, hinge.y, 0.0), g)
+        mnt.rotation_euler = mnt_rot
+        node = empty(f'door_orbiter_{0 if sgn > 0 else 1}', (0, 0, 0), mnt)
+        mw = Matrix.Translation(Vector((hinge.x, hinge.y, 0.0))) @ Euler(mnt_rot).to_matrix().to_4x4()
+        xs = stations(XO_BAY0 + 0.5, XO_BAY1 - 0.5, 36.25)
+
+        def ring_rows(off, s1=0.9985):
+            rows = []
+            for xo in xs:
+                r = Ring(xo)
+                sh = r.s_at_z(r.c['zs']) - 0.004       # lapping over the sill
+                row = []
+                for j in range(17):
+                    s = sh + (s1 - sh) * j / 16
+                    p = r.at(sgn * s)
+                    if off:
+                        q = r.at(sgn * min(s + 0.003, 1.0)) - r.at(sgn * max(s - 0.003, 0.0))
+                        nrm = Vector((0, 0, 1)).cross(q) if sgn > 0 else q.cross(Vector((0, 0, 1)))
+                        nrm.normalize()
+                        if nrm.dot(hull_outward()(p)) > 0:
+                            nrm = -nrm
+                        p = p + nrm * off * IN
+                    row.append(p)
+                rows.append(row)
+            return rows
+
+        outer = ring_rows(0.0)
+        inner = ring_rows(2.0)
+        ob = strip(f'door_skin{sgn}', local_to(mw, outer), M['white'], node)
+        out_w = hull_outward()
+        _orient_world(ob, mw, out_w, 1)
+        smooth(ob, 40)
+        ob = strip(f'door_rad{sgn}', local_to(mw, inner), M['alu'], node)
+        _orient_world(ob, mw, out_w, -1)
+        smooth(ob, 40)
+        # the door's edge along the centreline, and its two ends
+        rows = [[o[-1], i[-1]] for o, i in zip(outer, inner)]
+        strip(f'door_edge{sgn}', local_to(mw, rows), M['white'], node)
+        for k in (0, -1):
+            strip(f'door_end{sgn}{k}', local_to(mw, [outer[k], inner[k]]), M['white'], node)
+        # the expansion joints between its five segments
+        for k in range(1, DOOR_SEGMENTS):
+            xo = XO_BAY0 + (XO_BAY1 - XO_BAY0) * k / DOOR_SEGMENTS
+            r = Ring(xo)
+            sh = r.s_at_z(r.c['zs'])
+            pts = [hull_point(xo, sgn * (sh + (0.998 - sh) * j / 10), 0.25) for j in range(11)]
+            rows = ribbon_rows(pts, 0.04, Vector((0, 0, 1)))
+            strip(f'door_joint{sgn}{k}', local_to(mw, rows), M['dirty'], node)
+
+    # bay liner: walls, floor and the two bulkheads, white blanket
+    wall_x = (XO_BAY0, XO_BAY1)
+    for sgn in (1, -1):
+        rows = [[P(x, sgn * 97.0, 300.0), P(x, sgn * 97.0, 409.0)] for x in wall_x]
+        ob = strip(f'bay_wall{sgn}', rows, M['dirty'], g)
+        orient(ob, lambda p, s=sgn: Vector((-s, 0, 0)))
+    rows = [[P(x, -97.0, 300.0), P(x, 97.0, 300.0)] for x in wall_x]
+    ob = strip('bay_floor', rows, M['dirty'], g)
+    orient(ob, lambda p: Vector((0, -1, 0)))
+    for xo, face in ((XO_BAY0 + 0.3, -1), (XO_BAY1 - 0.3, 1)):
+        r = Ring(xo)
+        sh = r.s_at_z(r.c['zs'])
+        rim = [r.at(sh + (1.0 - sh) * j / 16) for j in range(17)]
+        rim += [r.at(-(1.0 - (1.0 - sh) * j / 16)) for j in range(1, 17)]
+        rim = [P(xo, 97.0, 300.0)] + [p for p in rim] + [P(xo, -97.0, 300.0)]
+        ctr = sum(rim, Vector()) / len(rim)
+        verts = [tuple(ctr)] + [tuple(p) for p in rim]
+        faces = [(0, j + 1, j + 2) for j in range(len(rim) - 1)] + [(0, len(rim), 1)]
+        ob = _obj(f'bulkhead{int(xo)}', verts, faces, M['dirty'], g)
+        orient(ob, lambda p, f=face: Vector((0, 0, f)))
+    # the two aft flight-deck windows, looking into the bay
+    for y0 in (-40.0, 14.0):
+        rows = [[P(XO_BAY0 + 0.6, y0, 446.0), P(XO_BAY0 + 0.6, y0 + 26.0, 446.0)],
+                [P(XO_BAY0 + 0.6, y0, 468.0), P(XO_BAY0 + 0.6, y0 + 26.0, 468.0)]]
+        ob = strip(f'aft_win{int(y0)}', rows, M['glass'], g)
+        orient(ob, lambda p: Vector((0, 0, -1)))
+
+    # Orbiter docking system: the external airlock and its APAS ring, forward.
+    ods = P(650.0, 0.0, 300.0)
+    a = cyl('ods', 0.80, 0.80, 0.0, 3.6, M['dirty'], seg=28, parent=g)
+    a.rotation_euler = (pi / 2, 0, 0)
+    a.location = ods
+    smooth(a, 40)
+    cap = disc('ods_top', 0.80, 3.6, M['dirty'], seg=28, parent=g)
+    cap.rotation_euler = (pi / 2, 0, 0)
+    cap.location = ods
+    ring = cyl('apas', 0.62, 0.55, 3.6, 4.05, M['alu'], seg=24, parent=g)
+    ring.rotation_euler = (pi / 2, 0, 0)
+    ring.location = ods
+    finish(ring, 0.01, 2, 45)
+    box('ods_truss', (4.6, 0.5, 2.2), tuple(P(650.0, 0.0, 309.0)), M['alu'], parent=g)
+
+    # A logistics module aft: 4.57 m across, 6.4 m long, on the bay axis.
+    z0, z1 = P(XO_BAY1 - 20.0, 0, 400).z, P(XO_BAY1 - 20.0 - 252.0, 0, 400).z
+    mp = cyl('mplm', 2.20, 2.20, z0 + 0.25, z1 - 0.25, M['white'], seg=40, parent=g)
+    smooth(mp, 40)
+    for zz, zend in ((z0 + 0.25, z0), (z1 - 0.25, z1)):
+        dome = cyl(f'mplm_end{int(zz * 10)}', 2.20, 1.6, zz, zend, M['dirty'], seg=40, parent=g)
+        smooth(dome, 40)
+        disc(f'mplm_cap{int(zz * 10)}', 1.6, zend, M['dirty'], seg=40, parent=g)
+    cyl('cbm', 0.95, 0.95, z1, z1 + 0.3, M['alu'], seg=24, parent=g)
+
+    # The RMS: shoulder at Xo 679.5 on the port longeron, then the upper and lower
+    # booms (6.4 and 7.1 m) and the wrist and end effector, cradled along the sill.
+    y, zo = -88.0, 428.0
+    sh = P(679.5, y, zo)
+    box('rms_shoulder', (0.55, 0.55, 0.7), tuple(sh), M['dirty'], parent=g)
+    el = P(679.5 + 6.37 / IN, y, zo)
+    wr = P(679.5 + (6.37 + 7.06) / IN, y, zo)
+    strut('rms_upper', sh, el, 0.17, M['white'], seg=16, parent=g)
+    strut('rms_lower', el, wr, 0.17, M['white'], seg=16, parent=g)
+    for nm, p in (('rms_elbow', el), ('rms_wrist', wr)):
+        box(nm, (0.42, 0.42, 0.5), tuple(p), M['black'], parent=g)
+    ee = P(679.5 + (6.37 + 7.06 + 0.5) / IN, y, zo)
+    strut('rms_ee', wr, ee, 0.18, M['dirty'], seg=14, parent=g)
+    for xo in (760.0, 1000.0, 1200.0):
+        strut(f'rms_cradle{int(xo)}', P(xo, y, zo - 6), P(xo, y - 6, 409.0), 0.05, M['alu'], seg=6, parent=g)
+
+
+def _orient_world(ob, mw, outward, sign):
+    """`orient` for a mesh built in a node's frame against a stage-frame outward."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    rot = mw.to_3x3()
+    for f in bm.faces:
+        c = mw @ f.calc_center_median()
+        if (rot @ f.normal).dot(outward(c)) * sign < 0.0:
+            f.normal_flip()
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+
+
+# LANDING GEAR: nose gear under the cabin, mains in the wing roots (wells Xo 1040 →
+# 1191), both retracting forward. Built stowed, along +Xo-forward from each pivot;
+# the drive swings them 90° down (`look.gearSwing`). Deployed, the main tyres touch
+# at Xo 1180 / Zo 150, the stage's `gear.point`.
+GEAR = [
+    # pivot Xo, Yo, Zo, strut (in), tyre diameter, tyre width (in)
+    (470.0, 0.0, 300.0, 124.0, 32.0, 9.0),
+    (1180.0, -135.0, 295.0, 123.0, 44.5, 16.0),
+    (1180.0, 135.0, 295.0, 123.0, 44.5, 16.0),
+]
+
+
+def build_gear(M, g):
+    for i, (xo, yo, zo, L, dia, wid) in enumerate(GEAR):
+        pivot = P(xo, yo, zo)
+        mnt = empty(f'mount_leg_orbiter_{i}', tuple(pivot), g)
+        mnt.rotation_euler = (0.0, 0.0, pi / 2)
+        node = empty(f'leg_orbiter_{i}', (0, 0, 0), mnt)
+        mw = Matrix.Translation(pivot) @ Euler((0.0, 0.0, pi / 2)).to_matrix().to_4x4()
+        loc = lambda p: mw.inverted() @ p
+        axle = P(xo - L, yo, zo)
+        strut('gear_strut', loc(pivot), loc(axle), (5.5 if i else 4.5) * IN, M['steel'], seg=12, parent=node)
+        strut('gear_brace', loc(P(xo - L * 0.55, yo, zo + 4.0)), loc(P(xo - 4.0, yo, zo + 14.0)),
+              2.5 * IN, M['steel'], seg=8, parent=node)
+        for side in (-1, 1):
+            c0 = P(xo - L, yo + side * 2.0, zo)
+            c1 = P(xo - L, yo + side * (2.0 + wid), zo)
+            tyre = strut('gear_tyre', loc(c0), loc(c1), dia / 2 * IN, M['black'], seg=20, parent=node)
+            smooth(tyre, 40)
+            strut('gear_hub', loc(c0 + (c1 - c0) * 0.1), loc(c1 + (c1 - c0) * 0.02), dia / 2 * 0.55 * IN,
+                  M['alu'], seg=14, parent=node)
+        strut('gear_axle', loc(P(xo - L, yo - 2.5, zo)), loc(P(xo - L, yo + 2.5, zo)), 3.0 * IN, M['steel'],
+              seg=8, parent=node)
+
+
+# DRAG CHUTE (flown from STS-49), packed in its compartment at the foot of the fin
+# (Xo 1529-1599, Zo 503-537): built deployed along the pivot's -Z (aft) and scaled
+# down by CHUTE_PACK; craftmodel's drive_chute unpacks it. A 40 ft conical ribbon
+# canopy of 44 gores in red, white and blue, its skirt 87.5 ft aft of the base
+# (Meyerson, AIAA 2001-2051), suspension lines a nominal diameter long on one riser,
+# and the 9 ft pilot chute behind. Inflated, a ribbon canopy is about 0.7 of its
+# nominal diameter across. Same table as shuttlelines.gd `_chute`.
+CHUTE_PIVOT = (1564.0, 0.0, 520.0)
+CHUTE_SKIRT = 1014.3
+CHUTE_PACK = 0.004
+CHUTE_GORES = 44
+CHUTE_PROFILE = [(0.0, 0.90), (0.15, 1.0), (0.40, 0.95), (0.62, 0.78), (0.78, 0.50), (0.85, 0.15)]
+PILOT_D0 = 2.74
+
+
+def canopy(cloth, skirt, R, gores, pattern):
+    """Gores of a canopy inflated to radius R, aft of `skirt`, into
+    cloth[pattern[k % n]], each bulging a little between its seams."""
+    for k in range(gores):
+        verts, faces = cloth[pattern[k % len(pattern)]]
+        base = len(verts)
+        for s, r in CHUTE_PROFILE:
+            for j in range(3):
+                a = TAU * (k + j * 0.5) / gores
+                rr = r * R * (1.04 if j == 1 else 1.0)
+                verts.append((rr * cos(a), -rr * sin(a), -(skirt + s * R)))
+        for i in range(len(CHUTE_PROFILE) - 1):
+            for j in range(2):
+                a = base + i * 3 + j
+                faces.append((a, a + 1, a + 4, a + 3))
+
+
+def build_chute(M, g):
+    d0 = S['orbiter']['dragChute']['D0']
+    node = empty('chute_orbiter_0', tuple(P(*CHUTE_PIVOT)), g)
+    skirt = CHUTE_SKIRT * IN
+    R = 0.35 * d0
+    cloth = [([], []), ([], []), ([], [])]
+    canopy(cloth, skirt, R, CHUTE_GORES, (0, 1, 2, 1))
+    crown = skirt + CHUTE_PROFILE[-1][0] * R
+    canopy(cloth, crown + 6.0, 0.35 * PILOT_D0, 12, (1,))
+    for (verts, faces), nm in zip(cloth, ('red', 'white', 'blue')):
+        ob = _obj(f'canopy_{nm}', verts, faces, M[nm], node)
+        orient(ob, lambda p: Vector((p.x, p.y, 0)))
+    conf = skirt - sqrt(d0 * d0 - (0.9 * R) ** 2)
+    for k in range(CHUTE_GORES // 2):
+        a = TAU * 2 * k / CHUTE_GORES
+        strut(f'chute_line{k}', (0, 0, -conf), (0.9 * R * cos(a), -0.9 * R * sin(a), -skirt), 0.02,
+              M['dirty'], seg=4, parent=node)
+    strut('chute_riser', (0, 0, 0), (0, 0, -conf), 0.06, M['dirty'], seg=6, parent=node)
+    strut('chute_bridle', (0, 0, -crown), (0, 0, -(crown + 6.0)), 0.03, M['dirty'], seg=4, parent=node)
+    node.scale = (CHUTE_PACK,) * 3
+
+
 def build_orbiter(M, root):
     g = stage('orbiter', root)
+    build_fuselage(M, g)
+    build_wing(M, g)
+    build_tail(M, g)
+    build_pods(M, g)
+    build_engines(M, g)
+    build_body_flap(M, g)
+    build_elevons(M, g)
+    build_speedbrake(M, g)
+    build_bay(M, g)
+    build_gear(M, g)
+    build_chute(M, g)
+    return g
 
-    # ---- the fuselage from its own profile: belly line, back line and half-width per
-    # station, with n going from near-circular at the nose to the payload bay's rounded
-    # square. Belly and back are separate because the nose isn't symmetric: the belly
-    # runs flat almost to a low tip, then the forward RCS module climbs to a steep
-    # windscreen and a cabin roof just proud of the bay. u runs aft (0) to nose (1);
-    # stations follow the Xo frame (bay Xo 582–1307, forward RCS Xo 238–378).
-    fus = orbiter_sections()
-    # Two shells split where the plasma reaches: low along the bay, climbing round the
-    # chin to the windscreen corners.
-    up = loft_split('fus_top', fus, M['white'], lambda c: (c['s'], pi - c['s']), seg=40, parent=g)
-    lo = loft_split('fus_bot', fus, M['tiles'], lambda c: (pi - c['s'], TAU + c['s']), seg=40, parent=g)
-    smooth(up, 32); smooth(lo, 32)
 
-    # ---- wing: the double delta.
-    ws = [
-        {'x': 2.52, 'zLE': f(0.700), 'chord': f(0.673), 'thick': 0.055, 'cz': -1.30},
-        {'x': 3.80, 'zLE': f(0.560), 'chord': f(0.533), 'thick': 0.060, 'cz': -1.20},
-        {'x': 5.40, 'zLE': f(0.360), 'chord': f(0.333), 'thick': 0.070, 'cz': -1.10},
-        {'x': 8.60, 'zLE': f(0.245), 'chord': f(0.218), 'thick': 0.085, 'cz': -0.85},
-        {'x': 11.30, 'zLE': f(0.147), 'chord': f(0.112), 'thick': 0.100, 'cz': -0.62},
-        {'x': 11.90, 'zLE': f(0.138), 'chord': f(0.062), 'thick': 0.110, 'cz': -0.58},
-    ]
-    for sgn in (1, -1):
-        for w_ in wing(f'wing{sgn}', ws, M['white'], M['tiles'], sign=sgn, parent=g):
-            smooth(w_, 34)
-        # RCC leading edge: 22 panels a side, ~1500 °C, a different colour from the wing.
-        for i in range(len(ws) - 1):
-            a0, a1 = ws[i], ws[i + 1]
-            strut(f'rcc{sgn}{i}',
-                  (sgn * a0['x'], -a0.get('cz', 0), a0['zLE']),
-                  (sgn * a1['x'], -a1.get('cz', 0), a1['zLE']),
-                  0.16, M['tiles'], seg=8, parent=g)
+# EXTERNAL TANK: 331 in across. LO2 tank ogive to XT 745 and barrel to 852.8; the
+# intertank to 1123; the LH2 barrel to its aft ring frame at 2058 and the aft dome
+# to the datum. The orbiter hangs on a bipod at XT 1129.9 and on the aft
+# crossbeam at XT 2058; the solids' thrust goes into the intertank.
+def build_et(M, root):
+    g = stage('et', root)
+    R = ET_D / 2 / IN                                  # in
 
-    # ---- vertical tail. Built in the wing's own frame (span on X) and rotated
-    # upright, so one function serves both surfaces.
-    ts = [
-        {'x': 0.0, 'zLE': f(0.185), 'chord': 6.10, 'thick': 0.13},
-        {'x': 3.4, 'zLE': f(0.140), 'chord': 4.85, 'thick': 0.13},
-        {'x': 6.6, 'zLE': f(0.100), 'chord': 3.55, 'thick': 0.14},
-        {'x': 7.9, 'zLE': f(0.083), 'chord': 2.75, 'thick': 0.15},
-    ]
-    tail = empty('tail', (0, -2.55, 0), g)
-    tail.rotation_euler = (0, 0, -pi / 2)
-    for w_ in wing('vtail', ts, M['white'], M['white'], parent=tail):
-        smooth(w_, 34)
-    # the rudder/speedbrake hinge line and the split between its two halves
-    for side in (1, -1):
-        pts = [(st['x'], -side * (naca(0.62, st['thick']) * st['chord'] + 0.015), st['zLE'] - 0.62 * st['chord'])
-               for st in ts]
-        for k, (a_, b_) in enumerate(zip(pts, pts[1:])):
-            strut(f'rudder_hinge{side}{k}', a_, b_, 0.03, M['tiles'], seg=5, parent=tail)
+    def y(xt):
+        return (XT_AFT - xt) * IN
 
-    # ---- OMS pods: the two bulges either side of the fin root. They hold the
-    # orbiter's OWN engines, the only ones it keeps once the tank is gone.
-    for sgn in (-1, 1):
-        pod = loft(f'oms{sgn}', [
-            {'z': f(0.020), 'w': 0.55, 'h': 0.55, 'n': 2.4},
-            {'z': f(0.060), 'w': 1.05, 'h': 1.00, 'n': 2.6},
-            {'z': f(0.120), 'w': 1.25, 'h': 1.15, 'n': 2.6},
-            {'z': f(0.175), 'w': 1.05, 'h': 0.95, 'n': 2.5},
-            {'z': f(0.215), 'w': 0.45, 'h': 0.42, 'n': 2.4},
-        ], M['white'], seg=22, parent=g)
-        pod.location = (sgn * 2.05, -1.95, 0)
-        smooth(pod, 32)
-        # The OMS bell, canted out and down the way the real one is.
-        b = bell(f'omsbell{sgn}', 1.35, M['nozzle'], ratio=55, seg=20, parent=g)
-        b.location = (sgn * 2.15, -1.55, f(0.035))
-        b.rotation_euler = (-0.30, -sgn * 0.18, 0)
-        finish(b, 0.008, 2, 50)
-        # Aft RCS: clusters of black nozzle mouths in the pod, which is how you
-        # actually spot them in a photograph.
-        for k in range(3):
-            n = cyl(f'arcs{sgn}{k}', 0.11, 0.13, 0, 0.22, M['black'], seg=8, parent=g)
-            n.location = (sgn * (2.7 + k * 0.1), -(2.3 - k * 0.5), f(0.19 + k * 0.006))
-            n.rotation_euler = (0, sgn * pi / 2, 0)
+    prof = []
+    # aft dome, ellipsoidal, 110 in high
+    h_dome = XT_AFT - 2058.0
+    for i in range(0, 9):
+        a = (i / 8) * pi / 2
+        prof.append((R * sin(a) * IN, y(XT_AFT - h_dome * (1 - cos(a)))))
+    prof.append((R * IN, y(745.0)))
+    # tangent ogive from XT 745 to a blunt tip at 322.5
+    L_og = 745.0 - 322.5
+    rho = (R * R + L_og * L_og) / (2 * R)
+    for i in range(1, 15):
+        x = L_og * i / 14
+        r = sqrt(max(rho * rho - x * x, 0.0)) - rho + R
+        prof.append((max(r, 3.0) * IN, y(745.0 - x)))
+    prof.append((0.0, y(322.5)))
+    body = revolve('et_body', prof, M['foam'], seg=64, parent=g)
+    smooth(body, 35)
+    # the lightning rod on the nose cone
+    strut('et_spike', (0, 0, y(322.5) - 0.05), (0, 0, y(322.5) + 0.9), 0.025, M['alu'], seg=6, parent=g)
+    # the nose cone's join and the LO2 barrel weld
+    torus_z('et_cone_join', 0.62, 0.025, y(371.0), M['foam'], seg=24, minor=6, parent=g)
 
-    # ---- three SSMEs: one high on the centreline, two low and outboard. They gimbal
-    # 10.5°, the most in the set.
-    for i, (x, zc) in enumerate(((0, 1.30), (-1.55, -0.55), (1.55, -0.55))):
-        piv = empty(f'gimbal_orbiter_{i}', (x, -zc, f(0.045)), g)
-        b = bell(f'ssme{i}', S['et']['engine']['exitD'], M['nozzle'], ratio=69, seg=26, parent=piv)
-        finish(b, 0.010, 2, 50)
-    # The boat-tail shroud the engines hang out of.
-    aft = loft('boattail', [
-        {'z': f(0.000), 'w': 2.30, 'h': 2.45, 'cz': 0.10, 'n': 3.0},
-        {'z': f(0.055), 'w': 2.70, 'h': 2.90, 'cz': 0.05, 'n': 3.4},
-    ], M['black'], seg=28, parent=g)
-    smooth(aft, 32)
+    # The intertank: the one stringered band, its foam a shade darker.
+    it0, it1 = 852.8, 1123.0
+    ring = cyl('intertank', R * IN * 1.004, R * IN * 1.004, y(it1), y(it0), M['foam'], seg=64, parent=g)
+    smooth(ring, 35)
+    n = 72
+    for i in range(n):
+        a = i / n * TAU
+        box(f'stringer{i}', (0.05, 0.16, (it1 - it0) * IN * 0.98),
+            (cos(a) * (R * IN * 1.004 + 0.022), sin(a) * (R * IN * 1.004 + 0.022), (y(it0) + y(it1)) / 2),
+            M['foam'], rot=(0, 0, a), parent=g)
+    for k, xt in enumerate((it0, it1)):
+        torus_z(f'itband{k}', R * IN * 1.012, 0.06, y(xt), M['foam'], seg=64, minor=8, parent=g)
 
-    # ---- body flap: trims hypersonic flight and shields the bells. In parts.flaps, so
-    # its node has no rotation about the driven axis (the cant is about X only).
-    fl = empty('flap_orbiter_0', (0, 2.35, f(0.028)), g)
-    fl.rotation_euler = (0.12, 0, 0)
-    bf = box('bodyflap', (4.3, 0.36, 2.3), (0, 0, 0), M['tiles'], parent=fl)
-    finish(bf, 0.02, 2, 40)
-
-    # ---- payload bay doors, closed: centreline seam, hinge lines and door frames, as
-    # lines on the fuselage skin.
-    seam = M['dirty']
-    surf_patch('bay_ctr', fus, 0.215, 0.762, pi / 2 - 0.0007, pi / 2 + 0.0007, 0.012, seam, g, nu=6, nt=1)
-    for sgn, t in ((1, 0.30), (-1, pi - 0.30)):
-        surf_patch(f'bay_hinge{sgn}', fus, 0.215, 0.762, t - 0.004, t + 0.004, 0.012, seam, g, nu=6, nt=1)
-    for k in range(1, 4):
-        u = 0.215 + (0.762 - 0.215) * k / 4
-        surf_patch(f'bay_frame{k}', fus, u - 0.0008, u + 0.0008, 0.30, pi - 0.30, 0.012, seam, g, nu=1, nt=12)
-
-    # ---- THE WINDSCREEN: six forward panes wrapping the cabin and two overhead, set in
-    # black HRSI. Each pane is a patch of the hull, stood a few cm off it.
-    surf_patch('ws_mask', fus, 0.852, 0.906, 0.64, pi - 0.64, 0.02, M['tiles'], g, nu=14, nt=24)
-    pitch, half = 0.285, 0.098
+    # LO2 feedline: 17 in, down the LH2 tank's port side to the aft umbilical.
+    fa = radians(-26.0)
+    fr = (R + 16.0) * IN
+    fl = cyl('feedline', 0.24, 0.24, y(2045.0), y(1110.0), M['foam'], seg=16, parent=g)
+    fl.location = (sin(fa) * fr, -cos(fa) * fr, 0.0)
+    smooth(fl, 40)
     for i in range(6):
-        c = pi / 2 + (i - 2.5) * pitch
-        surf_patch(f'ws_pane{i}', fus, 0.8585, 0.8995, c - half, c + half, 0.034, M['glass'], g, nu=8, nt=4)
-    surf_patch('oh_mask', fus, 0.826, 0.846, pi / 2 - 0.25, pi / 2 + 0.25, 0.02, M['tiles'], g, nu=4, nt=8)
-    for sgn in (-1, 1):
-        c = pi / 2 + sgn * 0.125
-        surf_patch(f'oh_pane{sgn}', fus, 0.829, 0.843, c - 0.08, c + 0.08, 0.034, M['glass'], g, nu=3, nt=3)
-    # the side hatch, port side of the middeck, with its round window
-    port(g, fus, 0.834, pi + 0.04, 0.52, 0.03, M['dirty'], 'hatch')
-    port(g, fus, 0.834, pi + 0.04, 0.14, 0.08, M['glass'], 'hatch_win')
+        xt = 1180.0 + i * 160.0
+        strut(f'fl_bracket{i}', (sin(fa) * R * IN, -cos(fa) * R * IN, y(xt)),
+              (sin(fa) * fr, -cos(fa) * fr, y(xt)), 0.07, M['dirty'], seg=6, parent=g)
+    # The GH2 pressurisation line and cable tray down the LH2 tank, starboard; the
+    # LO2 tank's own line and tray down its crown from the nose, following the ogive.
+    rho = (R * R + L_og * L_og) / (2 * R)
 
-    # ---- forward RCS: fourteen thrusters in three groups (two pairs up out of the
-    # crown, a row out of each side).
-    for sgn in (-1, 1):
-        for k, u in enumerate((0.944, 0.951)):
-            for j, dt in enumerate((0.10, 0.20)):
-                port(g, fus, u, pi / 2 + sgn * dt, 0.10, 0.16, M['black'], f'frcs_up{sgn}{k}{j}')
-        for k, u in enumerate((0.936, 0.944, 0.952)):
-            port(g, fus, u, (0.34 if sgn > 0 else pi - 0.34), 0.10, 0.16, M['black'], f'frcs_side{sgn}{k}')
-    # vernier and down-firing jets under the chin
-    for sgn in (-1, 1):
-        port(g, fus, 0.955, 3 * pi / 2 + sgn * 0.30, 0.08, 0.14, M['black'], f'frcs_dn{sgn}')
+    def r_at(xt):
+        if xt >= 745.0:
+            return R
+        x = 745.0 - xt
+        return sqrt(max(rho * rho - x * x, 0.0)) - rho + R
 
-    # ---- black nose cap: the hottest single point on the vehicle, ~1 600 C,
-    # reinforced carbon-carbon, with the tile ring round it.
-    surf_patch('nosecap', fus, 0.968, 1.0, 0.0, TAU, 0.010, M['tiles'], g, nu=6, nt=40)
+    for k, (a, x0, x1, r) in enumerate(((radians(30.0), 1110.0, 2045.0, 0.09),
+                                        (radians(12.0), 420.0, 852.0, 0.07))):
+        xs = [x0 + (x1 - x0) * i / 12 for i in range(13)]
+        for i, (xa, xb) in enumerate(zip(xs, xs[1:])):
+            pa = Vector((sin(a) * (r_at(xa) + 6.0) * IN, -cos(a) * (r_at(xa) + 6.0) * IN, y(xa)))
+            pb = Vector((sin(a) * (r_at(xb) + 6.0) * IN, -cos(a) * (r_at(xb) + 6.0) * IN, y(xb)))
+            strut(f'pressline{k}_{i}', pa, pb, r, M['foam'], seg=8, parent=g)
+            ta = Vector((sin(a + 0.04) * (r_at(xa) + 2.5) * IN, -cos(a + 0.04) * (r_at(xa) + 2.5) * IN, y(xa)))
+            tb = Vector((sin(a + 0.04) * (r_at(xb) + 2.5) * IN, -cos(a + 0.04) * (r_at(xb) + 2.5) * IN, y(xb)))
+            strut(f'cabletray{k}_{i}', ta, tb, 0.09, M['foam'], seg=4, parent=g)
 
-    # ---- elevons and rudder as separate panels, with their hinge lines and the
-    # inboard/outboard elevon gap.
-    for sgn in (1, -1):
-        pts = []
-        for st in ws[:-1]:
-            u = 0.80
-            upv = st['cz'] + naca(u, st['thick']) * st['chord'] + 0.015
-            pts.append((sgn * st['x'], -upv, st['zLE'] - u * st['chord']))
-        for a, b in zip(pts, pts[1:]):
-            strut(f'elevon_hinge{sgn}_{a[0]:.1f}', a, b, 0.035, M['tiles'], seg=5, parent=g)
-        # the inboard/outboard split, hinge to trailing edge
-        st = ws[3]
-        z0 = st['zLE'] - 0.80 * st['chord']
-        z1 = st['zLE'] - 0.995 * st['chord']
-        strut(f'elevon_split{sgn}', (sgn * st['x'], -(st['cz'] + naca(0.8, st['thick']) * st['chord'] + 0.015), z0),
-              (sgn * st['x'], -(st['cz'] + 0.02), z1), 0.035, M['tiles'], seg=5, parent=g)
+    # The bipod the orbiter's nose hangs on (its foam ramp is what came off on
+    # STS-107), and the aft crossbeam with the two 17 in umbilical plates.
+    apex = PT(1119.0, 0.0, 336.5 - (400.0 - 279.0))
+    for sgn in (-1, 1):
+        foot = PT(1132.0, sgn * 40.0, sqrt(R * R - 40.0 * 40.0))
+        strut(f'bipod{sgn}', foot, apex, 0.09, M['dirty'], seg=8, parent=g)
+        box(f'bipod_ramp{sgn}', (0.5, 0.25, 0.9), tuple(foot + Vector((0, 0.08, 0.1))), M['foam'], parent=g)
+    zbeam = R + 6.0
+    strut('aft_crossbeam', PT(2058.0, -125.0, sqrt(R * R - 125.0 ** 2) + 4.0), PT(2058.0, 125.0, sqrt(R * R - 125.0 ** 2) + 4.0),
+          0.16, M['dirty'], seg=10, parent=g)
+    belly = 336.5 - (400.0 - 259.5)
+    for sgn in (-1, 1):
+        top = PT(2058.0, sgn * 48.0, belly)
+        bot = PT(2058.0, sgn * 48.0, sqrt(R * R - 48.0 ** 2))
+        b = box(f'umbilical{sgn}', (0.75, abs(top.y - bot.y) + 0.1, 0.75), tuple((top + bot) / 2), M['dirty'], parent=g)
+        strut(f'aft_strut{sgn}', PT(2058.0, sgn * 110.0, sqrt(R * R - 110.0 ** 2)),
+              PT(2050.0, sgn * 70.0, belly), 0.08, M['dirty'], seg=8, parent=g)
+    torus_z('aft_ring', R * IN * 1.006, 0.05, y(2058.0), M['foam'], seg=64, minor=6, parent=g)
+    # The solids' forward thrust fittings, out of the intertank.
+    for sgn in (-1, 1):
+        strut(f'srb_fwd_fit{sgn}', (sgn * R * IN, 0, y(987.0)), (sgn * (SRB_Y - SRB_D / 2 + 0.02), 0, y(987.0)),
+              0.14, M['dirty'], seg=8, parent=g)
+    return g
+
+
+# SOLID ROCKET BOOSTERS, Ys ±250.5. Nose cap XB 200 → 326, frustum → 402 (the
+# parachutes and four separation motors), forward skirt → 532, the four-segment
+# motor case to 1819 with field joints at XB 851.5, 1171.5, 1491.5 and the tank
+# attach ring at 1511, then the aft skirt, flaring to 212 in at its foot.
+def build_srb(M, root):
+    g = stage('srb', root)
+    r = SRB_D / 2
+
+    def y(xb):
+        return (XB_EXIT - xb) * IN
+
+    # Each booster is a piece of its own (`piece_srb_i`, port first), nozzle included,
+    # because at separation the two fly apart on their own paths.
+    for side in (-1, 1):
+        b = empty(f'piece_srb_{0 if side < 0 else 1}', (side * SRB_Y, 0, 0), g)
+        # Aft skirt, carrying the whole stack on four hold-down posts.
+        sk = cyl(f'skirt{side}', 106.0 * IN, r, y(1958.0), y(1819.0), M['white'], seg=48, parent=b)
+        finish(sk, 0.02, 2, 45)
+        disc(f'skirt_floor{side}', 106.0 * IN, y(1958.0), M['soot'], seg=48, parent=b)
+        for k in range(4):
+            a = pi / 4 + k * pi / 2
+            box(f'holddown{side}{k}', (0.5, 0.5, 0.6),
+                (cos(a) * 98.0 * IN, sin(a) * 98.0 * IN, y(1958.0) + 0.25), M['dirty'], parent=b)
+        # The nozzle hangs on a pivot (plumes parent to parts.gimbals). The RSRM
+        # vectors 8°, the stack's only control until the SSMEs have authority. Its
+        # throat sits up inside the case, as the real submerged nozzle's does.
+        exd = S['srb']['engine']['exitD']
+        L_bell = exd / 2 * 2.6
+        piv = empty(f'gimbal_srb_{0 if side < 0 else 1}', (0, 0, L_bell), b)
+        nz = bell(f'srbnoz{side}', exd, M['nozzle'], ratio=7.7, chamber=False, seg=40, parent=piv)
+        finish(nz, 0.015, 2, 50)
+
+        # Motor case, its field joints and the tank attach ring.
+        body = cyl(f'case{side}', r, r, y(1819.0), y(532.0), M['white'], seg=56, parent=b)
+        finish(body, 0.02, 2, 40)
+        for k, xb in enumerate((851.5, 1171.5, 1491.5)):
+            j = cyl(f'joint{side}{k}', r * 1.012, r * 1.012, y(xb + 9.0), y(xb - 9.0), M['dirty'], seg=56, parent=b)
+            smooth(j, 30)
+        for k, xb in enumerate((1650.0, 1735.0)):
+            torus_z(f'stiffener{side}{k}', r * 1.01, 0.035, y(xb), M['white'], seg=56, minor=6, parent=b)
+        eta = cyl(f'eta_ring{side}', r * 1.03, r * 1.03, y(1517.0), y(1505.0), M['dirty'], seg=56,
+                  parent=b, t0=(-0.75 if side < 0 else 0.25) * pi, t1=(0.75 if side < 0 else 1.75) * pi)
+        smooth(eta, 30)
+        # Three struts to the tank's aft ring: upper, diagonal, lower.
+        inner = -side
+        for k, (dz, dx) in enumerate(((0.55, 0.0), (0.0, -0.25), (-0.55, 0.0))):
+            strut(f'eta_strut{side}{k}', (inner * r * 1.02, dz, y(1511.0)),
+                  (inner * (r + 0.35), dz * 0.6, y(1511.0) + dx), 0.06, M['dirty'], seg=6, parent=b)
+        # Systems tunnel: the cable raceway down the outboard side.
+        tun = box(f'tunnel{side}', (0.32, 0.22, (1819.0 - 540.0) * IN),
+                  (side * r * 0.99, 0, (y(540.0) + y(1819.0)) / 2), M['dirty'], parent=b)
+        finish(tun, 0.015, 2, 40)
+
+        # Forward skirt, frustum and nose cap. The frustum carries the drogue and
+        # main parachutes and comes off separately, as does the cap before it, so
+        # each is a node of its own (`frustum_srb_i`, `nosecap_srb_i`).
+        fs = cyl(f'fwdskirt{side}', r, r, y(532.0), y(402.0), M['white'], seg=48, parent=b)
+        i = 0 if side < 0 else 1
+        fn = empty(f'frustum_srb_{i}', (0, 0, 0), b)
+        cn = empty(f'nosecap_srb_{i}', (0, 0, 0), b)
+        r_fr = 54.0 * IN
+        fr = cyl(f'frustum{side}', r, r_fr, y(402.0), y(326.0), M['white'], seg=48, parent=fn)
+        finish(fr, 0.02, 2, 45)
+        # Separation motors: four in the frustum and four on the aft skirt, all on the
+        # side facing the tank. They fire forward, inboard and toward the orbiter at 40°
+        # to the axis and 20° off the inboard line (TM X-64967 fig. 1), so the push
+        # takes the booster aft, outboard and under the wing (Separation.exhaust_dir).
+        c40, s40, c20, s20 = cos(radians(40)), sin(radians(40)), cos(radians(20)), sin(radians(20))
+        ex = Vector((-side * s40 * c20, -s40 * s20, c40))
+        az = atan2(-s20, -side * c20)
+        for k in range(4):
+            ar = r - (r - r_fr) * (402.0 - 390.0) / 76.0
+            a = az + (k % 2 - 0.5) * 0.18
+            port(f'bsm_fwd{side}{k}', Vector((cos(a) * ar, sin(a) * ar, y(390.0) + (k // 2 - 0.5) * 0.32)),
+                 ex, 0.09, 0.15, M['black'], fn)
+            sr = r + (106.0 * IN - r) * (1884.5 - 1819.0) / 139.0
+            a = az + (k - 1.5) * 0.1355
+            port(f'bsm_aft{side}{k}', Vector((cos(a) * sr, sin(a) * sr, y(1884.5))), ex, 0.09, 0.15, M['black'], b)
+        cap = ogive(f'cap{side}', y(200.0) - y(326.0), r_fr * 2, M['white'], seg=48, parent=cn, z0=y(326.0))
+        finish(cap, 0.02, 2, 45)
+        # The forward attach fitting on the skirt: the booster's thrust goes into the
+        # tank's intertank here, not at the aft struts.
+        strut(f'fwd_attach{side}', (inner * r, 0, y(444.0)), (inner * (r + 0.3), 0, y(444.0)),
+              0.13, M['dirty'], seg=8, parent=b)
     return g
 
 

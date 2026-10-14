@@ -8,6 +8,10 @@ render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_front;
 uniform float uHeat = 0.0;
 uniform float uTime = 0.0;
 uniform float uTemp = 2000.0;
+// 0: the cap's cut edge is a hard rim (a capsule hides it behind the shield). 1: fade
+// to nothing toward it, for a sheath wrapped round an orbiter, whose rim stands clear.
+uniform float uRimFade = 0.0;
+uniform float uCapR = 1.0;
 
 varying vec3 vN;
 varying vec3 vP;
@@ -24,9 +28,11 @@ void fragment() {
 	vec3 n = normalize(vN);
 	// The sheath is brightest at the stagnation point and streams back.
 	float front = clamp(-n.y * 0.5 + 0.5, 0.0, 1.0);
-	float rim = pow(1.0 - abs(n.z), 2.0);
+	float rim = pow(max(1.0 - abs(n.z), 0.0), 2.0);
 	float flick = 0.75 + 0.25 * hash(floor(vP * 9.0 + uTime * 26.0));
 	float i = uHeat * (pow(front, 2.4) * 1.6 + rim * 0.5) * flick;
+	// the cap runs from its pole (y = R) to its cut (y = R cos 0.62π ≈ −0.37 R)
+	i *= mix(1.0, smoothstep(-0.37 * uCapR, 0.55 * uCapR, vP.y), uRimFade);
 	// colour runs dull red → orange → blue-white as the flux climbs, which
 	// is the real progression from a shallow entry to a lunar-return one
 	vec3 c = mix(vec3(1.0, 0.24, 0.06), vec3(1.0, 0.72, 0.35), clamp(uHeat * 1.6, 0.0, 1.0));

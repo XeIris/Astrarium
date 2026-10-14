@@ -36,7 +36,7 @@ func part_errors(craft, vehicle: Dictionary) -> Array:
 func pose(craft, vehicle: Dictionary, deployed: bool) -> void:
 	var before := {}
 	for st in craft.stages:
-		for role in ["legs", "fins", "arrays", "flaps", "gimbals"]:
+		for role in ["legs", "fins", "arrays", "flaps", "doors", "gimbals"]:
 			for pivot: Node3D in st.parts[role]:
 				before[pivot] = {"rotation": pivot.rotation, "point": mesh_point(pivot)}
 	var deploy := {}
@@ -46,11 +46,13 @@ func pose(craft, vehicle: Dictionary, deployed: bool) -> void:
 		var cover := str(st.spec.get("look", {}).get("arrayCover", ""))
 		if cover != "": attached[cover] = not deployed
 	var command := 100.0 if deployed else -100.0
-	craft.update({"dt": 4.0, "attached": attached, "deploy": deploy, "gimbal": {"x": command, "z": command}, "flap": command / 100.0})
+	craft.update({"dt": 4.0, "attached": attached, "deploy": deploy, "gear": deploy, "gimbal": {"x": command, "z": command}, "flap": command / 100.0})
 	for st in craft.stages:
-		for role in ["legs", "fins", "arrays", "flaps"]:
-			var angle: float = {"legs": -1.15 if deployed else 0.0, "fins": -1.35 if deployed else 0.0,
-				"arrays": 0.0 if deployed else PI / 2.0, "flaps": 0.6 if deployed else -0.6}[role]
+		for role in ["legs", "fins", "arrays", "flaps", "doors"]:
+			var swing := float(st.spec.get("look", {}).get("gearSwing", 1.15))
+			var angle: float = {"legs": -swing if deployed else 0.0, "fins": -1.35 if deployed else 0.0,
+				"arrays": 0.0 if deployed else PI / 2.0, "flaps": 0.6 if deployed else -0.6,
+				"doors": CraftModel.DOOR_OPEN if deployed else 0.0}[role]
 			for pivot: Node3D in st.parts[role]:
 				expect(absf(pivot.rotation.z - angle) < 1e-4, "%s/%s %s failed articulation" % [vehicle.id, st.key, role])
 				check_geometry_motion(pivot, before[pivot], vehicle.id + "/" + st.key + "/" + role)
@@ -61,6 +63,136 @@ func pose(craft, vehicle: Dictionary, deployed: bool) -> void:
 				"%s/%s gimbal failed clamp/fixed pose" % [vehicle.id, st.key])
 			check_geometry_motion(pivot, before[pivot], vehicle.id + "/" + st.key + "/gimbal")
 
+## The two boosters leave on their own paths, each with its own nozzle: apart, aft,
+## below the orbiter, and turning differently; the stage frame itself stays put.
+func booster_pieces(craft) -> void:
+	var st = craft.stage("srb")
+	expect(st.parts.pieces.size() == 2, "shuttle boosters are not separate pieces")
+	if st.parts.pieces.size() != 2: return
+	for pivot: Node3D in st.parts.gimbals:
+		expect(st.parts.pieces.any(func(p): return p.is_ancestor_of(pivot)), "booster nozzle does not ride its booster")
+	var start: Array = st.parts.pieces.map(func(p): return (p as Node3D).position)
+	var stage_at: Vector3 = st.group.position
+	craft.separate("srb")
+	for i in 30: craft.update({"dt": 0.1, "attached": {"srb": false}, "accel": 9.0})
+	var a: Node3D = st.parts.pieces[0]
+	var b: Node3D = st.parts.pieces[1]
+	# Each booster's centre of mass: its nozzle end swings toward the orbiter as it tumbles.
+	var cg := Vector3(0.0, float(st.spec.look.sep.cgY), 0.0)
+	var da: Vector3 = a.transform * cg - (start[0] + cg)
+	var db: Vector3 = b.transform * cg - (start[1] + cg)
+	expect(st.group.visible and st.group.position == stage_at, "booster stage frame moved or hid while its pieces fly")
+	expect(da.x * signf(start[0].x) > 3.0 and db.x * signf(start[1].x) > 3.0, "boosters did not move apart: %s %s" % [da, db])
+	expect(da.y < -30.0 and db.y < -30.0, "boosters did not fall behind the stack: %s %s" % [da, db])
+	expect(da.z < 0.0 and db.z < 0.0, "boosters moved toward the orbiter: %s %s" % [da, db])
+	expect(not a.basis.is_equal_approx(Basis()) and not a.basis.is_equal_approx(b.basis), "boosters do not tumble on their own")
+
+## Every droppable stage leaves the way the physics says, measured on the built nodes
+## alone: a stage dropped under thrust falls behind at least at the stack's
+## acceleration plus its own motors' and the stack's authored pushes, and doesn't
+## drift sideways unless it is a piece moving off the axis; a stage dropped in a coast
+## (the Shuttle's tank) doesn't slide along the axis and moves away from the stages
+## still flying.
+func stage_separations(vehicle: Dictionary) -> void:
+	const A := 9.0
+	for spec: Dictionary in vehicle.stages:
+		if spec.sep == "none": continue
+		var craft = CraftModel.build_craft(vehicle)
+		var st = craft.stage(spec.key)
+		var coast: bool = spec.has("sepAfterCutoff")
+		var T := 6.0 if coast else 3.0
+		var nodes: Array = st.parts.pieces if not st.parts.pieces.is_empty() else st.parts.halves
+		if nodes.is_empty(): nodes = [st.group]
+		var pieces: bool = nodes[0] != st.group
+		# Staging drops the stack bottom first: the stages below this one are gone.
+		var rest := 0.0
+		var toward := Vector3.ZERO
+		var below := true
+		for o in craft.stages:
+			if o == st: below = false; continue
+			if below: o.group.visible = false; continue
+			rest += float(o.spec.dry) + float(o.spec.prop)
+			toward += Vector3(o.group.position.x, 0.0, o.group.position.z) - Vector3(st.group.position.x, 0.0, st.group.position.z)
+		var marks := []
+		for n: Node3D in nodes:
+			var acc := [false, AABB()]
+			CraftModel._measure_into(n, n.transform, acc, null)
+			var c: Vector3 = (acc[1] as AABB).get_center()
+			marks.append({"node": n, "local": n.transform.affine_inverse() * c, "at": c, "out": Vector3(c.x, 0.0, c.z)})
+		craft.separate(spec.key)
+		for i in int(T / 0.1): craft.update({"dt": 0.1, "attached": {spec.key: false}, "accel": 0.0 if coast else A})
+		var sep: Dictionary = spec.get("look", {}).get("sep", {})
+		# What the authored pushes are worth along the axis by T: the motors' impulse
+		# (aft by the cant) and the stack's own push, each from where it acts.
+		var aft := 0.0 if coast else 0.5 * A * T * T
+		var m = sep.get("motors")
+		if m != null:
+			var dv := float(m.thrust) * (float(m.web) + 0.5 * float(m.get("tail", 0.0))) * (m.sites as Array).size() \
+				/ (float(spec.dry) / nodes.size()) * cos(deg_to_rad(float(m.cant)))
+			aft += dv * (T - float(m.get("ignite", 0.0)) - 0.5 * float(m.web))
+		var stack = sep.get("stack")
+		var lateral := Vector3.ZERO
+		if stack != null:
+			var a_s := float(stack.thrust) / rest
+			var t0 := float(stack.get("start", 0.0))
+			var t1 := maxf(t0, 0.0)
+			var t2 := minf(t0 + (float(stack.time) if stack.has("time") else float(stack.dv) / a_s), T)
+			var dir := Vector3(float(stack.dir[0]), float(stack.dir[1]), float(stack.dir[2])).normalized()
+			# A push on [t1, t2] is worth a·(t2 − t1)·(T − mid-time) by T.
+			var d_stack: Vector3 = dir * a_s * maxf(t2 - t1, 0.0) * (T - 0.5 * (t1 + t2))
+			aft += d_stack.y
+			lateral = Vector3(d_stack.x, 0.0, d_stack.z)
+		for mk: Dictionary in marks:
+			var n: Node3D = mk.node
+			var d: Vector3 = n.transform * (mk.local as Vector3) - (mk.at as Vector3)
+			var h := Vector3(d.x, 0.0, d.z)
+			var tag := "%s/%s %s" % [vehicle.id, spec.key, d]
+			expect(st.group.visible, tag + ": separated stage hidden early")
+			if coast:
+				expect(absf(d.y) < 0.5, tag + ": coasting stage slid along the stack axis")
+				expect(h.dot(toward.normalized()) < -0.8 * lateral.length(), tag + ": coasting stage did not move away from the stack")
+			else:
+				expect(d.y < -0.95 * aft and d.y > -1.2 * aft, tag + ": did not fall behind at the stack's acceleration (want %.1f m aft)" % aft)
+				if pieces:
+					expect(h.dot(mk.out) > 0.0, tag + ": piece moved in toward the stack's axis")
+				else:
+					expect(h.length() < 0.5, tag + ": whole stage drifted sideways")
+		craft.group.free()
+
+## A stage with a fate (`look.fall`) is handed on, every piece at once, as soon as
+## Separation's pushes are over and not before; then the craft lets it go: it neither
+## draws it nor separates it again.
+func stage_handoffs(vehicle: Dictionary) -> void:
+	for spec: Dictionary in vehicle.stages:
+		if not spec.get("look", {}).has("fall"): continue
+		var craft = CraftModel.build_craft(vehicle)
+		var st = craft.stage(spec.key)
+		var nodes: Array = st.parts.pieces if not st.parts.pieces.is_empty() else [st.group]
+		# Staging drops the stack bottom first: the stages below this one are gone.
+		for o in craft.stages:
+			if o == st: break
+			o.group.visible = false
+		var got := []
+		var release := func(cs, s: Dictionary) -> void:
+			got.append({"stage": cs, "t": float(s.t), "due": Separation.handoff_time(s), "bodies": (s.bodies as Array).size()})
+		craft.separate(spec.key)
+		for i in 80:
+			craft.update({"dt": 0.1, "attached": {spec.key: false}, "accel": 9.0, "release": release})
+		var tag := "%s/%s" % [vehicle.id, spec.key]
+		expect(got.size() == 1, tag + ": handed on %d times, not once" % got.size())
+		if got.size() != 1:
+			craft.group.free()
+			continue
+		var h: Dictionary = got[0]
+		expect(h.stage == st and h.bodies == nodes.size(), tag + ": did not hand on all its pieces")
+		expect(h.t >= h.due and h.t < h.due + 0.1 + 1e-6, tag + ": handed on at %.2f s, not when its pushes end (%.2f s)" % [h.t, h.due])
+		expect(st.handed and st.sep == null, tag + ": still the craft's after the hand-off")
+		var shown: bool = st.group.visible
+		craft.separate(spec.key)
+		craft.update({"dt": 0.1, "attached": {spec.key: false}, "accel": 9.0, "release": release})
+		expect(st.sep == null and st.group.visible == shown and got.size() == 1, tag + ": separated or redrawn after the hand-off")
+		craft.group.free()
+
 func payload_cover(craft) -> void:
 	var payload = craft.stage("f9pl")
 	var cover = craft.stage("f9fair")
@@ -70,14 +202,17 @@ func payload_cover(craft) -> void:
 	for array: Node3D in payload.parts.arrays:
 		expect(is_equal_approx(array.rotation.z, PI / 2.0), "Falcon enclosed panel is not folded")
 	state.attached = {"f9fair": false}
-	state.dt = 1.0
-	craft.separate("f9fair", 4.0, 0.3)
-	for i in 6:
-		craft.update(state)
-		expect(cover.group.visible and payload.deploy == 0.0, "Falcon panels opened during fairing separation")
-	state.dt = 0.1
+	craft.separate("f9fair")
+	# The halves stay drawn for Separation.SHOWN s: fly to 0.1 s short of it, then past.
+	var whole := int(Separation.SHOWN) - 1
+	for step: Array in [[1.0, whole], [0.1, 9]]:
+		state.dt = step[0]
+		for i in step[1]:
+			craft.update(state)
+			expect(cover.group.visible and payload.deploy == 0.0, "Falcon panels opened during fairing separation")
+	state.dt = 0.2
 	craft.update(state)
-	expect(not cover.group.visible and is_equal_approx(payload.deploy, 0.055), "Falcon clear panels did not begin eased deployment")
+	expect(not cover.group.visible and is_equal_approx(payload.deploy, 0.11), "Falcon clear panels did not begin eased deployment")
 	state.dt = 2.0
 	craft.update(state)
 	for array: Node3D in payload.parts.arrays:
@@ -86,6 +221,28 @@ func payload_cover(craft) -> void:
 	state.dt = 0.0
 	craft.update(state)
 	expect(payload.deploy == 0.0, "Falcon reassembled studio kept payload panels deployed")
+
+## The orbiter's drag chute: packed inside its compartment, then out behind the vehicle
+## on its riser, reefed narrower than disreefed, and gone a while after the jettison.
+func drag_chute(craft) -> void:
+	var st = craft.stage("orbiter")
+	expect(st.parts.chutes.size() == 1, "orbiter has no drag chute")
+	if st.parts.chutes.is_empty(): return
+	var node: Node3D = st.parts.chutes[0]
+	var dc: Dictionary = st.spec.dragChute
+	var poses := {}
+	for t in [0.0, 4.0, 10.0]:
+		craft.update({"dt": 0.0, "chute": {"orbiter": {"t": t, "gone": -1.0, "dir": Vector3.DOWN, "gs": 30.0}} if t > 0.0 else {}})
+		poses[t] = CraftModel.measure(node)
+		poses[str(t)] = node.visible
+	expect(not poses["0.0"] and poses[0.0].size.length() < 1.0, "shuttle drag chute is not packed in its compartment")
+	expect(poses["10.0"] and poses[10.0].size.y > 30.0, "shuttle drag chute does not stream behind on its riser")
+	var full: float = poses[10.0].size.x
+	expect(absf(full - 0.7 * float(dc.D0)) < 0.5, "shuttle drag canopy is %.1f m across, not 0.7 of 40 ft" % full)
+	expect(absf(poses[4.0].size.x / full - sqrt(float(dc.reef))) < 0.05, "shuttle drag chute is not reefed at 4 s")
+	craft.update({"dt": 0.0, "chute": {"orbiter": {"t": 30.0, "gone": 5.0, "dir": Vector3.DOWN, "gs": 30.0}}})
+	expect(not node.visible, "shuttle drag chute still shown after its jettison")
+	craft.update({"dt": 0.0})
 
 func mesh_point(node: Node) -> Variant:
 	if node is MeshInstance3D and node.mesh != null:
@@ -168,6 +325,11 @@ func run() -> void:
 		failures.append_array(part_errors(craft, vehicle))
 		pose(craft, vehicle, true)
 		pose(craft, vehicle, false)
+		stage_separations(vehicle)
+		stage_handoffs(vehicle)
+		if id == "shuttle":
+			booster_pieces(craft)
+			drag_chute(craft)
 		if id == "falcon9":
 			payload_cover(craft)
 			var pivot: Node3D = craft.stages[0].parts.gimbals[0]

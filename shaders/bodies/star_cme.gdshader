@@ -51,7 +51,7 @@ void fragment() {
 	// between a crescent and an arc with legs.
 	vec3 N = normalize(vVN);
 	vec3 V = normalize(-vVP);
-	float rim = pow(1.0 - abs(dot(N, V)), uRimPow);
+	float rim = pow(max(1.0 - abs(dot(N, V)), 0.0), uRimPow);
 
 	// Streamer-like striations: the ejecta is threaded on the field it
 	// dragged out with it, so the structure is RADIAL.

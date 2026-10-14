@@ -30,6 +30,8 @@ const ATMOSPHERES := {
 			{ "base": 50000.0, "H": 7465.0 },                # mesosphere
 		],
 		"top": 140e3, "tint": 0x4a7fd0, "haze": 0x8fb6e8,
+		# Water vapour to condense in the expansions round a vehicle (Vapour).
+		"humid": true,
 	},
 	# The standard Mars model, H = 11.1 km. rho0 follows from 610 Pa of CO₂ at 210 K
 	# (0.0151 kg/m³). A second layer above 60 km. Deep enough to burn you, too thin to
@@ -163,13 +165,16 @@ static func isp_at(engine: Dictionary, pa: float) -> float:
 	var f := minf(maxf(pa / 101325.0, 0.0), 1.4)
 	return maxf(engine.ispVac - (engine.ispVac - engine.ispSL) * f, engine.ispSL * 0.55)
 
-## A solid's thrust is set by its grain. The RSRM's thrust drops about a third
-## mid-burn, holding the Shuttle under max-q and its g limit. Fractions of the vacuum
-## rating against fraction burned; this curve burns out at ~127 s (RSRM action time
-## 123.6 s).
+## A solid's thrust is set by its grain. Fractions of the vacuum rating (the peak)
+## against fraction burned, from the RSRM population-nominal vacuum thrust at 60 °F
+## (Thiokol TWR-17543-10, NTRS 19900003336, fig. 3.8): 3.15 Mlbf at ignition, 3.32 at
+## 21 s, the max-q bucket at 52 s, burnout at the 123.4 s action time. Mass × Isp sets
+## the impulse. How the knots were read: docs/physics/srb-separation.md#the-solids-thrust.
 const RSRM_PROFILE := [
-	[0.00, 0.88], [0.04, 1.00], [0.10, 0.96], [0.22, 0.84],
-	[0.36, 0.74], [0.55, 0.80], [0.78, 0.78], [0.92, 0.64], [1.00, 0.25],
+	[0.000, 0.949], [0.031, 0.951], [0.070, 0.982], [0.102, 0.992], [0.233, 1.000], [0.296, 0.913],
+	[0.366, 0.838], [0.445, 0.767], [0.518, 0.717], [0.707, 0.773], [0.741, 0.771], [0.774, 0.743],
+	[0.833, 0.667], [0.862, 0.648], [0.904, 0.598], [0.969, 0.495], [0.979, 0.438], [0.983, 0.399],
+	[0.987, 0.316], [0.992, 0.206], [0.996, 0.131], [1.000, 0.029],
 ]
 static func solid_thrust_fraction(burned_frac: float, prof = null) -> float:
 	var pr: Array = RSRM_PROFILE if prof == null else prof

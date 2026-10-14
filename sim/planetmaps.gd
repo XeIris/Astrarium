@@ -2,7 +2,8 @@ class_name PlanetMaps
 extends RefCounted
 
 # Offline mission maps; sources and projection: assets/planet-maps/README.md.
-# Earth carries colour and a land mask; Mars/Moon carry colour-only albedo.
+# Earth carries colour and a land mask; Mars/Moon carry colour-only albedo;
+# Jupiter's is its cloud deck (kind 3, drawn by giant_body.gdshader).
 # load_planet_map returns false on absence/failure, otherwise calls ready once
 # on the main thread, immediately if cached or after threaded decoding.
 # The synchronous option is for deterministic harness startup.
@@ -13,6 +14,9 @@ const SOURCES := {
 	"Earth": {"color": "earth-july.jpg", "mask": "earth-land.png", "kind": 1, "scale": 1.0},
 	"Mars":  {"color": "mars-viking.jpg", "kind": 2, "scale": 1.5},
 	"Moon":  {"color": "moon-lro.jpg", "kind": 2, "scale": 0.24},
+	# scale = albedo / the map's mean linear luminance: Io 0.63 / 0.323.
+	"Io":    {"color": "io-galileo.jpg", "kind": 2, "scale": 1.95},
+	"Jupiter": {"color": "jupiter-cassini.jpg", "kind": 3, "scale": 1.0},
 }
 
 static var synchronous := false

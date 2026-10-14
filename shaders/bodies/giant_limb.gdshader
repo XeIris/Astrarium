@@ -21,7 +21,7 @@ void vertex() {
 void fragment() {
 	vec3 N = normalize(vWN);
 	vec3 V = normalize(vView);
-	float rim = pow(1.0 - abs(dot(N, V)), 3.0);
+	float rim = pow(max(1.0 - abs(dot(N, V)), 0.0), 3.0);
 	vec3 col = vec3(0.0);
 	for (int i = 0; i < 4; i++) {
 		if (i >= uSunCount) break;

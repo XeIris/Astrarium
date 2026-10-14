@@ -25,7 +25,9 @@ const PROGRAMS := [
 	["deorbit", "Deorbit", "Drop periapsis into the atmosphere (or into the ground, where there is no atmosphere)."],
 	["land", "Land (airless)", "Apollo's own P63 / P64 / P66 sequence, on its published gate conditions."],
 	["hoverslam", "Propulsive landing", "Entry burn, then a hoverslam: ignition altitude solved from v²/2(F/m − g) every step."],
-	["catch", "Booster return & tower catch", "Super Heavy from its post-boostback apogee: no entry burn, a 13-engine landing burn, the centre three to hover beside the tower, then onto the arms."],
+	["catch", "Booster return & tower catch", "Super Heavy from its post-boostback apogee: no entry burn, a 13-engine landing burn, then as many centre engines as can hover (two Raptor 3s on V3) beside the tower, then onto the arms."],
+	["bellyflop", "Ship return: belly-flop & flip", "Starship's own descent: deorbit if in orbit, belly first through entry (60° to broadside) with the flaps trimming, then the flip on the three sea-level Raptors and a landing burn on one, to a soft touchdown."],
+	["glide", "Orbiter entry & landing", "The Shuttle's way home: a deorbit burn timed to bring the launch site within reach, a 40° nose-up entry banking to fly the drag the range to go needs, with roll reversals toward the site, then a glide down the −20° outer glide slope, preflare onto the −1.5° inner one, gear at 300 ft, touchdown on the main wheels, then derotation, drag chute and brakes to wheel stop."],
 	["edl", "Entry, descent & landing", "Aeroshell, supersonic parachute, backshell separation, powered descent, sky crane."],
 	["cruise", "Interstellar cruise", "Fly to the target on the exact constant-proper-acceleration solution: accelerate, coast, flip and burn. Pick a star (★) or a planet under Target first — with none picked it flies the mission. Two clocks, and the sky aberrates."],
 ]
@@ -160,8 +162,8 @@ class Navball extends Control:
 		fill.size = Vector2(W, H)
 		fill_mat = ShaderMaterial.new()
 		fill_mat.shader = load("res://shaders/flight/navball.gdshader")
-		fill_mat.set_shader_parameter("uSky", HudTheme.hexc(0x2a4d78))
-		fill_mat.set_shader_parameter("uGround", HudTheme.hexc(0x6b5334))
+		fill_mat.set_shader_parameter("uSky", HudTheme.hexc(0x2f4a68))
+		fill_mat.set_shader_parameter("uGround", HudTheme.hexc(0x5c4a36))
 		fill.material = fill_mat
 		add_child(fill)
 		over = Control.new()
@@ -312,15 +314,15 @@ class Tape extends Control:
 			queue_redraw()
 
 	func _draw() -> void:
-		FlightUI._box(self, Rect2(Vector2.ZERO, size), HudTheme.rgba(8, 14, 24, 0.7), HudTheme.rgba(120, 190, 255, 0.20), 3)
+		FlightUI._box(self, Rect2(Vector2.ZERO, size), HudTheme.rgba(255, 255, 255, 0.03), HudTheme.BORDER, 2)
 		# the padding box: inside the 1 px border
 		var inner := Rect2(Vector2(1, 1), size - Vector2(2, 2))
 		if not is_vs:
-			# a vertical gradient, #2a7fd0 at the foot to #7fd0ff at the top of the fill
+			# a vertical gradient, faint at the foot to the accent at the top of the fill
 			var h := inner.size.y * frac
 			if h > 0.0:
 				var y0 := inner.end.y - h
-				var c0 := HudTheme.hexc(0x2a7fd0); var c1 := HudTheme.hexc(0x7fd0ff)
+				var c0 := Color(HudTheme.ACCENT_2, 0.25); var c1 := Color(HudTheme.ACCENT, 0.85)
 				var pts := PackedVector2Array([Vector2(inner.position.x, y0), Vector2(inner.end.x, y0),
 					Vector2(inner.end.x, inner.end.y), Vector2(inner.position.x, inner.end.y)])
 				draw_polygon(pts, PackedColorArray([c1, c1, c0, c0]))
@@ -328,7 +330,7 @@ class Tape extends Control:
 			# a dashed 1 px line at 50%
 			var y := roundf(inner.position.y + inner.size.y * 0.5)
 			var x := inner.position.x
-			var dc := HudTheme.rgba(120, 190, 255, 0.35)
+			var dc := HudTheme.BORDER_STRONG
 			while x < inner.end.x:
 				draw_rect(Rect2(x, y, minf(3.0, inner.end.x - x), 1.0), dc)
 				x += 6.0
@@ -337,15 +339,16 @@ class Tape extends Control:
 			var r := Rect2(inner.position.x + 2.0, yb - 2.0, inner.size.x - 4.0, 2.0)
 			for i in 4:
 				var g := 1.5 * (i + 1)
-				draw_rect(r.grow(g), HudTheme.rgba(255, 207, 77, 0.7 * 0.12 * (1.0 - i / 4.0)))
-			draw_rect(r, HudTheme.hexc(0xffcf4d))
+				draw_rect(r.grow(g), Color(HudTheme.ACCENT_2, 0.7 * 0.12 * (1.0 - i / 4.0)))
+			draw_rect(r, HudTheme.ACCENT)
 		# the label: 2 px off the foot, centred, 8.5 px, letter-spacing .08em
 		var st := {"fs": 8.5, "ls": 0.68}
 		var f := HudTheme.text_font(st)
 		var fs := HudTheme.px(8.5)
 		var tw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var by := inner.end.y - 2.0 - f.get_descent(fs)
-		draw_string(f, Vector2(inner.position.x + roundf((inner.size.x - tw) * 0.5), roundf(by)), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, HudTheme.hexc(0x7d93ae))
+		if size.x >= tw + 2.0:
+			draw_string(f, Vector2(inner.position.x + roundf((inner.size.x - tw) * 0.5), roundf(by)), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, HudTheme.TEXT_DIM)
 
 # A STAGE ROW: a proportional bar behind the name, the propellant and the engine count.
 class StageRow extends PanelContainer:
@@ -395,6 +398,7 @@ var hooks: Dictionary
 var nav: Navball
 var thr: Tape
 var vs: Tape
+var console = null              # FlightConsole: the strip along the bottom of the frame
 var status_box: PanelContainer
 var status_el: Prose
 var _status_cls := "?"
@@ -494,13 +498,9 @@ func _init(r: Control, h: Dictionary) -> void:
 	root = r
 	hooks = h
 	for c in root.get_children(): c.queue_free()
-	var top := Hud.hbox(root, 8.0, 6.0, 8.0)
-	nav = Navball.new()
-	top.add_child(nav)
-	var tape := Hud.hbox(top, 6.0)
-	tape.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	thr = Tape.new("THR", false); tape.add_child(thr)
-	vs = Tape.new("V/S", true); tape.add_child(vs)
+	# The ball and the tapes live on the console (ui/flight_console.gd); this panel
+	# is the systems view behind it.
+	console = h.get("console")
 	status_el = Hud.label(null, "", {"fs": 10.5, "c": HudTheme.hexc(0xa8c4e0)}, true) as Prose
 	status_el.custom_minimum_size.y = 15.0
 	status_box = Hud.m(Hud.frame(status_el, {}), 0.0, 7.0)
@@ -577,13 +577,10 @@ func set_targets(names: Array, current) -> void:
 func update(s: Dictionary) -> void:
 	var t: Dictionary = s.telemetry
 	var v: Vessel = s.vessel
-	nav.draw_ball(v.q.to_quaternion(), s.up, s.north, s.markers, {"roll": s.get("roll")})
+	if console != null and console.is_visible_in_tree(): console.update(s)
+	if not root.is_visible_in_tree(): return
 	status_el.say(str(s.status))
 	_set_status("fail" if v.failure != null else ("good" if v.phase == "landed" else ""))
-
-	thr.set_frac(float(U.jround(v.throttle * 100.0)) / 100.0)
-	var vsv := clampf(float(U.nz(t.get("vertical"), 0.0)) / 400.0, -1.0, 1.0)
-	vs.set_frac(float(U.fixed(50.0 + vsv * 46.0, 1)) / 100.0)
 
 	var tf := func(k: String) -> float: return float(U.nz(t.get(k), 0.0))
 	# Missing telemetry reads as a dash (in cruise there is no altitude about a parent).

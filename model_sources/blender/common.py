@@ -41,6 +41,7 @@ _PALETTE = [
     ('hot',     0x3a322c, 0.56, 0.26),
     ('glass',   0x16242e, 0.14, 0.24),
     ('red',     0xa02a22, 0.70, 0.05),
+    ('blue',    0x1f3a7a, 0.70, 0.05),
 ]
 
 
@@ -72,7 +73,7 @@ def build_materials():
 # `gimbal_0.001`, and the second would never be found. `gimbal_sic_0` cannot
 # collide, and sorting by name keeps the bind order deterministic.
 # `chopstick_` is a pad's catch arm (launchpads.py), driven by launchsite.gd.
-NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'chopstick_')
+NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chute_', 'chopstick_')
 
 
 def is_node(ob):
@@ -166,7 +167,7 @@ def optimise():
     """
     # Runtime assigns driven Euler angles; carry authored orientation on a mount.
     for ob in list(bpy.context.scene.objects):
-        if ob.type == 'EMPTY' and re.fullmatch(r'(gimbal|leg|fin|array|flap|half)_[A-Za-z0-9]+_\d+(_fixed)?', ob.name) and max(abs(a) for a in ob.rotation_euler) > 1e-6:
+        if ob.type == 'EMPTY' and re.fullmatch(r'(gimbal|leg|fin|array|flap|half|door|piece)_[A-Za-z0-9]+_\d+(_fixed)?', ob.name) and max(abs(a) for a in ob.rotation_euler) > 1e-6:
             mount = empty(f'mount_{ob.name}', (0, 0, 0), parent=ob.parent)
             mount.matrix_basis = ob.matrix_basis.copy()
             ob.parent = mount
@@ -289,7 +290,8 @@ def validate_vehicle(label):
     if set(stages) != set(specs):
         raise ValueError(f'{label}: stage roots disagree with runtime catalogue')
     prefixes = {'gimbals': 'gimbal', 'legs': 'leg', 'fins': 'fin',
-                'arrays': 'array', 'flaps': 'flap', 'halves': 'half'}
+                'arrays': 'array', 'flaps': 'flap', 'halves': 'half', 'doors': 'door', 'pieces': 'piece',
+                'nosecaps': 'nosecap', 'frustums': 'frustum'}
     for key, spec in specs.items():
         root = stages[key]
         descendants = root.children_recursive

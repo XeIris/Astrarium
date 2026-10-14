@@ -22,7 +22,8 @@ const GROUPS := [
 		["throttle_cut", "Cut throttle"], ["throttle_full", "Full throttle"],
 		["throttle_up", "Increase throttle"], ["throttle_down", "Decrease throttle"],
 		["stage", "Separate stage"], ["gear", "Toggle gear"],
-		["flight_camera", "Cycle flight camera"]]],
+		["flight_camera", "Cycle flight camera"], ["flight_follow", "Follow a dropped stage"],
+		["space_map", "Space map"]]],
 ]
 
 const DEFAULTS := {
@@ -56,6 +57,8 @@ const DEFAULTS := {
 	"stage": [KEY_SPACE, true, false, false],
 	"gear": [KEY_G, false, false, false],
 	"flight_camera": [KEY_C, false, false, false],
+	"flight_follow": [KEY_B, false, false, false],
+	"space_map": [KEY_M, false, false, false],
 }
 
 const DEFAULT_FILE := "user://controls.json"
@@ -75,11 +78,10 @@ func _init(path := DEFAULT_FILE) -> void:
 		_blocked_reason = result.message + " Defaults are active; repair the file or Reset bindings before saving."
 		_report(_blocked_reason)
 		return
-	var candidate: Dictionary = DEFAULTS.duplicate(true)
+	bindings = _with_saved(result.data)
 	for action in DEFAULTS:
-		if not result.data.has(action): continue
-		candidate[action] = _validated_binding(action, result.data[action])
-	bindings = candidate
+		if not result.data.has(action) and bindings[action] != DEFAULTS[action]:
+			_report("%s is new; its default key was taken, so it is on %s." % [action, OS.get_keycode_string(int(bindings[action][0]))])
 	_save_blocked = result.pending
 	if result.pending: _blocked_reason = result.message + " Repair the file or Reset bindings before saving."
 	if result.message != "": _report(result.message)
@@ -152,13 +154,40 @@ func bind(action: String, binding: Array) -> bool:
 	return false
 
 func _valid_saved_bindings(data: Dictionary) -> bool:
-	var candidate: Dictionary = DEFAULTS.duplicate(true)
+	var candidate := _with_saved(data)
+	return not candidate.is_empty() and _conflict(candidate) == ""
+
+## Actions added after controls.json first shipped. A file written before them cannot
+## hold them, so their defaults give way to its keys rather than reject it.
+const ADDED := ["space_map", "flight_follow"]
+
+## A saved file's bindings, with defaults for what it leaves out. An ADDED action it
+## lacks keeps its default key unless the file already uses it in the same context;
+## then it takes the first free letter, digit or function key. Any other conflict still
+## rejects the file. Empty when a saved binding is invalid.
+func _with_saved(data: Dictionary) -> Dictionary:
+	var candidate := {}
 	for action in DEFAULTS:
 		if not data.has(action): continue
 		var validated := _validated_binding(action, data[action])
-		if validated.is_empty(): return false
+		if validated.is_empty(): return {}
 		candidate[action] = validated
-	return _conflict(candidate) == ""
+	for action in DEFAULTS:
+		if not candidate.has(action) and not ADDED.has(action): candidate[action] = (DEFAULTS[action] as Array).duplicate()
+	for action in ADDED:
+		if candidate.has(action): continue
+		var want: Array = (DEFAULTS[action] as Array).duplicate()
+		if _taken(candidate, action, want):
+			for code in range(KEY_A, KEY_Z + 1) + range(KEY_0, KEY_9 + 1) + range(KEY_F1, KEY_F12 + 1):
+				want = [code, false, false, false]
+				if not _taken(candidate, action, want): break
+		candidate[action] = want
+	return candidate
+
+func _taken(candidate: Dictionary, action: String, binding: Array) -> bool:
+	for other in candidate:
+		if other != action and _same_context(action, other) and candidate[other] == binding: return true
+	return false
 
 func _validated_binding(action: String, value) -> Array:
 	if not value is Array or value.size() != 4: return []
@@ -192,7 +221,7 @@ func _same_context(a: String, b: String) -> bool:
 
 func _is_flight(action: String) -> bool:
 	return ["warp_down", "warp_up", "throttle_cut", "throttle_full", "throttle_up",
-		"throttle_down", "stage", "gear", "flight_camera"].has(action)
+		"throttle_down", "stage", "gear", "flight_camera", "flight_follow"].has(action)
 
 func matches(action: String, event: InputEventKey) -> bool:
 	var b: Array = bindings[action]

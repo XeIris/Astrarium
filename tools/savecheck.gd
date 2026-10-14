@@ -118,6 +118,15 @@ func controls() -> void:
 	put(path, JSON.stringify({"pause": [KEY_F, false, false, false]}))
 	var invalid := ControlBindings.new(path)
 	expect(invalid._save_blocked and invalid.bindings == ControlBindings.DEFAULTS, "conflicting loaded keys reject the entire candidate")
+	# A file from before the space map and dropped-stage follow keys, using their
+	# defaults (M, B) itself, still loads whole; the new actions move to free keys.
+	put(path, JSON.stringify({"gear": [KEY_B, false, false, false], "pause": [KEY_M, false, false, false]}))
+	var older := ControlBindings.new(path)
+	expect(not older._save_blocked and older.bindings.gear == [KEY_B, false, false, false]
+		and older.bindings.pause == [KEY_M, false, false, false]
+		and older.bindings.flight_follow != [KEY_B, false, false, false]
+		and older.bindings.space_map != [KEY_M, false, false, false]
+		and older._conflict(older.bindings) == "", "a file older than new actions keeps its keys")
 	put(path, JSON.stringify({"stage": [KEY_CTRL, true, true, true]}))
 	invalid = ControlBindings.new(path)
 	expect(invalid._save_blocked, "standalone modifier conflicts cannot hide behind ignored modifier flags")

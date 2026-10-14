@@ -25,6 +25,11 @@ uniform vec3 uVortexCol[6];
 uniform int uVortexN = 0;
 // sun directions in the SPUN body's own frame, for the ring-shadow test
 uniform vec3 uSunObj[4];
+// A measured map (PlanetMaps): east longitude across, north up, equal steps of
+// planetocentric latitude. It replaces the bands below |lat| = uMapPole.
+uniform sampler2D uMap : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float uMapOn = 0.0;
+uniform float uMapPole = 1.32;
 
 // The zonal wind profile, shared with GDScript (which drifts the vortices), so a
 // spot travels at its jet's speed.
@@ -82,10 +87,40 @@ float turb(vec3 qa, vec3 qb, float w, float s, int oct) {
 	return mix(zonalTurb(qb, s, oct), zonalTurb(qa, s, oct), w);
 }
 
+// The map's own colour, with turbulence finer than its ~120 km texels. The map
+// is a snapshot, so it turns rigidly with System III: real jets move it by under
+// a degree in a day, and flow-mapping a photograph cross-fades it into mush.
+// Called in uniform control flow: it takes derivatives.
+vec3 mapped(vec3 p, float lat) {
+	float lon = atan(-p.z, p.x);
+	vec2 uv = vec2(fract(lon / 6.2831853 + 0.5), 0.5 - lat / 3.14159265);
+	// The wrap at ±180° would jump the mip level; take u's gradient from whichever
+	// of two seam positions is far from here.
+	float u2 = fract(lon / 6.2831853);
+	vec2 gx = vec2(dFdx(uv.x), dFdx(uv.y)), gy = vec2(dFdy(uv.x), dFdy(uv.y));
+	float ax = dFdx(u2), ay = dFdy(u2);
+	if (abs(ax) < abs(gx.x)) gx.x = ax;
+	if (abs(ay) < abs(gy.x)) gy.x = ay;
+	vec3 c = textureGrad(uMap, uv, gx, gy).rgb;
+	// Eddies sheared along the jets, faded as they approach a pixel (no mip chain).
+	vec3 q = vec3(p.x, p.y * 3.0, p.z);
+	float fw = length(fwidth(p));
+	float k1 = 1.0 - sstep(0.002, 0.006, fw);
+	float k2 = 1.0 - sstep(0.0008, 0.0024, fw);
+	float d = (fbm(q * 260.0 + vec3(uSeed), 3) - 0.5) * 0.16 * k1
+	        + (ridged(q * 720.0 + vec3(uSeed + 3.0), 2) - 0.5) * 0.10 * k2;
+	return c * (1.0 + d);
+}
+
 void fragment() {
 	vec3 p = normalize(vObj);
 	float lat = asin(clamp(p.y, -1.0, 1.0));
 	float a = abs(lat);
+	float mapK = uMapOn * (1.0 - sstep(uMapPole - 0.08, uMapPole + 0.06, a));
+	vec3 col = vec3(0.0);
+	vec3 mc = vec3(0.0);
+	if (uMapOn > 0.5) mc = mapped(p, lat);
+	if (mapK < 0.999) {
 
 	// --- ADVECTION, flow-mapped. Wind varies with latitude, so the longitude offset
 	// between latitudes grows without bound, and a frozen field winds into moiré. So
@@ -149,7 +184,7 @@ void fragment() {
 	float chaos = mix(ridged(qb * 4.5 + vec3(uSeed + 9.0), 3), ridged(qa * 4.5 + vec3(uSeed + 9.0), 3), wx);
 	band = mix(band, (chaos - 0.55) * 2.0, polar);
 
-	vec3 col = mix(uBelt, uZone, band * 0.5 + 0.5);
+	col = mix(uBelt, uZone, band * 0.5 + 0.5);
 
 	// --- optical depth of the main deck. Where it is thin you are looking
 	// down into the warm deep layer; that is what a belt IS.
@@ -172,6 +207,8 @@ void fragment() {
 	// --- vortices on top of all of it
 	col = mix(col, uZone, vortexCollar * 0.7);
 	col = mix(col, vortexCol, vortexMask);
+	}
+	col = mix(col, mc, mapK);
 
 	// --- lighting: no specular (no surface), strong limb darkening.
 	vec3 N = normalize(vWN);
@@ -208,7 +245,8 @@ void fragment() {
 		}
 		lit += col * uSunColor[i] * uSunInt[i] * diff * minn * sh;
 	}
-	lit += col * vec3(0.012, 0.014, 0.020);
+	// Starlight only: the night side must stay as black as the sky it hides.
+	lit += col * vec3(0.0015, 0.0017, 0.0022);
 
 	// Internal heat (Jupiter emits 1.67× what it absorbs), so the IR band images it.
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
