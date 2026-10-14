@@ -101,6 +101,9 @@ func _load(shot: String) -> void:
 
 func _teardown_shot() -> void:
 	local_overlay = false
+	# The launch shot's flight is the reel's: end it here, so its teardown puts back the
+	# 1× the reel ran at before stop() restores the viewer's own speed.
+	if main.flight.active: main.end_flight()
 	if _ship_root != null:
 		_ship_root.get_parent().remove_child(_ship_root)
 		_ship_root.queue_free()

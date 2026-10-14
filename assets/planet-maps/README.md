@@ -13,7 +13,7 @@ worlds without another download; fictional worlds still use procedural terrain.
 | `io-galileo.jpg` | [JPL Planetary Image Atlas](https://maps.jpl.nasa.gov/tmaps/jupiter.html), `jup1vss2.tif`, 1440 × 720: the Caltech/JPL/USGS Voyager mosaic with colour from a Galileo global mosaic. Resized to 2048 × 1024. Saturation was cut to 72% and contrast to 90%, because the mosaic's colour is stretched and true-colour Io is muted yellow and tan. Credit: NASA/JPL-Caltech/USGS. |
 
 All color maps have north at the top, 0° longitude at the middle, and
-cover 360° × 180°. `sim/planetmaps.js` loads them on demand and falls back to
+cover 360° × 180°. `sim/planetmaps.gd` loads them on demand and falls back to
 the procedural surface if a file is missing. The maps supply color and mapped
 features; the simulator supplies lighting, atmosphere, clouds, and extreme
 climate overlays. Jupiter's map replaces the procedural cloud bands below

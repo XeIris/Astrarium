@@ -225,6 +225,7 @@ func _ready() -> void:
 	# `title=<shot>` holds the title on one shot (for screenshots), `title=0` keeps it still.
 	if _cmd.has("title"):
 		if _cmd.title != "0": title_reel.begin(String(_cmd.title))
+		else: hud.set_title_veil(0.0)
 	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
 		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") == "flight" else "sandbox")
 		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
@@ -1505,15 +1506,15 @@ func set_render_quality(q: String) -> void:
 	_sync_render_quality()
 
 ## Ultra: soft (PCSS) shadows from the sun's real 0.53° disc, a larger shadow map,
-## and full-quality ambient occlusion and indirect light.
+## and full-quality ambient occlusion and indirect light (full size; the others halve it).
 func _apply_shadow_quality(ultra: bool) -> void:
 	RenderingServer.directional_shadow_atlas_set_size(8192 if ultra else 4096, true)
 	RenderingServer.directional_soft_shadow_filter_set_quality(
 		RenderingServer.SHADOW_QUALITY_SOFT_ULTRA if ultra else RenderingServer.SHADOW_QUALITY_SOFT_LOW)
 	RenderingServer.environment_set_ssao_quality(
-		RenderingServer.ENV_SSAO_QUALITY_ULTRA if ultra else RenderingServer.ENV_SSAO_QUALITY_MEDIUM, true, 0.5, 2, 50, 300)
+		RenderingServer.ENV_SSAO_QUALITY_ULTRA if ultra else RenderingServer.ENV_SSAO_QUALITY_MEDIUM, not ultra, 0.5, 2, 50, 300)
 	RenderingServer.environment_set_ssil_quality(
-		RenderingServer.ENV_SSIL_QUALITY_ULTRA if ultra else RenderingServer.ENV_SSIL_QUALITY_MEDIUM, true, 0.5, 4, 50, 300)
+		RenderingServer.ENV_SSIL_QUALITY_ULTRA if ultra else RenderingServer.ENV_SSIL_QUALITY_MEDIUM, not ultra, 0.5, 4, 50, 300)
 
 func _sync_lighting_quality() -> void:
 	for q in ["low", "medium", "high", "custom"]:

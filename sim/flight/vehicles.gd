@@ -343,10 +343,11 @@ static func _build_vehicles() -> Dictionary:
 				"recover": "tower", "gridFins": 3, "reserve": 0.06,
 				"rcs": { "thrust": 8000.0, "isp": 80.0, "prop": 3000.0, "count": 8 },
 				# Returning alone (Vehicles.booster_return; docs/physics/booster-catch.md).
-				# Pins at 93% of the length take the weight on the tower's arms. The
+				# The V3 catch points are the port and starboard grid fins, 3.4 m below
+				# the top (FIN_Y in model_sources/blender/starship.py): 67.5 / 70.9. The
 				# tolerances, base clearance and landing propellant are estimates: none
 				# are published.
-				"catch": { "pinFrac": 0.93, "radius": 1.5, "vVert": 3.0, "vHoriz": 1.0,
+				"catch": { "pinFrac": 0.952, "radius": 1.5, "vVert": 3.0, "vHoriz": 1.0,
 					"baseClear": 8.0, "prop": 130000.0 },
 				# Inner 13, then the centre 3 (SpaceX's flight descriptions).
 				"landingEngines": [13, 3],

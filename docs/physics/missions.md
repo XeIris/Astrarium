@@ -17,8 +17,8 @@ otherwise clear of any air.
 | case | legs | estimate |
 |---|---|---|
 | launch | ascent and insertion | `v_circ(r_park) − 0.9·v_rot + loss`; loss ≈ 1.5 km/s × √(g/g⊕) with air, 6 % of `v_circ` without |
-| a moon of P | Hohmann about P, corrections, arrival, capture | departure `Δv₁` of the Hohmann; capture `√(v∞² + 2μ_D/r) − √(μ_D/r)` with `v∞ = |v_D − v_apo|` |
-| back to P's primary | escape on an ellipse whose periapsis is the parking orbit, then capture | `v∞ = |v_P − v_apo|` about D |
+| a moon of P | Hohmann about P, corrections, arrival, capture | departure `Δv₁` of the Hohmann; capture `√(v∞² + 2μ_D/r) − √(μ_D/r)` with `v∞ = \|v_D − v_apo\|` |
+| back to P's primary | escape on an ellipse whose periapsis is the parking orbit, then capture | `v∞ = \|v_P − v_apo\|` about D |
 | another planet | Hohmann about C, escape and capture hyperbolas | departure `√(v∞² + 2μ_P/r₀) − √(μ_P/r₀)`; the burn is far smaller than the heliocentric Δv it buys (the Oberth effect) |
 
 The first course correction is mostly a plane change. The parking orbit is

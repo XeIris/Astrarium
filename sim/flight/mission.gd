@@ -98,6 +98,17 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 	var P: Body = v.parent
 	var legs: Array = out.legs
 	var grounded: bool = v.phase == Vessel.PHASE.PRELAUNCH or v.phase == Vessel.PHASE.LANDED
+	# Off the ground, the route starts from the orbit the vessel is in, so it must be one:
+	# climbing, coming down or suborbital it has no launch leg, and a burn or a skip from
+	# there would cut the ascent short or coast it through the air.
+	if not grounded:
+		if [Vessel.PHASE.ASCENT, Vessel.PHASE.ENTRY, Vessel.PHASE.DESCENT, Vessel.PHASE.ROLLOUT].has(v.phase):
+			out.why = "Reach orbit first"
+			return out
+		var floor_r := float(v.env.radius) + (float(v.env.atm.top) if v.env.atm != null else 0.0)
+		if float(Orbit.elements(v.r, v.v, v.env.mu).rp) < floor_r:
+			out.why = "Reach orbit first: the periapsis is %s" % ("in the air" if v.env.atm != null else "below the surface")
+			return out
 	var r0 := park_radius(P) if grounded else maxf(v.r.length(), float(v.env.radius))
 	if grounded:
 		legs.append({"key": "launch", "label": "Launch to orbit around %s" % P.name, "dv": launch_dv(P, r0), "t": 600.0})

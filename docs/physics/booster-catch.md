@@ -65,8 +65,9 @@ The flight program, `catch`, runs in these phases:
    thrusts along the airflow, because the q·α limit allows less angle of attack than
    the flight path's own tilt. Lower down it diverts with the quadratic law,
    a = 6Δr/t² − 4v/t.
-3. **Centre 3.** The 13 hand over to 3 where the centre engines alone can still stop at
-   the gate. The booster descends to a hover gate 6 m above the rails, 15 m out from the
+3. **Centre engines.** The 13 hand over to the centre engines (three on V2, two on V3:
+   as many as can sit at their throttle floor under the dry weight) where they alone
+   can still stop at the gate. The booster descends to a hover gate 6 m above the rails, 15 m out from the
    axis, then slides in.
 4. **Catch.** The tower starts closing its arms (3 s) once the pins are within 25 m
    above the rails and inside the catch radius. The booster then descends at 2 m/s.
@@ -76,9 +77,9 @@ The flight program, `catch`, runs in these phases:
 5. **Settle.** The shock absorbers are a damped spring (about a 3 s period, ζ 0.7) that
    takes up the contact speed.
 
-Three Raptors at the 40% floor deliver about 2.71 MN at sea level. A near-empty
-booster weighs about 2.70 MN, so the final hover is marginal. That matches the real
-catch masses.
+Three Raptor 3s at the 40% floor deliver about 2.94 MN at sea level, more than the V3
+booster's 2.60 MN dry weight, so the hover drops to two. Two give 1.96 MN at the floor
+and throttle up to hold the weight.
 
 ### Estimates (none published)
 
