@@ -48,10 +48,17 @@ NASA TM X-64967 (MSFC, 1975), NTRS 19760006102.
   pitching does not swing the boosters around with it.
 - **Rotation**: the memo's rates above, reached linearly by 3 s and then held. They
   come from the memo's simulation, which used wind-tunnel data with the motor plumes
-  on. Proximity and plume aerodynamics are not modelled here, and the motors' own
-  torque gives only about 2°/s.
+  on (tests JA13, IA13, IA57, IA87). Those proximity and plume coefficients are not
+  published, so the rates are quoted rather than computed. What can be computed falls
+  well short: the two clusters' angular impulse about the pivot is 4.8 × 10⁵ N·m·s,
+  which spins a uniform 86 t, 45.5 m case to 1.9°/s, and the lighter bare motor
+  (6.56 × 10⁶ slug·ft² in pitch after separation, TWR-17543-10 table 3.10) to 3.1°/s.
+  The memo's 9–14°/s are therefore mostly aerodynamic: the stack is stable, the
+  boosters are not, and the memo says the moments turn them into each other.
 - **Pivot**: the spent case's mid-length (`cgY`, XB ≈ 1175). No inert centre of
-  mass for the flown booster is published in the sources above.
+  mass for the whole flown booster is published in the sources above. TWR-17543-10
+  gives only the bare motor's, at motor station 1,316 in (66% of its length), without
+  the skirts and frustum.
 - **Residual thrust**: the boosters are still burning when they let go. Below.
 - **Booster drag**: left out. About 0.15 m/s² at the 1.5 kPa of separation, under 2%
   of the stack's acceleration.
