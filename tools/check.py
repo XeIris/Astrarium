@@ -19,7 +19,7 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("fast", "native", "flight", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("fast", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
 # themselves (clean), read the previous step's output (export), or need exact object
@@ -98,9 +98,16 @@ def checks(suite, godot, output, repeat, export_preset):
         # One mission per process. The case list guards against a mission check.py does not know.
         # Each mission fails on its own at a frame cap, so the limit only catches a hang; it
         # allows several times the idle time because entry is flown at 1× under --jobs load.
+        # Every developer scenario, jumped to and checked against its declared state.
+        yield Check("scenariocheck", base + ["--headless", "res://tools/scenariocheck.tscn"],
+                    r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 900, cost=120)
         for case, cost in MISSIONS.items():
             markers = (rf"^MISSION CHECK CASES {','.join(MISSIONS)}$", rf"^MISSION {case} ok\b", r"^MISSION CHECK DONE failures=0$")
             yield scene("missioncheck", markers, f"only={case}", timeout=1200)._replace(name=f"missioncheck-{case}", cost=cost)
+    elif suite == "scenario-replay":
+        # Each fast-forwarded or built scenario against the flight played at 60 fps.
+        yield Check("scenario-replay", base + ["--headless", "res://tools/scenariocheck.tscn", "--", "replay=1"],
+                    r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 3600)
     elif suite == "rendered":
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")

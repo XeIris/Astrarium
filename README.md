@@ -64,6 +64,19 @@ Medium adds shadows and ambient occlusion; High also adds screen-space
 indirect light and reflections in the craft studio. The flight view uses a
 transparent render pass, where Godot does not support screen-space reflections.
 These effects are not hardware ray tracing.
+
+**Developer mode** (Settings › Controls, off by default and remembered between
+runs) adds a **Dev** page for testing the flight without replaying a mission. Pick a
+vehicle and a sequence (the pad in the count, max-Q, staging, MECO, orbit, the
+Shuttle's deorbit, entry, peak heating, roll reversal, TAEM, approach, flare and
+rollout, Starship's hot staging, belly-flop, flip and landing burn, Super Heavy's
+return and tower catch, a Falcon 9 booster landing, the LM's descent, the sky
+crane) and it jumps there: the state is built directly where it can be and flown on
+by the real physics, undrawn, to that moment, usually within a few seconds. The page
+also has pause, single-frame step, time warp past the normal interlocks, teleport to
+an altitude and speed, the autopilot programs, forced staging, restart, the quality
+tiers, and the labs (effects lab, model viewer, title shots). See
+[flight scenarios](docs/flight-scenarios.md).
 High rendering quality adds seven photo-style material textures to spacecraft
 and launchpads, with subtle roughness and normal detail, a semi-gloss clearcoat
 on painted skins and faint run-off weathering, and draws launch smoke as
@@ -121,6 +134,7 @@ and its `SIM` console handle:
 | `mode=sandbox\|learn\|flight` | skip the start screen and load that mode |
 | `title=hole\|launch\|jupiter` | hold the title on one reel shot (for screenshots); `title=0` shows it over the bare sky |
 | `craft=saturnv\|falcon9\|shuttle\|starship` | select a launcher when starting flight mode |
+| `scenario=shuttle:peak_heating` | jump straight into a flight scenario (`vehicle:id`, listed in [sim/flight/scenarios.gd](sim/flight/scenarios.gd)); with `frames=… out=…` the frames count from the hand-over, and an unknown or failed scenario exits 1 |
 | `padaz=180 padel=-0.2` | rotate and lower the flight pad camera for a screenshot |
 | `padmodels=0` | check the procedural launchpad fallback |
 | `sunview=1` | aim the final flight screenshot directly at the sun |
@@ -188,7 +202,9 @@ Nothing runs beside the `fast` import or any check in `perf`, `m5-*`,
 `stability*`, `lifecycle`, `export` and `clean`; other checks' logged timings
 are taken under concurrent load.
 `assets` requires all nine generated craft models; `rendered`, `lifecycle` and
-`perf` need a working graphical renderer. `flight` runs the four full launches, the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit) and the missions, one process per descent and per mission. `native` includes the numerical boundary checks.
+`perf` need a working graphical renderer. `flight` runs the four full launches, the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit) the missions, one process per descent and per mission, and every developer
+scenario (`scenariocheck`); `scenario-replay` compares each scenario with the same
+flight played at 60 fps (about half an hour). `native` includes the numerical boundary checks.
 `stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
 three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
@@ -272,7 +288,8 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; every dropped stage must leave by its separation physics (`stage_separations`, `booster_pieces`); `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
 | `tools/fxlab.tscn` | the effects lab: one vehicle held at an altitude and airspeed with the air streaming past, through the real flight renderer, for the plume, trail, condensation collars and re-entry plasma (`alpha=` holds the nose above the airflow, belly into it: `craft=shuttle stage=2 alt=70000 speed=7000 pitch=91 alpha=40 throttle=0`). Interactive with no arguments (sliders, `[ ]` vehicle, `1`–`4` stage); `crafts=a,b alts=10000,30000 out=/abs/dir` writes one picture per vehicle and altitude; `mode=fly` photographs a real ascent as it passes each altitude; `humidity=`, `speed=`, `pitch=`, `az=`/`el=`/`dist=`/`aim=` set the air and camera. Prints the shoulders it found for vapour |
-| `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps (`hcraft=<id>` picks the hangar's vehicle); `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
+| `tools/scenariocheck.tscn` | headless: jumps to every flight scenario and requires its declared altitude, speed, program, state and stages at the hand-over and a second of flight after it (`only=shuttle:taem,lm`); `replay=1` also flies each one as played at 60 fps from its base and requires agreement within the documented tolerance ([flight scenarios](docs/flight-scenarios.md)); `inject_bad=1` must fail |
+| `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps (`hcraft=<id>` picks the hangar's vehicle; `settings_dev`, `settings_dev_shuttle` and `scenario hscenario=<vehicle>:<id>` show the Developer page and a jump); `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
 | `tools/editorcheck.tscn` | canonical inspector and graph invalidation, measured/tiny bodies, structural threshold crossings, and delayed edits across selection/removal/reused IDs |
 | `tools/padcheck.gd` | rejects pad structure inside its vehicle at rest, an arm that touches it through the terminal count and liftoff, and anything (wires included) left in its ascent column; `padmodels=0` / `assets=0` select fallback pads / craft; `inject_intrusion=1`, `inject_fixed_arm=1` and `inject_late_arm=1` must fail |
 | `python3 tools/exportcheck.py /abs/game.zip` | checks a `Godot --headless --path . --export-pack macOS /abs/game.zip` resource archive for development files, missing boot files and broken import/remap targets; native libraries and rendering still need an exported-app smoke run |

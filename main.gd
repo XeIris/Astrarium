@@ -203,6 +203,11 @@ func _ready() -> void:
 	render_preset_groups()
 	render_craft_grid()
 	hud.render_model_grid(model_view.list())
+	var menu := []
+	for k in FlightScenarios.vehicles():
+		menu.append({"key": k, "name": FlightScenarios.NAMES[k], "scenarios": FlightScenarios.list(k)})
+	hud.build_dev_page(menu, ["fxlab"] if ResourceLoader.exists(FXLAB) else [])
+	hud.set_dev_mode(DevMode.enabled())
 
 	# The panels only make sense once both simulators exist, so the initial mode
 	# is applied here rather than where it is defined.
@@ -223,7 +228,10 @@ func _ready() -> void:
 	# `preset=key` on the command line picks the scenario.
 	title_reel = TitleReel.new(self)
 	# `title=<shot>` holds the title on one shot (for screenshots), `title=0` keeps it still.
-	if _cmd.has("title"):
+	if _cmd.has("scenario"):
+		_scenario_pending = true
+		_cli_scenario.call_deferred(String(_cmd.scenario))
+	elif _cmd.has("title"):
 		if _cmd.title != "0": title_reel.begin(String(_cmd.title))
 		else: hud.set_title_veil(0.0)
 	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
@@ -1707,6 +1715,8 @@ func _bind_hud() -> void:
 	hud.model_spin.connect(_on_model_spin)
 	hud.model_backdrop.connect(func(light: bool): model_view.set_backdrop(light))
 	hud.model_fly.connect(_on_model_fly)
+	hud.dev_toggled.connect(set_dev_mode)
+	hud.dev_action.connect(dev_action)
 
 func _on_body_focus(id: int) -> void:
 	var b := state.body_by_id(id)
@@ -2081,6 +2091,119 @@ func close_model_viewer() -> void:
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if (flight and flight.active) else RenderPipeline.Mode.ORRERY)
 	hud.layout_left_column()
 
+# DEVELOPER MODE: Settings › Developer (ui/developer.gd keeps the switch).
+## The jump in progress, or null. While it flies, _process draws nothing.
+var scenario_jump = null
+var last_scenario := ""
+var _dev_steps := 0
+
+## Put the flight in a registered scenario (sim/flight/scenarios.gd), `spec` being
+## "vehicle:id": a fresh solar system, the base built, then flown there undrawn with
+## progress in the toast. Returns "" or why it failed (also toasted).
+func jump_scenario(spec: String) -> String:
+	var sc = FlightScenarios.parse(spec)
+	if sc == null: return _dev_fail("Unknown scenario %s" % spec)
+	if scenario_jump != null: return _dev_fail("A jump is already in progress")
+	last_scenario = spec
+	hud.set_settings_open(false)
+	close_map()
+	close_hangar()
+	close_model_viewer()
+	if at_start:
+		if title_reel.running: title_reel.stop()
+		at_start = false
+		hud.dismiss_start()
+		hud.set_hud_hidden(false)
+	if state.app_mode != "flight":
+		set_app_mode("flight", {"quiet": true})
+		set_panel_open("controlPanel", false)
+	if flight.active: end_flight()
+	scenario_world()
+	await CraftAssets.craft_models_ready([sc.vehicle])
+	var err := FlightScenarios.build(self, sc)
+	if err != "": return _dev_fail("%s: %s" % [spec, err])
+	last_craft = sc.vehicle
+	state.paused = false
+	set_cam_mode("flight")
+	hud.set_shown("flightRow", true)
+	for vv in flight.vehicles: hud.set_active("[data-craft=%s]" % vv.key, vv.key == sc.vehicle)
+	var jump = FlightScenarios.Jump.new(self, sc)
+	scenario_jump = jump
+	var shown := -1
+	while not jump.step(60.0):
+		# The toast relays out the HUD; four times a second is enough.
+		if int(jump.wall_ms() / 250.0) != shown:
+			shown = int(jump.wall_ms() / 250.0)
+			toast("Jumping to %s — %s flown" % [sc.title, Guidance.fmt_dur(jump.sim_s)], 600)
+		await get_tree().process_frame
+	scenario_jump = null
+	if jump.error != "": return _dev_fail("%s: %s" % [sc.title, jump.error])
+	print("SCENARIO %s ready: %d frames, %s s flown (%s s on rails), %s ms" % [spec, jump.frames,
+		U.fixed(jump.sim_s, 1), U.fixed(jump.rails_s, 1), U.fixed(jump.wall_ms(), 0)])
+	toast("%s — %s" % [flight.vessel.vehicle.name, sc.title])
+	sync_warp_label()
+	return ""
+
+## `scenario=<vehicle>:<id>`: straight into it. A bad name or a failed jump exits
+## nonzero when the run is a screenshot or a check.
+var _scenario_pending := false
+func _cli_scenario(spec: String) -> void:
+	var err := await jump_scenario(spec)
+	_scenario_pending = false
+	if err != "" and (_cmd.has("out") or _cmd.has("eval")):
+		printerr("scenario=%s failed: %s" % [spec, err])
+		get_tree().quit(1)
+
+## Settings › Controls › Developer mode, remembered between runs.
+func set_dev_mode(on: bool) -> void:
+	hud.set_dev_mode(on)
+	if not DevMode.save(on): toast(DevMode.last_error, 6000)
+
+## The solar system a scenario flies in: the same planets every time, so its sky and
+## Moon repeat.
+func scenario_world() -> void:
+	var rng := GiantVisual.Mulberry.new(1)
+	Presets.rand_override = rng.next
+	load_preset("solar")
+	Presets.rand_override = Callable()
+
+func _dev_fail(why: String) -> String:
+	push_warning(why)
+	toast(why, 5000)
+	return why
+
+## The Developer page's controls. `arg` depends on the action.
+func dev_action(action: String, arg = null) -> void:
+	var v: Vessel = flight.vessel if flight.active else null
+	match action:
+		"jump": jump_scenario(str(arg))
+		"reset": if last_scenario != "": jump_scenario(last_scenario)
+		"pause": state.paused = not state.paused
+		"step":
+			state.paused = true
+			_dev_steps += 1
+		"warp":
+			# Integrated at any rate, in the air or under thrust; the normal interlocks
+			# are off until it is set back to 0.
+			flight.dev_warp = float(arg)
+			toast("Developer warp %s" % ("off" if float(arg) <= 0.0 else "%s× — interlocks off" % U.grouped(float(arg))))
+		"teleport": if v != null: flight.teleport(float(arg[0]), float(arg[1]))
+		"program":
+			if v == null: return
+			if str(arg) == "off": flight.autopilot.disengage()
+			else: flight.run_program(str(arg))
+		"stage": if v != null: v.stage(true)
+		"quality": set_render_quality(str(arg))
+		"model": _on_model_open()
+		"title":
+			quit_to_start()
+			title_reel.begin(str(arg))
+		"fxlab":
+			if ResourceLoader.exists(FXLAB): get_tree().change_scene_to_file(FXLAB)
+
+## The effects lab is a development tool; exports leave tools/ out.
+const FXLAB := "res://tools/fxlab.tscn"
+
 # OBJECT FOUNDRY + CROSS-SECTION
 func _build_foundry() -> void:
 	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": _on_foundry_spawn})
@@ -2272,7 +2395,16 @@ func _process(real_dt: float) -> void:
 	# 1.0/60.0 exactly, as SIM.frame(1 / 60): "0.0166666667" is 1e-11 off, which
 	# a flight at 10⁶× warp turns into whole seconds of MET.
 	if _cmd.has("out"): dt = float(_cmd.dt) if _cmd.has("dt") else 1.0 / 60.0
-	animate(dt)
+	# A scenario jump owns the flight until it hands over; `frames=` count from there.
+	if scenario_jump != null or _scenario_pending: return
+	# Developer single-step: one frame unpaused.
+	if _dev_steps > 0:
+		_dev_steps -= 1
+		state.paused = false
+		animate(dt)
+		state.paused = true
+	else:
+		animate(dt)
 	_shot_tick()
 
 func update_fps(real_dt: float) -> void:
@@ -2373,12 +2505,8 @@ func animate(dt: float) -> void:
 
 	var sim_stepped := 0.0
 	if flight.active:
-		state.last_steps = 0
-		state.last_resolution_limited = false
-		var coordinate_seconds: float = flight.update(dt, state.time, _advance_flight_world)
+		var coordinate_seconds := step_flight(dt)
 		sim_stepped = coordinate_seconds / Rocketry.YR_S
-		_commit_positions(sim_stepped > 0.0)
-		_step_climate(sim_stepped)
 		flight.finish_frame(dt, coordinate_seconds)
 	else:
 		sim_stepped = step_physics(sim_dt)
@@ -2518,6 +2646,18 @@ func animate(dt: float) -> void:
 	update_hud(dt)
 
 var _lens_time := 0.0
+
+## One frame of flight physics: the vessel, its guidance and the world under it, as
+## animate() runs it and a scenario's fast-forward replays it undrawn. Returns the
+## accepted coordinate seconds.
+func step_flight(dt: float) -> float:
+	state.last_steps = 0
+	state.last_resolution_limited = false
+	var coordinate_seconds: float = flight.update(dt, state.time, _advance_flight_world)
+	var stepped := coordinate_seconds / Rocketry.YR_S
+	_commit_positions(stepped > 0.0)
+	_step_climate(stepped)
+	return coordinate_seconds
 
 func _apply_camera() -> void:
 	var c := pipe.scene_cam

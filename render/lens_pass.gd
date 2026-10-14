@@ -32,7 +32,8 @@ func _init() -> void:
 func _init_rt() -> void:
 	_kernel = RDU.Kernel.new("res://shaders/lens/lens_march.glsl")
 	var zero := PackedFloat32Array(); zero.resize(UBO_FLOATS)
-	_ubo = RDU.rd().uniform_buffer_create(UBO_FLOATS * 4, zero.to_byte_array())
+	if RDU.available():
+		_ubo = RDU.rd().uniform_buffer_create(UBO_FLOATS * 4, zero.to_byte_array())
 	_resize_rt()
 
 ## Display-resolution size, in device pixels.

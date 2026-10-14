@@ -49,6 +49,9 @@ signal model_spin(on: bool)
 signal model_backdrop(light: bool)
 signal model_fly()
 signal panel_changed(id: String, open: bool)
+## Settings › Developer: the switch, and the page's controls (main.dev_action).
+signal dev_toggled(on: bool)
+signal dev_action(action: String, arg)
 ## The lesson card's own buttons (the course UI, written elsewhere, listens).
 signal lesson_back()
 signal lesson_next()
@@ -478,10 +481,12 @@ func _build_settings() -> void:
 	_panel_head(p, "Settings", "settingsPanel", "Close settings (Esc)")
 	var tabsrow := hbox(p.body, 4.0, 0.0, 10.0)
 	reg("setTabs", tabsrow)
-	for t in [["sky", "Sky"], ["render", "Render"], ["sim", "Sim"], ["controls", "Controls"]]:
+	for t in SETTINGS_PAGES:
 		var b := B(tabsrow, "SetTab", t[1], "[data-set=%s]" % t[0])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(set_settings_page.bind(t[0]))
+	# Only with developer mode on.
+	_hide(_find_sel("[data-set=dev]"), "dev", true)
 
 	# SKY
 	var sky := _page(p, "sky")
@@ -578,6 +583,12 @@ func _build_settings() -> void:
 	_note(controls, "Select a key to change it. Bindings are saved automatically. Esc always opens Settings.")
 	reg("bindingList", stack(controls))
 	m(B(controls, "Ghost", "Reset all bindings", "bindingsReset"), 0.0, 10.0).pressed.connect(func(): bindings_reset.emit())
+	_h3(controls, "Developer")
+	_note(controls, "Developer mode adds a Developer page: jump straight to any flight sequence, and controls for testing it.")
+	var dev_btn := B(controls, "Toggle", "☐ Developer mode", "devToggle")
+	dev_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(dev_btn, 0.0, 10.0).pressed.connect(func(): dev_toggled.emit(not dev_mode))
+	reg("devPage", _page(p, "dev"))
 	set_settings_page("sky")
 
 func _page(p: HudPanel, page: String) -> HudStack:
@@ -629,13 +640,101 @@ func update_binding_labels(bindings: Dictionary) -> void:
 	for id in binding_buttons:
 		binding_buttons[id].set_label(binding_label(bindings[id]))
 
-## Settings has four pages: sky, render, sim and controls.
+## Settings' pages; the last is shown only in developer mode.
+const SETTINGS_PAGES := [["sky", "Sky"], ["render", "Render"], ["sim", "Sim"], ["controls", "Controls"], ["dev", "Dev"]]
+var settings_page := "sky"
+var dev_mode := false
+
 func set_settings_page(page: String) -> void:
+	if page == "dev" and not dev_mode: page = "controls"
+	settings_page = page
 	for k in _pages:
 		_hide(k, "inline", k.get_meta("page") != page)
-	for t in ["sky", "render", "sim", "controls"]:
-		for b in sels.get("[data-set=%s]" % t, []):
-			b.set_active(t == page)
+	for t in SETTINGS_PAGES:
+		for b in sels.get("[data-set=%s]" % t[0], []):
+			b.set_active(t[0] == page)
+
+func _find_sel(sel: String) -> Control:
+	return sels[sel][0] if sels.has(sel) else null
+
+## Show or hide the Developer page and its tab, and tick the switch.
+func set_dev_mode(on: bool) -> void:
+	dev_mode = on
+	_hide(_find_sel("[data-set=dev]"), "dev", not on)
+	var t: HudButton = ids.devToggle
+	t.set_label("☑ Developer mode" if on else "☐ Developer mode")
+	set_active("devToggle", on)
+	if not on and settings_page == "dev": set_settings_page("controls")
+
+## The Developer page: `menu` is [{key, name, scenarios: [{id, title, group}]}];
+## `labs` the lab entries that exist in this build ("fxlab").
+func build_dev_page(menu: Array, labs: Array) -> void:
+	var page: HudStack = ids.devPage
+	_clear(page)
+	_note(page, "Each scenario starts from a state built directly — on the pad in the count, in orbit, mid-descent — and is flown on by the real physics, undrawn, to its moment.")
+	_h3(page, "Jump to a flight sequence", true)
+	var crafts := grid(page, [1.0, 1.0, 1.0], 6.0, 6.0, 0.0, 10.0)
+	var lists := stack(page)
+	for row: Dictionary in menu:
+		var chip := B(crafts, "Chip", str(row.name), "[data-dev-craft=%s]" % row.key)
+		chip.pressed.connect(show_dev_craft.bind(str(row.key)))
+		var list := stack(lists)
+		list.set_meta("craft", row.key)
+		var group := ""
+		var g: HudGrid = null
+		for sc: Dictionary in row.scenarios:
+			if sc.group != group:
+				group = sc.group
+				L(list, group, ROW_LABEL)
+				g = grid(list, [1.0, 1.0], 6.0, 6.0, 4.0, 10.0)
+			var spec := "%s:%s" % [row.key, sc.id]
+			B(g, "FlProg", str(sc.title), "[data-dev-scenario=%s]" % spec).pressed.connect(func(): dev_action.emit("jump", spec))
+	reg("devLists", lists)
+	if not menu.is_empty(): show_dev_craft(str(menu[0].key))
+
+	_h3(page, "Flight")
+	var fl := grid(page, [1.0, 1.0], 6.0, 6.0, 0.0, 10.0)
+	for c in [["pause", "Pause / resume"], ["step", "Step one frame"], ["stage", "Force staging"], ["reset", "Restart scenario"]]:
+		B(fl, "Ghost", c[1], "[data-dev=%s]" % c[0]).pressed.connect(func(): dev_action.emit(c[0], null))
+	L(page, "Time warp, integrated, interlocks off", ROW_LABEL)
+	var warps := grid(page, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 4.0, 10.0)
+	for w in [0, 10, 100, 1000]:
+		B(warps, "Toggle", "Off" if w == 0 else "%d×" % w, "[data-dev-warp=%d]" % w).pressed.connect(func():
+			for x in [0, 10, 100, 1000]: set_active("[data-dev-warp=%d]" % x, x == w)
+			dev_action.emit("warp", float(w)))
+	set_active("[data-dev-warp=0]", true)
+	_set_row(page, "devAlt", "Teleport altitude", "Height above the surface beneath the vehicle.", 0, 400, 50, 0.5, "50 km",
+		func(v): return U.fixed(v, 1) + " km")
+	_set_row(page, "devSpeed", "Teleport speed", "Speed through the air, along the present direction of flight.", 0, 8000, 1500, 10, "1500 m/s",
+		func(v): return U.fixed(v, 0) + " m/s")
+	m(B(page, "Ghost", "Teleport", "[data-dev=teleport]"), 0.0, 10.0).pressed.connect(func():
+		dev_action.emit("teleport", [sliders.devAlt.value * 1000.0, sliders.devSpeed.value]))
+	L(page, "Autopilot program", ROW_LABEL)
+	var progs := grid(page, [1.0, 1.0, 1.0], 6.0, 6.0, 4.0, 10.0)
+	for p in ["ascent", "circularize", "deorbit", "glide", "bellyflop", "hoverslam", "land", "edl", "catch", "off"]:
+		B(progs, "Ghost", p, "[data-dev-program=%s]" % p).pressed.connect(func(): dev_action.emit("program", p))
+	L(page, "Quality tier", ROW_LABEL)
+	var tiers := grid(page, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 4.0, 10.0)
+	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]]:
+		B(tiers, "Toggle", q[1], "[data-render-quality=%s]" % q[0]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
+
+	_h3(page, "Labs")
+	var labgrid := grid(page, [1.0, 1.0], 6.0, 6.0, 0.0, 10.0)
+	if labs.has("fxlab"):
+		B(labgrid, "Ghost", "Effects lab", "[data-dev=fxlab]").pressed.connect(func(): dev_action.emit("fxlab", null))
+	B(labgrid, "Ghost", "Model viewer", "[data-dev=model]").pressed.connect(func(): dev_action.emit("model", null))
+	L(page, "Title shots", ROW_LABEL)
+	var shots := grid(page, [1.0, 1.0, 1.0], 6.0, 0.0, 4.0, 10.0)
+	for t in [["hole", "Black hole"], ["launch", "Launch"], ["jupiter", "Jupiter"]]:
+		B(shots, "Ghost", t[1], "[data-dev-title=%s]" % t[0]).pressed.connect(func(): dev_action.emit("title", t[0]))
+
+## The Developer page's scenario list for one vehicle.
+func show_dev_craft(key: String) -> void:
+	for list in (ids.devLists as Control).get_children():
+		_hide(list, "inline", str(list.get_meta("craft")) != key)
+	for k in sels:
+		if str(k).begins_with("[data-dev-craft="):
+			set_active(k, k == "[data-dev-craft=%s]" % key)
 
 func _dpr() -> float:
 	return get_window().content_scale_factor if is_inside_tree() else 1.0

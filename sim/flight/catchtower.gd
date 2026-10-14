@@ -126,8 +126,12 @@ func held_position(pin: float, r_out: DVec3) -> DVec3:
 ## point's miss from the approach point. Returns {r, v, q}.
 static func return_state(veh: Dictionary, parent: Body, bodies: Array, tower: CatchTower,
 		apo: float, v_back: float, approach: float) -> Dictionary:
-	var down := 0.0
-	var cross := 0.0
+	# Each try flies the whole coast (seconds of wall time); starting from the last
+	# solution for this booster usually needs one.
+	var key := "%s %s %s %s %s" % [veh.id, parent.name, apo, v_back, approach]
+	var warm: Array = _solved.get(key, [0.0, 0.0])
+	var down: float = warm[0]
+	var cross: float = warm[1]
 	var best := {}
 	for it in 8:
 		var t := CatchTower.at(tower.pos, tower.out, tower.rail_alt)
@@ -162,10 +166,15 @@ static func return_state(veh: Dictionary, parent: Body, bodies: Array, tower: Ca
 		var t_go := 2.0 * maxf(v.altitude(), 0.0) / maxf(-vv, 1.0)
 		var miss := t.offset(v.r, DVec3.new()).add_scaled_in(vrel.add_scaled_in(at_up, -vv), t_go * 0.5)
 		miss.add_scaled_in(t.out, -approach)
-		if miss.length() < 2.0: break
+		if miss.length() < 2.0:
+			_solved[key] = [down, cross]
+			break
 		down -= miss.dot(t.out)
 		cross -= miss.dot(t.side)
 	return best
+
+## Converged [downrange, crossrange] offsets by vehicle and return, for return_state.
+static var _solved := {}
 
 ## Post-boostback apogee and homeward speed for begin_return: estimates consistent with
 ## the flown timeline and the ~1.2 km/s peak descent speed. Slow, because without
@@ -176,12 +185,23 @@ const RETURN_SPEED := 60.0
 ## Turn `v` (a Vehicles.booster_return vessel) into a booster coming home to a
 ## tower at `pad`, its arms reaching along `reach`. Returns the tower, also left on
 ## v.catch_tower.
-static func begin_return(v: Vessel, pad: DVec3, reach: DVec3) -> CatchTower:
+## `at` starts it later in the same return instead (FlightScenarios): {alt (m),
+## off: [out, side] m from the pad axis, vel: [out, side, up] m/s through the air}.
+static func begin_return(v: Vessel, pad: DVec3, reach: DVec3, at = null) -> CatchTower:
 	var spec: Dictionary = v.stages[0].spec
 	var tower := CatchTower.at(pad, reach, float(spec.catch.baseClear) + pin_height(spec))
-	var s := return_state(v.vehicle, v.parent, v.bodies, tower, RETURN_APOGEE, RETURN_SPEED,
-		Guidance.Autopilot.CATCH_APPROACH)
-	v.r.copy_from(s.r); v.v.copy_from(s.v); v.q.copy_from(s.q)
+	if at != null:
+		var up := DQuat.nrm(tower.pos.clone())
+		v.r.copy_from(tower.pos).add_scaled_in(tower.out, float(at.off[0])).add_scaled_in(tower.side, float(at.off[1]))
+		DQuat.set_len(v.r, tower.pos.length() + float(at.alt))
+		v.v.set_v(0.0, -float(v.env.rotRate), 0.0)
+		v.v.cross_vectors(v.v, v.r).add_scaled_in(tower.out, float(at.vel[0])).add_scaled_in(tower.side, float(at.vel[1])) \
+			.add_scaled_in(up, float(at.vel[2]))
+		v.q.set_from_unit_vectors(Vessel.BODY_FWD, up)
+	else:
+		var s := return_state(v.vehicle, v.parent, v.bodies, tower, RETURN_APOGEE, RETURN_SPEED,
+			Guidance.Autopilot.CATCH_APPROACH)
+		v.r.copy_from(s.r); v.v.copy_from(s.v); v.q.copy_from(s.q)
 	v.omega.set_v(0.0, 0.0, 0.0)
 	v.phase = Vessel.PHASE.DESCENT
 	v.launch_site = null
