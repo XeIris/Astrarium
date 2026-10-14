@@ -199,9 +199,13 @@ stop. It is physics on the ground, not a scripted slide:
 |---|---|---|
 | Main gear → nose gear touchdown | 10–11 s | 6 s (STS-115), 13 s (STS-118) |
 | Nose gear touchdown | 144 KEAS, 0.63 m/s nose sink | typically 150 KEAS [4]; 147, 158 KEAS (STS-50, -49) |
-| Peak non-braking deceleration | 11.3 ft/s² near disreef | 11–13 ft/s² at disreef [3, §4.11] |
-| Braking starts | midfield, 91–100 KGS | 110 KGS on average with the chute [3, §4.13] |
-| Rollout | 6,800–6,900 ft, 44 s | nominally stops 9,000–11,000 ft down the runway, i.e. 6,500–8,500 ft from a 2,500 ft touchdown [3, §4]; flown at KSC 7,771–10,708 ft in 50–65 s [5] |
+| Peak non-braking deceleration | 11.6–11.7 ft/s² | 11–13 ft/s² at disreef [3, §4.11] |
+| Braking starts | midfield, 101–103 KGS | 110 KGS on average with the chute [3, §4.13] |
+| Rollout | 6,790–6,860 ft, 44 s | nominally stops 9,000–11,000 ft down the runway, i.e. 6,500–8,500 ft from a 2,500 ft touchdown [3, §4]; flown at KSC 7,771–10,708 ft in 50–65 s [5] |
+
+The rollout rows are `orbiter_return` and `orbiter_home` with `verbose`, which
+prints the peak deceleration before the pedal (over 0.5 s) and the ground speed at
+which braking starts.
 
 `tools/missioncheck.tscn` requires, for `orbiter_return` and `orbiter_home`:
 
@@ -230,14 +234,14 @@ Known residuals:
 |---|---|---|
 | Deorbit burn | 62–68 m/s | ~90 m/s (lower perigee target) |
 | Roll reversals | 4–7, Mach 21 → 3 | typically 4 |
-| Max dynamic pressure | ~18 kPa near 33 km (Mach 5.5) | ~14 kPa |
+| Max dynamic pressure | ~18 kPa near 33 km (Mach 5.9) | ~14 kPa |
 | TAEM interface | Mach 2.6, 25 km | Mach 2.5, ~25 km |
-| Outer glide slope | −20°, 298–308 KEAS, brake 72–78° | −20° light, −18° heavy; 300 KEAS, brake ~65° mid-weight [3] |
+| Outer glide slope | −20°, 299–309 KEAS, brake 74–77° | −20° light, −18° heavy; 300 KEAS, brake ~65° mid-weight [3] |
 | Speed brake set at 3000 ft | 37–41° | 15–80° (computed) [3] |
-| Peak after the retract | 308 KEAS | ≈310 KEAS [3] |
+| Peak after the retract | 306–307 KEAS | ≈310 KEAS [3] |
 | 3000 ft → 500 ft | 16 s | ~16 s [3] |
-| 500 ft → touchdown | 19 s | ~23 s [3] |
-| Deceleration, gear down | ~5 KEAS/s | just over 4 KEAS/s [3] |
+| 500 ft → touchdown | 18 s | ~23 s [3] |
+| Deceleration, gear down | ~5.5 KEAS/s | just over 4 KEAS/s [3] |
 | Touchdown | 1.1 m/s sink; 202–206 kt (107 t), 194 kt (99 t) | ~3 ft/s; 205 KEAS heavy, 195 light [3] |
 | Touchdown pitch | 9.4° | about 8°; < 14.6° (tail scrape) [3] |
 | Deorbit burn to touchdown | ~61 min | ~1 h |
@@ -248,7 +252,7 @@ The miss is from 250–400 km circular and eccentric orbits, 28.5–51.6°, with
 
 The orbiter lands at 107 t, a heavyweight. The real one would have flown the −18°
 outer glide slope, which accounts for the brake trimming above 65° on −20°. The
-sim leaves the inner glide slope ~4 s sooner than the real one and decelerates
+sim leaves the inner glide slope ~5 s sooner than the real one and decelerates
 faster on it. The extra drag comes from the flight-derived gear increment, and STS
 flights did better than the ALT-era data on L/D. Over the shorter time the two give the same touchdown energy. The brake
 setting carries the difference.

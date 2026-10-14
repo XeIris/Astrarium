@@ -141,6 +141,7 @@ func _orbiter_return() -> void:
 	var frames := 0
 	var reversals := 0
 	var seen := 0
+	var roll := []
 	while frames < 600000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
 		f.set_warp(3 if v.altitude() > 120000.0 else 0)
 		main.animate(dt)
@@ -157,8 +158,10 @@ func _orbiter_return() -> void:
 			print("ORBITER   %s km  %s m/s  M %s  q %s kPa  drag %s  vs %s  %s" % [U.fixed(v.altitude() / 1000.0, 1),
 				U.fixed(float(t.speed), 0), U.fixed(float(t.mach), 1), U.fixed(float(t.q) / 1000.0, 2),
 				U.fixed(float(t.drag) / v.mass, 1), U.fixed(float(t.vertical), 0), f.autopilot.status])
+		if args.has("verbose") and v.rolling != null: roll.append([v.rolling.t, v.rolling.x, v.rolling.brake])
 		if frames % 600 == 0: await get_tree().process_frame
 	if args.has("verbose"):
+		print("ORBITER " + _rollout_trace(roll))
 		print("ORBITER deorbit→touchdown %s s, %s° round the planet, TAEM→touchdown %s°" % [U.fixed(v.met - t0, 0),
 			U.fixed(rad_to_deg(arc), 1), U.fixed(rad_to_deg(arc - arc_taem), 2)])
 	if v.phase != Vessel.PHASE.LANDED:
@@ -188,6 +191,7 @@ func _orbiter_home() -> void:
 	var frames := 0
 	var gliding := false
 	var seen := 0
+	var roll := []
 	while frames < 600000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
 		var ap = f.autopilot
 		if not gliding and ap.program == null and f.count == null and v.phase == Vessel.PHASE.ORBIT:
@@ -203,7 +207,9 @@ func _orbiter_home() -> void:
 		while seen < v.events.size():
 			if args.has("verbose"): print("HOME T+%s %s" % [U.fixed(float(v.events[seen].t), 0), str(v.events[seen].msg)])
 			seen += 1
+		if args.has("verbose") and v.rolling != null: roll.append([v.rolling.t, v.rolling.x, v.rolling.brake])
 		if frames % 600 == 0: await get_tree().process_frame
+	if args.has("verbose"): print("HOME " + _rollout_trace(roll))
 	var pad = v.site_at(v.coord, DVec3.new())
 	var miss := float(v.env.radius) * DQuat.angle_between(v.r, pad) / 1000.0 if pad != null else INF
 	if v.phase != Vessel.PHASE.LANDED:
@@ -390,6 +396,24 @@ func _rollout_summary(v: Vessel) -> String:
 	return "pitch %s° at touchdown, nose gear %s KEAS at %s s, wheel stop %s ft in %s s" % [U.fixed(rad_to_deg(rs.theta_td), 1),
 		U.fixed(float(rs.ngtd.eas) / 0.514444, 0), U.fixed(float(rs.ngtd.t), 1), U.fixed(float(rs.stop.x) / 0.3048, 0),
 		U.fixed(float(rs.stop.t), 0)]
+
+## The rollout's deceleration from [t, x, brake] samples, for the docs' rollout table:
+## the peak before the pedal (over 0.5 s, so frame jitter does not count) and the
+## ground speed when braking starts.
+func _rollout_trace(roll: Array) -> String:
+	var peak := 0.0
+	var onset := -1.0
+	var j := 0
+	for i in roll.size():
+		while j < roll.size() and float(roll[j][0]) - float(roll[i][0]) < 0.5: j += 1
+		if j + 1 >= roll.size() or i < 1: continue
+		var gs0 := (float(roll[i][1]) - float(roll[i - 1][1])) / maxf(float(roll[i][0]) - float(roll[i - 1][0]), 1e-6)
+		var gs1 := (float(roll[j][1]) - float(roll[j - 1][1])) / maxf(float(roll[j][0]) - float(roll[j - 1][0]), 1e-6)
+		if onset < 0.0 and float(roll[i][2]) > 0.0: onset = gs0
+		if onset < 0.0 and float(roll[j][2]) == 0.0:
+			peak = maxf(peak, (gs0 - gs1) / (float(roll[j][0]) - float(roll[i][0])))
+	return "rollout: peak non-braking deceleration %s ft/s², braking from %s KGS" % [U.fixed(peak / 0.3048, 1),
+		U.fixed(onset / 0.514444, 0) if onset >= 0.0 else "never"]
 
 ## Where an unfinished flight stopped: the vessel phase (which stays `orbit` from an
 ## orbit start until touchdown), the program and its state, and the clock.
