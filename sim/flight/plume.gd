@@ -102,8 +102,8 @@ static func smoke_grey(prop: Dictionary) -> float:
 	if prop == PROPELLANT.solid: return 0.72
 	return lerpf(0.72, 0.42, clampf(float(prop.soot), 0.0, 1.0))
 
-## Smoke drawn as raymarched volumes (High and Ultra) rather than sprites, and the
-## march it takes: [steps, light steps].
+## Smoke drawn as raymarched volumes (High and Ultra) rather than unmarched puffs of
+## the trail's medium (smoke_puff.gdshader), and the march it takes: [steps, light steps].
 static var smoke_volume := false
 static var smoke_steps := [5, 0]
 ## Pad-cloud puffs a second at full power (fewer on High, where overdraw is the cost).
@@ -1044,8 +1044,8 @@ class SmokeColumn extends RefCounted:
 	# White steam from the deluge (most of the pad cloud's volume, condensing out
 	# fastest) and soot or alumina from the exhaust (what is left a minute later).
 	var STEAM := U.lin(0xe8eaec)
-	var SOOT := U.lin(0x4a423a)
 	## Soot as a volume scatters many times; its effective albedo is ~0.2, not black.
+	## Every tier lights it that way (smoke_volume, smoke_puff).
 	var SOOT_VOLUME := U.lin(0xa09281)
 
 	func _slot_pad() -> int:
@@ -1090,7 +1090,7 @@ class SmokeColumn extends RefCounted:
 			# the speed of sound.
 			var v := d * spread * (1.2 + randf() * 1.6) + Vector3(0.0, spread * 0.3 * randf(), 0.0)
 			var is_soot := randf() < soot * (0.75 if trench else 0.45)
-			var c: Color = (SOOT_VOLUME if Plume.smoke_volume else SOOT) if is_soot else STEAM
+			var c: Color = SOOT_VOLUME if is_soot else STEAM
 			# No two puffs the same value, or several hundred read as one flat sheet.
 			var k2 := 0.82 + randf() * 0.3
 			c = Color(c.r * k2, c.g * k2, c.b * k2)
@@ -1225,7 +1225,7 @@ class SmokeColumn extends RefCounted:
 
 	func update(dt: float) -> void:
 		if dt <= 0.0: return
-		if Plume.smoke_volume: _shade_slice(PAD_N / 10)
+		_shade_slice(PAD_N / 10)
 		for i in NODE_N:
 			if t_life[i] <= 0.0: continue
 			t_age[i] += dt
@@ -1309,13 +1309,17 @@ class SmokeColumn extends RefCounted:
 			if op < 0.05: continue
 			# The fire lights the low, near puffs from underneath.
 			var fd := (pos[i] - fire_pos).length() / maxf(size[i], 1.0)
-			# custom.z < 0 marks boil-off vapour, drawn as wisps (smoke_volume.gdshader).
+			# custom.z < 0 marks boil-off vapour, drawn as wisps (smoke_volume, smoke_puff).
 			var fire := -1.0 if kind[i] == VENT_KIND else Plume.fire_level * exp(-fd * 0.7)
 			var ex := Vector3(shade[i], fire, seed[i])
 			if _depth[i] > split:
 				far.put(nf, pos[i], size[i], color[i], op, rot[i], ex); nf += 1
 			else:
 				near.put(nn, pos[i], size[i], color[i], op, rot[i], ex); nn += 1
+		if not Plume.smoke_volume:
+			var pm := Plume.smoke_puff_material()
+			Plume.apply_smoke_light(pm)
+			pm.set_shader_parameter("uAir", air_from(camera.global_transform))
 		if nf > 0 or far.mm.visible_instance_count > 0: far.commit(nf)
 		if nn > 0 or near.mm.visible_instance_count > 0: near.commit(nn)
 		_draw_trail(camera, xf, eye, fwd)
@@ -1460,7 +1464,7 @@ static func create_smoke_column() -> SmokeColumn:
 	assert(n <= 2048)    # the sort key's slot bits
 	o.group = Node3D.new()
 	o.group.name = "smoke"
-	var mat := sprite_material(false, 2, ORDER_SMOKE)
+	var mat := smoke_puff_material()
 	o.far = Sprites.new(mat, n)
 	o.near = Sprites.new(mat, n)
 	for sp in [o.far, o.near]:
@@ -1513,10 +1517,19 @@ static func smoke_volume_material(noise: Texture3D) -> ShaderMaterial:
 	_volume_mat.set_shader_parameter("uFine", smoke_steps[0] > 6)
 	return _volume_mat
 
-## Draw `column` as volumes (with this noise) or as sprites.
+## The pad cloud on Low and Medium: unmarched puffs of the trail's medium.
+static var _puff_mat: ShaderMaterial = null
+static func smoke_puff_material() -> ShaderMaterial:
+	if _puff_mat == null:
+		_puff_mat = ShaderMaterial.new()
+		_puff_mat.shader = shader("smoke_puff")
+		_puff_mat.render_priority = ORDER_SMOKE
+	return _puff_mat
+
+## Draw `column` as volumes (with this noise) or as puffs of the trail's medium.
 static func set_smoke_volume(column: SmokeColumn, on: bool, noise: Texture3D) -> void:
 	smoke_volume = on and noise != null
-	var mat := smoke_volume_material(noise) if smoke_volume else sprite_material(false, 2, ORDER_SMOKE)
+	var mat := smoke_volume_material(noise) if smoke_volume else smoke_puff_material()
 	for sp in [column.far, column.near]:
 		sp.node.material_override = mat
 	# The volume's light; the sprites carry theirs baked into the texture.
