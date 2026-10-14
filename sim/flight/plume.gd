@@ -112,6 +112,30 @@ static var smoke_rate := 26.0
 ## (spaceflight.gd), for the volume smoke.
 static var sun_local := Vector3.UP
 static var fire_level := 0.0
+## The light on exhaust smoke (smoke_column.gdshaderinc, smoke_volume.gdshader), set
+## by spaceflight.gd each frame: the sun's, the sky's from above and the ground's from
+## below, in HDR.
+static var light_sun := Vector3.ONE
+static var light_sky := Vector3(0.22, 0.28, 0.39)
+static var light_ground := Vector3(0.1, 0.09, 0.07)
+## The trail's march: [steps, light steps], and the finer noise octave.
+static var trail_steps := [10, 0]
+static var trail_fine := false
+
+## The smoke's noise: tiling Perlin with about four features a tile, as
+## smoke_column.gdshaderinc's smoke_noise assumes. Built once, on a worker thread.
+static var _smoke_noise: NoiseTexture3D = null
+static func smoke_noise() -> NoiseTexture3D:
+	if _smoke_noise == null:
+		_smoke_noise = LocalView._noise3d(64, 1187, FastNoiseLite.TYPE_PERLIN, 1.0 / 16.0, 3, false)
+	return _smoke_noise
+
+static func apply_smoke_light(m: ShaderMaterial) -> void:
+	m.set_shader_parameter("uSmokeNoise", smoke_noise())
+	m.set_shader_parameter("uSunDir", sun_local)
+	m.set_shader_parameter("uSun", light_sun)
+	m.set_shader_parameter("uSky", light_sky)
+	m.set_shader_parameter("uGround", light_ground)
 
 static var _sh := {}
 static func shader(name: String) -> Shader:
@@ -252,18 +276,27 @@ class PlumeFx extends RefCounted:
 	## One engine of a merged cluster: the far field balloons for all of them.
 	var near := false
 	var temp_code := 0.32
-	## Last update's box length and smoke-column radius, m (where the trail picks up),
-	## and the trail's opacity there.
+	## Last update's box length, m.
 	var last_len := 0.0
-	var trail_r := 0.0
-	var trail_op := 0.0
+	## The column at the box's end, where the trail is laid: its radius scale
+	## (smoke_column.gdshaderinc, m) and line density, τ·m (0 for a clean or near-field
+	## plume).
+	var trail_a := 0.0
+	var trail_k := 0.0
+	## The column from where it grows out of the flame to the box's end, which the trail
+	## draws as its live end: fraction of the box length, radius scale (m), line density.
+	var column_fx := PackedFloat64Array()
+	var column_a := PackedFloat64Array()
+	var column_k := PackedFloat64Array()
 
 	## @param throttle 0..1 @param pa ambient pressure, Pa @param p0 reference (sea level)
 	func update(throttle: float, pa: float, time: float, _p0: float = 101325.0) -> void:
 		var on := throttle > 0.001
 		mesh.visible = on
 		if light != null: light.visible = on
-		if not on: return
+		if not on:
+			trail_k = 0.0
+			return
 		var pr := pe / maxf(pa, 1e-3)
 		# Away from the pad the plume expands until its pressure meets what pushes on it,
 		# the ambient air plus the freestream's dynamic pressure (docs/physics/plumes.md).
@@ -313,18 +346,21 @@ class PlumeFx extends RefCounted:
 		var lx := L / exit_d
 		var rj := _rj(lx, under, balloon)
 		if beam: rj = 1.0 + 0.03 * lx
-		var R := maxf(re * rj * lerpf(1.9, 2.6, column), r_eq * 1.45 * hi)
-		var grey := Plume.smoke_grey(propellant)
-		material.set_shader_parameter("uFlame", clampf(flame_len / L, 0.2, 1.0))
+		var R := maxf(re * rj * 1.9, r_eq * 1.45 * hi)
+		var F := clampf(flame_len / L, 0.2, 1.0)
+		material.set_shader_parameter("uFlame", F)
 		material.set_shader_parameter("uTrailK", line)
-		# The shader scales everything by its calibration; the smoke's light is a reflectance.
-		material.set_shader_parameter("uTrail", Vector3(grey, grey * 0.985, grey * 0.96) * Plume.daylight / (temp_code * 2.4))
 		material.set_shader_parameter("uBox", Vector3(R, L, R))
 		last_len = L
-		# The column where the box ends: the near field's, or the narrowed balloon's.
-		trail_r = maxf(re * rj * 1.5, r_eq * 0.62 * hi)
-		# Seen across, about 1.7 trail puffs overlap at any point.
-		trail_op = clampf(1.0 - exp(-line / trail_r / 1.7), 0.0, 0.85) if line > 0.0 else 0.0
+		# Denser where the column grows in, then on to the box's end.
+		var fxs := [0.35 * F, 0.5 * F, 0.65 * F, 0.8 * F, 0.95 * F]
+		for k in 3: fxs.append(lerpf(0.95 * F, 1.0, float(k + 1) / 3.0))
+		column_fx.resize(fxs.size()); column_a.resize(fxs.size()); column_k.resize(fxs.size())
+		for k in fxs.size():
+			var c := _column(fxs[k], L, F, under, balloon, hi)
+			column_fx[k] = fxs[k]; column_a[k] = c.x; column_k[k] = line * c.y
+		trail_a = column_a[-1]
+		trail_k = column_k[-1]
 		jet.custom_aabb = AABB(Vector3(-R * 1.1, -L * 1.05, -R * 1.1), Vector3(R * 2.2, L * 1.05 + 1.0, R * 2.2))
 		# Exit glow a little inside the exit plane, growing with the plume.
 		if glow != null:
@@ -342,6 +378,21 @@ class PlumeFx extends RefCounted:
 	static func _rj(lx: float, under: float, balloon: float) -> float:
 		var spread := lerpf(1.0 + 0.14 * lx, 1.0 + 0.05 * lx, under)
 		return maxf(spread, minf(1.0 + under * 2.6 * pow(lx, 0.62), balloon))
+
+	## The smoke column at `fx` of the box length: (radius scale a, m; share of the line
+	## density). The near field's column widens with the jet; the balloon's fills it as it
+	## narrows. They are weighted by uHi, and grow in as the flame burns out (the soot in
+	## plume.gdshader fades on the near field's ramp).
+	func _column(fx: float, L: float, F: float, under: float, balloon: float, hi: float) -> Vector2:
+		var re := exit_d * 0.5
+		var w_n := (1.0 - hi) * smoothstep(F * 0.35, F * 0.95, fx)
+		var a_n := re * _rj(fx * L / exit_d, under, balloon) * (1.0 + 0.9 * smoothstep(F * 0.4, 1.0, fx))
+		var w_b := hi * smoothstep(F * 0.55, F, fx)
+		# balloon_radius in the shader, at fx·L in equilibrium radii
+		var xr := fx * L / (balloon * re)
+		var a_b := re * (1.0 + (balloon - 1.0) * (1.0 - exp(-xr * 2.6))) * (1.0 - 0.38 * smoothstep(1.2, 6.5, xr))
+		var w := w_n + w_b
+		return Vector2((w_n * a_n + w_b * a_b) / w if w > 0.0 else a_n, w)
 
 ## One engine's plume, scaled by `exit_d` and driven per frame. `engine` is the
 ## vehicles.gd entry; `role` is "single", "near" (one engine of a merged cluster) or
@@ -517,15 +568,20 @@ static func create_entry_glow(radius: float) -> EntryGlow:
 # LAUNCH SMOKE: the pad cloud thrown out of the flame trench, and the exhaust
 # trail laid along the climb. Both are fixed to the ground and air, not to the
 # vehicle: spaceflight.gd re-expresses them in the moving local frame each frame
-# (reframe). Drawn as sprites, or on High and Ultra as raymarched volumes.
+# (reframe). The pad cloud is drawn as sprites, or on High and Ultra as raymarched
+# volumes; the trail is one tube of smoke along nodes laid in the air
+# (smoke_trail.gdshader) on every preset.
 class SmokeColumn extends RefCounted:
 	const PAD_N := 620
-	const TRAIL_N := 300
 	const VENT_N := 320
-	const N := PAD_N + TRAIL_N + VENT_N
+	const N := PAD_N + VENT_N
+	## Trail nodes: the main strand lays at most eight a second (spaceflight.gd spaces
+	## them) for 110 s, with room for separation motors' short strands.
+	const NODE_N := 2048
+	## Room for the live columns' segments (eight samples each, PlumeFx.column_fx).
+	const LIVE_N := 256
 	const STEAM_KIND := 0
 	const SOOT_KIND := 1
-	const TRAIL_KIND := 2
 	const VENT_KIND := 3
 	var group: Node3D
 	## The live puffs, back to front, split where the deluge sorts: `far` draws
@@ -555,8 +611,7 @@ class SmokeColumn extends RefCounted:
 	var shade := PackedFloat64Array()
 	var _shade_at := 0
 	var _pad_next := 0
-	var _trail_next := PAD_N
-	var _vent_next := PAD_N + TRAIL_N
+	var _vent_next := PAD_N
 	var _pad_acc := 0.0
 	## Where the deflected exhaust burns, in the group's frame.
 	var fire_pos := Vector3.ZERO
@@ -566,8 +621,43 @@ class SmokeColumn extends RefCounted:
 	var body_r := 0.0
 	## The wind the smoke drifts with, m/s in the local frame.
 	var wind := Vector3.ZERO
-	## Where the last trail puff was laid, in the group's frame (reframed with them).
-	var trail_last := Vector3.INF
+	## The exhaust trail: nodes in the group's frame, a ring in the order laid, several
+	## strands interleaved. Each node links to its neighbours in its strand by slot and
+	## sequence number (`t_prev`, `t_nxt`), so a reused slot breaks the link. A free slot
+	## has t_life 0. `t_a` is the column's radius scale and `t_k` its line density
+	## (τ·m) when laid.
+	var trail: Plume.Sprites
+	var t_pos := PackedVector3Array()
+	var t_vel := PackedVector3Array()
+	var t_age := PackedFloat64Array()
+	var t_life := PackedFloat64Array()
+	var t_a := PackedFloat64Array()
+	var t_k := PackedFloat64Array()
+	var t_grey := PackedFloat64Array()
+	var t_seq := PackedInt64Array()
+	var t_prev := PackedInt32Array()
+	var t_prevseq := PackedInt64Array()
+	var t_nxt := PackedInt32Array()
+	var t_nxtseq := PackedInt64Array()
+	var _t_next := 0
+	var _t_seq := 0
+	## The strands being laid this frame, by plume.
+	var _strands := {}
+	## The air's own frame, for the trail's noise: air = air_basisᵀ·x + air_c for x in
+	## the group's frame, carried through reframe() and the wind, wrapped by AIR_WRAP.
+	var air_basis := Basis()
+	var air_c := Vector3.ZERO
+	## A whole number of periods of every noise octave up to 4·2¹² m
+	## (smoke_column.gdshaderinc), so wrapping never moves the pattern.
+	const AIR_WRAP := 16384.0
+	var _tkeys := PackedInt64Array()
+	var _tbuf := PackedFloat32Array()
+	var _ns := 0
+	var _near_d := INF
+	var _eye_g := Vector3.ZERO
+	var _cp := PackedVector3Array()
+	var _ca := PackedFloat64Array()
+	var _ck := PackedFloat64Array()
 	var _depth := PackedFloat64Array()
 	var _keys := PackedInt64Array()
 	# White steam from the deluge (most of the pad cloud's volume, condensing out
@@ -580,10 +670,6 @@ class SmokeColumn extends RefCounted:
 	func _slot_pad() -> int:
 		_pad_next = (_pad_next + 1) % PAD_N
 		return _pad_next
-
-	func _slot_trail() -> int:
-		_trail_next = PAD_N + (_trail_next - PAD_N + 1) % TRAIL_N
-		return _trail_next
 
 	func _spawn(i: int, p: Vector3, v: Vector3, s: float, c: Color, k: int, r: float, g: float, op: float) -> void:
 		pos[i] = p; vel[i] = v; size0[i] = s; size[i] = s; age[i] = 0.0
@@ -632,22 +718,95 @@ class SmokeColumn extends RefCounted:
 			_spawn(i, p, v, spread * (0.32 + randf() * 0.45), c, SOOT_KIND if is_soot else STEAM_KIND,
 				0.05 if is_soot else 0.06, 2.4, 0.62 if is_soot else 0.5)
 
-	## One trail puff where the flame ends: `p` in the group's frame, moving at `v`.
-	## `fade` (1/s) is how fast it appears: the shader's column already shows the smoke
-	## there, so it is there before the vehicle has gone half its width.
-	func emit_trail(p: Vector3, v: Vector3, s: float, opacity: float, tint: Color, fade := 2.0) -> void:
-		var i := _slot_trail()
-		var k2 := 0.9 + randf() * 0.15
-		# Ragged: sizes and offsets vary, so overlapping puffs read as a column of
-		# billows rather than a tube.
-		_spawn(i, p + Vector3(randf() - 0.5, randf() - 0.5, randf() - 0.5) * s * 0.5, v,
-			s * (0.6 + randf() * 0.7), Color(tint.r * k2, tint.g * k2, tint.b * k2), TRAIL_KIND,
-			1.0 / (70.0 + randf() * 40.0), 0.35, opacity)
-		fade_in[i] = fade
+	## Call before a frame's trail_to calls; trail_finish after them ends the strands
+	## whose plume was not laid this frame.
+	func trail_begin() -> void:
+		for st: Strand in _strands.values(): st.seen = false
+
+	func trail_finish() -> void:
+		for key in _strands.keys():
+			var st: Strand = _strands[key]
+			if st.seen: continue
+			# The plume has gone: its column is left in the air as the strand's end.
+			if _alive(st.last):
+				var prev := st.last
+				for i in range(st.p.size() - 1, -1, -1):
+					prev = _lay(st.p[i], st.a[i], st.k[i], st.grey, wind, prev)
+			_strands.erase(key)
+
+	## Lay the exhaust trail behind the plume `key` this frame, at `spacing` m along its
+	## path. The plume's exit is `at` and its axis `dir` (downstream), its box `L` long;
+	## `fx`, `col_a` and `col_k` are its column (PlumeFx.column_*), whose last sample is
+	## the box's end, where the nodes are laid. `v0` is the exhaust's velocity.
+	func trail_to(key: String, at: Vector3, dir: Vector3, L: float, fx: PackedFloat64Array,
+			col_a: PackedFloat64Array, col_k: PackedFloat64Array, grey: float, v0: Vector3, spacing: float) -> void:
+		var st: Strand = _strands.get(key)
+		if st == null:
+			st = Strand.new()
+			_strands[key] = st
+		st.seen = true
+		var n := fx.size()
+		var end := at + dir * L
+		var a := col_a[n - 1]
+		var k := col_k[n - 1]
+		if not _alive(st.last):
+			st.last = _lay(end, a, k, grey, v0, -1)
+		else:
+			# Per distance travelled, interpolated along the frame's path, so the nodes
+			# are evenly spaced however fast the vehicle goes.
+			for c in 64:
+				var from := t_pos[st.last]
+				var d := end - from
+				var len := d.length()
+				if len < spacing: break
+				# More than a frame can carry (time warp): the rest is one segment.
+				var q := end if c == 63 else from + d * (spacing / len)
+				st.last = _lay(q, lerpf(t_a[st.last], a, spacing / len), k, grey, v0, st.last)
+		st.grey = grey
+		st.p.resize(n)
+		for i in n: st.p[i] = at + dir * (L * fx[i])
+		st.a = col_a.duplicate()
+		st.k = col_k.duplicate()
+
+	## A node's frame (global transform) → the air-fixed noise space the trail is drawn in.
+	func air_from(node_xf: Transform3D) -> Projection:
+		var t := Transform3D(air_basis.transposed(), air_c) * group.global_transform.affine_inverse() * node_xf
+		t.origin = _wrap(t.origin)
+		return Projection(t)
+
+	## A node after `prev` in its strand (−1 to start one). Returns its slot.
+	func _lay(p: Vector3, a: float, k: float, grey: float, v: Vector3, prev: int) -> int:
+		var i := _t_next
+		_t_next = (_t_next + 1) % NODE_N
+		t_pos[i] = p; t_vel[i] = v; t_age[i] = 0.0
+		# Each node disperses on its own clock, so an old trail breaks up raggedly.
+		t_life[i] = 70.0 + randf() * 40.0
+		t_a[i] = a; t_k[i] = k; t_grey[i] = grey
+		t_seq[i] = _t_seq; _t_seq += 1
+		t_nxt[i] = -1
+		t_prev[i] = prev
+		t_prevseq[i] = t_seq[prev] if prev >= 0 else -1
+		if prev >= 0:
+			t_nxt[prev] = i
+			t_nxtseq[prev] = t_seq[i]
+		return i
+
+	func _alive(i: int) -> bool:
+		return i >= 0 and t_life[i] > 0.0
+
+	## A strand being laid: its newest node, and its live column from where it grows
+	## out of the flame (index 0) to the box's end (the last), carried by the vehicle.
+	class Strand extends RefCounted:
+		var last := -1
+		var p := PackedVector3Array()
+		var a := PackedFloat64Array()
+		var k := PackedFloat64Array()
+		var grey := 0.5
+		var seen := false
 
 	## Boil-off from a tank vent: cold, so it sinks as it spreads and soon evaporates.
 	func emit_vent(p: Vector3, v: Vector3, s: float, opacity: float) -> void:
-		_vent_next = PAD_N + TRAIL_N + (_vent_next - PAD_N - TRAIL_N + 1) % VENT_N
+		_vent_next = PAD_N + (_vent_next - PAD_N + 1) % VENT_N
 		var k2 := 0.95 + randf() * 0.08
 		_spawn(_vent_next, p, v, s, Color(STEAM.r * k2, STEAM.g * k2, STEAM.b * k2), VENT_KIND,
 			1.0 / (2.0 + randf() * 2.0), 10.0, opacity)
@@ -671,13 +830,32 @@ class SmokeColumn extends RefCounted:
 			if life[i] <= 0.0: continue
 			pos[i] = A * pos[i] + t
 			vel[i] = A * vel[i]
-		if trail_last != Vector3.INF: trail_last = A * trail_last + t
+		for i in NODE_N:
+			if t_life[i] <= 0.0: continue
+			t_pos[i] = A * t_pos[i] + t
+			t_vel[i] = A * t_vel[i]
+		for st: Strand in _strands.values():
+			for i in st.p.size(): st.p[i] = A * st.p[i] + t
+		air_basis = (A * air_basis).orthonormalized()
+		air_c = _wrap(air_c - air_basis.transposed() * t)
+
+	static func _wrap(c: Vector3) -> Vector3:
+		return Vector3(fposmod(c.x, AIR_WRAP), fposmod(c.y, AIR_WRAP), fposmod(c.z, AIR_WRAP))
 
 	func update(dt: float) -> void:
 		if dt <= 0.0: return
 		if Plume.smoke_volume: _shade_slice(PAD_N / 10)
-		# The last puff laid drifts with the air, so the next is laid where it now is.
-		if trail_last != Vector3.INF: trail_last += wind * dt
+		for i in NODE_N:
+			if t_life[i] <= 0.0: continue
+			t_age[i] += dt
+			if t_age[i] >= t_life[i]:
+				t_life[i] = 0.0
+				continue
+			t_pos[i] += t_vel[i] * dt
+			# Left behind in still air: it slows to the wind.
+			t_vel[i] += (wind - t_vel[i]) * minf(dt * 0.6, 1.0)
+		# The air, and the noise fixed in it, moves with the wind.
+		air_c = _wrap(air_c - air_basis.transposed() * (wind * dt))
 		for i in N:
 			if life[i] <= 0.0: continue
 			life[i] -= dt * rate[i]
@@ -685,10 +863,7 @@ class SmokeColumn extends RefCounted:
 			age[i] += dt
 			pos[i] += vel[i] * dt
 			var v := vel[i]
-			if kind[i] == TRAIL_KIND:
-				# Left behind in still air: it slows to the wind and spreads.
-				v += (wind - v) * minf(dt * 0.6, 1.0)
-			elif kind[i] == VENT_KIND:
+			if kind[i] == VENT_KIND:
 				# Colder and denser than the air: it slumps down the vehicle as it drifts.
 				v += (wind * 0.6 - v) * minf(dt * 0.8, 1.0) + Vector3(0.0, -1.4 * dt, 0.0)
 				shade[i] = lerpf(shade[i], _body_shade(pos[i]), minf(dt * 4.0, 1.0))
@@ -755,13 +930,14 @@ class SmokeColumn extends RefCounted:
 			var fd := (pos[i] - fire_pos).length() / maxf(size[i], 1.0)
 			# custom.z < 0 marks boil-off vapour, drawn as wisps (smoke_volume.gdshader).
 			var fire := -1.0 if kind[i] == VENT_KIND else Plume.fire_level * exp(-fd * 0.7)
-			var ex := Vector3(shade[i] if kind[i] != TRAIL_KIND else 0.92, fire, seed[i])
+			var ex := Vector3(shade[i], fire, seed[i])
 			if _depth[i] > split:
 				far.put(nf, pos[i], size[i], color[i], op, rot[i], ex); nf += 1
 			else:
 				near.put(nn, pos[i], size[i], color[i], op, rot[i], ex); nn += 1
 		if nf > 0 or far.mm.visible_instance_count > 0: far.commit(nf)
 		if nn > 0 or near.mm.visible_instance_count > 0: near.commit(nn)
+		_draw_trail(camera, xf, eye, fwd)
 		# Sorted by origin (sorting_use_aabb_center off): the depth Godot sorts
 		# on is near-plane distance − sorting_offset, so these put each set just
 		# either side of the deluge.
@@ -774,9 +950,128 @@ class SmokeColumn extends RefCounted:
 	func clear() -> void:
 		life.fill(0.0)
 		_pad_acc = 0.0
-		trail_last = Vector3.INF
+		t_life.fill(0.0)
+		_strands.clear()
+		air_basis = Basis()
+		air_c = Vector3.ZERO
 		far.commit(0)
 		near.commit(0)
+		trail.commit(0)
+
+	## The live node after i in its strand, or −1.
+	func _next_of(i: int) -> int:
+		var j := t_nxt[i]
+		return j if _alive(j) and t_seq[j] == t_nxtseq[i] else -1
+
+	## Whether a live node precedes i in its strand.
+	func _has_prev(i: int) -> bool:
+		var h := t_prev[i]
+		return _alive(h) and t_seq[h] == t_prevseq[i]
+
+	## A node's radius scale now: turbulent diffusion widens it as √(1 + 0.35·age).
+	func _node_a(i: int) -> float:
+		return t_a[i] * sqrt(1.0 + 0.35 * t_age[i])
+
+	## Its line density now, dispersing over the last 40 % of its life.
+	func _node_k(i: int) -> float:
+		return t_k[i] * (1.0 - smoothstep(0.6 * t_life[i], t_life[i], t_age[i]))
+
+	## The trail's segments for this camera, back to front, and the air frame its noise
+	## is fixed in.
+	func _draw_trail(camera: Camera3D, xf: Transform3D, eye: Vector3, fwd: Vector3) -> void:
+		var mat := trail.node.material_override as ShaderMaterial
+		Plume.apply_smoke_light(mat)
+		mat.set_shader_parameter("uAir", air_from(camera.global_transform))
+		_tkeys.clear()
+		_ns = 0
+		_near_d = INF
+		_eye_g = xf.affine_inverse() * eye
+		var tails := {}
+		for st: Strand in _strands.values():
+			if _alive(st.last): tails[st.last] = st
+		# Each strand as a chain of points, oldest first; one being laid ends in its column.
+		for i in NODE_N:
+			if t_life[i] <= 0.0 or _has_prev(i): continue
+			_cp.clear(); _ca.clear(); _ck.clear()
+			var j := i
+			while true:
+				_cp.append(t_pos[j]); _ca.append(_node_a(j)); _ck.append(_node_k(j))
+				var nx := _next_of(j)
+				if nx < 0: break
+				j = nx
+			var st: Strand = tails.get(j)
+			if st != null:
+				for li in range(st.p.size() - 1, -1, -1):
+					_cp.append(st.p[li]); _ca.append(st.a[li]); _ck.append(st.k[li])
+			_chain(t_grey[i], xf, eye, fwd)
+		_tkeys.sort()
+		var n := 0
+		for key in _tkeys:
+			var s := key & 4095
+			for f in 20: trail.buf[n * 20 + f] = _tbuf[s * 20 + f]
+			n += 1
+		if n > 0 or trail.mm.visible_instance_count > 0: trail.commit(n)
+		# Sorted against the pad cloud by its nearest segment, the part that overlaps it.
+		if n > 0: trail.node.sorting_offset = fwd.dot(xf.origin - eye) - maxf(_near_d, 0.0)
+
+	## The segments of the chain in _cp/_ca/_ck. Each ends on the plane bisecting the
+	## bend into its neighbour, so neighbours share that plane: no gap and no overlap,
+	## since two volumes composited one over the other are not one medium.
+	func _chain(grey: float, xf: Transform3D, eye: Vector3, fwd: Vector3) -> void:
+		var n := _cp.size()
+		for k in n - 1:
+			if _ns >= trail.mm.instance_count: return
+			var d_prev := (_cp[k] - _cp[k - 1]).normalized() if k > 0 else Vector3.ZERO
+			var d_next := (_cp[k + 2] - _cp[k + 1]).normalized() if k + 2 < n else Vector3.ZERO
+			_seg(_cp[k], _cp[k + 1], _ca[k], _ca[k + 1], _ck[k], _ck[k + 1], grey, d_prev, d_next, xf, eye, fwd)
+
+	## The tilt of the plane bisecting the bend from `d_in` to `d` (unit), as its normal
+	## d + τ with τ ⟂ d; zero at an open end. Held under 45° so the box contains it.
+	static func _tilt(d_in: Vector3, d: Vector3) -> Vector3:
+		if d_in == Vector3.ZERO: return Vector3.ZERO
+		var m := d_in + d
+		var c := m.dot(d)
+		if c < 1e-3: return Vector3.ZERO
+		var t := m / c - d
+		return t.limit_length(0.9)
+
+	## A segment from n0 to n1 (group frame) into the staging buffer, with a sort key.
+	## The box reaches one radius past each node, so it holds the tilted end planes.
+	func _seg(n0: Vector3, n1: Vector3, a0: float, a1: float, k0: float, k1: float, grey: float,
+			d_prev: Vector3, d_next: Vector3, xf: Transform3D, eye: Vector3, fwd: Vector3) -> void:
+		var d := n1 - n0
+		var len := d.length()
+		var am := maxf(a0, a1)
+		if len < 1e-3 or am <= 0.0 or maxf(k0, k1) <= 0.0: return
+		# The profile's ragged edge reaches 1.85 radius scales.
+		var rb := 1.9 * am
+		var mid := (n0 + n1) * 0.5
+		var depth := fwd.dot(xf * mid - eye)
+		if depth < -(len * 0.5 + rb): return
+		var dn := d / len
+		var t0 := _tilt(d_prev, dn)
+		var t1 := _tilt(dn, d_next)
+		# The box's x axis along the far end's tilt, so that one is a single number.
+		var xh := t1.normalized() if t1.length_squared() > 1e-10 else dn.cross(Vector3.UP)
+		if xh.length_squared() < 1e-6: xh = dn.cross(Vector3.RIGHT)
+		xh = xh.normalized()
+		var zh := xh.cross(dn)
+		var x := xh * rb
+		var z := zh * rb
+		var y := dn * (len * 0.5 + rb)
+		var o := _ns * 20
+		_tbuf[o] = x.x; _tbuf[o + 1] = y.x; _tbuf[o + 2] = z.x; _tbuf[o + 3] = mid.x
+		_tbuf[o + 4] = x.y; _tbuf[o + 5] = y.y; _tbuf[o + 6] = z.y; _tbuf[o + 7] = mid.y
+		_tbuf[o + 8] = x.z; _tbuf[o + 9] = y.z; _tbuf[o + 10] = z.z; _tbuf[o + 11] = mid.z
+		_tbuf[o + 12] = grey; _tbuf[o + 13] = t1.length(); _tbuf[o + 14] = t0.dot(xh); _tbuf[o + 15] = t0.dot(zh)
+		_tbuf[o + 16] = a0; _tbuf[o + 17] = a1; _tbuf[o + 18] = k0; _tbuf[o + 19] = k1
+		# By the distance to the segment's nearest point, not its middle: along a chain that
+		# draws each neighbour behind the one between it and the eye.
+		var u := clampf((_eye_g - n0).dot(dn), 0.0, len)
+		var dist := _eye_g.distance_to(n0 + dn * u)
+		_tkeys.append(int(floor(-dist * 1024.0)) * 4096 + _ns)
+		_ns += 1
+		_near_d = minf(_near_d, depth)
 
 static func create_smoke_column() -> SmokeColumn:
 	var o := SmokeColumn.new()
@@ -796,7 +1091,33 @@ static func create_smoke_column() -> SmokeColumn:
 	o.grow.resize(n); o.fade_in.resize(n); o.op0.resize(n); o.color.resize(n); o.kind.resize(n)
 	o.seed.resize(n); o.shade.resize(n); o._depth.resize(n)
 	o.shade.fill(1.0)
+	var m := SmokeColumn.NODE_N
+	o.t_pos.resize(m); o.t_vel.resize(m); o.t_age.resize(m); o.t_life.resize(m); o.t_a.resize(m)
+	o.t_k.resize(m); o.t_grey.resize(m); o.t_seq.resize(m)
+	o.t_prev.resize(m); o.t_prevseq.resize(m); o.t_nxt.resize(m); o.t_nxtseq.resize(m)
+	o.t_prev.fill(-1); o.t_nxt.fill(-1)
+	o.t_life.fill(0.0)
+	# The live column's segments past the laid nodes.
+	o.trail = Sprites.new(trail_material(), m + SmokeColumn.LIVE_N)
+	var box := BoxMesh.new()
+	box.size = Vector3(2.0, 2.0, 2.0)
+	o.trail.mm.mesh = box
+	o.trail.node.sorting_use_aabb_center = false
+	o.group.add_child(o.trail.node)
+	o._tbuf.resize((m + SmokeColumn.LIVE_N) * 20)
 	return o
+
+## The exhaust trail's material (smoke_trail.gdshader), with this preset's march.
+static var _trail_mat: ShaderMaterial = null
+static func trail_material() -> ShaderMaterial:
+	if _trail_mat == null:
+		_trail_mat = ShaderMaterial.new()
+		_trail_mat.shader = shader("smoke_trail")
+		_trail_mat.render_priority = ORDER_SMOKE
+	_trail_mat.set_shader_parameter("uSteps", int(trail_steps[0]))
+	_trail_mat.set_shader_parameter("uLightSteps", int(trail_steps[1]))
+	_trail_mat.set_shader_parameter("uFine", trail_fine)
+	return _trail_mat
 
 ## The shared material for volumetric smoke; spaceflight.gd sets its light.
 static var _volume_mat: ShaderMaterial = null
