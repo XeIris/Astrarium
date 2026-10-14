@@ -334,8 +334,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	cryo = Cryo.build(craft)
 	var atm = vessel.env.get("atm")
 	vapour = Vapour.create(craft) if atm != null and atm.get("humid", false) else null
-	entry = Plume.create_entry_glow(maxf(vessel.diameter * 0.75, 2.0))
-	craft.group.add_child(entry.mesh)
+	entry = Plume.create_entry_glow(craft)
 
 	fly_cam.state.dist = 3.2
 	active = true
@@ -481,34 +480,6 @@ static func _measure_bell(pv: Node3D, spec: Dictionary) -> Dictionary:
 	var d := float(eng.get("exitD", float(spec.D) * 0.2))
 	var y := lo if is_finite(lo) else -d * 1.3
 	return {"engine": eng, "exit_d": d, "exit_y": minf(y, 0.0)}
-
-## A lone winged stage (the orbiter) meets the plasma with its belly, not its nose:
-## the sheath goes round that stage, sized to its frontal area at 40°, its
-## stagnation point turned into the airflow.
-func _wrap_winged_sheath() -> void:
-	var lone = null
-	for st in vessel.stages:
-		if not st.attached: continue
-		if lone != null: return
-		lone = st
-	if lone == null or lone.spec.get("wings") == null: return
-	var cs = craft.stage(str(lone.spec.key))
-	if cs == null: return
-	var air: Vector3 = vessel.airspeed(vessel.r, vessel.v, _b).to_v3()
-	if air.length_squared() < 1.0: return
-	var y_ax: Vector3 = (craft.group.basis.inverse() * (frame_basis.transposed() * air)).normalized()
-	var x_ax: Vector3 = y_ax.cross(Vector3(0, 0, 1))
-	if x_ax.length_squared() < 1e-6: x_ax = y_ax.cross(Vector3(1, 0, 0))
-	x_ax = x_ax.normalized()
-	var z_ax: Vector3 = x_ax.cross(y_ax)
-	var r0: float = maxf(vessel.diameter * 0.75, 2.0)
-	var span: float = float(lone.spec.wings.span) * 0.42 / r0
-	var L := float(lone.spec.L)
-	# A shallow shell whose stagnation point sits a few metres ahead of the belly.
-	entry.mesh.basis = Basis(x_ax * span, y_ax * (L * 0.12 / r0), z_ax * span)
-	entry.material.set_shader_parameter("uRimFade", 1.0)
-	entry.material.set_shader_parameter("uCapR", r0)
-	entry.mesh.position = cs.group.position + Vector3(0.0, L * 0.5, 0.0) - y_ax * L * 0.02
 
 ## Shutdown only: the flight panel's lambdas capture this object, and the panel is
 ## held here, so the cycle has to be broken.
@@ -1177,7 +1148,16 @@ func _hold_lab(dt: float) -> void:
 	vessel.r.copy_from(up).scale_in(float(env.radius) + float(lab.alt))
 	# Airspeed along the axis, on top of the air turning with the planet.
 	vessel.v.copy_from(fwd).scale_in(float(lab.speed)).add_in(spin.cross(vessel.r))
-	vessel.q.set_from_unit_vectors(Vessel.BODY_FWD, fwd)
+	# `alpha` raises the nose above the airflow, belly (body −Z) into it, as an entry flies.
+	var a := float(lab.get("alpha", 0.0))
+	if a != 0.0:
+		var top := up.clone().add_scaled_in(fwd, -up.dot(fwd))
+		if top.length() < 1e-6: top = east.clone()
+		DQuat.nrm(top)
+		var nose := fwd.clone().scale_in(cos(a)).add_scaled_in(top, sin(a))
+		var z := top.clone().scale_in(cos(a)).add_scaled_in(fwd, -sin(a))
+		vessel.q.set_from_basis_columns(nose.cross(z), nose, z)
+	else: vessel.q.set_from_unit_vectors(Vessel.BODY_FWD, fwd)
 	vessel.omega.set_v(0.0, 0.0, 0.0)
 	vessel.throttle = float(lab.get("throttle", 1.0))
 	vessel.held_down = false
@@ -1445,12 +1425,22 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			"time": vessel.met, "attached": vatt, "sun": craft_basis.inverse() * sl,
 			"light": Plume.daylight})
 
-	# re-entry sheath, from the same heat flux that is burning the shield down
+	# Re-entry plasma, from the same heat flux that is burning the shield down: the
+	# stack's on its attached stages, and each falling piece's own.
 	if entry != null:
-		entry.mesh.basis = craft.group.basis.inverse()
-		entry.mesh.position = Vector3.ZERO
-		_wrap_winged_sheath()
-		entry.update(float(U.nz(vessel.telemetry.get("heat"), 0.0)), vessel.met)
+		var to_world: Basis = local.root.global_basis * frame_basis.transposed()
+		var air: Vector3 = to_world * vessel.airspeed(vessel.r, vessel.v, _b).to_v3()
+		var q := float(U.nz(vessel.telemetry.get("heat"), 0.0))
+		for st in vessel.stages:
+			var cs = craft.stage(str(st.spec.key))
+			if cs != null and st.attached and not cs.handed: entry.drive(cs.group, q, air)
+		var atm = vessel.env.get("atm")
+		for f: Fall in falls:
+			if f.state != "fall" or atm == null or not is_instance_valid(f.body): continue
+			var fa := vessel.airspeed(f.r, f.v, _b)
+			var fq := Rocketry.heat_flux(Rocketry.density(atm, f.altitude(vessel)), fa.length(), f.D * 0.25)
+			entry.drive(f.body, fq, to_world * fa.to_v3())
+		entry.update(dt, vessel.met)
 
 	# The deflected exhaust. Only while the jet still lands on the deck, which
 	# the ground flame works out for itself from the vehicle's height.
@@ -1547,6 +1537,7 @@ func _release(cs: CraftModel.CraftStage, s: Dictionary) -> void:
 
 func _adopt(f: Fall) -> void:
 	f.holder.name = "fall_" + f.name.to_snake_case()
+	if entry != null and f.body != null: entry.split(f.body, f.D)
 	local.root.add_child(f.holder)
 	local.place(f.holder, f.pos)
 	falls.append(f)

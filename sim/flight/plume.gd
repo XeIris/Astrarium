@@ -482,37 +482,375 @@ static func create_rcs_puffs(count: int = 12) -> RCSPuffs:
 	o.size.fill(1.0)
 	return o
 
-# RE-ENTRY PLASMA: a bow-shock cap whose brightness and colour follow the
-# Sutton–Graves heat flux, the same number that loads the shield.
+# RE-ENTRY PLASMA: the shock layer on the vehicle's own skin, and the wake it sheds.
+# Brightness and colour follow the Sutton–Graves flux, the number that loads the
+# shield, spread over the skin by incidence (docs/physics/entry-plasma.md).
+## One body the air heats on its own: a stage of the craft, or a piece once it falls.
+class EntryUnit extends RefCounted:
+	var root: Node3D
+	## Diameter, m: sets the layer's standoff, the noise and the wake.
+	var size := 1.0
+	## The radius the vessel's stagnation flux is computed for, m (Vessel's).
+	var nose_r := 1.0
+	## The shells, chained by next_pass; the first is every skin mesh's overlay.
+	var mats: Array[ShaderMaterial] = []
+	var meshes: Array[MeshInstance3D] = []
+	## Points on the skin: the mesh each lies on, position and normal in its frame.
+	var s_mesh: Array[MeshInstance3D] = []
+	var s_pos := PackedVector3Array()
+	var s_nrm := PackedVector3Array()
+	## This frame's stagnation flux, W/m², and the world direction it moves through the air.
+	var q := 0.0
+	var motion := Vector3.ZERO
+	var lit := false
+	var wake: MultiMeshInstance3D
+	var wake_mat: ShaderMaterial
+	var buf := PackedFloat32Array()
+	## Where the shock-layer gas leaves the skin (root frame), and the running sum of
+	## their weights, to draw from.
+	var edge_p := PackedVector3Array()
+	var edge_cdf := PackedFloat32Array()
+	var edge_t := 0.0
+	var st_p := PackedVector3Array()
+	var st_age := PackedFloat32Array()
+	var st_life := PackedFloat32Array()
+	var st_len := PackedFloat32Array()
+	var st_w := PackedFloat32Array()
+	var st_op := PackedFloat32Array()
+	var st_seed := PackedFloat32Array()
+	var acc := 0.0
+
 class EntryGlow extends RefCounted:
-	var mesh: MeshInstance3D
-	var material: ShaderMaterial
+	## Shells off the skin: standoff as a fraction of the diameter, share of the
+	## emission, and 1 where the shell fades toward its own silhouette (the outermost,
+	## or its edge would draw a line round the vehicle).
+	const LAYERS := [[0.006, 0.5, 0.0], [0.045, 0.32, 0.0], [0.12, 0.18, 1.0]]
+	const SAMPLES := 1200
+	const STREAKS := 160
+	const GRID := 28
+	## Seconds between re-finding where the gas leaves; the attitude turns slowly.
+	const EDGE_EVERY := 0.1
+	## Visible above this stagnation flux, W/m² (with hysteresis).
+	const Q_ON := 4400.0
+	var units: Array[EntryUnit] = []
+	var _rng := RandomNumberGenerator.new()
 
-	## @param q W/m² from Rocketry.heat_flux
-	func update(q: float, time: float) -> void:
-		# 1 MW/m² is a hard entry; scale so a shallow one is a visible glow and a
-		# lunar return is blinding.
+	## Heat the body under `root` this frame. Undriven units are dark.
+	## @param q W/m² at the stagnation point (Rocketry.heat_flux)
+	## @param motion world direction of the body's velocity through the air
+	func drive(root: Node3D, q: float, motion: Vector3) -> void:
+		for u in units:
+			if u.root == root:
+				u.q = q
+				u.motion = motion.normalized()
+				return
+
+	## The body under `root` heats on its own from now on (a piece handed to Fall).
+	## Its skin and samples leave whichever unit held them.
+	func split(root: Node3D, size: float) -> void:
+		for u in units:
+			if u.root == root: return
+		var n := EntryUnit.new()
+		n.root = root
+		n.size = maxf(size, 1.0)
+		n.nose_r = n.size * 0.25
+		for u in units:
+			var keep: Array[MeshInstance3D] = []
+			for mi in u.meshes:
+				if mi == root or root.is_ancestor_of(mi):
+					n.meshes.append(mi)
+					if mi.material_overlay == u.mats[0]: mi.material_overlay = null
+				else: keep.append(mi)
+			u.meshes = keep
+			var i := 0
+			while i < u.s_mesh.size():
+				var mi := u.s_mesh[i]
+				if mi == root or root.is_ancestor_of(mi):
+					n.s_mesh.append(mi); n.s_pos.append(u.s_pos[i]); n.s_nrm.append(u.s_nrm[i])
+					u.s_mesh.remove_at(i); u.s_pos.remove_at(i); u.s_nrm.remove_at(i)
+				else: i += 1
+			u.edge_t = 0.0
+		Plume._entry_unit_build(n, false)
+		units.append(n)
+
+	## @param time s, for the turbulence
+	func update(dt: float, time: float) -> void:
+		var i := 0
+		while i < units.size():
+			var u := units[i]
+			if not is_instance_valid(u.root):
+				units.remove_at(i)
+				continue
+			_update_unit(u, dt, time)
+			u.q = 0.0
+			i += 1
+
+	func _update_unit(u: EntryUnit, dt: float, time: float) -> void:
+		var q := u.q
+		var on := q > (Q_ON * 0.5 if u.lit else Q_ON) and u.motion != Vector3.ZERO
+		if on != u.lit:
+			u.lit = on
+			for mi in u.meshes:
+				if is_instance_valid(mi): mi.material_overlay = u.mats[0] if on else null
+		if not on:
+			if u.wake.visible:
+				u.st_age.fill(1e9)
+				u.wake.multimesh.visible_instance_count = 0
+				u.wake.visible = false
+			return
+		# 1 MW/m² is a hard entry; a shallow one is a visible glow and a lunar return is
+		# blinding. The shock layer's temperature follows the flux, so it re-images in IR.
 		var h := clampf(q / 1.1e6, 0.0, 2.5)
-		mesh.visible = h > 0.004
-		material.set_shader_parameter("uHeat", h)
-		material.set_shader_parameter("uTime", time)
-		# Shock-layer temperature from the flux, so it re-images correctly in IR.
-		material.set_shader_parameter("uTemp", clampf(1400.0 + q * 0.006, 900.0, 12000.0))
+		var T := clampf(1400.0 + q * 0.006, 900.0, 12000.0)
+		var origin := u.root.global_position
+		for m in u.mats:
+			m.set_shader_parameter("uHeat", h)
+			m.set_shader_parameter("uTemp", T)
+			m.set_shader_parameter("uTime", time)
+			m.set_shader_parameter("uMotion", u.motion)
+			m.set_shader_parameter("uOrigin", origin)
+		u.wake_mat.set_shader_parameter("uHeat", h)
+		u.wake_mat.set_shader_parameter("uTemp", T)
+		u.wake_mat.set_shader_parameter("uTime", time)
+		var m_loc := (u.root.global_basis.inverse() * u.motion).normalized()
+		u.edge_t -= dt
+		if u.edge_t <= 0.0:
+			u.edge_t = EDGE_EVERY
+			_find_edges(u, m_loc)
+		_stream(u, dt, h, m_loc)
 
-static func create_entry_glow(radius: float) -> EntryGlow:
+	## Where the gas leaves: windward skin samples the air reaches first (in their
+	## column of the projection along the flow) and where the surface ends in the
+	## direction the gas runs over it: a trailing edge or a heat shield's shoulder, not
+	## a leading edge, mid-belly or anything in the body's lee. Weighted by the flux.
+	func _find_edges(u: EntryUnit, m: Vector3) -> void:
+		u.edge_p.clear(); u.edge_cdf.clear()
+		var n := u.s_mesh.size()
+		if n == 0: return
+		var e1 := m.cross(Vector3.UP if absf(m.y) < 0.9 else Vector3.RIGHT).normalized()
+		var e2 := m.cross(e1)
+		var xfs := {}
+		var P := PackedVector3Array(); P.resize(n)
+		var N := PackedVector3Array(); N.resize(n)
+		var C := PackedFloat32Array(); C.resize(n)
+		var A := PackedFloat32Array(); A.resize(n)
+		var B := PackedFloat32Array(); B.resize(n)
+		var ok := PackedByteArray(); ok.resize(n)
+		var lo := Vector2(INF, INF); var hi := Vector2(-INF, -INF)
+		for i in n:
+			var mi := u.s_mesh[i]
+			if not xfs.has(mi):
+				xfs[mi] = Plume._rel(u.root, mi) if is_instance_valid(mi) and mi.is_visible_in_tree() else null
+			var xf = xfs[mi]
+			if xf == null: continue
+			var p: Vector3 = xf * u.s_pos[i]
+			P[i] = p
+			N[i] = ((xf as Transform3D).basis * u.s_nrm[i]).normalized()
+			C[i] = N[i].dot(m)
+			A[i] = p.dot(e1); B[i] = p.dot(e2)
+			ok[i] = 1
+			lo = Vector2(minf(lo.x, A[i]), minf(lo.y, B[i])); hi = Vector2(maxf(hi.x, A[i]), maxf(hi.y, B[i]))
+		if not is_finite(lo.x): return
+		var cell := maxf((hi - lo)[(hi - lo).max_axis_index()] / GRID, 1e-3)
+		var nx := int((hi.x - lo.x) / cell) + 1
+		var ny := int((hi.y - lo.y) / cell) + 1
+		var occ := PackedByteArray(); occ.resize(nx * ny)
+		var s_hi := PackedFloat32Array(); s_hi.resize(nx * ny); s_hi.fill(-INF)
+		var K := PackedInt32Array(); K.resize(n)
+		for i in n:
+			if ok[i] == 0: continue
+			K[i] = int((A[i] - lo.x) / cell) + nx * int((B[i] - lo.y) / cell)
+			occ[K[i]] = 1
+			s_hi[K[i]] = maxf(s_hi[K[i]], P[i].dot(m))
+		var tol := maxf(u.size * 0.04, cell * 0.6)
+		var total := 0.0
+		for i in n:
+			# Windward, and the first of its column the air meets (not shadowed).
+			if ok[i] == 0 or C[i] < 0.1 or P[i].dot(m) < s_hi[K[i]] - tol: continue
+			# Over the skin the gas runs along the normal's part across the flow.
+			var d := Vector2(N[i].dot(e1), N[i].dot(e2))
+			if d.length_squared() < 1e-4: continue
+			var q := Vector2(A[i], B[i]) + d.normalized() * (cell * 1.5)
+			var ix := int(floor((q.x - lo.x) / cell)); var iy := int(floor((q.y - lo.y) / cell))
+			if ix >= 0 and iy >= 0 and ix < nx and iy < ny and occ[ix + nx * iy] == 1: continue
+			total += C[i] * C[i]
+			u.edge_p.append(P[i])
+			u.edge_cdf.append(total)
+
+	func _stream(u: EntryUnit, dt: float, h: float, m: Vector3) -> void:
+		var down := -m
+		var reach := u.size * (2.5 + 4.0 * minf(h, 1.5))
+		if not u.edge_p.is_empty():
+			u.acc += dt * float(STREAKS) / 0.9
+			var total: float = u.edge_cdf[-1]
+			while u.acc >= 1.0:
+				u.acc -= 1.0
+				var j := u.st_age.size()
+				for k in u.st_age.size():
+					if u.st_age[k] >= u.st_life[k]:
+						j = k; break
+				if j == u.st_age.size(): break
+				var e := u.edge_cdf.bsearch(_rng.randf() * total)
+				var broad := _rng.randf() < 0.7
+				u.st_p[j] = u.edge_p[mini(e, u.edge_p.size() - 1)]
+				u.st_age[j] = 0.0
+				u.st_life[j] = _rng.randf_range(0.6, 1.2)
+				u.st_len[j] = reach * _rng.randf_range(0.35, 1.0) * (1.4 if broad else 1.0)
+				u.st_w[j] = u.size * (_rng.randf_range(0.14, 0.28) if broad else _rng.randf_range(0.03, 0.06))
+				u.st_op[j] = 0.22 if broad else 0.45
+				u.st_seed[j] = _rng.randf() * 61.0
+		var e1 := down.cross(Vector3.UP if absf(down.y) < 0.9 else Vector3.RIGHT).normalized()
+		var e2 := down.cross(e1)
+		var n := 0
+		for k in u.st_age.size():
+			if u.st_age[k] >= u.st_life[k]: continue
+			u.st_age[k] += dt
+			var f := clampf(u.st_age[k] / u.st_life[k], 0.0, 1.0)
+			var L: float = u.st_len[k]
+			var w: float = u.st_w[k]
+			# The gas runs aft as it fades; the streak's own fade is the shader's.
+			var p: Vector3 = u.st_p[k] + down * (L * 0.3 * f)
+			var o := n * 20
+			var a := down * L; var b := e1 * w; var c := e2 * w
+			u.buf[o] = a.x; u.buf[o + 1] = b.x; u.buf[o + 2] = c.x; u.buf[o + 3] = p.x
+			u.buf[o + 4] = a.y; u.buf[o + 5] = b.y; u.buf[o + 6] = c.y; u.buf[o + 7] = p.y
+			u.buf[o + 8] = a.z; u.buf[o + 9] = b.z; u.buf[o + 10] = c.z; u.buf[o + 11] = p.z
+			u.buf[o + 12] = 1.0; u.buf[o + 13] = 1.0; u.buf[o + 14] = 1.0
+			u.buf[o + 15] = u.st_op[k] * sin(PI * f)
+			u.buf[o + 16] = u.st_seed[k]; u.buf[o + 17] = f; u.buf[o + 18] = 0.0; u.buf[o + 19] = 0.0
+			n += 1
+		var mm := u.wake.multimesh
+		mm.buffer = u.buf
+		mm.visible_instance_count = n
+		u.wake.visible = n > 0
+
+## The plasma for every stage of `craft`; Spaceflight drives each by its own flux.
+static func create_entry_glow(craft) -> EntryGlow:
 	var o := EntryGlow.new()
-	var m := ShaderMaterial.new()
-	m.shader = shader("entry_glow")
-	m.render_priority = ORDER_FLAME
-	o.material = m
-	var mi := MeshInstance3D.new()
-	mi.rotation_order = EULER_ORDER_XYZ
-	mi.mesh = CraftModel._to_mesh(CraftModel._sphere(radius, 28, 18, 0.0, TAU, 0.0, PI * 0.62), m)
-	mi.material_override = m
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.visible = false
-	o.mesh = mi
+	o._rng.seed = 7
+	for cs in craft.stages:
+		var u := EntryUnit.new()
+		u.root = cs.group
+		u.size = maxf(float(cs.spec.get("D", 3.0)), 1.0)
+		var hs = cs.spec.get("heatShield")
+		u.nose_r = float(hs.noseR) if hs != null and hs.get("noseR") != null else u.size * 0.25
+		_entry_unit_build(u, true)
+		o.units.append(u)
 	return o
+
+## Materials and wake for `u`; with `collect`, also its skin meshes and samples.
+static func _entry_unit_build(u: EntryUnit, collect: bool) -> void:
+	var prev: ShaderMaterial = null
+	for L in EntryGlow.LAYERS:
+		var m := ShaderMaterial.new()
+		m.shader = shader("entry_glow")
+		m.render_priority = ORDER_FLAME
+		m.set_shader_parameter("uStandoff", float(L[0]) * u.size)
+		m.set_shader_parameter("uWeight", float(L[1]))
+		m.set_shader_parameter("uEdge", float(L[2]))
+		m.set_shader_parameter("uScale", u.size)
+		m.set_shader_parameter("uNoseR", u.nose_r)
+		if prev != null: prev.next_pass = m
+		prev = m
+		u.mats.append(m)
+	if collect:
+		_entry_skin(u.root, u.meshes)
+		_entry_sample(u)
+	var n := EntryGlow.STREAKS
+	u.wake_mat = ShaderMaterial.new()
+	u.wake_mat.shader = shader("entry_wake")
+	u.wake_mat.render_priority = ORDER_FLAME
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.use_custom_data = true
+	mm.mesh = quad()
+	mm.instance_count = n
+	mm.visible_instance_count = 0
+	var r := u.size * 30.0
+	mm.custom_aabb = AABB(-Vector3.ONE * r, Vector3.ONE * (2.0 * r))
+	u.wake = MultiMeshInstance3D.new()
+	u.wake.name = "entry_wake"
+	u.wake.multimesh = mm
+	u.wake.material_override = u.wake_mat
+	u.wake.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	u.wake.visible = false
+	u.root.add_child(u.wake)
+	u.buf.resize(n * 20)
+	for a in [u.st_age, u.st_life, u.st_len, u.st_w, u.st_op, u.st_seed]: a.resize(n)
+	u.st_p.resize(n)
+	u.st_age.fill(1e9)
+
+## The skin: lit triangle meshes. Not decals (a painted band lies on the skin and
+## would double it), and not anything with its own shader (frost, plumes).
+static func _entry_skin(n: Node, out: Array[MeshInstance3D]) -> void:
+	var mi := n as MeshInstance3D
+	if mi != null and mi.mesh != null and mi.material_override == null:
+		var skin := true
+		for s in mi.mesh.get_surface_count():
+			var mat := mi.get_active_material(s) as BaseMaterial3D
+			if mat != null and (mat.resource_name.ends_with("_decal") or mat.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED):
+				skin = false
+		if skin: out.append(mi)
+	for c in n.get_children(): _entry_skin(c, out)
+
+## Area-weighted points on the skin, a fixed number per unit whatever the meshes' density.
+static func _entry_sample(u: EntryUnit) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(u.root.name)
+	var surf: Array = []
+	var total := 0.0
+	for mi in u.meshes:
+		# Areas in the root's frame: the mesh's own times its scale squared.
+		var k2 := pow(absf(_rel(u.root, mi).basis.determinant()), 2.0 / 3.0)
+		for s in mi.mesh.get_surface_count():
+			if mi.mesh.surface_get_primitive_type(s) != Mesh.PRIMITIVE_TRIANGLES: continue
+			var arr := mi.mesh.surface_get_arrays(s)
+			var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var ix := PackedInt32Array()
+			if arr[Mesh.ARRAY_INDEX] != null: ix = arr[Mesh.ARRAY_INDEX]
+			else:
+				ix.resize(v.size())
+				for i in v.size(): ix[i] = i
+			var nt := ix.size() / 3
+			if nt == 0: continue
+			var cdf := PackedFloat32Array(); cdf.resize(nt)
+			var run := 0.0
+			for t in nt:
+				var p0 := v[ix[t * 3]]
+				run += (v[ix[t * 3 + 1]] - p0).cross(v[ix[t * 3 + 2]] - p0).length() * 0.5
+				cdf[t] = run
+			var nr = arr[Mesh.ARRAY_NORMAL]
+			surf.append({"mi": mi, "v": v, "n": nr if nr != null and (nr as PackedVector3Array).size() == v.size() else null,
+				"ix": ix, "cdf": cdf, "a": run * k2})
+			total += run * k2
+	if total <= 0.0: return
+	for sf: Dictionary in surf:
+		var v: PackedVector3Array = sf.v
+		var ix: PackedInt32Array = sf.ix
+		var cdf: PackedFloat32Array = sf.cdf
+		for j in int(roundf(EntryGlow.SAMPLES * float(sf.a) / total)):
+			var t := mini(cdf.bsearch(rng.randf() * cdf[-1]), cdf.size() - 1)
+			var i0 := ix[t * 3]; var i1 := ix[t * 3 + 1]; var i2 := ix[t * 3 + 2]
+			var r1 := sqrt(rng.randf()); var r2 := rng.randf()
+			var w0 := 1.0 - r1; var w1 := r1 * (1.0 - r2); var w2 := r1 * r2
+			# Godot's front faces wind clockwise.
+			var nn: Vector3 = (v[i2] - v[i0]).cross(v[i1] - v[i0])
+			if sf.n != null:
+				var nr: PackedVector3Array = sf.n
+				nn = nr[i0] * w0 + nr[i1] * w1 + nr[i2] * w2
+			u.s_mesh.append(sf.mi)
+			u.s_pos.append(v[i0] * w0 + v[i1] * w1 + v[i2] * w2)
+			u.s_nrm.append(nn.normalized())
+
+## `n`'s transform in `root`'s frame, from the local transforms between them.
+static func _rel(root: Node3D, n: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var p: Node = n
+	while p != null and p != root:
+		if p is Node3D: xf = (p as Node3D).transform * xf
+		p = p.get_parent()
+	return xf
 
 # LAUNCH SMOKE: the pad cloud thrown out of the flame trench, and the exhaust
 # trail laid along the climb. Both are fixed to the ground and air, not to the

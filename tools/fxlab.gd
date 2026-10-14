@@ -11,7 +11,8 @@ extends Node
 #   Godot --path . res://tools/fxlab.tscn -- mode=fly craft=saturnv alts=20000,35000 out=/abs/dir
 #
 # hold (default): speed= and pitch= default to a Saturn V-like ascent at that altitude
-#   (PROFILE); throttle=, stage= (index of the lit stage), settle= seconds of trail
+#   (PROFILE); alpha= (degrees of nose above the airflow, belly into it: 40 for an
+#   orbiter's entry); throttle=, stage= (index of the lit stage), settle= seconds of trail
 #   before the picture, humidity= (0..1, for condensation).
 # fly: a real launch on the ascent program, photographed as it passes each altitude.
 # Camera: az= (degrees round the axis from level on the sunward side, toward the
@@ -34,7 +35,7 @@ var crafts: Array = []
 var craft := ""
 var stage := 0
 var cam := {"az": 20.0, "el": 0.0, "dist": 0.9, "aim": 0.3, "fov": 40.0}
-var hold := {"alt": 35000.0, "speed": -1.0, "pitch": -1.0, "throttle": 1.0, "humidity": 0.6}
+var hold := {"alt": 35000.0, "speed": -1.0, "pitch": -1.0, "alpha": 0.0, "throttle": 1.0, "humidity": 0.6}
 var panel: HudPanel
 var caption: Label
 var sliders := {}
@@ -59,7 +60,7 @@ func _ready() -> void:
 	flight = main.flight
 	for k in ["az", "el", "dist", "aim", "fov"]:
 		if args.has(k): cam[k] = float(args[k])
-	for k in ["alt", "speed", "pitch", "throttle", "humidity"]:
+	for k in ["alt", "speed", "pitch", "alpha", "throttle", "humidity"]:
 		if args.has(k): hold[k] = float(args[k])
 	stage = int(args.get("stage", "0"))
 	crafts = str(args.get("crafts", args.get("craft", "saturnv"))).split(",", false)
@@ -109,7 +110,8 @@ func _use(key: String) -> void:
 func _apply() -> void:
 	var p := profile(float(hold.alt))
 	flight.lab = {"alt": hold.alt, "speed": p.x if hold.speed < 0.0 else hold.speed,
-		"pitch": deg_to_rad(p.y if hold.pitch < 0.0 else hold.pitch), "throttle": hold.throttle}
+		"pitch": deg_to_rad(p.y if hold.pitch < 0.0 else hold.pitch), "alpha": deg_to_rad(hold.alpha),
+		"throttle": hold.throttle}
 	Plume.humidity = float(hold.humidity)
 	var v: Vessel = flight.vessel
 	var lit := clampi(stage, 0, v.stages.size() - 1)
@@ -120,6 +122,9 @@ func _apply() -> void:
 		if i == lit:
 			st.ignited = true
 			st.spent = false
+		# Gone already, not separating in frame.
+		var cs = flight.craft.stage(str(st.spec.key))
+		if cs != null and not st.attached and cs.sep == null: cs.group.visible = false
 	v.stage_index = lit
 	_caption()
 
@@ -229,8 +234,9 @@ func _build_panel(layer: CanvasLayer) -> void:
 	panel.custom_minimum_size = Vector2(330, 0)
 	var rows := [
 		["alt", "Altitude km", 0.0, 120.0, 0.5, hold.alt / 1000.0, hold],
-		["speed", "Airspeed m/s (−1 profile)", -1.0, 4000.0, 10.0, hold.speed, hold],
+		["speed", "Airspeed m/s (−1 profile)", -1.0, 8000.0, 10.0, hold.speed, hold],
 		["pitch", "Pitch ° (−1 profile)", -1.0, 90.0, 1.0, hold.pitch, hold],
+		["alpha", "Angle of attack °", -90.0, 90.0, 1.0, hold.alpha, hold],
 		["throttle", "Throttle", 0.0, 1.0, 0.01, hold.throttle, hold],
 		["humidity", "Humidity", 0.0, 1.0, 0.01, hold.humidity, hold],
 		["az", "Camera azimuth °", -180.0, 180.0, 1.0, cam.az, cam],
