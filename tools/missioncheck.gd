@@ -44,13 +44,14 @@ func _ready() -> void:
 	if args.get("long", "0") == "1":
 		cases.append(["mars_orbit", "saturnv", {"mode": "orbit", "alt": 200000.0, "inc": 0.0, "phase": 0.0}, "Mars", "orbit", false])
 	# check.py runs one case per process and compares this list with its own.
-	print("MISSION CHECK CASES %s" % ",".join(cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_home", "shuttle_fates"]))
+	print("MISSION CHECK CASES %s" % ",".join(cases.map(func(c): return c[0]) + ["ship_return", "orbiter_return", "orbiter_return_2x", "orbiter_home", "shuttle_fates"]))
 	var only: Array = str(args.get("only", "")).split(",", false)
 	for c in cases:
 		if not only.is_empty() and not only.has(c[0]): continue
 		await _fly(c[0], c[1], c[2], c[3], c[4], c[5])
 	if only.is_empty() or only.has("ship_return"): await _ship_return()
 	if only.is_empty() or only.has("orbiter_return"): await _orbiter_return()
+	if only.is_empty() or only.has("orbiter_return_2x"): await _orbiter_return("orbiter_return_2x", 1)
 	if only.is_empty() or only.has("orbiter_home"): await _orbiter_home()
 	if only.is_empty() or only.has("shuttle_fates"): await _shuttle_fates()
 	print("MISSION CHECK DONE failures=%d" % failures)
@@ -122,8 +123,9 @@ func _ship_return() -> void:
 
 ## A lone orbiter from a 300 km orbit: deorbit, the 40° entry with its roll
 ## reversals, the glide slopes, a touchdown on the main gear inside its rating and the
-## rollout to wheel stop.
-func _orbiter_return() -> void:
+## rollout to wheel stop. `air_warp` is the warp rung flown below 120 km: 1 (2×, the
+## most the panel allows in the air) must land as well as 1×.
+func _orbiter_return(id := "orbiter_return", air_warp := 0) -> void:
 	main.load_preset("solar")
 	await CraftAssets.craft_models_ready(["shuttle"])
 	var f = main.flight
@@ -142,7 +144,7 @@ func _orbiter_return() -> void:
 	var reversals := 0
 	var seen := 0
 	while frames < 600000 and v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED:
-		f.set_warp(3 if v.altitude() > 120000.0 else 0)
+		f.set_warp(3 if v.altitude() > 120000.0 else air_warp)
 		main.animate(dt)
 		frames += 1
 		arc += DQuat.angle_between(rp, v.r); rp.copy_from(v.r)
@@ -162,15 +164,15 @@ func _orbiter_return() -> void:
 		print("ORBITER deorbit→touchdown %s s, %s° round the planet, TAEM→touchdown %s°" % [U.fixed(v.met - t0, 0),
 			U.fixed(rad_to_deg(arc), 1), U.fixed(rad_to_deg(arc - arc_taem), 2)])
 	if v.phase != Vessel.PHASE.LANDED:
-		_fail("orbiter_return", _stuck(f, v))
+		_fail(id, _stuck(f, v))
 	elif reversals < 2 or not v.stages[2].gear_out:
-		_fail("orbiter_return", "%d roll reversals, gear %s" % [reversals, "down" if v.stages[2].gear_out else "up"])
+		_fail(id, "%d roll reversals, gear %s" % [reversals, "down" if v.stages[2].gear_out else "up"])
 	elif not _touchdown_speed_ok(v):
-		_fail("orbiter_return", "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
+		_fail(id, "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
 	elif _rollout_error(v) != "":
-		_fail("orbiter_return", _rollout_error(v))
+		_fail(id, _rollout_error(v))
 	else:
-		print("MISSION orbiter_return ok — touchdown %s m/s sink, %s m/s ground speed, %d reversals, %s, %d frames" % [
+		print("MISSION %s ok — touchdown %s m/s sink, %s m/s ground speed, %d reversals, %s, %d frames" % [id,
 			U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 1), reversals, _rollout_summary(v), frames])
 	main.end_flight()
 

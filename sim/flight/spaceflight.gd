@@ -1090,7 +1090,7 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 		w = 0.0 if state.paused else minf(SKIP_WARP, maxf((float(skip.until) - vessel.coord) / maxf(dt, 1e-3), 1.0))
 		state.time_scale = w / Rocketry.YR_S
 	var sim_seconds := dt * w
-	var control_frame := {"guided": false, "fraction": 1.0}
+	var control_frame := {"owed": 0.0, "fraction": 1.0}
 	var world := func(seconds: float) -> float:
 		var accepted: float = advance_world.call(seconds)
 		control_frame.fraction = clampf(accepted / seconds, 0.0, 1.0) if seconds > 0.0 else 0.0
@@ -1115,12 +1115,18 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 			if count != null: step_count(sim_seconds)
 			if sim_seconds > 0.0 and autopilot != null: autopilot.update(minf(dt, 0.1))
 		else:
-			# Stateful guidance keeps its frame cadence; countdown uses every accepted interval.
+			# Guidance runs once per frame interval of flight time, for at least the
+			# interval about to be flown: a warped frame steers as often and with as
+			# much authority per flight second as a 1× one, where the orbiter is lost
+			# in its entry at 2× if it steers once a frame. Countdown uses every
+			# accepted interval.
 			opts.controls = func(seconds: float) -> void:
 				if count != null: step_count(seconds)
-				if not control_frame.guided and autopilot != null:
-					control_frame.guided = true
-					autopilot.update(minf(dt * control_frame.fraction, 0.1))
+				if autopilot != null and control_frame.owed <= 1e-9:
+					var g := maxf(dt, seconds)
+					autopilot.update(minf(g * control_frame.fraction, 0.1))
+					control_frame.owed += g
+				control_frame.owed -= seconds
 			opts.control_may_thrust = count != null or (autopilot != null and autopilot.program != null)
 		# Physics warp up to 4×; above that the vessel goes on rails, which is
 		# only legal unpowered and out of the air (checked inside step()).

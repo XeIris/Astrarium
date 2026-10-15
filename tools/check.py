@@ -29,7 +29,7 @@ ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clea
 DESCENTS = ("lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane", "skycrane_staged", "lmdeorbit", "shcatch", "shcatch_2x")
 # missioncheck's cases in its own order, with idle seconds on an M-series Mac (only for launch order).
 MISSIONS = {"launch_orbit": 71, "lunar_orbit": 92, "lunar_landing": 37, "skip_moon": 2,
-            "ship_return": 77, "orbiter_return": 101, "orbiter_home": 183, "shuttle_fates": 150}
+            "ship_return": 77, "orbiter_return": 101, "orbiter_return_2x": 70, "orbiter_home": 183, "shuttle_fates": 150}
 CA_ERROR = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: ""\n'
                       r'\s+at: get_system_ca_certificates \(platform/macos/os_macos\.mm:\d+\)\n?', re.MULTILINE)
 
