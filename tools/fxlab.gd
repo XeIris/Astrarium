@@ -9,6 +9,8 @@ extends Node
 #   Godot --path . res://tools/fxlab.tscn -- craft=falcon9 alt=32000 out=/abs/a.png
 #   Godot --path . res://tools/fxlab.tscn -- crafts=saturnv,shuttle alts=10000,25000,40000 out=/abs/dir
 #   Godot --path . res://tools/fxlab.tscn -- mode=fly craft=saturnv alts=20000,35000 out=/abs/dir
+#   Godot --path . res://tools/fxlab.tscn -- crafts=falcon9,shuttle alts=12000,30000 \
+#         qualities=low,high views=20:0,90:10:1.5 out=/abs/dir         one process, 16 pictures
 #
 # hold (default): speed= and pitch= default to a Saturn V-like ascent at that altitude
 #   (PROFILE); alpha= (degrees of nose above the airflow, belly into it: 40 for an
@@ -18,8 +20,11 @@ extends Node
 # Camera: az= (degrees round the axis from level on the sunward side, toward the
 #   sky), el= (degrees toward the nose), dist= (× the
 #   vehicle plus its plume), aim= (0 frames the vehicle, 1 the plume's end), fov=.
-# quality=low|medium|high|ultra. With several pictures, out= is a directory and each
-#   is <craft>_<km>km.png. Exits nonzero if a picture could not be written.
+# quality=low|medium|high|ultra, or qualities= for several; views=az:el[:dist],... for
+#   several cameras. Each (craft, altitude) is reached undrawn (main.set_drawn) with the
+#   trail's history kept, then every quality and view is drawn at that same instant.
+#   With several pictures, out= is a directory and each is <craft>_<km>km[_<quality>]
+#   [_v<n>].png. Exits nonzero if a picture could not be written.
 # Interactive keys: [ ] vehicle, 1–4 lit stage, H hide the panel, P picture to out=.
 
 ## [altitude m, airspeed m/s, pitch from vertical °], roughly AS-506's ascent: max-Q
@@ -41,6 +46,8 @@ var caption: Label
 var sliders := {}
 var failures := 0
 var dt := 1.0 / 60.0
+var qualities: Array = []
+var views: Array = []         # [az, el, dist]
 
 func _ready() -> void:
 	set_process(false)
@@ -55,7 +62,8 @@ func _ready() -> void:
 	main.set_process(false)
 	for i in 4: await get_tree().process_frame
 	main._start("sandbox")
-	main.set_render_quality(str(args.get("quality", "high")))
+	qualities = str(args.get("qualities", args.get("quality", "high"))).split(",", false)
+	main.set_render_quality(str(qualities[0]))
 	main.hud.visible = false
 	flight = main.flight
 	for k in ["az", "el", "dist", "aim", "fov"]:
@@ -75,7 +83,11 @@ func _ready() -> void:
 		return
 	var alts: Array = []
 	for a in str(args.get("alts", str(hold.alt))).split(",", false): alts.append(float(a))
-	var many := crafts.size() * alts.size() > 1
+	for w in str(args.get("views", "")).split(",", false):
+		var p := w.split(":")
+		views.append([float(p[0]), float(p[1]) if p.size() > 1 else cam.el, float(p[2]) if p.size() > 2 else cam.dist])
+	if views.is_empty(): views = [[cam.az, cam.el, cam.dist]]
+	var many := crafts.size() * alts.size() * qualities.size() * views.size() > 1
 	if many: DirAccess.make_dir_recursive_absolute(str(args.out))
 	for c in crafts:
 		if args.get("mode", "hold") == "fly": await _fly(c, alts, many)
@@ -84,13 +96,29 @@ func _ready() -> void:
 				await _use(c)
 				hold.alt = alt
 				_apply()
+				main.set_drawn(false)
 				for i in int(float(args.get("settle", "6")) / dt): main.animate(dt)
-				await _shot(_path(c, alt, many))
+				main.set_drawn(true)
+				await _matrix(c, alt, many)
 	print("FXLAB DONE failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
-func _path(c: String, alt: float, many: bool) -> String:
-	return str(args.out).path_join("%s_%02dkm.png" % [c, int(roundf(alt / 1000.0))]) if many else str(args.out)
+func _path(c: String, alt: float, many: bool, q := "", view := -1) -> String:
+	if not many: return str(args.out)
+	var name := "%s_%02dkm" % [c, int(roundf(alt / 1000.0))]
+	if qualities.size() > 1: name += "_" + q
+	if views.size() > 1: name += "_v%d" % view
+	return str(args.out).path_join(name + ".png")
+
+## Every quality and view of the present instant: animate(0) re-presents the stage at
+## the new setting without stepping it.
+func _matrix(c: String, alt: float, many: bool) -> void:
+	for q in qualities:
+		if qualities.size() > 1: main.set_render_quality(str(q))
+		for i in views.size():
+			cam.az = views[i][0]; cam.el = views[i][1]; cam.dist = views[i][2]
+			main.animate(0.0)
+			await _shot(_path(c, alt, many, str(q), i))
 
 ## Start `key` on the pad, then hold it (the pad is only the way in).
 func _use(key: String) -> void:
@@ -155,16 +183,20 @@ func _fly(key: String, alts: Array, many: bool) -> void:
 	alts.sort()
 	var next := 0
 	var frames := 0
+	main.set_drawn(false)
 	while next < alts.size() and frames < 60 * 900:
 		main.animate(dt)
 		frames += 1
 		var v: Vessel = flight.vessel
 		if v.phase == Vessel.PHASE.DESTROYED: break
 		if v.altitude() >= float(alts[next]):
+			main.set_drawn(true)
 			_caption()
-			await _shot(_path(key, float(alts[next]), many))
+			await _matrix(key, float(alts[next]), many)
+			main.set_drawn(false)
 			next += 1
 		if frames % 600 == 0: await get_tree().process_frame
+	main.set_drawn(true)
 	if next < alts.size():
 		failures += 1
 		printerr("FXLAB FAIL %s reached %s km of %s" % [key, U.fixed(flight.vessel.altitude() / 1000.0, 1), alts])

@@ -166,7 +166,23 @@ shared validators before mutation. Explicit camera distances use the supported
 ## Checks
 
 Checks and the `tools/check.py` suite runner are listed in
-[README.md](README.md#verifying). Run the ones that cover your change.
+[README.md](README.md#verifying). Run the ones that cover your change, by
+default through the fast path: `python3 tools/check.py --changed` (its mapping
+is `CHANGED_RULES`; update it when you add a check or subsystem), or `dev`
+(under a minute) while iterating. Replay whole missions (`flight`) only when the
+change can alter flight physics, guidance, staging or dropped stages. For a
+visual before/after, fast-forward to the moment (`ff=alt:…|t:…|event:…`) or
+shoot a whole fxlab matrix in one process instead of flying in real time.
+
+- A check that judges state or numbers runs `--headless`; open a window only to
+  judge pixels, read a GPU result or catch `SHADER ERROR`s, and say why in
+  `check.py`. Headless has no RenderingDevice: guard GPU paths with
+  `RDU.available()` and fail a check that needs the result, never pass it.
+- `main.set_drawn(false)` skips presentation while physics steps. Anything
+  physics reads (falls, separation hand-offs, the pad's rotation, star activity)
+  must stay outside the skipped paths; `missioncheck-parity-shuttle_fates`
+  rejects a difference. The check runner prints each check's wall/CPU time;
+  pass `--compare` with an earlier report when a change could slow a check.
 A check must reject defects and incomplete runs with a nonzero exit;
 printing a comparison alone is insufficient. Intentional differences from the
 frozen numeric reference must be explained, never hidden by wider tolerances.

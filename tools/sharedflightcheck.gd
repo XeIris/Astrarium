@@ -1,6 +1,7 @@
 extends SceneTree
 
 # Production Spaceflight guidance with live parents; the frozen runner deliberately uses static bodies.
+#   Godot --headless --path . --script res://tools/sharedflightcheck.gd [-- only=saturnv,shuttle]
 const Catch = preload("res://tools/coursecheck.gd").Catch
 class Driver extends Spaceflight:
 	func _init(_ctx: Dictionary) -> void:
@@ -17,8 +18,11 @@ func _init() -> void:
 	var fixture: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tools/fixtures/flight_fixture.json"))
 	var failures := 0
 	var completed := 0
+	var wanted: Array = ["saturnv", "falcon9", "shuttle", "starship"]
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("only="): wanted = Array(a.substr(5).split(",", false)).filter(func(id): return wanted.has(id))
 	for sc in fixture.scenarios:
-		if not ["saturnv", "falcon9", "shuttle", "starship"].has(sc.id): continue
+		if not wanted.has(sc.id): continue
 		var flight := Driver.new({})
 		flight.state = SimState.new()
 		for spec in fixture.bodies:
@@ -80,7 +84,7 @@ func _init() -> void:
 	var errors := logger.take()
 	for error in errors: printerr("SHARED FLIGHT ENGINE ", error)
 	failures += errors.size()
-	if completed != 4: failures += 1
+	if wanted.is_empty() or completed != wanted.size(): failures += 1
 	OS.remove_logger(logger)
 	print("SHARED FLIGHT DONE failures=", failures)
 	quit(1 if failures else 0)
