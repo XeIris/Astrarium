@@ -200,8 +200,12 @@ class Autopilot extends RefCounted:
 		var a_thrust := full_thrust(pa) / maxf(v.mass, 1.0)
 		var g_loc: float = env.mu / v.r.length_sq()
 
-		# throttle: the shared limiter
-		v.throttle = limit_throttle(1.0, pa, dt)
+		# throttle: a vehicle's own scheduled bucket (an I-load against relative speed),
+		# then the shared limiter
+		var want := 1.0
+		if A.has("bucketLevel") and v_surf >= A.bucketFrom and v_surf < A.bucketTo:
+			want = A.bucketLevel
+		v.throttle = limit_throttle(want, pa, dt)
 
 		# phase 1: vertical rise, until the fins and gimbal have authority.
 		if v_surf < A.pitchStart and alt < 2500.0:

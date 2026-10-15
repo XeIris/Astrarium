@@ -304,6 +304,18 @@ edited and a Godot editor had the project open; the next six completed. A later
 failure recorded one 73.6-second frame while an external display was main,
 consistent with the fullscreen Space being hidden.
 
+**Launch smoke on Low and Medium.** The pad cloud there became unmarched puffs of
+the trail's medium (`smoke_puff.gdshader`: two noise lookups per octave pair, one
+sample per pixel, no march), and the sun-transmittance estimate now runs on every
+tier. Measured against the previous sprites on the same build, with another
+session's four Godot processes loading the CPU (so the gates' p95 failed before and
+after alike and only medians compare): the Low-based gate's flight pad/ascent
+medians were 17.55/16.80 ms before and 18.33/16.27 ms after; native Medium,
+alternating before/after twice, 35.22, 35.40 / 32.36, 31.90 ms before and 35.26,
+33.80 / 31.70, 32.17 ms after. No difference beyond the run-to-run spread. Evidence:
+`tools/evidence/gaps/perf/` in that worktree. Repeat on an idle machine before
+reading these against the budget.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`

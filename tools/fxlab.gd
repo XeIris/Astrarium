@@ -15,7 +15,8 @@ extends Node
 # hold (default): speed= and pitch= default to a Saturn V-like ascent at that altitude
 #   (PROFILE); alpha= (degrees of nose above the airflow, belly into it: 40 for an
 #   orbiter's entry); throttle=, stage= (index of the lit stage), settle= seconds of trail
-#   before the picture, humidity= (0..1, for condensation).
+#   before the picture, humidity= (0..1, for condensation), alone=1 (drop the stages
+#   above the lit one too: the External Tank on its own, stage=1).
 # fly: a real launch on the ascent program, photographed as it passes each altitude.
 # Camera: az= (degrees round the axis from level on the sunward side, toward the
 #   sky), el= (degrees toward the nose), dist= (× the
@@ -151,6 +152,8 @@ func _apply() -> void:
 			st.ignited = true
 			st.spent = false
 		# Gone already, not separating in frame.
+		# alone=1: the stages above it have gone too (the External Tank on its own entry).
+		if args.get("alone", "0") == "1" and i > lit: st.attached = false
 		var cs = flight.craft.stage(str(st.spec.key))
 		if cs != null and not st.attached and cs.sep == null: cs.group.visible = false
 	v.stage_index = lit

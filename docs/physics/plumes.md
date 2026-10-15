@@ -1,10 +1,10 @@
 # Exhaust plumes at altitude, and launch smoke
 
 How `shaders/flight/plume.gdshader` sizes and lights a plume in air and as the
-vehicle climbs, and how `Plume.SmokeColumn`, `shaders/flight/smoke_trail.gdshader`
-and `shaders/flight/smoke_volume.gdshader` make the pad cloud, the exhaust trail
-and the tanks' boil-off. The near field (shock cells, Mach disk, mixing layer) is described in the
-shader's header. Everything here is an appearance model driven by flight
+vehicle climbs, and how `Plume.SmokeColumn`, `shaders/flight/smoke_trail.gdshader`,
+`smoke_volume.gdshader` and `smoke_puff.gdshader` make the pad cloud, the exhaust
+trail and the tanks' boil-off. The near field (shock cells, Mach disk, mixing
+layer) is described in the shader's header. Everything here is an appearance model driven by flight
 state; nothing feeds back into thrust or trajectory.
 
 ## Why a plume balloons
@@ -276,5 +276,32 @@ added only along the view ray.
   noise inside a ragged envelope. Most of each puff is empty, so the
   overlapping puffs read as wisps, not balls.
 - **Soot albedo.** Smoke is optically thick, so multiple scattering raises its
-  effective albedo to about 0.35. A volume puff of soot uses that rather than
-  the near-black single-scattering colour the flat sprites use.
+  effective albedo to about 0.35, rather than the near-black single-scattering
+  colour. Every tier uses it.
+
+## Launch smoke on Low and Medium
+
+Low and Medium do not march the pad cloud. Each puff is a camera-facing quad
+(`smoke_puff.gdshader`) that reads the trail's medium at one point: the front of
+the puff's sphere, where the eye's ray enters it. The puff's radius scale is
+`a = R/1.85`, so the profile's ragged edge falls at the quad's rim, and the
+density is `smoke_column.gdshaderinc`'s: lobes `2.2 a` across pushing the edge in
+and out, domain-warped detail `0.8 a` across. The noise is the trail's, in the
+same air-fixed frame (`uAir`), so where puffs overlap they show the same field
+and the cloud reads as one medium. Before, each puff was a rotated copy of one
+baked texture, and the cloud read as a heap of round balls.
+
+- **Coverage.** The optical depth along the ray is the density there times the
+  sphere's chord, `τ = 2.2 · opacity · σ̂ · cos θ`, where `cos θ` is the
+  front point's normal toward the eye.
+- **Light.** The trail's `smoke_light`: the sun through the rest of the cloud
+  (the same CPU estimate the volumes use, now kept on every tier) and through
+  the puff from its sunlit side, as deep as the chord the sun's ray crosses;
+  skylight from above and ground bounce from below. The fire lights the low
+  puffs from underneath as on the volumes.
+- **Vapour.** Boil-off takes the sharpened ridges of the detail, as the volumes
+  do, so it reads as sheets.
+- **Limits.** One sample per pixel, so a puff has no depth of its own and
+  overlapping puffs composite rather than integrate. The noise stays in the
+  air while the puffs roll through it, so a fast young puff's surface boils
+  rather than riding with it.

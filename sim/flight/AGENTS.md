@@ -26,7 +26,8 @@ to the procedural builds too.
   of the velocity vector. v_start and v₀ are shared unless a vehicle's `ascent`
   states its own flown first-stage steering. Check the staging state, not the final
   orbit: a Saturn V should stage near AS-506's (67 km, 2.4 km/s, 21°) and the
-  Shuttle near JSC-10559's (47 km at T+124 s; docs/physics/srb-separation.md#ascent).
+  Shuttle near JSC-10559's (47 km at T+124 s, with the SSMEs' throttle bucket;
+  docs/physics/srb-separation.md#ascent; `sharedflightcheck -- only=shuttle`).
 - Above the air, explicit guidance (a_v = 6Δh/T² − 4ḣ/T, T_go from the rocket
   equation) aims at a low perigee cutoff, then circularizes. A tank that must come
   down (`disposalPerigee`) is left on a lower ellipse: the law aims at that ellipse's
@@ -64,8 +65,8 @@ to the procedural builds too.
   orbiter's −Z translation), the stage's residual thrust and body rates. Never a
   canned drift, and never a number without a source in
   [stage-separation.md](../../docs/physics/stage-separation.md). Display only: the
-  vessel has already shed the stage's mass. Regression: `stage_separations` and
-  `booster_pieces` in `tools/assetcheck.gd`.
+  vessel has already shed the stage's mass. Regression: `stage_separations`,
+  `residual_push` and `booster_pieces` in `tools/assetcheck.gd`.
 - A stage with a fate (`look.fall`) is handed on by `Craft.update`'s `release` once
   Separation's pushes are over: each piece becomes a `Fall` (`fall.gd`), a ballistic
   body in the vessel's frame with drag against the turning air and its recovery
