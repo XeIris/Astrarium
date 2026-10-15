@@ -20,7 +20,7 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("dev", "fast", "native", "flight", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("dev", "fast", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
 # themselves (clean), read the previous step's output (export), or need exact object
@@ -36,7 +36,7 @@ DESCENTS = ("lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane",
 # missioncheck's cases in its own order, with headless undrawn seconds on an M-series
 # Mac (only for launch order).
 MISSIONS = {"launch_orbit": 40, "lunar_orbit": 55, "lunar_landing": 28, "skip_moon": 4,
-            "ship_return": 45, "orbiter_return": 60, "orbiter_home": 110, "shuttle_fates": 90}
+            "ship_return": 45, "orbiter_return": 60, "orbiter_return_2x": 45, "orbiter_home": 110, "shuttle_fates": 90}
 # The frames of shuttle_fates flown both undrawn and drawn by the parity check: liftoff
 # from the pad and booster separation; at the end both boosters are falling on their
 # own past apogee, so their state is in the digest.
@@ -62,7 +62,8 @@ CHANGED_RULES = (
       "sim/flight/orbit.gd", "sim/flight/fall.gd", "sim/flight/separation.gd", "sim/flight/spaceflight.gd",
       "sim/flight/relativity.gd", "sim/flight/dquat.gd", "sim/flight/catchtower.gd", "sim/flight/vehicles.gd",
       "sim/flight/craftmodel.gd", "tools/fixtures/flight_fixture.json"),
-     ("flighttimecheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*")),
+     ("flighttimecheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*", "scenariocheck")),
+    (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # Any other flight file is presentation: the parity flight shows it cannot move physics.
     (("sim/flight/*",), ("flighttimecheck", "missioncheck-skip_moon", "missioncheck-parity-*")),
     (("sim/flight/vehicles.gd", "sim/flight/craftmodel.gd", "sim/flight/craftassets.gd", "sim/flight/separation.gd",
@@ -213,6 +214,13 @@ def checks(suite, godot, output, repeat, export_preset):
         for case in MISSIONS:
             yield mission(case)
         yield mission_parity("shuttle_fates", PARITY_FRAMES)._replace(cost=60)
+        # Every developer scenario, jumped to and checked against its declared state.
+        yield Check("scenariocheck", base + ["--headless", "res://tools/scenariocheck.tscn"],
+                    r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 900, cost=120)
+    elif suite == "scenario-replay":
+        # Each fast-forwarded or built scenario against the flight played at 60 fps.
+        yield Check("scenario-replay", base + ["--headless", "res://tools/scenariocheck.tscn", "--", "replay=1"],
+                    r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 3600)
     elif suite == "rendered":
         # Windowed: lens and skycache read GPU results and pixels; coursecheck and the
         # accretion checks collect the errors a drawn frame raises (SHADER ERROR included);

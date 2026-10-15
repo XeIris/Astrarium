@@ -163,6 +163,17 @@ flight/surface camera ownership. Authored camera/sky patches must pass their
 shared validators before mutation. Explicit camera distances use the supported
 1e-6–20000 scene-unit interval; derived focus framing has its own size rules.
 
+## Developer scenarios
+
+Settings › Controls › Developer mode adds the Dev page; `scenario=<vehicle>:<id>`
+does the same from the command line (with `frames=… out=…`, frames count from the
+hand-over). Scenarios are data in `sim/flight/scenarios.gd`: a base built directly,
+then the real frame loop flown undrawn (`main.step_flight`, `Spaceflight.fast_forward`)
+to a condition. Add a scenario there with its `expect` window, never a second way
+in. A base built mid-flight states the flight it stands in for (`replay`) and is
+compared with it; see [flight scenarios](docs/flight-scenarios.md). Check:
+`tools/scenariocheck.tscn` (headless), `replay=1` after changing guidance or a base.
+
 ## Checks
 
 Checks and the `tools/check.py` suite runner are listed in
@@ -196,6 +207,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
+- flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`
+  (`-- replay=1` for the comparison with a played flight)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
   `assets=0`; `-- parity` requires all nine authored models and checks both poses
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero

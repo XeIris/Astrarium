@@ -88,6 +88,10 @@ to the procedural builds too.
   its current point in the grain.
 - RCS belongs to every attached stage, and attitude control feeds the target's
   rate forward. Holding prograde means holding a turning attitude.
+- Guidance is stepped on flight time: once per frame interval of it, for at least
+  the interval about to be flown (`Spaceflight.update`). Time warp must not change
+  how often or how hard a program steers per flight second. Regression:
+  `orbiter_return_2x` in `tools/missioncheck.tscn`.
 - On rails, attitude is held at the last `point_at`, not frozen. Insertion burns
   and node burns light only within 20° of their direction.
 - A point fixed to a rotating body moves by ω × r. With the pole on −Y, the
