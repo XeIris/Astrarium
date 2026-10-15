@@ -2146,12 +2146,12 @@ func jump_scenario(spec: String) -> String:
 	return ""
 
 ## `scenario=<vehicle>:<id>`: straight into it. A bad name or a failed jump exits
-## nonzero when the run is a screenshot or a check.
+## nonzero; a failed build would otherwise leave flight mode with no vessel.
 var _scenario_pending := false
 func _cli_scenario(spec: String) -> void:
 	var err := await jump_scenario(spec)
 	_scenario_pending = false
-	if err != "" and (_cmd.has("out") or _cmd.has("eval")):
+	if err != "":
 		printerr("scenario=%s failed: %s" % [spec, err])
 		get_tree().quit(1)
 

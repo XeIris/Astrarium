@@ -221,7 +221,8 @@ missions only when the change can alter flight:
 - `python3 tools/check.py --changed` runs only the checks covering files changed
   since `HEAD` (`--changed main` since the branch left `main`), from the mapping
   `CHANGED_RULES` in `tools/check.py`. Documentation selects nothing; a path no
-  rule covers selects `dev`. Add suites to narrow it (`--changed flight`).
+  rule covers selects `dev`. Add suites to narrow it (`--changed flight`). A run
+  that selects nothing exits 1, since nothing was verified.
 - Missions are judged on their flown state, so they run headless and undrawn:
   `main.set_drawn(false, false)` steps physics, structural events and what physics
   reads, and skips body visuals, markers, trails, the HUD, plumes, smoke and the

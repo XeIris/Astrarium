@@ -20,7 +20,13 @@ func _init() -> void:
 	var completed := 0
 	var wanted: Array = ["saturnv", "falcon9", "shuttle", "starship"]
 	for a in OS.get_cmdline_user_args():
-		if a.begins_with("only="): wanted = Array(a.substr(5).split(",", false)).filter(func(id): return wanted.has(id))
+		if not a.begins_with("only="): continue
+		var known := wanted
+		var asked := Array(a.substr(5).split(",", false))
+		wanted = asked.filter(func(id): return known.has(id))
+		for id in asked.filter(func(id): return not known.has(id)):
+			printerr("SHARED FLIGHT unknown only= id ", id)
+			failures += 1
 	for sc in fixture.scenarios:
 		if not wanted.has(sc.id): continue
 		var flight := Driver.new({})

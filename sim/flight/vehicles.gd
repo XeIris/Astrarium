@@ -32,8 +32,9 @@ static func _build_engines() -> Dictionary:
 			"thrustVac": 981e3, "ispSL": 200.0, "ispVac": 348.0, "throttleMin": 0.39, "gimbal": 5.0,
 			"exitD": 3.30, "plume": "kerolox",
 		},
-		# Full throttle is 104.5% of rated power level, what the Block II engines flew;
-		# the floor is 67% RPL and the 109% emergency level is the headroom above it.
+		# Throttle 1 is 104.5% of rated power level, what the Block II engines flew (and
+		# what thrustVac is): the 67% RPL floor is 67/104.5 and the 109% emergency level
+		# 109/104.5, the headroom above it.
 		"RS25": {
 			"name": "RS-25 (SSME)", "prop": "LH2/LOX",
 			"thrustVac": 2183.7e3, "ispSL": 366.0, "ispVac": 452.3, "throttleMin": 0.641, "gimbal": 10.5,

@@ -623,6 +623,10 @@ def main():
         return 0
     started = time.monotonic()
     try:
+        if options.changed and not plan:
+            # Nothing ran, so nothing is verified: not a pass, even for a docs-only change.
+            print("CHANGED no checks selected; name a suite to run one", flush=True)
+            return 1
         with FocusGuard() if options.background else contextlib.nullcontext() as guard:
             if not run_plan(plan, output, options, guard, report):
                 return 1
