@@ -457,13 +457,25 @@ def wait_child(process, timeout):
 def runs_dir():
     """Live run status and learned durations. Under the git common dir, so every
     worktree of this clone shares it and `--watch` sees runs an agent started."""
-    common = metadata(["git", "rev-parse", "--git-common-dir"])
+    try:
+        common = metadata(["git", "rev-parse", "--git-common-dir"])
+    except (OSError, subprocess.SubprocessError):
+        common = "unavailable"
     return (ROOT / common if common != "unavailable" else ROOT / "tools/evidence") / "astrarium-check"
 
 
 def duration(seconds):
     seconds = int(seconds)
     return f"{seconds // 60}m{seconds % 60:02d}s" if seconds >= 60 else f"{seconds}s"
+
+
+def read_times(folder):
+    """Learned check durations, or {} when the file is missing or not a mapping."""
+    try:
+        history = json.loads((folder / "times.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return history if isinstance(history, dict) else {}
 
 
 class Progress:
@@ -490,10 +502,7 @@ class Progress:
         for check in plan:  # padcheck runs under one name several times: key by occurrence
             seen[check.name] = seen.get(check.name, -1) + 1
             self.keys.append(f"{check.name}#{seen[check.name]}")
-        try:
-            history = json.loads((self.dir / "times.json").read_text())
-        except (OSError, ValueError):
-            history = {}
+        history = read_times(self.dir)
         self.expected = [history.get(key) or check.cost or None for key, check in zip(self.keys, plan)]
 
     def start(self, index):
@@ -562,7 +571,7 @@ class Progress:
             self.dir.mkdir(parents=True, exist_ok=True)
             path = self.dir / f"{os.getpid()}.json"
             temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(state))
+            temporary.write_text(json.dumps(state), encoding="utf-8")
             temporary.replace(path)
 
     def clear(self):
@@ -603,10 +612,14 @@ class Progress:
         state["finished"] = "passed" if complete else "failed" if state["failed"] else "interrupted"
         self.write(state)
         if self.learned:
-            with contextlib.suppress(OSError, ValueError):
+            # Concurrent runs can still drop each other's newest times (last writer wins);
+            # the replace keeps readers from seeing a partial file.
+            with contextlib.suppress(OSError):
                 path = self.dir / "times.json"
-                history = json.loads(path.read_text()) if path.exists() else {}
-                path.write_text(json.dumps({**history, **self.learned}, indent=1, sort_keys=True) + "\n")
+                temporary = path.with_suffix(f".{os.getpid()}.tmp")
+                temporary.write_text(json.dumps({**read_times(self.dir), **self.learned}, indent=1, sort_keys=True) + "\n",
+                                     encoding="utf-8")
+                temporary.replace(path)
 
 
 def watch(once):
@@ -618,8 +631,9 @@ def watch(once):
         for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
             if path.name == "times.json":
                 continue
-            with contextlib.suppress(OSError, ValueError):
-                state = json.loads(path.read_text())
+            # A state file from another version or a partial write skips only that run.
+            with contextlib.suppress(OSError, ValueError, KeyError, TypeError, AttributeError):
+                state = json.loads(path.read_text(encoding="utf-8"))
                 age = time.time() - state["updated"]
                 alive = True
                 try:
