@@ -303,3 +303,57 @@ hit the 240-second watchdog with no engine error, while files were still being
 edited and a Godot editor had the project open; the next six completed. A later
 failure recorded one 73.6-second frame while an external display was main,
 consistent with the fullscreen Space being hidden.
+
+**Launch smoke on Low and Medium.** The pad cloud there became unmarched puffs of
+the trail's medium (`smoke_puff.gdshader`: two noise lookups per octave pair, one
+sample per pixel, no march), and the sun-transmittance estimate now runs on every
+tier. Measured against the previous sprites on the same build, with another
+session's four Godot processes loading the CPU (so the gates' p95 failed before and
+after alike and only medians compare): the Low-based gate's flight pad/ascent
+medians were 17.55/16.80 ms before and 18.33/16.27 ms after; native Medium,
+alternating before/after twice, 35.22, 35.40 / 32.36, 31.90 ms before and 35.26,
+33.80 / 31.70, 32.17 ms after. No difference beyond the run-to-run spread. Evidence:
+`tools/evidence/gaps/perf/` in that worktree. Repeat on an idle machine before
+reading these against the budget.
+
+## Check suite time
+
+`python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`
+on the Apple M5 (4 performance cores), authored models present, all checks passing.
+CPU is user + system time of the runner and its children (`/usr/bin/time`).
+
+| | before (cc742e7) | after | after, second run |
+|---|---|---|---|
+| wall | 748.8 s | 386.6 s | 443.5 s |
+| CPU | 1803.6 s | 1250.4 s | 1436.8 s |
+
+The second run overlapped another session's Godot checks (a headless replay and a
+windowed soak), so it shows how much the wall time moves under outside load.
+
+Missions run headless and undrawn (`main.set_drawn`): per case 1.4–2.9× faster
+(first run: orbiter_home 376.6 → 157.6 s, orbiter_return 236.5 → 131.4 s,
+shuttle_fates 241.3 → 85.2 s, launch_orbit 178.6 → 62.5 s, lunar_orbit 159.3 →
+78.9 s, ship_return 139.4 → 69.1 s, lunar_landing 54.0 → 39.7 s). What remains is
+mostly vehicle physics and guidance: profiling lunar_landing put 20 of its 43 s
+there and the rest in presentation. Windowed and headless cost the same CPU; headless
+mainly frees the GPU and the window server for the checks that need them.
+sharedflightcheck (126.9 s) became four launches of at most 30 s, and the soak
+(293.9 s) thirteen feature processes of at most 95 s, most of it fixed settle
+waits. The new drawn/undrawn parity flight adds about 70 s of CPU.
+
+`python3 tools/check.py dev` takes 10 s. `rendered --jobs 1` is unchanged (75.1 s
+before, 74.4 s after): the four checks moved to headless took about 2 s each, and
+headless keeps them off the GPU when checks run in parallel. Beside another
+process's windowed checks, skycachecheck hit Metal fence timeouts or hung in both
+builds; alone it passed five of five runs in each.
+
+Visual confirmation, windowed, 1280×720:
+
+| | before | after |
+|---|---|---|
+| fxlab 2 crafts × 2 altitudes × 2 qualities × 2 views (16 pictures) | 28.4 s, 4 processes | 10.3 s, 1 process |
+| fxlab `mode=fly` Saturn V at 12, 30 and 60 km | 29.6 s | 20.3 s |
+| Falcon 9 at 12 km, `ff=alt:12000 frames=20` (T+68 s) | flying 4,666 drawn steps | 7.9 s |
+
+With the same `seed=`, the fast-forwarded ascent picture matches the drawn one,
+trail included; without it, the preset's random planet phases move the weather.

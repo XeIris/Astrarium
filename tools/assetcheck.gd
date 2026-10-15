@@ -87,6 +87,80 @@ func booster_pieces(craft) -> void:
 	expect(da.z < 0.0 and db.z < 0.0, "boosters moved toward the orbiter: %s %s" % [da, db])
 	expect(not a.basis.is_equal_approx(Basis()) and not a.basis.is_equal_approx(b.basis), "boosters do not tumble on their own")
 
+## How far a stage's residual thrust (`look.sep.residual`) carries it by `T`, m, at
+## `a0` m/s² for the full cutoff thrust: ∫ a(s)·(T − s) ds, in closed form for a
+## blowdown and exactly over a measured curve's linear pieces.
+func residual_travel(r: Dictionary, a0: float, T: float) -> float:
+	if r.has("tau"):
+		var tau := float(r.tau)
+		var t := minf(T, Separation.residual_end(r))
+		# The blowdown is cut at 1%: coast at what it had reached from its end on.
+		var at_end := a0 * tau * (t - tau * (1.0 - exp(-t / tau)))
+		return at_end + a0 * tau * (1.0 - exp(-t / tau)) * (T - t)
+	var fwd := 0.0
+	var c: Array = r.curve
+	var off := float(r.get("from", 0.0))
+	for i in range(1, c.size()):
+		var s0 := maxf(float(c[i - 1][0]) - off, 0.0)
+		var s1 := minf(float(c[i][0]) - off, T)
+		if s1 <= s0: continue
+		var slope := (float(c[i][1]) - float(c[i - 1][1])) / (float(c[i][0]) - float(c[i - 1][0]))
+		var f0 := float(c[i - 1][1]) + slope * (s0 + off - float(c[i - 1][0]))
+		# A linear fraction on [s0, s1], weighted by (T − s): exact.
+		var h := s1 - s0
+		fwd += a0 * (f0 * (T - s0) * h - (f0 - slope * (T - s0)) * h * h / 2.0 - slope * h * h * h / 3.0)
+	return fwd
+
+## Axial travel of each piece's centre of mass (or bounds middle) `T` s after `key`
+## separates under a stack accelerating at `A`, flown in fine steps so the
+## integrator's own bias stays well under the bands below.
+func axial_travel(vehicle: Dictionary, key: String, A: float, T: float, dt := 0.002) -> Array:
+	var craft = CraftModel.build_craft(vehicle)
+	var st = craft.stage(key)
+	for o in craft.stages:
+		if o == st: break
+		o.group.visible = false
+	var nodes: Array = st.parts.pieces if not st.parts.pieces.is_empty() else [st.group]
+	var sep: Dictionary = st.spec.get("look", {}).get("sep", {})
+	var marks := []
+	for n: Node3D in nodes:
+		var acc := [false, AABB()]
+		CraftModel._measure_into(n, n.transform, acc, null)
+		var c: Vector3 = n.transform * Vector3(0.0, float(sep.cgY), 0.0) if sep.has("cgY") else (acc[1] as AABB).get_center()
+		marks.append([n, n.transform.affine_inverse() * c, c])
+	craft.separate(key)
+	for i in roundi(T / dt): craft.update({"dt": dt, "attached": {key: false}, "accel": A})
+	var out := []
+	for mk: Array in marks:
+		out.append(((mk[0] as Node3D).transform * (mk[1] as Vector3) - (mk[2] as Vector3)).y)
+	craft.group.free()
+	return out
+
+## A stage's residual thrust, measured on its own: the same separation flown with and
+## without it differs by the residual's travel alone. The Shuttle's boosters must also
+## reproduce srb-separation.md's comparison with TM X-64967 (0.33 m aft at 0.25 s
+## against a 9.6 m/s² stack; 0.38 m without it).
+func residual_push(vehicle: Dictionary) -> void:
+	for spec: Dictionary in vehicle.stages:
+		var r = spec.get("look", {}).get("sep", {}).get("residual")
+		if spec.key == "srb":
+			expect(r != null, "shuttle boosters have no residual thrust")
+			var aft := axial_travel(vehicle, "srb", 9.6, 0.25)
+			for y: float in aft:
+				expect(y < -0.315 and y > -0.345, "shuttle booster fell back %.3f m by 0.25 s, not the documented 0.33 m" % -y)
+		if r == null: continue
+		var bare := vehicle.duplicate(true)
+		for s: Dictionary in bare.stages:
+			if s.key == spec.key: s.look.sep.erase("residual")
+		var pieces := maxi(int(spec.get("look", {}).get("pieces", 1)), 1)
+		for T in [0.25, 1.0]:
+			var want := residual_travel(r, float(r.thrust) / (float(spec.dry) / pieces), T)
+			var a := axial_travel(vehicle, spec.key, 9.0, T)
+			var b := axial_travel(bare, spec.key, 9.0, T)
+			for i in a.size():
+				var got: float = a[i] - b[i]
+				expect(absf(got - want) < 0.03 * want, "%s/%s: residual thrust carried it %.4f m by %.2f s, want %.4f m" % [vehicle.id, spec.key, got, T, want])
+
 ## Every droppable stage leaves the way the physics says, measured on the built nodes
 ## alone: a stage dropped under thrust falls behind at least at the stack's
 ## acceleration plus its own motors' and the stack's authored pushes, and doesn't
@@ -130,26 +204,10 @@ func stage_separations(vehicle: Dictionary) -> void:
 			var dv := float(m.thrust) * (float(m.web) + 0.5 * float(m.get("tail", 0.0))) * (m.sites as Array).size() \
 				/ (float(spec.dry) / nodes.size()) * cos(deg_to_rad(float(m.cant)))
 			aft += dv * (T - float(m.get("ignite", 0.0)) - 0.5 * float(m.web))
-		# The stage's own engines still pushing it forward: ∫ a(s)·(T − s) ds by T.
+		# The stage's own engines still pushing it forward.
 		var r = sep.get("residual")
 		if r != null:
-			var a0 := float(r.thrust) / (float(spec.dry) / nodes.size())
-			var fwd := 0.0
-			if r.has("tau"):
-				var tau := float(r.tau)
-				fwd = a0 * tau * (T - tau * (1.0 - exp(-T / tau)))
-			else:
-				var c: Array = r.curve
-				var off := float(r.get("from", 0.0))
-				for i in range(1, c.size()):
-					var s0 := maxf(float(c[i - 1][0]) - off, 0.0)
-					var s1 := minf(float(c[i][0]) - off, T)
-					if s1 <= s0: continue
-					var slope := (float(c[i][1]) - float(c[i - 1][1])) / (float(c[i][0]) - float(c[i - 1][0]))
-					var f0 := float(c[i - 1][1]) + slope * (s0 + off - float(c[i - 1][0]))
-					# A linear fraction on [s0, s1], weighted by (T − s): exact.
-					var h := s1 - s0
-					fwd += a0 * (f0 * (T - s0) * h - (f0 - slope * (T - s0)) * h * h / 2.0 - slope * h * h * h / 3.0)
+			var fwd := residual_travel(r, float(r.thrust) / (float(spec.dry) / nodes.size()), T)
 			expect(fwd > 0.0, "%s/%s: residual thrust adds no push" % [vehicle.id, spec.key])
 			aft -= fwd
 		var stack = sep.get("stack")
@@ -348,6 +406,7 @@ func run() -> void:
 		pose(craft, vehicle, true)
 		pose(craft, vehicle, false)
 		stage_separations(vehicle)
+		residual_push(vehicle)
 		stage_handoffs(vehicle)
 		if id == "shuttle":
 			booster_pieces(craft)

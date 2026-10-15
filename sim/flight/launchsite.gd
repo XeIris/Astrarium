@@ -368,15 +368,21 @@ class Envelope extends RefCounted:
 				out.append(a.lerp(b, da / (da - db)))
 		return out
 
-	## The lowest skin over the plan rectangle centred on (cx, cz), from triangles
-	## whose plan bounds overlap it (conservative: never above the true floor).
+	## The lowest skin over the plan rectangle centred on (cx, cz): each triangle
+	## clipped to it, so a fin's broad triangles count only where they are over it.
 	func lowest_over(cx: float, cz: float, hx: float, hz: float) -> float:
 		var lo := INF
 		for t in tri.size() / 3:
 			var a := tri[t * 3]; var b := tri[t * 3 + 1]; var c := tri[t * 3 + 2]
 			if maxf(a.x, maxf(b.x, c.x)) < cx - hx or minf(a.x, minf(b.x, c.x)) > cx + hx: continue
 			if maxf(a.z, maxf(b.z, c.z)) < cz - hz or minf(a.z, minf(b.z, c.z)) > cz + hz: continue
-			lo = minf(lo, minf(a.y, minf(b.y, c.y)))
+			if minf(a.y, minf(b.y, c.y)) >= lo: continue
+			var poly: Array[Vector3] = [a, b, c]
+			poly = _clip(poly, 0, cx - hx, 1.0)
+			poly = _clip(poly, 0, cx + hx, -1.0)
+			poly = _clip(poly, 2, cz - hz, 1.0)
+			poly = _clip(poly, 2, cz + hz, -1.0)
+			for q in poly: lo = minf(lo, q.y)
 		return lo
 
 	# THE ASCENT ENVELOPE: the skin swept straight up. Per plan cell, the lowest
@@ -1278,8 +1284,10 @@ var grade_drop: float
 ## Height of the tallest structure, m — the camera uses it for framing. The
 ## same expression the tower was BUILT from, not a second guess at it.
 var tower_height: float
-## [{group, axis: "yaw"|"tilt", rest, open, at: t-minus (s) it starts to swing,
-## dur: s, p: progress 0..1}]
+## [{group, axis: "yaw"|"tilt"|"lift", rest, open, at: t-minus (s) it starts to swing,
+## dur: s, p: progress 0..1}]. "lift" raises the group by `open` m from `y0`. A swing
+## that must wait for another motion to finish names it as `after`; that motion names
+## the swing as `holds`, and stays open while the swing is out.
 var arms: Array = []
 var carriage: Node3D = null    # chopsticks: rides the tower; its origin is on the tower axis
 var chopsticks: Array = []     # the two arm pivots, built along +x, yawed open
@@ -1626,13 +1634,37 @@ func _swing_arm(mount: Node3D, face: float, y: float, vy: float, lane_z: float, 
 
 ## A deck mast (tail service mast) beside the vehicle: as tall as `want`, but never
 ## above the lowest skin over its footprint, so the vehicle rises clear of it.
-func _tail_mast(B: Batch, at: Vector3, w: float, d: float, want: float, paint: Material) -> void:
+## Returns the mast's height, or 0 where there is no room for one.
+func _tail_mast(B: Batch, at: Vector3, w: float, d: float, want: float, paint: Material) -> float:
 	var floor_y := skin.lowest_over(at.x, at.z, w * 0.5 + 0.6, d * 0.5 + 0.6) if skin != null else INF
 	var h := minf(want, floor_y + deck_height - at.y - 0.5)
-	if h < 1.5: return
+	if h < 1.5: return 0.0
 	B.box(w, h, d, paint, at)
 	B.box(w + 0.3, 0.5, d + 0.3, WHITE(), at + Vector3(0.0, h - 0.5, 0.0))
 	B.box(w * 0.7, 0.18, 0.5, LAMP(), at + Vector3(0.0, h * 0.6, d * 0.5 + 0.05))
+	return h
+
+## A tail service mast's umbilical carrier: a boom and plate from the mast's inner
+## face at azimuth `a` (radius `face`) to the S-IC's tail, stopped GAP off the skin
+## at its own height. At liftoff the carrier drops back against the mast, where its
+## hood closes over it (MSFC-MAN-503, "Tail Service Masts"); the 1 s is an estimate.
+func _tsm_carrier(mount: Node3D, a: float, face: float, PH: float, h: float) -> void:
+	var y0 := h - 1.4
+	var stop := _stop(y0 - 0.1, h - 0.4, -0.6, 0.6, -INF, a)
+	var reach := face - stop
+	if stop == -INF or reach < 0.4: return
+	var base := _node()
+	base.position = Vector3(cos(a) * face, PH + h - 0.5, sin(a) * face)
+	base.rotation.y = PI - a                    # local +x toward the axis
+	var pivot := _node()
+	pivot.name = "tsm_carrier_%d" % arms.size()
+	pivot.add_child(box(reach - 0.25, 0.5, 0.9, LUT_RED(), (reach - 0.25) * 0.5, -0.5, 0.0))
+	pivot.add_child(box(0.25, 0.9, 1.2, STEEL(), reach - 0.125, -0.9, 0.0))
+	for z in [-0.25, 0.25]:
+		pivot.add_child(pipe_between(Vector3(0.1, -0.15, z), Vector3(reach - 0.3, -0.15, z), 0.08, WHITE()))
+	base.add_child(pivot)
+	mount.add_child(base)
+	arms.append({"group": pivot, "axis": "tilt", "rest": 0.0, "open": -1.35, "at": 0.0, "dur": 1.0, "p": 0.0})
 
 ## SATURN V on its Mobile Launcher and LUT (Apollo 12 and Apollo 11 on 39A).
 func _build_lut(vehicle: Dictionary, craft: Node3D, height: float, mount: Node3D, art: Node3D, B: Batch) -> void:
@@ -1654,7 +1686,8 @@ func _build_lut(vehicle: Dictionary, craft: Node3D, height: float, mount: Node3D
 	for k in 3:
 		var a := _holddown_set + PI / 8.0 + float(k) * PI * 0.5
 		var r := maxf(D * 0.68, _stop(0.0, 4.0, -1.8, 1.8, D * 0.5, a) + 2.0)
-		_tail_mast(B, Vector3(cos(a) * r, PH, sin(a) * r), 2.4, 2.4, 4.6, LUT_RED())
+		var h := _tail_mast(B, Vector3(cos(a) * r, PH, sin(a) * r), 2.4, 2.4, 4.6, LUT_RED())
+		if h > 0.0: _tsm_carrier(mount, a, r - 1.2, PH, h)
 	# The nine swing arms, at the stage interfaces they serve. Arms 1, 2 and 9 are
 	# retracted before the terminal count; 3 to 8 swing at liftoff.
 	var face := LUT_X + LUT_SIDE * 0.5
@@ -1727,25 +1760,95 @@ func _build_fss(vehicle: Dictionary, height: float, mount: Node3D, art: Node3D, 
 			var hy := float(mt.get("y", 0.0)) + float(st.L) * 0.803
 			var hz := float(mt.get("z", 0.0))
 			_swing_arm(mount, face, PH + hy, hy, hz, 2.4, 2.6, FSS_GREY(), PRE_COUNT, 8.0, Vector3(4.0, 3.8, 4.6))
-	# The GOX vent arm's hood sits over the external tank's nose, at the measured top
-	# of the stack, and swings clear two and a half minutes before launch. The real
-	# one lifts off the nose first; this one hovers just clear of it.
-	var nose := skin.tip(1.5) if skin != null else -INF
-	if nose == -INF: nose = height * 0.93
+	_gox_vent_arm(mount, face, PH, height)
+	_srb_posts(B, PH)
+
+## The GOX vent arm (KSC fact sheet, "External Tank Gaseous Oxygen Vent Arm"): a 65 ft
+## truss from the FSS to the 13 ft hood, the "beanie cap", seated over the tank's nose
+## vents during loading. At about T−2:30 the hood is raised clear of the tank (25 s),
+## and the arm swings back against the FSS by T−1:45. Here both run in that order,
+## compressed into the 10 s count. The hood is fitted to the measured nose: its rim
+## seals where the nose is as wide as the hood, and its dome clears the tip.
+func _gox_vent_arm(mount: Node3D, face: float, PH: float, height: float) -> void:
+	const R := 1.98                     # 13 ft across
+	const WALL := 0.12
+	const SEAL := 0.05                  # the inflatable seal's gap to the skin
+	var tip := skin.tip(1.5) if skin != null else -INF
+	# The nose's widest within 0.12 m of a height: the hood keeps its gaps to that.
+	var r_at := func(y: float) -> float:
+		var r := 0.0
+		for i in 8: r = maxf(r, skin.standoff(y - 0.12, y + 0.12, -0.05, 0.05, float(i) * TAU / 8.0))
+		return r
+	var seat: float
+	if tip == -INF:
+		tip = height * 0.93
+		seat = tip - 3.4
+	else:
+		seat = tip
+		while seat > tip - 12.0 and r_at.call(seat) < R - WALL - SEAL: seat -= 0.05
+	# Skirt, then a half-ellipse dome, raised until its inside clears the nose by 0.1 m.
+	var skirt := seat + 0.4
+	var top := tip + 0.3
+	var clear := false
+	while not clear and top < tip + 5.0:
+		clear = true
+		var y := skirt
+		while y < tip and clear:
+			var u := (y - skirt) / (top - skirt)
+			if R * sqrt(maxf(1.0 - u * u, 0.0)) - WALL < (r_at.call(y) if skin != null else 0.0) + 0.1: clear = false
+			y += 0.1
+		if not clear: top += 0.1
+	var prof := PackedVector2Array([Vector2(R - WALL, 0.0), Vector2(R, 0.0), Vector2(R, skirt - seat)])
+	for k in range(1, 13):
+		var u := float(k) / 12.0
+		prof.append(Vector2(R * sqrt(maxf(1.0 - u * u, 0.0)), skirt - seat + u * (top - skirt)))
+	var hood := _node()
+	hood.name = "gox_vent_hood"
+	hood.add_child(_mesh(CraftModel._lathe(prof, 24), WHITE()))
+	# Raised until its rim clears the tip, along the lift rod hung from the truss end.
+	var lift := tip + 0.5 - seat
 	var vent := _node()
 	vent.name = "gox_vent_arm"
 	var hx := face + 1.4
-	vent.position = Vector3(hx, PH + nose + 1.2, 0.0)
-	mount.add_child(box(1.4, 2.0, 2.2, FSS_GREY(), face + 0.7, PH + nose + 0.2, 0.0))
-	var v_arm := truss(-hx - 3.4, 2.2, 2.0, 0.24, FSS_GREY())
-	v_arm.position = Vector3(0.0, 0.0, 0.0)
+	var truss_y := top - seat + lift + 0.3
+	vent.position = Vector3(hx, PH + seat, 0.0)
+	mount.add_child(box(1.4, 2.0, 2.2, FSS_GREY(), face + 0.7, PH + seat + truss_y, 0.0))
+	var v_arm := truss(-hx + 1.2, 2.2, 2.0, 0.24, FSS_GREY())
+	v_arm.position = Vector3(0.0, truss_y, 0.0)
 	vent.add_child(v_arm)
-	# A 5 m hood, apex up, its rim a few tens of centimetres over the tip.
-	var cap := _mesh(CraftModel._cone(3.4, 5.0, 16, 1, true), WHITE())
-	cap.position = Vector3(-hx, 1.6, 0.0)
-	vent.add_child(cap)
+	vent.add_child(pipe_between(Vector3(-hx, top - seat + 0.1, 0.0), Vector3(-hx, truss_y, 0.0), 0.16, STEEL()))
+	hood.position = Vector3(-hx, 0.0, 0.0)
+	vent.add_child(hood)
 	mount.add_child(vent)
-	arms.append({"group": vent, "axis": "yaw", "rest": 0.0, "open": -PI * 0.5, "at": PRE_COUNT, "dur": 6.0, "p": 0.0})
+	var raise := {"group": hood, "axis": "lift", "rest": 0.0, "open": lift, "y0": 0.0, "at": PRE_COUNT, "dur": 3.0, "p": 0.0}
+	var swing := {"group": vent, "axis": "yaw", "rest": 0.0, "open": -PI * 0.5, "at": PRE_COUNT, "dur": 6.0, "p": 0.0,
+		"after": raise}
+	raise.holds = swing
+	arms.append(raise)
+	arms.append(swing)
+
+## The MLP's SRB support posts: each booster's aft skirt stands on four, bolted through
+## (NSTS 1988 News Reference Manual, "Launch Platform"), and they stay when the nuts
+## are blown at release. The skirt is over its exhaust opening, so each post stands on
+## the deck beside the opening's long side and carries a shoe in under the skirt,
+## topped 0.15 m under the lowest skin over it. Sized from STS-129 on 39A.
+func _srb_posts(B: Batch, PH: float) -> void:
+	if skin == null: return
+	for h: Array in DECK_HOLES.fss:
+		# the two booster openings, not the main engines'
+		if absf(float(h[1])) > 0.1: continue
+		var cx := float(h[0])
+		var edge := float(h[2]) * 0.5
+		for sx in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				var post := Vector3(cx + sx * (edge + 0.6), PH, sz * 1.2)
+				# the shoe: from 1 m inside the opening's edge out over the post
+				var shoe := Vector3(cx + sx * (edge + 0.1), PH, sz * 1.2)
+				var top := skin.lowest_over(shoe.x, shoe.z, 1.1, 0.4) - 0.15
+				if not is_finite(top) or top < 0.4: continue
+				B.box(1.0, top - 0.35, 1.0, ML_GREY(), post)
+				B.box(2.2, 0.35, 0.8, STEEL(), Vector3(shoe.x, PH + top - 0.35, shoe.z))
+				B.box(1.4, 0.12, 1.4, STEEL(), post)
 
 ## The parked RSS: a clad box 31 × 40 × 15 m whose underside is 18 m up, its near end
 ## on the hinge column at the FSS, its far end on a two-legged wheeled column.
@@ -1992,10 +2095,15 @@ func update(s: Dictionary) -> void:
 	# out over `dur` seconds. A scrub brings it back.
 	for a in arms:
 		var want := 1.0 if t_minus <= float(a.at) else 0.0
+		var first = a.get("after")
+		if first != null and float(first.p) < 1.0: want = 0.0
+		var held = a.get("holds")
+		if held != null and float(held.p) > 0.0: want = 1.0
 		a.p = move_toward(float(a.p), want, dt / float(a.dur))
 		var ang: float = a.rest + (a.open - a.rest) * smoothstep(0.0, 1.0, float(a.p))
 		var g: Node3D = a.group
 		if a.axis == "yaw": g.rotation.y = ang
+		elif a.axis == "lift": g.position.y = float(a.y0) + ang
 		else: g.rotation.z = ang
 	LAMP().emission_energy_multiplier = 3.5 * clampf(1.0 - Plume.daylight / 0.45, 0.0, 1.0)
 

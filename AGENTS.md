@@ -163,10 +163,37 @@ flight/surface camera ownership. Authored camera/sky patches must pass their
 shared validators before mutation. Explicit camera distances use the supported
 1e-6–20000 scene-unit interval; derived focus framing has its own size rules.
 
+## Developer scenarios
+
+Settings › Controls › Developer mode adds the Dev page; `scenario=<vehicle>:<id>`
+does the same from the command line (with `frames=… out=…`, frames count from the
+hand-over). Scenarios are data in `sim/flight/scenarios.gd`: a base built directly,
+then the real frame loop flown undrawn (`main.step_flight`, `Spaceflight.fast_forward`)
+to a condition. Add a scenario there with its `expect` window, never a second way
+in. A base built mid-flight states the flight it stands in for (`replay`) and is
+compared with it; see [flight scenarios](docs/flight-scenarios.md). Check:
+`tools/scenariocheck.tscn` (headless), `replay=1` after changing guidance or a base.
+
 ## Checks
 
 Checks and the `tools/check.py` suite runner are listed in
-[README.md](README.md#verifying). Run the ones that cover your change.
+[README.md](README.md#verifying). Run the ones that cover your change, by
+default through the fast path: `python3 tools/check.py --changed` (its mapping
+is `CHANGED_RULES`; update it when you add a check or subsystem), or `dev`
+(under a minute) while iterating. Replay whole missions (`flight`) only when the
+change can alter flight physics, guidance, staging or dropped stages. For a
+visual before/after, fast-forward to the moment (`ff=alt:…|t:…|event:…`) or
+shoot a whole fxlab matrix in one process instead of flying in real time.
+
+- A check that judges state or numbers runs `--headless`; open a window only to
+  judge pixels, read a GPU result or catch `SHADER ERROR`s, and say why in
+  `check.py`. Headless has no RenderingDevice: guard GPU paths with
+  `RDU.available()` and fail a check that needs the result, never pass it.
+- `main.set_drawn(false)` skips presentation while physics steps. Anything
+  physics reads (falls, separation hand-offs, the pad's rotation, star activity)
+  must stay outside the skipped paths; `missioncheck-parity-shuttle_fates`
+  rejects a difference. The check runner prints each check's wall/CPU time;
+  pass `--compare` with an earlier report when a change could slow a check.
 A check must reject defects and incomplete runs with a nonzero exit;
 printing a comparison alone is insufficient. Intentional differences from the
 frozen numeric reference must be explained, never hidden by wider tolerances.
@@ -180,6 +207,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
+- flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`
+  (`-- replay=1` for the comparison with a played flight)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
   `assets=0`; `-- parity` requires all nine authored models and checks both poses
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero

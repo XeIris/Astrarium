@@ -32,8 +32,9 @@ static func _build_engines() -> Dictionary:
 			"thrustVac": 981e3, "ispSL": 200.0, "ispVac": 348.0, "throttleMin": 0.39, "gimbal": 5.0,
 			"exitD": 3.30, "plume": "kerolox",
 		},
-		# Full throttle is 104.5% of rated power level, what the Block II engines flew;
-		# the floor is 67% RPL and the 109% emergency level is the headroom above it.
+		# Throttle 1 is 104.5% of rated power level, what the Block II engines flew (and
+		# what thrustVac is): the 67% RPL floor is 67/104.5 and the 109% emergency level
+		# 109/104.5, the headroom above it.
 		"RS25": {
 			"name": "RS-25 (SSME)", "prop": "LH2/LOX",
 			"thrustVac": 2183.7e3, "ispSL": 366.0, "ispVac": 452.3, "throttleMin": 0.641, "gimbal": 10.5,
@@ -255,7 +256,11 @@ static func _build_vehicles() -> Dictionary:
 		# go, the stack's thrust barely exceeds its weight, so they make the climb.
 		# v₀ fits the nominal SRB staging state, 155,315 ft at T+124 s (table 2.2-I);
 		# docs/physics/srb-separation.md#ascent.
-		"ascent": { "pitchStart": 38.7, "turnV0": 720.0 },
+		# The SSMEs' throttle bucket is an I-load too: 65% RPL from 658 to 1,358 ft/s relative
+		# (table 2.2-I), as a fraction of full throttle (104.5% RPL). The engines' 67% floor
+		# holds it there (docs/physics/srb-separation.md#ascent).
+		"ascent": { "pitchStart": 38.7, "turnV0": 760.0,
+			"bucketFrom": 200.56, "bucketTo": 413.92, "bucketLevel": 0.65 / 1.045 },
 		"stages": [
 			stage({ "key": "srb", "name": "SRB pair", "dry": 172000.0, "prop": 1004000.0,
 				"engine": E.SRB_RSRM, "count": 2, "L": 45.5, "D": 3.71, "liftoff": true,

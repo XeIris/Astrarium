@@ -23,6 +23,9 @@ func _ready() -> void:
 	var requested_size := get_window().size
 	if args.get("assets", "1") == "0":
 		for id in CraftAssets.CRAFT_ASSETS: CraftAssets.CACHE[id] = null
+	# The app icon and the developer switch are saved here, never in the user's file.
+	app_file = _temp_dir().path_join("astrarium-hudcheck-app-%d.json" % OS.get_process_id())
+	AppIcon.file_path = app_file
 	main = load("res://main.tscn").instantiate()
 	add_child(main)
 	await get_tree().process_frame
@@ -42,11 +45,8 @@ func _ready() -> void:
 	main.lessons.store = ""
 	main.lessons.progress = {"done": {}, "last": null}
 	if args.get("htest", "0") == "1" or args.get("hlayout", "0") == "1":
-		var temp_dir := OS.get_environment("TMPDIR")
-		if temp_dir.is_empty(): temp_dir = OS.get_environment("TEMP")
-		if temp_dir.is_empty(): temp_dir = "/tmp"
 		main.controls = ControlBindings.new("")
-		main.controls.file_path = temp_dir.path_join("astrarium-hudcheck-controls-%d.json" % OS.get_process_id())
+		main.controls.file_path = _temp_dir().path_join("astrarium-hudcheck-controls-%d.json" % OS.get_process_id())
 		hud.update_binding_labels(main.controls.bindings)
 	await get_tree().process_frame
 	await _setup(str(args.get("hstate", "sandbox")))
@@ -87,7 +87,17 @@ func _ready() -> void:
 		else:
 			fails += 1
 			printerr("HUDCHECK failed to save ", args.hout, ": ", error_string(save_error))
+	for f in [app_file, app_file + ".bak"]:
+		if FileAccess.file_exists(f): DirAccess.remove_absolute(f)
 	get_tree().quit(1 if fails > 0 else 0)
+
+var app_file := ""
+
+func _temp_dir() -> String:
+	var temp_dir := OS.get_environment("TMPDIR")
+	if temp_dir.is_empty(): temp_dir = OS.get_environment("TEMP")
+	if temp_dir.is_empty(): temp_dir = "/tmp"
+	return temp_dir
 
 func _steps(k: int) -> void:
 	for i in k:
@@ -166,6 +176,17 @@ func _setup(s: String) -> void:
 				main.update_sim_stats()
 			if s == "settings_render":
 				_find("renderAdvancedToggle").pressed.emit()
+		"settings_dev", "settings_dev_shuttle":
+			await _start("sandbox")
+			main.set_dev_mode(true)
+			hud.set_settings_open(true)
+			hud.set_settings_page("dev")
+			if s == "settings_dev_shuttle": hud.show_dev_craft("shuttle")
+		"scenario":
+			# hscenario=<vehicle>:<id>, through the Developer page's own jump.
+			await _start("sandbox")
+			main.set_dev_mode(true)
+			await main.jump_scenario(str(args.get("hscenario", "shuttle:peak_heating")))
 		"search":
 			await _start("sandbox")
 			hud.set_search("tri")
@@ -486,6 +507,8 @@ func _interaction_walk() -> void:
 	await _key(KEY_ESCAPE)
 	check("Esc closes Settings", not hud.settings_open and not hud.settings_panel.is_visible_in_tree())
 
+	await _developer_walk()
+
 	# focus panel and cross-section
 	main._stage_set_focus("Earth")
 	hud.set_section_open(hud.section("Focused Object"), true)
@@ -577,6 +600,74 @@ func _interaction_walk() -> void:
 	await _click(hud.lc.close)
 	check("the card's ✕ leaves the lesson", L.key == null and not hud.lesson_card.is_visible_in_tree())
 	main.set_app_mode("sandbox")
+	await _steps(3)
+
+## Settings › Controls › Developer mode, its page, a jump and the quick controls.
+func _developer_walk() -> void:
+	var st = main.state
+	await _key(KEY_ESCAPE)
+	await _click(_find("[data-set=controls]"))
+	check("the Dev tab is hidden while developer mode is off", not _find("[data-set=dev]").is_visible_in_tree() and not DevMode.enabled())
+	await _click(_find("devToggle"))
+	check("Developer mode shows the Dev tab and is saved", _find("[data-set=dev]").is_visible_in_tree() and DevMode.enabled())
+	await _click(_find("[data-set=dev]"))
+	check("the Dev tab opens the Developer page", hud.settings_page == "dev" and _find("devPage").is_visible_in_tree())
+	await _click(_find("[data-dev-craft=shuttle]"))
+	check("a vehicle chip lists its own scenarios", _find("[data-dev-scenario=shuttle:taem]").is_visible_in_tree()
+		and not _find("[data-dev-scenario=saturnv:max_q]").is_visible_in_tree())
+	await _click(_find("[data-dev-scenario=shuttle:taem]"))
+	for i in 600:
+		if main.scenario_jump == null and main.flight.vessel != null: break
+		await get_tree().process_frame
+	await _steps(2)
+	var f = main.flight
+	check("a scenario button jumps there and closes Settings", f.active and f.autopilot.state_name == "taem"
+		and absf(f.vessel.altitude() - 24.4e3) < 500.0 and not hud.settings_open)
+	await _key(KEY_ESCAPE)
+	check("Settings reopens on the Developer page", hud.settings_open and hud.settings_page == "dev")
+	await _click(_find("[data-dev=pause]"))
+	check("Pause / resume pauses", st.paused)
+	var met: float = f.vessel.met
+	await _click(_find("[data-dev=step]"))
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check("Step one frame advances one frame and stays paused (%s s)" % U.fixed(f.vessel.met - met, 4),
+		st.paused and f.vessel.met - met > 0.0 and f.vessel.met - met < 0.1)
+	await _click(_find("[data-dev=pause]"))
+	check("…and resumes", not st.paused)
+	await _click(_find("[data-dev-warp=100]"))
+	check("a developer warp passes the interlocks", f.dev_warp == 100.0 and _find("[data-dev-warp=100]").active)
+	await _click(_find("[data-dev-warp=0]"))
+	check("…and Off hands warp back", f.dev_warp == 0.0)
+	await _click(_find("[data-dev-program=off]"))
+	check("the program Off disengages the autopilot", f.autopilot.program == null)
+	await _click(_find("[data-dev-program=glide]"))
+	check("a program button engages it", f.autopilot.program == "glide")
+	hud.drive_slider("devAlt", 30.0)
+	hud.drive_slider("devSpeed", 900.0)
+	await _click(_find("[data-dev=teleport]"))
+	var air: float = f.vessel.airspeed(f.vessel.r, f.vessel.v, DVec3.new()).length()
+	check("Teleport sets altitude and airspeed (%s km, %s m/s)" % [U.fixed(f.vessel.altitude() / 1000.0, 2), U.fixed(air, 0)],
+		absf(f.vessel.altitude() - 30e3) < 300.0 and absf(air - 900.0) < 20.0)
+	var tiers: Array = hud._targets("[data-render-quality=low]")
+	await _click(tiers[-1])
+	check("the page's quality tier sets the renderer", main.render_quality == "low")
+	await _click(hud._targets("[data-render-quality=medium]")[-1])
+	await _click(_find("[data-dev=reset]"))
+	for i in 600:
+		if main.scenario_jump == null and f.vessel != null and f.vessel.met < 1.0: break
+		await get_tree().process_frame
+	await _steps(2)
+	check("Restart scenario rebuilds it", f.active and f.autopilot.state_name == "taem" and absf(f.vessel.altitude() - 24.4e3) < 500.0)
+	await _key(KEY_ESCAPE)
+	await _click(_find("[data-set=controls]"))
+	await _click(_find("devToggle"))
+	check("switching it off hides the Dev tab and saves", not _find("[data-set=dev]").is_visible_in_tree() and not DevMode.enabled())
+	await _key(KEY_ESCAPE)
+	# Back where the walk found it: the sandbox with both columns open.
+	main.end_flight()
+	main.set_app_mode("sandbox")
+	main.set_panel_open("controlPanel", true)
 	await _steps(3)
 
 func _panel_scroll(p: Control) -> float:

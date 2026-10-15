@@ -84,13 +84,15 @@ gives 9.9 m/s² once the boosters are gone):
 
 | | Simulated | Memo |
 |---|---|---|
-| Aft, 0.25 s | 0.39 m | 0.28 m, forward attach (fig. 16) |
+| Aft, 0.25 s | 0.33 m | 0.28 m, forward attach (fig. 16) |
 | Sideways velocity after the burn | 3.8 m/s | the specified 60,000 lb·s per cluster, at 40°/20° |
-| Aft, 3 s | 52 m | "primary relative motion of the SRB is rearward" |
+| Aft, 3 s | 51 m | "primary relative motion of the SRB is rearward" |
 
-Without the residual thrust the boosters fell back 0.45 m by 0.25 s. The memo flew a
-Vandenberg mission's separation state with proximity aerodynamics, so the rest of the
-difference is not attributed to any one term.
+Without the residual thrust the boosters fall back 0.38 m by 0.25 s. `residual_push`
+in `tools/assetcheck.gd` holds the 0.33 m row to ±0.015 m, and the residual's own
+travel to its closed form. The memo flew a Vandenberg mission's separation state with
+proximity aerodynamics, so the rest of the difference is not attributed to any one
+term.
 
 ## Display
 
@@ -123,10 +125,16 @@ nominal first stage in *Flight Procedures Handbook: Ascent/Aborts*, JSC-10559 Re
 - **Steering**: first-stage guidance is an open-loop attitude table against relative
   speed, I-loaded per flight; it holds pad attitude until 127 ft/s. The shared law
   θ = 90°·v₀/(v₀ + v − v_start) stands in for the table, with the Shuttle's own
-  v_start (38.7 m/s) and v₀ (720 m/s, from `ascent` in `vehicles.gd`). v₀ is
+  v_start (38.7 m/s) and v₀ (760 m/s, from `ascent` in `vehicles.gd`). v₀ is
   fitted to the staging altitude; the table's other altitudes are a check on it.
   The table lofts more than the shared default (600 m/s): after staging the stack's
   thrust barely exceeds its weight, so the solids make the climb.
+- **Throttle bucket**: the SSMEs throttle down for max-q on an I-load against
+  relative speed: 65% RPL from 658 to 1,358 ft/s (table 2.2-I), then back to
+  104.5%. `ascent.bucketFrom`/`bucketTo`/`bucketLevel` command it; full throttle is
+  104.5% RPL, so 65% is 0.622. The engines modelled are the Block II RS-25s, whose
+  floor is 67% RPL, so they fly the bucket at 67%. The shared q limit still acts
+  on top of it, so the throttle-up reaches 100% a few seconds after 1,358 ft/s.
 - **Drag**: the parallel stack's frontal area is the sum of the tank's, both
   boosters' and the orbiter's, 102 m² (80 m² once the boosters are gone).
 
@@ -165,31 +173,33 @@ reaches them.
 |---|---|---|
 | 127 ft/s (38.7 m/s), tower clear | 0.13 km, T+7 s | 387 ft (0.12 km), T+7 s |
 | 450 ft/s (137 m/s) | 1.26 km, T+20 s | 3,963 ft (1.21 km), T+20 s |
-| 658 ft/s (201 m/s) | 2.48 km, T+27 s | 8,157 ft (2.49 km), T+27 s |
-| 900 ft/s (274 m/s) | 4.45 km, T+36 s | 15,275 ft (4.66 km), T+38 s |
-| 1,335 ft/s (407 m/s) | 9.71 km, T+54 s | 34,150 ft (10.41 km), T+58 s |
-| 1,504 ft/s (458 m/s) | 11.72 km, T+59 s | 41,058 ft (12.51 km), T+64 s |
-| 2,628 ft/s (801 m/s) | 22.14 km, T+83 s | 79,029 ft (24.09 km) |
-| Max-q | 35.6 kPa (743 psf), T+50 s, 8.6 km | about 33 kPa at 1,335 ft/s, 34,150 ft; "just prior to throttle up" |
-| SRB separation | T+123.3 s, 47.4 km | T+124 s, 155,315 ft (47.3 km); KSC: 156,000 ft |
-| Relative speed | 1.44 km/s (4,711 ft/s) | 4,139 ft/s (1.26 km/s); STS-30: 4,212 ft/s; Bacchus: about 4,600 ft/s |
-| Inertial speed | 1.81 km/s (5,945 ft/s) | 5,336 ft/s (1.63 km/s) |
-| Climb rate, flight path | 651 m/s, 27° | about 700 m/s, for KSC's apogee |
+| 658 ft/s (201 m/s) | 2.49 km, T+27 s | 8,157 ft (2.49 km), T+27 s |
+| 900 ft/s (274 m/s) | 4.83 km, T+38 s | 15,275 ft (4.66 km), T+38 s |
+| 1,335 ft/s (407 m/s) | 10.44 km, T+57 s | 34,150 ft (10.41 km), T+58 s |
+| 1,504 ft/s (458 m/s) | 12.23 km, T+62 s | 41,058 ft (12.51 km), T+64 s |
+| 2,628 ft/s (801 m/s) | 22.66 km, T+85 s | 79,029 ft (24.09 km) |
+| Max-q | 32.5 kPa (679 psf), T+52 s, 8.8 km; 32.4 kPa at 1,335 ft/s | about 33 kPa at 1,335 ft/s, 34,150 ft; "just prior to throttle up" |
+| SRB separation | T+123.3 s, 47.3 km | T+124 s, 155,315 ft (47.3 km); KSC: 156,000 ft |
+| Relative speed | 1.39 km/s (4,544 ft/s) | 4,139 ft/s (1.26 km/s); STS-30: 4,212 ft/s; Bacchus: about 4,600 ft/s |
+| Inertial speed | 1.76 km/s (5,762 ft/s) | 5,336 ft/s (1.63 km/s) |
+| Climb rate, flight path | 669 m/s, 29° | about 700 m/s, for KSC's apogee |
 
 The table gives 2,628 ft/s at "01:18", which its own altitudes rule out (41,058 to
 79,029 ft in 14 s at under 2,628 ft/s), so only the altitude is compared.
 
 Known differences:
-- The SSMEs fly no throttle bucket of their own. The flown one (65% from 658 to
-  1,358 ft/s) is an I-load; here the shared q limit throttles them, to 71% at
-  T+50 s. From T+40 s the model is ahead of the table, and max-q comes 8 s early
-  and 8% high. With the flown throttle schedule the SSMEs would deliver about
-  27 m/s less by staging.
-- At staging the stack carries 186 m/s more inertial speed than table 2.2-I, at
-  the flown altitude. The steering cannot remove that energy. The solids now
-  deliver their measured impulse on their measured schedule, and the missing
-  throttle bucket explains only 27 m/s. The rest is in the drag or the masses,
+- Max-q is flat through the bucket, 32.4–32.5 kPa from T+52 s to the throttle-up,
+  where the flight data give about 33 kPa just before it. The model reaches each
+  speed from 900 ft/s on up to 2 s early.
+- At staging the stack carries 130 m/s more inertial speed than table 2.2-I, at
+  the flown altitude. The steering cannot remove that energy. The bucket took
+  56 m/s of the 186 m/s excess the model had without it (with v₀ refitted from
+  720 m/s to keep the staging altitude). The rest is in the drag or the masses,
   which nothing here measures.
+
+`tools/sharedflightcheck.gd` (`only=shuttle`) requires separation within 1 km of
+47.3 km and 2 s of T+124 s, and max-q between 30 and 35 kPa; without the bucket it
+fails at 35.3 kPa and 48.7 km.
 
 ## Recovery
 
@@ -284,12 +294,11 @@ now drops the boosters where the flown one did ([Ascent](#ascent)):
 
 | | Simulated | Flown | Tolerance |
 |---|---|---|---|
-| Apogee | 69.7 km | 238,000 ft (72.5 km) | 8% |
-| Apogee time | T+193 s | T+196 s | 8% |
-| Splashdown time | T+415 s | T+414 s | 8% |
+| Apogee | 71.4 km | 238,000 ft (72.5 km) | 8% |
+| Apogee time | T+195 s | T+196 s | 8% |
+| Splashdown time | T+418 s | T+414 s | 8% |
 
-They separate 0.7 s early and climbing a little slowly (651 m/s), so the apogee is
-4% low. Bacchus's lower apogee, 220,000 ft (67 km), is
-read off fig. 1 of Bacchus et al. and is not checked. The fall is held to what it
-controls separately: the apogee within 10% of the vacuum apogee from the hand-off
+They separate 0.7 s early and climbing a little slowly (669 m/s), so the apogee is
+1.5% low. Bacchus's lower apogee, 220,000 ft (67 km), is read off fig. 1 of
+Bacchus et al. and is not checked. The fall is held to what it controls separately: the apogee within 10% of the vacuum apogee from the hand-off
 state (the tumbling booster's drag on the way up costs about 0.5 km).

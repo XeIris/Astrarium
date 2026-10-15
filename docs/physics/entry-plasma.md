@@ -36,6 +36,18 @@ With c = n̂·v̂ the cosine of incidence (v̂ the body's direction through the 
 - the gas's radiance climbs faster than the wall flux with the shock's
   strength, so the layer shines as (local flux)^1.5;
 - c ≤ 0 is dark: the leeward side and anything facing away from the air;
+- so is skin in the body's own lee (Newtonian shadowing): the air meets the
+  first surface in its path and nothing behind it. The wake's grid (below)
+  keeps, for each column along the flow, the most upstream skin depth; it is
+  uploaded as a texture every 0.1 s, and each shell fragment compares its own
+  skin point's depth with the four nearest columns. A point more than the
+  tolerance behind is sheltered, blended over a second tolerance so the edge is
+  soft. The tolerance is the wake's (the larger of 4% of the diameter and
+  0.6 cell) plus the depth the point's own surface spans across 1.5 cells,
+  1.5 cell·tan θ, so slanted windward skin does not shade itself. The samples
+  are sparse, so an empty column with skin on both sides within two cells
+  takes the lower of the two and the silhouette does not grow. The orbiter's
+  fin and OMS pods, forward-facing but behind the fuselage at 40° α, go dark;
 - the local temperature is T₀·(local flux)^¼, where T₀ is the stagnation
   temperature derived from q₀, and it sets the colour: deep red near 2000 K,
   red-orange by 3500 K, yellow-orange by 5000 K, blue-white above 8000 K;
@@ -73,8 +85,9 @@ blinding one.
 
 - No radiative transfer, no chemistry and no ablation products. The colour
   ramp is the progression seen in entry imagery, not a spectrum.
-- Newtonian shadowing is applied only to the wake's departure points. The
-  layer itself is masked by incidence alone, so a forward-facing surface in the
-  lee (the fin's leading edge) can glow faintly.
+- Shadowing is Newtonian: a sheltered surface is dark however close it is to
+  the shock. Real lee flow is not quite empty (the fin sees a weak expansion
+  flow), and the 28-column grid resolves shelter to about 1/28 of the body,
+  so a small part near the edge of a shadow is softened rather than cut.
 - The curvature estimate is per pixel, so its effect varies with distance from
   the camera. Its clamp keeps the change bounded.

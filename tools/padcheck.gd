@@ -89,8 +89,9 @@ func _run() -> void:
 				if float(arm.p) < 1.0: all_open = false
 			for m in moving:
 				var arm: Dictionary = m.arm
-				# A parked arm before release was covered by the rest test.
-				if t <= 0.0 and (float(arm.p) <= 0.0 or float(arm.p) >= 1.0): continue
+				# A parked arm before release was covered by the rest test, unless an arm
+				# that carries it is moving.
+				if t <= 0.0 and (m.carriers as Array).all(func(c): return float(c.p) <= 0.0 or float(c.p) >= 1.0): continue
 				var xf: Transform3D = inv * (arm.group as Node3D).global_transform
 				for p0 in m.pts:
 					var p: Vector3 = xf * (p0 as Vector3) - Vector3(0.0, rise, 0.0)
@@ -150,17 +151,25 @@ func _flown_rise(key: String, veh: Dictionary) -> Callable:
 		return h[i]
 
 ## Every vertex (and triangle centroid) of each moving arm, in the arm's own frame.
+## An arm that carries another (the GOX vent arm and its hood) leaves the inner one
+## out: it has its own entry, which follows both motions.
 func _arm_points(site: LaunchSite, inv: Transform3D) -> Array:
 	var out := []
+	var groups := {}
+	for arm in site.arms: groups[arm.group] = true
 	for arm in site.arms:
 		var grp: Node3D = arm.group
 		var to_arm := (inv * grp.global_transform).affine_inverse()
 		var pts := PackedVector3Array()
-		_collect(grp, inv, to_arm, pts)
-		out.append({"arm": arm, "pts": pts})
+		_collect(grp, inv, to_arm, pts, groups)
+		# itself and every arm it rides on
+		var carriers := []
+		for other in site.arms:
+			if other.group == grp or (other.group as Node).is_ancestor_of(grp): carriers.append(other)
+		out.append({"arm": arm, "pts": pts, "carriers": carriers})
 	return out
 
-func _collect(n: Node, inv: Transform3D, to_arm: Transform3D, pts: PackedVector3Array) -> void:
+func _collect(n: Node, inv: Transform3D, to_arm: Transform3D, pts: PackedVector3Array, skip := {}) -> void:
 	if n is Node3D and not (n as Node3D).visible: return
 	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
 		var xf := to_arm * inv * (n as MeshInstance3D).global_transform
@@ -178,7 +187,8 @@ func _collect(n: Node, inv: Transform3D, to_arm: Transform3D, pts: PackedVector3
 				var b: Vector3 = v[ix[t + 1] if indexed else t + 1]
 				var c: Vector3 = v[ix[t + 2] if indexed else t + 2]
 				pts.append(xf * ((a + b + c) / 3.0))
-	for c in n.get_children(): _collect(c, inv, to_arm, pts)
+	for c in n.get_children():
+		if not skip.has(c): _collect(c, inv, to_arm, pts, skip)
 
 ## Triangle sample points of every visible mesh, in the site's frame, to `fn`.
 func _each_point(n: Node, inv: Transform3D, fn: Callable) -> void:
