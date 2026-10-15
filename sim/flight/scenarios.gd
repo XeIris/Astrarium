@@ -386,8 +386,8 @@ static func _stage(v: Vessel, key: String):
 
 ## The warp rung a scenario is flown at: 1× in the count and in the air; above it 2×
 ## under power (the most the flight panel integrates at) and 10× on unpowered coasts,
-## as tools/missioncheck.gd flies them. Not 2× in the air: guidance is stepped once a
-## frame, and frames of twice the flight time lose the orbiter in its entry.
+## as tools/missioncheck.gd flies them. Not 2× in the air: a Shuttle ascent flown
+## that way cuts off 10 km higher than at 1×.
 static func played_warp(f: Spaceflight) -> int:
 	var v := f.vessel
 	var top: float = float(v.env.atm.top) if v.env.atm != null else 0.0

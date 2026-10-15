@@ -22,7 +22,10 @@ The condition (`until`) is flown by `FlightScenarios.Jump`: the frame loop
 `main.step_flight` that `animate()` runs, at a frame of 50 ms (the longest frame the
 game takes, so the jump is a flight played at 20 fps), undrawn. The warp is what a
 player could choose, picked by `FlightScenarios.played_warp`: 1× in the count and in
-the air, 2× under power above it, 10× on unpowered coasts above it. One exception
+the air, 2× under power above it, 10× on unpowered coasts above it. Guidance runs
+once per frame interval of flight time (`Spaceflight.update`), so 2× in the air
+lands the orbiter as 1× does, but a Shuttle ascent flown at 2× in the air still cuts
+off 10 km higher; the jump stays at 1× there. One exception
 leaves the played path: an unpowered coast down to the air with no burn pending is
 flown in one step on its exact conic (`Vessel.step`'s rails), to 25 km above the
 atmosphere's top, where guidance takes the attitude over again. That coast is
@@ -132,9 +135,6 @@ here), which the later booster scenarios avoid.
 
 ## Known limits
 
-- Guidance is stepped once a frame with the frame's wall time, so a flight at 2× in
-  the air steers at half the rate of the flight time it integrates. The orbiter does
-  not survive its entry at 2× (it is lost at 37 km); scenarios never fly 2× in the air.
 - Super Heavy's return from its boostback apogee solves the boostback's aim by flying
   the coast up to eight times (`CatchTower.return_state`, several seconds). The solve
   starts from the last solution for that booster, so a second jump costs one try; the
