@@ -492,6 +492,7 @@ func update(o: Dictionary) -> Dictionary:
 			var gz: Vector3 = to_geo.call(north)
 			# Matrix3.set() is row-major: its COLUMNS are gx, gy, gz.
 			ground_mat.set_shader_parameter("uGeoFrame", Basis(gx, gy, gz))
+			_hold_planet_map(env.body, site_up.to_v3(), lat, lon)
 			ground_mat.set_shader_parameter("uPadLocal", Vector2((pad as DVec3).dot(east), (pad as DVec3).dot(north)))
 			ground_mat.set_shader_parameter("uGeoReady", 1.0)
 	var sw: DVec3 = o.sunDirWorld
@@ -514,6 +515,24 @@ func update(o: Dictionary) -> Dictionary:
 	# Planetshine: strong in low orbit over a bright planet, gone in deep space.
 	_set_ambient(clampf(0.75 * (1.0 - h / 8e5), 0.04, 0.75))
 	return {"east": east, "north": north, "up": up.clone(), "sun_local": sun_l, "sun_visible": sun_vis}
+
+## Turn the orrery's planet so its map has the mapped site (lat, lon, rad) under
+## the pad's world direction `pad_up`, north on −Y. Seen from past the ground patch,
+## the vehicle is then over the ground it launched from, turning at the real rate.
+func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float) -> void:
+	if body == null: return
+	var viz = (body as Body).viz
+	if viz is Bodies.AccretionWrap: viz = viz.inner
+	if not viz is RockyVisual.RockyViz: return
+	# The surface mesh's map direction (RockyVisual.sphere_geometry): u = φ/2π, with
+	# 0° longitude at u = ½, north on +Y.
+	var phi := lon + PI
+	var o_up := Vector3(-cos(phi) * cos(lat), sin(lat), sin(phi) * cos(lat))
+	var frame := func(north: Vector3, up: Vector3) -> Basis:
+		var e := north.cross(up).normalized()
+		return Basis(e, up.cross(e), up)
+	var B: Basis = frame.call(Vector3(0.0, -1.0, 0.0), pad_up) * (frame.call(Vector3.UP, o_up) as Basis).transposed()
+	(viz as RockyVisual.RockyViz).hold_surface(B)
 
 ## THE CLOUD LAYER, per frame: planet-fixed frame, lighting, and whether this world
 ## has one. Earth only: Venus's deck is a murk the dome already draws, and Mars's

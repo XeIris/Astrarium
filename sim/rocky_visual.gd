@@ -210,6 +210,11 @@ class RockyViz extends RefCounted:
 	var sea_km0: float
 	var tilt_q := Quaternion()
 	var _cover := -1.0
+	## The surface's world orientation while a flight is over this world (LocalView
+	## sets it each frame), so the map under the vehicle is the ground it launched
+	## from. Lapses a frame after the flight stops setting it.
+	var surface_world := Basis()
+	var _surface_world_frame := -10
 
 	func _init(b: Body, o: VisualOpts) -> void:
 		body = b
@@ -286,6 +291,10 @@ class RockyViz extends RefCounted:
 		cloud_mat.set_shader_parameter("uCover", c)
 		cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(c))
 
+	func hold_surface(world: Basis) -> void:
+		surface_world = world
+		_surface_world_frame = Engine.get_process_frames()
+
 	func _u(m: ShaderMaterial, k: String) -> float:
 		return float(m.get_shader_parameter(k))
 
@@ -308,12 +317,20 @@ class RockyViz extends RefCounted:
 		else:
 			b.spin_phase = fmod(b.spin_phase + float(b.visual_spin_rad_s) * dt, TAU)
 		surface.rotation.y = b.spin_phase
+		var held := Engine.get_process_frames() - _surface_world_frame <= 1
+		if held:
+			# The group carries the obliquity and the size ease; undo only its rotation.
+			surface.basis = Basis(group.quaternion.inverse()) * surface_world
 		if clouds != null:
 			# The deck super-rotates slightly; it also needs its own accumulator
 			# rather than a scaled read of spinPhase, which would jump at each wrap.
 			b.cloud_phase = fmod(b.cloud_phase + float(b.visual_spin_rad_s) * dt * 0.985, TAU)
 			clouds.rotation.y = b.cloud_phase
 			cloud_mat.set_shader_parameter("uSurfTurn", b.cloud_phase - b.spin_phase)
+			if held:
+				# Over a flight the deck turns with the ground, so its deserts stay put.
+				clouds.basis = surface.basis
+				cloud_mat.set_shader_parameter("uSurfTurn", 0.0)
 			cloud_mat.set_shader_parameter("uTime", _u(cloud_mat, "uTime") + dt)
 		surf_mat.set_shader_parameter("uTime", _u(surf_mat, "uTime") + dt)
 
