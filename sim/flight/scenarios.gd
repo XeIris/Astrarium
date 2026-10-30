@@ -84,8 +84,10 @@ static func _build_list() -> Dictionary:
 		_sc("falcon9", "max_q", "Max-Q", "Ascent", _pad(), {"past_max_q": true}, {"alt": [8e3, 13e3], "q": [28e3, 38e3]}),
 		_sc("falcon9", "meco", "MECO and stage separation", "Ascent", _pad(), {"burnout_in": ["f9s1", 4.0]},
 			{"alt": [55e3, 68e3], "attached": ["f9s1"]}),
-		_sc("falcon9", "fairing", "Fairing jettison", "Ascent", _pad(), {"since_drop": ["f9s1", 101.0]},
-			{"alt": [110e3, 135e3], "attached": ["f9fair"]}),
+		# Free-molecular heating falls through 1135 W/m² near 112 km, T+222 s (73 s after
+		# staging); the real vehicle drops its fairing about T+3:30 near 110 km.
+		_sc("falcon9", "fairing", "Fairing jettison", "Ascent", _pad(), {"since_drop": ["f9s1", 70.0]},
+			{"alt": [100e3, 125e3], "attached": ["f9fair"]}),
 		_sc("falcon9", "orbit", "Parking orbit", "Orbit",
 			{"kind": "orbit", "alt": 210e3, "inc": 28.5, "drop": 1, "jettison": ["f9fair"], "prop": {"f9s2": 15000.0}}, {},
 			{"alt": [200e3, 220e3], "attached": ["f9s2", "f9pl"], "phase": "orbit"}),

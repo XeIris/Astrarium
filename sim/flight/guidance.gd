@@ -283,7 +283,7 @@ class Autopilot extends RefCounted:
 		if q_lim > 0.0 and env.atm != null:
 			var air_frac: float = t.airspeed / maxf(t.speed, 1.0)
 			while h_ins < A.targetApo and Rocketry.heat_flux(Rocketry.density(env.atm, h_ins),
-					v_ins * air_frac, v.diameter * 0.25) > q_lim:
+					v_ins * air_frac, v.diameter * 0.25, env.atm) > q_lim:
 				h_ins = minf(h_ins + 2000.0, A.targetApo)
 				v_ins = _perigee_speed(env, h_ins, r_a)
 		var dv_h: float = maxf(v_ins - v_horiz, 0.0) if dv_e < 0.0 else dv_e

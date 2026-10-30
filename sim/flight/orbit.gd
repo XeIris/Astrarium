@@ -41,15 +41,15 @@ static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_
 	var sqmu := sqrt(mu)
 	var rdotv := _r0.dot(_v0)
 	var alpha := 2.0 / r0 - v0 * v0 / mu               # = 1/a; negative ⇒ hyperbolic
+	# A rectilinear conic (h² = μp ≈ 0) runs through the centre: leave it to the integrator.
+	if r0 * r0 * v0 * v0 - rdotv * rdotv <= 1e-12 * mu * r0: return false
 
-	# Initial universal anomaly: exact for a circle; Vallado's hyperbolic guess keeps
-	# Newton sane near parabolic.
+	# Initial universal anomaly (Vallado): √μ·Δt·α is exact for a circle and right in
+	# scale for any number of revolutions; the hyperbolic guess keeps Newton sane near
+	# parabolic. F(x) is monotonic (dF/dx = r > 0), so the root is unique.
 	var x: float
 	if alpha > 1e-12:
 		x = sqmu * dt * alpha
-		# Guard the near-2π case, where the elliptic guess overshoots a whole rev.
-		if absf(alpha * sqmu * dt) > 2.0 * PI:
-			x = signf(dt) * sqrt(1.0 / alpha) * 2.0 * PI
 	elif alpha < -1e-12:
 		var a := 1.0 / alpha
 		var s := signf(dt) * sqrt(-a)
