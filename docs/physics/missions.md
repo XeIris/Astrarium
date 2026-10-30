@@ -22,9 +22,12 @@ otherwise clear of any air.
 | another planet | Hohmann about C, escape and capture hyperbolas | departure `√(v∞² + 2μ_P/r₀) − √(μ_P/r₀)`; the burn is far smaller than the heliocentric Δv it buys (the Oberth effect) |
 
 The first course correction is mostly a plane change. The parking orbit is
-inclined by the launch site's latitude (28.5° from the Cape). Turning the
-transfer into the destination's plane two thirds of the way out costs about
-`2·v·sin(i/2)` at the speed there.
+inclined to the equator by the launch site's latitude (28.5° from the Cape), and
+the Moon's orbit is 18°–29° from the equator, so the angle between them depends
+on the nodes. From the ground the planner takes the plane a due-east launch
+would reach now (its pole is the site's north). Turning the transfer into the
+destination's plane two thirds of the way out costs about `2·v·sin(i/2)` at the
+speed there.
 
 Propellant comes from the rocket equation, stage by stage from the lowest one
 lit (`Mission.propellant_for`). The route is feasible when the Δv it needs is no
@@ -35,7 +38,9 @@ more than the vehicle's `delta_v_remaining`.
 The departure waits until the phase angle φ (the target ahead of the departure
 body, about C) reaches the Hohmann value `π − 2π·t_tof/T_target`. φ changes at
 `n_target − n_dep` (difference of mean motions), so the wait is
-`(φ_want − φ_now)/(n_tgt − n_dep)`, wrapped into one synodic period.
+`(φ_want − φ_now)/(n_tgt − n_dep)`, wrapped into one synodic period. For a moon, φ is
+measured in the parking orbit's plane (`Orbit.phase_angle` with its normal),
+since that orbit and the moon's can be tens of degrees apart.
 
 ## Flying it
 
@@ -67,7 +72,11 @@ seconds of real time, which is why a Mars transfer can be watched end to end.
    radius. It keeps the speed, and so the energy. The periapsis speed is then
    `v_p = √(v² − 2μ/r + 2μ/r_p)`, and the angular momentum needed is `r_p·v_p`,
    so the velocity is turned in its own plane until its tangential part is
-   `r_p·v_p/r`.
+   `r_p·v_p/r`. The conic leaves out the parent's tide, about 8×10⁻⁴ m/s² at the
+   edge of the Moon's sphere, which moves the periapsis by hundreds of kilometres
+   over a 15-hour coast in. The same burn is made again three hours before
+   periapsis if the periapsis is then more than a quarter of the parking
+   altitude off (Apollo's last midcourse correction played the same part).
 4. **Capture.** The burn is retimed from the current conic just before it
    starts, because the other bodies' pull moves periapsis over a coast of hours.
    It is closed-loop: it chases the circular velocity at wherever the vehicle

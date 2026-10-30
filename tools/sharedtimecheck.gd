@@ -129,7 +129,7 @@ func _ready() -> void:
 		# A deterministic outward line bypasses the orbital wait for departure.
 		if stage.flight.cruise == null:
 			var mission: Dictionary = stage.flight.missions()[0]
-			stage.flight.vessel.r.copy_from(stage.flight.mission_direction(mission)).scale_in(7e6)
+			stage.flight.vessel.to_local(stage.flight.mission_direction(mission), stage.flight.vessel.r).scale_in(7e6)
 			stage.flight.begin_cruise(null, 1.5, mission)
 		check("cruise entered", stage.flight.cruise != null)
 		if stage.flight.cruise != null:
@@ -150,7 +150,7 @@ func _ready() -> void:
 		orbit("hailmary")
 		frame("before lunar transfer", 0.1)
 		var moon: Body = stage.flight.body_named("Moon")
-		stage.flight.vessel.r.copy_from(moon.pos).sub_in(stage.flight.vessel.parent.pos).scale_in(Rocketry.AU_M)
+		stage.flight.vessel.body_offset(moon, stage.flight.vessel.r)
 		DQuat.set_len(stage.flight.vessel.r, 7e6)
 		stage.flight.begin_cruise(moon, 1.5)
 		check("lunar transfer entered", stage.flight.cruise != null)

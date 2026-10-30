@@ -302,15 +302,56 @@ const SURFACES := {
 	"Pluto":   { "day": -551854.0,  "albedo": 0.52, "teq": 44.0,  "ground": 0xa89484, "rock": 0x8a7466 },
 }
 
+# SPIN POLES: IAU WGCCRE north poles at J2000, [RA°, Dec°] in ICRF (Archinal et al. 2018,
+# Celest. Mech. Dyn. Astron. 130:22, tables 1–2), periodic terms summed at J2000 for the
+# Moon, Mars and Neptune; no precession. "North" is the ecliptic-north side, so a negative
+# SURFACES `day` turns retrograde about it. Pluto's report gives the positive pole; this
+# is its opposite. A star keeps the ecliptic frame, where heliocentric inclinations are read.
+const POLES := {
+	"Mercury": [281.0103, 61.4155], "Venus": [272.76, 67.16],
+	"Earth": [0.0, 90.0], "Moon": [266.8628, 65.6414], "Mars": [317.6809, 52.8864],
+	"Jupiter": [268.056595, 64.495303], "Saturn": [40.589, 83.537], "Uranus": [257.311, -15.175],
+	"Neptune": [299.3337, 42.9504], "Pluto": [312.993, 6.163], "Titan": [39.4827, 83.4279],
+	"Europa": [268.08, 64.51],
+}
+const OBLIQUITY_J2000 := 84381.448 / 3600.0 * PI / 180.0   # IAU 1976 ε at J2000
+
+## A J2000 equatorial direction (RA, Dec in radians) in orrery axes: the ecliptic in
+## XZ, north on −Y, the equinox on +X.
+static func equatorial_dir(ra: float, dec: float) -> DVec3:
+	var eps := OBLIQUITY_J2000
+	var xq := cos(dec) * cos(ra)
+	var yq := cos(dec) * sin(ra)
+	var zq := sin(dec)
+	var ye := yq * cos(eps) + zq * sin(eps)
+	var ze := -yq * sin(eps) + zq * cos(eps)
+	return DQuat.nrm(DVec3.new(xq, -ze, ye))
+
+## The rotation from `body`'s equatorial frame (its north pole on −Y) to orrery axes:
+## world = frame · local. The shortest arc from −Y, so Earth's frame keeps the
+## equinox on +X and is J2000 equatorial in the orrery's axis convention. A world
+## with no measured pole tilts by its `obliquity` about +Z, as RockyVisual draws it.
+static func spin_frame(body: Body) -> DQuat:
+	var south := DVec3.new(0.0, -1.0, 0.0)
+	var pole: DVec3
+	if POLES.has(body.name):
+		var p: Array = POLES[body.name]
+		pole = equatorial_dir(deg_to_rad(float(p[0])), deg_to_rad(float(p[1])))
+	elif is_finite(body.obliquity) and body.obliquity != 0.0:
+		pole = DVec3.new(sin(body.obliquity), -cos(body.obliquity), 0.0)
+	else:
+		return DQuat.new()
+	return DQuat.new().set_from_unit_vectors(south, pole)
+
 ## Measured mean radii (km) for the moons and worlds a preset may not carry one
 ## for. Used only when the body itself has no radiusKm.
 const RADII_KM := { "Moon": 1737.4, "Titan": 2574.7, "Europa": 1560.8, "Phobos": 11.27 }
 
 ## Everything a vessel needs about one body, in SI. `mu` comes from the body's
 ## current mass, so an edited planet flies differently at once. Reads name, mass,
-## radius and day_length (only without a SURFACES entry). Returns name, body, mu,
-## radius, gSurf, atm (or null), teq, rotRate, vRotEq, daySec, ground, rock, oceans,
-## sea, vEsc, vCirc, karman.
+## radius, obliquity and day_length (only without a SURFACES entry). Returns name, body,
+## mu, radius, gSurf, atm (or null), teq, rotRate, vRotEq, daySec, frame (spin_frame),
+## ground, rock, oceans, sea, vEsc, vCirc, karman.
 static func flight_env(body: Body) -> Dictionary:
 	var name := body.name
 	var mass_sun := body.mass
@@ -338,6 +379,7 @@ static func flight_env(body: Body) -> Dictionary:
 		"rotRate": (-1.0 if has_neg_day else 1.0) * 2.0 * PI / day_sec,
 		"vRotEq": 2.0 * PI * radius / day_sec,
 		"daySec": day_sec,
+		"frame": spin_frame(body),
 		"ground": surf.get("ground", 0x7a7266), "rock": surf.get("rock", 0x5f584f),
 		"oceans": surf.get("oceans", false), "sea": surf.get("sea", 0x1b3a6b),
 		# Escape speed and circular speed at the surface — the two numbers that say
