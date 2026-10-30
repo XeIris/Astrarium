@@ -2,6 +2,7 @@
 // a hard bubble ring), so brightness falls off smoothly and streamers can be drawn in
 // screen space. The product uColor·a·(a/2) is formed here and blended ONE, ONE
 // (blend_premul_alpha, ALPHA = 0). Depth test off: it adds over the photosphere.
+// The temperature pass writes only the spicule fringe (replace, ALPHA = 1).
 shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled, cull_disabled;
 
@@ -12,13 +13,19 @@ uniform vec3 uColor = vec3(1.0);
 uniform float uFlux = 1.0;
 uniform float uSize = 1.0;
 uniform float uCore = 0.22;
+// The chromosphere's H-α red, for the spicule fringe at the limb (linear).
+uniform vec3 uChromo = vec3(1.0, 0.144, 0.058);
 
 varying vec2 vP;
+varying vec3 vView;
+varying vec3 vCentre;
 
 void vertex() {
 	vP = VERTEX.xy;
 	// billboard: offset in view space from the object's origin
 	vec4 centre = MODELVIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0);
+	vCentre = centre.xyz;
+	vView = centre.xyz + vec3(VERTEX.xy * uSize, 0.0);
 	POSITION = PROJECTION_MATRIX * (centre + vec4(VERTEX.xy * uSize, 0.0, 0.0));
 }
 
@@ -55,10 +62,29 @@ void fragment() {
 
 	float a = clamp(glow, 0.0, 4.0) * uFlux;
 	float srcA = a * 0.5;
+
+	// The view ray's closest approach to the star's centre, in stellar radii past the
+	// limb: exact from any viewpoint, which the billboard's own radius is not.
+	vec3 d = normalize(vView);
+	float R = uCore * uSize;
+	float x = length(vCentre - d * dot(vCentre, d)) / R - 1.0;
+	if (dot(vCentre, d) < 0.0) x = 1e3;
+
+	// SPICULES: the chromosphere's top is a forest of jets ~10 Mm (0.015 R) high, so
+	// the limb is a ragged red fringe rather than an edge.
+	float hgt = 0.009 + 0.010 * fbm(vec2(ang * 260.0, uTime * 0.25)) + 0.004 * vnoise(vec2(ang * 1300.0, 0.0));
+	float spic = smoothstep(-0.002, 0.001, x) * (1.0 - smoothstep(hgt * 0.4, hgt, x));
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
-		ALBEDO = vec3(srcA * srcA, 0.0, 0.0);   // additive alpha: a·a + d
+		// The spicules are 10⁴ K chromosphere, dark outside the visible. The corona's own
+		// glow is too faint in visible light for the band remap's coverage, so it leaves
+		// the value underneath: off the disc that is the sky's ("already imaged"), which
+		// carries the glow into every band, rather than a colour-guessed 5000 K that
+		// would black it out.
+		if (spic < 0.3 || x <= 0.0) discard;
+		ALBEDO = vec3(temp_code(1.0e4), 0.0, 0.0);
+		ALPHA = 1.0;
 	} else {
-		ALBEDO = uColor * a * srcA;
+		ALBEDO = uColor * a * srcA + uChromo * spic * 0.10;
+		ALPHA = 0.0;
 	}
-	ALPHA = 0.0;
 }
