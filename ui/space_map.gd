@@ -86,8 +86,7 @@ func close() -> void:
 
 func _au(b: Body) -> DVec3: return b.pos
 func ship_pos() -> DVec3:
-	var v: Vessel = flight.vessel
-	return v.parent.pos.clone().add_scaled_in(v.r, 1.0 / Rocketry.AU_M)
+	return (flight.vessel as Vessel).world_pos()
 
 ## World AU → screen px. The view looks down on the ecliptic with prograde
 ## counter-clockwise.
@@ -193,7 +192,7 @@ func _draw() -> void:
 	_draw_route()
 	# The vessel's own conic about its parent, clipped to the sphere it is in.
 	var mu := Rocketry.GM_SUN * v.parent.mass
-	var cn := _conic(v.r, v.v, mu, v.parent.pos, v.soi_of(v.parent))
+	var cn := _conic(v.to_world(v.r, DVec3.new()), v.to_world(v.v, DVec3.new()), mu, v.parent.pos, v.soi_of(v.parent))
 	_polyline(cn[0], Color(SHIP, 0.8), 1.4, cn[1])
 	# Bodies, then labels on top.
 	var labels: Array = []
@@ -256,7 +255,8 @@ func _draw_route() -> void:
 			C = v.parent
 			r0 = maxf(v.r.length(), Mission.park_radius(C))
 			r2 = Mission._rel_pos(dest, C).length()
-			ang0 = atan2(-float(v.r.z), float(v.r.x)) if v.phase == Vessel.PHASE.ORBIT else atan2(-float(Mission._rel_pos(dest, C).z), float(Mission._rel_pos(dest, C).x)) + PI
+			var rw := v.to_world(v.r, DVec3.new())
+			ang0 = atan2(-float(rw.z), float(rw.x)) if v.phase == Vessel.PHASE.ORBIT else atan2(-float(Mission._rel_pos(dest, C).z), float(Mission._rel_pos(dest, C).x)) + PI
 		"planet":
 			C = plan.primary
 			var rp := Mission._rel_pos(v.parent, C)

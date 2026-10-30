@@ -130,7 +130,7 @@ func morning_longitude(bodies: Array, body: Body) -> float:
 		if b.type == "star" or b.type == "white-dwarf":
 			if b.mass > (src.mass if src != null else -1.0): src = b
 	if src == null or src == body: return 0.0
-	var a := DQuat.nrm(DVec3.new().sub_vectors(src.pos, body.pos))
+	var a := DQuat.rotate(DVec3.new().sub_vectors(src.pos, body.pos), Rocketry.spin_frame(body).invert())
 	var sub := atan2(a.z, a.x) * 180.0 / PI
 	return sub - 22.0
 
@@ -253,7 +253,7 @@ func begin_cruise(st: S) -> void:
 	for s in vessel.stages:
 		if s.attached and s.spec.get("engine") != null and s.spec.engine.get("photon", false):
 			stg = s; break
-	var origin := vessel.parent.pos.clone().add_scaled_in(vessel.r, 1.0 / Rocketry.AU_M)
+	var origin := vessel.world_pos()
 	var tpos := origin.clone().add_in(DVec3.new(11.9 * Relativity.LY_AU, 0.0, 0.0))
 	var a: float = (stg.spec.engine.holdAccel / Rocketry.G0) * Rocketry.G0
 	st.cruise = Relativity.Cruise.new({
@@ -292,7 +292,7 @@ func frame(st: S, dt: float) -> void:
 		vessel.met = cruise.tau; vessel.coord = cruise.t
 		vessel.clock_delta = cruise.tau - cruise.t
 		var facing := -1.0 if cruise.leg == "decel" else 1.0
-		_q.set_from_unit_vectors(DVec3.new(0.0, 1.0, 0.0), _b.copy_from(cruise.dir).scale_in(facing))
+		_q.set_from_unit_vectors(DVec3.new(0.0, 1.0, 0.0), vessel.to_local(cruise.dir, _b).scale_in(facing))
 		vessel.q.slerp_in(_q, 1.0 - exp(-dt * 1.4))
 		Relativity.sky_boost(cruise.dir, cruise.beta, st.boost)
 	else:

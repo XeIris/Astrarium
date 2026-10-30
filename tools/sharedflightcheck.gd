@@ -59,7 +59,10 @@ func _init() -> void:
 		var finite := true
 		var start := Time.get_ticks_usec()
 		while frames < int(sc.maxFrames):
-			var coast: bool = flight.autopilot.program == "circularize" and ship.throttle == 0.0
+			# Paced as Mission._pace paces it: coast warp only while apoapsis is more than
+			# 150 s off, so the insertion burn is flown at 1× and cut off within a frame.
+			var coast: bool = flight.autopilot.program == "circularize" and ship.throttle == 0.0 \
+				and ship.telemetry.has("el") and Orbit.time_to_apoapsis(ship.telemetry.el, ship.env.mu) > 150.0
 			flight.set_warp(Spaceflight.WARPS.find(int(sc.get("coastWarp", 1) if coast else sc.get("warp", 1))))
 			flight.state.last_steps = 0
 			flight.update(number(fixture.dt), null, world)
@@ -98,12 +101,22 @@ func _init() -> void:
 			if not stage_ok: print("SHARED FLIGHT shuttle SRB separation %s (T+ s, m), want T+124 s at 47.3 km" % [staged])
 			if not q_ok: print("SHARED FLIGHT shuttle max-q %.1f kPa at T+%.1f s, want 30–35 kPa" % [ship.max_q / 1000.0, ship.max_q_t])
 			valid = valid and stage_ok and q_ok
+		# The orbit against Earth's IAU equator in orrery axes, so the frame is under test
+		# and not only the vessel's own pole. The ascent steers along its inertial
+		# velocity, which the ground's rotation points east from the pad, so it reaches
+		# the pad's latitude whatever its target.
+		var lat: float = ship.launch_site.lat
+		var h := ship.to_world(ship.r.cross(ship.v), DVec3.new())
+		var inc := rad_to_deg(acos(clampf(DQuat.nrm(h).dot(Rocketry.equatorial_dir(0.0, PI / 2.0)), -1.0, 1.0)))
+		if absf(inc - rad_to_deg(absf(lat))) > 0.5:
+			print("SHARED FLIGHT %s inclination %.2f° to Earth's equator, want the pad's %.2f°" % [sc.id, inc, rad_to_deg(absf(lat))])
+			valid = false
 		if sc.id == "saturnv" and timed == 0:
 			print("SHARED FLIGHT saturnv has no timed second separation plane")
 			valid = false
 		if not valid: failures += 1
 		completed += 1
-		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])
+		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s inc=%.3f clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, inc, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])
 	var errors := logger.take()
 	for error in errors: printerr("SHARED FLIGHT ENGINE ", error)
 	failures += errors.size()

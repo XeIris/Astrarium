@@ -52,8 +52,7 @@ static func attitude_for(mode: String, v: Vessel, target = null):
 ## `out` defaults to the shared scratch _c.
 static func target_offset(v: Vessel, body: Body, out: DVec3 = null) -> DVec3:
 	if out == null: out = _c
-	out.sub_vectors(body.pos, v.parent.pos).scale_in(Rocketry.AU_M).sub_in(v.r)
-	return out
+	return v.body_offset(body, out).sub_in(v.r)
 
 static func fmt_dur(s: float) -> String:
 	if not is_finite(s): return "—"
@@ -116,6 +115,7 @@ class Autopilot extends RefCounted:
 
 	func _init(vessel: Vessel) -> void:
 		v = vessel
+		v.on_rebase = turn_frame
 		var tgt = vessel.vehicle.get("target")
 		ascent = {
 			"targetApo": tgt.get("apoapsis", 200e3) if tgt != null else 200e3,
@@ -152,6 +152,15 @@ class Autopilot extends RefCounted:
 
 	func disengage() -> void:
 		program = null; mode = MODE.OFF; v.roll_signed = false; note("Manual control")
+
+	## The vessel rebased onto a body with another pole: carry the directions kept
+	## between steps into its frame. A landing site belongs to the old body, so it goes.
+	func turn_frame(turn: DQuat) -> void:
+		var turned := []
+		for d in [aim, aim_roll, node_vec, node.dv if node != null else null]:
+			if d is DVec3 and not turned.has(d):
+				DQuat.rotate(d, turn); turned.append(d)
+		site = null
 
 	func update(dt: float) -> void:
 		if v.phase == Vessel.PHASE.DESTROYED:
@@ -594,7 +603,7 @@ class Autopilot extends RefCounted:
 		# dominates at the target, not which is heaviest.
 		if v.primary_of(tgt) == v.parent or v.parent == dominant:
 			var r1 := v.r.length()
-			var r2 := Guidance._a.sub_vectors(tgt.pos, v.parent.pos).scale_in(Rocketry.AU_M).length()
+			var r2 := v.body_offset(tgt, Guidance._a).length()
 			var h := Orbit.hohmann(v.env.mu, r1, r2)
 			var want: float = h.phase
 			var now := Orbit.phase_angle(v.r, Guidance._a)
@@ -655,7 +664,7 @@ class Autopilot extends RefCounted:
 			p.waitS -= dt
 			v.throttle = 0.0
 			say("Transfer window in %s — phase %s°, want %s°" % [Guidance.fmt_dur(p.waitS),
-				U.fixed(Orbit.phase_angle(v.r, Guidance._a.sub_vectors(target.pos, v.parent.pos)) * 180.0 / PI, 1),
+				U.fixed(Orbit.phase_angle(v.r, v.body_offset(target, Guidance._a)) * 180.0 / PI, 1),
 				U.fixed(p.phase * 180.0 / PI, 1)])
 			return Guidance.attitude_for(MODE.PROGRADE, v)
 		if node == null:
