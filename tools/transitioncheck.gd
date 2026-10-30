@@ -82,7 +82,7 @@ func spin_checks() -> void:
 	check("lesson has physical 30 Hz and explicit slower display", absf(float(edu.structure.spinPeriodMs) - 1000.0 / 30.0) < 1e-10 and edu.visual_spin_rad_s == 30.0)
 
 # Independent golden radius in AU/M☉ for the orrery's G and c convention.
-const RS_PER_MSUN := 1.9742003183427407e-8
+const RS_PER_MSUN := 1.9741257430215565e-8
 
 func horizon_close(actual: float, expected: float) -> bool:
 	return is_finite(actual) and absf(actual - expected) <= absf(expected) * 1e-13

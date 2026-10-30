@@ -17,9 +17,8 @@ const RHO := {"rock": 3000.0, "ice": 900.0, "rubble": 1500.0}
 # for the material. Returns { inner, outer, roche } in AU; `outer` is null when the
 # Roche limit is inside the body (no ring possible).
 static func ring_span(mass_sun: float, radius_au: float, material := "ice") -> Dictionary:
-	var M_SUN := 1.98892e30
 	var rM := radius_au / Physics.AU_PER_KM * 1000.0
-	var rhoP := (mass_sun * M_SUN) / ((4.0 / 3.0) * PI * rM * rM * rM)
+	var rhoP := (mass_sun * Structure.M_SUN) / ((4.0 / 3.0) * PI * rM * rM * rM)
 	var roche := 2.44 * radius_au * U.cbrt(rhoP / float(RHO[material]))
 	return {
 		"inner": radius_au * 1.2,

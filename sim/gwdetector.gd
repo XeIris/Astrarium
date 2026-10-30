@@ -6,7 +6,7 @@ extends RefCounted
 
 const G_SI := 6.67430e-11
 const C := 2.99792458e8
-const M_SUN := 1.98892e30
+const M_SUN := Structure.M_SUN
 const AU_M := 1.495978707e11
 const MPC_M := 3.0857e22
 
