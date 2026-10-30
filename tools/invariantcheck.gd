@@ -162,8 +162,8 @@ func contact_cases() -> void:
 			body.contact_au = Derive.contact_au(body, body.spec)
 		check("separate photospheres survive true scale %s" % true_scale, Physics.resolve_collisions([a, b]).is_empty())
 
-# Golden value uses the project's exact G=4π² and c=63241.077 AU/yr convention.
-const RS_PER_MSUN := 1.9742003183427407e-8
+# Golden value: 2GM☉/c² in AU from IAU GM☉ and the exact AU (G = 4π² in its own year).
+const RS_PER_MSUN := 1.9741257430215565e-8
 
 func horizon_close(actual: float, expected: float) -> bool:
 	return is_finite(actual) and absf(actual - expected) <= absf(expected) * 1e-13
@@ -271,6 +271,51 @@ func equivalent_kernels() -> void:
 		for i in gd.size():
 			check("kernel state compact=%s body=%s" % [compact, i], gd[i].pos.distance_to(native[i].pos) < 1e-13 and gd[i].vel.distance_to(native[i].vel) < 1e-13 and gd[i].mass == native[i].mass)
 
+func fidelity_cases() -> void:
+	# One GM☉ and one year everywhere: the orrery's 4π² is the flight's GM☉ in its own year.
+	var au3 := Rocketry.AU_M * Rocketry.AU_M * Rocketry.AU_M
+	check("orrery G is GM☉ in orrery years", absf(Rocketry.GM_SUN * Rocketry.YR_S * Rocketry.YR_S / au3 / Physics.G - 1.0) < 1e-14)
+	check("structure solar mass carries GM☉", absf(Structure.M_SUN * Structure.G_SI / Rocketry.GM_SUN - 1.0) < 1e-15)
+	check("light speed in orrery units", absf(Physics.C * Rocketry.AU_M / Rocketry.YR_S / Rocketry.C_MS - 1.0) < 1e-15)
+	var specs: Array = Presets.PRESETS.solar.build.call()
+	var bodies := []
+	for k in specs.size(): bodies.append(Derive.new_body(k, specs[k]))
+	var by_name := {}
+	for b: Body in bodies: by_name[b.name] = b
+	check("resolved bodies are unsoftened by default", Physics.softening_of(by_name.Sun) == 0.0 and Physics.softening_of(by_name.Mercury) == 0.0)
+	# JPL Horizons, solar-system barycentre, J2000.0 ecliptic: Earth (−0.18428, 0.96443, −0.00020) AU.
+	var earth: Body = by_name.Earth
+	check("solar preset puts Earth at its J2000 position", Vector2(earth.pos.x + 0.18428, earth.pos.z - 0.96443).length() < 5e-4 and absf(earth.pos.y) < 1e-3)
+	var moon: Body = by_name.Moon
+	var r := DVec3.new().sub_vectors(moon.pos, earth.pos)
+	var n := DVec3.new().cross_vectors(r, DVec3.new().sub_vectors(moon.vel, earth.vel))
+	var tilt := rad_to_deg(acos(-n.y / n.length()))
+	check("the Moon's orbit is tilted 5.145° to the ecliptic (%.3f°)" % tilt, absf(tilt - 5.145) < 0.01)
+	var t := totals(bodies)
+	check("solar preset starts at the barycentre at rest", t.momentum.length() < 1e-15 and t.center.length() < 1e-15)
+	# Unsoftened Sun–Mercury: the perihelion holds still apart from integration error;
+	# the former radius/2 + 1e-4 AU softening turned it back 1.7e4″ per century.
+	var pair := [Derive.new_body(0, specs[0]), Derive.new_body(1, specs[1])]
+	var sun: Body = pair[0]
+	sun.pos = DVec3.new(); sun.vel = DVec3.new()
+	var lrl := func() -> DVec3:
+		var rr := DVec3.new().sub_vectors(pair[1].pos, sun.pos)
+		var vv := DVec3.new().sub_vectors(pair[1].vel, sun.vel)
+		var h := DVec3.new().cross_vectors(rr, vv)
+		var mu: float = Physics.G * (sun.mass + pair[1].mass)
+		return DVec3.new().cross_vectors(vv, h).scale_in(1.0 / mu).sub_in(rr.clone().scale_in(1.0 / rr.length()))
+	var e0: DVec3 = lrl.call()
+	# A fine fixed step isolates the force law: at the orrery's own step Verlet adds
+	# ~1e5″/cy of its own (docs/physics-fidelity-review-2026-10-30.md, P1-1).
+	var years := 0.0
+	while years < 2.4:
+		var step := NBody.step_physics(pair, 0.05, 1e-5, 0.0)
+		if step.resolution_limited or step.stepped <= 0.0: break
+		years += step.stepped
+	var e1: DVec3 = lrl.call()
+	var turned := rad_to_deg(acos(clampf(e0.dot(e1) / (e0.length() * e1.length()), -1.0, 1.0))) * 3600.0 * 100.0 / maxf(years, 1e-30)
+	check("Mercury's Newtonian perihelion drifts < 50″/cy (%.2f″/cy over %.1f yr)" % [turned, years], years >= 2.4 and turned < 50.0)
+
 func _init() -> void:
 	collision_cases()
 	force_and_energy()
@@ -279,5 +324,6 @@ func _init() -> void:
 	horizon_cases()
 	measured_structure_cases()
 	equivalent_kernels()
+	fidelity_cases()
 	print("INVARIANTCHECK DONE checks=%s failures=%s native=%s" % [checks, failures, NBody.native_available()])
 	quit(1 if failures else 0)

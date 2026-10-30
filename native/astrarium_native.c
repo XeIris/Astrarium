@@ -27,7 +27,8 @@
 enum { PX, PY, PZ, VX, VY, VZ, MASS, RS, ISBH, SOFT, RADIUS, CONTACT, EMITSGW, ALIVE };
 
 static const double G = 4.0 * 3.141592653589793 * 3.141592653589793;   /* 4π², as (4·π)·π */
-static const double C_LIGHT = 63241.077;
+/* Rocketry.C_MS · Rocketry.YR_S / Rocketry.AU_M, in the same order as Physics.C. */
+static const double C_LIGHT = 299792458.0 * 31558196.01824108 / 1.495978707e11;
 
 /* NaN-propagating min/max (fmin/fmax would drop NaN). */
 static double jmin(double a, double b) { if (isnan(a) || isnan(b)) return NAN; return a < b ? a : b; }
@@ -101,8 +102,8 @@ static int compute_accel(double *B, int n, Scratch *S) {
 				denominator = dist * dist;
 				kernel = G / denominator;
 			} else {
-				sa = jor(a[SOFT], a[RADIUS] * 0.5 + 1e-4);
-				sb = jor(b[SOFT], b[RADIUS] * 0.5 + 1e-4);
+				sa = a[SOFT];
+				sb = b[SOFT];
 				double d2 = dist * dist + 0.5 * (sa * sa + sb * sb);
 				denominator = d2 * sqrt(d2);
 				kernel = G * dist / denominator;

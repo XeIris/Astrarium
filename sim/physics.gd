@@ -4,8 +4,8 @@ extends RefCounted
 # AU, M☉, years; DVec3 doubles. Newtonian pair gravity with velocity-Verlet;
 # optional circular-power drag illustrates GW losses. See docs/physics/compact-dynamics.md.
 
-const G := 4.0 * PI * PI                # 39.478 AU³ M☉⁻¹ yr⁻²
-const C := 63241.077                    # speed of light, AU/yr
+const G := 4.0 * PI * PI                # 39.478 AU³ M☉⁻¹ yr⁻²; exact for Rocketry.YR_S
+const C := Rocketry.C_MS * Rocketry.YR_S / Rocketry.AU_M   # speed of light, AU/yr (63242.27)
 const AU_PER_RSUN := 0.00465047         # solar radius in AU
 const AU_PER_KM := 6.68459e-9
 static var DOUBLE_MIN_NORMAL := pow(2.0, -1022.0)
@@ -131,9 +131,11 @@ static func distance_xyz(x: float, y: float, z: float) -> float:
 	x /= scale; y /= scale; z /= scale
 	return scale * sqrt(x * x + y * y + z * z)
 
-## Plummer softening length (AU): the explicit override, else half the radius plus 1e-4.
+## Plummer softening length (AU): an explicit spec value, else none. Contact merges
+## a pair before the separation reaches the bodies' radii, so a default length would
+## only distort resolved orbits (a 1e-3 AU length precesses Mercury by −1.6e4″/cy).
 static func softening_of(b: Body) -> float:
-	return b.softening if b.softening != 0.0 else b.radius * 0.5 + 1e-4
+	return b.softening
 
 ## RMS softening preserves each body's scale while giving a symmetric pair potential.
 static func pair_softening_sq(a: Body, b: Body) -> float:

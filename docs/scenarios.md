@@ -27,7 +27,7 @@ test-particle Mardling–Aarseth screening expression,
 for the former e = 0.42 and 1.378 AU for e = 0.20. The 1.80 AU candidate has
 about 31% initial semimajor-axis margin under that screen. These are design
 estimates, not proof: published eccentricity-aware criteria disagree and do not
-include this complete four-body softened model. See the
+include this complete four-body model. See the
 [comparison and Eq. 11](https://academic.oup.com/mnras/article/532/2/1580/7700715)
 and [Adelbert's single-planet controls](https://arxiv.org/abs/2310.07575).
 
@@ -89,9 +89,8 @@ selects diagnostic mode, even if its value equals the authored configuration;
 `years=20 max_step=0.0000125` as the reference. Use `report=/abs/result.json`.
 
 Reports retain runtime/force/clock metadata, decimal states and versioned binary64
-hex. `softening_au=0` records the raw request: the ordinary force uses
-`radius / 2 + 1e-4 AU` as its default, not zero softening. Osculating elements
-are unsoftened Jacobi two-body snapshots, not the actual four-body potential;
+hex. `softening_au=0` is the unsoftened Newtonian force. Osculating elements
+are Jacobi two-body snapshots, not the actual four-body potential;
 their energy signs and separation ratios are descriptive, not gate criteria.
 An inferred periapsis minimum is not a measured star/world minimum separation.
 The constructor preserves its tiny-world approximation (Kepler mass excludes

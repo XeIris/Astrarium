@@ -8,8 +8,10 @@ extends RefCounted
 const G0 := 9.80665                 # m/s² — DEFINED, not local gravity
 const C_MS := 299792458.0           # m/s — defined
 const AU_M := 1.495978707e11        # m — defined
-const YR_S := 365.25 * 86400.0      # s — Julian year, as the orrery uses
-const GM_SUN := 1.32712440018e20    # m³/s² — the same G as sim/physics.gd
+const GM_SUN := 1.32712440018e20    # m³/s² — IAU 2015 nominal
+# s — the orrery year: 2π√(AU³/GM☉) = 365.25690 d, the period in which Physics.G =
+# 4π² exactly. A Julian year here would make flight and orrery disagree by 3.8e-5 in GM.
+const YR_S := 31558196.01824108
 const M_EARTH_SUN := 3.00348959e-6  # M⊕ in M☉
 const R_GAS := 8.31446261815324     # J/mol/K
 

@@ -6,8 +6,8 @@ extends RefCounted
 # Cruise positions are DVec3 in orrery AU; equations: docs/physics/flight.md.
 
 const LY_M := 9.4607304725808e15            # light year, metres (exact by definition of c)
-const LY_AU := LY_M / Rocketry.AU_M          # 63241.077 AU — the same number as physics.gd's C
-const YEAR_S := 365.25 * 86400.0
+const LY_AU := LY_M / Rocketry.AU_M          # 63241.077 AU
+const YEAR_S := 365.25 * 86400.0              # Julian, the year a light-year is defined by
 
 ## Rapidity → velocity fraction, and back.
 static func beta_of(phi: float) -> float: return tanh(phi)

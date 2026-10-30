@@ -196,33 +196,58 @@ static func wandering_triad(o: Dictionary) -> Array:
 
 	return [A, B, C, P]
 
-# A moon placed relative to its parent's actual state (planets start at random
-# phases), with its circular velocity added to the parent's.
-static func moon_of(parent_spec: Dictionary, dist_m: float, mass_sun: float, radius_km: float, name: String, extra: Dictionary = {}) -> Dictionary:
-	var AU_M := 1.495978707e11
-	var a := dist_m / AU_M
-	var px: float = parent_spec.pos[0]; var py: float = parent_spec.pos[1]; var pz: float = parent_spec.pos[2]
-	var vx: float = parent_spec.vel[0]; var vy: float = parent_spec.vel[1]; var vz: float = parent_spec.vel[2]
-	# Start along the parent's radius vector. Hypot in double (Vector2 is float32).
-	var r := sqrt(px * px + pz * pz)
-	if r == 0.0: r = 1.0
-	var ux := px / r
-	var uz := pz / r
-	var v_moon := Physics.circular_speed(float(parent_spec.mass) + mass_sun, a)
-	var o := U.merged({ "type": "planet", "name": name, "mass": mass_sun, "radiusKm": radius_km, "hot": true }, extra)
-	o.pos = [px + ux * a, py, pz + uz * a]
-	# perpendicular to the offset, in the same sense as the orrery's orbits
-	o.vel = [vx + (-uz) * v_moon, vy, vz + ux * v_moon]
-	return o
-
 ## `angle` defaults to a random phase (null → _rand() · 2π).
-static func orbiter(Mc: float, a: float, spec: Dictionary, angle = null, incl: float = 0.0) -> Dictionary:
+static func orbiter(Mc: float, a: float, spec: Dictionary, angle = null) -> Dictionary:
 	var ang: float = (_rand() * PI * 2.0) if angle == null else float(angle)
 	var v := Physics.circular_speed(Mc, a)
-	var x := cos(ang) * a
-	var z := sin(ang) * a
-	var y := sin(incl) * x
-	return U.merged(spec, { "pos": [x, y * 0.02, z], "vel": [-sin(ang) * v, 0.0, cos(ang) * v] })
+	return U.merged(spec, { "pos": [cos(ang) * a, 0.0, sin(ang) * a], "vel": [-sin(ang) * v, 0.0, cos(ang) * v] })
+
+# Mean elements, J2000 ecliptic and equinox: [a AU, e, I°, L°, ϖ°, Ω°], each as
+# [J2000 value, rate per Julian century]. Planets: Standish, "Keplerian Elements for
+# Approximate Positions of the Major Planets" (JPL), Table 1, valid 1800–2050; EMB is
+# the Earth–Moon barycentre. Moon: geocentric, Meeus, Astronomical Algorithms ch. 47
+# (ϖ = L′ − M′), with the mean 5.145° inclination.
+const SOLAR_ELEMENTS := {
+	"Mercury": [[0.38709927, 0.00000037], [0.20563593, 0.00001906], [7.00497902, -0.00594749], [252.25032350, 149472.67411175], [77.45779628, 0.16047689], [48.33076593, -0.12534081]],
+	"Venus":   [[0.72333566, 0.00000390], [0.00677672, -0.00004107], [3.39467605, -0.00078890], [181.97909950, 58517.81538729], [131.60246718, 0.00268329], [76.67984255, -0.27769418]],
+	"EMB":     [[1.00000261, 0.00000562], [0.01671123, -0.00004392], [-0.00001531, -0.01294668], [100.46457166, 35999.37244981], [102.93768193, 0.32327364], [0.0, 0.0]],
+	"Mars":    [[1.52371034, 0.00001847], [0.09339410, 0.00007882], [1.84969142, -0.00813131], [-4.55343205, 19140.30268499], [-23.94362959, 0.44441088], [49.55953891, -0.29257343]],
+	"Jupiter": [[5.20288700, -0.00011607], [0.04838624, -0.00013253], [1.30439695, -0.00183714], [34.39644051, 3034.74612775], [14.72847983, 0.21252668], [100.47390909, 0.20469106]],
+	"Saturn":  [[9.53667594, -0.00125060], [0.05386179, -0.00050991], [2.48599187, 0.00193609], [49.95424423, 1222.49362201], [92.59887831, -0.41897216], [113.66242448, -0.28867794]],
+	"Uranus":  [[19.18916464, -0.00196176], [0.04725744, -0.00004397], [0.77263783, -0.00242939], [313.23810451, 428.48202785], [170.95427630, 0.40805281], [74.01692503, 0.04240589]],
+	"Neptune": [[30.06992276, 0.00026291], [0.00859048, 0.00005105], [1.77004347, 0.00035372], [-55.12002969, 218.45945325], [44.96476227, -0.32241464], [131.78422574, -0.00508664]],
+	"Pluto":   [[39.48211675, -0.00031596], [0.24882730, 0.00005170], [17.14001206, 0.00004818], [238.92903833, 145.20780515], [224.06891629, -0.04062942], [110.30393684, -0.01183482]],
+	"Moon":    [[384399.0 * Physics.AU_PER_KM, 0.0], [0.0549, 0.0], [5.145, 0.0], [218.3164477, 481267.88123421], [83.3532465, 4069.0137287], [125.0445479, -1934.1362891]],
+}
+
+## Two-body state from one SOLAR_ELEMENTS row at `t_cy` Julian centuries from J2000,
+## relative to the primary of gravitational parameter `mu` (AU³/yr²). The orrery frame
+## takes ecliptic x → x, y → z and ecliptic north → −y, so prograde orbits turn about −y.
+## Returns { pos: [x,y,z], vel: [x,y,z] }.
+static func elements_state(mu: float, row: Array, t_cy: float) -> Dictionary:
+	var el := []
+	for pair in row: el.append(float(pair[0]) + float(pair[1]) * t_cy)
+	var a: float = el[0]; var e: float = el[1]
+	var inc := deg_to_rad(el[2]); var varpi := deg_to_rad(el[4]); var node := deg_to_rad(el[5])
+	var w := varpi - node
+	var M := fposmod(deg_to_rad(el[3]) - varpi + PI, TAU) - PI
+	var E := M + e * sin(M)
+	for _i in 50:
+		var dE := (E - e * sin(E) - M) / (1.0 - e * cos(E))
+		E -= dE
+		if absf(dE) < 1e-15: break
+	var b := sqrt(1.0 - e * e)
+	var xp := a * (cos(E) - e); var yp := a * b * sin(E)
+	var E_dot := sqrt(mu / (a * a * a)) / (1.0 - e * cos(E))
+	var vxp := -a * sin(E) * E_dot; var vyp := a * b * cos(E) * E_dot
+	var cw := cos(w); var sw := sin(w); var cn := cos(node); var sn := sin(node); var ci := cos(inc); var si := sin(inc)
+	var px := [cw * cn - sw * sn * ci, -sw * cn - cw * sn * ci]
+	var py := [cw * sn + sw * cn * ci, -sw * sn + cw * cn * ci]
+	var pz := [sw * si, cw * si]
+	return {
+		"pos": [px[0] * xp + px[1] * yp, -(pz[0] * xp + pz[1] * yp), py[0] * xp + py[1] * yp],
+		"vel": [px[0] * vxp + px[1] * vyp, -(pz[0] * vxp + pz[1] * vyp), py[0] * vxp + py[1] * vyp],
+	}
 
 # THE TABLE
 static var PRESETS: Dictionary = _make_presets()
@@ -246,7 +271,7 @@ static func _make_presets() -> Dictionary:
 	P.solar = {
 		"sky": { "env": "disc", "tilt": 0.38, "roll": 2.1 },
 		"name": "Solar System",
-		"blurb": "Real orbital distances, masses and body radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle \"Sizes\" to get the readable, exaggerated view back. This is also the scenario to fly from: the Spaceflight section builds a real launch vehicle on the pad, and the Moon is here to land on.",
+		"blurb": "The planets and the Moon where they were at J2000.0 (JPL mean elements) on their real eccentric, inclined orbits, with DE440 masses and real radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle \"Sizes\" to get the readable, exaggerated view back. This is also the scenario to fly from: the Spaceflight section builds a real launch vehicle on the pad, and the Moon is here to land on.",
 		"sceneScale": 1.0, "bodyScale": 0.5, "camRadius": 80.0, "lensing": false, "timeScale": 6.0,
 		# The one preset where the bodies are drawn at their real geometric size.
 		# See sim/scale.gd for why that needs a point-source fallback to be usable.
@@ -506,57 +531,78 @@ static func _build_sandbox() -> Array:
 	bodies.append(orbiter(Mbh, 7.0, { "type": "star", "name": "Companion Star", "mass": 1.2 }, 3.4))
 	return bodies
 
-static func _build_solar() -> Array:
-	var Ms := 1.0
-	var sun := { "type": "star", "name": "Sun", "mass": Ms, "color": 0xfff2cc, "glow": 0xffaa33, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }
-	# a = semi-major axis (AU), m = mass (M☉), radiusKm = mean physical radius
-	var P := func(a: float, m: float, radius_km: float, type: String, name: String, extra: Dictionary) -> Dictionary:
-		return orbiter(Ms, a, U.merged({ "type": type, "name": name, "mass": m, "radiusKm": radius_km }, extra))
+## `t_cy`: Julian centuries from J2000.0 (2000 Jan 1 12:00 TT) for the starting positions.
+static func _build_solar(t_cy := 0.0) -> Array:
+	var sun := { "type": "star", "name": "Sun", "mass": 1.0, "color": 0xfff2cc, "glow": 0xffaa33, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }
+	# m = mass (M☉) from the DE440 GM ratios (Park et al. 2021): the planet's system
+	# where its moons aren't simulated, Pluto alone; radiusKm = mean physical radius.
+	var P := func(m: float, radius_km: float, type: String, name: String, extra: Dictionary) -> Dictionary:
+		var spec := U.merged({ "type": type, "name": name, "mass": m, "radiusKm": radius_km }, extra)
+		return U.merged(spec, elements_state(Physics.G * (1.0 + m), SOLAR_ELEMENTS[name], t_cy))
+	var m_earth := 1.0 / 332946.0487
+	var m_moon := m_earth / 81.30056907
 	# Surfaces are derived from where a body is (sim/rocky_visual.gd). A preset states
 	# what it's made of: albedo, greenhouse, and the dominant volatile's condensation
 	# temperature.
 	# cloudCover is the fraction under cloud thick enough to hide the ground: MODIS's
 	# 0.67 total less the thin cirrus the decks don't draw.
-	var earth: Dictionary = P.call(1.000, 3.00e-6, 6371.0, "planet", "Earth", {
+	var earth := { "type": "planet", "name": "Earth", "mass": m_earth, "radiusKm": 6371.0,
 		"atmosphere": true, "land": 0.32, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
 		"obliquity": 0.4091, "cloudCover": 0.44, "season": 11.0,
-	})
-	return [
+	}
+	# The Moon, on its real orbit about Earth: a target inside Earth's SOI and an
+	# airless body to land on. Its 5.1° tilt keeps eclipses to the nodes.
+	var moon := { "type": "planet", "name": "Moon", "mass": m_moon, "radiusKm": 1737.4,
+		"hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268 }
+	var emb := elements_state(Physics.G * (1.0 + m_earth + m_moon), SOLAR_ELEMENTS.EMB, t_cy)
+	var rel := elements_state(Physics.G * (m_earth + m_moon), SOLAR_ELEMENTS.Moon, t_cy)
+	var f_moon := m_moon / (m_earth + m_moon)
+	earth.pos = addv(emb.pos, rel.pos, -f_moon); earth.vel = addv(emb.vel, rel.vel, -f_moon)
+	moon.pos = addv(emb.pos, rel.pos, 1.0 - f_moon); moon.vel = addv(emb.vel, rel.vel, 1.0 - f_moon)
+	var bodies := [
 		sun,
-		P.call(0.387, 1.66e-7,  2439.7, "planet", "Mercury", {
+		P.call(1.0 / 6023657.33, 2439.7, "planet", "Mercury", {
 			"hot": true, "crater": 0.95, "regolith": 0x8b8279, "albedo": 0.12, "obliquity": 0.0006 }),
 		# Venus's 737 K is stated: no greenhouse parameter reaches 2.4× its equilibrium
 		# temperature.
-		P.call(0.723, 2.45e-6,  6051.8, "planet", "Venus", {
+		P.call(1.0 / 408523.719, 6051.8, "planet", "Venus", {
 			"hot": true, "atmosphere": true, "atmColor": 0xffd9a0, "surfaceK": 737.0, "albedo": 0.77,
 			"crater": 0.10, "regolith": 0xb08a5c, "cloudCover": 1.0, "cloudColor": 0xfff2d2,
 			"atmThick": 2.4, "haze": 1.2, "obliquity": 3.096 }),
 		earth,
-		# The Moon, on its real orbit about Earth: a target inside Earth's SOI and an
-		# airless body to land on.
-		moon_of(earth, 3.844e8, 3.6923e-8, 1737.4, "Moon", {
-			"hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268 }),
+		moon,
 		# Mars's caps are CO₂ (148 K), so they grow and retreat each winter.
-		P.call(1.524, 3.21e-7,  3389.5, "planet", "Mars", {
+		P.call(1.0 / 3098703.59, 3389.5, "planet", "Mars", {
 			"hot": true, "atmosphere": true, "atmThick": 0.22, "atmColor": 0xd8b48c,
 			"cloudCover": 0.10, "cloudColor": 0xe8d8c0, "haze": 0.25, "greenhouse": 0.95,
 			"frostK": 148.0, "crater": 0.55, "regolith": 0xa9603a, "albedo": 0.25, "obliquity": 0.4396,
 			"transport": 0.16, "season": 62.0 }),
-		P.call(5.203, 9.54e-4, 69911.0, "gas-giant", "Jupiter", {
+		P.call(1.0 / 1047.348644, 69911.0, "gas-giant", "Jupiter", {
 			"palette": "jupiter", "obliquity": 0.0546, "internalHeat": 1.67, "albedo": 0.503 }),
-		P.call(9.537, 2.86e-4, 58232.0, "gas-giant", "Saturn", {
+		P.call(1.0 / 3497.9018, 58232.0, "gas-giant", "Saturn", {
 			"palette": "saturn", "rings": true, "ringColor": 0xe2d3b0, "ringInner": 1.235, "ringOuter": 2.27,
 			"obliquity": 0.4665, "internalHeat": 1.78, "albedo": 0.342 }),
 		# Uranus is tipped 97.8°: its poles take turns facing the Sun for 42 years.
-		P.call(19.19, 4.37e-5, 25362.0, "gas-giant", "Uranus", {
+		P.call(1.0 / 22902.98, 25362.0, "gas-giant", "Uranus", {
 			"palette": "ice", "obliquity": 1.7064, "internalHeat": 1.03, "albedo": 0.300 }),
-		P.call(30.07, 5.15e-5, 24622.0, "gas-giant", "Neptune", {
+		P.call(1.0 / 19412.26, 24622.0, "gas-giant", "Neptune", {
 			"palette": "ice", "obliquity": 0.4943, "internalHeat": 2.61, "albedo": 0.290, "vortices": 2 }),
 		# Pluto sits at N₂'s 37 K frost point, hence its frost cycle.
-		P.call(39.48, 6.55e-9,  1188.3, "planet", "Pluto", {
+		P.call(869.6 / 1.32712440018e11, 1188.3, "planet", "Pluto", {
 			"hot": true, "frostK": 37.0, "crater": 0.7, "regolith": 0x9b7255, "albedo": 0.52,
 			"obliquity": 2.1386 }),
 	]
+	# Barycentric start: with the Sun at rest, Jupiter alone would carry the whole
+	# system off at 13 m/s.
+	var mass := 0.0
+	var com := [0.0, 0.0, 0.0]
+	var mom := [0.0, 0.0, 0.0]
+	for b in bodies:
+		mass += float(b.mass)
+		com = addv(com, b.pos, float(b.mass)); mom = addv(mom, b.vel, float(b.mass))
+	for b in bodies:
+		b.pos = addv(b.pos, com, -1.0 / mass); b.vel = addv(b.vel, mom, -1.0 / mass)
+	return bodies
 
 static func _build_threebody() -> Array:
 	# exact figure-eight ICs for G=m=1; rescale velocities by 2π for G=4π².

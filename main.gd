@@ -538,7 +538,6 @@ func edit_body(b: Body, patch: Dictionary):
 		return null
 	var old_mass := b.mass
 	var old_softening := b.softening
-	var old_radius := b.radius
 	var old_type := b.type
 	var moved: bool = b.pos.to_array() != Array(spec.pos)
 	var accelerated: bool = b.vel.to_array() != Array(spec.vel)
@@ -576,8 +575,8 @@ func edit_body(b: Body, patch: Dictionary):
 	# A verdict the sim only prints is a bug.
 	b.m_check = null
 	check_structural_limits(b)
-	if moved or accelerated or b.mass != old_mass or b.softening != old_softening or b.radius != old_radius or b.type != old_type:
-		# Radius sets default softening; reclassification can change the pair potential.
+	if moved or accelerated or b.mass != old_mass or b.softening != old_softening or b.type != old_type:
+		# Reclassification can change the pair potential.
 		state.energy0 = null
 	refresh_ui()
 	return b
@@ -2163,10 +2162,7 @@ func set_dev_mode(on: bool) -> void:
 ## The solar system a scenario flies in: the same planets every time, so its sky and
 ## Moon repeat.
 func scenario_world() -> void:
-	var rng := GiantVisual.Mulberry.new(1)
-	Presets.rand_override = rng.next
 	load_preset("solar")
-	Presets.rand_override = Callable()
 
 func _dev_fail(why: String) -> String:
 	push_warning(why)
