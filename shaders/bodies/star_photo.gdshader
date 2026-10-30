@@ -88,6 +88,23 @@ float fbm(vec3 p0) {
 	return v;
 }
 
+// Worley F1 and F2 on a jittered lattice: the outlines of convection cells.
+vec2 cells(vec3 p) {
+	vec3 i = floor(p);
+	vec3 f = fract(p);
+	float f1 = 8.0;
+	float f2 = 8.0;
+	for (int x = -1; x <= 1; x++)
+	for (int y = -1; y <= 1; y++)
+	for (int z = -1; z <= 1; z++) {
+		vec3 g = vec3(float(x), float(y), float(z));
+		vec3 o = vec3(hsh(i + g), hsh(i + g + vec3(7.1, 3.3, 1.7)), hsh(i + g + vec3(2.9, 8.3, 5.1)));
+		float d = length(g + o * 0.85 - f);
+		if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
+	}
+	return vec2(f1, f2);
+}
+
 // rotate a point about the Y axis
 vec3 rotY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z); }
 
@@ -116,9 +133,21 @@ void fragment() {
 	// peak-to-peak; crank it and you get a golf ball.
 	float bright = 0.88 + cellA * 0.19 + cellB * 0.10 - lanes * 0.30;
 
+	vec3 V = normalize(-vVP);
+	float mu = clamp(dot(normalize(vVN), V), 0.0, 1.0);
+
+	// --- the SUPERGRANULAR NETWORK: cells ~30 Mm across (0.6 of the granulation scale
+	// here), whose outlines collect the field the flows sweep there. In white light that
+	// field shows only as faculae, hot walls seen obliquely, so the network appears
+	// toward the limb (contrast ~(1 − μ)). Faded where a lane is under a pixel.
+	vec3 sn = s * (uGranScale * 0.6);
+	vec2 cf = cells(sn + vec3(0.0, uTime * 0.004, 0.0));
+	float fw = length(fwidth(sn));
+	float net = (1.0 - smoothstep(0.0, max(0.10, fw * 1.2), cf.y - cf.x)) * (1.0 - smoothstep(0.35, 0.9, fw));
+
 	// --- starspots: dark umbra, warm penumbra with radial filaments,
-	// bright faculae ring
-	float spotMask = 0.0, penumbra = 0.0, facula = 0.0;
+	// bright faculae ring, and plage: the region's network, dense with field
+	float spotMask = 0.0, penumbra = 0.0, facula = 0.0, plage = 0.0;
 	for (int i = 0; i < 8; i++) {
 		if (i >= uSpotCount) break;
 		vec4 sp = uSpots[i];
@@ -137,10 +166,18 @@ void fragment() {
 		penumbra = max(penumbra, ring * sp.w * (0.45 + comb * 0.55));
 
 		facula   = max(facula, (1.0 - smoothstep(rad, rad * 1.55, d)) * (1.0 - u) * sp.w);
+		// An active region's plage spreads several spot radii, ragged at its edge.
+		float pr = rad * (2.6 + (fbm(p * 9.0 + float(i) * 3.0) - 0.5) * 1.6);
+		plage = max(plage, (1.0 - smoothstep(rad * 1.1, pr, d)) * (1.0 - u) * sp.w);
 	}
 	bright *= mix(1.0, 0.20, spotMask);
 	bright *= mix(1.0, 0.62, penumbra);
 	bright += facula * 0.35;
+	// Faculae: the quiet network a few per cent at the limb; plage much more, and filled
+	// in between the lanes.
+	float limb = 1.0 - mu;
+	bright += net * (0.012 + 0.10 * limb * limb);
+	bright += plage * (0.03 + 0.42 * pow(limb, 1.5)) * (0.45 + 0.55 * net);
 
 	// --- the two flare ribbons straddling the neutral line
 	vec3 flareGlow = vec3(0.0);
@@ -183,8 +220,6 @@ void fragment() {
 	base += flareGlow * uGain;
 
 	// --- limb darkening: I(mu)/I(0) = 1 - u(1 - mu), mu = cos(view angle)
-	vec3 V = normalize(-vVP);
-	float mu = clamp(dot(normalize(vVN), V), 0.0, 1.0);
 	base *= (1.0 - uLimbU * (1.0 - mu));
 
 	// --- chromosphere: H-alpha reddening right at the limb

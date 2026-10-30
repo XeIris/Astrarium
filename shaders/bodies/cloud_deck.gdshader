@@ -1,19 +1,31 @@
 // CLOUDS on the circulation: the same overturning cells that make the deserts clear
 // the subtropics, so the deck is a convective equatorial band, clear subtropical
 // belts and mid-latitude storm tracks, advected by a zonal wind that reverses between
-// trades and westerlies. blend_mix; the temperature pass writes 1.0 at its alpha.
+// trades and westerlies. Coverage is calibrated: the noise is near-normal, so the
+// threshold at probit z leaves Φ(z) of the sky opaque, and z comes from the world's
+// cloudCover and the shared climatology (cloud_climate.gdshaderinc).
+// blend_mix; the temperature pass writes 1.0 at its alpha.
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_back;
 
 #include "res://shaders/common/suns.gdshaderinc"
 #include "res://shaders/common/temp_pass.gdshaderinc"
 #include "res://shaders/bodies/terrain_noise.gdshaderinc"
+#include "res://shaders/common/cloud_climate.gdshaderinc"
 
 uniform float uTime = 0.0;
-uniform float uCover = 0.45;
+uniform float uCover = 0.45;     // global fraction under opaque cloud; 0 draws nothing
+uniform float uCloudZ = 0.0;     // Terrain.cloud_global_z(uCover)
+uniform float uItcz = 0.0;       // the ITCZ's latitude, rad
 uniform float uStorm = 0.25;
 uniform float uSeed = 0.0;
 uniform vec3 uTint = vec3(1.0);
+// Earth's mapped colour and land (PlanetMaps kind 1), for the deserts. uSurfTurn is the
+// deck's turn relative to the surface (cloud phase − spin phase).
+uniform float uMapKind = 0.0;
+uniform float uSurfTurn = 0.0;
+uniform sampler2D uColorMap : source_color, hint_default_black, filter_linear_mipmap, repeat_enable;
+uniform sampler2D uLandMask : hint_default_black, filter_linear_mipmap, repeat_enable;
 
 varying vec3 vObj;
 varying vec3 vWN;
@@ -27,6 +39,8 @@ void vertex() {
 }
 
 void fragment() {
+	// Before the noise, so a clear world pays nothing per fragment.
+	if (uCover <= 0.0) discard;
 	vec3 p = normalize(vObj);
 	float lat = asin(clamp(p.y, -1.0, 1.0));
 	float a = abs(lat);
@@ -50,21 +64,37 @@ void fragment() {
 	vec3 qa = vec3(ca * p.x - sa * p.z, p.y, sa * p.x + ca * p.z);
 	vec3 qb = vec3(cb * p.x - sb * p.z, p.y, sb * p.x + cb * p.z);
 
-	float d = mix(fbm(qb * 5.5 + vec3(uSeed) + vec3(0.0, tb * 0.012, 0.0), 7),
-	              fbm(qa * 5.5 + vec3(uSeed) + vec3(0.0, ta * 0.012, 0.0), 7), wx);
-	// cyclones: ridged noise is all creases, which is what a frontal band is
-	float st = mix(ridged(qb * 7.0 - tb * 0.03, 5), ridged(qa * 7.0 - ta * 0.03, 5), wx) * uStorm;
-	d += st * 0.30;
+	// Seven octaves of value noise are near-normal (mean 0.497, sd 0.1065; see
+	// Terrain.crust_threshold); the cross-fade of two independent copies shrinks the sd
+	// by sqrt(w² + (1 − w)²), which is divided back out so coverage doesn't pulse.
+	float spread = 0.1065 * sqrt(wx * wx + (1.0 - wx) * (1.0 - wx));
+	float d = (mix(fbm(qb * 5.5 + vec3(uSeed) + vec3(0.0, tb * 0.012, 0.0), 7),
+	               fbm(qa * 5.5 + vec3(uSeed) + vec3(0.0, ta * 0.012, 0.0), 7), wx) - 0.497) / spread;
+	// Cyclones: ridged noise is all creases, which is what a frontal band is. Five octaves
+	// have mean 0.684 and sd 0.120; added in sd units and the sum renormalised.
+	float st = (mix(ridged(qb * 7.0 - tb * 0.03, 5), ridged(qa * 7.0 - ta * 0.03, 5), wx) - 0.684)
+		/ (0.120 * sqrt(wx * wx + (1.0 - wx) * (1.0 - wx)));
+	float ks = 2.4 * uStorm;
+	d = (d + ks * st) / sqrt(1.0 + ks * ks);
 
-	// where the air is rising there is cloud, where it sinks there is none
-	float bi = a / 0.25;
-	float bf = (a - 0.95) / 0.30;
-	float bh = (a - 0.52) / 0.22;
-	float band = clamp(1.00 * exp(-bi * bi)
-	                 + 0.70 * exp(-bf * bf)
-	                 - 0.80 * exp(-bh * bh), 0.0, 1.25);
-	float cover = clamp(uCover * mix(0.30, 1.25, band), 0.0, 1.0);
-	float al = sstep(0.62 - cover * 0.44, 0.88 - cover * 0.32, d);
+	// Opaque where d beats −z, so Φ(z) of the sky is cloud. The ramp is symmetric about
+	// the threshold (±0.7 sd), so the thin edges don't shift the mean cover.
+	float z = uCloudZ + cloud_zonal_z(lat, uItcz);
+	if (uMapKind > 0.5 && uMapKind < 1.5) {
+		// Deserts are where the subsiding air is also dry, so they are clearer than their
+		// latitude (Sahara ~0.1 against a zonal 0.3). Arid = bright land that is redder
+		// than green; ice is bright but grey. A coarse mip: cloud answers to the region,
+		// not the pixel. UVs as RockyVisual.sphere_geometry.
+		vec3 ps = vec3(cos(uSurfTurn) * p.x + sin(uSurfTurn) * p.z, p.y,
+		               -sin(uSurfTurn) * p.x + cos(uSurfTurn) * p.z);
+		vec2 uv = vec2(fract(atan(ps.z, -ps.x) / 6.2831853), acos(clamp(ps.y, -1.0, 1.0)) / 3.14159265);
+		vec3 m = textureLod(uColorMap, uv, 5.0).rgb;
+		float land = textureLod(uLandMask, uv, 5.0).r;
+		float lum = dot(m, vec3(0.2126, 0.7152, 0.0722));
+		float arid = land * sstep(0.10, 0.28, lum) * sstep(0.02, 0.12, m.r - m.g);
+		z -= 0.9 * arid;
+	}
+	float al = sstep(-z - 0.7, -z + 0.7, d);
 	if (al < 0.01) discard;
 
 	vec3 N = normalize(vWN);
@@ -74,7 +104,8 @@ void fragment() {
 		float diff = sstep(-0.12, 0.28, dot(N, normalize(uSunDir[i])));
 		lit += uSunColor[i] * uSunInt[i] * diff;
 	}
-	lit += vec3(0.04, 0.06, 0.10);
+	// Night-side cloud is lit only by moon and airglow; a trace keeps the limb readable.
+	lit += vec3(0.012, 0.018, 0.030);
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		ALBEDO = vec3(1.0, 0.0, 0.0);
 	} else {

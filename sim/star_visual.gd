@@ -99,6 +99,8 @@ class StarViz:
 	var time := 0.0
 	var corona_time := 0.0
 	var erupt: Array = []             # [{holder, rope, arcade}]
+	var loops: Array = []             # [{holder, arcade}], one per active region
+	var corona_t := 2.0e6             # K, of the active-region loops
 	var cmes: Array = []              # [{holder, front, core, front_mat, core_mat, seed, time}]
 
 
@@ -180,6 +182,19 @@ class StarViz:
 			group.add_child(holder)
 			erupt.append({"holder": holder, "rope": rope, "arcade": arcade})
 
+		# Active-region loops, one arcade per spot group: the hot (1–3 MK) closed field
+		# over every bipole, there between flares too. Nearly invisible in white light,
+		# they are what an X-ray or EUV image of the star is made of (TRACE, SDO 171 Å).
+		var loop_col := hot.lerp(U.lin(0xffd9a0), 0.5)
+		for i in StarVisual.MAX_SPOTS:
+			var holder := Node3D.new()
+			var arc := Prominence.create_arcade(loop_col, U.lin(0xffffff))
+			arc.set_absorbs(false)
+			holder.add_child(arc.group)
+			holder.visible = false
+			group.add_child(holder)
+			loops.append({"holder": holder, "arcade": arc})
+
 		# CME pool — a leading edge and a core per event, with the cavity between
 		# them left empty because that is what a cavity is.
 		var cme_geo := StarVisual._sphere(1.0, 40, 28)
@@ -204,6 +219,9 @@ class StarViz:
 				"core_mat": core_mat, "seed": randf() * 40.0, "time": 0.0})
 
 		activity = Stellar.ActivityModel.new(b.mass)
+		# Coronal temperature rises with magnetic activity: ~2 MK on the Sun, several MK
+		# on an active M dwarf (Güdel 2004). The active-region loops carry it.
+		corona_t = minf(1.0e6 * (1.0 + activity.activity), 6.0e6)
 		# Degenerate stars have no dynamo: no spots, no flares.
 		if opts.quiet:
 			activity.regions.clear()
@@ -213,6 +231,28 @@ class StarViz:
 		base_r = R
 		r = R
 		color_hex = U.hex_of(photo)
+
+	## A region's local vertical at display time t, turning with the surface's
+	## differential rotation.
+	func _region_up(reg: Dictionary, t: float) -> Vector3:
+		var lat: float = reg.lat
+		var lon: float = reg.lon + omega * (1.0 - 0.19 * pow(sin(lat), 2.0)) * t
+		var cl := cos(lat)
+		return Vector3(cl * cos(lon), sin(lat), cl * sin(lon))
+
+	## JOY'S LAW: a bipole lies near east-west, tilted by about half the latitude with
+	## the leading polarity equatorward, so every arcade in a hemisphere leans the same
+	## way. Returns Basis(neutral line, local vertical, bipole axis): the arcade's own
+	## frame (sim/prominence.gd).
+	func _bipole(reg: Dictionary, t: float) -> Basis:
+		var v := _region_up(reg, t)
+		var east := Vector3.UP.cross(v)
+		if east.length_squared() < 1e-8: east = Vector3(1, 0, 0)   # straight over a pole
+		east = east.normalized()
+		var north := v.cross(east).normalized()
+		var joy := 0.5 * float(reg.lat)
+		var bip := (east * cos(joy) + north * sin(joy)).normalized()
+		return Basis(v.cross(bip).normalized(), v, bip)
 
 	func update(dt: float, ctx: VisualCtx) -> void:
 		var sim_dt: float = ctx.sim_dt
@@ -242,6 +282,28 @@ class StarViz:
 		mat.set_shader_parameter("uSpots", spots)
 		mat.set_shader_parameter("uSpotCount", sc)
 
+		# --- active-region loops over each spot group, sized and lit by its strength
+		var li := 0
+		for reg in activity.regions:
+			if li >= loops.size(): break
+			var age: float = reg.age / reg.life
+			var s: float = reg.strength * pow(sin(minf(age, 1.0) * PI), 0.5)
+			var L: Dictionary = loops[li]
+			var lh: Node3D = L.holder
+			lh.visible = s > 0.02
+			if lh.visible:
+				lh.transform = Transform3D(_bipole(reg, t), _region_up(reg, t) * R)
+				var arc: Prominence.Arcade = L.arcade
+				arc.group.visible = true
+				var span := 0.035 + 0.05 * float(reg.strength)
+				arc.set_params({
+					"R": R, "span": span, "len": span * 1.6, "height": span * 1.1,
+					"shear": 0.18, "twist": 0.15, "erupt": 0.0, "width": 0.003,
+					"amp": minf(0.35 + s, 1.0), "plasmaT": corona_t, "apex": 1.0, "glow": 0.18, "dt": dt,
+				})
+			li += 1
+		for i in range(li, loops.size()): loops[i].holder.visible = false
+
 		# --- flares: the two ribbons on the surface, and the two arcades over it
 		var fu := PackedVector4Array(); fu.resize(StarVisual.MAX_FLARES)
 		var fa := PackedVector4Array(); fa.resize(StarVisual.MAX_FLARES)
@@ -250,22 +312,10 @@ class StarViz:
 		for f in activity.flares:
 			if fc >= StarVisual.MAX_FLARES: break
 			var reg: Dictionary = f.region
-			var lat: float = reg.lat
-			var om := omega * (1.0 - 0.19 * pow(sin(lat), 2.0))
-			var lon: float = reg.lon + om * t
-			var cl := cos(lat)
-			var v := Vector3(cl * cos(lon), sin(lat), cl * sin(lon))
-
-			# JOY'S LAW: a bipole lies near east-west, tilted by about half the latitude with
-			# the leading polarity equatorward, so every arcade in a hemisphere leans the same
-			# way. The neutral line across it is the eruption's axis.
-			var east := Vector3.UP.cross(v)
-			if east.length_squared() < 1e-8: east = Vector3(1, 0, 0)   # straight over a pole
-			east = east.normalized()
-			var north := v.cross(east).normalized()
-			var joy := 0.5 * lat
-			var bip := (east * cos(joy) + north * sin(joy)).normalized()
-			var nl := v.cross(bip).normalized()
+			var frame := _bipole(reg, t)
+			var v := frame.y
+			var bip := frame.z
+			var nl := frame.x
 
 			var x: float = minf(f.t / f.duration, 1.0)
 			var E: float = minf(f.energy, 2.5)
@@ -279,9 +329,7 @@ class StarViz:
 			var E2: Dictionary = erupt[fc]
 			var holder: Node3D = E2.holder
 			holder.visible = true
-			# makeBasis(nl, v, bip): the columns are x = neutral line, y = local
-			# vertical, z = bipole axis — exactly the arcade's own frame.
-			holder.transform = Transform3D(Basis(nl, v, bip), v * R)
+			holder.transform = Transform3D(frame, v * R)
 
 			# The rope: already there, torn loose early, gone by mid-event. Its
 			# shear relaxes as it goes, because the shear is what is being spent.
@@ -293,7 +341,7 @@ class StarViz:
 			rope.set_params({
 				"R": R, "span": 0.075 * scl, "len": 0.30 * scl, "height": 0.17 * scl,
 				"shear": 0.95 - 0.55 * x, "twist": 0.8 + 1.1 * rise, "erupt": rise,
-				"width": 0.011, "amp": rope_amp, "plasmaT": 1.2e4 + 2e6 * rise, "dt": dt,
+				"width": 0.009, "amp": rope_amp, "plasmaT": 1.2e4 + 2e6 * rise, "dt": dt,
 			})
 
 			# The post-flare arcade forms under the rope, rises with the reconnection point, and
@@ -305,7 +353,10 @@ class StarViz:
 				"R": R, "span": (0.045 + 0.055 * minf(x * 2.0, 1.0)) * scl, "len": 0.34 * scl,
 				"height": (0.040 + 0.095 * minf(x * 2.0, 1.0)) * scl,
 				"shear": 0.30 * (1.0 - x), "twist": 0.22, "erupt": 0.0,
-				"width": 0.009, "amp": arc_amp, "plasmaT": 1.5e7 * exp(-x * 1.6) + 3e5, "dt": dt,
+				"width": 0.0055, "amp": arc_amp, "plasmaT": 1.5e7 * exp(-x * 1.6) + 3e5, "dt": dt,
+				# Post-flare loops fill from the feet up (chromospheric evaporation), so the
+				# tops brighten as the event goes on.
+				"apex": minf(x * 2.5, 0.8),
 			})
 			fc += 1
 		mat.set_shader_parameter("uFlares", fu)

@@ -184,11 +184,14 @@ void fragment() {
 	// Lambert with the vehicle's 1/π; uSkyI is the diffuse skylight (the only light on
 	// the night side, and why the terminator is soft).
 	const float INV_PI = 0.3183099;
-	float ndl = clamp(uSunDir.y, -0.2, 1.0);
+	// The sun's height over this point's own horizon: from orbit the patch spans degrees
+	// of arc, and the terminator crosses it.
+	vec3 Nrm = normalize(vec3(vWorld.x, vWorld.y + uRadius, vWorld.z));
+	float ndl = clamp(dot(Nrm, uSunDir), -0.2, 1.0);
 	// CLOUD SHADOW: the layer's optical depth along the sun line, six samples between
 	// base and top. Diffuse sun and skylight still arrive under it.
 	float shade = 1.0;
-	if (uCloudCoverage > 0.0 && uSunDir.y > 0.02) {
+	if (uCloudCoverage > 0.0 && ndl > 0.02) {
 		vec2 tb = cloud_sphere(vLocal, uSunDir, uCloudBase);
 		vec2 tt = cloud_sphere(vLocal, uSunDir, uCloudTop);
 		float a0 = max(tb.y, 0.0);
@@ -211,15 +214,14 @@ void fragment() {
 	if (relief != 0.0) {
 		vec3 n = normalize(cross(dpy + vec3(0.0, rg.y, 0.0), dpx + vec3(0.0, rg.x, 0.0)));
 		n *= sign(n.y);
-		lit_k = clamp(dot(n, uSunDir) / max(uSunDir.y, 0.15), 0.4, 1.6);
+		lit_k = clamp(dot(n, uSunDir) / max(ndl, 0.15), 0.4, 1.6);
 	}
-	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade * lit_k + uSkyI * (0.35 + 0.65 * clamp(uSunDir.y + 0.25, 0.0, 1.0)));
+	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade * lit_k + uSkyI * (0.35 + 0.65 * clamp(ndl + 0.25, 0.0, 1.0)));
 
 	// SUN GLINT: a GGX lobe with Cox & Munk's σ² ≈ 0.04 (~7 m/s wind).
 	vec3 to_eye = uCamLocal - vLocal;
 	float eye_dist = length(to_eye);
 	vec3 V = to_eye / max(eye_dist, 1e-3);
-	vec3 Nrm = normalize(vec3(vWorld.x, vWorld.y + uRadius, vWorld.z));
 	if (water_frac > 0.0 && ndl > 0.0) {
 		vec3 Hh = normalize(V + uSunDir);
 		float nh = max(dot(Nrm, Hh), 0.0);

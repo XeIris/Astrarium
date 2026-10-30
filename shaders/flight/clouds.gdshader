@@ -12,9 +12,13 @@ render_mode unshaded, blend_premul_alpha, depth_draw_never, depth_test_disabled,
 uniform sampler2D uDepth : hint_depth_texture, filter_nearest, repeat_disable;
 uniform vec3 uCamLocal = vec3(0.0);       // camera position in the local frame, m
 uniform vec3 uSunDir = vec3(0.0, 1.0, 0.0);
+// Light at full day, before the local sun height: each sample takes its own (see
+// cloud_daylight), since from orbit the march spans the terminator.
 uniform vec3 uSunColor = vec3(1.0);       // irradiance at the layer, HDR, already reddened
 uniform vec3 uSkyTop = vec3(0.3, 0.4, 0.6);   // skylight on a cloud's upper faces
-uniform vec3 uSkyBottom = vec3(0.1, 0.1, 0.1);// light from below (ground bounce)
+uniform vec3 uSkyNight = vec3(0.005);         // the night sky's floor
+uniform vec3 uSkyBottom = vec3(0.02);         // skylight from below
+uniform vec3 uBounce = vec3(0.1);             // ground bounce per unit sun height
 uniform vec3 uHaze = vec3(0.56, 0.71, 0.91);
 uniform float uHazeDensity = 2.6e-5;      // the ground's aerial-perspective coefficient
 uniform float uHazeRho = 1.0;             // air density at the camera, relative
@@ -37,6 +41,17 @@ void vertex() {
 float hg(float c, float g) {
 	float g2 = g * g;
 	return (1.0 - g2) / (12.566371 * pow(max(1.0 + g2 - 2.0 * g * c, 1e-4), 1.5));
+}
+
+// The sun's height over the local horizon at a local-frame point, and how much of it
+// and of the sky reach there: x the direct sun, cut by the planet's shadow (the sun is
+// up to √(2h/R) below the horizon at height h); y the twilight sky, as the dome's.
+vec3 cloud_daylight(vec3 p) {
+	vec3 up = normalize(vec3(p.x, p.y + uPlanetR, p.z));
+	float mu = dot(up, uSunDir);
+	float h = max(length(vec3(p.x, p.y + uPlanetR, p.z)) - uPlanetR, 0.0);
+	float dip = sqrt(2.0 * h / uPlanetR);
+	return vec3(smoothstep(-dip - 0.015, -dip + 0.03, mu), clamp(mu * 2.0 + 0.25, 0.0, 1.0), mu);
 }
 
 // Interleaved gradient noise (Jimenez 2014): a per-pixel offset with no
@@ -111,6 +126,7 @@ void fragment() {
 	float T = 1.0;
 	float tw = 0.0;       // transmittance-weighted distance, for the haze
 	float wsum = 0.0;
+	vec3 lw = vec3(0.0);  // transmittance-weighted daylight, for the haze
 	// Steps uniform in s, t(s) = t0 + base·(rˢ − 1), floored near the camera and sized
 	// to reach t1. The jitter is on s, or every pixel samples the same shells and the
 	// deck reads as sheets. Grazing rays get more steps (no step over ~15% of its range,
@@ -158,18 +174,21 @@ void fragment() {
 			// diffusion floor. Once per segment, shared by its sub-steps.
 			if (od < 0.0) od = cloud_optical_depth_fp(p, uSunDir, uLightSteps, uLightFirst, fp,
 				uCovReuse > 0.0 ? cov : -1.0);
-			vec3 sun = uSunColor * (ph0 * exp(-od)
+			vec3 dl = cloud_daylight(p);
+			vec3 sun = uSunColor * dl.x * (ph0 * exp(-od)
 				+ 0.5 * ph1 * exp(-od * 0.5)
 				+ 0.10 / (1.0 + 0.11 * od));
 			// Powder: a cloud's near edge is darker than its interior. Soft, away from the
 			// forward lobe.
 			float powder = mix(1.0, 1.0 - exp(-sigma * 90.0), 0.5 * (1.0 - clamp(cosT, 0.0, 1.0)));
-			vec3 amb = mix(uSkyBottom, uSkyTop, smoothstep(0.0, 1.0, hf));
+			vec3 amb = mix(uSkyBottom * dl.y + uBounce * max(dl.z, 0.0) * dl.x, uSkyTop * dl.y,
+				smoothstep(0.0, 1.0, hf)) + uSkyNight;
 			vec3 S = sigma * (sun * powder * 12.566371 * 0.25 + amb);
 			float Ts = exp(-sigma * sub);
 			col += T * (S - S * Ts) / sigma;
 			tw += T * (1.0 - Ts) * ts;
 			wsum += T * (1.0 - Ts);
+			lw += T * (1.0 - Ts) * dl;
 			T *= Ts;
 			if (T < 0.01) break;
 		}
@@ -182,7 +201,8 @@ void fragment() {
 	// aerial perspective at the distance the cloud actually is
 	float dist = tw / max(wsum, 1e-5);
 	float fog = 1.0 - exp(-uHazeRho * uHazeDensity * dist);
-	col = mix(col, uHaze * a, clamp(fog, 0.0, 1.0));
+	vec3 dw = lw / max(wsum, 1e-5);
+	col = mix(col, uHaze * (0.35 + 0.75 * max(dw.z, 0.0)) * dw.y * a, clamp(fog, 0.0, 1.0));
 	ALBEDO = col;
 	ALPHA = a;
 }

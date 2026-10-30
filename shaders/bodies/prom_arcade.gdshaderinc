@@ -21,6 +21,12 @@ uniform float uAmp = 0.0;
 uniform float uPlasmaT = 1.2e7;
 uniform vec3 uCool = vec3(1.0, 0.4, 0.2);
 uniform vec3 uHot = vec3(1.0);
+// 0: brightest at the feet (an impulsive flare, chromospheric material); 1: along the
+// whole loop and brightest at the top (hot coronal loops, a post-flare arcade).
+uniform float uApex = 0.0;
+// Visible-light gain of the emission. Coronal loops are million-kelvin plasma, nearly
+// invisible in white light but bright in X-ray, where the temperature pass decides.
+uniform float uGlow = 1.0;
 
 varying float vS;
 varying float vSide;
@@ -129,7 +135,9 @@ float arcade_weight(out vec3 col, out float fp, out float onDisc) {
 	// Each loop lights a little after its neighbour along the neutral line.
 	float stagger = clamp(uAmp * 1.6 - abs(vThread) * 0.55, 0.0, 1.0);
 
-	float a = prof * (0.30 + 0.70 * fp) * rain * stagger * tw;
+	float top = sin(3.14159265 * vS);
+	float along = mix(0.30 + 0.70 * fp, 0.40 + 0.45 * top + 0.35 * fp, uApex);
+	float a = prof * along * rain * stagger * tw;
 	// An erupting loop drains: legs stay lit, the apex thins.
 	a *= mix(1.0, 0.30 + 0.70 * abs(vS * 2.0 - 1.0), clamp(uErupt * 0.8, 0.0, 1.0));
 

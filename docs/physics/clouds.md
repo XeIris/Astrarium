@@ -54,3 +54,40 @@ lowers uSteps and uLightSteps, stretches uLightFirst so the light march still
 reaches as far, and re-reads coverage only every uCovReuse metres (not at all
 in the light march). 0 means every sample, as under the deck. Nothing changes
 below CLOUD_LOD_LO.
+
+## Climatology
+
+`cloudCover` is a physical quantity on both cloud models: the fraction of the globe
+under cloud thick enough to hide the ground (vertical τ ≳ 1). Earth states 0.44:
+MODIS's 0.67 total cloud fraction less the thin cirrus neither deck draws.
+
+The fraction is spread by latitude in probit units. A field whose opaque fraction
+is Φ(z) at offset z gets Φ(z_g + D(φ)), with D (`cloud_zonal_z`,
+`shaders/common/cloud_climate.gdshaderinc`; CPU copy in `Terrain`):
+
+| term | centre | width | amplitude | why |
+|---|---|---|---|---|
+| ITCZ | follows the sun at 0.4 × its latitude | 8° | +0.30 | Hadley updraft |
+| subtropical highs | 26° | 10° | −0.50 | Hadley subsidence: deserts and trade-cumulus seas |
+| storm tracks | 57° | 13° | +0.72 | Ferrel/polar-front cyclones |
+
+z_g comes from `Terrain.cloud_global_z` by bisection, so the area-weighted mean is
+exactly `cloudCover`. At 0.44 this gives ~0.54 at the equator, ~0.25 at 25°,
+~0.69 at 57° and ~0.42 at the poles: the shape of the ISCCP/MODIS zonal means of
+thick cloud. A world at 1.0 (Venus) saturates and loses the structure.
+
+- **Flight layer.** The weather and synoptic noise spread opaque fraction over the
+  knob b as Φ((b − 0.245)/0.246), measured on the CPU twin, so
+  b = 0.245 + 0.246·z. `tools/cloudcheck.gd` measures the global fraction against
+  `cloudCover` and the zonal contrast. The pad's thinning still applies on top.
+- **Orrery deck.** Seven octaves of value noise are near-normal (mean 0.497, sd
+  0.1065), and the ridged storm creases (mean 0.684, sd 0.120) are added in sd units
+  and renormalised, so the threshold at −z leaves Φ(z) cloudy. The flow map's
+  cross-fade shrinks the sd by √(w² + (1 − w)²), which is divided out so coverage
+  does not pulse. On Earth the deck also reads the Blue Marble map at a coarse mip:
+  bright land redder than green is desert, where z drops by 0.9 (the Sahara is
+  ~0.1 cloudy against its latitude's ~0.3).
+
+Each cloud sample is lit by its own sun height, and the planet's shadow cuts the
+direct beam once the sun is √(2h/R) below the horizon. From orbit the march spans
+degrees of arc, so the vehicle's sun height is wrong for most of the deck.

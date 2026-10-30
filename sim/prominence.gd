@@ -5,7 +5,7 @@ extends RefCounted
 # Emission off the limb and absorption on the disc require separate draws.
 # See shaders/AGENTS.md for the shared geometry and temperature contract.
 
-const THREADS := 22     # flux tubes across the arcade
+const THREADS := 36     # flux tubes across the arcade
 const SEGS := 44        # samples along each
 
 const EMIT_SHADER := preload("res://shaders/bodies/prom_emit.gdshader")
@@ -80,6 +80,7 @@ class Arcade:
 	var geo: ArrayMesh
 	var emit_mat: ShaderMaterial
 	var abs_mat: ShaderMaterial
+	var abs_mesh: MeshInstance3D
 	## uTime, accumulated here rather than read back from the material.
 	var time := 0.0
 
@@ -96,9 +97,16 @@ class Arcade:
 			# the shader, not the buffer, has the shape
 			mesh.custom_aabb = Prominence.NO_CULL_AABB
 			group.add_child(mesh)
+			if mat == abs_mat: abs_mesh = mesh
 		group.visible = false
 
-	## p = { R, span, len, height, shear, twist, erupt, width, amp, plasmaT, dt }
+	## Hot coronal loops do not absorb against the disc; only cool prominence
+	## material does (a filament).
+	func set_absorbs(on: bool) -> void:
+		abs_mesh.visible = on
+
+	## p = { R, span, len, height, shear, twist, erupt, width, amp, plasmaT, dt },
+	## optionally apex (0 feet-bright … 1 top-bright) and glow (visible-light gain).
 	func set_params(p: Dictionary) -> void:
 		time += float(p.dt)
 		for m in [emit_mat, abs_mat]:
@@ -112,6 +120,8 @@ class Arcade:
 			m.set_shader_parameter("uWidth", p.width)
 			m.set_shader_parameter("uAmp", p.amp)
 			m.set_shader_parameter("uPlasmaT", p.plasmaT)
+			m.set_shader_parameter("uApex", p.get("apex", 0.0))
+			m.set_shader_parameter("uGlow", p.get("glow", 1.0))
 			m.set_shader_parameter("uTime", time)
 
 	## the geometry is shared and outlives this arcade; only the nodes go

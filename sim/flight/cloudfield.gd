@@ -10,7 +10,9 @@ extends RefCounted
 
 var _tex: Array = []        # [NoiseTexture3D] × 3: shape, worley, detail
 var _vol: Array = []        # [{w, h, d, data: PackedByteArray}] once read
-var coverage := 0.0
+var coverage := 0.0         # global fraction under opaque cloud
+var z_global := 0.0         # Terrain.cloud_global_z(coverage)
+var itcz := 0.0             # the ITCZ's latitude, rad
 var base := 1500.0
 var top := 4600.0
 var sigma := 0.03
@@ -65,6 +67,11 @@ func _sample(v: Dictionary, uvw: Vector3) -> float:
 static func _remap(v: float, lo: float, hi: float, a: float, b: float) -> float:
 	return a + (v - lo) * (b - a) / maxf(hi - lo, 1e-5)
 
+## The climatology's probit offset at a planet-fixed point (north is −Y), as
+## clouds.gdshaderinc's cloud_coverage reads it.
+func zonal_z(pp: Vector3) -> float:
+	return Terrain.cloud_zonal_z(asin(clampf(-pp.y / pp.length(), -1.0, 1.0)), itcz)
+
 ## Extinction (1/m) at a planet-fixed point, without the erosion: the bulk of
 ## the cloud, as clouds.gdshaderinc's cloud_density_fp(pp, 0.0, 0.0).
 func density(pp: Vector3) -> float:
@@ -73,7 +80,8 @@ func density(pp: Vector3) -> float:
 	var q := pp + wind
 	var weather := _sample(_vol[0], q / 41000.0 + Vector3(0.31, 0.17, 0.83))
 	var synoptic := _sample(_vol[0], q / 420000.0 + Vector3(0.71, 0.43, 0.05))
-	var cov := clampf(coverage + (weather - 0.5) * 0.9 + (synoptic - 0.5) * 1.3, 0.0, 1.0)
+	var b := 0.245 + 0.246 * (z_global + zonal_z(pp))
+	var cov := clampf(b + (weather - 0.5) * 0.9 + (synoptic - 0.5) * 1.3, 0.0, 1.0)
 	if clear_r > 0.0:   # the launch commit criteria — see clouds.gdshaderinc
 		cov *= lerpf(0.2, 1.0, U.smooth(pp.distance_to(clear_at), clear_r * 0.35, clear_r * 1.4))
 	var tp := lerpf(0.45, 1.0, clampf(cov * 1.3 - 0.1, 0.0, 1.0))

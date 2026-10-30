@@ -95,6 +95,15 @@ See [the ray contract](../docs/physics/lensing.md#ray-coordinates-and-numerical-
   front, cavity and core are two additive shells with a gap.
 - Joy's law: a bipole lies near east-west, tilted by about half its latitude, so
   every arcade in a hemisphere leans the same way.
+- Every spot group carries hot coronal loops between flares: nearly invisible in
+  white light (`uGlow`), bright in X-ray. Hot loops don't absorb; only cool
+  prominence material draws the filament pass.
+- Arcade threads publish their temperature on the disc as well as off it; the
+  colour is what is limited to off the limb. Check: `tools/sunlab.tscn` with
+  `band=5`, `at=top`.
+- The corona billboard leaves the temperature underneath, except its 10⁴ K spicule
+  fringe. Its glow is too faint to be the band remap's coverage, and replacing the
+  sky's code blacks the sky out.
 
 ## gdshader traps
 
