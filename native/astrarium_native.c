@@ -90,7 +90,9 @@ static unsigned char *pn_ok = NULL;
 static double *pn_phi = NULL, *pn_aN = NULL;
 static int pn_cap = 0;
 
-static void eih(const double *B, int n, Scratch *S) {
+/* `reuse`: pn_ok and pn_phi already hold this position's set (the substep's second pass). */
+static void eih(const double *B, int n, Scratch *S, int reuse) {
+	if (!reuse) {
 	if (n > pn_cap) {
 		free(pn_ok); free(pn_phi); free(pn_aN);
 		pn_ok = (unsigned char *)malloc((size_t)n);
@@ -124,6 +126,8 @@ static void eih(const double *B, int n, Scratch *S) {
 		}
 		pn_phi[i] = sum;
 	}
+	}
+	if (pn_cap < n) return;
 	for (int k = 0; k < n; k++) { pn_aN[k * 3] = S[k].ax; pn_aN[k * 3 + 1] = S[k].ay; pn_aN[k * 3 + 2] = S[k].az; }
 	double c2 = C_LIGHT * C_LIGHT;
 	for (int i = 0; i < n; i++) {
@@ -252,14 +256,14 @@ static int leapfrog_substep(double *B, int n, double dt, Scratch *S, int pn) {
 			S[k].px = S[k].ax; S[k].py = S[k].ay; S[k].pz = S[k].az;
 			S[k].w[0] = b[VX]; S[k].w[1] = b[VY]; S[k].w[2] = b[VZ];
 		}
-		eih(B, n, S);
+		eih(B, n, S, 0);
 		for (int k = 0; k < n; k++) {
 			double *b = B + k * STRIDE;
 			if (b[ALIVE] == 0.0) continue;
 			b[VX] = S[k].w[0] + S[k].ax * half; b[VY] = S[k].w[1] + S[k].ay * half; b[VZ] = S[k].w[2] + S[k].az * half;
 			S[k].ax = S[k].px; S[k].ay = S[k].py; S[k].az = S[k].pz;
 		}
-		eih(B, n, S);
+		eih(B, n, S, 1);
 		for (int k = 0; k < n; k++) {
 			double *b = B + k * STRIDE;
 			if (b[ALIVE] == 0.0) continue;

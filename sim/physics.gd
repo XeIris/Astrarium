@@ -178,9 +178,10 @@ static func _pn_set(bodies: Array) -> Array:
 		phi[i] = sum
 	return [ok, phi]
 
-static func _eih(bodies: Array) -> void:
+## `pn` is _pn_set(bodies) when the caller already has it for these positions.
+static func _eih(bodies: Array, pn: Array = []) -> void:
 	var n := bodies.size()
-	var pn := _pn_set(bodies)
+	if pn.is_empty(): pn = _pn_set(bodies)
 	var ok: PackedByteArray = pn[0]
 	var phi: PackedFloat64Array = pn[1]
 	var aN := PackedFloat64Array()
@@ -429,14 +430,15 @@ static func _leapfrog_substep(live: Array, dt: float) -> bool:
 		for b in live:
 			b.a_prev.copy_from(b.acc)
 			b.aux_vel.copy_from(b.vel)
-		_eih(live)
+		var pn := _pn_set(live)          # positions are fixed through both passes
+		_eih(live, pn)
 		for b in live:
 			# v_mid = v + ½·dt·a(v), then the Newtonian part back for the second pass.
 			b.vel.x = b.aux_vel.x + b.acc.x * half
 			b.vel.y = b.aux_vel.y + b.acc.y * half
 			b.vel.z = b.aux_vel.z + b.acc.z * half
 			b.acc.copy_from(b.a_prev)
-		_eih(live)
+		_eih(live, pn)
 		for b in live:
 			b.vel.copy_from(b.aux_vel)
 	for b in live:
