@@ -634,7 +634,7 @@ func core_collapse(b: Body) -> void:
 	b.mass = float(end.mass); b.mass0 = float(end.mass)
 	b.spin_frac = minf(b.spin_frac + 0.55, 0.95)   # collapse spins it up
 	if end.type == "neutron":
-		b.radius = Physics.neutron_radius(b.mass)
+		b.radius = Structure.neutron_radius_km(b.mass) * Physics.AU_PER_KM
 		b.teff = null
 		transmute(b, "neutron", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))], {"visualSpinRadS": 30.0})
 	elif end.type == "bh":
@@ -714,7 +714,7 @@ func update_suns() -> void:
 	var home := get_home()
 	state.suns.clear()
 	for s in stars:
-		var L: float = float(U.nz(s.luminosity, Stellar.luminosity(s.mass))) * (s.activity.flux if s.activity != null else 1.0)
+		var L: float = float(U.nz(s.luminosity, Stellar.luminosity(s.mass))) * (s.activity.bolometric if s.activity != null else 1.0)
 		var d := maxf(home.pos.distance_to(s.pos), 1e-3) if home else 1.0
 		var sun := VisualCtx.Sun.new()
 		sun.body = s
@@ -783,6 +783,21 @@ func handle_merger(ev: Dictionary) -> void:
 	var wpos := surv.pos.scaled(state.scene_scale)
 	if surv.type == "bh" or gone.type == "bh":
 		var was_bh := surv.type == "bh"
+		if was_bh and gone.type == "bh":
+			# Two holes: the remnant is lighter by what the waves carried off, spins,
+			# and recoils in the orbital plane. The recoil's direction there is set by
+			# the merger phase, which a Newtonian contact doesn't resolve; this uses
+			# the lighter hole's motion.
+			var m2 := gone.mass
+			var m1 := surv.mass - m2
+			var eta := m1 * m2 / (surv.mass * surv.mass)
+			var kick := DVec3.new().sub_vectors(gone.vel, surv.vel)
+			if kick.length() > 0.0:
+				surv.vel.add_scaled_in(kick, Physics.merger_kick_kms(eta) / Rocketry.AU_M * 1000.0 * Rocketry.YR_S / kick.length())
+			surv.mass *= 1.0 - Physics.merger_radiated_fraction(eta)
+			surv.mass0 = surv.mass
+			surv.spin_frac = Physics.merger_spin(eta)
+			surv.spec = U.merged(surv.spec, {"mass": surv.mass, "spinFrac": surv.spin_frac})
 		surv.type = "bh"
 		surv.rs = Physics.schwarzschild(surv.mass)
 		# The physics type changed, so the spec and the meshes have to follow it.

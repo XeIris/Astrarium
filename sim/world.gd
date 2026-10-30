@@ -81,9 +81,10 @@ class WorldViz extends RefCounted:
 		# planet rotation — b.day_length is in years
 		var day := b.day_length if b.day_length != 0.0 else 0.01
 		# Wrap both phases (float32 rotation stops advancing past ~1e5). The cloud deck
-		# super-rotates at 0.985, so it has its own accumulator.
-		b.spin_phase = fmod(b.spin_phase + (sim_dt / day) * TAU, TAU)
-		b.cloud_phase = fmod(b.cloud_phase + (sim_dt / day) * TAU * 0.985, TAU)
+		# drifts east of it with the westerlies (1.015), so it has its own accumulator.
+		# Prograde about −y, the orbits' sense (RockyVisual.spin_step).
+		b.spin_phase = fmod(b.spin_phase - (sim_dt / day) * TAU, TAU)
+		b.cloud_phase = fmod(b.cloud_phase - (sim_dt / day) * TAU * 1.015, TAU)
 		surface.rotation.y = b.spin_phase
 		clouds.rotation.y = b.cloud_phase          # super-rotating cloud deck
 		cloud_mat.set_shader_parameter("uSurfTurn", b.cloud_phase - b.spin_phase)

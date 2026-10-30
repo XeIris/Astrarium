@@ -142,9 +142,8 @@ class Diagram extends RefCounted:
 			var x := X(float(b.teff))
 			var y := Y(float(b.luminosity))
 			if x < PAD.l - 6.0 or x > W or y < 0.0 or y > H: continue
-			var c := Stellar.blackbody_color(float(b.teff))
-			# `rgb(${(c.r*255)|0}, …)` — truncated, and used as a CSS (sRGB) colour
-			var fill := Color8(int(c.r * 255.0), int(c.g * 255.0), int(c.b * 255.0))
+			# A 2D canvas colour is sRGB-encoded; the blackbody colour is linear.
+			var fill := Stellar.blackbody_color(float(b.teff)).linear_to_srgb()
 			Canvas2D.fill_circle(canvas, x, y, 4.2, fill)
 			Canvas2D.stroke_circle(canvas, x, y, 4.2, Color(0, 0, 0, 0.6), 1.0)
 			# A white dwarf's class is D (Sirius B at 25 000 K is not a B star); use the body's.

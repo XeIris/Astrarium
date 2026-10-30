@@ -553,7 +553,8 @@ static func _build_solar(t_cy := 0.0) -> Array:
 	# The Moon, on its real orbit about Earth: a target inside Earth's SOI and an
 	# airless body to land on. Its 5.1° tilt keeps eclipses to the nodes.
 	var moon := { "type": "planet", "name": "Moon", "mass": m_moon, "radiusKm": 1737.4,
-		"hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268 }
+		"hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268,
+		"tidalLock": "Earth" }
 	var emb := elements_state(Physics.G * (1.0 + m_earth + m_moon), SOLAR_ELEMENTS.EMB, t_cy)
 	var rel := elements_state(Physics.G * (m_earth + m_moon), SOLAR_ELEMENTS.Moon, t_cy)
 	var f_moon := m_moon / (m_earth + m_moon)
@@ -568,7 +569,7 @@ static func _build_solar(t_cy := 0.0) -> Array:
 		P.call(1.0 / 408523.719, 6051.8, "planet", "Venus", {
 			"hot": true, "atmosphere": true, "atmColor": 0xffd9a0, "surfaceK": 737.0, "albedo": 0.77,
 			"crater": 0.10, "regolith": 0xb08a5c, "cloudCover": 1.0, "cloudColor": 0xfff2d2,
-			"atmThick": 2.4, "haze": 1.2, "obliquity": 3.096 }),
+			"atmThick": 2.4, "haze": 1.2, "obliquity": 3.096, "cloudSpin": 60.0 }),
 		earth,
 		moon,
 		# Mars's caps are CO₂ (148 K), so they grow and retreat each winter.
