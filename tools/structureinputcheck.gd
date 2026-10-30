@@ -169,8 +169,9 @@ func numerical_time() -> void:
 	stage.state.max_step = 1e-13
 	stage.state.gw_boost = 0.0
 	var accepted: float = stage.step_physics(5e-13)
+	# A step's six Yoshida half-drifts each round, so the position lands within a few ULP.
 	check("production clock accepts a short positive duration", accepted == 5e-13
-		and stage.state.sim_years == accepted and b.pos.x == accepted and not stage.state.last_resolution_limited)
+		and stage.state.sim_years == accepted and absf(b.pos.x - accepted) <= accepted * 1e-15 and not stage.state.last_resolution_limited)
 	stage.state.max_step = 0.0
 	var original := snapshot()
 	check("invalid step cap accepts no time", stage.step_physics(1e-6) == 0.0)
