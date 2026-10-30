@@ -617,7 +617,7 @@ func transmute(b: Body, new_type: String, why, remnant_spec: Dictionary = {}) ->
 # A star at the end of its life. What it leaves behind is decided by
 # end_state_of(), and in the pair-instability window it leaves nothing.
 func core_collapse(b: Body) -> void:
-	var end: Dictionary = Structure.end_state_of(b.mass)
+	var end: Dictionary = Structure.end_state_of(b.mass, b.Z)
 	var wpos := b.scene_pos.clone()
 	var size := maxf(b.radius_scene * 22.0, 1.5)
 	# Stand back far enough that the blast is something you watch rather than

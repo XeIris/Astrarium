@@ -98,6 +98,9 @@ func compact_force_cases() -> void:
 		var acceleration := a.acc.clone()
 		Physics.compute_accel([b, a])
 		check(label + " force order independence", a.acc.distance_to(acceleration) < acceleration.length() * 1e-12)
+		# The potential's own gradient: a velocity-dependent 1PN force has none.
+		Physics.post_newtonian = false
+		Physics.compute_accel([a, b])
 		var x := a.pos.x
 		var h := separation * 1e-5
 		a.pos.x = x + h
@@ -105,7 +108,8 @@ func compact_force_cases() -> void:
 		a.pos.x = x - h
 		var minus := Derive.total_energy([a, b])
 		a.pos.x = x
-		check(label + " force matches energy gradient", absf(-(plus - minus) / (2.0 * h) - a.mass * a.acc.x) < absf(a.mass * a.acc.x) * 1e-8)
+		check(label + " Newtonian force matches energy gradient", absf(-(plus - minus) / (2.0 * h) - a.mass * a.acc.x) < absf(a.mass * a.acc.x) * 1e-8)
+		Physics.post_newtonian = true
 		var period := TAU * separation / speed
 		var dt := period / 2000.0
 		for kernel in ["gd", "native"]:
@@ -293,28 +297,51 @@ func fidelity_cases() -> void:
 	check("the Moon's orbit is tilted 5.145° to the ecliptic (%.3f°)" % tilt, absf(tilt - 5.145) < 0.01)
 	var t := totals(bodies)
 	check("solar preset starts at the barycentre at rest", t.momentum.length() < 1e-15 and t.center.length() < 1e-15)
-	# Unsoftened Sun–Mercury: the perihelion holds still apart from integration error;
-	# the former radius/2 + 1e-4 AU softening turned it back 1.7e4″ per century.
-	var pair := [Derive.new_body(0, specs[0]), Derive.new_body(1, specs[1])]
-	var sun: Body = pair[0]
-	sun.pos = DVec3.new(); sun.vel = DVec3.new()
-	var lrl := func() -> DVec3:
-		var rr := DVec3.new().sub_vectors(pair[1].pos, sun.pos)
-		var vv := DVec3.new().sub_vectors(pair[1].vel, sun.vel)
-		var h := DVec3.new().cross_vectors(rr, vv)
-		var mu: float = Physics.G * (sun.mass + pair[1].mass)
-		return DVec3.new().cross_vectors(vv, h).scale_in(1.0 / mu).sub_in(rr.clone().scale_in(1.0 / rr.length()))
-	var e0: DVec3 = lrl.call()
-	# A fine fixed step isolates the force law: at the orrery's own step Verlet adds
-	# ~1e5″/cy of its own (docs/physics-fidelity-review-2026-10-30.md, P1-1).
-	var years := 0.0
-	while years < 2.4:
-		var step := NBody.step_physics(pair, 0.05, 1e-5, 0.0)
-		if step.resolution_limited or step.stepped <= 0.0: break
-		years += step.stepped
-	var e1: DVec3 = lrl.call()
-	var turned := rad_to_deg(acos(clampf(e0.dot(e1) / (e0.length() * e1.length()), -1.0, 1.0))) * 3600.0 * 100.0 / maxf(years, 1e-30)
-	check("Mercury's Newtonian perihelion drifts < 50″/cy (%.2f″/cy over %.1f yr)" % [turned, years], years >= 2.4 and turned < 50.0)
+	# Sun–Mercury at the solar preset's own step, 100 orbits. Newtonian, the perihelion
+	# holds still to integration error (the former softening turned it back 1.7e4″/cy,
+	# single Verlet at the orrery's step 1.6e5″/cy); with 1PN it advances GR's 42.98″/cy.
+	var max_step: float = Presets.PRESETS.solar.maxStep
+	for pn in [false, true]:
+		Physics.post_newtonian = pn
+		var pair := [Derive.new_body(0, specs[0]), Derive.new_body(1, specs[1])]
+		var sun: Body = pair[0]
+		# Mercury's heliocentric state, Sun at rest: its barycentric velocity would carry
+		# Jupiter's reflex into the relative orbit.
+		pair[1].pos.sub_in(sun.pos); pair[1].vel.sub_in(sun.vel)
+		sun.pos = DVec3.new(); sun.vel = DVec3.new()
+		var lrl := func() -> DVec3:
+			var rr := DVec3.new().sub_vectors(pair[1].pos, sun.pos)
+			var vv := DVec3.new().sub_vectors(pair[1].vel, sun.vel)
+			var h := DVec3.new().cross_vectors(rr, vv)
+			var mu: float = Physics.G * (sun.mass + pair[1].mass)
+			return DVec3.new().cross_vectors(vv, h).scale_in(1.0 / mu).sub_in(rr.clone().scale_in(1.0 / rr.length()))
+		var normal := DVec3.new().cross_vectors(DVec3.new().sub_vectors(pair[1].pos, sun.pos), DVec3.new().sub_vectors(pair[1].vel, sun.vel))
+		var e0: DVec3 = lrl.call()
+		# The slope of a least-squares fit to the perihelion longitude, sampled every 0.01
+		# yr: two endpoints alone carry the osculating terms, and a sampling interval near
+		# a multiple of the 0.24 yr orbit aliases them.
+		var years := 0.0
+		var ts := []; var angles := []
+		while years < 24.0:
+			var step := NBody.step_physics(pair, 0.01, max_step, 0.0)
+			if step.resolution_limited or step.stepped <= 0.0: break
+			years += step.stepped
+			var e1: DVec3 = lrl.call()
+			ts.append(years)
+			angles.append(atan2(DVec3.new().cross_vectors(e0, e1).dot(normal) / normal.length(), e0.dot(e1)))
+		var mean_t := 0.0; var mean_a := 0.0
+		for k in ts.size(): mean_t += ts[k]; mean_a += angles[k]
+		mean_t /= maxf(ts.size(), 1); mean_a /= maxf(ts.size(), 1)
+		var num := 0.0; var den := 0.0
+		for k in ts.size():
+			num += (ts[k] - mean_t) * (angles[k] - mean_a)
+			den += (ts[k] - mean_t) * (ts[k] - mean_t)
+		var arcsec := rad_to_deg(num / maxf(den, 1e-30)) * 3600.0 * 100.0
+		if pn:
+			check("Mercury's perihelion advances GR's 42.98″/cy (%.2f″/cy over %.0f yr)" % [arcsec, years], years >= 24.0 and absf(arcsec - 42.98) < 1.0)
+		else:
+			check("Mercury's Newtonian perihelion holds within 1″/cy (%.2f″/cy over %.0f yr)" % [arcsec, years], years >= 24.0 and absf(arcsec) < 1.0)
+	Physics.post_newtonian = true
 
 func _init() -> void:
 	collision_cases()

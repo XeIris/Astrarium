@@ -281,7 +281,8 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 	result.steps = guard
 	return result
 
-# Matches conservative forces: Plummer for ordinary pairs, Newtonian for BH pairs.
+# Matches conservative forces: Plummer for ordinary pairs, Newtonian for BH pairs, plus
+# the 1PN (EIH) energy (Physics.eih_energy).
 # GW drag, mergers and changing radii/masses invalidate integrator-only drift.
 # Nonzero terms outside double precision return NAN; a singular potential is -INF.
 static func total_energy(bodies: Array) -> float:
@@ -314,7 +315,7 @@ static func total_energy(bodies: Array) -> float:
 			if not is_finite(potential) or potential == 0.0 or numerator < DOUBLE_MIN_NORMAL or weighted_mass < DOUBLE_MIN_NORMAL:
 				potential = _energy_product([Physics.G, bi.mass, bj.mass], [denom])
 			E -= potential
-	return E
+	return E + Physics.eih_energy(bs)
 
 static var DOUBLE_MIN_NORMAL := Physics.DOUBLE_MIN_NORMAL
 static var DOUBLE_MAX := Physics.DOUBLE_MAX

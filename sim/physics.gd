@@ -1,8 +1,9 @@
 class_name Physics
 extends RefCounted
 
-# AU, M☉, years; DVec3 doubles. Newtonian pair gravity with velocity-Verlet;
-# optional circular-power drag illustrates GW losses. See docs/physics/compact-dynamics.md.
+# AU, M☉, years; DVec3 doubles. Newtonian pair gravity plus pairwise 1PN, integrated
+# by fourth-order Yoshida; optional circular-power drag illustrates GW losses. See
+# docs/physics/compact-dynamics.md.
 
 const G := 4.0 * PI * PI                # 39.478 AU³ M☉⁻¹ yr⁻²; exact for Rocketry.YR_S
 const C := Rocketry.C_MS * Rocketry.YR_S / Rocketry.AU_M   # speed of light, AU/yr (63242.27)
@@ -42,9 +43,18 @@ static func roche_limit(mass_sun: float, body_density: float = 5.5) -> float:
 	return 2.44 * r_au * U.cbrt(rho_star / body_density)
 
 # Acceleration field. Fills every live body's `acc`; false when a force is not
-# representable. Pairs at ordinary distances take the inline path; the rest use
-# _accumulate_pair, which yields identical bits wherever both apply.
+# representable. The 1PN terms read each body's current `vel`.
 static func compute_accel(bodies: Array) -> bool:
+	if not compute_newtonian(bodies): return false
+	if not post_newtonian: return true
+	_eih(bodies)
+	for b in bodies:
+		if b.alive and not b.acc.is_finite_v(): return false
+	return true
+
+# The Newtonian part. Pairs at ordinary distances take the inline path; the rest use
+# _accumulate_pair, which yields identical bits wherever both apply.
+static func compute_newtonian(bodies: Array) -> bool:
 	var n := bodies.size()
 	var soft_sq := PackedFloat64Array()
 	soft_sq.resize(n)
@@ -126,6 +136,141 @@ static func _accumulate_pair(a: Body, b: Body, rx: float, ry: float, rz: float) 
 	b.acc.x -= rx * fB; b.acc.y -= ry * fB; b.acc.z -= rz * fB
 	return true
 
+## First post-Newtonian N-body gravity: the Einstein–Infeld–Hoffmann equations as the
+## JPL ephemerides use them (Newhall, Standish & Williams 1983, β = γ = 1), added to the
+## Newtonian accelerations already in `acc`, which also stand in for the bodies'
+## accelerations inside the terms (an O(1/c⁴) difference). They follow from a
+## Lagrangian, so eih_energy() is conserved; summed two-body terms are not, and drift
+## in a hierarchical triple. With the Sun alone they reduce to the Schwarzschild
+## test-particle acceleration: Mercury's 42.98″ per century. Softened bodies take no
+## part; a pair past the weak field, G(m₁+m₂)/(rc²) ≥ 0.1, drops both bodies. The
+## native kernel repeats this operation for operation. docs/physics/compact-dynamics.md.
+const PN_LIMIT := 0.1
+## Off only for checks of the Newtonian potential itself.
+static var post_newtonian := true
+
+## Bodies in the 1PN set, and each one's Newtonian potential G·Σm/r over that set.
+static func _pn_set(bodies: Array) -> Array:
+	var n := bodies.size()
+	var ok := PackedByteArray()
+	ok.resize(n)
+	for k in n:
+		var b: Body = bodies[k]
+		ok[k] = 1 if b.alive and (b.type == "bh" or b.softening == 0.0) else 0
+	var limit := PN_LIMIT * C * C
+	for i in n:
+		for j in range(i + 1, n):
+			if ok[i] == 0 or ok[j] == 0: continue
+			var a: Body = bodies[i]; var b: Body = bodies[j]
+			var r := distance_xyz(b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z)
+			if not (G * (a.mass + b.mass) / r < limit):
+				ok[i] = 0; ok[j] = 0
+	var phi := PackedFloat64Array()
+	phi.resize(n)
+	for i in n:
+		if ok[i] == 0: continue
+		var a: Body = bodies[i]
+		var sum := 0.0
+		for l in n:
+			if l == i or ok[l] == 0: continue
+			var b: Body = bodies[l]
+			sum += G * b.mass / distance_xyz(b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z)
+		phi[i] = sum
+	return [ok, phi]
+
+static func _eih(bodies: Array) -> void:
+	var n := bodies.size()
+	var pn := _pn_set(bodies)
+	var ok: PackedByteArray = pn[0]
+	var phi: PackedFloat64Array = pn[1]
+	var aN := PackedFloat64Array()
+	aN.resize(n * 3)
+	for k in n:
+		var b: Body = bodies[k]
+		aN[k * 3] = b.acc.x; aN[k * 3 + 1] = b.acc.y; aN[k * 3 + 2] = b.acc.z
+	var c2 := C * C
+	for i in n:
+		if ok[i] == 0: continue
+		var a: Body = bodies[i]
+		var vi2 := a.vel.x * a.vel.x + a.vel.y * a.vel.y + a.vel.z * a.vel.z
+		var cx := 0.0; var cy := 0.0; var cz := 0.0
+		for j in n:
+			if j == i or ok[j] == 0: continue
+			var b: Body = bodies[j]
+			var dx := b.pos.x - a.pos.x; var dy := b.pos.y - a.pos.y; var dz := b.pos.z - a.pos.z
+			var r := distance_xyz(dx, dy, dz)
+			var mu := G * b.mass
+			var inv_r3 := 1.0 / (r * r * r)
+			var ajx := aN[j * 3]; var ajy := aN[j * 3 + 1]; var ajz := aN[j * 3 + 2]
+			var vj2 := b.vel.x * b.vel.x + b.vel.y * b.vel.y + b.vel.z * b.vel.z
+			var vivj := a.vel.x * b.vel.x + a.vel.y * b.vel.y + a.vel.z * b.vel.z
+			var nvj := -(dx * b.vel.x + dy * b.vel.y + dz * b.vel.z) / r
+			var xa := dx * ajx + dy * ajy + dz * ajz
+			var coef := -4.0 * phi[i] - phi[j] + vi2 + 2.0 * vj2 - 4.0 * vivj - 1.5 * nvj * nvj + 0.5 * xa
+			var t1 := mu * inv_r3 * coef
+			var s := -(dx * (4.0 * a.vel.x - 3.0 * b.vel.x) + dy * (4.0 * a.vel.y - 3.0 * b.vel.y) + dz * (4.0 * a.vel.z - 3.0 * b.vel.z))
+			var t2 := mu * inv_r3 * s
+			var t3 := 3.5 * mu / r
+			cx += t1 * dx + t2 * (a.vel.x - b.vel.x) + t3 * ajx
+			cy += t1 * dy + t2 * (a.vel.y - b.vel.y) + t3 * ajy
+			cz += t1 * dz + t2 * (a.vel.z - b.vel.z) + t3 * ajz
+		cx /= c2; cy /= c2; cz /= c2
+		if is_finite(cx) and is_finite(cy) and is_finite(cz):
+			a.acc.x += cx; a.acc.y += cy; a.acc.z += cz
+
+## The 1PN part of the EIH Lagrangian's conserved energy (Landau & Lifshitz, Classical
+## Theory of Fields, §106), over the same set as _eih:
+## Σ⅜mv⁴ + Σ_{a≠b} (Gm_am_b/2r)[3v_a² − ⁷⁄₂v_a·v_b − (n·v_a)(n·v_b)/2] + Σ m_aΦ_a²/2, over c².
+static func eih_energy(bodies: Array) -> float:
+	if not post_newtonian: return 0.0
+	var n := bodies.size()
+	var pn := _pn_set(bodies)
+	var ok: PackedByteArray = pn[0]
+	var phi: PackedFloat64Array = pn[1]
+	var e := 0.0
+	for i in n:
+		if ok[i] == 0: continue
+		var a: Body = bodies[i]
+		var vi2 := a.vel.length_sq()
+		e += 0.375 * a.mass * vi2 * vi2 + 0.5 * a.mass * phi[i] * phi[i]
+		for j in n:
+			if j == i or ok[j] == 0: continue
+			var b: Body = bodies[j]
+			var dx := b.pos.x - a.pos.x; var dy := b.pos.y - a.pos.y; var dz := b.pos.z - a.pos.z
+			var r := distance_xyz(dx, dy, dz)
+			var nva := (dx * a.vel.x + dy * a.vel.y + dz * a.vel.z) / r
+			var nvb := (dx * b.vel.x + dy * b.vel.y + dz * b.vel.z) / r
+			e += G * a.mass * b.mass / (2.0 * r) * (3.0 * vi2 - 3.5 * a.vel.dot(b.vel) - 0.5 * nva * nvb)
+	var value := e / (C * C)
+	return value if is_finite(value) else 0.0
+
+## Total momentum the EIH equations conserve (M☉·AU/yr): Σ∂L/∂v of the same Lagrangian,
+##   Σ m_a v_a (1 + v_a²/2c² − Φ_a/2c²) − (1/2c²) Σ_{a≠b} (Gm_am_b/r)(n·v_b) n,
+## with Φ over the 1PN set; Newtonian Σmv for bodies outside it. Σmv alone oscillates at
+## O(v²/c²) under 1PN forces.
+static func total_momentum(bodies: Array) -> DVec3:
+	var out := DVec3.new()
+	var n := bodies.size()
+	var pn := _pn_set(bodies) if post_newtonian else [PackedByteArray(), PackedFloat64Array()]
+	var ok: PackedByteArray = pn[0]
+	var phi: PackedFloat64Array = pn[1]
+	var c2 := C * C
+	for i in n:
+		var a: Body = bodies[i]
+		if not a.alive: continue
+		if not post_newtonian or ok[i] == 0:
+			out.add_scaled_in(a.vel, a.mass)
+			continue
+		out.add_scaled_in(a.vel, a.mass * (1.0 + (a.vel.length_sq() - phi[i]) / (2.0 * c2)))
+		for j in n:
+			if j == i or ok[j] == 0: continue
+			var b: Body = bodies[j]
+			var d := DVec3.new().sub_vectors(b.pos, a.pos)
+			var r := d.length()
+			d.scale_in(1.0 / r)
+			out.add_scaled_in(d, -G * a.mass * b.mass / r * d.dot(b.vel) / (2.0 * c2))
+	return out
+
 # Keep ordinary rounding; scale only when the squared norm over/underflows.
 static func distance_xyz(x: float, y: float, z: float) -> float:
 	var squared := x * x + y * y + z * z
@@ -194,8 +339,9 @@ static func restore_step(bodies: Array) -> void:
 			b.pos.copy_from(b.step_pos)
 			b.vel.copy_from(b.step_vel)
 
-# Circular weak-field quadrupole power converted to illustrative relative-velocity
-# drag, not general 2.5-PN dynamics. Boost, window and kick cap alter physical rates.
+# Instantaneous quadrupole power converted to illustrative relative-velocity drag,
+# not general 2.5-PN dynamics. Boost, window and kick cap alter physical rates.
+static var G3 := pow(G, 3.0)
 static var G4 := pow(G, 4.0)
 static var C5 := pow(C, 5.0)
 static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
@@ -214,8 +360,11 @@ static func apply_gw_reaction(bodies: Array, dt: float, boost: float) -> void:
 			var vx := b.vel.x - a.vel.x; var vy := b.vel.y - a.vel.y; var vz := b.vel.z - a.vel.z
 			var m1 := a.mass; var m2 := b.mass; var M := m1 + m2; var mu := m1 * m2 / M
 
-			# dE/dt for a circular binary: −32/5 · G⁴ m1²m2²(m1+m2) / (c⁵ r⁵)
-			var dEdt := (32.0 / 5.0) * G4 * m1 * m1 * m2 * m2 * M / (C5 * pow(r, 5.0)) * boost
+			# Peters & Mathews (1963), Keplerian motion: −(8/15) G³m1²m2² (12v² − 11ṙ²)/(c⁵r⁴).
+			# 32/5·G⁴m1²m2²M/(c⁵r⁵) on a circle; its orbit average carries Peters' f(e).
+			var v2 := vx * vx + vy * vy + vz * vz
+			var rdot := (rx * vx + ry * vy + rz * vz) / r
+			var dEdt := (8.0 / 15.0) * G3 * m1 * m1 * m2 * m2 * (12.0 * v2 - 11.0 * rdot * rdot) / (C5 * pow(r, 4.0)) * boost
 
 			# Convert power loss into a velocity-space drag opposing relative motion.
 			var vrelMag := maxf(sqrt(vx * vx + vy * vy + vz * vz), 1e-6)
@@ -238,6 +387,12 @@ static func _or3(a: float, b: float, c: float) -> float:
 	return c
 
 # A fixed step is symplectic for unchanged conservative pair potentials.
+# Yoshida (1990) fourth-order composition of three time-symmetric leapfrog substeps,
+# w₁ = 1/(2 − 2^⅓) and w₀ = 1 − 2w₁ < 0. Against single Verlet at the same step it
+# cuts Mercury's perihelion error ~115× and energy error ~100×.
+const YOSHIDA_W1 := 1.3512071919596578
+const YOSHIDA_W0 := 1.0 - 2.0 * YOSHIDA_W1
+
 static func integrate(bodies: Array, dt: float) -> bool:
 	var live := []
 	for b in bodies:
@@ -247,39 +402,51 @@ static func integrate(bodies: Array, dt: float) -> bool:
 		var sp := b.step_pos; var sv := b.step_vel
 		sp.x = b.pos.x; sp.y = b.pos.y; sp.z = b.pos.z
 		sv.x = b.vel.x; sv.y = b.vel.y; sv.z = b.vel.z
-	if not compute_accel(live): return false
-	var hdt2 := 0.5 * dt * dt
-	for b in live:
-		# x += v·dt + ½a·dt² as two additions, the reference's rounding order.
-		b.pos.x += b.vel.x * dt
-		b.pos.y += b.vel.y * dt
-		b.pos.z += b.vel.z * dt
-		b.pos.x += b.acc.x * hdt2
-		b.pos.y += b.acc.y * hdt2
-		b.pos.z += b.acc.z * hdt2
-		b.a_prev.x = b.acc.x; b.a_prev.y = b.acc.y; b.a_prev.z = b.acc.z
-	if not finite_state(live) or not compute_accel(live):
-		restore_step(live)
-		return false
-	var hdt := 0.5 * dt
-	for b in live:
-		# v += ½(a_old + a_new)·dt
-		b.vel.x += (b.a_prev.x + b.acc.x) * hdt
-		b.vel.y += (b.a_prev.y + b.acc.y) * hdt
-		b.vel.z += (b.a_prev.z + b.acc.z) * hdt
-
-	if not finite_state(live):
-		restore_step(live)
-		return false
+	for w in [YOSHIDA_W1, YOSHIDA_W0, YOSHIDA_W1]:
+		if not _leapfrog_substep(live, w * dt):
+			restore_step(live)
+			return false
 	for b in live:
 		# A force-free mover must not spend accepted time with its entire drift lost.
-		if (b.a_prev.x == 0.0 and b.a_prev.y == 0.0 and b.a_prev.z == 0.0
-				and b.acc.x == 0.0 and b.acc.y == 0.0 and b.acc.z == 0.0
+		if (b.acc.x == 0.0 and b.acc.y == 0.0 and b.acc.z == 0.0
 				and (b.step_vel.x != 0.0 or b.step_vel.y != 0.0 or b.step_vel.z != 0.0)
 				and b.pos.x == b.step_pos.x and b.pos.y == b.step_pos.y and b.pos.z == b.step_pos.z):
 			restore_step(live)
 			return false
 	return true
+
+# Drift–kick–drift. The kick's velocity-dependent 1PN term sees the mean of the old and
+# new velocities (one fixed-point pass, residual O(dt·(v/c)⁴)), which keeps the substep
+# time-symmetric: a predicted-velocity kick is not, and drifts secularly in energy.
+static func _leapfrog_substep(live: Array, dt: float) -> bool:
+	var half := 0.5 * dt
+	for b in live:
+		b.pos.x += b.vel.x * half
+		b.pos.y += b.vel.y * half
+		b.pos.z += b.vel.z * half
+	if not finite_state(live) or not compute_newtonian(live): return false
+	if post_newtonian:
+		for b in live:
+			b.a_prev.copy_from(b.acc)
+			b.aux_vel.copy_from(b.vel)
+		_eih(live)
+		for b in live:
+			# v_mid = v + ½·dt·a(v), then the Newtonian part back for the second pass.
+			b.vel.x = b.aux_vel.x + b.acc.x * half
+			b.vel.y = b.aux_vel.y + b.acc.y * half
+			b.vel.z = b.aux_vel.z + b.acc.z * half
+			b.acc.copy_from(b.a_prev)
+		_eih(live)
+		for b in live:
+			b.vel.copy_from(b.aux_vel)
+	for b in live:
+		b.vel.x += b.acc.x * dt
+		b.vel.y += b.acc.y * dt
+		b.vel.z += b.acc.z * dt
+		b.pos.x += b.vel.x * half
+		b.pos.y += b.vel.y * half
+		b.pos.z += b.vel.z * half
+	return finite_state(live)
 
 static var collision_limited := false
 

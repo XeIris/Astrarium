@@ -38,6 +38,7 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 			A[o + 6] = b.mass; A[o + 7] = b.rs; A[o + 8] = 1.0 if b.type == "bh" else 0.0
 			A[o + 9] = b.softening; A[o + 10] = b.radius; A[o + 11] = b.contact_au
 			A[o + 12] = 1.0 if b.emits_gw else 0.0; A[o + 13] = 1.0 if b.alive else 0.0
+			A[o + 14] = 1.0 if Physics.post_newtonian else 0.0
 		A = ClassDB.class_call_static("NBodyKernel", "step", A)
 		for k in n:
 			var b: Body = bodies[k]

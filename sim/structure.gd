@@ -41,8 +41,10 @@ const LIMITS := {
 	# Humphreys–Davidson (1979): no cool supergiant above log L ≈ 5.8. A luminosity
 	# limit, not a mass one: R136a1 is ~196 M☉ (Kalari et al. 2022) and hot.
 	"humphreysDavidsonL": 630957.0,
-	# Pair instability (He core 65–135 M☉): disrupted with no remnant.
-	"pairLo": 140.0, "pairHi": 260.0,
+	# Pair instability (He core 65–135 M☉): disrupted with no remnant. Only metal-poor
+	# stars keep a core that big; above ~Z☉/3 winds strip it first (Heger & Woosley
+	# 2002; Langer et al. 2007), and such a star ends as a black hole.
+	"pairLo": 140.0, "pairHi": 260.0, "pairMaxZ": 0.0047,
 	# Core-collapse thresholds (initial mass, solar metallicity). Above the pair
 	# window, the star goes straight to a black hole.
 	"neutronStarMin": 8.0, "blackHoleMin": 20.0,
@@ -169,7 +171,11 @@ const PHASES := [
 	{ "id": "subgiant",  "label": "Subgiant",       "f": 1.10,  "X": 0.00, "rMul": 2.8,  "lMul": 2.5,  "burn": "H → He (shell)",
 		"note": "The inert core contracts, the shell burns hotter, and the envelope expands to absorb it. Cooling at nearly constant luminosity." },
 	{ "id": "rgb",       "label": "Red giant",      "f": 1.35,  "X": 0.00, "rMul": 25.0, "lMul": 320.0, "burn": "H → He (shell), degenerate He core",
-		"note": "A degenerate helium core the size of Earth inside a convective envelope the size of Mercury's orbit." },
+		"note": "A degenerate helium core the size of Earth inside a convective envelope twenty-five times the Sun's radius." },
+	# The Sun's RGB tip on MIST tracks: ~170 R☉ and ~2500 L☉; the Hayashi limit caps
+	# R near 160 R☉ here.
+	{ "id": "rgbTip",    "label": "RGB tip",        "f": 1.45,  "X": 0.00, "rMul": 170.0, "lMul": 2500.0, "burn": "H → He (shell), degenerate He core",
+		"note": "The top of the red-giant branch. The core has grown to ~0.47 M☉; in a star under ~2 M☉ it now ignites helium all at once, in a flash, and the star shrinks back. For the Sun the envelope reaches about Venus's orbit." },
 	{ "id": "heburn",    "label": "Core He burning","f": 1.55,  "X": 0.00, "rMul": 10.0, "lMul": 65.0, "burn": "3 ⁴He → ¹²C (core)",
 		"note": "Helium ignites — in low-mass stars all at once, in a flash — and the star settles back down to burn it." },
 	{ "id": "agb",       "label": "AGB / supergiant","f": 1.80, "X": 0.00, "rMul": 130.0, "lMul": 3500.0, "burn": "H and He shells; C/O core",
@@ -750,21 +756,22 @@ static func _star_structure(spec: Dictionary, mass: float, spin_frac: float) -> 
 		"Tc": cc.Tc, "Pc": cc.Pc, "rhoC": cc.rhoC, "density": cc.rhoMean, "mu": cc.mu,
 		"X": ph.X, "eddington": gamma, "msLifetime": t_ms,
 		"convectiveEnvelope": convective_envelope, "convectiveCore": convective_core, "wolfRayet": wolf_rayet,
-		"endState": end_state_of(mass),
-		"verdict": _stellar_verdict(mass, gamma, ph),
+		"endState": end_state_of(mass, Z),
+		"verdict": _stellar_verdict(mass, gamma, ph, Z),
 		"layers": _star_layers(mass, ph, cc, convective_core, convective_envelope),
 	}
 	return _with_rotation(s, mass, "star", spin_frac)
 
-static func _stellar_verdict(mass: float, gamma: float, ph: Dictionary) -> Dictionary:
+static func _stellar_verdict(mass: float, gamma: float, ph: Dictionary, Z: float = 0.014) -> Dictionary:
 	# Destruction mechanisms are checked before the merely violent ones.
+	var pair_window := Z <= float(LIMITS.pairMaxZ)
 
-	if mass >= float(LIMITS.pairLo) and mass <= float(LIMITS.pairHi):
+	if pair_window and mass >= float(LIMITS.pairLo) and mass <= float(LIMITS.pairHi):
 		return {
 			"state": VERDICT.explode, "label": "Pair instability",
 			"detail": "Between %s and %s M☉ the core gets hot enough that photons convert into electron–positron pairs. Making pairs costs pressure, the adiabatic index drops below 4/3, and the core collapses — into a runaway oxygen burn that unbinds the entire star. There is no remnant at all." % [_num(LIMITS.pairLo), _num(LIMITS.pairHi)],
 		}
-	if mass > float(LIMITS.pairHi):
+	if pair_window and mass > float(LIMITS.pairHi):
 		return {
 			"state": VERDICT.collapse, "label": "Direct collapse",
 			"detail": "Above %s M☉ photodisintegration outruns the pair instability and the core implodes without any explosion. The star disappears into a black hole essentially whole." % _num(LIMITS.pairHi),
@@ -787,9 +794,10 @@ static func _stellar_verdict(mass: float, gamma: float, ph: Dictionary) -> Dicti
 	return { "state": VERDICT.ok, "label": "Hydrostatic equilibrium", "detail": "%s" % ph.note }
 
 ## Returns { type, label, mass? } — what the star leaves behind.
-static func end_state_of(mass: float) -> Dictionary:
-	if mass >= float(LIMITS.pairLo) and mass <= float(LIMITS.pairHi): return { "type": "none", "label": "No remnant (pair-instability SN)" }
-	if mass > float(LIMITS.pairHi): return { "type": "bh", "label": "Black hole (direct collapse)", "mass": mass * 0.9 }
+static func end_state_of(mass: float, Z: float = 0.014) -> Dictionary:
+	var pair_window := Z <= float(LIMITS.pairMaxZ)
+	if pair_window and mass >= float(LIMITS.pairLo) and mass <= float(LIMITS.pairHi): return { "type": "none", "label": "No remnant (pair-instability SN)" }
+	if pair_window and mass > float(LIMITS.pairHi): return { "type": "bh", "label": "Black hole (direct collapse)", "mass": mass * 0.9 }
 	if mass >= float(LIMITS.blackHoleMin): return { "type": "bh", "label": "Black hole", "mass": 0.3 * pow(mass, 0.85) }
 	if mass >= float(LIMITS.neutronStarMin): return { "type": "neutron", "label": "Neutron star", "mass": 1.2 + 0.06 * (mass - 8.0) }
 	return { "type": "white-dwarf", "label": "White dwarf", "mass": white_dwarf_final_mass(mass) }
