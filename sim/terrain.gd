@@ -6,6 +6,8 @@ extends RefCounted
 #   crust_threshold(land)    the fBm level leaving `land` of the sphere above sea
 #                            level (the inverse normal CDF)
 #   terrain_uniforms(opts)   defaults for the include's uniforms, per-body overridable
+#   cloud_global_z(cover)    the probit offset that gives `cover` of the globe opaque
+#                            cloud under the zonal climatology (cloud_climate.gdshaderinc)
 #   INCLUDE / NOISE_INCLUDE  the include paths
 
 const INCLUDE := "res://shaders/bodies/terrain.gdshaderinc"
@@ -38,3 +40,40 @@ static func terrain_uniforms(opts: VisualOpts) -> Dictionary:
 		"uTransport": float(U.nz(opts.transport, 0.42)),
 		"uArid": float(U.nz(opts.arid, 0.0)),
 	}
+
+## shaders/common/cloud_climate.gdshaderinc's cloud_zonal_z: phi is latitude, itcz the
+## ITCZ's latitude (rad).
+static func cloud_zonal_z(phi: float, itcz := 0.0) -> float:
+	var a := absf(phi)
+	var i := (phi - itcz) / 0.14
+	var s := (a - 0.45) / 0.17
+	var k := (a - 1.0) / 0.22
+	return 0.30 * exp(-i * i) - 0.50 * exp(-s * s) + 0.72 * exp(-k * k)
+
+## Standard normal CDF (Abramowitz & Stegun 7.1.26 through erf, |error| < 1.5e-7).
+static func normal_cdf(z: float) -> float:
+	var x := absf(z) / sqrt(2.0)
+	var t := 1.0 / (1.0 + 0.3275911 * x)
+	var e := 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t \
+		+ 0.254829592) * t * exp(-x * x)
+	return 0.5 * (1.0 + (e if z >= 0.0 else -e))
+
+## The global probit offset whose area-weighted mean of Φ(z + cloud_zonal_z) is
+## `cover` (the world's cloudCover: its fraction under opaque cloud), by bisection.
+## Saturates at ±8 for 0 and 1.
+static func cloud_global_z(cover: float) -> float:
+	if cover <= 0.0: return -8.0
+	if cover >= 1.0: return 8.0
+	var lo := -8.0
+	var hi := 8.0
+	for it in 40:
+		var mid := 0.5 * (lo + hi)
+		var s := 0.0
+		var w := 0.0
+		for i in 90:
+			var phi := -PI * 0.5 + (i + 0.5) * PI / 90.0
+			s += cos(phi) * normal_cdf(mid + cloud_zonal_z(phi))
+			w += cos(phi)
+		if s / w < cover: lo = mid
+		else: hi = mid
+	return 0.5 * (lo + hi)

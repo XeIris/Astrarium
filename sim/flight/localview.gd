@@ -71,6 +71,8 @@ const CLOUD_LOD_HI := 45000.0
 var _cloud_steps := 28
 var _cloud_light := 3
 var _cloud_detail := 0.0
+## [coverage, Terrain.cloud_global_z(coverage)], recomputed only when the coverage changes.
+var _cloud_cover_z := [-1.0, 0.0]
 var render_quality := "medium"
 var _reflection_body := ""
 var _has_air := true
@@ -520,8 +522,11 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 		east: DVec3, up: DVec3, north: DVec3) -> void:
 	var cover := 0.0
 	if render_quality != "low" and env.name == "Earth" and atm != null and cloud_shape != null:
-		# fair-weather cumulus, broken: what most launches are flown under
-		cover = float(U.nz(o.get("cloudCover"), 0.30))
+		# The world's own global fraction; the climatology spreads it by latitude.
+		var spec: Dictionary = env.body.spec if env.get("body") != null else {}
+		cover = clampf(float(U.nz(o.get("cloudCover"), U.nz(spec.get("cloudCover"), 0.5))), 0.0, 1.0)
+	if cover != _cloud_cover_z[0]:
+		_cloud_cover_z = [cover, Terrain.cloud_global_z(cover)]
 	# Past a few hundred kilometres the orrery's planet (with its own cloud
 	# deck) is the picture; the local layer only exists over the ground patch.
 	clouds.visible = cover > 0.0 and h < 4.0e5
@@ -531,6 +536,10 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	var fb := Basis(east.to_v3(), up.to_v3(), north.to_v3())
 	_to_planet = Basis(Vector3.UP, float(U.nz(o.get("planetSpin"), 0.0))) * fb
 	var wind: Vector3 = o.get("cloudWind", Vector3.ZERO)
+	# The ITCZ follows the sub-solar latitude at about 0.4 of its swing (±10° over the
+	# oceans to the sun's ±23°). North is −Y.
+	var sun_w: DVec3 = o.sunDirWorld
+	var itcz := 0.4 * asin(clampf(-sun_w.y / maxf(sun_w.length(), 1e-12), -1.0, 1.0))
 	# the pad, planet-fixed, for the thinning round it
 	var clear_at := Vector3.ZERO
 	var clear_r := 0.0
@@ -542,6 +551,8 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 		m.set_shader_parameter("uClearAt", clear_at)
 		m.set_shader_parameter("uClearR", clear_r)
 		m.set_shader_parameter("uCloudCoverage", cover)
+		m.set_shader_parameter("uCloudZ", _cloud_cover_z[1])
+		m.set_shader_parameter("uCloudItcz", itcz)
 		m.set_shader_parameter("uLocalToPlanet", _to_planet)
 		m.set_shader_parameter("uPlanetR", R)
 		m.set_shader_parameter("uCloudWind", wind)
@@ -553,6 +564,8 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	var through := 1.0
 	if cloud_field != null and cover > 0.0 and h < CLOUD_TOP + 2000.0:
 		cloud_field.coverage = cover
+		cloud_field.z_global = _cloud_cover_z[1]
+		cloud_field.itcz = itcz
 		cloud_field.base = CLOUD_BASE; cloud_field.top = CLOUD_TOP
 		cloud_field.sigma = CLOUD_SIGMA; cloud_field.radius = R
 		cloud_field.wind = wind
@@ -572,9 +585,8 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 		T = Vector3(exp(-_tau0.x * dens * exp(-3000.0 / 8500.0) * _airmass),
 			exp(-_tau0.y * dens * exp(-3000.0 / 8500.0) * _airmass),
 			exp(-_tau0.z * dens * exp(-3000.0 / 8500.0) * _airmass))
-	# day → twilight → night, as the dome's own "sun" factor
-	var day := clampf(sun_l.y * 2.0 + 0.25, 0.0, 1.0)
-	var sun_col := Vector3(_sun_rgb.x * T.x, _sun_rgb.y * T.y, _sun_rgb.z * T.z) * flux * day
+	# At full day: the pass applies each sample's own sun height (cloud_daylight).
+	var sun_col := Vector3(_sun_rgb.x * T.x, _sun_rgb.y * T.y, _sun_rgb.z * T.z) * flux
 	cloud_mat.set_shader_parameter("uSunDir", sun_l)
 	cloud_mat.set_shader_parameter("uSunColor", sun_col)
 	cloud_mat.set_shader_parameter("uPixAngle",
@@ -582,10 +594,11 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	# Skylight on the upper faces (the dome's own tint, at the brightness of a
 	# clear sky) and the ground's bounce on the lower ones.
 	var tint := _v3(int(atm.tint))
-	cloud_mat.set_shader_parameter("uSkyTop", tint * (0.55 * day + 0.01))
-	var g := _v3(int(env.ground))
-	cloud_mat.set_shader_parameter("uSkyBottom", g * flux * maxf(sun_l.y, 0.0) * 0.30 / PI + tint * 0.05 * day)
-	cloud_mat.set_shader_parameter("uHaze", _v3(int(atm.haze)) * (0.35 + 0.75 * maxf(sun_l.y, 0.0)) * day)
+	cloud_mat.set_shader_parameter("uSkyTop", tint * 0.55)
+	cloud_mat.set_shader_parameter("uSkyNight", tint * 0.01)
+	cloud_mat.set_shader_parameter("uSkyBottom", tint * 0.05)
+	cloud_mat.set_shader_parameter("uBounce", _v3(int(env.ground)) * flux * 0.30 / PI)
+	cloud_mat.set_shader_parameter("uHaze", _v3(int(atm.haze)))
 	cloud_mat.set_shader_parameter("uHazeDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
 	cloud_mat.set_shader_parameter("uHazeRho", exp(-h / maxf(sh, 1.0)))
 	cloud_mat.set_shader_parameter("uMaxDist", clampf(sqrt(2.0 * R * maxf(h, 3000.0)) * 1.6, 60000.0, 1.2e6))

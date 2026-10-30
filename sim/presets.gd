@@ -515,6 +515,8 @@ static func _build_solar() -> Array:
 	# Surfaces are derived from where a body is (sim/rocky_visual.gd). A preset states
 	# what it's made of: albedo, greenhouse, and the dominant volatile's condensation
 	# temperature.
+	# cloudCover is the fraction under cloud thick enough to hide the ground: MODIS's
+	# 0.67 total less the thin cirrus the decks don't draw.
 	var earth: Dictionary = P.call(1.000, 3.00e-6, 6371.0, "planet", "Earth", {
 		"atmosphere": true, "land": 0.32, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
 		"obliquity": 0.4091, "cloudCover": 0.44, "season": 11.0,

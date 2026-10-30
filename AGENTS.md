@@ -202,6 +202,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`,
   `tools/nbodycheck.gd` and `tools/numericalcheck.gd`
 - flight time/integration guards: `tools/flighttimecheck.gd` and the flight checks
+- flight cloud coverage or climatology: `tools/cloudcheck.gd`
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`

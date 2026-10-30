@@ -30,6 +30,7 @@ class WorldViz extends RefCounted:
 	var R: float
 	var is_world := true
 	var body: Body
+	var _cover := -1.0
 
 	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
@@ -52,6 +53,7 @@ class WorldViz extends RefCounted:
 		core = surface
 
 		cloud_mat = RockyVisual.cloud_material(seed + 3.7)
+		RockyVisual.bind_cloud_map(cloud_mat, b.name)
 		clouds = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.008, 64, 48), cloud_mat)
 		clouds.name = "Clouds"
 		group.add_child(clouds)
@@ -84,6 +86,7 @@ class WorldViz extends RefCounted:
 		b.cloud_phase = fmod(b.cloud_phase + (sim_dt / day) * TAU * 0.985, TAU)
 		surface.rotation.y = b.spin_phase
 		clouds.rotation.y = b.cloud_phase          # super-rotating cloud deck
+		cloud_mat.set_shader_parameter("uSurfTurn", b.cloud_phase - b.spin_phase)
 
 		surf_mat.set_shader_parameter("uTime", _u(surf_mat, "uTime") + dt)
 		# uTime feeds non-periodic noise, so cap the sim-time term instead of wrapping it.
@@ -102,7 +105,11 @@ class WorldViz extends RefCounted:
 			surf_mat.set_shader_parameter("uSeaKm", -boil * 5.0)
 			surf_mat.set_shader_parameter("uScorch", clampf((T - 330.0) / 140.0, 0.0, 1.0))
 			surf_mat.set_shader_parameter("uArid", clampf((T - 310.0) / 80.0, 0.0, 0.8))
-			cloud_mat.set_shader_parameter("uCover", float(cl.get("clouds")))
+			var cover := float(cl.get("clouds"))
+			if cover != _cover:
+				_cover = cover
+				cloud_mat.set_shader_parameter("uCover", cover)
+				cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(cover))
 			cloud_mat.set_shader_parameter("uStorm", float(U.nz(cl.get("storm"), 0.2)))
 			atmo_mat.set_shader_parameter("uThick", 0.6 + float(cl.get("humidity")) * 0.8)
 

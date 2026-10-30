@@ -10,10 +10,14 @@
 // is |p| − R, so the layer curves over the horizon. sim/flight/cloudfield.gd must
 // match this sample for sample. Rendering: docs/physics/clouds.md.
 
+#include "res://shaders/common/cloud_climate.gdshaderinc"
+
 uniform sampler3D uCloudShape : filter_linear_mipmap, repeat_enable;    // Perlin fbm
 uniform sampler3D uCloudWorley : filter_linear_mipmap, repeat_enable;   // inverted Worley, large cells
 uniform sampler3D uCloudDetail : filter_linear_mipmap, repeat_enable;   // inverted Worley fbm, small
-uniform float uCloudCoverage = 0.0;       // 0 = clear, 1 = overcast
+uniform float uCloudCoverage = 0.0;       // global fraction under opaque cloud; 0 = none
+uniform float uCloudZ = 0.0;              // Terrain.cloud_global_z(uCloudCoverage)
+uniform float uCloudItcz = 0.0;           // the ITCZ's latitude, rad
 uniform float uCloudBase = 1500.0;        // m above the datum
 uniform float uCloudTop = 4200.0;
 uniform float uCloudSigma = 0.045;        // extinction at full density, 1/m
@@ -48,12 +52,17 @@ float cloud_lod(float fp, float tile, float texels) {
 	return max(log2(fp * texels / tile), 0.0);
 }
 
-// COVERAGE at a planet-fixed point (weather plus synoptic systems, thinned over the
-// pad). Split out because it varies over tens of km, so a march from above can reuse
-// it (uCovReuse).
+// COVERAGE at a planet-fixed point (climatology, weather and synoptic systems,
+// thinned over the pad). Split out because it varies over tens of km, so a march
+// from above can reuse it (uCovReuse).
 float cloud_coverage(vec3 pp, float fp) {
 	vec3 q = pp + uCloudWind;
-	// WEATHER: 40 km cells of more and less cloud round the global coverage,
+	// The weather below spreads opaque fraction over the knob as Φ((b − 0.245)/0.246)
+	// (measured by tools/cloudcheck.gd), so b comes from the local probit.
+	// Planet-fixed north is −Y.
+	float phi = asin(clamp(-pp.y / length(pp), -1.0, 1.0));
+	float b = 0.245 + 0.246 * (uCloudZ + cloud_zonal_z(phi, uCloudItcz));
+	// WEATHER: 40 km cells of more and less cloud round the local mean,
 	// so the sky is not the same everywhere you look.
 	float weather = textureLod(uCloudShape, q * (1.0 / 41000.0) + vec3(0.31, 0.17, 0.83),
 		cloud_lod(fp, 41000.0, 96.0)).r;
@@ -61,7 +70,7 @@ float cloud_coverage(vec3 pp, float fp) {
 	// repeat like wallpaper from orbit.
 	float synoptic = textureLod(uCloudShape, q * (1.0 / 420000.0) + vec3(0.71, 0.43, 0.05),
 		cloud_lod(fp, 420000.0, 96.0)).r;
-	float cov = clamp(uCloudCoverage + (weather - 0.5) * 0.9 + (synoptic - 0.5) * 1.3, 0.0, 1.0);
+	float cov = clamp(b + (weather - 0.5) * 0.9 + (synoptic - 0.5) * 1.3, 0.0, 1.0);
 	// Launch commit criteria forbid launching near cumulus (Apollo 12 was struck), so
 	// the field is thinned round the site.
 	if (uClearR > 0.0)

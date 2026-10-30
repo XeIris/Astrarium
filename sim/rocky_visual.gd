@@ -142,13 +142,22 @@ static func bind_planet_map(m: ShaderMaterial, body_name: String) -> void:
 		m.set_shader_parameter("uMapScale", float(e.scale))
 		m.set_shader_parameter("uMapKind", float(e.kind)))
 
+## The cloud deck reads Earth's map for its deserts (cloud_deck.gdshader).
+static func bind_cloud_map(m: ShaderMaterial, body_name: String) -> void:
+	PlanetMaps.load_planet_map(body_name, func(e: Dictionary) -> void:
+		if int(e.kind) != 1: return
+		m.set_shader_parameter("uColorMap", e.color)
+		m.set_shader_parameter("uLandMask", e.mask)
+		m.set_shader_parameter("uMapKind", float(e.kind)))
+
 # CLOUDS. Not a noise field wrapped round a ball — see cloud_deck.gdshader.
 static func cloud_material(seed: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = CLOUD_SHADER
 	_init_suns(m)
 	m.set_shader_parameter("uTime", 0.0)
-	m.set_shader_parameter("uCover", 0.45)
+	m.set_shader_parameter("uCover", 0.5)
+	m.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(0.5))
 	m.set_shader_parameter("uStorm", 0.25)
 	m.set_shader_parameter("uSeed", seed)
 	m.set_shader_parameter("uTint", Vector3(1, 1, 1))
@@ -200,6 +209,7 @@ class RockyViz extends RefCounted:
 	var eps: float
 	var sea_km0: float
 	var tilt_q := Quaternion()
+	var _cover := -1.0
 
 	func _init(b: Body, o: VisualOpts) -> void:
 		body = b
@@ -239,7 +249,8 @@ class RockyViz extends RefCounted:
 			cloud_mat = RockyVisual.cloud_material(seed + 3.7)
 			if RockyVisual.truthy(o.cloud_color):
 				cloud_mat.set_shader_parameter("uTint", RockyVisual.v3(RockyVisual.lin_of(o.cloud_color)))
-			cloud_mat.set_shader_parameter("uCover", float(U.nz(o.cloud_cover, 0.45)))
+			_set_cover(float(U.nz(o.cloud_cover, 0.5)))
+			RockyVisual.bind_cloud_map(cloud_mat, b.name)
 			clouds = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.008, 64, 48), cloud_mat)
 			clouds.name = "Clouds"
 			group.add_child(clouds)
@@ -268,6 +279,13 @@ class RockyViz extends RefCounted:
 			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		b.viz = self
 
+	## The deck's global opaque fraction and its probit offset, recomputed only on change.
+	func _set_cover(c: float) -> void:
+		if c == _cover: return
+		_cover = c
+		cloud_mat.set_shader_parameter("uCover", c)
+		cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(c))
+
 	func _u(m: ShaderMaterial, k: String) -> float:
 		return float(m.get_shader_parameter(k))
 
@@ -295,6 +313,7 @@ class RockyViz extends RefCounted:
 			# rather than a scaled read of spinPhase, which would jump at each wrap.
 			b.cloud_phase = fmod(b.cloud_phase + float(b.visual_spin_rad_s) * dt * 0.985, TAU)
 			clouds.rotation.y = b.cloud_phase
+			cloud_mat.set_shader_parameter("uSurfTurn", b.cloud_phase - b.spin_phase)
 			cloud_mat.set_shader_parameter("uTime", _u(cloud_mat, "uTime") + dt)
 		surf_mat.set_shader_parameter("uTime", _u(surf_mat, "uTime") + dt)
 
@@ -327,13 +346,16 @@ class RockyViz extends RefCounted:
 				if cloud_mat != null:
 					# A runaway greenhouse ends under more cloud, not less (Venus); only the fair-weather
 					# structure goes.
-					var base := float(U.nz(opts.cloud_cover, 0.45))
-					cloud_mat.set_shader_parameter("uCover", base + (1.0 - base) * clampf((T - 340.0) / 110.0, 0.0, 1.0))
+					var base := float(U.nz(opts.cloud_cover, 0.5))
+					_set_cover(base + (1.0 - base) * clampf((T - 340.0) / 110.0, 0.0, 1.0))
 			# Season from the star's direction relative to the spin axis (sine of the sub-solar
 			# latitude), so any orbit gets its own seasons.
 			var pole := tilt_q * Vector3.UP
 			var sun_dir: Vector3 = (suns[0].pos_rel - group.position).normalized()
 			surf_mat.set_shader_parameter("uDecl", pole.dot(sun_dir))
+			if cloud_mat != null:
+				# The ITCZ follows the sub-solar latitude at about 0.4 of its swing.
+				cloud_mat.set_shader_parameter("uItcz", 0.4 * asin(clampf(pole.dot(sun_dir), -1.0, 1.0)))
 			var mats := [surf_mat]
 			if cloud_mat != null: mats.append(cloud_mat)
 			if atmo_mat != null: mats.append(atmo_mat)
