@@ -211,6 +211,14 @@ Nothing runs beside the `fast` import or any check in `perf`, `m5-*`,
 `stability*`, `export` and `clean`; the `lifecycle` checks (one process per soak
 feature, plus the leak and shutdown checks) run beside each other only. Other
 checks' logged timings are taken under concurrent load.
+
+While checks run, a terminal shows a live block: checks done of total, what is
+running against its usual time and timeout, and an estimate of the time left
+(learned from earlier passing runs). Piped output, such as an agent's, gets a
+`PROGRESS` block every 30 s instead. A `WARN` line names a check nearing its
+timeout, running well past its usual time, or silent for two minutes past it.
+`python3 tools/check.py --watch` shows every run in progress in any worktree of
+this clone, including one an agent started; `--status` prints it once.
 ### The fast path
 
 For the inner loop, run what the change touches, headless, and replay whole

@@ -454,6 +454,236 @@ def wait_child(process, timeout):
         time.sleep(0.05)
 
 
+def runs_dir():
+    """Live run status and learned durations. Under the git common dir, so every
+    worktree of this clone shares it and `--watch` sees runs an agent started."""
+    try:
+        common = metadata(["git", "rev-parse", "--git-common-dir"])
+    except (OSError, subprocess.SubprocessError):
+        common = "unavailable"
+    return (ROOT / common if common != "unavailable" else ROOT / "tools/evidence") / "astrarium-check"
+
+
+def duration(seconds):
+    seconds = int(seconds)
+    return f"{seconds // 60}m{seconds % 60:02d}s" if seconds >= 60 else f"{seconds}s"
+
+
+def read_times(folder):
+    """Learned check durations, or {} when the file is missing or not a mapping."""
+    try:
+        history = json.loads((folder / "times.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return history if isinstance(history, dict) else {}
+
+
+class Progress:
+    """What a person needs while checks run: how many are left, what is running and
+    for how long, and which look stuck. A terminal gets a redrawn status line; piped
+    output (an agent's) gets a PROGRESS line every BEAT seconds. Either way the state
+    goes to runs_dir()/<pid>.json for `check.py --watch`. Status I/O never fails a run."""
+    BEAT = 30
+    QUIET = 120  # seconds without log output before a running check is flagged
+
+    def __init__(self, plan, output, options):
+        self.plan, self.output, self.jobs = plan, output, options.jobs
+        self.timeouts = [options.timeout or check.timeout for check in plan]
+        self.tty = sys.stdout.isatty()
+        self.started = time.monotonic()
+        self.started_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self.argv = sys.argv[1:]
+        self.running, self.done, self.warned, self.learned = {}, {}, set(), {}
+        self.stopping = False
+        self.beat = self.started
+        self.drawn = False
+        self.dir = runs_dir()
+        self.keys, seen = [], {}
+        for check in plan:  # padcheck runs under one name several times: key by occurrence
+            seen[check.name] = seen.get(check.name, -1) + 1
+            self.keys.append(f"{check.name}#{seen[check.name]}")
+        history = read_times(self.dir)
+        self.expected = [history.get(key) or check.cost or None for key, check in zip(self.keys, plan)]
+
+    def start(self, index):
+        self.running[index] = time.monotonic()
+
+    def finish(self, index, passed, seconds):
+        self.running.pop(index, None)
+        self.done[index] = passed
+        if passed:
+            self.expected[index] = self.learned[self.keys[index]] = seconds
+
+    def quiet(self, index, now):
+        """Seconds since the check's logs last grew (or since it started)."""
+        latest = self.running[index]
+        log = self.output / f"{index:02d}-{self.plan[index].name}.log"
+        for path in (log, log.with_suffix(".engine.log")):
+            with contextlib.suppress(OSError):
+                latest = max(latest, now - (time.time() - path.stat().st_mtime))
+        return now - latest
+
+    def snapshot(self):
+        now = time.monotonic()
+        running = []
+        for index, began in sorted(self.running.items(), key=lambda item: item[1]):
+            elapsed, expected, timeout = now - began, self.expected[index], self.timeouts[index]
+            quiet = self.quiet(index, now)
+            flag = ("near timeout" if elapsed > 0.75 * timeout
+                    else "slower than usual" if expected and elapsed > 1.5 * expected and elapsed - expected > 30
+                    # Long missions print little: silence matters once a check is past its usual time.
+                    else f"no output {duration(quiet)}" if quiet > self.QUIET and not (expected and elapsed < expected) else None)
+            running.append({"name": self.plan[index].name, "log": str(self.output / f"{index:02d}-{self.plan[index].name}.log"), "seconds": round(elapsed), "expected": expected and round(expected),
+                            "timeout": timeout, "quiet": round(quiet), "flag": flag})
+        waiting = [i for i in range(len(self.plan)) if i not in self.done and i not in self.running]
+        # Parallel work shares the jobs; alone checks run end to end.
+        left = [max((self.expected[i] or 0) - (now - began), 0) for i, began in self.running.items()]
+        shared = sum(left) + sum(self.expected[i] or 0 for i in waiting if self.plan[i].alone is not True)
+        alone = sum(self.expected[i] or 0 for i in waiting if self.plan[i].alone is True)
+        unknown = sum(1 for i in [*self.running, *waiting] if not self.expected[i])
+        return {"pid": os.getpid(), "root": str(ROOT), "args": self.argv, "log_dir": str(self.output),
+                "started_utc": self.started_utc, "updated": time.time(), "elapsed": round(now - self.started),
+                "total": len(self.plan), "passed": sum(self.done.values()), "failed": [self.plan[i].name for i, ok in self.done.items() if not ok],
+                "stopping": self.stopping, "running": running, "waiting": [self.plan[i].name for i in waiting],
+                "eta": None if self.stopping else round(max([*left, 0]) if not waiting and not running else max(max(left, default=0), shared / self.jobs) + alone),
+                "eta_unknown": unknown, "finished": None}
+
+    @staticmethod
+    def render(state, width=None):
+        """One summary line plus a line per running check."""
+        done = state["passed"] + len(state["failed"])
+        head = f"[{done}/{state['total']}] {len(state['running'])} running, {len(state['waiting'])} waiting, {duration(state['elapsed'])} elapsed"
+        if state["failed"]:
+            head += f", FAILED {', '.join(state['failed'])}"
+        if state["stopping"]:
+            head += "; stopping after the failure"
+        elif state["eta"] is not None and (state["running"] or state["waiting"]):
+            head += f", ~{duration(state['eta'])} left" + (f" (+{state['eta_unknown']} unmeasured)" if state["eta_unknown"] else "")
+        lines = [head]
+        for check in state["running"]:
+            usual = f" (usually {duration(check['expected'])})" if check["expected"] else ""
+            lines.append(f"  {check['name']}: {duration(check['seconds'])}{usual}, timeout {duration(check['timeout'])}"
+                         + (f"  <- {check['flag']}" if check["flag"] else ""))
+        return [line[:width] for line in lines] if width else lines
+
+    def write(self, state):
+        with contextlib.suppress(OSError):
+            self.dir.mkdir(parents=True, exist_ok=True)
+            path = self.dir / f"{os.getpid()}.json"
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(state), encoding="utf-8")
+            temporary.replace(path)
+
+    def clear(self):
+        if self.drawn:
+            sys.stdout.write("\r\x1b[J")
+            self.drawn = False
+
+    def say(self, line):
+        self.clear()
+        print(line, flush=True)
+        self.tick()
+
+    def tick(self):
+        state = self.snapshot()
+        self.write(state)
+        for check in state["running"]:
+            if check["flag"] and (check["name"], check["flag"].split()[0]) not in self.warned:
+                self.warned.add((check["name"], check["flag"].split()[0]))
+                self.clear()
+                print(f"WARN {check['name']} {check['flag']} after {duration(check['seconds'])}: {check['log']}", flush=True)
+        if self.tty:
+            self.clear()
+            size = shutil.get_terminal_size()
+            lines = self.render(state, size.columns - 1)
+            if len(lines) > size.lines - 2:
+                lines = [*lines[:max(size.lines - 3, 1)], f"  ... {len(lines) - max(size.lines - 3, 1)} more running"]
+            # Leave the cursor at the start of the block so clear() erases all of it.
+            sys.stdout.write("\n".join(lines) + (f"\x1b[{len(lines) - 1}A" if len(lines) > 1 else "") + "\r")
+            sys.stdout.flush()
+            self.drawn = True
+        elif time.monotonic() - self.beat >= self.BEAT and state["running"]:
+            self.beat = time.monotonic()
+            print("PROGRESS " + "\n".join(self.render(state)), flush=True)
+
+    def close(self, complete):
+        self.clear()
+        state = self.snapshot()
+        state["finished"] = "passed" if complete else "failed" if state["failed"] else "interrupted"
+        self.write(state)
+        if self.learned:
+            # Concurrent runs can still drop each other's newest times (last writer wins);
+            # the replace keeps readers from seeing a partial file.
+            with contextlib.suppress(OSError):
+                path = self.dir / "times.json"
+                temporary = path.with_suffix(f".{os.getpid()}.tmp")
+                temporary.write_text(json.dumps({**read_times(self.dir), **self.learned}, indent=1, sort_keys=True) + "\n",
+                                     encoding="utf-8")
+                temporary.replace(path)
+
+
+def process_alive(pid):
+    """False only when `pid` is known to have exited."""
+    if os.name == "nt":
+        # Signal 0 is CTRL_C_EVENT on Windows; os.kill would interrupt the console's runs.
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER: no such process
+        code = ctypes.c_ulong()
+        try:
+            return not kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)) or code.value == 259
+        finally:
+            kernel.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
+def watch(once):
+    """Print the runs in progress in every worktree of this clone, redrawn each second.
+    Finished runs stay listed for ten minutes; a runner that vanished is shown as such."""
+    folder = runs_dir()
+    while True:
+        blocks = []
+        for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+            if path.name == "times.json":
+                continue
+            # A state file from another version or a partial write skips only that run.
+            with contextlib.suppress(OSError, ValueError, KeyError, TypeError, AttributeError):
+                state = json.loads(path.read_text(encoding="utf-8"))
+                age = time.time() - state["updated"]
+                alive = process_alive(state["pid"])
+                if (state["finished"] or not alive) and age > 600:
+                    path.unlink(missing_ok=True)
+                    continue
+                where = state["root"].replace(str(Path.home()), "~")
+                title = f"pid {state['pid']} in {where}: check.py {' '.join(state['args'])}".rstrip()
+                if state["finished"]:
+                    title += f"  [{state['finished']} {duration(age)} ago]"
+                elif not alive:
+                    title += "  [runner exited without finishing]"
+                elif age > 10:
+                    title += f"  [no update for {duration(age)}; runner busy or stuck]"
+                blocks.append([title, *("  " + line for line in Progress.render(state)), f"  logs {state['log_dir']}"])
+        text = "\n\n".join("\n".join(block) for block in blocks) or "no check runs in progress"
+        if once:
+            print(text)
+            return 0
+        sys.stdout.write("\x1b[H\x1b[2J" + text + "\n\n(Ctrl-C to stop watching; the runs continue)\n")
+        sys.stdout.flush()
+        try:
+            time.sleep(1)
+        except KeyboardInterrupt:
+            return 0
+
+
 def print_times(report, compare):
     """Each check's wall and CPU seconds, slowest first, so a check that has grown
     slower shows. With an earlier report, flag checks over 1.25× and 5 s slower."""
@@ -482,6 +712,8 @@ def run_plan(plan, output, options, guard, report):
     running ones and runs by itself. After a failure nothing new starts; running
     checks finish. Results print and enter the report in plan order."""
     done = queue.Queue()
+    progress = Progress(plan, output, options)
+    complete = False
     live = {}
     finished = {}
     stopped = False
@@ -499,7 +731,7 @@ def run_plan(plan, output, options, guard, report):
             if printed in finished:
                 result, lines = finished.pop(printed)
                 for line in lines:
-                    print(line, flush=True)
+                    progress.say(line)
                 report["results"].append(result)
             printed += 1
 
@@ -518,21 +750,29 @@ def run_plan(plan, output, options, guard, report):
             while waiting or running:
                 while waiting and not stopped and running < options.jobs:
                     index = waiting.pop(0)
-                    print(f"RUN {plan[index].name}", flush=True)
+                    progress.say(f"RUN {plan[index].name}")
+                    progress.start(index)
                     threading.Thread(target=worker, args=(index,), daemon=True).start()
                     running += 1
                 if running == 0:
                     break
-                index, outcome, error = done.get()
+                try:
+                    index, outcome, error = done.get(timeout=1)
+                except queue.Empty:
+                    progress.tick()
+                    continue
                 running -= 1
                 if error is not None:
                     raise error
                 finished[index] = outcome
+                progress.finish(index, outcome[0]["problem"] is None, outcome[0]["seconds"])
                 stopped = stopped or outcome[0]["problem"] is not None
+                progress.stopping = stopped
                 flush()
             if stopped:
                 break
-        return not stopped
+        complete = not stopped
+        return complete
     finally:
         for process in list(live.values()):
             if process.poll() is None:
@@ -541,6 +781,7 @@ def run_plan(plan, output, options, guard, report):
                 else:
                     process.kill()
         flush(final=True)
+        progress.close(complete)
 
 
 def default_jobs():
@@ -575,9 +816,14 @@ def main():
                         help="run only the checks covering files changed since REF's merge base (default HEAD: "
                              "uncommitted work), from the selected suites or else dev..lifecycle")
     parser.add_argument("--list", action="store_true", help="print the planned checks and exit")
+    parser.add_argument("--watch", action="store_true",
+                        help="show the check runs in progress in any worktree of this clone (e.g. an agent's), live")
+    parser.add_argument("--status", action="store_true", help="print the --watch view once and exit")
     parser.add_argument("--compare", type=Path, metavar="REPORT", help="show each check's time against an earlier report.json")
     parser.add_argument("--export-preset", default={"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}.get(platform.system(), "macOS"))
     options = parser.parse_args()
+    if options.watch or options.status:
+        return watch(once=options.status)
     options.suites = options.suites or (["dev", "fast", "native", "flight", "rendered", "assets", "procedural", "lifecycle"]
                                         if options.changed else ["fast"])
     if any(suite not in SUITES for suite in options.suites):
