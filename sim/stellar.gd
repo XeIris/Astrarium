@@ -64,10 +64,17 @@ static func blackbody_color(kelvin: float) -> Color:
 static func corona_color(kelvin: float) -> Color:
 	return blackbody_color(kelvin).lerp(Color(1, 1, 1), 0.35)
 
-# Rotation in rad/yr (the Sun: ~25 d equator, ~34 d poles; massive stars much faster).
+# Rotation in rad/yr. Below the Kraft break (~1.3 M☉, Teff ≈ 6200 K) a convective
+# envelope's magnetised wind spins a star down (the Sun: ~25 d); above it, without
+# one, A and B stars keep ~150 km/s at the equator, a period of about a day (Kraft
+# 1967; Zorec & Royer 2012).
 static func rotation_rate(mass_sun: float) -> float:
-	var days := 25.0 * pow(maxf(mass_sun, 0.1), -0.6)   # equatorial period
-	return TAU / (days / 365.25)
+	var m := maxf(mass_sun, 0.1)
+	var slow := TAU / (25.0 * pow(m, -0.6) / 365.25)
+	var radius_km := Physics.stellar_radius(m) / Physics.AU_PER_KM
+	var fast := 150.0 / radius_km * Rocketry.YR_S
+	var w := smoothstep(1.2, 1.5, m)
+	return lerpf(slow, fast, w)
 
 # MAGNETIC ACTIVITY: cool convective-envelope stars flare and spot; hot radiative
 # ones barely do.

@@ -227,5 +227,27 @@ func _init() -> void:
 	check("the Sun is a faint warm white", sun_c.r == 1.0 and sun_c.g > 0.85 and sun_c.b > 0.78 and sun_c.b < sun_c.g)
 	check("6500 K is near white", minf(d65.g, d65.b) > 0.93)
 
+	check("200 M☉ at solar Z ends as a black hole, not a pair-instability SN", Structure.end_state_of(200.0, 0.014).type == "bh")
+	check("200 M☉ at Z☉/20 is pair-unstable", Structure.end_state_of(200.0, 0.0007).type == "none")
+	var p_a := TAU / Stellar.rotation_rate(2.0) * 365.25
+	check("a 2 M☉ star above the Kraft break turns in about a day (%.2f d)" % p_a, p_a > 0.3 and p_a < 1.5)
+	check("the Sun keeps its 25-day rotation", absf(TAU / Stellar.rotation_rate(1.0) * 365.25 - 25.0) < 0.5)
+	var tip := Structure.structure_of({"type": "star", "mass": 1.0, "phase": 1.45})
+	check("the Sun's RGB tip near 160 R☉ and 2500 L☉", tip.radiusSun > 120.0 and tip.radiusSun < 200.0 and tip.luminosity > 1500.0 and tip.luminosity < 3500.0)
+	# Peters–Mathews power on a circle is the circular quadrupole formula.
+	var gw_a := Body.new(); var gw_b := Body.new()
+	for gw in [gw_a, gw_b]:
+		gw.type = "bh"; gw.mass = 10.0; gw.emits_gw = true; gw.alive = true; gw.rs = Physics.schwarzschild(10.0)
+	var sep := 1e-4                        # inside the 400-contact-radius drag window
+	var vc := Physics.circular_speed(20.0, sep)
+	gw_a.pos = DVec3.new(-sep / 2.0, 0.0, 0.0); gw_b.pos = DVec3.new(sep / 2.0, 0.0, 0.0)
+	gw_a.vel = DVec3.new(0.0, 0.0, -vc / 2.0); gw_b.vel = DVec3.new(0.0, 0.0, vc / 2.0)
+	var e_before := 0.5 * 10.0 * (gw_a.vel.length_sq() + gw_b.vel.length_sq())
+	var tiny_dt := 1e-12
+	Physics.apply_gw_reaction([gw_a, gw_b], tiny_dt, 1.0)
+	var e_after := 0.5 * 10.0 * (gw_a.vel.length_sq() + gw_b.vel.length_sq())
+	var p_circ := 32.0 / 5.0 * pow(Physics.G, 4.0) * 1e4 * 20.0 / (pow(Physics.C, 5.0) * pow(sep, 5.0))
+	check("instantaneous GW power is the circular value on a circle", rel_err((e_before - e_after) / tiny_dt, p_circ) < 1e-3, [(e_before - e_after) / tiny_dt, p_circ])
+
 	print("sciencecheck: %d checks, %d failed" % [rows, fails])
 	quit(1 if fails > 0 else 0)

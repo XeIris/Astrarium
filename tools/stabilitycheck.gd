@@ -169,10 +169,10 @@ func _run() -> void:
 	if world_rotation != 0.0: rotate_world_orientation(world_rotation)
 	var initial_states := body_states()
 	var initial_mass := 0.0
-	var initial_momentum := DVec3.new()
+	# The conserved (1PN) momentum, as Σmv oscillates at O(v²/c²) under 1PN forces.
+	var initial_momentum := Physics.total_momentum(bodies)
 	for b: Body in bodies:
 		initial_mass += b.mass
-		initial_momentum.add_scaled_in(b.vel, b.mass)
 	var initial_energy := Derive.total_energy(bodies)
 	if not is_finite(initial_energy) or initial_energy == 0.0:
 		reject("initial energy must be finite and nonzero")
@@ -220,10 +220,9 @@ func _run() -> void:
 		if frames % SAMPLE_FRAMES == 0 or years >= target_years:
 			sample_orbits(orbit_summary, orbital_diagnostics(bodies), years)
 			var mass := 0.0
-			var momentum := DVec3.new()
+			var momentum := Physics.total_momentum(bodies)
 			for b: Body in bodies:
 				mass += b.mass
-				momentum.add_scaled_in(b.vel, b.mass)
 				if not b.alive or not b.pos.is_finite_v() or not b.vel.is_finite_v() or not is_finite(b.mass):
 					reject("invalid body state at year %s" % years)
 				if b.mass != initial_masses.get(b.id): reject("body mass changed at year %s" % years)

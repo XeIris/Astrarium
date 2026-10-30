@@ -290,11 +290,13 @@ func unavailable_energy() -> void:
 	check("invalid energy cannot become a drift reference", stage.state.energy0 == null)
 	stage.edit_body(body, {"vel": [1.0, 0.0, 0.0]})
 	stage.update_sim_stats()
-	check("representable energy recovers a finite reference", stage.state.energy0 == 0.5 and stage.hud.ids.setDrift.text == "0"
+	# ½mv² plus the 1PN kinetic term ⅜mv⁴/c² (Physics.eih_energy).
+	var expected := 0.5 + 0.375 / (Physics.C * Physics.C)
+	check("representable energy recovers a finite reference", stage.state.energy0 == expected and stage.hud.ids.setDrift.text == "0"
 		and stage.hud.ids.setDrift.tooltip_text.is_empty())
 	stage.state.energy0 = NAN
 	stage.update_sim_stats()
-	check("invalid stored reference is discarded", stage.state.energy0 == 0.5 and stage.hud.ids.setDrift.text == "0")
+	check("invalid stored reference is discarded", stage.state.energy0 == expected and stage.hud.ids.setDrift.text == "0")
 	stage.state.energy0 = 0.0
 	stage.update_sim_stats()
 	check("zero reference cannot hide a nonzero energy change", stage.hud.ids.setDrift.text == "unavailable"

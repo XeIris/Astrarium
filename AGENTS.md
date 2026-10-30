@@ -70,9 +70,10 @@ design.
   use an explicit `contactAU`, otherwise their physical radius. Scene/body scale and
   true-scale toggles must not change physics. Check conservation independently
   of the archived numeric reference; matching it can reproduce its defects.
-- Black-hole pair motion is conservative Newtonian gravity, not a strong-field
-  binary model. Displayed ISCO/Kerr radii do not govern these orbits; GW drag is
-  illustrative. See [the compact model](docs/physics/compact-dynamics.md).
+- Pair gravity is Newtonian plus pairwise 1PN (weak field only), integrated by
+  fourth-order Yoshida; it is not a strong-field binary model. Displayed ISCO/Kerr
+  radii do not govern these orbits; GW drag is illustrative. Both kernels must stay
+  bit-identical. See [the compact model](docs/physics/compact-dynamics.md).
 - Spawning and editing validate complete requests before mutation and share
   `derive_body()` for intrinsic properties. The stage's edit boundary applies
   explicit position/velocity patches in double; omitted/null vectors preserve
