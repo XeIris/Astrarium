@@ -1491,7 +1491,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		for f: Fall in falls:
 			if f.state != "fall" or atm == null or not is_instance_valid(f.body): continue
 			var fa := vessel.airspeed(f.r, f.v, _b)
-			var fq := Rocketry.heat_flux(Rocketry.density(atm, f.altitude(vessel)), fa.length(), f.D * 0.25)
+			var fq := Rocketry.heat_flux(Rocketry.density(atm, f.altitude(vessel)), fa.length(), f.D * 0.25, atm)
 			entry.drive(f.body, fq, to_world * fa.to_v3())
 		entry.update(dt, vessel.met)
 

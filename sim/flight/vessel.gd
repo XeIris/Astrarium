@@ -432,7 +432,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 	var mach := 0.0
 	var drag := 0.0
 	var heat := 0.0
-	if atm != null and h < atm.top:
+	if atm != null and h < float(atm.get("exo", atm.top)):
 		var rho := Rocketry.density(atm, h)
 		airspeed(rr, vv, _vrel)
 		var va := _vrel.length()
@@ -509,13 +509,15 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			var fa = _first_attached()
 			if fa != null and fa.spec.get("heatShield") != null and fa.spec.heatShield.get("noseR") != null:
 				nose_r = fa.spec.heatShield.noseR
-			heat = Rocketry.heat_flux(rho, va, nose_r)
+			heat = Rocketry.heat_flux(rho, va, nose_r, atm)
 	if sample != null:
 		sample.wheel = 0.0; sample.normal = 0.0
 	if phase == PHASE.ROLLOUT and rolling != null:
 		_wheels(rr, vv, out, m, sample)
 	if sample != null:
-		sample.q = qd; sample.mach = mach; sample.drag = drag; sample.heat = heat; sample.pa = pa
+		# Above the sensible air the flow is free-molecular: drag, but no Mach number.
+		sample.q = qd; sample.drag = drag; sample.heat = heat; sample.pa = pa
+		sample.mach = mach if atm != null and h < atm.top else 0.0
 		sample.thrust = prop.F; sample.mdot = prop.mdot; sample.isp = prop.isp; sample.plume = prop.plume
 		sample.engines = prop.count
 	return out
@@ -1054,9 +1056,9 @@ func potential(rr: DVec3) -> float:
 
 # Stepping
 
-## Advance `dt` seconds; opts.rails = true asks for the analytic conic. Rails only
-## unpowered, out of the air and off the ground, since thrust and drag aren't
-## evaluated there. Entering and leaving rails re-seeds from the analytic state.
+## Advance `dt` seconds; opts.rails = true asks for the conic with perturbation kicks.
+## Rails only unpowered, above the sensible air and off the ground. A rails step ends
+## early if the vessel stops qualifying, and returns the time it flew.
 ## Returns the coordinate time advanced; the guard can shorten an RK4 step.
 ## opts.advance_world(seconds) accepts world time before each vessel interval;
 ## opts.controls runs only for an interval accepting positive time.
@@ -1103,29 +1105,43 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 		var rail_r := DVec3.new()
 		var rail_v := DVec3.new()
 		# A failed conic must leave the world budget available to RK4.
-		if Orbit.propagate(r, v, env.mu, dt, rail_r, rail_v):
-			var requested := dt
-			var rail_parent := parent
-			dt = _advance_world(dt, opts)
-			if phase == PHASE.DESTROYED:
-				coord += dt
-				return dt
-			if (dt != requested or parent != rail_parent) and not Orbit.propagate(r, v, env.mu, dt, rail_r, rail_v):
-				phase = PHASE.DESTROYED
-				coord += dt
-				log_event("Analytic orbit failed after world time was accepted — flight stopped")
-				return dt
-			r.copy_from(rail_r); v.copy_from(rail_v)
+		if Orbit.propagate(r, v, env.mu, minf(dt, rail_step()), rail_r, rail_v):
+			# Kick–drift–kick (Wisdom–Holman): the parent's pull is the exact conic, and
+			# everything else accel() sees (other bodies' tides, thin-air drag) kicks
+			# the velocity, so a warped coast follows the same forces as a played one.
+			var remaining := dt
+			var elapsed := 0.0
+			var guard := 0
+			var kick := DVec3.new()
+			while remaining > 1e-9 and guard < STEP_GUARD and can_rail():
+				guard += 1
+				var h := _advance_world(minf(remaining, rail_step()), opts)
+				if h <= 0.0: break
+				if phase == PHASE.DESTROYED:
+					coord += elapsed + h
+					return elapsed + h
+				v.add_scaled_in(perturbation(r, v, kick), 0.5 * h)
+				if not Orbit.propagate(r, v, env.mu, h, rail_r, rail_v):
+					phase = PHASE.DESTROYED
+					coord += elapsed + h
+					log_event("Analytic orbit failed after world time was accepted — flight stopped")
+					return elapsed + h
+				r.copy_from(rail_r); v.copy_from(rail_v)
+				v.add_scaled_in(perturbation(r, v, kick), 0.5 * h)
+				remaining -= h
+				elapsed += h
+				check_soi()
+			step_guard_hit = remaining > 1e-9 and guard >= STEP_GUARD
+			if remaining <= 1e-9 and not opts.get("advance_world", Callable()).is_valid(): elapsed = dt
 			# On rails, hold whatever point_at last asked for (nothing integrates attitude).
 			if _holding and authority(0.0).alpha > 0.0:
 				_dq.set_from_unit_vectors(forward(_b), _hold)
 				q.premultiply(_dq).normalize_in()
 				omega.set_v(0.0, 0.0, 0.0)
 			_holding = false
-			step_clocks(dt)
-			sample(dt)
-			check_soi()
-			return dt
+			step_clocks(elapsed)
+			sample(elapsed)
+			return elapsed
 
 	# RK4, with the substep bounded by how fast the state is changing.
 	var remaining := dt
@@ -1182,6 +1198,23 @@ func auto_jettison() -> void:
 		elif j.get("afterBelow") != null and st.index > 0 and stages[st.index - 1].dropped_met >= 0.0 \
 				and met - stages[st.index - 1].dropped_met >= float(j.afterBelow):
 			jettison(st.spec.key)
+
+## On rails: what accel() adds to the parent's point-mass pull, m/s².
+func perturbation(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
+	accel(rr, vv, out)
+	var r2 := rr.length_sq()
+	return out.add_scaled_in(rr, env.mu / (r2 * sqrt(r2)))
+
+## A rails substep, s: 1/32 of the local orbit, and short beside any other body's
+## free-fall time at its distance, so a close lunar pass is resolved.
+func rail_step() -> float:
+	var R := maxf(r.length(), env.radius)
+	var h: float = 2.0 * PI * sqrt(R * R * R / env.mu) / 32.0
+	for b in bodies:
+		if not b.alive or b == parent: continue
+		var d := _g1.sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M).sub_in(r).length()
+		h = minf(h, 0.02 * sqrt(d * d * d / (Rocketry.GM_SUN * b.mass)))
+	return DQuat.jclamp(h, 1.0, 3600.0)
 
 ## Largest safe substep, seconds.
 func step_bound() -> float:

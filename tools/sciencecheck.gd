@@ -200,5 +200,32 @@ func _init() -> void:
 		if absf(q.m - 1.0) < 0.03 and absf(q.teff - 5772.0) < 150.0 and absf(q.L - 1.0) < 0.1: near_sun = true
 	check("HR main sequence sampled from structure_of passes the Sun (%d samples)" % hr.MS.size(), near_sun)
 
+	# ---- 5. reference atmospheres, stellar data and remnants against their sources
+	var earth: Dictionary = Rocketry.ATMOSPHERES.Earth
+	# US Standard Atmosphere 1976, geometric altitude: ρ kg/m³, T K.
+	for row in [[11e3, 0.3639, 216.77], [50e3, 1.027e-3, 270.65], [80e3, 1.846e-5, 198.64],
+			[100e3, 5.604e-7, 195.08], [120e3, 2.222e-8, 360.0], [400e3, 2.803e-12, 995.83]]:
+		check("US76 density at %d km" % int(row[0] / 1000.0), rel_err(Rocketry.density(earth, row[0]), row[1]) < 0.012, Rocketry.density(earth, row[0]))
+		check("US76 temperature at %d km" % int(row[0] / 1000.0), absf(Rocketry.temperature(earth, row[0]) - row[2]) < 1.0, Rocketry.temperature(earth, row[0]))
+	check("US76 sound speed at 50 km is 329.8 m/s", absf(Rocketry.speed_of_sound(earth, 50e3) - 329.8) < 0.5)
+	check("thin air above the sensible top", Rocketry.density(earth, 300e3) > 0.0 and Rocketry.density(earth, 1001e3) == 0.0)
+	var venus := Rocketry.flight_env(Derive.new_body(0, {"type": "planet", "name": "Venus", "mass": 1.0 / 408523.719, "radiusKm": 6051.8})).atm as Dictionary
+	# VIRA (Seiff et al. 1985): 1.066 bar at 350.5 K is 1.589 kg/m³ of CO₂ at 50 km.
+	check("VIRA density at 50 km in Venus's own gravity", rel_err(Rocketry.density(venus, 50e3), 1.589) < 0.03, Rocketry.density(venus, 50e3))
+	check("Venus turns once in its 243-day sidereal day", absf(absf(float(Rocketry.SURFACES.Venus.day)) / 86400.0 - 243.0226) < 1e-3)
+	for row in [[0.1, 6.0e12], [1.0, 1.0e10], [20.0, 8.1e6], [120.0, 2.8e6]]:
+		var t := Structure.main_sequence_lifetime(row[0], Structure.base_luminosity(row[0], 0.014))
+		check("main-sequence lifetime of %s M☉" % row[0], rel_err(t, row[1]) < 1e-9, t)
+	check("Eddington luminosity for X = 0.7", rel_err(Structure.eddington_luminosity(1.0), 4.0 * PI * Rocketry.GM_SUN * Rocketry.C_MS / 0.034 / Structure.L_SUN) < 0.002)
+	check("Cummings IFMR: 8 M☉ leaves 1.33 M☉", absf(Structure.white_dwarf_final_mass(8.0) - 1.327) < 0.002)
+	check("0.6 M☉ white dwarf near 0.0125 R☉", absf(Structure.white_dwarf_radius_sun(0.6) - 0.0125) < 0.0003, Structure.white_dwarf_radius_sun(0.6))
+	check("2.08 M☉ neutron star inside NICER's 12.4 +1.3/−1.0 km", absf(Structure.neutron_radius_km(2.08) - 12.4) < 1.0, Structure.neutron_radius_km(2.08))
+	check("equal-mass merger radiates 4.8% and spins to 0.686", absf(Physics.merger_radiated_fraction(0.25) - 0.0484) < 5e-4 and absf(Physics.merger_spin(0.25) - 0.686) < 2e-3)
+	check("equal-mass merger has no recoil", Physics.merger_kick_kms(0.25) == 0.0)
+	var sun_c := Stellar.blackbody_color(5772.0)
+	var d65 := Stellar.blackbody_color(6500.0)
+	check("the Sun is a faint warm white", sun_c.r == 1.0 and sun_c.g > 0.85 and sun_c.b > 0.78 and sun_c.b < sun_c.g)
+	check("6500 K is near white", minf(d65.g, d65.b) > 0.93)
+
 	print("sciencecheck: %d checks, %d failed" % [rows, fails])
 	quit(1 if fails > 0 else 0)

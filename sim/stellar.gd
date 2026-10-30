@@ -33,21 +33,32 @@ static func spectral_class(teff: float) -> String:
 # Blackbody colour: Tanner Helland's piecewise fit to the Planck locus, normalised
 # for roughly constant perceived brightness. The components are linear, so pass the
 # Color raw, never through srgb_to_linear or a `source_color` uniform.
+# Planck × CIE 1931 2° colour matching (Wyman, Sloan & Shirley 2013 fit) → XYZ →
+# linear sRGB (D65), out-of-gamut channels clipped, peak-normalised so stars differ in
+# hue rather than exposure. 48 steps in log T over 800–42 000 K; the sky and lens
+# shaders carry the same table (BB_LUT).
+const BB_LUT := [
+	Color(1.0000, 0.0000, 0.0000), Color(1.0000, 0.0034, 0.0000), Color(1.0000, 0.0178, 0.0000), Color(1.0000, 0.0349, 0.0000),
+	Color(1.0000, 0.0549, 0.0000), Color(1.0000, 0.0776, 0.0000), Color(1.0000, 0.1030, 0.0000), Color(1.0000, 0.1313, 0.0000),
+	Color(1.0000, 0.1622, 0.0000), Color(1.0000, 0.1960, 0.0000), Color(1.0000, 0.2324, 0.0000), Color(1.0000, 0.2713, 0.0096),
+	Color(1.0000, 0.3128, 0.0280), Color(1.0000, 0.3566, 0.0523), Color(1.0000, 0.4025, 0.0837), Color(1.0000, 0.4503, 0.1228),
+	Color(1.0000, 0.4997, 0.1705), Color(1.0000, 0.5503, 0.2275), Color(1.0000, 0.6018, 0.2942), Color(1.0000, 0.6538, 0.3707),
+	Color(1.0000, 0.7058, 0.4571), Color(1.0000, 0.7574, 0.5527), Color(1.0000, 0.8081, 0.6570), Color(1.0000, 0.8574, 0.7689),
+	Color(1.0000, 0.9050, 0.8870), Color(0.9901, 0.9411, 1.0000), Color(0.8802, 0.8746, 1.0000), Color(0.7913, 0.8183, 1.0000),
+	Color(0.7187, 0.7704, 1.0000), Color(0.6590, 0.7295, 1.0000), Color(0.6095, 0.6944, 1.0000), Color(0.5682, 0.6641, 1.0000),
+	Color(0.5335, 0.6379, 1.0000), Color(0.5041, 0.6152, 1.0000), Color(0.4792, 0.5955, 1.0000), Color(0.4579, 0.5782, 1.0000),
+	Color(0.4396, 0.5631, 1.0000), Color(0.4238, 0.5499, 1.0000), Color(0.4101, 0.5382, 1.0000), Color(0.3982, 0.5280, 1.0000),
+	Color(0.3877, 0.5189, 1.0000), Color(0.3786, 0.5108, 1.0000), Color(0.3706, 0.5036, 1.0000), Color(0.3635, 0.4972, 1.0000),
+	Color(0.3572, 0.4915, 1.0000), Color(0.3516, 0.4864, 1.0000), Color(0.3466, 0.4819, 1.0000), Color(0.3422, 0.4778, 1.0000)
+]
+const BB_T0 := 800.0
+const BB_T1 := 42000.0
+
+## Linear sRGB of a blackbody at `kelvin`, brightest channel 1.
 static func blackbody_color(kelvin: float) -> Color:
-	var t := clampf(kelvin, 1000.0, 40000.0) / 100.0
-	var r: float; var g: float; var b: float
-	if t <= 66.0: r = 255.0
-	else: r = 329.698727446 * pow(t - 60.0, -0.1332047592)
-	if t <= 66.0: g = 99.4708025861 * log(t) - 161.1195681661
-	else: g = 288.1221695283 * pow(t - 60.0, -0.0755148492)
-	if t >= 66.0: b = 255.0
-	elif t <= 19.0: b = 0.0
-	else: b = 138.5177312231 * log(t - 10.0) - 305.0447927307
-	var c := Color(clampf(r, 0.0, 255.0) / 255.0, clampf(g, 0.0, 255.0) / 255.0, clampf(b, 0.0, 255.0) / 255.0)
-	# renormalise so every star reads as "bright", differing in hue not exposure
-	var peak := maxf(c.r, maxf(c.g, c.b))
-	if peak == 0.0: peak = 1.0
-	return Color(c.r / peak, c.g / peak, c.b / peak)
+	var u := log(clampf(kelvin, BB_T0, BB_T1) / BB_T0) / log(BB_T1 / BB_T0) * float(BB_LUT.size() - 1)
+	var i := mini(int(u), BB_LUT.size() - 2)
+	return (BB_LUT[i] as Color).lerp(BB_LUT[i + 1], u - float(i))
 
 ## A hotter, whiter version of the photosphere colour for the corona/flares.
 static func corona_color(kelvin: float) -> Color:
@@ -81,7 +92,8 @@ class ActivityModel:
 	var flares: Array = []        # live flare events
 	var cmes: Array = []          # live coronal mass ejections
 	var regions: Array = []       # active longitudes/latitudes (spot groups)
-	var flux: float = 1.0         # instantaneous brightness multiplier
+	var flux: float = 1.0         # instantaneous visual brightness multiplier
+	var bolometric: float = 1.0   # the same flare in total output, for insolation and lighting
 
 	func _init(mass_sun: float, p_rng: Callable = Callable()) -> void:
 		rng = p_rng if p_rng.is_valid() else func(): return randf()
@@ -133,6 +145,9 @@ class ActivityModel:
 			f.amp = (x / 0.12) if x < 0.12 else exp(-(x - 0.12) * 5.5)
 			fl += f.amp * f.energy * 0.35
 		flux = fl
+		# What the flare adds to the star's total output. The largest solar flares raise
+		# it ~3e-4 for minutes (Kopp et al. 2005); `flux` is the visual pulse.
+		bolometric = 1.0 + (fl - 1.0) * 1e-3
 
 		# advance CMEs — a shell expanding at roughly constant speed, fading
 		for i in range(cmes.size() - 1, -1, -1):
@@ -161,7 +176,9 @@ class ActivityModel:
 		if energy > 1.1 * activity:
 			cmes.append({
 				"t": 0.0, "life": 0.05 + rng.call() * 0.06,
-				"radius": 1.0, "speed": 14.0 + rng.call() * 20.0,   # in stellar radii per year
+				# stellar radii per year: a display speed ~1000× slower than a real CME's
+				# 300–3000 km/s, so a shell is visible at orrery rates
+				"radius": 1.0, "speed": 14.0 + rng.call() * 20.0,
 				"alpha": 1.0, "dir": f.dir,
 				"width": 0.35 + rng.call() * 0.4,
 			})
