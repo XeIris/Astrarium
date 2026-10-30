@@ -204,6 +204,13 @@ Use `--godot` to select an engine and `--log-dir` to retain results at a chosen 
 Every check reports its wall and CPU seconds; the run ends with a table, slowest
 first, and `--compare /abs/old/report.json` flags any check over 1.25× and 5 s
 slower than in that report. `--list` prints the plan without running it.
+`--jobs N` runs up to N independent checks at once (default: the performance-core
+count; `--jobs 1` runs them one after another). Each keeps its own log and timeout,
+the longest start first, and results print and enter the report in suite order.
+Nothing runs beside the `fast` import or any check in `perf`, `m5-*`,
+`stability*`, `export` and `clean`; the `lifecycle` checks (one process per soak
+feature, plus the leak and shutdown checks) run beside each other only. Other
+checks' logged timings are taken under concurrent load.
 
 While checks run, a terminal shows a live block: checks done of total, what is
 running against its usual time and timeout, and an estimate of the time left
@@ -212,13 +219,6 @@ running against its usual time and timeout, and an estimate of the time left
 timeout, running well past its usual time, or silent for two minutes past it.
 `python3 tools/check.py --watch` shows every run in progress in any worktree of
 this clone, including one an agent started; `--status` prints it once.
-`--jobs N` runs up to N independent checks at once (default: the performance-core
-count; `--jobs 1` runs them one after another). Each keeps its own log and timeout,
-the longest start first, and results print and enter the report in suite order.
-Nothing runs beside the `fast` import or any check in `perf`, `m5-*`,
-`stability*`, `export` and `clean`; the `lifecycle` checks (one process per soak
-feature, plus the leak and shutdown checks) run beside each other only. Other
-checks' logged timings are taken under concurrent load.
 ### The fast path
 
 For the inner loop, run what the change touches, headless, and replay whole

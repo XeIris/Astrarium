@@ -622,6 +622,30 @@ class Progress:
                 temporary.replace(path)
 
 
+def process_alive(pid):
+    """False only when `pid` is known to have exited."""
+    if os.name == "nt":
+        # Signal 0 is CTRL_C_EVENT on Windows; os.kill would interrupt the console's runs.
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER: no such process
+        code = ctypes.c_ulong()
+        try:
+            return not kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)) or code.value == 259
+        finally:
+            kernel.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
 def watch(once):
     """Print the runs in progress in every worktree of this clone, redrawn each second.
     Finished runs stay listed for ten minutes; a runner that vanished is shown as such."""
@@ -635,13 +659,7 @@ def watch(once):
             with contextlib.suppress(OSError, ValueError, KeyError, TypeError, AttributeError):
                 state = json.loads(path.read_text(encoding="utf-8"))
                 age = time.time() - state["updated"]
-                alive = True
-                try:
-                    os.kill(state["pid"], 0)
-                except ProcessLookupError:
-                    alive = False
-                except PermissionError:
-                    pass
+                alive = process_alive(state["pid"])
                 if (state["finished"] or not alive) and age > 600:
                     path.unlink(missing_ok=True)
                     continue
