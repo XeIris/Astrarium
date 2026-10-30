@@ -528,30 +528,66 @@ func _reframe_smoke(new_basis: Basis, up: DVec3, radius: float, spin: float) -> 
 	_smoke_origin.copy_from(origin)
 	_smoke_framed = true
 
-## The exhaust trail: one strand behind the longest smoky plume, and one behind each
-## lit separation motor, each starting as that plume's own smoke column.
+## The exhaust trail: one strand behind each separate smoky column, and one behind each
+## lit separation motor, each starting as that plume's own smoke column. Jets whose
+## exits are closer than their two exit diameters have merged before the smoke grows
+## out of the flame (the Shuttle's SSMEs) and share a strand; farther apart (its two
+## SRBs), each lays its own. A cluster's far field is already one plume.
 func _lay_trails(in_air: bool, main_on: bool) -> void:
 	smoke.trail_begin()
 	if main_on:
-		var lead: Plume.PlumeFx = null
-		for pl in plumes:
-			if pl.mesh.visible and pl.trail_k > 0.0 and (lead == null or pl.last_len > lead.last_len): lead = pl
-		if lead != null: _plume_trail(lead)
+		# [lead, exits in the craft's frame, summed line density]; the lead goes by plume
+		# order, so a strand keeps its key from frame to frame.
+		var groups: Array = []
+		for pl: Plume.PlumeFx in plumes:
+			if not pl.mesh.visible or pl.trail_k <= 0.0: continue
+			var xf := _plume_in_craft(pl)
+			var mine = null
+			for g: Array in groups:
+				var lead: Plume.PlumeFx = g[0]
+				var lx := _plume_in_craft(lead)
+				var ax := (lx.basis * Vector3.DOWN).normalized()
+				var d := xf.origin - lx.origin
+				if (d - ax * d.dot(ax)).length() < lead.exit_d + pl.exit_d: mine = g; break
+			if mine == null: groups.append([pl, [xf.origin], pl.trail_k])
+			else:
+				mine[1].append(xf.origin)
+				mine[2] += pl.trail_k
+		for g: Array in groups:
+			var centre := Vector3.ZERO
+			for e: Vector3 in g[1]: centre += e
+			centre /= float(g[1].size())
+			# The merged column covers every exit and carries all their exhaust.
+			var widen := 0.0
+			for e: Vector3 in g[1]: widen = maxf(widen, (e - centre).length())
+			_plume_trail(g[0], centre, g[2] / g[0].trail_k, widen)
 	if in_air:
 		for b in sep_plumes:
 			if b.fx.mesh.visible and b.fx.trail_k > 0.0: _plume_trail(b.fx)
 	smoke.trail_finish()
 
-func _plume_trail(fx: Plume.PlumeFx) -> void:
-	# The plume hangs on its engine's gimbal or motor mount: its exit and axis in the
-	# local frame.
-	var rel: Transform3D = craft.group.global_transform.affine_inverse() * fx.mesh.global_transform
-	var at: Vector3 = craft_pos.to_v3() + craft.group.basis * rel.origin
+## The plume's exit and axis (−Y) in the craft's frame: it hangs on its engine's gimbal
+## or motor mount.
+func _plume_in_craft(fx: Plume.PlumeFx) -> Transform3D:
+	return craft.group.global_transform.affine_inverse() * fx.mesh.global_transform
+
+## `exit` (craft frame) overrides the plume's own; `gain` scales its line density and
+## `widen` (m) its radius scale, for a strand that carries several merged jets.
+func _plume_trail(fx: Plume.PlumeFx, exit = null, gain := 1.0, widen := 0.0) -> void:
+	var rel := _plume_in_craft(fx)
+	var at: Vector3 = craft_pos.to_v3() + craft.group.basis * (rel.origin if exit == null else exit)
 	var dir: Vector3 = (craft.group.basis * rel.basis * Vector3.DOWN).normalized()
+	var col_a := fx.column_a
+	var col_k := fx.column_k
+	if gain != 1.0 or widen > 0.0:
+		col_a = col_a.duplicate(); col_k = col_k.duplicate()
+		for i in col_a.size():
+			col_a[i] += widen
+			col_k[i] *= gain
 	# Close enough to follow the column's width and the path's curve; no more than
 	# eight a second, so a whole trail's life fits SmokeColumn.NODE_N.
-	var spacing := maxf(maxf(fx.trail_a * 3.0, Plume.airspeed * 0.125), 4.0)
-	smoke.trail_to(str(fx.get_instance_id()), at, dir, fx.last_len, fx.column_fx, fx.column_a, fx.column_k,
+	var spacing := maxf(maxf(col_a[-1] * 3.0, Plume.airspeed * 0.125), 4.0)
+	smoke.trail_to(str(fx.get_instance_id()), at, dir, fx.last_len, fx.column_fx, col_a, col_k,
 		Plume.smoke_grey(fx.propellant), dir * 15.0 + smoke.wind, spacing)
 
 ## The rendering preset's share of the flight scene: clouds and sky (LocalView),

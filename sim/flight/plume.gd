@@ -956,9 +956,10 @@ class SmokeColumn extends RefCounted:
 	const PAD_N := 620
 	const VENT_N := 320
 	const N := PAD_N + VENT_N
-	## Trail nodes: the main strand lays at most eight a second (spaceflight.gd spaces
-	## them) for 110 s, with room for separation motors' short strands.
-	const NODE_N := 2048
+	## Trail nodes: each strand lays at most eight a second (spaceflight.gd spaces them)
+	## for 110 s; room for three (the Shuttle's two SRBs and its SSMEs) and separation
+	## motors' short strands. With LIVE_N, under the sort key's 4096 slots.
+	const NODE_N := 3072
 	## Room for the live columns' segments (eight samples each, PlumeFx.column_fx).
 	const LIVE_N := 256
 	const STEAM_KIND := 0
@@ -1477,6 +1478,7 @@ static func create_smoke_column() -> SmokeColumn:
 	o.seed.resize(n); o.shade.resize(n); o._depth.resize(n)
 	o.shade.fill(1.0)
 	var m := SmokeColumn.NODE_N
+	assert(m + SmokeColumn.LIVE_N <= 4096)    # the trail's sort key's slot bits
 	o.t_pos.resize(m); o.t_vel.resize(m); o.t_age.resize(m); o.t_life.resize(m); o.t_a.resize(m)
 	o.t_k.resize(m); o.t_grey.resize(m); o.t_seq.resize(m)
 	o.t_prev.resize(m); o.t_prevseq.resize(m); o.t_nxt.resize(m); o.t_nxtseq.resize(m)
