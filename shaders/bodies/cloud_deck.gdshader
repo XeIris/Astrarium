@@ -39,6 +39,8 @@ void vertex() {
 }
 
 void fragment() {
+	// Before the noise, so a clear world pays nothing per fragment.
+	if (uCover <= 0.0) discard;
 	vec3 p = normalize(vObj);
 	float lat = asin(clamp(p.y, -1.0, 1.0));
 	float a = abs(lat);
@@ -78,7 +80,6 @@ void fragment() {
 	// Opaque where d beats −z, so Φ(z) of the sky is cloud. The ramp is symmetric about
 	// the threshold (±0.7 sd), so the thin edges don't shift the mean cover.
 	float z = uCloudZ + cloud_zonal_z(lat, uItcz);
-	if (uCover <= 0.0) discard;
 	if (uMapKind > 0.5 && uMapKind < 1.5) {
 		// Deserts are where the subsiding air is also dry, so they are clearer than their
 		// latitude (Sahara ~0.1 against a zonal 0.3). Arid = bright land that is redder

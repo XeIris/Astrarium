@@ -64,7 +64,9 @@ CHANGED_RULES = (
       "sim/flight/craftmodel.gd", "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*", "scenariocheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
-    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc"), ("cloudcheck",)),
+    # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
+    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc", "sim/terrain.gd",
+      "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck",)),
     # Any other flight file is presentation: the parity flight shows it cannot move physics.
     (("sim/flight/*",), ("flighttimecheck", "missioncheck-skip_moon", "missioncheck-parity-*")),
     (("sim/flight/vehicles.gd", "sim/flight/craftmodel.gd", "sim/flight/craftassets.gd", "sim/flight/separation.gd",
