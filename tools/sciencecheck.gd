@@ -115,9 +115,9 @@ func _init() -> void:
 	check("GW amplitude scales as inverse distance", absf(h.h0 / h2.h0 - 2.0) < 1e-12)
 	star.type = "star"; p.type = "planet"
 	check("GW ignores noncompact objects", GWDetector.find_binary([star, p]) == null)
-	# Independently evaluated SI circular-quadrupole values at 410 Mpc; see compact-dynamics.md.
-	for golden in [["bhmerger", 0.45, 1.6928225522507842e-6, 1.0696661987299107e-26],
-		["nsmerger", 0.35, 5.122128596227925e-7, 2.578659586223892e-29]]:
+	# Independently evaluated SI circular-quadrupole values at 410 Mpc from IAU GM☉; see compact-dynamics.md.
+	for golden in [["bhmerger", 0.45, 1.6926054461555222e-6, 1.0691175614746418e-26],
+		["nsmerger", 0.35, 5.12147167838531e-7, 2.5773369785549405e-29]]:
 		var bodies := build(golden[0])
 		var pr = GWDetector.find_binary(bodies)
 		var reading: Dictionary = GWDetector.strain_of(pr)

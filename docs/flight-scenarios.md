@@ -38,8 +38,8 @@ are still laid frame by frame, so the trail behind a vehicle at max-Q is the one
 flew; above the air (level 2) only what physics and the pad read is kept: dropped
 stages and their falls, the launch site's rotation and arms, the planet's turn.
 
-The world is the solar preset with its random phases fixed (`main.scenario_world`),
-so a scenario's sky, Moon and pad lighting repeat.
+The world is the solar preset at J2000.0 (`main.scenario_world`), so a scenario's
+sky, Moon and pad lighting repeat.
 
 ## Agreement with a played flight
 

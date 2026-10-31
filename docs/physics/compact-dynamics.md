@@ -2,7 +2,8 @@
 
 `sim/physics.gd` and the native kernel use symmetric Newtonian gravity for pairs
 containing a black hole, with potential `−G m₁ m₂ / r`. Ordinary pairs use the
-shared Plummer softening. Both forces match `Derive.total_energy`; with fixed
+same law unless a spec sets `softening`, which gives a shared Plummer softening
+(none by default: contact merges a pair before its radii overlap). Both forces match `Derive.total_energy`; with fixed
 mass/softening and no drag or mergers, energy drift measures numerical error.
 Nonzero separations have no fixed force cutoff, and requested step caps have no
 fixed lower floor. The adaptive timestep does not make the entire integration

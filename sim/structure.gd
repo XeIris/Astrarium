@@ -10,7 +10,7 @@ extends RefCounted
 # SI constants. Trailing zeros are load-bearing: Godot parses `1.98892e30` one ULP
 # high and `1.988920e30` exactly (tools/literalcheck.mjs finds these).
 const G_SI    := 6.67430e-11
-const M_SUN   := 1.988920e30     # kg
+const M_SUN   := Rocketry.GM_SUN / G_SI   # kg, 1.98841e30: IAU GM☉ over CODATA 2018 G
 const R_SUN   := 6.957e8         # m
 const L_SUN   := 3.8280e26       # W
 const M_EARTH := 5.97217e24
@@ -20,9 +20,8 @@ const R_JUP   := 6.9911e7
 const SIGMA   := 5.670374e-8     # Stefan–Boltzmann
 const K_B     := 1.380649e-23
 const M_H     := 1.6735575e-27
-const SEC_PER_YR := 3.155815e7
 
-const M_EARTH_SUN := M_EARTH / M_SUN    # 3.0035e-6
+const M_EARTH_SUN := M_EARTH / M_SUN    # 3.00349e-6
 const M_JUP_SUN   := M_JUP / M_SUN      # 9.5459e-4
 
 # Mass thresholds: physical ignition and support limits, not categories.

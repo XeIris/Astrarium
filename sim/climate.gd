@@ -13,7 +13,7 @@ extends RefCounted
 
 const S0 := 1361.0             # solar constant, W/m²
 const SIGMA := 5.670374e-8     # Stefan–Boltzmann, W m⁻² K⁻⁴
-const YEAR_S := 3.15576e7      # seconds per year
+const YEAR_S := Rocketry.YR_S  # seconds per orrery year
 const RHO_CW := 1000.0 * 4181.0 # sea water ρ·c_p, J m⁻³ K⁻¹
 
 const ERAS := {

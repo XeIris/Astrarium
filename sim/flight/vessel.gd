@@ -742,10 +742,13 @@ func _point(fwd: DVec3, err: float, alpha: float, auth: Dictionary, dt: float) -
 	# target's own rate is measured from its last direction and the law works on the
 	# rate relative to it. Without this the controller stops in its deadband, falls
 	# behind, and fires every few seconds.
-	_w_t.set_v(0.0, 0.0, 0.0)
-	if _prev_met >= 0.0 and met > _prev_met and DQuat.angle_between(_prev_dir, _a) < 0.05:
-		_w_t.cross_vectors(_prev_dir, _a).scale_in(1.0 / (met - _prev_met))
-	_prev_dir.copy_from(_a); _prev_met = met
+	# Guidance can run on several sub-intervals of one step before met advances; those
+	# calls keep the last estimate instead of measuring the rate over zero time.
+	if met != _prev_met:
+		_w_t.set_v(0.0, 0.0, 0.0)
+		if _prev_met >= 0.0 and met > _prev_met and DQuat.angle_between(_prev_dir, _a) < 0.05:
+			_w_t.cross_vectors(_prev_dir, _a).scale_in(1.0 / (met - _prev_met))
+		_prev_dir.copy_from(_a); _prev_met = met
 	if alpha <= 0.0: return err
 	omega.add_scaled_in(_w_t, -1.0)          # from here on, omega is relative
 	# rotation axis

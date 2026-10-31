@@ -10,9 +10,8 @@ AGENTS.md. Read `shaders/AGENTS.md` before editing how a body looks
 
 ## Git commits
 
-Use descriptive conventional messages and append
-`Co-Authored-By: Codex (<model>) <codex@openai.com>`. Explain non-obvious changes
-in the commit body.
+Use descriptive conventional messages. Explain non-obvious changes in the commit
+body.
 
 ## `web/` is frozen
 
