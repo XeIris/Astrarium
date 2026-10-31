@@ -277,6 +277,8 @@ static func _make_presets() -> Dictionary:
 		# The one preset where the bodies are drawn at their real geometric size.
 		# See sim/scale.gd for why that needs a point-source fallback to be usable.
 		"trueScale": true,
+		# J2000.0, 2000 Jan 1 12:00 TDB: the clock reads a date (TimeScales).
+		"epochJD": 2451545.0,
 		"build": func() -> Array: return _build_solar(),
 	}
 
