@@ -293,5 +293,47 @@ func _init() -> void:
 	var p_circ := 32.0 / 5.0 * pow(Physics.G, 4.0) * 1e4 * 20.0 / (pow(Physics.C, 5.0) * pow(sep, 5.0))
 	check("instantaneous GW power is the circular value on a circle", rel_err((e_before - e_after) / tiny_dt, p_circ) < 1e-3, [(e_before - e_after) / tiny_dt, p_circ])
 
+	# ---- Mercury alone (edu_mercury): 1PN turns its perihelion by 6πGM/(c²a(1−e²)) per
+	# orbit, 42.98″ per Julian century; Newton leaves it where it is.
+	var want := 6.0 * PI * Physics.G / pow(Physics.C, 2.0) / (0.387098 * (1.0 - 0.205630 * 0.205630)) \
+		/ sqrt(pow(0.387098, 3.0) / (1.0 + 1.6601e-7)) * Perihelion.ARCSEC * Perihelion.CENTURY
+	check("1PN perihelion prediction for Mercury is 42.98″/cy", absf(want - 42.98) < 0.02, want)
+	var pn_was := Physics.post_newtonian
+	for pn in [true, false]:
+		Physics.post_newtonian = pn
+		var ms: Array = build("edu_mercury")
+		var meter := Perihelion.create({"target": "Mercury"})
+		var t := 0.0
+		for i in 10000:
+			NBody.step_physics(ms, 0.03, float(Presets.PRESETS.edu_mercury.maxStep), 0.0)
+			t += 0.03
+			meter.sample(ms, t)
+		var got: float = meter.rate()
+		check("edu_mercury over %.0f yr with 1PN %s: %.2f″/cy" % [t, "on" if pn else "off", got],
+			absf(got - (want if pn else 0.0)) < 0.3, got)
+	Physics.post_newtonian = pn_was
+	# ---- the chirp template: GW150914's 36 + 29 M☉ ring down at ~250 Hz with τ ≈ 4 ms
+	# (LIGO 2016: 251 Hz, 4 ms), and Peters' clock gives the Hulse–Taylor pulsar 300 Myr.
+	var ch := GWDetector.chirp_template(36.0, 29.0, 410.0)
+	check("GW150914 ringdown %.0f Hz, τ %.1f ms" % [ch.fQnm, ch.tau * 1000.0], absf(ch.fQnm - 250.0) < 25.0 and absf(ch.tau - 0.004) < 0.001, ch.fQnm)
+	check("its inspiral from 35 Hz takes ~0.2 s", absf(GWDetector.chirp_template(36.0, 29.0, 410.0).tIn * pow(20.0 / 35.0, 8.0 / 3.0) - 0.2) < 0.06)
+	var hs: PackedFloat64Array = ch.h
+	var peak := 0.0
+	for x in hs: peak = maxf(peak, absf(x))
+	check("the template peaks at ~5e-22 at 410 Mpc", peak > 2e-22 and peak < 1.2e-21, peak)
+	var a_ht := pow(Rocketry.GM_SUN * 2.8284 * pow(27906.98, 2.0) / (4.0 * PI * PI), 1.0 / 3.0) / Rocketry.AU_M
+	var t_ht := GWDetector.peters_time(1.4398, 1.3886, a_ht, 0.6171) / Rocketry.YR_S
+	check("Peters: PSR B1913+16 coalesces in %s yr (Weisberg & Taylor: 3.0e8)" % U.expo(t_ht, 2), absf(t_ht / 3.0e8 - 1.0) < 0.1)
+	# ---- time scales: J2000.0 TDB is 2000-01-01 11:58:55.816 UTC (TAI − UTC 32 s), the
+	# 2016 leap second, and the calendar either side of the Gregorian reform.
+	var utc := TimeScales.utc_jd(TimeScales.J2000)
+	var c := TimeScales.calendar(utc)
+	check("J2000.0 TDB → 2000-01-01 11:58:55.816 UTC", c.slice(0, 5) == [2000, 1, 1, 11, 58] and absf(float(c[5]) - 55.816) < 2e-3, c)
+	check("TDB − TT stays within 1.7 ms", absf(TimeScales.tdb_minus_tt(2451545.0 + 91.0)) < 1.7e-3 and absf(TimeScales.tdb_minus_tt(2451545.0 + 91.0)) > 1.4e-3)
+	check("TAI − UTC is 36 s before 2017 and 37 s after", TimeScales.tai_minus_utc(2457754.4) == 36.0 and TimeScales.tai_minus_utc(2457754.6) == 37.0)
+	check("no UTC before 1972", is_nan(TimeScales.utc_jd(2440000.0)))
+	check("1582 Oct 15 follows Oct 4", TimeScales.calendar(2299160.5).slice(0, 3) == [1582, 10, 15] and TimeScales.calendar(2299159.5).slice(0, 3) == [1582, 10, 4])
+	check("sim_years advances TDB by orrery years", absf(TimeScales.tdb_jd(TimeScales.J2000, 1.0) - TimeScales.J2000 - 365.2568984) < 1e-6)
+	check("the solar preset carries J2000.0", float(Presets.PRESETS.solar.get("epochJD", 0.0)) == TimeScales.J2000)
 	print("sciencecheck: %d checks, %d failed" % [rows, fails])
 	quit(1 if fails > 0 else 0)

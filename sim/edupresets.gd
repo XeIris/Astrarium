@@ -58,7 +58,7 @@ const MOON := { "hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12
 static var EDU_PRESETS: Dictionary = _make()
 
 const EDU_ORDER := [
-	"edu_seasons", "edu_moon", "edu_kepler", "edu_habitable",
+	"edu_seasons", "edu_moon", "edu_kepler", "edu_mercury", "edu_habitable",
 	"edu_starbirth", "edu_sun", "edu_lifecycle", "edu_supernova", "edu_pulsar",
 	"edu_transit", "edu_hole", "edu_galaxy", "edu_cluster",
 ]
@@ -129,6 +129,24 @@ static func _make() -> Dictionary:
 				# a³ = 4 × 1.5³ → a = 1.5 × 4^(1/3) = 2.3811 AU, period exactly 2×.
 				orbiter(Ms, a * U.cbrt(4.0), rock.call("Far", 0x7f8f7a), PI),
 			],
+	}
+
+	# MERCURY'S PERIHELION: the Sun and Mercury alone (a = 0.387098 AU, e = 0.205630,
+	# Standish's J2000 elements), so its apsides turn only by 1PN: 42.98″ per century.
+	# The 4th-order step's own apsidal drift goes as h⁴: 8.7″/cy at 4e-4 yr, 0.08″/cy at
+	# 1.25e-4 (1/1900 of Mercury's year).
+	P.edu_mercury = {
+		"sky": { "env": "disc", "galactic": "j2000" },
+		"name": "Mercury alone",
+		"blurb": "The Sun and Mercury on Mercury's real orbit, and nothing else. With Newton's gravity the ellipse closes; with Einstein's first post-Newtonian terms its perihelion turns by 43 arcseconds a century, the anomaly Le Verrier measured in 1859 and general relativity explained in 1915.",
+		"sceneScale": 60.0, "bodyScale": 0.6, "camRadius": 40.0, "lensing": false, "mesh": false,
+		"timeScale": 5.0, "maxStep": 1.25e-4,
+		"build": func() -> Array:
+			var sun := { "type": "star", "name": "Sun", "mass": 1.0, "radiusSun": 1.0, "teff": 5772.0, "luminosity": 1.0,
+				"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }
+			var mercury := { "type": "planet", "name": "Mercury", "mass": 1.6601e-7, "radiusKm": 2439.7, "hot": true,
+				"crater": 1.0, "regolith": 0x8c8378, "albedo": 0.14 }
+			return [sun, eccentric(1.0 + 1.6601e-7, 0.387098, 0.205630, mercury)],
 	}
 
 	# WHERE STARS COME FROM. A core collapses once heavier than its Jeans mass,

@@ -572,6 +572,14 @@ func _build_settings() -> void:
 		Physics.secular = not Physics.secular
 		sec_btn.set_label("☑ Secular evolution" if Physics.secular else "☐ Secular evolution")
 		set_active("secularToggle", Physics.secular))
+	_h3(sim, "Relativity")
+	_note(sim, "Einstein–Infeld–Hoffmann 1PN terms between the bodies: they advance Mercury's perihelion by 43″ a century and a compact binary's periastron by degrees a year. Off is Newton.")
+	var pn_btn := B(sim, "Toggle", "", "pnToggle")
+	pn_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(pn_btn, 0.0, 10.0).pressed.connect(func():
+		Physics.post_newtonian = not Physics.post_newtonian
+		sync_post_newtonian())
+	sync_post_newtonian()
 	_h3(sim, "Flight")
 	_set_row(sim, "f107", "Solar activity", "The 10.7 cm solar flux, which heats the thermosphere and sets how fast low orbits decay: about 70 at solar minimum and 250 at maximum. At the left end the thermosphere is the 1976 standard's, which every built flight assumes.",
 		0, 300, 0, 5, "US76", func(v): return ("F10.7 = %d" % int(v)) if v > 0.0 else "US76")
@@ -1516,6 +1524,11 @@ func set_active(sel: String, on: bool) -> void:
 		if e is HudButton:
 			(e as HudButton).set_active(on)
 
+## Settings › Sim's 1PN toggle, after it or a lesson changed Physics.post_newtonian.
+func sync_post_newtonian() -> void:
+	set_button_text("pnToggle", "☑ Post-Newtonian gravity (1PN)" if Physics.post_newtonian else "☐ Post-Newtonian gravity (1PN)")
+	set_active("pnToggle", Physics.post_newtonian)
+
 func set_button_text(sel: String, text: String) -> void:
 	for e in _targets(sel):
 		if e is HudButton: (e as HudButton).set_label(text)
@@ -1744,7 +1757,9 @@ func update_climate(cl: Dictionary) -> void:
 		set_text("cHZ", "inside" if S >= hz.outer and S <= hz.inner else ("too hot" if S > hz.inner else "too cold"))
 		set_text("cHZEdges", "%s–%s S⊕" % [U.fixed(hz.outer, 2), U.fixed(hz.inner, 2)])
 	# The steam is what is missing; the era names it.
-	set_text("cOcean", "%s %%" % U.fixed(float(cl.get("ocean", 1.0)) * 100.0, 0))
+	var lost := float(cl.get("lost", 0.0))
+	set_text("cOcean", "%s %%" % U.fixed(float(cl.get("ocean", 1.0)) * 100.0, 0) \
+		+ (" · %s %% to space" % U.fixed(lost * 100.0, 1 if lost < 0.1 else 0) if lost >= 0.0005 else ""))
 	set_text("cTau", "%s yr" % U.fixed(cl.tauYears, 2))
 	set_text("cExtremes", "%s … %s °C" % [U.fixed(cl.Tmin - 273.15, 0), U.fixed(cl.Tmax - 273.15, 0)])
 	(ids.climateChart as ClimateChart).set_history(cl.get("history", []))
