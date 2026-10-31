@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Astrarium: a relativistic orrery, a 35-lesson astronomy course and a spaceflight
+Astrarium: a relativistic orrery, a 36-lesson astronomy course and a spaceflight
 simulator, in Godot 4.7 / GDScript at the repo root. [README.md](README.md) covers
 running, exporting and the command-line options. [docs/godot.md](docs/godot.md)
 covers the render pipeline, colour management, the temperature pass and GDScript
@@ -207,6 +207,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   `tools/secularcheck.gd`
 - flight time/integration guards: `tools/flighttimecheck.gd` and the flight checks
 - flight cloud coverage or climatology: `tools/cloudcheck.gd`
+- re-entry plasma colour or `Ionisation`: `tools/plasmacheck.gd`
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`

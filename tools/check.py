@@ -55,8 +55,14 @@ CHANGED_RULES = (
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
-      "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd"),
+      "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd",
+      "sim/perihelion.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
+    # The chirp template, the perihelion meter (with edu_mercury's 1PN rate) and the dates.
+    (("sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "sim/edupresets.gd"), ("sciencecheck",)),
+    # The shock layer's spectrum and the shader terms it hands the glow.
+    (("sim/flight/plasma_spectrum.gd", "sim/flight/ionisation.gd", "shaders/flight/entry_plasma.gdshaderinc"),
+     ("plasmacheck",)),
     # Flight physics, guidance and what hands state to them (craftmodel separates stages).
     (("sim/flight/vessel.gd", "sim/flight/guidance.gd", "sim/flight/mission.gd", "sim/flight/rocketry.gd",
       "sim/flight/orbit.gd", "sim/flight/fall.gd", "sim/flight/separation.gd", "sim/flight/spaceflight.gd",
@@ -195,6 +201,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("flightphysicscheck", r"^flightphysicscheck: PASS$", timeout=420)
         yield script("spinframecheck", r"^SPINFRAMECHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cloudcheck", r"^CLOUDCHECK DONE checks=[1-9]\d* failures=0$")
+        yield script("plasmacheck", r"^PLASMACHECK DONE checks=[1-9]\d* failures=0$")
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")
