@@ -96,6 +96,7 @@ const ATMOSPHERES := {
 	"Titan": {
 		"p0": 146700.0, "rho0": 5.4, "T0": 94.0, "molar": 0.02834, "gamma": 1.4,
 		"layers": [{ "base": 0.0, "H": 21000.0 }], "top": 600e3, "tint": 0xc2924a, "haze": 0xe8c481, "scatter": "titan",
+		"plasma": "n2ch4",   # the shock layer's emitters (PlasmaSpectrum)
 	},
 	"Jupiter": {
 		"p0": 1e5, "rho0": 0.16, "T0": 165.0, "molar": 0.00226, "gamma": 1.42,
@@ -306,15 +307,52 @@ static func radiative_heat_flux(rho: float, v: float, nose_radius_m: float, atm 
 	return k.C * pow(rn, a) * pow(rho, k.b) * fv * 1e4
 
 # GRAVITY FIELDS. Zonal harmonics (unnormalised J_n) about the spin pole, with their
-# reference radius. Earth: EGM2008; Mars: MRO120D (Konopliv et al. 2016); Moon:
-# LP150Q (Konopliv et al. 2001). Sectoral and tesseral terms, and the lunar mascons
-# that make low lunar orbits unstable, are not modelled.
+# reference radius. Earth: EGM2008; Mars: MRO120D (Konopliv et al. 2016); Jupiter:
+# Juno's (Iess et al. 2018, Nature 555:220, at 71 492 km). Tesseral terms are TESSERAL's.
 const ZONAL := {
 	"Earth": { "R": 6378137.0, "J": [0.0, 0.0, 1.08262668e-3, -2.53265649e-6, -1.61962159e-6] },
 	"Mars":  { "R": 3396000.0, "J": [0.0, 0.0, 1.956608e-3, 3.1450e-5, -1.5377e-5] },
 	# J_n = −√(2n+1)·C̄n0 of the GRAIL field the tesseral terms come from (LunarGravity).
 	"Moon":  { "R": 1738000.0, "J": [0.0, 0.0, 2.032133e-4, 8.459745e-6, -9.704363e-6] },
+	"Jupiter": { "R": 71492000.0, "J": [0.0, 0.0, 1.46965063e-2, -4.50e-8, -5.866085e-4] },
 }
+
+# FIGURE: a measured reference ellipsoid, equatorial radius `a` and flattening `f`.
+# Earth's is WGS-84 (NIMA TR8350.2). `a` scales with the body's mean radius against
+# `mean`, so an edited Earth keeps its shape. Without an entry the surface is a sphere.
+const FIGURES := {
+	"Earth": { "a": 6378137.0, "f": 1.0 / 298.257223563, "mean": 6371008.8 },
+}
+
+## Centre to surface along `rr` (flight frame, pole on −Y), m: a·b/√(b²cos²ψ + a²sin²ψ)
+## at geocentric latitude ψ, or `R` without a figure. Height along the radius differs
+## from ellipsoidal height by under a metre below 1000 km.
+static func figure_radius(fig, R: float, rr: DVec3) -> float:
+	if fig == null: return R
+	var r2 := rr.length_sq()
+	var a := float(fig.a) * R / float(fig.mean)
+	if r2 <= 0.0: return a
+	var b := a * (1.0 - float(fig.f))
+	var s2 := rr.y * rr.y / r2
+	return a * b / sqrt(b * b * (1.0 - s2) + a * a * s2)
+
+static func surface_radius(env: Dictionary, rr: DVec3) -> float:
+	return figure_radius(env.get("figure"), float(env.radius), rr)
+
+## The point at geodetic latitude `lat`, longitude `lon` (rad) and height `h` (m) above
+## the surface, in the flight frame, into `out`.
+static func geodetic_point(env: Dictionary, lat: float, lon: float, h: float, out: DVec3) -> DVec3:
+	var fig = env.get("figure")
+	var R := float(env.radius)
+	var rho := (R + h) * cos(lat)
+	var z := (R + h) * sin(lat)
+	if fig != null:
+		var a := float(fig.a) * R / float(fig.mean)
+		var e2 := float(fig.f) * (2.0 - float(fig.f))
+		var N := a / sqrt(1.0 - e2 * sin(lat) * sin(lat))
+		rho = (N + h) * cos(lat)
+		z = (N * (1.0 - e2) + h) * sin(lat)
+	return out.set_v(rho * cos(lon), -z, rho * sin(lon))
 
 # The rest of a parent's field: every m ≥ 1 term, and zonals past J4, fully normalized,
 # indexed n(n+1)/2 + m, in the body-fixed frame (Vessel.body_angle turns it).
@@ -679,7 +717,8 @@ const RADII_KM := { "Moon": 1737.4, "Titan": 2574.7, "Europa": 1560.8, "Phobos":
 ## Everything a vessel needs about one body, in SI. `mu` comes from the body's
 ## current mass, so an edited planet flies differently at once. Reads name, mass,
 ## radius, obliquity and day_length (only without a SURFACES entry). Returns name, body,
-## mu, radius, gSurf, atm (or null), teq, rotRate, vRotEq, daySec, frame (spin_frame),
+## mu, radius (the mean; `figure` and surface_radius give the local surface), gSurf,
+## atm (or null), teq, rotRate, vRotEq, daySec, frame (spin_frame),
 ## ground, rock, oceans, sea, vEsc, vCirc, karman.
 static func flight_env(body: Body) -> Dictionary:
 	var name := body.name
@@ -715,6 +754,7 @@ static func flight_env(body: Body) -> Dictionary:
 		# what kind of place this is to fly from.
 		"zonal": ZONAL.get(name),
 		"tesseral": TESSERAL.get(name),
+		"figure": FIGURES.get(name),
 		"locked": body.spec.get("tidalLock"),
 		"vEsc": sqrt(2.0 * mu / radius),
 		"vCirc": sqrt(mu / radius),

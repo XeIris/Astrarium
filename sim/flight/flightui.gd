@@ -507,7 +507,7 @@ func _init(r: Control, h: Dictionary) -> void:
 	root.add_child(status_box)
 	_set_status("")
 	grid = Hud.grid(root, [1.0, 1.0], 8.0, 1.0)
-	for i in 20:
+	for i in 21:
 		var kv := _kv(grid, "", "")
 		grid_k.append(kv); grid_v.append(kv)
 	var clocks := HudStack.new(false)
@@ -608,6 +608,8 @@ func update(s: Dictionary) -> void:
 		["downrange", fmt_dist(tf.call("downrange"))],
 		["warp", "%s×" % str(s.warp)],
 		["body", str(s.parentName)],
+		["Δv lost g/steer/drag", "%s / %s / %s km/s" % [U.fixed(tf.call("lossGravity") / 1000.0, 2),
+			U.fixed(tf.call("lossSteering") / 1000.0, 2), U.fixed(tf.call("lossDrag") / 1000.0, 2)]],
 	]
 	if s.get("cruise", false):
 		# In cruise the parent-relative orbit and TWR are meaningless; the cruise
@@ -623,7 +625,7 @@ func update(s: Dictionary) -> void:
 		(grid_v[i] as KV).set_v(rows[i][1])
 
 	met_v.set_v(Guidance.fmt_dur(v.met))
-	ut_v.set_v(Guidance.fmt_dur(v.coord))
+	ut_v.set_v(str(s.date) if s.get("date") != null else Guidance.fmt_dur(v.coord))
 	dt_v.set_v(fmt_clock_delta(v.clock_delta))
 
 	_update_stages(v)

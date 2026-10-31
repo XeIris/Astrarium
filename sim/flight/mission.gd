@@ -704,7 +704,7 @@ static func aero_periapsis(v: Vessel, r: DVec3, vv: DVec3, mu: float, env: Dicti
 	var bc := ballistic(v)
 	var apo_of := func(rp: float) -> float:
 		var u := aimed_velocity(r, vv, mu, rp)
-		var res := Orbit.aero_pass(r, u, mu, R, atm, float(env.rotRate), bc, v.diameter * 0.5, env.get("zonal"), 86400.0 * 4.0)
+		var res := Orbit.aero_pass(r, u, mu, R, atm, float(env.rotRate), bc, v.diameter * 0.5, env.get("zonal"), 86400.0 * 4.0, env.get("figure"))
 		if res.crashed: return -1.0
 		var el := Orbit.elements(res.r, res.v, mu)
 		return float(el.ra) if float(el.e) < 1.0 else INF

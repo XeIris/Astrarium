@@ -199,6 +199,12 @@ func _init() -> void:
 	azimuths()
 	aerocapture()
 	aerobraking()
+	figure()
+	jupiter_j2()
+	sail()
+	losses()
+	boiloff()
+	ablation()
 	lagrange()
 	skies()
 	tesseral()
@@ -209,6 +215,161 @@ func _init() -> void:
 
 # Normalized Legendre values, −∇ of the tesseral potential, a turned body turning its
 # field, and the size of the Moon's mascons and Earth's C22.
+# WGS-84: the surface at the equator and pole, a pad's height and geodetic latitude,
+# and ground contact on the ellipsoid.
+func figure() -> void:
+	var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0088)
+	var v := vessel_at(earth, [earth])
+	var eq := Rocketry.surface_radius(v.env, DVec3.new(1.0, 0.0, 0.0))
+	var po := Rocketry.surface_radius(v.env, DVec3.new(0.0, -1.0, 0.0))
+	# The body's radius goes through AU, which costs a few metres.
+	check("WGS-84 a %.3f km, b %.3f km" % [eq / 1000.0, po / 1000.0], absf(eq / 6378137.0 - 1.0) < 1e-6 and absf(po / 6356752.314 - 1.0) < 1e-6)
+	v.place_on_pad(28.608402, -80.604201)
+	var r := v.r.length()
+	var psi := asin(-v.r.y / r)
+	# Geocentric latitude from geodetic: tan ψ = (1 − f)²·tan φ.
+	var want_psi := atan(pow(1.0 - 1.0 / 298.257223563, 2.0) * tan(deg_to_rad(28.608402)))
+	check("KSC on the ellipsoid: altitude %.3f m, geocentric latitude %.4f° (want %.4f°), %.2f km from the centre" % [v.altitude(), rad_to_deg(psi), rad_to_deg(want_psi), r / 1000.0],
+		absf(v.altitude()) < 1e-3 and absf(psi - want_psi) < 1e-9 and absf(r - 6373.29e3) < 50.0)
+	# Dropped from 5 m over the pole (the ion cruiser breaks up past 200 Pa) it meets the
+	# polar surface, 21 km inside the equatorial radius.
+	var vp := vessel_at(earth, [earth])
+	vp.r.set_v(0.0, -(po + 5.0), 0.0); vp.v.set_v(0.0, 0.0, 0.0)
+	vp.phase = Vessel.PHASE.DESCENT
+	var fell := 0.0
+	while fell < 20.0:
+		fell += vp.step(0.05)
+		if vp.phase == Vessel.PHASE.LANDED or vp.phase == Vessel.PHASE.DESTROYED: break
+	check("a fall at the pole meets the ground at the polar radius (%.1f m, within a step)" % vp.altitude(),
+		vp.phase in [Vessel.PHASE.LANDED, Vessel.PHASE.DESTROYED] and absf(vp.r.length() - po) < 0.6)
+
+# Jupiter's J2 (Juno): the node of a 2 R_J orbit at 30° regresses at −3/2·n·J2·(R/a)²·cos i.
+func jupiter_j2() -> void:
+	var jup := body("Jupiter", 9.5459e-4, 69911.0)
+	var v := vessel_at(jup, [jup])
+	v.place_in_orbit_radius(2.0 * 71492e3, 30.0, 0.0)
+	var a0 := v.r.length()
+	var n0 := node_of(v.r, v.v)
+	var mu: float = v.env.mu
+	var T := TAU * sqrt(pow(a0, 3.0) / mu)
+	var t := 0.0
+	while t < 2.0 * T: t += v.step(60.0)
+	var dn := wrapf(node_of(v.r, v.v) - n0, -PI, PI)
+	var want := -1.5 * sqrt(mu / pow(a0, 3.0)) * 0.0146965063 * 0.25 * cos(deg_to_rad(30.0)) * t
+	check("Jupiter's J2 regresses a 2 R_J node %.3f° in two orbits (J2 alone %.3f°)" % [rad_to_deg(dn), rad_to_deg(want)],
+		absf(dn / want - 1.0) < 0.05)
+
+# A solar sail at 1 AU: P(1 + ρ)A/m facing the Sun, P·A·cos α·[(1 − ρ)û + 2ρ cos α n̂]
+# tilted, nothing edge on or in a planet's shadow; held facing the Sun on a circular
+# orbit at the reduced gravity μ(1 − β), it stays circular.
+func sail() -> void:
+	var au := Rocketry.AU_M
+	var sun := body("Sun", 1.0, 696000.0)
+	sun.luminosity = 1.0
+	var v := Vessel.new({ "vehicle": Vehicles.VEHICLES.solarsail, "parent": sun, "bodies": [sun], "payload": 0.0 })
+	v.r.set_v(au, 0.0, 0.0); v.v.set_v(0.0, 0.0, 0.0)
+	v.phase = Vessel.PHASE.ORBIT
+	var m := v.mass
+	var P := 3.828e26 / (4.0 * PI * au * au * Rocketry.C_MS)
+	var face := func(dir: DVec3) -> void: v.q = DQuat.new().set_from_unit_vectors(Vessel.BODY_FWD, DQuat.nrm(dir.clone()))
+	var rad := func() -> DVec3:
+		var a := v.accel(v.r, v.v, DVec3.new())
+		return a.sub_in(v.gravity(v.r, DVec3.new()))
+	face.call(DVec3.new(-1.0, 0.0, 0.0))
+	var a0: DVec3 = rad.call()
+	var want := P * (1.0 + 0.91) * 1653.0 / m
+	check("sail facing the Sun at 1 AU: %.4f mm/s² outward (want %.4f)" % [a0.x * 1000.0, want * 1000.0], absf(a0.x / want - 1.0) < 1e-9 and absf(a0.y) + absf(a0.z) < 1e-15)
+	var al := deg_to_rad(35.0)
+	face.call(DVec3.new(-cos(al), 0.0, sin(al)))
+	var a1: DVec3 = rad.call()
+	var n := DVec3.new(cos(al), 0.0, -sin(al))
+	var w1 := DVec3.new(1.0, 0.0, 0.0).scale_in(P * 1653.0 * cos(al) * 0.09 / m).add_in(n.scale_in(P * 1653.0 * 2.0 * 0.91 * cos(al) * cos(al) / m))
+	check("sail at 35°: absorbed along the light, reflected along the normal", a1.clone().sub_in(w1).length() < 1e-12 * want)
+	face.call(DVec3.new(0.0, 0.0, 1.0))
+	check("sail edge on: no push", (rad.call() as DVec3).length() < 1e-12 * want)
+	var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0, DVec3.new(au, 0.0, 0.0))
+	var ve := Vessel.new({ "vehicle": Vehicles.VEHICLES.solarsail, "parent": earth, "bodies": [sun, earth], "payload": 0.0 })
+	ve.r.set_v(-8000e3, 0.0, 0.0); ve.v.set_v(0.0, 0.0, 0.0); ve.phase = Vessel.PHASE.ORBIT
+	ve.q = DQuat.new().set_from_unit_vectors(Vessel.BODY_FWD, DVec3.new(-1.0, 0.0, 0.0))
+	var lit := ve.accel(ve.r, ve.v, DVec3.new()).sub_in(ve.gravity(ve.r, DVec3.new())).length()
+	ve.r.set_v(8000e3, 0.0, 0.0)
+	var dark := ve.accel(ve.r, ve.v, DVec3.new()).sub_in(ve.gravity(ve.r, DVec3.new())).length()
+	check("sail in Earth's shadow: %s m/s² lit, %s in shadow" % [String.num_scientific(lit), String.num_scientific(dark)], lit > 0.9 * want and dark == 0.0)
+	# β = a_rad·r²/μ; a circular orbit at v = √(μ(1 − β)/r) stays at 1 AU.
+	var mu := Rocketry.GM_SUN
+	var beta := want * au * au / mu
+	v.r.set_v(au, 0.0, 0.0); v.v.set_v(0.0, 0.0, sqrt(mu * (1.0 - beta) / au))
+	var r_lo := INF; var r_hi := -INF
+	for i in 24 * 60:
+		face.call(v.r.clone().negate_in())
+		v.step(1800.0, { "rails": false })
+		r_lo = minf(r_lo, v.r.length()); r_hi = maxf(r_hi, v.r.length())
+	# Without the sail's push the same start would swing ~500 000 km.
+	check("held facing the Sun at β = %s, a 30-day arc stays within %.0f km of 1 AU" % [String.num_scientific(beta), maxf(au - r_lo, r_hi - au) / 1000.0],
+		maxf(au - r_lo, r_hi - au) < 100e3)
+
+# Δv accounting: the LM burning from rest over the Moon, its thrust held 37° off the
+# vertical, so gravity turns the velocity away from it: Δ|v| = ideal − gravity − steering.
+func losses() -> void:
+	var moon := body("Moon", Rocketry.M_EARTH_SUN * 0.0123, 1737.4)
+	var v := Vessel.new({ "vehicle": Vehicles.VEHICLES.lm, "parent": moon, "bodies": [moon], "payload": 0.0 })
+	v.r.set_v(0.0, 0.0, 1737.4e3 + 20000.0); v.v.set_v(0.0, 0.0, 0.0)
+	v.q = DQuat.new().set_from_unit_vectors(Vessel.BODY_FWD, DVec3.new(0.6, 0.0, 0.8))
+	v.phase = Vessel.PHASE.DESCENT
+	v.throttle = 1.0
+	for i in 600: v.step(1.0 / 60.0)
+	var t := v.telemetry
+	var rest := float(t.dvIdeal) - float(t.lossGravity) - float(t.lossSteering) - float(t.lossDrag)
+	check("Δv losses: %.2f m/s gained = %.2f ideal − %.2f gravity − %.2f steering" % [v.v.length(), t.dvIdeal, t.lossGravity, t.lossSteering],
+		absf(v.v.length() - rest) < 0.002 * float(t.dvIdeal) and float(t.lossGravity) > 5.0 and float(t.lossSteering) > 1.0)
+
+# Boil-off: the S-IVB coasting an hour in orbit loses q″·A·(f/h_fuel + (1 − f)/h_ox),
+# nothing on the pad or while it fires; slosh's first mode at ξ = 1.841.
+func boiloff() -> void:
+	var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0)
+	var v := Vessel.new({ "vehicle": Vehicles.VEHICLES.saturnv, "parent": earth, "bodies": [earth], "payload": 0.0 })
+	v.stage(true); v.stage(true); v.stage(true)
+	var sivb = v._first_attached()
+	v.place_in_orbit(185000.0, 32.5, 0.0)
+	var p0: float = sivb.prop
+	var t := 0.0
+	while t < 3600.0: t += v.step(10.0)
+	var c: Dictionary = Vessel.CRYO["LH2/LOX"]
+	var vf := 1.0 / float(c.fuel[0]); var vo := float(c.mr) / float(c.ox[0])
+	var q := Vessel.BOIL_FLUX * PI * float(sivb.spec.D) * float(sivb.spec.L) * 0.85
+	var want := q * (vf / (vf + vo) / float(c.fuel[1]) + vo / (vf + vo) / float(c.ox[1])) * t
+	check("S-IVB boils %.1f kg in an hour's coast (q″·A/h_fg: %.1f)" % [p0 - sivb.prop, want], absf((p0 - sivb.prop) / want - 1.0) < 1e-6)
+	var pad := Vessel.new({ "vehicle": Vehicles.VEHICLES.saturnv, "parent": earth, "bodies": [earth], "payload": 0.0 })
+	pad.place_on_pad(28.6, 0.0)
+	var pp: float = pad.stages[0].prop
+	pad.step(60.0)
+	check("nothing boils on the pad (the ground tops it up)", pad.stages[0].prop == pp)
+	var R := float(sivb.spec.D) * 0.5
+	var sl := v.slosh(9.8, 0.0)
+	var h: float = sivb.prop / float(sivb.prop0) * float(sivb.spec.L) * 0.85
+	var f1 := sqrt(1.841 * 9.8 / R * tanh(1.841 * h / R)) / TAU
+	check("slosh's first mode at 1 g in the S-IVB: %.3f Hz" % sl[0], absf(sl[0] - f1) < 1e-9 and sl[0] > 0.2 and sl[0] < 0.4)
+	check("no slosh mode unsettled in a coast", is_nan(v.slosh(0.0, 0.0)[1]))
+
+# Ablation: MSL's PICA under 1 MW/m² for 100 s recedes (q − εσT_rr⁴)·t/(ρQ*), loses that
+# depth over its area, and burns through once it has receded its thickness.
+func ablation() -> void:
+	var mars := body("Mars", 3.2271e-7, 3389.5)
+	var v := Vessel.new({ "vehicle": Vehicles.VEHICLES.skycrane, "parent": mars, "bodies": [mars], "payload": 0.0 })
+	var m0 := v.mass
+	for i in 100: v._ablate(1.0e6, 1.0)
+	var hs: Dictionary = v._first_attached().spec.heatShield
+	var want := (1.0e6 - 0.85 * 5.670374419e-8 * pow(1500.0, 4.0)) * 100.0 / (float(hs.rho) * float(hs.qstar))
+	var ss = v.shield_state()
+	check("PICA at 1 MW/m² for 100 s recedes %.2f mm (want %.2f) and sheds %.1f kg" % [ss[0] * 1000.0, want * 1000.0, m0 - v.mass],
+		absf(ss[0] / want - 1.0) < 1e-9 and absf((m0 - v.mass) - want * float(hs.rho) * float(hs.area)) < 1e-6)
+	v._ablate(1.0e5, 1000.0)
+	check("under its own re-radiation (0.1 MW/m²) it does not recede", absf(v.shield_state()[0] - ss[0]) < 1e-15)
+	v.r.set_v(3389.5e3 + 50e3, 0.0, 0.0); v.phase = Vessel.PHASE.ENTRY
+	v._first_attached().recession = float(hs.thickness)
+	v.check_structure(Vessel.Sample.new(), 0.0)
+	check("a shield receded through its thickness is a burn-through", v.phase == Vessel.PHASE.DESTROYED and str(v.failure).contains("burned through"))
+
 func tesseral() -> void:
 	var sp := 0.3; var cp := sqrt(1.0 - sp * sp)
 	var P := Rocketry._legendre(3, sp, cp)

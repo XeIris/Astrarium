@@ -108,7 +108,7 @@ static func handoff(vessel: Vessel, craft, cs, s: Dictionary, b: Dictionary) -> 
 	return f
 
 func altitude(vessel: Vessel) -> float:
-	return r.length() - float(vessel.env.radius)
+	return vessel.altitude(r)
 
 ## Advance `dt` s on the vessel's clock.
 func step(dt: float, vessel: Vessel) -> void:
@@ -164,7 +164,7 @@ func _accel(vessel: Vessel, rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
 	out.copy_from(_g)
 	var atm = vessel.env.atm
 	if atm == null: return out
-	var h := rr.length() - float(vessel.env.radius)
+	var h := vessel.altitude(rr)
 	if h > float(atm.top): return out
 	var rho := Rocketry.density(atm, h)
 	var va := vessel.airspeed(rr, vv, _air).length()
@@ -188,11 +188,11 @@ func _rk4(h: float, vessel: Vessel) -> void:
 
 ## At rest on the surface it turns with the planet (ω × r, the pole on −Y).
 func _rest(h: float, vessel: Vessel) -> void:
-	var R := float(vessel.env.radius)
+	var R := vessel.surface_r(r)
 	var lift := r.length() - R
 	_g.set_v(0.0, -float(vessel.env.rotRate), 0.0).cross_vectors(_g, r)
 	r.add_scaled_in(_g, h)
-	DQuat.set_len(r, R + lift)
+	DQuat.set_len(r, vessel.surface_r(r) + lift)
 	v.set_v(0.0, -float(vessel.env.rotRate), 0.0).cross_vectors(v, r)
 
 ## Display attitude: the tumble it left with; the tank's measured entry tumble once in
@@ -271,9 +271,9 @@ func _sequence(vessel: Vessel) -> void:
 			for n: Node3D in ch.nodes: n.queue_free()
 		chutes.clear()
 		if data.has("float"):
-			DQuat.set_len(r, float(vessel.env.radius) + float(data.float) - (_top() - cg.y))
+			DQuat.set_len(r, vessel.surface_r(r) + float(data.float) - (_top() - cg.y))
 		else:
-			DQuat.set_len(r, float(vessel.env.radius))
+			DQuat.set_len(r, vessel.surface_r(r))
 		_rest(0.0, vessel)
 
 func _done(key: String) -> bool:

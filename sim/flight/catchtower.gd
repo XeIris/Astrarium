@@ -137,7 +137,7 @@ static func return_state(veh: Dictionary, parent: Body, bodies: Array, tower: Ca
 		var t := CatchTower.at(tower.pos, tower.out, tower.rail_alt)
 		var v := Vessel.new({"vehicle": veh, "parent": parent, "bodies": bodies, "payload": 0.0})
 		var up := DQuat.nrm(t.pos.clone())
-		var R: float = float(v.env.radius) + apo
+		var R: float = v.surface_r(t.pos) + apo
 		var th := down / float(v.env.radius)
 		v.r.copy_from(up).scale_in(cos(th)).add_scaled_in(t.out, sin(th)).add_scaled_in(t.side, cross / float(v.env.radius))
 		DQuat.set_len(v.r, R)

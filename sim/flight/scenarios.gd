@@ -122,13 +122,13 @@ static func _build_list() -> Dictionary:
 			{"alt": [60e3, 72e3], "airspeed": [6600.0, 7300.0], "program": "glide", "state": "entry"}),
 		_sc("shuttle", "roll_reversal", "First roll reversal", "Return", _orbiter_air(80e3), {"event": "Roll reversal"},
 			{"alt": [50e3, 75e3], "program": "glide", "state": "entry"}),
-		_sc("shuttle", "taem", "TAEM, Mach 2.5", "Return", _orbiter_air(24.4e3), {},
+		_sc("shuttle", "taem", "TAEM, Mach 2.5", "Return", _orbiter_air(24370.0), {},
 			{"alt": [24e3, 25e3], "airspeed": [700.0, 800.0], "program": "glide", "state": "taem"}),
-		_sc("shuttle", "final_approach", "Final approach, outer glide slope", "Return", _orbiter_air(3990.0), {},
+		_sc("shuttle", "final_approach", "Final approach, outer glide slope", "Return", _orbiter_air(4000.0), {},
 			{"alt": [3900.0, 4100.0], "program": "glide", "state": "approach"}),
-		_sc("shuttle", "flare", "Preflare and touchdown", "Return", _orbiter_air(3990.0), {"state": "flare"},
+		_sc("shuttle", "flare", "Preflare and touchdown", "Return", _orbiter_air(4000.0), {"state": "flare"},
 			{"alt": [300.0, 620.0], "program": "glide", "state": "flare"}),
-		_sc("shuttle", "rollout", "Rollout", "Return", _orbiter_air(3990.0), {"phase": "rollout"},
+		_sc("shuttle", "rollout", "Rollout", "Return", _orbiter_air(4000.0), {"phase": "rollout"},
 			{"alt": [-5.0, 5.0], "phase": "rollout"}, 2.0),
 	]
 	out.starship = [
@@ -188,10 +188,10 @@ static func _orbiter(program = null) -> Dictionary:
 ## there, at 1×), with the OMS propellant the deorbit burn left. Each also names the
 ## replay that checks it (`replay`).
 const ORBITER_AIR := {
-	80e3: {"airspeed": 7586.0, "fpa": -0.976, "mass": 107605.3, "ap": {"_bank_sign": 1.0, "_drag_f": 0.796},
+	80e3: {"airspeed": 7591.0, "fpa": -0.964, "mass": 107554.3, "ap": {"_bank_sign": 1.0, "_drag_f": 0.7303},
 		"state": {"alt_below": 80e3}},
-	24.4e3: {"airspeed": 759.6, "fpa": -6.358, "mass": 107361.5, "speedbrake": 0.457, "state": {"state": "taem"}},
-	3990.0: {"airspeed": 193.3, "fpa": -19.82, "mass": 107361.5, "speedbrake": 0.748, "ap": {"_sb_trim": 0.6746},
+	24370.0: {"airspeed": 759.8, "fpa": -6.459, "mass": 107296.4, "speedbrake": 0.467, "state": {"state": "taem"}},
+	4000.0: {"airspeed": 194.1, "fpa": -20.114, "mass": 107296.4, "speedbrake": 0.763, "ap": {"_sb_trim": 0.6769},
 		"state": {"state": "approach"}},
 }
 
@@ -203,8 +203,8 @@ static func _orbiter_air(alt: float) -> Dictionary:
 
 ## The ship mid-return, as _orbiter_air, from the replay of _ship("bellyflop").
 const SHIP_AIR := {
-	80e3: {"airspeed": 7314.5, "fpa": -0.653, "prop": 38083.2, "mass": 138626.1, "state": {"alt_below": 80e3}},
-	15e3: {"airspeed": 192.3, "fpa": -77.70, "prop": 38083.2, "mass": 138132.3, "state": {"alt_below": 15e3}},
+	80e3: {"airspeed": 7375.0, "fpa": -0.661, "prop": 38083.2, "mass": 138908.2, "state": {"alt_below": 80e3}},
+	15e3: {"airspeed": 191.7, "fpa": -77.828, "prop": 38083.2, "mass": 138078.8, "state": {"alt_below": 15e3}},
 }
 
 static func _ship_air(alt: float) -> Dictionary:
@@ -306,7 +306,7 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 		v.v.copy_from(east).scale_in(float(b.v_inertial) * cos(g)).add_scaled_in(up, float(b.v_inertial) * sin(g))
 	else:
 		v.v.copy_from(up).scale_in(float(b.v_vert)).add_scaled_in(east, float(b.v_horiz)).add_in(spin)
-		if v.env.atm != null: v.v.add_in(Rocketry.wind_at(v.env.atm, v.r, v.env.radius, DVec3.new()))
+		if v.env.atm != null: v.v.add_in(Rocketry.wind_at(v.env.atm, v.r, v.surface_r(v.r), DVec3.new()))
 	var air := v.airspeed(v.r, v.v, DVec3.new())
 	v.q.set_from_unit_vectors(Vessel.BODY_FWD, DQuat.nrm(air.scale_in(-1.0)))
 	v.omega.set_v(0.0, 0.0, 0.0)
@@ -323,7 +323,7 @@ static func _air_state(v: Vessel, b: Dictionary) -> void:
 	var va := float(b.airspeed)
 	v.v.copy_from(track).scale_in(va * cos(g)).add_scaled_in(up, va * sin(g))
 	v.v.add_in(DVec3.new(0.0, -float(v.env.rotRate), 0.0).cross(v.r))
-	if v.env.atm != null: v.v.add_in(Rocketry.wind_at(v.env.atm, v.r, v.env.radius, DVec3.new()))
+	if v.env.atm != null: v.v.add_in(Rocketry.wind_at(v.env.atm, v.r, v.surface_r(v.r), DVec3.new()))
 	v.speedbrake = float(b.get("speedbrake", 0.0))
 
 ## Guidance's first cycle on the built state, then the vehicle put in the attitude it

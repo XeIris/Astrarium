@@ -30,6 +30,9 @@ static var _g2 := DVec3.new()
 static var _gp := DVec3.new()
 static var _gu := DVec3.new()
 static var _gw := DVec3.new()
+static var _rn := DVec3.new()
+static var _ru := DVec3.new()
+static var _ra := DVec3.new()
 static var _ba := DVec3.new()
 static var _w1 := DVec3.new()
 static var _ge1 := DVec3.new()
@@ -77,6 +80,7 @@ class Sample extends RefCounted:
 	var alpha: float = 0.0      # angle of attack, rad (set by sample())
 	var wheel: float = 0.0      # rolling friction and brakes against the motion, N
 	var normal: float = 0.0     # the runway's push on the wheels, N
+	var radiation: float = 0.0  # starlight's push on a sail, m/s²
 
 ## Every lit stage together; `plume` is the first one's look. propulsion() refills
 ## the same instance on every call, so read it before calling again.
@@ -107,6 +111,8 @@ class StageState extends RefCounted:
 	## ones so a landing burn can leave them dark.
 	var vac_live: int
 	var gear_out: bool = false    # spaceflight's G key toggles it
+	var recession: float = 0.0    # an ablator's surface recession at the stagnation point, m
+	var ablated: float = 0.0      # the mass it has lost, kg
 
 	func _init(s: Dictionary, i: int) -> void:
 		spec = s; index = i
@@ -182,6 +188,13 @@ var step_guard_hit := false
 
 # telemetry / records
 var max_q: float = 0.0
+## Δv accounting while thrusting, m/s: ∫T/m dt, and what gravity (∫g·sin γ dt along the
+## inertial velocity), steering (∫T/m·(1 − cos β) dt, β between thrust and velocity)
+## and drag (∫D/m dt) took from it. Sampled per step, so Δ|v| ≈ ideal − the three.
+var dv_ideal := 0.0
+var loss_gravity := 0.0
+var loss_steering := 0.0
+var loss_drag := 0.0
 var max_q_t: float = 0.0            # T+ (s after liftoff), altitude and Mach of the max-Q
 var max_q_alt: float = 0.0
 var max_q_mach: float = 0.0
@@ -281,14 +294,14 @@ func world_pos(out: DVec3 = null) -> DVec3:
 	if out == null: out = DVec3.new()
 	return to_world(r, out).scale_in(1.0 / Rocketry.AU_M).add_in(parent.pos)
 
-## Place the vessel on the launch pad: on the surface, turning with it.
+## Place the vessel on the launch pad at geodetic `lat_deg`: on the surface, turning
+## with it. It stands along the radius, 0.19° at most from the ellipsoid's normal.
 func place_on_pad(lat_deg: float = 28.5, lon_deg: float = 0.0) -> Vessel:
 	var lat := lat_deg * PI / 180.0
 	var lon := lon_deg * PI / 180.0
 	# The pole is −Y (see orbit.gd), so "north" is −Y and the equator is the XZ
 	# plane — the same plane the orrery lays its orbits in.
-	var cl := cos(lat)
-	r.set_v(env.radius * cl * cos(lon), -env.radius * sin(lat), env.radius * cl * sin(lon))
+	Rocketry.geodetic_point(env, lat, lon, 0.0, r)
 	# Surface velocity ω × r, ω along −Y (465 m/s at Earth's equator).
 	_a.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_a, r)
 	v.copy_from(_a)
@@ -313,9 +326,13 @@ func site_at(t: float, out: DVec3):
 	var sw := sin(w)
 	return out.set_v(r0.x * cw - r0.z * sw, r0.y, r0.x * sw + r0.z * cw)
 
-## Place the vessel on a circular orbit of altitude `alt_m`.
+## Place the vessel on a circular orbit `alt_m` over the surface where it starts.
 func place_in_orbit(alt_m: float, inc_deg: float = 0.0, phase_rad: float = 0.0) -> Vessel:
-	var R: float = env.radius + alt_m
+	_a.set_v(cos(phase_rad), 0.0, sin(phase_rad))
+	return place_in_orbit_radius(surface_r(_a) + alt_m, inc_deg, phase_rad)
+
+## Place the vessel on a circular orbit of radius `R` (m).
+func place_in_orbit_radius(R: float, inc_deg: float = 0.0, phase_rad: float = 0.0) -> Vessel:
 	var inc := inc_deg * PI / 180.0
 	var vc := sqrt(env.mu / R)
 	r.set_v(R * cos(phase_rad), 0.0, R * sin(phase_rad))
@@ -330,7 +347,7 @@ var mass: float:
 	get:
 		var m := payload_mass
 		for st in stages:
-			if st.attached: m += st.spec.dry + st.prop + st.rcs_prop
+			if st.attached: m += st.spec.dry - st.ablated + st.prop + st.rcs_prop
 		return m
 
 ## Length of what is still attached — used for the moment of inertia and for
@@ -468,6 +485,44 @@ func body_angle(t: float) -> float:
 	var t0: float = float(launch_site.coord0) if launch_site != null else 0.0
 	return env.rotRate * (t - t0)
 
+## Starlight's push on an attached stage with a `sail` {area m², reflect}: per star,
+## P = L/(4πd²c), and on a flat sail at incidence α, F = P·A·cos α·[(1 − ρ)û + 2ρ cos α n̂]
+## (absorbed plus specular; û along the light, n̂ the sail's normal on the lit side,
+## the body axis). Nothing in the parent's cylindrical shadow. Adds into `out` (frame
+## axes); returns |a|, m/s². Other craft: their ~1e-8 m/s² is not modelled.
+const L_SUN_W := 3.828e26           # IAU 2015 nominal solar luminosity
+func _radiation(rr: DVec3, out: DVec3, m: float) -> float:
+	var sail = null
+	for st in stages:
+		if st.attached and st.spec.get("sail") != null:
+			sail = st.spec.sail; break
+	if sail == null or parent == null: return 0.0
+	var A := float(sail.area)
+	var rho_s := float(sail.reflect)
+	to_world(rr, _gw)
+	forward(_rn)
+	to_world(_rn, _rn)
+	_ra.set_v(0.0, 0.0, 0.0)
+	var Rp := float(env.radius)
+	for b in bodies:
+		if not b.alive or b.luminosity == null or not (float(b.luminosity) > 0.0): continue
+		# û: from the star to the vessel, world axes.
+		_ru.sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M).negate_in().add_in(_gw)
+		var d2 := _ru.length_sq()
+		if d2 < 1.0: continue
+		_ru.scale_in(1.0 / sqrt(d2))
+		if b != parent:
+			var along := _gw.dot(_ru)
+			if along > 0.0 and _gw.length_sq() - along * along < Rp * Rp: continue
+		var P := float(b.luminosity) * L_SUN_W / (4.0 * PI * d2 * Rocketry.C_MS)
+		var c := _rn.dot(_ru)
+		var sgn := 1.0 if c > 0.0 else -1.0     # away from the lit side
+		c = absf(c)
+		_ra.add_scaled_in(_ru, P * A * c * (1.0 - rho_s) / m).add_scaled_in(_rn, sgn * P * A * 2.0 * rho_s * c * c / m)
+	var a := _ra.length()
+	if a > 0.0: out.add_in(to_local(_ra, _ra))
+	return a
+
 ## Body `i`'s offset from the parent at the current RK4 stage, m.
 func _body_offset(i: int, out: DVec3) -> DVec3:
 	var t := _stage_tau
@@ -490,16 +545,20 @@ func _snap_bodies(off: Array[DVec3], vel: Array[DVec3]) -> void:
 		off[i].sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M)
 		vel[i].sub_vectors(b.vel, parent.vel).scale_in(Rocketry.AU_M / Rocketry.YR_S)
 
-## Altitude above the parent's mean surface, in metres.
+## Altitude above the parent's surface (its figure, else the mean sphere), m.
 func altitude(rr: DVec3 = null) -> float:
 	if rr == null: rr = r
-	return rr.length() - env.radius
+	return rr.length() - Rocketry.surface_radius(env, rr)
+
+## Centre to the surface under `rr`, m.
+func surface_r(rr: DVec3) -> float:
+	return Rocketry.surface_radius(env, rr)
 
 ## Velocity relative to the moving air (the turning planet plus the wind), for drag,
 ## Mach, heating and the aerodynamic attitude.
 func airspeed(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, rr)
-	if env.atm != null: _d.add_in(Rocketry.wind_at(env.atm, rr, env.radius, _wind))
+	if env.atm != null: _d.add_in(Rocketry.wind_at(env.atm, rr, surface_r(rr), _wind))
 	return out.sub_vectors(vv, _d)
 
 ## Velocity over the turning ground, for wheels, gear, tower arms and the track to a
@@ -615,8 +674,10 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			if fa != null and fa.spec.get("heatShield") != null and fa.spec.heatShield.get("noseR") != null:
 				nose_r = fa.spec.heatShield.noseR
 			heat = Rocketry.heat_flux(rho, va, nose_r, atm) + Rocketry.radiative_heat_flux(rho, va, nose_r, atm)
+	var rad := _radiation(rr, out, m)
 	if sample != null:
 		sample.wheel = 0.0; sample.normal = 0.0
+		sample.radiation = rad
 	if phase == PHASE.ROLLOUT and rolling != null:
 		_wheels(rr, vv, out, m, sample)
 	if sample != null:
@@ -732,7 +793,7 @@ func _wheels(rr: DVec3, vv: DVec3, out: DVec3, m: float, sample: Sample) -> void
 	var up := DQuat.nrm(_w1.copy_from(rr))
 	var R := rr.length()
 	var st = _first_attached()
-	if R - env.radius + _stage_offset(st, st.spec.gear.point, _w2).dot(up) > 0.02: return
+	if R - surface_r(rr) + _stage_offset(st, st.spec.gear.point, _w2).dot(up) > 0.02: return
 	var vr := vv.dot(up)
 	var a_n := -out.dot(up) - (vv.length_sq() - vr * vr) / R
 	if a_n <= 0.0: return
@@ -1068,6 +1129,9 @@ func check_structure(s: Sample, _dt: float) -> void:
 		destroy("structural failure — %s g exceeded the %s g limit" % [U.fixed(sg, 1), js_num(lim.maxG)]); return
 	if sq * sa > lim.qAlpha:
 		destroy("loss of control — q·α of %s kPa·rad exceeded %s" % [U.fixed(sq * sa / 1000.0, 1), U.fixed(lim.qAlpha / 1000.0, 0)]); return
+	var ss = shield_state()
+	if ss != null and ss[0] >= ss[1]:
+		destroy("heat shield burned through — %s mm of ablator receded" % U.fixed(ss[1] * 1000.0, 1)); return
 	if lim.heatLoad > 0.0 and heat_load > lim.heatLoad:
 		destroy("thermal failure — %s MJ/m² burned through the shield" % U.fixed(heat_load / 1e6, 0)); return
 	# No shield: bare aluminium fails around 80 W/cm².
@@ -1154,7 +1218,7 @@ func step_clocks(dt: float) -> void:
 	var v_ship2 := _a.length_sq()
 	var phi_ship := potential(r)
 	# ground reference: a clock on the parent's surface at the launch latitude
-	var site: DVec3 = launch_site.r if launch_site != null else DQuat.set_len(_b.copy_from(r), env.radius)
+	var site: DVec3 = launch_site.r if launch_site != null else DQuat.set_len(_b.copy_from(r), surface_r(r))
 	_c.copy_from(parent.vel).scale_in(Rocketry.AU_M / _YR)
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, site)
 	var v_gnd2 := _c.add_in(to_world(_d, _d)).length_sq()
@@ -1316,6 +1380,7 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 	step_guard_hit = remaining > 1e-9
 	if not step_guard_hit and not opts.get("advance_world", Callable()).is_valid(): elapsed = dt
 	step_clocks(elapsed)
+	boil_off(elapsed)
 	sample(elapsed, s)
 	auto_jettison()
 	check_soi()
@@ -1334,6 +1399,54 @@ func _advance_world(seconds: float, opts: Dictionary) -> float:
 	var controls: Callable = opts.get("controls", Callable())
 	if seconds > 0.0 and controls.is_valid(): controls.call(seconds)
 	return seconds
+
+# BOIL-OFF: heat leaking through a cryogenic stage's insulation boils its propellant,
+# ṁ = q″·A/h_fg, vented without thrust (the S-IVB's settling vent is not modelled).
+# Each tank's wetted area is its share of 85% of the stage's barrel, by the volumes
+# the mixture ratio and densities give. Latent heats and densities at the normal
+# boiling point (NIST); `boiloff` (W/m²) is per stage, default BOIL_FLUX.
+const CRYO := {
+	"LH2/LOX": {"mr": 5.5, "fuel": [70.85, 445.6e3], "ox": [1141.0, 213.1e3]},
+	"CH4/LOX": {"mr": 3.6, "fuel": [422.6, 510.8e3], "ox": [1141.0, 213.1e3]},
+	"RP-1/LOX": {"mr": 2.56, "fuel": [810.0, 0.0], "ox": [1141.0, 213.1e3]},
+}
+## An insulated tank's heat leak in Earth orbit: an order-of-magnitude estimate for
+## spray-on foam (1–5 W/m² across flight reports), not a measured value for any stage.
+const BOIL_FLUX := 2.0
+var boil_rate := 0.0   # kg/s, the last step's
+
+## Propellant boiled off over `dt` s by every cryogenic stage not firing, off the pad.
+func boil_off(dt: float) -> void:
+	boil_rate = 0.0
+	if dt <= 0.0 or phase == PHASE.PRELAUNCH or phase == PHASE.DESTROYED: return
+	for st in stages:
+		if not st.attached or st.prop <= 0.0: continue
+		var eng = st.spec.get("engine")
+		if eng == null or not CRYO.has(str(eng.get("prop", ""))) or (throttle > 0.0 and lit(st)): continue
+		var c: Dictionary = CRYO[str(eng.prop)]
+		var vf := 1.0 / float(c.fuel[0])
+		var vo := float(c.mr) / float(c.ox[0])
+		var A := PI * float(st.spec.D) * float(st.spec.L) * 0.85
+		var q := float(st.spec.get("boiloff", BOIL_FLUX)) * A
+		var rate := q * vf / (vf + vo) / float(c.fuel[1]) if float(c.fuel[1]) > 0.0 else 0.0
+		rate += q * vo / (vf + vo) / float(c.ox[1])
+		var take := minf(rate * dt, st.prop)
+		st.prop -= take
+		boil_rate += rate
+
+## Propellant slosh's first lateral mode in the lowest firing or settled tank: for a
+## cylinder of radius R filled to h, ω² = (ξ·a/R)·tanh(ξh/R), ξ = 1.841 (Abramson,
+## NASA SP-106), with a the sensed axial acceleration; and the free surface's tilt
+## under the lateral part. A readout: slosh does not act on attitude here. [Hz, rad],
+## or [0, NAN] unsettled.
+func slosh(a_axial: float, a_lateral: float) -> Array:
+	var st = _first_attached()
+	if st == null or a_axial <= 1e-3: return [0.0, NAN]
+	var R := float(st.spec.D) * 0.5
+	var fill := clampf(st.prop / maxf(float(st.prop0), 1.0), 0.0, 1.0)
+	var h := maxf(fill * float(st.spec.L) * 0.85, 0.01)
+	var w2 := 1.841 * a_axial / R * tanh(1.841 * h / R)
+	return [sqrt(w2) / TAU, atan2(a_lateral, a_axial)]
 
 ## Conditional separations. The fairing goes when free-molecular heating drops below
 ## ~1135 W/m² (usually near 110 km), so a lofted trajectory sheds it earlier.
@@ -1423,6 +1536,34 @@ func rk4(h: float, s: Sample) -> void:
 	spin(h)
 	heat_load += s.heat * h
 	if s.heat > peak_heat: peak_heat = s.heat
+	_ablate(s.heat, h)
+
+# ABLATION: a charring ablator rejects the radiation of its hot char, εσT⁴ with ε = 0.85
+# at T_rr (1500 K, 0.24 MW/m²), and the rest of the stagnation flux recedes it at
+# ṡ = q_net/(ρ·Q*), an effective heat of ablation (Q* per material in the stage's
+# `heatShield`). The recession here is the stagnation point's, the deepest; the mass
+# lost is the shield's area times that recession, an upper bound. Burn-through when it
+# reaches the shield's thickness.
+const ABLATE_T_RR := 1500.0
+func _ablate(q: float, h: float) -> void:
+	if q <= 0.0: return
+	var q_net := q - 0.85 * 5.670374419e-8 * pow(ABLATE_T_RR, 4.0)
+	if q_net <= 0.0: return
+	for st in stages:
+		if not st.attached: continue
+		var hs = st.spec.get("heatShield")
+		if hs == null or not hs.get("ablator", false) or hs.get("qstar") == null: continue
+		var ds := q_net / (float(hs.rho) * float(hs.qstar)) * h
+		st.recession += ds
+		st.ablated += ds * float(hs.rho) * float(hs.area)
+		return
+
+## The ablator's recession and thickness, m, or null without one.
+func shield_state() -> Variant:
+	for st in stages:
+		var hs = st.spec.get("heatShield") if st.attached else null
+		if hs != null and hs.get("thickness") != null: return [st.recession, float(hs.thickness)]
+	return null
 
 ## One burning stage's own propellant flow, kg/s — propulsion()'s per-stage
 ## term. Flow is set by the vacuum rating, so no ambient pressure is needed.
@@ -1556,7 +1697,7 @@ func contact(dt: float) -> void:
 	# Held down on the mount: before the airborne branch, since the integrator moves
 	# the vehicle a few cm before contact() runs.
 	if phase == PHASE.PRELAUNCH and held_down:
-		DQuat.set_len(r, env.radius)
+		DQuat.set_len(r, surface_r(r))
 		_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 		v.copy_from(_c)
 		return
@@ -1586,7 +1727,7 @@ func contact(dt: float) -> void:
 	var v_vert := v.dot(up)
 	if phase == PHASE.PRELAUNCH:
 		# held down on the pad until thrust exceeds weight
-		DQuat.set_len(r, env.radius)
+		DQuat.set_len(r, surface_r(r))
 		var w: float = mass * env.gSurf
 		var s := Sample.new()
 		accel(r, v, _b, s)
@@ -1613,7 +1754,7 @@ func contact(dt: float) -> void:
 	if geared != null and geared.spec.get("rollout") != null and phase != PHASE.LANDED and v_horiz > 1.0:
 		_touchdown_roll(geared, up, v_vert, v_horiz)
 		return
-	DQuat.set_len(r, env.radius - gear_off)
+	DQuat.set_len(r, surface_r(r) - gear_off)
 	_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 	v.copy_from(_c)
 	omega.set_v(0.0, 0.0, 0.0)
@@ -1744,6 +1885,15 @@ func sample(dt: float, s: Sample = null) -> Dictionary:
 		max_q = s.q; max_q_t = met - t0; max_q_alt = alt; max_q_mach = s.mach
 	if s.mach > max_mach: max_mach = s.mach
 	if a_net / Rocketry.G0 > max_g: max_g = a_net / Rocketry.G0
+	if s.thrust > 0.0 and dt > 0.0:
+		var sp := v.length()
+		var vh := DQuat.nrm(_c.copy_from(v)) if sp > 1e-3 else fwd
+		var g := gravity(r, _d)
+		var tm := s.thrust / m
+		dv_ideal += tm * dt
+		loss_gravity += -g.dot(vh) * dt
+		loss_steering += tm * (1.0 - DQuat.jclamp(fwd.dot(vh), -1.0, 1.0)) * dt
+		loss_drag += s.drag / m * dt
 	if launch_site != null:
 		var site_r: DVec3 = site_at(coord, launch_site.r)
 		# great-circle distance from the pad, along the surface
@@ -1756,7 +1906,18 @@ func sample(dt: float, s: Sample = null) -> Dictionary:
 	t.horizontal = sqrt(maxf(t.speed * t.speed - t.vertical * t.vertical, 0.0))
 	t.q = s.q; t.mach = s.mach; t.drag = s.drag; t.heat = s.heat
 	t.thrust = s.thrust; t.isp = s.isp; t.mdot = s.mdot
-	t.wheel = s.wheel; t.normal = s.normal
+	t.wheel = s.wheel; t.normal = s.normal; t.radiation = s.radiation
+	t.dvIdeal = dv_ideal; t.lossGravity = loss_gravity; t.lossSteering = loss_steering; t.lossDrag = loss_drag
+	t.boiloff = boil_rate
+	var shs = shield_state()
+	t.recession = shs[0] if shs != null else 0.0
+	# The sensed acceleration along and across the body axis (gravity is not felt).
+	_c.set_v(0.0, 0.0, 0.0)
+	if s.thrust > 0.0: _c.add_scaled_in(fwd, s.thrust / m)
+	if s.drag > 0.0 and va > 1.0: _c.add_scaled_in(_vrel, -s.drag / (m * va))
+	var ax := _c.dot(fwd)
+	var sl := slosh(ax, _c.add_scaled_in(fwd, -ax).length())
+	t.sloshHz = sl[0]; t.sloshTilt = sl[1]
 	t.plume = s.plume; t.engines = s.engines
 	t.mass = m; t.gees = a_net / Rocketry.G0; t.alpha = alpha
 	var rl2 := r.length_sq()

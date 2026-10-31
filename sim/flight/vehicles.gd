@@ -458,7 +458,10 @@ static func _build_vehicles() -> Dictionary:
 		"stages": [
 			stage({ "key": "shell", "name": "Aeroshell", "dry": 600.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 2.7, "D": 4.5, "sep": "jettison",
-				"blunt": true, "heatShield": { "area": 15.9, "ablator": true, "mass": 385.0, "noseR": 1.125 },
+				# MSL's PICA tiles, 31.75 mm (Edquist et al. 2014); ρ 265 kg/m³ and an effective
+				# heat of ablation of 50 MJ/kg, an estimate for a charring ablator at ~1 MW/m².
+				"blunt": true, "heatShield": { "area": 15.9, "ablator": true, "mass": 385.0, "noseR": 1.125,
+					"thickness": 0.03175, "rho": 265.0, "qstar": 5.0e7 },
 				# An offset centre of mass trims the capsule to a lifting attitude.
 				# L/D 0.24 is the flown value for the MSL aeroshell.
 				"lift": { "LD": 0.24 },
@@ -497,6 +500,25 @@ static func _build_vehicles() -> Dictionary:
 				"rcs": { "thrust": 0.9, "isp": 220.0, "prop": 45.0, "count": 12 },
 				"solar": { "span": 19.7, "area": 36.4, "powerAU": 10000.0 },
 				"look": { "skin": "mli-gold", "bus": true, "arrays": 2, "dish": true } }),
+		],
+	},
+
+	# SOLAR SAIL, NASA's Solar Cruiser design (2019–2022): a 1653 m² aluminised
+	# polyimide sail on four 29.5 m booms, about 100 kg in all. Its characteristic
+	# acceleration at 1 AU, 2ρP/σ with ρ = 0.91, is 0.14 mm/s². No engine: starlight
+	# alone (Vessel._radiation), steered by pointing the sail.
+	"solarsail": {
+		"id": "solarsail", "name": "Solar Sail (Solar Cruiser-class)", "role": "cruiser", "launchFrom": null,
+		"era": "design, 2022",
+		"blurb": "A sail forty metres on a side and thinner than a hair, on a spacecraft lighter than a person. Sunlight pushes on it with about 9 micronewtons per square metre at Earth's distance: a tenth of a millimetre per second squared, forever, with no propellant. Tilt it and the push turns with it; face it edge on and it stops.",
+		"limits": { "maxQ": 1.0, "maxG": 0.1, "qAlpha": 1.0, "heatLoad": 0.0 },
+		"stages": [
+			stage({ "key": "sail", "name": "Sailcraft", "dry": 100.0, "prop": 0.0,
+				"engine": null, "count": 0, "L": 0.9, "D": 0.9, "sep": "none",
+				"rcs": { "thrust": 0.02, "isp": 70.0, "prop": 2.0, "count": 8 },
+				"sail": { "area": 1653.0, "reflect": 0.91, "boom": 29.5 },
+				"area": 1653.0,
+				"look": { "skin": "mli-gold", "sail": true } }),
 		],
 	},
 
@@ -571,7 +593,7 @@ static func booster_return(key: String):
 
 const VEHICLE_ORDER := [
 	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane",
-	"ioncruiser", "hailmary", "beetle",
+	"ioncruiser", "solarsail", "hailmary", "beetle",
 ]
 
 # Ideal Δv of one stage, carrying everything above it. Derived, never stored. `pa`

@@ -940,6 +940,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if _t(look.get("starship")): return build_starship_ship(spec, parts)
 	if _t(look.get("beetle")): return build_beetle(spec, parts)
 	if _t(look.get("bus")): return build_ion_bus(spec, parts)
+	if _t(look.get("sail")): return build_sail(spec, parts)
 	if _t(look.get("octagon")): return build_lm_descent(spec, parts)
 	if _t(look.get("cabin")): return build_lm_ascent(spec, parts)
 	if _t(look.get("capsule")): return build_csm(spec, parts)
@@ -1315,6 +1316,24 @@ static func build_ring(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	m.position.y = L / 2.0; g.add_child(m)
 	var bd := _mesh(_torus(D / 2.0 * 1.005, D * 0.006, 6, 32), M.black)
 	bd.rotation.x = PI / 2.0; bd.position.y = L; g.add_child(bd)
+	return {"group": g, "parts": parts}
+
+## A square sail of `sail.area` across the stage's axis (its normal is the body axis),
+## on four booms along its diagonals from a small bus.
+static func build_sail(spec: Dictionary, parts: Dictionary) -> Dictionary:
+	var g := _grp()
+	var bus := _mesh(_box(0.6, 0.5, 0.6), M.gold)
+	bus.position.y = 0.25; g.add_child(bus)
+	var side := sqrt(float(spec.sail.area))
+	var sheet := _mesh(_box(side, 0.004, side), M.alu)
+	sheet.position.y = 0.55
+	sheet.rotation.y = PI / 4.0
+	g.add_child(sheet)
+	for k in 4:
+		var boom := _mesh(_cylinder(0.05, 0.05, float(spec.sail.boom), 8), M.dirty)
+		boom.rotation = Vector3(0.0, k * PI / 2.0, PI / 2.0)
+		boom.position = Vector3(cos(k * PI / 2.0), 0.0, -sin(k * PI / 2.0)) * float(spec.sail.boom) * 0.5 + Vector3(0, 0.56, 0)
+		g.add_child(boom)
 	return {"group": g, "parts": parts}
 
 static func build_satellite(spec: Dictionary, parts: Dictionary) -> Dictionary:

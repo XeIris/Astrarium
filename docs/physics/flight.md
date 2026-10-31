@@ -17,8 +17,9 @@ rails kicks read the same snapshots at their two ends.
 
 ## The parent's figure
 
-Earth, Mars and the Moon add zonal harmonics J2–J4 about their spin poles
-(`Rocketry.ZONAL`: EGM2008, MRO120D, LP150Q), as −∇ of
+Earth, Mars, the Moon and Jupiter add zonal harmonics J2–J4 about their spin poles
+(`Rocketry.ZONAL`: EGM2008, MRO120D, LP150Q, and Juno's field of Iess et al. 2018 at
+71 492 km), as −∇ of
 Φ = (μ/r) Σ Jₙ (R/r)ⁿ Pₙ(sin φ). This gives nodal regression (the ISS's −5.0°/day,
 reproduced to 0.1%), sun-synchronous orbits and apsidal drift.
 
@@ -64,9 +65,85 @@ that time; a cutoff commanded during a substep splits it. The four shared launch
 now reach their targets within 0.3 km, and `tools/sharedflightcheck.gd` holds the
 highest altitude flown over the next revolution to the target ±3 km.
 
-The surface stays a sphere of the body's mean radius. The WGS-84 ellipsoid would
-put the pad and geodetic latitude right to 21 km, but the ground, clouds, sky,
-landing and planet maps all assume a sphere and would have to change together.
+### The surface
+
+Earth's surface is the WGS-84 ellipsoid (`Rocketry.FIGURES`: a = 6 378 137 m,
+f = 1/298.257 223 563, NIMA TR8350.2), scaled with the body's mean radius so an
+edited Earth keeps its shape. Every other body is a sphere of its mean radius.
+
+- `Rocketry.surface_radius(env, r)` is the centre-to-surface distance along r,
+  a·b/√(b²cos²ψ + a²sin²ψ) at geocentric latitude ψ. Altitude is |r| minus it, which
+  differs from height along the ellipsoid's normal by under a metre below 1000 km.
+  Air density, Mach, heating, winds, ground contact, gear, wheels, falls at rest,
+  splashdown, the clock's ground reference and the aerocapture predictor
+  (`Orbit.aero_pass`'s `fig`) all read it.
+- A pad's latitude is geodetic: `Rocketry.geodetic_point` puts KSC 39A
+  (28.6084° N) at geocentric 28.4469°, 6373.3 km from the centre, 2.3 km above the
+  old mean sphere. The vehicle stands along the radius, 0.16° from the ellipsoid's
+  normal there; the deflection of the vertical is not modelled.
+- Landing sites, the catch tower, the runway and the LM's gates sit on the surface
+  under them. Orbit targets stay radii over the mean sphere (`Mission.park_radius`,
+  apsis altitudes in telemetry), so a circular 300 km orbit at 51.6° reads 293–307 km
+  of altitude as it crosses the bulge, as a real one does. A built circular orbit
+  (`Vessel.place_in_orbit`) starts at its stated altitude over the ground under it.
+- The local scene draws the ground, haze, sky dome and clouds on the sphere of the
+  surface radius under the eye (`surfaceR`), and sets the launch complex on that
+  sphere. Off the parallel the ellipsoid departs from it by up to 2.8 m per km, which
+  only a complex tens of kilometres away would show. The ground map's geography is
+  laid out by geodetic latitude, as the map is.
+
+`flightphysicscheck` holds a and b, the pad's geocentric latitude and height, and a
+fall at the pole meeting the polar radius. The built Earth scenario bases were
+re-recorded from their replays ([flight scenarios](../flight-scenarios.md)).
+
+## Radiation pressure and the solar sail
+
+A stage carrying a `sail` (area, specular reflectivity ρ) feels each star's light,
+P = L/(4πd²c): on a flat sail at incidence α, F = P·A·cos α·[(1 − ρ)û + 2ρ cos α n̂],
+the absorbed part along the light û and the reflected part along the sail's normal,
+away from the lit side (`Vessel._radiation`; diffuse reflection and the sail's
+billow are not modelled). Nothing pushes inside the parent's cylindrical shadow. The
+Solar Sail is NASA's Solar Cruiser design: 1653 m² of aluminised polyimide, ρ = 0.91,
+about 100 kg, a characteristic acceleration of 0.14 mm/s² at 1 AU. Ordinary craft
+feel no radiation pressure; for them it would be ~10⁻⁸ m/s². `flightphysicscheck`
+holds the push face on, at 35°, edge on and in Earth's shadow, and a sail held to the
+Sun on a circular orbit at the reduced gravity μ(1 − β), which stays at 1 AU.
+
+## Δv accounting
+
+While thrusting, `Vessel.sample` integrates the ideal Δv ∫T/m dt and what gravity
+(∫g·v̂ dt), steering (∫T/m·(1 − cos β) dt, β between thrust and velocity) and drag
+(∫D/m dt) took from it, in the parent's inertial frame. The flight panel shows the
+three losses; for a burn in vacuum Δ|v| = ideal − gravity − steering, which
+`flightphysicscheck` holds to 0.2%.
+
+## Propellant boil-off and slosh
+
+A cryogenic stage that is not firing boils its propellant off the pad at
+ṁ = q″·A/h_fg (`Vessel.boil_off`), vented without thrust. Each tank's wetted area is
+its share of 85% of the stage's barrel by the volumes the mixture ratio and the
+densities give; latent heats are NIST's at the normal boiling point (LH₂ 445.6,
+CH₄ 510.8, LOX 213.1 kJ/kg). The heat leak q″ = 2 W/m² is an order-of-magnitude
+estimate for spray-on foam in orbit, not a measured value for any stage: no
+published vent rate for the S-IVB or Starship was found. At that rate the S-IVB
+boils 6.5 kg an hour.
+
+Slosh is a readout: the first lateral mode of the lowest tank, a cylinder of radius
+R filled to h, ω² = (ξa/R)·tanh(ξh/R) with ξ = 1.841 (Abramson, NASA SP-106), and
+the free surface's tilt under the lateral acceleration. With no settling
+acceleration the propellant is unsettled and no mode is reported. Slosh does not act
+on the attitude.
+
+## Heat-shield ablation
+
+A charring ablator (`heatShield.ablator` with `thickness`, `rho` and `qstar`)
+rejects its hot char's radiation, εσT⁴ with ε = 0.85 at 1500 K (0.24 MW/m²), and the
+rest of the stagnation flux recedes it at ṡ = q_net/(ρ·Q*) (`Vessel._ablate`). The
+recession is the stagnation point's, the deepest; the mass shed is the shield's area
+times it, an upper bound. A shield receded through its thickness is a burn-through.
+The Mars aeroshell carries MSL's 31.75 mm of PICA (ρ 265 kg/m³; Edquist et al. 2014)
+with Q* = 50 MJ/kg, an estimate for a charring ablator at ~1 MW/m². Reusable tiles
+(the orbiter, Starship) do not recede; the heat-load limits still apply to them.
 
 ## Air
 
