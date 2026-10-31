@@ -25,6 +25,17 @@ const RUNAWAY_END_K := 1600.0
 # L = 2.26 MJ/kg it takes 6.2e12 J/m² to boil.
 const OCEAN_COLUMN_LATENT := 2.7e6 * 2.26e6
 const OCEAN_STEAM_BAR := 270.0
+# Moist greenhouse: above ~340 K the cold trap lets water into the stratosphere, where
+# it is photolysed and its hydrogen escapes (Kasting 1988). The trap's mixing ratio, a
+# log-linear fit through ~3 ppm at 288 K and 3e-3 at 340 K, reaches 1 in a runaway.
+# Escape is diffusion-limited, 2.5e17·f_H m⁻²s⁻¹ (Hunten 1973), capped by the energy
+# limit ε·F_XUV/(4·GMm_H/R): ε = 0.15 and today's Sun's 4.6 mW/m² of XUV at 1 AU,
+# scaled with the bolometric flux (a young or active star's XUV excess is not modelled).
+# For Earth the cap is 1.6e15 m⁻²s⁻¹. An ocean column holds 1.8e32 hydrogen atoms/m²,
+# lost in ~4 Gyr at the moist-greenhouse limit: Kasting's ocean in the Sun's lifetime.
+const MOIST_F := 3e-3
+const OCEAN_H_PER_M2 := 2.7e6 / 0.018015 * 6.02214076e23 * 2.0
+const ESCAPE_ENERGY_CAP := 0.15 * 4.6e-3 / (4.0 * 3.986004e14 * 1.6735575e-27 / 6.371e6)
 
 const ERAS := {
 	"DEEP_FREEZE": { "key": "DEEP_FREEZE", "label": "Deep Freeze",  "cls": "era-freeze", "desc": "Oceans locked in ice. Dehydrate and wait." },
@@ -33,6 +44,7 @@ const ERAS := {
 	"HOT":         { "key": "HOT",         "label": "Chaotic — Hot", "cls": "era-hot",  "desc": "The suns are closing. Heat is rising." },
 	"SCORCH":      { "key": "SCORCH",      "label": "Scorching",    "cls": "era-scorch", "desc": "Oceans boiling off. Nothing survives unburied." },
 	"RUNAWAY":     { "key": "RUNAWAY",     "label": "Runaway greenhouse", "cls": "era-scorch", "desc": "The sky is steam and cannot shed more heat. The oceans are boiling into it." },
+	"MOIST":       { "key": "MOIST",       "label": "Moist greenhouse", "cls": "era-hot", "desc": "Water reaches the stratosphere, sunlight splits it, and the hydrogen leaks to space. The oceans are going for good." },
 }
 
 # Kopparapu et al. (2013, with its erratum), Table 3: S_eff = S☉ + aT + bT² + cT³ + dT⁴,
@@ -61,6 +73,9 @@ var storm: float = 0.0
 # Fractions of the starting ocean: on the surface, and in the air as steam.
 var ocean: float = 1.0
 var steam: float = 0.0
+# The fraction of the starting ocean whose hydrogen has escaped to space: never back.
+var lost: float = 0.0
+var escape_flux: float = 0.0    # hydrogen atoms m⁻² s⁻¹, the last step's
 var wet: bool = true
 var time: float = 0.0
 # rolling history for the graph: [simYear, S, T]
@@ -151,10 +166,21 @@ func olr(t: float) -> float:
 	if ocean + steam > 0.0 and t < RUNAWAY_END_K: e = minf(e, OLR_LIMIT)
 	return e
 
+## Water's mixing ratio at the cold trap over a surface at `t` K (see MOIST_F).
+func stratospheric_water(t: float) -> float:
+	if ocean + steam <= 0.0: return 0.0
+	if steam > 0.01: return 1.0
+	return minf(pow(10.0, -5.52 + 0.0577 * (t - 288.0)), 1.0)
+
+## Hydrogen escaping to space, atoms m⁻² s⁻¹, at insolation S (S⊕).
+func hydrogen_escape(t: float, s_earth: float) -> float:
+	return minf(2.5e17 * 2.0 * stratospheric_water(t), ESCAPE_ENERGY_CAP * s_earth)
+
 func classify(t: float) -> Dictionary:
 	if steam > 0.01: return ERAS.RUNAWAY
 	if t < 233.0: return ERAS.DEEP_FREEZE
 	if t < 273.0: return ERAS.COLD
+	if stratospheric_water(t) > MOIST_F: return ERAS.MOIST
 	if t > 345.0: return ERAS.SCORCH
 	if t > 305.0: return ERAS.HOT
 	return ERAS.STABLE
@@ -188,6 +214,14 @@ func step(dt_years: float, planet: Body, stars: Array) -> void:
 			T += net / heat_capacity * (h * YEAR_S)
 		T = maxf(T, 3.0)
 		ice = ab.ice
+		# Lost from the air first, then the sea; a world with none left dries for good.
+		escape_flux = hydrogen_escape(T, S) if ocean + steam > 0.0 else 0.0
+		var dl := minf(escape_flux * h * YEAR_S / OCEAN_H_PER_M2, ocean + steam)
+		if dl > 0.0:
+			var from_steam := minf(dl, steam)
+			steam -= from_steam; ocean -= dl - from_steam
+			ocean = maxf(ocean, 0.0)
+			lost += dl
 
 	# The latitude model on the same clock, its OLR line pinned to this model's emission at
 	# 288 K, so the two agree on a temperate world's mean.
@@ -224,7 +258,7 @@ func reset(T0: float = 288.0) -> void:
 	# Reset every derived quantity too (world.gd reads ice, the HUD era and clouds).
 	S = 1.0; ice = 0.0; clouds = 0.4; humidity = 0.5
 	ebm.reset(T0 - 273.15); ice_edge = 1.0; snowball = false
-	ocean = 1.0 if wet else 0.0; steam = 0.0
+	ocean = 1.0 if wet else 0.0; steam = 0.0; lost = 0.0; escape_flux = 0.0
 	era = ERAS.STABLE
 	per_star.clear(); _acc = 0.0
 	extremes = { "Tmin": T0, "Tmax": T0, "Smin": INF, "Smax": -INF }
