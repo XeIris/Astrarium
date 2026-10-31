@@ -94,6 +94,11 @@ to the procedural builds too.
   `orbiter_return_2x` in `tools/missioncheck.tscn`.
 - On rails, attitude is held at the last `point_at`, not frozen. Insertion burns
   and node burns light only within 20° of their direction.
+- The frame is the parent's equatorial one: its north pole is −Y
+  (`Rocketry.spin_frame`, IAU poles). Orrery positions and directions cross into it
+  through `Vessel.body_offset` / `to_local` and leave through `to_world`; never
+  subtract `b.pos − parent.pos` against `v.r` directly
+  ([orientation](../../docs/physics/flight.md#orientation)).
 - A point fixed to a rotating body moves by ω × r. With the pole on −Y, the
   small-angle form is `w = +Ω dt`. `place_on_pad` holds the one true expression;
   the pad and the landing site both derive from it.
