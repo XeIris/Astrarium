@@ -73,6 +73,49 @@ microwave background rather than assuming every hole is colder. Hot isolated hol
 can lose energy through thermal emission; evaporation is not integrated. See
 [Hawking's original calculation](https://authors.library.caltech.edu/records/2wsvj-qrt68).
 
+## Tidal disruption
+
+`Structure.disruption_radius` is the distance inside which a primary of mass M pulls
+a body of mass m and radius R apart; `check_structural_limits()` in `main.gd` acts
+on it every frame against the neighbour pulling hardest (largest M/d³).
+
+| body | radius | source |
+|---|---|---|
+| world above the 300 km "potato radius" | fluid Roche limit 2.44 R (M/m)^⅓ | Roche; [Lineweaver & Norman 2010](https://arxiv.org/abs/1004.1091) for the size at which self-gravity beats material strength |
+| smaller world | rigid 1.26 R (M/m)^⅓ | held by strength, not gravity |
+| star below 0.35 M☉ (fully convective, γ = 5/3) | r_t/0.9 | [Guillochon & Ramirez-Ruiz 2013](https://arxiv.org/abs/1206.2350): full disruption at β_d = 0.9 |
+| heavier star (centrally condensed, γ = 4/3) | r_t/1.85 | the same, β_d = 1.85 |
+| white dwarf, neutron star | r_t/0.9 | treated as γ = 5/3 polytropes |
+| black hole | never | |
+
+with r_t = R (M/m)^⅓. Contact is closer for most pairs, so the event is watched
+only where this radius lies outside contact; a preset's explicit `contactAU`
+(Trisolaris's stars) keeps its prescribed destruction distance. A pass that dips
+inside between two frames is caught when the radial velocity turns outward and the
+osculating two-body periapsis was inside.
+
+Round a planet the debris stays in orbit: the planet takes the whole mass and
+momentum, and a ring is painted out to the disruption radius. Round a star or a
+compact object, half the debris is bound and falls back
+([Rees 1988](https://doi.org/10.1038/333523a0)); the primary takes that half and
+its momentum, and the other half leaves. The primary's structure is then refreshed,
+so a neutron star that swallows enough of a star crosses the TOV mass and collapses
+through the ordinary path. Accretion is instantaneous: the fallback light curve
+(t^−5/3) is not modelled.
+
+## Supernova natal kicks
+
+`main.core_collapse` kicks the remnant with `Structure.natal_kick_kms`: a Maxwellian
+with σ = 265 km/s per axis for a neutron star (mean 420 km/s;
+[Hobbs et al. 2005](https://doi.org/10.1111/j.1365-2966.2005.09087.x)), and for a
+black hole the momentum-conserving share, scaled by 1.4 M☉/M, as population-synthesis
+codes commonly assume. A white dwarf gets none. The draw is seeded by the body's id,
+name and `seed`, so a run is reproducible; a spec's `kickKms` fixes the speed and
+keeps the drawn direction. The instantaneous mass loss already unbinds a binary
+that loses more than half its total mass ([Blaauw 1961](https://ui.adsabs.harvard.edu/abs/1961BAN....15..265B));
+the kick can unbind one that loses less, or keep together one that loses more. Both
+come out of the N-body integration rather than a rule.
+
 ## Solid planets (Seager et al. 2007)
 
 Every solid composition collapses onto one curve in scaled variables, because

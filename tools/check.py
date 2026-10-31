@@ -49,11 +49,11 @@ CHANGED_RULES = (
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
      ("invariantcheck", "nbodycheck", "numericalcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
-      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck")),
+      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck")),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
-      "sciencecheck", "savecheck", "accretion*", "_soak_check-*")),
+      "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
       "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
@@ -73,6 +73,7 @@ CHANGED_RULES = (
       "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
     (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"),
      ("padcheck", "flight-descent-shcatch*")),
+    (("render/lens_pass.gd",), ("realismcheck",)),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
@@ -243,6 +244,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield headless_scene("transitioncheck", r"^TRANSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("realismcheck", r"^REALISMCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])

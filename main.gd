@@ -635,12 +635,20 @@ func core_collapse(b: Body) -> void:
 		return
 	b.mass = float(end.mass); b.mass0 = float(end.mass)
 	b.spin_frac = minf(b.spin_frac + 0.55, 0.95)   # collapse spins it up
+	# Asymmetric ejection kicks the remnant. The mass lost unbinds a companion anyway
+	# when it exceeds half the system's (Blaauw 1961); the kick can do it with less.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([b.id, b.name, int(b.spec.get("seed", 0))])
+	var kick := Structure.natal_kick_kms(String(end.type), b.mass, rng)
+	if b.spec.has("kickKms"): kick = kick.normalized() * float(b.spec.kickKms) if kick != Vector3.ZERO else kick
+	b.vel.add_scaled_in(DVec3.new(kick.x, kick.y, kick.z), 1000.0 / Rocketry.AU_M * Rocketry.YR_S)
+	var kick_note := " — natal kick %s km/s" % U.fixed(kick.length(), 0) if kick != Vector3.ZERO else ""
 	if end.type == "neutron":
 		b.radius = Structure.neutron_radius_km(b.mass) * Physics.AU_PER_KM
 		b.teff = null
-		transmute(b, "neutron", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))], {"visualSpinRadS": 30.0})
+		transmute(b, "neutron", "%s: core collapse → %s (%s)%s" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass)), kick_note], {"visualSpinRadS": 30.0})
 	elif end.type == "bh":
-		transmute(b, "bh", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))])
+		transmute(b, "bh", "%s: core collapse → %s (%s)%s" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass)), kick_note])
 	else:
 		b.radius_sun = Structure.white_dwarf_radius_sun(b.mass)
 		b.radius = float(b.radius_sun) * Physics.AU_PER_RSUN
@@ -656,6 +664,7 @@ func recoil_camera(b: Body, blast_size: float) -> void:
 # Every mass change can cross a hard structural threshold, even a small merger.
 func check_structural_limits(b: Body) -> void:
 	if not b.alive or b.type == "bh": return
+	if _check_tidal_limit(b): return
 	if b.m_check != null and b.mass == float(b.m_check): return
 	b.m_check = b.mass
 	var st := refresh_structure(b)
@@ -678,6 +687,75 @@ func check_structural_limits(b: Body) -> void:
 	# A body that has crossed an ignition threshold is a different object.
 	if st.get("type") != b.type and st.get("reclassifiedFrom"):
 		transmute(b, st.type, "%s: %s" % [b.name, st.verdict.detail])
+
+# TIDES. The neighbour pulling hardest (largest M/d³) tears `b` apart inside
+# Structure.disruption_radius. Contact handles anything closer, so only a radius
+# outside contact is watched. A pass that dips inside it between two frames is caught
+# when the radial velocity turns outward and the osculating periapsis was inside.
+var _tidal_rv := {}
+func _check_tidal_limit(b: Body) -> bool:
+	var prim: Body = null
+	var pull := 0.0
+	for o in state.bodies:
+		if o == b or not o.alive: continue
+		var d2 := b.pos.distance_sq_to(o.pos)
+		if d2 <= 0.0: continue
+		var t: float = o.mass / (d2 * sqrt(d2))
+		if t > pull: pull = t; prim = o
+	if prim == null: return false
+	var r_d := Structure.disruption_radius(b.type, b.mass, b.radius, prim.mass)
+	var contact := (prim.rs if prim.type == "bh" else (prim.contact_au if prim.contact_au != 0.0 else prim.radius)) \
+		+ (b.contact_au if b.contact_au != 0.0 else b.radius)
+	var key := "%d:%d" % [b.id, prim.id]
+	if r_d <= contact:
+		_tidal_rv.erase(key)
+		return false
+	var rel := DVec3.new().sub_vectors(b.pos, prim.pos)
+	var vrel := DVec3.new().sub_vectors(b.vel, prim.vel)
+	var d := rel.length()
+	var rv := rel.dot(vrel)
+	var inside := d < r_d
+	if not inside and float(_tidal_rv.get(key, 0.0)) < 0.0 and rv >= 0.0:
+		var mu := Physics.G * (prim.mass + b.mass)
+		var h2 := rel.cross(vrel).length_sq()
+		var e := sqrt(maxf(1.0 + 2.0 * (0.5 * vrel.length_sq() - mu / d) * h2 / (mu * mu), 0.0))
+		inside = h2 / (mu * (1.0 + e)) < r_d
+	_tidal_rv[key] = rv
+	if inside: tidal_disrupt(b, prim, r_d)
+	return inside
+
+# A world torn apart round a planet stays in orbit as a ring, so the planet keeps its
+# mass. Round a star or a compact object, about half the debris is bound and falls back
+# while the rest is flung out (Rees 1988).
+func tidal_disrupt(b: Body, prim: Body, r_d: float) -> void:
+	var ring := prim.type in ["planet", "world", "gas-giant"]
+	var bound := 1.0 if ring else 0.5
+	var dm := b.mass * bound
+	prim.vel.scale_in(prim.mass / (prim.mass + dm))
+	prim.vel.add_scaled_in(b.vel, dm / (prim.mass + dm))
+	prim.mass += dm
+	prim.mass0 = prim.mass
+	prim.spec = U.merged(prim.spec, {"mass": prim.mass})
+	var wpos := b.scene_pos.clone()
+	var size := maxf(b.radius_scene * 18.0, 1.0)
+	recoil_camera(b, size)
+	spawn_flash(wpos, 0xffe2c0 if b.type == "star" else 0xd8c8b0, size, 0.6)
+	spawn_flash(wpos, 0xffc890, size * 0.7, 0.14, {"kind": "shell", "grow": 8.0})
+	var where := "%s's Roche limit (%s)" % [prim.name, CrossSection.fmt_length(r_d)]
+	if ring:
+		toast("%s passed inside %s and was torn apart. The debris stays in orbit as a ring." % [b.name, where], 7000)
+		var span: Dictionary = Painter.ring_span(prim.mass, prim.radius if prim.radius else 1e-6, "rock")
+		apply_paint_spec({"kind": "ring", "body": prim.name, "inner": span.inner, "outer": maxf(r_d, span.inner * 1.1),
+			"tilt": 0.0, "color": 0xb8a890, "label": "debris of %s" % b.name})
+	else:
+		toast("%s passed inside %s: a tidal disruption. About half the debris is bound and falls onto %s; the rest is flung out." % [b.name, where, prim.name], 7000)
+	if state.follow_id == b.id: set_follow(prim)
+	state.consumed += 1
+	remove_body(b.id)
+	_tidal_rv.erase("%d:%d" % [b.id, prim.id])
+	# The primary's mass moved: a neutron star fed past the TOV mass collapses.
+	Derive.refresh_structure(prim)
+	refresh_ui()
 
 # FLASH SPRITES — sim/flash.gd holds the two kinds (light vs matter).
 func spawn_flash(world_pos: DVec3, color: int, size: float, decay: float = 0.8, opt: Dictionary = {}) -> void:
@@ -1350,7 +1428,7 @@ func update_hud(dt: float) -> void:
 		"label": cl.era.label, "cls": cl.era.cls, "desc": cl.era.desc,
 		"celsius": cl.celsius, "S": cl.S, "ice": cl.ice, "clouds": cl.clouds,
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
-		"history": cl.history,
+		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam,
 	})
 
 func toast(msg: String, ms: int = 2200) -> void:

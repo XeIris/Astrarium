@@ -7,14 +7,24 @@ extends RefCounted
 #   α(T)  albedo rising as the planet freezes: the ice-albedo runaway
 #   ε     effective emissivity (the greenhouse); 0.61 puts Earth at 288 K
 #   C     ocean mixed-layer heat capacity, the thermal flywheel
-# Stable and Chaotic Eras come out of the orbit; a bad enough era sterilises the
-# world. `per_star` rows, `era` and `extremes` are Dictionaries; `history` rows are
-# [simYear, S, T].
+# A wet world's outgoing longwave cannot exceed the runaway-greenhouse limit; above it
+# the ocean boils into a steam atmosphere along its saturation curve
+# (docs/physics/climate.md). Stable and Chaotic Eras come out of the orbit; a bad
+# enough era sterilises the world. `per_star` rows, `era` and `extremes` are
+# Dictionaries; `history` rows are [simYear, S, T].
 
 const S0 := 1361.0             # solar constant, W/m²
 const SIGMA := 5.670374e-8     # Stefan–Boltzmann, W m⁻² K⁻⁴
 const YEAR_S := Rocketry.YR_S  # seconds per orrery year
 const RHO_CW := 1000.0 * 4181.0 # sea water ρ·c_p, J m⁻³ K⁻¹
+# Runaway greenhouse: a saturated steam atmosphere emits at most ~282 W/m² from
+# ~300 K to ~1600 K surface temperature (Goldblatt et al. 2013).
+const OLR_LIMIT := 282.0
+const RUNAWAY_END_K := 1600.0
+# Earth's ocean: 1.4e21 kg over 5.1e14 m² is 2.7e6 kg/m², 270 bar as steam; with
+# L = 2.26 MJ/kg it takes 6.2e12 J/m² to boil.
+const OCEAN_COLUMN_LATENT := 2.7e6 * 2.26e6
+const OCEAN_STEAM_BAR := 270.0
 
 const ERAS := {
 	"DEEP_FREEZE": { "key": "DEEP_FREEZE", "label": "Deep Freeze",  "cls": "era-freeze", "desc": "Oceans locked in ice. Dehydrate and wait." },
@@ -22,6 +32,17 @@ const ERAS := {
 	"STABLE":      { "key": "STABLE",      "label": "Stable Era",   "cls": "era-stable", "desc": "Temperate. Civilisation may rebuild." },
 	"HOT":         { "key": "HOT",         "label": "Chaotic — Hot", "cls": "era-hot",  "desc": "The suns are closing. Heat is rising." },
 	"SCORCH":      { "key": "SCORCH",      "label": "Scorching",    "cls": "era-scorch", "desc": "Oceans boiling off. Nothing survives unburied." },
+	"RUNAWAY":     { "key": "RUNAWAY",     "label": "Runaway greenhouse", "cls": "era-scorch", "desc": "The sky is steam and cannot shed more heat. The oceans are boiling into it." },
+}
+
+# Kopparapu et al. (2013, with its erratum), Table 3: S_eff = S☉ + aT + bT² + cT³ + dT⁴,
+# T = Teff − 5780 K, valid for 2600–7200 K.
+const HZ := {
+	"recentVenus": [1.7753, 1.4316e-4, 2.9875e-9, -7.5702e-12, -1.1635e-15],
+	"runaway":     [1.0512, 1.3242e-4, 1.5418e-8, -7.9895e-12, -1.8328e-15],
+	"moist":       [1.0140, 8.1774e-5, 1.7063e-9, -4.3241e-12, -6.6462e-16],
+	"maximum":     [0.3438, 5.8942e-5, 1.6558e-9, -3.0045e-12, -5.2983e-16],
+	"earlyMars":   [0.3179, 5.4513e-5, 1.5313e-9, -2.7786e-12, -4.8997e-16],
 }
 
 var mixed_layer: float          # metres of ocean
@@ -37,6 +58,10 @@ var clouds: float = 0.4         # 0..1 cloud cover
 var humidity: float = 0.5
 # null until the first step() writes it.
 var storm: float = 0.0
+# Fractions of the starting ocean: on the surface, and in the air as steam.
+var ocean: float = 1.0
+var steam: float = 0.0
+var wet: bool = true
 var time: float = 0.0
 # rolling history for the graph: [simYear, S, T]
 var history: Array = []
@@ -52,6 +77,8 @@ func _init(opts: Dictionary = {}) -> void:
 	albedo_base = float(U.nz(opts.get("albedoBase"), 0.22))
 	albedo_ice = float(U.nz(opts.get("albedoIce"), 0.45))
 	T = float(U.nz(opts.get("T0"), 288.0))
+	wet = bool(opts.get("oceans", true))
+	if not wet: ocean = 0.0
 	# Seed S extremes from the empty interval, or a fictitious 1.00 S⊕ is reported as
 	# observed.
 	extremes = { "Tmin": T, "Tmax": T, "Smin": INF, "Smax": -INF }
@@ -85,7 +112,8 @@ func insolation(planet: Body, stars: Array) -> float:
 		var flux: float = s.activity.bolometric if s.activity != null else 1.0
 		var contrib := L * flux / (d * d)
 		s_tot += contrib
-		per_star.append({ "name": s.name, "S": contrib, "dist": d, "mass": s.mass })
+		per_star.append({ "name": s.name, "S": contrib, "dist": d, "mass": s.mass,
+			"teff": float(U.nz(s.teff, Stellar.effective_temp(s.mass))) })
 	for p in per_star:
 		p.frac = p.S / s_tot if s_tot > 0.0 else 0.0
 	# sort_custom is not stable, so ties keep insertion order through the index.
@@ -94,7 +122,31 @@ func insolation(planet: Body, stars: Array) -> float:
 	for p in per_star: p.erase("_i")
 	return s_tot
 
+## Effective flux S/S⊕ at a habitable-zone limit (`HZ` key) for a star of `teff`.
+static func hz_flux(limit: String, teff: float) -> float:
+	var c: Array = HZ[limit]
+	var t := clampf(teff, 2600.0, 7200.0) - 5780.0
+	return float(c[0]) + t * (float(c[1]) + t * (float(c[2]) + t * (float(c[3]) + t * float(c[4]))))
+
+## The conservative habitable zone, runaway to maximum greenhouse, in S⊕ for the
+## star delivering most of the flux (Kopparapu's limits are for one star).
+func habitable_zone() -> Dictionary:
+	var teff := float(per_star[0].teff) if not per_star.is_empty() else 5780.0
+	return { "inner": hz_flux("runaway", teff), "outer": hz_flux("maximum", teff), "teff": teff }
+
+## Boiling point (K) under the steam a fraction `st` of the ocean makes, by
+## Clausius–Clapeyron with L = 40.7 kJ/mol: 373 K at 1 bar, 651 K at 270 bar.
+static func boiling_point(st: float) -> float:
+	return 1.0 / (1.0 / 373.15 - 8.314 / 40700.0 * log(1.0 + OCEAN_STEAM_BAR * maxf(st, 0.0)))
+
+## Outgoing longwave, W/m².
+func olr(t: float) -> float:
+	var e := greenhouse * SIGMA * pow(t, 4.0)
+	if ocean + steam > 0.0 and t < RUNAWAY_END_K: e = minf(e, OLR_LIMIT)
+	return e
+
 func classify(t: float) -> Dictionary:
+	if steam > 0.01: return ERAS.RUNAWAY
 	if t < 233.0: return ERAS.DEEP_FREEZE
 	if t < 273.0: return ERAS.COLD
 	if t > 345.0: return ERAS.SCORCH
@@ -114,14 +166,26 @@ func step(dt_years: float, planet: Body, stars: Array) -> void:
 	for i in n:
 		var ab := albedo(T)
 		var absorbed := (1.0 - float(ab.alb)) * S * S0 / 4.0
-		var emitted := greenhouse * SIGMA * pow(T, 4.0)
-		T += (absorbed - emitted) / heat_capacity * (h * YEAR_S)
+		var net := absorbed - olr(T)
+		var boil := boiling_point(steam)
+		# At the boiling point the flux goes into latent heat, which outweighs the mixed
+		# layer's sensible heat by 10⁵ K: the ocean boils, or the steam rains out.
+		if net > 0.0 and ocean > 0.0 and T >= boil:
+			var dm := minf(net * h * YEAR_S / OCEAN_COLUMN_LATENT, ocean)
+			ocean -= dm; steam += dm
+			T = boiling_point(steam)
+		elif net < 0.0 and steam > 0.0 and T <= boil:
+			var dm := minf(-net * h * YEAR_S / OCEAN_COLUMN_LATENT, steam)
+			steam -= dm; ocean += dm
+			T = boiling_point(steam)
+		else:
+			T += net / heat_capacity * (h * YEAR_S)
 		T = maxf(T, 3.0)
 		ice = ab.ice
 
 	# Humidity → cloud → weather: saturation vapour pressure roughly doubles every 10 K.
 	var cc := pow(2.0, (T - 288.0) / 10.0)
-	humidity = minf(1.0, cc * (1.0 - ice) * 0.5)
+	humidity = minf(1.0, cc * (1.0 - ice) * 0.5) if ocean + steam > 0.0 else 0.0
 	clouds = minf(0.95, 0.12 + humidity * 0.75)
 	# storminess scales with how hard the insolation is changing plus raw heat
 	storm = minf(1.0, humidity * 0.8 + maxf(0.0, (T - 300.0) / 60.0))
@@ -144,6 +208,7 @@ func reset(T0: float = 288.0) -> void:
 	T = T0; time = 0.0; history.clear()
 	# Reset every derived quantity too (world.gd reads ice, the HUD era and clouds).
 	S = 1.0; ice = 0.0; clouds = 0.4; humidity = 0.5
+	ocean = 1.0 if wet else 0.0; steam = 0.0
 	era = ERAS.STABLE
 	per_star.clear(); _acc = 0.0
 	extremes = { "Tmin": T0, "Tmax": T0, "Smin": INF, "Smax": -INF }

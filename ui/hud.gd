@@ -1012,7 +1012,7 @@ func _build_control_panel() -> void:
 		item.add_child(sw)
 		L(item, kk[1], {"fs": 9.0, "c": T.TEXT_DIM})
 	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 12.0)
-	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["ice", "cIce"], ["cloud", "cCloud"], ["τ response", "cTau"], ["range", "cExtremes"]]:
+	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["habitable zone", "cHZ"], ["ice", "cIce"], ["cloud", "cCloud"], ["ocean", "cOcean"], ["τ response", "cTau"], ["range", "cExtremes"]]:
 		_stat(sg, kv[0], kv[1])
 	_row(s, "mixed", "Ocean depth", "Depth of the ocean mixed layer — the planet's thermal flywheel. Shallow oceans let the temperature whip around with the orbit; deep ones damp it.",
 		2, 120, 12, 1, "12 m", "", func(v): return U.fixed(v, 0) + " m")
@@ -1725,6 +1725,13 @@ func update_climate(cl: Dictionary) -> void:
 	set_text("cFlux", "%s S⊕" % U.fixed(cl.S, 2))
 	set_text("cIce", "%s %%" % U.fixed(cl.ice * 100.0, 0))
 	set_text("cCloud", "%s %%" % U.fixed(cl.clouds * 100.0, 0))
+	var hz: Dictionary = cl.get("hz", {})
+	if not hz.is_empty():
+		var S: float = cl.S
+		set_text("cHZ", "%s–%s S⊕ · %s" % [U.fixed(hz.outer, 2), U.fixed(hz.inner, 2),
+			"inside" if S >= hz.outer and S <= hz.inner else ("too hot" if S > hz.inner else "too cold")])
+	set_text("cOcean", "%s %% · %s %% steam" % [U.fixed(float(cl.get("ocean", 1.0)) * 100.0, 0), U.fixed(float(cl.get("steam", 0.0)) * 100.0, 0)]
+		if float(cl.get("steam", 0.0)) > 0.0 else "%s %%" % U.fixed(float(cl.get("ocean", 1.0)) * 100.0, 0))
 	set_text("cTau", "%s yr" % U.fixed(cl.tauYears, 2))
 	set_text("cExtremes", "%s … %s °C" % [U.fixed(cl.Tmin - 273.15, 0), U.fixed(cl.Tmax - 273.15, 0)])
 	(ids.climateChart as ClimateChart).set_history(cl.get("history", []))

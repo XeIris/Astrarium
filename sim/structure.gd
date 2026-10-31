@@ -48,6 +48,8 @@ const LIMITS := {
 	# Core-collapse thresholds (initial mass, solar metallicity). Above the pair
 	# window, the star goes straight to a black hole.
 	"neutronStarMin": 8.0, "blackHoleMin": 20.0,
+	# Fully convective below ~0.35 M☉ (Chabrier & Baraffe 1997).
+	"fullyConvective": 0.35,
 }
 
 # Metal-poor gas needs slightly more mass to ignite.
@@ -804,6 +806,35 @@ static func end_state_of(mass: float, Z: float = 0.014) -> Dictionary:
 	if mass >= float(LIMITS.blackHoleMin): return { "type": "bh", "label": "Black hole", "mass": 0.3 * pow(mass, 0.85) }
 	if mass >= float(LIMITS.neutronStarMin): return { "type": "neutron", "label": "Neutron star", "mass": 1.2 + 0.06 * (mass - 8.0) }
 	return { "type": "white-dwarf", "label": "White dwarf", "mass": white_dwarf_final_mass(mass) }
+
+## A newborn neutron star's kick, km/s: a Maxwellian with σ = 265 km/s per axis
+## (Hobbs et al. 2005, from pulsar proper motions; mean 420 km/s). A black hole gets
+## the momentum-conserving share, scaled by 1.4 M☉/M, as population-synthesis codes
+## commonly assume; a white dwarf none. `rng` makes the draw reproducible.
+const NATAL_KICK_SIGMA_KMS := 265.0
+static func natal_kick_kms(remnant_type: String, remnant_mass: float, rng: RandomNumberGenerator) -> Vector3:
+	if remnant_type != "neutron" and remnant_type != "bh": return Vector3.ZERO
+	var v := Vector3(rng.randfn(0.0, 1.0), rng.randfn(0.0, 1.0), rng.randfn(0.0, 1.0)) * NATAL_KICK_SIGMA_KMS
+	return v if remnant_type == "neutron" else v * minf(1.4 / maxf(remnant_mass, 1.4), 1.0)
+
+## Distance (AU) inside which a primary of `primary_mass` pulls apart a body of this
+## type, mass and radius; 0 when nothing can (a black hole). docs/physics/structure.md#tidal-disruption
+##   world held by its own gravity: the fluid Roche limit 2.44 R (M/m)^⅓
+##   smaller than the 300 km "potato radius" (Lineweaver & Norman 2010): rigid, 1.26
+##   star or compact object: r_t/β_d, r_t = R (M/m)^⅓, with full disruption at
+##   β_d = 0.9 for γ = 5/3 and 1.85 for γ = 4/3 (Guillochon & Ramirez-Ruiz 2013)
+const POTATO_RADIUS_KM := 300.0
+static func disruption_radius(type: String, mass: float, radius_au: float, primary_mass: float) -> float:
+	if type == "bh" or not (mass > 0.0) or not (radius_au > 0.0) or not (primary_mass > 0.0): return 0.0
+	var tidal := radius_au * U.cbrt(primary_mass / mass)
+	match type:
+		"star":
+			# Fully convective dwarfs are n = 1.5 polytropes; heavier stars are centrally
+			# condensed, near n = 3.
+			return tidal / (0.9 if mass < LIMITS.fullyConvective else 1.85)
+		"white-dwarf", "neutron":
+			return tidal / 0.9
+	return tidal * (2.44 if radius_au / Physics.AU_PER_KM >= POTATO_RADIUS_KM else 1.26)
 
 ## Initial–final mass relation, Cummings et al. (2018), MIST-based three-piece fit.
 static func white_dwarf_final_mass(mass: float) -> float:
