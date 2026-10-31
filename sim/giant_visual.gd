@@ -255,6 +255,7 @@ class GiantViz extends RefCounted:
 			var mats := [mat, limb_mat]
 			if ring_mat != null: mats.append(ring_mat)
 			Suns.apply_suns(mats, suns, group.position)
+			Suns.apply_occluders([mat], b, ctx.bodies, suns)
 			# Effective temperature: what it absorbs plus what it makes.
 			var S: float = Suns.insolation_at(b, ctx.suns) if not ctx.suns.is_empty() else float(suns[0].intensity)
 			var Teq := 278.6 * pow(maxf(S, 1e-9) * (1.0 - albedo), 0.25)

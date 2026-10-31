@@ -182,6 +182,14 @@ equipotential of Φ = −GM/r − ½Ω²r²sin²θ, i.e. 1/x + (4/27)ω²x²sin�
 x = R(θ)/R_pole. At break-up R_eq/R_pole = 3/2 for any star (Achernar, 1.35, is
 near it), so Ω_crit = √(8GM/27R_pole³), 0.544 of the naive value.
 
+Limb darkening is quadratic per sRGB primary, I(μ)/I(1) = 1 − a(1 − μ) − b(1 − μ)²
+(`Stellar.limb_darkening`). The coefficients come from Eddington–Barbier on a grey
+atmosphere, I_λ(μ) ≈ B_λ(T(τ = μ)) with T⁴ = ¾T_eff⁴(τ + ⅔), fitted at 650, 550 and
+440 nm. Blue darkens more than red and cool stars more than hot ones. The Sun's
+limb comes out at 0.39, 0.33 and 0.25 of its centre in R, V and B. These are not
+Claret's (2000) model-atmosphere tables, which were not available offline. A grey
+atmosphere also overdarkens M dwarfs, whose molecular opacity is far from grey.
+
 Gravity darkening (von Zeipel 1924): T_eff ∝ g_eff^β, β = ¼ radiative and ≈ 0.08
 convective (Lucy 1967, below ~7000 K). β is reduced at high spin, after Espinosa
 Lara & Rieutord (2011). Vega: pole ~10 070 K, equator ~8 910 K. The mean T is

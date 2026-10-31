@@ -4,10 +4,9 @@ shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_always, cull_disabled;
 
 #include "res://shaders/common/temp_pass.gdshaderinc"
+#include "res://shaders/common/spacetime_well.gdshaderinc"
 
 uniform float time = 0.0;
-uniform vec4 wells[16];
-uniform int wellCount = 0;
 uniform float grid_step = 1.0;
 uniform vec2 viewport_size = vec2(1600.0, 1000.0);
 
@@ -17,14 +16,7 @@ varying vec2 vPos;
 void vertex() {
 	vec3 p = VERTEX;
 	vPos = p.xz;
-	float dip = 0.0;
-	for (int i = 0; i < 16; i++) {
-		if (i >= wellCount) break;
-		float d = distance(p.xz, wells[i].xy);
-		float s = wells[i].z;
-		if (wells[i].w > 0.5) dip += s * 2.4 / (0.5 + d * 0.14);
-		else dip += s * 0.8 / (d + 0.5);
-	}
+	float dip = well_dip(p.xz);
 	p.y -= dip;
 	vDepth = dip;
 	VERTEX = p;

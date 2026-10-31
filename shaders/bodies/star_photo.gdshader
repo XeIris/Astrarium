@@ -8,7 +8,9 @@ uniform float uTime = 0.0;
 uniform vec3 uColor = vec3(1.0);   // unused
 uniform vec3 uHot = vec3(1.0);
 uniform float uPulse = 1.0;
-uniform float uLimbU = 0.6;
+// Quadratic limb darkening per primary (Stellar.limb_darkening).
+uniform vec3 uLimbA = vec3(0.45, 0.52, 0.60);
+uniform vec3 uLimbB = vec3(0.17, 0.16, 0.15);
 // physical Teff, published to the spectral imaging pass (the temperature pass)
 uniform float uTeff = 5772.0;
 uniform float uOmega = 1.0;
@@ -219,8 +221,9 @@ void fragment() {
 	base += uHot * pow(max(nB - 0.60, 0.0), 2.0) * 5.5 * uGain * gFlux;
 	base += flareGlow * uGain;
 
-	// --- limb darkening: I(mu)/I(0) = 1 - u(1 - mu), mu = cos(view angle)
-	base *= (1.0 - uLimbU * (1.0 - mu));
+	// --- limb darkening: I(μ)/I(1) = 1 − a(1 − μ) − b(1 − μ)², μ = cos(view angle)
+	float x = 1.0 - mu;
+	base *= max(vec3(1.0) - uLimbA * x - uLimbB * x * x, vec3(0.0));
 
 	// --- chromosphere: H-alpha reddening right at the limb
 	float rim = pow(1.0 - mu, 3.0);

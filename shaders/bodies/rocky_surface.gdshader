@@ -173,7 +173,7 @@ void fragment() {
 		float ndl = dot(N, L);
 		// A star is a disc, not a point, so the terminator has a width.
 		float diff = sstep(-0.08, 0.22, ndl);
-		vec3 sc = uSunColor[i] * uSunInt[i];
+		vec3 sc = uSunColor[i] * uSunInt[i] * eclipse(i, N);
 		lit += albedo * sc * diff * uGain;
 		// specular — sun glint off water and off ice, and off nothing else
 		vec3 H = normalize(L + V);

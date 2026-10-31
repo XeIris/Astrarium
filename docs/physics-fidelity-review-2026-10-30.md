@@ -15,6 +15,32 @@ consequence and a fix. Severity:
 
 The calculations were reproduced in Python from the constants in the code.
 
+## Status (2026-10-31)
+
+Fixed by the stacked branches: `fix/physics-fidelity-batch1` (P1-1 to P1-3),
+`fix/physics-fidelity-batch2-4` (P1-5 to P1-8, S1, S2, S4 to S8, S10, S12, S13,
+V2), `fix/physics-fidelity-obliquity` (P1-4), `fix/physics-integrator-1pn`
+(section 5: Yoshida-4 and EIH 1PN; S3, S9, S11, S14) and
+`fix/physics-fidelity-remaining` (the rest, below). F7 needs only a source note.
+
+| item | status |
+|---|---|
+| S15 | Done. `Structure.neutron_cooling`: modified-Urca and photon cooling with an iron envelope, a crust that relaxes in ~30 yr, and `ageYr` in the spec ([structure.md](physics/structure.md#neutron-star-cooling)). |
+| F1 | J2–J4 for Earth, Mars and the Moon in gravity, the potential and the rails kicks. ISS regression −5.02°/day. Telemetry uses a J2-averaged μ. **Not done:** the WGS-84 surface (ground, clouds, sky, landing and maps all assume a sphere), lunar mascons and C22. Ascent targeting is still two-body, so final orbits miss by up to ~6 km ([flight.md](physics/flight.md#the-parents-figure)). |
+| F2 | Done. CO₂ k = 1.9027e-4 landed earlier; Tauber–Sutton radiative heating added for air and CO₂ (Venus held at the 9 km/s end of the CO₂ table). |
+| F3 | Done. RK4 stages and rails kicks interpolate body offsets (cubic Hermite), and mass follows the first stage's flow. |
+| F4 | **Mechanism only.** A stage's `cdTable` replaces the generic curve; no sourced per-vehicle table is included yet. |
+| F5 | **Model, off by default.** A zonal climatology with trades, westerlies and a jet (Settings › Sim). The orbiter's glide and rollout laws treat airspeed as ground speed and miss the runway with it on. |
+| F6 | Done. A porkchop of Lambert arcs prices and times interplanetary windows, and the departure leg aims along its v∞. |
+| V1 | Done for Earth: single scattering with Bruneton's Rayleigh, Mie and ozone coefficients, sun-path transmittance and planet shadow. Multiple scattering is not computed. Other bodies keep the tinted column. |
+| V3 | Quadratic, per band and Teff-dependent, from Eddington–Barbier on a grey atmosphere, **not Claret's tables** (unavailable offline). |
+| V4 | Done. Analytic umbra and penumbra on rocky, cloud and giant surfaces at true scale; a red umbra for thick atmospheres, brightened ×100 for display. The star's limb darkening inside the penumbra is ignored. |
+| V5 | Done. Mallama & Hilton (2018) magnitudes for the planets, Lambert spheres for other reflectors, on the sky's flux scale. |
+| V6 | `solar` puts the Milky Way on the real J2000 galactic frame. The BSC5 renderer (`BrightStars`) and `tools/build_starcat.py` are in place, and the procedural sky yields its four brightest tiers when catalogue data is present. **The catalogue data is not committed**: run the script to fetch and build it. Gaia fill is not used. |
+| V7 | **Label only.** The inspector says "Schwarzschild geodesics — spin not rendered"; Kerr geodesics and Novikov–Thorne flux are not implemented. |
+| V8 | Done. Flamm's paraboloid to 40 r_s for holes and depth ∝ Φ elsewhere, labelled in Settings › Render. |
+| V9 | Done. Optional first-order light-time (Rømer) delay for drawn positions (Settings › Sim). |
+
 ---
 
 ## 1. Verified defects

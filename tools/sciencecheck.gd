@@ -246,6 +246,32 @@ func _init() -> void:
 	check("a young crust is hotter than the core; a relaxed one is isothermal", young.crustT > young.coreT * 1.5 and absf(old.crustT / old.coreT - 1.0) < 1e-6)
 	var ns_layers: Array = Structure.structure_of({"type": "neutron", "mass": 1.4, "ageYr": 1e4}).layers
 	check("a relaxed neutron star's crust is no hotter than its core", float(ns_layers[2].T) <= float(ns_layers[0].T) and float(ns_layers[4].T) < float(ns_layers[3].T))
+	# Apparent magnitudes (Mallama & Hilton 2018): Jupiter at opposition near −2.7,
+	# Mars at a perihelic opposition near −2.9; a Sun at 10 pc is V = 4.83.
+	var mk := func(name: String, type: String, pos: Array, rad_km: float = 6000.0) -> Body:
+		var bb := Body.new(); bb.name = name; bb.type = type; bb.alive = true; bb.luminosity = 1.0
+		bb.radius = rad_km * Physics.AU_PER_KM; bb.pos = DVec3.new(pos[0], pos[1], pos[2])
+		return bb
+	var sun_b: Body = mk.call("Sun", "star", [0.0, 0.0, 0.0])
+	var v_jup := Marker.apparent_magnitude(mk.call("Jupiter", "gas-giant", [5.2, 0.0, 0.0]), DVec3.new(1.0, 0.0, 0.0), sun_b)
+	check("Jupiter at opposition is V ≈ −2.7 (%.2f)" % v_jup, absf(v_jup + 2.7) < 0.1)
+	var v_mars := Marker.apparent_magnitude(mk.call("Mars", "planet", [1.381, 0.0, 0.0]), DVec3.new(0.9833, 0.0, 0.0), sun_b)
+	check("Mars at a perihelic opposition is V ≈ −2.9 (%.2f)" % v_mars, absf(v_mars + 2.9) < 0.2)
+	var far_sun: Body = mk.call("Twin", "star", [10.0 * Marker.AU_PER_PC, 0.0, 0.0])
+	check("a Sun at 10 pc is V = 4.83", absf(Marker.apparent_magnitude(far_sun, DVec3.new(), null) - 4.83) < 1e-9)
+	var crescent := Marker.apparent_magnitude(mk.call("Rock", "planet", [1.0, 0.0, 0.0]), DVec3.new(1.0, 0.0, 0.01), sun_b)
+	var gibbous := Marker.apparent_magnitude(mk.call("Rock", "planet", [1.0, 0.0, 0.0]), DVec3.new(0.99, 0.0, 0.0), sun_b)
+	check("a reflector is brighter full than as a crescent", gibbous < crescent)
+	# Limb darkening: blue darkens more than red, cool stars more than hot ones.
+	var ld_sun := Stellar.limb_darkening(5772.0)
+	var ld_hot := Stellar.limb_darkening(15000.0)
+	var limb_of := func(ld: Array, c: int) -> float: return 1.0 - float((ld[0] as Vector3)[c]) - float((ld[1] as Vector3)[c])
+	check("the Sun's limb is darker in blue than red (%.2f, %.2f)" % [limb_of.call(ld_sun, 2), limb_of.call(ld_sun, 0)], limb_of.call(ld_sun, 2) < limb_of.call(ld_sun, 0) - 0.05)
+	check("the Sun's V-band limb is 0.25–0.4 of its centre", limb_of.call(ld_sun, 1) > 0.25 and limb_of.call(ld_sun, 1) < 0.4)
+	check("a hot star's limb is brighter than the Sun's", limb_of.call(ld_hot, 1) > limb_of.call(ld_sun, 1) + 0.15)
+	# The north galactic pole sits at ecliptic latitude +29.8° (north is −Y).
+	var gal := SkyModel.galactic_frame_j2000()
+	check("the J2000 galactic pole is 29.8° above the ecliptic", absf(-(gal[0] as Vector3).y - sin(deg_to_rad(29.81))) < 2e-3 and absf((gal[0] as Vector3).dot(gal[1])) < 1e-6)
 	# Peters–Mathews power on a circle is the circular quadrupole formula.
 	var gw_a := Body.new(); var gw_b := Body.new()
 	for gw in [gw_a, gw_b]:

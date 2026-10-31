@@ -243,7 +243,7 @@ void fragment() {
 				}
 			}
 		}
-		lit += col * uSunColor[i] * uSunInt[i] * diff * minn * sh;
+		lit += col * uSunColor[i] * uSunInt[i] * diff * minn * sh * eclipse(i, N);
 	}
 	// Starlight only: the night side must stay as black as the sky it hides.
 	lit += col * vec3(0.0015, 0.0017, 0.0022);

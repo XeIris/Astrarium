@@ -26,6 +26,7 @@ var cam_near := 0.01
 var cam := OrreryCamera.new(cam_pos)
 
 var spacetime_mesh = null         # SpacetimeMesh
+var bright_stars: BrightStars = null
 var painter = null                # Painter
 var observer = null               # SurfaceObserver
 var sky_pass = null               # SkyPass
@@ -773,8 +774,12 @@ func _advance_flight_world(coordinate_seconds: float) -> float:
 
 # commit scene positions + trails after the sub-steps
 func _commit_positions(push: bool) -> void:
+	var k := state.scene_scale
+	var obs: DVec3 = cam_pos.scaled(1.0 / k) if Scale.light_time and k > 0.0 else null
 	for b in state.bodies:
-		b.scene_pos.set_v(b.pos.x * state.scene_scale, b.pos.y * state.scene_scale, b.pos.z * state.scene_scale)
+		# Light time t − d/c to first order: the body less its velocity times the delay.
+		var tau: float = b.pos.distance_to(obs) / Physics.C if obs != null else 0.0
+		b.scene_pos.set_v((b.pos.x - b.vel.x * tau) * k, (b.pos.y - b.vel.y * tau) * k, (b.pos.z - b.vel.z * tau) * k)
 		if push: push_trail(b)
 
 func handle_merger(ev: Dictionary) -> void:
@@ -1463,6 +1468,15 @@ func preset_sky(spec = {}) -> Dictionary:
 
 func apply_sky() -> void:
 	SkyModel.apply_sky_environment(pipe.sky_materials, state.sky)
+	# A scene on the real galactic frame gets the real naked-eye stars, if built.
+	var catalogue: bool = state.sky.get("galactic") == "j2000" and BrightStars.available()
+	if catalogue and bright_stars == null:
+		bright_stars = BrightStars.new()
+		pipe.world_root.add_child(bright_stars.node)
+	elif not catalogue and bright_stars != null:
+		bright_stars.dispose()
+		bright_stars = null
+	SkyModel._set_all(pipe.sky_materials, "uFirstTier", SkyModel.CATALOGUE_TIERS if catalogue else 0)
 
 ## Replace the live sky wholesale and put the controls where it says.
 func set_sky(spec: Dictionary) -> void:
@@ -1996,10 +2010,11 @@ func _on_slider(id: String, v: float) -> void:
 		"gwBoost":
 			state.gw_boost = v
 			hud.set_text("gwBoost-val", ("%s×" % U.fixed(v, 2)) if v else "off")
+		# A hand-placed plane replaces a scene's real (J2000) galactic frame.
 		"skyTilt":
-			state.sky = U.merged(state.sky, {"tilt": v}); apply_sky(); sync_sky_controls(true)
+			state.sky = U.merged(state.sky, {"tilt": v, "galactic": null}); apply_sky(); sync_sky_controls(true)
 		"skyRoll":
-			state.sky = U.merged(state.sky, {"roll": v}); apply_sky(); sync_sky_controls(true)
+			state.sky = U.merged(state.sky, {"roll": v, "galactic": null}); apply_sky(); sync_sky_controls(true)
 		"mvExplode":
 			model_view.set_explode(v)
 		_:
@@ -2676,11 +2691,15 @@ func animate(dt: float) -> void:
 
 	# ---- point-source markers. Not in surface view: the sky pass draws the suns
 	# itself, with real angular radii and atmospheric scattering.
+	var lamp: Body = state.suns[0].body if not state.suns.is_empty() else null
 	for b in state.bodies:
 		if b.marker == null or not drawn: continue
 		if state.cam_mode == "surface":
 			b.marker.mesh.visible = false
 			continue
+		# The observer in AU: the camera's offset from the body, unscaled.
+		var obs: DVec3 = b.pos.add(cam_pos.sub(b.scene_pos).scaled(1.0 / state.scene_scale))
+		b.marker.magnitude = Marker.apparent_magnitude(b, obs, lamp)
 		# (b.size_k) — during an edit the mesh is mid-glide, so the marker has to
 		# hand over at the size actually being drawn or it pops.
 		b.marker.update(pipe.scene_cam, b.scene_pos.rel_v3(cam_pos),
@@ -2731,6 +2750,12 @@ func animate(dt: float) -> void:
 
 	# The footprint reference tracks the current fov (it recovers magnification).
 	SkyModel.update_pix_angle(pipe.sky_materials, deg_to_rad(cam_fov), float(pipe.render_size.y))
+	if bright_stars != null:
+		# Visible light only: the catalogue holds V magnitudes, not other bands.
+		var vis := SkyModel._band == Spectrum.VISIBLE_BAND
+		bright_stars.node.visible = drawn and vis
+		bright_stars.update(deg_to_rad(cam_fov), Vector2(pipe.render_size), SkyModel.star_gain())
+		SkyModel._set_all(pipe.sky_materials, "uFirstTier", SkyModel.CATALOGUE_TIERS if vis else 0)
 
 	# ---- surface view: the sky composite runs over the scene, the home world is
 	# hidden (we are standing on it) and so is the spacetime slab

@@ -1061,6 +1061,8 @@ static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) ->
 		"type": "bh", "kind": "bh", "mass": mass,
 		"label": ("Kerr black hole (a* = %s)" % U.fixed(a, 2)) if a > 0.1 else "Schwarzschild black hole",
 		"radiusAU": r_plus, "rs": rs_au, "spin": a,
+		# The lens marcher is Schwarzschild for every hole (docs/physics/lensing.md).
+		"lensNote": "Schwarzschild geodesics — spin not rendered" if a > 0.1 else "Schwarzschild geodesics",
 		"horizonAU": r_plus, "photonSphereAU": (2.0 * M * (1.0 + cos((2.0 / 3.0) * acos(-a)))) if a > 0.01 else 1.5 * rs_au,
 		"shadowAU": sqrt(27.0) * M,   # the Schwarzschild shadow; spin flattens and shifts it
 		"iscoAU": r_isco, "ergoAU": 2.0 * M if a > 0.01 else rs_au,

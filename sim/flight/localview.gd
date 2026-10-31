@@ -433,6 +433,7 @@ func update(o: Dictionary) -> Dictionary:
 		# Optical thickness scaled off the body's surface density, so Mars gets
 		# its thin butterscotch sky and Venus a wall of it, from one number.
 		sky_mat.set_shader_parameter("uThick", clampf(float(atm.rho0) * 0.9, 0.02, 6.0))
+		sky_mat.set_shader_parameter("uPhysical", 1.0 if atm.get("scatter") == "earth" else 0.0)
 		ground_mat.set_shader_parameter("uDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
 	sky_mat.set_shader_parameter("uEye", h)
 	sky_mat.set_shader_parameter("uRadius", float(env.radius))

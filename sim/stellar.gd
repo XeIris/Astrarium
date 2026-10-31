@@ -54,6 +54,34 @@ const BB_LUT := [
 const BB_T0 := 800.0
 const BB_T1 := 42000.0
 
+## Quadratic limb-darkening coefficients per sRGB primary (650, 550, 440 nm), for
+## I(μ)/I(1) = 1 − a(1 − μ) − b(1 − μ)². Eddington–Barbier on a grey atmosphere,
+## I_λ(μ) ≈ B_λ(T(τ = μ)) with T⁴ = ¾Teff⁴(τ + ⅔), fitted by least squares over μ, so
+## blue darkens more than red and cool stars more than hot ones. The Sun comes out
+## at I(0)/I(1) = 0.39, 0.33, 0.25 in R, V, B. Returns [a: Vector3, b: Vector3].
+static func limb_darkening(teff: float) -> Array:
+	var lams := [650e-9, 550e-9, 440e-9]
+	var a := Vector3.ZERO
+	var b := Vector3.ZERO
+	for c in 3:
+		var k := 6.62607015e-34 * 299792458.0 / (float(lams[c]) * 1.380649e-23)
+		var planck := func(tau: float) -> float:
+			var T := teff * pow(0.75 * (tau + 2.0 / 3.0), 0.25)
+			return 1.0 / (exp(k / T) - 1.0)
+		var i1: float = planck.call(1.0)
+		# Normal equations for y = a·x + b·x², x = 1 − μ, y = 1 − I/I(1).
+		var sxx := 0.0; var sx3 := 0.0; var sx4 := 0.0; var sxy := 0.0; var sx2y := 0.0
+		for n in 21:
+			var mu := float(n) / 20.0
+			var x := 1.0 - mu
+			var y := 1.0 - float(planck.call(mu)) / i1
+			sxx += x * x; sx3 += x * x * x; sx4 += x * x * x * x
+			sxy += x * y; sx2y += x * x * y
+		var det := sxx * sx4 - sx3 * sx3
+		a[c] = (sxy * sx4 - sx2y * sx3) / det
+		b[c] = (sx2y * sxx - sxy * sx3) / det
+	return [a, b]
+
 ## Linear sRGB of a blackbody at `kelvin`, brightest channel 1.
 static func blackbody_color(kelvin: float) -> Color:
 	var u := log(clampf(kelvin, BB_T0, BB_T1) / BB_T0) / log(BB_T1 / BB_T0) * float(BB_LUT.size() - 1)

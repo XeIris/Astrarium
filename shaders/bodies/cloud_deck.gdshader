@@ -102,7 +102,7 @@ void fragment() {
 	for (int i = 0; i < 4; i++) {
 		if (i >= uSunCount) break;
 		float diff = sstep(-0.12, 0.28, dot(N, normalize(uSunDir[i])));
-		lit += uSunColor[i] * uSunInt[i] * diff;
+		lit += uSunColor[i] * uSunInt[i] * diff * eclipse(i, N);
 	}
 	// Night-side cloud is lit only by moon and airglow; a trace keeps the limb readable.
 	lit += vec3(0.012, 0.018, 0.030);

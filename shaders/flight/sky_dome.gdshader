@@ -1,6 +1,11 @@
-// THE SKY DOME: a spherical atmosphere seen from inside a 3000 km sphere. Column
-// density through the shell (column()), saturating so the horizon goes pale; Rayleigh
-// plus a forward Mie lobe; sunrise reddening. From orbit it is the limb.
+// THE SKY DOME: a spherical atmosphere seen from inside a 3000 km sphere. From orbit
+// it is the limb. An atmosphere with measured scattering coefficients (uPhysical:
+// Earth) is single-scattered: Rayleigh λ⁻⁴, Mie and ozone absorption, each sample lit
+// through its own sun path and dark in the planet's shadow, so sunsets redden, the
+// Chappuis band keeps the twilight zenith blue, and the Earth shadow and Belt of Venus
+// appear (Bruneton 2017 coefficients; docs/physics/sky.md#flight-sky). Multiple
+// scattering is a calibrated gain, not computed. Other bodies use the older grey
+// column with a tint.
 //
 // Depth-tested, no depth write, back faces, transparent (blend_mix). Transparent
 // objects draw after all opaque ones, so it must depth-test, or it draws over the
@@ -20,6 +25,16 @@ uniform float uScaleH = 8500.0;
 uniform float uHasAir = 1.0;
 uniform float uThick = 1.05;
 uniform float uRadius = 6.371e6;    // the planet, m
+uniform float uPhysical = 0.0;
+// Sea-level coefficients, m⁻¹, for the R, G, B primaries (680, 550, 440 nm).
+uniform vec3 uBetaR = vec3(5.802e-6, 13.558e-6, 33.1e-6);
+uniform float uBetaM = 3.996e-6;
+uniform float uBetaMExt = 4.44e-6;  // Mie extinction; the albedo is 0.9
+uniform vec3 uBetaO = vec3(0.650e-6, 1.881e-6, 0.085e-6);
+uniform float uHR = 8000.0;
+uniform float uHM = 1200.0;
+uniform float uMieG = 0.8;
+uniform float uGain = 15.0;         // matches the pad's noon zenith to the old calibration
 varying vec3 vDir;
 
 // Column density from the eye, in sea-level scale heights, ∫ exp(−z/H) ds / H through
@@ -66,6 +81,73 @@ float column(vec3 d) {
 }
 
 
+// Rayleigh, Mie and ozone densities (relative to sea level) at height z.
+vec3 dens(float z) {
+	float zz = max(z, 0.0);
+	return vec3(exp(-zz / uHR), exp(-zz / uHM), max(1.0 - abs(zz - 25000.0) / 15000.0, 0.0));
+}
+
+// Optical depth (per channel) from p toward the sun; a huge value in the shadow.
+vec3 sun_depth(vec3 p, vec3 s) {
+	float R = uRadius;
+	float b = dot(p, s);
+	float c = dot(p, p) - R * R;
+	if (b < 0.0 && b * b - c > 0.0) return vec3(1e4);
+	float top = R + 12.0 * uHR;
+	float t1 = -b + sqrt(max(b * b - (dot(p, p) - top * top), 0.0));
+	vec3 acc = vec3(0.0);
+	float prev = 0.0;
+	for (int i = 1; i <= 6; i++) {
+		float u = float(i) / 6.0;
+		float f = u * u;
+		vec3 dn = dens(length(p + s * t1 * 0.5 * (f + prev)) - R) * t1 * (f - prev);
+		prev = f;
+		acc += dn;
+	}
+	return uBetaR * acc.x + vec3(uBetaMExt) * acc.y + uBetaO * acc.z;
+}
+
+vec4 physical_sky(vec3 d, vec3 s) {
+	float R = uRadius;
+	float top = R + 12.0 * uHR;
+	float h = uEye;
+	vec3 o = vec3(0.0, R + h, 0.0);
+	float b = dot(o, d);
+	float cT = dot(o, o) - top * top;
+	float dT = b * b - cT;
+	if (dT <= 0.0) return vec4(0.0);
+	float t0 = max(-b - sqrt(dT), 0.0);
+	float t1 = -b + sqrt(dT);
+	if (t1 <= t0) return vec4(0.0);
+	float dG = b * b - (dot(o, o) - R * R);
+	if (dG > 0.0) {
+		float tg = -b - sqrt(dG);
+		if (tg > 0.0) t1 = min(t1, tg);
+	}
+	float mu = dot(d, s);
+	float pr = 3.0 / (16.0 * PI) * (1.0 + mu * mu);
+	float g = uMieG;
+	float pm = (1.0 - g * g) / (4.0 * PI * pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5));
+	vec3 tau_v = vec3(0.0);
+	vec3 L = vec3(0.0);
+	float span = t1 - t0;
+	float prev = 0.0;
+	for (int i = 1; i <= 16; i++) {
+		float u = float(i) / 16.0;
+		float f = u * u;
+		float tm = t0 + span * 0.5 * (f + prev);
+		float ds = span * (f - prev);
+		prev = f;
+		vec3 p = o + d * tm;
+		vec3 dn = dens(length(p) - R);
+		vec3 step_tau = (uBetaR * dn.x + vec3(uBetaMExt) * dn.y + uBetaO * dn.z) * ds;
+		vec3 tr = exp(-(tau_v + 0.5 * step_tau) - sun_depth(p, s));
+		L += tr * (uBetaR * dn.x * pr + vec3(uBetaM) * dn.y * pm) * ds;
+		tau_v += step_tau;
+	}
+	return vec4(L * uGain, 1.0 - exp(-dot(tau_v, vec3(0.333))));
+}
+
 void vertex() {
 	vDir = VERTEX;
 }
@@ -73,6 +155,15 @@ void vertex() {
 void fragment() {
 	if (uHasAir < 0.5) discard;
 	vec3 d = normalize(vDir);
+	if (uPhysical > 0.5) {
+		vec4 ps = physical_sky(d, normalize(uSunDir));
+		// Coverage follows radiance (a sky brighter than ~0.15 hides the stars), but the
+		// light itself adds: blend_mix multiplies ALBEDO by ALPHA, so divide it back out
+		// and a faint twilight still glows over the stars it barely dims.
+		float a = clamp(max(ps.r, max(ps.g, ps.b)) * 6.0, 0.02, 1.0);
+		ALBEDO = ps.rgb / a;
+		ALPHA = a;
+	} else {
 	// Saturating column depth (uThick is the zenith depth from sea level; the 0.917
 	// keeps the pad sky calibrated).
 	float tau = uThick * 0.917 * column(d);
@@ -99,4 +190,5 @@ void fragment() {
 	// white on the tone curve's shoulder.
 	ALBEDO = col * 0.85;
 	ALPHA = a;
+	}
 }

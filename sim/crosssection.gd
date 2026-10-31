@@ -199,6 +199,7 @@ static func structure_facts(st: Dictionary) -> Array:
 			add.call("photon sphere", fmt_length(st.get("photonSphereAU")))
 			add.call("ISCO", fmt_length(st.get("iscoAU")))
 			if g.call("spin") > 0.01: add.call("spin a*", U.fixed(g.call("spin"), 3))
+			add.call("lens drawn", st.get("lensNote"))
 			add.call("Hawking T", "%s K" % U.expo(g.call("hawkingK"), 2))
 			add.call("evaporates in", "10%s yr" % sup(int(U.jround(U.log10(g.call("evaporationYr"))))))
 	return F
