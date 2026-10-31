@@ -36,7 +36,7 @@ DESCENTS = ("lm", "f9booster", "f9booster_light", "f9booster_heavy", "skycrane",
 # missioncheck's cases in its own order, with headless undrawn seconds on an M-series
 # Mac (only for launch order).
 MISSIONS = {"launch_orbit": 40, "lunar_orbit": 55, "lunar_landing": 28, "skip_moon": 4,
-            "ship_return": 45, "orbiter_return": 60, "orbiter_return_2x": 45, "orbiter_home": 110, "shuttle_fates": 90}
+            "ship_return": 45, "orbiter_return": 60, "orbiter_return_2x": 45, "orbiter_home": 300, "shuttle_fates": 90}
 # The frames of shuttle_fates flown both undrawn and drawn by the parity check: liftoff
 # from the pad and booster separation; at the end both boosters are falling on their
 # own past apogee, so their state is in the digest.

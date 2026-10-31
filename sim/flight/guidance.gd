@@ -1247,6 +1247,11 @@ class Autopilot extends RefCounted:
 	var _site_now := DVec3.new()
 	var _deorbit_at := -1.0             # coordinate time of the planned deorbit burn, s; <0 unplanned
 	var _deorbit_xr := 0.0              # its predicted crossrange, m
+	var _dz_r := DVec3.new()              # the zonal arc at entry interface
+	var _dz_v := DVec3.new()
+	var _dz_b := DVec3.new()              # the velocity at the burn
+	var _deorbit_dv := 0.0                # the zonal arc's Δv, m/s (negative: retrograde)
+	var _dv_trim := 0.0                 # the zonal arc's Δv less the conic's, m/s
 	var _pr := DVec3.new()
 	var _pv := DVec3.new()
 	var _pn := DVec3.new()
@@ -1370,24 +1375,36 @@ class Autopilot extends RefCounted:
 	## site: x the downrange miss (rad, + while the site lies beyond), y the crossrange
 	## (rad, + to the left). The post-burn conic is propagated to entry interface, and the
 	## modelled entry range added from there. Null if the burn misses the air.
-	## `dv_out` receives the burn's Δv vector.
-	func _deorbit_miss(t_b: float, dv_out: DVec3 = null):
+	## `dv_out` receives the burn's Δv vector. `precise` flies both coasts under the
+	## zonal terms (_deorbit_zonal): at a −0.8° entry, J2 moves entry interface by up to
+	## ±90 s and 600 km of range against the conic.
+	func _deorbit_miss(t_b: float, dv_out: DVec3 = null, precise := false):
 		var mu: float = v.env.mu
 		var Re: float = v.env.radius
 		var top: float = Re + ENTRY_INTERFACE
+		var zonal = v.env.get("zonal") if precise else null
 		var rb := _pr
 		var vb := _pv
-		if not Orbit.propagate(v.r, v.v, mu, t_b, rb, vb): return null
+		if zonal != null: Orbit.zonal_coast(v.r, v.v, mu, zonal, t_b, rb, vb)
+		elif not Orbit.propagate(v.r, v.v, mu, t_b, rb, vb): return null
 		# The same burn the program flies: retrograde, perigee to half the atmosphere's height.
 		var R := rb.length()
 		var a_new := (R + Re + float(v.env.atm.top) * 0.5) / 2.0
 		var speed := vb.length()
 		var dv := sqrt(maxf(mu * (2.0 / R - 1.0 / a_new), 0.0)) - speed
-		if dv_out != null: dv_out.copy_from(vb).scale_in(dv / speed)
-		vb.scale_in(1.0 + dv / speed)
-		var t_ei := Orbit.time_to_radius_descending(Orbit.elements(rb, vb, mu), mu, top)
-		if not is_finite(t_ei): return null
-		if not Orbit.propagate(rb, vb, mu, t_ei, rb, vb): return null
+		_dz_b.copy_from(vb)
+		var t_ei := 0.0
+		if zonal != null:
+			t_ei = _deorbit_zonal(rb, vb, dv, zonal, top)
+			if not is_finite(t_ei): return null
+			dv = _deorbit_dv
+			rb.copy_from(_dz_r); vb.copy_from(_dz_v)
+		else:
+			vb.scale_in(1.0 + dv / speed)
+			t_ei = Orbit.time_to_radius_descending(Orbit.elements(rb, vb, mu), mu, top)
+			if not is_finite(t_ei): return null
+			if not Orbit.propagate(rb, vb, mu, t_ei, rb, vb): return null
+		if dv_out != null: dv_out.copy_from(_dz_b).scale_in(dv / speed)
 		# Crossrange against the orbit's plane, which the flight stays near, and the site
 		# where the planet has carried it by touchdown.
 		var n := DQuat.nrm(_pn.cross_vectors(rb, vb))
@@ -1404,16 +1421,51 @@ class Autopilot extends RefCounted:
 		var phi := atan2(site.dot(fwd), site.dot(up))
 		return Vector2(wrapf(phi - theta, -PI, PI), xr)
 
+	## The arc from a burn at (rb, vb) under the zonal terms, with the retrograde Δv
+	## trimmed from the conic's `dv0` until the flight-path angle at entry interface is
+	## the conic's, at which THIN_RANGE was measured. Leaves the Δv in _deorbit_dv and the
+	## state at entry interface in _dz_r, _dz_v; returns the time to it, s, or INF.
+	func _deorbit_zonal(rb: DVec3, vb: DVec3, dv0: float, zonal, top: float) -> float:
+		var mu: float = v.env.mu
+		var speed := vb.length()
+		# The conic's angle at `top`, from h = r v cos γ.
+		_dz_v.copy_from(vb).scale_in(1.0 + dv0 / speed)
+		var h := _dz_r.cross_vectors(rb, _dz_v).length()
+		var v_top := sqrt(maxf(mu * (2.0 / top - 2.0 / rb.length()) + _dz_v.length_sq(), 0.0))
+		var g_ref := -acos(clampf(h / (top * maxf(v_top, 1.0)), -1.0, 1.0))
+		var dv := dv0 + _dv_trim
+		var t := INF
+		var dv_prev := 0.0
+		var err_prev := NAN
+		for i in 8:
+			_dz_v.copy_from(vb).scale_in(1.0 + dv / speed)
+			t = Orbit.zonal_coast(rb, _dz_v, mu, zonal, 6000.0, _dz_r, _dz_v, top)
+			if not is_finite(t): return INF
+			var err := asin(clampf(_dz_r.dot(_dz_v) / (_dz_r.length() * _dz_v.length()), -1.0, 1.0)) - g_ref
+			if absf(err) < 1e-5: break
+			# A slower burn enters steeper; secant from a 0.5 m/s probe.
+			var next := dv - 0.5 * signf(err)
+			if not is_nan(err_prev) and err != err_prev:
+				next = dv - err * (dv - dv_prev) / (err - err_prev)
+			dv_prev = dv
+			err_prev = err
+			dv = clampf(next, dv0 - 20.0, dv0 + 20.0)
+		_deorbit_dv = dv
+		_dv_trim = dv - dv0
+		return t
+
 	## The burn time, s from now, in (lo, hi) at which the downrange miss falls through
-	## zero, by bisection; -1 if it doesn't there.
-	func _deorbit_root(lo: float, hi: float) -> float:
-		var m_lo = _deorbit_miss(lo)
-		var m_hi = _deorbit_miss(hi)
+	## zero, by bisection; -1 if it doesn't there. `precise` flies the arc under the zonal
+	## terms, to 0.01 s.
+	func _deorbit_root(lo: float, hi: float, precise := false) -> float:
+		var m_lo = _deorbit_miss(lo, null, precise)
+		var m_hi = _deorbit_miss(hi, null, precise)
 		if m_lo == null or m_hi == null or m_lo.x <= 0.0 or m_hi.x > 0.0 or m_lo.x - m_hi.x > PI / 2.0:
 			return -1.0
 		for i in 40:
+			if precise and hi - lo < 0.01: break
 			var mid := 0.5 * (lo + hi)
-			var m = _deorbit_miss(mid)
+			var m = _deorbit_miss(mid, null, precise)
 			if m == null: return -1.0
 			if m.x > 0.0: lo = mid
 			else: hi = mid
@@ -1502,10 +1554,10 @@ class Autopilot extends RefCounted:
 				if site != null:
 					# Committed: re-solved from the state as it is now, which fixes the burn's
 					# direction where it will be flown.
-					var tb := _deorbit_root(maxf(to_go - 120.0, 30.0), to_go + 120.0)
+					var tb := _deorbit_root(maxf(to_go - 300.0, 30.0), to_go + 300.0, true)
 					if tb > 0.0: _deorbit_at = v.coord + tb
 					var dvv := DVec3.new()
-					if _deorbit_miss(_deorbit_at - v.coord, dvv) != null:
+					if _deorbit_miss(_deorbit_at - v.coord, dvv, true) != null:
 						node = { "dv": dvv, "t": _deorbit_at - v.coord, "label": "Deorbit burn" }
 					else:
 						_deorbit_at = -1.0       # plan again next cycle
