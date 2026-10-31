@@ -83,7 +83,7 @@ CHANGED_RULES = (
       "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
     (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"),
      ("padcheck", "flight-descent-shcatch*")),
-    (("render/lens_pass.gd",), ("realismcheck",)),
+    (("render/lens_pass.gd", "sim/brightstars.gd", "assets/sky/*", "tools/build_gaia.py"), ("realismcheck",)),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",

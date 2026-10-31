@@ -1634,7 +1634,7 @@ func apply_sky() -> void:
 	elif not catalogue and bright_stars != null:
 		bright_stars.dispose()
 		bright_stars = null
-	SkyModel._set_all(pipe.sky_materials, "uFirstTier", SkyModel.CATALOGUE_TIERS if catalogue else 0)
+	SkyModel._set_all(pipe.sky_materials, "uFirstTier", BrightStars.catalogue_tiers() if catalogue else 0)
 
 ## Replace the live sky wholesale and put the controls where it says.
 func set_sky(spec: Dictionary) -> void:

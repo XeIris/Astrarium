@@ -326,6 +326,26 @@ func hovering_blueshift() -> void:
 	check("on a Kerr hole's axis f = 2r/(r² + a²)", absf(ga - 1.0 / sqrt(1.0 - 20.0 / (100.0 + 0.81))) < 1e-6)
 	check("far from the hole the shift vanishes", absf(LensPass.grav_shift([{"pos": Vector3(1e6, 0.0, 0.0), "rs": 2.0}]) - 1.0) < 1e-5)
 
+# BSC5 and Gaia DR3 together: about 41 000–45 000 stars brighter than V = 8 over the
+# whole sky (Allen's Astrophysical Quantities), every one with a finite colour, and the
+# procedural sky handing all six of its tiers to them.
+func star_catalogues() -> void:
+	var counts := [0, 0]
+	var colour_ok := true
+	for i in 2:
+		var f := FileAccess.open([BrightStars.DATA, BrightStars.DATA_FAINT][i], FileAccess.READ)
+		if f == null: continue
+		while f.get_position() + 16 <= f.get_length():
+			f.get_float(); f.get_float()
+			var v := f.get_float()
+			var bv := f.get_float()
+			if v < 8.0: counts[i] += 1
+			if i == 1 and not (is_finite(bv) and bv > -0.5 and bv < 2.5): colour_ok = false
+	var total: int = counts[0] + counts[1]
+	check("BSC5 + Gaia DR3: %d stars brighter than V = 8 (%d from Gaia)" % [total, counts[1]], total > 38000 and total < 48000 and counts[1] > 25000)
+	check("every Gaia star has a colour", colour_ok)
+	check("the catalogues replace all six procedural tiers", BrightStars.catalogue_tiers() == 6)
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -342,6 +362,7 @@ func _ready() -> void:
 	climate()
 	ice_lines()
 	hovering_blueshift()
+	star_catalogues()
 	presets_survive_loading()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)

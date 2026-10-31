@@ -41,7 +41,7 @@ source note.
 | V3 | Done. Quadratic per band, interpolated in Teff from Claret's (2000) tables (VizieR J/A+A/363/1081; ATLAS from 3500 K, PHOENIX refitted below), log g 4.5 and solar metallicity only ([structure.md](physics/structure.md)). |
 | V4 | Done. Analytic umbra and penumbra on rocky, cloud and giant surfaces at true scale; a red umbra for thick atmospheres, brightened ×100 for display. The star's limb darkening inside the penumbra is ignored. |
 | V5 | Done. Mallama & Hilton (2018) magnitudes for the planets, Lambert spheres for other reflectors, on the sky's flux scale. |
-| V6 | Done for V < 6.5. `solar` draws the 9096 stars of the Yale Bright Star Catalogue (BSC5, `assets/sky/bsc5.bin`, built by `tools/build_starcat.py`) on the real J2000 galactic frame, and the procedural sky fills in below V ≈ 6. The catalogue is visible-band only, and neither lensed nor aberrated. **Not done:** Gaia DR3 stars fainter than BSC5. The download (one archive query for 6.5 < G ≤ 8, ~2 MB) is waiting for approval; until then the procedural fill stands in. |
+| V6 | Done. `solar` draws the 9096 stars of the Yale Bright Star Catalogue (BSC5, `assets/sky/bsc5.bin`, `tools/build_starcat.py`) and 49 956 Gaia DR3 stars from G = 6.5 to 8 (`assets/sky/gaia_g8.bin`, `tools/build_gaia.py`; ESA/Gaia/DPAC, CC BY-SA 3.0 IGO) on the real J2000 galactic frame: 41 700 stars brighter than V = 8, as the whole sky has. The procedural stars give way to them entirely; the procedural Milky Way's unresolved light stays. The catalogues are visible-band only, neither lensed nor aberrated, and Gaia's 2016 positions are not moved back to J2000 ([sky.md](physics/sky.md#catalogue-stars)). |
 | V7 | Done. The marcher integrates Kerr null geodesics in Kerr–Schild Cartesian form (Hamilton's equations, so E, L and Carter's Q are conserved), with a static-observer camera; the disc's inner edge is the Kerr ISCO and its temperature follows the Page–Thorne flux, with the redshift from the ray's conserved E and L. `lenscheck` matches Bardeen's shadow edges within 1 px at a* = 0.9 and 0.998, equatorial and pole-on. The inspector now reads "Kerr geodesics, Page–Thorne disc". Two holes still superpose illustratively ([lensing.md](physics/lensing.md)). |
 | V8 | Done. Flamm's paraboloid to 40 r_s for holes and depth ∝ Φ elsewhere, labelled in Settings › Render. |
 | V9 | Done. Optional first-order light-time (Rømer) delay for drawn positions (Settings › Sim). |
@@ -264,8 +264,7 @@ each with its check named:
 F1's C22 and mascons are done with #18's frames merged in (degree 16 costs 153
 terms per evaluation), and the WGS-84 surface with every consumer and the Earth
 scenario bases in `fix/physics-fidelity-close`. Cloud-albedo feedback stays declined
-and the Falcon 9 ascent Cd unsourced (F4); Gaia stars wait on a download approval
-(V6).
+and the Falcon 9 ascent Cd unsourced (F4).
 
 ---
 
