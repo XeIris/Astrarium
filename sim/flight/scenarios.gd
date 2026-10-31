@@ -187,7 +187,7 @@ static func _orbiter(program = null) -> Dictionary:
 ## there, at 1×), with the OMS propellant the deorbit burn left. Each also names the
 ## replay that checks it (`replay`).
 const ORBITER_AIR := {
-	80e3: {"airspeed": 7568.3, "fpa": -0.981, "mass": 107383.5, "ap": {"_bank_sign": 1.0, "_drag_f": 0.761},
+	80e3: {"airspeed": 7586.0, "fpa": -0.976, "mass": 107605.3, "ap": {"_bank_sign": 1.0, "_drag_f": 0.796},
 		"state": {"alt_below": 80e3}},
 	24.4e3: {"airspeed": 759.6, "fpa": -6.358, "mass": 107361.5, "speedbrake": 0.457, "state": {"state": "taem"}},
 	3990.0: {"airspeed": 193.3, "fpa": -19.82, "mass": 107361.5, "speedbrake": 0.748, "ap": {"_sb_trim": 0.6746},
