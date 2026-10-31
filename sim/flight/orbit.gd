@@ -212,6 +212,79 @@ static func time_to_periapsis_any(el: Dictionary, mu: float) -> float:
 	var M: float = el.e * sinh(F) - F
 	return -M / n if M < 0.0 else INF
 
+## A porkchop: Lambert arcs about `mu` from a departure body on (r_dep, v_dep) to an
+## arrival body on (r_arr, v_arr), both given at t = 0 and propagated as conics about
+## their own μ sums. Departures at `t_deps`, flight times `tofs` (s); `cost(v∞_dep,
+## v∞_arr)` ranks the cells. Arcs within ~2° of 180° have no defined plane and are
+## skipped. Returns {best: {t_dep, tof, v_inf_dep, v_inf_arr, v_dep, cost} or {},
+## grid: [[cost or INF per tof] per departure]}.
+static func porkchop(r_dep: DVec3, v_dep: DVec3, mu_dep: float, r_arr: DVec3, v_arr: DVec3, mu_arr: float,
+		mu: float, t_deps: Array, tofs: Array, cost: Callable) -> Dictionary:
+	var grid: Array = []
+	var best := {}
+	var best_cost := INF
+	var rd := DVec3.new(); var vd := DVec3.new()
+	var ra := DVec3.new(); var va := DVec3.new()
+	var a1 := DVec3.new(); var a2 := DVec3.new()
+	var nrm := DVec3.new()
+	for td in t_deps:
+		var row := PackedFloat64Array()
+		row.resize(tofs.size())
+		row.fill(INF)
+		if propagate(r_dep, v_dep, mu_dep, float(td), rd, vd):
+			nrm.cross_vectors(rd, vd)
+			for j in tofs.size():
+				var tof := float(tofs[j])
+				if not propagate(r_arr, v_arr, mu_arr, float(td) + tof, ra, va): continue
+				if rd.dot(ra) / (rd.length() * ra.length()) < -0.9994: continue
+				if not lambert(rd, ra, tof, mu, nrm, a1, a2): continue
+				var vi_d := a1.clone().sub_in(vd)
+				var vi_a := a2.clone().sub_in(va).length()
+				var c: float = cost.call(vi_d.length(), vi_a)
+				row[j] = c
+				if c < best_cost:
+					best_cost = c
+					best = {"t_dep": float(td), "tof": tof, "v_inf_dep": vi_d.length(), "v_inf_arr": vi_a,
+						"v_dep": vi_d, "cost": c}
+		grid.append(row)
+	return {"best": best, "grid": grid}
+
+static var _zr := DVec3.new()
+static var _za := DVec3.new()
+
+## The lowest and highest radius flown, m, over `span` s from (r, v) about `mu` with the
+## zonal terms `zonal` (a Rocketry.ZONAL entry), by RK4 at `h` s. With `to_peak` it
+## stops once a rising radius starts to fall: the coming apoapsis. [lo, hi]. Conic elements
+## miss J2's short-period terms, several km in low orbit.
+static func zonal_extremes(r: DVec3, v: DVec3, mu: float, zonal, span: float, to_peak := false, h := 5.0) -> PackedFloat64Array:
+	var s := PackedFloat64Array([r.x, r.y, r.z, v.x, v.y, v.z])
+	var k := PackedFloat64Array(); k.resize(24)
+	var tmp := PackedFloat64Array(); tmp.resize(6)
+	var lo := r.length()
+	var hi := lo
+	var prev := lo
+	var rising := false
+	var n := int(ceil(span / h))
+	for step in n:
+		for stage in 4:
+			var f := 0.0 if stage == 0 else (0.5 if stage < 3 else 1.0)
+			for i in 6: tmp[i] = s[i] + (k[(stage - 1) * 6 + i] * h * f if stage > 0 else 0.0)
+			_zr.set_v(tmp[0], tmp[1], tmp[2])
+			var r2 := _zr.length_sq()
+			var g := -mu / (r2 * sqrt(r2))
+			_za.set_v(tmp[0] * g, tmp[1] * g, tmp[2] * g)
+			Rocketry.zonal_accel(zonal, mu, _zr, _za)
+			var o := stage * 6
+			k[o] = tmp[3]; k[o + 1] = tmp[4]; k[o + 2] = tmp[5]
+			k[o + 3] = _za.x; k[o + 4] = _za.y; k[o + 5] = _za.z
+		for i in 6: s[i] += h / 6.0 * (k[i] + 2.0 * k[6 + i] + 2.0 * k[12 + i] + k[18 + i])
+		var rr := sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2])
+		if to_peak and rising and rr < prev: break
+		rising = rising or rr > prev
+		prev = rr
+		lo = minf(lo, rr); hi = maxf(hi, rr)
+	return PackedFloat64Array([lo, hi])
+
 static var _l1 := DVec3.new()
 
 ## Lambert's problem, one revolution: the velocities at r1 and r2 of the conic about
@@ -252,3 +325,50 @@ static func lambert(r1: DVec3, r2: DVec3, dt: float, mu: float, normal: DVec3, v
 	v1_out.set_v((r2.x - f * r1.x) / g, (r2.y - f * r1.y) / g, (r2.z - f * r1.z) / g)
 	v2_out.set_v((gd * r2.x - r1.x) / g, (gd * r2.y - r1.y) / g, (gd * r2.z - r1.z) / g)
 	return is_finite(v1_out.x) and is_finite(v2_out.x)
+
+## One pass through an atmosphere for a body of ballistic coefficient `bc` = m/(C_D·A)
+## (kg/m²), flown heat shield first: two-body gravity and drag through air turning at
+## `rot` rad/s about −Y, the parent's zonal field if given (its J2 moves a periapsis
+## kilometres over an approach), RK4 at 0.5 s in the air and longer outside it. From (r, v) until
+## it climbs back out above the air (or hits the ground, or `t_max` s). Returns
+## {r, v, crashed, peak_heat (W/m², at nose radius `rn`), peak_g}.
+static func aero_pass(r: DVec3, v: DVec3, mu: float, R: float, atm, rot: float, bc: float, rn: float, zonal = null, t_max := 7200.0) -> Dictionary:
+	var top: float = float(atm.get("exo", atm.top))
+	var x := r.clone(); var u := v.clone()
+	var t := 0.0
+	var peak_q := 0.0; var peak_g := 0.0
+	var entered := false
+	var f := func(p: DVec3, w: DVec3) -> DVec3:
+		var d2 := p.length_sq()
+		var a := p.scaled(-mu / (d2 * sqrt(d2)))
+		Rocketry.zonal_accel(zonal, mu, p, a)
+		var h := sqrt(d2) - R
+		if h < top:
+			var rho := Rocketry.density(atm, h)
+			if rho > 0.0:
+				var air := w.clone().sub_in(DVec3.new(0.0, -rot, 0.0).cross(p))
+				a.add_scaled_in(air, -0.5 * rho * air.length() / bc)
+		return a
+	while t < t_max:
+		var h := x.length() - R
+		if h <= 0.0: return {"r": x, "v": u, "crashed": true, "peak_heat": peak_q, "peak_g": peak_g}
+		if h < top: entered = true
+		elif entered and x.dot(u) > 0.0: break
+		var dt := 0.5 if h < top * 1.05 else clampf((h - top) / maxf(u.length(), 1.0) * 0.2, 0.5, 60.0)
+		var k1v: DVec3 = f.call(x, u); var k1x := u.clone()
+		var k2v: DVec3 = f.call(x.clone().add_scaled_in(k1x, 0.5 * dt), u.clone().add_scaled_in(k1v, 0.5 * dt))
+		var k2x := u.clone().add_scaled_in(k1v, 0.5 * dt)
+		var k3v: DVec3 = f.call(x.clone().add_scaled_in(k2x, 0.5 * dt), u.clone().add_scaled_in(k2v, 0.5 * dt))
+		var k3x := u.clone().add_scaled_in(k2v, 0.5 * dt)
+		var k4v: DVec3 = f.call(x.clone().add_scaled_in(k3x, dt), u.clone().add_scaled_in(k3v, dt))
+		var k4x := u.clone().add_scaled_in(k3v, dt)
+		x.add_scaled_in(k1x, dt / 6.0).add_scaled_in(k2x, dt / 3.0).add_scaled_in(k3x, dt / 3.0).add_scaled_in(k4x, dt / 6.0)
+		u.add_scaled_in(k1v, dt / 6.0).add_scaled_in(k2v, dt / 3.0).add_scaled_in(k3v, dt / 3.0).add_scaled_in(k4v, dt / 6.0)
+		t += dt
+		var hh := x.length() - R
+		if hh < top:
+			var rho := Rocketry.density(atm, hh)
+			var air := u.clone().sub_in(DVec3.new(0.0, -rot, 0.0).cross(x))
+			peak_q = maxf(peak_q, Rocketry.heat_flux(rho, air.length(), rn, atm))
+			peak_g = maxf(peak_g, 0.5 * rho * air.length_sq() / bc / Rocketry.G0)
+	return {"r": x, "v": u, "crashed": false, "peak_heat": peak_q, "peak_g": peak_g}

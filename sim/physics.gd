@@ -27,6 +27,47 @@ static func merger_spin(eta: float) -> float:
 static func merger_kick_kms(eta: float) -> float:
 	return 1.2e4 * eta * eta * sqrt(maxf(1.0 - 4.0 * eta, 0.0)) * (1.0 - 0.93 * eta)
 
+## Page & Thorne (1974) disc flux at r (units of M) round a prograde Kerr hole of spin
+## a ≥ 0, in units of 3Ṁ/(8πM²); zero inside the ISCO and → r⁻³ far out. `t` is
+## page_thorne_terms(a). See docs/physics/lensing.md#modelled.
+static func page_thorne_flux(r: float, t: Dictionary) -> float:
+	var x := sqrt(r)
+	var x0: float = t.x0
+	if x <= x0: return 0.0
+	var a: float = t.a
+	var s := x - x0 - 1.5 * a * log(x / x0)
+	for i in 3:
+		s -= float(t.c[i]) * log((x - float(t.roots[i])) / (x0 - float(t.roots[i])))
+	return s / (pow(x, 4.0) * (x * x * x - 3.0 * x + 2.0 * a))
+
+## The roots of x³ − 3x + 2a and their log coefficients, the ISCO and the flux peak.
+static func page_thorne_terms(a: float) -> Dictionary:
+	a = clampf(a, 0.0, 0.998)
+	var ac := acos(a)
+	var roots := [2.0 * cos((ac - PI) / 3.0), 2.0 * cos((ac + PI) / 3.0), -2.0 * cos(ac / 3.0)]
+	var c := []
+	for i in 3:
+		var xi: float = roots[i]
+		var xj: float = roots[(i + 1) % 3]
+		var xk: float = roots[(i + 2) % 3]
+		# (xᵢ − a)²/xᵢ → 0 as a → 0 at the root xᵢ → 2a/3.
+		c.append(0.0 if absf(xi) < 1e-9 else 3.0 * (xi - a) * (xi - a) / (xi * (xi - xj) * (xi - xk)))
+	var isco := Structure.kerr_isco(a)
+	var t := {"a": a, "x0": sqrt(isco), "isco": isco, "roots": roots, "c": c}
+	# The peak sits between 1.2 and 1.6 ISCO radii for every spin; golden-section it.
+	var lo := isco * 1.01
+	var hi := isco * 2.5
+	for i in 60:
+		var m1 := hi - (hi - lo) * 0.618034
+		var m2 := lo + (hi - lo) * 0.618034
+		if page_thorne_flux(m1, t) < page_thorne_flux(m2, t): lo = m1
+		else: hi = m2
+	t.peak_r = 0.5 * (lo + hi)
+	t.peak = page_thorne_flux(t.peak_r, t)
+	# Radiative efficiency 1 − E_ISCO (Bardeen, Press & Teukolsky 1972).
+	t.eta = 1.0 - (1.0 - 2.0 / isco + a / pow(isco, 1.5)) / sqrt(1.0 - 3.0 / isco + 2.0 * a / pow(isco, 1.5))
+	return t
+
 ## Physical stellar radius (AU) from mass via main-sequence R ∝ M^0.8.
 static func stellar_radius(mass_sun: float) -> float:
 	return pow(maxf(mass_sun, 0.05), 0.8) * AU_PER_RSUN
@@ -449,6 +490,79 @@ static func _leapfrog_substep(live: Array, dt: float) -> bool:
 		b.pos.y += b.vel.y * half
 		b.pos.z += b.vel.z * half
 	return finite_state(live)
+
+# Winds, Hut's (1981) constant-time-lag tides with the spin along the orbit normal,
+# and Roche-lobe overflow; native/astrarium_native.c repeats it operation for
+# operation. Derivations and sources: docs/physics/secular.md.
+static var secular := true
+const TIDE_REACH := 200.0
+static func apply_secular(bodies: Array, dt: float) -> void:
+	var n := bodies.size()
+	for b: Body in bodies:
+		if not b.alive or not (b.wind_mdot > 0.0): continue
+		var dm := minf(b.wind_mdot * dt, 0.001 * b.mass)
+		b.mass -= dm
+	for i in n:
+		var a: Body = bodies[i]
+		if not a.alive or not (a.tide_k2 > 0.0) or not (a.tide_lag > 0.0) or not (a.radius > 0.0) or not (a.tide_iom > 0.0): continue
+		for j in n:
+			var b: Body = bodies[j]
+			if j == i or not b.alive: continue
+			var rx := b.pos.x - a.pos.x; var ry := b.pos.y - a.pos.y; var rz := b.pos.z - a.pos.z
+			var r := distance_xyz(rx, ry, rz)
+			var R := a.radius
+			if not (r > R) or r > TIDE_REACH * R: continue
+			var vx := b.vel.x - a.vel.x; var vy := b.vel.y - a.vel.y; var vz := b.vel.z - a.vel.z
+			var ux := rx / r; var uy := ry / r; var uz := rz / r
+			var rdot := ux * vx + uy * vy + uz * vz
+			var hx := ry * vz - rz * vy; var hy := rz * vx - rx * vz; var hz := rx * vy - ry * vx
+			var h := distance_xyz(hx, hy, hz)
+			var mi := a.mass; var mj := b.mass
+			var A := 1.5 * a.tide_k2 * G * mj * mj * pow(R, 5.0) * a.tide_lag / pow(r, 7.0)
+			var inv_mu := 1.0 / mi + 1.0 / mj
+			var fr := -3.0 * A * rdot / r
+			# A kick that would more than halve ṙ, or the spin–orbit slip, saturates.
+			if absf(fr * inv_mu * dt) > 0.5 * absf(rdot): fr = -0.5 * rdot / (inv_mu * dt)
+			var tx := 0.0; var ty := 0.0; var tz := 0.0; var ft := 0.0
+			if h > 0.0:
+				var w := a.spin_omega - h / (r * r)
+				ft = A * w
+				var dW := (r * ft * dt / (mi * a.tide_iom) + ft * inv_mu * dt / r)
+				if absf(dW) > 0.5 * absf(w): ft *= 0.5 * absf(w) / absf(dW)
+				tx = (hy * uz - hz * uy) / h; ty = (hz * ux - hx * uz) / h; tz = (hx * uy - hy * ux) / h
+			var fx := fr * ux + ft * tx; var fy := fr * uy + ft * ty; var fz := fr * uz + ft * tz
+			var kb := dt / mj; var ka := dt / mi
+			b.vel.x += fx * kb; b.vel.y += fy * kb; b.vel.z += fz * kb
+			a.vel.x -= fx * ka; a.vel.y -= fy * ka; a.vel.z -= fz * ka
+			a.spin_omega -= r * ft * dt / (mi * a.tide_iom)
+	for d in n:
+		var b: Body = bodies[d]
+		if not b.alive or not b.donor or not (b.radius > 0.0): continue
+		var best := -1
+		var pull := 0.0; var sep := 0.0
+		for k in n:
+			var o: Body = bodies[k]
+			if k == d or not o.alive: continue
+			var r := distance_xyz(o.pos.x - b.pos.x, o.pos.y - b.pos.y, o.pos.z - b.pos.z)
+			if not (r > 0.0): continue
+			var t := o.mass / (r * r * r)
+			if t > pull: pull = t; best = k; sep = r
+		if best < 0: continue
+		var a: Body = bodies[best]
+		var q := b.mass / a.mass
+		var q13 := pow(q, 1.0 / 3.0); var q23 := q13 * q13
+		var RL := sep * 0.49 * q23 / (0.6 * q23 + log(1.0 + q13))
+		if not (b.radius > RL): continue
+		var x := log(b.radius / RL); var mm := minf(b.mass, 5.0)
+		var dm := minf(3e-6 * mm * mm * x * x * x * dt, 0.001 * b.mass)
+		var ma := a.mass + dm
+		a.vel.x = (a.mass * a.vel.x + dm * b.vel.x) / ma
+		a.vel.y = (a.mass * a.vel.y + dm * b.vel.y) / ma
+		a.vel.z = (a.mass * a.vel.z + dm * b.vel.z) / ma
+		a.mass = ma
+		b.mass -= dm
+		a.gained += dm
+		b.shed += dm
 
 static var collision_limited := false
 

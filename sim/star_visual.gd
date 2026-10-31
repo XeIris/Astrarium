@@ -24,12 +24,14 @@ static func smoothstep01(a: float, b: float, x: float) -> float:
 static func _v3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
 
-static func _photosphere_material(color: Color, hot_color: Color, limb_u: float) -> ShaderMaterial:
+static func _photosphere_material(color: Color, hot_color: Color, teff: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = PHOTO_SHADER
 	m.set_shader_parameter("uColor", _v3(color))
 	m.set_shader_parameter("uHot", _v3(hot_color))
-	m.set_shader_parameter("uLimbU", limb_u)
+	var ld := Stellar.limb_darkening(teff)
+	m.set_shader_parameter("uLimbA", ld[0])
+	m.set_shader_parameter("uLimbB", ld[1])
 	# Gain just past 1.0, so the disc sits on the tone curve's shoulder and keeps its
 	# limb darkening, granulation and spots. Bloom and lights carry the brightness.
 	m.set_shader_parameter("uGain", 1.0)
@@ -124,10 +126,7 @@ class StarViz:
 		var photo: Color = opts.color if opts.color is Color else Stellar.blackbody_color(teff)
 		hot = Stellar.corona_color(teff)
 
-		# Limb darkening is stronger for cool stars, weaker for hot ones.
-		var limb_u := clampf(0.85 - (teff - 3000.0) / 22000.0, 0.32, 0.85)
-
-		mat = StarVisual._photosphere_material(photo, hot, limb_u)
+		mat = StarVisual._photosphere_material(photo, hot, teff)
 		mat.set_shader_parameter("uTeff", teff)
 		omega = Stellar.rotation_rate(b.mass) * 0.02   # slowed for legibility
 		mat.set_shader_parameter("uOmega", omega)

@@ -31,6 +31,8 @@ var _burn_engaged := false
 var _stage := ""
 var _t_arr := 0.0
 var _fixes := 0
+var _aero_rp := 0.0        # the aerocapture pass's periapsis radius, m, once solved
+var _aero_in := false      # the pass has entered the air
 
 # PLANNING
 
@@ -84,6 +86,47 @@ static func window_wait(phase_now: float, want: float, n_dep: float, n_tgt: floa
 	t = fmod(t, period)
 	if t < 0.0: t += period
 	return t
+
+# Porkchop results by departure/arrival pair, reused until the clock moves a
+# fiftieth of a synodic period (the planner reprices twice a second).
+static var _pork_cache := {}
+
+## The cheapest departure in the next synodic period (plus a tenth) from `Pc` to `Dc`
+## about `C`, over flight times from 0.6 to 1.4 Hohmann. With a parking radius at
+## either end, the cost is the burn there (Oberth); otherwise v∞. Returns the
+## porkchop's best cell with t_dep counted from now, plus grid, t_deps and tofs, or {}.
+static func porkchop_window(v: Vessel, Pc: Body, Dc: Body, C: Body, r_park_dep: float, r_park_arr: float,
+		n_dep: int = 40, n_tof: int = 15) -> Dictionary:
+	var muC := _mu(C)
+	var rP := _rel_pos(Pc, C).length()
+	var rD := _rel_pos(Dc, C).length()
+	var h := Orbit.hohmann(muC, rP, rD)
+	var now: float = v.coord
+	var key := "%d:%d:%d" % [Pc.get_instance_id(), Dc.get_instance_id(), C.get_instance_id()]
+	var hit = _pork_cache.get(key)
+	if hit != null and absf(now - float(hit.now)) < float(h.synodic) / 50.0 and hit.rp == r_park_dep and hit.ra == r_park_arr:
+		var shifted: Dictionary = hit.result.duplicate()
+		if not shifted.is_empty(): shifted.t_dep = maxf(float(shifted.t_dep) - (now - float(hit.now)), 0.0)
+		return shifted
+	var t_deps: Array = []
+	var span := float(h.synodic) * 1.1
+	for i in n_dep: t_deps.append(span * float(i) / float(n_dep - 1))
+	var tofs: Array = []
+	for j in n_tof: tofs.append(float(h.tof) * lerpf(0.6, 1.4, float(j) / float(n_tof - 1)))
+	var mu_p := _mu(Pc); var mu_d := _mu(Dc)
+	var cost := func(vd: float, va: float) -> float:
+		var cd := escape_dv(mu_p, r_park_dep, vd) if r_park_dep > 0.0 else vd
+		var ca := escape_dv(mu_d, r_park_arr, va) if r_park_arr > 0.0 else va
+		return cd + ca
+	var pc := Orbit.porkchop(_rel_pos(Pc, C), _rel_vel(Pc, C), muC + mu_p, _rel_pos(Dc, C), _rel_vel(Dc, C), muC + mu_d,
+		muC, t_deps, tofs, cost)
+	var result := {}
+	if not pc.best.is_empty():
+		result = pc.best.duplicate()
+		result.grid = pc.grid; result.t_deps = t_deps; result.tofs = tofs
+		result.hohmann = h
+	_pork_cache[key] = {"now": now, "rp": r_park_dep, "ra": r_park_arr, "result": result}
+	return result
 
 ## The route from where the vessel is to `dest`, with each leg's Δv and duration, the
 ## propellant it costs and whether the tanks hold it. Keys: ok, flyable, why, case,
@@ -180,6 +223,16 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		var h := Orbit.hohmann(muC, rP, rD)
 		var v_inf_dep := absf(h.dv1)
 		var v_inf_arr := absf(h.dv2)
+		var phase_now := Orbit.phase_angle(_rel_pos(Pc, C), _rel_pos(Dc, C))
+		var wait := window_wait(phase_now, h.phase, sqrt(muC / pow(rP, 3.0)), sqrt(muC / pow(rD, 3.0)))
+		var tof: float = h.tof
+		# The real orbits are eccentric and inclined, so the window and its cost come
+		# from a porkchop of Lambert arcs; the circular Hohmann is the fallback.
+		var pc := porkchop_window(v, Pc, Dc, C, r0 if Pc == P else 0.0, r_cap if Dc == target else 0.0)
+		if not pc.is_empty():
+			v_inf_dep = pc.v_inf_dep; v_inf_arr = pc.v_inf_arr
+			wait = pc.t_dep; tof = pc.tof
+			out["porkchop"] = pc
 		var dep := escape_dv(muP, r0, v_inf_dep)
 		if Pc != P:
 			# From a moon: leave it, then the planet it circles, on the same hyperbola.
@@ -188,15 +241,32 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		var cap := escape_dv(mu_d, r_cap, v_inf_arr)
 		if Dc != target:
 			cap = escape_dv(_mu(Dc), _rel_pos(target, Dc).length(), v_inf_arr) + escape_dv(mu_d, r_cap, 0.0) * 0.3
-		var phase_now := Orbit.phase_angle(_rel_pos(Pc, C), _rel_pos(Dc, C))
-		var wait := window_wait(phase_now, h.phase, sqrt(muC / pow(rP, 3.0)), sqrt(muC / pow(rD, 3.0)))
 		out.case = "planet" if (Pc == P and Dc == target) else "other"
-		out.type = "Interplanetary Hohmann transfer" if C.type == "star" else "Hohmann transfer about %s" % C.name
+		var kind := "Lambert transfer" if out.has("porkchop") else "Hohmann transfer"
+		out.type = "Interplanetary %s" % kind.to_lower() if C.type == "star" else "%s about %s" % [kind, C.name]
 		legs.append({"key": "escape", "label": "Departure burn (escape %s)" % P.name, "dv": dep, "t": wait})
-		legs.append({"key": "midcourse", "label": "Course corrections", "dv": 0.03 * v_inf_dep + 20.0, "t": h.tof})
+		legs.append({"key": "midcourse", "label": "Course corrections", "dv": 0.03 * v_inf_dep + 20.0, "t": tof})
 		legs.append({"key": "approach", "label": "Aim the arrival", "dv": 0.02 * v_inf_arr + 20.0, "t": 0.0})
-		legs.append({"key": "capture", "label": "Capture into orbit", "dv": cap, "t": 3600.0})
-		out.wait = wait; out.tof = h.tof
+		if Dc == target and aero_capable(v, target):
+			# Through the air heat shield first, out on an ellipse to the parking radius,
+			# then a burn there lifts the periapsis out of the air.
+			var rp_a := float(dest_env.radius) + 0.5 * float(dest_env.atm.top)
+			var raise := sqrt(mu_d / r_cap) - sqrt(mu_d * 2.0 * rp_a / (r_cap * (rp_a + r_cap)))
+			legs.append({"key": "aerocapture", "label": "Aerocapture, then raise the periapsis", "dv": raise, "t": 3600.0})
+			out["aero"] = true
+		elif Dc == target and dest_env.atm != null:
+			# No heat shield: capture onto a long ellipse, then let the upper air take the
+			# apoapsis down pass by pass, as Magellan, MGS and MRO did.
+			var ra_c := AEROBRAKE_RA * r_cap
+			var cap_e := sqrt(v_inf_arr * v_inf_arr + 2.0 * mu_d / r_cap) - sqrt(mu_d * 2.0 * ra_c / (r_cap * (r_cap + ra_c)))
+			legs.append({"key": "capture", "label": "Capture onto a long ellipse", "dv": cap_e, "t": 3600.0})
+			legs.append({"key": "aerobrake", "label": "Aerobrake, then raise the periapsis", "dv": 30.0,
+				"t": aerobrake_estimate(v, target, r_cap, ra_c)})
+			out["ra_cap"] = ra_c
+			out["aero"] = true
+		else:
+			legs.append({"key": "capture", "label": "Capture into orbit", "dv": cap, "t": 3600.0})
+		out.wait = wait; out.tof = tof
 		out["primary"] = C
 	if want == "land":
 		if dest_env.atm != null:
@@ -308,6 +378,7 @@ func _next() -> void:
 	_burn = null
 	_burn_engaged = false
 	_fixes = 0
+	_aero_in = false
 	if leg >= legs().size():
 		done = true
 		status = "Mission complete — %s" % title()
@@ -333,6 +404,8 @@ func update(dt: float) -> void:
 		"midcourse": _leg_midcourse(v, ap)
 		"approach": _leg_approach(v, ap)
 		"capture": _leg_capture(v, ap)
+		"aerocapture": _leg_aerocapture(v, ap)
+		"aerobrake": _leg_aerobrake(v, ap)
 		"descend": _leg_descend(v, ap)
 		"land": _leg_land(v, ap)
 		_: _next()
@@ -412,11 +485,12 @@ func _leg_escape(v: Vessel, ap) -> void:
 			var h := Orbit.hohmann(muC, rP, rD)
 			var wait := window_wait(Orbit.phase_angle(_rel_pos(P, C), _rel_pos(dest, C)), h.phase,
 				sqrt(muC / pow(rP, 3.0)), sqrt(muC / pow(rD, 3.0)))
+			var pc := porkchop_window(v, P, dest, C, v.r.length(), plan.r_cap) if plan.has("porkchop") else {}
+			if not pc.is_empty(): wait = pc.t_dep
 			at = v.coord + maxf(wait, 300.0)
-			# Leave along the planet's own motion with the Hohmann v∞; the course
-			# corrections take out what eccentric, inclined orbits leave. (Aiming the
-			# departure by Lambert fails: a Hohmann is a 180° transfer, whose plane a
-			# Lambert solution cannot pin down.)
+			# Without a porkchop, leave along the planet's own motion with the Hohmann
+			# v∞ (a 180° transfer has no Lambert plane); the course corrections take
+			# out what eccentric, inclined orbits leave.
 			v_inf = absf(h.dv1)
 			# The planet's velocity at the departure, which can be a year or more away.
 			var rE := DVec3.new(); var vE := DVec3.new()
@@ -424,6 +498,11 @@ func _leg_escape(v: Vessel, ap) -> void:
 				vE = _rel_vel(P, C)
 			d_inf = DQuat.nrm(_local(v, vE)).scale_in(signf(h.dv1))
 			_t_arr = at + h.tof
+			if not pc.is_empty():
+				# The porkchop's arc is never within 2° of 180°, so its v∞ has a direction.
+				v_inf = pc.v_inf_dep
+				d_inf = DQuat.nrm(_local(v, (pc.v_dep as DVec3).clone()))
+				_t_arr = at + float(pc.tof)
 		var tb := _align_time(v, mu, at, d_inf, v_inf)
 		_schedule(tb, "Departure burn", func() -> DVec3:
 			var rb := DVec3.new(); var vb := DVec3.new()
@@ -559,7 +638,15 @@ func _leg_approach(v: Vessel, ap) -> void:
 	var rp_t: float = plan.r_cap
 	var el := Orbit.elements(v.r, v.v, mu)
 	var R_b := float(v.env.radius)
-	var aimed: bool = absf(float(el.rp) - rp_t) < 0.25 * (rp_t - R_b) and v.r.dot(v.v) < 0.0
+	var tol := 0.25 * (rp_t - R_b)
+	if leg + 1 < legs().size() and str(legs()[leg + 1].key) == "aerocapture":
+		# The corridor is a few km wide: aim the pass the predictor says leaves the
+		# vessel at the parking radius, re-solved at each trim.
+		if _aero_rp <= 0.0 or _stage == "": _aero_rp = aero_periapsis(v, v.r, v.v, mu, v.env, float(plan.r_cap))
+		if _aero_rp > 0.0:
+			rp_t = _aero_rp
+			tol = 1000.0
+	var aimed: bool = absf(float(el.rp) - rp_t) < tol and v.r.dot(v.v) < 0.0
 	if _stage == "coast":
 		var t_p := Orbit.time_to_periapsis_any(el, mu)
 		status = "Approach to %s — periapsis %s km in %s" % [dest.name, U.fixed((float(el.rp) - R_b) / 1000.0, 0), Guidance.fmt_dur(t_p)]
@@ -592,6 +679,208 @@ func _leg_approach(v: Vessel, ap) -> void:
 		if _fixes < 2: _stage = "coast"
 		else: _next()
 
+## Can `v` aerocapture at `b`: air to fly through and a heat shield to fly on, and not a
+## winged body (its lift is not in the predictor).
+static func aero_capable(v: Vessel, b: Body) -> bool:
+	var env := Rocketry.flight_env(b)
+	if env.atm == null or float(v.vehicle.limits.get("heatLoad", 0.0)) <= 0.0: return false
+	for st in v.stages:
+		if st.attached and st.spec.get("wings") != null: return false
+	return true
+
+## Mass over C_D·A, kg/m², heat shield first (Vessel's blunt-body drag at hypersonic speed).
+static func ballistic(v: Vessel) -> float:
+	return v.mass / (Rocketry.blunt_drag_coefficient(25.0) * maxf(v.area, 1.0))
+
+## The conic periapsis radius (m) to aim for so that the pass through the air leaves the
+## vessel climbing to apoapsis `ra_want`. Each trial turns the velocity at (r, vv) in its
+## own plane, as the arrival trim does, and flies Orbit.aero_pass from there, so the
+## parent's J2 on the way in counts. Bisection: a deeper pass leaves less energy. 0 if
+## no pass in the air captures.
+static func aero_periapsis(v: Vessel, r: DVec3, vv: DVec3, mu: float, env: Dictionary, ra_want: float) -> float:
+	var atm = env.atm
+	var R := float(env.radius)
+	var top := float(atm.get("exo", atm.top))
+	var bc := ballistic(v)
+	var apo_of := func(rp: float) -> float:
+		var u := aimed_velocity(r, vv, mu, rp)
+		var res := Orbit.aero_pass(r, u, mu, R, atm, float(env.rotRate), bc, v.diameter * 0.5, env.get("zonal"), 86400.0 * 4.0)
+		if res.crashed: return -1.0
+		var el := Orbit.elements(res.r, res.v, mu)
+		return float(el.ra) if float(el.e) < 1.0 else INF
+	var lo := R
+	var hi := R + top * 1.2
+	if apo_of.call(hi) <= ra_want: return 0.0
+	for i in 40:
+		var mid := 0.5 * (lo + hi)
+		if apo_of.call(mid) > ra_want: hi = mid
+		else: lo = mid
+		if hi - lo < 20.0: break
+	return 0.5 * (lo + hi)
+
+## The velocity at r with the same speed, turned in its plane so the conic's periapsis
+## radius is `rp` (the arrival trim's aim).
+static func aimed_velocity(r: DVec3, vv: DVec3, mu: float, rp: float) -> DVec3:
+	var Rr := r.length()
+	var V := vv.length()
+	var vp := sqrt(maxf(V * V - 2.0 * mu / Rr + 2.0 * mu / rp, 0.0))
+	var vt := minf(rp * vp / Rr, V * 0.999)
+	var rhat := DQuat.nrm(r.clone())
+	var t := vv.clone().add_scaled_in(rhat, -vv.dot(rhat))
+	if t.length() < 1e-6: t = DVec3.new().cross_vectors(Orbit.K, rhat)
+	DQuat.nrm(t)
+	return rhat.scaled(-sqrt(maxf(V * V - vt * vt, 0.0))).add_in(t.scaled(vt))
+
+## Aerobraking: the apoapsis an ellipse is captured to, in parking radii.
+const AEROBRAKE_RA := 12.0
+## Peak dynamic pressure aimed for at each periapsis, Pa: MRO's passes ran at ~0.3–0.5.
+const AEROBRAKE_Q := 0.4
+## Done once the apoapsis is within this factor of the parking radius.
+const AEROBRAKE_DONE := 1.15
+
+## The periapsis radius (m) at which a pass of orbit (rp, ra) peaks at AEROBRAKE_Q.
+static func aerobrake_periapsis(env: Dictionary, ra: float, q := AEROBRAKE_Q) -> float:
+	var mu := float(env.mu)
+	var R := float(env.radius)
+	var lo := R; var hi := R + float(env.atm.get("exo", env.atm.top)) * 1.5
+	for i in 50:
+		var rp := 0.5 * (lo + hi)
+		var vp2 := mu * 2.0 * ra / (rp * (rp + ra))
+		if 0.5 * Rocketry.density(env.atm, rp - R) * vp2 > q: lo = rp
+		else: hi = rp
+	return 0.5 * (lo + hi)
+
+## Seconds of aerobraking from apoapsis ra0 down to ra1. Each pass takes
+## Δv = ρ_p·v_p·√(2π·r_p·H)/β at periapsis (an exponential atmosphere's drag integral),
+## so it is closed form per pass; capped at 5000 passes.
+static func aerobrake_estimate(v: Vessel, b: Body, ra1: float, ra0: float) -> float:
+	var env := Rocketry.flight_env(b)
+	var mu := float(env.mu)
+	var R := float(env.radius)
+	var bc := ballistic(v)
+	var ra := ra0
+	var t := 0.0
+	for i in 5000:
+		if ra <= ra1 * AEROBRAKE_DONE: break
+		var rp := aerobrake_periapsis(env, ra)
+		var a := 0.5 * (rp + ra)
+		t += TAU * sqrt(a * a * a / mu)
+		var vp := sqrt(mu * 2.0 * ra / (rp * (rp + ra)))
+		var H := Rocketry.scale_height(env.atm, rp - R)
+		var dv := Rocketry.density(env.atm, rp - R) * vp * sqrt(TAU * rp * H) / bc
+		var e := 0.5 * pow(vp - dv, 2.0) - mu / rp
+		if e >= 0.0 or dv <= 0.0: break
+		ra = 2.0 * (-mu / (2.0 * e)) - rp
+	return t
+
+## Lower the periapsis into the upper air, let each pass take the apoapsis down, and
+## walk the periapsis to hold the peak pressure as the orbit shrinks; then raise it.
+var _ab_passes := 0
+var _ab_was_out := true
+func _leg_aerobrake(v: Vessel, ap) -> void:
+	var mu := _mu(dest)
+	var R := float(v.env.radius)
+	var top: float = float(v.env.atm.get("exo", v.env.atm.top))
+	var el := Orbit.elements(v.r, v.v, mu)
+	var ra := float(el.ra)
+	if _stage == "" or _stage == "walk":
+		if _stage == "" and ra <= float(plan.r_cap) * AEROBRAKE_DONE:
+			_stage = "done"
+		else:
+			var rp_t := aerobrake_periapsis(v.env, ra)
+			if absf(float(el.rp) - rp_t) > 1500.0 or _stage == "":
+				var label := "Walk-in to %s km" % U.fixed((rp_t - R) / 1000.0, 1) if _stage == "" else "Periapsis walk to %s km" % U.fixed((rp_t - R) / 1000.0, 1)
+				_schedule(v.coord + Orbit.time_to_apoapsis(el, mu), label, func() -> DVec3:
+					var rb := DVec3.new(); var vb := DVec3.new()
+					Orbit.propagate(v.r, v.v, mu, maxf(float(_burn.at) - v.coord, 0.0), rb, vb)
+					var rr := rb.length()
+					var rhat := DQuat.nrm(rb.clone())
+					var t := vb.clone().add_scaled_in(rhat, -vb.dot(rhat))
+					DQuat.nrm(t)
+					return t.scale_in(sqrt(mu * 2.0 * rp_t / (rr * (rr + rp_t)))).sub_in(vb))
+				_stage = "burn"
+			else:
+				_stage = "passes"
+	if _stage == "burn":
+		status = _burn_status("Aerobraking at %s" % dest.name)
+		if _burn_done(ap): _stage = "passes"
+		return
+	if _stage == "passes":
+		var inside := v.altitude() < top
+		if inside and _ab_was_out:
+			_ab_passes += 1
+		if not inside and not _ab_was_out:
+			v.log_event("Aerobraking pass %d — apoapsis %s km" % [_ab_passes, U.fixed((ra - R) / 1000.0, 0)])
+		_ab_was_out = not inside
+		status = "Aerobraking at %s — pass %d, apoapsis %s km" % [dest.name, _ab_passes, U.fixed((ra - R) / 1000.0, 0)]
+		# Re-plan once per orbit, past apoapsis, out of the air.
+		if not inside and v.r.dot(v.v) < 0.0 and v.r.length() > 0.5 * (float(el.rp) + ra):
+			if ra <= float(plan.r_cap) * AEROBRAKE_DONE: _stage = "done"
+			elif absf(float(el.rp) - aerobrake_periapsis(v.env, ra)) > 1500.0: _stage = "walk"
+		if _stage != "done": return
+	if _stage == "done":
+		_schedule(v.coord + Orbit.time_to_apoapsis(el, mu), "Periapsis raise", circ_now(v, mu))
+		_burn["track"] = circ_now(v, mu)
+		_stage = "raise"
+	status = _burn_status("Aerobraking at %s — raising the periapsis" % dest.name)
+	if _stage == "raise" and _burn_done(ap):
+		if float(Orbit.elements(v.r, v.v, mu).rp) - R < top:
+			abort("Periapsis raise did not clear the air")
+			return
+		v.phase = Vessel.PHASE.ORBIT
+		_next()
+
+## Through the air heat shield first, then at apoapsis a burn to circular there, which
+## lifts the periapsis out of the air.
+func _leg_aerocapture(v: Vessel, ap) -> void:
+	if v.parent != dest:
+		status = "Cruise to %s — arrival in %s" % [dest.name, Guidance.fmt_dur(maxf(_t_arr - v.coord, 0.0))]
+		return
+	var mu := _mu(dest)
+	var top: float = float(v.env.atm.get("exo", v.env.atm.top))
+	var alt := v.altitude()
+	if _stage == "":
+		if ap.program != null: ap.disengage()
+		ap.mode = Guidance.MODE.RETROGRADE
+		_stage = "pass"
+		v.log_event("Aerocapture — heat shield first, periapsis %s km" % U.fixed((float(Orbit.elements(v.r, v.v, mu).rp) - float(v.env.radius)) / 1000.0, 1))
+	if _stage == "pass":
+		if alt < top: _aero_in = true
+		status = "Aerocapture — %s km, %s" % [U.fixed(alt / 1000.0, 0), FlightUI.fmt_speed(v.v.length())]
+		if not (_aero_in and alt > top and v.r.dot(v.v) > 0.0): return
+		var el := Orbit.elements(v.r, v.v, mu)
+		if float(el.e) >= 1.0:
+			abort("Aerocapture skipped out — still on a hyperbola")
+			return
+		if float(el.ra) - float(v.env.radius) < top:
+			abort("Aerocapture too deep — the orbit falls back into the air")
+			return
+		v.log_event("Aerocapture — out of the air on a %s × %s km orbit" % [U.fixed((float(el.ra) - float(v.env.radius)) / 1000.0, 0), U.fixed((float(el.rp) - float(v.env.radius)) / 1000.0, 0)])
+		ap.mode = Guidance.MODE.PROGRADE
+		var at := v.coord + Orbit.time_to_apoapsis(el, mu)
+		_schedule(at, "Periapsis raise", func() -> DVec3:
+			var rb := DVec3.new(); var vb := DVec3.new()
+			Orbit.propagate(v.r, v.v, mu, maxf(float(_burn.at) - v.coord, 0.0), rb, vb)
+			var rhat := DQuat.nrm(rb.clone())
+			var t := vb.clone().add_scaled_in(rhat, -vb.dot(rhat))
+			DQuat.nrm(t)
+			return t.scale_in(sqrt(mu / rb.length())).sub_in(vb))
+		_burn["track"] = circ_now(v, mu)
+		_stage = "burn"
+	status = _burn_status("Aerocapture at %s" % dest.name)
+	if _stage == "burn" and _burn_done(ap):
+		var el := Orbit.elements(v.r, v.v, mu)
+		if float(el.rp) - float(v.env.radius) < top:
+			_fixes += 1
+			if _fixes > 2:
+				abort("Periapsis raise did not clear the air")
+				return
+			_schedule(v.coord + 60.0, "Orbit trim", circ_now(v, mu))
+			_burn["track"] = circ_now(v, mu)
+			return
+		v.phase = Vessel.PHASE.ORBIT
+		_next()
+
 ## Capture at periapsis: retrograde down to circular.
 func _leg_capture(v: Vessel, ap) -> void:
 	if v.parent != dest:
@@ -612,23 +901,26 @@ func _leg_capture(v: Vessel, ap) -> void:
 			var t := v.v.clone().add_scaled_in(rhat, -v.v.dot(rhat))
 			DQuat.nrm(t)
 			return t.scale_in(sqrt(mu / v.r.length())).sub_in(v.v)
+		var ra_c := float(plan.get("ra_cap", 0.0))
 		_schedule(at, "Orbit insertion", func() -> DVec3:
 			var rb := DVec3.new(); var vb := DVec3.new()
 			Orbit.propagate(v.r, v.v, mu, maxf(float(_burn.at) - v.coord, 0.0), rb, vb)
 			var rhat := DQuat.nrm(rb.clone())
 			var t := vb.clone().add_scaled_in(rhat, -vb.dot(rhat))
 			DQuat.nrm(t)
-			return t.scale_in(sqrt(mu / rb.length())).sub_in(vb))
+			var rr := rb.length()
+			var want := sqrt(mu / rr) if ra_c <= rr else sqrt(mu * 2.0 * ra_c / (rr * (rr + ra_c)))
+			return t.scale_in(want).sub_in(vb))
 		_burn["retime"] = func() -> float:
 			return v.coord + Orbit.time_to_periapsis_any(Orbit.elements(v.r, v.v, mu), mu)
-		_burn["track"] = circ
+		if ra_c <= 0.0: _burn["track"] = circ
 		_stage = "burn"
 	status = _burn_status("Orbit insertion at %s" % dest.name)
 	if _stage == "burn" and _burn_done(ap):
 		v.phase = Vessel.PHASE.ORBIT
 		var el := Orbit.elements(v.r, v.v, mu)
 		var floor_r := float(v.env.radius) + (float(v.env.atm.top) if v.env.atm != null else 20e3)
-		if float(el.rp) < floor_r or float(el.e) > 0.2:
+		if float(el.rp) < floor_r or (float(el.e) > 0.2 and float(plan.get("ra_cap", 0.0)) <= 0.0):
 			# A capture that left the orbit low or loose: circularize again where we are.
 			_fixes += 1
 			if _fixes > 2:
@@ -738,7 +1030,7 @@ func next_event_s() -> float:
 	var v: Vessel = flight.vessel
 	var t := INF
 	if _burn != null and not _burn_engaged: t = minf(t, float(_burn.at) - v.coord - HANDOVER_S)
-	if leg_key() in ["midcourse", "approach", "capture"] and v.parent != dest:
+	if leg_key() in ["midcourse", "approach", "capture", "aerocapture", "aerobrake"] and v.parent != dest:
 		# Slow before the destination's sphere so the crossing is not stepped over.
 		var soi := v.soi_of(dest)
 		var d := v.body_offset(dest, DVec3.new()).sub_in(v.r).length()

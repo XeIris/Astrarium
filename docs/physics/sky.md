@@ -76,7 +76,7 @@ unchanged: `tools/skycachecheck.tscn` compares against an exhaustive walk
 
 Diffuse emission and dust depth ignore J, so they are functions of rest-frame
 direction alone. `render/sky_cache.gd` renders them through the same
-`sky_diffuseAdd`/`sky_tau` into a 3×2 cube-face atlas (512² per face, RGBA16F,
+`sky_diffuseAdd`/`sky_tau` into a 3×2 cube-face atlas (768² per face, RGBA16F,
 equiangular, texel centres on face edges), re-rendering only when an input
 uniform changes. Rays sample it when magnification is below 4×; nearer the
 photon ring, every layer stays live. The star-density field (band profile and
@@ -115,3 +115,155 @@ sight superpose. Shapes (plane concentration, scale height, bulge size) take the
 weighted mean, because there is one galactic plane you are inside. Summed, disc
 plus core gives a band 0.23 rad thick. The rule is the `add` flag on each
 `SKY_PARAMS` row.
+
+## Flight sky
+
+Earth's flight sky (`shaders/flight/sky_dome.gdshader`, `uPhysical`) is single
+scattering through a spherical atmosphere. Sixteen view samples each carry their
+own six-sample sun path:
+
+    L = ∫ T_view · T_sun · [β_R ρ_R(z) P_R(θ) + β_M ρ_M(z) P_M(θ)] ds
+
+The coefficients are Bruneton's (2017). Rayleigh β_R = (5.802, 13.558, 33.1)×10⁻⁶ m⁻¹
+at 680, 550 and 440 nm with H_R = 8 km. Mie β_M = 3.996×10⁻⁶ (extinction 4.44×10⁻⁶),
+H_M = 1.2 km, Henyey–Greenstein g = 0.8. Ozone absorbs (0.650, 1.881, 0.085)×10⁻⁶
+in a tent from 10 to 40 km. A sample in the planet's shadow gets no sun, so the
+reddened sunset, the Earth's shadow and the Belt of Venus come out of the
+geometry. The Chappuis absorption keeps the twilight zenith blue.
+
+Multiple scattering follows Hillaire (2020, §5.5). At each height and sun cosine,
+`tools/build_sky_ms.py` gathers the second-order light L₂ over the sphere with an
+isotropic phase (ground albedo 0.3) and the fraction f_ms that one more scattering
+returns. Every higher order is then the geometric series Ψ = L₂/(1 − f_ms), and each
+view sample adds σ_s·Ψ:
+
+    L += T_view · (σ_R(z) + σ_M(z)) · Ψ(h, μ_s) ds
+
+The 32 × 32 table (`sim/flight/sky_ms.gd`, h = v²·96 km) uses the dome's own
+coefficients. It adds ×1.50 to the noon zenith from sea level, ×1.29 at sunset and
+×1.71 with the sun 6° down. The gain falls from 15 to 10.02 so that the noon zenith
+(sun 60° up) keeps the earlier calibration, and civil twilight brightens 14% relative
+to noon. At the daylight exposure the twilight sky still reads dark, as the real
+one does: its zenith is about 1% of noon's. Coverage follows radiance, and the light
+divides back out of the blend so that faint twilight adds over the stars. Bodies
+without a coefficient set keep the grey-column sky with a tint.
+
+### Mars and Titan
+
+The same path draws Mars's and Titan's skies (`scatter: "mars"`/`"titan"` in
+`Rocketry.ATMOSPHERES`). Their coefficients are in `SkyMS.ATMOS`, each with its own
+multiple-scattering table. The aerosol's extinction, single-scattering albedo and
+Henyey–Greenstein g are given per primary (680, 550, 440 nm), and the shell's height
+is per body. `tools/build_sky_ms.py` builds all three tables; Earth's is unchanged
+to the last digit.
+
+- **Mars.** CO₂ Rayleigh is 2.5× air's per molecule at 0.83% of Earth's number
+  density. Dust is τ = 0.5, well mixed with an 11.1 km scale height. Its
+  single-scattering albedo is 0.976/0.935/0.64, after Wolff et al. (2009): iron
+  oxides absorb the blue. Its g is 0.62/0.68/0.80. Henyey–Greenstein has no
+  diffraction peak, so the rising blue g stands in for ~1.5 µm grains scattering
+  short wavelengths into a narrower forward lobe.
+  - The noon zenith is butterscotch, B/R 0.51.
+  - With the sun 2° up, the sky 5° from it is blue (B/R 1.59) and the sky opposite
+    tan (0.35): the blue Martian sunset.
+- **Titan.** N₂ at 1.467 bar and 93.7 K has 4.45× Earth's number density, with a
+  20.6 km scale height. The haze is τ = 2.0/3.0/4.5 with a 65 km scale height,
+  albedo 0.92/0.85/0.65 and g ≈ 0.6, after Huygens DISR (Tomasko et al. 2005). The
+  shell reaches 520 km. The zenith is deep orange: G/R 0.33 and B/R 0.02 with
+  multiple scattering.
+
+Hillaire's geometric series is a looser fit under Titan's optical depth of 3–5 than
+under Earth's 0.3. No preset carries Titan yet, so its sky is checked numerically,
+not seen.
+
+Off Earth the sky follows the star's flux through the camera's exposure, as the
+ground does (`uSkyFlux`). Earth keeps its noon calibration. `flightphysicscheck`
+single-scatters each sky on the CPU from `SkyMS.ATMOS` and checks those colours.
+`tools/skyshots.tscn` renders the sky from a pad on any body with the sun at a
+chosen elevation.
+
+### Night emission: airglow and aurora
+
+Earth's dome also integrates volume emission through a 400 km shell:
+
+- **Airglow.** O(¹S) 557.7 nm gives 250 R at the zenith from a layer at 97 ± 6 km,
+  and O(¹D) 630 nm gives 50 R near 250 km.
+- **Aurora.** An oval round the geomagnetic north pole (80.7° N, 72.7° W, IGRF-13
+  epoch 2020; the southern oval mirrors it). Its midnight edge sits at 70° − 2°·Kp
+  magnetic latitude, 3° further poleward at noon, and the band is 2.5° + 0.6°·Kp
+  wide. Thin arcs fold along it. It is green near 110 km and red above 200 km, at
+  1 kR at Kp 2, doubling per unit.
+
+1 R of 557.7 nm is 1.5 × 10⁻¹² of the G band's solar irradiance per steradian, so
+even a strong aurora is 10⁻⁵ of the day sky. The renderer has no night adaptation,
+so emission is drawn at a stated display gain of 3 × 10⁵ while the sun is more than
+6° below the eye's horizon. That is about the exposure a night photograph from
+orbit takes against a daylit one. The geomagnetic pole is placed through the
+launch site's geography, as the ground map is, so the ovals need a flight from a
+pad. In orbit afterwards they stay registered.
+
+`Stellar.storm_kp` drives Kp from the star's activity model. It is 2 when quiet. A
+CME arrives 1.8 days after launch (900 km/s), lifts Kp toward 9 by how far its
+flare's energy exceeded the CME threshold, and fades over a day. Every CME is
+treated as aimed at Earth.
+
+Rendered at 52° N with Kp 6, faint green arcs fill the northern sky; at the Cape
+there are none.
+
+## Planetshine
+
+A rocky planet's or world's night side is lit by its brightest sunlit neighbour
+(`Suns.apply_shine`). A Lambert sphere of albedo A and radius R at distance d sends
+the fraction A·(2/3)·(R/d)²·[sin α + (π − α) cos α]/π of the sunlight, where α is
+the neighbour's phase angle as seen from the lit body. For a full Earth on the Moon
+that is 7 × 10⁻⁵. Like the eclipse umbra's red, it is drawn ×100 for display:
+earthshine on a crescent Moon reads as a faint glow on the dark side rather than as
+black. The light takes the neighbour's colour and the star's.
+
+## Eclipses
+
+Body surfaces dim by the fraction of each star's disc that another body covers
+(`eclipse()` in `shaders/common/suns.gdshaderinc`, fed by `Suns.apply_occluders`).
+The geometry is flat-sky circle overlap of the star's angular radius and the
+occluder's, at the occluder's true radius and position in units of the lit body's
+true radius, so a magnified render never casts a magnified shadow. Umbra,
+antumbra and penumbra all follow. The star's own limb darkening is ignored, which
+leaves a penumbra's profile slightly too linear. A thick atmosphere (Earth,
+Venus, Titan) refracts sunset light into its umbra: an eclipsed Moon turns red.
+The real umbral light is about 10⁻⁴ of sunlight, raised ×100 here so that totality
+reads at the full Moon's exposure.
+
+## Point-source brightness
+
+A sub-pixel body's marker takes its apparent V magnitude (`Marker.apparent_magnitude`).
+Planets and the Moon use the V(1,0) and phase-angle polynomials of Mallama &
+Hilton (2018), scaled by the star's luminosity. Other reflectors are Lambert
+spheres with their geometric albedo, and stars are M_V = 4.83 − 2.5 log L at
+their distance. Brightness goes on the sky's own flux scale: a tier-0 sky star
+(`SkyModel.STAR_FLUX`) is V ≈ 2.5, and the marker's profile integrates to the same
+radiance·pixel². It is clamped between the full Moon (−12.7) and the sky's
+8th-magnitude limit, so a body is never lost entirely. Holes and compact stars
+keep their fixed emitter gain.
+
+## Catalogue stars
+
+A scene whose sky says `galactic: "j2000"` (`solar`) puts the Milky Way on the real
+galactic frame: the north galactic pole at RA 192.859°, Dec +27.128° and the centre
+at 266.405°, −28.936°, carried onto the scene's ecliptic axes. Each of the 9096
+stars in `assets/sky/bsc5.bin` is drawn at its J2000 direction (`BrightStars`).
+The file is the Yale Bright Star Catalogue, 5th revised edition (Hoffleit &
+Warren 1991), reduced by `tools/build_starcat.py` from HEASARC's BSC5P table.
+Without the file, the procedural sky stays whole. Brightness comes from V on the flux scale above, and
+colour is the Planck colour of Ballesteros's (2012) B−V temperature. The
+procedural sky then skips its four brightest tiers (to V ≈ 6) and fills in
+below. The catalogue is visible-band only. It is neither lensed nor aberrated, so
+a relativistic flight's sky warps only the procedural stars. Moving the plane-tilt
+or roll slider returns the scene to the hand-placed procedural frame.
+
+## Light time
+
+With Settings › Sim › Light-time delay, every body is drawn at its retarded
+position, x − v·d/c, where d is its distance from the camera. That is the first
+order of solving t_ret = t − |x(t_ret) − x_cam|/c, exact to (v/c)². Jupiter is
+seen 35–52 minutes late; Rømer used the resulting shift in Io's eclipses to
+measure c. Physics, contact and the instruments use the instantaneous positions.

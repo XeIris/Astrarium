@@ -545,6 +545,7 @@ func _build_settings() -> void:
 	for effect in [["shadows", "Shadows"], ["ao", "Ambient occlusion"], ["reflections", "Studio reflections"], ["indirect", "Indirect light"]]:
 		B(raw, "Toggle", effect[1], "[data-light-effect=%s]" % effect[0]).pressed.connect(func(): lighting_effect_chosen.emit(effect[0]))
 	_h3(ren, "Spacetime mesh")
+	_note(ren, "An illustration, not an embedding of space. A black hole sinks into Flamm's paraboloid out to 40 horizon radii; every other body dips in proportion to its Newtonian potential, rounded off within its own radius or 0.6 scene units.")
 	var mesh_choices := grid(ren, [1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
 	B(mesh_choices, "Toggle", "Connected grid", "[data-mesh-style=lines]").pressed.connect(func(): mesh_style_chosen.emit("lines"))
 	B(mesh_choices, "Toggle", "Dots", "[data-mesh-style=dots]").pressed.connect(func(): mesh_style_chosen.emit("dots"))
@@ -552,7 +553,7 @@ func _build_settings() -> void:
 
 	# SIM
 	var sim := _page(p, "sim")
-	_rnote(sim, "The integrator is velocity-Verlet in AU, M[font_size=8]☉[/font_size] and years with [i]G[/i] = 4π². The step cap is the one setting that changes the ANSWER rather than the picture: a close pass is only resolved if the step is short compared with the time spent in it.")
+	_rnote(sim, "The integrator is a fourth-order Yoshida composition in AU, M[font_size=8]☉[/font_size] and years with [i]G[/i] = 4π², with first post-Newtonian terms. The step cap is the one setting that changes the ANSWER rather than the picture: a close pass is only resolved if the step is short compared with the time spent in it.")
 	_set_row(sim, "maxStep", "Max step", "Longest integrator step, in years. Lower is more accurate and slower; too high and a close encounter is stepped straight over, which shows up as energy appearing from nowhere.",
 		-5, -1, -2.3, 0.05, "5.0e-3 yr", func(v): return U.expo(pow(10.0, v), 1) + " yr")
 	_set_row(sim, "gwBoost", "GW boost", "Multiplier on illustrative circular-power drag for tight eligible pairs. Its contact window and numerical cap prevent a physical merger-time prediction, even at 1. Zero disables drag.",
@@ -560,8 +561,35 @@ func _build_settings() -> void:
 	var sg := grid(sim, [1.0, 1.0], 10.0, 5.0, 10.0, 12.0)
 	for kv in [["steps/frame", "setSteps"], ["energy drift", "setDrift"]]:
 		_stat(sg, kv[0], kv[1])
-	_note(sim, "Drift is the relative energy change since loading or a body-count change. With fixed masses and softening and no gravitational-wave drag, it measures integration error. Drag shows ≈ because the change includes intentional energy loss. Edits and accretion also change the energy budget.")
+	_note(sim, "Drift is the relative energy change since loading or a body-count change. With fixed masses and softening and no gravitational-wave drag, it measures integration error. Drag shows ≈ because the change includes intentional energy loss. Edits, accretion, winds and tides also change the energy budget.")
 	m(B(sim, "Ghost", "Reset to scenario’s values", "simReset"), 0.0, 10.0).pressed.connect(func(): sim_reset.emit())
+	_h3(sim, "Secular evolution")
+	_note(sim, "Stars age along their tracks and blow winds, tides slow spins and circularise orbits, and a star that overfills its Roche lobe feeds its companion: novae on a white dwarf, and a Type Ia if it grows to the Chandrasekhar mass. Real rates, so most of it shows only at long time steps or in close binaries.")
+	var sec_btn := B(sim, "Toggle", "☑ Secular evolution" if Physics.secular else "☐ Secular evolution", "secularToggle")
+	sec_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	set_active("secularToggle", Physics.secular)
+	m(sec_btn, 0.0, 10.0).pressed.connect(func():
+		Physics.secular = not Physics.secular
+		sec_btn.set_label("☑ Secular evolution" if Physics.secular else "☐ Secular evolution")
+		set_active("secularToggle", Physics.secular))
+	_h3(sim, "Flight")
+	_set_row(sim, "f107", "Solar activity", "The 10.7 cm solar flux, which heats the thermosphere and sets how fast low orbits decay: about 70 at solar minimum and 250 at maximum. At the left end the thermosphere is the 1976 standard's, which every built flight assumes.",
+		0, 300, 0, 5, "US76", func(v): return ("F10.7 = %d" % int(v)) if v > 0.0 else "US76")
+	_note(sim, "Climatological winds give Earth's air a zonal-mean circulation: trade winds, mid-latitude westerlies and a jet stream near 12 km. Guidance flies landings over the ground and aerodynamics through the moving air.")
+	var wind_btn := B(sim, "Toggle", "☐ Climatological winds", "windsToggle")
+	wind_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(wind_btn, 0.0, 10.0).pressed.connect(func():
+		Rocketry.winds_enabled = not Rocketry.winds_enabled
+		wind_btn.set_label("☑ Climatological winds" if Rocketry.winds_enabled else "☐ Climatological winds")
+		set_active("windsToggle", Rocketry.winds_enabled))
+	_h3(sim, "Light time")
+	_note(sim, "Draws every body where it was when the light now reaching the camera left it — Rømer's delay, 8 minutes for the Sun and up to 52 for Jupiter. Physics is unaffected.")
+	var lt_btn := B(sim, "Toggle", "☐ Light-time delay", "lightTimeToggle")
+	lt_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(lt_btn, 0.0, 10.0).pressed.connect(func():
+		Scale.light_time = not Scale.light_time
+		lt_btn.set_label("☑ Light-time delay" if Scale.light_time else "☐ Light-time delay")
+		set_active("lightTimeToggle", Scale.light_time))
 
 	# CONTROLS
 	var controls := _page(p, "controls")
@@ -995,7 +1023,7 @@ func _build_control_panel() -> void:
 		item.add_child(sw)
 		L(item, kk[1], {"fs": 9.0, "c": T.TEXT_DIM})
 	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 12.0)
-	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["ice", "cIce"], ["cloud", "cCloud"], ["τ response", "cTau"], ["range", "cExtremes"]]:
+	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["habitable", "cHZ"], ["HZ edges", "cHZEdges"], ["ice", "cIce"], ["ice line", "cIceLine"], ["cloud", "cCloud"], ["ocean", "cOcean"], ["τ response", "cTau"], ["range", "cExtremes"]]:
 		_stat(sg, kv[0], kv[1])
 	_row(s, "mixed", "Ocean depth", "Depth of the ocean mixed layer — the planet's thermal flywheel. Shallow oceans let the temperature whip around with the orbit; deep ones damp it.",
 		2, 120, 12, 1, "12 m", "", func(v): return U.fixed(v, 0) + " m")
@@ -1707,7 +1735,16 @@ func update_climate(cl: Dictionary) -> void:
 	set_text("cTemp", "%s °C" % U.fixed(cl.celsius, 1))
 	set_text("cFlux", "%s S⊕" % U.fixed(cl.S, 2))
 	set_text("cIce", "%s %%" % U.fixed(cl.ice * 100.0, 0))
+	var edge := float(cl.get("iceEdge", 1.0))
+	set_text("cIceLine", "snowball" if cl.get("snowball", false) else ("none" if edge >= 1.0 else "%d°" % int(round(rad_to_deg(asin(edge))))))
 	set_text("cCloud", "%s %%" % U.fixed(cl.clouds * 100.0, 0))
+	var hz: Dictionary = cl.get("hz", {})
+	if not hz.is_empty():
+		var S: float = cl.S
+		set_text("cHZ", "inside" if S >= hz.outer and S <= hz.inner else ("too hot" if S > hz.inner else "too cold"))
+		set_text("cHZEdges", "%s–%s S⊕" % [U.fixed(hz.outer, 2), U.fixed(hz.inner, 2)])
+	# The steam is what is missing; the era names it.
+	set_text("cOcean", "%s %%" % U.fixed(float(cl.get("ocean", 1.0)) * 100.0, 0))
 	set_text("cTau", "%s yr" % U.fixed(cl.tauYears, 2))
 	set_text("cExtremes", "%s … %s °C" % [U.fixed(cl.Tmin - 273.15, 0), U.fixed(cl.Tmax - 273.15, 0)])
 	(ids.climateChart as ClimateChart).set_history(cl.get("history", []))

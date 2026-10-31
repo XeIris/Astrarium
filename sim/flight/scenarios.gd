@@ -84,9 +84,10 @@ static func _build_list() -> Dictionary:
 		_sc("falcon9", "max_q", "Max-Q", "Ascent", _pad(), {"past_max_q": true}, {"alt": [8e3, 13e3], "q": [28e3, 38e3]}),
 		_sc("falcon9", "meco", "MECO and stage separation", "Ascent", _pad(), {"burnout_in": ["f9s1", 4.0]},
 			{"alt": [55e3, 68e3], "attached": ["f9s1"]}),
-		# Free-molecular heating falls through 1135 W/m² near 112 km, T+222 s (73 s after
-		# staging); the real vehicle drops its fairing about T+3:30 near 110 km.
-		_sc("falcon9", "fairing", "Fairing jettison", "Ascent", _pad(), {"since_drop": ["f9s1", 70.0]},
+		# Free-molecular heating falls through 1135 W/m² near 112 km, 73 s after staging
+		# (69 s with the winds on); the real vehicle drops its fairing about T+3:30 near
+		# 110 km.
+		_sc("falcon9", "fairing", "Fairing jettison", "Ascent", _pad(), {"since_drop": ["f9s1", 66.0]},
 			{"alt": [100e3, 125e3], "attached": ["f9fair"]}),
 		_sc("falcon9", "orbit", "Parking orbit", "Orbit",
 			{"kind": "orbit", "alt": 210e3, "inc": 28.5, "drop": 1, "jettison": ["f9fair"], "prop": {"f9s2": 15000.0}}, {},
@@ -187,7 +188,7 @@ static func _orbiter(program = null) -> Dictionary:
 ## there, at 1×), with the OMS propellant the deorbit burn left. Each also names the
 ## replay that checks it (`replay`).
 const ORBITER_AIR := {
-	80e3: {"airspeed": 7568.3, "fpa": -0.981, "mass": 107383.5, "ap": {"_bank_sign": 1.0, "_drag_f": 0.761},
+	80e3: {"airspeed": 7586.0, "fpa": -0.976, "mass": 107605.3, "ap": {"_bank_sign": 1.0, "_drag_f": 0.796},
 		"state": {"alt_below": 80e3}},
 	24.4e3: {"airspeed": 759.6, "fpa": -6.358, "mass": 107361.5, "speedbrake": 0.457, "state": {"state": "taem"}},
 	3990.0: {"airspeed": 193.3, "fpa": -19.82, "mass": 107361.5, "speedbrake": 0.748, "ap": {"_sb_trim": 0.6746},
@@ -305,12 +306,13 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 		v.v.copy_from(east).scale_in(float(b.v_inertial) * cos(g)).add_scaled_in(up, float(b.v_inertial) * sin(g))
 	else:
 		v.v.copy_from(up).scale_in(float(b.v_vert)).add_scaled_in(east, float(b.v_horiz)).add_in(spin)
+		if v.env.atm != null: v.v.add_in(Rocketry.wind_at(v.env.atm, v.r, v.env.radius, DVec3.new()))
 	var air := v.airspeed(v.r, v.v, DVec3.new())
 	v.q.set_from_unit_vectors(Vessel.BODY_FWD, DQuat.nrm(air.scale_in(-1.0)))
 	v.omega.set_v(0.0, 0.0, 0.0)
 	v.phase = Vessel.PHASE.DESCENT
 
-## In the air: `airspeed` m/s through air that turns with the planet, along the
+## In the air: `airspeed` m/s through the moving air, along the
 ## orbit's track, `fpa` degrees above the horizon (negative descending). _settle sets
 ## the attitude.
 static func _air_state(v: Vessel, b: Dictionary) -> void:
@@ -321,6 +323,7 @@ static func _air_state(v: Vessel, b: Dictionary) -> void:
 	var va := float(b.airspeed)
 	v.v.copy_from(track).scale_in(va * cos(g)).add_scaled_in(up, va * sin(g))
 	v.v.add_in(DVec3.new(0.0, -float(v.env.rotRate), 0.0).cross(v.r))
+	if v.env.atm != null: v.v.add_in(Rocketry.wind_at(v.env.atm, v.r, v.env.radius, DVec3.new()))
 	v.speedbrake = float(b.get("speedbrake", 0.0))
 
 ## Guidance's first cycle on the built state, then the vehicle put in the attitude it

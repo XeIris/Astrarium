@@ -78,6 +78,8 @@ var phase_rng := RandomNumberGenerator.new()
 var hud: FlightUI = null
 var console: FlightConsole = null
 var target: Body = null
+## A Lagrange point picked on the space map as a navigation target: {pri, sec, idx}, or null.
+var nav_point = null
 var plan = null
 ## Relativistic aberration of the sky, β as a vector (zero outside cruise).
 var boost := Vector3.ZERO
@@ -233,7 +235,8 @@ func light_sources() -> Array:
 		var d := DVec3.new().sub_vectors(b.pos, w)
 		var r := maxf(d.length(), 1e-6)
 		out.append({"dir": vessel.to_local(d.scale_in(1.0 / r), d), "flux": float(U.nz(b.luminosity, 1.0)) / (r * r),
-			"teff": float(U.nz(b.teff, 5772.0)), "ang_r": b.radius / r if b.radius > 0.0 else 0.00465 / r})
+			"teff": float(U.nz(b.teff, 5772.0)), "ang_r": b.radius / r if b.radius > 0.0 else 0.00465 / r,
+			"kp": Stellar.storm_kp(b.activity)})
 	if cruise_ctx != null and cruise_ctx.get("star_pos") != null:
 		var m: Dictionary = cruise_ctx.mission
 		var d := DVec3.new().sub_vectors(cruise_ctx.star_pos, w)
@@ -1300,6 +1303,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"cloudWind": wind_dir * (9.0 * vessel.met),
 		"sunAngR": float(key.ang_r) if key != null else 0.00465,
 		"sunTeff": float(key.teff) if key != null else 5772.0,
+		"kp": float(key.get("kp", 2.0)) if key != null else 0.0,
 		# the other sun, and the sky's own light, through the same exposure
 		"sun2World": second.dir if second != null else null,
 		"sun2Flux": float(second.flux) * exposure if second != null else 0.0,
@@ -1738,11 +1742,32 @@ func update_hud() -> void:
 		"program": autopilot.program if autopilot != null else null,
 		"warp": str(warp()),
 		"parentName": vessel.parent.name,
+		"navPoint": nav_point_readout(),
 		"plan": plan_data,
 		"cruise": cruise != null,
 		"mission": mission,
 		"skip": skip != null,
 	})
+
+## Distance (m) and speed (m/s) of the vessel relative to the navigation point, which
+## moves with its pair's rotating frame: {name, dist, speed, closing}, or null.
+func nav_point_readout():
+	if nav_point == null or vessel == null: return null
+	var pri: Body = nav_point.pri; var sec: Body = nav_point.sec
+	if not pri.alive or not sec.alive:
+		nav_point = null
+		return null
+	var f := Lagrange.frame(pri, sec)
+	var p: DVec3 = Lagrange.points(pri, sec)[int(nav_point.idx)]
+	var lx := (p.clone().sub_in(f.bary)).dot(f.x) / float(f.sep)
+	var ly := (p.clone().sub_in(f.bary)).dot(f.y) / float(f.sep)
+	var pv := Lagrange.velocity(f, lx, ly, 0.0)
+	var dr := vessel.world_pos().sub_in(p).scale_in(Rocketry.AU_M)
+	var dv := vessel.to_world(vessel.v, DVec3.new()).scale_in(Rocketry.YR_S / Rocketry.AU_M).add_in(vessel.parent.vel) \
+		.sub_in(pv).scale_in(Rocketry.AU_M / Rocketry.YR_S)
+	var d := dr.length()
+	return {"name": "%s–%s %s" % [pri.name, sec.name, Lagrange.NAMES[int(nav_point.idx)]], "dist": d,
+		"speed": dv.length(), "closing": -dr.dot(dv) / maxf(d, 1.0)}
 
 # INPUT
 ## The orchestrator resolves configurable physical keys before dispatching the

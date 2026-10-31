@@ -173,7 +173,7 @@ void fragment() {
 		float ndl = dot(N, L);
 		// A star is a disc, not a point, so the terminator has a width.
 		float diff = sstep(-0.08, 0.22, ndl);
-		vec3 sc = uSunColor[i] * uSunInt[i];
+		vec3 sc = uSunColor[i] * uSunInt[i] * eclipse(i, N);
 		lit += albedo * sc * diff * uGain;
 		// specular — sun glint off water and off ice, and off nothing else
 		vec3 H = normalize(L + V);
@@ -186,6 +186,8 @@ void fragment() {
 		skylight += sc * diff;
 	}
 	lit += albedo * uAmbient;
+	// Earthshine and its kind: the night side lit by a bright neighbour.
+	lit += albedo * uShineColor * uShineInt * sstep(-0.05, 0.3, dot(N, normalize(uShineDir))) * uGain;
 
 	// --- aerial perspective: bluer, hazier limbs on a world with air.
 	// Rounding can put the dot of two unit vectors just past 1; pow of a negative is

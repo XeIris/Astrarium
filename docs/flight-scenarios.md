@@ -105,7 +105,7 @@ here), which the later booster scenarios avoid.
 | `shuttle:deorbit` | 300.00 km, 7433 m/s air, glide/deorbit | 0.1 s | alt +0.0 m, speed +0.0 m/s, fpa +0.0°, mass -1.5 kg, t +0.3 s |
 | `shuttle:entry_interface` | 122.00 km, 7577 m/s air, glide/entry | 3.4 s | alt +0.1 m, speed +0.0 m/s, fpa +0.0°, mass -14.3 kg, t +0.1 s |
 | `shuttle:entry_80km` | 80.00 km, 7568 m/s air, glide/entry | 0.0 s | alt +0.3 m, speed +0.1 m/s, fpa +0.0°, mass -243.9 kg |
-| `shuttle:peak_heating` | 63.95 km, 7074 m/s air, glide/entry | 3.0 s | alt -1907.7 m, speed +137.4 m/s, fpa +0.2°, mass -106.0 kg |
+| `shuttle:peak_heating` | 65.64 km, 7195 m/s air, glide/entry | 4.1 s | alt -1601.7 m, speed +212.5 m/s, fpa +0.2°, mass -97.0 kg |
 | `shuttle:roll_reversal` | 63.14 km, 6095 m/s air, glide/entry | 6.3 s | alt -982.9 m, speed -187.2 m/s, fpa -0.1°, mass -105.4 kg |
 | `shuttle:taem` | 24.40 km, 760 m/s air, glide/taem | 0.0 s | alt -20.1 m, speed -0.3 m/s, fpa +0.0°, mass -11.9 kg |
 | `shuttle:final_approach` | 3.99 km, 193 m/s air, glide/approach | 0.0 s | alt -11.0 m, speed -0.9 m/s, fpa +0.3°, mass -11.9 kg |

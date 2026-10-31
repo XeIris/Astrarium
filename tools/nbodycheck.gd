@@ -6,6 +6,7 @@ const REL_TOL := 1e-11
 const ABS_TOL := 1e-13
 
 func build(key: String) -> Array:
+	if key == SECULAR: return build_secular()
 	var seq := [0]
 	Presets.rand_override = func(): seq[0] += 1; return fposmod(float(seq[0]) * 0.6180339887, 1.0)
 	var p: Dictionary = Presets.PRESETS[key]
@@ -19,6 +20,28 @@ func build(key: String) -> Array:
 	Presets.rand_override = Callable()
 	return out
 
+# Every secular term at once, exaggerated so each moves state within the run: an
+# eccentric hot Jupiter with tides on both bodies, and a dwarf whose companion
+# overflows its Roche lobe and blows a wind.
+const SECULAR := "secular"
+func build_secular() -> Array:
+	var out := []
+	var specs := [
+		{"type": "star", "name": "Host", "mass": 1.0, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0]},
+		{"type": "gas-giant", "name": "Jupiter", "mass": 1e-3, "radiusKm": 1.0e5, "dayLength": 0.002,
+			"pos": [0.04, 0.0, 0.0], "vel": [0.0, 0.0, 34.0]},
+		{"type": "star", "name": "Donor", "mass": 0.6, "radiusSun": 0.6, "pos": [3.0, 0.0, 0.0], "vel": [0.0, 0.0, 3.6]},
+		{"type": "white-dwarf", "name": "Dwarf", "mass": 1.0, "pos": [3.0075, 0.0, 0.0], "vel": [0.0, 0.0, 3.6 + 72.0]},
+	]
+	for i in specs.size():
+		var b := Derive.new_body(i + 1, specs[i])
+		b.contact_au = Derive.contact_au(b, specs[i])
+		out.append(b)
+	out[0].tide_lag *= 1e6
+	out[1].tide_lag *= 1e5
+	out[2].wind_mdot = 1e-5
+	return out
+
 func near(a: float, b: float) -> bool:
 	return is_finite(a) and is_finite(b) and absf(a - b) <= ABS_TOL + REL_TOL * maxf(absf(a), absf(b))
 
@@ -30,13 +53,15 @@ func compare(a: Array, b: Array) -> String:
 		if x.id != y.id or x.type != y.type or x.alive != y.alive:
 			return "body identity/state differs at index %d" % i
 		if not near(x.mass, y.mass): return "mass differs for body %d" % x.id
+		if not near(x.spin_omega, y.spin_omega): return "spin differs for body %d" % x.id
+		if not near(x.gained, y.gained) or not near(x.shed, y.shed): return "overflow differs for body %d" % x.id
 		for axis in ["x", "y", "z"]:
 			if not near(x.pos.get(axis), y.pos.get(axis)): return "position.%s differs or is nonfinite for body %d" % [axis, x.id]
 			if not near(x.vel.get(axis), y.vel.get(axis)): return "velocity.%s differs or is nonfinite for body %d" % [axis, x.id]
 	return ""
 
 func check(key: String, frames: int) -> bool:
-	var p: Dictionary = Presets.PRESETS[key]
+	var p: Dictionary = Presets.PRESETS[key] if key != SECULAR else {"timeScale": 0.06, "maxStep": 2e-5}
 	var a := build(key)
 	var b := build(key)
 	var sim_dt := float(p.get("timeScale", 2.0)) / 60.0
@@ -70,6 +95,13 @@ func check(key: String, frames: int) -> bool:
 			return false
 		steps += ra.steps
 		merges += gd_events.size()
+	if key == SECULAR:
+		# The run must have exercised what it compares.
+		var moved: bool = absf(a[1].spin_omega / (TAU / 0.002) - 1.0) > 1e-6 \
+			and a[3].gained > 0.0 and a[2].mass < 0.6
+		if not moved:
+			printerr("NBODYCHECK FAIL secular: tides, overflow or wind did not act (spin %s, gained %s, donor %s)" % [a[1].spin_omega, a[3].gained, a[2].mass])
+			return false
 	print("NBODYCHECK PASS %-12s gd %.3f ms/frame native %.3f ms/frame steps %d merges %d bodies %d" % [
 		key, gd_us / 1000.0 / frames, native_us / 1000.0 / frames, steps, merges, a.size()])
 	return true
@@ -81,13 +113,13 @@ func _init() -> void:
 		return
 	var frame_arg := OS.get_environment("FRAMES")
 	var frames := int(frame_arg) if frame_arg != "" else 240
-	var keys: PackedStringArray = OS.get_environment("KEYS").split(",", false) if OS.get_environment("KEYS") != "" else PackedStringArray(["solar", "alphacen", "trisolaris", "stellar_zoo", "bhmerger", "nsmerger", "sirius", "feeding", "threebody"])
+	var keys: PackedStringArray = OS.get_environment("KEYS").split(",", false) if OS.get_environment("KEYS") != "" else PackedStringArray(["solar", "alphacen", "trisolaris", "stellar_zoo", "bhmerger", "nsmerger", "sirius", "feeding", "threebody", SECULAR])
 	if frames <= 0 or (frame_arg != "" and not frame_arg.is_valid_int()) or keys.is_empty():
 		printerr("NBODYCHECK FAIL: FRAMES must be positive and KEYS nonempty")
 		quit(1)
 		return
 	for key in keys:
-		if not Presets.PRESETS.has(key):
+		if key != SECULAR and not Presets.PRESETS.has(key):
 			printerr("NBODYCHECK FAIL: unknown preset ", key)
 			quit(1)
 			return
@@ -95,6 +127,6 @@ func _init() -> void:
 	for key in keys:
 		# solar's 2e-4 yr cap makes ~500 substeps a frame; 60 frames still compares
 		# 30 000 of them, and keeps the GDScript side inside the CI timeout.
-		if not check(key, mini(frames, 60) if key == "solar" else frames): failed += 1
+		if not check(key, mini(frames, 60) if key in ["solar", SECULAR] else frames): failed += 1
 	print("NBODYCHECK DONE %d presets, %d failed (abs tolerance %s, relative tolerance %s)" % [keys.size(), failed, ABS_TOL, REL_TOL])
 	quit(1 if failed > 0 else 0)

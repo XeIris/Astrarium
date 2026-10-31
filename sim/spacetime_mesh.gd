@@ -13,6 +13,12 @@ const RING_SEG := 56
 const RING_LEVELS := 9
 const MAX_EXTENT := 30720.0
 const GRID_PIXELS := 18.0
+# Sheet depth per unit Newtonian potential, scene units per (M☉ / scene unit): a
+# Sun-mass well about two scene units deep a unit out.
+const POTENTIAL_DEPTH := 2.0
+# A compact star's Φ is a needle far narrower than the lattice; inside this radius
+# (scene units) it is drawn as a uniform sphere's.
+const POTENTIAL_SOFTEN := 0.6
 const LINE_SHADER := preload("res://shaders/bodies/mesh_spacetime.gdshader")
 const DOT_SHADER := preload("res://shaders/bodies/mesh_spacetime_dots.gdshader")
 
@@ -155,10 +161,12 @@ func update(bodies: Array, mcx: float, mcz: float, sim_stepped: float, cam_pos: 
 	for body in bodies:
 		if count >= 16: break
 		var p: DVec3 = body.scene_pos
+		# Holes by their rendered horizon (Flamm); everything else by Φ ∝ M/d at its
+		# rendered radius (shaders/common/spacetime_well.gdshaderinc).
 		if body.type == "bh":
-			wells[count] = Vector4(p.x - mcx, p.z - mcz, body.rs_scene, 1.0)
+			wells[count] = Vector4(p.x - mcx, p.z - mcz, 0.0, -maxf(body.rs_scene, 1e-6))
 		else:
-			wells[count] = Vector4(p.x - mcx, p.z - mcz, minf(body.mass + body.radius_scene, 6.0), 0.0)
+			wells[count] = Vector4(p.x - mcx, p.z - mcz, POTENTIAL_DEPTH * body.mass, maxf(body.radius_scene, POTENTIAL_SOFTEN))
 		count += 1
 	for material in [line_mat, dot_mat]:
 		material.set_shader_parameter("wells", wells)

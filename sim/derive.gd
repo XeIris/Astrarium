@@ -87,8 +87,14 @@ static func contact_au(b: Body, spec: Dictionary) -> float:
 # Peak Shakura–Sunyaev disc temperature: T ∝ (Ṁ/M²)^¼ with Ṁ ∝ M gives T ∝ M^(−¼)
 # (~10⁷ K, X-ray, for a stellar-mass hole). The lens pass and a sub-pixel hole's
 # marker both use it.
-static func disc_peak_temp(mass: float) -> float:
-	return 2.0e7 * pow(maxf(mass, 0.1), -0.25)
+## Peak disc temperature (K). The spin factor holds the Eddington ratio fixed, so
+## Ṁ ∝ 1/η and T⁴ ∝ F_peak/η (Page–Thorne, relative to a* = 0).
+static func disc_peak_temp(mass: float, spin: float = 0.0) -> float:
+	var t := 2.0e7 * pow(maxf(mass, 0.1), -0.25)
+	if spin <= 0.0: return t
+	var k := LensPass.disc_terms(spin)
+	var k0 := LensPass.disc_terms(0.0)
+	return t * pow((float(k.peak) / float(k.eta)) / (float(k0.peak) / float(k0.eta)), 0.25)
 
 ## Recompute the canonical interior model after physical mass or spin changes.
 static func refresh_structure(b: Body) -> Dictionary:
@@ -103,7 +109,7 @@ static func refresh_structure(b: Body) -> Dictionary:
 		"phase": b.phase, "composition": b.composition, "Z": b.Z,
 		"radiusSun": sp.get("radiusSun"), "teff": sp.get("teff"), "luminosity": sp.get("luminosity"),
 		"radiusKm": sp.get("radiusKm"),
-		"spinHz": sp.get("spinHz"),
+		"spinHz": sp.get("spinHz"), "ageYr": sp.get("ageYr"),
 		# Body.rs defaults to 0, which means "unset" (stars, planets).
 		"rs": b.rs if b.rs != 0.0 else null,
 	}
@@ -119,7 +125,33 @@ static func refresh_structure(b: Body) -> Dictionary:
 		b.luminosity = b.structure.luminosity
 		b.spectral = Stellar.spectral_class(b.teff) if b.type == "star" else "D"
 	b.contact_au = contact_au(b, sp)
+	_secular_inputs(b)
 	return b.structure
+
+## The kernel's secular inputs from the structure. The spin starts at the body's own
+## rate, then is the kernel's to evolve; a body with no known rotation raises no tide.
+static func _secular_inputs(b: Body) -> void:
+	var t: Dictionary = b.structure.get("secular", {})
+	b.wind_mdot = float(t.get("windMdot", 0.0)) if b.type == "star" else 0.0
+	b.donor = b.type == "star"
+	b.tide_lag = float(t.get("lagS", 0.0)) / Rocketry.YR_S
+	b.tide_iom = float(t.get("gyr", 0.0)) * b.radius * b.radius
+	if not b.spin_tracked:
+		b.spin_omega = initial_spin(b)
+		b.spin_tracked = b.spin_omega != 0.0
+	b.tide_k2 = float(t.get("k2", 0.0)) if b.spin_tracked else 0.0
+
+## Spin rate about the orbit normal, rad/yr; negative retrograde, 0 when unknown.
+static func initial_spin(b: Body) -> float:
+	if b.type == "star":
+		var p := float(b.structure.get("spinPeriodSec", 0.0))
+		return TAU * Rocketry.YR_S / p if p > 0.0 and is_finite(p) else 0.0
+	if b.type not in ["planet", "world", "gas-giant"]: return 0.0
+	var surf: Dictionary = Rocketry.SURFACES.get(b.name, {})
+	if surf.has("day") and b.spec.get("dayLength") == null: return TAU * Rocketry.YR_S / float(surf.day)
+	var period := absf(float(U.nz(b.spec.get("dayLength"), b.day_length)))
+	if period <= 0.0: return 0.0
+	return TAU / period * (-1.0 if absf(b.obliquity) > PI / 2.0 else 1.0)
 
 # Derive intrinsic properties; construction/edits own the live state vectors.
 static func derive_body(b: Body, spec: Dictionary) -> Body:
@@ -170,6 +202,7 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 	# the spec is kept so the visual can be rebuilt at a different size without
 	# disturbing the physics state (see rebuildVisuals)
 	b.spec = spec.duplicate(); b.def = def
+	b.spin_tracked = false
 	refresh_structure(b)
 	b.visual_spin_rad_s = spec.get("visualSpinRadS")
 	if b.visual_spin_rad_s == null:
@@ -266,6 +299,7 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 			Physics.restore_step(bodies)
 			result.resolution_limited = true
 			break
+		if Physics.secular: Physics.apply_secular(bodies, h)
 		guard += 1
 		stepped += h
 		remaining = minf(remaining - h, sim_dt - stepped)

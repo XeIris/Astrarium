@@ -48,6 +48,8 @@ const LIMITS := {
 	# Core-collapse thresholds (initial mass, solar metallicity). Above the pair
 	# window, the star goes straight to a black hole.
 	"neutronStarMin": 8.0, "blackHoleMin": 20.0,
+	# Fully convective below ~0.35 M☉ (Chabrier & Baraffe 1997).
+	"fullyConvective": 0.35,
 }
 
 # Metal-poor gas needs slightly more mass to ignite.
@@ -487,6 +489,9 @@ static func input_error(spec: Dictionary) -> String:
 	var hz = spec.get("spinHz")
 	if hz != null and (not _finite_number(hz) or float(hz) < 0.0):
 		return "Spin frequency must be a finite nonnegative number."
+	var age = spec.get("ageYr")
+	if age != null and (not _finite_number(age) or float(age) <= 0.0 or float(age) > 1e11):
+		return "Age must be a finite positive number of years, at most 1e11."
 	if spec.get("type") == "bh":
 		var rs := Physics.schwarzschild(float(mass))
 		var lifetime := _hole_evaporation_years(float(mass))
@@ -515,13 +520,149 @@ static func structure_of(spec: Dictionary) -> Dictionary:
 	var mass := float(U.nz(spec.get("mass"), 1.0))
 	if type != "bh": mass = maxf(mass, ORDINARY_MASS_MIN)
 	var spin_frac := minf(maxf(float(U.nz(spec.get("spinFrac"), 0.0)), 0.0), 1.15)
+	var s: Dictionary
 	match type:
-		"bh": return _hole_structure(spec, mass, spin_frac)
-		"neutron": return _neutron_structure(spec, mass, spin_frac)
-		"white-dwarf": return _white_dwarf_structure(spec, mass, spin_frac)
-		"star": return _star_structure(spec, mass, spin_frac)
-		"gas-giant": return _giant_structure(spec, mass, spin_frac)
-		_: return _rocky_structure(spec, mass, spin_frac)
+		"bh": s = _hole_structure(spec, mass, spin_frac)
+		"neutron": s = _neutron_structure(spec, mass, spin_frac)
+		"white-dwarf": s = _white_dwarf_structure(spec, mass, spin_frac)
+		"star": s = _star_structure(spec, mass, spin_frac)
+		"gas-giant": s = _giant_structure(spec, mass, spin_frac)
+		_: s = _rocky_structure(spec, mass, spin_frac)
+	s.secular = secular_terms(s, spec)
+	return s
+
+# SECULAR TERMS. What the kernel's tides, winds and Roche-lobe overflow read
+# (Physics.apply_secular); sources and checks in docs/physics/secular.md.
+const TIDES := {
+	# Uniform elastic sphere k2 = 1.5/(1 + 19μ/2ρgR) (Love 1911), μ = 65 GPa: Moon
+	# 0.025 (GRAIL 0.024), Mars 0.15 (0.17). Δt from Q⁻¹ = 2|Ω − n|Δt, Q = 88 at
+	# Phobos's frequency (Jacobson & Lainey 2014). Earth's ocean tide is stated.
+	"rocky": {"rigidityPa": 6.5e10, "lagS": 36.0, "gyr": 0.35},
+	# n = 1 polytrope (k2 = 15/π² − 1); Δt from Jupiter's Q = 3.6e4 at Io (Lainey
+	# et al. 2009). I/MR² 0.254 (Jupiter).
+	"giant": {"k2": 0.52, "lagS": 0.10, "gyr": 0.254},
+	# n = 3 polytrope (apsidal constant 0.0144) with k2·Δt from Zahn's (1977)
+	# convective-envelope equilibrium tide for the Sun, 7.6e-4 s; fully convective
+	# stars are n = 1.5. A radiative envelope's dynamical tide is far weaker: 1e-3 of it.
+	"star": {"k2": 0.029, "k2Δt": 7.6e-4, "gyr": 0.076, "radiativeFactor": 1e-3},
+	"starConvective": {"k2": 0.287, "gyr": 0.205},
+}
+# Nova ignition at an envelope base pressure ~2e19 dyn/cm² (Yaron et al. 2005 span
+# 1e18–1e20); steady hydrogen burning between 0.4 and 1 × Ṁ_cr = 9e-7(M − 0.5) M☉/yr
+# (Nomoto et al. 2007; Hachisu et al. 1999), above which the excess blows away.
+const ACCRETION := {"ignitionPressurePa": 2e18, "steadyLo": 0.4, "mdotCrit": 9.0e-7, "mdotCritM0": 0.5}
+
+# Time since ZAMS at each track stop, in main-sequence lifetimes: MIST's 1 M☉ track
+# (Choi et al. 2016) after core-hydrogen exhaustion, and a Kelvin–Helmholtz
+# contraction of 0.3% of it before. Mass-independent, so massive stars' short
+# post-MS phases are only roughly timed.
+const LIFE_CLOCK := [[-0.15, -0.003], [0.0, 0.0], [1.0, 1.0], [1.10, 1.07], [1.35, 1.17], [1.45, 1.22],
+	[1.55, 1.2201], [1.80, 1.232], [1.95, 1.234], [2.0, 1.2341]]
+
+## The track phase reached `dt_yr` after phase `f` for a main-sequence lifetime `t_ms`.
+static func phase_after(f: float, dt_yr: float, t_ms: float) -> float:
+	if not (t_ms > 0.0) or dt_yr <= 0.0: return f
+	var rows := LIFE_CLOCK
+	var at := func(x: float, i_in: int, i_out: int) -> float:
+		var last: int = rows.size() - 1
+		if x <= float(rows[0][i_in]): return float(rows[0][i_out])
+		if x >= float(rows[last][i_in]): return float(rows[last][i_out])
+		for i in last:
+			var a: Array = rows[i]; var b: Array = rows[i + 1]
+			if x <= float(b[i_in]):
+				return lerpf(float(a[i_out]), float(b[i_out]), (x - float(a[i_in])) / (float(b[i_in]) - float(a[i_in])))
+		return float(rows[last][i_out])
+	return float(at.call(float(at.call(f, 0, 1)) + dt_yr / t_ms, 1, 0))
+
+## Tidal Love number, time lag (s), I/MR² and wind Ṁ (M☉/yr) for a structure `s`.
+## A spec's `k2` and `tideLagS` are measurements and win. Compact objects raise no
+## tide here: their Love numbers matter only in the last orbits before contact.
+static func secular_terms(s: Dictionary, spec: Dictionary) -> Dictionary:
+	var out := {"k2": 0.0, "lagS": 0.0, "gyr": 0.0, "windMdot": 0.0}
+	var R: float = float(s.get("radiusAU", 0.0)) * Rocketry.AU_M
+	var M: float = float(s.get("mass", 0.0)) * M_SUN
+	if R <= 0.0 or M <= 0.0: return out
+	match String(s.get("type", "")):
+		"star":
+			var conv := M / M_SUN < float(LIMITS.fullyConvective)
+			var t: Dictionary = TIDES.starConvective if conv else TIDES.star
+			out.k2 = t.k2
+			out.gyr = t.gyr
+			var k2dt: float = TIDES.star["k2Δt"]
+			if not bool(s.get("convectiveEnvelope", true)): k2dt *= float(TIDES.star.radiativeFactor)
+			out.lagS = k2dt / float(t.k2)
+			out.windMdot = wind_mass_loss(s)
+		"gas-giant":
+			out.k2 = TIDES.giant.k2; out.lagS = TIDES.giant.lagS; out.gyr = TIDES.giant.gyr
+		"planet", "world":
+			var g := G_SI * M / (R * R)
+			var rho := M / (4.0 / 3.0 * PI * R * R * R)
+			out.k2 = 1.5 / (1.0 + 19.0 * float(TIDES.rocky.rigidityPa) / (2.0 * rho * g * R))
+			out.lagS = TIDES.rocky.lagS; out.gyr = TIDES.rocky.gyr
+	if _pos(spec.get("k2")): out.k2 = float(spec.k2)
+	if _pos(spec.get("tideLagS")): out.lagS = float(spec.tideLagS)
+	return out
+
+## Isotropic wind, M☉/yr. Hot stars: Vink et al. (2001) eqs. 24–25 either side of the
+## bistability jump; Wolf–Rayet: Nugis & Lamers (2000) with Y = 1; evolved cool stars:
+## Reimers (1975), η = 0.477 (McDonald & Zijlstra 2015); cool dwarfs: the Sun's
+## 2e-14 per unit area (Wood et al. 2005 find a spread of ~10 around it).
+static func wind_mass_loss(s: Dictionary) -> float:
+	var L: float = float(s.get("luminosity", 0.0))
+	var R: float = float(s.get("radiusSun", 0.0))
+	var M: float = float(s.get("mass", 0.0))
+	var T: float = float(s.get("teff", 0.0))
+	var Z: float = float(s.get("Z", 0.014))
+	if L <= 0.0 or R <= 0.0 or M <= 0.0 or T <= 0.0: return 0.0
+	if bool(s.get("wolfRayet", false)):
+		return pow(10.0, -11.0 + 1.29 * _lg(L) + 0.47 * _lg(Z))
+	if T >= 27500.0:
+		var t := _lg(T / 40000.0)
+		return pow(10.0, -6.697 + 2.194 * _lg(L / 1e5) - 1.313 * _lg(M / 30.0) - 1.226 * _lg(2.6 / 2.0)
+			+ 0.933 * t - 10.92 * t * t + 0.85 * _lg(Z / 0.014))
+	if T >= 12500.0:
+		return pow(10.0, -6.688 + 2.210 * _lg(L / 1e5) - 1.339 * _lg(M / 30.0) - 1.601 * _lg(1.3 / 2.0)
+			+ 1.07 * _lg(T / 20000.0) + 0.85 * _lg(Z / 0.014))
+	var reimers := 4e-13 * 0.477 * L * R / M
+	var ph = s.get("phase")
+	if ph is Dictionary and float(ph.get("f", 0.5)) > 1.0: return reimers
+	return 2e-14 * R * R
+
+static func _lg(x: float) -> float:
+	return log(x) / log(10.0)
+
+## E-folding times (yr) of the tide raised on a body of mass `m` (M☉), radius `r_au`,
+## Love number `k2`, lag `lag_yr` and I/MR² `gyr` by `m_other` at semi-major axis
+## `a_au`: the spin's approach to synchronous rotation and the circularisation at
+## e → 0 with the spin synchronous (Hut 1981, eq. A9 and eq. 2 with f(e) → 1).
+static func tidal_timescales(m: float, r_au: float, k2: float, lag_yr: float, gyr: float, m_other: float, a_au: float) -> Dictionary:
+	if not (k2 > 0.0 and lag_yr > 0.0 and r_au > 0.0 and a_au > r_au and m > 0.0 and m_other > 0.0):
+		return {"lock": INF, "circ": INF}
+	var R5 := pow(r_au, 5.0)
+	var torque := 1.5 * k2 * Physics.G * m_other * m_other * R5 * lag_yr / pow(a_au, 6.0)
+	var circ := 5.25 * k2 * Physics.G * lag_yr * m_other * (m + m_other) * R5 / (m * pow(a_au, 8.0))
+	return {"lock": gyr * m * r_au * r_au / torque, "circ": 1.0 / circ}
+
+## Eggleton's (1983) Roche-lobe radius over the separation, for mass ratio q = M_donor/M_accretor.
+static func roche_lobe_fraction(q: float) -> float:
+	var q13 := pow(q, 1.0 / 3.0)
+	var q23 := q13 * q13
+	return 0.49 * q23 / (0.6 * q23 + log(1.0 + q13))
+
+## Hydrogen envelope (M☉) a white dwarf of `mass` and `radius_au` accretes before a nova.
+static func nova_ignition_mass(mass: float, radius_au: float) -> float:
+	var R := radius_au * Rocketry.AU_M
+	if R <= 0.0 or mass <= 0.0: return INF
+	return 4.0 * PI * pow(R, 4.0) * float(ACCRETION.ignitionPressurePa) / (G_SI * mass * M_SUN) / M_SUN
+
+## What a white dwarf does with hydrogen arriving at `mdot` (M☉/yr): "nova" (it
+## accumulates and ignites), "steady" (it burns as it lands and the dwarf grows), or
+## "wind" (it grows at Ṁ_cr and blows the rest away). `retained` is the rate kept.
+static func accretion_regime(mass: float, mdot: float) -> Dictionary:
+	var crit := float(ACCRETION.mdotCrit) * maxf(mass - float(ACCRETION.mdotCritM0), 0.05)
+	if mdot > crit: return {"regime": "wind", "retained": crit}
+	if mdot >= float(ACCRETION.steadyLo) * crit: return {"regime": "steady", "retained": mdot}
+	return {"regime": "nova", "retained": 0.0}
 
 # Radius measurements take precedence before density, gravity and rotation derive.
 static func _measured_radius_au(spec: Dictionary, modeled_au: float) -> float:
@@ -802,6 +943,35 @@ static func end_state_of(mass: float, Z: float = 0.014) -> Dictionary:
 	if mass >= float(LIMITS.neutronStarMin): return { "type": "neutron", "label": "Neutron star", "mass": 1.2 + 0.06 * (mass - 8.0) }
 	return { "type": "white-dwarf", "label": "White dwarf", "mass": white_dwarf_final_mass(mass) }
 
+## A newborn neutron star's kick, km/s: a Maxwellian with σ = 265 km/s per axis
+## (Hobbs et al. 2005, from pulsar proper motions; mean 420 km/s). A black hole gets
+## the momentum-conserving share, scaled by 1.4 M☉/M, as population-synthesis codes
+## commonly assume; a white dwarf none. `rng` makes the draw reproducible.
+const NATAL_KICK_SIGMA_KMS := 265.0
+static func natal_kick_kms(remnant_type: String, remnant_mass: float, rng: RandomNumberGenerator) -> Vector3:
+	if remnant_type != "neutron" and remnant_type != "bh": return Vector3.ZERO
+	var v := Vector3(rng.randfn(0.0, 1.0), rng.randfn(0.0, 1.0), rng.randfn(0.0, 1.0)) * NATAL_KICK_SIGMA_KMS
+	return v if remnant_type == "neutron" else v * minf(1.4 / maxf(remnant_mass, 1.4), 1.0)
+
+## Distance (AU) inside which a primary of `primary_mass` pulls apart a body of this
+## type, mass and radius; 0 when nothing can (a black hole). docs/physics/structure.md#tidal-disruption
+##   world held by its own gravity: the fluid Roche limit 2.44 R (M/m)^⅓
+##   smaller than the 300 km "potato radius" (Lineweaver & Norman 2010): rigid, 1.26
+##   star or compact object: r_t/β_d, r_t = R (M/m)^⅓, with full disruption at
+##   β_d = 0.9 for γ = 5/3 and 1.85 for γ = 4/3 (Guillochon & Ramirez-Ruiz 2013)
+const POTATO_RADIUS_KM := 300.0
+static func disruption_radius(type: String, mass: float, radius_au: float, primary_mass: float) -> float:
+	if type == "bh" or not (mass > 0.0) or not (radius_au > 0.0) or not (primary_mass > 0.0): return 0.0
+	var tidal := radius_au * U.cbrt(primary_mass / mass)
+	match type:
+		"star":
+			# Fully convective dwarfs are n = 1.5 polytropes; heavier stars are centrally
+			# condensed, near n = 3.
+			return tidal / (0.9 if mass < LIMITS.fullyConvective else 1.85)
+		"white-dwarf", "neutron":
+			return tidal / 0.9
+	return tidal * (2.44 if radius_au / Physics.AU_PER_KM >= POTATO_RADIUS_KM else 1.26)
+
 ## Initial–final mass relation, Cummings et al. (2018), MIST-based three-piece fit.
 static func white_dwarf_final_mass(mass: float) -> float:
 	var m: float
@@ -905,6 +1075,8 @@ static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) 
 	var rho := (mass * M_SUN) / ((4.0 / 3.0) * PI * pow(r_km * 1000.0, 3.0))
 	var surface_g := G_SI * mass * M_SUN / pow(r_km * 1000.0, 2.0)
 	var period_ms := (2.0 * PI / (spin_frac * omega_c) * 1000.0) if spin_frac > 0.0 else INF
+	var age_yr := float(spec.ageYr) if _pos(spec.get("ageYr")) else float(NS_COOLING.defaultAgeYr)
+	var cool := neutron_cooling(mass, r_km, age_yr)
 
 	var verdict: Dictionary
 	if mass > max_m * 0.95:
@@ -926,23 +1098,75 @@ static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) 
 		"compactness": compactness, "tovMax": max_m, "spinPeriodMs": period_ms,
 		# Surface redshift 1/√(1 − r_s/R) − 1 (~19% at 0.3 compactness).
 		"redshift": 1.0 / sqrt(maxf(1.0 - compactness, 1e-3)) - 1.0,
-		"teff": 6e5,
+		"teff": cool.teff, "teffInf": cool.teffInf, "cooling": cool,
 		"verdict": verdict,
-		"layers": _neutron_layers(r_km),
+		"layers": _neutron_layers(r_km, cool),
 	}
 	return _with_rotation(s, mass, "neutron", spin_frac)
 
-static func _neutron_layers(_r_km: float) -> Array:
+# Minimal cooling of an isolated star (Yakovlev & Pethick 2004): an isothermal
+# interior with heat capacity C ≈ 1e39·T9 erg/K loses modified-Urca neutrinos
+# (L_ν ≈ 1e40·T9⁸ erg/s) until ~1e5 yr, then surface photons. An iron envelope
+# maps the interior Tb to Teff (Gudmundsson, Pethick & Epstein 1983). The crust
+# keeps its birth heat until thermal relaxation, 10–100 yr (Gnedin et al. 2001).
+# Derivation: docs/physics/structure.md#neutron-star-cooling.
+const NS_COOLING := {
+	"heatCapJK": 1e32, "neutrinoW": 1e33, "relaxYr": 30.0, "defaultAgeYr": 1e5,
+	"startYr": 1.0, "steps": 64,
+}
+
+## Temperatures (K) of a neutron star `age_yr` after birth. teff is local at the
+## surface; teffInf is what a distant observer measures.
+static func neutron_cooling(mass: float, r_km: float, age_yr: float) -> Dictionary:
+	var r_m := r_km * 1000.0
+	var g14 := G_SI * mass * M_SUN / (r_m * r_m) / 1e12   # g in 10¹⁴ cm/s²
+	var redshift_factor := sqrt(maxf(1.0 - 2.0 * G_SI * mass * M_SUN / (r_m * Rocketry.C_MS * Rocketry.C_MS), 1e-3))
+	# Teff = 0.87e6 K · g14^¼ · (Tb/1e8 K)^0.55, so L_γ ∝ Tb^2.2.
+	var teff_of := func(tb: float) -> float: return 0.87e6 * pow(g14, 0.25) * pow(maxf(tb, 1.0) / 1e8, 0.55)
+	var c9 := float(NS_COOLING.heatCapJK) * 1e9
+	var a := float(NS_COOLING.neutrinoW) / c9
+	var t9_of_teff := float(teff_of.call(1e9))
+	var b := 4.0 * PI * r_m * r_m * SIGMA * pow(t9_of_teff, 4.0) / c9
+	var t0 := float(NS_COOLING.startYr) * Rocketry.YR_S
+	var age := maxf(age_yr, float(NS_COOLING.startYr)) * Rocketry.YR_S
+	# Neutrinos alone before the start: T9⁻⁶ = 6·a·t.
+	var y := log(pow(6.0 * a * t0, -1.0 / 6.0))
+	var n := int(NS_COOLING.steps)
+	var hx := log(age / t0) / float(n)
+	# d(ln T9)/d(ln t) = −t·(a·T9⁶ + b·T9^0.2), integrated by RK4 in ln t.
+	var rate := func(x: float, yy: float) -> float:
+		var t9 := exp(maxf(yy, -40.0))
+		return -exp(x) * (a * pow(t9, 6.0) + b * pow(t9, 0.2))
+	var x := log(t0)
+	for i in n:
+		var k1: float = rate.call(x, y)
+		var k2: float = rate.call(x + 0.5 * hx, y + 0.5 * hx * k1)
+		var k3: float = rate.call(x + 0.5 * hx, y + 0.5 * hx * k2)
+		var k4: float = rate.call(x + hx, y + hx * k3)
+		y += hx * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+		x += hx
+	var t_core := exp(maxf(y, -40.0)) * 1e9
+	var t_crust := t_core * (1.0 + exp(-maxf(age_yr, 0.0) / float(NS_COOLING.relaxYr)))
+	var teff: float = teff_of.call(t_crust)
+	return {
+		"ageYr": maxf(age_yr, 0.0), "coreT": t_core, "crustT": t_crust,
+		"teff": teff, "teffInf": teff * redshift_factor,
+		"photonsDominate": b * pow(t_crust / 1e9, 0.2) > a * pow(t_crust / 1e9, 6.0),
+	}
+
+static func _neutron_layers(_r_km: float, cool: Dictionary) -> Array:
+	var tc := float(cool.coreT)
+	var tk := float(cool.crustT)
 	return [
-		{ "name": "Inner core", "r0": 0.0, "r1": 0.45, "T": 1e8, "rho": 1.2e18,
+		{ "name": "Inner core", "r0": 0.0, "r1": 0.45, "T": tc, "rho": 1.2e18,
 			"note": "Above a few times nuclear density, and genuinely unknown. Hyperons? A deconfined quark–gluon core? Which it is decides the TOV limit." },
-		{ "name": "Outer core", "r0": 0.45, "r1": 0.90, "T": 2e8, "rho": 5e17,
+		{ "name": "Outer core", "r0": 0.45, "r1": 0.90, "T": tc, "rho": 5e17,
 			"note": "Superfluid neutrons with a few percent superconducting protons and electrons. Frictionless — and the sudden unpinning of its vortices is what makes a pulsar glitch." },
-		{ "name": "Inner crust", "r0": 0.90, "r1": 0.975, "T": 5e8, "rho": 1e17,
+		{ "name": "Inner crust", "r0": 0.90, "r1": 0.975, "T": tk, "rho": 1e17,
 			"note": "Past neutron drip. Nuclei dissolve into \"nuclear pasta\" — sheets and rods of nuclear matter, the stiffest material that exists." },
-		{ "name": "Outer crust", "r0": 0.975, "r1": 0.998, "T": 1e8, "rho": 1e11,
+		{ "name": "Outer crust", "r0": 0.975, "r1": 0.998, "T": tk, "rho": 1e11,
 			"note": "A crystalline lattice of iron-group nuclei in a degenerate electron sea. About a kilometre thick, and 10¹⁸ times stronger than steel." },
-		{ "name": "Atmosphere", "r0": 0.998, "r1": 1.0, "T": 1e6, "rho": 1e2,
+		{ "name": "Atmosphere", "r0": 0.998, "r1": 1.0, "T": float(cool.teff), "rho": 1e2,
 			"note": "A few centimetres of carbon or hydrogen plasma. It sets the X-ray spectrum, which is how the radius gets measured at all." },
 	]
 
@@ -983,16 +1207,19 @@ static func _white_dwarf_structure(spec: Dictionary, mass: float, spin_frac: flo
 static func _hole_evaporation_years(mass: float) -> float:
 	return 2.10e67 * pow(mass, 3.0)
 
+## Prograde ISCO radius in units of M for spin a* (Bardeen, Press & Teukolsky 1972).
+static func kerr_isco(a: float) -> float:
+	var z1 := 1.0 + U.cbrt(1.0 - a * a) * (U.cbrt(1.0 + a) + U.cbrt(1.0 - a))
+	var z2 := sqrt(3.0 * a * a + z1 * z1)
+	return 3.0 + z2 - sqrt(maxf((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0))
+
 static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) -> Dictionary:
 	var a := minf(spin_frac, 0.998)                  # dimensionless Kerr spin a/M
 	var rs_au := Physics.schwarzschild(mass)
 	var M := rs_au / 2.0                             # geometric mass, AU
 	# Kerr horizon: r₊ = M + √(M² − a²M²)
 	var r_plus := M * (1.0 + sqrt(maxf(1.0 - a * a, 0.0)))
-	# Prograde ISCO (Bardeen, Press & Teukolsky 1972).
-	var z1 := 1.0 + U.cbrt(1.0 - a * a) * (U.cbrt(1.0 + a) + U.cbrt(1.0 - a))
-	var z2 := sqrt(3.0 * a * a + z1 * z1)
-	var r_isco := M * (3.0 + z2 - sqrt(maxf((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0)))
+	var r_isco := M * kerr_isco(a)
 	# Hawking temperature and evaporation time.
 	var t_hawk := 6.169e-8 / mass                    # K
 	var t_evap := _hole_evaporation_years(mass)
@@ -1004,8 +1231,9 @@ static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) ->
 		"type": "bh", "kind": "bh", "mass": mass,
 		"label": ("Kerr black hole (a* = %s)" % U.fixed(a, 2)) if a > 0.1 else "Schwarzschild black hole",
 		"radiusAU": r_plus, "rs": rs_au, "spin": a,
+		"lensNote": ("Kerr geodesics, Page–Thorne disc (a* = %s)" % U.fixed(a, 2)) if a > 0.01 else "Schwarzschild geodesics, Page–Thorne disc",
 		"horizonAU": r_plus, "photonSphereAU": (2.0 * M * (1.0 + cos((2.0 / 3.0) * acos(-a)))) if a > 0.01 else 1.5 * rs_au,
-		"shadowAU": sqrt(27.0) * M,   # the Schwarzschild shadow; spin flattens and shifts it
+		"shadowAU": sqrt(27.0) * M,   # the a* = 0 value; the marcher draws spin's flattened, shifted shadow
 		"iscoAU": r_isco, "ergoAU": 2.0 * M if a > 0.01 else rs_au,
 		"hawkingK": t_hawk, "evaporationYr": t_evap,
 		"teff": 2.0e7 * pow(maxf(mass, 0.1), -0.25),

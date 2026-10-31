@@ -1,6 +1,6 @@
 #[compute]
 #version 450
-// BLACK HOLE, pass 1: null geodesics and the volumetric disc, at the lens scale
+// BLACK HOLE, pass 1: Kerr null geodesics and the volumetric disc, at the lens scale
 // (physics: docs/physics/lensing.md). The sky is evaluated on the resulting
 // direction field at full resolution by shaders/sky/background.
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -14,6 +14,9 @@ layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D gMarch1
 #define MAX_HOLES 2
 layout(set = 0, binding = 2, std140) uniform Params {
 	vec4 holePosRs[MAX_HOLES];   // xyz position (camera-relative scene units), w = r_s
+	vec4 holeSpin[MAX_HOLES];    // a* (prograde with the disc), ISCO in r_s, 1/peak Page–Thorne flux, √(r_isco/M)
+	vec4 holeRoot[MAX_HOLES];    // roots of x³ − 3x + 2a*
+	vec4 holeCoef[MAX_HOLES];    // their Page–Thorne log coefficients
 	vec4 camRight;               // camera basis, world space (camMat columns)
 	vec4 camUp;
 	vec4 camBack;
@@ -38,12 +41,18 @@ layout(set = 0, binding = 2, std140) uniform Params {
 
 vec3 holePos(int k){ return P.holePosRs[k].xyz; }
 float holeRs(int k){ return P.holePosRs[k].w; }
+float holeA(int k){ return P.holeSpin[k].x; }
+// r₊ = M(1 + √(1 − a²)), scene units
+float holeRp(int k){ return 0.5 * holeRs(k) * (1.0 + sqrt(max(1.0 - holeA(k) * holeA(k), 0.0))); }
 
 #define PI 3.141592653589793
+// Near-extremal prograde orbits skim the horizon for several windings, so a hole
+// spinning faster than a* = 0.5 gets the longer budget.
 #define STEPS 240
+#define STEPS_SPIN 320
 
-// inner edge of the disc, in r_s — the ISCO of a Schwarzschild hole
-#define R_ISCO 3.0
+// reference radius of the flaring law, in r_s (the Schwarzschild ISCO)
+#define R_FLARE 3.0
 
 // noise
 float hash31(vec3 p){
@@ -96,19 +105,25 @@ vec3 blackbody(float T){
 
 // Flaring scale height. Thin discs run H/R ≈ 0.05 and flare outward as r^(9/8).
 float scaleHeight(float r, float rs){
-	return rs * (0.045 * pow(r / (R_ISCO * rs), 1.125) + 0.012);
+	return rs * (0.045 * pow(r / (R_FLARE * rs), 1.125) + 0.012);
 }
 
-// Shakura–Sunyaev radial temperature, normalised to peak at 1.
-// Peaks at r = (49/36)·r_in where the profile reaches 0.4880.
-float ssTemp(float r, float rin){
-	float x = rin / r;
-	if(x >= 1.0) return 0.0;
-	return pow(x, 0.75) * pow(max(1.0 - sqrt(x), 0.0), 0.25) * 2.0492;
+// Page–Thorne effective temperature (F/F_peak)^¼ at r (units of M); zero at the ISCO.
+float ptTemp(int k, float rM){
+	vec4 s = P.holeSpin[k];
+	float x = sqrt(rM), x0 = s.w, a = s.x;
+	if(x <= x0) return 0.0;
+	vec3 xr = P.holeRoot[k].xyz, c = P.holeCoef[k].xyz;
+	float t = x - x0 - 1.5 * a * log(x / x0)
+		- c.x * log((x - xr.x) / (x0 - xr.x))
+		- c.y * log((x - xr.y) / (x0 - xr.y))
+		- c.z * log((x - xr.z) / (x0 - xr.z));
+	float F = t / (x * x * x * x * (x * x * x - 3.0 * x + 2.0 * a));
+	return pow(max(F * s.z, 0.0), 0.25);
 }
 
 // Turbulent density in the co-rotating frame — the strands.
-float discDensity(vec3 p, float rs, float r, float H){
+float discDensity(vec3 p, float rs, float r, float H, float rin){
 	float y = p.y / H;
 	if(abs(y) > 2.6) return 0.0;
 	float vert = exp(-0.5 * y * y);
@@ -142,33 +157,22 @@ float discDensity(vec3 p, float rs, float r, float H){
 	float arms = 0.72 + 0.28 * sin(2.0 * psi + lr * 4.5);
 
 	// taper both edges so the disc doesn't end on a hard rim
-	float rn    = (r / rs - R_ISCO) / max(discOuter - R_ISCO, 1e-3);
+	float rn    = (r / rs - rin) / max(discOuter - rin, 1e-3);
 	float edge  = smoothstep(0.0, 0.10, rn) * (1.0 - smoothstep(0.55, 1.0, rn));
 
 	return strands * arms * vert * edge * 9.0;
 }
 
 // The source function S = j/κ, already transported to the observer. Independent of
-// density: an optically thick medium's brightness is set by temperature.
-vec3 discSource(vec3 p, vec3 rd, float rs, float r, float dens, out float Tphys){
-	float rin = R_ISCO * rs;
-	float Tn  = ssTemp(r, rin);
+// density: an optically thick medium's brightness is set by temperature. `g` is the
+// frequency ratio observed/emitted.
+vec3 discSource(int k, float rM, float g, float dens, out float Tphys){
+	float Tn = ptTemp(k, rM);
 
 	// Peak colour temperature — the "Disc Temp" control, deliberately rescaled so
 	// the visible gradient spans the same SHAPE the true profile has.
 	float Tpeak = mix(3200.0, 12000.0, discTemp);
 	float Temit = Tpeak * max(Tn, 0.02);
-
-	// circular-orbit speed measured by a static local observer
-	float grav = sqrt(max(1.0 - rs / r, 1e-4));
-	float beta = clamp(sqrt(0.5 * rs / r) / grav, 0.0, 0.96);
-	float gam  = 1.0 / sqrt(max(1.0 - beta * beta, 1e-4));
-
-	vec3 vhat = normalize(vec3(-p.z, 0.0, p.x));      // prograde tangent
-	vec3 nobs = -rd;                                   // back along the ray, to the eye
-	float dop = 1.0 / (gam * (1.0 - beta * dot(vhat, nobs)));
-
-	float g = clamp(dop * grav, 0.04, 5.0);
 
 	// T_obs = g·T_emit — the approaching limb is genuinely hotter-looking.
 	vec3 col = blackbody(Temit * g);
@@ -185,23 +189,60 @@ vec3 discSource(vec3 p, vec3 rd, float rs, float r, float dens, out float Tphys)
 	return col * emis * heat * discIntensity * 0.62;
 }
 
-// Null geodesic: d²x/dλ² = −(3/2) r_s h² x / r⁵.
-vec3 holeAccel(vec3 rv, vec3 vel, float rs, float distanceToHole){
-	// Unit-direction factors avoid scene-unit fifth powers and absolute floors.
-	float r = max(distanceToHole, rs * 1e-5);
-	vec3 rhat = rv / r;
-	vec3 hhat = cross(rhat, vel);
-	return -1.5 * (rs / r) * (1.0 / r) * dot(hhat, hhat) * rhat;
+// Kerr–Schild Cartesian form, with the spin along +Z (docs/physics/lensing.md):
+// g = η + f k⊗k, f = 2r³/(r⁴ + a²Z²) and k = (1, (rX + aY)/(r² + a²), (rY − aX)/(r² + a²), Z/r),
+// where r solves (X² + Y²)/(r² + a²) + Z²/r² = 1. Units of M. Returns r, f, the
+// spatial k, ∇f and ∇(k·P) for a spatial covector P (∇k contracted, never formed).
+void kerrSchild(vec3 X, float a, vec3 P, out float r, out float f, out vec3 k, out vec3 df, out vec3 dkP){
+	if(a == 0.0){
+		// Schwarzschild in Eddington–Finkelstein form: r = |X|, k = X/r, f = 2/r.
+		r = max(length(X), 1e-6);
+		k = X / r;
+		f = 2.0 / r;
+		df = -f * k / r;
+		dkP = (P - k * dot(k, P)) / r;
+		return;
+	}
+	float a2 = a * a, z2 = X.z * X.z;
+	float w = dot(X, X) - a2;
+	float s = sqrt(0.25 * w * w + a2 * z2);
+	// The product of the roots avoids cancellation inside the ring radius.
+	float r2 = max(w >= 0.0 ? 0.5 * w + s : a2 * z2 / max(s - 0.5 * w, 1e-30), 1e-12);
+	r = sqrt(r2);
+	float q = r2 * r2 + a2 * z2;
+	vec3 gr = vec3(X.x * r, X.y * r, X.z * (r2 + a2) / r) * (r2 / q);
+	f = 2.0 * r * r2 / q;
+	df = (6.0 * r2 * gr - f * (4.0 * r2 * r * gr + vec3(0.0, 0.0, 2.0 * a2 * X.z))) / q;
+	float S = r2 + a2;
+	k = vec3((r * X.x + a * X.y) / S, (r * X.y - a * X.x) / S, X.z / r);
+	// ∂ᵢkₓ = (∂ᵢr·(X − 2r kₓ) + rδᵢₓ + aδᵢᵧ)/S, ∂ᵢkᵧ alike, ∂ᵢk_z = δᵢ_z/r − Z∂ᵢr/r².
+	float c = (dot(X.xy, P.xy) - 2.0 * r * dot(k.xy, P.xy)) / S - X.z * P.z / r2;
+	dkP = gr * c + vec3((r * P.x - a * P.y) / S, (a * P.x + r * P.y) / S, P.z / r);
 }
 
-vec3 geoAccel(vec3 pos, vec3 vel){
-	vec3 a = vec3(0.0);
+// Scene → Kerr–Schild axes: the spin (KS +Z) points along scene −y, the disc's
+// angular momentum (it orbits +x → +z). A proper rotation, so covectors map alike.
+vec3 toKS(vec3 v){ return vec3(v.x, v.z, -v.y); }
+vec3 fromKS(vec3 v){ return vec3(v.x, -v.z, v.y); }
+
+// Rays are traced forwards in the time reverse of the scene, which is Kerr with −a:
+// ingoing Kerr–Schild coordinates are regular on that future horizon. H = ½gᵘᵛpᵤpᵥ with
+// gᵘᵛ = η − Σ fₖ Kₖ⊗Kₖ (exact for one hole; the two-hole sum is illustrative). Returns
+// dx/dλ, dp/dλ and each hole's Boyer–Lindquist-like r in scene units.
+void geodesic(vec3 pos, vec3 p, float pt, out vec3 v, out vec3 dp, out float rh[MAX_HOLES]){
+	v = p; dp = vec3(0.0);
 	for(int k = 0; k < MAX_HOLES; k++){
+		rh[k] = uintBitsToFloat(0x7f7fffffu);
 		if(k >= holeCount) break;
-		vec3 rv = pos - holePos(k);
-		a += holeAccel(rv, vel, holeRs(k), length(rv));
+		float M = 0.5 * holeRs(k);
+		float r, f; vec3 kv, df, dkP;
+		vec3 Pk = toKS(p);
+		kerrSchild(toKS((pos - holePos(k)) / M), -holeA(k), Pk, r, f, kv, df, dkP);
+		float Kp = -pt + dot(kv, Pk);
+		v -= fromKS(f * Kp * kv);
+		dp += fromKS(0.5 * df * Kp * Kp + f * Kp * dkP) / M;
+		rh[k] = r * M;
 	}
-	return a;
 }
 
 void main(){
@@ -216,21 +257,53 @@ void main(){
 	vec3 rl = normalize(vec3(ndc.x * f, ndc.y * f, -1.0));
 	vec3 rd = normalize(P.camRight.xyz * rl.x + P.camUp.xyz * rl.y + P.camBack.xyz * rl.z);
 
+	// The photon leaves the camera along rd in the time-reversed scene: p = u + n, with u
+	// a static observer (or, inside an ergosphere, the Kerr–Schild normal observer) and
+	// n unit and orthogonal to it, so the camera measures energy 1.
 	vec3 pos = camPos;
-	vec3 vel = rd;
+	vec3 p0 = rd;
+	float pt = -1.0;
+	bool captured = false;
 	if(holeCount == 1){
-		vec3 rv = camPos - holePos(0);
-		float r = length(rv);
-		if(r > holeRs(0)){
-			// Static observer's local ray to a coordinate tangent: docs/physics/lensing.md.
-			vec3 rhat = rv / r;
-			vec3 radial = dot(rd, rhat) * rhat;
-			vel = normalize(radial + (rd - radial) / sqrt(1.0 - holeRs(0) / r));
+		float M = 0.5 * holeRs(0);
+		float r, fk; vec3 kv, df, dkP;
+		kerrSchild(toKS((camPos - holePos(0)) / M), -holeA(0), vec3(0.0), r, fk, kv, df, dkP);
+		vec3 D = toKS(rd);
+		float ut; vec3 us, w;
+		if(fk < 1.0){
+			// The static frame's spatial metric is δ + f/(1 − f) k⊗k; its symmetric
+			// inverse square root maps the local ray to a coordinate direction.
+			ut = inversesqrt(1.0 - fk); us = vec3(0.0);
+			w = D - (1.0 - sqrt(1.0 - fk)) * dot(kv, D) * kv;
+		} else {
+			float al = inversesqrt(1.0 + fk);
+			ut = al * (1.0 + fk); us = -al * fk * kv;
+			w = D * inversesqrt(1.0 + fk * dot(kv, D) * dot(kv, D));
 		}
+		float nt = fk < 1.0 ? fk * dot(kv, w) / (1.0 - fk) : 0.0;
+		float put = ut + nt;
+		vec3 pus = us + w;
+		float kp = put + dot(kv, pus);
+		pt = -put + fk * kp;
+		p0 = fromKS(pus + fk * kp * kv);
+		captured = r < 1.0 + sqrt(max(1.0 - holeA(0) * holeA(0), 0.0));
+	} else {
+		// Two holes: the plain direction, with the energy that makes it null.
+		float F = 0.0, B = 0.0, C = 0.0;
+		for(int k = 0; k < MAX_HOLES; k++){
+			if(k >= holeCount) break;
+			float M = 0.5 * holeRs(k);
+			float r, fk; vec3 kv, df, dkP;
+			kerrSchild(toKS((camPos - holePos(k)) / M), -holeA(k), vec3(0.0), r, fk, kv, df, dkP);
+			float c = dot(kv, toKS(rd));
+			F += fk; B += fk * c; C += fk * c * c;
+		}
+		pt = -(-B + sqrt(max(B * B + (1.0 + F) * (1.0 - C), 0.0))) / (1.0 + F);
 	}
+	// The bend accumulates separately so fp32 keeps it when it is tiny.
+	vec3 dP = vec3(0.0);
 	vec3 color = vec3(0.0);
 	float trans = 1.0;
-	bool captured = false;
 	float tSum = 0.0, tWeight = 0.0;      // luminance-weighted mean disc temperature
 
 	float maxDiscH[MAX_HOLES];
@@ -246,57 +319,77 @@ void main(){
 	float camR = distance(camPos, holePos(0));
 	float far  = max(camR * 1.4 + 40.0 * rsMax, 120.0 * rsMax);
 
-	for(int i = 0; i < STEPS; i++){
+	vec3 v1 = p0;
+	bool escaped = false;
+	float nearest = 0.0;   // the last step's closest approach, in that hole's r_s
+	int steps = STEPS;
+	for(int k = 0; k < MAX_HOLES; k++){ if(k < holeCount && holeA(k) > 0.5) steps = STEPS_SPIN; }
+	for(int i = 0; i < steps && !captured; i++){
+		vec3 dp1; float rh[MAX_HOLES];
+		geodesic(pos, p0 + dP, pt, v1, dp1, rh);
 		// adaptive step: fine near a horizon and near a disc plane
 		float step = uintBitsToFloat(0x7f7fffffu);
 		float minr = step;
-		vec3 k1 = vec3(0.0);
+		nearest = step;
 		for(int k = 0; k < MAX_HOLES; k++){
 			if(k >= holeCount) break;
 			float rs = holeRs(k);
-			vec3 pl  = pos - holePos(k);
-			float r  = length(pl);
+			float r  = rh[k];
 			minr = min(minr, r);
-			if(r < rs){ captured = true; }
+			nearest = min(nearest, r / rs);
+			if(r < holeRp(k)){ captured = true; }
 
-			step = min(step, max(0.16 * (r - rs), 0.012 * rs));
+			// A floor of 0.1 r_s holds the near-extremal prograde edge to ~1%.
+			step = min(step, max(0.16 * (r - holeRp(k)), 0.1 * rs));
 			step = min(step, r * 0.30);
 
 			// never leap over the slab: cap by the distance to the equatorial plane
+			vec3 pl = pos - holePos(k);
 			float rcyl = length(pl.xz);
-			if(rcyl + step >= R_ISCO * rs && rcyl - step <= discOuter * rs && abs(pl.y) < discOuter * rs){
-				float H = scaleHeight(max(rcyl, R_ISCO * rs), rs);
+			float rin = P.holeSpin[k].y * rs;
+			if(rcyl + step >= rin && rcyl - step <= discOuter * rs && abs(pl.y) < discOuter * rs){
+				float H = scaleHeight(max(rcyl, rin), rs);
 				step = min(step, max(abs(pl.y) * 0.45, H * 0.7));
 			}
-			// Avoid a second distance evaluation for this curvature stage.
-			k1 += holeAccel(pl, vel, rs, r);
 		}
 		if(captured) break;
-		if(minr > far) break;
+		if(minr > far){ escaped = true; break; }
 		step = clamp(step, rsMax * 0.010, max(12.0 * rsMax, 0.16 * minr));
-		k1 -= vel * dot(k1, vel);
 
-		// Arclength curvature is the transverse part of the affine acceleration.
-		vec3 vh  = normalize(vel + k1 * (step * 0.5));
-		vec3 ph  = pos + vel * (step * 0.5);
-		vec3 k2  = geoAccel(ph, vh);
-		k2 -= vh * dot(k2, vh);
-		vec3 nvel = normalize(vel + k2 * step);
-		vec3 npos = pos + vh * step;
+		// RK2 midpoint in the affine parameter, sized to the spatial step.
+		float h = step / length(v1);
+		vec3 v2, dp2; float rm[MAX_HOLES];
+		geodesic(pos + v1 * (0.5 * h), p0 + dP + dp1 * (0.5 * h), pt, v2, dp2, rm);
+		vec3 npos = pos + v2 * h;
+		dP += dp2 * h;
 
 		// volumetric disc sample at the segment midpoint
 		vec3 mid = mix(pos, npos, 0.5);
+		vec3 pm = p0 + dP - dp2 * (0.5 * h);
 		for(int k = 0; k < MAX_HOLES; k++){
 			if(k >= holeCount) break;
 			float rs = holeRs(k);
+			float M = 0.5 * rs;
+			float a = holeA(k);
 			vec3 pl = mid - holePos(k);
 			// H(r) increases to the outer edge; density vanishes above 2.6 H(r).
 			if(abs(pl.y) > 3.0 * maxDiscH[k]) continue;
-			float r = length(pl.xz);
-			if(r < R_ISCO * rs || r > discOuter * rs) continue;
+			// Boyer–Lindquist r in the equatorial plane: r² = ϖ² − a²M².
+			float r = sqrt(max(dot(pl.xz, pl.xz) - a * a * M * M, 0.0));
+			float rin = P.holeSpin[k].y;
+			if(r < rin * rs || r > discOuter * rs) continue;
 			float H = scaleHeight(r, rs);
-			float dens = discDensity(pl, rs, r, H);
+			float dens = discDensity(pl, rs, r, H, rin);
 			if(dens <= 0.0015) continue;
+
+			// Redshift from the conserved E = −pₜ and L = p_φ: the gas is on a prograde
+			// circular orbit, which in the reversed scene runs at Ω = −1/(r^1.5 + a).
+			float rM = r / M;
+			float r15 = rM * sqrt(rM);
+			float ut = (r15 + a) / (pow(rM, 0.75) * sqrt(max(r15 - 3.0 * sqrt(rM) + 2.0 * a, 1e-6)));
+			vec3 X = toKS(pl), Pk = toKS(pm);
+			float L = (X.x * Pk.y - X.y * Pk.x) / M;
+			float g = clamp(1.0 / (ut * (-pt + L / (r15 + a))), 0.04, 5.0);
 
 			// Exact dI/dτ = S − I over the segment: I += S(1 − e^−τ). Path length in horizon
 			// radii.
@@ -304,22 +397,23 @@ void main(){
 			float tau = dens * dl * 4.5;
 			float att = exp(-tau);
 			float Tphys;
-			vec3 add = trans * discSource(pl, nvel, rs, r, dens, Tphys) * (1.0 - att);
+			vec3 add = trans * discSource(k, rM, g, dens, Tphys) * (1.0 - att);
 			color += add;
 			// weight by how much this sample actually contributed to the pixel
-			float w = dot(add, vec3(0.2126, 0.7152, 0.0722));
-			tSum += w * Tphys; tWeight += w;
+			float wt = dot(add, vec3(0.2126, 0.7152, 0.0722));
+			tSum += wt * Tphys; tWeight += wt;
 			trans *= att;
 		}
 
-		if(trans < 0.004) break;
-		vel = nvel;
 		pos = npos;
+		if(trans < 0.004) break;
 	}
+	// A ray still winding near a photon orbit when the steps run out is all but captured.
+	if(!captured && !escaped && trans >= 0.004 && nearest < 4.0) captured = true;
 
 	// hand over to the resolve pass. The direction is stored as a delta from the
 	// undeflected ray, so fp16 spends its mantissa on the bend.
-	vec3 d = normalize(vel);
+	vec3 d = normalize(v1);
 	// Zeroing transmittance on capture retires a separate captured flag.
 	float tr = captured ? 0.0 : trans;
 	float Tmean = tWeight > 1e-9 ? tSum / tWeight : 0.0;

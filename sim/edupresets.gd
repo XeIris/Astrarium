@@ -50,6 +50,7 @@ const EARTH := {
 	"type": "world", "name": "Earth", "mass": 3.0035e-6, "radiusKm": 6371.0,
 	"atmosphere": true, "land": 0.29, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
 	"obliquity": 23.44 * DEG, "cloudCover": 0.44, "season": 11.0, "home": true,
+	"k2": 0.299, "tideLagS": 638.0,   # the oceans' tide, as in Presets' solar
 }
 
 const MOON := { "hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268 }
@@ -87,12 +88,11 @@ static func _make() -> Dictionary:
 	}
 
 	# PHASES AND ECLIPSES: half the Moon is always lit; a phase is how much of that
-	# half faces us. The real 5.14° inclination is why eclipses are rare. (Mutual
-	# eclipse shadows are not rendered.)
+	# half faces us. The real 5.14° inclination is why eclipses are rare.
 	P.edu_moon = {
 		"sky": { "env": "disc", "tilt": 0.38, "roll": 2.1 },
 		"name": "Phases, and why eclipses are rare",
-		"blurb": "The Earth–Moon system at its real separation — 384 400 km, thirty Earth diameters, which is already further apart than almost every diagram draws it. The Sun lights exactly half the Moon at every instant; the phase is how much of that half you can see from here. The geometry shows eclipse alignments; mutual eclipse shadows are not rendered. Earth’s rotation is slowed to 80 turns per year. The orbit carries its real 5.14° tilt to the ecliptic, which is the entire reason there is not an eclipse every month: at most new moons the shadow misses by several Earth diameters.",
+		"blurb": "The Earth–Moon system at its real separation — 384 400 km, thirty Earth diameters, which is already further apart than almost every diagram draws it. The Sun lights exactly half the Moon at every instant; the phase is how much of that half you can see from here. When an alignment comes, the shadow is drawn, umbra and penumbra. Earth’s rotation is slowed to 80 turns per year. The orbit carries its real 5.14° tilt to the ecliptic, which is the entire reason there is not an eclipse every month: at most new moons the shadow misses by several Earth diameters.",
 		"sceneScale": 900.0, "bodyScale": 0.25, "camRadius": 6.5, "lensing": false, "mesh": false,
 		# A lunar month in about twelve seconds. The Moon's orbit is the clock this
 		# scenario is about, so it is the one the pace is chosen for.

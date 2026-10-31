@@ -178,12 +178,20 @@ static func structure_facts(st: Dictionary) -> Array:
 			add.call("MS lifetime", fmt_years(st.get("msLifetime")))
 			var es = st.get("endState")
 			add.call("ends as", es.get("label") if es is Dictionary else null)
+			var sec = st.get("secular")
+			if sec is Dictionary and float(sec.get("windMdot", 0.0)) > 0.0:
+				add.call("wind", "%s M☉/yr" % U.expo(float(sec.windMdot), 1))
 		"neutron":
 			add.call("density", fmt_density(st.get("density")))
 			add.call("surface gravity", "%s g" % U.expo(g.call("surfaceGravity") / 9.81, 2))
 			add.call("compactness", "r_s/R = %s" % U.fixed(g.call("compactness"), 3))
 			add.call("surface redshift", "%s%%" % U.fixed(g.call("redshift") * 100.0, 1))
 			add.call("TOV limit here", "%s M☉" % U.fixed(g.call("tovMax"), 2))
+			var cool = st.get("cooling")
+			if cool is Dictionary:
+				add.call("age", fmt_years(cool.get("ageYr")))
+				add.call("T_eff (seen from afar)", "%s (%s)" % [fmt_temp(st.get("teff")), fmt_temp(st.get("teffInf"))])
+				add.call("core temp", fmt_temp(cool.get("coreT")))
 			if is_finite(g.call("spinPeriodMs")): add.call("spin period", "%s ms" % U.fixed(g.call("spinPeriodMs"), 2))
 		"white-dwarf":
 			add.call("density", fmt_density(st.get("density")))
@@ -194,6 +202,7 @@ static func structure_facts(st: Dictionary) -> Array:
 			add.call("photon sphere", fmt_length(st.get("photonSphereAU")))
 			add.call("ISCO", fmt_length(st.get("iscoAU")))
 			if g.call("spin") > 0.01: add.call("spin a*", U.fixed(g.call("spin"), 3))
+			add.call("lens drawn", st.get("lensNote"))
 			add.call("Hawking T", "%s K" % U.expo(g.call("hawkingK"), 2))
 			add.call("evaporates in", "10%s yr" % sup(int(U.jround(U.log10(g.call("evaporationYr"))))))
 	return F

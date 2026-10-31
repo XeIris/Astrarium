@@ -48,12 +48,12 @@ PARITY_FRAMES = 13000
 CHANGED_RULES = (
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
-     ("invariantcheck", "nbodycheck", "numericalcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
-      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck")),
+     ("invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
+      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck")),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
-      "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/suns.gd", "sim/bodies.gd"),
+      "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
-      "sciencecheck", "savecheck", "accretion*", "_soak_check-*")),
+      "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
       "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
@@ -61,19 +61,23 @@ CHANGED_RULES = (
     (("sim/flight/vessel.gd", "sim/flight/guidance.gd", "sim/flight/mission.gd", "sim/flight/rocketry.gd",
       "sim/flight/orbit.gd", "sim/flight/fall.gd", "sim/flight/separation.gd", "sim/flight/spaceflight.gd",
       "sim/flight/relativity.gd", "sim/flight/dquat.gd", "sim/flight/catchtower.gd", "sim/flight/vehicles.gd",
-      "sim/flight/craftmodel.gd", "tools/fixtures/flight_fixture.json"),
-     ("flighttimecheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*",
-      "scenariocheck")),
+      "sim/flight/craftmodel.gd", "sim/flight/ionisation.gd", "sim/flight/lunar_gravity.gd",
+      "tools/fixtures/flight_fixture.json"),
+     ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
+      "missioncheck-*", "scenariocheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc", "sim/terrain.gd",
       "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck",)),
     # Any other flight file is presentation: the parity flight shows it cannot move physics.
     (("sim/flight/*",), ("flighttimecheck", "missioncheck-skip_moon", "missioncheck-parity-*")),
+    # The flight sky's coefficients are checked numerically; its drawing by the render rule.
+    (("sim/flight/sky_ms.gd", "sim/stellar.gd", "tools/build_sky_ms.py", "sim/flight/lagrange.gd"), ("flightphysicscheck",)),
     (("sim/flight/vehicles.gd", "sim/flight/craftmodel.gd", "sim/flight/craftassets.gd", "sim/flight/separation.gd",
       "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
     (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"),
      ("padcheck", "flight-descent-shcatch*")),
+    (("render/lens_pass.gd",), ("realismcheck",)),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
@@ -185,7 +189,10 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$")
         yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
+        yield script("secularcheck", r"^SECULARCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
+        # ~100 s on an M5; CI's runners take about twice that.
+        yield script("flightphysicscheck", r"^flightphysicscheck: PASS$", timeout=420)
         yield script("spinframecheck", r"^SPINFRAMECHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cloudcheck", r"^CLOUDCHECK DONE checks=[1-9]\d* failures=0$")
     elif suite == "native":
@@ -244,6 +251,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield headless_scene("transitioncheck", r"^TRANSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("realismcheck", r"^REALISMCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])

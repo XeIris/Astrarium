@@ -359,17 +359,18 @@ class Inspector extends RefCounted:
 		notes_el = Notes.new()
 		m.add_child(notes_el)
 
-	func show(st: Dictionary, title = null) -> void:
+	## `extra`: [key, value] rows about the body's surroundings (tides, accretion).
+	func show(st: Dictionary, title = null, extra: Array = []) -> void:
 		if st.is_empty():
 			return
 		var heading = title if title != null else st.get("label")
+		facts_el.show_facts(CrossSection.structure_facts(st) + extra)
 		# Derivation replaces the canonical dictionary after each physical edit.
 		if is_same(st, _shown_structure) and heading == _shown_title:
 			return
 		_shown_structure = st
 		_shown_title = heading
 		canvas.set_structure(st, {"title": heading})
-		facts_el.show_facts(CrossSection.structure_facts(st))
 		if st.get("verdict") is Dictionary:
 			verdict_el.show_verdict(st.verdict)
 		notes_el.show_notes(st.get("layers", []))

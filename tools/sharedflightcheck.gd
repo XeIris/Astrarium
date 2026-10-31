@@ -75,9 +75,23 @@ func _init() -> void:
 		var valid: bool = ship.phase == Vessel.PHASE.ORBIT and flight.autopilot.program == null and frames < int(sc.maxFrames)
 		valid = valid and is_finite(ship.telemetry.apo) and is_finite(ship.telemetry.peri)
 		var target: float = flight.autopilot.ascent.targetApo
-		valid = valid and absf(ship.telemetry.apo - target) < 3000.0
+		# J2's short-period terms swing a near-circular orbit's osculating apsides by
+		# ±6 km, so the gates read the highest and lowest altitudes flown over the next
+		# revolution (a coast with the world held, which an hour and a half allows).
+		var hi := -INF
+		var lo := INF
+		var period: float = ship.telemetry.el.period if is_finite(float(ship.telemetry.el.period)) else 5400.0
+		var coasted := 0.0
+		while valid and coasted < period:
+			coasted += ship.step(10.0)
+			hi = maxf(hi, ship.altitude()); lo = minf(lo, ship.altitude())
+		# J2's short-period radial terms, up to ~(3/2)·J2·R²/a·sin²i: 2.3 km at 28.5°,
+		# 6 km at 51.6°, where the lowest flown point sits 9 km under the cutoff periapsis.
+		var a_m := float(ship.env.radius) + target
+		var swing := 1.5 * 1.08262668e-3 * pow(6378137.0, 2.0) / a_m * pow(sin(deg_to_rad(float(ship.telemetry.inc))), 2.0)
+		valid = valid and absf(hi - target) < 3000.0 + swing
 		# The production circularize law stops at 92% of the target periapsis.
-		valid = valid and ship.telemetry.peri >= target * 0.92 - 3000.0 and ship.telemetry.peri <= ship.telemetry.apo
+		valid = valid and lo >= target * 0.92 - 3000.0 - swing and lo <= hi
 		valid = valid and finite
 		valid = valid and earth.pos.distance_to(start_pos) > 0.0 and worst_clock_error < 1e-5
 		# A timed second plane (the Saturn V's S-II aft interstage) drops within two frames
@@ -102,21 +116,22 @@ func _init() -> void:
 			if not q_ok: print("SHARED FLIGHT shuttle max-q %.1f kPa at T+%.1f s, want 30–35 kPa" % [ship.max_q / 1000.0, ship.max_q_t])
 			valid = valid and stage_ok and q_ok
 		# The orbit against Earth's IAU equator in orrery axes, so the frame is under test
-		# and not only the vessel's own pole. The ascent steers along its inertial
-		# velocity, which the ground's rotation points east from the pad, so it reaches
-		# the pad's latitude whatever its target.
+		# and not only the vessel's own pole. The ascent flies the target's azimuth, so it
+		# reaches the target inclination, or the pad's latitude if that is higher (the
+		# Eastern Range's window allows every target here).
 		var lat: float = ship.launch_site.lat
 		var h := ship.to_world(ship.r.cross(ship.v), DVec3.new())
 		var inc := rad_to_deg(acos(clampf(DQuat.nrm(h).dot(Rocketry.equatorial_dir(0.0, PI / 2.0)), -1.0, 1.0)))
-		if absf(inc - rad_to_deg(absf(lat))) > 0.5:
-			print("SHARED FLIGHT %s inclination %.2f° to Earth's equator, want the pad's %.2f°" % [sc.id, inc, rad_to_deg(absf(lat))])
+		var want_inc := maxf(float(flight.autopilot.ascent.inclination), rad_to_deg(absf(lat)))
+		if absf(inc - want_inc) > 0.2:
+			print("SHARED FLIGHT %s inclination %.2f° to Earth's equator, want %.2f°" % [sc.id, inc, want_inc])
 			valid = false
 		if sc.id == "saturnv" and timed == 0:
 			print("SHARED FLIGHT saturnv has no timed second separation plane")
 			valid = false
 		if not valid: failures += 1
 		completed += 1
-		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s inc=%.3f clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, inc, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])
+		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s highest=%s lowest=%s inc=%.3f clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, hi, lo, inc, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])
 	var errors := logger.take()
 	for error in errors: printerr("SHARED FLIGHT ENGINE ", error)
 	failures += errors.size()

@@ -81,6 +81,40 @@ they fade. The wake is cooler and paler than the layer it left, and saturates
 with flux: a harder entry gives a longer wake (2.5–8.5 diameters), not a
 blinding one.
 
+## Radio blackout
+
+`Ionisation` (`sim/flight/ionisation.gd`) puts equilibrium air behind a normal
+shock and counts its free electrons. It applies only to atmospheres with
+`radiative: "air"`.
+
+- **Shock.** The Rankine–Hugoniot jump uses Lighthill's ideal dissociating gas for
+  N₂ and O₂: θ_d = 113 000 and 59 500 K, ρ_d = 130 and 150 g/cm³ (Vincenti & Kruger
+  1965). Its enthalpy is `R[(4 + 2α)T + αθ_d]` per species. The density ratio is
+  iterated against the real enthalpy, with T solved by secant.
+- **Chemistry.** NO comes from N₂ + O₂ ⇌ 2NO with K = 19.7·e^(−21 720/T) (JANAF
+  ΔH and ΔS). It gives 0.8% NO at 2000 K and 5% at 3000 K in air.
+- **Ionisation.** Saha's equation, `n_e n₊/n₀ = 2.415 × 10²¹ T^1.5 (2g₊/g₀) e^(−I/kT)`,
+  is applied to NO (9.26 eV), N (14.53 eV) and O (13.62 eV). Charge balance is solved
+  by Newton's method, and the ionisation energy and the electrons' enthalpy are
+  counted in the shock's energy balance.
+
+At lunar-return speed (10.8 km/s at 80 km) the layer reaches 9560 K, near the
+~11 000 K of equilibrium-shock tables. For the Shuttle at 7.4 km/s and 80 km it
+reaches 5600 K.
+
+S-band (2287.5 MHz, Apollo's and the Shuttle's downlink) is reflected once the
+plasma frequency `8.98√n_e` Hz exceeds it, which takes n_e > 6.5 × 10¹⁶ m⁻³. The
+vessel solves the shock once a second of MET (0.7 ms per solve). Telemetry carries
+`ne` and `blackout`, and the event log records loss and recovery of contact. Along
+the Shuttle's entry the model is in blackout from ~100 km at 7.6 km/s down to
+~50 km at 3.5 km/s; at Apollo's speeds it is in blackout throughout.
+
+This is the stagnation region's density, an upper bound. The antennas sit on the
+afterbody, where the expanded flow is cooler and thinner, so real blackouts start
+later and end sooner. The Shuttle's lasted about 12–16 minutes, from around
+80 km to about 55 km. The flow is also out of equilibrium above ~70 km. CO₂
+atmospheres are outside the model, so Mars and Venus entries read no plasma.
+
 ## Limits
 
 - No radiative transfer, no chemistry and no ablation products. The colour

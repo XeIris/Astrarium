@@ -26,6 +26,7 @@ var cam_near := 0.01
 var cam := OrreryCamera.new(cam_pos)
 
 var spacetime_mesh = null         # SpacetimeMesh
+var bright_stars: BrightStars = null
 var painter = null                # Painter
 var observer = null               # SurfaceObserver
 var sky_pass = null               # SkyPass
@@ -104,6 +105,9 @@ func _ready() -> void:
 		var kv := a.split("=", true, 1)
 		_cmd[kv[0]] = kv[1] if kv.size() > 1 else ""
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
+	if _cmd.has("winds"): Rocketry.winds_enabled = String(_cmd.winds) != "0"
+	if _cmd.has("secular"): Physics.secular = String(_cmd.secular) != "0"
+	if _cmd.has("f107"): Rocketry.f107 = float(_cmd.f107)
 	# Logical px, with the display scale as content scale. Screenshot mode takes
 	# window pixels 1:1.
 	var screen := DisplayServer.window_get_current_screen()
@@ -324,7 +328,7 @@ func attach_visual(b: Body) -> void:
 	# A distant hole is seen as its disc, so the marker takes the disc's peak
 	# temperature (dim in radio, bright in X-ray).
 	var is_hole: bool = spec.type == "bh"
-	var disc_t := Derive.disc_peak_temp(b.mass) if is_hole else 0.0
+	var disc_t := Derive.disc_peak_temp(b.mass, float(b.structure.get("spin", 0.0))) if is_hole else 0.0
 	var marker_color: Color
 	if emitter:
 		marker_color = star_color if star_color != null else (Stellar.blackbody_color(float(b.teff)) if b.teff != null else U.lin(0xfff2cc))
@@ -633,12 +637,20 @@ func core_collapse(b: Body) -> void:
 		return
 	b.mass = float(end.mass); b.mass0 = float(end.mass)
 	b.spin_frac = minf(b.spin_frac + 0.55, 0.95)   # collapse spins it up
+	# Asymmetric ejection kicks the remnant. The mass lost unbinds a companion anyway
+	# when it exceeds half the system's (Blaauw 1961); the kick can do it with less.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([b.id, b.name, int(b.spec.get("seed", 0))])
+	var kick := Structure.natal_kick_kms(String(end.type), b.mass, rng)
+	if b.spec.has("kickKms"): kick = kick.normalized() * float(b.spec.kickKms) if kick != Vector3.ZERO else kick
+	b.vel.add_scaled_in(DVec3.new(kick.x, kick.y, kick.z), 1000.0 / Rocketry.AU_M * Rocketry.YR_S)
+	var kick_note := " — natal kick %s km/s" % U.fixed(kick.length(), 0) if kick != Vector3.ZERO else ""
 	if end.type == "neutron":
 		b.radius = Structure.neutron_radius_km(b.mass) * Physics.AU_PER_KM
 		b.teff = null
-		transmute(b, "neutron", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))], {"visualSpinRadS": 30.0})
+		transmute(b, "neutron", "%s: core collapse → %s (%s)%s" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass)), kick_note], {"visualSpinRadS": 30.0})
 	elif end.type == "bh":
-		transmute(b, "bh", "%s: core collapse → %s (%s)" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass))])
+		transmute(b, "bh", "%s: core collapse → %s (%s)%s" % [b.name, end.label, CrossSection.fmt_mass(float(end.mass)), kick_note])
 	else:
 		b.radius_sun = Structure.white_dwarf_radius_sun(b.mass)
 		b.radius = float(b.radius_sun) * Physics.AU_PER_RSUN
@@ -654,8 +666,19 @@ func recoil_camera(b: Body, blast_size: float) -> void:
 # Every mass change can cross a hard structural threshold, even a small merger.
 func check_structural_limits(b: Body) -> void:
 	if not b.alive or b.type == "bh": return
-	if b.m_check != null and b.mass == float(b.m_check): return
+	if _check_tidal_limit(b): return
+	if _check_nova(b): return
+	if Physics.secular and b.type == "star" and b.phase != null and float(b.phase) >= Structure.LIFE_CLOCK[-1][0]:
+		core_collapse(b)
+		return
+	# Winds and overflow move masses a little every frame: the hard limits are tested
+	# on every change, the structure re-derived once the mass or age has moved.
+	var crossed := (b.type == "neutron" and b.mass > Structure.tov_limit(b.spin_frac)) \
+		or (b.type == "white-dwarf" and b.mass >= Structure.LIMITS.chandrasekhar)
+	var aged: bool = b.type == "star" and b.phase != null and absf(float(b.phase) - float(b.structure.get("phaseF", b.phase))) > 1e-4
+	if not crossed and not aged and b.m_check != null and absf(b.mass - float(b.m_check)) <= 1e-9 * b.mass: return
 	b.m_check = b.mass
+	if aged: b.spec.phase = b.phase   # an edit re-derives from the spec
 	var st := refresh_structure(b)
 
 	if b.type == "neutron" and b.mass > Structure.tov_limit(b.spin_frac):
@@ -676,6 +699,111 @@ func check_structural_limits(b: Body) -> void:
 	# A body that has crossed an ignition threshold is a different object.
 	if st.get("type") != b.type and st.get("reclassifiedFrom"):
 		transmute(b, st.type, "%s: %s" % [b.name, st.verdict.detail])
+
+# NOVAE. A white dwarf below the steady-burning rate keeps what Roche-lobe overflow
+# brings until the envelope's base reaches ignition pressure, then throws it off
+# (Structure.nova_ignition_mass). _step_secular accumulates the envelope.
+func _check_nova(b: Body) -> bool:
+	if b.type != "white-dwarf": return false
+	var env := float(b.extra.get("novaEnvelope", 0.0))
+	if env <= 0.0 or env < Structure.nova_ignition_mass(b.mass, b.radius): return false
+	b.mass -= env
+	b.extra.novaEnvelope = 0.0
+	b.extra.novae = int(b.extra.get("novae", 0)) + 1
+	spawn_flash(b.scene_pos.clone(), 0xfff1d0, maxf(b.radius_scene * 30.0, 1.0), 0.5)
+	toast("%s: classical nova — %s of accreted hydrogen ignited and thrown off" % [b.name, CrossSection.fmt_mass(env)], 5000)
+	b.m_check = null
+	return false
+
+# TIDES. The neighbour pulling hardest (largest M/d³) tears `b` apart inside
+# Structure.disruption_radius. Contact handles anything closer, so only a radius
+# outside contact is watched. A pass that dips inside it between two checks is caught
+# when the radial velocity has turned outward, the osculating periapsis was inside,
+# and the orbit's time since periapsis fits in the interval.
+var _tidal_rv := {}   # "victim:primary" → [r·v, sim_years] at the last check
+func _check_tidal_limit(b: Body) -> bool:
+	var prim: Body = null
+	var pull := 0.0
+	for o in state.bodies:
+		if o == b or not o.alive: continue
+		var d2 := b.pos.distance_sq_to(o.pos)
+		if d2 <= 0.0: continue
+		var t: float = o.mass / (d2 * sqrt(d2))
+		if t > pull: pull = t; prim = o
+	if prim == null: return false
+	var r_d := Structure.disruption_radius(b.type, b.mass, b.radius, prim.mass)
+	var contact := (prim.rs if prim.type == "bh" else (prim.contact_au if prim.contact_au != 0.0 else prim.radius)) \
+		+ (b.contact_au if b.contact_au != 0.0 else b.radius)
+	var key := "%d:%d" % [b.id, prim.id]
+	if r_d <= contact:
+		_tidal_rv.erase(key)
+		return false
+	var rel := DVec3.new().sub_vectors(b.pos, prim.pos)
+	var vrel := DVec3.new().sub_vectors(b.vel, prim.vel)
+	var d := rel.length()
+	var rv := rel.dot(vrel)
+	var inside := d < r_d
+	var last: Array = _tidal_rv.get(key, [0.0, state.sim_years])
+	if not inside and float(last[0]) < 0.0 and rv >= 0.0:
+		inside = _passed_inside(d, vrel.length_sq(), rel.cross(vrel).length_sq(),
+			Physics.G * (prim.mass + b.mass), r_d, state.sim_years - float(last[1]))
+	_tidal_rv[key] = [rv, state.sim_years]
+	if inside: tidal_disrupt(b, prim, r_d)
+	return inside
+
+## True when an outbound two-body orbit at distance d had its periapsis inside r_d
+## within the last `dt` years (Kepler's equation in the orbit's own branch).
+static func _passed_inside(d: float, v2: float, h2: float, mu: float, r_d: float, dt: float) -> bool:
+	var energy := 0.5 * v2 - mu / d
+	var e := sqrt(maxf(1.0 + 2.0 * energy * h2 / (mu * mu), 0.0))
+	var q := h2 / (mu * (1.0 + e))
+	if q >= r_d: return false
+	var since: float
+	if absf(e - 1.0) < 1e-6:
+		var D := sqrt(maxf(d / q - 1.0, 0.0))
+		since = sqrt(2.0 * q * q * q / mu) * (D + D * D * D / 3.0)
+	elif e < 1.0:
+		var a := -mu / (2.0 * energy)
+		var E := acos(clampf((1.0 - d / a) / e, -1.0, 1.0))
+		since = (E - e * sin(E)) * sqrt(a * a * a / mu)
+	else:
+		var a := mu / (2.0 * energy)
+		var F := acosh(maxf((1.0 + d / a) / e, 1.0))
+		since = (e * sinh(F) - F) * sqrt(a * a * a / mu)
+	return since <= dt * 1.000001
+
+# A world torn apart round a planet stays in orbit as a ring, so the planet keeps its
+# mass. Round a star or a compact object, about half the debris is bound and falls back
+# while the rest is flung out (Rees 1988).
+func tidal_disrupt(b: Body, prim: Body, r_d: float) -> void:
+	var ring := prim.type in ["planet", "world", "gas-giant"]
+	var bound := 1.0 if ring else 0.5
+	var dm := b.mass * bound
+	prim.vel.scale_in(prim.mass / (prim.mass + dm))
+	prim.vel.add_scaled_in(b.vel, dm / (prim.mass + dm))
+	prim.mass += dm
+	prim.mass0 = prim.mass
+	prim.spec = U.merged(prim.spec, {"mass": prim.mass})
+	var wpos := b.scene_pos.clone()
+	var size := maxf(b.radius_scene * 18.0, 1.0)
+	recoil_camera(b, size)
+	spawn_flash(wpos, 0xffe2c0 if b.type == "star" else 0xd8c8b0, size, 0.6)
+	spawn_flash(wpos, 0xffc890, size * 0.7, 0.14, {"kind": "shell", "grow": 8.0})
+	var where := "%s's Roche limit (%s)" % [prim.name, CrossSection.fmt_length(r_d)]
+	if ring:
+		toast("%s passed inside %s and was torn apart. The debris stays in orbit as a ring." % [b.name, where], 7000)
+		var span: Dictionary = Painter.ring_span(prim.mass, prim.radius if prim.radius else 1e-6, "rock")
+		apply_paint_spec({"kind": "ring", "body": prim.name, "inner": span.inner, "outer": maxf(r_d, span.inner * 1.1),
+			"tilt": 0.0, "color": 0xb8a890, "label": "debris of %s" % b.name})
+	else:
+		toast("%s passed inside %s: a tidal disruption. About half the debris is bound and falls onto %s; the rest is flung out." % [b.name, where, prim.name], 7000)
+	if state.follow_id == b.id: set_follow(prim)
+	state.consumed += 1
+	remove_body(b.id)
+	_tidal_rv.erase("%d:%d" % [b.id, prim.id])
+	# The primary's mass moved: a neutron star fed past the TOV mass collapses.
+	Derive.refresh_structure(prim)
+	refresh_ui()
 
 # FLASH SPRITES — sim/flash.gd holds the two kinds (light vs matter).
 func spawn_flash(world_pos: DVec3, color: int, size: float, decay: float = 0.8, opt: Dictionary = {}) -> void:
@@ -704,7 +832,7 @@ func scene_max_temp() -> float:
 	for b in state.bodies:
 		if b.type == "star" or b.type == "white-dwarf": t = maxf(t, float(U.nz(b.teff, Stellar.effective_temp(b.mass))))
 		elif b.type == "neutron": t = maxf(t, 1.0e6)
-		elif b.type == "bh": t = maxf(t, Derive.disc_peak_temp(b.mass))
+		elif b.type == "bh": t = maxf(t, Derive.disc_peak_temp(b.mass, float(b.structure.get("spin", 0.0))))
 	return t if t else 5800.0
 
 # The per-frame sun list for every lighting path. Intensity is the star's flux at
@@ -758,10 +886,37 @@ func step_physics(sim_dt: float, coupled := false) -> float:
 	# Advance the clock by what was actually integrated, not by what was asked
 	# for: the deficit during a guarded close encounter is never repaid.
 	state.advance_years(stepped)
+	_step_secular(stepped)
 	if coupled: return stepped
 	_commit_positions(true)
 	_step_climate(stepped)
 	return stepped
+
+# Stars age along their track; overflow's mass is booked by what the accretor does
+# with it (Structure.accretion_regime); a tidally torqued star's spin_frac follows Ω.
+func _step_secular(stepped: float) -> void:
+	if not Physics.secular or stepped <= 0.0: return
+	for b in state.bodies:
+		if not b.alive: continue
+		if b.type == "star" and b.phase != null:
+			b.phase = Structure.phase_after(float(b.phase), stepped, float(b.structure.get("msLifetime", 0.0)))
+			if b.spin_tracked:
+				var crit := Structure.breakup_omega(b.mass, b.radius, "star") * Rocketry.YR_S
+				var frac: float = clampf(absf(b.spin_omega) / crit, 0.0, 1.15) if crit > 0.0 else b.spin_frac
+				if absf(frac - b.spin_frac) > 1e-3 * maxf(b.spin_frac, 1e-3):
+					b.spin_frac = frac
+					b.spec.spinFrac = frac
+					b.m_check = null
+		if b.gained > 0.0 and b.type == "white-dwarf":
+			var fate := Structure.accretion_regime(b.mass, b.gained / stepped)
+			match String(fate.regime):
+				"nova": b.extra.novaEnvelope = float(b.extra.get("novaEnvelope", 0.0)) + b.gained
+				"wind": b.mass -= b.gained - float(fate.retained) * stepped
+			b.extra.accretionRegime = fate.regime
+		b.extra.accretionRate = b.gained / stepped
+		b.extra.overflowRate = b.shed / stepped
+		b.gained = 0.0
+		b.shed = 0.0
 
 func _step_climate(stepped: float) -> void:
 	# advance the climate on the same simulated clock
@@ -773,8 +928,12 @@ func _advance_flight_world(coordinate_seconds: float) -> float:
 
 # commit scene positions + trails after the sub-steps
 func _commit_positions(push: bool) -> void:
+	var k := state.scene_scale
+	var obs: DVec3 = cam_pos.scaled(1.0 / k) if Scale.light_time and k > 0.0 else null
 	for b in state.bodies:
-		b.scene_pos.set_v(b.pos.x * state.scene_scale, b.pos.y * state.scene_scale, b.pos.z * state.scene_scale)
+		# Light time t − d/c to first order: the body less its velocity times the delay.
+		var tau: float = b.pos.distance_to(obs) / Physics.C if obs != null else 0.0
+		b.scene_pos.set_v((b.pos.x - b.vel.x * tau) * k, (b.pos.y - b.vel.y * tau) * k, (b.pos.z - b.vel.z * tau) * k)
 		if push: push_trail(b)
 
 func handle_merger(ev: Dictionary) -> void:
@@ -1344,7 +1503,8 @@ func update_hud(dt: float) -> void:
 		"label": cl.era.label, "cls": cl.era.cls, "desc": cl.era.desc,
 		"celsius": cl.celsius, "S": cl.S, "ice": cl.ice, "clouds": cl.clouds,
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
-		"history": cl.history,
+		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam,
+		"iceEdge": cl.ice_edge, "snowball": cl.snowball,
 	})
 
 func toast(msg: String, ms: int = 2200) -> void:
@@ -1463,6 +1623,15 @@ func preset_sky(spec = {}) -> Dictionary:
 
 func apply_sky() -> void:
 	SkyModel.apply_sky_environment(pipe.sky_materials, state.sky)
+	# A scene on the real galactic frame gets the real naked-eye stars, if built.
+	var catalogue: bool = state.sky.get("galactic") == "j2000" and BrightStars.available()
+	if catalogue and bright_stars == null:
+		bright_stars = BrightStars.new()
+		pipe.world_root.add_child(bright_stars.node)
+	elif not catalogue and bright_stars != null:
+		bright_stars.dispose()
+		bright_stars = null
+	SkyModel._set_all(pipe.sky_materials, "uFirstTier", SkyModel.CATALOGUE_TIERS if catalogue else 0)
 
 ## Replace the live sky wholesale and put the controls where it says.
 func set_sky(spec: Dictionary) -> void:
@@ -1993,13 +2162,18 @@ func _on_slider(id: String, v: float) -> void:
 		"maxStep":
 			state.max_step = pow(10.0, v)
 			hud.set_text("maxStep-val", "%s yr" % U.expo(state.max_step, 1))
+		"f107":
+			# Below the quietest Sun on record the standard thermosphere stands in.
+			Rocketry.f107 = v if v >= 60.0 else 0.0
+			hud.set_text("f107-val", ("F10.7 = %d" % int(Rocketry.f107)) if Rocketry.f107 > 0.0 else "US76")
 		"gwBoost":
 			state.gw_boost = v
 			hud.set_text("gwBoost-val", ("%s×" % U.fixed(v, 2)) if v else "off")
+		# A hand-placed plane replaces a scene's real (J2000) galactic frame.
 		"skyTilt":
-			state.sky = U.merged(state.sky, {"tilt": v}); apply_sky(); sync_sky_controls(true)
+			state.sky = U.merged(state.sky, {"tilt": v, "galactic": null}); apply_sky(); sync_sky_controls(true)
 		"skyRoll":
-			state.sky = U.merged(state.sky, {"roll": v}); apply_sky(); sync_sky_controls(true)
+			state.sky = U.merged(state.sky, {"roll": v, "galactic": null}); apply_sky(); sync_sky_controls(true)
 		"mvExplode":
 			model_view.set_explode(v)
 		_:
@@ -2257,7 +2431,46 @@ func run_pending_collapse() -> void:
 func show_cross_section(b: Body) -> void:
 	if inspector == null or b == null: return
 	hud.set_text("xsecName", "#%d %s" % [b.id, b.name])
-	inspector.show(b.structure, b.structure.get("label"))
+	inspector.show(b.structure, b.structure.get("label"), secular_facts(b))
+
+## Inspector rows for the tides on `b` from its strongest tidal partner (largest
+## M/d³), and for the mass it is giving or receiving by Roche-lobe overflow.
+func secular_facts(b: Body) -> Array:
+	var rows := []
+	if not Physics.secular: return rows
+	var prim: Body = null
+	var pull := 0.0
+	for o in state.bodies:
+		if o == b or not o.alive: continue
+		var d2 := b.pos.distance_sq_to(o.pos)
+		if d2 > 0.0 and o.mass / (d2 * sqrt(d2)) > pull: pull = o.mass / (d2 * sqrt(d2)); prim = o
+	if prim != null and b.tide_k2 > 0.0:
+		var rel := DVec3.new().sub_vectors(b.pos, prim.pos)
+		var vrel := DVec3.new().sub_vectors(b.vel, prim.vel)
+		var mu := Physics.G * (b.mass + prim.mass)
+		var r := rel.length()
+		var a := 1.0 / (2.0 / r - vrel.length_sq() / mu)
+		if a > 0.0:
+			var t := Structure.tidal_timescales(b.mass, b.radius, b.tide_k2, b.tide_lag, b.tide_iom / maxf(b.radius * b.radius, 1e-300),
+				prim.mass, a)
+			var n := sqrt(mu / (a * a * a))
+			var h := rel.cross(vrel).length()
+			var e := sqrt(maxf(0.0, 1.0 - h * h / (mu * a)))
+			var sync := b.spin_omega / n
+			rows.append(["tides from", prim.name])
+			rows.append(["spin / orbit", "%s (locked)" % U.fixed(sync, 3) if absf(sync - 1.0) < 0.01 else U.fixed(sync, 3)])
+			if absf(sync - 1.0) >= 0.01: rows.append(["despins in", CrossSection.fmt_years(t.lock)])
+			if e > 1e-3: rows.append(["circularises in", "%s (e = %s)" % [CrossSection.fmt_years(t.circ), U.fixed(e, 3)]])
+	var given := float(b.extra.get("overflowRate", 0.0))
+	if given > 0.0: rows.append(["Roche-lobe overflow", "%s M☉/yr" % U.expo(given, 1)])
+	var got := float(b.extra.get("accretionRate", 0.0))
+	if got > 0.0:
+		rows.append(["accreting", "%s M☉/yr (%s)" % [U.expo(got, 1), b.extra.get("accretionRegime", "—")]])
+		if b.type == "white-dwarf" and b.extra.get("accretionRegime") == "nova":
+			rows.append(["nova envelope", "%s of %s" % [CrossSection.fmt_mass(float(b.extra.get("novaEnvelope", 0.0))),
+				CrossSection.fmt_mass(Structure.nova_ignition_mass(b.mass, b.radius))]])
+	if int(b.extra.get("novae", 0)) > 0: rows.append(["novae", str(b.extra.novae)])
+	return rows
 
 # Opening the cross-section is more than showing the panel: it has to be
 # pointed at a body and told to keep tracking it.
@@ -2676,11 +2889,15 @@ func animate(dt: float) -> void:
 
 	# ---- point-source markers. Not in surface view: the sky pass draws the suns
 	# itself, with real angular radii and atmospheric scattering.
+	var lamp: Body = state.suns[0].body if not state.suns.is_empty() else null
 	for b in state.bodies:
 		if b.marker == null or not drawn: continue
 		if state.cam_mode == "surface":
 			b.marker.mesh.visible = false
 			continue
+		# The observer in AU: the camera's offset from the body, unscaled.
+		var obs: DVec3 = b.pos.add(cam_pos.sub(b.scene_pos).scaled(1.0 / state.scene_scale))
+		b.marker.magnitude = Marker.apparent_magnitude(b, obs, lamp)
 		# (b.size_k) — during an edit the mesh is mid-glide, so the marker has to
 		# hand over at the size actually being drawn or it pops.
 		b.marker.update(pipe.scene_cam, b.scene_pos.rel_v3(cam_pos),
@@ -2717,20 +2934,27 @@ func animate(dt: float) -> void:
 	if use_lens:
 		var n := mini(holes.size(), LensPass.MAX_HOLES)
 		var hp := []
-		for i in n: hp.append({"pos": holes[i].pos_rel, "rs": holes[i].rs_scene})
+		for i in n: hp.append({"pos": holes[i].pos_rel, "rs": holes[i].rs_scene,
+			"spin": float(holes[i].body.structure.get("spin", 0.0))})
 		lens_params = {
 			"holes": hp, "basis": cam_basis, "fov": deg_to_rad(cam_fov),
 			"aspect": float(pipe.render_size.x) / float(pipe.render_size.y),
 			"time": _lens_time + sim_stepped, "disc_intensity": state.disc_intensity,
 			"disc_temp": state.disc_temp,
 			# True peak disc temperature, for the multi-wavelength imaging.
-			"disc_tpeak_phys": Derive.disc_peak_temp(holes[0].mass),
+			"disc_tpeak_phys": Derive.disc_peak_temp(holes[0].mass, float(holes[0].body.structure.get("spin", 0.0))),
 			"disc_outer": float(state.preset.get("discOuter", 15.0)) if state.preset else 15.0,
 		}
 	_lens_time += sim_stepped
 
 	# The footprint reference tracks the current fov (it recovers magnification).
 	SkyModel.update_pix_angle(pipe.sky_materials, deg_to_rad(cam_fov), float(pipe.render_size.y))
+	if bright_stars != null:
+		# Visible light only: the catalogue holds V magnitudes, not other bands.
+		var vis := SkyModel._band == Spectrum.VISIBLE_BAND
+		bright_stars.node.visible = drawn and vis
+		bright_stars.update(deg_to_rad(cam_fov), Vector2(pipe.render_size), SkyModel.star_gain())
+		SkyModel._set_all(pipe.sky_materials, "uFirstTier", SkyModel.CATALOGUE_TIERS if vis else 0)
 
 	# ---- surface view: the sky composite runs over the scene, the home world is
 	# hidden (we are standing on it) and so is the spacetime slab

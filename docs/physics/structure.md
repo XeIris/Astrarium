@@ -73,6 +73,52 @@ microwave background rather than assuming every hole is colder. Hot isolated hol
 can lose energy through thermal emission; evaporation is not integrated. See
 [Hawking's original calculation](https://authors.library.caltech.edu/records/2wsvj-qrt68).
 
+## Tidal disruption
+
+`Structure.disruption_radius` is the distance inside which a primary of mass M pulls
+a body of mass m and radius R apart; `check_structural_limits()` in `main.gd` acts
+on it every frame against the neighbour pulling hardest (largest M/d³).
+
+| body | radius | source |
+|---|---|---|
+| world above the 300 km "potato radius" | fluid Roche limit 2.44 R (M/m)^⅓ | Roche; [Lineweaver & Norman 2010](https://arxiv.org/abs/1004.1091) for the size at which self-gravity beats material strength |
+| smaller world | rigid 1.26 R (M/m)^⅓ | held by strength, not gravity |
+| star below 0.35 M☉ (fully convective, γ = 5/3) | r_t/0.9 | [Guillochon & Ramirez-Ruiz 2013](https://arxiv.org/abs/1206.2350): full disruption at β_d = 0.9 |
+| heavier star (centrally condensed, γ = 4/3) | r_t/1.85 | the same, β_d = 1.85 |
+| white dwarf, neutron star | r_t/0.9 | treated as γ = 5/3 polytropes |
+| black hole | never | |
+
+with r_t = R (M/m)^⅓. Contact is closer for most pairs, so the event is watched
+only where this radius lies outside contact; a preset's explicit `contactAU`
+(Trisolaris's stars) keeps its prescribed destruction distance. A pass that dips
+inside between two frames is caught when the radial velocity turns outward, the
+osculating two-body periapsis was inside, and Kepler's equation puts that periapsis
+within the interval since the last check. Without the last condition, near-radial
+motion relative to a distant star (a tiny osculating periapsis it never reached)
+destroyed Trisolaris's world.
+
+Round a planet the debris stays in orbit: the planet takes the whole mass and
+momentum, and a ring is painted out to the disruption radius. Round a star or a
+compact object, half the debris is bound and falls back
+([Rees 1988](https://doi.org/10.1038/333523a0)); the primary takes that half and
+its momentum, and the other half leaves. The primary's structure is then refreshed,
+so a neutron star that swallows enough of a star crosses the TOV mass and collapses
+through the ordinary path. Accretion is instantaneous: the fallback light curve
+(t^−5/3) is not modelled.
+
+## Supernova natal kicks
+
+`main.core_collapse` kicks the remnant with `Structure.natal_kick_kms`: a Maxwellian
+with σ = 265 km/s per axis for a neutron star (mean 420 km/s;
+[Hobbs et al. 2005](https://doi.org/10.1111/j.1365-2966.2005.09087.x)), and for a
+black hole the momentum-conserving share, scaled by 1.4 M☉/M, as population-synthesis
+codes commonly assume. A white dwarf gets none. The draw is seeded by the body's id,
+name and `seed`, so a run is reproducible; a spec's `kickKms` fixes the speed and
+keeps the drawn direction. The instantaneous mass loss already unbinds a binary
+that loses more than half its total mass ([Blaauw 1961](https://ui.adsabs.harvard.edu/abs/1961BAN....15..265B));
+the kick can unbind one that loses less, or keep together one that loses more. Both
+come out of the N-body integration rather than a rule.
+
 ## Solid planets (Seager et al. 2007)
 
 Every solid composition collapses onto one curve in scaled variables, because
@@ -107,6 +153,37 @@ zero-temperature relation: 0.0125 R☉ at 0.6 M☉ and 0.0078 at Sirius B's 1.01
 Neutron stars use a smooth stand-in for modern stiff EOSs: flat at 12.3–12.6 km
 over the observed masses, steepening only past ~0.9 TOV (NICER: J0030 and J0740
 near 12.4 km). Rigid rotation raises TOV by up to ~20%.
+
+### Neutron-star cooling
+
+`Structure.neutron_cooling` follows the minimal-cooling picture of Yakovlev &
+Pethick (2004) for an isolated star of age `ageYr` (default 10⁵ yr). After
+thermal relaxation the interior is isothermal at T, with heat capacity
+C ≈ 10³⁹ T₉ erg/K, and it loses heat to modified-Urca neutrinos,
+L_ν ≈ 10⁴⁰ T₉⁸ erg/s, and to surface photons, L_γ = 4πR²σT_eff⁴:
+
+    C dT/dt = −L_ν − L_γ   ⇒   d ln T₉ / d ln t = −t (a T₉⁶ + b T₉^0.2)
+
+with a = L_ν/(C T₉⁷) and b from L_γ. An iron heat-blanketing envelope maps the
+temperature Tb at its base to the surface (Gudmundsson, Pethick & Epstein 1983):
+T_eff = 0.87×10⁶ K · g₁₄^¼ · (Tb/10⁸ K)^0.55, so L_γ ∝ Tb^2.2. Neutrinos alone
+give T₉⁻⁶ = 6at, which starts the RK4 integration in ln t at one year. The
+photon term takes over near 10⁵ yr, and T then falls steeply.
+
+The crust keeps its birth heat until a cooling wave from the core reaches the
+surface after 10–100 yr (Gnedin, Yakovlev & Potekhin 2001). The model represents
+this as T_crust = T_core·(1 + e^(−t/30 yr)), and the surface reads the crust.
+Observers measure T_eff∞ = T_eff √(1 − r_s/R).
+
+| age | log T_eff∞ (1.4 M☉) |
+|---|---|
+| 1 kyr | 6.12 |
+| 10 kyr | 6.02 |
+| 100 kyr | 5.90 |
+| 1 Myr | 5.46 |
+
+Enhanced cooling (direct Urca, pairing) is not modelled, and neither is old-star
+reheating.
 
 ## Stellar evolution
 
@@ -150,6 +227,17 @@ Stars are strongly condensed, so the Roche model applies: the surface is an
 equipotential of Φ = −GM/r − ½Ω²r²sin²θ, i.e. 1/x + (4/27)ω²x²sin²θ = 1 with
 x = R(θ)/R_pole. At break-up R_eq/R_pole = 3/2 for any star (Achernar, 1.35, is
 near it), so Ω_crit = √(8GM/27R_pole³), 0.544 of the naive value.
+
+Limb darkening is quadratic per sRGB primary, I(μ)/I(1) = 1 − a(1 − μ) − b(1 − μ)²
+(`Stellar.limb_darkening`), interpolated in Teff from Claret's (2000) tables
+(`sim/limbdark.gd`, VizieR J/A+A/363/1081). The rows are for log g 4.5, solar
+metallicity and ξ = 2 km/s, in the Cousins R, Johnson V and B bands standing in for
+the primaries. From 3500 K they are ATLAS quadratic coefficients. Below that they
+are PHOENIX four-parameter laws, refitted to the quadratic by least squares
+(`tools/build_limb_darkening.py`). The Sun's limb is 0.34, 0.27 and 0.19 of its
+centre in R, V and B; a 15 000 K star's is 0.62, 0.56 and 0.48. A 3200 K M dwarf's is
+0.19, 0.13 and 0.13. The grey Eddington–Barbier model these replace gave the Sun
+0.39, 0.33 and 0.25, and overdarkened the M dwarf's blue limb (0.08).
 
 Gravity darkening (von Zeipel 1924): T_eff ∝ g_eff^β, β = ¼ radiative and ≈ 0.08
 convective (Lucy 1967, below ~7000 K). β is reduced at high spin, after Espinosa

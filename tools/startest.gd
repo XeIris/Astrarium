@@ -108,7 +108,8 @@ func _setup() -> void:
 
 func _inject_star(b: Body, viz, e: Dictionary) -> void:
 	var u: Dictionary = e.u
-	for k in ["uGranScale", "uGain", "uOmega", "uLimbU", "uTpole", "uSpin", "uGdBeta", "uTeff"]:
+	# uLimbU is not compared: limb darkening is now quadratic per band (Stellar.limb_darkening).
+	for k in ["uGranScale", "uGain", "uOmega", "uTpole", "uSpin", "uGdBeta", "uTeff"]:
 		_check("%s.%s" % [b.name, k], float(viz.mat.get_shader_parameter(k)), u[k])
 	for k in ["uColPole", "uColEq", "uHot"]:
 		var g: Vector3 = viz.mat.get_shader_parameter(k)

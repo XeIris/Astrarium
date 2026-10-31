@@ -225,7 +225,7 @@ func _orbiter_return(id := "orbiter_return", air_warp := 0) -> void:
 	elif reversals < 2 or not v.stages[2].gear_out:
 		_fail(id, "%d roll reversals, gear %s" % [reversals, "down" if v.stages[2].gear_out else "up"])
 	elif not _touchdown_speed_ok(v):
-		_fail(id, "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
+		_fail(id, "touched down at %s KEAS" % U.fixed(float(v.landed_at.get("vAir", v.landed_at.vHoriz)) / 0.514444, 0))
 	elif _rollout_error(v) != "":
 		_fail(id, _rollout_error(v))
 	else:
@@ -245,6 +245,10 @@ func _orbiter_home() -> void:
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
 	f.run_program("ascent")
+	# Home from the Cape's own latitude, as every Shuttle flight was before guidance
+	# flew its target azimuth. From the vehicle's 51.6° the first opportunity is 370 km
+	# off, and entry guidance holds its first bank to Mach 15 and over-brakes past 3 g.
+	f.autopilot.ascent.inclination = 28.5
 	var frames := 0
 	var gliding := false
 	var seen := 0
@@ -277,7 +281,7 @@ func _orbiter_home() -> void:
 	elif miss > 10.0:
 		_fail("orbiter_home", "landed %s km from the pad" % U.fixed(miss, 1))
 	elif not _touchdown_speed_ok(v):
-		_fail("orbiter_home", "touched down at %s kt" % U.fixed(float(v.landed_at.vHoriz) / 0.514444, 0))
+		_fail("orbiter_home", "touched down at %s KEAS" % U.fixed(float(v.landed_at.get("vAir", v.landed_at.vHoriz)) / 0.514444, 0))
 	elif _rollout_error(v) != "":
 		_fail("orbiter_home", _rollout_error(v))
 	else:
@@ -430,9 +434,10 @@ func _over_land(geo: Vector2) -> bool:
 	var y := clampi(int((0.5 - geo.x / 180.0) * img.get_height()), 0, img.get_height() - 1)
 	return img.get_pixel(x, y).r > 0.5
 
-## Inside the flown touchdown range, 195–215 kt, in still air at sea level.
+## Inside the flown touchdown range, 195–215 KEAS: air speed, which at sea level is
+## equivalent air speed and, in still air, the ground speed.
 func _touchdown_speed_ok(v: Vessel) -> bool:
-	var kt := float(v.landed_at.vHoriz) / 0.514444
+	var kt := float(v.landed_at.get("vAir", v.landed_at.vHoriz)) / 0.514444
 	return kt >= 195.0 and kt <= 215.0
 
 ## The rollout against the flown ones (docs/physics/orbiter-entry.md#rollout): stopped
