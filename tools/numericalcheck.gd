@@ -110,6 +110,14 @@ func request_cases(kernel: String) -> void:
 	check(kernel + " guard counts actual bounded substeps", guarded.steps == Derive.STEP_GUARD and near(guarded.stepped, float(Derive.STEP_GUARD) * 1e-10))
 	check(kernel + " guard advances accepted clock only", near(b.pos.x, guarded.stepped) and guarded.stepped < 1e-4 and not guarded.get("resolution_limited", false))
 
+## A force-free coordinate after one integrator step: each substep's two half drifts.
+func composed_drift(x: float, v: float, dt: float) -> float:
+	for w in [Physics.YOSHIDA_W1, Physics.YOSHIDA_W0, Physics.YOSHIDA_W1]:
+		var half: float = 0.5 * (w * dt)
+		x += v * half
+		x += v * half
+	return x
+
 func lost_drift_cases(kernel: String) -> void:
 	for fixture in [[1e16, 1.0, 0.01], [0.0, 1e-200, 1e-200]]:
 		var b := hole(1.0, fixture[0])
@@ -117,14 +125,16 @@ func lost_drift_cases(kernel: String) -> void:
 		var initial := snapshot([b])
 		var result := step([b], fixture[2], fixture[2], kernel)
 		check(kernel + " entirely lost force-free drift stops accepted time %s" % str(fixture), result.stepped == 0.0 and result.steps == 0 and result.get("resolution_limited", false) and snapshot([b]) == initial)
+	# Where the coordinate ULP is 2, a step's three Yoshida drifts each round, so the
+	# expected position repeats that arithmetic.
 	var b := hole(1.0, 1e16)
-	b.vel.x = 2.1
-	var result := step([b], 1.1, 1.0, kernel)
-	check(kernel + " lost later drift preserves accepted prefix", result.stepped == 1.0 and result.steps == 1 and result.get("resolution_limited", false) and b.pos.x == 1e16 + 2.0 and b.vel.x == 2.1)
+	b.vel.x = 2100.0
+	var result := step([b], 1.0001, 1.0, kernel)
+	check(kernel + " lost later drift preserves accepted prefix", result.stepped == 1.0 and result.steps == 1 and result.get("resolution_limited", false) and b.pos.x == composed_drift(1e16, 2100.0, 1.0) and b.vel.x == 2100.0)
 	b = hole(1.0, 1e16)
 	b.vel.set_v(1.0, 1.0, 0.0)
 	result = step([b], 0.01, 0.01, kernel)
-	check(kernel + " representable component prevents false whole-drift stop", result.stepped == 0.01 and not result.get("resolution_limited", false) and b.pos.y == 0.01)
+	check(kernel + " representable component prevents false whole-drift stop", result.stepped == 0.01 and not result.get("resolution_limited", false) and b.pos.y == composed_drift(0.0, 1.0, 0.01))
 	b = hole(1.0, 1e16)
 	result = step([b], 0.01, 0.01, kernel)
 	check(kernel + " stationary force-free body may advance time", result.stepped == 0.01 and not result.get("resolution_limited", false))
@@ -268,8 +278,10 @@ func merger_prefix_cases(kernel: String) -> void:
 		var bodies: Array = [
 			ordinary(1e-20, 0.0, 9.55e-5),
 			ordinary(1e-20, 0.0 if at_start else 0.0002, 9.55e-5, 0.0 if at_start else -0.1),
-			ordinary(1e100, base, 7.75 * ulp),
-			ordinary(1e100, base if at_start else base + 16.0 * ulp, 7.75 * ulp, 0.0 if at_start else -ulp / dt),
+			ordinary(1e100, base, 14.75 * ulp),
+			# Each step's six half-drifts (Yoshida's ±substeps) round to whole ULPs; 2.25 ULP
+			# a step lands 32 → 28, inside the 29.5 ULP contact sum, where 1 or 2 round back.
+			ordinary(1e100, base if at_start else base + 32.0 * ulp, 14.75 * ulp, 0.0 if at_start else -2.25 * ulp / dt),
 		]
 		var events := [0]
 		var merged := func(ev):
@@ -342,13 +354,16 @@ func orbit_cases(kernel: String) -> void:
 		check(label + " energy bound", fine.complete and fine.energy < 1e-8)
 		check(label + " radius bound", fine.complete and fine.radius < 3e-5)
 		check(label + " closes orbit", fine.complete and fine.phase < 1e-4)
-		check(label + " phase converges with halved step", coarse.complete and fine.complete and fine.phase > 0.0 and coarse.phase > fine.phase * 3.5 and coarse.phase < fine.phase * 4.5)
+		# Fourth order: halving the step cuts the phase error 16×.
+		check(label + " phase converges with halved step", coarse.complete and fine.complete and fine.phase > 0.0 and coarse.phase > fine.phase * 12.0 and coarse.phase < fine.phase * 20.0)
 		print("NUMERICALCHECK ORBIT %s coarse=%s fine=%s" % [label, JSON.stringify(coarse), JSON.stringify(fine)])
 
 func _initialize() -> void:
 	call_deferred("run")
 
 func run() -> void:
+	# The expectations are Newtonian; 1PN has its own checks (invariantcheck).
+	Physics.post_newtonian = false
 	check("native extension loaded", NBody.native_available())
 	if not NBody.native_available():
 		print("NUMERICALCHECK DONE checks=%d failures=%d" % [checks, failures])

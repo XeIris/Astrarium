@@ -3,14 +3,35 @@
 `sim/physics.gd` and the native kernel use symmetric Newtonian gravity for pairs
 containing a black hole, with potential `−G m₁ m₂ / r`. Ordinary pairs use the
 same law unless a spec sets `softening`, which gives a shared Plummer softening
-(none by default: contact merges a pair before its radii overlap). Both forces match `Derive.total_energy`; with fixed
-mass/softening and no drag or mergers, energy drift measures numerical error.
+(none by default: contact merges a pair before its radii overlap).
+
+Every unsoftened pair adds the first post-Newtonian two-body relative
+acceleration in harmonic gauge ([Blanchet 2014](https://link.springer.com/article/10.12942/lrr-2014-2), §7.3),
+
+    δa = −(GM/r²c²) [ ((1+3η)v² − (3/2)ηṙ² − (4+2η)GM/r) n + (2η − 4) ṙ v ],
+
+shared between the two by reduced mass, so Newtonian momentum is conserved
+exactly. It is pairwise: the N-body cross terms of the Einstein–Infeld–Hoffmann
+equations are omitted, which is exact to 1PN for a dominant pair. The Sun alone
+then gives Mercury its 42.98″ per century, and a compact binary its periastron
+advance. It is skipped where GM/(rc²) ≥ 0.1, outside the weak field, and
+`Physics.post_newtonian` turns it off for checks of the potential itself.
+`Derive.total_energy` adds each pair's conserved 1PN energy, so with fixed
+mass/softening and no drag or mergers, drift still measures numerical error.
+
+Integration is Yoshida's (1990) fourth-order composition of three velocity-Verlet
+substeps (w₁ = 1/(2 − 2^⅓), w₀ = 1 − 2w₁). Each substep's forces see a predicted
+velocity v + a·dt, which keeps the velocity-dependent 1PN term from degrading
+the order. At the same step it cuts Mercury's perihelion error about 115× and the
+energy error about 100× against single Verlet, for twice the force evaluations.
+The `solar` preset caps the step at 2e-4 yr (1/1200 of Mercury's year), leaving
+about 1″ per century of integration error beside GR's 43″.
 Nonzero separations have no fixed force cutoff, and requested step caps have no
 fixed lower floor. The adaptive timestep does not make the entire integration
 symplectic.
 
-This is a weak-field orbital model. It has no dynamical ISCO, relativistic
-precession, frame dragging or relativistic plunge. Contact remains the
+This is a weak-field orbital model. It has no dynamical ISCO, frame dragging,
+spin–orbit coupling or relativistic plunge. Contact remains the
 mass-derived Schwarzschild scale; contact merging is an illustrative event,
 not a general-relativistic coalescence calculation. Lensing, illustrated discs
 and reported Kerr radii do not add those effects to body motion.
@@ -50,9 +71,11 @@ resolved systems with analytic forces and orbital convergence in both kernels.
 ## Illustrative radiation drag
 
 Eligible pairs within 400 times their physical contact-radius sum can receive
-a momentum-conserving velocity kick. Its requested power is the circular,
-leading-quadrupole value `32 G⁴ m₁² m₂² (m₁+m₂) / (5 c⁵ r⁵)`, multiplied by
-`gwBoost`. The kick is capped at 0.25% of relative speed per substep; a speed
+a momentum-conserving velocity kick. Its requested power is the instantaneous
+leading-quadrupole value for Keplerian motion ([Peters & Mathews 1963](https://doi.org/10.1103/PhysRev.131.435)),
+`(8/15) G³ m₁² m₂² (12v² − 11ṙ²) / (c⁵ r⁴)`, multiplied by `gwBoost`. On a
+circle it is `32 G⁴ m₁² m₂² M / (5 c⁵ r⁵)`; averaged over an eccentric orbit it
+carries Peters' enhancement f(e), and it is concentrated near periapsis. The kick is capped at 0.25% of relative speed per substep; a speed
 floor also limits the near-stationary case. This is an illustration, not the
 full 2.5-PN equations of motion. There is no bound-orbit or eccentricity check.
 The contact window, multiplier and cap change the resulting loss and timing;
