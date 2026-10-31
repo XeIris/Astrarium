@@ -186,6 +186,8 @@ static func insolation_s2(obliquity: float) -> float:
 ## flight surface table. Unsigned: here an obliquity past 90° is what makes Venus,
 ## Uranus and Pluto turn backwards (the flight frame has no tilt, so it signs `day`).
 static func sidereal_period_yr(b: Body) -> float:
+	# Tides evolve the spin the kernel carries (Physics.apply_secular).
+	if b.spin_tracked and b.spin_omega != 0.0: return TAU_ / absf(b.spin_omega)
 	var stated = b.spec.get("dayLength")
 	if stated != null and float(stated) != 0.0: return absf(float(stated))
 	var surf: Dictionary = Rocketry.SURFACES.get(b.name, {})
@@ -404,3 +406,4 @@ class RockyViz extends RefCounted:
 			if atmo_mat != null: mats.append(atmo_mat)
 			Suns.apply_suns(mats, suns, group.position)
 			Suns.apply_occluders(mats, b, ctx.bodies, suns)
+			Suns.apply_shine([surf_mat], b, ctx.bodies, suns)

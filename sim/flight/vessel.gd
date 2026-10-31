@@ -1,9 +1,10 @@
 class_name Vessel
 extends RefCounted
 
-# SI dynamics in an accelerating parent-centred frame; other bodies contribute
-# tidal differences rather than their full absolute pull. Attitude is DQuat,
-# position/velocity are DVec3. Coordinate and proper clocks remain distinct.
+# SI dynamics in an accelerating parent-centred frame, turned so the parent's north
+# pole is −Y (`frame`); other bodies contribute tidal differences rather than their
+# full absolute pull. Attitude is DQuat, position/velocity are DVec3. Coordinate and
+# proper clocks remain distinct.
 # Model and integration contracts: sim/flight/AGENTS.md and docs/physics/flight.md.
 
 const PHASE := {
@@ -28,6 +29,8 @@ static var _g1 := DVec3.new()
 static var _g2 := DVec3.new()
 static var _gp := DVec3.new()
 static var _gu := DVec3.new()
+static var _gw := DVec3.new()
+static var _ba := DVec3.new()
 static var _w1 := DVec3.new()
 static var _ge1 := DVec3.new()
 static var _ge2 := DVec3.new()
@@ -217,6 +220,13 @@ var t0: float = 0.0                 # MET of liftoff
 var parent: Body = null
 var env = null                      # Rocketry.flight_env(parent) Dictionary
 var bodies: Array = []              # of Body
+## The parent's equatorial frame in orrery axes: world = frame · local (env.frame).
+## Every vector the vessel keeps is local; body positions cross through it.
+var frame := DQuat.new()
+var _unframe := DQuat.new()
+## Called with the turn (new local ← old local) after a rebase onto a body with
+## another pole, for state kept outside the vessel (the autopilot's aim and node).
+var on_rebase := Callable()
 
 var telemetry: Dictionary = {}
 var held_down: bool = false
@@ -251,6 +261,25 @@ func set_parent(body: Body, bods) -> void:
 	parent = body
 	env = Rocketry.flight_env(body) if body != null else null
 	bodies = bods if bods != null else []
+	if env != null: frame.copy_from(env.frame)
+	else: frame.identity()
+	_unframe.copy_from(frame).invert()
+
+## A local (parent-frame) vector in orrery axes, and back. Rotation only.
+func to_world(local: DVec3, out: DVec3) -> DVec3:
+	return DQuat.rotate(out.copy_from(local), frame)
+
+func to_local(world: DVec3, out: DVec3) -> DVec3:
+	return DQuat.rotate(out.copy_from(world), _unframe)
+
+## Body `b` from the parent, in the parent frame, m.
+func body_offset(b: Body, out: DVec3) -> DVec3:
+	return DQuat.rotate(out.sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M), _unframe)
+
+## Where the vessel is in the orrery, AU.
+func world_pos(out: DVec3 = null) -> DVec3:
+	if out == null: out = DVec3.new()
+	return to_world(r, out).scale_in(1.0 / Rocketry.AU_M).add_in(parent.pos)
 
 ## Place the vessel on the launch pad: on the surface, turning with it.
 func place_on_pad(lat_deg: float = 28.5, lon_deg: float = 0.0) -> Vessel:
@@ -394,12 +423,14 @@ func forward(out: DVec3 = null) -> DVec3:
 
 # Forces
 
-## Gravity in the parent-centred non-inertial frame. See the module header.
+## Gravity in the parent-centred non-inertial frame. See the module header. Summed
+## in orrery axes, so the frame turns two vectors rather than every body's offset.
 func gravity(rr: DVec3, out: DVec3) -> DVec3:
 	out.set_v(0.0, 0.0, 0.0)
 	var p := parent
 	if p == null: return out
 	var interp := _stage_tau >= 0.0 and _off1.size() >= bodies.size()
+	to_world(rr, _gw)
 	for i in bodies.size():
 		var b = bodies[i]
 		if not b.alive: continue
@@ -409,14 +440,33 @@ func gravity(rr: DVec3, out: DVec3) -> DVec3:
 		if interp and b != p: _body_offset(i, _g1)
 		else: _g1.sub_vectors(b.pos, p.pos).scale_in(Rocketry.AU_M)
 		# pull on the vessel
-		_g2.copy_from(_g1).sub_in(rr)
+		_g2.copy_from(_g1).sub_in(_gw)
 		var d2 := _g2.length_sq()
 		if d2 > 1e-6: out.add_scaled_in(_g2, gm / (d2 * sqrt(d2)))
 		# pull on the frame origin — every body except the parent itself
 		if b == p: continue
 		var D2 := _g1.length_sq()
 		if D2 > 1e-6: out.add_scaled_in(_g1, -gm / (D2 * sqrt(D2)))
+	# Bodies pull in the world frame; the parent's figure is in its own spin frame.
+	to_local(out, out)
+	var tess = env.get("tesseral")
+	if tess != null:
+		Rocketry.tesseral_accel(tess, env.mu, rr, body_angle(coord + maxf(_stage_tau, 0.0) * _stage_h), out)
 	return Rocketry.zonal_accel(env.get("zonal"), env.mu, rr, out)
+
+## The parent's prime meridian at coordinate time `t`, rad east of the frame's +X. A
+## world turning under a launch site keeps the site's longitudes, as the drawn ground
+## does; a tidally locked moon keeps its long axis on its primary (librations aside);
+## anything else turns at its sidereal rate from the start of coordinate time.
+func body_angle(t: float) -> float:
+	var lock = env.get("locked")
+	if lock != null and parent != null:
+		for b in bodies:
+			if b.alive and b.name == lock:
+				to_local(_ba.sub_vectors(b.pos, parent.pos), _ba)
+				return atan2(_ba.z, _ba.x)
+	var t0: float = float(launch_site.coord0) if launch_site != null else 0.0
+	return env.rotRate * (t - t0)
 
 ## Body `i`'s offset from the parent at the current RK4 stage, m.
 func _body_offset(i: int, out: DVec3) -> DVec3:
@@ -1052,12 +1102,35 @@ func _milestones(t: Dictionary) -> void:
 	if not _logged.has("karman") and alt >= env.karman and t.vertical > 0.0:
 		_logged.karman = true
 		log_event("Space — through the Kármán line at %s km/s" % U.fixed(t.speed / 1000.0, 2))
+	_radio(t)
 	if t.heat > _peak_heat_seen:
 		_peak_heat_seen = t.heat; _peak_heat_alt = alt; _peak_heat_v = t.speed
 	if not _logged.has("heat") and _peak_heat_seen > 5e4 and t.heat < 0.8 * _peak_heat_seen:
 		_logged.heat = true
 		log_event("Peak heating — %s W/cm² at %s km, %s km/s" % [U.fixed(_peak_heat_seen / 1e4, 1),
 			U.fixed(_peak_heat_alt / 1000.0, 1), U.fixed(_peak_heat_v / 1000.0, 2)])
+
+## Radio blackout: S-band is cut off while the shock layer's equilibrium electron
+## density exceeds the critical density (Ionisation). Sampled once a second of MET,
+## since a shock solve is costly; telemetry carries `ne` and `blackout`.
+var _radio_met := -INF
+var _radio_low := 0
+func _radio(t: Dictionary) -> void:
+	if met - _radio_met < 1.0 and t.has("blackout"): return
+	_radio_met = met
+	var ne := Ionisation.shock_layer_ne(env.atm, t.alt, float(t.airspeed))
+	var was: bool = telemetry.get("blackout", false)
+	# Recovery at half the critical density, held for three samples, so a layer
+	# hovering at it doesn't flicker.
+	var out := ne > Ionisation.critical_density() * (0.5 if was else 1.0)
+	_radio_low = _radio_low + 1 if (was and not out) else 0
+	if was and not out and _radio_low < 3: out = true
+	t.ne = ne
+	t.blackout = out
+	if out and not was:
+		log_event("Radio blackout — %s e⁻/m³ in the shock layer, above S-band's %s" % [U.expo(ne, 1), U.expo(Ionisation.critical_density(), 1)] + _where())
+	elif was and not out:
+		log_event("Radio contact restored" + _where())
 
 ## Append to the event log the HUD shows, capped at 120.
 func log_event(msg: String) -> void:
@@ -1077,14 +1150,14 @@ static func js_num(x: float) -> String:
 func step_clocks(dt: float) -> void:
 	var c2 := Rocketry.C_MS * Rocketry.C_MS
 	# vessel: speed in the coordinate frame = parent's own speed + local v
-	_a.copy_from(parent.vel).scale_in(Rocketry.AU_M / _YR).add_in(v)
+	_a.copy_from(parent.vel).scale_in(Rocketry.AU_M / _YR).add_in(to_world(v, _b))
 	var v_ship2 := _a.length_sq()
 	var phi_ship := potential(r)
 	# ground reference: a clock on the parent's surface at the launch latitude
 	var site: DVec3 = launch_site.r if launch_site != null else DQuat.set_len(_b.copy_from(r), env.radius)
 	_c.copy_from(parent.vel).scale_in(Rocketry.AU_M / _YR)
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, site)
-	var v_gnd2 := _c.add_in(_d).length_sq()
+	var v_gnd2 := _c.add_in(to_world(_d, _d)).length_sq()
 	var phi_gnd := potential(site)
 
 	var A := maxf(1.0 - v_ship2 / c2 - 2.0 * phi_ship / c2, 1e-12)
@@ -1100,14 +1173,15 @@ func step_clocks(dt: float) -> void:
 ## Newtonian potential (negative, J/kg) at a parent-frame position.
 func potential(rr: DVec3) -> float:
 	var phi := 0.0
-	_f.copy_from(rr)
+	to_world(rr, _f)
 	for b in bodies:
 		if not b.alive: continue
 		_e.sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M).sub_in(_f)
 		var br: float = b.radius if (b.radius != 0.0 and not is_nan(b.radius)) else 1e-9
 		var d := maxf(_e.length(), br * Rocketry.AU_M * 0.5)
 		phi -= Rocketry.GM_SUN * b.mass / d
-	return phi + Rocketry.zonal_potential(env.get("zonal"), env.mu, rr)
+	return phi + Rocketry.zonal_potential(env.get("zonal"), env.mu, rr) \
+		+ Rocketry.tesseral_potential(env.get("tesseral"), env.mu, rr, body_angle(coord))
 
 # Stepping
 
@@ -1288,9 +1362,10 @@ func perturbation(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
 func rail_step() -> float:
 	var R := maxf(r.length(), env.radius)
 	var h: float = 2.0 * PI * sqrt(R * R * R / env.mu) / 32.0
+	to_world(r, _gw)
 	for b in bodies:
 		if not b.alive or b == parent: continue
-		var d := _g1.sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M).sub_in(r).length()
+		var d := _g1.sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M).sub_in(_gw).length()
 		h = minf(h, 0.02 * sqrt(d * d * d / (Rocketry.GM_SUN * b.mass)))
 	return DQuat.jclamp(h, 1.0, 3600.0)
 
@@ -1432,7 +1507,7 @@ func check_soi() -> void:
 		if b == parent or not b.alive: continue
 		var soi := soi_of(b)
 		if not is_finite(soi): continue
-		_a.sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M)
+		body_offset(b, _a)
 		if r.distance_to(_a) < soi and soi < best_soi:
 			best = b; best_soi = soi
 	# leaving: outside the parent's own SOI
@@ -1446,14 +1521,24 @@ func check_soi() -> void:
 	if best != null and best_soi < own:
 		rebase(best)
 
-## Rebase onto a new parent, offsetting position and velocity.
+## Rebase onto a new parent, offsetting position and velocity in orrery axes and
+## turning everything kept in the frame onto the new parent's pole.
 func rebase(body: Body) -> void:
 	if body == parent: return
 	_a.sub_vectors(parent.pos, body.pos).scale_in(Rocketry.AU_M)
 	_b.sub_vectors(parent.vel, body.vel).scale_in(Rocketry.AU_M / _YR)
-	r.add_in(_a); v.add_in(_b)
+	to_world(r, r).add_in(_a); to_world(v, v).add_in(_b)
 	var old := parent.name
+	var old_frame := frame.clone()
 	set_parent(body, bodies)
+	to_local(r, r); to_local(v, v)
+	# turn = new local ← old local
+	var turn := _unframe.clone().multiply(old_frame)
+	if 1.0 - absf(turn.w) > 1e-15:
+		q.premultiply(turn).normalize_in()
+		for d: DVec3 in [omega, _hold, _prev_dir, _w_t, _roll_axis]: DQuat.rotate(d, turn)
+		if rolling != null: DQuat.rotate(rolling.heading, turn)
+		if on_rebase.is_valid(): on_rebase.call(turn)
 	log_event("Sphere of influence — %s → %s" % [old, body.name])
 
 ## Ground contact: a landing if the legs are down and vertical speed is within the

@@ -106,6 +106,8 @@ func _ready() -> void:
 		_cmd[kv[0]] = kv[1] if kv.size() > 1 else ""
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
 	if _cmd.has("winds"): Rocketry.winds_enabled = String(_cmd.winds) != "0"
+	if _cmd.has("secular"): Physics.secular = String(_cmd.secular) != "0"
+	if _cmd.has("f107"): Rocketry.f107 = float(_cmd.f107)
 	# Logical px, with the display scale as content scale. Screenshot mode takes
 	# window pixels 1:1.
 	var screen := DisplayServer.window_get_current_screen()
@@ -665,8 +667,18 @@ func recoil_camera(b: Body, blast_size: float) -> void:
 func check_structural_limits(b: Body) -> void:
 	if not b.alive or b.type == "bh": return
 	if _check_tidal_limit(b): return
-	if b.m_check != null and b.mass == float(b.m_check): return
+	if _check_nova(b): return
+	if Physics.secular and b.type == "star" and b.phase != null and float(b.phase) >= Structure.LIFE_CLOCK[-1][0]:
+		core_collapse(b)
+		return
+	# Winds and overflow move masses a little every frame: the hard limits are tested
+	# on every change, the structure re-derived once the mass or age has moved.
+	var crossed := (b.type == "neutron" and b.mass > Structure.tov_limit(b.spin_frac)) \
+		or (b.type == "white-dwarf" and b.mass >= Structure.LIMITS.chandrasekhar)
+	var aged: bool = b.type == "star" and b.phase != null and absf(float(b.phase) - float(b.structure.get("phaseF", b.phase))) > 1e-4
+	if not crossed and not aged and b.m_check != null and absf(b.mass - float(b.m_check)) <= 1e-9 * b.mass: return
 	b.m_check = b.mass
+	if aged: b.spec.phase = b.phase   # an edit re-derives from the spec
 	var st := refresh_structure(b)
 
 	if b.type == "neutron" and b.mass > Structure.tov_limit(b.spin_frac):
@@ -687,6 +699,21 @@ func check_structural_limits(b: Body) -> void:
 	# A body that has crossed an ignition threshold is a different object.
 	if st.get("type") != b.type and st.get("reclassifiedFrom"):
 		transmute(b, st.type, "%s: %s" % [b.name, st.verdict.detail])
+
+# NOVAE. A white dwarf below the steady-burning rate keeps what Roche-lobe overflow
+# brings until the envelope's base reaches ignition pressure, then throws it off
+# (Structure.nova_ignition_mass). _step_secular accumulates the envelope.
+func _check_nova(b: Body) -> bool:
+	if b.type != "white-dwarf": return false
+	var env := float(b.extra.get("novaEnvelope", 0.0))
+	if env <= 0.0 or env < Structure.nova_ignition_mass(b.mass, b.radius): return false
+	b.mass -= env
+	b.extra.novaEnvelope = 0.0
+	b.extra.novae = int(b.extra.get("novae", 0)) + 1
+	spawn_flash(b.scene_pos.clone(), 0xfff1d0, maxf(b.radius_scene * 30.0, 1.0), 0.5)
+	toast("%s: classical nova — %s of accreted hydrogen ignited and thrown off" % [b.name, CrossSection.fmt_mass(env)], 5000)
+	b.m_check = null
+	return false
 
 # TIDES. The neighbour pulling hardest (largest M/d³) tears `b` apart inside
 # Structure.disruption_radius. Contact handles anything closer, so only a radius
@@ -859,10 +886,37 @@ func step_physics(sim_dt: float, coupled := false) -> float:
 	# Advance the clock by what was actually integrated, not by what was asked
 	# for: the deficit during a guarded close encounter is never repaid.
 	state.advance_years(stepped)
+	_step_secular(stepped)
 	if coupled: return stepped
 	_commit_positions(true)
 	_step_climate(stepped)
 	return stepped
+
+# Stars age along their track; overflow's mass is booked by what the accretor does
+# with it (Structure.accretion_regime); a tidally torqued star's spin_frac follows Ω.
+func _step_secular(stepped: float) -> void:
+	if not Physics.secular or stepped <= 0.0: return
+	for b in state.bodies:
+		if not b.alive: continue
+		if b.type == "star" and b.phase != null:
+			b.phase = Structure.phase_after(float(b.phase), stepped, float(b.structure.get("msLifetime", 0.0)))
+			if b.spin_tracked:
+				var crit := Structure.breakup_omega(b.mass, b.radius, "star") * Rocketry.YR_S
+				var frac: float = clampf(absf(b.spin_omega) / crit, 0.0, 1.15) if crit > 0.0 else b.spin_frac
+				if absf(frac - b.spin_frac) > 1e-3 * maxf(b.spin_frac, 1e-3):
+					b.spin_frac = frac
+					b.spec.spinFrac = frac
+					b.m_check = null
+		if b.gained > 0.0 and b.type == "white-dwarf":
+			var fate := Structure.accretion_regime(b.mass, b.gained / stepped)
+			match String(fate.regime):
+				"nova": b.extra.novaEnvelope = float(b.extra.get("novaEnvelope", 0.0)) + b.gained
+				"wind": b.mass -= b.gained - float(fate.retained) * stepped
+			b.extra.accretionRegime = fate.regime
+		b.extra.accretionRate = b.gained / stepped
+		b.extra.overflowRate = b.shed / stepped
+		b.gained = 0.0
+		b.shed = 0.0
 
 func _step_climate(stepped: float) -> void:
 	# advance the climate on the same simulated clock
@@ -1450,6 +1504,7 @@ func update_hud(dt: float) -> void:
 		"celsius": cl.celsius, "S": cl.S, "ice": cl.ice, "clouds": cl.clouds,
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
 		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam,
+		"iceEdge": cl.ice_edge, "snowball": cl.snowball,
 	})
 
 func toast(msg: String, ms: int = 2200) -> void:
@@ -2107,6 +2162,10 @@ func _on_slider(id: String, v: float) -> void:
 		"maxStep":
 			state.max_step = pow(10.0, v)
 			hud.set_text("maxStep-val", "%s yr" % U.expo(state.max_step, 1))
+		"f107":
+			# Below the quietest Sun on record the standard thermosphere stands in.
+			Rocketry.f107 = v if v >= 60.0 else 0.0
+			hud.set_text("f107-val", ("F10.7 = %d" % int(Rocketry.f107)) if Rocketry.f107 > 0.0 else "US76")
 		"gwBoost":
 			state.gw_boost = v
 			hud.set_text("gwBoost-val", ("%s×" % U.fixed(v, 2)) if v else "off")
@@ -2372,7 +2431,46 @@ func run_pending_collapse() -> void:
 func show_cross_section(b: Body) -> void:
 	if inspector == null or b == null: return
 	hud.set_text("xsecName", "#%d %s" % [b.id, b.name])
-	inspector.show(b.structure, b.structure.get("label"))
+	inspector.show(b.structure, b.structure.get("label"), secular_facts(b))
+
+## Inspector rows for the tides on `b` from its strongest tidal partner (largest
+## M/d³), and for the mass it is giving or receiving by Roche-lobe overflow.
+func secular_facts(b: Body) -> Array:
+	var rows := []
+	if not Physics.secular: return rows
+	var prim: Body = null
+	var pull := 0.0
+	for o in state.bodies:
+		if o == b or not o.alive: continue
+		var d2 := b.pos.distance_sq_to(o.pos)
+		if d2 > 0.0 and o.mass / (d2 * sqrt(d2)) > pull: pull = o.mass / (d2 * sqrt(d2)); prim = o
+	if prim != null and b.tide_k2 > 0.0:
+		var rel := DVec3.new().sub_vectors(b.pos, prim.pos)
+		var vrel := DVec3.new().sub_vectors(b.vel, prim.vel)
+		var mu := Physics.G * (b.mass + prim.mass)
+		var r := rel.length()
+		var a := 1.0 / (2.0 / r - vrel.length_sq() / mu)
+		if a > 0.0:
+			var t := Structure.tidal_timescales(b.mass, b.radius, b.tide_k2, b.tide_lag, b.tide_iom / maxf(b.radius * b.radius, 1e-300),
+				prim.mass, a)
+			var n := sqrt(mu / (a * a * a))
+			var h := rel.cross(vrel).length()
+			var e := sqrt(maxf(0.0, 1.0 - h * h / (mu * a)))
+			var sync := b.spin_omega / n
+			rows.append(["tides from", prim.name])
+			rows.append(["spin / orbit", "%s (locked)" % U.fixed(sync, 3) if absf(sync - 1.0) < 0.01 else U.fixed(sync, 3)])
+			if absf(sync - 1.0) >= 0.01: rows.append(["despins in", CrossSection.fmt_years(t.lock)])
+			if e > 1e-3: rows.append(["circularises in", "%s (e = %s)" % [CrossSection.fmt_years(t.circ), U.fixed(e, 3)]])
+	var given := float(b.extra.get("overflowRate", 0.0))
+	if given > 0.0: rows.append(["Roche-lobe overflow", "%s M☉/yr" % U.expo(given, 1)])
+	var got := float(b.extra.get("accretionRate", 0.0))
+	if got > 0.0:
+		rows.append(["accreting", "%s M☉/yr (%s)" % [U.expo(got, 1), b.extra.get("accretionRegime", "—")]])
+		if b.type == "white-dwarf" and b.extra.get("accretionRegime") == "nova":
+			rows.append(["nova envelope", "%s of %s" % [CrossSection.fmt_mass(float(b.extra.get("novaEnvelope", 0.0))),
+				CrossSection.fmt_mass(Structure.nova_ignition_mass(b.mass, b.radius))]])
+	if int(b.extra.get("novae", 0)) > 0: rows.append(["novae", str(b.extra.novae)])
+	return rows
 
 # Opening the cross-section is more than showing the panel: it has to be
 # pointed at a body and told to keep tracking it.

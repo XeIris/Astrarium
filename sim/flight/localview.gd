@@ -384,8 +384,60 @@ func apply_origin(basis: Basis) -> void:
 
 ## Point the local world at the vehicle's situation: +Y is local up and the origin
 ## is beneath it, so height above the patch is altitude.
+## A physical sky's coefficients and multiple-scattering table (SkyMS.ATMOS), or the
+## grey column. Off Earth the sky follows the star's flux through the exposure, as the
+## ground does; Earth's stays at its noon calibration.
+var _sky_kind := ""
+func _sky_atmos(kind: String, star_flux: float) -> void:
+	var on := SkyMS.ATMOS.has(kind)
+	sky_mat.set_shader_parameter("uPhysical", 1.0 if on else 0.0)
+	if not on: return
+	sky_mat.set_shader_parameter("uSkyFlux", 1.0 if kind == "earth" else star_flux)
+	if kind == _sky_kind: return
+	_sky_kind = kind
+	var a: Dictionary = SkyMS.ATMOS[kind]
+	sky_mat.set_shader_parameter("uBetaR", a.betaR)
+	sky_mat.set_shader_parameter("uBetaM", a.betaM)
+	sky_mat.set_shader_parameter("uBetaMExt", a.betaMExt)
+	sky_mat.set_shader_parameter("uMieG", a.g)
+	sky_mat.set_shader_parameter("uBetaO", a.betaO)
+	sky_mat.set_shader_parameter("uHR", float(a.HR))
+	sky_mat.set_shader_parameter("uHM", float(a.HM))
+	sky_mat.set_shader_parameter("uTop", float(a.top))
+	sky_mat.set_shader_parameter("uMS", SkyMS.texture(kind))
+	sky_mat.set_shader_parameter("uAirglow", 1.0 if kind == "earth" else 0.0)
+
+## Earth's airglow and aurora: the geomagnetic pole in the dome's frame (from the
+## site's geography), the storm's Kp, and the night display gain.
+const MAG_POLE := Vector2(80.7, -72.7)   # IGRF-13, epoch 2020: geomagnetic north pole, °N °E
+const NIGHT_GAIN := 3.0e5
+func _night_emission(env: Dictionary, pad, map_site, east: DVec3, up: DVec3, north: DVec3, sun_l: Vector3, kp: float) -> void:
+	var earth: bool = env.name == "Earth"
+	# Night: the sun 6° or more below the eye's horizon, seen from the ground or orbit.
+	var night := U.smooth(-sun_l.y, 0.0, 0.10) if earth else 0.0
+	sky_mat.set_shader_parameter("uEmitGain", NIGHT_GAIN * night)
+	sky_mat.set_shader_parameter("uKp", kp)
+	var geo := earth and pad != null and map_site != null
+	sky_mat.set_shader_parameter("uAurora", 1.0 if geo else 0.0)
+	if not geo: return
+	# The site's local axes in the geographic frame, as the ground's map uses them.
+	var site_up := DQuat.nrm((pad as DVec3).clone())
+	var pole := DVec3.new(0.0, -1.0, 0.0)
+	var site_north := DQuat.nrm(pole.clone().add_scaled_in(site_up, -pole.dot(site_up)))
+	var site_east := DQuat.nrm(site_north.cross(site_up))
+	var lat := deg_to_rad(float(map_site.lat)); var lon := deg_to_rad(float(map_site.lon))
+	var g_up := Vector3(cos(lat) * cos(lon), sin(lat), cos(lat) * sin(lon))
+	var g_north := Vector3(-sin(lat) * cos(lon), cos(lat), -sin(lat) * sin(lon))
+	var g_east := Vector3(-sin(lon), 0.0, cos(lon))
+	var to_geo := func(v: DVec3) -> Vector3:
+		return g_east * float(v.dot(site_east)) + g_up * float(v.dot(site_up)) + g_north * float(v.dot(site_north))
+	var ml := deg_to_rad(MAG_POLE.x); var mo := deg_to_rad(MAG_POLE.y)
+	var m := Vector3(cos(ml) * cos(mo), sin(ml), cos(ml) * sin(mo))
+	sky_mat.set_shader_parameter("uMagPole", Vector3(m.dot(to_geo.call(east)), m.dot(to_geo.call(up)), m.dot(to_geo.call(north))))
+
 ## `o`: {env, altitude, sunDirWorld, upWorld, northWorld (DVec3), starFlux,
-## padWorld: DVec3|null, mapSite: {lat, lon}|null}. Returns {east, north, up}.
+## padWorld: DVec3|null, mapSite: {lat, lon}|null, frame: Basis}. "World" here is
+## the vessel's parent frame; `frame` turns it into orrery axes. Returns {east, north, up}.
 func update(o: Dictionary) -> Dictionary:
 	var env: Dictionary = o.env
 	var atm = env.atm
@@ -436,7 +488,7 @@ func update(o: Dictionary) -> Dictionary:
 		# Optical thickness scaled off the body's surface density, so Mars gets
 		# its thin butterscotch sky and Venus a wall of it, from one number.
 		sky_mat.set_shader_parameter("uThick", clampf(float(atm.rho0) * 0.9, 0.02, 6.0))
-		sky_mat.set_shader_parameter("uPhysical", 1.0 if atm.get("scatter") == "earth" else 0.0)
+		_sky_atmos(str(atm.get("scatter", "")), float(U.nz(o.get("starFlux"), 1.0)))
 		ground_mat.set_shader_parameter("uDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
 	sky_mat.set_shader_parameter("uEye", h)
 	sky_mat.set_shader_parameter("uRadius", float(env.radius))
@@ -496,11 +548,12 @@ func update(o: Dictionary) -> Dictionary:
 			var gz: Vector3 = to_geo.call(north)
 			# Matrix3.set() is row-major: its COLUMNS are gx, gy, gz.
 			ground_mat.set_shader_parameter("uGeoFrame", Basis(gx, gy, gz))
-			_hold_planet_map(env.body, site_up.to_v3(), lat, lon)
+			_hold_planet_map(env.body, site_up.to_v3(), lat, lon, o.get("frame", Basis()))
 			ground_mat.set_shader_parameter("uPadLocal", Vector2((pad as DVec3).dot(east), (pad as DVec3).dot(north)))
 			ground_mat.set_shader_parameter("uGeoReady", 1.0)
 	var sw: DVec3 = o.sunDirWorld
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
+	_night_emission(env, pad, map_site, east, up, north, sun_l, float(U.nz(o.get("kp"), 2.0)))
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
 	var sun_vis := _update_sun(o, env, atm, h, sh, sun_l)
 	# The light takes the star's colour, relative to the Sun's.
@@ -521,9 +574,10 @@ func update(o: Dictionary) -> Dictionary:
 	return {"east": east, "north": north, "up": up.clone(), "sun_local": sun_l, "sun_visible": sun_vis}
 
 ## Turn the orrery's planet so its map has the mapped site (lat, lon, rad) under
-## the pad's world direction `pad_up`, north on −Y. Seen from past the ground patch,
-## the vehicle is then over the ground it launched from, turning at the real rate.
-func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float) -> void:
+## the pad's direction `pad_up` in the parent frame, north on −Y, which `frame`
+## turns into orrery axes. Seen from past the ground patch, the vehicle is then over
+## the ground it launched from, turning at the real rate.
+func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float, frame: Basis) -> void:
 	if body == null: return
 	var viz = (body as Body).viz
 	if viz is Bodies.AccretionWrap: viz = viz.inner
@@ -532,10 +586,10 @@ func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float) -> void:
 	# 0° longitude at u = ½, north on +Y.
 	var phi := lon + PI
 	var o_up := Vector3(-cos(phi) * cos(lat), sin(lat), sin(phi) * cos(lat))
-	var frame := func(north: Vector3, up: Vector3) -> Basis:
+	var frame_of := func(north: Vector3, up: Vector3) -> Basis:
 		var e := north.cross(up).normalized()
 		return Basis(e, up.cross(e), up)
-	var B: Basis = frame.call(Vector3(0.0, -1.0, 0.0), pad_up) * (frame.call(Vector3.UP, o_up) as Basis).transposed()
+	var B: Basis = frame * (frame_of.call(Vector3(0.0, -1.0, 0.0), pad_up) as Basis) * (frame_of.call(Vector3.UP, o_up) as Basis).transposed()
 	(viz as RockyVisual.RockyViz).hold_surface(B)
 
 ## THE CLOUD LAYER, per frame: planet-fixed frame, lighting, and whether this world

@@ -39,6 +39,18 @@ var Z: float = 0.014
 var structure: Dictionary = {}  # sim/structure.gd structure_of() result
 var softening: float = 0.0      # optional Plummer softening override, AU
 
+# Secular terms the kernel applies (Physics.apply_secular), set each frame from the
+# structure; spin_omega, gained and shed are integrated state.
+var wind_mdot: float = 0.0      # isotropic wind, M☉/yr
+var tide_k2: float = 0.0        # Love number; 0 = no tide raised on this body
+var tide_lag: float = 0.0       # constant tidal time lag, yr
+var tide_iom: float = 0.0       # moment of inertia over mass, AU²
+var spin_omega: float = 0.0     # spin about the orbit normal, rad/yr
+var spin_tracked := false       # spin_omega is live state (set from the body's rate once)
+var donor: bool = false         # may overflow its Roche lobe
+var gained: float = 0.0         # mass received by Roche-lobe overflow, M☉, until read
+var shed: float = 0.0           # mass given by Roche-lobe overflow, M☉, until read
+
 # Rendering state.
 var viz = null                # the body visual (see docs/godot.md: visual contract)
 var visual_spin_rad_s = null  # radians per unpaused render second

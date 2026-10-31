@@ -43,6 +43,14 @@ var _menu_body: Body = null
 var card: HudPanel
 var _card_key := ""
 var _stars := PackedVector2Array()
+# Lagrange points of the Sun–Earth and Earth–Moon pairs, and a halo about each L2: a
+# JWST-sized one (500 000 km out of plane) and a small lunar one (15 000 km). Halos are
+# solved once, off the main thread: {key: path in rotating separations}.
+const HALOS := [["Sun", "Earth", 1, 5.0e8], ["Earth", "Moon", 1, 1.5e7]]
+const L_COLOR := Color(0.95, 0.78, 0.45)
+var _halo := {}
+var _halo_busy := {}
+var _l_hover = null           # {pri, sec, idx} under the pointer
 var _f_small: Font
 var _f_label: Font
 var _f_title: Font
@@ -86,8 +94,7 @@ func close() -> void:
 
 func _au(b: Body) -> DVec3: return b.pos
 func ship_pos() -> DVec3:
-	var v: Vessel = flight.vessel
-	return v.parent.pos.clone().add_scaled_in(v.r, 1.0 / Rocketry.AU_M)
+	return (flight.vessel as Vessel).world_pos()
 
 ## World AU → screen px. The view looks down on the ecliptic with prograde
 ## counter-clockwise.
@@ -193,7 +200,7 @@ func _draw() -> void:
 	_draw_route()
 	# The vessel's own conic about its parent, clipped to the sphere it is in.
 	var mu := Rocketry.GM_SUN * v.parent.mass
-	var cn := _conic(v.r, v.v, mu, v.parent.pos, v.soi_of(v.parent))
+	var cn := _conic(v.to_world(v.r, DVec3.new()), v.to_world(v.v, DVec3.new()), mu, v.parent.pos, v.soi_of(v.parent))
 	_polyline(cn[0], Color(SHIP, 0.8), 1.4, cn[1])
 	# Bodies, then labels on top.
 	var labels: Array = []
@@ -214,11 +221,77 @@ func _draw() -> void:
 		var shown: bool = b == dest or b == hover or b == v.parent or c == null or c.type == "star" \
 			or (c != null and b.pos.distance_to(c.pos) * k > 34.0)
 		if shown: labels.append([b.name.to_upper(), p + Vector2(rr + 6.0, 3.0), b == dest or b == hover])
+	_draw_lagrange()
 	var sp := to_screen(ship_pos())
 	_ship_marker(sp, v)
 	for l in labels:
 		draw_string(_f_label, l[1], l[0], HORIZONTAL_ALIGNMENT_LEFT, -1, HudTheme.px(9.0 * HudTheme.UI_SCALE), Color(1, 1, 1, 0.92 if l[2] else 0.55))
 	_draw_header()
+
+func _l_pairs() -> Array:
+	var out := []
+	for pr in HALOS:
+		var a := flight.body_named(pr[0]) as Body
+		var b := flight.body_named(pr[1]) as Body
+		if a != null and b != null and a.alive and b.alive: out.append([a, b, pr])
+	return out
+
+## L1–L5 as small diamonds once the pair is resolved on screen, and each pair's halo.
+func _draw_lagrange() -> void:
+	for pp in _l_pairs():
+		var pri: Body = pp[0]; var sec: Body = pp[1]
+		if pri.pos.distance_to(sec.pos) * k < 40.0: continue
+		var pts := Lagrange.points(pri, sec)
+		var nav = flight.nav_point
+		for i in pts.size():
+			var q := to_screen(pts[i])
+			if q.x < -20 or q.y < -20 or q.x > size.x + 20 or q.y > size.y + 20: continue
+			var on: bool = nav != null and nav.sec == sec and int(nav.idx) == i
+			var lit: bool = on or (_l_hover != null and _l_hover.sec == sec and int(_l_hover.idx) == i)
+			var d := 4.5 if lit else 3.5
+			draw_colored_polygon(PackedVector2Array([q + Vector2(0, -d), q + Vector2(d, 0), q + Vector2(0, d), q + Vector2(-d, 0)]),
+				Color(L_COLOR, 0.95 if lit else 0.6))
+			if on: draw_circle(q, 9.0, ROUTE, false, 1.2, true)
+			draw_string(_f_small, q + Vector2(6, -5), Lagrange.NAMES[i], HORIZONTAL_ALIGNMENT_LEFT, -1, HudTheme.px(7.5 * HudTheme.UI_SCALE),
+				Color(L_COLOR, 0.9 if lit else 0.55))
+		var spec: Array = pp[2]
+		var key := "%s:%s" % [pri.name, sec.name]
+		var path = _halo.get(key)
+		if path == null:
+			_solve_halo(key, pri, sec, spec)
+			continue
+		var f := Lagrange.frame(pri, sec)
+		var line := PackedVector2Array()
+		for q in (path as PackedVector3Array):
+			line.append(to_screen(Lagrange.to_world(f, q.x, q.y, q.z)))
+		if line.size() > 1 and line[0].distance_to(line[line.size() / 2]) > 6.0:
+			_dashed(line, Color(L_COLOR, 0.55), 1.0, 3.0, 3.0)
+
+func _solve_halo(key: String, pri: Body, sec: Body, spec: Array) -> void:
+	var job = _halo_busy.get(key)
+	if job != null:
+		# Collected here, on the main thread; the task holds only its own result array.
+		if WorkerThreadPool.is_task_completed(int(job.id)):
+			WorkerThreadPool.wait_for_task_completion(int(job.id))
+			_halo[key] = job.out[0] if not (job.out as Array).is_empty() else PackedVector3Array()
+			_halo_busy.erase(key)
+		return
+	var mu := sec.mass / (pri.mass + sec.mass)
+	var az: float = float(spec[3]) / (pri.pos.distance_to(sec.pos) * Rocketry.AU_M)
+	var pt := int(spec[2])
+	var out := []
+	var id := WorkerThreadPool.add_task(func(): out.append(Lagrange.halo(mu, pt, az).get("path", PackedVector3Array())))
+	_halo_busy[key] = {"id": id, "out": out}
+
+## The Lagrange point under `p` (screen px), or null.
+func _l_at(p: Vector2):
+	for pp in _l_pairs():
+		var pri: Body = pp[0]; var sec: Body = pp[1]
+		if pri.pos.distance_to(sec.pos) * k < 40.0: continue
+		var pts := Lagrange.points(pri, sec)
+		for i in pts.size():
+			if to_screen(pts[i]).distance_to(p) < 8.0: return {"pri": pri, "sec": sec, "idx": i}
+	return null
 
 func _polyline(pts: PackedVector2Array, col: Color, w: float, closed: bool) -> void:
 	if pts.size() < 2: return
@@ -256,7 +329,8 @@ func _draw_route() -> void:
 			C = v.parent
 			r0 = maxf(v.r.length(), Mission.park_radius(C))
 			r2 = Mission._rel_pos(dest, C).length()
-			ang0 = atan2(-float(v.r.z), float(v.r.x)) if v.phase == Vessel.PHASE.ORBIT else atan2(-float(Mission._rel_pos(dest, C).z), float(Mission._rel_pos(dest, C).x)) + PI
+			var rw := v.to_world(v.r, DVec3.new())
+			ang0 = atan2(-float(rw.z), float(rw.x)) if v.phase == Vessel.PHASE.ORBIT else atan2(-float(Mission._rel_pos(dest, C).z), float(Mission._rel_pos(dest, C).x)) + PI
 		"planet":
 			C = plan.primary
 			var rp := Mission._rel_pos(v.parent, C)
@@ -376,6 +450,7 @@ func _gui_input(e: InputEvent) -> void:
 				center.x -= mm.relative.x / k
 				center.z += mm.relative.y / k
 		hover = _body_at(mm.position)
+		_l_hover = _l_at(mm.position) if hover == null else null
 		accept_event()
 	elif e is InputEventMouseButton:
 		var mb := e as InputEventMouseButton
@@ -392,6 +467,7 @@ func _gui_input(e: InputEvent) -> void:
 				if b != null: _frame_on(b)
 			accept_event()
 		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			_menu_l = _l_at(mb.position)
 			_open_menu(_body_at(mb.position), mb.position)
 			accept_event()
 	elif e is InputEventKey:
@@ -421,6 +497,9 @@ const MENU_LAND := 2
 const MENU_FOCUS := 3
 const MENU_SHIP := 4
 const MENU_CLEAR := 5
+const MENU_L := 6
+const MENU_L_CLEAR := 7
+var _menu_l = null
 
 func _open_menu(b: Body, at: Vector2) -> void:
 	_menu.clear()
@@ -434,6 +513,10 @@ func _open_menu(b: Body, at: Vector2) -> void:
 			if land.why != "": _menu.set_item_tooltip(_menu.get_item_index(MENU_LAND), str(land.why))
 		_menu.add_separator()
 		_menu.add_item("Centre on %s" % b.name, MENU_FOCUS)
+	if _menu_l != null and b == null:
+		_menu.add_item("Target %s–%s %s" % [_menu_l.pri.name, _menu_l.sec.name, Lagrange.NAMES[int(_menu_l.idx)]], MENU_L)
+		_menu.add_separator()
+	if flight.nav_point != null: _menu.add_item("Clear Lagrange target", MENU_L_CLEAR)
 	_menu.add_item("Centre on your ship", MENU_SHIP)
 	if dest != null: _menu.add_item("Clear destination", MENU_CLEAR)
 	_menu.position = Vector2i(get_screen_position() + at)
@@ -453,11 +536,16 @@ func _on_menu(id: int) -> void:
 			follow = null; follow_ship = true
 		MENU_CLEAR:
 			dest = null; plan = {}; _card_key = ""
+		MENU_L: flight.nav_point = _menu_l
+		MENU_L_CLEAR: flight.nav_point = null
 
 # THE ROUTE CARD
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED: _place_card()
+	elif what == NOTIFICATION_PREDELETE:
+		for job in _halo_busy.values(): WorkerThreadPool.wait_for_task_completion(int(job.id))
+		_halo_busy.clear()
 
 func _place_card() -> void:
 	var w := 340.0

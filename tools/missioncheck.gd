@@ -245,6 +245,10 @@ func _orbiter_home() -> void:
 	for i in 5: main.animate(dt)
 	var v: Vessel = f.vessel
 	f.run_program("ascent")
+	# Home from the Cape's own latitude, as every Shuttle flight was before guidance
+	# flew its target azimuth. From the vehicle's 51.6° the first opportunity is 370 km
+	# off, and entry guidance holds its first bank to Mach 15 and over-brakes past 3 g.
+	f.autopilot.ascent.inclination = 28.5
 	var frames := 0
 	var gliding := false
 	var seen := 0

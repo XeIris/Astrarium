@@ -186,6 +186,8 @@ void fragment() {
 		skylight += sc * diff;
 	}
 	lit += albedo * uAmbient;
+	// Earthshine and its kind: the night side lit by a bright neighbour.
+	lit += albedo * uShineColor * uShineInt * sstep(-0.05, 0.3, dot(N, normalize(uShineDir))) * uGain;
 
 	// --- aerial perspective: bluer, hazier limbs on a world with air.
 	// Rounding can put the dot of two unit vectors just past 1; pow of a negative is

@@ -23,12 +23,13 @@ V2), `fix/physics-fidelity-obliquity` (P1-4), `fix/physics-integrator-1pn`
 (section 5: Yoshida-4 and EIH 1PN; S3, S9, S11, S14) and
 `fix/physics-fidelity-remaining` (the rest, below), with `fix/physics-fidelity-followups`
 completing F1's cutoff, F4's tables, F5, V1 and V3, and `fix/physics-fidelity-additions`
-completing V7 and part of section 6 ([below](#section-6-status)). F7 needs only a source note.
+completing V7 and part of section 6 ([below](#section-6-status)), and `fix/physics-fidelity-final`
+the rest of section 6 and F1's C22 and mascons. F7 needs only a source note.
 
 | item | status |
 |---|---|
 | S15 | Done. `Structure.neutron_cooling`: modified-Urca and photon cooling with an iron envelope, a crust that relaxes in ~30 yr, and `ageYr` in the spec ([structure.md](physics/structure.md#neutron-star-cooling)). |
-| F1 | J2–J4 for Earth, Mars and the Moon in gravity, the potential and the rails kicks. ISS regression −5.02°/day. Telemetry uses a J2-averaged μ. The ascent cuts off on the coast's peak propagated under J2–J4, at a commanded cutoff time inside the step; the four shared launches reach their targets within 0.3 km, and `sharedflightcheck`'s J2·R²/a widening is gone ([flight.md](physics/flight.md#the-parents-figure)). **Not done:** the WGS-84 surface (ground, clouds, sky, landing and maps all assume a sphere), lunar mascons and C22. |
+| F1 | J2–J4 for Earth, Mars and the Moon in gravity, the potential and the rails kicks. ISS regression −5.02°/day. Telemetry uses a J2-averaged μ. The ascent cuts off on the coast's peak propagated under J2–J4, at a commanded cutoff time inside the step; the four shared launches reach their targets within 0.3 km, and `sharedflightcheck`'s J2·R²/a widening is gone ([flight.md](physics/flight.md#the-parents-figure)). C22 and the mascons are done: `Rocketry.TESSERAL` turns with the body (`Vessel.body_angle`). Earth has EGM2008's C̄21/S̄21/C̄22/S̄22; the Moon has GRAIL's GL0420A to degree 16, from the PDS Geosciences Node, built by `tools/build_lunar_gravity.py` ([flight.md](physics/flight.md#the-parents-figure)). **Not done:** the WGS-84 surface. The ground, clouds, sky dome, landing, catch tower, runway and maps all place the surface at one radius, and the built Earth scenario bases (the orbiter at 80 km, 24.4 km and 3990 m; Starship at 80 and 15 km; the pads) would have to be re-recorded with them. |
 | F2 | Done. CO₂ k = 1.9027e-4 landed earlier; Tauber–Sutton radiative heating added for air and CO₂ (Venus held at the 9 km/s end of the CO₂ table). |
 | F3 | Done. RK4 stages and rails kicks interpolate body offsets (cubic Hermite), and mass follows the first stage's flow. |
 | F4 | Saturn V: S-IC and S-II axial-force tables from Boeing D5-15481-1 fig. 3-2 (digitized). Falcon 9: the first stage's base-first return uses DLR's RFZ drag table (AFMC2024-35, Mach 0.75–1.45) through `cdBase`. **Not done:** a sourced Falcon 9 ascent Cd(Mach), as none is published; its ascent keeps the generic curve ([flight.md](physics/flight.md#air)). |
@@ -224,8 +225,10 @@ period. Keep `visualSpinRadS` only as an explicit override.
 
 ### Section 6 status
 
-Chosen for realism per effort in `fix/physics-fidelity-additions`, each checked by
-`tools/realismcheck.tscn`:
+The first five rows were chosen for realism per effort in `fix/physics-fidelity-additions`
+and are checked by `tools/realismcheck.tscn`. The rest are from `fix/physics-fidelity-final`
+and are checked by `tools/secularcheck.gd`, `tools/nbodycheck.gd`,
+`tools/flightphysicscheck.gd`, `tools/sharedflightcheck.gd` and `realismcheck`:
 
 | addition | status |
 |---|---|
@@ -234,18 +237,18 @@ Chosen for realism per effort in `fix/physics-fidelity-additions`, each checked 
 | Runaway greenhouse | Done. Wet worlds' OLR is capped at 282 W/m²; above it the ocean boils at the latent-heat rate along the steam saturation curve and rains back when the world cools. Hydrogen escape, which would make the loss permanent, is not modelled ([climate.md](physics/climate.md)). |
 | Kopparapu HZ | Done, as a climate-panel readout of the dominant star's runaway-to-maximum-greenhouse limits. Not drawn as an orrery overlay. |
 | Cloud albedo feedback | **Declined.** The model's cloud cover is a visual humidity rule (+3.75 %/K); coupling it at CERES's radiative effect would give −1.2 W/m²/K against AR6's +0.4 ([climate.md](physics/climate.md#clouds)). Needs a physical cloud model first. |
-| Tidal locking and circularisation; adiabatic mass loss; Roche-lobe overflow and novae | Not done. Each needs a secular force or a time-evolving stellar mass in the N-body kernel, which must stay bit-identical between GDScript and C; mass loss also needs stars that age with simulated time. |
-| NRLMSISE drag and orbital decay; aerobraking | Not done. Decay needs drag in the rails kicks and a thermosphere above every atmosphere's `top`, which changes every flight check's baseline. |
-| Lagrange points and halo orbits | Not done. |
-| Comms blackout | Not done: an honest criterion needs an equilibrium-air ionisation model behind the shock (post-shock temperature and Saha), not a threshold on q. |
-| Launch-site azimuth limits | Not done: ascent guidance still flies due east whatever the target (P1-4 follow-up 1), so limits would constrain nothing. |
-| Mars/Titan skies; earthshine, aurora, airglow; re-entry plasma colour | Not done. |
-| Budyko–Sellers EBM | Not done. |
+| Tidal locking and circularisation; adiabatic mass loss; Roche-lobe overflow and novae | Done, in both kernels, bit-identical (`nbodycheck`'s `secular` case). Hut's (1981) constant-time-lag tide with the spin as kernel state: de/dt and da/dt match Hut to 0.2%, and orbit plus spin keep angular momentum to 3e-15. Winds (Vink, Nugis & Lamers, Reimers): a·M holds to 2e-8 as an orbit widens. Eggleton's lobe with Hurley's overflow rate. Novae at the ignition pressure, steady burning to a Type Ia, and stars that age along a MIST-timed track. The inspector shows despin and circularisation times ([secular.md](physics/secular.md)). |
+| NRLMSISE drag and orbital decay; aerobraking | Done, with the thermosphere **opt-in**. Settings › Sim › Solar activity (`f107=`) replaces US76's table above 120 km with the Bates–Walker diffusive profile at Jacchia's T∞(F10.7). It agrees with US76 within 18% at F10.7 = 150, and decay scales with density to 3%. Off by default, because every built flight assumes US76. Aerocapture (heat shield) and aerobraking (none) at any body with air; Mars's drag now reaches 250 km ([flight.md](physics/flight.md#the-thermosphere), [missions.md](physics/missions.md#aerocapture-and-aerobraking)). Geomagnetic and diurnal terms are not modelled. |
+| Lagrange points and halo orbits | Done. L1–L5 at a pair's instantaneous separation, and halo orbits from Richardson's third-order start, corrected to periodic: Sun–Earth L2 at 500 000 km is 179.5 d. Marked on the space map and targetable for distance and relative speed; no mission leg plans a halo insertion ([missions.md](physics/missions.md#lagrange-points-and-halo-orbits)). |
+| Comms blackout | Done. Equilibrium air behind a normal shock (Lighthill's dissociating gas, NO equilibrium, Saha for NO, N and O, with ionisation's energy) against S-band's 6.5e16 e⁻/m³. It is the stagnation region, an upper bound, and air only ([entry-plasma.md](physics/entry-plasma.md#radio-blackout)). |
+| Launch-site azimuth limits | Done. Ascent guidance flies the target's plane: the relative azimuth in the air, then a −6y/T² − 4ẏ/T cross-plane law. It is limited to each range's window: Eastern 35°–120°, Western 147°–201°, Baikonur 51.6°–70°. Shuttle 51.61°, Saturn V 32.50° ([missions.md](physics/missions.md#launch-azimuth)). |
+| Mars/Titan skies; earthshine, aurora, airglow; re-entry plasma colour | Mostly done. Mars's and Titan's physical skies use per-primary aerosol albedo and g: the blue Martian sunset (B/R 1.59 by the sun) and an orange Titan. Airglow and aurora ovals follow Kp from the CME model. Both are drawn at a stated night display gain, since the renderer has no night adaptation. Earthshine lights a planet's night side from its brightest neighbour, ×100 for display ([sky.md](physics/sky.md#mars-and-titan)). **Not done:** re-entry plasma colour. The glow's ramp is still the imagery-based one; a spectrum would need line emission (N₂⁺, O, N₂ first positive) on top of `Ionisation`'s equilibrium state. No preset carries Titan, so its sky is checked numerically only. |
+| Budyko–Sellers EBM | Done. North's diffusive model with insolation_s2 runs beside the global balance: today's ice edge at 72°, a snowball below 0.90 S₀ that holds until 1.32 S₀, and the climate panel's ice line ([climate.md](physics/climate.md#ice-lines-and-the-snowball)). |
 
-F1's remaining pieces are not done either: the WGS-84 surface changes every
-surface consumer (ground, clouds, sky, landing, maps); C22 needs a body-fixed prime
-meridian, which belongs with #18's IAU frames; mascons need a GRAIL field
-(a data download, and a degree-50 field per RK4 stage is too slow in GDScript).
+F1's C22 and mascons are done with #18's frames merged in (degree 16 costs 153
+terms per evaluation). The WGS-84 surface is still not done: every surface consumer
+(ground, clouds, sky, landing, maps) and the recorded Earth scenario bases would
+have to change together.
 
 ---
 

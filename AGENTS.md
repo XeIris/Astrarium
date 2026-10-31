@@ -74,6 +74,9 @@ design.
   fourth-order Yoshida; it is not a strong-field binary model. Displayed ISCO/Kerr
   radii do not govern these orbits; GW drag is illustrative. Both kernels must stay
   bit-identical. See [the compact model](docs/physics/compact-dynamics.md).
+- Tides, winds and Roche-lobe overflow are a secular pass after each accepted
+  sub-step, in both kernels; ageing and novae run per frame in `main._step_secular`
+  and `check_structural_limits`. See [secular evolution](docs/physics/secular.md).
 - Spawning and editing validate complete requests before mutation and share
   `derive_body()` for intrinsic properties. The stage's edit boundary applies
   explicit position/velocity patches in double; omitted/null vectors preserve
@@ -200,7 +203,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 
 - presets, structure or contact radii: `tools/presetcheck.sh`
 - ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`,
-  `tools/nbodycheck.gd` and `tools/numericalcheck.gd`
+  `tools/nbodycheck.gd` and `tools/numericalcheck.gd`; the secular terms:
+  `tools/secularcheck.gd`
 - flight time/integration guards: `tools/flighttimecheck.gd` and the flight checks
 - flight cloud coverage or climatology: `tools/cloudcheck.gd`
 - lessons, presets or the stage: `tools/coursecheck.tscn`

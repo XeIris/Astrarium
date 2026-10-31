@@ -20,9 +20,32 @@ rails kicks read the same snapshots at their two ends.
 Earth, Mars and the Moon add zonal harmonics J2–J4 about their spin poles
 (`Rocketry.ZONAL`: EGM2008, MRO120D, LP150Q), as −∇ of
 Φ = (μ/r) Σ Jₙ (R/r)ⁿ Pₙ(sin φ). This gives nodal regression (the ISS's −5.0°/day,
-reproduced to 0.1%), sun-synchronous orbits and apsidal drift. Sectoral and
-tesseral terms are absent, so the Moon's C22 (as large as its J2) and the mascons
-that make low lunar orbits unstable are not modelled.
+reproduced to 0.1%), sun-synchronous orbits and apsidal drift.
+
+The rest of the field is in `Rocketry.TESSERAL`, fully normalized and evaluated in
+the body-fixed frame (`Rocketry.tesseral_accel`, the Holmes & Featherstone
+recursion with the spherical gradient of Vallado §8.7). It covers every m ≥ 1 term
+and the zonals past J4:
+
+- Earth: EGM2008's C̄21, S̄21, C̄22 and S̄22 (Pavlis et al. 2012), about 1.2 × 10⁻⁴ m/s²
+  at 400 km.
+- the Moon: the GRAIL field GL0420A (Konopliv et al. 2013) to degree 16, from the
+  PDS Geosciences Node. `tools/build_lunar_gravity.py` writes
+  `sim/flight/lunar_gravity.gd` from the first 64 KB of `jggrx_0420a_sha.tab`. Its
+  C̄22 is as large as J2's share, and the mascons give up to 195 mGal at 100 km.
+  The zonal table's J2–J4 are derived from the same field. Degree 16 resolves
+  features of about 340 km: the large basins, not the full mascon spectrum.
+  Degree 16 costs 153 terms per evaluation; a degree-660 field would be roughly
+  2000 times slower per RK4 stage in GDScript.
+
+`Vessel.body_angle` turns the field with the body. A world under a launch site
+keeps that site's longitudes, as the drawn ground does. A tidally locked moon
+(`tidalLock` in its spec) keeps its long axis, the principal axis of the GRAIL
+frame, on its primary; physical librations of ±7° are left out. Any other body
+turns at its sidereal rate from coordinate time zero, so its field's longitudes are
+not tied to a map. Mars keeps only its zonals. `flightphysicscheck` checks the
+normalized Legendre values against closed forms, the acceleration against −∇ of the
+potential, and that turning the body turns the field.
 
 Two-body elements under J2 are biased: at 28.5° a circular 200 km orbit reads
 13 km eccentric. Telemetry, and through it guidance, computes its conic with the
@@ -46,6 +69,30 @@ put the pad and geodetic latitude right to 21 km, but the ground, clouds, sky,
 landing and planet maps all assume a sphere and would have to change together.
 
 ## Air
+
+### The thermosphere
+
+Settings › Sim › Solar activity (`f107=` on the command line) sets the 10.7 cm solar
+flux. At its default, the left end, Earth's air above 86 km is US76's table: a
+thermosphere of moderate activity with an exospheric temperature of 1000 K, which
+every built flight assumes. With a flux set, the air above 120 km is the Bates
+profile `T = T∞ − (T∞ − T₁₂₀)·e^(−sζ)` in geopotential ζ, which is US76's own form
+above 120 km, with s = 0.01875 km⁻¹. Each species (N₂, O, O₂, Ar, and He with
+thermal diffusion α = −0.38) is in diffusive equilibrium from US76's 120 km number
+densities, in Walker's (1965) closed form:
+
+    n(ζ) = n₁₂₀ [T₁₂₀/T]^(1 + α + γ) e^(−sγζ),   γ = m g₁₂₀ / (s k T∞)
+
+T∞ follows Jacchia's (1971) night-time `T_c = 379 + 3.24 F10.7`, scaled so that
+F10.7 = 150 gives US76's 1000 K. At 150, density follows the US76 table to within
+18% from 200 to 600 km; the table's extra O and H fluxes make up the difference.
+At 400 km, density spans 18× from F10.7 = 70 to 250. NRLMSISE-00 gives roughly
+10–20× over a solar cycle there; its geomagnetic, diurnal, seasonal and latitude
+terms are not modelled. Drag continues up to `exo` and kicks the rails, so low
+orbits decay at the rate the setting implies. `flightphysicscheck` flies a 400 km
+orbit on rails for two days at three activities. The extra decay scales with the
+density differences to within 3%, and an active Sun takes ~230 m more than a quiet
+one for the ion cruiser.
 
 Shock-layer radiation adds to the Sutton–Graves convective flux
 (`Rocketry.radiative_heat_flux`, Tauber & Sutton 1991): zero below about 9 km/s
@@ -90,6 +137,29 @@ converts accepted coordinate seconds to orrery years. Proper-time clocks and
 guidance run only over accepted intervals; integrator guards stop both spaces
 together. [The flight contract](../../sim/flight/AGENTS.md) describes integration
 order, staging, guidance and the required launch checks.
+
+## Orientation
+
+The frame is turned so the parent's north pole is −Y: its equator is the XZ
+plane, latitude is `asin(−r̂.y)` and the surface turns with ω = (0, −Ω, 0).
+`Rocketry.spin_frame` gives the rotation, world = frame · local, as the shortest
+arc from −Y to the pole. Poles are the IAU WGCCRE values at J2000 (Archinal et al.
+2018), with the Moon's, Mars's and Neptune's periodic terms summed at J2000 and no
+precession. For Earth the shortest arc fixes the equinox on +X, so the local frame
+is J2000 equatorial in the orrery's axis convention: a star's RA and Dec are its
+longitude and latitude, as a launch site's are. A world without a measured pole
+leans by its `obliquity` about +Z, as `RockyVisual` draws it; a star keeps the
+ecliptic, against which heliocentric inclinations are read.
+
+Everything the vessel keeps is local. Orrery positions cross through the frame:
+gravity and the potential are summed in orrery axes with the vessel's position
+turned out and the sum turned back, `Vessel.body_offset` serves sphere tests and
+guidance, and `to_world` / `to_local` serve lighting, the cruise line, the space
+map, the mission planner's body states and the orrery camera. A rebase between bodies with different poles
+turns position, velocity, attitude and the autopilot's held directions into the
+new frame (`on_rebase`). With Earth's 23.44° tilt the pad has seasons, a 28.5° N
+launch reaches 28.5° to the equator, and the Moon's orbit lies 18.3°–28.6° from
+it over the 18.6-year nodal cycle (`tools/spinframecheck.gd`).
 
 Interstellar cruise is a separate one-dimensional, gravity-free model with
 constant proper acceleration `a`. Rapidity `φ = aτ/c` gives

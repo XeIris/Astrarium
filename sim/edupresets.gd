@@ -50,6 +50,7 @@ const EARTH := {
 	"type": "world", "name": "Earth", "mass": 3.0035e-6, "radiusKm": 6371.0,
 	"atmosphere": true, "land": 0.29, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
 	"obliquity": 23.44 * DEG, "cloudCover": 0.44, "season": 11.0, "home": true,
+	"k2": 0.299, "tideLagS": 638.0,   # the oceans' tide, as in Presets' solar
 }
 
 const MOON := { "hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268 }

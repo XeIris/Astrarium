@@ -54,6 +54,13 @@ const ATMOSPHERES := {
 				[1000e3, 3.561e-15, 1000.0]] },
 		],
 		"top": 140e3, "exo": 1000e3, "tint": 0x4a7fd0, "haze": 0x8fb6e8,
+		# With a solar-activity setting (f107), the thermosphere above 120 km is the
+		# Bates–Walker diffusive profile instead of the table; see `thermosphere`.
+		# US76's own 120 km boundary: T, the temperature gradient's e-folding rate and
+		# number densities (m⁻³), O₂ from the stated 2.222e-8 kg/m³; He with α = −0.38.
+		"thermo": { "base": 120e3, "T120": 360.0, "s": 1.875e-5, "Tref": 1000.0, "Rg": 6356766.0,
+			"species": [[28.0134, 3.726e17, 0.0], [15.9994, 7.582e16, 0.0], [31.9988, 5.24e16, 0.0],
+				[39.948, 1.3e15, 0.0], [4.0026, 3.4e13, -0.38]] },
 		# Water vapour to condense in the expansions round a vehicle (Vapour).
 		"humid": true, "radiative": "air", "wind": "earth",
 		# The flight sky's single-scattering coefficients (sky_dome.gdshader).
@@ -67,7 +74,9 @@ const ATMOSPHERES := {
 		"kSG": 1.9027e-4,                    # CO₂ Sutton–Graves constant (Tauber & Sutton 1991)
 		"radiative": "co2",
 		"layers": [{ "base": 0.0, "H": 11100.0 }, { "base": 60000.0, "H": 8000.0 }],
-		"top": 125e3, "tint": 0xc08a5a, "haze": 0xd8a878,
+		# Drag goes on into the thermosphere, where aerobraking passes fly (MGS and MRO
+		# at 100–130 km); the upper layer's 8 km scale height is held to 250 km.
+		"top": 125e3, "exo": 250e3, "tint": 0xc08a5a, "haze": 0xd8a878, "scatter": "mars",
 	},
 	# VIRA (Seiff et al. 1985), 0–100 km, as lapse layers between its 10 km rows (within
 	# 6% in ρ); isothermal above. ρ₀ is 92.1 bar of CO₂ at 735.3 K.
@@ -86,7 +95,7 @@ const ATMOSPHERES := {
 	},
 	"Titan": {
 		"p0": 146700.0, "rho0": 5.4, "T0": 94.0, "molar": 0.02834, "gamma": 1.4,
-		"layers": [{ "base": 0.0, "H": 21000.0 }], "top": 600e3, "tint": 0xc2924a, "haze": 0xe8c481,
+		"layers": [{ "base": 0.0, "H": 21000.0 }], "top": 600e3, "tint": 0xc2924a, "haze": 0xe8c481, "scatter": "titan",
 	},
 	"Jupiter": {
 		"p0": 1e5, "rho0": 0.16, "T0": 165.0, "molar": 0.00226, "gamma": 1.42,
@@ -119,10 +128,40 @@ static func derive_atmosphere(radius_m: float, g_surf: float, teq_k: float):
 		"layers": [{ "base": 0.0, "H": H }], "top": H * 14.0, "tint": 0x6a8fc0, "haze": 0xa8c4e0,
 	}
 
+## Solar activity: the 10.7 cm flux in solar flux units, or 0 for the standard
+## atmosphere's fixed thermosphere (the default; every built flight assumes it).
+static var f107 := 0.0
+
+## Exospheric temperature, K, for a 10.7 cm flux: Jacchia's (1971) T_c = 379 + 3.24·F,
+## scaled so that F = 150 gives US76's 1000 K (its thermosphere is a moderate-activity one).
+static func exospheric_temp(f: float, t_ref: float = 1000.0) -> float:
+	return t_ref * (379.0 + 3.24 * f) / (379.0 + 3.24 * 150.0)
+
+## [ρ, T] above the thermosphere's base: each species in diffusive equilibrium on the
+## Bates temperature profile, in Walker's (1965) closed form; docs/physics/flight.md#the-thermosphere.
+static func thermosphere(th: Dictionary, h: float, t_inf: float, g0: float) -> Array:
+	var Rg: float = th.Rg
+	var z0: float = th.base
+	var zeta := (h - z0) * (Rg + z0) / (Rg + h)
+	var T120: float = th.T120
+	var s: float = th.s
+	var a := (t_inf - T120) / t_inf
+	var e := exp(-s * zeta)
+	var T := t_inf * (1.0 - a * e)
+	var g120 := g0 * pow(Rg / (Rg + z0), 2.0)
+	var rho := 0.0
+	for sp in th.species:
+		var m: float = float(sp[0]) * 1.66053907e-27
+		var gam := m * g120 / (s * 1.380649e-23 * t_inf)
+		rho += m * float(sp[1]) * pow(T120 / T, 1.0 + float(sp[2]) + gam) * exp(-s * gam * zeta)
+	return [rho, T]
+
 ## Walk the layer stack to `h`, returning [rho, T].
 static func profile(atm, h: float) -> Array:
 	if atm == null: return [0.0, 3.0]
 	if h >= float(atm.get("exo", atm.top)): return [0.0, atm.T0 * 0.55]
+	if f107 > 0.0 and atm.has("thermo") and h >= float(atm.thermo.base):
+		return thermosphere(atm.thermo, h, exospheric_temp(f107, float(atm.thermo.Tref)), float(atm.get("g", G0)))
 	var hh := maxf(h, 0.0)
 	var g: float = atm.get("g", G0)
 	var R: float = atm.get("R", INF)
@@ -273,8 +312,115 @@ static func radiative_heat_flux(rho: float, v: float, nose_radius_m: float, atm 
 const ZONAL := {
 	"Earth": { "R": 6378137.0, "J": [0.0, 0.0, 1.08262668e-3, -2.53265649e-6, -1.61962159e-6] },
 	"Mars":  { "R": 3396000.0, "J": [0.0, 0.0, 1.956608e-3, 3.1450e-5, -1.5377e-5] },
-	"Moon":  { "R": 1738000.0, "J": [0.0, 0.0, 2.03323e-4, 8.4759e-6, -9.5919e-6] },
+	# J_n = −√(2n+1)·C̄n0 of the GRAIL field the tesseral terms come from (LunarGravity).
+	"Moon":  { "R": 1738000.0, "J": [0.0, 0.0, 2.032133e-4, 8.459745e-6, -9.704363e-6] },
 }
+
+# The rest of a parent's field: every m ≥ 1 term, and zonals past J4, fully normalized,
+# indexed n(n+1)/2 + m, in the body-fixed frame (Vessel.body_angle turns it).
+# Earth: EGM2008's C̄21, S̄21, C̄22, S̄22 (Pavlis et al. 2012). The Moon: GRAIL's GL0420A to
+# degree 16, its mascons included (LunarGravity).
+const TESSERAL := {
+	"Earth": { "R": 6378136.3, "nmax": 2, "C": [0.0, 0.0, 0.0, 0.0, -2.0662e-10, 2.43938357328e-6],
+		"S": [0.0, 0.0, 0.0, 0.0, 1.38441389e-9, -1.40027370385e-6] },
+	"Moon": { "R": LunarGravity.R_REF, "nmax": LunarGravity.NMAX, "C": LunarGravity.C, "S": LunarGravity.S },
+}
+const ZONAL_DEGREE := 4
+
+## Acceleration (m/s²) from a TESSERAL field at `rr` (flight frame, pole on −Y) with the
+## body's prime meridian `theta` rad east of the frame's +X; zonals up to ZONAL_DEGREE are
+## zonal_accel's. Adds into `out`. Holmes & Featherstone's (2002) normalized recursion,
+## gradient in spherical coordinates (Vallado §8.7).
+static func tesseral_accel(field, mu: float, rr: DVec3, theta: float, out: DVec3) -> DVec3:
+	if field == null: return out
+	var ct := cos(theta); var st := sin(theta)
+	# Body-fixed: x toward the prime meridian, z north (−Y), y completing the right hand.
+	var x := rr.x * ct + rr.z * st
+	var y := -rr.x * st + rr.z * ct
+	var z := -rr.y
+	var rho2 := x * x + y * y
+	var r2 := rho2 + z * z
+	if r2 < 1.0 or rho2 < 1e-6: return out
+	var r := sqrt(r2)
+	var rho := sqrt(rho2)
+	var sphi := z / r
+	var cphi := rho / r
+	var lam := atan2(y, x)
+	var nmax: int = field.nmax
+	var P := _legendre(nmax, sphi, cphi)
+	var C: Array = field.C
+	var Sn: Array = field.S
+	var q := float(field.R) / r
+	var dr := 0.0; var dphi := 0.0; var dlam := 0.0
+	var qn := q
+	for n in range(2, nmax + 1):
+		qn *= q
+		for m in n + 1:
+			if m == 0 and n <= ZONAL_DEGREE: continue
+			var k := ((n * (n + 1)) >> 1) + m
+			var cm := cos(m * lam); var sm := sin(m * lam)
+			var cs := float(C[k]) * cm + float(Sn[k]) * sm
+			var pnm: float = P[k]
+			dr += qn * (n + 1) * pnm * cs
+			# dP̄nm/dφ = √((n−m)(n+m+1)/δ) P̄n,m+1 − m tanφ P̄nm, δ = 2 at m = 0.
+			var nxt: float = P[k + 1] if m < n else 0.0
+			var dp := sqrt((n - m) * (n + m + 1) / (2.0 if m == 0 else 1.0)) * nxt - m * sphi / cphi * pnm
+			dphi += qn * dp * cs
+			dlam += qn * m * pnm * (float(Sn[k]) * cm - float(C[k]) * sm)
+	var g := mu / r
+	var ur := -g / r * dr          # ∂U/∂r
+	var up := g * dphi             # ∂U/∂φ
+	var ul := g * dlam             # ∂U/∂λ
+	var ax := (ur / r - z / (r2 * rho) * up) * x - ul / rho2 * y
+	var ay := (ur / r - z / (r2 * rho) * up) * y + ul / rho2 * x
+	var az := ur / r * z + rho / r2 * up
+	out.x += ax * ct - ay * st
+	out.z += ax * st + ay * ct
+	out.y -= az
+	return out
+
+## The field's potential energy per unit mass, J/kg, matching tesseral_accel.
+static func tesseral_potential(field, mu: float, rr: DVec3, theta: float) -> float:
+	if field == null: return 0.0
+	var ct := cos(theta); var st := sin(theta)
+	var x := rr.x * ct + rr.z * st
+	var y := -rr.x * st + rr.z * ct
+	var z := -rr.y
+	var r := sqrt(x * x + y * y + z * z)
+	if r < 1.0: return 0.0
+	var P := _legendre(int(field.nmax), z / r, sqrt(x * x + y * y) / r)
+	var lam := atan2(y, x)
+	var q := float(field.R) / r
+	var u := 0.0
+	var qn := q
+	for n in range(2, int(field.nmax) + 1):
+		qn *= q
+		for m in n + 1:
+			if m == 0 and n <= ZONAL_DEGREE: continue
+			var k := ((n * (n + 1)) >> 1) + m
+			u += qn * float(P[k]) * (float(field.C[k]) * cos(m * lam) + float(field.S[k]) * sin(m * lam))
+	return -mu / r * u
+
+## Fully normalized P̄nm(sin φ) to degree nmax (and P̄n,n+1 = 0 implied), index n(n+1)/2 + m.
+static func _legendre(nmax: int, s: float, c: float) -> PackedFloat64Array:
+	var P := PackedFloat64Array()
+	P.resize((((nmax + 1) * (nmax + 2)) >> 1) + 1)
+	P[0] = 1.0
+	for m in range(1, nmax + 1):
+		var k := ((m * (m + 1)) >> 1) + m
+		var km := (((m - 1) * m) >> 1) + m - 1
+		P[k] = sqrt((2.0 * m + 1.0) / (2.0 * m)) * c * P[km] if m > 1 else sqrt(3.0) * c
+	for m in nmax + 1:
+		for n in range(m + 1, nmax + 1):
+			var k := ((n * (n + 1)) >> 1) + m
+			var k1 := (((n - 1) * n) >> 1) + m
+			var a := sqrt((2.0 * n + 1.0) * (2.0 * n - 1.0) / ((n - m) * (n + m)))
+			var v := a * s * P[k1]
+			if n - 2 >= m:
+				var k2 := (((n - 2) * (n - 1)) >> 1) + m
+				v -= sqrt((2.0 * n + 1.0) * (n + m - 1.0) * (n - m - 1.0) / ((n - m) * (n + m) * (2.0 * n - 3.0))) * P[k2]
+			P[k] = v
+	return P
 
 ## Acceleration (m/s²) from J2–J4 at `rr`, metres from the centre in the flight frame
 ## (pole on −Y, so the polar coordinate is −y). Adds into `out`.
@@ -450,15 +596,91 @@ const SURFACES := {
 	"Pluto":   { "day": -551854.0,  "albedo": 0.52, "teq": 44.0,  "ground": 0xa89484, "rock": 0x8a7466 },
 }
 
+# SPIN POLES: IAU WGCCRE north poles at J2000, [RA°, Dec°] in ICRF (Archinal et al. 2018,
+# Celest. Mech. Dyn. Astron. 130:22, tables 1–2), periodic terms summed at J2000 for the
+# Moon, Mars and Neptune; no precession. "North" is the ecliptic-north side, so a negative
+# SURFACES `day` turns retrograde about it. Pluto's report gives the positive pole; this
+# is its opposite. A star keeps the ecliptic frame, where heliocentric inclinations are read.
+const POLES := {
+	"Mercury": [281.0103, 61.4155], "Venus": [272.76, 67.16],
+	"Earth": [0.0, 90.0], "Moon": [266.8628, 65.6414], "Mars": [317.6809, 52.8864],
+	"Jupiter": [268.056595, 64.495303], "Saturn": [40.589, 83.537], "Uranus": [257.311, -15.175],
+	"Neptune": [299.3337, 42.9504], "Pluto": [312.993, 6.163], "Titan": [39.4827, 83.4279],
+	"Europa": [268.08, 64.51],
+}
+const OBLIQUITY_J2000 := 84381.448 / 3600.0 * PI / 180.0   # IAU 1976 ε at J2000
+
+# Range-safety azimuth windows (degrees clockwise from north) for Earth's ranges, found
+# by the pad's latitude. Eastern Range 35°–120° (KSC and the Cape); Western Range
+# 147°–201° from Vandenberg, south over open sea to polar and sun-synchronous orbits;
+# Baikonur's drop zones allow 51.6°–70° inclinations, azimuths 29°–63°. Elsewhere,
+# Starbase included, nothing is limited.
+const LAUNCH_RANGES := [
+	{"name": "Eastern Range", "lat": 28.5, "az": [35.0, 120.0]},
+	{"name": "Western Range", "lat": 34.7, "az": [147.0, 201.0]},
+	{"name": "Baikonur", "lat": 45.9, "az": [29.4, 63.3]},
+]
+
+## The inertial launch azimuth (rad, clockwise from north) for inclination `inc_deg`
+## from latitude `lat`, sin β = cos i / cos φ, on whichever branch (north- or
+## south-going) the range allows, clamped to the window. {az, range, limited}.
+static func launch_azimuth(lat: float, inc_deg: float, body_name: String = "Earth") -> Dictionary:
+	var sb := DQuat.jclamp(cos(deg_to_rad(inc_deg)) / maxf(cos(lat), 1e-3), -1.0, 1.0)
+	var north := asin(sb)
+	var south := PI - north
+	var rng = null
+	if body_name == "Earth":
+		for r in LAUNCH_RANGES:
+			if absf(rad_to_deg(lat) - float(r.lat)) < 0.6: rng = r
+	if rng == null: return {"az": fposmod(north, TAU), "range": "", "limited": false}
+	var lo := deg_to_rad(float(rng.az[0])); var hi := deg_to_rad(float(rng.az[1]))
+	for az in [fposmod(north, TAU), fposmod(south, TAU)]:
+		if az >= lo and az <= hi: return {"az": az, "range": rng.name, "limited": false}
+	# Neither branch is allowed: the window's nearer edge.
+	var best := lo
+	var gap := INF
+	for edge in [lo, hi]:
+		for az in [fposmod(north, TAU), fposmod(south, TAU)]:
+			var d := absf(angle_difference(az, edge))
+			if d < gap: gap = d; best = edge
+	return {"az": best, "range": rng.name, "limited": true}
+
+## A J2000 equatorial direction (RA, Dec in radians) in orrery axes: the ecliptic in
+## XZ, north on −Y, the equinox on +X.
+static func equatorial_dir(ra: float, dec: float) -> DVec3:
+	var eps := OBLIQUITY_J2000
+	var xq := cos(dec) * cos(ra)
+	var yq := cos(dec) * sin(ra)
+	var zq := sin(dec)
+	var ye := yq * cos(eps) + zq * sin(eps)
+	var ze := -yq * sin(eps) + zq * cos(eps)
+	return DQuat.nrm(DVec3.new(xq, -ze, ye))
+
+## The rotation from `body`'s equatorial frame (its north pole on −Y) to orrery axes:
+## world = frame · local. The shortest arc from −Y, so Earth's frame keeps the
+## equinox on +X and is J2000 equatorial in the orrery's axis convention. A world
+## with no measured pole tilts by its `obliquity` about +Z, as RockyVisual draws it.
+static func spin_frame(body: Body) -> DQuat:
+	var south := DVec3.new(0.0, -1.0, 0.0)
+	var pole: DVec3
+	if POLES.has(body.name):
+		var p: Array = POLES[body.name]
+		pole = equatorial_dir(deg_to_rad(float(p[0])), deg_to_rad(float(p[1])))
+	elif is_finite(body.obliquity) and body.obliquity != 0.0:
+		pole = DVec3.new(sin(body.obliquity), -cos(body.obliquity), 0.0)
+	else:
+		return DQuat.new()
+	return DQuat.new().set_from_unit_vectors(south, pole)
+
 ## Measured mean radii (km) for the moons and worlds a preset may not carry one
 ## for. Used only when the body itself has no radiusKm.
 const RADII_KM := { "Moon": 1737.4, "Titan": 2574.7, "Europa": 1560.8, "Phobos": 11.27 }
 
 ## Everything a vessel needs about one body, in SI. `mu` comes from the body's
 ## current mass, so an edited planet flies differently at once. Reads name, mass,
-## radius and day_length (only without a SURFACES entry). Returns name, body, mu,
-## radius, gSurf, atm (or null), teq, rotRate, vRotEq, daySec, ground, rock, oceans,
-## sea, vEsc, vCirc, karman.
+## radius, obliquity and day_length (only without a SURFACES entry). Returns name, body,
+## mu, radius, gSurf, atm (or null), teq, rotRate, vRotEq, daySec, frame (spin_frame),
+## ground, rock, oceans, sea, vEsc, vCirc, karman.
 static func flight_env(body: Body) -> Dictionary:
 	var name := body.name
 	var mass_sun := body.mass
@@ -486,11 +708,14 @@ static func flight_env(body: Body) -> Dictionary:
 		"rotRate": (-1.0 if has_neg_day else 1.0) * 2.0 * PI / day_sec,
 		"vRotEq": 2.0 * PI * radius / day_sec,
 		"daySec": day_sec,
+		"frame": spin_frame(body),
 		"ground": surf.get("ground", 0x7a7266), "rock": surf.get("rock", 0x5f584f),
 		"oceans": surf.get("oceans", false), "sea": surf.get("sea", 0x1b3a6b),
 		# Escape speed and circular speed at the surface — the two numbers that say
 		# what kind of place this is to fly from.
 		"zonal": ZONAL.get(name),
+		"tesseral": TESSERAL.get(name),
+		"locked": body.spec.get("tidalLock"),
 		"vEsc": sqrt(2.0 * mu / radius),
 		"vCirc": sqrt(mu / radius),
 		# Where "space" starts, for the purposes of the HUD and the rails interlock.

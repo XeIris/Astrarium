@@ -145,8 +145,80 @@ coefficients. It adds ×1.50 to the noon zenith from sea level, ×1.29 at sunset
 (sun 60° up) keeps the earlier calibration, and civil twilight brightens 14% relative
 to noon. At the daylight exposure the twilight sky still reads dark, as the real
 one does: its zenith is about 1% of noon's. Coverage follows radiance, and the light
-divides back out of the blend so that faint twilight adds over the stars. Other
-bodies keep the grey-column sky with a tint.
+divides back out of the blend so that faint twilight adds over the stars. Bodies
+without a coefficient set keep the grey-column sky with a tint.
+
+### Mars and Titan
+
+The same path draws Mars's and Titan's skies (`scatter: "mars"`/`"titan"` in
+`Rocketry.ATMOSPHERES`). Their coefficients are in `SkyMS.ATMOS`, each with its own
+multiple-scattering table. The aerosol's extinction, single-scattering albedo and
+Henyey–Greenstein g are given per primary (680, 550, 440 nm), and the shell's height
+is per body. `tools/build_sky_ms.py` builds all three tables; Earth's is unchanged
+to the last digit.
+
+- **Mars.** CO₂ Rayleigh is 2.5× air's per molecule at 0.83% of Earth's number
+  density. Dust is τ = 0.5, well mixed with an 11.1 km scale height. Its
+  single-scattering albedo is 0.976/0.935/0.64, after Wolff et al. (2009): iron
+  oxides absorb the blue. Its g is 0.62/0.68/0.80. Henyey–Greenstein has no
+  diffraction peak, so the rising blue g stands in for ~1.5 µm grains scattering
+  short wavelengths into a narrower forward lobe.
+  - The noon zenith is butterscotch, B/R 0.51.
+  - With the sun 2° up, the sky 5° from it is blue (B/R 1.59) and the sky opposite
+    tan (0.35): the blue Martian sunset.
+- **Titan.** N₂ at 1.467 bar and 93.7 K has 4.45× Earth's number density, with a
+  20.6 km scale height. The haze is τ = 2.0/3.0/4.5 with a 65 km scale height,
+  albedo 0.92/0.85/0.65 and g ≈ 0.6, after Huygens DISR (Tomasko et al. 2005). The
+  shell reaches 520 km. The zenith is deep orange: G/R 0.33 and B/R 0.02 with
+  multiple scattering.
+
+Hillaire's geometric series is a looser fit under Titan's optical depth of 3–5 than
+under Earth's 0.3. No preset carries Titan yet, so its sky is checked numerically,
+not seen.
+
+Off Earth the sky follows the star's flux through the camera's exposure, as the
+ground does (`uSkyFlux`). Earth keeps its noon calibration. `flightphysicscheck`
+single-scatters each sky on the CPU from `SkyMS.ATMOS` and checks those colours.
+`tools/skyshots.tscn` renders the sky from a pad on any body with the sun at a
+chosen elevation.
+
+### Night emission: airglow and aurora
+
+Earth's dome also integrates volume emission through a 400 km shell:
+
+- **Airglow.** O(¹S) 557.7 nm gives 250 R at the zenith from a layer at 97 ± 6 km,
+  and O(¹D) 630 nm gives 50 R near 250 km.
+- **Aurora.** An oval round the geomagnetic north pole (80.7° N, 72.7° W, IGRF-13
+  epoch 2020; the southern oval mirrors it). Its midnight edge sits at 70° − 2°·Kp
+  magnetic latitude, 3° further poleward at noon, and the band is 2.5° + 0.6°·Kp
+  wide. Thin arcs fold along it. It is green near 110 km and red above 200 km, at
+  1 kR at Kp 2, doubling per unit.
+
+1 R of 557.7 nm is 1.5 × 10⁻¹² of the G band's solar irradiance per steradian, so
+even a strong aurora is 10⁻⁵ of the day sky. The renderer has no night adaptation,
+so emission is drawn at a stated display gain of 3 × 10⁵ while the sun is more than
+6° below the eye's horizon. That is about the exposure a night photograph from
+orbit takes against a daylit one. The geomagnetic pole is placed through the
+launch site's geography, as the ground map is, so the ovals need a flight from a
+pad. In orbit afterwards they stay registered.
+
+`Stellar.storm_kp` drives Kp from the star's activity model. It is 2 when quiet. A
+CME arrives 1.8 days after launch (900 km/s), lifts Kp toward 9 by how far its
+flare's energy exceeded the CME threshold, and fades over a day. Every CME is
+treated as aimed at Earth.
+
+Rendered at 52° N with Kp 6, faint green arcs fill the northern sky; at the Cape
+there are none.
+
+## Planetshine
+
+A rocky planet's or world's night side is lit by its brightest sunlit neighbour
+(`Suns.apply_shine`). A Lambert sphere of albedo A and radius R at distance d sends
+the fraction A·(2/3)·(R/d)²·[sin α + (π − α) cos α]/π of the sunlight, where α is
+the neighbour's phase angle as seen from the lit body. For a full Earth on the Moon
+that is 7 × 10⁻⁵. Like the eclipse umbra's red, it is drawn ×100 for display:
+earthshine on a crescent Moon reads as a faint glow on the dark side rather than as
+black. The light takes the neighbour's colour and the star's.
 
 ## Eclipses
 
