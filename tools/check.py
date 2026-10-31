@@ -248,7 +248,7 @@ def checks(suite, godot, output, repeat, export_preset):
         # attributes each scenario's render errors. The rest judge state and run headless.
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
-        yield scene("coursecheck", r"^COURSE 35L 108S 0E$")
+        yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")
         yield ("hud-low-startup", *startup_low[1:])
@@ -263,7 +263,7 @@ def checks(suite, godot, output, repeat, export_preset):
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
         yield ("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log")],
-               r"^PRESETCHECK DONE 35$", 300)
+               r"^PRESETCHECK DONE 36$", 300)
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],

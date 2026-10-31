@@ -509,6 +509,7 @@ static func _build_vehicles() -> Dictionary:
 	# alone (Vessel._radiation), steered by pointing the sail.
 	"solarsail": {
 		"id": "solarsail", "name": "Solar Sail (Solar Cruiser-class)", "role": "cruiser", "launchFrom": null,
+		"procedural": true,    # no authored model: craftmodel's build_sail is the only one
 		"era": "design, 2022",
 		"blurb": "A sail forty metres on a side and thinner than a hair, on a spacecraft lighter than a person. Sunlight pushes on it with about 9 micronewtons per square metre at Earth's distance: a tenth of a millimetre per second squared, forever, with no propellant. Tilt it and the push turns with it; face it edge on and it stops.",
 		"limits": { "maxQ": 1.0, "maxG": 0.1, "qAlpha": 1.0, "heatLoad": 0.0 },
