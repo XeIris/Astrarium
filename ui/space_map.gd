@@ -268,17 +268,20 @@ func _draw_lagrange() -> void:
 			_dashed(line, Color(L_COLOR, 0.55), 1.0, 3.0, 3.0)
 
 func _solve_halo(key: String, pri: Body, sec: Body, spec: Array) -> void:
-	if _halo_busy.has(key): return
+	var job = _halo_busy.get(key)
+	if job != null:
+		# Collected here, on the main thread; the task holds only its own result array.
+		if WorkerThreadPool.is_task_completed(int(job.id)):
+			WorkerThreadPool.wait_for_task_completion(int(job.id))
+			_halo[key] = job.out[0] if not (job.out as Array).is_empty() else PackedVector3Array()
+			_halo_busy.erase(key)
+		return
 	var mu := sec.mass / (pri.mass + sec.mass)
 	var az: float = float(spec[3]) / (pri.pos.distance_to(sec.pos) * Rocketry.AU_M)
 	var pt := int(spec[2])
-	_halo_busy[key] = WorkerThreadPool.add_task(func():
-		var h := Lagrange.halo(mu, pt, az)
-		_halo_done.call_deferred(key, h.get("path", PackedVector3Array())))
-
-func _halo_done(key: String, path: PackedVector3Array) -> void:
-	WorkerThreadPool.wait_for_task_completion(int(_halo_busy[key]))
-	_halo[key] = path
+	var out := []
+	var id := WorkerThreadPool.add_task(func(): out.append(Lagrange.halo(mu, pt, az).get("path", PackedVector3Array())))
+	_halo_busy[key] = {"id": id, "out": out}
 
 ## The Lagrange point under `p` (screen px), or null.
 func _l_at(p: Vector2):
@@ -540,6 +543,9 @@ func _on_menu(id: int) -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED: _place_card()
+	elif what == NOTIFICATION_PREDELETE:
+		for job in _halo_busy.values(): WorkerThreadPool.wait_for_task_completion(int(job.id))
+		_halo_busy.clear()
 
 func _place_card() -> void:
 	var w := 340.0
