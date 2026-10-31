@@ -82,13 +82,9 @@ func _init() -> void:
 		while valid and coasted < period:
 			coasted += ship.step(10.0)
 			hi = maxf(hi, ship.altitude()); lo = minf(lo, ship.altitude())
-		# The ascent cuts off on two-body elements, which J2 is still moving: its first-order
-		# apsidal spread, J2·R²/a (6.7 km in low Earth orbit), joins the 3 km gate.
-		var z = ship.env.get("zonal")
-		var spread := float(z.J[2]) * float(z.R) * float(z.R) / (float(ship.env.radius) + target) if z != null else 0.0
-		valid = valid and absf(hi - target) < 3000.0 + spread
+		valid = valid and absf(hi - target) < 3000.0
 		# The production circularize law stops at 92% of the target periapsis.
-		valid = valid and lo >= target * 0.92 - 3000.0 - spread and lo <= hi
+		valid = valid and lo >= target * 0.92 - 3000.0 and lo <= hi
 		valid = valid and finite
 		valid = valid and earth.pos.distance_to(start_pos) > 0.0 and worst_clock_error < 1e-5
 		# A timed second plane (the Saturn V's S-II aft interstage) drops within two frames

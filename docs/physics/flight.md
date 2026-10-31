@@ -27,11 +27,19 @@ that make low lunar orbits unstable are not modelled.
 Two-body elements under J2 are biased: at 28.5° a circular 200 km orbit reads
 13 km eccentric. Telemetry, and through it guidance, computes its conic with the
 orbit-averaged μ_eff = μ[1 + 3/2·J2·(R/r)²(1 − 3/2·sin²i)]
-(`Rocketry.effective_mu`). The short-period terms remain, about ±6 km in a
-near-circular orbit's apsides, and the ascent still cuts off on two-body elements,
-so the final orbit can differ from the target by that much.
-`tools/sharedflightcheck.gd` gates on the altitudes flown over the next
-revolution, widened by J2·R²/a.
+(`Rocketry.effective_mu`). The short-period terms remain: over the half-orbit
+coast from a 112 km cutoff to apoapsis they carry the osculating apoapsis by up to
+6 km. The ascent therefore cuts off on the coast's flown peak: near the target,
+guidance propagates the coast under J2–J4 (`Orbit.zonal_extremes`, RK4 at 5 s) once
+a simulated second and adds the peak's offset from the conic apoapsis.
+
+Near orbital speed an apsis moves kilometres per frame, so a cutoff at a frame edge
+overshoots. Guidance commands a cutoff time instead (`Vessel.cutoff_in`), from the
+apoapsis's measured rate for the ascent and from the Δv still needed over thrust
+per mass for the insertion. The integrator ends the thrust inside the substep at
+that time; a cutoff commanded during a substep splits it. The four shared launches
+now reach their targets within 0.3 km, and `tools/sharedflightcheck.gd` holds the
+highest altitude flown over the next revolution to the target ±3 km.
 
 The surface stays a sphere of the body's mean radius. The WGS-84 ellipsoid would
 put the pad and geodetic latitude right to 21 km, but the ground, clouds, sky,
@@ -49,12 +57,20 @@ replaces the generic Cd(Mach) curve while it is the lowest stage attached. No
 vehicle has one yet: sourced tables (MSFC wind-tunnel reports for the Saturn V)
 were not available when the mechanism was added.
 
-Climatological winds (`Rocketry.WINDS`, Settings › Sim, off by default) give
-Earth a zonal-mean circulation: ±6 m/s trades and westerlies, a 1/7-power
-boundary layer, and a 35 m/s jet near 12 km at 35° latitude. The airspeed
-includes it, so drag, Mach and heating see it. It is off by default because the
-orbiter's glide and rollout laws read airspeed as ground speed, and with a jet
-the orbiter overflies the runway. Physics vectors use doubles; flight rendering
+Climatological winds (`Rocketry.WINDS`, Settings › Sim or `winds=1`, off by
+default) give Earth a zonal-mean circulation: ±6 m/s trades and westerlies, a
+1/7-power boundary layer, and a 35 m/s jet near 12 km at 35° latitude.
+`Vessel.airspeed` includes the wind, so drag, Mach, heating and the aerodynamic
+attitude see it. `Vessel.ground_velocity` does not: the wheels, gear and tower
+arms, the rollout, the descent law's drift, and the orbiter's heading and range to
+the runway use it. The glide's range model stretches each layer of the scheduled
+glide by (TAS + w)/TAS for the wind along the ground track, and the touchdown gate
+reads air speed (195–215 KEAS) while the rollout reads ground speed. With winds on,
+`orbiter_return`, `orbiter_home` and `ship_return` land, and the `shuttle:rollout`
+and Starship catch scenarios pass. Winds stay off by default: the scenarios'
+built bases (the orbiter at 80 km, 24.4 km and 3990 m; Starship at 80 and 15 km)
+were recorded in still air and would have to be re-recorded, and the frozen
+numeric reference has no wind. Physics vectors use doubles; flight rendering
 uses a second floating origin in the metre-scale viewport. The frame coordinator
 converts accepted coordinate seconds to orrery years. Proper-time clocks and
 guidance run only over accepted intervals; integrator guards stop both spaces

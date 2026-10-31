@@ -564,7 +564,7 @@ func _build_settings() -> void:
 	_note(sim, "Drift is the relative energy change since loading or a body-count change. With fixed masses and softening and no gravitational-wave drag, it measures integration error. Drag shows ≈ because the change includes intentional energy loss. Edits and accretion also change the energy budget.")
 	m(B(sim, "Ghost", "Reset to scenario’s values", "simReset"), 0.0, 10.0).pressed.connect(func(): sim_reset.emit())
 	_h3(sim, "Flight")
-	_note(sim, "Climatological winds give Earth's air a zonal-mean circulation: trade winds, mid-latitude westerlies and a jet stream near 12 km. The orbiter's glide and landing laws do not yet allow for wind, so it may not make the runway with this on.")
+	_note(sim, "Climatological winds give Earth's air a zonal-mean circulation: trade winds, mid-latitude westerlies and a jet stream near 12 km. Guidance flies landings over the ground and aerodynamics through the moving air.")
 	var wind_btn := B(sim, "Toggle", "☐ Climatological winds", "windsToggle")
 	wind_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	m(wind_btn, 0.0, 10.0).pressed.connect(func():
