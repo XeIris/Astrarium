@@ -22,7 +22,7 @@ Fixed by the stacked branches: `fix/physics-fidelity-batch1` (P1-1 to P1-3),
 V2), `fix/physics-fidelity-obliquity` (P1-4), `fix/physics-integrator-1pn`
 (section 5: Yoshida-4 and EIH 1PN; S3, S9, S11, S14) and
 `fix/physics-fidelity-remaining` (the rest, below), with `fix/physics-fidelity-followups`
-completing F1's cutoff, F5 and V1. F7 needs only a source note.
+completing F1's cutoff, F4's tables, F5, V1 and V3. F7 needs only a source note.
 
 | item | status |
 |---|---|
