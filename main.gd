@@ -690,9 +690,10 @@ func check_structural_limits(b: Body) -> void:
 
 # TIDES. The neighbour pulling hardest (largest M/d³) tears `b` apart inside
 # Structure.disruption_radius. Contact handles anything closer, so only a radius
-# outside contact is watched. A pass that dips inside it between two frames is caught
-# when the radial velocity turns outward and the osculating periapsis was inside.
-var _tidal_rv := {}
+# outside contact is watched. A pass that dips inside it between two checks is caught
+# when the radial velocity has turned outward, the osculating periapsis was inside,
+# and the orbit's time since periapsis fits in the interval.
+var _tidal_rv := {}   # "victim:primary" → [r·v, sim_years] at the last check
 func _check_tidal_limit(b: Body) -> bool:
 	var prim: Body = null
 	var pull := 0.0
@@ -715,14 +716,34 @@ func _check_tidal_limit(b: Body) -> bool:
 	var d := rel.length()
 	var rv := rel.dot(vrel)
 	var inside := d < r_d
-	if not inside and float(_tidal_rv.get(key, 0.0)) < 0.0 and rv >= 0.0:
-		var mu := Physics.G * (prim.mass + b.mass)
-		var h2 := rel.cross(vrel).length_sq()
-		var e := sqrt(maxf(1.0 + 2.0 * (0.5 * vrel.length_sq() - mu / d) * h2 / (mu * mu), 0.0))
-		inside = h2 / (mu * (1.0 + e)) < r_d
-	_tidal_rv[key] = rv
+	var last: Array = _tidal_rv.get(key, [0.0, state.sim_years])
+	if not inside and float(last[0]) < 0.0 and rv >= 0.0:
+		inside = _passed_inside(d, vrel.length_sq(), rel.cross(vrel).length_sq(),
+			Physics.G * (prim.mass + b.mass), r_d, state.sim_years - float(last[1]))
+	_tidal_rv[key] = [rv, state.sim_years]
 	if inside: tidal_disrupt(b, prim, r_d)
 	return inside
+
+## True when an outbound two-body orbit at distance d had its periapsis inside r_d
+## within the last `dt` years (Kepler's equation in the orbit's own branch).
+static func _passed_inside(d: float, v2: float, h2: float, mu: float, r_d: float, dt: float) -> bool:
+	var energy := 0.5 * v2 - mu / d
+	var e := sqrt(maxf(1.0 + 2.0 * energy * h2 / (mu * mu), 0.0))
+	var q := h2 / (mu * (1.0 + e))
+	if q >= r_d: return false
+	var since: float
+	if absf(e - 1.0) < 1e-6:
+		var D := sqrt(maxf(d / q - 1.0, 0.0))
+		since = sqrt(2.0 * q * q * q / mu) * (D + D * D * D / 3.0)
+	elif e < 1.0:
+		var a := -mu / (2.0 * energy)
+		var E := acos(clampf((1.0 - d / a) / e, -1.0, 1.0))
+		since = (E - e * sin(E)) * sqrt(a * a * a / mu)
+	else:
+		var a := mu / (2.0 * energy)
+		var F := acosh(maxf((1.0 + d / a) / e, 1.0))
+		since = (e * sinh(F) - F) * sqrt(a * a * a / mu)
+	return since <= dt * 1.000001
 
 # A world torn apart round a planet stays in orbit as a ring, so the planet keeps its
 # mass. Round a star or a compact object, about half the debris is bound and falls back

@@ -205,12 +205,18 @@ func climate() -> void:
 	var hz := earth.habitable_zone()
 	check("the climate reads the dominant star's zone", absf(float(hz.teff) - 5772.0) < 1e-9 and hz.inner > 1.0 and hz.outer < 0.4)
 
+# A distant star's near-radial relative orbit has a tiny osculating periapsis; only a
+# pass that fits in the interval counts. One second of each preset through the
+# frame loop, as presetcheck runs it, less the presets built to merge.
 func presets_survive_loading() -> void:
+	stage.state.paused = false
 	for key in Presets.PRESET_ORDER:
-		stage._start(key)
+		stage.load_preset(key)
 		var n: int = stage.state.bodies.size()
-		structural_pass()
-		check("preset %s: nothing inside a disruption radius at load" % key, stage.state.bodies.size() == n)
+		for i in 60: stage.animate(1.0 / 60.0)
+		if key in ["nsmerger", "binarystar", "stellar_zoo"]: continue
+		check("preset %s: no body lost in its first second" % key, stage.state.bodies.size() == n)
+	stage.state.paused = true
 
 func _ready() -> void:
 	OS.add_logger(catcher)

@@ -91,8 +91,11 @@ on it every frame against the neighbour pulling hardest (largest M/d³).
 with r_t = R (M/m)^⅓. Contact is closer for most pairs, so the event is watched
 only where this radius lies outside contact; a preset's explicit `contactAU`
 (Trisolaris's stars) keeps its prescribed destruction distance. A pass that dips
-inside between two frames is caught when the radial velocity turns outward and the
-osculating two-body periapsis was inside.
+inside between two frames is caught when the radial velocity turns outward, the
+osculating two-body periapsis was inside, and Kepler's equation puts that periapsis
+within the interval since the last check. Without the last condition, near-radial
+motion relative to a distant star (a tiny osculating periapsis it never reached)
+destroyed Trisolaris's world.
 
 Round a planet the debris stays in orbit: the planet takes the whole mass and
 momentum, and a ring is painted out to the disruption radius. Round a star or a
