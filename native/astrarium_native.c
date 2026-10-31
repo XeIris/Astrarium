@@ -6,9 +6,12 @@
  *           [3] max step [4] gw boost   [5] guard (sub-steps so far, in/out)
  *           [6] accepted call time (in/out)  [7] merger events (out)
  *           [8] resolution limited (out) [9] requested call time (in)
+ *           [10] secular evolution on (in) [11] spare
  *   body k at HDR + k·STRIDE:
  *           px py pz vx vy vz mass rs is_bh softening radius contact_au
- *           emits_gw alive post_newtonian (then 1 spare)
+ *           emits_gw alive post_newtonian, then the secular terms:
+ *           wind Ṁ (M☉/yr) k2 time-lag (yr) spin Ω (rad/yr, in/out) I/M (AU²)
+ *           donor, mass gained and mass given by Roche-lobe overflow (M☉, out), spare
  *   events at HDR + n·STRIDE: (survivor k, absorbed k, separation) × up to n
  * It integrates until the time is used up, the 8000-step guard trips, or a
  * sub-step produced a merger, then returns so the orchestrator can run
@@ -20,11 +23,12 @@
 #include <string.h>
 #include "gdextension_interface.h"
 
-#define HDR 10
-#define STRIDE 16
+#define HDR 12
+#define STRIDE 24
 #define STEP_GUARD 8000
 
-enum { PX, PY, PZ, VX, VY, VZ, MASS, RS, ISBH, SOFT, RADIUS, CONTACT, EMITSGW, ALIVE, PN };
+enum { PX, PY, PZ, VX, VY, VZ, MASS, RS, ISBH, SOFT, RADIUS, CONTACT, EMITSGW, ALIVE, PN,
+       MDOT, K2, LAG, SPIN, IOM, DONOR, GAINED, SHED };
 
 static const double G = 4.0 * 3.141592653589793 * 3.141592653589793;   /* 4π², as (4·π)·π */
 /* Rocketry.C_MS · Rocketry.YR_S / Rocketry.AU_M, in the same order as Physics.C. */
@@ -338,6 +342,86 @@ static void apply_gw(double *B, int n, double dt, double boost) {
 	}
 }
 
+/* Physics.apply_secular, operation for operation: winds, Hut's tides, Roche-lobe
+ * overflow. Derivations: docs/physics/secular.md. */
+static const double TIDE_REACH = 200.0;
+static void apply_secular(double *B, int n, double dt) {
+	for (int k = 0; k < n; k++) {
+		double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0 || !(b[MDOT] > 0.0)) continue;
+		double dm = jmin(b[MDOT] * dt, 0.001 * b[MASS]);
+		b[MASS] -= dm;
+	}
+	for (int i = 0; i < n; i++) {
+		double *a = B + i * STRIDE;
+		if (a[ALIVE] == 0.0 || !(a[K2] > 0.0) || !(a[LAG] > 0.0) || !(a[RADIUS] > 0.0) || !(a[IOM] > 0.0)) continue;
+		for (int j = 0; j < n; j++) {
+			double *b = B + j * STRIDE;
+			if (j == i || b[ALIVE] == 0.0) continue;
+			double rx = b[PX] - a[PX], ry = b[PY] - a[PY], rz = b[PZ] - a[PZ];
+			double r = distance_xyz(rx, ry, rz);
+			double R = a[RADIUS];
+			if (!(r > R) || r > TIDE_REACH * R) continue;
+			double vx = b[VX] - a[VX], vy = b[VY] - a[VY], vz = b[VZ] - a[VZ];
+			double ux = rx / r, uy = ry / r, uz = rz / r;
+			double rdot = ux * vx + uy * vy + uz * vz;
+			double hx = ry * vz - rz * vy, hy = rz * vx - rx * vz, hz = rx * vy - ry * vx;
+			double h = distance_xyz(hx, hy, hz);
+			double mi = a[MASS], mj = b[MASS];
+			double A = 1.5 * a[K2] * G * mj * mj * pow(R, 5.0) * a[LAG] / pow(r, 7.0);
+			double inv_mu = 1.0 / mi + 1.0 / mj;
+			double fr = -3.0 * A * rdot / r;
+			if (fabs(fr * inv_mu * dt) > 0.5 * fabs(rdot)) fr = -0.5 * rdot / (inv_mu * dt);
+			double tx = 0.0, ty = 0.0, tz = 0.0, ft = 0.0;
+			if (h > 0.0) {
+				double w = a[SPIN] - h / (r * r);
+				ft = A * w;
+				double dW = (r * ft * dt / (mi * a[IOM]) + ft * inv_mu * dt / r);
+				if (fabs(dW) > 0.5 * fabs(w)) ft *= 0.5 * fabs(w) / fabs(dW);
+				/* θ̂ = ĥ × r̂, the direction of orbital motion */
+				tx = (hy * uz - hz * uy) / h; ty = (hz * ux - hx * uz) / h; tz = (hx * uy - hy * ux) / h;
+			}
+			double fx = fr * ux + ft * tx, fy = fr * uy + ft * ty, fz = fr * uz + ft * tz;
+			double kb = dt / mj, ka = dt / mi;
+			b[VX] += fx * kb; b[VY] += fy * kb; b[VZ] += fz * kb;
+			a[VX] -= fx * ka; a[VY] -= fy * ka; a[VZ] -= fz * ka;
+			a[SPIN] -= r * ft * dt / (mi * a[IOM]);
+		}
+	}
+	for (int d = 0; d < n; d++) {
+		double *b = B + d * STRIDE;
+		if (b[ALIVE] == 0.0 || b[DONOR] == 0.0 || !(b[RADIUS] > 0.0)) continue;
+		int best = -1;
+		double pull = 0.0, sep = 0.0;
+		for (int k = 0; k < n; k++) {
+			double *o = B + k * STRIDE;
+			if (k == d || o[ALIVE] == 0.0) continue;
+			double r = distance_xyz(o[PX] - b[PX], o[PY] - b[PY], o[PZ] - b[PZ]);
+			if (!(r > 0.0)) continue;
+			double t = o[MASS] / (r * r * r);
+			if (t > pull) { pull = t; best = k; sep = r; }
+		}
+		if (best < 0) continue;
+		double *a = B + best * STRIDE;
+		/* Eggleton (1983) */
+		double q = b[MASS] / a[MASS];
+		double q13 = pow(q, 1.0 / 3.0), q23 = q13 * q13;
+		double RL = sep * 0.49 * q23 / (0.6 * q23 + log(1.0 + q13));
+		if (!(b[RADIUS] > RL)) continue;
+		/* Hurley, Tout & Pols (2002) eq. 58 */
+		double x = log(b[RADIUS] / RL), mm = jmin(b[MASS], 5.0);
+		double dm = jmin(3e-6 * mm * mm * x * x * x * dt, 0.001 * b[MASS]);
+		double ma = a[MASS] + dm;
+		a[VX] = (a[MASS] * a[VX] + dm * b[VX]) / ma;
+		a[VY] = (a[MASS] * a[VY] + dm * b[VY]) / ma;
+		a[VZ] = (a[MASS] * a[VZ] + dm * b[VZ]) / ma;
+		a[MASS] = ma;
+		b[MASS] -= dm;
+		a[GAINED] += dm;
+		b[SHED] += dm;
+	}
+}
+
 /* Collision / accretion resolution (Physics collisions). */
 static int resolve_collisions(double *B, int n, double *ev, int *limited) {
 	int count = 0;
@@ -382,6 +466,7 @@ static int resolve_collisions(double *B, int n, double *ev, int *limited) {
 static void run(double *A) {
 	int n = (int)A[1];
 	double remaining = A[2], requested = A[9], max_step = A[3], gw = A[4];
+	int secular = A[10] != 0.0;
 	int guard = (int)A[5];
 	double stepped = A[6];
 	int events = 0;
@@ -397,6 +482,7 @@ static void run(double *A) {
 		if (!integrate(B, n, h, S)) { limited = 1; break; }
 		if (gw != 0.0) apply_gw(B, n, h, gw);
 		if (!finite_state(B, n)) { restore_step(B, n, S); limited = 1; break; }
+		if (secular) apply_secular(B, n, h);
 		guard++;
 		stepped += h;
 		remaining = jmin(remaining - h, requested - stepped);
@@ -482,7 +568,7 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 
 	sn_new(&sn_class, "NBodyKernel", 1);
 	sn_new(&sn_parent, "Object", 1);
-	sn_new(&sn_method, "step", 1);
+	sn_new(&sn_method, "step2", 1);
 	sn_new(&sn_arg, "state", 1);
 	sn_new(&sn_empty, "", 1);
 

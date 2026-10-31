@@ -491,6 +491,79 @@ static func _leapfrog_substep(live: Array, dt: float) -> bool:
 		b.pos.z += b.vel.z * half
 	return finite_state(live)
 
+# Winds, Hut's (1981) constant-time-lag tides with the spin along the orbit normal,
+# and Roche-lobe overflow; native/astrarium_native.c repeats it operation for
+# operation. Derivations and sources: docs/physics/secular.md.
+static var secular := true
+const TIDE_REACH := 200.0
+static func apply_secular(bodies: Array, dt: float) -> void:
+	var n := bodies.size()
+	for b: Body in bodies:
+		if not b.alive or not (b.wind_mdot > 0.0): continue
+		var dm := minf(b.wind_mdot * dt, 0.001 * b.mass)
+		b.mass -= dm
+	for i in n:
+		var a: Body = bodies[i]
+		if not a.alive or not (a.tide_k2 > 0.0) or not (a.tide_lag > 0.0) or not (a.radius > 0.0) or not (a.tide_iom > 0.0): continue
+		for j in n:
+			var b: Body = bodies[j]
+			if j == i or not b.alive: continue
+			var rx := b.pos.x - a.pos.x; var ry := b.pos.y - a.pos.y; var rz := b.pos.z - a.pos.z
+			var r := distance_xyz(rx, ry, rz)
+			var R := a.radius
+			if not (r > R) or r > TIDE_REACH * R: continue
+			var vx := b.vel.x - a.vel.x; var vy := b.vel.y - a.vel.y; var vz := b.vel.z - a.vel.z
+			var ux := rx / r; var uy := ry / r; var uz := rz / r
+			var rdot := ux * vx + uy * vy + uz * vz
+			var hx := ry * vz - rz * vy; var hy := rz * vx - rx * vz; var hz := rx * vy - ry * vx
+			var h := distance_xyz(hx, hy, hz)
+			var mi := a.mass; var mj := b.mass
+			var A := 1.5 * a.tide_k2 * G * mj * mj * pow(R, 5.0) * a.tide_lag / pow(r, 7.0)
+			var inv_mu := 1.0 / mi + 1.0 / mj
+			var fr := -3.0 * A * rdot / r
+			# A kick that would more than halve ṙ, or the spin–orbit slip, saturates.
+			if absf(fr * inv_mu * dt) > 0.5 * absf(rdot): fr = -0.5 * rdot / (inv_mu * dt)
+			var tx := 0.0; var ty := 0.0; var tz := 0.0; var ft := 0.0
+			if h > 0.0:
+				var w := a.spin_omega - h / (r * r)
+				ft = A * w
+				var dW := (r * ft * dt / (mi * a.tide_iom) + ft * inv_mu * dt / r)
+				if absf(dW) > 0.5 * absf(w): ft *= 0.5 * absf(w) / absf(dW)
+				tx = (hy * uz - hz * uy) / h; ty = (hz * ux - hx * uz) / h; tz = (hx * uy - hy * ux) / h
+			var fx := fr * ux + ft * tx; var fy := fr * uy + ft * ty; var fz := fr * uz + ft * tz
+			var kb := dt / mj; var ka := dt / mi
+			b.vel.x += fx * kb; b.vel.y += fy * kb; b.vel.z += fz * kb
+			a.vel.x -= fx * ka; a.vel.y -= fy * ka; a.vel.z -= fz * ka
+			a.spin_omega -= r * ft * dt / (mi * a.tide_iom)
+	for d in n:
+		var b: Body = bodies[d]
+		if not b.alive or not b.donor or not (b.radius > 0.0): continue
+		var best := -1
+		var pull := 0.0; var sep := 0.0
+		for k in n:
+			var o: Body = bodies[k]
+			if k == d or not o.alive: continue
+			var r := distance_xyz(o.pos.x - b.pos.x, o.pos.y - b.pos.y, o.pos.z - b.pos.z)
+			if not (r > 0.0): continue
+			var t := o.mass / (r * r * r)
+			if t > pull: pull = t; best = k; sep = r
+		if best < 0: continue
+		var a: Body = bodies[best]
+		var q := b.mass / a.mass
+		var q13 := pow(q, 1.0 / 3.0); var q23 := q13 * q13
+		var RL := sep * 0.49 * q23 / (0.6 * q23 + log(1.0 + q13))
+		if not (b.radius > RL): continue
+		var x := log(b.radius / RL); var mm := minf(b.mass, 5.0)
+		var dm := minf(3e-6 * mm * mm * x * x * x * dt, 0.001 * b.mass)
+		var ma := a.mass + dm
+		a.vel.x = (a.mass * a.vel.x + dm * b.vel.x) / ma
+		a.vel.y = (a.mass * a.vel.y + dm * b.vel.y) / ma
+		a.vel.z = (a.mass * a.vel.z + dm * b.vel.z) / ma
+		a.mass = ma
+		b.mass -= dm
+		a.gained += dm
+		b.shed += dm
+
 static var collision_limited := false
 
 # Collision / accretion resolution. Returns an array of merger events

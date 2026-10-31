@@ -550,6 +550,9 @@ static func _build_solar(t_cy := 0.0) -> Array:
 	var earth := { "type": "planet", "name": "Earth", "mass": m_earth, "radiusKm": 6371.0,
 		"atmosphere": true, "land": 0.32, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
 		"obliquity": 0.4091, "cloudCover": 0.44, "season": 11.0,
+		# The oceans' tide, which a uniform elastic sphere can't give: k2 (Lambeck 1980)
+		# and the lag that recedes the Moon 3.8 cm/yr (Neron de Surgy & Laskar 1997).
+		"k2": 0.299, "tideLagS": 638.0,
 	}
 	# The Moon, on its real orbit about Earth: a target inside Earth's SOI and an
 	# airless body to land on. Its 5.1° tilt keeps eclipses to the nodes.

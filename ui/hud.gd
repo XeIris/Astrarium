@@ -561,8 +561,17 @@ func _build_settings() -> void:
 	var sg := grid(sim, [1.0, 1.0], 10.0, 5.0, 10.0, 12.0)
 	for kv in [["steps/frame", "setSteps"], ["energy drift", "setDrift"]]:
 		_stat(sg, kv[0], kv[1])
-	_note(sim, "Drift is the relative energy change since loading or a body-count change. With fixed masses and softening and no gravitational-wave drag, it measures integration error. Drag shows ≈ because the change includes intentional energy loss. Edits and accretion also change the energy budget.")
+	_note(sim, "Drift is the relative energy change since loading or a body-count change. With fixed masses and softening and no gravitational-wave drag, it measures integration error. Drag shows ≈ because the change includes intentional energy loss. Edits, accretion, winds and tides also change the energy budget.")
 	m(B(sim, "Ghost", "Reset to scenario’s values", "simReset"), 0.0, 10.0).pressed.connect(func(): sim_reset.emit())
+	_h3(sim, "Secular evolution")
+	_note(sim, "Stars age along their tracks and blow winds, tides slow spins and circularise orbits, and a star that overfills its Roche lobe feeds its companion: novae on a white dwarf, and a Type Ia if it grows to the Chandrasekhar mass. Real rates, so most of it shows only at long time steps or in close binaries.")
+	var sec_btn := B(sim, "Toggle", "☑ Secular evolution" if Physics.secular else "☐ Secular evolution", "secularToggle")
+	sec_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	set_active("secularToggle", Physics.secular)
+	m(sec_btn, 0.0, 10.0).pressed.connect(func():
+		Physics.secular = not Physics.secular
+		sec_btn.set_label("☑ Secular evolution" if Physics.secular else "☐ Secular evolution")
+		set_active("secularToggle", Physics.secular))
 	_h3(sim, "Flight")
 	_note(sim, "Climatological winds give Earth's air a zonal-mean circulation: trade winds, mid-latitude westerlies and a jet stream near 12 km. Guidance flies landings over the ground and aerodynamics through the moving air.")
 	var wind_btn := B(sim, "Toggle", "☐ Climatological winds", "windsToggle")

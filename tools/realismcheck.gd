@@ -1,8 +1,9 @@
 extends Node
 
 # Section 6 additions of the 2026-10-30 fidelity review against independent numbers:
-# the Page–Thorne disc, tidal disruption, natal kicks, and the runaway greenhouse and
-# habitable zone. Events run through the stage's structural-limit path.
+# the Page–Thorne disc, tidal disruption, natal kicks, the runaway greenhouse and
+# habitable zone, and the secular events (novae, accretion-driven Type Ia, a star's
+# end of life by age). Events run through the stage's structural-limit path.
 const Catch = preload("res://tools/coursecheck.gd").Catch
 var catcher := Catch.new()
 var stage: Node
@@ -84,6 +85,7 @@ func tidal_events() -> void:
 		structural_pass()
 		var p0 := DVec3.new()
 		var star_v := DVec3.new()
+		var star_m := 1.0
 		# Time to pericentre for a parabola: t = √(2q³/GM)·(D + D³/3), D = tan(ν/2).
 		var D := tan(-nu / 2.0)
 		var tp := sqrt(2.0 * q * q * q / (Physics.G * M)) * (D + D * D * D / 3.0)
@@ -95,6 +97,7 @@ func tidal_events() -> void:
 				closest = minf(closest, body("Victim").pos.distance_to(hole.pos))
 				p0 = momentum(stage.state.bodies)
 				star_v = body("Victim").vel.clone()
+				star_m = body("Victim").mass
 			structural_pass()
 			if body("Victim") == null: break
 		var label := "coarse" if coarse else "fine"
@@ -102,8 +105,9 @@ func tidal_events() -> void:
 		check("%s pass: the star is disrupted" % label, body("Victim") == null)
 		check("%s pass: half the star is accreted" % label, absf(hole.mass - (M + 0.5)) < 1e-9)
 		var p1 := momentum(stage.state.bodies)
+		# Overflow on the way in has already moved a little of the star to the hole.
 		check("%s pass: the hole carries its momentum and the bound half's" % label,
-			p1.distance_to(p0.clone().add_scaled_in(star_v, -0.5)) < 1e-12 * star_v.length())
+			p1.distance_to(p0.clone().add_scaled_in(star_v, -0.5 * star_m)) < 1e-12 * star_v.length())
 		if not coarse:
 			check("fine pass: disrupted before contact, outside r_d at the last check", closest > sun)
 	# A moon inside its planet's Roche limit becomes a ring; the planet keeps the mass.
@@ -130,6 +134,50 @@ func tidal_events() -> void:
 	check("M dwarf disrupted by the neutron star", body("Dwarf") == null)
 	check("neutron star fed past TOV collapses to a black hole", feeder != null and feeder.type == "bh"
 		and absf(feeder.mass - 2.25) < 1e-12)
+
+# Roche-lobe overflow through the stage's loop, then each event it can lead to. A real
+# nova cycle is ~10⁶ orbits of a cataclysmic variable, so the envelope is set, not grown.
+func secular_events() -> void:
+	stage.clear_bodies()
+	var donor_r := 0.6 * Physics.AU_PER_RSUN
+	var sep := donor_r / (1.5 * Structure.roche_lobe_fraction(0.6))
+	var vrel := sqrt(Physics.G * 1.6 / sep)
+	stage.spawn_body({"type": "white-dwarf", "name": "Dwarf", "mass": 1.0, "pos": [0, 0, 0], "vel": [0, 0, 0]})
+	stage.spawn_body({"type": "star", "name": "Donor", "mass": 0.6, "radiusSun": 0.6, "pos": [sep, 0, 0], "vel": [0, 0, vrel]})
+	var wd := body("Dwarf")
+	var m_tot: float = wd.mass + body("Donor").mass
+	for i in 20:
+		stage.step_physics(2e-6)
+		structural_pass()
+	var rate := float(wd.extra.get("accretionRate", 0.0))
+	print("REALISMCHECK overflow rate=%s regime=%s envelope=%s" % [rate, wd.extra.get("accretionRegime"), wd.extra.get("novaEnvelope")])
+	check("an overflowing donor feeds the dwarf at Hurley's rate (R/R_L ≈ 1.5)", rate > 4e-8 and rate < 1.2e-7)
+	check("below the steady-burning rate the hydrogen piles up for a nova", wd.extra.get("accretionRegime") == "nova"
+		and float(wd.extra.get("novaEnvelope", 0.0)) > 0.0)
+	check("overflow keeps the system's mass", absf(wd.mass + body("Donor").mass - m_tot) < 1e-14)
+	var ign := Structure.nova_ignition_mass(wd.mass, wd.radius)
+	wd.extra.novaEnvelope = ign * 1.01
+	var m0 := wd.mass
+	structural_pass()
+	check("an envelope at ignition pressure goes off as a nova and is thrown off", int(wd.extra.get("novae", 0)) == 1
+		and absf(wd.mass - (m0 - ign * 1.01)) < 1e-15 and float(wd.extra.novaEnvelope) == 0.0)
+	# In the steady window the dwarf keeps what lands, and at Chandrasekhar it detonates.
+	wd.mass = Structure.LIMITS.chandrasekhar - 1e-12
+	structural_pass()
+	wd.gained = 5e-7 * 1e-3
+	wd.mass += wd.gained
+	stage._step_secular(1e-3)
+	check("steady burning keeps the accreted mass", wd.extra.get("accretionRegime") == "steady"
+		and wd.mass >= Structure.LIMITS.chandrasekhar)
+	structural_pass()
+	check("accretion to the Chandrasekhar mass ends in a Type Ia with nothing left", body("Dwarf") == null)
+	# A star that runs off the end of its track ends by age, as end_state_of says.
+	stage.clear_bodies()
+	stage.spawn_body({"type": "star", "name": "Old", "mass": 1.0, "phase": 1.9999, "pos": [0, 0, 0], "vel": [0, 0, 0]})
+	var old := body("Old")
+	stage._step_secular(float(old.structure.msLifetime) * 0.001)
+	structural_pass()
+	check("a 1 M☉ star at the end of its track leaves a white dwarf", old.type == "white-dwarf")
 
 func natal_kicks() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -230,6 +278,7 @@ func _ready() -> void:
 	disruption_radii()
 	tidal_events()
 	natal_kicks()
+	secular_events()
 	climate()
 	presets_survive_loading()
 	for i in 3: await get_tree().process_frame

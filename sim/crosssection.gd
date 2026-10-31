@@ -178,6 +178,9 @@ static func structure_facts(st: Dictionary) -> Array:
 			add.call("MS lifetime", fmt_years(st.get("msLifetime")))
 			var es = st.get("endState")
 			add.call("ends as", es.get("label") if es is Dictionary else null)
+			var sec = st.get("secular")
+			if sec is Dictionary and float(sec.get("windMdot", 0.0)) > 0.0:
+				add.call("wind", "%s M☉/yr" % U.expo(float(sec.windMdot), 1))
 		"neutron":
 			add.call("density", fmt_density(st.get("density")))
 			add.call("surface gravity", "%s g" % U.expo(g.call("surfaceGravity") / 9.81, 2))

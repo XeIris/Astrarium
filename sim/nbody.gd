@@ -4,13 +4,14 @@ extends RefCounted
 # Merger callbacks run between native sub-steps so changed types, horizons and
 # body lists are repacked before continuing. Derive supplies the same fallback.
 
-const HDR := 10
-const STRIDE := 16
+const HDR := 12
+const STRIDE := 24
 static var _native := -1   # -1 unknown, 0 absent, 1 present
 
 static func native_available() -> bool:
 	if _native < 0:
-		_native = 1 if ClassDB.class_exists("NBodyKernel") else 0
+		# "step2" is the layout with the secular terms; an older build is not used.
+		_native = 1 if ClassDB.class_exists("NBodyKernel") and ClassDB.class_has_method("NBodyKernel", "step2") else 0
 	return _native == 1
 
 ## Returns accepted years, successful sub-steps and numerical limits as Derive does.
@@ -30,6 +31,7 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 		A.resize(HDR + n * STRIDE + n * 3)
 		A[0] = float(A.size()); A[1] = float(n); A[2] = remaining; A[3] = max_step
 		A[4] = gw_boost; A[5] = float(guard); A[6] = stepped; A[9] = sim_dt
+		A[10] = 1.0 if Physics.secular else 0.0
 		for k in n:
 			var b: Body = bodies[k]
 			var o := HDR + k * STRIDE
@@ -39,7 +41,9 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 			A[o + 9] = b.softening; A[o + 10] = b.radius; A[o + 11] = b.contact_au
 			A[o + 12] = 1.0 if b.emits_gw else 0.0; A[o + 13] = 1.0 if b.alive else 0.0
 			A[o + 14] = 1.0 if Physics.post_newtonian else 0.0
-		A = ClassDB.class_call_static("NBodyKernel", "step", A)
+			A[o + 15] = b.wind_mdot; A[o + 16] = b.tide_k2; A[o + 17] = b.tide_lag; A[o + 18] = b.spin_omega
+			A[o + 19] = b.tide_iom; A[o + 20] = 1.0 if b.donor else 0.0; A[o + 21] = b.gained; A[o + 22] = b.shed
+		A = ClassDB.class_call_static("NBodyKernel", "step2", A)
 		for k in n:
 			var b: Body = bodies[k]
 			var o := HDR + k * STRIDE
@@ -47,6 +51,7 @@ static func step_physics(bodies: Array, sim_dt: float, max_step: float, gw_boost
 			b.vel.x = A[o + 3]; b.vel.y = A[o + 4]; b.vel.z = A[o + 5]
 			b.mass = A[o + 6]
 			b.alive = A[o + 13] != 0.0
+			b.spin_omega = A[o + 18]; b.gained = A[o + 21]; b.shed = A[o + 22]
 		remaining = A[2]
 		guard = int(A[5])
 		stepped = A[6]
