@@ -105,6 +105,7 @@ class Autopilot extends RefCounted:
 	var _integ: float = 0.0
 	var _pitch_cmd = null        # the last commanded ascent pitch, rad (see _rate_limit_pitch)
 	var _meco_met: float = -1.0  # when the ascent cut off (for a tank dropped after MECO)
+	var _plane = null            # the target orbit's unit normal, fixed at the first ascent cycle
 	var _dve_prev := 0.0         # the cutoff speed still missing, when, and its closing rate
 	var _dve_met := -1.0
 	var _dve_rate := 0.0
@@ -149,6 +150,7 @@ class Autopilot extends RefCounted:
 		_roll_noted = 0
 		_integ = 0.0
 		_pitch_cmd = null
+		if prog == "ascent": _plane = null
 		for k in opts:
 			set(String(k).to_snake_case(), opts[k])
 		v.auto_stage = true
@@ -161,7 +163,7 @@ class Autopilot extends RefCounted:
 	## between steps into its frame. A landing site belongs to the old body, so it goes.
 	func turn_frame(turn: DQuat) -> void:
 		var turned := []
-		for d in [aim, aim_roll, node_vec, node.dv if node != null else null]:
+		for d in [aim, aim_roll, node_vec, node.dv if node != null else null, _plane]:
 			if d is DVec3 and not turned.has(d):
 				DQuat.rotate(d, turn); turned.append(d)
 		site = null
@@ -196,16 +198,20 @@ class Autopilot extends RefCounted:
 		var t := v.telemetry
 		var env: Dictionary = v.env
 		DQuat.nrm(Guidance._up.copy_from(v.r))
-		# Launch azimuth from cos(i) = cos(lat)·sin(az), clamped: a site can't reach an
-		# inclination below its own latitude.
-		var lat := asin(DQuat.jclamp(-Guidance._up.y, -1.0, 1.0))
-		var inc: float = A.inclination * PI / 180.0
-		var sin_az := DQuat.jclamp(cos(inc) / maxf(cos(lat), 1e-3), -1.0, 1.0)
-		var az := asin(sin_az)
 		Guidance._b.set_v(0.0, -1.0, 0.0)
 		DQuat.nrm(Guidance._c.cross_vectors(Guidance._b, Guidance._up))                 # local east
 		DQuat.nrm(Guidance._d.cross_vectors(Guidance._up, Guidance._c))                 # local north
-		var heading := DQuat.nrm(Guidance._e.copy_from(Guidance._c).scale_in(sin(az)).add_scaled_in(Guidance._d, cos(az))).clone()
+		# The target plane, fixed at the first cycle: through the site on the inertial
+		# azimuth sin β = cos i / cos φ the range allows (an instantaneous window).
+		if _plane == null:
+			var lat := asin(DQuat.jclamp(-Guidance._up.y, -1.0, 1.0))
+			var pick := Rocketry.launch_azimuth(lat, A.inclination, str(v.parent.name) if v.parent != null else "")
+			var az0: float = pick.az
+			var dir := DQuat.nrm(Guidance._e.copy_from(Guidance._c).scale_in(sin(az0)).add_scaled_in(Guidance._d, cos(az0)))
+			_plane = DQuat.nrm(DVec3.new().cross_vectors(Guidance._up, dir))
+			if pick.limited:
+				v.log_event("Range safety — %s holds the azimuth at %s°" % [pick.range, U.fixed(rad_to_deg(az0), 1)])
+		var heading := _plane_heading(Guidance._e).clone()
 
 		v.airspeed(v.r, v.v, Guidance._a)
 		var v_surf := Guidance._a.length()
@@ -243,15 +249,15 @@ class Autopilot extends RefCounted:
 			_pitch_cmd = pitch; _pitch_met = v.met
 			pitch_deg = pitch * 180.0 / PI
 			say("Ascent — pitch program %s°, q %s kPa" % [U.fixed(pitch * 180.0 / PI, 0), U.fixed(t.q / 1000.0, 1)])
-			# Horizontal component follows the launch azimuth until there is a real
-			# orbital plane to follow, then the plane itself.
-			Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
-			var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
+			var horiz := _relative_heading(heading, Guidance._c)
 			DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 			_ascent_roll(Guidance._a, heading)
 			return Guidance._a
 
-		# phase 3: explicit guidance, out of the air.
+		# phase 3: explicit guidance, out of the air. The plane is re-aimed through where
+		# the vessel is, at the same inclination: the air phase drifts it tens of km off
+		# the liftoff plane, and chasing that costs more than moving the node.
+		if state_name != "closed": _reaim_plane()
 		state_name = "closed"
 		var el: Dictionary = t.el
 		var apo_alt: float = el.ra - env.radius
@@ -329,11 +335,52 @@ class Autopilot extends RefCounted:
 		pitch_deg = pitch * 180.0 / PI
 		if is_finite(el.ra): _schedule_cutoff(apo_alt, A.targetApo - apo_peak + apo_alt)
 		say("Ascent — closed loop · apo %s/%s km, pitch %s°" % [U.fixed(apo_alt / 1000.0, 0), U.fixed(A.targetApo / 1000.0, 0), U.fixed(pitch * 180.0 / PI, 0)])
-		Guidance._c.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
-		var horiz: DVec3 = DQuat.nrm(Guidance._c) if Guidance._c.length_sq() > 4e4 else Guidance._c.copy_from(heading)
+		var horiz := _plane_steer(heading, Guidance._c, T_go, pitch, a_thrust)
 		DQuat.nrm(Guidance._a.copy_from(horiz).scale_in(cos(pitch)).add_scaled_in(Guidance._up, sin(pitch)))
 		_ascent_roll(Guidance._a, heading)
 		return Guidance._a
+
+	func _reaim_plane() -> void:
+		var up := DQuat.nrm(v.r.clone())
+		var lat := asin(DQuat.jclamp(-up.y, -1.0, 1.0))
+		var east := DQuat.nrm(DVec3.new().cross_vectors(DVec3.new(0.0, -1.0, 0.0), up))
+		var north := DVec3.new().cross_vectors(up, east)
+		var sb := DQuat.jclamp(cos(deg_to_rad(_plane_inc())) / maxf(cos(lat), 1e-3), -1.0, 1.0)
+		var best: DVec3 = null
+		for az in [asin(sb), PI - asin(sb)]:
+			var dir := east.scaled(sin(az)).add_in(north.scaled(cos(az)))
+			if best == null or dir.dot(v.v) > best.dot(v.v): best = dir
+		_plane = DQuat.nrm(DVec3.new().cross_vectors(up, best))
+
+	## The inclination (deg) of the plane chosen at liftoff, which a range may have limited.
+	func _plane_inc() -> float:
+		return rad_to_deg(acos(DQuat.jclamp(-_plane.y, -1.0, 1.0)))
+
+	## Prograde along the target plane at the vessel, horizontal and unit, into `out`.
+	func _plane_heading(out: DVec3) -> DVec3:
+		return DQuat.nrm(out.cross_vectors(_plane, Guidance._up))
+
+	## In the air, the relative azimuth a flown ascent rolls to and holds: the plane's
+	## direction at circular speed less the ground's own motion, so the gravity turn
+	## stays in the plane of the air-relative velocity and the plane is not chased
+	## through the thick air.
+	func _relative_heading(heading: DVec3, out: DVec3) -> DVec3:
+		var vc := sqrt(float(v.env.mu) / v.r.length())
+		out.set_v(0.0, -float(v.env.rotRate), 0.0)
+		out.cross_vectors(out, v.r).scale_in(-1.0).add_scaled_in(heading, vc)
+		out.add_scaled_in(Guidance._up, -out.dot(Guidance._up))
+		return DQuat.nrm(out) if out.length_sq() > 1.0 else out.copy_from(heading)
+
+	## The horizontal thrust direction out of the air: along the plane, yawed by the
+	## cross-plane acceleration that brings the distance off it and its rate to zero
+	## together at burnout, −6y/T² − 4ẏ/T (the vertical channel's law, on its side).
+	func _plane_steer(heading: DVec3, out: DVec3, t_go: float, pitch: float, a_thrust: float) -> DVec3:
+		var y := v.r.dot(_plane)
+		var yd := v.v.dot(_plane)
+		var T := maxf(t_go, 5.0)
+		var a_c := -6.0 * y / (T * T) - 4.0 * yd / T
+		var s_yaw := DQuat.jclamp(a_c / maxf(a_thrust * cos(pitch), 1e-3), -0.5, 0.5)
+		return DQuat.nrm(out.copy_from(heading).scale_in(sqrt(1.0 - s_yaw * s_yaw)).add_scaled_in(_plane, s_yaw))
 
 	## Guidance re-plans every substep (≤ 0.25 s), so a cutoff this close is refined
 	## at least once before it is flown.

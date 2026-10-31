@@ -1118,8 +1118,9 @@ func _radio(t: Dictionary) -> void:
 	if met - _radio_met < 1.0 and t.has("blackout"): return
 	_radio_met = met
 	var ne := Ionisation.shock_layer_ne(env.atm, t.alt, float(t.airspeed))
-	var out := ne > Ionisation.critical_density()
 	var was: bool = telemetry.get("blackout", false)
+	# Recovery at half the critical density, so a layer hovering at it doesn't flicker.
+	var out := ne > Ionisation.critical_density() * (0.5 if was else 1.0)
 	t.ne = ne
 	t.blackout = out
 	if out and not was:

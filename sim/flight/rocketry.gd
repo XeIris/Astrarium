@@ -608,6 +608,41 @@ const POLES := {
 }
 const OBLIQUITY_J2000 := 84381.448 / 3600.0 * PI / 180.0   # IAU 1976 ε at J2000
 
+# Range-safety azimuth windows (degrees clockwise from north) for Earth's ranges, found
+# by the pad's latitude. Eastern Range 35°–120° (KSC and the Cape); Western Range
+# 147°–201° from Vandenberg, south over open sea to polar and sun-synchronous orbits;
+# Baikonur's drop zones allow 51.6°–70° inclinations, azimuths 29°–63°. Elsewhere,
+# Starbase included, nothing is limited.
+const LAUNCH_RANGES := [
+	{"name": "Eastern Range", "lat": 28.5, "az": [35.0, 120.0]},
+	{"name": "Western Range", "lat": 34.7, "az": [147.0, 201.0]},
+	{"name": "Baikonur", "lat": 45.9, "az": [29.4, 63.3]},
+]
+
+## The inertial launch azimuth (rad, clockwise from north) for inclination `inc_deg`
+## from latitude `lat`, sin β = cos i / cos φ, on whichever branch (north- or
+## south-going) the range allows, clamped to the window. {az, range, limited}.
+static func launch_azimuth(lat: float, inc_deg: float, body_name: String = "Earth") -> Dictionary:
+	var sb := DQuat.jclamp(cos(deg_to_rad(inc_deg)) / maxf(cos(lat), 1e-3), -1.0, 1.0)
+	var north := asin(sb)
+	var south := PI - north
+	var rng = null
+	if body_name == "Earth":
+		for r in LAUNCH_RANGES:
+			if absf(rad_to_deg(lat) - float(r.lat)) < 0.6: rng = r
+	if rng == null: return {"az": fposmod(north, TAU), "range": "", "limited": false}
+	var lo := deg_to_rad(float(rng.az[0])); var hi := deg_to_rad(float(rng.az[1]))
+	for az in [fposmod(north, TAU), fposmod(south, TAU)]:
+		if az >= lo and az <= hi: return {"az": az, "range": rng.name, "limited": false}
+	# Neither branch is allowed: the window's nearer edge.
+	var best := lo
+	var gap := INF
+	for edge in [lo, hi]:
+		for az in [fposmod(north, TAU), fposmod(south, TAU)]:
+			var d := absf(angle_difference(az, edge))
+			if d < gap: gap = d; best = edge
+	return {"az": best, "range": rng.name, "limited": true}
+
 ## A J2000 equatorial direction (RA, Dec in radians) in orrery axes: the ecliptic in
 ## XZ, north on −Y, the equinox on +X.
 static func equatorial_dir(ra: float, dec: float) -> DVec3:

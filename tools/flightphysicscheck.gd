@@ -179,6 +179,8 @@ func _init() -> void:
 	var pce := Orbit.porkchop(p_e, v_e, mu_s, p_me, v_me, mu_s, mu_s, deps, tofs, func(a: float, b: float) -> float: return a + b)
 	check("an eccentric Mars moves the best window by days (%.1f d)" % ((pce.best.t_dep - pc.best.t_dep) / 86400.0), absf(pce.best.t_dep - pc.best.t_dep) > 2.0 * 86400.0)
 
+	azimuths()
+	lagrange()
 	tesseral()
 	thermosphere()
 	blackout()
@@ -291,3 +293,48 @@ func blackout() -> void:
 	var sh := Ionisation.normal_shock(Rocketry.density(atm, 80e3), Rocketry.temperature(atm, 80e3), 10800.0)
 	check("lunar-return shock layer near 10 000 K in equilibrium (%d K)" % int(sh.T), float(sh.T) > 8000.0 and float(sh.T) < 12500.0)
 	check("Mars air is outside the model", Ionisation.shock_layer_ne(Rocketry.ATMOSPHERES.Mars, 40e3, 5000.0) == 0.0)
+
+# Range-safety windows: the Cape's own targets, Vandenberg's south-going polar branch,
+# Baikonur's floor of 51.6°, and the window's edge when a target is outside it.
+func azimuths() -> void:
+	var cases := [
+		["Cape to 51.6°", 28.6, 51.6, 44.9, false], ["Cape to 32.5°", 28.6, 32.5, 73.9, false],
+		["Cape to a polar orbit: held at 35°", 28.6, 90.0, 35.0, true],
+		["Vandenberg to sun-synchronous 98°: south-southwest", 34.7, 98.0, 189.6, false],
+		["Baikonur to 51.6°", 45.9, 51.6, 63.3, false], ["Baikonur to 46°: held at 63.3°", 45.9, 46.0, 63.3, true],
+		["Starbase is unrestricted", 26.0, 28.5, 77.9, false]]
+	for c in cases:
+		var p := Rocketry.launch_azimuth(deg_to_rad(float(c[1])), float(c[2]))
+		var az := rad_to_deg(float(p.az))
+		check("%s (%.1f°)" % [c[0], az], absf(az - float(c[3])) < 0.6 and bool(p.limited) == bool(c[4]))
+
+# Lagrange points: textbook distances, zero net force in the rotating frame at all
+# five, and halo orbits that close with their known periods.
+func lagrange() -> void:
+	var mu_se := Rocketry.M_EARTH_SUN * 1.0123 / (1.0 + Rocketry.M_EARTH_SUN * 1.0123)
+	var mu_em := 0.0121506
+	var g_se := Lagrange.gammas(mu_se)
+	var g_em := Lagrange.gammas(mu_em)
+	check("Sun–Earth L2 lies 1.51 million km beyond Earth (%.0f km)" % (float(g_se[1]) * Rocketry.AU_M / 1000.0),
+		absf(float(g_se[1]) * Rocketry.AU_M / 1.5077e9 - 1.0) < 0.005)
+	check("Earth–Moon L1 lies 326 400 km from Earth (%.0f km)" % ((1.0 - float(g_em[0])) * 384400.0),
+		absf((1.0 - float(g_em[0])) * 384400.0 - 326400.0) < 500.0)
+	var worst := 0.0
+	for xy in [[1.0 - mu_em - float(g_em[0]), 0.0], [1.0 - mu_em + float(g_em[1]), 0.0], [-mu_em - float(g_em[2]), 0.0],
+			[0.5 - mu_em, sqrt(3.0) / 2.0], [0.5 - mu_em, -sqrt(3.0) / 2.0]]:
+		var d := Lagrange._deriv(PackedFloat64Array([xy[0], xy[1], 0.0, 0.0, 0.0, 0.0]), mu_em)
+		worst = maxf(worst, Vector2(d[3], d[4]).length())
+	check("all five points are equilibria of the rotating frame", worst < 1e-12, worst)
+	var h := Lagrange.halo(mu_se, 1, 5.0e8 / Rocketry.AU_M)
+	var days := float(h.get("period", 0.0)) / TAU * 365.25
+	check("a JWST-sized Sun–Earth L2 halo (Az 500 000 km) has a ~180 d period (%.1f d)" % days, days > 175.0 and days < 185.0)
+	var e := Lagrange.halo(mu_em, 1, 1.5e7 / 3.844e8)
+	var ed := float(e.get("period", 0.0)) / TAU * 27.3217
+	check("a small Earth–Moon L2 halo has a ~14.8 d period (%.2f d)" % ed, ed > 14.0 and ed < 15.5)
+	if not h.is_empty():
+		var s: PackedFloat64Array = h.state
+		var st := s
+		var n := 4000
+		for i in n: st = Lagrange._rk4(st, float(h.period) / n, mu_se)
+		var miss := Vector3(st[0] - s[0], st[1] - s[1], st[2] - s[2]).length() * Rocketry.AU_M / 1000.0
+		check("the halo closes after one period (%.1f km)" % miss, miss < 50.0)

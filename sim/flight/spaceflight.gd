@@ -78,6 +78,8 @@ var phase_rng := RandomNumberGenerator.new()
 var hud: FlightUI = null
 var console: FlightConsole = null
 var target: Body = null
+## A Lagrange point picked on the space map as a navigation target: {pri, sec, idx}, or null.
+var nav_point = null
 var plan = null
 ## Relativistic aberration of the sky, β as a vector (zero outside cruise).
 var boost := Vector3.ZERO
@@ -1738,11 +1740,32 @@ func update_hud() -> void:
 		"program": autopilot.program if autopilot != null else null,
 		"warp": str(warp()),
 		"parentName": vessel.parent.name,
+		"navPoint": nav_point_readout(),
 		"plan": plan_data,
 		"cruise": cruise != null,
 		"mission": mission,
 		"skip": skip != null,
 	})
+
+## Distance (m) and speed (m/s) of the vessel relative to the navigation point, which
+## moves with its pair's rotating frame: {name, dist, speed, closing}, or null.
+func nav_point_readout():
+	if nav_point == null or vessel == null: return null
+	var pri: Body = nav_point.pri; var sec: Body = nav_point.sec
+	if not pri.alive or not sec.alive:
+		nav_point = null
+		return null
+	var f := Lagrange.frame(pri, sec)
+	var p: DVec3 = Lagrange.points(pri, sec)[int(nav_point.idx)]
+	var lx := (p.clone().sub_in(f.bary)).dot(f.x) / float(f.sep)
+	var ly := (p.clone().sub_in(f.bary)).dot(f.y) / float(f.sep)
+	var pv := Lagrange.velocity(f, lx, ly, 0.0)
+	var dr := vessel.world_pos().sub_in(p).scale_in(Rocketry.AU_M)
+	var dv := vessel.to_world(vessel.v, DVec3.new()).scale_in(Rocketry.YR_S / Rocketry.AU_M).add_in(vessel.parent.vel) \
+		.sub_in(pv).scale_in(Rocketry.AU_M / Rocketry.YR_S)
+	var d := dr.length()
+	return {"name": "%s–%s %s" % [pri.name, sec.name, Lagrange.NAMES[int(nav_point.idx)]], "dist": d,
+		"speed": dv.length(), "closing": -dr.dot(dv) / maxf(d, 1.0)}
 
 # INPUT
 ## The orchestrator resolves configurable physical keys before dispatching the

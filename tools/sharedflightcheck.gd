@@ -112,14 +112,15 @@ func _init() -> void:
 			if not q_ok: print("SHARED FLIGHT shuttle max-q %.1f kPa at T+%.1f s, want 30–35 kPa" % [ship.max_q / 1000.0, ship.max_q_t])
 			valid = valid and stage_ok and q_ok
 		# The orbit against Earth's IAU equator in orrery axes, so the frame is under test
-		# and not only the vessel's own pole. The ascent steers along its inertial
-		# velocity, which the ground's rotation points east from the pad, so it reaches
-		# the pad's latitude whatever its target.
+		# and not only the vessel's own pole. The ascent flies the target's azimuth, so it
+		# reaches the target inclination, or the pad's latitude if that is higher (the
+		# Eastern Range's window allows every target here).
 		var lat: float = ship.launch_site.lat
 		var h := ship.to_world(ship.r.cross(ship.v), DVec3.new())
 		var inc := rad_to_deg(acos(clampf(DQuat.nrm(h).dot(Rocketry.equatorial_dir(0.0, PI / 2.0)), -1.0, 1.0)))
-		if absf(inc - rad_to_deg(absf(lat))) > 0.5:
-			print("SHARED FLIGHT %s inclination %.2f° to Earth's equator, want the pad's %.2f°" % [sc.id, inc, rad_to_deg(absf(lat))])
+		var want_inc := maxf(float(flight.autopilot.ascent.inclination), rad_to_deg(absf(lat)))
+		if absf(inc - want_inc) > 0.2:
+			print("SHARED FLIGHT %s inclination %.2f° to Earth's equator, want %.2f°" % [sc.id, inc, want_inc])
 			valid = false
 		if sc.id == "saturnv" and timed == 0:
 			print("SHARED FLIGHT saturnv has no timed second separation plane")

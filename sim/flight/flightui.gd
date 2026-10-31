@@ -615,6 +615,9 @@ func update(s: Dictionary) -> void:
 		for i in [4, 5, 6, 7, 14, 17]: rows[i][1] = "—"
 		# A photon drive's Δv in units of c is the rapidity left.
 		rows[16][1] = "%s c" % U.fixed(tf.call("dv") / 299792458.0, 3)
+	# A Lagrange point targeted on the map takes the downrange row.
+	var nav = s.get("navPoint")
+	if nav != null: rows[17] = ["→ " + str(nav.name), "%s · %s" % [fmt_dist(nav.dist), fmt_speed(nav.speed)]]
 	for i in rows.size():
 		(grid_k[i] as KV).set_k(rows[i][0])
 		(grid_v[i] as KV).set_v(rows[i][1])

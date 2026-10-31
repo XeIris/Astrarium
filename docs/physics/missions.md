@@ -99,3 +99,55 @@ Skip to arrival charges the planned Δv impulsively (`Vessel.spend_dv`, staging
 what it empties) and advances the world through the window and the coast at up
 to 10⁷×. It then places the vehicle in the parking orbit. The trajectory is not
 flown, so it says so; a landing, if planned, is still flown.
+
+## Launch azimuth
+
+The ascent flies its target's plane. `Rocketry.launch_azimuth` gives the inertial
+azimuth from sin β = cos i / cos φ. It takes whichever branch, north- or south-going,
+the site's range allows (`Rocketry.LAUNCH_RANGES`, found by the pad's latitude), and
+otherwise clamps to the window's nearer edge and logs a range-safety event:
+
+| range | window | reaches |
+|---|---|---|
+| Eastern Range (KSC, the Cape) | 35°–120° | 28.5° to about 57°; no polar orbits |
+| Western Range (Vandenberg) | 147°–201° | polar and sun-synchronous, south over the Pacific |
+| Baikonur | 29.4°–63.3° | 51.6° to 70°, the drop zones' limits |
+
+Starbase has no window here.
+
+At the first ascent cycle the plane through the pad on that azimuth is fixed
+inertially: an instantaneous launch window. Guidance then flies it in two parts.
+
+- **In the air**, it holds the relative azimuth a flown ascent rolls to: circular
+  speed along the plane less the ground's own velocity. The gravity turn stays in the
+  plane of the air-relative velocity and doesn't chase the plane through thick air.
+- **Out of the air**, the plane is re-aimed through the vessel's position at the same
+  inclination. The air phase leaves it about 30 km off the liftoff plane, and moving
+  the node is cheaper than flying back. A cross-plane acceleration
+  `−6y/T² − 4ẏ/T`, the vertical channel's law on its side, then nulls the distance
+  off the plane and its rate together at burnout.
+
+The four shared launches reach 51.61° (Shuttle), 32.50° (Saturn V), 28.61° (Falcon 9)
+and 28.50° (Starship from Starbase at 26.0°). `tools/sharedflightcheck.gd` holds each
+to its target within 0.2°, and `flightphysicscheck` checks the windows.
+
+## Lagrange points and halo orbits
+
+`Lagrange` (`sim/flight/lagrange.gd`) finds L1–L5 for a pair at its instantaneous
+separation and orbit plane. The collinear points come from Newton's method on the
+CR3BP quintics; L4 and L5 sit at ±60°. Sun–Earth L2 lies 1 507 700 km beyond Earth,
+and Earth–Moon L1 is 326 381 km from Earth.
+
+Halo orbits about L1 and L2 start from Richardson's (1980) third-order solution. A
+symmetric differential correction in the CR3BP (holding x₀, varying z₀ and ẏ₀ until
+ẋ = ż = 0 at the y = 0 crossing) then makes them periodic. A JWST-sized Sun–Earth L2
+halo (500 000 km out of plane) has a 179.5 d period. A small Earth–Moon L2 halo
+(15 000 km) has 14.8 d. Below about 15 000 km the Earth–Moon start does not converge,
+since the third-order expansion is poor there.
+
+The space map draws the five points of the Sun–Earth and Earth–Moon pairs once the
+pair is resolved on screen, and dashes each L2 halo, solved once on a worker thread.
+Right-clicking a point targets it. The flight panel's downrange row then shows the
+vessel's distance and speed relative to the point, which moves with the pair's
+rotating frame. No mission leg yet plans a transfer or a halo insertion, so a
+Lagrange point is a navigation target, not a destination.
