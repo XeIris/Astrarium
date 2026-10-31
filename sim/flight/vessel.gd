@@ -1114,13 +1114,17 @@ func _milestones(t: Dictionary) -> void:
 ## density exceeds the critical density (Ionisation). Sampled once a second of MET,
 ## since a shock solve is costly; telemetry carries `ne` and `blackout`.
 var _radio_met := -INF
+var _radio_low := 0
 func _radio(t: Dictionary) -> void:
 	if met - _radio_met < 1.0 and t.has("blackout"): return
 	_radio_met = met
 	var ne := Ionisation.shock_layer_ne(env.atm, t.alt, float(t.airspeed))
 	var was: bool = telemetry.get("blackout", false)
-	# Recovery at half the critical density, so a layer hovering at it doesn't flicker.
+	# Recovery at half the critical density, held for three samples, so a layer
+	# hovering at it doesn't flicker.
 	var out := ne > Ionisation.critical_density() * (0.5 if was else 1.0)
+	_radio_low = _radio_low + 1 if (was and not out) else 0
+	if was and not out and _radio_low < 3: out = true
 	t.ne = ne
 	t.blackout = out
 	if out and not was:
