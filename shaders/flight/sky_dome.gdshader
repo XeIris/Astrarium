@@ -4,8 +4,8 @@
 // through its own sun path and dark in the planet's shadow, so sunsets redden, the
 // Chappuis band keeps the twilight zenith blue, and the Earth shadow and Belt of Venus
 // appear (Bruneton 2017 coefficients; docs/physics/sky.md#flight-sky). Multiple
-// scattering is a calibrated gain, not computed. Other bodies use the older grey
-// column with a tint.
+// scattering comes from a precomputed table (sim/flight/sky_ms.gd, Hillaire 2020).
+// Other bodies use the older grey column with a tint.
 //
 // Depth-tested, no depth write, back faces, transparent (blend_mix). Transparent
 // objects draw after all opaque ones, so it must depth-test, or it draws over the
@@ -34,7 +34,10 @@ uniform vec3 uBetaO = vec3(0.650e-6, 1.881e-6, 0.085e-6);
 uniform float uHR = 8000.0;
 uniform float uHM = 1200.0;
 uniform float uMieG = 0.8;
-uniform float uGain = 15.0;         // matches the pad's noon zenith to the old calibration
+uniform float uGain = 10.0;         // SkyMS.GAIN: the pad's noon zenith at the old calibration
+// Ψ(h, μ_s), the multiply scattered light per unit σ_s (SkyMS); u is μ_s, v is √(h/top).
+uniform sampler2D uMS : filter_linear, repeat_disable;
+uniform float uMSN = 32.0;
 varying vec3 vDir;
 
 // Column density from the eye, in sea-level scale heights, ∫ exp(−z/H) ds / H through
@@ -141,8 +144,12 @@ vec4 physical_sky(vec3 d, vec3 s) {
 		vec3 p = o + d * tm;
 		vec3 dn = dens(length(p) - R);
 		vec3 step_tau = (uBetaR * dn.x + vec3(uBetaMExt) * dn.y + uBetaO * dn.z) * ds;
-		vec3 tr = exp(-(tau_v + 0.5 * step_tau) - sun_depth(p, s));
-		L += tr * (uBetaR * dn.x * pr + vec3(uBetaM) * dn.y * pm) * ds;
+		vec3 tr_v = exp(-(tau_v + 0.5 * step_tau));
+		vec3 tr = tr_v * exp(-sun_depth(p, s));
+		float rp = length(p);
+		vec2 uv = vec2(clamp(dot(p, s) / rp * 0.5 + 0.5, 0.0, 1.0), sqrt(clamp((rp - R) / (top - R), 0.0, 1.0)));
+		vec3 ms = texture(uMS, (uv * (uMSN - 1.0) + 0.5) / uMSN).rgb;
+		L += (tr * (uBetaR * dn.x * pr + vec3(uBetaM) * dn.y * pm) + tr_v * (uBetaR * dn.x + vec3(uBetaM) * dn.y) * ms) * ds;
 		tau_v += step_tau;
 	}
 	return vec4(L * uGain, 1.0 - exp(-dot(tau_v, vec3(0.333))));

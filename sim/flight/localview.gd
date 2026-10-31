@@ -205,6 +205,9 @@ func _init(p: RenderPipeline) -> void:
 	sky_mat.set_shader_parameter("uHaze", _v3(0x8fb6e8))
 	sky_mat.set_shader_parameter("uEye", 0.0)
 	sky_mat.set_shader_parameter("uScaleH", 8500.0)
+	sky_mat.set_shader_parameter("uMS", SkyMS.texture())
+	sky_mat.set_shader_parameter("uMSN", float(SkyMS.N_MU))
+	sky_mat.set_shader_parameter("uGain", SkyMS.GAIN)
 	sky_mat.set_shader_parameter("uHasAir", 1.0)
 	sky_mat.set_shader_parameter("uThick", 1.05)
 	sky_mat.render_priority = ORDER.sky
