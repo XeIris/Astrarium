@@ -93,8 +93,10 @@ edited Earth keeps its shape. Every other body is a sphere of its mean radius.
   laid out by geodetic latitude, as the map is.
 
 `flightphysicscheck` holds a and b, the pad's geocentric latitude and height, and a
-fall at the pole meeting the polar radius. The built Earth scenario bases were
-re-recorded from their replays ([flight scenarios](../flight-scenarios.md)).
+fall at the pole meeting the polar radius. The orbiter's TAEM and approach bases and
+the ship's bases were re-recorded from their replays; the orbiter's 80 km base still
+agrees with its replay within `TOLERANCE` and was kept
+([flight scenarios](../flight-scenarios.md)).
 
 ## Radiation pressure and the solar sail
 

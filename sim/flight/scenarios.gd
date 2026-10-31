@@ -124,11 +124,11 @@ static func _build_list() -> Dictionary:
 			{"alt": [50e3, 75e3], "program": "glide", "state": "entry"}),
 		_sc("shuttle", "taem", "TAEM, Mach 2.5", "Return", _orbiter_air(24370.0), {},
 			{"alt": [24e3, 25e3], "airspeed": [700.0, 800.0], "program": "glide", "state": "taem"}),
-		_sc("shuttle", "final_approach", "Final approach, outer glide slope", "Return", _orbiter_air(4000.0), {},
+		_sc("shuttle", "final_approach", "Final approach, outer glide slope", "Return", _orbiter_air(3990.0), {},
 			{"alt": [3900.0, 4100.0], "program": "glide", "state": "approach"}),
-		_sc("shuttle", "flare", "Preflare and touchdown", "Return", _orbiter_air(4000.0), {"state": "flare"},
+		_sc("shuttle", "flare", "Preflare and touchdown", "Return", _orbiter_air(3990.0), {"state": "flare"},
 			{"alt": [300.0, 620.0], "program": "glide", "state": "flare"}),
-		_sc("shuttle", "rollout", "Rollout", "Return", _orbiter_air(4000.0), {"phase": "rollout"},
+		_sc("shuttle", "rollout", "Rollout", "Return", _orbiter_air(3990.0), {"phase": "rollout"},
 			{"alt": [-5.0, 5.0], "phase": "rollout"}, 2.0),
 	]
 	out.starship = [
@@ -188,10 +188,10 @@ static func _orbiter(program = null) -> Dictionary:
 ## there, at 1×), with the OMS propellant the deorbit burn left. Each also names the
 ## replay that checks it (`replay`).
 const ORBITER_AIR := {
-	80e3: {"airspeed": 7591.0, "fpa": -0.964, "mass": 107554.3, "ap": {"_bank_sign": 1.0, "_drag_f": 0.7303},
+	80e3: {"airspeed": 7586.0, "fpa": -0.976, "mass": 107605.3, "ap": {"_bank_sign": 1.0, "_drag_f": 0.796},
 		"state": {"alt_below": 80e3}},
 	24370.0: {"airspeed": 759.8, "fpa": -6.459, "mass": 107296.4, "speedbrake": 0.467, "state": {"state": "taem"}},
-	4000.0: {"airspeed": 194.1, "fpa": -20.114, "mass": 107296.4, "speedbrake": 0.763, "ap": {"_sb_trim": 0.6769},
+	3990.0: {"airspeed": 194.1, "fpa": -20.114, "mass": 107296.4, "speedbrake": 0.763, "ap": {"_sb_trim": 0.6769},
 		"state": {"state": "approach"}},
 }
 
@@ -203,8 +203,8 @@ static func _orbiter_air(alt: float) -> Dictionary:
 
 ## The ship mid-return, as _orbiter_air, from the replay of _ship("bellyflop").
 const SHIP_AIR := {
-	80e3: {"airspeed": 7375.0, "fpa": -0.661, "prop": 38083.2, "mass": 138908.2, "state": {"alt_below": 80e3}},
-	15e3: {"airspeed": 191.7, "fpa": -77.828, "prop": 38083.2, "mass": 138078.8, "state": {"alt_below": 15e3}},
+	80e3: {"airspeed": 7375.0, "fpa": -0.661, "prop": 38064.0, "mass": 138893.6, "state": {"alt_below": 80e3}},
+	15e3: {"airspeed": 191.8, "fpa": -77.826, "prop": 38057.4, "mass": 138057.4, "state": {"alt_below": 15e3}},
 }
 
 static func _ship_air(alt: float) -> Dictionary:
