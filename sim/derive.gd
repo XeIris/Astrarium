@@ -87,8 +87,14 @@ static func contact_au(b: Body, spec: Dictionary) -> float:
 # Peak Shakura–Sunyaev disc temperature: T ∝ (Ṁ/M²)^¼ with Ṁ ∝ M gives T ∝ M^(−¼)
 # (~10⁷ K, X-ray, for a stellar-mass hole). The lens pass and a sub-pixel hole's
 # marker both use it.
-static func disc_peak_temp(mass: float) -> float:
-	return 2.0e7 * pow(maxf(mass, 0.1), -0.25)
+## Peak disc temperature (K). The spin factor holds the Eddington ratio fixed, so
+## Ṁ ∝ 1/η and T⁴ ∝ F_peak/η (Page–Thorne, relative to a* = 0).
+static func disc_peak_temp(mass: float, spin: float = 0.0) -> float:
+	var t := 2.0e7 * pow(maxf(mass, 0.1), -0.25)
+	if spin <= 0.0: return t
+	var k := LensPass.disc_terms(spin)
+	var k0 := LensPass.disc_terms(0.0)
+	return t * pow((float(k.peak) / float(k.eta)) / (float(k0.peak) / float(k0.eta)), 0.25)
 
 ## Recompute the canonical interior model after physical mass or spin changes.
 static func refresh_structure(b: Body) -> Dictionary:

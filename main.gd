@@ -326,7 +326,7 @@ func attach_visual(b: Body) -> void:
 	# A distant hole is seen as its disc, so the marker takes the disc's peak
 	# temperature (dim in radio, bright in X-ray).
 	var is_hole: bool = spec.type == "bh"
-	var disc_t := Derive.disc_peak_temp(b.mass) if is_hole else 0.0
+	var disc_t := Derive.disc_peak_temp(b.mass, float(b.structure.get("spin", 0.0))) if is_hole else 0.0
 	var marker_color: Color
 	if emitter:
 		marker_color = star_color if star_color != null else (Stellar.blackbody_color(float(b.teff)) if b.teff != null else U.lin(0xfff2cc))
@@ -706,7 +706,7 @@ func scene_max_temp() -> float:
 	for b in state.bodies:
 		if b.type == "star" or b.type == "white-dwarf": t = maxf(t, float(U.nz(b.teff, Stellar.effective_temp(b.mass))))
 		elif b.type == "neutron": t = maxf(t, 1.0e6)
-		elif b.type == "bh": t = maxf(t, Derive.disc_peak_temp(b.mass))
+		elif b.type == "bh": t = maxf(t, Derive.disc_peak_temp(b.mass, float(b.structure.get("spin", 0.0))))
 	return t if t else 5800.0
 
 # The per-frame sun list for every lighting path. Intensity is the star's flux at
@@ -2737,14 +2737,15 @@ func animate(dt: float) -> void:
 	if use_lens:
 		var n := mini(holes.size(), LensPass.MAX_HOLES)
 		var hp := []
-		for i in n: hp.append({"pos": holes[i].pos_rel, "rs": holes[i].rs_scene})
+		for i in n: hp.append({"pos": holes[i].pos_rel, "rs": holes[i].rs_scene,
+			"spin": float(holes[i].body.structure.get("spin", 0.0))})
 		lens_params = {
 			"holes": hp, "basis": cam_basis, "fov": deg_to_rad(cam_fov),
 			"aspect": float(pipe.render_size.x) / float(pipe.render_size.y),
 			"time": _lens_time + sim_stepped, "disc_intensity": state.disc_intensity,
 			"disc_temp": state.disc_temp,
 			# True peak disc temperature, for the multi-wavelength imaging.
-			"disc_tpeak_phys": Derive.disc_peak_temp(holes[0].mass),
+			"disc_tpeak_phys": Derive.disc_peak_temp(holes[0].mass, float(holes[0].body.structure.get("spin", 0.0))),
 			"disc_outer": float(state.preset.get("discOuter", 15.0)) if state.preset else 15.0,
 		}
 	_lens_time += sim_stepped

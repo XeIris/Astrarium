@@ -1040,16 +1040,19 @@ static func _white_dwarf_structure(spec: Dictionary, mass: float, spin_frac: flo
 static func _hole_evaporation_years(mass: float) -> float:
 	return 2.10e67 * pow(mass, 3.0)
 
+## Prograde ISCO radius in units of M for spin a* (Bardeen, Press & Teukolsky 1972).
+static func kerr_isco(a: float) -> float:
+	var z1 := 1.0 + U.cbrt(1.0 - a * a) * (U.cbrt(1.0 + a) + U.cbrt(1.0 - a))
+	var z2 := sqrt(3.0 * a * a + z1 * z1)
+	return 3.0 + z2 - sqrt(maxf((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0))
+
 static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) -> Dictionary:
 	var a := minf(spin_frac, 0.998)                  # dimensionless Kerr spin a/M
 	var rs_au := Physics.schwarzschild(mass)
 	var M := rs_au / 2.0                             # geometric mass, AU
 	# Kerr horizon: r₊ = M + √(M² − a²M²)
 	var r_plus := M * (1.0 + sqrt(maxf(1.0 - a * a, 0.0)))
-	# Prograde ISCO (Bardeen, Press & Teukolsky 1972).
-	var z1 := 1.0 + U.cbrt(1.0 - a * a) * (U.cbrt(1.0 + a) + U.cbrt(1.0 - a))
-	var z2 := sqrt(3.0 * a * a + z1 * z1)
-	var r_isco := M * (3.0 + z2 - sqrt(maxf((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0)))
+	var r_isco := M * kerr_isco(a)
 	# Hawking temperature and evaporation time.
 	var t_hawk := 6.169e-8 / mass                    # K
 	var t_evap := _hole_evaporation_years(mass)
@@ -1061,10 +1064,9 @@ static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) ->
 		"type": "bh", "kind": "bh", "mass": mass,
 		"label": ("Kerr black hole (a* = %s)" % U.fixed(a, 2)) if a > 0.1 else "Schwarzschild black hole",
 		"radiusAU": r_plus, "rs": rs_au, "spin": a,
-		# The lens marcher is Schwarzschild for every hole (docs/physics/lensing.md).
-		"lensNote": "Schwarzschild geodesics — spin not rendered" if a > 0.1 else "Schwarzschild geodesics",
+		"lensNote": ("Kerr geodesics, Page–Thorne disc (a* = %s)" % U.fixed(a, 2)) if a > 0.01 else "Schwarzschild geodesics, Page–Thorne disc",
 		"horizonAU": r_plus, "photonSphereAU": (2.0 * M * (1.0 + cos((2.0 / 3.0) * acos(-a)))) if a > 0.01 else 1.5 * rs_au,
-		"shadowAU": sqrt(27.0) * M,   # the Schwarzschild shadow; spin flattens and shifts it
+		"shadowAU": sqrt(27.0) * M,   # the a* = 0 value; the marcher draws spin's flattened, shifted shadow
 		"iscoAU": r_isco, "ergoAU": 2.0 * M if a > 0.01 else rs_au,
 		"hawkingK": t_hawk, "evaporationYr": t_evap,
 		"teff": 2.0e7 * pow(maxf(mass, 0.1), -0.25),
