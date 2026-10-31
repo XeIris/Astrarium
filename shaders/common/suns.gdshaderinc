@@ -13,6 +13,12 @@ uniform float uOccRed[4];
 uniform int uOccCount = 0;
 uniform float uSunAng[4];
 
+// Planetshine (Suns.apply_shine): the brightest sunlit neighbour as a weak extra light,
+// world axes, linear colour, intensity already at its display gain.
+uniform vec3 uShineDir = vec3(1.0, 0.0, 0.0);
+uniform vec3 uShineColor = vec3(1.0);
+uniform float uShineInt = 0.0;
+
 // Fraction of a disc of angular radius a left uncovered by a disc of radius b whose
 // centre is d away (flat-sky circle overlap).
 float disc_uncovered(float a, float b, float d) {

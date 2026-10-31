@@ -70,6 +70,39 @@ static func apply_occluders(materials: Array, body: Body, bodies: Array, suns: A
 		m.set_shader_parameter("uOccCount", n)
 		m.set_shader_parameter("uSunAng", ang)
 
+## Planetshine on `body`: the sunlit neighbour that lights it most, as an extra light.
+## A Lambert sphere of albedo A and radius R at distance d gives the fraction
+## A·(2/3)·(R/d)²·[sin α + (π − α)cos α]/π of the sunlight, α its phase angle (full
+## Earth on the Moon: 7e-5). Drawn ×SHINE_GAIN, as the eclipse umbra's red is.
+const SHINE_GAIN := 100.0
+static func apply_shine(materials: Array, body: Body, bodies: Array, suns: Array) -> void:
+	var best := 0.0
+	var dir := Vector3(1, 0, 0)
+	var col := Vector3(1, 1, 1)
+	if not suns.is_empty() and body.type in ["planet", "world"]:
+		var s: VisualCtx.Sun = suns[0]
+		var star: Body = s.body
+		for b: Body in bodies:
+			if b == body or not b.alive or b.radius <= 0.0 or not (b.type in ["planet", "world", "gas-giant"]): continue
+			if star == null: continue
+			var to_body := b.pos.sub(body.pos).scaled(-1.0)    # neighbour → body
+			var d := to_body.length()
+			var to_star := star.pos.sub(b.pos)
+			var alpha := acos(clampf(to_body.normalized().dot(to_star.normalized()), -1.0, 1.0))
+			var A := float(U.nz(b.spec.get("albedo"), Rocketry.SURFACES.get(b.name, {}).get("albedo", 0.3)))
+			var f := A * 2.0 / 3.0 * pow(b.radius / maxf(d, 1e-12), 2.0) * (sin(alpha) + (PI - alpha) * cos(alpha)) / PI
+			if f > best:
+				best = f
+				dir = b.pos.sub(body.pos).to_v3().normalized()
+				var c = b.spec.get("color")
+				var lc: Color = U.lin(int(c)) if c != null else Color(0.8, 0.85, 1.0)
+				col = Vector3(lc.r, lc.g, lc.b) * s.intensity * Vector3(s.color.r, s.color.g, s.color.b)
+	for m in materials:
+		if m == null: continue
+		m.set_shader_parameter("uShineDir", dir)
+		m.set_shader_parameter("uShineColor", col)
+		m.set_shader_parameter("uShineInt", best * SHINE_GAIN)
+
 ## Total insolation at a body in solar constants: S = Σ L_i / d_i² (L☉, AU), the
 ## quantity climate.gd integrates, so any planet knows its own temperature.
 static func insolation_at(body: Body, suns: Array) -> float:

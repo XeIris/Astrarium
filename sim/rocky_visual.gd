@@ -406,3 +406,4 @@ class RockyViz extends RefCounted:
 			if atmo_mat != null: mats.append(atmo_mat)
 			Suns.apply_suns(mats, suns, group.position)
 			Suns.apply_occluders(mats, b, ctx.bodies, suns)
+			Suns.apply_shine([surf_mat], b, ctx.bodies, suns)

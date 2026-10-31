@@ -210,6 +210,16 @@ treated as aimed at Earth.
 Rendered at 52° N with Kp 6, faint green arcs fill the northern sky; at the Cape
 there are none.
 
+## Planetshine
+
+A rocky planet's or world's night side is lit by its brightest sunlit neighbour
+(`Suns.apply_shine`). A Lambert sphere of albedo A and radius R at distance d sends
+the fraction A·(2/3)·(R/d)²·[sin α + (π − α) cos α]/π of the sunlight, where α is
+the neighbour's phase angle as seen from the lit body. For a full Earth on the Moon
+that is 7 × 10⁻⁵. Like the eclipse umbra's red, it is drawn ×100 for display:
+earthshine on a crescent Moon reads as a faint glow on the dark side rather than as
+black. The light takes the neighbour's colour and the star's.
+
 ## Eclipses
 
 Body surfaces dim by the fraction of each star's disc that another body covers
