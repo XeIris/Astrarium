@@ -916,9 +916,10 @@ const MODULES := [
 				"body": """<p>A star's fuel supply is proportional to its mass. Its luminosity — how fast it burns that
           fuel — goes roughly as mass to the power 3.5. So the lifetime goes as M/M³·⁵ = M⁻²·⁵, and heavier
           stars live spectacularly shorter lives.</p>
-          <p>The Sun gets about 10 billion years. A 0.1 solar-mass red dwarf gets ten <em>trillion</em> —
-          longer than the current age of the universe by a factor of seven hundred, which means no red
-          dwarf has ever died of old age. A 60 solar-mass star gets about three million.</p>""",
+          <p>The Sun gets about 10 billion years. A 0.1 solar-mass red dwarf gets about six <em>trillion</em> —
+          it is fully convective, so it burns nearly all its hydrogen rather than a core's worth — longer
+          than the current age of the universe by a factor of four hundred, which means no red dwarf has
+          ever died of old age. A 60 solar-mass star gets under four million.</p>""",
 			},
 			{
 				"title": "Which means the sky is a survivor bias",

@@ -182,6 +182,30 @@ static func insolation_s2(obliquity: float) -> float:
 
 ## Surface temperature in radiative balance, with eps the effective emissivity (0.61
 ## puts Earth at 288 K; 1.0 is an airless rock).
+## Sidereal rotation period in years, 0 when unknown: a spec's `dayLength`, then the
+## flight surface table. Unsigned: here an obliquity past 90° is what makes Venus,
+## Uranus and Pluto turn backwards (the flight frame has no tilt, so it signs `day`).
+static func sidereal_period_yr(b: Body) -> float:
+	var stated = b.spec.get("dayLength")
+	if stated != null and float(stated) != 0.0: return absf(float(stated))
+	var surf: Dictionary = Rocketry.SURFACES.get(b.name, {})
+	return absf(float(surf.day)) / Rocketry.YR_S if surf.has("day") else 0.0
+
+## Rotation this frame, rad, for a body turning `factor` times its sidereal rate (a
+## cloud deck's super-rotation). It follows simulated time; past
+## SPIN_CAP rad per render second it is drawn at the cap, so a 6 yr/s orrery shows
+## which way a world turns instead of strobing. An explicit visualSpinRadS wins, and
+## a body with no known period keeps its display rate. Orbits turn about −y (r × v),
+## so callers subtract the step: prograde is a falling rotation.y.
+const SPIN_CAP := 1.2
+static func spin_step(b: Body, factor: float, dt: float, sim_dt: float) -> float:
+	var period := sidereal_period_yr(b)
+	if b.spec.get("visualSpinRadS") != null or period == 0.0:
+		return float(b.visual_spin_rad_s) * factor * dt
+	var turn := TAU_ * sim_dt * factor / period
+	var cap := SPIN_CAP * dt
+	return turn if absf(turn) <= cap else signf(turn) * cap
+
 static func surface_temp_k(S: float, albedo: float, eps: float) -> float:
 	var Teq := 278.6 * pow(maxf(S, 1e-9) * (1.0 - albedo), 0.25)
 	return Teq / pow(maxf(eps, 1e-3), 0.25)
@@ -280,7 +304,7 @@ class RockyViz extends RefCounted:
 
 		if b.visual_spin_rad_s == null:
 			if b.default_visual_spin_rad_s == null:
-				b.default_visual_spin_rad_s = (0.4 + randf() * 1.2) * (-1.0 if randf() < 0.1 else 1.0)
+				b.default_visual_spin_rad_s = 0.4 + randf() * 1.2
 			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		b.viz = self
 
@@ -315,16 +339,18 @@ class RockyViz extends RefCounted:
 			var toward := tilt_q.inverse() * Vector3(d.x, d.y, d.z)
 			b.spin_phase = atan2(-toward.z, toward.x)
 		else:
-			b.spin_phase = fmod(b.spin_phase + float(b.visual_spin_rad_s) * dt, TAU)
+			b.spin_phase = fmod(b.spin_phase - RockyVisual.spin_step(b, 1.0, dt, ctx.sim_dt), TAU)
 		surface.rotation.y = b.spin_phase
 		var held := Engine.get_process_frames() - _surface_world_frame <= 1
 		if held:
 			# The group carries the obliquity and the size ease; undo only its rotation.
 			surface.basis = Basis(group.quaternion.inverse()) * surface_world
 		if clouds != null:
-			# The deck super-rotates slightly; it also needs its own accumulator
-			# rather than a scaled read of spinPhase, which would jump at each wrap.
-			b.cloud_phase = fmod(b.cloud_phase + float(b.visual_spin_rad_s) * dt * 0.985, TAU)
+			# The deck turns `cloudSpin` times the surface (Venus's cloud tops lap it in
+			# four days, ~60×); its own accumulator, as a scaled read of spinPhase would
+			# jump at each wrap.
+			var cloud_spin := float(U.nz(b.spec.get("cloudSpin"), 1.0))
+			b.cloud_phase = fmod(b.cloud_phase - RockyVisual.spin_step(b, cloud_spin, dt, ctx.sim_dt), TAU)
 			clouds.rotation.y = b.cloud_phase
 			cloud_mat.set_shader_parameter("uSurfTurn", b.cloud_phase - b.spin_phase)
 			if held:

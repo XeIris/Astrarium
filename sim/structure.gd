@@ -38,10 +38,9 @@ const LIMITS := {
 	"neutronMin": 0.1,
 	# Rigid rotation supports up to ~20% more.
 	"tovSpinBoost": 0.20,
-	# Humphreys–Davidson: no stable supergiant is observed above it.
-	"humphreysDavidson": 120.0,
-	# Observed upper stellar mass (Arches, R136).
-	"eddingtonMass": 150.0,
+	# Humphreys–Davidson (1979): no cool supergiant above log L ≈ 5.8. A luminosity
+	# limit, not a mass one: R136a1 is ~196 M☉ (Kalari et al. 2022) and hot.
+	"humphreysDavidsonL": 630957.0,
 	# Pair instability (He core 65–135 M☉): disrupted with no remnant.
 	"pairLo": 140.0, "pairHi": 260.0,
 	# Core-collapse thresholds (initial mass, solar metallicity). Above the pair
@@ -100,17 +99,19 @@ static func giant_radius_jup(m_jup: float) -> float:
 	# normalised so R(M₀) = GIANT_RMAX exactly
 	return GIANT_RMAX * 2.0 * pow(m / GIANT_M0, 1.0 / 3.0) / (1.0 + u)
 
-# White dwarfs: Nauenberg (1972). 0.0084 R☉ at 1.0 M☉, as Sirius B.
+# White dwarfs: Nauenberg (1972), zero temperature, μ_e = 2: 0.0125 R☉ at 0.6 M☉ and
+# 0.0078 at Sirius B's 1.018 (measured 0.0081, Bond et al. 2017; it is 25 000 K hot).
 static func white_dwarf_radius_sun(mass_sun: float) -> float:
 	var x := minf(mass_sun / float(LIMITS.chandrasekhar), 0.999)
-	return 0.0126 * pow(x, -1.0 / 3.0) * sqrt(maxf(1.0 - pow(x, 4.0 / 3.0), 1e-6))
+	return 0.0112 * pow(x, -1.0 / 3.0) * sqrt(maxf(1.0 - pow(x, 4.0 / 3.0), 1e-6))
 
 # Neutron stars: a smooth stand-in for stiff modern EOSs (NICER: ~12.4 km).
 static func neutron_radius_km(mass_sun: float) -> float:
 	var m := maxf(mass_sun, float(LIMITS.neutronMin))
 	var x := minf(m / float(LIMITS.tov), 0.999)
-	# 12.6 km plateau, collapsing as x → 1
-	return 12.6 * pow(1.0 - 0.62 * pow(x, 6.0), 0.22)
+	# 12.6 km plateau to ~0.9 TOV, collapsing as x → 1: 12.3 km at J0740+6620's 2.08 M☉
+	# (NICER, 12.4 +1.3/−1.0 km, Riley et al. 2021)
+	return 12.6 * pow(1.0 - 0.62 * pow(x, 30.0), 0.22)
 
 # TOV mass at a given spin: rigid rotation adds up to ~20% at mass shedding.
 static func tov_limit(spin_frac: float = 0.0) -> float:
@@ -122,9 +123,32 @@ static func tov_limit(spin_frac: float = 0.0) -> float:
 static func mean_molecular_weight(X: float, Z: float) -> float:
 	return 4.0 / (3.0 + 5.0 * X - Z)
 
-# Main-sequence lifetime (yr): fuel ∝ M, burn rate ∝ L.
+# Main-sequence lifetimes at Z = 0.014, [M☉, yr]: Laughlin, Bodenheimer & Adams 1997
+# below 0.8 M☉ (fully convective stars burn nearly all their hydrogen), Ekström et al.
+# 2012 non-rotating Geneva tracks above. A fixed 10% fuel fraction, τ = 1e10·M/L, is
+# 7× short at 0.1 M☉ and 2–4× short above 20 M☉.
+const MS_LIFETIMES := [
+	[0.1, 6.0e12], [0.2, 1.6e12], [0.3, 7.0e11], [0.5, 1.1e11], [0.8, 2.2e10], [1.0, 1.0e10],
+	[1.5, 2.7e9], [2.0, 1.1e9], [3.0, 3.5e8], [5.0, 1.0e8], [7.0, 4.5e7], [9.0, 2.7e7],
+	[12.0, 1.6e7], [15.0, 1.1e7], [20.0, 8.1e6], [25.0, 6.7e6], [32.0, 5.6e6], [40.0, 4.6e6],
+	[60.0, 3.7e6], [85.0, 3.1e6], [120.0, 2.8e6],
+]
+
+## Main-sequence lifetime (yr), log-log in the table and flat past its ends. `L` is the
+## star's base luminosity: a metallicity that brightens it burns its fuel faster.
 static func main_sequence_lifetime(mass_sun: float, L: float) -> float:
-	return 1.0e10 * mass_sun / maxf(L, 1e-6)
+	var t := _ms_table(mass_sun)
+	return t * base_luminosity(mass_sun, 0.014) / maxf(L, 1e-12)
+
+static func _ms_table(mass_sun: float) -> float:
+	var rows := MS_LIFETIMES
+	var lm := log(clampf(mass_sun, rows[0][0], rows[rows.size() - 1][0]))
+	for i in rows.size() - 1:
+		var a: Array = rows[i]; var b: Array = rows[i + 1]
+		if lm <= log(b[0]):
+			var f := (lm - log(a[0])) / (log(b[0]) - log(a[0]))
+			return exp(lerpf(log(a[1]), log(b[1]), f))
+	return float(rows[rows.size() - 1][1])
 
 # Track stops. `f`: 0 = ZAMS, 1 = core H exhausted, >1 = post-MS. `X`: core H
 # fraction. `rMul`/`lMul` multiply the mid-main-sequence baseline, so f = 0.5 is
@@ -229,9 +253,10 @@ static func zams_luminosity(mass_sun: float, Z: float = 0.014) -> float:
 static func zams_radius_sun(mass_sun: float) -> float:
 	return base_radius_sun(mass_sun)
 
-# Eddington luminosity in L☉ (electron scattering, κ = 0.34 m²/kg).
+# Eddington luminosity in L☉: 4πGMc/κ with electron scattering, κ = 0.2(1 + X) cm²/g
+# = 0.034 m²/kg at X = 0.7.
 static func eddington_luminosity(mass_sun: float) -> float:
-	return 3.2e4 * mass_sun
+	return 3.84e4 * mass_sun
 
 # ROTATION: Darwin–Radau for planets, Roche for stars.
 
@@ -699,6 +724,9 @@ static func _star_structure(spec: Dictionary, mass: float, spin_frac: float) -> 
 
 	# Hayashi limit: T ≥ ~3200 K, so R ≤ √L · (T☉/T_Hayashi)².
 	if not wolf_rayet: R = minf(R, sqrt(L) * pow(5772.0 / 3200.0, 2.0))
+	# Humphreys–Davidson: above it a star stays blue (T ≳ 10⁴ K) rather than swelling.
+	if not wolf_rayet and L > float(LIMITS.humphreysDavidsonL):
+		R = minf(R, sqrt(L) * pow(5772.0 / 10000.0, 2.0))
 
 	# Measured values override the track.
 	var radius_au := _measured_radius_au(spec, R * Physics.AU_PER_RSUN)
@@ -731,11 +759,6 @@ static func _star_structure(spec: Dictionary, mass: float, spin_frac: float) -> 
 static func _stellar_verdict(mass: float, gamma: float, ph: Dictionary) -> Dictionary:
 	# Destruction mechanisms are checked before the merely violent ones.
 
-	if mass > float(LIMITS.humphreysDavidson) and mass < float(LIMITS.pairLo):
-		return {
-			"state": VERDICT.explode, "label": "Above the Humphreys–Davidson limit",
-			"detail": "No stable supergiant is observed above this line in the HR diagram, and no stable star of any kind above about %s M☉ — the Arches cluster and R136 both cut off there. It is not a selection effect: a star this massive drives a radiation wind that strips it faster than it evolves, so it sheds itself back down. This one is a luminous blue variable, and it will erupt." % _num(LIMITS.eddingtonMass),
-		}
 	if mass >= float(LIMITS.pairLo) and mass <= float(LIMITS.pairHi):
 		return {
 			"state": VERDICT.explode, "label": "Pair instability",
@@ -769,8 +792,15 @@ static func end_state_of(mass: float) -> Dictionary:
 	if mass > float(LIMITS.pairHi): return { "type": "bh", "label": "Black hole (direct collapse)", "mass": mass * 0.9 }
 	if mass >= float(LIMITS.blackHoleMin): return { "type": "bh", "label": "Black hole", "mass": 0.3 * pow(mass, 0.85) }
 	if mass >= float(LIMITS.neutronStarMin): return { "type": "neutron", "label": "Neutron star", "mass": 1.2 + 0.06 * (mass - 8.0) }
-	# White-dwarf initial–final mass relation (Cummings et al. 2018).
-	return { "type": "white-dwarf", "label": "White dwarf", "mass": minf(0.08 * mass + 0.49, 1.35) }
+	return { "type": "white-dwarf", "label": "White dwarf", "mass": white_dwarf_final_mass(mass) }
+
+## Initial–final mass relation, Cummings et al. (2018), MIST-based three-piece fit.
+static func white_dwarf_final_mass(mass: float) -> float:
+	var m: float
+	if mass < 2.85: m = 0.080 * mass + 0.489
+	elif mass < 3.60: m = 0.187 * mass + 0.184
+	else: m = 0.107 * mass + 0.471
+	return minf(m, 1.35)
 
 static func _star_layers(mass: float, ph: Dictionary, cc: Dictionary, conv_core: bool, conv_env: bool) -> Array:
 	var L := []
@@ -967,7 +997,7 @@ static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) ->
 		"label": ("Kerr black hole (a* = %s)" % U.fixed(a, 2)) if a > 0.1 else "Schwarzschild black hole",
 		"radiusAU": r_plus, "rs": rs_au, "spin": a,
 		"horizonAU": r_plus, "photonSphereAU": (2.0 * M * (1.0 + cos((2.0 / 3.0) * acos(-a)))) if a > 0.01 else 1.5 * rs_au,
-		"shadowAU": sqrt(27.0) / 2.0 * M * 2.0 * 0.5 + sqrt(27.0) * M / 2.0,   # ≈ √27 M
+		"shadowAU": sqrt(27.0) * M,   # the Schwarzschild shadow; spin flattens and shifts it
 		"iscoAU": r_isco, "ergoAU": 2.0 * M if a > 0.01 else rs_au,
 		"hawkingK": t_hawk, "evaporationYr": t_evap,
 		"teff": 2.0e7 * pow(maxf(mass, 0.1), -0.25),
@@ -976,10 +1006,10 @@ static func _hole_structure(_spec: Dictionary, mass: float, spin_frac: float) ->
 			"detail": "The model Hawking temperature is %s K. %s The isolated, nonrotating evaporation-time estimate is 10^%d years; evaporation is not simulated." % [
 				U.expo(t_hawk, 2), thermal_note, int(U.jround(U.log10(t_evap)))],
 		},
-		"layers": _hole_layers(M, r_plus, r_isco, a),
+		"layers": _hole_layers(M, r_plus, r_isco, a, (2.0 * M * (1.0 + cos((2.0 / 3.0) * acos(-a)))) if a > 0.01 else 3.0 * M),
 	}
 
-static func _hole_layers(M: float, r_plus: float, r_isco: float, a: float) -> Array:
+static func _hole_layers(M: float, r_plus: float, r_isco: float, a: float, r_ph: float) -> Array:
 	# Normalised against the ISCO, which is the outermost thing drawn.
 	var N := r_isco
 	var f := func(r: float) -> float: return minf(r / N, 1.0)
@@ -995,8 +1025,9 @@ static func _hole_layers(M: float, r_plus: float, r_isco: float, a: float) -> Ar
 	if a > 0.01:
 		L.append({ "name": "Ergosphere", "r0": f.call(r_plus * 1.02), "r1": f.call(2.0 * M), "T": 0.0, "rho": 0.0,
 			"note": "Frame dragging is so strong here that standing still is impossible — you must rotate with the hole. Energy can be extracted from this region (the Penrose process), which is where a quasar's jets get their power." })
-	L.append({ "name": "Photon sphere", "r0": f.call(1.5 * 2.0 * M) - 0.004, "r1": f.call(1.5 * 2.0 * M) + 0.004, "T": 0.0, "rho": 0.0,
-		"note": "r = 1.5 r_s, where light orbits. Unstable — a photon here needs only a nudge to fall in or escape. Its lensed image is the bright ring you actually see, at √27·M ≈ 2.6 r_s." })
+	L.append({ "name": "Photon sphere", "r0": f.call(r_ph) - 0.004, "r1": f.call(r_ph) + 0.004, "T": 0.0, "rho": 0.0,
+		"note": ("r = %s M for light orbiting with the spin (3 M without it). " % U.fixed(r_ph / M, 2) if a > 0.01 else "r = 1.5 r_s, where light orbits. ")
+			+ "Unstable — a photon here needs only a nudge to fall in or escape. Its lensed image is the bright ring you actually see, at √27·M ≈ 2.6 r_s for a hole without spin." })
 	L.append({ "name": "ISCO", "r0": f.call(r_isco) - 0.004, "r1": f.call(r_isco), "T": 0.0, "rho": 0.0,
 		"note": "The innermost stable circular orbit, at %s M. Inside it there are no stable orbits at all, so an accretion disc simply ends here and its inner edge plunges. This is what sets a disc's peak temperature." % U.fixed(r_isco / M, 2) })
 	return L

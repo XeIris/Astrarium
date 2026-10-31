@@ -122,7 +122,8 @@ func radiation_checks() -> void:
 
 func neutron_domain_checks() -> void:
 	stage.state.paused = true
-	for mass in [1.4, 2.0]:
+	# 2.15 M☉ is past R = 2 r_s on the NICER-matched radius curve (2.0 M☉ is not).
+	for mass in [1.4, 2.15]:
 		stage.clear_bodies()
 		var spec := {"type": "neutron", "mass": mass}
 		var physical := Derive.new_body(-1, spec)
@@ -173,8 +174,15 @@ func horizon_checks() -> void:
 		stage.animate(1e-6)
 		check("contact mixed=%s merges through production" % mixed, stage.state.bodies.size() == 1
 			and stage.state.bodies[0] == a and stage.state.sim_years > years)
-		check("contact mixed=%s mass/momentum conserved" % mixed, a.mass == 22.0
-			and a.vel.scaled(a.mass).distance_to(momentum) < 1e-12)
+		if mixed:
+			check("contact mixed=true mass/momentum conserved", a.mass == 22.0
+				and a.vel.scaled(a.mass).distance_to(momentum) < 1e-12)
+		else:
+			# Two holes radiate E(η) of their mass; at rest relative to each other there
+			# is no recoil direction, so the remnant keeps the common velocity.
+			var radiated := Physics.merger_radiated_fraction(40.0 / 484.0)
+			check("contact mixed=false remnant radiates its GW energy", absf(a.mass - 22.0 * (1.0 - radiated)) < 1e-12
+				and a.vel.distance_to(momentum.scaled(1.0 / 22.0)) < 1e-12 and a.spin_frac == Physics.merger_spin(40.0 / 484.0))
 		canonical_horizon("contact mixed=%s" % mixed, a)
 		check("contact mixed=%s defaults to BH GW eligibility" % mixed, a.emits_gw and Derive.new_body(-1, a.spec).emits_gw == a.emits_gw)
 		if mixed:

@@ -237,7 +237,7 @@ class GiantViz extends RefCounted:
 
 	func update(dt: float, ctx: VisualCtx) -> void:
 		var b := body
-		b.spin_phase = fmod(b.spin_phase + float(b.visual_spin_rad_s) * dt, TAU)
+		b.spin_phase = fmod(b.spin_phase - RockyVisual.spin_step(b, 1.0, dt, ctx.sim_dt), TAU)
 		body_mesh.rotation.y = b.spin_phase               # the core, and only the core
 		mat.set_shader_parameter("uTime", float(mat.get_shader_parameter("uTime")) + dt)
 

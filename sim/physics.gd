@@ -15,12 +15,16 @@ static var DOUBLE_MAX := (2.0 - pow(2.0, -52.0)) * pow(2.0, 1023.0)
 static func schwarzschild(mass_sun: float) -> float:
 	return 2.0 * G * mass_sun / (C * C)
 
-## Neutron-star radius (AU): shrinks with mass, ~12 km near 1.4 M☉, floored at ~10 km,
-## capped near TOV (~2.2 M☉).
-static func neutron_radius(mass_sun: float) -> float:
-	var m := minf(maxf(mass_sun, 1.1), 2.2)
-	var km := 13.0 - 2.6 * (m - 1.1)   # 13 km at 1.1 M☉ → ~10.1 km at 2.2 M☉
-	return maxf(km, 9.5) * AU_PER_KM
+## Black-hole merger remnant for non-spinning holes, from the symmetric mass ratio
+## η = m₁m₂/M². Radiated fraction: Barausse, Morozova & Rezzolla (2012), 4.8% at η = ¼
+## (GW150914 radiated 3.1 of 65 M☉). Spin: Rezzolla et al. (2008), a* = 0.686 at η = ¼.
+## Recoil, km/s: González et al. (2007), zero for equal masses, 175 km/s at its peak.
+static func merger_radiated_fraction(eta: float) -> float:
+	return eta * (0.0559745 + eta * (0.580951 + eta * (-0.960673 + eta * 3.35241)))
+static func merger_spin(eta: float) -> float:
+	return eta * (2.0 * sqrt(3.0) + eta * (-3.5171 + eta * 2.5763))
+static func merger_kick_kms(eta: float) -> float:
+	return 1.2e4 * eta * eta * sqrt(maxf(1.0 - 4.0 * eta, 0.0)) * (1.0 - 0.93 * eta)
 
 ## Physical stellar radius (AU) from mass via main-sequence R ∝ M^0.8.
 static func stellar_radius(mass_sun: float) -> float:

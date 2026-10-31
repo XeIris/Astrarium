@@ -81,8 +81,8 @@ func insolation(planet: Body, stars: Array) -> float:
 	for s in stars:
 		var L: float = U.nz(s.luminosity, Stellar.luminosity(s.mass))
 		var d := maxf(planet.pos.distance_to(s.pos), 1e-4)
-		# flares briefly brighten the star; activity.flux is 1 when quiet
-		var flux: float = s.activity.flux if s.activity != null else 1.0
+		# a flare's tiny share of the star's total output; 1 when quiet
+		var flux: float = s.activity.bolometric if s.activity != null else 1.0
 		var contrib := L * flux / (d * d)
 		s_tot += contrib
 		per_star.append({ "name": s.name, "S": contrib, "dist": d, "mass": s.mass })

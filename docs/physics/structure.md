@@ -9,7 +9,7 @@ gravity:
 - 13 M_J lights deuterium (brown dwarf); ~0.075 M☉ lights hydrogen (star)
 - a star spun past its Keplerian limit sheds its equator
 - a neutron star past the TOV mass collapses
-- a star past ~150 M☉ is pushed apart by its own radiation
+- a star near the Eddington luminosity is pushed apart by its own radiation
 
 Public functions use AU / M☉ / yr; interior equations of state work in SI.
 
@@ -100,12 +100,13 @@ is not modelled.
 ## Degenerate stars
 
 White dwarfs follow Nauenberg (1972):
-R = 0.0126 R☉ · (μ_e/2)^−5/3 · (M/M_Ch)^−1/3 · [1 − (M/M_Ch)^4/3]^½, giving
-0.0084 R☉ at 1.0 M☉ (Sirius B, measured 0.0084).
+R = 0.0112 R☉ · (μ_e/2)^−5/3 · (M/M_Ch)^−1/3 · [1 − (M/M_Ch)^4/3]^½, the
+zero-temperature relation: 0.0125 R☉ at 0.6 M☉ and 0.0078 at Sirius B's 1.018 M☉
+(measured 0.0081, Bond et al. 2017; a 25 000 K white dwarf is slightly inflated).
 
-Neutron stars use a smooth stand-in for modern stiff EOSs: flat at 11.5–12.5 km
-over the observed masses, steepening near TOV (NICER: J0030 and J0740 near
-12.4 km). Rigid rotation raises TOV by up to ~20%.
+Neutron stars use a smooth stand-in for modern stiff EOSs: flat at 12.3–12.6 km
+over the observed masses, steepening only past ~0.9 TOV (NICER: J0030 and J0740
+near 12.4 km). Rigid rotation raises TOV by up to ~20%.
 
 ## Stellar evolution
 

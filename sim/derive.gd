@@ -135,7 +135,7 @@ static func derive_body(b: Body, spec: Dictionary) -> Body:
 		b.radius = 0.0
 		b.radius_sun = null; b.teff = null; b.luminosity = null; b.spectral = null
 	elif type == "neutron":
-		b.radius = Physics.neutron_radius(mass)
+		b.radius = Structure.neutron_radius_km(mass) * Physics.AU_PER_KM
 		b.rs = Physics.schwarzschild(mass)
 	elif type == "star":
 		# A measured radius wins, else the main-sequence relation. b.radius is also the
