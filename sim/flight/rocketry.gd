@@ -74,7 +74,9 @@ const ATMOSPHERES := {
 		"kSG": 1.9027e-4,                    # CO₂ Sutton–Graves constant (Tauber & Sutton 1991)
 		"radiative": "co2",
 		"layers": [{ "base": 0.0, "H": 11100.0 }, { "base": 60000.0, "H": 8000.0 }],
-		"top": 125e3, "tint": 0xc08a5a, "haze": 0xd8a878, "scatter": "mars",
+		# Drag goes on into the thermosphere, where aerobraking passes fly (MGS and MRO
+		# at 100–130 km); the upper layer's 8 km scale height is held to 250 km.
+		"top": 125e3, "exo": 250e3, "tint": 0xc08a5a, "haze": 0xd8a878, "scatter": "mars",
 	},
 	# VIRA (Seiff et al. 1985), 0–100 km, as lapse layers between its 10 km rows (within
 	# 6% in ρ); isothermal above. ρ₀ is 92.1 bar of CO₂ at 735.3 K.

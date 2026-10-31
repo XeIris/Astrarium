@@ -151,3 +151,47 @@ Right-clicking a point targets it. The flight panel's downrange row then shows t
 vessel's distance and speed relative to the point, which moves with the pair's
 rotating frame. No mission leg yet plans a transfer or a halo insertion, so a
 Lagrange point is a navigation target, not a destination.
+
+## Aerocapture and aerobraking
+
+An interplanetary arrival at a body with air uses that air instead of a capture burn.
+
+### Aerocapture
+
+A vehicle with a heat shield (`limits.heatLoad > 0`, not winged) plans an aerocapture.
+The arrival trim aims a periapsis inside the air, the vessel flies the pass heat
+shield first (retrograde), and a burn at the following apoapsis makes the orbit
+circular there.
+
+- **Predictor.** `Orbit.aero_pass` flies one pass: two-body gravity plus the parent's
+  zonal field, drag on the ballistic coefficient m/(C_D·A) with the blunt-body C_D
+  `Vessel` uses heat shield first, and air turning with the planet. Mars's J2 moves
+  the periapsis by kilometres over the inbound arc, and the corridor is that narrow.
+- **Search.** `Mission.aero_periapsis` bisects on the conic periapsis. Each trial
+  turns the velocity at the vessel's present position in its own plane, as the trim
+  does (`Mission.aimed_velocity`), and flies the predictor from there to the pass's
+  apoapsis. It is re-solved at each trim, and the trim's tolerance tightens to 1 km.
+- **Checked.** A Starship ship arriving at Mars at v∞ 3 km/s aims a 25 km conic
+  periapsis. The predictor then gives a 494 km apoapsis and the vessel's own
+  integration (every force `accel()` has) 500 km, for 500 asked.
+
+### Aerobraking
+
+A vehicle with no heat shield captures onto a long ellipse (12 parking radii) and
+aerobrakes, as Magellan, Mars Global Surveyor and MRO did. A walk-in burn at apoapsis
+lowers the periapsis to where the pass peaks at 0.4 Pa of dynamic pressure
+(`Mission.aerobrake_periapsis`); MRO's passes ran at 0.3–0.5. After each pass, if the
+periapsis has drifted more than 1.5 km from that, a walk burn at apoapsis corrects it.
+Once the apoapsis is within 15% of the parking radius, a burn there raises the
+periapsis out of the air.
+
+The route's duration comes from the exponential-atmosphere pass,
+Δv = ρ_p v_p √(2π r_p H)/β, in closed form. It is within 17% of a flown pass, which
+also sees the air turning. At Mars the ion cruiser walks in at 119 km and takes
+about 4.8 km off a 10 000 km apoapsis per pass.
+
+Mars's drag now continues above its 125 km `top` to an `exo` of 250 km, so the upper
+passes see air. Its descent scenarios start at 125 km and are unchanged. Neither leg
+is flown by a mission check: no check sends a vehicle between planets by default
+(missioncheck's Mars case is `long=1` only). The predictor, the search and the
+passes are checked in `flightphysicscheck`.

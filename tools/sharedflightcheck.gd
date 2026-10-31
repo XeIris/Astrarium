@@ -85,9 +85,12 @@ func _init() -> void:
 		while valid and coasted < period:
 			coasted += ship.step(10.0)
 			hi = maxf(hi, ship.altitude()); lo = minf(lo, ship.altitude())
-		valid = valid and absf(hi - target) < 3000.0
+		# J2's short-period radial swing, ~J2·R²/a·sin²i: 1.5 km at 28.5°, 4 km at 51.6°.
+		var a_m := float(ship.env.radius) + target
+		var swing := 1.08262668e-3 * pow(6378137.0, 2.0) / a_m * pow(sin(deg_to_rad(float(ship.telemetry.inc))), 2.0)
+		valid = valid and absf(hi - target) < 3000.0 + swing
 		# The production circularize law stops at 92% of the target periapsis.
-		valid = valid and lo >= target * 0.92 - 3000.0 and lo <= hi
+		valid = valid and lo >= target * 0.92 - 3000.0 - swing and lo <= hi
 		valid = valid and finite
 		valid = valid and earth.pos.distance_to(start_pos) > 0.0 and worst_clock_error < 1e-5
 		# A timed second plane (the Saturn V's S-II aft interstage) drops within two frames

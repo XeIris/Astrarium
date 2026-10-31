@@ -325,3 +325,50 @@ static func lambert(r1: DVec3, r2: DVec3, dt: float, mu: float, normal: DVec3, v
 	v1_out.set_v((r2.x - f * r1.x) / g, (r2.y - f * r1.y) / g, (r2.z - f * r1.z) / g)
 	v2_out.set_v((gd * r2.x - r1.x) / g, (gd * r2.y - r1.y) / g, (gd * r2.z - r1.z) / g)
 	return is_finite(v1_out.x) and is_finite(v2_out.x)
+
+## One pass through an atmosphere for a body of ballistic coefficient `bc` = m/(C_D·A)
+## (kg/m²), flown heat shield first: two-body gravity and drag through air turning at
+## `rot` rad/s about −Y, the parent's zonal field if given (its J2 moves a periapsis
+## kilometres over an approach), RK4 at 0.5 s in the air and longer outside it. From (r, v) until
+## it climbs back out above the air (or hits the ground, or `t_max` s). Returns
+## {r, v, crashed, peak_heat (W/m², at nose radius `rn`), peak_g}.
+static func aero_pass(r: DVec3, v: DVec3, mu: float, R: float, atm, rot: float, bc: float, rn: float, zonal = null, t_max := 7200.0) -> Dictionary:
+	var top: float = float(atm.get("exo", atm.top))
+	var x := r.clone(); var u := v.clone()
+	var t := 0.0
+	var peak_q := 0.0; var peak_g := 0.0
+	var entered := false
+	var f := func(p: DVec3, w: DVec3) -> DVec3:
+		var d2 := p.length_sq()
+		var a := p.scaled(-mu / (d2 * sqrt(d2)))
+		Rocketry.zonal_accel(zonal, mu, p, a)
+		var h := sqrt(d2) - R
+		if h < top:
+			var rho := Rocketry.density(atm, h)
+			if rho > 0.0:
+				var air := w.clone().sub_in(DVec3.new(0.0, -rot, 0.0).cross(p))
+				a.add_scaled_in(air, -0.5 * rho * air.length() / bc)
+		return a
+	while t < t_max:
+		var h := x.length() - R
+		if h <= 0.0: return {"r": x, "v": u, "crashed": true, "peak_heat": peak_q, "peak_g": peak_g}
+		if h < top: entered = true
+		elif entered and x.dot(u) > 0.0: break
+		var dt := 0.5 if h < top * 1.05 else clampf((h - top) / maxf(u.length(), 1.0) * 0.2, 0.5, 60.0)
+		var k1v: DVec3 = f.call(x, u); var k1x := u.clone()
+		var k2v: DVec3 = f.call(x.clone().add_scaled_in(k1x, 0.5 * dt), u.clone().add_scaled_in(k1v, 0.5 * dt))
+		var k2x := u.clone().add_scaled_in(k1v, 0.5 * dt)
+		var k3v: DVec3 = f.call(x.clone().add_scaled_in(k2x, 0.5 * dt), u.clone().add_scaled_in(k2v, 0.5 * dt))
+		var k3x := u.clone().add_scaled_in(k2v, 0.5 * dt)
+		var k4v: DVec3 = f.call(x.clone().add_scaled_in(k3x, dt), u.clone().add_scaled_in(k3v, dt))
+		var k4x := u.clone().add_scaled_in(k3v, dt)
+		x.add_scaled_in(k1x, dt / 6.0).add_scaled_in(k2x, dt / 3.0).add_scaled_in(k3x, dt / 3.0).add_scaled_in(k4x, dt / 6.0)
+		u.add_scaled_in(k1v, dt / 6.0).add_scaled_in(k2v, dt / 3.0).add_scaled_in(k3v, dt / 3.0).add_scaled_in(k4v, dt / 6.0)
+		t += dt
+		var hh := x.length() - R
+		if hh < top:
+			var rho := Rocketry.density(atm, hh)
+			var air := u.clone().sub_in(DVec3.new(0.0, -rot, 0.0).cross(x))
+			peak_q = maxf(peak_q, Rocketry.heat_flux(rho, air.length(), rn, atm))
+			peak_g = maxf(peak_g, 0.5 * rho * air.length_sq() / bc / Rocketry.G0)
+	return {"r": x, "v": u, "crashed": false, "peak_heat": peak_q, "peak_g": peak_g}

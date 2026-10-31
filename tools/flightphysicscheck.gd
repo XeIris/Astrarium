@@ -180,6 +180,8 @@ func _init() -> void:
 	check("an eccentric Mars moves the best window by days (%.1f d)" % ((pce.best.t_dep - pc.best.t_dep) / 86400.0), absf(pce.best.t_dep - pc.best.t_dep) > 2.0 * 86400.0)
 
 	azimuths()
+	aerocapture()
+	aerobraking()
 	lagrange()
 	skies()
 	tesseral()
@@ -397,3 +399,94 @@ func skies() -> void:
 	act.cmes[0].t = 0.0055 + 0.0027 * 3.0
 	var later := Stellar.storm_kp(act)
 	check("a CME lifts Kp only once it arrives, then fades (%.1f, %.1f, %.1f)" % [before, arrived, later], before == 2.0 and arrived > 7.0 and later < 3.0)
+
+# Aerocapture at Mars: the periapsis search leaves a 500 km apoapsis by its predictor,
+# and the vessel's own integration through the same pass (heat shield first, every
+# force accel() has) agrees with it.
+func aerocapture() -> void:
+	var mars := body("Mars", 3.2271e-7, 3389.5)
+	# Starship's ship alone with landing propellant, the vehicle built to aerocapture at Mars.
+	var v := Vessel.new({ "vehicle": Vehicles.VEHICLES.starship, "parent": mars, "bodies": [mars], "payload": 0.0 })
+	v.stage(true)
+	for st in v.stages:
+		if st.attached: st.prop = minf(st.prop, 40000.0)
+	var mu: float = v.env.mu
+	var R := float(v.env.radius)
+	# A 3 km/s hyperbola, 8000 km out and falling in.
+	var vinf := 3000.0
+	var r0 := 8.0e6
+	var rp0 := R + 300e3
+	var E := 0.5 * vinf * vinf
+	var h := rp0 * sqrt(2.0 * (E + mu / rp0))
+	var vr0 := sqrt(2.0 * (E + mu / r0))
+	var vt := h / r0
+	v.r.set_v(r0, 0.0, 0.0)
+	v.v.set_v(-sqrt(vr0 * vr0 - vt * vt), 0.0, vt)
+	v.phase = Vessel.PHASE.ORBIT
+	var ra_want := R + 500e3
+	var rp := Mission.aero_periapsis(v, v.r, v.v, mu, v.env, ra_want)
+	check("Mars aerocapture corridor found (periapsis %.1f km)" % ((rp - R) / 1000.0), rp > R + 10e3 and rp < R + float(v.env.atm.top))
+	# Aim the hyperbola there as the trim would, and fly it.
+	v.v.copy_from(Mission.aimed_velocity(v.r, v.v, mu, rp))
+	var pred := Orbit.aero_pass(v.r, v.v, mu, R, v.env.atm, float(v.env.rotRate), Mission.ballistic(v), v.diameter * 0.5, v.env.zonal)
+	var ra_pred := float(Orbit.elements(pred.r, pred.v, mu).ra)
+	var top := float(v.env.atm.top)
+	var entered := false
+	for i in 400000:
+		var dir := DQuat.nrm(v.airspeed(v.r, v.v, DVec3.new()).scale_in(-1.0))
+		v.q = DQuat.new().set_from_unit_vectors(Vessel.BODY_FWD, dir)
+		v.omega.set_v(0.0, 0.0, 0.0)
+		var alt := v.altitude()
+		if alt < top: entered = true
+		elif entered and v.r.dot(v.v) > 0.0: break
+		v.step(0.5 if alt < top * 1.1 else 30.0)
+		if v.phase == Vessel.PHASE.DESTROYED: break
+	var ra_flown := float(Orbit.elements(v.r, v.v, mu).ra)
+	check("the predictor's apoapsis %.0f km, flown %.0f km, asked %.0f km" % [(ra_pred - R) / 1000.0, (ra_flown - R) / 1000.0, (ra_want - R) / 1000.0],
+		absf(ra_pred - ra_want) < 30e3 and absf(ra_flown - ra_pred) < 0.1 * (ra_pred - R) and v.phase != Vessel.PHASE.DESTROYED)
+
+# Aerobraking at Mars without a heat shield: the walk-in periapsis peaks at the target
+# pressure, and passes flown by the vessel take the apoapsis down by what the
+# predictor says each one should.
+func aerobraking() -> void:
+	var mars := body("Mars", 3.2271e-7, 3389.5)
+	var v := Vessel.new({ "vehicle": Vehicles.VEHICLES.ioncruiser, "parent": mars, "bodies": [mars], "payload": 0.0 })
+	v.phase = Vessel.PHASE.ORBIT
+	var mu: float = v.env.mu
+	var R := float(v.env.radius)
+	var ra := R + 10000e3
+	var rp := Mission.aerobrake_periapsis(v.env, ra)
+	var vp2 := mu * 2.0 * ra / (rp * (rp + ra))
+	var q := 0.5 * Rocketry.density(v.env.atm, rp - R) * vp2
+	check("aerobraking walk-in at %.1f km peaks at %.2f Pa" % [(rp - R) / 1000.0, q], absf(q / Mission.AEROBRAKE_Q - 1.0) < 0.02 and rp - R > 80e3)
+	v.r.set_v(rp, 0.0, 0.0)
+	v.v.set_v(0.0, 0.0, sqrt(vp2))
+	var top := float(v.env.atm.top)
+	var ras := [ra]
+	var inside := false
+	var guard := 0
+	while ras.size() < 6 and guard < 2000000 and v.phase != Vessel.PHASE.DESTROYED:
+		guard += 1
+		var alt := v.altitude()
+		if alt < top:
+			var dir := DQuat.nrm(v.airspeed(v.r, v.v, DVec3.new()).scale_in(-1.0))
+			v.q = DQuat.new().set_from_unit_vectors(Vessel.BODY_FWD, dir)
+			v.omega.set_v(0.0, 0.0, 0.0)
+			v.step(0.5)
+			inside = true
+		else:
+			if inside:
+				ras.append(float(Orbit.elements(v.r, v.v, mu).ra))
+				inside = false
+			v.step(minf(120.0, v.rail_step()), {"rails": true})
+	var falling := v.phase != Vessel.PHASE.DESTROYED and ras.size() == 6
+	for i in range(1, ras.size()): falling = falling and float(ras[i]) < float(ras[i - 1])
+	check("five passes take the apoapsis down %.0f → %.0f km, intact" % [(float(ras[0]) - R) / 1000.0, (float(ras[ras.size() - 1]) - R) / 1000.0], falling)
+	# The planner's closed-form pass: Δv = ρ_p v_p √(2π r_p H)/β.
+	var H := Rocketry.scale_height(v.env.atm, rp - R)
+	var dv := Rocketry.density(v.env.atm, rp - R) * sqrt(vp2) * sqrt(TAU * rp * H) / Mission.ballistic(v)
+	var e := 0.5 * pow(sqrt(vp2) - dv, 2.0) - mu / rp
+	var d_ra := ra - (2.0 * (-mu / (2.0 * e)) - rp)
+	# The first pass started at periapsis, so it was half a pass; the second is whole.
+	var flown := float(ras[1]) - float(ras[2])
+	check("the planner's pass takes %.2f km off the apoapsis, the flown one %.2f km" % [d_ra / 1000.0, flown / 1000.0], absf(d_ra / flown - 1.0) < 0.35)
