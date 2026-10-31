@@ -206,6 +206,43 @@ static func time_to_periapsis_any(el: Dictionary, mu: float) -> float:
 	var M: float = el.e * sinh(F) - F
 	return -M / n if M < 0.0 else INF
 
+## A porkchop: Lambert arcs about `mu` from a departure body on (r_dep, v_dep) to an
+## arrival body on (r_arr, v_arr), both given at t = 0 and propagated as conics about
+## their own μ sums. Departures at `t_deps`, flight times `tofs` (s); `cost(v∞_dep,
+## v∞_arr)` ranks the cells. Arcs within ~2° of 180° have no defined plane and are
+## skipped. Returns {best: {t_dep, tof, v_inf_dep, v_inf_arr, v_dep, cost} or {},
+## grid: [[cost or INF per tof] per departure]}.
+static func porkchop(r_dep: DVec3, v_dep: DVec3, mu_dep: float, r_arr: DVec3, v_arr: DVec3, mu_arr: float,
+		mu: float, t_deps: Array, tofs: Array, cost: Callable) -> Dictionary:
+	var grid: Array = []
+	var best := {}
+	var best_cost := INF
+	var rd := DVec3.new(); var vd := DVec3.new()
+	var ra := DVec3.new(); var va := DVec3.new()
+	var a1 := DVec3.new(); var a2 := DVec3.new()
+	var nrm := DVec3.new()
+	for td in t_deps:
+		var row := PackedFloat64Array()
+		row.resize(tofs.size())
+		row.fill(INF)
+		if propagate(r_dep, v_dep, mu_dep, float(td), rd, vd):
+			nrm.cross_vectors(rd, vd)
+			for j in tofs.size():
+				var tof := float(tofs[j])
+				if not propagate(r_arr, v_arr, mu_arr, float(td) + tof, ra, va): continue
+				if rd.dot(ra) / (rd.length() * ra.length()) < -0.9994: continue
+				if not lambert(rd, ra, tof, mu, nrm, a1, a2): continue
+				var vi_d := a1.clone().sub_in(vd)
+				var vi_a := a2.clone().sub_in(va).length()
+				var c: float = cost.call(vi_d.length(), vi_a)
+				row[j] = c
+				if c < best_cost:
+					best_cost = c
+					best = {"t_dep": float(td), "tof": tof, "v_inf_dep": vi_d.length(), "v_inf_arr": vi_a,
+						"v_dep": vi_d, "cost": c}
+		grid.append(row)
+	return {"best": best, "grid": grid}
+
 static var _l1 := DVec3.new()
 
 ## Lambert's problem, one revolution: the velocities at r1 and r2 of the conic about
