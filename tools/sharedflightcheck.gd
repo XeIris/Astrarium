@@ -85,9 +85,10 @@ func _init() -> void:
 		while valid and coasted < period:
 			coasted += ship.step(10.0)
 			hi = maxf(hi, ship.altitude()); lo = minf(lo, ship.altitude())
-		# J2's short-period radial swing, ~J2·R²/a·sin²i: 1.5 km at 28.5°, 4 km at 51.6°.
+		# J2's short-period radial terms, up to ~(3/2)·J2·R²/a·sin²i: 2.3 km at 28.5°,
+		# 6 km at 51.6°, where the lowest flown point sits 9 km under the cutoff periapsis.
 		var a_m := float(ship.env.radius) + target
-		var swing := 1.08262668e-3 * pow(6378137.0, 2.0) / a_m * pow(sin(deg_to_rad(float(ship.telemetry.inc))), 2.0)
+		var swing := 1.5 * 1.08262668e-3 * pow(6378137.0, 2.0) / a_m * pow(sin(deg_to_rad(float(ship.telemetry.inc))), 2.0)
 		valid = valid and absf(hi - target) < 3000.0 + swing
 		# The production circularize law stops at 92% of the target periapsis.
 		valid = valid and lo >= target * 0.92 - 3000.0 - swing and lo <= hi
