@@ -487,6 +487,9 @@ static func input_error(spec: Dictionary) -> String:
 	var hz = spec.get("spinHz")
 	if hz != null and (not _finite_number(hz) or float(hz) < 0.0):
 		return "Spin frequency must be a finite nonnegative number."
+	var age = spec.get("ageYr")
+	if age != null and (not _finite_number(age) or float(age) <= 0.0 or float(age) > 1e11):
+		return "Age must be a finite positive number of years, at most 1e11."
 	if spec.get("type") == "bh":
 		var rs := Physics.schwarzschild(float(mass))
 		var lifetime := _hole_evaporation_years(float(mass))
@@ -905,6 +908,8 @@ static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) 
 	var rho := (mass * M_SUN) / ((4.0 / 3.0) * PI * pow(r_km * 1000.0, 3.0))
 	var surface_g := G_SI * mass * M_SUN / pow(r_km * 1000.0, 2.0)
 	var period_ms := (2.0 * PI / (spin_frac * omega_c) * 1000.0) if spin_frac > 0.0 else INF
+	var age_yr := float(spec.ageYr) if _pos(spec.get("ageYr")) else float(NS_COOLING.defaultAgeYr)
+	var cool := neutron_cooling(mass, r_km, age_yr)
 
 	var verdict: Dictionary
 	if mass > max_m * 0.95:
@@ -926,23 +931,75 @@ static func _neutron_structure(spec: Dictionary, mass: float, spin_frac: float) 
 		"compactness": compactness, "tovMax": max_m, "spinPeriodMs": period_ms,
 		# Surface redshift 1/√(1 − r_s/R) − 1 (~19% at 0.3 compactness).
 		"redshift": 1.0 / sqrt(maxf(1.0 - compactness, 1e-3)) - 1.0,
-		"teff": 6e5,
+		"teff": cool.teff, "teffInf": cool.teffInf, "cooling": cool,
 		"verdict": verdict,
-		"layers": _neutron_layers(r_km),
+		"layers": _neutron_layers(r_km, cool),
 	}
 	return _with_rotation(s, mass, "neutron", spin_frac)
 
-static func _neutron_layers(_r_km: float) -> Array:
+# Minimal cooling of an isolated star (Yakovlev & Pethick 2004): an isothermal
+# interior with heat capacity C ≈ 1e39·T9 erg/K loses modified-Urca neutrinos
+# (L_ν ≈ 1e40·T9⁸ erg/s) until ~1e5 yr, then surface photons. An iron envelope
+# maps the interior Tb to Teff (Gudmundsson, Pethick & Epstein 1983). The crust
+# keeps its birth heat until thermal relaxation, 10–100 yr (Gnedin et al. 2001).
+# Derivation: docs/physics/structure.md#neutron-star-cooling.
+const NS_COOLING := {
+	"heatCapJK": 1e32, "neutrinoW": 1e33, "relaxYr": 30.0, "defaultAgeYr": 1e5,
+	"startYr": 1.0, "steps": 64,
+}
+
+## Temperatures (K) of a neutron star `age_yr` after birth. teff is local at the
+## surface; teffInf is what a distant observer measures.
+static func neutron_cooling(mass: float, r_km: float, age_yr: float) -> Dictionary:
+	var r_m := r_km * 1000.0
+	var g14 := G_SI * mass * M_SUN / (r_m * r_m) / 1e12   # g in 10¹⁴ cm/s²
+	var redshift_factor := sqrt(maxf(1.0 - 2.0 * G_SI * mass * M_SUN / (r_m * Rocketry.C_MS * Rocketry.C_MS), 1e-3))
+	# Teff = 0.87e6 K · g14^¼ · (Tb/1e8 K)^0.55, so L_γ ∝ Tb^2.2.
+	var teff_of := func(tb: float) -> float: return 0.87e6 * pow(g14, 0.25) * pow(maxf(tb, 1.0) / 1e8, 0.55)
+	var c9 := float(NS_COOLING.heatCapJK) * 1e9
+	var a := float(NS_COOLING.neutrinoW) / c9
+	var t9_of_teff := float(teff_of.call(1e9))
+	var b := 4.0 * PI * r_m * r_m * SIGMA * pow(t9_of_teff, 4.0) / c9
+	var t0 := float(NS_COOLING.startYr) * Rocketry.YR_S
+	var age := maxf(age_yr, float(NS_COOLING.startYr)) * Rocketry.YR_S
+	# Neutrinos alone before the start: T9⁻⁶ = 6·a·t.
+	var y := log(pow(6.0 * a * t0, -1.0 / 6.0))
+	var n := int(NS_COOLING.steps)
+	var hx := log(age / t0) / float(n)
+	# d(ln T9)/d(ln t) = −t·(a·T9⁶ + b·T9^0.2), integrated by RK4 in ln t.
+	var rate := func(x: float, yy: float) -> float:
+		var t9 := exp(maxf(yy, -40.0))
+		return -exp(x) * (a * pow(t9, 6.0) + b * pow(t9, 0.2))
+	var x := log(t0)
+	for i in n:
+		var k1: float = rate.call(x, y)
+		var k2: float = rate.call(x + 0.5 * hx, y + 0.5 * hx * k1)
+		var k3: float = rate.call(x + 0.5 * hx, y + 0.5 * hx * k2)
+		var k4: float = rate.call(x + hx, y + hx * k3)
+		y += hx * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+		x += hx
+	var t_core := exp(maxf(y, -40.0)) * 1e9
+	var t_crust := t_core * (1.0 + exp(-maxf(age_yr, 0.0) / float(NS_COOLING.relaxYr)))
+	var teff: float = teff_of.call(t_crust)
+	return {
+		"ageYr": maxf(age_yr, 0.0), "coreT": t_core, "crustT": t_crust,
+		"teff": teff, "teffInf": teff * redshift_factor,
+		"photonsDominate": b * pow(t_crust / 1e9, 0.2) > a * pow(t_crust / 1e9, 6.0),
+	}
+
+static func _neutron_layers(_r_km: float, cool: Dictionary) -> Array:
+	var tc := float(cool.coreT)
+	var tk := float(cool.crustT)
 	return [
-		{ "name": "Inner core", "r0": 0.0, "r1": 0.45, "T": 1e8, "rho": 1.2e18,
+		{ "name": "Inner core", "r0": 0.0, "r1": 0.45, "T": tc, "rho": 1.2e18,
 			"note": "Above a few times nuclear density, and genuinely unknown. Hyperons? A deconfined quark–gluon core? Which it is decides the TOV limit." },
-		{ "name": "Outer core", "r0": 0.45, "r1": 0.90, "T": 2e8, "rho": 5e17,
+		{ "name": "Outer core", "r0": 0.45, "r1": 0.90, "T": tc, "rho": 5e17,
 			"note": "Superfluid neutrons with a few percent superconducting protons and electrons. Frictionless — and the sudden unpinning of its vortices is what makes a pulsar glitch." },
-		{ "name": "Inner crust", "r0": 0.90, "r1": 0.975, "T": 5e8, "rho": 1e17,
+		{ "name": "Inner crust", "r0": 0.90, "r1": 0.975, "T": tk, "rho": 1e17,
 			"note": "Past neutron drip. Nuclei dissolve into \"nuclear pasta\" — sheets and rods of nuclear matter, the stiffest material that exists." },
-		{ "name": "Outer crust", "r0": 0.975, "r1": 0.998, "T": 1e8, "rho": 1e11,
+		{ "name": "Outer crust", "r0": 0.975, "r1": 0.998, "T": tk, "rho": 1e11,
 			"note": "A crystalline lattice of iron-group nuclei in a degenerate electron sea. About a kilometre thick, and 10¹⁸ times stronger than steel." },
-		{ "name": "Atmosphere", "r0": 0.998, "r1": 1.0, "T": 1e6, "rho": 1e2,
+		{ "name": "Atmosphere", "r0": 0.998, "r1": 1.0, "T": float(cool.teff), "rho": 1e2,
 			"note": "A few centimetres of carbon or hydrogen plasma. It sets the X-ray spectrum, which is how the radius gets measured at all." },
 	]
 

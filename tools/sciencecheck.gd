@@ -234,6 +234,18 @@ func _init() -> void:
 	check("the Sun keeps its 25-day rotation", absf(TAU / Stellar.rotation_rate(1.0) * 365.25 - 25.0) < 0.5)
 	var tip := Structure.structure_of({"type": "star", "mass": 1.0, "phase": 1.45})
 	check("the Sun's RGB tip near 160 R☉ and 2500 L☉", tip.radiusSun > 120.0 and tip.radiusSun < 200.0 and tip.luminosity > 1500.0 and tip.luminosity < 3500.0)
+	# Minimal cooling, iron envelope (Yakovlev & Pethick 2004, fig. 2): log Teff∞
+	# ≈ 6.1 at 1e3 yr, 5.9–6.0 at 1e5 yr, then the photon era drops it steeply.
+	var ns_r := Structure.neutron_radius_km(1.4)
+	var cool_log := func(age: float) -> float: return log(float(Structure.neutron_cooling(1.4, ns_r, age).teffInf)) / log(10.0)
+	check("a 1 kyr neutron star near log Teff∞ 6.1 (%.2f)" % cool_log.call(1e3), absf(cool_log.call(1e3) - 6.1) < 0.12)
+	check("a 100 kyr neutron star near log Teff∞ 5.9 (%.2f)" % cool_log.call(1e5), absf(cool_log.call(1e5) - 5.9) < 0.15)
+	check("a 1 Myr neutron star has entered the photon era (%.2f)" % cool_log.call(1e6), cool_log.call(1e6) < 5.6 and cool_log.call(1e6) > 5.0)
+	var young := Structure.neutron_cooling(1.4, ns_r, 3.0)
+	var old := Structure.neutron_cooling(1.4, ns_r, 1e4)
+	check("a young crust is hotter than the core; a relaxed one is isothermal", young.crustT > young.coreT * 1.5 and absf(old.crustT / old.coreT - 1.0) < 1e-6)
+	var ns_layers: Array = Structure.structure_of({"type": "neutron", "mass": 1.4, "ageYr": 1e4}).layers
+	check("a relaxed neutron star's crust is no hotter than its core", float(ns_layers[2].T) <= float(ns_layers[0].T) and float(ns_layers[4].T) < float(ns_layers[3].T))
 	# Peters–Mathews power on a circle is the circular quadrupole formula.
 	var gw_a := Body.new(); var gw_b := Body.new()
 	for gw in [gw_a, gw_b]:
