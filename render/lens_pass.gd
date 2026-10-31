@@ -1,7 +1,7 @@
 class_name LensPass
 extends RefCounted
 
-# Schwarzschild ray marching and illustrated volumetric accretion disc.
+# Kerr ray marching and an illustrated volumetric Page–Thorne accretion disc.
 # The half-resolution direction field is resolved against a full-resolution sky.
 # Derivation and limitations: docs/physics/lensing.md.
 
@@ -24,7 +24,8 @@ var _kernel: RDU.Kernel
 var tex0 := Texture2DRD.new()
 var tex1 := Texture2DRD.new()
 
-const UBO_FLOATS := 4 * (MAX_HOLES + 6)
+const UBO_FLOATS := 4 * (MAX_HOLES * 4 + 6)
+static var _pt_cache := {}
 
 func _init() -> void:
 	RenderingServer.call_on_render_thread(_init_rt)
@@ -64,8 +65,16 @@ func _resize_rt() -> void:
 	tex1.texture_rd_rid = _march1
 	RDU.free_rid(old0); RDU.free_rid(old1)
 
+## Page–Thorne terms for spin a*, cached; the marcher evaluates the flux per sample.
+static func disc_terms(a: float) -> Dictionary:
+	var key := snappedf(clampf(a, 0.0, 0.998), 1e-4)
+	if not _pt_cache.has(key):
+		if _pt_cache.size() > 64: _pt_cache.clear()
+		_pt_cache[key] = Physics.page_thorne_terms(key)
+	return _pt_cache[key]
+
 ## March this frame. `p`: holes (Array of {pos: camera-relative Vector3, rs: scene
-## units}), basis (camera world Basis), fov (rad), aspect, time, disc_intensity,
+## units, spin: a* ≥ 0, prograde with the disc}), basis (camera world Basis), fov (rad), aspect, time, disc_intensity,
 ## disc_temp, disc_tpeak_phys, disc_outer.
 func dispatch(p: Dictionary) -> void:
 	var holes: Array = p.holes
@@ -76,7 +85,13 @@ func dispatch(p: Dictionary) -> void:
 			var hp: Vector3 = holes[k].pos
 			f[k * 4 + 0] = hp.x; f[k * 4 + 1] = hp.y; f[k * 4 + 2] = hp.z
 			f[k * 4 + 3] = holes[k].rs
-	var o := MAX_HOLES * 4
+			var t := disc_terms(float(holes[k].get("spin", 0.0)))
+			var s := (MAX_HOLES + k) * 4
+			f[s] = t.a; f[s + 1] = 0.5 * float(t.isco); f[s + 2] = 1.0 / float(t.peak); f[s + 3] = t.x0
+			for i in 3:
+				f[(2 * MAX_HOLES + k) * 4 + i] = t.roots[i]
+				f[(3 * MAX_HOLES + k) * 4 + i] = t.c[i]
+	var o := MAX_HOLES * 4 * 4
 	f[o + 0] = b.x.x; f[o + 1] = b.x.y; f[o + 2] = b.x.z
 	f[o + 4] = b.y.x; f[o + 5] = b.y.y; f[o + 6] = b.y.z
 	f[o + 8] = b.z.x; f[o + 9] = b.z.y; f[o + 10] = b.z.z

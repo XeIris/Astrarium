@@ -27,6 +27,47 @@ static func merger_spin(eta: float) -> float:
 static func merger_kick_kms(eta: float) -> float:
 	return 1.2e4 * eta * eta * sqrt(maxf(1.0 - 4.0 * eta, 0.0)) * (1.0 - 0.93 * eta)
 
+## Page & Thorne (1974) disc flux at r (units of M) round a prograde Kerr hole of spin
+## a ≥ 0, in units of 3Ṁ/(8πM²); zero inside the ISCO and → r⁻³ far out. `t` is
+## page_thorne_terms(a). See docs/physics/lensing.md#modelled.
+static func page_thorne_flux(r: float, t: Dictionary) -> float:
+	var x := sqrt(r)
+	var x0: float = t.x0
+	if x <= x0: return 0.0
+	var a: float = t.a
+	var s := x - x0 - 1.5 * a * log(x / x0)
+	for i in 3:
+		s -= float(t.c[i]) * log((x - float(t.roots[i])) / (x0 - float(t.roots[i])))
+	return s / (pow(x, 4.0) * (x * x * x - 3.0 * x + 2.0 * a))
+
+## The roots of x³ − 3x + 2a and their log coefficients, the ISCO and the flux peak.
+static func page_thorne_terms(a: float) -> Dictionary:
+	a = clampf(a, 0.0, 0.998)
+	var ac := acos(a)
+	var roots := [2.0 * cos((ac - PI) / 3.0), 2.0 * cos((ac + PI) / 3.0), -2.0 * cos(ac / 3.0)]
+	var c := []
+	for i in 3:
+		var xi: float = roots[i]
+		var xj: float = roots[(i + 1) % 3]
+		var xk: float = roots[(i + 2) % 3]
+		# (xᵢ − a)²/xᵢ → 0 as a → 0 at the root xᵢ → 2a/3.
+		c.append(0.0 if absf(xi) < 1e-9 else 3.0 * (xi - a) * (xi - a) / (xi * (xi - xj) * (xi - xk)))
+	var isco := Structure.kerr_isco(a)
+	var t := {"a": a, "x0": sqrt(isco), "isco": isco, "roots": roots, "c": c}
+	# The peak sits between 1.2 and 1.6 ISCO radii for every spin; golden-section it.
+	var lo := isco * 1.01
+	var hi := isco * 2.5
+	for i in 60:
+		var m1 := hi - (hi - lo) * 0.618034
+		var m2 := lo + (hi - lo) * 0.618034
+		if page_thorne_flux(m1, t) < page_thorne_flux(m2, t): lo = m1
+		else: hi = m2
+	t.peak_r = 0.5 * (lo + hi)
+	t.peak = page_thorne_flux(t.peak_r, t)
+	# Radiative efficiency 1 − E_ISCO (Bardeen, Press & Teukolsky 1972).
+	t.eta = 1.0 - (1.0 - 2.0 / isco + a / pow(isco, 1.5)) / sqrt(1.0 - 3.0 / isco + 2.0 * a / pow(isco, 1.5))
+	return t
+
 ## Physical stellar radius (AU) from mass via main-sequence R ∝ M^0.8.
 static func stellar_radius(mass_sun: float) -> float:
 	return pow(maxf(mass_sun, 0.05), 0.8) * AU_PER_RSUN

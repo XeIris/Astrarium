@@ -206,6 +206,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
+- tidal disruption, natal kicks, the disc model or the climate: `tools/realismcheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`

@@ -1,6 +1,7 @@
 extends Node
 
-# Independent static-observer shadow geometry and rendered scale invariance.
+# Independent static-observer shadow geometry, rendered scale invariance, and the
+# Kerr shadow against Bardeen's (1973) spherical-photon-orbit boundary.
 const Catch = preload("res://tools/coursecheck.gd").Catch
 var logger := Catch.new()
 var failures := 0
@@ -26,6 +27,44 @@ func publish_pixels(images: Array) -> void:
 func shadow_radius(img: Image) -> float:
 	for x in range(256, 512):
 		if img.get_pixel(x, 256).a >= 0.5: return float(x - 256)
+	return INF
+
+## Distance (px) from the centre to the shadow's edge along a pixel direction.
+func shadow_edge(img: Image, dx: int, dy: int) -> float:
+	for i in range(0, 256):
+		if img.get_pixel(256 + dx * i + mini(dx, 0), 256 + dy * i + mini(dy, 0)).a >= 0.5: return float(i)
+	return INF
+
+# outer = 0 leaves no disc: with spin, the ISCO falls inside 3 r_s.
+func march(holes: Array, basis: Basis, fov: float, intensity := 0.0, outer := 0.0) -> Array:
+	lens.dispatch({"holes": holes, "basis": basis, "fov": fov, "aspect": 1.0, "time": 0.0,
+		"disc_intensity": intensity, "disc_temp": 0.5, "disc_tpeak_phys": 1e7, "disc_outer": outer})
+	await RenderingServer.frame_post_draw
+	RenderingServer.call_on_render_thread(read_pixels)
+	return await pixels_ready
+
+# Bardeen's critical impact parameters, units of M: ξ = L/E and η = Q/E² (Q, Carter's
+# constant) of the spherical photon orbit at r.
+static func bardeen_xi(r: float, a: float) -> float:
+	return -(r * r * r - 3.0 * r * r + a * a * r + a * a) / (a * (r - 1.0))
+static func bardeen_eta(r: float, a: float) -> float:
+	return r * r * r * (4.0 * a * a - r * pow(r - 3.0, 2.0)) / (a * a * pow(r - 1.0, 2.0))
+
+func luminance_sum(img: Image, x0: int, x1: int) -> float:
+	var s := 0.0
+	for y in img.get_height():
+		for x in range(x0, x1):
+			var c := img.get_pixel(x, y)
+			s += 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+	return s
+
+## First pixel right of centre brighter than 1% of the row's peak.
+func inner_emission(img: Image) -> float:
+	var lum := func(c: Color) -> float: return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+	var peak := 0.0
+	for x in range(256, 512): peak = maxf(peak, lum.call(img.get_pixel(x, 256)))
+	for i in range(0, 256):
+		if lum.call(img.get_pixel(256 + i, 256)) > 0.01 * peak and peak > 0.0: return float(i)
 	return INF
 
 func _ready() -> void:
@@ -85,6 +124,7 @@ func _ready() -> void:
 		check("horizon %s far weak-field bend" % rs, is_finite(measured) and absf(measured - expected) <= expected * 0.05)
 		check("horizon %s far ray escapes" % rs, images[0].get_pixel(384, 256).a == 1.0)
 		print("LENSCHECK WEAK rs=%s measured_rad=%s expected_rad=%s" % [rs, measured, expected])
+	await kerr_checks()
 	lens.release()
 	await RenderingServer.frame_post_draw
 	var errors := logger.take()
@@ -93,3 +133,64 @@ func _ready() -> void:
 	OS.remove_logger(logger)
 	print("LENSCHECK DONE checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(1 if failures else 0)
+
+func kerr_checks() -> void:
+	# A distant static observer in the disc plane (M = 0.5 scene units, R = 4000 M):
+	# the edges at β = 0 are the equatorial photon orbits (η = 0), and α = 0 meets the
+	# orbit with ξ = 0. The flattened, prograde edge is on the approaching (+x) side.
+	var R := 4000.0
+	var half := 9.0 / R
+	var fov := 2.0 * atan(half)
+	var px := 256.0 / half / R
+	for a in [0.9, 0.998]:
+		var images: Array = await march([{"pos": Vector3(0, 0, -R * 0.5), "rs": 1.0, "spin": a}], Basis.IDENTITY, fov)
+		var r_pro := 2.0 * (1.0 + cos(2.0 / 3.0 * acos(-a)))
+		var r_ret := 2.0 * (1.0 + cos(2.0 / 3.0 * acos(a)))
+		var lo := r_pro
+		var hi := r_ret
+		for i in 60:
+			var mid := 0.5 * (lo + hi)
+			if bardeen_xi(lo, a) * bardeen_xi(mid, a) <= 0.0: hi = mid
+			else: lo = mid
+		var beta := sqrt(bardeen_eta(0.5 * (lo + hi), a))
+		var right := shadow_edge(images[0], 1, 0)
+		var left := shadow_edge(images[0], -1, 0)
+		var up := shadow_edge(images[0], 0, -1)
+		var down := shadow_edge(images[0], 0, 1)
+		print("LENSCHECK KERR a=%s right_px=%s (%s) left_px=%s (%s) up_px=%s down_px=%s (%s)" % [
+			a, right, bardeen_xi(r_pro, a) * px, left, -bardeen_xi(r_ret, a) * px, up, down, beta * px])
+		check("a=%s prograde edge (Bardeen)" % a, absf(right - bardeen_xi(r_pro, a) * px) <= 1.5)
+		check("a=%s retrograde edge (Bardeen)" % a, absf(left + bardeen_xi(r_ret, a) * px) <= 1.5)
+		check("a=%s vertical extent (Carter constant)" % a, absf(up - beta * px) <= 1.5 and absf(down - beta * px) <= 1.5)
+		# Pole-on, the shadow is a circle of radius √(η + a²) at the ξ = 0 orbit.
+		var pole := Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0))
+		images = await march([{"pos": Vector3(0, -R * 0.5, 0), "rs": 1.0, "spin": a}], pole, fov)
+		var expect := sqrt(beta * beta + a * a) * px
+		var edges := [shadow_edge(images[0], 1, 0), shadow_edge(images[0], -1, 0), shadow_edge(images[0], 0, 1), shadow_edge(images[0], 0, -1)]
+		print("LENSCHECK KERR POLE a=%s edges_px=%s expected_px=%s" % [a, edges, expect])
+		check("a=%s pole-on circular shadow" % a, edges.all(func(e): return absf(e - expect) <= 1.5))
+	# The disc: the approaching limb is brighter, and spin moves the inner edge in.
+	var side := Basis.from_euler(Vector3(deg_to_rad(-12.0), 0, 0))
+	var cam := side * Vector3(0, 0, 30.0)
+	var disc: Array = await march([{"pos": -cam, "rs": 1.0, "spin": 0.9}], side, deg_to_rad(40.0), 1.0, 8.0)
+	var lr := luminance_sum(disc[0], 0, 256)
+	var rr := luminance_sum(disc[0], 256, 512)
+	print("LENSCHECK DISC receding=%s approaching=%s" % [lr, rr])
+	check("disc Doppler: approaching (+x) limb brighter", rr > 2.0 * lr and lr > 0.0)
+	# Pole-on from afar, a* = 0.9 puts the ISCO (2.32 M) inside the photon region, so the
+	# disc is seen in front of the shadow; at a* = 0 (6 M) its inner edge stays outside it.
+	var top := Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0))
+	for a in [0.0, 0.9]:
+		var bare: Array = await march([{"pos": Vector3(0, -R * 0.5, 0), "rs": 1.0, "spin": a}], top, fov)
+		var lit: Array = await march([{"pos": Vector3(0, -R * 0.5, 0), "rs": 1.0, "spin": a}], top, fov, 1.0, 4.0)
+		var shadow := shadow_edge(bare[0], 1, 0)
+		var inner := inner_emission(lit[0])
+		print("LENSCHECK DISC a=%s inner_px=%s shadow_px=%s" % [a, inner, shadow])
+		check("a=%s disc inner edge %s the shadow" % [a, "inside" if a > 0.0 else "outside"],
+			(inner < shadow - 3.0) if a > 0.0 else (inner >= shadow))
+		check("a=%s disc fields finite" % a, lit.all(func(im: Image):
+			for y in range(0, 512, 4):
+				for x in range(0, 512, 4):
+					var c := im.get_pixel(x, y)
+					if not (is_finite(c.r) and is_finite(c.g) and is_finite(c.b) and is_finite(c.a)): return false
+			return true))

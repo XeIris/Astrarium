@@ -22,7 +22,8 @@ Fixed by the stacked branches: `fix/physics-fidelity-batch1` (P1-1 to P1-3),
 V2), `fix/physics-fidelity-obliquity` (P1-4), `fix/physics-integrator-1pn`
 (section 5: Yoshida-4 and EIH 1PN; S3, S9, S11, S14) and
 `fix/physics-fidelity-remaining` (the rest, below), with `fix/physics-fidelity-followups`
-completing F1's cutoff, F4's tables, F5, V1 and V3. F7 needs only a source note.
+completing F1's cutoff, F4's tables, F5, V1 and V3, and `fix/physics-fidelity-additions`
+completing V7 and part of section 6 ([below](#section-6-status)). F7 needs only a source note.
 
 | item | status |
 |---|---|
@@ -38,7 +39,7 @@ completing F1's cutoff, F4's tables, F5, V1 and V3. F7 needs only a source note.
 | V4 | Done. Analytic umbra and penumbra on rocky, cloud and giant surfaces at true scale; a red umbra for thick atmospheres, brightened ×100 for display. The star's limb darkening inside the penumbra is ignored. |
 | V5 | Done. Mallama & Hilton (2018) magnitudes for the planets, Lambert spheres for other reflectors, on the sky's flux scale. |
 | V6 | Done. `solar` draws the 9096 stars of the Yale Bright Star Catalogue (BSC5, `assets/sky/bsc5.bin`, built by `tools/build_starcat.py`) on the real J2000 galactic frame, and the procedural sky fills in below V ≈ 6. Gaia stars are not used; the catalogue is visible-band only, and neither lensed nor aberrated. |
-| V7 | **Label only.** The inspector says "Schwarzschild geodesics — spin not rendered"; Kerr geodesics and Novikov–Thorne flux are not implemented. |
+| V7 | Done. The marcher integrates Kerr null geodesics in Kerr–Schild Cartesian form (Hamilton's equations, so E, L and Carter's Q are conserved), with a static-observer camera; the disc's inner edge is the Kerr ISCO and its temperature follows the Page–Thorne flux, with the redshift from the ray's conserved E and L. `lenscheck` matches Bardeen's shadow edges within 1 px at a* = 0.9 and 0.998, equatorial and pole-on. The inspector now reads "Kerr geodesics, Page–Thorne disc". Two holes still superpose illustratively ([lensing.md](physics/lensing.md)). |
 | V8 | Done. Flamm's paraboloid to 40 r_s for holes and depth ∝ Φ elsewhere, labelled in Settings › Render. |
 | V9 | Done. Optional first-order light-time (Rømer) delay for drawn positions (Settings › Sim). |
 
@@ -220,6 +221,31 @@ super-rotate about 60× faster than its surface.
 
 **Fix:** drive rotation from sidereal period × sim time for every body that has a
 period. Keep `visualSpinRadS` only as an explicit override.
+
+### Section 6 status
+
+Chosen for realism per effort in `fix/physics-fidelity-additions`, each checked by
+`tools/realismcheck.tscn`:
+
+| addition | status |
+|---|---|
+| Roche-limit disruption | Done, as a structural event in `check_structural_limits()`. Thresholds in `Structure.disruption_radius`: fluid/rigid Roche for worlds, r_t/β_d for stars and compact objects. A moon becomes a ring; a star round a hole loses half its mass to it, which can push a neutron star past TOV ([structure.md](physics/structure.md#tidal-disruption)). |
+| Supernova natal kicks | Done. Hobbs σ = 265 km/s for neutron stars, momentum-conserving for black holes; Blaauw unbinding was already emergent ([structure.md](physics/structure.md#supernova-natal-kicks)). |
+| Runaway greenhouse | Done. Wet worlds' OLR is capped at 282 W/m²; above it the ocean boils at the latent-heat rate along the steam saturation curve and rains back when the world cools. Hydrogen escape, which would make the loss permanent, is not modelled ([climate.md](physics/climate.md)). |
+| Kopparapu HZ | Done, as a climate-panel readout of the dominant star's runaway-to-maximum-greenhouse limits. Not drawn as an orrery overlay. |
+| Cloud albedo feedback | **Declined.** The model's cloud cover is a visual humidity rule (+3.75 %/K); coupling it at CERES's radiative effect would give −1.2 W/m²/K against AR6's +0.4 ([climate.md](physics/climate.md#clouds)). Needs a physical cloud model first. |
+| Tidal locking and circularisation; adiabatic mass loss; Roche-lobe overflow and novae | Not done. Each needs a secular force or a time-evolving stellar mass in the N-body kernel, which must stay bit-identical between GDScript and C; mass loss also needs stars that age with simulated time. |
+| NRLMSISE drag and orbital decay; aerobraking | Not done. Decay needs drag in the rails kicks and a thermosphere above every atmosphere's `top`, which changes every flight check's baseline. |
+| Lagrange points and halo orbits | Not done. |
+| Comms blackout | Not done: an honest criterion needs an equilibrium-air ionisation model behind the shock (post-shock temperature and Saha), not a threshold on q. |
+| Launch-site azimuth limits | Not done: ascent guidance still flies due east whatever the target (P1-4 follow-up 1), so limits would constrain nothing. |
+| Mars/Titan skies; earthshine, aurora, airglow; re-entry plasma colour | Not done. |
+| Budyko–Sellers EBM | Not done. |
+
+F1's remaining pieces are not done either: the WGS-84 surface changes every
+surface consumer (ground, clouds, sky, landing, maps); C22 needs a body-fixed prime
+meridian, which belongs with #18's IAU frames; mascons need a GRAIL field
+(a data download, and a degree-50 field per RK4 stage is too slow in GDScript).
 
 ---
 

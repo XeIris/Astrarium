@@ -1,6 +1,6 @@
 # Black holes: the lens marcher
 
-Code: `render/lens_pass.gd` (dispatch and uniforms), `shaders/lens/lens_march.glsl`
+Code: `render/lens_pass.gd` (dispatch, uniforms and the Page–Thorne terms), `shaders/lens/lens_march.glsl`
 (the compute kernel), `shaders/sky/background.gdshader` (the full-resolution sky
 over the marcher's direction field).
 
@@ -9,37 +9,42 @@ shade, so a full-screen pass integrates null geodesics backwards from the eye.
 
 ## Modelled
 
-- **Null geodesics.** In Schwarzschild geometry the photon orbit equation
-  reduces (via Binet) to the Cartesian acceleration
-      d²x/dλ² = −(3/2) r_s h² x / r⁵,   h = |x × dx/dλ|
-  for one Schwarzschild hole. The renderer uses unit arclength tangents and
-  projects the acceleration perpendicular to the tangent, then integrates both
-  tangent and position with an RK2 midpoint step that
-  shrinks as (r − r_s), so rays grazing the photon sphere at 1.5 r_s are
-  resolved.
-- **The shadow.** A ray crossing the horizon stops and returns the disc light
-  it has collected. The dark region's apparent radius is (√27/2)·r_s ≈ 2.6 r_s,
-  cast by the photon sphere. A finite static observer sees
-  `sin α = (√27/2)·(r_s/R)·√(1 − r_s/R)`; the single-hole camera maps its local
-  ray to the coordinate tangent before marching.
-- **The photon ring.** Rays near the critical impact parameter wind round the
-  hole and cross the disc on each pass, stacking into the thin bright ring. It
-  comes out of the integration; nothing draws it.
-- **Shakura–Sunyaev disc.** T(r) ∝ (r_in/r)^¾ · (1 − √(r_in/r))^¼, zero at the
-  ISCO and peaking just outside it: a dark inner gap and a hot ridge.
-- **Spin is not rendered.** The marcher integrates Schwarzschild geodesics for
-  every hole, and the disc is the Newtonian zero-torque profile, so a spinning
-  hole's shadow is neither flattened nor shifted, frame dragging is absent, and
-  the relativistic Novikov–Thorne/Page–Thorne flux is not used. The inspector
-  states this for a hole with a* > 0.1; its listed horizon, ISCO and prograde
-  photon orbit are Kerr values. Kerr null geodesics would need the Carter
-  constant in the marcher and a Kerr ISCO for the disc together.
-- **Illustrated transfer.** The disc orbits at v = √(r_s/2r)/√(1 − r_s/r). The
-  fitted-colour Doppler and gravitational factor g = δ·√(1 − r_s/r) sets both the
-  colour temperature, T_obs = g·T_emit, and the intensity, I_obs ∝ g⁴ (from the
-  invariance of I_ν/ν³ at infinity). Finite-observer/local-direction corrections
-  are not a complete transport model. The approaching limb comes out blue-white and ~80×
-  brighter; the receding limb is dull red.
+- **Kerr null geodesics.** Each hole is a Kerr spacetime in Kerr–Schild Cartesian
+  coordinates (see [Ray coordinates](#ray-coordinates-and-numerical-scope)). Its spin
+  axis is the disc's angular momentum (scene −y), so the disc is always prograde.
+  Energy E = −pₜ, the axial angular momentum L = p_φ and Carter's constant Q are
+  conserved by the Hamiltonian flow; they are not imposed, so `tools/lenscheck.tscn`
+  measures the shadow they produce against Bardeen's boundary.
+- **The shadow.** A ray crossing the horizon r₊ = M(1 + √(1 − a²)) stops and returns
+  the disc light it has collected. At a* = 0 the shadow's radius is (√27/2)·r_s, and
+  a finite static observer sees `sin α = (√27/2)·(r_s/R)·√(1 − r_s/R)`. With spin,
+  frame dragging lets prograde photons orbit closer (down to r → M as a* → 1), so
+  the edge on the approaching side flattens and the shadow shifts away from it.
+  The edges seen from the equator are the equatorial photon orbits; from the pole
+  the shadow is a circle of radius √(η + a²) (Bardeen 1973, below).
+- **The photon ring.** Rays near the critical orbits wind round the hole and cross
+  the disc on each pass, stacking into the thin bright ring. It comes out of the
+  integration; nothing draws it.
+- **Page–Thorne disc.** The inner edge is the prograde Kerr ISCO
+  (`Structure.kerr_isco`), 6M at a* = 0 and 1.24M at 0.998. The emitted
+  temperature is (F/F_peak)^¼ with F the Novikov–Thorne flux of
+  [Page & Thorne (1974)](https://doi.org/10.1086/152990):
+
+      F ∝ [x − x₀ − (3a/2) ln(x/x₀) − Σᵢ 3(xᵢ − a)²/(xᵢ(xᵢ − xⱼ)(xᵢ − xₖ)) ln((x − xᵢ)/(x₀ − xᵢ))]
+          / (x⁴ (x³ − 3x + 2a)),   x = √(r/M), x₀ = √(r_isco/M)
+
+  with xᵢ the roots of x³ − 3x + 2a. It is zero at the ISCO, peaks at 9.55M for
+  a* = 0 and 1.58M for 0.998, and tends to the Newtonian 3GMṀ/(8πr³) far out
+  (`Physics.page_thorne_flux`). The physical peak temperature
+  (`Derive.disc_peak_temp`) holds the Eddington ratio fixed, so Ṁ ∝ 1/η with
+  efficiency η = 1 − E_isco (5.7% to 32%) and T_peak⁴ ∝ F_peak/η: ×2.8 at 0.998.
+- **Transfer.** Gas moves on prograde circular equatorial orbits,
+  Ω = M^½/(r^{3/2} + aM^½), and the frequency ratio is g = 1/(uᵗ(E − ΩL)) from the
+  ray's conserved E and L, with E = 1 for the camera (Bardeen, Press & Teukolsky
+  1972 give uᵗ). g sets the colour temperature, T_obs = g·T_emit, and the
+  intensity, I_obs ∝ g⁴ (from the invariance of I_ν/ν³). The approaching limb comes
+  out blue-white and an order of magnitude brighter; the receding limb is dull red.
+  Off the midplane the slab uses the midplane orbit at the same r.
 - **Volume.** Emission and absorption through a flared slab H(r) ∝ r^(9/8), so
   the far side is seen through the near side.
 - **Filaments.** MRI turbulence sheared by Keplerian Ω(r) ∝ r^(−3/2): noise is
@@ -58,35 +63,60 @@ images.
 
 ## Ray coordinates and numerical scope
 
-The single-hole Cartesian acceleration follows
-[Walters and Forbes, equation 12](https://arxiv.org/pdf/1409.3645).
-For unit tangent `v`, write this acceleration as `A(x,v)`. Our arclength form is
-`dv/ds = A − v(v·A)`: reparameterizing the affine tangent `dx/dλ=qv` cancels
-its squared speed in this transverse curvature. Both RK2 stages project their
-own acceleration; position advances with the midpoint tangent, not the endpoint.
-This arclength conversion is a derivation from that homogeneous quadratic equation.
+The Kerr–Schild form ([Visser 2007](https://arxiv.org/abs/0706.0622)) is
 
-For a static camera at `R>r_s`, split the local ray into radial and tangential
-parts. The coordinate tangent is proportional to
-`rd_radial + rd_tangential/√(1 − r_s/R)`, then normalized for arclength.
-[Perlick and Tsupko](https://arxiv.org/pdf/2105.07101) give the independent
-finite-observer shadow formula used by `tools/lenscheck.tscn`.
-Two-hole acceleration superposition and its camera remain an illustrative
-geometry; they are not a solution for a binary Schwarzschild/Kerr spacetime.
+    g = η + f k⊗k,   f = 2Mr³/(r⁴ + a²z²),
+    k = (1, (rx + ay)/(r² + a²), (ry − ax)/(r² + a²), z/r),
+    (x² + y²)/(r² + a²) + z²/r² = 1,
 
-The implementation factors acceleration into unit directions and `r_s/r²`,
-avoiding fifth powers and scene-unit distance floors. Disc height and optical
-path ratios also use their actual horizon scale. Far steps may grow with distance;
-near steps retain the horizon bounds. A segment that cannot reach the emitting
-annulus needs no disc-specific step cap. Disc density is evaluated only inside
-its conservative height envelope. These changes retain the 240-step limit and
-noise detail; finite iteration count still limits rays very near the critical orbit.
+with k null, so gᵘᵛ = ηᵘᵛ − f KᵘKᵛ (K = η⁻¹k). The marcher integrates Hamilton's
+equations for H = ½gᵘᵛpᵤpᵥ: dx/dλ = p − f k(K·p) and dp/dλ = ½∇f (K·p)² + f(K·p)∇(K·p),
+with ∇r, ∇f and ∇k analytic. At a* = 0 this is Schwarzschild in Eddington–Finkelstein
+form, so the a* = 0 shadow and weak bend checks still apply. Positions are divided by
+each hole's M, which keeps the fixtures at r_s = 1 and 10⁻⁷ identical.
+
+The camera traces rays backwards. Backward tracing in Kerr(a) is forward tracing in
+its time reverse, Kerr(−a), with the disc running the other way; ingoing
+Kerr–Schild coordinates are regular on that spacetime's future horizon, so rays
+cross it. The camera is a static observer, u = ∂ₜ/√(1 − f) (inside an ergosphere,
+where no static observer exists, the Kerr–Schild normal observer). Its local ray n
+maps to a coordinate direction through the symmetric inverse square root of the
+static frame's spatial metric δ + f/(1 − f) k⊗k, then p = u + n, so the camera
+measures energy 1. At a* = 0 this reduces to the radial/tangential split
+`rd_radial + rd_tangential/√(1 − r_s/R)`.
+
+Each step is an RK2 midpoint in λ sized to a spatial step of 0.16(r − r₊), at least
+0.1 r_s and at most 0.3 r, capped near the disc plane. The bend accumulates
+separately from the initial momentum so fp32 keeps a 10⁻⁵ rad deflection. Prograde
+orbits of a near-extremal hole skim the horizon for several windings, so a hole
+spinning faster than a* = 0.5 raises the budget from 240 to 320 steps; that holds
+the a* = 0.998 edges to within a pixel at 512², and a ray still within 4 r_s when
+the steps run out is counted as captured. At a* = 0 the metric functions take the
+Schwarzschild shortcut (r = |x|, k = x/r), and ∇k is only ever contracted with p.
+On the M5 gate this costs 1.6 ms per frame at lens focus (25.2 → 26.8 ms median)
+and 1.3 ms wide. A Python prototype of the same
+scheme (step floor 0.1 r_s, 300 steps) put the a* = 0.998 prograde edge 1% from
+Bardeen's.
+
+[Bardeen (1973)](https://ui.adsabs.harvard.edu/abs/1973blho.conf..215B) gives the
+critical orbits a distant observer sees: for the spherical photon orbit at r,
+ξ = L/E = −(r³ − 3Mr² + a²r + a²M)/(a(r − M)) and
+η = Q/E² = r³(4a²M − r(r − 3M)²)/(a²(r − M)²); an observer at inclination i sees
+α = −ξ/sin i, β = ±√(η + a²cos²i − ξ²cot²i). `tools/lenscheck.tscn` compares the
+rendered edges at a* = 0.9 and 0.998, from the equator (η = 0 and ξ = 0) and the
+pole, with these at R = 4000M (within 1.5 px), and keeps
+[Perlick and Tsupko](https://arxiv.org/pdf/2105.07101)'s finite-observer
+Schwarzschild shadow at 7 and 20 r_s.
+
+Two holes superpose their f k⊗k terms in gᵘᵛ. That sum is not a solution of the
+field equations, and its camera uses the plain view direction with the energy that
+makes it null; it remains an illustrative geometry.
 
 Float32 inputs, half-float direction storage, and strongly unequal two-hole scales
 remain numerical limits. The displayed turbulent disc is illustrative: its fitted
-colour, density, local Doppler direction and transfer to a finite observer are
-not a complete radiative-transfer calculation. The temperature resolve assigns
-the dominant source rather than mixing spectra; categorical X-ray boundaries
-and finite-field edges remain visible. Single-hole ray geometry and the
-analytic-star resolve have independent checks; matching a disc image does not
-validate all astrophysical claims.
+colour, density and transfer through the slab are not a complete radiative-transfer
+calculation, and the colour temperature is the "Disc Temp" control scaled by the
+Page–Thorne profile. The temperature resolve assigns the dominant source rather
+than mixing spectra; categorical X-ray boundaries and finite-field edges remain
+visible. Single-hole ray geometry and the analytic-star resolve have independent
+checks; matching a disc image does not validate all astrophysical claims.
