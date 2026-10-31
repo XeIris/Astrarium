@@ -82,6 +82,47 @@ static func window_wait(phase_now: float, want: float, n_dep: float, n_tgt: floa
 	if t < 0.0: t += period
 	return t
 
+# Porkchop results by departure/arrival pair, reused until the clock moves a
+# fiftieth of a synodic period (the planner reprices twice a second).
+static var _pork_cache := {}
+
+## The cheapest departure in the next synodic period (plus a tenth) from `Pc` to `Dc`
+## about `C`, over flight times from 0.6 to 1.4 Hohmann. With a parking radius at
+## either end, the cost is the burn there (Oberth); otherwise v∞. Returns the
+## porkchop's best cell with t_dep counted from now, plus grid, t_deps and tofs, or {}.
+static func porkchop_window(v: Vessel, Pc: Body, Dc: Body, C: Body, r_park_dep: float, r_park_arr: float,
+		n_dep: int = 40, n_tof: int = 15) -> Dictionary:
+	var muC := _mu(C)
+	var rP := _rel_pos(Pc, C).length()
+	var rD := _rel_pos(Dc, C).length()
+	var h := Orbit.hohmann(muC, rP, rD)
+	var now: float = v.coord
+	var key := "%d:%d:%d" % [Pc.get_instance_id(), Dc.get_instance_id(), C.get_instance_id()]
+	var hit = _pork_cache.get(key)
+	if hit != null and absf(now - float(hit.now)) < float(h.synodic) / 50.0 and hit.rp == r_park_dep and hit.ra == r_park_arr:
+		var shifted: Dictionary = hit.result.duplicate()
+		if not shifted.is_empty(): shifted.t_dep = maxf(float(shifted.t_dep) - (now - float(hit.now)), 0.0)
+		return shifted
+	var t_deps: Array = []
+	var span := float(h.synodic) * 1.1
+	for i in n_dep: t_deps.append(span * float(i) / float(n_dep - 1))
+	var tofs: Array = []
+	for j in n_tof: tofs.append(float(h.tof) * lerpf(0.6, 1.4, float(j) / float(n_tof - 1)))
+	var mu_p := _mu(Pc); var mu_d := _mu(Dc)
+	var cost := func(vd: float, va: float) -> float:
+		var cd := escape_dv(mu_p, r_park_dep, vd) if r_park_dep > 0.0 else vd
+		var ca := escape_dv(mu_d, r_park_arr, va) if r_park_arr > 0.0 else va
+		return cd + ca
+	var pc := Orbit.porkchop(_rel_pos(Pc, C), _rel_vel(Pc, C), muC + mu_p, _rel_pos(Dc, C), _rel_vel(Dc, C), muC + mu_d,
+		muC, t_deps, tofs, cost)
+	var result := {}
+	if not pc.best.is_empty():
+		result = pc.best.duplicate()
+		result.grid = pc.grid; result.t_deps = t_deps; result.tofs = tofs
+		result.hohmann = h
+	_pork_cache[key] = {"now": now, "rp": r_park_dep, "ra": r_park_arr, "result": result}
+	return result
+
 ## The route from where the vessel is to `dest`, with each leg's Δv and duration, the
 ## propellant it costs and whether the tanks hold it. Keys: ok, flyable, why, case,
 ## type, legs [{key, label, dv, t}], dv, dv_avail, prop, prop_avail, short, wait, tof,
@@ -175,6 +216,16 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		var h := Orbit.hohmann(muC, rP, rD)
 		var v_inf_dep := absf(h.dv1)
 		var v_inf_arr := absf(h.dv2)
+		var phase_now := Orbit.phase_angle(_rel_pos(Pc, C), _rel_pos(Dc, C))
+		var wait := window_wait(phase_now, h.phase, sqrt(muC / pow(rP, 3.0)), sqrt(muC / pow(rD, 3.0)))
+		var tof: float = h.tof
+		# The real orbits are eccentric and inclined, so the window and its cost come
+		# from a porkchop of Lambert arcs; the circular Hohmann is the fallback.
+		var pc := porkchop_window(v, Pc, Dc, C, r0 if Pc == P else 0.0, r_cap if Dc == target else 0.0)
+		if not pc.is_empty():
+			v_inf_dep = pc.v_inf_dep; v_inf_arr = pc.v_inf_arr
+			wait = pc.t_dep; tof = pc.tof
+			out["porkchop"] = pc
 		var dep := escape_dv(muP, r0, v_inf_dep)
 		if Pc != P:
 			# From a moon: leave it, then the planet it circles, on the same hyperbola.
@@ -183,15 +234,14 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		var cap := escape_dv(mu_d, r_cap, v_inf_arr)
 		if Dc != target:
 			cap = escape_dv(_mu(Dc), _rel_pos(target, Dc).length(), v_inf_arr) + escape_dv(mu_d, r_cap, 0.0) * 0.3
-		var phase_now := Orbit.phase_angle(_rel_pos(Pc, C), _rel_pos(Dc, C))
-		var wait := window_wait(phase_now, h.phase, sqrt(muC / pow(rP, 3.0)), sqrt(muC / pow(rD, 3.0)))
 		out.case = "planet" if (Pc == P and Dc == target) else "other"
-		out.type = "Interplanetary Hohmann transfer" if C.type == "star" else "Hohmann transfer about %s" % C.name
+		var kind := "Lambert transfer" if out.has("porkchop") else "Hohmann transfer"
+		out.type = "Interplanetary %s" % kind.to_lower() if C.type == "star" else "%s about %s" % [kind, C.name]
 		legs.append({"key": "escape", "label": "Departure burn (escape %s)" % P.name, "dv": dep, "t": wait})
-		legs.append({"key": "midcourse", "label": "Course corrections", "dv": 0.03 * v_inf_dep + 20.0, "t": h.tof})
+		legs.append({"key": "midcourse", "label": "Course corrections", "dv": 0.03 * v_inf_dep + 20.0, "t": tof})
 		legs.append({"key": "approach", "label": "Aim the arrival", "dv": 0.02 * v_inf_arr + 20.0, "t": 0.0})
 		legs.append({"key": "capture", "label": "Capture into orbit", "dv": cap, "t": 3600.0})
-		out.wait = wait; out.tof = h.tof
+		out.wait = wait; out.tof = tof
 		out["primary"] = C
 	if want == "land":
 		if dest_env.atm != null:
@@ -405,11 +455,12 @@ func _leg_escape(v: Vessel, ap) -> void:
 			var h := Orbit.hohmann(muC, rP, rD)
 			var wait := window_wait(Orbit.phase_angle(_rel_pos(P, C), _rel_pos(dest, C)), h.phase,
 				sqrt(muC / pow(rP, 3.0)), sqrt(muC / pow(rD, 3.0)))
+			var pc := porkchop_window(v, P, dest, C, v.r.length(), plan.r_cap) if plan.has("porkchop") else {}
+			if not pc.is_empty(): wait = pc.t_dep
 			at = v.coord + maxf(wait, 300.0)
-			# Leave along the planet's own motion with the Hohmann v∞; the course
-			# corrections take out what eccentric, inclined orbits leave. (Aiming the
-			# departure by Lambert fails: a Hohmann is a 180° transfer, whose plane a
-			# Lambert solution cannot pin down.)
+			# Without a porkchop, leave along the planet's own motion with the Hohmann
+			# v∞ (a 180° transfer has no Lambert plane); the course corrections take
+			# out what eccentric, inclined orbits leave.
 			v_inf = absf(h.dv1)
 			# The planet's velocity at the departure, which can be a year or more away.
 			var rE := DVec3.new(); var vE := DVec3.new()
@@ -417,6 +468,11 @@ func _leg_escape(v: Vessel, ap) -> void:
 				vE = _rel_vel(P, C)
 			d_inf = DQuat.nrm(vE).scale_in(signf(h.dv1))
 			_t_arr = at + h.tof
+			if not pc.is_empty():
+				# The porkchop's arc is never within 2° of 180°, so its v∞ has a direction.
+				v_inf = pc.v_inf_dep
+				d_inf = DQuat.nrm((pc.v_dep as DVec3).clone())
+				_t_arr = at + float(pc.tof)
 		var tb := _align_time(v, mu, at, d_inf, v_inf)
 		_schedule(tb, "Departure burn", func() -> DVec3:
 			var rb := DVec3.new(); var vb := DVec3.new()

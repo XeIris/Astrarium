@@ -55,7 +55,9 @@ const ATMOSPHERES := {
 		],
 		"top": 140e3, "exo": 1000e3, "tint": 0x4a7fd0, "haze": 0x8fb6e8,
 		# Water vapour to condense in the expansions round a vehicle (Vapour).
-		"humid": true,
+		"humid": true, "radiative": "air", "wind": "earth",
+		# The flight sky's single-scattering coefficients (sky_dome.gdshader).
+		"scatter": "earth",
 	},
 	# The standard Mars model, H = 11.1 km. rho0 follows from 610 Pa of CO₂ at 210 K
 	# (0.0151 kg/m³). A second layer above 60 km. Deep enough to burn you, too thin to
@@ -63,6 +65,7 @@ const ATMOSPHERES := {
 	"Mars": {
 		"p0": 610.0, "rho0": 0.01514, "T0": 210.0, "molar": 0.04334, "gamma": 1.29,
 		"kSG": 1.9027e-4,                    # CO₂ Sutton–Graves constant (Tauber & Sutton 1991)
+		"radiative": "co2",
 		"layers": [{ "base": 0.0, "H": 11100.0 }, { "base": 60000.0, "H": 8000.0 }],
 		"top": 125e3, "tint": 0xc08a5a, "haze": 0xd8a878,
 	},
@@ -70,6 +73,7 @@ const ATMOSPHERES := {
 	# 6% in ρ); isothermal above. ρ₀ is 92.1 bar of CO₂ at 735.3 K.
 	"Venus": {
 		"p0": 9.21e6, "rho0": 65.456, "T0": 735.3, "molar": 0.04345, "gamma": 1.29, "kSG": 1.9027e-4,
+		"radiative": "co2",
 		"layers": [
 			{ "base": 0.0, "L": 0.0077227 }, { "base": 10000.0, "L": 0.0077885 },
 			{ "base": 20000.0, "L": 0.0084494 }, { "base": 30000.0, "L": 0.008022 },
@@ -193,9 +197,18 @@ static func speed_of_sound(atm, h: float) -> float:
 # AERODYNAMICS
 
 ## Cd against Mach for a slender launcher: it nearly triples through the transonic
-## region, then falls away.
-static func drag_coefficient(mach: float) -> float:
+## region, then falls away. A stage's `cdTable` ({source, rows: [[M, Cd], ...]})
+## replaces this generic curve while that stage is the lowest one attached.
+static func drag_coefficient(mach: float, table = null) -> float:
 	var M := maxf(mach, 0.0)
+	if table != null:
+		var rows: Array = table.rows
+		if M <= float(rows[0][0]): return float(rows[0][1])
+		for i in range(1, rows.size()):
+			if M <= float(rows[i][0]):
+				var f := (M - float(rows[i - 1][0])) / maxf(float(rows[i][0]) - float(rows[i - 1][0]), 1e-9)
+				return lerpf(float(rows[i - 1][1]), float(rows[i][1]), f)
+		return float(rows[rows.size() - 1][1])
 	if M < 0.8: return 0.30 + 0.05 * M * M           # subsonic, slowly rising
 	if M < 1.1: return 0.32 + 1.45 * (M - 0.8)       # transonic rise to the peak
 	if M < 1.4: return 0.755 - 0.30 * (M - 1.1)      # just past the peak
@@ -211,13 +224,148 @@ static func blunt_drag_coefficient(mach: float) -> float:
 ##   q̇ = k √(ρ/R_n) v³,  k = 1.7415e-4 (SI) for air, an atmosphere's `kSG` otherwise,
 ## capped by the free-molecular limit ½ρv³ (the whole kinetic energy flux), which takes
 ## over in the rarefied air above ~110 km. Lunar return at 11 km/s heats 8× as hard as
-## LEO entry at 5.5. Shock-layer radiation, which matters above ~10 km/s, is not modelled.
+## LEO entry at 5.5. Shock-layer radiation is radiative_heat_flux.
 const SUTTON_GRAVES_K := 1.7415e-4
 static func heat_flux(rho: float, v: float, nose_radius_m: float, atm = null) -> float:
 	if rho <= 0.0: return 0.0
 	var k: float = atm.get("kSG", SUTTON_GRAVES_K) if atm != null else SUTTON_GRAVES_K
 	var v3 := v * v * v
 	return minf(k * sqrt(rho / maxf(nose_radius_m, 0.05)) * v3, 0.5 * rho * v3)
+
+## Equilibrium shock-layer radiation at the stagnation point (Tauber & Sutton 1991,
+## J. Spacecraft Rockets 28, 40): q̇ = C·R_n^a·ρ^b·f(V) in W/cm², R_n in m, ρ in
+## kg/m³, quoted to ±30% by the authors. In air a = 1.072e6·V^−1.88·ρ^−0.325, capped
+## by nose radius; f(V) is tabulated to 16 km/s in air and 9 km/s in CO₂ and held
+## beyond (Venus entry at 11 km/s is underestimated). Zero below the tables.
+const RADIATIVE := {
+	"air": { "C": 4.736e4, "b": 1.22, "f": [
+		[9000.0, 1.5], [9250.0, 4.3], [9500.0, 9.7], [9750.0, 19.5], [10000.0, 35.0],
+		[10250.0, 55.0], [10500.0, 81.0], [10750.0, 115.0], [11000.0, 151.0], [11500.0, 238.0],
+		[12000.0, 359.0], [12500.0, 495.0], [13000.0, 660.0], [13500.0, 850.0], [14000.0, 1065.0],
+		[14500.0, 1313.0], [15000.0, 1550.0], [15500.0, 1780.0], [16000.0, 2040.0]] },
+	"co2": { "C": 2.35e4, "a": 0.526, "b": 1.19, "f": [
+		[6000.0, 0.2], [6150.0, 1.0], [6300.0, 1.95], [6500.0, 3.42], [6700.0, 5.1], [6900.0, 7.1],
+		[7000.0, 8.1], [7200.0, 10.2], [7400.0, 12.5], [7600.0, 14.8], [7800.0, 17.1], [8000.0, 19.2],
+		[8200.0, 21.4], [8400.0, 24.1], [8600.0, 26.0], [8800.0, 28.9], [9000.0, 32.8]] },
+}
+static func radiative_heat_flux(rho: float, v: float, nose_radius_m: float, atm = null) -> float:
+	if rho <= 0.0 or atm == null or not RADIATIVE.has(atm.get("radiative", "")): return 0.0
+	var k: Dictionary = RADIATIVE[atm.radiative]
+	var rows: Array = k.f
+	if v < float(rows[0][0]): return 0.0
+	var fv := float(rows[rows.size() - 1][1])
+	for i in range(1, rows.size()):
+		if v <= float(rows[i][0]):
+			fv = lerpf(float(rows[i - 1][1]), float(rows[i][1]), (v - float(rows[i - 1][0])) / (float(rows[i][0]) - float(rows[i - 1][0])))
+			break
+	var rn := maxf(nose_radius_m, 0.05)
+	var a: float
+	if k.has("a"):
+		a = k.a
+	else:
+		a = minf(1.072e6 * pow(v, -1.88) * pow(rho, -0.325), 1.0 if rn < 1.0 else (0.6 if rn < 2.0 else 0.5))
+	return k.C * pow(rn, a) * pow(rho, k.b) * fv * 1e4
+
+# GRAVITY FIELDS. Zonal harmonics (unnormalised J_n) about the spin pole, with their
+# reference radius. Earth: EGM2008; Mars: MRO120D (Konopliv et al. 2016); Moon:
+# LP150Q (Konopliv et al. 2001). Sectoral and tesseral terms, and the lunar mascons
+# that make low lunar orbits unstable, are not modelled.
+const ZONAL := {
+	"Earth": { "R": 6378137.0, "J": [0.0, 0.0, 1.08262668e-3, -2.53265649e-6, -1.61962159e-6] },
+	"Mars":  { "R": 3396000.0, "J": [0.0, 0.0, 1.956608e-3, 3.1450e-5, -1.5377e-5] },
+	"Moon":  { "R": 1738000.0, "J": [0.0, 0.0, 2.03323e-4, 8.4759e-6, -9.5919e-6] },
+}
+
+## Acceleration (m/s²) from J2–J4 at `rr`, metres from the centre in the flight frame
+## (pole on −Y, so the polar coordinate is −y). Adds into `out`.
+static func zonal_accel(zonal, mu: float, rr: DVec3, out: DVec3) -> DVec3:
+	if zonal == null: return out
+	var J: Array = zonal.J
+	var x := rr.x
+	var y := rr.z
+	var z := -rr.y
+	var r2 := x * x + y * y + z * z
+	if r2 < 1.0: return out
+	var r := sqrt(r2)
+	var s := z / r
+	var s2 := s * s
+	var re_r := float(zonal.R) / r
+	var g := mu / r2
+	# −∇ of Φ = (μ/r)·Σ J_n (R/r)ⁿ P_n(s), in radial and polar parts (Vallado §8.7).
+	var j2 := float(J[2]) * re_r * re_r
+	var j3 := float(J[3]) * re_r * re_r * re_r
+	var j4 := float(J[4]) * re_r * re_r * re_r * re_r
+	var fxy := -g * (1.5 * j2 * (1.0 - 5.0 * s2) + 2.5 * j3 * (3.0 * s - 7.0 * s2 * s) \
+		- 1.875 * j4 * (1.0 - 14.0 * s2 + 21.0 * s2 * s2))
+	var fz := -g * (1.5 * j2 * (3.0 - 5.0 * s2) * s + 2.5 * j3 * (6.0 * s2 - 7.0 * s2 * s2 - 0.6) \
+		- 1.875 * j4 * s * (5.0 - 70.0 / 3.0 * s2 + 21.0 * s2 * s2))
+	out.x += fxy * x / r
+	out.z += fxy * y / r
+	out.y -= fz
+	return out
+
+## μ for conic elements under J2: its orbit-averaged radial pull at inclination i,
+## μ·[1 + 3/2·J2·(R/r)²·(1 − 3/2·sin²i)]. Two-body elements with the bare μ read a
+## circular 200 km orbit at 28.5° as 13 km eccentric; the ±2 km short-period terms
+## remain.
+static func effective_mu(zonal, mu: float, rr: DVec3, vv: DVec3) -> float:
+	if zonal == null: return mu
+	var hx := rr.y * vv.z - rr.z * vv.y
+	var hy := rr.z * vv.x - rr.x * vv.z
+	var hz := rr.x * vv.y - rr.y * vv.x
+	var h2 := hx * hx + hy * hy + hz * hz
+	var r2 := rr.length_sq()
+	if h2 <= 0.0 or r2 <= 0.0: return mu
+	var cos_i := -hy / sqrt(h2)
+	var sin2 := 1.0 - cos_i * cos_i
+	return mu * (1.0 + 1.5 * float(zonal.J[2]) * float(zonal.R) * float(zonal.R) / r2 * (1.0 - 1.5 * sin2))
+
+## The zonal part of the potential, J/kg, matching zonal_accel.
+static func zonal_potential(zonal, mu: float, rr: DVec3) -> float:
+	if zonal == null: return 0.0
+	var J: Array = zonal.J
+	var r := rr.length()
+	if r < 1.0: return 0.0
+	var s := -rr.y / r
+	var q := float(zonal.R) / r
+	var p2 := 0.5 * (3.0 * s * s - 1.0)
+	var p3 := 0.5 * (5.0 * s * s * s - 3.0 * s)
+	var p4 := (35.0 * s * s * s * s - 30.0 * s * s + 3.0) / 8.0
+	return mu / r * (float(J[2]) * q * q * p2 + float(J[3]) * q * q * q * p3 + float(J[4]) * q * q * q * q * p4)
+
+# WIND. A zonal climatology, not weather: easterly trades and mid-latitude
+# westerlies at the surface (±6 m/s), a 1/7-power boundary layer to 1 km, and a
+# 35 m/s westerly jet near 12 km centred at 35° latitude, after the annual-mean
+# zonal wind of HWM14 (Drob et al. 2015) and the ERA reanalyses. Eastward m/s.
+## Off by default: the glide, rollout and landing laws still treat airspeed as ground
+## speed, so the orbiter cannot yet fly home through a jet stream. Settings › Sim.
+static var winds_enabled := false
+const WINDS := {
+	"earth": { "surf": 6.0, "jet": 35.0, "jetH": 12000.0, "jetW": 4500.0, "jetLat": 35.0, "jetLatW": 15.0,
+		"bl": 1000.0, "decay": 10000.0 },
+}
+static func zonal_wind(atm, h: float, lat: float) -> float:
+	if atm == null or not WINDS.has(atm.get("wind", "")): return 0.0
+	var w: Dictionary = WINDS[atm.wind]
+	var hh := maxf(h, 0.0)
+	var bl := pow(clampf(hh, 1.0, w.bl) / float(w.bl), 1.0 / 7.0) * exp(-maxf(hh - float(w.bl), 0.0) / float(w.decay))
+	var surface := -float(w.surf) * cos(3.0 * lat) * bl
+	var dl := (absf(lat) * 180.0 / PI - float(w.jetLat)) / float(w.jetLatW)
+	var dh := (hh - float(w.jetH)) / float(w.jetW)
+	return surface + float(w.jet) * exp(-dl * dl - dh * dh)
+
+## The wind at `rr` (flight frame, pole on −Y) as a velocity, m/s, into `out`.
+static func wind_at(atm, rr: DVec3, radius: float, out: DVec3) -> DVec3:
+	out.set_v(0.0, 0.0, 0.0)
+	if not winds_enabled or atm == null or not WINDS.has(atm.get("wind", "")): return out
+	var r := rr.length()
+	var ex := -rr.z
+	var ez := rr.x
+	var el := sqrt(ex * ex + ez * ez)
+	if r < 1.0 or el < 1e-6: return out
+	var u := zonal_wind(atm, r - radius, asin(clampf(-rr.y / r, -1.0, 1.0)))
+	# East is (−Y) × r̂, the direction a prograde surface turns.
+	return out.set_v(u * ex / el, 0.0, u * ez / el)
 
 # ENGINES: two measured Isps and a vacuum thrust; everything else follows.
 
@@ -342,6 +490,7 @@ static func flight_env(body: Body) -> Dictionary:
 		"oceans": surf.get("oceans", false), "sea": surf.get("sea", 0x1b3a6b),
 		# Escape speed and circular speed at the surface — the two numbers that say
 		# what kind of place this is to fly from.
+		"zonal": ZONAL.get(name),
 		"vEsc": sqrt(2.0 * mu / radius),
 		"vCirc": sqrt(mu / radius),
 		# Where "space" starts, for the purposes of the HUD and the rails interlock.

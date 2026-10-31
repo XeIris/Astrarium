@@ -6,6 +6,7 @@ extends RefCounted
 # Trisolaran world has three terminators in three colours.
 
 const MAX_SUNS := 4
+const MAX_OCCLUDERS := 4
 
 ## Point every sun-aware material at the current star set (VisualCtx.Sun entries);
 ## `target_rel` is the lit body's camera-relative position. Directions come from two
@@ -28,6 +29,46 @@ static func apply_suns(materials: Array, suns: Array, target_rel: Vector3) -> vo
 		m.set_shader_parameter("uSunColor", cols)
 		m.set_shader_parameter("uSunInt", ints)
 		m.set_shader_parameter("uSunCount", n)
+
+## Feed the eclipse uniforms of `materials` for `body`: up to four other bodies, by
+## the angular size they show from it, that could cover one of `suns`; true radii
+## and positions (AU), in units of the body's own true radius. The star's angular
+## radius as seen from the body rides along.
+static func apply_occluders(materials: Array, body: Body, bodies: Array, suns: Array) -> void:
+	var r_self := maxf(body.radius, 1e-12)
+	var occ := PackedVector4Array(); occ.resize(MAX_OCCLUDERS)
+	var red := PackedFloat32Array(); red.resize(MAX_OCCLUDERS)
+	var ang := PackedFloat32Array(); ang.resize(MAX_SUNS)
+	var n_sun := mini(suns.size(), MAX_SUNS)
+	var nearest_star := INF
+	for i in n_sun:
+		var star: Body = (suns[i] as VisualCtx.Sun).body
+		if star == null or star == body: continue
+		var d := star.pos.distance_to(body.pos)
+		ang[i] = asin(minf(star.radius / maxf(d, 1e-12), 1.0))
+		nearest_star = minf(nearest_star, d)
+	var picks: Array = []
+	if body.type in ["planet", "world", "gas-giant"]:
+		for b: Body in bodies:
+			if b == body or not b.alive or b.radius <= 0.0 or b.type in ["star", "bh", "neutron", "white-dwarf"]: continue
+			var d := b.pos.distance_to(body.pos)
+			if d >= nearest_star: continue
+			picks.append([b.radius / maxf(d, 1e-12), b])
+	picks.sort_custom(func(x, y): return x[0] > y[0])
+	var n := mini(picks.size(), MAX_OCCLUDERS)
+	for j in n:
+		var b: Body = picks[j][1]
+		var rel := b.pos.sub(body.pos).scaled(1.0 / r_self)
+		occ[j] = Vector4(rel.x, rel.y, rel.z, b.radius / r_self)
+		# A thick atmosphere bends sunset light into its umbra; Mars's is too thin.
+		var air = Rocketry.ATMOSPHERES.get(b.name)
+		red[j] = 1.0 if air != null and float(air.rho0) > 0.1 else 0.0
+	for m in materials:
+		if m == null: continue
+		m.set_shader_parameter("uOcc", occ)
+		m.set_shader_parameter("uOccRed", red)
+		m.set_shader_parameter("uOccCount", n)
+		m.set_shader_parameter("uSunAng", ang)
 
 ## Total insolation at a body in solar constants: S = Σ L_i / d_i² (L☉, AU), the
 ## quantity climate.gd integrates, so any planet knows its own temperature.

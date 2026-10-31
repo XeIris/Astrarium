@@ -27,6 +27,13 @@ shade, so a full-screen pass integrates null geodesics backwards from the eye.
   comes out of the integration; nothing draws it.
 - **Shakura–Sunyaev disc.** T(r) ∝ (r_in/r)^¾ · (1 − √(r_in/r))^¼, zero at the
   ISCO and peaking just outside it: a dark inner gap and a hot ridge.
+- **Spin is not rendered.** The marcher integrates Schwarzschild geodesics for
+  every hole, and the disc is the Newtonian zero-torque profile, so a spinning
+  hole's shadow is neither flattened nor shifted, frame dragging is absent, and
+  the relativistic Novikov–Thorne/Page–Thorne flux is not used. The inspector
+  states this for a hole with a* > 0.1; its listed horizon, ISCO and prograde
+  photon orbit are Kerr values. Kerr null geodesics would need the Carter
+  constant in the marcher and a Kerr ISCO for the disc together.
 - **Illustrated transfer.** The disc orbits at v = √(r_s/2r)/√(1 − r_s/r). The
   fitted-colour Doppler and gravitational factor g = δ·√(1 − r_s/r) sets both the
   colour temperature, T_obs = g·T_emit, and the intensity, I_obs ∝ g⁴ (from the

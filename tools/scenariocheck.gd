@@ -109,12 +109,22 @@ func _replay(spec: String, sc: Dictionary, rp: Dictionary, j: Dictionary) -> voi
 	main.set_cam_mode("flight")
 	var from: int = f.vessel.events.size()
 	var hit := -1.0
+	var based := false
 	var frames := 0
 	var dt := 1.0 / 60.0
 	var t0 := Time.get_ticks_msec()
 	while frames < 3000000:
 		var v := f.vessel
 		if v == null or not f.active or v.phase == Vessel.PHASE.DESTROYED: break
+		# A built base is the replay's state where it passed the base's own condition:
+		# printed so a stale one can be rebuilt from it.
+		if not based and sc.base.has("replay") and FlightScenarios.reached(f, sc.base.replay.until, from):
+			based = true
+			var at := _state(f)
+			var ap := {}
+			for k in sc.base.get("ap", {}): ap[k] = f.autopilot.get(k)
+			print("SCENARIO REPLAY %s base at %s: alt %s, airspeed %s, fpa %s, mass %s, speedbrake %s, ap %s" % [spec, sc.base.replay.until,
+				U.fixed(at.alt, 1), U.fixed(at.speed, 1), U.fixed(at.fpa, 3), U.fixed(at.mass, 1), U.fixed(v.speedbrake, 3), ap])
 		if hit < 0.0 and FlightScenarios.reached(f, rp.until, from): hit = v.met
 		if hit >= 0.0 and v.met - hit >= float(sc.after): break
 		var want := FlightScenarios.played_warp(f)

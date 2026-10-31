@@ -1,6 +1,11 @@
 class_name Scale
 extends RefCounted
 
+## Draw each body where it was when the light now reaching the camera left it
+## (Rømer's delay; Settings › Sim). Display only: physics, contact and trails'
+## physics positions are unchanged.
+static var light_time := false
+
 # Unresolved true-scale bodies cross-fade into sim/marker.gd point sources.
 # Camera-relative placement preserves precision; see docs/godot.md.
 

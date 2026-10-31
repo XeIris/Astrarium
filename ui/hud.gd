@@ -545,6 +545,7 @@ func _build_settings() -> void:
 	for effect in [["shadows", "Shadows"], ["ao", "Ambient occlusion"], ["reflections", "Studio reflections"], ["indirect", "Indirect light"]]:
 		B(raw, "Toggle", effect[1], "[data-light-effect=%s]" % effect[0]).pressed.connect(func(): lighting_effect_chosen.emit(effect[0]))
 	_h3(ren, "Spacetime mesh")
+	_note(ren, "An illustration, not an embedding of space. A black hole sinks into Flamm's paraboloid out to 40 horizon radii; every other body dips in proportion to its Newtonian potential, rounded off within its own radius or 0.6 scene units.")
 	var mesh_choices := grid(ren, [1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
 	B(mesh_choices, "Toggle", "Connected grid", "[data-mesh-style=lines]").pressed.connect(func(): mesh_style_chosen.emit("lines"))
 	B(mesh_choices, "Toggle", "Dots", "[data-mesh-style=dots]").pressed.connect(func(): mesh_style_chosen.emit("dots"))
@@ -552,7 +553,7 @@ func _build_settings() -> void:
 
 	# SIM
 	var sim := _page(p, "sim")
-	_rnote(sim, "The integrator is velocity-Verlet in AU, M[font_size=8]☉[/font_size] and years with [i]G[/i] = 4π². The step cap is the one setting that changes the ANSWER rather than the picture: a close pass is only resolved if the step is short compared with the time spent in it.")
+	_rnote(sim, "The integrator is a fourth-order Yoshida composition in AU, M[font_size=8]☉[/font_size] and years with [i]G[/i] = 4π², with first post-Newtonian terms. The step cap is the one setting that changes the ANSWER rather than the picture: a close pass is only resolved if the step is short compared with the time spent in it.")
 	_set_row(sim, "maxStep", "Max step", "Longest integrator step, in years. Lower is more accurate and slower; too high and a close encounter is stepped straight over, which shows up as energy appearing from nowhere.",
 		-5, -1, -2.3, 0.05, "5.0e-3 yr", func(v): return U.expo(pow(10.0, v), 1) + " yr")
 	_set_row(sim, "gwBoost", "GW boost", "Multiplier on illustrative circular-power drag for tight eligible pairs. Its contact window and numerical cap prevent a physical merger-time prediction, even at 1. Zero disables drag.",
@@ -562,6 +563,22 @@ func _build_settings() -> void:
 		_stat(sg, kv[0], kv[1])
 	_note(sim, "Drift is the relative energy change since loading or a body-count change. With fixed masses and softening and no gravitational-wave drag, it measures integration error. Drag shows ≈ because the change includes intentional energy loss. Edits and accretion also change the energy budget.")
 	m(B(sim, "Ghost", "Reset to scenario’s values", "simReset"), 0.0, 10.0).pressed.connect(func(): sim_reset.emit())
+	_h3(sim, "Flight")
+	_note(sim, "Climatological winds give Earth's air a zonal-mean circulation: trade winds, mid-latitude westerlies and a jet stream near 12 km. The orbiter's glide and landing laws do not yet allow for wind, so it may not make the runway with this on.")
+	var wind_btn := B(sim, "Toggle", "☐ Climatological winds", "windsToggle")
+	wind_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(wind_btn, 0.0, 10.0).pressed.connect(func():
+		Rocketry.winds_enabled = not Rocketry.winds_enabled
+		wind_btn.set_label("☑ Climatological winds" if Rocketry.winds_enabled else "☐ Climatological winds")
+		set_active("windsToggle", Rocketry.winds_enabled))
+	_h3(sim, "Light time")
+	_note(sim, "Draws every body where it was when the light now reaching the camera left it — Rømer's delay, 8 minutes for the Sun and up to 52 for Jupiter. Physics is unaffected.")
+	var lt_btn := B(sim, "Toggle", "☐ Light-time delay", "lightTimeToggle")
+	lt_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(lt_btn, 0.0, 10.0).pressed.connect(func():
+		Scale.light_time = not Scale.light_time
+		lt_btn.set_label("☑ Light-time delay" if Scale.light_time else "☐ Light-time delay")
+		set_active("lightTimeToggle", Scale.light_time))
 
 	# CONTROLS
 	var controls := _page(p, "controls")

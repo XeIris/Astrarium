@@ -24,6 +24,8 @@ uniform float uNuRatio3 = 1.0;     // (nu / nu_visible)^3
 uniform float uExtCoef = 1.0;      // dust extinction, relative to the visible
 uniform float uSkyGain = 1.0;
 uniform float uStarGain = 1.0;
+// Tiers below this are drawn by a star catalogue instead (SkyModel.CATALOGUE_TIERS).
+uniform int uFirstTier = 0;
 
 uniform float uStarFlux = 2.2e-4;  // flux of a tier-0 star, in radiance*steradian
 uniform float uStarDensity = 0.70; // stars per cell, before plane concentration
@@ -648,6 +650,7 @@ vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 	}
 
 	for (int t = 0; t < SKY_TIERS; t++) {
+		if (t < uFirstTier) continue;
 		float tier  = float(t);
 		float cells = 4.0 * exp2(tier);             // cells per face edge
 		// Angular size of one cell. Tier k has 4x the cells and 1/2.512 the flux of

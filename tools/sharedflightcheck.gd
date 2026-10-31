@@ -72,9 +72,23 @@ func _init() -> void:
 		var valid: bool = ship.phase == Vessel.PHASE.ORBIT and flight.autopilot.program == null and frames < int(sc.maxFrames)
 		valid = valid and is_finite(ship.telemetry.apo) and is_finite(ship.telemetry.peri)
 		var target: float = flight.autopilot.ascent.targetApo
-		valid = valid and absf(ship.telemetry.apo - target) < 3000.0
+		# J2's short-period terms swing a near-circular orbit's osculating apsides by
+		# ±6 km, so the gates read the highest and lowest altitudes flown over the next
+		# revolution (a coast with the world held, which an hour and a half allows).
+		var hi := -INF
+		var lo := INF
+		var period: float = ship.telemetry.el.period if is_finite(float(ship.telemetry.el.period)) else 5400.0
+		var coasted := 0.0
+		while valid and coasted < period:
+			coasted += ship.step(10.0)
+			hi = maxf(hi, ship.altitude()); lo = minf(lo, ship.altitude())
+		# The ascent cuts off on two-body elements, which J2 is still moving: its first-order
+		# apsidal spread, J2·R²/a (6.7 km in low Earth orbit), joins the 3 km gate.
+		var z = ship.env.get("zonal")
+		var spread := float(z.J[2]) * float(z.R) * float(z.R) / (float(ship.env.radius) + target) if z != null else 0.0
+		valid = valid and absf(hi - target) < 3000.0 + spread
 		# The production circularize law stops at 92% of the target periapsis.
-		valid = valid and ship.telemetry.peri >= target * 0.92 - 3000.0 and ship.telemetry.peri <= ship.telemetry.apo
+		valid = valid and lo >= target * 0.92 - 3000.0 - spread and lo <= hi
 		valid = valid and finite
 		valid = valid and earth.pos.distance_to(start_pos) > 0.0 and worst_clock_error < 1e-5
 		# A timed second plane (the Saturn V's S-II aft interstage) drops within two frames
@@ -103,7 +117,7 @@ func _init() -> void:
 			valid = false
 		if not valid: failures += 1
 		completed += 1
-		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])
+		print("SHARED FLIGHT %s %s frames=%s met=%s apo=%s peri=%s highest=%s lowest=%s clock_error=%s wall_ms=%s" % [sc.id, "PASS" if valid else "FAIL", frames, ship.met, ship.telemetry.apo, ship.telemetry.peri, hi, lo, worst_clock_error, (Time.get_ticks_usec() - start) / 1000.0])
 	var errors := logger.take()
 	for error in errors: printerr("SHARED FLIGHT ENGINE ", error)
 	failures += errors.size()

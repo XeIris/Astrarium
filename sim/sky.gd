@@ -10,6 +10,14 @@ extends RefCounted
 ## It sits in the unused gap above the log-T codes (≤ 0.985) and below 1.0 ("infer
 ## T from colour"), ~9 fp16 steps wide. Mirrored in sky.gdshaderinc.
 const SKY_ALPHA := 0.995
+# The flux scale of point sources: uStarFlux is a tier-0 star, which the six
+# one-magnitude tiers down to the ~8th-magnitude confusion limit put near V = 2.5.
+# Markers and catalogue stars use it; nothing is drawn fainter than the floor.
+const STAR_FLUX := 2.2e-4
+const STAR_FLUX_MAG := 2.5
+const STAR_FLUX_FLOOR_MAG := 8.0
+# Tiers 0–3 (V ≈ 2.5–5.5, through 6.0) are what a V < 6.5 catalogue replaces.
+const CATALOGUE_TIERS := 4
 
 # Relative radiance of each component per band, normalised to its peak band.
 # Authored, since the emission is non-thermal. Band order is Spectrum.BANDS:
@@ -130,7 +138,7 @@ static func sky_uniforms() -> Dictionary:
 		"uSkyGain": 1.0,
 		"uStarGain": 1.0,
 
-		"uStarFlux": 2.2e-4,
+		"uStarFlux": STAR_FLUX,
 		"uStarDensity": 0.70,
 		"uPlaneConc": 2.2,
 		"uPsfPx": 1.25,
@@ -177,6 +185,10 @@ static func apply_day_gain(mats: Array, g: float) -> void:
 ## Zero (the default) makes aberration the identity and the Doppler factor exactly 1.
 static func apply_sky_boost(mats: Array, beta_vec: Vector3) -> void:
 	_set_all(mats, "uBeta", beta_vec)
+
+## The point-source gain of the current band and daylight.
+static func star_gain() -> float:
+	return float(STAR_GAIN[maxi(_band, 0)]) * day_gain
 
 ## Every band-dependent uniform is set here and nowhere else.
 static func apply_sky_band(mats: Array, band_index: int) -> void:
@@ -258,10 +270,13 @@ static func _finite_number(value: Variant) -> bool:
 ## Authored patches are checked before normalization can discard misspelled components.
 static func request_error(spec: Variant) -> String:
 	if not spec is Dictionary: return "sky must be a dictionary."
-	var fields := ["env", "tilt", "roll"]
+	var fields := ["env", "tilt", "roll", "galactic"]
 	for parameter in SKY_PARAMS: fields.append(parameter.key)
 	for key in spec:
 		if key not in fields: return "Unknown sky field \"%s\"." % str(key)
+		if key == "galactic":
+			if spec[key] != "j2000": return "sky.galactic must be \"j2000\"."
+			continue
 		if key == "env" or spec[key] == null: continue
 		if not _finite_number(spec[key]): return "sky.%s must be a finite number." % key
 		for parameter in SKY_PARAMS:
@@ -329,7 +344,7 @@ static func apply_sky_environment(mats: Array, spec: Dictionary = {}) -> void:
 
 	var tilt := float(spec.tilt) if spec.has("tilt") and spec.tilt != null else 0.34
 	var roll := float(spec.roll) if spec.has("roll") and spec.roll != null else 0.9
-	var frame := galactic_frame(tilt, roll)
+	var frame := galactic_frame_j2000() if spec.get("galactic") == "j2000" else galactic_frame(tilt, roll)
 	_set_all(mats, "uGalNormal", frame[0])
 	_set_all(mats, "uGalCenter", frame[1])
 	_set_all(mats, "uGalEast", frame[2])
@@ -342,6 +357,27 @@ static func galactic_frame(tilt: float, roll: float) -> Array:
 	var c := seed.sub(n.scaled(seed.dot(n))).normalized()
 	var e := n.cross(c).normalized()
 	return [n.to_v3(), c.to_v3(), e.to_v3()]
+
+## A J2000 direction (RA, Dec in degrees) on the scene axes: equatorial → ecliptic by
+## the obliquity, the ecliptic in XZ with north on −Y and the equinox on +X (as
+## Spaceflight.mission_direction).
+static func radec_to_scene(ra_deg: float, dec_deg: float) -> DVec3:
+	var ra := deg_to_rad(ra_deg)
+	var dec := deg_to_rad(dec_deg)
+	var eps := deg_to_rad(23.4392911)
+	var xq := cos(dec) * cos(ra)
+	var yq := cos(dec) * sin(ra)
+	var zq := sin(dec)
+	return DVec3.new(xq, -(-yq * sin(eps) + zq * cos(eps)), yq * cos(eps) + zq * sin(eps)).normalized()
+
+## The real galactic frame for a Solar System scene: the north galactic pole at
+## RA 192.85948°, Dec +27.12825° and the centre at 266.40500°, −28.93617° (J2000,
+## the IAU 1958 system as Hipparcos realises it).
+static func galactic_frame_j2000() -> Array:
+	var n := radec_to_scene(192.85948, 27.12825)
+	var c := radec_to_scene(266.40500, -28.93617)
+	c = c.sub(n.scaled(c.dot(n))).normalized()
+	return [n.to_v3(), c.to_v3(), n.cross(c).normalized().to_v3()]
 
 ## The unlensed pixel footprint, against which the shader measures
 ## magnification. `fov` is vertical, in radians; `height` is in device pixels

@@ -118,3 +118,4 @@ class WorldViz extends RefCounted:
 		var suns = Suns.lit_by(ctx)
 		if suns != null:
 			Suns.apply_suns([surf_mat, cloud_mat, atmo_mat], suns, group.position)
+			Suns.apply_occluders([surf_mat, cloud_mat], b, ctx.bodies, suns)

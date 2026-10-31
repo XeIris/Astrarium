@@ -269,7 +269,7 @@ static func _make_presets() -> Dictionary:
 	}
 
 	P.solar = {
-		"sky": { "env": "disc", "tilt": 0.38, "roll": 2.1 },
+		"sky": { "env": "disc", "galactic": "j2000" },
 		"name": "Solar System",
 		"blurb": "The planets and the Moon where they were at J2000.0 (JPL mean elements) on their real eccentric, inclined orbits, with DE440 masses and real radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle \"Sizes\" to get the readable, exaggerated view back. This is also the scenario to fly from: the Spaceflight section builds a real launch vehicle on the pad, and the Moon is here to land on.",
 		# 2e-4 yr is 1/1200 of Mercury's year: integration error ~1″/cy beside GR's 43″.

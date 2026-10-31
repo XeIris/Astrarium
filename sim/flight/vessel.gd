@@ -49,6 +49,7 @@ static var _k_a1 := DVec3.new()
 static var _k_a2 := DVec3.new()
 static var _k_a3 := DVec3.new()
 static var _k_a4 := DVec3.new()
+static var _wind := DVec3.new()
 
 static var _next_vessel_id := 1
 # Engine-output scratch for propulsion(), _stage_mdot() and authority(), none of
@@ -181,6 +182,21 @@ var max_q_mach: float = 0.0
 var max_mach: float = 0.0
 var max_g: float = 0.0
 var heat_load: float = 0.0
+# Other bodies' offsets from the parent (m) and velocities (m/s) at the start and end
+# of the substep being integrated. The world has already advanced to its end, so an
+# RK4 stage reads them by cubic Hermite interpolation at its own time (_stage_tau);
+# a negative tau reads the live positions.
+var _off0: Array[DVec3] = []
+var _vel0: Array[DVec3] = []
+var _off1: Array[DVec3] = []
+var _vel1: Array[DVec3] = []
+var _stage_h := 0.0
+var _stage_tau := -1.0
+var _snapped := false
+## Checks turn this off to measure what the stage interpolation buys.
+var interpolate_stages := true
+# Propellant already spent before the RK4 stage being evaluated, kg.
+var _stage_dm := 0.0
 var peak_heat: float = 0.0
 var downrange: float = 0.0
 var phase: String = PHASE.PRELAUNCH
@@ -380,12 +396,15 @@ func gravity(rr: DVec3, out: DVec3) -> DVec3:
 	out.set_v(0.0, 0.0, 0.0)
 	var p := parent
 	if p == null: return out
-	for b in bodies:
+	var interp := _stage_tau >= 0.0 and _off1.size() >= bodies.size()
+	for i in bodies.size():
+		var b = bodies[i]
 		if not b.alive: continue
 		var gm: float = Rocketry.GM_SUN * b.mass
 		# offset of body b from the parent, m. Private scratch: callers pass the shared
 		# temporaries as `out`.
-		_g1.sub_vectors(b.pos, p.pos).scale_in(Rocketry.AU_M)
+		if interp and b != p: _body_offset(i, _g1)
+		else: _g1.sub_vectors(b.pos, p.pos).scale_in(Rocketry.AU_M)
 		# pull on the vessel
 		_g2.copy_from(_g1).sub_in(rr)
 		var d2 := _g2.length_sq()
@@ -394,7 +413,29 @@ func gravity(rr: DVec3, out: DVec3) -> DVec3:
 		if b == p: continue
 		var D2 := _g1.length_sq()
 		if D2 > 1e-6: out.add_scaled_in(_g1, -gm / (D2 * sqrt(D2)))
-	return out
+	return Rocketry.zonal_accel(env.get("zonal"), env.mu, rr, out)
+
+## Body `i`'s offset from the parent at the current RK4 stage, m.
+func _body_offset(i: int, out: DVec3) -> DVec3:
+	var t := _stage_tau
+	var t2 := t * t
+	var t3 := t2 * t
+	var h := _stage_h
+	return out.copy_from(_off0[i]).scale_in(2.0 * t3 - 3.0 * t2 + 1.0) \
+		.add_scaled_in(_vel0[i], h * (t3 - 2.0 * t2 + t)) \
+		.add_scaled_in(_off1[i], -2.0 * t3 + 3.0 * t2) \
+		.add_scaled_in(_vel1[i], h * (t3 - t2))
+
+## Snapshot every body's offset and velocity relative to the parent.
+func _snap_bodies(off: Array[DVec3], vel: Array[DVec3]) -> void:
+	if parent == null: return
+	var n := bodies.size()
+	while off.size() < n:
+		off.append(DVec3.new()); vel.append(DVec3.new())
+	for i in n:
+		var b = bodies[i]
+		off[i].sub_vectors(b.pos, parent.pos).scale_in(Rocketry.AU_M)
+		vel[i].sub_vectors(b.vel, parent.vel).scale_in(Rocketry.AU_M / Rocketry.YR_S)
 
 ## Altitude above the parent's mean surface, in metres.
 func altitude(rr: DVec3 = null) -> float:
@@ -404,6 +445,7 @@ func altitude(rr: DVec3 = null) -> float:
 ## Velocity relative to the rotating atmosphere, for drag, Mach and heating.
 func airspeed(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, rr)
+	if env.atm != null: _d.add_in(Rocketry.wind_at(env.atm, rr, env.radius, _wind))
 	return out.sub_vectors(vv, _d)
 
 func up_now(out: DVec3) -> DVec3:
@@ -424,7 +466,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 
 	# thrust
 	var prop := propulsion(pa)
-	var m := maxf(mass, 1.0)
+	var m := maxf(mass - _stage_dm, 1.0)
 	if prop.F > 0.0: out.add_scaled_in(forward(_e), prop.F / m)
 
 	# aerodynamics
@@ -443,7 +485,8 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			var fwd := forward(_f)
 			# A slender body falling base first (a booster on entry) is blunt too.
 			var blunt: bool = (st != null and st.spec.get("blunt", false)) or fwd.dot(_vrel) < 0.0
-			var cd := Rocketry.blunt_drag_coefficient(mach) if blunt else Rocketry.drag_coefficient(mach)
+			var cd := Rocketry.blunt_drag_coefficient(mach) if blunt \
+				else Rocketry.drag_coefficient(mach, st.spec.get("cdTable") if st != null else null)
 			# Angle of attack costs drag. cos²α is the standard slender-body form,
 			# and it is why flying off-prograde in thick air is expensive.
 			var cos_a := absf(fwd.dot(_vrel) / va)
@@ -509,7 +552,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			var fa = _first_attached()
 			if fa != null and fa.spec.get("heatShield") != null and fa.spec.heatShield.get("noseR") != null:
 				nose_r = fa.spec.heatShield.noseR
-			heat = Rocketry.heat_flux(rho, va, nose_r, atm)
+			heat = Rocketry.heat_flux(rho, va, nose_r, atm) + Rocketry.radiative_heat_flux(rho, va, nose_r, atm)
 	if sample != null:
 		sample.wheel = 0.0; sample.normal = 0.0
 	if phase == PHASE.ROLLOUT and rolling != null:
@@ -1052,7 +1095,7 @@ func potential(rr: DVec3) -> float:
 		var br: float = b.radius if (b.radius != 0.0 and not is_nan(b.radius)) else 1e-9
 		var d := maxf(_e.length(), br * Rocketry.AU_M * 0.5)
 		phi -= Rocketry.GM_SUN * b.mass / d
-	return phi
+	return phi + Rocketry.zonal_potential(env.get("zonal"), env.mu, rr)
 
 # Stepping
 
@@ -1115,19 +1158,26 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 			var kick := DVec3.new()
 			while remaining > 1e-9 and guard < STEP_GUARD and can_rail():
 				guard += 1
+				_snap_bodies(_off0, _vel0)
 				var h := _advance_world(minf(remaining, rail_step()), opts)
 				if h <= 0.0: break
 				if phase == PHASE.DESTROYED:
 					coord += elapsed + h
 					return elapsed + h
+				_snap_bodies(_off1, _vel1)
+				_stage_h = h
+				_stage_tau = 0.0 if interpolate_stages else -1.0
 				v.add_scaled_in(perturbation(r, v, kick), 0.5 * h)
 				if not Orbit.propagate(r, v, env.mu, h, rail_r, rail_v):
+					_stage_tau = -1.0
 					phase = PHASE.DESTROYED
 					coord += elapsed + h
 					log_event("Analytic orbit failed after world time was accepted — flight stopped")
 					return elapsed + h
 				r.copy_from(rail_r); v.copy_from(rail_v)
+				_stage_tau = 1.0 if interpolate_stages else -1.0
 				v.add_scaled_in(perturbation(r, v, kick), 0.5 * h)
+				_stage_tau = -1.0
 				remaining -= h
 				elapsed += h
 				check_soi()
@@ -1153,11 +1203,14 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 		var h := minf(remaining, step_bound())
 		# A frame's pending guidance can ignite an engine at the accepted boundary.
 		if opts.get("control_may_thrust", false): h = minf(h, 0.25)
+		_snap_bodies(_off0, _vel0)
 		h = _advance_world(h, opts)
 		if h <= 0.0: break
 		if phase == PHASE.DESTROYED:
 			coord += elapsed + h
 			return elapsed + h
+		_snap_bodies(_off1, _vel1)
+		_snapped = interpolate_stages
 		rk4(h, s)
 		remaining -= h
 		elapsed += h
@@ -1232,19 +1285,33 @@ func step_bound() -> float:
 	var T: float = 2.0 * PI * sqrt(R * R * R / env.mu)
 	return DQuat.jclamp(T / 900.0, 0.05, 60.0)
 
+## One RK4 step. Each stage sees the other bodies, and the vessel's mass at the
+## first stage's flow, at its own time within the step (step() snapshots both ends).
 func rk4(h: float, s: Sample) -> void:
+	var interp := _snapped and _off1.size() >= bodies.size()
+	_snapped = false
+	_stage_h = h
+	_stage_tau = 0.0 if interp else -1.0
+	_stage_dm = 0.0
 	var r0 := _k_r0.copy_from(r)
 	var v0 := _k_v0.copy_from(v)
 	accel(r0, v0, _k_a1, s)
+	var mdot := s.mdot
 	_k_r1.copy_from(r0).add_scaled_in(v0, h / 2.0)
 	_k_v1.copy_from(v0).add_scaled_in(_k_a1, h / 2.0)
+	if interp: _stage_tau = 0.5
+	_stage_dm = mdot * h / 2.0
 	accel(_k_r1, _k_v1, _k_a2)
 	_k_r2.copy_from(r0).add_scaled_in(_k_v1, h / 2.0)
 	_k_v2.copy_from(v0).add_scaled_in(_k_a2, h / 2.0)
 	accel(_k_r2, _k_v2, _k_a3)
 	_k_r3.copy_from(r0).add_scaled_in(_k_v2, h)
 	_k_v3.copy_from(v0).add_scaled_in(_k_a3, h)
+	if interp: _stage_tau = 1.0
+	_stage_dm = mdot * h
 	accel(_k_r3, _k_v3, _k_a4)
+	_stage_tau = -1.0
+	_stage_dm = 0.0
 
 	r.add_scaled_in(v0, h / 6.0).add_scaled_in(_k_v1, h / 3.0) \
 		.add_scaled_in(_k_v2, h / 3.0).add_scaled_in(_k_v3, h / 6.0)
@@ -1562,7 +1629,7 @@ func sample(dt: float, s: Sample = null) -> Dictionary:
 	var va := _vrel.length()
 	# Angle of attack is unsigned: entry vehicles fly heat shield first, α ≈ 180° signed.
 	var alpha := acos(DQuat.jclamp(absf(fwd.dot(_vrel)) / va, 0.0, 1.0)) if va > 1.0 else 0.0
-	var el := Orbit.elements(r, v, env.mu)
+	var el := Orbit.elements(r, v, Rocketry.effective_mu(env.get("zonal"), env.mu, r, v))
 	if s.q > max_q:
 		max_q = s.q; max_q_t = met - t0; max_q_alt = alt; max_q_mach = s.mach
 	if s.mach > max_mach: max_mach = s.mach

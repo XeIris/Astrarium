@@ -35,7 +35,16 @@ more than the vehicle's `delta_v_remaining`.
 The departure waits until the phase angle φ (the target ahead of the departure
 body, about C) reaches the Hohmann value `π − 2π·t_tof/T_target`. φ changes at
 `n_target − n_dep` (difference of mean motions), so the wait is
-`(φ_want − φ_now)/(n_tgt − n_dep)`, wrapped into one synodic period.
+`(φ_want − φ_now)/(n_tgt − n_dep)`, wrapped into one synodic period. That is the
+circular, coplanar estimate. Between planets the planner then searches a porkchop
+(`Mission.porkchop_window`, `Orbit.porkchop`): departures over 1.1 synodic periods
+and flight times from 0.6 to 1.4 of Hohmann's, each cell a Lambert arc between
+the two bodies' conics, priced as the escape and capture burns at the parking
+orbits. The cheapest cell sets the wait, the flight time and both v∞, and the
+departure leg aims along its v∞ direction. Arcs within 2° of 180° have no defined
+plane and are skipped. In `tools/flightphysicscheck.gd`, Mars's real eccentricity
+moves the window 29 days from the circular estimate. Results are cached until the clock moves a fiftieth of
+a synodic period.
 
 ## Flying it
 

@@ -334,8 +334,9 @@ const MODULES := [
           clockwork.</p>
           <p>It is tilted by 5.14°. That sounds tiny, and it is enough: at most new moons the Moon passes
           above or below the Sun–Earth line and nothing happens at all. Only when the
-          crossing points of the two orbits happen to line up with the Sun does a shadow land. This demo
-          shows those alignments; it does not render mutual eclipse shadows.</p>""",
+          crossing points of the two orbits happen to line up with the Sun does a shadow land. When one
+          does, it is drawn: a dark umbra inside a soft penumbra, and Earth's shadow on the Moon reddened
+          by sunsets all round Earth's limb (brightened for visibility).</p>""",
 				"look": "Watch the Moon relative to the line between the Sun and the Earth. It passes above, then below, then above.",
 			},
 			{

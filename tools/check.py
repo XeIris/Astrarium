@@ -62,7 +62,7 @@ CHANGED_RULES = (
       "sim/flight/orbit.gd", "sim/flight/fall.gd", "sim/flight/separation.gd", "sim/flight/spaceflight.gd",
       "sim/flight/relativity.gd", "sim/flight/dquat.gd", "sim/flight/catchtower.gd", "sim/flight/vehicles.gd",
       "sim/flight/craftmodel.gd", "tools/fixtures/flight_fixture.json"),
-     ("flighttimecheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*", "scenariocheck")),
+     ("flighttimecheck", "flightphysicscheck", "sharedflightcheck-*", "flight-descent-*", "missioncheck-*", "scenariocheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc", "sim/terrain.gd",
@@ -185,6 +185,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$")
         yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
+        yield script("flightphysicscheck", r"^flightphysicscheck: PASS$")
         yield script("cloudcheck", r"^CLOUDCHECK DONE checks=[1-9]\d* failures=0$")
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)

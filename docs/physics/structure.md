@@ -108,6 +108,37 @@ Neutron stars use a smooth stand-in for modern stiff EOSs: flat at 12.3–12.6 k
 over the observed masses, steepening only past ~0.9 TOV (NICER: J0030 and J0740
 near 12.4 km). Rigid rotation raises TOV by up to ~20%.
 
+### Neutron-star cooling
+
+`Structure.neutron_cooling` follows the minimal-cooling picture of Yakovlev &
+Pethick (2004) for an isolated star of age `ageYr` (default 10⁵ yr). After
+thermal relaxation the interior is isothermal at T, with heat capacity
+C ≈ 10³⁹ T₉ erg/K, and it loses heat to modified-Urca neutrinos,
+L_ν ≈ 10⁴⁰ T₉⁸ erg/s, and to surface photons, L_γ = 4πR²σT_eff⁴:
+
+    C dT/dt = −L_ν − L_γ   ⇒   d ln T₉ / d ln t = −t (a T₉⁶ + b T₉^0.2)
+
+with a = L_ν/(C T₉⁷) and b from L_γ. An iron heat-blanketing envelope maps the
+temperature Tb at its base to the surface (Gudmundsson, Pethick & Epstein 1983):
+T_eff = 0.87×10⁶ K · g₁₄^¼ · (Tb/10⁸ K)^0.55, so L_γ ∝ Tb^2.2. Neutrinos alone
+give T₉⁻⁶ = 6at, which starts the RK4 integration in ln t at one year. The
+photon term takes over near 10⁵ yr, and T then falls steeply.
+
+The crust keeps its birth heat until a cooling wave from the core reaches the
+surface after 10–100 yr (Gnedin, Yakovlev & Potekhin 2001). The model represents
+this as T_crust = T_core·(1 + e^(−t/30 yr)), and the surface reads the crust.
+Observers measure T_eff∞ = T_eff √(1 − r_s/R).
+
+| age | log T_eff∞ (1.4 M☉) |
+|---|---|
+| 1 kyr | 6.12 |
+| 10 kyr | 6.02 |
+| 100 kyr | 5.90 |
+| 1 Myr | 5.46 |
+
+Enhanced cooling (direct Urca, pairing) is not modelled, and neither is old-star
+reheating.
+
 ## Stellar evolution
 
 On the main sequence, fusion raises the core's mean molecular weight,
@@ -150,6 +181,14 @@ Stars are strongly condensed, so the Roche model applies: the surface is an
 equipotential of Φ = −GM/r − ½Ω²r²sin²θ, i.e. 1/x + (4/27)ω²x²sin²θ = 1 with
 x = R(θ)/R_pole. At break-up R_eq/R_pole = 3/2 for any star (Achernar, 1.35, is
 near it), so Ω_crit = √(8GM/27R_pole³), 0.544 of the naive value.
+
+Limb darkening is quadratic per sRGB primary, I(μ)/I(1) = 1 − a(1 − μ) − b(1 − μ)²
+(`Stellar.limb_darkening`). The coefficients come from Eddington–Barbier on a grey
+atmosphere, I_λ(μ) ≈ B_λ(T(τ = μ)) with T⁴ = ¾T_eff⁴(τ + ⅔), fitted at 650, 550 and
+440 nm. Blue darkens more than red and cool stars more than hot ones. The Sun's
+limb comes out at 0.39, 0.33 and 0.25 of its centre in R, V and B. These are not
+Claret's (2000) model-atmosphere tables, which were not available offline. A grey
+atmosphere also overdarkens M dwarfs, whose molecular opacity is far from grey.
 
 Gravity darkening (von Zeipel 1924): T_eff ∝ g_eff^β, β = ¼ radiative and ≈ 0.08
 convective (Lucy 1967, below ~7000 K). β is reduced at high spin, after Espinosa

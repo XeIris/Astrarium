@@ -103,7 +103,7 @@ static func refresh_structure(b: Body) -> Dictionary:
 		"phase": b.phase, "composition": b.composition, "Z": b.Z,
 		"radiusSun": sp.get("radiusSun"), "teff": sp.get("teff"), "luminosity": sp.get("luminosity"),
 		"radiusKm": sp.get("radiusKm"),
-		"spinHz": sp.get("spinHz"),
+		"spinHz": sp.get("spinHz"), "ageYr": sp.get("ageYr"),
 		# Body.rs defaults to 0, which means "unset" (stars, planets).
 		"rs": b.rs if b.rs != 0.0 else null,
 	}
