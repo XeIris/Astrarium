@@ -215,6 +215,45 @@ func natal_kicks() -> void:
 	var energy := 0.5 * rel_v.length_sq() - Physics.G * (p.mass + q.mass) / p.pos.distance_to(q.pos)
 	check("losing over half the mass unbinds the binary (Blaauw)", energy > 0.0)
 
+# Budyko–Sellers: today's ice edge, the snowball below a few per cent less sunlight,
+# the hysteresis that keeps it frozen at today's, and ice at the equator past 54.7°.
+func ice_lines() -> void:
+	var s2 := RockyVisual.insolation_s2(deg_to_rad(23.44))
+	var A := 0.61 * Climate.SIGMA * pow(288.15, 4.0) - LatitudeEBM.B * 15.0
+	var e := LatitudeEBM.new()
+	e.settle(Climate.S0 / 4.0, s2, A)
+	var lat := rad_to_deg(asin(e.ice_edge()))
+	print("REALISMCHECK EBM edge_deg=%s mean_c=%s" % [lat, e.mean_c()])
+	check("today's ice edge sits near 72° (North et al. 1981)", lat > 66.0 and lat < 78.0)
+	var f := 1.0
+	while f > 0.7 and not e.snowball():
+		f -= 0.005
+		e.settle(Climate.S0 / 4.0 * f, s2, A)
+	var freeze := f
+	e.settle(Climate.S0 / 4.0, s2, A)
+	var stays := e.snowball()
+	while f < 1.6 and e.snowball():
+		f += 0.01
+		e.settle(Climate.S0 / 4.0 * f, s2, A)
+	print("REALISMCHECK EBM snowball_below=%s thaws_above=%s" % [freeze, f])
+	check("a few per cent less sunlight freezes it to the equator", freeze > 0.85 and freeze < 0.97)
+	check("hysteresis: a snowball stays frozen at today's sunlight", stays)
+	check("and thaws only far above it", f > 1.2)
+	var tilted := LatitudeEBM.new()
+	tilted.settle(Climate.S0 / 4.0 * 0.95, RockyVisual.insolation_s2(deg_to_rad(80.0)), A)
+	check("past 54.7° obliquity the poles are the warm end", tilted.T[LatitudeEBM.N - 1] > tilted.T[0])
+	# The 0-D climate follows a snowball into deep freeze.
+	var sun := Body.new()
+	sun.name = "Sun"; sun.type = "star"; sun.mass = 1.0; sun.luminosity = 0.85; sun.teff = 5772.0
+	sun.pos = DVec3.new(1.0, 0.0, 0.0)
+	var planet := Body.new()
+	planet.pos = DVec3.new()
+	planet.spec = {"obliquity": deg_to_rad(23.44)}
+	var cold := Climate.new({"mixedLayer": 12.0, "T0": 288.0, "albedoBase": 0.306, "albedoIce": 0.45})
+	for i in 400: cold.step(1.0, planet, [sun])
+	print("REALISMCHECK EBM climate T=%s snowball=%s era=%s" % [cold.T, cold.snowball, cold.era.key])
+	check("the climate model freezes with its snowball", cold.snowball and cold.era.key == "DEEP_FREEZE" and cold.ice == 1.0)
+
 func climate() -> void:
 	var mk := func(x: float, L: float) -> Body:
 		var s := Body.new()
@@ -280,6 +319,7 @@ func _ready() -> void:
 	natal_kicks()
 	secular_events()
 	climate()
+	ice_lines()
 	presets_survive_loading()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)

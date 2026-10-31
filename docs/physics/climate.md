@@ -52,3 +52,40 @@ the energy balance. Coupled at CERES's cloud radiative effect (−47 W/m² short
 +26 W/m² longwave, at 0.67 cover; Loeb et al. 2018), that rule would add a cloud
 feedback of −1.2 W/m²/K, where the observed value is +0.42 ± 0.35 W/m²/K (IPCC AR6
 WG1 ch. 7). The base albedo and ε already include today's clouds.
+
+## Ice lines and the snowball
+
+`LatitudeEBM` (`sim/ebm.gd`) runs North's (1975) diffusive Budyko–Sellers model
+beside the global balance, on the same clock and heat capacity:
+
+    C ∂T/∂t = Q s(x) a(x, T) − (A + B T) + D ∂/∂x[(1 − x²) ∂T/∂x],   x = sin φ
+
+The pieces:
+
+- **Insolation.** `s(x) = 1 + s₂P₂(x)`, with s₂ from the world's obliquity
+  (`RockyVisual.insolation_s2`).
+- **Albedo.** The coalbedo is `0.697 − 0.0779 P₂(x)` where ice-free and 0.38 under
+  ice, with the ice edge at −10 °C. B = 2.09 W m⁻² K⁻¹ (North, Cahalan & Coakley
+  1981).
+- **Outgoing longwave.** A is pinned so that `A + B·15 °C` equals this model's own
+  emission at 288 K, so the two models agree on a temperate world's mean.
+- **Diffusion.** D = 0.55 W m⁻² K⁻¹ puts today's edge at 71.8° with a 14.5 °C mean.
+  A slightly larger D melts the cap altogether: this is North's small-ice-cap
+  instability.
+- **Numerics.** One hemisphere in 60 cells, stepped implicitly (tridiagonal), so a
+  frame of any length is stable.
+
+Ice is state, not a function of the present sunlight. Lowering S, the cap grows
+until, below 0.90 S₀, it runs to the equator: a snowball. It then stays frozen at
+today's sunlight and thaws only above 1.32 S₀. This is the hysteresis of Budyko
+(1969) and Sellers (1969). Past 54.7° of obliquity s₂ changes sign, the poles
+become the warm end, and ice forms at the equator first.
+
+The climate panel's "ice line" row shows the edge, or "snowball". The glaciated
+fraction `ice` is the larger of the global model's temperature ramp and the
+latitude model's ice cover, and a world's surface draws its caps from it. A
+snowball takes the global model's ice to full cover, so its temperature and era
+follow (`realismcheck` drives 0.85 S₀ into deep freeze). Otherwise the global
+model keeps its own albedo ramp, which already includes today's caps.
+`tools/realismcheck.tscn` checks the 72° edge, the snowball threshold, the
+hysteresis and the inverted case.

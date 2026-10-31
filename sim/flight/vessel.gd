@@ -30,6 +30,7 @@ static var _g2 := DVec3.new()
 static var _gp := DVec3.new()
 static var _gu := DVec3.new()
 static var _gw := DVec3.new()
+static var _ba := DVec3.new()
 static var _w1 := DVec3.new()
 static var _ge1 := DVec3.new()
 static var _ge2 := DVec3.new()
@@ -448,7 +449,24 @@ func gravity(rr: DVec3, out: DVec3) -> DVec3:
 		if D2 > 1e-6: out.add_scaled_in(_g1, -gm / (D2 * sqrt(D2)))
 	# Bodies pull in the world frame; the parent's figure is in its own spin frame.
 	to_local(out, out)
+	var tess = env.get("tesseral")
+	if tess != null:
+		Rocketry.tesseral_accel(tess, env.mu, rr, body_angle(coord + maxf(_stage_tau, 0.0) * _stage_h), out)
 	return Rocketry.zonal_accel(env.get("zonal"), env.mu, rr, out)
+
+## The parent's prime meridian at coordinate time `t`, rad east of the frame's +X. A
+## world turning under a launch site keeps the site's longitudes, as the drawn ground
+## does; a tidally locked moon keeps its long axis on its primary (librations aside);
+## anything else turns at its sidereal rate from the start of coordinate time.
+func body_angle(t: float) -> float:
+	var lock = env.get("locked")
+	if lock != null and parent != null:
+		for b in bodies:
+			if b.alive and b.name == lock:
+				to_local(_ba.sub_vectors(b.pos, parent.pos), _ba)
+				return atan2(_ba.z, _ba.x)
+	var t0: float = float(launch_site.coord0) if launch_site != null else 0.0
+	return env.rotRate * (t - t0)
 
 ## Body `i`'s offset from the parent at the current RK4 stage, m.
 func _body_offset(i: int, out: DVec3) -> DVec3:
@@ -1084,12 +1102,30 @@ func _milestones(t: Dictionary) -> void:
 	if not _logged.has("karman") and alt >= env.karman and t.vertical > 0.0:
 		_logged.karman = true
 		log_event("Space — through the Kármán line at %s km/s" % U.fixed(t.speed / 1000.0, 2))
+	_radio(t)
 	if t.heat > _peak_heat_seen:
 		_peak_heat_seen = t.heat; _peak_heat_alt = alt; _peak_heat_v = t.speed
 	if not _logged.has("heat") and _peak_heat_seen > 5e4 and t.heat < 0.8 * _peak_heat_seen:
 		_logged.heat = true
 		log_event("Peak heating — %s W/cm² at %s km, %s km/s" % [U.fixed(_peak_heat_seen / 1e4, 1),
 			U.fixed(_peak_heat_alt / 1000.0, 1), U.fixed(_peak_heat_v / 1000.0, 2)])
+
+## Radio blackout: S-band is cut off while the shock layer's equilibrium electron
+## density exceeds the critical density (Ionisation). Sampled once a second of MET,
+## since a shock solve is costly; telemetry carries `ne` and `blackout`.
+var _radio_met := -INF
+func _radio(t: Dictionary) -> void:
+	if met - _radio_met < 1.0 and t.has("blackout"): return
+	_radio_met = met
+	var ne := Ionisation.shock_layer_ne(env.atm, t.alt, float(t.airspeed))
+	var out := ne > Ionisation.critical_density()
+	var was: bool = telemetry.get("blackout", false)
+	t.ne = ne
+	t.blackout = out
+	if out and not was:
+		log_event("Radio blackout — %s e⁻/m³ in the shock layer, above S-band's %s" % [U.expo(ne, 1), U.expo(Ionisation.critical_density(), 1)] + _where())
+	elif was and not out:
+		log_event("Radio contact restored" + _where())
 
 ## Append to the event log the HUD shows, capped at 120.
 func log_event(msg: String) -> void:
@@ -1139,7 +1175,8 @@ func potential(rr: DVec3) -> float:
 		var br: float = b.radius if (b.radius != 0.0 and not is_nan(b.radius)) else 1e-9
 		var d := maxf(_e.length(), br * Rocketry.AU_M * 0.5)
 		phi -= Rocketry.GM_SUN * b.mass / d
-	return phi + Rocketry.zonal_potential(env.get("zonal"), env.mu, rr)
+	return phi + Rocketry.zonal_potential(env.get("zonal"), env.mu, rr) \
+		+ Rocketry.tesseral_potential(env.get("tesseral"), env.mu, rr, body_angle(coord))
 
 # Stepping
 

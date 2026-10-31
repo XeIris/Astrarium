@@ -65,6 +65,11 @@ var wet: bool = true
 var time: float = 0.0
 # rolling history for the graph: [simYear, S, T]
 var history: Array = []
+# Budyko–Sellers in latitude (LatitudeEBM): sin of the ice edge's latitude, and whether
+# the world is frozen to the equator. A snowball drives this model's ice to full cover.
+var ebm := LatitudeEBM.new()
+var ice_edge: float = 1.0
+var snowball: bool = false
 var history_max: int = 900
 var _acc: float = 0.0
 var extremes: Dictionary = {}
@@ -98,6 +103,7 @@ var celsius: float:
 func albedo(t: float) -> Dictionary:
 	# ice fraction ramps in between 278 K and 233 K
 	var ic := minf(maxf((278.0 - t) / 45.0, 0.0), 1.0)
+	if snowball: ic = 1.0
 	return { "alb": albedo_base + albedo_ice * ic, "ice": ic }
 
 # Insolation from every luminous body, in units of Earth's solar constant.
@@ -183,6 +189,15 @@ func step(dt_years: float, planet: Body, stars: Array) -> void:
 		T = maxf(T, 3.0)
 		ice = ab.ice
 
+	# The latitude model on the same clock, its OLR line pinned to this model's emission at
+	# 288 K, so the two agree on a temperate world's mean.
+	var obl := float(U.nz(planet.spec.get("obliquity"), planet.obliquity))
+	var A := greenhouse * SIGMA * pow(288.15, 4.0) - LatitudeEBM.B * 15.0
+	ebm.step(dt_years * YEAR_S, S * S0 / 4.0, RockyVisual.insolation_s2(obl), A, heat_capacity)
+	ice_edge = ebm.ice_edge()
+	snowball = ebm.snowball()
+	ice = maxf(ice, ebm.ice_fraction())
+
 	# Humidity → cloud → weather: saturation vapour pressure roughly doubles every 10 K.
 	var cc := pow(2.0, (T - 288.0) / 10.0)
 	humidity = minf(1.0, cc * (1.0 - ice) * 0.5) if ocean + steam > 0.0 else 0.0
@@ -208,6 +223,7 @@ func reset(T0: float = 288.0) -> void:
 	T = T0; time = 0.0; history.clear()
 	# Reset every derived quantity too (world.gd reads ice, the HUD era and clouds).
 	S = 1.0; ice = 0.0; clouds = 0.4; humidity = 0.5
+	ebm.reset(T0 - 273.15); ice_edge = 1.0; snowball = false
 	ocean = 1.0 if wet else 0.0; steam = 0.0
 	era = ERAS.STABLE
 	per_star.clear(); _acc = 0.0

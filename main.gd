@@ -107,6 +107,7 @@ func _ready() -> void:
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
 	if _cmd.has("winds"): Rocketry.winds_enabled = String(_cmd.winds) != "0"
 	if _cmd.has("secular"): Physics.secular = String(_cmd.secular) != "0"
+	if _cmd.has("f107"): Rocketry.f107 = float(_cmd.f107)
 	# Logical px, with the display scale as content scale. Screenshot mode takes
 	# window pixels 1:1.
 	var screen := DisplayServer.window_get_current_screen()
@@ -1503,6 +1504,7 @@ func update_hud(dt: float) -> void:
 		"celsius": cl.celsius, "S": cl.S, "ice": cl.ice, "clouds": cl.clouds,
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
 		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam,
+		"iceEdge": cl.ice_edge, "snowball": cl.snowball,
 	})
 
 func toast(msg: String, ms: int = 2200) -> void:
@@ -2160,6 +2162,10 @@ func _on_slider(id: String, v: float) -> void:
 		"maxStep":
 			state.max_step = pow(10.0, v)
 			hud.set_text("maxStep-val", "%s yr" % U.expo(state.max_step, 1))
+		"f107":
+			# Below the quietest Sun on record the standard thermosphere stands in.
+			Rocketry.f107 = v if v >= 60.0 else 0.0
+			hud.set_text("f107-val", ("F10.7 = %d" % int(Rocketry.f107)) if Rocketry.f107 > 0.0 else "US76")
 		"gwBoost":
 			state.gw_boost = v
 			hud.set_text("gwBoost-val", ("%s×" % U.fixed(v, 2)) if v else "off")

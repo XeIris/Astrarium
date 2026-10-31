@@ -573,6 +573,8 @@ func _build_settings() -> void:
 		sec_btn.set_label("☑ Secular evolution" if Physics.secular else "☐ Secular evolution")
 		set_active("secularToggle", Physics.secular))
 	_h3(sim, "Flight")
+	_set_row(sim, "f107", "Solar activity", "The 10.7 cm solar flux, which heats the thermosphere and sets how fast low orbits decay: about 70 at solar minimum and 250 at maximum. At the left end the thermosphere is the 1976 standard's, which every built flight assumes.",
+		0, 300, 0, 5, "US76", func(v): return ("F10.7 = %d" % int(v)) if v > 0.0 else "US76")
 	_note(sim, "Climatological winds give Earth's air a zonal-mean circulation: trade winds, mid-latitude westerlies and a jet stream near 12 km. Guidance flies landings over the ground and aerodynamics through the moving air.")
 	var wind_btn := B(sim, "Toggle", "☐ Climatological winds", "windsToggle")
 	wind_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
@@ -1021,7 +1023,7 @@ func _build_control_panel() -> void:
 		item.add_child(sw)
 		L(item, kk[1], {"fs": 9.0, "c": T.TEXT_DIM})
 	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 12.0)
-	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["habitable", "cHZ"], ["HZ edges", "cHZEdges"], ["ice", "cIce"], ["cloud", "cCloud"], ["ocean", "cOcean"], ["τ response", "cTau"], ["range", "cExtremes"]]:
+	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["habitable", "cHZ"], ["HZ edges", "cHZEdges"], ["ice", "cIce"], ["ice line", "cIceLine"], ["cloud", "cCloud"], ["ocean", "cOcean"], ["τ response", "cTau"], ["range", "cExtremes"]]:
 		_stat(sg, kv[0], kv[1])
 	_row(s, "mixed", "Ocean depth", "Depth of the ocean mixed layer — the planet's thermal flywheel. Shallow oceans let the temperature whip around with the orbit; deep ones damp it.",
 		2, 120, 12, 1, "12 m", "", func(v): return U.fixed(v, 0) + " m")
@@ -1733,6 +1735,8 @@ func update_climate(cl: Dictionary) -> void:
 	set_text("cTemp", "%s °C" % U.fixed(cl.celsius, 1))
 	set_text("cFlux", "%s S⊕" % U.fixed(cl.S, 2))
 	set_text("cIce", "%s %%" % U.fixed(cl.ice * 100.0, 0))
+	var edge := float(cl.get("iceEdge", 1.0))
+	set_text("cIceLine", "snowball" if cl.get("snowball", false) else ("none" if edge >= 1.0 else "%d°" % int(round(rad_to_deg(asin(edge))))))
 	set_text("cCloud", "%s %%" % U.fixed(cl.clouds * 100.0, 0))
 	var hz: Dictionary = cl.get("hz", {})
 	if not hz.is_empty():

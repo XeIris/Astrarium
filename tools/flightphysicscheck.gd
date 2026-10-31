@@ -179,5 +179,115 @@ func _init() -> void:
 	var pce := Orbit.porkchop(p_e, v_e, mu_s, p_me, v_me, mu_s, mu_s, deps, tofs, func(a: float, b: float) -> float: return a + b)
 	check("an eccentric Mars moves the best window by days (%.1f d)" % ((pce.best.t_dep - pc.best.t_dep) / 86400.0), absf(pce.best.t_dep - pc.best.t_dep) > 2.0 * 86400.0)
 
+	tesseral()
+	thermosphere()
+	blackout()
 	print("flightphysicscheck: %s" % ("PASS" if fails == 0 else "%d FAIL" % fails))
 	quit(1 if fails > 0 else 0)
+
+# Normalized Legendre values, −∇ of the tesseral potential, a turned body turning its
+# field, and the size of the Moon's mascons and Earth's C22.
+func tesseral() -> void:
+	var sp := 0.3; var cp := sqrt(1.0 - sp * sp)
+	var P := Rocketry._legendre(3, sp, cp)
+	var want := [1.0, sqrt(3.0) * sp, sqrt(3.0) * cp, sqrt(5.0) * 0.5 * (3.0 * sp * sp - 1.0), sqrt(15.0) * sp * cp,
+		sqrt(15.0) * 0.5 * cp * cp, 0.0, 0.0, 0.0, sqrt(35.0 / 8.0) * cp * cp * cp]
+	var worst := 0.0
+	for k in want.size():
+		if k in [6, 7, 8]: continue
+		worst = maxf(worst, absf(P[k] - float(want[k])))
+	check("normalized P̄nm against closed forms", worst < 1e-12, worst)
+	for name in ["Earth", "Moon"]:
+		var f: Dictionary = Rocketry.TESSERAL[name]
+		var mu := 3.986004418e14 if name == "Earth" else LunarGravity.GM
+		var R := float(f.R)
+		var bad := 0.0
+		for p in [DVec3.new(1.05, -0.3, 0.4), DVec3.new(-0.2, 0.9, 0.6), DVec3.new(0.5, 0.1, -1.0)]:
+			var pp: DVec3 = DQuat.nrm(p.clone()).scale_in(R * 1.06)
+			var th := 0.7
+			var a := Rocketry.tesseral_accel(f, mu, pp, th, DVec3.new())
+			var e := 0.5
+			var g := DVec3.new()
+			for ax in 3:
+				var d := DVec3.new(e if ax == 0 else 0.0, e if ax == 1 else 0.0, e if ax == 2 else 0.0)
+				var u1 := Rocketry.tesseral_potential(f, mu, pp.clone().add_in(d), th)
+				var u0 := Rocketry.tesseral_potential(f, mu, pp.clone().sub_in(d), th)
+				g.set(["x", "y", "z"][ax], -(u1 - u0) / (2.0 * e))
+			bad = maxf(bad, g.sub_in(a).length() / a.length())
+			# Turning the body by δ and the point with it leaves the field's pull turned by δ.
+			var dl := 0.4
+			var q := DVec3.new(pp.x * cos(dl) - pp.z * sin(dl), pp.y, pp.x * sin(dl) + pp.z * cos(dl))
+			var b := Rocketry.tesseral_accel(f, mu, q, th + dl, DVec3.new())
+			var bb := DVec3.new(a.x * cos(dl) - a.z * sin(dl), a.y, a.x * sin(dl) + a.z * cos(dl))
+			bad = maxf(bad, bb.sub_in(b).length() / a.length())
+		check("%s tesseral field is −∇Φ and turns with the body" % name, bad < 1e-5, bad)
+	# Mascons: the degree-16 field's pull 100 km over the Moon is a few hundred mGal.
+	var moon: Dictionary = Rocketry.TESSERAL.Moon
+	var big := 0.0
+	for i in 64:
+		var lon := TAU * i / 64.0
+		for lat in [-0.6, -0.2, 0.2, 0.6]:
+			var pp := DVec3.new(cos(lat) * cos(lon), -sin(lat), cos(lat) * sin(lon)).scale_in(LunarGravity.R_REF + 1.0e5)
+			big = maxf(big, Rocketry.tesseral_accel(moon, LunarGravity.GM, pp, 0.0, DVec3.new()).length())
+	check("the Moon's tesseral pull at 100 km peaks at 10–100 mGal·10 (%.0f mGal)" % (big * 1e5), big > 1e-3 and big < 1e-2)
+	# Earth's C22 at LEO: 3·μ/r²·(R/r)²·C22 (unnormalized), within a factor of the
+	# sectoral term alone.
+	var e_f: Dictionary = Rocketry.TESSERAL.Earth
+	var rr := DVec3.new(6.778e6, 0.0, 0.0)
+	var c22 := Rocketry.tesseral_accel(e_f, 3.986004418e14, rr, 0.0, DVec3.new()).length()
+	var c22u := sqrt(pow(2.43938357328e-6, 2.0) + pow(1.40027370385e-6, 2.0)) * sqrt(5.0 / 12.0)
+	var expect := 3.0 * 3.986004418e14 / (rr.x * rr.x) * pow(6378136.3 / rr.x, 2.0) * c22u * 3.0
+	check("Earth's C22 at 400 km is ~1e-4 m/s² (%s)" % U.expo(c22, 2), c22 > 0.2 * expect and c22 < 2.0 * expect)
+
+# The thermosphere against US76 at F10.7 = 150, its spread with activity, and the
+# decay of a 400 km orbit against da/dt = −ρ·√(μa)·C_dA/m.
+func thermosphere() -> void:
+	var atm: Dictionary = Rocketry.ATMOSPHERES.Earth
+	var worst := 0.0
+	for h in [200e3, 300e3, 400e3, 500e3, 600e3]:
+		Rocketry.f107 = 0.0
+		var us := Rocketry.density(atm, h)
+		Rocketry.f107 = 150.0
+		worst = maxf(worst, absf(Rocketry.density(atm, h) / us - 1.0))
+	check("Bates–Walker at F10.7 = 150 follows US76 within 20%% at 200–600 km (%.2f)" % worst, worst < 0.2)
+	Rocketry.f107 = 70.0
+	var lo := Rocketry.density(atm, 400e3)
+	Rocketry.f107 = 250.0
+	var hi := Rocketry.density(atm, 400e3)
+	check("400 km density spans 10–30× from solar minimum to maximum (%.1f×)" % (hi / lo), hi / lo > 10.0 and hi / lo < 30.0)
+	# Decay on rails at 400 km over three days at three activities. Osculating a carries
+	# km of J2 wobble, the same in each run, so the differences between runs are drag's:
+	# they must scale as the densities' differences.
+	var decay := {}
+	var rho := {}
+	for f in [70.0, 150.0, 250.0]:
+		Rocketry.f107 = f
+		rho[f] = Rocketry.density(atm, 400e3)
+		var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0)
+		var v := vessel_at(earth, [earth])
+		v.place_in_orbit(400000.0, 51.6, 0.0)
+		var mu: float = v.env.mu
+		var a0 := float(Orbit.elements(v.r, v.v, Rocketry.effective_mu(v.env.zonal, mu, v.r, v.v)).a)
+		for i in 3 * 1440: v.step(60.0, {"rails": true})
+		decay[f] = a0 - float(Orbit.elements(v.r, v.v, Rocketry.effective_mu(v.env.zonal, mu, v.r, v.v)).a)
+	var got := (float(decay[250.0]) - float(decay[70.0])) / (float(decay[150.0]) - float(decay[70.0]))
+	var want := (float(rho[250.0]) - float(rho[70.0])) / (float(rho[150.0]) - float(rho[70.0]))
+	check("an active Sun decays a 400 km orbit %.0f m more in 3 days than a quiet one; scaling %.2f against the densities' %.2f" % [
+		float(decay[250.0]) - float(decay[70.0]), got, want], float(decay[250.0]) > float(decay[70.0]) + 100.0 and absf(got / want - 1.0) < 0.1)
+	Rocketry.f107 = 0.0
+
+# Radio blackout from the equilibrium shock layer: on along the Shuttle's and Apollo's
+# entries where they lost contact, off in orbit and below Mach 8.
+func blackout() -> void:
+	var atm: Dictionary = Rocketry.ATMOSPHERES.Earth
+	var crit := Ionisation.critical_density()
+	check("S-band's critical density is 6.5e16 e⁻/m³", absf(crit / 6.49e16 - 1.0) < 0.01, crit)
+	var cases := [["Shuttle 80 km, 7.4 km/s", 80e3, 7400.0, true], ["Shuttle 65 km, 6.2 km/s", 65e3, 6200.0, true],
+		["Apollo 70 km, 10 km/s", 70e3, 10000.0, true], ["orbit 200 km, 7.8 km/s", 200e3, 7800.0, false],
+		["Shuttle 40 km, 2.0 km/s", 40e3, 2000.0, false]]
+	for c in cases:
+		var ne := Ionisation.shock_layer_ne(atm, float(c[1]), float(c[2]))
+		check("%s: %s (%s e⁻/m³)" % [c[0], "blackout" if c[3] else "contact", U.expo(ne, 1)], (ne > crit) == bool(c[3]))
+	var sh := Ionisation.normal_shock(Rocketry.density(atm, 80e3), Rocketry.temperature(atm, 80e3), 10800.0)
+	check("lunar-return shock layer near 10 000 K in equilibrium (%d K)" % int(sh.T), float(sh.T) > 8000.0 and float(sh.T) < 12500.0)
+	check("Mars air is outside the model", Ionisation.shock_layer_ne(Rocketry.ATMOSPHERES.Mars, 40e3, 5000.0) == 0.0)

@@ -20,9 +20,32 @@ rails kicks read the same snapshots at their two ends.
 Earth, Mars and the Moon add zonal harmonics J2–J4 about their spin poles
 (`Rocketry.ZONAL`: EGM2008, MRO120D, LP150Q), as −∇ of
 Φ = (μ/r) Σ Jₙ (R/r)ⁿ Pₙ(sin φ). This gives nodal regression (the ISS's −5.0°/day,
-reproduced to 0.1%), sun-synchronous orbits and apsidal drift. Sectoral and
-tesseral terms are absent, so the Moon's C22 (as large as its J2) and the mascons
-that make low lunar orbits unstable are not modelled.
+reproduced to 0.1%), sun-synchronous orbits and apsidal drift.
+
+The rest of the field is in `Rocketry.TESSERAL`, fully normalized and evaluated in
+the body-fixed frame (`Rocketry.tesseral_accel`, the Holmes & Featherstone
+recursion with the spherical gradient of Vallado §8.7). It covers every m ≥ 1 term
+and the zonals past J4:
+
+- Earth: EGM2008's C̄21, S̄21, C̄22 and S̄22 (Pavlis et al. 2012), about 1.2 × 10⁻⁴ m/s²
+  at 400 km.
+- the Moon: the GRAIL field GL0420A (Konopliv et al. 2013) to degree 16, from the
+  PDS Geosciences Node. `tools/build_lunar_gravity.py` writes
+  `sim/flight/lunar_gravity.gd` from the first 64 KB of `jggrx_0420a_sha.tab`. Its
+  C̄22 is as large as J2's share, and the mascons give up to 195 mGal at 100 km.
+  The zonal table's J2–J4 are derived from the same field. Degree 16 resolves
+  features of about 340 km: the large basins, not the full mascon spectrum.
+  Degree 16 costs 153 terms per evaluation; a degree-660 field would be roughly
+  2000 times slower per RK4 stage in GDScript.
+
+`Vessel.body_angle` turns the field with the body. A world under a launch site
+keeps that site's longitudes, as the drawn ground does. A tidally locked moon
+(`tidalLock` in its spec) keeps its long axis, the principal axis of the GRAIL
+frame, on its primary; physical librations of ±7° are left out. Any other body
+turns at its sidereal rate from coordinate time zero, so its field's longitudes are
+not tied to a map. Mars keeps only its zonals. `flightphysicscheck` checks the
+normalized Legendre values against closed forms, the acceleration against −∇ of the
+potential, and that turning the body turns the field.
 
 Two-body elements under J2 are biased: at 28.5° a circular 200 km orbit reads
 13 km eccentric. Telemetry, and through it guidance, computes its conic with the
@@ -46,6 +69,30 @@ put the pad and geodetic latitude right to 21 km, but the ground, clouds, sky,
 landing and planet maps all assume a sphere and would have to change together.
 
 ## Air
+
+### The thermosphere
+
+Settings › Sim › Solar activity (`f107=` on the command line) sets the 10.7 cm solar
+flux. At its default, the left end, Earth's air above 86 km is US76's table: a
+thermosphere of moderate activity with an exospheric temperature of 1000 K, which
+every built flight assumes. With a flux set, the air above 120 km is the Bates
+profile `T = T∞ − (T∞ − T₁₂₀)·e^(−sζ)` in geopotential ζ, which is US76's own form
+above 120 km, with s = 0.01875 km⁻¹. Each species (N₂, O, O₂, Ar, and He with
+thermal diffusion α = −0.38) is in diffusive equilibrium from US76's 120 km number
+densities, in Walker's (1965) closed form:
+
+    n(ζ) = n₁₂₀ [T₁₂₀/T]^(1 + α + γ) e^(−sγζ),   γ = m g₁₂₀ / (s k T∞)
+
+T∞ follows Jacchia's (1971) night-time `T_c = 379 + 3.24 F10.7`, scaled so that
+F10.7 = 150 gives US76's 1000 K. At 150, density follows the US76 table to within
+18% from 200 to 600 km; the table's extra O and H fluxes make up the difference.
+At 400 km, density spans 18× from F10.7 = 70 to 250. NRLMSISE-00 gives roughly
+10–20× over a solar cycle there; its geomagnetic, diurnal, seasonal and latitude
+terms are not modelled. Drag continues up to `exo` and kicks the rails, so low
+orbits decay at the rate the setting implies. `flightphysicscheck` flies a 400 km
+orbit on rails for three days at three activities. The extra decay scales with the
+density differences to within 3%, and an active Sun takes ~200 m more than a quiet
+one for the ion cruiser.
 
 Shock-layer radiation adds to the Sutton–Graves convective flux
 (`Rocketry.radiative_heat_flux`, Tauber & Sutton 1991): zero below about 9 km/s
