@@ -76,7 +76,7 @@ unchanged: `tools/skycachecheck.tscn` compares against an exhaustive walk
 
 Diffuse emission and dust depth ignore J, so they are functions of rest-frame
 direction alone. `render/sky_cache.gd` renders them through the same
-`sky_diffuseAdd`/`sky_tau` into a 3×2 cube-face atlas (512² per face, RGBA16F,
+`sky_diffuseAdd`/`sky_tau` into a 3×2 cube-face atlas (768² per face, RGBA16F,
 equiangular, texel centres on face edges), re-rendering only when an input
 uniform changes. Rays sample it when magnification is below 4×; nearer the
 photon ring, every layer stays live. The star-density field (band profile and
@@ -165,10 +165,11 @@ keep their fixed emitter gain.
 
 A scene whose sky says `galactic: "j2000"` (`solar`) puts the Milky Way on the real
 galactic frame: the north galactic pole at RA 192.859°, Dec +27.128° and the centre
-at 266.405°, −28.936°, carried onto the scene's ecliptic axes. If
-`assets/sky/bsc5.bin` exists (built by `tools/build_starcat.py` from the Yale
-Bright Star Catalogue, BSC5), each of its ~9100 stars is drawn at its J2000
-direction (`BrightStars`). Brightness comes from V on the flux scale above, and
+at 266.405°, −28.936°, carried onto the scene's ecliptic axes. Each of the 9096
+stars in `assets/sky/bsc5.bin` is drawn at its J2000 direction (`BrightStars`).
+The file is the Yale Bright Star Catalogue, 5th revised edition (Hoffleit &
+Warren 1991), reduced by `tools/build_starcat.py` from HEASARC's BSC5P table.
+Without the file, the procedural sky stays whole. Brightness comes from V on the flux scale above, and
 colour is the Planck colour of Ballesteros's (2012) B−V temperature. The
 procedural sky then skips its four brightest tiers (to V ≈ 6) and fills in
 below. The catalogue is visible-band only. It is neither lensed nor aberrated, so

@@ -649,7 +649,8 @@ vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 		reach = min(reach, 8.0 * sqrt(lmax));
 	}
 
-	for (int t = uFirstTier; t < SKY_TIERS; t++) {
+	for (int t = 0; t < SKY_TIERS; t++) {
+		if (t < uFirstTier) continue;
 		float tier  = float(t);
 		float cells = 4.0 * exp2(tier);             // cells per face edge
 		// Angular size of one cell. Tier k has 4x the cells and 1/2.512 the flux of

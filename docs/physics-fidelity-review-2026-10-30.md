@@ -36,7 +36,7 @@ V2), `fix/physics-fidelity-obliquity` (P1-4), `fix/physics-integrator-1pn`
 | V3 | Quadratic, per band and Teff-dependent, from Eddington–Barbier on a grey atmosphere, **not Claret's tables** (unavailable offline). |
 | V4 | Done. Analytic umbra and penumbra on rocky, cloud and giant surfaces at true scale; a red umbra for thick atmospheres, brightened ×100 for display. The star's limb darkening inside the penumbra is ignored. |
 | V5 | Done. Mallama & Hilton (2018) magnitudes for the planets, Lambert spheres for other reflectors, on the sky's flux scale. |
-| V6 | `solar` puts the Milky Way on the real J2000 galactic frame. The BSC5 renderer (`BrightStars`) and `tools/build_starcat.py` are in place, and the procedural sky yields its four brightest tiers when catalogue data is present. **The catalogue data is not committed**: run the script to fetch and build it. Gaia fill is not used. |
+| V6 | Done. `solar` draws the 9096 stars of the Yale Bright Star Catalogue (BSC5, `assets/sky/bsc5.bin`, built by `tools/build_starcat.py`) on the real J2000 galactic frame, and the procedural sky fills in below V ≈ 6. Gaia stars are not used; the catalogue is visible-band only, and neither lensed nor aberrated. |
 | V7 | **Label only.** The inspector says "Schwarzschild geodesics — spin not rendered"; Kerr geodesics and Novikov–Thorne flux are not implemented. |
 | V8 | Done. Flamm's paraboloid to 40 r_s for holes and depth ∝ Φ elsewhere, labelled in Settings › Render. |
 | V9 | Done. Optional first-order light-time (Rømer) delay for drawn positions (Settings › Sim). |

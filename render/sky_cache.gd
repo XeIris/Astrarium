@@ -5,9 +5,10 @@ extends RefCounted
 # and sky_tau in sky.gdshaderinc). Point sources and the star-density field stay
 # analytic: docs/physics/sky.md#the-diffuse-cache.
 
-## Texels per face edge: about 4 mrad at a face centre, several texels across the
-## finest diffuse noise. One RGBA16F atlas of 3x2 faces uses 12.6 MB.
-const FACE := 512
+## Texels per face edge: about 2.7 mrad at a face centre, several texels across the
+## finest diffuse noise and the edge-on radio plane of solar's J2000 frame.
+## One RGBA16F atlas of 3x2 faces uses 28.3 MB.
+const FACE := 768
 ## Uniforms the cached layers read; any change re-renders the cache.
 const INPUTS := ["uGalNormal", "uGalCenter", "uGalEast", "uVisibleBand", "uExtCoef",
 	"uGlow", "uBulge", "uDust", "uHii", "uRefl", "uBandScaleH", "uBulgeSize",
