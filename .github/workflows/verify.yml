@@ -12,7 +12,7 @@ jobs:
             archive: linux.x86_64
             preset: Linux
             sha256: cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4
-          - os: macos-14
+          - os: macos-15
             archive: macos.universal
             preset: macOS
             sha256: c58a24e31d720be9d62f60cb5627c4e695fb72f21b0cfe1bc9ccaa9a3b3ba63e
