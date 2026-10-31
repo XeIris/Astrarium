@@ -269,6 +269,12 @@ func _init() -> void:
 	check("the Sun's limb is darker in blue than red (%.2f, %.2f)" % [limb_of.call(ld_sun, 2), limb_of.call(ld_sun, 0)], limb_of.call(ld_sun, 2) < limb_of.call(ld_sun, 0) - 0.05)
 	check("the Sun's V-band limb is 0.25–0.4 of its centre", limb_of.call(ld_sun, 1) > 0.25 and limb_of.call(ld_sun, 1) < 0.4)
 	check("a hot star's limb is brighter than the Sun's", limb_of.call(ld_hot, 1) > limb_of.call(ld_sun, 1) + 0.15)
+	var ld_row := Stellar.limb_darkening(5750.0)
+	check("Claret's 5750 K row passes through (V: a 0.4369, b 0.2952)",
+		absf((ld_row[0] as Vector3).y - 0.4369) < 1e-6 and absf((ld_row[1] as Vector3).y - 0.2952) < 1e-6)
+	var ld_m := Stellar.limb_darkening(3200.0)
+	check("an M dwarf's limb stays non-negative in every band (PHOENIX refit)",
+		limb_of.call(ld_m, 0) >= 0.0 and limb_of.call(ld_m, 1) >= 0.0 and limb_of.call(ld_m, 2) >= 0.0)
 	# The north galactic pole sits at ecliptic latitude +29.8° (north is −Y).
 	var gal := SkyModel.galactic_frame_j2000()
 	check("the J2000 galactic pole is 29.8° above the ecliptic", absf(-(gal[0] as Vector3).y - sin(deg_to_rad(29.81))) < 2e-3 and absf((gal[0] as Vector3).dot(gal[1])) < 1e-6)
