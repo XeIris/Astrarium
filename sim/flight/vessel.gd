@@ -163,6 +163,9 @@ var roll_signed := false
 var speedbrake := 0.0
 var _roll_axis := DVec3.new()
 var throttle: float = 0.0
+## Seconds of thrust left before a commanded cutoff, flown inside the step as a
+## guidance cutoff time is; < 0 none.
+var cutoff_in := -1.0
 var rcs_on: bool = true
 
 # clocks. `met` is proper time, `coord` coordinate time; `clock_delta` is the
@@ -442,10 +445,17 @@ func altitude(rr: DVec3 = null) -> float:
 	if rr == null: rr = r
 	return rr.length() - env.radius
 
-## Velocity relative to the rotating atmosphere, for drag, Mach and heating.
+## Velocity relative to the moving air (the turning planet plus the wind), for drag,
+## Mach, heating and the aerodynamic attitude.
 func airspeed(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, rr)
 	if env.atm != null: _d.add_in(Rocketry.wind_at(env.atm, rr, env.radius, _wind))
+	return out.sub_vectors(vv, _d)
+
+## Velocity over the turning ground, for wheels, gear, tower arms and the track to a
+## site. Equal to `airspeed` in still air.
+func ground_velocity(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
+	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, rr)
 	return out.sub_vectors(vv, _d)
 
 func up_now(out: DVec3) -> DVec3:
@@ -485,8 +495,10 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			var fwd := forward(_f)
 			# A slender body falling base first (a booster on entry) is blunt too.
 			var blunt: bool = (st != null and st.spec.get("blunt", false)) or fwd.dot(_vrel) < 0.0
-			var cd := Rocketry.blunt_drag_coefficient(mach) if blunt \
-				else Rocketry.drag_coefficient(mach, st.spec.get("cdTable") if st != null else null)
+			var cd := Rocketry.drag_coefficient(mach, st.spec.get("cdTable") if st != null else null)
+			if blunt:
+				var base = st.spec.get("cdBase") if st != null else null
+				cd = Rocketry.drag_coefficient(mach, base) if base != null else Rocketry.blunt_drag_coefficient(mach)
 			# Angle of attack costs drag. cos²α is the standard slender-body form,
 			# and it is why flying off-prograde in thick air is expensive.
 			var cos_a := absf(fwd.dot(_vrel) / va)
@@ -678,7 +690,7 @@ func _wheels(rr: DVec3, vv: DVec3, out: DVec3, m: float, sample: Sample) -> void
 	var sp: Dictionary = rs.spec
 	var f: float = float(sp.mu) * m * a_n + rs.brake * float(sp.brakes) * float(sp.brakeTorque) / float(sp.tyreR)
 	# Against the motion, eased through zero so a stopped vehicle does not chatter.
-	var u := airspeed(rr, vv, _w3).dot(rs.heading)
+	var u := ground_velocity(rr, vv, _w3).dot(rs.heading)
 	var dir := clampf(u / 0.2, -1.0, 1.0)
 	out.add_scaled_in(rs.heading, -f * dir / m)
 	if sample != null:
@@ -1203,6 +1215,7 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 		var h := minf(remaining, step_bound())
 		# A frame's pending guidance can ignite an engine at the accepted boundary.
 		if opts.get("control_may_thrust", false): h = minf(h, 0.25)
+		if cutoff_in > 0.0: h = minf(h, cutoff_in)
 		_snap_bodies(_off0, _vel0)
 		h = _advance_world(h, opts)
 		if h <= 0.0: break
@@ -1211,7 +1224,19 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 			return elapsed + h
 		_snap_bodies(_off1, _vel1)
 		_snapped = interpolate_stages
-		rk4(h, s)
+		if cutoff_in >= 0.0 and cutoff_in < h:
+			# Commanded during this substep's controls, after its length was chosen: thrust
+			# to the cutoff, then coast. Over a fraction of a second the bodies' end
+			# positions stand in for their interpolation.
+			_snapped = false
+			if cutoff_in > 1e-9: rk4(cutoff_in, s)
+			var rest := h - maxf(cutoff_in, 0.0)
+			cutoff_in = -1.0
+			throttle = 0.0
+			if rest > 1e-9: rk4(rest, s)
+		else:
+			rk4(h, s)
+			if cutoff_in >= 0.0: cutoff_in -= h
 		remaining -= h
 		elapsed += h
 	step_guard_hit = remaining > 1e-9
@@ -1457,7 +1482,7 @@ func contact(dt: float) -> void:
 			omega.set_v(0.0, 0.0, 0.0)
 			phase = PHASE.LANDED
 			up_now(_a)
-			airspeed(r, v, _vrel)
+			ground_velocity(r, v, _vrel)
 			var vv := _vrel.dot(_a)
 			var vh := _b.copy_from(_vrel).add_scaled_in(_a, -vv).length()
 			landed_at = { "met": met, "vVert": vv, "vHoriz": vh, "caught": true }
@@ -1472,7 +1497,7 @@ func contact(dt: float) -> void:
 			phase = PHASE.ASCENT; t0 = met; log_event("Liftoff")
 		return
 	var up := DQuat.nrm(_a.copy_from(r))
-	airspeed(r, v, _vrel)
+	ground_velocity(r, v, _vrel)
 	var v_vert := v.dot(up)
 	if phase == PHASE.PRELAUNCH:
 		# held down on the pad until thrust exceeds weight
@@ -1516,11 +1541,11 @@ func contact(dt: float) -> void:
 ## runway along the ground track, at the pitch it touched down with.
 func _touchdown_roll(st, up: DVec3, v_vert: float, v_horiz: float) -> void:
 	phase = PHASE.ROLLOUT
-	landed_at = { "met": met, "vVert": v_vert, "vHoriz": v_horiz }
+	landed_at = { "met": met, "vVert": v_vert, "vHoriz": v_horiz, "vAir": airspeed(r, v, _vrel).length() }
 	log_event("Main gear touchdown — %s m/s sink, %s m/s" % [U.fixed(absf(v_vert), 2), U.fixed(v_horiz, 1)])
 	var rs := Rollout.new()
 	rs.spec = st.spec.rollout
-	airspeed(r, v, _vrel)
+	ground_velocity(r, v, _vrel)
 	DQuat.nrm(rs.heading.copy_from(_vrel).add_scaled_in(up, -_vrel.dot(up)))
 	rs.theta = asin(clampf(forward(_e).dot(up), -1.0, 1.0))
 	rs.theta_td = rs.theta
@@ -1551,8 +1576,8 @@ func _roll(dt: float) -> void:
 	rs.theta += rs.rate * dt
 	if not rs.nose and rs.theta <= rs.theta_3pt:
 		rs.nose = true
-		var gs := airspeed(r, v, _vrel).length()
-		var eas := gs * sqrt(Rocketry.density(env.atm, maxf(altitude(), 0.0)) / 1.225)
+		var gs := ground_velocity(r, v, _vrel).length()
+		var eas := airspeed(r, v, _vrel).length() * sqrt(Rocketry.density(env.atm, maxf(altitude(), 0.0)) / 1.225)
 		rs.ngtd = { "eas": eas, "gs": gs, "sink": -rs.rate * rs.nose_arm, "x": rs.x, "t": rs.t }
 		log_event("Nose gear touchdown — %s KEAS, %s m/s sink, %s m from main-gear touchdown" % [
 			U.fixed(eas / 0.514444, 0), U.fixed(-rs.rate * rs.nose_arm, 2), U.fixed(rs.x, 0)])
@@ -1568,7 +1593,7 @@ func _roll(dt: float) -> void:
 	omega.set_v(0.0, 0.0, 0.0)
 	var h := contact_altitude()
 	if h < 0.0: r.add_scaled_in(up, -h)
-	airspeed(r, v, _vrel)
+	ground_velocity(r, v, _vrel)
 	var vn := _vrel.dot(up)
 	if h < 0.01 and vn < 0.0: _vrel.add_scaled_in(up, -vn)
 	_vrel.add_scaled_in(side, -_vrel.dot(side))
@@ -1603,7 +1628,7 @@ func jettison_drag_chute() -> void:
 	rolling.chute_gone_met = met
 	chute_open = null
 	chute_deploy = 0.0
-	log_event("Drag chute jettison — %s kt ground speed" % U.fixed(float(telemetry.get("airspeed", 0.0)) / 0.514444, 0))
+	log_event("Drag chute jettison — %s kt ground speed" % U.fixed(ground_velocity(r, v, _vrel).length() / 0.514444, 0))
 
 ## The drag chute's share of its full drag area `t` s after the deploy command: nothing
 ## until the mortar, out and reefed by `reefed`, full a `fill` after the disreef.

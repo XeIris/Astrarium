@@ -128,6 +128,29 @@ static func stage(o: Dictionary) -> Dictionary:
 	s["area"] = o["area"] if o.get("area") != null else PI * pow(o.D / 2.0, 2.0)
 	return s
 
+# DRAG TABLES. Cd against Mach on the stage's frontal area (`cdTable` nose first,
+# `cdBase` falling base first); held beyond their ends.
+# Boeing D5-15481-1, AS-504 Launch Vehicle Reference Trajectory vol. 1 (1968), fig. 3-2:
+# total aerodynamic axial force at α = 0 on the 396 in diameter, F-1s firing, digitized
+# from the ibiblio scan against its local gridlines (±0.01; below Mach 0.4 ±0.03). Its
+# liftoff term (56.5 kN for the first 4 s) is left out.
+const SATURN_SIC_CA := { "source": "Boeing D5-15481-1 fig. 3-2, S-IC flight configuration", "rows": [
+	[0.0, 1.14], [0.05, 1.12], [0.08, 1.03], [0.10, 0.89], [0.13, 0.71], [0.15, 0.59], [0.18, 0.45],
+	[0.20, 0.40], [0.25, 0.36], [0.30, 0.346], [0.35, 0.345], [0.40, 0.356], [0.50, 0.374],
+	[0.60, 0.419], [0.70, 0.465], [0.80, 0.525], [0.90, 0.596], [1.00, 0.694], [1.10, 0.785],
+	[1.20, 0.809], [1.30, 0.767], [1.40, 0.712], [1.50, 0.669], [1.75, 0.570], [2.00, 0.498],
+	[2.25, 0.447], [2.50, 0.403], [2.75, 0.362], [3.00, 0.329], [3.50, 0.269], [4.00, 0.221],
+	[4.50, 0.184], [5.00, 0.151], [5.50, 0.124], [6.00, 0.090], [6.50, 0.048], [7.00, -0.007],
+	[7.50, -0.075], [8.00, -0.155]] }
+const SATURN_SII_CA := { "source": "Boeing D5-15481-1 fig. 3-2, S-II flight configuration", "rows": [
+	[5.0, 0.281], [6.0, 0.267], [7.0, 0.249], [8.0, 0.227]] }
+# Bykerk & Horchler, CFD Analysis of a Re-Usable First Stage in the Transonic Regime,
+# AFMC2024-35 (doi:10.5281/zenodo.14213423), table 2: total drag of DLR's RFZ model, a
+# Falcon 9 first stage returning base first with engines off, on 10.52 m² (RANS).
+const FALCON_S1_BASE_CD := { "source": "Bykerk & Horchler 2024 (AFMC2024-35) table 2, RFZ re-entry configuration", "rows": [
+	[0.75, 1.014], [0.85, 1.063], [0.95, 1.178], [1.05, 1.502], [1.15, 1.616], [1.25, 1.664],
+	[1.35, 1.699], [1.45, 1.725]] }
+
 # VEHICLES
 static var VEHICLES: Dictionary = _build_vehicles()
 
@@ -147,7 +170,7 @@ static func _build_vehicles() -> Dictionary:
 			# Dry mass with the small interstage ring that leaves with it at the first plane
 			# (615 kg, AS-510 flight evaluation table 16-9).
 			stage({ "key": "sic", "name": "S-IC", "dry": 137615.0, "prop": 2077000.0,
-				"engine": E.F1, "count": 5, "L": 42.0, "D": 10.06,
+				"engine": E.F1, "count": 5, "L": 42.0, "D": 10.06, "cdTable": SATURN_SIC_CA,
 				"look": { "skin": "white", "pattern": "saturn", "fins": 4, "flatTop": true, "fixedGimbals": [0],
 					# Separation (docs/physics/stage-separation.md): eight retros in pairs in the
 					# engine fairings, 7.5° off the axis, firing forward out of the fairings' noses
@@ -169,11 +192,11 @@ static func _build_vehicles() -> Dictionary:
 			# (MSFC-MAN-503 fig. 2-1). 3,504 kg (AS-510 table 16-9). The S-II's ullage
 			# rockets ride on it.
 			stage({ "key": "sii_aft_is", "name": "S-II aft interstage", "dry": 3504.0, "prop": 0.0,
-				"engine": null, "count": 0, "L": 1.5, "D": 10.06,
+				"engine": null, "count": 0, "L": 1.5, "D": 10.06, "cdTable": SATURN_SII_CA,
 				"jettisonAt": { "afterBelow": 29.8 },
 				"look": { "ring": true } }),
 			stage({ "key": "sii", "name": "S-II", "dry": 36200.0, "prop": 443000.0,
-				"engine": E.J2, "count": 5, "L": 24.9, "D": 10.06,
+				"engine": E.J2, "count": 5, "L": 24.9, "D": 10.06, "cdTable": SATURN_SII_CA,
 				"rcs": { "thrust": 3300.0, "isp": 190.0, "prop": 400.0, "count": 8 },
 				"look": { "skin": "white", "interstage": 2.0, "fixedGimbals": [0],
 					# Four 154.8 kN retros, 1.52 s, 90° apart in the aft end of the S-IVB's
@@ -210,7 +233,7 @@ static func _build_vehicles() -> Dictionary:
 		"target": { "apoapsis": 200e3, "inclination": 28.5 },
 		"stages": [
 			stage({ "key": "f9s1", "name": "Stage 1", "dry": 22200.0, "prop": 411000.0,
-				"engine": E.MERLIN1D, "count": 9, "L": 41.2, "D": 3.66,
+				"engine": E.MERLIN1D, "count": 9, "L": 41.2, "D": 3.66, "cdBase": FALCON_S1_BASE_CD,
 				"recover": "droneship", "gridFins": 4, "legs": 4,
 				# Legs rated above Apollo's: a hoverslam arrives with no margin.
 				"gear": { "vVert": 6.0, "vHoriz": 2.0 },

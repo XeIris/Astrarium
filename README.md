@@ -137,6 +137,7 @@ and its `SIM` console handle:
 | `scenario=shuttle:peak_heating` | jump straight into a flight scenario (`vehicle:id`, listed in [sim/flight/scenarios.gd](sim/flight/scenarios.gd)); with `frames=… out=…` the frames count from the hand-over, and an unknown or failed scenario exits 1 |
 | `padaz=180 padel=-0.2` | rotate and lower the flight pad camera for a screenshot |
 | `padmodels=0` | check the procedural launchpad fallback |
+| `winds=1` | turn on Earth's climatological winds (Settings › Sim) for a run or a check |
 | `sunview=1` | aim the final flight screenshot directly at the sun |
 | `seed=7` | make the scenario's random choices reproducible |
 | `quality=low\|medium\|high`, `lighting=low\|medium\|high` | rendering and local lighting presets |
@@ -312,7 +313,8 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/physcheck.sh` | compatibility report against frozen JavaScript; numeric differences are printed, not rejected; child/engine failures and missing output fail |
 | `tools/flightcheck.gd` + `flightref.mjs` | the eleven flight scenarios vs the JavaScript; rejects a descent that does not land inside its gear rating, a Super Heavy return that is not caught by the tower, and a deorbit that does not burn once and hand back. These three intentionally diverge from the frozen build, which fails them. So does `starship`: V3 Raptor 3s and propellant, where the frozen build flies V1; and `shuttle`, whose solids light at T−0 and whose first stage lofts to JSC-10559's staging state |
 | `tools/flighttimecheck.gd` | forced vessel/frame guard exhaustion, elapsed clocks, site rotation, visual time, warnings and normal/rails branches |
-| `tools/flightphysicscheck.gd` | J2–J4 against −∇Φ, ISS nodal regression under RK4 and rails, RK4 stages against a moving Moon, radiative heating, winds, Cd tables, porkchop against Hohmann |
+| `tools/flightphysicscheck.gd` | J2–J4 against −∇Φ, ISS nodal regression under RK4 and rails, a coast's flown extremes under J2, RK4 stages against a moving Moon, radiative heating, winds (air against ground velocity), Cd tables, the sky's multiple-scattering table, porkchop against Hohmann |
+| `tools/build_sky_ms.py` | regenerates `sim/flight/sky_ms.gd`, Earth's multiple-scattering table and the sky gain (Hillaire 2020), from the sky dome's coefficients |
 | `tools/build_starcat.py` | builds `assets/sky/bsc5.bin` (the Yale Bright Star Catalogue, V < 6.5) for the `solar` sky from HEASARC's BSC5P table, or from a local copy given as its argument; rejects a parse of fewer than 9000 stars |
 | `tools/cloudcheck.gd` | the flight cloud field's opaque sky fraction against the world's `cloudCover`, and the climatology's clear subtropics, cloudy ITCZ and storm tracks (headless, on the CPU twin) |
 | `tools/sharedtimecheck.tscn` | rendered production frame driver: shared world/flight coordinate clocks, guards, moving parents, rails fallback and cruise arrival; `assets=0` skips optional models; `bench=1` measures frame CPU time |

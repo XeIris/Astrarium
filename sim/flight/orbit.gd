@@ -243,6 +243,42 @@ static func porkchop(r_dep: DVec3, v_dep: DVec3, mu_dep: float, r_arr: DVec3, v_
 		grid.append(row)
 	return {"best": best, "grid": grid}
 
+static var _zr := DVec3.new()
+static var _za := DVec3.new()
+
+## The lowest and highest radius flown, m, over `span` s from (r, v) about `mu` with the
+## zonal terms `zonal` (a Rocketry.ZONAL entry), by RK4 at `h` s. With `to_peak` it
+## stops once a rising radius starts to fall: the coming apoapsis. [lo, hi]. Conic elements
+## miss J2's short-period terms, several km in low orbit.
+static func zonal_extremes(r: DVec3, v: DVec3, mu: float, zonal, span: float, to_peak := false, h := 5.0) -> PackedFloat64Array:
+	var s := PackedFloat64Array([r.x, r.y, r.z, v.x, v.y, v.z])
+	var k := PackedFloat64Array(); k.resize(24)
+	var tmp := PackedFloat64Array(); tmp.resize(6)
+	var lo := r.length()
+	var hi := lo
+	var prev := lo
+	var rising := false
+	var n := int(ceil(span / h))
+	for step in n:
+		for stage in 4:
+			var f := 0.0 if stage == 0 else (0.5 if stage < 3 else 1.0)
+			for i in 6: tmp[i] = s[i] + (k[(stage - 1) * 6 + i] * h * f if stage > 0 else 0.0)
+			_zr.set_v(tmp[0], tmp[1], tmp[2])
+			var r2 := _zr.length_sq()
+			var g := -mu / (r2 * sqrt(r2))
+			_za.set_v(tmp[0] * g, tmp[1] * g, tmp[2] * g)
+			Rocketry.zonal_accel(zonal, mu, _zr, _za)
+			var o := stage * 6
+			k[o] = tmp[3]; k[o + 1] = tmp[4]; k[o + 2] = tmp[5]
+			k[o + 3] = _za.x; k[o + 4] = _za.y; k[o + 5] = _za.z
+		for i in 6: s[i] += h / 6.0 * (k[i] + 2.0 * k[6 + i] + 2.0 * k[12 + i] + k[18 + i])
+		var rr := sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2])
+		if to_peak and rising and rr < prev: break
+		rising = rising or rr > prev
+		prev = rr
+		lo = minf(lo, rr); hi = maxf(hi, rr)
+	return PackedFloat64Array([lo, hi])
+
 static var _l1 := DVec3.new()
 
 ## Lambert's problem, one revolution: the velocities at r1 and r2 of the conic about

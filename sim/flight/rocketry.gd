@@ -337,8 +337,8 @@ static func zonal_potential(zonal, mu: float, rr: DVec3) -> float:
 # westerlies at the surface (±6 m/s), a 1/7-power boundary layer to 1 km, and a
 # 35 m/s westerly jet near 12 km centred at 35° latitude, after the annual-mean
 # zonal wind of HWM14 (Drob et al. 2015) and the ERA reanalyses. Eastward m/s.
-## Off by default: the glide, rollout and landing laws still treat airspeed as ground
-## speed, so the orbiter cannot yet fly home through a jet stream. Settings › Sim.
+## Off by default (Settings › Sim, `winds=1`): the scenarios' built bases were recorded
+## in still air, and the frozen numeric reference has none.
 static var winds_enabled := false
 const WINDS := {
 	"earth": { "surf": 6.0, "jet": 35.0, "jetH": 12000.0, "jetW": 4500.0, "jetLat": 35.0, "jetLatW": 15.0,

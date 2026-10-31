@@ -105,6 +105,7 @@ func _ready() -> void:
 		var kv := a.split("=", true, 1)
 		_cmd[kv[0]] = kv[1] if kv.size() > 1 else ""
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
+	if _cmd.has("winds"): Rocketry.winds_enabled = String(_cmd.winds) != "0"
 	# Logical px, with the display scale as content scale. Screenshot mode takes
 	# window pixels 1:1.
 	var screen := DisplayServer.window_get_current_screen()

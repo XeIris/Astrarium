@@ -109,12 +109,49 @@ func _init() -> void:
 	var still := DVec3.new().set_v(0.0, -float(vw.env.rotRate), 0.0).cross_vectors(DVec3.new().set_v(0.0, -float(vw.env.rotRate), 0.0), vw.r)
 	var rel := vw.airspeed(vw.r, still, DVec3.new())
 	check("the airspeed of a body turning with the ground is the jet", absf(rel.length() - 35.0) < 1.0, rel.length())
+	check("the ground velocity of that body is zero: wheels and sites see no wind", vw.ground_velocity(vw.r, still, DVec3.new()).length() < 1e-9)
 	Rocketry.winds_enabled = false
 	check("winds are off unless asked for", vw.airspeed(vw.r, still, DVec3.new()).length() < 1e-6)
+
+	# The coast's flown extremes: a conic's apsides without zonal terms; under J2 the
+	# peak of a coast from 112 km moves by km (the cutoff's correction).
+	var ve := vessel_at(earth, [earth])
+	ve.place_in_orbit(112000.0, 28.5, 0.0)
+	ve.v.scale_in(1.0062)
+	var mu_e: float = ve.env.mu
+	var el0 := Orbit.elements(ve.r, ve.v, mu_e)
+	var flat := Orbit.zonal_extremes(ve.r, ve.v, mu_e, null, float(el0.period), false, 5.0)
+	check("without zonal terms the flown extremes are the conic's apsides (%.1f, %.1f m)" % [flat[0] - float(el0.rp), flat[1] - float(el0.ra)],
+		absf(flat[0] - float(el0.rp)) < 5.0 and absf(flat[1] - float(el0.ra)) < 5.0)
+	var peak := Orbit.zonal_extremes(ve.r, ve.v, mu_e, ve.env.zonal, float(el0.period), true, 5.0)
+	var el_j := Orbit.elements(ve.r, ve.v, Rocketry.effective_mu(ve.env.zonal, mu_e, ve.r, ve.v))
+	check("under J2 the coast's peak differs from the averaged conic's apoapsis by km (%.0f m)" % (peak[1] - float(el_j.ra)),
+		absf(peak[1] - float(el_j.ra)) > 500.0 and absf(peak[1] - float(el_j.ra)) < 15000.0)
+
+	# The sky's multiple scattering: positive, bluer than red at the ground by day, and a
+	# gain below single scattering's 15 so the noon zenith keeps its calibration.
+	var psi := func(j: int, i: int, c: int) -> float: return float(SkyMS.PSI[(j * SkyMS.N_MU + i) * 3 + c])
+	check("multiple scattering lights the ground-level noon sky, bluer than red",
+		psi.call(0, SkyMS.N_MU - 1, 1) > 0.0 and psi.call(0, SkyMS.N_MU - 1, 2) > psi.call(0, SkyMS.N_MU - 1, 0))
+	check("the sky table is %d × %d RGB" % [SkyMS.N_MU, SkyMS.N_H], SkyMS.PSI.size() == SkyMS.N_MU * SkyMS.N_H * 3 and SkyMS.GAIN > 5.0 and SkyMS.GAIN < 15.0)
 
 	# A stage's Cd table replaces the generic curve.
 	var table := { "source": "test", "rows": [[0.0, 0.2], [1.0, 0.6], [3.0, 0.3]] }
 	check("a Cd table interpolates by Mach", absf(Rocketry.drag_coefficient(2.0, table) - 0.45) < 1e-12 and Rocketry.drag_coefficient(9.0, table) == 0.3)
+	var tables := 0
+	var sourced := true
+	for key in Vehicles.VEHICLES:
+		for st in Vehicles.VEHICLES[key].stages:
+			for k in ["cdTable", "cdBase"]:
+				var t = st.get(k)
+				if t == null: continue
+				tables += 1
+				var rows: Array = t.rows
+				sourced = sourced and str(t.get("source", "")) != "" and rows.size() >= 2
+				for i in range(1, rows.size()): sourced = sourced and float(rows[i][0]) > float(rows[i - 1][0])
+	check("every vehicle drag table names its source and ascends in Mach (%d tables)" % tables, sourced and tables >= 4)
+	check("the S-IC's table peaks transonic and turns negative with the plume past Mach 7",
+		Rocketry.drag_coefficient(1.2, Vehicles.SATURN_SIC_CA) > 0.8 and Rocketry.drag_coefficient(7.5, Vehicles.SATURN_SIC_CA) < 0.0)
 
 	# Porkchop against Hohmann on circular coplanar orbits.
 	var mu_s := Rocketry.GM_SUN

@@ -129,12 +129,24 @@ at 680, 550 and 440 nm with H_R = 8 km. Mie β_M = 3.996×10⁻⁶ (extinction 4
 H_M = 1.2 km, Henyey–Greenstein g = 0.8. Ozone absorbs (0.650, 1.881, 0.085)×10⁻⁶
 in a tent from 10 to 40 km. A sample in the planet's shadow gets no sun, so the
 reddened sunset, the Earth's shadow and the Belt of Venus come out of the
-geometry. The Chappuis absorption keeps the twilight zenith blue. Multiple
-scattering is not computed. A gain of 15 matches the pad's noon zenith to the
-earlier calibration. Without the multiply scattered light, civil twilight is
-darker than a real sky. Coverage follows radiance, and the light divides back out
-of the blend so that faint twilight adds over the stars. Other bodies keep the
-grey-column sky with a tint.
+geometry. The Chappuis absorption keeps the twilight zenith blue.
+
+Multiple scattering follows Hillaire (2020, §5.5). At each height and sun cosine,
+`tools/build_sky_ms.py` gathers the second-order light L₂ over the sphere with an
+isotropic phase (ground albedo 0.3) and the fraction f_ms that one more scattering
+returns. Every higher order is then the geometric series Ψ = L₂/(1 − f_ms), and each
+view sample adds σ_s·Ψ:
+
+    L += T_view · (σ_R(z) + σ_M(z)) · Ψ(h, μ_s) ds
+
+The 32 × 32 table (`sim/flight/sky_ms.gd`, h = v²·96 km) uses the dome's own
+coefficients. It adds ×1.50 to the noon zenith from sea level, ×1.29 at sunset and
+×1.71 with the sun 6° down. The gain falls from 15 to 10.02 so that the noon zenith
+(sun 60° up) keeps the earlier calibration, and civil twilight brightens 14% relative
+to noon. At the daylight exposure the twilight sky still reads dark, as the real
+one does: its zenith is about 1% of noon's. Coverage follows radiance, and the light
+divides back out of the blend so that faint twilight adds over the stars. Other
+bodies keep the grey-column sky with a tint.
 
 ## Eclipses
 

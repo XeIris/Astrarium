@@ -183,12 +183,15 @@ x = R(θ)/R_pole. At break-up R_eq/R_pole = 3/2 for any star (Achernar, 1.35, is
 near it), so Ω_crit = √(8GM/27R_pole³), 0.544 of the naive value.
 
 Limb darkening is quadratic per sRGB primary, I(μ)/I(1) = 1 − a(1 − μ) − b(1 − μ)²
-(`Stellar.limb_darkening`). The coefficients come from Eddington–Barbier on a grey
-atmosphere, I_λ(μ) ≈ B_λ(T(τ = μ)) with T⁴ = ¾T_eff⁴(τ + ⅔), fitted at 650, 550 and
-440 nm. Blue darkens more than red and cool stars more than hot ones. The Sun's
-limb comes out at 0.39, 0.33 and 0.25 of its centre in R, V and B. These are not
-Claret's (2000) model-atmosphere tables, which were not available offline. A grey
-atmosphere also overdarkens M dwarfs, whose molecular opacity is far from grey.
+(`Stellar.limb_darkening`), interpolated in Teff from Claret's (2000) tables
+(`sim/limbdark.gd`, VizieR J/A+A/363/1081). The rows are for log g 4.5, solar
+metallicity and ξ = 2 km/s, in the Cousins R, Johnson V and B bands standing in for
+the primaries. From 3500 K they are ATLAS quadratic coefficients. Below that they
+are PHOENIX four-parameter laws, refitted to the quadratic by least squares
+(`tools/build_limb_darkening.py`). The Sun's limb is 0.34, 0.27 and 0.19 of its
+centre in R, V and B; a 15 000 K star's is 0.62, 0.56 and 0.48. A 3200 K M dwarf's is
+0.19, 0.13 and 0.13. The grey Eddington–Barbier model these replace gave the Sun
+0.39, 0.33 and 0.25, and overdarkened the M dwarf's blue limb (0.08).
 
 Gravity darkening (von Zeipel 1924): T_eff ∝ g_eff^β, β = ¼ radiative and ≈ 0.08
 convective (Lucy 1967, below ~7000 K). β is reduced at high spin, after Espinosa
