@@ -39,6 +39,9 @@ static func _rel_pos(b: Body, c: Body) -> DVec3:
 	return DVec3.new().sub_vectors(b.pos, c.pos).scale_in(Rocketry.AU_M)
 static func _rel_vel(b: Body, c: Body) -> DVec3:
 	return DVec3.new().sub_vectors(b.vel, c.vel).scale_in(Rocketry.AU_M / Rocketry.YR_S)
+## The orrery-axis vector `w`, in place, in the vessel's parent frame (that of v.r and v.v).
+static func _local(v: Vessel, w: DVec3) -> DVec3:
+	return v.to_local(w, w)
 
 ## The radius a mission parks at around `b`: above any air, and Apollo's 110 km at the Moon.
 static func park_radius(b: Body) -> float:
@@ -173,7 +176,9 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		var h := Orbit.hohmann(muP, r0, r2)
 		var v_apo := sqrt(muP * 2.0 * r0 / (r2 * (r0 + r2)))
 		var v_inf := absf(_rel_vel(target, P).length() - v_apo)
-		var phase_now := Orbit.phase_angle(v.r if not grounded else _rel_pos(target, P).scaled(-1.0), _rel_pos(target, P))
+		var rel := _local(v, _rel_pos(target, P))
+		var phase_now := Orbit.phase_angle(rel.scaled(-1.0), rel) if grounded \
+			else Orbit.phase_angle(v.r, rel, v.r.cross(v.v))
 		var wait := window_wait(phase_now, h.phase, sqrt(muP / pow(r0, 3.0)), sqrt(muP / pow(r2, 3.0)))
 		out.type = "Hohmann transfer to a moon of %s" % P.name
 		legs.append({"key": "depart", "label": "Transfer burn", "dv": absf(h.dv1), "t": wait})
@@ -267,14 +272,16 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 
 ## The plane change the course corrections make: about half the angle between the
 ## parking orbit and the moon's (the transfer burn is made near where the planes
-## cross), turned at the transfer's speed most of the way out.
+## cross), turned at the transfer's speed most of the way out. From the ground the
+## parking orbit is the one a launch due east would reach now: its pole is the
+## site's north.
 static func plane_fix_dv(v: Vessel, target: Body, P: Body, r0: float, r2: float) -> float:
-	var n_moon := DVec3.new().cross_vectors(_rel_pos(target, P), _rel_vel(target, P))
-	var n_park := DVec3.new().cross_vectors(v.r, v.v) if v.phase == Vessel.PHASE.ORBIT else Orbit.K.clone()
+	var n_moon := _local(v, DVec3.new().cross_vectors(_rel_pos(target, P), _rel_vel(target, P)))
+	var n_park := DVec3.new().cross_vectors(v.r, v.v)
 	if v.phase != Vessel.PHASE.ORBIT:
-		# From the pad the parking orbit is inclined by the site's latitude.
-		var lat := absf(asin(DQuat.jclamp(-v.r.y / maxf(v.r.length(), 1.0), -1.0, 1.0)))
-		return 2.0 * _transfer_speed(_mu(P), r0, r2, 0.85) * sin(lat * 0.25)
+		var up := DQuat.nrm(v.r.clone())
+		n_park = Orbit.K.clone().add_scaled_in(up, -Orbit.K.dot(up))
+		if n_park.length_sq() < 1e-12: n_park = Orbit.K.clone()
 	var ang := acos(DQuat.jclamp(n_moon.dot(n_park) / maxf(n_moon.length() * n_park.length(), 1e-30), -1.0, 1.0))
 	return 2.0 * _transfer_speed(_mu(P), r0, r2, 0.85) * sin(ang * 0.25)
 
@@ -416,7 +423,7 @@ func _leg_depart_moon(v: Vessel, ap) -> void:
 		var r1 := v.r.length()
 		var r2 := _rel_pos(dest, P).length()
 		var h := Orbit.hohmann(mu, r1, r2)
-		var wait := window_wait(Orbit.phase_angle(v.r, _rel_pos(dest, P)), h.phase,
+		var wait := window_wait(Orbit.phase_angle(v.r, _local(v, _rel_pos(dest, P)), v.r.cross(v.v)), h.phase,
 			sqrt(mu / pow(r1, 3.0)), _rel_vel(dest, P).length() / r2)
 		var at := v.coord + maxf(wait, 300.0)
 		_t_arr = at + h.tof
@@ -445,7 +452,7 @@ func _leg_escape(v: Vessel, ap) -> void:
 			var v_apo := sqrt(_mu(dest) * 2.0 * plan.r_cap / (aP * (aP + plan.r_cap)))
 			var vP := _rel_vel(P, dest)
 			v_inf = absf(vP.length() - v_apo)
-			d_inf = DQuat.nrm(vP.clone()).scale_in(-1.0)
+			d_inf = DQuat.nrm(_local(v, vP.clone())).scale_in(-1.0)
 			_t_arr = at + PI * sqrt(pow((aP + plan.r_cap) * 0.5, 3.0) / _mu(dest))
 		else:
 			var C: Body = plan.primary
@@ -466,12 +473,12 @@ func _leg_escape(v: Vessel, ap) -> void:
 			var rE := DVec3.new(); var vE := DVec3.new()
 			if not Orbit.propagate(_rel_pos(P, C), _rel_vel(P, C), muC + mu, at - v.coord, rE, vE):
 				vE = _rel_vel(P, C)
-			d_inf = DQuat.nrm(vE).scale_in(signf(h.dv1))
+			d_inf = DQuat.nrm(_local(v, vE)).scale_in(signf(h.dv1))
 			_t_arr = at + h.tof
 			if not pc.is_empty():
 				# The porkchop's arc is never within 2° of 180°, so its v∞ has a direction.
 				v_inf = pc.v_inf_dep
-				d_inf = DQuat.nrm((pc.v_dep as DVec3).clone())
+				d_inf = DQuat.nrm(_local(v, (pc.v_dep as DVec3).clone()))
 				_t_arr = at + float(pc.tof)
 		var tb := _align_time(v, mu, at, d_inf, v_inf)
 		_schedule(tb, "Departure burn", func() -> DVec3:
@@ -578,6 +585,8 @@ func _best_arc(r1: DVec3, v1: DVec3, t_dep: float, C: Body, t_lo: float, t_hi: f
 	for i in n:
 		var t_arr := lerpf(t_lo, t_hi, float(i) / float(n - 1))
 		if not Orbit.propagate(_rel_pos(dest, C), _rel_vel(dest, C), muC + _mu(dest), t_arr - now, rd, vd): continue
+		# C is the vessel's parent here (_leg_midcourse), so its frame is r1's.
+		_local(flight.vessel, rd); _local(flight.vessel, vd)
 		var c := r1.dot(rd) / (r1.length() * rd.length())
 		if c < -0.9994: continue
 		if not Orbit.lambert(r1, rd, t_arr - t_dep, muC, nrm, a1, a2): continue
@@ -591,20 +600,34 @@ func _home_of_moon() -> Body:
 	var anc := ancestors(flight.vessel, dest)
 	return anc[0] if not anc.is_empty() else flight.vessel.parent
 
-## Inside the destination's sphere: one burn that sets the periapsis to the parking
-## radius, keeping the speed (so the energy) and turning the velocity in its own plane.
+## Before the arrival is trimmed, so the parent's tide (8e-4 m/s² at the edge of the
+## Moon's sphere, hundreds of km of periapsis over the coast in) has little time left.
+const TRIM_BEFORE_S := 3.0 * 3600.0
+
+## Inside the destination's sphere: a burn that sets the periapsis to the parking
+## radius, keeping the speed (so the energy) and turning the velocity in its own plane;
+## the conic leaves out the parent's tide, so it is trimmed again near the end.
 func _leg_approach(v: Vessel, ap) -> void:
 	if v.parent != dest:
 		status = "Cruise to %s — arrival in %s" % [dest.name, Guidance.fmt_dur(maxf(_t_arr - v.coord, 0.0))]
 		return
 	var mu := _mu(dest)
 	var rp_t: float = plan.r_cap
-	if _stage == "":
-		var el := Orbit.elements(v.r, v.v, mu)
-		if float(el.rp) > rp_t * 0.85 and float(el.rp) < rp_t * 1.6 and v.r.dot(v.v) < 0.0:
+	var el := Orbit.elements(v.r, v.v, mu)
+	var R_b := float(v.env.radius)
+	var aimed: bool = absf(float(el.rp) - rp_t) < 0.25 * (rp_t - R_b) and v.r.dot(v.v) < 0.0
+	if _stage == "coast":
+		var t_p := Orbit.time_to_periapsis_any(el, mu)
+		status = "Approach to %s — periapsis %s km in %s" % [dest.name, U.fixed((float(el.rp) - R_b) / 1000.0, 0), Guidance.fmt_dur(t_p)]
+		if is_finite(t_p) and t_p > TRIM_BEFORE_S: return
+		if aimed:
 			_next(); return
-		var at := v.coord + 180.0
-		_schedule(at, "Arrival targeting", func() -> DVec3:
+		_stage = ""
+	if _stage == "":
+		if aimed:
+			_next(); return
+		var at := v.coord + (180.0 if _fixes == 0 else 60.0)
+		_schedule(at, "Arrival targeting" if _fixes == 0 else "Arrival trim", func() -> DVec3:
 			var rb := DVec3.new(); var vb := DVec3.new()
 			Orbit.propagate(v.r, v.v, mu, float(_burn.at) - v.coord, rb, vb)
 			var R := rb.length()
@@ -620,7 +643,10 @@ func _leg_approach(v: Vessel, ap) -> void:
 			return want.sub_in(vb))
 		_stage = "burn"
 	status = _burn_status("Approach to %s" % dest.name)
-	if _stage == "burn" and _burn_done(ap): _next()
+	if _stage == "burn" and _burn_done(ap):
+		_fixes += 1
+		if _fixes < 2: _stage = "coast"
+		else: _next()
 
 ## Capture at periapsis: retrograde down to circular.
 func _leg_capture(v: Vessel, ap) -> void:
@@ -771,9 +797,11 @@ func next_event_s() -> float:
 	if leg_key() in ["midcourse", "approach", "capture"] and v.parent != dest:
 		# Slow before the destination's sphere so the crossing is not stepped over.
 		var soi := v.soi_of(dest)
-		var d := DVec3.new().sub_vectors(v.parent.pos, dest.pos).scale_in(Rocketry.AU_M).add_in(v.r).length()
-		var closing := maxf(_rel_vel(dest, v.parent).sub_in(v.v).length(), 100.0)
+		var d := v.body_offset(dest, DVec3.new()).sub_in(v.r).length()
+		var closing := maxf(_local(v, _rel_vel(dest, v.parent)).sub_in(v.v).length(), 100.0)
 		t = minf(t, maxf(d - soi, 0.0) / closing)
+	if leg_key() == "approach" and _stage == "coast":
+		t = minf(t, Orbit.time_to_periapsis_any(Orbit.elements(v.r, v.v, _mu(dest)), _mu(dest)) - TRIM_BEFORE_S)
 	if leg_key() == "descend" and _stage == "coast":
 		var el := Orbit.elements(v.r, v.v, _mu(dest))
 		t = minf(t, Orbit.time_to_periapsis(el, _mu(dest)) - 90.0)

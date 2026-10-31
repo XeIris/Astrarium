@@ -181,8 +181,14 @@ static func circularize_dv(el: Dictionary, mu: float, at_radius = null) -> float
 	var v_here := sqrt(maxf(mu * (2.0 / R - 1.0 / el.a), 0.0))
 	return v_circ - v_here
 
-## Current phase angle from `r` to `r_target`, signed about +Y, in radians.
-static func phase_angle(r: DVec3, r_target: DVec3) -> float:
+## Current phase angle from `r` to `r_target`, in radians: about +Y in the XZ plane,
+## or, given an orbit `normal` (r × v), in that orbit's plane, positive prograde.
+static func phase_angle(r: DVec3, r_target: DVec3, normal: DVec3 = null) -> float:
+	if normal != null and normal.length_sq() > 0.0:
+		var n := DQuat.nrm(normal.clone())
+		var p := r.clone().add_scaled_in(n, -r.dot(n))
+		var t := r_target.clone().add_scaled_in(n, -r_target.dot(n))
+		return atan2(p.cross(t).dot(n), p.dot(t))
 	var a := atan2(r.z, r.x)
 	var b := atan2(r_target.z, r_target.x)
 	var d := b - a
