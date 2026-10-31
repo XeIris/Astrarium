@@ -85,6 +85,16 @@ static func _saha(T: float, rho: float, alpha: Array) -> Array:
 	for k in IONS: e_ion += float(neutral[k]) * float(S[k]) / (ne + float(S[k])) * float(IONS[k][0])
 	return [ne, e_ion]
 
+## Number densities (m⁻³) of N₂, O₂, N, O, NO and electrons in air at T, ρ and
+## dissociated fractions α, as _saha counts them.
+static func species(T: float, rho: float, alpha: Array) -> Dictionary:
+	var aN := float(alpha[0]); var aO := float(alpha[1])
+	var n_n2 := rho * 0.767 * (1.0 - aN) / (0.028013 / 6.02214076e23)
+	var n_o2 := rho * 0.233 * (1.0 - aO) / (0.031999 / 6.02214076e23)
+	return {"N2": n_n2, "O2": n_o2,
+		"N": rho * 0.767 * aN / (0.0140067 / 6.02214076e23), "O": rho * 0.233 * aO / (0.0159994 / 6.02214076e23),
+		"NO": sqrt(NO_K0 * exp(-NO_THETA / T) * n_n2 * n_o2), "e": float(_saha(T, rho, alpha)[0])}
+
 ## Post-shock state for free-stream density rho1 (kg/m³), temperature T1 (K) and
 ## speed V (m/s): {T, rho, p, alpha, ne}. Weak shocks fall back to γ = 1.4.
 static func normal_shock(rho1: float, T1: float, V: float) -> Dictionary:

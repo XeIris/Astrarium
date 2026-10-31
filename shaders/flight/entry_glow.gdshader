@@ -84,6 +84,6 @@ void fragment() {
 	float flick = 0.7 + 0.6 * t;
 	// The local wall flux sets the local temperature, T ∝ q^¼ as for radiative equilibrium.
 	float T = uTemp * pow(q, 0.25);
-	ALBEDO = plasma_colour(T) * (uHeat * uWeight * glow * path * flick * 22.0 * plasma_code(T));
+	ALBEDO = plasma_spectral(pow(q, 0.25), T) * (uHeat * uWeight * glow * path * flick * 22.0 * plasma_code(T));
 	ALPHA = 0.0;
 }

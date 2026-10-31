@@ -134,6 +134,7 @@ var dev_warp := 0.0
 var _q := DQuat.new()
 var _a := DVec3.new()
 var _b := DVec3.new()
+var _spectrum_met := -INF
 var _warp_shown := -1
 ## The target list's prefix for an interstellar destination, which is not a
 ## body in the scenario and must not be looked up as one.
@@ -303,7 +304,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 		fly_cam.state.hasPad = false
 	vessel.vehicle_key = vehicle_key
 	planet_spin = 0.0
-	DQuat.set_len(anchor_pos.copy_from(vessel.r), float(vessel.env.radius))
+	DQuat.set_len(anchor_pos.copy_from(vessel.r), vessel.surface_r(vessel.r))
 	# east at the start, in the planet-fixed frame (which is the world frame
 	# at spin 0): ω̂ × r̂ with ω̂ = −Y
 	var st_up := DQuat.nrm(vessel.r.clone()).to_v3()
@@ -770,7 +771,7 @@ func _adopt_parent(body: Body) -> void:
 	vessel.q.premultiply(old_frame.premultiply(vessel.frame.clone().invert())).normalize_in()
 	vessel.to_local(world.sub_in(body.pos).scale_in(Rocketry.AU_M), vessel.r)
 	planet_spin = 0.0
-	DQuat.set_len(anchor_pos.copy_from(vessel.r), float(vessel.env.radius))
+	DQuat.set_len(anchor_pos.copy_from(vessel.r), vessel.surface_r(vessel.r))
 	var st_up := DQuat.nrm(vessel.r.clone()).to_v3()
 	wind_dir = Vector3(0, -1, 0).cross(st_up).normalized() if absf(st_up.y) < 0.999 else Vector3(1, 0, 0)
 
@@ -937,7 +938,7 @@ func teleport(alt_m: float, speed: float) -> void:
 	var dir := vessel.airspeed(vessel.r, vessel.v, DVec3.new())
 	if dir.length() < 1.0: dir = DVec3.new(0.0, -1.0, 0.0).cross(up)
 	DQuat.nrm(dir)
-	vessel.r.copy_from(up).scale_in(float(env.radius) + maxf(alt_m, 0.0))
+	vessel.r.copy_from(up).scale_in(vessel.surface_r(up) + maxf(alt_m, 0.0))
 	vessel.v.copy_from(dir).scale_in(speed).add_in(DVec3.new(0.0, -float(env.rotRate), 0.0).cross(vessel.r))
 	if vessel.phase == Vessel.PHASE.PRELAUNCH or vessel.phase == Vessel.PHASE.LANDED:
 		count = null
@@ -1063,7 +1064,7 @@ func begin_skip(m: Mission) -> void:
 		dv += float(l.dv)
 	vessel.spend_dv(dv)
 	if grounded:
-		vessel.place_in_orbit(Mission.park_radius(vessel.parent) - float(vessel.env.radius), 28.5, phase_rng.randf() * TAU)
+		vessel.place_in_orbit_radius(Mission.park_radius(vessel.parent), 28.5, phase_rng.randf() * TAU)
 	var t := 0.0
 	for l in m.plan.legs:
 		if l.key in ["land", "descend"]: continue
@@ -1079,7 +1080,7 @@ func _arrive_skip() -> void:
 		m.abort("%s is gone" % m.dest.name)
 		return
 	vessel.rebase(m.dest)
-	vessel.place_in_orbit(float(m.plan.r_cap) - float(vessel.env.radius), 0.0, phase_rng.randf() * TAU)
+	vessel.place_in_orbit_radius(float(m.plan.r_cap), 0.0, phase_rng.randf() * TAU)
 	set_warp(0)
 	vessel.log_event("Arrived — parking orbit around %s" % m.dest.name)
 	# What is left is flown: the landing, if the mission is one.
@@ -1211,7 +1212,7 @@ func _hold_lab(dt: float) -> void:
 	DQuat.nrm(east)
 	var p := float(lab.get("pitch", 0.0))
 	var fwd := up.clone().scale_in(cos(p)).add_scaled_in(east, sin(p))
-	vessel.r.copy_from(up).scale_in(float(env.radius) + float(lab.alt))
+	vessel.r.copy_from(up).scale_in(vessel.surface_r(up) + float(lab.alt))
 	# Airspeed along the axis, on top of the air turning with the planet.
 	vessel.v.copy_from(fwd).scale_in(float(lab.speed)).add_in(spin.cross(vessel.r))
 	# `alpha` raises the nose above the airflow, belly (body −Z) into it, as an entry flies.
@@ -1290,12 +1291,17 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		else:
 			# ω × r — see AGENTS.md: a point fixed to a rotating body.
 			_a.set_v(0.0, -float(env.rotRate), 0.0).cross_vectors(_a, site_pos)
-			DQuat.set_len(site_pos.add_scaled_in(_a, sim_seconds), float(env.radius))
+			site_pos.add_scaled_in(_a, sim_seconds)
+			DQuat.set_len(site_pos, vessel.surface_r(site_pos))
 	# The planet turns under the frame; see planet_spin.
 	planet_spin = fposmod(planet_spin + float(env.rotRate) * sim_seconds, TAU)
 	_a.set_v(0.0, -float(env.rotRate), 0.0).cross_vectors(_a, anchor_pos)
-	DQuat.set_len(anchor_pos.add_scaled_in(_a, sim_seconds), float(env.radius))
-	var fr: Dictionary = {} if not history or fast_forward > 0 else local.update({"env": env, "altitude": eye_alt, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
+	anchor_pos.add_scaled_in(_a, sim_seconds)
+	DQuat.set_len(anchor_pos, vessel.surface_r(anchor_pos))
+	# The local scene's ground is the sphere of the surface radius under the subject.
+	var R_loc := vessel.surface_r(_subject_r())
+	var fr: Dictionary = {} if not history or fast_forward > 0 else local.update({"env": env, "altitude": eye_alt,
+		"surfaceR": R_loc, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
 		"starFlux": star_flux, "padWorld": site_pos, "mapSite": map_site,
 		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt,
 		"frame": Basis(vessel.frame.to_quaternion()),
@@ -1318,22 +1324,24 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	# Attitude in the local frame (+Y = local up).
 	var east := DQuat.nrm(DVec3.new().cross_vectors(up, north))
 	var new_basis := Basis(east.to_v3(), up.to_v3(), north.to_v3())
-	_reframe_smoke(new_basis, up, float(env.radius), float(env.rotRate) * sim_seconds)
+	_reframe_smoke(new_basis, up, R_loc, float(env.rotRate) * sim_seconds)
 	frame_basis = new_basis
 	var craft_basis := frame_basis.transposed() * Basis(vessel.q.to_quaternion())
 	# The local origin is on the ground under the subject: the vehicle is at (0, alt, 0)
 	# unless a dropped piece is followed.
-	_a.copy_from(vessel.r).add_scaled_in(up, -float(env.radius))
+	_a.copy_from(vessel.r).add_scaled_in(up, -R_loc)
 	craft_pos.set_v(_a.dot(east), _a.dot(up), _a.dot(north))
 	craft.group.position = Vector3.ZERO
 	craft.group.basis = craft_basis.orthonormalized()
 
 	# the launch complex. The local origin is under the vehicle, so the pad moves
-	# back through the frame. Exact: a point θ away is (R sinθ, R(cosθ−1), …), the same
-	# drop the ground patch uses, so the pad sits on the ground.
+	# back through the frame. A point θ away is (R sinθ, R(cosθ−1), …) on the ground
+	# patch's sphere R_loc, so the pad sits on the drawn ground; off the parallel the
+	# ellipsoid departs from that sphere by up to 2.8 m per km, which only a distant
+	# complex shows.
 	if site != null and site_pos != null:
 		var sx: float = site_pos.dot(east)
-		var sy: float = site_pos.dot(up) - float(env.radius)
+		var sy: float = DQuat.nrm(_b.copy_from(site_pos)).dot(up) * R_loc - R_loc
 		var sz: float = site_pos.dot(north)
 		site_local.set_v(sx, sy, sz)
 		# Drop the ground patch by the deck height and the hardstand's rise (grade_drop).
@@ -1443,7 +1451,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	craft.update({"dt": dt, "simDt": sim_seconds, "attached": attached, "deploy": deploy, "gear": gear,
 		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release,
 		"chute": chute})
-	_place_falls(east, up, north, float(env.radius))
+	_place_falls(east, up, north, R_loc)
 	if not history:
 		_pad_view_lost(alt)
 	if fast_forward > 0:
@@ -1494,6 +1502,11 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			var fa := vessel.airspeed(f.r, f.v, _b)
 			var fq := Rocketry.heat_flux(Rocketry.density(atm, f.altitude(vessel)), fa.length(), f.D * 0.25, atm)
 			entry.drive(f.body, fq, to_world * fa.to_v3())
+		# The layer's spectrum, solved once a second of flight like the blackout.
+		if atm != null and q > Plume.EntryGlow.Q_ON * 0.5 and (vessel.met - _spectrum_met >= 1.0 or vessel.met < _spectrum_met):
+			_spectrum_met = vessel.met
+			var pr := Rocketry.profile(atm, maxf(alt, 0.0))
+			entry.spectrum(PlasmaSpectrum.shock_state(atm, pr[0], pr[1], air.length(), str(env.name)), q)
 		entry.update(dt, vessel.met)
 
 	# The deflected exhaust. Only while the jet still lands on the deck, which
@@ -1742,6 +1755,7 @@ func update_hud() -> void:
 		"program": autopilot.program if autopilot != null else null,
 		"warp": str(warp()),
 		"parentName": vessel.parent.name,
+		"date": TimeScales.readout(state.epoch_jd, state.sim_years) if state != null and not is_nan(state.epoch_jd) else null,
 		"navPoint": nav_point_readout(),
 		"plan": plan_data,
 		"cruise": cruise != null,

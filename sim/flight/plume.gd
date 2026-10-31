@@ -593,6 +593,26 @@ class EntryGlow extends RefCounted:
 	const NO_SHELTER := -1e6
 	var units: Array[EntryUnit] = []
 	var _rng := RandomNumberGenerator.new()
+	## The layer's spectrum (PlasmaSpectrum.shader_terms) at shock temperature `_shock_T`
+	## for stagnation flux `_shock_q`; empty for the imagery ramp.
+	var _rgb := PackedVector3Array()
+	var _pw := PackedVector2Array()
+	var _shock_T := 0.0
+	var _shock_q := 1.0
+
+	## The equilibrium layer's emitters, from PlasmaSpectrum, for flux q (W/m²); null
+	## state returns to the ramp. A unit at another flux takes T·(q_u/q)^¼.
+	func spectrum(st, q: float) -> void:
+		_rgb.clear(); _pw.clear()
+		_shock_T = 0.0
+		if st == null or q <= 0.0: return
+		for t: Array in PlasmaSpectrum.shader_terms(st):
+			var c: Color = t[0]
+			_rgb.append(Vector3(c.r, c.g, c.b)); _pw.append(Vector2(float(t[1]), float(t[2])))
+		while _rgb.size() < PlasmaSpectrum.EMITTER_SLOTS:
+			_rgb.append(Vector3.ZERO); _pw.append(Vector2.ZERO)
+		_shock_T = float(st.T)
+		_shock_q = q
 
 	## Heat the body under `root` this frame. Undriven units are dark.
 	## @param q W/m² at the stagnation point (Rocketry.heat_flux)
@@ -662,6 +682,14 @@ class EntryGlow extends RefCounted:
 		var h := clampf(q / 1.1e6, 0.0, 2.5)
 		var T := clampf(1400.0 + q * 0.006, 900.0, 12000.0)
 		var origin := u.root.global_position
+		var Ts := _shock_T * pow(q / _shock_q, 0.25) if _shock_T > 0.0 else 0.0
+		var all: Array = u.mats.duplicate()
+		all.append(u.wake_mat)
+		for m: ShaderMaterial in all:
+			m.set_shader_parameter("uShockT", Ts)
+			if Ts > 0.0:
+				m.set_shader_parameter("uLineRGB", _rgb)
+				m.set_shader_parameter("uLineP", _pw)
 		for m in u.mats:
 			m.set_shader_parameter("uHeat", h)
 			m.set_shader_parameter("uTemp", T)

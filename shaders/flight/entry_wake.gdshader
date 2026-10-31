@@ -41,7 +41,7 @@ void fragment() {
 	float I = v_op * across * along * (0.45 + 1.1 * knots) * uHeat / (0.3 + uHeat);
 	if (I <= 0.0) discard;
 	float T = uTemp * 0.75;
-	vec3 c = mix(plasma_colour(T), vec3(1.0, 0.80, 0.86), 0.55);
+	vec3 c = mix(plasma_spectral(0.75, T), vec3(1.0, 0.80, 0.86), 0.55);
 	ALBEDO = c * (I * 1.8 * plasma_code(T));
 	ALPHA = 0.0;
 }

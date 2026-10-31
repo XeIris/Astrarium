@@ -49,8 +49,8 @@ With c = n̂·v̂ the cosine of incidence (v̂ the body's direction through the 
   takes the lower of the two and the silhouette does not grow. The orbiter's
   fin and OMS pods, forward-facing but behind the fuselage at 40° α, go dark;
 - the local temperature is T₀·(local flux)^¼, where T₀ is the stagnation
-  temperature derived from q₀, and it sets the colour: deep red near 2000 K,
-  red-orange by 3500 K, yellow-orange by 5000 K, blue-white above 8000 K;
+  temperature derived from q₀. It sets the brightness code; the colour is the
+  layer's spectrum ([below](#the-colour)), shifted to the local temperature;
 - a thin glowing layer brightens toward its limb (longer path), and the
   outermost shell fades toward its own silhouette so that no edge line is
   drawn round the vehicle;
@@ -115,10 +115,59 @@ later and end sooner. The Shuttle's lasted about 12–16 minutes, from around
 80 km to about 55 km. The flow is also out of equilibrium above ~70 km. CO₂
 atmospheres are outside the model, so Mars and Venus entries read no plasma.
 
+## The colour
+
+`PlasmaSpectrum` gives the layer the colour of its own emission. Once a second of
+flight, at the vehicle's altitude and air speed, it solves the gas behind a normal
+shock: for air, `Ionisation`'s equilibrium (N₂, O₂, N, O, NO, electrons) plus N₂⁺ by
+Saha from that electron density; for CO₂ (Mars, Venus) and N₂–CH₄ (Titan), a small
+equilibrium of its own (`PlasmaSpectrum._shock`): CO₂ ⇌ CO + O, CO ⇌ C + O and
+Lighthill's N₂ ⇌ 2N carry the energy, against rigid-rotor, fully excited heat
+capacities, with JANAF's 298 K ΔH and ΔS in Kp; CH₄ counts as broken into C + 4H; CN
+and C₂ follow from C + N ⇌ CN and 2C ⇌ C₂ as traces. Ionisation's energy is left out
+of the non-air layers, so above ~9 km/s they run hot. `plasmacheck` holds the jump's
+mass, momentum and energy to 2 × 10⁻³.
+
+Each emitter's upper level is populated as Boltzmann gives at the layer's
+temperature, n_u = n·(g_u/g₀)·e^(−θ/T), and radiates n_u·A·hν, shared among its
+visible lines or band heads:
+
+| gas | emitters |
+|---|---|
+| air | O I 777 and 845 nm, N I 747–868 nm, N₂⁺ first negative (391, 428 nm), N₂ first positive (580–870 nm), N₂ second positive (316–406 nm) |
+| CO₂ | O I, CO Ångström (451–608 nm), CN violet (388, 422 nm) and red (650–920 nm), C₂ Swan (474, 517, 564 nm), N₂ first positive |
+| N₂–CH₄ | N I, Hα, N₂⁺, N₂ first and second positive, CN violet and red, C₂ Swan |
+
+plus free–free continuum (Kramers, Gaunt factor 1). Atomic data are NIST's; the band
+systems' A and shares are folded from Laux (1993), Lofthus & Krupenie (1977) and
+Huber & Herzberg, with vibrational structure lumped into the electronic factor. UV
+systems (NO γ and β, O₂ Schumann–Runge, CO fourth positive) are left out because the
+eye cannot see them. The spectrum goes through the CIE 1931 functions (the Wyman,
+Sloan & Shirley 2013 fit) to linear sRGB; a colour outside the gamut is desaturated
+toward white, keeping its hue.
+
+The shader gets each emitter's colour, power and θ. Where the gas is cooler, at
+T = T_s·(local flux)^¼, it moves every emitter by e^(θ/T_s − θ/T) with the densities
+held at the stagnation point's, and free–free by its electrons' e^(−I/T) as well, so
+the shoulders redden. A piece driven by its own flux takes T_s·(q/q_s)^¼.
+
+What comes out:
+
+- a slow entry (4 km/s at 60 km, 3700 K) is N₂ first positive: deep red;
+- the Shuttle at 7.4 km/s and 80 km (5600 K) is N₂⁺ first negative and N₂ first
+  positive: pink-magenta;
+- a lunar return at 10.8 km/s (9600 K) is atomic N and O in the near infrared, which
+  the eye barely sees, and N₂⁺'s violet, which it does: blue-violet;
+- Mars at 6 km/s (4700 K) and Titan are CN's violet and red systems: magenta.
+
+These are equilibrium colours. Above ~70 km the real layer is out of equilibrium,
+with N₂⁺ stronger than this, and ablation products (sodium, carbon from the shield)
+are not in it.
+
 ## Limits
 
-- No radiative transfer, no chemistry and no ablation products. The colour
-  ramp is the progression seen in entry imagery, not a spectrum.
+- No radiative transfer and no ablation products in the gas. The spectrum is the
+  equilibrium layer's at the stagnation point.
 - Shadowing is Newtonian: a sheltered surface is dark however close it is to
   the shock. Real lee flow is not quite empty (the fin sees a weak expansion
   flow), and the 28-column grid resolves shelter to about 1/28 of the body,

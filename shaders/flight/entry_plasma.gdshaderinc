@@ -10,6 +10,27 @@ vec3 plasma_colour(float T) {
 	return mix(c, vec3(0.78, 0.86, 1.0), smoothstep(7000.0, 11000.0, T));
 }
 
+// The layer's spectrum (PlasmaSpectrum.shader_terms): each emitter's linear sRGB per unit
+// power, its power at uShockT relative to the strongest, and its upper level's θ (K).
+// uShockT = 0 leaves the ramp above, for gases the spectrum does not cover.
+uniform vec3 uLineRGB[9];
+uniform vec2 uLineP[9];
+uniform float uShockT = 0.0;
+
+// The layer's colour where its gas is at `f` of the stagnation temperature: Boltzmann
+// moves each emitter's upper level by e^(θ/T_s − θ/T), the densities held.
+vec3 plasma_spectral(float f, float T_ramp) {
+	if (uShockT <= 0.0) return plasma_colour(T_ramp);
+	float T = uShockT * max(f, 0.3);
+	vec3 c = vec3(0.0);
+	for (int i = 0; i < 9; i++)
+		c += uLineRGB[i] * uLineP[i].x * exp(uLineP[i].y * (1.0 / uShockT - 1.0 / T));
+	// Out of gamut: toward white, keeping the hue (PlasmaSpectrum.colour).
+	c -= min(0.0, min(c.r, min(c.g, c.b)));
+	float m = max(max(c.r, c.g), c.b);
+	return m > 0.0 ? c / m : plasma_colour(T_ramp);
+}
+
 float plasma_code(float T) { return clamp(log(T) / 25.33, 0.006, 0.984); }
 
 float plasma_hash(vec3 p) {
