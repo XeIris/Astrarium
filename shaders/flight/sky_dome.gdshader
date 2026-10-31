@@ -45,6 +45,11 @@ uniform vec3 uMagPole = vec3(0.0, 1.0, 0.0);
 uniform float uKp = 0.0;
 uniform float uAurora = 0.0;
 uniform float uEmitGain = 0.0;
+// The ecliptic's pole in this dome's frame (either sign), for the zodiacal light, and
+// noctilucent clouds' occurrence at the site and season (0–1).
+uniform vec3 uEclPole = vec3(0.0, 1.0, 0.0);
+uniform float uZodiac = 0.0;
+uniform float uNLC = 0.0;
 uniform float uGain = 10.0;         // SkyMS.GAIN: the pad's noon zenith at the old calibration
 // Ψ(h, μ_s), the multiply scattered light per unit σ_s (SkyMS); u is μ_s, v is √(h/top).
 uniform sampler2D uMS : filter_linear, repeat_disable;
@@ -154,6 +159,56 @@ vec3 emitted(vec3 p, float z) {
 	return e * 1.5e-12;
 }
 
+// Zodiacal light, in S10 (one V = 10 solar-type star per square degree: 6.5e-12 of the
+// Sun's irradiance per sr), fitted to Leinert et al. (1998) table 17 within ~30%: in the
+// ecliptic 3500 at 30° elongation, 260 at 90°, 150 at 135° and 180 in the gegenschein;
+// 60 at the ecliptic poles. Reflected sunlight, slightly reddened.
+vec3 zodiacal(vec3 d, vec3 s) {
+	float eps = degrees(acos(clamp(dot(d, s), -1.0, 1.0)));
+	float beta = degrees(asin(clamp(abs(dot(d, uEclPole)), 0.0, 1.0)));
+	float ecl = 100.0 + 160.0 * pow(max(eps, 15.0) / 90.0, -2.8) + 60.0 * exp(-pow((eps - 180.0) / 8.0, 2.0));
+	float s10 = 60.0 + (ecl - 60.0) * exp(-beta / 25.0);
+	return s10 * 6.5e-12 * vec3(1.05, 1.0, 0.90);
+}
+
+// Noctilucent clouds: ice at 83 km over the summer pole (Gadsden & Schröder 1989), a
+// vertical optical depth of ~3e-4 at 550 nm going as λ^−2.5, forward scattering
+// (g = 0.6), in billows. Lit only where the sun still reaches 83 km, so they show in
+// deep twilight against a dark sky. Returns radiance per unit solar irradiance.
+float nlc_noise(vec2 x) {
+	vec2 i = floor(x); vec2 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453);
+	float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453);
+	float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+	float e = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+	return mix(mix(a, b, f.x), mix(c, e, f.x), f.y);
+}
+vec3 noctilucent(vec3 o, vec3 d, vec3 s) {
+	float R = uRadius;
+	float Rn = R + 83000.0;
+	float b = dot(o, d);
+	float c = dot(o, o) - Rn * Rn;
+	float disc = b * b - c;
+	if (disc <= 0.0) return vec3(0.0);
+	float t = c > 0.0 ? -b - sqrt(disc) : -b + sqrt(disc);
+	if (t <= 0.0) return vec3(0.0);
+	float dG = b * b - (dot(o, o) - R * R);
+	if (dG > 0.0 && -b - sqrt(dG) > 0.0 && -b - sqrt(dG) < t) return vec3(0.0);
+	vec3 p = o + d * t;
+	vec3 n = p / length(p);
+	// 1.5 km thick; grazing paths capped where the shell's curvature takes over.
+	float path = 1500.0 / max(abs(dot(n, d)), sqrt(2.0 * 1500.0 / Rn));
+	vec2 q = p.xz / 9000.0;
+	float bill = nlc_noise(q + vec2(0.0, 3.0 * nlc_noise(q * 0.3)));
+	float bands = 0.5 + 0.5 * sin(dot(p.xz, vec2(0.7, 0.3)) / 2500.0 + 4.0 * bill);
+	float patch = smoothstep(0.35, 0.8, nlc_noise(q * 0.15)) * (0.4 + 0.6 * bands);
+	float mu = dot(d, s);
+	float hg = (1.0 - 0.36) / (4.0 * PI * pow(1.0 + 0.36 - 1.2 * mu, 1.5));
+	vec3 beta = 2e-7 * vec3(0.76, 1.0, 1.51);
+	return uNLC * patch * beta * path * hg * exp(-sun_depth(p, s));
+}
+
 // The night emission along the ray, through a 400 km shell, 48 samples.
 vec3 emission(vec3 d) {
 	float R = uRadius;
@@ -221,8 +276,14 @@ vec4 physical_sky(vec3 d, vec3 s) {
 		L += (tr * (uBetaR * dn.x * pr + uBetaM * dn.y * pm) + tr_v * (uBetaR * dn.x + uBetaM * dn.y) * ms) * ds;
 		tau_v += step_tau;
 	}
+	if (uNLC > 0.0) L += noctilucent(o, d, s) * exp(-tau_v);
 	L *= uSkyFlux;
-	if (uEmitGain > 0.0) L += emission(d) * exp(-tau_v) * uEmitGain;
+	if (uEmitGain > 0.0) {
+		vec3 night = emission(d);
+		bool ground = dG > 0.0 && -b - sqrt(dG) > 0.0;
+		if (uZodiac > 0.5 && !ground) night += zodiacal(d, s);
+		L += night * exp(-tau_v) * uEmitGain;
+	}
 	return vec4(L * uGain, 1.0 - exp(-dot(tau_v, vec3(0.333))));
 }
 

@@ -210,6 +210,22 @@ treated as aimed at Earth.
 Rendered at 52° N with Kp 6, faint green arcs fill the northern sky; at the Cape
 there are none.
 
+### Zodiacal light and noctilucent clouds
+
+The night emission also carries the zodiacal light, sunlight scattered by
+interplanetary dust, drawn at the same display gain. It is a fit to Leinert et al.
+(1998, table 17) within ~30%: in the ecliptic 3500 S10 at 30° elongation, 260 at 90°,
+150 at 135° and 180 in the gegenschein, falling to 60 at the ecliptic poles with an
+e-folding of 25° in ecliptic latitude. 1 S10 is 6.5 × 10⁻¹² of the Sun's irradiance
+per steradian. The ecliptic comes from the orrery's own plane.
+
+Noctilucent clouds are ice at 83 km over the summer pole: a 1.5 km layer of vertical
+optical depth 3 × 10⁻⁴ at 550 nm going as λ^−2.5, forward scattering (g = 0.6), in
+billows and bands. They form poleward of ~50° within about two months of the summer
+solstice (sub-solar latitude past ~15° on the site's side; Gadsden & Schröder 1989),
+and are lit only where sunlight still reaches 83 km, so they show in deep twilight
+over a dark sky without a display gain of their own.
+
 ## Planetshine
 
 A rocky planet's or world's night side is lit by its brightest sunlit neighbour
