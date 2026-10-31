@@ -46,8 +46,10 @@ float holeA(int k){ return P.holeSpin[k].x; }
 float holeRp(int k){ return 0.5 * holeRs(k) * (1.0 + sqrt(max(1.0 - holeA(k) * holeA(k), 0.0))); }
 
 #define PI 3.141592653589793
-// Near-extremal prograde orbits skim the horizon for several windings.
-#define STEPS 320
+// Near-extremal prograde orbits skim the horizon for several windings, so a hole
+// spinning faster than a* = 0.5 gets the longer budget.
+#define STEPS 240
+#define STEPS_SPIN 320
 
 // reference radius of the flaring law, in r_s (the Schwarzschild ISCO)
 #define R_FLARE 3.0
@@ -190,8 +192,17 @@ vec3 discSource(int k, float rM, float g, float dens, out float Tphys){
 // Kerr–Schild Cartesian form, with the spin along +Z (docs/physics/lensing.md):
 // g = η + f k⊗k, f = 2r³/(r⁴ + a²Z²) and k = (1, (rX + aY)/(r² + a²), (rY − aX)/(r² + a²), Z/r),
 // where r solves (X² + Y²)/(r² + a²) + Z²/r² = 1. Units of M. Returns r, f, the
-// spatial k and their gradients; dk[i] = ∂k/∂Xᵢ.
-void kerrSchild(vec3 X, float a, out float r, out float f, out vec3 k, out vec3 df, out mat3 dk){
+// spatial k, ∇f and ∇(k·P) for a spatial covector P (∇k contracted, never formed).
+void kerrSchild(vec3 X, float a, vec3 P, out float r, out float f, out vec3 k, out vec3 df, out vec3 dkP){
+	if(a == 0.0){
+		// Schwarzschild in Eddington–Finkelstein form: r = |X|, k = X/r, f = 2/r.
+		r = max(length(X), 1e-6);
+		k = X / r;
+		f = 2.0 / r;
+		df = -f * k / r;
+		dkP = (P - k * dot(k, P)) / r;
+		return;
+	}
 	float a2 = a * a, z2 = X.z * X.z;
 	float w = dot(X, X) - a2;
 	float s = sqrt(0.25 * w * w + a2 * z2);
@@ -204,10 +215,9 @@ void kerrSchild(vec3 X, float a, out float r, out float f, out vec3 k, out vec3 
 	df = (6.0 * r2 * gr - f * (4.0 * r2 * r * gr + vec3(0.0, 0.0, 2.0 * a2 * X.z))) / q;
 	float S = r2 + a2;
 	k = vec3((r * X.x + a * X.y) / S, (r * X.y - a * X.x) / S, X.z / r);
-	vec3 c = (vec3(X.xy, 0.0) - 2.0 * r * vec3(k.xy, 0.0)) / S;
-	dk[0] = gr.x * c + vec3(r / S, -a / S, -X.z * gr.x / r2);
-	dk[1] = gr.y * c + vec3(a / S, r / S, -X.z * gr.y / r2);
-	dk[2] = gr.z * c + vec3(0.0, 0.0, 1.0 / r - X.z * gr.z / r2);
+	// ∂ᵢkₓ = (∂ᵢr·(X − 2r kₓ) + rδᵢₓ + aδᵢᵧ)/S, ∂ᵢkᵧ alike, ∂ᵢk_z = δᵢ_z/r − Z∂ᵢr/r².
+	float c = (dot(X.xy, P.xy) - 2.0 * r * dot(k.xy, P.xy)) / S - X.z * P.z / r2;
+	dkP = gr * c + vec3((r * P.x - a * P.y) / S, (a * P.x + r * P.y) / S, P.z / r);
 }
 
 // Scene → Kerr–Schild axes: the spin (KS +Z) points along scene −y, the disc's
@@ -225,12 +235,12 @@ void geodesic(vec3 pos, vec3 p, float pt, out vec3 v, out vec3 dp, out float rh[
 		rh[k] = uintBitsToFloat(0x7f7fffffu);
 		if(k >= holeCount) break;
 		float M = 0.5 * holeRs(k);
-		float r, f; vec3 kv, df; mat3 dk;
-		kerrSchild(toKS((pos - holePos(k)) / M), -holeA(k), r, f, kv, df, dk);
+		float r, f; vec3 kv, df, dkP;
 		vec3 Pk = toKS(p);
+		kerrSchild(toKS((pos - holePos(k)) / M), -holeA(k), Pk, r, f, kv, df, dkP);
 		float Kp = -pt + dot(kv, Pk);
 		v -= fromKS(f * Kp * kv);
-		dp += fromKS(0.5 * df * Kp * Kp + f * Kp * (transpose(dk) * Pk)) / M;
+		dp += fromKS(0.5 * df * Kp * Kp + f * Kp * dkP) / M;
 		rh[k] = r * M;
 	}
 }
@@ -256,8 +266,8 @@ void main(){
 	bool captured = false;
 	if(holeCount == 1){
 		float M = 0.5 * holeRs(0);
-		float r, fk; vec3 kv, df; mat3 dk;
-		kerrSchild(toKS((camPos - holePos(0)) / M), -holeA(0), r, fk, kv, df, dk);
+		float r, fk; vec3 kv, df, dkP;
+		kerrSchild(toKS((camPos - holePos(0)) / M), -holeA(0), vec3(0.0), r, fk, kv, df, dkP);
 		vec3 D = toKS(rd);
 		float ut; vec3 us, w;
 		if(fk < 1.0){
@@ -283,8 +293,8 @@ void main(){
 		for(int k = 0; k < MAX_HOLES; k++){
 			if(k >= holeCount) break;
 			float M = 0.5 * holeRs(k);
-			float r, fk; vec3 kv, df; mat3 dk;
-			kerrSchild(toKS((camPos - holePos(k)) / M), -holeA(k), r, fk, kv, df, dk);
+			float r, fk; vec3 kv, df, dkP;
+			kerrSchild(toKS((camPos - holePos(k)) / M), -holeA(k), vec3(0.0), r, fk, kv, df, dkP);
 			float c = dot(kv, toKS(rd));
 			F += fk; B += fk * c; C += fk * c * c;
 		}
@@ -312,7 +322,9 @@ void main(){
 	vec3 v1 = p0;
 	bool escaped = false;
 	float nearest = 0.0;   // the last step's closest approach, in that hole's r_s
-	for(int i = 0; i < STEPS && !captured; i++){
+	int steps = STEPS;
+	for(int k = 0; k < MAX_HOLES; k++){ if(k < holeCount && holeA(k) > 0.5) steps = STEPS_SPIN; }
+	for(int i = 0; i < steps && !captured; i++){
 		vec3 dp1; float rh[MAX_HOLES];
 		geodesic(pos, p0 + dP, pt, v1, dp1, rh);
 		// adaptive step: fine near a horizon and near a disc plane

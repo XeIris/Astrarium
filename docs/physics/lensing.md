@@ -88,9 +88,13 @@ measures energy 1. At a* = 0 this reduces to the radial/tangential split
 Each step is an RK2 midpoint in λ sized to a spatial step of 0.16(r − r₊), at least
 0.1 r_s and at most 0.3 r, capped near the disc plane. The bend accumulates
 separately from the initial momentum so fp32 keeps a 10⁻⁵ rad deflection. Prograde
-orbits of a near-extremal hole skim the horizon for several windings; 320 steps
-hold the a* = 0.998 edges to within a pixel at 512², and a ray still within 4 r_s
-when the steps run out is counted as captured. A Python prototype of the same
+orbits of a near-extremal hole skim the horizon for several windings, so a hole
+spinning faster than a* = 0.5 raises the budget from 240 to 320 steps; that holds
+the a* = 0.998 edges to within a pixel at 512², and a ray still within 4 r_s when
+the steps run out is counted as captured. At a* = 0 the metric functions take the
+Schwarzschild shortcut (r = |x|, k = x/r), and ∇k is only ever contracted with p.
+On the M5 gate this costs 1.6 ms per frame at lens focus (25.2 → 26.8 ms median)
+and 1.3 ms wide. A Python prototype of the same
 scheme (step floor 0.1 r_s, 300 steps) put the a* = 0.998 prograde edge 1% from
 Bardeen's.
 
