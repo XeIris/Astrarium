@@ -89,6 +89,24 @@ leading-order strain estimate. The ordinary-star `binarystar` preset retains an
 explicitly exaggerated drag demonstration; it is not a physical contact binary
 or a model of the hydrodynamics that produces a luminous red nova.
 
+## The chirp a pair ends in
+
+The detector card also draws the waveform the live pair's masses end in
+(`GWDetector.chirp_template`), whatever its orbit is doing now. The inspiral is the
+leading-order quadrupole chirp: f(τ) = (5/τ)^⅜(GM_c/c³)^−⅝/8π and
+h = 4(GM_c/c²)^(5/3)(πf/c)^(2/3)/D, from 20 Hz to the ISCO of the total mass,
+f = c³/(6^1.5·πGM). It hands over in amplitude and phase to the remnant's l = m = 2,
+n = 0 ringdown, with the remnant from the fits above and its frequency and damping
+from Berti, Cardoso & Will (2006): Mω = 1.5251 − 1.1568(1 − j)^0.1292,
+Q = 0.7 + 1.4187(1 − j)^−0.499, τ = 2Q/ω. For 36 + 29 M☉ at 410 Mpc it rings at
+250 Hz with τ = 4 ms (GW150914: 251 Hz, 4 ms). The plunge and merger between the
+ISCO and the ringdown need numerical relativity and are left out, so the peak comes
+at 68 Hz instead of ~150 Hz and below the measured 1.0 × 10⁻²¹.
+
+The card's "merges in" is Peters' (1964) time to coalescence of the live orbit,
+(5/256)c⁵a⁴/(G³m₁m₂M)·(1 − e²)^3.5, without the illustrative drag boost: 3.0 × 10⁸
+years for PSR B1913+16, 10¹⁷ years for the `bhmerger` pair at 0.45 AU.
+
 ## Live strain estimate
 
 `GWDetector.strain_of` uses actual AU separation, converted to SI, with live

@@ -45,6 +45,13 @@ shade, so a full-screen pass integrates null geodesics backwards from the eye.
   intensity, I_obs ∝ g⁴ (from the invariance of I_ν/ν³). The approaching limb comes
   out blue-white and an order of magnitude brighter; the receding limb is dull red.
   Off the midplane the slab uses the midplane orbit at the same r.
+- **The background, blueshifted.** The camera is a static observer, so light from
+  infinity reaches it with ν_obs/ν_∞ = 1/√(−g_tt) = 1/√(1 − f), f = 2Mr³/(r⁴ + a²z²)
+  at the camera (`LensPass.grav_shift`, summed over two holes in the weak-field
+  sense). The lensed sky goes through the same Doppler path as a boost's
+  (`skyRadianceD`, I ∝ D⁴): at 5 r_s it is 1.118 times bluer and 1.56 times brighter.
+  Inside an ergosphere no observer is static; the Kerr–Schild normal observer's
+  √(1 + f) stands in, without its direction dependence.
 - **Volume.** Emission and absorption through a flared slab H(r) ∝ r^(9/8), so
   the far side is seen through the near side.
 - **Filaments.** MRI turbulence sheared by Keplerian Ω(r) ∝ r^(−3/2): noise is
