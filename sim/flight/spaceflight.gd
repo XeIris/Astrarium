@@ -235,7 +235,8 @@ func light_sources() -> Array:
 		var d := DVec3.new().sub_vectors(b.pos, w)
 		var r := maxf(d.length(), 1e-6)
 		out.append({"dir": vessel.to_local(d.scale_in(1.0 / r), d), "flux": float(U.nz(b.luminosity, 1.0)) / (r * r),
-			"teff": float(U.nz(b.teff, 5772.0)), "ang_r": b.radius / r if b.radius > 0.0 else 0.00465 / r})
+			"teff": float(U.nz(b.teff, 5772.0)), "ang_r": b.radius / r if b.radius > 0.0 else 0.00465 / r,
+			"kp": Stellar.storm_kp(b.activity)})
 	if cruise_ctx != null and cruise_ctx.get("star_pos") != null:
 		var m: Dictionary = cruise_ctx.mission
 		var d := DVec3.new().sub_vectors(cruise_ctx.star_pos, w)
@@ -1302,6 +1303,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"cloudWind": wind_dir * (9.0 * vessel.met),
 		"sunAngR": float(key.ang_r) if key != null else 0.00465,
 		"sunTeff": float(key.teff) if key != null else 5772.0,
+		"kp": float(key.get("kp", 2.0)) if key != null else 0.0,
 		# the other sun, and the sky's own light, through the same exposure
 		"sun2World": second.dir if second != null else null,
 		"sun2Flux": float(second.flux) * exposure if second != null else 0.0,

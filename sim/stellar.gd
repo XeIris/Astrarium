@@ -99,6 +99,20 @@ static func activity_level(mass_sun: float) -> float:
 static func flare_interval(mass_sun: float) -> float:
 	return 0.06 / activity_level(mass_sun)
 
+## The planetary K index a star's activity drives at 1 AU: 2 when quiet; each CME
+## arrives after ~1.8 days (900 km/s), lifts Kp toward 9 by how far its flare's energy
+## exceeded the CME threshold, and fades over a day. Every CME counts as aimed at the
+## planet; a real one is geoeffective only if launched near the disc centre.
+static func storm_kp(act) -> float:
+	if act == null: return 2.0
+	var kp := 2.0
+	for c in act.cmes:
+		var since: float = float(c.t) - 0.005
+		if since < 0.0: continue
+		var peak := 7.0 * clampf((float(c.get("energy", 0.0)) - 1.1 * act.activity) / maxf(1.9 * act.activity, 1e-3), 0.0, 1.0)
+		kp = maxf(kp, 2.0 + peak * exp(-since / 0.0027))
+	return kp
+
 # FLARE / CME EVENT MODEL: a small population of active regions; flares rise fast
 # and decay exponentially, the biggest launching a CME. Flares, CMEs and regions
 # are Dictionaries read by star_visual.gd and prominence.gd.
@@ -198,6 +212,6 @@ class ActivityModel:
 				# stellar radii per year: a display speed ~1000× slower than a real CME's
 				# 300–3000 km/s, so a shell is visible at orrery rates
 				"radius": 1.0, "speed": 14.0 + rng.call() * 20.0,
-				"alpha": 1.0, "dir": f.dir,
+				"alpha": 1.0, "dir": f.dir, "energy": energy,
 				"width": 0.35 + rng.call() * 0.4,
 			})

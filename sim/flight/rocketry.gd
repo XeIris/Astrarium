@@ -74,7 +74,7 @@ const ATMOSPHERES := {
 		"kSG": 1.9027e-4,                    # CO₂ Sutton–Graves constant (Tauber & Sutton 1991)
 		"radiative": "co2",
 		"layers": [{ "base": 0.0, "H": 11100.0 }, { "base": 60000.0, "H": 8000.0 }],
-		"top": 125e3, "tint": 0xc08a5a, "haze": 0xd8a878,
+		"top": 125e3, "tint": 0xc08a5a, "haze": 0xd8a878, "scatter": "mars",
 	},
 	# VIRA (Seiff et al. 1985), 0–100 km, as lapse layers between its 10 km rows (within
 	# 6% in ρ); isothermal above. ρ₀ is 92.1 bar of CO₂ at 735.3 K.
@@ -93,7 +93,7 @@ const ATMOSPHERES := {
 	},
 	"Titan": {
 		"p0": 146700.0, "rho0": 5.4, "T0": 94.0, "molar": 0.02834, "gamma": 1.4,
-		"layers": [{ "base": 0.0, "H": 21000.0 }], "top": 600e3, "tint": 0xc2924a, "haze": 0xe8c481,
+		"layers": [{ "base": 0.0, "H": 21000.0 }], "top": 600e3, "tint": 0xc2924a, "haze": 0xe8c481, "scatter": "titan",
 	},
 	"Jupiter": {
 		"p0": 1e5, "rho0": 0.16, "T0": 165.0, "molar": 0.00226, "gamma": 1.42,

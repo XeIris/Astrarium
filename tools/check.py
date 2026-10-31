@@ -71,6 +71,8 @@ CHANGED_RULES = (
       "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck",)),
     # Any other flight file is presentation: the parity flight shows it cannot move physics.
     (("sim/flight/*",), ("flighttimecheck", "missioncheck-skip_moon", "missioncheck-parity-*")),
+    # The flight sky's coefficients are checked numerically; its drawing by the render rule.
+    (("sim/flight/sky_ms.gd", "sim/stellar.gd", "tools/build_sky_ms.py"), ("flightphysicscheck",)),
     (("sim/flight/vehicles.gd", "sim/flight/craftmodel.gd", "sim/flight/craftassets.gd", "sim/flight/separation.gd",
       "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
     (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"),

@@ -181,6 +181,7 @@ func _init() -> void:
 
 	azimuths()
 	lagrange()
+	skies()
 	tesseral()
 	thermosphere()
 	blackout()
@@ -338,3 +339,61 @@ func lagrange() -> void:
 		for i in n: st = Lagrange._rk4(st, float(h.period) / n, mu_se)
 		var miss := Vector3(st[0] - s[0], st[1] - s[1], st[2] - s[2]).length() * Rocketry.AU_M / 1000.0
 		check("the halo closes after one period (%.1f km)" % miss, miss < 50.0)
+
+# The physical skies' colours, single-scattered on the CPU from SkyMS.ATMOS as the dome
+# does it: Earth's blue zenith, Mars's butterscotch noon and blue sunset round the sun,
+# Titan's orange haze; and the storm index the aurora follows.
+func _sky(a: Dictionary, R: float, d: Vector3, s: Vector3) -> Vector3:
+	var top: float = R + float(a.top)
+	var o := Vector3(0.0, R, 0.0)
+	var b := o.dot(d)
+	var t1 := -b + sqrt(b * b - (o.dot(o) - top * top))
+	var mu := d.dot(s)
+	var pr := 3.0 / (16.0 * PI) * (1.0 + mu * mu)
+	var g: Vector3 = a.g
+	var pm := Vector3.ZERO
+	for c in 3: pm[c] = (1.0 - g[c] * g[c]) / (4.0 * PI * pow(maxf(1.0 + g[c] * g[c] - 2.0 * g[c] * mu, 1e-4), 1.5))
+	var tau := Vector3.ZERO
+	var L := Vector3.ZERO
+	var n := 64
+	for i in n:
+		var ds := t1 / n
+		var p := o + d * ((i + 0.5) * ds)
+		var z := p.length() - R
+		var dr := exp(-z / float(a.HR)); var dm := exp(-z / float(a.HM))
+		var e: Vector3 = a.betaR * dr + a.betaMExt * dm
+		# Sun path, 32 steps.
+		var ts := Vector3.ZERO
+		var bs := p.dot(s)
+		var ts1 := -bs + sqrt(maxf(bs * bs - (p.dot(p) - top * top), 0.0))
+		for k in 32:
+			var q := p + s * ((k + 0.5) * ts1 / 32.0)
+			var zq := q.length() - R
+			ts += (a.betaR * exp(-zq / float(a.HR)) + a.betaMExt * exp(-zq / float(a.HM))) * (ts1 / 32.0)
+		var tr := Vector3(exp(-tau.x - 0.5 * e.x * ds - ts.x), exp(-tau.y - 0.5 * e.y * ds - ts.y), exp(-tau.z - 0.5 * e.z * ds - ts.z))
+		L += tr * (a.betaR * dr * pr + a.betaM * dm * pm) * ds
+		tau += e * ds
+	return L
+
+func skies() -> void:
+	var up := Vector3.UP
+	var e: Vector3 = _sky(SkyMS.ATMOS.earth, 6.371e6, up, Vector3(cos(deg_to_rad(60.0)), sin(deg_to_rad(60.0)), 0.0))
+	check("Earth's noon zenith is blue (B/R %.2f)" % (e.z / e.x), e.z / e.x > 2.0)
+	var m: Vector3 = _sky(SkyMS.ATMOS.mars, 3.3895e6, up, Vector3(cos(deg_to_rad(60.0)), sin(deg_to_rad(60.0)), 0.0))
+	check("Mars's noon zenith is butterscotch (B/R %.2f)" % (m.z / m.x), m.z / m.x < 0.75)
+	var sun := Vector3(cos(deg_to_rad(2.0)), sin(deg_to_rad(2.0)), 0.0)
+	var near: Vector3 = _sky(SkyMS.ATMOS.mars, 3.3895e6, Vector3(cos(deg_to_rad(7.0)), sin(deg_to_rad(7.0)), 0.0), sun)
+	var away: Vector3 = _sky(SkyMS.ATMOS.mars, 3.3895e6, Vector3(-cos(deg_to_rad(20.0)), sin(deg_to_rad(20.0)), 0.0), sun)
+	check("a Martian sunset is blue round the sun (B/R %.2f) and tan opposite (%.2f)" % [near.z / near.x, away.z / away.x],
+		near.z / near.x > 1.0 and away.z / away.x < 0.6)
+	var t: Vector3 = _sky(SkyMS.ATMOS.titan, 2.5747e6, up, Vector3(cos(deg_to_rad(50.0)), sin(deg_to_rad(50.0)), 0.0))
+	check("Titan's haze leaves an orange zenith (G/R %.2f, B/R %.3f)" % [t.y / t.x, t.z / t.x], t.y / t.x < 0.6 and t.z / t.x < 0.1)
+	var act := Stellar.ActivityModel.new(1.0, func(): return 0.5)
+	check("a quiet Sun holds Kp at 2", Stellar.storm_kp(act) == 2.0)
+	act.cmes.append({"t": 0.002, "energy": 3.0 * act.activity + 0.15})
+	var before := Stellar.storm_kp(act)
+	act.cmes[0].t = 0.0055
+	var arrived := Stellar.storm_kp(act)
+	act.cmes[0].t = 0.0055 + 0.0027 * 3.0
+	var later := Stellar.storm_kp(act)
+	check("a CME lifts Kp only once it arrives, then fades (%.1f, %.1f, %.1f)" % [before, arrived, later], before == 2.0 and arrived > 7.0 and later < 3.0)
