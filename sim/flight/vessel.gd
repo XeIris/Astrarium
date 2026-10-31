@@ -495,8 +495,10 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			var fwd := forward(_f)
 			# A slender body falling base first (a booster on entry) is blunt too.
 			var blunt: bool = (st != null and st.spec.get("blunt", false)) or fwd.dot(_vrel) < 0.0
-			var cd := Rocketry.blunt_drag_coefficient(mach) if blunt \
-				else Rocketry.drag_coefficient(mach, st.spec.get("cdTable") if st != null else null)
+			var cd := Rocketry.drag_coefficient(mach, st.spec.get("cdTable") if st != null else null)
+			if blunt:
+				var base = st.spec.get("cdBase") if st != null else null
+				cd = Rocketry.drag_coefficient(mach, base) if base != null else Rocketry.blunt_drag_coefficient(mach)
 			# Angle of attack costs drag. cos²α is the standard slender-body form,
 			# and it is why flying off-prograde in thick air is expensive.
 			var cos_a := absf(fwd.dot(_vrel) / va)

@@ -53,9 +53,23 @@ in air and 6 km/s in CO₂, and dominant on lunar return. Its f(V) tables are th
 commonly reproduced ones, not checked against the original paper here.
 
 A launcher stage may carry a `cdTable` (`{source, rows: [[Mach, Cd], ...]}`) that
-replaces the generic Cd(Mach) curve while it is the lowest stage attached. No
-vehicle has one yet: sourced tables (MSFC wind-tunnel reports for the Saturn V)
-were not available when the mechanism was added.
+replaces the generic Cd(Mach) curve while it is the lowest stage attached, and a
+`cdBase` that replaces the blunt-body curve while it falls base first. Tables are
+held beyond their ends.
+
+- The Saturn V's S-IC carries the total aerodynamic axial-force coefficient of the
+  S-IC flight configuration, F-1s firing, from Boeing D5-15481-1 (the AS-504 launch
+  vehicle reference trajectory, fig. 3-2), on the 10.06 m diameter. It was
+  digitized from the scanned plot against its local gridlines (the scan is rotated
+  about 1.4°), to ±0.01 above Mach 0.4 and ±0.03 below. It peaks at 0.81 near Mach
+  1.2 and turns negative above Mach 7, where the plume fills the base. The S-II and
+  its aft interstage carry the same figure's S-II curve, 0.28 at Mach 5 to 0.23 at
+  Mach 8. The figure's liftoff term (56.5 kN for 4 s) is left out.
+- The Falcon 9 first stage's `cdBase` is the total drag of DLR's RFZ model, a
+  Falcon 9 first stage returning base first with engines off (Bykerk & Horchler
+  2024, AFMC2024-35, table 2, RANS): 1.01 at Mach 0.75 rising to 1.73 at Mach 1.45,
+  on 10.52 m². No published ascent Cd(Mach) for Falcon 9 was found, so its ascent
+  keeps the generic curve.
 
 Climatological winds (`Rocketry.WINDS`, Settings › Sim or `winds=1`, off by
 default) give Earth a zonal-mean circulation: ±6 m/s trades and westerlies, a

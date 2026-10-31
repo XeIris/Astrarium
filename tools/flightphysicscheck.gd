@@ -138,6 +138,20 @@ func _init() -> void:
 	# A stage's Cd table replaces the generic curve.
 	var table := { "source": "test", "rows": [[0.0, 0.2], [1.0, 0.6], [3.0, 0.3]] }
 	check("a Cd table interpolates by Mach", absf(Rocketry.drag_coefficient(2.0, table) - 0.45) < 1e-12 and Rocketry.drag_coefficient(9.0, table) == 0.3)
+	var tables := 0
+	var sourced := true
+	for key in Vehicles.VEHICLES:
+		for st in Vehicles.VEHICLES[key].stages:
+			for k in ["cdTable", "cdBase"]:
+				var t = st.get(k)
+				if t == null: continue
+				tables += 1
+				var rows: Array = t.rows
+				sourced = sourced and str(t.get("source", "")) != "" and rows.size() >= 2
+				for i in range(1, rows.size()): sourced = sourced and float(rows[i][0]) > float(rows[i - 1][0])
+	check("every vehicle drag table names its source and ascends in Mach (%d tables)" % tables, sourced and tables >= 4)
+	check("the S-IC's table peaks transonic and turns negative with the plume past Mach 7",
+		Rocketry.drag_coefficient(1.2, Vehicles.SATURN_SIC_CA) > 0.8 and Rocketry.drag_coefficient(7.5, Vehicles.SATURN_SIC_CA) < 0.0)
 
 	# Porkchop against Hohmann on circular coplanar orbits.
 	var mu_s := Rocketry.GM_SUN
