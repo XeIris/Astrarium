@@ -210,6 +210,22 @@ treated as aimed at Earth.
 Rendered at 52° N with Kp 6, faint green arcs fill the northern sky; at the Cape
 there are none.
 
+### Zodiacal light and noctilucent clouds
+
+The night emission also carries the zodiacal light, sunlight scattered by
+interplanetary dust, drawn at the same display gain. It is a fit to Leinert et al.
+(1998, table 17) within ~30%: in the ecliptic 3500 S10 at 30° elongation, 260 at 90°,
+150 at 135° and 180 in the gegenschein, falling to 60 at the ecliptic poles with an
+e-folding of 25° in ecliptic latitude. 1 S10 is 6.5 × 10⁻¹² of the Sun's irradiance
+per steradian. The ecliptic comes from the orrery's own plane.
+
+Noctilucent clouds are ice at 83 km over the summer pole: a 1.5 km layer of vertical
+optical depth 3 × 10⁻⁴ at 550 nm going as λ^−2.5, forward scattering (g = 0.6), in
+billows and bands. They form poleward of ~50° within about two months of the summer
+solstice (sub-solar latitude past ~15° on the site's side; Gadsden & Schröder 1989),
+and are lit only where sunlight still reaches 83 km, so they show in deep twilight
+over a dark sky without a display gain of their own.
+
 ## Planetshine
 
 A rocky planet's or world's night side is lit by its brightest sunlit neighbour
@@ -249,14 +265,26 @@ keep their fixed emitter gain.
 
 A scene whose sky says `galactic: "j2000"` (`solar`) puts the Milky Way on the real
 galactic frame: the north galactic pole at RA 192.859°, Dec +27.128° and the centre
-at 266.405°, −28.936°, carried onto the scene's ecliptic axes. Each of the 9096
-stars in `assets/sky/bsc5.bin` is drawn at its J2000 direction (`BrightStars`).
-The file is the Yale Bright Star Catalogue, 5th revised edition (Hoffleit &
-Warren 1991), reduced by `tools/build_starcat.py` from HEASARC's BSC5P table.
-Without the file, the procedural sky stays whole. Brightness comes from V on the flux scale above, and
-colour is the Planck colour of Ballesteros's (2012) B−V temperature. The
-procedural sky then skips its four brightest tiers (to V ≈ 6) and fills in
-below. The catalogue is visible-band only. It is neither lensed nor aberrated, so
+at 266.405°, −28.936°, carried onto the scene's ecliptic axes. Two catalogues are
+drawn at their directions (`BrightStars`):
+
+- the 9096 stars of `assets/sky/bsc5.bin`, the Yale Bright Star Catalogue, 5th
+  revised edition (Hoffleit & Warren 1991), reduced by `tools/build_starcat.py`
+  from HEASARC's BSC5P table, to V ≈ 6.5;
+- the 49 956 stars of `assets/sky/gaia_g8.bin`, Gaia DR3 from G = 6.5 to 8.0 (Gaia
+  Collaboration, Vallenari et al. 2023), from one query of the ESA Gaia archive,
+  packed by `tools/build_gaia.py`. Their V comes from G and BP−RP by Riello et al.
+  (2021), and their colour from BP−RP through Mucciarelli & Bellazzini's (2020)
+  dwarf temperatures. 648 stars already in BSC5 are dropped, and proper motion
+  between the 2016 epoch and J2000 (a few arcseconds at most) is ignored.
+
+Together they hold 41 700 stars brighter than V = 8, as the whole sky has
+(`realismcheck`). Brightness comes from V on the flux scale above, and colour is
+the Planck colour of Ballesteros's (2012) B−V temperature. The procedural sky skips
+all six of its tiers (to its V ≈ 8 floor) when both files are present, and its four
+brightest (to V ≈ 6) with BSC5 alone; without BSC5 it stays whole. Gaia's data are
+ESA's, processed by the Gaia Data Processing and Analysis Consortium (DPAC), under
+CC BY-SA 3.0 IGO; `gaia_g8.bin` is a derivative under the same licence. The catalogue is visible-band only. It is neither lensed nor aberrated, so
 a relativistic flight's sky warps only the procedural stars. Moving the plane-tilt
 or roll slider returns the scene to the hand-placed procedural frame.
 

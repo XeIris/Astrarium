@@ -42,6 +42,7 @@ var sim_years: float:
 	set(value):
 		_sim_years = value
 		year_remainder = 0.0
+var epoch_jd: float = NAN      # TDB Julian date at sim_years 0, for a dated preset
 var home_id = null             # the inhabited world, if the preset has one
 var climate = null             # Climate or null
 var exposure: float = 1.0      # surface-view eye adaptation
@@ -58,6 +59,7 @@ var last_steps: int = 0        # integrator sub-steps in the last frame
 var last_resolution_limited: bool = false
 var energy0 = null             # total energy when the scenario loaded (drift reference)
 var energy_n: int = -1
+var energy_pn: bool = true     # Physics.post_newtonian when energy0 was taken
 
 func body_by_id(id) -> Body:
 	if id == null:

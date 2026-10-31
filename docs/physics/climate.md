@@ -28,9 +28,28 @@ rains back out when the planet cools:
 (Clausius–Clapeyron at constant L; a whole ocean as steam is 270 bar and 651 K, close
 to water's 647 K critical point). An Earth-like world at 1.5 S⊕ boils its ocean in about
 three thousand years; a Trisolaris close pass of a few months boils a fraction of a
-percent. While steam is present the era is "Runaway greenhouse". Hydrogen escape,
-which removes the water for good over 10⁸–10⁹ years in a moist greenhouse
-(Kasting 1988), is not modelled, so steam always rains back.
+percent. While steam is present the era is "Runaway greenhouse".
+
+## Moist greenhouse and hydrogen escape
+
+Water that reaches the stratosphere is photolysed and its hydrogen escapes, so the
+loss is permanent (`Climate.hydrogen_escape`). The cold trap's water mixing ratio is
+a log-linear fit through ~3 ppm at 288 K and 3 × 10⁻³ at 340 K, Kasting's (1988)
+moist-greenhouse threshold, and is 1 in a runaway. Escape is diffusion-limited,
+2.5 × 10¹⁷·f_H m⁻²s⁻¹ with f_H = 2f_H₂O (Hunten 1973), capped by the energy limit
+ε·F_XUV/(4GMm_H/R) with ε = 0.15 and today's solar XUV, 4.6 mW/m² at 1 AU, scaled with
+the bolometric flux: 1.6 × 10¹⁵ m⁻²s⁻¹ for Earth. An ocean column holds 1.8 × 10³²
+hydrogen atoms per m², so:
+
+- today's Earth keeps its ocean for longer than 10¹² years;
+- at 340 K it loses it in ~4 Gyr, Kasting's ocean in the Sun's lifetime;
+- a runaway escapes at the energy limit and dries in ~2 Gyr at 1.5 S⊕.
+
+Escape is taken from the steam first, then the sea, and recorded as `lost`. The era
+reads "Moist greenhouse" while the stratosphere is wet and the sea is still there.
+A world with no water left loses the runaway cap and heats to its dry equilibrium.
+A young or active star's XUV excess, which would dry a world far faster, is not
+modelled, and the escape uses Earth's gravity and column for every world.
 
 A world declared without oceans (`climate.oceans = false`) has no cap.
 

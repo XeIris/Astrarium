@@ -123,8 +123,11 @@ func _replay(spec: String, sc: Dictionary, rp: Dictionary, j: Dictionary) -> voi
 			var at := _state(f)
 			var ap := {}
 			for k in sc.base.get("ap", {}): ap[k] = f.autopilot.get(k)
-			print("SCENARIO REPLAY %s base at %s: alt %s, airspeed %s, fpa %s, mass %s, speedbrake %s, ap %s" % [spec, sc.base.replay.until,
-				U.fixed(at.alt, 1), U.fixed(at.speed, 1), U.fixed(at.fpa, 3), U.fixed(at.mass, 1), U.fixed(v.speedbrake, 3), ap])
+			var props := {}
+			for st in v.stages:
+				if st.attached: props[str(st.spec.key)] = snappedf(st.prop, 0.1)
+			print("SCENARIO REPLAY %s base at %s: alt %s, airspeed %s, fpa %s, mass %s, prop %s, speedbrake %s, ap %s" % [spec, sc.base.replay.until,
+				U.fixed(at.alt, 1), U.fixed(at.speed, 1), U.fixed(at.fpa, 3), U.fixed(at.mass, 1), props, U.fixed(v.speedbrake, 3), ap])
 		if hit < 0.0 and FlightScenarios.reached(f, rp.until, from): hit = v.met
 		if hit >= 0.0 and v.met - hit >= float(sc.after): break
 		var want := FlightScenarios.played_warp(f)

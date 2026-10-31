@@ -55,8 +55,14 @@ CHANGED_RULES = (
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
-      "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd"),
+      "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd",
+      "sim/perihelion.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
+    # The chirp template, the perihelion meter (with edu_mercury's 1PN rate) and the dates.
+    (("sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "sim/edupresets.gd"), ("sciencecheck",)),
+    # The shock layer's spectrum and the shader terms it hands the glow.
+    (("sim/flight/plasma_spectrum.gd", "sim/flight/ionisation.gd", "shaders/flight/entry_plasma.gdshaderinc"),
+     ("plasmacheck",)),
     # Flight physics, guidance and what hands state to them (craftmodel separates stages).
     (("sim/flight/vessel.gd", "sim/flight/guidance.gd", "sim/flight/mission.gd", "sim/flight/rocketry.gd",
       "sim/flight/orbit.gd", "sim/flight/fall.gd", "sim/flight/separation.gd", "sim/flight/spaceflight.gd",
@@ -77,7 +83,7 @@ CHANGED_RULES = (
       "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
     (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"),
      ("padcheck", "flight-descent-shcatch*")),
-    (("render/lens_pass.gd",), ("realismcheck",)),
+    (("render/lens_pass.gd", "sim/brightstars.gd", "assets/sky/*", "tools/build_gaia.py"), ("realismcheck",)),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
@@ -195,6 +201,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("flightphysicscheck", r"^flightphysicscheck: PASS$", timeout=420)
         yield script("spinframecheck", r"^SPINFRAMECHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cloudcheck", r"^CLOUDCHECK DONE checks=[1-9]\d* failures=0$")
+        yield script("plasmacheck", r"^PLASMACHECK DONE checks=[1-9]\d* failures=0$")
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")
@@ -241,7 +248,7 @@ def checks(suite, godot, output, repeat, export_preset):
         # attributes each scenario's render errors. The rest judge state and run headless.
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
-        yield scene("coursecheck", r"^COURSE 35L 108S 0E$")
+        yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")
         yield ("hud-low-startup", *startup_low[1:])
@@ -256,7 +263,7 @@ def checks(suite, godot, output, repeat, export_preset):
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
         yield ("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log")],
-               r"^PRESETCHECK DONE 35$", 300)
+               r"^PRESETCHECK DONE 36$", 300)
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],

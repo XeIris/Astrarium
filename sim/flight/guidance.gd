@@ -886,7 +886,8 @@ class Autopilot extends RefCounted:
 	func spin_site(dt: float) -> void:
 		if site == null: return
 		Guidance._a.set_v(0.0, -v.env.rotRate, 0.0).cross_vectors(Guidance._a, site)
-		DQuat.set_len(site.add_scaled_in(Guidance._a, dt), v.env.radius)
+		site.add_scaled_in(Guidance._a, dt)
+		DQuat.set_len(site, v.surface_r(site))
 
 	func landing_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
@@ -908,7 +909,8 @@ class Autopilot extends RefCounted:
 							(prof.hiGate.range if prof != null else 7000.0) * 2.0)
 			var ang: float = rng / env.radius
 			DQuat.nrm(Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert))
-			site = Guidance._up.clone().scale_in(cos(ang)).add_scaled_in(Guidance._b, sin(ang)).scale_in(env.radius)
+			site = Guidance._up.clone().scale_in(cos(ang)).add_scaled_in(Guidance._b, sin(ang))
+			DQuat.set_len(site, v.surface_r(site))
 			state_name = "P63"
 			note("P63 — braking phase")
 		var st: DVec3 = site
@@ -920,7 +922,7 @@ class Autopilot extends RefCounted:
 			Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 			if Guidance._b.length_sq() < 1.0: Guidance._b.copy_from(Guidance._up).cross_vectors(Guidance._b, Guidance._a)
 			DQuat.nrm(Guidance._b)
-			var rT := Guidance._a.clone().scale_in(env.radius + gate.alt).add_scaled_in(Guidance._b, -gate.range)
+			var rT := Guidance._a.clone().scale_in(v.surface_r(st) + gate.alt).add_scaled_in(Guidance._b, -gate.range)
 			var vT := Guidance._b.clone().scale_in(gate.vHoriz).add_scaled_in(Guidance._a, gate.vVert)
 			# Aim just above the DPS's forbidden throttle band, so P63 flies at full thrust.
 			var tgo := track_t_go(rT, vT, a_max, dt, 0.96)
@@ -935,7 +937,7 @@ class Autopilot extends RefCounted:
 		if state_name == "P64":
 			var gate: Dictionary = prof.loGate if prof != null else { "alt": 30.0, "range": 11.0 }
 			DQuat.nrm(Guidance._a.copy_from(st))
-			var _rT := Guidance._a.clone().scale_in(env.radius + gate.alt)
+			var _rT := Guidance._a.clone().scale_in(v.surface_r(st) + gate.alt)
 			var _vT := Guidance._a.clone().scale_in(-1.2)
 			var cmd := descent_law(a_max, 2.0, 0.60, 3.5, 0.6, 50.0)
 			v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
@@ -1318,8 +1320,9 @@ class Autopilot extends RefCounted:
 	func _wind_stretch(h: float, track: DVec3) -> float:
 		var atm = v.env.atm
 		if track == null or atm == null or not Rocketry.winds_enabled: return 1.0
-		DQuat.set_len(_pq.copy_from(v.r), float(v.env.radius) + h)
-		var w := Rocketry.wind_at(atm, _pq, v.env.radius, _pw).dot(track)
+		var Rs := v.surface_r(v.r)
+		DQuat.set_len(_pq.copy_from(v.r), Rs + h)
+		var w := Rocketry.wind_at(atm, _pq, Rs, _pw).dot(track)
 		var tas := EAS_REF * sqrt(1.225 / maxf(Rocketry.density(atm, h), 1e-6))
 		return maxf((tas + w) / tas, 0.2)
 
@@ -1944,9 +1947,9 @@ class Autopilot extends RefCounted:
 		# terminal phase
 		var a_max := full_thrust(pa) / v.mass
 		var sk: Dictionary = plan_edl.skycrane if (plan_edl != null and plan_edl.get("skycrane") != null) else { "alt": 20.0, "vTouch": -0.75 }
-		if site == null: site = Guidance._up.clone().scale_in(env.radius)
+		if site == null: site = Guidance._up.clone().scale_in(v.surface_r(v.r))
 		DQuat.nrm(Guidance._a.copy_from(site))
-		var _rT := Guidance._a.clone().scale_in(env.radius + 0.5)
+		var _rT := Guidance._a.clone().scale_in(v.surface_r(site) + 0.5)
 		var cmd := descent_law(a_max, absf(sk.vTouch), 0.35, 1.8, 0.55, 120.0, sk.alt * 1.5)
 		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
 		if alt < sk.alt and not crane_out:

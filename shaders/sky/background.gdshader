@@ -15,6 +15,9 @@ uniform bool u_lens = false;
 //             log of the disc's luminance-weighted mean temperature (a)
 uniform sampler2D t_march0 : filter_linear, repeat_disable;
 uniform sampler2D t_march1 : filter_linear, repeat_disable;
+// The camera's own blueshift of light from infinity, hovering in the holes' field
+// (LensPass.grav_shift): the same D as a boost's Doppler factor, direction-free.
+uniform float u_grav = 1.0;
 
 void sky() {
 	if (AT_CUBEMAP_PASS) {
@@ -41,7 +44,7 @@ void sky() {
 		// pixel along the whole edge of the shadow — precisely where the ring is.
 		vec3 ddx = dFdx(d), ddy = dFdy(d);
 		vec3 skyCol = vec3(0.0);
-		if (tr > 0.001) skyCol = tr * skyRadiance(d, ddx, ddy);
+		if (tr > 0.001) skyCol = tr * skyRadianceD(d, ddx, ddy, u_grav) * sky_beaming(u_grav);
 		COLOR = color + skyCol;
 	}
 }

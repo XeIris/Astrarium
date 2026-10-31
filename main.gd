@@ -107,6 +107,7 @@ func _ready() -> void:
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
 	if _cmd.has("winds"): Rocketry.winds_enabled = String(_cmd.winds) != "0"
 	if _cmd.has("secular"): Physics.secular = String(_cmd.secular) != "0"
+	if _cmd.has("pn"): Physics.post_newtonian = String(_cmd.pn) != "0"
 	if _cmd.has("f107"): Rocketry.f107 = float(_cmd.f107)
 	# Logical px, with the display scale as content scale. Screenshot mode takes
 	# window pixels 1:1.
@@ -1301,6 +1302,7 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 	state.consumed = 0
 	state.focus_id = null; state.follow_id = null
 	state.sim_years = 0.0
+	state.epoch_jd = float(p.get("epochJD", NAN))
 	state.home_id = null
 	state.suns.clear()
 
@@ -1474,7 +1476,8 @@ func update_hud(dt: float) -> void:
 	hud_acc += dt
 	if hud_acc < 0.1: return
 	hud_acc = 0.0
-	hud.set_text("simClock", fmt_years(state.sim_years))
+	hud.set_text("simClock", fmt_years(state.sim_years) if is_nan(state.epoch_jd) \
+		else TimeScales.readout(state.epoch_jd, state.sim_years))
 
 	# Keep the open editor and diagram synchronized after physical events and edits.
 	if xsec_open and not state.hud_hidden and not hud.is_collapsed("xsecPanel"):
@@ -1503,7 +1506,7 @@ func update_hud(dt: float) -> void:
 		"label": cl.era.label, "cls": cl.era.cls, "desc": cl.era.desc,
 		"celsius": cl.celsius, "S": cl.S, "ice": cl.ice, "clouds": cl.clouds,
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
-		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam,
+		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam, "lost": cl.lost, "escape": cl.escape_flux,
 		"iceEdge": cl.ice_edge, "snowball": cl.snowball,
 	})
 
@@ -1631,7 +1634,7 @@ func apply_sky() -> void:
 	elif not catalogue and bright_stars != null:
 		bright_stars.dispose()
 		bright_stars = null
-	SkyModel._set_all(pipe.sky_materials, "uFirstTier", SkyModel.CATALOGUE_TIERS if catalogue else 0)
+	SkyModel._set_all(pipe.sky_materials, "uFirstTier", BrightStars.catalogue_tiers() if catalogue else 0)
 
 ## Replace the live sky wholesale and put the controls where it says.
 func set_sky(spec: Dictionary) -> void:
@@ -1777,9 +1780,12 @@ func update_sim_stats() -> void:
 		hud.set_text("setDrift", "unavailable")
 		hud.set_warn("setDrift", true, "Energy cannot be represented reliably for these body inputs. The drift reference will restart when the diagnostic is available.")
 		return
-	if state.energy0 == null or not is_finite(float(state.energy0)) or state.energy_n != state.bodies.size():
+	# Toggling 1PN changes which energy is conserved.
+	if state.energy0 == null or not is_finite(float(state.energy0)) or state.energy_n != state.bodies.size() \
+			or state.energy_pn != Physics.post_newtonian:
 		state.energy0 = E
 		state.energy_n = state.bodies.size()
+		state.energy_pn = Physics.post_newtonian
 	if float(state.energy0) == 0.0 and E != 0.0:
 		hud.set_text("setDrift", "unavailable")
 		hud.set_warn("setDrift", true, "Relative energy drift is undefined for a zero-energy reference.")
@@ -1801,6 +1807,11 @@ static func time_label(yr_per_sec: float) -> String:
 	if yr_per_sec < 3e-3: return "%s hr/s" % U.fixed(yr_per_sec * 365.25 * 24.0, 2)
 	if yr_per_sec < 1.0: return "%s d/s" % U.fixed(yr_per_sec * 365.25, 2)
 	return "%s yr/s" % U.fixed(yr_per_sec, 1)
+
+## 1PN (EIH) gravity on or off, as Settings › Sim's toggle.
+func set_post_newtonian(on: bool) -> void:
+	Physics.post_newtonian = on
+	hud.sync_post_newtonian()
 
 func set_time_scale(yr_per_sec: float) -> void:
 	state.time_scale = clampf(yr_per_sec, 1e-5, 20.0)
@@ -2498,6 +2509,7 @@ func _build_stage() -> void:
 		"set_cam": _stage_set_cam,
 		"set_band": set_band,
 		"set_time_scale": set_time_scale,
+		"set_post_newtonian": set_post_newtonian,
 		"set_mesh": _stage_set_mesh,
 		"set_true_scale": _stage_set_true_scale,
 		"set_sky": _stage_set_sky,

@@ -1,13 +1,15 @@
 class_name BrightStars
 extends RefCounted
 
-# The naked-eye sky of a Solar System scene from the Yale Bright Star Catalogue
-# (assets/sky/bsc5.bin, built by tools/build_starcat.py): each star at its J2000
-# direction, its V on the sky's flux scale and its colour from B−V. The procedural
-# sky keeps everything fainter (SkyModel.CATALOGUE_TIERS). Absent data, nothing is
-# drawn and the procedural sky stays whole.
+# The real sky of a Solar System scene: the Yale Bright Star Catalogue to V ≈ 6.5
+# (assets/sky/bsc5.bin, tools/build_starcat.py) and Gaia DR3 from G = 6.5 to 8
+# (assets/sky/gaia_g8.bin, tools/build_gaia.py; ESA/Gaia/DPAC, CC BY-SA 3.0 IGO).
+# Each star at its catalogue direction, its V on the sky's flux scale and its colour
+# from B−V. The procedural sky keeps everything fainter (catalogue_tiers). Absent
+# BSC5, nothing is drawn and the procedural sky stays whole.
 
 const DATA := "res://assets/sky/bsc5.bin"
+const DATA_FAINT := "res://assets/sky/gaia_g8.bin"
 const SHADER := preload("res://shaders/sky/catalogue_stars.gdshader")
 # The quad's Gaussian core and halo integrate to this many pixels² at unit gain.
 const PROFILE_PX2 := 3.27
@@ -19,13 +21,17 @@ var count := 0
 static func available() -> bool:
 	return FileAccess.file_exists(DATA)
 
+## The procedural sky's one-magnitude tiers the catalogues replace: through V ≈ 6
+## with BSC5, all six (to the V ≈ 8 floor) with Gaia as well.
+static func catalogue_tiers() -> int:
+	return SkyModel.CATALOGUE_TIERS + (2 if FileAccess.file_exists(DATA_FAINT) else 0)
+
 ## B−V to Teff (Ballesteros 2012, EPL 97, 34008), for a blackbody colour.
 static func bv_teff(bv: float) -> float:
 	var b := clampf(bv, -0.4, 2.0)
 	return 4600.0 * (1.0 / (0.92 * b + 1.7) + 1.0 / (0.92 * b + 0.62))
 
 func _init() -> void:
-	var f := FileAccess.open(DATA, FileAccess.READ)
 	material = ShaderMaterial.new()
 	material.shader = SHADER
 	material.render_priority = 2
@@ -37,7 +43,9 @@ func _init() -> void:
 	q.size = Vector2(1, 1)
 	mm.mesh = q
 	var stars: Array = []
-	if f != null:
+	for path in [DATA, DATA_FAINT]:
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f == null: continue
 		while f.get_position() + 16 <= f.get_length():
 			stars.append([f.get_float(), f.get_float(), f.get_float(), f.get_float()])
 	count = stars.size()

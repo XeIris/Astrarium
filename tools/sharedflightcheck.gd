@@ -76,15 +76,17 @@ func _init() -> void:
 		valid = valid and is_finite(ship.telemetry.apo) and is_finite(ship.telemetry.peri)
 		var target: float = flight.autopilot.ascent.targetApo
 		# J2's short-period terms swing a near-circular orbit's osculating apsides by
-		# ±6 km, so the gates read the highest and lowest altitudes flown over the next
+		# ±6 km, so the gates read the highest and lowest heights flown over the next
 		# revolution (a coast with the world held, which an hour and a half allows).
+		# Targets are radii over the mean sphere; the WGS-84 figure would add ±7 km.
 		var hi := -INF
 		var lo := INF
 		var period: float = ship.telemetry.el.period if is_finite(float(ship.telemetry.el.period)) else 5400.0
 		var coasted := 0.0
 		while valid and coasted < period:
 			coasted += ship.step(10.0)
-			hi = maxf(hi, ship.altitude()); lo = minf(lo, ship.altitude())
+			var hr := ship.r.length() - float(ship.env.radius)
+			hi = maxf(hi, hr); lo = minf(lo, hr)
 		# J2's short-period radial terms, up to ~(3/2)·J2·R²/a·sin²i: 2.3 km at 28.5°,
 		# 6 km at 51.6°, where the lowest flown point sits 9 km under the cutoff periapsis.
 		var a_m := float(ship.env.radius) + target

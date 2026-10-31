@@ -13,7 +13,7 @@ const EM_COL := "e6ecf6"
 const PROSE := {"ff": "disp", "fs": 13.5, "lh": 1.62}
 # Authored requests are checked separately from optional runtime stage support.
 const DO_KEYS := ["preset", "mesh", "sky", "trueScale", "paused", "focus", "cam",
-	"timeScale", "band", "control", "localTime", "panel", "flare", "collapse"]
+	"timeScale", "band", "control", "localTime", "panel", "flare", "collapse", "postNewtonian"]
 
 static func create_lessons(opts: Dictionary) -> Course:
 	return Course.new(opts)
@@ -530,7 +530,9 @@ class Course extends RefCounted:
 			built.photometer = LightCurve.create_photometer({"canvas": cv.plot, "width": W, "height": H})
 		elif instrument == "gw":
 			built.gw = GWDetector.create_gw_detector({"canvas": cv.plot, "width": W, "height": H, "distMpc": 410.0})
-			note.say("circular strain estimate · ideal orientation at 410 Mpc · arm motion exaggerated")
+			note.say("circular strain estimate · ideal orientation at 410 Mpc · arm motion exaggerated · gold: the chirp and ringdown these masses end in")
+		elif instrument == "perihelion":
+			built.perihelion = Perihelion.create({"canvas": cv.plot, "width": W, "height": H, "target": "Mercury"})
 		elif instrument == "hr":
 			built.hr = HRDiagram.create_hr_diagram({"canvas": cv.plot, "width": W, "height": H})
 			note.say("the band is sampled from the interior model, not drawn")
@@ -552,6 +554,10 @@ class Course extends RefCounted:
 		if d.get("cam"): _st("set_cam", [d.cam])
 		# Entering surface mode chooses a default pace; the lesson overrides it.
 		if d.has("timeScale"): _st("set_time_scale", [float(d.timeScale)])
+		if d.has("postNewtonian"):
+			# A user setting: the lesson's choice lasts until it is left.
+			if _pn_saved == null: _pn_saved = Physics.post_newtonian
+			_st("set_post_newtonian", [bool(d.postNewtonian)])
 		if d.has("band"): _st("set_band", [int(d.band)])
 		if d.get("control"):
 			for id in d.control: _st("set_control", [id, float(d.control[id])])
@@ -566,6 +572,7 @@ class Course extends RefCounted:
 		# A fresh scenario invalidates whatever the instruments had collected.
 		if built.has("photometer"): built.photometer.reset()
 		if built.has("gw"): built.gw.reset()
+		if built.has("perihelion"): built.perihelion.reset()
 
 	# built.cutaway?.dispose(): its SubViewport renders every frame, so a card
 	# that no longer shows it must free it rather than just forget it.
@@ -581,9 +588,15 @@ class Course extends RefCounted:
 		if act.get("preset"): _st("load_preset", [act.preset])
 
 	# NAVIGATION
+	var _pn_saved = null
+	func _restore_settings() -> void:
+		if _pn_saved != null: _st("set_post_newtonian", [bool(_pn_saved)])
+		_pn_saved = null
+
 	func open_lesson(k, step: int = 0) -> void:
 		var found = Lessons.find_lesson(k)
 		if found == null: return
+		if k != key: _restore_settings()
 		key = k; step_ix = -1
 		progress.last = k; _save_progress()
 		go_step(step)
@@ -636,6 +649,7 @@ class Course extends RefCounted:
 			open_lesson(nb.prev, f.lesson.steps.size() - 1)
 
 	func close() -> void:
+		_restore_settings()
 		key = null; instrument = null
 		_set_card_hidden(true)
 		_drop_cutaway()
@@ -686,6 +700,13 @@ class Course extends RefCounted:
 		elif instrument == "gw" and built.has("gw"):
 			built.gw.sample(bodies)
 			built.gw.draw()
+		elif instrument == "perihelion" and built.has("perihelion"):
+			var pm = built.perihelion
+			pm.sample(bodies, float(_st("sim_years") if _has("sim_years") else 0.0))
+			pm.draw()
+			if media_note is Prose:
+				var r: float = pm.rate()
+				(media_note as Prose).say(("%s″ per century over %s yr" % [U.fixed(r, 1), U.fixed(pm.span_years(), 0)]) if is_finite(r) else "measuring…")
 		elif instrument == "hr" and built.has("hr"):
 			built.hr.draw(bodies)
 		elif instrument == "cutaway" and built.has("cutaway") and is_instance_valid(built.cutaway):

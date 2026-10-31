@@ -274,12 +274,24 @@ func climate() -> void:
 	print("REALISMCHECK CLIMATE hot_T=%s steam=%s expected=%s era=%s" % [hot.T, hot.steam, expect_steam, hot.era.key])
 	check("1.5 S⊕ runs away: the ocean boils at the latent-heat rate", near(hot.steam, expect_steam, 0.03))
 	check("the surface follows the boiling curve", absf(hot.T - Climate.boiling_point(hot.steam)) < 1e-6 and hot.T > 373.0)
-	check("water is conserved between ocean and steam", absf(hot.ocean + hot.steam - 1.0) < 1e-12)
+	check("water is conserved between ocean, steam and space", absf(hot.ocean + hot.steam + hot.lost - 1.0) < 1e-12 and hot.lost > 0.0)
 	check("the era says runaway greenhouse", hot.era.key == "RUNAWAY")
 	star_hot.luminosity = 0.8
 	for i in 4000: hot.step(0.25, planet, [star_hot])
 	print("REALISMCHECK CLIMATE cooled_T=%s steam=%s" % [hot.T, hot.steam])
-	check("steam rains back out when the star dims", hot.steam == 0.0 and absf(hot.ocean - 1.0) < 1e-12 and hot.T < 300.0)
+	check("steam rains back out when the star dims, less what escaped", hot.steam == 0.0 and absf(hot.ocean + hot.lost - 1.0) < 1e-12 and hot.T < 300.0)
+	# Hydrogen escape: today's Earth loses next to nothing; at the moist-greenhouse limit
+	# an ocean goes in ~4 Gyr (Kasting 1988), and the cap holds a runaway to the energy limit.
+	var t_ocean := func(t: float, s: float) -> float: return Climate.OCEAN_H_PER_M2 / earth.hydrogen_escape(t, s) / Climate.YEAR_S
+	check("Earth today keeps its ocean for > 10¹² yr (%s yr)" % U.expo(t_ocean.call(288.0, 1.0), 1), t_ocean.call(288.0, 1.0) > 1e12)
+	check("at 340 K the ocean escapes in %s Gyr (Kasting: ~4)" % U.fixed(t_ocean.call(340.0, 1.0) / 1e9, 1), t_ocean.call(340.0, 1.0) > 2e9 and t_ocean.call(340.0, 1.0) < 8e9)
+	check("a runaway escapes at the energy limit", absf(hot.hydrogen_escape(400.0, 1.5) - Climate.ESCAPE_ENERGY_CAP * 1.5) < 1.0)
+	var moist := Climate.new({"mixedLayer": 12.0, "T0": 345.0, "albedoBase": 0.306, "albedoIce": 0.45})
+	check("a wet stratosphere at 345 K is a moist greenhouse", moist.classify(345.0).key == "MOIST")
+	# Long enough to dry: 1.5 S⊕ for 10 Gyr in 2 Myr steps leaves no water, and with it no runaway cap.
+	var gone := Climate.new({"mixedLayer": 12.0, "T0": 288.0, "albedoBase": 0.306, "albedoIce": 0.45})
+	for i in 5000: gone.step(2e6, planet, [mk.call(1.0, 1.5)])
+	check("an ocean in a runaway for 10 Gyr escapes entirely, and the cap goes with it", gone.ocean + gone.steam == 0.0 and absf(gone.lost - 1.0) < 1e-9 and gone.olr(400.0) > Climate.OLR_LIMIT)
 	# 270 bar by Clausius–Clapeyron at constant L, near water's 647 K critical point.
 	check("whole ocean as steam boils at ~651 K", absf(Climate.boiling_point(1.0) - 651.3) < 0.5)
 	var dry := Climate.new({"oceans": false})
@@ -305,6 +317,35 @@ func presets_survive_loading() -> void:
 		check("preset %s: no body lost in its first second" % key, stage.state.bodies.size() == n)
 	stage.state.paused = true
 
+# A static observer at r sees light from infinity blueshifted by 1/√(1 − r_s/r): 1.118
+# at 5 r_s; the same on a spinning hole's axis, where f = 2Mr/(r² + a²); 1 far away.
+func hovering_blueshift() -> void:
+	var g := LensPass.grav_shift([{"pos": Vector3(10.0, 0.0, 0.0), "rs": 2.0, "spin": 0.0}])
+	check("hovering at 5 r_s the sky is blueshifted %.4f (1/√0.8 = 1.1180)" % g, absf(g - 1.0 / sqrt(0.8)) < 1e-6)
+	var ga := LensPass.grav_shift([{"pos": Vector3(0.0, 10.0, 0.0), "rs": 2.0, "spin": 0.9}])
+	check("on a Kerr hole's axis f = 2r/(r² + a²)", absf(ga - 1.0 / sqrt(1.0 - 20.0 / (100.0 + 0.81))) < 1e-6)
+	check("far from the hole the shift vanishes", absf(LensPass.grav_shift([{"pos": Vector3(1e6, 0.0, 0.0), "rs": 2.0}]) - 1.0) < 1e-5)
+
+# BSC5 and Gaia DR3 together: about 41 000–45 000 stars brighter than V = 8 over the
+# whole sky (Allen's Astrophysical Quantities), every one with a finite colour, and the
+# procedural sky handing all six of its tiers to them.
+func star_catalogues() -> void:
+	var counts := [0, 0]
+	var colour_ok := true
+	for i in 2:
+		var f := FileAccess.open([BrightStars.DATA, BrightStars.DATA_FAINT][i], FileAccess.READ)
+		if f == null: continue
+		while f.get_position() + 16 <= f.get_length():
+			f.get_float(); f.get_float()
+			var v := f.get_float()
+			var bv := f.get_float()
+			if v < 8.0: counts[i] += 1
+			if i == 1 and not (is_finite(bv) and bv > -0.5 and bv < 2.5): colour_ok = false
+	var total: int = counts[0] + counts[1]
+	check("BSC5 + Gaia DR3: %d stars brighter than V = 8 (%d from Gaia)" % [total, counts[1]], total > 38000 and total < 48000 and counts[1] > 25000)
+	check("every Gaia star has a colour", colour_ok)
+	check("the catalogues replace all six procedural tiers", BrightStars.catalogue_tiers() == 6)
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -320,6 +361,8 @@ func _ready() -> void:
 	secular_events()
 	climate()
 	ice_lines()
+	hovering_blueshift()
+	star_catalogues()
 	presets_survive_loading()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)

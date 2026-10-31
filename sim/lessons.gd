@@ -511,6 +511,48 @@ const MODULES := [
 			},
 		],
 	},
+
+	{
+		"id": "mercury",
+		"title": "Mercury's 43 arcseconds",
+		"mins": 4,
+		"goal": "See the first test general relativity passed: an orbit that does not close.",
+		"steps": [
+			{
+				"title": "Newton's ellipse closes",
+				"do": {"preset": "edu_mercury", "postNewtonian": false, "focus": "Sun", "cam": {"radius": 40}, "timeScale": 5},
+				"instrument": "perihelion",
+				"body": """<p>This is the Sun and Mercury alone, on Mercury's real orbit, with gravity exactly as
+          Newton wrote it. A lone planet round a lone star traces the same ellipse forever: the point of
+          closest approach, the <em>perihelion</em>, stays put.</p>
+          <p>The card measures where the perihelion points, from the planet's position and velocity, every
+          frame. Give it a century or two of simulated time.</p>""",
+				"look": "The rate settles near zero: what is left is the integrator's own error, under a tenth of an arcsecond.",
+			},
+			{
+				"title": "Einstein's does not",
+				"do": {"preset": "edu_mercury", "postNewtonian": true, "focus": "Sun", "cam": {"radius": 40}, "timeScale": 5},
+				"instrument": "perihelion",
+				"body": """<p>Now the same orbit with the first post-Newtonian terms of general relativity switched on.
+          Near the Sun, where Mercury moves fastest and space is most curved, gravity pulls slightly harder
+          than 1/r², and the ellipse turns a little on every pass.</p>
+          <p>The prediction is 6πGM/(c²a(1−e²)) per orbit: 0.1035″, or 43.0″ in a century. Astronomers
+          had measured an unexplained 43″ since Le Verrier in 1859; in 1915 Einstein computed it from his
+          new theory with nothing adjusted.</p>""",
+				"look": "Watch the rate settle near 43″ per century. Settings › Sim › Relativity switches the same terms everywhere.",
+			},
+			{
+				"title": "Most of the turning is the planets",
+				"do": {"preset": "solar", "postNewtonian": true, "focus": "Sun", "cam": {"radius": 90}, "timeScale": 6},
+				"instrument": "perihelion",
+				"body": """<p>In the real Solar System Mercury's perihelion turns about 575″ a century against the stars,
+          and 532″ of that is the other planets' pull, Venus and Jupiter most of all. Newton accounts for
+          every arcsecond of that part. General relativity is the 43″ that was left over.</p>
+          <p>Here the osculating perihelion also wobbles over each orbit as Venus passes, so the rate takes
+          longer to settle than it did alone.</p>""",
+			},
+		],
+	},
 	],
 },
 

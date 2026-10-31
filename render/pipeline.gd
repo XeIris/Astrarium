@@ -267,6 +267,7 @@ func prepare_frame(lens_params, t: float) -> void:
 	sky_mat.set_shader_parameter("u_lens", use_lens)
 	sky_temp_mat.set_shader_parameter("u_lens", use_lens)
 	sky_cache.sync()
+	sky_mat.set_shader_parameter("u_grav", LensPass.grav_shift(lens_params.holes) if use_lens else 1.0)
 	if use_lens:
 		lens.dispatch(lens_params)
 

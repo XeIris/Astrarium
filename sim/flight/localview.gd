@@ -435,7 +435,24 @@ func _night_emission(env: Dictionary, pad, map_site, east: DVec3, up: DVec3, nor
 	var m := Vector3(cos(ml) * cos(mo), sin(ml), cos(ml) * sin(mo))
 	sky_mat.set_shader_parameter("uMagPole", Vector3(m.dot(to_geo.call(east)), m.dot(to_geo.call(up)), m.dot(to_geo.call(north))))
 
-## `o`: {env, altitude, sunDirWorld, upWorld, northWorld (DVec3), starFlux,
+## Zodiacal light round the ecliptic, and noctilucent clouds where and when they form:
+## poleward of ~50° in the two months either side of the summer solstice (sub-solar
+## latitude past ~+15° on the site's side; Gadsden & Schröder 1989).
+func _upper_sky(o: Dictionary, env: Dictionary, up: DVec3, east: DVec3, north: DVec3) -> void:
+	var earth: bool = env.name == "Earth"
+	sky_mat.set_shader_parameter("uZodiac", 1.0 if earth else 0.0)
+	var to_parent: Basis = (o.get("frame", Basis()) as Basis).inverse()
+	var ecl := DVec3.from_v3(to_parent * Vector3.UP)
+	sky_mat.set_shader_parameter("uEclPole", Vector3(ecl.dot(east), ecl.dot(up), ecl.dot(north)))
+	var nlc := 0.0
+	if earth:
+		var lat := asin(clampf(-up.y, -1.0, 1.0))
+		var sw: DVec3 = o.sunDirWorld
+		var dec := asin(clampf(-sw.y / maxf(sw.length(), 1e-12), -1.0, 1.0))
+		nlc = U.smooth(absf(rad_to_deg(lat)), 48.0, 58.0) * U.smooth(rad_to_deg(dec) * signf(lat), 12.0, 18.0)
+	sky_mat.set_shader_parameter("uNLC", nlc)
+
+## `o`: {env, altitude, surfaceR (m, the ground sphere under the eye), sunDirWorld, upWorld, northWorld (DVec3), starFlux,
 ## padWorld: DVec3|null, mapSite: {lat, lon}|null, frame: Basis}. "World" here is
 ## the vessel's parent frame; `frame` turns it into orrery axes. Returns {east, north, up}.
 func update(o: Dictionary) -> Dictionary:
@@ -459,8 +476,9 @@ func update(o: Dictionary) -> Dictionary:
 		reflection_material.rayleigh_color = Color.hex((int(atm.tint) << 8) | 0xff)
 		reflection_material.turbidity = clampf(float(atm.rho0) * 3.0, 1.0, 10.0)
 	var h := maxf(float(o.altitude), 0.0)
+	var R_s := float(U.nz(o.get("surfaceR"), env.radius))
 	# Horizon √(2Rh), floored, and capped where the orrery's planet mesh takes over.
-	var horizon := sqrt(2.0 * float(env.radius) * maxf(h, 3.0)) * 1.35
+	var horizon := sqrt(2.0 * R_s * maxf(h, 3.0)) * 1.35
 	var patch := clampf(horizon, 2.5e4, 1.2e6)
 	var sh := Rocketry.scale_height(atm, h) if atm != null else 1.0
 	if atm != null:
@@ -472,7 +490,7 @@ func update(o: Dictionary) -> Dictionary:
 		if absf(sky_e - reflection_material.energy_multiplier) > 0.02 * SKY_ENERGY:
 			reflection_material.energy_multiplier = sky_e
 	ground_mat.set_shader_parameter("uPatch", patch)
-	ground_mat.set_shader_parameter("uRadius", float(env.radius))
+	ground_mat.set_shader_parameter("uRadius", R_s)
 	ground_mat.set_shader_parameter("uEye", h)
 	ground_mat.set_shader_parameter("uHasAir", has_air)
 	ground_mat.set_shader_parameter("uScaleH", sh)
@@ -491,7 +509,7 @@ func update(o: Dictionary) -> Dictionary:
 		_sky_atmos(str(atm.get("scatter", "")), float(U.nz(o.get("starFlux"), 1.0)))
 		ground_mat.set_shader_parameter("uDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
 	sky_mat.set_shader_parameter("uEye", h)
-	sky_mat.set_shader_parameter("uRadius", float(env.radius))
+	sky_mat.set_shader_parameter("uRadius", R_s)
 	sky_mat.set_shader_parameter("uHasAir", has_air)
 	# The sun light and ground shader share one irradiance (starFlux arrives through
 	# the camera's exposure).
@@ -554,11 +572,12 @@ func update(o: Dictionary) -> Dictionary:
 	var sw: DVec3 = o.sunDirWorld
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
 	_night_emission(env, pad, map_site, east, up, north, sun_l, float(U.nz(o.get("kp"), 2.0)))
+	_upper_sky(o, env, up, east, north)
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
 	var sun_vis := _update_sun(o, env, atm, h, sh, sun_l)
 	# The light takes the star's colour, relative to the Sun's.
 	sun.light_color = _star_tint(float(U.nz(o.get("sunTeff"), 5772.0)))
-	_update_sun2(o, h, float(env.radius), east, up, north)
+	_update_sun2(o, h, R_s, east, up, north)
 	_update_clouds(o, env, atm, h, sh, sun_l, east, up, north)
 	flare.visible = sun_vis > 0.0
 	flare_mat.set_shader_parameter("uSunLocal", sun_l)
@@ -607,7 +626,7 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	# Past a few hundred kilometres the orrery's planet (with its own cloud
 	# deck) is the picture; the local layer only exists over the ground patch.
 	clouds.visible = cover > 0.0 and h < 4.0e5
-	var R := float(env.radius)
+	var R := float(U.nz(o.get("surfaceR"), env.radius))
 	# local → world has columns (east, up, north); world → planet-fixed undoes the spin
 	# about −Y, i.e. a rotation about +Y.
 	var fb := Basis(east.to_v3(), up.to_v3(), north.to_v3())
@@ -707,7 +726,7 @@ func _cloud_lod(h: float) -> void:
 ## default to the Sun from Earth.
 func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l: Vector3) -> float:
 	_sun_l = sun_l
-	var R := float(env.radius)
+	var R := float(U.nz(o.get("surfaceR"), env.radius))
 	var ang_r := float(U.nz(o.get("sunAngR"), 0.00465))
 	# The horizon is depressed by acos(R / (R + h)) (5° at 25 km, 20° at 400 km); the
 	# planet's occlusion has to be done here.

@@ -366,9 +366,10 @@ static func lambert(r1: DVec3, r2: DVec3, dt: float, mu: float, normal: DVec3, v
 ## (kg/m²), flown heat shield first: two-body gravity and drag through air turning at
 ## `rot` rad/s about −Y, the parent's zonal field if given (its J2 moves a periapsis
 ## kilometres over an approach), RK4 at 0.5 s in the air and longer outside it. From (r, v) until
-## it climbs back out above the air (or hits the ground, or `t_max` s). Returns
+## it climbs back out above the air (or hits the ground, or `t_max` s). Heights are over
+## the parent's `fig` (Rocketry.FIGURES), else the sphere R. Returns
 ## {r, v, crashed, peak_heat (W/m², at nose radius `rn`), peak_g}.
-static func aero_pass(r: DVec3, v: DVec3, mu: float, R: float, atm, rot: float, bc: float, rn: float, zonal = null, t_max := 7200.0) -> Dictionary:
+static func aero_pass(r: DVec3, v: DVec3, mu: float, R: float, atm, rot: float, bc: float, rn: float, zonal = null, t_max := 7200.0, fig = null) -> Dictionary:
 	var top: float = float(atm.get("exo", atm.top))
 	var x := r.clone(); var u := v.clone()
 	var t := 0.0
@@ -378,7 +379,7 @@ static func aero_pass(r: DVec3, v: DVec3, mu: float, R: float, atm, rot: float, 
 		var d2 := p.length_sq()
 		var a := p.scaled(-mu / (d2 * sqrt(d2)))
 		Rocketry.zonal_accel(zonal, mu, p, a)
-		var h := sqrt(d2) - R
+		var h := sqrt(d2) - Rocketry.figure_radius(fig, R, p)
 		if h < top:
 			var rho := Rocketry.density(atm, h)
 			if rho > 0.0:
@@ -386,7 +387,7 @@ static func aero_pass(r: DVec3, v: DVec3, mu: float, R: float, atm, rot: float, 
 				a.add_scaled_in(air, -0.5 * rho * air.length() / bc)
 		return a
 	while t < t_max:
-		var h := x.length() - R
+		var h := x.length() - Rocketry.figure_radius(fig, R, x)
 		if h <= 0.0: return {"r": x, "v": u, "crashed": true, "peak_heat": peak_q, "peak_g": peak_g}
 		if h < top: entered = true
 		elif entered and x.dot(u) > 0.0: break
@@ -401,7 +402,7 @@ static func aero_pass(r: DVec3, v: DVec3, mu: float, R: float, atm, rot: float, 
 		x.add_scaled_in(k1x, dt / 6.0).add_scaled_in(k2x, dt / 3.0).add_scaled_in(k3x, dt / 3.0).add_scaled_in(k4x, dt / 6.0)
 		u.add_scaled_in(k1v, dt / 6.0).add_scaled_in(k2v, dt / 3.0).add_scaled_in(k3v, dt / 3.0).add_scaled_in(k4v, dt / 6.0)
 		t += dt
-		var hh := x.length() - R
+		var hh := x.length() - Rocketry.figure_radius(fig, R, x)
 		if hh < top:
 			var rho := Rocketry.density(atm, hh)
 			var air := u.clone().sub_in(DVec3.new(0.0, -rot, 0.0).cross(x))

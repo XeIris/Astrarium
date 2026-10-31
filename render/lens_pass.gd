@@ -73,6 +73,24 @@ static func disc_terms(a: float) -> Dictionary:
 		_pt_cache[key] = Physics.page_thorne_terms(key)
 	return _pt_cache[key]
 
+## ν_observed/ν_∞ for the background at the camera, a static observer: 1/√(1 − f) with
+## Kerr–Schild f = 2Mr³/(r⁴ + a²z²) summed over the holes (weak-field superposition for
+## two). Inside an ergosphere no observer is static; the Kerr–Schild normal observer's
+## √(1 + f) stands in, without its direction dependence.
+static func grav_shift(holes: Array) -> float:
+	var f := 0.0
+	for h in holes:
+		var M := 0.5 * float(h.rs)
+		if not (M > 0.0): continue
+		var x: Vector3 = -(h.pos as Vector3) / M
+		var a := clampf(float(h.get("spin", 0.0)), 0.0, 0.998)
+		var z := -x.y                     # the spin axis is world −Y (toKS)
+		var rho2 := x.length_squared()
+		var r2 := 0.5 * (rho2 - a * a + sqrt(pow(rho2 - a * a, 2.0) + 4.0 * a * a * z * z))
+		var r := sqrt(maxf(r2, 1e-12))
+		f += 2.0 * r * r2 / (r2 * r2 + a * a * z * z)
+	return 1.0 / sqrt(1.0 - f) if f < 0.999 else sqrt(1.0 + f)
+
 ## March this frame. `p`: holes (Array of {pos: camera-relative Vector3, rs: scene
 ## units, spin: a* ≥ 0, prograde with the disc}), basis (camera world Basis), fov (rad), aspect, time, disc_intensity,
 ## disc_temp, disc_tpeak_phys, disc_outer.
