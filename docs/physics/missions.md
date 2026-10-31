@@ -131,11 +131,11 @@ The four shared launches reach 51.61° (Shuttle), 32.50° (Saturn V), 28.61° (F
 and 28.50° (Starship from Starbase at 26.0°). `tools/sharedflightcheck.gd` holds each
 to its target within 0.2°, and `flightphysicscheck` checks the windows.
 
-`missioncheck`'s `orbiter_home` still launches to 28.5°, as every Shuttle flight
-did before this. From the vehicle's 51.6° the first deorbit opportunity is 370 km
-off the pad's track, and entry guidance holds its first bank to Mach 15 (903 km to
-go), then over-brakes past 3 g. Entry from `orbiter_return`'s 51.6° base lands, so
-the fault is in how entry guidance handles that crossrange, not in the orbit.
+`missioncheck`'s `orbiter_home` flies the Shuttle's own 51.6° and lands back at
+Kennedy from an opportunity 370 km off the pad's track. That needs the deorbit
+predictor's J2 arc ([orbiter entry](orbiter-entry.md#landing-at-the-launch-site)):
+on the conic alone, entry interface came 80 s late and 570 km nearer the site, and
+range control could not take out the extra energy inside 3 g.
 
 ## Lagrange points and halo orbits
 

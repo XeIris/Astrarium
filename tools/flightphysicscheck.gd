@@ -128,6 +128,23 @@ func _init() -> void:
 	check("under J2 the coast's peak differs from the averaged conic's apoapsis by km (%.0f m)" % (peak[1] - float(el_j.ra)),
 		absf(peak[1] - float(el_j.ra)) > 500.0 and absf(peak[1] - float(el_j.ra)) < 15000.0)
 
+	# The deorbit predictor's coast: the conic without zonal terms, stopping where the
+	# radius falls through entry interface.
+	var vd := vessel_at(earth, [earth])
+	vd.place_in_orbit(290000.0, 51.6, 0.0)
+	vd.v.scale_in(0.9915)
+	var el_d := Orbit.elements(vd.r, vd.v, mu_e)
+	var r_ei := float(vd.env.radius) + 121920.0
+	var cr := DVec3.new(); var cv := DVec3.new(); var kr := DVec3.new(); var kv := DVec3.new()
+	var t_k := Orbit.time_to_radius_descending(el_d, mu_e, r_ei)
+	Orbit.propagate(vd.r, vd.v, mu_e, t_k, kr, kv)
+	var t_c := Orbit.zonal_coast(vd.r, vd.v, mu_e, null, 6000.0, cr, cv, r_ei)
+	check("the zonal coast without zonal terms reaches entry interface when the conic does (%.3f s, %.2f m off it)" % [t_c - t_k, cr.length() - r_ei],
+		absf(t_c - t_k) < 0.01 and absf(cr.length() - r_ei) < 0.1)
+	Orbit.zonal_coast(vd.r, vd.v, mu_e, null, float(el_d.period) * 0.4, cr, cv)
+	Orbit.propagate(vd.r, vd.v, mu_e, float(el_d.period) * 0.4, kr, kv)
+	check("and carries a state for a span as the conic does (%.2f m)" % cr.distance_to(kr), cr.distance_to(kr) < 5.0)
+
 	# The sky's multiple scattering: positive, bluer than red at the ground by day, and a
 	# gain below single scattering's 15 so the noon zenith keeps its calibration.
 	var psi := func(j: int, i: int, c: int) -> float: return float(SkyMS.PSI[(j * SkyMS.N_MU + i) * 3 + c])

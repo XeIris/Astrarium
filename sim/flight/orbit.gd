@@ -266,24 +266,60 @@ static func zonal_extremes(r: DVec3, v: DVec3, mu: float, zonal, span: float, to
 	var rising := false
 	var n := int(ceil(span / h))
 	for step in n:
-		for stage in 4:
-			var f := 0.0 if stage == 0 else (0.5 if stage < 3 else 1.0)
-			for i in 6: tmp[i] = s[i] + (k[(stage - 1) * 6 + i] * h * f if stage > 0 else 0.0)
-			_zr.set_v(tmp[0], tmp[1], tmp[2])
-			var r2 := _zr.length_sq()
-			var g := -mu / (r2 * sqrt(r2))
-			_za.set_v(tmp[0] * g, tmp[1] * g, tmp[2] * g)
-			Rocketry.zonal_accel(zonal, mu, _zr, _za)
-			var o := stage * 6
-			k[o] = tmp[3]; k[o + 1] = tmp[4]; k[o + 2] = tmp[5]
-			k[o + 3] = _za.x; k[o + 4] = _za.y; k[o + 5] = _za.z
-		for i in 6: s[i] += h / 6.0 * (k[i] + 2.0 * k[6 + i] + 2.0 * k[12 + i] + k[18 + i])
+		_zonal_step(s, k, tmp, mu, zonal, h)
 		var rr := sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2])
 		if to_peak and rising and rr < prev: break
 		rising = rising or rr > prev
 		prev = rr
 		lo = minf(lo, rr); hi = maxf(hi, rr)
 	return PackedFloat64Array([lo, hi])
+
+## One RK4 step of `h` s on the state s = [r, v] under two-body gravity and `zonal`.
+static func _zonal_step(s: PackedFloat64Array, k: PackedFloat64Array, tmp: PackedFloat64Array, mu: float, zonal, h: float) -> void:
+	for stage in 4:
+		var f := 0.0 if stage == 0 else (0.5 if stage < 3 else 1.0)
+		for i in 6: tmp[i] = s[i] + (k[(stage - 1) * 6 + i] * h * f if stage > 0 else 0.0)
+		_zr.set_v(tmp[0], tmp[1], tmp[2])
+		var r2 := _zr.length_sq()
+		var g := -mu / (r2 * sqrt(r2))
+		_za.set_v(tmp[0] * g, tmp[1] * g, tmp[2] * g)
+		Rocketry.zonal_accel(zonal, mu, _zr, _za)
+		var o := stage * 6
+		k[o] = tmp[3]; k[o + 1] = tmp[4]; k[o + 2] = tmp[5]
+		k[o + 3] = _za.x; k[o + 4] = _za.y; k[o + 5] = _za.z
+	for i in 6: s[i] += h / 6.0 * (k[i] + 2.0 * k[6 + i] + 2.0 * k[12 + i] + k[18 + i])
+
+## (r, v) carried `span` s about `mu` with the zonal terms `zonal`, by RK4 at no more
+## than `h` s, into r_out and v_out. With `r_stop` > 0 it stops where the radius falls
+## through r_stop instead. Returns the time flown, s; INF if r_stop isn't reached.
+static func zonal_coast(r: DVec3, v: DVec3, mu: float, zonal, span: float, r_out: DVec3, v_out: DVec3, r_stop := 0.0, h := 10.0) -> float:
+	var s := PackedFloat64Array([r.x, r.y, r.z, v.x, v.y, v.z])
+	var k := PackedFloat64Array(); k.resize(24)
+	var tmp := PackedFloat64Array(); tmp.resize(6)
+	var t := 0.0
+	while t < span:
+		var dt := minf(h, span - t)
+		var prev := s.duplicate()
+		_zonal_step(s, k, tmp, mu, zonal, dt)
+		if r_stop > 0.0:
+			var r1 := sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2])
+			if r1 < r_stop:
+				# Back to the crossing, linear in the radius over the step, then one Newton
+				# step on the radial rate.
+				var r0 := sqrt(prev[0] * prev[0] + prev[1] * prev[1] + prev[2] * prev[2])
+				var t1 := dt * (r0 - r_stop) / maxf(r0 - r1, 1e-9)
+				_zonal_step(prev, k, tmp, mu, zonal, t1)
+				var rr := sqrt(prev[0] * prev[0] + prev[1] * prev[1] + prev[2] * prev[2])
+				var rdot := (prev[0] * prev[3] + prev[1] * prev[4] + prev[2] * prev[5]) / rr
+				if rdot < 0.0:
+					var t2 := (rr - r_stop) / -rdot
+					_zonal_step(prev, k, tmp, mu, zonal, t2)
+					t1 += t2
+				r_out.set_v(prev[0], prev[1], prev[2]); v_out.set_v(prev[3], prev[4], prev[5])
+				return t + t1
+		t += dt
+	r_out.set_v(s[0], s[1], s[2]); v_out.set_v(s[3], s[4], s[5])
+	return t if r_stop <= 0.0 else INF
 
 static var _l1 := DVec3.new()
 

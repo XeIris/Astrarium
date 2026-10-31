@@ -97,10 +97,22 @@ the site at the planet's. The downrange miss therefore falls through zero once a
 revolution. The program scans a day ahead in 2-minute steps and bisects each zero.
 It takes the first one whose crossrange is within 1100 km. Crossrange is measured
 from the orbit's plane to the site at touchdown, entry interface plus 1850 s. The
-closed loop made good 1130 km, but not 1210 km. Ten minutes before the burn, the
-program re-solves it from the current state and fixes its Δv vector. From a 28.5°
-orbit over Kennedy, the wait is up to most of a day: the plane passes near the pad
-only for part of each day.
+closed loop made good 1130 km, but not 1210 km. From a 28.5° orbit over Kennedy,
+the wait is up to most of a day: the plane passes near the pad only for part of
+each day.
+
+Ten minutes before the burn, the program re-solves it from the current state
+(within ±300 s of the plan) and fixes its Δv vector. This solve flies both coasts
+under the zonal terms (`Orbit.zonal_coast`, RK4 at 10 s) rather than as conics. The
+entry is only about −0.8° steep, so J2's few kilometres of radial perturbation move
+entry interface along the track. Over five 51.6° geometries the conic put it
+80–100 s early or late and 570–720 km off the planned range. Arriving late and
+long, the orbiter could not shed the extra energy inside 3 g. The burn's Δv is also
+trimmed (secant, 1–2 m/s) until the flown flight-path angle at entry interface
+equals the conic design's, since `R_thin` was measured at that angle: entering at
+−0.77° rather than −0.90° flew about 400 km more of it. Entry interface then comes
+within 2 s and 20 km of the prediction. The day-long scan stays on conics, which
+is cheap enough to run there; the re-solve takes about 70 ms, once.
 
 **Range control** (the Shuttle's): the nominal drag profile is scaled so that what
 it flies to TAEM is the ground range left,
@@ -245,7 +257,7 @@ Known residuals:
 | Touchdown | 1.1 m/s sink; 202–206 kt (107 t), 194 kt (99 t) | ~3 ft/s; 205 KEAS heavy, 195 light [3] |
 | Touchdown pitch | 9.4° | about 8°; < 14.6° (tail scrape) [3] |
 | Deorbit burn to touchdown | ~61 min | ~1 h |
-| Miss at the launch site | 0.6–2.7 km | (runway) |
+| Miss at the launch site | 0.6–3.4 km | (runway) |
 
 The miss is from 250–400 km circular and eccentric orbits, 28.5–51.6°, with up to
 1130 km of crossrange.
