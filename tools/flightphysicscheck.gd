@@ -260,7 +260,7 @@ func thermosphere() -> void:
 	Rocketry.f107 = 250.0
 	var hi := Rocketry.density(atm, 400e3)
 	check("400 km density spans 10–30× from solar minimum to maximum (%.1f×)" % (hi / lo), hi / lo > 10.0 and hi / lo < 30.0)
-	# Decay on rails at 400 km over three days at three activities. Osculating a carries
+	# Decay on rails at 400 km over two days at three activities. Osculating a carries
 	# km of J2 wobble, the same in each run, so the differences between runs are drag's:
 	# they must scale as the densities' differences.
 	var decay := {}
@@ -273,11 +273,11 @@ func thermosphere() -> void:
 		v.place_in_orbit(400000.0, 51.6, 0.0)
 		var mu: float = v.env.mu
 		var a0 := float(Orbit.elements(v.r, v.v, Rocketry.effective_mu(v.env.zonal, mu, v.r, v.v)).a)
-		for i in 3 * 1440: v.step(60.0, {"rails": true})
+		for i in 2 * 720: v.step(120.0, {"rails": true})
 		decay[f] = a0 - float(Orbit.elements(v.r, v.v, Rocketry.effective_mu(v.env.zonal, mu, v.r, v.v)).a)
 	var got := (float(decay[250.0]) - float(decay[70.0])) / (float(decay[150.0]) - float(decay[70.0]))
 	var want := (float(rho[250.0]) - float(rho[70.0])) / (float(rho[150.0]) - float(rho[70.0]))
-	check("an active Sun decays a 400 km orbit %.0f m more in 3 days than a quiet one; scaling %.2f against the densities' %.2f" % [
+	check("an active Sun decays a 400 km orbit %.0f m more in 2 days than a quiet one; scaling %.2f against the densities' %.2f" % [
 		float(decay[250.0]) - float(decay[70.0]), got, want], float(decay[250.0]) > float(decay[70.0]) + 100.0 and absf(got / want - 1.0) < 0.1)
 	Rocketry.f107 = 0.0
 

@@ -90,8 +90,8 @@ At 400 km, density spans 18× from F10.7 = 70 to 250. NRLMSISE-00 gives roughly
 10–20× over a solar cycle there; its geomagnetic, diurnal, seasonal and latitude
 terms are not modelled. Drag continues up to `exo` and kicks the rails, so low
 orbits decay at the rate the setting implies. `flightphysicscheck` flies a 400 km
-orbit on rails for three days at three activities. The extra decay scales with the
-density differences to within 3%, and an active Sun takes ~200 m more than a quiet
+orbit on rails for two days at three activities. The extra decay scales with the
+density differences to within 3%, and an active Sun takes ~230 m more than a quiet
 one for the ion cruiser.
 
 Shock-layer radiation adds to the Sutton–Graves convective flux

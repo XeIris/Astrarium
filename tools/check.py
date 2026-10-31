@@ -191,7 +191,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
         yield script("secularcheck", r"^SECULARCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
-        yield script("flightphysicscheck", r"^flightphysicscheck: PASS$")
+        # ~100 s on an M5; CI's runners take about twice that.
+        yield script("flightphysicscheck", r"^flightphysicscheck: PASS$", timeout=420)
         yield script("spinframecheck", r"^SPINFRAMECHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cloudcheck", r"^CLOUDCHECK DONE checks=[1-9]\d* failures=0$")
     elif suite == "native":
