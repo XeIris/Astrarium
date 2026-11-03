@@ -1102,6 +1102,7 @@ func _unhandled_input(e: InputEvent) -> void:
 			# scale the look speed with the zoom, so a narrow FOV pans slowly
 			var k: float = observer.fov / 62.0 * 0.0032
 			observer.look(-dx * k, -dy * k)
+			observatory.tracking = ""
 		else:
 			cam.drag_free(dx, dy)
 	elif e is InputEventKey:
@@ -2000,6 +2001,8 @@ func _on_obs_action(action: String, arg) -> void:
 			observatory.sync_hud()
 		"face": observatory.look(float(arg), rad_to_deg(observer.elevation))
 		"picker": observatory.open_picker()
+		"point": observatory.point_at(String(arg))
+		"wide": observatory.wide()
 
 func _on_obs_slider(id: String, v: float) -> void:
 	match id:
@@ -2020,6 +2023,7 @@ func _observatory_cli() -> Dictionary:
 	if _cmd.has("date"): o.date = String(_cmd.date)
 	if _cmd.has("view"): o.view = String(_cmd.view).split(",", false)
 	if _cmd.has("orbit"): o.orbit = float(_cmd.orbit)
+	if _cmd.has("point"): o.point = String(_cmd.point)
 	if _cmd.has("look"):
 		var p := String(_cmd.look).split(",")
 		o.az = float(p[0])

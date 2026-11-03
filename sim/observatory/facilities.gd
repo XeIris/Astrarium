@@ -44,7 +44,7 @@ const DATA := {
 			{"stage": "irtf", "e": 262.0, "n": -31.0},
 		],
 		"orbit": {"e": 0.0, "n": -15.0, "radius": 150.0, "height": 22.0, "look": 18.0, "secs": 40.0},
-		"view": {"e": 18.0, "n": -72.0, "eye": 1.7, "az": 330.0, "alt": 18.0},
+		"view": {"e": 70.0, "n": -105.0, "eye": 1.7, "az": 325.0, "alt": 22.0},
 	},
 	"paranal": {
 		"telescope": "Very Large Telescope", "kind": "four 8.2 m, four 1.8 m optical and infrared",

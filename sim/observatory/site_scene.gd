@@ -201,8 +201,9 @@ func _terrain_mesh(gi: int) -> MeshInstance3D:
 				var de := -half + (i + 0.5) * step
 				var dn := -half + (j + 0.5) * step
 				if absf(de) < near_half - step and absf(dn) < near_half - step: continue
-			idx[w] = a; idx[w + 1] = a + 1; idx[w + 2] = a + n
-			idx[w + 3] = a + 1; idx[w + 4] = a + n + 1; idx[w + 5] = a + n
+			# Clockwise from above, in a frame whose x runs west.
+			idx[w] = a; idx[w + 1] = a + n; idx[w + 2] = a + 1
+			idx[w + 3] = a + 1; idx[w + 4] = a + n; idx[w + 5] = a + n + 1
 			w += 6
 	idx.resize(w)
 	var arrays := []

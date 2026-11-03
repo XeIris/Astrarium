@@ -2,7 +2,7 @@
 // slope and noise, from a palette per site. Its irradiance is the local sun's, as a
 // vehicle's is, and its haze is the flight ground's (ground.gdshader) along the view path.
 shader_type spatial;
-render_mode cull_disabled, diffuse_lambert, specular_disabled;
+render_mode diffuse_lambert, specular_disabled;
 
 uniform vec3 uRockA;
 uniform vec3 uRockB;

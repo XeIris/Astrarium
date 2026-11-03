@@ -11,6 +11,8 @@ extends RefCounted
 ## Clock rates, simulated seconds per real second.
 const RATES := {"pause": 0.0, "1x": 1.0, "60x": 60.0, "3600x": 3600.0}
 const JD_UNIX := 2440587.5
+## The tightest zoom, degrees: Camera3D rejects anything under 1°.
+const MIN_FOV := 1.0
 
 var stage   # main.gd
 var active := false
@@ -46,6 +48,9 @@ var _swap := ""
 var _veil := 0.0
 ## The Sun in the local frame (x west, y up, z north), for the check.
 var sun_local := Vector3.UP
+## The body the view follows as the sky turns, "" for none.
+var tracking := ""
+var _point_next := ""
 
 func _init(main) -> void:
 	stage = main
@@ -74,13 +79,15 @@ func enter(opts: Dictionary = {}) -> void:
 	if opts.has("view"):
 		for k in ["lines", "names", "bounds"]: set("show_" + k, (opts.view as Array).has(k))
 	stage.observer.fov = 70.0
-	stage.observer.min_fov = 1.0
+	stage.observer.min_fov = MIN_FOV
 	look(float(opts.get("az", 180.0 if lat >= 0.0 else 0.0)), float(opts.get("alt", 28.0)))
 	if overlay: overlay.visible = true
 	sync_hud()
 	if opts.get("picker", false):
 		open_picker()
 		_orbit = float(opts.get("orbit", 0.0))
+	elif opts.has("point"):
+		_point_next = String(opts.point)
 
 func leave() -> void:
 	active = false
@@ -103,6 +110,7 @@ func local_pass() -> bool:
 func open_picker() -> void:
 	if site_key == "custom": set_site(ObservatorySites.ORDER[0])
 	picking = true
+	tracking = ""
 	stage.hud.set_panel_open("controlPanel", false)
 	stage.hud.set_obs_picking(true)
 	if overlay: overlay.visible = false
@@ -140,6 +148,7 @@ func picker_step(dir: int) -> void:
 func observe() -> void:
 	if not picking: return
 	_close_picker()
+	tracking = ""
 	stage.hud.set_panel_open("controlPanel", true)
 	stage.hud.set_section_open(stage.hud.section("Observatory"), true)
 	set_civil(now_jd())
@@ -319,6 +328,12 @@ func place(observer: SkyView.SurfaceObserver, earth: Body, camera: Camera3D) -> 
 	var north := EarthFrame.to_scene(frame.north)
 	var k: float = stage.state.scene_scale / Rocketry.AU_M
 	var eye: DVec3 = earth.scene_pos.add(EarthFrame.to_scene(frame.offset).scaled(k))
+	if tracking != "" and not picking:
+		var d := target_azalt(tracking, eye)
+		if d.is_empty(): tracking = ""
+		else:
+			observer.azimuth = -deg_to_rad(d.az)
+			observer.elevation = deg_to_rad(d.alt)
 	observer.update_fixed(up.to_v3(), north.to_v3(), eye, camera)
 	var u := up.to_v3().normalized()
 	var nv := north.to_v3()
@@ -350,7 +365,7 @@ func _drive_local(dt: float) -> void:
 		"upWorld": up, "northWorld": north, "starFlux": 1.0, "padWorld": up.scaled(R), "anchorWorld": up.scaled(R),
 		"mapSite": {"lat": lat, "lon": lon}, "planetSpin": 0.0, "dt": dt, "frame": Basis(), "cloudWind": Vector3.ZERO,
 		"cloudCover": 0.0, "sunAngR": 0.00465, "sunTeff": 5772.0, "kp": 2.0, "sun2World": null, "sun2Flux": 0.0,
-		"sun2Teff": 5772.0, "starlight": 0.05})
+		"sun2Teff": 5772.0, "starlight": 0.0})
 	local.place(local.ground, DVec3.new(0.0, site_scene.patch_y, 0.0))
 	local.cam_pos.set_v(_local_pos.x, _local_pos.y, _local_pos.z)
 	local.camera.fov = stage.cam_fov
@@ -358,12 +373,40 @@ func _drive_local(dt: float) -> void:
 	local.camera.near = local.camera.far * 1.0e-7
 	local.apply_origin(_local_basis)
 	sun_local = fr.sun_local
+	# LocalView's fill stands for a sunlit planet; after dark only the sky is left.
+	local._set_ambient(lerpf(0.012, 0.75, smoothstep(-0.2, 0.1, sun_local.y)))
 	site_scene.light(fr.sun_local, maxf(_local_pos.y - site_scene.patch_y, 1.0))
 	site_scene.animate(dt)
 	# The stars dim against the day as a camera's exposure closes, as in flight.
 	var want := 1.0 / (1.0 + 400.0 * float(fr.get("sun_visible", 0.0)))
 	_sky_gain += (want - _sky_gain) * (1.0 - exp(-maxf(dt, 0.0) / 0.8))
 	SkyModel.apply_day_gain(stage.pipe.sky_materials, _sky_gain)
+
+## Compass azimuth and altitude (degrees) of body `name` from scene position `eye`.
+func target_azalt(name: String, eye: DVec3) -> Dictionary:
+	var b: Body = stage.state.body_named(name)
+	if b == null or frame.is_empty(): return {}
+	var d := EarthFrame.from_scene(b.scene_pos.sub(eye)).normalized()
+	return {"az": rad_to_deg(EarthFrame.azimuth(frame, d)), "alt": rad_to_deg(EarthFrame.altitude(frame, d))}
+
+## Slew to `name` and follow it, its disc a third of the frame's height at most. Refuses
+## a body below the horizon, with the reason as a toast.
+func point_at(name: String) -> void:
+	var d := target_azalt(name, stage.cam_pos)
+	if d.is_empty(): return
+	if float(d.alt) < 0.0:
+		stage.toast("%s is below the horizon (%+.0f°) at this site and time." % [name, d.alt], 3500)
+		return
+	tracking = name
+	var b: Body = stage.state.body_named(name)
+	var dist: float = b.scene_pos.distance_to(stage.cam_pos) / stage.state.scene_scale
+	var ang_deg := rad_to_deg(atan(b.radius / maxf(dist, 1e-9)))
+	stage.observer.fov = clampf(ang_deg * 2.0 * 3.0, MIN_FOV, 70.0)
+
+## Back to the wide view, still facing the same way.
+func wide() -> void:
+	tracking = ""
+	stage.observer.fov = 70.0
 
 ## A scene direction's altitude (rad) at the site.
 func altitude_of(d_scene: DVec3) -> float:
@@ -380,6 +423,9 @@ func _refresh_stars() -> void:
 ## Per frame after the camera is placed.
 func update(dt: float) -> void:
 	if not active: return
+	if _point_next != "" and not frame.is_empty():
+		point_at(_point_next)
+		_point_next = ""
 	_camera_step(dt)
 	if picking: _fade_step(dt)
 	_drive_local(dt)

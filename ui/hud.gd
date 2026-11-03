@@ -1202,8 +1202,15 @@ func _build_observatory(b: Node) -> void:
 	var fg := grid(s, [1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 6.0)
 	for f in [["N", 0.0], ["E", 90.0], ["S", 180.0], ["W", 270.0]]:
 		B(fg, "TimeBtn", "Face " + f[0], "[data-obs-face=%s]" % f[0]).pressed.connect(func(): obs_action.emit("face", f[1]))
+	m(L(s, "Point at", ROW_LABEL), 2.0, 6.0)
+	var pg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	for t in ["Moon", "Venus", "Mars", "Jupiter", "Saturn", "Wide"]:
+		var tip := "Back to the wide view" if t == "Wide" else "Slew to %s, follow it and zoom to its true disc" % t
+		B(pg, "TimeBtn", t, "[data-obs-point=%s]" % t, tip).pressed.connect(func():
+			if t == "Wide": obs_action.emit("wide", null)
+			else: obs_action.emit("point", t))
 	m(B(s, "Ghost", "Choose a facility ▸", "obsPicker", "Back to the film of each site"), 0.0, 8.0).pressed.connect(func(): obs_action.emit("picker", null))
-	_note(s, "Drag to look around, scroll to zoom. Weather comes in a later phase; the sky here is cloudless.")
+	_note(s, "Drag to look around, scroll to zoom to 1°. Weather comes in a later phase; the sky here is cloudless.")
 
 ## The accuracy badge: era is "measured", "extrapolated" or "outside".
 func set_obs_badge(era: String, text: String, note: String) -> void:

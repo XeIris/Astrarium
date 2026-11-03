@@ -681,6 +681,22 @@ func _observatory_walk() -> void:
 	await _click(_find("[data-obs-view=lines]"))
 	await _click(_find("[data-obs-face=E]"))
 	check("Face E turns the observer east", absf(angle_difference(main.observer.azimuth, -PI / 2.0)) < 1e-6)
+	# Point at the highest of the planets right now, then back to the wide view.
+	var best := ""
+	var best_alt := 0.0
+	for pn in ["Moon", "Venus", "Mars", "Jupiter", "Saturn"]:
+		var azalt: Dictionary = o.target_azalt(pn, main.cam_pos)
+		if float(azalt.alt) > best_alt:
+			best_alt = azalt.alt
+			best = pn
+	if best != "":
+		await _click(_find("[data-obs-point=%s]" % best))
+		await _steps(3)
+		var on: Dictionary = o.target_azalt(best, main.cam_pos)
+		check("Point at centres %s" % best, o.tracking == best and main.observer.fov < 20.0
+			and absf(angle_difference(deg_to_rad(on.az), -main.observer.azimuth)) < 0.01 and absf(deg_to_rad(on.alt) - main.observer.elevation) < 0.01)
+	await _click(_find("[data-obs-point=Wide]"))
+	check("Wide returns to the wide view", o.tracking == "" and main.observer.fov == 70.0)
 	await _click(_find("[data-obs-rate=3600x]"))
 	var t0 := o.tdb()
 	await _steps(30)
