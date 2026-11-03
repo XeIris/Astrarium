@@ -13,6 +13,9 @@ func check(name: String, ok: bool, value = null) -> void:
 	if not ok: fails += 1
 	print("%s %s%s" % ["ok  " if ok else "FAIL", name, "" if value == null else "  (%s)" % str(value)])
 
+const JULIAN_YR_S := 31557600.0
+const ORRERY_YR_S := TAU * sqrt(pow(149597870700.0, 3.0) / 1.32712440018e20)
+
 static func rel_err(a: float, b: float) -> float:
 	if a == b: return 0.0
 	return absf(a - b) / maxf(maxf(absf(a), absf(b)), 1e-300)
@@ -68,8 +71,9 @@ func sample_live(substeps: int) -> Dictionary:
 				peak.append(body(b.name, b.radius, b.pos.to_array(), b.luminosity))
 		lo = minf(lo, m.rv)
 		hi = maxf(hi, m.rv)
-		# Independent SI projection along +z, positive for recession.
-		var expected: float = -bodies[0].vel.z * 149597870700.0 / 31557600.0
+		# Independent SI projection along +z, positive for recession, in the orrery's
+		# year 2π√(AU³/GM☉) (IAU AU and GM☉).
+		var expected: float = -bodies[0].vel.z * 149597870700.0 / ORRERY_YR_S
 		worst_rv = maxf(worst_rv, absf(m.rv - expected))
 	return {"depth": deepest, "K": (hi - lo) / 2.0, "rv_error": worst_rv, "peak": peak}
 
@@ -146,7 +150,9 @@ func _init() -> void:
 				var g := LightCurve.measure(bodies, uu)
 				worst = maxf(worst, rel_err(g.rel, r.rel))
 				worst = maxf(worst, rel_err(g.flux, r.flux))
-				worst = maxf(worst, absf(g.rv - r.rv) / maxf(absf(r.rv), 1.0))
+				# The web build converted AU/yr with the Julian year; the orrery's year is 1.9e-5 longer.
+				var rv_ref: float = float(r.rv) * JULIAN_YR_S / ORRERY_YR_S
+				worst = maxf(worst, absf(g.rv - rv_ref) / maxf(absf(rv_ref), 1.0))
 				if g.events.size() != int(r.events): ev_ok = false
 			check("photometer replay %s (%d sight lines): worst rel err" % [key, fx[key].rows.size()], worst < 1e-9 and ev_ok, worst)
 		for key in ["bhmerger", "nsmerger"]:
