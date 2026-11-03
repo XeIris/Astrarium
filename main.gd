@@ -29,6 +29,7 @@ var spacetime_mesh = null         # SpacetimeMesh
 var bright_stars: BrightStars = null
 var painter = null                # Painter
 var observer = null               # SurfaceObserver
+var observatory: Observatory = null
 var sky_pass = null               # SkyPass
 var flight = null                 # Spaceflight
 var model_view = null             # ModelViewer
@@ -162,6 +163,13 @@ func _ready() -> void:
 
 	observer = SkyView.SurfaceObserver.new()
 	sky_pass = SkyView.create_sky_pass()
+	observatory = Observatory.new(self)
+	# Under the HUD, over the frame: the overlay is drawn in screen space.
+	var sky_ui := CanvasLayer.new()
+	sky_ui.layer = 0
+	add_child(sky_ui)
+	observatory.overlay = ConstellationOverlay.new()
+	sky_ui.add_child(observatory.overlay)
 
 	var ui_layer := CanvasLayer.new()
 	ui_layer.layer = 1
@@ -245,7 +253,7 @@ func _ready() -> void:
 		if _cmd.title != "0": title_reel.begin(String(_cmd.title))
 		else: hud.set_title_veil(0.0)
 	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
-		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") == "flight" else "sandbox")
+		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory"] else "sandbox")
 		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")), true)
@@ -1207,7 +1215,7 @@ func set_cam_mode(mode: String) -> void:
 		cam_near = 0.002
 		# At system speeds the planet spins tens of times a second and the sky is a
 		# blur, so entering the surface view drops to a pace where a day is watchable.
-		if not was_surface: apply_regime("day")
+		if not was_surface and not observatory.active: apply_regime("day")
 		aim_at_brightest_sun()
 	elif was_surface:
 		cam_near = 0.01
@@ -1527,7 +1535,15 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 	state.app_mode = mode
 	hud.set_app_mode(mode)
 	if mode != "learn" and lessons: lessons.close()
-	if mode == "sandbox":
+	if mode != "observatory" and observatory.active:
+		observatory.leave()
+		if state.cam_mode == "surface": set_cam_mode("orbit")
+	if mode == "observatory":
+		close_model_viewer()
+		if flight.active: end_flight()
+		set_panel_open("scenarioPanel", false)
+		observatory.enter(_observatory_cli())
+	elif mode == "sandbox":
 		close_model_viewer()
 		if flight.active: end_flight()
 		set_panel_open("scenarioPanel", true)
@@ -1559,7 +1575,7 @@ func _start(m: String, direct := false) -> void:
 		title_reel.stop()
 		reset_stage()
 	if at_start and state.preset == null:
-		load_preset("solar" if m == "flight" else "sandbox")
+		load_preset("solar" if m in ["flight", "observatory"] else "sandbox")
 	at_start = false
 	hud.dismiss_start()
 	hud.set_hud_hidden(false)
@@ -1568,6 +1584,7 @@ func _start(m: String, direct := false) -> void:
 	if m == "flight": set_panel_open("controlPanel", false)
 
 func quit_to_start() -> void:
+	if observatory.active: observatory.leave()
 	close_map()
 	close_hangar()
 	hud.set_settings_open(false)
@@ -1893,6 +1910,8 @@ func _bind_hud() -> void:
 	hud.band_chosen.connect(set_band)
 	hud.time_regime.connect(apply_regime)
 	hud.slider.connect(_on_slider)
+	hud.obs_site.connect(_on_obs_site)
+	hud.obs_action.connect(_on_obs_action)
 	hud.render_quality_chosen.connect(set_render_quality)
 	hud.lighting_quality_chosen.connect(set_lighting_quality)
 	hud.lighting_effect_chosen.connect(_toggle_lighting_effect)
@@ -1946,6 +1965,64 @@ func _on_view_toggle(v: String) -> void:
 			state.show_lens = not state.show_lens
 			hud.set_active("[data-view=lens]", state.show_lens)
 			hud.set_button_text("[data-view=lens]", "Lens ON" if state.show_lens else "Lens OFF")
+
+func _on_obs_site(key: String) -> void:
+	if key == "custom": observatory.set_custom(NAN, NAN, NAN)
+	else: observatory.set_site(key)
+
+func _on_obs_action(action: String, arg) -> void:
+	match action:
+		"now": observatory.set_civil(Observatory.now_jd())
+		"date":
+			if not observatory.set_date_text(String(arg)): toast("Not a date: write YYYY-MM-DD, optionally with HH:MM.", 3500)
+		"rate": observatory.set_rate(String(arg))
+		"view":
+			observatory.set("show_" + String(arg), not bool(observatory.get("show_" + String(arg))))
+			observatory.sync_hud()
+		"face": observatory.look(float(arg), rad_to_deg(observer.elevation))
+
+func _on_obs_slider(id: String, v: float) -> void:
+	match id:
+		"obsLat": observatory.set_custom(v, NAN, NAN)
+		"obsLon": observatory.set_custom(NAN, v, NAN)
+		"obsElev": observatory.set_custom(NAN, NAN, v)
+		"obsYear": observatory.set_year(int(v))
+		"obsDay": observatory.set_day_of_year(v)
+		"obsTime": observatory.set_time_of_day(v)
+
+## The Observatory's command-line options: site=<key>, date=<YYYY-MM-DD[THH:MM]>
+## (UTC), look=<az>,<alt> (degrees), rate=pause|1x|60x|3600x, view=<the overlays
+## shown: lines,names,bounds or none>.
+func _observatory_cli() -> Dictionary:
+	var o := {}
+	if _cmd.has("site"): o.site = String(_cmd.site)
+	if _cmd.has("rate"): o.rate = String(_cmd.rate)
+	if _cmd.has("date"): o.date = String(_cmd.date)
+	if _cmd.has("view"): o.view = String(_cmd.view).split(",", false)
+	if _cmd.has("look"):
+		var p := String(_cmd.look).split(",")
+		o.az = float(p[0])
+		if p.size() > 1: o.alt = float(p[1])
+	return o
+
+## Put the Solar System where it is at TDB `tdb_jd` (Observatory.solar_state) and
+## start the clock there. A new epoch, so the clock's compensated remainder starts
+## again (AGENTS.md).
+func restate_solar(tdb_jd: float) -> void:
+	var at := Observatory.solar_state(EarthFrame.tt_of_tdb(tdb_jd))
+	for n in at:
+		var b := state.body_named(String(n))
+		if b == null: continue
+		b.pos.copy_from(at[n][0])
+		b.vel.copy_from(at[n][1])
+		if b.trail != null:
+			b.trail_head = 0
+			b.trail_count = 0
+			b.trail.pending = b.trail_max
+	state.sim_years = (tdb_jd - state.epoch_jd) * TimeScales.DAY_S / Rocketry.YR_S
+	state.energy0 = null
+	_commit_positions(true)
+	update_suns()
 
 func _on_reset_view() -> void:
 	set_follow(null)
@@ -2119,6 +2196,9 @@ func _on_model_fly() -> void:
 	if k: launch_craft(k)
 
 func _on_slider(id: String, v: float) -> void:
+	if id.begins_with("obs"):
+		_on_obs_slider(id, v)
+		return
 	if id.begins_with("env:"):
 		set_env_weight(id.substr(4), v)
 		return
@@ -2671,6 +2751,8 @@ func update_fps(real_dt: float) -> void:
 #         focus=<body> truescale=1 cammode=surface|free localtime=noon
 #         timescale=<yr/s> paused=1 panel=<id>[,<id>] closed=<id>[,<id>]
 #         mode=flight craft=<key> program=<name> ff=alt:<m>|t:<s>|event:<text>
+#         mode=observatory site=<key> date=YYYY-MM-DDTHH:MM look=<az>,<alt> rate=<key>
+#         view=lines,names,bounds|none
 # Runs `frames` fixed steps, writes the root viewport (`hud=0` hides the HUD,
 # `shot3d=1` writes the 3D frame alone) and quits. `ff=` first steps undrawn to that
 # point (see _fast_forward); `frames` then counts the drawn frames that settle it.
@@ -2904,7 +2986,8 @@ func animate(dt: float) -> void:
 	var lamp: Body = state.suns[0].body if not state.suns.is_empty() else null
 	for b in state.bodies:
 		if b.marker == null or not drawn: continue
-		if state.cam_mode == "surface":
+		# The Observatory keeps the planets' markers: at true scale they are points.
+		if state.cam_mode == "surface" and not (observatory.active and b != home and b.type != "star"):
 			b.marker.mesh.visible = false
 			continue
 		# The observer in AU: the camera's offset from the body, unscaled.
@@ -2980,6 +3063,7 @@ func animate(dt: float) -> void:
 		if home and home.viz: home.viz.group.visible = true
 		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active)
 
+	observatory.update(dt)
 	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay)
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
 	pipe.prepare_frame(lens_params, state.time)
@@ -3009,12 +3093,17 @@ func _apply_camera() -> void:
 func _surface_frame(_home: Body, dt: float) -> void:
 	sky_pass.update_frame(observer, pipe.scene_cam, state.suns, state.climate, dt,
 		float(pipe.render_size.x) / float(pipe.render_size.y))
+	if observatory.active:
+		# Weather is a later phase: the Observatory's sky is clear.
+		sky_pass.u.uClouds = 0.0
+		sky_pass.commit()
 	state.exposure = sky_pass.exposure
 
 ## Stand on the home world: the observer sets the camera's orientation, fov and
 ## near plane, and its eye (a DVec3) becomes the floating origin.
 func _observe(home: Body) -> void:
-	observer.update(home, pipe.scene_cam)
+	if observatory.active: observatory.place(observer, home, pipe.scene_cam)
+	else: observer.update(home, pipe.scene_cam)
 	cam_pos.copy_from(observer.eye)
 	cam_basis = pipe.scene_cam.transform.basis
 	cam_fov = pipe.scene_cam.fov

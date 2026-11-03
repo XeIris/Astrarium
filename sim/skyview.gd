@@ -229,6 +229,20 @@ class SurfaceObserver extends RefCounted:
 		camera.fov = fov
 		RenderPipeline.set_scene_clip(camera, NEAR)
 
+	## Aim `camera` from a frame computed elsewhere (the Observatory's dated Earth):
+	## `up` and `north` are world directions, `eye_abs` the absolute scene position.
+	func update_fixed(up_dir: Vector3, north_dir: Vector3, eye_abs: DVec3, camera: Camera3D) -> void:
+		up = up_dir.normalized()
+		north = (north_dir - up * north_dir.dot(up)).normalized()
+		eye = eye_abs
+		# update()'s convention: azimuth turns from north toward up × north (west).
+		var east := up.cross(north).normalized()
+		var lk := north * cos(azimuth) + east * sin(azimuth)
+		look_dir = (lk * cos(elevation) + up * sin(elevation)).normalized()
+		camera.transform = Transform3D(Basis.looking_at(look_dir, up), Vector3.ZERO)
+		camera.fov = fov
+		RenderPipeline.set_scene_clip(camera, NEAR)
+
 	func look(dx: float, dy: float) -> void:
 		azimuth += dx
 		elevation = clampf(elevation + dy, -1.35, 1.45)
