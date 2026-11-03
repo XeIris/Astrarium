@@ -335,10 +335,11 @@ func star_catalogues() -> void:
 	for i in 2:
 		var f := FileAccess.open([BrightStars.DATA, BrightStars.DATA_FAINT][i], FileAccess.READ)
 		if f == null: continue
-		while f.get_position() + 16 <= f.get_length():
+		while f.get_position() + BrightStars.RECORD <= f.get_length():
 			f.get_float(); f.get_float()
 			var v := f.get_float()
 			var bv := f.get_float()
+			f.get_float(); f.get_float()
 			if v < 8.0: counts[i] += 1
 			if i == 1 and not (is_finite(bv) and bv > -0.5 and bv < 2.5): colour_ok = false
 	var total: int = counts[0] + counts[1]
