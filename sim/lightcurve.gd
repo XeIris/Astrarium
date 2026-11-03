@@ -5,7 +5,7 @@ extends RefCounted
 # Occultation samples the disc with linear limb darkening; viewing direction
 # controls whether transits occur. Physics vectors remain double.
 
-const AU_PER_YR_TO_MS := 1.495978707e11 / 3.15576e7   # 4740.57 m/s
+const AU_PER_YR_TO_MS := Rocketry.AU_M / Rocketry.YR_S   # 4740.38 m/s, in the orrery's year
 
 # Equal-area spiral samples over a unit disc; 96 resolve a 1% transit to 1e-3.
 static var DISC_SAMPLES: Array = _disc_samples()
