@@ -262,6 +262,21 @@ func _soak_check() -> void:
 					printerr("SOAK FAILED: scenario notification did not settle")
 					stage.get_tree().quit(1)
 					return,
+		"observatory": func():
+			# Enter, every site, dates at both ends of the range and past it, the overlays,
+			# a running clock, and back out.
+			stage.set_app_mode("observatory")
+			var o: Observatory = stage.observatory
+			for key in ObservatorySites.ORDER:
+				o.set_site(key)
+				for d in ["1926-01-01 03:00", "2126-12-31 22:00", "2400-06-21 00:00"]:
+					o.set_date_text(d)
+					for i in 3: stage.animate(1.0 / 60.0)
+			for v in ["lines", "names", "bounds"]: stage._on_obs_action("view", v)
+			o.set_rate("3600x")
+			for i in 10: stage.animate(1.0 / 60.0)
+			for v in ["lines", "names", "bounds"]: stage._on_obs_action("view", v)
+			stage.set_app_mode("sandbox"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),
