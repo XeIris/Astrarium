@@ -13,8 +13,6 @@ const PHASE := {
 	"CRUISE": "cruise", "DESTROYED": "destroyed",
 }
 
-# The orrery's year in seconds, for the AU/yr → m/s bridge.
-const _YR := 3.15576e7
 const STEP_GUARD := 400
 
 static var _a := DVec3.new()
@@ -1214,12 +1212,12 @@ static func js_num(x: float) -> String:
 func step_clocks(dt: float) -> void:
 	var c2 := Rocketry.C_MS * Rocketry.C_MS
 	# vessel: speed in the coordinate frame = parent's own speed + local v
-	_a.copy_from(parent.vel).scale_in(Rocketry.AU_M / _YR).add_in(to_world(v, _b))
+	_a.copy_from(parent.vel).scale_in(Rocketry.AU_M / Rocketry.YR_S).add_in(to_world(v, _b))
 	var v_ship2 := _a.length_sq()
 	var phi_ship := potential(r)
 	# ground reference: a clock on the parent's surface at the launch latitude
 	var site: DVec3 = launch_site.r if launch_site != null else DQuat.set_len(_b.copy_from(r), surface_r(r))
-	_c.copy_from(parent.vel).scale_in(Rocketry.AU_M / _YR)
+	_c.copy_from(parent.vel).scale_in(Rocketry.AU_M / Rocketry.YR_S)
 	_d.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_d, site)
 	var v_gnd2 := _c.add_in(to_world(_d, _d)).length_sq()
 	var phi_gnd := potential(site)
@@ -1667,7 +1665,7 @@ func check_soi() -> void:
 func rebase(body: Body) -> void:
 	if body == parent: return
 	_a.sub_vectors(parent.pos, body.pos).scale_in(Rocketry.AU_M)
-	_b.sub_vectors(parent.vel, body.vel).scale_in(Rocketry.AU_M / _YR)
+	_b.sub_vectors(parent.vel, body.vel).scale_in(Rocketry.AU_M / Rocketry.YR_S)
 	to_world(r, r).add_in(_a); to_world(v, v).add_in(_b)
 	var old := parent.name
 	var old_frame := frame.clone()
