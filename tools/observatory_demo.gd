@@ -50,7 +50,7 @@ func _run(what: String) -> void:
 			o.look(150.0, 32.0)
 		"zoom_in":
 			o.look(165.0, 58.0)
-			_zoom = -0.75
+			_zoom = -1.1
 		"zoom_out":
 			_zoom = 0.0
 			main.observer.fov = 70.0
