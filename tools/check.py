@@ -58,8 +58,9 @@ CHANGED_RULES = (
       "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd",
       "sim/perihelion.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
-    # The chirp template, the perihelion meter (with edu_mercury's 1PN rate) and the dates.
-    (("sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "sim/edupresets.gd"), ("sciencecheck",)),
+    # The photometer replay, the chirp template, the perihelion meter (with edu_mercury's 1PN rate) and the dates.
+    (("sim/lightcurve.gd", "sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "sim/edupresets.gd"),
+     ("sciencecheck",)),
     # The shock layer's spectrum and the shader terms it hands the glow.
     (("sim/flight/plasma_spectrum.gd", "sim/flight/ionisation.gd", "shaders/flight/entry_plasma.gdshaderinc"),
      ("plasmacheck",)),
