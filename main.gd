@@ -196,6 +196,12 @@ func _ready() -> void:
 	hangar.stage_moved.connect(_hangar_stage)
 	space_map = SpaceMap.new()
 	space_map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	observatory.picker = SitePicker.new()
+	observatory.picker.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hud.add_child(observatory.picker)
+	observatory.picker.step.connect(observatory.picker_step)
+	observatory.picker.observe.connect(observatory.observe)
+	observatory.picker.back.connect(quit_to_start)
 	hud.add_child(space_map)
 	space_map.fly.connect(func(d: String, g: String):
 		close_map()
@@ -1118,6 +1124,17 @@ func _input(e: InputEvent) -> void:
 		open_map()
 		get_viewport().set_input_as_handled()
 		return
+	if key.pressed and not key.echo and observatory.picking and not hud.settings_open:
+		var handled := true
+		match key.keycode:
+			KEY_LEFT: observatory.picker_step(-1)
+			KEY_RIGHT: observatory.picker_step(1)
+			KEY_ENTER, KEY_KP_ENTER: observatory.observe()
+			KEY_ESCAPE: quit_to_start()
+			_: handled = false
+		if handled:
+			get_viewport().set_input_as_handled()
+			return
 	if key.pressed and not key.echo and (key.keycode == KEY_ESCAPE or controls.matches("settings", key)):
 		# The title opens Settings from its menu; Esc only closes it there.
 		if not at_start or hud.settings_open:
@@ -1542,7 +1559,9 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		close_model_viewer()
 		if flight.active: end_flight()
 		set_panel_open("scenarioPanel", false)
-		observatory.enter(_observatory_cli())
+		var ob := _observatory_cli()
+		ob.picker = not opts.get("direct", false) or _cmd.get("picker", "0") == "1"
+		observatory.enter(ob)
 	elif mode == "sandbox":
 		close_model_viewer()
 		if flight.active: end_flight()
@@ -1980,6 +1999,7 @@ func _on_obs_action(action: String, arg) -> void:
 			observatory.set("show_" + String(arg), not bool(observatory.get("show_" + String(arg))))
 			observatory.sync_hud()
 		"face": observatory.look(float(arg), rad_to_deg(observer.elevation))
+		"picker": observatory.open_picker()
 
 func _on_obs_slider(id: String, v: float) -> void:
 	match id:
@@ -1999,6 +2019,7 @@ func _observatory_cli() -> Dictionary:
 	if _cmd.has("rate"): o.rate = String(_cmd.rate)
 	if _cmd.has("date"): o.date = String(_cmd.date)
 	if _cmd.has("view"): o.view = String(_cmd.view).split(",", false)
+	if _cmd.has("orbit"): o.orbit = float(_cmd.orbit)
 	if _cmd.has("look"):
 		var p := String(_cmd.look).split(",")
 		o.az = float(p[0])
@@ -3054,8 +3075,10 @@ func animate(dt: float) -> void:
 	# ---- surface view: the sky composite runs over the scene, the home world is
 	# hidden (we are standing on it) and so is the spacetime slab
 	if state.cam_mode == "surface" and home:
-		_surface_frame(home, dt)
-		pipe.surface_pass = sky_pass
+		if observatory.local_pass(): pipe.surface_pass = null
+		else:
+			_surface_frame(home, dt)
+			pipe.surface_pass = sky_pass
 		home.viz.group.visible = false
 		spacetime_mesh.node.visible = false
 	else:
@@ -3064,7 +3087,7 @@ func animate(dt: float) -> void:
 		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active)
 
 	observatory.update(dt)
-	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay)
+	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass()
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
 	pipe.prepare_frame(lens_params, state.time)
 	update_hud(dt)
@@ -3093,10 +3116,6 @@ func _apply_camera() -> void:
 func _surface_frame(_home: Body, dt: float) -> void:
 	sky_pass.update_frame(observer, pipe.scene_cam, state.suns, state.climate, dt,
 		float(pipe.render_size.x) / float(pipe.render_size.y))
-	if observatory.active:
-		# Weather is a later phase: the Observatory's sky is clear.
-		sky_pass.u.uClouds = 0.0
-		sky_pass.commit()
 	state.exposure = sky_pass.exposure
 
 ## Stand on the home world: the observer sets the camera's orientation, fov and

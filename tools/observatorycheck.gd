@@ -38,6 +38,8 @@ func _init() -> void:
 	solstices()
 	rise_transit()
 	horizons()
+	terrain()
+	facilities()
 	print("OBSERVATORYCHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(0 if failures == 0 else 1)
 
@@ -235,3 +237,76 @@ func horizons() -> void:
 			check(ang < float(LIMIT_DEG[n]) and absf(dr) < 2e-3, "%s %s: %.4f° and %+.5f in distance from Horizons" % [n, TimeScales.stamp(float(row[0]), false), ang, dr])
 			line += "  %s %.4f° %+.5f" % [TimeScales.stamp(float(row[0]), false).left(4), ang, dr]
 		print(line)
+
+# The packed Copernicus tiles against places a wrong axis or datum would miss: Armazones
+# (3046 m, 24.589° S, 70.192° W) is 21.6 km east and 4.3 km north of Paranal's datum;
+# Mauna Kea's summit (4207 m) 0.6 km south and 0.7 km east of Keck's; Hilo Bay's sea
+# 34 km east and 11 km north of it; the Atacama's Pacific 12 km west of Paranal at most.
+func terrain() -> void:
+	var par := SiteScene.read_grids("paranal")
+	var kea := SiteScene.read_grids("maunakea")
+	var jod := SiteScene.read_grids("jodrell")
+	check(par.size() == 2 and kea.size() == 2 and jod.size() == 2, "each site has two terrain grids")
+	var arm := 0.0
+	for de in range(-1500, 1501, 300):
+		for dn in range(-1500, 1501, 300):
+			arm = maxf(arm, SiteScene.sample(par, 21600.0 + de, 4300.0 + dn))
+	# The far grid's 320 m cells take the top off a peak.
+	check(absf(arm - 3046.0) < 80.0, "Armazones in the Paranal tile: %.0f m" % arm)
+	check(absf(SiteScene.sample(par, 0.0, 0.0) - 2635.43) < 6.0, "Paranal's datum: %.1f m vs ESO's 2635.43 m" % SiteScene.sample(par, 0.0, 0.0))
+	check(absf(SiteScene.sample(kea, 660.0, -630.0) - 4207.0) < 25.0, "Mauna Kea's summit: %.0f m" % SiteScene.sample(kea, 660.0, -630.0))
+	check(SiteScene.sample(kea, 34000.0, 11000.0) < 5.0 and SiteScene.sample(kea, 0.0, 0.0) > 4000.0, "sea off Hilo in the Mauna Kea tile")
+	check(SiteScene.sample(par, -25000.0, 0.0) < 5.0 and SiteScene.sample(par, 25000.0, 0.0) > 1000.0, "the Pacific lies west of Paranal")
+	var j: float = SiteScene.sample(jod, 0.0, 0.0)
+	check(j > 60.0 and j < 110.0, "Jodrell Bank's ground: %.1f m" % j)
+	print("OBSERVATORYCHECK terrain: Armazones %.0f m, Paranal %.1f m, Mauna Kea %.0f m, Jodrell Bank %.1f m" % [arm, SiteScene.sample(par, 0.0, 0.0), SiteScene.sample(kea, 660.0, -630.0), j])
+
+## Top of a structure's meshes above its datum, with any el pivot at the horizon.
+func top_of(n: Node, xf: Transform3D) -> float:
+	var top := -INF
+	var t := xf * ((n as Node3D).transform if n is Node3D else Transform3D.IDENTITY)
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+		var ab: AABB = (n as MeshInstance3D).mesh.get_aabb()
+		for i in 8: top = maxf(top, (t * ab.get_endpoint(i)).y)
+	for c in n.get_children(): top = maxf(top, top_of(c, t))
+	return top
+
+# Published separations from the table, and each structure's height in both builds: the
+# authored library when it has been built, the fallback blocks always.
+func facilities() -> void:
+	var sep := func(site: String, a: int, b: int) -> float:
+		var p: Array = Facilities.DATA[site].parts
+		return Vector2(float(p[a].e) - float(p[b].e), float(p[a].n) - float(p[b].n)).length()
+	check(absf(sep.call("maunakea", 0, 1) - 85.0) < 1.5, "Keck I–II: %.1f m vs the published 85 m" % sep.call("maunakea", 0, 1))
+	check(absf(sep.call("jodrell", 0, 1) - 425.0) < 1.0, "Lovell–Mark II: %.1f m vs the published 425 m" % sep.call("jodrell", 0, 1))
+	check(absf(sep.call("paranal", 1, 4) - 130.0) < 1.0, "UT1–UT4: %.1f m vs the published 130 m" % sep.call("paranal", 1, 4))
+	for site in Facilities.DATA:
+		for p: Dictionary in Facilities.DATA[site].parts:
+			check(SiteFallback.HEIGHTS.has(p.stage), "%s: %s has a height" % [site, p.stage])
+	var lib: Node = null
+	if ResourceLoader.exists(SiteScene.LIBRARY):
+		lib = (load(SiteScene.LIBRARY) as PackedScene).instantiate()
+	for stage: String in SiteFallback.HEIGHTS:
+		var want: float = SiteFallback.HEIGHTS[stage]
+		var builds := [["fallback", SiteFallback.build(stage)]]
+		if lib != null:
+			var src := lib.find_child("stage_" + stage, true, false)
+			check(src != null, "%s is in the authored library" % stage)
+			if src != null: builds.append(["authored", src.duplicate()])
+		for b: Array in builds:
+			var node: Node3D = b[1]
+			node.transform = Transform3D.IDENTITY
+			var el := node.find_child("door_%s_el" % stage, true, false) as Node3D
+			if el != null and stage in ["lovell", "mark2"]: el.rotation.x = PI * 0.5
+			var top := top_of(node, Transform3D.IDENTITY)
+			# The authored build has rails and shutters proud of the nominal shell.
+			check(absf(top - want) < maxf(0.06 * want, 0.8), "%s %s: top %.1f m vs %.1f m" % [b[0], stage, top, want])
+			print("OBSERVATORYCHECK %s %s: top %.1f m (nominal %.1f m)" % [b[0], stage, top, want])
+			node.free()
+	if lib != null:
+		for piv: String in ["door_lovell_az", "door_lovell_el", "door_keck_dome", "door_keck_shutter_l", "door_keck_shutter_r",
+				"door_keck_el", "door_ut_dome", "door_ut_door_l", "door_ut_door_r", "door_ut_az", "door_ut_el", "door_mark2_el"]:
+			check(lib.find_child(piv, true, false) != null, "pivot %s is in the authored library" % piv)
+		lib.free()
+	else:
+		print("OBSERVATORYCHECK authored library not built: fallback only")

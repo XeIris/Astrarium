@@ -3,15 +3,15 @@ extends RefCounted
 
 # Observing sites: geodetic latitude and east longitude (degrees, WGS-84) and height (m).
 # Jodrell Bank: the Lovell Telescope, JBO "Lovell Telescope facts and figures"
-#   (jb.man.ac.uk/aboutus/lovell/facts.html); the page gives no height, so 80 m is the
-#   ground level the issue's table quotes.
+#   (jb.man.ac.uk/aboutus/lovell/facts.html); the page gives no height, so 78 m is the
+#   ground in Copernicus GLO-30 there.
 # Mauna Kea: Keck, Wikidata Q210997 (Keck's own telescope page was unreachable).
 # Paranal: VLT UT1 and the platform's 2635.43 m, ESO Paranal astroclimate site page
 #   (eso.org/sci/facilities/paranal/astroclimate/site.html).
 
 const SITES := {
 	"jodrell": {"name": "Jodrell Bank", "where": "Cheshire, UK", "lat": 53.0 + 14.0 / 60.0 + 10.50 / 3600.0,
-		"lon": -(2.0 + 18.0 / 60.0 + 25.74 / 3600.0), "h": 80.0},
+		"lon": -(2.0 + 18.0 / 60.0 + 25.74 / 3600.0), "h": 78.0},
 	"maunakea": {"name": "Mauna Kea", "where": "Hawaiʻi, USA", "lat": 19.0 + 49.0 / 60.0 + 35.0 / 3600.0,
 		"lon": -(155.0 + 28.0 / 60.0 + 28.0 / 3600.0), "h": 4145.0},
 	"paranal": {"name": "Cerro Paranal", "where": "Atacama, Chile", "lat": -(24.0 + 37.0 / 60.0 + 39.44 / 3600.0),

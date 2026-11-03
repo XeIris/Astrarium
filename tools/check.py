@@ -86,9 +86,10 @@ CHANGED_RULES = (
      ("padcheck", "flight-descent-shcatch*")),
     (("render/lens_pass.gd", "sim/brightstars.gd", "assets/sky/*", "tools/build_gaia.py"), ("realismcheck",)),
     # The Observatory: Earth's orientation, ΔT, sites, the date controls and the overlay.
-    (("sim/observatory/*", "sim/timescales.gd", "sim/brightstars.gd", "assets/sky/*", "sim/presets.gd",
+    (("sim/observatory/*", "sim/timescales.gd", "sim/brightstars.gd", "assets/sky/*", "assets/sites/*", "sim/presets.gd",
+      "shaders/observatory/*", "ui/site_picker.gd", "model_sources/blender/observatories.py",
       "tools/build_starcat.py", "tools/build_gaia.py", "tools/build_constellations.py", "tools/build_deltat.py",
-      "tools/build_nutation.py"),
+      "tools/build_nutation.py", "tools/build_site_terrain.py"),
      ("observatorycheck", "hud*", "_soak_check-observatory")),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",

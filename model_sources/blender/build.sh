@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the authored craft and launchpad models.
 #
-#   model_sources/blender/build.sh                  9 vehicles, 4 pads and the facilities
+#   model_sources/blender/build.sh                  9 vehicles, 4 pads, the facilities, the observatories
 #   model_sources/blender/build.sh shuttle pad_fss  selected models
 #
 # The .py files are the models; the .glb output in assets/craft/ and assets/pads/ is
@@ -46,7 +46,7 @@ fi
 echo "blender: $BLENDER"
 "$BLENDER" --version | head -1
 
-ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle pad_lut pad_fss pad_strongback pad_chopsticks facilities)
+ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle pad_lut pad_fss pad_strongback pad_chopsticks facilities observatories)
 if [ "$#" -gt 0 ]; then MODELS=("$@"); else MODELS=("${ALL[@]}"); fi
 craft_spec="$(mktemp "${TMPDIR:-/tmp}/astrarium-craft-spec.XXXXXX")"
 trap 'rm -f "$craft_spec"' EXIT
@@ -55,7 +55,7 @@ if [ -z "$GODOT" ] && [ -x /Applications/Godot.app/Contents/MacOS/Godot ]; then
   GODOT=/Applications/Godot.app/Contents/MacOS/Godot
 fi
 for m in "${MODELS[@]}"; do
-  if [[ "$m" != pad_* && "$m" != facilities ]]; then
+  if [[ "$m" != pad_* && "$m" != facilities && "$m" != observatories ]]; then
     [ -n "$GODOT" ] || { echo "error: set GODOT to export runtime vehicle dimensions" >&2; exit 1; }
     "$GODOT" --headless --path . --import --quit
     "$GODOT" --headless --path . --script res://tools/craftspec.gd -- "$craft_spec"
@@ -73,6 +73,9 @@ for m in "${MODELS[@]}"; do
   elif [[ "$m" == facilities ]]; then
     script="model_sources/blender/facilities.py"
     dst="assets/pads/facilities.glb"
+  elif [[ "$m" == observatories ]]; then
+    script="model_sources/blender/observatories.py"
+    dst="assets/sites/observatories.glb"
   else
     script="model_sources/blender/${m}.py"
     dst="assets/craft/${m}.glb"

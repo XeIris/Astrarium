@@ -4,7 +4,9 @@ extends RefCounted
 # The Observatory mode: the solar preset seen from a site on Earth on a civil date.
 # The stage keeps the bodies, physics and sky; this sets the date, stands the
 # camera on the WGS-84 surface and turns the observer with Earth's orientation on
-# that date (EarthFrame). Accuracy by date: docs/physics/observatory.md.
+# that date (EarthFrame). The ground, buildings and air are the flight pass's
+# (SiteScene, LocalView). It opens on a picker that films each facility from the air.
+# Accuracy by date: docs/physics/observatory.md.
 
 ## Clock rates, simulated seconds per real second.
 const RATES := {"pause": 0.0, "1x": 1.0, "60x": 60.0, "3600x": 3600.0}
@@ -12,7 +14,7 @@ const JD_UNIX := 2440587.5
 
 var stage   # main.gd
 var active := false
-var site_key := "paranal"
+var site_key := "jodrell"
 var lat := 0.0     # degrees
 var lon := 0.0
 var h := 0.0       # m
@@ -23,13 +25,31 @@ var show_bounds := false
 ## The last EarthFrame.site() result, refreshed every frame.
 var frame := {}
 var overlay: ConstellationOverlay
+var picker: SitePicker
+## The picker is up, filming the site.
+var picking := false
+var site_scene: SiteScene = null
 var _hud_acc := 0.0
 var _pm_year := NAN
 var _prev_home = null
+var _env := {}
+var _sky_gain := 1.0
+## The local camera: position (m, site frame) and basis (x west, y up, z north).
+var _local_pos := Vector3(0, 2, 0)
+var _local_basis := Basis()
+## The frame's axes in orrery space: x west, y up, z north.
+var _frame_basis := Basis()
+var _orbit := 0.0
+var _orbit_a0 := 0.0
+## A pending change of site behind the veil: "" for none.
+var _swap := ""
+var _veil := 0.0
+## The Sun in the local frame (x west, y up, z north), for the check.
+var sun_local := Vector3.UP
 
 func _init(main) -> void:
 	stage = main
-	set_site("paranal")
+	set_site(site_key)
 
 ## Load the solar preset if needed and stand at the site on `jd` (civil, UTC from
 ## 1972; null = now). `opts`: site, jd or date (set_date_text), az (deg from north),
@@ -42,6 +62,9 @@ func enter(opts: Dictionary = {}) -> void:
 	var earth: Body = stage.state.body_named("Earth")
 	if earth != null: stage.state.home_id = earth.id
 	if not stage.state.true_scale: stage.set_true_scale(true)
+	_env = Rocketry.flight_env(earth)
+	if site_scene == null: site_scene = SiteScene.new(stage.flight.local)
+	stage.flight.local.root.visible = true
 	set_site(String(opts.get("site", site_key)))
 	set_civil(float(opts.jd) if opts.get("jd") != null else now_jd())
 	if opts.has("date") and not set_date_text(String(opts.date)):
@@ -51,14 +74,130 @@ func enter(opts: Dictionary = {}) -> void:
 	if opts.has("view"):
 		for k in ["lines", "names", "bounds"]: set("show_" + k, (opts.view as Array).has(k))
 	stage.observer.fov = 70.0
+	stage.observer.min_fov = 1.0
 	look(float(opts.get("az", 180.0 if lat >= 0.0 else 0.0)), float(opts.get("alt", 28.0)))
 	if overlay: overlay.visible = true
 	sync_hud()
+	if opts.get("picker", false):
+		open_picker()
+		_orbit = float(opts.get("orbit", 0.0))
 
 func leave() -> void:
 	active = false
+	stage.observer.min_fov = SkyView.SurfaceObserver.MIN_FOV
+	if picking: _close_picker()
 	if stage.state.preset_key == "solar": stage.state.home_id = _prev_home
 	if overlay: overlay.visible = false
+	if site_scene != null:
+		site_scene.dispose()
+		site_scene = null
+	SkyModel.apply_day_gain(stage.pipe.sky_materials, 1.0)
+
+## True while this mode's world is drawn in the flight pass.
+func local_pass() -> bool:
+	return active and stage.state.cam_mode == "surface"
+
+# THE PICKER
+
+## Show the facility from the air, an arrow each side, with its evening light.
+func open_picker() -> void:
+	if site_key == "custom": set_site(ObservatorySites.ORDER[0])
+	picking = true
+	stage.hud.set_panel_open("controlPanel", false)
+	stage.hud.set_obs_picking(true)
+	if overlay: overlay.visible = false
+	picker.visible = true
+	_film(site_key)
+
+func _close_picker() -> void:
+	picking = false
+	picker.visible = false
+	picker.set_veil(0.0)
+	_swap = ""
+	_veil = 0.0
+	stage.hud.set_obs_picking(false)
+
+## Start the film of `key`: its site, at this evening's low sun, the camera on the lit side.
+func _film(key: String) -> void:
+	set_site(key)
+	set_civil(evening_jd(now_jd()))
+	set_rate("60x")
+	_orbit = 0.0
+	var d: Dictionary = EarthFrame.site(tt(), deg_to_rad(lat), deg_to_rad(lon), h)
+	var at := solar_state(tt())
+	var sun := EarthFrame.from_scene(at.Sun[0].sub(at.Earth[0])).normalized()
+	_orbit_a0 = EarthFrame.azimuth(d, sun) + 0.45
+	var i := ObservatorySites.ORDER.find(key)
+	picker.show_site(i, ObservatorySites.ORDER.size(), "%s, %s" % [ObservatorySites.SITES[key].name, ObservatorySites.SITES[key].where], Facilities.DATA[key])
+
+## Move to the previous or next facility, through a fade.
+func picker_step(dir: int) -> void:
+	if not picking: return
+	var order: Array = ObservatorySites.ORDER
+	_swap = order[posmod(order.find(site_key) + dir, order.size())]
+
+## Leave the film for the ground, at the present moment.
+func observe() -> void:
+	if not picking: return
+	_close_picker()
+	stage.hud.set_panel_open("controlPanel", true)
+	stage.hud.set_section_open(stage.hud.section("Observatory"), true)
+	set_civil(now_jd())
+	set_rate("60x")
+	if overlay: overlay.visible = true
+	var view: Dictionary = Facilities.DATA[site_key].view
+	stage.observer.fov = 70.0
+	look(float(view.az), float(view.alt))
+	sync_hud()
+
+## The civil Julian date near `jd` on its day when the Sun sets through +17° at the site.
+func evening_jd(jd: float) -> float:
+	var day := floorf(jd - 0.5) + 0.5
+	var la := deg_to_rad(lat); var lo := deg_to_rad(lon)
+	var prev := NAN
+	for i in 145:
+		var t := day + float(i) / 144.0
+		var tti := EarthFrame.tt_of_civil(t)
+		var at := solar_state(tti)
+		var a := rad_to_deg(EarthFrame.altitude(EarthFrame.site(tti, la, lo, h), EarthFrame.from_scene(at.Sun[0].sub(at.Earth[0])).normalized()))
+		if not is_nan(prev) and prev >= 17.0 and a < 17.0: return t
+		prev = a
+	return jd
+
+func _camera_step(dt: float) -> void:
+	if not picking:
+		var d = Facilities.DATA.get(site_key)
+		if d == null:
+			_local_pos = Vector3(0.0, 2.0, 0.0)
+		else:
+			var v: Dictionary = d.view
+			_local_pos = Vector3(-float(v.e), site_scene.height_at(v.e, v.n) + float(v.eye), float(v.n))
+		return
+	var o: Dictionary = Facilities.DATA[site_key].orbit
+	var secs: float = o.secs
+	_orbit += dt / secs
+	# One slow turn, then round again from the same light.
+	if _orbit >= 1.0 and _swap == "": _swap = site_key
+	var a := _orbit_a0 + _orbit * TAU
+	var r: float = float(o.radius) * (1.0 + 0.1 * sin(a * 2.0))
+	var e: float = float(o.e) + r * sin(a)
+	var n: float = float(o.n) + r * cos(a)
+	var datum := site_scene.height_at(o.e, o.n)
+	var y := maxf(site_scene.height_at(e, n) + 6.0, datum + float(o.height) * (1.0 + 0.35 * sin(a + 1.0)))
+	_local_pos = Vector3(-e, y, n)
+	var target := Vector3(-float(o.e), datum + float(o.look), float(o.n))
+	_local_basis = Basis.looking_at(target - _local_pos, Vector3.UP)
+
+func _fade_step(dt: float) -> void:
+	if _swap != "":
+		_veil = minf(_veil + dt / 0.4, 1.0)
+		if _veil >= 1.0:
+			var next := _swap
+			_swap = ""
+			_film(next)
+	elif _veil > 0.0:
+		_veil = maxf(_veil - dt / 0.6, 0.0)
+	picker.set_veil(_veil)
 
 static func now_jd() -> float:
 	return Time.get_unix_time_from_system() / 86400.0 + JD_UNIX
@@ -73,6 +212,7 @@ func set_site(key: String) -> void:
 	site_key = key
 	var s: Dictionary = ObservatorySites.SITES[key]
 	lat = s.lat; lon = s.lon; h = s.h
+	if site_scene != null: site_scene.build(key)
 	if active: sync_hud()
 
 ## A custom site; NaN keeps that coordinate.
@@ -81,6 +221,7 @@ func set_custom(la: float, lo: float, he: float) -> void:
 	if not is_nan(la): lat = clampf(la, -90.0, 90.0)
 	if not is_nan(lo): lon = wrapf(lo, -180.0, 180.0)
 	if not is_nan(he): h = clampf(he, -500.0, 9000.0)
+	if site_scene != null: site_scene.build("")
 	if active: sync_hud()
 
 func set_rate(key: String) -> void:
@@ -179,6 +320,50 @@ func place(observer: SkyView.SurfaceObserver, earth: Body, camera: Camera3D) -> 
 	var k: float = stage.state.scene_scale / Rocketry.AU_M
 	var eye: DVec3 = earth.scene_pos.add(EarthFrame.to_scene(frame.offset).scaled(k))
 	observer.update_fixed(up.to_v3(), north.to_v3(), eye, camera)
+	var u := up.to_v3().normalized()
+	var nv := north.to_v3()
+	nv = (nv - u * nv.dot(u)).normalized()
+	_frame_basis = Basis(u.cross(nv).normalized(), u, nv)
+	if picking:
+		# The orrery's camera follows the film's, turned into orrery axes.
+		camera.transform = Transform3D(_frame_basis * _local_basis, Vector3.ZERO)
+		camera.fov = 42.0
+	else:
+		_local_basis = _frame_basis.transposed() * camera.transform.basis
+
+## The flight pass's sky, ground and light, from the date and the site.
+func _drive_local(dt: float) -> void:
+	if site_scene == null or frame.is_empty(): return
+	var local: LocalView = stage.flight.local
+	var m: PackedFloat64Array = frame.npb
+	# LocalView's frame: the equator with the pole on −Y.
+	var to_flight := func(v: DVec3) -> DVec3:
+		var t := EarthFrame.apply(m, v)
+		return DVec3.new(t.x, -t.z, t.y)
+	var up: DVec3 = to_flight.call(frame.up)
+	var north: DVec3 = to_flight.call(frame.north)
+	var sun_b: Body = stage.state.body_named("Sun")
+	var earth: Body = stage.state.body_named("Earth")
+	var sun: DVec3 = to_flight.call(EarthFrame.from_scene(sun_b.pos.sub(earth.pos)).normalized())
+	var R: float = Rocketry.figure_radius(_env.get("figure"), float(_env.radius), up)
+	var fr: Dictionary = local.update({"env": _env, "altitude": _local_pos.y, "surfaceR": R, "sunDirWorld": sun,
+		"upWorld": up, "northWorld": north, "starFlux": 1.0, "padWorld": up.scaled(R), "anchorWorld": up.scaled(R),
+		"mapSite": {"lat": lat, "lon": lon}, "planetSpin": 0.0, "dt": dt, "frame": Basis(), "cloudWind": Vector3.ZERO,
+		"cloudCover": 0.0, "sunAngR": 0.00465, "sunTeff": 5772.0, "kp": 2.0, "sun2World": null, "sun2Flux": 0.0,
+		"sun2Teff": 5772.0, "starlight": 0.05})
+	local.place(local.ground, DVec3.new(0.0, site_scene.patch_y, 0.0))
+	local.cam_pos.set_v(_local_pos.x, _local_pos.y, _local_pos.z)
+	local.camera.fov = stage.cam_fov
+	local.camera.far = 4.0e6
+	local.camera.near = local.camera.far * 1.0e-7
+	local.apply_origin(_local_basis)
+	sun_local = fr.sun_local
+	site_scene.light(fr.sun_local, maxf(_local_pos.y - site_scene.patch_y, 1.0))
+	site_scene.animate(dt)
+	# The stars dim against the day as a camera's exposure closes, as in flight.
+	var want := 1.0 / (1.0 + 400.0 * float(fr.get("sun_visible", 0.0)))
+	_sky_gain += (want - _sky_gain) * (1.0 - exp(-maxf(dt, 0.0) / 0.8))
+	SkyModel.apply_day_gain(stage.pipe.sky_materials, _sky_gain)
 
 ## A scene direction's altitude (rad) at the site.
 func altitude_of(d_scene: DVec3) -> float:
@@ -195,11 +380,14 @@ func _refresh_stars() -> void:
 ## Per frame after the camera is placed.
 func update(dt: float) -> void:
 	if not active: return
+	_camera_step(dt)
+	if picking: _fade_step(dt)
+	_drive_local(dt)
 	if overlay:
 		overlay.show_lines = show_lines
 		overlay.show_names = show_names
 		overlay.show_bounds = show_bounds
-		overlay.place(stage.cam_basis, stage.cam_fov, stage.observer.up, stage.state.cam_mode == "surface")
+		overlay.place(stage.cam_basis, stage.cam_fov, stage.observer.up, stage.state.cam_mode == "surface" and not picking)
 	_hud_acc += dt
 	if _hud_acc < 0.2: return
 	_hud_acc = 0.0

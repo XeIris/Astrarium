@@ -1,8 +1,9 @@
 # The Observatory: the sky from a site on a date
 
 Code: `sim/observatory/` (`earthframe.gd`, `lunar.gd`, `observatory.gd`, `sites.gd`,
-`constellation_overlay.gd`, and the generated `deltat.gd` and `nutation2000b.gd`).
-Check: `tools/observatorycheck.gd`.
+`facilities.gd`, `site_scene.gd`, `site_fallback.gd`, `constellation_overlay.gd`, and the
+generated `deltat.gd` and `nutation2000b.gd`), `ui/site_picker.gd`, and the models in
+`model_sources/blender/observatories.py`. Check: `tools/observatorycheck.gd`.
 
 The Observatory mode is the `solar` preset seen from the ground. It sets a civil date,
 stands the camera on Earth's WGS-84 surface at a site, and turns the observer with
@@ -113,11 +114,51 @@ month or two behind the present.
 
 The overlay is drawn in screen space over the frame, cut at the horizon.
 
+## The ground and the facilities
+
+The mode draws in the flight pass (`LocalView`, [flight](flight.md)): the same physical
+sky, sun, planet patch and lighting as a launch, in metres, x west, y up, z north, from
+sea level. Its camera is slaved to the orrery's, so the stars and planets lie behind the
+terrain and buildings. Clouds are off until the weather phase.
+
+**Terrain** (`tools/build_site_terrain.py`, `SiteScene`). Copernicus GLO-30, packed per
+site into a near grid (±3 km at the DEM's 30 m) and a far one (±40 km at 320 m; ±20 km at
+160 m round Jodrell Bank, which stops at its tile's edge). Vertices fall by r²/2R as the
+planet curves. The DEM is a surface model, with buildings and trees in it, so each
+facility's footprint is levelled (`flats`) with a blended edge. Below 0.5 m the mesh dips
+under the planet patch, which draws the sea. Heights are orthometric and the patch is the
+ellipsoid; the geoid's 20–40 m there is ignored. The check holds Armazones, Mauna Kea's
+summit and Paranal's datum to their published heights, which also proves the axes.
+
+**Models** are script-built and drawn from published numbers where those exist, from
+photographs otherwise:
+
+| structure | from published figures | read from photographs (estimates) |
+|---|---|---|
+| Lovell | bowl 76.2 m, focal length 22.9 m, elevation axis 50.5 m, 89.0 m overall (the model reaches 89.6 m), wheel girder radius 38.5 m, track 107.5 m, 25 ft elevation gear | the drum's bays, tower legs, machine houses, rim plane 9 m above the axis |
+| Mark II | ellipse 38.1 × 25.4 m, focal length 12.2 m, 425 m from the Lovell | pylons, drum, mast; its bearing from coordinates rounded to 1″ |
+| Keck | 36 segments 1.8 m across, focal length 17.5 m, 85 m apart, domes "about 100 ft" high | dome radius 15.5 m, drum, shared building |
+| VLT UT | 8.2 m primary, 14.4 m focus, slit "almost 12 m", ESO's coordinates | enclosure 29 m × 28.5 m (ESO gives both 25 m and 35 m for its height) |
+| VLT platform | ESO's coordinates for the UTs, VST, VISTA and 30 AT stations | rail layout between stations, control building, VLTI lab |
+| AT | 1.8 m mirror | sphere 4.7 m, transporter 3.6 m |
+| Subaru, IRTF | positions rounded to 1″ | shapes |
+
+None of this is a survey. Interiors are simplified, and roads other than Paranal's
+perimeter are not modelled. Photographs were references only: nothing from them is in the
+repository. Without `build.sh observatories` the same datums and pivots come from
+`SiteFallback`'s blocks.
+
+**The picker** is the mode's front door. It films one facility on a 40 s turn at a height
+and radius from `facilities.gd`, starting this evening with the Sun at +17° and running
+the clock at 1 min/s, so the light falls through the turn; the arrows or ←/→ change
+facility behind a fade. **Observe the sky** goes to the ground at the present moment, at
+the facility's viewpoint.
+
 ## Sites
 
 | site | latitude, longitude, height | source |
 |---|---|---|
-| Jodrell Bank (Lovell Telescope) | 53°14′10.50″ N, 2°18′25.74″ W, 80 m | JBO "Lovell Telescope facts and figures"; the page gives no height, 80 m is the ground level issue 23 quotes |
+| Jodrell Bank (Lovell Telescope) | 53°14′10.50″ N, 2°18′25.74″ W, 78 m | JBO "Lovell Telescope facts and figures"; the page gives no height, 78 m is the ground in GLO-30 |
 | Mauna Kea (Keck) | 19°49′35″ N, 155°28′28″ W, 4145 m | Wikidata Q210997 (Keck's telescope page was unreachable) |
 | Cerro Paranal (VLT UT1) | 24°37′39.44″ S, 70°24′18.27″ W, 2635.43 m | ESO, Paranal astroclimate site page |
 
@@ -141,4 +182,11 @@ A custom site takes any latitude, longitude and height on WGS-84.
   in 2050, where the USNO's own ΔT forecast enters), and 2126 Jan 1 against IAU SOFA
   through pyerfa with the same ΔT (`tools/observatory_ref.py`; worst 2 s);
 - the Sun, Moon and planets against JPL Horizons (DE441, geometric geocentric) at
-  1926, 2000 and 2126, with the limits set just above the errors in the table above.
+  1926, 2000 and 2126, with the limits set just above the errors in the table above;
+- the terrain tiles against Armazones, Mauna Kea's summit, Paranal's datum and the sea
+  on the correct sides;
+- the published separations (Keck I–II 85 m, Lovell–Mark II 425 m, UT1–UT4 130 m) and each
+  structure's height, in the authored and fallback builds, with its pivots.
+
+`tools/hudcheck.tscn -- htest=1` walks the picker with real input and holds the afternoon
+Sun to the local west at Paranal, which proves the local frame's handedness.

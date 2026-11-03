@@ -276,7 +276,7 @@ def build(label, fn, default_out=None):
     reset_scene()
     build_materials()
     fn(M)
-    if not label.startswith('pad_') and label != 'facilities':
+    if not label.startswith('pad_') and label not in ('facilities', 'observatories'):
         validate_vehicle(label)
     bpy.ops.object.select_all(action='DESELECT')
     optimise()

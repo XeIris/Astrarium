@@ -6,7 +6,9 @@ Vehicle dimensions and rig counts come from a Godot export of
 `sim/flight/vehicles.gd` through `tools/craftspec.gd`, consumed by
 `vehicle_data.py`. Use `build.sh` so it imports the project and supplies that
 catalogue; do not restore independent physical constants in model scripts.
-Vehicle builds write directly to `assets/craft/`; pads write to `assets/pads/`.
+Vehicle builds write directly to `assets/craft/`; pads write to `assets/pads/`; the
+observatories (`observatories.py`) to `assets/sites/`, one `stage_<name>` per structure
+and `door_<stage>_<part>` per pivot, placed from `sim/observatory/facilities.gd`.
 `tools/sync_assets.sh /external/artifact/directory` can copy separately built
 vehicles into `assets/craft/`. Its default confirms the local build without
 copying files onto themselves. `lib.py` holds the
