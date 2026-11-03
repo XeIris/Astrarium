@@ -357,3 +357,11 @@ fail explicitly. Multiple requested methods run in order.
 
 The historical side-by-side migration evidence was archived out of the working
 tree; `tools/ref/` now keeps the manifest and retention note.
+
+## License
+
+Astrarium is under the [MIT License](LICENSE): use, change and share it freely.
+Some bundled data keeps its own terms. The Gaia star file is CC BY-SA 3.0 IGO,
+the NASA maps and catalogues are public domain with credits, and exported builds
+contain Godot, whose notice must ship with them. [THIRD_PARTY.md](THIRD_PARTY.md)
+lists each source.
