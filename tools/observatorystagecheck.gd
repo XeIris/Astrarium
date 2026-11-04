@@ -44,6 +44,7 @@ func _initialize() -> void:
 	await view_keys()
 	await custom_height()
 	await running_clock()
+	await held_seasons()
 	await a_frame()
 	# Last, as it frees the stage: a frame in flight is waited out on the way down.
 	var desk: ObservatoryInstruments = stage.observatory.desk
@@ -231,3 +232,31 @@ func a_frame() -> void:
 	check(not SkyField._v.is_empty(), "so are the catalogues")
 	desk.finish_into_frame()
 	check(not desk.frame.is_empty(), "the frame arrives")
+
+# The season follows the surface as drawn. Held to Earth's real axis, as a flight or the
+# Observatory holds a world, uDecl is the Sun's real declination; once the hold lapses it is
+# the orrery's own tilt again, with nothing left of the hold.
+func held_seasons() -> void:
+	await sandbox()
+	stage.load_preset("solar")
+	stage.state.paused = true
+	var earth: Body = stage.state.body_named("Earth")
+	var sun: Body = stage.state.body_named("Sun")
+	var viz = earth.viz.inner if earth.viz is Bodies.AccretionWrap else earth.viz
+	var pole := EarthFrame.to_scene(DVec3.new(0.0, 0.0, 1.0)).to_v3()
+	var x := EarthFrame.to_scene(DVec3.new(1.0, 0.0, 0.0)).to_v3()
+	for date: Array in [[2026, 12, 21], [2026, 6, 21]]:
+		stage.restate_solar(Observatory.julian_day(date[0], date[1], date[2]))
+		var want: float = EarthFrame.from_scene(sun.pos.sub(earth.pos)).normalized().z
+		for i in 3:
+			viz.hold_surface(Basis(x, pole, x.cross(pole)))
+			stage.animate(1.0 / 60.0)
+			await process_frame
+		var got: float = viz.surf_mat.get_shader_parameter("uDecl")
+		check(absf(got - want) < 1e-3, "%s: a held Earth's season %.3f against the Sun's sin δ %.3f" % [date, got, want])
+		await frames(3)
+		var free: float = viz.surf_mat.get_shader_parameter("uDecl")
+		var d: Vector3 = sun.pos.sub(earth.pos).normalized().to_v3()
+		check(viz.surface.basis.y.dot(Vector3.UP) > 0.9999, "the hold leaves no tilt on the surface")
+		check(absf(free - (viz.tilt_q * Vector3.UP).dot(d)) < 1e-3, "%s: the free season is the orrery's tilt again: %.3f" % [date, free])
+	stage.state.paused = false

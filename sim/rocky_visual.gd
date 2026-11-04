@@ -348,7 +348,8 @@ class RockyViz extends RefCounted:
 			surface.basis = Basis(Vector3.UP, b.spin_phase) * RockyVisual.NORTH_ON_ORBIT_POLE
 		else:
 			b.spin_phase = fmod(b.spin_phase - RockyVisual.spin_step(b, 1.0, dt, ctx.sim_dt), TAU)
-			surface.rotation.y = b.spin_phase
+			# The whole basis: the seasons read its pole, and a held surface may have left it tilted.
+			surface.basis = Basis(Vector3.UP, b.spin_phase)
 		var held := Engine.get_process_frames() - _surface_world_frame <= 1
 		if held:
 			# The group carries the obliquity and the size ease; undo only its rotation.
