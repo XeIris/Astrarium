@@ -497,6 +497,12 @@ func update(dt: float) -> void:
 	_camera_step(dt)
 	if picking: _fade_step(dt)
 	_drive_local(dt)
+	var moon: Body = stage.state.body_named("Moon")
+	var moon_viz = moon.viz if moon != null else null
+	if moon_viz is Bodies.AccretionWrap: moon_viz = moon_viz.inner
+	if moon_viz is RockyVisual.RockyViz:
+		# The orrery's lock has no librations; the instrument frames use these axes.
+		(moon_viz as RockyVisual.RockyViz).hold_surface(PlanetDisc.mesh_basis("Moon", tdb()))
 	if not picking: desk.update(dt)
 	if overlay:
 		overlay.set_reticle(_reticle_dir(), String(desk.target.get("name", "")))

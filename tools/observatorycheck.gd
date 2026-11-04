@@ -4,8 +4,9 @@ extends SceneTree
 #   Godot --headless --path . --script res://tools/observatorycheck.gd
 # Earth-orientation angles against the IAU SOFA test vectors, ΔT and its badges,
 # Polaris at each site's latitude, the solstice noon Sun, a bright star's rise and
-# transit against published times, the orrery's bodies against JPL Horizons, and Earth's
-# composed orientation, the sites' offsets and the topocentric Moon against IAU SOFA.
+# transit against published times, the orrery's bodies against JPL Horizons, Earth's composed
+# orientation, the sites' offsets and the topocentric Moon against IAU SOFA, and which face
+# the drawn Moon shows.
 
 const DEG := 180.0 / PI
 const AS := PI / 648000.0
@@ -41,6 +42,7 @@ func _init() -> void:
 	horizons()
 	terrain()
 	facilities()
+	moon_face()
 	orientation()
 	print("OBSERVATORYCHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(0 if failures == 0 else 1)
@@ -338,6 +340,96 @@ func facilities() -> void:
 		print("OBSERVATORYCHECK authored library: %d stages" % SiteFallback.HEIGHTS.size())
 	else:
 		print("OBSERVATORYCHECK authored library not built: fallback only")
+
+## Which way the drawn Moon's map faces: the free-running tidal lock against the orbit, and the
+## Observatory's orientation against the IAU axes the instrument frames use. Every direction
+## comes from the drawn mesh's own vertices and texture coordinates, so a map that is mirrored
+## or turned fails here.
+func moon_face() -> void:
+	PlanetMaps.synchronous = true
+	var tt := EarthFrame.tt_of_civil(Observatory.julian_day(2026, 11, 5) + 9.5 / 24.0)
+	var tdb := EarthFrame.tdb_of_tt(tt)
+	var at := Observatory.solar_state(tt)
+	var earth := Body.new()
+	earth.name = "Earth"
+	earth.pos = at.Earth[0]
+	var moon := Body.new()
+	moon.name = "Moon"
+	moon.pos = at.Moon[0]
+	var opts := VisualOpts.new()
+	opts.tidal_lock = "Earth"
+	opts.obliquity = 0.0268
+	opts.hot = true
+	var viz := RockyVisual.create_rocky_visual(moon, opts)
+	var ctx := VisualCtx.new()
+	ctx.bodies = [earth, moon]
+	var arrays: Array = (viz.surface.mesh as ArrayMesh).surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	check(verts.size() > 1000 and verts.size() == uvs.size(), "the Moon's mesh can be read: %d vertices" % verts.size())
+	# The mesh vertex carrying a map coordinate (deg), by PlanetDisc.albedo's projection.
+	var on_map := func(lat: float, lon: float) -> Vector3:
+		var want := Vector2(fposmod(lon / 360.0 + 0.5, 1.0), 0.5 - lat / 180.0)
+		var best := 0
+		for i in uvs.size():
+			if uvs[i].distance_squared_to(want) < uvs[best].distance_squared_to(want): best = i
+		return verts[best].normalized()
+
+	# The lock, from the orbit alone. The Moon's leading hemisphere centres on 90° W, so
+	# Crisium trails.
+	viz.update(0.0, ctx)
+	var locked: Basis = viz.group.basis * viz.surface.basis
+	var r: DVec3 = (at.Moon[0] as DVec3).sub(at.Earth[0])
+	var v: DVec3 = (at.Moon[1] as DVec3).sub(at.Earth[1])
+	var orbit_north := r.cross(v).normalized().to_v3()
+	var ahead := v.normalized().to_v3()
+	var to_earth := r.normalized().scaled(-1.0).to_v3()
+	var near := (locked * (on_map.call(0.0, 0.0) as Vector3)).dot(to_earth)
+	check(near > cos(deg_to_rad(10.0)), "the locked Moon keeps 0° longitude on Earth: %.3f" % near)
+	var pole := (locked * (on_map.call(90.0, 0.0) as Vector3)).dot(orbit_north)
+	check(pole > 0.98, "the locked Moon's map north is its orbit's north: %.3f" % pole)
+	var crisium := (locked * (on_map.call(17.0, 59.0) as Vector3)).dot(ahead)
+	check(crisium < -0.6, "the locked Moon's Crisium trails its orbit: %.3f" % crisium)
+
+	# On a date: every texel where the instrument frame puts it.
+	var ax := PlanetDisc.axes("Moon", tdb)
+	var dated := PlanetDisc.mesh_basis("Moon", tdb)
+	var worst := 0.0
+	for i in verts.size():
+		var p := verts[i].normalized()
+		if absf(p.y) > 0.999: continue
+		var g: DVec3 = EarthFrame.from_scene(DVec3.from_v3(dated * p))
+		var lat := asin(clampf(g.dot(ax[2]), -1.0, 1.0))
+		var lon := atan2(g.dot(ax[1]), g.dot(ax[0]))
+		worst = maxf(worst, absf(wrapf(lon / TAU + 0.5 - uvs[i].x, -0.5, 0.5)) * 360.0)
+		worst = maxf(worst, absf(0.5 - lat / PI - uvs[i].y) * 180.0)
+	check(worst < 0.01, "the mesh's texels lie on the IAU axes: %.4f° at worst" % worst)
+	viz.hold_surface(dated)
+	viz.update(0.0, ctx)
+	var held: Basis = viz.group.basis * viz.surface.basis
+	check((held.x - dated.x).length() + (held.y - dated.y).length() + (held.z - dated.z).length() < 1e-5, "holding the surface applies the dated orientation")
+	var sky := Imager.sky_axes(EarthFrame.from_scene(r).normalized())
+	var cris_dir: DVec3 = EarthFrame.from_scene(DVec3.from_v3(held * (on_map.call(17.0, 59.0) as Vector3)))
+	check(cris_dir.dot(sky[0]) < -0.5, "on 2026-11-05 Crisium is on the sky-west limb, as in the instrument frame: %.3f" % cris_dir.dot(sky[0]))
+	var sub := EarthFrame.from_scene(r).normalized().scaled(-1.0)
+	print("OBSERVATORYCHECK Moon on 2026-11-05: sub-Earth %.2f° lat %.2f° lon; lock against date %.2f°" % [
+		rad_to_deg(asin(sub.dot(ax[2]))), rad_to_deg(atan2(sub.dot(ax[1]), sub.dot(ax[0]))),
+		rad_to_deg(acos(clampf(((locked.transposed() * held).get_rotation_quaternion()).w, -1.0, 1.0))) * 2.0])
+	viz.group.free()
+	moon.viz = null
+
+	# A world that isn't locked keeps its map, north on +Y, turned by its spin phase alone.
+	var mars := Body.new()
+	mars.name = "Mars"
+	mars.pos = at.Mars[0]
+	mars.spin_phase = 1.0
+	var mopts := VisualOpts.new()
+	mopts.obliquity = 0.44
+	var mviz := RockyVisual.create_rocky_visual(mars, mopts)
+	mviz.update(0.0, ctx)
+	check(mviz.surface.basis.is_equal_approx(Basis(Vector3.UP, 1.0)), "an unlocked world's map stays where it was")
+	mviz.group.free()
+	mars.viz = null
 
 # tools/observatory_ref.py: IAU SOFA's composed matrix (eraPfw06, eraNut00b, eraFw2m) and
 # the sites' GCRS offsets (m) through eraGd2gc and eraGst06, at the Horizons dates.
