@@ -323,7 +323,7 @@ func site_light() -> void:
 	check(noon.g > 0.85 and noon.b > 0.75, "and the noon Sun stays white: %s" % noon)
 	stage.set_app_mode("sandbox")
 	await frames(2)
-	check(local.sky_ambient == 1.0, "leaving gives flight its physical sky back")
+	check(local.night_bounce == LocalView.NIGHT_BOUNCE, "leaving gives flight its own fill back")
 	stage.set_render_quality(quality)
 	await sandbox()
 

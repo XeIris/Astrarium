@@ -217,6 +217,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   how the sky looks: `tools/observatorylookcheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
+- what lights a vehicle (the Sun, the fill, a low Sun's colour): `tools/flightlightcheck.tscn`
 - flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`
   (`-- replay=1` for the comparison with a played flight)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without

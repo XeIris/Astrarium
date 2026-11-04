@@ -27,6 +27,8 @@ uniform float uHasAir = 1.0;
 uniform float uSeaLevel = 0.42;
 uniform float uOceans = 1.0;
 uniform float uSunI = 3.0;
+// What the air leaves of it at this Sun height, as on the vehicle's light.
+uniform vec3 uSunTint = vec3(1.0);
 uniform float uSkyI = 0.35;
 uniform float uTemp = 288.0;
 uniform float uGeoReady = 0.0;
@@ -216,7 +218,7 @@ void fragment() {
 		n *= sign(n.y);
 		lit_k = clamp(dot(n, uSunDir) / max(ndl, 0.15), 0.4, 1.6);
 	}
-	col *= INV_PI * (uSunI * max(ndl, 0.0) * shade * lit_k + uSkyI * (0.35 + 0.65 * clamp(ndl + 0.25, 0.0, 1.0)));
+	col *= INV_PI * (uSunTint * uSunI * max(ndl, 0.0) * shade * lit_k + uSkyI * (0.35 + 0.65 * clamp(ndl + 0.25, 0.0, 1.0)));
 
 	// SUN GLINT: a GGX lobe with Cox & Munk's σ² ≈ 0.04 (~7 m/s wind).
 	vec3 to_eye = uCamLocal - vLocal;
@@ -230,7 +232,7 @@ void fragment() {
 		float dd = nh * nh * (a2 - 1.0) + 1.0;
 		float D = a2 / (3.14159265 * dd * dd);
 		float F = 0.02 + 0.98 * pow(clamp(1.0 - dot(V, Hh), 0.0, 1.0), 5.0);
-		col += vec3(1.0, 0.96, 0.9) * water_frac * F * D / (4.0 * nv) * uSunI * shade;
+		col += vec3(1.0, 0.96, 0.9) * uSunTint * water_frac * F * D / (4.0 * nv) * uSunI * shade;
 	}
 
 	// AERIAL PERSPECTIVE along the actual path. A straight path from the ground to
