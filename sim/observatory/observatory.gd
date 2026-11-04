@@ -443,9 +443,8 @@ func point_at(name: String) -> void:
 	var b: Body = stage.state.body_named(name)
 	var dist: float = b.scene_pos.distance_to(stage.cam_pos) / stage.state.scene_scale
 	var ang_deg := rad_to_deg(atan(b.radius / maxf(dist, 1e-9)))
-	# A planet is a point at any zoom this camera has, and the instrument frame is what
-	# resolves it, so the view stops short of its glow filling the screen.
-	stage.observer.fov = clampf(ang_deg * 2.0 * 3.0, 6.0 if ang_deg < 0.1 else MIN_FOV, 70.0)
+	# Most planets stop at the camera's floor, where Jupiter's true disc is about 10 pixels.
+	stage.observer.fov = clampf(ang_deg * 2.0 * 3.0, MIN_FOV, 70.0)
 
 ## Slew to J2000 direction `d` and follow it, at `fov_deg`. Refuses it below the horizon.
 func point_dir(d: DVec3, fov_deg := 4.0) -> void:
