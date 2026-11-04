@@ -788,6 +788,8 @@ func _instrument_walk(o: Observatory) -> void:
 	await _click(_find("obsExpose"))
 	await _frame_done(desk)
 	check("the Lovell maps a source in Jy", desk.frame.kind == "radio" and _text_of(_find("obsFrameStats")).contains("Beam"))
+	# Back to the walk's night, when the view is not still following Cygnus from Paranal.
+	o.set_date_text("2026-11-05 02:00")
 	await _click(_find("obsHold"))
 	await _steps(2)
 	check("Hold again releases the frame", desk.held.is_empty() and not _find("obsHeldCol").is_visible_in_tree())
