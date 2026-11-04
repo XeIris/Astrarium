@@ -90,7 +90,7 @@ CHANGED_RULES = (
       "shaders/observatory/*", "ui/site_picker.gd", "model_sources/blender/observatories.py",
       "tools/build_starcat.py", "tools/build_gaia.py", "tools/build_constellations.py", "tools/build_deltat.py",
       "tools/build_nutation.py", "tools/build_site_terrain.py"),
-     ("observatorycheck", "observatorystagecheck", "hud*", "_soak_check-observatory")),
+     ("observatorycheck", "observatorycheck-assets", "observatorystagecheck", "hud*", "_soak_check-observatory")),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
@@ -277,6 +277,9 @@ def checks(suite, godot, output, repeat, export_preset):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
                    r"^PARITY DONE 18 poses, 0 failures$", 180)
+        if suite == "assets":
+            yield script("observatorycheck", (r"^OBSERVATORYCHECK authored library: [1-9]\d* stages$", r"^OBSERVATORYCHECK DONE checks=[1-9]\d* failures=0$"),
+                         "assets=1")._replace(name="observatorycheck-assets")
         for assets in (("1", "0") if suite == "assets" else ("0",)):
             # The authored gate cannot pass by silently substituting optional fallback models.
             yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'9' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")

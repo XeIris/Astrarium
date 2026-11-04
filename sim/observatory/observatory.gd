@@ -191,7 +191,9 @@ func _camera_step(dt: float) -> void:
 	if not picking:
 		var d = Facilities.DATA.get(site_key)
 		if d == null:
-			_local_pos = Vector3(0.0, 2.0, 0.0)
+			# A custom site has no tile: its ground is its stated height, for the air and the patch.
+			site_scene.patch_y = h
+			_local_pos = Vector3(0.0, h + 2.0, 0.0)
 		else:
 			var v: Dictionary = d.view
 			_local_pos = Vector3(-float(v.e), site_scene.height_at(v.e, v.n) + float(v.eye), float(v.n))

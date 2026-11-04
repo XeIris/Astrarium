@@ -288,6 +288,9 @@ func facilities() -> void:
 	var lib: Node = null
 	if ResourceLoader.exists(SiteScene.LIBRARY):
 		lib = (load(SiteScene.LIBRARY) as PackedScene).instantiate()
+	# assets=1 is the authored gate: it cannot pass by substituting the fallback.
+	var authored_required := OS.get_cmdline_user_args().has("assets=1")
+	check(lib != null or not authored_required, "the authored library is built (assets=1)")
 	for stage: String in SiteFallback.HEIGHTS:
 		var want: float = SiteFallback.HEIGHTS[stage]
 		var builds := [["fallback", SiteFallback.build(stage)]]
@@ -310,6 +313,7 @@ func facilities() -> void:
 				"door_keck_el", "door_ut_dome", "door_ut_door_l", "door_ut_door_r", "door_ut_az", "door_ut_el", "door_mark2_el"]:
 			check(lib.find_child(piv, true, false) != null, "pivot %s is in the authored library" % piv)
 		lib.free()
+		print("OBSERVATORYCHECK authored library: %d stages" % SiteFallback.HEIGHTS.size())
 	else:
 		print("OBSERVATORYCHECK authored library not built: fallback only")
 
@@ -317,11 +321,11 @@ func facilities() -> void:
 # the sites' GCRS offsets (m) through eraGd2gc and eraGst06, at the Horizons dates.
 const ORIENTATION := [
 	[2424516.5, [0.9998360008150324, 0.016608539797000846, 0.007219963989797387, -0.016608701160041497, 0.9998620653025707, -3.761189137568698e-05, -0.007219592784843757, -8.230850123658437e-05, 0.999973935012974],
-		{"jodrell": [-597670.492, 3783928.45, 5082516.109], "maunakea": [3452109.968, -4904286.465, 2175608.351], "paranal": [5028128.286, 2931305.403, -2606258.25]}],
+		{"jodrell": [-597670.305, 3783927.266, 5082514.508], "maunakea": [3452109.968, -4904286.465, 2175608.351], "paranal": [5028128.286, 2931305.403, -2606258.25]}],
 	[2451545.0, [0.999999997721214, 6.189835627598374e-05, 2.6947459869646315e-05, -6.189911088782092e-05, 0.9999999976921621, 2.80031452829974e-05, -2.6945726458792363e-05, -2.8004813242940276e-05, 0.9999999992448292],
-		{"jodrell": [524810.316, -3789653.075, 5086295.138], "maunakea": [-3420990.934, 4936804.912, 2151078.555], "paranal": [-5036757.531, -2883244.899, -2642949.093]}],
+		{"jodrell": [524810.151, -3789651.89, 5086293.536], "maunakea": [-3420990.934, 4936804.912, 2151078.555], "paranal": [-5036757.531, -2883244.899, -2642949.093]}],
 	[2497565.5, [0.999526664630042, -0.028218502152065516, -0.012254094411153592, 0.028219017421702648, 0.9996017556625868, -0.00013088937198131313, 0.01225290778946916, -0.00021497108626354608, 0.9999249071996031],
-		{"jodrell": [-329639.639, 3804467.538, 5091626.36], "maunakea": [3272158.426, -5054027.45, 2110011.002], "paranal": [5101892.835, 2705843.864, -2704867.088]}],
+		{"jodrell": [-329639.536, 3804466.347, 5091624.756], "maunakea": [3272158.426, -5054027.45, 2110011.002], "paranal": [5101892.835, 2705843.864, -2704867.088]}],
 ]
 
 func orientation() -> void:

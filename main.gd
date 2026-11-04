@@ -1127,12 +1127,11 @@ func _input(e: InputEvent) -> void:
 		return
 	if key.pressed and not key.echo and observatory.picking and not hud.settings_open:
 		var handled := true
-		match key.keycode:
-			KEY_LEFT: observatory.picker_step(-1)
-			KEY_RIGHT: observatory.picker_step(1)
-			KEY_ENTER, KEY_KP_ENTER: observatory.observe()
-			KEY_ESCAPE: quit_to_start()
-			_: handled = false
+		if controls.matches("site_previous", key): observatory.picker_step(-1)
+		elif controls.matches("site_next", key): observatory.picker_step(1)
+		elif controls.matches("site_observe", key) or key.keycode == KEY_KP_ENTER: observatory.observe()
+		elif key.keycode == KEY_ESCAPE or controls.matches("settings", key): quit_to_start()
+		else: handled = false
 		if handled:
 			get_viewport().set_input_as_handled()
 			return

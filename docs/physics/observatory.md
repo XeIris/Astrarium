@@ -51,10 +51,13 @@ from the date and the site.
    acceleration needs a radial velocity, which is not applied).
 
 Annual aberration (≤ 20″) and light deflection are not applied to the drawn sky: at
-the fields of view here a pixel is 40″–250″. Nor is light time. Bodies are drawn at their
+a 70° field a pixel is about 250″, but at the 1° floor it is about 3.5″, so these are
+small visible errors when zoomed in. Nor is light time. Bodies are drawn at their
 geometric places on the date, as JPL Horizons' geometric vectors give them, and the
 delay would move a planet by up to 40″ (Mercury), 24″ (Venus), 18″ (Mars), 9″ (Jupiter)
-and 7″ (Saturn), measured over 2026–27.
+and 7″ (Saturn), measured over 2026–27. The outer planets' mean elements are the larger
+error: Jupiter is 0.10° and Saturn 0.16° from Horizons at J2000 (see the budget below), so a
+1° view of them is centred on the model's planet, not the real one.
 
 ## ΔT
 
