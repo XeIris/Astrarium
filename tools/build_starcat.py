@@ -6,8 +6,10 @@
 
 Without a path it downloads
 https://heasarc.gsfc.nasa.gov/FTP/heasarc/dbase/tdat_files/heasarc_bsc5p.tdat.gz.
-Output: little-endian float32 records (RA°, Dec° J2000, V, B−V), brightest first,
-for every entry with a position and V; a missing B−V is written as NaN.
+Output: little-endian float32 records (RA°, Dec° J2000, V, B−V, μα cos δ and μδ in
+mas/yr, FK5 J2000), brightest first, for every entry with a position and V; a missing
+B−V is written as NaN and a missing proper motion as 0. BSC5's pmRA is already a
+great-circle rate (Arcturus: −1.093″/yr, against Hipparcos's μα* −1.0934″/yr).
 """
 import gzip
 import io
@@ -41,22 +43,33 @@ def number(text):
         return math.nan
 
 
-def main():
-    raw = Path(sys.argv[1]).read_bytes() if len(sys.argv) > 1 else urllib.request.urlopen(URL, timeout=60).read()
+def table(path=None):
+    """The BSC5P rows, from `path` or downloaded."""
+    raw = Path(path).read_bytes() if path else urllib.request.urlopen(URL, timeout=60).read()
     text = gzip.decompress(raw).decode("latin-1") if raw[:2] == b"\x1f\x8b" else raw.decode("latin-1")
+    return list(rows(text))
+
+
+def motion(r):
+    """(μα cos δ, μδ) in mas/yr; 0 where BSC5 has none."""
+    pa, pd = number(r.get("pmra")), number(r.get("pmdec"))
+    return (0.0 if math.isnan(pa) else pa * 1000.0, 0.0 if math.isnan(pd) else pd * 1000.0)
+
+
+def main():
     stars = []
-    for r in rows(text):
+    for r in table(sys.argv[1] if len(sys.argv) > 1 else None):
         ra, dec, v = number(r.get("ra")), number(r.get("dec")), number(r.get("vmag"))
         if math.isnan(ra) or math.isnan(dec) or math.isnan(v):
             continue
-        stars.append((ra, dec, v, number(r.get("bv_color"))))
+        stars.append((ra, dec, v, number(r.get("bv_color")), *motion(r)))
     if len(stars) < 9000:
         sys.exit(f"build_starcat: only {len(stars)} stars parsed; the table layout may have changed")
     stars.sort(key=lambda s: s[2])
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with io.open(OUT, "wb") as f:
         for s in stars:
-            f.write(struct.pack("<4f", *s))
+            f.write(struct.pack("<6f", *s))
     print(f"build_starcat: {len(stars)} stars, V {stars[0][2]:.2f} to {stars[-1][2]:.2f} -> {OUT}")
 
 

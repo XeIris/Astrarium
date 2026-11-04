@@ -6,10 +6,15 @@ extends RefCounted
 # (assets/sky/gaia_g8.bin, tools/build_gaia.py; ESA/Gaia/DPAC, CC BY-SA 3.0 IGO).
 # Each star at its catalogue direction, its V on the sky's flux scale and its colour
 # from B−V. The procedural sky keeps everything fainter (catalogue_tiers). Absent
-# BSC5, nothing is drawn and the procedural sky stays whole.
+# BSC5, nothing is drawn and the procedural sky stays whole. Records are float32
+# RA°, Dec°, V, B−V, μα cos δ and μδ (mas/yr) at each file's EPOCHS year, so
+# set_epoch() can carry the sky to a date.
 
 const DATA := "res://assets/sky/bsc5.bin"
 const DATA_FAINT := "res://assets/sky/gaia_g8.bin"
+const RECORD := 24
+## Catalogue epochs (Julian years): BSC5 is FK5 J2000, Gaia DR3 is 2016.0.
+const EPOCHS := {DATA: 2000.0, DATA_FAINT: 2016.0}
 const SHADER := preload("res://shaders/sky/catalogue_stars.gdshader")
 # The quad's Gaussian core and halo integrate to this many pixels² at unit gain.
 const PROFILE_PX2 := 3.27
@@ -17,6 +22,14 @@ const PROFILE_PX2 := 3.27
 var node: MultiMeshInstance3D
 var material: ShaderMaterial
 var count := 0
+## Per star, for set_epoch: RA, Dec (rad), μα cos δ, μδ (mas/yr), epoch (yr), flux.
+var _ra := PackedFloat64Array()
+var _dec := PackedFloat64Array()
+var _pm := PackedFloat64Array()
+var _epoch := PackedFloat64Array()
+var _flux := PackedFloat32Array()
+## The Julian year the stars are carried to; NaN at their catalogue epochs.
+var year := NAN
 
 static func available() -> bool:
 	return FileAccess.file_exists(DATA)
@@ -46,15 +59,20 @@ func _init() -> void:
 	for path in [DATA, DATA_FAINT]:
 		var f := FileAccess.open(path, FileAccess.READ)
 		if f == null: continue
-		while f.get_position() + 16 <= f.get_length():
-			stars.append([f.get_float(), f.get_float(), f.get_float(), f.get_float()])
+		while f.get_position() + RECORD <= f.get_length():
+			stars.append([f.get_float(), f.get_float(), f.get_float(), f.get_float(), f.get_float(), f.get_float(), EPOCHS[path]])
 	count = stars.size()
 	mm.instance_count = count
+	_ra.resize(count); _dec.resize(count); _pm.resize(count * 2); _epoch.resize(count); _flux.resize(count)
 	for i in count:
 		var s: Array = stars[i]
 		var d := SkyModel.radec_to_scene(s[0], s[1]).to_v3()
 		var flux := SkyModel.STAR_FLUX * pow(10.0, -0.4 * (float(s[2]) - SkyModel.STAR_FLUX_MAG))
 		var bv: float = s[3] if is_finite(float(s[3])) else 0.6
+		_ra[i] = deg_to_rad(s[0]); _dec[i] = deg_to_rad(s[1])
+		_pm[i * 2] = s[4] if is_finite(float(s[4])) else 0.0
+		_pm[i * 2 + 1] = s[5] if is_finite(float(s[5])) else 0.0
+		_epoch[i] = s[6]; _flux[i] = flux
 		mm.set_instance_transform(i, Transform3D())
 		mm.set_instance_color(i, Stellar.blackbody_color(bv_teff(bv)))
 		mm.set_instance_custom_data(i, Color(d.x, d.y, d.z, flux))
@@ -72,6 +90,30 @@ func update(fov_rad: float, viewport: Vector2, gain: float) -> void:
 	material.set_shader_parameter("uViewport", viewport)
 	material.set_shader_parameter("uGain", gain)
 	material.set_shader_parameter("uProfilePx2", PROFILE_PX2)
+
+## Move every star by its proper motion to Julian year `to_year` (EarthFrame's linear
+## great-circle step, inlined: this runs over ~59 000 stars).
+func set_epoch(to_year: float) -> void:
+	if to_year == year or node == null: return
+	year = to_year
+	var mm := node.multimesh
+	var eps := Rocketry.OBLIQUITY_J2000
+	var ce := cos(eps); var se := sin(eps)
+	var k := EarthFrame.AS2R / 1000.0
+	for i in count:
+		var ra := _ra[i]; var dec := _dec[i]
+		var cr := cos(ra); var sr := sin(ra); var cd := cos(dec); var sd := sin(dec)
+		var x := cd * cr; var y := cd * sr; var z := sd
+		var dt := to_year - _epoch[i]
+		var ma := _pm[i * 2] * k * dt; var md := _pm[i * 2 + 1] * k * dt
+		var a := sqrt(ma * ma + md * md)
+		if a > 0.0:
+			var mx := -sr * ma - sd * cr * md
+			var my := cr * ma - sd * sr * md
+			var mz := cd * md
+			var c := cos(a); var s := sin(a) / a
+			x = x * c + mx * s; y = y * c + my * s; z = z * c + mz * s
+		mm.set_instance_custom_data(i, Color(x, -(-y * se + z * ce), y * ce + z * se, _flux[i]))
 
 func dispose() -> void:
 	if is_instance_valid(node): node.queue_free()

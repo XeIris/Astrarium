@@ -28,7 +28,18 @@ The app opens on a title screen over a reel of live scenes rendered by the game
 itself: the Hail Mary passing a lensed black hole, a Saturn V clearing its tower,
 and Jupiter seen past Io at true scale, both drawn from Cassini and Galileo
 maps ([sim/titlereel.gd](sim/titlereel.gd), [map sources](assets/planet-maps/README.md)).
-Choose **Sandbox**, **Spaceflight** or **Learn** to load that mode, or **Settings**.
+Choose **Sandbox**, **Spaceflight**, **Learn** or **Observatory** to load that mode,
+or **Settings**.
+
+**Observatory** stands you on Earth at Jodrell Bank, Mauna Kea, Cerro Paranal or
+any latitude, longitude and height, on a UTC date (UT before 1972) with a
+time-of-day scrubber, a day-of-year (season) scrubber and **Now**. The Solar
+System is put where JPL's mean elements place it on that date, Earth turns with
+IAU 2006 precession, IAU 2000B nutation and measured ΔT, and the catalogue stars
+move with their proper motions. Constellation figures, names and IAU boundaries
+are an overlay. The years 1926–2126 are supported; a badge says when ΔT is a
+forecast and, outside that range, that the sky is a heavy approximation and why
+([observatory.md](docs/physics/observatory.md)).
 
 **Spaceflight** opens on the hangar. The craft stands on the studio turntable,
 the line-up runs down the left, and a card gives the craft's numbers and the
@@ -131,7 +142,8 @@ and its `SIM` console handle:
 | option | effect |
 |---|---|
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
-| `mode=sandbox\|learn\|flight` | skip the start screen and load that mode |
+| `mode=sandbox\|learn\|flight\|observatory` | skip the start screen and load that mode |
+| `site=jodrell\|maunakea\|paranal`, `date=2026-12-21T00:00`, `look=180,30`, `rate=pause\|1x\|60x\|3600x`, `view=lines,names,bounds\|none` | with `mode=observatory`: the site, the UTC date and time, the compass azimuth and altitude to face (degrees), the clock rate and the overlays shown |
 | `title=hole\|launch\|jupiter` | hold the title on one reel shot (for screenshots); `title=0` shows it over the bare sky |
 | `craft=saturnv\|falcon9\|shuttle\|starship` | select a launcher when starting flight mode |
 | `scenario=shuttle:peak_heating` | jump straight into a flight scenario (`vehicle:id`, listed in [sim/flight/scenarios.gd](sim/flight/scenarios.gd)); with `frames=… out=…` the frames count from the hand-over, and an unknown or failed scenario exits 1 |
@@ -322,6 +334,10 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/skyshots.tscn` | the flight sky from a pad on any body with the sun at a chosen elevation (`shots=body:lat:sunel:look`, `kp=` for a storm), through the real renderer |
 | `tools/build_lunar_gravity.py` | writes `sim/flight/lunar_gravity.gd`, the Moon's field to degree 16 from GRAIL's GL0420A (`jggrx_0420a_sha.tab`, PDS Geosciences; the first 64 KB suffice) |
 | `tools/build_starcat.py` | builds `assets/sky/bsc5.bin` (the Yale Bright Star Catalogue, V < 6.5) for the `solar` sky from HEASARC's BSC5P table, or from a local copy given as its argument; rejects a parse of fewer than 9000 stars |
+| `tools/observatorycheck.gd` | the Observatory's sky on a date (headless): the IAU SOFA test vectors for the obliquity, precession angles, IAU 2000B nutation, Earth rotation angle and GMST; ΔT's seams, badges and uncertainty; civil time through TT and back; Polaris's mean altitude equal to each site's latitude in 1926, 2026 and 2126; the solstice noon Sun at the three sites; a bright star's rise and transit and the orrery's bodies against published values ([observatory.md](docs/physics/observatory.md#checks)) |
+| `tools/observatorystagecheck.gd` | the Observatory on the real stage (headless): the scenario list and view keys, what leaving restores, star epochs on re-entry, and the Moon staying on its theory over 30 days at the clock ([observatory.md](docs/physics/observatory.md#checks)) |
+| `tools/observatory_demo.tscn` | a scripted tour of the Observatory for video: `--write-movie /abs/demo.avi --fixed-fps 30` records it |
+| `tools/build_constellations.py` | builds `assets/sky/constellations.json` from this project's stick figures (chains of Bayer, Flamsteed or HR designations resolved in BSC5) and the IAU boundaries of CDS VI/49 |
 | `tools/spinframecheck.gd` | the flight frame's orientation: Earth's is J2000 equatorial (RA/Dec equal a site's longitude/latitude), the subsolar latitude follows the declination through the year, the Moon stays 18–29° from Earth's equator over a nodal cycle, and a rebase between poles keeps position and pointing |
 | `tools/plasmacheck.gd` | the re-entry shock layer's spectrum: colorimetry, the band systems that dominate slow, Shuttle and lunar-return entries and Mars/Titan, the CO₂ and N₂–CH₄ jump's conservation, and the shader's Boltzmann shift (headless) |
 | `tools/cloudcheck.gd` | the flight cloud field's opaque sky fraction against the world's `cloudCover`, and the climatology's clear subtropics, cloudy ITCZ and storm tracks (headless, on the CPU twin) |

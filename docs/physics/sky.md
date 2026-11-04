@@ -299,8 +299,12 @@ drawn at their directions (`BrightStars`):
   Collaboration, Vallenari et al. 2023), from one query of the ESA Gaia archive,
   packed by `tools/build_gaia.py`. Their V comes from G and BP−RP by Riello et al.
   (2021), and their colour from BP−RP through Mucciarelli & Bellazzini's (2020)
-  dwarf temperatures. 648 stars already in BSC5 are dropped, and proper motion
-  between the 2016 epoch and J2000 (a few arcseconds at most) is ignored.
+  dwarf temperatures. 648 stars already in BSC5 are dropped (proper motion between
+  the 2016 epoch and J2000 is a few arcseconds at most).
+
+Both files carry each star's proper motion (μα cos δ, μδ, mas/yr) at its own epoch,
+FK5 J2000 for BSC5 and 2016.0 for Gaia. The Observatory carries every star to its
+date (`BrightStars.set_epoch`, [observatory.md](observatory.md)).
 
 Together they hold 41 700 stars brighter than V = 8, as the whole sky has
 (`realismcheck`). Brightness comes from V on the flux scale above, and colour is

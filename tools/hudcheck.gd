@@ -191,6 +191,10 @@ func _setup(s: String) -> void:
 			await _start("sandbox")
 			hud.set_search("tri")
 		"learn": await _start("learn")
+		"observatory", "observatory_far":
+			await _start("observatory")
+			main.observatory.set_rate("pause")
+			main.observatory.set_date_text("2150-06-21 04:00" if s == "observatory_far" else "2026-06-21 04:00")
 		"lesson_hr", "lesson_photometer", "lesson_gw", "lesson_cutaway", "lesson_fig":
 			await _start("learn")
 			var ls := _lesson_with(s.substr(7))
@@ -601,6 +605,58 @@ func _interaction_walk() -> void:
 	check("the card's ✕ leaves the lesson", L.key == null and not hud.lesson_card.is_visible_in_tree())
 	main.set_app_mode("sandbox")
 	await _steps(3)
+	await _observatory_walk()
+
+## The Observatory from the start screen: sites, the date controls, the clock, the
+## badges and the overlays, each through real input.
+func _observatory_walk() -> void:
+	var o: Observatory = main.observatory
+	main.quit_to_start()
+	await _steps(3)
+	await _click(_find("[data-start=observatory]"))
+	await _steps(5)
+	check("Observatory on the start screen enters the mode", main.state.app_mode == "observatory" and o.active
+		and main.state.cam_mode == "surface" and main.state.preset_key == "solar")
+	check("the Observatory section is the one shown", hud.section("Observatory").head.is_visible_in_tree()
+		and not hud.section("Bodies").head.is_visible_in_tree())
+	await _click(_find("[data-obs-rate=pause]"))
+	check("Pause stops the clock", main.state.paused)
+	for key in ObservatorySites.ORDER:
+		await _click(_find("[data-obs-site=%s]" % key))
+		check("%s button stands there" % key, o.site_key == key and is_equal_approx(o.lat, ObservatorySites.SITES[key].lat))
+	var lat0 := o.lat
+	await _drag(_find("obsLat"), 0.5, 0.8)
+	check("dragging Latitude makes a custom site", o.site_key == "custom" and o.lat > lat0)
+	var date := _find("obsDate") as LineEdit
+	await _click(date)
+	date.select_all()
+	await _type("2126-06-21")
+	await _key(KEY_ENTER)
+	await _steps(3)
+	var c := TimeScales.calendar(o.civil())
+	check("typing a date sets it (got %s)" % TimeScales.stamp(o.civil()), c[0] == 2126 and c[1] == 6 and c[2] == 21)
+	check("2126 is extrapolated", _text_of(_find("obsBadgeLabel")).to_lower() == "extrapolated")
+	var tod := o.civil()
+	await _drag(_find("obsTime"), 0.25, 0.75)
+	check("the time scrubber moves the time of day", absf(o.civil() - tod) > 0.1 and floorf(o.civil() - 0.5) == floorf(tod - 0.5))
+	await _drag(_find("obsYear"), 0.5, 0.95)
+	check("a year past 2126 is a heavy approximation", _text_of(_find("obsBadgeLabel")).to_lower() == "heavy approximation"
+		and _text_of(_find("obsBadgeNote")).contains("ΔT"))
+	await _click(_find("obsNow"))
+	check("Now returns to the present", absf(o.civil() - Observatory.now_jd()) < 0.01 and EarthFrame.era(EarthFrame.year_of(o.tt())) != "outside")
+	var lines := o.show_lines
+	await _click(_find("[data-obs-view=lines]"))
+	check("Figures toggles the stick figures", o.show_lines != lines and o.overlay.show_lines == o.show_lines)
+	await _click(_find("[data-obs-view=lines]"))
+	await _click(_find("[data-obs-face=E]"))
+	check("Face E turns the observer east", absf(angle_difference(main.observer.azimuth, -PI / 2.0)) < 1e-6)
+	await _click(_find("[data-obs-rate=3600x]"))
+	var t0 := o.tdb()
+	await _steps(30)
+	check("1 h/s runs the clock about an hour a second", not main.state.paused and (o.tdb() - t0) * 24.0 > 0.2)
+	main.set_app_mode("sandbox")
+	await _steps(3)
+	check("leaving the Observatory leaves the ground", not o.active and main.state.cam_mode != "surface" and not o.overlay.visible)
 
 ## Settings › Controls › Developer mode, its page, a jump and the quick controls.
 func _developer_walk() -> void:

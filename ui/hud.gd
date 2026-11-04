@@ -56,6 +56,10 @@ signal dev_action(action: String, arg)
 signal lesson_back()
 signal lesson_next()
 signal lesson_close()
+## The Observatory section: a site key, or an action ("now", "date", "rate", "view",
+## "face") with its argument; its sliders arrive through `slider` as "obs*" ids.
+signal obs_site(key: String)
+signal obs_action(action: String, arg)
 
 const T = preload("res://ui/theme.gd")
 
@@ -65,6 +69,7 @@ const SECTION_MODE := {
 	"Imaging Band": "sandbox", "View & Camera": "sandbox", "Time": "sandbox",
 	"Focused Object": "sandbox", "Object Foundry": "sandbox", "Painter": "sandbox",
 	"Spaceflight": "flight", "Quick Spawn": "sandbox", "Bodies": "sandbox",
+	"Observatory": "observatory",
 }
 const OPEN_BY_DEFAULT := {
 	"sandbox": ["Suns", "Imaging Band", "View & Camera", "Bodies"],
@@ -72,6 +77,7 @@ const OPEN_BY_DEFAULT := {
 	# opens with the two things lessons most often ask you to reach for.
 	"learn": ["Imaging Band", "View & Camera"],
 	"flight": ["Spaceflight"],
+	"observatory": ["Observatory"],
 }
 # the climate badge's colours per era
 const ERA := {
@@ -1124,6 +1130,8 @@ func _build_control_panel() -> void:
 	B(fr, "Toggle", "Exit flight", "flightExit").pressed.connect(func(): flight_exit.emit())
 	_hide(fr, "inline", true)
 
+	_build_observatory(b)
+
 	# Quick Spawn
 	s = _section(b, "Quick Spawn")
 	tr = grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
@@ -1143,6 +1151,68 @@ func _build_control_panel() -> void:
 	s.add_child(frame(list, {"bc": T.BORDER}))
 	reg("bodyList", list.content)
 	render_body_list([], -1)
+
+# The Observatory: site, date, clock, accuracy badge and overlays (sim/observatory/).
+func _build_observatory(b: Node) -> void:
+	var clock := L(null, "", {"fs": 10.0, "c": T.ACCENT_2, "ls": 0.5}, "obsClock")
+	var s := _section(b, "Observatory", [clock])
+	var sg := grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	for site in [["jodrell", "Jodrell Bank", "53.2° N, the Lovell Telescope's site: a circumpolar sky and short summer nights."],
+			["maunakea", "Mauna Kea", "19.8° N, 4145 m, Keck: near the equator, so most of both hemispheres' sky rises."],
+			["paranal", "Cerro Paranal", "24.6° S, 2635 m, the VLT: the southern sky, the Magellanic Clouds and the galactic centre overhead."],
+			["custom", "Custom", "Any latitude, longitude and height on the WGS-84 ellipsoid."]]:
+		B(sg, "Toggle", site[1], "[data-obs-site=%s]" % site[0], site[2]).pressed.connect(func(): obs_site.emit(site[0]))
+	m(L(s, "", {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.5}, "obsSite", true), 0.0, 8.0)
+	_row(s, "obsLat", "Latitude", "Geodetic latitude on WGS-84. Changing it makes this a custom site.", -90, 90, 0, 0.01, "0°")
+	_row(s, "obsLon", "Longitude", "East longitude. Changing it makes this a custom site.", -180, 180, 0, 0.01, "0°")
+	_row(s, "obsElev", "Height", "Height above the ellipsoid, m.", 0, 5000, 0, 1, "0 m")
+
+	m(L(s, "Date (UTC; UT before 1972)", ROW_LABEL), 6.0, 6.0)
+	var dr := hbox(s, 6.0, 0.0, 8.0)
+	var date := LineEdit.new()
+	date.placeholder_text = "YYYY-MM-DD [HH:MM]"
+	date.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	date.tooltip_text = "A calendar date, Gregorian from 1582 Oct 15 and Julian before; astronomical years (0 = 1 BC). Enter applies."
+	date.text_submitted.connect(func(t: String):
+		date.release_focus()
+		obs_action.emit("date", t))
+	dr.add_child(date)
+	reg("obsDate", date)
+	B(dr, "Toggle", "Now", "obsNow", "The present moment from this computer's clock").pressed.connect(func(): obs_action.emit("now", null))
+	_row(s, "obsYear", "Year", "1926–2126 is the supported range; outside it the sky is a heavy approximation.", 1000, 3000, 2026, 1, "2026")
+	_row(s, "obsDay", "Day of year", "Scrub through the seasons at the same time of day.", 1, 366, 1, 1, "1")
+	_row(s, "obsTime", "Time (UTC)", "Time of day on the civil date.", 0, 24, 0, 0.05, "00:00")
+	var rg := grid(s, [1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 10.0)
+	for r in [["pause", "Pause", "Stop the clock"], ["1x", "1×", "Real time"], ["60x", "1 min/s", "One minute per second"], ["3600x", "1 h/s", "One hour per second"]]:
+		B(rg, "TimeBtn", r[1], "[data-obs-rate=%s]" % r[0], r[2]).pressed.connect(func(): obs_action.emit("rate", r[0]))
+
+	var era: Dictionary = ERA["era-stable"]
+	var badge_l := L(null, "Measured", {"fs": 11.0, "ls": 2.0, "up": true, "c": era.c}, "obsBadgeLabel")
+	badge_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var badge := frame(badge_l, {"bc": era.c, "pad": [6, 6, 6, 6]})
+	s.add_child(m(badge, 0.0, 4.0))
+	reg("obsBadge", badge)
+	m(L(s, "", {"fs": 9.5, "c": T.TEXT_DIM, "lh": 1.5}, "obsBadgeNote", true), 0.0, 10.0)
+	var st := grid(s, [1.0], 10.0, 5.0, 0.0, 10.0)
+	for kv in [["TT", "obsTT"], ["ΔT = TT − UT1", "obsDeltaT"], ["sidereal time", "obsLST"], ["Sun altitude", "obsSun"], ["Moon altitude", "obsMoon"]]:
+		_stat(st, kv[0], kv[1])
+	var vg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	for v in [["lines", "Figures", "Constellation stick figures"], ["names", "Names", "Constellation names"], ["bounds", "Bounds", "IAU constellation boundaries"]]:
+		B(vg, "Toggle", v[1], "[data-obs-view=%s]" % v[0], v[2]).pressed.connect(func(): obs_action.emit("view", v[0]))
+	var fg := grid(s, [1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 6.0)
+	for f in [["N", 0.0], ["E", 90.0], ["S", 180.0], ["W", 270.0]]:
+		B(fg, "TimeBtn", "Face " + f[0], "[data-obs-face=%s]" % f[0]).pressed.connect(func(): obs_action.emit("face", f[1]))
+	_note(s, "Drag to look around, scroll to zoom. Weather, telescopes and terrain come in later phases; the sky here is cloudless.")
+
+## The accuracy badge: era is "measured", "extrapolated" or "outside".
+func set_obs_badge(era: String, text: String, note: String) -> void:
+	var look: Dictionary = ERA[{"measured": "era-stable", "extrapolated": "era-hot", "outside": "era-scorch"}.get(era, "era-stable")]
+	var l: Label = get_el("obsBadgeLabel")
+	if l != null and l.text != text:
+		l.text = text
+		T.apply_label(l, {"fs": 11.0, "ls": 2.0, "up": true, "c": look.c})
+		(get_el("obsBadge") as PanelContainer).add_theme_stylebox_override("panel", T.stylebox({"bc": look.c, "bg": look.bg, "pad": [6, 6, 6, 6]}))
+	set_text("obsBadgeNote", note)
 
 func _add_btn(parent: Node, sym: String, label: String, sel: String, tip := "") -> BoxButton:
 	var col := VBoxContainer.new()
@@ -1320,7 +1390,7 @@ func _build_start() -> void:
 	_start_inner.add_theme_constant_override("separation", 0)
 	_start_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	start_screen.add_child(_start_inner)
-	for c in [["sandbox", "Sandbox"], ["flight", "Spaceflight"], ["learn", "Learn"], ["settings", "Settings"]]:
+	for c in [["sandbox", "Sandbox"], ["flight", "Spaceflight"], ["learn", "Learn"], ["observatory", "Observatory"], ["settings", "Settings"]]:
 		var item := TitleItem.new(c[1])
 		_start_inner.add_child(item)
 		reg("[data-start=%s]" % c[0], item)
@@ -1415,6 +1485,7 @@ func _apply_body_classes() -> void:
 	var le := body.has("learn-mode")
 	var mo := body.has("model-open")
 	var hh := body.has("hud-hidden")
+	var ob := body.has("observatory-mode")
 	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout, flight_console_host]:
 		_hide(r, "hud", hh)
 	_hide(flight_console_host, "cls", not fl or mo)
@@ -1422,9 +1493,9 @@ func _apply_body_classes() -> void:
 	_hide(readout, "cls", fl)
 	# In flight mode the orrery's own instruments are gone, not folded: the
 	# scenario list, its tab and the cross-section.
-	_hide(scenario_panel, "cls", fl or le)
+	_hide(scenario_panel, "cls", fl or le or ob)
 	_hide(xsec_panel, "cls", fl)
-	_hide(tabs.scenarioPanel, "cls", fl or le)
+	_hide(tabs.scenarioPanel, "cls", fl or le or ob)
 	# ...and the flight panel's tab has nothing to reopen in the sandbox.
 	_hide(tabs.flightPanel, "cls", not fl)
 	_hide(course_panel, "cls", not le)
@@ -1469,6 +1540,7 @@ func set_app_mode(mode: String) -> void:
 	apply_section_modes(mode)
 	_set_body("flight-mode", mode == "flight")
 	_set_body("learn-mode", mode == "learn")
+	_set_body("observatory-mode", mode == "observatory")
 	_apply_body_classes()
 
 ## The studio takes the frame, and the tabs go with it.
