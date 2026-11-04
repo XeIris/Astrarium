@@ -352,8 +352,9 @@ func air() -> void:
 	near(SkyConditions.airmass(0.0), 38.0, 0.5, "airmass at the horizon")
 	near(SkyConditions.transmission(0.12, 1.0), 0.8954, 1e-3, "V extinction")
 	near(SkyConditions.v_of_nl(SkyConditions.nl_of_v(21.0)), 21.0, 1e-9, "surface brightness both ways")
-	# Krisciunas & Schaefer's zero: V = 21.587 is about 100 nL... their calibration, B(nL) at V = 21.6.
-	near(SkyConditions.nl_of_v(21.587), 79.0, 8.0, "the nL scale at a dark sky's V")
+	# The photometric scale, from outside Krisciunas & Schaefer: 10.8×10⁴ cd/m² at
+	# 0 mag/arcsec² in V (Crumey 2014, MNRAS 442, 2600), and 1 nL = 1e-5/π cd/m².
+	near(SkyConditions.nl_of_v(22.0), 10.8e4 * pow(10.0, -0.4 * 22.0) / (1e-5 / PI), 1.0, "the nL scale at 22 mag/arcsec²")
 	var c: Dictionary = SkyConditions.SITES.paranal
 	var dark := SkyConditions.sky_v(c, 90.0, -40.0, 0.0, 90.0, -30.0)
 	near(dark, 21.61, 1e-3, "Paranal's dark zenith")
@@ -403,6 +404,10 @@ func stars() -> void:
 	var want := (SkyField.density(18.0, lat) - SkyField.density(8.0, lat)) * area
 	print("IMAGINGCHECK faint field to V=18 at b=%.0f°: %d stars, expected %.0f" % [rad_to_deg(lat), a.size(), want])
 	near(float(a.size()) / want, 1.0, 0.12, "the faint field's count")
+	# A rank the catalogues already hold must not pile up at the boundary as a modelled star.
+	var v_min := INF
+	for s: Array in a: v_min = minf(v_min, s[1])
+	check(v_min > 8.0, "the faint field stays below the catalogues: its brightest is V %s" % v_min)
 	near(rad_to_deg(SkyField.galactic_lat(EarthFrame.radec_vec(deg_to_rad(266.405), deg_to_rad(-28.936)))), 0.0, 0.1, "the galactic centre's latitude")
 	var v_max := 0.0
 	for s: Array in a: v_max = maxf(v_max, s[1])

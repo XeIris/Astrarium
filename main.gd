@@ -1047,6 +1047,8 @@ func handle_pick(pos: Vector2) -> void:
 # SHUTDOWN. Bodies and visuals hold each other, and the post chain and lens
 # marcher own RenderingDevice RIDs, so tear down explicitly, in scenario-switch order.
 func _exit_tree() -> void:
+	# A frame on a worker reads the stage's statics; nothing may go while it runs.
+	if observatory != null: observatory.desk.finish()
 	if flight != null: flight.release()
 	if model_view != null: model_view.dispose()
 	clear_bodies()

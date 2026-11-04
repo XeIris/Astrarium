@@ -15,6 +15,11 @@ const MAPS := {"Moon": "moon-lro.jpg", "Mars": "mars-viking.jpg", "Jupiter": "ju
 static var _maps := {}
 static var _lut := PackedFloat32Array()
 
+## Load `names`' maps on the main thread, before a worker reads them: an exported build has
+## only the imported texture, whose get_image would wait on a frame the worker can't get.
+static func prepare(names: Array) -> void:
+	for n: String in names: _map(n)
+
 ## A map as linear luminance rows: {"d": PackedFloat32Array, "w", "h"}, or {} without one.
 static func _map(body_name: String) -> Dictionary:
 	if _maps.has(body_name): return _maps[body_name]

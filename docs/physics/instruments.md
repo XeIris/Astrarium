@@ -135,6 +135,12 @@ refused below the limit, with the Sun up or within 30° of it. Radio frames need
   only with Seeing at 0, and only on a fine enough pixel.
 - **Filters other than V**, and spectra; every source is V-band. So no star colours: frames are
   monochrome, as a single-filter frame is.
+- **Apparent places.** A frame uses the same geometric places as the sky view
+  ([observatory.md](observatory.md#from-a-civil-date-to-the-sky)), with no annual aberration
+  (≤ 20″), light deflection or planet light time (≤ 40″). At 0.1–0.25″ per pixel those are
+  hundreds of pixels, and the outer planets' mean elements are further still: Saturn is 0.16°
+  (572″) from Horizons at J2000, wider than FORS2's 408″ field. A frame of a planet is centred
+  on the model's planet. Its position against the catalogue's stars isn't the real one.
 - **Weather.** The sky is always clear. The radio band has no sky background, RFI or spillover.
 - **A real exposure's motion**: tracking errors, differential refraction, a planet's own motion
   and rotation during long frames.
@@ -155,7 +161,8 @@ refused below the limit, with the Sun up or within 30° of it. Radio frames need
   reported limit having SNR 5; sky-limited depth with exposure and aperture.
 - Saturation: nothing over the well, a bleed along the column and not the row, and a sky over
   the well reporting no limit.
-- Sky: airmass; the Moon's phase curve and scattering; twilight's fit; the nL scale.
+- Sky: airmass; the Moon's phase curve and scattering; twilight's fit; the nL scale against
+  the photometric 10.8×10⁴ cd/m² at 0 mag/arcsec² (from memory, like the other marked values).
 - The Moon: **Mare Crisium on the sky-west side**, the map's dark sea where the IAU axes put it,
   a waning crescent lit on the east, the lit fraction, the libration range.
 - Radio: Baars' fluxes; the beam; the radiometer equation; a source's peak in Jy/beam; a blank

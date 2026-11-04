@@ -319,6 +319,9 @@ func expose() -> String:
 	var c_site: Dictionary = SkyConditions.SITES.get(obs.site_key, SkyConditions.SITES.custom)
 	_seed += 1
 	var bodies := _bodies(c, r)
+	# The worker only reads these once they are loaded here.
+	PlanetDisc.prepare(bodies.map(func(b): return String(b.name)))
+	SkyField.prepare()
 	var tv := float(target.get("v", NAN))
 	# A resolved disc over the frame's centre has no star's aperture to report.
 	var ext := false
@@ -379,7 +382,7 @@ func release_hold() -> void:
 	sync()
 
 ## The command line's instrument options, once the frame exists: inst, target, exposure,
-## seeing, field, nd, hold (a frame first, then release the clock on a second) and expose.
+## seeing, field, nd and expose.
 func apply_cli(o: Dictionary) -> void:
 	if o.has("inst"): set_instrument(String(o.inst))
 	if o.has("exposure"): exposure = float(o.exposure)

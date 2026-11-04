@@ -44,6 +44,13 @@ func _initialize() -> void:
 	await view_keys()
 	await custom_height()
 	await running_clock()
+	await a_frame()
+	# Last, as it frees the stage: a frame in flight is waited out on the way down.
+	var desk: ObservatoryInstruments = stage.observatory.desk
+	check(desk.expose() == "", "a second frame starts")
+	root.remove_child(stage)
+	stage.free()
+	check(not desk.is_exposing(), "shutting down waits out a frame in flight")
 	print("OBSERVATORYSTAGECHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(0 if failures == 0 else 1)
 
@@ -202,3 +209,25 @@ func running_clock() -> void:
 	print("OBSERVATORYSTAGECHECK Moon off LunarTheory: worst %.4f° over 30 days; parallax now %.3f°" % [worst, parallax])
 	check(parallax > 0.0 and parallax < 1.1, "the Moon's parallax from the site: %.3f°" % parallax)
 	await sandbox()
+
+# A frame's maps and catalogues are loaded before its worker starts, since an exported
+# build's maps need the main thread: a worker asking would hang on a frame it can't get.
+func a_frame() -> void:
+	await enter()
+	var o: Observatory = stage.observatory
+	o.set_rate("pause")
+	o.set_site("paranal")
+	o.set_date_text("2026-11-05 08:30")
+	await frames(2)
+	var desk: ObservatoryInstruments = o.desk
+	desk.set_instrument("fors2")
+	desk.exposure = 0.01
+	desk.nd = 5.0
+	check(desk.set_target_text("Jupiter"), "Jupiter is a target")
+	PlanetDisc._maps.clear()
+	var why := desk.expose()
+	check(why == "", "Jupiter's frame starts: %s" % why)
+	check(PlanetDisc._maps.has("Jupiter"), "its map is on the main thread before the worker reads it")
+	check(not SkyField._v.is_empty(), "so are the catalogues")
+	desk.finish_into_frame()
+	check(not desk.frame.is_empty(), "the frame arrives")
