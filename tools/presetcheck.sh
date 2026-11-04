@@ -1,9 +1,11 @@
 #!/bin/sh
 # Attribute engine errors to the preset being rendered; reject incomplete runs.
+# Usage: presetcheck.sh [LOG [GODOT-OPTION...]]
 G=${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 LOG=${1:-/tmp/presetcheck.log}
-"$G" --path "$HERE" --resolution 960x540 -- mode=sandbox eval=_preset_check >"$LOG" 2>&1
+[ $# -gt 0 ] && shift
+"$G" --path "$HERE" --resolution 960x540 "$@" -- mode=sandbox eval=_preset_check >"$LOG" 2>&1
 status=$?
 awk '
   /PRESETCHECK BEGIN/ {k=$3; begins++; if(active) bad=1; active=k}
