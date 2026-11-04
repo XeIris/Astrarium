@@ -347,6 +347,31 @@ headless keeps them off the GPU when checks run in parallel. Beside another
 process's windowed checks, skycachecheck hit Metal fence timeouts or hung in both
 builds; alone it passed five of five runs in each.
 
+Why `rendered` draws one window at a time and floats it (`2fb0a0a`, Apple M5, 4 jobs).
+Two separate failures, each of which a run can hit:
+
+| `rendered` on `2fb0a0a` | runs | result |
+|---|---|---|
+| default jobs | 5 | all fail: 4 fence timeouts in skycachecheck, 1 hung to its 300 s limit |
+| default jobs, `--background` | 4 | all fail: fence timeouts in skycachecheck |
+| `--jobs 1` | 4 | all pass, 113 s |
+| windowed checks alone, `--background` | 4 | all fail: lenscheck's 60 s watchdog at 1 s CPU (3), skycachecheck hung (1) |
+| windowed checks alone | 4 | 3 pass; 1 hud-layout failure, not seen again |
+| alone and floating, default jobs or `--background` | 5 each | all pass, 106 s, no fence timeouts |
+| alone and floating, `--background`, opaque window kept in front | 1 | pass, 105 s |
+
+Fence timeouts follow windowed neighbours, not CPU load or overlap. skycachecheck
+got two in each of 4 runs beside three windowed checks, stacked or with no window
+fully covered, one in 12 runs beside one windowed check, and none in 3 runs alone
+or 4 runs beside ten busy loops. Its image comparisons still passed.
+
+Stalls follow covered windows. lenscheck with nothing else drawing passed 3 of 3
+uncovered in 1.2 s, stalled 3 of 3 under an opaque window at 0.8 s CPU, and with
+`--always-on-top` under the same window passed 3 of 3 in 1.2 s.
+
+The lifecycle checks still run side by side: 3 of 3 runs passed with no fence
+timeouts (about 140 s), and one more with `--background` and floating windows.
+
 Visual confirmation, windowed, 1280×720:
 
 | | before | after |

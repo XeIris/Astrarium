@@ -195,9 +195,11 @@ because headless Godot has no RenderingDevice. Under `--headless` the compute
 passes (`render/rd_util.gd`) allocate and dispatch nothing; a check that needs
 their output tests `RDU.available()` and fails. Godot activates itself
 as each window opens. On macOS, `--background` returns focus to the app you
-last used within about 50 ms of each activation. Checks keep rendering behind
-other windows, but not minimized or on a hidden Space, so the fullscreen M5
-gates reject it. Select additional suites,
+last used within about 50 ms of each activation. macOS stops drawing a fully
+covered window and a check awaiting a frame then stalls, so `rendered` and
+`lifecycle` windows float above other apps: keep typing, but expect them on
+screen, and don't minimize them or leave their Space. The fullscreen M5 gates
+reject `--background`. Select additional suites,
 for example `python3 tools/check.py fast native assets rendered lifecycle export`.
 The runner retains child logs and a JSON report, rejects errors, timeouts and
 missing completion markers, and starts nothing new after the first failure.
@@ -208,10 +210,12 @@ slower than in that report. `--list` prints the plan without running it.
 `--jobs N` runs up to N independent checks at once (default: the performance-core
 count; `--jobs 1` runs them one after another). Each keeps its own log and timeout,
 the longest start first, and results print and enter the report in suite order.
-Nothing runs beside the `fast` import or any check in `perf`, `m5-*`,
-`stability*`, `export` and `clean`; the `lifecycle` checks (one process per soak
-feature, plus the leak and shutdown checks) run beside each other only. Other
-checks' logged timings are taken under concurrent load.
+Nothing runs beside the `fast` import, a windowed check in `rendered` (they make
+each other's Metal fences time out) or any check in `perf`, `m5-*`, `stability*`,
+`export` and `clean`; the `lifecycle` checks (one process per soak feature, plus
+the leak and shutdown checks) run beside each other only. Other checks' logged
+timings are taken under concurrent load. Separate `check.py` runs do not
+coordinate, so run windowed suites from one at a time.
 
 While checks run, a terminal shows a live block: checks done of total, what is
 running against its usual time and timeout, and an estimate of the time left

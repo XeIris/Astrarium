@@ -157,14 +157,19 @@ def godot_path(value):
 
 def checks(suite, godot, output, repeat, export_preset):
     base = [godot, "--path", str(ROOT)]
+    # macOS stops drawing a fully covered window, and a check awaiting a frame then stalls at
+    # no CPU, so these float above other apps. The timing suites keep an ordinary window.
+    window = base + ["--always-on-top"] if suite in ("rendered", "lifecycle") else base
 
     def script(name, marker, *args, timeout=180):
         return Check(name, base + ["--headless", "--script", f"res://tools/{name}.gd", "--", *args], marker, timeout)
 
     # Windowed: only for checks that judge a rendered frame, read a GPU result or must
     # see SHADER ERRORs (printed on first render). The dummy renderer has none of these.
+    # Alone: beside other windowed checks Metal reports fence timeouts, and saturated CPUs
+    # do not cause them (measurements in docs/performance.md).
     def scene(name, marker, *args, timeout=300):
-        return Check(name, base + ["--resolution", "1280x720", f"res://tools/{name}.tscn", "--", *args], marker, timeout)
+        return Check(name, window + ["--resolution", "1280x720", f"res://tools/{name}.tscn", "--", *args], marker, timeout, alone=True)
 
     # Headless: the scene tree, visual nodes and their updates all run, nothing is drawn.
     def headless_scene(name, marker, *args, timeout=300):
@@ -269,8 +274,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
-        yield ("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log")],
-               r"^PRESETCHECK DONE 36$", 300)
+        yield Check("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log"), *window[len(base):]],
+                    r"^PRESETCHECK DONE 36$", 300, alone=True)  # windowed, like scene()
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
@@ -293,7 +298,7 @@ def checks(suite, godot, output, repeat, export_preset):
         # their fixed settle waits overlap; the counts are per process, as each feature's
         # rounds are compared only with its own first round.
         def lifecycle(name, method, marker, *args):
-            return Check(name, base + ["--verbose", "--resolution", "1280x720", "--", "mode=sandbox", "preset=solar", "rounds=5",
+            return Check(name, window + ["--verbose", "--resolution", "1280x720", "--", "mode=sandbox", "preset=solar", "rounds=5",
                                        f"eval={method}", *args], marker, 900, cost=40, alone="lifecycle")
         for feature in SOAK_FEATURES:
             yield lifecycle(f"_soak_check-{feature}", "_soak_check",
@@ -332,8 +337,7 @@ class FocusGuard:
     the user last had in front. One guard serves every running check; only
     processes in a registered check's own session match (wrapper scripts launch
     Godot as a grandchild), so other Godot windows, such as an open editor, are
-    left alone and never become the app to return to. Windowed rendering
-    continues behind."""
+    left alone and never become the app to return to."""
 
     def __init__(self):
         self.restored = {}  # check pid -> restorations
