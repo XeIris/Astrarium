@@ -10,8 +10,8 @@ const SHADER := preload("res://shaders/bodies/marker_point.gdshader")
 
 # Crossover band: above FADE_OUT_PX the mesh alone, below FADE_IN_PX the marker
 # alone, both between (the marker's core matches the disc it replaces).
-const FADE_IN_PX := 2.5
-const FADE_OUT_PX := 7.0
+const FADE_IN_PX := 1.0
+const FADE_OUT_PX := 3.0
 # Drawn size of the marker quad. The visible core is a small fraction of this;
 # the rest is the halo falloff, which needs room or it clips into a square.
 const MARKER_QUAD_PX := 14.0
@@ -98,7 +98,8 @@ func update(camera: Camera3D, pos_rel: Vector3, radius_scene: float, viewport_h:
 	if not mesh.visible:
 		return 0.0
 
-	mesh.position = pos_rel
+	# In front of the body's own mesh, whose depth would leave only the halo round the disc.
+	mesh.position = pos_rel + (cam_p - pos_rel).normalized() * radius_scene * 1.02
 	if not is_nan(magnitude):
 		# Radiance × pixel² of a sky star of this magnitude, spread over the marker's profile.
 		var pix_sr := pow(1.0 / _pixels_per_world_unit(1.0, fov_rad, viewport_h), 2.0)

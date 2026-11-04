@@ -162,7 +162,8 @@ refused below the limit, with the Sun up or within 30° of it. Radio frames need
 - Saturation: nothing over the well, a bleed along the column and not the row, and a sky over
   the well reporting no limit.
 - Sky: airmass; the Moon's phase curve and scattering; twilight's fit; the nL scale against
-  the photometric 10.8×10⁴ cd/m² at 0 mag/arcsec² (from memory, like the other marked values).
+  Crumey (2014, MNRAS 442, 2600, §1.3): 60⁴(180/π)² Z_V with Z_V = 2.54×10⁻⁶ lx is 1.08×10⁵ cd/m²
+  at 0 mag/arcsec², and 22 mag/arcsec² is his 1.71×10⁻⁴ cd/m².
 - The Moon: **Mare Crisium on the sky-west side**, the map's dark sea where the IAU axes put it,
   a waning crescent lit on the east, the lit fraction, the libration range.
 - Radio: Baars' fluxes; the beam; the radiometer equation; a source's peak in Jy/beam; a blank

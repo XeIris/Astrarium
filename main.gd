@@ -2008,7 +2008,7 @@ func _on_obs_action(action: String, arg) -> void:
 		"view":
 			observatory.set("show_" + String(arg), not bool(observatory.get("show_" + String(arg))))
 			observatory.sync_hud()
-		"face": observatory.look(float(arg), rad_to_deg(observer.elevation))
+		"face": observatory.face(float(arg))
 		"picker": observatory.open_picker()
 		"point": observatory.desk.set_target_text(String(arg))
 		"wide": observatory.wide()
@@ -3044,8 +3044,9 @@ func animate(dt: float) -> void:
 	var lamp: Body = state.suns[0].body if not state.suns.is_empty() else null
 	for b in state.bodies:
 		if b.marker == null or not drawn: continue
-		# The Observatory keeps the planets' markers: at true scale they are points.
-		if state.cam_mode == "surface" and not (observatory.active and b != home and b.type != "star"):
+		# The Observatory keeps the planets' markers: at true scale they are points. The Moon
+		# never is, and a point would hide its phase.
+		if state.cam_mode == "surface" and not (observatory.active and b != home and b.type != "star" and b.name != "Moon"):
 			b.marker.mesh.visible = false
 			continue
 		# The observer in AU: the camera's offset from the body, unscaled.

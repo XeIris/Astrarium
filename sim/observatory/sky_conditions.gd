@@ -12,6 +12,13 @@ const SITES := {
 	"custom": {"sky_v": 21.0, "k_v": 0.2, "seeing": 1.0},
 }
 
+## A clear day's zenith, V mag/arcsec²: the estimate twilight_v runs up to.
+const DAY_V := 4.0
+const EXPOSURE_POWER := 0.62
+const EXPOSURE_MAX := 300.0
+## The flight view's exposure ratio between night and a sunlit day.
+const DAY_STAR_GAIN := 1.0 / 400.0
+
 ## Kasten & Young (1989), altitude in degrees; finite to the horizon.
 static func airmass(alt_deg: float) -> float:
 	var z := 90.0 - clampf(alt_deg, 0.0, 90.0)
@@ -61,7 +68,25 @@ static func twilight_v(sun_alt: float) -> float:
 		var d := z - 95.0
 		return 11.84 + 1.518 * d - 0.057 * d * d
 	# From the fit's end at the Sun 5° down to +10° (day), about 0.5 mag per degree.
-	return clampf(11.84 + (z - 95.0) * 0.53, 4.0, 11.84)
+	return clampf(11.84 + (z - 95.0) * 0.53, DAY_V, 11.84)
+
+## The camera's exposure for the sunlit sky relative to a clear day's, from how much the
+## zenith dims. A power below 1, as an adapting eye or an exposure meter only partly follows
+## the light: the sky at sunset is about 70 times dimmer than by day but still looks bright.
+## The exponent is by eye. Capped near the end of civil twilight: past it, more exposure
+## would only show how little sunlit air is left.
+static func twilight_exposure(sun_alt: float) -> float:
+	var tw := twilight_v(sun_alt)
+	if not is_finite(tw): return EXPOSURE_MAX
+	return minf(pow(nl_of_v(DAY_V) / nl_of_v(tw), EXPOSURE_POWER), EXPOSURE_MAX)
+
+## How far a star's drawn flux falls with the sky's brightness: a threshold under the
+## square root of the background (de Vries–Rose) puts the limit near V 1–2 at the Sun's −6°,
+## down to the flight view's daylight exposure. `c` is a SITES row.
+static func star_gain(c: Dictionary, sun_alt: float) -> float:
+	var dark := nl_of_v(float(c.sky_v))
+	var tw := twilight_v(sun_alt)
+	return maxf(sqrt(dark / (dark + (nl_of_v(tw) if is_finite(tw) else 0.0))), DAY_STAR_GAIN)
 
 ## V mag/arcsec² at a target: the dark sky brightened along the slant (airglow's van
 ## Rhijn law, mostly), then twilight and moonlight added. `c` is a SITES row.

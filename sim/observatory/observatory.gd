@@ -16,6 +16,12 @@ const MIN_FOV := 1.0
 ## Simulated days the integration runs before the bodies are restated from their sources.
 ## Unchecked, the Moon leaves LunarTheory by 0.18° in 30 days; a day leaves 0.003° at most.
 const RESTATE_DAYS := 1.0
+## The drawn Moon's mean lit radiance per unit uGain, measured from its map and the Sun.
+const MOON_RADIANCE_PER_GAIN := 0.22
+## After dark: a disc this many pixels wide or smaller sits at MOON_NIGHT_MAX times the
+## shared exposure, and one ten times wider at the shared exposure. Both by eye.
+const MOON_NIGHT_PX := 80.0
+const MOON_NIGHT_MAX := 10.0
 
 var stage   # main.gd
 var active := false
@@ -62,6 +68,10 @@ var desk: ObservatoryInstruments
 var _prev_clock := {}
 var _prev_fov := 0.0
 var _restated_tt := NAN
+## The sky's exposure relative to day (SkyConditions.twilight_exposure), set each frame.
+var sky_exposure := 1.0
+## Cached RockyVisual.lit_fraction for the Moon, by whole degree of phase angle.
+var _moon_lit := {}
 
 func _init(main) -> void:
 	stage = main
@@ -96,7 +106,9 @@ func enter(opts: Dictionary = {}) -> void:
 	stage.observer.fov = 70.0
 	stage.observer.min_fov = MIN_FOV
 	look(float(opts.get("az", 180.0 if lat >= 0.0 else 0.0)), float(opts.get("alt", 28.0)))
-	if overlay: overlay.visible = true
+	if overlay:
+		overlay.visible = true
+		overlay.set_mask(stage.pipe.local_vp.get_texture())
 	sync_hud()
 	desk.follow_site()
 	if opts.get("picker", false):
@@ -122,6 +134,12 @@ func leave() -> void:
 		site_scene.dispose()
 		site_scene = null
 	SkyModel.apply_day_gain(stage.pipe.sky_materials, 1.0)
+	var mat: ShaderMaterial = stage.flight.local.sky_mat
+	mat.set_shader_parameter("uSkyExposure", 1.0)
+	mat.set_shader_parameter("uMoonR", 0.0)
+	mat.set_shader_parameter("uCoverMax", 1.0)
+	var moon_viz = _moon_viz()
+	if moon_viz != null: moon_viz.surf_mat.set_shader_parameter("uGain", RockyVisual.EXPOSURE)
 
 ## True while this mode's world is drawn in the flight pass.
 func local_pass() -> bool:
@@ -238,6 +256,12 @@ func _fade_step(dt: float) -> void:
 
 static func now_jd() -> float:
 	return Time.get_unix_time_from_system() / 86400.0 + JD_UNIX
+
+## The panel's Face buttons: stop following and turn to `az_deg`, at the same altitude.
+func face(az_deg: float) -> void:
+	tracking = ""
+	tracking_dir = null
+	look(az_deg, rad_to_deg(stage.observer.elevation))
 
 ## Face compass azimuth `az_deg` (from north through east) at altitude `alt_deg`.
 func look(az_deg: float, alt_deg: float) -> void:
@@ -418,10 +442,52 @@ func _drive_local(dt: float) -> void:
 	local._set_ambient(lerpf(0.012, 0.75, smoothstep(-0.2, 0.1, sun_local.y)))
 	site_scene.light(fr.sun_local, maxf(_local_pos.y - site_scene.patch_y, 1.0))
 	site_scene.animate(dt)
-	# The stars dim against the day as a camera's exposure closes, as in flight.
-	var want := 1.0 / (1.0 + 400.0 * float(fr.get("sun_visible", 0.0)))
+	var sun_alt := rad_to_deg(asin(clampf(sun_local.y, -1.0, 1.0)))
+	sky_exposure = SkyConditions.twilight_exposure(sun_alt)
+	local.sky_mat.set_shader_parameter("uSkyExposure", sky_exposure)
+	local.sky_mat.set_shader_parameter("uCoverMax", ConstellationOverlay.COVER_MAX)
+	# The stars dim against the sky as a camera's exposure closes.
+	var row: Dictionary = SkyConditions.SITES.get(site_key, SkyConditions.SITES.custom)
+	var want := SkyConditions.star_gain(row, sun_alt)
 	_sky_gain += (want - _sky_gain) * (1.0 - exp(-maxf(dt, 0.0) / 0.8))
 	SkyModel.apply_day_gain(stage.pipe.sky_materials, _sky_gain)
+	var moon: Body = stage.state.body_named("Moon")
+	if moon == null: return
+	var seen: DVec3 = moon.scene_pos.sub(stage.cam_pos)
+	var dist := seen.length()
+	var to_moon: DVec3 = to_flight.call(EarthFrame.from_scene(seen).normalized())
+	local.sky_mat.set_shader_parameter("uMoonDir", Vector3(to_moon.dot(fr.east), to_moon.dot(fr.up), to_moon.dot(fr.north)))
+	local.sky_mat.set_shader_parameter("uMoonR", atan(moon.radius_scene / maxf(dist, 1e-30)))
+	_expose_moon(moon, dist)
+
+## The drawn Moon's surface gain. By day its whole disc adds the flux of its V on the sky's
+## own scale (radiance per unit solar irradiance, times SkyMS.GAIN), so a crescent is as faint
+## against the blue as a real one. After dark the eye adapts to the Moon: a small disc is held
+## bright enough to read, easing to the shared exposure as it fills the frame.
+func _expose_moon(moon: Body, dist: float) -> void:
+	var viz = _moon_viz()
+	if viz == null: return
+	var sun: Body = stage.state.body_named("Sun")
+	var obs: DVec3 = moon.pos.add(stage.cam_pos.sub(moon.scene_pos).scaled(1.0 / stage.state.scene_scale))
+	var v := Marker.apparent_magnitude(moon, obs, sun)
+	var alpha := acos(clampf(sun.pos.sub(moon.pos).normalized().dot(obs.sub(moon.pos).normalized()), -1.0, 1.0))
+	var key := int(rad_to_deg(alpha))
+	if not _moon_lit.has(key): _moon_lit[key] = RockyVisual.lit_fraction(deg_to_rad(float(key) + 0.5))
+	var ang := atan(moon.radius_scene / maxf(dist, 1e-30))
+	var flux := SkyMS.GAIN * pow(10.0, -0.4 * (v - Marker.M_SUN_V))
+	var radiance: float = flux / (PI * ang * ang * maxf(float(_moon_lit[key]), 1e-3))
+	var by_day := maxf(radiance / MOON_RADIANCE_PER_GAIN, 1e-3) * sky_exposure
+	var px := Marker._apparent_pixels(moon.radius_scene, dist, deg_to_rad(stage.cam_fov), float(stage.pipe.view_size.y))
+	var by_night := RockyVisual.EXPOSURE * clampf(MOON_NIGHT_PX / maxf(px, 1.0), 1.0, MOON_NIGHT_MAX)
+	# In log gain, over the stars' own fall against the sky: 0 at night, 1 at daylight's.
+	var w := clampf(log(_sky_gain) / log(SkyConditions.DAY_STAR_GAIN), 0.0, 1.0)
+	viz.surf_mat.set_shader_parameter("uGain", exp(lerpf(log(by_night), log(by_day), w)))
+
+func _moon_viz():
+	var moon: Body = stage.state.body_named("Moon")
+	var viz = moon.viz if moon != null else null
+	if viz is Bodies.AccretionWrap: viz = viz.inner
+	return viz if viz is RockyVisual.RockyViz else null
 
 ## Compass azimuth and altitude (degrees) of body `name` from scene position `eye`.
 func target_azalt(name: String, eye: DVec3) -> Dictionary:
@@ -497,12 +563,9 @@ func update(dt: float) -> void:
 	_camera_step(dt)
 	if picking: _fade_step(dt)
 	_drive_local(dt)
-	var moon: Body = stage.state.body_named("Moon")
-	var moon_viz = moon.viz if moon != null else null
-	if moon_viz is Bodies.AccretionWrap: moon_viz = moon_viz.inner
-	if moon_viz is RockyVisual.RockyViz:
-		# The orrery's lock has no librations; the instrument frames use these axes.
-		(moon_viz as RockyVisual.RockyViz).hold_surface(PlanetDisc.mesh_basis("Moon", tdb()))
+	var moon_viz = _moon_viz()
+	# The orrery's lock has no librations; the instrument frames use these axes.
+	if moon_viz != null: moon_viz.hold_surface(PlanetDisc.mesh_basis("Moon", tdb()))
 	if not picking: desk.update(dt)
 	if overlay:
 		overlay.set_reticle(_reticle_dir(), String(desk.target.get("name", "")))
