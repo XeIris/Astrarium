@@ -3,7 +3,8 @@
 Code: `sim/observatory/` (`earthframe.gd`, `lunar.gd`, `observatory.gd`, `sites.gd`,
 `facilities.gd`, `site_scene.gd`, `site_fallback.gd`, `constellation_overlay.gd`, and the
 generated `deltat.gd` and `nutation2000b.gd`), `ui/site_picker.gd`, and the models in
-`model_sources/blender/observatories.py`. Check: `tools/observatorycheck.gd`.
+`model_sources/blender/observatories.py`. Check: `tools/observatorycheck.gd`. Its simulated
+telescopes are in [instruments.md](instruments.md).
 
 The Observatory mode is the `solar` preset seen from the ground. It sets a civil date,
 stands the camera on Earth's WGS-84 surface at a site, and turns the observer with

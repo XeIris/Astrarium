@@ -302,6 +302,7 @@ func _soak_check() -> void:
 			for step in 3:
 				o.picker_step(1)
 				for i in 40: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
 			o.observe()
 			for key in ObservatorySites.ORDER:
 				o.set_site(key)
@@ -313,7 +314,27 @@ func _soak_check() -> void:
 			for v in ["lines", "names", "bounds"]: stage._on_obs_action("view", v)
 			o.set_rate("3600x")
 			for i in 10: stage.animate(1.0 / 60.0)
+			await _drawn_frame()
 			for v in ["lines", "names", "bounds"]: stage._on_obs_action("view", v)
+			# The desk: an optical frame held beside a radio map, and away again.
+			o.set_rate("pause")
+			o.set_site("paranal")
+			o.set_date_text("2026-11-05 02:00")
+			for i in 3: stage.animate(1.0 / 60.0)
+			o.desk.set_instrument("fors2")
+			o.desk.exposure = 0.01
+			o.desk.nd = 5.0
+			o.desk.set_target_text("Saturn")
+			o.desk.expose()
+			o.desk.finish_into_frame()
+			o.desk.hold()
+			o.desk.set_instrument("lovell_l")
+			o.desk.set_target_text("Cas A")
+			o.desk.expose()
+			o.desk.finish_into_frame()
+			for i in 3: stage.animate(1.0 / 60.0)
+			await _drawn_frame()
+			o.desk.release_hold()
 			stage.set_app_mode("sandbox"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame

@@ -238,7 +238,7 @@ static func _pivot(node: Node3D, stage: String, part: String) -> Node3D:
 	return node.find_child("door_%s_%s" % [stage, part], true, false) as Node3D
 
 ## Set a structure's moving parts: az and dome (compass °), el (°), open and slide.
-func _pose(node: Node3D, stage: String, pose: Dictionary) -> void:
+static func _pose(node: Node3D, stage: String, pose: Dictionary) -> void:
 	var az := _pivot(node, stage, "az")
 	if az != null and pose.has("az"): az.rotation.y = -deg_to_rad(float(pose.az))
 	var el := _pivot(node, stage, "el")
@@ -259,12 +259,29 @@ func _pose(node: Node3D, stage: String, pose: Dictionary) -> void:
 		door_l.position.x = -float(pose.get("slide", 0.0))
 		door_r.position.x = float(pose.get("slide", 0.0))
 
+## Point part `i` at compass azimuth `az` and elevation `el` (degrees), with its enclosure,
+## in place of its idle sway.
+func aim(i: int, az: float, el: float) -> void:
+	if i < 0 or i >= parts.size(): return
+	var p: Dictionary = parts[i]
+	p.aimed = true
+	aim_pose(p.node, p.stage, p.pose, az, el)
+
+## `node`'s moving parts for that pointing. The structure's own yaw turns its az pivot with it.
+static func aim_pose(node: Node3D, stage: String, base: Dictionary, az: float, el: float) -> void:
+	var live := base.duplicate()
+	live.az = az + rad_to_deg(node.rotation.y)
+	live.el = el
+	if live.has("dome"): live.dome = live.az
+	if stage.begins_with("keck"): live.open = 1.0
+	_pose(node, stage, live)
+
 ## Per frame while the facility is on show: the telescopes keep working.
 func animate(dt: float) -> void:
 	_time += dt
 	for p: Dictionary in parts:
 		var pose: Dictionary = p.pose
-		if not pose.has("el"): continue
+		if not pose.has("el") or p.get("aimed", false): continue
 		var live := pose.duplicate()
 		live.el = float(pose.el) + 6.0 * sin(_time * 0.11)
 		if pose.has("az"): live.az = float(pose.az) + 12.0 * sin(_time * 0.07)

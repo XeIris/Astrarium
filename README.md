@@ -41,7 +41,8 @@ IAU 2006 precession, IAU 2000B nutation and measured ΔT, and the catalogue star
 move with their proper motions. Constellation figures, names and IAU boundaries
 are an overlay. The years 1926–2126 are supported; a badge says when ΔT is a
 forecast and, outside that range, that the sky is a heavy approximation and why
-([observatory.md](docs/physics/observatory.md)).
+([observatory.md](docs/physics/observatory.md)), and simulated telescopes that take frames
+of the sky at a real instrument's plate scale ([instruments.md](docs/physics/instruments.md)).
 
 **Spaceflight** opens on the hangar. The craft stands on the studio turntable,
 the line-up runs down the left, and a card gives the craft's numbers and the
@@ -146,6 +147,7 @@ and its `SIM` console handle:
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
 | `mode=sandbox\|learn\|flight\|observatory` | skip the start screen and load that mode |
 | `site=jodrell\|maunakea\|paranal`, `date=2026-12-21T00:00`, `look=180,30`, `rate=pause\|1x\|60x\|3600x`, `view=lines,names,bounds\|none`, `point=Jupiter`, `picker=1 orbit=0.3` | with `mode=observatory`: the site, the UTC date and time, the compass azimuth and altitude to face (degrees), the clock rate, the overlays shown, the body to follow at its true size, and opening on the picker at a point in its film |
+| `inst=fors2\|deimos\|omegacam\|lovell_l`, `target=Saturn`, `exposure=30`, `seeing=0.7`, `field=pixels\|wide\|full`, `nd=0\|5\|10`, `expose=1` | with `mode=observatory`: the instrument desk. `target` is a body, a bright star, a radio source or coordinates; `expose=1` takes a frame |
 | `title=hole\|launch\|jupiter` | hold the title on one reel shot (for screenshots); `title=0` shows it over the bare sky |
 | `craft=saturnv\|falcon9\|shuttle\|starship` | select a launcher when starting flight mode |
 | `scenario=shuttle:peak_heating` | jump straight into a flight scenario (`vehicle:id`, listed in [sim/flight/scenarios.gd](sim/flight/scenarios.gd)); with `frames=… out=…` the frames count from the hand-over, and an unknown or failed scenario exits 1 |
@@ -336,6 +338,8 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/skyshots.tscn` | the flight sky from a pad on any body with the sun at a chosen elevation (`shots=body:lat:sunel:look`, `kp=` for a storm), through the real renderer |
 | `tools/build_lunar_gravity.py` | writes `sim/flight/lunar_gravity.gd`, the Moon's field to degree 16 from GRAIL's GL0420A (`jggrx_0420a_sha.tab`, PDS Geosciences; the first 64 KB suffice) |
 | `tools/build_starcat.py` | builds `assets/sky/bsc5.bin` (the Yale Bright Star Catalogue, V < 6.5) for the `solar` sky from HEASARC's BSC5P table, or from a local copy given as its argument; rejects a parse of fewer than 9000 stars |
+| `tools/imagingcheck.gd` | the simulated instruments (headless): the first dark ring at 1.22 λ/D in a frame's pixels, seeing against 0.98 λ/r0, the annular OTF against the pupil's autocorrelation, SNR against the CCD equation by Monte Carlo, noise statistics, saturation and bleed, the sky models, the Moon's orientation, radio fluxes and the radiometer equation ([instruments.md](docs/physics/instruments.md#checks)) |
+| `tools/instruments_demo.tscn` | a scripted tour of the instruments for video: `--write-movie /abs/demo.avi --fixed-fps 30` records it |
 | `tools/observatorycheck.gd` | the Observatory's sky on a date (headless): the IAU SOFA test vectors for the obliquity, precession angles, IAU 2000B nutation, Earth rotation angle and GMST; ΔT's seams, badges and uncertainty; civil time through TT and back; Polaris's mean altitude equal to each site's latitude in 1926, 2026 and 2126; the solstice noon Sun at the three sites; a bright star's rise and transit and the orrery's bodies against published values ([observatory.md](docs/physics/observatory.md#checks)) |
 | `tools/observatorystagecheck.gd` | the Observatory on the real stage (headless): the scenario list and view keys, what leaving restores, star epochs on re-entry, and the Moon staying on its theory over 30 days at the clock ([observatory.md](docs/physics/observatory.md#checks)) |
 | `tools/observatory_demo.tscn` | a scripted tour of the Observatory for video: `--write-movie /abs/demo.avi --fixed-fps 30` records it |

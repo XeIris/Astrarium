@@ -40,6 +40,9 @@ func _init() -> void:
 	visible = false
 	_load()
 
+var _reticle = null
+var _reticle_name := ""
+
 func _load() -> void:
 	if not FileAccess.file_exists(DATA): return
 	var d = JSON.parse_string(FileAccess.get_file_as_string(DATA))
@@ -72,6 +75,11 @@ func set_epoch(to_year: float) -> void:
 				float(s[o + 2]), float(s[o + 3]), 2000.0, to_year)
 			_figure[i * 2 + e] = EarthFrame.to_scene(p).to_v3()
 
+## The instrument's target as a scene direction and its name; null hides it.
+func set_reticle(d, label: String) -> void:
+	_reticle = d
+	_reticle_name = label
+
 ## Per frame: the scene camera's basis and vertical field of view (degrees), and the
 ## observer's zenith in scene axes.
 func place(basis: Basis, fov_deg: float, up: Vector3, on: bool) -> void:
@@ -79,7 +87,7 @@ func place(basis: Basis, fov_deg: float, up: Vector3, on: bool) -> void:
 	_tan = tan(deg_to_rad(fov_deg) * 0.5)
 	_up = up
 	_on = on
-	visible = on and (show_lines or show_names or show_bounds) and count > 0
+	visible = on and (show_lines or show_names or show_bounds or _reticle != null) and (count > 0 or _reticle != null)
 	if visible: queue_redraw()
 
 ## Screen position of scene direction `d`, or null behind the camera.
@@ -111,6 +119,15 @@ func _segments(dirs: PackedVector3Array, out: PackedVector2Array, pieces: int) -
 
 func _draw() -> void:
 	if not _on: return
+	if _reticle != null and (_reticle as Vector3).dot(_up) > 0.0:
+		var rp = project(_reticle)
+		if rp != null:
+			var col := Color(1.0, 0.82, 0.45, 0.9)
+			var o: Vector2 = rp
+			for k in 4:
+				var a := Vector2.RIGHT.rotated(k * PI * 0.5)
+				draw_line(o + a * 9.0, o + a * 16.0, col, 1.4, true)
+			draw_string(get_theme_default_font(), o + Vector2(20.0, 4.0), _reticle_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
 	if show_bounds and not _bounds.is_empty():
 		var pts := PackedVector2Array()
 		_segments(_bounds, pts, 1)

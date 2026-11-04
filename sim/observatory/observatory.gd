@@ -52,7 +52,12 @@ var _veil := 0.0
 var sun_local := Vector3.UP
 ## The body the view follows as the sky turns, "" for none.
 var tracking := ""
+## Or the J2000 direction it follows, for a star or coordinates; null for none.
+var tracking_dir: DVec3 = null
 var _point_next := ""
+var _desk_next := {}
+## The instrument desk.
+var desk: ObservatoryInstruments
 ## The stage's clock and observer settings as the mode found them, restored by leave().
 var _prev_clock := {}
 var _prev_fov := 0.0
@@ -60,6 +65,7 @@ var _restated_tt := NAN
 
 func _init(main) -> void:
 	stage = main
+	desk = ObservatoryInstruments.new(self)
 	set_site(site_key)
 
 ## Load the solar preset if needed and stand at the site on `jd` (civil, UTC from
@@ -92,14 +98,17 @@ func enter(opts: Dictionary = {}) -> void:
 	look(float(opts.get("az", 180.0 if lat >= 0.0 else 0.0)), float(opts.get("alt", 28.0)))
 	if overlay: overlay.visible = true
 	sync_hud()
+	desk.follow_site()
 	if opts.get("picker", false):
 		open_picker()
 		_orbit = float(opts.get("orbit", 0.0))
 	elif opts.has("point"):
 		_point_next = String(opts.point)
+	_desk_next = opts
 
 func leave() -> void:
 	active = false
+	desk.finish()
 	stage.observer.min_fov = SkyView.SurfaceObserver.MIN_FOV
 	if picking: _close_picker()
 	# Only while it is the home world does the stage hide or show it.
@@ -125,6 +134,7 @@ func open_picker() -> void:
 	if site_key == "custom": set_site(ObservatorySites.ORDER[0])
 	picking = true
 	tracking = ""
+	tracking_dir = null
 	stage.hud.set_panel_open("controlPanel", false)
 	stage.hud.set_obs_picking(true)
 	if overlay: overlay.visible = false
@@ -163,7 +173,9 @@ func observe() -> void:
 	if not picking: return
 	_close_picker()
 	tracking = ""
+	tracking_dir = null
 	stage.hud.set_panel_open("controlPanel", true)
+	stage.hud.set_panel_open("instrumentPanel", true)
 	stage.hud.set_section_open(stage.hud.section("Observatory"), true)
 	set_civil(now_jd())
 	set_rate("60x")
@@ -238,7 +250,9 @@ func set_site(key: String) -> void:
 	var s: Dictionary = ObservatorySites.SITES[key]
 	lat = s.lat; lon = s.lon; h = s.h
 	if site_scene != null: site_scene.build(key)
-	if active: sync_hud()
+	if active:
+		desk.follow_site()
+		sync_hud()
 
 ## A custom site; NaN keeps that coordinate.
 func set_custom(la: float, lo: float, he: float) -> void:
@@ -247,7 +261,9 @@ func set_custom(la: float, lo: float, he: float) -> void:
 	if not is_nan(lo): lon = wrapf(lo, -180.0, 180.0)
 	if not is_nan(he): h = clampf(he, -500.0, 9000.0)
 	if site_scene != null: site_scene.build("")
-	if active: sync_hud()
+	if active:
+		desk.follow_site()
+		sync_hud()
 
 func set_rate(key: String) -> void:
 	if not RATES.has(key): return
@@ -356,6 +372,9 @@ func place(observer: SkyView.SurfaceObserver, earth: Body, camera: Camera3D) -> 
 		else:
 			observer.azimuth = -deg_to_rad(d.az)
 			observer.elevation = deg_to_rad(d.alt)
+	elif tracking_dir != null and not picking:
+		observer.azimuth = -EarthFrame.azimuth(frame, tracking_dir)
+		observer.elevation = EarthFrame.altitude(frame, tracking_dir)
 	observer.update_fixed(up.to_v3(), north.to_v3(), eye, camera)
 	var u := up.to_v3().normalized()
 	var nv := north.to_v3()
@@ -420,14 +439,38 @@ func point_at(name: String) -> void:
 		stage.toast("%s is below the horizon (%+.0f°) at this site and time." % [name, d.alt], 3500)
 		return
 	tracking = name
+	tracking_dir = null
 	var b: Body = stage.state.body_named(name)
 	var dist: float = b.scene_pos.distance_to(stage.cam_pos) / stage.state.scene_scale
 	var ang_deg := rad_to_deg(atan(b.radius / maxf(dist, 1e-9)))
+	# Most planets stop at the camera's floor, where Jupiter's true disc is about 10 pixels.
 	stage.observer.fov = clampf(ang_deg * 2.0 * 3.0, MIN_FOV, 70.0)
+
+## Slew to J2000 direction `d` and follow it, at `fov_deg`. Refuses it below the horizon.
+func point_dir(d: DVec3, fov_deg := 4.0) -> void:
+	var a := rad_to_deg(EarthFrame.altitude(frame, d)) if not frame.is_empty() else 0.0
+	if a < 0.0:
+		stage.toast("That is below the horizon (%+.0f°) at this site and time." % a, 3500)
+		return
+	tracking = ""
+	tracking_dir = d
+	stage.observer.fov = clampf(fov_deg, MIN_FOV, 70.0)
+
+## A click on the sky chooses what the telescope points at; the view stays where it is.
+func sky_click(pos: Vector2, view: Vector2) -> void:
+	if frame.is_empty() or not desk.has_instrument(): return
+	var t := tan(deg_to_rad(stage.cam_fov) * 0.5)
+	var ray := Vector3((pos.x / view.x * 2.0 - 1.0) * t * view.x / view.y, (1.0 - pos.y / view.y * 2.0) * t, -1.0)
+	var world: Vector3 = stage.cam_basis * ray.normalized()
+	var d := EarthFrame.from_scene(DVec3.from_v3(world)).normalized()
+	if EarthFrame.altitude(frame, d) < 0.0: return
+	# About twelve pixels of slack, whatever the zoom.
+	desk.pick(d, atan(t * 24.0 / view.y))
 
 ## Back to the wide view, still facing the same way.
 func wide() -> void:
 	tracking = ""
+	tracking_dir = null
 	stage.observer.fov = 70.0
 
 ## A scene direction's altitude (rad) at the site.
@@ -448,10 +491,15 @@ func update(dt: float) -> void:
 	if _point_next != "" and not frame.is_empty():
 		point_at(_point_next)
 		_point_next = ""
+	if not _desk_next.is_empty() and not frame.is_empty():
+		desk.apply_cli(_desk_next)
+		_desk_next = {}
 	_camera_step(dt)
 	if picking: _fade_step(dt)
 	_drive_local(dt)
+	if not picking: desk.update(dt)
 	if overlay:
+		overlay.set_reticle(_reticle_dir(), String(desk.target.get("name", "")))
 		overlay.show_lines = show_lines
 		overlay.show_names = show_names
 		overlay.show_bounds = show_bounds
@@ -461,6 +509,11 @@ func update(dt: float) -> void:
 	_hud_acc = 0.0
 	_refresh_stars()
 	_readouts()
+
+## The desk's target in scene axes, or null with none.
+func _reticle_dir():
+	var d = desk.target_dir()
+	return null if d == null or picking else EarthFrame.to_scene(d).to_v3()
 
 # THE PANEL
 

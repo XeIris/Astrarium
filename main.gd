@@ -1039,11 +1039,16 @@ func _view_size() -> Vector2:
 
 func handle_pick(pos: Vector2) -> void:
 	if state.cam_mode == "flight": return
+	if observatory.active and state.cam_mode == "surface":
+		if not observatory.picking: observatory.sky_click(pos, _view_size())
+		return
 	set_follow(cam.pick(state.bodies, pos, _view_size(), cam_fov, cam_basis))
 
 # SHUTDOWN. Bodies and visuals hold each other, and the post chain and lens
 # marcher own RenderingDevice RIDs, so tear down explicitly, in scenario-switch order.
 func _exit_tree() -> void:
+	# A frame on a worker reads the stage's statics; nothing may go while it runs.
+	if observatory != null: observatory.desk.finish()
 	if flight != null: flight.release()
 	if model_view != null: model_view.dispose()
 	clear_bodies()
@@ -1103,6 +1108,7 @@ func _unhandled_input(e: InputEvent) -> void:
 			var k: float = observer.fov / 62.0 * 0.0032
 			observer.look(-dx * k, -dy * k)
 			observatory.tracking = ""
+			observatory.tracking_dir = null
 		else:
 			cam.drag_free(dx, dy)
 	elif e is InputEventKey:
@@ -2004,8 +2010,23 @@ func _on_obs_action(action: String, arg) -> void:
 			observatory.sync_hud()
 		"face": observatory.look(float(arg), rad_to_deg(observer.elevation))
 		"picker": observatory.open_picker()
-		"point": observatory.point_at(String(arg))
+		"point": observatory.desk.set_target_text(String(arg))
 		"wide": observatory.wide()
+		"inst": observatory.desk.set_instrument(String(arg))
+		"target":
+			if not observatory.desk.set_target_text(String(arg)): toast("No such target: try a planet, a bright star, Cyg A, or RA and Dec.", 3500)
+		"expose":
+			var why := observatory.desk.expose()
+			if why != "": toast(why, 3500)
+		"hold":
+			if observatory.desk.held.is_empty(): observatory.desk.hold()
+			else: observatory.desk.release_hold()
+		"field":
+			observatory.desk.field = String(arg)
+			observatory.desk.sync()
+		"nd":
+			observatory.desk.nd = float(arg)
+			observatory.desk.sync()
 
 func _on_obs_slider(id: String, v: float) -> void:
 	match id:
@@ -2015,6 +2036,12 @@ func _on_obs_slider(id: String, v: float) -> void:
 		"obsYear": observatory.set_year(int(v))
 		"obsDay": observatory.set_day_of_year(v)
 		"obsTime": observatory.set_time_of_day(v)
+		"obsExposure":
+			observatory.desk.exposure = pow(10.0, v)
+			observatory.desk.sync()
+		"obsSeeing":
+			observatory.desk.seeing = v
+			observatory.desk.sync()
 
 ## The Observatory's command-line options: site=<key>, date=<YYYY-MM-DD[THH:MM]>
 ## (UTC), look=<az>,<alt> (degrees), rate=pause|1x|60x|3600x, view=<the overlays
@@ -2027,6 +2054,9 @@ func _observatory_cli() -> Dictionary:
 	if _cmd.has("view"): o.view = String(_cmd.view).split(",", false)
 	if _cmd.has("orbit"): o.orbit = float(_cmd.orbit)
 	if _cmd.has("point"): o.point = String(_cmd.point)
+	for k in ["inst", "target", "exposure", "seeing", "field", "nd"]:
+		if _cmd.has(k): o[k] = _cmd[k]
+	if _cmd.get("expose", "0") == "1": o.expose = true
 	if _cmd.has("look"):
 		var p := String(_cmd.look).split(",")
 		o.az = float(p[0])
