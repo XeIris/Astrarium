@@ -22,6 +22,10 @@ def check(path: Path) -> int:
                      ".godot/global_script_class_cache.cfg", "native/astrarium_native.gdextension"):
             if name not in names:
                 failures.append(f"missing boot resource: {name}")
+        # Read as plain files at runtime, so only the include filter puts them in the pack.
+        for site in ("jodrell", "maunakea", "paranal"):
+            if f"assets/sites/{site}.terrain" not in names:
+                failures.append(f"missing site terrain: assets/sites/{site}.terrain")
     for failure in failures:
         print(f"EXPORTCHECK FAIL {failure}", file=sys.stderr)
     print(f"EXPORTCHECK {'FAIL' if failures else 'PASS'}: {len(names)} entries, "

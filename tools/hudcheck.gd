@@ -705,7 +705,10 @@ func _observatory_walk() -> void:
 	await _click(_find("[data-obs-view=lines]"))
 	await _click(_find("[data-obs-face=E]"))
 	check("Face E turns the observer east", absf(angle_difference(main.observer.azimuth, -PI / 2.0)) < 1e-6)
-	# Point at the highest of the planets right now, then back to the wide view.
+	# Point at the highest of the planets on a night with several up, then back to the wide view.
+	o.set_site("paranal")
+	o.set_date_text("2026-11-05 08:30")
+	await _steps(2)
 	var best := ""
 	var best_alt := 0.0
 	for pn in ["Moon", "Venus", "Mars", "Jupiter", "Saturn"]:
@@ -713,12 +716,12 @@ func _observatory_walk() -> void:
 		if float(azalt.alt) > best_alt:
 			best_alt = azalt.alt
 			best = pn
-	if best != "":
-		await _click(_find("[data-obs-point=%s]" % best))
-		await _steps(3)
-		var on: Dictionary = o.target_azalt(best, main.cam_pos)
-		check("Point at centres %s" % best, o.tracking == best and main.observer.fov < 20.0
-			and absf(angle_difference(deg_to_rad(on.az), -main.observer.azimuth)) < 0.01 and absf(deg_to_rad(on.alt) - main.observer.elevation) < 0.01)
+	check("a planet is up for Point at", best != "")
+	await _click(_find("[data-obs-point=%s]" % best))
+	await _steps(3)
+	var on: Dictionary = o.target_azalt(best, main.cam_pos)
+	check("Point at centres %s" % best, o.tracking == best and main.observer.fov < 20.0
+		and absf(angle_difference(deg_to_rad(on.az), -main.observer.azimuth)) < 0.01 and absf(deg_to_rad(on.alt) - main.observer.elevation) < 0.01)
 	await _click(_find("[data-obs-point=Wide]"))
 	check("Wide returns to the wide view", o.tracking == "" and main.observer.fov == 70.0)
 	await _instrument_walk(o)
@@ -775,16 +778,19 @@ func _instrument_walk(o: Observatory) -> void:
 	await _click(_find("[data-obs-inst=lovell_l]"))
 	await _steps(3)
 	check("the Lovell moves to Jodrell Bank and hides the optical controls", o.site_key == "jodrell" and not _find("obsSeeingRow").is_visible_in_tree() and not _find("obsNdRow").is_visible_in_tree())
+	# An evening with Cygnus high at Jodrell Bank, so the map below is always taken.
+	o.set_date_text("2026-08-01 22:00")
+	await _steps(2)
 	await _click(box)
 	box.select_all()
 	await _type("Cyg A")
 	await _key(KEY_ENTER)
 	await _steps(3)
 	var st := desk.status()
-	if st.ok:
-		await _click(_find("obsExpose"))
-		await _frame_done(desk)
-		check("the Lovell maps a source in Jy", desk.frame.kind == "radio" and _text_of(_find("obsFrameStats")).contains("Beam"))
+	check("Cyg A is in the Lovell's reach (%s)" % st.get("why", ""), st.ok)
+	await _click(_find("obsExpose"))
+	await _frame_done(desk)
+	check("the Lovell maps a source in Jy", desk.frame.kind == "radio" and _text_of(_find("obsFrameStats")).contains("Beam"))
 	await _click(_find("obsHold"))
 	await _steps(2)
 	check("Hold again releases the frame", desk.held.is_empty() and not _find("obsHeldCol").is_visible_in_tree())

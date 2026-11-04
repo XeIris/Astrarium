@@ -14,6 +14,10 @@ static var _unit := PackedFloat32Array()
 static var _v := PackedFloat32Array()
 static var _rows: PackedFloat64Array = PackedFloat64Array()
 
+## Load the catalogues on the main thread, before a worker or a click on the sky reads them.
+static func prepare() -> void:
+	_load()
+
 static func _load() -> void:
 	if not _v.is_empty(): return
 	var rows := []
@@ -119,10 +123,11 @@ static func faint(c: DVec3, radius: float, v_max: float, cap := 30000) -> Array:
 	return out
 
 ## The magnitude at which `per_deg2` stars per square degree are brighter, at latitude `b`.
+## Ranks brighter than V = 8 are the catalogues' stars, so they answer below the field's range.
 static func _rank_mag(per_deg2: float, b: float) -> float:
 	var n := per_deg2 / _lat_gain(b)
 	var t: Array = COUNTS
-	if n <= float(t[0][1]): return 8.0
+	if n <= float(t[0][1]): return -INF
 	for i in t.size() - 1:
 		if n < float(t[i + 1][1]):
 			var f := log(n / float(t[i][1])) / log(float(t[i + 1][1]) / float(t[i][1]))

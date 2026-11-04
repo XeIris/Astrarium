@@ -28,7 +28,8 @@ var _dec := PackedFloat64Array()
 var _pm := PackedFloat64Array()
 var _epoch := PackedFloat64Array()
 var _flux := PackedFloat32Array()
-var _year := NAN
+## The Julian year the stars are carried to; NaN at their catalogue epochs.
+var year := NAN
 
 static func available() -> bool:
 	return FileAccess.file_exists(DATA)
@@ -89,11 +90,11 @@ func update(fov_rad: float, viewport: Vector2, gain: float) -> void:
 	material.set_shader_parameter("uViewport", viewport)
 	material.set_shader_parameter("uGain", gain / PROFILE_PX2)
 
-## Move every star by its proper motion to Julian year `year` (EarthFrame's linear
+## Move every star by its proper motion to Julian year `to_year` (EarthFrame's linear
 ## great-circle step, inlined: this runs over ~59 000 stars).
-func set_epoch(year: float) -> void:
-	if year == _year or node == null: return
-	_year = year
+func set_epoch(to_year: float) -> void:
+	if to_year == year or node == null: return
+	year = to_year
 	var mm := node.multimesh
 	var eps := Rocketry.OBLIQUITY_J2000
 	var ce := cos(eps); var se := sin(eps)
@@ -102,7 +103,7 @@ func set_epoch(year: float) -> void:
 		var ra := _ra[i]; var dec := _dec[i]
 		var cr := cos(ra); var sr := sin(ra); var cd := cos(dec); var sd := sin(dec)
 		var x := cd * cr; var y := cd * sr; var z := sd
-		var dt := year - _epoch[i]
+		var dt := to_year - _epoch[i]
 		var ma := _pm[i * 2] * k * dt; var md := _pm[i * 2 + 1] * k * dt
 		var a := sqrt(ma * ma + md * md)
 		if a > 0.0:
