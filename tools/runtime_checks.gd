@@ -105,6 +105,20 @@ func _leak_check() -> void:
 	print("LEAKCHECK DONE")
 	stage.get_tree().quit(1 if not failures.is_empty() else 0)
 
+# Holds a transient state until the renderer has drawn it. Awaiting process_frame is not
+# enough: a covered window keeps processing without drawing. Headless never draws.
+func _drawn_frame() -> void:
+	var drawn := Engine.get_frames_drawn()
+	var deadline := Time.get_ticks_msec() + 10000
+	await stage.get_tree().process_frame
+	if DisplayServer.get_name() == "headless": return
+	while Engine.get_frames_drawn() == drawn:
+		if Time.get_ticks_msec() >= deadline:
+			printerr("SOAK FAILED: no frame drawn in 10 s; is the window covered?")
+			stage.get_tree().quit(1)
+			return
+		await stage.get_tree().process_frame
+
 # Post-warmup growth fails; --verbose additionally exposes leaks on shutdown.
 func _soak_check() -> void:
 	stage.set_process(false)
@@ -129,6 +143,7 @@ func _soak_check() -> void:
 			for t in ["star", "planet", "gas-giant", "bh", "neutron", "white-dwarf", "world"]:
 				stage.spawn_orbiting(t)
 			for i in 20: stage.animate(1.0 / 60.0)
+			await _drawn_frame()
 			while state.bodies.size() > 1: stage.remove_body(state.bodies[-1].id)
 			# Flashes age in animate(), so a wall-clock wait cannot settle them.
 			var was_paused: bool = state.paused
@@ -140,10 +155,15 @@ func _soak_check() -> void:
 			if not stage.flashes.is_empty(): failures.append("spawn_remove: flashes did not settle"),
 		"edit_mass": func():
 			for b in state.bodies.duplicate():
-				if b.type == "star": stage.edit_body(b, {"mass": b.mass * 1.1}); stage.edit_body(b, {"mass": b.mass / 1.1})
+				if b.type == "star":
+					stage.edit_body(b, {"mass": b.mass * 1.1})
+					for i in 5: stage.animate(1.0 / 60.0)
+					await _drawn_frame()
+					stage.edit_body(b, {"mass": b.mass / 1.1})
 			for i in 10: stage.animate(1.0 / 60.0),
 		"true_scale": func():
 			stage.set_true_scale(true); for i in 5: stage.animate(1.0 / 60.0)
+			await _drawn_frame()
 			stage.set_true_scale(false); for i in 5: stage.animate(1.0 / 60.0),
 		"editor": func():
 			for spec in [{"type": "star", "mass": 1.0, "radiusSun": 100.0},
@@ -169,16 +189,24 @@ func _soak_check() -> void:
 		"paint": func():
 			var b: Body = stage.get_stars()[0] if not stage.get_stars().is_empty() else state.bodies[0]
 			state.focus_id = b.id
-			for k in ["ring", "belt", "cloud", "clear"]: stage._on_paint(k)
+			for k in ["ring", "belt", "cloud"]: stage._on_paint(k)
+			for i in 5: stage.animate(1.0 / 60.0)
+			await _drawn_frame()
+			stage._on_paint("clear")
 			for i in 5: stage.animate(1.0 / 60.0),
 		"xsec": func():
 			var b: Body = state.bodies[0]
 			state.focus_id = b.id
 			stage.open_cross_section(true); for i in 5: stage.animate(1.0 / 60.0)
+			await _drawn_frame()
 			stage.open_cross_section(false),
 		"cam_modes": func():
+			# Solar has no home world, so its surface mode falls back to orbit.
+			stage.load_preset("trisolaris")
 			for m in ["free", "surface", "orbit"]:
-				stage.set_cam_mode(m); for i in 5: stage.animate(1.0 / 60.0),
+				stage.set_cam_mode(m); for i in 5: stage.animate(1.0 / 60.0)
+				if state.cam_mode != m: failures.append("cam_modes: %s fell back to %s" % [m, state.cam_mode])
+				await _drawn_frame(),
 		"quality": func():
 			for q in ["high", "low", "medium"]:
 				stage.set_render_quality(q); stage.set_lighting_quality("high" if q == "high" else "low")
