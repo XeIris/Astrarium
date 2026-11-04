@@ -96,7 +96,9 @@ CHANGED_RULES = (
     # The Observatory's sky as drawn: the dome it shares with flight, and the markers.
     (("shaders/flight/sky_dome.gdshader", "sim/marker.gd", "shaders/bodies/marker_point.gdshader", "sim/rocky_visual.gd",
       "sim/flight/localview.gd"),
-     ("observatorylookcheck",)),
+     ("observatorylookcheck", "observatorystagecheck")),
+    # Picking and the selection reticle.
+    (("core/orrery_camera.gd", "sim/marker.gd", "shaders/bodies/marker_point.gdshader"), ("cameracheck",)),
     (("ui/plate_view.gd", "sim/planetmaps.gd", "assets/planet-maps/*"), ("imagingcheck",)),
     # The Moon's mapped face (moon_face).
     (("sim/rocky_visual.gd",), ("observatorycheck",)),

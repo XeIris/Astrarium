@@ -11,8 +11,8 @@ const Catch = preload("res://tools/coursecheck.gd").Catch
 
 const VIEWS := [Vector2i(1800, 1200), Vector2i(900, 600)]
 ## A real 15% crescent is faint against the blue: its limb adds about a tenth to the sky.
-const DAY_LIMB_MIN := 1.03
-const DAY_LIMB_MAX := 1.6
+const DAY_LIMB_MIN := 1.05
+const DAY_LIMB_MAX := 1.25
 ## How bright the sky reads with the Sun at +1°, and how far a star may stand out of it.
 const SUNRISE_SKY_MIN := 0.15
 const SUNRISE_STAR_MAX := 0.05
@@ -42,8 +42,9 @@ func settle(frames := 6) -> void:
 		stage.animate(1.0 / 60.0)
 		await RenderingServer.frame_post_draw
 
-## The 3D frame alone. A sky change eases over about a second, hence the default.
-func capture(frames := 120) -> Image:
+## The 3D frame alone. The stars' and Moon's gain takes about eight seconds to follow the sky,
+## and a day Moon measured sooner is several times too bright.
+func capture(frames := 600) -> Image:
 	await settle(frames)
 	stage.pipe.capture_next(func(img: Image): captured.emit.call_deferred(img))
 	stage.animate(0.0)
@@ -298,6 +299,8 @@ func _ready() -> void:
 		printerr("OBSERVATORYLOOKCHECK cannot create ", dump)
 		get_tree().quit(1)
 		return
+	# The Moon's map must be on it before the first measurement.
+	PlanetMaps.synchronous = true
 	OS.add_logger(logger)
 	get_tree().create_timer(600.0).timeout.connect(func():
 		printerr("OBSERVATORYLOOKCHECK timed out")
