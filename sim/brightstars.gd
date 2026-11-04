@@ -70,7 +70,8 @@ func update(fov_rad: float, viewport: Vector2, gain: float) -> void:
 	var pix := 2.0 * tan(fov_rad * 0.5) / maxf(viewport.y, 1.0)
 	material.set_shader_parameter("uPixSr", pix * pix)
 	material.set_shader_parameter("uViewport", viewport)
-	material.set_shader_parameter("uGain", gain / PROFILE_PX2)
+	material.set_shader_parameter("uGain", gain)
+	material.set_shader_parameter("uProfilePx2", PROFILE_PX2)
 
 func dispose() -> void:
 	if is_instance_valid(node): node.queue_free()
