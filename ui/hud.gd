@@ -1485,6 +1485,7 @@ func _apply_body_classes() -> void:
 	var le := body.has("learn-mode")
 	var mo := body.has("model-open")
 	var hh := body.has("hud-hidden")
+	var ob := body.has("observatory-mode")
 	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout, flight_console_host]:
 		_hide(r, "hud", hh)
 	_hide(flight_console_host, "cls", not fl or mo)
@@ -1492,9 +1493,9 @@ func _apply_body_classes() -> void:
 	_hide(readout, "cls", fl)
 	# In flight mode the orrery's own instruments are gone, not folded: the
 	# scenario list, its tab and the cross-section.
-	_hide(scenario_panel, "cls", fl or le)
+	_hide(scenario_panel, "cls", fl or le or ob)
 	_hide(xsec_panel, "cls", fl)
-	_hide(tabs.scenarioPanel, "cls", fl or le)
+	_hide(tabs.scenarioPanel, "cls", fl or le or ob)
 	# ...and the flight panel's tab has nothing to reopen in the sandbox.
 	_hide(tabs.flightPanel, "cls", not fl)
 	_hide(course_panel, "cls", not le)

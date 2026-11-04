@@ -9,6 +9,9 @@ extends RefCounted
 ## Clock rates, simulated seconds per real second.
 const RATES := {"pause": 0.0, "1x": 1.0, "60x": 60.0, "3600x": 3600.0}
 const JD_UNIX := 2440587.5
+## Simulated days the integration runs before the bodies are restated from their sources.
+## Unchecked, the Moon leaves LunarTheory by 0.18° in 30 days; a day leaves 0.003° at most.
+const RESTATE_DAYS := 1.0
 
 var stage   # main.gd
 var active := false
@@ -24,8 +27,11 @@ var show_bounds := false
 var frame := {}
 var overlay: ConstellationOverlay
 var _hud_acc := 0.0
-var _pm_year := NAN
 var _prev_home = null
+## The stage's clock and observer settings as the mode found them, restored by leave().
+var _prev_clock := {}
+var _prev_fov := 0.0
+var _restated_tt := NAN
 
 func _init(main) -> void:
 	stage = main
@@ -36,9 +42,12 @@ func _init(main) -> void:
 ## alt (deg), rate, view (the overlays to show: "lines", "names", "bounds").
 func enter(opts: Dictionary = {}) -> void:
 	if stage.state.preset_key != "solar": stage.load_preset("solar")
+	if not active:
+		_prev_home = stage.state.home_id
+		_prev_clock = {"speed": stage.state.speed, "paused": stage.state.paused, "time_scale": stage.state.time_scale}
+		_prev_fov = stage.observer.fov
 	active = true
 	# The solar preset has no home world; the surface view stands on one.
-	_prev_home = stage.state.home_id
 	var earth: Body = stage.state.body_named("Earth")
 	if earth != null: stage.state.home_id = earth.id
 	if not stage.state.true_scale: stage.set_true_scale(true)
@@ -57,7 +66,12 @@ func enter(opts: Dictionary = {}) -> void:
 
 func leave() -> void:
 	active = false
+	# Only while it is the home world does the stage hide or show it.
+	var earth: Body = stage.state.body_named("Earth")
+	if earth != null and earth.viz != null: earth.viz.group.visible = true
 	if stage.state.preset_key == "solar": stage.state.home_id = _prev_home
+	for k in _prev_clock: stage.state.set(k, _prev_clock[k])
+	stage.observer.fov = _prev_fov
 	if overlay: overlay.visible = false
 
 static func now_jd() -> float:
@@ -106,7 +120,9 @@ func civil() -> float:
 ## Jump to civil Julian date `jd`: the stage rebuilds the Solar System there.
 func set_civil(jd: float) -> void:
 	if not is_finite(jd): return
-	stage.restate_solar(EarthFrame.tdb_of_tt(EarthFrame.tt_of_civil(jd)))
+	var t := EarthFrame.tt_of_civil(jd)
+	stage.restate_solar(EarthFrame.tdb_of_tt(t))
+	_restated_tt = t
 	_refresh_stars()
 	if active: sync_hud()
 
@@ -173,6 +189,10 @@ static func solar_state(tt: float) -> Dictionary:
 ## Per frame, in place of SurfaceObserver.update: stand on Earth's WGS-84 surface at
 ## the site with Earth's orientation on this date.
 func place(observer: SkyView.SurfaceObserver, earth: Body, camera: Camera3D) -> void:
+	# Before the eye is taken from Earth, so the whole frame sees the same bodies.
+	if absf(tt() - _restated_tt) >= RESTATE_DAYS:
+		_restated_tt = tt()
+		stage.restate_solar(tdb())
 	frame = EarthFrame.site(tt(), deg_to_rad(lat), deg_to_rad(lon), h)
 	var up := EarthFrame.to_scene(frame.up)
 	var north := EarthFrame.to_scene(frame.north)
@@ -186,11 +206,11 @@ func altitude_of(d_scene: DVec3) -> float:
 
 func _refresh_stars() -> void:
 	var y := EarthFrame.year_of(tt())
-	# A star moves at most ~10″ a year (Barnard's), a pixel at most every ~20 years.
-	if stage.bright_stars != null and (is_nan(_pm_year) or absf(y - _pm_year) > 0.5):
+	# A star moves at most ~10″ a year (Barnard's), a pixel at most every ~20 years. A rebuilt
+	# catalogue answers NaN here: its stars are at their catalogue epochs.
+	if stage.bright_stars != null and not absf(y - stage.bright_stars.year) <= 0.5:
 		stage.bright_stars.set_epoch(y)
-		_pm_year = y
-	if overlay: overlay.set_epoch(y)
+	if overlay and not absf(y - overlay.year) <= 0.5: overlay.set_epoch(y)
 
 ## Per frame after the camera is placed.
 func update(dt: float) -> void:

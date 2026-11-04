@@ -4,7 +4,8 @@ extends SceneTree
 #   Godot --headless --path . --script res://tools/observatorycheck.gd
 # Earth-orientation angles against the IAU SOFA test vectors, ΔT and its badges,
 # Polaris at each site's latitude, the solstice noon Sun, a bright star's rise and
-# transit against published times, and the orrery's bodies against JPL Horizons.
+# transit against published times, the orrery's bodies against JPL Horizons, and Earth's
+# composed orientation, the sites' offsets and the topocentric Moon against IAU SOFA.
 
 const DEG := 180.0 / PI
 const AS := PI / 648000.0
@@ -38,6 +39,7 @@ func _init() -> void:
 	solstices()
 	rise_transit()
 	horizons()
+	orientation()
 	print("OBSERVATORYCHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(0 if failures == 0 else 1)
 
@@ -235,3 +237,58 @@ func horizons() -> void:
 			check(ang < float(LIMIT_DEG[n]) and absf(dr) < 2e-3, "%s %s: %.4f° and %+.5f in distance from Horizons" % [n, TimeScales.stamp(float(row[0]), false), ang, dr])
 			line += "  %s %.4f° %+.5f" % [TimeScales.stamp(float(row[0]), false).left(4), ang, dr]
 		print(line)
+
+# tools/observatory_ref.py: IAU SOFA's composed matrix (eraPfw06, eraNut00b, eraFw2m) and
+# the sites' GCRS offsets (m) through eraGd2gc and eraGst06, at the Horizons dates.
+const ORIENTATION := [
+	[2424516.5, [0.9998360008150324, 0.016608539797000846, 0.007219963989797387, -0.016608701160041497, 0.9998620653025707, -3.761189137568698e-05, -0.007219592784843757, -8.230850123658437e-05, 0.999973935012974],
+		{"jodrell": [-597670.492, 3783928.45, 5082516.109], "maunakea": [3452109.968, -4904286.465, 2175608.351], "paranal": [5028128.286, 2931305.403, -2606258.25]}],
+	[2451545.0, [0.999999997721214, 6.189835627598374e-05, 2.6947459869646315e-05, -6.189911088782092e-05, 0.9999999976921621, 2.80031452829974e-05, -2.6945726458792363e-05, -2.8004813242940276e-05, 0.9999999992448292],
+		{"jodrell": [524810.316, -3789653.075, 5086295.138], "maunakea": [-3420990.934, 4936804.912, 2151078.555], "paranal": [-5036757.531, -2883244.899, -2642949.093]}],
+	[2497565.5, [0.999526664630042, -0.028218502152065516, -0.012254094411153592, 0.028219017421702648, 0.9996017556625868, -0.00013088937198131313, 0.01225290778946916, -0.00021497108626354608, 0.9999249071996031],
+		{"jodrell": [-329639.639, 3804467.538, 5091626.36], "maunakea": [3272158.426, -5054027.45, 2110011.002], "paranal": [5101892.835, 2705843.864, -2704867.088]}],
+]
+
+func orientation() -> void:
+	var moons: Array = HORIZONS.Moon
+	for r in ORIENTATION.size():
+		var row: Array = ORIENTATION[r]
+		var tt := EarthFrame.tt_of_tdb(float(row[0]))
+		var worst_m := 0.0
+		var m := EarthFrame.npb((tt - EarthFrame.J2000) / 36525.0, EarthFrame.nutation((tt - EarthFrame.J2000) / 36525.0))
+		for i in 9: worst_m = maxf(worst_m, absf(m[i] - float(row[1][i])))
+		# IAU 2000B is the same series on both sides, so only rounding is left.
+		check(worst_m < 1e-12, "composed NPB at JD %.1f: worst element off by %s" % [row[0], String.num_scientific(worst_m)])
+		var line := "OBSERVATORYCHECK SOFA JD %.1f: NPB %s" % [row[0], String.num_scientific(worst_m)]
+		var geo := DVec3.new(float(moons[r][1]), float(moons[r][2]), float(moons[r][3]))
+		for key in row[2]:
+			var site: Dictionary = ObservatorySites.SITES[key]
+			var s := EarthFrame.site(tt, deg_to_rad(site.lat), deg_to_rad(site.lon), site.h)
+			var want := DVec3.new(float(row[2][key][0]), float(row[2][key][1]), float(row[2][key][2]))
+			# 0.1 m is 3 mas of turn, about the complementary terms the two paths treat differently.
+			var off: float = s.offset.distance_to(want)
+			check(off < 0.1, "%s offset at JD %.1f: %.3f m from SOFA" % [key, row[0], off])
+			# The topocentric Moon: Horizons' geocentric place less SOFA's site, and the
+			# parallax that subtraction makes against the orrery's own.
+			var topo := geo.sub(want.scaled(1.0 / Rocketry.AU_M))
+			var ours := toward(solar_at(tt), "Moon", s)
+			var ours_geo: DVec3 = EarthFrame.from_scene(solar_at(tt).Moon.sub(solar_at(tt).Earth))
+			var along := acos(clampf(ours.dot(topo.normalized()), -1.0, 1.0)) * DEG
+			var par_want := acos(clampf(topo.normalized().dot(geo.normalized()), -1.0, 1.0)) * DEG
+			var par_got := acos(clampf(ours.dot(ours_geo.normalized()), -1.0, 1.0)) * DEG
+			check(along < float(LIMIT_DEG.Moon), "%s topocentric Moon at JD %.1f: %.4f° from Horizons with SOFA's site" % [key, row[0], along])
+			check(absf(par_got - par_want) < 2e-3, "%s Moon's parallax at JD %.1f: %.4f° vs %.4f°" % [key, row[0], par_got, par_want])
+			line += "  %s %.3f m, Moon %.4f°, parallax %.4f° (%.4f°)" % [key, off, along, par_got, par_want]
+		print(line)
+	# The offset from a geodetic site to Earth's centre has no east part, and leans north or
+	# south of the zenith by a·e²·sin φ·cos φ/√(1 − e² sin² φ) whatever the height.
+	var fig: Dictionary = Rocketry.FIGURES.Earth
+	var e2: float = float(fig.f) * (2.0 - float(fig.f))
+	for key in ObservatorySites.ORDER:
+		var site: Dictionary = ObservatorySites.SITES[key]
+		var phi := deg_to_rad(float(site.lat))
+		var s := EarthFrame.site(EarthFrame.J2000, phi, deg_to_rad(float(site.lon)), site.h)
+		var want := -float(fig.a) * e2 * sin(phi) * cos(phi) / sqrt(1.0 - e2 * sin(phi) * sin(phi))
+		check(absf(s.offset.dot(s.north) - want) < 0.01 and absf(s.offset.dot(s.east)) < 0.01,
+			"%s offset north %.2f m (want %.2f m), east %.2f m" % [key, s.offset.dot(s.north), want, s.offset.dot(s.east)])
+		print("OBSERVATORYCHECK %s centre of Earth from the zenith: north %.1f km, east %.1f km" % [key, s.offset.dot(s.north) / 1000.0, s.offset.dot(s.east) / 1000.0])
