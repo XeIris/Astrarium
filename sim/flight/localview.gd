@@ -58,6 +58,12 @@ var cloud_mat: ShaderMaterial
 var cloud_field: CloudField
 ## That fraction, eased, and applied to the sun light's energy.
 var sun_through := 1.0
+## What the air takes from the Sun at its altitude, per channel, relative to overhead (where
+## the light's calibration stands).
+var sun_extinction := Vector3.ONE
+## How much of the ambient comes from the physical sky on High and Ultra, 0..1; the rest is
+## _set_ambient's colour. That sky is black once its sun has set, whatever its air is doing.
+var sky_ambient := 1.0
 ## Planet spin since the flight began and the local axes: the local → planet-fixed
 ## transform for clouds and ground detail.
 var _to_planet := Basis()
@@ -291,11 +297,9 @@ func _set_ambient(bounce: float) -> void:
 		fill.b * 0.30 + (skyc.b + gnd.b) * k + sl * 1.0)
 	var env := pipe.env_local
 	# High takes the sky's directional irradiance from the physical sky.
-	if render_quality in ["high", "ultra"] and _has_air:
-		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		for l: DirectionalLight3D in hemi: l.light_energy = 0.0
-		return
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	var from_sky := sky_ambient if render_quality in ["high", "ultra"] and _has_air else 0.0
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if from_sky > 0.0 else Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_sky_contribution = from_sky
 	var am := maxf(maxf(amb.r, amb.g), maxf(amb.b, 1e-6))
 	# Environment colours are sRGB and converted like sRGB hex; these are
 	# linear sums, so they go back through linear_to_srgb first.
@@ -306,7 +310,7 @@ func _set_ambient(bounce: float) -> void:
 	var hc := Color(absf(half.r) / hm, absf(half.g) / hm, absf(half.b) / hm).linear_to_srgb()
 	for l: DirectionalLight3D in hemi:
 		l.light_color = hc
-		l.light_energy = hm * bounce / PI
+		l.light_energy = hm * bounce / PI * (1.0 - from_sky)
 
 func set_render_quality(q: String) -> void:
 	render_quality = q
@@ -766,6 +770,7 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l
 	sun_mat.set_shader_parameter("uAirMass", m)
 	sun_mat.set_shader_parameter("uAureole", aerosol)
 	var T := Vector3(exp(-tau.x * m), exp(-tau.y * m), exp(-tau.z * m))
+	sun_extinction = Vector3(exp(-tau.x * (m - 1.0)), exp(-tau.y * (m - 1.0)), exp(-tau.z * (m - 1.0)))
 	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
 		* (ang_r * ang_r) / (0.00465 * 0.00465)
 	return vis

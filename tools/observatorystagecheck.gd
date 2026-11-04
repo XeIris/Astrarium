@@ -47,6 +47,7 @@ func _initialize() -> void:
 	await held_seasons()
 	await face_buttons()
 	await moon_exposure()
+	await site_light()
 	await a_frame()
 	# Last, as it frees the stage: a frame in flight is waited out on the way down.
 	var desk: ObservatoryInstruments = stage.observatory.desk
@@ -290,6 +291,40 @@ func moon_exposure() -> void:
 	check(sky.get_shader_parameter("uCoverMax") == 1.0, "and its coverage")
 	if is_instance_valid(viz) and viz.surf_mat != null:
 		check(viz.surf_mat.get_shader_parameter("uGain") == RockyVisual.EXPOSURE, "and the Moon's exposure")
+	await sandbox()
+
+# The site's light: the Sun through the air it crosses, none once its limb is down, and on High
+# an ambient that survives the sunset of the sky that supplies it. Flight gets its own back.
+func site_light() -> void:
+	await enter()
+	var o: Observatory = stage.observatory
+	var local: LocalView = stage.flight.local
+	o.set_rate("pause")
+	o.set_site("paranal")
+	var quality: String = stage.render_quality
+	stage.set_render_quality("high")
+	var env: Environment = stage.pipe.env_local
+	o.set_date_text("2026-11-05 09:00")
+	await frames(2)
+	check(local.sun.light_energy == 0.0, "no Sun on the site at %.1f°: %.3f" % [rad_to_deg(asin(o.sun_local.y)), local.sun.light_energy])
+	check(env.ambient_light_sky_contribution == 0.0, "and the ambient is not the physical sky's: %.2f" % env.ambient_light_sky_contribution)
+	check(local.hemi[0].light_energy > 0.0, "the fill's hemisphere takes over from it")
+	o.set_date_text("2026-11-05 10:00")
+	await frames(2)
+	var low := local.sun.light_color
+	var low_alt := rad_to_deg(asin(o.sun_local.y))
+	check(low_alt > 0.5 and low_alt < 3.0, "the Sun is low at 10:00: %.1f°" % low_alt)
+	check(local.sun.light_energy > 0.5, "and still lights the site: %.3f" % local.sun.light_energy)
+	check(low.r > 0.99 and low.g < 0.75 and low.b < 0.3, "in the air's red: %s" % low)
+	o.set_date_text("2026-11-05 16:30")
+	await frames(2)
+	var noon := local.sun.light_color
+	check(env.ambient_light_sky_contribution == 1.0, "by day the ambient is the physical sky's")
+	check(noon.g > 0.85 and noon.b > 0.75, "and the noon Sun stays white: %s" % noon)
+	stage.set_app_mode("sandbox")
+	await frames(2)
+	check(local.sky_ambient == 1.0, "leaving gives flight its physical sky back")
+	stage.set_render_quality(quality)
 	await sandbox()
 
 # The season follows the surface as drawn. Held to Earth's real axis, as a flight or the

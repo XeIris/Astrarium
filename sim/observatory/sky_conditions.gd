@@ -80,6 +80,13 @@ static func twilight_exposure(sun_alt: float) -> float:
 	if not is_finite(tw): return EXPOSURE_MAX
 	return minf(pow(nl_of_v(DAY_V) / nl_of_v(tw), EXPOSURE_POWER), EXPOSURE_MAX)
 
+## The Sun's linear light on the site relative to noon's: its extinction under the sky's
+## `exposure`. No channel passes noon's: the exposure is by eye and answers to the sky, and
+## uncapped it would light a wall at sunset twice as brightly as at midday.
+static func sunlight(extinction: Vector3, exposure: float) -> Color:
+	var c := extinction * exposure
+	return Color(c.x, c.y, c.z) / maxf(maxf(c.x, maxf(c.y, c.z)), 1.0)
+
 ## How far a star's drawn flux falls with the sky's brightness: a threshold under the
 ## square root of the background (de Vries–Rose) puts the limit near V 1–2 at the Sun's −6°,
 ## down to the flight view's daylight exposure. `c` is a SITES row.
