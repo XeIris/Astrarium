@@ -127,3 +127,7 @@ to the procedural builds too.
   vehicle's lighting and its shadow disagree.
 - The sky and haze run from the camera's height (set in `apply_origin`), not the
   vehicle's altitude.
+- Nothing casts a shadow from the planet, so the Sun stops at the limb in
+  `LocalView._light_local`, and the fill goes with it
+  ([the Sun's light](../../docs/physics/flight.md#the-suns-light)). Regression:
+  `tools/flightlightcheck.tscn`.

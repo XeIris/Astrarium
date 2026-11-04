@@ -1461,7 +1461,9 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	# The light the plumes' smoke scatters: the sun where it reaches the
 	# vehicle (clouds included), with a floor for the sky's own light.
 	var sl: Vector3 = fr.get("sun_local", Vector3.UP)
-	Plume.daylight = clampf(sl.y * 2.0 + 0.25, 0.0, 1.0) * local.sun_through * clampf(star_flux, 0.05, 4.0) + 0.04
+	# Over the vehicle's own horizon: from altitude the Sun still shines from under the local one.
+	var over_limb := float(fr.get("sun_over_limb", sl.y))
+	Plume.daylight = clampf(over_limb * 2.0 + 0.25, 0.0, 1.0) * local.sun_through * clampf(star_flux, 0.05, 4.0) + 0.04
 	Plume.sprite_material(false, 2, Plume.ORDER_SMOKE).set_shader_parameter("uLight", clampf(Plume.daylight, 0.08, 1.4))
 	Plume.sun_local = sl
 	var sc := local.sun.light_color

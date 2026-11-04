@@ -76,6 +76,8 @@ CHANGED_RULES = (
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc", "sim/terrain.gd",
       "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck",)),
+    # What lights a vehicle, as drawn.
+    (("sim/flight/localview.gd", "sim/flight/spaceflight.gd", "shaders/flight/ground.gdshader"), ("flightlightcheck",)),
     # Any other flight file is presentation: the parity flight shows it cannot move physics.
     (("sim/flight/*",), ("flighttimecheck", "missioncheck-skip_moon", "missioncheck-parity-*")),
     # The flight sky's coefficients are checked numerically; its drawing by the render rule.
@@ -269,7 +271,8 @@ def checks(suite, godot, output, repeat, export_preset):
     elif suite == "rendered":
         # Windowed: lens and skycache read GPU results and pixels; glowcheck measures a
         # source's glow in the final frame, because bloom and the tone curve decide its
-        # size; observatorylookcheck judges the Observatory's sky in the same frame; coursecheck
+        # size; observatorylookcheck judges the Observatory's sky and flightlightcheck a vehicle's
+        # light in the same frame; coursecheck
         # and the accretion checks collect the errors a drawn frame
         # raises (SHADER ERROR included); hudcheck screenshots and drives real input over
         # laid-out Controls; presetcheck attributes each scenario's render errors. The
@@ -278,6 +281,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("glowcheck", r"^GLOWCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("observatorylookcheck", r"^OBSERVATORYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")

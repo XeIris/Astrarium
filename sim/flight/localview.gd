@@ -58,12 +58,24 @@ var cloud_mat: ShaderMaterial
 var cloud_field: CloudField
 ## That fraction, eased, and applied to the sun light's energy.
 var sun_through := 1.0
+## The star's colour on the light before the air, sRGB.
+var sun_tint := Color.WHITE
 ## What the air takes from the Sun at its altitude, per channel, relative to overhead (where
-## the light's calibration stands).
+## the light's calibration stands). Never more than 1.
 var sun_extinction := Vector3.ONE
+## Sine of the Sun's height over the horizon the vehicle actually has, which is below the local
+## horizontal by the dip. Past the limb it goes negative.
+var sun_over_limb := 1.0
 ## How much of the ambient comes from the physical sky on High and Ultra, 0..1; the rest is
 ## _set_ambient's colour. That sky is black once its sun has set, whatever its air is doing.
 var sky_ambient := 1.0
+## Sun's altitude (°) over which High's ambient goes from the colour fill to the physical sky.
+const SKY_AMBIENT_FROM := 0.0
+const SKY_AMBIENT_TO := 10.0
+## _set_ambient's bounce with the planet below in the dark. By eye: the tone curve's toe takes
+## everything under about 0.06, and this leaves a vehicle a dim shape rather than a hole in the stars.
+const NIGHT_BOUNCE := 0.13
+var night_bounce := NIGHT_BOUNCE
 ## Planet spin since the flight began and the local axes: the local → planet-fixed
 ## transform for clouds and ground detail.
 var _to_planet := Basis()
@@ -521,7 +533,6 @@ func update(o: Dictionary) -> Dictionary:
 	_starlight = float(U.nz(o.get("starlight"), 0.0))
 	ground_mat.set_shader_parameter("uSunI", flux)
 	ground_mat.set_shader_parameter("uTemp", maxf(float(env.get("teq", 255.0)), 30.0))
-	sun.light_energy = flux / PI * sun_through
 	# Skylight only exists where there is air to scatter in.
 	ground_mat.set_shader_parameter("uSkyI", 0.42 * exp(-h / maxf(sh * 2.0, 1.0)) if atm != null else 0.03)
 	# Ground fades out entirely once the orrery's planet takes over.
@@ -580,9 +591,10 @@ func update(o: Dictionary) -> Dictionary:
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
 	var sun_vis := _update_sun(o, env, atm, h, sh, sun_l)
 	# The light takes the star's colour, relative to the Sun's.
-	sun.light_color = _star_tint(float(U.nz(o.get("sunTeff"), 5772.0)))
+	sun_tint = _star_tint(float(U.nz(o.get("sunTeff"), 5772.0)))
 	_update_sun2(o, h, R_s, east, up, north)
 	_update_clouds(o, env, atm, h, sh, sun_l, east, up, north)
+	_light_local(flux, sun_vis, sun_l, h)
 	flare.visible = sun_vis > 0.0
 	flare_mat.set_shader_parameter("uSunLocal", sun_l)
 	flare_mat.set_shader_parameter("uSunRGB", _sun_entering * sun_through)
@@ -592,9 +604,22 @@ func update(o: Dictionary) -> Dictionary:
 	if sun_l.length_squared() > 0.0:
 		var ref := Vector3(0, 0, 1) if absf(sun_l.y) > 0.99 else Vector3.UP
 		sun.basis = Basis.looking_at(-sun_l, ref)
-	# Planetshine: strong in low orbit over a bright planet, gone in deep space.
-	_set_ambient(clampf(0.75 * (1.0 - h / 8e5), 0.04, 0.75))
-	return {"east": east, "north": north, "up": up.clone(), "sun_local": sun_l, "sun_visible": sun_vis}
+	return {"east": east, "north": north, "up": up.clone(), "sun_local": sun_l, "sun_visible": sun_vis,
+		"sun_over_limb": sun_over_limb}
+
+## What lights the local scene. Nothing casts a shadow from the planet, so the Sun has to stop at
+## the limb here; below it only the fill is left, and that stands for a sunlit planet and sky.
+func _light_local(flux: float, sun_vis: float, sun_l: Vector3, h: float) -> void:
+	sun.light_energy = flux / PI * sun_through * sun_vis
+	var tint := sun_tint.srgb_to_linear()
+	# A light's colour is sRGB and these are linear ratios: raw, the red sunset goes neon.
+	sun.light_color = Color(tint.r * sun_extinction.x, tint.g * sun_extinction.y, tint.b * sun_extinction.z).linear_to_srgb()
+	ground_mat.set_shader_parameter("uSunTint", sun_extinction)
+	sky_ambient = smoothstep(SKY_AMBIENT_FROM, SKY_AMBIENT_TO, rad_to_deg(asin(clampf(sun_l.y, -1.0, 1.0))))
+	# Planetshine: strong in low orbit over a bright planet, gone in deep space, and from the
+	# night side. Most of it comes from under the vehicle, so it follows the Sun there.
+	var shine := clampf(0.75 * (1.0 - h / 8e5), 0.04, 0.75)
+	_set_ambient(lerpf(minf(night_bounce, shine), shine, smoothstep(-0.2, 0.1, sun_l.y)))
 
 ## Turn the orrery's planet so its map has the mapped site (lat, lon, rad) under
 ## the pad's direction `pad_up` in the parent frame, north on −Y, which `frame`
@@ -770,7 +795,10 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l
 	sun_mat.set_shader_parameter("uAirMass", m)
 	sun_mat.set_shader_parameter("uAureole", aerosol)
 	var T := Vector3(exp(-tau.x * m), exp(-tau.y * m), exp(-tau.z * m))
-	sun_extinction = Vector3(exp(-tau.x * (m - 1.0)), exp(-tau.y * (m - 1.0)), exp(-tau.z * (m - 1.0)))
+	# Kasten & Young's fit falls under 1 well below the horizon, where no light gets through.
+	var excess := maxf(m - 1.0, 0.0)
+	sun_extinction = Vector3(exp(-tau.x * excess), exp(-tau.y * excess), exp(-tau.z * excess))
+	sun_over_limb = sin(elev + dip)
 	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
 		* (ang_r * ang_r) / (0.00465 * 0.00465)
 	return vis
