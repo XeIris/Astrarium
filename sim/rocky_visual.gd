@@ -2,7 +2,8 @@ class_name RockyVisual
 extends RefCounted
 
 # Mission geography and procedural terrain share lighting/climate shaders.
-# Sphere UV orientation puts the +X meridian toward a tidally locked parent.
+# Sphere UV orientation puts the +X meridian toward a tidally locked parent, with the map's
+# north on the orbit's north.
 # The stage owns group position/scale; this visual owns obliquity and inner nodes.
 # See shaders/AGENTS.md for physical albedo, volatiles and surface datum.
 
@@ -11,6 +12,10 @@ const CLOUD_SHADER := preload("res://shaders/bodies/cloud_deck.gdshader")
 const ATMO_SHADER := preload("res://shaders/bodies/rocky_atmosphere.gdshader")
 
 const TAU_ := PI * 2.0
+
+## A half turn about the mesh's +X meridian. A map has north on the mesh's +Y, and orbits here
+## turn about −Y (spin_step), as `Rocketry.spin_frame` has it.
+const NORTH_ON_ORBIT_POLE := Basis(Vector3(1, 0, 0), Vector3(0, -1, 0), Vector3(0, 0, -1))
 
 # option helpers
 ## Truthiness of an option value (null/false/0/"" are false).
@@ -236,9 +241,9 @@ class RockyViz extends RefCounted:
 	var sea_km0: float
 	var tilt_q := Quaternion()
 	var _cover := -1.0
-	## The surface's world orientation while a flight is over this world (LocalView
-	## sets it each frame), so the map under the vehicle is the ground it launched
-	## from. Lapses a frame after the flight stops setting it.
+	## The surface's world orientation while its owner sets it each frame: LocalView, so
+	## the map under a vehicle is the ground it launched from, and the Observatory, so the
+	## Moon faces as it does on the date. Lapses a frame after the owner stops.
 	var surface_world := Basis()
 	var _surface_world_frame := -10
 
@@ -340,9 +345,10 @@ class RockyViz extends RefCounted:
 			var d := parent.pos.sub(b.pos)
 			var toward := tilt_q.inverse() * Vector3(d.x, d.y, d.z)
 			b.spin_phase = atan2(-toward.z, toward.x)
+			surface.basis = Basis(Vector3.UP, b.spin_phase) * RockyVisual.NORTH_ON_ORBIT_POLE
 		else:
 			b.spin_phase = fmod(b.spin_phase - RockyVisual.spin_step(b, 1.0, dt, ctx.sim_dt), TAU)
-		surface.rotation.y = b.spin_phase
+			surface.rotation.y = b.spin_phase
 		var held := Engine.get_process_frames() - _surface_world_frame <= 1
 		if held:
 			# The group carries the obliquity and the size ease; undo only its rotation.
@@ -395,7 +401,7 @@ class RockyViz extends RefCounted:
 					_set_cover(base + (1.0 - base) * clampf((T - 340.0) / 110.0, 0.0, 1.0))
 			# Season from the star's direction relative to the spin axis (sine of the sub-solar
 			# latitude), so any orbit gets its own seasons.
-			var pole := tilt_q * Vector3.UP
+			var pole := tilt_q * surface.basis.y
 			var sun_dir: Vector3 = (suns[0].pos_rel - group.position).normalized()
 			surf_mat.set_shader_parameter("uDecl", pole.dot(sun_dir))
 			if cloud_mat != null:

@@ -70,6 +70,12 @@ static func axes(body_name: String, tdb: float) -> Array:
 	var x := node.scaled(cos(w)).add(z.cross(node).scaled(sin(w)))
 	return [x, z.cross(x), z]
 
+## The orrery-axes basis that puts a RockyVisual.sphere_geometry mesh's map on `axes`: the mesh
+## has 0° longitude on +X, north on +Y and 90° E on −Z.
+static func mesh_basis(body_name: String, tdb: float) -> Basis:
+	var ax := axes(body_name, tdb)
+	return Basis(EarthFrame.to_scene(ax[0]).to_v3(), EarthFrame.to_scene(ax[2]).to_v3(), EarthFrame.to_scene(ax[1]).scaled(-1.0).to_v3())
+
 ## A surface point's GCRS unit vector from planetocentric latitude and east longitude (rad).
 static func surface(ax: Array, lat: float, lon: float) -> DVec3:
 	var c := cos(lat)

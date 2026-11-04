@@ -92,6 +92,8 @@ CHANGED_RULES = (
       "tools/build_nutation.py", "tools/build_site_terrain.py"),
      ("observatorycheck", "imagingcheck", "hud*", "_soak_check-observatory")),
     (("ui/plate_view.gd", "sim/planetmaps.gd", "assets/planet-maps/*"), ("imagingcheck",)),
+    # The Moon's mapped face (moon_face).
+    (("sim/rocky_visual.gd",), ("observatorycheck",)),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",

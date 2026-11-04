@@ -48,6 +48,12 @@ from the date and the site.
    over centuries; over millennia a nearby star's motion is not linear (perspective
    acceleration needs a radial velocity, which is not applied).
 
+6. **The Moon's face.** The drawn Moon takes the IAU orientation on the date
+   (`PlanetDisc.mesh_basis`), the same axes the instrument frames use, so its librations
+   match them. Elsewhere its tidal lock keeps 0° longitude on Earth and map north on the
+   orbit's north, with no librations, about 6° from the dated face on 2026-11-05. Earth's and
+   the other planets' maps are not dated here; they keep the orrery's free spin.
+
 Annual aberration (≤ 20″) and light deflection are not applied to the drawn sky:
 at the Observatory's fields of view a pixel is 100″–250″.
 
