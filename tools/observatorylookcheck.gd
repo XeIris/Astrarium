@@ -3,8 +3,8 @@ extends Node
 # How the Observatory's sky looks, measured in the final frame, because the sky's coverage,
 # bloom and the tone curve decide it (docs/physics/observatory.md#the-moon-by-day-and-by-night):
 #   Godot --path . --resolution 1280x720 res://tools/observatorylookcheck.tscn -- [dump=/abs/dir]
-# The Moon by day and at 70°, a bright sky at sunrise, Saturn's disc at 1° and the overlay
-# behind the buildings. Limits are display luminance, so they hold the look, not the physics;
+# The Moon by day and at 70°, a bright sky at sunrise, Saturn's disc at 1°, the overlay
+# behind the buildings and the buildings darkening with the sky. Limits are display luminance, so they hold the look, not the physics;
 # the numbers behind them are in tools/imagingcheck.gd and tools/observatorystagecheck.gd.
 
 const Catch = preload("res://tools/coursecheck.gd").Catch
@@ -18,6 +18,11 @@ const SUNRISE_SKY_MIN := 0.15
 const SUNRISE_STAR_MAX := 0.05
 const DARK_SKY_MAX := 0.04
 const DARK_STAR_MIN := 0.3
+## What a wall facing the Sun reads: lit by day, and a silhouette after dark, whichever way
+## the camera looks.
+const WALL_DAY_MIN := 0.5
+const WALL_DARK_MAX := 0.05
+const WALL_VIEW_DIFF := 0.03
 
 var logger := Catch.new()
 var stage: Node
@@ -234,6 +239,58 @@ func overlay_behind_buildings() -> void:
 	check("the figures are drawn on the sky: %d px" % on_sky, on_sky > 300)
 	check("and not over the buildings: %d px" % on_solid, on_solid < 20)
 
+## The brightest tenth of what stands above the horizon, which holds the walls facing the Sun,
+## and the median of the sky around it. A 70° field at altitude 28° has its horizon 88% down.
+func site_and_sky(img: Image) -> Dictionary:
+	var mask: Image = stage.pipe.local_vp.get_texture().get_image()
+	var mw := float(mask.get_width()) / img.get_width()
+	var mh := float(mask.get_height()) / img.get_height()
+	var solid := PackedFloat32Array()
+	var sky := PackedFloat32Array()
+	for y in range(0, int(img.get_height() * 0.85), 2):
+		for x in range(0, img.get_width(), 2):
+			var a := mask.get_pixel(int(x * mw), int(y * mh)).a
+			(solid if a >= 0.999 else sky).append(luma(img.get_pixel(x, y)))
+	solid.sort()
+	sky.sort()
+	return {"site": solid[int(solid.size() * 0.9)] if solid.size() > 100 else NAN, "sky": sky[sky.size() / 2]}
+
+func site_seen(az: float) -> Dictionary:
+	stage.observer.fov = 70.0
+	o.look(az, 28.0)
+	return site_and_sky(await capture())
+
+## A quality's preset brings back film grain, which swamps a 2 px Moon, and its own view size.
+func use_quality(quality: String) -> void:
+	stage.set_render_quality(quality)
+	stage.pipe.postfx.grain = 0.0
+	stage.pipe.set_view_size(VIEWS[0])
+
+## With the Sun down nothing lights the walls but the sky, so they are dark from either side.
+func site_after_sunset(quality: String) -> void:
+	use_quality(quality)
+	await at("2026-11-05 09:00")
+	var sun: Dictionary = o.target_azalt("Sun", stage.cam_pos)
+	check("%s: the Sun is well down: %.1f°" % [quality, sun.alt], sun.alt < -10.0)
+	var anti := await site_seen(fposmod(float(sun.az) + 180.0, 360.0))
+	var toward := await site_seen(float(sun.az))
+	check("%s: walls facing a set Sun are dark: %.3f" % [quality, anti.site], anti.site < WALL_DARK_MAX)
+	check("%s: and read alike from the other side: %.3f and %.3f" % [quality, anti.site, toward.site],
+		absf(anti.site - toward.site) < WALL_VIEW_DIFF)
+	var seen := {}
+	for alt in [20.0, -1.0, -3.0, -6.0]:
+		await at(_date_when(alt))
+		seen[alt] = await site_seen(fposmod(float(sun.az) + 180.0, 360.0))
+		if not dump.is_empty():
+			save(await capture(1), "site-%s-%+d" % [quality, int(alt)])
+	check("%s: and lit by day: %.3f" % [quality, seen[20.0].site], seen[20.0].site > WALL_DAY_MIN)
+	check("%s: the site goes out as the Sun sets: %.3f, then %.3f" % [quality, seen[-1.0].site, seen[-3.0].site],
+		seen[-1.0].site > seen[-3.0].site + 0.05)
+	check("%s: and stands dark on the twilight sky: %.3f on %.3f" % [quality, seen[-3.0].site, seen[-3.0].sky],
+		seen[-3.0].site < seen[-3.0].sky)
+	check("%s: and keeps falling with it: %.3f, %.3f, %.3f" % [quality, seen[-3.0].site, seen[-6.0].site, anti.site],
+		seen[-3.0].site >= seen[-6.0].site and seen[-6.0].site >= anti.site - 0.005)
+
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("dump="): dump = a.substr(5)
@@ -261,6 +318,11 @@ func _ready() -> void:
 	await moon_by_day()
 	await twilight()
 	await overlay_behind_buildings()
+	var quality: String = stage.render_quality
+	# High takes its ambient from another sky, one that is black below the horizon.
+	for q in ["medium", "high"]:
+		await site_after_sunset(q)
+	use_quality(quality)
 	for size: Vector2i in VIEWS:
 		stage.pipe.set_view_size(size)
 		await crescent_at_70()

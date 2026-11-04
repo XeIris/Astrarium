@@ -22,6 +22,9 @@ const MOON_RADIANCE_PER_GAIN := 0.22
 ## shared exposure, and one ten times wider at the shared exposure. Both by eye.
 const MOON_NIGHT_PX := 80.0
 const MOON_NIGHT_MAX := 10.0
+## Sun's altitude (°) over which High's ambient goes from LocalView's fill to its physical sky.
+const SKY_AMBIENT_FROM := 0.0
+const SKY_AMBIENT_TO := 10.0
 
 var stage   # main.gd
 var active := false
@@ -138,6 +141,7 @@ func leave() -> void:
 	mat.set_shader_parameter("uSkyExposure", 1.0)
 	mat.set_shader_parameter("uMoonR", 0.0)
 	mat.set_shader_parameter("uCoverMax", 1.0)
+	stage.flight.local.sky_ambient = 1.0
 	var moon_viz = _moon_viz()
 	if moon_viz != null: moon_viz.surf_mat.set_shader_parameter("uGain", RockyVisual.EXPOSURE)
 
@@ -438,12 +442,11 @@ func _drive_local(dt: float) -> void:
 	local.camera.near = local.camera.far * 1.0e-7
 	local.apply_origin(_local_basis)
 	sun_local = fr.sun_local
-	# LocalView's fill stands for a sunlit planet; after dark only the sky is left.
-	local._set_ambient(lerpf(0.012, 0.75, smoothstep(-0.2, 0.1, sun_local.y)))
-	site_scene.light(fr.sun_local, maxf(_local_pos.y - site_scene.patch_y, 1.0))
-	site_scene.animate(dt)
 	var sun_alt := rad_to_deg(asin(clampf(sun_local.y, -1.0, 1.0)))
 	sky_exposure = SkyConditions.twilight_exposure(sun_alt)
+	_light_site(local, sun_alt, float(fr.get("sun_visible", 0.0)))
+	site_scene.light(fr.sun_local, maxf(_local_pos.y - site_scene.patch_y, 1.0))
+	site_scene.animate(dt)
 	local.sky_mat.set_shader_parameter("uSkyExposure", sky_exposure)
 	local.sky_mat.set_shader_parameter("uCoverMax", ConstellationOverlay.COVER_MAX)
 	# The stars dim against the sky as a camera's exposure closes.
@@ -459,6 +462,19 @@ func _drive_local(dt: float) -> void:
 	local.sky_mat.set_shader_parameter("uMoonDir", Vector3(to_moon.dot(fr.east), to_moon.dot(fr.up), to_moon.dot(fr.north)))
 	local.sky_mat.set_shader_parameter("uMoonR", atan(moon.radius_scene / maxf(dist, 1e-30)))
 	_expose_moon(moon, dist)
+
+## LocalView's light stands for a vehicle in flight and shines through the planet: nothing casts
+## a shadow from under the horizon, so faces toward a set Sun would stay in full daylight. Here
+## it passes the air the sky's own light does, and stops at the limb; the fill is what is left.
+func _light_site(local: LocalView, sun_alt: float, sun_visible: float) -> void:
+	var c := SkyConditions.sunlight(local.sun_extinction, sky_exposure)
+	var base := local.sun.light_color.srgb_to_linear()
+	# A light's colour is sRGB and these are linear ratios: raw, the red sunset goes neon.
+	local.sun.light_color = Color(base.r * c.r, base.g * c.g, base.b * c.b).linear_to_srgb()
+	local.sun.light_energy *= sun_visible
+	local.sky_ambient = smoothstep(SKY_AMBIENT_FROM, SKY_AMBIENT_TO, sun_alt)
+	# After dark only the sky is left of LocalView's fill, which stands for a sunlit planet.
+	local._set_ambient(lerpf(0.012, 0.75, smoothstep(-0.2, 0.1, sun_local.y)))
 
 ## The drawn Moon's surface gain. By day its whole disc adds the flux of its V on the sky's
 ## own scale (radiance per unit solar irradiance, times SkyMS.GAIN), so a crescent is as faint

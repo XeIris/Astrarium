@@ -92,7 +92,8 @@ CHANGED_RULES = (
       "tools/build_nutation.py", "tools/build_site_terrain.py"),
      ("observatorycheck", "observatorycheck-assets", "observatorystagecheck", "observatorylookcheck", "imagingcheck", "hud*", "_soak_check-observatory")),
     # The Observatory's sky as drawn: the dome it shares with flight, and the markers.
-    (("shaders/flight/sky_dome.gdshader", "sim/marker.gd", "shaders/bodies/marker_point.gdshader", "sim/rocky_visual.gd"),
+    (("shaders/flight/sky_dome.gdshader", "sim/marker.gd", "shaders/bodies/marker_point.gdshader", "sim/rocky_visual.gd",
+      "sim/flight/localview.gd"),
      ("observatorylookcheck",)),
     (("ui/plate_view.gd", "sim/planetmaps.gd", "assets/planet-maps/*"), ("imagingcheck",)),
     # The Moon's mapped face (moon_face).

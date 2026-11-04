@@ -162,7 +162,20 @@ Airglow and zodiacal light are not scaled.
 
 The stars dim with the same sky. `SkyConditions.star_gain` is √(L_dark / L_sky), a threshold
 under the square root of the background, floored at the flight view's 1/400. That leaves the limit near
-V 1–2 with the Sun at −6°. The ground's light is not part of this.
+V 1–2 with the Sun at −6°.
+
+The site's direct light passes through the same exposure. `LocalView`'s Sun is a vehicle's: nothing
+shadows it, so on its own it would keep a wall facing the Sun in daylight from below the horizon. That
+is why such a wall would change with the view, the far side of it being dark. `Observatory._light_site`
+multiplies it by the disc's extinction relative to overhead (`LocalView.sun_extinction`, airmass from
+Kasten & Young) and by the exposure, holding the brightest channel at noon's (`SkyConditions.sunlight`),
+then cuts it as the limb crosses the local horizon, which the site's height depresses by about 1.6° at
+Paranal. The fill (`_set_ambient`) is what remains after that, with its curve chosen by eye. On High the
+ambient's physical sky is black once its light has set, so it hands over to the same fill as the Sun
+falls from +10° to 0°. By the Sun's −12° what is left of the fill reads as black, so a wall is a silhouette
+that hides the stars behind it.
+
+Terrain shadows are not modelled, so a ridge to the east does not put the site out early.
 
 ## The ground and the facilities
 
