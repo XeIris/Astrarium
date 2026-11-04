@@ -19,8 +19,6 @@ const EXPOSURE := 1.95
 ## turn about −Y (spin_step), as `Rocketry.spin_frame` has it.
 const NORTH_ON_ORBIT_POLE := Basis(Vector3(1, 0, 0), Vector3(0, -1, 0), Vector3(0, 0, -1))
 
-# option helpers
-## Truthiness of an option value (null/false/0/"" are false).
 ## The surface shader's sunlit share of a disc at phase angle `alpha` (rad): the mean over
 ## the disc of its soft terminator, which is broader than a sphere's Lambert cosine.
 static func lit_fraction(alpha: float) -> float:
@@ -37,6 +35,8 @@ static func lit_fraction(alpha: float) -> float:
 			sum += smoothstep(-0.08, 0.22, x * sin(alpha) + sqrt(1.0 - q) * cos(alpha))
 	return sum / n
 
+# option helpers
+## Truthiness of an option value (null/false/0/"" are false).
 static func truthy(v) -> bool:
 	if v == null: return false
 	if v is bool: return v

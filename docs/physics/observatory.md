@@ -143,8 +143,10 @@ extinction, and the orrery's Moon adds to the sky: its night side is the sky's o
 The sky dome's radiance is per unit solar irradiance, times `SkyMS.GAIN`. By day the Moon's
 surface gain is set so its whole disc adds the flux of its V on that scale (`_expose_moon`).
 A full Moon comes to about the shared `RockyVisual.EXPOSURE`, as its surface really is about as
-bright as a clear sky; a 15% crescent to about a sixteenth, and its limb adds a quarter to
-the sky behind it. `MOON_RADIANCE_PER_GAIN` was measured from the drawn map, not derived.
+bright as a clear sky; a 15% crescent to about an eleventh, and its limb adds about a tenth to
+the sky behind it. The gain follows the stars' own fall against the sky, which takes about eight
+seconds, so after a jump from night to day the crescent starts brighter and fades to that.
+`MOON_RADIANCE_PER_GAIN` was measured from the drawn map, not derived.
 
 After dark the eye adapts to the Moon, not the sky, and a real Moon at this exposure would
 be far past white. A disc 8 pixels wide or smaller is drawn at ten times the shared exposure, and one 80

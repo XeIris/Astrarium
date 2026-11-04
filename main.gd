@@ -3055,7 +3055,7 @@ func animate(dt: float) -> void:
 		# (b.size_k) — during an edit the mesh is mid-glide, so the marker has to
 		# hand over at the size actually being drawn or it pops.
 		b.marker.update(pipe.scene_cam, b.scene_pos.rel_v3(cam_pos),
-			maxf(b.radius_scene, b.rs_scene) * b.size_k, float(pipe.view_size.y), b.id == state.focus_id)
+			maxf(b.radius_scene, b.rs_scene) * b.size_k, float(pipe.view_size.y), b.id == state.focus_id, observatory.active)
 
 	# flashes
 	for i in range(flashes.size() - 1, -1, -1):
