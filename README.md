@@ -351,8 +351,8 @@ fail explicitly. Multiple requested methods run in order.
 | `python3 tools/reference_shots_test.py` | failure-contract self-checks for the reference runners, without a renderer |
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks; use `flightshots.sh` for validated flight captures |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
-| `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry |
-| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
+| `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry; windowed, a pass that drew under half the frames it processed fails (a covered macOS window) |
+| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; windowed, a round that drew under half the frames it processed fails (a covered macOS window); the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
 | `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 
 The historical side-by-side migration evidence was archived out of the working

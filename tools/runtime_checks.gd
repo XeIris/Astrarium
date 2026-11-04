@@ -50,6 +50,7 @@ func _leak_check() -> void:
 	lessons.store = ""
 	lessons.progress = {"done": {}, "last": null}
 	var keys: Array = Presets.PRESET_ORDER
+	var frames_start := _frame_counts()
 	var baseline := []
 	var failures := []
 	for pass_i in 5:
@@ -81,6 +82,8 @@ func _leak_check() -> void:
 			printerr("LEAKCHECK FAILED: OS input arrived in every frame for 600 frames")
 			stage.get_tree().quit(1)
 			return
+		if not _drew_since(frames_start, "LEAKCHECK"): return
+		frames_start = _frame_counts()
 		_fill_glyph_caches()
 		var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 			int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
@@ -280,6 +283,7 @@ func _soak_check() -> void:
 		var counts := []
 		var baseline := []
 		for r in rounds:
+			var frames_start := _frame_counts()
 			# Dynamic readouts shape new font-cache entries if the scenario keeps advancing.
 			stage.hud_acc = 0.0
 			if key != "start_screen": stage.load_preset("solar")
@@ -298,6 +302,7 @@ func _soak_check() -> void:
 				printerr("SOAK FAILED: OS input arrived in every frame for 600 frames")
 				stage.get_tree().quit(1)
 				return
+			if not _drew_since(frames_start, "SOAK"): return
 			_fill_glyph_caches()
 			var current := [int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 				int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
@@ -315,6 +320,22 @@ func _soak_check() -> void:
 	print("SOAK FAILURES ", failures)
 	print("SOAK DONE")
 	stage.get_tree().quit(1 if not failures.is_empty() else 0)
+
+func _frame_counts() -> Array[int]:
+	return [Engine.get_process_frames(), Engine.get_frames_drawn()]
+
+# macOS stops drawing a fully covered window but the main loop runs on, so a covered
+# run would otherwise pass without touching the GPU. A ratio, as a slow machine draws
+# every frame it processes. Quits with a failure when the window did not draw.
+func _drew_since(start: Array[int], check: String) -> bool:
+	var counts := _frame_counts()
+	var processed: int = counts[0] - start[0]
+	var drawn: int = counts[1] - start[1]
+	if DisplayServer.get_name() == "headless" or drawn * 2 >= processed:
+		return true
+	printerr("%s FAILED: drew %d of %d frames; is the window covered?" % [check, drawn, processed])
+	stage.get_tree().quit(1)
+	return false
 
 # The check window still receives the desktop pointer, and keys while it has focus.
 # Hovering the GUI creates state (hover LabelSettings, a 2D space state, timers), so
@@ -377,6 +398,7 @@ func _fill_glyph_caches() -> void:
 					ts.font_get_glyph_texture_rid(rid, info.size_px, g)
 
 # Exercise renderer/view teardown; --verbose must report no shutdown leaks.
+# No _drew_since: this ends in about 3 s, and a covered window was still drawing until then.
 func _shutdown_check() -> void:
 	stage.load_preset("solar")
 	for i in 5: await stage.get_tree().process_frame
