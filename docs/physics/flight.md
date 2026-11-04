@@ -258,15 +258,17 @@ The local scene's Sun casts no shadow, so nothing else stops it at the planet: w
 a vehicle on the night side is lit through the Earth. `LocalView._light_local` scales the light by the
 fraction of the disc over the limb (`_update_sun`), which is below the local horizontal by the dip,
 `acos(R / (R + h))`: 14° at 210 km, so a vehicle still has sunlight for some way past the point under it
-going dark.
+going dark. A star the vessel orbits has no limb in front of it, and neither has a world with no star at
+all, so those skip the test; the disc's own visibility stays as it is.
 
 The same pass takes the air's extinction relative to overhead (`LocalView.sun_extinction`), per channel,
-to the light and the ground under it. The airmass is Kasten & Young's, the column falls with the eye's
-height, and from orbit the term is 1. Calibration stands overhead, so a vehicle under a 30° Sun is about
+to the light and the ground under it. The airmass is Kasten & Young's and the column is the pressure at
+the eye's height over the pressure at the ground, so from orbit the term is 1, and exactly 1 past the top
+of the air. Calibration stands overhead, so a vehicle under a 30° Sun is about
 15% dimmer than at noon.
 
 The rest is fill, all of it standing for a sunlit planet and sky, so it follows the Sun at the point
-under the vehicle. Planetshine falls as the Sun goes from `y = 0.1` to `−0.2` on the local vertical, to
+under the vehicle, or a second star there in proportion to its flux. Planetshine falls as the Sun goes from `y = 0.1` to `−0.2` on the local vertical, to
 `LocalView.NIGHT_BOUNCE`. That is by eye and not physical: the tone curve's toe takes everything below about
 0.06, and a true value would leave the ship a hole in the stars for a third of every orbit. High takes its
 ambient from a `PhysicalSkyMaterial` that is black once its light has set, whatever its air is doing, so

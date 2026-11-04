@@ -3,7 +3,8 @@ extends Node
 # A vehicle lit only by what can reach it, measured in the final frame: nothing casts a shadow
 # from the planet, so LocalView's Sun must stop at the limb itself, and the fill is what's left.
 #   Godot --path . --resolution 1280x720 res://tools/flightlightcheck.tscn -- [dump=/abs/dir]
-# On the pad by day, at sunset, through twilight and at night, and in orbit by day, past the
+# First as numbers, where no limb is in the way or no air is left: far above the air, around a
+# star, with no star. Then on the pad by day, at sunset, through twilight and at night, and in orbit by day, past the
 # local horizontal with the Sun still over the limb, and in eclipse. Windowed: High takes its
 # ambient from a sky the GPU integrates, and the limits are display luminance. They hold the
 # look, not the physics.
@@ -18,6 +19,8 @@ const ORBIT_INC := 28.5
 const WALL_LIT_MIN := 0.15
 const WALL_DARK_MAX := 0.06
 const WALL_DARK_MIN := 0.005
+## What the air may leave of the Sun, per channel, once there is none to speak of.
+const NO_AIR_EXTINCTION_MIN := 0.995
 ## Plume.daylight past the limb, where the twilight term still has a few degrees to fall.
 const SMOKE_DARK_MAX := 0.15
 ## Linear red over blue of the Sun at +2°: the air takes the blue first.
@@ -70,11 +73,15 @@ func solve(alt: float, place: Callable, rising := true) -> float:
 			best = a
 	return best
 
+## A clear sky: the sweep lands anywhere in the cloud field, and this judges the limb.
+func cloudless() -> void:
+	var earth: Body = stage.state.body_named("Earth")
+	if earth != null: earth.spec["cloudCover"] = 0.0
+
 func begin(opts: Dictionary) -> void:
 	if f.active: stage.end_flight()
 	stage.scenario_world()
-	# A clear sky: the sweep lands anywhere in the cloud field, and this judges the limb.
-	stage.state.body_named("Earth").spec["cloudCover"] = 0.0
+	cloudless()
 	f.begin(CRAFT, opts)
 	stage.set_cam_mode("flight")
 	stage.set_hud_hidden(true)
@@ -86,6 +93,7 @@ func on_pad(alt: float) -> void:
 	var lon := solve(alt, func(a: float): f.vessel.place_on_pad(lat, a))
 	begin({"mode": "pad", "lon": lon})
 	f.fly_cam.set_mode("chase")
+	check("the pad has the Sun at %+.0f°: %+.2f°" % [alt, rad_to_deg(asin(sun_y()))], absf(rad_to_deg(asin(sun_y())) - alt) < 1.0)
 
 ## The vehicle coasting where the Sun is at `alt` degrees. Orbit's phase turns against the
 ## pad's longitude, so the same sweep finds the same side of the night.
@@ -93,6 +101,7 @@ func in_orbit(alt: float) -> void:
 	begin({"mode": "orbit", "alt": ORBIT_ALT, "inc": ORBIT_INC, "phase": 0.0})
 	var ph := deg_to_rad(solve(alt, func(a: float): f.vessel.place_in_orbit(ORBIT_ALT, ORBIT_INC, deg_to_rad(a))))
 	begin({"mode": "orbit", "alt": ORBIT_ALT, "inc": ORBIT_INC, "phase": ph})
+	check("the orbit has the Sun at %+.0f°: %+.2f°" % [alt, rad_to_deg(asin(sun_y()))], absf(rad_to_deg(asin(sun_y())) - alt) < 1.0)
 
 ## Median luminance along the stack, in the final frame, after the exposure and the chase
 ## camera have eased round to the sunward side.
@@ -118,6 +127,87 @@ func wall(tag: String) -> float:
 		return -1.0
 	seen.sort()
 	return seen[seen.size() / 2]
+
+## A flight in another scenario, drawn just long enough for its light to be set.
+func flight_in(preset: String, opts: Dictionary) -> void:
+	if f.active: stage.end_flight()
+	stage.load_preset(preset)
+	cloudless()
+	f.begin(CRAFT, opts)
+	stage.set_cam_mode("flight")
+	await settle(3)
+
+## Sun `zenith` degrees from overhead, `alt` m up, by moving the vessel in the frame it is in.
+func high_above(alt: float, zenith: float) -> void:
+	var sun := f.sun_direction(DVec3.new()).clone()
+	var side := DQuat.nrm(DVec3.new().cross_vectors(sun, DVec3.new(0.0, 1.0, 0.0)))
+	var a := deg_to_rad(zenith)
+	f.vessel.r.copy_from(sun).scale_in(cos(a)).add_scaled_in(side, sin(a)).scale_in(f.vessel.env.radius + alt)
+	await settle(2)
+
+func clear_of_air(tag: String) -> void:
+	var e: Vector3 = f.local.sun_extinction
+	check("%s: the air takes nothing: (%.3f, %.3f, %.3f)" % [tag, e.x, e.y, e.z], minf(e.x, minf(e.y, e.z)) >= NO_AIR_EXTINCTION_MIN)
+	check("%s: and the Sun lights the vehicle: %.3f" % [tag, f.local.sun.light_energy], f.local.sun.light_energy > 0.5)
+
+## The cases a sweep at the pad and at 210 km never reach, as numbers.
+func elsewhere() -> void:
+	use_quality("medium")
+	await flight_in("solar", {"mode": "orbit", "alt": 250e3, "inc": 0.0, "phase": 0.0})
+	for alt in [1.2e6, 2.0e6, 3.6e7, 3.0e8]:
+		for zenith in [0.0, 60.0]:
+			await high_above(alt, zenith)
+			clear_of_air("%.0f km, Sun %.0f° off overhead" % [alt / 1000.0, zenith])
+	await high_above(3.6e7, 180.0)
+	check("behind the planet from 36 000 km the Sun is out: %.3f" % f.local.sun.light_energy, f.local.sun.light_energy == 0.0)
+
+	# Out of Earth's sphere of influence by the real handover: the Sun is now the parent.
+	await flight_in("solar", {"mode": "orbit", "alt": 250e3, "inc": 0.0, "phase": 0.0})
+	f.vessel.r.copy_from(DQuat.nrm(f.vessel.r.clone())).scale_in(2.0e9)
+	await settle(1)
+	f.vessel.check_soi()
+	await settle(3)
+	check("the vessel has handed over to the Sun: %s" % f.vessel.parent.name, f.vessel.parent.name == "Sun")
+	check("the Sun is straight down from it: %.3f" % sun_y(), sun_y() < -0.99)
+	clear_of_air("around the Sun")
+
+	await flight_in("alphacen", {"mode": "orbit", "alt": 5.0e8, "inc": 0.0, "phase": 1.0})
+	check("around a star, its parent: %s" % f.vessel.parent.type, f.vessel.parent.type == "star")
+	clear_of_air("around Alpha Cen")
+
+	await flight_in("bhmerger", {"mode": "orbit", "alt": 5.0e8, "inc": 0.0, "phase": 1.0})
+	check("in a scenario with no star", f.light_sources().is_empty())
+	clear_of_air("no star at all")
+
+	# A limb that is still in the way: an airless world's night side.
+	await flight_in("solar", {"mode": "orbit", "alt": 100e3, "inc": 0.0, "phase": 0.0, "body": "Moon"})
+	var ph := deg_to_rad(solve(-80.0, func(a: float): f.vessel.place_in_orbit(100e3, 0.0, deg_to_rad(a))))
+	f.vessel.place_in_orbit(100e3, 0.0, ph)
+	await settle(3)
+	check("the Moon's night side is dark: %.3f" % f.local.sun.light_energy, f.local.sun.light_energy == 0.0)
+
+	await binary()
+
+## A second star over a set first one: LocalView takes it directly, since no preset flies a
+## launch vehicle under a binary from a pad.
+func binary() -> void:
+	await on_pad(-38.0)
+	await settle(3)
+	var v: Vessel = f.vessel
+	var up := DQuat.nrm(v.r.clone())
+	var north := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).add_scaled_in(up, up.y))
+	var o := {"env": v.env, "altitude": 0.0, "surfaceR": v.surface_r(v.r), "sunDirWorld": f.sun_direction(DVec3.new()),
+		"upWorld": up, "northWorld": north, "starFlux": 1.0, "dt": 1.0 / 60.0}
+	var fill := func(sun2_flux: float) -> float:
+		o["sun2World"] = up if sun2_flux > 0.0 else null
+		o["sun2Flux"] = sun2_flux
+		f.local.update(o)
+		return float(stage.pipe.env_local.ambient_light_energy)
+	var alone: float = fill.call(0.0)
+	var faint: float = fill.call(0.001)
+	var equal: float = fill.call(1.0)
+	check("a star overhead brings the planet's day back: %.4f from %.4f" % [equal, alone], equal > 3.0 * alone)
+	check("a faint companion does not: %.4f from %.4f" % [faint, alone], faint < 1.1 * alone)
 
 func use_quality(quality: String) -> void:
 	stage.set_render_quality(quality)
@@ -190,6 +280,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	f = stage.flight
 	await CraftAssets.craft_models_ready([CRAFT])
+	await elsewhere()
 	# Medium fills from a colour, High from a sky that is black below its horizon.
 	for q in ["medium", "high"]:
 		await pad(q)

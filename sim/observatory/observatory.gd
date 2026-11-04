@@ -429,6 +429,7 @@ func _drive_local(dt: float) -> void:
 	var earth: Body = stage.state.body_named("Earth")
 	var sun: DVec3 = to_flight.call(EarthFrame.from_scene(sun_b.pos.sub(earth.pos)).normalized())
 	var R: float = Rocketry.figure_radius(_env.get("figure"), float(_env.radius), up)
+	local.night_bounce = NIGHT_BOUNCE
 	var fr: Dictionary = local.update({"env": _env, "altitude": _local_pos.y, "surfaceR": R, "sunDirWorld": sun,
 		"upWorld": up, "northWorld": north, "starFlux": 1.0, "padWorld": up.scaled(R), "anchorWorld": up.scaled(R),
 		"mapSite": {"lat": lat, "lon": lon}, "planetSpin": 0.0, "dt": dt, "frame": Basis(), "cloudWind": Vector3.ZERO,
@@ -466,7 +467,6 @@ func _drive_local(dt: float) -> void:
 ## exposure the sky is seen under, so the site stays with its sky through twilight, and goes on
 ## to read as black: a building is no vehicle to keep track of.
 func _light_site(local: LocalView) -> void:
-	local.night_bounce = NIGHT_BOUNCE
 	var c := SkyConditions.sunlight(local.sun_extinction, sky_exposure)
 	var base := local.sun_tint.srgb_to_linear()
 	# A light's colour is sRGB and these are linear ratios: raw, the red sunset goes neon.

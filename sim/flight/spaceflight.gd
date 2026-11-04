@@ -227,7 +227,7 @@ func ship_world(out: DVec3 = null) -> DVec3:
 
 ## Every star lighting the vessel, brightest first: {dir (unit DVec3 toward the
 ## star, in the vessel's parent frame), flux (relative to the Sun at Earth, from the
-## vessel's position), teff, ang_r}. Includes an interstellar mission's destination.
+## vessel's position), teff, ang_r, body when it is one}. Includes an interstellar mission's destination.
 func light_sources() -> Array:
 	var out := []
 	if vessel == null: return out
@@ -237,7 +237,7 @@ func light_sources() -> Array:
 		var r := maxf(d.length(), 1e-6)
 		out.append({"dir": vessel.to_local(d.scale_in(1.0 / r), d), "flux": float(U.nz(b.luminosity, 1.0)) / (r * r),
 			"teff": float(U.nz(b.teff, 5772.0)), "ang_r": b.radius / r if b.radius > 0.0 else 0.00465 / r,
-			"kp": Stellar.storm_kp(b.activity)})
+			"kp": Stellar.storm_kp(b.activity), "body": b})
 	if cruise_ctx != null and cruise_ctx.get("star_pos") != null:
 		var m: Dictionary = cruise_ctx.mission
 		var d := DVec3.new().sub_vectors(cruise_ctx.star_pos, w)
@@ -1307,6 +1307,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"frame": Basis(vessel.frame.to_quaternion()),
 		# a steady 9 m/s westerly, the trade-wind belt's upper flow reversed
 		"cloudWind": wind_dir * (9.0 * vessel.met),
+		"sunUnblocked": key == null or key.get("body") == vessel.parent,
 		"sunAngR": float(key.ang_r) if key != null else 0.00465,
 		"sunTeff": float(key.teff) if key != null else 5772.0,
 		"kp": float(key.get("kp", 2.0)) if key != null else 0.0,
