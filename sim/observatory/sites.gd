@@ -19,6 +19,6 @@ const SITES := {
 }
 const ORDER := ["jodrell", "maunakea", "paranal"]
 
-## "53.236° N, 2.307° W, 80 m".
+## "53.236° N, 2.307° W, 78 m".
 static func describe(lat: float, lon: float, h: float) -> String:
 	return "%.3f° %s, %.3f° %s, %d m" % [absf(lat), "N" if lat >= 0.0 else "S", absf(lon), "E" if lon >= 0.0 else "W", int(roundf(h))]

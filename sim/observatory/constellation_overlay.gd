@@ -29,6 +29,8 @@ var _tan := 1.0
 var _up := Vector3.UP
 var _on := false
 var count := 0
+## The Julian year the figure stars are carried to.
+var year := NAN
 
 func _init() -> void:
 	name = "ConstellationOverlay"
@@ -61,15 +63,16 @@ func _load() -> void:
 			_bounds.append(SkyModel.radec_to_scene(float(b[0]), float(b[1])).to_v3())
 	set_epoch(2000.0)
 
-## Carry the figure stars to Julian year `year`.
-func set_epoch(year: float) -> void:
+## Carry the figure stars to Julian year `to_year`.
+func set_epoch(to_year: float) -> void:
+	year = to_year
 	_figure.resize(_figure_src.size() * 2)
 	for i in _figure_src.size():
 		var s: Array = _figure_src[i]
 		for e in 2:
 			var o := e * 4
 			var p := EarthFrame.proper_motion(deg_to_rad(float(s[o])), deg_to_rad(float(s[o + 1])),
-				float(s[o + 2]), float(s[o + 3]), 2000.0, year)
+				float(s[o + 2]), float(s[o + 3]), 2000.0, to_year)
 			_figure[i * 2 + e] = EarthFrame.to_scene(p).to_v3()
 
 ## The instrument's target as a scene direction and its name; null hides it.

@@ -27,7 +27,10 @@ from the date and the site.
    ecliptic of date, carried to J2000 by the IAU 2006 precession; its velocity is a
    ±30 min central difference. The mean elements alone leave out evection,
    variation and the annual equation and are 0.5°–2.2° off; this is 0.007° rms. The
-   clock then runs the orrery's N-body integration (1PN, Yoshida) from that state.
+   clock then runs the orrery's N-body integration (1PN, Yoshida) from that state,
+   and each simulated day (`RESTATE_DAYS`) the bodies are set from these sources again.
+   The integration alone is not this theory: the Moon leaves it by 0.18° in 30 days and
+   2.25° in a year. With the restatement it stays within 0.005° over a 30-day run.
    Setting a date is a new epoch, so `sim_years` is assigned and its compensated
    remainder restarts (AGENTS.md).
 3. **Earth's orientation** (`EarthFrame.site`). The GCRS → true-of-date matrix is
@@ -48,8 +51,14 @@ from the date and the site.
    over centuries; over millennia a nearby star's motion is not linear (perspective
    acceleration needs a radial velocity, which is not applied).
 
-Annual aberration (≤ 20″) and light deflection are not applied to the drawn sky:
-at the Observatory's fields of view a pixel is 100″–250″.
+Annual aberration (≤ 20″) and light deflection are not applied to the drawn sky: at
+a 70° field a pixel is about 250″, but at the 1° floor it is about 3.5″, so these are
+small visible errors when zoomed in. Nor is light time. Bodies are drawn at their
+geometric places on the date, as JPL Horizons' geometric vectors give them, and the
+delay would move a planet by up to 40″ (Mercury), 24″ (Venus), 18″ (Mars), 9″ (Jupiter)
+and 7″ (Saturn), measured over 2026–27. The outer planets' mean elements are the larger
+error: Jupiter is 0.10° and Saturn 0.16° from Horizons at J2000 (see the budget below), so a
+1° view of them is centred on the model's planet, not the real one.
 
 ## ΔT
 
@@ -187,7 +196,19 @@ A custom site takes any latitude, longitude and height on WGS-84.
 - the terrain tiles against Armazones, Mauna Kea's summit, Paranal's datum and the sea
   on the correct sides;
 - the published separations (Keck I–II 85 m, Lovell–Mark II 425 m, UT1–UT4 130 m) and each
-  structure's height, in the authored and fallback builds, with its pivots.
+  structure's height, in the authored and fallback builds, with its pivots;
+- at those dates, the composed precession–nutation matrix and each site's GCRS offset
+  against IAU SOFA through pyerfa (`tools/observatory_ref.py`, which reaches sidereal
+  time by the equation of the origins where the code uses the equinoxes), and the
+  topocentric Moon and its parallax against Horizons' place less SOFA's site;
+- the offset's closed form: Earth's centre leans from a geodetic zenith by
+  a e² sin φ cos φ / √(1 − e² sin² φ) (north −20.5 km at Jodrell Bank) with no east part.
 
 `tools/hudcheck.tscn -- htest=1` walks the picker with real input and holds the afternoon
 Sun to the local west at Paranal, which proves the local frame's handedness.
+
+`tools/observatorystagecheck.gd` (headless, in the fast suite) runs the mode on the real
+stage: the scenario list hidden and another scenario ending the mode, the view keys
+ignored, the clock, pause, field of view and Earth restored on leaving, stars carried to
+the date after the catalogue is rebuilt, and the Moon on `LunarTheory` over 30 days at the
+clock with the camera at the site.

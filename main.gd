@@ -1131,12 +1131,11 @@ func _input(e: InputEvent) -> void:
 		return
 	if key.pressed and not key.echo and observatory.picking and not hud.settings_open:
 		var handled := true
-		match key.keycode:
-			KEY_LEFT: observatory.picker_step(-1)
-			KEY_RIGHT: observatory.picker_step(1)
-			KEY_ENTER, KEY_KP_ENTER: observatory.observe()
-			KEY_ESCAPE: quit_to_start()
-			_: handled = false
+		if controls.matches("site_previous", key): observatory.picker_step(-1)
+		elif controls.matches("site_next", key): observatory.picker_step(1)
+		elif controls.matches("site_observe", key) or key.keycode == KEY_KP_ENTER: observatory.observe()
+		elif key.keycode == KEY_ESCAPE or controls.matches("settings", key): quit_to_start()
+		else: handled = false
 		if handled:
 			get_viewport().set_input_as_handled()
 			return
@@ -1213,8 +1212,9 @@ func _key(e: InputEventKey) -> void:
 	if controls.matches("pause", e):
 		state.paused = not state.paused
 		get_viewport().set_input_as_handled()
-	if controls.matches("free_view", e): set_cam_mode("free" if state.cam_mode == "orbit" else "orbit")
-	if controls.matches("surface_view", e): set_cam_mode("orbit" if state.cam_mode == "surface" else "surface")
+	# The Observatory's camera is the site's; leaving the ground would leave the mode half-switched.
+	if controls.matches("free_view", e) and not observatory.active: set_cam_mode("free" if state.cam_mode == "orbit" else "orbit")
+	if controls.matches("surface_view", e) and not observatory.active: set_cam_mode("orbit" if state.cam_mode == "surface" else "surface")
 	if controls.matches("hide_hud", e): set_hud_hidden(not state.hud_hidden)
 	for i in range(Spectrum.BANDS.size()):
 		if controls.matches("band_%d" % (i + 1), e): set_band(i)
@@ -1304,6 +1304,9 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 			_reject_body_input("Preset %s: %s" % [key, reason])
 			return false
 		specs.append(spec)
+	# The Observatory is the solar preset on a date: another scenario ends the mode, so its
+	# clock and observer never outlive the bodies they read.
+	if observatory.active: set_app_mode("sandbox")
 	clear_bodies()          # bodies, painted swarms and any flash still burning
 
 	state.preset = p

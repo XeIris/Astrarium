@@ -13,6 +13,9 @@ const RATES := {"pause": 0.0, "1x": 1.0, "60x": 60.0, "3600x": 3600.0}
 const JD_UNIX := 2440587.5
 ## The tightest zoom, degrees: Camera3D rejects anything under 1°.
 const MIN_FOV := 1.0
+## Simulated days the integration runs before the bodies are restated from their sources.
+## Unchecked, the Moon leaves LunarTheory by 0.18° in 30 days; a day leaves 0.003° at most.
+const RESTATE_DAYS := 1.0
 
 var stage   # main.gd
 var active := false
@@ -32,7 +35,6 @@ var picker: SitePicker
 var picking := false
 var site_scene: SiteScene = null
 var _hud_acc := 0.0
-var _pm_year := NAN
 var _prev_home = null
 var _env := {}
 var _sky_gain := 1.0
@@ -56,6 +58,10 @@ var _point_next := ""
 var _desk_next := {}
 ## The instrument desk.
 var desk: ObservatoryInstruments
+## The stage's clock and observer settings as the mode found them, restored by leave().
+var _prev_clock := {}
+var _prev_fov := 0.0
+var _restated_tt := NAN
 
 func _init(main) -> void:
 	stage = main
@@ -67,9 +73,12 @@ func _init(main) -> void:
 ## alt (deg), rate, view (the overlays to show: "lines", "names", "bounds").
 func enter(opts: Dictionary = {}) -> void:
 	if stage.state.preset_key != "solar": stage.load_preset("solar")
+	if not active:
+		_prev_home = stage.state.home_id
+		_prev_clock = {"speed": stage.state.speed, "paused": stage.state.paused, "time_scale": stage.state.time_scale}
+		_prev_fov = stage.observer.fov
 	active = true
 	# The solar preset has no home world; the surface view stands on one.
-	_prev_home = stage.state.home_id
 	var earth: Body = stage.state.body_named("Earth")
 	if earth != null: stage.state.home_id = earth.id
 	if not stage.state.true_scale: stage.set_true_scale(true)
@@ -102,7 +111,12 @@ func leave() -> void:
 	desk.finish()
 	stage.observer.min_fov = SkyView.SurfaceObserver.MIN_FOV
 	if picking: _close_picker()
+	# Only while it is the home world does the stage hide or show it.
+	var earth: Body = stage.state.body_named("Earth")
+	if earth != null and earth.viz != null: earth.viz.group.visible = true
 	if stage.state.preset_key == "solar": stage.state.home_id = _prev_home
+	for k in _prev_clock: stage.state.set(k, _prev_clock[k])
+	stage.observer.fov = _prev_fov
 	if overlay: overlay.visible = false
 	if site_scene != null:
 		site_scene.dispose()
@@ -189,7 +203,9 @@ func _camera_step(dt: float) -> void:
 	if not picking:
 		var d = Facilities.DATA.get(site_key)
 		if d == null:
-			_local_pos = Vector3(0.0, 2.0, 0.0)
+			# A custom site has no tile: its ground is its stated height, for the air and the patch.
+			site_scene.patch_y = h
+			_local_pos = Vector3(0.0, h + 2.0, 0.0)
 		else:
 			var v: Dictionary = d.view
 			_local_pos = Vector3(-float(v.e), site_scene.height_at(v.e, v.n) + float(v.eye), float(v.n))
@@ -272,7 +288,9 @@ func civil() -> float:
 ## Jump to civil Julian date `jd`: the stage rebuilds the Solar System there.
 func set_civil(jd: float) -> void:
 	if not is_finite(jd): return
-	stage.restate_solar(EarthFrame.tdb_of_tt(EarthFrame.tt_of_civil(jd)))
+	var t := EarthFrame.tt_of_civil(jd)
+	stage.restate_solar(EarthFrame.tdb_of_tt(t))
+	_restated_tt = t
 	_refresh_stars()
 	if active: sync_hud()
 
@@ -339,6 +357,10 @@ static func solar_state(tt: float) -> Dictionary:
 ## Per frame, in place of SurfaceObserver.update: stand on Earth's WGS-84 surface at
 ## the site with Earth's orientation on this date.
 func place(observer: SkyView.SurfaceObserver, earth: Body, camera: Camera3D) -> void:
+	# Before the eye is taken from Earth, so the whole frame sees the same bodies.
+	if absf(tt() - _restated_tt) >= RESTATE_DAYS:
+		_restated_tt = tt()
+		stage.restate_solar(tdb())
 	frame = EarthFrame.site(tt(), deg_to_rad(lat), deg_to_rad(lon), h)
 	var up := EarthFrame.to_scene(frame.up)
 	var north := EarthFrame.to_scene(frame.north)
@@ -458,11 +480,11 @@ func altitude_of(d_scene: DVec3) -> float:
 
 func _refresh_stars() -> void:
 	var y := EarthFrame.year_of(tt())
-	# A star moves at most ~10″ a year (Barnard's), a pixel at most every ~20 years.
-	if stage.bright_stars != null and (is_nan(_pm_year) or absf(y - _pm_year) > 0.5):
+	# A star moves at most ~10″ a year (Barnard's), a pixel at most every ~20 years. A rebuilt
+	# catalogue answers NaN here: its stars are at their catalogue epochs.
+	if stage.bright_stars != null and not absf(y - stage.bright_stars.year) <= 0.5:
 		stage.bright_stars.set_epoch(y)
-		_pm_year = y
-	if overlay: overlay.set_epoch(y)
+	if overlay and not absf(y - overlay.year) <= 0.5: overlay.set_epoch(y)
 
 ## Per frame after the camera is placed.
 func update(dt: float) -> void:
