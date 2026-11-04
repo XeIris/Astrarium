@@ -90,6 +90,9 @@ CHANGED_RULES = (
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
       "sim/flight/cloudfield.gd", "sim/flight/vapour.gd", "sim/flight/cryo.gd"),
      ("lenscheck", "skycachecheck", "presetcheck", "hud*", "_soak_check-*", "_leak_check", "missioncheck-parity-*")),
+    # How large a point source is drawn: the rule, its three users, and the bloom that spreads them.
+    (("shaders/common/point_source.gdshaderinc", "shaders/sky/*", "shaders/bodies/marker_point.gdshader", "shaders/post/*",
+      "sim/marker.gd", "sim/brightstars.gd", "sim/sky.gd", "render/postfx.gd"), ("glowcheck",)),
     (("ui/*",), ("hud*", "editorcheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     # Any other tool (fxlab, harnesses): at least it must still parse.
@@ -243,12 +246,15 @@ def checks(suite, godot, output, repeat, export_preset):
         yield Check("scenario-replay", base + ["--headless", "res://tools/scenariocheck.tscn", "--", "replay=1"],
                     r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 3600)
     elif suite == "rendered":
-        # Windowed: lens and skycache read GPU results and pixels; coursecheck and the
-        # accretion checks collect the errors a drawn frame raises (SHADER ERROR included);
-        # hudcheck screenshots and drives real input over laid-out Controls; presetcheck
-        # attributes each scenario's render errors. The rest judge state and run headless.
+        # Windowed: lens and skycache read GPU results and pixels; glowcheck measures a
+        # source's glow in the final frame, because bloom and the tone curve decide its
+        # size; coursecheck and the accretion checks collect the errors a drawn frame
+        # raises (SHADER ERROR included); hudcheck screenshots and drives real input over
+        # laid-out Controls; presetcheck attributes each scenario's render errors. The
+        # rest judge state and run headless.
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
+        yield scene("glowcheck", r"^GLOWCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")

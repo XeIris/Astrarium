@@ -7,10 +7,12 @@ shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_disabled;
 
 #include "res://shaders/common/temp_pass.gdshaderinc"
+#include "res://shaders/common/point_source.gdshaderinc"
 
 uniform float uPixSr = 1e-6;
 uniform vec2 uViewport = vec2(1280.0, 720.0);
 uniform float uGain = 1.0;
+uniform float uProfilePx2 = 1.0;
 const float QUAD_PX = 5.0;
 
 varying vec2 vQ;
@@ -19,7 +21,7 @@ varying vec3 vCol;
 void vertex() {
 	vQ = VERTEX.xy + 0.5;
 	vec3 d = mat3(VIEW_MATRIX) * normalize(INSTANCE_CUSTOM.xyz);
-	vCol = COLOR.rgb * INSTANCE_CUSTOM.w / uPixSr * uGain;
+	vCol = COLOR.rgb * point_flux(INSTANCE_CUSTOM.w / uPixSr * uGain) / uProfilePx2;
 	vec4 clip = PROJECTION_MATRIX * vec4(d, 1.0);
 	vec2 ndc = d.z < 0.0 ? clip.xy / clip.w : vec2(4.0);   // behind the camera: off screen
 	// z = 0 is the far plane under reversed Z, behind every body.

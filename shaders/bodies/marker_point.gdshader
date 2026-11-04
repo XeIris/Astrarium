@@ -6,18 +6,23 @@ shader_type spatial;
 render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled;
 
 #include "res://shaders/common/temp_pass.gdshaderinc"
+#include "res://shaders/common/point_source.gdshaderinc"
 
 uniform vec3 uColor = vec3(1.0);
 uniform float uOpacity = 0.0;
+// The gain before point_flux; uProfilePx2 is what the profile integrates to at gain 1.
 uniform float uGain = 1.0;
+uniform float uProfilePx2 = 1.0;
 uniform float uSel = 0.0;
 // same encoding as the surface shaders: log(T)/25.33, clamped below 1
 uniform float uTempA = 0.0;
 
 varying vec2 vQ;
+varying float vGain;
 
 void vertex() {
 	vQ = VERTEX.xy + 0.5;
+	vGain = point_flux(uGain * uProfilePx2) / uProfilePx2;
 	vec2 sc = vec2(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[1].xyz));
 	vec4 centre = MODELVIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0);
 	POSITION = PROJECTION_MATRIX * (centre + vec4(VERTEX.xy * sc, 0.0, 0.0));
@@ -35,6 +40,6 @@ void fragment() {
 	             (smoothstep(0.58, 0.65, r) - smoothstep(0.71, 0.78, r));
 	if (a <= 0.003 && ring <= 0.003) discard;
 	// premultiplied: colour already carries its own coverage
-	ALBEDO = uColor * a * uGain + vec3(0.5, 0.72, 1.0) * ring;
+	ALBEDO = uColor * a * vGain + vec3(0.5, 0.72, 1.0) * ring;
 	ALPHA = 0.0;
 }

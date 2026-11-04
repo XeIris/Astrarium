@@ -67,6 +67,7 @@ func _init(opts: Dictionary) -> void:
 	material.set_shader_parameter("uOpacity", 0.0)
 	_base_gain = float(U.nz(opts.get("gain"), 1.0))
 	material.set_shader_parameter("uGain", _base_gain)
+	material.set_shader_parameter("uProfilePx2", MARKER_FLUX_PX2)
 	material.set_shader_parameter("uSel", 0.0)
 	material.set_shader_parameter("uTempA", minf(log(maxf(teff, 1.0)) / 25.33, 0.98) if teff > 0.0 else 0.0)
 	material.render_priority = 3
@@ -101,7 +102,7 @@ func update(camera: Camera3D, pos_rel: Vector3, radius_scene: float, viewport_h:
 	if not is_nan(magnitude):
 		# Radiance × pixel² of a sky star of this magnitude, spread over the marker's profile.
 		var pix_sr := pow(1.0 / _pixels_per_world_unit(1.0, fov_rad, viewport_h), 2.0)
-		# Brighter than the full Moon only blooms harder; fainter than the floor is lost.
+		# Fainter than the floor is lost. The shader's point_flux limits the bright end.
 		var m := clampf(magnitude, -12.7, SkyModel.STAR_FLUX_FLOOR_MAG)
 		var flux := SkyModel.STAR_FLUX * pow(10.0, -0.4 * (m - SkyModel.STAR_FLUX_MAG))
 		material.set_shader_parameter("uGain", flux / (pix_sr * MARKER_FLUX_PX2))

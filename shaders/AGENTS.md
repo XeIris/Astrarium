@@ -54,6 +54,11 @@ Single-hole ray geometry has independent shadow/weak-field checks in
 `tools/lenscheck.tscn`; two-hole superposition and disc transfer remain illustrative.
 See [the ray contract](../docs/physics/lensing.md#ray-coordinates-and-numerical-scope).
 
+- A point source held a fixed number of pixels wide draws `point_flux`
+  (`shaders/common/point_source.gdshaderinc`) of its flux per pixel solid angle,
+  never that flux directly: zoom and lensing make it unbounded, and bloom spreads
+  it across the frame. Check: `tools/glowcheck.tscn`.
+
 ## Solid surfaces (`rocky_surface.gdshader`, `terrain.gdshaderinc`)
 
 - Land fraction goes through the inverse normal CDF (`crust_threshold(0.29)`),

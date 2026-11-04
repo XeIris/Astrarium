@@ -33,7 +33,8 @@ the lensing.
 - Diffuse layers ignore J.
 - A star's offset is solved in pixels: J p = (s − D) in least squares. The PSF
   is a fixed Gaussian in p, normalised through J, so L = F·G(p)/w². Since
-  w² ∝ 1/μ, the peak radiance rises exactly as μ, and the star stays a point.
+  w² ∝ 1/μ, the peak radiance rises as μ up to the [point-source knee](#drawn-flux),
+  and the star stays a point.
 - Extended sources (galaxies, supernova shells) are kept in source angle so that
   they do arc.
 
@@ -260,6 +261,29 @@ their distance. Brightness goes on the sky's own flux scale: a tier-0 sky star
 radiance·pixel². It is clamped between the full Moon (−12.7) and the sky's
 8th-magnitude limit, so a body is never lost entirely. Holes and compact stars
 keep their fixed emitter gain.
+
+### Drawn flux
+
+A source is held a few pixels wide however far the camera zooms, so its flux per
+pixel solid angle, F/Ω, rises as 1/tan²(fov/2) and with lensing. It would pass 10¹²
+radiance·pixel², against a bloom threshold of 1, and bloom would spread that to its
+widest kernel: the Sun or a zoomed planet becomes a blob a quarter of the frame
+across, at any distance. Markers, catalogue stars and the procedural sky's stars therefore all
+draw `point_flux(F/Ω)` (`shaders/common/point_source.gdshaderinc`):
+
+    F/Ω                       for F/Ω ≤ K
+    K (1 + ln((F/Ω) / K))     above it
+
+with K = 1000, about a V = 1 star at the default zoom. Magnitudes and the flux scale
+are untouched, and everything under the knee is drawn exactly as the flux says. Over
+it each magnitude adds 0.92 K rather than a factor of 2.512, so brighter stays
+brighter, with no ceiling to flatten sources against one another. This is a display
+mapping: the course's instruments measure the live bodies, not these pixels.
+
+The glow's size is measured in the final frame by `tools/glowcheck.tscn`. A marker
+of the same flux spreads further than a star, because its wider halo survives the
+Karis weighting in `shaders/post/bright.glsl`. The pyramid's kernels are a fixed
+number of pixels, so the same glow is a larger fraction of a smaller frame.
 
 ## Catalogue stars
 

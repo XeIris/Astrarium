@@ -13,6 +13,8 @@
 //                     skyRadianceD(rd, dFdx(rd), dFdy(rd), D) * sky_beaming(D)
 
 // ---- uniforms --------------------------------------------------------------
+#include "res://shaders/common/point_source.gdshaderinc"
+
 uniform vec3  uGalNormal = vec3(0.2798740849862627, 0.929581782275801, 0.23989207284536798);  // unit normal of the galactic plane
 uniform vec3  uGalCenter = vec3(0.910455341534624, -0.2201100825688102, 0.35017513135947076); // unit direction toward the galactic centre
 uniform vec3  uGalEast = vec3(0.0, 0.0, 1.0);    // completes the frame; longitude runs toward it
@@ -462,7 +464,7 @@ float sky_compact(vec3 dir, vec3 ddx, vec3 ddy, float ga, float gb, float gc,
 
 			// Same flux normalisation as a star: the 1/w2 is what makes these
 			// brighten under lensing instead of just moving.
-			acc += flux * (0.3 + 2.4 * h.x / max(accept, 1e-4)) * sky_psf(p) / w2;
+			acc += point_flux(flux * (0.3 + 2.4 * h.x / max(accept, 1e-4)) / w2) * sky_psf(p);
 		}
 	}
 	return acc;
@@ -705,9 +707,9 @@ vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 					float T = sky_starTemp(clamp(h2.y + clus.y, 0.0, 0.9999), tier);
 
 					// Dividing by w2 is what turns the shrinking footprint into flux
-					// amplification: peak radiance rises exactly as mu.
-					float amp = f * (sky_psf(p) + sky_spike(p) * step(tier, 0.5)) / w2;
-					amp *= sky_starBand(T) * uStarGain * (1.0 - diffuseMix);
+					// amplification: peak radiance rises as mu up to point_flux's knee.
+					float amp = point_flux(f * sky_starBand(T) * uStarGain * (1.0 - diffuseMix) / w2)
+					          * (sky_psf(p) + sky_spike(p) * step(tier, 0.5));
 
 					total += sky_emit(sky_blackbody(T, D), 1.0, amp);
 				}

@@ -222,6 +222,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - anything that creates or frees nodes, visuals or caches: `eval=_soak_check`;
   the counts must stay flat after the first round
 - lens ray geometry: `tools/lenscheck.tscn`, plus focused visible/X-ray views
+- point-source brightness or bloom: `tools/glowcheck.tscn`
 - parse errors: `Godot --headless --path . --import`, then `--quit`. Shader
   errors print as `SHADER ERROR` on first render.
 
