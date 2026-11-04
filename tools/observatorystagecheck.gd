@@ -85,6 +85,7 @@ func star_epochs() -> void:
 func leaving() -> void:
 	await sandbox()
 	var want_scale: float = stage.state.time_scale
+	stage.observer.fov = 41.0
 	var want_fov: float = stage.observer.fov
 	stage.state.paused = false
 	await enter()
