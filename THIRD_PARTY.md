@@ -21,6 +21,7 @@ asks of a redistributor.
 | what | where | terms |
 |---|---|---|
 | Gaia DR3 stars, G 6.5–8 | `assets/sky/gaia_g8.bin`, built by `tools/build_gaia.py` | **CC BY-SA 3.0 IGO.** Credit: ESA/Gaia/DPAC (Gaia Collaboration, Vallenari et al. 2023). `gaia_g8.bin` (positions, magnitudes, colours and proper motions) is a derivative and stays under CC BY-SA 3.0 IGO when redistributed, whatever the rest of the project's licence ([sky.md](docs/physics/sky.md#catalogue-stars)) |
+| Copernicus DEM GLO-30 | `assets/sites/*.terrain`, built by `tools/build_site_terrain.py` | Free to use and redistribute with this notice: produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved ([Copernicus DEM](https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM)) |
 
 ## Public-domain and freely usable data
 
@@ -47,7 +48,10 @@ elements and DE440 masses, the ELP-2000/82 lunar terms as Meeus (Astronomical
 Algorithms, ch. 47) truncates them (`sim/observatory/lunar.gd`), the Espenak & Meeus
 ΔT polynomials, the IAU 2006 precession, and IAU, IERS and CODATA constants. The
 Observatory's reference values come from JPL Horizons, the USNO's data services and
-IAU SOFA (`tools/observatorycheck.gd`). Each value's
+IAU SOFA (`tools/observatorycheck.gd`). The observatory models
+(`model_sources/blender/observatories.py`) are this project's own, built from published
+dimensions, with photographs and drawings used only as references (Wikimedia Commons, ESO)
+and not redistributed. Each value's
 source is cited where it is used, in the code and in [docs/physics/](docs/physics/).
 
 ## Designs from fiction

@@ -13,12 +13,12 @@ verification record is in [PORT_REPORT.md](PORT_REPORT.md).
 You need Godot **4.7.x** (standard build — not the .NET one, and not a
 double-precision build).
 
-1. *(optional, once)* Build the authored vehicle, launchpad and launch-site
-   facility meshes. They are build artifacts of `model_sources/blender/*.py`
-   and are gitignored; without them the vehicles, launchpads and site
-   buildings use their procedural fallbacks.
+1. *(optional, once)* Build the authored vehicle, launchpad, launch-site facility and
+   observatory meshes. They are build artifacts of `model_sources/blender/*.py`
+   and are gitignored; without them the vehicles, launchpads, site buildings and
+   observatories use their procedural fallbacks.
    ```sh
-   model_sources/blender/build.sh       # needs Blender 4.1+; 9 craft, 4 pads, facilities
+   model_sources/blender/build.sh       # needs Blender 4.1+; 9 craft, 4 pads, facilities, observatories
    tools/sync_assets.sh /abs/source     # optional: import existing GLBs from elsewhere
    ```
 2. Open `project.godot` in the Godot editor and press **Play** (F5).
@@ -31,9 +31,11 @@ maps ([sim/titlereel.gd](sim/titlereel.gd), [map sources](assets/planet-maps/REA
 Choose **Sandbox**, **Spaceflight**, **Learn** or **Observatory** to load that mode,
 or **Settings**.
 
-**Observatory** stands you on Earth at Jodrell Bank, Mauna Kea, Cerro Paranal or
-any latitude, longitude and height, on a UTC date (UT before 1972) with a
-time-of-day scrubber, a day-of-year (season) scrubber and **Now**. The Solar
+**Observatory** opens on a film of each facility from the air: the Lovell Telescope
+at Jodrell Bank, Keck on Mauna Kea and the VLT on Cerro Paranal, modelled from their
+published dimensions on real terrain. The arrows or ←/→ change facility. **Observe the
+sky** stands you there, or at any latitude, longitude and height, on a UTC date (UT
+before 1972) with a time-of-day scrubber, a day-of-year (season) scrubber and **Now**. The Solar
 System is put where JPL's mean elements place it on that date, Earth turns with
 IAU 2006 precession, IAU 2000B nutation and measured ΔT, and the catalogue stars
 move with their proper motions. Constellation figures, names and IAU boundaries
@@ -143,7 +145,7 @@ and its `SIM` console handle:
 |---|---|
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
 | `mode=sandbox\|learn\|flight\|observatory` | skip the start screen and load that mode |
-| `site=jodrell\|maunakea\|paranal`, `date=2026-12-21T00:00`, `look=180,30`, `rate=pause\|1x\|60x\|3600x`, `view=lines,names,bounds\|none` | with `mode=observatory`: the site, the UTC date and time, the compass azimuth and altitude to face (degrees), the clock rate and the overlays shown |
+| `site=jodrell\|maunakea\|paranal`, `date=2026-12-21T00:00`, `look=180,30`, `rate=pause\|1x\|60x\|3600x`, `view=lines,names,bounds\|none`, `point=Jupiter`, `picker=1 orbit=0.3` | with `mode=observatory`: the site, the UTC date and time, the compass azimuth and altitude to face (degrees), the clock rate, the overlays shown, the body to follow at its true size, and opening on the picker at a point in its film |
 | `title=hole\|launch\|jupiter` | hold the title on one reel shot (for screenshots); `title=0` shows it over the bare sky |
 | `craft=saturnv\|falcon9\|shuttle\|starship` | select a launcher when starting flight mode |
 | `scenario=shuttle:peak_heating` | jump straight into a flight scenario (`vehicle:id`, listed in [sim/flight/scenarios.gd](sim/flight/scenarios.gd)); with `frames=… out=…` the frames count from the hand-over, and an unknown or failed scenario exits 1 |
@@ -337,6 +339,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/observatorycheck.gd` | the Observatory's sky on a date (headless): the IAU SOFA test vectors for the obliquity, precession angles, IAU 2000B nutation, Earth rotation angle and GMST; ΔT's seams, badges and uncertainty; civil time through TT and back; Polaris's mean altitude equal to each site's latitude in 1926, 2026 and 2126; the solstice noon Sun at the three sites; a bright star's rise and transit and the orrery's bodies against published values ([observatory.md](docs/physics/observatory.md#checks)) |
 | `tools/observatorystagecheck.gd` | the Observatory on the real stage (headless): the scenario list and view keys, what leaving restores, star epochs on re-entry, and the Moon staying on its theory over 30 days at the clock ([observatory.md](docs/physics/observatory.md#checks)) |
 | `tools/observatory_demo.tscn` | a scripted tour of the Observatory for video: `--write-movie /abs/demo.avi --fixed-fps 30` records it |
+| `tools/build_site_terrain.py` | packs `assets/sites/<site>.terrain` from Copernicus GLO-30 tiles |
 | `tools/build_constellations.py` | builds `assets/sky/constellations.json` from this project's stick figures (chains of Bayer, Flamsteed or HR designations resolved in BSC5) and the IAU boundaries of CDS VI/49 |
 | `tools/spinframecheck.gd` | the flight frame's orientation: Earth's is J2000 equatorial (RA/Dec equal a site's longitude/latitude), the subsolar latitude follows the declination through the year, the Moon stays 18–29° from Earth's equator over a nodal cycle, and a rebase between poles keeps position and pointing |
 | `tools/plasmacheck.gd` | the re-entry shock layer's spectrum: colorimetry, the band systems that dominate slow, Shuttle and lunar-return entries and Mars/Titan, the CO₂ and N₂–CH₄ jump's conservation, and the shader's Boltzmann shift (headless) |
@@ -367,7 +370,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/realismcheck.tscn` | the review's additions against independent numbers: the Page–Thorne disc (peak radius, efficiencies, far-field flux), tidal disruption radii and events (a star round a 10⁴ M☉ hole in fine and single steps, a moon becoming a ring, a neutron star fed past TOV), natal-kick statistics and Blaauw unbinding, the Budyko–Sellers ice line, snowball and hysteresis, overflow feeding a white dwarf, a nova, an accretion-driven Type Ia and a star's end by age, the runaway greenhouse's latent-heat ocean and Kopparapu's habitable zone, and that no preset loads with a body inside a disruption radius (headless) |
 | `tools/editorcheck.tscn` | canonical inspector and graph invalidation, measured/tiny bodies, structural threshold crossings, and delayed edits across selection/removal/reused IDs |
 | `tools/padcheck.gd` | rejects pad structure inside its vehicle at rest, an arm that touches it through the terminal count and liftoff (an arm carried by another, as the GOX vent hood is, moves with both), and anything (wires included) left in its ascent column; `padmodels=0` / `assets=0` select fallback pads / craft; `inject_intrusion=1`, `inject_fixed_arm=1` and `inject_late_arm=1` must fail |
-| `python3 tools/exportcheck.py /abs/game.zip` | checks a `Godot --headless --path . --export-pack macOS /abs/game.zip` resource archive for development files, missing boot files and broken import/remap targets; native libraries and rendering still need an exported-app smoke run |
+| `python3 tools/exportcheck.py /abs/game.zip` | checks a `Godot --headless --path . --export-pack macOS /abs/game.zip` resource archive for development files, missing boot files, missing site terrain and broken import/remap targets; native libraries and rendering still need an exported-app smoke run |
 | `tools/reference_shots.py` | shared runner for `startest_all.sh`, `coursetest.sh` and `flightshots.sh`; rejects child/engine failures, timeouts, missing completion markers and missing/invalid captures; retains `reference-report.json`. `TIMEOUT=<seconds>` overrides each child deadline |
 | `python3 tools/reference_shots_test.py` | failure-contract self-checks for the reference runners, without a renderer |
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks; use `flightshots.sh` for validated flight captures |

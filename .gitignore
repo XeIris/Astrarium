@@ -7,6 +7,8 @@ assets/craft/*.glb
 assets/craft/*.glb.import
 assets/pads/*.glb
 assets/pads/*.glb.import
+assets/sites/*.glb
+assets/sites/*.glb.import
 # Export output.
 build/
 # Linux/Windows kernels are built on their target platform; macOS remains prebuilt.

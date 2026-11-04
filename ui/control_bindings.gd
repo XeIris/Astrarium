@@ -24,6 +24,8 @@ const GROUPS := [
 		["stage", "Separate stage"], ["gear", "Toggle gear"],
 		["flight_camera", "Cycle flight camera"], ["flight_follow", "Follow a dropped stage"],
 		["space_map", "Space map"]]],
+	["Observatory", [["site_previous", "Previous site"], ["site_next", "Next site"],
+		["site_observe", "Observe from this site"]]],
 ]
 
 const DEFAULTS := {
@@ -59,6 +61,9 @@ const DEFAULTS := {
 	"flight_camera": [KEY_C, false, false, false],
 	"flight_follow": [KEY_B, false, false, false],
 	"space_map": [KEY_M, false, false, false],
+	"site_previous": [KEY_LEFT, false, false, false],
+	"site_next": [KEY_RIGHT, false, false, false],
+	"site_observe": [KEY_ENTER, false, false, false],
 }
 
 const DEFAULT_FILE := "user://controls.json"
@@ -159,7 +164,7 @@ func _valid_saved_bindings(data: Dictionary) -> bool:
 
 ## Actions added after controls.json first shipped. A file written before them cannot
 ## hold them, so their defaults give way to its keys rather than reject it.
-const ADDED := ["space_map", "flight_follow"]
+const ADDED := ["space_map", "flight_follow", "site_previous", "site_next", "site_observe"]
 
 ## A saved file's bindings, with defaults for what it leaves out. An ADDED action it
 ## lacks keeps its default key unless the file already uses it in the same context;

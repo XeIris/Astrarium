@@ -191,8 +191,12 @@ func _setup(s: String) -> void:
 			await _start("sandbox")
 			hud.set_search("tri")
 		"learn": await _start("learn")
+		"observatory_picker":
+			await _start("observatory")
+			await _steps(30)
 		"observatory", "observatory_far":
 			await _start("observatory")
+			main.observatory.observe()
 			main.observatory.set_rate("pause")
 			main.observatory.set_date_text("2150-06-21 04:00" if s == "observatory_far" else "2026-06-21 04:00")
 		"lesson_hr", "lesson_photometer", "lesson_gw", "lesson_cutaway", "lesson_fig":
@@ -615,10 +619,31 @@ func _observatory_walk() -> void:
 	await _steps(3)
 	await _click(_find("[data-start=observatory]"))
 	await _steps(5)
-	check("Observatory on the start screen enters the mode", main.state.app_mode == "observatory" and o.active
-		and main.state.cam_mode == "surface" and main.state.preset_key == "solar")
+	check("Observatory on the start screen opens the facility picker", main.state.app_mode == "observatory" and o.active
+		and main.state.cam_mode == "surface" and main.state.preset_key == "solar" and o.picking and o.picker.is_visible_in_tree())
+	check("the picker takes the frame", not hud.control_panel.is_visible_in_tree() and not hud.readout.is_visible_in_tree())
+	var first := o.site_key
+	check("the facility is built", o.site_scene.key == first and o.site_scene.parts.size() >= 2)
+	await _click(o.picker.right)
+	await _steps(45)
+	var second := o.site_key
+	check("the right arrow moves to the next facility", second != first and o.site_scene.key == second)
+	await _key(KEY_LEFT)
+	await _steps(45)
+	check("the left arrow key moves back", o.site_key == first)
+	check("the film turns round the facility", o.picking and o._orbit > 0.0)
+	await _click(o.picker.go)
+	await _steps(5)
+	check("Observe the sky leaves the picker for the ground", not o.picking and not o.picker.is_visible_in_tree()
+		and hud.control_panel.is_visible_in_tree() and absf(o.civil() - Observatory.now_jd()) < 0.02)
 	check("the Observatory section is the one shown", hud.section("Observatory").head.is_visible_in_tree()
 		and not hud.section("Bodies").head.is_visible_in_tree())
+	await _click(_find("obsPicker"))
+	await _steps(5)
+	check("Choose a facility returns to the picker", o.picking)
+	await _key(KEY_ENTER)
+	await _steps(5)
+	check("Enter observes", not o.picking)
 	await _click(_find("[data-obs-rate=pause]"))
 	check("Pause stops the clock", main.state.paused)
 	for key in ObservatorySites.ORDER:
@@ -635,6 +660,12 @@ func _observatory_walk() -> void:
 	await _steps(3)
 	var c := TimeScales.calendar(o.civil())
 	check("typing a date sets it (got %s)" % TimeScales.stamp(o.civil()), c[0] == 2126 and c[1] == 6 and c[2] == 21)
+	# At the datum's longitude the afternoon Sun is west, local +x.
+	o.set_site("paranal")
+	o.set_date_text("2026-11-04 20:30")
+	await _steps(3)
+	check("the afternoon Sun is in the local west at Paranal (%s)" % o.sun_local, o.sun_local.x > 0.5 and o.sun_local.y > 0.3)
+	o.set_date_text("2126-06-21 12:00")
 	check("2126 is extrapolated", _text_of(_find("obsBadgeLabel")).to_lower() == "extrapolated")
 	var tod := o.civil()
 	await _drag(_find("obsTime"), 0.25, 0.75)
@@ -650,13 +681,29 @@ func _observatory_walk() -> void:
 	await _click(_find("[data-obs-view=lines]"))
 	await _click(_find("[data-obs-face=E]"))
 	check("Face E turns the observer east", absf(angle_difference(main.observer.azimuth, -PI / 2.0)) < 1e-6)
+	# Point at the highest of the planets right now, then back to the wide view.
+	var best := ""
+	var best_alt := 0.0
+	for pn in ["Moon", "Venus", "Mars", "Jupiter", "Saturn"]:
+		var azalt: Dictionary = o.target_azalt(pn, main.cam_pos)
+		if float(azalt.alt) > best_alt:
+			best_alt = azalt.alt
+			best = pn
+	if best != "":
+		await _click(_find("[data-obs-point=%s]" % best))
+		await _steps(3)
+		var on: Dictionary = o.target_azalt(best, main.cam_pos)
+		check("Point at centres %s" % best, o.tracking == best and main.observer.fov < 20.0
+			and absf(angle_difference(deg_to_rad(on.az), -main.observer.azimuth)) < 0.01 and absf(deg_to_rad(on.alt) - main.observer.elevation) < 0.01)
+	await _click(_find("[data-obs-point=Wide]"))
+	check("Wide returns to the wide view", o.tracking == "" and main.observer.fov == 70.0)
 	await _click(_find("[data-obs-rate=3600x]"))
 	var t0 := o.tdb()
 	await _steps(30)
 	check("1 h/s runs the clock about an hour a second", not main.state.paused and (o.tdb() - t0) * 24.0 > 0.2)
 	main.set_app_mode("sandbox")
 	await _steps(3)
-	check("leaving the Observatory leaves the ground", not o.active and main.state.cam_mode != "surface" and not o.overlay.visible)
+	check("leaving the Observatory leaves the ground", not o.active and main.state.cam_mode != "surface" and not o.overlay.visible and o.site_scene == null)
 
 ## Settings › Controls › Developer mode, its page, a jump and the quick controls.
 func _developer_walk() -> void:

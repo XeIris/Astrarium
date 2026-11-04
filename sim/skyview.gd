@@ -169,6 +169,9 @@ class SkyPass extends RefCounted:
 class SurfaceObserver extends RefCounted:
 	## The surface view's near plane, applied on every update.
 	const NEAR := 0.002
+	const MIN_FOV := 12.0
+	## The tightest zoom (degrees); the Observatory opens it up.
+	var min_fov := MIN_FOV
 
 	var latitude := 0.38     # radians
 	var azimuth := 0.0       # where the observer is looking
@@ -248,4 +251,4 @@ class SurfaceObserver extends RefCounted:
 		elevation = clampf(elevation + dy, -1.35, 1.45)
 
 	func zoom(f: float) -> void:
-		fov = clampf(fov * f, 12.0, 100.0)
+		fov = clampf(fov * f, min_fov, 100.0)

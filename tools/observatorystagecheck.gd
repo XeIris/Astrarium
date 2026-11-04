@@ -42,6 +42,7 @@ func _initialize() -> void:
 	await star_epochs()
 	await leaving()
 	await view_keys()
+	await custom_height()
 	await running_clock()
 	print("OBSERVATORYSTAGECHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(0 if failures == 0 else 1)
@@ -119,10 +120,51 @@ func view_keys() -> void:
 	for action in ["free_view", "surface_view"]:
 		press(action)
 		check(stage.state.cam_mode == "surface", "%s leaves the Observatory's camera alone (%s)" % [action, stage.state.cam_mode])
+	var o: Observatory = stage.observatory
+	o.open_picker()
+	await frames(2)
+	for action in ["free_view", "surface_view"]:
+		press(action)
+		check(stage.state.cam_mode == "surface" and o.picking, "%s leaves the picker's film alone" % action)
+	await picker_keys()
 	await sandbox()
 	press("free_view")
 	check(stage.state.cam_mode == "free", "the same key still works in the sandbox")
 	press("free_view")
+
+# The picker's keys are bindings like any other: rebound, the old key does nothing.
+func picker_keys() -> void:
+	var o: Observatory = stage.observatory
+	var input := func(code: int) -> void:
+		var e := InputEventKey.new()
+		e.pressed = true
+		e.physical_keycode = code
+		stage._input(e)
+	var saved: Dictionary = stage.controls.bindings
+	stage.controls.bindings = saved.duplicate(true)
+	stage.controls.bindings.site_next = [KEY_N, false, false, false]
+	stage.controls.bindings.site_observe = [KEY_O, false, false, false]
+	input.call(KEY_RIGHT)
+	check(o._swap == "", "the old key for the next site is released")
+	input.call(KEY_N)
+	check(o._swap != "", "the rebound key moves to the next site")
+	input.call(KEY_ENTER)
+	check(o.picking, "the old key for Observe is released")
+	input.call(KEY_O)
+	check(not o.picking, "the rebound key observes")
+	stage.controls.bindings = saved
+
+# A custom site has no terrain tile: its air and ground come from its stated height.
+func custom_height() -> void:
+	await enter()
+	var o: Observatory = stage.observatory
+	o.set_custom(10.0, 20.0, 4000.0)
+	await frames(2)
+	check(absf(o._local_pos.y - 4002.0) < 0.01, "the eye stands on a custom site's height: %.1f m" % o._local_pos.y)
+	check(o.site_scene.patch_y == 4000.0, "the ground is at that height: %.1f m" % o.site_scene.patch_y)
+	o.set_custom(NAN, NAN, 0.0)
+	await frames(2)
+	check(absf(o._local_pos.y - 2.0) < 0.01, "and follows it down: %.1f m" % o._local_pos.y)
 
 # 30 days at the clock: the Moon stays on its theory, the date does not jump, and the
 # camera is where the site is on the Earth that was just restated.

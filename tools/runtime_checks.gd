@@ -298,11 +298,18 @@ func _soak_check() -> void:
 			# a running clock, and back out.
 			stage.set_app_mode("observatory")
 			var o: Observatory = stage.observatory
+			# Round the picker, its fades and each site's film.
+			for step in 3:
+				o.picker_step(1)
+				for i in 40: stage.animate(1.0 / 60.0)
+			o.observe()
 			for key in ObservatorySites.ORDER:
 				o.set_site(key)
 				for d in ["1926-01-01 03:00", "2126-12-31 22:00", "2400-06-21 00:00"]:
 					o.set_date_text(d)
 					for i in 3: stage.animate(1.0 / 60.0)
+			o.set_custom(10.0, 20.0, 100.0)
+			for i in 3: stage.animate(1.0 / 60.0)
 			for v in ["lines", "names", "bounds"]: stage._on_obs_action("view", v)
 			o.set_rate("3600x")
 			for i in 10: stage.animate(1.0 / 60.0)

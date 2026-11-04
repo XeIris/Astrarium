@@ -44,7 +44,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix="astrarium-clean-") as temporary:
             checkout = Path(temporary) / "checkout"
             run(["git", "clone", "--quiet", "--local", "--no-hardlinks", str(ROOT), str(checkout)], ROOT, output / "clone.log")
-            if (checkout / ".godot").exists() or list((checkout / "assets/craft").glob("*.glb")) or list((checkout / "assets/pads").glob("*.glb")):
+            if (checkout / ".godot").exists() or list((checkout / "assets/craft").glob("*.glb")) or list((checkout / "assets/pads").glob("*.glb")) or list((checkout / "assets/sites").glob("*.glb")):
                 raise RuntimeError("clone unexpectedly contains import caches or generated models")
             report["godot"] = subprocess.check_output([options.godot, "--version"], text=True).strip()
             run(["sh", str(checkout / "native/build.sh")], checkout, output / "native-build.log")
