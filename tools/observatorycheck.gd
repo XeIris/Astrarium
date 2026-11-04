@@ -286,6 +286,28 @@ func facilities() -> void:
 	var lib: Node = null
 	if ResourceLoader.exists(SiteScene.LIBRARY):
 		lib = (load(SiteScene.LIBRARY) as PackedScene).instantiate()
+	# A telescope told to point somewhere points there, in the frame's axes: x west, y up, z north.
+	for stage: String in ["lovell", "keck", "ut"]:
+		# The fallback's blocks only carry the Lovell's elevation; its enclosures have no telescope.
+		var builds := [SiteFallback.build(stage)]
+		if lib != null and lib.find_child("stage_" + stage, true, false) != null:
+			builds.append(lib.find_child("stage_" + stage, true, false).duplicate())
+		for k in builds.size():
+			var node: Node3D = builds[k]
+			node.transform = Transform3D(Basis(Vector3.UP, 0.4), Vector3.ZERO)
+			SiteScene.aim_pose(node, stage, {}, 130.0, 40.0)
+			var el := node.find_child("door_%s_el" % stage, true, false) as Node3D
+			check(el != null or (k == 0 and stage != "lovell"), "%s has an elevation pivot" % stage)
+			if el != null:
+				var b := Basis()
+				var n: Node = el
+				while n != null and n is Node3D:
+					b = (n as Node3D).transform.basis * b
+					if n == node: break
+					n = n.get_parent()
+				var want := Vector3(-sin(deg_to_rad(130.0)) * cos(deg_to_rad(40.0)), sin(deg_to_rad(40.0)), cos(deg_to_rad(130.0)) * cos(deg_to_rad(40.0)))
+				check((b * Vector3.UP).dot(want) > 0.9999, "%s aims where it is told: %s against %s" % [stage, b * Vector3.UP, want])
+			node.free()
 	for stage: String in SiteFallback.HEIGHTS:
 		var want: float = SiteFallback.HEIGHTS[stage]
 		var builds := [["fallback", SiteFallback.build(stage)]]

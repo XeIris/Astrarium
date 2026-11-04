@@ -194,6 +194,27 @@ func _setup(s: String) -> void:
 		"observatory_picker":
 			await _start("observatory")
 			await _steps(30)
+		"observatory_compare":
+			await _start("observatory")
+			var ob: Observatory = main.observatory
+			ob.observe()
+			ob.set_rate("pause")
+			ob.set_site("paranal")
+			ob.set_date_text("2026-11-05 02:00")
+			await _steps(3)
+			ob.desk.set_instrument("fors2")
+			ob.desk.exposure = 0.05
+			ob.desk.nd = 5.0
+			ob.desk.set_target_text("Saturn")
+			ob.desk.expose()
+			await _frame_done(ob.desk)
+			ob.desk.hold()
+			ob.desk.set_instrument("omegacam")
+			ob.desk.nd = 0.0
+			ob.desk.exposure = 0.05
+			ob.desk.expose()
+			await _frame_done(ob.desk)
+			await _steps(5)
 		"observatory", "observatory_far":
 			await _start("observatory")
 			main.observatory.observe()
@@ -697,6 +718,7 @@ func _observatory_walk() -> void:
 			and absf(angle_difference(deg_to_rad(on.az), -main.observer.azimuth)) < 0.01 and absf(deg_to_rad(on.alt) - main.observer.elevation) < 0.01)
 	await _click(_find("[data-obs-point=Wide]"))
 	check("Wide returns to the wide view", o.tracking == "" and main.observer.fov == 70.0)
+	await _instrument_walk(o)
 	await _click(_find("[data-obs-rate=3600x]"))
 	var t0 := o.tdb()
 	await _steps(30)
@@ -704,6 +726,95 @@ func _observatory_walk() -> void:
 	main.set_app_mode("sandbox")
 	await _steps(3)
 	check("leaving the Observatory leaves the ground", not o.active and main.state.cam_mode != "surface" and not o.overlay.visible and o.site_scene == null)
+
+## The instrument desk: a target, a frame, holding it beside another telescope's, radio.
+func _instrument_walk(o: Observatory) -> void:
+	var desk := o.desk
+	await _click(_find("[data-obs-rate=pause]"))
+	o.set_site("paranal")
+	o.set_date_text("2026-11-05 02:00")
+	await _steps(3)
+	check("the instrument panel is up beside the sky", hud.instrument_panel.is_visible_in_tree() and not hud.tabs.instrumentPanel.is_visible_in_tree())
+	await _click(_find("[data-obs-inst=fors2]"))
+	check("choosing FORS2 stays at Paranal", desk.key == "fors2" and o.site_key == "paranal")
+	var box := _find("obsTarget") as LineEdit
+	await _click(box)
+	box.select_all()
+	await _type("no such place")
+	await _key(KEY_ENTER)
+	await _steps(2)
+	check("an unknown target changes nothing", desk.target.get("name", "") != "no such place")
+	await _click(box)
+	box.select_all()
+	await _type("Saturn")
+	await _key(KEY_ENTER)
+	await _steps(3)
+	check("typing a body aims at it and the view follows", desk.target.get("name") == "Saturn" and o.tracking == "Saturn")
+	check("the panel reports where it is", _text_of(_find("obsTAlt")).begins_with("+") and _text_of(_find("obsTSet")) != "—")
+	await _drag(_find("obsExposure"), 0.75, 0.3)
+	check("Exposure sets a shorter frame", desk.exposure < 1.0)
+	await _click(_find("[data-obs-nd=5]"))
+	check("the ND toggle applies", desk.nd == 5.0)
+	await _click(_find("obsExpose"))
+	check("Expose starts a frame off the main thread", desk.is_exposing() and _text_of(_find("obsExpose")).to_lower().contains("exposing"))
+	await _frame_done(desk)
+	check("a frame arrives with its readouts", not desk.frame.is_empty() and hud.plate_a.texture != null and _text_of(_find("obsFrameStats")).contains("FWHM"))
+	var w1: float = hud.instrument_panel.size.x
+	await _click(_find("obsHold"))
+	await _steps(3)
+	check("Hold keeps the frame and widens the panel", not desk.held.is_empty() and _find("obsHeldCol").is_visible_in_tree() and hud.instrument_panel.size.x > w1 + 200.0)
+	await _click(_find("[data-obs-inst=deimos]"))
+	await _steps(3)
+	check("choosing DEIMOS moves to Mauna Kea with the held frame", desk.key == "deimos" and o.site_key == "maunakea" and not desk.held.is_empty())
+	var seeing0 := desk.seeing_now()
+	await _drag(_find("obsSeeing"), 0.5, 0.9)
+	check("Seeing is a slider, starting from the site's median", desk.seeing_now() > seeing0)
+	await _click(_find("[data-obs-inst=lovell_l]"))
+	await _steps(3)
+	check("the Lovell moves to Jodrell Bank and hides the optical controls", o.site_key == "jodrell" and not _find("obsSeeingRow").is_visible_in_tree() and not _find("obsNdRow").is_visible_in_tree())
+	await _click(box)
+	box.select_all()
+	await _type("Cyg A")
+	await _key(KEY_ENTER)
+	await _steps(3)
+	var st := desk.status()
+	if st.ok:
+		await _click(_find("obsExpose"))
+		await _frame_done(desk)
+		check("the Lovell maps a source in Jy", desk.frame.kind == "radio" and _text_of(_find("obsFrameStats")).contains("Beam"))
+	await _click(_find("obsHold"))
+	await _steps(2)
+	check("Hold again releases the frame", desk.held.is_empty() and not _find("obsHeldCol").is_visible_in_tree())
+	# A target under the horizon: refused with its reason, keeping the last frame.
+	o.set_site("paranal")
+	await _steps(2)
+	var north := EarthFrame.radec_vec(deg_to_rad(10.0), deg_to_rad(85.0))
+	desk._set_target({"name": "far north", "kind": "sky", "dir": north, "v": NAN}, false)
+	await _steps(2)
+	var had := desk.frame
+	await _click(_find("obsExpose"))
+	check("a target past the mount's limit is refused", not desk.is_exposing() and desk.frame == had and _text_of(_find("obsReach")).contains("limit"))
+	# A click on the open sky aims there, without moving the view.
+	var look_az: float = main.observer.azimuth
+	o.look(0.0, 60.0)
+	await _steps(2)
+	var c: Vector2 = hud.size * 0.5
+	await _click_at(c)
+	await _steps(2)
+	check("a click on the sky chooses a target near the view's centre", desk.target.get("name") != "far north" and desk.target_dir() != null and (desk.target_dir() as DVec3).dot(_view_dir(o)) > 0.99)
+	main.observer.azimuth = look_az
+	await _click(_find("[data-obs-nd=0]"))
+	await _click(_find("[data-obs-point=Wide]"))
+
+func _frame_done(desk: ObservatoryInstruments) -> void:
+	for i in 600:
+		if not desk.is_exposing(): return
+		await _steps(2)
+	check("the frame finished in time", false)
+
+## The view's centre as a J2000 direction.
+func _view_dir(o: Observatory) -> DVec3:
+	return EarthFrame.from_scene(DVec3.from_v3(main.cam_basis * Vector3(0.0, 0.0, -1.0))).normalized()
 
 ## Settings › Controls › Developer mode, its page, a jump and the quick controls.
 func _developer_walk() -> void:

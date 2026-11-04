@@ -135,6 +135,9 @@ var control_panel: HudPanel
 var model_panel: HudPanel
 var xsec_panel: HudPanel
 var flight_panel: HudPanel
+var instrument_panel: HudPanel
+var plate_a: PlateView
+var plate_b: PlateView
 ## The flight console's place along the bottom (ui/flight_console.gd lives in it).
 var flight_console_host: Control
 var tab_col: VBoxContainer
@@ -448,6 +451,7 @@ func _build() -> void:
 	_build_control_panel()
 	_build_model_panel()
 	_build_xsec_panel()
+	_build_instrument_panel()
 	_build_tabs()
 	_build_readout()
 	_build_start()
@@ -1212,6 +1216,69 @@ func _build_observatory(b: Node) -> void:
 	m(B(s, "Ghost", "Choose a facility ▸", "obsPicker", "Back to the film of each site"), 0.0, 8.0).pressed.connect(func(): obs_action.emit("picker", null))
 	_note(s, "Drag to look around, scroll to zoom to 1°. Weather comes in a later phase; the sky here is cloudless.")
 
+## The Observatory's instrument desk: what to observe, whether it can be, and the frames.
+func _build_instrument_panel() -> void:
+	var p := _panel("instrumentPanel")
+	instrument_panel = p
+	_panel_head(p, "Instrument", "instrumentPanel")
+	var ig := grid(p.body, [1.0, 1.0], 4.0, 4.0, 0.0, 6.0)
+	for k: String in Telescopes.ORDER:
+		var row: Dictionary = Telescopes.INSTRUMENTS[k]
+		B(ig, "Toggle", String(row.name), "[data-obs-inst=%s]" % k, String(row.note)).pressed.connect(func(): obs_action.emit("inst", k))
+	m(L(p.body, "", NOTE, "obsInstNote", true), 0.0, 8.0)
+	var target := LineEdit.new()
+	target.placeholder_text = "Moon, Sirius, Cyg A or RA Dec"
+	target.tooltip_text = "A planet, the Moon, a bright star, a radio source, or coordinates: 05 34 31.9 +22 00 52, or decimal degrees. Enter applies; or click the sky."
+	target.text_submitted.connect(func(t: String):
+		target.release_focus()
+		obs_action.emit("target", t))
+	p.body.add_child(m(target, 0.0, 8.0))
+	reg("obsTarget", target)
+	m(L(p.body, "", NOTE, "obsReach", true), 0.0, 8.0)
+	var act := hbox(p.body, 6.0, 0.0, 10.0)
+	var go := B(act, "Primary", "Expose", "obsExpose", "Take a frame")
+	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	go.pressed.connect(func(): obs_action.emit("expose", null))
+	B(act, "Ghost", "Hold", "obsHold", "Keep this frame beside the next, to compare telescopes on one target").pressed.connect(func(): obs_action.emit("hold", null))
+	# The frame comes straight after Expose: on a scaled window the settings are what scrolls.
+	var plates := hbox(p.body, 10.0, 0.0, 10.0)
+	var cols := []
+	for side in ["a", "b"]:
+		var col := HudStack.new(false)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		plates.add_child(col)
+		var plate := PlateView.new()
+		col.add_child(m(plate, 0.0, 6.0))
+		m(L(col, "", {"fs": 9.5, "c": T.TEXT, "lh": 1.5}, "obsFrameStats" if side == "a" else "obsHeldStats", true), 0.0, 0.0)
+		cols.append(col)
+		if side == "a": plate_a = plate
+		else: plate_b = plate
+	reg("obsHeldCol", cols[1])
+	(cols[1] as Control).visible = false
+	_row(p.body, "obsExposure", "Exposure", "One frame's length; for the radio map, the integration at each pointing.", -3.0, 3.56, 1.5, 0.01, "30 s")
+	_row(p.body, "obsSeeing", "Seeing", "FWHM at 500 nm at the zenith. The site's median until you move it; 0 removes the air's blur.", 0.0, 3.0, 0.7, 0.01, "0.70″", "obsSeeingRow")
+	var fg := grid(p.body, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 6.0)
+	for f: String in ObservatoryInstruments.FIELDS:
+		B(fg, "TimeBtn", String(ObservatoryInstruments.FIELDS[f]), "[data-obs-field=%s]" % f, "Display the detector's own pixels, or bin them to cover more sky").pressed.connect(func(): obs_action.emit("field", f))
+	var ng := grid(p.body, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 10.0)
+	reg("obsNdRow", ng)
+	for nd: float in Telescopes.ND:
+		var tag := "No ND" if nd == 0.0 else "ND %d mag" % int(nd)
+		B(ng, "TimeBtn", tag, "[data-obs-nd=%d]" % int(nd), "A neutral-density filter these instruments don't really carry: otherwise the Moon and bright planets saturate them at the shortest exposure.").pressed.connect(func(): obs_action.emit("nd", nd))
+	var st := grid(p.body, [1.0, 1.0], 12.0, 4.0)
+	for kv in [["altitude", "obsTAlt"], ["azimuth", "obsTAz"], ["airmass", "obsTAir"], ["slew", "obsTSlew"], ["rises", "obsTRise"], ["sets", "obsTSet"]]:
+		_stat(st, kv[0], kv[1])
+
+## The current frame, and the held one beside it when there is one.
+func show_plates(frame_d: Dictionary, tex: Texture2D, held: Dictionary, held_tex: Texture2D) -> void:
+	plate_a.show_frame(tex, float(frame_d.get("field", 0.0)))
+	plate_b.show_frame(held_tex, float(held.get("field", 0.0)))
+	var c: Control = get_el("obsHeldCol")
+	var on := not held.is_empty()
+	if c.visible != on:
+		c.visible = on
+		_queue_layout()
+
 ## The accuracy badge: era is "measured", "extrapolated" or "outside".
 func set_obs_badge(era: String, text: String, note: String) -> void:
 	var look: Dictionary = ERA[{"measured": "era-stable", "extrapolated": "era-hot", "outside": "era-scorch"}.get(era, "era-stable")]
@@ -1345,7 +1412,7 @@ func _build_tabs() -> void:
 	tab_col.add_theme_constant_override("separation", 6)
 	tab_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(tab_col)
-	for t in [["scenarioPanel", "▸ Scenario"], ["coursePanel", "▸ Course"], ["flightPanel", "▸ Systems"]]:
+	for t in [["scenarioPanel", "▸ Scenario"], ["coursePanel", "▸ Course"], ["flightPanel", "▸ Systems"], ["instrumentPanel", "▸ Instrument"]]:
 		tab_col.add_child(_tab(t[1], t[0]))
 	tab_col.minimum_size_changed.connect(_queue_layout)
 	tab_right = _tab("Controls ◂", "controlPanel")
@@ -1493,7 +1560,8 @@ func _apply_body_classes() -> void:
 	var le := body.has("learn-mode")
 	var mo := body.has("model-open")
 	var hh := body.has("hud-hidden")
-	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, tab_col, tab_right, readout, flight_console_host]:
+	var ob := body.has("observatory-mode") and not body.has("obs-picking")
+	for r in [scenario_panel, course_panel, lesson_card, control_panel, model_panel, xsec_panel, flight_panel, instrument_panel, tab_col, tab_right, readout, flight_console_host]:
 		_hide(r, "hud", hh)
 	_hide(flight_console_host, "cls", not fl or mo)
 	# The console takes the bottom of the frame in flight.
@@ -1507,6 +1575,8 @@ func _apply_body_classes() -> void:
 	_hide(tabs.flightPanel, "cls", not fl)
 	_hide(course_panel, "cls", not le)
 	_hide(tabs.coursePanel, "cls", not le)
+	_hide(instrument_panel, "cls", not ob)
+	_hide(tabs.instrumentPanel, "cls", not ob)
 	# The model viewer takes the frame, tabs included.
 	_hide(tab_col, "cls", mo)
 	_hide(tab_right, "cls", mo)
@@ -2065,6 +2135,9 @@ func _place_columns(free: float, bottom: float, right_bottom: float, W: float) -
 	var top_cap := maxf((bottom - free - 12.0 * lower_count) / (lower_count + 1), 0.0)
 	_place(scenario_panel, 20, free, 232, top_cap)
 	_place(course_panel, 20, free, 250, top_cap)
+	# Two frames side by side when one is held, each the width of the single.
+	var held_col: Control = get_el("obsHeldCol")
+	_place(instrument_panel, 20, free, 590.0 if held_col.visible else 310.0, maxf(bottom - free, 0.0))
 	var top: Control = null
 	for p in [scenario_panel, course_panel]:
 		if _shown(p):
@@ -2124,7 +2197,7 @@ func _layout_all() -> void:
 	var band_r := control_panel.position.x - 16.0 if _shown(control_panel) else W - 16.0
 	# The lesson card gets its own band, measured over every left panel.
 	var card_l := 16.0
-	for e in [settings_panel, scenario_panel, course_panel, flight_panel, xsec_panel]:
+	for e in [settings_panel, scenario_panel, course_panel, flight_panel, xsec_panel, instrument_panel]:
 		if _shown(e): card_l = maxf(card_l, e.position.x + e.size.x + 16.0)
 	if any_tab and _shown(tab_col):
 		card_l = maxf(card_l, tab_col.position.x + tab_col.size.x + 16.0)

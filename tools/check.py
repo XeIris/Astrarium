@@ -90,7 +90,8 @@ CHANGED_RULES = (
       "shaders/observatory/*", "ui/site_picker.gd", "model_sources/blender/observatories.py",
       "tools/build_starcat.py", "tools/build_gaia.py", "tools/build_constellations.py", "tools/build_deltat.py",
       "tools/build_nutation.py", "tools/build_site_terrain.py"),
-     ("observatorycheck", "hud*", "_soak_check-observatory")),
+     ("observatorycheck", "imagingcheck", "hud*", "_soak_check-observatory")),
+    (("ui/plate_view.gd", "sim/planetmaps.gd", "assets/planet-maps/*"), ("imagingcheck",)),
     (("render/*", "shaders/*", "sim/*_visual.gd", "sim/sky.gd", "sim/skyview.gd", "sim/terrain.gd",
       "sim/prominence.gd", "sim/planetmaps.gd", "sim/marker.gd", "sim/trail.gd", "sim/painter.gd",
       "sim/spacetime_mesh.gd", "sim/flash.gd", "sim/titlereel.gd", "sim/flight/plume.gd", "sim/flight/localview.gd",
@@ -208,6 +209,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("flightphysicscheck", r"^flightphysicscheck: PASS$", timeout=420)
         yield script("spinframecheck", r"^SPINFRAMECHECK DONE checks=[1-9]\d* failures=0$")
         yield script("observatorycheck", r"^OBSERVATORYCHECK DONE checks=[1-9]\d* failures=0$")
+        yield script("imagingcheck", r"^IMAGINGCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cloudcheck", r"^CLOUDCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("plasmacheck", r"^PLASMACHECK DONE checks=[1-9]\d* failures=0$")
     elif suite == "native":
