@@ -45,6 +45,8 @@ func _initialize() -> void:
 	await custom_height()
 	await running_clock()
 	await held_seasons()
+	await face_buttons()
+	await moon_exposure()
 	await a_frame()
 	# Last, as it frees the stage: a frame in flight is waited out on the way down.
 	var desk: ObservatoryInstruments = stage.observatory.desk
@@ -232,6 +234,63 @@ func a_frame() -> void:
 	check(not SkyField._v.is_empty(), "so are the catalogues")
 	desk.finish_into_frame()
 	check(not desk.frame.is_empty(), "the frame arrives")
+
+# The panel's buttons, pressed: following a target must not pull the view straight back.
+func face_buttons() -> void:
+	await enter()
+	var o: Observatory = stage.observatory
+	o.set_rate("pause")
+	o.set_site("paranal")
+	o.set_date_text("2026-11-05 08:30")
+	await frames(2)
+	o.point_at("Jupiter")
+	await frames(2)
+	check(o.tracking == "Jupiter", "Point at follows Jupiter")
+	var east: HudButton = stage.hud._targets("[data-obs-face=E]")[0]
+	east.pressed.emit()
+	await frames(3)
+	check(o.tracking == "" and o.tracking_dir == null, "Face E stops following")
+	check(absf(-rad_to_deg(stage.observer.azimuth) - 90.0) < 1e-6, "and the view stays east: %.2f°" % -rad_to_deg(stage.observer.azimuth))
+	o.point_dir(EarthFrame.radec_vec(deg_to_rad(101.287), deg_to_rad(-16.716)))
+	await frames(2)
+	east.pressed.emit()
+	await frames(2)
+	check(o.tracking_dir == null, "it stops following a direction too")
+
+# The Moon's gain is its V on the sky's scale by day, whatever its phase, and all the mode's
+# changes to shared materials go back on leaving.
+func moon_exposure() -> void:
+	await enter()
+	var o: Observatory = stage.observatory
+	o.set_rate("pause")
+	o.set_site("paranal")
+	var moon_gain := func(date: String) -> float:
+		o.set_date_text(date)
+		o._sky_gain = SkyConditions.DAY_STAR_GAIN
+		stage.observer.fov = 3.0
+		await frames(2)
+		return o._moon_viz().surf_mat.get_shader_parameter("uGain")
+	var thin: float = await moon_gain.call("2026-11-05 13:00")
+	# Above the horizon at Paranal, by day, near full and by the sky's noon exposure.
+	var full: float = await moon_gain.call("2026-11-24 22:30")
+	check(thin > 0.05 and thin < 0.3, "a 15%% crescent's gain by day: %.3f" % thin)
+	check(full > 1.2 and full < 2.6, "a full Moon's flux needs about the shared exposure: %.3f" % full)
+	var sky: ShaderMaterial = stage.flight.local.sky_mat
+	check(sky.get_shader_parameter("uMoonR") > 0.004 and sky.get_shader_parameter("uMoonR") < 0.0052,
+		"the sky's Moon is the Moon's size: %.5f rad" % sky.get_shader_parameter("uMoonR"))
+	# uMoonDir is in the sky dome's frame, the frame of sun_local: the Moon's altitude reads back.
+	var alt := rad_to_deg(asin(float((sky.get_shader_parameter("uMoonDir") as Vector3).y)))
+	var want: float = o.target_azalt("Moon", stage.cam_pos).alt
+	check(absf(alt - want) < 0.01, "the sky's Moon is where the Moon is: %.3f°, want %.3f°" % [alt, want])
+	var viz = o._moon_viz()
+	stage.set_app_mode("sandbox")
+	await frames(2)
+	check(sky.get_shader_parameter("uSkyExposure") == 1.0, "leaving restores the sky's exposure")
+	check(sky.get_shader_parameter("uMoonR") == 0.0, "and its Moon")
+	check(sky.get_shader_parameter("uCoverMax") == 1.0, "and its coverage")
+	if is_instance_valid(viz) and viz.surf_mat != null:
+		check(viz.surf_mat.get_shader_parameter("uGain") == RockyVisual.EXPOSURE, "and the Moon's exposure")
+	await sandbox()
 
 # The season follows the surface as drawn. Held to Earth's real axis, as a flight or the
 # Observatory holds a world, uDecl is the Sun's real declination; once the hold lapses it is

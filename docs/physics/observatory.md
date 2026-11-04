@@ -128,7 +128,43 @@ month or two behind the present.
   poles. Boundaries are fixed to the sky and do not move with the stars.
 - **Names** sit at the mean direction of each boundary polygon (Serpens has two).
 
-The overlay is drawn in screen space over the frame, cut at the horizon.
+The overlay is drawn in screen space over the frame and cut at the horizon. Figures,
+boundaries and names go behind the ground and buildings: they are masked by the flight
+pass's alpha, where only opaque geometry reaches 1 because the sky's coverage stops at
+`ConstellationOverlay.COVER_MAX`. The telescope's reticle stays in front.
+
+## The Moon by day and by night
+
+The flight pass's sky covers the orrery behind it in proportion to its radiance, which
+hides the stars by day and would hide the Moon too. Air scatters in front of the Moon, so
+over its disc (`uMoonDir`, `uMoonR` in `sky_dome.gdshader`) the coverage is the air's real
+extinction, and the orrery's Moon adds to the sky: its night side is the sky's own colour.
+
+The sky dome's radiance is per unit solar irradiance, times `SkyMS.GAIN`. By day the Moon's
+surface gain is set so its whole disc adds the flux of its V on that scale (`_expose_moon`).
+A full Moon comes to about the shared `RockyVisual.EXPOSURE`, as its surface really is about as
+bright as a clear sky; a 15% crescent to about an eleventh, and its limb adds about a tenth to
+the sky behind it. The gain follows the stars' own fall against the sky, which takes about eight
+seconds, so after a jump from night to day the crescent starts brighter and fades to that.
+`MOON_RADIANCE_PER_GAIN` was measured from the drawn map, not derived.
+
+After dark the eye adapts to the Moon, not the sky, and a real Moon at this exposure would
+be far past white. A disc 8 pixels wide or smaller is drawn at ten times the shared exposure, and one 80
+pixels wide at the shared exposure. That is a choice by eye, so a thin crescent reads at a 70° field and
+the maria still read when zoomed in. The two gains are blended in log gain over the stars' own
+fall against the sky. It keeps no point-source marker in this mode: it is always a lit shape.
+
+## Twilight
+
+The sky dome's physical radiance is right, but with no adapted exposure it is too dark to read
+at sunset, where the zenith is about 70 times dimmer than by day. `SkyConditions.twilight_exposure`
+opens the exposure for scattered sunlight only as (L_day / L_zenith)^0.62, from `twilight_v`,
+up to ×300. The exponent is a choice by eye: an eye or a meter follows the light only partly.
+Airglow and zodiacal light are not scaled.
+
+The stars dim with the same sky. `SkyConditions.star_gain` is √(L_dark / L_sky), a threshold
+under the square root of the background, floored at the flight view's 1/400. That leaves the limit near
+V 1–2 with the Sun at −6°. The ground's light is not part of this.
 
 ## The ground and the facilities
 

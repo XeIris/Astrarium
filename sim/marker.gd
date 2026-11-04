@@ -8,10 +8,17 @@ extends RefCounted
 
 const SHADER := preload("res://shaders/bodies/marker_point.gdshader")
 
-# Crossover band: above FADE_OUT_PX the mesh alone, below FADE_IN_PX the marker
-# alone, both between (the marker's core matches the disc it replaces).
+# Crossover band: above FADE_OUT_PX the mesh alone, below FADE_IN_PX the marker alone, both
+# between. A disc this small is aliased and has no glare of its own, so the marker carries it
+# until it is a shape.
 const FADE_IN_PX := 2.5
 const FADE_OUT_PX := 7.0
+# A telescope looks at the shape of a body, so the Observatory takes the disc as soon as there is one.
+const SCOPE_FADE_IN_PX := 1.0
+const SCOPE_FADE_OUT_PX := 3.0
+# The selection reticle stands outside any disc up to this wide, whichever band is drawn.
+const RING_IN_PX := 2.5
+const RING_OUT_PX := 7.0
 # Drawn size of the marker quad. The visible core is a small fraction of this;
 # the rest is the halo falloff, which needs room or it clips into a square.
 const MARKER_QUAD_PX := 14.0
@@ -83,22 +90,27 @@ func _init(opts: Dictionary) -> void:
 
 ## Per frame, with the camera-relative position and rendered radius. Returns the
 ## marker's opacity (whether the marker is carrying the body).
-func update(camera: Camera3D, pos_rel: Vector3, radius_scene: float, viewport_h: float, selected := false) -> float:
-	material.set_shader_parameter("uSel", 1.0 if selected else 0.0)
+func update(camera: Camera3D, pos_rel: Vector3, radius_scene: float, viewport_h: float, selected := false, scope := false) -> float:
 	var cam_p := camera.global_position if (camera != null and camera.is_inside_tree()) else Vector3.ZERO
 	var dist := cam_p.distance_to(pos_rel)
 	var fov_rad := deg_to_rad(camera.fov if camera != null else 50.0)
 	var px := _apparent_pixels(radius_scene, dist, fov_rad, viewport_h)
 
 	# 1 when the body is sub-pixel, 0 once the mesh is comfortably resolved
-	var t := clampf((FADE_OUT_PX - px) / (FADE_OUT_PX - FADE_IN_PX), 0.0, 1.0)
+	var fade_in := SCOPE_FADE_IN_PX if scope else FADE_IN_PX
+	var fade_out := SCOPE_FADE_OUT_PX if scope else FADE_OUT_PX
+	var t := clampf((fade_out - px) / (fade_out - fade_in), 0.0, 1.0)
 	var opacity := t * t * (3.0 - 2.0 * t)          # smoothstep — no popping
 	material.set_shader_parameter("uOpacity", opacity)
-	mesh.visible = opacity > 0.002
+	var ring := smoothstep(RING_OUT_PX, RING_IN_PX, px) if selected else 0.0
+	material.set_shader_parameter("uSel", ring)
+	mesh.visible = opacity > 0.002 or ring > 0.002
 	if not mesh.visible:
 		return 0.0
 
-	mesh.position = pos_rel
+	# In front of the body's own mesh, whose depth would leave only the halo round a disc that
+	# is the picture in a telescope.
+	mesh.position = pos_rel + (cam_p - pos_rel).normalized() * radius_scene * 1.02 if scope else pos_rel
 	if not is_nan(magnitude):
 		# Radiance × pixel² of a sky star of this magnitude, spread over the marker's profile.
 		var pix_sr := pow(1.0 / _pixels_per_world_unit(1.0, fov_rad, viewport_h), 2.0)

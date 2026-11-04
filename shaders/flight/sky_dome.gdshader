@@ -51,6 +51,14 @@ uniform vec3 uEclPole = vec3(0.0, 1.0, 0.0);
 uniform float uZodiac = 0.0;
 uniform float uNLC = 0.0;
 uniform float uGain = 10.0;         // SkyMS.GAIN: the pad's noon zenith at the old calibration
+// A camera's exposure for the sunlit sky, relative to day; night emission is not scaled.
+uniform float uSkyExposure = 1.0;
+// The Moon's direction and angular radius (rad; 0 for none). Air scatters in front of it, so
+// over its disc the coverage is the air's real extinction and the orrery's Moon shows through.
+uniform vec3 uMoonDir = vec3(0.0, 1.0, 0.0);
+uniform float uMoonR = 0.0;
+// Below 1, opaque geometry is the only thing with alpha 1: the overlay's mask reads that.
+uniform float uCoverMax = 1.0;
 // Ψ(h, μ_s), the multiply scattered light per unit σ_s (SkyMS); u is μ_s, v is √(h/top).
 uniform sampler2D uMS : filter_linear, repeat_disable;
 uniform float uMSN = 32.0;
@@ -277,7 +285,7 @@ vec4 physical_sky(vec3 d, vec3 s) {
 		tau_v += step_tau;
 	}
 	if (uNLC > 0.0) L += noctilucent(o, d, s) * exp(-tau_v);
-	L *= uSkyFlux;
+	L *= uSkyFlux * uSkyExposure;
 	if (uEmitGain > 0.0) {
 		vec3 night = emission(d);
 		bool ground = dG > 0.0 && -b - sqrt(dG) > 0.0;
@@ -300,6 +308,13 @@ void fragment() {
 		// light itself adds: blend_mix multiplies ALBEDO by ALPHA, so divide it back out
 		// and a faint twilight still glows over the stars it barely dims.
 		float a = clamp(max(ps.r, max(ps.g, ps.b)) * 6.0, 0.02, 1.0);
+		if (uMoonR > 0.0) {
+			// A chord: a cosine this close to 1 has no precision left.
+			float chord = length(d - uMoonDir);
+			float w = fwidth(chord);
+			a = mix(max(ps.a, 0.001), a, smoothstep(uMoonR - w, uMoonR + w, chord));
+		}
+		a = min(a, uCoverMax);
 		ALBEDO = ps.rgb / a;
 		ALPHA = a;
 	} else {

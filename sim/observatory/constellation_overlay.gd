@@ -5,9 +5,15 @@ extends Control
 # space and cut at the horizon. Data: assets/sky/constellations.json, built by
 # tools/build_constellations.py. Figure stars move with their proper motion
 # (set_epoch); boundaries are fixed to the sky by definition (B1875 lines given at J2000).
-# Each name is set just under one of its figure's stars.
+# Each name is set just under one of its figure's stars. Figures, boundaries and names go
+# behind the ground and buildings by a mask from the flight pass's alpha, where only opaque
+# geometry reaches 1 (COVER_MAX); the reticle stays in front, as it can mark what they hide.
 
 const T = preload("res://ui/theme.gd")
+const MASK := preload("res://shaders/observatory/overlay_mask.gdshader")
+## The sky dome's coverage stops here, so the mask can tell it from opaque geometry. What it
+## lets through is the sky's stars at daylight's gain, which is under a display level.
+const COVER_MAX := 0.99
 const DATA := "res://assets/sky/constellations.json"
 const LINE := Color(0.50, 0.66, 1.0, 0.55)
 const BOUND := Color(0.85, 0.66, 0.40, 0.32)
@@ -28,6 +34,7 @@ var _basis := Basis()
 var _tan := 1.0
 var _up := Vector3.UP
 var _on := false
+var _sky: Control
 var count := 0
 ## The Julian year the figure stars are carried to.
 var year := NAN
@@ -38,6 +45,14 @@ func _init() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = T.theme()
 	visible = false
+	_sky = Control.new()
+	_sky.name = "Sky"
+	_sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sky.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_sky.material = ShaderMaterial.new()
+	(_sky.material as ShaderMaterial).shader = MASK
+	_sky.draw.connect(_draw_sky)
+	add_child(_sky)
 	_load()
 
 var _reticle = null
@@ -80,6 +95,10 @@ func set_reticle(d, label: String) -> void:
 	_reticle = d
 	_reticle_name = label
 
+## The flight pass's frame, whose alpha says what is opaque.
+func set_mask(tex: Texture2D) -> void:
+	(_sky.material as ShaderMaterial).set_shader_parameter("uLocal", tex)
+
 ## Per frame: the scene camera's basis and vertical field of view (degrees), and the
 ## observer's zenith in scene axes.
 func place(basis: Basis, fov_deg: float, up: Vector3, on: bool) -> void:
@@ -88,7 +107,9 @@ func place(basis: Basis, fov_deg: float, up: Vector3, on: bool) -> void:
 	_up = up
 	_on = on
 	visible = on and (show_lines or show_names or show_bounds or _reticle != null) and (count > 0 or _reticle != null)
-	if visible: queue_redraw()
+	if visible:
+		queue_redraw()
+		_sky.queue_redraw()
 
 ## Screen position of scene direction `d`, or null behind the camera.
 func project(d: Vector3):
@@ -128,14 +149,17 @@ func _draw() -> void:
 				var a := Vector2.RIGHT.rotated(k * PI * 0.5)
 				draw_line(o + a * 9.0, o + a * 16.0, col, 1.4, true)
 			draw_string(get_theme_default_font(), o + Vector2(20.0, 4.0), _reticle_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+func _draw_sky() -> void:
+	if not _on: return
 	if show_bounds and not _bounds.is_empty():
 		var pts := PackedVector2Array()
 		_segments(_bounds, pts, 1)
-		if not pts.is_empty(): draw_multiline(pts, BOUND, 1.0, true)
+		if not pts.is_empty(): _sky.draw_multiline(pts, BOUND, 1.0, true)
 	if show_lines and not _figure.is_empty():
 		var pts := PackedVector2Array()
 		_segments(_figure, pts, PIECES)
-		if not pts.is_empty(): draw_multiline(pts, LINE, 1.2, true)
+		if not pts.is_empty(): _sky.draw_multiline(pts, LINE, 1.2, true)
 	if show_names:
 		var font := get_theme_default_font()
 		for l in _labels:
@@ -145,4 +169,4 @@ func _draw() -> void:
 			if p == null: continue
 			var text: String = l[0]
 			var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-			draw_string(font, (p as Vector2) + Vector2(-w * 0.5, 17.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, NAME)
+			_sky.draw_string(font, (p as Vector2) + Vector2(-w * 0.5, 17.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, NAME)

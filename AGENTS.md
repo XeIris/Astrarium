@@ -213,7 +213,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - tidal disruption, natal kicks, the disc model or the climate: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
-  stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`
+  stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
+  how the sky looks: `tools/observatorylookcheck.tscn`
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`

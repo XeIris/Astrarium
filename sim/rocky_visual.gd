@@ -12,10 +12,28 @@ const CLOUD_SHADER := preload("res://shaders/bodies/cloud_deck.gdshader")
 const ATMO_SHADER := preload("res://shaders/bodies/rocky_atmosphere.gdshader")
 
 const TAU_ := PI * 2.0
+## The shared surface exposure (uGain), as a camera exposes for the planet.
+const EXPOSURE := 1.95
 
 ## A half turn about the mesh's +X meridian. A map has north on the mesh's +Y, and orbits here
 ## turn about −Y (spin_step), as `Rocketry.spin_frame` has it.
 const NORTH_ON_ORBIT_POLE := Basis(Vector3(1, 0, 0), Vector3(0, -1, 0), Vector3(0, 0, -1))
+
+## The surface shader's sunlit share of a disc at phase angle `alpha` (rad): the mean over
+## the disc of its soft terminator, which is broader than a sphere's Lambert cosine.
+static func lit_fraction(alpha: float) -> float:
+	var sum := 0.0
+	var n := 0
+	var m := 32
+	for j in m:
+		var y := -1.0 + (j + 0.5) * 2.0 / m
+		for i in m:
+			var x := -1.0 + (i + 0.5) * 2.0 / m
+			var q := x * x + y * y
+			if q >= 1.0: continue
+			n += 1
+			sum += smoothstep(-0.08, 0.22, x * sin(alpha) + sqrt(1.0 - q) * cos(alpha))
+	return sum / n
 
 # option helpers
 ## Truthiness of an option value (null/false/0/"" are false).
@@ -128,7 +146,7 @@ static func surface_material(seed: float, opts: VisualOpts) -> ShaderMaterial:
 	m.set_shader_parameter("uTime", 0.0)
 	# Exposure: one shared constant, as a camera exposes for the planet (albedos are
 	# real reflectances), so worlds side by side stay comparable.
-	m.set_shader_parameter("uGain", 1.95)
+	m.set_shader_parameter("uGain", EXPOSURE)
 	# Seasons, in K of pole-to-pole swing. The annual mean can't grow Mars's 148 K CO₂
 	# cap; winter does. uDecl is the sine of the sub-solar latitude; uSeason is how far
 	# the surface follows it (small under an ocean, large on bare rock).

@@ -90,7 +90,12 @@ CHANGED_RULES = (
       "shaders/observatory/*", "ui/site_picker.gd", "model_sources/blender/observatories.py",
       "tools/build_starcat.py", "tools/build_gaia.py", "tools/build_constellations.py", "tools/build_deltat.py",
       "tools/build_nutation.py", "tools/build_site_terrain.py"),
-     ("observatorycheck", "observatorycheck-assets", "observatorystagecheck", "imagingcheck", "hud*", "_soak_check-observatory")),
+     ("observatorycheck", "observatorycheck-assets", "observatorystagecheck", "observatorylookcheck", "imagingcheck", "hud*", "_soak_check-observatory")),
+    # The Observatory's sky as drawn: the dome it shares with flight, and the markers.
+    (("shaders/flight/sky_dome.gdshader", "sim/marker.gd", "shaders/bodies/marker_point.gdshader", "sim/rocky_visual.gd"),
+     ("observatorylookcheck", "observatorystagecheck")),
+    # Picking and the selection reticle.
+    (("core/orrery_camera.gd", "sim/marker.gd", "shaders/bodies/marker_point.gdshader"), ("cameracheck",)),
     (("ui/plate_view.gd", "sim/planetmaps.gd", "assets/planet-maps/*"), ("imagingcheck",)),
     # The Moon's mapped face (moon_face).
     (("sim/rocky_visual.gd",), ("observatorycheck",)),
@@ -265,13 +270,15 @@ def checks(suite, godot, output, repeat, export_preset):
     elif suite == "rendered":
         # Windowed: lens and skycache read GPU results and pixels; glowcheck measures a
         # source's glow in the final frame, because bloom and the tone curve decide its
-        # size; coursecheck and the accretion checks collect the errors a drawn frame
+        # size; observatorylookcheck judges the Observatory's sky in the same frame; coursecheck
+        # and the accretion checks collect the errors a drawn frame
         # raises (SHADER ERROR included); hudcheck screenshots and drives real input over
         # laid-out Controls; presetcheck attributes each scenario's render errors. The
         # rest judge state and run headless.
         yield scene("lenscheck", r"^LENSCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("glowcheck", r"^GLOWCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        yield scene("observatorylookcheck", r"^OBSERVATORYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")

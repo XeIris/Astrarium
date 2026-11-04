@@ -352,9 +352,12 @@ func air() -> void:
 	near(SkyConditions.airmass(0.0), 38.0, 0.5, "airmass at the horizon")
 	near(SkyConditions.transmission(0.12, 1.0), 0.8954, 1e-3, "V extinction")
 	near(SkyConditions.v_of_nl(SkyConditions.nl_of_v(21.0)), 21.0, 1e-9, "surface brightness both ways")
-	# The photometric scale, from outside Krisciunas & Schaefer: 10.8×10⁴ cd/m² at
-	# 0 mag/arcsec² in V (Crumey 2014, MNRAS 442, 2600), and 1 nL = 1e-5/π cd/m².
-	near(SkyConditions.nl_of_v(22.0), 10.8e4 * pow(10.0, -0.4 * 22.0) / (1e-5 / PI), 1.0, "the nL scale at 22 mag/arcsec²")
+	# The photometric scale, from outside Krisciunas & Schaefer: Crumey (2014, MNRAS 442, 2600,
+	# §1.3) has μ_V = 2.5 log(60⁴(180/π)² Z_V / B) with Z_V = 2.54e-6 lx (Cox 1999), so 0 mag/arcsec²
+	# is 1.0807e5 cd/m², and 22 is his 1.71e-4. 1 nL = 1e-5/π cd/m².
+	var zero_mag := pow(60.0, 4.0) * pow(180.0 / PI, 2.0) * 2.54e-6
+	near(zero_mag * pow(10.0, -0.4 * 22.0), 1.71e-4, 1e-6, "Crumey's zenith at 22 mag/arcsec²")
+	near(SkyConditions.nl_of_v(22.0), zero_mag * pow(10.0, -0.4 * 22.0) / (1e-5 / PI), 0.3, "the nL scale at 22 mag/arcsec²")
 	var c: Dictionary = SkyConditions.SITES.paranal
 	var dark := SkyConditions.sky_v(c, 90.0, -40.0, 0.0, 90.0, -30.0)
 	near(dark, 21.61, 1e-3, "Paranal's dark zenith")
@@ -373,6 +376,19 @@ func air() -> void:
 	var tw := SkyConditions.sky_v(c, 60.0, -8.0, 0.0, 90.0, -30.0)
 	check(tw < 18.0, "the sky at −8° is bright: %s" % tw)
 	check(SkyConditions.sky_v(c, 60.0, 30.0, 0.0, 90.0, -30.0) < 6.0, "a day's sky is far too bright")
+	near(SkyConditions.twilight_exposure(45.0), 1.0, 1e-9, "the day's sky keeps its exposure")
+	near(SkyConditions.twilight_exposure(-40.0), SkyConditions.EXPOSURE_MAX, 1e-9, "the night's holds its cap")
+	var last := 1.0
+	var rising := true
+	for alt in [10.0, 5.0, 1.0, -1.0, -3.0, -6.0, -9.0, -12.0, -18.0]:
+		var e := SkyConditions.twilight_exposure(alt)
+		rising = rising and e >= last
+		last = e
+	check(rising, "the exposure only opens as the Sun sinks")
+	near(SkyConditions.star_gain(c, -40.0), 1.0, 1e-9, "the stars at full flux after dark")
+	near(SkyConditions.star_gain(c, 40.0), SkyConditions.DAY_STAR_GAIN, 1e-9, "and at the flight view's gain by day")
+	var civil := SkyConditions.star_gain(c, -6.0)
+	check(civil > 0.01 and civil < 0.05, "the Sun at −6° leaves only the brightest stars: %.3f" % civil)
 
 func stars() -> void:
 	var y := 2026.0
