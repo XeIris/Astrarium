@@ -18,8 +18,8 @@ const MIN_FOV := 1.0
 const RESTATE_DAYS := 1.0
 ## The drawn Moon's mean lit radiance per unit uGain, measured from its map and the Sun.
 const MOON_RADIANCE_PER_GAIN := 0.22
-## After dark: a disc this many pixels wide or smaller sits at MOON_NIGHT_MAX times the
-## shared exposure, and one ten times wider at the shared exposure. Both by eye.
+## After dark: a disc this many pixels wide or larger sits at the shared exposure, rising as it
+## shrinks to MOON_NIGHT_MAX times that at a tenth of the width. Both by eye.
 const MOON_NIGHT_PX := 80.0
 const MOON_NIGHT_MAX := 10.0
 ## Sun's altitude (°) over which High's ambient goes from LocalView's fill to its physical sky.

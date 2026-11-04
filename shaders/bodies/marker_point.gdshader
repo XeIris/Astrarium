@@ -36,7 +36,7 @@ void fragment() {
 	float halo = exp(-r * r * 3.2) * 0.28;
 	float a = (core + halo) * uOpacity;
 	// Selection reticle, well outside the core, so a point-sized body can be found.
-	float ring = uSel * uOpacity * 0.5 *
+	float ring = uSel * 0.5 *
 	             (smoothstep(0.58, 0.65, r) - smoothstep(0.71, 0.78, r));
 	if (a <= 0.003 && ring <= 0.003) discard;
 	// premultiplied: colour already carries its own coverage

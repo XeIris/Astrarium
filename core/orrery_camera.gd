@@ -110,10 +110,11 @@ func update_free(dt: float, controls: ControlBindings, keys: Dictionary) -> Basi
 	position.x += movement.x; position.y += movement.y; position.z += movement.z
 	return Basis.looking_at(forward, Vector3.UP)
 
+## How near a click must fall to take a body, in pixels, however small it is drawn.
+const PICK_FLOOR_PX := 6.0
+
 static func pick_radius(body: Body) -> float:
-	var geometric := maxf(body.radius_scene, body.rs_scene) * 1.6
-	if body.marker == null or not body.marker.mesh.visible: return geometric
-	return maxf(geometric, body.marker.mesh.scale.x * 0.42)
+	return maxf(body.radius_scene, body.rs_scene) * 1.6
 
 func pick(bodies: Array, screen: Vector2, viewport: Vector2, fov: float, basis: Basis) -> Body:
 	var ndc := Vector2(screen.x / viewport.x * 2.0 - 1.0, -(screen.y / viewport.y) * 2.0 + 1.0)
@@ -126,7 +127,8 @@ func pick(bodies: Array, screen: Vector2, viewport: Vector2, fov: float, basis: 
 		var along := relative.dot(direction)
 		if along < 0.0: continue
 		var distance := (relative - direction * along).length()
-		if distance < pick_radius(body) and along < best_distance:
+		var floor_radius := PICK_FLOOR_PX * 2.0 * along * tangent / viewport.y
+		if distance < maxf(pick_radius(body), floor_radius) and along < best_distance:
 			best = body
 			best_distance = along
 	return best

@@ -32,6 +32,28 @@ func _init() -> void:
 	check("body behind camera is not picked", camera.pick([hidden], Vector2(640, 360), Vector2(1280, 720), 50.0, basis) == null)
 	var closer := body(origin.add(DVec3.new(-0.0001, 0, 0)), 1e-5)
 	check("frontmost body wins independent of array order", camera.pick([earth, closer], Vector2(640, 360), Vector2(1280, 720), 50.0, basis) == closer)
+	# A body 4 px wide: past the marker's band, and still as easy to take as a point.
+	var px_at := camera.radius * 2.0 * tan(deg_to_rad(50.0) * 0.5) / 720.0
+	var four_px := body(camera.target.clone(), 2.0 * px_at)
+	check("a click 5 px off a 4 px body takes it", camera.pick([four_px], Vector2(645, 360), Vector2(1280, 720), 50.0, basis) == four_px)
+	check("a click 7 px off does not", camera.pick([four_px], Vector2(647, 360), Vector2(1280, 720), 50.0, basis) == null)
+	var wide := body(camera.target.clone(), 20.0 * px_at)
+	check("a 40 px body is still taken by its own radius", camera.pick([wide], Vector2(670, 360), Vector2(1280, 720), 50.0, basis) == wide)
+	# 720 px at 50°: a radius of r at distance 1 is r / px_per_unit wide.
+	var marker := Marker.create_marker({})
+	var unit_px := 2.0 * tan(deg_to_rad(50.0) * 0.5) / 720.0
+	marker.update(null, Vector3(1, 0, 0), 2.0 * unit_px, 720.0, true)
+	check("the orrery's marker still carries a 4 px body", float(marker.material.get_shader_parameter("uOpacity")) > 0.5)
+	marker.update(null, Vector3(1, 0, 0), 2.0 * unit_px, 720.0, true, true)
+	check("a telescope's 4 px body is its disc, with the reticle still on it", marker.mesh.visible \
+		and float(marker.material.get_shader_parameter("uOpacity")) == 0.0 and float(marker.material.get_shader_parameter("uSel")) > 0.0)
+	marker.update(null, Vector3(1, 0, 0), 2.0 * unit_px, 720.0, false, true)
+	check("and unselected it has no marker", not marker.mesh.visible)
+	marker.update(null, Vector3(1, 0, 0), 4.0 * unit_px, 720.0, true)
+	check("a selected 8 px body needs no reticle", not marker.mesh.visible)
+	marker.update(null, Vector3(1, 0, 0), 0.25 * unit_px, 720.0, true)
+	check("a selected point has its marker and reticle", marker.mesh.visible and float(marker.material.get_shader_parameter("uSel")) == 1.0 and float(marker.material.get_shader_parameter("uOpacity")) == 1.0)
+	marker.mesh.free()
 	check("true-scale near plane stays resolvable", camera.near_plane([earth], false, 0.01) > 0.0 and camera.near_plane([earth], false, 0.01) < camera.radius)
 	camera.target.set_v(0, 0, 0)
 	camera.jump_radius(10)
