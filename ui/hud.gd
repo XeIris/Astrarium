@@ -1576,8 +1576,8 @@ func _apply_body_classes() -> void:
 	_hide(tabs.flightPanel, "cls", not fl)
 	_hide(course_panel, "cls", not le)
 	_hide(tabs.coursePanel, "cls", not le)
-	_hide(instrument_panel, "cls", not ob)
-	_hide(tabs.instrumentPanel, "cls", not ob)
+	_hide(instrument_panel, "cls", not at_desk)
+	_hide(tabs.instrumentPanel, "cls", not at_desk)
 	# The model viewer takes the frame, tabs included.
 	_hide(tab_col, "cls", mo)
 	_hide(tab_right, "cls", mo)
