@@ -346,6 +346,30 @@ func star_catalogues() -> void:
 	check("every Gaia star has a colour", colour_ok)
 	check("the catalogues replace all six procedural tiers", BrightStars.catalogue_tiers() == 6)
 
+# What the sky shader actually receives once the frame loop has run, in every sky
+# material: the catalogue's tiers where it draws, and the whole procedural sky elsewhere.
+# The rest of this check runs in the hangar, whose frames return before the sky.
+func live_sky_tiers() -> void:
+	stage.close_hangar()
+	stage.set_app_mode("sandbox")
+	stage.load_preset("solar")
+	stage.animate(1.0 / 60.0)
+	check_first_tier("solar, visible light", BrightStars.catalogue_tiers())
+	stage.set_band(5)
+	stage.animate(1.0 / 60.0)
+	check_first_tier("solar, X-ray (no catalogue in this band)", 0)
+	stage.set_band(Spectrum.VISIBLE_BAND)
+	stage.animate(1.0 / 60.0)
+	check_first_tier("solar, back in visible light", BrightStars.catalogue_tiers())
+	stage.load_preset("vega")
+	stage.animate(1.0 / 60.0)
+	check_first_tier("a scene off the real galactic frame", 0)
+
+func check_first_tier(where: String, expected: int) -> void:
+	var seen := {}
+	for m in stage.pipe.sky_materials: seen[m.get_shader_parameter("uFirstTier")] = true
+	check("%s: the sky draws from tier %d (uFirstTier %s)" % [where, expected, seen.keys()], seen.keys() == [expected])
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -364,6 +388,7 @@ func _ready() -> void:
 	hovering_blueshift()
 	star_catalogues()
 	presets_survive_loading()
+	live_sky_tiers()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)
 	print("REALISMCHECK DONE checks=%d failures=%d" % [checks, failures])

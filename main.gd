@@ -2966,7 +2966,7 @@ func animate(dt: float) -> void:
 		var vis := SkyModel._band == Spectrum.VISIBLE_BAND
 		bright_stars.node.visible = drawn and vis
 		bright_stars.update(deg_to_rad(cam_fov), Vector2(pipe.render_size), SkyModel.star_gain())
-		SkyModel._set_all(pipe.sky_materials, "uFirstTier", SkyModel.CATALOGUE_TIERS if vis else 0)
+		SkyModel._set_all(pipe.sky_materials, "uFirstTier", BrightStars.catalogue_tiers() if vis else 0)
 
 	# ---- surface view: the sky composite runs over the scene, the home world is
 	# hidden (we are standing on it) and so is the spacetime slab
