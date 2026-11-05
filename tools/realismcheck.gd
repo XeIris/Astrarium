@@ -254,6 +254,282 @@ func ice_lines() -> void:
 	print("REALISMCHECK EBM climate T=%s snowball=%s era=%s" % [cold.T, cold.snowball, cold.era.key])
 	check("the climate model freezes with its snowball", cold.snowball and cold.era.key == "DEEP_FREEZE" and cold.ice == 1.0)
 
+# A scenario of one Sun and `worlds` at their orbits, with a home world if one is given.
+func load_worlds(worlds: Array) -> bool:
+	Presets.PRESETS["__worlds"] = {"name": "worlds", "sceneScale": 4.0, "camRadius": 20.0, "maxStep": 5e-3,
+		"climate": {"mixedLayer": 12.0, "T0": 288.0},
+		"build": func() -> Array:
+			var bodies: Array = [{"type": "star", "name": "Sun", "mass": 1.0, "radiusSun": 1.0, "teff": 5772.0, "luminosity": 1.0,
+				"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0]}]
+			for w: Dictionary in worlds:
+				bodies.append(Presets.orbiter(1.0, float(w.a), U.merged({"mass": 3.0035e-6, "radiusKm": 6371.0}, w.spec), float(w.get("angle", 0.0))))
+			return bodies}
+	var ok: bool = stage.load_preset("__worlds")
+	Presets.PRESETS.erase("__worlds")
+	return ok
+
+func run_frames(n: int, dt: float) -> void:
+	for i in n: stage.step_physics(dt)
+
+func inputs_of(cl: Climate) -> Array:
+	return [cl.mixed_layer, cl.greenhouse, cl.albedo_base, cl.albedo_ice, cl.wet]
+
+func balance_K(S: float, albedo: float, eps: float) -> float:
+	return pow((1.0 - albedo) * S * Climate.S0 / (4.0 * eps * Climate.SIGMA), 0.25)
+
+func each_world_settles() -> void:
+	var dry := {"type": "planet", "oceans": false, "mixedLayer": 2.0, "greenhouse": 0.8, "albedoBase": 0.3, "T0": 288.0}
+	check("two-world scenario loads", load_worlds([
+		{"a": 0.7, "spec": U.merged(dry, {"name": "Near"})},
+		{"a": 1.6, "angle": 2.0, "spec": U.merged(dry, {"name": "Far"})}]))
+	var inner: Climate = stage.state.body_named("Near").climate
+	var far: Climate = stage.state.body_named("Far").climate
+	check("the worlds start at the same stated temperature", absf(inner.T - 288.0) < 0.01 and absf(far.T - 288.0) < 0.01)
+	run_frames(300, 0.01)
+	print("REALISMCHECK WORLDS near_T=%s far_T=%s" % [inner.T, far.T])
+	check("two distances settle to different temperatures", inner.T - far.T > 80.0)
+	check("the near world settles to its own balance", near(inner.T, balance_K(inner.S, 0.3, 0.8), 2e-3))
+	check("the far world settles to its own balance", near(far.T, balance_K(far.S, 0.3, 0.8), 2e-3))
+	check("the ratio is the inverse square law's", near(inner.T / far.T, sqrt(1.6 / 0.7), 5e-3))
+	check("a dry world is named as one", inner.era.key == "DRY" and inner.ocean == 0.0 and inner.ice == 0.0)
+
+	var wet := {"type": "planet", "oceans": true, "mixedLayer": 12.0, "greenhouse": 0.61, "albedoBase": 0.306, "albedoIce": 0.45}
+	check("wet scenario loads", load_worlds([
+		{"a": 1.0, "spec": U.merged(wet, {"name": "Temperate"})},
+		{"a": 2.2, "angle": 2.0, "spec": U.merged(wet, {"name": "Frozen"})}]))
+	var warm: Climate = stage.state.body_named("Temperate").climate
+	var cold: Climate = stage.state.body_named("Frozen").climate
+	run_frames(300, 0.02)
+	print("REALISMCHECK WORLDS warm_T=%s %s cold_T=%s %s" % [warm.T, warm.era.key, cold.T, cold.era.key])
+	check("each ocean world finds its own climate", warm.era.key == "STABLE" and cold.era.key == "DEEP_FREEZE" and cold.snowball and not warm.snowball)
+
+func same_seed_same_worlds() -> void:
+	var sparse := [{"a": 0.4, "spec": {"type": "planet", "name": "Inner", "mass": 1.66e-7, "radiusKm": 2439.7}},
+		{"a": 1.0, "angle": 1.0, "spec": {"type": "planet", "name": "Middle"}},
+		{"a": 1.5, "angle": 2.0, "spec": {"type": "planet", "name": "Outer", "seed": 41}},
+		{"a": 2.0, "angle": 3.0, "spec": {"type": "world", "name": "Wide"}},
+		{"a": 3.0, "angle": 4.0, "spec": {"type": "planet", "name": "Far"}}]
+	var run := func() -> Array:
+		load_worlds(sparse)
+		run_frames(90, 0.01)
+		var out := []
+		for b: Body in stage.state.bodies:
+			if b.climate != null: out.append([b.name, inputs_of(b.climate), b.climate.T, b.climate.time, b.climate.pending])
+		return out
+	var first: Array = run.call()
+	check("every rocky world has a climate", first.size() == 5)
+	check("the same scenario gives the same worlds, to the bit", run.call() == first)
+	stage._cmd["seed"] = "11"
+	var other: Array = run.call()
+	stage._cmd.erase("seed")
+	var differ := 0
+	for i in first.size():
+		if other[i][1] != first[i][1]: differ += 1
+	print("REALISMCHECK WORLDS seed_changes=%d of %d" % [differ, first.size()])
+	check("the run's seed= changes the draw", differ >= 3)
+	load_worlds(sparse)
+	var a: Array = inputs_of(stage.state.body_named("Outer").climate)
+	var renamed := sparse.duplicate(true)
+	renamed[2].spec.name = "Renamed"
+	load_worlds(renamed)
+	check("a spec seed outranks the name", a == inputs_of(stage.state.body_named("Renamed").climate))
+	renamed[1].spec.name = "Also renamed"
+	var middle: Array = first[1][1]
+	load_worlds(renamed)
+	check("without a spec seed the name is the seed", middle != inputs_of(stage.state.body_named("Also renamed").climate))
+
+func stated_values_win() -> void:
+	var seeded := {"type": "planet", "name": "Same", "seed": 7}
+	load_worlds([{"a": 1.0, "spec": seeded}])
+	var cl: Climate = stage.state.body_named("Same").climate
+	var drawn := inputs_of(cl)
+	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"greenhouse": 0.7})}])
+	cl = stage.state.body_named("Same").climate
+	check("a stated value overrides only itself", cl.greenhouse == 0.7 and cl.mixed_layer == drawn[0] and cl.albedo_base == drawn[2])
+	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"albedo": 0.4})}])
+	check("a body's albedo is the climate's ice-free base", stage.state.body_named("Same").climate.albedo_base == 0.4)
+	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"albedo": 0.4, "albedoBase": 0.2})}])
+	check("albedoBase outranks albedo", stage.state.body_named("Same").climate.albedo_base == 0.2)
+	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"T0": 150.0})}])
+	cl = stage.state.body_named("Same").climate
+	check("a stated T0 starts both models there", absf(cl.T - 150.0) < 1e-2 and absf(cl.ebm.T[0] + 123.15) < 1e-2)
+	load_worlds([{"a": 1.0, "spec": seeded}])
+	var b: Body = stage.state.body_named("Same")
+	stage.edit_body(b, {"greenhouse": 0.33})
+	check("an edit overrides the draw", b.climate.greenhouse == 0.33 and b.spec.greenhouse == 0.33)
+	stage.edit_body(b, {"greenhouse": null})
+	check("unsetting an edit returns to the draw", inputs_of(b.climate) == drawn)
+	for bad: Dictionary in [{"greenhuose": 0.5}, {"mixedLayer": -1.0}]:
+		Presets.PRESETS["__bad"] = {"name": "bad", "sceneScale": 1.0, "camRadius": 1.0, "climate": bad,
+			"build": func() -> Array: return [{"type": "world", "home": true}]}
+		check("a preset's climate block is validated: %s" % bad, not stage.load_preset("__bad"))
+	Presets.PRESETS.erase("__bad")
+
+func draw_ranges() -> void:
+	var m_e := 1.0 / 332946.0487
+	# Mass, radius km, insolation; solar-system anchors of the shoreline's calibration.
+	var kept := {"Earth": [m_e, 6371.0, 1.0], "Venus": [1.0 / 408523.719, 6051.8, 1.91], "Titan": [6.76e-8, 2574.7, 0.011]}
+	var lost := {"Moon": [m_e / 81.3, 1737.4, 1.0], "Mercury": [1.0 / 6023657.33, 2439.7, 6.67], "Callisto": [5.41e-8, 2410.0, 0.037]}
+	for n in kept:
+		check("%s lies above the shoreline" % n, ClimateInputs.retention(kept[n][0], kept[n][1] * Physics.AU_PER_KM, kept[n][2]) > 0.2)
+	for n in lost:
+		check("%s lies below the shoreline" % n, ClimateInputs.retention(lost[n][0], lost[n][1] * Physics.AU_PER_KM, lost[n][2]) < 0.0)
+	var mars := ClimateInputs.retention(1.0 / 3098703.59, 3389.5 * Physics.AU_PER_KM, 0.43)
+	var earth := ClimateInputs.retention(m_e, 6371.0 * Physics.AU_PER_KM, 1.0)
+	print("REALISMCHECK DRAW mars_x=%s earth_x=%s" % [mars, earth])
+	check("the shoreline is pinned to Mars", absf(mars) < 0.02)
+	check("Earth's retention is the anchor of its ε", absf(earth - 1.0) < 0.1)
+	var bad := 0
+	var wet_above_runaway := 0
+	var wet_below_shoreline := 0
+	for me in [0.01, 0.1, 0.5, 1.0, 5.0, 10.0]:
+		var mass := float(me) * m_e
+		var radius := Scale.physical_radius_au("planet", mass, null)
+		for S in [0.0, 1e-3, 0.1, 0.43, 1.0, 1.04, 1.5, 5.0, 30.0]:
+			var x := ClimateInputs.retention(mass, radius, S)
+			for i in 64:
+				var d := ClimateInputs.draw("w%d" % i, 3, mass, radius, S, 1.05)
+				if not ClimateInputs.input_error(d).is_empty() or float(d.albedoBase) + float(d.albedoIce) > 1.0: bad += 1
+				if d.oceans and S > 1.05: wet_above_runaway += 1
+				if d.oceans and x < 0.0: wet_below_shoreline += 1
+				if not d.oceans and d.albedoIce != 0.0: bad += 1
+	check("every draw is inside the input domain", bad == 0)
+	check("nothing draws an ocean above the runaway limit", wet_above_runaway == 0)
+	check("nothing draws an ocean below the shoreline", wet_below_shoreline == 0)
+	var r_small := 2439.7 * Physics.AU_PER_KM
+	var r_earth := 6371.0 * Physics.AU_PER_KM
+	var count_wet := func(mass: float, radius: float, S: float) -> int:
+		var w := 0
+		for i in 200:
+			if ClimateInputs.draw("n%d" % i, 0, mass, radius, S, 1.05).oceans: w += 1
+		return w
+	check("a small hot world keeps nothing", count_wet.call(1.66e-7, r_small, 6.67) == 0
+		and float(ClimateInputs.draw("n", 0, 1.66e-7, r_small, 6.67, 1.05).greenhouse) >= 0.9)
+	var earths: int = count_wet.call(m_e, r_earth, 1.0)
+	print("REALISMCHECK DRAW earths_wet=%d of 200" % earths)
+	check("most Earths keep their oceans, some do not", earths > 150 and earths < 200)
+	check("a hot heavy world can be a Venus", float(ClimateInputs.draw("v", 0, m_e, r_earth, 1.91, 1.05).greenhouse) <= 0.3)
+
+func solar_system() -> void:
+	check("solar preset loads", stage.load_preset("solar"))
+	for n in ["Mercury", "Venus", "Earth", "Moon", "Mars", "Pluto"]:
+		check("%s has a climate" % n, stage.state.body_named(n).climate != null)
+	for n in ["Sun", "Jupiter", "Neptune"]:
+		check("%s has none" % n, stage.state.body_named(n).climate == null)
+	check("no home world in this scenario", stage.get_home() == null)
+	# NSSDC fact sheets (the Moon's is its black-body figure), against the mean over a few
+	# orbits: a thin dry layer follows Mercury's and Mars's eccentric sunlight.
+	var measured := {"Mercury": [440.0, 0.03], "Venus": [737.0, 0.01], "Earth": [288.0, 0.015], "Moon": [270.4, 0.015], "Mars": [214.0, 0.03]}
+	var sum := {}
+	for n in measured: sum[n] = 0.0
+	var frames := 150
+	for i in frames:
+		stage.step_physics(0.02)
+		for n in measured: sum[n] += stage.state.body_named(n).climate.T / frames
+	for n in measured:
+		var cl: Climate = stage.state.body_named(n).climate
+		print("REALISMCHECK SOLAR %s mean_T=%s S=%s era=%s" % [n, sum[n], cl.S, cl.era.key])
+		check("%s settles near its measured temperature" % n, near(sum[n], measured[n][0], measured[n][1]))
+	var pluto: Climate = stage.state.body_named("Pluto").climate
+	print("REALISMCHECK SOLAR Pluto T=%s S=%s" % [pluto.T, pluto.S])
+	check("Pluto stays in its own balance", near(pluto.T, balance_K(pluto.S, 0.52, 1.0), 0.01))
+	check("Earth alone is wet", stage.state.body_named("Earth").climate.wet and not stage.state.body_named("Mars").climate.wet)
+	check("Earth is in its stable era", stage.state.body_named("Earth").climate.era.key == "STABLE")
+
+# The home world's climate must stay the model it was: step a bare one beside it, frame by frame.
+func home_is_unchanged() -> void:
+	for key in ["trisolaris", "edu_seasons"]:
+		check("%s loads" % key, stage.load_preset(key))
+		var home: Body = stage.get_home()
+		var cl: Climate = home.climate
+		var bare := Climate.new(Presets.PRESETS[key].climate)
+		bare.step(1e-6, home, stage.get_stars())
+		var dt: float = float(stage.state.time_scale) / 60.0
+		var same := true
+		for i in 600:
+			var accepted: float = stage.step_physics(dt)
+			bare.step(accepted, home, stage.get_stars())
+			same = same and bare.T == cl.T and bare.ice == cl.ice and bare.ocean == cl.ocean and bare.clouds == cl.clouds
+		print("REALISMCHECK HOME %s T=%s bare=%s" % [key, cl.T, bare.T])
+		check("%s's home climate is the bare model to the bit" % key, same and bare.ebm.T == cl.ebm.T and bare.history == cl.history)
+
+func home_removed() -> void:
+	check("home scenario loads", load_worlds([
+		{"a": 1.0, "spec": {"type": "world", "name": "Home", "home": true}},
+		{"a": 0.6, "angle": 1.0, "spec": {"type": "planet", "name": "Inner"}},
+		{"a": 1.7, "angle": 2.0, "spec": {"type": "planet", "name": "Outer"}},
+		{"a": 3.0, "angle": 3.0, "spec": {"type": "planet", "name": "Far"}},
+		{"a": 4.0, "angle": 4.0, "spec": {"type": "planet", "name": "Further"}}]))
+	var home: Body = stage.get_home()
+	check("the home world is home", home != null and home.name == "Home")
+	run_frames(10, 0.01)
+	stage.remove_body(home.id)
+	check("the home world is gone", stage.get_home() == null)
+	var worlds := []
+	var at := []
+	for n in ["Inner", "Outer", "Far", "Further"]:
+		var cl: Climate = stage.state.body_named(n).climate
+		worlds.append(cl)
+		at.append(cl.time)
+	check("no world to read, so the panel hides", stage.climate_world() == null and not stage.hud.ids.climatePanel.visible)
+	var t0: float = stage.state.sim_years
+	run_frames(60, 0.01)
+	var ran := true
+	for i in worlds.size():
+		ran = ran and worlds[i].time > at[i] and is_finite(worlds[i].T)
+		# The clock is the same for all of them, stepped or owed.
+		ran = ran and absf(worlds[i].time + worlds[i].pending - stage.state.sim_years) < 1e-5
+	print("REALISMCHECK HOME removed sim=%s since=%s" % [stage.state.sim_years, stage.state.sim_years - t0])
+	check("the other climates keep running", ran)
+	stage.set_follow(stage.state.body_named("Far"))
+	check("focusing a world brings the panel to it", stage.climate_world().name == "Far")
+	run_frames(1, 0.01)
+	check("the panel's world owes nothing", stage.state.body_named("Far").climate.pending == 0.0)
+
+	# A statement about water decides which world the rest is drawn for, either way.
+	load_worlds([{"a": 1.0, "spec": {"type": "planet", "name": "Dry", "seed": 1, "oceans": false}},
+		{"a": 0.3, "spec": {"type": "planet", "name": "Wet", "seed": 1, "oceans": true, "mass": 1.66e-7, "radiusKm": 2439.7}}])
+	var dry: Climate = stage.state.body_named("Dry").climate
+	var sea: Climate = stage.state.body_named("Wet").climate
+	check("a stated dry world draws no ice and a thin layer", dry.albedo_ice == 0.0 and dry.mixed_layer <= 3.0)
+	check("a stated ocean draws an ocean's layer and ice", sea.wet and sea.mixed_layer >= 10.0 and sea.albedo_ice >= 0.3)
+
+func climates_follow_type() -> void:
+	stage.clear_bodies()
+	var gas: Body = stage.spawn_body({"type": "gas-giant"})
+	check("a gas giant has no climate", gas.climate == null)
+	var rock: Body = stage.spawn_body({"type": "planet", "pos": [2.0, 0.0, 0.0]})
+	check("a spawned planet has one", rock.climate != null)
+	stage.transmute(rock, "bh", null)
+	check("a world that collapses loses it", rock.climate == null)
+	stage.clear_bodies()
+
+func stiff_worlds_stay_finite() -> void:
+	var star := Body.new()
+	star.type = "star"; star.mass = 1.0; star.luminosity = 1.0; star.teff = 5772.0; star.name = "Sun"
+	var rock := Body.new()
+	rock.type = "planet"; rock.mass = 3e-6; rock.name = "Rock"
+	rock.pos = DVec3.new(1.0, 0.0, 0.0)
+	var dry := Climate.new({"oceans": false, "mixedLayer": 0.1, "greenhouse": 1.0, "albedoBase": 0.1, "albedoIce": 0.0, "T0": 3.0})
+	for dt in [1e-6, 0.02, 1.0, 100.0, 1e4]:
+		dry.step(float(dt), rock, [star])
+		check("a dry world is stable at %s yr per step" % dt, is_finite(dry.T) and dry.T >= 3.0 and dry.T < 300.0)
+	check("a long step lands on the balance", near(dry.T, balance_K(1.0, 0.1, 1.0), 1e-3))
+	var thin := Climate.new({"mixedLayer": 0.1, "greenhouse": 0.61, "albedoBase": 0.306, "albedoIce": 0.45})
+	var lo := INF
+	var hi := -INF
+	for i in 200:
+		thin.step(5.0, rock, [star])
+		if i > 100:
+			lo = minf(lo, thin.T); hi = maxf(hi, thin.T)
+	print("REALISMCHECK STIFF wet T=[%s, %s]" % [lo, hi])
+	check("a thin wet layer holds its balance at 5 yr per step", is_finite(thin.T) and hi - lo < 1.0 and near(thin.T, 287.5, 0.02))
+	var start := Climate.new({"oceans": false, "greenhouse": 0.8, "albedoBase": 0.3, "albedoIce": 0.0})
+	check("the warmest balance solves the energy equation", near(start.equilibrium_T(1.0), balance_K(1.0, 0.3, 0.8), 1e-6))
+	check("no light leaves the floor", start.equilibrium_T(0.0) == 3.0)
+	var boiling := Climate.new({"albedoBase": 0.1, "albedoIce": 0.0, "greenhouse": 0.61})
+	check("a wet world's start stops at its boiling point", near(boiling.equilibrium_T(3.0), Climate.boiling_point(0.0), 1e-9))
+
 func climate() -> void:
 	var mk := func(x: float, L: float) -> Body:
 		var s := Body.new()
@@ -386,6 +662,15 @@ func _ready() -> void:
 	secular_events()
 	climate()
 	ice_lines()
+	each_world_settles()
+	same_seed_same_worlds()
+	stated_values_win()
+	draw_ranges()
+	solar_system()
+	home_is_unchanged()
+	home_removed()
+	climates_follow_type()
+	stiff_worlds_stay_finite()
 	hovering_blueshift()
 	star_catalogues()
 	presets_survive_loading()

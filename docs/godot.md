@@ -178,7 +178,6 @@ error rather than a silent null.
 | `scene_scale` | scene units per AU |
 | `sim_dt` | years integrated this frame |
 | `suns` | `[VisualCtx.Sun]` (`body, pos_rel, pos_abs, color` (linear)`, intensity, dist_au, ang_radius, ang_true`), brightest first; `state.suns` is the same list |
-| `climate` | the home world's `Climate`, or null |
 | `bodies` | all bodies |
 | `viewport_h` | logical viewport height in px |
 

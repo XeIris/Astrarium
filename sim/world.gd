@@ -93,7 +93,7 @@ class WorldViz extends RefCounted:
 		# uTime feeds non-periodic noise, so cap the sim-time term instead of wrapping it.
 		cloud_mat.set_shader_parameter("uTime", _u(cloud_mat, "uTime") + dt + minf(sim_dt * 40.0, 2.0))
 
-		var cl = ctx.climate
+		var cl = b.climate
 		if cl != null:
 			# The EBM owns both mean temperature and glaciated fraction: the ice-albedo
 			# hysteresis means ice is state (a snowball stays frozen), not derivable from T.

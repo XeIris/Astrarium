@@ -41,6 +41,5 @@ var cam_pos: DVec3 = null           # the camera's absolute scene position
 var time: float = 0.0               # wall-clock seconds accumulated
 var scene_scale: float = 1.0        # scene units per AU
 var sim_dt: float = 0.0             # years integrated this frame
-var climate = null                  # the home world's Climate, or null
 var bodies: Array = []              # every Body
 var viewport_h: float = 0.0         # logical viewport height, px

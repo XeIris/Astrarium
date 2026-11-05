@@ -44,7 +44,6 @@ var sim_years: float:
 		year_remainder = 0.0
 var epoch_jd: float = NAN      # TDB Julian date at sim_years 0, for a dated preset
 var home_id = null             # the inhabited world, if the preset has one
-var climate = null             # Climate or null
 var exposure: float = 1.0      # surface-view eye adaptation
 var suns: Array = []           # live star light sources, brightest first
 var band: int = 3              # imaging band index (see sim/spectrum.gd)

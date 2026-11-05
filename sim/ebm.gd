@@ -24,9 +24,25 @@ const COALBEDO_ICE := 0.38
 var T := PackedFloat64Array()      # °C at cell centres x = (i + ½)/N
 var _a := PackedFloat64Array(); var _b := PackedFloat64Array(); var _c := PackedFloat64Array(); var _r := PackedFloat64Array()
 
+# Per-cell terms of step(), which every wet world runs every time it steps: 3x² − 1, and
+# the diffusive couplings to the cells below and above.
+static var _shape := PackedFloat64Array()
+static var _w_lo := PackedFloat64Array()
+static var _w_hi := PackedFloat64Array()
+
 func _init(T0_c: float = 14.0) -> void:
-	for arr in [T, _a, _b, _c, _r]: arr.resize(N)
+	T.resize(N); _a.resize(N); _b.resize(N); _c.resize(N); _r.resize(N)
+	if _shape.is_empty(): _build_terms()
 	reset(T0_c)
+
+static func _build_terms() -> void:
+	var dx := 1.0 / N
+	_shape.resize(N); _w_lo.resize(N); _w_hi.resize(N)
+	for i in N:
+		var x := (i + 0.5) * dx
+		_shape[i] = 3.0 * x * x - 1.0
+		_w_lo[i] = D * (1.0 - pow(i * dx, 2.0)) / (dx * dx) if i > 0 else 0.0
+		_w_hi[i] = D * (1.0 - pow((i + 1) * dx, 2.0)) / (dx * dx) if i < N - 1 else 0.0
 
 func reset(T0_c: float) -> void:
 	for i in N: T[i] = T0_c - 30.0 * pow((i + 0.5) / N, 2.0)
@@ -34,15 +50,13 @@ func reset(T0_c: float) -> void:
 ## Advance `dt_s` seconds under mean insolation Q (W/m², S/4), insolation shape s2,
 ## OLR intercept A (W/m² at 0 °C) and column heat capacity C (J m⁻² K⁻¹).
 func step(dt_s: float, Q: float, s2: float, A: float, C: float) -> void:
-	var dx := 1.0 / N
 	var k := C / dt_s
 	for i in N:
-		var x := (i + 0.5) * dx
-		var s := 1.0 + s2 * 0.5 * (3.0 * x * x - 1.0)
-		var p2 := 0.5 * (3.0 * x * x - 1.0)
-		var co := COALBEDO_ICE if T[i] < T_ICE else COALBEDO_FREE + COALBEDO_P2 * p2
-		var w_lo := D * (1.0 - pow(i * dx, 2.0)) / (dx * dx) if i > 0 else 0.0
-		var w_hi := D * (1.0 - pow((i + 1) * dx, 2.0)) / (dx * dx) if i < N - 1 else 0.0
+		var shape := _shape[i]
+		var s := 1.0 + s2 * 0.5 * shape
+		var co := COALBEDO_ICE if T[i] < T_ICE else COALBEDO_FREE + COALBEDO_P2 * (0.5 * shape)
+		var w_lo := _w_lo[i]
+		var w_hi := _w_hi[i]
 		_a[i] = -w_lo
 		_c[i] = -w_hi
 		_b[i] = k + B + w_lo + w_hi

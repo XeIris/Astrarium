@@ -1021,6 +1021,7 @@ func _build_control_panel() -> void:
 	reg("climatePanel", cp)
 	var clock := L(null, "0 yr", {"fs": 10.0, "c": T.ACCENT_2, "ls": 0.5}, "simClock")
 	s = _section(b, "Climate", [clock], cp)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "ls": 0.5}, "cWorld"), 0.0, 6.0)
 	var era: Dictionary = ERA["era-stable"]
 	var badge_l := L(null, "Stable Era", {"fs": 12.0, "ls": 2.16, "up": true, "c": era.c}, "eraLabel")
 	badge_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1890,7 +1891,7 @@ static func _set_label(l: Label, t: String) -> void:
 	if l.text != t: l.text = t
 
 # climate
-## cl: {label, cls, desc, celsius, S, ice, clouds, tauYears, Tmin, Tmax, history}
+## cl: {world, label, cls, desc, celsius, S, ice, clouds, tauYears, Tmin, Tmax, history}
 func update_climate(cl: Dictionary) -> void:
 	var era: Dictionary = ERA.get(cl.get("cls", "era-stable"), ERA["era-stable"])
 	var badge: PanelContainer = ids.eraBadge
@@ -1898,6 +1899,7 @@ func update_climate(cl: Dictionary) -> void:
 		badge.set_meta("era", cl.get("cls", "era-stable"))
 		badge.add_theme_stylebox_override("panel", T.stylebox({"bg": era.bg, "bc": era.c, "pad": [7, 7, 7, 7]}))
 		T.apply_label(ids.eraLabel, {"fs": 12.0, "ls": 2.16, "up": true, "c": era.c})
+	set_text("cWorld", str(cl.get("world", "")))
 	set_text("eraLabel", str(cl.get("label", "")))
 	set_text("eraDesc", str(cl.get("desc", "")))
 	set_text("cTemp", "%s °C" % U.fixed(cl.celsius, 1))

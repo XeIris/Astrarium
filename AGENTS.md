@@ -91,6 +91,11 @@ design.
   and which stars light it (`insolation_at`), then its temperature, ice line and
   biomes. A preset states a value only when it can't be derived (Venus's 737 K is
   stated; Mercury's temperature is not).
+- A rocky or ocean world (`ClimateInputs.applies`) owns its `b.climate`. Its inputs are
+  flat spec fields validated by `Structure.input_error`; what a spec leaves unstated is
+  drawn once, seeded from the body and `seed=`, and does not move with later edits. The
+  home world keeps `Climate.HOME_INPUTS` instead of a draw. See
+  [a climate per world](docs/physics/climate.md#a-climate-per-world).
 - Neutron `spinHz` is physical cycles per second and overrides modelled
   `spinFrac`. `visualSpinRadS` is an explicit display rate per unpaused render
   second; it must not alter structural support. See the visual contract.
@@ -211,7 +216,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
-- tidal disruption, natal kicks, the disc model or the climate: `tools/realismcheck.tscn`
+- tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
   how the sky looks: `tools/observatorylookcheck.tscn`

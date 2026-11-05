@@ -74,6 +74,7 @@ var trail_opacity: float = 0.5
 
 # Per-module state.
 var activity = null           # sim/stellar.gd ActivityModel (stars)
+var climate = null            # sim/climate.gd Climate (rocky and ocean worlds), or null
 var spin_phase: float = 0.0   # rotation phase, radians (worlds, stars)
 var cloud_phase: float = 0.0
 var extra: Dictionary = {}

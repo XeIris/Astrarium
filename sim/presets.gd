@@ -207,6 +207,10 @@ static func orbiter(Mc: float, a: float, spec: Dictionary, angle = null) -> Dict
 # Approximate Positions of the Major Planets" (JPL), Table 1, valid 1800–2050; EMB is
 # the Earth–Moon barycentre. Moon: geocentric, Meeus, Astronomical Algorithms ch. 47
 # (ϖ = L′ − M′), with the mean 5.145° inclination.
+# A dry world's thermal flywheel, in metres of water: rock's annual skin depth at its heat
+# capacity (docs/physics/climate.md#a-climate-per-world).
+const DRY_LAYER_M := 1.5
+
 const SOLAR_ELEMENTS := {
 	"Mercury": [[0.38709927, 0.00000037], [0.20563593, 0.00001906], [7.00497902, -0.00594749], [252.25032350, 149472.67411175], [77.45779628, 0.16047689], [48.33076593, -0.12534081]],
 	"Venus":   [[0.72333566, 0.00000390], [0.00677672, -0.00004107], [3.39467605, -0.00078890], [181.97909950, 58517.81538729], [131.60246718, 0.00268329], [76.67984255, -0.27769418]],
@@ -550,6 +554,7 @@ static func _build_solar(t_cy := 0.0) -> Array:
 	# cloudCover is the fraction under cloud thick enough to hide the ground: MODIS's
 	# 0.67 total less the thin cirrus the decks don't draw.
 	var earth := { "type": "planet", "name": "Earth", "mass": m_earth, "radiusKm": 6371.0,
+		"oceans": true, "mixedLayer": 60.0,
 		"atmosphere": true, "land": 0.32, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
 		"obliquity": 0.4091, "cloudCover": 0.44, "season": 11.0,
 		# The oceans' tide, which a uniform elastic sphere can't give: k2 (Lambeck 1980)
@@ -560,7 +565,7 @@ static func _build_solar(t_cy := 0.0) -> Array:
 	# airless body to land on. Its 5.1° tilt keeps eclipses to the nodes.
 	var moon := { "type": "planet", "name": "Moon", "mass": m_moon, "radiusKm": 1737.4,
 		"hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268,
-		"tidalLock": "Earth" }
+		"tidalLock": "Earth", "oceans": false, "greenhouse": 1.0, "mixedLayer": DRY_LAYER_M }
 	var emb := elements_state(Physics.G * (1.0 + m_earth + m_moon), SOLAR_ELEMENTS.EMB, t_cy)
 	var rel := elements_state(Physics.G * (m_earth + m_moon), SOLAR_ELEMENTS.Moon, t_cy)
 	var f_moon := m_moon / (m_earth + m_moon)
@@ -569,10 +574,13 @@ static func _build_solar(t_cy := 0.0) -> Array:
 	var bodies := [
 		sun,
 		P.call(1.0 / 6023657.33, 2439.7, "planet", "Mercury", {
-			"hot": true, "crater": 0.95, "regolith": 0x8b8279, "albedo": 0.12, "obliquity": 0.0006 }),
-		# Venus's 737 K is stated: no greenhouse parameter reaches 2.4× its equilibrium
-		# temperature.
+			"hot": true, "crater": 0.95, "regolith": 0x8b8279, "albedo": 0.12, "obliquity": 0.0006,
+			"oceans": false, "greenhouse": 1.0, "mixedLayer": DRY_LAYER_M }),
+		# Venus's 737 K is stated for the surface, whose emissivity rule cannot reach 2.4× its
+		# equilibrium temperature. The climate's ε is what balances 737 K at this albedo; its
+		# flywheel is 92 bar of CO₂ (docs/physics/climate.md#a-climate-per-world).
 		P.call(1.0 / 408523.719, 6051.8, "planet", "Venus", {
+			"oceans": false, "greenhouse": 0.0089, "mixedLayer": 270.0,
 			"hot": true, "atmosphere": true, "atmColor": 0xffd9a0, "surfaceK": 737.0, "albedo": 0.77,
 			"crater": 0.10, "regolith": 0xb08a5c, "cloudCover": 1.0, "cloudColor": 0xfff2d2,
 			"atmThick": 2.4, "haze": 1.2, "obliquity": 3.096, "cloudSpin": 60.0 }),
@@ -582,6 +590,7 @@ static func _build_solar(t_cy := 0.0) -> Array:
 		P.call(1.0 / 3098703.59, 3389.5, "planet", "Mars", {
 			"hot": true, "atmosphere": true, "atmThick": 0.22, "atmColor": 0xd8b48c,
 			"cloudCover": 0.10, "cloudColor": 0xe8d8c0, "haze": 0.25, "greenhouse": 0.95,
+			"oceans": false, "mixedLayer": DRY_LAYER_M,
 			"frostK": 148.0, "crater": 0.55, "regolith": 0xa9603a, "albedo": 0.25, "obliquity": 0.4396,
 			"transport": 0.16, "season": 62.0 }),
 		P.call(1.0 / 1047.348644, 69911.0, "gas-giant", "Jupiter", {
@@ -597,7 +606,7 @@ static func _build_solar(t_cy := 0.0) -> Array:
 		# Pluto sits at N₂'s 37 K frost point, hence its frost cycle.
 		P.call(869.6 / 1.32712440018e11, 1188.3, "planet", "Pluto", {
 			"hot": true, "frostK": 37.0, "crater": 0.7, "regolith": 0x9b7255, "albedo": 0.52,
-			"obliquity": 2.1386 }),
+			"obliquity": 2.1386, "oceans": false, "greenhouse": 1.0, "mixedLayer": DRY_LAYER_M }),
 	]
 	# Barycentric start: with the Sun at rest, Jupiter alone would carry the whole
 	# system off at 13 m/s.
