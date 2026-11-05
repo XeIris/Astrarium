@@ -63,7 +63,7 @@ const ERAS := {
 # Today's Earth, bar: NSSDC's volume fractions of its 1.014 bar.
 const EARTH_AIR := { "pN2": 0.79173, "pO2": 0.21243, "pAr": 0.009471, "pCO2": 4.2588e-4, "pCH4": 1.9672e-6, "pSO2": 0.0 }
 # What a home world's climate assumes where its preset says nothing.
-const HOME_INPUTS := { "mixedLayer": 12.0, "albedoBase": 0.22, "albedoIce": 0.45, "oceans": true,
+const HOME_INPUTS := { "mixedLayer": 12.0, "albedoBase": 0.306, "albedoIce": 0.45, "oceans": true,
 	"pN2": 0.79173, "pO2": 0.21243, "pAr": 0.009471, "pCO2": 4.2588e-4, "pCH4": 1.9672e-6, "pSO2": 0.0,
 	"land": 0.29, "oceanDepth": 3.7, "salinity": 35.0 }
 

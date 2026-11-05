@@ -159,9 +159,10 @@ A rendered `planet` works out its own surface temperature from `albedo`, its sta
 emissivity its climate's column has at the moment, so a CO₂ edit moves its ice line. The
 rest of what it draws is the later look phase. A `world`'s surface follows its own `b.climate`.
 
-The home world draws nothing. It keeps `Climate.HOME_INPUTS`, and a preset's `climate`
-block is merged into its spec (`realismcheck` steps a bare model beside it and compares bit
-for bit). Its `albedo` describes its look, not this model's base.
+The home world draws nothing. It keeps `Climate.HOME_INPUTS`, today's Earth: NSSDC's air, the
+3.7 km sea and albedo 0.306. A preset's `climate` block is merged into its spec (`realismcheck`
+steps a bare model beside it and compares bit for bit, and holds a home Earth to NSSDC's
+288 K and the 72° ice line). Its `albedo` describes its look; `albedoBase` is what this model reads.
 
 ### The draw
 

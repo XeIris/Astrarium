@@ -452,6 +452,21 @@ func home_is_unchanged() -> void:
 			same = same and bare.T == cl.T and bare.ice == cl.ice and bare.ocean == cl.ocean and bare.clouds == cl.clouds
 		print("REALISMCHECK HOME %s T=%s bare=%s" % [key, cl.T, bare.T])
 		check("%s's home climate is the bare model to the bit" % key, same and bare.ebm.T == cl.ebm.T and bare.history == cl.history)
+	# A home world is today's Earth where its preset says nothing: NSSDC's 288 K, and the
+	# latitude model's own 72° (North, Cahalan & Coakley), at one solar constant.
+	check("edu_seasons loads", stage.load_preset("edu_seasons"))
+	var earth: Body = stage.get_home()
+	var dt: float = float(stage.state.time_scale) / 60.0
+	var mean := 0.0
+	var frames := 3000
+	for i in frames:
+		stage.step_physics(dt)
+		mean += earth.climate.T / frames
+	var edge_deg := rad_to_deg(asin(earth.climate.ice_edge))
+	print("REALISMCHECK HOME earth mean=%s S=%s edge=%s" % [mean, earth.climate.S, edge_deg])
+	check("a home Earth settles at NSSDC's 288 K", absf(mean - 288.0) < 1.5)
+	check("with no ice to speak of in its global ramp and an ice line at 72°", earth.climate.era.key == "STABLE" and absf(edge_deg - 72.0) < 3.0)
+	check("a home world's model is today's air over today's sea", Climate.HOME_INPUTS.albedoBase == 0.306 and Climate.HOME_INPUTS.pCO2 == Climate.EARTH_AIR.pCO2 and Climate.HOME_INPUTS.pN2 == Climate.EARTH_AIR.pN2)
 
 func home_removed() -> void:
 	check("home scenario loads", load_worlds([
