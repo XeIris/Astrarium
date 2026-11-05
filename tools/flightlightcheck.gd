@@ -4,7 +4,7 @@ extends Node
 # from the planet, so LocalView's Sun must stop at the limb itself, and the fill is what's left.
 #   Godot --path . --resolution 1280x720 res://tools/flightlightcheck.tscn -- [dump=/abs/dir]
 # First as numbers, where no limb is in the way or no air is left: far above the air, around a
-# star, with no star. Then on the pad by day, at sunset, through twilight and at night, and in orbit by day, past the
+# star, around one that a brighter star outshines, with no star. Then on the pad by day, at sunset, through twilight and at night, and in orbit by day, past the
 # local horizontal with the Sun still over the limb, and in eclipse. Windowed: High takes its
 # ambient from a sky the GPU integrates, and the limits are display luminance. They hold the
 # look, not the physics.
@@ -187,6 +187,7 @@ func elsewhere() -> void:
 	check("the Moon's night side is dark: %.3f" % f.local.sun.light_energy, f.local.sun.light_energy == 0.0)
 
 	await binary()
+	await second_star_limb()
 
 ## A second star over a set first one: LocalView takes it directly, since no preset flies a
 ## launch vehicle under a binary from a pad.
@@ -208,6 +209,50 @@ func binary() -> void:
 	var equal: float = fill.call(1.0)
 	check("a star overhead brings the planet's day back: %.4f from %.4f" % [equal, alone], equal > 3.0 * alone)
 	check("a faint companion does not: %.4f from %.4f" % [faint, alone], faint < 1.1 * alone)
+
+## The second star's light has all of its flux behind it, nothing taken off at a limb.
+func second_star_whole(tag: String) -> void:
+	var s := f.light_sources()
+	var want := clampf(3.0 * float(s[1].flux) * f.exposure, 0.0, 12.0) / PI
+	var got: float = f.local.sun2.light_energy
+	check("%s: it lights the vehicle in full: %.4f of %.4f" % [tag, got, want],
+		f.local.sun2.visible and want > 0.0 and absf(got - want) <= 0.01 * want)
+
+## A vessel around a star that another outshines, where the star it orbits is the second light.
+func around_the_second_star(preset: String, body: String, alt: float, limb_reaches: bool) -> void:
+	await flight_in(preset, {"mode": "orbit", "alt": alt, "inc": 0.0, "phase": 1.0, "body": body})
+	var tag := "around %s" % body
+	var s := f.light_sources()
+	var v: Vessel = f.vessel
+	check("%s: it is the parent: %s" % [tag, v.parent.name], v.parent.name == body)
+	check("%s: and the second light, after %s" % [tag, s[0].body.name], s.size() > 1 and s[1].body == v.parent)
+	check("%s: and straight down" % tag, DQuat.nrm(v.r.clone()).dot(s[1].dir) < -0.99)
+	# Inside about 99 radii the limb test gives 0; past that the dip is nearly 90° and it gives ½.
+	var R := v.surface_r(v.r)
+	var dip := acos(R / v.r.length())
+	check("%s: the limb test %s: dip %.2f°" % [tag, "would put it out" if limb_reaches else "would halve it", rad_to_deg(dip)],
+		(PI / 2.0 - dip > 0.01) == limb_reaches)
+	second_star_whole(tag)
+
+## Which star is the vessel's parent decides it: a companion it does not orbit still sets behind
+## the one it does.
+func second_star_limb() -> void:
+	await around_the_second_star("etacar", "Eta Carinae B", 7.5e11, true)
+	await around_the_second_star("sirius", "Sirius B", 3.0e11, false)
+
+	await flight_in("alphacen", {"mode": "orbit", "alt": 5.0e8, "inc": 0.0, "phase": 1.0, "body": "Alpha Centauri A"})
+	var v: Vessel = f.vessel
+	var s := f.light_sources()
+	check("around Alpha Cen A, the companion is the second light: %s" % s[1].body.name, s[1].body.name == "Alpha Centauri B" and v.parent == s[0].body)
+	var to_b: DVec3 = s[1].dir.clone()
+	var r := v.r.length()
+	v.r.copy_from(to_b).scale_in(r)
+	await settle(2)
+	second_star_whole("around Alpha Cen A, on the companion's side")
+	v.r.copy_from(to_b).scale_in(-r)
+	await settle(2)
+	check("behind Alpha Cen A the companion is out: %.4f" % f.local.sun2.light_energy,
+		f.local.sun2.light_energy == 0.0 and not f.local.sun2.visible)
 
 func use_quality(quality: String) -> void:
 	stage.set_render_quality(quality)

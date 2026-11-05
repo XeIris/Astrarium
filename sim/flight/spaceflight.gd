@@ -1313,6 +1313,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"kp": float(key.get("kp", 2.0)) if key != null else 0.0,
 		# the other sun, and the sky's own light, through the same exposure
 		"sun2World": second.dir if second != null else null,
+		"sun2Unblocked": second != null and second.get("body") == vessel.parent,
 		"sun2Flux": float(second.flux) * exposure if second != null else 0.0,
 		"sun2Teff": float(second.teff) if second != null else 5772.0,
 		"starlight": maxf(STARLIGHT * exposure, 0.05 * shadow_lift)})
