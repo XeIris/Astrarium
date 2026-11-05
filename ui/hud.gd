@@ -1918,8 +1918,7 @@ func update_climate(cl: Dictionary) -> void:
 	set_text("cOcean", "%s %%" % U.fixed(float(cl.get("ocean", 1.0)) * 100.0, 0) \
 		+ (" · %s %% to space" % U.fixed(lost * 100.0, 1 if lost < 0.1 else 0) if lost >= 0.0005 else ""))
 	set_text("cAir", format_bar(float(cl.get("air", 0.0))))
-	set_text("cSea", "%s km · %s ‰ · %s %% land" % [U.fixed(float(cl.get("depth", 0.0)), 1), U.fixed(float(cl.get("salinity", 0.0)), 0),
-		U.fixed(float(cl.get("landFrac", 0.0)) * 100.0, 0)] if cl.get("wet", false) else "none")
+	set_text("cSea", "%s km · %s ‰" % [U.fixed(float(cl.get("depth", 0.0)), 1), U.fixed(float(cl.get("salinity", 0.0)), 0)] if cl.get("wet", false) else "none")
 	set_text("cTau", "%s yr" % U.fixed(cl.tauYears, 2))
 	set_text("cExtremes", "%s … %s °C" % [U.fixed(cl.Tmin - 273.15, 0), U.fixed(cl.Tmax - 273.15, 0)])
 	(ids.climateChart as ClimateChart).set_history(cl.get("history", []))

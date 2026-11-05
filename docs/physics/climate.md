@@ -441,5 +441,5 @@ Boiling-point elevation, a brine's lower heat capacity and the sea's density are
 | Continents | otherwise | Stable, Chaotic, Moist, Scorching or Deep Freeze by temperature |
 | Steam | steam outweighs the dry air | Runaway greenhouse |
 
-The panel names the era and shows the air's pressure and the sea's depth, salinity and land. An
+The panel names the era and shows the air's pressure and the sea's depth and salinity. An
 ice shell's ocean is an inventory: without internal heat nothing says it is liquid underneath.

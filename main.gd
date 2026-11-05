@@ -1611,8 +1611,7 @@ func update_hud(dt: float) -> void:
 		"clouds": cl.clouds if cl.wet else float(U.nz(world.spec.get("cloudCover"), 0.0)),
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
 		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam, "lost": cl.lost, "escape": cl.escape_flux,
-		"air": cl.air.p_dry + cl.steam * cl.steam_bar, "co2": cl.pressures.pCO2, "wet": cl.wet, "depth": cl.ocean_depth,
-		"salinity": cl.salinity, "landFrac": cl.land,
+		"air": cl.air.p_dry + cl.steam * cl.steam_bar, "wet": cl.wet, "depth": cl.ocean_depth, "salinity": cl.salinity,
 		"iceEdge": cl.ice_edge, "snowball": cl.snowball,
 	})
 
