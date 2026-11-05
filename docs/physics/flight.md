@@ -259,7 +259,9 @@ a vehicle on the night side is lit through the Earth. `LocalView._light_local` s
 fraction of the disc over the limb (`_update_sun`), which is below the local horizontal by the dip,
 `acos(R / (R + h))`: 14° at 210 km, so a vehicle still has sunlight for some way past the point under it
 going dark. A star the vessel orbits has no limb in front of it, and neither has a world with no star at
-all, so those skip the test; the disc's own visibility stays as it is.
+all, so those skip the test; the disc's own visibility stays as it is. A second star's light does the
+same when it is the one the vessel orbits, which is the case around a star that a brighter companion
+outshines; a companion the vessel does not orbit still sets behind the star it does.
 
 The same pass takes the air's extinction relative to overhead (`LocalView.sun_extinction`), per channel,
 to the light and the ground under it. The airmass is Kasten & Young's and the column is the pressure at

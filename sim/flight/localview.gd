@@ -826,7 +826,8 @@ static func _star_tint(teff: float) -> Color:
 	return Color(c.r / m, c.g / m, c.b / m)
 
 ## The second sun: its own direction, flux and colour, and set behind the
-## planet the same way the first one is (the limb is depressed by the dip).
+## planet the same way the first one is (the limb is depressed by the dip),
+## unless it is the star the vessel orbits, which is straight down with no limb in front of it.
 func _update_sun2(o: Dictionary, h: float, R: float, east: DVec3, up: DVec3, north: DVec3) -> void:
 	var w = o.get("sun2World")
 	var f := float(U.nz(o.get("sun2Flux"), 0.0))
@@ -837,8 +838,10 @@ func _update_sun2(o: Dictionary, h: float, R: float, east: DVec3, up: DVec3, nor
 		return
 	var d: DVec3 = w
 	var l := Vector3(d.dot(east), d.dot(up), d.dot(north)).normalized()
-	var dip := acos(clampf(R / (R + h), -1.0, 1.0))
-	var vis := U.smooth(asin(clampf(l.y, -1.0, 1.0)), -dip - 0.01, -dip + 0.01)
+	var vis := 1.0
+	if not o.get("sun2Unblocked", false):
+		var dip := acos(clampf(R / (R + h), -1.0, 1.0))
+		vis = U.smooth(asin(clampf(l.y, -1.0, 1.0)), -dip - 0.01, -dip + 0.01)
 	# The fill's share of it: the key star is the brighter, and a faint companion lights little.
 	_sun2_day = planet_day(l.y) * minf(f / maxf(float(U.nz(o.get("starFlux"), 1.0)), 1e-9), 1.0)
 	sun2.visible = vis > 0.0
