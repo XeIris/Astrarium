@@ -325,6 +325,9 @@ What was not fitted, and so does test it:
 | Mean molecular mass, Earth / Venus / Mars | 28.97 / 43.45 / 43.50 g/mol | NSSDC 28.97 / 43.45 / 43.49 |
 | Scale height and density of today's Earth in flight | 8.4 km, 1.23 kg/m³ | NSSDC 8.5, 1.217 |
 
+`tools/physcheck.sh`'s climate rows now differ from the frozen web build, which still has the
+single ε. That report is telemetry and the difference is this section.
+
 So in dense CO₂ this model runs up to 25% from a line-by-line one, worst at 1 bar. Its
 place is a game's panel, not a paleoclimate. Sources it could not open: the TAR's own Table 6.2
 and the PNAS text of Koll & Cronin (2018, the linear OLR) both refused the fetch; 0.036 for CH₄
