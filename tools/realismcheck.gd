@@ -462,10 +462,20 @@ func home_is_unchanged() -> void:
 	for i in frames:
 		stage.step_physics(dt)
 		mean += earth.climate.T / frames
-	var edge_deg := rad_to_deg(asin(earth.climate.ice_edge))
-	print("REALISMCHECK HOME earth mean=%s S=%s edge=%s" % [mean, earth.climate.S, edge_deg])
+	print("REALISMCHECK HOME earth mean=%s S=%s" % [mean, earth.climate.S])
 	check("a home Earth settles at NSSDC's 288 K", absf(mean - 288.0) < 1.5)
-	check("with no ice to speak of in its global ramp and an ice line at 72°", earth.climate.era.key == "STABLE" and absf(edge_deg - 72.0) < 3.0)
+	check("in its stable era", earth.climate.era.key == "STABLE")
+	# At a steady solar constant: this 12 m world's edge swings with its orbit's 3% of sunlight.
+	var sun := Body.new()
+	sun.type = "star"; sun.mass = 1.0; sun.luminosity = 1.0; sun.teff = 5772.0; sun.name = "Sun"
+	var at_one := Body.new()
+	at_one.pos = DVec3.new(1.0, 0.0, 0.0)
+	at_one.obliquity = deg_to_rad(23.44)
+	var settled := Climate.new()
+	for i in 800: settled.step(0.1, at_one, [sun])
+	var edge_deg := rad_to_deg(asin(settled.ice_edge))
+	print("REALISMCHECK HOME settled T=%s edge=%s" % [settled.T, edge_deg])
+	check("a home world holds today's ice line at 1 S⊕", absf(edge_deg - 72.0) < 2.0 and near(settled.T, 288.0, 0.005))
 	check("a home world's model is today's air over today's sea", Climate.HOME_INPUTS.albedoBase == 0.306 and Climate.HOME_INPUTS.pCO2 == Climate.EARTH_AIR.pCO2 and Climate.HOME_INPUTS.pN2 == Climate.EARTH_AIR.pN2)
 	# Trisolaris's stated CO₂ is tuned to its first 35 years on the ε model: 234 K, 61% frozen.
 	check("trisolaris loads", stage.load_preset("trisolaris"))
@@ -610,6 +620,19 @@ func composition() -> void:
 	check("a stronger pull holds a thinner column", Atmosphere.new({"pN2": 1.0, "pCO2": 1e-3}, 20.0).olr(288.0) > thick_air.olr(288.0))
 	check("thin air's water closes at a warmer level", thin_air.olr(288.0, 1.0) > thick_air.olr(288.0, 1.0))
 	check("no gas radiates as a black body", near(Atmosphere.new({}, 9.82).olr(300.0), Climate.SIGMA * pow(300.0, 4.0), 1e-12))
+	# The latitude model's OLR comes from the same column: CO₂ must hold its ice back too.
+	var dim := Body.new()
+	dim.type = "star"; dim.mass = 1.0; dim.luminosity = 0.8; dim.teff = 5772.0; dim.name = "Sun"
+	var there := Body.new()
+	there.pos = DVec3.new(1.0, 0.0, 0.0)
+	var bare_air := Climate.new({"albedoBase": 0.306, "mixedLayer": 12.0})
+	var rich_air := Climate.new({"albedoBase": 0.306, "mixedLayer": 12.0, "pCO2": 1.0})
+	for i in 400:
+		bare_air.step(0.5, there, [dim])
+		rich_air.step(0.5, there, [dim])
+	print("REALISMCHECK AIR at 0.8 S⊕ today's air T=%s edge=%s, 1 bar T=%s edge=%s" % [bare_air.T, bare_air.ice_edge, rich_air.T, rich_air.ice_edge])
+	check("today's air freezes at 0.8 S⊕", bare_air.snowball)
+	check("a bar of CO₂ keeps both models liquid there", not rich_air.snowball and rich_air.T > 273.0)
 	# The fits pin each measured world on its own column, so these are identities of the
 	# constants: what they catch is a column or constant that moves. What says the constants
 	# mean something is the emission level, which should sit inside Venus's cloud deck (VIRA,

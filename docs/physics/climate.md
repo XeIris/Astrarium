@@ -176,8 +176,21 @@ frozen, because it thaws again and again. This one reaches 205 K, 93% frozen: a 
 radiates nearly as a black body once the water bands open, so it is colder and harder to
 leave, and the first passes do most of the thawing. No CO₂ reproduces the long run, because the
 climate splits sharply: at 0.10 bar 200 years are still 87% frozen (210 K), and at 0.11 bar none
-are (284 K, 158 years temperate and 37 cold, with no Deep Freeze). Other Trisolaris presets state
-no CO₂ and take today's air.
+are (284 K, 158 years temperate and 37 cold, with no Deep Freeze).
+
+So the target is narrow. Over the same 35 years, by CO₂:
+
+| `pCO2`, bar | 0.05 | 0.06 | 0.07 | 0.08 | 0.085 | 0.09 | 0.10 | 0.11 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| mean, K | 216 | 220 | 225 | 231 | 235 | 241 | 257 | 282 |
+| Deep Freeze, % | 77 | 72 | 67 | 60 | 55 | 48 | 27 | 0 |
+
+The stepping is not what makes it sensitive: half to four times the frame length gives 59.5–60.5%.
+The start is. At 0.08 bar, starting from 260 / 275 / 300 K gives 97 / 74 / 59% frozen; restarting the
+climate 10 / 25 / 50 / 100 years into the orbit gives 74 / 75 / 76 / 55%; a mixed layer of 6 / 24 m
+gives 94 / 0%. When a world first freezes decides most of it, and a snowball then rarely leaves. The
+figures above are for this preset's exact start, and an edit of its flywheel moves them a long way.
+Other Trisolaris presets state no CO₂ and take today's air.
 
 ### The draw
 
@@ -258,8 +271,8 @@ but the Moon's and Mercury's emptiness, and `realismcheck` compares them with NS
 The home world and the panel's world step every frame. The others take turns, two a frame
 (`CLIMATE_TURNS`), owing their accepted years until then, so every world keeps the same
 clock. A world's sunlight is read when it steps, so one that steps less often samples an
-eccentric orbit more coarsely. A step costs about 19 µs for an ocean world and 3 µs for
-a dry one, which has no latitude model and takes one backward-Euler step solved by Newton,
+eccentric orbit more coarsely. A step costs about 21 µs for an ocean world and 3.2 µs for
+a dry one (19.4 and 2.9 on the single ε), which has no latitude model and takes one backward-Euler step solved by Newton,
 stable at any frame length.
 
 A dry world's backward-Euler step takes 4·OLR/T as its slope: a little above the true one, so
