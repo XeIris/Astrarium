@@ -1042,12 +1042,12 @@ func _build_control_panel() -> void:
 		item.add_child(sw)
 		L(item, kk[1], {"fs": 9.0, "c": T.TEXT_DIM})
 	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 12.0)
-	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["habitable", "cHZ"], ["HZ edges", "cHZEdges"], ["ice", "cIce"], ["ice line", "cIceLine"], ["cloud", "cCloud"], ["ocean", "cOcean"], ["τ response", "cTau"], ["range", "cExtremes"]]:
+	for kv in [["temp", "cTemp"], ["flux", "cFlux"], ["habitable", "cHZ"], ["HZ edges", "cHZEdges"], ["ice", "cIce"], ["ice line", "cIceLine"], ["cloud", "cCloud"], ["ocean", "cOcean"], ["air", "cAir"], ["sea", "cSea"], ["τ response", "cTau"], ["range", "cExtremes"]]:
 		_stat(sg, kv[0], kv[1])
-	_row(s, "mixed", "Ocean depth", "Depth of the ocean mixed layer — the planet's thermal flywheel. Shallow oceans let the temperature whip around with the orbit; deep ones damp it.",
+	_row(s, "mixed", "Mixed layer", "Depth of the ocean mixed layer — the planet's thermal flywheel. Shallow oceans let the temperature whip around with the orbit; deep ones damp it.",
 		2, 120, 12, 1, "12 m", "", func(v): return U.fixed(v, 0) + " m")
-	_row(s, "greenhouse", "Greenhouse ε", "Effective emissivity. Lower = stronger greenhouse = warmer world. 0.61 reproduces Earth.",
-		0.3, 1, 0.61, 0.01, "0.61", "", func(v): return U.fixed(v, 2))
+	_row(s, "co2", "CO₂", "Carbon dioxide's partial pressure. Each doubling near today's Earth traps 3.7 W/m²; at tens of bars it makes a Venus. The foot of the slider is none at all.",
+		-6, 2, -3.37, 0.01, "426 µbar", "", func(v): return format_bar(0.0 if v <= -6.0 else pow(10.0, v)))
 	m(B(s, "Ghost", "Reset Climate to 15 °C", "climateReset"), 0.0, 10.0).pressed.connect(func(): climate_reset.emit())
 	_hide(cp, "inline", true)
 
@@ -1917,12 +1917,22 @@ func update_climate(cl: Dictionary) -> void:
 	var lost := float(cl.get("lost", 0.0))
 	set_text("cOcean", "%s %%" % U.fixed(float(cl.get("ocean", 1.0)) * 100.0, 0) \
 		+ (" · %s %% to space" % U.fixed(lost * 100.0, 1 if lost < 0.1 else 0) if lost >= 0.0005 else ""))
+	set_text("cAir", format_bar(float(cl.get("air", 0.0))))
+	set_text("cSea", "%s km · %s ‰ · %s %% land" % [U.fixed(float(cl.get("depth", 0.0)), 1), U.fixed(float(cl.get("salinity", 0.0)), 0),
+		U.fixed(float(cl.get("landFrac", 0.0)) * 100.0, 0)] if cl.get("wet", false) else "none")
 	set_text("cTau", "%s yr" % U.fixed(cl.tauYears, 2))
 	set_text("cExtremes", "%s … %s °C" % [U.fixed(cl.Tmin - 273.15, 0), U.fixed(cl.Tmax - 273.15, 0)])
 	(ids.climateChart as ClimateChart).set_history(cl.get("history", []))
 
 static func fmt_years(y: float) -> String:
 	return ClimateChart.fmt_years(y)
+
+## A pressure in bar, at the unit it reads best in.
+static func format_bar(bar: float) -> String:
+	if bar <= 0.0: return "none"
+	if bar >= 1.0: return "%s bar" % U.fixed(bar, 1 if bar < 100.0 else 0)
+	if bar >= 1e-3: return "%s mbar" % U.fixed(bar * 1e3, 1 if bar < 0.1 else 0)
+	return "%s µbar" % U.fixed(bar * 1e6, 1 if bar < 1e-5 else 0)
 
 static func time_label(yr_per_sec: float) -> String:
 	if yr_per_sec < 3e-3: return "%s hr/s" % U.fixed(yr_per_sec * 365.25 * 24.0, 2)

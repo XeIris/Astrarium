@@ -313,7 +313,7 @@ func attach_visual(b: Body) -> void:
 	opts.sea_level = spec.get("seaLevel"); opts.rings = spec.get("rings"); opts.ring_color = spec.get("ringColor")
 	# Surface/atmosphere model parameters. Every one of them has a physical
 	# default, so a preset only names the ones where the body is unusual.
-	opts.land = spec.get("land"); opts.albedo = spec.get("albedo"); opts.greenhouse = spec.get("greenhouse")
+	opts.land = spec.get("land"); opts.albedo = spec.get("albedo")
 	opts.surface_k = spec.get("surfaceK"); opts.frost_k = spec.get("frostK"); opts.biota = spec.get("biota")
 	opts.crater = spec.get("crater"); opts.regolith = spec.get("regolith"); opts.haze = spec.get("haze")
 	opts.cloud_cover = spec.get("cloudCover"); opts.cloud_color = spec.get("cloudColor"); opts.atm_thick = spec.get("atmThick")
@@ -993,7 +993,8 @@ func _sync_climate_panel() -> void:
 	if w == null: return
 	var cl: Climate = w.climate
 	hud.set_slider("mixed", cl.mixed_layer, "%s m" % U.fixed(cl.mixed_layer, 0))
-	hud.set_slider("greenhouse", cl.greenhouse, U.fixed(cl.greenhouse, 2))
+	var co2 := float(cl.pressures.pCO2)
+	hud.set_slider("co2", U.log10(maxf(co2, 1e-6)), Hud.format_bar(co2))
 
 func _advance_flight_world(coordinate_seconds: float) -> float:
 	return step_physics(coordinate_seconds / Rocketry.YR_S, true) * Rocketry.YR_S
@@ -1610,6 +1611,8 @@ func update_hud(dt: float) -> void:
 		"clouds": cl.clouds if cl.wet else float(U.nz(world.spec.get("cloudCover"), 0.0)),
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
 		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam, "lost": cl.lost, "escape": cl.escape_flux,
+		"air": cl.air.p_dry + cl.steam * cl.steam_bar, "co2": cl.pressures.pCO2, "wet": cl.wet, "depth": cl.ocean_depth,
+		"salinity": cl.salinity, "landFrac": cl.land,
 		"iceEdge": cl.ice_edge, "snowball": cl.snowball,
 	})
 
@@ -2362,10 +2365,12 @@ func _on_slider(id: String, v: float) -> void:
 			var world := climate_world()
 			if world != null: edit_body(world, {"mixedLayer": v})
 			hud.set_text("mixed-val", "%s m" % U.fixed(v, 0))
-		"greenhouse":
+		"co2":
 			var world := climate_world()
-			if world != null: edit_body(world, {"greenhouse": v})
-			hud.set_text("greenhouse-val", U.fixed(v, 2))
+			# The slider's foot is no CO₂ at all, not a microbar of it.
+			var bar := 0.0 if v <= -6.0 else pow(10.0, v)
+			if world != null: edit_body(world, {"pCO2": bar})
+			hud.set_text("co2-val", Hud.format_bar(bar))
 		"renderScale":
 			render_quality = "custom"
 			_sync_render_quality()

@@ -34,7 +34,9 @@ static func terrain_uniforms(opts: VisualOpts) -> Dictionary:
 	return {
 		"uPlateScale": float(U.nz(opts.plate_scale, 2.6)),
 		"uLandRelief": float(U.nz(opts.land_relief, 3.2)),
-		"uOceanDepth": float(U.nz(opts.ocean_depth, 4.6)),
+		# `oceanDepth` is the sea's mean depth (Climate). The abyssal plain lies below that
+		# by Earth's ratio, its 4.6 km to its 3.7 km mean.
+		"uOceanDepth": float(U.nz(opts.ocean_depth, 3.7)) * 4.6 / 3.7,
 		"uCrustT": crust_threshold(float(U.nz(opts.continent, 0.35))),
 		"uMeanK": 288.0,
 		"uTransport": float(U.nz(opts.transport, 0.42)),

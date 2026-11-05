@@ -732,7 +732,10 @@ static func flight_env(body: Body) -> Dictionary:
 	var surf: Dictionary = SURFACES.get(name, {})
 	var g_surf := mu / (radius * radius)
 	var teq: float = surf.get("teq", 255.0)
-	var atm = ATMOSPHERES[name] if ATMOSPHERES.has(name) else derive_atmosphere(radius, g_surf, teq)
+	var atm
+	if ATMOSPHERES.has(name): atm = ATMOSPHERES[name]
+	elif body.climate != null: atm = body.climate.flight_atmosphere()
+	else: atm = derive_atmosphere(radius, g_surf, teq)
 	if atm != null: atm = U.merged({ "g": g_surf, "R": radius }, atm)
 	var day_sec: float
 	if surf.has("day"):

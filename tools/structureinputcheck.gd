@@ -20,8 +20,8 @@ func snapshot() -> Dictionary:
 			"viz": b.viz, "marker": b.marker, "trail": b.trail,
 			"pos": [b.pos.x, b.pos.y, b.pos.z], "vel": [b.vel.x, b.vel.y, b.vel.z],
 			"scene_pos": [b.scene_pos.x, b.scene_pos.y, b.scene_pos.z], "climate": b.climate,
-			"climate_inputs": [b.climate.mixed_layer, b.climate.greenhouse, b.climate.albedo_base,
-				b.climate.albedo_ice, b.climate.wet] if b.climate != null else null})
+			"climate_inputs": [b.climate.mixed_layer, b.climate.pressures.duplicate(), b.climate.albedo_base,
+				b.climate.albedo_ice, b.climate.wet, b.climate.land, b.climate.ocean_depth, b.climate.salinity] if b.climate != null else null})
 	return {"bodies": bodies, "next_id": stage.state.next_id,
 		"preset": stage.state.preset_key, "scene_scale": stage.state.scene_scale,
 		"body_scale": stage.state.body_scale, "true_scale": stage.state.true_scale,
@@ -167,7 +167,11 @@ func schema_inputs() -> void:
 func climate_inputs() -> void:
 	stage.load_preset("solar")
 	var original := snapshot()
-	var bad := [{"greenhouse": 0.0}, {"greenhouse": 1.01}, {"greenhouse": NAN}, {"greenhouse": "high"},
+	var bad := [{"pCO2": -1.0}, {"pCO2": 100.1}, {"pCO2": NAN}, {"pCO2": "high"}, {"pN2": -0.1}, {"pN2": 201.0}, {"pN2": INF},
+		{"pO2": 51.0}, {"pAr": -1.0}, {"pCH4": 2e-3}, {"pCH4": -1e-9}, {"pSO2": 0.2}, {"pSO2": "cloudy"},
+		{"pN2": 150.0, "pCO2": 60.0}, {"land": -0.1}, {"land": 1.01}, {"land": "half"}, {"land": NAN},
+		{"oceanDepth": -1.0}, {"oceanDepth": 101.0}, {"oceanDepth": INF}, {"salinity": -1.0}, {"salinity": 231.0}, {"salinity": "briny"},
+		{"oceans": true, "land": 1.0}, {"oceans": true, "oceanDepth": 0.0},
 		{"mixedLayer": 0.0}, {"mixedLayer": -1.0}, {"mixedLayer": INF}, {"mixedLayer": "deep"},
 		{"albedoBase": -0.1}, {"albedoBase": 1.01}, {"albedoIce": NAN}, {"albedoIce": 2.0},
 		{"albedoBase": 0.8, "albedoIce": 0.5}, {"albedo": -0.1}, {"albedo": "pale"},
@@ -179,7 +183,7 @@ func climate_inputs() -> void:
 	for patch in bad:
 		check("climate edit rejects %s" % patch, stage.edit_body(earth, patch) == null)
 		check("climate edit rejection is atomic", snapshot() == original)
-	for bad_preset in [{"mixedLayer": -1.0}, {"greenhuose": 0.5}, {"T0": "warm"}]:
+	for bad_preset in [{"mixedLayer": -1.0}, {"greenhuose": 0.5}, {"greenhouse": 0.5}, {"T0": "warm"}, {"pCO2": 1e3}, {"salinity": 500.0}]:
 		var invalid: Dictionary = Presets.PRESETS.solar.duplicate()
 		invalid.climate = bad_preset
 		invalid.build = func() -> Array: return [{"type": "star", "mass": 1.0}, {"type": "world", "home": true}]
@@ -187,10 +191,14 @@ func climate_inputs() -> void:
 		check("preset climate block rejects %s" % bad_preset, not stage.load_preset("__invalid_climate"))
 		check("preset climate rejection is atomic", snapshot() == original)
 	Presets.PRESETS.erase("__invalid_climate")
-	for patch in [{"greenhouse": 0.005}, {"greenhouse": 1.0}, {"mixedLayer": 0.1}, {"mixedLayer": 5000.0},
+	for patch in [{"pCO2": 0.0}, {"pCO2": 100.0}, {"pN2": 100.0, "pCO2": 100.0}, {"pCH4": 1e-3}, {"pSO2": 0.1}, {"pO2": 50.0}, {"pAr": 50.0},
+		{"land": 0.0}, {"land": 1.0}, {"oceanDepth": 0.0}, {"oceanDepth": 100.0}, {"salinity": 0.0}, {"salinity": 230.0},
+		{"oceans": false, "land": 1.0}, {"oceans": false, "oceanDepth": 0.0}, {"oceans": true, "land": 0.0},
+		{"mixedLayer": 0.1}, {"mixedLayer": 5000.0},
 		{"albedoBase": 0.0, "albedoIce": 1.0}, {"albedoBase": 1.0, "albedoIce": 0.0}, {"albedo": 1.0},
 		{"T0": 3.0}, {"T0": 5000.0}, {"oceans": false}, {"seed": 7}, {"seed": 0.5},
-		{"greenhouse": null, "mixedLayer": null, "albedoBase": null, "albedoIce": null, "albedo": null,
+		{"pCO2": null, "pN2": null, "pO2": null, "pAr": null, "pCH4": null, "pSO2": null, "land": null, "oceanDepth": null, "salinity": null,
+			"mixedLayer": null, "albedoBase": null, "albedoIce": null, "albedo": null,
 			"T0": null, "oceans": null, "seed": null}]:
 		check("supported climate endpoint/unset value: %s" % patch,
 			Structure.input_error(stage._normalized_body_spec(U.merged({"type": "planet"}, patch))).is_empty())

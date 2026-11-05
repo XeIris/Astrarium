@@ -2,10 +2,10 @@ class_name Climate
 extends RefCounted
 
 # CLIMATE: one world's zero-dimensional energy-balance model.
-#   C · dT/dt = (1 − α(T)) · S/4  −  ε σ T⁴
+#   C · dT/dt = (1 − α(T)) · S/4  −  OLR(T)
 #   S     total stellar flux, Σ L_i / d_i² (solar constants × 1361 W/m²)
 #   α(T)  albedo rising as the planet freezes: the ice-albedo runaway
-#   ε     effective emissivity (the greenhouse); 0.61 puts Earth at 288 K
+#   OLR   outgoing longwave from the gas column (Atmosphere) and its water
 #   C     ocean mixed-layer heat capacity, the thermal flywheel
 # A wet world's outgoing longwave cannot exceed the runaway-greenhouse limit; above it
 # the ocean boils into a steam atmosphere along its saturation curve
@@ -21,21 +21,31 @@ const RHO_CW := 1000.0 * 4181.0 # sea water ρ·c_p, J m⁻³ K⁻¹
 # ~300 K to ~1600 K surface temperature (Goldblatt et al. 2013).
 const OLR_LIMIT := 282.0
 const RUNAWAY_END_K := 1600.0
-# Earth's ocean: 1.4e21 kg over 5.1e14 m² is 2.7e6 kg/m², 270 bar as steam; with
-# L = 2.26 MJ/kg it takes 6.2e12 J/m² to boil.
-const OCEAN_COLUMN_LATENT := 2.7e6 * 2.26e6
-const OCEAN_STEAM_BAR := 270.0
+const L_VAPOUR := 2.26e6       # J/kg
+const RHO_SEA := 1025.0        # kg/m³
 # Moist greenhouse: above ~340 K the cold trap lets water into the stratosphere, where
 # it is photolysed and its hydrogen escapes (Kasting 1988). The trap's mixing ratio, a
 # log-linear fit through ~3 ppm at 288 K and 3e-3 at 340 K, reaches 1 in a runaway.
-# Escape is diffusion-limited, 2.5e17·f_H m⁻²s⁻¹ (Hunten 1973), capped by the energy
-# limit ε·F_XUV/(4·GMm_H/R): ε = 0.15 and today's Sun's 4.6 mW/m² of XUV at 1 AU,
-# scaled with the bolometric flux (a young or active star's XUV excess is not modelled).
-# For Earth the cap is 1.6e15 m⁻²s⁻¹. An ocean column holds 1.8e32 hydrogen atoms/m²,
-# lost in ~4 Gyr at the moist-greenhouse limit: Kasting's ocean in the Sun's lifetime.
+# Escape is diffusion-limited, 2.5e17·f_H m⁻²s⁻¹ at Earth's gravity (Hunten 1973; b/H goes
+# as g), capped by the energy limit ε·F_XUV/(4·GMm_H/R): ε = 0.15 and today's Sun's
+# 4.6 mW/m² of XUV at 1 AU, scaled with the bolometric flux (a young or active star's XUV
+# excess is not modelled). For Earth the cap is 1.6e15 m⁻²s⁻¹.
 const MOIST_F := 3e-3
-const OCEAN_H_PER_M2 := 2.7e6 / 0.018015 * 6.02214076e23 * 2.0
-const ESCAPE_ENERGY_CAP := 0.15 * 4.6e-3 / (4.0 * 3.986004e14 * 1.6735575e-27 / 6.371e6)
+const H_PER_KG_WATER := 6.02214076e23 / 0.018015 * 2.0
+const M_H := 1.6735575e-27
+const PHI_EARTH := 3.986004e14 / 6.371e6
+const ESCAPE_ENERGY := 0.15 * 4.6e-3 / (4.0 * M_H)
+const DIFFUSION_LIMIT := 2.5e17
+# Vapour column = this share of the saturated column, set by ~25 kg/m² on Earth at 288 K
+# (assumed): how much water a world must hold before any of it stands on the surface.
+const VAPOUR_SHARE := 0.19
+# Below this ocean share the sky dries (assumed): evaporation runs out of open water.
+const OPEN_WATER := 0.1
+# A world with no land above this share reads as a water world or an ice shell.
+const NO_LAND := 0.05
+const SALINITY_REF := 35.0
+# Below this the column is no atmosphere for flight or for the look: Pluto's 1 Pa is 1e-5 bar.
+const AIRLESS_BAR := 1e-6
 
 const ERAS := {
 	"DEEP_FREEZE": { "key": "DEEP_FREEZE", "label": "Deep Freeze",  "cls": "era-freeze", "desc": "Oceans locked in ice. Dehydrate and wait." },
@@ -46,10 +56,16 @@ const ERAS := {
 	"RUNAWAY":     { "key": "RUNAWAY",     "label": "Runaway greenhouse", "cls": "era-scorch", "desc": "The sky is steam and cannot shed more heat. The oceans are boiling into it." },
 	"MOIST":       { "key": "MOIST",       "label": "Moist greenhouse", "cls": "era-hot", "desc": "Water reaches the stratosphere, sunlight splits it, and the hydrogen leaks to space. The oceans are going for good." },
 	"DRY":         { "key": "DRY",         "label": "Dry world",    "cls": "era-cold", "desc": "No ocean to freeze or boil. The ground answers the sunlight directly." },
+	"WATER_WORLD": { "key": "WATER_WORLD", "label": "Global ocean", "cls": "era-stable", "desc": "Temperate, and no land breaks the surface from pole to pole." },
+	"ICE_SHELL":   { "key": "ICE_SHELL",   "label": "Ice shell",    "cls": "era-freeze", "desc": "No land and no open water: one shell of ice over the whole ocean." },
 }
 
+# Today's Earth, bar: NSSDC's volume fractions of its 1.014 bar.
+const EARTH_AIR := { "pN2": 0.79173, "pO2": 0.21243, "pAr": 0.009471, "pCO2": 4.2588e-4, "pCH4": 1.9672e-6, "pSO2": 0.0 }
 # What a home world's climate assumes where its preset says nothing.
-const HOME_INPUTS := { "mixedLayer": 12.0, "greenhouse": 0.61, "albedoBase": 0.22, "albedoIce": 0.45, "oceans": true }
+const HOME_INPUTS := { "mixedLayer": 12.0, "albedoBase": 0.22, "albedoIce": 0.45, "oceans": true,
+	"pN2": 0.79173, "pO2": 0.21243, "pAr": 0.009471, "pCO2": 4.2588e-4, "pCH4": 1.9672e-6, "pSO2": 0.0,
+	"land": 0.29, "oceanDepth": 3.7, "salinity": 35.0 }
 
 # Kopparapu et al. (2013, with its erratum), Table 3: S_eff = S☉ + aT + bT² + cT³ + dT⁴,
 # T = Teff − 5780 K, valid for 2600–7200 K.
@@ -62,9 +78,17 @@ const HZ := {
 }
 
 var mixed_layer: float          # metres of ocean
-var greenhouse: float           # effective emissivity ε
 var albedo_base: float          # ice-free albedo
 var albedo_ice: float           # extra albedo at full glaciation
+var pressures := {}             # bar, by Atmosphere.GASES key
+var air: Atmosphere
+var land := 0.29                # fraction of the surface above the sea
+var ocean_depth := 3.7          # km, the sea's mean depth
+var salinity := 35.0            # g/kg
+# The world's water and what it weighs, from the inputs and the world's own gravity.
+var water_column := 0.0         # kg/m²
+var steam_bar := 0.0            # bar, the whole inventory as vapour
+var gravity := Atmosphere.G_EARTH
 var T: float                    # K
 var S: float = 1.0              # current insolation, S⊕
 var per_star: Array = []        # [{ name, S, dist, mass, frac }]
@@ -74,7 +98,8 @@ var clouds: float = 0.4         # 0..1 cloud cover
 var humidity: float = 0.5
 # null until the first step() writes it.
 var storm: float = 0.0
-# Fractions of the starting ocean: on the surface, and in the air as steam.
+# Fractions of the starting inventory (water_column): as sea, ice and its vapour, and in
+# the air as steam.
 var ocean: float = 1.0
 var steam: float = 0.0
 # The fraction of the starting ocean whose hydrogen has escaped to space: never back.
@@ -96,16 +121,21 @@ var extremes: Dictionary = {}
 var drawn: Dictionary = HOME_INPUTS
 # Accepted years this world has not stepped yet (catch_up).
 var pending: float = 0.0
+# What the air looks like (Atmosphere.limb); `sky_serial` moves when it changes.
+var sky := {}
+var sky_serial := 0
+var _sky_steam := 0.0
+var _world_mass := 0.0
+var _world_radius := 0.0
+var _phi := PHI_EARTH           # GM/R, m²/s²
+var _ebm_a := 0.0               # LatitudeEBM's OLR intercept, W/m²
+var _ice_shift := 0.0           # K the freezing point lies from sea water's
+var _open_water := 1.0
 
 ## `opts` holds the inputs ClimateInputs.KEYS names; HOME_INPUTS fills the rest.
 func _init(opts: Dictionary = {}) -> void:
-	mixed_layer = float(U.nz(opts.get("mixedLayer"), HOME_INPUTS.mixedLayer))
-	greenhouse = float(U.nz(opts.get("greenhouse"), HOME_INPUTS.greenhouse))
-	albedo_base = float(U.nz(opts.get("albedoBase"), HOME_INPUTS.albedoBase))
-	albedo_ice = float(U.nz(opts.get("albedoIce"), HOME_INPUTS.albedoIce))
+	apply_inputs(opts)
 	T = float(U.nz(opts.get("T0"), 288.0))
-	wet = bool(opts.get("oceans", HOME_INPUTS.oceans))
-	if not wet: ocean = 0.0
 	# Seed S extremes from the empty interval, or a fictitious 1.00 S⊕ is reported as
 	# observed.
 	extremes = { "Tmin": T, "Tmax": T, "Smin": INF, "Smax": -INF }
@@ -114,17 +144,75 @@ func _init(opts: Dictionary = {}) -> void:
 ## starting condition, so a live edit leaves the temperature to the new balance.
 func apply_inputs(stated: Dictionary) -> void:
 	mixed_layer = float(U.nz(stated.get("mixedLayer"), drawn.mixedLayer))
-	greenhouse = float(U.nz(stated.get("greenhouse"), drawn.greenhouse))
 	albedo_base = float(U.nz(stated.get("albedoBase"), drawn.albedoBase))
 	albedo_ice = float(U.nz(stated.get("albedoIce"), drawn.albedoIce))
-	var now_wet := bool(U.nz(stated.get("oceans"), drawn.oceans))
+	for key in Atmosphere.GASES:
+		pressures[key] = float(U.nz(stated.get(key), drawn[key]))
+	land = float(U.nz(stated.get("land"), drawn.land))
+	ocean_depth = float(U.nz(stated.get("oceanDepth"), drawn.oceanDepth))
+	salinity = float(U.nz(stated.get("salinity"), drawn.salinity))
+	var now_wet := bool(U.nz(stated.get("oceans"), drawn.oceans)) and land < 1.0 and ocean_depth > 0.0
 	if now_wet != wet:
 		wet = now_wet
 		ocean = 1.0 if wet else 0.0
 		steam = 0.0
+		lost = 0.0
 		escape_flux = 0.0
 		if not wet:
 			ice = 0.0; ice_edge = 1.0; snowball = false
+	_compose()
+
+## The world this climate stands on, when it changes: its gravity holds the air and the water
+## up, and its potential well sets the escape. A bare model keeps Earth's.
+func set_world(mass_sun: float, radius_au: float) -> void:
+	_world_mass = mass_sun
+	_world_radius = radius_au
+	if not (mass_sun > 0.0 and radius_au > 0.0): return
+	var r := radius_au * Rocketry.AU_M
+	_phi = Rocketry.GM_SUN * mass_sun / r
+	gravity = _phi / r
+	_compose()
+
+# Everything derived from the inputs and the world, so a step reads it instead of working it out.
+func _compose() -> void:
+	air = Atmosphere.new(pressures, gravity)
+	water_column = ocean_depth * 1000.0 * RHO_SEA * (1.0 - land) if wet else 0.0
+	steam_bar = water_column * gravity * 1e-5
+	_open_water = minf((1.0 - land) / OPEN_WATER, 1.0)
+	_ice_shift = freezing_point(salinity) - freezing_point(SALINITY_REF)
+	ebm.t_ice = LatitudeEBM.T_ICE + _ice_shift
+	_ebm_a = air.olr(288.15, _water_weight()) - LatitudeEBM.B * 15.0
+	_refresh_sky()
+
+func _refresh_sky() -> void:
+	_sky_steam = steam
+	sky = air.limb(steam * steam_bar)
+	sky_serial += 1
+
+## What a vessel flies through on a world with no measured atmosphere: this column, hydrostatic
+## and isothermal at the present temperature. Null below AIRLESS_BAR.
+func flight_atmosphere() -> Variant:
+	var bar := air.p_dry + steam * steam_bar
+	if bar < AIRLESS_BAR: return null
+	var molar := air.mean_molar
+	var temp := maxf(T, 30.0)
+	var height := Rocketry.R_GAS * temp / (molar * gravity)
+	var tint := _sky_colour(0x6a8fc0)
+	return {
+		"p0": bar * 1e5, "rho0": bar * 1e5 * molar / (Rocketry.R_GAS * temp), "T0": temp, "molar": molar,
+		"gamma": air.gamma, "layers": [{ "base": 0.0, "H": height }], "top": height * 14.0,
+		"tint": tint, "haze": _sky_colour(0xa8c4e0), "skyThick": air.sky_thickness(float(sky.get("tau", 0.0))),
+	}
+
+# An authored N₂ sky's colour, moved by this column's limb tint: β's blue saturates in a thick sky.
+func _sky_colour(base: int) -> int:
+	var tint: Vector3 = sky.get("tint", Vector3.ONE)
+	var r := float((base >> 16) & 0xff) * tint.x
+	var g := float((base >> 8) & 0xff) * tint.y
+	var b := float(base & 0xff) * tint.z
+	var top := maxf(maxf(r, g), maxf(b, 1.0))
+	var k := minf(255.0 / top, 1.0)
+	return (int(r * k) << 16) | (int(g * k) << 8) | int(b * k)
 
 ## Start the 0-D model and the latitude model together at `T0` K.
 func start_at(T0: float) -> void:
@@ -135,7 +223,7 @@ func start_at(T0: float) -> void:
 ## The warmest balance at insolation `s_earth`, K; a wet world's ceiling is its boiling point.
 func equilibrium_T(s_earth: float) -> float:
 	var q := s_earth * S0 / 4.0
-	var hi := boiling_point(0.0) if wet else pow(q / (greenhouse * SIGMA), 0.25) + 1.0
+	var hi := boiling_point(0.0) if wet else _hottest_balance(q)
 	if wet and _net_flux(hi, q) >= 0.0: return hi
 	var t := hi
 	while t > 3.0:
@@ -151,6 +239,10 @@ func equilibrium_T(s_earth: float) -> float:
 		t = next
 	return 3.0
 
+# OLR is at least the band core's share of the emission, so the balance lies below this.
+func _hottest_balance(q: float) -> float:
+	return pow(q / (pow(Atmosphere.STRAT, 4.0) * SIGMA), 0.25) / air.emit_k + 1.0
+
 func _net_flux(t: float, q: float) -> float:
 	return (1.0 - _albedo_at(t)) * q - olr(t)
 
@@ -161,13 +253,14 @@ func catch_up(dt_years: float, planet: Body, stars: Array) -> void:
 	pending = 0.0
 	step(owed, planet, stars)
 
+# A wet world's mixed layer cannot be deeper than its sea.
 var heat_capacity: float:       # J m⁻² K⁻¹
-	get: return mixed_layer * RHO_CW
+	get: return (minf(mixed_layer, ocean_depth * 1000.0) if wet else mixed_layer) * RHO_CW
 
 # Radiative relaxation time (yr): compare with the orbital period to see whether
 # seasons register.
 var tau_years: float:
-	get: return heat_capacity / (4.0 * greenhouse * SIGMA * pow(T, 3.0)) / YEAR_S
+	get: return heat_capacity / (4.0 * olr(T) / T) / YEAR_S
 
 var celsius: float:
 	get: return T - 273.15
@@ -176,11 +269,33 @@ var celsius: float:
 func albedo(t: float) -> Dictionary:
 	return { "alb": _albedo_at(t), "ice": _ice_cover(t) }
 
-# Ice fraction: ramps in between 278 K and 233 K. Without water there is none to reflect.
+# Ice fraction: ramps in between 278 K and 233 K for sea water, moving with its freezing
+# point. Without water standing on the surface there is none to reflect.
 func _ice_cover(t: float) -> float:
-	if not wet: return 0.0
+	if not _standing_water(t): return 0.0
 	if snowball: return 1.0
-	return minf(maxf((278.0 - t) / 45.0, 0.0), 1.0)
+	return minf(maxf((278.0 + _ice_shift - t) / 45.0, 0.0), 1.0)
+
+## Sea water's freezing point (K) at `s` g/kg: UNESCO's fit (Millero 1978) at 1 atm.
+## −1.92 °C at 35 g/kg; fitted to 40 g/kg and extrapolated towards the brine eutectic.
+static func freezing_point(s: float) -> float:
+	return 273.15 + (-0.0575 + 1.710523e-3 * sqrt(s) - 2.154996e-4 * s) * s
+
+## The vapour column (kg/m²) saturated air holds at `t` K over this world.
+func vapour_column(t: float) -> float:
+	return VAPOUR_SHARE * Atmosphere.saturation_bar(t) * 1e5 / gravity * Atmosphere.M_H2O / air.mean_molar
+
+## Whether the inventory exceeds what the air holds at `t` K, so some of it stands as sea or ice.
+## Only worth asking of a small inventory: a boiling sky holds ~1000 kg/m².
+func _standing_water(t: float) -> bool:
+	if ocean <= 0.0: return false
+	var mass := ocean * water_column
+	return mass > 5000.0 or mass > vapour_column(t)
+
+# How opaque the water bands are: the water there is against what closes them, under open sky.
+func _water_weight() -> float:
+	if ocean + steam <= 0.0: return 0.0
+	return minf((ocean + steam) * water_column / air.water_opaque_column, 1.0) * _open_water
 
 func _albedo_at(t: float) -> float:
 	return minf(albedo_base + albedo_ice * _ice_cover(t), 1.0)
@@ -219,45 +334,59 @@ func habitable_zone() -> Dictionary:
 	var teff := float(per_star[0].teff) if not per_star.is_empty() else 5780.0
 	return { "inner": hz_flux("runaway", teff), "outer": hz_flux("maximum", teff), "teff": teff }
 
-## Boiling point (K) under the steam a fraction `st` of the ocean makes, by
-## Clausius–Clapeyron with L = 40.7 kJ/mol: 373 K at 1 bar, 651 K at 270 bar.
-static func boiling_point(st: float) -> float:
-	return 1.0 / (1.0 / 373.15 - 8.314 / 40700.0 * log(1.0 + OCEAN_STEAM_BAR * maxf(st, 0.0)))
+## Boiling point (K) under the air and the steam a fraction `st` of the water makes.
+func boiling_point(st: float) -> float:
+	return Atmosphere.saturation_T(air.p_dry + steam_bar * maxf(st, 0.0))
 
 ## Outgoing longwave, W/m².
 func olr(t: float) -> float:
-	var e := greenhouse * SIGMA * pow(t, 4.0)
+	var e := air.olr(t, _water_weight())
 	if ocean + steam > 0.0 and t < RUNAWAY_END_K: e = minf(e, OLR_LIMIT)
 	return e
+
+## OLR as an effective emissivity at the present temperature, for what still reads one.
+func emissivity() -> float:
+	return olr(T) / (SIGMA * T * T * T * T)
+
+# Steam rules the sky once it outweighs the dry air.
+func _steam_rules() -> bool:
+	return steam > 0.0 and steam * steam_bar > air.p_dry
 
 ## Water's mixing ratio at the cold trap over a surface at `t` K (see MOIST_F).
 func stratospheric_water(t: float) -> float:
 	if ocean + steam <= 0.0: return 0.0
-	if steam > 0.01: return 1.0
+	if _steam_rules(): return 1.0
 	return minf(pow(10.0, -5.52 + 0.0577 * (t - 288.0)), 1.0)
 
 ## Hydrogen escaping to space, atoms m⁻² s⁻¹, at insolation S (S⊕).
 func hydrogen_escape(t: float, s_earth: float) -> float:
-	return minf(2.5e17 * 2.0 * stratospheric_water(t), ESCAPE_ENERGY_CAP * s_earth)
+	var diffusion := DIFFUSION_LIMIT * gravity / Atmosphere.G_EARTH * 2.0 * stratospheric_water(t)
+	return minf(diffusion, ESCAPE_ENERGY / _phi * s_earth)
 
 func classify(t: float) -> Dictionary:
-	if not wet: return ERAS.DRY
-	if steam > 0.01: return ERAS.RUNAWAY
-	if t < 233.0: return ERAS.DEEP_FREEZE
-	if t < 273.0: return ERAS.COLD
+	if not wet or ocean + steam <= 0.0: return ERAS.DRY
+	if _steam_rules(): return ERAS.RUNAWAY
+	if not _standing_water(t): return ERAS.DRY
+	var no_land := land < NO_LAND
+	if snowball or t < 233.0 + _ice_shift: return ERAS.ICE_SHELL if no_land else ERAS.DEEP_FREEZE
+	if t < 273.0 + _ice_shift: return ERAS.COLD
 	if stratospheric_water(t) > MOIST_F: return ERAS.MOIST
 	if t > 345.0: return ERAS.SCORCH
 	if t > 305.0: return ERAS.HOT
-	return ERAS.STABLE
+	return ERAS.WATER_WORLD if no_land else ERAS.STABLE
 
 # Advance the climate by `dt_years` of simulated time.
 func step(dt_years: float, planet: Body, stars: Array) -> void:
 	if not (dt_years > 0.0): return
 	time += dt_years
 	S = insolation(planet, stars)
+	if planet.mass != _world_mass or planet.radius != _world_radius: set_world(planet.mass, planet.radius)
 
 	if wet: _step_wet(dt_years, planet)
 	else: _step_dry(dt_years)
+
+	# A sky of steam looks like one; only a real change moves the shell's uniforms.
+	if absf(steam - _sky_steam) * steam_bar > 0.02 * (air.p_dry + steam * steam_bar + 1e-3): _refresh_sky()
 
 	era = classify(T)
 
@@ -284,28 +413,29 @@ func _step_wet(dt_years: float, planet: Body) -> void:
 	for i in n:
 		var ic := _ice_cover(T)
 		var absorbed := (1.0 - minf(albedo_base + albedo_ice * ic, 1.0)) * S * S0 / 4.0
-		var net := absorbed - olr(T)
+		var out := olr(T)
+		var net := absorbed - out
 		var boil := boiling_point(steam)
 		# At the boiling point the flux goes into latent heat, which outweighs the mixed
 		# layer's sensible heat by 10⁵ K: the ocean boils, or the steam rains out.
 		if net > 0.0 and ocean > 0.0 and T >= boil:
-			var dm := minf(net * h * YEAR_S / OCEAN_COLUMN_LATENT, ocean)
+			var dm := minf(net * hs / (water_column * L_VAPOUR), ocean)
 			ocean -= dm; steam += dm
 			T = boiling_point(steam)
 		elif net < 0.0 and steam > 0.0 and T <= boil:
-			var dm := minf(-net * h * YEAR_S / OCEAN_COLUMN_LATENT, steam)
+			var dm := minf(-net * hs / (water_column * L_VAPOUR), steam)
 			steam -= dm; ocean += dm
 			T = boiling_point(steam)
 		else:
 			var dT := net / cap * hs
 			# Past the sub-step cap explicit T⁴ can diverge; linearise it implicitly there.
-			var stiff := 4.0 * greenhouse * SIGMA * T * T * T / cap * hs
+			var stiff := 4.0 * out / T / cap * hs
 			T += dT / (1.0 + stiff) if stiff > 1.0 else dT
 		T = maxf(T, 3.0)
 		ice = ic
 		# Lost from the air first, then the sea; a world with none left dries for good.
 		escape_flux = hydrogen_escape(T, S) if ocean + steam > 0.0 else 0.0
-		var dl := minf(escape_flux * h * YEAR_S / OCEAN_H_PER_M2, ocean + steam)
+		var dl := minf(escape_flux * hs / (water_column * H_PER_KG_WATER), ocean + steam)
 		if dl > 0.0:
 			var from_steam := minf(dl, steam)
 			steam -= from_steam; ocean -= dl - from_steam
@@ -315,32 +445,30 @@ func _step_wet(dt_years: float, planet: Body) -> void:
 	# The latitude model on the same clock, its OLR line pinned to this model's emission at
 	# 288 K, so the two agree on a temperate world's mean.
 	var obl := float(U.nz(planet.spec.get("obliquity"), planet.obliquity))
-	var A := greenhouse * SIGMA * pow(288.15, 4.0) - LatitudeEBM.B * 15.0
-	ebm.step(dt_years * YEAR_S, S * S0 / 4.0, RockyVisual.insolation_s2(obl), A, cap)
+	ebm.step(dt_years * YEAR_S, S * S0 / 4.0, RockyVisual.insolation_s2(obl), _ebm_a, cap)
 	ice_edge = ebm.ice_edge()
 	snowball = ebm.snowball()
 	ice = maxf(ice, ebm.ice_fraction())
 
 	# Humidity → cloud → weather: saturation vapour pressure roughly doubles every 10 K.
 	var cc := pow(2.0, (T - 288.0) / 10.0)
-	humidity = minf(1.0, cc * (1.0 - ice) * 0.5) if ocean + steam > 0.0 else 0.0
+	humidity = minf(1.0, cc * (1.0 - ice) * 0.5) * _open_water if ocean + steam > 0.0 else 0.0
 	clouds = minf(0.95, 0.12 + humidity * 0.75)
 	# storminess scales with how hard the insolation is changing plus raw heat
 	storm = minf(1.0, humidity * 0.8 + maxf(0.0, (T - 300.0) / 60.0))
 
-## No water: one backward-Euler step, solved by Newton from above the root, where this
-## convex residual converges monotonically. A thin dry layer is stiff at any frame length.
+## No water: one backward-Euler step by Newton, its slope 4·OLR/T. That leans a little above
+## the true slope, so it closes quickly. A thin dry layer is stiff at any frame length.
 func _step_dry(dt_years: float) -> void:
 	var a := (1.0 - _albedo_at(T)) * S * S0 / 4.0
-	var e := greenhouse * SIGMA
 	var k := dt_years * YEAR_S / heat_capacity
-	var x := maxf(T, pow(a / e, 0.25))
-	for i in 8:
-		var x3 := x * x * x
-		var dx := (x - T - k * (a - e * x3 * x)) / (1.0 + 4.0 * k * e * x3)
-		x -= dx
+	var x := T
+	for i in 12:
+		var e := air.olr(x)
+		var dx := (x - T - k * (a - e)) / (1.0 + 4.0 * k * e / x)
+		x = maxf(x - dx, 3.0)
 		if absf(dx) < 1e-6 * x: break
-	T = maxf(x, 3.0)
+	T = x
 	ice = 0.0; humidity = 0.0; clouds = 0.0; storm = 0.0; escape_flux = 0.0
 
 func reset(T0: float = 288.0) -> void:
@@ -351,4 +479,5 @@ func reset(T0: float = 288.0) -> void:
 	ocean = 1.0 if wet else 0.0; steam = 0.0; lost = 0.0; escape_flux = 0.0
 	era = ERAS.STABLE if wet else ERAS.DRY
 	per_star.clear(); _acc = 0.0; pending = 0.0
+	_refresh_sky()
 	extremes = { "Tmin": T0, "Tmax": T0, "Smin": INF, "Smax": -INF }

@@ -31,9 +31,12 @@ class WorldViz extends RefCounted:
 	var is_world := true
 	var body: Body
 	var _cover := -1.0
+	var _sky_serial := -1
+	var atm_tint_free := true
 
 	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
+		atm_tint_free = opts.atm_color == null
 		group = Node3D.new()
 		group.name = "World_%s" % b.name
 		R = float(opts.radius_scene)
@@ -112,7 +115,10 @@ class WorldViz extends RefCounted:
 				cloud_mat.set_shader_parameter("uCover", cover)
 				cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(cover))
 			cloud_mat.set_shader_parameter("uStorm", float(U.nz(cl.get("storm"), 0.2)))
-			atmo_mat.set_shader_parameter("uThick", 0.6 + float(cl.get("humidity")) * 0.8)
+			atmo_mat.set_shader_parameter("uThick", float(cl.sky.get("thick", 1.0)) * (0.6 + float(cl.get("humidity")) * 0.8))
+			if cl.sky_serial != _sky_serial:
+				_sky_serial = cl.sky_serial
+				if atm_tint_free: atmo_mat.set_shader_parameter("uTint", cl.sky.get("tint", Vector3.ONE))
 
 		# Through lit_by, so a starless scene uses the disc stand-in light.
 		var suns = Suns.lit_by(ctx)

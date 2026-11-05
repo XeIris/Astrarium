@@ -549,13 +549,16 @@ static func _build_solar(t_cy := 0.0) -> Array:
 	var m_earth := 1.0 / 332946.0487
 	var m_moon := m_earth / 81.30056907
 	# Surfaces are derived from where a body is (sim/rocky_visual.gd). A preset states
-	# what it's made of: albedo, greenhouse, and the dominant volatile's condensation
+	# what it's made of: albedo, its air, and the dominant volatile's condensation
 	# temperature.
 	# cloudCover is the fraction under cloud thick enough to hide the ground: MODIS's
 	# 0.67 total less the thin cirrus the decks don't draw.
 	var earth := { "type": "planet", "name": "Earth", "mass": m_earth, "radiusKm": 6371.0,
 		"oceans": true, "mixedLayer": 60.0,
-		"atmosphere": true, "land": 0.32, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
+		"atmosphere": true, "land": 0.32, "biota": 1.0, "albedo": 0.306,
+		"pN2": Climate.EARTH_AIR.pN2, "pO2": Climate.EARTH_AIR.pO2, "pAr": Climate.EARTH_AIR.pAr,
+		"pCO2": Climate.EARTH_AIR.pCO2, "pCH4": Climate.EARTH_AIR.pCH4,
+		"oceanDepth": 3.7, "salinity": 35.0,
 		"obliquity": 0.4091, "cloudCover": 0.44, "season": 11.0,
 		# The oceans' tide, which a uniform elastic sphere can't give: k2 (Lambeck 1980)
 		# and the lag that recedes the Moon 3.8 cm/yr (Neron de Surgy & Laskar 1997).
@@ -565,7 +568,7 @@ static func _build_solar(t_cy := 0.0) -> Array:
 	# airless body to land on. Its 5.1° tilt keeps eclipses to the nodes.
 	var moon := { "type": "planet", "name": "Moon", "mass": m_moon, "radiusKm": 1737.4,
 		"hot": true, "crater": 1.0, "regolith": 0x9a958c, "albedo": 0.12, "obliquity": 0.0268,
-		"tidalLock": "Earth", "oceans": false, "greenhouse": 1.0, "mixedLayer": DRY_LAYER_M }
+		"tidalLock": "Earth", "oceans": false, "mixedLayer": DRY_LAYER_M }
 	var emb := elements_state(Physics.G * (1.0 + m_earth + m_moon), SOLAR_ELEMENTS.EMB, t_cy)
 	var rel := elements_state(Physics.G * (m_earth + m_moon), SOLAR_ELEMENTS.Moon, t_cy)
 	var f_moon := m_moon / (m_earth + m_moon)
@@ -575,21 +578,26 @@ static func _build_solar(t_cy := 0.0) -> Array:
 		sun,
 		P.call(1.0 / 6023657.33, 2439.7, "planet", "Mercury", {
 			"hot": true, "crater": 0.95, "regolith": 0x8b8279, "albedo": 0.12, "obliquity": 0.0006,
-			"oceans": false, "greenhouse": 1.0, "mixedLayer": DRY_LAYER_M }),
+			"oceans": false, "mixedLayer": DRY_LAYER_M }),
 		# Venus's 737 K is stated for the surface, whose emissivity rule cannot reach 2.4× its
-		# equilibrium temperature. The climate's ε is what balances 737 K at this albedo; its
-		# flywheel is 92 bar of CO₂ (docs/physics/climate.md#a-climate-per-world).
+		# equilibrium temperature. Its air is NSSDC's; its flywheel is 92 bar of CO₂
+		# (docs/physics/climate.md#a-climate-per-world). atmColor is the sulphuric haze's, which
+		# the gas column cannot derive.
 		P.call(1.0 / 408523.719, 6051.8, "planet", "Venus", {
-			"oceans": false, "greenhouse": 0.0089, "mixedLayer": 270.0,
+			"oceans": false, "mixedLayer": 270.0,
+			"pCO2": 88.78, "pN2": 3.22, "pAr": 0.00644, "pSO2": 0.0138,
 			"hot": true, "atmosphere": true, "atmColor": 0xffd9a0, "surfaceK": 737.0, "albedo": 0.77,
 			"crater": 0.10, "regolith": 0xb08a5c, "cloudCover": 1.0, "cloudColor": 0xfff2d2,
-			"atmThick": 2.4, "haze": 1.2, "obliquity": 3.096, "cloudSpin": 60.0 }),
+			"haze": 1.2, "obliquity": 3.096, "cloudSpin": 60.0 }),
 		earth,
 		moon,
 		# Mars's caps are CO₂ (148 K), so they grow and retreat each winter.
 		P.call(1.0 / 3098703.59, 3389.5, "planet", "Mars", {
+			# Dust, not gas, makes this sky (the column's Rayleigh depth is 0.003), so its colour
+			# and depth stay stated.
 			"hot": true, "atmosphere": true, "atmThick": 0.22, "atmColor": 0xd8b48c,
-			"cloudCover": 0.10, "cloudColor": 0xe8d8c0, "haze": 0.25, "greenhouse": 0.95,
+			"cloudCover": 0.10, "cloudColor": 0xe8d8c0, "haze": 0.25,
+			"pCO2": 6.048e-3, "pN2": 1.647e-4, "pAr": 1.234e-4, "pO2": 1.018e-5,
 			"oceans": false, "mixedLayer": DRY_LAYER_M,
 			"frostK": 148.0, "crater": 0.55, "regolith": 0xa9603a, "albedo": 0.25, "obliquity": 0.4396,
 			"transport": 0.16, "season": 62.0 }),
@@ -606,7 +614,9 @@ static func _build_solar(t_cy := 0.0) -> Array:
 		# Pluto sits at N₂'s 37 K frost point, hence its frost cycle.
 		P.call(869.6 / 1.32712440018e11, 1188.3, "planet", "Pluto", {
 			"hot": true, "frostK": 37.0, "crater": 0.7, "regolith": 0x9b7255, "albedo": 0.52,
-			"obliquity": 2.1386, "oceans": false, "greenhouse": 1.0, "mixedLayer": DRY_LAYER_M }),
+			# ~1 Pa of N₂ (New Horizons), which the draw from its orbit would overstate.
+			"pN2": 1e-5, "pCO2": 0.0, "pO2": 0.0, "pAr": 0.0, "pCH4": 0.0, "pSO2": 0.0,
+			"obliquity": 2.1386, "oceans": false, "mixedLayer": DRY_LAYER_M }),
 	]
 	# Barycentric start: with the Sun at rest, Jupiter alone would carry the whole
 	# system off at 13 m/s.

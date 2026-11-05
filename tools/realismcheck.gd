@@ -272,13 +272,13 @@ func run_frames(n: int, dt: float) -> void:
 	for i in n: stage.step_physics(dt)
 
 func inputs_of(cl: Climate) -> Array:
-	return [cl.mixed_layer, cl.greenhouse, cl.albedo_base, cl.albedo_ice, cl.wet]
+	return [cl.mixed_layer, cl.pressures.duplicate(), cl.albedo_base, cl.albedo_ice, cl.wet, cl.land, cl.ocean_depth, cl.salinity]
 
 func balance_K(S: float, albedo: float, eps: float) -> float:
 	return pow((1.0 - albedo) * S * Climate.S0 / (4.0 * eps * Climate.SIGMA), 0.25)
 
 func each_world_settles() -> void:
-	var dry := {"type": "planet", "oceans": false, "mixedLayer": 2.0, "greenhouse": 0.8, "albedoBase": 0.3, "T0": 288.0}
+	var dry := U.merged(AIRLESS, {"type": "planet", "oceans": false, "mixedLayer": 2.0, "albedoBase": 0.3, "T0": 288.0})
 	check("two-world scenario loads", load_worlds([
 		{"a": 0.7, "spec": U.merged(dry, {"name": "Near"})},
 		{"a": 1.6, "angle": 2.0, "spec": U.merged(dry, {"name": "Far"})}]))
@@ -288,12 +288,12 @@ func each_world_settles() -> void:
 	run_frames(300, 0.01)
 	print("REALISMCHECK WORLDS near_T=%s far_T=%s" % [inner.T, far.T])
 	check("two distances settle to different temperatures", inner.T - far.T > 80.0)
-	check("the near world settles to its own balance", near(inner.T, balance_K(inner.S, 0.3, 0.8), 2e-3))
-	check("the far world settles to its own balance", near(far.T, balance_K(far.S, 0.3, 0.8), 2e-3))
+	check("the near world settles to its own balance", near(inner.T, balance_K(inner.S, 0.3, 1.0), 2e-3))
+	check("the far world settles to its own balance", near(far.T, balance_K(far.S, 0.3, 1.0), 2e-3))
 	check("the ratio is the inverse square law's", near(inner.T / far.T, sqrt(1.6 / 0.7), 5e-3))
 	check("a dry world is named as one", inner.era.key == "DRY" and inner.ocean == 0.0 and inner.ice == 0.0)
 
-	var wet := {"type": "planet", "oceans": true, "mixedLayer": 12.0, "greenhouse": 0.61, "albedoBase": 0.306, "albedoIce": 0.45}
+	var wet := U.merged(Climate.EARTH_AIR, {"type": "planet", "oceans": true, "mixedLayer": 12.0, "albedoBase": 0.306, "albedoIce": 0.45})
 	check("wet scenario loads", load_worlds([
 		{"a": 1.0, "spec": U.merged(wet, {"name": "Temperate"})},
 		{"a": 2.2, "angle": 2.0, "spec": U.merged(wet, {"name": "Frozen"})}]))
@@ -343,9 +343,9 @@ func stated_values_win() -> void:
 	load_worlds([{"a": 1.0, "spec": seeded}])
 	var cl: Climate = stage.state.body_named("Same").climate
 	var drawn := inputs_of(cl)
-	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"greenhouse": 0.7})}])
+	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"pCO2": 0.7})}])
 	cl = stage.state.body_named("Same").climate
-	check("a stated value overrides only itself", cl.greenhouse == 0.7 and cl.mixed_layer == drawn[0] and cl.albedo_base == drawn[2])
+	check("a stated value overrides only itself", cl.pressures.pCO2 == 0.7 and cl.pressures.pN2 == drawn[1].pN2 and cl.mixed_layer == drawn[0] and cl.albedo_base == drawn[2])
 	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"albedo": 0.4})}])
 	check("a body's albedo is the climate's ice-free base", stage.state.body_named("Same").climate.albedo_base == 0.4)
 	load_worlds([{"a": 1.0, "spec": U.merged(seeded, {"albedo": 0.4, "albedoBase": 0.2})}])
@@ -355,11 +355,11 @@ func stated_values_win() -> void:
 	check("a stated T0 starts both models there", absf(cl.T - 150.0) < 1e-2 and absf(cl.ebm.T[0] + 123.15) < 1e-2)
 	load_worlds([{"a": 1.0, "spec": seeded}])
 	var b: Body = stage.state.body_named("Same")
-	stage.edit_body(b, {"greenhouse": 0.33})
-	check("an edit overrides the draw", b.climate.greenhouse == 0.33 and b.spec.greenhouse == 0.33)
-	stage.edit_body(b, {"greenhouse": null})
+	stage.edit_body(b, {"pCO2": 0.33})
+	check("an edit overrides the draw", b.climate.pressures.pCO2 == 0.33 and b.spec.pCO2 == 0.33)
+	stage.edit_body(b, {"pCO2": null})
 	check("unsetting an edit returns to the draw", inputs_of(b.climate) == drawn)
-	for bad: Dictionary in [{"greenhuose": 0.5}, {"mixedLayer": -1.0}]:
+	for bad: Dictionary in [{"greenhuose": 0.5}, {"greenhouse": 0.5}, {"mixedLayer": -1.0}]:
 		Presets.PRESETS["__bad"] = {"name": "bad", "sceneScale": 1.0, "camRadius": 1.0, "climate": bad,
 			"build": func() -> Array: return [{"type": "world", "home": true}]}
 		check("a preset's climate block is validated: %s" % bad, not stage.load_preset("__bad"))
@@ -378,7 +378,7 @@ func draw_ranges() -> void:
 	var earth := ClimateInputs.retention(m_e, 6371.0 * Physics.AU_PER_KM, 1.0)
 	print("REALISMCHECK DRAW mars_x=%s earth_x=%s" % [mars, earth])
 	check("the shoreline is pinned to Mars", absf(mars) < 0.02)
-	check("Earth's retention is the anchor of its ε", absf(earth - 1.0) < 0.1)
+	check("Earth's retention is 1", absf(earth - 1.0) < 0.1)
 	var bad := 0
 	var wet_above_runaway := 0
 	var wet_below_shoreline := 0
@@ -404,11 +404,11 @@ func draw_ranges() -> void:
 			if ClimateInputs.draw("n%d" % i, 0, mass, radius, S, 1.05).oceans: w += 1
 		return w
 	check("a small hot world keeps nothing", count_wet.call(1.66e-7, r_small, 6.67) == 0
-		and float(ClimateInputs.draw("n", 0, 1.66e-7, r_small, 6.67, 1.05).greenhouse) >= 0.9)
+		and float(ClimateInputs.draw("n", 0, 1.66e-7, r_small, 6.67, 1.05).pCO2) == 0.0)
 	var earths: int = count_wet.call(m_e, r_earth, 1.0)
 	print("REALISMCHECK DRAW earths_wet=%d of 200" % earths)
 	check("most Earths keep their oceans, some do not", earths > 150 and earths < 200)
-	check("a hot heavy world can be a Venus", float(ClimateInputs.draw("v", 0, m_e, r_earth, 1.91, 1.05).greenhouse) <= 0.3)
+	check("a hot heavy world can be a Venus", float(ClimateInputs.draw("v", 0, m_e, r_earth, 1.91, 1.05).pCO2) >= 10.0)
 
 func solar_system() -> void:
 	check("solar preset loads", stage.load_preset("solar"))
@@ -510,12 +510,21 @@ func stiff_worlds_stay_finite() -> void:
 	var rock := Body.new()
 	rock.type = "planet"; rock.mass = 3e-6; rock.name = "Rock"
 	rock.pos = DVec3.new(1.0, 0.0, 0.0)
-	var dry := Climate.new({"oceans": false, "mixedLayer": 0.1, "greenhouse": 1.0, "albedoBase": 0.1, "albedoIce": 0.0, "T0": 3.0})
+	var dry := Climate.new(U.merged(AIRLESS, {"oceans": false, "mixedLayer": 0.1, "albedoBase": 0.1, "albedoIce": 0.0, "T0": 3.0}))
 	for dt in [1e-6, 0.02, 1.0, 100.0, 1e4]:
 		dry.step(float(dt), rock, [star])
 		check("a dry world is stable at %s yr per step" % dt, is_finite(dry.T) and dry.T >= 3.0 and dry.T < 300.0)
 	check("a long step lands on the balance", near(dry.T, balance_K(1.0, 0.1, 1.0), 1e-3))
-	var thin := Climate.new({"mixedLayer": 0.1, "greenhouse": 0.61, "albedoBase": 0.306, "albedoIce": 0.45})
+	# Dense CO₂ and thin air on a thin layer, at any frame length: the kinks in the fits included.
+	for air: Dictionary in [VENUS_AIR, MARS_AIR, {"pCO2": 8.0, "pN2": 1.0}]:
+		for s in [0.3, 1.0, 3.0]:
+			var rocky := Climate.new(U.merged(AIRLESS, U.merged(air, {"oceans": false, "mixedLayer": 0.1, "albedoBase": 0.2, "albedoIce": 0.0, "T0": 200.0})))
+			var sun := Body.new()
+			sun.type = "star"; sun.mass = 1.0; sun.teff = 5772.0; sun.name = "Sun"; sun.luminosity = s
+			for dt in [1e-6, 0.02, 1.0, 100.0, 1e4]: rocky.step(float(dt), rock, [sun])
+			var absorbed: float = 0.8 * s * Climate.S0 / 4.0
+			check("a dry column lands on its balance: %s at %s" % [air.keys().size(), s], is_finite(rocky.T) and absf(rocky.olr(rocky.T) - absorbed) < 0.01 * absorbed)
+	var thin := Climate.new({"mixedLayer": 0.1, "albedoBase": 0.306, "albedoIce": 0.45})
 	var lo := INF
 	var hi := -INF
 	for i in 200:
@@ -523,12 +532,271 @@ func stiff_worlds_stay_finite() -> void:
 		if i > 100:
 			lo = minf(lo, thin.T); hi = maxf(hi, thin.T)
 	print("REALISMCHECK STIFF wet T=[%s, %s]" % [lo, hi])
-	check("a thin wet layer holds its balance at 5 yr per step", is_finite(thin.T) and hi - lo < 1.0 and near(thin.T, 287.5, 0.02))
-	var start := Climate.new({"oceans": false, "greenhouse": 0.8, "albedoBase": 0.3, "albedoIce": 0.0})
-	check("the warmest balance solves the energy equation", near(start.equilibrium_T(1.0), balance_K(1.0, 0.3, 0.8), 1e-6))
+	check("a thin wet layer holds its balance at 5 yr per step", is_finite(thin.T) and hi - lo < 1.0 and near(thin.T, 287.0, 0.02))
+	var start := Climate.new(U.merged(AIRLESS, {"oceans": false, "albedoBase": 0.3, "albedoIce": 0.0}))
+	check("the warmest balance solves the energy equation", near(start.equilibrium_T(1.0), balance_K(1.0, 0.3, 1.0), 1e-6))
 	check("no light leaves the floor", start.equilibrium_T(0.0) == 3.0)
-	var boiling := Climate.new({"albedoBase": 0.1, "albedoIce": 0.0, "greenhouse": 0.61})
-	check("a wet world's start stops at its boiling point", near(boiling.equilibrium_T(3.0), Climate.boiling_point(0.0), 1e-9))
+	var thick := Climate.new(U.merged(AIRLESS, U.merged(VENUS_AIR, {"oceans": false, "albedoBase": 0.77, "albedoIce": 0.0})))
+	thick.set_world(1.0 / 408523.719, 6051.8 * Physics.AU_PER_KM)
+	check("a thick column's warmest balance is found too", near(thick.equilibrium_T(1.91), 737.0, 0.01))
+	var boiling := Climate.new({"albedoBase": 0.1, "albedoIce": 0.0})
+	check("a wet world's start stops at its boiling point", near(boiling.equilibrium_T(3.0), boiling.boiling_point(0.0), 1e-9))
+
+const AIRLESS := {"pN2": 0.0, "pO2": 0.0, "pAr": 0.0, "pCO2": 0.0, "pCH4": 0.0, "pSO2": 0.0}
+const VENUS_AIR := {"pCO2": 88.78, "pN2": 3.22, "pAr": 0.00644, "pSO2": 0.0138}
+const MARS_AIR := {"pCO2": 6.048e-3, "pN2": 1.647e-4, "pAr": 1.234e-4, "pO2": 1.018e-5}
+
+# What the column radiates, against what it was fitted to and what it was not.
+func composition() -> void:
+	var earth := Climate.new({"albedoBase": 0.306, "mixedLayer": 12.0})
+	var target := 0.61 * Climate.SIGMA * pow(288.15, 4.0)
+	var slope := (earth.olr(289.15) - earth.olr(287.15)) * 0.5
+	print("REALISMCHECK AIR earth olr=%s target=%s slope=%s T=%s" % [earth.olr(288.15), target, slope, earth.equilibrium_T(1.0)])
+	check("today's air radiates what pins the latitude model's ice line", near(earth.olr(288.15), target, 1e-4))
+	check("its slope is the latitude model's B", near(slope, LatitudeEBM.B, 0.01))
+	check("today's air settles Earth near 288 K", near(earth.equilibrium_T(1.0), 288.0, 0.005))
+	# Independent of those fits.
+	var doubled := Climate.new({"albedoBase": 0.306, "pCO2": Climate.EARTH_AIR.pCO2 * 2.0})
+	var forcing := earth.olr(288.15) - doubled.olr(288.15)
+	print("REALISMCHECK AIR doubling=%s" % forcing)
+	check("doubling CO₂ is Myhre's 5.35·ln 2", near(forcing, 5.35 * log(2.0), 0.02))
+	var two_bar := Atmosphere.new({"pCO2": 1.9, "pN2": 0.1}, 3.73).olr(250.0)
+	print("REALISMCHECK AIR kopparapu_2bar_250K=%s (86–88.4)" % two_bar)
+	check("2 bar of CO₂ at 250 K on a Mars is Kopparapu's line-by-line 86–88 W/m²", two_bar > 86.0 * 0.92 and two_bar < 88.4 * 1.08)
+	# Kopparapu's Fig. 5a, read off the plot: 273 K, wet, over 1 bar of N₂.
+	for row in [[1.0, 112.0], [3.0, 88.0], [10.0, 67.0], [35.0, 65.0]]:
+		var dense := Atmosphere.new({"pN2": 1.0, "pCO2": row[0]}, Atmosphere.G_EARTH).olr(273.0, 1.0)
+		print("REALISMCHECK AIR %s bar CO₂ at 273 K: %s (%s)" % [row[0], dense, row[1]])
+		check("%s bar of CO₂ at 273 K lies within 25%% of Kopparapu's curve" % row[0], near(dense, row[1], 0.25))
+	var previous := INF
+	var falling := true
+	for p in [1e-6, 1e-4, 1e-2, 0.1, 1.0, 10.0, 100.0]:
+		var o := Atmosphere.new({"pN2": 1.0, "pCO2": p}, Atmosphere.G_EARTH).olr(288.0, 1.0)
+		falling = falling and o <= previous
+		previous = o
+	check("more CO₂ never radiates more", falling)
+	# Broadening: the same mixing ratio under thinner air traps less; so does a stronger pull.
+	var thick_air := Atmosphere.new({"pN2": 1.0, "pCO2": 1e-3}, Atmosphere.G_EARTH)
+	var thin_air := Atmosphere.new({"pN2": 0.1, "pCO2": 1e-4}, Atmosphere.G_EARTH)
+	check("thin air broadens the bands less", thin_air.olr(288.0) > thick_air.olr(288.0))
+	check("a stronger pull holds a thinner column", Atmosphere.new({"pN2": 1.0, "pCO2": 1e-3}, 20.0).olr(288.0) > thick_air.olr(288.0))
+	check("thin air's water closes at a warmer level", thin_air.olr(288.0, 1.0) > thick_air.olr(288.0, 1.0))
+	check("no gas radiates as a black body", near(Atmosphere.new({}, 9.82).olr(300.0), Climate.SIGMA * pow(300.0, 4.0), 1e-12))
+	# The fits pin each measured world on its own column, so these are identities of the
+	# constants: what they catch is a column or constant that moves. What says the constants
+	# mean something is the emission level, which should sit inside Venus's cloud deck (VIRA,
+	# the deck's 48–70 km assumed).
+	var venus := Atmosphere.new(VENUS_AIR, 8.87)
+	var mars := Atmosphere.new(MARS_AIR, 3.73)
+	check("Venus's air balances NSSDC's 737 K", near(venus.olr(737.0), (1.0 - 0.77) * 2601.3 / 4.0, 0.01))
+	check("Mars's air balances NSSDC's 214 K", near(mars.olr(214.0), (1.0 - 0.25) * 586.2 / 4.0, 0.001))
+	var level: float = 92.0 * pow(venus.emit_k, 1.0 / venus.kappa)
+	var vira: Dictionary = Rocketry.ATMOSPHERES.Venus.duplicate()
+	vira.g = 8.87; vira.R = 6051800.0
+	var deck := [Rocketry.pressure(vira, 70e3) * 1e-5, Rocketry.pressure(vira, 48e3) * 1e-5]
+	print("REALISMCHECK AIR venus emission level=%s bar, deck %s" % [level, deck])
+	check("Venus radiates from inside its cloud deck", level > deck[0] and level < deck[1])
+	check("without its SO₂ Venus could not reach 737 K", Atmosphere.new({"pCO2": 88.78, "pN2": 3.22}, 8.87).olr(737.0) > 400.0)
+	# Mean molecular mass against NSSDC's, which the fits never saw.
+	var earth_air := Atmosphere.new(Climate.EARTH_AIR, 9.82)
+	check("Earth's mean molecular mass is NSSDC's", near(earth_air.mean_molar * 1000.0, 28.97, 2e-3))
+	check("Venus's mean molecular mass is NSSDC's", near(venus.mean_molar * 1000.0, 43.45, 2e-3))
+	check("Mars's mean molecular mass is NSSDC's", near(mars.mean_molar * 1000.0, 43.49, 2e-3))
+
+func gas_column_look() -> void:
+	var earth := Atmosphere.new(Climate.EARTH_AIR, 9.82)
+	var venus := Atmosphere.new(VENUS_AIR, 8.87)
+	var mars := Atmosphere.new(MARS_AIR, 3.73)
+	print("REALISMCHECK SKY tau earth=%s venus=%s mars=%s" % [earth.tau550, venus.tau550, mars.tau550])
+	check("Earth's column has its 0.097 of Rayleigh depth at 550 nm", near(earth.tau550, 0.097, 0.01))
+	check("CO₂ scatters ~2.5 times air (Kopparapu)", near(Atmosphere.GASES.pCO2.rayleigh / (earth.tau550 / earth.column_molecules(earth.p_dry)), 2.5, 0.05))
+	var e: Dictionary = earth.limb()
+	var v: Dictionary = venus.limb()
+	var m: Dictionary = mars.limb()
+	print("REALISMCHECK SKY limb earth=%s venus=%s mars=%s" % [e, v, m])
+	check("Earth's sky is the look it had", near(e.thick, 1.0, 1e-3) and absf(e.tint.x - 1.0) < 1e-3 and absf(e.tint.z - 1.0) < 1e-3)
+	check("Venus's gas gives the depth its look was authored at", near(v.thick, 2.4, 0.05))
+	check("a thick sky has lost its blue", v.tint.x > 1.5 and v.tint.z < 0.7)
+	check("a thin sky is the bluer", m.tint.z > 1.2 and m.tint.x < 1.0)
+	check("Mars's gas alone is nearly nothing, as dust makes its sky", m.thick < 0.05)
+	check("nothing scatters nothing", Atmosphere.new({}, 9.82).limb().thick == 0.0)
+	check("steam thickens a sky", earth.limb(10.0).thick > 1.5)
+	var cl := Climate.new()
+	var serial := cl.sky_serial
+	cl.apply_inputs({"pN2": 5.0})
+	check("an edit of the air moves the sky", cl.sky_serial != serial and float(cl.sky.thick) > 1.0)
+	serial = cl.sky_serial
+	var rock := Body.new()
+	rock.type = "planet"; rock.mass = 3e-6; rock.pos = DVec3.new(1.0, 0.0, 0.0)
+	var star := Body.new()
+	star.type = "star"; star.mass = 1.0; star.luminosity = 1.0; star.teff = 5772.0; star.name = "Sun"
+	cl.step(1e-3, rock, [star])
+	check("a quiet step leaves it alone", cl.sky_serial == serial)
+
+	# What a vessel flies through: the column, against NSSDC's own numbers.
+	load_worlds([{"a": 1.0, "spec": U.merged(Climate.EARTH_AIR, {"type": "planet", "name": "Elsewhere", "T0": 288.0, "oceans": false, "pO2": 0.21243})},
+		{"a": 3.0, "spec": U.merged(AIRLESS, {"type": "planet", "name": "Bare"})}])
+	var atm = Rocketry.flight_env(stage.state.body_named("Elsewhere")).atm
+	print("REALISMCHECK SKY flight %s" % [atm])
+	check("an uncatalogued world flies through its own column", near(atm.p0, 101400.0, 0.01))
+	check("at NSSDC's density and scale height", near(atm.rho0, 1.217, 0.03) and near(atm.layers[0].H, 8500.0, 0.03))
+	check("with a diatomic's γ", near(atm.gamma, 1.4, 0.01))
+	check("and the sky's depth from its Rayleigh column", near(atm.skyThick, 1.0, 0.02))
+	check("no air, no atmosphere", Rocketry.flight_env(stage.state.body_named("Bare")).atm == null)
+	stage.edit_body(stage.state.body_named("Elsewhere"), {"pCO2": 10.0})
+	check("an edit reaches the flight column", Rocketry.flight_env(stage.state.body_named("Elsewhere")).atm.p0 > 1e6)
+	check("a catalogued world keeps its measured one", stage.load_preset("solar")
+		and Rocketry.flight_env(stage.state.body_named("Earth")).atm.has("thermo")
+		and Rocketry.flight_env(stage.state.body_named("Venus")).atm.p0 == 9.21e6)
+
+func water() -> void:
+	var mk := func(x: float, L: float) -> Body:
+		var s := Body.new()
+		s.name = "Sun"; s.type = "star"; s.mass = 1.0; s.luminosity = L; s.teff = 5772.0
+		s.pos = DVec3.new(x, 0.0, 0.0)
+		return s
+	var here := Body.new()
+	here.pos = DVec3.new()
+	var settle := func(cl: Climate, L: float, steps := 800, dt := 0.1) -> void:
+		var star: Body = mk.call(1.0, L)
+		for i in steps: cl.step(dt, here, [star])
+
+	# Salinity.
+	check("sea water freezes at −1.9 °C", near(Climate.freezing_point(35.0) - 273.15, -1.92, 0.01))
+	check("fresh water at 0 °C", Climate.freezing_point(0.0) == 273.15)
+	check("brine lower still", Climate.freezing_point(230.0) < Climate.freezing_point(100.0) and Climate.freezing_point(100.0) < Climate.freezing_point(35.0))
+	var fresh := Climate.new({"salinity": 0.0, "albedoBase": 0.306})
+	var sea := Climate.new({"salinity": 35.0, "albedoBase": 0.306})
+	var brine := Climate.new({"salinity": 230.0, "albedoBase": 0.306})
+	check("the ice's onset moves with the freezing point", near(fresh.albedo(278.0).ice * 45.0, 1.92, 0.01))
+	check("sea water's onset stays at 278 K", sea.albedo(278.0).ice == 0.0 and sea.ebm.t_ice == LatitudeEBM.T_ICE)
+	check("brine holds off the ice", brine.albedo(270.0).ice == 0.0 and sea.albedo(270.0).ice > 0.0)
+	check("the latitude model's edge moves with it", absf(brine.ebm.t_ice - (LatitudeEBM.T_ICE + Climate.freezing_point(230.0) - Climate.freezing_point(35.0))) < 1e-9)
+	# The same world and light: which side of freezing it lands on is the salt's doing.
+	var cases := {}
+	for s in [0.0, 230.0]:
+		var cl := Climate.new({"salinity": s, "albedoBase": 0.306, "T0": 280.0, "mixedLayer": 5.0})
+		settle.call(cl, 0.945, 2000, 0.05)
+		cases[s] = cl
+		print("REALISMCHECK WATER salinity=%s T=%s ice=%s edge=%s era=%s" % [s, cl.T, cl.ice, cl.ice_edge, cl.era.key])
+	check("salt decides whether a marginal world freezes", cases[0.0].ice > cases[230.0].ice)
+
+	# The states.
+	var dry := Climate.new({"oceans": false})
+	settle.call(dry, 1.0)
+	check("no ocean is a dry world", dry.era.key == "DRY" and dry.ocean == 0.0 and dry.ice == 0.0 and dry.water_column == 0.0)
+	check("all land is a dry world", Climate.new({"land": 1.0}).classify(288.0).key == "DRY" and not Climate.new({"land": 1.0}).wet)
+	check("no depth is a dry world", Climate.new({"oceanDepth": 0.0}).classify(288.0).key == "DRY")
+	var global_sea := Climate.new({"land": 0.0, "albedoBase": 0.306, "mixedLayer": 12.0})
+	settle.call(global_sea, 1.0)
+	print("REALISMCHECK WATER global T=%s era=%s" % [global_sea.T, global_sea.era.label])
+	check("no land is a global ocean", global_sea.era.key == "WATER_WORLD" and global_sea.era.label == "Global ocean")
+	var shell := Climate.new({"land": 0.0, "albedoBase": 0.306, "mixedLayer": 12.0, "T0": 250.0})
+	settle.call(shell, 0.2)
+	print("REALISMCHECK WATER shell T=%s era=%s ice=%s" % [shell.T, shell.era.label, shell.ice])
+	check("frozen over with no land is an ice shell", shell.era.key == "ICE_SHELL" and shell.ice == 1.0 and shell.era.label == "Ice shell")
+	check("and its water is still all there", shell.ocean == 1.0 and shell.water_column > 0.0)
+	var frozen := Climate.new({"land": 0.3, "albedoBase": 0.306, "mixedLayer": 12.0, "T0": 250.0})
+	settle.call(frozen, 0.2)
+	check("frozen over with continents is a deep freeze", frozen.era.key == "DEEP_FREEZE")
+	var wet_earth := Climate.new({"albedoBase": 0.306, "mixedLayer": 12.0})
+	settle.call(wet_earth, 1.0)
+	check("Earth is the stable era", wet_earth.era.key == "STABLE")
+	# So little water that the air holds it all: no sea, whatever the flag says, until it is cold.
+	var damp := Climate.new({"oceanDepth": 1e-5, "land": 0.0, "albedoBase": 0.306})
+	print("REALISMCHECK WATER damp column=%s vapour288=%s" % [damp.water_column, damp.vapour_column(288.0)])
+	check("the air can hold a small inventory", damp.wet and damp.classify(288.0).key == "DRY" and damp.albedo(277.5).ice == 0.0)
+	check("until it is cold enough to stand as frost", damp.albedo(220.0).ice > 0.0)
+	var slight := Climate.new({"oceanDepth": 1e-6, "land": 0.0})
+	check("a few grams hardly close the water bands", slight.olr(288.0) > wet_earth.olr(288.0) + 40.0)
+	check("a land world's dry sky is weaker than a wet one's", Climate.new({"land": 0.98}).olr(288.0) > wet_earth.olr(288.0) + 40.0)
+
+	# The inventory, from the depth and the world's own gravity.
+	var earthly := Climate.new()
+	check("Earth's sea is 2.7e6 kg/m²", near(earthly.water_column, 2.7e6, 0.01))
+	check("all of it as steam is ~265 bar", near(earthly.steam_bar, 265.0, 0.01))
+	var small := Climate.new({"oceanDepth": 0.37})
+	check("a tenth of the sea weighs a tenth", near(small.steam_bar, earthly.steam_bar * 0.1, 1e-9))
+	check("a tenth of the sea boils at its own lower pressure", small.boiling_point(1.0) < earthly.boiling_point(1.0) - 100.0)
+	var light := Climate.new()
+	light.set_world(3.0035e-6 / 8.0, 6371.0 * Physics.AU_PER_KM / 2.0)
+	print("REALISMCHECK WATER half g=%s steam_bar=%s" % [light.gravity, light.steam_bar])
+	check("half the gravity is half the steam's weight", near(light.gravity, 4.91, 0.01) and near(light.steam_bar, earthly.steam_bar * 0.5, 0.01))
+	check("the bare model is Earth's", earthly.gravity == Atmosphere.G_EARTH)
+	var boil_big := Climate.new({"albedoBase": 0.306, "T0": 400.0, "mixedLayer": 12.0})
+	var boil_small := Climate.new({"albedoBase": 0.306, "T0": 400.0, "mixedLayer": 12.0, "oceanDepth": 0.37})
+	settle.call(boil_big, 1.5, 100, 1.0)
+	settle.call(boil_small, 1.5, 100, 1.0)
+	print("REALISMCHECK WATER steam big=%s small=%s T=%s/%s" % [boil_big.steam, boil_small.steam, boil_big.T, boil_small.T])
+	check("the same flux boils a small sea ten times the faster", near(boil_small.steam, boil_big.steam * 10.0, 0.03))
+	check("each sits on its own saturation curve", absf(boil_big.T - boil_big.boiling_point(boil_big.steam)) < 1e-6 and absf(boil_small.T - boil_small.boiling_point(boil_small.steam)) < 1e-6)
+	check("and the kilograms agree", near(boil_small.steam * boil_small.water_column, boil_big.steam * boil_big.water_column, 0.03))
+	# Conservation through a boil, a rain-out and an escape; the last in a small sea.
+	var cycle := Climate.new({"albedoBase": 0.306, "mixedLayer": 12.0, "oceanDepth": 0.01, "land": 0.0})
+	var worst := 0.0
+	for L in [1.5, 0.8, 1.5]:
+		var star: Body = mk.call(1.0, L)
+		for i in 400:
+			cycle.step(25.0, here, [star])
+			worst = maxf(worst, absf(cycle.ocean + cycle.steam + cycle.lost - 1.0))
+	print("REALISMCHECK WATER cycle worst=%s ocean=%s steam=%s lost=%s" % [worst, cycle.ocean, cycle.steam, cycle.lost])
+	check("water is conserved through boiling, rain and escape", worst < 1e-11)
+	# Escape: gravity sets both limits, the inventory the time it takes.
+	var deep_well := Climate.new()
+	deep_well.set_world(3.0035e-6 * 8.0, 6371.0 * Physics.AU_PER_KM * 2.0)
+	check("a deeper well caps the energy-limited flux lower", near(deep_well.hydrogen_escape(600.0, 1.5) * 4.0, earthly.hydrogen_escape(600.0, 1.5), 1e-3))
+	check("Earth's cap is its 1.6e15 m⁻²s⁻¹", near(earthly.hydrogen_escape(600.0, 1.0), 1.6e15, 0.05))
+	var gone := Climate.new({"albedoBase": 0.306, "oceanDepth": 0.037})
+	for i in 500: gone.step(2e5, here, [mk.call(1.0, 1.5)])
+	print("REALISMCHECK WATER gone ocean=%s lost=%s era=%s" % [gone.ocean, gone.lost, gone.era.key])
+	check("a world that loses its water is named dry", gone.ocean + gone.steam == 0.0 and near(gone.lost, 1.0, 1e-9) and gone.era.key == "DRY")
+	check("and has no ice left", gone.albedo(200.0).ice == 0.0)
+	# Thin air boils low, and the vapour raises the pressure it boils at: the state feeding itself.
+	var thin := Climate.new({"pN2": 0.01, "pO2": 0.0, "pAr": 0.0, "pCO2": 0.0, "pCH4": 0.0, "albedoBase": 0.306, "mixedLayer": 12.0})
+	check("thin air's boiling point is low", thin.boiling_point(0.0) < 320.0)
+	settle.call(thin, 2.5, 400, 5.0)
+	print("REALISMCHECK WATER thin T=%s steam=%s bar=%s era=%s" % [thin.T, thin.steam, thin.steam * thin.steam_bar, thin.era.key])
+	check("the vapour raises it", thin.steam > 0.0 and thin.boiling_point(thin.steam) > thin.boiling_point(0.0))
+	check("and steam rules the sky", thin.era.key == "RUNAWAY")
+	# The mixed layer is part of the sea, not deeper than it.
+	check("a mixed layer cannot outrun its sea", Climate.new({"mixedLayer": 100.0, "oceanDepth": 0.01}).heat_capacity == 10.0 * Climate.RHO_CW)
+
+func drawn_water_and_air() -> void:
+	var m_e := 1.0 / 332946.0487
+	var r_e := 6371.0 * Physics.AU_PER_KM
+	# The streams phase 1 drew must not move when new fields join them (values from that build).
+	var d := ClimateInputs.draw("Pinned", 0, m_e, r_e, 1.0, 1.05, true)
+	print("REALISMCHECK DRAWN %s" % d)
+	check("an old stream stays where it was", absf(d.albedoBase - 0.278302165586501) < 1e-12 and absf(d.albedoIce - 0.310982827609405) < 1e-12
+		and absf(d.mixedLayer - 19.323062981392461) < 1e-10)
+	var co2_at := func(S: float) -> float:
+		var sum := 0.0
+		for i in 24: sum += log(float(ClimateInputs.draw("c%d" % i, 0, m_e, r_e, S, 1.05, true).pCO2))
+		return exp(sum / 24.0)
+	print("REALISMCHECK DRAWN co2 at S 1.0=%s 0.8=%s 0.5=%s" % [co2_at.call(1.0), co2_at.call(0.8), co2_at.call(0.5)])
+	check("a dimmer star's ocean world holds more CO₂", co2_at.call(0.5) > co2_at.call(0.8) and co2_at.call(0.8) > 10.0 * co2_at.call(1.0))
+	var liquid := 0
+	var unsettled := 0
+	load_worlds([{"a": sqrt(1.0 / 0.6), "spec": {"type": "planet", "name": "Outer", "seed": 1, "oceans": true, "mass": m_e, "radiusKm": 6371.0}}])
+	var outer: Climate = stage.state.body_named("Outer").climate
+	print("REALISMCHECK DRAWN outer S=%s T=%s co2=%s era=%s" % [outer.S, outer.T, outer.pressures.pCO2, outer.era.key])
+	check("the draw's CO₂ keeps a 0.6 S⊕ ocean world liquid", outer.T > 273.0 and outer.ice < 0.5)
+	for i in 64:
+		var v := ClimateInputs.draw("v%d" % i, 0, m_e, r_e, 1.91, 1.05, false)
+		if not ClimateInputs.input_error(v).is_empty(): unsettled += 1
+		if float(v.pCO2) < 10.0: unsettled += 1
+		var w := ClimateInputs.draw("w%d" % i, 0, m_e, r_e, 0.9, 1.05, true)
+		if float(w.land) < 0.0 or float(w.land) > 0.7 or float(w.oceanDepth) <= 0.0 or float(w.salinity) < 5.0: unsettled += 1
+		if float(w.land) == 0.0: liquid += 1
+		if float(w.pN2) < 0.3 or float(w.pCO2) > 8.0: unsettled += 1
+	check("thick, wet and land rows stay in their ranges", unsettled == 0)
+	check("some drawn worlds have no land", liquid > 0 and liquid < 24)
+	var bare := ClimateInputs.draw("n", 0, 1.66e-7, 2439.7 * Physics.AU_PER_KM, 6.67, 1.05)
+	check("nothing is drawn for an airless world", bare.pCO2 == 0.0 and bare.pN2 == 0.0)
+	# No preset may still state the old single number.
+	for key in Presets.PRESET_ORDER:
+		var preset: Dictionary = Presets.PRESETS[key]
+		check("%s states no ε" % key, not preset.get("climate", {}).has("greenhouse"))
 
 func climate() -> void:
 	var mk := func(x: float, L: float) -> Body:
@@ -546,10 +814,10 @@ func climate() -> void:
 	var star_hot: Body = mk.call(1.0, 1.5)
 	for i in 400: hot.step(0.25, planet, [star_hot])
 	var absorbed := (1.0 - 0.306) * hot.S * Climate.S0 / 4.0
-	var expect_steam := (absorbed - Climate.OLR_LIMIT) * 100.0 * Climate.YEAR_S / Climate.OCEAN_COLUMN_LATENT
+	var expect_steam := (absorbed - Climate.OLR_LIMIT) * 100.0 * Climate.YEAR_S / (hot.water_column * Climate.L_VAPOUR)
 	print("REALISMCHECK CLIMATE hot_T=%s steam=%s expected=%s era=%s" % [hot.T, hot.steam, expect_steam, hot.era.key])
 	check("1.5 S⊕ runs away: the ocean boils at the latent-heat rate", near(hot.steam, expect_steam, 0.03))
-	check("the surface follows the boiling curve", absf(hot.T - Climate.boiling_point(hot.steam)) < 1e-6 and hot.T > 373.0)
+	check("the surface follows the boiling curve", absf(hot.T - hot.boiling_point(hot.steam)) < 1e-6 and hot.T > 373.0)
 	check("water is conserved between ocean, steam and space", absf(hot.ocean + hot.steam + hot.lost - 1.0) < 1e-12 and hot.lost > 0.0)
 	check("the era says runaway greenhouse", hot.era.key == "RUNAWAY")
 	star_hot.luminosity = 0.8
@@ -558,18 +826,18 @@ func climate() -> void:
 	check("steam rains back out when the star dims, less what escaped", hot.steam == 0.0 and absf(hot.ocean + hot.lost - 1.0) < 1e-12 and hot.T < 300.0)
 	# Hydrogen escape: today's Earth loses next to nothing; at the moist-greenhouse limit
 	# an ocean goes in ~4 Gyr (Kasting 1988), and the cap holds a runaway to the energy limit.
-	var t_ocean := func(t: float, s: float) -> float: return Climate.OCEAN_H_PER_M2 / earth.hydrogen_escape(t, s) / Climate.YEAR_S
+	var t_ocean := func(t: float, s: float) -> float: return earth.water_column * Climate.H_PER_KG_WATER / earth.hydrogen_escape(t, s) / Climate.YEAR_S
 	check("Earth today keeps its ocean for > 10¹² yr (%s yr)" % U.expo(t_ocean.call(288.0, 1.0), 1), t_ocean.call(288.0, 1.0) > 1e12)
 	check("at 340 K the ocean escapes in %s Gyr (Kasting: ~4)" % U.fixed(t_ocean.call(340.0, 1.0) / 1e9, 1), t_ocean.call(340.0, 1.0) > 2e9 and t_ocean.call(340.0, 1.0) < 8e9)
-	check("a runaway escapes at the energy limit", absf(hot.hydrogen_escape(400.0, 1.5) - Climate.ESCAPE_ENERGY_CAP * 1.5) < 1.0)
+	check("a runaway escapes at the energy limit", absf(hot.hydrogen_escape(400.0, 1.5) - Climate.ESCAPE_ENERGY / Climate.PHI_EARTH * 1.5) < 1.0)
 	var moist := Climate.new({"mixedLayer": 12.0, "T0": 345.0, "albedoBase": 0.306, "albedoIce": 0.45})
 	check("a wet stratosphere at 345 K is a moist greenhouse", moist.classify(345.0).key == "MOIST")
 	# Long enough to dry: 1.5 S⊕ for 10 Gyr in 2 Myr steps leaves no water, and with it no runaway cap.
 	var gone := Climate.new({"mixedLayer": 12.0, "T0": 288.0, "albedoBase": 0.306, "albedoIce": 0.45})
 	for i in 5000: gone.step(2e6, planet, [mk.call(1.0, 1.5)])
 	check("an ocean in a runaway for 10 Gyr escapes entirely, and the cap goes with it", gone.ocean + gone.steam == 0.0 and absf(gone.lost - 1.0) < 1e-9 and gone.olr(400.0) > Climate.OLR_LIMIT)
-	# 270 bar by Clausius–Clapeyron at constant L, near water's 647 K critical point.
-	check("whole ocean as steam boils at ~651 K", absf(Climate.boiling_point(1.0) - 651.3) < 0.5)
+	# ~265 bar by Clausius–Clapeyron at constant L, near water's 647 K critical point.
+	check("whole ocean as steam boils at ~650 K", absf(earth.boiling_point(1.0) - 650.0) < 1.0)
 	var dry := Climate.new({"oceans": false})
 	check("a dry world has no runaway cap", dry.olr(400.0) > Climate.OLR_LIMIT)
 	# Kopparapu et al. (2013): the Sun's moist and maximum greenhouse limits at 0.99 and 1.70 AU.
@@ -661,6 +929,10 @@ func _ready() -> void:
 	natal_kicks()
 	secular_events()
 	climate()
+	composition()
+	gas_column_look()
+	water()
+	drawn_water_and_air()
 	ice_lines()
 	each_world_settles()
 	same_seed_same_worlds()

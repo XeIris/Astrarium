@@ -524,7 +524,8 @@ func update(o: Dictionary) -> Dictionary:
 		sky_mat.set_shader_parameter("uScaleH", sh)
 		# Optical thickness scaled off the body's surface density, so Mars gets
 		# its thin butterscotch sky and Venus a wall of it, from one number.
-		sky_mat.set_shader_parameter("uThick", clampf(float(atm.rho0) * 0.9, 0.02, 6.0))
+		# A world whose air comes from its climate says so from its Rayleigh depth.
+		sky_mat.set_shader_parameter("uThick", clampf(float(atm.get("skyThick", float(atm.rho0) * 0.9)), 0.02, 6.0))
 		_sky_atmos(str(atm.get("scatter", "")), float(U.nz(o.get("starFlux"), 1.0)))
 		ground_mat.set_shader_parameter("uDensity", 2.6e-5 * clampf(float(atm.rho0), 0.02, 4.0))
 	sky_mat.set_shader_parameter("uEye", h)

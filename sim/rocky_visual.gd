@@ -186,6 +186,9 @@ static func cloud_material(seed: float) -> ShaderMaterial:
 	m.set_shader_parameter("uTint", Vector3(1, 1, 1))
 	return m
 
+# A column dimmer than this against Earth's (uThick) draws no shell: Mars's gas alone is 0.035.
+const AIR_SHOWS := 0.01
+
 # ATMOSPHERE. Rayleigh scattering — see rocky_atmosphere.gdshader.
 static func atmosphere_material(tint = null) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
@@ -264,6 +267,7 @@ class RockyViz extends RefCounted:
 	## Moon faces as it does on the date. Lapses a frame after the owner stops.
 	var surface_world := Basis()
 	var _surface_world_frame := -10
+	var _sky_serial := -1
 
 	func _init(b: Body, o: VisualOpts) -> void:
 		body = b
@@ -309,11 +313,7 @@ class RockyViz extends RefCounted:
 			clouds.name = "Clouds"
 			group.add_child(clouds)
 
-			atmo_mat = RockyVisual.atmosphere_material(o.atm_color)
-			atmo_mat.set_shader_parameter("uThick", float(U.nz(o.atm_thick, 1.0)))
-			atmo = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.035, 72, 48), atmo_mat)
-			atmo.name = "Atmosphere"
-			group.add_child(atmo)
+			_add_atmosphere()
 
 		# Obliquity is what gives a world seasons on top of whatever its orbit is
 		# already doing, and it also sets the insolation profile below.
@@ -323,7 +323,7 @@ class RockyViz extends RefCounted:
 		surf_mat.set_shader_parameter("uS2", RockyVisual.insolation_s2(obliquity))
 
 		albedo = float(U.nz(o.albedo, 0.3))
-		eps = float(U.nz(o.greenhouse, 0.61 if atm else 1.0))
+		eps = 0.61 if atm else 1.0
 		# The sea datum as built, kept so a baked-dry world can refill when it cools.
 		sea_km0 = float(surf_opts.sea_km)
 
@@ -332,6 +332,24 @@ class RockyViz extends RefCounted:
 				b.default_visual_spin_rad_s = 0.4 + randf() * 1.2
 			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		b.viz = self
+
+	func _add_atmosphere() -> void:
+		atmo_mat = RockyVisual.atmosphere_material(opts.atm_color)
+		atmo_mat.set_shader_parameter("uThick", float(U.nz(opts.atm_thick, 1.0)))
+		atmo = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.035, 72, 48), atmo_mat)
+		atmo.name = "Atmosphere"
+		group.add_child(atmo)
+
+	## What the gas column says about the shell, on a change. A stated colour or depth wins, and
+	## a stated `atmosphere` decides whether there is a shell at all.
+	func _sync_air(cl: Climate) -> void:
+		_sky_serial = cl.sky_serial
+		var thick := float(cl.sky.get("thick", 0.0))
+		if atmo == null:
+			if opts.atmosphere != null or thick < RockyVisual.AIR_SHOWS: return
+			_add_atmosphere()
+		if opts.atm_thick == null: atmo_mat.set_shader_parameter("uThick", thick)
+		if opts.atm_color == null: atmo_mat.set_shader_parameter("uTint", cl.sky.get("tint", Vector3.ONE))
 
 	## The deck's global opaque fraction and its probit offset, recomputed only on change.
 	func _set_cover(c: float) -> void:
@@ -387,6 +405,10 @@ class RockyViz extends RefCounted:
 			cloud_mat.set_shader_parameter("uTime", _u(cloud_mat, "uTime") + dt)
 		surf_mat.set_shader_parameter("uTime", _u(surf_mat, "uTime") + dt)
 
+		var cl: Climate = b.climate
+		if cl != null:
+			if cl.sky_serial != _sky_serial: _sync_air(cl)
+			eps = cl.emissivity()
 		# Temperature from where the body is now, so editing an orbit moves the ice line.
 		var suns = Suns.lit_by(ctx)
 		if suns != null:

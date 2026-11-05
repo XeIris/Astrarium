@@ -3,33 +3,36 @@
 A zero-dimensional energy balance for each rocky or ocean world
 ([per world](#a-climate-per-world) below),
 
-    C dT/dt = (1 − α(T)) S/4 − OLR(T),   OLR = ε σ T⁴
+    C dT/dt = (1 − α(T)) S/4 − OLR(T)
 
-with ε the effective emissivity (0.61 puts Earth at 288 K), α rising with ice cover
-between 278 K and 233 K, and C the ocean mixed layer's heat capacity. S is the
-summed flux of every star at the planet's current distance (`insolation_at`).
+with OLR from the [gas column and its water](#an-atmosphere-with-composition), α rising
+with ice cover between 278 K and 233 K (for sea water; [salinity moves both](#water)), and
+C the ocean mixed layer's heat capacity. S is the summed flux of every star at the planet's
+current distance (`insolation_at`).
 
 ## Runaway greenhouse
 
 A wet world's outgoing longwave is capped at 282 W/m², the limit a saturated steam
 atmosphere reaches near 300 K and holds until the surface passes ~1600 K
-([Goldblatt et al. 2013](https://doi.org/10.1038/ngeo1892)). With ε = 0.61 the cap
-binds above 302 K, so an Earth with α = 0.306 runs away above ~1.19 S⊕; 1D models
-give 1.06 ([Kopparapu et al. 2013](https://doi.org/10.1088/0004-637X/765/2/131)) and
-3D models ~1.1.
+([Goldblatt et al. 2013](https://doi.org/10.1038/ngeo1892)); Kopparapu et al. get 291 W/m²
+with their continuum. With today's air the cap binds above 307 K, so an Earth with
+α = 0.306 runs away above ~1.19 S⊕; 1D models give 1.06
+([Kopparapu et al. 2013](https://doi.org/10.1088/0004-637X/765/2/131)) and 3D models ~1.1.
+The cap does not yet move with gravity.
 
-Above the cap the extra flux goes into the ocean, not the mixed layer. Earth's ocean
-is 2.7×10⁶ kg/m² (1.4×10²¹ kg over 5.1×10¹⁴ m²); boiling it takes 6.2×10¹² J/m²,
+Above the cap the extra flux goes into the ocean, not the mixed layer. A world's water is
+its [inventory](#water): Earth's is 2.7×10⁶ kg/m², and boiling it takes 6.1×10¹² J/m²,
 10⁵ times what heats a 12 m mixed layer by a kelvin. So at the boiling point the
 temperature follows the saturation curve while the ocean evaporates, and the steam
 rains back out when the planet cools:
 
-    T_boil = 1 / (1/373.15 K − (R/L) ln(1 + 270·steam)),   L = 40.7 kJ/mol
+    T_boil = 1 / (1/373.15 K − (R/L) ln(p_dry + steam·m_water·g)),   L = 40.7 kJ/mol, p in bar
 
-(Clausius–Clapeyron at constant L; a whole ocean as steam is 270 bar and 651 K, close
+(Clausius–Clapeyron at constant L; Earth's whole ocean as steam is 265 bar and 649 K, close
 to water's 647 K critical point). An Earth-like world at 1.5 S⊕ boils its ocean in about
 three thousand years; a Trisolaris close pass of a few months boils a fraction of a
-percent. While steam is present the era is "Runaway greenhouse".
+percent. The latent heat of the vapour below boiling is not in the budget. Once steam
+outweighs the dry air the era is "Runaway greenhouse".
 
 ## Moist greenhouse and hydrogen escape
 
@@ -37,10 +40,11 @@ Water that reaches the stratosphere is photolysed and its hydrogen escapes, so t
 loss is permanent (`Climate.hydrogen_escape`). The cold trap's water mixing ratio is
 a log-linear fit through ~3 ppm at 288 K and 3 × 10⁻³ at 340 K, Kasting's (1988)
 moist-greenhouse threshold, and is 1 in a runaway. Escape is diffusion-limited,
-2.5 × 10¹⁷·f_H m⁻²s⁻¹ with f_H = 2f_H₂O (Hunten 1973), capped by the energy limit
-ε·F_XUV/(4GMm_H/R) with ε = 0.15 and today's solar XUV, 4.6 mW/m² at 1 AU, scaled with
-the bolometric flux: 1.6 × 10¹⁵ m⁻²s⁻¹ for Earth. An ocean column holds 1.8 × 10³²
-hydrogen atoms per m², so:
+2.5 × 10¹⁷·(g/g⊕)·f_H m⁻²s⁻¹ with f_H = 2f_H₂O (Hunten 1973; the limit goes as b/H, and H as
+1/g), capped by the energy limit ε·F_XUV/(4GMm_H/R) with ε = 0.15 and today's solar XUV,
+4.6 mW/m² at 1 AU, scaled with the bolometric flux: 1.6 × 10¹⁵ m⁻²s⁻¹ for Earth. Both use the
+world's own gravity and potential. Earth's ocean holds 1.8 × 10³² hydrogen atoms per m²,
+and a world's own inventory sets its own, so for Earth:
 
 - today's Earth keeps its ocean for longer than 10¹² years;
 - at 340 K it loses it in ~4 Gyr, Kasting's ocean in the Sun's lifetime;
@@ -48,9 +52,9 @@ hydrogen atoms per m², so:
 
 Escape is taken from the steam first, then the sea, and recorded as `lost`. The era
 reads "Moist greenhouse" while the stratosphere is wet and the sea is still there.
-A world with no water left loses the runaway cap and heats to its dry equilibrium.
-A young or active star's XUV excess, which would dry a world far faster, is not
-modelled, and the escape uses Earth's gravity and column for every world.
+A world with no water left loses the runaway cap, its water bands and its ice, reads as a
+dry world and heats to its dry equilibrium. A young or active star's XUV excess, which would
+dry a world far faster, is not modelled, and neither is the oxygen the hydrogen leaves behind.
 
 A world without oceans (`oceans: false`) has no cap.
 
@@ -71,7 +75,7 @@ Cloud cover is a visual humidity rule: it rises 3.75%/K near 288 K. It stays out
 the energy balance. Coupled at CERES's cloud radiative effect (−47 W/m² shortwave,
 +26 W/m² longwave, at 0.67 cover; Loeb et al. 2018), that rule would add a cloud
 feedback of −1.2 W/m²/K, where the observed value is +0.42 ± 0.35 W/m²/K (IPCC AR6
-WG1 ch. 7). The base albedo and ε already include today's clouds.
+WG1 ch. 7). The base albedo and the water bands' fit already include today's clouds.
 
 ## Ice lines and the snowball
 
@@ -87,8 +91,9 @@ The pieces:
 - **Albedo.** The coalbedo is `0.697 − 0.0779 P₂(x)` where ice-free and 0.38 under
   ice, with the ice edge at −10 °C. B = 2.09 W m⁻² K⁻¹ (North, Cahalan & Coakley
   1981).
-- **Outgoing longwave.** A is pinned so that `A + B·15 °C` equals this model's own
-  emission at 288 K, so the two models agree on a temperate world's mean.
+- **Outgoing longwave.** A is pinned so that `A + B·15 °C` equals this world's column's
+  emission at 288 K, so the two models agree on a temperate world's mean. Today's air gives
+  the same A as the old ε = 0.61, by construction, so today's ice line is unchanged.
 - **Diffusion.** D = 0.55 W m⁻² K⁻¹ puts today's edge at 71.8° with a 14.5 °C mean.
   A slightly larger D melts the cap altogether: this is North's small-ice-cap
   instability.
@@ -106,7 +111,10 @@ fraction `ice` is the larger of the global model's temperature ramp and the
 latitude model's ice cover, and a world's surface draws its caps from it. A
 snowball takes the global model's ice to full cover, so its temperature and era
 follow (`realismcheck` drives 0.85 S₀ into deep freeze). Otherwise the global
-model keeps its own albedo ramp, which already includes today's caps.
+model keeps its own albedo ramp, which already includes today's caps. That ramp, 0.01
+per kelvin over 340 W/m², outruns the column's ~2 W/m²/K, so between 278 K and 233 K the 0-D
+model has no stable state: a world that cools to 278 K goes on to freeze, near 0.93 S⊕ with
+today's air (the latitude model: 0.90).
 `tools/realismcheck.tscn` checks the 72° edge, the snowball threshold, the
 hysteresis and the inverted case.
 
@@ -123,25 +131,37 @@ spawn, edit or preset changes anything:
 
 | Field | Meaning | Domain |
 | --- | --- | --- |
-| `mixedLayer` | thermal flywheel, metres of water | 0.1–5000 |
-| `greenhouse` | effective emissivity ε | 0.005–1 |
+| `mixedLayer` | thermal flywheel, metres of water; at most the sea's depth | 0.1–5000 |
 | `albedoBase` | ice-free Bond albedo; `albedo` stands in for it when unset | 0–1 |
 | `albedoIce` | albedo added at full glaciation; with the base at most 1 | 0–1 |
+| `pN2`, `pO2`, `pAr` | partial pressures, bar | 0–200, 0–50, 0–50 |
+| `pCO2` | partial pressure, bar | 0–100 |
+| `pCH4` | partial pressure, bar | 0–10⁻³ |
+| `pSO2` | partial pressure, bar; stands for the sulphuric deck it feeds | 0–0.1 |
 | `oceans` | whether the world has water to freeze, boil and lose | bool |
+| `land` | fraction of the surface above the sea | 0–1 |
+| `oceanDepth` | the sea's mean depth, km | 0–100 |
+| `salinity` | g of salt per kg of sea | 0–230 |
 | `T0` | starting temperature, K; only read when the world is created | 3–5000 |
+
+The gases together may not pass 200 bar. Stating `oceans: true` with `land: 1` or
+`oceanDepth: 0` is a contradiction and is rejected; unstated, either simply makes the world dry.
 
 A stated value wins, and an edit is a stated value; setting one to null returns to the
 draw. An edit naming only these fields keeps the body's visual and structure, so a
-slider cannot disturb a tracked spin. `albedo` also draws the surface, so it rebuilds.
+slider cannot disturb a tracked spin. `albedo`, `land` and `oceanDepth` also draw the
+surface, so they rebuild it; a stated value reaches the look, a drawn one not yet.
 
-A rendered `planet` still works out its own surface temperature from `albedo` and
-`greenhouse` when its visual is built, so it does not yet read this model or the draw:
-that is the later look phase. A `world`'s surface already follows its own `b.climate`.
+`greenhouse`, the single ε this model used to take, is gone: a preset's `climate` block
+naming it is rejected as an unknown input, and it does nothing on a body's spec.
+
+A rendered `planet` works out its own surface temperature from `albedo`, its star and the
+emissivity its climate's column has at the moment, so a CO₂ edit moves its ice line. The
+rest of what it draws is the later look phase. A `world`'s surface follows its own `b.climate`.
 
 The home world draws nothing. It keeps `Climate.HOME_INPUTS`, and a preset's `climate`
-block is merged into its spec, so its result is the model it always was (`realismcheck`
-steps a bare model beside it and compares bit for bit). Its `albedo` describes its look,
-not this model's base of 0.22, which is why a home Earth settles near 296 K, not 288 K.
+block is merged into its spec (`realismcheck` steps a bare model beside it and compares bit
+for bit). Its `albedo` describes its look, not this model's base.
 
 ### The draw
 
@@ -162,12 +182,17 @@ which gives Mars 0, Venus 0.6, Earth 1.0, Titan 0.5; the Moon −1.7, Mercury �
 Callisto −0.2. Ganymede lands on the line (0.0) with no real atmosphere, so read this as
 a boundary a world may lie near, not a verdict on one. S is floored at 10⁻⁴ S⊕.
 
-| World | When | ε | `albedoBase` | `albedoIce` | `mixedLayer`, m |
+| World | When | `albedoBase` | `albedoIce` | `mixedLayer`, m | Air, bar |
 | --- | --- | --- | --- | --- | --- |
-| Ocean | x ≥ 0, S ≤ runaway, with probability 0.9·min(x, 1) | ε(x) ± 0.06 | 0.25–0.35 | 0.3–0.5 | 10–60 (log) |
-| Airless | x < 0 | 0.9–1.0 | 0.07–0.25 | 0 | 0.5–3 (log) |
-| Thick and dry | S > runaway, x ≥ 0.3 | 0.0089–0.3 (log) | 0.3–0.77 | 0 | 30–300 (log) |
-| Thin and dry | the rest | ε(x) ± 0.06, at most 1 | 0.15–0.35 | 0 | 0.5–3 (log) |
+| Ocean | x ≥ 0, S ≤ runaway, with probability 0.9·min(x, 1) | 0.25–0.35 | 0.3–0.5 | 10–60 (log) | N₂ 0.3–3 (log), O₂ 0–0.3, Ar 0.5–2% of N₂, CH₄ 10⁻⁷–10⁻⁵ (log), CO₂ [from the weathering balance](#the-draw-of-co) |
+| Airless | x < 0 | 0.07–0.25 | 0 | 0.5–3 (log) | none |
+| Thick and dry | S > runaway, x ≥ 0.3 | 0.3–0.77 | 0 | 30–300 (log) | CO₂ 10–100 (log), N₂ 1–5% of it, SO₂ 10⁻⁵–0.03 (log) |
+| Thin and dry | the rest | 0.15–0.35 | 0 | 0.5–3 (log) | CO₂ 0.006·10^(1.5x)·(0.3–3, log), at most 1; N₂ 3–50% of it |
+
+Every world also draws `land` (one in ten none, the rest 0.05–0.7), `oceanDepth` (0.5–10 km,
+log) and `salinity` (5–60 g/kg): they wait unread on a dry world until `oceans` is edited on.
+Each is an independent stream, so the phase-one fields are where they were
+(`realismcheck` pins three of them).
 
 Stating `oceans` picks the first row or one of the dry rows without a roll. Runaway is
 `Climate.hz_flux("runaway", Teff)` for the brightest star. A world whose T0 is unstated
@@ -177,10 +202,11 @@ starts on the frozen branch rather than cooling from 288 K.
 Where each number comes from. The ranges around these anchors are choices, made to give
 the "a little randomised" the issue asks for, and not fits to a population of planets:
 
-- **ε(x).** Falls linearly from 0.95 at x = 0 (Mars, stated in the preset) to 0.61 at
-  x = 1 (Earth), then to 0.45 at x = 2 for a deeper atmosphere (a choice).
-- **Venus's ε.** 0.0089 is what balances the [NSSDC](https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html)
-  737 K at albedo 0.77 and 1.91 S⊕: (1 − 0.77)·1.91·340 W/m² / σ(737 K)⁴.
+- **Thin air.** Mars's 6 mbar of CO₂ on the shoreline, growing tenfold per 0.67 of x, is a
+  choice; x says only what a world can keep, not what it has.
+- **Thick air.** Spans up to Venus (89 bar of CO₂, 150 ppm of SO₂); the lower ends are choices.
+- **Ocean air.** N₂ brackets Earth's 0.8 bar, O₂ its 0.21, CH₄ its 2 ppm. Choices.
+- **Sea.** `land` brackets Earth's 0.29, `oceanDepth` its 3.7 km, `salinity` its 35 g/kg. Choices.
 - **Albedos.** NSSDC Bond albedos anchor the rows: Mercury 0.068, Moon 0.11, Mars 0.25,
   Earth 0.294, Venus 0.77. The extra ice albedo brackets North et al.'s 0.32 (coalbedo
   0.697 to 0.38, `sim/ebm.gd`) and this model's existing 0.45.
@@ -191,16 +217,25 @@ the "a little randomised" the issue asks for, and not fits to a population of pl
   is 1.1×10⁹ J m⁻² K⁻¹, about 270 m of water, the thick row's upper end.
 - **Ocean flywheel.** 10–60 m spans the mixed layers this project's presets already
   state. It is not fitted to an ocean climatology.
-- **Bare ε.** 0.9–1 says bare ground radiates close to a black body; it is not fitted to
-  a measured regolith emissivity.
 - **The 0.9 and the 0.3.** The chance of an ocean and the threshold for a Venus's air are
   choices. The solar system's own bodies do not constrain them. Volatile delivery is not
   modelled.
 
-The solar preset states its six rocky worlds, so nothing there is drawn, and
-`realismcheck` compares them with NSSDC: Mercury 432 K (440), Venus 739 K (737), Earth
-289 K (288), Moon 270 K (270.4 black body), Mars 212 K (214), each a mean over several
-orbits at the J2000 start, with Pluto in its own balance.
+#### The draw of CO₂
+
+There is no live CO₂ cycle: a world's CO₂ is an input and stays what it is. But an ocean
+world's silicate weathering would have settled it long ago at whatever keeps the sea from
+freezing ([Kopparapu's working hypothesis](https://doi.org/10.1088/0004-637X/765/2/131) for
+the whole outer habitable zone), so the draw takes that settled state: the CO₂ that balances
+the drawn albedo and the world's sunlight at a surface temperature drawn from 278–295 K, up to
+8 bar. Thus a 0.6 S⊕ ocean world draws about 1.3 bar and stays liquid, and past the limit
+one freezes. Stated or edited CO₂ is not corrected, so an edit can freeze a world for good,
+and a world whose orbit changes keeps the CO₂ it drew; the live cycle is not modelled.
+
+The solar preset states its six rocky worlds' air, sea and flywheel, so nothing there is drawn
+but the Moon's and Mercury's emptiness, and `realismcheck` compares them with NSSDC: Mercury
+432 K (440), Venus 738 K (737), Earth 290 K (288), Moon 270 K (270.4 black body), Mars 213 K
+(214), each a mean over several orbits at the J2000 start, with Pluto in its own balance.
 
 ### Stepping
 
@@ -210,6 +245,10 @@ clock. A world's sunlight is read when it steps, so one that steps less often sa
 eccentric orbit more coarsely. A step costs about 19 µs for an ocean world and 3 µs for
 a dry one, which has no latitude model and takes one backward-Euler step solved by Newton,
 stable at any frame length.
+
+A dry world's backward-Euler step takes 4·OLR/T as its slope: a little above the true one, so
+it converges in a few iterations, and it reaches the column's balance at any step length
+(`realismcheck` lands Venus's, Mars's and dense CO₂'s, down to the condensation floor).
 
 An ocean world keeps its explicit sub-steps, up to 64 per step. Past that cap, where the
 explicit T⁴ term can diverge, a sub-step is implicit in linearised T⁴. No scenario reaches
@@ -221,6 +260,154 @@ resolved.
 
 ### Not modelled yet
 
-Land thermal inertia differing from ocean on one world, CO₂ cycling (the silicate-weathering
-thermostat that would keep an outer world's oceans liquid), tidal locking, internal heat
-and any gas composition. A dry world has no ice line, even one with CO₂ caps like Mars's.
+Land thermal inertia differing from ocean on one world, live CO₂ cycling and CO₂ collapse (a
+cold world's air stays in the air), tidal locking and internal heat, so an ice shell's ocean
+is only an inventory. A dry world has no ice line, even one with CO₂ caps like Mars's.
+
+## An atmosphere with composition
+
+`Atmosphere` (`sim/atmosphere.gd`) takes partial pressures and the world's gravity and returns
+the outgoing longwave, the column's mean mass and what it scatters. Water is not an input: it
+follows temperature through Clausius–Clapeyron, against the world's own inventory.
+
+### Outgoing longwave
+
+A spectrum in three parts, each from its own physics, evaluated at an emission temperature
+that a grey continuum sets:
+
+    T_r = T · (1 + Dτ)^(−κ/2),     Dτ = (K_CO₂·pCO₂ + K_SO₂·pSO₂)·p/(g/g⊕)
+    OLR = σT_r⁴ (1 − f_CH₄)  −  Δν_CO₂ · π[B₆₆₇(T_r) − B₆₆₇(0.745·T_r)]  −  W·(1 − w)·σ[T_r⁴ − T_v⁴]₊
+
+- **The grey continuum.** A radiative-convective column emits from the level where its optical
+  depth reaches unity. With τ ∝ p² (collisional) and a dry adiabat of exponent κ = R/c_p, the
+  surface sits (τ)^(κ/2) above that level, and the `1 +` carries it smoothly to a thin column's
+  surface emission. κ is the mixture's; CO₂ takes 0.2, its value near 400 K (it runs from
+  0.24 at 250 K to 0.16 at 735 K). Thin columns have no continuum at all: Earth's Dτ is 2×10⁻⁴.
+- **The CO₂ band.** Absorption falls exponentially from 667 cm⁻¹, so a band saturates and widens
+  logarithmically: Δν = 2l·ln(1 + x/x₀), x = pCO₂·p/(g/g⊕). This is why forcing goes as ln C,
+  and the same formula spans Mars to Venus. π·B₆₆₇ is the Planck flux at the band's centre,
+  and the band's core radiates from a stratosphere at 0.745·T_r (Earth's 214.7 K over 288.15 K).
+- **CH₄.** Myhre's √ term, 0.036·√(ppb) W/m², at today's Earth, scaled with σT_r⁴. It has no overlap with
+  N₂O, which is not an input.
+- **Water.** At fixed relative humidity the vapour's emission level holds its temperature as the
+  surface warms (Simpson's law), so a share 1 − w of the Planck flux radiates at a fixed T_v, the
+  temperature where the vapour reaches 50 Pa·(g/g⊕)/(p/bar), and only the window w follows
+  the surface. Colder than T_v, the bands are open. W says how much water there is to close them:
+  the inventory against the ~3 kg/m² that does, reduced further when under 10% of the surface is sea.
+- **The floors.** Nothing radiates less than the band's core does. A sky of at least 1 bar of
+  CO₂ stops at 65 W/m²: Kopparapu's Fig. 5a levels out there near 10 bar at 273 K, once the air is
+  opaque at every infrared wavelength. It is that one curve's value, used at any temperature.
+- **Runaway.** A wet world's cap above still applies.
+
+### Where the constants come from
+
+Four constants are fits and each uses up one measured number. **So Earth's, Mars's and Venus's
+temperatures do not test this model; they calibrate it.** `realismcheck` keeps them as checks
+because they catch a column or constant that moves.
+
+| Constant | Value | Set by |
+| --- | --- | --- |
+| 2l | 18.87 cm⁻¹ | −5.35 W/m² per e-fold of CO₂ at today's Earth (Myhre et al. 1998, as [quoted by lowEBMs](https://lowebms.readthedocs.io/en/latest/code/functions_code/forcing.html); 3.7 W/m² per doubling) |
+| x₀ | 8.47×10⁻⁷ bar² | Mars at [NSSDC's](https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html) 214 K: (1 − 0.25)·586.2/4 W/m² |
+| K_CO₂ | 0.45 bar⁻² | closest fit of one exponent to Kopparapu's Fig. 5a and 2 bar case below |
+| K_SO₂ | 2.56×10⁴ bar⁻² | Venus at [NSSDC's](https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html) 737 K: (1 − 0.77)·2601.3/4 W/m² |
+| T_v's 50.1 Pa, w = 0.453 | | OLR(288.15 K) = 0.61σT⁴ (today's ice line) and dOLR/dT = 2.09 W/m²/K (North, Cahalan & Coakley's B) |
+
+What was not fitted, and so does test it:
+
+| Test | This model | Reference |
+| --- | --- | --- |
+| 2 bar of CO₂ on a Mars, 250 K | 82 W/m² | 86 (Kopparapu) and 88.4 (SMART), [their §2.2.1](https://arxiv.org/abs/1301.6674) |
+| 273 K, wet, over 1 bar of N₂, CO₂ at 1 / 3 / 10 / 35 bar | 138 / 102 / 65 / 65 W/m² | 112 / 88 / 67 / 65, read off their Fig. 5a |
+| Removing Earth's CO₂ | +33 W/m² | no number could be verified |
+| Venus's emission level | 0.46 bar | inside the 0.04–1.4 bar its VIRA column gives the deck at 70–48 km (heights assumed) |
+| Without its SO₂, Venus's balance | 585 K | below the 737 K it has: the deck is doing real work |
+| Mean molecular mass, Earth / Venus / Mars | 28.97 / 43.45 / 43.50 g/mol | NSSDC 28.97 / 43.45 / 43.49 |
+| Scale height and density of today's Earth in flight | 8.4 km, 1.23 kg/m³ | NSSDC 8.5, 1.217 |
+
+So in dense CO₂ this model runs up to 25% from a line-by-line one, worst at 1 bar. Its
+place is a game's panel, not a paleoclimate. Sources it could not open: the TAR's own Table 6.2
+and the PNAS text of Koll & Cronin (2018, the linear OLR) both refused the fetch; 0.036 for CH₄
+is the form the issue names, and NOAA's [AGGI](https://gml.noaa.gov/aggi/aggi.html) lists the
+newer Meinshausen fit, about 0.039 at today's CH₄, close enough to leave.
+
+### Domain
+
+`ClimateInputs.DOMAIN` rejects what the fits have no claim to, before any spawn, edit or preset
+changes anything: CO₂ past 100 bar (Venus's 89 is inside), the gases past 200 bar, CH₄ past
+10⁻³ bar (Myhre's term was built for today's ppm), SO₂ past 0.1 bar. Temperature is not
+rejected, since a world's T is state: OLR is meant for 150–800 K and is merely finite outside
+it. Not represented at all: H₂-rich air (its CIA is what warms Titan and a young Mars), so Titan
+and giants are out of this model; CO₂ clouds; and Rayleigh's effect on albedo (dense CO₂ should
+brighten a world, which is what makes Kopparapu's maximum greenhouse a maximum; here it is the
+draw's 8 bar limit and `albedoBase`).
+
+### What the column looks like
+
+The Rayleigh optical depth at 550 nm is τ = σ̄·p/(m̄g), with each gas's cross section worked out
+from He et al. (2021, [Table 1](https://doi.org/10.5194/acp-21-14927-2021))'s refractive index
+and King factor: N₂ 4.63, O₂ 4.05, CO₂ 11.6, CH₄ 9.9 (×10⁻²⁷ cm²); Ar takes N₂'s and SO₂ takes
+CO₂'s (neither sourced); water 3.7, scaled from Kopparapu's 2.6 at 600 nm. CO₂ against air comes
+to 2.6, Kopparapu's "2.5 times". That gives Earth 0.097, Mars 0.0027, Venus 16.
+
+`Atmosphere.limb` turns that into what `rocky_atmosphere.gdshader` takes. Per primary (680, 550,
+440 nm), the limb's brightness goes as 1 − exp(−mτ_λ) with τ_λ ∝ λ⁻⁴, each relative to Earth's
+column since the shader's β already carries λ⁻⁴: `uThick` from green, `uTint` from the others.
+So today's Earth is 1 and white, exactly as it was drawn; m = 5.27 air masses puts Venus's 16 at
+the 2.4 it was authored at. A thin sky goes blue; a thick one saturates towards white. Steam
+counts. A `planet` with `atmosphere` unstated grows a shell once `uThick` passes 0.01.
+
+Stated `atmColor`/`atmThick` still win, and two presets keep them because the gas column does
+not make their skies: Mars's is dust (its gas alone gives `uThick` 0.035 against its stated
+0.22) and Venus's colour is sulphuric (its depth is now derived). There is no dust input.
+Without one Mars cannot go further, and adding one is the look phase's call.
+
+In flight, `Rocketry.flight_env` gives an uncatalogued world `Climate.flight_atmosphere()`:
+that column at its present temperature, isothermal, with γ and M from the mixture, its tint moved
+by the limb's and the sky dome's `uThick` from τ (Earth's column is 1.0; the grey path previously read ρ₀).
+This replaces the Jeans-test guess for any world with a climate, so its drag changes too. A
+catalogued atmosphere is measured and stays, whatever is edited on the body.
+
+## Water
+
+A world's water is one inventory, `m = ρ·oceanDepth·(1 − land)` kg/m², with ρ = 1025 kg/m³;
+Earth's 3.7 km and 29% come to 2.7×10⁶ kg/m². `ocean + steam + lost = 1` are fractions of it,
+and everything that used Earth's constants uses it instead: the steam's pressure is `steam·m·g`, the
+latent heat `m·L`, the hydrogen `m·2N_A/M`. A tenth of the water boils ten times the faster, under
+a tenth of the pressure, about 150 K cooler at the top of the curve.
+
+Water vapour and the sea set each other through it:
+
+- **The vapour's column** is 0.19 of the saturated column, an assumed share that gives Earth's
+  ~25 kg/m² at 288 K. A world holding less than that has no standing water at that temperature:
+  it reads as dry, draws no ice and only partly closes the water bands, until it is cold enough for
+  frost to stand. The state is still `ocean`: nothing is transferred, as the column is ~10⁻⁵ of a real sea.
+- **The boiling point** rises with the steam the sea has made, from the dry air's own pressure.
+  Thin air boils low, and the vapour raises the pressure it boils at, as `realismcheck` follows.
+- **Open water.** Below 10% sea the sky dries in proportion (humidity and water bands). The 10% is a
+  choice: land planets lose their water greenhouse at some coverage, and this is one line for it.
+
+### Salinity
+
+Sea water's freezing point is UNESCO's fit (Millero 1978), T_f = −0.0575 S + 1.710523×10⁻³ S^1.5 −
+2.154996×10⁻⁴ S² °C, S in g/kg at 1 atm: −1.92 °C at 35. It is fitted to 40 g/kg and extrapolated
+from there; the domain stops at 230, near NaCl's eutectic, where it says −18.7 °C against the
+measured −21 °C. The coefficients are transcribed, not re-checked against the UNESCO paper; the 35 g/kg value
+is the one the issue states. Everything that says when ice forms moves by T_f − T_f(35): the
+albedo's 278 K onset and 233 K end, the eras' 273 K and 233 K, and `LatitudeEBM.t_ice`. So sea water
+changes nothing, fresh water freezes 1.9 K earlier, and brine holds off 17 K.
+
+Boiling-point elevation, a brine's lower heat capacity and the sea's density are not modelled.
+
+### States
+
+| State | How a world reaches it | Era |
+| --- | --- | --- |
+| No ocean | `oceans: false`, `land: 1`, `oceanDepth: 0`, or all of it lost; or too little to stand | Dry world |
+| Global ocean | `land` below 0.05, temperate | Global ocean |
+| Ice shell | `land` below 0.05, frozen to the equator | Ice shell |
+| Continents | otherwise | Stable, Chaotic, Moist, Scorching or Deep Freeze by temperature |
+| Steam | steam outweighs the dry air | Runaway greenhouse |
+
+The panel names the era and shows the air's pressure and the sea's depth, salinity and land. An
+ice shell's ocean is an inventory: without internal heat nothing says it is liquid underneath.
