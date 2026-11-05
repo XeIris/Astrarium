@@ -166,30 +166,36 @@ steps a bare model beside it and compares bit for bit, and holds a home Earth to
 
 #### Trisolaris's CO₂
 
-The `trisolaris` preset states `pCO2: 0.08`. **That is an authored choice**, not a derivation: the
-owner asked for this world to play as it did on the ε model, measured over its first 6000 frames
-(35 years). On today's air it went from a 234 K mean and 61% of frames in Deep Freeze to 199 K and
-94%; with this CO₂ it is 231 K and 60%, and `realismcheck` holds it there.
+The `trisolaris` preset states `pCO2: 0.12`. **That is an authored choice**, not a derivation: the
+owner chose it so the long run matches the preset's blurb, "temperate seasons and cold spells".
+On today's air, at this world's mean of 0.86 S⊕, 200 years are 99% Deep Freeze. With this CO₂:
 
-It matches that span and no longer one. Over 200 years the ε model stays at a 231 K mean, 64%
-frozen, because it thaws again and again. This one reaches 205 K, 93% frozen: a snowball here
-radiates nearly as a black body once the water bands open, so it is colder and harder to
-leave, and the first passes do most of the thawing. No CO₂ reproduces the long run, because the
-climate splits sharply: at 0.10 bar 200 years are still 87% frozen (210 K), and at 0.11 bar none
-are (284 K, 158 years temperate and 37 cold, with no Deep Freeze).
+| 200 years | Mean | Range | Temperate | Cold | Hot | Deep Freeze |
+| --- | --- | --- | --- | --- | --- | --- |
+| The single ε (PR 48) | 231 K | 223–301 K | 1.9 yr | 70 yr | 0 | 128 yr |
+| Today's air | 195 K | 188–288 K | 1.0 yr | 1.0 yr | 0 | 198 yr |
+| **0.12 bar** | **286 K** | **268–310 K** | **167 yr** | **26 yr** | **7 yr** | **0** |
 
-So the target is narrow. Over the same 35 years, by CO₂:
+It plays warmer than the single ε did: that model's deep freezes are gone by choice. Its first
+35 years read 284 K, 29 temperate and 6 cold, and `realismcheck` holds them.
 
-| `pCO2`, bar | 0.05 | 0.06 | 0.07 | 0.08 | 0.085 | 0.09 | 0.10 | 0.11 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| mean, K | 216 | 220 | 225 | 231 | 235 | 241 | 257 | 282 |
-| Deep Freeze, % | 77 | 72 | 67 | 60 | 55 | 48 | 27 | 0 |
+The climate flips between a lasting freeze and none, so the value is chosen clear of the edge:
 
-The stepping is not what makes it sensitive: half to four times the frame length gives 59.5–60.5%.
-The start is. At 0.08 bar, starting from 260 / 275 / 300 K gives 97 / 74 / 59% frozen; restarting the
-climate 10 / 25 / 50 / 100 years into the orbit gives 74 / 75 / 76 / 55%; a mixed layer of 6 / 24 m
-gives 94 / 0%. When a world first freezes decides most of it, and a snowball then rarely leaves. The
-figures above are for this preset's exact start, and an edit of its flywheel moves them a long way.
+| `pCO2`, bar | 0.08 | 0.10 | 0.105 | 0.11 | 0.115 | **0.12** | 0.125 | 0.13 | 0.14 | 0.15 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Mean over 200 yr, K | 205 | 210 | 233 | 284 | 285 | **286** | 287 | 287 | 288 | 289 |
+| Deep Freeze, yr | 186 | 175 | 119 | 0 | 0 | **0** | 0 | 0 | 0 | 0 |
+| Cold, yr | 5.6 | 9.2 | 22 | 37 | 30 | **26** | 21 | 17 | 9.0 | 1.5 |
+
+Above the flip the result is steady: half to four times the frame length gives 166–168 temperate
+years, and restarting the climate 10 to 100 years into the orbit gives 166–168. What it does not
+survive is a world that is already frozen, or one that cools too fast. Starting at 275 K or
+300 K changes little, but from 260 K or 240 K it never thaws (199 and 200 of 200 years frozen,
+the snowball's hysteresis). The flywheel matters as much: at 12 m the world dips to 268 K and comes
+back before the ice-albedo feedback takes it; at 6 m it does not (197 years frozen), and at 24 m or
+more it never leaves the temperate band. So the panel's mixed-layer slider can freeze this world
+for good, and its reset button is the way back.
+
 Other Trisolaris presets state no CO₂ and take today's air.
 
 ### The draw

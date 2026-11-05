@@ -477,19 +477,31 @@ func home_is_unchanged() -> void:
 	print("REALISMCHECK HOME settled T=%s edge=%s" % [settled.T, edge_deg])
 	check("a home world holds today's ice line at 1 S⊕", absf(edge_deg - 72.0) < 2.0 and near(settled.T, 288.0, 0.005))
 	check("a home world's model is today's air over today's sea", Climate.HOME_INPUTS.albedoBase == 0.306 and Climate.HOME_INPUTS.pCO2 == Climate.EARTH_AIR.pCO2 and Climate.HOME_INPUTS.pN2 == Climate.EARTH_AIR.pN2)
-	# Trisolaris's stated CO₂ is tuned to its first 35 years on the ε model: 234 K, 61% frozen.
+	# Trisolaris's stated CO₂ is chosen so its blurb's "temperate seasons and cold spells" hold.
 	check("trisolaris loads", stage.load_preset("trisolaris"))
 	var cl: Climate = stage.get_home().climate
 	dt = float(stage.state.time_scale) / 60.0
 	mean = 0.0
 	frames = 6000
-	var frozen := 0
+	var seen := {"STABLE": 0, "COLD": 0, "DEEP_FREEZE": 0}
 	for i in frames:
 		stage.step_physics(dt)
 		mean += cl.T / frames
-		if cl.era.key == "DEEP_FREEZE": frozen += 1
-	print("REALISMCHECK HOME trisolaris 35 yr mean=%s frozen=%s of %s" % [mean, frozen, frames])
-	check("Trisolaris plays near its old first 35 years", absf(mean - 234.0) < 6.0 and absf(float(frozen) / frames - 0.61) < 0.06)
+		seen[cl.era.key] = seen.get(cl.era.key, 0) + 1
+	print("REALISMCHECK HOME trisolaris 35 yr mean=%s eras=%s" % [mean, seen])
+	check("Trisolaris's seasons are temperate", absf(mean - 284.3) < 3.0 and float(seen.STABLE) / frames > 0.7)
+	check("with cold spells", seen.COLD > 300)
+	check("and no deep freeze", seen.DEEP_FREEZE == 0)
+	# The climate flips to a lasting freeze just below 0.11 bar; the stated value must stay above it.
+	check("trisolaris reloads", stage.load_preset("trisolaris"))
+	cl = stage.get_home().climate
+	check("Trisolaris's stated CO₂ clears the flip", float(cl.pressures.pCO2) >= 0.115)
+	stage.edit_body(stage.get_home(), {"pCO2": 0.11})
+	var froze := false
+	for i in frames:
+		stage.step_physics(dt)
+		froze = froze or cl.era.key == "DEEP_FREEZE"
+	check("and even 0.11 bar stays out of it", not froze)
 
 func home_removed() -> void:
 	check("home scenario loads", load_worlds([

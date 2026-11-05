@@ -76,10 +76,10 @@ step-sensitive failures and single lucky passing refinement remain in the
 
 A 200-year probe samples every accepted frame through the production `Climate`
 model, as the stars run in the preset, with its authored
-[0.08 bar of CO₂](physics/climate.md#trisolaris-co). Insolation ranges **0.534–1.617 S⊕**, a
-mean near 0.86, and temperature **193.6–301.5 K**. Of the 200 years about 8.5 are temperate,
-5.6 cold and 185.9 in Deep Freeze; nearly all the thawing is in the first 35, so a longer
-run reads colder. This is one short run, not a 60 000-year climate envelope.
+[0.12 bar of CO₂](physics/climate.md#trisolaris-co). Insolation ranges **0.534–1.617 S⊕**, a
+mean near 0.86, and temperature **267.6–310.2 K**, a mean of 286 K. Of the 200 years about 167.4
+are temperate, 25.8 cold and 6.9 hot, with no Deep Freeze. This validates short-term changing
+seasons, not a 60 000-year climate envelope.
 
 Run `python3 tools/check.py stability` for the strict authored baseline, or
 `python3 tools/check.py stability-study` for all nine cases. Direct headless
