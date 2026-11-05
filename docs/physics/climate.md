@@ -1,6 +1,7 @@
 # Climate: `sim/climate.gd`
 
-A zero-dimensional energy balance for the home world,
+A zero-dimensional energy balance for each rocky or ocean world
+([per world](#a-climate-per-world) below),
 
     C dT/dt = (1 − α(T)) S/4 − OLR(T),   OLR = ε σ T⁴
 
@@ -51,7 +52,7 @@ A world with no water left loses the runaway cap and heats to its dry equilibriu
 A young or active star's XUV excess, which would dry a world far faster, is not
 modelled, and the escape uses Earth's gravity and column for every world.
 
-A world declared without oceans (`climate.oceans = false`) has no cap.
+A world without oceans (`oceans: false`) has no cap.
 
 ## The habitable zone
 
@@ -108,3 +109,118 @@ follow (`realismcheck` drives 0.85 S₀ into deep freeze). Otherwise the global
 model keeps its own albedo ramp, which already includes today's caps.
 `tools/realismcheck.tscn` checks the 72° edge, the snowball threshold, the
 hysteresis and the inverted case.
+
+## A climate per world
+
+Every `planet` or `world` body has its own `Climate` in `b.climate`; a body that stops
+being one (a collapse, a merger into a hole) loses it. `ClimateInputs` holds the rest.
+The panel reads the focused world, or the home world when the focus has no climate.
+
+### Inputs
+
+Flat spec fields, validated with mass and spin by `Structure.input_error` before a
+spawn, edit or preset changes anything:
+
+| Field | Meaning | Domain |
+| --- | --- | --- |
+| `mixedLayer` | thermal flywheel, metres of water | 0.1–5000 |
+| `greenhouse` | effective emissivity ε | 0.005–1 |
+| `albedoBase` | ice-free Bond albedo; `albedo` stands in for it when unset | 0–1 |
+| `albedoIce` | albedo added at full glaciation; with the base at most 1 | 0–1 |
+| `oceans` | whether the world has water to freeze, boil and lose | bool |
+| `T0` | starting temperature, K; only read when the world is created | 3–5000 |
+
+A stated value wins, and an edit is a stated value; setting one to null returns to the
+draw. An edit naming only these fields keeps the body's visual and structure, so a
+slider cannot disturb a tracked spin. `albedo` also draws the surface, so it rebuilds.
+
+A rendered `planet` still works out its own surface temperature from `albedo` and
+`greenhouse` when its visual is built, so it does not yet read this model or the draw:
+that is the later look phase. A `world`'s surface already follows its own `b.climate`.
+
+The home world draws nothing. It keeps `Climate.HOME_INPUTS`, and a preset's `climate`
+block is merged into its spec, so its result is the model it always was (`realismcheck`
+steps a bare model beside it and compares bit for bit). Its `albedo` describes its look,
+not this model's base of 0.22, which is why a home Earth settles near 296 K, not 288 K.
+
+### The draw
+
+An unstated input is drawn once, when the world is created, from the mass, radius and
+insolation it has then. Each field has its own stream, hashed from the body's `seed` (or
+its name when it has none), the run's `seed=` and the field's name, so the same scenario
+always gives the same worlds. Later edits, orbits and mergers do not redraw.
+
+What a world keeps comes from the cosmic shoreline, the empirical divide between
+solar-system bodies with and without air, I ∝ v_esc⁴
+([Zahnle & Catling 2017](https://doi.org/10.3847/1538-4357/aa7846)). They draw the line by
+eye and give no coefficient, so this one is pinned by putting Mars on it (5.03 km/s at
+0.43 S⊕, so v₀ = 6.2 km/s), and retention is
+
+    x = log₁₀[(v_esc / 6.2 km/s)⁴ / S]
+
+which gives Mars 0, Venus 0.6, Earth 1.0, Titan 0.5; the Moon −1.7, Mercury −1.5,
+Callisto −0.2. Ganymede lands on the line (0.0) with no real atmosphere, so read this as
+a boundary a world may lie near, not a verdict on one. S is floored at 10⁻⁴ S⊕.
+
+| World | When | ε | `albedoBase` | `albedoIce` | `mixedLayer`, m |
+| --- | --- | --- | --- | --- | --- |
+| Ocean | x ≥ 0, S ≤ runaway, with probability 0.9·min(x, 1) | ε(x) ± 0.06 | 0.25–0.35 | 0.3–0.5 | 10–60 (log) |
+| Airless | x < 0 | 0.9–1.0 | 0.07–0.25 | 0 | 0.5–3 (log) |
+| Thick and dry | S > runaway, x ≥ 0.3 | 0.0089–0.3 (log) | 0.3–0.77 | 0 | 30–300 (log) |
+| Thin and dry | the rest | ε(x) ± 0.06, at most 1 | 0.15–0.35 | 0 | 0.5–3 (log) |
+
+Stating `oceans` picks the first row or one of the dry rows without a roll. Runaway is
+`Climate.hz_flux("runaway", Teff)` for the brightest star. A world whose T0 is unstated
+starts at its warmest balance (`equilibrium_T`), both models together, so a cold world
+starts on the frozen branch rather than cooling from 288 K.
+
+Where each number comes from. The ranges around these anchors are choices, made to give
+the "a little randomised" the issue asks for, and not fits to a population of planets:
+
+- **ε(x).** Falls linearly from 0.95 at x = 0 (Mars, stated in the preset) to 0.61 at
+  x = 1 (Earth), then to 0.45 at x = 2 for a deeper atmosphere (a choice).
+- **Venus's ε.** 0.0089 is what balances the [NSSDC](https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html)
+  737 K at albedo 0.77 and 1.91 S⊕: (1 − 0.77)·1.91·340 W/m² / σ(737 K)⁴.
+- **Albedos.** NSSDC Bond albedos anchor the rows: Mercury 0.068, Moon 0.11, Mars 0.25,
+  Earth 0.294, Venus 0.77. The extra ice albedo brackets North et al.'s 0.32 (coalbedo
+  0.697 to 0.38, `sim/ebm.gd`) and this model's existing 0.45.
+- **Dry flywheel.** Rock's annual skin depth is √(κP/π) = 3.2 m with κ ≈ 10⁻⁶ m²/s, and
+  with ρc ≈ 2×10⁶ J m⁻³ K⁻¹ that is 6.3×10⁶ J m⁻² K⁻¹, 1.5 m of water (assumed typical rock
+  values). The range is a factor of about two around it.
+- **Venus's flywheel.** 92 bar of CO₂ over 8.87 m/s², with c_p ≈ 1100 J kg⁻¹ K⁻¹ (assumed),
+  is 1.1×10⁹ J m⁻² K⁻¹, about 270 m of water, the thick row's upper end.
+- **Ocean flywheel.** 10–60 m spans the mixed layers this project's presets already
+  state. It is not fitted to an ocean climatology.
+- **Bare ε.** 0.9–1 says bare ground radiates close to a black body; it is not fitted to
+  a measured regolith emissivity.
+- **The 0.9 and the 0.3.** The chance of an ocean and the threshold for a Venus's air are
+  choices. The solar system's own bodies do not constrain them. Volatile delivery is not
+  modelled.
+
+The solar preset states its six rocky worlds, so nothing there is drawn, and
+`realismcheck` compares them with NSSDC: Mercury 432 K (440), Venus 739 K (737), Earth
+289 K (288), Moon 270 K (270.4 black body), Mars 212 K (214), each a mean over several
+orbits at the J2000 start, with Pluto in its own balance.
+
+### Stepping
+
+The home world and the panel's world step every frame. The others take turns, two a frame
+(`CLIMATE_TURNS`), owing their accepted years until then, so every world keeps the same
+clock. A world's sunlight is read when it steps, so one that steps less often samples an
+eccentric orbit more coarsely. A step costs about 19 µs for an ocean world and 3 µs for
+a dry one, which has no latitude model and takes one backward-Euler step solved by Newton,
+stable at any frame length.
+
+An ocean world keeps its explicit sub-steps, up to 64 per step. Past that cap, where the
+explicit T⁴ term can diverge, a sub-step is implicit in linearised T⁴. No scenario reaches
+this on a temperate world (it needs about 30 yr per frame with a 12 m layer). It does at
+3.2 yr per frame once a world's ocean has all boiled and it sits against the 1600 K end of
+the runaway cap, where the explicit step swung between 25 K and 1530 K and this one swings
+between 1230 K and 1600 K. A step across that jump in the outgoing longwave is still not
+resolved.
+
+### Not modelled yet
+
+Land thermal inertia differing from ocean on one world, CO₂ cycling (the silicate-weathering
+thermostat that would keep an outer world's oceans liquid), tidal locking, internal heat
+and any gas composition. A dry world has no ice line, even one with CO₂ caps like Mars's.

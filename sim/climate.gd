@@ -1,7 +1,7 @@
 class_name Climate
 extends RefCounted
 
-# CLIMATE: a zero-dimensional energy-balance model.
+# CLIMATE: one world's zero-dimensional energy-balance model.
 #   C · dT/dt = (1 − α(T)) · S/4  −  ε σ T⁴
 #   S     total stellar flux, Σ L_i / d_i² (solar constants × 1361 W/m²)
 #   α(T)  albedo rising as the planet freezes: the ice-albedo runaway
@@ -45,7 +45,11 @@ const ERAS := {
 	"SCORCH":      { "key": "SCORCH",      "label": "Scorching",    "cls": "era-scorch", "desc": "Oceans boiling off. Nothing survives unburied." },
 	"RUNAWAY":     { "key": "RUNAWAY",     "label": "Runaway greenhouse", "cls": "era-scorch", "desc": "The sky is steam and cannot shed more heat. The oceans are boiling into it." },
 	"MOIST":       { "key": "MOIST",       "label": "Moist greenhouse", "cls": "era-hot", "desc": "Water reaches the stratosphere, sunlight splits it, and the hydrogen leaks to space. The oceans are going for good." },
+	"DRY":         { "key": "DRY",         "label": "Dry world",    "cls": "era-cold", "desc": "No ocean to freeze or boil. The ground answers the sunlight directly." },
 }
+
+# What a home world's climate assumes where its preset says nothing.
+const HOME_INPUTS := { "mixedLayer": 12.0, "greenhouse": 0.61, "albedoBase": 0.22, "albedoIce": 0.45, "oceans": true }
 
 # Kopparapu et al. (2013, with its erratum), Table 3: S_eff = S☉ + aT + bT² + cT³ + dT⁴,
 # T = Teff − 5780 K, valid for 2600–7200 K.
@@ -88,20 +92,74 @@ var snowball: bool = false
 var history_max: int = 900
 var _acc: float = 0.0
 var extremes: Dictionary = {}
+# The inputs under what the spec states (ClimateInputs): unsetting a stated value returns here.
+var drawn: Dictionary = HOME_INPUTS
+# Accepted years this world has not stepped yet (catch_up).
+var pending: float = 0.0
 
-## `opts` is the preset's `climate` Dictionary (mixedLayer, greenhouse,
-## albedoBase, albedoIce, T0).
+## `opts` holds the inputs ClimateInputs.KEYS names; HOME_INPUTS fills the rest.
 func _init(opts: Dictionary = {}) -> void:
-	mixed_layer = float(U.nz(opts.get("mixedLayer"), 12.0))
-	greenhouse = float(U.nz(opts.get("greenhouse"), 0.61))
-	albedo_base = float(U.nz(opts.get("albedoBase"), 0.22))
-	albedo_ice = float(U.nz(opts.get("albedoIce"), 0.45))
+	mixed_layer = float(U.nz(opts.get("mixedLayer"), HOME_INPUTS.mixedLayer))
+	greenhouse = float(U.nz(opts.get("greenhouse"), HOME_INPUTS.greenhouse))
+	albedo_base = float(U.nz(opts.get("albedoBase"), HOME_INPUTS.albedoBase))
+	albedo_ice = float(U.nz(opts.get("albedoIce"), HOME_INPUTS.albedoIce))
 	T = float(U.nz(opts.get("T0"), 288.0))
-	wet = bool(opts.get("oceans", true))
+	wet = bool(opts.get("oceans", HOME_INPUTS.oceans))
 	if not wet: ocean = 0.0
 	# Seed S extremes from the empty interval, or a fictitious 1.00 S⊕ is reported as
 	# observed.
 	extremes = { "Tmin": T, "Tmax": T, "Smin": INF, "Smax": -INF }
+
+## Take `stated` over the drawn inputs, for a new world or an accepted edit. T0 is a
+## starting condition, so a live edit leaves the temperature to the new balance.
+func apply_inputs(stated: Dictionary) -> void:
+	mixed_layer = float(U.nz(stated.get("mixedLayer"), drawn.mixedLayer))
+	greenhouse = float(U.nz(stated.get("greenhouse"), drawn.greenhouse))
+	albedo_base = float(U.nz(stated.get("albedoBase"), drawn.albedoBase))
+	albedo_ice = float(U.nz(stated.get("albedoIce"), drawn.albedoIce))
+	var now_wet := bool(U.nz(stated.get("oceans"), drawn.oceans))
+	if now_wet != wet:
+		wet = now_wet
+		ocean = 1.0 if wet else 0.0
+		steam = 0.0
+		escape_flux = 0.0
+		if not wet:
+			ice = 0.0; ice_edge = 1.0; snowball = false
+
+## Start the 0-D model and the latitude model together at `T0` K.
+func start_at(T0: float) -> void:
+	T = T0
+	ebm.reset(T0 - 273.15)
+	extremes = { "Tmin": T0, "Tmax": T0, "Smin": INF, "Smax": -INF }
+
+## The warmest balance at insolation `s_earth`, K; a wet world's ceiling is its boiling point.
+func equilibrium_T(s_earth: float) -> float:
+	var q := s_earth * S0 / 4.0
+	var hi := boiling_point(0.0) if wet else pow(q / (greenhouse * SIGMA), 0.25) + 1.0
+	if wet and _net_flux(hi, q) >= 0.0: return hi
+	var t := hi
+	while t > 3.0:
+		var next := t * 0.98
+		if _net_flux(next, q) >= 0.0:
+			var warm := t
+			var cool := next
+			for i in 40:
+				var mid := 0.5 * (warm + cool)
+				if _net_flux(mid, q) >= 0.0: cool = mid
+				else: warm = mid
+			return cool
+		t = next
+	return 3.0
+
+func _net_flux(t: float, q: float) -> float:
+	return (1.0 - _albedo_at(t)) * q - olr(t)
+
+## Accepted years since this world last stepped, plus `dt_years`, all at once. The home
+## world and the panel's pass through here with nothing owed.
+func catch_up(dt_years: float, planet: Body, stars: Array) -> void:
+	var owed := pending + dt_years
+	pending = 0.0
+	step(owed, planet, stars)
 
 var heat_capacity: float:       # J m⁻² K⁻¹
 	get: return mixed_layer * RHO_CW
@@ -116,10 +174,16 @@ var celsius: float:
 
 ## Returns { alb, ice }.
 func albedo(t: float) -> Dictionary:
-	# ice fraction ramps in between 278 K and 233 K
-	var ic := minf(maxf((278.0 - t) / 45.0, 0.0), 1.0)
-	if snowball: ic = 1.0
-	return { "alb": albedo_base + albedo_ice * ic, "ice": ic }
+	return { "alb": _albedo_at(t), "ice": _ice_cover(t) }
+
+# Ice fraction: ramps in between 278 K and 233 K. Without water there is none to reflect.
+func _ice_cover(t: float) -> float:
+	if not wet: return 0.0
+	if snowball: return 1.0
+	return minf(maxf((278.0 - t) / 45.0, 0.0), 1.0)
+
+func _albedo_at(t: float) -> float:
+	return minf(albedo_base + albedo_ice * _ice_cover(t), 1.0)
 
 # Insolation from every luminous body, in units of Earth's solar constant.
 # `planet` and `stars` are Bodies, positions in AU.
@@ -177,6 +241,7 @@ func hydrogen_escape(t: float, s_earth: float) -> float:
 	return minf(2.5e17 * 2.0 * stratospheric_water(t), ESCAPE_ENERGY_CAP * s_earth)
 
 func classify(t: float) -> Dictionary:
+	if not wet: return ERAS.DRY
 	if steam > 0.01: return ERAS.RUNAWAY
 	if t < 233.0: return ERAS.DEEP_FREEZE
 	if t < 273.0: return ERAS.COLD
@@ -191,53 +256,8 @@ func step(dt_years: float, planet: Body, stars: Array) -> void:
 	time += dt_years
 	S = insolation(planet, stars)
 
-	# Sub-step so a big frame-step can't overshoot the T⁴ term into instability.
-	var tau := maxf(tau_years, 1e-4)
-	var n := mini(64, maxi(1, int(ceil(dt_years / (tau * 0.25)))))
-	var h := dt_years / float(n)
-	for i in n:
-		var ab := albedo(T)
-		var absorbed := (1.0 - float(ab.alb)) * S * S0 / 4.0
-		var net := absorbed - olr(T)
-		var boil := boiling_point(steam)
-		# At the boiling point the flux goes into latent heat, which outweighs the mixed
-		# layer's sensible heat by 10⁵ K: the ocean boils, or the steam rains out.
-		if net > 0.0 and ocean > 0.0 and T >= boil:
-			var dm := minf(net * h * YEAR_S / OCEAN_COLUMN_LATENT, ocean)
-			ocean -= dm; steam += dm
-			T = boiling_point(steam)
-		elif net < 0.0 and steam > 0.0 and T <= boil:
-			var dm := minf(-net * h * YEAR_S / OCEAN_COLUMN_LATENT, steam)
-			steam -= dm; ocean += dm
-			T = boiling_point(steam)
-		else:
-			T += net / heat_capacity * (h * YEAR_S)
-		T = maxf(T, 3.0)
-		ice = ab.ice
-		# Lost from the air first, then the sea; a world with none left dries for good.
-		escape_flux = hydrogen_escape(T, S) if ocean + steam > 0.0 else 0.0
-		var dl := minf(escape_flux * h * YEAR_S / OCEAN_H_PER_M2, ocean + steam)
-		if dl > 0.0:
-			var from_steam := minf(dl, steam)
-			steam -= from_steam; ocean -= dl - from_steam
-			ocean = maxf(ocean, 0.0)
-			lost += dl
-
-	# The latitude model on the same clock, its OLR line pinned to this model's emission at
-	# 288 K, so the two agree on a temperate world's mean.
-	var obl := float(U.nz(planet.spec.get("obliquity"), planet.obliquity))
-	var A := greenhouse * SIGMA * pow(288.15, 4.0) - LatitudeEBM.B * 15.0
-	ebm.step(dt_years * YEAR_S, S * S0 / 4.0, RockyVisual.insolation_s2(obl), A, heat_capacity)
-	ice_edge = ebm.ice_edge()
-	snowball = ebm.snowball()
-	ice = maxf(ice, ebm.ice_fraction())
-
-	# Humidity → cloud → weather: saturation vapour pressure roughly doubles every 10 K.
-	var cc := pow(2.0, (T - 288.0) / 10.0)
-	humidity = minf(1.0, cc * (1.0 - ice) * 0.5) if ocean + steam > 0.0 else 0.0
-	clouds = minf(0.95, 0.12 + humidity * 0.75)
-	# storminess scales with how hard the insolation is changing plus raw heat
-	storm = minf(1.0, humidity * 0.8 + maxf(0.0, (T - 300.0) / 60.0))
+	if wet: _step_wet(dt_years, planet)
+	else: _step_dry(dt_years)
 
 	era = classify(T)
 
@@ -253,12 +273,82 @@ func step(dt_years: float, planet: Body, stars: Array) -> void:
 		history.append([time, S, T])
 		if history.size() > history_max: history.pop_front()
 
+## An ocean's state: sub-stepped explicitly, with the latitude model on the same clock.
+func _step_wet(dt_years: float, planet: Body) -> void:
+	# Sub-step so a big frame-step can't overshoot the T⁴ term into instability.
+	var tau := maxf(tau_years, 1e-4)
+	var n := mini(64, maxi(1, int(ceil(dt_years / (tau * 0.25)))))
+	var h := dt_years / float(n)
+	var hs := h * YEAR_S
+	var cap := heat_capacity
+	for i in n:
+		var ic := _ice_cover(T)
+		var absorbed := (1.0 - minf(albedo_base + albedo_ice * ic, 1.0)) * S * S0 / 4.0
+		var net := absorbed - olr(T)
+		var boil := boiling_point(steam)
+		# At the boiling point the flux goes into latent heat, which outweighs the mixed
+		# layer's sensible heat by 10⁵ K: the ocean boils, or the steam rains out.
+		if net > 0.0 and ocean > 0.0 and T >= boil:
+			var dm := minf(net * h * YEAR_S / OCEAN_COLUMN_LATENT, ocean)
+			ocean -= dm; steam += dm
+			T = boiling_point(steam)
+		elif net < 0.0 and steam > 0.0 and T <= boil:
+			var dm := minf(-net * h * YEAR_S / OCEAN_COLUMN_LATENT, steam)
+			steam -= dm; ocean += dm
+			T = boiling_point(steam)
+		else:
+			var dT := net / cap * hs
+			# Past the sub-step cap explicit T⁴ can diverge; linearise it implicitly there.
+			var stiff := 4.0 * greenhouse * SIGMA * T * T * T / cap * hs
+			T += dT / (1.0 + stiff) if stiff > 1.0 else dT
+		T = maxf(T, 3.0)
+		ice = ic
+		# Lost from the air first, then the sea; a world with none left dries for good.
+		escape_flux = hydrogen_escape(T, S) if ocean + steam > 0.0 else 0.0
+		var dl := minf(escape_flux * h * YEAR_S / OCEAN_H_PER_M2, ocean + steam)
+		if dl > 0.0:
+			var from_steam := minf(dl, steam)
+			steam -= from_steam; ocean -= dl - from_steam
+			ocean = maxf(ocean, 0.0)
+			lost += dl
+
+	# The latitude model on the same clock, its OLR line pinned to this model's emission at
+	# 288 K, so the two agree on a temperate world's mean.
+	var obl := float(U.nz(planet.spec.get("obliquity"), planet.obliquity))
+	var A := greenhouse * SIGMA * pow(288.15, 4.0) - LatitudeEBM.B * 15.0
+	ebm.step(dt_years * YEAR_S, S * S0 / 4.0, RockyVisual.insolation_s2(obl), A, cap)
+	ice_edge = ebm.ice_edge()
+	snowball = ebm.snowball()
+	ice = maxf(ice, ebm.ice_fraction())
+
+	# Humidity → cloud → weather: saturation vapour pressure roughly doubles every 10 K.
+	var cc := pow(2.0, (T - 288.0) / 10.0)
+	humidity = minf(1.0, cc * (1.0 - ice) * 0.5) if ocean + steam > 0.0 else 0.0
+	clouds = minf(0.95, 0.12 + humidity * 0.75)
+	# storminess scales with how hard the insolation is changing plus raw heat
+	storm = minf(1.0, humidity * 0.8 + maxf(0.0, (T - 300.0) / 60.0))
+
+## No water: one backward-Euler step, solved by Newton from above the root, where this
+## convex residual converges monotonically. A thin dry layer is stiff at any frame length.
+func _step_dry(dt_years: float) -> void:
+	var a := (1.0 - _albedo_at(T)) * S * S0 / 4.0
+	var e := greenhouse * SIGMA
+	var k := dt_years * YEAR_S / heat_capacity
+	var x := maxf(T, pow(a / e, 0.25))
+	for i in 8:
+		var x3 := x * x * x
+		var dx := (x - T - k * (a - e * x3 * x)) / (1.0 + 4.0 * k * e * x3)
+		x -= dx
+		if absf(dx) < 1e-6 * x: break
+	T = maxf(x, 3.0)
+	ice = 0.0; humidity = 0.0; clouds = 0.0; storm = 0.0; escape_flux = 0.0
+
 func reset(T0: float = 288.0) -> void:
 	T = T0; time = 0.0; history.clear()
 	# Reset every derived quantity too (world.gd reads ice, the HUD era and clouds).
-	S = 1.0; ice = 0.0; clouds = 0.4; humidity = 0.5
+	S = 1.0; ice = 0.0; clouds = 0.4 if wet else 0.0; humidity = 0.5 if wet else 0.0
 	ebm.reset(T0 - 273.15); ice_edge = 1.0; snowball = false
 	ocean = 1.0 if wet else 0.0; steam = 0.0; lost = 0.0; escape_flux = 0.0
-	era = ERAS.STABLE
-	per_star.clear(); _acc = 0.0
+	era = ERAS.STABLE if wet else ERAS.DRY
+	per_star.clear(); _acc = 0.0; pending = 0.0
 	extremes = { "Tmin": T0, "Tmax": T0, "Smin": INF, "Smax": -INF }

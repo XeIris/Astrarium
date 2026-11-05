@@ -492,6 +492,8 @@ static func input_error(spec: Dictionary) -> String:
 	var age = spec.get("ageYr")
 	if age != null and (not _finite_number(age) or float(age) <= 0.0 or float(age) > 1e11):
 		return "Age must be a finite positive number of years, at most 1e11."
+	var climate_error := ClimateInputs.input_error(spec)
+	if not climate_error.is_empty(): return climate_error
 	if spec.get("type") == "bh":
 		var rs := Physics.schwarzschild(float(mass))
 		var lifetime := _hole_evaporation_years(float(mass))

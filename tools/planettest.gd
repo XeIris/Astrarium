@@ -129,10 +129,11 @@ func update_camera() -> void:
 
 func _step(step: float) -> void:
 	var ctx := VisualCtx.new()
-	ctx.suns = suns_ctx; ctx.bodies = all_bodies; ctx.climate = cap.get("climate")
+	ctx.suns = suns_ctx; ctx.bodies = all_bodies
 	ctx.time = t; ctx.scene_scale = scene_scale; ctx.cam_pos = cam_pos
 	ctx.camera = pipe.scene_cam; ctx.viewport_h = 720.0
 	for it in items:
+		it.body.climate = cap.get("climate")
 		it.viz.update(step, ctx)
 	painter.update(0.0, cam_pos)
 	if frame == frames:

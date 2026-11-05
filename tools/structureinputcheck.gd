@@ -19,12 +19,14 @@ func snapshot() -> Dictionary:
 			"spec": b.spec.duplicate(true), "structure": b.structure.duplicate(true),
 			"viz": b.viz, "marker": b.marker, "trail": b.trail,
 			"pos": [b.pos.x, b.pos.y, b.pos.z], "vel": [b.vel.x, b.vel.y, b.vel.z],
-			"scene_pos": [b.scene_pos.x, b.scene_pos.y, b.scene_pos.z]})
+			"scene_pos": [b.scene_pos.x, b.scene_pos.y, b.scene_pos.z], "climate": b.climate,
+			"climate_inputs": [b.climate.mixed_layer, b.climate.greenhouse, b.climate.albedo_base,
+				b.climate.albedo_ice, b.climate.wet] if b.climate != null else null})
 	return {"bodies": bodies, "next_id": stage.state.next_id,
 		"preset": stage.state.preset_key, "scene_scale": stage.state.scene_scale,
 		"body_scale": stage.state.body_scale, "true_scale": stage.state.true_scale,
 		"focus": stage.state.focus_id, "follow": stage.state.follow_id,
-		"home": stage.state.home_id, "climate": stage.state.climate,
+		"home": stage.state.home_id,
 		"years": stage.state.sim_years, "year_remainder": stage.state.year_remainder, "consumed": stage.state.consumed,
 		"cam_radius": stage.cam.radius, "cam_radius_to": stage.cam.radius_to,
 		"cam_theta": stage.cam.theta, "cam_phi": stage.cam.phi,
@@ -161,6 +163,37 @@ func schema_inputs() -> void:
 		and retrograde.visual_spin_rad_s == -4.0 and retrograde.obliquity == -0.4 and not retrograde.home)
 	var dark: Body = stage.spawn_body({"type": "white-dwarf", "luminosity": 0.0})
 	check("zero measured dwarf luminosity stays zero", dark != null and dark.luminosity == 0.0)
+
+func climate_inputs() -> void:
+	stage.load_preset("solar")
+	var original := snapshot()
+	var bad := [{"greenhouse": 0.0}, {"greenhouse": 1.01}, {"greenhouse": NAN}, {"greenhouse": "high"},
+		{"mixedLayer": 0.0}, {"mixedLayer": -1.0}, {"mixedLayer": INF}, {"mixedLayer": "deep"},
+		{"albedoBase": -0.1}, {"albedoBase": 1.01}, {"albedoIce": NAN}, {"albedoIce": 2.0},
+		{"albedoBase": 0.8, "albedoIce": 0.5}, {"albedo": -0.1}, {"albedo": "pale"},
+		{"T0": 2.0}, {"T0": INF}, {"T0": "warm"}, {"oceans": "yes"}, {"oceans": 1}, {"seed": "x"}, {"seed": NAN}]
+	for patch in bad:
+		check("climate spawn rejects %s" % patch, stage.spawn_body(U.merged({"type": "planet"}, patch)) == null)
+		check("climate spawn rejection is atomic", snapshot() == original)
+	var earth: Body = stage.state.body_named("Earth")
+	for patch in bad:
+		check("climate edit rejects %s" % patch, stage.edit_body(earth, patch) == null)
+		check("climate edit rejection is atomic", snapshot() == original)
+	for bad_preset in [{"mixedLayer": -1.0}, {"greenhuose": 0.5}, {"T0": "warm"}]:
+		var invalid: Dictionary = Presets.PRESETS.solar.duplicate()
+		invalid.climate = bad_preset
+		invalid.build = func() -> Array: return [{"type": "star", "mass": 1.0}, {"type": "world", "home": true}]
+		Presets.PRESETS["__invalid_climate"] = invalid
+		check("preset climate block rejects %s" % bad_preset, not stage.load_preset("__invalid_climate"))
+		check("preset climate rejection is atomic", snapshot() == original)
+	Presets.PRESETS.erase("__invalid_climate")
+	for patch in [{"greenhouse": 0.005}, {"greenhouse": 1.0}, {"mixedLayer": 0.1}, {"mixedLayer": 5000.0},
+		{"albedoBase": 0.0, "albedoIce": 1.0}, {"albedoBase": 1.0, "albedoIce": 0.0}, {"albedo": 1.0},
+		{"T0": 3.0}, {"T0": 5000.0}, {"oceans": false}, {"seed": 7}, {"seed": 0.5},
+		{"greenhouse": null, "mixedLayer": null, "albedoBase": null, "albedoIce": null, "albedo": null,
+			"T0": null, "oceans": null, "seed": null}]:
+		check("supported climate endpoint/unset value: %s" % patch,
+			Structure.input_error(stage._normalized_body_spec(U.merged({"type": "planet"}, patch))).is_empty())
 
 func numerical_time() -> void:
 	stage.clear_bodies()
@@ -352,6 +385,7 @@ func _ready() -> void:
 	rejected_inputs()
 	supported_inputs()
 	schema_inputs()
+	climate_inputs()
 	numerical_time()
 	measured_inputs()
 	await pending_editor_input()

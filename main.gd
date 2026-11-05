@@ -441,7 +441,16 @@ func spawn_body(spec: Dictionary) -> Body:
 	pipe.world_root.add_child(b.trail.node)
 
 	state.bodies.append(b)
+	if not _climates_deferred: _sync_climate(b)
 	return b
+
+# A preset's worlds draw from the light they start in, so they wait for all its stars.
+var _climates_deferred := false
+
+# A rocky or ocean world has a climate and nothing else does; called wherever a type can change.
+func _sync_climate(b: Body) -> void:
+	if not ClimateInputs.applies(b.type): b.climate = null
+	elif b.climate == null: b.climate = ClimateInputs.build(b, get_stars(), int(_cmd.get("seed", 0)))
 
 func remove_body(id) -> void:
 	var idx := -1
@@ -555,6 +564,12 @@ func edit_body(b: Body, patch: Dictionary):
 	if not reason.is_empty():
 		_reject_body_input(reason, b)
 		return null
+	# No new visual or structure, and a tracked spin stays what the tides made it.
+	if b.climate != null and ClimateInputs.climate_only(patch):
+		b.spec = spec
+		b.climate.apply_inputs(ClimateInputs.stated(spec))
+		refresh_ui()
+		return b
 	var old_mass := b.mass
 	var old_softening := b.softening
 	var old_type := b.type
@@ -575,6 +590,8 @@ func edit_body(b: Body, patch: Dictionary):
 	Derive.derive_body(b, spec)
 	if rotation_only: b.viz.refresh_rotation()
 	else: attach_visual(b)
+	_sync_climate(b)
+	if b.climate != null: b.climate.apply_inputs(ClimateInputs.stated(b.spec))
 	if moved and b.trail != null:
 		# A teleport must not draw an orbit segment connecting unrelated positions.
 		b.trail_head = 0
@@ -630,6 +647,7 @@ func transmute(b: Body, new_type: String, why, remnant_spec: Dictionary = {}) ->
 	# same operation.
 	Derive.derive_body(b, b.spec)
 	attach_visual(b)
+	_sync_climate(b)
 	if why: toast(why, 5200)
 	refresh_ui()
 
@@ -933,10 +951,49 @@ func _step_secular(stepped: float) -> void:
 		b.gained = 0.0
 		b.shed = 0.0
 
+# How many worlds other than the home world and the panel's step in one frame. Each of the
+# rest owes its accepted years until its turn, so the clock is the same for all of them.
+const CLIMATE_TURNS := 2
+var _climate_frame := 0
+
+## Advance the climates on the same simulated clock. The panel's world, read below, and
+## the home world, whose sky is drawn, are exact every frame; the others take turns.
 func _step_climate(stepped: float) -> void:
-	# advance the climate on the same simulated clock
+	if not stepped > 0.0: return
+	var stars := get_stars()
 	var home := get_home()
-	if state.climate != null and home: state.climate.step(stepped, home, get_stars())
+	var shown := climate_world()
+	var waiting := 0
+	for b in state.bodies:
+		if b.climate != null and b != home and b != shown: waiting += 1
+	var rounds := maxi(1, ceili(float(waiting) / CLIMATE_TURNS))
+	var turn := _climate_frame % rounds
+	_climate_frame += 1
+	var i := 0
+	for b in state.bodies:
+		if b.climate == null: continue
+		if b == home or b == shown:
+			b.climate.catch_up(stepped, b, stars)
+		else:
+			if i % rounds == turn: b.climate.catch_up(stepped, b, stars)
+			else: b.climate.pending += stepped
+			i += 1
+
+## The world the climate panel reads: the focused body if it has a climate, else home.
+func climate_world() -> Body:
+	var focused := state.body_by_id(state.focus_id)
+	if focused != null and focused.climate != null: return focused
+	var home := get_home()
+	return home if home != null and home.climate != null else null
+
+# The panel follows climate_world(): shown or not, and sliders on that world's inputs.
+func _sync_climate_panel() -> void:
+	var w := climate_world()
+	hud.set_shown("climatePanel", w != null)
+	if w == null: return
+	var cl: Climate = w.climate
+	hud.set_slider("mixed", cl.mixed_layer, "%s m" % U.fixed(cl.mixed_layer, 0))
+	hud.set_slider("greenhouse", cl.greenhouse, U.fixed(cl.greenhouse, 2))
 
 func _advance_flight_world(coordinate_seconds: float) -> float:
 	return step_physics(coordinate_seconds / Rocketry.YR_S, true) * Rocketry.YR_S
@@ -982,6 +1039,7 @@ func handle_merger(ev: Dictionary) -> void:
 			Derive.derive_body(surv, surv.spec)
 			detach_visual(surv)
 			attach_visual(surv)
+			_sync_climate(surv)
 		var rs_s := _hole_render_radius(surv)
 		spawn_flash(wpos, 0xffffff, rs_s * 9.0, 1.6)             # bright ringdown burst
 		spawn_flash(wpos, 0xffd2a0, rs_s * 5.0, 0.32)            # slow lingering afterglow
@@ -1301,6 +1359,13 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 			_reject_body_input("Preset body must be a specification.")
 			return false
 		var spec := _normalized_body_spec(source)
+		# A preset's `climate` block is what it states about its home world.
+		if spec.type == "world" and spec.get("home") == true and p.get("climate"):
+			var unknown := ClimateInputs.unknown_key(p.climate)
+			if not unknown.is_empty():
+				_reject_body_input("Preset %s: climate has no input %s." % [key, unknown])
+				return false
+			spec.merge(p.climate)
 		var reason := Structure.input_error(spec)
 		if not reason.is_empty():
 			_reject_body_input("Preset %s: %s" % [key, reason])
@@ -1341,17 +1406,16 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 	state.home_id = null
 	state.suns.clear()
 
+	_climate_frame = 0
+	_climates_deferred = true
 	for spec in specs: spawn_body(spec)
+	_climates_deferred = false
 
 	# Anything the scenario paints on: rings, belts, ejecta. Applied after the
 	# bodies exist, since each decoration is pinned to one of them by name.
 	for spec in p.get("paint", []): apply_paint_spec(spec)
 
-	# climate only exists for presets that give us a world to stand on
-	state.climate = Climate.new(p.climate) if p.get("climate") else null
-	if state.climate != null:
-		var home := get_home()
-		if home: state.climate.step(1e-6, home, get_stars())
+	for b in state.bodies: _sync_climate(b)
 	update_suns()
 
 	# Camera reset. In a hierarchical system the total barycentre is nowhere near
@@ -1373,7 +1437,6 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 		("%s d/s" % U.fixed(state.time_scale * 365.25, 1)) if state.time_scale < 1.0 else ("%s yr/s" % U.fixed(state.time_scale, 1)))
 	var home := get_home()
 	if home: hud.set_slider("daylen", home.day_length * 365.25, "%s d" % U.fixed(home.day_length * 365.25, 1))
-	if state.climate != null: hud.set_slider("mixed", state.climate.mixed_layer, "%s m" % U.fixed(state.climate.mixed_layer, 0))
 
 	# UI
 	hud.set_text("presetName", String(p.name))
@@ -1382,7 +1445,6 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 	hud.set_shown("discRow", state.lensing)
 	hud.set_shown("tempRow", state.lensing)
 	hud.set_shown("bhPanel", not get_holes().is_empty())
-	hud.set_shown("climatePanel", state.climate != null)
 	hud.set_shown("starPanel", not get_stars().is_empty())
 	hud.set_shown("camSurface", bool(p.get("surface", false)))
 	# The button names the world you would be standing on.
@@ -1491,6 +1553,7 @@ func refresh_ui() -> void:
 	var rs: float = holes[0].rs if not holes.is_empty() else 0.0
 	hud.set_text("rs", fmt_radius_au(rs))
 	hud.set_text("isco", fmt_radius_au(3.0 * rs))
+	_sync_climate_panel()
 	# focus panel
 	var fb := state.body_by_id(state.focus_id)
 	if fb:
@@ -1511,8 +1574,9 @@ func update_hud(dt: float) -> void:
 	hud_acc += dt
 	if hud_acc < 0.1: return
 	hud_acc = 0.0
+	# The date alone: a full UTC · TDB readout would widen the column it heads.
 	hud.set_text("simClock", fmt_years(state.sim_years) if is_nan(state.epoch_jd) \
-		else TimeScales.readout(state.epoch_jd, state.sim_years))
+		else TimeScales.readout(state.epoch_jd, state.sim_years).get_slice(" ", 0))
 
 	# Keep the open editor and diagram synchronized after physical events and edits.
 	if xsec_open and not state.hud_hidden and not hud.is_collapsed("xsecPanel"):
@@ -1535,11 +1599,15 @@ func update_hud(dt: float) -> void:
 
 	update_sim_stats()
 
-	var cl = state.climate
-	if cl == null or hud.is_collapsed("climatePanel"): return
+	var world := climate_world()
+	if world == null or hud.is_collapsed("climatePanel"): return
+	var cl: Climate = world.climate
 	hud.update_climate({
+		"world": world.name,
 		"label": cl.era.label, "cls": cl.era.cls, "desc": cl.era.desc,
-		"celsius": cl.celsius, "S": cl.S, "ice": cl.ice, "clouds": cl.clouds,
+		# The humidity rule needs water; a dry world's deck is the one its preset states.
+		"celsius": cl.celsius, "S": cl.S, "ice": cl.ice,
+		"clouds": cl.clouds if cl.wet else float(U.nz(world.spec.get("cloudCover"), 0.0)),
 		"tauYears": cl.tau_years, "Tmin": cl.extremes.Tmin, "Tmax": cl.extremes.Tmax,
 		"history": cl.history, "hz": cl.habitable_zone(), "ocean": cl.ocean, "steam": cl.steam, "lost": cl.lost, "escape": cl.escape_flux,
 		"iceEdge": cl.ice_edge, "snowball": cl.snowball,
@@ -1632,7 +1700,6 @@ func reset_stage() -> void:
 	clear_bodies()
 	state.preset = null
 	state.preset_key = ""
-	state.climate = null
 	state.home_id = null
 	state.focus_id = null
 	state.follow_id = null
@@ -2112,7 +2179,8 @@ func _on_sim_reset() -> void:
 	sync_sim_controls()
 
 func _on_climate_reset() -> void:
-	if state.climate != null: state.climate.reset(288.0)
+	var world := climate_world()
+	if world != null: world.climate.reset(288.0)
 
 func _on_craft_hover(k: String) -> void:
 	CraftAssets.preload_craft(k)
@@ -2291,10 +2359,12 @@ func _on_slider(id: String, v: float) -> void:
 			if home: home.day_length = v / 365.25
 			hud.set_text("daylen-val", "%s d" % U.fixed(v, 1))
 		"mixed":
-			if state.climate != null: state.climate.mixed_layer = v
+			var world := climate_world()
+			if world != null: edit_body(world, {"mixedLayer": v})
 			hud.set_text("mixed-val", "%s m" % U.fixed(v, 0))
 		"greenhouse":
-			if state.climate != null: state.climate.greenhouse = v
+			var world := climate_world()
+			if world != null: edit_body(world, {"greenhouse": v})
 			hud.set_text("greenhouse-val", U.fixed(v, 2))
 		"renderScale":
 			render_quality = "custom"
@@ -3009,7 +3079,7 @@ func animate(dt: float) -> void:
 	var ctx := VisualCtx.new()
 	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
 	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
-	ctx.climate = state.climate; ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
+	ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
 	var vis_dt := 0.0 if state.paused else dt
 	if not drawn: _held_dt += vis_dt
 	else:
@@ -3152,7 +3222,8 @@ func _apply_camera() -> void:
 
 ## The surface view's per-frame block: sun directions, eye adaptation, climate sky.
 func _surface_frame(_home: Body, dt: float) -> void:
-	sky_pass.update_frame(observer, pipe.scene_cam, state.suns, state.climate, dt,
+	var home := get_home()
+	sky_pass.update_frame(observer, pipe.scene_cam, state.suns, home.climate if home != null else null, dt,
 		float(pipe.render_size.x) / float(pipe.render_size.y))
 	state.exposure = sky_pass.exposure
 

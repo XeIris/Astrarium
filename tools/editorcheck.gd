@@ -305,6 +305,56 @@ func unavailable_energy() -> void:
 	stage.update_sim_stats()
 	check("physical zero energy remains a valid diagnostic", stage.state.energy0 == 0.0 and stage.hud.ids.setDrift.text == "0")
 
+# The climate panel's sliders are live edits of the focused world, through the same boundary.
+func climate_edits() -> void:
+	stage.load_preset("solar")
+	var earth: Body = stage.state.body_named("Earth")
+	var mars: Body = stage.state.body_named("Mars")
+	var sun: Body = stage.state.body_named("Sun")
+	stage.set_follow(sun)
+	check("a star with no home world shows no climate", stage.climate_world() == null and not stage.hud.ids.climatePanel.visible)
+	stage.set_follow(mars)
+	check("the panel takes the focused world", stage.climate_world() == mars and stage.hud.ids.climatePanel.visible)
+	check("its sliders read that world", is_equal_approx(stage.hud.sliders.greenhouse.value, 0.95)
+		and stage.hud.get_el("greenhouse-val").text == "0.95")
+	stage.hud_acc = 1.0
+	stage.update_hud(0.0)
+	check("the panel names the world and its era", stage.hud.get_el("cWorld").text == "Mars" and stage.hud.get_el("eraLabel").text == "Dry world")
+	var earth_before: float = earth.climate.greenhouse
+	var visual = mars.viz
+	var structure: Dictionary = mars.structure
+	mars.spin_tracked = true
+	mars.spin_omega = 123.0
+	stage._on_slider("greenhouse", 0.7)
+	check("the slider edits the focused world", mars.climate.greenhouse == 0.7 and mars.spec.greenhouse == 0.7)
+	check("and no other", earth.climate.greenhouse == earth_before and not earth.spec.has("T0"))
+	check("a climate edit keeps the visual and structure", is_same(mars.viz, visual) and is_same(mars.structure, structure))
+	check("a climate edit keeps a tracked spin", mars.spin_tracked and mars.spin_omega == 123.0)
+	stage._on_slider("mixed", 30.0)
+	check("the depth slider edits the focused world", mars.climate.mixed_layer == 30.0 and mars.spec.mixedLayer == 30.0)
+	var climate: Climate = mars.climate
+	var inputs := [climate.mixed_layer, climate.greenhouse]
+	check("a mass edit is accepted", stage.edit_body(mars, {"mass": mars.mass * 1.1}) == mars)
+	check("a mass edit keeps the climate and what the user set", is_same(mars.climate, climate)
+		and [climate.mixed_layer, climate.greenhouse] == inputs)
+	check("an albedo edit goes through the rebuild", stage.edit_body(mars, {"albedo": 0.4}) == mars and climate.albedo_base == 0.4 and not is_same(mars.viz, visual))
+	var rejected_viz = mars.viz
+	check("a rejected climate edit reports null", stage.edit_body(mars, {"greenhouse": 2.0}) == null)
+	check("a rejected climate edit changes nothing", climate.greenhouse == 0.7 and mars.spec.greenhouse == 0.7 and is_same(mars.viz, rejected_viz))
+	climate.T = 123.0
+	stage._on_climate_reset()
+	check("reset acts on the focused world", climate.T == 288.0 and climate.era.key == "DRY")
+	stage.set_follow(earth)
+	var was: float = stage.hud.sliders.mixed.value
+	check("focusing another world moves the sliders", was == 60.0 and stage.hud.get_el("mixed-val").text == "60 m")
+	stage.remove_body(earth.id)
+	check("removing the panel's world empties it", stage.climate_world() == null and not stage.hud.ids.climatePanel.visible)
+	stage.load_preset("trisolaris")
+	var home: Body = stage.get_home()
+	check("a star's focus falls back to the home world", stage.state.focus_id != home.id and stage.climate_world() == home)
+	stage._on_slider("greenhouse", 0.5)
+	check("the fallback's slider edits the home world", home.climate.greenhouse == 0.5 and home.spec.greenhouse == 0.5)
+
 func _ready() -> void:
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
@@ -320,6 +370,7 @@ func _ready() -> void:
 	live_state_edits()
 	edited_energy_reference()
 	unavailable_energy()
+	climate_edits()
 	await pending_body_switch()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)
