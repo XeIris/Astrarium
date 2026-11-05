@@ -364,7 +364,7 @@ func hydrogen_escape(t: float, s_earth: float) -> float:
 	return minf(diffusion, ESCAPE_ENERGY / _phi * s_earth)
 
 func classify(t: float) -> Dictionary:
-	if not wet or ocean + steam <= 0.0: return ERAS.DRY
+	if not wet: return ERAS.DRY
 	if _steam_rules(): return ERAS.RUNAWAY
 	if not _standing_water(t): return ERAS.DRY
 	var no_land := land < NO_LAND
