@@ -45,10 +45,10 @@ static func eccentric(Mc: float, a: float, e: float, spec: Dictionary, angle: fl
 	})
 
 # Earth as the climate's home world: 23.44° obliquity, 0.306 Bond albedo, 29% land,
-# and a 0.61 greenhouse factor taking 255 K equilibrium to the real 288 K.
+# and an atmosphere taking 255 K equilibrium to the real 288 K.
 const EARTH := {
 	"type": "world", "name": "Earth", "mass": 3.0035e-6, "radiusKm": 6371.0,
-	"atmosphere": true, "land": 0.29, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
+	"atmosphere": true, "land": 0.29, "biota": 1.0, "albedo": 0.306,
 	"obliquity": 23.44 * DEG, "cloudCover": 0.44, "season": 11.0, "home": true,
 	"k2": 0.299, "tideLagS": 638.0,   # the oceans' tide, as in Presets' solar
 }
@@ -217,9 +217,9 @@ static func _make() -> Dictionary:
 					"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] },
 				orbiter(M, 0.387, { "type": "planet", "name": "Inner world", "mass": 1.66e-7, "radiusKm": 2439.7,
 					"hot": true, "crater": 0.95, "regolith": 0x8b8279, "albedo": 0.12 }, 0.5),
-				orbiter(M, 1.0, { "type": "planet", "name": "Earth-like", "mass": 3.0035e-6, "radiusKm": 6371.0,
-					"atmosphere": true, "land": 0.29, "albedo": 0.306, "greenhouse": 0.61, "obliquity": 23.44 * DEG,
-					"cloudCover": 0.44, "hot": true }, 3.4),
+				orbiter(M, 1.0, U.merged(Climate.EARTH_AIR, { "type": "planet", "name": "Earth-like", "mass": 3.0035e-6, "radiusKm": 6371.0,
+					"atmosphere": true, "land": 0.29, "albedo": 0.306, "obliquity": 23.44 * DEG,
+					"cloudCover": 0.44, "hot": true }), 3.4),
 			],
 	}
 
@@ -298,11 +298,11 @@ static func _make() -> Dictionary:
 			var sun := { "type": "star", "name": "Sun", "mass": M, "radiusSun": 1.0, "teff": 5772.0, "luminosity": 1.0,
 				"color": 0xfff2cc, "glow": 0xffaa33, "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0] }
 			var world := func(name: String, a: float, angle: float) -> Dictionary:
-				return orbiter(M, a, {
+				return orbiter(M, a, U.merged(Climate.EARTH_AIR, {
 					"type": "planet", "name": name, "mass": 3.0035e-6, "radiusKm": 6371.0,
-					"atmosphere": true, "land": 0.29, "biota": 1.0, "albedo": 0.306, "greenhouse": 0.61,
+					"atmosphere": true, "land": 0.29, "biota": 1.0, "albedo": 0.306,
 					"obliquity": 23.44 * DEG, "cloudCover": 0.44, "season": 11.0,
-				}, angle)
+				}), angle)
 			return [sun, world.call("Scorched", 0.55, 0.4), world.call("Temperate", 1.00, 2.6), world.call("Frozen", 1.90, 4.6)],
 	}
 

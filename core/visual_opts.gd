@@ -33,7 +33,6 @@ var land = null
 var continent = null             # land fraction as terrain.gd takes it
 var sea_km = null                # sea-level datum, km
 var albedo = null
-var greenhouse = null
 var surface_k = null
 var frost_k = null
 var biota = null

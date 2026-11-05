@@ -22,6 +22,8 @@ const COALBEDO_P2 := -0.0779
 const COALBEDO_ICE := 0.38
 
 var T := PackedFloat64Array()      # °C at cell centres x = (i + ½)/N
+# The ice edge moves with the freezing point of this world's sea (Climate).
+var t_ice := T_ICE
 var _a := PackedFloat64Array(); var _b := PackedFloat64Array(); var _c := PackedFloat64Array(); var _r := PackedFloat64Array()
 
 # Per-cell terms of step(), which every wet world runs every time it steps: 3x² − 1, and
@@ -54,7 +56,7 @@ func step(dt_s: float, Q: float, s2: float, A: float, C: float) -> void:
 	for i in N:
 		var shape := _shape[i]
 		var s := 1.0 + s2 * 0.5 * shape
-		var co := COALBEDO_ICE if T[i] < T_ICE else COALBEDO_FREE + COALBEDO_P2 * (0.5 * shape)
+		var co := COALBEDO_ICE if T[i] < t_ice else COALBEDO_FREE + COALBEDO_P2 * (0.5 * shape)
 		var w_lo := _w_lo[i]
 		var w_hi := _w_hi[i]
 		_a[i] = -w_lo
@@ -80,13 +82,13 @@ func ice_edge() -> float:
 	var warm_pole := T[N - 1] > T[0]
 	for j in N:
 		var i := N - 1 - j if not warm_pole else j
-		if T[i] >= T_ICE: return float(i + 1) / N if not warm_pole else float(i) / N
+		if T[i] >= t_ice: return float(i + 1) / N if not warm_pole else float(i) / N
 	return 0.0
 
 ## Fraction of the surface under ice.
 func ice_fraction() -> float:
 	var f := 0.0
-	for i in N: if T[i] < T_ICE: f += 1.0
+	for i in N: if T[i] < t_ice: f += 1.0
 	return f / N
 
 func snowball() -> bool:

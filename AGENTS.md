@@ -96,6 +96,10 @@ design.
   drawn once, seeded from the body and `seed=`, and does not move with later edits. The
   home world keeps `Climate.HOME_INPUTS` instead of a draw. See
   [a climate per world](docs/physics/climate.md#a-climate-per-world).
+- Outgoing longwave comes from the gas column (`Atmosphere`), and water from that
+  world's inventory and gravity, never Earth's. A new gas is a row in `Atmosphere.GASES`
+  and a domain in `ClimateInputs.DOMAIN`. Earth, Mars and Venus calibrate the fits, so
+  matching them proves nothing; see [what tests it](docs/physics/climate.md#where-the-constants-come-from).
 - Neutron `spinHz` is physical cycles per second and overrides modelled
   `spinFrac`. `visualSpinRadS` is an explicit display rate per unpaused render
   second; it must not alter structural support. See the visual contract.

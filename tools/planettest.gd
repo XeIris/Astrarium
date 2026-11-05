@@ -88,7 +88,7 @@ static func opts_from_spec(spec: Dictionary, radius_scene: float, def_color) -> 
 	o["glow"] = spec.get("glow")
 	o["paletteName"] = spec.get("palette")
 	for k in ["seed", "obliquity", "tidalLock", "hot", "atmosphere", "atmColor", "seaLevel", "rings", "ringColor",
-			"land", "albedo", "greenhouse", "surfaceK", "frostK", "biota", "crater", "regolith", "haze",
+			"land", "albedo", "surfaceK", "frostK", "biota", "crater", "regolith", "haze",
 			"cloudCover", "cloudColor", "atmThick", "ringInner", "ringOuter", "internalHeat", "vortices",
 			"transport", "season", "arid", "plateScale", "landRelief", "oceanDepth"]:
 		o[k] = spec.get(k)

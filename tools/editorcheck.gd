@@ -315,35 +315,75 @@ func climate_edits() -> void:
 	check("a star with no home world shows no climate", stage.climate_world() == null and not stage.hud.ids.climatePanel.visible)
 	stage.set_follow(mars)
 	check("the panel takes the focused world", stage.climate_world() == mars and stage.hud.ids.climatePanel.visible)
-	check("its sliders read that world", is_equal_approx(stage.hud.sliders.greenhouse.value, 0.95)
-		and stage.hud.get_el("greenhouse-val").text == "0.95")
+	check("its sliders read that world", absf(stage.hud.sliders.co2.value - U.log10(6.048e-3)) < 0.01
+		and stage.hud.get_el("co2-val").text == "6.0 mbar")
 	stage.hud_acc = 1.0
 	stage.update_hud(0.0)
 	check("the panel names the world and its era", stage.hud.get_el("cWorld").text == "Mars" and stage.hud.get_el("eraLabel").text == "Dry world")
-	var earth_before: float = earth.climate.greenhouse
+	var earth_before: float = earth.climate.pressures.pCO2
 	var visual = mars.viz
 	var structure: Dictionary = mars.structure
 	mars.spin_tracked = true
 	mars.spin_omega = 123.0
-	stage._on_slider("greenhouse", 0.7)
-	check("the slider edits the focused world", mars.climate.greenhouse == 0.7 and mars.spec.greenhouse == 0.7)
-	check("and no other", earth.climate.greenhouse == earth_before and not earth.spec.has("T0"))
+	var cold_olr: float = mars.climate.olr(214.0)
+	stage._on_slider("co2", 0.0)
+	check("the slider edits the focused world", is_equal_approx(mars.climate.pressures.pCO2, 1.0) and is_equal_approx(mars.spec.pCO2, 1.0))
+	check("and that traps more", mars.climate.olr(214.0) < cold_olr)
+	check("and no other", earth.climate.pressures.pCO2 == earth_before and not earth.spec.has("T0"))
+	stage._on_slider("co2", -6.0)
+	check("the slider's foot is no CO₂", mars.climate.pressures.pCO2 == 0.0 and stage.hud.get_el("co2-val").text == "none")
+	stage._on_slider("co2", -0.3)
 	check("a climate edit keeps the visual and structure", is_same(mars.viz, visual) and is_same(mars.structure, structure))
 	check("a climate edit keeps a tracked spin", mars.spin_tracked and mars.spin_omega == 123.0)
 	stage._on_slider("mixed", 30.0)
 	check("the depth slider edits the focused world", mars.climate.mixed_layer == 30.0 and mars.spec.mixedLayer == 30.0)
 	var climate: Climate = mars.climate
-	var inputs := [climate.mixed_layer, climate.greenhouse]
+	var inputs := [climate.mixed_layer, climate.pressures.duplicate()]
+	var light: float = climate.gravity
 	check("a mass edit is accepted", stage.edit_body(mars, {"mass": mars.mass * 1.1}) == mars)
 	check("a mass edit keeps the climate and what the user set", is_same(mars.climate, climate)
-		and [climate.mixed_layer, climate.greenhouse] == inputs)
+		and [climate.mixed_layer, climate.pressures] == inputs)
+	climate.step(1e-6, mars, stage.get_stars())
+	check("a mass edit reaches the climate's gravity", climate.gravity > light)
 	check("an albedo edit goes through the rebuild", stage.edit_body(mars, {"albedo": 0.4}) == mars and climate.albedo_base == 0.4 and not is_same(mars.viz, visual))
 	var rejected_viz = mars.viz
-	check("a rejected climate edit reports null", stage.edit_body(mars, {"greenhouse": 2.0}) == null)
-	check("a rejected climate edit changes nothing", climate.greenhouse == 0.7 and mars.spec.greenhouse == 0.7 and is_same(mars.viz, rejected_viz))
+	var co2_before: float = climate.pressures.pCO2
+	check("a rejected climate edit reports null", stage.edit_body(mars, {"pCO2": 200.0}) == null)
+	check("a rejected climate edit changes nothing", climate.pressures.pCO2 == co2_before and mars.spec.pCO2 == co2_before and is_same(mars.viz, rejected_viz))
+	# Water: salinity needs no new surface; land and depth draw one, and reach the inventory.
+	var sea_viz = earth.viz
+	var earth_column: float = earth.climate.water_column
+	check("a salinity edit is a climate edit", stage.edit_body(earth, {"salinity": 200.0}) == earth and earth.climate.salinity == 200.0 and is_same(earth.viz, sea_viz))
+	check("and moves the ice edge", earth.climate.ebm.t_ice < LatitudeEBM.T_ICE)
+	check("a land edit goes through the rebuild", stage.edit_body(earth, {"land": 0.0}) == earth and not is_same(earth.viz, sea_viz))
+	check("and reaches the inventory", earth.climate.water_column > earth_column)
+	check("and the era", earth.climate.classify(288.0).key == "WATER_WORLD")
+	check("a depth edit reaches the inventory", stage.edit_body(earth, {"oceanDepth": 1.0}) == earth and near_ratio(earth.climate.water_column, 1.0 * 1000.0 * Climate.RHO_SEA))
+	check("no depth under a stated ocean is rejected", stage.edit_body(earth, {"oceanDepth": 0.0}) == null)
+	check("no sea left is a dry world", stage.edit_body(earth, {"oceanDepth": 0.0, "oceans": false}) == earth and not earth.climate.wet and earth.climate.classify(288.0).key == "DRY")
+	check("and back again", stage.edit_body(earth, {"oceanDepth": 3.7, "oceans": true}) == earth and earth.climate.wet and earth.climate.ocean == 1.0)
+	stage.edit_body(earth, {"land": 0.32, "salinity": 35.0})
+	# The shell follows the air, without a rebuild, unless the look is stated.
+	var earth_viz = earth.viz
+	var thick_before := float(earth_viz.atmo_mat.get_shader_parameter("uThick"))
+	stage.edit_body(earth, {"pN2": 8.0})
+	stage.animate(1.0 / 60.0)
+	var thick_after := float(earth_viz.atmo_mat.get_shader_parameter("uThick"))
+	print("EDITORCHECK sky thick %s to %s" % [thick_before, thick_after])
+	check("an air edit keeps the visual", is_same(earth.viz, earth_viz))
+	check("and thickens the shell", thick_after > thick_before * 1.2)
+	var mars_thick := float(mars.viz.atmo_mat.get_shader_parameter("uThick"))
+	stage.edit_body(mars, {"pN2": 8.0})
+	stage.animate(1.0 / 60.0)
+	check("a stated depth stays stated", float(mars.viz.atmo_mat.get_shader_parameter("uThick")) == mars_thick)
+	stage.edit_body(earth, {"pN2": Climate.EARTH_AIR.pN2})
 	climate.T = 123.0
 	stage._on_climate_reset()
 	check("reset acts on the focused world", climate.T == 288.0 and climate.era.key == "DRY")
+	stage.set_follow(mars)
+	stage.hud_acc = 1.0
+	stage.update_hud(0.0)
+	check("the panel reads the air and names no sea", stage.hud.get_el("cAir").text.ends_with("bar") and stage.hud.get_el("cSea").text == "none")
 	stage.set_follow(earth)
 	var was: float = stage.hud.sliders.mixed.value
 	check("focusing another world moves the sliders", was == 60.0 and stage.hud.get_el("mixed-val").text == "60 m")
@@ -352,8 +392,11 @@ func climate_edits() -> void:
 	stage.load_preset("trisolaris")
 	var home: Body = stage.get_home()
 	check("a star's focus falls back to the home world", stage.state.focus_id != home.id and stage.climate_world() == home)
-	stage._on_slider("greenhouse", 0.5)
-	check("the fallback's slider edits the home world", home.climate.greenhouse == 0.5 and home.spec.greenhouse == 0.5)
+	stage._on_slider("co2", -2.0)
+	check("the fallback's slider edits the home world", is_equal_approx(home.climate.pressures.pCO2, 0.01) and is_equal_approx(home.spec.pCO2, 0.01))
+
+func near_ratio(a: float, b: float) -> bool:
+	return absf(a - b) < 1e-3 * absf(b)
 
 func _ready() -> void:
 	OS.add_logger(catcher)
