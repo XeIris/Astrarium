@@ -1574,8 +1574,9 @@ func update_hud(dt: float) -> void:
 	hud_acc += dt
 	if hud_acc < 0.1: return
 	hud_acc = 0.0
+	# The date alone: a full UTC · TDB readout would widen the column it heads.
 	hud.set_text("simClock", fmt_years(state.sim_years) if is_nan(state.epoch_jd) \
-		else TimeScales.readout(state.epoch_jd, state.sim_years))
+		else TimeScales.readout(state.epoch_jd, state.sim_years).get_slice(" ", 0))
 
 	# Keep the open editor and diagram synchronized after physical events and edits.
 	if xsec_open and not state.hud_hidden and not hud.is_collapsed("xsecPanel"):

@@ -61,6 +61,7 @@ func _ready() -> void:
 	print("HUDCHECK CONFIG assets=%s state=%s" % ["procedural" if args.get("assets", "1") == "0" else "optional-authored", args.get("hstate", "sandbox")])
 	if args.get("htest", "0") == "1":
 		await _interaction_walk()
+		await _climate_walk()
 		print("HUDCHECK TEST %d passed, %d failed" % [passes, fails])
 	if args.get("hlayout", "0") == "1":
 		await _layout_walk()
@@ -138,6 +139,12 @@ func _lesson_with(what: String) -> Array:
 func _setup(s: String) -> void:
 	match s:
 		"sandbox": await _start("sandbox")
+		"climate_world":
+			await _start("sandbox")
+			main.load_preset("solar")
+			main._stage_set_focus("Mars")
+			hud.set_section_open(hud.section("Climate"), true)
+			await _steps(12)
 		"zoo": await _start("sandbox", "stellar_zoo")
 		"allopen", "allbottom":
 			await _start("sandbox")
@@ -917,6 +924,21 @@ func _panel_scroll(p: Control) -> float:
 	for sc in p.find_children("*", "ScrollContainer", true, false):
 		return float((sc as ScrollContainer).scroll_vertical)
 	return 0.0
+
+# A dated scenario's clock heads the climate section, and the panel follows the focus.
+func _climate_walk() -> void:
+	await _setup("climate_world")
+	var screen := Rect2(Vector2.ZERO, hud.size)
+	check("a dated climate heading keeps the controls on screen", screen.encloses(hud.control_panel.get_global_rect().grow(-0.5)))
+	check("the panel names the focused world", _find("cWorld").text == "Mars" and _find("eraLabel").text == "Dry world")
+	check("the panel shows that world's temperature", _find("cTemp").text.ends_with("°C") and _find("cTemp").text != "0.0 °C")
+	main._stage_set_focus("Earth")
+	await _steps(12)
+	check("focusing another world moves the panel", _find("cWorld").text == "Earth" and _find("eraLabel").text != "Dry world")
+	main._stage_set_focus("Sun")
+	await _steps(4)
+	check("a star with no home world hides the panel", not hud.ids.climatePanel.is_visible_in_tree())
+	check("hiding it leaves the column on screen", screen.encloses(hud.control_panel.get_global_rect().grow(-0.5)))
 
 func _layout_walk() -> void:
 	check("automatic scale fits a smaller usable display", is_equal_approx(main.fitted_window_scale(2.0, Vector2i(1280, 720)), 1.2))
