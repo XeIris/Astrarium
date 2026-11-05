@@ -12,8 +12,12 @@ var frames := 45
 var fails := 0
 var passes := 0
 var mouse_inside := false
+var native_dropped := 0
 
 func _ready() -> void:
+	# Everything here is scripted through push_input. A native motion with no button
+	# held would release a slider's drag, so whatever the OS delivers stops at the window.
+	DisplayServer.window_set_input_event_callback(func(_e: InputEvent): native_dropped += 1, get_window().get_window_id())
 	get_window().mouse_entered.connect(func(): mouse_inside = true)
 	get_window().mouse_exited.connect(func(): mouse_inside = false)
 	for a in OS.get_cmdline_user_args():
@@ -348,10 +352,24 @@ func _drag(c: Control, f0: float, f1: float) -> void:
 	await get_tree().process_frame
 	for i in 6:
 		await _move(p0.lerp(p1, (i + 1) / 6.0), (p1 - p0) / 6.0)
+		if i == 2: _stray_native_pointer()
 	var u: InputEventMouseButton = e.duplicate()
 	u.pressed = false; u.position = p1; u.global_position = p1
 	_push(u)
 	await _steps(2)
+
+## Input is the route a native event takes to the window. Every drag meets one, so a
+## broken guard fails each run instead of whenever the real mouse happens to move.
+func _stray_native_pointer() -> void:
+	var dropped0 := native_dropped
+	var m := InputEventMouseMotion.new()
+	m.position = Vector2(200, 300); m.global_position = m.position
+	var b := InputEventMouseButton.new()
+	b.button_index = MOUSE_BUTTON_LEFT; b.position = m.position; b.global_position = m.position
+	Input.parse_input_event(m)
+	Input.parse_input_event(b)
+	Input.flush_buffered_events()
+	check("native pointer events stop at the window", native_dropped >= dropped0 + 2)
 
 func _wheel_at(p: Vector2, down := true) -> void:
 	await _move(p, Vector2.ZERO, false)
