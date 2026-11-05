@@ -467,6 +467,19 @@ func home_is_unchanged() -> void:
 	check("a home Earth settles at NSSDC's 288 K", absf(mean - 288.0) < 1.5)
 	check("with no ice to speak of in its global ramp and an ice line at 72°", earth.climate.era.key == "STABLE" and absf(edge_deg - 72.0) < 3.0)
 	check("a home world's model is today's air over today's sea", Climate.HOME_INPUTS.albedoBase == 0.306 and Climate.HOME_INPUTS.pCO2 == Climate.EARTH_AIR.pCO2 and Climate.HOME_INPUTS.pN2 == Climate.EARTH_AIR.pN2)
+	# Trisolaris's stated CO₂ is tuned to its first 35 years on the ε model: 234 K, 61% frozen.
+	check("trisolaris loads", stage.load_preset("trisolaris"))
+	var cl: Climate = stage.get_home().climate
+	dt = float(stage.state.time_scale) / 60.0
+	mean = 0.0
+	frames = 6000
+	var frozen := 0
+	for i in frames:
+		stage.step_physics(dt)
+		mean += cl.T / frames
+		if cl.era.key == "DEEP_FREEZE": frozen += 1
+	print("REALISMCHECK HOME trisolaris 35 yr mean=%s frozen=%s of %s" % [mean, frozen, frames])
+	check("Trisolaris plays near its old first 35 years", absf(mean - 234.0) < 6.0 and absf(float(frozen) / frames - 0.61) < 0.06)
 
 func home_removed() -> void:
 	check("home scenario loads", load_worlds([

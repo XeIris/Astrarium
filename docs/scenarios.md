@@ -75,11 +75,11 @@ step-sensitive failures and single lucky passing refinement remain in the
 ### Sunlight, reporting and reproduction
 
 A 200-year probe samples every accepted frame through the production `Climate`
-model, as the stars run in the preset. Insolation ranges **0.534–1.617 S⊕**, a mean near
-0.86, and temperature **187.9–287.7 K**. The world starts at 288 K, leaves it within two
-years, and spends about 198 of the 200 in Deep Freeze: with today's air it sits below the
-0.93 S⊕ where the ice-albedo feedback wins, and its brightest passes do not thaw it. This
-is one short run, not a 60 000-year climate envelope.
+model, as the stars run in the preset, with its authored
+[0.08 bar of CO₂](physics/climate.md#trisolaris-co). Insolation ranges **0.534–1.617 S⊕**, a
+mean near 0.86, and temperature **193.6–301.5 K**. Of the 200 years about 8.5 are temperate,
+5.6 cold and 185.9 in Deep Freeze; nearly all the thawing is in the first 35, so a longer
+run reads colder. This is one short run, not a 60 000-year climate envelope.
 
 Run `python3 tools/check.py stability` for the strict authored baseline, or
 `python3 tools/check.py stability-study` for all nine cases. Direct headless

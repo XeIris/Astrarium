@@ -303,7 +303,9 @@ static func _make_presets() -> Dictionary:
 		# Resolve the short inner-binary period; long-run orbital extent needs a separate check.
 		"timeScale": 0.35, "maxStep": 4e-4,
 		"surface": true, "focus": "Alpha", "mesh": false,                  # offers the view-from-the-ground camera
-		"climate": { "mixedLayer": 12.0, "T0": 288.0 },
+		# pCO2 is an authored choice, tuned to how this world played on the old ε model
+		# (docs/physics/climate.md#trisolaris-co), not derived from anything.
+		"climate": { "mixedLayer": 12.0, "T0": 288.0, "pCO2": 0.08 },
 		"build": func() -> Array: return _build_trisolaris(),
 	}
 

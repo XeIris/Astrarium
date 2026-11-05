@@ -164,6 +164,21 @@ The home world draws nothing. It keeps `Climate.HOME_INPUTS`, today's Earth: NSS
 steps a bare model beside it and compares bit for bit, and holds a home Earth to NSSDC's
 288 K and the 72° ice line). Its `albedo` describes its look; `albedoBase` is what this model reads.
 
+#### Trisolaris's CO₂
+
+The `trisolaris` preset states `pCO2: 0.08`. **That is an authored choice**, not a derivation: the
+owner asked for this world to play as it did on the ε model, measured over its first 6000 frames
+(35 years). On today's air it went from a 234 K mean and 61% of frames in Deep Freeze to 199 K and
+94%; with this CO₂ it is 231 K and 60%, and `realismcheck` holds it there.
+
+It matches that span and no longer one. Over 200 years the ε model stays at a 231 K mean, 64%
+frozen, because it thaws again and again. This one reaches 205 K, 93% frozen: a snowball here
+radiates nearly as a black body once the water bands open, so it is colder and harder to
+leave, and the first passes do most of the thawing. No CO₂ reproduces the long run, because the
+climate splits sharply: at 0.10 bar 200 years are still 87% frozen (210 K), and at 0.11 bar none
+are (284 K, 158 years temperate and 37 cold, with no Deep Freeze). Other Trisolaris presets state
+no CO₂ and take today's air.
+
 ### The draw
 
 An unstated input is drawn once, when the world is created, from the mass, radius and
