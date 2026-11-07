@@ -28,7 +28,7 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "observatory", "showcase", "surface", "start_screen")
+                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
