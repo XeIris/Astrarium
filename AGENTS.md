@@ -125,6 +125,12 @@ design.
 - Following a body is exact tracking plus a decaying offset (`track_follow`,
   `glide_target_to`), never a lerp toward it: a first-order lag rubber-bands.
 
+## The crust
+
+`sim/planet_relief.gd` is `shaders/bodies/terrain.gdshaderinc` on the CPU, hash included, so what a pin reads is
+what the planet draws. Change both together; `pincheck gpu=1` compares them. A rocky surface's noise
+uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and rings keep theirs.
+
 ## Body visuals
 
 A factory returns an object with `group: Node3D` and `update(dt, ctx)`, stored
@@ -225,6 +231,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
+- the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
+  shader's height against the CPU's
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the

@@ -63,6 +63,7 @@ func _ready() -> void:
 		await _interaction_walk()
 		await _climate_walk()
 		await _composition_walk()
+		await _showcase_walk()
 		print("HUDCHECK TEST %d passed, %d failed" % [passes, fails])
 	if args.get("hlayout", "0") == "1":
 		await _layout_walk()
@@ -175,6 +176,12 @@ func _setup(s: String) -> void:
 			_reveal(main.foundry.comp.note_el)
 			_reveal(main.foundry.comp.pie)
 			await _steps(2)
+		"showcase":
+			await _start("sandbox")
+			main.load_preset("solar")
+			main.set_app_mode("showcase", {"body": "Earth"})
+			for i in 300: main.animate(1.0 / 60.0)
+			await _steps(3)
 		"xsec_comp":
 			await _start("sandbox")
 			main.load_preset("solar")
@@ -1033,6 +1040,37 @@ func _composition_walk() -> void:
 	main.open_cross_section(false)
 	main.remove_body(world.id)
 	await _steps(2)
+
+# The showcase by real clicks: from a focused world, through its pin, and back.
+func _showcase_walk() -> void:
+	await _start("sandbox")
+	main.load_preset("solar")
+	main._stage_set_focus("Earth")
+	await _steps(3)
+	hud.set_section_open(hud.section("Focused Object"), true)
+	await _steps(2)
+	var open_btn: Control = hud.ids.showcaseOpen
+	check("a focused world offers a showcase", open_btn.is_visible_in_tree())
+	await _click(open_btn)
+	await _steps(3)
+	check("the click opens it", main.showcase.active and main.state.app_mode == "showcase")
+	var screen := Rect2(Vector2.ZERO, hud.size)
+	check("the column stays on screen", screen.encloses(hud.control_panel.get_global_rect().grow(-0.5)))
+	check("the orrery's sections give way", not hud.ids.focusPanel.is_visible_in_tree())
+	check("its own section is shown", _find("scWorld").is_visible_in_tree() and _find("scWorld").text == "Earth")
+	await _click(hud.ids.scPinDrop)
+	await _steps(2)
+	var n: int = main.showcase.pin.n if main.showcase.pin != null else 0
+	check("Drop a pin drops one", n >= 1)
+	check("its place is read out", _find("scPinAt").text != "—")
+	check("its ground wraps inside the panel", hud.control_panel.get_global_rect().grow(0.5).encloses(_find("scPinGround").get_global_rect()))
+	await _click(hud.ids.scPinDrop)
+	await _steps(2)
+	check("the next pin is the next number", main.showcase.pin.n == n + 1)
+	await _click(hud.ids.scLeave)
+	await _steps(3)
+	check("Leave goes back to the orrery", not main.showcase.active and main.state.app_mode == "sandbox")
+	check("and the orrery's column is back", hud.ids.focusPanel.is_visible_in_tree())
 
 func _layout_walk() -> void:
 	check("automatic scale fits a smaller usable display", is_equal_approx(main.fitted_window_scale(2.0, Vector2i(1280, 720)), 1.2))

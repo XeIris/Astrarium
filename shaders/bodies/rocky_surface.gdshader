@@ -7,6 +7,7 @@ render_mode unshaded, cull_back, depth_draw_opaque;
 
 #include "res://shaders/common/suns.gdshaderinc"
 #include "res://shaders/common/temp_pass.gdshaderinc"
+#define TERRAIN_EXACT
 #include "res://shaders/bodies/terrain.gdshaderinc"
 
 uniform float uSeed = 0.0;
