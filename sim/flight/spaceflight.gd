@@ -153,6 +153,9 @@ func _init(ctx: Dictionary) -> void:
 	panel = ctx.get("panel")
 	toast_cb = ctx.get("toast")
 	local = LocalView.create_local_view(pipe)
+	# A closed cabin excludes exterior lights: the local pass casts no hull shadows.
+	for light in [local.sun, local.sun2] + local.hemi:
+		(light as Light3D).light_cull_mask &= ~CraftInterior.LAYER
 	local_view = local
 	local_camera = local.camera
 	fly_cam = LocalView.create_flight_camera()
@@ -1874,8 +1877,8 @@ func wheel(delta_y: float) -> bool:
 func drag(dx: float, dy: float) -> bool:
 	if not active: return false
 	if fly_cam.state.mode == "interior":
-		fly_cam.state.interiorYaw = clampf(fly_cam.state.interiorYaw - dx * 0.004, -1.25, 1.25)
-		fly_cam.state.interiorPitch = clampf(fly_cam.state.interiorPitch - dy * 0.004, -0.80, 0.65)
+		fly_cam.state.interiorYaw = wrapf(fly_cam.state.interiorYaw - dx * 0.004, -PI, PI)
+		fly_cam.state.interiorPitch = clampf(fly_cam.state.interiorPitch - dy * 0.004, -1.05, 1.05)
 		return true
 	if fly_cam.state.mode == "pad" and site != null:
 		pad_orbit(dx * 0.006, -dy * 0.004, 1.0)

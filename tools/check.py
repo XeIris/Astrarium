@@ -47,7 +47,8 @@ PARITY_FRAMES = 13000
 # Keep this in step with AGENTS.md "Checks" when a check or a subsystem is added.
 CHANGED_RULES = (
     (("sim/flight/eva_pod.gd", "sim/flight/craft_interior.gd", "sim/flight/vehicles.gd",
-      "sim/flight/localview.gd", "sim/flight/spaceflight.gd", "model_sources/blender/evapod.py"),
+      "sim/flight/localview.gd", "sim/flight/spaceflight.gd", "model_sources/blender/evapod*.py",
+      "model_sources/blender/common.py", "tools/craftspec.gd"),
      ("evapodcheck*", "evapodflightshots", "_soak_check-eva_pod")),
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),

@@ -73,7 +73,7 @@ def build_materials():
 # `gimbal_0.001`, and the second would never be found. `gimbal_sic_0` cannot
 # collide, and sorting by name keeps the bind order deterministic.
 # `chopstick_` is a pad's catch arm (launchpads.py), driven by launchsite.gd.
-NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chute_', 'chopstick_', 'arm_', 'window_')
+NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chute_', 'chopstick_', 'arm_', 'window_', 'interior_')
 
 
 def is_node(ob):
@@ -208,6 +208,10 @@ def optimise():
         # node's own coordinates.
         host = bpy.data.objects.new(label, bpy.data.meshes.new(label))
         bpy.context.collection.objects.link(host)
+        # Declare UV layers on the empty target so the active texture coordinates
+        # survive joining independently authored meshes.
+        for uv_name in sorted({uv.name for ob in objs for uv in ob.data.uv_layers}):
+            host.data.uv_layers.new(name=uv_name)
         if node is not None:
             host.parent = node
             host.matrix_parent_inverse = Matrix()      # so host sits ON the node
@@ -218,6 +222,9 @@ def optimise():
         host.select_set(True)
         vl.objects.active = host
         bpy.ops.object.join()
+        if host.data.uv_layers:
+            host.data.uv_layers.active_index = 0
+            host.data.uv_layers[0].active_render = True
         vl.objects.active.name = label
         bpy.ops.object.select_all(action='DESELECT')
 
@@ -258,6 +265,8 @@ def export(out, label):
         export_apply=True,          # no-op after optimise(), kept as a belt
         export_yup=True,            # Blender +Z becomes Godot +Y
         export_materials='EXPORT',
+        export_tangents=any(m.use_nodes and any(n.type == "NORMAL_MAP" for n in m.node_tree.nodes)
+                            for m in bpy.data.materials),
         export_cameras=False,
         export_lights=False,
         export_extras=False,

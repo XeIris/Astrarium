@@ -368,6 +368,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all ten authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
 | `tools/evapodflightshots.tscn` | rendered production EVA pod: thrust/fuel accounting, manipulator command, interior near plane and camera exit; `dump=/abs/dir` saves screenshots |
+| `tools/evapodmaterials.tscn` | six EVA finish samples in one lighting rig; `out=/abs/materials.png` |
 | `tools/evapodcheck.gd` | EVA pod arm sweep, hull clearance, lazy interior loading, window sightline and camera datums; run with and without `assets=0`; [design and references](docs/eva-pod.md) |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; every dropped stage must leave by its separation physics (`stage_separations`, `booster_pieces`), and a residual thrust must carry its stage its closed-form travel (`residual_push`); `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |

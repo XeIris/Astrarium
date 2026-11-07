@@ -56,6 +56,8 @@ procedural build; present malformed assets must fail the checks.
 - Opting out is done by not matching: the LM's gear is `gear_`, not `leg_`.
   Declare fixed gear with `look.fixedLegs`; deployable arrays with `look.arrays`.
   `look.enginesPerPivot` must divide the engine count exactly for grouped rigs.
+- `interior_` empties preserve cabin fixture anchors through optimisation. They
+  do not bind as driven craft parts; the interior loader reads their positions.
 
 Run `tools/assetcheck.gd` and `tools/crafttest.tscn -- audit clearance`, each
 with authored models and with `assets=0`, after changing rigs or metadata.
@@ -106,6 +108,8 @@ The asset check exercises stowed/deployed poses and rejects malformed rigs.
   Keep metalness low: reflections are unavailable in some quality modes.
 - Emitters are lit by themselves at HDR values; a hex emissive that looks right
   is nearly black after ACES.
+- Baked finish textures share one active UV layer name across their source
+  meshes; normal maps also require an exported tangent frame.
 - Meshes are joined by material within each node before export (the Hail Mary
   goes from 612 draw calls to 34), never across nodes, or moving parts weld to
   the body. Bevels are baked in the same pass.

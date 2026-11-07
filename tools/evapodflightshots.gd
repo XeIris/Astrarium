@@ -93,6 +93,17 @@ func _ready() -> void:
 	f.fly_cam.state.interiorPitch=.18
 	await settle(20)
 	check(f.interior.group!=null and f.interior.authored==authored and f.local.camera.near<=.011,"authored cockpit uses close depth range")
+	for light in [f.local.sun,f.local.sun2]+f.local.hemi:
+		check((light.light_cull_mask & CraftInterior.LAYER)==0,"exterior lighting excludes enclosed cockpit")
+	if authored:
+		var fixtures := f.interior.group.find_children("interior_light_*","Node3D",true,false)
+		check(fixtures.size()==5,"five authored fixture anchors")
+		for fixture: Node3D in fixtures:
+			var distance := INF
+			for child in f.interior.group.get_children():
+				if child is OmniLight3D:
+					distance=minf(distance,fixture.global_position.distance_to(child.global_position))
+			check(distance<.001,"practical light follows authored fixture in the flight frame")
 	await shot("flight-interior")
 	f.drag(160,-20)
 	await settle()
@@ -103,6 +114,9 @@ func _ready() -> void:
 	# The pipeline capture contains 3D only; the viewport capture also includes Controls.
 	await RenderingServer.frame_post_draw
 	if not output.is_empty(): get_viewport().get_texture().get_image().save_png(output.path_join("flight-hud.png"))
+	f.drag(2000,0)
+	await settle(3)
+	check(absf(float(f.fly_cam.state.interiorYaw))<=PI,"interior look wraps through a full turn")
 	f.set_camera_mode("orbit")
 	await settle(3)
 	check(f.interior.group==null,"camera exit releases cockpit")

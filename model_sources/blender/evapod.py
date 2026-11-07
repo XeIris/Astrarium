@@ -18,14 +18,9 @@ WX, WZ, WC = .44, .51, 1.42
 
 
 def palette():
-    M.update(build_materials())
-    for name, color, rough in [('podWhite', 0xe2e0da, .46), ('podSeal', 0x18191a, .75),
-                                ('podRed', 0x5b2421, .72), ('podPanel', 0x11171b, .56),
-                                ('podPad', 0x252326, .85)]:
-        M[name] = material(name, srgb(color), rough, .04)
-    for name, color, power in [('podBlue', 0x238fdf, 1.8), ('podWarm', 0xffe6c0, 1.8),
-                               ('podAmber', 0xf67c35, 1.5), ('podLamp', 0xdce7ee, 3.0)]:
-        M[name] = material(name, srgb(color), .38, .03, srgb(color), power)
+    from evapod_materials import palette as finishes
+    M.clear()
+    M.update(finishes())
 
 
 def block(name, loc, size, mat, parent, bevel=.012):
@@ -160,10 +155,22 @@ def exterior(_):
             for j in range(n):
                 k=ring*n+j; q=ring*n+(j+1)%n
                 faces.append((k,q,q+n,k+n) if side>0 else (k+n,q+n,q,k))
+        near=len(verts); verts.append((side*.86*S,.13*S,1.03*S))
+        far=len(verts); verts.append((side*1.13*S,.13*S,1.03*S))
+        for j in range(n):
+            cap_a=(near,(j+1)%n,j)
+            cap_b=(far,3*n+j,3*n+(j+1)%n)
+            faces.extend([cap_a,cap_b] if side>0 else [tuple(reversed(cap_a)),tuple(reversed(cap_b))])
         ob=_obj('Notched thruster ear',verts,faces,M['podWhite'],root); smooth(ob,35)
         disk('Ear face',(side*1.137,.13,1.03),.46,.018,'podWhite',root,(side,0,0))
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=48,ring_count=24,radius=1,location=(side*1.14*S,.13*S,1.03*S))
-        cap=bpy.context.object; cap.name='RCS central dome'; cap.scale=(.21*S,.29*S,.29*S); cap.parent=root; cap.data.materials.append(M['podWhite']); smooth(cap,50)
+        profile=[(0,0),(.29,0)]
+        profile += [(.29*cos(i*pi/32),.21*sin(i*pi/32)) for i in range(1,17)]
+        cap=revolve('RCS central dome',profile,M['podWhite'],seg=48,parent=root)
+        cap.location=(side*1.14*S,.13*S,1.03*S)
+        cap.scale=(S,S,S)
+        cap.rotation_mode='QUATERNION'
+        cap.rotation_quaternion=Vector((0,0,1)).rotation_difference(Vector((side,0,0)))
+        smooth(cap,50)
         for dy,dz in [(0,0),(.18,0),(-.18,0),(0,.18),(0,-.18)]:
             dx=sqrt(max(.03,1-(dy/.29)**2-(dz/.29)**2))*.21
             normal=Vector((side*dx/.21**2,dy/.29**2,dz/.29**2)).normalized()
@@ -218,28 +225,16 @@ def exterior(_):
     bell=revolve('Recessed thruster',[(.09,0),(.084,.025),(.04,.12),(.025,.18)],M['nozzle'],seg=48,parent=pivot)
     bell.scale=(S,S,S); smooth(bell,45)
     # The cradle is a shell around the cabin, not a solid plug through its console.
-    for name in ['Side cradle','Side cradle.001','Lower cradle bridge']:
+    for name in ['Side cradle','Side cradle.001','Lower cradle bridge','Shoulder socket','Shoulder socket.001','Notched thruster ear','Notched thruster ear.001']:
         ob=bpy.data.objects.get(name)
+        bpy.context.view_layer.objects.active=ob
+        for modifier in list(ob.modifiers):
+            bpy.ops.object.modifier_apply(modifier=modifier.name)
         bpy.ops.mesh.primitive_uv_sphere_add(segments=80,ring_count=48,radius=.985*S,location=(0,0,R))
         boolean(ob,bpy.context.object)
     for x in [-.43,.43]: block('Cradle foot',(x,.20,.035),(.12,.56,.07),'podSeal',root)
-
-
-def panel(name, loc, size, parent, tilt=0):
-    mount=empty(name,tuple(v*S for v in loc),parent); mount.rotation_euler.x=tilt
-    block(name+' frame',(0,0,0),size,'alu',mount,.008)
-    block(name+' face',(0,-size[1]/2-.004,0),(size[0]-.014,.009,size[2]-.014),'podPanel',mount,.004)
-    return mount
-
-
-def switches(parent, width, rows=3, cols=5, y=-.038, z0=0):
-    for row in range(rows):
-        for col in range(cols):
-            mat='podBlue' if (row+col)%5 else 'podWarm'
-            if row==0 and col==cols-1: mat='podAmber'
-            block('Illuminated key',((col-(cols-1)/2)*width/cols,y,z0+(row-(rows-1)/2)*.045),(width/cols*.61,.020,.025),mat,parent,.003)
-    # Printed rules are geometry, never copied film textures.
-    for x in [-width*.49,width*.49]: block('Panel rule',(x,y+.002,z0),(.0015,.004,rows*.045+.023),'dirty',parent,.0001)
+    from evapod_materials import assign_uvs
+    assign_uvs()
 
 
 def interior():
@@ -252,51 +247,10 @@ def interior():
     wall=liner.modifiers.new('Liner thickness','SOLIDIFY'); wall.thickness=.009*S
     bpy.context.view_layer.objects.active=liner; bpy.ops.object.modifier_apply(modifier=wall.name)
     boolean(liner,cutter); smooth(liner,55)
-    # Meridional panels enclose the cabin, leaving the forward aperture clear.
-    for j in range(12):
-        a=2*pi*j/12
-        if cos(a)>.58: continue
-        for k in range(3):
-            z=.56+k*.44; radius=sqrt(max(.1,.94**2-(abs(z-1.03)+.205)**2))
-            ob=block('Padded cabin wall',(radius*sin(a),-radius*cos(a),z),(.45,.07,.41),'podPad',root,.035)
-            ob.rotation_euler.z=a
-    # The brick-red upper shell is sized from the same pressure-sphere datum.
-    for side in [-1,1]:
-        block('Cabin side lining',(side*.75,.03,1.24),(.055,.55,.45),'podRed',root,.03)
-        for z in [.83,1.14,1.45]:
-            ob=panel('Side switch bank',(side*.64,-.10,z),(.28,.045,.23),root)
-            ob.rotation_euler.z=-side*2.0
-            switches(ob,.23,4,4)
-        block('Armrest',(side*.36,.12,.76),(.14,.58,.09),'podPad',root,.035)
-        disk('Waldo controller',(side*.35,-.26,.76),.036,.12,'alu',root,(0,-1,.3))
-        tube('Controller lever',(side*.35,-.31,.78),(side*.35,-.35,.85),.016,'podSeal',root)
-    block('Floor',(0,0,.27),(1.03,1.05,.055),'podPanel',root)
-    block('Seat pedestal',(0,.30,.39),(.37,.40,.22),'alu',root)
-    block('Seat cushion',(0,.26,.57),(.47,.49,.15),'podPad',root,.055)
-    back=block('Seat back',(0,.49,.96),(.47,.14,.70),'podPad',root,.06); back.rotation_euler.x=-.10
-    block('Head rest',(0,.53,1.32),(.32,.13,.20),'podPad',root,.045)
-    for x in [-.14,.14]: block('Harness',(x,.401,.96),(.035,.018,.58),'soot',root,.006)
-    # Console faces the pilot (+Y). A U leaves leg space and keeps the window sightline.
-    for side in [-1,1]:
-        bank=panel('Sloping console',(side*.43,-.43,.78),(.39,.05,.33),root,-.65)
-        bank.rotation_euler.z=pi
-        switches(bank,.32,4,5)
-    dash=panel('Forward display fascia',(0,-.58,.78),(.71,.045,.23),root)
-    dash.rotation_euler.z=pi
-    for side in [-1,1]:
-        block('CRT housing',(side*.175,-.036,.025),(.285,.024,.16),'podSeal',dash,.015)
-        block('CRT blue phosphor',(side*.175,-.05,.025),(.247,.008,.127),'podBlue',dash,.006)
-        for i in range(7):
-            block('CRT telemetry',(side*.175,-.055,-.025+i*.014),(.19 if i%2 else .12,.003,.002),'podPanel',dash,.0001)
-    # Ceiling bank and warm utility lights, fitted clear of the pilot's head.
-    ceiling=panel('Overhead controls',(0,.03,1.83),(.50,.035,.30),root,pi/2)
-    switches(ceiling,.43,4,6)
-    tube('Overhead bank mount',(0,.03,1.84),(0,.03,2.0),.065,'podRed',root)
-    for side in [-1,1]: block('Cabin utility lamp',(side*.58,-.02,1.64),(.13,.12,.09),'podWarm',root,.012)
-    block('Rear pressure door',(0,.75,1.08),(.60,.04,1.05),'podRed',root,.06)
-    block('Door warning',(0,.716,1.48),(.24,.008,.065),'podAmber',root,.002)
-    for side in [-1,1]:
-        tube('Door handhold',(side*.19,.697,.89),(side*.19,.697,1.17),.014,'alu',root)
+    from evapod_cabin import build as build_cabin
+    from evapod_materials import assign_uvs
+    build_cabin(root, M, S, SPEC["interior"]["eye"])
+    assign_uvs()
     optimise()
     target=out_path('assets/craft/evapod.glb')
     dst=os.path.join(os.path.dirname(target),'.evapod_interior.build.glb' if os.path.basename(target).startswith('.') else 'evapod_interior.glb')

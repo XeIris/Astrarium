@@ -163,7 +163,7 @@ static func _build_vehicles() -> Dictionary:
 		"blurb": "A one-person work pod with twin articulated manipulators and a compact illuminated cockpit. A 2.06 m pressure sphere reconstructed from film references; interior proportions adapted to fit. Estimated propulsion: 400 N, 220 s specific impulse, 120 kg propellant; 1 200 kg dry. G deploys the arms. Cycle the camera for Interior.",
 		"limits": {"maxQ": 200.0, "maxG": 2.0, "qAlpha": 100.0, "heatLoad": 0.0},
 		"interior": {"asset": "res://assets/craft/evapod_interior.glb", "stage": "pod",
-			"eye": [0.0, 1.34, -0.13], "forward": [0.0, 0.0, 1.0]},
+			"eye": [0.0, 1.34, -0.30], "forward": [0.0, 0.0, 1.0]},
 		"stages": [
 			stage({"key": "pod", "name": "EVA pressure cabin", "dry": 1200.0, "prop": 120.0,
 				"engine": {"name": "Pod manoeuvring thruster (estimate)", "prop": "Monopropellant",

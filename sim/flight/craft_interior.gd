@@ -29,14 +29,27 @@ func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 	st.group.add_child(group)
 	shade = st.group.find_child("window_shade", true, false) as Node3D
 	if shade != null: shade.visible = false
-	for x in [-0.55, 0.55]:
+	var fixtures := group.find_children("interior_light_*", "Node3D", true, false)
+	var positions: Array[Vector3] = []
+	var inverse := CraftModel.world_xform(group).affine_inverse()
+	for fixture: Node3D in fixtures:
+		positions.append(inverse * CraftModel.world_xform(fixture).origin)
+	if positions.is_empty(): positions = [Vector3(-0.55, 1.5, 0.0), Vector3(0.55, 1.5, 0.0)]
+	for pos in positions:
 		var light := OmniLight3D.new()
-		light.position = Vector3(x, 1.50, 0.0)
-		light.light_color = Color(1.0, 0.61, 0.38)
-		light.light_energy = 0.55
-		light.omni_range = 2.0
+		light.position = pos
+		light.light_color = Color(1.0, 0.13, 0.07)
+		light.light_energy = 0.28
+		light.omni_range = 1.65
 		light.light_cull_mask = LAYER
 		group.add_child(light)
+	var fill := OmniLight3D.new()
+	fill.position = Vector3(0, 1.45, 0.1)
+	fill.light_color = Color(0.67, 0.80, 1.0)
+	fill.light_energy = 0.16
+	fill.omni_range = 1.5
+	fill.light_cull_mask = LAYER
+	group.add_child(fill)
 
 func dispose() -> void:
 	if is_instance_valid(shade): shade.visible = true

@@ -26,8 +26,11 @@ evidence. No studio markings, character likenesses or HAL eye are included.
   exterior. Our one-seat interior is compressed to fit the same pressure sphere.
 
 The deep oval window reveal, angular lower cradle and two parallel-link arms
-follow those references. Smaller details are simplified; the fixed rear hatch
-does not open. Manipulators are visual mechanisms and do not grab objects or
+follow those references. The cockpit uses faceted consoles, individually labelled
+Perspex-style pushbuttons, round paddle-switch plates, inward-canted flat displays,
+waldo grips, stitched padded walls, harness webbing and five recessed practical
+lights. The one-seat layout is adapted to the available hull volume. The fixed
+rear hatch does not open. Manipulators are visual mechanisms and do not grab objects or
 transfer forces. Their shoulder, elbow and two claw pivots are nested so that
 child geometry follows its joint through every intermediate pose.
 
@@ -46,22 +49,46 @@ The underside outlet is the +Y thrust-axis engine; the window faces +Z.
 `evapod_interior.glb`. As with other craft, these are ignored generated assets;
 `model_sources/blender/evapod.py` is the editable source. The exterior and interior
 share the stage datum: bottom at Y=0, sphere centre Y=1.03 m. The seated camera is
-(0, 1.34, -0.13) m in that frame.
+(0, 1.34, -0.30) m in that frame.
+
+`evapod_cabin.py` authors the fitted cockpit. Its panel orientations read the
+camera eye exported by `craftspec.gd`, so the runtime catalogue owns that datum.
 
 `CraftInterior` loads the separate cockpit PackedScene only on entry, attaches
-it to the live stage, hides the exterior's window shade, and adds lights scoped
-to the interior's render layer. Leaving the mode or ending the flight removes
-it and restores the shade. Missing authored assets use a simple shell, seat and
+it to the live stage, hides the exterior's window shade, and creates lights at
+five authored fixture anchors. A low neutral fill keeps legends readable. The
+lights are scoped to the interior layer; exterior suns and bounce lights exclude
+that layer because the local renderer does not cast hull shadows. Leaving the
+mode or ending the flight removes it and restores the shade. Missing authored assets use a simple shell, seat and
 console. The interior camera rides the vessel's double-precision position and
 attitude, uses a 1 cm near plane and a 100 km local far plane, and leaves the
 orrery's distant-world pass in place.
+
+## Surface finishes
+
+`evapod_materials.py` generates deterministic, tileable normal and roughness maps
+for warm enamel, maroon painted fibreglass, satin panel laminate, fine-grain
+leatherette, woven harnesses, rubber and brushed aluminium/steel. They are embedded
+in the GLBs and retained on lower quality presets. Godot extracts generated PNG
+sidecars during import; those are ignored alongside the GLBs. Metalness is deliberately
+moderate so the fittings remain readable without environment reflections.
+
+The meshes carry metre-scaled UV coordinates; the optimiser preserves a common
+active UV layer and exports tangents for normal-mapped materials. Grain changes
+highlight width and small surface relief instead of adding large dirt blotches.
+The display faces use original static schematics, not live telemetry or imported
+film graphics. Labelled switches are currently visual, while G still drives the
+exterior manipulators. Interior drag allows a full turn to inspect the side and
+rear equipment.
 
 ## Verification
 
 - `tools/evapodcheck.gd` headless, with `assets=1` and `assets=0`: 41 intermediate
   arm poses, connected links, independent wrist-position calculation, moving
-  skin clearance from the pressure sphere, paired-claw clearance, reproducible rest pose, vehicle data
-  immutability, lazy cockpit entry/exit, open window sightline and camera datums.
+  skin clearance from the pressure sphere, paired-claw clearance, reproducible
+  rest pose, vehicle data immutability, lazy cockpit entry/exit, open window
+  sightline and camera datums. Authored checks also verify cabin-facing exterior
+  clearance, embedded finish maps, UVs and tangent frames.
 - `tools/crafttest.tscn -- audit clearance parity`: all ten authored vehicles,
   with unchanged 2 cm height/datum tolerance. Audit and clearance also run with
   `assets=0`.
@@ -74,3 +101,5 @@ orrery's distant-world pass in place.
 - `tools/evapodshots.tscn -- dump=/absolute/directory`: rendered front, quarter,
   side, rear, underside, extended arms, pilot view and isolated cockpit. This
   tool requires a GPU; numeric checks use headless.
+
+`tools/evapodmaterials.tscn -- out=/abs/materials.png` renders six finish samples under one lighting rig.

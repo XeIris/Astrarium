@@ -13,6 +13,8 @@ func _init() -> void:
 		var stages := {}
 		for spec in vehicle.stages:
 			var row: Dictionary = spec.duplicate(true)
+			if vehicle.has("interior") and str(vehicle.interior.stage) == str(spec.key):
+				row["interior"] = vehicle.interior.duplicate(true)
 			row["partCounts"] = CraftAssets.part_counts(spec, vehicle)
 			row["gimbalLimits"] = CraftAssets.gimbal_limits(spec, vehicle)
 			stages[spec.key] = row
