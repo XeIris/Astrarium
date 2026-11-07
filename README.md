@@ -146,6 +146,7 @@ and its `SIM` console handle:
 |---|---|
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
 | `mode=sandbox\|learn\|flight\|observatory` | skip the start screen and load that mode |
+| `mode=showcase`, `body=Earth`, `pin=3`, `stand=1` | a world in full focus, starting at that pin of its sequence (`seed=` moves the sequence), and optionally standing there |
 | `site=jodrell\|maunakea\|paranal`, `date=2026-12-21T00:00`, `look=180,30`, `rate=pause\|1x\|60x\|3600x`, `view=lines,names,bounds\|none`, `point=Jupiter`, `picker=1 orbit=0.3` | with `mode=observatory`: the site, the UTC date and time, the compass azimuth and altitude to face (degrees), the clock rate, the overlays shown, the body to follow at its true size, and opening on the picker at a point in its film |
 | `inst=fors2\|deimos\|omegacam\|lovell_l`, `target=Saturn`, `exposure=30`, `seeing=0.7`, `field=pixels\|wide\|full`, `nd=0\|5\|10`, `expose=1` | with `mode=observatory`: the instrument desk. `target` is a body, a bright star, a radio source or coordinates; `expose=1` takes a frame |
 | `title=hole\|launch\|jupiter` | hold the title on one reel shot (for screenshots); `title=0` shows it over the bare sky |

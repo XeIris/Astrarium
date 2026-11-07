@@ -146,5 +146,8 @@ rain shadow at a site, Venus's slow rotation regime beyond its Hadley width.
 
 ## What it costs
 
-Nothing outside a visit: see `surfacecheck` for the allocation proof. On arrival a worker thread spends a few seconds surveying
-and carving (on an M-series Mac, `Medium`, see the PR), behind a veil. Per frame it costs a few hundred microseconds on the CPU.
+Nothing outside a visit: `surfacecheck` holds `SurfaceStats` at zero through the orrery, a free camera, a showcase with its
+pin, flight and the Observatory, and after three visits the node and resource counts are where they started. Arrival spends
+0.25–1.3 s on a worker thread surveying and carving (65 to 161 cells a side, `Low` to `Ultra`, on an M-series Mac) while the view
+waits in orbit. On foot it costs about 0.1 ms a frame on a dry world and 2.3 ms on a wet one, most of which is the cloud field's
+CPU march, the one flight runs too.
