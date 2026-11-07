@@ -318,6 +318,17 @@ func _soak_check() -> void:
 				await _drawn_frame()
 				stage.set_app_mode("sandbox")
 				for i in 5: stage.animate(1.0 / 60.0),
+		"surface": func():
+			for name in ["Earth", "Mars"]:
+				stage.set_app_mode("showcase", {"body": name})
+				stage.showcase.drop_pin()
+				stage.showcase.stand()
+				stage.showcase.visit.site.finish_now()
+				for i in 20: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+				stage.showcase.leave_surface()
+				stage.set_app_mode("sandbox")
+				for i in 5: stage.animate(1.0 / 60.0),
 		"observatory": func():
 			# Enter, every site, dates at both ends of the range and past it, the overlays,
 			# a running clock, and back out.

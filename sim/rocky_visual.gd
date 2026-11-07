@@ -12,6 +12,7 @@ const CLOUD_SHADER := preload("res://shaders/bodies/cloud_deck.gdshader")
 const ATMO_SHADER := preload("res://shaders/bodies/rocky_atmosphere.gdshader")
 
 const TAU_ := PI * 2.0
+const SEED_WRAP := 10000.0
 ## The shared surface exposure (uGain), as a camera exposes for the planet.
 const EXPOSURE := 1.95
 
@@ -272,8 +273,9 @@ class RockyViz extends RefCounted:
 		group.name = "Rocky_%s" % b.name
 		R = float(o.radius_scene)
 		base_r = R
-		# A preset's seed nudges the terrain without re-rolling it.
-		var seed_opt := float(o.spec_seed) if RockyVisual.truthy(o.spec_seed) else 0.0
+		# A preset's seed nudges the terrain without re-rolling it. Wrapped, because this ends up in float32
+		# noise coordinates: a spawn's nine-digit seed would leave no bits for the noise, and blocks for continents.
+		var seed_opt := fposmod(float(o.spec_seed), RockyVisual.SEED_WRAP) if RockyVisual.truthy(o.spec_seed) else 0.0
 		var seed := float(RockyVisual.id_hash(b.id) % 1000) / 7.3 + seed_opt * 0.017
 
 		# A world with no liquid at all is expressed by putting the sea-level datum
@@ -316,6 +318,10 @@ class RockyViz extends RefCounted:
 				b.default_visual_spin_rad_s = 0.4 + randf() * 1.2
 			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		b.viz = self
+		# A rebuild must not spend a frame on defaults: a pin or a site may read this at once.
+		if b.climate != null:
+			_sync_air(b.climate)
+			_follow_climate(b.climate, 0.0)
 
 	func _add_clouds() -> void:
 		cloud_mat = RockyVisual.cloud_material(_cloud_seed)

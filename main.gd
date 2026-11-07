@@ -1308,7 +1308,7 @@ func set_cam_mode(mode: String) -> void:
 		cam_near = 0.002
 		# At system speeds the planet spins tens of times a second and the sky is a
 		# blur, so entering the surface view drops to a pace where a day is watchable.
-		if not was_surface and not observatory.active: apply_regime("day")
+		if not was_surface and not observatory.active and showcase.visit == null: apply_regime("day")
 		aim_at_brightest_sun()
 	elif was_surface:
 		cam_near = 0.01
@@ -2214,6 +2214,10 @@ func _on_showcase_action(kind: String) -> void:
 		"open": set_app_mode("showcase", {"body": ""})
 		"leave": set_app_mode("sandbox")
 		"pin": showcase.drop_pin()
+		"stand": showcase.stand()
+		"back": showcase.leave_surface()
+		"day":
+			if showcase.visit != null: showcase.visit.turn_to_noon(0.65)
 		"auto":
 			state.pin_on_focus = not state.pin_on_focus
 			hud.set_active("pinOnFocusToggle", state.pin_on_focus)
@@ -3169,7 +3173,7 @@ func animate(dt: float) -> void:
 		if b.marker == null or not drawn: continue
 		# The Observatory keeps the planets' markers: at true scale they are points. The Moon
 		# never is, and a point would hide its phase.
-		if state.cam_mode == "surface" and not (observatory.active and b != home and b.type != "star" and b.name != "Moon"):
+		if state.cam_mode == "surface" and not ((observatory.active or showcase.visit != null) and b != home and b.type != "star" and b.name != "Moon"):
 			b.marker.mesh.visible = false
 			continue
 		# The observer in AU: the camera's offset from the body, unscaled.
@@ -3236,7 +3240,7 @@ func animate(dt: float) -> void:
 	# ---- surface view: the sky composite runs over the scene, the home world is
 	# hidden (we are standing on it) and so is the spacetime slab
 	if state.cam_mode == "surface" and home:
-		if observatory.local_pass(): pipe.surface_pass = null
+		if observatory.local_pass() or showcase.local_pass(): pipe.surface_pass = null
 		else:
 			_surface_frame(home, dt)
 			pipe.surface_pass = sky_pass
@@ -3248,8 +3252,8 @@ func animate(dt: float) -> void:
 		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active) and not showcase.active
 
 	observatory.update(dt)
-	showcase.update(dt)
-	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass()
+	showcase.update(dt, sim_stepped)
+	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass() or showcase.local_pass()
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
 	pipe.prepare_frame(lens_params, state.time)
 	update_hud(dt)
@@ -3285,6 +3289,7 @@ func _surface_frame(_home: Body, dt: float) -> void:
 ## near plane, and its eye (a DVec3) becomes the floating origin.
 func _observe(home: Body) -> void:
 	if observatory.active: observatory.place(observer, home, pipe.scene_cam)
+	elif showcase.visit != null: showcase.visit.place(observer, home, pipe.scene_cam)
 	else: observer.update(home, pipe.scene_cam)
 	cam_pos.copy_from(observer.eye)
 	cam_basis = pipe.scene_cam.transform.basis

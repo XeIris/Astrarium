@@ -212,6 +212,22 @@ func stage_flow() -> void:
 	check("the surface's aerial colour follows", rv.surf_mat.get_shader_parameter("uAirTint") == tint)
 	stage.remove_body(rock.id)
 	stage.remove_body(b.id)
+	# A rebuild must not spend a frame on defaults: a pin or a site may read the new visual at once.
+	var rebuilt: Body = stage.spawn_body(stage.place_spawn(U.merged({"type": "planet", "mass": 3e-6, "name": "Rebuilt", "seed": 13}, Composition.MIXES.ocean.inputs), {"a_au": 1.0, "ang": 4.0, "off": 0.5}))
+	var was_true: bool = stage.state.true_scale
+	stage.set_true_scale(not was_true)
+	var fresh = viz_of(rebuilt)
+	check("a rebuilt visual knows its crust at once", near(uniform(fresh, "uCrustT"), Terrain.crust_threshold(rebuilt.climate.land), 1e-5))
+	check("and its frost, its sea and its growth", near(uniform(fresh, "uSeaKm"), 0.0, 0.5) and uniform(fresh, "uBiota") >= 0.0)
+	var dry_rebuilt: Body = stage.spawn_body(stage.place_spawn(U.merged({"type": "planet", "mass": 3e-6, "name": "Dry", "seed": 14}, Composition.MIXES.mars.inputs), {"a_au": 1.5, "ang": 5.0, "off": 0.5}))
+	stage.set_true_scale(was_true)
+	check("a dry world's frost is its own at once", near(uniform(viz_of(dry_rebuilt), "uFrostK"), ClimateLook.co2_frost_k(float(dry_rebuilt.climate.pressures.pCO2)), 2.0))
+	stage.remove_body(rebuilt.id)
+	stage.remove_body(dry_rebuilt.id)
+	# A spawn's seed is nine digits; the noise's coordinates are float32.
+	var big: Body = stage.spawn_body(stage.place_spawn(U.merged({"type": "planet", "mass": 3e-6, "name": "Big seed", "seed": 987654321}, Composition.MIXES.earth.inputs), {"a_au": 1.0, "ang": 3.0, "off": 0.5}))
+	check("a spawn's huge seed leaves the noise its bits (uSeed %.1f)" % uniform(viz_of(big), "uSeed"), absf(uniform(viz_of(big), "uSeed")) < 400.0)
+	stage.remove_body(big.id)
 	# What presets state stays stated.
 	var mars: Body = stage.state.body_named("Mars")
 	var venus: Body = stage.state.body_named("Venus")

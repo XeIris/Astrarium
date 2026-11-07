@@ -1180,6 +1180,18 @@ func _build_showcase(b: Node) -> void:
 	var row := grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
 	B(row, "Toggle", "Drop a pin", "scPinDrop", "The next pin in this world's sequence. The world's seed, the run's seed and the pin's number decide where it lands, so it lands there every time.").pressed.connect(func(): showcase_action.emit("pin"))
 	B(row, "Toggle", "On focus", "scPinAuto", "Drop a pin by itself once a world is in full focus. The same setting is in Settings › Sim.").pressed.connect(func(): showcase_action.emit("auto"))
+	m(B(s, "Action", "Stand here", "scStand", "Go down to the pin. The ground, the sea and the weather are worked out for this world now, and go when you leave."), 0.0, 8.0).pressed.connect(func(): showcase_action.emit("stand"))
+	var on_foot := stack(s)
+	reg("scFoot", on_foot)
+	m(L(on_foot, "", {"fs": 10.0, "c": T.ACCENT_2}, "scSurvey", true), 0.0, 6.0)
+	var fg := grid(on_foot, [1.0, 1.0], 10.0, 5.0, 0.0, 10.0)
+	for kv in [["here", "ssTemp"], ["air", "ssPressure"], ["height", "ssHeight"], ["cloud", "ssCloud"], ["wind", "ssWind"], ["falling", "ssRain"], ["waves", "ssWaves"], ["tide", "ssTide"],
+			["nearest storm", "ssStorm"], ["Hadley edge", "ssHadley"], ["Rossby radius", "ssRossby"], ["storm's life", "ssLife"]]:
+		_stat(fg, kv[0], kv[1])
+	var fr := grid(on_foot, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	B(fr, "Toggle", "To daylight", "scDaylight", "Turn the world until the Sun is up here. A display shift: nothing physical moves.").pressed.connect(func(): showcase_action.emit("day"))
+	B(fr, "Toggle", "Back to orbit", "scBack").pressed.connect(func(): showcase_action.emit("back"))
+	_hide(on_foot, "inline", true)
 	m(B(s, "Ghost", "Leave showcase", "scLeave"), 0.0, 10.0).pressed.connect(func(): showcase_action.emit("leave"))
 
 # The Observatory: site, date, clock, accuracy badge and overlays (sim/observatory/).
@@ -1666,6 +1678,17 @@ func set_hud_hidden(hidden: bool) -> void:
 
 func mount(n: String) -> Control:
 	return _mounts.get(n, ids.get(n))
+
+## On foot, the surface's own readouts replace the pin's buttons.
+func set_surface_shown(on: bool) -> void:
+	_hide(ids.scFoot, "inline", not on)
+	_hide(ids.scStand, "inline", on)
+	_hide(ids.scPinDrop, "inline", on)
+	if not on: set_text("scSurvey", "")
+
+## While the ground is still being surveyed; `progress` 0..1.
+func set_surface_veil(on: bool, progress: float = 0.0) -> void:
+	set_prose("scSurvey", "Surveying the ground and running its rivers… %d%%" % int(progress * 100.0) if on else "")
 
 ## Wrapping text set by id: `say`, or it breaks a word early.
 func set_prose(id: String, text: String) -> void:

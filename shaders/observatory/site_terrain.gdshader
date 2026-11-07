@@ -17,9 +17,13 @@ uniform float uScaleH = 8500.0;
 uniform float uEye = 1.0;
 uniform float uHasAir = 1.0;
 uniform float uSkyI = 0.35;       // the flight ground's skylight
+uniform vec3 uFillTint = vec3(1.0);// the skylight's colour, where a world's sky is not ours
+uniform float uSnowLine = 1.0e9;  // m: a world's frost line, in its own lapse rate
+uniform float uRivers = 0.0;      // 1: UV2.y is log₁₀ drainage area, and water runs where it is large
 
 varying vec3 vPlace;     // x, height, z in the site's frame
 varying vec3 vNormalL;
+varying float vChannel;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -36,6 +40,7 @@ float fbm(vec2 p) {
 void vertex() {
 	vPlace = vec3(UV.x, UV2.x, UV.y);
 	vNormalL = NORMAL;
+	vChannel = UV2.y;
 }
 
 void fragment() {
@@ -64,6 +69,13 @@ void fragment() {
 		}
 		col = mix(col, green, g);
 	}
+	// Water stands in what drains the most, and frost above its line, thinning on steep rock.
+	if (uRivers > 0.5) {
+		float wet = smoothstep(6.0, 7.2, vChannel + (mid - 0.5) * 0.3);
+		col = mix(col, vec3(0.03, 0.06, 0.09), wet * 0.9);
+	}
+	float snow = smoothstep(uSnowLine - 220.0, uSnowLine + 160.0, vPlace.y + (mid - 0.5) * 240.0) * (1.0 - smoothstep(0.35, 0.65, slope));
+	col = mix(col, vec3(0.82, 0.85, 0.9), snow);
 	// Stones and grit underfoot, out to where they would shimmer.
 	float grit = (fbm(p / 0.45) - 0.47) * exp(-dist / 90.0);
 	col *= 0.82 + 0.3 * mid + 0.25 * (fine - 0.25) + 0.9 * grit;
@@ -71,7 +83,7 @@ void fragment() {
 	ROUGHNESS = 1.0;
 	// Air along the view path, as the ground patch computes it.
 	// Skylight, the same term the planet's ground patch adds.
-	EMISSION = ALBEDO * uSkyI * (0.55 + 0.45 * vNormalL.y) * smoothstep(-0.18, 0.05, uSunDir.y);
+	EMISSION = ALBEDO * uFillTint * uSkyI * (0.55 + 0.45 * vNormalL.y) * smoothstep(-0.18, 0.05, uSunDir.y);
 	if (uHasAir > 0.5) {
 		float dh = max(uEye, 1.0);
 		float mean_rho = uScaleH * (1.0 - exp(-dh / uScaleH)) / dh;

@@ -217,7 +217,7 @@ func crust_height(p: Vector3) -> float:
 ## The annual-mean surface temperature the shader draws here, K, without the season.
 func temperature(sin_lat: float, h_km: float) -> float:
 	var ins := maxf(1.0 + s2 * 0.5 * (3.0 * sin_lat * sin_lat - 1.0), 0.02)
-	return mean_k * lerpf(pow(ins, 0.25), 1.0, transport) - 6.5 * maxf(h_km, 0.0)
+	return maxf(mean_k * lerpf(pow(ins, 0.25), 1.0, transport) - 6.5 * maxf(h_km, 0.0), 2.7)
 
 ## precipitation(), 0..1, as the surface's biomes read it.
 func precipitation(p: Vector3, t: float, h_km: float) -> float:
