@@ -316,6 +316,10 @@ class RockyViz extends RefCounted:
 				b.default_visual_spin_rad_s = 0.4 + randf() * 1.2
 			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		b.viz = self
+		# A rebuild must not spend a frame on defaults: a pin or a site may read this at once.
+		if b.climate != null:
+			_sync_air(b.climate)
+			_follow_climate(b.climate, 0.0)
 
 	func _add_clouds() -> void:
 		cloud_mat = RockyVisual.cloud_material(_cloud_seed)

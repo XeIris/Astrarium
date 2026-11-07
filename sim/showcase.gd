@@ -23,6 +23,9 @@ var pins_dropped := 0
 var marker: Node3D = null
 var _prev := {}
 var _pending_drop := false
+## Someone standing on the world. Null otherwise, and then nothing of the surface exists.
+var visit: SurfaceVisit = null
+var _stood := false
 var _pin_track := 0.0
 var _hud_acc := 0.0
 
@@ -63,6 +66,7 @@ func enter(b: Body) -> void:
 
 func leave() -> void:
 	if not active: return
+	leave_surface()
 	active = false
 	body = null
 	pin = null
@@ -109,12 +113,45 @@ func _face_the_sun(b: Body) -> void:
 	stage.cam.phi = atan2(d.z, d.x) + 0.45
 	stage.cam.theta = PI * 0.5 - 0.3
 
-## Per drawn frame, while on. Everything here is camera and marker.
-func update(dt: float) -> void:
+## Stand on the world at the pin, dropping one first if there is none yet.
+func stand() -> void:
+	if not active or visit != null: return
+	if pin == null: drop_pin()
+	_clear_marker()
+	visit = SurfaceVisit.new(stage, body, pin)
+	visit.begin()
+	sync_hud()
+
+## Back to the orbit view. Everything the visit built goes with it.
+func leave_surface() -> void:
+	if visit == null: return
+	visit.end()
+	visit = null
+	if active:
+		_keep_marker()
+		stage.hud.set_surface_shown(false)
+		sync_hud()
+
+func local_pass() -> bool:
+	return visit != null and visit.local_pass()
+
+## Per drawn frame, while on. Camera and marker, and the visit if there is one.
+func update(dt: float, sim_years: float = 0.0) -> void:
 	if not active: return
 	if body == null or not body.alive or body.climate == null:
 		stage.set_app_mode("sandbox")
 		return
+	if visit != null:
+		# The camera left the ground some other way: the view key, or a stage verb.
+		if stage.state.cam_mode != "surface":
+			leave_surface()
+		else:
+			visit.update(dt, sim_years)
+			_hud_acc += dt
+			if _hud_acc >= 0.25:
+				_hud_acc = 0.0
+				_sync_world()
+			return
 	_hud_acc += dt
 	if _hud_acc >= 0.25:
 		_hud_acc = 0.0
@@ -128,6 +165,10 @@ func update(dt: float) -> void:
 	else:
 		_track_pin(dt)
 		_keep_marker()
+		# `stand=1` on the command line goes straight onto the surface.
+		if String(stage._cmd.get("stand", "")) == "1" and not _stood:
+			_stood = true
+			stand()
 
 ## The next pin in this world's sequence.
 func drop_pin() -> void:
@@ -226,7 +267,26 @@ func sync_hud() -> void:
 		hud.set_text("scPinAt", "—")
 		hud.set_prose("scPinGround", "Drop a pin to see what is there." if not stage.state.pin_on_focus else "A pin drops once the world is in full focus.")
 	hud.set_active("scPinAuto", stage.state.pin_on_focus)
+	hud.set_surface_shown(visit != null)
 	_sync_world()
+
+## The pin's own numbers, as the visit reads them.
+func sync_surface(r: Dictionary) -> void:
+	var hud = stage.hud
+	hud.set_text("ssTemp", "%s °C" % U.fixed(float(r.temp) - 273.15, 0))
+	hud.set_text("ssPressure", Hud.format_bar(float(r.pressure)))
+	hud.set_text("ssHeight", "%s m" % U.fixed(float(r.height), 0))
+	hud.set_text("ssWind", "%s m/s" % U.prec(float(r.wind), 2))
+	var rain := float(r.rain)
+	hud.set_text("ssRain", "%s %s mm/h" % [str(r.kind), U.prec(rain, 2)] if rain > 0.05 else "none")
+	hud.set_text("ssCloud", "%s %%" % U.fixed(float(r.cover) * 100.0, 0))
+	hud.set_text("ssWaves", "%s m · %s s" % [U.prec(float(r.hs), 2), U.prec(float(r.period), 2)] if r.has_sea else "no sea")
+	hud.set_text("ssTide", "%s cm" % U.fixed(float(r.tide) * 100.0, 1) if r.has_sea else "no sea")
+	var near := float(r.near_km)
+	hud.set_text("ssStorm", "%s km" % U.fixed(near, 0) if near >= 0.0 else "none")
+	hud.set_text("ssHadley", "%s°" % U.fixed(minf(float(r.hadley), 90.0), 0))
+	hud.set_text("ssRossby", "%s km" % U.fixed(float(r.rossby_km), 0))
+	hud.set_text("ssLife", "%s d" % U.prec(float(r.life_d), 2))
 
 # The world's own numbers, as they move.
 func _sync_world() -> void:
