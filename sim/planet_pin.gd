@@ -19,13 +19,17 @@ var ground := {}
 static func drop(b: Body, n: int, run_seed: int) -> PlanetPin:
 	var pin := PlanetPin.new()
 	pin.n = n
-	var key := str(U.nz(b.spec.get("seed"), b.name))
-	# Equal areas: uniform in sin(lat), uniform in longitude.
-	pin.lat = asin(2.0 * ClimateInputs._uniform(key, run_seed, "pin%d.lat" % n) - 1.0)
-	pin.lon = TAU * ClimateInputs._uniform(key, run_seed, "pin%d.lon" % n) - PI
+	var at := draw(str(U.nz(b.spec.get("seed"), b.name)), run_seed, n)
+	pin.lat = at.x
+	pin.lon = at.y
 	pin.p = direction(pin.lat, pin.lon)
 	pin.ground = read_ground(b, pin.p, pin.lat, pin.lon)
 	return pin
+
+## Pin `n`'s latitude and longitude, rad. Equal areas: uniform in sin(lat), uniform in longitude.
+static func draw(key: String, run_seed: int, n: int) -> Vector2:
+	return Vector2(asin(2.0 * ClimateInputs._uniform(key, run_seed, "pin%d.lat" % n) - 1.0),
+		TAU * ClimateInputs._uniform(key, run_seed, "pin%d.lon" % n) - PI)
 
 ## A latitude and longitude as a unit vector in the surface mesh's frame; RockyVisual's sphere has
 ## 0° longitude at u = ½ and north on +Y.

@@ -48,10 +48,9 @@ func draws() -> void:
 	var east := 0
 	var key := str(U.nz(mars.spec.get("seed"), mars.name))
 	for i in n:
-		var sl := 2.0 * ClimateInputs._uniform(key, 0, "pin%d.lat" % i) - 1.0
-		var lo := TAU * ClimateInputs._uniform(key, 0, "pin%d.lon" % i) - PI
-		if absf(sl) < sin(deg_to_rad(23.44)): tropics += 1
-		if lo > 0.0: east += 1
+		var at := PlanetPin.draw(key, 0, i)
+		if absf(at.x) < deg_to_rad(23.44): tropics += 1
+		if at.y > 0.0: east += 1
 	check("the tropics take their share of the sphere, 39.8%% (%.1f%%)" % (100.0 * tropics / n), near(float(tropics) / n, 0.3978, 0.025))
 	check("the hemispheres split evenly (%.1f%%)" % (100.0 * east / n), near(float(east) / n, 0.5, 0.025))
 
@@ -70,9 +69,8 @@ func draws() -> void:
 	var land := 0
 	var count := 0
 	for i in range(1, 2001):
-		var pin_lat := asin(2.0 * ClimateInputs._uniform("Earth", 0, "pin%d.lat" % i) - 1.0)
-		var pin_lon := TAU * ClimateInputs._uniform("Earth", 0, "pin%d.lon" % i) - PI
-		if PlanetPin.land_at("Earth", pin_lat, pin_lon): land += 1
+		var at := PlanetPin.draw("Earth", 0, i)
+		if PlanetPin.land_at("Earth", at.x, at.y): land += 1
 		count += 1
 	check("pins fall on land about 29%% of the time on Earth (%.1f%%)" % (100.0 * land / count), near(float(land) / count, 0.29, 0.03))
 	PlanetPin.release_maps()
@@ -342,6 +340,60 @@ func gpu_probe() -> void:
 		check("%s: a pin never disagrees about sea and land" % w.name, sign_miss <= 1)
 		vp.queue_free()
 
+# End to end: the actual planet in the frame, its sea and land read off the pixels, against the CPU's.
+func coast_in_the_frame() -> void:
+	new_stage("blank")
+	stage.state.show_mesh = false
+	stage.state.show_lens = false
+	stage.spacetime_mesh.node.visible = false
+	stage.hud.set_hud_hidden(true)
+	var star: Body = stage.spawn_body({"type": "star", "mass": 1.0, "name": "Lamp", "radiusKm": 696000.0})
+	var b := spawn_world("earth", 1.0, "Coast", {"land": 0.45, "cloudCover": 0.0, "biota": 0.0, "regolith": 0xc08040})
+	var viz = PlanetPin._viz(b)
+	# The whole disc, lit from behind the camera.
+	stage.set_follow(b)
+	var d: DVec3 = star.pos.sub(b.pos).normalized()
+	stage.cam.phi = atan2(d.z, d.x)
+	stage.cam.theta = acos(clampf(d.y, -1.0, 1.0))
+	stage.jump_cam_radius(b.radius_scene * 2.6)
+	for i in 30:
+		stage.animate(1.0 / 60.0)
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	if args.has("out"): img.save_png("%s/coast.png" % args.out)
+	var r := PlanetRelief.of_visual(viz)
+	var cam: Camera3D = stage.pipe.scene_cam
+	var view := Vector2(stage.pipe.view_size)
+	var scale_x := view.x / img.get_width()
+	var center := b.scene_pos.rel_v3(stage.cam_pos)
+	var R: float = viz.R
+	var turn: Basis = (viz.group.global_transform.basis * viz.surface.basis).orthonormalized().inverse()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9
+	var agree := 0
+	var total := 0
+	var tries := 0
+	while total < 600 and tries < 20000:
+		tries += 1
+		var px := Vector2i(rng.randi_range(0, img.get_width() - 1), rng.randi_range(0, img.get_height() - 1))
+		var ray := cam.project_ray_normal(Vector2(px) * scale_x)
+		var b_ := ray.dot(center)
+		var disc := b_ * b_ - center.length_squared() + R * R
+		if disc <= 0.0: continue
+		var hit := ray * (b_ - sqrt(disc)) - center
+		if hit.normalized().dot(-ray) < 0.6: continue
+		var p := (turn * hit).normalized()
+		var h := r.height(p).x
+		# Leave the shore itself, where a pixel straddles the line.
+		if absf(h - r.sea_km) < 0.25: continue
+		var c := img.get_pixelv(px)
+		var drawn_sea := c.b > c.r
+		if drawn_sea == (h < r.sea_km): agree += 1
+		total += 1
+	print("PINCHECK coast %d of %d pixels agree" % [agree, total])
+	check("the frame's sea and land are the CPU's (%d of %d)" % [agree, total], total >= 200 and float(agree) / total > 0.97)
+
 func marker_pixels() -> void:
 	new_stage("blank")
 	stage.state.show_mesh = false
@@ -381,6 +433,7 @@ func _ready() -> void:
 	stage.set_process(false)
 	if args.get("gpu", "0") == "1":
 		await gpu_probe()
+		await coast_in_the_frame()
 		await marker_pixels()
 	else:
 		statistics()
