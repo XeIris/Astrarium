@@ -498,15 +498,17 @@ func _dominant() -> Body:
 	return c
 
 # A circular orbit about the dominant mass, shared by quick spawn and the Foundry.
-func orbit_spec_around_dominant(spec: Dictionary) -> Dictionary:
+## `plan` holds a bearing `ang`, a spread `off` and a chosen `a_au`, for a spawn previewed first.
+func orbit_spec_around_dominant(spec: Dictionary, plan: Dictionary = {}) -> Dictionary:
 	var center := _dominant()
 	var Mc := maxf(center.mass, 1e-6) if center else 1.0
 	var cpos := center.pos if center else DVec3.new()
 	# Stay clear of whatever we are orbiting: outside its rendered disc, and
 	# outside its horizon by a wide margin if it is a hole.
 	var clear_au := maxf(maxf(center.radius_scene / state.scene_scale, center.rs * 8.0), center.radius) if center else 0.0
-	var a_au := clear_au * 2.5 + (5.0 + randf() * 9.0) / state.scene_scale
-	var ang := randf() * TAU
+	var a_au := clear_au * 2.5 + (5.0 + float(plan.get("off", randf())) * 9.0) / state.scene_scale
+	if plan.get("a_au") != null: a_au = maxf(float(plan.a_au), clear_au * 1.05)
+	var ang: float = plan.get("ang", randf() * TAU)
 	var pos := cpos.add(DVec3.new(cos(ang), 0.0, sin(ang)).scaled(a_au))
 	var v := Physics.circular_speed(Mc + float(U.nz(spec.get("mass"), 0.0)), a_au)
 	var tang := DVec3.new(-sin(ang), 0.0, cos(ang)).scaled(v)
@@ -518,7 +520,7 @@ func orbit_spec_around_dominant(spec: Dictionary) -> Dictionary:
 
 # Place a spec at exactly zero velocity in front of the camera, offset so
 # successive spawns don't overlap.
-func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
+func rest_spec_at_rest(spec: Dictionary, advance := true) -> Dictionary:
 	var centre := DVec3.new()
 	var reach: float
 	if state.cam_mode == "free":
@@ -529,10 +531,11 @@ func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
 		centre.copy_from(cam.target)
 		reach = cam.radius
 	# Fan successive spawns around the look-at point instead of stacking them.
-	rest_spawn_angle += 2.399963                       # golden angle, so they spread
+	var angle := rest_spawn_angle + 2.399963           # golden angle, so they spread
+	if advance: rest_spawn_angle = angle
 	var off := reach * 0.32
-	centre.x += cos(rest_spawn_angle) * off
-	centre.z += sin(rest_spawn_angle) * off
+	centre.x += cos(angle) * off
+	centre.z += sin(angle) * off
 	var pos_au := centre.scaled(1.0 / state.scene_scale)
 	var out := spec.duplicate()
 	out.pos = pos_au.to_array()
@@ -540,8 +543,9 @@ func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
 	return out
 
 # At rest on the workbench, in orbit elsewhere; an empty scene is always at rest.
-func place_spawn(spec: Dictionary) -> Dictionary:
-	return rest_spec_at_rest(spec) if (state.spawn_at_rest or state.bodies.is_empty()) else orbit_spec_around_dominant(spec)
+func place_spawn(spec: Dictionary, plan: Dictionary = {}) -> Dictionary:
+	if state.spawn_at_rest or state.bodies.is_empty(): return rest_spec_at_rest(spec, plan.is_empty())
+	return orbit_spec_around_dominant(spec, plan)
 
 # Validate the complete request before changing live state or scene resources.
 func edit_body(b: Body, patch: Dictionary):
@@ -568,6 +572,7 @@ func edit_body(b: Body, patch: Dictionary):
 	if b.climate != null and ClimateInputs.climate_only(patch):
 		b.spec = spec
 		b.climate.apply_inputs(ClimateInputs.stated(spec))
+		if ClimateInputs.touches_surface(patch): _refresh_surface(b)
 		refresh_ui()
 		return b
 	var old_mass := b.mass
@@ -616,6 +621,12 @@ func edit_body(b: Body, patch: Dictionary):
 		state.energy0 = null
 	refresh_ui()
 	return b
+
+# The surface's land and sea are uniforms, so a slider need not rebuild the visual.
+func _refresh_surface(b: Body) -> void:
+	var viz = b.viz
+	if viz is Bodies.AccretionWrap: viz = viz.inner
+	if viz != null and viz.has_method("refresh_surface"): viz.refresh_surface()
 
 # STRUCTURAL CONSEQUENCES: when the interior model says a body can't hold itself
 # up, it becomes something else (collapse, core collapse, reclassification).
@@ -1579,6 +1590,7 @@ func update_hud(dt: float) -> void:
 	hud.set_text("simClock", fmt_years(state.sim_years) if is_nan(state.epoch_jd) \
 		else TimeScales.readout(state.epoch_jd, state.sim_years).get_slice(" ", 0))
 
+	if foundry != null and not at_start and not state.hud_hidden: foundry.tick()
 	# Keep the open editor and diagram synchronized after physical events and edits.
 	if xsec_open and not state.hud_hidden and not hud.is_collapsed("xsecPanel"):
 		var fb := state.body_by_id(state.focus_id)
@@ -2615,14 +2627,23 @@ const FXLAB := "res://tools/fxlab.tscn"
 
 # OBJECT FOUNDRY + CROSS-SECTION
 func _build_foundry() -> void:
-	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": _on_foundry_spawn})
+	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": _on_foundry_spawn, "site": place_spawn, "context": _foundry_context})
 	inspector = Foundry.create_inspector({"mount": hud.mount("xsecCanvas")})
 	# The live editor shares the cross-section panel.
-	live_editor = Foundry.create_live_editor({"mount": hud.mount("liveEdit"), "on_edit": _on_live_edit})
+	live_editor = Foundry.create_live_editor({"mount": hud.mount("liveEdit"), "on_edit": _on_live_edit, "context": _foundry_context})
 
-func _on_foundry_spawn(spec: Dictionary, structure) -> void:
-	var b := spawn_body(place_spawn(U.merged(spec, {"seed": randi() % 1000000000, "atmosphere": spec.type == "planet"})))
+## What the composition editor's preview reads of the stage: never anything it writes.
+func _foundry_context() -> Dictionary:
+	var ctx := {"stars": get_stars(), "run_seed": int(_cmd.get("seed", 0)),
+		"at_rest": state.spawn_at_rest or state.bodies.is_empty()}
+	var center := _dominant()
+	if center != null: ctx.dominant = center.pos
+	return ctx
+
+func _on_foundry_spawn(spec: Dictionary, structure, plan: Dictionary = {}) -> void:
+	var b := spawn_body(place_spawn(U.merged({"seed": randi() % 1000000000, "atmosphere": spec.type == "planet"}, spec), plan))
 	if b == null: return
+	if not plan.is_empty(): rest_spawn_angle += 2.399963
 	set_follow(b)
 	# A star built at the end of its life collapses shortly after it is placed.
 	if spec.type == "star" and float(spec.get("phase", 0.0)) >= 1.93:

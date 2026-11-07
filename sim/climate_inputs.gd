@@ -6,7 +6,7 @@ extends RefCounted
 
 const KEYS := ["mixedLayer", "albedoBase", "albedoIce", "T0", "oceans", "salinity",
 	"pN2", "pO2", "pAr", "pCO2", "pCH4", "pSO2"]
-# Inputs that also draw the surface, so an edit of one rebuilds the visual.
+# Inputs that also draw the surface, whose visual takes them as uniforms.
 const SURFACE_KEYS := ["land", "oceanDepth"]
 
 # Metres of water, albedo fractions, kelvin, bar, km and g/kg. The gases' upper ends are the
@@ -81,12 +81,17 @@ static func stated(spec: Dictionary) -> Dictionary:
 	return out
 
 ## True when a patch touches nothing but this model's inputs, so an edit needs neither a
-## new visual nor a new structure. `albedo` and the surface keys also draw the surface.
+## new visual nor a new structure. `albedo` also draws the surface, and its colours are built.
 static func climate_only(patch: Dictionary) -> bool:
 	if patch.is_empty(): return false
 	for key in patch:
-		if key not in KEYS: return false
+		if key not in KEYS and key not in SURFACE_KEYS: return false
 	return true
+
+static func touches_surface(patch: Dictionary) -> bool:
+	for key in SURFACE_KEYS:
+		if patch.has(key): return true
+	return false
 
 ## log₁₀ of (v_esc/SHORELINE_KMS)⁴/S: positive keeps an atmosphere. Mars 0, Venus 0.6, Earth 1.
 static func retention(mass: float, radius_au: float, S: float) -> float:

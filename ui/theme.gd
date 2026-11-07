@@ -446,6 +446,13 @@ static func theme() -> Theme:
 	for s in ["normal", "read_only"]:
 		t.set_stylebox(s, "LineEdit", field)
 	t.set_stylebox("focus", "LineEdit", _ring(focus))
+	# A value typed into a row: as tall as the row's slider and label, not a form field.
+	t.set_type_variation("RowField", "LineEdit")
+	var row_field := stylebox({"bg": rgba(0, 0, 0, 0.3), "bc": BORDER, "pad": [1, 4, 1, 4]})
+	for s in ["normal", "read_only"]:
+		t.set_stylebox(s, "RowField", row_field)
+	t.set_stylebox("focus", "RowField", _ring(focus))
+	t.set_font_size("font_size", "RowField", 10)
 	t.set_color("font_color", "LineEdit", TEXT)
 	t.set_color("font_placeholder_color", "LineEdit", Color(TEXT_DIM, 0.85))
 	t.set_color("caret_color", "LineEdit", TEXT)

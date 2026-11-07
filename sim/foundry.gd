@@ -80,7 +80,7 @@ class ControlRows extends RefCounted:
 		for k in Structure.ROCK_COMPOSITIONS:
 			opts.append([k, Structure.ROCK_COMPOSITIONS[k].label])
 		comp.set_options(opts, "earth")
-		r = Hud.range_row(parent, "Composition", "What the planet is made of. Every solid composition follows the same scaled mass-radius curve (Seager et al. 2007) and differs only in where it sits on it.", comp, null, row_mb)
+		r = Hud.range_row(parent, "Rock", "What the planet's interior is made of. Its air and water are set below. Every solid composition follows the same scaled mass-radius curve (Seager et al. 2007) and differs only in where it sits on it.", comp, null, row_mb)
 		comp_row = r.row
 		phase = Foundry._slider(-0.15, 1.95, 0.01, 0.5)
 		r = Hud.range_row(parent, "Life burned", "How far through its life. Core hydrogen falls from 0.71 to zero across the main sequence, then burning moves to a shell and the star leaves it altogether.", phase, "Mid MS", row_mb)
@@ -197,7 +197,7 @@ class Notes extends HudStack:
 
 ## createFoundry({ mount, onSpawn }). `on_spawn` is called with (spec, structure).
 static func create_foundry(opts: Dictionary) -> FoundryPanel:
-	return FoundryPanel.new(opts.get("mount"), opts.get("on_spawn", Callable()))
+	return FoundryPanel.new(opts.get("mount"), opts.get("on_spawn", Callable()), opts.get("site", Callable()), opts.get("context", Callable()))
 
 class FoundryPanel extends RefCounted:
 	var mount: Control
@@ -222,10 +222,30 @@ class FoundryPanel extends RefCounted:
 	var legend: CrossSection.LegendCanvas
 	var notes: Notes
 	var spawn_btn: HudButton
+	## spec, plan -> the spec with pos and vel where it would go. Decided before the body exists,
+	## so the preview is of that place.
+	var site: Callable
+	## -> {stars, run_seed, at_rest}: what the stage says about the candidate's surroundings.
+	var context: Callable
+	var comp: CompositionEditor
+	## The air and water this draft states; what it leaves out is drawn.
+	var inputs := {}
+	var preview := {}
+	var spawn_seed := randi() % 1000000000
+	## Where the next body goes: the bearing and spread of its orbit, and a chosen distance.
+	var plan := {}
+	var orbit_row: Control
+	var orbit: HudSlider
+	var orbit_val: Label
+	var _orbit_set := false
+	var _ticked := 0
 
-	func _init(m: Control, cb: Callable) -> void:
+	func _init(m: Control, cb: Callable, site_cb := Callable(), ctx := Callable()) -> void:
 		mount = m
 		on_spawn = cb
+		site = site_cb
+		context = ctx
+		_new_plan()
 		for k in Foundry.MASS_RANGE:
 			last_mass[k] = Foundry.MASS_RANGE[k][2]
 		var grid := Hud.grid(mount, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 12.0)
@@ -242,10 +262,22 @@ class FoundryPanel extends RefCounted:
 			b.pressed.connect(set_type.bind(id))
 			type_btns[id] = b
 		rows = ControlRows.new(mount)
+		orbit = Foundry._slider(-2.0, 3.0, 0.01, 0.0)
+		var orbit_parts := Hud.range_row(mount, "Orbit", "How far out it starts, around the heaviest body here. With the stars present, this is how much sunlight the world gets. Spawning at rest uses where you are looking instead.", orbit, "—")
+		orbit_row = orbit_parts.row
+		orbit_val = orbit_parts.val
+		orbit.moved.connect(func(v: float):
+			_orbit_set = true
+			plan.a_au = pow(10.0, v)
+			update())
 		verdict = Verdict.new()
 		mount.add_child(verdict)
 		facts = Facts.new()
 		mount.add_child(facts)
+		comp = CompositionEditor.new()
+		comp.validate = func(patch: Dictionary) -> String: return Structure.input_error(U.merged(spawn_spec(), patch))
+		comp.edited.connect(_on_comp_edit)
+		mount.add_child(Hud.m(comp, 0.0, 10.0))
 		xsec = CrossSection.XsecCanvas.new(300.0, 230.0, T.rgba(0, 0, 0, 0.42), T.BORDER)
 		mount.add_child(xsec)
 		legend = CrossSection.LegendCanvas.new(300.0, 26.0)
@@ -261,6 +293,18 @@ class FoundryPanel extends RefCounted:
 		set_type("planet")
 
 	func _on_moved(_v) -> void:
+		update()
+
+	func _new_plan() -> void:
+		var keep = plan.get("a_au") if _orbit_set else null
+		plan = {"ang": randf() * TAU, "off": randf()}
+		if keep != null: plan.a_au = keep
+		spawn_seed = randi() % 1000000000
+
+	func _on_comp_edit(patch: Dictionary) -> void:
+		for key in patch:
+			if patch[key] == null: inputs.erase(key)
+			else: inputs[key] = patch[key]
 		update()
 
 	func set_type(id: String) -> void:
@@ -297,7 +341,8 @@ class FoundryPanel extends RefCounted:
 		rows.z_val.text = U.fixed(draft.Z, 4)
 
 		structure = Structure.structure_of(draft)
-		spawn_btn.disabled = not Structure.input_error(draft).is_empty()
+		spawn_btn.disabled = not Structure.input_error(spawn_spec()).is_empty()
+		_update_candidate()
 
 		var v = structure.get("verdict")
 		if not (v is Dictionary): v = {"state": Structure.VERDICT.ok, "label": "", "detail": ""}
@@ -319,16 +364,54 @@ class FoundryPanel extends RefCounted:
 			"composition": draft.composition,
 			"Z": draft.Z,
 			"name": str(structure.get("label")),
+			"seed": spawn_seed,
 		}
 		# Keep the phase for a derived star, so the spawned star is the one previewed.
 		if structure.get("type") == "star": s["phase"] = draft.phase
 		if structure.get("radiusKm") != null: s["radiusKm"] = structure.get("radiusKm")
+		if ClimateInputs.applies(s.type):
+			s.merge(inputs, true)
+			# A world with no air has no shell, whichever way it came to have none.
+			if not preview.is_empty() and not preview.has("error"): s.atmosphere = float(preview.air) >= Climate.AIRLESS_BAR
+			else: s.atmosphere = true
 		return s
 
+	## The candidate where it would go, as the stage's next spawn would place it.
+	func placed_spec() -> Dictionary:
+		var s := spawn_spec()
+		return site.call(s, plan) if site.is_valid() else s
+
+	# What the model expects of this draft. Runs the climate on a scratch body and changes nothing.
+	func _update_candidate() -> void:
+		var rocky := ClimateInputs.applies(structure.get("type"))
+		comp.visible = rocky
+		var ctx: Dictionary = context.call() if context.is_valid() else {}
+		var at_rest: bool = ctx.get("at_rest", false)
+		orbit_row.visible = rocky and not at_rest
+		if not rocky: return
+		var s := placed_spec()
+		if not _orbit_set and ctx.has("dominant"):
+			var c: DVec3 = ctx.dominant
+			orbit.set_v(U.log10(maxf(DVec3.from_array(s.pos).distance_to(c), 1e-9)))
+		orbit_val.text = "%s AU" % U.prec(pow(10.0, orbit.value), 3)
+		preview = Composition.preview(s, ctx.get("stars", []), int(ctx.get("run_seed", 0)))
+		comp.show_preview(preview)
+		if preview.has("error"): spawn_btn.disabled = true
+
+	## Keep the expectation on the stage it is about: stars move and scenarios change.
+	func tick() -> void:
+		var now := Time.get_ticks_msec()
+		if now - _ticked < 500 or not comp.is_visible_in_tree(): return
+		_ticked = now
+		_update_candidate()
+
 	func spawn() -> void:
-		if not Structure.input_error(draft).is_empty(): return
+		var s := spawn_spec()
+		if not Structure.input_error(s).is_empty(): return
 		if on_spawn.is_valid():
-			on_spawn.call(spawn_spec(), structure)
+			on_spawn.call(s, structure, plan)
+			_new_plan()
+			update()
 
 	func refresh() -> void:
 		update()
@@ -377,7 +460,7 @@ class Inspector extends RefCounted:
 
 # A trailing edit belongs to the body instance that received the input.
 static func create_live_editor(opts: Dictionary) -> LiveEditor:
-	return LiveEditor.new(opts.get("mount"), opts.get("on_edit", Callable()))
+	return LiveEditor.new(opts.get("mount"), opts.get("on_edit", Callable()), opts.get("context", Callable()))
 
 class LiveEditor extends RefCounted:
 	const MIN_MS := 16
@@ -387,15 +470,20 @@ class LiveEditor extends RefCounted:
 	var near_el: RichTextLabel
 	var focus_btn: HudButton
 	var rows: ControlRows
+	var comp: CompositionEditor
+	var context: Callable
+	var _comp_body = null
+	var _comp_at := -100000   # when the expectation was last worked out, ms
 	var body = null           # the body being edited
 	var dragging := ""        # id of the control currently under the pointer
 	var pending = null        # patch coalesced between applies
 	var _timer: SceneTreeTimer = null
 	var _last_apply := -1000000
 
-	func _init(m: Control, cb: Callable) -> void:
+	func _init(m: Control, cb: Callable, ctx := Callable()) -> void:
 		mount = m
 		on_edit = cb
+		context = ctx
 		# The graph is a second view of the mass, not a second number: dragging its
 		# handle emits exactly the patch the mass slider emits.
 		curve = MassCurve.new(T.rgba(0, 0, 0, 0.42), T.BORDER)
@@ -420,9 +508,49 @@ class LiveEditor extends RefCounted:
 			el.gui_input.connect(_on_slider_input.bind(id))
 			el.moved.connect(_on_slider_moved.bind(id))
 		rows.comp.chosen.connect(_on_comp)
+		comp = CompositionEditor.new()
+		comp.validate = _validate_comp
+		comp.edited.connect(_on_comp_edited)
+		comp.visible = false
+		holder.add_child(comp)
 
 	func _on_comp(v: String) -> void:
 		queue({"composition": v})
+
+	func _validate_comp(patch: Dictionary) -> String:
+		if body == null: return "No body to edit."
+		var spec := U.merged(body.spec, patch)
+		spec.type = body.type
+		spec.mass = body.mass
+		return Structure.input_error(spec)
+
+	func _on_comp_edited(patch: Dictionary) -> void:
+		_comp_at = -100000
+		queue(patch)
+
+	# The live world's composition, and where it is heading. The sliders read what the world has;
+	# working out its future costs a preview, so that happens on a change and about twice a second.
+	func _sync_comp(b: Body) -> void:
+		var has: bool = b.climate != null
+		comp.visible = has
+		if not has:
+			_comp_body = null
+			return
+		var fresh := not is_same(_comp_body, b)
+		if fresh:
+			_comp_body = b
+			comp.show_limit("")
+			comp.set_mix_from(ClimateInputs.stated(b.spec))
+		var now := Time.get_ticks_msec()
+		if fresh or now - _comp_at >= 500:
+			_comp_at = now
+			var ctx: Dictionary = context.call() if context.is_valid() else {}
+			var p := Composition.preview_edit(b, {}, ctx.get("stars", []))
+			if not p.is_empty() and not p.has("error"):
+				var stated := ClimateInputs.stated(b.spec)
+				p.rows = Composition.rows(b.climate, stated)
+				p.surface = Composition.surface_shares(b.climate)
+				comp.show_preview(p)
 
 	func _on_pick(mass: float) -> void:
 		dragging = "leCurve"
@@ -505,6 +633,8 @@ class LiveEditor extends RefCounted:
 			dragging = ""
 		body = b
 		if b == null:
+			_comp_body = null
+			comp.visible = false
 			return
 		var type: String = b.type
 		var rg := Foundry.range_for(type)
@@ -530,6 +660,7 @@ class LiveEditor extends RefCounted:
 		rows.set_spin_label(bh)
 		readouts()
 		_draw_curve(b)
+		_sync_comp(b)
 
 	# Re-read live mass after edits and physical events.
 	func _draw_curve(b) -> void:

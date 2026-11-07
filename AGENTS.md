@@ -96,6 +96,9 @@ design.
   drawn once, seeded from the body and `seed=`, and does not move with later edits. The
   home world keeps `Climate.HOME_INPUTS` instead of a draw. See
   [a climate per world](docs/physics/climate.md#a-climate-per-world).
+- The composition editor's expectation is the model on a scratch body (`Composition`), never a
+  second formula, and it writes nothing on the stage. A new gas also reaches its row through
+  `Atmosphere.GASES`.
 - Outgoing longwave comes from the gas column (`Atmosphere`), and water from that
   world's inventory and gravity, never Earth's. A new gas is a row in `Atmosphere.GASES`
   and a domain in `ClimateInputs.DOMAIN`. Earth, Mars and Venus calibrate the fits, so
@@ -220,6 +223,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
+- the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
