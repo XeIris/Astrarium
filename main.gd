@@ -30,6 +30,7 @@ var bright_stars: BrightStars = null
 var painter = null                # Painter
 var observer = null               # SurfaceObserver
 var observatory: Observatory = null
+var showcase: Showcase = null
 var sky_pass = null               # SkyPass
 var flight = null                 # Spaceflight
 var model_view = null             # ModelViewer
@@ -164,6 +165,7 @@ func _ready() -> void:
 	observer = SkyView.SurfaceObserver.new()
 	sky_pass = SkyView.create_sky_pass()
 	observatory = Observatory.new(self)
+	showcase = Showcase.new(self)
 	# Under the HUD, over the frame: the overlay is drawn in screen space.
 	var sky_ui := CanvasLayer.new()
 	sky_ui.layer = 0
@@ -259,7 +261,7 @@ func _ready() -> void:
 		if _cmd.title != "0": title_reel.begin(String(_cmd.title))
 		else: hud.set_title_veil(0.0)
 	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
-		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory"] else "sandbox")
+		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory", "showcase"] else "sandbox")
 		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")), true)
@@ -1382,7 +1384,7 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 		specs.append(spec)
 	# The Observatory is the solar preset on a date: another scenario ends the mode, so its
 	# clock and observer never outlive the bodies they read.
-	if observatory.active: set_app_mode("sandbox")
+	if observatory.active or showcase.active: set_app_mode("sandbox")
 	clear_bodies()          # bodies, painted swarms and any flash still burning
 
 	state.preset = p
@@ -1567,6 +1569,7 @@ func refresh_ui() -> void:
 	var fb := state.body_by_id(state.focus_id)
 	if fb:
 		hud.set_shown("focusPanel", true)
+		hud.set_shown("showcaseOpen", fb.climate != null)
 		hud.set_text("focusName", "%s · %s M☉" % [fb.name, U.expo(fb.mass, 2) if fb.mass < 0.01 else U.fixed(fb.mass, 2)])
 	else:
 		hud.set_shown("focusPanel", false)
@@ -1644,6 +1647,7 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 	if mode != "observatory" and observatory.active:
 		observatory.leave()
 		if state.cam_mode == "surface": set_cam_mode("orbit")
+	if mode != "showcase" and showcase.active: showcase.leave()
 	if mode == "observatory":
 		close_model_viewer()
 		if flight.active: end_flight()
@@ -1651,6 +1655,19 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		var ob := _observatory_cli()
 		ob.picker = not opts.get("direct", false) or _cmd.get("picker", "0") == "1"
 		observatory.enter(ob)
+	elif mode == "showcase":
+		close_model_viewer()
+		if flight.active: end_flight()
+		var world: Body = showcase.pick_world(String(opts.get("body", _cmd.get("body", ""))))
+		if world == null:
+			toast("A showcase needs a rocky world, and this scenario has none.", 3500)
+			set_app_mode("sandbox")
+			return
+		set_panel_open("scenarioPanel", false)
+		set_panel_open("xsecPanel", false)
+		xsec_open = false
+		set_panel_open("controlPanel", true)
+		showcase.enter(world)
 	elif mode == "sandbox":
 		close_model_viewer()
 		if flight.active: end_flight()
@@ -1693,6 +1710,7 @@ func _start(m: String, direct := false) -> void:
 
 func quit_to_start() -> void:
 	if observatory.active: observatory.leave()
+	if showcase.active: showcase.leave()
 	close_map()
 	close_hangar()
 	hud.set_settings_open(false)
@@ -1704,6 +1722,7 @@ func quit_to_start() -> void:
 
 ## Back to an empty universe with the default camera and sky.
 func reset_stage() -> void:
+	if showcase.active: showcase.leave()
 	close_map()
 	if flight.active: end_flight()
 	close_model_viewer()
@@ -2002,6 +2021,7 @@ func _bind_hud() -> void:
 			hud.update_binding_labels(controls.bindings))
 	hud.mesh_style_chosen.connect(set_mesh_style)
 	hud.mode_chosen.connect(set_app_mode)
+	hud.showcase_action.connect(_on_showcase_action)
 	hud.preset_chosen.connect(load_preset)
 	hud.body_focus.connect(_on_body_focus)
 	hud.body_remove.connect(remove_body)
@@ -2188,6 +2208,17 @@ func _on_sim_reset() -> void:
 	state.disc_intensity = float(p.get("discIntensity", 0.9))
 	hud.set_slider("disc", state.disc_intensity, U.fixed(state.disc_intensity, 2))
 	sync_sim_controls()
+
+func _on_showcase_action(kind: String) -> void:
+	match kind:
+		"open": set_app_mode("showcase", {"body": ""})
+		"leave": set_app_mode("sandbox")
+		"pin": showcase.drop_pin()
+		"auto":
+			state.pin_on_focus = not state.pin_on_focus
+			hud.set_active("pinOnFocusToggle", state.pin_on_focus)
+			hud.set_button_text("pinOnFocusToggle", ("☑" if state.pin_on_focus else "☐") + " Drop a pin on focus")
+			showcase.sync_hud()
 
 func _on_climate_reset() -> void:
 	var world := climate_world()
@@ -3214,9 +3245,10 @@ func animate(dt: float) -> void:
 	else:
 		pipe.surface_pass = null
 		if home and home.viz: home.viz.group.visible = true
-		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active)
+		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active) and not showcase.active
 
 	observatory.update(dt)
+	showcase.update(dt)
 	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass()
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
 	pipe.prepare_frame(lens_params, state.time)

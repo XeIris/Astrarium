@@ -28,7 +28,7 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "observatory", "start_screen")
+                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "observatory", "showcase", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
@@ -54,6 +54,11 @@ CHANGED_RULES = (
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
+    # The CPU's crust is held to the shader's; the pin and the showcase read it.
+    (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
+      "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
+      "sim/rocky_visual.gd", "sim/planetmaps.gd", "tools/terrain_probe.gdshader"),
+     ("pincheck", "pincheck-gpu", "hud*", "_soak_check-showcase")),
     # How a world looks: the derived values headless, and the frames with pixels=1.
     (("sim/climate_look.gd", "sim/rocky_visual.gd", "sim/world.gd", "sim/terrain.gd", "sim/climate.gd", "sim/atmosphere.gd",
       "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/terrain.gdshaderinc", "shaders/bodies/cloud_deck.gdshader"),
@@ -291,6 +296,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("observatorylookcheck", r"^OBSERVATORYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
+        pin_gpu = scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$", "gpu=1")
+        yield ("pincheck-gpu", *pin_gpu[1:])
         for quality in ("medium", "low", "high"):
             pixels = scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$", "pixels=1", f"quality={quality}")
             yield (f"lookpixelcheck-{quality}", *pixels[1:])
@@ -305,6 +312,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("compositioncheck", r"^COMPOSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("realismcheck", r"^REALISMCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
