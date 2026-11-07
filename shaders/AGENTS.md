@@ -72,8 +72,9 @@ See [the ray contract](../docs/physics/lensing.md#ray-coordinates-and-numerical-
   down, which is not 60 km of altitude for the lapse rate).
 - Seasonal caps come from `uDecl` (sine of the sub-solar latitude) and `uSeason`;
   the annual mean can't grow Mars's CO₂ cap.
-- The hot end is derived too: `rocky_visual.gd` derives `uSeaKm`, `uScorch` and
-  `uArid` from temperature, but only for bodies with an atmosphere.
+- A world's look follows its climate: `ClimateLook` derives the surface's uniforms and the
+  deck's cover, and its `Binder` eases them on without a rebuild. A stated spec value wins.
+  Nothing writes these uniforms directly, or a stated value and the ease both break.
 
 ## Gas giants and cloud decks
 

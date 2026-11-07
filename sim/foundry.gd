@@ -371,9 +371,6 @@ class FoundryPanel extends RefCounted:
 		if structure.get("radiusKm") != null: s["radiusKm"] = structure.get("radiusKm")
 		if ClimateInputs.applies(s.type):
 			s.merge(inputs, true)
-			# A world with no air has no shell, whichever way it came to have none.
-			if not preview.is_empty() and not preview.has("error"): s.atmosphere = float(preview.air) >= Climate.AIRLESS_BAR
-			else: s.atmosphere = true
 		return s
 
 	## The candidate where it would go, as the stage's next spawn would place it.
