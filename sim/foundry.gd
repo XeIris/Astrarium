@@ -387,10 +387,11 @@ class FoundryPanel extends RefCounted:
 		orbit_row.visible = rocky and not at_rest
 		if not rocky: return
 		var s := placed_spec()
-		if not _orbit_set and ctx.has("dominant"):
-			var c: DVec3 = ctx.dominant
-			orbit.set_v(U.log10(maxf(DVec3.from_array(s.pos).distance_to(c), 1e-9)))
-		orbit_val.text = "%s AU" % U.prec(pow(10.0, orbit.value), 3)
+		# What the stage gave it, which keeps clear of what it orbits: the row reads the truth.
+		if ctx.has("dominant"):
+			var at: float = DVec3.from_array(s.pos).distance_to(ctx.dominant)
+			if not _orbit_set: orbit.set_v(U.log10(maxf(at, 1e-9)))
+			orbit_val.text = "%s AU" % U.prec(at, 3)
 		preview = Composition.preview(s, ctx.get("stars", []), int(ctx.get("run_seed", 0)))
 		comp.show_preview(preview)
 		if preview.has("error"): spawn_btn.disabled = true

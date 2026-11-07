@@ -27,7 +27,12 @@ func spawn_world(mix: String, au: float, name_: String, extra := {}) -> Body:
 	inputs.merge(extra, true)
 	var spec := {"type": "planet", "mass": 3e-6, "name": name_, "seed": 4242, "obliquity": 0.41}
 	spec.merge(inputs, true)
-	var b: Body = stage.spawn_body(stage.place_spawn(spec, {"a_au": au, "ang": 1.0, "off": 0.5}))
+	# Exactly there: the Foundry's orbit keeps clear of a boosted star, which is a stage's choice.
+	var lamp: Body = stage.get_stars()[0]
+	var at := DVec3.new(cos(1.0), 0.0, sin(1.0)).scaled(au).add(lamp.pos)
+	spec.pos = at.to_array()
+	spec.vel = [0.0, 0.0, 0.0]
+	var b: Body = stage.spawn_body(spec)
 	for i in 3: stage.animate(1.0 / 60.0)
 	# The look's first frame has snapped; the frame after has a live ice line too.
 	return b
