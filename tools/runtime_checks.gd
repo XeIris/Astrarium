@@ -181,11 +181,26 @@ func _soak_check() -> void:
 					await stage.get_tree().process_frame
 				stage.edit_body(body, {"name": "Edited", "pos": [1.0, 2.0, 3.0], "vel": [0.1, 0.0, 0.0]})
 				stage.edit_body(body, {"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0]})
+				if body.climate != null:
+					var comp: CompositionEditor = stage.live_editor.comp
+					comp._on_mix("venus")
+					stage.live_editor._flush()
+					stage.live_editor.sync(body)
+					comp._on_remove("pSO2")
+					comp._on_mix("earth")
+					stage.live_editor._flush()
+					stage.live_editor.sync(body)
+					await stage.get_tree().process_frame
 				stage.live_editor._last_apply = Time.get_ticks_msec()
 				stage.live_editor.queue({"spinFrac": 0.3})
 				stage.remove_body(body.id)
 				if stage.live_editor.pending != null or stage.live_editor.body != null:
-					failures.append("editor: removed body retained pending work"),
+					failures.append("editor: removed body retained pending work")
+			for mix in ["earth", "venus", "bare", Composition.DRAWN]:
+				stage.foundry.set_type("planet")
+				stage.foundry.comp._on_mix(mix)
+				stage.foundry.update()
+				await stage.get_tree().process_frame,
 		"paint": func():
 			var b: Body = stage.get_stars()[0] if not stage.get_stars().is_empty() else state.bodies[0]
 			state.focus_id = b.id

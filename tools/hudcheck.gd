@@ -62,6 +62,7 @@ func _ready() -> void:
 	if args.get("htest", "0") == "1":
 		await _interaction_walk()
 		await _climate_walk()
+		await _composition_walk()
 		print("HUDCHECK TEST %d passed, %d failed" % [passes, fails])
 	if args.get("hlayout", "0") == "1":
 		await _layout_walk()
@@ -156,6 +157,33 @@ func _setup(s: String) -> void:
 			hud.set_section_open(hud.section("Object Foundry"), true)
 			await _steps(2)
 			_reveal(hud.mount("foundry"))
+		"foundry_comp", "foundry_ice", "foundry_venus", "foundry_mars":
+			await _start("sandbox")
+			main.load_preset("solar")
+			main.state.paused = true
+			hud.set_section_open(hud.section("Object Foundry"), true)
+			main.foundry.set_type("planet")
+			main.foundry.plan.a_au = 1.0
+			main.foundry.orbit.set_v(0.0)
+			main.foundry._orbit_set = true
+			var mix: String = {"foundry_comp": "earth", "foundry_ice": "ocean", "foundry_venus": "venus", "foundry_mars": "mars"}[s]
+			if s == "foundry_ice": main.foundry.plan.a_au = 2.5
+			if s == "foundry_venus": main.foundry.plan.a_au = 0.72
+			if s == "foundry_mars": main.foundry.plan.a_au = 1.52
+			main.foundry.comp._on_mix(mix)
+			await _steps(2)
+			_reveal(main.foundry.comp.note_el)
+			_reveal(main.foundry.comp.pie)
+			await _steps(2)
+		"xsec_comp":
+			await _start("sandbox")
+			main.load_preset("solar")
+			main.state.paused = true
+			main._stage_set_focus("Earth")
+			main.open_cross_section(true)
+			await _steps(2)
+			_reveal(main.live_editor.comp.note_el)
+			await _steps(2)
 		"xsec", "xsec_focus", "xsec_measured", "xsec_tiny":
 			await _start("sandbox")
 			if s in ["xsec_measured", "xsec_tiny"]:
@@ -939,6 +967,72 @@ func _climate_walk() -> void:
 	await _steps(4)
 	check("a star with no home world hides the panel", not hud.ids.climatePanel.is_visible_in_tree())
 	check("hiding it leaves the column on screen", screen.encloses(hud.control_panel.get_global_rect().grow(-0.5)))
+
+# The composition editor by real input: a mix, a drag, a typed value, Spawn; then the same
+# controls on the live world, and the panel's layout as it grows and shrinks.
+func _composition_walk() -> void:
+	await _setup("foundry_comp")
+	var fp = main.foundry
+	var comp: CompositionEditor = fp.comp
+	var rects_ok := func() -> bool:
+		var panel: Rect2 = hud.control_panel.get_global_rect().grow(0.5)
+		for c in comp.find_children("*", "Control", true, false):
+			if (c as Control).is_visible_in_tree() and (c as Control).size.x > 0.0:
+				var r := (c as Control).get_global_rect()
+				if r.position.x < panel.position.x or r.end.x > panel.end.x: return false
+		return true
+	check("the editor's controls stay inside the panel", rects_ok.call())
+	var ys := []
+	for c in comp.get_children():
+		if c is Control and (c as Control).is_visible_in_tree(): ys.append((c as Control).get_global_rect())
+	var overlap := false
+	for i in range(1, ys.size()):
+		if ys[i].position.y < ys[i - 1].end.y - 0.5: overlap = true
+	check("its rows stack without overlapping", not overlap)
+	var co2: HudSlider = comp.gases.pCO2.slider
+	var before: float = float(fp.preview.inputs.pressures.pCO2)
+	await _drag(co2, 0.3, 0.8)
+	check("dragging CO₂ moves the draft", fp.inputs.has("pCO2") and float(fp.inputs.pCO2) != before)
+	check("and the preview follows it", float(fp.preview.inputs.pressures.pCO2) == float(fp.inputs.pCO2))
+	check("the mix reads custom", comp.mix.value == Composition.CUSTOM)
+	check("the slider is not fought after release", absf(co2.value - U.log10(float(fp.inputs.pCO2))) < 0.011)
+	var field: LineEdit = comp.gases.pCO2.field
+	await _click(field)
+	field.select_all()
+	await _type("1000")
+	await _key(KEY_ENTER)
+	await _steps(1)
+	check("typing past the domain shows the limit", comp.limit_el.is_visible_in_tree())
+	check("the limit row is laid out, not clipped", comp.limit_el.get_global_rect().size.y >= 10.0)
+	await _click(field)
+	field.select_all()
+	await _type("0.01")
+	await _key(KEY_ENTER)
+	await _steps(1)
+	check("a good value clears it", not comp.limit_el.is_visible_in_tree() and is_equal_approx(float(fp.inputs.pCO2), 0.01))
+	var count: int = main.state.bodies.size()
+	await _click(fp.spawn_btn)
+	await _steps(2)
+	check("Spawn makes the previewed world", main.state.bodies.size() == count + 1)
+	var world: Body = main.state.bodies[-1]
+	check("with the typed CO₂", is_equal_approx(float(world.climate.pressures.pCO2), 0.01))
+	main.state.focus_id = world.id
+	main.open_cross_section(true)
+	await _steps(3)
+	var live: CompositionEditor = main.live_editor.comp
+	_reveal(live.pie)
+	await _steps(2)
+	check("the same controls appear on the live world", live.is_visible_in_tree() and live.pie.is_visible_in_tree())
+	await _drag(live.gases.pCO2.slider, 0.2, 0.7)
+	await _steps(3)
+	check("dragging on the live world edits it", float(world.climate.pressures.pCO2) != 0.01)
+	await _click(live.gases.pCO2.row.get_child(3))
+	await _steps(3)
+	check("the × takes the gas out of its air", float(world.climate.pressures.pCO2) == 0.0)
+	check("and its row goes", not live.gases.pCO2.row.is_visible_in_tree())
+	main.open_cross_section(false)
+	main.remove_body(world.id)
+	await _steps(2)
 
 func _layout_walk() -> void:
 	check("automatic scale fits a smaller usable display", is_equal_approx(main.fitted_window_scale(2.0, Vector2i(1280, 720)), 1.2))

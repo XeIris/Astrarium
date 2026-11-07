@@ -186,9 +186,6 @@ static func cloud_material(seed: float) -> ShaderMaterial:
 	m.set_shader_parameter("uTint", Vector3(1, 1, 1))
 	return m
 
-# A column dimmer than this against Earth's (uThick) draws no shell: Mars's gas alone is 0.035.
-const AIR_SHOWS := 0.01
-
 # ATMOSPHERE. Rayleigh scattering — see rocky_atmosphere.gdshader.
 static func atmosphere_material(tint = null) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
@@ -340,13 +337,21 @@ class RockyViz extends RefCounted:
 		atmo.name = "Atmosphere"
 		group.add_child(atmo)
 
+	## Land and the sea's depth, after an edit. A map's coast is its own, so only the shader's
+	## procedural crust moves; the uniforms are the ones Terrain.terrain_uniforms sets.
+	func refresh_surface() -> void:
+		var land = body.spec.get("land")
+		if land == null: land = (1.0 - float(opts.sea_level) * 0.72) if opts.sea_level != null else 0.34
+		surf_mat.set_shader_parameter("uCrustT", Terrain.crust_threshold(float(land)))
+		surf_mat.set_shader_parameter("uOceanDepth", float(U.nz(body.spec.get("oceanDepth"), 3.7)) * 4.6 / 3.7)
+
 	## What the gas column says about the shell, on a change. A stated colour or depth wins, and
 	## a stated `atmosphere` decides whether there is a shell at all.
 	func _sync_air(cl: Climate) -> void:
 		_sky_serial = cl.sky_serial
 		var thick := float(cl.sky.get("thick", 0.0))
 		if atmo == null:
-			if opts.atmosphere != null or thick < RockyVisual.AIR_SHOWS: return
+			if opts.atmosphere != null or thick < Climate.AIR_SHOWS: return
 			_add_atmosphere()
 		if opts.atm_thick == null: atmo_mat.set_shader_parameter("uThick", thick)
 		if opts.atm_color == null: atmo_mat.set_shader_parameter("uTint", cl.sky.get("tint", Vector3.ONE))

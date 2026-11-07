@@ -75,6 +75,11 @@ class WorldViz extends RefCounted:
 		b.cloud_phase = 0.0
 		b.viz = self
 
+	## Land and the sea's depth, after an edit, as RockyViz takes them.
+	func refresh_surface() -> void:
+		surf_mat.set_shader_parameter("uCrustT", Terrain.crust_threshold(float(U.nz(body.spec.get("land"), 0.34))))
+		surf_mat.set_shader_parameter("uOceanDepth", float(U.nz(body.spec.get("oceanDepth"), 3.7)) * 4.6 / 3.7)
+
 	func _u(m: ShaderMaterial, k: String) -> float:
 		return float(m.get_shader_parameter(k))
 
