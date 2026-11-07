@@ -21,6 +21,8 @@ uniform float uBiota = 0.0;
 uniform float uCrater = 0.0;
 uniform vec3 uRegolith = vec3(0.258, 0.216, 0.176);
 uniform float uHaze = 0.0;
+// The sky's colour against Earth's, from its gas column (Atmosphere.limb).
+uniform vec3 uAirTint = vec3(1.0);
 uniform vec3 uAmbient = vec3(0.0021, 0.0033, 0.0070);
 uniform float uTime = 0.0;
 // Exposure — see rocky_visual.gd: a constant, shared by every body, so two
@@ -193,7 +195,7 @@ void fragment() {
 	// Rounding can put the dot of two unit vectors just past 1; pow of a negative is
 	// NaN, and glow spreads one NaN pixel into a black square over the disc.
 	float limb = pow(max(1.0 - abs(dot(N, V)), 0.0), 2.2);
-	lit = mix(lit, lit * 0.75 + skylight * vec3(0.20, 0.34, 0.62) * 0.45, uHaze * limb);
+	lit = mix(lit, lit * 0.75 + skylight * vec3(0.20, 0.34, 0.62) * uAirTint * 0.45, uHaze * limb);
 
 	// --- incandescent once it is truly scorching
 	lit += vec3(1.0, 0.28, 0.06) * pow(uScorch, 2.0) * 0.9;

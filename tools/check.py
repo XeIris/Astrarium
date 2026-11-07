@@ -54,6 +54,10 @@ CHANGED_RULES = (
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
+    # How a world looks: the derived values headless, and the frames with pixels=1.
+    (("sim/climate_look.gd", "sim/rocky_visual.gd", "sim/world.gd", "sim/terrain.gd", "sim/climate.gd", "sim/atmosphere.gd",
+      "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/terrain.gdshaderinc", "shaders/bodies/cloud_deck.gdshader"),
+     ("lookcheck", "lookpixelcheck*")),
     (("sim/composition.gd", "ui/composition_editor.gd", "ui/widgets/composition_pie.gd", "sim/foundry.gd", "sim/climate.gd",
       "sim/climate_inputs.gd", "sim/atmosphere.gd"), ("compositioncheck", "hud*", "editorcheck", "realismcheck")),
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
@@ -287,6 +291,9 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("observatorylookcheck", r"^OBSERVATORYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
+        for quality in ("medium", "low", "high"):
+            pixels = scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$", "pixels=1", f"quality={quality}")
+            yield (f"lookpixelcheck-{quality}", *pixels[1:])
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")
         yield ("hud-low-startup", *startup_low[1:])
@@ -297,6 +304,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield headless_scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("compositioncheck", r"^COMPOSITIONCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("realismcheck", r"^REALISMCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")

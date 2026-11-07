@@ -87,12 +87,6 @@ static func climate_only(patch: Dictionary) -> bool:
 	for key in patch:
 		if key not in KEYS and key not in SURFACE_KEYS: return false
 	return true
-
-static func touches_surface(patch: Dictionary) -> bool:
-	for key in SURFACE_KEYS:
-		if patch.has(key): return true
-	return false
-
 ## log₁₀ of (v_esc/SHORELINE_KMS)⁴/S: positive keeps an atmosphere. Mars 0, Venus 0.6, Earth 1.
 static func retention(mass: float, radius_au: float, S: float) -> float:
 	var v_kms := sqrt(2.0 * Physics.G * mass / radius_au) * Rocketry.AU_M / Rocketry.YR_S / 1000.0

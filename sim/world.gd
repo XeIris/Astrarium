@@ -31,6 +31,7 @@ class WorldViz extends RefCounted:
 	var is_world := true
 	var body: Body
 	var _cover := -1.0
+	var _look := ClimateLook.Binder.new()
 	var _sky_serial := -1
 	var atm_tint_free := true
 
@@ -75,11 +76,6 @@ class WorldViz extends RefCounted:
 		b.cloud_phase = 0.0
 		b.viz = self
 
-	## Land and the sea's depth, after an edit, as RockyViz takes them.
-	func refresh_surface() -> void:
-		surf_mat.set_shader_parameter("uCrustT", Terrain.crust_threshold(float(U.nz(body.spec.get("land"), 0.34))))
-		surf_mat.set_shader_parameter("uOceanDepth", float(U.nz(body.spec.get("oceanDepth"), 3.7)) * 4.6 / 3.7)
-
 	func _u(m: ShaderMaterial, k: String) -> float:
 		return float(m.get_shader_parameter(k))
 
@@ -105,25 +101,23 @@ class WorldViz extends RefCounted:
 		if cl != null:
 			# The EBM owns both mean temperature and glaciated fraction: the ice-albedo
 			# hysteresis means ice is state (a snowball stays frozen), not derivable from T.
-			var T := float(cl.get("T"))
-			surf_mat.set_shader_parameter("uMeanK", T)
-			surf_mat.set_shader_parameter("uIce", float(cl.get("ice")))
-			# Oceans retreat as the world bakes past the boiling point: the datum
-			# drops, in kilometres, until the abyssal plains are dry land.
-			var boil := clampf((T - 350.0) / 90.0, 0.0, 1.0)
-			surf_mat.set_shader_parameter("uSeaKm", -boil * 5.0)
-			surf_mat.set_shader_parameter("uScorch", clampf((T - 330.0) / 140.0, 0.0, 1.0))
-			surf_mat.set_shader_parameter("uArid", clampf((T - 310.0) / 80.0, 0.0, 0.8))
-			var cover := float(cl.get("clouds"))
-			if cover != _cover:
-				_cover = cover
-				cloud_mat.set_shader_parameter("uCover", cover)
-				cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(cover))
-			cloud_mat.set_shader_parameter("uStorm", float(U.nz(cl.get("storm"), 0.2)))
+			for key in _look.ease_to(ClimateLook.targets(cl, b.spec)):
+				var v: float = _look.value[key]
+				match key:
+					"cover":
+						if v != _cover:
+							_cover = v
+							cloud_mat.set_shader_parameter("uCover", v)
+							cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_z_table(v))
+					"storm": cloud_mat.set_shader_parameter("uStorm", v)
+					_: surf_mat.set_shader_parameter(key, v)
 			atmo_mat.set_shader_parameter("uThick", float(cl.sky.get("thick", 1.0)) * (0.6 + float(cl.get("humidity")) * 0.8))
 			if cl.sky_serial != _sky_serial:
 				_sky_serial = cl.sky_serial
-				if atm_tint_free: atmo_mat.set_shader_parameter("uTint", cl.sky.get("tint", Vector3.ONE))
+				if atm_tint_free:
+					var tint: Vector3 = cl.sky.get("tint", Vector3.ONE)
+					atmo_mat.set_shader_parameter("uTint", tint)
+					surf_mat.set_shader_parameter("uAirTint", tint)
 
 		# Through lit_by, so a starless scene uses the disc stand-in light.
 		var suns = Suns.lit_by(ctx)

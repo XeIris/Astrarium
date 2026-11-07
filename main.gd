@@ -488,7 +488,7 @@ func clear_bodies() -> void:
 # add a body orbiting the dominant mass (used by Spawn buttons)
 func spawn_orbiting(type: String) -> void:
 	var palette = ["jupiter", "saturn", "ice"][randi() % 3] if type == "gas-giant" else null
-	spawn_body(place_spawn({"type": type, "palette": palette, "atmosphere": type == "planet", "seed": randi() % 1000000000}))
+	spawn_body(place_spawn({"type": type, "palette": palette, "seed": randi() % 1000000000}))
 	refresh_ui()
 
 func _dominant() -> Body:
@@ -572,7 +572,8 @@ func edit_body(b: Body, patch: Dictionary):
 	if b.climate != null and ClimateInputs.climate_only(patch):
 		b.spec = spec
 		b.climate.apply_inputs(ClimateInputs.stated(spec))
-		if ClimateInputs.touches_surface(patch): _refresh_surface(b)
+		# So its era, cloud and ice answer while the clock is stopped.
+		b.climate.step(1e-6, b, get_stars())
 		refresh_ui()
 		return b
 	var old_mass := b.mass
@@ -596,7 +597,9 @@ func edit_body(b: Body, patch: Dictionary):
 	if rotation_only: b.viz.refresh_rotation()
 	else: attach_visual(b)
 	_sync_climate(b)
-	if b.climate != null: b.climate.apply_inputs(ClimateInputs.stated(b.spec))
+	if b.climate != null:
+		b.climate.apply_inputs(ClimateInputs.stated(b.spec))
+		b.climate.step(1e-6, b, get_stars())
 	if moved and b.trail != null:
 		# A teleport must not draw an orbit segment connecting unrelated positions.
 		b.trail_head = 0
@@ -621,12 +624,6 @@ func edit_body(b: Body, patch: Dictionary):
 		state.energy0 = null
 	refresh_ui()
 	return b
-
-# The surface's land and sea are uniforms, so a slider need not rebuild the visual.
-func _refresh_surface(b: Body) -> void:
-	var viz = b.viz
-	if viz is Bodies.AccretionWrap: viz = viz.inner
-	if viz != null and viz.has_method("refresh_surface"): viz.refresh_surface()
 
 # STRUCTURAL CONSEQUENCES: when the interior model says a body can't hold itself
 # up, it becomes something else (collapse, core collapse, reclassification).
@@ -2641,7 +2638,7 @@ func _foundry_context() -> Dictionary:
 	return ctx
 
 func _on_foundry_spawn(spec: Dictionary, structure, plan: Dictionary = {}) -> void:
-	var b := spawn_body(place_spawn(U.merged({"seed": randi() % 1000000000, "atmosphere": spec.type == "planet"}, spec), plan))
+	var b := spawn_body(place_spawn(U.merged({"seed": randi() % 1000000000}, spec), plan))
 	if b == null: return
 	if not plan.is_empty(): rest_spawn_angle += 2.399963
 	set_follow(b)
