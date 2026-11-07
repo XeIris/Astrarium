@@ -458,8 +458,8 @@ never write it, or mass, position or velocity.
 | Sea level | `ocean`, falling from the datum towards the abyssal plain as water leaves | Mass balance, linear in depth (a choice); none once the climate reads dry |
 | Land and depth | `cl.land`, `cl.ocean_depth` | A wet world's own. A dry world keeps the crust it was built with |
 | Desert | `uArid`, what the sea cannot supply, or heat | `√(sea share / 0.71)` is an estimate. The heat rule is the old one |
-| Vegetation | `uBiota`, Miami NPP at the world's temperature and land rain, against today's | [Lieth 1975](https://doi.org/10.1007/978-3-642-80913-2_12), coefficients as tabulated by [Adams et al. 2004](https://doi.org/10.1016/j.ecolmodel.2004.03.014). The heat limit (323–348 K) is an estimate |
-| Frost | sea water's freezing point; CO₂ `3182.48/(23.3494 − ln p_mbar)` ([James et al. 1992](https://doi.org/10.1016/0019-1035(92)90060-Z), as used by [Greve et al. 2010](https://arxiv.org/abs/0903.2688)); else N₂'s 37 K | Nothing to frost on an airless world |
+| Vegetation | `uBiota`, Miami NPP at the world's temperature and land rain, against today's | Lieth 1975, coefficients as tabulated by [Adams et al. 2004](https://bio-math10.biology.kyushu-u.ac.jp/~ben/adams_et_al_2004.pdf). The heat limit (323–348 K) is an estimate |
+| Frost | sea water's freezing point; CO₂ `3182.48/(23.3494 − ln p_mbar)` (James et al. 1992, as used by [Greve et al. 2010](https://arxiv.org/abs/0903.2688)); else N₂'s 37 K | Nothing to frost on an airless world |
 | Sky and limb | `cl.sky`, Rayleigh from the column | [What the column looks like](#what-the-column-looks-like) |
 | Haze | `0.45 × uThick` up to 1.3 | Earth's old constant; the slope is a choice |
 | Craters | fade between 1 mbar and 0.1 bar of air | Estimates |

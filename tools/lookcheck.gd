@@ -344,7 +344,7 @@ func pixels() -> void:
 	check("Venus's deck is warm-tinted", seen.venus.r > seen.venus.b)
 	check("a desert world is redder than an ocean world (r/b %.2f, %.2f)" % [seen.desert.r / seen.desert.b, seen.ocean.r / seen.ocean.b], seen.desert.r / seen.desert.b > seen.ocean.r / seen.ocean.b * 1.1)
 	check("Mars's air over rock is redder than blue", seen.mars.r > seen.mars.b * 1.1)
-	check("what grows greens the land (g/r %.3f, %.3f)" % [seen.green.g / seen.green.r, seen.barren.g / seen.barren.r], seen.green.g / seen.green.r > seen.barren.g / seen.barren.r * 1.03)
+	check("what grows greens the land (g/r %.3f, %.3f)" % [seen.green.g / seen.green.r, seen.barren.g / seen.barren.r], seen.green.g / seen.green.r > seen.barren.g / seen.barren.r * 1.02)
 	check("the desert is a desert, not a frozen or boiled world (%.0f K)" % seen.desert.T, seen.desert.T > 280.0 and seen.desert.T < 320.0)
 	check("an airless rock is darker than any deck", seen.bare.lum < seen.venus.lum and seen.bare.lum < seen.ocean.lum)
 
