@@ -224,6 +224,10 @@ func stage_flow() -> void:
 	check("a dry world's frost is its own at once", near(uniform(viz_of(dry_rebuilt), "uFrostK"), ClimateLook.co2_frost_k(float(dry_rebuilt.climate.pressures.pCO2)), 2.0))
 	stage.remove_body(rebuilt.id)
 	stage.remove_body(dry_rebuilt.id)
+	# A spawn's seed is nine digits; the noise's coordinates are float32.
+	var big: Body = stage.spawn_body(stage.place_spawn(U.merged({"type": "planet", "mass": 3e-6, "name": "Big seed", "seed": 987654321}, Composition.MIXES.earth.inputs), {"a_au": 1.0, "ang": 3.0, "off": 0.5}))
+	check("a spawn's huge seed leaves the noise its bits (uSeed %.1f)" % uniform(viz_of(big), "uSeed"), absf(uniform(viz_of(big), "uSeed")) < 400.0)
+	stage.remove_body(big.id)
 	# What presets state stays stated.
 	var mars: Body = stage.state.body_named("Mars")
 	var venus: Body = stage.state.body_named("Venus")

@@ -117,7 +117,6 @@ func _face_the_sun(b: Body) -> void:
 func stand() -> void:
 	if not active or visit != null: return
 	if pin == null: drop_pin()
-	_clear_marker()
 	visit = SurfaceVisit.new(stage, body, pin)
 	visit.begin()
 	sync_hud()
@@ -143,15 +142,16 @@ func update(dt: float, sim_years: float = 0.0) -> void:
 		return
 	if visit != null:
 		# The camera left the ground some other way: the view key, or a stage verb.
-		if stage.state.cam_mode != "surface":
+		if visit.ready and stage.state.cam_mode != "surface":
 			leave_surface()
 		else:
 			visit.update(dt, sim_years)
-			_hud_acc += dt
-			if _hud_acc >= 0.25:
-				_hud_acc = 0.0
-				_sync_world()
-			return
+			if visit.ready:
+				_hud_acc += dt
+				if _hud_acc >= 0.25:
+					_hud_acc = 0.0
+					_sync_world()
+				return
 	_hud_acc += dt
 	if _hud_acc >= 0.25:
 		_hud_acc = 0.0

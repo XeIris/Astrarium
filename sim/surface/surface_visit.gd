@@ -29,35 +29,42 @@ func _init(main, b: Body, where: PlanetPin) -> void:
 	body = b
 	pin = where
 
+## Start the survey. The view stays in orbit until there is ground to stand on.
 func begin() -> void:
+	env = world_env(body)
+	site = SurfaceSite.new(stage.flight.local, body, pin, stage.render_quality, int(stage._cmd.get("seed", 0)))
+	stage.hud.set_surface_veil(true)
+
+# Ground's ready: take the view down to it, keeping what must go back.
+func _arrive() -> void:
 	var state = stage.state
 	_prev = {"home": state.home_id, "true_scale": state.true_scale, "fov": stage.observer.fov,
 		"azimuth": stage.observer.azimuth, "elevation": stage.observer.elevation}
 	state.home_id = body.id
 	if not state.true_scale: stage.set_true_scale(true)
-	env = world_env(body)
-	var local: LocalView = stage.flight.local
-	local.root.visible = true
-	site = SurfaceSite.new(local, body, pin, stage.render_quality, int(stage._cmd.get("seed", 0)))
+	stage.flight.local.root.visible = true
 	stage.observer.fov = EYE_FOV
 	stage.set_cam_mode("surface")
 	stage.observer.elevation = 0.06
-	stage.hud.set_surface_veil(true)
+	ready = true
+	_paint_env()
+	stage.hud.set_surface_veil(false)
 
 func end() -> void:
 	var state = stage.state
 	if site != null:
 		site.dispose()
 		site = null
-	ready = false
-	state.home_id = _prev.get("home")
-	if state.cam_mode == "surface": stage.set_cam_mode("orbit")
-	if state.true_scale != bool(_prev.get("true_scale", state.true_scale)): stage.set_true_scale(bool(_prev.true_scale))
-	stage.observer.fov = float(_prev.get("fov", stage.observer.fov))
-	stage.observer.azimuth = float(_prev.get("azimuth", 0.0))
-	stage.observer.elevation = float(_prev.get("elevation", 0.25))
-	SkyModel.apply_day_gain(stage.pipe.sky_materials, 1.0)
-	if body != null and body.viz != null: body.viz.group.visible = true
+	if ready:
+		ready = false
+		state.home_id = _prev.get("home")
+		if state.cam_mode == "surface": stage.set_cam_mode("orbit")
+		if state.true_scale != bool(_prev.get("true_scale", state.true_scale)): stage.set_true_scale(bool(_prev.true_scale))
+		stage.observer.fov = float(_prev.get("fov", stage.observer.fov))
+		stage.observer.azimuth = float(_prev.get("azimuth", 0.0))
+		stage.observer.elevation = float(_prev.get("elevation", 0.25))
+		SkyModel.apply_day_gain(stage.pipe.sky_materials, 1.0)
+		if body != null and body.viz != null: body.viz.group.visible = true
 	stage.hud.set_surface_veil(false)
 	SurfaceStats.count("visit_end")
 
@@ -95,7 +102,7 @@ func place(observer: SkyView.SurfaceObserver, _home: Body, camera: Camera3D) -> 
 	_local_basis = _frame_basis.transposed() * camera.transform.basis
 
 func local_pass() -> bool:
-	return stage.state.cam_mode == "surface"
+	return ready and stage.state.cam_mode == "surface"
 
 ## One frame. `sim_years` is what the stage's clock took.
 func update(dt: float, sim_years: float) -> void:
@@ -103,11 +110,8 @@ func update(dt: float, sim_years: float) -> void:
 	if not ready:
 		if not site.poll():
 			stage.hud.set_surface_veil(true, site.relief.progress)
-			_drive_sky(dt, 0.0)
 			return
-		ready = true
-		_paint_env()
-		stage.hud.set_surface_veil(false)
+		_arrive()
 	_drive_sky(dt, sim_years)
 	_hud_acc += dt
 	if _hud_acc >= HUD_EVERY:
@@ -161,15 +165,15 @@ func _drive_sky(dt: float, sim_years: float) -> void:
 	var want := shown / maxf(flux, 1e-9)
 	_exposure = want if _exposure <= 0.0 else exp(lerpf(log(_exposure), log(want), 1.0 - exp(-maxf(dt, 0.0) / 1.5)))
 	var star_flux := flux * _exposure
-	var eye_y: float = site.eye_y if site.built else 2.0
+	var eye_y: float = site.eye_y
 	var R: float = float(env.radius)
-	var clouds_on: bool = site.built and env.atm != null and (body.climate.wet or site.sky_cover > 0.0)
+	var clouds_on: bool = env.atm != null and (body.climate.wet or site.sky_cover > 0.0)
 	var fr: Dictionary = local.update({"env": env, "altitude": eye_y, "surfaceR": R, "sunDirWorld": sun_f,
 		"upWorld": up_f, "northWorld": north_f, "starFlux": star_flux, "padWorld": null, "anchorWorld": up_f.scaled(R),
-		"mapSite": null, "planetSpin": 0.0, "dt": dt, "frame": Basis(), "cloudWind": site.cloud_wind if site.built else Vector3.ZERO,
-		"cloudCover": site.sky_cover if site.built else 0.0, "cloudsOn": clouds_on, "cloudLift": maxf(site.ground_y, 0.0) if site.built else 0.0, "sunAngR": atan(float(key.radius) / maxf(body.pos.distance_to(key.pos), 1e-6)) if key != null else 0.00465,
+		"mapSite": null, "planetSpin": 0.0, "dt": dt, "frame": Basis(), "cloudWind": site.cloud_wind,
+		"cloudCover": site.sky_cover, "cloudsOn": clouds_on, "cloudLift": maxf(site.ground_y, 0.0), "sunAngR": atan(float(key.radius) / maxf(body.pos.distance_to(key.pos), 1e-6)) if key != null else 0.00465,
 		"sunTeff": teff, "kp": 0.0, "sun2World": null, "sun2Flux": 0.0, "sun2Teff": 5772.0, "starlight": 0.0})
-	local.place(local.ground, DVec3.new(0.0, site.patch_y if site.built else 0.0, 0.0))
+	local.place(local.ground, DVec3.new(0.0, site.patch_y, 0.0))
 	local.cam_pos.set_v(0.0, eye_y, 0.0)
 	local.camera.fov = stage.cam_fov
 	local.camera.far = 4.0e6
@@ -178,7 +182,6 @@ func _drive_sky(dt: float, sim_years: float) -> void:
 	var sun_l: Vector3 = fr.sun_local
 	var alt := rad_to_deg(asin(clampf(sun_l.y, -1.0, 1.0)))
 	SkyModel.apply_day_gain(stage.pipe.sky_materials, SkyConditions.star_gain(SkyConditions.SITES.custom, alt) if env.atm != null else 1.0)
-	if not site.built: return
 	var atm = env.atm
 	var tint := LocalView._v3(int(atm.tint)) if atm != null else Vector3.ZERO
 	var haze := LocalView._v3(int(atm.haze)) if atm != null else Vector3.ZERO

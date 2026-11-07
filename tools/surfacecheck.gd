@@ -368,6 +368,15 @@ func terrain() -> void:
 	var started := Time.get_ticks_msec()
 	var earth_like := relief_of(9.82, false, false)
 	print("SURFACECHECK PROFILE relief_build_65_ms=%d" % (Time.get_ticks_msec() - started))
+	# The worst case for time: running water, at each quality's grid.
+	for cells in SurfaceSite.CELLS.values():
+		var rq := relief_of(9.82, false, false)
+		rq.cells = cells
+		rq.flowing = true
+		rq.rain_mm = 990.0
+		started = Time.get_ticks_msec()
+		rq.build()
+		print("SURFACECHECK PROFILE survey_cells_%d_ms=%d" % [cells, Time.get_ticks_msec() - started])
 	var mars_like := relief_of(3.72, false, false)
 	var e_rel := spread(earth_like.grids[0].h, 65)
 	var m_rel := spread(mars_like.grids[0].h, 65)
@@ -559,12 +568,16 @@ func stand_on(b: Body, label: String, pin_n := 1) -> SurfaceSite:
 	s.pins_dropped = pin_n - 1
 	s.drop_pin()
 	s.stand()
-	check("%s: a visit began" % label, s.visit != null and stage.state.cam_mode == "surface")
+	check("%s: the survey starts from orbit" % label, s.visit != null and stage.state.cam_mode == "orbit")
 	await settle_visit()
+	check("%s: a visit began" % label, s.visit != null and stage.state.cam_mode == "surface")
 	var v: SurfaceVisit = s.visit
 	var site: SurfaceSite = v.site
 	check("%s: the site is built" % label, site != null and site.built)
 	for i in 8: stage.animate(1.0 / 60.0)
+	var started := Time.get_ticks_usec()
+	for i in 60: v.update(1.0 / 60.0, 1e-6)
+	print("SURFACECHECK PROFILE %s visit_update_us=%d" % [label, (Time.get_ticks_usec() - started) / 60])
 	var r := v.readouts()
 	check("%s: the site stands where the pin said (%.0f m, %.0f m)" % [label, r.height, s.pin.ground.height_m], s.pin.ground.kind in ["sea", "sea ice"] or near(r.height, float(s.pin.ground.height_m), 0.7 * SurfaceRelief.ROUGH_M * minf(SurfaceRelief.G_EARTH / cl_gravity(b), SurfaceRelief.MAX_ROUGH) + 400.0))
 	var fine := true
@@ -627,9 +640,9 @@ func manners() -> void:
 	stage.set_app_mode("showcase", {"body": "Earth"})
 	stage.showcase.drop_pin()
 	stage.showcase.stand()
-	# Leaving mid-survey: the worker is told to stop.
+	# Leaving mid-survey: the worker is told to stop, and the view never moved.
 	stage.showcase.leave_surface()
-	check("leaving during the survey is clean", stage.showcase.visit == null)
+	check("leaving during the survey is clean", stage.showcase.visit == null and stage.state.cam_mode == "orbit" and stage.state.home_id == null)
 	stage.set_app_mode("sandbox")
 	new_stage("solar")
 	stage.set_app_mode("showcase", {"body": "Earth"})
