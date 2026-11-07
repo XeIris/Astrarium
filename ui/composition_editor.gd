@@ -185,8 +185,13 @@ func _emit(patch: Dictionary, picked := Composition.CUSTOM) -> void:
 	mix.set_value(picked)
 	edited.emit(patch)
 
+## The model's reason, in the panel's names for things.
 func show_limit(reason: String) -> void:
-	(limit_el as Prose).say(reason)
+	var text := reason
+	for key in Atmosphere.GASES: text = text.replace(key, str(Atmosphere.GASES[key].label))
+	for pair in [["oceanDepth", "Sea depth"], ["mixedLayer", "Flywheel"], ["albedoBase", "Albedo"], ["land", "Land"], ["salinity", "Salinity"]]:
+		text = text.replace(pair[0], pair[1])
+	(limit_el as Prose).say(text)
 	limit_el.visible = reason != ""
 
 ## Everything the panel shows, from a preview. The sliders follow unless one is held.
@@ -230,13 +235,17 @@ func _refresh_fields() -> void:
 	if _held != "land": land.set_v(float(inputs.land))
 	land_val.text = "%s %%" % U.fixed(float(inputs.land) * 100.0, 0)
 	if _held != "oceanDepth": depth.set_v(U.log10(maxf(float(inputs.oceanDepth), 0.01)))
-	depth_val.text = "%s km" % U.prec(float(inputs.oceanDepth), 2)
+	depth_val.text = "%s km" % _amount(float(inputs.oceanDepth))
 	if _held != "salinity": salinity.set_v(float(inputs.salinity))
 	salinity_val.text = "%s ‰" % U.fixed(float(inputs.salinity), 0)
 	if _held != "albedoBase": albedo.set_v(float(inputs.albedoBase))
 	albedo_val.text = U.fixed(float(inputs.albedoBase), 2)
 	if _held != "mixedLayer": layer.set_v(U.log10(float(inputs.mixedLayer)))
-	layer_val.text = "%s m" % U.prec(float(inputs.mixedLayer), 2)
+	layer_val.text = "%s m" % _amount(float(inputs.mixedLayer))
+
+# Two figures, or a whole number once it has more: never 2.7e+2.
+static func _amount(v: float) -> String:
+	return U.fixed(v, 0) if v >= 100.0 else U.prec(v, 2)
 
 func _show_expected(p: Dictionary) -> void:
 	var era: Dictionary = p.era

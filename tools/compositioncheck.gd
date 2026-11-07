@@ -139,6 +139,8 @@ func rejected() -> void:
 	var row: Dictionary = comp.gases.pCO2
 	row.field.text_submitted.emit("500")
 	check("typing past CO₂'s domain says the limit", comp.limit_el.visible and (comp.limit_el as Prose).text.contains("100"))
+	check("in the panel's name for it", (comp.limit_el as Prose).text.contains("CO₂") and not (comp.limit_el as Prose).text.contains("pCO2"))
+	check("a large flywheel reads as a number", not CompositionEditor._amount(270.0).contains("e") and CompositionEditor._amount(270.0) == "270")
 	check("and changes nothing", foundry.inputs == inputs)
 	row.field.text_submitted.emit("-3")
 	check("a negative pressure is refused", comp.limit_el.visible and foundry.inputs == inputs)
