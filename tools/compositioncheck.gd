@@ -204,6 +204,8 @@ func live_edit() -> void:
 	check("a land edit reaches the climate", near(b.climate.land, 0.02, 1e-9))
 	check("and the same visual's crust", is_same(b.viz, viz) and near(float(b.viz.surf_mat.get_shader_parameter("uCrustT")), Terrain.crust_threshold(0.02), 1e-5))
 	# Leave and return: the panel is that world's each time.
+	comp.gases.pCO2.field.text_submitted.emit("900")
+	check("a refusal is on screen as we leave", comp.limit_el.visible)
 	var mars: Body = stage.state.body_named("Mars")
 	stage.state.focus_id = mars.id
 	stage.open_cross_section()
