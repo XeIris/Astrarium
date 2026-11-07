@@ -264,7 +264,7 @@ missions only when the change can alter flight:
   The fast-forward keeps the smoke trail, plumes and pad simulating undrawn, so
   the settle frames only present them.
 
-`assets` requires all nine generated craft models; `rendered`, `lifecycle` and
+`assets` requires all ten generated craft models; `rendered`, `lifecycle` and
 `perf` need a working graphical renderer. `flight` runs the four full launches (one process each), the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit), the missions, one process per descent and per mission, and every developer
 scenario (`scenariocheck`); `scenario-replay` compares each scenario with the same
 flight played at 60 fps (about half an hour). `native` includes the numerical boundary checks.
@@ -366,7 +366,9 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
 | `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
-| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
+| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all ten authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
+| `tools/evapodflightshots.tscn` | rendered production EVA pod: thrust/fuel accounting, manipulator command, interior near plane and camera exit; `dump=/abs/dir` saves screenshots |
+| `tools/evapodcheck.gd` | EVA pod arm sweep, hull clearance, lazy interior loading, window sightline and camera datums; run with and without `assets=0`; [design and references](docs/eva-pod.md) |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; every dropped stage must leave by its separation physics (`stage_separations`, `booster_pieces`), and a residual thrust must carry its stage its closed-form travel (`residual_push`); `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
 | `tools/sunlab.tscn` | the solar lab: the Sun alone with hand-placed active regions and one flare at a chosen phase, for the photosphere, loops and eruptions (`x=0.45` the flare's progress, `at=limb\|top\|disc` where it sits, `top` showing its loops side-on, `close=1` the camera on the region, `band=5` X-ray, `teff=` another star); `out=/abs/x.png frames=12` writes a picture |
@@ -382,7 +384,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks; use `flightshots.sh` for validated flight captures |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
 | `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry; windowed, a pass that drew under half the frames it processed fails (a covered macOS window) |
-| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; windowed, a round that drew under half the frames it processed fails (a covered macOS window); the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
+| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; windowed, a round that drew under half the frames it processed fails (a covered macOS window); the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all eleven procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
 | `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 
 The historical side-by-side migration evidence was archived out of the working

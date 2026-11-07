@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the authored craft and launchpad models.
 #
-#   model_sources/blender/build.sh                  9 vehicles, 4 pads, the facilities, the observatories
+#   model_sources/blender/build.sh                  10 vehicles, 4 pads, the facilities, the observatories
 #   model_sources/blender/build.sh shuttle pad_fss  selected models
 #
 # The .py files are the models; the .glb output in assets/craft/ and assets/pads/ is
@@ -46,7 +46,7 @@ fi
 echo "blender: $BLENDER"
 "$BLENDER" --version | head -1
 
-ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle pad_lut pad_fss pad_strongback pad_chopsticks facilities observatories)
+ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle evapod pad_lut pad_fss pad_strongback pad_chopsticks facilities observatories)
 if [ "$#" -gt 0 ]; then MODELS=("$@"); else MODELS=("${ALL[@]}"); fi
 craft_spec="$(mktemp "${TMPDIR:-/tmp}/astrarium-craft-spec.XXXXXX")"
 trap 'rm -f "$craft_spec"' EXIT
@@ -95,6 +95,11 @@ for m in "${MODELS[@]}"; do
   set -e
   [ "$status" -eq 0 ] || { rm -f "$tmp"; echo "error: blender failed on $m (exit $status)" >&2; exit 1; }
   [ -f "$tmp" ] || { echo "error: $m produced no .glb" >&2; exit 1; }
+  if [ "$m" = evapod ]; then
+    interior="assets/craft/.evapod_interior.build.glb"
+    [ -f "$interior" ] || { echo "error: evapod produced no interior" >&2; exit 1; }
+    mv "$interior" assets/craft/evapod_interior.glb
+  fi
   mv "$tmp" "$dst"
 done
 if [ -n "$GODOT" ]; then

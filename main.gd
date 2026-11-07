@@ -2188,7 +2188,7 @@ func _on_craft_hover(k: String) -> void:
 	CraftAssets.preload_craft(k)
 
 func _on_flight_cam_cycle() -> void:
-	var modes := ["chase", "orbit", "cockpit", "pad"]
+	var modes: Array = flight.camera_modes()
 	flight.set_camera_mode(modes[(modes.find(flight.camera_mode()) + 1) % modes.size()])
 	sync_warp_label()
 

@@ -157,6 +157,23 @@ static var VEHICLES: Dictionary = _build_vehicles()
 static func _build_vehicles() -> Dictionary:
 	var E := ENGINES
 	return {
+	"evapod": {
+		"id": "evapod", "name": "EVA Pod (2001-inspired)", "role": "cruiser", "launchFrom": null,
+		"era": "2001: A Space Odyssey · inspired design",
+		"blurb": "A one-person work pod with twin articulated manipulators and a compact illuminated cockpit. A 2.06 m pressure sphere reconstructed from film references; interior proportions adapted to fit. Estimated propulsion: 400 N, 220 s specific impulse, 120 kg propellant; 1 200 kg dry. G deploys the arms. Cycle the camera for Interior.",
+		"limits": {"maxQ": 200.0, "maxG": 2.0, "qAlpha": 100.0, "heatLoad": 0.0},
+		"interior": {"asset": "res://assets/craft/evapod_interior.glb", "stage": "pod",
+			"eye": [0.0, 1.34, -0.13], "forward": [0.0, 0.0, 1.0]},
+		"stages": [
+			stage({"key": "pod", "name": "EVA pressure cabin", "dry": 1200.0, "prop": 120.0,
+				"engine": {"name": "Pod manoeuvring thruster (estimate)", "prop": "Monopropellant",
+					"thrustVac": 400.0, "ispSL": 220.0, "ispVac": 220.0, "throttleMin": 0.01,
+					"gimbal": 0.0, "exitD": 0.18, "plume": "hypergolic"},
+				"count": 1, "L": 2.06, "D": 2.06, "sep": "none",
+				"rcs": {"thrust": 25.0, "isp": 220.0, "prop": 20.0, "count": 12},
+				"look": {"skin": "white", "evapod": true, "arms": 8}}),
+		],
+	},
 
 	# SATURN V — the expendable superheavy. Three stages, and the only vehicle
 	# here whose third stage restarts to leave Earth entirely.
@@ -594,7 +611,7 @@ static func booster_return(key: String):
 
 const VEHICLE_ORDER := [
 	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane",
-	"ioncruiser", "solarsail", "hailmary", "beetle",
+	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod",
 ]
 
 # Ideal Δv of one stage, carrying everything above it. Derived, never stored. `pa`

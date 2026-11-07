@@ -904,7 +904,7 @@ static func lattice(h: float, w_bot: float, w_top: float, material: Material) ->
 
 # STAGE BUILDERS — one per `look` flavour
 static func _new_parts() -> Dictionary:
-	return {"gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nosecaps": [], "frustums": [], "nozzles": [], "chutes": []}
+	return {"arms": [], "gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nosecaps": [], "frustums": [], "nozzles": [], "chutes": []}
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	var built := _build_stage(spec, ctx)
@@ -939,6 +939,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if _t(look.get("superHeavy")): return build_super_heavy(spec, parts)
 	if _t(look.get("starship")): return build_starship_ship(spec, parts)
 	if _t(look.get("beetle")): return build_beetle(spec, parts)
+	if _t(look.get("evapod")): return EvaPod.build(spec, parts)
 	if _t(look.get("bus")): return build_ion_bus(spec, parts)
 	if _t(look.get("sail")): return build_sail(spec, parts)
 	if _t(look.get("octagon")): return build_lm_descent(spec, parts)
@@ -2121,6 +2122,7 @@ class Craft extends RefCounted:
 					st.deploy = 0.0
 			st.deploy += clampf(want - st.deploy, -dt * 0.55, dt * 0.55)
 			var d := st.deploy
+			if st.spec.get("look", {}).get("evapod", false): EvaPod.pose(st.parts.arms, d)
 			# Landing gear that swings its own angle (`look.gearSwing`, the orbiter's
 			# wheels) runs on the `gear` channel, apart from the stage's other deployables.
 			var swing := float(st.spec.get("look", {}).get("gearSwing", 0.0))

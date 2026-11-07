@@ -28,7 +28,7 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "observatory", "start_screen")
+                 "lessons", "model_viewer", "eva_pod", "flight_stage", "flight_catch", "scenario", "observatory", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
@@ -46,6 +46,9 @@ PARITY_FRAMES = 13000
 # names it. Documentation selects nothing; any other unmapped path selects `dev`.
 # Keep this in step with AGENTS.md "Checks" when a check or a subsystem is added.
 CHANGED_RULES = (
+    (("sim/flight/eva_pod.gd", "sim/flight/craft_interior.gd", "sim/flight/vehicles.gd",
+      "sim/flight/localview.gd", "sim/flight/spaceflight.gd", "model_sources/blender/evapod.py"),
+     ("evapodcheck*", "evapodflightshots", "_soak_check-eva_pod")),
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
      ("invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
@@ -284,6 +287,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("glowcheck", r"^GLOWCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("observatorylookcheck", r"^OBSERVATORYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        # Actual cockpit depth, lighting and production camera/arm controls require a GPU.
+        yield scene("evapodflightshots", r"^EVAPODFLIGHT DONE failures=0$")
         yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")
@@ -303,13 +308,14 @@ def checks(suite, godot, output, repeat, export_preset):
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
-                   r"^PARITY DONE 18 poses, 0 failures$", 180)
+                   r"^PARITY DONE 20 poses, 0 failures$", 180)
         if suite == "assets":
             yield script("observatorycheck", (r"^OBSERVATORYCHECK authored library: [1-9]\d* stages$", r"^OBSERVATORYCHECK DONE checks=[1-9]\d* failures=0$"),
                          "assets=1")._replace(name="observatorycheck-assets")
         for assets in (("1", "0") if suite == "assets" else ("0",)):
+            yield script("evapodcheck", r"^EVAPODCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"evapodcheck-{assets}")
             # The authored gate cannot pass by silently substituting optional fallback models.
-            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'9' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
+            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'10' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)

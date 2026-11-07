@@ -34,6 +34,9 @@ var autopilot = null              # Guidance.Autopilot
 var cryo: Cryo = null             # frost and boil-off on the vehicle's cold tanks
 var vapour: Vapour = null         # condensation collars round its shoulders, in humid air
 var craft = null                  # CraftModel.Craft
+var interior := CraftInterior.new()
+var arms_out := false
+var exterior_fov := 55.0
 var plumes: Array = []            # Plume.PlumeFx
 var sep_plumes: Array = []        # separation motors: [{fx, stage, mount}], see attach_sep_motors
 ## Dropped pieces flying on their own (Fall) once Separation is done with them.
@@ -256,6 +259,8 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	var veh = opts.get("vehicle", Vehicles.booster_return(vehicle_key) if returning else Vehicles.VEHICLES.get(vehicle_key))
 	if veh == null: return null
 	teardown()
+	fly_cam.state.interiorYaw = 0.0
+	fly_cam.state.interiorPitch = 0.18
 
 	var home := body_named(opts.get("body", veh.get("launchFrom") if veh.get("launchFrom") != null else "Earth"))
 	if home == null: home = body_named("Earth")
@@ -609,6 +614,8 @@ func set_render_quality(q: String) -> void:
 	Plume.set_smoke_volume(smoke, q == "high" or q == "ultra", local.cloud_shape)
 
 func teardown() -> void:
+	interior.dispose()
+	arms_out = false
 	if craft != null:
 		if is_instance_valid(craft.group):
 			craft.group.get_parent().remove_child(craft.group)
@@ -972,14 +979,28 @@ func camera_mode() -> String:
 	return fly_cam.state.mode
 
 func set_camera_mode(m: String) -> void:
-	fly_cam.set_mode(m)
+	var entering: bool = m == "interior" and fly_cam.state.mode != "interior" and camera_modes().has(m)
+	if entering:
+		exterior_fov = float(fly_cam.state.fov)
+		fly_cam.state.fov = 78.0
+	elif m != "interior" and fly_cam.state.mode == "interior":
+		fly_cam.state.fov = exterior_fov
+	fly_cam.set_mode(m if camera_modes().has(m) else "chase")
+	if vessel != null and craft != null:
+		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
+
+func camera_modes() -> Array:
+	var modes := ["chase", "orbit", "cockpit", "pad"]
+	if vessel != null and vessel.vehicle.has("interior") and subject == null:
+		modes.insert(3, "interior")
+	return modes
 
 ## Put the camera on the far side of the vehicle from the sun, the sun `off` rad
 ## beside it (backlit). `front_lit` goes on the sun's side instead, `off_yaw` round,
 ## for where nothing else lights the ship.
 func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10, front_lit: bool = false) -> void:
 	if vessel == null: return
-	if fly_cam.state.mode == "pad" or fly_cam.state.mode == "cockpit": fly_cam.set_mode("chase")
+	if fly_cam.state.mode in ["pad", "cockpit", "interior"]: set_camera_mode("chase")
 	var un := _local_up_north()
 	var up: DVec3 = un[0]
 	var north: DVec3 = un[1]
@@ -1071,7 +1092,7 @@ func begin_skip(m: Mission) -> void:
 		t += float(l.t)
 	skip = {"until": vessel.coord + t, "mission": m}
 	vessel.log_event("Skipping to %s — %s of flight, %s km/s of Δv charged" % [m.dest.name, Guidance.fmt_dur(t), U.fixed(dv / 1000.0, 2)])
-	fly_cam.set_mode("chase")
+	set_camera_mode("chase")
 
 func _arrive_skip() -> void:
 	var m: Mission = skip.mission
@@ -1389,6 +1410,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var s: Dictionary = st.spec
 		var d := 0.0
 		var look = s.get("look")
+		if look != null and look.get("evapod", false): d = 1.0 if arms_out else 0.0
 		if s.get("legs") and not (look != null and look.get("gearSwing")):
 			d = 1.0 if (vessel.phase == Vessel.PHASE.LANDED or (alt < 3000.0 and v_up < 0.0)) else 0.0
 		# Super Heavy's grid fins are fixed out; they steer by twisting.
@@ -1539,13 +1561,14 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			fly_cam.pos.y = 2.0
 			fly_cam.look_at(subject.pos, Vector3.UP)
 	else:
+		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
 		fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
 			"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
-			"dt": dt, "sunLocal": sun_l})
+			"dt": dt, "sunLocal": sun_l, "interior": vessel.vehicle.get("interior", {})})
 	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
 	local.cam_pos.copy_from(fly_cam.pos)
-	# Keep far/near ≤ ~1e7 (docs/godot.md): near is floored at far·1e-7 = 0.4 m.
-	local.camera.far = 4.0e6
+	# The cockpit needs centimetre depth; distant bodies remain in the orrery pass.
+	local.camera.far = 1.0e5 if fly_cam.state.mode == "interior" else 4.0e6
 	local.camera.near = maxf(fly_cam.near, local.camera.far * 1.0e-7)
 	local.camera.fov = float(fly_cam.state.fov)
 	local.apply_origin(fly_cam.basis)
@@ -1713,7 +1736,7 @@ func geo_of(p: DVec3):
 func follow(f) -> void:
 	if f == subject: return
 	subject = f
-	if fly_cam.state.mode == "cockpit": fly_cam.set_mode("chase")
+	if fly_cam.state.mode in ["cockpit", "interior"]: set_camera_mode("chase")
 	if vessel != null:
 		vessel.log_event("Camera — following the %s" % f.name.to_lower() if f != null else "Camera — back on the vehicle")
 
@@ -1809,6 +1832,11 @@ func key_action(action: String) -> bool:
 			vessel.stage(); return true
 		"gear":
 			for st in vessel.stages:
+				if st.attached and int(st.spec.get("look", {}).get("arms", 0)) > 0:
+					arms_out = not arms_out
+					_toast("Manipulators extended" if arms_out else "Manipulators parked")
+					return true
+			for st in vessel.stages:
 				if st.attached and st.spec.get("legs"):
 					st.gear_out = not st.gear_out
 					break
@@ -1816,9 +1844,9 @@ func key_action(action: String) -> bool:
 		"flight_follow":
 			follow_next(); return true
 		"flight_camera":
-			var modes := ["chase", "orbit", "cockpit", "pad"]
+			var modes := camera_modes()
 			var i := modes.find(fly_cam.state.mode)
-			fly_cam.set_mode(modes[(i + 1) % modes.size()])
+			set_camera_mode(modes[(i + 1) % modes.size()])
 			return true
 	return false
 
@@ -1845,6 +1873,10 @@ func wheel(delta_y: float) -> bool:
 
 func drag(dx: float, dy: float) -> bool:
 	if not active: return false
+	if fly_cam.state.mode == "interior":
+		fly_cam.state.interiorYaw = clampf(fly_cam.state.interiorYaw - dx * 0.004, -1.25, 1.25)
+		fly_cam.state.interiorPitch = clampf(fly_cam.state.interiorPitch - dy * 0.004, -0.80, 0.65)
+		return true
 	if fly_cam.state.mode == "pad" and site != null:
 		pad_orbit(dx * 0.006, -dy * 0.004, 1.0)
 		return true

@@ -68,7 +68,7 @@ static func audit() -> Array:
 # Bevels and primitive tessellation may move skin bounds by at most two centimetres.
 const HEIGHT_TOLERANCE := 0.02
 ## The authored craft models, one per vehicle not declared `procedural`.
-const AUTHORED_COUNT := 9
+const AUTHORED_COUNT := 10
 
 static func height_parity(require_authored := false, inject := false) -> Array:
 	var errors := []

@@ -18,6 +18,7 @@ const CRAFT_ASSETS := {
 	"ioncruiser": DIR + "ioncruiser.glb",
 	"hailmary": DIR + "hailmary.glb",
 	"beetle": DIR + "beetle.glb",
+	"evapod": DIR + "evapod.glb",
 }
 
 ## Emissive strength floors, keyed by exact material name: a no-op when
@@ -27,6 +28,7 @@ const EMISSIVE := {"emitPlate": 2.0, "emitCell": 6.0}
 ## Driven node names → `parts` bucket. Anchored and digit-terminated, so helpers like
 ## `gimbal_beetle_0_mount` aren't collected. `_fixed` is the one permitted suffix.
 const ROLES := [
+	["arms", "^arm_([A-Za-z0-9]+)_(\\d+)$"],
 	["gimbals", "^gimbal_([A-Za-z0-9]+)_(\\d+)(_fixed)?$"],
 	["legs", "^leg_([A-Za-z0-9]+)_(\\d+)$"],
 	["fins", "^fin_([A-Za-z0-9]+)_(\\d+)$"],
@@ -74,6 +76,7 @@ static func gimbal_limits(spec: Dictionary, vehicle: Dictionary) -> Array:
 static func part_counts(spec: Dictionary, vehicle: Dictionary) -> Dictionary:
 	var look: Dictionary = spec.get("look", {})
 	return {"gimbals": gimbal_limits(spec, vehicle).size(), "fins": int(spec.get("gridFins", 0)),
+		"arms": int(look.get("arms", 0)),
 		"legs": 0 if look.get("fixedLegs", false) else int(spec.get("legs", 0)),
 		"arrays": int(look.get("arrays", 0)), "flaps": int(spec.get("flaps", look.get("flaps", 0))),
 		"halves": 2 if look.get("fairing", false) else 0, "doors": int(look.get("doors", 0)), "pieces": int(look.get("pieces", 0)),
