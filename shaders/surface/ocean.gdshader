@@ -22,6 +22,10 @@ uniform vec3 uDeep = vec3(0.012, 0.045, 0.105);
 uniform vec3 uShallow = vec3(0.03, 0.22, 0.26);
 uniform sampler2D uHeights : filter_linear, repeat_disable;
 uniform float uHeightsHalf = 60000.0;
+// The planet's radius, m, for the drop the terrain mesh also takes; and 1 where the sea runs on past
+// the far grid (a pin at sea), 0 where it is only what the grid's low ground holds.
+uniform float uRadius = 6.371e6;
+uniform float uOpen = 1.0;
 
 varying vec3 vPlace;
 varying float vFade;
@@ -49,6 +53,8 @@ void vertex() {
 		}
 	}
 	VERTEX += shift;
+	// The ball's curve, as SiteScene.terrain_mesh drops the ground: about 640 m at 90 km on Earth.
+	VERTEX.y -= dot(at, at) / (2.0 * uRadius);
 	vPlace = vec3(at.x, VERTEX.y, at.y);
 	vFade = dist;
 }
@@ -105,8 +111,11 @@ void fragment() {
 	// A slope past about 1/6 breaks (Tessendorf §4.6), and a wave breaks on the shore.
 	float foam = smoothstep(0.17, 0.32, length(slope)) * 0.7 + smoothstep(0.5, 1.2, shallow) * 0.25;
 	col = mix(col, vec3(0.75) * clamp(uSunDir.y * 2.0 + 0.15, 0.05, 1.0), clamp(foam, 0.0, 0.85));
-	// Hide where the land stands above it, so a coast is the terrain's.
-	if (bed > uTide + 0.5 && abs(uv.x - 0.5) < 0.5 && abs(uv.y - 0.5) < 0.5) discard;
+	// Hide where the land stands above it, so a coast is the terrain's; and past the grid unless the
+	// sea is open there.
+	bool inside = abs(uv.x - 0.5) < 0.5 && abs(uv.y - 0.5) < 0.5;
+	if (bed > uTide + 0.5 && inside) discard;
+	if (!inside && uOpen < 0.5) discard;
 	// A frozen sea is pack ice.
 	if (uFrozen > 0.5) {
 		col = vec3(1.5, 1.6, 1.7) * clamp(uSunDir.y * 1.4 + 0.1, 0.03, 1.0);

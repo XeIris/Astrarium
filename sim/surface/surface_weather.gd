@@ -12,10 +12,6 @@ const EADY := 0.31
 const EADY_WAVELENGTHS := 3.90
 # A cyclone's life in Eady e-folds. Puts Earth's at the 4 days of Sharkey et al. (2019).
 const LIFE_EFOLDS := 1.4
-# The troposphere's stability against dry adiabatic: N² = (g²/c_pT)(1 − Γ/Γ_d). Earth's 6.5 K/km of
-# 9.8 is Γ/Γ_d = 0.66; dry worlds, without latent heat, sit nearer 0.4 (Mars's N in Rees & Garrett).
-const LAPSE_WET := 0.66
-const LAPSE_DRY := 0.4
 # A surface wind from the energy budget: KE dissipated ρC_dU³ = ε(absorbed), with ε·/C_d pinned to
 # Earth's about 7 m/s over 240 W/m². An estimate; a reference table is in the doc.
 const WIND_EARTH := 7.0
@@ -26,6 +22,16 @@ const WIND_MAX_MACH := 0.08
 # A storm only rains near its middle, where the air is rising hard. An estimate.
 const RAIN_FROM := 0.25
 const RAIN_FULL := 0.65
+# Rain no system brings: showers in a tenth of three-hour spells (an estimate; the deep tropics rain on
+# about that share of hours).
+const SHOWER_S := 10800.0
+const SHOWER_SHARE := 0.1
+# Snow outnumbers rain where the surface air is at or below 1.2 °C over land and 1.9 °C over the sea,
+# from 3-hourly reports (Dai 2008, doi:10.1029/2008GL033295).
+const SNOW_LAND_K := 274.35
+const SNOW_SEA_K := 275.05
+# How many storm lives the calibration runs through.
+const CALIBRATE_STEPS := 3000
 const WORLD_DAY_MIN_S := 3600.0
 
 # What the world gives. All SI.
@@ -59,6 +65,13 @@ var wind_mean := 7.0
 var sound := 340.0
 var rain_mm_yr := 990.0
 var clear_cover := 0.44
+# The site's own: its annual-mean air temperature, K, a year's rain here, mm, and whether it is at sea.
+var site_k := 288.0
+var rain_here_mm := 990.0
+var over_sea := false
+# The long-run mean of what makes it rain (activity()), so a year here brings rain_here_mm.
+var activity_mean := 1.0
+var _seed := 0
 # Today's systems: [{lat, lon, born, life, size, sign, seed}], where lat and lon are radians.
 var systems: Array = []
 var _rng := RandomNumberGenerator.new()
@@ -87,7 +100,10 @@ func setup(b: Body, cl: Climate, lat_r: float, lon_r: float, seed: int) -> void:
 	pole_equator_k = _pole_equator(cl)
 	rain_mm_yr = ClimateLook.precipitation_mm(cl)
 	clear_cover = clampf(float(U.nz(b.spec.get("cloudCover"), ClimateLook.cover_of(cl))), 0.0, 1.0)
+	site_k = temp
+	rain_here_mm = rain_mm_yr
 	derive()
+	_seed = seed
 	_rng.seed = seed
 	systems.clear()
 	_span = 2.0 * life_s
@@ -97,6 +113,38 @@ func setup(b: Body, cl: Climate, lat_r: float, lon_r: float, seed: int) -> void:
 		# Spread through their lives, so a visit does not start on a blank sky.
 		for i in count:
 			_spawn(-_rng.randf() * life_s)
+	calibrate()
+
+## The site's own temperature, K, and a year's rain there, mm: what the pin read, against the
+## climate's global mean that setup starts from.
+func place(temp_k: float, rain_mm: float, at_sea: bool) -> void:
+	site_k = temp_k
+	rain_here_mm = maxf(rain_mm, 0.0)
+	over_sea = at_sea
+
+## Measure activity()'s long-run mean by running the population ahead, then put it back as it was.
+func calibrate() -> void:
+	activity_mean = 1.0
+	if not has_air or not wet or systems.is_empty(): return
+	var kept_systems := systems.duplicate(true)
+	var kept := [_age, _next_id, _rng.state]
+	var dt := maxf(life_s / 8.0, 600.0)
+	var sum := 0.0
+	for i in CALIBRATE_STEPS:
+		step(dt)
+		sum += activity(float(_field().influence))
+	systems = kept_systems
+	_age = kept[0]
+	_next_id = kept[1]
+	_rng.state = kept[2]
+	activity_mean = maxf(sum / CALIBRATE_STEPS, 1e-6)
+
+## What makes it rain now, 0..1: a storm overhead, or a shower.
+func activity(influence: float) -> float:
+	var storm := smoothstep(RAIN_FROM, RAIN_FULL, influence)
+	var spell := int(floor(_age / SHOWER_S))
+	var shower := 1.0 if ClimateInputs._uniform(str(_seed), spell, "shower") < SHOWER_SHARE else 0.0
+	return maxf(storm, shower)
 
 func _pole_equator(cl: Climate) -> float:
 	if not cl.wet: return 0.3 * temp
@@ -105,13 +153,17 @@ func _pole_equator(cl: Climate) -> float:
 
 ## The scales, from what setup read. Public so a check can hand it another planet.
 func derive() -> void:
-	var stable := LAPSE_WET if wet else LAPSE_DRY
+	# The troposphere's stability against dry adiabatic: N² = (g²/c_pT)(1 − Γ/Γ_d), with Γ/Γ_d as the
+	# look's lapse takes it (ClimateLook.STABLE_WET, STABLE_DRY).
+	var stable := ClimateLook.STABLE_WET if wet else ClimateLook.STABLE_DRY
 	brunt = sqrt(maxf(g * g / (cp * temp) * (1.0 - stable), 0.0))
 	# The tropopause, where the column has cooled to its stratosphere (Atmosphere.STRAT).
 	var lapse := stable * g / cp
 	tropo_h = (1.0 - Atmosphere.STRAT) * temp / maxf(lapse, 1e-5)
-	# Rees & Garrett (2019, after Held 2000): φ_H ≈ √(NH/Ωa), with H the scale height.
-	hadley = sqrt(brunt * scale_h / maxf(omega * radius, 1e-9))
+	# Held (2000): the cell ends where its angular-momentum-conserving flow turns baroclinically
+	# unstable, φ_H ≈ (g Δ_v H_t / Ω²a²θ₀)^¼ = √(N H_t / Ωa), with H_t the tropopause height; the form
+	# Frierson, Lu & Chen (2007) test against GCMs. The constant is taken as 1.
+	hadley = sqrt(brunt * tropo_h / maxf(omega * radius, 1e-9))
 	# Storms grow on the baroclinic flank just poleward of the descending branch.
 	storm_lat = clampf(hadley + 0.26, 0.2, 1.35)
 	coriolis = 2.0 * omega * sin(storm_lat)
@@ -167,11 +219,8 @@ func _strength(s: Dictionary) -> float:
 	var t := clampf((_age - float(s.born)) / maxf(float(s.life), 1.0), 0.0, 1.0)
 	return sin(PI * t)
 
-## The weather at the site now: {cover, wind, wind_dir, rain_mm_h, kind, front, near_km, snow}.
-## Rain's mean over a year is the climate's rain; storms concentrate it.
-func now() -> Dictionary:
-	var out := {"cover": 0.0, "wind": 0.0, "wind_dir": 0.0, "rain_mm_h": 0.0, "kind": "none", "front": 0.0, "near_km": -1.0, "snow": false}
-	if not has_air: return out
+# The strongest system's pull here, the bearing its wind blows from, and the nearest system's distance.
+func _field() -> Dictionary:
 	var influence := 0.0
 	var near := INF
 	var gust_dir := 0.0
@@ -185,6 +234,17 @@ func now() -> Dictionary:
 			var bearing := atan2(float(s.lon) - lon, float(s.lat) - lat)
 			gust_dir = bearing + (PI * 0.5 if lat >= 0.0 else -PI * 0.5)
 		near = minf(near, d)
+	return {"influence": influence, "near": near, "gust_dir": gust_dir}
+
+## The weather at the site now: {cover, wind, wind_dir, rain_mm_h, kind, front, near_km, snow}.
+## Rain's mean over a year is rain_here_mm; storms and showers concentrate it.
+func now() -> Dictionary:
+	var out := {"cover": 0.0, "wind": 0.0, "wind_dir": 0.0, "rain_mm_h": 0.0, "kind": "none", "front": 0.0, "near_km": -1.0, "snow": false}
+	if not has_air: return out
+	var f := _field()
+	var influence: float = f.influence
+	var near: float = f.near
+	var gust_dir: float = f.gust_dir
 	var westerly := PI * 0.5 if absf(lat) >= hadley else -PI * 0.5
 	out.wind_dir = lerp_angle(westerly, gust_dir, clampf(influence * 1.5, 0.0, 1.0))
 	out.wind = wind_mean * (1.0 + FRONT_GUST * influence)
@@ -193,10 +253,7 @@ func now() -> Dictionary:
 	# A dry world's storms lift dust, not clouds, and dust isn't modelled.
 	out.cover = clampf(clear_cover + (1.0 - clear_cover) * influence, 0.0, 1.0) if wet else clear_cover
 	if not wet: return out
-	# A fair share of a year's rain arrives under systems: influence's mean over the track is about
-	# the area share a system's Gaussian covers, so rain under a storm is mean/share.
-	var share := clampf(float(systems.size()) * 2.0 * PI * pow(wavelength * 0.25, 2.0) / maxf(4.0 * PI * radius * radius, 1.0), 0.02, 1.0)
-	out.rain_mm_h = rain_mm_yr / (365.25 * 24.0) * smoothstep(RAIN_FROM, RAIN_FULL, influence) / share
-	out.snow = temp - 6.5 * 0.5 < 271.0 and float(out.rain_mm_h) > 0.0
+	out.rain_mm_h = rain_here_mm / (365.25 * 24.0) * activity(influence) / activity_mean
+	out.snow = site_k <= (SNOW_SEA_K if over_sea else SNOW_LAND_K) and float(out.rain_mm_h) > 0.0
 	out.kind = "rain" if float(out.rain_mm_h) > 0.05 and not out.snow else ("snow" if out.snow else "none")
 	return out

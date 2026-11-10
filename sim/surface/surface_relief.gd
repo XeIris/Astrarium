@@ -45,6 +45,7 @@ var rain_mm := 0.0                  # mm/yr, 0 for no running water
 var flowing := false
 var crater := 0.0
 var map_land := -1                  # 1 land, 0 sea when a map says, else the crust does
+var rain_index := -1.0              # the pin's precipitation(), 0..1, or < 0 for none
 var seed := 0
 var cells := 129
 # Outputs.
@@ -54,6 +55,8 @@ var channel_near := PackedFloat32Array()
 var cancelled := false
 var progress := 0.0
 var stats := {}
+## The world's mean precipitation(), for the pin's share of its rain; < 0 until built.
+var rain_index_mean := -1.0
 # Work arrays, kept while a grid is carved.
 var _n := 0
 var _dx := 0.0
@@ -75,6 +78,7 @@ func build() -> void:
 	SurfaceStats.count("relief_build")
 	var far_half := minf(FAR_HALF, radius_m * 0.08)
 	var near_half := minf(NEAR_HALF, far_half * 0.25)
+	if rain_index >= 0.0 and relief != null: rain_index_mean = relief.mean_precipitation()
 	var far := _grid_from_crust(far_half)
 	if cancelled: return
 	if cancelled: return

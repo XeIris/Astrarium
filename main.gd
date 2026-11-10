@@ -975,7 +975,7 @@ var _climate_frame := 0
 func _step_climate(stepped: float) -> void:
 	if not stepped > 0.0: return
 	var stars := get_stars()
-	var home := get_home()
+	var home := climate_home()
 	var shown := climate_world()
 	var waiting := 0
 	for b in state.bodies:
@@ -997,8 +997,17 @@ func _step_climate(stepped: float) -> void:
 func climate_world() -> Body:
 	var focused := state.body_by_id(state.focus_id)
 	if focused != null and focused.climate != null: return focused
-	var home := get_home()
+	var home := climate_home()
 	return home if home != null and home.climate != null else null
+
+## The home world as the climates know it. A visit lends home_id to the world it stands on, for the
+## sky; which worlds step exactly every frame must not follow it, or the climates step differently.
+func climate_home() -> Body:
+	var v: SurfaceVisit = showcase.visit if showcase != null else null
+	if v != null and v.ready:
+		var before = v.home_before()
+		return state.body_by_id(before) if before != null else null
+	return get_home()
 
 # The panel follows climate_world(): shown or not, and sliders on that world's inputs.
 func _sync_climate_panel() -> void:

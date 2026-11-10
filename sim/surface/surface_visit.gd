@@ -50,6 +50,10 @@ func _arrive() -> void:
 	_paint_env()
 	stage.hud.set_surface_veil(false)
 
+## The home world's id before this visit lent it to the world underfoot.
+func home_before() -> Variant:
+	return _prev.get("home")
+
 func end() -> void:
 	var state = stage.state
 	if site != null:
@@ -65,6 +69,8 @@ func end() -> void:
 		stage.observer.elevation = float(_prev.get("elevation", 0.25))
 		SkyModel.apply_day_gain(stage.pipe.sky_materials, 1.0)
 		if body != null and body.viz != null: body.viz.group.visible = true
+	var viz = PlanetPin._viz(body) if body != null and body.viz != null else null
+	if viz != null and "display_turn" in viz: viz.display_turn = 0.0
 	stage.hud.set_surface_veil(false)
 	SurfaceStats.count("visit_end")
 
@@ -197,16 +203,21 @@ func turn_to_noon(height: float) -> void:
 	if key == null: return
 	var viz = PlanetPin._viz(body)
 	var d: Vector3 = key.pos.sub(body.pos).to_v3().normalized()
+	# A locked world's surface carries the lock's own frame after its spin, and the lock sets the spin
+	# each frame: the turn goes on top of it.
+	var locked: bool = "display_turn" in viz and RockyVisual.truthy(viz.opts.tidal_lock)
+	var after := Quaternion(RockyVisual.NORTH_ON_ORBIT_POLE) if locked else Quaternion()
 	var best_phase: float = body.spin_phase
 	var best := -INF
 	for i in 96:
 		var phase := TAU * i / 96.0
-		var turn: Quaternion = viz.group.quaternion * Quaternion(Vector3.UP, phase)
+		var turn: Quaternion = viz.group.quaternion * Quaternion(Vector3.UP, phase) * after
 		var y := (turn * pin.p).normalized().dot(d)
 		var score := -absf(y - height)
 		if score > best:
 			best = score
 			best_phase = phase
+	if locked: viz.display_turn = wrapf(best_phase - (body.spin_phase - viz.display_turn), -PI, PI)
 	body.spin_phase = best_phase
 
 ## What the panel reads at the pin.

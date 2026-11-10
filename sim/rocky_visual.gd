@@ -272,6 +272,8 @@ class RockyViz extends RefCounted:
 	## Moon faces as it does on the date. Lapses a frame after the owner stops.
 	var surface_world := Basis()
 	var _surface_world_frame := -10
+	## A display turn on top of a tidal lock, so a visit can bring its star up. Nothing physical moves.
+	var display_turn := 0.0
 	var _sky_serial := -1
 
 	func _init(b: Body, o: VisualOpts) -> void:
@@ -410,7 +412,7 @@ class RockyViz extends RefCounted:
 			# parent. Transform into the tilted body frame before reading longitude.
 			var d := parent.pos.sub(b.pos)
 			var toward := tilt_q.inverse() * Vector3(d.x, d.y, d.z)
-			b.spin_phase = atan2(-toward.z, toward.x)
+			b.spin_phase = atan2(-toward.z, toward.x) + display_turn
 			surface.basis = Basis(Vector3.UP, b.spin_phase) * RockyVisual.NORTH_ON_ORBIT_POLE
 		else:
 			b.spin_phase = fmod(b.spin_phase - RockyVisual.spin_step(b, 1.0, dt, ctx.sim_dt), TAU)

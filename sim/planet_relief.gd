@@ -248,6 +248,19 @@ func altitude(h_km: float, sea: bool) -> float:
 	if sea: return 0.0
 	return h_km - (sea_km if sea_km > -30.0 else 0.0)
 
+## precipitation()'s mean over the sphere, on a Fibonacci lattice of `n` points, against which one
+## place's share of the climate's rain is read. The coarse crust stands in for the full height here.
+func mean_precipitation(n := 400) -> float:
+	var sum := 0.0
+	for i in n:
+		var y := 1.0 - 2.0 * (i + 0.5) / n
+		var ring := sqrt(maxf(1.0 - y * y, 0.0))
+		var a := i * 2.399963229728653
+		var p := Vector3(cos(a) * ring, y, sin(a) * ring)
+		var h := crust_height(p)
+		sum += precipitation(p, temperature(y, altitude(h, h < sea_km)), h)
+	return sum / n
+
 ## precipitation(), 0..1, as the surface's biomes read it.
 func precipitation(p: Vector3, t: float, h_km: float) -> float:
 	var lat := asin(clampf(p.y, -1.0, 1.0))

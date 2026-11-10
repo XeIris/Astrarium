@@ -55,8 +55,9 @@ CHANGED_RULES = (
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
     # What runs on the ground, and the proof it runs nowhere else.
-    (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd"),
-     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase")),
+    (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
+      "sim/flight/localview.gd", "sim/observatory/site_scene.gd"),
+     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface")),
     # The CPU's crust is held to the shader's; the pin and the showcase read it.
     (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
       "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
