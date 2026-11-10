@@ -26,16 +26,44 @@ land gives 28.9%.
 
 A pin does not hunt for land. It says what it found: open sea and how deep, sea ice, an ice sheet, or the biome and
 its height. On Earth it falls on land about 29% of the time, as it should. **A mapped world** (Earth, Mars, the Moon)
-keeps its map's coast, and until real elevation grids are approved its height is the procedural crust's, not a
-measurement, and the panel says so.
+keeps its map's coast, and its height is measured.
+
+### Measured height
+
+`PlanetElevation` reads a quarter-degree grid per world, built by `tools/build_planet_relief.py`: ETOPO 2022's
+60″ ice surface averaged in 15×15 blocks (Earth, metres above sea level), and the MOLA MEGDR and LOLA LDEM at their
+own 4 per degree (medians, above the areoid and the 1737.4 km sphere). A cell is 28 km on Earth, 15 km on Mars and
+7.6 km on the Moon, which is what a pin reads and what the far grid stands on. The roughness, rivers and craters
+below are drawn on top of it. Io keeps the crust, and its panel still says so.
+
+The map's coast is finer than a cell. Where a cell straddles a coast and averages to the other side, the pin keeps the
+map's side by 5 m, and the far grid bends to it under a Gaussian one cell wide. Elsewhere the grid is left as measured.
+
+What tests it, each against a height surveyed elsewhere and each catching a different misreading:
+
+| Test | Grid | Reference |
+| --- | --- | --- |
+| South Pole (rows flipped) | see `pincheck` | 2835 m, Amundsen–Scott |
+| Greenland's summit, 72.58° N 38.46° W (east for west) | see `pincheck` | 3216 m, Summit Station |
+| Lake Titicaca | see `pincheck` | 3812 m |
+| Mean ocean depth, area-weighted (units) | see `pincheck` | 3682 m (Charette & Smith 2010) |
+| Land above sea level | see `pincheck` | 29.2% |
+| Earth's highest cell | see `pincheck` | beside Everest, below its 8848.86 m |
+| Mars's highest cell (the 0° E start) | 21134 m, 1.3° from the centre | Olympus Mons, 21.287 km at 18.65° N 226.20° E |
+| Mars's lowest cell | −8068 m at 32.9° S 62.1° E | in Hellas, below its floor's 7152 m |
+| The Moon's highest cell | 10504 m, at the summit's cell | 10.786 km at 5.441° N 158.656° W |
+| The Moon's lowest cell | −8879 m, at the pit's cell | Antoniadi's pit, 9.178 km down at 70.43° S 187.42° E |
+
+A summit reads below its peak because a cell is a mean or a median over its quarter degree.
 
 ## Terrain
 
 `SurfaceRelief` builds a far grid (60 km half-width, or 8% of a small world's radius) and a near one
 (3.2 km), in the form `SiteScene` reads.
 
-1. **The true crust,** 21×21 samples of `PlanetRelief` across the far grid. A sample costs 0.5 ms in
-   GDScript and the shader's highest octave is about 40 km on an Earth, so this is what is resolved.
+1. **The true crust,** 21×21 samples of `PlanetRelief` across the far grid, or of the measured grid on a mapped
+   world. A crust sample costs 0.5 ms in GDScript and the shader's highest octave is about 40 km on an Earth, so this
+   is what is resolved.
 2. **Roughness that goes as 1/g.** Rock strength over ρg caps relief: Olympus Mons's 21.9 km against
    Everest's 8.8 km is 2.5, and the gravity ratio is 2.6
    ([table](https://en.wikipedia.org/wiki/List_of_tallest_mountains_in_the_Solar_System)). `surfacecheck` holds the

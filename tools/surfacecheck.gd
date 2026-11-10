@@ -409,6 +409,70 @@ func terrain() -> void:
 	c.build()
 	check("a cancelled survey has no grids", c.grids.is_empty())
 
+# A mapped world's far grid stands on its measured grid, and only the pin's own cell bends to the map.
+func measured_ground() -> void:
+	var earth := PlanetElevation.of("Earth")
+	check("Earth's measured grid loads", earth != null)
+	if earth == null: return
+	var tibet := _relief_at(earth, deg_to_rad(33.0), deg_to_rad(88.0), 1)
+	var base := tibet._grid_from_crust(tibet.FAR_HALF)
+	var worst := 0.0
+	var m := SurfaceRelief.CRUST_SAMPLES
+	for j in m:
+		for i in m:
+			var e := -tibet.FAR_HALF + 2.0 * tibet.FAR_HALF * i / (m - 1)
+			var n := -tibet.FAR_HALF + 2.0 * tibet.FAR_HALF * j / (m - 1)
+			var ll := PlanetPin.lat_lon(tibet._dir(e, n))
+			worst = maxf(worst, absf(_coarse_at(base, i, j, m, tibet.cells) - earth.at(ll.x, ll.y)))
+	check("Tibet's far grid is the measured ground at its samples (worst %.1f m)" % worst, worst < 1.0)
+	var centre := base[(tibet.cells / 2) * tibet.cells + tibet.cells / 2]
+	check("and stands %.0f m up, a plateau" % centre, centre > 4000.0)
+	# A land pin over a cell the quarter degree calls sea.
+	var coast := _relief_at(earth, 0.0, deg_to_rad(-150.0), 1)
+	var raw := earth.at(0.0, deg_to_rad(-150.0))
+	var bent := coast._grid_from_crust(coast.FAR_HALF)
+	var mid := bent[(coast.cells / 2) * coast.cells + coast.cells / 2]
+	check("a land pin the map puts ashore stands above the sea (%.0f m, the cell says %.0f)" % [mid, raw], mid >= SurfaceRelief.COAST_M - 0.5)
+	var ll0 := PlanetPin.lat_lon(coast._dir(-coast.FAR_HALF, -coast.FAR_HALF))
+	var moved := absf(bent[0] - earth.at(ll0.x, ll0.y))
+	check("and the far grid's edge is left measured (moved %.1f m of %.0f)" % [moved, absf(raw)], moved < 0.002 * absf(raw))
+	coast.map_land = 0
+	var sea := coast._grid_from_crust(coast.FAR_HALF)
+	check("a sea pin over open sea is left as measured", near(sea[(coast.cells / 2) * coast.cells + coast.cells / 2], raw, 1.0))
+	var mars := PlanetElevation.of("Mars")
+	var olympus := _relief_at(mars, deg_to_rad(18.65), deg_to_rad(226.2), 1)
+	olympus.radius_m = 3.3895e6
+	olympus.g = 3.72
+	olympus.has_sea = false
+	olympus.build()
+	var far: Dictionary = olympus.grids[1]
+	var mean := 0.0
+	for v in far.h: mean += v
+	mean /= far.h.size()
+	check("Olympus Mons's far grid stands about 20 km up (mean %.1f km)" % (mean / 1000.0), mean > 17000.0 and _finite(far.h))
+	PlanetElevation.release()
+
+func _relief_at(e: PlanetElevation, lat: float, lon: float, land: int) -> SurfaceRelief:
+	var s := SurfaceRelief.new()
+	s.relief = PlanetRelief.new()
+	s.center = PlanetPin.direction(lat, lon)
+	s.east = Vector3.UP.cross(s.center).normalized()
+	s.north = s.center.cross(s.east).normalized()
+	s.radius_m = 6.371e6
+	s.g = 9.82
+	s.seed = 5
+	s.cells = 61
+	s.has_sea = true
+	s.map_land = land
+	s.elevation = e
+	return s
+
+# The coarse sample (i, j) of m, read back from the cells × cells grid it was spread over; with
+# 61 cells and 21 samples every third cell is one exactly.
+func _coarse_at(h: PackedFloat32Array, i: int, j: int, m: int, cells: int) -> float:
+	var scale := float(cells - 1) / float(m - 1)
+	return h[int(round(j * scale)) * cells + int(round(i * scale))]
+
 func _finite(a: PackedFloat32Array) -> bool:
 	for v in a:
 		if not is_finite(v): return false
@@ -788,6 +852,7 @@ func _ready() -> void:
 		weather()
 		drainage()
 		terrain()
+		measured_ground()
 		await nothing_elsewhere()
 		await no_feedback()
 		await extremes()

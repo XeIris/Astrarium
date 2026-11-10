@@ -55,12 +55,14 @@ CHANGED_RULES = (
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
     # What runs on the ground, and the proof it runs nowhere else.
-    (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd"),
+    (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
+      "sim/planet_elevation.gd", "assets/planet-relief/*"),
      ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase")),
     # The CPU's crust is held to the shader's; the pin and the showcase read it.
     (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
       "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
-      "sim/rocky_visual.gd", "sim/planetmaps.gd", "tools/terrain_probe.gdshader"),
+      "sim/rocky_visual.gd", "sim/planetmaps.gd", "tools/terrain_probe.gdshader", "sim/planet_elevation.gd",
+      "assets/planet-relief/*", "tools/build_planet_relief.py"),
      ("pincheck", "pincheck-gpu", "hud*", "_soak_check-showcase")),
     # How a world looks: the derived values headless, and the frames with pixels=1.
     (("sim/climate_look.gd", "sim/rocky_visual.gd", "sim/world.gd", "sim/terrain.gd", "sim/climate.gd", "sim/atmosphere.gd",

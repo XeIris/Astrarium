@@ -49,15 +49,16 @@ static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dict
 	var hr := r.height(p)
 	var h := hr.x
 	var sea := h < r.sea_km
-	# A map's own coast decides; the crust only says how high. A mapped world shows no relief, so
-	# this height is the procedural crust's, not a measurement.
+	# A map's own coast decides; the crust, or the measured grid where there is one, says how high.
+	var dem := PlanetElevation.of(b.name) if r.map_kind > 0 else null
 	if r.map_kind == 1:
 		var on_land := land_at(b.name, lat_r, lon_r)
 		sea = not on_land and r.sea_km > -2.0
 		h = absf(h) * (1.0 if on_land else -1.0)
+		if dem != null: h = r.sea_km + measured_km(dem, lat_r, lon_r, on_land)
 	elif r.map_kind == 2:
 		sea = false
-		h = absf(h)
+		h = absf(h) if dem == null else dem.at(lat_r, lon_r) / 1000.0
 	var sin_lat := clampf(p.y, -1.0, 1.0)
 	var t := r.temperature(sin_lat, maxf(h, 0.0))
 	var pr := r.precipitation(p, t, h)
@@ -74,8 +75,20 @@ static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dict
 	out.kind = kind
 	out.biome = biome
 	out.text = describe(out, b)
-	if r.map_kind > 0: out.text += " The map decides what is here; the height is modelled, not measured."
+	if dem != null:
+		out.text += " Height measured (%s, the %s over %s)." % [dem.source, dem.how, _distance(dem.cell_rad() * b.radius * Rocketry.AU_M)]
+	elif r.map_kind > 0: out.text += " The map decides what is here; the height is modelled, not measured."
 	return out
+
+## Km above sea level from a measured grid, on the side of the coast the map says. A quarter-degree
+## cell straddling a coast can average to the other side; the map is finer, so the pin keeps its side.
+static func measured_km(dem: PlanetElevation, lat_r: float, lon_r: float, on_land: bool) -> float:
+	var m := dem.at(lat_r, lon_r)
+	return (maxf(m, SurfaceRelief.COAST_M) if on_land else minf(m, -SurfaceRelief.COAST_M)) / 1000.0
+
+## The inverse of direction(): latitude and longitude, rad, of a unit vector in the mesh's frame.
+static func lat_lon(p: Vector3) -> Vector2:
+	return Vector2(asin(clampf(p.y, -1.0, 1.0)), wrapf(atan2(p.z, -p.x) - PI, -PI, PI))
 
 # rocky_surface.gdshader's frost, for the sum it draws.
 static func _frost(r: PlanetRelief, p: Vector3, sin_lat: float, t: float, pr: float, sea: bool) -> float:
@@ -144,3 +157,4 @@ static func land_at(body_name: String, lat_r: float, lon_r: float) -> bool:
 
 static func release_maps() -> void:
 	_mask.clear()
+	PlanetElevation.release()

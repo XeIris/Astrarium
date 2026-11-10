@@ -92,6 +92,7 @@ func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, r
 	relief.rain_mm = ClimateLook.precipitation_mm(climate)
 	if r.map_kind == 1: relief.map_land = 0 if str(where.ground.kind) in ["sea", "sea ice"] else 1
 	elif r.map_kind == 2: relief.map_land = 1
+	if r.map_kind > 0: relief.elevation = PlanetElevation.of(b.name)
 	_task = WorkerThreadPool.add_task(relief.build, false, "surface relief")
 
 ## Done surveying? Builds the scene on the first call that finds it finished.

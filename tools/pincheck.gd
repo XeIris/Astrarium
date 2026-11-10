@@ -122,6 +122,122 @@ func ground_reads() -> void:
 	PlanetPin.release_maps()
 	star = star
 
+# The measured grids against heights surveyed elsewhere. Each place catches a different misreading:
+# rows flipped (the South Pole), east for west (Summit), the 0° E start (Olympus Mons, the Moon's
+# summit), a unit or byte order (the means). A cell is a mean or median over a quarter degree, so a
+# summit reads below its peak and a broad plateau reads as itself.
+func measured() -> void:
+	var d := PI / 180.0
+	var earth := PlanetElevation.of("Earth")
+	var mars := PlanetElevation.of("Mars")
+	var moon := PlanetElevation.of("Moon")
+	check("a grid for Earth, Mars and the Moon", earth != null and mars != null and moon != null)
+	if earth == null or mars == null or moon == null: return
+	check("and none for Io, which keeps the crust", PlanetElevation.of("Io") == null)
+	check("quarter-degree grids", earth.width == 1440 and earth.height == 720 and mars.width == 1440 and moon.height == 720)
+	# The PDS labels' projection offsets put a value at its cell's centre; ETOPO's 60″ blocks average to one.
+	var off := 0.0
+	for k in 40:
+		var i := (k * 331) % mars.width
+		var j := 5 + (k * 97) % (mars.height - 10)
+		var la := (90.0 - (j + 0.5) * 0.25) * d
+		var lo := ((i + 0.5) * 0.25 - 180.0) * d
+		off = maxf(off, absf(mars.at(la, lo) - mars._cell(i, j)))
+	check("a cell's value is at its centre (worst %.2f m)" % off, off < 0.01)
+	# Wikipedia: Amundsen–Scott 2835 m, Summit Station 3216 m at 72.580° N 38.459° W, Lake Titicaca 3812 m
+	# at 15.825° S 69.325° W.
+	var pole := earth.at(-90.0 * d, 0.0)
+	check("the South Pole's ice stands at 2835 m (%.0f)" % pole, near(pole, 2835.0, 150.0))
+	var summit := earth.at(72.580 * d, -38.459 * d)
+	check("Greenland's summit at 3216 m (%.0f)" % summit, near(summit, 3216.0, 150.0))
+	var lake := earth.at(-15.825 * d, -69.325 * d)
+	check("Lake Titicaca at 3812 m (%.0f)" % lake, near(lake, 3812.0, 300.0))
+	# Charette & Smith 2010 via Wikipedia's Earth: oceans' mean depth 3682 m; land 29.2% of the surface.
+	var s := _area_stats(earth)
+	check("the ocean's mean depth is 3682 m (%.0f)" % s.sea_depth, near(s.sea_depth, 3682.0, 0.04 * 3682.0))
+	check("29.2%% of the surface is above sea level (%.1f%%)" % (100.0 * s.above), near(s.above, 0.292, 0.015))
+	# The Tibetan Plateau, centred at 33° N 88° E and 2500 km across, averages over 4500 m; a quarter
+	# degree's mean is highest on it, not on Everest (8848.86 m at 27.988° N 86.925° E), whose cell
+	# takes in its valleys.
+	var top := _extreme(earth, 1.0)
+	check("Earth's highest cell is on the Tibetan Plateau (%.2f° N %.2f° E)" % [top.lat, top.lon], _degrees_apart(top, 33.0, 88.0) < 11.2)
+	var plateau := earth.at(33.0 * d, 88.0 * d)
+	check("which stands over 4500 m (%.0f)" % plateau, plateau > 4500.0)
+	var everest := earth.at(27.988 * d, 86.925 * d)
+	check("Everest's cell is high and below its 8849 m (%.0f)" % everest, everest < 8848.86 and everest > 4500.0 and top.h < 8848.86)
+	# Olympus Mons: 21.287 km above the MOLA datum at 18.65° N 226.20° E. Hellas: centred at 42.4° S
+	# 70.5° E, its floor around 7152 m below the datum and the lowest ground on Mars.
+	var olympus := _extreme(mars, 1.0)
+	check("Mars's highest cell is Olympus Mons (%.2f° N %.2f° E)" % [olympus.lat, olympus.lon], _degrees_apart(olympus, 18.65, 226.20) < 1.5)
+	check("a little under its 21.287 km (%.0f)" % olympus.h, olympus.h < 21287.0 and olympus.h > 20500.0)
+	var hellas := _extreme(mars, -1.0)
+	check("Mars's lowest is in Hellas (%.2f° N %.2f° E)" % [hellas.lat, hellas.lon], _degrees_apart(hellas, -42.4, 70.5) < 15.0)
+	check("below its floor's 7152 m (%.0f)" % hellas.h, hellas.h < -7152.0)
+	# The Moon: its summit at 5.441° N 158.656° W, 10.786 km; Antoniadi's pit at 70.43° S 187.42° E,
+	# 9.178 km below the mean.
+	var high := _extreme(moon, 1.0)
+	check("the Moon's highest cell is its summit (%.2f° N %.2f° E)" % [high.lat, high.lon], _degrees_apart(high, 5.441, -158.656) < 0.5)
+	check("a little under its 10.786 km (%.0f)" % high.h, high.h < 10786.0 and high.h > 10000.0)
+	var low := _extreme(moon, -1.0)
+	check("and its lowest Antoniadi's pit (%.2f° N %.2f° E)" % [low.lat, low.lon], _degrees_apart(low, -70.43, 187.42) < 0.5)
+	check("9.178 km down (%.0f)" % low.h, near(low.h, -9178.0, 1000.0))
+	# What a pin says with it.
+	new_stage("solar")
+	var e: Body = stage.state.body_named("Earth")
+	var at_summit := PlanetPin.read_ground(e, PlanetPin.direction(72.580 * d, -38.459 * d), 72.580 * d, -38.459 * d)
+	check("a pin on Summit reads its height (%.0f m)" % float(at_summit.height_m), near(float(at_summit.height_m), summit, 1.0))
+	check("and says it was measured (%s)" % at_summit.text, String(at_summit.text).contains("ETOPO 2022") and not String(at_summit.text).contains("modelled"))
+	var pacific := PlanetPin.read_ground(e, PlanetPin.direction(0.0, -150.0 * d), 0.0, -150.0 * d)
+	check("mid-Pacific is open sea %.0f m deep" % float(pacific.depth_m), pacific.kind == "sea" and near(float(pacific.depth_m), -earth.at(0.0, -150.0 * d), 1.0) and float(pacific.depth_m) > 3000.0)
+	var m: Body = stage.state.body_named("Mars")
+	var on_olympus := PlanetPin.read_ground(m, PlanetPin.direction(18.65 * d, 226.2 * d), 18.65 * d, 226.2 * d)
+	check("a pin on Olympus Mons is %.1f km up" % (float(on_olympus.height_m) / 1000.0), near(float(on_olympus.height_m), mars.at(18.65 * d, 226.2 * d), 1.0))
+	# A coast the quarter degree blurs: the map's side wins, by a few metres.
+	check("a land pin in a sea-averaged cell stands on land", PlanetPin.measured_km(earth, 0.0, -150.0 * d, true) > 0.0)
+	check("a sea pin in a land-averaged cell is under water", PlanetPin.measured_km(earth, -15.825 * d, -69.325 * d, false) < 0.0)
+	var worst := 0.0
+	for i in 50:
+		var la := (i * 3.5 - 86.0) * d
+		var lo := (i * 7.3 - 179.0) * d
+		var back := PlanetPin.lat_lon(PlanetPin.direction(la, lo))
+		worst = maxf(worst, maxf(absf(back.x - la), absf(wrapf(back.y - lo, -PI, PI))))
+	check("lat_lon undoes direction (worst %s rad)" % str(worst), worst < 1e-5)
+	PlanetPin.release_maps()
+	check("leaving the showcase lets the grids go", PlanetElevation._cache.is_empty())
+
+func _area_stats(e: PlanetElevation) -> Dictionary:
+	var sea_area := 0.0
+	var sea_sum := 0.0
+	var land_area := 0.0
+	var total := 0.0
+	for j in e.height:
+		var w := cos(PI * 0.5 - PI * (j + 0.5) / e.height)
+		for i in e.width:
+			var h := e._cell(i, j)
+			total += w
+			if h < 0.0:
+				sea_area += w
+				sea_sum -= h * w
+			else: land_area += w
+	return {"sea_depth": sea_sum / sea_area, "above": land_area / total}
+
+# The highest (sign 1) or lowest (−1) cell, in degrees east.
+func _extreme(e: PlanetElevation, sign_: float) -> Dictionary:
+	var best := -INF
+	var at := Vector2i.ZERO
+	for j in e.height:
+		for i in e.width:
+			var v := e._cell(i, j) * sign_
+			if v > best:
+				best = v
+				at = Vector2i(i, j)
+	return {"lat": 90.0 - (at.y + 0.5) * 180.0 / e.height, "lon": (at.x + 0.5) * 360.0 / e.width - 180.0, "h": best * sign_}
+
+func _degrees_apart(c: Dictionary, lat: float, lon: float) -> float:
+	var a := PlanetPin.direction(deg_to_rad(float(c.lat)), deg_to_rad(float(c.lon)))
+	var b := PlanetPin.direction(deg_to_rad(lat), deg_to_rad(lon))
+	return rad_to_deg(acos(clampf(a.dot(b), -1.0, 1.0)))
+
 # The CPU crust's land share is what the crust threshold asks for: the shader's statistics did not
 # move when its hash did. The doc's near-normal sd is the anchor.
 func statistics() -> void:
@@ -444,6 +560,7 @@ func _ready() -> void:
 		statistics()
 		draws()
 		ground_reads()
+		measured()
 		mode_flow()
 		physics_parity()
 	for i in 3: await get_tree().process_frame

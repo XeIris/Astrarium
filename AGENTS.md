@@ -137,6 +137,8 @@ uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and 
 computes nothing, in the orrery, flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them
 and the object counts flat after a visit. It reads the world's gravity, air, water and temperature, and writes
 nothing back: not to `Climate`, not to any body. Its scales come from the world, never from Earth's constants.
+On Earth, Mars and the Moon the height at a pin and under its far grid is measured (`PlanetElevation`,
+built by `tools/build_planet_relief.py`); the map's coast still decides land or sea.
 
 ## Body visuals
 
