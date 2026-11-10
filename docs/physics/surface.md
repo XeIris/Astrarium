@@ -46,8 +46,12 @@ own 4 per degree (medians, above the areoid and the 1737.4 km sphere). A cell is
 7.6 km on the Moon, which is what a pin reads and what the far grid stands on. The roughness, rivers and craters
 below are drawn on top of it. Io keeps the crust, and its panel still says so.
 
-The map's coast is finer than a cell. Where a cell straddles a coast and averages to the other side, the pin keeps the
-map's side by 5 m, and the far grid bends to it under a Gaussian one cell wide. Elsewhere the grid is left as measured.
+The map's coast is finer than a cell. Where the map has both land and sea within a cell of the pin and the cell averages
+to the other side, the pin keeps the map's side by 5 m, and the far grid bends to it under a Gaussian one cell wide.
+Away from a coast the cell stands as measured, so inland ground below the sea reads below it: the Qattara Depression
+72 m, the Caspian lowland 14 m. On a map the sea in view is where the map has sea across the far grid, not wherever
+the ground is low. Inside a grid that does see the sea, dry land below sea level (a polder, a depression near a
+coast) is still drawn under the water plane.
 
 What tests it, each against a height surveyed elsewhere and each catching a different misreading:
 

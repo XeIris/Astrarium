@@ -193,8 +193,16 @@ func measured() -> void:
 	var on_olympus := PlanetPin.read_ground(m, PlanetPin.direction(18.65 * d, 226.2 * d), 18.65 * d, 226.2 * d)
 	check("a pin on Olympus Mons is %.1f km up" % (float(on_olympus.height_m) / 1000.0), near(float(on_olympus.height_m), mars.at(18.65 * d, 226.2 * d), 1.0))
 	# A coast the quarter degree blurs: the map's side wins, by a few metres.
-	check("a land pin in a sea-averaged cell stands on land", PlanetPin.measured_km(earth, 0.0, -150.0 * d, true) > 0.0)
-	check("a sea pin in a land-averaged cell is under water", PlanetPin.measured_km(earth, -15.825 * d, -69.325 * d, false) < 0.0)
+	check("a land pin in a sea-averaged cell at a coast stands on land", PlanetPin.measured_km(earth, 0.0, -150.0 * d, true, true) > 0.0)
+	check("a sea pin in a land-averaged cell at a coast is under water", PlanetPin.measured_km(earth, -15.825 * d, -69.325 * d, false, true) < 0.0)
+	# Away from a coast a cell stands as measured: inland depressions lie below the sea.
+	for row in [["the Qattara Depression", 29.6, 27.2, -50.0], ["the Caspian lowland north of its shore", 47.5, 49.0, -5.0]]:
+		var la: float = row[1] * d
+		var lo: float = row[2] * d
+		var g := PlanetPin.read_ground(e, PlanetPin.direction(la, lo), la, lo)
+		check("%s is land, not a coast (%s)" % [row[0], g.text], g.kind != "sea" and not PlanetPin.coastal("Earth", la, lo, earth.cell_rad()))
+		check("and reads below sea level, as measured (%.0f m)" % float(g.height_m), float(g.height_m) < row[3] and near(float(g.height_m), earth.at(la, lo), 1.0) and String(g.text).contains("below sea level"))
+	check("Lima's shore is a coast", PlanetPin.coastal("Earth", -12.05 * d, -77.15 * d, earth.cell_rad()))
 	var worst := 0.0
 	for i in 50:
 		var la := (i * 3.5 - 86.0) * d

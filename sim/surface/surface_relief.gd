@@ -50,6 +50,8 @@ var map_land := -1                  # 1 land, 0 sea when a map says, else the cr
 ## Measured height in place of the crust's, m from sea level (or the datum on a dry world); loaded
 ## by the caller on the main thread.
 var elevation: PlanetElevation = null
+## Whether the map's coast is within a measured cell of the pin; only there does the grid bend to it.
+var map_coastal := false
 var rain_index := -1.0              # the pin's precipitation(), 0..1, or < 0 for none
 var seed := 0
 var cells := 129
@@ -83,7 +85,7 @@ func build() -> void:
 	SurfaceStats.count("relief_build")
 	var far_half := minf(FAR_HALF, radius_m * 0.08)
 	var near_half := minf(NEAR_HALF, far_half * 0.25)
-	if rain_index >= 0.0 and relief != null: rain_index_mean = relief.mean_precipitation()
+	if rain_index >= 0.0 and relief != null: rain_index_mean = relief.mean_precipitation(elevation)
 	var far := _grid_from_crust(far_half)
 	if cancelled: return
 	if cancelled: return
@@ -146,7 +148,7 @@ func _grid_from_crust(half: float) -> PackedFloat32Array:
 # A measured cell averages across a coast; the map, which is finer, says which side the pin is on.
 # Only the pin's own neighbourhood moves, over one measured cell, to a few metres on the map's side.
 func _keep_map_coast(coarse: PackedFloat32Array, m: int, step: float) -> void:
-	if map_land < 0 or not has_sea: return
+	if map_land < 0 or not has_sea or not map_coastal: return
 	var c := m / 2
 	var here := coarse[c * m + c]
 	var want := maxf(here, COAST_M) if map_land == 1 else minf(here, -COAST_M)

@@ -55,7 +55,7 @@ static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dict
 		var on_land := land_at(b.name, lat_r, lon_r)
 		sea = not on_land and r.sea_km > -2.0
 		h = absf(h) * (1.0 if on_land else -1.0)
-		if dem != null: h = r.sea_km + measured_km(dem, lat_r, lon_r, on_land)
+		if dem != null: h = r.sea_km + measured_km(dem, lat_r, lon_r, on_land, coastal(b.name, lat_r, lon_r, dem.cell_rad()))
 	elif r.map_kind == 2:
 		sea = false
 		h = absf(h) if dem == null else dem.at(lat_r, lon_r) / 1000.0
@@ -81,10 +81,22 @@ static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dict
 	return out
 
 ## Km above sea level from a measured grid, on the side of the coast the map says. A quarter-degree
-## cell straddling a coast can average to the other side; the map is finer, so the pin keeps its side.
-static func measured_km(dem: PlanetElevation, lat_r: float, lon_r: float, on_land: bool) -> float:
+## cell straddling a coast can average to the other side; the map is finer, so there the pin keeps its
+## side. Away from a coast the cell stands as measured: the Caspian and Qattara lie below the sea.
+static func measured_km(dem: PlanetElevation, lat_r: float, lon_r: float, on_land: bool, at_coast: bool) -> float:
 	var m := dem.at(lat_r, lon_r)
+	if not at_coast: return m / 1000.0
 	return (maxf(m, SurfaceRelief.COAST_M) if on_land else minf(m, -SurfaceRelief.COAST_M)) / 1000.0
+
+## Whether the map has both land and sea within `reach_rad` of here: a measured cell's width.
+static func coastal(body_name: String, lat_r: float, lon_r: float, reach_rad: float) -> bool:
+	var here := land_at(body_name, lat_r, lon_r)
+	for k in 8:
+		var a := TAU * k / 8.0
+		var la := clampf(lat_r + reach_rad * sin(a), -PI * 0.5, PI * 0.5)
+		var lo := lon_r + reach_rad * cos(a) / maxf(cos(lat_r), 0.05)
+		if land_at(body_name, la, lo) != here: return true
+	return false
 
 ## The inverse of direction(): latitude and longitude, rad, of a unit vector in the mesh's frame.
 static func lat_lon(p: Vector3) -> Vector2:
