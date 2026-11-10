@@ -12,6 +12,7 @@ const CLOUD_SHADER := preload("res://shaders/bodies/cloud_deck.gdshader")
 const ATMO_SHADER := preload("res://shaders/bodies/rocky_atmosphere.gdshader")
 
 const TAU_ := PI * 2.0
+const SEED_WRAP := 10000.0
 ## The shared surface exposure (uGain), as a camera exposes for the planet.
 const EXPOSURE := 1.95
 
@@ -271,6 +272,8 @@ class RockyViz extends RefCounted:
 	## Moon faces as it does on the date. Lapses a frame after the owner stops.
 	var surface_world := Basis()
 	var _surface_world_frame := -10
+	## A display turn on top of a tidal lock, so a visit can bring its star up. Nothing physical moves.
+	var display_turn := 0.0
 	var _sky_serial := -1
 
 	func _init(b: Body, o: VisualOpts) -> void:
@@ -280,8 +283,9 @@ class RockyViz extends RefCounted:
 		group.name = "Rocky_%s" % b.name
 		R = float(o.radius_scene)
 		base_r = R
-		# A preset's seed nudges the terrain without re-rolling it.
-		var seed_opt := float(o.spec_seed) if RockyVisual.truthy(o.spec_seed) else 0.0
+		# A preset's seed nudges the terrain without re-rolling it. Wrapped, because this ends up in float32
+		# noise coordinates: a spawn's nine-digit seed would leave no bits for the noise, and blocks for continents.
+		var seed_opt := fposmod(float(o.spec_seed), RockyVisual.SEED_WRAP) if RockyVisual.truthy(o.spec_seed) else 0.0
 		var seed := float(RockyVisual.name_hash(b.name) % 1000) / 7.3 + seed_opt * 0.017
 
 		# A world with no liquid at all is expressed by putting the sea-level datum
@@ -408,7 +412,7 @@ class RockyViz extends RefCounted:
 			# parent. Transform into the tilted body frame before reading longitude.
 			var d := parent.pos.sub(b.pos)
 			var toward := tilt_q.inverse() * Vector3(d.x, d.y, d.z)
-			b.spin_phase = atan2(-toward.z, toward.x)
+			b.spin_phase = atan2(-toward.z, toward.x) + display_turn
 			surface.basis = Basis(Vector3.UP, b.spin_phase) * RockyVisual.NORTH_ON_ORBIT_POLE
 		else:
 			b.spin_phase = fmod(b.spin_phase - RockyVisual.spin_step(b, 1.0, dt, ctx.sim_dt), TAU)

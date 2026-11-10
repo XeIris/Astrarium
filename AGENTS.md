@@ -131,6 +131,13 @@ design.
 what the planet draws. Change both together; `pincheck gpu=1` compares them. A rocky surface's noise
 uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and rings keep theirs.
 
+## The surface
+
+`sim/surface/` runs only while someone stands on a world (`Showcase.stand`). Nothing of it is created, and it
+computes nothing, in the orrery, flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them
+and the object counts flat after a visit. It reads the world's gravity, air, water and temperature, and writes
+nothing back: not to `Climate`, not to any body. Its scales come from the world, never from Earth's constants.
+
 ## Body visuals
 
 A factory returns an object with `group: Node3D` and `update(dt, ctx)`, stored
@@ -231,6 +238,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
+- the ground, sea and weather at a pin, and that they run nowhere else: `tools/surfacecheck.tscn`, and with
+  `pixels=1 [quality=low|high]` the frames
 - the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
   shader's height against the CPU's
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames

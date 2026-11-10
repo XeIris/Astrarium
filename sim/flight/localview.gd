@@ -659,7 +659,8 @@ func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float, frame: Basi
 func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, sun_l: Vector3,
 		east: DVec3, up: DVec3, north: DVec3) -> void:
 	var cover := 0.0
-	if render_quality != "low" and env.name == "Earth" and atm != null and cloud_shape != null:
+	# A site on another world says so; flight's other worlds keep what the dome draws.
+	if render_quality != "low" and bool(o.get("cloudsOn", env.name == "Earth")) and atm != null and cloud_shape != null:
 		# The world's own global fraction; the climatology spreads it by latitude.
 		var spec: Dictionary = env.body.spec if env.get("body") != null else {}
 		cover = clampf(float(U.nz(o.get("cloudCover"), U.nz(spec.get("cloudCover"), 0.5))), 0.0, 1.0)
@@ -681,6 +682,8 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	# the pad, planet-fixed, for the thinning round it
 	var clear_at := Vector3.ZERO
 	var clear_r := 0.0
+	# A site high on a world's crust keeps its deck above it rather than standing in it.
+	var lift := float(o.get("cloudLift", 0.0))
 	var pad = o.get("padWorld")
 	if pad != null:
 		clear_at = _to_planet * Vector3((pad as DVec3).dot(east), R, (pad as DVec3).dot(north))
@@ -694,8 +697,8 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 		m.set_shader_parameter("uLocalToPlanet", _to_planet)
 		m.set_shader_parameter("uPlanetR", R)
 		m.set_shader_parameter("uCloudWind", wind)
-		m.set_shader_parameter("uCloudBase", CLOUD_BASE)
-		m.set_shader_parameter("uCloudTop", CLOUD_TOP)
+		m.set_shader_parameter("uCloudBase", CLOUD_BASE + lift)
+		m.set_shader_parameter("uCloudTop", CLOUD_TOP + lift)
 		m.set_shader_parameter("uCloudSigma", CLOUD_SIGMA)
 	# The vehicle's own sunlight, through the same field (see cloud_field):
 	# sampled at the craft, the thing the camera is exposing for.
@@ -704,7 +707,7 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 		cloud_field.coverage = cover
 		cloud_field.z_global = _cloud_cover_z[1]
 		cloud_field.itcz = itcz
-		cloud_field.base = CLOUD_BASE; cloud_field.top = CLOUD_TOP
+		cloud_field.base = CLOUD_BASE + lift; cloud_field.top = CLOUD_TOP + lift
 		cloud_field.sigma = CLOUD_SIGMA; cloud_field.radius = R
 		cloud_field.wind = wind
 		cloud_field.clear_at = clear_at; cloud_field.clear_r = clear_r
