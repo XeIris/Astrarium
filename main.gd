@@ -450,7 +450,11 @@ var _climates_deferred := false
 # A rocky or ocean world has a climate and nothing else does; called wherever a type can change.
 func _sync_climate(b: Body) -> void:
 	if not ClimateInputs.applies(b.type): b.climate = null
-	elif b.climate == null: b.climate = ClimateInputs.build(b, get_stars(), int(_cmd.get("seed", 0)))
+	elif b.climate == null:
+		b.climate = ClimateInputs.build(b, get_stars(), int(_cmd.get("seed", 0)))
+		# Its visual was built before it had a climate, and an undrawn stage never updates it.
+		var v = b.viz.inner if b.viz is Bodies.AccretionWrap else b.viz
+		if v != null and v.has_method("snap_climate"): v.snap_climate()
 
 func remove_body(id) -> void:
 	var idx := -1

@@ -459,7 +459,8 @@ never write it, or mass, position or velocity.
 | Land and depth | `cl.land`, `cl.ocean_depth` | A wet world's own. A dry world keeps the crust it was built with |
 | Desert | `uArid`, what the sea cannot supply, or heat | `√(sea share / 0.71)` is an estimate. The heat rule is the old one |
 | Vegetation | `uBiota`, Miami NPP at the world's temperature and land rain, against today's | Lieth 1975, coefficients as tabulated by [Adams et al. 2004](https://bio-math10.biology.kyushu-u.ac.jp/~ben/adams_et_al_2004.pdf). The heat limit (323–348 K) is an estimate |
-| Frost | sea water's freezing point; CO₂ `3182.48/(23.3494 − ln p_mbar)` (James et al. 1992, as used by [Greve et al. 2010](https://arxiv.org/abs/0903.2688)); else N₂'s 37 K | Nothing to frost on an airless world |
+| Frost | fresh water's 273 K on a wet world, whatever the sea's salt (snow is fresh); CO₂ `3182.48/(23.3494 − ln p_mbar)` (James et al. 1992, as used by [Greve et al. 2010](https://arxiv.org/abs/0903.2688)), held at its triple point (5.185 bar) above it, where the solid forms on the steep melting curve; else N₂ by Clausius–Clapeyron from its triple point (63.15 K, 0.1252 bar) | Nothing to frost on an airless world. N₂'s vaporisation heat (5.57 kJ/mol) gives 78.7 K at 1 atm against the measured 77.4; below the triple point an effective 6.8 kJ/mol is chosen so that Pluto's 11.5 µbar stands over 37 K ice |
+| Lapse | `uLapse`: 0.66 g/c_p on a wet world and 0.4 g/c_p on a dry one; none without air | 0.66 is Earth's 6.5 K/km over its 9.8 K/km dry adiabat; 0.4 is an estimate from Mars's stability. The site's weather uses the same rate |
 | Sky and limb | `cl.sky`, Rayleigh from the column | [What the column looks like](#what-the-column-looks-like) |
 | Haze | `0.45 × uThick` up to 1.3 | Earth's old constant; the slope is a choice |
 | Craters | fade between 1 mbar and 0.1 bar of air | Estimates |
