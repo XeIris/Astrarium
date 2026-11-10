@@ -345,6 +345,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/observatorystagecheck.gd` | the Observatory on the real stage (headless): the scenario list and view keys, what leaving restores, star epochs on re-entry, and the Moon staying on its theory over 30 days at the clock ([observatory.md](docs/physics/observatory.md#checks)) |
 | `tools/observatory_demo.tscn` | a scripted tour of the Observatory for video: `--write-movie /abs/demo.avi --fixed-fps 30` records it |
 | `tools/build_site_terrain.py` | packs `assets/sites/<site>.terrain` from Copernicus GLO-30 tiles |
+| `tools/build_planet_relief.py` | packs `assets/planet-relief/<world>.elev`, Earth's, Mars's and the Moon's measured height, from ETOPO 2022, MOLA and LOLA |
 | `tools/build_constellations.py` | builds `assets/sky/constellations.json` from this project's stick figures (chains of Bayer, Flamsteed or HR designations resolved in BSC5) and the IAU boundaries of CDS VI/49 |
 | `tools/spinframecheck.gd` | the flight frame's orientation: Earth's is J2000 equatorial (RA/Dec equal a site's longitude/latitude), the subsolar latitude follows the declination through the year, the Moon stays 18–29° from Earth's equator over a nodal cycle, and a rebase between poles keeps position and pointing |
 | `tools/plasmacheck.gd` | the re-entry shock layer's spectrum: colorimetry, the band systems that dominate slow, Shuttle and lunar-return entries and Mars/Titan, the CO₂ and N₂–CH₄ jump's conservation, and the shader's Boltzmann shift (headless) |
