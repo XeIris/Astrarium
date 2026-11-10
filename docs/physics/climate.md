@@ -307,9 +307,13 @@ formula and nothing on the stage is written.
 
 - **The horizon.** 28 geometric steps from 0.02 years to 100 years, or six radiative times if the
   column is slower. Fixed steps keep its cost fixed: about 3 ms. `compositioncheck` runs the real
-  stage for the same 100 years on a real orbit and lands within 1.5 K for an Earth, a dry rock, a
-  global ocean, an ice shell, Mars's and Venus's air, a seeded draw and a 0.012 M⊕ world (largest
-  gap 1.0 K).
+  stage for the same 100 years on a real orbit for an Earth, a dry rock, a global ocean, an ice shell,
+  Mars's and Venus's air, a seeded draw and a 0.012 M⊕ world (largest gap 0.4 K). The preview holds a
+  world where it spawns; the stage flies it on an orbit the other planets perturb (one at 1 AU shares
+  Earth's, and its sunlight wanders by up to 3%), and a world with little heat to store ends at the
+  sunlight it has then. So the check allows 1.5 K plus T·ΔS/4S, the largest stray in sunlight on the
+  way taken through T ∝ S^¼, and fixes the generator's seed so every run flies the same orbits. A
+  2.5 K error in the preview fails it.
 - **A live world.** It forks the world's climate, temperature, ice and water included, so a
   snowball's hysteresis is the world's own. Applying an edit is immediate; the panel says where it is heading.
 - **Where it would go.** A spawn's bearing, spread and seed are decided before the preview, and
