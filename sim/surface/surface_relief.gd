@@ -31,6 +31,8 @@ const ROUTE_EVERY := 4
 # gravity's ratio is 2.6). Local roughness scales with it.
 const ROUGH_M := 900.0
 const MAX_ROUGH := 4.0
+# How far to the map's side of a coast the pin is put when a measured cell says otherwise, m.
+const COAST_M := 5.0
 
 # Inputs.
 var relief: PlanetRelief
@@ -45,6 +47,11 @@ var rain_mm := 0.0                  # mm/yr, 0 for no running water
 var flowing := false
 var crater := 0.0
 var map_land := -1                  # 1 land, 0 sea when a map says, else the crust does
+## Measured height in place of the crust's, m from sea level (or the datum on a dry world); loaded
+## by the caller on the main thread.
+var elevation: PlanetElevation = null
+## Whether the map's coast is within a measured cell of the pin; only there does the grid bend to it.
+var map_coastal := false
 var rain_index := -1.0              # the pin's precipitation(), 0..1, or < 0 for none
 var seed := 0
 var cells := 129
@@ -78,7 +85,7 @@ func build() -> void:
 	SurfaceStats.count("relief_build")
 	var far_half := minf(FAR_HALF, radius_m * 0.08)
 	var near_half := minf(NEAR_HALF, far_half * 0.25)
-	if rain_index >= 0.0 and relief != null: rain_index_mean = relief.mean_precipitation()
+	if rain_index >= 0.0 and relief != null: rain_index_mean = relief.mean_precipitation(elevation)
 	var far := _grid_from_crust(far_half)
 	if cancelled: return
 	if cancelled: return
@@ -110,10 +117,16 @@ func _grid_from_crust(half: float) -> PackedFloat32Array:
 			if cancelled: return coarse
 			var e := -half + 2.0 * half * i / (m - 1)
 			var n := -half + 2.0 * half * j / (m - 1)
-			coarse[j * m + i] = (relief.height(_dir(e, n)).x * 1000.0) - sea_m
+			if elevation != null:
+				var ll := PlanetPin.lat_lon(_dir(e, n))
+				coarse[j * m + i] = elevation.at(ll.x, ll.y)
+			else:
+				coarse[j * m + i] = (relief.height(_dir(e, n)).x * 1000.0) - sea_m
 		progress = 0.1 * float(j + 1) / m
+	if elevation != null:
+		_keep_map_coast(coarse, m, 2.0 * half / (m - 1))
 	# A map's coast says which side of the sea this is, whatever the crust does.
-	if map_land >= 0:
+	elif map_land >= 0:
 		for k in coarse.size():
 			coarse[k] = absf(coarse[k]) * (1.0 if map_land == 1 else -1.0)
 	var out := PackedFloat32Array()
@@ -131,6 +144,20 @@ func _grid_from_crust(half: float) -> PackedFloat32Array:
 			tx = tx * tx * (3.0 - 2.0 * tx)
 			out[j * cells + i] = lerpf(lerpf(coarse[j0 * m + i0], coarse[j0 * m + i0 + 1], tx), lerpf(coarse[(j0 + 1) * m + i0], coarse[(j0 + 1) * m + i0 + 1], tx), ty)
 	return out
+
+# A measured cell averages across a coast; the map, which is finer, says which side the pin is on.
+# Only the pin's own neighbourhood moves, over one measured cell, to a few metres on the map's side.
+func _keep_map_coast(coarse: PackedFloat32Array, m: int, step: float) -> void:
+	if map_land < 0 or not has_sea or not map_coastal: return
+	var c := m / 2
+	var here := coarse[c * m + c]
+	var want := maxf(here, COAST_M) if map_land == 1 else minf(here, -COAST_M)
+	if want == here: return
+	var reach := elevation.cell_rad() * radius_m
+	for j in m:
+		for i in m:
+			var d2 := (pow((i - c) * step, 2.0) + pow((j - c) * step, 2.0)) / (reach * reach)
+			coarse[j * m + i] += (want - here) * exp(-d2)
 
 func _grid_inside(far: PackedFloat32Array, far_half: float, half: float) -> PackedFloat32Array:
 	var out := PackedFloat32Array()

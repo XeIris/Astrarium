@@ -244,6 +244,8 @@ func site_weather() -> void:
 		print("SURFACECHECK a year in %s (%s, %.0f K): %.0f mm, the pin's share %.0f mm, snow %d h" % [row[0], g.kind if g.biome == "" else g.biome, g.temp_k, total, want, snow_h])
 		check("%s: a year brings the pin's share of the climate's rain (%.0f of %.0f mm)" % [row[0], total, want], near(total, want, 0.25 * want + 20.0))
 	check("the Sahara has under a fifth of the Amazon's (%.0f, %.0f mm)" % [year["the Sahara"], year["the Amazon"]], year["the Sahara"] < year["the Amazon"] / 5.0)
+	# On measured ground the places are themselves: Manaus gets 2300 mm, the central Sahara under 50.
+	check("on measured ground the Amazon is the wettest of them (%.0f mm, measured about 2300)" % year["the Amazon"], year["the Amazon"] > year["Paris"] and year["the Amazon"] > 1000.0)
 	check("nothing falls as snow on the equator", snow["the Amazon"] == 0)
 	check("Greenland's falls as snow (%d h)" % snow["Greenland"], snow["Greenland"] > 0)
 	check("snow falls where the site's air is at or below 1.2 °C, and only there", by_temp)
@@ -471,6 +473,99 @@ func terrain() -> void:
 	c.cancelled = true
 	c.build()
 	check("a cancelled survey has no grids", c.grids.is_empty())
+
+# A mapped world's far grid stands on its measured grid, and only the pin's own cell bends to the map.
+func measured_ground() -> void:
+	var earth := PlanetElevation.of("Earth")
+	check("Earth's measured grid loads", earth != null)
+	if earth == null: return
+	var tibet := _relief_at(earth, deg_to_rad(33.0), deg_to_rad(88.0), 1)
+	var base := tibet._grid_from_crust(tibet.FAR_HALF)
+	var worst := 0.0
+	var m := SurfaceRelief.CRUST_SAMPLES
+	for j in m:
+		for i in m:
+			var e := -tibet.FAR_HALF + 2.0 * tibet.FAR_HALF * i / (m - 1)
+			var n := -tibet.FAR_HALF + 2.0 * tibet.FAR_HALF * j / (m - 1)
+			var ll := PlanetPin.lat_lon(tibet._dir(e, n))
+			worst = maxf(worst, absf(_coarse_at(base, i, j, m, tibet.cells) - earth.at(ll.x, ll.y)))
+	check("Tibet's far grid is the measured ground at its samples (worst %.1f m)" % worst, worst < 1.0)
+	var centre := base[(tibet.cells / 2) * tibet.cells + tibet.cells / 2]
+	check("and stands %.0f m up, a plateau" % centre, centre > 4000.0)
+	# A land pin over a cell the quarter degree calls sea, at a coast.
+	var coast := _relief_at(earth, 0.0, deg_to_rad(-150.0), 1)
+	coast.map_coastal = true
+	var raw := earth.at(0.0, deg_to_rad(-150.0))
+	var bent := coast._grid_from_crust(coast.FAR_HALF)
+	var mid := bent[(coast.cells / 2) * coast.cells + coast.cells / 2]
+	check("a land pin the map puts ashore stands above the sea (%.0f m, the cell says %.0f)" % [mid, raw], mid >= SurfaceRelief.COAST_M - 0.5)
+	var ll0 := PlanetPin.lat_lon(coast._dir(-coast.FAR_HALF, -coast.FAR_HALF))
+	var moved := absf(bent[0] - earth.at(ll0.x, ll0.y))
+	check("and the far grid's edge is left measured (moved %.1f m of %.0f)" % [moved, absf(raw)], moved < 0.002 * absf(raw))
+	coast.map_land = 0
+	var sea := coast._grid_from_crust(coast.FAR_HALF)
+	check("a sea pin over open sea is left as measured", near(sea[(coast.cells / 2) * coast.cells + coast.cells / 2], raw, 1.0))
+	# Inland ground below the sea is not a coast: the Qattara Depression keeps its measured depth.
+	var qattara := _relief_at(earth, deg_to_rad(29.6), deg_to_rad(27.2), 1)
+	var dry := qattara._grid_from_crust(qattara.FAR_HALF)
+	var dip := dry[(qattara.cells / 2) * qattara.cells + qattara.cells / 2]
+	check("Qattara's far grid stays below the sea where it is (%.0f m)" % dip, near(dip, earth.at(deg_to_rad(29.6), deg_to_rad(27.2)), 1.0) and dip < -50.0)
+	var mars := PlanetElevation.of("Mars")
+	var olympus := _relief_at(mars, deg_to_rad(18.65), deg_to_rad(226.2), 1)
+	olympus.radius_m = 3.3895e6
+	olympus.g = 3.72
+	olympus.has_sea = false
+	olympus.build()
+	var far: Dictionary = olympus.grids[1]
+	var mean := 0.0
+	for v in far.h: mean += v
+	mean /= far.h.size()
+	check("Olympus Mons's far grid stands about 20 km up (mean %.1f km)" % (mean / 1000.0), mean > 17000.0 and _finite(far.h))
+	PlanetElevation.release()
+
+# Standing in a depression the map calls dry: below the sea, and no sea drawn over it.
+func dry_depression() -> void:
+	new_stage("solar")
+	var earth: Body = stage.state.body_named("Earth")
+	stage.set_app_mode("showcase", {"body": "Earth"})
+	var s: Showcase = stage.showcase
+	var pin := PlanetPin.new()
+	pin.lat = deg_to_rad(29.6)
+	pin.lon = deg_to_rad(27.2)
+	pin.p = PlanetPin.direction(pin.lat, pin.lon)
+	pin.ground = PlanetPin.read_ground(earth, pin.p, pin.lat, pin.lon)
+	s.pin = pin
+	s.stand()
+	await settle_visit()
+	var site: SurfaceSite = s.visit.site
+	var lowest := INF
+	for v in site.relief.grids[1].h: lowest = minf(lowest, v)
+	check("Qattara's site stands below the sea (%.0f m, lowest %.0f m)" % [site.ground_y, lowest], site.ground_y < 0.0 and lowest < 0.0)
+	check("and the map has no sea over it, so none is drawn", not site.has_sea and site._ocean == null)
+	check("its air is denser than at sea level", site.pressure_here > site.weather.air_bar)
+	s.leave_surface()
+	stage.set_app_mode("sandbox")
+
+func _relief_at(e: PlanetElevation, lat: float, lon: float, land: int) -> SurfaceRelief:
+	var s := SurfaceRelief.new()
+	s.relief = PlanetRelief.new()
+	s.center = PlanetPin.direction(lat, lon)
+	s.east = Vector3.UP.cross(s.center).normalized()
+	s.north = s.center.cross(s.east).normalized()
+	s.radius_m = 6.371e6
+	s.g = 9.82
+	s.seed = 5
+	s.cells = 61
+	s.has_sea = true
+	s.map_land = land
+	s.elevation = e
+	return s
+
+# The coarse sample (i, j) of m, read back from the cells × cells grid it was spread over; with
+# 61 cells and 21 samples every third cell is one exactly.
+func _coarse_at(h: PackedFloat32Array, i: int, j: int, m: int, cells: int) -> float:
+	var scale := float(cells - 1) / float(m - 1)
+	return h[int(round(j * scale)) * cells + int(round(i * scale))]
 
 func _finite(a: PackedFloat32Array) -> bool:
 	for v in a:
@@ -876,10 +971,12 @@ func _ready() -> void:
 		site_weather()
 		drainage()
 		terrain()
+		measured_ground()
 		await nothing_elsewhere()
 		await no_feedback()
 		await extremes()
 		await locked_daylight()
+		await dry_depression()
 		await manners()
 	for i in 3: await get_tree().process_frame
 	for error in catcher.take(): check("engine: " + str(error), false)

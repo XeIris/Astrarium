@@ -96,7 +96,27 @@ func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, r
 	relief.rain_mm = ClimateLook.precipitation_mm(climate)
 	if r.map_kind == 1: relief.map_land = 0 if str(where.ground.kind) in ["sea", "sea ice"] else 1
 	elif r.map_kind == 2: relief.map_land = 1
+	if r.map_kind > 0: relief.elevation = PlanetElevation.of(b.name)
+	if r.map_kind == 1 and relief.elevation != null:
+		relief.map_coastal = PlanetPin.coastal(b.name, where.lat, where.lon, relief.elevation.cell_rad())
+	# On a map, the sea is where the map says, not wherever the ground is low: Qattara is dry.
+	_map_sea = r.map_kind != 1 or _map_has_sea(b, where, relief.radius_m)
 	_task = WorkerThreadPool.add_task(relief.build, false, "surface relief")
+
+var _map_sea := true
+
+# Whether the map has sea anywhere across the far grid, on a 9 × 9 lattice of it.
+static func _map_has_sea(b: Body, where: PlanetPin, radius_m: float) -> bool:
+	var half := minf(SurfaceRelief.FAR_HALF, radius_m * 0.08) / radius_m
+	var ref := Vector3.UP if absf(where.p.y) < 0.999 else Vector3.RIGHT
+	var east := ref.cross(where.p).normalized()
+	var north := where.p.cross(east).normalized()
+	for j in 9:
+		for i in 9:
+			var d := (where.p + east * half * (i / 4.0 - 1.0) + north * half * (j / 4.0 - 1.0)).normalized()
+			var ll := PlanetPin.lat_lon(d)
+			if not PlanetPin.land_at(b.name, ll.x, ll.y): return true
+	return false
 
 ## Done surveying? Builds the scene on the first call that finds it finished.
 func poll() -> bool:
@@ -179,7 +199,7 @@ func _build_scene() -> void:
 	var lowest := INF
 	for v in h: lowest = minf(lowest, v)
 	var at_sea: bool = str(pin.ground.kind) in ["sea", "sea ice"]
-	has_sea = at_sea or (relief.has_sea and lowest < 0.0)
+	has_sea = at_sea or (relief.has_sea and lowest < 0.0 and _map_sea)
 	patch_y = -30.0 if has_sea else lowest - 30.0
 	eye_y = EYE_SEA if at_sea else ground_y + EYE_LAND
 	lapse = ClimateLook.lapse_k_m(climate)
