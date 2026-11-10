@@ -21,6 +21,16 @@ This re-rolled the geography of every unmapped rocky world once. Its statistics 
 mean of 0.492 and an sd of 0.110 against the 0.497 and 0.1065 `Terrain.crust_threshold` assumes, and asking for 29%
 land gives 28.9%.
 
+The crust's seed is a hash of the world's name, nudged by its spec's `seed`, so a world has the same ground every
+time it is loaded. A body id would not do that, because it counts every spawn since the start.
+
+The climate's part comes from `ClimateLook.targets` (`PlanetRelief.of_body`), not from the material. A material eases
+over 0.6 s, and an undrawn stage (`ff=`, the checks) never updates it. Only the static uniforms are read off the
+material: seed, relief, plate scale, insolation and transport. Temperature falls with height at the world's own rate
+(`uLapse`): 0.66 g/c_p on a wet world, 0.4 g/c_p on a dry one, nothing without air. The shader takes the same uniform.
+Height for the lapse counts from the sea where there is one, otherwise from the datum, and it may be negative: a basin
+below a dry world's datum is warmer than the datum.
+
 A pin does not hunt for land. It says what it found: open sea and how deep, sea ice, an ice sheet, or the biome and
 its height. On Earth it falls on land about 29% of the time, as it should. **A mapped world** (Earth, Mars, the Moon)
 keeps its map's coast and its height is the procedural crust's, not a measurement, and the panel says so.

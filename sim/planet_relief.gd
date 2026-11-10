@@ -24,8 +24,28 @@ var arid := 0.0
 var frost_k := 273.0
 var ice := 0.0
 var season := 8.0
+var biota := 0.0
+var lapse := 6.5
 
-## The crust a visual draws. `viz` is a RockyViz or a WorldViz.
+## The crust a body's visual draws, with its climate's look: what the material eases to, not where
+## it is this frame, since an undrawn stage never updates a material.
+static func of_body(b: Body) -> PlanetRelief:
+	var r := of_visual(PlanetPin._viz(b))
+	if b.climate == null: return r
+	var t := ClimateLook.targets(b.climate, b.spec)
+	r.mean_k = float(t.uMeanK)
+	r.ice = float(t.uIce)
+	r.sea_km = float(t.uSeaKm)
+	r.arid = float(t.uArid)
+	r.frost_k = float(t.uFrostK)
+	r.crater = float(t.uCrater)
+	r.biota = float(t.uBiota)
+	r.lapse = float(t.uLapse)
+	if t.has("uCrustT"): r.crust_t = float(t.uCrustT)
+	if t.has("uOceanDepth"): r.ocean_depth = float(t.uOceanDepth)
+	return r
+
+## The crust as a visual's material holds it now. `viz` is a RockyViz or a WorldViz.
 static func of_visual(viz) -> PlanetRelief:
 	var r := PlanetRelief.new()
 	var m: ShaderMaterial = viz.surf_mat
@@ -48,6 +68,8 @@ static func of_visual(viz) -> PlanetRelief:
 	r.frost_k = read.call("uFrostK", 273.0)
 	r.ice = read.call("uIce", 0.0)
 	r.season = read.call("uSeason", 8.0)
+	r.biota = read.call("uBiota", 0.0)
+	r.lapse = read.call("uLapse", 6.5)
 	return r
 
 # PCG3D (Jarzynski & Olano 2020). Integers are exact on both sides of the GPU.
@@ -214,10 +236,17 @@ func crust_height(p: Vector3) -> float:
 	var y := signf(c) * pow(minf(absf(c) / 0.34, 1.0), 0.55)
 	return y * land_relief if y >= 0.0 else y * ocean_depth
 
-## The annual-mean surface temperature the shader draws here, K, without the season.
-func temperature(sin_lat: float, h_km: float) -> float:
+## The annual-mean surface temperature the shader draws here, K, without the season. `alt_km` is
+## altitude()'s.
+func temperature(sin_lat: float, alt_km: float) -> float:
 	var ins := maxf(1.0 + s2 * 0.5 * (3.0 * sin_lat * sin_lat - 1.0), 0.02)
-	return mean_k * lerpf(pow(ins, 0.25), 1.0, transport) - 6.5 * maxf(h_km, 0.0)
+	return maxf(mean_k * lerpf(pow(ins, 0.25), 1.0, transport) - lapse * alt_km, 2.7)
+
+## The shader's altitude for the lapse rate, km: none at sea, from the sea on a wet world, from the
+## datum on a dry one, and below either where the ground is.
+func altitude(h_km: float, sea: bool) -> float:
+	if sea: return 0.0
+	return h_km - (sea_km if sea_km > -30.0 else 0.0)
 
 ## precipitation(), 0..1, as the surface's biomes read it.
 func precipitation(p: Vector3, t: float, h_km: float) -> float:

@@ -68,8 +68,8 @@ void fragment() {
 		hKm = mix(hKm, hKm * 0.30 + ch, clamp(uCrater, 0.0, 1.0));
 		rug = mix(rug, clamp(abs(ch) * 0.8, 0.0, 1.0), clamp(uCrater, 0.0, 1.0));
 	}
-	// uSeaKm is a level, not an offset: altitude is from the geoid, or a dry world's
-	// −60 km sea would read as 60 km of altitude for the lapse rate.
+	// uSeaKm is a level, not an offset: altitude is from the sea where there is one, else
+	// from the datum, or a dry world's −60 km sea would read as 60 km of altitude.
 	float sinLat = clamp(p.y, -1.0, 1.0);
 	float lat = asin(sinLat);
 	float a = abs(lat);
@@ -78,7 +78,8 @@ void fragment() {
 		sea = texture(uLandMask, vMapUv).r < 0.5 && uSeaKm > -2.0;
 
 	// --- temperature, and therefore everything else
-	float T = surfaceTemp(sinLat, max(hKm, 0.0), uS2) + uSeason * sinLat * uDecl;
+	float alt = sea ? 0.0 : hKm - (uSeaKm > -30.0 ? uSeaKm : 0.0);
+	float T = surfaceTemp(sinLat, alt, uS2) + uSeason * sinLat * uDecl;
 
 	// --- how wet. Interiors are dry (rain fell on the way in), lee slopes are dry. The
 	// upwind probe is coarse crust only, and the wind reverses near 30°. Both sides of

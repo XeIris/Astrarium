@@ -22,6 +22,8 @@ var pin: PlanetPin = null
 var pins_dropped := 0
 var marker: Node3D = null
 var _prev := {}
+## The mode a showcase was opened from, and goes back to.
+var came_from := "sandbox"
 var _pending_drop := false
 var _pin_track := 0.0
 var _hud_acc := 0.0

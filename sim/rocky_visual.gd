@@ -56,6 +56,14 @@ static func lin_of(x) -> Color:
 static func id_hash(id: int) -> int:
 	return (id * 2654435761) & 0xFFFFFFFF
 
+## A world's crust key: FNV-1a of its name, so a reload, a rebuild or another session draws the same
+## ground, where a body id counts every spawn since start.
+static func name_hash(name: String) -> int:
+	var h := 2166136261
+	for byte in name.to_utf8_buffer():
+		h = ((h ^ byte) * 16777619) & 0xFFFFFFFF
+	return h
+
 # UV sphere parameterization: x = −r cos φ sin θ,
 # y = r cos θ, z = r sin φ sin θ, seam and pole rows duplicated. UVs in Godot's
 # convention (v = 0 at north), winding reversed for Godot's CW front faces.
@@ -274,7 +282,7 @@ class RockyViz extends RefCounted:
 		base_r = R
 		# A preset's seed nudges the terrain without re-rolling it.
 		var seed_opt := float(o.spec_seed) if RockyVisual.truthy(o.spec_seed) else 0.0
-		var seed := float(RockyVisual.id_hash(b.id) % 1000) / 7.3 + seed_opt * 0.017
+		var seed := float(RockyVisual.name_hash(b.name) % 1000) / 7.3 + seed_opt * 0.017
 
 		# A world with no liquid at all is expressed by putting the sea-level datum
 		# below the deepest point there is, not by a second branch in the shader.
