@@ -61,6 +61,9 @@ signal lesson_close()
 ## "face") with its argument; its sliders arrive through `slider` as "obs*" ids.
 signal obs_site(key: String)
 signal obs_action(action: String, arg)
+## The galactic scene: "rate", "frame", "layer", "chart" with their argument; its
+## exposure slider arrives through `slider` as "galExposure".
+signal galaxy_action(action: String, arg)
 
 const T = preload("res://ui/theme.gd")
 
@@ -71,6 +74,7 @@ const SECTION_MODE := {
 	"Focused Object": "sandbox", "Object Foundry": "sandbox", "Painter": "sandbox",
 	"Spaceflight": "flight", "Quick Spawn": "sandbox", "Bodies": "sandbox",
 	"Observatory": "observatory", "Showcase": "showcase",
+	"Galaxy": "galaxy",
 }
 const OPEN_BY_DEFAULT := {
 	"sandbox": ["Suns", "Imaging Band", "View & Camera", "Bodies"],
@@ -80,6 +84,7 @@ const OPEN_BY_DEFAULT := {
 	"flight": ["Spaceflight"],
 	"observatory": ["Observatory"],
 	"showcase": ["Showcase"],
+	"galaxy": ["Galaxy"],
 }
 # the climate badge's colours per era
 const ERA := {
@@ -109,6 +114,8 @@ var sections: Array = [] # {title, head, wrap, host, arrow, label, open}
 var tabs := {}           # panel id → its tab
 var hidden_flags := {}   # Control → {reason: hidden}
 var app_mode := "sandbox"
+## The galactic scene replaces the orrery's sections in the sandbox and the course.
+var galaxy_scene := false
 
 var hud_hidden := false
 var _mounts := {}
@@ -990,6 +997,8 @@ func apply_section_modes(mode: String) -> void:
 	# Learn mode gets the sandbox's sections (lessons send you to them); only the
 	# defaults differ.
 	var effective := "sandbox" if mode == "learn" else mode
+	if galaxy_scene and effective == "sandbox": effective = "galaxy"
+	var opened: Array = OPEN_BY_DEFAULT.get("galaxy" if effective == "galaxy" else mode, [])
 	for sec in sections:
 		var want: String = SECTION_MODE.get(sec.title, "both")
 		var show := want == "both" or want == effective
@@ -998,7 +1007,7 @@ func apply_section_modes(mode: String) -> void:
 		if not sec.host:
 			_hide(sec.wrap, "mode", not show)
 		if show:
-			set_section_open(sec, (OPEN_BY_DEFAULT.get(mode, []) as Array).has(sec.title))
+			set_section_open(sec, opened.has(sec.title))
 
 func _build_control_panel() -> void:
 	var p := _panel("controlPanel")
@@ -1145,6 +1154,7 @@ func _build_control_panel() -> void:
 
 	_build_observatory(b)
 	_build_showcase(b)
+	_build_galaxy(b)
 
 	# Quick Spawn
 	s = _section(b, "Quick Spawn")
@@ -1195,6 +1205,36 @@ func _build_showcase(b: Node) -> void:
 	B(fr, "Toggle", "Back to orbit", "scBack").pressed.connect(func(): showcase_action.emit("back"))
 	_hide(on_foot, "inline", true)
 	m(B(s, "Ghost", "Leave showcase", "scLeave"), 0.0, 10.0).pressed.connect(func(): showcase_action.emit("leave"))
+
+# The galactic scene (sim/galaxy/): what is modelled, its clock, framings, the layers
+# drawn and the rotation curve measured from its tracers.
+func _build_galaxy(b: Node) -> void:
+	var clock := L(null, "", {"fs": 10.0, "c": T.ACCENT_2, "ls": 0.5}, "galTime")
+	var s := _section(b, "Galaxy", [clock])
+	m(L(s, "—", {"fs": 12.0, "c": T.ACCENT, "ls": 1.2}, "galName"), 0.0, 6.0)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galBlurb", true), 0.0, 8.0)
+	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 10.0)
+	for kv in [["clock", "galRate"], ["camera", "galDist"], ["tracers", "galTracers"], ["worst |ΔE/E|", "galDrift"]]:
+		_stat(sg, kv[0], kv[1])
+	var rg := grid(s, [1.0, 1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	for r in [[0.0, "Pause", "Stop the clock"], [0.1, "0.1", "0.1 Myr per second"], [1.0, "1", "1 Myr per second"],
+			[5.0, "5", "5 Myr per second: the Sun's 230 Myr orbit in under a minute"], [20.0, "20", "20 Myr per second, as far as the integrator keeps up"]]:
+		B(rg, "Toggle", r[1], "[data-gal-rate=%s]" % str(r[0]), r[2]).pressed.connect(func(): galaxy_action.emit("rate", r[0]))
+	m(L(s, "View", ROW_LABEL), 0.0, 4.0)
+	var vg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	for f in [["whole", "Whole", "The galaxy from 60 kpc"], ["face", "Face-on", "From above the north galactic pole"], ["edge", "Edge-on", "In the plane"],
+			["sun", "The Sun", "The solar neighbourhood, 30 pc across, where the stars are drawn one by one"], ["centre", "Centre", "The inner galaxy and the bulge"]]:
+		B(vg, "Toggle", f[1], "[data-gal-frame=%s]" % f[0], f[2]).pressed.connect(func(): galaxy_action.emit("frame", f[0]))
+	var lg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	B(lg, "Toggle", "Tracers", "galShowTracers", "The test stars (amber) and cold-gas clouds (blue) whose orbits are integrated, and from which the rotation curve is measured").pressed.connect(func(): galaxy_action.emit("layer", "tracers"))
+	B(lg, "Toggle", "Stars", "galShowStars", "Stars near the camera, drawn one by one from the model's own density").pressed.connect(func(): galaxy_action.emit("layer", "stars"))
+	B(lg, "Toggle", "Glow", "galShowGlow", "The unresolved light of the disc and bulge").pressed.connect(func(): galaxy_action.emit("layer", "glow"))
+	_row(s, "galExposure", "Exposure", "A photographer's exposure: brightness only, as a factor of the sky's calibration", -1, 2, 0, 0.05, "1×")
+	m(L(s, "Rotation curve", ROW_LABEL), 4.0, 4.0)
+	var chart := GalCurveChart.new()
+	reg("galCurve", chart)
+	s.add_child(chart)
+	_rnote(s, "[color=#ffffff]—[/color] model  [color=#40bfff]●[/color] gas clouds  [color=#ff9e47]●[/color] stars  [color=#ff9e47]○[/color] stars, Jeans-corrected  [color=#dddddd]■[/color] measured, Eilers et al. 2019. Dashed: bulge, disc and dark halo alone.")
 
 # The Observatory: site, date, clock, accuracy badge and overlays (sim/observatory/).
 func _build_observatory(b: Node) -> void:
@@ -1660,6 +1700,12 @@ func set_app_mode(mode: String) -> void:
 	_set_body("learn-mode", mode == "learn")
 	_set_body("observatory-mode", mode == "observatory")
 	_apply_body_classes()
+
+func set_galaxy_scene(on: bool) -> void:
+	if galaxy_scene == on: return
+	galaxy_scene = on
+	apply_section_modes(app_mode)
+	_queue_layout()
 
 ## The Observatory's site picker takes the frame, as the studio does.
 func set_obs_picking(on: bool) -> void:

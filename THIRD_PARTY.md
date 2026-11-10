@@ -57,6 +57,14 @@ dimensions, with photographs and drawings used only as references (Wikimedia Com
 and not redistributed. Each value's
 source is cited where it is used, in the code and in [docs/physics/](docs/physics/).
 
+The galactic scene ([galaxies.md](docs/physics/galaxies.md)) uses the same way: Bovy's
+(2015) MWPotential2014 parameters, read with galpy's source (BSD-3-Clause; no galpy code
+is included), the circular-speed measurements of Eilers, Hogg, Rix & Ness (2019) Table 1
+(`sim/galaxy/gal_curve.gd`, drawn beside the model's curve), Maraston's (1998) fuel
+consumption table (`sim/galaxy/gal_population.gd`), and parameters from Kalberla & Dedes
+(2008), Bland-Hawthorn & Gerhard (2016), McKee, Parravano & Hollenbach (2015) and Kroupa
+(2001). The papers were read on arXiv; none of their text or figures is redistributed.
+
 ## Designs from fiction
 
 The Hail Mary and the Beetle probes are inspired by *Project Hail Mary*, and

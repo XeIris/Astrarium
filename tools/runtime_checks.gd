@@ -372,6 +372,28 @@ func _soak_check() -> void:
 			await _drawn_frame()
 			o.desk.release_hold()
 			stage.set_app_mode("sandbox"),
+		"galaxy": func():
+			# In from the orrery, every framing, layer and rate, the tracers stepping, and
+			# out again through an orrery scenario.
+			stage.load_preset("gal_milkyway")
+			var g: GalaxyScene = stage.galaxy
+			g.wait_tracers()
+			for f in ["whole", "face", "edge", "sun", "centre"]:
+				stage._on_galaxy_action("frame", f)
+				for i in 6: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			for l in ["tracers", "stars", "glow", "tracers", "stars", "glow"]:
+				stage._on_galaxy_action("layer", l)
+				stage.animate(1.0 / 60.0)
+			for r in [20.0, 0.0, 5.0]:
+				stage._on_galaxy_action("rate", r)
+				for i in 4: stage.animate(1.0 / 60.0)
+			stage._on_slider("galExposure", 0.5)
+			stage._on_slider("galExposure", 0.0)
+			await _drawn_frame()
+			if g.tracers == null or g.tracers.steps == 0: failures.append("galaxy: the tracers did not step")
+			stage.load_preset("solar")
+			if g.active or g.visual != null: failures.append("galaxy: the scene outlived the switch to solar"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),

@@ -335,6 +335,18 @@ func _ready() -> void:
 	stage.set_follow(hole)
 	await measure("lens-focus")
 	if m5_native and not report.is_empty(): await capture_frame("native-lens-focus")
+	# The galactic scene, its clock running: the tracers step every frame while the glow
+	# is marched over the whole frame, from outside and from the solar neighbourhood.
+	stage.load_preset("gal_milkyway")
+	stage.galaxy.wait_tracers()
+	stage.state.paused = false
+	stage.galaxy.set_rate(5.0)
+	stage.galaxy.frame("whole")
+	await measure("galaxy-whole")
+	stage.galaxy.frame("sun")
+	await measure("galaxy-sun")
+	if stage.galaxy.tracers == null or stage.galaxy.tracers.steps == 0: failures += 1
+	stage.state.paused = true
 	CraftAssets.craft_models_ready(["saturnv"])
 	stage.show_model("saturnv")
 	if not stage.model_view.craft.authored: failures += 1

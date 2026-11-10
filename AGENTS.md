@@ -249,6 +249,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
   how the sky looks: `tools/observatorylookcheck.tscn`
+- the galactic scene (`sim/galaxy/`): `tools/galaxycheck.gd` for its physics,
+  `tools/galaxylookcheck.tscn` for how it draws
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - what lights a vehicle (the Sun, the fill, a low Sun's colour): `tools/flightlightcheck.tscn`
