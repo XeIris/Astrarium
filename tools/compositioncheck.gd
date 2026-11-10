@@ -44,14 +44,25 @@ func set_mass_earths(me: float) -> void:
 	foundry.rows.mass.set_v(U.log10(me * Structure.M_EARTH_SUN))
 	foundry.rows.mass.moved.emit(foundry.rows.mass.value)
 
-# `years` through step_physics, whose turns step every climate, in steps the orbit resolves.
-func run_stage(b: Body, years: float) -> void:
+# `years` through step_physics, whose turns step every climate, in steps the orbit resolves. Returns
+# the largest fraction by which the world's sunlight strayed from `s0`, the preview's, on the way.
+func run_stage(b: Body, years: float, s0: float) -> float:
 	var steps := 400
 	var started: float = b.climate.time
-	for i in steps: stage.step_physics(years / steps)
+	var stray := 0.0
+	for i in steps:
+		stage.step_physics(years / steps)
+		stray = maxf(stray, absf(float(b.climate.insolation(b, stage.get_stars())) / maxf(s0, 1e-9) - 1.0))
 	# A world that was not the panel's or home's may owe its last turn.
 	b.climate.catch_up(0.0, b, stage.get_stars())
 	check("the climate ran on the stage's clock (%.1f yr)" % (b.climate.time - started), near(b.climate.time - started, years, 1e-6 * years + 1e-9))
+	return stray
+
+# The preview holds a world where it spawns. The stage flies it, on an orbit the other planets perturb
+# (one at 1 AU shares Earth's, and its sunlight wanders by 1–3%), and a world with little heat to store
+# ends at the sunlight it has then. T goes as S^¼, so that allows T·ΔS/4S on top of the model's own `settle_k`.
+func orbit_allows(t: float, stray: float, settle_k: float) -> float:
+	return settle_k + t * stray / 4.0
 
 func spawned_matches(label: String, p: Dictionary, b: Body) -> void:
 	var cl: Climate = b.climate
@@ -83,9 +94,10 @@ func flow(label: String, mix: String, orbit_au: float, want_era: String, settle_
 	spawned_matches(label, p, b)
 	# The stage's own clock and climate turns, so the orbit is flown as the app flies it.
 	var far := float(p.T)
-	run_stage(b, 100.0)
-	check("%s: stage after 100 yr lands where the preview said (%.1f K, %.1f K)" % [label, b.climate.T, far],
-		near(b.climate.T, far, settle_k))
+	var stray := run_stage(b, 100.0, float(p.S))
+	var allowed := orbit_allows(far, stray, settle_k)
+	check("%s: stage after 100 yr lands where the preview said (%.1f K, %.1f K, within %.1f K for sunlight that strayed %.1f%%)" % [label, b.climate.T, far, allowed, stray * 100.0],
+		near(b.climate.T, far, allowed))
 	stage.remove_body(b.id)
 	return b
 
@@ -191,8 +203,9 @@ func live_edit() -> void:
 	check("and keeps its visual", is_same(b.viz, viz))
 	check("it becomes custom", comp.mix.value == Composition.CUSTOM)
 	var settled := float(p.T)
-	run_stage(b, 100.0)
-	check("the world warms to what the edit's preview said (%.1f K, %.1f K)" % [b.climate.T, settled], near(b.climate.T, settled, 1.5))
+	var stray := run_stage(b, 100.0, float(p.S))
+	var allowed := orbit_allows(settled, stray, 1.5)
+	check("the world warms to what the edit's preview said (%.1f K, %.1f K, within %.1f K)" % [b.climate.T, settled, allowed], near(b.climate.T, settled, allowed))
 	stage.live_editor.sync(b)
 	check("the slider follows the world", near(comp.gases.pCO2.slider.value, U.log10(0.2), 0.01))
 	var co2 := float(b.climate.pressures.pCO2)
@@ -316,6 +329,9 @@ func cost() -> void:
 	check("a preview fits a frame (%d µs)" % us, us < 16000)
 
 func _ready() -> void:
+	# The Foundry draws an orbit's bearing and a spawn's seed from the global generator: fixed here, so
+	# every run flies the same orbits and draws the same world.
+	seed(24)
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
 	add_child(stage)
