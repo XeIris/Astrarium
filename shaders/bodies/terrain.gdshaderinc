@@ -45,7 +45,7 @@ vec3 plateVel(vec3 cell, vec3 p) {
 	return normalize(v - p * dot(v, p) + 1e-5);
 }
 
-// ELEVATION in km relative to the datum (the lapse rate is a real 6.5 K/km). `rug`
+// ELEVATION in km relative to the datum (real km, as the lapse rate in K/km needs). `rug`
 // is 0..1 ruggedness for shading and the rain shadow.
 uniform float uPlateScale = 2.6;    // plates across the sphere (Earth: ~3)
 uniform float uLandRelief = 3.2;    // km from datum to the highest continent
@@ -146,6 +146,7 @@ float craters(vec3 p, float seed, float density, out float fresh) {
 uniform float uMeanK = 288.0;      // global mean surface temperature, K
 uniform float uTransport = 0.42;   // 0 = radiative equilibrium, 1 = isothermal planet
 uniform float uArid = 0.0;         // 0..1 global dryness (a world with little water)
+uniform float uLapse = 6.5;        // K/km near the ground: the world's own, none without air
 
 // Annual-mean insolation vs latitude (Budyko, Sellers):
 //     S(φ)/S̄ = 1 + s2·P2(sin φ),  P2(x) = (3x² − 1)/2
@@ -155,12 +156,12 @@ float insolation(float sinLat, float s2) {
 	return max(1.0 + s2 * P2, 0.02);
 }
 
-// T ~ S^(1/4), relaxed toward the global mean by poleward heat transport, then a
-// 6.5 K/km lapse rate.
-float surfaceTemp(float sinLat, float hKm, float s2) {
+// T ~ S^(1/4), relaxed toward the global mean by poleward heat transport, then the world's
+// lapse rate (ClimateLook.lapse_k_m) over `altKm`, which may be below the datum.
+float surfaceTemp(float sinLat, float altKm, float s2) {
 	float f = pow(insolation(sinLat, s2), 0.25);
 	float T = uMeanK * mix(f, 1.0, uTransport);
-	return T - 6.5 * max(hKm, 0.0);
+	return T - uLapse * altKm;
 }
 
 // Precipitation 0..1 from the three cells plus Clausius–Clapeyron (~7%/K), fitted to

@@ -122,6 +122,65 @@ func ground_reads() -> void:
 	PlanetPin.release_maps()
 	star = star
 
+# A pin reads what the climate draws, whether or not a frame has been drawn and while the look still
+# eases, and the same ground each time the world is loaded.
+func honest_reads() -> void:
+	var texts := {}
+	for drawn in [false, true]:
+		stage.set_drawn(drawn)
+		new_stage("solar")
+		if drawn:
+			for i in 5: stage.animate(1.0 / 60.0)
+		texts[drawn] = PlanetPin.drop(stage.state.body_named("Mars"), 1, 0).ground.text
+	stage.set_drawn(true)
+	check("a pin reads the same undrawn as drawn (%s | %s)" % [texts[false], texts[true]], texts[false] == texts[true])
+	var w := spawn_world("earth", 1.0, "Eased", {"land": 0.3})
+	stage.edit_body(w, {"land": 0.6})
+	stage.animate(1.0 / 60.0)
+	var mid: Dictionary = PlanetPin.drop(w, 2, 0).ground
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < 2500: stage.animate(1.0 / 60.0)
+	var settled: Dictionary = PlanetPin.drop(w, 2, 0).ground
+	check("a pin dropped mid-ease reads where the look is going (%.0f m, %.0f m)" % [float(mid.height_m), float(settled.height_m)], mid.text == settled.text)
+	stage.remove_body(w.id)
+	# The crust is keyed by the world, not by how many bodies came before it.
+	for name_ in ["Venus", "Mercury", "Pluto"]:
+		var heights := []
+		for round in 3:
+			new_stage("solar")
+			heights.append(float(PlanetPin.drop(stage.state.body_named(name_), 1, 0).ground.height_m))
+		check("%s's pin 1 stands on the same ground over three loads (%s)" % [name_, str(heights)], heights[0] == heights[1] and heights[1] == heights[2])
+	# Each world cools with height at its own rate, and the shader draws the same one.
+	new_stage("solar")
+	var moon: Body = stage.state.body_named("Moon")
+	var mars: Body = stage.state.body_named("Mars")
+	var earth: Body = stage.state.body_named("Earth")
+	var mr := PlanetRelief.of_body(moon)
+	check("the Moon has no air to cool with height", mr.lapse == 0.0 and mr.temperature(0.1, 8.0) == mr.temperature(0.1, -6.0))
+	var r := PlanetRelief.of_body(mars)
+	check("Mars cools at its own %.2f K/km, not Earth's 6.5" % r.lapse, r.lapse > 1.0 and r.lapse < 3.0)
+	check("and Earth at its 6.5 (%.2f)" % PlanetRelief.of_body(earth).lapse, near(PlanetRelief.of_body(earth).lapse, 6.5, 0.3))
+	check("a basin below a dry world's datum is warmer than the datum", r.temperature(0.6, r.altitude(-7.0, false)) > r.temperature(0.6, 0.0))
+	check("the shader's lapse is the pin's", near(float(mars.viz.surf_mat.get_shader_parameter("uLapse")), r.lapse, 1e-6))
+	# Heights keep their side.
+	var g := {"kind": "land", "biome": "bare ground", "height_m": -6100.0, "temp_k": 230.0}
+	check("a basin reads below the datum (%s)" % PlanetPin.describe(g, mars), PlanetPin.describe(g, mars).contains("6.1 km below the datum"))
+	g.height_m = 6100.0
+	check("a peak above it", PlanetPin.describe(g, mars).contains("6.1 km above the datum"))
+	g.height_m = -400.0
+	check("dry land below the sea reads so (%s)" % PlanetPin.describe(g, earth), PlanetPin.describe(g, earth).contains("400 m below sea level"))
+	# A lesson owns the stage: no showcase from its focus panel, and one opened from the mode bar goes back to it.
+	stage.state.focus_id = earth.id
+	stage.refresh_ui()
+	check("the focus panel offers a showcase", stage.hud.ids.showcaseOpen.visible)
+	stage.set_app_mode("learn", {"quiet": true})
+	check("but not during a lesson", not stage.hud.ids.showcaseOpen.visible)
+	stage.set_app_mode("showcase", {"body": "Earth"})
+	stage._on_showcase_action("leave")
+	check("leaving goes back to the course it came from (%s)" % stage.state.app_mode, stage.state.app_mode == "learn")
+	stage.set_app_mode("sandbox")
+	PlanetPin.release_maps()
+
 # The CPU crust's land share is what the crust threshold asks for: the shader's statistics did not
 # move when its hash did. The doc's near-normal sd is the anchor.
 func statistics() -> void:
@@ -444,6 +503,7 @@ func _ready() -> void:
 		statistics()
 		draws()
 		ground_reads()
+		honest_reads()
 		mode_flow()
 		physics_parity()
 	for i in 3: await get_tree().process_frame

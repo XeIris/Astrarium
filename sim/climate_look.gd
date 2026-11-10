@@ -21,11 +21,25 @@ const CLEAR_SKY := 0.12
 const NPP_MAX := 3000.0
 # Heat ends photosynthesis. Thermal limits of land plants near 50 °C, an estimate for a world's mean.
 const LIFE_HOT_K := [323.0, 348.0]
-# James, Kieffer & Paige (1992): CO₂ frost at T = b/(a − ln p), p in mbar.
+# James, Kieffer & Paige (1992): CO₂ frost at T = b/(a − ln p), p in mbar. Past CO₂'s triple point
+# (5.185 bar) the solid forms on the melting curve, which stays within a few K of it to 100 bar.
 const CO2_FROST_A := 23.3494
 const CO2_FROST_B := 3182.48
-# N₂'s frost point at Pluto's pressure; other dry air has nothing that freezes out here.
-const N2_FROST_K := 37.0
+const CO2_TRIPLE_BAR := 5.185
+# N₂ condenses by Clausius–Clapeyron from its triple point (63.15 K, 0.1252 bar; NIST WebBook):
+# vaporisation's 5.57 kJ/mol above it, which gives 78.6 K at 1 atm against a measured 77.4, and below
+# it an effective 6.8 kJ/mol for sublimation (6.3 at the triple point, more when colder), chosen so
+# that Pluto's 11.5 µbar stands over 37 K ice (Gladstone et al. 2016).
+const N2_TRIPLE_K := 63.15
+const N2_TRIPLE_BAR := 0.1252
+const N2_SUBLIME_J := 6800.0
+const N2_BOIL_J := 5570.0
+# Snow and land ice are fresh water, whatever the sea holds.
+const WATER_FROST_K := 273.0
+# The troposphere's lapse against the dry adiabat g/c_p: Earth's 6.5 K/km of 9.8 is 0.66, and dry
+# worlds, without latent heat, sit nearer 0.4 (Mars's N in Rees & Garrett 2019).
+const STABLE_WET := 0.66
+const STABLE_DRY := 0.4
 # Venus's deck has an optical depth of order 30 (an estimate from its opaque deck; no figure
 # could be verified) for its pSO₂·p/(g/g⊕) of 1.41 bar². Cover follows 1 − exp(−τ/2).
 const DECK_TAU_PER_BAR2 := 30.0 / 1.41
@@ -76,17 +90,30 @@ static func biota_of(cl: Climate) -> float:
 
 ## CO₂'s frost point at `bar`, K.
 static func co2_frost_k(bar: float) -> float:
-	return CO2_FROST_B / (CO2_FROST_A - log(maxf(bar, 1e-9) * 1000.0))
+	return CO2_FROST_B / (CO2_FROST_A - log(clampf(bar, 1e-9, CO2_TRIPLE_BAR) * 1000.0))
 
-## The frost point of what can freeze here: this sea's water, else the air's main volatile. A world
-## with no air and no water has nothing to frost.
+## N₂'s condensation point at `bar`, K.
+static func n2_frost_k(bar: float) -> float:
+	var heat := N2_SUBLIME_J if bar < N2_TRIPLE_BAR else N2_BOIL_J
+	return 1.0 / (1.0 / N2_TRIPLE_K - Atmosphere.R_GAS / heat * log(maxf(bar, 1e-12) / N2_TRIPLE_BAR))
+
+## The frost point of what can freeze here: water, else the air's main volatile. A world with no air
+## and no water has nothing to frost.
 static func frost_of(cl: Climate) -> float:
-	if cl.wet and cl.ocean + cl.steam > 0.0:
-		return 273.0 + Climate.freezing_point(cl.salinity) - Climate.freezing_point(Climate.SALINITY_REF)
+	if cl.wet and cl.ocean + cl.steam > 0.0: return WATER_FROST_K
 	var co2 := float(cl.pressures.get("pCO2", 0.0))
 	if co2 > 0.5 * cl.air.p_dry and co2 > 0.0: return co2_frost_k(co2)
-	if cl.air.p_dry > Climate.AIRLESS_BAR: return N2_FROST_K
-	return 0.0
+	if cl.air.p_dry <= Climate.AIRLESS_BAR: return 0.0
+	var n2 := float(cl.pressures.get("pN2", 0.0))
+	return n2_frost_k(n2 if n2 > 0.0 else cl.air.p_dry)
+
+## How fast the air cools with height near the ground, K/m: none without air.
+static func lapse_k_m(cl: Climate) -> float:
+	var air: float = cl.air.p_dry + cl.steam * cl.steam_bar
+	if air < Climate.AIRLESS_BAR or cl.air.kappa <= 0.0 or cl.air.mean_molar <= 0.0: return 0.0
+	var cp: float = Atmosphere.R_GAS / cl.air.kappa / cl.air.mean_molar
+	var stable := STABLE_WET if cl.wet and cl.ocean + cl.steam > 0.0 else STABLE_DRY
+	return stable * cl.gravity / cp
 
 ## Where the sea stands against the crust's datum, km. As it evaporates or escapes it falls towards
 ## the abyssal plain; past that, no liquid at all.
@@ -123,6 +150,7 @@ static func targets(cl: Climate, spec: Dictionary) -> Dictionary:
 		"uArid": float(U.nz(spec.get("arid"), 1.0 if hot_stated else arid_of(cl))),
 		"uBiota": float(U.nz(spec.get("biota"), 0.0 if hot_stated else biota_of(cl))),
 		"uFrostK": float(U.nz(spec.get("frostK"), frost_of(cl))),
+		"uLapse": lapse_k_m(cl) * 1000.0,
 		"uHaze": float(U.nz(spec.get("haze"), minf(HAZE_EARTH * thick, HAZE_MAX))),
 		"uCrater": float(U.nz(spec.get("crater"), CRATER_AIRLESS * (1.0 - smoothstep(0.001, 0.1, air)))),
 		"cover": float(U.nz(spec.get("cloudCover"), deck_of(cl) if hot_stated else cover_of(cl))),

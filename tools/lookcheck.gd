@@ -50,12 +50,20 @@ func references() -> void:
 	# Frost: James, Kieffer & Paige's fit against measured sublimation points.
 	check("CO₂ freezes near 148 K at Mars's 6 mbar (%.1f)" % ClimateLook.co2_frost_k(0.006), near(ClimateLook.co2_frost_k(0.006), 148.0, 1.0))
 	check("and at dry ice's 194.7 K at 1 atm (%.1f)" % ClimateLook.co2_frost_k(1.01325), near(ClimateLook.co2_frost_k(1.01325), 194.7, 1.5))
+	# Past the triple point (216.6 K, 5.185 bar) CO₂ freezes on its melting curve, near 217–219 K to 100 bar.
+	check("at Venus's 92 bar it freezes near its triple point, not at 267 K (%.1f)" % ClimateLook.co2_frost_k(92.0), ClimateLook.co2_frost_k(92.0) > 212.0 and ClimateLook.co2_frost_k(92.0) < 220.0)
+	check("N₂ condenses at its 77.4 K boiling point at 1 atm (%.1f)" % ClimateLook.n2_frost_k(1.01325), near(ClimateLook.n2_frost_k(1.01325), 77.4, 1.5))
+	check("and stands at its 63.15 K triple point at 0.1252 bar (%.2f)" % ClimateLook.n2_frost_k(0.1252), near(ClimateLook.n2_frost_k(0.1252), 63.15, 0.01))
+	check("and near Pluto's 37 K at its 11.5 µbar (%.1f)" % ClimateLook.n2_frost_k(1.15e-5), near(ClimateLook.n2_frost_k(1.15e-5), 37.0, 1.5))
 	# Today's Earth draws as it always did.
 	var t := ClimateLook.targets(earth, {})
 	check("today's sea is at the datum", t.uSeaKm == 0.0)
 	check("today's land grows fully", near(float(t.uBiota), 1.0, 0.01))
 	check("nothing dries it", near(float(t.uArid), 0.0, 1e-9))
-	check("water freezes where sea water does", near(float(t.uFrostK), 273.0, 1e-6))
+	check("snow lies where fresh water freezes", near(float(t.uFrostK), 273.0, 1e-6))
+	check("the air cools at Earth's 6.5 K/km (%.2f)" % float(t.uLapse), near(float(t.uLapse), 6.5, 0.3))
+	var brine := climate_at({"salinity": 200.0}, 288.0)
+	check("a brine sea leaves the snow line at fresh water's", ClimateLook.targets(brine, {}).uFrostK == t.uFrostK)
 	check("the surface's haze is its old constant", near(float(t.uHaze), ClimateLook.HAZE_EARTH, 0.01))
 	var frozen := climate_at({}, 240.0)
 	frozen.ice = 0.8
@@ -70,13 +78,19 @@ func water_and_air() -> void:
 	check("an airless rock has no sea", t.uSeaKm == ClimateLook.SEA_GONE_KM)
 	check("nothing grows on it", t.uBiota == 0.0)
 	check("it has nothing to frost", t.uFrostK == 0.0)
+	check("and nothing cools with height", t.uLapse == 0.0)
 	check("no deck", t.cover == 0.0)
 	check("craters stand", near(float(t.uCrater), ClimateLook.CRATER_AIRLESS, 1e-6))
 	check("and it does not glow", t.uScorch == 0.0)
 	var mars := climate_at(Composition.MIXES.mars.inputs, 214.0)
+	mars.set_world(3.227e-7, 3389.5 * Physics.AU_PER_KM)
 	t = ClimateLook.targets(mars, {})
 	check("Mars's air freezes at Mars's frost point (%.1f)" % t.uFrostK, near(float(t.uFrostK), 148.0, 1.5))
+	# Its dry adiabat is g/c_p ≈ 4.5 K/km, and its air is far from saturated.
+	check("its dry air cools at a fraction of its 4.5 K/km adiabat (%.2f)" % float(t.uLapse), float(t.uLapse) > 1.0 and float(t.uLapse) < 4.5)
 	check("and has no deck of its own", t.cover == 0.0)
+	var dry_n2 := climate_at(U.merged(Composition.MIXES.bare.inputs, {"pN2": 1.0}), 90.0)
+	check("a dry nitrogen sky frosts at N₂'s point for its pressure (%.1f)" % float(ClimateLook.targets(dry_n2, {}).uFrostK), near(float(ClimateLook.targets(dry_n2, {}).uFrostK), ClimateLook.n2_frost_k(1.0), 0.01))
 	var venus := climate_at(Composition.MIXES.venus.inputs, 737.0)
 	venus.set_world(2.448e-6, 6051.8 * Physics.AU_PER_KM)
 	t = ClimateLook.targets(venus, {})
@@ -188,7 +202,7 @@ func stage_flow() -> void:
 	await edit_to(b, {"land": 0.29, "oceanDepth": 8.0}, "uOceanDepth", 8.0 * ClimateLook.ABYSS_RATIO)
 	await edit_to(b, {"oceans": false}, "uSeaKm", ClimateLook.SEA_GONE_KM)
 	check("no oceans, no biota", near(uniform(viz, "uBiota"), 0.0, 0.01))
-	await edit_to(b, {"oceans": true, "oceanDepth": 3.7, "salinity": 200.0}, "uFrostK", 273.0 + Climate.freezing_point(200.0) - Climate.freezing_point(35.0))
+	await edit_to(b, {"oceans": true, "oceanDepth": 3.7, "salinity": 200.0}, "uFrostK", ClimateLook.WATER_FROST_K)
 	# An airless world grows a shell and a deck when it is given air.
 	var rock: Body = stage.spawn_body(stage.place_spawn(U.merged({"type": "planet", "mass": 3e-6, "name": "Rock", "seed": 12}, Composition.MIXES.bare.inputs), {"a_au": 1.0, "ang": 2.5, "off": 0.5}))
 	stage.animate(1.0 / 60.0)
@@ -251,6 +265,22 @@ func stage_flow() -> void:
 	stage.load_preset("solar")
 	stage.set_process(false)
 	stage.state.paused = true
+
+# A preset's visuals are built before its climates, and an undrawn stage (ff=, a check) never
+# updates them: each must hold its climate's look from the moment the climate exists.
+func undrawn_preset() -> void:
+	stage.set_drawn(false)
+	stage.load_preset("solar")
+	var worst := 0.0
+	var worlds := 0
+	for b: Body in stage.state.bodies:
+		if b.climate == null or viz_of(b) == null or not ("surf_mat" in viz_of(b)): continue
+		worlds += 1
+		var want := ClimateLook.targets(b.climate, b.spec)
+		for key in ["uMeanK", "uFrostK", "uIce", "uLapse", "uBiota", "uCrater"]:
+			worst = maxf(worst, absf(uniform(viz_of(b), key) - float(want[key])))
+	check("undrawn, every world's material holds its climate before a frame (%d worlds, worst %s)" % [worlds, str(worst)], worlds >= 4 and worst < 1e-4)
+	stage.set_drawn(true)
 
 func edit_to(b: Body, patch: Dictionary, key: String, want: float) -> void:
 	check("edit %s accepted" % str(patch.keys()), stage.edit_body(b, patch) == b)
@@ -381,6 +411,7 @@ func _ready() -> void:
 	else:
 		references()
 		water_and_air()
+		undrawn_preset()
 		await stage_flow()
 		cost()
 	for i in 3: await get_tree().process_frame

@@ -42,7 +42,7 @@ class WorldViz extends RefCounted:
 		group.name = "World_%s" % b.name
 		R = float(opts.radius_scene)
 		base_r = R
-		var seed := float(RockyVisual.id_hash(b.id) % 1000) / 7.3
+		var seed := float(RockyVisual.name_hash(b.name) % 1000) / 7.3
 
 		# A world the climate model is standing on is by construction one with oceans,
 		# air and life on it.
@@ -77,6 +77,12 @@ class WorldViz extends RefCounted:
 		b.viz = self
 		# A rebuild must not spend a frame on defaults: a pin or a site may read this at once.
 		if b.climate != null: _follow_climate(b.climate)
+
+	## Draw the climate now, without the ease: it has just been given one.
+	func snap_climate() -> void:
+		if body.climate == null: return
+		_look = ClimateLook.Binder.new()
+		_follow_climate(body.climate)
 
 	# The EBM owns both mean temperature and glaciated fraction: the ice-albedo
 	# hysteresis means ice is state (a snowball stays frozen), not derivable from T.
