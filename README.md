@@ -264,7 +264,7 @@ missions only when the change can alter flight:
   The fast-forward keeps the smoke trail, plumes and pad simulating undrawn, so
   the settle frames only present them.
 
-`assets` requires all ten generated craft models; `rendered`, `lifecycle` and
+`assets` requires all eleven generated craft models; `rendered`, `lifecycle` and
 `perf` need a working graphical renderer. `flight` runs the four full launches (one process each), the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit), the missions, one process per descent and per mission, and every developer
 scenario (`scenariocheck`); `scenario-replay` compares each scenario with the same
 flight played at 60 fps (about half an hour). `native` includes the numerical boundary checks.
@@ -366,7 +366,11 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
 | `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
-| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all ten authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
+| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all eleven authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
+| `tools/rangercheck.gd` | Ranger gear sweep, wheel contact, cockpit sightline, mapped materials and lazy cabin entry in both build paths |
+| `tools/rangerflightcheck.tscn` | headless production deorbit through entry, glide, touchdown and wheel stop; rejects incomplete or unsafe returns |
+| `tools/rangerflightshots.tscn` | production GPU cockpit/gear/camera check; `dump=/abs/dir` saves views |
+| `tools/moviecraftshots.tscn` | multi-angle studio inspection, cockpit and cutaway; `v=ranger dump=/abs/dir`; [reconstruction scope and references](docs/movie-spacecraft.md) |
 | `tools/evapodflightshots.tscn` | rendered production EVA pod: thrust/fuel accounting, manipulator command, interior near plane and camera exit; `dump=/abs/dir` saves screenshots |
 | `tools/evapodmaterials.tscn` | six EVA finish samples in one lighting rig; `out=/abs/materials.png` |
 | `tools/evapodcheck.gd` | EVA pod arm sweep, hull clearance, lazy interior loading, window sightline and camera datums; run with and without `assets=0`; [design and references](docs/eva-pod.md) |

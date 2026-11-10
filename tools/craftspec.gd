@@ -16,6 +16,7 @@ func _init() -> void:
 			if vehicle.has("interior") and str(vehicle.interior.stage) == str(spec.key):
 				row["interior"] = vehicle.interior.duplicate(true)
 			row["partCounts"] = CraftAssets.part_counts(spec, vehicle)
+			if spec.get("look", {}).get("ranger", false): row["geometry"] = RangerCraft.geometry(spec)
 			row["gimbalLimits"] = CraftAssets.gimbal_limits(spec, vehicle)
 			stages[spec.key] = row
 		vehicles[id] = stages

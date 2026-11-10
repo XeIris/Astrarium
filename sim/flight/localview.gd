@@ -920,10 +920,14 @@ class FlightCamera extends RefCounted:
 			var spec: Dictionary = o.interior
 			var eye: Array = spec.eye
 			var fw: Array = spec.forward
+			var cabin_up: Array = spec.get("up", [0.0, 1.0, 0.0])
+			var local_up := Vector3(cabin_up[0], cabin_up[1], cabin_up[2]).normalized()
+			var local_forward := Vector3(fw[0], fw[1], fw[2]).normalized()
 			pos.copy_from(craft_pos).add_in(DVec3.from_v3(cq * Vector3(eye[0], eye[1], eye[2])))
-			var aim := Basis(Vector3.UP, float(state.interiorYaw)) * Basis(Vector3.RIGHT, float(state.interiorPitch))
-			var forward := cq * aim * Vector3(fw[0], fw[1], fw[2])
-			look_at(pos.clone().add_in(DVec3.from_v3(forward)), cq * Vector3.UP)
+			var pitch_axis := local_up.cross(local_forward).normalized()
+			var aim := Basis(local_up, float(state.interiorYaw)) * Basis(pitch_axis, float(state.interiorPitch))
+			var forward := cq * aim * local_forward
+			look_at(pos.clone().add_in(DVec3.from_v3(forward)), cq * local_up)
 			return
 		if state.mode == "pad" and state.hasPad:
 			pos.copy_from(state.padPos)

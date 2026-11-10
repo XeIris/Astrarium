@@ -251,6 +251,22 @@ func _soak_check() -> void:
 			stage.end_flight()
 			for i in 5: await stage.get_tree().process_frame
 			hud.toast("", 1),
+		"ranger": func():
+			flight.phase_rng.seed=int(_cmd.seed)
+			await stage.launch_craft("ranger")
+			for cycle in range(3):
+				flight.set_camera_mode("interior")
+				flight.key_action("gear")
+				for i in 5: stage.animate(1.0/60.0)
+				if flight.interior.group==null or flight.local.camera.near>.011:
+					failures.append("ranger: interior or depth range missing")
+				await _drawn_frame()
+				flight.set_camera_mode("orbit")
+				await stage.get_tree().process_frame
+				if flight.interior.group!=null: failures.append("ranger: cabin retained after exit")
+			stage.end_flight()
+			for i in 5: await stage.get_tree().process_frame
+			hud.toast("",1),
 		"flight_stage": func():
 			await stage.launch_craft("saturnv")
 			state.paused = false

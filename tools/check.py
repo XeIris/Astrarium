@@ -28,7 +28,7 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "eva_pod", "flight_stage", "flight_catch", "scenario", "observatory", "start_screen")
+                 "lessons", "model_viewer", "eva_pod", "ranger", "flight_stage", "flight_catch", "scenario", "observatory", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
@@ -46,6 +46,9 @@ PARITY_FRAMES = 13000
 # names it. Documentation selects nothing; any other unmapped path selects `dev`.
 # Keep this in step with AGENTS.md "Checks" when a check or a subsystem is added.
 CHANGED_RULES = (
+    (("sim/flight/ranger_craft.gd", "model_sources/blender/ranger.py", "model_sources/blender/movie_materials.py",
+      "sim/flight/craft_interior.gd", "sim/flight/localview.gd", "sim/flight/vehicles.gd", "tools/craftspec.gd"),
+     ("rangercheck-*", "rangerflightcheck", "rangerflightshots", "_soak_check-ranger", "scenariocheck")),
     (("sim/flight/eva_pod.gd", "sim/flight/craft_interior.gd", "sim/flight/vehicles.gd",
       "sim/flight/localview.gd", "sim/flight/spaceflight.gd", "model_sources/blender/evapod*.py",
       "model_sources/blender/common.py", "tools/craftspec.gd"),
@@ -253,6 +256,7 @@ def checks(suite, godot, output, repeat, export_preset):
                            "years=60000", option, f"report={output / (label + '.json')}", timeout=900)
             yield ("stability-" + label, *probe[1:])
     elif suite == "flight":
+        yield headless_scene("rangerflightcheck", r"^RANGERFLIGHT DONE failures=0$", timeout=900)
         for case in SHARED_FLIGHTS:
             shared = script("sharedflightcheck", (rf"^SHARED FLIGHT {case} PASS ", r"^SHARED FLIGHT DONE failures=0$"), f"only={case}", timeout=600)
             yield shared._replace(name=f"sharedflightcheck-{case}", cost=30)
@@ -290,6 +294,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         # Actual cockpit depth, lighting and production camera/arm controls require a GPU.
         yield scene("evapodflightshots", r"^EVAPODFLIGHT DONE failures=0$")
+        yield scene("rangerflightshots", r"^RANGERFLIGHTSHOTS DONE failures=0$")
         yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")
@@ -309,14 +314,15 @@ def checks(suite, godot, output, repeat, export_preset):
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
-                   r"^PARITY DONE 20 poses, 0 failures$", 180)
+                   r"^PARITY DONE 22 poses, 0 failures$", 180)
         if suite == "assets":
             yield script("observatorycheck", (r"^OBSERVATORYCHECK authored library: [1-9]\d* stages$", r"^OBSERVATORYCHECK DONE checks=[1-9]\d* failures=0$"),
                          "assets=1")._replace(name="observatorycheck-assets")
         for assets in (("1", "0") if suite == "assets" else ("0",)):
             yield script("evapodcheck", r"^EVAPODCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"evapodcheck-{assets}")
+            yield script("rangercheck", r"^RANGERCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"rangercheck-{assets}")
             # The authored gate cannot pass by silently substituting optional fallback models.
-            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'10' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
+            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'11' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)

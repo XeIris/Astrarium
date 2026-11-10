@@ -22,7 +22,7 @@ func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 		if scene is PackedScene:
 			group = scene.instantiate()
 			authored = true
-	if group == null: group = _fallback(st.spec)
+	if group == null: group = RangerCraft.cabin(st.spec) if st.spec.get("look", {}).get("ranger", false) else _fallback(st.spec)
 	group.name = "FlightInterior"
 	CraftAssets._prepare(group)
 	_prepare(group)
@@ -32,22 +32,25 @@ func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 	var fixtures := group.find_children("interior_light_*", "Node3D", true, false)
 	var positions: Array[Vector3] = []
 	var inverse := CraftModel.world_xform(group).affine_inverse()
+	var lighting: Dictionary = spec.get("lighting", {})
 	for fixture: Node3D in fixtures:
 		positions.append(inverse * CraftModel.world_xform(fixture).origin)
 	if positions.is_empty(): positions = [Vector3(-0.55, 1.5, 0.0), Vector3(0.55, 1.5, 0.0)]
 	for pos in positions:
 		var light := OmniLight3D.new()
 		light.position = pos
-		light.light_color = Color(1.0, 0.13, 0.07)
-		light.light_energy = 0.28
-		light.omni_range = 1.65
+		var color_: Array = lighting.get("color", [1.0, 0.13, 0.07])
+		light.light_color = Color(color_[0], color_[1], color_[2])
+		light.light_energy = float(lighting.get("energy", 0.28))
+		light.omni_range = float(lighting.get("range", 1.65))
 		light.light_cull_mask = LAYER
 		group.add_child(light)
 	var fill := OmniLight3D.new()
-	fill.position = Vector3(0, 1.45, 0.1)
+	var fill_at: Array = lighting.get("fill", [0.0, 1.45, 0.1])
+	fill.position = Vector3(fill_at[0], fill_at[1], fill_at[2])
 	fill.light_color = Color(0.67, 0.80, 1.0)
-	fill.light_energy = 0.16
-	fill.omni_range = 1.5
+	fill.light_energy = float(lighting.get("fillEnergy", 0.16))
+	fill.omni_range = float(lighting.get("fillRange", 1.5))
 	fill.light_cull_mask = LAYER
 	group.add_child(fill)
 

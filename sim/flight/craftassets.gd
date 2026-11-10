@@ -19,6 +19,7 @@ const CRAFT_ASSETS := {
 	"hailmary": DIR + "hailmary.glb",
 	"beetle": DIR + "beetle.glb",
 	"evapod": DIR + "evapod.glb",
+	"ranger": DIR + "ranger.glb",
 }
 
 ## Emissive strength floors, keyed by exact material name: a no-op when

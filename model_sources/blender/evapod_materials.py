@@ -36,7 +36,13 @@ def maps(name, kind, rough):
         return field/max(float(field.std()),1e-8)
     grain = noise(1.8,1.8)
     fine = noise(.55,.55)
-    if kind == 'vinyl':
+    if kind == 'quilt':
+        qx=(4*x)%(2*np.pi); qy=(4*y)%(2*np.pi)
+        edge = np.minimum(np.minimum(qx,2*np.pi-qx), np.minimum(qy,2*np.pi-qy))
+        height = -.14*np.exp(-(edge/.09)**2)+.006*(np.cos(48*x)+np.cos(48*y))+.004*grain
+        variation = .04*np.exp(-(edge/.16)**2)+.015*grain
+        strength = .30
+    elif kind == 'vinyl':
         height = -.055*np.abs(grain)+.009*fine
         variation = .018*grain+.006*fine
         strength = .28

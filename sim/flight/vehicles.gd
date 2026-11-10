@@ -157,6 +157,27 @@ static var VEHICLES: Dictionary = _build_vehicles()
 static func _build_vehicles() -> Dictionary:
 	var E := ENGINES
 	return {
+	"ranger": {
+		"id": "ranger", "name": "Survey Shuttle (Ranger-inspired)", "role": "cruiser", "launchFrom": "Earth",
+		"era": "Interstellar · inspired design",
+		"blurb": "A flattened lifting-body shuttle with a stepped 22-window canopy and two-seat flight deck. Reference-judged 17.9 × 9.7 m reconstruction. Estimated chemical propulsion and Shuttle-derived aerodynamics support orbital manoeuvres and a gliding runway return; the film's single-stage ascent is not claimed. C enters the cockpit; G lowers the gear.",
+		"limits": {"maxQ": 35e3, "maxG": 4.0, "qAlpha": 1e12, "heatLoad": 1.2e9},
+		"interior": {"asset": "res://assets/craft/ranger_interior.glb", "stage": "ranger",
+			"eye": [-0.72, 7.15, 1.27], "forward": [0.0, 1.0, 0.0],
+			"up": [0.0, 0.0, 1.0], "pitch": 0.0,
+			"lighting": {"color": [0.83, 0.90, 1.0], "energy": 0.65, "range": 4.0,
+				"fill": [-0.1, 7.7, 0.8], "fillEnergy": 0.18, "fillRange": 3.8}},
+		"stages": [stage({"key": "ranger", "name": "Survey Shuttle", "dry": 14500.0, "prop": 6000.0,
+			"engine": {"name": "Survey OMS (estimate)", "prop": "Methalox",
+				"thrustVac": 45000.0, "ispSL": 290.0, "ispVac": 360.0, "throttleMin": 0.05,
+				"gimbal": 4.0, "exitD": 0.72, "plume": "methalox"},
+			"count": 2, "L": 17.9, "D": 9.7, "area": 15.0, "sep": "none",
+			"wings": {"span": 9.7, "area": 85.0, "clMax": 1.4},
+			"legs": 3, "gear": {"vVert": 3.0, "vHoriz": 116.0, "point": [0.0, 3.7, -1.77], "nose": [0.0, 13.8, -1.77]},
+			"rollout": {"mu": 0.025, "brakes": 4, "brakeTorque": 5600.0, "tyreR": 0.32, "pitchAccel": 0.6, "cgY": 6.8},
+			"rcs": {"thrust": 900.0, "isp": 290.0, "prop": 300.0, "count": 16},
+			"look": {"skin": "white", "ranger": true, "gearSwing": 1.57079632679, "flaps": 7}})],
+	},
 	"evapod": {
 		"id": "evapod", "name": "EVA Pod (2001-inspired)", "role": "cruiser", "launchFrom": null,
 		"era": "2001: A Space Odyssey · inspired design",
@@ -611,7 +632,7 @@ static func booster_return(key: String):
 
 const VEHICLE_ORDER := [
 	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane",
-	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod",
+	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod", "ranger",
 ]
 
 # Ideal Δv of one stage, carrying everything above it. Derived, never stored. `pa`

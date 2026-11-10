@@ -68,7 +68,7 @@ static func audit() -> Array:
 # Bevels and primitive tessellation may move skin bounds by at most two centimetres.
 const HEIGHT_TOLERANCE := 0.02
 ## The authored craft models, one per vehicle not declared `procedural`.
-const AUTHORED_COUNT := 10
+const AUTHORED_COUNT := 11
 
 static func height_parity(require_authored := false, inject := false) -> Array:
 	var errors := []
@@ -97,7 +97,7 @@ static func height_parity(require_authored := false, inject := false) -> Array:
 				deploy[st.key] = 1.0 if deployed else 0.0
 				var cover := str(st.spec.get("look", {}).get("arrayCover", ""))
 				if cover != "": attached[cover] = not deployed
-			for craft in [authored, fallback]: craft.update({"dt": 4.0, "deploy": deploy, "attached": attached})
+			for craft in [authored, fallback]: craft.update({"dt": 4.0, "deploy": deploy, "gear": deploy, "attached": attached})
 			var a: AABB = CM.measure(authored.group)
 			var p: AABB = CM.measure(fallback.group)
 			var pose := "deployed" if deployed else "stowed"

@@ -21,9 +21,9 @@ extends RefCounted
 const DT := 0.05
 const MAX_FRAMES := 400000
 
-const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane"]
+const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "ranger"]
 const NAMES := {"saturnv": "Saturn V", "falcon9": "Falcon 9", "shuttle": "Shuttle", "starship": "Starship",
-	"lm": "Lunar Module", "skycrane": "Sky crane"}
+	"lm": "Lunar Module", "skycrane": "Sky crane", "ranger": "Survey Shuttle"}
 
 static var _list := {}
 
@@ -64,6 +64,15 @@ static func _sc(vehicle: String, id: String, title: String, group: String, base:
 # the check is that a scenario lands where its own flight does.
 static func _build_list() -> Dictionary:
 	var out := {}
+	var survey := {"kind":"orbit","alt":250e3,"inc":28.5,"phase":0.0,"program":"glide"}
+	out.ranger = [
+		_sc("ranger","orbit","Survey Shuttle in orbit","Orbit",{"kind":"orbit","alt":250e3,"inc":28.5}, {},
+			{"alt":[249e3,251e3],"phase":"orbit","attached":["ranger"]}),
+		_sc("ranger","entry_interface","Entry interface, 122 km","Return",survey,{"alt_below":122e3},
+			{"alt":[120e3,123e3],"airspeed":[7200.0,7900.0],"program":"glide","state":"entry"}),
+		_sc("ranger","flare","Survey Shuttle preflare","Landing",survey,{"state":"flare"},
+			{"alt":[500.0,650.0],"program":"glide","state":"flare"}),
+	]
 	out.saturnv = [
 		_sc("saturnv", "pad", "Pad, T−10 s", "Ascent", _pad(), {}, {"phase": "prelaunch", "count": [9.0, 10.0]}),
 		_sc("saturnv", "liftoff", "Liftoff, tower clear", "Ascent", _pad(), {"t_plus": 9.0}, {"alt": [80.0, 400.0]}),

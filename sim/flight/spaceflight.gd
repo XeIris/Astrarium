@@ -263,7 +263,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	if veh == null: return null
 	teardown()
 	fly_cam.state.interiorYaw = 0.0
-	fly_cam.state.interiorPitch = 0.18
+	fly_cam.state.interiorPitch = float(veh.get("interior", {}).get("pitch", 0.18))
 
 	var home := body_named(opts.get("body", veh.get("launchFrom") if veh.get("launchFrom") != null else "Earth"))
 	if home == null: home = body_named("Earth")

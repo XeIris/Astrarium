@@ -8,6 +8,8 @@ assets/craft/*.glb.import
 # Godot extracts the pod's generated, embedded finish maps when importing GLBs.
 assets/craft/evapod_*.png
 assets/craft/evapod_*.png.import
+assets/craft/ranger_*.png
+assets/craft/ranger_*.png.import
 assets/pads/*.glb
 assets/pads/*.glb.import
 assets/sites/*.glb
