@@ -81,6 +81,20 @@ film graphics. Labelled switches are currently visual, while G still drives the
 exterior manipulators. Interior drag allows a full turn to inspect the side and
 rear equipment.
 
+The cabin window has a smooth maroon fibreglass reveal, replacing the ribbed
+exterior surround only while the authored cockpit is loaded. Exit restores the
+surround's previous visibility. The acrylic keys have separate pigmented sides,
+illuminated faces and satin metal mounting flanges; larger cream and amber keys
+separate power and safety functions from the blue manipulator groups. The display
+frames have glare lips, and the cylindrical controllers sit on a low supported
+apron instead of intersecting their plinths.
+
+The aft lining leaves an opening for the hatch, its recessed handles, latch and
+warning plate. Angled storage lids close onto fitted boxes, with hinge barrels
+and recessed pulls. These lids and the hatch remain fixed. Painted service
+castings and connected hoses sit against the ceiling shell. The `hatch` studio
+view hides the seat for inspection; normal cockpit views retain it.
+
 ## Verification
 
 - `tools/evapodcheck.gd` headless, with `assets=1` and `assets=0`: 41 intermediate
@@ -88,8 +102,10 @@ rear equipment.
   skin clearance from the pressure sphere, paired-claw clearance, reproducible
   rest pose, vehicle data immutability, lazy cockpit entry/exit, open window
   sightline and camera datums. Authored checks also verify cabin-facing exterior
-  clearance, embedded finish maps, UVs and tangent frames.
-- `tools/crafttest.tscn -- audit clearance parity`: all ten authored vehicles,
+  clearance, embedded finish maps, UVs and tangent frames. Short rays in 26
+  directions check the turning camera's clearance; hatch sightlines reject
+  upholstery covering its controls, and compartment vertices must fit the shell.
+- `tools/crafttest.tscn -- audit clearance parity`: all available authored vehicles,
   with unchanged 2 cm height/datum tolerance. Audit and clearance also run with
   `assets=0`.
 - `tools/assetcheck.gd`: required pivots and rest transforms in both build paths.

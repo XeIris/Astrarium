@@ -26,18 +26,22 @@ func _ready() -> void:
 	craft=CraftModel.build_craft(Vehicles.get_vehicle("evapod")); vp.add_child(craft.group)
 	if flat_normals: _disable_normals(craft.group)
 	cam=Camera3D.new(); cam.near=.01; cam.far=100; cam.fov=38; vp.add_child(cam); cam.current=true
-	for shot in ["front","quarter","side","rear","under","extended","cockpit","port","starboard","aft","overhead","cabin"]:
+	for shot in ["front","quarter","side","rear","under","extended","cockpit","port","starboard","aft","hatch","overhead","cabin"]:
 		cabin.dispose()
 		craft.group.visible=true
 		EvaPod.pose(craft.stages[0].parts.arms,1.0 if shot=="extended" else 0.0)
 		cam.projection=Camera3D.PROJECTION_PERSPECTIVE; cam.fov=38
 		var center:=Vector3(0,1.03,0)
 		var offsets: Dictionary={"front":Vector3(0,.05,5),"quarter":Vector3(3.4,1.4,4.4),"side":Vector3(5,.3,0),"rear":Vector3(3.4,1.3,-4.4),"under":Vector3(2,-3.2,3.1),"extended":Vector3(3.1,1.5,4.9)}
-		if shot in ["cockpit","port","starboard","aft","overhead"]:
+		if shot in ["cockpit","port","starboard","aft","hatch","overhead"]:
 			cabin.set_enabled(true,craft,Vehicles.get_vehicle("evapod"))
 			if flat_normals: _disable_normals(cabin.group)
 			cam.position=Vector3(0,1.34,-.30)
-			var targets := {"cockpit":Vector3(0,1.0,1.0),"port":Vector3(-.7,1.1,.05),"starboard":Vector3(.7,1.1,.05),"aft":Vector3(0,1.30,-.8),"overhead":Vector3(0,1.85,-.1)}
+			var targets := {"cockpit":Vector3(0,1.0,1.0),"port":Vector3(-.7,1.1,.05),"starboard":Vector3(.7,1.1,.05),"aft":Vector3(0,1.30,-.8),"hatch":Vector3(.12,1.20,-.77),"overhead":Vector3(0,1.85,-.1)}
+			if shot=="hatch":
+				cam.position=Vector3(0,1.40,.12)
+				var seat := cabin.group.find_child("interior_seat",true,false) as Node3D
+				if seat!=null: seat.visible=false
 			cam.look_at(targets[shot]); cam.fov=82
 		elif shot=="cabin":
 			cabin.set_enabled(true,craft,Vehicles.get_vehicle("evapod"))

@@ -122,7 +122,7 @@ def exterior(_):
     cutter=bpy.context.object; cutter.scale=(.425*S,.55*S,1)
     bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
     boolean(hull,cutter)
-    window_ring(root)
+    window_ring(empty('window_reveal',(0,0,0),root))
     shade=empty('window_shade',(0,0,0),root)
     ob=disk('Dark cabin behind glazing',(0,-.38,WC),1,.006,'podSeal',shade)
     ob.scale=(.33, .385, 1)
@@ -250,7 +250,7 @@ def interior():
     from evapod_cabin import build as build_cabin
     from evapod_materials import assign_uvs
     build_cabin(root, M, S, SPEC["interior"]["eye"])
-    assign_uvs()
+    assign_uvs(bake_modifiers=True)
     optimise()
     target=out_path('assets/craft/evapod.glb')
     dst=os.path.join(os.path.dirname(target),'.evapod_interior.build.glb' if os.path.basename(target).startswith('.') else 'evapod_interior.glb')

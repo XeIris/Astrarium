@@ -68,21 +68,58 @@ func run() -> void:
 		expect(cabin.group!=null and cabin.authored==authored,"interior build path")
 		var one := cabin.group
 		if round_ == 0 and authored:
-			material_probes(cabin.group, ["podRed", "podPanel", "podPad", "podWebbing", "podFloor"])
+			material_probes(cabin.group, ["podRed", "podPanel", "podPad", "podWebbing", "podFloor", "podKeyRim", "podOlive"])
+			interior_geometry(cabin.group)
+			var cupboards := cabin.group.find_children("interior_storage_*", "Node3D", true, false)
+			expect(cupboards.size()==2,"two fitted storage compartments")
+			var seat := cabin.group.find_child("interior_seat",true,false) as Node3D
+			var hatch := cabin.group.find_child("interior_hatch",true,false) as Node3D
+			expect(seat!=null and hatch!=null,"separate seat and hatch assemblies for inspection")
+			if seat!=null and hatch!=null:
+				seat.visible=false
+				for point in [Vector3(0,1.49,-.705),Vector3(-.16,1.05,-.64),Vector3(.16,1.05,-.64)]:
+					expect(not segment_blocked(cabin.group,eye,point),"hatch hardware is clear of wall upholstery")
+				seat.visible=true
+			for assembly in cupboards+[hatch]:
+				if assembly==null:continue
+				var radius:=0.0
+				for point in mesh_points(assembly):radius=maxf(radius,point.distance_to(Vector3(0,1.03,0)))
+				expect(radius<.98,"hatch and cupboards stay inside pressure shell: %.4f m"%radius)
 			var anchors := cabin.group.find_children("interior_light_*", "Node3D", true, false)
 			expect(anchors.size() == 5, "five authored recessed light positions")
 			var intrusion := exterior_intrusion(st.group, cabin.group)
 			expect(intrusion >= .98, "opaque exterior skin stays outside cabin: %.5f m" % intrusion)
+		if round_ == 0:
+			if OS.get_cmdline_user_args().has("inject_camera_intrusion=1"):
+				EvaPod._box(cabin.group,eye,Vector3.ONE*.04,CraftModel._mat("intrusion",0xffffff,.5,0))
+			for x in [-1,0,1]:
+				for y in [-1,0,1]:
+					for z in [-1,0,1]:
+						var direction:=Vector3(x,y,z)
+						if direction==Vector3.ZERO:continue
+						expect(not segment_blocked(cabin.group,eye,eye+direction.normalized()*.055),
+							"camera has 55 mm clearance for turning in %s" % direction)
 		cabin.set_enabled(true,craft,vehicle)
 		expect(cabin.group==one,"entry is idempotent")
 		var shade := st.group.find_child("window_shade",true,false) as Node3D
 		expect(shade!=null and not shade.visible,"exterior shade removed on entry")
+		var reveal := st.group.find_child("window_reveal",true,false) as Node3D
+		if authored: expect(reveal!=null and not reveal.visible,"painted cabin reveal replaces exterior ribs")
 		expect(not blocks_window(craft.group,eye),"forward sightline leaves cabin through opening")
 		var b := CraftModel.measure(cabin.group)
 		expect(b.position.y>=0 and b.end.y<2.06 and b.size.x<2.06,"interior fits exterior datums")
 		cabin.dispose()
 		await process_frame
 		expect(cabin.group==null and shade.visible,"exit releases cabin and restores shade")
+		if authored: expect(reveal.visible,"exit restores exterior window reveal")
+	if authored:
+		var reveal := st.group.find_child("window_reveal",true,false) as Node3D
+		reveal.visible=false
+		cabin.set_enabled(true,craft,vehicle)
+		cabin.dispose()
+		await process_frame
+		expect(not reveal.visible,"interior preserves an already hidden exterior reveal")
+		reveal.visible=true
 	var camera := LocalView.create_flight_camera()
 	camera.set_mode("interior")
 	var cb := Basis.from_euler(Vector3(.7,-.3,1.2))
@@ -123,8 +160,24 @@ func collect_materials(node: Node, materials: Dictionary) -> void:
 					for i in normals.size():
 						var t := Vector3(tangents[i*4],tangents[i*4+1],tangents[i*4+2])
 						if absf(normals[i].dot(t)) < .03 and t.length() > .9: orthogonal += 1
-				expect(orthogonal >= normals.size()*.98, "normal-map tangent frames survive export")
+				expect(orthogonal >= normals.size()*.98, "%s/%s normal-map tangent frames survive export (%d/%d)" % [node.name,mat.resource_name,orthogonal,normals.size()])
 	for child in node.get_children(): collect_materials(child, materials)
+
+func interior_geometry(node: Node) -> void:
+	if node is MeshInstance3D:
+		for s in node.mesh.get_surface_count():
+			var mat: StandardMaterial3D=node.mesh.surface_get_material(s)
+			if mat==null or not mat.normal_enabled:continue
+			var a: Array=node.mesh.surface_get_arrays(s)
+			var vertices: PackedVector3Array=a[Mesh.ARRAY_VERTEX]
+			var indices: PackedInt32Array=a[Mesh.ARRAY_INDEX]
+			var collapsed:=0
+			for i in range(0,indices.size(),3):
+				var u:=vertices[indices[i+1]]-vertices[indices[i]]
+				var v:=vertices[indices[i+2]]-vertices[indices[i]]
+				if u.cross(v).length_squared()<1e-20:collapsed+=1
+			expect(collapsed==0,"%s has no collapsed finish triangles (%d)"%[node.name,collapsed])
+	for child in node.get_children():interior_geometry(child)
 
 func mesh_points(node: Node) -> Array[Vector3]:
 	var out: Array[Vector3] = []
@@ -136,10 +189,13 @@ func mesh_points(node: Node) -> Array[Vector3]:
 	return out
 
 func blocks_window(node: Node, eye: Vector3) -> bool:
+	return segment_blocked(node,eye,eye+Vector3(0,0,3))
+
+func segment_blocked(node: Node, start: Vector3, end: Vector3) -> bool:
 	if node is MeshInstance3D and node.is_visible_in_tree() and node.mesh!=null:
 		var inv: Transform3D = node.global_transform.affine_inverse()
-		var a: Vector3 = inv*eye
-		var b: Vector3 = inv*(eye+Vector3(0,0,3))
+		var a: Vector3 = inv*start
+		var b: Vector3 = inv*end
 		for s in node.mesh.get_surface_count():
 			var arr: Array = node.mesh.surface_get_arrays(s)
 			var vertices: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
@@ -147,7 +203,7 @@ func blocks_window(node: Node, eye: Vector3) -> bool:
 			for i in range(0,indices.size(),3):
 				if Geometry3D.segment_intersects_triangle(a,b,vertices[indices[i]],vertices[indices[i+1]],vertices[indices[i+2]])!=null: return true
 	for child in node.get_children():
-		if blocks_window(child,eye): return true
+		if segment_blocked(child,start,end): return true
 	return false
 
 func exterior_intrusion(node: Node, cabin: Node) -> float:

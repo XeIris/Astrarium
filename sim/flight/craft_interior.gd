@@ -6,6 +6,8 @@ const LAYER := 1 << 18
 var group: Node3D
 var authored := false
 var shade: Node3D
+var reveal: Node3D
+var reveal_was_visible := true
 
 func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 	if not enabled:
@@ -29,6 +31,12 @@ func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 	st.group.add_child(group)
 	shade = st.group.find_child("window_shade", true, false) as Node3D
 	if shade != null: shade.visible = false
+	if authored:
+		# The cabin carries its own painted reveal, fitted over the exterior's ribbed rubber.
+		reveal = st.group.find_child("window_reveal", true, false) as Node3D
+		if reveal != null:
+			reveal_was_visible = reveal.visible
+			reveal.visible = false
 	var fixtures := group.find_children("interior_light_*", "Node3D", true, false)
 	var positions: Array[Vector3] = []
 	var inverse := CraftModel.world_xform(group).affine_inverse()
@@ -57,6 +65,8 @@ func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 func dispose() -> void:
 	if is_instance_valid(shade): shade.visible = true
 	shade = null
+	if is_instance_valid(reveal): reveal.visible = reveal_was_visible
+	reveal = null
 	if is_instance_valid(group):
 		group.get_parent().remove_child(group)
 		group.queue_free()

@@ -2,6 +2,7 @@
 Maps are embedded in the GLB; no external texture download or shader is required.
 """
 import bpy
+import bmesh
 import numpy as np
 from mathutils import Vector
 from common import build_materials, srgb
@@ -11,6 +12,7 @@ DENSITY = {
     'podWhite': 8.0, 'podRed': 7.0, 'podPanel': 5.0, 'podPad': 14.0,
     'podSeal': 18.0, 'podWebbing': 25.0, 'podAluminium': 5.0,
     'podSteel': 6.0, 'podNozzle': 5.0, 'podFloor': 12.0,
+    'podKeyRim': 6.0, 'podOlive': 7.0,
 }
 
 
@@ -100,22 +102,37 @@ def palette():
         ('podSteel',0xc7ccd0,.23,.34,'brush',0),
         ('podNozzle',0x665f58,.51,.27,'brush',0),
         ('podFloor',0x303338,.79,.02,'rubber',0),
+        ('podKeyRim',0x555e63,.34,.30,'brush',0),
+        ('podOlive',0x4c5740,.48,.12,'paint',.06),
     ]
     for name,col,rough,metal,kind,coat in rows:
         mats[name] = finish(name,col,rough,metal,kind,coat)
     mats['alu']=mats['podAluminium']; mats['steel']=mats['podSteel']; mats['nozzle']=mats['podNozzle']
     for name,col,power in [('podBlue',0x318dc9,1.4),('podWarm',0xf4e1ba,1.0),
                            ('podAmber',0xe98736,1.0),('podLamp',0xe2e9ed,3.0),
-                           ('podCabinLamp',0xff4733,1.5),('podScreenInk',0xa6d8d9,1.2)]:
+                           ('podCabinLamp',0xff4733,1.5),('podScreenInk',0xa6d8d9,1.2),
+                           ('podGreen',0x54b886,.9)]:
         mats[name] = material(name,srgb(col),.40,.015,srgb(col),power)
     for name,col in [('podLegend',0xd7dcd8),('podInk',0x0b1216),('podKeyOff',0x254255),
                       ('podScreen',0x070e13),('podWarning',0xbf4434),('podSeam',0x454145)]:
         mats[name] = material(name,srgb(col),.51,.03)
+    # Separate pigmented sidewalls from the illuminated face: a cap has depth even when lit.
+    for name,col in [('podKeyBlue',0x18445e),('podKeyIvory',0xc3b697),('podKeyAmber',0x925325)]:
+        mats[name]=material(name,srgb(col),.24,.015)
     return mats
 
 
-def assign_uvs():
+def assign_uvs(bake_modifiers=False):
     """Metre-scaled box projection survives material joins and arm articulation."""
+    if bake_modifiers:
+        # Clamp-overlap bevels can leave collapsed strips on thin plates and cushions.
+        bpy.ops.object.select_all(action='DESELECT')
+        meshes=[o for o in bpy.context.scene.objects if o.type=='MESH']
+        for ob in meshes:ob.select_set(True)
+        if meshes:
+            bpy.context.view_layer.objects.active=meshes[0]
+            bpy.ops.object.convert(target='MESH')
+        bpy.ops.object.select_all(action='DESELECT')
     bpy.context.view_layer.update()
     for ob in bpy.context.scene.objects:
         if ob.type != 'MESH' or not ob.data.materials:
@@ -123,6 +140,14 @@ def assign_uvs():
         density = DENSITY.get(ob.data.materials[0].name.split('.')[0])
         if density is None:
             continue
+        if bake_modifiers:
+            bm=bmesh.new();bm.from_mesh(ob.data)
+            bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=1e-7)
+            bmesh.ops.dissolve_degenerate(bm,edges=list(bm.edges),dist=1e-7)
+            bad=[f for f in bm.faces if f.calc_area()<1e-14]
+            if bad:bmesh.ops.delete(bm,geom=bad,context='FACES_ONLY')
+            bmesh.ops.triangulate(bm,faces=list(bm.faces))
+            bm.normal_update();bm.to_mesh(ob.data);bm.free()
         uv = ob.data.uv_layers.active or ob.data.uv_layers.new(name='UVMap')
         uv.name = 'UVMap'
         uv.active_render = True
