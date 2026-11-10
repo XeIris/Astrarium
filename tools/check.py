@@ -54,6 +54,8 @@ CHANGED_RULES = (
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
+    (("sim/composition.gd", "ui/composition_editor.gd", "ui/widgets/composition_pie.gd", "sim/foundry.gd", "sim/climate.gd",
+      "sim/climate_inputs.gd", "sim/atmosphere.gd"), ("compositioncheck", "hud*", "editorcheck", "realismcheck")),
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
       "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd",
       "sim/perihelion.gd"),
@@ -110,7 +112,7 @@ CHANGED_RULES = (
     # How large a point source is drawn: the rule, its three users, and the bloom that spreads them.
     (("shaders/common/point_source.gdshaderinc", "shaders/sky/*", "shaders/bodies/marker_point.gdshader", "shaders/post/*",
       "sim/marker.gd", "sim/brightstars.gd", "sim/sky.gd", "render/postfx.gd"), ("glowcheck",)),
-    (("ui/*",), ("hud*", "editorcheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
+    (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     # Any other tool (fxlab, harnesses): at least it must still parse.
     (("tools/*",), ("import",)),
@@ -294,6 +296,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield headless_scene("transitioncheck", r"^TRANSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("compositioncheck", r"^COMPOSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("realismcheck", r"^REALISMCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")

@@ -149,8 +149,9 @@ The gases together may not pass 200 bar. Stating `oceans: true` with `land: 1` o
 
 A stated value wins, and an edit is a stated value; setting one to null returns to the
 draw. An edit naming only these fields keeps the body's visual and structure, so a
-slider cannot disturb a tracked spin. `albedo`, `land` and `oceanDepth` also draw the
-surface, so they rebuild it; a stated value reaches the look, a drawn one not yet.
+slider cannot disturb a tracked spin. `land` and `oceanDepth` also draw the surface, and
+reach it as uniforms; `albedo` draws its colours and rebuilds them. A stated value reaches
+the look, a drawn one not yet.
 
 `greenhouse`, the single ε this model used to take, is gone: a preset's `climate` block
 naming it is rejected as an unknown input, and it does nothing on a body's spec.
@@ -298,6 +299,50 @@ resolved.
 Land thermal inertia differing from ocean on one world, live CO₂ cycling and CO₂ collapse (a
 cold world's air stays in the air), tidal locking and internal heat, so an ice shell's ocean
 is only an inventory. A dry world has no ice line, even one with CO₂ caps like Mars's.
+
+### What the editor shows
+
+The Foundry and the live editor share one set of controls (`CompositionEditor`): a mix, the
+pie, a row per gas, the sea and the surface, and what the model expects. `Composition` holds
+the mixes. The expectation is `Climate` itself on a scratch `Body`, built by the same
+`ClimateInputs.build` a spawn runs and stepped with the stars where they are, so there is no second
+formula and nothing on the stage is written.
+
+- **The horizon.** 28 geometric steps from 0.02 years to 100 years, or six radiative times if the
+  column is slower. Fixed steps keep its cost fixed: about 3 ms. `compositioncheck` runs the real
+  stage for the same 100 years on a real orbit for an Earth, a dry rock, a global ocean, an ice shell,
+  Mars's and Venus's air, a seeded draw and a 0.012 M⊕ world (largest gap 0.4 K). The preview holds a
+  world where it spawns; the stage flies it on an orbit the other planets perturb (one at 1 AU shares
+  Earth's, and its sunlight wanders by up to 3%), and a world with little heat to store ends at the
+  sunlight it has then. So the check allows 1.5 K plus T·ΔS/4S, the largest stray in sunlight on the
+  way taken through T ∝ S^¼, and fixes the generator's seed so every run flies the same orbits. A
+  2.5 K error in the preview fails it.
+- **A live world.** It forks the world's climate, temperature, ice and water included, so a
+  snowball's hysteresis is the world's own. Applying an edit is immediate; the panel says where it is heading.
+- **Where it would go.** A spawn's bearing, spread and seed are decided before the preview, and
+  `place_spawn` is given them, so the sunlight it reports is the sunlight it gets. The Orbit row
+  sets the distance; spawning at rest uses the point in front of the camera.
+- **Limits.** A patch goes through `Structure.input_error` first. One outside the domain shows its
+  reason in the panel and changes nothing, slider or typed.
+
+The no-air balance is `278.6·(S(1 − α))^¼` with the present albedo, ice included, and greenhouse is
+the surface less that. A world under the [cosmic shoreline](#the-draw) with air gets a note, not a
+rejection: the model holds its gases fixed (see [not modelled](#not-modelled-yet)).
+
+#### The pie
+
+A pie is linear and these pressures are not: Earth's CO₂ is 0.042 % of its air, about 0.15° of pie,
+and its CH₄ under 2 ppm. So:
+
+- Every gas has a legend row with its pressure and share, and under it a bar on a log scale from
+  10⁻⁹ bar to the 200 bar limit.
+- A slice thinner than a pixel on the rim (1.15° at 50 px) is a tick rather than a slice.
+- The inner ring shows the gases under 1% among themselves, so CO₂ against CH₄ is still a shape.
+- Water is hatched, because it is not an input: its share follows the temperature through
+  Clausius–Clapeyron, against the world's inventory (`Climate.vapour_bar`), with steam on top.
+- A legend's filled square is a stated gas and a hollow one was drawn from the seed.
+
+The strip under it is the globe: land, open sea and ice.
 
 ## An atmosphere with composition
 

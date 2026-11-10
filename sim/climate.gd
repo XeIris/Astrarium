@@ -46,6 +46,8 @@ const NO_LAND := 0.05
 const SALINITY_REF := 35.0
 # Below this the column is no atmosphere for flight or for the look: Pluto's 1 Pa is 1e-5 bar.
 const AIRLESS_BAR := 1e-6
+# A column dimmer than this against Earth's (uThick) draws no sky: Mars's gas alone is 0.035.
+const AIR_SHOWS := 0.01
 
 const ERAS := {
 	"DEEP_FREEZE": { "key": "DEEP_FREEZE", "label": "Deep Freeze",  "cls": "era-freeze", "desc": "Oceans locked in ice. Dehydrate and wait." },
@@ -213,6 +215,37 @@ func _sky_colour(base: int) -> int:
 	var top := maxf(maxf(r, g), maxf(b, 1.0))
 	var k := minf(255.0 / top, 1.0)
 	return (int(r * k) << 16) | (int(g * k) << 8) | int(b * k)
+
+## This world's sky as sRGB, at the column's present depth: black with nothing to scatter.
+func sky_rgb() -> int:
+	return _sky_colour(0x6a8fc0) if float(sky.get("thick", 0.0)) >= AIR_SHOWS else 0x05060a
+
+## Water vapour in the air at `t` K, bar: the column follows temperature and cannot hold more
+## than the water there is. Steam from a boiling sea is on top of it.
+func vapour_bar(t: float) -> float:
+	if ocean + steam <= 0.0: return 0.0
+	var share := VAPOUR_SHARE * Atmosphere.saturation_bar(t) * _open_water
+	return minf(share, ocean * water_column * gravity * 1e-5 * air.mean_molar / Atmosphere.M_H2O)
+
+## A copy that can run forward without touching this world: what a preview steps. It keeps the
+## temperature, ice and water, so hysteresis is the world's own.
+func fork() -> Climate:
+	var c := Climate.new()
+	c.drawn = drawn
+	c.mixed_layer = mixed_layer; c.albedo_base = albedo_base; c.albedo_ice = albedo_ice
+	c.pressures = pressures.duplicate()
+	c.land = land; c.ocean_depth = ocean_depth; c.salinity = salinity
+	c.wet = wet
+	c.gravity = gravity; c._phi = _phi; c._world_mass = _world_mass; c._world_radius = _world_radius
+	c.T = T; c.S = S
+	c.ocean = ocean; c.steam = steam; c.lost = lost; c.ice = ice
+	c.clouds = clouds; c.humidity = humidity; c.storm = storm
+	c.ice_edge = ice_edge; c.snowball = snowball
+	c.ebm.T = ebm.T.duplicate()
+	c.time = time
+	c.extremes = extremes.duplicate()
+	c._compose()
+	return c
 
 ## Start the 0-D model and the latitude model together at `T0` K.
 func start_at(T0: float) -> void:

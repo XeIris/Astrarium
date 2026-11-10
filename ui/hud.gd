@@ -1111,7 +1111,7 @@ func _build_control_panel() -> void:
 
 	# Object Foundry
 	s = _section(b, "Object Foundry")
-	_note(s, "Four inputs, no menu of outcomes. Everything below — the size, the colour, the shape, the verdict — is derived from mass, spin, composition and age by the same interior model the rest of the sim runs on.")
+	_note(s, "No menu of outcomes. Everything below — the size, the colour, the shape, the verdict, the climate — is derived from mass, spin, composition, age, air and water by the same models the rest of the sim runs on.")
 	reg("foundry", stack(s))
 
 	# Painter
