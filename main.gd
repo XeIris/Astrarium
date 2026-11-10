@@ -452,7 +452,11 @@ var _climates_deferred := false
 # A rocky or ocean world has a climate and nothing else does; called wherever a type can change.
 func _sync_climate(b: Body) -> void:
 	if not ClimateInputs.applies(b.type): b.climate = null
-	elif b.climate == null: b.climate = ClimateInputs.build(b, get_stars(), int(_cmd.get("seed", 0)))
+	elif b.climate == null:
+		b.climate = ClimateInputs.build(b, get_stars(), int(_cmd.get("seed", 0)))
+		# Its visual was built before it had a climate, and an undrawn stage never updates it.
+		var v = b.viz.inner if b.viz is Bodies.AccretionWrap else b.viz
+		if v != null and v.has_method("snap_climate"): v.snap_climate()
 
 func remove_body(id) -> void:
 	var idx := -1
@@ -971,7 +975,7 @@ var _climate_frame := 0
 func _step_climate(stepped: float) -> void:
 	if not stepped > 0.0: return
 	var stars := get_stars()
-	var home := get_home()
+	var home := climate_home()
 	var shown := climate_world()
 	var waiting := 0
 	for b in state.bodies:
@@ -993,8 +997,17 @@ func _step_climate(stepped: float) -> void:
 func climate_world() -> Body:
 	var focused := state.body_by_id(state.focus_id)
 	if focused != null and focused.climate != null: return focused
-	var home := get_home()
+	var home := climate_home()
 	return home if home != null and home.climate != null else null
+
+## The home world as the climates know it. A visit lends home_id to the world it stands on, for the
+## sky; which worlds step exactly every frame must not follow it, or the climates step differently.
+func climate_home() -> Body:
+	var v: SurfaceVisit = showcase.visit if showcase != null else null
+	if v != null and v.ready:
+		var before = v.home_before()
+		return state.body_by_id(before) if before != null else null
+	return get_home()
 
 # The panel follows climate_world(): shown or not, and sliders on that world's inputs.
 func _sync_climate_panel() -> void:
@@ -1569,7 +1582,7 @@ func refresh_ui() -> void:
 	var fb := state.body_by_id(state.focus_id)
 	if fb:
 		hud.set_shown("focusPanel", true)
-		hud.set_shown("showcaseOpen", fb.climate != null)
+		_sync_showcase_open()
 		hud.set_text("focusName", "%s · %s M☉" % [fb.name, U.expo(fb.mass, 2) if fb.mass < 0.01 else U.fixed(fb.mass, 2)])
 	else:
 		hud.set_shown("focusPanel", false)
@@ -1641,8 +1654,10 @@ func set_hud_hidden(hidden: bool) -> void:
 # APP MODE — the mode is a filter, not a separate application: the physics,
 # the scene and the bodies are the same either way, and switching costs nothing.
 func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
+	var was: String = state.app_mode
 	state.app_mode = mode
 	hud.set_app_mode(mode)
+	_sync_showcase_open()
 	if mode != "learn" and lessons: lessons.close()
 	if mode != "observatory" and observatory.active:
 		observatory.leave()
@@ -1667,6 +1682,7 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		set_panel_open("xsecPanel", false)
 		xsec_open = false
 		set_panel_open("controlPanel", true)
+		if not showcase.active: showcase.came_from = was
 		showcase.enter(world)
 	elif mode == "sandbox":
 		close_model_viewer()
@@ -2209,10 +2225,15 @@ func _on_sim_reset() -> void:
 	hud.set_slider("disc", state.disc_intensity, U.fixed(state.disc_intensity, 2))
 	sync_sim_controls()
 
+# A lesson owns the stage while it runs: a showcase opened from its focus panel would end it.
+func _sync_showcase_open() -> void:
+	var fb := state.body_by_id(state.focus_id)
+	hud.set_shown("showcaseOpen", fb != null and fb.climate != null and state.app_mode != "learn")
+
 func _on_showcase_action(kind: String) -> void:
 	match kind:
 		"open": set_app_mode("showcase", {"body": ""})
-		"leave": set_app_mode("sandbox")
+		"leave": set_app_mode(showcase.came_from if showcase.came_from in ["sandbox", "learn", "observatory"] else "sandbox")
 		"pin": showcase.drop_pin()
 		"stand": showcase.stand()
 		"back": showcase.leave_surface()

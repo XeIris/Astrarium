@@ -24,6 +24,16 @@ This re-rolled the geography of every unmapped rocky world once. Its statistics 
 mean of 0.492 and an sd of 0.110 against the 0.497 and 0.1065 `Terrain.crust_threshold` assumes, and asking for 29%
 land gives 28.9%.
 
+The crust's seed is a hash of the world's name, nudged by its spec's `seed`, so a world has the same ground every
+time it is loaded. A body id would not do that, because it counts every spawn since the start.
+
+The climate's part comes from `ClimateLook.targets` (`PlanetRelief.of_body`), not from the material. A material eases
+over 0.6 s, and an undrawn stage (`ff=`, the checks) never updates it. Only the static uniforms are read off the
+material: seed, relief, plate scale, insolation and transport. Temperature falls with height at the world's own rate
+(`uLapse`): 0.66 g/c_p on a wet world, 0.4 g/c_p on a dry one, nothing without air. The shader takes the same uniform.
+Height for the lapse counts from the sea where there is one, otherwise from the datum, and it may be negative: a basin
+below a dry world's datum is warmer than the datum.
+
 A pin does not hunt for land. It says what it found: open sea and how deep, sea ice, an ice sheet, or the biome and
 its height. On Earth it falls on land about 29% of the time, as it should. **A mapped world** (Earth, Mars, the Moon)
 keeps its map's coast, and its height is measured.
@@ -67,7 +77,7 @@ A summit reads below its peak because a cell is a mean or a median over its quar
 2. **Roughness that goes as 1/g.** Rock strength over ρg caps relief: Olympus Mons's 21.9 km against
    Everest's 8.8 km is 2.5, and the gravity ratio is 2.6
    ([table](https://en.wikipedia.org/wiki/List_of_tallest_mountains_in_the_Solar_System)). `surfacecheck` holds the
-   local relief to that ratio. The 420 m amplitude itself is an estimate.
+   local relief to that ratio. Its ±450 m on Earth (`ROUGH_M` 900 m, half of it either way) is itself an estimate.
 3. **Rivers,** where anything flows: the stream-power law,
 
        dz/dt = U − K A^m S^n + D∇²z,     m = 0.5, n = 1
@@ -101,6 +111,11 @@ Not modelled: lakes as water (a filled pit drains through its spill), glaciers, 
 tectonic uplift during the run (the crust's relief stands in for what it built).
 
 ## Oceans
+
+A site has a sea only where one can be seen: under a pin at sea, or where the far grid's ground falls below sea level.
+Inland, the waves and tide rows go from the panel. The disc drops with the ball's curve as the terrain does, about
+640 m at 90 km on Earth. It runs past the far grid only when the pin is at sea, since beyond the grid nothing says
+where the coast is. Whether it freezes is the sea's own temperature at its level, not the ground's.
 
 A spectrum, then wave trains, as `ocean.gdshader` sums them.
 
@@ -143,9 +158,9 @@ This is the equilibrium tide, with no basins, resonance or coasts, which is why 
 
 | Scale | Form | Source |
 | --- | --- | --- |
-| Stability | N² = (g²/c_pT)(1 − Γ/Γ_d), Γ/Γ_d = 0.66 wet, 0.4 dry | Earth's 6.5 of 9.8 K/km; the 0.4 from Mars's N in Rees & Garrett's table |
+| Stability | N² = (g²/c_pT)(1 − Γ/Γ_d), Γ/Γ_d = 0.66 wet, 0.4 dry (`ClimateLook.STABLE_*`, the lapse the planet draws) | Earth's 6.5 of 9.8 K/km; the 0.4 from Mars's N in Rees & Garrett's table |
 | Tropopause | where the column reaches 0.745 T (`Atmosphere.STRAT`) | Earth's 214.7 K over 288 K |
-| Hadley width | φ ≈ √(NH/Ωa), H the scale height | [Rees & Garrett 2019](https://arxiv.org/abs/1903.00393), after Held 2000 |
+| Hadley width | φ ≈ (gΔ_vH_t/Ω²a²θ₀)^¼ = √(NH_t/Ωa), H_t the tropopause height, constant 1 | Held 2000: where angular-momentum-conserving flow turns baroclinically unstable; the form [Frierson, Lu & Chen 2007](https://doi.org/10.1175/2007JAS2272.1) test against GCMs (the lecture notes could not be fetched, so this is the form as those papers quote it) |
 | Rossby radius | L = NH_t/f | [Wikipedia](https://en.wikipedia.org/wiki/Rossby_radius_of_deformation) (up to its π) |
 | Fastest wave | 3.9 L, from κL = 1.61 | [Eady model](https://en.wikipedia.org/wiki/Eady_model) |
 | Growth | σ = 0.31 (f/N) dU/dz | Lindzen & Farrell 1980, as [NCL's function](https://www.ncl.ucar.edu/Document/Functions/Contributed/eady_growth_rate.shtml) cites it (its printed form has a stray g; this is the dimensional one) |
@@ -155,22 +170,34 @@ This is the equilibrium tide, with no basins, resonance or coasts, which is why 
 
 The contrast ∂T/∂y is the world's own latitude model's (a dry world, an estimate of 0.3 T). Systems are seeded along the storm
 track, grow and decay on their Eady clock, and drift on half the column's thermal wind. Cover rises and wind veers under
-one. Rain's yearly mean is the climate's; a system concentrates it. **None of this reaches `Climate`.**
+one. **None of this reaches `Climate`.**
+
+**Rain and snow at the site.** A year's rain here is the climate's global mean times the pin's share:
+its `precipitation()` over that index's mean on the sphere (400 Fibonacci points, worked out on the survey's thread).
+It falls when something makes it: a storm overhead (`smoothstep(0.25, 0.65, influence)`) or a shower, in a tenth of
+three-hour spells (an estimate). The rate is scaled by that activity's long-run mean, measured by running the storm
+population ahead 3000 eighth-lives and putting it back, so a year adds up to the share. Precipitation is snow
+where the site's own annual-mean air is at or below 1.2 °C over land and 1.9 °C over the sea, the temperatures at
+which [Dai 2008](https://doi.org/10.1029/2008GL033295) finds snow the more frequent. The weather has no seasons, so
+a site whose mean is above that never snows, whatever its winter would do.
 
 What tests it, from Earth's calibration only:
 
 | Test | This model | Reference |
 | --- | --- | --- |
-| Hadley edge: Earth, Mars, Venus, Titan | 25°, 33°, 52°, past the pole | 30°, 40°, 60°, pole to pole (Rees & Garrett Table 1) |
+| Hadley edge: Earth, Mars, Venus, Titan | 29°, 51°, past the pole, past the pole | 30°, 40°, 60°, pole to pole (Rees & Garrett Table 1) |
+| Storm drift, Earth | 7.6 m/s | Extratropical cyclones move at about 25–50 km/h (7–14 m/s) |
 | Zonal wavenumber of storms, Earth / Mars | 6.1 / 2.0 | 5–7, and [1–4](https://www.gfdl.noaa.gov/bibliography/related_files/dbanfield0401.pdf) |
 | Surface wind, Venus / Titan / Mars | 0.77 / 1.0 / 23 m/s | [0.3–1 m/s](https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html) / about 1 m/s / [2–10 m/s, 17–30 in a dust storm](https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html) |
 
-Mars's wind comes out two to three times too high: a thin atmosphere's boundary layer is not the same machine, and
+Held's small-angle form outgrows a slow rotator's cell: Venus's 60 km troposphere puts its edge past the pole, where
+the observed one is near 60°. Mars's comes out 11° wide of its reference. Mars's wind comes out two to three times too high: a thin atmosphere's boundary layer is not the same machine, and
 the one constant was pinned to Earth. It is left visible rather than fitted. In thinner air still the scaling has no
 limit of its own, so it stops at 8% of the speed of sound (an estimate).
 
-Not modelled: fronts as moving lines (a system is a Gaussian), convection's own weather, monsoons, orography's
-rain shadow at a site, Venus's slow rotation regime beyond its Hadley width.
+Not modelled: fronts as moving lines (a system is a Gaussian), convection's own weather beyond its share of spells,
+seasons, monsoons, orography's rain shadow at a site, Venus's slow rotation regime beyond its Hadley width. The
+rivers still carve with the climate's global mean rain, not the site's.
 
 ## What it costs
 

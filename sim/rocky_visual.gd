@@ -57,6 +57,14 @@ static func lin_of(x) -> Color:
 static func id_hash(id: int) -> int:
 	return (id * 2654435761) & 0xFFFFFFFF
 
+## A world's crust key: FNV-1a of its name, so a reload, a rebuild or another session draws the same
+## ground, where a body id counts every spawn since start.
+static func name_hash(name: String) -> int:
+	var h := 2166136261
+	for byte in name.to_utf8_buffer():
+		h = ((h ^ byte) * 16777619) & 0xFFFFFFFF
+	return h
+
 # UV sphere parameterization: x = −r cos φ sin θ,
 # y = r cos θ, z = r sin φ sin θ, seam and pole rows duplicated. UVs in Godot's
 # convention (v = 0 at north), winding reversed for Godot's CW front faces.
@@ -264,6 +272,8 @@ class RockyViz extends RefCounted:
 	## Moon faces as it does on the date. Lapses a frame after the owner stops.
 	var surface_world := Basis()
 	var _surface_world_frame := -10
+	## A display turn on top of a tidal lock, so a visit can bring its star up. Nothing physical moves.
+	var display_turn := 0.0
 	var _sky_serial := -1
 
 	func _init(b: Body, o: VisualOpts) -> void:
@@ -276,7 +286,7 @@ class RockyViz extends RefCounted:
 		# A preset's seed nudges the terrain without re-rolling it. Wrapped, because this ends up in float32
 		# noise coordinates: a spawn's nine-digit seed would leave no bits for the noise, and blocks for continents.
 		var seed_opt := fposmod(float(o.spec_seed), RockyVisual.SEED_WRAP) if RockyVisual.truthy(o.spec_seed) else 0.0
-		var seed := float(RockyVisual.id_hash(b.id) % 1000) / 7.3 + seed_opt * 0.017
+		var seed := float(RockyVisual.name_hash(b.name) % 1000) / 7.3 + seed_opt * 0.017
 
 		# A world with no liquid at all is expressed by putting the sea-level datum
 		# below the deepest point there is, not by a second branch in the shader.
@@ -322,6 +332,13 @@ class RockyViz extends RefCounted:
 		if b.climate != null:
 			_sync_air(b.climate)
 			_follow_climate(b.climate, 0.0)
+
+	## Draw the climate now, without the ease: it has just been given one.
+	func snap_climate() -> void:
+		if body.climate == null: return
+		_look = ClimateLook.Binder.new()
+		_sync_air(body.climate)
+		_follow_climate(body.climate, 0.0)
 
 	func _add_clouds() -> void:
 		cloud_mat = RockyVisual.cloud_material(_cloud_seed)
@@ -395,7 +412,7 @@ class RockyViz extends RefCounted:
 			# parent. Transform into the tilted body frame before reading longitude.
 			var d := parent.pos.sub(b.pos)
 			var toward := tilt_q.inverse() * Vector3(d.x, d.y, d.z)
-			b.spin_phase = atan2(-toward.z, toward.x)
+			b.spin_phase = atan2(-toward.z, toward.x) + display_turn
 			surface.basis = Basis(Vector3.UP, b.spin_phase) * RockyVisual.NORTH_ON_ORBIT_POLE
 		else:
 			b.spin_phase = fmod(b.spin_phase - RockyVisual.spin_step(b, 1.0, dt, ctx.sim_dt), TAU)

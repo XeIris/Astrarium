@@ -36,8 +36,11 @@ var weather := SurfaceWeather.new()
 var sea_trains: Array = []
 var sea := {}
 var tide := {"height": 0.0, "rows": []}
+## A sea in view: under the pin, or in the far grid's low ground.
 var has_sea := false
 var frozen_sea := false
+## The crust and the climate's look, as the pin read them.
+var crust: PlanetRelief
 var patch_y := 0.0
 var built := false
 var eye_y := 2.0
@@ -70,8 +73,8 @@ func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, r
 	local.place(group, DVec3.new())
 	var seed_ := hash([str(U.nz(b.spec.get("seed"), b.name)), run_seed, where.n])
 	weather.setup(b, climate, where.lat, where.lon, seed_)
-	var viz = PlanetPin._viz(b)
-	var r := PlanetRelief.of_visual(viz)
+	var r := PlanetRelief.of_body(b)
+	crust = r
 	relief = SurfaceRelief.new()
 	relief.relief = r
 	relief.center = where.p
@@ -83,10 +86,11 @@ func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, r
 	relief.g = climate.gravity
 	relief.seed = seed_ & 0x7fffffff
 	relief.cells = int(CELLS.get(quality, 97))
-	relief.crater = float(viz.surf_mat.get_shader_parameter("uCrater"))
-	has_sea = str(where.ground.kind) in ["sea", "sea ice"] or (climate.wet and climate.ocean > 0.0 and r.sea_km > -30.0)
-	relief.has_sea = has_sea
-	relief.sea_m = r.sea_km * 1000.0 if has_sea else 0.0
+	relief.crater = r.crater
+	# Heights count from the world's sea, if it has one; whether one is in view waits for the grid.
+	relief.has_sea = str(where.ground.kind) in ["sea", "sea ice"] or (climate.wet and climate.ocean > 0.0 and r.sea_km > -30.0)
+	relief.sea_m = r.sea_km * 1000.0 if relief.has_sea else 0.0
+	relief.rain_index = float(where.ground.get("rain", -1.0)) if climate.wet else -1.0
 	var melt := float(where.ground.temp_k) > climate.freezing_point(climate.salinity) - 5.0
 	relief.flowing = climate.wet and climate.ocean > 0.0 and melt
 	relief.rain_mm = ClimateLook.precipitation_mm(climate)
@@ -149,7 +153,7 @@ func _palette() -> Dictionary:
 		row.a = int(regolith)
 		row.b = _shade(int(regolith), 0.8)
 		row.soil = _shade(int(regolith), 1.15)
-	row.biota = float(PlanetPin._viz(body).surf_mat.get_shader_parameter("uBiota")) * float(row.grow)
+	row.biota = crust.biota * float(row.grow)
 	return row
 
 # The sky's colour, for what it lights: a Venus's fill is orange. Bright channel at one.
@@ -175,13 +179,16 @@ func _build_scene() -> void:
 	# the planet's patch comes up through the valleys.
 	var lowest := INF
 	for v in h: lowest = minf(lowest, v)
-	patch_y = -30.0 if has_sea else lowest - 30.0
 	var at_sea: bool = str(pin.ground.kind) in ["sea", "sea ice"]
+	has_sea = at_sea or (relief.has_sea and lowest < 0.0)
+	patch_y = -30.0 if has_sea else lowest - 30.0
 	eye_y = EYE_SEA if at_sea else ground_y + EYE_LAND
-	# Lapse: the world's own dry adiabat, softened by water as Earth's is.
-	lapse = (SurfaceWeather.LAPSE_WET if climate.wet else SurfaceWeather.LAPSE_DRY) * climate.gravity / weather.cp
+	lapse = ClimateLook.lapse_k_m(climate)
 	temp_here = float(pin.ground.temp_k)
-	pressure_here = weather.air_bar * exp(-maxf(ground_y, 0.0) / maxf(weather.scale_h, 1.0))
+	# The air at the ground, which may be below the datum or the sea; at sea, the sea's surface.
+	pressure_here = weather.air_bar * exp(-(0.0 if at_sea else ground_y) / maxf(weather.scale_h, 1.0))
+	var share := relief.rain_index / relief.rain_index_mean if relief.rain_index >= 0.0 and relief.rain_index_mean > 0.0 else 1.0
+	weather.place(temp_here, weather.rain_mm_yr * share, at_sea)
 	_mat = ShaderMaterial.new()
 	_mat.shader = TERRAIN_SHADER
 	var pal := _palette()
@@ -193,7 +200,7 @@ func _build_scene() -> void:
 	var tree_top := (temp_here - 263.0) / maxf(lapse, 1e-5) + ground_y if float(pal.biota) > 0.1 else -1.0
 	_mat.set_shader_parameter("uGreenTop", tree_top)
 	_mat.set_shader_parameter("uFields", 0.0)
-	var frost := float(PlanetPin._viz(body).surf_mat.get_shader_parameter("uFrostK"))
+	var frost := crust.frost_k
 	var snow_line: float = (temp_here - frost) / maxf(lapse, 1e-5) + ground_y if frost > 0.0 else 1.0e9
 	_mat.set_shader_parameter("uSnowLine", snow_line)
 	_mat.set_shader_parameter("uRivers", 1.0 if relief.flowing else 0.0)
@@ -202,7 +209,8 @@ func _build_scene() -> void:
 	for gi in 2:
 		var channel: PackedFloat32Array = relief.channel_near if gi == 0 else relief.channel_far
 		group.add_child(SiteScene.terrain_mesh(grids, gi, patch_y, R, _mat, has_sea, channel))
-	frozen_sea = has_sea and temp_here < Climate.freezing_point(climate.salinity) - 4.0
+	# The sea's own temperature, at its level here, not the mountain's.
+	frozen_sea = has_sea and crust.temperature(sin(pin.lat), 0.0) < Climate.freezing_point(climate.salinity) - 4.0
 	if has_sea: _build_ocean(at_sea)
 	_build_rain()
 
@@ -213,6 +221,8 @@ func _build_ocean(at_sea: bool) -> void:
 	sea_trains = SurfaceWaves.make_trains(maxf(weather.wind_mean, 0.5), climate.gravity, _site_depth(), hash(pin.n) & 0xffffff)
 	sea = {"fetch": fetch}
 	_ocean_mat.set_shader_parameter("uFrozen", 1.0 if frozen_sea else 0.0)
+	_ocean_mat.set_shader_parameter("uRadius", relief.radius_m)
+	_ocean_mat.set_shader_parameter("uOpen", 1.0 if at_sea else 0.0)
 	_ocean_mat.set_shader_parameter("uDeep", _water_colour(0.02))
 	_ocean_mat.set_shader_parameter("uShallow", _water_colour(0.5))
 	_set_depth_tex()

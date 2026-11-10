@@ -1187,7 +1187,9 @@ func _build_showcase(b: Node) -> void:
 	var fg := grid(on_foot, [1.0, 1.0], 10.0, 5.0, 0.0, 10.0)
 	for kv in [["here", "ssTemp"], ["air", "ssPressure"], ["height", "ssHeight"], ["cloud", "ssCloud"], ["wind", "ssWind"], ["falling", "ssRain"], ["waves", "ssWaves"], ["tide", "ssTide"],
 			["nearest storm", "ssStorm"], ["Hadley edge", "ssHadley"], ["Rossby radius", "ssRossby"], ["storm's life", "ssLife"]]:
-		_stat(fg, kv[0], kv[1])
+		var cell := _stat(fg, kv[0], kv[1])
+		# Only a sea has waves and a tide to read.
+		if kv[1] in ["ssWaves", "ssTide"]: reg(kv[1] + "Row", cell)
 	var fr := grid(on_foot, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
 	B(fr, "Toggle", "To daylight", "scDaylight", "Turn the world until the Sun is up here. A display shift: nothing physical moves.").pressed.connect(func(): showcase_action.emit("day"))
 	B(fr, "Toggle", "Back to orbit", "scBack").pressed.connect(func(): showcase_action.emit("back"))

@@ -22,6 +22,8 @@ var pin: PlanetPin = null
 var pins_dropped := 0
 var marker: Node3D = null
 var _prev := {}
+## The mode a showcase was opened from, and goes back to.
+var came_from := "sandbox"
 var _pending_drop := false
 ## Someone standing on the world. Null otherwise, and then nothing of the surface exists.
 var visit: SurfaceVisit = null
@@ -280,6 +282,8 @@ func sync_surface(r: Dictionary) -> void:
 	var rain := float(r.rain)
 	hud.set_text("ssRain", "%s %s mm/h" % [str(r.kind), U.prec(rain, 2)] if rain > 0.05 else "none")
 	hud.set_text("ssCloud", "%s %%" % U.fixed(float(r.cover) * 100.0, 0))
+	hud.set_shown("ssWavesRow", r.has_sea)
+	hud.set_shown("ssTideRow", r.has_sea)
 	hud.set_text("ssWaves", "%s m · %s s" % [U.prec(float(r.hs), 2), U.prec(float(r.period), 2)] if r.has_sea else "no sea")
 	hud.set_text("ssTide", "%s cm" % U.fixed(float(r.tide) * 100.0, 1) if r.has_sea else "no sea")
 	var near := float(r.near_km)

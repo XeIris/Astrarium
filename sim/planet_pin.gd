@@ -40,12 +40,12 @@ static func direction(lat_r: float, lon_r: float) -> Vector3:
 static func _viz(b: Body):
 	return b.viz.inner if b.viz is Bodies.AccretionWrap else b.viz
 
-## What the planet draws at unit `p`.
+## What the planet draws at unit `p`, once its look has caught up with its climate.
 static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dictionary:
 	var viz = _viz(b)
 	if viz == null or not ("surf_mat" in viz) or viz.surf_mat == null:
 		return {"kind": "unknown", "biome": "", "height_m": 0.0, "depth_m": 0.0, "temp_k": 0.0, "text": "No surface is drawn here."}
-	var r := PlanetRelief.of_visual(viz)
+	var r := PlanetRelief.of_body(b)
 	var hr := r.height(p)
 	var h := hr.x
 	var sea := h < r.sea_km
@@ -60,10 +60,10 @@ static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dict
 		sea = false
 		h = absf(h) if dem == null else dem.at(lat_r, lon_r) / 1000.0
 	var sin_lat := clampf(p.y, -1.0, 1.0)
-	var t := r.temperature(sin_lat, maxf(h, 0.0))
+	var t := r.temperature(sin_lat, r.altitude(h, sea))
 	var pr := r.precipitation(p, t, h)
 	var frost := _frost(r, p, sin_lat, t, pr, sea)
-	var biota := float(viz.surf_mat.get_shader_parameter("uBiota"))
+	var biota := r.biota
 	var out := {"height_m": (h - r.sea_km if sea or r.sea_km > -30.0 else h) * 1000.0,
 		"depth_m": (r.sea_km - h) * 1000.0 if sea else 0.0, "temp_k": t, "rug": hr.y, "rain": pr, "frost": frost}
 	var kind := "land"
@@ -124,11 +124,16 @@ static func describe(g: Dictionary, b: Body) -> String:
 	match g.kind:
 		"sea": return "Open sea, %s deep, %s at the surface." % [_distance(float(g.depth_m)), c]
 		"sea ice": return "Sea ice over %s of water, %s." % [_distance(float(g.depth_m)), c]
-		"ice sheet": return "An ice sheet, %s up, %s." % [_distance(float(g.height_m)), c]
+		"ice sheet": return "An ice sheet, %s, %s." % [_level(float(g.height_m), b), c]
 		_:
 			var what: String = g.biome
-			return "%s, %s up, %s." % [what.capitalize(), _distance(float(g.height_m)), c] if b.climate == null or b.climate.wet \
-				else "%s, %s from the datum, %s." % [what.capitalize(), _distance(float(g.height_m)), c]
+			return "%s, %s, %s." % [what.capitalize(), _level(float(g.height_m), b), c]
+
+# Height against the sea, or a dry world's datum, with its side.
+static func _level(m: float, b: Body) -> String:
+	var wet: bool = b.climate == null or b.climate.wet
+	if m >= 0.0: return "%s up" % _distance(m) if wet else "%s above the datum" % _distance(m)
+	return "%s below %s" % [_distance(m), "sea level" if wet else "the datum"]
 
 static func _distance(m: float) -> String:
 	var a := absf(m)
