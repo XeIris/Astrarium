@@ -356,7 +356,7 @@ func climate_edits() -> void:
 	check("a salinity edit is a climate edit", stage.edit_body(earth, {"salinity": 200.0}) == earth and earth.climate.salinity == 200.0 and is_same(earth.viz, sea_viz))
 	check("and moves the ice edge", earth.climate.ebm.t_ice < LatitudeEBM.T_ICE)
 	check("a land edit keeps the visual", stage.edit_body(earth, {"land": 0.0}) == earth and is_same(earth.viz, sea_viz))
-	check("and moves its crust", absf(float(earth.viz.surf_mat.get_shader_parameter("uCrustT")) - Terrain.crust_threshold(0.0)) < 1e-6)
+	check("and moves its crust's target", ClimateLook.targets(earth.climate, earth.spec).uCrustT == Terrain.crust_threshold(0.0))
 	check("and reaches the inventory", earth.climate.water_column > earth_column)
 	check("and the era", earth.climate.classify(288.0).key == "WATER_WORLD")
 	check("a depth edit reaches the inventory", stage.edit_body(earth, {"oceanDepth": 1.0}) == earth and near_ratio(earth.climate.water_column, 1.0 * 1000.0 * Climate.RHO_SEA))

@@ -87,7 +87,8 @@ design.
   Chandrasekhar mass detonates). Unsupported equilibrium requests are rejected
   before spawn/edit/preset mutation by `Structure.input_error`; near-limit
   warnings are not destruction commands. See [the model domain](docs/physics/structure.md#supported-requests-and-physical-events).
-- Appearance is a consequence. A planet derives its insolation from where it is
+- Appearance is a consequence. `ClimateLook` turns a world's climate into uniforms that ease in
+  without a rebuild; a stated spec value wins. A planet derives its insolation from where it is
   and which stars light it (`insolation_at`), then its temperature, ice line and
   biomes. A preset states a value only when it can't be derived (Venus's 737 K is
   stated; Mercury's temperature is not).
@@ -224,6 +225,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
+- how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;

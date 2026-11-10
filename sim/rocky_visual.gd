@@ -254,11 +254,10 @@ class RockyViz extends RefCounted:
 	var is_rocky := true
 	var body: Body
 	var opts: VisualOpts
-	var albedo: float
-	var eps: float
-	var sea_km0: float
 	var tilt_q := Quaternion()
 	var _cover := -1.0
+	var _cloud_seed := 0.0
+	var _look := ClimateLook.Binder.new()
 	## The surface's world orientation while its owner sets it each frame: LocalView, so
 	## the map under a vehicle is the ground it launched from, and the Observatory, so the
 	## Moon faces as it does on the date. Lapses a frame after the owner stops.
@@ -300,16 +299,9 @@ class RockyViz extends RefCounted:
 		group.add_child(surface)
 		core = surface
 
+		_cloud_seed = seed + 3.7
 		if atm:
-			cloud_mat = RockyVisual.cloud_material(seed + 3.7)
-			if RockyVisual.truthy(o.cloud_color):
-				cloud_mat.set_shader_parameter("uTint", RockyVisual.v3(RockyVisual.lin_of(o.cloud_color)))
-			_set_cover(float(U.nz(o.cloud_cover, 0.5)))
-			RockyVisual.bind_cloud_map(cloud_mat, b.name)
-			clouds = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.008, 64, 48), cloud_mat)
-			clouds.name = "Clouds"
-			group.add_child(clouds)
-
+			_add_clouds()
 			_add_atmosphere()
 
 		# Obliquity is what gives a world seasons on top of whatever its orbit is
@@ -319,16 +311,32 @@ class RockyViz extends RefCounted:
 		tilt_q = Quaternion(Vector3(0, 0, 1), obliquity)
 		surf_mat.set_shader_parameter("uS2", RockyVisual.insolation_s2(obliquity))
 
-		albedo = float(U.nz(o.albedo, 0.3))
-		eps = 0.61 if atm else 1.0
-		# The sea datum as built, kept so a baked-dry world can refill when it cools.
-		sea_km0 = float(surf_opts.sea_km)
-
 		if b.visual_spin_rad_s == null:
 			if b.default_visual_spin_rad_s == null:
 				b.default_visual_spin_rad_s = 0.4 + randf() * 1.2
 			b.visual_spin_rad_s = b.default_visual_spin_rad_s
 		b.viz = self
+		# A rebuild must not spend a frame on defaults: a pin or a site may read this at once.
+		if b.climate != null:
+			_sync_air(b.climate)
+			_follow_climate(b.climate, 0.0)
+
+	## Draw the climate now, without the ease: it has just been given one.
+	func snap_climate() -> void:
+		if body.climate == null: return
+		_look = ClimateLook.Binder.new()
+		_sync_air(body.climate)
+		_follow_climate(body.climate, 0.0)
+
+	func _add_clouds() -> void:
+		cloud_mat = RockyVisual.cloud_material(_cloud_seed)
+		if RockyVisual.truthy(opts.cloud_color):
+			cloud_mat.set_shader_parameter("uTint", RockyVisual.v3(RockyVisual.lin_of(opts.cloud_color)))
+		_set_cover(float(U.nz(opts.cloud_cover, 0.5)))
+		RockyVisual.bind_cloud_map(cloud_mat, body.name)
+		clouds = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.008, 64, 48), cloud_mat)
+		clouds.name = "Clouds"
+		group.add_child(clouds)
 
 	func _add_atmosphere() -> void:
 		atmo_mat = RockyVisual.atmosphere_material(opts.atm_color)
@@ -336,14 +344,6 @@ class RockyViz extends RefCounted:
 		atmo = RockyVisual.mesh_instance(RockyVisual.sphere_geometry(R * 1.035, 72, 48), atmo_mat)
 		atmo.name = "Atmosphere"
 		group.add_child(atmo)
-
-	## Land and the sea's depth, after an edit. A map's coast is its own, so only the shader's
-	## procedural crust moves; the uniforms are the ones Terrain.terrain_uniforms sets.
-	func refresh_surface() -> void:
-		var land = body.spec.get("land")
-		if land == null: land = (1.0 - float(opts.sea_level) * 0.72) if opts.sea_level != null else 0.34
-		surf_mat.set_shader_parameter("uCrustT", Terrain.crust_threshold(float(land)))
-		surf_mat.set_shader_parameter("uOceanDepth", float(U.nz(body.spec.get("oceanDepth"), 3.7)) * 4.6 / 3.7)
 
 	## What the gas column says about the shell, on a change. A stated colour or depth wins, and
 	## a stated `atmosphere` decides whether there is a shell at all.
@@ -353,15 +353,30 @@ class RockyViz extends RefCounted:
 		if atmo == null:
 			if opts.atmosphere != null or thick < Climate.AIR_SHOWS: return
 			_add_atmosphere()
+		var tint: Vector3 = cl.sky.get("tint", Vector3.ONE)
 		if opts.atm_thick == null: atmo_mat.set_shader_parameter("uThick", thick)
-		if opts.atm_color == null: atmo_mat.set_shader_parameter("uTint", cl.sky.get("tint", Vector3.ONE))
+		if opts.atm_color == null:
+			atmo_mat.set_shader_parameter("uTint", tint)
+			surf_mat.set_shader_parameter("uAirTint", tint)
 
-	## The deck's global opaque fraction and its probit offset, recomputed only on change.
+	## The deck's global opaque fraction and its probit offset, written only on change.
 	func _set_cover(c: float) -> void:
 		if c == _cover: return
 		_cover = c
 		cloud_mat.set_shader_parameter("uCover", c)
-		cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(c))
+		cloud_mat.set_shader_parameter("uCloudZ", Terrain.cloud_z_table(c))
+
+	# The climate's look, eased onto the materials. The materials exist first: a world that has
+	# gained air grows its deck here.
+	func _follow_climate(cl: Climate, dt: float) -> void:
+		var want := ClimateLook.targets(cl, body.spec)
+		if clouds == null and float(want.cover) > 0.0 and opts.atmosphere != false: _add_clouds()
+		for key in _look.ease_to(want):
+			var v: float = _look.value[key]
+			match key:
+				"cover": if cloud_mat != null: _set_cover(v)
+				"storm": if cloud_mat != null: cloud_mat.set_shader_parameter("uStorm", v)
+				_: surf_mat.set_shader_parameter(key, v)
 
 	func hold_surface(world: Basis) -> void:
 		surface_world = world
@@ -413,38 +428,9 @@ class RockyViz extends RefCounted:
 		var cl: Climate = b.climate
 		if cl != null:
 			if cl.sky_serial != _sky_serial: _sync_air(cl)
-			eps = cl.emissivity()
-		# Temperature from where the body is now, so editing an orbit moves the ice line.
+			_follow_climate(cl, dt)
 		var suns = Suns.lit_by(ctx)
 		if suns != null:
-			# Insolation from real stars, or the stand-in light's own intensity when there are
-			# none, so temperature and lighting agree.
-			var S: float = Suns.insolation_at(b, ctx.suns) if not ctx.suns.is_empty() else float(suns[0].intensity)
-			var T: float
-			if opts.surface_k != null:
-				T = float(opts.surface_k)
-			elif S > 1e-8:
-				T = RockyVisual.surface_temp_k(S, albedo, eps)
-			else:
-				T = 60.0
-			var mk := _u(surf_mat, "uMeanK")
-			surf_mat.set_shader_parameter("uMeanK", mk + (T - mk) * minf(1.0, dt * 2.0))
-
-			# The hot end is derived too: uSeaKm, uScorch and uArid follow temperature, so a
-			# 388 K planet inside its habitable zone's inner edge loses its oceans. Only for a
-			# body with an atmosphere: an airless rock at 440 K is just warm. A stated surface
-			# temperature counts (Venus's 737 K).
-			if RockyVisual.truthy(opts.atmosphere):
-				# Near-Earth-pressure teaching model: dry out by water's boiling point.
-				var boil := clampf((T - 350.0) / 23.15, 0.0, 1.0)
-				surf_mat.set_shader_parameter("uSeaKm", sea_km0 + (-60.0 - sea_km0) * boil)
-				surf_mat.set_shader_parameter("uScorch", clampf((T - 330.0) / 140.0, 0.0, 1.0))
-				surf_mat.set_shader_parameter("uArid", minf(clampf((T - 310.0) / 80.0, 0.0, 1.0), 0.8))
-				if cloud_mat != null:
-					# A runaway greenhouse ends under more cloud, not less (Venus); only the fair-weather
-					# structure goes.
-					var base := float(U.nz(opts.cloud_cover, 0.5))
-					_set_cover(base + (1.0 - base) * clampf((T - 340.0) / 110.0, 0.0, 1.0))
 			# Season from the star's direction relative to the spin axis (sine of the sub-solar
 			# latitude), so any orbit gets its own seasons.
 			var pole := tilt_q * surface.basis.y
