@@ -35,6 +35,36 @@ var pot: GalPotential
 var sense := 1.0
 var disc_pop: GalPopulation
 var sphere_pop: GalPopulation
+var young_pop: GalPopulation = null
+var patterns: Array = []
+## The arms (uArmA, uArmB as gal_model.gdshaderinc reads them), the young stars'
+## luminosity-density scale and layer height, the bulge's light axes, and the dust.
+var arm_a := PackedVector4Array()
+var arm_b := PackedVector4Array()
+var young_k := 0.0
+var young_h := 0.05
+var bulge_axes := Vector2(1.0, 1.0)
+var dust := {}
+## The arms' map in their own frame (gal_model.gdshaderinc, uArmMap): r the young
+## arms' Σ exp(−d²/2w²), g the arm dust's cutoff · exp(−(d/w)²), on ARM_N² texels over
+## ±ARM_HALF kpc (52 pc texels, under half the narrowest arm's width). Baked once per
+## model and process.
+const ARM_N := 384
+const ARM_HALF := 20.0
+## A spur (Reid et al.'s Local and Outer segments) fades out over this many radians
+## past its measured ends, continuing at its own pitch; a rendering choice, not a measurement.
+const SPUR_FADE := 0.15
+static var _arm_cache := {}
+static var _cache_mutex := Mutex.new()
+var _l_young := 0.0
+var _model_key := ""
+var arm_img: Image = null
+var arm_tex: ImageTexture = null
+var bar_angle := 0.0
+var arm_turn := 0.0
+var spiral := {}
+var edge := 30.0
+var spiral_k := 0.0
 ## The resolved radius this frame, kpc.
 var res := RES_MAX
 ## The user's exposure, times the eye's adaptation (adapt()).
@@ -47,16 +77,37 @@ var show_tracers := true
 var show_stars := true
 var show_glow := true
 
-func _init(model: Dictionary) -> void:
+## `defer_arms`: leave the arms' map to bake_arms() on a worker and apply_arms() after
+## (the scene); otherwise it is baked here (checks).
+func _init(model: Dictionary, defer_arms := false) -> void:
 	pot = model.potential
 	sense = float(model.get("sense", 1.0))
 	group = Node3D.new()
 	group.name = "Galaxy_" + String(model.key)
+	patterns = model.get("patterns", [])
+	edge = float(model.get("extent", 30.0))
 	# A thin disc forms continuously; the bulge formed early (Bland-Hawthorn & Gerhard 2016).
-	disc_pop = GalPopulation.build({"kind": "constant", "gyr": 10.0})
+	# With arms, stars under 100 Myr are theirs and the disc's start at that age.
+	var arms: Array = model.get("arms", [])
+	var young_gyr := GalModels.MW_YOUNG_GYR if not arms.is_empty() else 0.0
+	disc_pop = GalPopulation.build({"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr})
 	sphere_pop = GalPopulation.build({"kind": "burst", "gyr": 10.0})
+	var axes: Array = model.get("bulgeAxes", [1.0, 1.0])
+	bulge_axes = Vector2(axes[0], axes[1])
+	dust = (model.get("dust", {}) as Dictionary).duplicate()
+	if not arms.is_empty():
+		young_pop = GalPopulation.build({"kind": "constant", "gyr": young_gyr})
+		young_h = GalModels.MW_YOUNG_H
+		var ext := tan(deg_to_rad(GalModels.MW_SPIRAL_PITCH_DEG))
+		for a in arms:
+			arm_a.append(Vector4(a[1], deg_to_rad(a[2]), tan(deg_to_rad(a[3])), tan(deg_to_rad(a[4]))))
+			# w = 0 marks a spur: it fades out past its measured azimuths (SPUR_FADE).
+			arm_b.append(Vector4(a[5], deg_to_rad(a[6]), deg_to_rad(a[7]), ext if a[8] else 0.0))
+		_l_young = float(model.sfr) * young_gyr * 1e9 * young_pop.light_per_formed
+		_model_key = String(model.key)
 	_build_glow(model)
 	_build_stars(model)
+	if not defer_arms and young_pop != null: apply_arms(bake_arms())
 
 func _visible(model: Dictionary, part: String) -> float:
 	for l in model.light:
@@ -80,6 +131,29 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 		mat.set_shader_parameter("uSphere", Vector4(1.0, _visible(model, "bulge") * l_m_sph * b.gm / g * GalUnits.MASS_UNIT_SUN, b.a, 0.0))
 	else:
 		mat.set_shader_parameter("uSphere", Vector4(0.0, 0.0, 1.0, 1.0))
+	mat.set_shader_parameter("uBar", Vector4(1.0, 0.0, bulge_axes.x, bulge_axes.y))
+	mat.set_shader_parameter("uEdge", edge)
+	for p in patterns:
+		if p.kind == GalPattern.Kind.SPIRAL:
+			# ρ0 back from amp = 4πGHρ0, in M☉ kpc⁻³.
+			var rho0: float = p.amp / (4.0 * PI * GalUnits.G * float(p.h)) * GalUnits.MASS_UNIT_SUN
+			spiral_k = _visible(model, "disc") * disc_pop.mean_l / disc_pop.mean_mass * rho0
+			spiral = p
+	if not spiral.is_empty():
+		mat.set_shader_parameter("uSpiral", Vector4(spiral_k, spiral.r0, spiral.rs, spiral.h))
+	mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, 0.0, 1.0 if arm_tex != null else 0.0))
+	if arm_tex != null:
+		mat.set_shader_parameter("uArmMap", arm_tex)
+		mat.set_shader_parameter("uArmHalf", ARM_HALF)
+	if not dust.is_empty():
+		var k: float = dust.kappa
+		mat.set_shader_parameter("uEnvelope", Vector2(dust.hr, dust.hole))
+		mat.set_shader_parameter("uDust", Vector4(k * dust.rhoDisc, dust.hr, dust.h0, dust.h1))
+		mat.set_shader_parameter("uDustArm", Vector4(k * dust.rhoArm, dust.rm, dust.ra, dust.ca))
+		mat.set_shader_parameter("uDustB", Vector4(dust.rf, dust.h0a, dust.rfa, dust.h1a))
+	else:
+		mat.set_shader_parameter("uDust", Vector4(0.0, 1.0, 1.0, 0.0))
+		mat.set_shader_parameter("uDustArm", Vector4(0.0, 1.0, 1.0, 0.0))
 
 func _build_glow(model: Dictionary) -> void:
 	var ext: float = model.get("extent", 30.0)
@@ -90,10 +164,17 @@ func _build_glow(model: Dictionary) -> void:
 	glow_mat.shader = GLOW_SHADER
 	_light_uniforms(model, glow_mat)
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
-	glow_mat.set_shader_parameter("uSphereR", 8.0)
+	# The bulge's light is below 1e-3 of its peak past three cutoff radii.
+	var bl: Dictionary = pot.part("bulge")
+	var sphere_r: float = 3.0 * float(bl.rc) if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF else 8.0
+	glow_mat.set_shader_parameter("uSphereR", sphere_r)
 	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
 	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
 	glow_mat.set_shader_parameter("uFaint", Vector2(disc_pop.faint_light, sphere_pop.faint_light))
+	if young_pop != null:
+		glow_mat.set_shader_parameter("uYoungCol", Vector3(young_pop.color.r, young_pop.color.g, young_pop.color.b))
+	var e: Array = GalModels.EXTINCTION_RGB
+	glow_mat.set_shader_parameter("uExt", Vector3(e[0], e[1], e[2]))
 	glow = MeshInstance3D.new()
 	glow.name = "Glow"
 	glow.mesh = box
@@ -125,6 +206,8 @@ func _build_stars(model: Dictionary) -> void:
 	star_mat.set_shader_parameter("uMS", GalPopulation.main_sequence())
 	star_mat.set_shader_parameter("uMSRange", Vector2(GalPopulation.LM_MIN, GalPopulation.LM_MAX))
 	star_mat.set_shader_parameter("uProfilePx2", BrightStars.PROFILE_PX2)
+	var e: Array = GalModels.EXTINCTION_RGB
+	star_mat.set_shader_parameter("uExt", Vector3(e[0], e[1], e[2]))
 	star_mat.set_shader_parameter("uSeed", int(model.get("seed", 1)) * 2654435761 & 0x7fffffff)
 	stars = MeshInstance3D.new()
 	stars.name = "Stars"
@@ -173,6 +256,7 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	var pix_sr := pix * pix
 	var gain := K * star_gain * exposure * adaptation
 	var cl := Vector3(cam_local.x, cam_local.y, cam_local.z)
+	_turn_patterns(t_myr)
 	glow.visible = show_glow
 	stars.visible = show_stars
 	# The resolved sphere shrinks with the camera's height off the plane, where there
@@ -198,9 +282,9 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 ## The glow's luminance (Sun-luminance kpc⁻² sr⁻¹) along a ray from `o` in local
 ## direction `d`, integrated as the shader does but in double: what the eye adapts to.
 ## The spheroid's cusp is cut at `r_floor`, so a patch, not one pixel, sets the level.
-func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3) -> float:
-	var y_d := disc_pop.color.r * 0.2126 + disc_pop.color.g * 0.7152 + disc_pop.color.b * 0.0722
-	var y_s := sphere_pop.color.r * 0.2126 + sphere_pop.color.g * 0.7152 + sphere_pop.color.b * 0.0722
+func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
+	var cols := [disc_pop.color, sphere_pop.color, young_pop.color if young_pop != null else Color(0, 0, 0)]
+	var e: Array = GalModels.EXTINCTION_RGB
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var box: Vector3 = glow_mat.get_shader_parameter("uBox")
 	var t1 := INF
@@ -214,9 +298,9 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3) -> float:
 		t0 = maxf(t0, minf(ta, tb))
 		t1 = minf(t1, maxf(ta, tb))
 	if t1 <= t0: return 0.0
-	var n := 96
-	var acc := 0.0
-	# Uniform in asinh about the plane crossing, as the shader samples.
+	var acc := [0.0, 0.0, 0.0]
+	var tau := 0.0
+	# Uniform in asinh about the plane crossing, as the shader samples the disc.
 	var sc := maxf(dv.z, 0.05) / maxf(absf(d.y), 1e-4)
 	var tc := clampf(-o.y / d.y if absf(d.y) > 1e-9 else t0, t0, t1)
 	var u0 := asinh((t0 - tc) / sc)
@@ -225,47 +309,254 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3) -> float:
 	for i in n:
 		var u := u0 + (float(i) + 0.5) * du
 		var t := tc + sc * sinh(u)
-		var j := light_density(o + d * t, r_floor)
-		acc += (j.x * y_d + j.y * y_s) * sc * cosh(u)
-	return acc * du / (4.0 * PI)
+		var p := o + d * t
+		var ds := sc * cosh(u) * du
+		var j := light_density(p, r_floor)
+		var k := dust_density(p.x, p.y, p.z) * ds
+		for ch in 3:
+			var kc := k * float(e[ch])
+			var within := (1.0 - exp(-kc)) / kc if kc > 1e-4 else 1.0 - 0.5 * kc
+			var att := exp(-tau * float(e[ch])) * within
+			acc[ch] += (j[0] * cols[0][ch] + j[1] * cols[1][ch] + j[2] * cols[2][ch]) * ds * att
+		tau += k
+	return (0.2126 * acc[0] + 0.7152 * acc[1] + 0.0722 * acc[2]) / (4.0 * PI)
 
-## Bolometric luminosity density (L☉ kpc⁻³) of the disc and the spheroid at a local
-## point, as gal_model.gdshaderinc computes it.
-func light_density(p: Vector3, r_floor := 1e-3) -> Vector2:
+## Bolometric luminosity density (L☉ kpc⁻³) of the disc, the spheroid (in the bar's
+## frame) and the young arms at a local point, as gal_model.gdshaderinc computes it.
+func light_density(p: Vector3, r_floor := 1e-3) -> PackedFloat64Array:
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var sv: Vector4 = glow_mat.get_shader_parameter("uSphere")
-	var R2 := p.x * p.x + p.z * p.z
-	var zb := sqrt(p.y * p.y + dv.z * dv.z)
+	var x: float = p.x
+	var y: float = p.y
+	var z: float = p.z
+	var R2 := x * x + z * z
+	var zb := sqrt(y * y + dv.z * dv.z)
 	var s := dv.y + zb
 	var q := R2 + s * s
 	var jd := dv.x * (dv.y * R2 + (dv.y + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb)
-	var r := maxf(p.length(), r_floor)
+	if spiral_k > 0.0 and arm_img != null:
+		jd += spiral_k * _arm_sample(x, z)[2] * GalaxyVisual._sech2(y / float(spiral.h))
+	jd = maxf(jd, 0.0) * smoothstep(edge, 0.8 * edge, sqrt(R2))
+	var cb := cos(bar_angle)
+	var sb := sin(bar_angle)
+	var u := x * cb + z * sb
+	var v := -x * sb + z * cb
+	var r := maxf(sqrt(u * u + (y / bulge_axes.y) * (y / bulge_axes.y) + (v / bulge_axes.x) * (v / bulge_axes.x)), r_floor)
+	var k := 1.0 / (bulge_axes.x * bulge_axes.y)
 	var js := 0.0
 	if sv.y > 0.0:
-		js = sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0))
-	return Vector2(jd, js)
+		js = k * (sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0)))
+	var jy := 0.0
+	if young_k > 0.0:
+		var R := sqrt(R2)
+		jy = young_k * _envelope(R) * _arm_sample(x, z)[0] * exp(-absf(y) / young_h) / (2.0 * young_h)
+	return PackedFloat64Array([jd, js, jy])
 
 ## The spheroid's share of the resolved stars at a local point.
 static func sphere_share(v: GalaxyVisual, p: Vector3) -> float:
 	var j := v.light_density(p)
-	var nd := j.x * v.disc_pop.resolved_per_l
-	var ns := j.y * v.sphere_pop.resolved_per_l
+	var nd := j[0] * v.disc_pop.resolved_per_l
+	var ns := j[1] * v.sphere_pop.resolved_per_l
 	return ns / maxf(nd + ns, 1e-300)
 
-## Adapt like an eye to the brightest of the given local rays: that glow is held
-## near KEY on screen, and the gain never rises past the night-sky calibration (1×).
-## The user's exposure applies on top.
+## Adapt like an eye. Within the disc, to the brightest of the given local rays (a
+## patch about 5° across at the centre's distance), held near KEY. From outside, to the
+## mean of the disc at DISC_R in eight directions, held near DISC_KEY, as a photograph
+## of a galaxy is exposed for its disc and lets the bulge burn out. Among the stars the
+## gain never rises past the night-sky calibration (1×); from outside, where no star is
+## resolved, it may open to OUTSIDE_MAX. The user's exposure applies on top.
 const KEY := 1.5
+const DISC_KEY := 0.8
+const DISC_R := 6.0
+const OUTSIDE_MAX := 100.0
+## The eye needs a level, not a measurement: fewer samples, and a fresh one every
+## ADAPT_EVERY seconds (the ease spans the rest).
+const ADAPT_SAMPLES := 48
+const ADAPT_EVERY := 0.2
+var _adapt_wait := 0.0
+var _adapt_want := 1.0
 func adapt(rays: Array, cam_local: Vector3, star_gain: float, dt: float) -> void:
 	if not adapt_enabled: return
-	var peak := 0.0
-	# A degree or so at the centre's distance.
-	var r_floor := maxf(cam_local.length() * 0.02, 1e-3)
-	for d in rays: peak = maxf(peak, ray_luminance(cam_local, d, r_floor))
+	if dt > 0.0:
+		adaptation = exp(lerpf(log(adaptation), log(_adapt_want), 1.0 - exp(-dt * 3.0)))
+		_adapt_wait -= dt
+		if _adapt_wait > 0.0: return
+	_adapt_wait = ADAPT_EVERY
+	var level := 0.0
+	var key := KEY
+	var outside := absf(cam_local.y) > 2.0 or Vector2(cam_local.x, cam_local.z).length() > edge
+	if outside:
+		for k in 8:
+			var a := TAU * float(k) / 8.0
+			var target := Vector3(DISC_R * cos(a), 0.0, DISC_R * sin(a))
+			level += ray_luminance(cam_local, (target - cam_local).normalized(), 1e-3, ADAPT_SAMPLES) / 8.0
+		key = DISC_KEY
+	else:
+		var r_floor := maxf(cam_local.length() * 0.08, 1e-3)
+		for d in rays: level = maxf(level, ray_luminance(cam_local, d, r_floor, ADAPT_SAMPLES))
 	# Pixel luminance of a ray is its luminance × K × gain (the shader's uGain is K/4π
 	# per ∫j ds, and ray_luminance already divides by 4π).
-	var want := 1.0 if peak <= 0.0 else minf(1.0, KEY / (peak * K * maxf(star_gain, 1e-9)))
-	adaptation = exp(lerpf(log(adaptation), log(want), 1.0 - exp(-dt * 3.0))) if dt > 0.0 else want
+	var cap := OUTSIDE_MAX if outside else 1.0
+	_adapt_want = 1.0 if level <= 0.0 else minf(cap, key / (level * K * maxf(star_gain, 1e-9)))
+	if dt <= 0.0: adaptation = _adapt_want
+
+## The bar's light and the arms turn with their patterns.
+func _turn_patterns(t_myr: float) -> void:
+	for p in patterns:
+		if p.kind == GalPattern.Kind.BAR: bar_angle = fposmod(GalPattern.angle(p, t_myr), TAU)
+		else:
+			arm_turn = fposmod(float(p.omega) * t_myr, TAU)
+	var bar := Vector4(cos(bar_angle), sin(bar_angle), bulge_axes.x, bulge_axes.y)
+	for mat in [glow_mat, star_mat]:
+		mat.set_shader_parameter("uBar", bar)
+		mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, arm_turn, 1.0 if arm_tex != null else 0.0))
+
+# ---- the CPU's copy of gal_model.gdshaderinc, in double
+
+func _arm_radius(i: int, beta: float) -> PackedFloat64Array:
+	var A := arm_a[i]
+	var B := arm_b[i]
+	var b := clampf(beta, B.y, B.z)
+	var t := A.z if b <= A.y else A.w
+	var R := A.x * exp(-(b - A.y) * t)
+	var weight := 1.0
+	if beta != b:
+		if B.w > 0.0:
+			t = B.w
+		else:
+			weight = exp(-0.5 * pow((beta - b) / SPUR_FADE, 2.0))
+		R *= exp(-(beta - b) * t)
+	return PackedFloat64Array([R, t, weight])
+
+## Σ over arms of exp(−d²/2w²) at (R, φ) with the arms turned by `turn`, w Reid's.
+func _arms(R: float, phi: float, turn: float) -> float:
+	var beta := phi - PI - turn
+	beta = beta - TAU * floor((beta + PI) / TAU)
+	var acc := 0.0
+	for i in arm_a.size():
+		var w := maxf(arm_b[i].x + 0.042 * (R - arm_a[i].x), 0.05)
+		var best := 0.0
+		for k in [-1, 0, 1]:
+			var at := _arm_radius(i, beta + TAU * float(k))
+			if at[0] < 2.0 or at[0] > 18.0: continue
+			var d := absf(R - at[0]) * cos(atan(at[1]))
+			best = maxf(best, at[2] * exp(-0.5 * d * d / (w * w)))
+		acc += best
+	return acc
+
+func _envelope(R: float) -> float:
+	var hr: float = dust.get("hr", 2.26)
+	var rh: float = dust.get("hole", 4.0)
+	if R >= rh: return exp(-R / hr)
+	var x := R / (2.0 * rh) - 0.5
+	return exp(-rh / hr) * exp(-x * x / 0.0625)
+
+## ∫∫ envelope · arms over the plane, for the young light's scale: the map's texels,
+## as the shader reads them.
+func _arm_integral(img: Image) -> float:
+	var s := 0.0
+	var px := 2.0 * ARM_HALF / float(ARM_N)
+	for j in ARM_N:
+		for i in ARM_N:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			s += _envelope(sqrt(x * x + z * z)) * img.get_pixel(i, j).r
+	return s * px * px
+
+## The arms' map and its integral: pure data, safe on a worker thread, cached per model.
+func bake_arms() -> Dictionary:
+	_cache_mutex.lock()
+	var hit: Dictionary = _arm_cache.get(_model_key, {})
+	_cache_mutex.unlock()
+	if not hit.is_empty(): return hit
+	var img := Image.create_empty(ARM_N, ARM_N, false, Image.FORMAT_RGBF)
+	var px := 2.0 * ARM_HALF / float(ARM_N)
+	for j in ARM_N:
+		for i in ARM_N:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var R := sqrt(x * x + z * z)
+			var phi := atan2(z, x)
+			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), _dust_arm(R, phi), _spiral_plane(R, phi)))
+	var out := {"img": img, "integral": _arm_integral(img)}
+	_cache_mutex.lock()
+	_arm_cache[_model_key] = out
+	_cache_mutex.unlock()
+	return out
+
+## On the main thread: the map's texture, and the young arms' scale from its integral.
+func apply_arms(baked: Dictionary) -> void:
+	if baked.is_empty(): return
+	arm_img = baked.img
+	arm_tex = ImageTexture.create_from_image(arm_img)
+	young_k = _l_young / float(baked.integral)
+	for mat in [glow_mat, star_mat]:
+		mat.set_shader_parameter("uArmMap", arm_tex)
+		mat.set_shader_parameter("uArmHalf", ARM_HALF)
+		mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, arm_turn, 1.0))
+
+## The map at a point, as the GPU samples it: turned into the arms' frame, bilinear
+## between texel centres, zero outside.
+func _arm_sample(x: float, z: float) -> PackedFloat64Array:
+	if arm_img == null: return PackedFloat64Array([0.0, 0.0, 0.0])
+	var c := cos(arm_turn)
+	var sn := sin(arm_turn)
+	var qx := (x * c + z * sn) / (2.0 * ARM_HALF) + 0.5
+	var qz := (z * c - x * sn) / (2.0 * ARM_HALF) + 0.5
+	if qx <= 0.0 or qz <= 0.0 or qx >= 1.0 or qz >= 1.0: return PackedFloat64Array([0.0, 0.0, 0.0])
+	var fx := qx * float(ARM_N) - 0.5
+	var fz := qz * float(ARM_N) - 0.5
+	var i0 := clampi(int(floor(fx)), 0, ARM_N - 1)
+	var j0 := clampi(int(floor(fz)), 0, ARM_N - 1)
+	var i1 := mini(i0 + 1, ARM_N - 1)
+	var j1 := mini(j0 + 1, ARM_N - 1)
+	var wx := clampf(fx - float(i0), 0.0, 1.0)
+	var wz := clampf(fz - float(j0), 0.0, 1.0)
+	var a := arm_img.get_pixel(i0, j0).lerp(arm_img.get_pixel(i1, j0), wx)
+	var b := arm_img.get_pixel(i0, j1).lerp(arm_img.get_pixel(i1, j1), wx)
+	var v := a.lerp(b, wz)
+	return PackedFloat64Array([v.r, v.g, v.b])
+
+## The stellar spiral's in-plane factor e^{−(R−r0)/Rs} cos γ at (R, φ) in the arms'
+## frame: its angle at t = 0, as the map turns with it by Ωp t from there. The factor is
+## still ~0.2 at 20 kpc, so it fades out over the map's last fifth in radius; otherwise
+## the map's square border shows face-on. The potential is not windowed.
+func _spiral_plane(R: float, phi: float) -> float:
+	if spiral.is_empty() or R < 1e-3: return 0.0
+	var gam: float = float(spiral.n) * (phi - float(spiral.angle0) + log(R / float(spiral.r0)) / tan(float(spiral.pitch)))
+	var window := smoothstep(ARM_HALF, 0.8 * ARM_HALF, R)
+	return exp(-(R - float(spiral.r0)) / float(spiral.rs)) * cos(gam) * window
+
+## Drimmel & Spergel's arm-dust factor at (R, φ) in the arms' frame: the cutoff outside
+## r_m times exp(−(d/w)²) to the nearest arm, w = ca·R.
+func _dust_arm(R: float, phi: float) -> float:
+	if dust.is_empty(): return 0.0
+	var cut: float = exp(-pow((R - dust.rm) / dust.ra, 2.0)) if R > dust.rm else 1.0
+	var w: float = dust.ca * maxf(R, 1.0)
+	var beta := phi - PI
+	beta = beta - TAU * floor((beta + PI) / TAU)
+	var best := 0.0
+	for i in arm_a.size():
+		for k in [-1, 0, 1]:
+			var at := _arm_radius(i, beta + TAU * float(k))
+			if at[0] < 2.0 or at[0] > 18.0: continue
+			var d := absf(R - at[0]) * cos(atan(at[1]))
+			best = maxf(best, at[2] * exp(-d * d / (w * w)))
+	return cut * best
+
+static func _sech2(x: float) -> float:
+	var e := exp(-2.0 * absf(x))
+	return 4.0 * e / ((1.0 + e) * (1.0 + e))
+
+## V optical depth per kpc at a local point.
+func dust_density(x: float, y: float, z: float) -> float:
+	if dust.is_empty(): return 0.0
+	var R := sqrt(x * x + z * z)
+	var hd: float = dust.h0 + (dust.h1 * (R - dust.rf) if R > dust.rf else 0.0)
+	var tau: float = dust.kappa * dust.rhoDisc * _envelope(R) * GalaxyVisual._sech2(y / hd)
+	var ha: float = dust.h0a + (dust.h1a * (R - dust.rfa) * (R - dust.rfa) if R > dust.rfa else 0.0)
+	tau += dust.kappa * dust.rhoArm * _arm_sample(x, z)[1] * exp(-y * y / (ha * ha))
+	return tau
 
 func _place_lattice(cam: DVec3, t_myr: float, gain: float, pix_sr: float) -> void:
 	var R := sqrt(cam.x * cam.x + cam.z * cam.z)

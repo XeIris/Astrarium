@@ -38,6 +38,9 @@ var resolved_mean_l := 0.0
 var resolved_ob := 0.0
 ## Share of the light from stars past the main sequence.
 var post_ms_light := 0.0
+## L☉ per M☉ ever formed in the history's window (a constant history's luminosity is
+## this times its formation rate times the window).
+var light_per_formed := 0.0
 var phase_l := PackedFloat64Array()
 
 ## The cumulative fraction of the k-th quantile.
@@ -68,11 +71,25 @@ static func main_sequence() -> PackedVector4Array:
 ## through the CIE 1931 functions (PlasmaSpectrum.cmf) into linear sRGB, divided by
 ## σT⁴ and scaled so the Sun (5772 K) has luminance 1. A hot star puts most of its
 ## power into the ultraviolet, so per L☉ it is dimmer than the Sun in visible light.
+## Tabulated on VIS_N points in ln T over 1000–60 000 K (linear between, within 1e-4 of
+## the integral), since a population build asks for it thousands of times.
 static func visible(T: float) -> Color:
-	var c := _visible_raw(T)
-	var sun := _visible_raw(5772.0)
-	var y_sun := 0.2126 * sun.r + 0.7152 * sun.g + 0.0722 * sun.b
-	return Color(c.r / y_sun, c.g / y_sun, c.b / y_sun)
+	if _vis_table.is_empty():
+		var sun := _visible_raw(5772.0)
+		var y_sun := 0.2126 * sun.r + 0.7152 * sun.g + 0.0722 * sun.b
+		for i in VIS_N:
+			var c := _visible_raw(exp(lerpf(log(VIS_T0), log(VIS_T1), float(i) / float(VIS_N - 1))))
+			_vis_table.append(Color(c.r / y_sun, c.g / y_sun, c.b / y_sun))
+	var f := clampf((log(T) - log(VIS_T0)) / (log(VIS_T1) - log(VIS_T0)), 0.0, 1.0) * float(VIS_N - 1)
+	var i := mini(int(f), VIS_N - 2)
+	return (_vis_table[i] as Color).lerp(_vis_table[i + 1], f - float(i))
+
+const VIS_N := 1024
+const VIS_T0 := 1000.0
+const VIS_T1 := 60000.0
+static var _vis_table: Array = []
+static var _built := {}
+static var _built_mutex := Mutex.new()
 
 ## The B−V a colour implies: the blackbody whose visible() colour has the same blue to
 ## red ratio, through Ballesteros' (2012) blackbody B−V relation (BrightStars.bv_teff).
@@ -149,12 +166,28 @@ static func _imf(m: float) -> float:
 	# Continuous at 0.5 M☉.
 	return pow(m, -1.3) if m < 0.5 else 0.5 * pow(m, -2.3)
 
-## `history`: {"kind": "constant", "gyr": T} forms stars evenly for T Gyr;
-## {"kind": "burst", "gyr": A} formed them all A Gyr ago.
+## `history`: {"kind": "constant", "gyr": T, "fromGyr": a} formed stars evenly at
+## ages a to T Gyr (a = 0 by default); {"kind": "burst", "gyr": A} formed them all A
+## Gyr ago.
 static func build(history: Dictionary) -> GalPopulation:
+	var key := JSON.stringify(history, "", true)
+	_built_mutex.lock()
+	var hit: GalPopulation = _built.get(key)
+	_built_mutex.unlock()
+	if hit != null: return hit
+	var p := GalPopulation._build(history)
+	_built_mutex.lock()
+	_built[key] = p
+	_built_mutex.unlock()
+	return p
+
+static func _build(history: Dictionary) -> GalPopulation:
 	var p := GalPopulation.new()
 	var age := float(history.gyr) * 1e9
+	var young := float(history.get("fromGyr", 0.0)) * 1e9
+	var span := age - young
 	var constant: bool = history.kind == "constant"
+	var formed := 0.0
 	var dn := PackedFloat64Array()
 	dn.resize(GRID)
 	var n := 0.0; var mm := 0.0; var ll := 0.0; var nr := 0.0; var lf := 0.0
@@ -165,9 +198,10 @@ static func build(history: Dictionary) -> GalPopulation:
 		var m := pow(10.0, lm)
 		var L := Stellar.luminosity(m)
 		var tau := Structure.main_sequence_lifetime(m, L)
-		var alive := minf(1.0, tau / age) if constant else (1.0 if tau > age else 0.0)
+		var alive := clampf((tau - young) / span, 0.0, 1.0) if constant else (1.0 if tau > age else 0.0)
 		# dN/dlog m ∝ m ξ(m)
 		var w := m * _imf(m) * alive * dl
+		formed += m * m * _imf(m) * dl
 		var c := visible(Stellar.effective_temp(m))
 		n += w; mm += w * m; ll += w * L
 		cr += w * L * c.r; cg += w * L * c.g; cb += w * L * c.b
@@ -189,7 +223,7 @@ static func build(history: Dictionary) -> GalPopulation:
 		var tau := Structure.main_sequence_lifetime(m, Stellar.luminosity(m))
 		var rate := 0.0
 		if constant:
-			if tau < age: rate = m * _imf(m) * dl / age
+			if tau < age and tau > young: rate = m * _imf(m) * dl / span
 		else:
 			var tau2 := Structure.main_sequence_lifetime(pow(10.0, lm + dl), Stellar.luminosity(pow(10.0, lm + dl)))
 			if tau >= age and tau2 < age: rate = m * _imf(m) / maxf((tau - tau2) / dl, 1e-30)
@@ -202,6 +236,7 @@ static func build(history: Dictionary) -> GalPopulation:
 		cr += phase_l[j] * c.r; cg += phase_l[j] * c.g; cb += phase_l[j] * c.b
 	p.post_ms_light = lp / (ll + lp)
 	ll += lp
+	p.light_per_formed = ll / formed
 	lf += lp
 	p.resolved_mean_l /= nr
 	p.resolved_ob /= nr

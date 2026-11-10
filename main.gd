@@ -3080,11 +3080,14 @@ func _shot_tick() -> void:
 				float(_cmd.get("padel", "0")), 1.0)
 		if _cmd.has("timescale"): set_time_scale(float(_cmd.timescale))
 		# The galactic scene: `galframe=whole|face|edge|sun|centre`, `galt=<Myr>` steps its
-		# tracers that far first (undrawn), `galrate=<Myr/s>`.
+		# tracers that far first (undrawn), `galrate=<Myr/s>`, `galhide=<layers>`, `galexposure=<factor>`.
 		if galaxy.active:
 			galaxy.wait_tracers()
 			if _cmd.has("galframe"): galaxy.frame(String(_cmd.galframe))
 			if _cmd.has("galrate"): galaxy.set_rate(float(_cmd.galrate))
+			# `galhide=tracers,stars,glow` leaves layers out of an evidence frame.
+			for l in String(_cmd.get("galhide", "")).split(",", false): _on_galaxy_action("layer", l)
+			if _cmd.has("galexposure"): _on_slider("galExposure", U.log10(float(_cmd.galexposure)))
 			if _cmd.has("galt") and galaxy.tracers != null:
 				galaxy.tracers.step(int(round(float(_cmd.galt) / GalTracers.DT)))
 				galaxy.t_myr = galaxy.tracers.t

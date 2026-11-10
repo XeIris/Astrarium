@@ -1,5 +1,6 @@
 #!/bin/sh
-# Disable contraction and fast math to preserve the GDScript operation order.
+# Disable contraction and fast math to preserve the GDScript operation order, and
+# builtins: clang fuses an adjacent sin and cos into sincos, an ulp off GDScript's calls.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HERE/bin"
@@ -27,7 +28,7 @@ case "$(uname -s)" in
     ;;
   *) echo "Unsupported build platform: $(uname -s)" >&2; exit 1 ;;
 esac
-"${CC:-cc}" -O2 -ffp-contract=off -fno-fast-math -std=c11 -Wall -Wextra -Wno-unused-parameter \
+"${CC:-cc}" -O2 -ffp-contract=off -fno-fast-math -fno-builtin -std=c11 -Wall -Wextra -Wno-unused-parameter \
    "$@" -I"$HERE" "$HERE/astrarium_native.c" -lm -o "$OUTPUT"
 if [ "$(uname -s)" = Darwin ]; then codesign --force -s - "$OUTPUT"; fi
 echo "built $OUTPUT"

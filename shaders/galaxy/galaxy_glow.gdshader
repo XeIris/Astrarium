@@ -7,7 +7,9 @@
 //
 // Samples are uniform in u = asinh((s − s_c)/scale) about the ray's crossing of the
 // plane (disc) or its closest approach to the centre (spheroid): dense where the
-// light is, so a thin disc seen face-on is sampled through its layer.
+// light is, so a thin disc seen face-on is sampled through its layer. Dust lies in the
+// disc's layer: the disc march carries its optical depth front to back, per channel
+// (uExt, A_λ/A_V), and the spheroid's samples read it there.
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, depth_test_disabled, cull_front;
 
@@ -24,11 +26,14 @@ uniform vec2 uFaint = vec2(1.0);
 uniform float uGain = 1.0;
 uniform vec3 uDiscCol = vec3(1.0);
 uniform vec3 uSphereCol = vec3(1.0);
+uniform vec3 uYoungCol = vec3(1.0);
+// Extinction in the red, green and blue channels relative to V.
+uniform vec3 uExt = vec3(0.748, 1.0, 1.324);
 // galaxylookcheck only: no light nearer than this.
 uniform float uInner = 0.0;
 
-const int N_DISC = 40;
-const int N_SPHERE = 24;
+const int N_DISC = 32;
+const int N_SPHERE = 16;
 
 vec2 box_hit(vec3 o, vec3 d, vec3 b) {
 	vec3 inv = 1.0 / d;
@@ -48,29 +53,82 @@ vec2 sphere_hit(vec3 o, vec3 d, float r) {
 	return vec2(-b - h, -b + h);
 }
 
-// ∫ j ds over [t0, t1], uniform in asinh((t − tc)/sc).
-float march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float jit, float faint) {
-	float u0 = asinh((t0 - tc) / sc);
+const int N_TAU = N_DISC + 1;
+
+// Disc and young light through the disc's layer with its dust, front to back, in two
+// legs: N_NEAR samples even in s up to uRes, where the drawn stars take over, and the
+// rest uniform in asinh about the plane crossing beyond it. Fills the optical depth at
+// each sample boundary (tv) and the legs' parameters (leg: t0, dn, tm, t1; arc: tc, sc,
+// u0, du) for the spheroid's march, which inverts them rather than storing boundaries.
+const int N_NEAR = 4;
+vec3 march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float jit, float faint,
+		inout float tv[N_TAU], out vec4 leg, out vec4 arc) {
+	vec3 acc = vec3(0.0);
+	float tau = 0.0;
+	vec3 trans = vec3(1.0);
+	float tm = clamp(uRes, t0, t1);
+	float u0 = asinh((tm - tc) / sc);
 	float u1 = asinh((t1 - tc) / sc);
-	float du = (u1 - u0) / float(N_DISC);
-	float acc = 0.0;
+	float du = (u1 - u0) / float(N_DISC - N_NEAR);
+	float dn = (tm - t0) / float(N_NEAR);
+	leg = vec4(t0, dn, tm, t1);
+	arc = vec4(tc, sc, u0, du);
 	for (int i = 0; i < N_DISC; i++) {
-		float u = u0 + (float(i) + jit) * du;
-		float t = tc + sc * sinh(u);
-		acc += gal_disc_j(o + d * t) * sc * cosh(u) * (t < uRes ? faint : 1.0) * step(uInner, t);
+		bool near_leg = i < N_NEAR;
+		tv[i] = tau;
+		float t;
+		float ds;
+		if (near_leg) {
+			t = t0 + (float(i) + jit) * dn;
+			ds = dn;
+		} else {
+			float u = u0 + (float(i - N_NEAR) + jit) * du;
+			t = tc + sc * sinh(u);
+			ds = sc * cosh(u) * du;
+		}
+		vec3 p = o + d * t;
+		float near = (t < uRes ? faint : 1.0) * step(uInner, t);
+		float jd;
+		float jy;
+		float dk;
+		gal_disc_sample(p, jd, jy, dk);
+		// Within a step of optical depth k the light is attenuated by its mean,
+		// (T − T e^{−k})/k, exactly for a uniform step: long steps through dense dust
+		// then neither overshoot nor flicker with the jitter. T carries over, one exp a step.
+		vec3 kc = dk * ds * uExt;
+		vec3 t_next = trans * exp(-kc);
+		vec3 att = mix(trans * (vec3(1.0) - 0.5 * kc), (trans - t_next) / max(kc, vec3(1e-6)), step(vec3(1e-4), kc));
+		acc += (jd * near * uDiscCol + jy * step(uInner, t) * uYoungCol) * ds * att;
+		trans = t_next;
+		tau += dk * ds;
 	}
-	return acc * du;
+	tv[N_DISC] = tau;
+	return acc;
 }
 
-float march_sphere(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float jit, float faint) {
+// The disc march's optical depth at t, linear in each leg's own parameter between its
+// boundaries.
+float tau_at(float t, float tv[N_TAU], vec4 leg, vec4 arc) {
+	if (t <= leg.x) return 0.0;
+	if (t >= leg.w) return tv[N_DISC];
+	float x = t < leg.z ? (t - leg.x) / max(leg.y, 1e-9)
+		: float(N_NEAR) + (asinh((t - arc.x) / arc.y) - arc.z) / max(arc.w, 1e-9);
+	x = clamp(x, 0.0, float(N_DISC) - 1e-3);
+	int i = int(x);
+	return mix(tv[i], tv[i + 1], x - float(i));
+}
+
+vec3 march_sphere(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float jit, float faint,
+		float tv[N_TAU], vec4 leg, vec4 arc) {
 	float u0 = asinh((t0 - tc) / sc);
 	float u1 = asinh((t1 - tc) / sc);
 	float du = (u1 - u0) / float(N_SPHERE);
-	float acc = 0.0;
+	vec3 acc = vec3(0.0);
 	for (int i = 0; i < N_SPHERE; i++) {
 		float u = u0 + (float(i) + jit) * du;
 		float t = tc + sc * sinh(u);
-		acc += gal_sphere_j(o + d * t) * sc * cosh(u) * (t < uRes ? faint : 1.0) * step(uInner, t);
+		acc += gal_sphere_j(o + d * t) * sc * cosh(u) * (t < uRes ? faint : 1.0) * step(uInner, t)
+			* exp(-tau_at(t, tv, leg, arc) * uExt);
 	}
 	return acc * du;
 }
@@ -81,23 +139,34 @@ void fragment() {
 	vec3 dw = normalize((INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz);
 	vec3 d = normalize(transpose(mat3(MODEL_MATRIX)) * dw);
 	vec3 o = uCamLocal;
-	// Interleaved gradient noise: a per-pixel offset that the bloom and the eye average.
-	float jit = fract(52.9829189 * fract(dot(FRAGCOORD.xy, vec2(0.06711056, 0.00583715))));
-	float disc = 0.0;
-	vec2 tb = box_hit(o, d, uBox);
-	tb.x = max(tb.x, 0.0);
-	if (tb.y > tb.x && uDisc.x > 0.0) {
+	// A per-pixel offset from an integer hash: structured noise (interleaved gradient)
+	// reads as hatching across a thin dust lane, white noise as grain.
+	uvec2 px = uvec2(FRAGCOORD.xy);
+	uint hh = px.x * 1973u + px.y * 9277u + 26699u;
+	hh = (hh ^ (hh >> 16u)) * 2246822519u;
+	hh = (hh ^ (hh >> 13u)) * 3266489917u;
+	hh ^= hh >> 16u;
+	float jit = float(hh >> 8u) * (1.0 / 16777216.0);
+	vec3 disc = vec3(0.0);
+	float tv[N_TAU];
+	for (int i = 0; i < N_TAU; i++) tv[i] = 0.0;
+	// No disc crossing: tau_at reads zero everywhere.
+	vec4 leg = vec4(1e30);
+	vec4 arc = vec4(0.0, 1.0, 0.0, 1.0);
+	vec2 tbx = box_hit(o, d, uBox);
+	tbx.x = max(tbx.x, 0.0);
+	if (tbx.y > tbx.x) {
 		float sc = max(uDisc.z, 0.05) / max(abs(d.y), 1e-4);
-		float tc = clamp(-o.y / (abs(d.y) > 1e-6 ? d.y : 1e-6), tb.x, tb.y);
-		disc = march_disc(o, d, tb.x, tb.y, tc, sc, jit, uFaint.x);
+		float tc = clamp(-o.y / (abs(d.y) > 1e-6 ? d.y : 1e-6), tbx.x, tbx.y);
+		disc = march_disc(o, d, tbx.x, tbx.y, tc, sc, jit, uFaint.x, tv, leg, arc);
 	}
-	float sph = 0.0;
+	vec3 sph = vec3(0.0);
 	vec2 ts = sphere_hit(o, d, uSphereR);
 	ts.x = max(ts.x, 0.0);
 	if (ts.y > ts.x && uSphere.y > 0.0) {
 		float sc = max(uSphere.x < 0.5 ? uSphere.w * 0.3 : uSphere.z * 0.5, 0.02);
 		float tc = clamp(-dot(o, d), ts.x, ts.y);
-		sph = march_sphere(o, d, ts.x, ts.y, tc, sc, jit, uFaint.y);
+		sph = march_sphere(o, d, ts.x, ts.y, tc, sc, jit, uFaint.y, tv, leg, arc);
 	}
-	ALBEDO = (disc * uDiscCol + sph * uSphereCol) * uGain;
+	ALBEDO = (disc + sph * uSphereCol) * uGain;
 }

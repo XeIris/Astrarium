@@ -213,6 +213,13 @@ The exposure slider multiplies that.
 
 - Face-on, the glow's pixels against the same integral done on the CPU in double
   (`GalaxyVisual.ray_luminance`) along the same rays: within 0.5 % in seven rings.
+- Through the dust lane, rows of pixels across it against the same integral, with the
+  CPU marching 3000 samples (12000 give the same): edge-on from outside within 0.6 %
+  (tolerance 4 %), and from the Sun within 5.3 % (tolerance 8 %). From the Sun the
+  glow's 28 far steps cross ~30 kpc of arm dust in the plane, and that quadrature reads
+  bright in the lane. Face-on the dust is too thin to test the absorption; these rows
+  are where a step attenuated at its midpoint (14 % off from the Sun) or a spheroid
+  that ignores the disc's dust (33 % off edge-on) shows.
 - The hand-over: with every drawn star given its population's mean luminosity and the
   nearest 5 pc left out (so no single star dominates), the stars in the shell carry
   1.015 of the light the glow gives up, over 24 views (tolerance 6 %). A star's drawn
@@ -221,12 +228,137 @@ The exposure slider multiplies that.
   pixel's solid angle; the check compares flux, not pixel sums. Comparing pixel sums
   reads 0.72 for a 50° frame, and this is why.
 
+## The bar, the arms and the dust (phase 2a)
+
+### Two rotating patterns
+
+`GalPattern` adds non-axisymmetric gravity, each pattern turning rigidly.
+
+- **The bar** is Dehnen's (2000) quadrupole in Monari et al.'s (2016) 3D form, as galpy
+  has it: Φ = A cos 2(φ − φb) (R/r)² g(r), with g = −(Rb/r)³ beyond Rb and
+  (r/Rb)³ − 2 inside. It turns at 39.0 ± 3.5 km/s/kpc (Portail et al. 2017), with
+  Rb = 5.0 kpc (the long bar's half-length) and its near end 27° ahead of the
+  Sun–centre line today (Bland-Hawthorn & Gerhard 2016). Its strength is galpy's
+  default α = 0.01, after Dehnen (2000).
+- **The spiral** is Cox & Gómez's (2002) potential of a two-armed stellar density
+  wave: ρ = ρ0 e^{−(R−r0)/Rs} sech²(z/H) cos γ, with ρ0 = 1 amu cm⁻³, r0 = 8, Rs = 7
+  and H = 0.18 kpc, and γ = N(φ − φp + ln(R/r0)/tan α), so its arms trail. It turns at
+  28.2 ± 2.1 km/s/kpc (Dias et al. 2019). Its 12° pitch is the mean of the two major
+  arms' measured pitches, and its crest lies on Perseus today (Reid et al. 2019).
+
+Both grow by Dehnen's quintic over one bar period from t = −320 Myr and run a further
+period before today, so the tracers have responded when the scene opens. The
+scene runs that history on a worker thread, which takes about a second.
+
+Turning patterns do work on a tracer: dE/dt = ∂Φ/∂t. The kernels tally
+W = ∫∂Φ/∂t dt at each kick (midpoint in time and position), so E − W is each tracer's
+invariant; it holds to 9 × 10⁻⁶ through the growth. With the bar alone and fully grown,
+the Jacobi integral E − Ωb Lz holds to 2 × 10⁻⁶, which does not use the tally.
+
+### A native kernel
+
+`NBodyKernel.tracers` (`native/astrarium_native.c`) runs the same arithmetic as
+`GalTracers._step_fused`, expression for expression, and `galaxycheck` requires the two
+to be bit-identical at every step (an ulp in the work tally can round away again, so
+the end state alone can agree by luck). That needs `-fno-builtin` in
+`native/build.sh`: otherwise clang fuses the spiral's adjacent `cos` and `sin` into
+`sincos`, an ulp off GDScript's separate calls. The native kernel takes 0.36 ms per step for 6000 tracers, against
+9.9 ms in GDScript; the GDScript one remains the fallback where the library is absent.
+
+Measuring the pattern speeds back from the tracers (the drift of their m = 2 density
+phase) was tried and does not work at this tracer count. The cold gas's response
+decays and turns at a mix of speeds, so it is not a check.
+
+### Light
+
+Appearance follows the model:
+
+- **The stellar arms** are the spiral's own density, Cox & Gómez's ρ, lit at the old
+  disc's light-to-mass ratio and added to the disc's light (held non-negative). The
+  drawn stars crowd into them too.
+- **The young stars**, under 100 Myr, are a separate population. The disc's own
+  population now covers 0.1–10 Gyr, so they are not counted twice. They form at
+  1.65 ± 0.19 M☉/yr (Licquia & Newman 2015, via Bland-Hawthorn & Gerhard 2016), in a
+  layer 49 pc high (Bovy 2017's A0 dwarfs), across the star-forming disc's radial
+  envelope (the dust disc's, below). They lie along Reid et al.'s (2019, Table 2)
+  measured arms, with their kinks, pitches and widths, and turn at the spiral's speed.
+  - Outside each arm's measured azimuths, Norma, Scutum–Centaurus,
+    Sagittarius–Carina and Perseus are extended at 12°: an extrapolation.
+  - Outer (Norma's far end) and the Local spur keep to what was measured. Past
+    their ends they fade out over about 9° of azimuth at their own pitch, a rendering
+    choice that avoids a hard edge.
+  - `galaxycheck` holds their total to SFR × 100 Myr × the young population's L/M.
+- **The bulge's light** takes the box/peanut bulge's axis ratios, 10 : 6.3 : 2.6
+  (Wegg & Gerhard 2013, via Bland-Hawthorn & Gerhard 2016), turning with the bar. Its
+  mass stays MWPotential2014's spherical one, with the bar's quadrupole added.
+- **Dust** is Drimmel & Spergel's (2001) model, their eqs. 13–17 and Table 1:
+  - a sech² disc (κV ρ0 = 0.0180 × 1098 kpc⁻¹, scale length 2.26 kpc, height 134 pc
+    flaring past 4.4 kpc, a hole inside R⊙/2);
+  - Gaussian arms (κV ρa = 0.0180 × 162, cut off outside 6.71 kpc, 64 pc/kpc wide,
+    80 pc high);
+  - all on Reid's arm loci rather than their Taylor & Cordes geometry. Their local
+    arm component is left out.
+  
+  The glow marches it front to back, per channel with Rieke & Lebofsky's (1985)
+  A_R/A_V = 0.748 and A_B/A_V = 1.324, so the light behind it reddens.
+- **Drawn stars** are dimmed by the same dust, at its density halfway along each sight
+  line.
+- **A baked map.** The young arms, the stellar spiral and the arm dust all turn
+  rigidly at Ωp, so in their own frame they are fixed. They are baked once on a worker
+  thread into a 384² map over ±20 kpc (52 pc texels, under half the narrowest arm's
+  width). The shaders read it turned by Ωp t, one lookup per sample instead of a loop
+  over arms and windings. The CPU copy reads the same map the same way, so the look
+  check still compares two integrations of one model. The stellar spiral's factor is
+  still 0.2 at 20 kpc, so its light fades out between 16 and 20 kpc; otherwise the
+  map's square border would show face-on. Its gravity is not windowed.
+- **A split march.** The glow's disc march spends 4 samples evenly on the resolved
+  sphere and 28, warped about the plane crossing, beyond it. With 40 warped samples the
+  hand-over read 1.02–1.04, because too few fell inside the 40 pc shell. Split, it
+  reads 0.977. Each step's light is attenuated by its exact in-step mean,
+  (1 − e^{−k})/k for optical depth k, so long steps through the dust lane neither
+  overshoot nor flicker with the per-pixel jitter (an integer hash: interleaved
+  gradient noise hatched the lane).
+- **Performance.** At native resolution on the M5, the galaxy runs at 49–52 fps from
+  outside and 33–34 fps from the Sun (p95 29.6–30.4 ms over two runs, against the
+  33.3 ms gate). The
+  spheroid's march reads the disc's optical depth by inverting the disc march's sample
+  spacing rather than searching stored boundaries; the stored array cost registers.
+- **The eye.** Within the disc it adapts as before. From outside it exposes for the
+  disc's mean brightness at 6 kpc, as a photograph of a galaxy does, and may open up
+  to 100×. The bulge then burns out.
+
+### Against the measured Galaxy
+
+- **Extinction to the centre.** From the Sun to the Galactic centre the dust gives
+  A_V = 21.1. Fritz et al. (2011) measure A_Ks = 2.42 ± 0.10 toward Sgr A*, or
+  A_V ≈ 21.6 with Rieke & Lebofsky's A_K/A_V = 0.112. Not fitted.
+- **Colour.** With the young arms, the integrated colour is B−V = 0.789, against
+  Licquia et al.'s 0.744 +0.068 −0.054. The young population's own B−V (0.30) is too
+  red: the post-main-sequence temperatures are Maraston's ranges for ages above a Gyr,
+  not young supergiants'.
+- **Local dust.** Locally the mid-plane extinction is 1.4 mag/kpc toward the centre,
+  because the Sun sits on the Local arm's dust. Straight up it is A_V = 0.24, probably
+  high: the low-dust bubble around the Sun is not modelled.
+- **The sky from the Sun** now shows the band split by its dust lane and reddened
+  toward the centre, as ESO's optical panorama does.
+
+### Limits (phase 2a)
+
+- **Weak arms face-on.** The stellar arms modulate the disc by about 25 % at the Sun,
+  and the young arms add about 6 % of the blue light. With MWPotential2014's bright
+  bulge, the arms are visible face-on only at the disc's exposure, and the bar is lost
+  inside the burnt-out bulge.
+- **Smooth young light.** Real arms are lit by clumped OB associations and H II regions.
+- **The tracers' response** to the bar and arms is weak and transient.
+- **Grain in the dust lane.** From inside the disc the jittered march leaves a fine,
+  unstructured grain along the lane's edges.
+- **The young stars** are in the glow only; the drawn lattice holds the old disc's
+  and bulge's stars.
+
 ## Limits (phase 1)
 
-- Axisymmetric: no bar, no arms. Both are phase 2, as density waves with measured
-  pattern speeds and pitch angles.
-- No dust: from the Sun the Galactic centre shines unobscured, which the real one
-  does not (A_V ≈ 30 mag). Phase 2.
+- Phase 1 was axisymmetric and dust-free; phase 2a above adds the bar, the arms and
+  the dust.
 - Giants are in the glow but not drawn one by one; neither are white dwarfs. From
   the Sun the drawn sky holds only dwarfs within 40 pc, a few hundred stars, where
   the real naked-eye sky's ~5000 are mostly giants and luminous stars much farther
@@ -244,7 +376,12 @@ The exposure slider multiplies that.
 ## Do the checks catch defects?
 
 `tools/mutationcheck.py` breaks the code in place, one defect at a time, runs the
-check that should catch it, and restores the file. Fourteen defects are caught: a
+check that should catch it, and restores the file. Twenty-one defects are caught. Phase
+2a's seven are the spiral's radial force, the bar's force in the GDScript kernel alone
+(which the native kernel then disagrees with), the work tally's sign, dust arms cut
+off on the wrong side of r_m, doubled young light, a step's light attenuated at its
+midpoint, and a spheroid unabsorbed by the disc's dust. Bolometric colours now leave
+the integrated B−V inside its 2σ and are caught by the populations' pinned colours. Phase 1's are a
 Julian year in the km/s conversion, a mass table evenly spaced in u, a wrong force share at R0, the disc's vertical
 force in the potential and in the integrator, the bulge table's derivative, a half
 kick, the Jeans equation's sign, no giants, bolometric instead of visible colours, a

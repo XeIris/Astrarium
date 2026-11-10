@@ -30,6 +30,8 @@ var limited := false
 var _pending := 0.0
 var _task := -1
 var _built: GalTracers = null
+var _arm_task := -1
+var _arms_baked := {}
 var _mutex := Mutex.new()
 var _hud_acc := 0.0
 var _adapted := false
@@ -51,13 +53,23 @@ func enter(k: String) -> void:
 	_adapted = false
 	rate = float(preset.get("rateMyrS", 5.0))
 	_pending = 0.0
-	visual = GalaxyVisual.new(model)
+	visual = GalaxyVisual.new(model, true)
 	stage.pipe.world_root.add_child(visual.group)
-	# Built off the main thread: drawing the Shu distribution takes about a second.
+	# The arms' map bakes on a worker too; they light up when it is done.
+	_arms_baked = {}
+	var v := visual
+	_arm_task = WorkerThreadPool.add_task(func():
+		var b := v.bake_arms()
+		_mutex.lock()
+		_arms_baked = b
+		_mutex.unlock(), false, "galaxy arms")
+	# Built off the main thread: drawing the Shu distribution takes about a second, and
+	# a model with a bar and arms then runs from its tStart, while they grow, to today.
 	_built = null
 	var m := model
 	_task = WorkerThreadPool.add_task(func():
 		var t := GalTracers.new(m)
+		t.step(int(round(-t.t / GalTracers.DT)))
 		_mutex.lock()
 		_built = t
 		_mutex.unlock(), false, "galaxy tracers")
@@ -70,6 +82,17 @@ func wait_tracers() -> void:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 	_adopt()
+	if _arm_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_arm_task)
+		_arm_task = -1
+	_adopt_arms()
+
+func _adopt_arms() -> void:
+	_mutex.lock()
+	var b := _arms_baked
+	_arms_baked = {}
+	_mutex.unlock()
+	if not b.is_empty() and visual != null: visual.apply_arms(b)
 
 func _adopt() -> void:
 	_mutex.lock()
@@ -78,6 +101,10 @@ func _adopt() -> void:
 	_mutex.unlock()
 	if t == null: return
 	tracers = t
+	# The clock ran while they were drawn; they catch up rather than the clock going back.
+	var k := int(floor((t_myr - tracers.t) / GalTracers.DT))
+	if k > 0: tracers.step(k)
+	_pending = maxf(t_myr - tracers.t, 0.0)
 	if visual != null: visual.set_tracers(tracers)
 
 func leave() -> void:
@@ -85,7 +112,11 @@ func leave() -> void:
 	if _task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
+	if _arm_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_arm_task)
+		_arm_task = -1
 	_built = null
+	_arms_baked = {}
 	active = false
 	if visual != null: visual.dispose()
 	visual = null
@@ -102,6 +133,10 @@ func step(dt: float) -> float:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 		_adopt()
+	if _arm_task >= 0 and WorkerThreadPool.is_task_completed(_arm_task):
+		WorkerThreadPool.wait_for_task_completion(_arm_task)
+		_arm_task = -1
+		_adopt_arms()
 	if stage.state.paused or rate <= 0.0:
 		achieved = 0.0
 		limited = false
@@ -205,7 +240,7 @@ func sync_hud() -> void:
 	var asked := rate if not stage.state.paused else 0.0
 	hud.set_text("galRate", ("%s Myr/s" % U.fixed(achieved, 1)) + (" (limited)" if limited else ""))
 	hud.set_text("galTracers", str(tracers.n) if tracers != null else "drawing…")
-	hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null and tracers.steps > 0 else "—")
+	hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null else "—")
 	hud.set_text("galDist", fmt_kpc(stage.cam.radius))
 	for r in RATES:
 		hud.set_active("[data-gal-rate=%s]" % str(r), absf(asked - float(r)) < 1e-9 or (float(r) == 0.0 and stage.state.paused))

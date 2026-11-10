@@ -35,10 +35,12 @@ func _init() -> void:
 	colour(mw)
 	if failures == 0:
 		tracers()
+		patterns()
+		light()
 	_done()
 
 func _done() -> void:
-	print("GALAXYCHECK DONE checks=%d failures=%d" % [checks, failures])
+	print("GALAXYCHECK DONE checks=%d failures=%d native=%s" % [checks, failures, str(GalTracers.native_available())])
 	quit(1 if failures > 0 else 0)
 
 # The unit system is Physics.G and the orrery year; check it against the
@@ -92,12 +94,13 @@ func consistency(p: GalPotential) -> void:
 	for i in 64:
 		var x := pts[i * 3]; var y := pts[i * 3 + 1]; var z := pts[i * 3 + 2]
 		var h := 1e-4 * maxf(sqrt(x * x + y * y + z * z), 0.1)
-		var g := Vector3(
-			(p.phi(x + h, y, z) - p.phi(x - h, y, z)) / (2.0 * h),
-			(p.phi(x, y + h, z) - p.phi(x, y - h, z)) / (2.0 * h),
-			(p.phi(x, y, z + h) - p.phi(x, y, z - h)) / (2.0 * h))
-		var a := Vector3(acc[i * 3], acc[i * 3 + 1], acc[i * 3 + 2])
-		var ef := (a + g).length() / g.length()
+		var gx := (p.phi(x + h, y, z) - p.phi(x - h, y, z)) / (2.0 * h)
+		var gy := (p.phi(x, y + h, z) - p.phi(x, y - h, z)) / (2.0 * h)
+		var gz := (p.phi(x, y, z + h) - p.phi(x, y, z - h)) / (2.0 * h)
+		var ex := acc[i * 3] + gx
+		var ey := acc[i * 3 + 1] + gy
+		var ez := acc[i * 3 + 2] + gz
+		var ef := sqrt(ex * ex + ey * ey + ez * ez) / sqrt(gx * gx + gy * gy + gz * gz)
 		worst_f = maxf(worst_f, ef)
 		var lap := 0.0
 		var c := p.phi(x, y, z)
@@ -115,17 +118,31 @@ func consistency(p: GalPotential) -> void:
 # luminosity give an integrated colour to set beside the measured one, Licquia,
 # Newman & Brinchmann (2015): rest-frame B−V = 0.744 +0.068 −0.054. Never tuned to it.
 func colour(p: GalPotential) -> void:
-	var disc := GalPopulation.build({"kind": "constant", "gyr": 10.0})
+	# The model's three populations: the disc's stars aged 0.1–10 Gyr, the arms' younger
+	# ones at the measured star formation rate, and the old bulge. Unreddened: the
+	# measurement is corrected for the Milky Way's own dust.
+	var disc := GalPopulation.build({"kind": "constant", "gyr": 10.0, "fromGyr": GalModels.MW_YOUNG_GYR})
+	var young := GalPopulation.build({"kind": "constant", "gyr": GalModels.MW_YOUNG_GYR})
 	var bulge := GalPopulation.build({"kind": "burst", "gyr": 10.0})
 	var g := GalUnits.G
-	var ld: float = GalModels.VISIBLE_DISC * p.part("disc").gm / g * disc.mean_l / disc.mean_mass
-	var lb: float = GalModels.VISIBLE_BULGE * GalPotential.gm_total(p.part("bulge")) / g * bulge.mean_l / bulge.mean_mass
-	var c := (disc.color * ld + bulge.color * lb) / (ld + lb)
+	var ld: float = GalModels.VISIBLE_DISC * p.part("disc").gm / g * GalUnits.MASS_UNIT_SUN * disc.mean_l / disc.mean_mass
+	var ly: float = GalModels.MW_SFR * GalModels.MW_YOUNG_GYR * 1e9 * young.light_per_formed
+	var lb: float = GalModels.VISIBLE_BULGE * GalPotential.gm_total(p.part("bulge")) / g * GalUnits.MASS_UNIT_SUN * bulge.mean_l / bulge.mean_mass
+	var c := (disc.color * ld + young.color * ly + bulge.color * lb) / (ld + ly + lb)
 	var bv := GalPopulation.bv_of(c)
-	print("     disc B−V %s, bulge %s, Galaxy %s; bulge %s %% of the light" % [String.num(GalPopulation.bv_of(disc.color), 3),
-		String.num(GalPopulation.bv_of(bulge.color), 3), String.num(bv, 3), String.num(100.0 * lb / (ld + lb), 1)])
+	print("     disc B−V %s, young %s, bulge %s, Galaxy %s; young %s %%, bulge %s %% of the bolometric light" % [
+		String.num(GalPopulation.bv_of(disc.color), 3), String.num(GalPopulation.bv_of(young.color), 3),
+		String.num(GalPopulation.bv_of(bulge.color), 3), String.num(bv, 3), String.num(100.0 * ly / (ld + ly + lb), 1),
+		String.num(100.0 * lb / (ld + ly + lb), 1)])
 	ok(GalPopulation.bv_of(GalPopulation.visible(5772.0)) > 0.55 and GalPopulation.bv_of(GalPopulation.visible(5772.0)) < 0.75, "a 5772 K blackbody reads as the Sun's B−V ≈ 0.65 (%s)" % String.num(GalPopulation.bv_of(GalPopulation.visible(5772.0)), 3))
 	ok(bv > 0.744 - 2.0 * 0.054 and bv < 0.744 + 2.0 * 0.068, "integrated B−V %s within 2σ of Licquia et al. (2015), 0.744 +0.068 −0.054" % String.num(bv, 3))
+	# Pins, not measurements: today's colour of each population, so that a change to
+	# how stars' colours mix shows even where the integrated colour stays within 2σ.
+	# The young population's 0.30 is known to be too red (docs/physics/galaxies.md).
+	var pins := {"disc": [disc, 0.806], "young": [young, 0.304], "bulge": [bulge, 0.990]}
+	var worst := 0.0
+	for k in pins: worst = maxf(worst, absf(GalPopulation.bv_of(pins[k][0].color) - float(pins[k][1])))
+	ok(worst < 0.02, "each population's B−V within 0.02 of its pinned value (worst %s)" % String.num(worst, 3))
 	# The quantile table the star shader draws masses from, integrated over the drawn
 	# fraction u in z = −log10(1 − u), which reaches its top decades (the shader's
 	# 24-bit u stops at 1 − 6e-8; the last 1e-7 is held at the top entry).
@@ -191,11 +208,11 @@ func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
 # steady state whose rotation curve is the model's.
 func tracers() -> void:
 	var t_run := 300.0 if quick else 1000.0
-	var model := GalModels.build("milky_way", 1)
+	var model := GalModels.build("milky_way", 1, false)
 	var tr := GalTracers.new(model)
-	var again := GalTracers.new(GalModels.build("milky_way", 1))
+	var again := GalTracers.new(GalModels.build("milky_way", 1, false))
 	ok(tr.n == 6000 and tr.pos == again.pos and tr.vel == again.vel, "same seed, same %d tracers" % tr.n)
-	var other := GalTracers.new(GalModels.build("milky_way", 2))
+	var other := GalTracers.new(GalModels.build("milky_way", 2, false))
 	ok(other.pos != tr.pos, "another seed, other tracers")
 	var p: GalPotential = model.potential
 	var gi := tr.population_index("gas")
@@ -242,6 +259,135 @@ func tracers() -> void:
 	ok(lag > 8.0 and lag < 35.0, "asymmetric drift at R0: stars lag vc by %s km/s" % String.num(lag, 1))
 	ok(st.R.size() >= 10 and worst_j < 8.0, "Jeans-corrected stellar curve within %s km/s of vc over 6–18 kpc" % String.num(worst_j, 1))
 	eilers(p)
+
+# The bar and the spiral (GalPattern): force and ∂Φ/∂t from the potential, the native
+# kernel bit for bit against the GDScript one, E − W through their growth, and the
+# Jacobi integral E − Ωb Lz with the bar alone, which does not use the work tally.
+func patterns() -> void:
+	var pats := GalModels.mw_patterns()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	for p in pats:
+		var worst_f := 0.0
+		var worst_t := 0.0
+		for i in 200:
+			var R := rng.randf_range(0.3, 20.0)
+			var ph := rng.randf() * TAU
+			var x := R * cos(ph)
+			var z := R * sin(ph)
+			var y := rng.randf_range(-1.0, 1.0)
+			var t := rng.randf_range(GalModels.MW_T_START - 20.0, 200.0)
+			var out := PackedFloat64Array([0.0, 0.0, 0.0])
+			GalPattern.add_accel(p, x, y, z, t, out, 0)
+			var h := 1e-5 * maxf(R, 0.5)
+			var gx := (GalPattern.phi(p, x + h, y, z, t) - GalPattern.phi(p, x - h, y, z, t)) / (2.0 * h)
+			var gy := (GalPattern.phi(p, x, y + h, z, t) - GalPattern.phi(p, x, y - h, z, t)) / (2.0 * h)
+			var gz := (GalPattern.phi(p, x, y, z + h, t) - GalPattern.phi(p, x, y, z - h, t)) / (2.0 * h)
+			var gn := sqrt(gx * gx + gy * gy + gz * gz)
+			if gn > 0.0:
+				var ex := out[0] + gx
+				var ey := out[1] + gy
+				var ez := out[2] + gz
+				worst_f = maxf(worst_f, sqrt(ex * ex + ey * ey + ez * ez) / gn)
+			var fd := (GalPattern.phi(p, x, y, z, t + 1e-3) - GalPattern.phi(p, x, y, z, t - 1e-3)) / 2e-3
+			if absf(fd) > 1e-12:
+				worst_t = maxf(worst_t, absf(GalPattern.dphi_dt(p, x, y, z, t) - fd) / absf(fd))
+		var name := "bar" if p.kind == GalPattern.Kind.BAR else "spiral"
+		ok(worst_f < 1e-5, "%s: acceleration = −∇Φ at 200 points and times (worst %s)" % [name, U.expo(worst_f, 2)])
+		ok(worst_t < 1e-4, "%s: ∂Φ/∂t against a finite difference (worst %s)" % [name, U.expo(worst_t, 2)])
+	# The spiral's potential minimum (its stellar crest) on each ring today: on Perseus
+	# where Reid et al. measured it, and falling behind the rotation outward (trailing).
+	var sp: Dictionary = pats[1]
+	var crest := func(R: float) -> float:
+		var best := INF
+		var at := 0.0
+		for k in 7200:
+			var ph := TAU * float(k) / 7200.0
+			var v := GalPattern.phi(sp, R * cos(ph), 0.0, R * sin(ph), 0.0)
+			if v < best:
+				best = v
+				at = ph
+		return at
+	var want := PI + deg_to_rad(float(GalModels.MW_SPIRAL_ANCHOR[1]))
+	var off := absf(wrapf(crest.call(float(GalModels.MW_SPIRAL_ANCHOR[0])) - want, -PI / 2.0, PI / 2.0))
+	ok(off < deg_to_rad(0.2), "spiral crest on Perseus (8.87 kpc, β = 40°) today, within %s°" % String.num(rad_to_deg(off), 2))
+	# Two arms repeat every 180°, so the step is kept short: −ln(7.5/7)/tan 12° = −18.6°.
+	var drift := wrapf(crest.call(7.5) - crest.call(7.0), -PI / 2.0, PI / 2.0)
+	ok(drift < 0.0 and absf(rad_to_deg(drift) + 18.6) < 0.3, "the arms trail: the crest falls %s° behind the rotation from 7 to 7.5 kpc (−18.6°)" % String.num(rad_to_deg(drift), 1))
+	var model := GalModels.build("milky_way", 3)
+	var a := GalTracers.new(model)
+	if GalTracers.native_available():
+		var b := GalTracers.new(GalModels.build("milky_way", 3))
+		b.use_native = false
+		# Compared every step: an ulp in the work tally can round away again later.
+		var first := -1
+		for s in 300:
+			a.step(1)
+			b.step(1)
+			if first < 0 and not (a.pos == b.pos and a.vel == b.vel and a.work == b.work): first = s
+		ok(first < 0, "native and GDScript tracer kernels bit-identical at every step of 300 with the bar and spiral%s" % ("" if first < 0 else " (first differs at step %d)" % first))
+	else:
+		print("     native kernel unavailable: the GDScript kernel alone runs")
+	a.step(int(round((0.0 - a.t) / GalTracers.DT)) + (500 if not quick else 0))
+	var dw := a.energy_drift()
+	ok(dw < 2e-5, "with the bar and spiral grown in: worst |Δ(E − W)/E| %s < 2e-5 at t = %s Myr" % [U.expo(dw, 2), String.num(a.t, 0)])
+	var moved := 0.0
+	for i in a.n: moved = maxf(moved, absf(a.work[i] / a.e0[i]))
+	ok(moved > 1e-3, "and the patterns do work on the tracers (largest |W/E| %s)" % U.expo(moved, 2))
+	# Bar alone, fully grown from the start: E − Ωb Lz is conserved in its frame.
+	var bar: Dictionary = GalModels.mw_patterns()[0].duplicate()
+	bar.tForm = -1e9
+	var m2 := GalModels.build("milky_way", 4, false)
+	m2.patterns = [bar]
+	var c := GalTracers.new(m2)
+	var j0 := PackedFloat64Array()
+	for i in c.n: j0.append(c.e0[i] - float(bar.omega) * c.lz(i))
+	c.step(1000 if quick else 3000)
+	var e1 := c.energies()
+	var worst_j := 0.0
+	for i in c.n: worst_j = maxf(worst_j, absf((e1[i] - float(bar.omega) * c.lz(i) - j0[i]) / j0[i]))
+	ok(worst_j < 2e-5, "bar alone: worst |ΔE_J/E_J| %s < 2e-5 over %s Myr" % [U.expo(worst_j, 2), String.num(c.t, 0)])
+
+# The light and dust the arms and bar add (GalaxyVisual's CPU copy of the shaders):
+# the young stars' total against the star formation rate that sets it, and the
+# extinction from the Sun to the Galactic centre against Fritz et al. (2011), who
+# measure A_Ks = 2.42 ± 0.10 toward Sgr A*: A_V ≈ 21.6 with Rieke & Lebofsky's
+# A_K/A_V = 0.112, the law the dust model uses. Not fitted.
+func light() -> void:
+	var v := GalaxyVisual.new(GalModels.build("milky_way", 1))
+	v._turn_patterns(0.0)
+	var want := GalModels.MW_SFR * GalModels.MW_YOUNG_GYR * 1e9 * v.young_pop.light_per_formed
+	var got := 0.0
+	var dr := 0.05
+	for ir in 400:
+		var R := (float(ir) + 0.5) * dr
+		for ip in 720:
+			var ph := TAU * (float(ip) + 0.5) / 720.0
+			# The young layer integrates to one over height.
+			var j := v.light_density(Vector3(R * cos(ph), 0.0, R * sin(ph)))
+			got += j[2] * 2.0 * GalModels.MW_YOUNG_H * R * dr * TAU / 720.0
+	ok(absf(got / want - 1.0) < 0.02, "young stars: %s L☉ in the arms for 1.65 M☉/yr over 100 Myr (%s of it)" % [U.expo(got, 3), String.num(got / want, 3)])
+	var tau := 0.0
+	var n := 8000
+	for i in n:
+		var f := (float(i) + 0.5) / float(n)
+		tau += v.dust_density(-8.0 * (1.0 - f), 0.0208 * (1.0 - f), 0.0) * 8.0 / float(n)
+	# Drimmel & Spergel's arms are cut off outside r_m = 6.71 kpc (their eq. 16): the
+	# arm dust on Scutum–Centaurus (4.91 kpc, inside) is full and on Perseus (8.87 kpc)
+	# down by exp(−((8.87 − 6.71)/2.07)²) = 0.34. Each is the crest's dust less the disc's.
+	var arm_dust := func(R: float, beta_deg: float) -> float:
+		var ph := PI + deg_to_rad(beta_deg)
+		var on := v.dust_density(R * cos(ph), 0.0, R * sin(ph))
+		var save: float = v.dust.rhoArm
+		v.dust.rhoArm = 0.0
+		var off := v.dust_density(R * cos(ph), 0.0, R * sin(ph))
+		v.dust.rhoArm = save
+		return on - off
+	var ratio: float = arm_dust.call(8.87, 40.0) / arm_dust.call(4.91, 23.0)
+	ok(absf(ratio - exp(-pow((8.87 - 6.71) / 2.07, 2.0))) < 0.02, "arm dust cut off outside 6.71 kpc: Perseus / Scutum–Centaurus %s (0.34)" % String.num(ratio, 3))
+	var av := 1.0857 * tau
+	ok(av > 15.0 and av < 28.0, "A_V from the Sun to the centre %s against ≈ 21.6 from Fritz et al. 2011 (15–28)" % String.num(av, 1))
+	v.group.free()
 
 # Mean vφ of the thin disc in 2 kpc rings: [centre, mean, standard error] (km/s).
 func _wide(tr: GalTracers, si: int) -> Array:

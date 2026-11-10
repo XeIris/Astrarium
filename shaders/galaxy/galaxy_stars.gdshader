@@ -42,6 +42,8 @@ uniform vec2 uMSRange = vec2(-1.1, 2.0);
 uniform float uGain = 1.0;
 uniform float uPixSr = 1e-6;
 uniform float uProfilePx2 = 3.27;
+// Extinction in the red, green and blue channels relative to V (as the glow's).
+uniform vec3 uExt = vec3(0.748, 1.0, 1.324);
 // galaxylookcheck only: every star white with this bolometric L, none nearer than uInner.
 uniform float uFixL = 0.0;
 uniform float uInner = 0.0;
@@ -134,7 +136,10 @@ void vertex() {
 				vec3 world = mat3(MODEL_MATRIX) * rel;
 				VERTEX = (VIEW_MATRIX * vec4(world, 1.0)).xyz;
 				POINT_SIZE = QUAD_PX;
-				vCol = ms.rgb / Y * v;
+				// Dimmed by the dust between: its density at the sight line's midpoint, which
+				// varies little over the resolved radius.
+				float tau = gal_dust(uCamLocal + rel * 0.5) * d;
+				vCol = ms.rgb / Y * v * exp(-tau * uExt);
 			}
 		}
 	}
