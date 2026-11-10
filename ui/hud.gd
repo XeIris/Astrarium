@@ -12,6 +12,7 @@ signal bindings_reset()
 signal app_icon_chosen(key: String)
 signal mesh_style_chosen(style: String)
 signal mode_chosen(mode: String)
+signal showcase_action(kind: String)
 signal preset_chosen(key: String)
 signal body_focus(id: int)
 signal body_remove(id: int)
@@ -69,7 +70,7 @@ const SECTION_MODE := {
 	"Imaging Band": "sandbox", "View & Camera": "sandbox", "Time": "sandbox",
 	"Focused Object": "sandbox", "Object Foundry": "sandbox", "Painter": "sandbox",
 	"Spaceflight": "flight", "Quick Spawn": "sandbox", "Bodies": "sandbox",
-	"Observatory": "observatory",
+	"Observatory": "observatory", "Showcase": "showcase",
 }
 const OPEN_BY_DEFAULT := {
 	"sandbox": ["Suns", "Imaging Band", "View & Camera", "Bodies"],
@@ -78,6 +79,7 @@ const OPEN_BY_DEFAULT := {
 	"learn": ["Imaging Band", "View & Camera"],
 	"flight": ["Spaceflight"],
 	"observatory": ["Observatory"],
+	"showcase": ["Showcase"],
 }
 # the climate badge's colours per era
 const ERA := {
@@ -582,6 +584,11 @@ func _build_settings() -> void:
 		Physics.secular = not Physics.secular
 		sec_btn.set_label("☑ Secular evolution" if Physics.secular else "☐ Secular evolution")
 		set_active("secularToggle", Physics.secular))
+	_h3(sim, "Showcase")
+	_note(sim, "A world in full focus can drop a pin by itself. Where it lands comes from the world's seed and the run's, not from this setting.")
+	var pin_btn := B(sim, "Toggle", "☑ Drop a pin on focus", "pinOnFocusToggle")
+	pin_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(pin_btn, 0.0, 10.0).pressed.connect(func(): showcase_action.emit("auto"))
 	_h3(sim, "Relativity")
 	_note(sim, "Einstein–Infeld–Hoffmann 1PN terms between the bodies: they advance Mercury's perihelion by 43″ a century and a compact binary's periastron by degrees a year. Off is Newton.")
 	var pn_btn := B(sim, "Toggle", "", "pnToggle")
@@ -1106,6 +1113,7 @@ func _build_control_panel() -> void:
 	m(sections[-1].head, 0.0, 8.0)
 	m(L(s, "—", {"fs": 11.0, "c": T.TEXT, "ls": 0.55}, "focusName"), 0.0, 8.0)
 	m(B(s, "Ghost", "Cross-section & edit ▸", "xsecOpen"), 0.0, 10.0).pressed.connect(func(): xsec_open.emit())
+	m(B(s, "Ghost", "Showcase this world ▸", "showcaseOpen", "Put this world in full focus, with a pin dropped on it from the seed."), 0.0, 10.0).pressed.connect(func(): showcase_action.emit("open"))
 	B(s, "Action", "Delete Object", "delFocus").pressed.connect(func(): delete_focus.emit())
 	_hide(fp, "inline", true)
 
@@ -1136,6 +1144,7 @@ func _build_control_panel() -> void:
 	_hide(fr, "inline", true)
 
 	_build_observatory(b)
+	_build_showcase(b)
 
 	# Quick Spawn
 	s = _section(b, "Quick Spawn")
@@ -1156,6 +1165,22 @@ func _build_control_panel() -> void:
 	s.add_child(frame(list, {"bc": T.BORDER}))
 	reg("bodyList", list.content)
 	render_body_list([], -1)
+
+# One world in full focus, its pin, and the way onto its surface (sim/showcase.gd).
+func _build_showcase(b: Node) -> void:
+	var s := _section(b, "Showcase")
+	m(L(s, "—", {"fs": 12.0, "c": T.ACCENT, "ls": 1.2}, "scWorld"), 0.0, 6.0)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "scEra", true), 0.0, 8.0)
+	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 12.0)
+	for kv in [["surface", "scTemp"], ["air", "scAir"], ["gravity", "scGravity"], ["sea", "scSea"]]:
+		_stat(sg, kv[0], kv[1])
+	m(L(s, "No pin yet", {"fs": 10.0, "ls": 1.4, "up": true, "c": T.ACCENT_2}, "scPinNo"), 0.0, 4.0)
+	m(L(s, "—", {"fs": 11.0, "c": T.TEXT}, "scPinAt"), 0.0, 4.0)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "scPinGround", true), 0.0, 10.0)
+	var row := grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	B(row, "Toggle", "Drop a pin", "scPinDrop", "The next pin in this world's sequence. The world's seed, the run's seed and the pin's number decide where it lands, so it lands there every time.").pressed.connect(func(): showcase_action.emit("pin"))
+	B(row, "Toggle", "On focus", "scPinAuto", "Drop a pin by itself once a world is in full focus. The same setting is in Settings › Sim.").pressed.connect(func(): showcase_action.emit("auto"))
+	m(B(s, "Ghost", "Leave showcase", "scLeave"), 0.0, 10.0).pressed.connect(func(): showcase_action.emit("leave"))
 
 # The Observatory: site, date, clock, accuracy badge and overlays (sim/observatory/).
 func _build_observatory(b: Node) -> void:
@@ -1641,6 +1666,11 @@ func set_hud_hidden(hidden: bool) -> void:
 
 func mount(n: String) -> Control:
 	return _mounts.get(n, ids.get(n))
+
+## Wrapping text set by id: `say`, or it breaks a word early.
+func set_prose(id: String, text: String) -> void:
+	var el = ids.get(id)
+	if el is Prose: (el as Prose).say(text)
 
 func get_el(id: String) -> Control:
 	return ids.get(id)

@@ -157,11 +157,11 @@ float insolation(float sinLat, float s2) {
 }
 
 // T ~ S^(1/4), relaxed toward the global mean by poleward heat transport, then the world's
-// lapse rate (ClimateLook.lapse_k_m).
-float surfaceTemp(float sinLat, float hKm, float s2) {
+// lapse rate (ClimateLook.lapse_k_m) over `altKm`, which may be below the datum.
+float surfaceTemp(float sinLat, float altKm, float s2) {
 	float f = pow(insolation(sinLat, s2), 0.25);
 	float T = uMeanK * mix(f, 1.0, uTransport);
-	return T - uLapse * max(hKm, 0.0);
+	return T - uLapse * altKm;
 }
 
 // Precipitation 0..1 from the three cells plus Clausius–Clapeyron (~7%/K), fitted to

@@ -308,6 +308,16 @@ func _soak_check() -> void:
 					printerr("SOAK FAILED: scenario notification did not settle")
 					stage.get_tree().quit(1)
 					return,
+		"showcase": func():
+			for name in ["Earth", "Mars"]:
+				stage.set_app_mode("showcase", {"body": name})
+				for i in 30: stage.animate(1.0 / 60.0)
+				for pins in 3:
+					stage.showcase.drop_pin()
+					for i in 5: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+				stage.set_app_mode("sandbox")
+				for i in 5: stage.animate(1.0 / 60.0),
 		"observatory": func():
 			# Enter, every site, dates at both ends of the range and past it, the overlays,
 			# a running clock, and back out.
