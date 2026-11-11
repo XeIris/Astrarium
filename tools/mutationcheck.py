@@ -8,6 +8,7 @@ even on an interrupt.
 """
 import argparse
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GALAXYCHECK = ["--headless", "--script", "res://tools/galaxycheck.gd", "--", "quick=1"]
 ENCOUNTERCHECK = ["--headless", "--script", "res://tools/encountercheck.gd"]
 GALAXYLOOK = ["--always-on-top", "--resolution", "1280x720", "res://tools/galaxylookcheck.tscn"]
+COURSECHECK = ["--always-on-top", "--resolution", "1280x720", "res://tools/coursecheck.tscn", "--", "only=galaxies/localgroup"]
 
 # name: (file, text, replacement, check arguments, what it breaks). KNOWN_MISSES are
 # defects no check resolves yet; they are run and reported, and must stay missed or
@@ -146,6 +148,12 @@ MUTATIONS = {
                          ENCOUNTERCHECK, "Barnes & Hibbard's discs with σ_R = σ_z"),
     "nfw-taper-slope": ("sim/galaxy/gal_eddington.gd", "		beta = -1.0 - 2.0 * b / (b + a) + b / a", "		beta = -1.0 - 2.0 * b / (b + a)",
                         ENCOUNTERCHECK, "the halo's taper breaking its slope at b_h"),
+    "chart-parts-copy": ("ui/widgets/rotation_chart.gd", "			parts[p.name] = curve", "			parts[p.name] = PackedVector2Array()",
+                         GALAXYCHECK, "the rotation chart's parts left empty, as a packed array appended through a copy leaves them"),
+    "lesson-landmark-typo": ("sim/lessons.gd", '"galaxy": {"landmark": "m33"}', '"galaxy": {"landmark": "m32"}',
+                             COURSECHECK, "a lesson flying to a landmark the galaxy does not have"),
+    "pro-retro-same-spin": ("sim/galaxy/gal_models.gd", '["Retrograde", 180.0, 0.0]', '["Retrograde", 0.0, 0.0]',
+                            ENCOUNTERCHECK, "the retrograde disc spinning with the orbit after all"),
     "companion-in-front": ("sim/galaxy/gal_landmarks.gd", "var rel := (cs[0] as Vector3) * float(spec.d) - (hs[0] as Vector3) * float(host.d)",
                            "var rel := (cs[0] as Vector3) * (2.0 * float(host.d) - float(spec.d)) - (hs[0] as Vector3) * float(host.d)",
                            GALAXYCHECK, "NGC 5195 placed in front of M51 rather than behind"),
@@ -194,7 +202,9 @@ def main():
             f.write_bytes(original)
         assert f.read_bytes() == original
         out = r.stdout + r.stderr
-        failed = r.returncode != 0 or " failures=0" not in out
+        # A passing run prints "failures=0", or for the course "COURSE …L …S 0E".
+        passed = " failures=0" in out or re.search(r"^COURSE \d+L \d+S 0E$", out, re.MULTILINE) is not None
+        failed = r.returncode != 0 or not passed
         fails = [l for l in out.splitlines() if l.startswith("FAIL") or "ERROR" in l][:3]
         known = name in KNOWN_MISSES
         print(f"MUTATION {name} {'caught' if failed else ('missed (known)' if known else 'MISSED')}: {what}")

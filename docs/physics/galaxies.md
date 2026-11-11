@@ -991,6 +991,35 @@ refitted here.
   10 Gyr at about even (Sawala et al. 2025). The preset follows van der Marel et al.'s
   canonical start, one realisation.
 
+## Lessons (phase 5)
+
+Four lessons in "Galaxies and the universe" run in the galactic scene. A step's `do` block can
+carry a `galaxy` request: a framing, a landmark to fly to, and a clock rate (0 pauses). It
+applies after the preset loads, and `GalaxyScene.request_error` validates it.
+`coursecheck` rejects an unknown framing or landmark, and a request outside the scene.
+
+- **Weighing a galaxy.** The Milky Way's tracers, with the `rotation` instrument: the HUD's
+  chart in the lesson card, measuring the stars and gas clouds as they orbit. Its dashed
+  parts show what each component would hold up alone. In MWPotential2014 the halo supplies
+  35 % of v_c² at the Sun's radius and 61 % at 20 kpc, so without it an orbit at 20 kpc would
+  need 124 km/s instead of 198.
+- **Our neighbours.** The LMC, M31 and M33 landmarks, with their sources.
+- **The kinds of galaxies.** M51, M104, M87 and the LMC.
+- **When galaxies meet.**
+  - *Prograde against retrograde* (`gal_pro_retro`): Toomre & Toomre's (1972)
+    demonstration on two of Barnes & Hibbard's galaxies, one spinning with the orbit (i 0)
+    and one against it (i 180), at half Privon's particles. `encountercheck` measures it:
+    100 Myr after the passage, 28 % of the prograde disc's stars lie beyond 20 kpc and 0.7 %
+    of the retrograde one's.
+  - *The Antennae.*
+  - *The Milky Way and M31*, with van der Marel et al.'s 2012 timeline, their 2019 Gaia update
+    (first passage ~4.5 Gyr and ~130 kpc, later still with the LMC and M33), and Sawala et
+    al.'s (2025) even odds.
+
+The chart's parts had never drawn, in the HUD either: each was appended through a copy of a
+packed array. They are now built whole, and `galaxycheck` holds them to sum in quadrature to
+the model's curve.
+
 ## Limits (phase 1)
 
 - Phase 1 was axisymmetric and dust-free; phase 2a above adds the bar, the arms and
@@ -1028,7 +1057,9 @@ the Shu sampling reshapes only the eccentric tail of a disc this cool, below the
 stationarity test's noise. The hand-over test resolves about 6 %, so a smaller
 defect in the star counts (one extra star in each cell, say) also passes it.
 
-Phase 4's thirteen are all caught by `encountercheck`:
+Phase 4's thirteen are all caught by `encountercheck`, and phase 5's three by `galaxycheck`
+(the chart's parts), `coursecheck` (a misspelt landmark) and `encountercheck` (the retrograde
+disc spinning with the orbit):
 - the orbits: no dynamical friction, and the Coulomb logarithm read as a power;
 - the restricted disc pulling as a sphere;
 - the sampler: radii drawn from the wrong cumulative mass, and speeds set without the

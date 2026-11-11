@@ -72,6 +72,20 @@ func _init(main) -> void:
 static func has_preset(k: String) -> bool:
 	return GalModels.PRESETS.has(k)
 
+const FRAMES := ["whole", "face", "edge", "sun", "centre"]
+
+## Why a lesson's galaxy request (frame, landmark, rate) cannot be met in `model`, or "".
+static func request_error(req, model: Dictionary) -> String:
+	if not (req is Dictionary): return "galaxy must be a dictionary"
+	for k in req:
+		if not (k in ["frame", "landmark", "rate"]): return "galaxy: unknown key \"%s\"" % k
+	if req.has("frame") and not (String(req.frame) in FRAMES): return "galaxy: no framing \"%s\"" % req.frame
+	if req.has("landmark") and GalLandmarks.find(String(model.get("key", "")), String(req.landmark)).is_empty():
+		return "galaxy: no landmark \"%s\" in %s" % [req.landmark, model.get("key", "?")]
+	if req.has("rate") and (not (req.rate is float or req.rate is int) or not is_finite(float(req.rate)) or float(req.rate) < 0.0):
+		return "galaxy: rate must be a finite number of Myr/s, 0 or more"
+	return ""
+
 func enter(k: String) -> void:
 	if active: leave()
 	active = true
@@ -121,9 +135,11 @@ func _enter_encounter() -> void:
 	_enc_built = []
 	var seed := int(model.get("seed", 1))
 	_task = WorkerThreadPool.add_task(func():
-		var antennae := String(model.encounter) == "antennae"
-		var e := GalModels.antennae(ENCOUNTER_SCALE, seed) if antennae else GalModels.vdm_encounter(ENCOUNTER_SCALE, seed)
-		var lights := GalModels.antennae_lights(e) if antennae else GalModels.vdm_lights(e)
+		var ik := String(model.encounter) == "identikit"
+		var spec: Dictionary = GalModels.IDENTIKIT[model.spec] if ik else {}
+		var scale := ENCOUNTER_SCALE * float(spec.get("scale", 1.0))
+		var e := GalModels.identikit(spec, scale, seed) if ik else GalModels.vdm_encounter(scale, seed)
+		var lights := GalModels.antennae_lights(e) if ik else GalModels.vdm_lights(e)
 		_mutex.lock()
 		_enc_built = [e, lights]
 		_mutex.unlock(), false, "galaxy encounter")
