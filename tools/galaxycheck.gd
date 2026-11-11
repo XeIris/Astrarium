@@ -771,7 +771,38 @@ func types() -> void:
 		var m := GalModels.type_galaxy(k)
 		var mv := 4.83 - 2.5 * log(GalModels.visible_luminosity(m)) / log(10.0)
 		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
-	ok(worst < 1e-6, "M87 and M104 are drawn at their measured absolute V (worst %s mag)" % U.expo(worst, 1))
+	ok(worst < 1e-6, "%d galaxies of their own scenes are drawn at their measured absolute V (worst %s mag)" % [GalModels.TYPES.size(), U.expo(worst, 1)])
+	# M51's arms: the light the young term draws against the measured 36 %, and beside the
+	# light Calzetti et al.'s (2005) 3.4 M☉/yr would give over 100 Myr.
+	var m51 := GalModels.type_galaxy("m51")
+	var va := GalaxyVisual.new(m51)
+	var drawn_arms := va.young_k * va._arm_integral(va.arm_img)
+	var young := GalPopulation.build({"kind": "constant", "gyr": GalModels.MW_YOUNG_GYR})
+	var from_sfr := 3.4 * GalModels.MW_YOUNG_GYR * 1e9 * young.light_per_formed
+	print("     M51's arms: %s L☉ drawn (36 %% of its V light), %s L☉ from its star formation rate (×%s)" % [
+		U.expo(drawn_arms, 3), U.expo(from_sfr, 3), String.num(from_sfr / drawn_arms, 2)])
+	ok(absf(drawn_arms / float(m51.armLight) - 1.0) < 1e-6, "M51's arms draw the light measured in them (%s)" % String.num(drawn_arms / float(m51.armLight), 6))
+	# On each arm's ridge, past its rise, its light falls as exp(−R/h_s) (Marchuk et al. 2024).
+	var worst_h := 0.0
+	for i in (m51.arms as Array).size():
+		var row: Array = m51.arms[i]
+		var vals := []
+		for R in [4.5, 8.0]:
+			# The ridge's azimuth at R: β = βk − ln(R/Rk)/tan ψ, φ = π + β.
+			var beta := deg_to_rad(float(row[2])) - log(R / float(row[1])) / tan(deg_to_rad(float(row[3])))
+			vals.append(va._arms(R, PI + beta, 0.0))
+		var want := exp(-(8.0 - 4.5) / float(m51.armDecay[i]))
+		worst_h = maxf(worst_h, absf(float(vals[1]) / float(vals[0]) / want - 1.0))
+	ok(worst_h < 0.05, "M51's arms fade along their ridges with their measured h_s (worst %s %%)" % U.fixed(worst_h * 100.0, 1))
+	va.dispose()
+	# NGC 5195 against M51: 4.41′ apart on the sky (NED), 35 kpc behind.
+	var cf := GalLandmarks.companion_frame(m51, "ngc5195")
+	var off: Vector3 = cf[0]
+	var side := GalLandmarks.sun_side(m51)
+	var along := -off.dot(side)
+	var across := (off + side * along).length()
+	var sep := rad_to_deg(atan2(across, float(GalModels.TYPES.m51.d) + along)) * 60.0
+	ok(absf(sep - 4.41) < 0.02 and absf(along - 35.0) < 0.2, "NGC 5195 stands %s′ from M51 on the sky (NED 4.41′) and %s kpc behind it (35)" % [String.num(sep, 3), String.num(along, 2)])
 	# The dust's V opacity from Draine's (2003, Table 4) two numbers: C_ext(V) = 4.89 × 10⁻²²
 	# cm² per H and M_H/M_dust = 90; m_H 1.6735575 × 10⁻²⁷ kg (CODATA), M☉ = GM☉/G (G =
 	# 6.67430 × 10⁻¹¹, CODATA 2018), in kpc²/M☉.

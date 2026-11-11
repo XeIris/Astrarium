@@ -142,6 +142,7 @@ func _ready() -> void:
 		await handover(v)
 		# Last: it loads another scene, so nothing after it may hold the Milky Way's visual.
 		await type_dust("gal_m104")
+		await type_dust("gal_m51")
 	for error in logger.take():
 		failures += 1
 		printerr("GALAXYLOOKCHECK ENGINE ", error)
@@ -400,8 +401,8 @@ func neighbour_profile(key: String) -> void:
 	g.visual.show_stars = true
 	g.frame("whole")
 
-# A galaxy of its own scene through its dust: M104's glow in rows across its ring
-# against the CPU's integral. The ring is 20 pc thick, so this holds the thin sampling.
+# A galaxy of its own scene, in rows across its middle against the CPU's integral: M104
+# through its 20 pc dust ring (the thin sampling), M51 across its arms (the arm map).
 func type_dust(preset: String) -> void:
 	stage.load_preset(preset)
 	stage.galaxy.wait_tracers()
@@ -409,6 +410,8 @@ func type_dust(preset: String) -> void:
 	var g = stage.galaxy
 	var v: GalaxyVisual = g.visual
 	g.frame("whole")
+	# The galaxy alone: its companions are not in the CPU's integral.
+	for n in g.neighbours: n.hide = true
 	await settle(20)
 	pin(v, 0.3)
 	var img := await hdr()
@@ -434,7 +437,8 @@ func type_dust(preset: String) -> void:
 			want += v.ray_luminance(cam, d, 1e-3, 4000) * gain
 		print("     %s row %+d: drawn %s, integral %s" % [preset, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, absf(drawn / want - 1.0))
-	check("%s through its dust ring: glow = CPU integral in 7 rows (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	for n in g.neighbours: n.hide = false
+	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
 	stage.load_preset("gal_milkyway")
 	stage.galaxy.wait_tracers()
 	stage.state.paused = true

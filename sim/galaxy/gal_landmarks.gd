@@ -65,6 +65,12 @@ const M87 := [
 		"card": "The black hole at M87's centre, 6.5 billion solar masses: the first one imaged, its shadow measured by the Event Horizon Telescope (EHT Collaboration 2019). It is fifteen hundred times heavier than Sagittarius A*.",
 	},
 ]
+const M51 := [
+	{
+		"id": "ngc5195", "name": "NGC 5195", "short": "NGC 5195", "at": "companion", "key": "ngc5195", "view": [25.0, 0.8],
+		"card": "M51's companion, an old galaxy (12 Gyr, Wei et al. 2020) 20–50 kpc behind it (Dobbs et al. 2010; Salo & Laurikainen 2000). Its passage raised M51's grand-design arms; one arm reaches toward it.",
+	},
+]
 const M104 := [
 	{
 		"id": "m104ring", "name": "The dust ring", "short": "Dust ring", "at": "origin", "label_x": 7.1, "view": [30.0, 1.466],
@@ -78,6 +84,7 @@ static func of(model_key: String) -> Array:
 		"milky_way": return MILKY_WAY
 		"m87": return M87
 		"m104": return M104
+		"m51": return M51
 	return []
 
 static func find(model_key: String, id: String) -> Dictionary:
@@ -104,20 +111,44 @@ static func neighbour_frame(spec: Dictionary, model: Dictionary) -> Array:
 	var pot: GalPotential = model.potential
 	var f: Array = GalNeighbourhood.sun_frame(r0, float(model.get("sense", 1.0)) * pot.vc(r0) / r0, 0.0)
 	var sb: Basis = f[1]
-	var ra := float(spec.ra)
-	var dec := float(spec.dec)
+	var sk := sky_basis(float(spec.ra), float(spec.dec), float(spec.i), float(spec.pa))
+	var b: Basis = sk[1]
+	return [(f[0] as Vector3) + sb * ((sk[0] as Vector3) * float(spec.d)), Basis(sb * b.x, sb * b.y, sb * b.z).orthonormalized()]
+
+## A galaxy on the sky: its direction u from the Sun and its axes (x the line of nodes, y the
+## disc's normal, tilted by i from the line of sight), on the Sun's axes. North and east are
+## differences of directions half a degree apart. Which side of the disc is near is not
+## modelled.
+static func sky_basis(ra: float, dec: float, i: float, pa: float) -> Array:
 	var e := 0.5
 	var u := sky_direction(ra, dec)
 	var north := (sky_direction(ra, dec + e) - sky_direction(ra, dec - e)).normalized()
 	var east := (sky_direction(ra + e / cos(deg_to_rad(dec)), dec) - sky_direction(ra - e / cos(deg_to_rad(dec)), dec)).normalized()
-	var pa := deg_to_rad(float(spec.pa))
-	var inc := deg_to_rad(float(spec.i))
-	var nodes := north * cos(pa) + east * sin(pa)
-	var across := -north * sin(pa) + east * cos(pa)
-	var normal := -u * cos(inc) + across * sin(inc)
-	var ex := sb * nodes
-	var ey := sb * normal
-	return [(f[0] as Vector3) + sb * (u * float(spec.d)), Basis(ex, ey, ex.cross(ey)).orthonormalized()]
+	var nodes := north * cos(deg_to_rad(pa)) + east * sin(deg_to_rad(pa))
+	var across := -north * sin(deg_to_rad(pa)) + east * cos(deg_to_rad(pa))
+	var normal := -u * cos(deg_to_rad(i)) + across * sin(deg_to_rad(i))
+	return [u, Basis(nodes, normal, nodes.cross(normal)).orthonormalized()]
+
+## A companion of a galaxy of its own scene, in that galaxy's frame: [centre, axes], from
+## both their skies and distances.
+static func companion_frame(model: Dictionary, key: String) -> Array:
+	var host: Dictionary = model.sky
+	var spec: Dictionary = GalModels.TYPES[key]
+	var hs := sky_basis(float(host.ra), float(host.dec), float(host.i), float(host.pa))
+	var cs := sky_basis(float(spec.ra), float(spec.dec), float(spec.i), float(spec.pa))
+	var hb: Basis = hs[1]
+	var cb: Basis = cs[1]
+	var inv := hb.inverse()
+	var rel := (cs[0] as Vector3) * float(spec.d) - (hs[0] as Vector3) * float(host.d)
+	return [inv * rel, inv * cb]
+
+## The direction to the Sun in a galaxy's own frame, for a galaxy of its own scene with a
+## measured orientation; ZERO without one.
+static func sun_side(model: Dictionary) -> Vector3:
+	var host: Dictionary = model.get("sky", {})
+	if not host.has("pa"): return Vector3.ZERO
+	var hs := sky_basis(float(host.ra), float(host.dec), float(host.i), float(host.pa))
+	return ((hs[1] as Basis).inverse() * -(hs[0] as Vector3)).normalized()
 
 ## Where its label goes: on the landmark, or along the bar for the bar.
 static func label_position(lm: Dictionary, model: Dictionary, t_myr: float) -> Vector3:
@@ -133,6 +164,7 @@ static func label_position(lm: Dictionary, model: Dictionary, t_myr: float) -> V
 ## patterns.
 static func position(lm: Dictionary, model: Dictionary, t_myr: float) -> Vector3:
 	if String(lm.at) == "origin" or String(lm.at) == "bar": return Vector3.ZERO
+	if String(lm.at) == "companion": return companion_frame(model, String(lm.key))[0]
 	var r0: float = model.get("r0", 8.0)
 	var sense := float(model.get("sense", 1.0))
 	var pot: GalPotential = model.potential

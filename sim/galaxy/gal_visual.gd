@@ -44,6 +44,22 @@ var arm_a := PackedVector4Array()
 var arm_b := PackedVector4Array()
 var young_k := 0.0
 var young_h := 0.05
+## The arms: width growth per kpc (Reid et al.'s 0.042 in the Milky Way), each arm's light
+## falling as exp(−R/h_s) where given, the radii they span, and the star-forming
+## envelope (h_r, hole radius) the young light and disc dust share.
+var arm_growth := 0.042
+var arm_decay := PackedFloat64Array()
+var arm_rmin := 2.0
+var arm_rmax := 18.0
+## How many windings either side each arm's locus is followed through.
+var arm_turns := 1
+## Where the arms' light starts and over how many kpc it rises; mirrored arms wind the
+## other way on the sky; how far past their ends (rad) arms fade out.
+var arm_rise := Vector2(0.0, 0.0)
+var arm_mirror := false
+var arm_fade := SPUR_FADE
+var env_hr := 2.26
+var env_hole := 4.0
 var bulge_axes := Vector2(1.0, 1.0)
 var dust := {}
 ## Dust rings: each [R, σ, peak V optical depth per kpc], sech² in height with ring_h (kpc);
@@ -116,7 +132,7 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	# A thin disc forms continuously; the bulge formed early (Bland-Hawthorn & Gerhard 2016).
 	# With arms, stars under 100 Myr are theirs and the disc's start at that age.
 	var arms: Array = model.get("arms", [])
-	var young_gyr := GalModels.MW_YOUNG_GYR if not arms.is_empty() else 0.0
+	var young_gyr: float = float(model.get("youngGyr", GalModels.MW_YOUNG_GYR)) if not arms.is_empty() else 0.0
 	disc_pop = GalPopulation.build(model.get("discPop", {"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr}))
 	sphere_pop = GalPopulation.build(model.get("spherePop", {"kind": "burst", "gyr": 10.0}))
 	var axes: Array = model.get("bulgeAxes", [1.0, 1.0])
@@ -126,15 +142,29 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	ring_h = float(model.get("dustRingH", 0.01))
 	if not rings.is_empty(): thin = ring_h
 	if not dust.is_empty() and float(dust.h0) < 0.05: thin = minf(thin, float(dust.h0))
+	var env: Array = [dust.hr, dust.hole] if not dust.is_empty() else model.get("envelope", [2.26, 4.0])
+	env_hr = float(env[0])
+	env_hole = float(env[1])
 	if not arms.is_empty():
 		young_pop = GalPopulation.build({"kind": "constant", "gyr": young_gyr})
-		young_h = GalModels.MW_YOUNG_H
+		young_h = float(model.get("armH", GalModels.MW_YOUNG_H))
+		arm_growth = float(model.get("armWidthGrowth", 0.042))
+		arm_decay = PackedFloat64Array(model.get("armDecay", []))
+		arm_turns = int(model.get("armTurns", 1))
+		var rise: Array = model.get("armRise", [0.0, 0.0])
+		arm_rise = Vector2(rise[0], rise[1])
+		arm_mirror = bool(model.get("armMirror", false))
+		arm_fade = float(model.get("armEndFade", SPUR_FADE))
+		var lim: Array = model.get("armR", [2.0, 18.0])
+		arm_rmin = float(lim[0])
+		arm_rmax = float(lim[1])
 		var ext := tan(deg_to_rad(GalModels.MW_SPIRAL_PITCH_DEG))
 		for a in arms:
 			arm_a.append(Vector4(a[1], deg_to_rad(a[2]), tan(deg_to_rad(a[3])), tan(deg_to_rad(a[4]))))
 			# w = 0 marks a spur: it fades out past its measured azimuths (SPUR_FADE).
 			arm_b.append(Vector4(a[5], deg_to_rad(a[6]), deg_to_rad(a[7]), ext if a[8] else 0.0))
-		_l_young = float(model.sfr) * young_gyr * 1e9 * young_pop.light_per_formed
+		# A measured light along the arms wins over the star formation rate's.
+		_l_young = float(model.armLight) if model.has("armLight") else float(model.sfr) * young_gyr * 1e9 * young_pop.light_per_formed
 		_model_key = String(model.key)
 	_build_glow(model)
 	_build_stars(model)
@@ -181,9 +211,9 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	if arm_tex != null:
 		mat.set_shader_parameter("uArmMap", arm_tex)
 		mat.set_shader_parameter("uArmHalf", ARM_HALF)
+	mat.set_shader_parameter("uEnvelope", Vector2(env_hr, env_hole))
 	if not dust.is_empty():
 		var k: float = dust.kappa
-		mat.set_shader_parameter("uEnvelope", Vector2(dust.hr, dust.hole))
 		mat.set_shader_parameter("uDust", Vector4(k * dust.rhoDisc, dust.hr, dust.h0, dust.h1))
 		mat.set_shader_parameter("uDustArm", Vector4(k * dust.rhoArm, dust.rm, dust.ra, dust.ca))
 		mat.set_shader_parameter("uDustB", Vector4(dust.rf, dust.h0a, dust.rfa, dust.h1a))
@@ -475,29 +505,33 @@ func _arm_radius(i: int, beta: float) -> PackedFloat64Array:
 		if B.w > 0.0:
 			t = B.w
 		else:
-			weight = exp(-0.5 * pow((beta - b) / SPUR_FADE, 2.0))
+			weight = exp(-0.5 * pow((beta - b) / arm_fade, 2.0))
 		R *= exp(-(beta - b) * t)
 	return PackedFloat64Array([R, t, weight])
 
 ## Σ over arms of exp(−d²/2w²) at (R, φ) with the arms turned by `turn`, w Reid's.
 func _arms(R: float, phi: float, turn: float) -> float:
 	var beta := phi - PI - turn
+	if arm_mirror: beta = -beta
 	beta = beta - TAU * floor((beta + PI) / TAU)
 	var acc := 0.0
 	for i in arm_a.size():
-		var w := maxf(arm_b[i].x + 0.042 * (R - arm_a[i].x), 0.05)
+		var w := maxf(arm_b[i].x + arm_growth * (R - arm_a[i].x), 0.05)
 		var best := 0.0
-		for k in [-1, 0, 1]:
+		for k in range(-arm_turns, arm_turns + 1):
 			var at := _arm_radius(i, beta + TAU * float(k))
-			if at[0] < 2.0 or at[0] > 18.0: continue
+			if at[0] < arm_rmin or at[0] > arm_rmax: continue
 			var d := absf(R - at[0]) * cos(atan(at[1]))
 			best = maxf(best, at[2] * exp(-0.5 * d * d / (w * w)))
+		# An arm's own light rising from its start and then falling outward (Marchuk et
+		# al. 2024's h_s), where measured.
+		if i < arm_decay.size(): best *= exp(-R / arm_decay[i]) * smoothstep(arm_rise.x, arm_rise.x + arm_rise.y, R)
 		acc += best
 	return acc
 
 func _envelope(R: float) -> float:
-	var hr: float = dust.get("hr", 2.26)
-	var rh: float = dust.get("hole", 4.0)
+	var hr := env_hr
+	var rh := env_hole
 	if R >= rh: return exp(-R / hr)
 	var x := R / (2.0 * rh) - 0.5
 	return exp(-rh / hr) * exp(-x * x / 0.0625)
@@ -651,9 +685,9 @@ func _dust_arm(R: float, phi: float) -> float:
 	beta = beta - TAU * floor((beta + PI) / TAU)
 	var best := 0.0
 	for i in arm_a.size():
-		for k in [-1, 0, 1]:
+		for k in range(-arm_turns, arm_turns + 1):
 			var at := _arm_radius(i, beta + TAU * float(k))
-			if at[0] < 2.0 or at[0] > 18.0: continue
+			if at[0] < arm_rmin or at[0] > arm_rmax: continue
 			var d := absf(R - at[0]) * cos(atan(at[1]))
 			best = maxf(best, at[2] * exp(-d * d / (w * w)))
 	return cut * best

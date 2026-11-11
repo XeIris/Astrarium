@@ -96,6 +96,11 @@ MUTATIONS = {
                        GALAXYCHECK, "a galaxy's parts not adding up to its measured light"),
     "thin-dust-skipped": ("shaders/galaxy/galaxy_glow.gdshader", "float sc = max(min(uDisc.z, uThin), 0.005)", "float sc = max(uDisc.z, 0.05)",
                           GALAXYLOOK, "the glow's sampling stepping over a 20 pc dust ring"),
+    "arm-decay-ignored": ("sim/galaxy/gal_visual.gd", "if i < arm_decay.size(): best *= exp(-R / arm_decay[i])", "if false: best *= exp(-R / arm_decay[i])",
+                          GALAXYCHECK, "M51's arms not fading as measured along their length"),
+    "companion-in-front": ("sim/galaxy/gal_landmarks.gd", "var rel := (cs[0] as Vector3) * float(spec.d) - (hs[0] as Vector3) * float(host.d)",
+                           "var rel := (cs[0] as Vector3) * (2.0 * float(host.d) - float(spec.d)) - (hs[0] as Vector3) * float(host.d)",
+                           GALAXYCHECK, "NGC 5195 placed in front of M51 rather than behind"),
 }
 KNOWN_MISSES = {
     # For σR/vc ≈ 0.16 the radial period changes by a few per cent across the energies

@@ -22,6 +22,11 @@ const PRESETS := {
 		"blurb": "A giant elliptical at the heart of the Virgo cluster, 17 Mpc away: a ball of old stars five times the Milky Way's light (Kormendy et al. 2009), around the black hole the Event Horizon Telescope imaged.",
 		"model": "m87", "camRadius": 200.0, "camTheta": 1.2, "rateMyrS": 0.0,
 	},
+	"gal_m51": {
+		"name": "Whirlpool (M51)",
+		"blurb": "A grand-design spiral 8.6 Mpc away, its two arms measured one by one (Marchuk et al. 2024), with its companion NGC 5195 tens of kpc behind it at the tip of one arm.",
+		"model": "m51", "camRadius": 45.0, "camTheta": 0.8, "rateMyrS": 0.0,
+	},
 	"gal_m104": {
 		"name": "Sombrero (M104)",
 		"blurb": "A disc galaxy seen 6° from edge-on, 9.6 Mpc away: a bright spheroid of old stars, a disc, and a ring of dust that cuts across it (De Looze et al. 2012).",
@@ -109,6 +114,9 @@ static func visible_luminosity(model: Dictionary) -> float:
 		var pop: GalPopulation = pop_d if l.part == "disc" else pop_s
 		var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
 		lv += float(l.visible) * float(part.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * pop.mean_l / pop.mean_mass * y
+	if model.has("armLight"):
+		var young := GalPopulation.build({"kind": "constant", "gyr": MW_YOUNG_GYR})
+		lv += float(model.armLight) * (0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b)
 	return lv
 
 ## Galaxies of other kinds, each a scene of its own (too far for the Milky Way's): drawn
@@ -126,6 +134,22 @@ const TYPES := {
 	# and halo 52 % (exponential, r_e 6.0 kpc, ellipticity 0.28) as one Hernquist sphere of
 	# their joint half-light radius, 4.68 kpc; disc 35 %, scale length 1.89 kpc, height 0.78.
 	# Inclination 84° (Emsellem et al. 1996, via ibid.).
+	# The Whirlpool. McQuinn et al. (2016): 8.58 Mpc; RC3 V_T⁰ 8.14, so M_V −21.53. Marchuk et al.
+	# (2024, g band, bulge + disc + spirals; at 8.9 Mpc, rescaled): i 46.2°, PA 24.4°; bulge 8 %
+	# (r_eff 16.1″), disc 56 % (h 70.0″), and two arms of 19 and 17 % of the light, pitch 11.0°
+	# and 14.1°, radial FWHM 47.0″ and 45.8″ (σ across the arm = FWHM/2.355 · cos pitch), light
+	# falling with h_s 51.0″ and 62.4″, no width growth. Their phase, their span (1.5–10.5 kpc),
+	# their light rising over their first 2 kpc and fading over 0.6 rad past their ends are set
+	# to Hubble's image by eye, as are the disc's thickness (0.3 kpc) and the arms' (0.1). No dust.
+	"m51": {"name": "Whirlpool (M51)", "ra": 202.4696258, "dec": 47.19520736, "d": 8580.0, "mv": -21.53, "i": 46.2, "pa": 24.4,
+		"parts": {"bulge": [0.08, 0.369], "disc": [0.56, 2.821, 0.3]}, "extent": 25.0,
+		"arms": [["Arm 1", 4.000, 0.0, 11.0, 11.0, 0.815, -284.5, 289.1, false], ["Arm 2", 4.000, 180.0, 14.1, 14.1, 0.785, -40.1, 403.7, false]], "armShare": 0.36, "armDecay": [2.121, 2.596], "armR": [0.5, 20.0], "armTurns": 2, "armH": 0.1,
+		"armWidthGrowth": 0.0, "armRise": [1.5, 2.0], "armEndFade": 0.6, "companions": ["ngc5195"]},
+	# NGC 5195, M51's companion: RC3 V_T⁰ 9.58 and effective aperture 114.3″ (r_e 57.15″); 20–50
+	# kpc behind M51 (Dobbs et al. 2010; Salo & Laurikainen 2000, via Marchuk et al. 2024), 35 here;
+	# i 43°, PA 91° (Spillar et al. 1992, via Wei et al. 2020); old (12 Gyr, ibid.). Drawn round.
+	"ngc5195": {"name": "NGC 5195", "ra": 202.4980839, "dec": 47.2661666, "d": 8615.0, "mv": -20.09, "i": 43.0, "pa": 91.0,
+		"parts": {"bulge": [1.0, 1.310]}, "extent": 20.0},
 	"m104": {"name": "Sombrero (M104)", "ra": 189.9976312, "dec": -11.62308847, "d": 9550.0, "mv": -22.35, "i": 84.0,
 		"parts": {"bulge": [0.65, 2.577], "disc": [0.35, 1.834, 0.785]}, "bulgeAxes": [1.0, 0.72], "extent": 30.0,
 		"dust": "m104"},
@@ -182,6 +206,15 @@ static func type_galaxy(key: String) -> Dictionary:
 		if part == "bulge": pot.add(GalPotential.hernquist("bulge", float(pp[1]), gm))
 		else: pot.add(GalPotential.miyamoto_nagai("disc", float(pp[1]), float(pp[2]), gm))
 		light.append({"part": part, "visible": VISIBLE_BULGE})
+	if spec.has("arms"):
+		# The arms' measured share of the light, as the young population's bolometric light.
+		var young := GalPopulation.build({"kind": "constant", "gyr": MW_YOUNG_GYR})
+		var yy := 0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b
+		for k in ["arms", "armDecay", "armR", "armTurns", "armH", "armWidthGrowth", "armRise", "armEndFade", "armMirror"]:
+			if spec.has(k): model[k] = spec[k]
+		model.armLight = float(spec.armShare) * lv / yy
+		model.envelope = [1e9, 0.0]
+	if spec.has("companions"): model.companions = spec.companions
 	if spec.get("dust", "") == "m104":
 		var d := m104_dust()
 		model.dustRing = d[0]

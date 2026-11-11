@@ -544,6 +544,44 @@ through the population model. They have no tracers.
   - M104's ring spans the same share of the field as Hubble's dust lane, at the same tilt.
   - M87's size and colour match ESO's VLT image.
   - Missing: M87's jet and globular clusters, and the mottled texture of M104's lane.
+- **M51, the Whirlpool,** with its companion NGC 5195 (preset `gal_m51`).
+  - **Light.** Drawn at M_V = −21.53: RC3's V_T⁰ = 8.14 at McQuinn et al.'s (2016)
+    8.58 Mpc. Marchuk et al. (2024) decompose it in the g band with each spiral arm as
+    its own component (rescaled from 8.9 Mpc):
+    - bulge 8 % (r_eff 16.1″), a Hernquist sphere;
+    - disc 56 % (h 70.0″);
+    - two arms of 19 % and 17 %. Their pitches are 11.0° and 14.1°. Their radial FWHMs
+      are 47.0″ and 45.8″, so σ across the arm = FWHM/2.355 × cos pitch. Their light
+      falls outward with h_s 51.0″ and 62.4″, and their width does not grow with radius.
+  - **Orientation:** i = 46.2°, PA = 24.4°. The literature spans 20° to over 50°;
+    Marchuk et al.'s arms were measured at theirs.
+  - **The arms** go through the Milky Way's arm machinery, generalised: per-arm decay,
+    no width growth, their own radius span and windings, and a mirror flag (unused here:
+    the winding already matches).
+  - **Rendering choices, set to Hubble's image by eye:** the arms' phase; their span
+    (1.5–10.5 kpc); their light rising over the first 2 kpc and fading over 0.6 rad past
+    their ends; the arms' and disc's thicknesses. Marchuk et al.'s own arm start and
+    maximum were not read.
+  - **No dust.**
+  - **The arms' light** is the measured 36 % of the total, as the young population's
+    colour. Calzetti et al.'s (2005) 3.4 M☉/yr over 100 Myr would give only 0.36 of it:
+    the g-band arm light also holds older stars gathered in the arms.
+- **NGC 5195:**
+  - drawn at RC3's V_T⁰ = 9.58, a Hernquist sphere of RC3's effective aperture
+    (r_e = 57.15″);
+  - placed from NED's positions (4.41′ apart) and 35 kpc behind M51, inside the 20–50 kpc
+    Dobbs et al. (2010) and Salo & Laurikainen (2000) give (via Marchuk et al.);
+  - drawn round, though Wei et al. (2020) give i 43°.
+- **Checked:**
+  - all four drawn at their measured magnitudes;
+  - the arms' drawn light equal to the measured;
+  - each arm's light along its ridge falling with its measured h_s (within 2.5 %);
+  - NGC 5195's offset (4.413′, 35.0 kpc);
+  - M51's glow against the CPU integral across its middle.
+- **Against Hubble** (heic0506a, rotated to its north 91.9° right of vertical):
+  - the arms wind the same way and NGC 5195 sits where it does;
+  - the model looks more inclined than the image, and has none of the dust lanes, H II
+    regions or blue colour of the real arms.
 - **The glow box** now holds the spheroid's whole march radius. A ray that misses the
   box has no fragment, so a taller spheroid was cut off flat.
 
