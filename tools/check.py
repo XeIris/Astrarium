@@ -130,7 +130,7 @@ CHANGED_RULES = (
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
       "tools/build_neighbourhood.py"),
-     ("galaxycheck", "galaxylookcheck", "_soak_check-galaxy", "hud*")),
+     ("galaxycheck", "encountercheck", "galaxylookcheck", "_soak_check-galaxy", "hud*")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     # Any other tool (fxlab, harnesses): at least it must still parse.
     (("tools/*",), ("import",)),
@@ -253,6 +253,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("plasmacheck", r"^PLASMACHECK DONE checks=[1-9]\d* failures=0$")
         # ~30 s: a Gyr of 6000 tracers in MWPotential2014.
         yield script("galaxycheck", r"^GALAXYCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$", timeout=300)
+        # Galaxy encounters: the orbits against van der Marel et al. (2012b).
+        yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")

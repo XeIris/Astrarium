@@ -646,6 +646,30 @@ static func abel(R: PackedFloat64Array, lnI: PackedFloat64Array, r: float, sersi
 		s += (exp(lnI_at(R, lnI, x + h, sersic)) - exp(lnI_at(R, lnI, x - h, sersic))) / (2.0 * h) * umax / float(n)
 	return -s / PI
 
+## Encounters (GalOrbits): each galaxy [name, M_vir (M☉), concentration, position (kpc), velocity
+## (km/s)] in the Galactocentric frame.
+## The Milky Way, M31 and M33 as van der Marel et al. (2012b, Table 2) start their canonical
+## N-body model: the present positions and velocities from their paper II, M_vir 1.5 × 10¹² M☉
+## for both large galaxies (c 9.56) and 1.5 × 10¹¹ for M33 (c 11.37, from Klypin et al. 2011);
+## the M31 position is §3.4's. Their N-body result: M31's next pericentre 35.0 kpc at 3.97 Gyr,
+## apocentre 171.9 kpc at 4.79 Gyr, merger by 6.29 Gyr; M33's pericentre on M31 79.6 kpc at
+## 0.92 Gyr, which their semi-analytic orbits put at 80.3 kpc at 0.93 Gyr (Appendix A).
+const VDM_CANONICAL := [
+	["Milky Way", 1.5e12, 9.56, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+	["M31", 1.5e12, 9.56, [-378.9, 612.7, -283.1], [72.6, -69.7, 50.9]],
+	["M33", 0.15e12, 11.37, [-476.1, 491.1, -412.9], [43.1, 101.3, 138.8]],
+]
+
+## An encounter's orbits from its table (VDM_CANONICAL's form).
+static func encounter(rows: Array) -> GalOrbits:
+	var o := GalOrbits.new()
+	for r in rows:
+		var h := GalOrbits.hernquist_halo(float(r[1]), float(r[2]))
+		var p: Array = r[3]
+		var v: Array = r[4]
+		o.add(String(r[0]), float(h[0]), float(h[1]), Vector3(p[0], p[1], p[2]), Vector3(v[0], v[1], v[2]) * GalUnits.KMS)
+	return o
+
 static func milky_way_potential() -> GalPotential:
 	return GalPotential.new() \
 		.add(GalPotential.power_cutoff("bulge", 1.8, 1.9)) \

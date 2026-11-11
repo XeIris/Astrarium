@@ -16,6 +16,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 
 GALAXYCHECK = ["--headless", "--script", "res://tools/galaxycheck.gd", "--", "quick=1"]
+ENCOUNTERCHECK = ["--headless", "--script", "res://tools/encountercheck.gd"]
 GALAXYLOOK = ["--always-on-top", "--resolution", "1280x720", "res://tools/galaxylookcheck.tscn"]
 
 # name: (file, text, replacement, check arguments, what it breaks). KNOWN_MISSES are
@@ -118,6 +119,10 @@ MUTATIONS = {
                           GALAXYCHECK, "the LMC's bar angle taken from the sky without deprojecting"),
     "m33-arms-smooth": ("sim/galaxy/gal_visual.gd", "	if thin_map.has(\"a2\"): share = _share_for_a2(img, sum, cnt, px)", "	if thin_map.has(\"a2\"): share = 0.0",
                         GALAXYCHECK, "M33's young light not gathered into its arms"),
+    "orbits-no-friction": ("sim/galaxy/gal_orbits.gd", "	if friction: _friction(p, v, acc)", "	pass",
+                           ENCOUNTERCHECK, "galaxies passing without dynamical friction"),
+    "orbits-lnL-power": ("sim/galaxy/gal_orbits.gd", "float(lam[0]) * log(r / (float(lam[1]) * a[j]))", "pow(maxf(log(r / (float(lam[1]) * a[j])), 0.0), float(lam[0]))",
+                         ENCOUNTERCHECK, "the Coulomb logarithm read as (ln r/Ca)^α"),
     "companion-in-front": ("sim/galaxy/gal_landmarks.gd", "var rel := (cs[0] as Vector3) * float(spec.d) - (hs[0] as Vector3) * float(host.d)",
                            "var rel := (cs[0] as Vector3) * (2.0 * float(host.d) - float(spec.d)) - (hs[0] as Vector3) * float(host.d)",
                            GALAXYCHECK, "NGC 5195 placed in front of M51 rather than behind"),
