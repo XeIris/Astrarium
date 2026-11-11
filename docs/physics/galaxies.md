@@ -359,6 +359,82 @@ Appearance follows the model:
 - **The young stars** are in the glow only; the drawn lattice holds the old disc's
   and bulge's stars.
 
+## The real stars around the Sun (phase 2b)
+
+Near the Sun the model gives way to the measured sky, so the galactic scene joins the
+Solar System's (`sim/galaxy/gal_neighbourhood.gd`, `assets/sky/neighbourhood.bin`, built
+by `tools/build_neighbourhood.py`).
+
+- **Two sets.**
+  - Near: every star within 40 pc brighter than M_V = 8.54, which is the model's own
+    resolved limit (its 0.5 M☉ star). There are 4058, from Gaia DR3 with BSC5 for the
+    stars too bright for Gaia.
+  - Far: the rest of the Solar System sky, BSC5 and Gaia from G = 6.5 to 8: 57 099
+    stars with the same V and B−V the `solar` sky draws.
+- **Distances,** in order of preference:
+  - Gaia DR3 at parallax/error ≥ 10 (57 616 stars);
+  - Hipparcos (van Leeuwen 2007) at ≥ 5 (834; the brightest, which Gaia saturates on);
+  - Gaia at ≥ 5 (256);
+  - BSC5's own parallax (53).
+
+  293 have none and stand at 1 kpc in their direction. Against Hipparcos, Gaia's
+  parallaxes for the BSC5 stars agree to −1.3 % (median), 16–84 % within −10 to +5 %.
+  BSC5's own parallaxes are poor for distant stars: Rigel at 77 pc against
+  Hipparcos's 265 pc. That is why Hipparcos is preferred to them.
+- **The near set replaces the lattice.** Where the camera's resolved sphere overlaps
+  the Sun's 40 pc, no procedural star is made inside it (`uHole`), and the real ones are
+  drawn by the same point rule. The glow already gives up the resolved stars' light
+  there.
+- **The far set is joined through the glow.** Its stars would otherwise add their light
+  twice: from the Sun they carry 22 % of the model's whole sky. The glow gives up their
+  light as a map of galactic (l, b) smoothed over 12°. Smoothed over 4°, the map ran
+  out of glow to take around the brightest groups (Orion, 0.8 % of the catalogue's
+  light), and the sky went dark around them. Real bright stars clump more than the
+  model's smooth light does. At 12° none of the catalogue's light is left over.
+- **Fading out.** A sample complete to V = 8 from the Sun is not complete from anywhere
+  else. The far set and its map fade out as the camera goes from 10 to 30 pc from the
+  Sun.
+- **The Sun's motion.** The set rides with the Sun, which turns at Ω(R0) as its lattice
+  ring does, and the "sun" framing follows it exactly.
+- **Brightness.** Observed V already includes the real extinction, so the model's dust
+  does not dim these stars again. A star's flux at the Sun is the `solar` sky's for its
+  V (`galaxycheck`, to 6 × 10⁻⁷).
+
+### Gaia against the model
+
+Within 40 pc, the real stars to the model's resolved limit against the model's own
+resolved stars, per magnitude:
+
+| M_V | real | model |
+|---|---|---|
+| −2 to 0 | 18 | 0 |
+| 0 to 2 | 147 | 42 |
+| 2 to 4 | 570 | 426 |
+| 4 to 6 | 1346 | 2000 |
+| 6 to 8.54 | 1977 | 4188 |
+| total | 4058 | 6655 |
+
+The model has 1.6–2.3 times too many K and early-M dwarfs and too few A stars and
+giants. That is the same pattern the comparison with Bovy (2017) shows, now in an
+independent sample. In visible light the real stars give 2.25 times the model's
+(11 752 against 5217 L☉), because a few A stars and giants dominate: Sirius, Vega,
+Arcturus and Capella. The model holds giants in its glow and draws none. `galaxycheck`
+pins both ratios, so a change to the population shows.
+
+### Limits (phase 2b)
+
+- **Joined from the Sun only.** Elsewhere the drawn stars are the model's main sequence
+  within 40 pc. There is no layer of luminous stars or giants, and the bulge's cells
+  still overflow: about 270 resolved stars per 10 pc cell at 3 kpc, 10⁴ in the bulge,
+  against 128 slots. Raising the resolved mass there would leave the old bulge with
+  none, because its resolved stars are giants. The fix is a layer of giants with their
+  own luminosity function, planned as phase 2c.
+- **Real giants within 40 pc** (Arcturus, Capella, Aldebaran, Pollux) are drawn, and
+  the model's giant light stays in the glow there too. The double count is a small
+  part of the near sphere's light.
+- **The far set is fixed to the Sun's view.** Its smoothed map is correct only at the
+  Sun, and the 293 stars with no distance are placed at 1 kpc.
+
 ## Limits (phase 1)
 
 - Phase 1 was axisymmetric and dust-free; phase 2a above adds the bar, the arms and
@@ -374,7 +450,8 @@ Appearance follows the model:
   modelled.
 - The resolved lattice has 128 slots per cell, enough wherever ≤ ~100 stars above
   0.5 M☉ share 10³ pc³: the disc beyond ~3 kpc. Denser regions (the bulge) are drawn
-  short of stars, and the glow does not make it up. Phase 2 nests the lattice.
+  short of stars, and the glow does not make it up. Still so after phase 2b; see its
+  limits.
 - The gas is collisionless: cold test particles, not a fluid.
 
 ## Do the checks catch defects?

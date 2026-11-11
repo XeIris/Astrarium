@@ -44,6 +44,9 @@ uniform float uPixSr = 1e-6;
 uniform float uProfilePx2 = 3.27;
 // Extinction in the red, green and blue channels relative to V (as the glow's).
 uniform vec3 uExt = vec3(0.748, 1.0, 1.324);
+// The real stars' sphere (sim/galaxy/gal_neighbourhood.gd): its centre relative to the
+// camera and its radius; no procedural star is made inside it. Radius 0: none.
+uniform vec4 uHole = vec4(0.0);
 // galaxylookcheck only: every star white with this bolometric L, none nearer than uInner.
 uniform float uFixL = 0.0;
 uniform float uInner = 0.0;
@@ -132,7 +135,8 @@ void vertex() {
 			float Y = max(dot(ms.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
 			float flux = ms.w * Y / (12.566371 * max(d * d, 1e-12));
 			float v = point_flux(flux / uPixSr * uGain) / uProfilePx2;
-			if (d <= uRes && d >= uInner && v >= 2e-4) {
+			bool real = uHole.w > 0.0 && length(rel - uHole.xyz) < uHole.w;
+			if (d <= uRes && d >= uInner && v >= 2e-4 && !real) {
 				vec3 world = mat3(MODEL_MATRIX) * rel;
 				VERTEX = (VIEW_MATRIX * vec4(world, 1.0)).xyz;
 				POINT_SIZE = QUAD_PX;

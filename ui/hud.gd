@@ -1223,7 +1223,7 @@ func _build_galaxy(b: Node) -> void:
 	m(L(s, "View", ROW_LABEL), 0.0, 4.0)
 	var vg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
 	for f in [["whole", "Whole", "The galaxy from 60 kpc"], ["face", "Face-on", "From above the north galactic pole"], ["edge", "Edge-on", "In the plane"],
-			["sun", "The Sun", "The solar neighbourhood, 30 pc across, where the stars are drawn one by one"], ["centre", "Centre", "The inner galaxy and the bulge"]]:
+			["sun", "The Sun", "From the Sun, following it round the Galaxy: the real stars of our sky, measured by Gaia and Hipparcos, joined to the model"], ["centre", "Centre", "The inner galaxy and the bulge"]]:
 		B(vg, "Toggle", f[1], "[data-gal-frame=%s]" % f[0], f[2]).pressed.connect(func(): galaxy_action.emit("frame", f[0]))
 	var lg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
 	B(lg, "Toggle", "Tracers", "galShowTracers", "The test stars (amber) and cold-gas clouds (blue) whose orbits are integrated, and from which the rotation curve is measured").pressed.connect(func(): galaxy_action.emit("layer", "tracers"))

@@ -10,6 +10,7 @@ extends RefCounted
 const GLOW_SHADER := preload("res://shaders/galaxy/galaxy_glow.gdshader")
 const STAR_SHADER := preload("res://shaders/galaxy/galaxy_stars.gdshader")
 const TRACER_SHADER := preload("res://shaders/galaxy/galaxy_tracers.gdshader")
+const CATALOGUE_SHADER := preload("res://shaders/galaxy/galaxy_catalogue.gdshader")
 
 ## The sky's star calibration (SkyModel.STAR_FLUX is a V = 2.5 star) applied to a star
 ## of L L☉ at d kpc, taking the Sun's absolute V as 4.83: sky flux = K·L/(4πd²).
@@ -76,6 +77,27 @@ var res_override := -1.0
 var show_tracers := true
 var show_stars := true
 var show_glow := true
+## The real stars around the Sun (GalNeighbourhood), for the Milky Way when the asset is
+## there; `join_enabled` false leaves the model alone everywhere (the hand-over check).
+var join_enabled := true
+## Checks hide the drawn real stars while the glow still gives up their light.
+var show_catalogue := true
+var neighbourhood := {}
+var catalogue: MeshInstance3D = null
+var catalogue_mat: ShaderMaterial = null
+var has_sun := false
+var sun_r0 := 8.0
+var sun_omega := 0.0
+## This frame: the Sun (galaxy-local kpc), its axes, the camera's distance from it (kpc)
+## and the far set's weight.
+var sun_pos := Vector3.ZERO
+var sun_basis := Basis()
+var sun_dist := INF
+var far_w := 0.0
+## The star gain (pixel value per Sun-luminance kpc⁻² per pixel solid angle) and the pixel
+## solid angle of the last update, for checks.
+var last_gain := 0.0
+var last_pix_sr := 1e-6
 
 ## `defer_arms`: leave the arms' map to bake_arms() on a worker and apply_arms() after
 ## (the scene); otherwise it is baked here (checks).
@@ -108,6 +130,11 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	_build_glow(model)
 	_build_stars(model)
 	if not defer_arms and young_pop != null: apply_arms(bake_arms())
+	has_sun = String(model.key) == "milky_way" and GalNeighbourhood.available()
+	if has_sun:
+		sun_r0 = float(model.get("r0", 8.0))
+		sun_omega = sense * pot.vc(sun_r0) / sun_r0
+		if not defer_arms: apply_neighbourhood(GalNeighbourhood.bake())
 
 func _visible(model: Dictionary, part: String) -> float:
 	for l in model.light:
@@ -255,6 +282,8 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	var pix := 2.0 * tan(fov_rad * 0.5) / maxf(viewport_h, 1.0)
 	var pix_sr := pix * pix
 	var gain := K * star_gain * exposure * adaptation
+	last_gain = gain
+	last_pix_sr = pix_sr
 	var cl := Vector3(cam_local.x, cam_local.y, cam_local.z)
 	_turn_patterns(t_myr)
 	glow.visible = show_glow
@@ -269,6 +298,7 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	glow_mat.set_shader_parameter("uRes", res)
 	if show_stars and res > 0.0: _place_lattice(cam_local, t_myr, gain, pix_sr)
 	stars.visible = show_stars and res > 0.0
+	if has_sun: _place_neighbourhood(cam_local, t_myr, gain, pix_sr)
 	if tracers != null:
 		var fade := clampf((view_r - 0.5) / 1.5, 0.0, 1.0)
 		tracers.visible = show_tracers and fade > 0.0
@@ -483,6 +513,69 @@ func bake_arms() -> Dictionary:
 	_arm_cache[_model_key] = out
 	_cache_mutex.unlock()
 	return out
+
+## On the main thread: the real stars as points and their far light as the glow's map.
+func apply_neighbourhood(baked: Dictionary) -> void:
+	if baked.is_empty() or not has_sun or catalogue != null: return
+	neighbourhood = baked
+	var n: int = int(baked.n_near) + int(baked.n_far)
+	# Colour per unit luminance exceeds 1 in a channel for blue and red stars, and vertex
+	# COLOR is 8-bit unorm: it goes in floats, (r, g, b, luminosity), and the set apart.
+	var custom := PackedFloat32Array()
+	var sets := PackedFloat32Array()
+	custom.resize(4 * n)
+	sets.resize(4 * n)
+	for i in n:
+		var c := GalNeighbourhood.colour(baked.bv[i])
+		custom[4 * i] = c.r
+		custom[4 * i + 1] = c.g
+		custom[4 * i + 2] = c.b
+		custom[4 * i + 3] = GalNeighbourhood.l_vis(baked.mv[i])
+		sets[4 * i] = 0.0 if i < int(baked.n_near) else 1.0
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = baked.pos
+	arr[Mesh.ARRAY_CUSTOM0] = custom
+	arr[Mesh.ARRAY_CUSTOM1] = sets
+	var mesh := ArrayMesh.new()
+	var fmt := (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) | (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arr, [], {}, fmt)
+	catalogue_mat = ShaderMaterial.new()
+	catalogue_mat.shader = CATALOGUE_SHADER
+	catalogue_mat.set_shader_parameter("uProfilePx2", BrightStars.PROFILE_PX2)
+	catalogue = MeshInstance3D.new()
+	catalogue.name = "Neighbourhood"
+	catalogue.mesh = mesh
+	catalogue.material_override = catalogue_mat
+	catalogue.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	catalogue.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
+	group.add_child(catalogue)
+	glow_mat.set_shader_parameter("uCatMap", ImageTexture.create_from_image(baked.map))
+
+## The Sun and the real stars this frame: where they are, the lattice's hole, and how much
+## of the far set (and its light in the glow) is shown.
+func _place_neighbourhood(cam_local: DVec3, t_myr: float, gain: float, pix_sr: float) -> void:
+	var f := GalNeighbourhood.sun_frame(sun_r0, sun_omega, t_myr)
+	sun_pos = f[0]
+	sun_basis = f[1]
+	var sun := DVec3.new(sun_pos.x, sun_pos.y, sun_pos.z)
+	var rel := sun.rel_v3(cam_local)
+	sun_dist = rel.length()
+	var on := join_enabled and catalogue != null
+	far_w = 1.0 - smoothstep(GalNeighbourhood.FAR_FADE.x, GalNeighbourhood.FAR_FADE.y, sun_dist) if on else 0.0
+	var near := on and res > 0.0 and sun_dist < res + GalNeighbourhood.NEAR_KPC
+	if catalogue != null:
+		catalogue.visible = on and show_stars and show_catalogue and (near or far_w > 0.0)
+		catalogue_mat.set_shader_parameter("uSunRel", rel)
+		catalogue_mat.set_shader_parameter("uSunBasis", sun_basis)
+		catalogue_mat.set_shader_parameter("uRes", res)
+		catalogue_mat.set_shader_parameter("uNearW", 1.0 if near else 0.0)
+		catalogue_mat.set_shader_parameter("uFarW", far_w)
+		catalogue_mat.set_shader_parameter("uGain", gain)
+		catalogue_mat.set_shader_parameter("uPixSr", pix_sr)
+	star_mat.set_shader_parameter("uHole", Vector4(rel.x, rel.y, rel.z, GalNeighbourhood.NEAR_KPC if near else 0.0))
+	glow_mat.set_shader_parameter("uSunBasis", sun_basis)
+	glow_mat.set_shader_parameter("uCatGain", gain * far_w if show_stars else 0.0)
 
 ## On the main thread: the map's texture, and the young arms' scale from its integral.
 func apply_arms(baked: Dictionary) -> void:

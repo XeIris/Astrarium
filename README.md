@@ -399,7 +399,9 @@ tree; `tools/ref/` now keeps the manifest and retention note.
 ## License
 
 Astrarium is under the [MIT License](LICENSE): use, change and share it freely.
-Some bundled data keeps its own terms. The Gaia star file is CC BY-SA 3.0 IGO,
-the NASA maps and catalogues are public domain with credits, and exported builds
+Some bundled data keeps its own terms. The two star files derived from ESA's Gaia and
+Hipparcos catalogues are [CC BY-NC 3.0 IGO](https://creativecommons.org/licenses/by-nc/3.0/igo/):
+they stay non-commercial whatever the MIT licence says, and commercial use needs ESA's permission.
+The NASA maps and catalogues are public domain with credits, and exported builds
 contain Godot, whose notice must ship with them. [THIRD_PARTY.md](THIRD_PARTY.md)
 lists each source.

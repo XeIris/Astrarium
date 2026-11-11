@@ -31,6 +31,12 @@ uniform vec3 uYoungCol = vec3(1.0);
 uniform vec3 uExt = vec3(0.748, 1.0, 1.324);
 // galaxylookcheck only: no light nearer than this.
 uniform float uInner = 0.0;
+// The real far stars' light seen from the Sun (sim/galaxy/gal_neighbourhood.gd), given up
+// by the glow: radiance on galactic (l, b), the Sun's axes, and pixel value per radiance
+// times the set's weight (0: none).
+uniform sampler2D uCatMap : filter_linear, repeat_enable;
+uniform mat3 uSunBasis = mat3(1.0);
+uniform float uCatGain = 0.0;
 
 const int N_DISC = 32;
 const int N_SPHERE = 16;
@@ -168,5 +174,11 @@ void fragment() {
 		float tc = clamp(-dot(o, d), ts.x, ts.y);
 		sph = march_sphere(o, d, ts.x, ts.y, tc, sc, jit, uFaint.y, tv, leg, arc);
 	}
-	ALBEDO = (disc + sph * uSphereCol) * uGain;
+	vec3 col = (disc + sph * uSphereCol) * uGain;
+	if (uCatGain > 0.0) {
+		vec3 s = transpose(uSunBasis) * d;
+		vec2 uv = vec2(fract(atan(-s.z, s.x) / 6.2831853), 0.5 - asin(clamp(s.y, -1.0, 1.0)) / 3.1415927);
+		col = max(col - uCatGain * texture(uCatMap, uv).rgb, vec3(0.0));
+	}
+	ALBEDO = col;
 }

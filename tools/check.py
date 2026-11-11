@@ -128,7 +128,8 @@ CHANGED_RULES = (
       "sim/marker.gd", "sim/brightstars.gd", "sim/sky.gd", "render/postfx.gd"), ("glowcheck",)),
     (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
-    (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd"),
+    (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
+      "tools/build_neighbourhood.py"),
      ("galaxycheck", "galaxylookcheck", "_soak_check-galaxy", "hud*")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     # Any other tool (fxlab, harnesses): at least it must still parse.

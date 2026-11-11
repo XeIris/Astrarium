@@ -12,8 +12,8 @@ it the endpoint stops at 50 000 of the 50 604 rows):
     WHERE phot_g_mean_mag > 6.5 AND phot_g_mean_mag <= 8.0
 
 Gaia DR3 (Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1) is ESA data
-processed by the Gaia DPAC, licensed CC BY-SA 3.0 IGO; the packed file is a
-derivative under the same licence.
+processed by the Gaia DPAC, licensed CC BY-NC 3.0 IGO (Credit: ESA/Gaia/DPAC). The packed file is
+derived data under the same terms: non-commercial whatever the project's MIT licence says.
 
 Output: bsc5.bin's records, little-endian float32 (RA°, Dec° at the Gaia epoch
 2016.0, V, B−V, μα cos δ and μδ in mas/yr), brightest first, so BrightStars reads

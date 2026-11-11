@@ -37,6 +37,7 @@ func _init() -> void:
 		tracers()
 		patterns()
 		light()
+		neighbourhood()
 	_done()
 
 func _done() -> void:
@@ -219,6 +220,10 @@ func colour(p: GalPotential) -> void:
 # subtypes whose M_V falls in each bin (10⁻⁴ pc⁻³ mag⁻¹). Not fitted; the bounds pin
 # the measured differences, which docs/physics/galaxies.md reports.
 ## Native against GDScript where their libms differ: kpc, (kpc/Myr)/0.2 and relative work.
+## Real stars within 40 pc against the model's resolved ones: number and visible light
+## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit).
+const NEAR_COUNT_PIN := 0.61
+const NEAR_LIGHT_PIN := 2.25
 const PARITY_TOL := 1e-9
 const BOVY_2017_DN_DMV := {1: 3.8, 2: 5.4, 3: 9.9, 4: 22.6, 5: 24.8, 6: 24.3}
 
@@ -489,3 +494,157 @@ func eilers(p: GalPotential) -> void:
 	mean /= float(k)
 	print("     MWPotential2014 − Eilers et al. (2019) over 5–21 kpc: mean %s, worst %s km/s" % [String.num(mean, 1), String.num(worst, 1)])
 	ok(mean > -14.0 and mean < -6.0 and worst < 18.0, "model below the Gaia/APOGEE curve by %s km/s on average (6–14), worst %s (< 18)" % [String.num(-mean, 1), String.num(worst, 1)])
+
+
+# The real stars around the Sun (GalNeighbourhood, tools/build_neighbourhood.py): the
+# Solar System sky's stars in the same directions and brightnesses, on the same flux
+# scale; the far set's light map holding their flux; and the near set against the
+# model's resolved stars, the Gaia comparison issue 25 asks for (a pin, not a fit).
+func neighbourhood() -> void:
+	var nb := GalNeighbourhood.bake()
+	ok(not nb.is_empty() and int(nb.n_near) > 3000 and int(nb.n_far) > 50000,
+		"the real stars around the Sun load: %s within 40 pc, %s beyond" % [nb.get("n_near", 0), nb.get("n_far", 0)])
+	if nb.is_empty(): return
+	# The near set's cut is the model's resolved limit.
+	var c5 := GalPopulation.visible(Stellar.effective_temp(GalPopulation.M_RESOLVED))
+	var mv_res := 4.83 - 2.5 * log(Stellar.luminosity(GalPopulation.M_RESOLVED) * (0.2126 * c5.r + 0.7152 * c5.g + 0.0722 * c5.b)) / log(10.0)
+	ok(absf(mv_res - GalNeighbourhood.M_V_RESOLVED) < 0.005, "the near set's cut M_V %s is the model's %s M☉ star (%s)" % [
+		String.num(GalNeighbourhood.M_V_RESOLVED, 3), String.num(GalPopulation.M_RESOLVED, 1), String.num(mv_res, 3)])
+	# The Solar System sky's stars, through the app's own galactic frame, against the set.
+	var gal := SkyModel.galactic_frame_j2000()
+	var n_axis: Vector3 = gal[0]
+	var c_axis: Vector3 = gal[1]
+	var y_axis: Vector3 = gal[2]
+	var cells := {}
+	var n: int = int(nb.n_near) + int(nb.n_far)
+	for i in n:
+		var p: Vector3 = nb.pos[i]
+		var d := p.length()
+		var v := float(nb.mv[i]) + 5.0 * log(d * 100.0) / log(10.0)
+		var lb := GalNeighbourhood.galactic(p)
+		var key := Vector2i(int(rad_to_deg(lb.x)), int(rad_to_deg(lb.y) + 90.0))
+		if not cells.has(key): cells[key] = []
+		cells[key].append([Vector3(p.x, -p.z, p.y) / d, v])
+	var total := 0
+	var matched := 0
+	# Vector3 is float32: near 1 its dot product cannot tell 70″ from nothing, its cross
+	# product resolves 0.01″.
+	var sin_tol := sin(deg_to_rad(2.0 / 3600.0))
+	for path in [BrightStars.DATA, BrightStars.DATA_FAINT]:
+		var f := FileAccess.open(path, FileAccess.READ)
+		while f.get_position() + 24 <= f.get_length():
+			var ra := f.get_float()
+			var dec := f.get_float()
+			var V := f.get_float()
+			f.get_float()
+			var pma := f.get_float()
+			var pmd := f.get_float()
+			total += 1
+			# Gaia's positions are at 2016.0; the set's, like BSC5's, at J2000.
+			var dt: float = 2000.0 - float(BrightStars.EPOCHS[path])
+			dec += pmd * dt / 3.6e6
+			ra += pma * dt / 3.6e6 / maxf(cos(deg_to_rad(dec)), 1e-6)
+			var u := SkyModel.radec_to_scene(ra, dec).to_v3()
+			var g := Vector3(u.dot(c_axis), u.dot(y_axis), u.dot(n_axis))
+			var l := rad_to_deg(fposmod(atan2(g.y, g.x), TAU))
+			var b := rad_to_deg(asin(clampf(g.z, -1.0, 1.0))) + 90.0
+			var hit := false
+			for dl in [-1, 0, 1]:
+				for db in [-1, 0, 1]:
+					for e in cells.get(Vector2i(posmod(int(l) + dl, 360), int(b) + db), []):
+						var w: Vector3 = e[0]
+						if w.dot(g) > 0.0 and w.cross(g).length() < sin_tol and absf(float(e[1]) - V) < 1e-3: hit = true
+			if hit: matched += 1
+	ok(total > 50000 and matched == total, "every Solar System sky star is in the set, in the same direction (2″ at J2000) and V (1e-3): %d of %d" % [matched, total])
+	# The flux scale: a star's light at the Sun is the sky's flux for its V.
+	var worst := 0.0
+	for i in range(int(nb.n_near), int(nb.n_near) + 50):
+		var p: Vector3 = nb.pos[i]
+		var v := float(nb.mv[i]) + 5.0 * log(p.length() * 100.0) / log(10.0)
+		var drawn := GalaxyVisual.K * GalNeighbourhood.l_vis(nb.mv[i]) / (4.0 * PI * p.length_squared())
+		worst = maxf(worst, absf(drawn / (SkyModel.STAR_FLUX * pow(10.0, -0.4 * (v - SkyModel.STAR_FLUX_MAG))) - 1.0))
+	ok(worst < 1e-5, "from the Sun a real star has the Solar System sky's flux for its V (worst %s)" % U.expo(worst, 1))
+	# The far set's light map holds its flux.
+	var ff := 0.0
+	for i in range(int(nb.n_near), n):
+		ff += GalNeighbourhood.l_vis(nb.mv[i]) / (4.0 * PI * (nb.pos[i] as Vector3).length_squared())
+	var mf := GalNeighbourhood.map_flux(nb.map)
+	var ml := 0.2126 * mf.r + 0.7152 * mf.g + 0.0722 * mf.b
+	ok(absf(ml / ff - 1.0) < 1e-4, "the far stars' light map integrates to their flux (%s)" % String.num(ml / ff, 6))
+	# Where the catalogue outshines the model's own glow the glow can give up no more.
+	var vis := GalaxyVisual.new(GalModels.build("milky_way", 1))
+	var sun := Vector3(-8.0, GalNeighbourhood.SUN_HEIGHT, 0.0)
+	var N := 600 if quick else 1500
+	var tot := 0.0
+	var cat := 0.0
+	var lost := 0.0
+	var img: Image = nb.map
+	for k in N:
+		var zz := 1.0 - (2.0 * k + 1.0) / N
+		var rr := sqrt(1.0 - zz * zz)
+		var ph := PI * (3.0 - sqrt(5.0)) * k
+		var d := Vector3(rr * cos(ph), zz, rr * sin(ph))
+		var lb := GalNeighbourhood.galactic(d)
+		var col := img.get_pixel(clampi(int(lb.x / TAU * GalNeighbourhood.MAP_W), 0, GalNeighbourhood.MAP_W - 1),
+			clampi(int((0.5 - lb.y / PI) * GalNeighbourhood.MAP_H), 0, GalNeighbourhood.MAP_H - 1))
+		var m := 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b
+		var I := vis.ray_luminance(sun, d, 1e-3, 300)
+		tot += I
+		cat += m
+		lost += maxf(m - I, 0.0)
+	# Smoothed too narrowly (4°: 0.8 %) the map outruns the glow around Orion, which goes dark.
+	ok(lost / cat < 0.002 and cat / tot > 0.1 and cat / tot < 0.4, "from the Sun the far stars carry %s %% of the model's sky; %s %% of theirs exceeds the glow it replaces (< 0.2)" % [
+		U.fixed(100.0 * cat / tot, 1), U.fixed(100.0 * lost / cat, 2)])
+	vis.dispose()
+	# The near set against the model's resolved stars within 40 pc.
+	var R := GalNeighbourhood.NEAR_KPC
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var jd := 0.0
+	var js := 0.0
+	var M := 20000
+	var lv := GalaxyVisual.new(GalModels.build("milky_way", 1))
+	for i in M:
+		var p := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
+		if p.length() > 1.0: continue
+		var j := lv.light_density(sun + p * R)
+		jd += j[0]
+		js += j[1]
+	var cube := 8.0 * R * R * R / float(M)
+	var n_model := jd * cube * lv.disc_pop.resolved_per_l + js * cube * lv.sphere_pop.resolved_per_l
+	var l_model := 0.0
+	var bins_m := {}
+	for k in 4000:
+		var u := (float(k) + 0.5) / 4000.0
+		var z := -log(1.0 - u) / log(10.0)
+		var fq := clampf(z / GalPopulation.Q_DECADES, 0.0, 1.0) * 64.0
+		var qi := mini(int(fq), 63)
+		var m := pow(10.0, lerpf(lv.disc_pop.quantiles[qi], lv.disc_pop.quantiles[qi + 1], fq - float(qi)))
+		var cm := GalPopulation.visible(Stellar.effective_temp(m))
+		var lvis := Stellar.luminosity(m) * (0.2126 * cm.r + 0.7152 * cm.g + 0.0722 * cm.b)
+		l_model += lvis * n_model / 4000.0
+		var bm := int(floor(4.83 - 2.5 * log(lvis) / log(10.0)))
+		bins_m[bm] = float(bins_m.get(bm, 0.0)) + n_model / 4000.0
+	lv.dispose()
+	var l_real := 0.0
+	var bins_r := {}
+	for i in int(nb.n_near):
+		l_real += GalNeighbourhood.l_vis(nb.mv[i])
+		var br := int(floor(nb.mv[i]))
+		bins_r[br] = int(bins_r.get(br, 0)) + 1
+	for b in range(-2, 9):
+		print("     M_V %d to %d: real %d, model %s" % [b, b + 1, int(bins_r.get(b, 0)), String.num(float(bins_m.get(b, 0.0)), 1)])
+	var nr := float(nb.n_near) / n_model
+	var lr := l_real / l_model
+	print("     within 40 pc to M_V %s: real %d stars, %s L☉ visible; model %s, %s L☉" % [
+		String.num(GalNeighbourhood.M_V_RESOLVED, 2), nb.n_near, String.num(l_real, 0), String.num(n_model, 0), String.num(l_model, 0)])
+	ok(absf(nr - NEAR_COUNT_PIN) < 0.05 and absf(lr - NEAR_LIGHT_PIN) < 0.15,
+		"within 40 pc the real stars number %s of the model's resolved ones and give %s of their light (pinned %s, %s)" % [
+		String.num(nr, 3), String.num(lr, 2), String.num(NEAR_COUNT_PIN, 2), String.num(NEAR_LIGHT_PIN, 2)])
+	var f0: Array = GalNeighbourhood.sun_frame(8.0, 0.0275, 0.0)
+	var f1: Array = GalNeighbourhood.sun_frame(8.0, 0.0275, 100.0)
+	var b1: Basis = f1[1]
+	var turn := wrapf(atan2((f1[0] as Vector3).z, (f1[0] as Vector3).x) - atan2((f0[0] as Vector3).z, (f0[0] as Vector3).x), -PI, PI)
+	ok(absf(turn - 2.75) < 1e-5 and b1.x.dot(-(f1[0] as Vector3) * Vector3(1, 0, 1)) > 0.0 and absf(b1.determinant() - 1.0) < 1e-6
+		and b1.z.dot(Vector3(-sin(PI + 2.75), 0.0, cos(PI + 2.75))) < -0.999,
+		"the Sun turns at Ω(R0) with its axes: +x to the centre, +z against the rotation")
