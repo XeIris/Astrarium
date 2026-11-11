@@ -365,7 +365,7 @@ func _ready() -> void:
 	stage.galaxy.set_rate(100.0)
 	stage.galaxy.frame("whole")
 	stage.jump_cam_radius(250.0)
-	var live_steps := stage.galaxy.encounter.live.steps
+	var live_steps: int = stage.galaxy.encounter.live.steps
 	await measure("galaxy-encounter-live")
 	if stage.galaxy.encounter.live.steps <= live_steps: failures += 1
 	stage.state.paused = true
