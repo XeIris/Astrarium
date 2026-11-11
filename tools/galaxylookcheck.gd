@@ -143,6 +143,7 @@ func _ready() -> void:
 		# Last: it loads another scene, so nothing after it may hold the Milky Way's visual.
 		await type_dust("gal_m104")
 		await type_dust("gal_m51")
+		await type_dust("gal_m87")
 	for error in logger.take():
 		failures += 1
 		printerr("GALAXYLOOKCHECK ENGINE ", error)

@@ -512,10 +512,28 @@ presets `gal_m87`, `gal_m104`), drawn from their measured total light. Each part
 its share of that light from a published decomposition, and its stellar mass follows
 through the population model. They have no tracers.
 
-- **M87.** A Hernquist sphere of the 16.2 kpc half-light radius Kormendy et al. (2009,
-  Table 1, from the 2-D profile) measure, drawn at their M_VT = −22.95 (D = 17.22 Mpc).
-  Its landmark is M87*: 6.5 × 10⁹ M☉ (EHT Collaboration 2019). Kormendy et al. fit
-  n ≈ 12 to its cD halo; a Hernquist sphere is n ≈ 4, so the far halo is too faint.
+- **M87,** drawn from its measured light, not a fitted shape. Its landmark is M87*:
+  6.5 × 10⁹ M☉ (EHT Collaboration 2019).
+  - **The profile.** Kormendy et al.'s (2009) Table 3 is M87's V surface brightness along its
+    major axis, 98 points from 0.017″ to 2444″ (D = 17.22 Mpc).
+    - It is corrected for the Galaxy's A_V = 0.072 (their Table 1): it was not, and then
+      integrates to M_VT within 0.01 mag.
+    - Radii are circularised by √(1 − ε), and M87 is drawn round.
+  - **The density.** Abel inversion turns the profile into the luminosity density whose
+    projection it is (`GalModels.abel`), tabulated as ln j on 256 radii even in ln r. The
+    glow reads the table (spheroid kind 2).
+  - **Past the last point** (155 kpc circularised), the profile carries on as Kormendy et
+    al.'s Sérsic fit does (n 11.84, r_e 704″, with Ciotti & Bertin's 1999 b_n), joined
+    there. It runs out to 20 times in the inversion and is drawn to 3 times, 465 kpc. The
+    last measured segment itself falls only as R^−1.3 near the sky limit, and carrying
+    that on would add light nobody measured.
+  - **Mass.** Held in the potential as a Hernquist sphere of the same mass and half-mass
+    radius.
+  - **Checked:**
+    - Projected back along parallel rays, the drawn galaxy matches all 92 measured points
+      inside 78 kpc to 0.039 mag; the worst is the very centre.
+    - Its light within the last point's circle is M_V −22.94 (Kormendy et al.: −22.95).
+    - Its glow matches the CPU integral to 0.3 %.
 - **M104, the Sombrero.**
   - Drawn at M_V = −22.35: RC3's V_T⁰ = 7.55 at McQuinn et al.'s (2016) 9.55 Mpc.
   - Light split as in Gadotti & Sánchez-Janssen's (2012) bulge + disc + halo

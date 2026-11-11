@@ -171,6 +171,11 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	if not rings.is_empty(): thin = ring_h
 	if not dust.is_empty() and float(dust.h0) < 0.05: thin = minf(thin, float(dust.h0))
 	dust_map = model.get("dustMap", {})
+	sphere_tab = model.get("sphereTable", {})
+	if not sphere_tab.is_empty():
+		var lnj: PackedFloat32Array = sphere_tab.lnj
+		var img := Image.create_from_data(lnj.size(), 1, false, Image.FORMAT_RF, lnj.to_byte_array())
+		_sphere_tex = ImageTexture.create_from_image(img)
 	disc_map = model.get("discMap", {})
 	thin_map = model.get("thinMap", {})
 	if not disc_map.is_empty():
@@ -234,7 +239,10 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	else:
 		mat.set_shader_parameter("uDisc", Vector3(0.0, 1.0, 1.0))
 	var b: Dictionary = pot.part("bulge")
-	if not b.is_empty() and b.kind == GalPotential.Kind.POWER_CUTOFF:
+	if not sphere_tab.is_empty():
+		mat.set_shader_parameter("uSphere", Vector4(2.0, 1.0, float(sphere_tab.lnr0), float(sphere_tab.dlnr)))
+		mat.set_shader_parameter("uSphereTab", _sphere_tex)
+	elif not b.is_empty() and b.kind == GalPotential.Kind.POWER_CUTOFF:
 		mat.set_shader_parameter("uSphere", Vector4(0.0, _visible(model, "bulge") * l_m_sph * b.amp / g * GalUnits.MASS_UNIT_SUN, b.alpha, b.rc))
 	elif not b.is_empty():
 		mat.set_shader_parameter("uSphere", Vector4(1.0, _visible(model, "bulge") * l_m_sph * b.gm / g * GalUnits.MASS_UNIT_SUN, b.a, 0.0))
@@ -273,10 +281,24 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("uRingH", ring_h)
 	mat.set_shader_parameter("uThin", thin)
 
+## A measured spheroid's j at r, as gal_sphere_j reads its table.
+func _sphere_table(r: float) -> float:
+	var lnj: PackedFloat32Array = sphere_tab.lnj
+	var n := lnj.size()
+	var x := maxf((log(r) - float(sphere_tab.lnr0)) / float(sphere_tab.dlnr), 0.0)
+	if x >= float(n - 1): return 0.0
+	var i := int(x)
+	return exp(lerpf(lnj[i], lnj[i + 1], x - float(i)))
+
 ## The share of a galaxy's light a Hernquist spheroid may leave beyond its marched sphere.
 const SPHERE_LEFT := 0.005
 ## The spheroid's marched radius (kpc): no spheroid light beyond it, here or in the shader.
 var sphere_r := 8.0
+## A measured spheroid (GalModels.sphereTable): ln j on radii even in ln r, as a 1-row texture.
+var sphere_tab := {}
+var _sphere_tex: ImageTexture = null
+## The core scale the glow samples a measured spheroid about (kpc).
+const SPHERE_CORE := 0.5
 
 ## The spheroid's share of the galaxy's visible light.
 func _sphere_share(model: Dictionary) -> float:
@@ -294,6 +316,7 @@ func _build_glow(model: Dictionary) -> void:
 	var bl: Dictionary = pot.part("bulge")
 	sphere_r = 8.0
 	if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF: sphere_r = 3.0 * float(bl.rc)
+	if not sphere_tab.is_empty(): sphere_r = minf(ext, float(sphere_tab.rmax))
 	elif not bl.is_empty() and bl.kind == GalPotential.Kind.HERNQUIST:
 		var x := sqrt(maxf(1.0 - SPHERE_LEFT / maxf(_sphere_share(model), SPHERE_LEFT), 0.0))
 		sphere_r = minf(ext, float(bl.a) * x / maxf(1.0 - x, 1e-9))
@@ -307,6 +330,7 @@ func _build_glow(model: Dictionary) -> void:
 	_light_uniforms(model, glow_mat)
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
 	glow_mat.set_shader_parameter("uSphereR", sphere_r)
+	glow_mat.set_shader_parameter("uSphereCore", SPHERE_CORE)
 	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
 	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
 	glow_mat.set_shader_parameter("uFaint", Vector2(disc_pop.faint_light, sphere_pop.faint_light))
@@ -497,7 +521,8 @@ func light_density(p: Vector3, r_floor := 1e-3) -> PackedFloat64Array:
 	var k := 1.0 / (bulge_axes.x * bulge_axes.y)
 	var js := 0.0
 	if sv.y > 0.0 and p.length() <= sphere_r:
-		js = k * (sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0)))
+		if sv.x > 1.5: js = k * sv.y * _sphere_table(r)
+		else: js = k * (sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0)))
 	var jy := 0.0
 	if young_k > 0.0:
 		var R := sqrt(R2)

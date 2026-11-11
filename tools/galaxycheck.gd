@@ -765,6 +765,46 @@ func neighbours() -> void:
 
 # Galaxies of their own scenes (GalModels.TYPES): drawn at their measured total light, and
 # M104's dust, integrated back to a mass, De Looze et al.'s (2012) ring and inner disc.
+## M87 drawn from Kormendy et al.'s (2009) measured profile: the drawn galaxy, projected along
+## parallel rays, against each measured point inside half the profile's reach, and its light
+## against their M_VT.
+const M87_PROFILE_TOL := 0.05
+func m87() -> void:
+	var m := GalModels.type_galaxy("m87")
+	var v := GalaxyVisual.new(m)
+	var prof := GalModels.m87_surface(float(m.sky.d))
+	var R: PackedFloat64Array = prof[0]
+	var lnI: PackedFloat64Array = prof[1]
+	var rmax := R[R.size() - 1]
+	var d := Vector3(0.0, -1.0, 0.0)
+	var worst := 0.0
+	var worst_r := 0.0
+	var n := 0
+	for i in R.size():
+		if R[i] > 0.5 * rmax: continue
+		var sigma := v.ray_luminance(Vector3(R[i], 600.0, 0.0), d, 1e-4, 3000) * 4.0 * PI
+		var dm := 2.5 * (lnI[i] - log(sigma)) / log(10.0)
+		if absf(dm) > absf(worst):
+			worst = dm
+			worst_r = R[i]
+		n += 1
+	ok(absf(worst) < M87_PROFILE_TOL, "M87 projects back onto Kormendy et al.'s %d measured points inside %s kpc (worst %s mag at %s kpc)" % [
+		n, U.fixed(0.5 * rmax, 0), U.fixed(worst, 3), U.fixed(worst_r, 2)])
+	# Its light within the last point's circle on the sky, as photometry adds it up.
+	var lc := 0.0
+	var steps := 60
+	var r0 := log(0.01)
+	var dl := (log(R[R.size() - 1]) - r0) / float(steps)
+	for k in steps:
+		var ra := exp(r0 + float(k) * dl)
+		var rb := exp(r0 + float(k + 1) * dl)
+		var rc := sqrt(ra * rb)
+		lc += v.ray_luminance(Vector3(rc, 600.0, 0.0), d, 1e-4, 3000) * 4.0 * PI * PI * (rb * rb - ra * ra)
+	lc += v.ray_luminance(Vector3(0.005, 600.0, 0.0), d, 1e-4, 3000) * 4.0 * PI * PI * 1e-4
+	var mv := 4.83 - 2.5 * log(lc) / log(10.0)
+	ok(absf(mv - float(GalModels.TYPES.m87.mv)) < 0.05, "M87 drawn holds M_V %s within its last measured point's circle (Kormendy et al. M_VT −22.95)" % U.fixed(mv, 3))
+	v.dispose()
+
 ## M51 (GalModels.M51_LIGHT, M51_DUST, M51_HII): each measured input drawn back out of the map
 ## and catalogue, and the whole against independent measurements.
 const M51_SEEN_TOL := 0.35
@@ -1010,12 +1050,13 @@ func types() -> void:
 	# is checked against RC3 in m51() instead.
 	var worst := 0.0
 	for k in GalModels.TYPES:
-		if GalModels.TYPES[k].get("light", "") == "m51": continue
+		if GalModels.TYPES[k].has("light"): continue
 		var m := GalModels.type_galaxy(k)
 		var mv := 4.83 - 2.5 * log(GalModels.visible_luminosity(m)) / log(10.0)
 		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
-	ok(worst < 1e-6, "%d galaxies of their own scenes are drawn at their measured absolute V (worst %s mag)" % [GalModels.TYPES.size() - 1, U.expo(worst, 1)])
+	ok(worst < 1e-6, "%d galaxies of their own scenes are drawn at their measured absolute V (worst %s mag)" % [GalModels.TYPES.size() - 2, U.expo(worst, 1)])
 	m51()
+	m87()
 	var m51 := GalModels.type_galaxy("m51")
 	# NGC 5195 against M51: 4.41′ apart on the sky (NED), 35 kpc behind.
 	var cf := GalLandmarks.companion_frame(m51, "ngc5195")

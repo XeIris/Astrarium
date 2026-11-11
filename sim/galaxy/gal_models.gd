@@ -128,10 +128,10 @@ const M51_ARM_BREAK := 6.240
 ## model. Light only. docs/physics/galaxies.md#galaxy-types.
 ## `parts`: name → [share of the light, scale (kpc), (disc height, kpc)].
 const TYPES := {
-	# Kormendy et al. (2009, Table 1): D 17.22 Mpc, M_VT −22.95, r_e 16.2 kpc from the 2-D
-	# profile (194.4″); E1, drawn round. A Hernquist sphere of that half-light radius.
+	# M87 (Kormendy et al. 2009): D 17.22 Mpc, M_VT −22.95; its light is M87_PROFILE. E1, drawn
+	# round.
 	"m87": {"name": "M87", "ra": 187.7059308, "dec": 12.39112326, "d": 17220.0, "mv": -22.95,
-		"parts": {"bulge": [1.0, 8.93]}, "extent": 150.0},
+		"light": "m87", "extent": 470.0},
 	# McQuinn et al. (2016): 9.55 Mpc; RC3 V_T⁰ 7.55, so M_V −22.35. Gadotti &
 	# Sánchez-Janssen (2012, model bdh, at 9.1 Mpc, rescaled): bulge 13 % (n 1.9, r_e 0.46 kpc)
 	# and halo 52 % (exponential, r_e 6.0 kpc, ellipticity 0.28) as one Hernquist sphere of
@@ -209,6 +209,117 @@ const M51_LIGHT := {"bulge": [0.35, 4.16e20, 6.05e20],
 # smooth young light, lines and all: a rendering choice.
 const M51_HII := {"sfr": 4.11, "logC": 41.27, "dig": 0.45, "tGyr": 0.01, "alpha": [-2.25, -1.42],
 	"logL": [35.5, 37.1, 39.0], "d": 9.9, "size": [8.0, 3.04], "nii": 0.5, "hahb": 2.86, "drawLogL": 36.5, "levels": 5, "top": 0.22}
+# M87's measured V surface brightness (Kormendy et al. 2009, Table 3: composite photometry
+# along the major axis): [r (″), μ_V (mag arcsec⁻²), ellipticity]; no ellipticity is given at
+# the first point. The table is not corrected for the Galaxy's A_V = 0.072 (their Table 1),
+# which it integrates to M_VT within 0.01 mag once it is. Drawn round on the circularised
+# radius r √(1 − ε), as the light density whose projection it is (an Abel inversion). Past the
+# last point (155 kpc) it carries on as their Sérsic fit does (n 11.84, r_e 703.91″ on the major
+# axis, circularised with the last point's ε), joined there: in the inversion to 20 times,
+# drawn to 3 times, so a sight line through the outer halo holds its light. The last segment's
+# own slope, I ∝ R^−1.3 at μ_V ≈ 28, is too shallow to carry on.
+const M87_AV := 0.072
+const M87_SERSIC := [11.84, 703.91]
+const M87_PROFILE := [
+	[0.017, 16.266, 0.0],
+	[0.044, 16.358, 0.16],
+	[0.088, 16.511, 0.161],
+	[0.176, 16.589, 0.161],
+	[0.22, 16.646, 0.161],
+	[0.264, 16.7, 0.162],
+	[0.308, 16.746, 0.162],
+	[0.352, 16.788, 0.162],
+	[0.396, 16.838, 0.138],
+	[0.44, 16.889, 0.131],
+	[0.484, 16.927, 0.118],
+	[0.548, 16.953, 0.109],
+	[0.604, 16.966, 0.097],
+	[0.66, 16.996, 0.094],
+	[0.727, 17.031, 0.084],
+	[0.795, 17.062, 0.09],
+	[0.867, 17.091, 0.087],
+	[0.95, 17.114, 0.079],
+	[1.038, 17.134, 0.075],
+	[1.147, 17.165, 0.071],
+	[1.254, 17.195, 0.072],
+	[1.365, 17.21, 0.049],
+	[1.515, 17.241, 0.03],
+	[1.669, 17.27, 0.023],
+	[1.825, 17.29, 0.015],
+	[1.998, 17.318, 0.007],
+	[2.196, 17.346, 0.018],
+	[2.419, 17.371, 0.015],
+	[2.64, 17.399, 0.012],
+	[2.835, 17.418, 0.008],
+	[3.218, 17.47, 0.005],
+	[3.823, 17.538, 0.012],
+	[4.546, 17.613, 0.01],
+	[5.413, 17.715, 0.017],
+	[6.092, 17.79, 0.021],
+	[7.118, 17.913, 0.028],
+	[7.78, 17.991, 0.023],
+	[8.61, 18.086, 0.028],
+	[9.441, 18.183, 0.02],
+	[10.304, 18.277, 0.026],
+	[11.552, 18.409, 0.03],
+	[12.322, 18.489, 0.026],
+	[13.715, 18.622, 0.03],
+	[15.109, 18.749, 0.03],
+	[16.615, 18.879, 0.032],
+	[18.249, 19.009, 0.036],
+	[19.971, 19.143, 0.036],
+	[21.945, 19.284, 0.04],
+	[23.961, 19.415, 0.043],
+	[26.318, 19.56, 0.05],
+	[29.04, 19.716, 0.051],
+	[31.75, 19.86, 0.052],
+	[35.015, 20.016, 0.059],
+	[38.371, 20.161, 0.064],
+	[42.073, 20.318, 0.072],
+	[45.779, 20.455, 0.076],
+	[50.855, 20.631, 0.078],
+	[56.04, 20.794, 0.082],
+	[61.094, 20.936, 0.086],
+	[67.531, 21.097, 0.096],
+	[72.277, 21.217, 0.1],
+	[77.179, 21.331, 0.099],
+	[84.918, 21.499, 0.109],
+	[93.972, 21.693, 0.114],
+	[104.954, 21.912, 0.128],
+	[116.011, 22.116, 0.139],
+	[127.938, 22.317, 0.153],
+	[139.798, 22.515, 0.157],
+	[154.17, 22.714, 0.171],
+	[166.341, 22.87, 0.185],
+	[180.926, 23.019, 0.206],
+	[200.909, 23.22, 0.222],
+	[222.587, 23.42, 0.237],
+	[242.103, 23.573, 0.254],
+	[265.053, 23.742, 0.275],
+	[293.99, 23.934, 0.293],
+	[321.366, 24.096, 0.303],
+	[346.737, 24.257, 0.313],
+	[381.651, 24.441, 0.329],
+	[419.276, 24.658, 0.337],
+	[462.914, 24.82, 0.348],
+	[502.343, 25.011, 0.37],
+	[541.377, 25.09, 0.381],
+	[593.608, 25.288, 0.388],
+	[653.131, 25.486, 0.398],
+	[719.449, 25.697, 0.427],
+	[794.328, 25.917, 0.447],
+	[878.348, 26.1, 0.454],
+	[946.237, 26.328, 0.447],
+	[1046.325, 26.62, 0.457],
+	[1145.513, 26.848, 0.464],
+	[1230.269, 26.995, 0.454],
+	[1336.595, 27.18, 0.443],
+	[1479.109, 27.305, 0.439],
+	[1621.81, 27.535, 0.436],
+	[1778.279, 27.715, 0.433],
+	[1995.262, 27.755, 0.429],
+	[2443.7, 28.045, 0.422],
+]
 const LAMBDA_V := 5476.0
 const SUN_V_AB := 4.80
 
@@ -297,6 +408,7 @@ static func type_galaxy(key: String) -> Dictionary:
 	var model := {"key": key, "name": spec.name, "potential": pot, "sense": 1.0, "extent": spec.extent, "light": light,
 		"sky": spec, "bulgeAxes": spec.get("bulgeAxes", [1.0, 1.0])}
 	if spec.get("light", "") == "m51": _m51_light(model)
+	if spec.get("light", "") == "m87": _m87_light(model)
 	var lv := pow(10.0, -0.4 * (float(spec.mv) - 4.83))
 	for part in spec.get("parts", {}):
 		var pp: Array = spec.parts[part]
@@ -372,6 +484,88 @@ static func _m51_light(model: Dictionary) -> void:
 	model.armLight = ly / yy
 	model.armH = float((thins[1] as Array)[5])
 	model.hii = M51_HII
+
+## M87's light as M87_PROFILE has it: ln j (bolometric L☉ kpc⁻³) on SPHERE_TAB_N radii even in
+## ln r out to 3 times the last point; its mass through the population model, held in the potential as a
+## Hernquist sphere of the same mass and half-mass radius (a = r_half/(1 + √2)).
+const SPHERE_TAB_N := 256
+const SPHERE_TAB_R0 := 1e-3
+static func _m87_light(model: Dictionary) -> void:
+	var spec: Dictionary = model.sky
+	var prof := m87_surface(float(spec.d))
+	var R: PackedFloat64Array = prof[0]
+	var lnI: PackedFloat64Array = prof[1]
+	var rmax := 3.0 * R[R.size() - 1]
+	var pop := GalPopulation.build({"kind": "burst", "gyr": 10.0})
+	var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
+	var d := log(rmax / SPHERE_TAB_R0) / float(SPHERE_TAB_N - 1)
+	var lnj := PackedFloat32Array()
+	lnj.resize(SPHERE_TAB_N)
+	for k in SPHERE_TAB_N:
+		var r := SPHERE_TAB_R0 * exp(float(k) * d)
+		lnj[k] = log(maxf(abel(R, lnI, r, prof[2]) / y, 1e-30))
+	# Light and mass within each radius, from the table as drawn.
+	var lb := 0.0
+	var cum := PackedFloat64Array()
+	cum.resize(SPHERE_TAB_N)
+	for k in range(1, SPHERE_TAB_N):
+		var r0 := SPHERE_TAB_R0 * exp(float(k - 1) * d)
+		var r1 := SPHERE_TAB_R0 * exp(float(k) * d)
+		lb += 0.5 * (exp(lnj[k - 1]) * r0 * r0 + exp(lnj[k]) * r1 * r1) * 4.0 * PI * (r1 - r0)
+		cum[k] = lb
+	var r_half := rmax
+	for k in SPHERE_TAB_N:
+		if cum[k] >= 0.5 * lb:
+			r_half = SPHERE_TAB_R0 * exp(float(k) * d)
+			break
+	var mass := lb / (VISIBLE_BULGE * pop.mean_l / pop.mean_mass)
+	(model.potential as GalPotential).add(GalPotential.hernquist("bulge", r_half / (1.0 + sqrt(2.0)), GalUnits.G * mass / GalUnits.MASS_UNIT_SUN))
+	model.light.append({"part": "bulge", "visible": VISIBLE_BULGE})
+	model.sphereTable = {"lnr0": log(SPHERE_TAB_R0), "dlnr": d, "lnj": lnj, "rmax": rmax}
+
+## M87_PROFILE as V surface luminosity (L☉ kpc⁻²) on circularised radius (kpc): [R, ln I].
+static func m87_surface(d_kpc: float) -> Array:
+	var kpc_as := d_kpc * PI / (180.0 * 3600.0)
+	var R := PackedFloat64Array()
+	var lnI := PackedFloat64Array()
+	for row in M87_PROFILE:
+		R.append(float(row[0]) * kpc_as * sqrt(1.0 - float(row[2])))
+		# μ = M☉ + 21.572 − 2.5 log₁₀(I in L☉ pc⁻²); 21.572 = 5 log₁₀(206265″/10 pc).
+		lnI.append(-0.4 * (float(row[1]) - M87_AV - 4.83 - 21.572) * log(10.0) + log(1e6))
+	# Ciotti & Bertin's (1999) b_n, to 1/n².
+	var n := float(M87_SERSIC[0])
+	var b := 2.0 * n - 1.0 / 3.0 + 4.0 / (405.0 * n) + 46.0 / (25515.0 * n * n)
+	var last: Array = M87_PROFILE[M87_PROFILE.size() - 1]
+	var re := float(M87_SERSIC[1]) * kpc_as * sqrt(1.0 - float(last[2]))
+	return [R, lnI, [n, b, re]]
+
+## ln I at R, linear in ln R between points; beyond, the Sérsic profile `sersic` = [n, b_n, r_e]
+## joined at the last point, or without one the last slope.
+static func lnI_at(R: PackedFloat64Array, lnI: PackedFloat64Array, x: float, sersic := []) -> float:
+	var lx := log(x)
+	if x <= R[0]: return lnI[0]
+	var n := R.size()
+	var k := R.bsearch(x)
+	if k < n:
+		var t := (lx - log(R[k - 1])) / (log(R[k]) - log(R[k - 1]))
+		return lerpf(lnI[k - 1], lnI[k], t)
+	if not sersic.is_empty():
+		var sn: float = sersic[0]
+		return lnI[n - 1] - float(sersic[1]) * (pow(x / float(sersic[2]), 1.0 / sn) - pow(R[n - 1] / float(sersic[2]), 1.0 / sn))
+	return lnI[n - 1] + (lnI[n - 1] - lnI[n - 2]) / (log(R[n - 1]) - log(R[n - 2])) * (lx - log(R[n - 1]))
+
+## The light density whose projection is I(R): j(r) = −(1/π) ∫_r^∞ I′(R) dR / √(R² − r²), with
+## R = r cosh u, out to 20 times the last point, I beyond it as lnI_at continues it.
+static func abel(R: PackedFloat64Array, lnI: PackedFloat64Array, r: float, sersic := []) -> float:
+	var umax := acosh(20.0 * R[R.size() - 1] / r)
+	var n := 600
+	var s := 0.0
+	for k in n:
+		var u := (float(k) + 0.5) * umax / float(n)
+		var x := r * cosh(u)
+		var h := x * 1e-4
+		s += (exp(lnI_at(R, lnI, x + h, sersic)) - exp(lnI_at(R, lnI, x - h, sersic))) / (2.0 * h) * umax / float(n)
+	return -s / PI
 
 static func milky_way_potential() -> GalPotential:
 	return GalPotential.new() \
