@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the authored craft and launchpad models.
 #
-#   model_sources/blender/build.sh                  11 vehicles, 4 pads, the facilities, the observatories
+#   model_sources/blender/build.sh                  14 vehicles, 4 pads, the facilities, the observatories
 #   model_sources/blender/build.sh shuttle pad_fss  selected models
 #
 # The .py files are the models; the .glb output in assets/craft/ and assets/pads/ is
@@ -46,7 +46,7 @@ fi
 echo "blender: $BLENDER"
 "$BLENDER" --version | head -1
 
-ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle evapod ranger pad_lut pad_fss pad_strongback pad_chopsticks facilities observatories)
+ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle evapod ranger discovery endurance lander pad_lut pad_fss pad_strongback pad_chopsticks facilities observatories)
 if [ "$#" -gt 0 ]; then MODELS=("$@"); else MODELS=("${ALL[@]}"); fi
 craft_spec="$(mktemp "${TMPDIR:-/tmp}/astrarium-craft-spec.XXXXXX")"
 trap 'rm -f "$craft_spec"' EXIT

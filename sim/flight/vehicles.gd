@@ -157,6 +157,51 @@ static var VEHICLES: Dictionary = _build_vehicles()
 static func _build_vehicles() -> Dictionary:
 	var E := ENGINES
 	return {
+	"lander": {
+		"id":"lander", "name":"Cargo Lander (Interstellar-inspired)", "role":"cruiser", "launchFrom":"Earth",
+		"era":"Interstellar · inspired design", "orbitAltitude":1000e3,
+		"blurb":"An angular cargo shuttle with a broad glazed cabin, deep side pods and six aft manoeuvring outlets. Reference-judged 21.4 × 18.6 m reconstruction. Six 90 kN engines at an estimated 370 s Isp support orbital manoeuvres. A dorsal collar seats into the Expedition Ring's transverse berth.",
+		"limits":{"maxQ":10e3,"maxG":3.0,"qAlpha":1e6,"heatLoad":0.0},
+		"stages":[stage({"key":"cargo","name":"Cargo Lander","dry":26000.0,"prop":18000.0,
+			"engine":{"name":"Cargo OMS (estimate)","prop":"Storable propellant","thrustVac":90000.0,
+				"ispSL":320.0,"ispVac":370.0,"throttleMin":.05,"gimbal":3.0,"exitD":.94,"plume":"hypergolic"},
+			"count":6,"L":21.4,"D":18.6,"sep":"none",
+			"rcs":{"thrust":1200.0,"isp":290.0,"prop":500.0,"count":16},
+			"look":{"skin":"white","lander":true}})],
+	},
+	"endurance": {
+		"id":"endurance", "name":"Expedition Ring (Endurance-inspired)", "role":"cruiser", "launchFrom":"Earth",
+		"era":"Interstellar · inspired design", "aerobrake":false, "orbitAltitude":1000e3,
+		"blurb":"Twelve connected modules, three pressure spokes and an axial docking hub. The 65 m envelope is judged from the 1:15 shooting miniature. A 30.5 m floor at 5 rpm gives 0.85 g; spin is prescribed and its angular momentum is not coupled to the hull. Estimated high-power plasma propulsion: twelve 25 kN outlets at 2 000 s Isp. The developer scenarios include Ranger spin matching and a kinematic Kerr orbit.",
+		"limits":{"maxQ":1.0,"maxG":2.0,"qAlpha":1.0,"heatLoad":0.0},
+		"stages":[stage({"key":"expedition","name":"Expedition Ring","dry":100000.0,"prop":50000.0,
+			"engine":{"name":"Plasma drive (estimate)","prop":"Plasma propellant","thrustVac":25000.0,
+				"ispSL":2000.0,"ispVac":2000.0,"throttleMin":.05,"gimbal":2.0,"exitD":1.90,"plume":"hydrolox"},
+			"count":12,"L":51.7,"D":65.0,"sep":"none",
+			"rcs":{"thrust":1200.0,"isp":300.0,"prop":1600.0,"count":24},
+			"centrifuge":{"radius":30.5,"rpm":5.0,"walkSpeed":1.4,"at":[0.0,17.0,0.0]},
+			"look":{"skin":"white","endurance":true,"rotors":1,"hubLength":33.0,"hubRadius":1.64,"axialAdapter":.90,
+				"landerBerth":[-5.40,4.65,0.0],
+				"ring":{"at":17.0,"centerRadius":27.0,"moduleSize":[10.4,7.6,8.3]}}})],
+	},
+	"discovery": {
+		"id":"discovery", "name":"Jupiter Explorer (Discovery One-inspired)", "role":"cruiser", "launchFrom":"Earth",
+		"era":"2001: A Space Odyssey · inspired design",
+		"aerobrake":false,
+		"finiteDeparture":true,
+		"orbitAltitude":1000e3, "arrivalAltitudes":{"Jupiter":100e6},
+		"blurb":"A command sphere and three pod berths at the end of a long, repeating service spine. The 103 m length follows miniature proportions at the existing pod's scale; published fictional lengths conflict. Estimated gas-core nuclear drive: three 100 kN engines, 4 000 s Isp. An enclosed 4.6 m centrifuge turns at 8 rpm (0.33 g). Rotor angular momentum is not coupled to attitude. Select Jupiter in the mission planner.",
+		"limits":{"maxQ":1.0,"maxG":2.0,"qAlpha":1.0,"heatLoad":0.0},
+		"stages":[stage({"key":"explorer","name":"Jupiter Explorer","dry":80000.0,"prop":80000.0,
+			"engine":{"name":"Twin-outlet nuclear module (estimate)","prop":"Hydrogen",
+				"thrustVac":100000.0,"ispSL":4000.0,"ispVac":4000.0,"throttleMin":0.10,
+				"gimbal":2.0,"exitD":1.27,"plume":"hydrolox"},
+			"count":3,"L":103.0,"D":11.44,"sep":"none",
+			"rcs":{"thrust":3000.0,"isp":300.0,"prop":1600.0,"count":16},
+			"centrifuge":{"radius":4.6,"rpm":8.0,"walkSpeed":1.4,"at":[0.0,95.6,0.0]},
+			"look":{"skin":"white","discovery":true,"doors":3,"doorSwing":2.09439510239,"spineModules":11,"rotors":1,
+				"noseSealAllowance":.05,"bayRadius":1.45,"baySpacing":3.07,"bayZ":-1.65}})],
+	},
 	"ranger": {
 		"id": "ranger", "name": "Survey Shuttle (Ranger-inspired)", "role": "cruiser", "launchFrom": "Earth",
 		"era": "Interstellar · inspired design",
@@ -632,7 +677,7 @@ static func booster_return(key: String):
 
 const VEHICLE_ORDER := [
 	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane",
-	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod", "ranger",
+	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod", "ranger", "discovery", "endurance", "lander",
 ]
 
 # Ideal Δv of one stage, carrying everything above it. Derived, never stored. `pa`

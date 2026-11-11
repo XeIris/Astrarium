@@ -1939,6 +1939,7 @@ func sample(dt: float, s: Sample = null) -> Dictionary:
 	t.dv = delta_v_remaining(s.pa)
 	t.downrange = downrange
 	t.gSurf = env.mu / (rl2 if rl2 != 0.0 else 1.0)
+	t.centrifuge = Centrifuge.telemetry(stages,met)
 	# The gate the structure checks are made against.
 	s.gees = t.gees; s.alpha = alpha
 	if dt > 0.0: check_structure(s, dt)

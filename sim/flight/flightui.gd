@@ -402,6 +402,8 @@ var console = null              # FlightConsole: the strip along the bottom of t
 var status_box: PanelContainer
 var status_el: Prose
 var _status_cls := "?"
+var habitat_box: Control
+var habitat_values: Array=[]
 var grid: HudGrid
 var grid_v: Array = []          # value label per row
 var grid_k: Array = []
@@ -517,6 +519,11 @@ func _init(r: Control, h: Dictionary) -> void:
 	var dkv := KV.new("ship − ground", "—", _st(K), _st({"fs": 10.0, "c": 0xffcf4d}), 0.0)
 	clocks.add_child(Hud.m(Hud.frame(dkv, {"bw": 0, "bt": 1, "bc": HudTheme.rgba(120, 190, 255, 0.2), "pad": [3, 0, 0, 0]}), 3.0))
 	dt_v = dkv
+	habitat_box=Hud.stack(root)
+	_section(habitat_box,"Artificial gravity")
+	for key in ["radius / spin","floor gravity","Coriolis / gravity","rotor attitude"]:
+		habitat_values.append(_kv(habitat_box,key,"—"))
+	habitat_box.visible=false
 	_section(root, "Stages")
 	stages_el = Hud.stack(root)
 	_section(root, "Autopilot")
@@ -617,6 +624,12 @@ func update(s: Dictionary) -> void:
 		for i in [4, 5, 6, 7, 14, 17]: rows[i][1] = "—"
 		# A photon drive's Δv in units of c is the rapidity left.
 		rows[16][1] = "%s c" % U.fixed(tf.call("dv") / 299792458.0, 3)
+	var kerr: Dictionary=t.get("kerr",{})
+	if not kerr.is_empty():
+		rows[0]=["Kerr radius", "%s GM/c²"%U.fixed(kerr.radiusM,3)]
+		rows[1]=["orbit period",Guidance.fmt_dur(float(kerr.period))]
+		rows[2]=["clock ratio · dt/dτ","%s×"%U.fixed(kerr.dilation,3)]
+		for i in [3,4,5,6,7,8,9,10,11,13,14,15,16,17,20]:rows[i][1]="—"
 	# A Lagrange point targeted on the map takes the downrange row.
 	var nav = s.get("navPoint")
 	if nav != null: rows[17] = ["→ " + str(nav.name), "%s · %s" % [fmt_dist(nav.dist), fmt_speed(nav.speed)]]
@@ -625,8 +638,18 @@ func update(s: Dictionary) -> void:
 		(grid_v[i] as KV).set_v(rows[i][1])
 
 	met_v.set_v(Guidance.fmt_dur(v.met))
+	ut_v.set_k("t · infinity" if not kerr.is_empty() else "UT · coordinate")
+	dt_v.set_k("ship − infinity" if not kerr.is_empty() else "ship − ground")
 	ut_v.set_v(str(s.date) if s.get("date") != null else Guidance.fmt_dur(v.coord))
 	dt_v.set_v(fmt_clock_delta(v.clock_delta))
+	var habitat: Dictionary=t.get("centrifuge",{})
+	habitat_box.visible=not habitat.is_empty()
+	if not habitat.is_empty():
+		var values: Array=["%s m / %s rpm"%[U.fixed(habitat.radius,1),U.fixed(habitat.rpm,1)],
+			"%s g"%U.fixed(habitat.gees,3),
+			"%s at %s m/s"%[U.fixed(habitat.coriolisRatio,2),U.fixed(habitat.walkSpeed,1)],
+			"momentum not modelled"]
+		for i in values.size(): (habitat_values[i] as KV).set_v(values[i])
 
 	_update_stages(v)
 

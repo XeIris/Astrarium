@@ -267,6 +267,49 @@ func _soak_check() -> void:
 			stage.end_flight()
 			for i in 5: await stage.get_tree().process_frame
 			hud.toast("",1),
+		"discovery": func():
+			stage.load_preset("jovian_voyage")
+			flight.phase_rng.seed=int(_cmd.seed)
+			await stage.launch_craft("discovery")
+			state.paused=false
+			for i in 120:stage.animate(1.0/60.0)
+			if flight.craft.stages[0].parts.rotors.size()!=1 or flight.craft.stages[0].deploy<.99:
+				failures.append("discovery: rotor or opened pod bays missing")
+			if flight.vessel.telemetry.get("centrifuge",{}).is_empty():
+				failures.append("discovery: artificial gravity telemetry missing")
+			await _drawn_frame()
+			state.paused=true
+			stage.end_flight()
+			for i in 5:await stage.get_tree().process_frame
+			hud.toast("",1),
+		"docking": func():
+			for id in ["evapod:pod_berth", "ranger:spin_match"]:
+				var error: String = await stage.jump_scenario(id)
+				if error != "" or flight.docking == null or not flight.docking.latched:
+					failures.append("docking: " + id + " failed to capture " + error)
+					stage.end_flight()
+					continue
+				var carrier := flight.docking.craft.group
+				for i in 60: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+				stage.end_flight()
+				for i in 5: await stage.get_tree().process_frame
+				if is_instance_valid(carrier) or flight.docking != null:
+					failures.append("docking: carrier retained after " + id)
+			hud.toast("", 1),
+		"kerr": func():
+			var error: String = await stage.jump_scenario("endurance:kerr_orbit")
+			if error != "" or flight.kerr_demo.is_empty():
+				failures.append("kerr: failed to start " + error)
+			else:
+				var before: float = flight.vessel.met
+				for i in 60: stage.animate(1.0 / 60.0)
+				if flight.vessel.met <= before: failures.append("kerr: proper clock stalled")
+				await _drawn_frame()
+			stage.end_flight()
+			for i in 5: await stage.get_tree().process_frame
+			if not flight.kerr_demo.is_empty(): failures.append("kerr: orbit retained after exit")
+			hud.toast("", 1),
 		"flight_stage": func():
 			await stage.launch_craft("saturnv")
 			state.paused = false

@@ -33,6 +33,7 @@ var _t_arr := 0.0
 var _fixes := 0
 var _aero_rp := 0.0        # the aerocapture pass's periapsis radius, m, once solved
 var _aero_in := false      # the pass has entered the air
+var _aim_radius:=0.0       # radius at the last arrival-targeting checkpoint, m
 
 # PLANNING
 
@@ -160,6 +161,9 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		legs.append({"key": "launch", "label": "Launch to orbit around %s" % P.name, "dv": launch_dv(P, r0), "t": 600.0})
 	var dest_env := Rocketry.flight_env(target)
 	var r_cap := park_radius(target)
+	var arrival: Dictionary=v.vehicle.get("arrivalAltitudes",{})
+	if want=="orbit" and arrival.has(target.name):
+		r_cap=maxf(r_cap,float(dest_env.radius)+float(arrival[target.name]))
 	out.r_cap = r_cap
 	var mu_d := _mu(target)
 	var muP := _mu(P)
@@ -234,6 +238,13 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 			wait = pc.t_dep; tof = pc.tof
 			out["porkchop"] = pc
 		var dep := escape_dv(muP, r0, v_inf_dep)
+		if v.vehicle.get("finiteDeparture",false) and Pc==P and not grounded:
+			var drive:=FiniteBurn.drive(v)
+			var prediction:=FiniteBurn.escape(v.r,v.v,muP,v.mass,drive.thrust,drive.isp,v_inf_dep,drive.prop)
+			if prediction.is_empty():
+				out.why="Insufficient propellant for the finite departure burn"
+				return out
+			dep=prediction.dv
 		if Pc != P:
 			# From a moon: leave it, then the planet it circles, on the same hyperbola.
 			var v_inf_p := escape_dv(_mu(Pc), _rel_pos(P, Pc).length(), v_inf_dep) + sqrt(_mu(Pc) / _rel_pos(P, Pc).length())
@@ -254,7 +265,7 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 			var raise := sqrt(mu_d / r_cap) - sqrt(mu_d * 2.0 * rp_a / (r_cap * (rp_a + r_cap)))
 			legs.append({"key": "aerocapture", "label": "Aerocapture, then raise the periapsis", "dv": raise, "t": 3600.0})
 			out["aero"] = true
-		elif Dc == target and dest_env.atm != null:
+		elif Dc == target and dest_env.atm != null and v.vehicle.get("aerobrake",true):
 			# No heat shield: capture onto a long ellipse, then let the upper air take the
 			# apoapsis down pass by pass, as Magellan, MGS and MRO did.
 			var ra_c := AEROBRAKE_RA * r_cap
@@ -371,6 +382,13 @@ func abort(why: String = "Mission aborted") -> void:
 	var ap = flight.autopilot
 	if ap != null and ap.program == "node": ap.disengage()
 	flight.vessel.log_event(why)
+	_burn=null;_burn_engaged=false
+
+func release() -> void:
+	# Scheduled lambdas retain the mission and vessel; ending flight must break
+	# those references even when a burn was cancelled before its normal hand-off.
+	_burn=null
+	flight=null
 
 func _next() -> void:
 	leg += 1
@@ -379,6 +397,7 @@ func _next() -> void:
 	_burn_engaged = false
 	_fixes = 0
 	_aero_in = false
+	_aim_radius = 0.0
 	if leg >= legs().size():
 		done = true
 		status = "Mission complete — %s" % title()
@@ -411,6 +430,10 @@ func update(dt: float) -> void:
 		_: _next()
 	if done or failed != "": return
 	_fly_burn(v, ap)
+	# A months-long window wait needs no pointing manoeuvre. Tracking the local
+	# prograde direction through every parking orbit can exhaust the RCS before
+	# departure; the next burn takes over attitude at its normal handover.
+	if ap.program == null: ap.mode = Guidance.MODE.OFF
 	if auto_warp: _pace(v, ap)
 
 # The legs. Each sets `status`, schedules at most one burn, and calls _next() when
@@ -503,6 +526,10 @@ func _leg_escape(v: Vessel, ap) -> void:
 				v_inf = pc.v_inf_dep
 				d_inf = DQuat.nrm(_local(v, (pc.v_dep as DVec3).clone()))
 				_t_arr = at + float(pc.tof)
+		if v.vehicle.get("finiteDeparture",false) and plan.case=="planet":
+			_schedule_finite_escape(v,mu,at,d_inf,v_inf)
+			_stage="burn"
+			return
 		var tb := _align_time(v, mu, at, d_inf, v_inf)
 		_schedule(tb, "Departure burn", func() -> DVec3:
 			var rb := DVec3.new(); var vb := DVec3.new()
@@ -518,6 +545,50 @@ func _leg_escape(v: Vessel, ap) -> void:
 	status = _burn_status("Departure for %s" % dest.name)
 	if _stage == "burn" and _burn_done(ap):
 		_next()
+
+func _schedule_finite_escape(v: Vessel,mu: float,at: float,d_inf: DVec3,vinf: float) -> void:
+	var solve:=func(earliest: float) -> Dictionary:
+		var drive:=FiniteBurn.drive(v)
+		var el:=Orbit.elements(v.r,v.v,mu)
+		var period: float=el.period
+		if not is_finite(period):return {}
+		var normal:=DQuat.nrm(v.r.cross(v.v))
+		var start:=earliest
+		var rb:=DVec3.new();var vb:=DVec3.new();var prediction: Dictionary={}
+		for iteration in 4:
+			if not Orbit.propagate(v.r,v.v,mu,start-v.coord,rb,vb):return {}
+			prediction=FiniteBurn.escape(rb,vb,mu,v.mass,drive.thrust,drive.isp,vinf,drive.prop)
+			if prediction.is_empty():return {}
+			var outgoing=_asymptote(prediction.r,prediction.v,mu)
+			if outgoing==null:return {}
+			var asym: DVec3=DQuat.nrm(outgoing)
+			var angle:=atan2(normal.dot(asym.cross(d_inf)),asym.dot(d_inf))
+			if absf(angle)<1e-5:break
+			if iteration==0 and angle<0.0:angle+=TAU
+			start+=angle*period/TAU
+			if start<earliest:start+=period
+		if not Orbit.propagate(v.r,v.v,mu,start-v.coord,rb,vb):return {}
+		prediction=FiniteBurn.escape(rb,vb,mu,v.mass,drive.thrust,drive.isp,vinf,drive.prop)
+		if prediction.is_empty():return {}
+		prediction["start"]=start
+		prediction["direction"]=DQuat.nrm(vb.clone())
+		return prediction
+	var estimate: Dictionary=solve.call(at)
+	if estimate.is_empty():abort("Finite departure predictor could not find an escape");return
+	var solution: Dictionary={"estimate":estimate}
+	_schedule(float(estimate.start)+float(estimate.duration)*.5,"Departure burn",func() -> DVec3:
+		return (solution.estimate.direction as DVec3).scaled(solution.estimate.dv))
+	_burn["duration"]=estimate.duration
+	_burn["turning"]=true
+	_burn["retime"]=func() -> float:
+		var revised: Dictionary=solve.call(v.coord+HANDOVER_S+60.0)
+		if revised.is_empty():return NAN
+		solution.estimate=revised
+		_burn.duration=revised.duration
+		return float(revised.start)+float(revised.duration)*.5
+	_burn["track"]=func() -> DVec3:
+		var want:=sqrt(vinf*vinf+2.0*mu/v.r.length())
+		return DQuat.nrm(v.v.clone()).scale_in(maxf(want-v.v.length(),0.0))
 
 ## The time, at or after `t0`, at which a prograde burn up to `v_inf` leaves on an
 ## escape asymptote closest to `d_inf`. Each candidate's hyperbola is solved for its
@@ -650,13 +721,18 @@ func _leg_approach(v: Vessel, ap) -> void:
 	if _stage == "coast":
 		var t_p := Orbit.time_to_periapsis_any(el, mu)
 		status = "Approach to %s — periapsis %s km in %s" % [dest.name, U.fixed((float(el.rp) - R_b) / 1000.0, 0), Guidance.fmt_dur(t_p)]
-		if is_finite(t_p) and t_p > TRIM_BEFORE_S: return
+		# Recheck each halving of approach radius: a many-day Jovian approach
+		# accumulates solar-tide deflection that a last-hours trim cannot cheaply undo.
+		var near_periapsis: bool=not is_finite(t_p) or t_p<=TRIM_BEFORE_S
+		if not near_periapsis and v.r.length()>_aim_radius*.5:return
 		if aimed:
-			_next(); return
+			if near_periapsis:_next()
+			else:_aim_radius=v.r.length()
+			return
 		_stage = ""
 	if _stage == "":
 		if aimed:
-			_next(); return
+			_aim_radius=v.r.length();_stage="coast";return
 		var at := v.coord + (180.0 if _fixes == 0 else 60.0)
 		_schedule(at, "Arrival targeting" if _fixes == 0 else "Arrival trim", func() -> DVec3:
 			var rb := DVec3.new(); var vb := DVec3.new()
@@ -676,8 +752,8 @@ func _leg_approach(v: Vessel, ap) -> void:
 	status = _burn_status("Approach to %s" % dest.name)
 	if _stage == "burn" and _burn_done(ap):
 		_fixes += 1
-		if _fixes < 2: _stage = "coast"
-		else: _next()
+		_aim_radius=v.r.length()
+		_stage="coast"
 
 ## Can `v` aerocapture at `b`: air to fly through and a heat shield to fly on, and not a
 ## winged body (its lift is not in the predictor).
@@ -913,7 +989,9 @@ func _leg_capture(v: Vessel, ap) -> void:
 			return t.scale_in(want).sub_in(vb))
 		_burn["retime"] = func() -> float:
 			return v.coord + Orbit.time_to_periapsis_any(Orbit.elements(v.r, v.v, mu), mu)
-		if ra_c <= 0.0: _burn["track"] = circ
+		if ra_c <= 0.0:
+			_burn["track"] = circ
+			_burn["turning"] = bool(v.vehicle.get("finiteDeparture",false))
 		_stage = "burn"
 	status = _burn_status("Orbit insertion at %s" % dest.name)
 	if _stage == "burn" and _burn_done(ap):
@@ -975,6 +1053,11 @@ func _leg_land(v: Vessel, ap) -> void:
 func _schedule(at: float, label: String, make: Callable) -> void:
 	_burn = {"at": at, "make": make, "label": label}
 	_burn_engaged = false
+	if flight.vessel.vehicle.get("finiteDeparture",false):
+		var drive:=FiniteBurn.drive(flight.vessel)
+		if drive.thrust>0.0 and drive.isp>0.0:
+			var dv: DVec3=make.call()
+			_burn["duration"]=Rocketry.burn_time_for(dv.length(),flight.vessel.mass,drive.thrust,drive.isp)
 	flight.vessel.log_event("%s planned in %s" % [label, Guidance.fmt_dur(maxf(at - flight.vessel.coord, 0.0))])
 
 ## Hand the next burn to the autopilot a few minutes before ignition.
@@ -990,20 +1073,24 @@ func _fly_burn(v: Vessel, ap) -> void:
 			var dv: DVec3 = _burn.track.call()
 			if not _burn.has("dir0"): _burn["dir0"] = DQuat.nrm(dv.clone())
 			# Past the target (the remainder points back) or within a step of it: done.
-			if dv.dot(_burn.dir0) <= 0.0 or dv.length() < 0.5:
+			if (not _burn.get("turning",false) and dv.dot(_burn.dir0)<=0.0) or dv.length()<0.5:
 				ap.burn_remaining = 0.0
 			else:
 				ap.node_vec.copy_from(dv)
 				ap.burn_remaining = dv.length()
 		return
 	# A burn timed from a conic hours ago drifts with the other bodies' pull: re-time it.
-	if _burn.has("retime") and not _burn.has("retimed") and float(_burn.at) - v.coord < HANDOVER_S * 4.0:
+	var handover:=HANDOVER_S+float(_burn.get("duration",0.0))*.5
+	if _burn.has("retime") and not _burn.has("retimed") and float(_burn.at) - v.coord < handover * 4.0:
 		_burn["retimed"] = true
 		var t: float = _burn.retime.call()
 		if is_finite(t): _burn.at = t
 	var t_go: float = _burn.at - v.coord
-	if t_go > HANDOVER_S: return
+	if t_go > handover: return
 	var dv: DVec3 = _burn.make.call()
+	if dv.length()>v.delta_v_remaining(0.0)+1.0:
+		abort("%s needs %s km/s; %s km/s remains"%[_burn.label,U.fixed(dv.length()/1000.0,2),U.fixed(v.delta_v_remaining(0.0)/1000.0,2)])
+		return
 	_burn_engaged = true
 	if dv.length() < 0.3:
 		v.log_event("%s — not needed" % _burn.label)
@@ -1029,7 +1116,8 @@ func _burn_status(what: String) -> String:
 func next_event_s() -> float:
 	var v: Vessel = flight.vessel
 	var t := INF
-	if _burn != null and not _burn_engaged: t = minf(t, float(_burn.at) - v.coord - HANDOVER_S)
+	if _burn != null and not _burn_engaged:
+		t=minf(t,float(_burn.at)-v.coord-HANDOVER_S-float(_burn.get("duration",0.0))*.5)
 	if leg_key() in ["midcourse", "approach", "capture", "aerocapture", "aerobrake"] and v.parent != dest:
 		# Slow before the destination's sphere so the crossing is not stepped over.
 		var soi := v.soi_of(dest)
@@ -1038,6 +1126,8 @@ func next_event_s() -> float:
 		t = minf(t, maxf(d - soi, 0.0) / closing)
 	if leg_key() == "approach" and _stage == "coast":
 		t = minf(t, Orbit.time_to_periapsis_any(Orbit.elements(v.r, v.v, _mu(dest)), _mu(dest)) - TRIM_BEFORE_S)
+		var closing:=maxf(-v.r.dot(v.v)/v.r.length(),1.0)
+		t=minf(t,maxf(v.r.length()-_aim_radius*.5,0.0)/closing)
 	if leg_key() == "descend" and _stage == "coast":
 		var el := Orbit.elements(v.r, v.v, _mu(dest))
 		t = minf(t, Orbit.time_to_periapsis(el, _mu(dest)) - 90.0)

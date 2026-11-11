@@ -2215,6 +2215,9 @@ func _on_console_action(a: String) -> void:
 
 func open_map() -> void:
 	if not flight.active or flight.vessel == null: return
+	if not flight.kerr_demo.is_empty():
+		toast("The ordinary conic map is unavailable in the Kerr demonstration")
+		return
 	space_map.open(flight)
 	pipe.set_map_open(true)
 
@@ -2519,6 +2522,8 @@ var _dev_steps := 0
 func jump_scenario(spec: String) -> String:
 	var sc = FlightScenarios.parse(spec)
 	if sc == null: return _dev_fail("Unknown scenario %s" % spec)
+	var scenario_preset:=str(sc.base.get("preset","solar"))
+	if not Presets.PRESETS.has(scenario_preset): return _dev_fail("Unknown scenario preset %s"%scenario_preset)
 	if scenario_jump != null: return _dev_fail("A jump is already in progress")
 	last_scenario = spec
 	hud.set_settings_open(false)
@@ -2534,8 +2539,10 @@ func jump_scenario(spec: String) -> String:
 		set_app_mode("flight", {"quiet": true})
 		set_panel_open("controlPanel", false)
 	if flight.active: end_flight()
-	scenario_world()
-	await CraftAssets.craft_models_ready([sc.vehicle])
+	scenario_world(scenario_preset)
+	var assets: Array=[sc.vehicle]
+	if sc.base.kind=="dock":assets.append(sc.base.carrier)
+	await CraftAssets.craft_models_ready(assets)
 	var err := FlightScenarios.build(self, sc)
 	if err != "": return _dev_fail("%s: %s" % [spec, err])
 	last_craft = sc.vehicle
@@ -2573,8 +2580,8 @@ func set_dev_mode(on: bool) -> void:
 
 ## The solar system a scenario flies in: the same planets every time, so its sky and
 ## Moon repeat.
-func scenario_world() -> void:
-	load_preset("solar")
+func scenario_world(preset: String="solar") -> void:
+	load_preset(preset)
 
 func _dev_fail(why: String) -> String:
 	push_warning(why)

@@ -10,6 +10,12 @@ assets/craft/evapod_*.png
 assets/craft/evapod_*.png.import
 assets/craft/ranger_*.png
 assets/craft/ranger_*.png.import
+assets/craft/discovery_*.png
+assets/craft/discovery_*.png.import
+assets/craft/endurance_*.png
+assets/craft/endurance_*.png.import
+assets/craft/lander_*.png
+assets/craft/lander_*.png.import
 assets/pads/*.glb
 assets/pads/*.glb.import
 assets/sites/*.glb

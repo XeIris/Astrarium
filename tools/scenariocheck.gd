@@ -73,15 +73,23 @@ func _expect(f: Spaceflight, e: Dictionary) -> String:
 	var t: Dictionary = v.telemetry
 	var air := v.airspeed(v.r, v.v, DVec3.new()).length()
 	var vals := {"alt": v.altitude(), "speed": v.v.length(), "airspeed": air, "q": float(t.get("q", 0.0)),
-		"count": float(f.count.t) if f.count != null else -1.0}
+		"count": float(f.count.t) if f.count != null else -1.0,
+		"kerrRadius":float(t.get("kerr",{}).get("radiusM",NAN)),"kerrDilation":float(t.get("kerr",{}).get("dilation",NAN))}
+	var capture: Dictionary=f.docking.capture if f.docking!=null else {}
+	for entry: Array in [["dockGap","gap"],["dockCross","cross"],["dockSpeed","speed"],["dockAngle","angle"],
+		["dockRate","rate"],["dockRcs","rcsUsed"],["dockRpm","rpm"]]:vals[entry[0]]=float(capture.get(entry[1],NAN))
 	for k in e:
 		var want = e[k]
 		match k:
-			"alt", "speed", "airspeed", "q", "count":
-				if float(vals[k]) < float(want[0]) or float(vals[k]) > float(want[1]):
+			"docked":
+				if f.docking==null or f.docking.latched!=bool(want):return "docking capture did not occur"
+			"alt", "speed", "airspeed", "q", "count", "kerrRadius", "kerrDilation", "dockGap", "dockCross", "dockSpeed", "dockAngle", "dockRate", "dockRcs", "dockRpm":
+				if not is_finite(float(vals[k])) or float(vals[k]) < float(want[0]) or float(vals[k]) > float(want[1]):
 					return "%s %s outside [%s, %s]" % [k, U.fixed(float(vals[k]), 1), want[0], want[1]]
 			"phase":
 				if v.phase != str(want): return "phase %s, want %s" % [v.phase, want]
+			"body":
+				if v.parent.name!=str(want): return "body %s, want %s"%[v.parent.name,want]
 			"program":
 				if str(f.autopilot.program) != str(want): return "program %s, want %s" % [f.autopilot.program, want]
 			"state":
@@ -94,6 +102,11 @@ func _expect(f: Spaceflight, e: Dictionary) -> String:
 
 func _summary(f: Spaceflight) -> String:
 	var v := f.vessel
+	if f.docking!=null and f.docking.latched:
+		return "docked after %s s; %s rpm, capture %s m/s, RCS %s kg"%[U.fixed(v.met,2),
+			U.fixed(f.docking.capture.rpm,2),U.fixed(f.docking.capture.speed,4),U.fixed(f.docking.capture.rcsUsed,3)]
+	var kerr: Dictionary=v.telemetry.get("kerr",{})
+	if not kerr.is_empty():return "%s, %s GM/c², clock ratio %s"%[kerr.label,U.fixed(kerr.radiusM,3),U.fixed(kerr.dilation,3)]
 	return "%s km, %s m/s air, %s/%s, %s, T+%s s" % [U.fixed(v.altitude() / 1000.0, 2),
 		U.fixed(v.airspeed(v.r, v.v, DVec3.new()).length(), 0), f.autopilot.program, f.autopilot.state_name,
 		v.phase, U.fixed(v.met - v.t0, 1)]
@@ -104,7 +117,7 @@ func _summary(f: Spaceflight) -> String:
 func _replay(spec: String, sc: Dictionary, rp: Dictionary, j: Dictionary) -> void:
 	var f: Spaceflight = main.flight
 	main.end_flight()
-	main.scenario_world()
+	main.scenario_world(str(rp.base.get("preset","solar")))
 	FlightScenarios.build(main, {"vehicle": sc.vehicle, "base": rp.base})
 	main.set_cam_mode("flight")
 	var from: int = f.vessel.events.size()
@@ -115,6 +128,7 @@ func _replay(spec: String, sc: Dictionary, rp: Dictionary, j: Dictionary) -> voi
 	var t0 := Time.get_ticks_msec()
 	while frames < 3000000:
 		var v := f.vessel
+		if f.docking!=null and f.docking.failure!="":break
 		if v == null or not f.active or v.phase == Vessel.PHASE.DESTROYED: break
 		# A built base is the replay's state where it passed the base's own condition:
 		# printed so a stale one can be rebuilt from it.
@@ -142,6 +156,9 @@ func _replay(spec: String, sc: Dictionary, rp: Dictionary, j: Dictionary) -> voi
 	if f.vessel == null or hit < 0.0:
 		_fail(spec, "replay never reached %s" % rp.until)
 		return
+	if f.docking!=null:
+		var why:=_expect(f,sc.expect)
+		if why!="":_fail(spec,"played docking: "+why);return
 	var r := _state(f)
 	var lines := []
 	var bad := []

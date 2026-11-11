@@ -1,32 +1,14 @@
 # Movie-inspired spacecraft, phases 2–4
 
-Scope: [issue 26](https://github.com/XeIris/Astrarium/issues/26). All models are
-original scripted Blender reconstructions. Photographs inform shape and finish;
-no downloaded meshes, film graphics, logos or character likenesses become assets.
+All models are original scripted Blender reconstructions for phases 2–4 of
+[issue 26](https://github.com/XeIris/Astrarium/issues/26). Photographs inform shape
+and finish. The Ranger has an inhabited flight deck. Discovery's enclosed rotor
+and Endurance's spin telemetry illustrate the gravity systems. Fuller interiors
+for the larger ships are phase 5.
 
-## Delivery requirements
-
-1. Ranger-inspired winged shuttle: authored exterior, procedural fallback and
-   lazy cockpit; orbital entry, glide, gear and ground landing through production
-   guidance. Iterate against exterior and cockpit references at several angles.
-2. Discovery One-inspired explorer: long spine, spherical command section, drive
-   section and docked EVA pod. Record published versus judged proportions and
-   estimated nuclear propulsion. Animate its centrifuge; report radius, spin,
-   artificial gravity and Coriolis ratio. Model rotor angular momentum or state its
-   omission explicitly. Provide an Earth–Jupiter mission with the Galilean moons.
-3. Endurance-inspired expedition craft: twelve-module ring and hub, carrying
-   Ranger and separate Lander vehicles. Animate spin and expose gravity telemetry.
-   Add a production spin-matching scenario with expectation windows. Add a rapidly
-   spinning supermassive-hole preset within the verified a*=0.998 limit. Use an
-   explicitly labelled kinematic equatorial Kerr orbit and time-dilation formula
-   for the demonstration; do not present the orrery's weak-field dynamics as Kerr
-   orbital physics.
-4. For each: reference comparisons, repeated design passes, moving-part and
-   attachment checks, authored/fallback audit/clearance/parity, production renders,
-   lifecycle evidence, descriptive commits and branch publication.
-
-Full interiors for the larger ships are issue phase 5 and are outside these three
-phases. Their exterior windows and entry points must not obstruct that later work.
+Build the authored assets with `model_sources/blender/build.sh ranger discovery lander endurance`.
+Select each ship in the Spaceflight hangar. Enable Developer mode in Settings ›
+Controls to open scenarios, or pass `scenario=<vehicle>:<id>` on the command line.
 
 ## Ranger reconstruction
 
@@ -59,7 +41,7 @@ The headless return check flew a 250 km orbit through a paid deorbit burn,
 atmospheric entry, banking reversals, glide, preflare and rollout. Touchdown was
 0.73 m/s sink at 79.1 m/s ground speed, and wheel stop followed after 1.86 km.
 Orbit, entry-interface and preflare scenarios also pass played-flight replay.
-Development and asset gates cover all eleven authored models (22 parity poses).
+Development and asset gates cover all fourteen authored models (28 parity poses).
 The Ranger-specific sweep checks ground contact, attachment, cockpit sightlines,
 camera frames, finish maps and repeated entry in both build paths.
 
@@ -82,6 +64,100 @@ Build with `model_sources/blender/build.sh ranger`. Capture inspection views usi
 and lifecycle assertions run headless in `tools/rangercheck.gd` with either asset
 path. `tools/rangerflightcheck.tscn` flies the production deorbit-to-rollout loop.
 
-Generated reference photos, successive renders and check logs are kept in ignored
-`tools/evidence/movie-craft/`. Completion of the full phase 2–4 objective requires
-the remaining ships and demonstrations as well as the Ranger.
+## Discovery reconstruction
+
+The 103 m envelope and 11.44 m command sphere follow the published miniature
+proportions at the existing EVA pod's scale. The [studio-reference collection](https://starshipmodeler.com/2001/2001ref.htm)
+describes a 54 ft model with a 6 ft sphere and a 13 inch pod miniature, while
+discussing the discrepancy with the 700 ft design concept. These figures do not
+define a consistent full-size engineering drawing. Our rounded dimensions are a
+documented reconstruction choice. The hull includes a small allowance for raised
+bay seals in its overall length datum.
+
+Three EVA pods sit behind independently driven curved covers. The covers follow
+idealised circumferential tracks. The bay furniture was trimmed against the
+spherical shell, and the common berth and opening datums were revised after
+checking the stowed pod's full translation through each aperture. The nose slit,
+long service truss, three antenna dishes and twin-outlet drive housings follow
+the published studio and supplementary aft-model photos.
+
+`evapod:pod_berth` flies a live RCS approach from 12 m off the empty middle berth.
+The scenario and played replays both captured at about 0.034 m/s after 53.15 s,
+using 0.694 kg of reaction-control propellant. Capture couples the pod rigidly to
+the carrier after position, orientation, speed and rate gates. Docking contact
+compliance and recoil are omitted.
+
+The propulsion estimate is three 100 kN nuclear modules at 4,000 s Isp with
+80 t dry mass and 80 t hydrogen. Each visual drive module has two main outlets.
+Its thrust and effective nozzle diameter represent the pair. A historical NASA
+gas-core concept examined a comparable thrust and Isp range. Our values are
+estimates for the simulation. Reactor mass, shielding and heat rejection remain
+unresolved in the radiator-free filming silhouette.
+[NASA gas-core engine study](https://ntrs.nasa.gov/citations/19710010425)
+
+The 4.6 m rotor at 8 rpm produces about 0.329 g. Telemetry evaluates
+`g = omega² r` and `2 v / (omega r)` for a 1.4 m/s walker, giving a Coriolis to
+floor-gravity ratio of about 0.73. Its phase follows accepted ship time. The
+vehicle description and telemetry identify the omission of rotor angular
+momentum exchange with the hull.
+
+`jovian_voyage` adds Io, Europa, Ganymede and Callisto on approximate circular
+equatorial orbits, conserving the original Jovian system mass and barycentre.
+The starting phases are illustrative. Exospheres use zero continuum gas column.
+[NASA satellite factsheet](https://nssdc.gsfc.nasa.gov/planetary/factsheet/joviansatfact.html)
+
+From the 1,000 km Earth assembly orbit, choose Jupiter in the ordinary mission
+planner. The porkchop departure uses finite burns and the arrival target is a
+100,000 km propulsive parking orbit under Jupiter's zonal potential. The complete
+production-guidance check finished in an approximately 90,079 × 91,439 km orbit
+with eccentricity 0.004234 and 10.68 t of main propellant left. All four moons
+remained in their expected orbital bands. Use `discovery:departure` and
+`discovery:jupiter_orbit` to inspect the departure and nominal arrival fixtures.
+
+## Endurance and Lander reconstruction
+
+Endurance's 65 m ring diameter is judged from the 14 ft miniature built at 1:15
+scale. The separate 51.7 m axial envelope includes the berthed Ranger. Twelve
+bevelled modules alternate insulated service panels and ribbed radiator banks.
+Three pressure spokes join the axial hub, with a rounded intermodule junction
+between each pair of modules. Revised axial and transverse adapters carry the
+same original Ranger and Lander models used in the hangar. The adapters keep
+the hub clear of the Ranger's nozzle cluster and seat the Lander aft and outward
+of the pressure spokes. Both model paths share the berth, spoke and brace datums.
+[New Deal Studios miniature photographs and scale](https://www.fxguide.com/fxfeatured/real-and-raw-the-miniature-fx-behind-interstellar/)
+
+The separate 21.4 × 18.6 m Lander uses the Ranger scale as a reconstruction
+reference. Three passes shaped the stepped 18-aperture canopy, waisted faceted
+cargo pods and their load bridges. Pale quilted blankets, dark heat shielding,
+brushed access hardware and fitted glazing seals use original materials. Its
+dorsal collar sits on the sloped deck behind the canopy. The six 90 kN outlets
+at 370 s Isp are a chemical propulsion estimate for this vehicle. Vertical
+landing and single-stage ascent are outside the model.
+[Exhibited Ranger and Lander props](https://hollywoodmoviecostumesandprops.blogspot.com/2017/08/tars-robot-and-space-shuttle-models.html)
+
+The ring's twelve 25 kN outlets at 2,000 s Isp are a fictional plasma propulsion
+estimate. At 5 rpm the 30.5 m floor produces about 0.85 g, with a Coriolis to
+floor-gravity ratio of about 0.18 at 1.4 m/s. The spin follows accepted proper
+time, with angular momentum exchange omitted. `ranger:spin_match` starts 16 m off the
+axial berth and uses the approaching Ranger's RCS to match the ring's pose and
+spin. The scenario captured after 76.90 s at 0.0341 m/s and 5.00 rpm, using
+37.383 kg of RCS propellant. A played 60 fps replay also passed the gates.
+
+`endurance:kerr_orbit` uses the isolated `gargantua_demo` preset, a 100 million
+solar mass black hole with spin 0.998. At 3.5 GM/c², the prescribed equatorial
+orbit has a coordinate period of about 6 h 29 min and a clock ratio to infinity
+of 1.722. The [Kerr demonstration](physics/kerr-demonstration.md) specifies the
+orbit, clocks and rendering assumptions.
+
+## Inspection and verification
+
+`tools/moviecraftshots.tscn -- v=<vehicle> dump=/absolute/directory` captures the
+studio angles. The authored and fallback builds run through audit, clearance,
+part counts and 28 authored parity poses. Discovery's check covers the full
+cover sweep, pod aperture clearance, rotor fit and Jovian initial conditions.
+Endurance's check covers rotor phase, its mounted craft clearances and outlet
+attachment. `tools/dockingflightshots.tscn` exercises both captures and checks
+the rendered attachment against the parked craft datum after a second of flight.
+`eval=_soak_check` exercises each mode repeatedly through launch and teardown.
+Reference comparisons, successive views and local check logs live in ignored
+`tools/evidence/movie-craft/`.

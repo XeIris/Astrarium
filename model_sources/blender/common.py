@@ -73,7 +73,7 @@ def build_materials():
 # `gimbal_0.001`, and the second would never be found. `gimbal_sic_0` cannot
 # collide, and sorting by name keeps the bind order deterministic.
 # `chopstick_` is a pad's catch arm (launchpads.py), driven by launchsite.gd.
-NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chute_', 'chopstick_', 'arm_', 'window_', 'interior_')
+NODE_PREFIXES = ('stage_', 'gimbal_', 'leg_', 'fin_', 'array_', 'flap_', 'half_', 'door_', 'piece_', 'nosecap_', 'frustum_', 'chute_', 'chopstick_', 'arm_', 'window_', 'interior_', 'rotor_', 'dock_', 'inspection_')
 
 
 def is_node(ob):
@@ -298,7 +298,7 @@ def validate_vehicle(label):
     stages = {o.name[6:]: o for o in bpy.context.scene.objects if o.name.startswith('stage_')}
     if set(stages) != set(specs):
         raise ValueError(f'{label}: stage roots disagree with runtime catalogue')
-    prefixes = {'arms': 'arm', 'gimbals': 'gimbal', 'legs': 'leg', 'fins': 'fin',
+    prefixes = {'rotors': 'rotor', 'arms': 'arm', 'gimbals': 'gimbal', 'legs': 'leg', 'fins': 'fin',
                 'arrays': 'array', 'flaps': 'flap', 'halves': 'half', 'doors': 'door', 'pieces': 'piece',
                 'nosecaps': 'nosecap', 'frustums': 'frustum'}
     for key, spec in specs.items():

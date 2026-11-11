@@ -149,6 +149,9 @@ func update(s: Dictionary) -> void:
 	_put("apo", FlightUI.fmt_dist(t.apo) if is_finite(float(U.nz(t.get("apo"), INF))) else "escape")
 	_put("peri", FlightUI.fmt_dist(tn.call("peri")))
 	_put("dv", FlightUI.fmt_speed(float(U.nz(t.get("dv"), 0.0))))
+	var kerr: Dictionary=t.get("kerr",{})
+	if not kerr.is_empty():
+		for field in ["alt","speed","apo","peri","dv"]:_put(field,"—")
 	_put("met", Guidance.fmt_dur(v.met))
 	var st = v.current_stage
 	if st == null: st = v.next_stage
@@ -167,7 +170,7 @@ func update(s: Dictionary) -> void:
 	buttons.abort.visible = flying
 	buttons.autowarp.visible = flying and not m.auto_warp
 	if m == null:
-		_say(mission_l, "Manual flight · %s" % str(s.parentName))
+		_say(mission_l, str(kerr.label) if not kerr.is_empty() else ("Docking guidance" if s.get("docking",false) else "Manual flight · %s" % str(s.parentName)))
 		route.set_legs([], -1)
 		_say(status_l, str(s.status))
 	else:

@@ -904,7 +904,7 @@ static func lattice(h: float, w_bot: float, w_top: float, material: Material) ->
 
 # STAGE BUILDERS — one per `look` flavour
 static func _new_parts() -> Dictionary:
-	return {"arms": [], "gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nosecaps": [], "frustums": [], "nozzles": [], "chutes": []}
+	return {"rotors": [], "arms": [], "gimbals": [], "fins": [], "legs": [], "arrays": [], "flaps": [], "halves": [], "doors": [], "pieces": [], "nosecaps": [], "frustums": [], "nozzles": [], "chutes": []}
 
 static func build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	var built := _build_stage(spec, ctx)
@@ -941,6 +941,9 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if _t(look.get("beetle")): return build_beetle(spec, parts)
 	if _t(look.get("evapod")): return EvaPod.build(spec, parts)
 	if _t(look.get("ranger")): return RangerCraft.build(spec, parts)
+	if _t(look.get("endurance")): return EnduranceCraft.build(spec, parts)
+	if _t(look.get("lander")): return LanderCraft.build(spec, parts)
+	if _t(look.get("discovery")): return DiscoveryCraft.build(spec, parts)
 	if _t(look.get("bus")): return build_ion_bus(spec, parts)
 	if _t(look.get("sail")): return build_sail(spec, parts)
 	if _t(look.get("octagon")): return build_lm_descent(spec, parts)
@@ -2123,6 +2126,9 @@ class Craft extends RefCounted:
 					st.deploy = 0.0
 			st.deploy += clampf(want - st.deploy, -dt * 0.55, dt * 0.55)
 			var d := st.deploy
+			if st.spec.get("centrifuge") is Dictionary:
+				var habitat:=Centrifuge.state(st.spec.centrifuge,float(s.get("properTime",0.0)))
+				for rotor: Node3D in st.parts.rotors: rotor.rotation.y=float(habitat.angle)
 			if st.spec.get("look", {}).get("evapod", false): EvaPod.pose(st.parts.arms, d)
 			# Landing gear that swings its own angle (`look.gearSwing`, the orbiter's
 			# wheels) runs on the `gear` channel, apart from the stage's other deployables.
@@ -2141,7 +2147,7 @@ class Craft extends RefCounted:
 				fin.rotation.z = -d * 1.35
 				fin.rotation.x = float(twist[i]) if twist is Array and i < twist.size() else 0.0
 			for arr: Node3D in st.parts.arrays: arr.rotation.z = (1.0 - d) * (PI / 2.0)
-			for door: Node3D in st.parts.doors: door.rotation.z = d * DOOR_OPEN
+			for door: Node3D in st.parts.doors: door.rotation.z = d * float(st.spec.get("look",{}).get("doorSwing",DOOR_OPEN))
 			for h: Node3D in st.parts.halves:
 				h.rotation.z = 0.0; h.position.x = 0.0
 			# gimbal: the commanded deflection, clamped per pivot to its `gimbal_deg`; a pivot

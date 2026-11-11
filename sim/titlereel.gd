@@ -124,14 +124,7 @@ func _quiet_stage() -> void:
 # JUPITER: a telephoto view from just beyond Io, all at true scale. Io is the only
 # Galilean moon close enough to Jupiter for both to fill a frame together.
 
-const JOVIAN := [
-	# name, orbit km, M☉, radius km, look
-	# Io draws its Galileo mosaic (PlanetMaps); the rest stand in procedurally.
-	["Io", 421700.0, 4.49e-8, 1821.6, {"crater": 0.0, "regolith": 0xc9b25c, "albedo": 0.63}],
-	["Europa", 671034.0, 2.41e-8, 1560.8, {"crater": 0.08, "regolith": 0xcfc6b4, "albedo": 0.67}],
-	["Ganymede", 1070412.0, 7.45e-8, 2634.1, {"crater": 0.6, "regolith": 0x8a8274, "albedo": 0.43}],
-	["Callisto", 1882709.0, 5.41e-8, 2410.3, {"crater": 1.0, "regolith": 0x5e564b, "albedo": 0.22}],
-]
+const JOVIAN := JovianMoons.DATA
 ## Each moon's phase from the Sun's direction, rad (+ is the orbital sense).
 const JOVIAN_PHASE := {"Io": 0.75, "Europa": -2.6, "Ganymede": 2.2, "Callisto": -1.2}
 

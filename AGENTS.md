@@ -230,7 +230,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`
   (`-- replay=1` for the comparison with a played flight)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
-  `assets=0`; `-- parity` requires all eleven authored models and checks both poses
+  `assets=0`; `-- parity` requires all fourteen authored models and checks both poses
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero
 - anything that creates or frees nodes, visuals or caches: `eval=_soak_check`;
   the counts must stay flat after the first round
