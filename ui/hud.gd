@@ -1218,7 +1218,8 @@ func _build_galaxy(b: Node) -> void:
 		_stat(sg, kv[0], kv[1])
 	var rg := grid(s, [1.0, 1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
 	for r in [[0.0, "Pause", "Stop the clock"], [0.1, "0.1", "0.1 Myr per second"], [1.0, "1", "1 Myr per second"],
-			[5.0, "5", "5 Myr per second: the Sun's 230 Myr orbit in under a minute"], [20.0, "20", "20 Myr per second, as far as the integrator keeps up"]]:
+			[5.0, "5", "5 Myr per second: the Sun's 230 Myr orbit in under a minute"], [20.0, "20", "20 Myr per second, as far as the integrator keeps up"],
+			[100.0, "100", "100 Myr per second: galaxies meeting over billions of years"], [1000.0, "1000", "1000 Myr per second, as far as the integrator keeps up; the clock says when it cannot"]]:
 		B(rg, "Toggle", r[1], "[data-gal-rate=%s]" % str(r[0]), r[2]).pressed.connect(func(): galaxy_action.emit("rate", r[0]))
 	m(L(s, "View", ROW_LABEL), 0.0, 4.0)
 	var vg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)

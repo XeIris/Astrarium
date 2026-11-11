@@ -141,8 +141,17 @@ func step(k: int) -> void:
 		var o := 5 + G_STRIDE * ng + k * ng * 3
 		pos = b.slice(o, o + 3 * n)
 		vel = b.slice(o + 3 * n, o + 6 * n)
+		draw_bytes = b.slice(o + 6 * n, o + 8 * n).to_byte_array()
 	else:
 		_step_gd(k, mids)
+		var f := PackedFloat32Array()
+		f.resize(4 * n)
+		for i in n:
+			f[4 * i] = pos[3 * i]
+			f[4 * i + 1] = pos[3 * i + 1]
+			f[4 * i + 2] = pos[3 * i + 2]
+			f[4 * i + 3] = float(owner[i])
+		draw_bytes = f.to_byte_array()
 	steps += k
 
 ## The kernel's buffer: [0] length, [1] n, [2] k, [3] dt, [4] galaxies, G_STRIDE per galaxy, the
@@ -157,8 +166,23 @@ func pack(k: int, mids: PackedFloat64Array) -> PackedFloat64Array:
 	b.append_array(mids)
 	b.append_array(pos)
 	b.append_array(vel)
+	b.append_array(_draw_block())
 	b[0] = float(b.size())
 	return b
+
+## 2n doubles holding each star's float32 (x, y, z, galaxy): the kernel writes x, y, z and keeps
+## the galaxy, which never changes.
+func _draw_block() -> PackedFloat64Array:
+	if _owner_block.size() != 2 * n:
+		var f := PackedFloat32Array()
+		f.resize(4 * n)
+		for i in n: f[4 * i + 3] = float(owner[i])
+		_owner_block = f.to_byte_array().to_float64_array()
+	return _owner_block
+
+var _owner_block := PackedFloat64Array()
+## Each star's float32 (x, y, z, galaxy), 16 bytes, for the drawing's texture.
+var draw_bytes := PackedByteArray()
 
 func _step_gd(k: int, mids: PackedFloat64Array) -> void:
 	var ng := orbits.count()

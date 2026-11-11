@@ -13,7 +13,7 @@ const MAX_RADIUS := 2000.0
 ## Leapfrog steps per frame at most; past it the clock runs slower than asked, and
 ## the HUD says so.
 const STEP_BUDGET := 6
-const RATES := [0.0, 0.1, 1.0, 5.0, 20.0]
+const RATES := [0.0, 0.1, 1.0, 5.0, 20.0, 100.0, 1000.0]
 
 var stage
 var active := false
@@ -48,6 +48,16 @@ var landmark := ""
 var _lm_layer: Control = null
 var _lm_labels := {}
 var _nb_baked := {}
+## An encounter (GalEncounter) instead of one galaxy: its stars, its drawing, its build on a
+## worker, and how long a kernel step takes here (ms, measured), which sets the steps a frame
+## may take within ENCOUNTER_BUDGET_MS.
+var encounter: GalEncounter = null
+var enc_visual: GalEncounterVisual = null
+var _enc_built: Array = []
+var _enc_step_ms := 1.0
+const ENCOUNTER_BUDGET_MS := 8.0
+## Stars per galaxy disc in an encounter.
+const ENCOUNTER_STARS := 20000
 
 func _init(main) -> void:
 	stage = main
@@ -65,6 +75,9 @@ func enter(k: String) -> void:
 	_adapted = false
 	rate = float(preset.get("rateMyrS", 5.0))
 	_pending = 0.0
+	if model.has("encounter"):
+		_enter_encounter()
+		return
 	visual = GalaxyVisual.new(model, true)
 	stage.pipe.world_root.add_child(visual.group)
 	# The arms' map bakes on a worker too; they light up when it is done.
@@ -96,6 +109,43 @@ func enter(k: String) -> void:
 	_build_landmarks()
 	sync_hud()
 
+## An encounter's scene: its stars seeded on a worker, drawn once they exist.
+func _enter_encounter() -> void:
+	_enc_built = []
+	var seed := int(model.get("seed", 1))
+	_task = WorkerThreadPool.add_task(func():
+		var e := GalModels.vdm_encounter(ENCOUNTER_STARS, seed)
+		var lights := GalModels.vdm_lights(e)
+		_mutex.lock()
+		_enc_built = [e, lights]
+		_mutex.unlock(), false, "galaxy encounter")
+	frame("whole")
+	_build_landmarks()
+	sync_hud()
+
+func _adopt_encounter() -> void:
+	_mutex.lock()
+	var b := _enc_built
+	_enc_built = []
+	_mutex.unlock()
+	if b.is_empty(): return
+	encounter = b[0]
+	enc_visual = GalEncounterVisual.new(encounter, b[1])
+	enc_visual.exposure = float(preset.get("exposure", 1.0))
+	stage.pipe.world_root.add_child(enc_visual.group)
+	frame("whole")
+
+## The encounter's mass centre (kpc), where the camera looks.
+func encounter_centre() -> DVec3:
+	if encounter == null: return DVec3.new()
+	var o := encounter.orbits
+	var c := [0.0, 0.0, 0.0]
+	var m := 0.0
+	for i in o.count():
+		for k in 3: c[k] += o.pos[3 * i + k] * o.gm[i]
+		m += o.gm[i]
+	return DVec3.new(c[0] / m, c[1] / m, c[2] / m)
+
 ## Block until the tracers exist (checks, screenshots).
 func wait_tracers() -> void:
 	if _task >= 0:
@@ -106,6 +156,7 @@ func wait_tracers() -> void:
 		WorkerThreadPool.wait_for_task_completion(_arm_task)
 		_arm_task = -1
 	_adopt_arms()
+	_adopt_encounter()
 
 func _adopt_arms() -> void:
 	_mutex.lock()
@@ -145,6 +196,10 @@ func leave() -> void:
 	_clear_landmarks()
 	for nb in neighbours: nb.visual.dispose()
 	neighbours = []
+	if enc_visual != null: enc_visual.dispose()
+	enc_visual = null
+	encounter = null
+	_enc_built = []
 	active = false
 	if visual != null: visual.dispose()
 	visual = null
@@ -180,6 +235,8 @@ func _advance(dt: float) -> float:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 		_adopt()
+		_adopt_encounter()
+	if model.has("encounter"): return _advance_encounter(dt)
 	if _arm_task >= 0 and WorkerThreadPool.is_task_completed(_arm_task):
 		WorkerThreadPool.wait_for_task_completion(_arm_task)
 		_arm_task = -1
@@ -208,8 +265,42 @@ func _advance(dt: float) -> float:
 	achieved = lerpf(achieved, accepted / maxf(dt, 1e-6), 0.1)
 	return accepted
 
+## Live at any rate: as many kernel steps as the rate asks, as long as they fit the frame's
+## budget at the measured cost of a step; past it the clock runs slower than asked and the
+## HUD says so, and what could not be done is dropped, not owed.
+func _advance_encounter(dt: float) -> float:
+	if encounter == null or stage.state.paused or rate <= 0.0:
+		achieved = 0.0
+		limited = false
+		return 0.0
+	_pending += rate * dt
+	var k := int(floor(_pending / GalEncounter.DT))
+	var cap := maxi(int(ENCOUNTER_BUDGET_MS / maxf(_enc_step_ms, 1e-3)), 1)
+	limited = k > cap
+	k = mini(k, cap)
+	if k > 0:
+		var t0 := Time.get_ticks_usec()
+		encounter.step(k)
+		var ms := float(Time.get_ticks_usec() - t0) / 1000.0 / float(k)
+		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.2)
+	_pending -= float(k) * GalEncounter.DT
+	if limited: _pending = 0.0
+	var accepted := float(k) * GalEncounter.DT
+	t_myr = encounter.orbits.t
+	achieved = lerpf(achieved, accepted / maxf(dt, 1e-6), 0.1)
+	var ec := encounter_centre()
+	stage.cam.target.set_v(ec.x, ec.y, ec.z)
+	return accepted
+
 ## Per frame, after the camera: place and update the drawing.
 func update(dt: float) -> void:
+	if active and enc_visual != null:
+		enc_visual.update(stage.cam_pos, t_myr, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain())
+		_hud_acc += dt
+		if _hud_acc >= 0.25:
+			_hud_acc = 0.0
+			sync_hud()
+		return
 	if not active or visual == null: return
 	var cam_pos: DVec3 = stage.cam_pos
 	visual.group.position = DVec3.new().rel_v3(cam_pos)
@@ -250,6 +341,9 @@ func frame(kind: String) -> void:
 	match kind:
 		"whole":
 			cam.target.set_v(0, 0, 0)
+			if model.has("encounter"):
+				var ec := encounter_centre()
+				cam.target.set_v(ec.x, ec.y, ec.z)
 			cam.theta = float(preset.get("camTheta", 0.95))
 			cam.phi = PI / 2.0
 			# A galaxy with a measured orientation is first seen as we see it.
@@ -331,6 +425,7 @@ func _build_landmarks() -> void:
 var _objects: MeshInstance3D = null
 var _objects_mat: ShaderMaterial = null
 func _build_objects() -> void:
+	if visual == null: return
 	var pos := PackedVector3Array()
 	var custom := PackedFloat32Array()
 	var sets := PackedFloat32Array()
@@ -461,7 +556,7 @@ func sync_hud() -> void:
 	hud.set_text("galTime", "%s Myr" % U.fixed(t_myr, 1))
 	var asked := rate if not stage.state.paused else 0.0
 	hud.set_text("galRate", ("%s Myr/s" % U.fixed(achieved, 1)) + (" (limited)" if limited else ""))
-	hud.set_text("galTracers", str(tracers.n) if tracers != null else "drawing…")
+	hud.set_text("galTracers", str(tracers.n) if tracers != null else (str(encounter.n) if encounter != null else "drawing…"))
 	hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null else "—")
 	hud.set_text("galDist", fmt_kpc(stage.cam.radius))
 	for r in RATES:

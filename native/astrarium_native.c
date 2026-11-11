@@ -680,7 +680,8 @@ static void run_tracers(double *A) {
  * Massless stars in rigid galaxies about moving centres, drift–kick–drift at a fixed
  * step. Buffer: [0] length, [1] n, [2] k, [3] dt, [4] galaxies, EN_STRIDE per galaxy
  * (halo G M, a; disc G M, a, b; bulge G M, a; axes x, y, z), the centres at each
- * mid-step (k × galaxies × 3), positions and velocities (n × 3 each).
+ * mid-step (k × galaxies × 3), positions and velocities (n × 3 each), then 2n doubles
+ * the kernel fills with each star's float32 (x, y, z, galaxy) for drawing.
  * ========================================================================== */
 #define EN_HDR 5
 #define EN_STRIDE 16
@@ -742,6 +743,12 @@ static void run_encounter(double *A) {
 		}
 		pos[c] = x; pos[c + 1] = y; pos[c + 2] = z;
 		vel[c] = vx; vel[c + 1] = vy; vel[c + 2] = vz;
+	}
+	float *draw = (float *)(vel + 3 * n);
+	for (int i = 0; i < n; i++) {
+		draw[4 * i] = (float)pos[3 * i];
+		draw[4 * i + 1] = (float)pos[3 * i + 1];
+		draw[4 * i + 2] = (float)pos[3 * i + 2];
 	}
 }
 

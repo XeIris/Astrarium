@@ -6,7 +6,7 @@ extends RefCounted
 # docs/physics/galaxies.md; nothing here is tuned to look right.
 
 ## The scenarios of the galactic scene, in the order the list shows them.
-const ORDER := ["gal_milkyway"]
+const ORDER := ["gal_milkyway", "gal_m51", "gal_m104", "gal_m87", "gal_mw_m31"]
 
 const PRESETS := {
 	"gal_milkyway": {
@@ -16,6 +16,11 @@ const PRESETS := {
 		"camRadius": 60.0,
 		"camTheta": 0.95,
 		"rateMyrS": 5.0,
+	},
+	"gal_mw_m31": {
+		"name": "Milky Way meets M31",
+		"blurb": "The Milky Way, Andromeda and M33 from today, as van der Marel et al. (2012) set them out from Hubble's measurement of M31's motion: about 4 billion years to a first pass, dynamical friction drawing them together. Recent measurements make a merger only about even odds (Sawala et al. 2025).",
+		"model": "vdm_canonical", "camRadius": 900.0, "camTheta": 0.9, "rateMyrS": 100.0,
 	},
 	"gal_m87": {
 		"name": "M87",
@@ -685,6 +690,32 @@ static func vdm_encounter(per: int, seed := 1) -> GalEncounter:
 		e.seed_disc(i, per, float(st[1]), 0.1 * float(st[1]), 0.05, seed + i)
 	return e
 
+## The light an encounter draws, per galaxy: [its disc's visible light per channel (all its
+## stars), a blob σ of one star spacing at R_d, a bulge-only model for the glow or {}]. Mass
+## becomes light through the population model, visible share VISIBLE_BULGE, as type_galaxy's.
+static func vdm_lights(e: GalEncounter) -> Array:
+	var out := []
+	var disc_pop := GalPopulation.build({"kind": "constant", "gyr": 10.0})
+	for i in VDM_CANONICAL.size():
+		var row: Array = VDM_CANONICAL[i]
+		if not VDM_STARS.has(row[0]):
+			out.append([Color(0, 0, 0), 1.0, {}])
+			continue
+		var st: Array = VDM_STARS[row[0]]
+		var l_bol := float(st[0]) * VISIBLE_BULGE * disc_pop.mean_l / disc_pop.mean_mass
+		var count := 0
+		for k in e.n:
+			if e.owner[k] == i: count += 1
+		var rd := float(st[1])
+		# Stars per kpc² at R_d of an exponential disc: N e^(−1)/(2π R_d²).
+		var spacing := 1.0 / sqrt(float(count) * exp(-1.0) / (TAU * rd * rd))
+		var pot := GalPotential.new()
+		pot.add(GalPotential.hernquist("bulge", float(st[3]) / 1.8153, GalUnits.G * float(st[2]) / GalUnits.MASS_UNIT_SUN))
+		var bm := {"key": "%s bulge" % row[0], "name": row[0], "potential": pot, "sense": 1.0, "extent": 10.0,
+			"light": [{"part": "bulge", "visible": VISIBLE_BULGE}]}
+		out.append([disc_pop.color * l_bol, spacing, bm])
+	return out
+
 ## An encounter's orbits from its table (VDM_CANONICAL's form).
 static func encounter(rows: Array) -> GalOrbits:
 	var o := GalOrbits.new()
@@ -784,6 +815,7 @@ static func mw_patterns() -> Array:
 ## `patterns = false` leaves out the bar and spiral (galaxycheck's static runs).
 static func build(key: String, seed := 1, patterns := true) -> Dictionary:
 	if TYPES.has(key): return type_galaxy(key)
+	if key == "vdm_canonical": return {"key": key, "name": "Milky Way meets M31", "encounter": "vdm", "seed": seed, "extent": 1000.0}
 	match key:
 		"milky_way":
 			return {
