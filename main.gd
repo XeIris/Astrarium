@@ -2304,6 +2304,7 @@ func _on_galaxy_action(action: String, arg) -> void:
 			if float(arg) > 0.0: galaxy.set_rate(float(arg))
 			galaxy.sync_hud()
 		"frame": galaxy.frame(String(arg))
+		"landmark": galaxy.fly(String(arg))
 		"layer":
 			var v := galaxy.visual
 			if v == null: return
@@ -3084,6 +3085,8 @@ func _shot_tick() -> void:
 		if galaxy.active:
 			galaxy.wait_tracers()
 			if _cmd.has("galframe"): galaxy.frame(String(_cmd.galframe))
+			# `gallandmark=<id>` flies to a landmark (GalLandmarks) and shows its card.
+			if _cmd.has("gallandmark"): galaxy.fly(String(_cmd.gallandmark))
 			if _cmd.has("galrate"): galaxy.set_rate(float(_cmd.galrate))
 			# `galhide=tracers,stars,glow` leaves layers out of an evidence frame.
 			for l in String(_cmd.get("galhide", "")).split(",", false): _on_galaxy_action("layer", l)

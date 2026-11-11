@@ -64,11 +64,15 @@ func ease_radius(dt: float) -> void:
 	radius *= pow(ratio, 1.0 - exp(-dt * 6.0))
 
 func track_follow(body: Body, dt: float) -> void:
+	track_point(body.scene_pos, dt)
+
+## Follow a point that may move: exact tracking plus the glide's decaying offset.
+func track_point(p: DVec3, dt: float) -> void:
 	if offset.length_sq() > 0.0:
 		offset.scale_in(exp(-dt * 5.0))
 		if offset.length_sq() < pow(radius * 1e-4, 2.0): offset.set_v(0, 0, 0)
 	# Exact tracking avoids a first-order lag behind a fast moving body.
-	target.copy_from(body.scene_pos).add_in(offset)
+	target.copy_from(p).add_in(offset)
 
 func glide_target_to(destination: DVec3) -> void:
 	offset.copy_from(target).sub_in(destination)

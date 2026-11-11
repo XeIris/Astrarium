@@ -275,6 +275,10 @@ static var KINDS := {
 	# `.toggle-btn.on` has no rule: the model viewer's toggles look the same either way
 	"ToggleFlat": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 8, 7, 8], "fs": 10.0, "ls": 1.0, "up": true},
 		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {}},
+	# A landmark's name on the galactic scene's sky (GalaxyScene): a faint dark backing
+	# keeps it legible over the bright bulge without boxing it in.
+	"Landmark": {"base": {"c": ACCENT_2, "bg": Color(BG, 0.55), "bw": 0, "pad": [1, 5, 1, 5], "fs": 9.5, "ls": 0.6},
+		"hover": {"c": ACCENT, "bg": LIT_HOVER}, "on": {"c": ACCENT}},
 	"Band": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 2, 7, 2], "fs": 9.0, "ls": 0.8},
 		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": Color(ACCENT_2, 0.16), "c": ACCENT, "bc": Color(ACCENT_2, 0.5)}},
 	"TimeBtn": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [6, 2, 6, 2], "fs": 9.5, "ls": 0.57},

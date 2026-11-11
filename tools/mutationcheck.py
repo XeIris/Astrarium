@@ -80,6 +80,12 @@ MUTATIONS = {
                       GALAXYCHECK, "the far stars' light map not holding their flux"),
     "far-map-narrow": ("sim/galaxy/gal_neighbourhood.gd", "const SMOOTH_DEG := 12.0", "const SMOOTH_DEG := 4.0",
                        GALAXYCHECK, "the far stars' light smoothed too narrowly, darkening the sky around bright groups"),
+    "landmark-frame-mirrored": ("sim/galaxy/gal_landmarks.gd", "return Vector3(u.dot(c), u.dot(n), -u.dot(y))",
+                                "return Vector3(u.dot(c), u.dot(n), u.dot(y))", GALAXYCHECK, "landmarks placed through a mirrored galactic frame"),
+    "landmark-never-arrives": ("sim/galaxy/galaxy_scene.gd", "	stage.cam.track_point(DVec3.from_v3(GalLandmarks.position(lm, model, t_myr)), dt)",
+                               "	pass", GALAXYLOOK, "a flight that never reaches its landmark"),
+    "landmark-arm-static": ("sim/galaxy/gal_landmarks.gd", "if p.kind == GalPattern.Kind.SPIRAL: turn = GalPattern.angle(p, t_myr) - float(p.angle0)",
+                            "if p.kind == GalPattern.Kind.SPIRAL: turn = 0.0", GALAXYCHECK, "the arm's landmark left behind as the pattern turns"),
 }
 KNOWN_MISSES = {
     # For σR/vc ≈ 0.16 the radial period changes by a few per cent across the energies

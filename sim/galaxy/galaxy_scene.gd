@@ -38,6 +38,12 @@ var _adapted := false
 var curve_chart = null      # GalCurveChart, owned by the HUD
 ## The "sun" framing keeps the camera's target on the Sun as it orbits, exactly.
 var follow_sun := false
+## The model's landmarks (GalLandmarks), their labels on screen behind the HUD, and the
+## one last flown to.
+var landmarks: Array = []
+var landmark := ""
+var _lm_layer: Control = null
+var _lm_labels := {}
 var _nb_baked := {}
 
 func _init(main) -> void:
@@ -81,6 +87,7 @@ func enter(k: String) -> void:
 		_built = t
 		_mutex.unlock(), false, "galaxy tracers")
 	frame("whole")
+	_build_landmarks()
 	sync_hud()
 
 ## Block until the tracers exist (checks, screenshots).
@@ -129,6 +136,7 @@ func leave() -> void:
 	_arms_baked = {}
 	_nb_baked = {}
 	follow_sun = false
+	_clear_landmarks()
 	active = false
 	if visual != null: visual.dispose()
 	visual = null
@@ -144,12 +152,23 @@ func step(dt: float) -> float:
 	if not active: return 0.0
 	var accepted := _advance(dt)
 	_track_sun()
+	_track_landmark(dt)
 	return accepted
 
 func _track_sun() -> void:
 	if not follow_sun or visual == null or not visual.has_sun: return
 	var p: Vector3 = GalNeighbourhood.sun_frame(visual.sun_r0, visual.sun_omega, t_myr)[0]
 	stage.cam.target.set_v(p.x, p.y, p.z)
+
+## The landmark last flown to, where it is now (it may turn with the bar or the arms).
+func _track_landmark(dt: float) -> void:
+	if follow_sun or landmark == "": return
+	var lm := GalLandmarks.find(String(model.get("key", "")), landmark)
+	if lm.is_empty() or lm.at == "sun": return
+	if lm.get("from", false):
+		stage.cam.track_point(DVec3.new(), dt)
+		return
+	stage.cam.track_point(DVec3.from_v3(GalLandmarks.position(lm, model, t_myr)), dt)
 
 func _advance(dt: float) -> float:
 	if _task >= 0 and WorkerThreadPool.is_task_completed(_task):
@@ -200,6 +219,13 @@ func update(dt: float) -> void:
 	visual.adapt(rays, cam_pos.to_v3(), SkyModel.star_gain(), dt if _adapted else 0.0)
 	_adapted = true
 	visual.update(cam_pos, t_myr, tracers, ahead, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain(), stage.cam.radius)
+	if _objects_mat != null:
+		_objects.visible = visual.show_stars and visual.show_catalogue
+		_objects_mat.set_shader_parameter("uSunRel", DVec3.new().rel_v3(cam_pos))
+		_objects_mat.set_shader_parameter("uFarW", 1.0)
+		_objects_mat.set_shader_parameter("uGain", visual.last_gain)
+		_objects_mat.set_shader_parameter("uPixSr", visual.last_pix_sr)
+	_place_labels(cam_pos)
 	_hud_acc += dt
 	if _hud_acc >= 0.25:
 		_hud_acc = 0.0
@@ -213,6 +239,7 @@ func frame(kind: String) -> void:
 	stage.state.follow_id = null
 	cam.offset.set_v(0, 0, 0)
 	follow_sun = kind == "sun" and visual != null and visual.has_sun
+	landmark = ""
 	match kind:
 		"whole":
 			cam.target.set_v(0, 0, 0)
@@ -241,6 +268,128 @@ func frame(kind: String) -> void:
 			stage.jump_cam_radius(8.0)
 	stage.update_orbit_cam()
 
+## Fly to a landmark and show its card: the Sun is the "sun" framing; anything else is a
+## glide to where it is now, at its own viewing distance.
+func fly(id: String) -> void:
+	var lm := GalLandmarks.find(String(model.get("key", "")), id)
+	if lm.is_empty(): return
+	if lm.at == "sun":
+		frame("sun")
+	elif lm.get("from", false):
+		# Stand there and look back at the centre.
+		follow_sun = false
+		stage.state.follow_id = null
+		_adapted = false
+		var q := GalLandmarks.position(lm, model, t_myr)
+		stage.glide_target_to(DVec3.new())
+		stage.jump_cam_radius(q.length())
+		stage.cam.theta = acos(clampf(q.y / q.length(), -1.0, 1.0))
+		stage.cam.phi = atan2(q.z, q.x)
+	else:
+		follow_sun = false
+		stage.state.follow_id = null
+		_adapted = false
+		var p := GalLandmarks.position(lm, model, t_myr)
+		stage.glide_target_to(DVec3.from_v3(p))
+		stage.jump_cam_radius(float(lm.view[0]))
+		stage.cam.theta = float(lm.view[1])
+	landmark = id
+	stage.hud.set_prose("galCard", String(lm.card))
+	sync_hud()
+
+func _build_landmarks() -> void:
+	_clear_landmarks()
+	landmarks = GalLandmarks.of(String(model.get("key", "")))
+	var hud = stage.hud
+	var grid: Control = hud.mount("galLandmarks")
+	_lm_layer = Control.new()
+	_lm_layer.name = "GalaxyLandmarks"
+	_lm_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lm_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# Behind the HUD's panels but styled by its Theme (the kinds are type variations).
+	_lm_layer.theme = hud.theme
+	hud.get_parent().add_child(_lm_layer)
+	hud.get_parent().move_child(_lm_layer, 0)
+	for lm in landmarks:
+		var id: String = lm.id
+		hud.B(grid, "Toggle", String(lm.get("short", lm.name)), "[data-gal-lm=%s]" % id, String(lm.name) + ". " + String(lm.card)).pressed.connect(func(): fly(id))
+		var label: Control = hud.B(_lm_layer, "Landmark", "◦ " + String(lm.name), "", String(lm.card))
+		label.pressed.connect(func(): fly(id))
+		_lm_labels[id] = label
+	hud.set_prose("galCard", "")
+	_build_objects()
+
+## Compact landmarks with a measured V drawn as one point of that light each, by the
+## real stars' shader, in the galaxy's own frame. Their colour is the old spheroid's.
+var _objects: MeshInstance3D = null
+var _objects_mat: ShaderMaterial = null
+func _build_objects() -> void:
+	var pos := PackedVector3Array()
+	var custom := PackedFloat32Array()
+	var sets := PackedFloat32Array()
+	var c := visual.sphere_pop.color
+	c /= maxf(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, 1e-6)
+	var sun: Vector3 = GalLandmarks.position(GalLandmarks.MILKY_WAY[0], model, 0.0) if String(model.get("key", "")) == "milky_way" else Vector3.ZERO
+	for lm in landmarks:
+		if not lm.has("v"): continue
+		var p := GalLandmarks.position(lm, model, 0.0)
+		pos.append(p)
+		# L from V at its distance from the Sun (M_V☉ = 4.83, the K calibration's).
+		var d_pc := (p - sun).length() * 1000.0
+		custom.append_array([c.r, c.g, c.b, GalNeighbourhood.l_vis(float(lm.v) - 5.0 * log(d_pc / 10.0) / log(10.0))])
+		sets.append_array([1.0, 0.0, 0.0, 0.0])
+	if pos.is_empty(): return
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = pos
+	arr[Mesh.ARRAY_CUSTOM0] = custom
+	arr[Mesh.ARRAY_CUSTOM1] = sets
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arr, [], {},
+		(Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) | (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT))
+	_objects_mat = ShaderMaterial.new()
+	_objects_mat.shader = GalaxyVisual.CATALOGUE_SHADER
+	_objects_mat.set_shader_parameter("uProfilePx2", BrightStars.PROFILE_PX2)
+	_objects = MeshInstance3D.new()
+	_objects.name = "Objects"
+	_objects.mesh = mesh
+	_objects.material_override = _objects_mat
+	_objects.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_objects.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
+	visual.group.add_child(_objects)
+
+func _clear_landmarks() -> void:
+	if is_instance_valid(_lm_layer): _lm_layer.queue_free()
+	_objects = null
+	_objects_mat = null
+	_lm_layer = null
+	_lm_labels = {}
+	landmark = ""
+	var grid: Control = stage.hud.mount("galLandmarks") if stage.hud != null else null
+	if grid != null:
+		for c in grid.get_children(): c.queue_free()
+
+## Each landmark's label beside where it is on screen, hidden behind the camera, off
+## screen, or when the camera is closer to it than twice its viewing distance.
+func _place_labels(cam_pos: DVec3) -> void:
+	if not is_instance_valid(_lm_layer): return
+	var size := _lm_layer.size
+	var basis: Basis = stage.cam_basis
+	var tan_h := tan(deg_to_rad(stage.cam_fov) * 0.5)
+	var aspect := size.x / maxf(size.y, 1.0)
+	for lm in landmarks:
+		var label: Control = _lm_labels.get(lm.id)
+		if label == null: continue
+		var p := DVec3.from_v3(GalLandmarks.label_position(lm, model, t_myr))
+		var rel := p.rel_v3(cam_pos)
+		var q := basis.inverse() * rel
+		var x := q.x / -q.z / (tan_h * aspect) if q.z < 0.0 else 9.0
+		var y := q.y / -q.z / tan_h if q.z < 0.0 else 9.0
+		var shown := q.z < 0.0 and absf(x) < 0.98 and absf(y) < 0.98 and rel.length() > 2.0 * float(lm.view[0])
+		label.visible = shown
+		if shown:
+			label.position = Vector2((x + 1.0) * 0.5 * size.x, (1.0 - y) * 0.5 * size.y) - Vector2(6.0, label.size.y * 0.5)
+
 func set_rate(r: float) -> void:
 	rate = r
 	_pending = 0.0
@@ -259,6 +408,8 @@ static func fmt_kpc(d: float) -> String:
 
 func sync_hud() -> void:
 	var hud = stage.hud
+	for lm in landmarks:
+		hud.set_active("[data-gal-lm=%s]" % lm.id, lm.id == landmark)
 	if hud == null or not active: return
 	hud.set_text("galName", String(preset.get("name", "")))
 	hud.set_prose("galBlurb", String(preset.get("blurb", "")))

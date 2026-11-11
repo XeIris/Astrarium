@@ -435,6 +435,35 @@ pins both ratios, so a change to the population shows.
 - **The far set is fixed to the Sun's view.** Its smoothed map is correct only at the
   Sun, and the 293 stars with no distance are placed at 1 kpc.
 
+## Landmarks (phase 3a)
+
+`sim/galaxy/gal_landmarks.gd` lists the places worth flying to, each with a card and its
+sources. The panel lists them; their names stand beside them on screen (behind the
+HUD); pressing either flies there.
+
+| landmark | placed by | sources |
+|---|---|---|
+| The Sun | the Sun's frame, turning at Ω(R0) | GRAVITY 2019 (R0 measured 8.18 kpc; the model's is 8), Bennett & Bovy 2019 |
+| Sagittarius A* | the centre | GRAVITY 2022 (4.30 × 10⁶ M☉) |
+| The bar | the centre, labelled along the bar | Bland-Hawthorn & Gerhard 2016; Portail et al. 2017 |
+| Perseus Arm | the spiral's crest at 8.87 kpc, β = 40°, turning with the pattern | Reid et al. 2019; Dias et al. 2019 |
+| ω Centauri | RA, Dec, 5.43 kpc; drawn as a point of V = 3.50 | Baumgardt's catalogue (Baumgardt & Vasiliev 2021) |
+| Large Magellanic Cloud | NED's position, 49.59 kpc | Pietrzyński et al. 2019; Erkal et al. 2019; Kallivayalil et al. 2013 |
+| Small Magellanic Cloud | NED's position, 62.44 kpc | Graczyk et al. 2020; Zivick et al. 2018 |
+
+- **Placing things on the sky.** A sky landmark is placed from the Sun at t = 0 through
+  the app's galactic frame (`SkyModel.galactic_frame_j2000`). `galaxycheck` holds that
+  frame to ESA's own (l, b) for eight Gaia DR3 stars, to 0.03″.
+- **Flying.** A flight is a glide that then tracks the landmark exactly
+  (`OrreryCamera.track_point`, the follow camera's rule for a point), so the Perseus
+  Arm's landmark stays on the crest as the pattern turns. The Magellanic Clouds are not
+  modelled yet, so their flights stand at the Cloud and look back at the Milky Way.
+- **Limits.**
+  - The satellites, ω Cen and the Clouds hold their places from t = 0: their own
+    orbits are not followed.
+  - ω Cen's point takes the old spheroid's colour, and its light is also in the model's
+    spheroid (a small double count).
+
 ## Limits (phase 1)
 
 - Phase 1 was axisymmetric and dust-free; phase 2a above adds the bar, the arms and
