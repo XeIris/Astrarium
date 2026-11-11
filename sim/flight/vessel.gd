@@ -1612,24 +1612,35 @@ func can_rail() -> bool:
 ## as the Earth does. Getting it wrong puts the Moon's SOI at 129 000 km around an
 ## Earth inside it, and the handover oscillates.
 func primary_of(body: Body):
-	var root = null
-	for b in bodies:
-		if b.alive and b.mass > (root.mass if root != null else -1.0): root = b
-	if root == null or root == body: return null
-	var best = null
-	var best_hill := INF
-	for c in bodies:
-		if c == body or c == root or not c.alive or c.mass <= body.mass: continue
-		var d_root: float = c.pos.distance_to(root.pos) * Rocketry.AU_M
-		if not (d_root > 0.0): continue
-		var hill := d_root * U.cbrt(c.mass / (3.0 * root.mass))
-		if body.pos.distance_to(c.pos) * Rocketry.AU_M < hill and hill < best_hill:
-			best = c; best_hill = hill
-	return best if best != null else root
+	return _primary_map().get(body)
+
+func _primary_map() -> Dictionary:
+	var ordered: Array=bodies.filter(func(b):return b.alive)
+	ordered.sort_custom(func(a,b):return a.mass>b.mass)
+	var parents: Dictionary={};var hills: Dictionary={}
+	if ordered.is_empty():return parents
+	var root: Body=ordered[0]
+	parents[root]=null;hills[root]=INF
+	# Resolve heavier bodies first, so every candidate's Hill sphere is measured
+	# about its own primary. A Galilean moon's solar Hill sphere would incorrectly
+	# enclose its neighbours and inflate their encounter regions by orders of magnitude.
+	for body: Body in ordered.slice(1):
+		var best: Body=root;var best_hill:=INF
+		for candidate: Body in parents:
+			if candidate==root or candidate.mass<=body.mass:continue
+			var hill: float=hills[candidate]
+			if hill<best_hill and body.pos.distance_to(candidate.pos)*Rocketry.AU_M<hill:
+				best=candidate;best_hill=hill
+		parents[body]=best
+		hills[body]=body.pos.distance_to(best.pos)*Rocketry.AU_M*U.cbrt(body.mass/(3.0*best.mass))
+	return parents
 
 ## SOI radius of `body` about its own primary, in metres.
 func soi_of(body: Body) -> float:
-	var p = primary_of(body)
+	return _soi_in(body,_primary_map())
+
+func _soi_in(body: Body,parents: Dictionary) -> float:
+	var p = parents.get(body)
 	if p == null: return INF
 	return Orbit.sphere_of_influence(body.pos.distance_to(p.pos) * Rocketry.AU_M, body.mass, p.mass)
 
@@ -1642,17 +1653,18 @@ func check_soi() -> void:
 	# entering: the deepest SOI that contains us and is not the parent's own
 	var best = null
 	var best_soi := INF
+	var parents:=_primary_map()
 	for b in bodies:
 		if b == parent or not b.alive: continue
-		var soi := soi_of(b)
+		var soi := _soi_in(b,parents)
 		if not is_finite(soi): continue
 		body_offset(b, _a)
 		if r.distance_to(_a) < soi and soi < best_soi:
 			best = b; best_soi = soi
 	# leaving: outside the parent's own SOI
-	var own := soi_of(parent)
+	var own := _soi_in(parent,parents)
 	if R > own:
-		var up = primary_of(parent)
+		var up = parents.get(parent)
 		# Only climb out if the parent above isn't itself a smaller, closer option.
 		if up != null and not (best != null and best_soi < own):
 			rebase(up)
