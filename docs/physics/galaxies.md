@@ -914,6 +914,66 @@ passage than the fitted friction does.
 - The restricted phase runs at hundreds of Myr/s.
 - `perfcheck` measures the frame rate with the live kernel running (`galaxy-encounter-live`).
 
+### The Antennae
+
+The preset "The Antennae" is NGC 4038/4039 as Privon et al. (2013, Table 2) reconstructed it
+with Identikit.
+
+**Their encounter.**
+- Two equal galaxies on a parabolic orbit (e = 1), pericentre p = 0.25.
+- Disc spins (i, ω) of (65°, 345°) for NGC 4038 and (70°, 95°) for NGC 4039.
+- Seen at t = 5.62, the idealised pericentre being at t = 2, from Euler angles
+  (−20°, 283°, −5°).
+- Scaled by L = 19.7 kpc and V = 265 km/s, with G = 1. A time unit is therefore 72.7 Myr,
+  and "today" is 408.5 Myr after the start.
+
+**Their galaxy** is Barnes & Hibbard's (2009, App. B), which Privon et al. used for their
+self-consistent runs:
+- a Hernquist bulge of 0.0625, a = 0.02, cut at 4.0;
+- an exponential disc of 0.1875, R_d = 1/12, sech² height 0.0075;
+- an NFW halo with 0.16 inside a_h = 0.25, tapered beyond b_h = 0.98015 so that the whole
+  halo holds 1.0.
+
+The taper (their eq. B2) keeps the density and its slope continuous at b_h. `GalEddington`
+samples that halo, and its total comes out at 1.00000. Discs follow their eq. B10–B13:
+- σ_z from the isothermal sheet;
+- σ_R = (1 + R/(R + q_σ)) σ_z, which is ≈ 2 σ_z in the body and → σ_z at the centre;
+- the Jeans equation for the mean rotation.
+
+Particle counts are those of Privon et al.'s self-consistent runs: 8k bulge, 24k disc and 32k
+halo particles a galaxy. Every particle is softened by 0.0075 (0.15 kpc), with steps of
+0.25 Myr; their step was 1/256 of a unit, 0.28 Myr. The encounter is live from the start.
+Each disc's velocities are drawn once the live potential exists, from the particles' own
+pull. Measured that way, v_c at 3 R_d is 1.267 units, against their 1.26.
+
+**The angle conventions.** Their papers define i and ω relative to the orbit's angular
+momentum and the separation at periapsis, and θ as Euler angles. They do not give signs or
+the Euler order. The reading used here:
+- the ascending node lies ω behind the direction to the companion;
+- the view is R_x(θX) R_y(θY) R_z(θZ);
+- sky X is east.
+
+It was chosen against their own model, not the telescope data. Their Fig. 6a's particles
+were extracted by colour, and each reading's tails at t = 5.62 were scored by mean
+nearest-particle distance. This order scored 7.4 kpc; the next best (Z-Y-Z) scored 7.6, the
+reverse order 14.7, and the transposes 24–34. With ω measured ahead instead of behind, the
+northern tail's velocity collapses. With the reading used here, `encountercheck` finds:
+
+| | here | Privon et al. |
+|---|---|---|
+| first pericentre | 6.2 kpc, 260 Myr before now | about 5 kpc, 260 Myr before now |
+| back together by now | within 1.1 kpc | "around its second passage" |
+| tail ends (position angle) | 207°, 32° | 194°, 37° (their Fig. 6a's particles) |
+| line of sight | south tail recedes 119 km/s, north approaches 87 km/s | the same signs (their Fig. 6b) |
+
+At full resolution the nuclei come back within 1 kpc 34 Myr after now; their model merges
+70 Myr after it.
+
+**Against the sky.** The southern tail runs south-west in a straight sweep. The real one,
+in ESO's DSS2 image and in their model, drops south first and then hooks west. Privon et al.
+also reproduced the hook only partly, and they quote their spins as good to 15°. No angle was
+refitted here.
+
 ### Limits (phase 4)
 
 - **Particle counts.** About 50 000 luminous particles where their run had
@@ -924,6 +984,9 @@ passage than the fitted friction does.
 - **M33 before the switch.** Its orbit is semi-analytic, with the weakness above.
   Its orbit is uncertain in any case: with M31's measured proper motion, Patel, Besla
   & Sohn (2017) find a recent close passage of M33 by M31 improbable.
+- **The Antennae** use Barnes & Hibbard's single galaxy model for both. Privon et al. note
+  that its circular speed is high for real late-type discs. There is no gas, so none of the
+  starburst that lights the real pair.
 - **Today's odds.** Recent measurements put the chance of a Milky Way–M31 merger within
   10 Gyr at about even (Sawala et al. 2025). The preset follows van der Marel et al.'s
   canonical start, one realisation.
@@ -964,3 +1027,15 @@ the drawn stars' light. One is a known miss: dropping the radial-period weight f
 the Shu sampling reshapes only the eccentric tail of a disc this cool, below the
 stationarity test's noise. The hand-over test resolves about 6 %, so a smaller
 defect in the star counts (one extra star in each cell, say) also passes it.
+
+Phase 4's thirteen are all caught by `encountercheck`:
+- the orbits: no dynamical friction, and the Coulomb logarithm read as a power;
+- the restricted disc pulling as a sphere;
+- the sampler: radii drawn from the wrong cumulative mass, and speeds set without the
+  disc's pull;
+- the GDScript tree: opening cells without the centre-of-mass offset, and kicking a whole
+  step each half;
+- a warm disc without asymmetric drift;
+- haloes going live at rest;
+- the Antennae: ω measured ahead of the companion, the other Euler order, σ_R = σ_z, and a
+  taper that breaks the halo's slope.

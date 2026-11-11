@@ -409,7 +409,18 @@ func _soak_check() -> void:
 			if g.encounter == null or g.encounter.live.steps == 0: failures.append("encounter: the live galaxies did not step")
 			stage.animate(1.0 / 60.0)
 			stage.load_preset("solar")
-			if g.active or g.encounter != null or g.enc_visual != null: failures.append("encounter: the scene outlived the switch to solar"),
+			if g.active or g.encounter != null or g.enc_visual != null: failures.append("encounter: the scene outlived the switch to solar")
+			# The Antennae, live from their first step.
+			stage.load_preset("gal_antennae")
+			g.wait_tracers()
+			stage._on_galaxy_action("rate", 20.0)
+			for i in 4:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			g.wait_encounter()
+			if g.encounter == null or not g.encounter.is_live(): failures.append("encounter: the Antennae did not go live")
+			stage.load_preset("solar")
+			if g.active or g.encounter != null: failures.append("encounter: the Antennae outlived the switch to solar"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),
