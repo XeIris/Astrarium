@@ -674,9 +674,33 @@ static void run_tracers(double *A) {
 	free(G);
 }
 
+/* The library's own libm on probe arguments, for galaxycheck: the tracer kernel can be
+ * bit-identical to GDScript only where both call the same libm (MinGW's differs from
+ * the engine's on Windows). Records of (function, a, b, result) after A[0] = length:
+ * 0 sin, 1 cos, 2 tan, 3 exp, 4 log, 5 atan2(a, b), 6 tanh, 7 pow(a, b), 8 sqrt. */
+static void run_libm(double *A) {
+	int len = (int)A[0];
+	for (int i = 1; i + 3 < len; i += 4) {
+		double a = A[i + 1], b = A[i + 2], r;
+		switch ((int)A[i]) {
+		case 0: r = sin(a); break;
+		case 1: r = cos(a); break;
+		case 2: r = tan(a); break;
+		case 3: r = exp(a); break;
+		case 4: r = log(a); break;
+		case 5: r = atan2(a, b); break;
+		case 6: r = tanh(a); break;
+		case 7: r = pow(a, b); break;
+		case 8: r = sqrt(a); break;
+		default: r = 0.0; break;
+		}
+		A[i + 3] = r;
+	}
+}
+
 /* ============================================================================
- * GDExtension plumbing — one abstract class with two static methods: step2 (the
- * N-body kernel) and tracers (the galactic tracers).
+ * GDExtension plumbing — one abstract class with static methods: step2 (the N-body
+ * kernel), tracers (the galactic tracers) and libm (run_libm).
  * ========================================================================== */
 static GDExtensionInterfaceGetProcAddress gp;
 static GDExtensionClassLibraryPtr lib;
@@ -710,9 +734,13 @@ static void step_into(GDExtensionConstTypePtr in, GDExtensionUninitializedTypePt
 	free(buf);
 }
 
-/* Method userdata selects the kernel: NULL is step2, non-NULL the tracers. */
+static int tracer_tag = 1;
+static int libm_tag = 2;
+
+/* Method userdata selects the kernel: NULL is step2, then the tracers and libm. */
 static void dispatch(void *ud, GDExtensionConstTypePtr in, GDExtensionUninitializedTypePtr out) {
-	if (ud) step_into(in, out, run_tracers, TR_PAT);
+	if (ud == &tracer_tag) step_into(in, out, run_tracers, TR_PAT);
+	else if (ud == &libm_tag) step_into(in, out, run_libm, 5);
 	else step_into(in, out, run, HDR);
 }
 
@@ -737,8 +765,7 @@ static void m_call(void *ud, GDExtensionClassInstancePtr inst, const GDExtension
 
 static void free_instance(void *ud, GDExtensionClassInstancePtr inst) { (void)ud; (void)inst; }
 
-static SName sn_class, sn_parent, sn_method, sn_tracers, sn_arg, sn_empty;
-static int tracer_tag = 1;
+static SName sn_class, sn_parent, sn_method, sn_tracers, sn_libm, sn_arg, sn_empty;
 
 static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	(void)ud;
@@ -762,6 +789,7 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	sn_new(&sn_parent, "Object", 1);
 	sn_new(&sn_method, "step2", 1);
 	sn_new(&sn_tracers, "tracers", 1);
+	sn_new(&sn_libm, "libm", 1);
 	sn_new(&sn_arg, "state", 1);
 	sn_new(&sn_empty, "", 1);
 
@@ -793,6 +821,9 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	reg_method(lib, &sn_class, &mi);
 	mi.name = &sn_tracers;
 	mi.method_userdata = &tracer_tag;
+	reg_method(lib, &sn_class, &mi);
+	mi.name = &sn_libm;
+	mi.method_userdata = &libm_tag;
 	reg_method(lib, &sn_class, &mi);
 }
 

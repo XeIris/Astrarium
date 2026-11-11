@@ -262,7 +262,11 @@ the Jacobi integral E − Ωb Lz holds to 2 × 10⁻⁶, which does not use the 
 to be bit-identical at every step (an ulp in the work tally can round away again, so
 the end state alone can agree by luck). That needs `-fno-builtin` in
 `native/build.sh`: otherwise clang fuses the spiral's adjacent `cos` and `sin` into
-`sincos`, an ulp off GDScript's separate calls. The native kernel takes 0.36 ms per step for 6000 tracers, against
+`sincos`, an ulp off GDScript's separate calls. Bit identity also needs the library
+and the engine to share a libm: the kernel calls `exp`, `log`, `sin`, `cos`, `atan2`,
+`tanh` and `pow`, and MinGW's differ from the engine's on Windows. `galaxycheck` asks
+the library (`NBodyKernel.libm`) for those functions at fixed arguments; where any
+differs it requires agreement to 10⁻⁹ instead and names the functions. The native kernel takes 0.36 ms per step for 6000 tracers, against
 9.9 ms in GDScript; the GDScript one remains the fallback where the library is absent.
 
 Measuring the pattern speeds back from the tracers (the drift of their m = 2 density

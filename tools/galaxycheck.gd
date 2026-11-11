@@ -117,6 +117,51 @@ func consistency(p: GalPotential) -> void:
 # The Milky Way's light: the disc's and bulge's populations weighted by their visible
 # luminosity give an integrated colour to set beside the measured one, Licquia,
 # Newman & Brinchmann (2015): rest-frame B−V = 0.744 +0.068 −0.054. Never tuned to it.
+## The libm functions the tracer kernel calls whose results the native library and the
+## engine disagree on, at 64 fixed arguments each in the ranges the kernel uses.
+func libm_differences() -> PackedStringArray:
+	var names := ["sin", "cos", "tan", "exp", "log", "atan2", "tanh", "pow", "sqrt"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2026
+	var buf := PackedFloat64Array([0.0])
+	var want := PackedFloat64Array()
+	for f in names.size():
+		for k in 64:
+			var x := rng.randf_range(-10.0, 10.0)
+			var y := rng.randf_range(-10.0, 10.0)
+			var r := 0.0
+			match f:
+				0: r = sin(x)
+				1: r = cos(x)
+				2: r = tan(x)
+				3:
+					x = rng.randf_range(-50.0, 5.0)
+					r = exp(x)
+				4:
+					x = rng.randf_range(1e-6, 100.0)
+					r = log(x)
+				5: r = atan2(x, y)
+				6: r = tanh(x)
+				7:
+					x = rng.randf_range(1e-3, 10.0)
+					y = rng.randf_range(-6.0, 6.0)
+					r = pow(x, y)
+				8:
+					x = absf(x) * 10.0
+					r = sqrt(x)
+			buf.append_array([float(f), x, y, 0.0])
+			want.append(r)
+	buf[0] = float(buf.size())
+	var got: PackedFloat64Array = ClassDB.class_call_static("NBodyKernel", "libm", buf)
+	var out := PackedStringArray()
+	for f in names.size():
+		for k in 64:
+			var j := f * 64 + k
+			if got.size() != buf.size() or got[1 + 4 * j + 3] != want[j]:
+				out.append(names[f])
+				break
+	return out
+
 func colour(p: GalPotential) -> void:
 	# The model's three populations: the disc's stars aged 0.1–10 Gyr, the arms' younger
 	# ones at the measured star formation rate, and the old bulge. Unreddened: the
@@ -173,6 +218,8 @@ func colour(p: GalPotential) -> void:
 # Table 1, measured with Gaia TGAS and 2MASS: dn/dM_V per subtype, averaged over the
 # subtypes whose M_V falls in each bin (10⁻⁴ pc⁻³ mag⁻¹). Not fitted; the bounds pin
 # the measured differences, which docs/physics/galaxies.md reports.
+## Native against GDScript where their libms differ: kpc, (kpc/Myr)/0.2 and relative work.
+const PARITY_TOL := 1e-9
 const BOVY_2017_DN_DMV := {1: 3.8, 2: 5.4, 3: 9.9, 4: 22.6, 5: 24.8, 6: 24.3}
 
 func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
@@ -319,13 +366,27 @@ func patterns() -> void:
 	if GalTracers.native_available():
 		var b := GalTracers.new(GalModels.build("milky_way", 3))
 		b.use_native = false
-		# Compared every step: an ulp in the work tally can round away again later.
+		# Compared every step: an ulp in the work tally can round away again later. Bit
+		# identity needs the library and the engine to share a libm; where they do not
+		# (MinGW's on Windows), they must agree to PARITY_TOL instead.
+		var differ := libm_differences()
 		var first := -1
+		var worst := 0.0
 		for s in 300:
 			a.step(1)
 			b.step(1)
-			if first < 0 and not (a.pos == b.pos and a.vel == b.vel and a.work == b.work): first = s
-		ok(first < 0, "native and GDScript tracer kernels bit-identical at every step of 300 with the bar and spiral%s" % ("" if first < 0 else " (first differs at step %d)" % first))
+			if not (a.pos == b.pos and a.vel == b.vel and a.work == b.work):
+				if first < 0: first = s
+				for i in a.n:
+					for c in 3:
+						worst = maxf(worst, absf(a.pos[3 * i + c] - b.pos[3 * i + c]))
+						worst = maxf(worst, absf(a.vel[3 * i + c] - b.vel[3 * i + c]) / 0.2)
+					worst = maxf(worst, absf((a.work[i] - b.work[i]) / a.e0[i]))
+		if differ.is_empty():
+			ok(first < 0, "native and GDScript tracer kernels bit-identical at every step of 300 with the bar and spiral%s" % ("" if first < 0 else " (first differs at step %d)" % first))
+		else:
+			ok(worst < PARITY_TOL, "native and GDScript tracer kernels agree to %s over 300 steps (< %s); not bit for bit, as the library's libm differs from the engine's in %s" % [
+				U.expo(worst, 2), U.expo(PARITY_TOL, 0), ", ".join(differ)])
 	else:
 		print("     native kernel unavailable: the GDScript kernel alone runs")
 	a.step(int(round((0.0 - a.t) / GalTracers.DT)) + (500 if not quick else 0))
