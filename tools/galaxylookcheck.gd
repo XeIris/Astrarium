@@ -33,6 +33,8 @@ const JOIN_EXPOSURE := 1.0
 const JOIN_TOL := 0.03
 ## A neighbour's glow against its CPU integral, at an exposure that keeps it unclipped.
 const NEIGHBOUR_EXPOSURE := 0.05
+## M104 seen 6° from edge-on through a 20 pc dust ring: as the Milky Way's lane from the Sun.
+const TYPE_DUST_TOL := 0.08
 
 var logger := Catch.new()
 var stage: Node
@@ -138,6 +140,8 @@ func _ready() -> void:
 		await landmarks()
 		await neighbour_profile("m33")
 		await handover(v)
+		# Last: it loads another scene, so nothing after it may hold the Milky Way's visual.
+		await type_dust("gal_m104")
 	for error in logger.take():
 		failures += 1
 		printerr("GALAXYLOOKCHECK ENGINE ", error)
@@ -395,6 +399,45 @@ func neighbour_profile(key: String) -> void:
 	g.visual.show_tracers = true
 	g.visual.show_stars = true
 	g.frame("whole")
+
+# A galaxy of its own scene through its dust: M104's glow in rows across its ring
+# against the CPU's integral. The ring is 20 pc thick, so this holds the thin sampling.
+func type_dust(preset: String) -> void:
+	stage.load_preset(preset)
+	stage.galaxy.wait_tracers()
+	stage.state.paused = true
+	var g = stage.galaxy
+	var v: GalaxyVisual = g.visual
+	g.frame("whole")
+	await settle(20)
+	pin(v, 0.3)
+	var img := await hdr()
+	save(img, "type-" + preset)
+	v.show_glow = false
+	var sky := await hdr()
+	v.show_glow = true
+	var basis: Basis = stage.cam_basis
+	var cam: Vector3 = stage.cam_pos.to_v3()
+	var size := Vector2(img.get_width(), img.get_height())
+	var tan_h := tan(deg_to_rad(stage.cam_fov) * 0.5)
+	var gain := GalaxyVisual.K * SkyModel.star_gain() * v.exposure * v.adaptation
+	var worst := 0.0
+	for dy in [-60, -20, -8, 0, 8, 20, 60]:
+		var drawn := 0.0
+		var want := 0.0
+		for k in 48:
+			var ix := int(size.x * 0.5) + int((float(k) / 47.0 * 2.0 - 1.0) * 220.0)
+			var iy: int = int(size.y * 0.5) + int(dy)
+			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
+			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
+			drawn += luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
+			want += v.ray_luminance(cam, d, 1e-3, 4000) * gain
+		print("     %s row %+d: drawn %s, integral %s" % [preset, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
+		worst = maxf(worst, absf(drawn / want - 1.0))
+	check("%s through its dust ring: glow = CPU integral in 7 rows (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	stage.load_preset("gal_milkyway")
+	stage.galaxy.wait_tracers()
+	stage.state.paused = true
 
 ## Luminance summed over every pixel: a point's drawn pixels sum to its flux.
 func pixel_sum(img: Image) -> float:

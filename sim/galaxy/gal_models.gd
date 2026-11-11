@@ -17,6 +17,16 @@ const PRESETS := {
 		"camTheta": 0.95,
 		"rateMyrS": 5.0,
 	},
+	"gal_m87": {
+		"name": "M87",
+		"blurb": "A giant elliptical at the heart of the Virgo cluster, 17 Mpc away: a ball of old stars five times the Milky Way's light (Kormendy et al. 2009), around the black hole the Event Horizon Telescope imaged.",
+		"model": "m87", "camRadius": 200.0, "camTheta": 1.2, "rateMyrS": 0.0,
+	},
+	"gal_m104": {
+		"name": "Sombrero (M104)",
+		"blurb": "A disc galaxy seen 6° from edge-on, 9.6 Mpc away: a bright spheroid of old stars, a disc, and a ring of dust that cuts across it (De Looze et al. 2012).",
+		"model": "m104", "camRadius": 45.0, "camTheta": 1.466, "rateMyrS": 0.0,
+	},
 }
 
 # Bovy (2015) Table 1: normalised at R0 = 8 kpc, vc(R0) = 220 km/s, with the bulge,
@@ -100,6 +110,84 @@ static func visible_luminosity(model: Dictionary) -> float:
 		var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
 		lv += float(l.visible) * float(part.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * pop.mean_l / pop.mean_mass * y
 	return lv
+
+## Galaxies of other kinds, each a scene of its own (too far for the Milky Way's): drawn
+## at their measured total light (V_T⁰ or M_VT), shared among parts as their published
+## decompositions find it; each part's stellar mass follows through the population
+## model. Light only. docs/physics/galaxies.md#galaxy-types.
+## `parts`: name → [share of the light, scale (kpc), (disc height, kpc)].
+const TYPES := {
+	# Kormendy et al. (2009, Table 1): D 17.22 Mpc, M_VT −22.95, r_e 16.2 kpc from the 2-D
+	# profile (194.4″); E1, drawn round. A Hernquist sphere of that half-light radius.
+	"m87": {"name": "M87", "ra": 187.7059308, "dec": 12.39112326, "d": 17220.0, "mv": -22.95,
+		"parts": {"bulge": [1.0, 8.93]}, "extent": 150.0},
+	# McQuinn et al. (2016): 9.55 Mpc; RC3 V_T⁰ 7.55, so M_V −22.35. Gadotti &
+	# Sánchez-Janssen (2012, model bdh, at 9.1 Mpc, rescaled): bulge 13 % (n 1.9, r_e 0.46 kpc)
+	# and halo 52 % (exponential, r_e 6.0 kpc, ellipticity 0.28) as one Hernquist sphere of
+	# their joint half-light radius, 4.68 kpc; disc 35 %, scale length 1.89 kpc, height 0.78.
+	# Inclination 84° (Emsellem et al. 1996, via ibid.).
+	"m104": {"name": "Sombrero (M104)", "ra": 189.9976312, "dec": -11.62308847, "d": 9550.0, "mv": -22.35, "i": 84.0,
+		"parts": {"bulge": [0.65, 2.577], "disc": [0.35, 1.834, 0.785]}, "bulgeAxes": [1.0, 0.72], "extent": 30.0,
+		"dust": "m104"},
+}
+
+## Dust as extinction per mass: Draine (2003, Table 4), R_V = 3.1 Milky Way dust, C_ext(V) =
+## 4.89 × 10⁻²² cm² per H with M_H/M_dust = 90, so 2.63 × 10⁴ cm²/g, in kpc²/M☉.
+const DUST_KAPPA_V := 5.492e-6
+## M104's dust, De Looze et al. (2012, Table 2, standard model) at 9.2 Mpc rescaled to
+## 9.55: a ring of 7.5 × 10⁶ M☉ (×(9.55/9.2)²) in four Gaussians, [R, σ (kpc), share], 20 pc
+## thick; an inner exponential disc of 4.07 × 10⁵ M☉ (×(9.55/9.2)²), scale length 2 kpc.
+## Peak optical depths per kpc follow in m104_dust() (κ ρ0, ρ0 = M / (area · 2h)).
+const M104_RING := [[6.332, 0.498, 0.30], [8.201, 0.260, 0.18], [9.083, 0.187, 0.27], [7.111, 1.557, 0.25]]
+const M104_RING_MASS := 7.5e6 * (9.55 / 9.2) * (9.55 / 9.2)
+const M104_DISC_DUST := 4.07e5 * (9.55 / 9.2) * (9.55 / 9.2)
+const M104_DUST_HR := 2.0 * 9.55 / 9.2
+## The 20 pc slab of constant density as a sech² layer of the same column (2h = 20 pc).
+const M104_DUST_H := 0.010
+
+static func m104_dust() -> Array:
+	var rings := []
+	for r in M104_RING:
+		var R: float = r[0]
+		var sig: float = r[1]
+		# ∫ 2πR' exp(−(R'−R)²/2σ²) dR' over R' > 0, by quadrature.
+		var area := 0.0
+		var dr := sig / 40.0
+		var x := dr * 0.5
+		while x < R + 8.0 * sig:
+			area += TAU * x * exp(-0.5 * pow((x - R) / sig, 2.0)) * dr
+			x += dr
+		rings.append([R, sig, DUST_KAPPA_V * float(r[2]) * M104_RING_MASS / (area * 2.0 * M104_DUST_H)])
+	var rho0 := M104_DISC_DUST / (TAU * M104_DUST_HR * M104_DUST_HR * 2.0 * M104_DUST_H)
+	var disc := {"kappa": DUST_KAPPA_V, "rhoDisc": rho0, "rhoArm": 0.0, "hr": M104_DUST_HR, "hole": 0.0, "h0": M104_DUST_H,
+		"h1": 0.0, "rf": 0.0, "rm": 0.0, "ra": 1.0, "ca": 1.0, "h0a": 1.0, "rfa": 0.0, "h1a": 0.0}
+	return [rings, disc]
+
+## A galaxy of TYPES as GalaxyVisual draws it.
+static func type_galaxy(key: String) -> Dictionary:
+	var spec: Dictionary = TYPES.get(key, {})
+	if spec.is_empty(): return {}
+	var pot := GalPotential.new()
+	var light := []
+	var model := {"key": key, "name": spec.name, "potential": pot, "sense": 1.0, "extent": spec.extent, "light": light,
+		"sky": spec, "bulgeAxes": spec.get("bulgeAxes", [1.0, 1.0])}
+	var lv := pow(10.0, -0.4 * (float(spec.mv) - 4.83))
+	for part in spec.parts:
+		var pp: Array = spec.parts[part]
+		var pop := GalPopulation.build({"kind": "burst", "gyr": 10.0} if part == "bulge" else {"kind": "constant", "gyr": 10.0})
+		var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
+		# The stellar mass whose visible stars give this part its share of the light.
+		var mass := float(pp[0]) * lv / (VISIBLE_BULGE * pop.mean_l / pop.mean_mass * y)
+		var gm := GalUnits.G * mass / GalUnits.MASS_UNIT_SUN
+		if part == "bulge": pot.add(GalPotential.hernquist("bulge", float(pp[1]), gm))
+		else: pot.add(GalPotential.miyamoto_nagai("disc", float(pp[1]), float(pp[2]), gm))
+		light.append({"part": part, "visible": VISIBLE_BULGE})
+	if spec.get("dust", "") == "m104":
+		var d := m104_dust()
+		model.dustRing = d[0]
+		model.dustRingH = M104_DUST_H
+		model.dust = d[1]
+	return model
 
 static func milky_way_potential() -> GalPotential:
 	return GalPotential.new() \
@@ -189,6 +277,7 @@ static func mw_patterns() -> Array:
 ## A model: its potential, tracer populations and light. `seed` fixes every draw;
 ## `patterns = false` leaves out the bar and spiral (galaxycheck's static runs).
 static func build(key: String, seed := 1, patterns := true) -> Dictionary:
+	if TYPES.has(key): return type_galaxy(key)
 	match key:
 		"milky_way":
 			return {

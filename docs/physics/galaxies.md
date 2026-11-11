@@ -505,6 +505,48 @@ Way's exposure.
   - They have no arms, bars or dust: the LMC's bar is missing.
   - The eye adapts to the Milky Way, so seen close up they are overexposed.
 
+## Galaxy types (phase 3c)
+
+Galaxies too far for the Milky Way's scene are scenes of their own (`GalModels.TYPES`,
+presets `gal_m87`, `gal_m104`), drawn from their measured total light. Each part takes
+its share of that light from a published decomposition, and its stellar mass follows
+through the population model. They have no tracers.
+
+- **M87.** A Hernquist sphere of the 16.2 kpc half-light radius Kormendy et al. (2009,
+  Table 1, from the 2-D profile) measure, drawn at their M_VT = −22.95 (D = 17.22 Mpc).
+  Its landmark is M87*: 6.5 × 10⁹ M☉ (EHT Collaboration 2019). Kormendy et al. fit
+  n ≈ 12 to its cD halo; a Hernquist sphere is n ≈ 4, so the far halo is too faint.
+- **M104, the Sombrero.**
+  - Drawn at M_V = −22.35: RC3's V_T⁰ = 7.55 at McQuinn et al.'s (2016) 9.55 Mpc.
+  - Light split as in Gadotti & Sánchez-Janssen's (2012) bulge + disc + halo
+    decomposition, rescaled from 9.1 Mpc:
+    - the bulge (13 %, n 1.9, r_e 0.46 kpc) and halo (52 %, exponential, r_e 6.0 kpc,
+      ε 0.28) as one flattened Hernquist sphere of their joint half-light radius,
+      4.68 kpc;
+    - the disc (35 %) as a Miyamoto–Nagai disc of its 1.89 kpc scale length's
+      half-mass radius, 0.78 kpc thick.
+  - Inclination 84°.
+- **M104's dust** is De Looze et al.'s (2012, Table 2) radiative-transfer model:
+  - a ring of 7.5 × 10⁶ M☉ in four Gaussians at 6.1–8.75 kpc, 20 pc thick, and an inner
+    exponential disc of 4.07 × 10⁵ M☉ (both rescaled from 9.2 Mpc);
+  - the dust's V opacity is Draine's (2003, Table 4): C_ext(V) = 4.89 × 10⁻²² cm² per H at
+    M_H/M_dust = 90, so 2.63 × 10⁴ cm²/g;
+  - a constant-density 20 pc slab is drawn as a sech² layer of the same column;
+  - the glow samples on the thinnest dust layer, so a 20 pc ring is not stepped over.
+- **Checked:**
+  - both drawn at their measured magnitudes;
+  - κ re-derived from Draine's two numbers;
+  - M104's dust integrated back to De Looze et al.'s ring and inner disc masses (0.0 %
+    and 0.9 %);
+  - its glow against the CPU integral in rows across the ring (0.8 %).
+- **Against photographs** (ESO, ESA/Hubble; shown side by side in the showcase, judged
+  by eye):
+  - M104's ring spans the same share of the field as Hubble's dust lane, at the same tilt.
+  - M87's size and colour match ESO's VLT image.
+  - Missing: M87's jet and globular clusters, and the mottled texture of M104's lane.
+- **The glow box** now holds the spheroid's whole march radius. A ray that misses the
+  box has no fragment, so a taller spheroid was cut off flat.
+
 ## Limits (phase 1)
 
 - Phase 1 was axisymmetric and dust-free; phase 2a above adds the bar, the arms and

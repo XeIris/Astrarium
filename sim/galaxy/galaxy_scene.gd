@@ -83,12 +83,14 @@ func enter(k: String) -> void:
 	# a model with a bar and arms then runs from its tStart, while they grow, to today.
 	_built = null
 	var m := model
-	_task = WorkerThreadPool.add_task(func():
-		var t := GalTracers.new(m)
-		t.step(int(round(-t.t / GalTracers.DT)))
-		_mutex.lock()
-		_built = t
-		_mutex.unlock(), false, "galaxy tracers")
+	# A galaxy drawn from its light alone (GalModels.TYPES) has no tracers.
+	if model.has("populations"):
+		_task = WorkerThreadPool.add_task(func():
+			var t := GalTracers.new(m)
+			t.step(int(round(-t.t / GalTracers.DT)))
+			_mutex.lock()
+			_built = t
+			_mutex.unlock(), false, "galaxy tracers")
 	_build_neighbours()
 	frame("whole")
 	_build_landmarks()
@@ -243,6 +245,7 @@ func frame(kind: String) -> void:
 	stage.state.follow_id = null
 	cam.offset.set_v(0, 0, 0)
 	follow_sun = kind == "sun" and visual != null and visual.has_sun
+	if kind == "sun" and not follow_sun: kind = "whole"
 	landmark = ""
 	match kind:
 		"whole":

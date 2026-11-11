@@ -40,6 +40,7 @@ func _init() -> void:
 		neighbourhood()
 		landmarks()
 		neighbours()
+		types()
 	_done()
 
 func _done() -> void:
@@ -760,3 +761,47 @@ func neighbours() -> void:
 	ok(worst_i < 0.05 and worst_pa < 0.1, "the neighbours tilt and lie as measured: inclination within %s°, line of nodes within %s°" % [String.num(worst_i, 3), String.num(worst_pa, 3)])
 	# Kafle et al.'s M31 (from five studies) beside Tamm et al.'s (2012) independent map.
 	print("     M31 stars, 10¹⁰ M☉: bulge 3.4 here, 3.1–4.4 Tamm et al. (2012); disc 6.9 here, 5.7 (8.6 at most) there")
+
+
+# Galaxies of their own scenes (GalModels.TYPES): drawn at their measured total light, and
+# M104's dust, integrated back to a mass, De Looze et al.'s (2012) ring and inner disc.
+func types() -> void:
+	var worst := 0.0
+	for k in GalModels.TYPES:
+		var m := GalModels.type_galaxy(k)
+		var mv := 4.83 - 2.5 * log(GalModels.visible_luminosity(m)) / log(10.0)
+		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
+	ok(worst < 1e-6, "M87 and M104 are drawn at their measured absolute V (worst %s mag)" % U.expo(worst, 1))
+	# The dust's V opacity from Draine's (2003, Table 4) two numbers: C_ext(V) = 4.89 × 10⁻²²
+	# cm² per H and M_H/M_dust = 90; m_H 1.6735575 × 10⁻²⁷ kg (CODATA), M☉ = GM☉/G (G =
+	# 6.67430 × 10⁻¹¹, CODATA 2018), in kpc²/M☉.
+	var kappa_si := 4.89e-26 * 90.0 / 1.6735575e-27
+	var kappa := kappa_si * (Rocketry.GM_SUN / 6.67430e-11) / (GalUnits.KPC_M * GalUnits.KPC_M)
+	ok(absf(GalModels.DUST_KAPPA_V / kappa - 1.0) < 1e-3, "the dust's V opacity is Draine's (2003): %s cm²/g, %s kpc²/M☉" % [String.num(kappa_si * 10.0, 0), U.expo(kappa, 4)])
+	var v := GalaxyVisual.new(GalModels.type_galaxy("m104"))
+	# Ring and disc apart: the disc dust is the envelope term, the rings the rest.
+	var ring := 0.0
+	var disc := 0.0
+	var dR := 0.01
+	var dz := 0.0005
+	var R := dR * 0.5
+	while R < 14.0:
+		var z := -0.08 + dz * 0.5
+		var col_r := 0.0
+		var col_d := 0.0
+		while z < 0.08:
+			var d_all := v.dust_density(R, z, 0.0)
+			var d_disc: float = v.dust.kappa * v.dust.rhoDisc * exp(-R / float(v.dust.hr)) * GalaxyVisual._sech2(z / float(v.dust.h0))
+			col_d += d_disc * dz
+			col_r += (d_all - d_disc) * dz
+			z += dz
+		ring += TAU * R * dR * col_r
+		disc += TAU * R * dR * col_d
+		R += dR
+	ring /= GalModels.DUST_KAPPA_V
+	disc /= GalModels.DUST_KAPPA_V
+	var er := absf(ring / GalModels.M104_RING_MASS - 1.0)
+	var ed := absf(disc / GalModels.M104_DISC_DUST - 1.0)
+	ok(er < 0.02 and ed < 0.02, "M104's dust integrates back to De Looze et al.'s ring (%s M☉, %s off) and inner disc (%s M☉, %s off)" % [
+		U.expo(ring, 2), U.fixed(er * 100.0, 2) + " %", U.expo(disc, 2), U.fixed(ed * 100.0, 2) + " %"])
+	v.dispose()

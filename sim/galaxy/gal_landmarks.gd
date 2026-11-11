@@ -59,9 +59,26 @@ const MILKY_WAY := [
 	},
 ]
 
+const M87 := [
+	{
+		"id": "m87bh", "name": "M87*", "short": "M87*", "at": "origin", "view": [2.0, 1.2],
+		"card": "The black hole at M87's centre, 6.5 billion solar masses: the first one imaged, its shadow measured by the Event Horizon Telescope (EHT Collaboration 2019). It is fifteen hundred times heavier than Sagittarius A*.",
+	},
+]
+const M104 := [
+	{
+		"id": "m104ring", "name": "The dust ring", "short": "Dust ring", "at": "origin", "label_x": 7.1, "view": [30.0, 1.466],
+		"card": "7.5 million solar masses of dust in a ring 6–9 kpc out, 20 pc thick (De Looze et al. 2012). Seen 6° from edge-on it cuts the galaxy's light in two.",
+	},
+]
+
 ## The landmarks of a model, by its key.
 static func of(model_key: String) -> Array:
-	return MILKY_WAY if model_key == "milky_way" else []
+	match model_key:
+		"milky_way": return MILKY_WAY
+		"m87": return M87
+		"m104": return M104
+	return []
 
 static func find(model_key: String, id: String) -> Dictionary:
 	for lm in of(model_key):
@@ -104,6 +121,7 @@ static func neighbour_frame(spec: Dictionary, model: Dictionary) -> Array:
 
 ## Where its label goes: on the landmark, or along the bar for the bar.
 static func label_position(lm: Dictionary, model: Dictionary, t_myr: float) -> Vector3:
+	if lm.has("label_x"): return Vector3(float(lm.label_x), 0.0, 0.0)
 	if String(lm.at) != "bar": return position(lm, model, t_myr)
 	for p in model.get("patterns", []):
 		if p.kind == GalPattern.Kind.BAR:
@@ -114,6 +132,7 @@ static func label_position(lm: Dictionary, model: Dictionary, t_myr: float) -> V
 ## Where a landmark is at t (galaxy-local kpc). `model` gives r0, the potential and the
 ## patterns.
 static func position(lm: Dictionary, model: Dictionary, t_myr: float) -> Vector3:
+	if String(lm.at) == "origin" or String(lm.at) == "bar": return Vector3.ZERO
 	var r0: float = model.get("r0", 8.0)
 	var sense := float(model.get("sense", 1.0))
 	var pot: GalPotential = model.potential

@@ -46,6 +46,11 @@ var young_k := 0.0
 var young_h := 0.05
 var bulge_axes := Vector2(1.0, 1.0)
 var dust := {}
+## Dust rings: each [R, σ, peak V optical depth per kpc], sech² in height with ring_h (kpc);
+## and the thinnest dust layer, which sets the glow's sampling about the plane.
+var rings: Array = []
+var ring_h := 0.01
+var thin := 1e9
 ## The arms' map in their own frame (gal_model.gdshaderinc, uArmMap): r the young
 ## arms' Σ exp(−d²/2w²), g the arm dust's cutoff · exp(−(d/w)²), on ARM_N² texels over
 ## ±ARM_HALF kpc (52 pc texels, under half the narrowest arm's width). Baked once per
@@ -117,6 +122,10 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	var axes: Array = model.get("bulgeAxes", [1.0, 1.0])
 	bulge_axes = Vector2(axes[0], axes[1])
 	dust = (model.get("dust", {}) as Dictionary).duplicate()
+	rings = model.get("dustRing", [])
+	ring_h = float(model.get("dustRingH", 0.01))
+	if not rings.is_empty(): thin = ring_h
+	if not dust.is_empty() and float(dust.h0) < 0.05: thin = minf(thin, float(dust.h0))
 	if not arms.is_empty():
 		young_pop = GalPopulation.build({"kind": "constant", "gyr": young_gyr})
 		young_h = GalModels.MW_YOUNG_H
@@ -181,22 +190,31 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	else:
 		mat.set_shader_parameter("uDust", Vector4(0.0, 1.0, 1.0, 0.0))
 		mat.set_shader_parameter("uDustArm", Vector4(0.0, 1.0, 1.0, 0.0))
+	var ring_u := PackedVector4Array()
+	for i in 4:
+		var r: Array = rings[i] if i < rings.size() else [0.0, 1.0, 0.0]
+		ring_u.append(Vector4(r[0], r[1], r[2], 0.0))
+	mat.set_shader_parameter("uRing", ring_u)
+	mat.set_shader_parameter("uRingH", ring_h)
+	mat.set_shader_parameter("uThin", thin)
 
 func _build_glow(model: Dictionary) -> void:
 	var ext: float = model.get("extent", 30.0)
-	var h := 4.0
-	var box := BoxMesh.new()
-	box.size = Vector3(ext, h, ext) * 2.0
-	glow_mat = ShaderMaterial.new()
-	glow_mat.shader = GLOW_SHADER
-	_light_uniforms(model, glow_mat)
-	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
 	# The bulge's light is below 1e-3 of its peak past three cutoff radii; a Hernquist
 	# sphere holds (r/(r + a))² of its light within r: 95 % at 40 a.
 	var bl: Dictionary = pot.part("bulge")
 	var sphere_r := 8.0
 	if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF: sphere_r = 3.0 * float(bl.rc)
 	elif not bl.is_empty() and bl.kind == GalPotential.Kind.HERNQUIST: sphere_r = minf(ext, 40.0 * float(bl.a))
+	# The glow is drawn on this box, so it must hold the spheroid's sphere: a ray that misses
+	# the box has no fragment to carry its light.
+	var h := maxf(4.0, sphere_r)
+	var box := BoxMesh.new()
+	box.size = Vector3(ext, h, ext) * 2.0
+	glow_mat = ShaderMaterial.new()
+	glow_mat.shader = GLOW_SHADER
+	_light_uniforms(model, glow_mat)
+	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
 	glow_mat.set_shader_parameter("uSphereR", sphere_r)
 	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
 	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
@@ -334,7 +352,7 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 	var acc := [0.0, 0.0, 0.0]
 	var tau := 0.0
 	# Uniform in asinh about the plane crossing, as the shader samples the disc.
-	var sc := maxf(dv.z, 0.05) / maxf(absf(d.y), 1e-4)
+	var sc := maxf(minf(dv.z, thin), 0.005) / maxf(absf(d.y), 1e-4)
 	var tc := clampf(-o.y / d.y if absf(d.y) > 1e-9 else t0, t0, t1)
 	var u0 := asinh((t0 - tc) / sc)
 	var u1 := asinh((t1 - tc) / sc)
@@ -652,6 +670,9 @@ func dust_density(x: float, y: float, z: float) -> float:
 	var tau: float = dust.kappa * dust.rhoDisc * _envelope(R) * GalaxyVisual._sech2(y / hd)
 	var ha: float = dust.h0a + (dust.h1a * (R - dust.rfa) * (R - dust.rfa) if R > dust.rfa else 0.0)
 	tau += dust.kappa * dust.rhoArm * _arm_sample(x, z)[1] * exp(-y * y / (ha * ha))
+	for r in rings:
+		var u: float = (R - float(r[0])) / float(r[1])
+		tau += float(r[2]) * exp(-0.5 * u * u) * GalaxyVisual._sech2(y / ring_h)
 	return tau
 
 func _place_lattice(cam: DVec3, t_myr: float, gain: float, pix_sr: float) -> void:
