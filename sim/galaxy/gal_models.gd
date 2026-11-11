@@ -30,6 +30,77 @@ const MW_V0_KMS := 220.0
 const VISIBLE_DISC := 27.0 / 47.1
 const VISIBLE_BULGE := 27.0 / 33.4
 
+## The Milky Way's neighbours, drawn from their stars: placed where they are, tilted as
+## measured. Light only: their halos wait for encounters (phase 4), which need them.
+## Exponential discs stand in as Miyamoto–Nagai discs of the same mass and half-mass
+## radius (a = 1.678 R_d / √3); a spheroid as a Hernquist sphere of the same projected
+## half-light radius (a = R_e / 1.8153). docs/physics/galaxies.md#the-local-group.
+## Positions from NED; i the inclination, pa the line of nodes east of north (degrees).
+## Measured beats modelled: where McConnachie (2012, Table 3) gives an absolute V (`mv`),
+## the light is scaled to it; the stellar masses only shape it. galaxycheck reports how far
+## the masses alone would land.
+const LOCAL_GROUP := {
+	# Kafle et al. (2018), whose bulge and disc masses average five earlier studies; distance
+	# from McConnachie (2012, Table 2); i 77.5° (Tamm et al. 2012), PA 38° (Corbelli et al. 2010).
+	"m31": {"name": "Andromeda (M31)", "ra": 10.68479292, "dec": 41.269065, "d": 783.0, "i": 77.5, "pa": 38.0,
+		"bulge": [3.4e10, 0.7], "disc": [6.9e10, 6.5, 0.26], "extent": 35.0},
+	# Corbelli et al. (2014): stars 4.8 × 10⁹ M☉, an exponential disc of 1.8 kpc, no bulge,
+	# 100 pc half-thick at the centre; McConnachie (2012): 809 kpc, PA 23°, ellipticity 0.41,
+	# so i = acos(1 − 0.41) for a thin disc.
+	"m33": {"name": "Triangulum (M33)", "ra": 23.46204167, "dec": 30.66022222, "d": 809.0, "i": 53.84, "pa": 23.0,
+		"disc": [4.8e9, 1.744, 0.1], "extent": 15.0, "mv": -18.8},
+	# van der Marel, Kallivayalil & Besla (2009): stars 2.7 × 10⁹ M☉; van der Marel (2001):
+	# exponential, scale length 1.3–1.5 kpc (1.4 here); van der Marel & Cioni (2001): i 34.7°,
+	# PA 122.5°; Pietrzyński et al. (2019): 49.59 kpc. Its thickness, b = 0.2 a, is a rendering
+	# choice: van der Marel et al. (2002) find a thick disc, V/σ ≈ 2.9.
+	"lmc": {"name": "Large Magellanic Cloud", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "i": 34.7, "pa": 122.5,
+		"disc": [2.7e9, 1.356, 0.27], "extent": 12.0, "mv": -18.1},
+	# Stars 3.1 × 10⁸ M☉ (van der Marel et al. 2009, from Stanimirović et al. 2004); the old
+	# stars a spheroid (ibid.), exponential with scale length 1.25 kpc (Gonidakis et al. 2009),
+	# so R_e = 2.10 kpc; Graczyk et al. (2020): 62.44 kpc. Drawn round: Crowl et al. (2001)
+	# find it elongated along the line of sight.
+	"smc": {"name": "Small Magellanic Cloud", "ra": 13.18666667, "dec": -72.82861111, "d": 62.44, "i": 0.0, "pa": 0.0,
+		"bulge": [3.1e8, 1.155], "extent": 15.0, "young": true, "mv": -16.8},
+}
+
+## A neighbour's model, as GalaxyVisual draws it. Masses are stellar, so both parts take
+## the bulge's visible share of stars and remnants. Discs form stars steadily for 10 Gyr;
+## a bulge formed early, except the SMC's spheroid, which also formed steadily.
+## `from_mass` leaves the light at the masses' (galaxycheck's comparison).
+static func neighbour(key: String, from_mass := false) -> Dictionary:
+	var spec: Dictionary = LOCAL_GROUP.get(key, {})
+	if spec.is_empty(): return {}
+	var pot := GalPotential.new()
+	var light := []
+	if spec.has("bulge"):
+		pot.add(GalPotential.hernquist("bulge", float(spec.bulge[1]), GalUnits.G * float(spec.bulge[0]) / GalUnits.MASS_UNIT_SUN))
+		light.append({"part": "bulge", "visible": VISIBLE_BULGE})
+	if spec.has("disc"):
+		pot.add(GalPotential.miyamoto_nagai("disc", float(spec.disc[1]), float(spec.disc[2]), GalUnits.G * float(spec.disc[0]) / GalUnits.MASS_UNIT_SUN))
+		light.append({"part": "disc", "visible": VISIBLE_BULGE})
+	var model := {
+		"key": key, "name": spec.name, "potential": pot, "sense": 1.0, "extent": spec.extent, "light": light,
+		"spherePop": {"kind": "constant", "gyr": 10.0} if spec.get("young", false) else {"kind": "burst", "gyr": 10.0},
+		"sky": spec,
+	}
+	if spec.has("mv") and not from_mass:
+		var k := pow(10.0, -0.4 * (float(spec.mv) - 4.83)) / visible_luminosity(model)
+		for l in light: l.visible = float(l.visible) * k
+	return model
+
+## A model's total visible luminosity (Sun-luminances): each part's stellar mass, visible
+## share, its population's L/M and that light's luminance.
+static func visible_luminosity(model: Dictionary) -> float:
+	var pop_d := GalPopulation.build(model.get("discPop", {"kind": "constant", "gyr": 10.0}))
+	var pop_s := GalPopulation.build(model.get("spherePop", {"kind": "burst", "gyr": 10.0}))
+	var lv := 0.0
+	for l in model.light:
+		var part: Dictionary = (model.potential as GalPotential).part(l.part)
+		var pop: GalPopulation = pop_d if l.part == "disc" else pop_s
+		var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
+		lv += float(l.visible) * float(part.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * pop.mean_l / pop.mean_mass * y
+	return lv
+
 static func milky_way_potential() -> GalPotential:
 	return GalPotential.new() \
 		.add(GalPotential.power_cutoff("bulge", 1.8, 1.9)) \

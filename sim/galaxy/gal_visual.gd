@@ -112,8 +112,8 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	# With arms, stars under 100 Myr are theirs and the disc's start at that age.
 	var arms: Array = model.get("arms", [])
 	var young_gyr := GalModels.MW_YOUNG_GYR if not arms.is_empty() else 0.0
-	disc_pop = GalPopulation.build({"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr})
-	sphere_pop = GalPopulation.build({"kind": "burst", "gyr": 10.0})
+	disc_pop = GalPopulation.build(model.get("discPop", {"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr}))
+	sphere_pop = GalPopulation.build(model.get("spherePop", {"kind": "burst", "gyr": 10.0}))
 	var axes: Array = model.get("bulgeAxes", [1.0, 1.0])
 	bulge_axes = Vector2(axes[0], axes[1])
 	dust = (model.get("dust", {}) as Dictionary).duplicate()
@@ -191,9 +191,12 @@ func _build_glow(model: Dictionary) -> void:
 	glow_mat.shader = GLOW_SHADER
 	_light_uniforms(model, glow_mat)
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
-	# The bulge's light is below 1e-3 of its peak past three cutoff radii.
+	# The bulge's light is below 1e-3 of its peak past three cutoff radii; a Hernquist
+	# sphere holds (r/(r + a))² of its light within r: 95 % at 40 a.
 	var bl: Dictionary = pot.part("bulge")
-	var sphere_r: float = 3.0 * float(bl.rc) if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF else 8.0
+	var sphere_r := 8.0
+	if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF: sphere_r = 3.0 * float(bl.rc)
+	elif not bl.is_empty() and bl.kind == GalPotential.Kind.HERNQUIST: sphere_r = minf(ext, 40.0 * float(bl.a))
 	glow_mat.set_shader_parameter("uSphereR", sphere_r)
 	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
 	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))

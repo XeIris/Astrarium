@@ -39,6 +39,7 @@ func _init() -> void:
 		light()
 		neighbourhood()
 		landmarks()
+		neighbours()
 	_done()
 
 func _done() -> void:
@@ -223,6 +224,10 @@ func colour(p: GalPotential) -> void:
 ## Native against GDScript where their libms differ: kpc, (kpc/Myr)/0.2 and relative work.
 ## Real stars within 40 pc against the model's resolved ones: number and visible light
 ## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit).
+## The neighbours' absolute V from their stellar masses against McConnachie (2012): the
+## LMC's and M33's come out 0.8–0.9 mag bright (their literature masses imply M/L_V ≈ 1.8,
+## the population model's is ≈ 0.8); a pin that a change shows, not a fit.
+const NEIGHBOUR_MV_TOL := 1.0
 const NEAR_COUNT_PIN := 0.61
 const NEAR_LIGHT_PIN := 2.25
 const PARITY_TOL := 1e-9
@@ -714,3 +719,44 @@ func landmarks() -> void:
 		var off := absf(wrapf(atan2(q.z, q.x) - at, -PI / 2.0, PI / 2.0))
 		worst_c = maxf(worst_c, rad_to_deg(off))
 	ok(worst_c < 0.2, "the Perseus Arm's landmark stays on the spiral's crest as it turns (worst %s° over 100 Myr)" % String.num(worst_c, 2))
+
+
+# The Milky Way's neighbours (GalModels.LOCAL_GROUP): each one's light from its stellar
+# mass through the population model, against the absolute V McConnachie (2012, Table 3)
+# measured, which the masses were not taken from; and each one's tilt and line of nodes
+# as drawn against the inclination and position angle stated.
+const MEASURED_MV := {"lmc": -18.1, "smc": -16.8, "m33": -18.8}
+
+func neighbours() -> void:
+	var mw := GalModels.build("milky_way", 1, false)
+	var worst := 0.0
+	var drawn := 0.0
+	for k in MEASURED_MV:
+		var lv := GalModels.visible_luminosity(GalModels.neighbour(k, true))
+		var mv := 4.83 - 2.5 * log(lv) / log(10.0)
+		var shown := 4.83 - 2.5 * log(GalModels.visible_luminosity(GalModels.neighbour(k))) / log(10.0)
+		print("     %s: M_V %s from its stellar mass and the population's M/L, %s measured; drawn at %s" % [k, String.num(mv, 2), String.num(MEASURED_MV[k], 1), String.num(shown, 3)])
+		worst = maxf(worst, absf(mv - float(MEASURED_MV[k])))
+		drawn = maxf(drawn, absf(shown - float(MEASURED_MV[k])))
+	ok(drawn < 1e-6, "the neighbours are drawn at McConnachie's (2012) measured absolute V (worst %s mag)" % U.expo(drawn, 1))
+	ok(worst < NEIGHBOUR_MV_TOL, "their stellar masses alone would give within %s mag of it (< %s): the literature's masses imply M/L_V near 1.8, the population model 0.8" % [String.num(worst, 2), String.num(NEIGHBOUR_MV_TOL, 1)])
+	# Tilt and line of nodes, from the frame drawn: the normal against the line of sight,
+	# and the nodes projected on the sky against north and east.
+	var worst_i := 0.0
+	var worst_pa := 0.0
+	for k in GalModels.LOCAL_GROUP:
+		var spec: Dictionary = GalModels.LOCAL_GROUP[k]
+		if float(spec.i) == 0.0: continue
+		var f := GalLandmarks.neighbour_frame(spec, mw)
+		var sun: Vector3 = GalLandmarks.position(GalLandmarks.MILKY_WAY[0], mw, 0.0)
+		var b: Basis = f[1]
+		var los := ((f[0] as Vector3) - sun).normalized()
+		worst_i = maxf(worst_i, absf(rad_to_deg(acos(absf(b.y.dot(los)))) - float(spec.i)))
+		var sb: Basis = GalNeighbourhood.sun_frame(8.0, 0.0, 0.0)[1]
+		var north := sb * (GalLandmarks.sky_direction(float(spec.ra), float(spec.dec) + 0.01) - GalLandmarks.sky_direction(float(spec.ra), float(spec.dec) - 0.01)).normalized()
+		var east := los.cross(north).normalized() * -1.0
+		var pa := rad_to_deg(atan2(b.x.dot(east), b.x.dot(north)))
+		worst_pa = maxf(worst_pa, absf(wrapf(pa - float(spec.pa), -90.0, 90.0)))
+	ok(worst_i < 0.05 and worst_pa < 0.1, "the neighbours tilt and lie as measured: inclination within %s°, line of nodes within %s°" % [String.num(worst_i, 3), String.num(worst_pa, 3)])
+	# Kafle et al.'s M31 (from five studies) beside Tamm et al.'s (2012) independent map.
+	print("     M31 stars, 10¹⁰ M☉: bulge 3.4 here, 3.1–4.4 Tamm et al. (2012); disc 6.9 here, 5.7 (8.6 at most) there")
