@@ -55,9 +55,23 @@ func run() -> void:
 		expect(not blocked(craft.group,eye,Vector3.UP),"pilot has an open forward sightline")
 		if round_==0 and authored:
 			expect(cabin.group.find_children("interior_light_*","Node3D",true,false).size()==6,"six anchored cabin fixtures")
+			var crown := cabin.group.find_child("interior_overhead",true,false) as Node3D
+			expect(crown!=null,"separate overhead instrument assembly")
+			if crown!=null:
+				var gap:=INF
+				for point: Vector3 in points(crown,craft.group):
+					gap=minf(gap,RangerCraft.at(st.spec,point.y)[3].z-point.z)
+				expect(gap>=.04 and gap<=.083,"crown mounts reach the liner and stay below the outer skin (%.3f m)"%gap)
+			var openings: Array=RangerCraft.geometry(st.spec).windows
+			for index in [13,14]:
+				var center:=Vector3.ZERO
+				for v: Array in openings[index].vertices: center+=Vector3(v[0],v[1],v[2])
+				center/=openings[index].vertices.size()
+				var ray:=center-eye
+				expect(not blocked(craft.group,eye,ray.normalized(),ray.length()+.06),"pilot sightline clears port canopy aperture %d"%index)
 			var finishes: Dictionary={}
 			collect_finishes(craft.group,finishes)
-			for key in ["surveyThermal","surveyCarbon","surveyLiner","surveyWebbing","surveySeat"]:
+			for key in ["surveyThermal","surveyCarbon","surveyLiner","surveyCabinQuilt","surveyWebbing","surveySeat"]:
 				expect(finishes.has(key),"distinct authored finish "+key)
 		cabin.dispose(); await process_frame
 		expect(cabin.group==null,"camera exit releases cabin")
@@ -84,7 +98,7 @@ func points(node: Node, relative: Node3D) -> Array[Vector3]:
 	for child in node.get_children(): out.append_array(points(child,relative))
 	return out
 
-func blocked(node: Node, eye: Vector3, direction: Vector3) -> bool:
+func blocked(node: Node, eye: Vector3, direction: Vector3, distance:=5.0) -> bool:
 	if node is Node3D and not node.visible: return false
 	if node is MeshInstance3D and node.mesh!=null:
 		var inverse: Transform3D=node.global_transform.affine_inverse()
@@ -95,9 +109,9 @@ func blocked(node: Node, eye: Vector3, direction: Vector3) -> bool:
 			var ix: PackedInt32Array=arr[Mesh.ARRAY_INDEX]
 			for i in range(0,ix.size(),3):
 				var hit=Geometry3D.ray_intersects_triangle(origin,dir,vs[ix[i]],vs[ix[i+1]],vs[ix[i+2]])
-				if hit!=null and (hit as Vector3).distance_to(origin)<5: return true
+				if hit!=null and (hit as Vector3).distance_to(origin)<distance: return true
 	for child in node.get_children():
-		if blocked(child,eye,direction): return true
+		if blocked(child,eye,direction,distance): return true
 	return false
 
 func collect_finishes(node: Node, found: Dictionary) -> void:

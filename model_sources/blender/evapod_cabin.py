@@ -122,6 +122,11 @@ def round_controls(parent, side):
             if side>0 and col==1:continue
             toggle(ob,(col-1)*.053,.042-row*.040,str(col+1+row*3),row==0)
     for i,label in enumerate(['ON','OFF','TEST']):key(ob,(i-1)*.043,-.072,label)
+    for i in range(4):
+        x=(i-1.5)*.035
+        disk('Recessed panel lamp bezel',(x,-.025,.072),.0065,.004,'podKeyRim',ob)
+        disk('Coloured panel lamp lens',(x,-.0275,.072),.0045,.003,
+             'podAmber' if i==0 else 'podKeyOff',ob)
     for angle in [pi/4,3*pi/4,5*pi/4,7*pi/4]:screw(ob,.119*cos(angle),.119*sin(angle),-.026)
 
 
@@ -133,24 +138,24 @@ def displays(parent):
         ob.rotation_euler.z=side*.11
         block('Display gasket',(0,0,0),(.309,.026,.181),'podSeal',ob,.012)
         block('Anodised display frame',(0,-.013,0),(.292,.009,.163),'podKeyRim',ob,.006)
-        block('Flat display face',(0,-.019,0),(.282,.005,.153),'podScreen',ob,.005)
-        rule(ob,0,0,.271,.145,'podKeyOff',-.022)
-        text(ob,'ATTITUDE' if side<0 else 'VEHICLE SYSTEMS',(0,-.024,.059),.008,'podScreenInk')
+        block('Moulded CRT face',(0,-.020,0),(.282,.010,.153),'podScreen',ob,.008)
+        rule(ob,0,0,.268,.139,'podKeyOff',-.026)
+        text(ob,'ATTITUDE' if side<0 else 'VEHICLE SYSTEMS',(0,-.028,.059),.008,'podScreenInk')
         if side<0:
             for x in [-.07,0,.07]:
-                tube('Display grid',(x,-.024,-.047),(x,-.024,.041),.0006,'podKeyOff',ob,5)
+                tube('Display grid',(x,-.027,-.047),(x,-.027,.041),.0006,'podKeyOff',ob,5)
             for z in [-.033,0,.033]:
-                tube('Display grid',(-.126,-.024,z),(.126,-.024,z),.0006,'podKeyOff',ob,5)
-            for a,b in [((-.06,-.024,-.027),(0,-.024,.023)),((0,-.024,.023),(.06,-.024,-.027)),
-                        ((-.06,-.024,-.027),(.06,-.024,-.027)),((0,-.024,-.04),(0,-.024,.039))]:
+                tube('Display grid',(-.126,-.027,z),(.126,-.027,z),.0006,'podKeyOff',ob,5)
+            for a,b in [((-.06,-.028,-.027),(0,-.028,.023)),((0,-.028,.023),(.06,-.028,-.027)),
+                        ((-.06,-.028,-.027),(.06,-.028,-.027)),((0,-.028,-.04),(0,-.028,.039))]:
                 tube('Attitude schematic',a,b,.0011,'podScreenInk',ob,6)
-            text(ob,'ROLL       PITCH       YAW',(0,-.025,-.061),.006,'podScreenInk')
+            text(ob,'ROLL       PITCH       YAW',(0,-.028,-.061),.006,'podScreenInk')
         else:
             for i,label in enumerate(['RCS','CABIN','BUS','FUEL']):
                 z=.030-i*.023
-                text(ob,label,(-.086,-.024,z),.007,'podScreenInk')
-                rule(ob,.040,z,.139,.011,'podKeyOff',-.024)
-                block('System status trace',(.018-i*.005,-.025,z),(.094-i*.010,.001,.003),'podScreenInk',ob,.0001)
+                text(ob,label,(-.086,-.028,z),.007,'podScreenInk')
+                rule(ob,.040,z,.139,.011,'podKeyOff',-.027)
+                block('System status trace',(.018-i*.005,-.028,z),(.094-i*.010,.001,.003),'podScreenInk',ob,.0001)
         for x in [-.158,.158]:screw(ob,x,.072,-.018)
         for x in [-.138,.138]:
             tube('Display hood side',(x,-.020,.078),(x,-.039,.083),.0025,'podSeal',ob)
@@ -270,7 +275,8 @@ def fixtures(parent):
     for i,pos in enumerate(positions):
         ob=mount('Recessed cabin luminaire',pos,parent)
         block('Lamp recess',(0,0,0),(.155,.033,.064),'podSeal',ob,.009)
-        block('Opal red practical',(0,-.020,0),(.128,.014,.042),'podCabinLamp',ob,.005)
+        block('Frosted opal diffuser edge',(0,-.018,0),(.135,.010,.047),'podKeyIvory',ob,.005)
+        block('Red-lit acrylic diffuser',(0,-.024,0),(.126,.010,.040),'podCabinLamp',ob,.005)
         for x in [-.070,.070]:screw(ob,x,0,-.018)
         normal=ob.rotation_quaternion@Vector((0,-1,0))
         p=Vector(pos)*S+normal*.045*S

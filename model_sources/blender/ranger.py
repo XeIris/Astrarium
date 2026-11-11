@@ -5,7 +5,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy
-from math import pi, sin, cos
+from math import atan2, pi, sin, cos
 from mathutils import Vector, Matrix
 from lib import empty, box, strut, ring_on, finish, material, reset_scene
 from common import stage, optimise, export, out_path, validate_vehicle
@@ -70,6 +70,11 @@ def roof_at(x,y):
     width,chine,roof,crown=section_at(y)
     t=max(0,min(1,(abs(x)-crown)/(width-crown)))
     return roof*(1-t)+chine*t
+
+
+def liner_point(point):
+    x,y,z=point
+    return Vector((x*.978,y,.24+(z-.24)*.948))
 
 
 def exterior(m):
@@ -140,25 +145,72 @@ def exterior(m):
         block('trailing flap',(-.36,0,0),(.70,.08,.85),m['tps'],flap,.012)
 
 
-def display(name,at,w,h,m,parent):
-    block(name,at,(w,.085,h),m['panel'],parent,.025)
-    block('screen',Vector(at)+Vector((0,.0,.0)),(w*.87,.098,h*.80),m['screen'],parent,.01)
-    # Original vector-like graphics; the film's graphics are observed, never copied.
-    face=at[1]-.055
-    for i in range(7):
-        z=at[2]+h*(.28-i*.085)
-        block('schematic trace',(at[0]+w*.23,face,z),(w*(.18+.025*(i%3)),.004,.004),m['ink'],parent,.0)
-    radius=min(w*.25,h*.32)
-    for i in range(36):
-        a,b=i*pi/18,(i+1)*pi/18
-        rod('attitude circle',(at[0]-w*.16+radius*cos(a),face,at[2]+radius*sin(a)),
-            (at[0]-w*.16+radius*cos(b),face,at[2]+radius*sin(b)),.0018,m['ink'],parent)
-    for dz in [-.12,0,.12]:
-        block('attitude ladder',(at[0]-w*.16,face,at[2]+dz*h),(radius*.9,.003,.003),m['ink'],parent,.0)
-    label('display header','SYS / NAV',(at[0],face-.003,at[2]+h*.32),h*.065,parent,m['ink'])
-    for x in [-1,1]:
+def display(title, at, w, h, m, parent, traces=None):
+    ob=mounted(title+' display',at,parent)
+    block('display case',(0,0,0),(w,.084,h),m['rubber'],ob,.016)
+    block('machined screen frame',(0,-.038,0),(w*.91,.023,h*.86),m['alloy'],ob,.009)
+    block('dark display face',(0,-.051,0),(w*.84,.011,h*.76),m['screen'],ob,.008)
+    block('glare lip',(0,-.058,h*.444),(w*.91,.052,h*.055),m['panel'],ob,.005)
+    face=-.058
+    label('display header',title,(0,face,h*.27),h*.087,ob,m['ink'])
+    if traces:
+        for i,(channel,value) in enumerate(traces):
+            z=h*(.12-i*.128)
+            label('readout channel',channel,(-w*.25,face,z),h*.068,ob,m['ink'])
+            block('graph baseline',(w*.10,face,z),(w*.32,.002,h*.025),m['panel'],ob,0)
+            width=w*.32*value
+            block('channel level',(-w*.06+width/2,face-.002,z),(width,.002,h*.024),m['ink'],ob,0)
+            label('channel value',f'{round(value*100):02d}',(w*.32,face,z),h*.068,ob,m['ink'])
+    else:
+        compact=w<h*1.2
+        center=0 if compact else -w*.11
+        radius=min(h*.245,w*.20)
+        for i in range(32):
+            a,b=i*pi/16,(i+1)*pi/16
+            rod('attitude arc',(center+radius*cos(a),face,-.04*h+radius*sin(a)),
+                (center+radius*cos(b),face,-.04*h+radius*sin(b)),.0014,m['ink'],ob)
+        for i in range(-2,3):
+            block('pitch ladder',(center,face,h*(i*.075-.04)),(radius*(1.0-abs(i)*.18),.002,.0025),m['ink'],ob,0)
+            for sign in [-1,1]:
+                block('attitude scale tick',(sign*w*.31,face,i*.10*h),(w*.039,.002,.002),m['ink'],ob,0)
+        if not compact: label('attitude axes','PITCH / ROLL',(w*.22,face,-h*.24),h*.066,ob,m['ink'])
+    for side in [-1,1]:
         for i in range(4):
-            block('display bezel key',(at[0]+x*w*.46,at[1]-.06,at[2]+h*(.27-i*.18)),(.023,.015,.023),m['legend'],parent,.004)
+            block('bezel key',(side*w*.47,-.047,h*(.27-i*.18)),(.020,.015,.019),m['legend'],ob,.003)
+
+
+def annunciators(at, width, names, m, parent):
+    ob=mounted('annunciator module',at,parent)
+    block('annunciator housing',(0,0,0),(width,.054,.104),m['rubber'],ob,.008)
+    pitch=width/(len(names)+.4)
+    for i,name in enumerate(names):
+        x=(i-(len(names)-1)/2)*pitch
+        block('indicator bezel',(x,-.031,.012),(pitch*.76,.013,.035),m['alloy'],ob,.004)
+        block('indicator lens',(x,-.040,.012),(pitch*.58,.009,.023),m['amber'] if i==0 else m['screen'],ob,.003)
+        label('indicator legend',name,(x,-.029,-.033),.019,ob,m['legend'])
+
+
+def overhead(m, root):
+    crown=mounted('interior_overhead',(0,0,0),root)
+    for y0,y1 in [(5.8,7.697),(7.697,9.22)]:
+        a,b=roof_at(0,y0),roof_at(0,y1)
+        base=block('crown raceway',(0,(y0+y1)/2,(a+b)/2-.083),(.31,y1-y0+.012,.045),m['panel'],crown,.008)
+        base.rotation_euler.x=atan2(b-a,y1-y0)
+    for y,title,levels in [(7.85,'BUS', [('A',.81),('B',.76),('AUX',.57)]),
+                           (8.42,'ENV', [('PRES',.73),('O2',.88),('TEMP',.46)])]:
+        z=roof_at(0,y)-.20
+        bracket=block('crown instrument bracket',(0,y+.036,roof_at(0,y+.036)-.127),
+                      (.25,.16,.105),m['alloy'],crown,.013)
+        bracket.rotation_euler.x=atan2(roof_at(0,y+.12)-roof_at(0,y-.04),.16)
+        display(title,(0,y,z),.26,.15,m,crown,levels)
+        for dy in [-.11,.12]:
+            bridge_z=roof_at(0,y+dy)-.083
+            block('overhead handhold bridge',(0,y+dy,bridge_z),(.45,.057,.04),m['panel'],crown,.008)
+        for side in [-1,1]:
+            x=side*.201
+            for dy in [-.11,.12]:
+                rod('overhead handle foot',(x,y+dy,roof_at(0,y+dy)-.083),(x,y+dy,z+.037),.015,m['alloy'],crown)
+            rod('overhead handhold',(x,y-.11,z+.037),(x,y+.12,z+.037),.016,m['rubber'],crown)
 
 
 def interior(m):
@@ -167,12 +219,26 @@ def interior(m):
     # The liner follows the very same apertures, inset from the exterior skin.
     for row in S['geometry']['faces']:
         if row['name'] in ['aft','nose']: continue
-        poly('pressure liner',row['vertices'],m['liner'],liner,-.065)
+        mat=m['cabin_quilt'] if row['name']=='window_frame' else m['liner']
+        poly('pressure liner',[liner_point(v) for v in row['vertices']],mat,liner)
     for row in S['geometry']['windows']:
         vs=[Vector(v) for v in row['vertices']]
         normal=(vs[1]-vs[0]).cross(vs[2]-vs[0]).normalized()
-        for j in range(len(vs)): rod('window inner frame',vs[j]-normal*.07,vs[(j+1)%len(vs)]-normal*.07,.028,m['alloy'],root)
+        seal=[liner_point(v) for v in vs]
+        center=sum(seal,Vector())/len(seal)
+        inner=[center+(v-center)*.965 for v in seal]
+        for j in range(len(vs)):
+            k=(j+1)%len(vs)
+            poly('window reveal',[vs[j]-normal*.004,vs[k]-normal*.004,seal[k],seal[j]],m['rubber'],root)
+            poly('window seal',[seal[j],seal[k],inner[k],inner[j]],m['rubber'],root,-.004)
+            rod('window inner frame',seal[j]-normal*.012,seal[k]-normal*.012,.019,m['alloy'],root)
     block('flight deck',(0,6.0,-.37),(4.8,6.3,.075),m['panel'],root)
+    for y in [3.30,4.10,4.90,5.70,6.50,7.30,8.10]:
+        block('inset aisle tread',(0,y,-.330),(.55,.76,.018),m['rubber'],root,.006)
+        for side in [-1,1]:
+            block('tread retainer',(side*.278,y,-.323),(.026,.76,.027),m['alloy'],root,.003)
+        for dy in [-.27,-.135,0,.135,.27]:
+            block('anti-slip ridge',(0,y+dy,-.317),(.47,.026,.013),m['tps'],root,.003)
     block('aft pressure bulkhead',(0,2.65,.56),(4.5,.10,2.1),m['liner'],root)
     block('crew passage',(0,2.71,.48),(.95,.04,1.75),m['rubber'],root)
     for x in [-.72,.72]:
@@ -181,9 +247,14 @@ def interior(m):
         block('seat back',(x,6.72,.51),(.64,.18,.88),m['seat'],root,.08)
         block('headrest',(x,6.71,1.04),(.47,.20,.25),m['seat'],root,.07)
         for dx in [-.22,.22]:
-            block('harness',(x+dx,6.61,.54),(.065,.025,.79),m['webbing'],root,.007)
+            block('harness',(x+dx,6.817,.54),(.065,.025,.79),m['webbing'],root,.007)
             block('armrest',(x+dx*1.65,7.05,.37),(.12,.66,.12),m['seat'],root)
-        block('harness buckle',(x,6.61,.19),(.12,.03,.10),m['alloy'],root)
+            block('seat track',(x+dx,7.0,-.319),(.081,1.12,.061),m['rubber'],root,.008)
+            block('seat track cap',(x+dx,7.0,-.286),(.048,1.06,.028),m['alloy'],root,.004)
+            block('rear seatback rail',(x+dx,6.626,.49),(.048,.039,.82),m['alloy'],root,.006)
+        block('rear seatback crossbar',(x,6.608,.28),(.48,.043,.09),m['panel'],root,.010)
+        block('lap harness',(x,6.818,.18),(.49,.023,.058),m['webbing'],root,.006)
+        block('harness buckle',(x,6.836,.18),(.12,.025,.082),m['alloy'],root,.009)
         rod('control stalk',(x,7.58,.1),(x,7.58,.49),.025,m['alloy'],root)
         block('controller pedestal',(x,7.58,-.10),(.25,.28,.46),m['panel'],root)
         block('hand controller',(x,7.58,.55),(.12,.11,.20),m['rubber'],root,.035)
@@ -194,28 +265,40 @@ def interior(m):
     # Low forward consoles preserve a view through the four sloped windshields.
     for x in [-1.20,0,1.20]:
         block('console floor plinth',(x,8.98,-.27),(1.0,.40,.14),m['alloy'],root)
-        block('console cabinet',(x,9.0,.25 if x else .55),(1.10,.38,.9 if x else 1.5),m['panel'],root)
-        if x: display('flight display',(x,8.78,.61),.84,.43,m,root)
-        label('console legend','NAVIGATION' if x<0 else 'FLIGHT SYSTEMS' if x==0 else 'PROPULSION',(x,8.718,.88 if x else 1.32),.035,root,m['legend'])
+        height=.90 if x else 1.36
+        block('console cabinet',(x,8.965,height*.5-.20),(1.10,.47,height),m['panel'],root)
+        if x<0:
+            display('FLIGHT DIRECTOR',(x,8.78,.61),.84,.43,m,root)
+        elif x>0:
+            display('PROPULSION',(x,8.78,.61),.84,.43,m,root,[('FEED A',.83),('FEED B',.74),('CHAMB',.61),('RCS',.52)])
         for k in range(21 if x else 28):
             sx=x+(k%7-3)*.115 if x else [-.46,-.34,.34,.46][k%4]
             sz=.13+(k//7)*.085 if x else -.1+(k//4)*.2
             block('switch plinth',(sx,8.72,sz),(.045,.025,.045),m['alloy'],root,.005)
             rod('toggle lever',(sx,8.70,sz),(sx,8.655,sz+.015),.008,m['legend'],root)
-        for k in range(4):
-            block('annunciator',(x+(k-1.5)*.19,8.72,-.05),(.12,.015,.035),m['amber'] if k==0 else m['panel'],root,.004)
-    # A central instrument stack and paired side-wall monitors.
-    for z in [.22,.63,1.03]: display('central stack',(0,8.72,z),.38,.31,m,root)
+        annunciators((x,8.71,-.075),.63,('PWR','WARN','AUX','TEST'),m,root)
+    display('FLIGHT SYSTEMS',(0,8.72,1.045),.49,.29,m,root)
+    display('DISTRIBUTION',(-.145,8.72,.69),.26,.27,m,root,[('BUS A',.81),('BUS B',.76),('BAT',.58)])
+    display('CABIN',(.145,8.72,.69),.26,.27,m,root,[('O2',.88),('PRES',.75),('CO2',.20)])
+    display('ATTITUDE',(-.145,8.72,.35),.26,.27,m,root)
+    display('THERMAL',(.145,8.72,.35),.26,.27,m,root,[('LOOP A',.67),('LOOP B',.57),('OIL',.41)])
+    annunciators((0,8.71,.115),.53,('ARM','RCS','OMS'),m,root)
+    overhead(m,root)
     for side in [-1,1]:
         sideboard=mounted('side instruments',(side*1.45,7.65,.58),root)
         sideboard.rotation_euler=(0,-side*.30,0)
-        display('side display',(0,0,0),.65,.46,m,sideboard)
+        block('side cabinet',(0,.065,-.14),(.71,.25,.82),m['panel'],sideboard,.025)
+        rod('side cabinet floor support',(side*.18,.11,-.43),(side*.18,.11,-.93),.034,m['alloy'],sideboard)
+        display('COMMS' if side<0 else 'ENVIRONMENT',(0,0,0),.65,.46,m,sideboard,
+                [('UHF',.65),('S BAND',.92),('LINK',.73)] if side<0 else [('LOOP A',.71),('LOOP B',.64),('FAN',.82)])
         for k in range(9):
             block('side switches',((k%3-1)*.16,-.06,-.40+(k//3)*.07),(.06,.035,.035),m['legend'],sideboard,.005)
     for i,y in enumerate([4.0,6.2,7.8]):
         for side in [-1,1]:
             at=(side*1.50,y,roof_at(side*1.50,y)-.09)
-            block('recessed ceiling lamp',at,(.27,.65,.04),m['lamp'],root,.02)
+            block('ceiling light housing',at,(.27,.65,.051),m['rubber'],root,.02)
+            for dx in [-.065,.065]:
+                block('recessed strip lamp',Vector(at)+Vector((dx,0,-.021)),(.052,.56,.023),m['lamp'],root,.009)
             mounted(f'interior_light_{i*2+(0 if side<0 else 1)}',Vector(at)-Vector((0,0,.10)),root)
     for side in [-1,1]:
         for y in [3.7,5.0]:
@@ -230,10 +313,11 @@ def interior(m):
 def main():
     out=out_path('assets/craft/ranger.glb')
     reset_scene(); m=palette(); exterior(m); assign_uvs(); validate_vehicle('ranger'); optimise(); export(out,'ranger')
-    reset_scene(); m=palette(); interior(m); assign_uvs(); optimise()
+    reset_scene(); m=palette(cabin=True); interior(m); assign_uvs(); optimise()
     folder=os.path.dirname(out)
     name='.ranger_interior.build.glb' if os.path.basename(out).startswith('.') else 'ranger_interior.glb'
     export(os.path.join(folder,name),'ranger interior')
 
 
-main()
+if __name__ == '__main__':
+    main()

@@ -108,14 +108,14 @@ def palette():
     for name,col,rough,metal,kind,coat in rows:
         mats[name] = finish(name,col,rough,metal,kind,coat)
     mats['alu']=mats['podAluminium']; mats['steel']=mats['podSteel']; mats['nozzle']=mats['podNozzle']
-    for name,col,power in [('podBlue',0x318dc9,1.4),('podWarm',0xf4e1ba,1.0),
+    for name,col,power in [('podBlue',0x229be7,2.2),('podWarm',0xf4e1ba,1.35),
                            ('podAmber',0xe98736,1.0),('podLamp',0xe2e9ed,3.0),
                            ('podCabinLamp',0xff4733,1.5),('podScreenInk',0xa6d8d9,1.2),
                            ('podGreen',0x54b886,.9)]:
         mats[name] = material(name,srgb(col),.40,.015,srgb(col),power)
     for name,col in [('podLegend',0xd7dcd8),('podInk',0x0b1216),('podKeyOff',0x254255),
                       ('podScreen',0x070e13),('podWarning',0xbf4434),('podSeam',0x454145)]:
-        mats[name] = material(name,srgb(col),.51,.03)
+        mats[name] = material(name,srgb(col),.32 if name=='podScreen' else .51,.03)
     # Separate pigmented sidewalls from the illuminated face: a cap has depth even when lit.
     for name,col in [('podKeyBlue',0x18445e),('podKeyIvory',0xc3b697),('podKeyAmber',0x925325)]:
         mats[name]=material(name,srgb(col),.24,.015)

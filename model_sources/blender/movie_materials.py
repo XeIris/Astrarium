@@ -5,7 +5,7 @@ from common import build_materials, srgb
 from lib import material
 
 
-def palette():
+def palette(cabin=False):
     mats = dict(build_materials())
     for key, name, color, rough, metal, kind, density in [
         ('thermal', 'surveyThermal', 0xcac9bc, .83, .02, 'quilt', .5),
@@ -20,6 +20,10 @@ def palette():
     ]:
         mats[key] = finish(name, color, rough, metal, kind)
         DENSITY[name] = density
+    if cabin:
+        name='surveyCabinQuilt'
+        mats['cabin_quilt']=finish(name,0x7d8682,.80,.02,'quilt')
+        DENSITY[name]=5.0
     # Newly generated stitched blanket colour, rather than a downloaded image.
     n=512; yy,xx=np.mgrid[0:n,0:n]; cell=n//4
     rng=np.random.default_rng(2014)

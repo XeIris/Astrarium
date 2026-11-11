@@ -68,6 +68,13 @@ func _ready() -> void:
 	check((f.fly_cam.basis.y).dot(basis_*Vector3.BACK)>.999,"interior camera uses cabin up rather than thrust axis")
 	await shot("cockpit")
 	f.drag(-240,90); await settle(10); await shot("cabin-port")
+	if not output.is_empty():
+		f.camera_override=func(camera,pos,_site,_dt):
+			camera.pos.copy_from(pos).add_in(DVec3.from_v3(basis_*Vector3(0,4.5,1.38)))
+			camera.look_at(pos.clone().add_in(DVec3.from_v3(basis_*Vector3(0,9,.89))),basis_*Vector3.BACK)
+			camera.near=.01
+		await settle(); await shot("cabin-aisle")
+		f.camera_override=Callable()
 	f.set_camera_mode("orbit"); await settle(3)
 	check(f.interior.group==null,"exterior mode disposes cockpit")
 	stage.end_flight(); for i in 3: await get_tree().process_frame

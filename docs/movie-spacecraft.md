@@ -48,6 +48,13 @@ three independently hinged wheel assemblies into real belly openings. The seven
 trailing control surfaces reuse the guidance's existing command ordering; this
 is an estimated control layout. Screens and switches are visual fittings.
 
+The cockpit detail pass adds a roof-mounted instrument spine, handholds, a
+multi-display centre stack and distinct flight, propulsion and cabin screens.
+The inset pressure liner shares the exterior aperture vertices. Moulded seals
+connect the liner to the hull, with brushed frames and small-scale quilted fabric
+between the windows. Paired ceiling strips sit in dark housings. The mounts fit
+the existing hull and both port canopy sightlines were checked from the pilot eye.
+
 The headless return check flew a 250 km orbit through a paid deorbit burn,
 atmospheric entry, banking reversals, glide, preflare and rollout. Touchdown was
 0.73 m/s sink at 79.1 m/s ground speed, and wheel stop followed after 1.86 km.

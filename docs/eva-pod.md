@@ -85,9 +85,11 @@ The cabin window has a smooth maroon fibreglass reveal, replacing the ribbed
 exterior surround only while the authored cockpit is loaded. Exit restores the
 surround's previous visibility. The acrylic keys have separate pigmented sides,
 illuminated faces and satin metal mounting flanges; larger cream and amber keys
-separate power and safety functions from the blue manipulator groups. The display
-frames have glare lips, and the cylindrical controllers sit on a low supported
-apron instead of intersecting their plinths.
+separate power and safety functions from the blue manipulator groups. Four lamp
+lenses sit above each round service plate's paddle switches. The displays have
+rounded CRT faces recessed below their glare lips. The five red cabin practicals
+use opal acrylic rims around the lit diffusers. The cylindrical controllers sit
+on a low supported apron.
 
 The aft lining leaves an opening for the hatch, its recessed handles, latch and
 warning plate. Angled storage lids close onto fitted boxes, with hinge barrels
