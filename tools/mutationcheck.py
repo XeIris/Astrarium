@@ -123,6 +123,8 @@ MUTATIONS = {
                            ENCOUNTERCHECK, "galaxies passing without dynamical friction"),
     "orbits-lnL-power": ("sim/galaxy/gal_orbits.gd", "float(lam[0]) * log(r / (float(lam[1]) * a[j]))", "pow(maxf(log(r / (float(lam[1]) * a[j])), 0.0), float(lam[0]))",
                          ENCOUNTERCHECK, "the Coulomb logarithm read as (ln r/Ca)^α"),
+    "encounter-disc-flat": ("sim/galaxy/gal_encounter.gd", "		var fy := f * ly * s / zb", "		var fy := f * ly",
+                            ENCOUNTERCHECK, "the encounter's disc pulling as a sphere across its plane"),
     "companion-in-front": ("sim/galaxy/gal_landmarks.gd", "var rel := (cs[0] as Vector3) * float(spec.d) - (hs[0] as Vector3) * float(host.d)",
                            "var rel := (cs[0] as Vector3) * (2.0 * float(host.d) - float(spec.d)) - (hs[0] as Vector3) * float(host.d)",
                            GALAXYCHECK, "NGC 5195 placed in front of M51 rather than behind"),

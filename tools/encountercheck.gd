@@ -14,6 +14,8 @@ func _init() -> void:
 	halos()
 	kepler()
 	canonical()
+	isolated()
+	parity()
 	print("ENCOUNTERCHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -107,6 +109,86 @@ func canonical() -> void:
 	var drift := _centre(o).distance_to(cm0 + vcm * o.t)
 	# Rounding over 10⁴ steps at positions of ~10³ kpc: within a parsec.
 	ok(drift < 1e-3, "the system's mass centre moves uniformly over 10 Gyr (%s kpc off)" % U.expo(drift, 1))
+
+## The Milky Way alone: in a rigid axisymmetric potential each star keeps its energy (to the
+## leapfrog's bounded error) and its angular momentum about the spin (exactly, up to rounding),
+## and the disc keeps its size.
+func isolated() -> void:
+	var o := GalOrbits.new()
+	var row: Array = GalModels.VDM_CANONICAL[0]
+	var st: Array = GalModels.VDM_STARS["Milky Way"]
+	var halo := GalOrbits.hernquist_halo(float(row[1]) - float(st[0]) - float(st[2]), float(row[2]))
+	o.add("Milky Way", float(halo[0]), float(halo[1]), Vector3.ZERO, Vector3.ZERO)
+	var e := GalEncounter.new(o)
+	e.set_galaxy(0, [halo[0], halo[1]], [st[0], 0.9688 * float(st[1]), 0.1 * float(st[1])], [st[2], float(st[3]) / 1.8153], Vector3(0, 0, -1))
+	e.seed_disc(0, 1000, float(st[1]), 0.3, 0.05, 7)
+	var spin: Vector3 = (e.axes[0] as Basis).y
+	var e0 := _star_energies(e)
+	var l0 := _star_lz(e, spin)
+	var r0 := _median_r(e)
+	e.step(2000)
+	var e1 := _star_energies(e)
+	var l1 := _star_lz(e, spin)
+	var de := 0.0
+	var dl := 0.0
+	for i in e.n:
+		de = maxf(de, absf(e1[i] / e0[i] - 1.0))
+		dl = maxf(dl, absf(l1[i] - l0[i]) / absf(l0[i]))
+	var dr := absf(_median_r(e) / r0 - 1.0)
+	ok(de < 1e-3 and dl < 1e-9 and dr < 0.02, "a lone Milky Way's stars keep their energy (%s), angular momentum (%s) and the disc its size (%s) over 1 Gyr" % [
+		U.expo(de, 1), U.expo(dl, 1), U.expo(dr, 1)])
+
+func _star_energies(e: GalEncounter) -> PackedFloat64Array:
+	var out := PackedFloat64Array()
+	var P: Array = e.params[0]
+	var B: Basis = e.axes[0]
+	for i in e.n:
+		var x := e.pos[3 * i]
+		var y := e.pos[3 * i + 1]
+		var z := e.pos[3 * i + 2]
+		var r := sqrt(x * x + y * y + z * z)
+		var phi := -float(P[0]) / (r + float(P[1])) - float(P[5]) / (r + float(P[6]))
+		var ly := x * B.y.x + y * B.y.y + z * B.y.z
+		var R2 := r * r - ly * ly
+		var s := float(P[3]) + sqrt(ly * ly + float(P[4]) * float(P[4]))
+		phi -= float(P[2]) / sqrt(R2 + s * s)
+		var v2 := e.vel[3 * i] * e.vel[3 * i] + e.vel[3 * i + 1] * e.vel[3 * i + 1] + e.vel[3 * i + 2] * e.vel[3 * i + 2]
+		out.append(0.5 * v2 + phi)
+	return out
+
+func _star_lz(e: GalEncounter, spin: Vector3) -> PackedFloat64Array:
+	var out := PackedFloat64Array()
+	for i in e.n:
+		var x := e.pos[3 * i]
+		var y := e.pos[3 * i + 1]
+		var z := e.pos[3 * i + 2]
+		var vx := e.vel[3 * i]
+		var vy := e.vel[3 * i + 1]
+		var vz := e.vel[3 * i + 2]
+		out.append((y * vz - z * vy) * spin.x + (z * vx - x * vz) * spin.y + (x * vy - y * vx) * spin.z)
+	return out
+
+func _median_r(e: GalEncounter) -> float:
+	var rs := []
+	for i in e.n: rs.append(Vector3(e.pos[3 * i], e.pos[3 * i + 1], e.pos[3 * i + 2]).length())
+	rs.sort()
+	return rs[rs.size() / 2]
+
+## The C kernel against the GDScript one through the canonical encounter: bit for bit, as both
+## call only sqrt.
+func parity() -> void:
+	if not GalEncounter.native_available():
+		ok(false, "the native encounter kernel is loaded")
+		return
+	var a := GalModels.vdm_encounter(150, 3)
+	var b := GalModels.vdm_encounter(150, 3)
+	b.use_native = false
+	a.step(400)
+	b.step(400)
+	var same := a.pos == b.pos and a.vel == b.vel
+	var worst := 0.0
+	for i in a.pos.size(): worst = maxf(worst, absf(a.pos[i] - b.pos[i]))
+	ok(same, "the native encounter kernel matches GDScript bit for bit over 200 Myr (worst %s kpc)" % U.expo(worst, 1))
 
 func _centre(o: GalOrbits) -> Vector3:
 	var c := Vector3.ZERO

@@ -674,6 +674,77 @@ static void run_tracers(double *A) {
 	free(G);
 }
 
+/* ============================================================================
+ * Galaxy encounters (sim/galaxy/gal_encounter.gd is the GDScript twin; the two must
+ * stay bit-identical, so every expression keeps its order there; only sqrt is called).
+ * Massless stars in rigid galaxies about moving centres, drift–kick–drift at a fixed
+ * step. Buffer: [0] length, [1] n, [2] k, [3] dt, [4] galaxies, EN_STRIDE per galaxy
+ * (halo G M, a; disc G M, a, b; bulge G M, a; axes x, y, z), the centres at each
+ * mid-step (k × galaxies × 3), positions and velocities (n × 3 each).
+ * ========================================================================== */
+#define EN_HDR 5
+#define EN_STRIDE 16
+
+static void en_accel(const double *P, double px, double py, double pz, double cx, double cy, double cz, double *acc) {
+	double dx = px - cx, dy = py - cy, dz = pz - cz;
+	double r = sqrt(dx * dx + dy * dy + dz * dz);
+	if (r < 1e-6) return;
+	double ax = 0.0, ay = 0.0, az = 0.0;
+	for (int k = 0; k <= 5; k += 5) {
+		double gmk = P[k];
+		if (gmk != 0.0) {
+			double ak = P[k + 1];
+			double f = -gmk / (r * (r + ak) * (r + ak));
+			ax += f * dx; ay += f * dy; az += f * dz;
+		}
+	}
+	double gd = P[2];
+	if (gd != 0.0) {
+		const double *B = P + 7;
+		double lx = dx * B[0] + dy * B[1] + dz * B[2];
+		double ly = dx * B[3] + dy * B[4] + dz * B[5];
+		double lz = dx * B[6] + dy * B[7] + dz * B[8];
+		double b = P[4];
+		double zb = sqrt(ly * ly + b * b);
+		double sa = P[3] + zb;
+		double q = lx * lx + lz * lz + sa * sa;
+		double f = -gd / (q * sqrt(q));
+		double fx = f * lx, fy = f * ly * sa / zb, fz = f * lz;
+		ax += fx * B[0] + fy * B[3] + fz * B[6];
+		ay += fx * B[1] + fy * B[4] + fz * B[7];
+		az += fx * B[2] + fy * B[5] + fz * B[8];
+	}
+	acc[0] += ax; acc[1] += ay; acc[2] += az;
+}
+
+static void run_encounter(double *A) {
+	int n = (int)A[1], k = (int)A[2], ng = (int)A[4];
+	double dt = A[3], h = dt * 0.5;
+	const double *G = A + EN_HDR;
+	const double *mids = G + EN_STRIDE * ng;
+	double *pos = (double *)(mids + k * ng * 3);
+	double *vel = pos + 3 * n;
+	for (int i = 0; i < n; i++) {
+		int c = i * 3;
+		double x = pos[c], y = pos[c + 1], z = pos[c + 2];
+		double vx = vel[c], vy = vel[c + 1], vz = vel[c + 2];
+		for (int s = 0; s < k; s++) {
+			x += vx * h; y += vy * h; z += vz * h;
+			double acc[3] = {0.0, 0.0, 0.0};
+			for (int g = 0; g < ng; g++) {
+				const double *P = G + EN_STRIDE * g;
+				if (P[0] == 0.0 && P[2] == 0.0 && P[5] == 0.0) continue;
+				const double *m = mids + (s * ng + g) * 3;
+				en_accel(P, x, y, z, m[0], m[1], m[2], acc);
+			}
+			vx += acc[0] * dt; vy += acc[1] * dt; vz += acc[2] * dt;
+			x += vx * h; y += vy * h; z += vz * h;
+		}
+		pos[c] = x; pos[c + 1] = y; pos[c + 2] = z;
+		vel[c] = vx; vel[c + 1] = vy; vel[c + 2] = vz;
+	}
+}
+
 /* The library's own libm on probe arguments, for galaxycheck: the tracer kernel can be
  * bit-identical to GDScript only where both call the same libm (MinGW's differs from
  * the engine's on Windows). Records of (function, a, b, result) after A[0] = length:
@@ -700,7 +771,7 @@ static void run_libm(double *A) {
 
 /* ============================================================================
  * GDExtension plumbing — one abstract class with static methods: step2 (the N-body
- * kernel), tracers (the galactic tracers) and libm (run_libm).
+ * kernel), tracers (the galactic tracers), libm (run_libm) and encounter (run_encounter).
  * ========================================================================== */
 static GDExtensionInterfaceGetProcAddress gp;
 static GDExtensionClassLibraryPtr lib;
@@ -736,11 +807,13 @@ static void step_into(GDExtensionConstTypePtr in, GDExtensionUninitializedTypePt
 
 static int tracer_tag = 1;
 static int libm_tag = 2;
+static int encounter_tag = 3;
 
 /* Method userdata selects the kernel: NULL is step2, then the tracers and libm. */
 static void dispatch(void *ud, GDExtensionConstTypePtr in, GDExtensionUninitializedTypePtr out) {
 	if (ud == &tracer_tag) step_into(in, out, run_tracers, TR_PAT);
 	else if (ud == &libm_tag) step_into(in, out, run_libm, 5);
+	else if (ud == &encounter_tag) step_into(in, out, run_encounter, EN_HDR);
 	else step_into(in, out, run, HDR);
 }
 
@@ -765,7 +838,7 @@ static void m_call(void *ud, GDExtensionClassInstancePtr inst, const GDExtension
 
 static void free_instance(void *ud, GDExtensionClassInstancePtr inst) { (void)ud; (void)inst; }
 
-static SName sn_class, sn_parent, sn_method, sn_tracers, sn_libm, sn_arg, sn_empty;
+static SName sn_class, sn_parent, sn_method, sn_tracers, sn_libm, sn_encounter, sn_arg, sn_empty;
 
 static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	(void)ud;
@@ -790,6 +863,7 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	sn_new(&sn_method, "step2", 1);
 	sn_new(&sn_tracers, "tracers", 1);
 	sn_new(&sn_libm, "libm", 1);
+	sn_new(&sn_encounter, "encounter", 1);
 	sn_new(&sn_arg, "state", 1);
 	sn_new(&sn_empty, "", 1);
 
@@ -824,6 +898,9 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	reg_method(lib, &sn_class, &mi);
 	mi.name = &sn_libm;
 	mi.method_userdata = &libm_tag;
+	reg_method(lib, &sn_class, &mi);
+	mi.name = &sn_encounter;
+	mi.method_userdata = &encounter_tag;
 	reg_method(lib, &sn_class, &mi);
 }
 

@@ -660,6 +660,31 @@ const VDM_CANONICAL := [
 	["M33", 0.15e12, 11.37, [-476.1, 491.1, -412.9], [43.1, 101.3, 138.8]],
 ]
 
+## Their galaxies' stars (van der Marel et al. 2012b, Tables 1–2): disc mass and exponential
+## scale length, bulge mass and R^1/4 effective radius (a Hernquist sphere of a = R_e/1.8153
+## here), and spin in the Galactocentric frame (§3.2: the Milky Way (0, 0, −1), M31
+## (−0.412, −0.767, −0.492)). The halo is M_vir less disc and bulge, as their N-body haloes
+## are. The discs are Miyamoto–Nagai of the exponential's half-mass radius (a = 0.9688 R_d),
+## 0.1 R_d thick: a choice. M33's spin is not given, so it has no disc here.
+const VDM_STARS := {
+	"Milky Way": [7.5e10, 3.0, 1.0e10, 0.6, [0.0, 0.0, -1.0]],
+	"M31": [1.2e11, 5.0, 1.9e10, 1.0, [-0.412, -0.767, -0.492]],
+}
+
+## The canonical encounter with its discs, `per` stars each.
+static func vdm_encounter(per: int, seed := 1) -> GalEncounter:
+	var o := encounter(VDM_CANONICAL)
+	var e := GalEncounter.new(o)
+	for i in VDM_CANONICAL.size():
+		var row: Array = VDM_CANONICAL[i]
+		if not VDM_STARS.has(row[0]): continue
+		var st: Array = VDM_STARS[row[0]]
+		var halo := GalOrbits.hernquist_halo(float(row[1]) - float(st[0]) - float(st[2]), float(row[2]))
+		var sp: Array = st[4]
+		e.set_galaxy(i, [halo[0], halo[1]], [st[0], 0.9688 * float(st[1]), 0.1 * float(st[1])], [st[2], float(st[3]) / 1.8153], Vector3(sp[0], sp[1], sp[2]))
+		e.seed_disc(i, per, float(st[1]), 0.1 * float(st[1]), 0.05, seed + i)
+	return e
+
 ## An encounter's orbits from its table (VDM_CANONICAL's form).
 static func encounter(rows: Array) -> GalOrbits:
 	var o := GalOrbits.new()
