@@ -37,45 +37,58 @@ static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_
 	_r0.copy_from(r); _v0.copy_from(v)
 	var r0 := _r0.length()
 	var v0 := _v0.length()
-	if r0 < 1e-6 or not is_finite(r0): return false
+	if r0 < 1e-6 or not is_finite(r0) or not is_finite(v0) or not is_finite(dt) or not is_finite(mu) or mu <= 0.0: return false
 	var sqmu := sqrt(mu)
 	var rdotv := _r0.dot(_v0)
 	var alpha := 2.0 / r0 - v0 * v0 / mu               # = 1/a; negative ⇒ hyperbolic
 	# A rectilinear conic (h² = μp ≈ 0) runs through the centre: leave it to the integrator.
 	if r0 * r0 * v0 * v0 - rdotv * rdotv <= 1e-12 * mu * r0: return false
 
-	# Initial universal anomaly (Vallado): √μ·Δt·α is exact for a circle and right in
-	# scale for any number of revolutions; the hyperbolic guess keeps Newton sane near
-	# parabolic. F(x) is monotonic (dF/dx = r > 0), so the root is unique.
-	var x: float
-	if alpha > 1e-12:
-		x = sqmu * dt * alpha
-	elif alpha < -1e-12:
-		var a := 1.0 / alpha
-		var s := signf(dt) * sqrt(-a)
-		var num := -2.0 * mu * alpha * dt
-		var den := rdotv + s * sqrt(-mu * a) * (1.0 - r0 * alpha)
-		x = s * log(maxf(num / den, 1e-12))
-	else:
-		x = sqmu * dt / r0                               # parabolic
+	# F'(x) = r > 0. Bracket its unique root from zero before accepting Newton
+	# steps; a logarithmic hyperbolic guess can point away from a short-time root.
+	var direction := signf(dt)
+	var lo := 0.0
+	var hi := sqmu * absf(dt) / r0
+	if not is_finite(hi) or hi <= 0.0: return false
+	var x := direction * hi
+	var bracketed := false
 
 	var z := 0.0
 	var C := 0.5
 	var S := 1.0 / 6.0
 	var r_mag := r0
 	var ok := false
-	for i in 60:
+	for i in 96:
 		z = alpha * x * x
-		C = stumpff_c(z); S = stumpff_s(z)
-		r_mag = x * x * C + (rdotv / sqmu) * x * (1.0 - z * S) + r0 * (1.0 - z * C)
-		var F := (rdotv / sqmu) * x * x * C + (1.0 - alpha * r0) * x * x * x * S + r0 * x - sqmu * dt
-		if absf(F) < 1e-7 * maxf(1.0, absf(sqmu * dt)):
+		var F: float
+		if z < -250000.0:
+			# Beyond this trial anomaly the hyperbolic exponent dominates. Its sign
+			# still bounds the root without overflowing sinh/cosh or forming inf-inf.
+			F = direction * INF
+			r_mag = INF
+		else:
+			C = stumpff_c(z); S = stumpff_s(z)
+			r_mag = x * x * C + (rdotv / sqmu) * x * (1.0 - z * S) + r0 * (1.0 - z * C)
+			F = (rdotv / sqmu) * x * x * C + (1.0 - alpha * r0) * x * x * x * S + r0 * x - sqmu * dt
+		if absf(F) < 1e-12 * maxf(1.0, absf(sqmu * dt)):
 			ok = true
 			break
-		if r_mag < 1e-9: return false
-		x -= F / r_mag                                   # dF/dx = rMag exactly
-		if not is_finite(x): return false
-	if not ok: return false
+		var u := absf(x)
+		var residual := direction * F
+		if residual > 0.0:
+			hi = u
+			bracketed = true
+		else:
+			lo = u
+		if not bracketed:
+			hi *= 2.0
+			x = direction * hi
+			continue
+		var candidate := u - residual / r_mag if r_mag > 1e-9 else NAN
+		if not is_finite(candidate) or candidate <= lo or candidate >= hi:
+			candidate = (lo + hi) * 0.5
+		x = direction * candidate
+	if not ok or r_mag < 1e-9: return false
 
 	# Lagrange f and g: the new state from the old r and v, so the plane is preserved.
 	var f := 1.0 - (x * x / r0) * C
@@ -85,7 +98,8 @@ static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_
 
 	r_out.set_v(f * _r0.x + g * _v0.x, f * _r0.y + g * _v0.y, f * _r0.z + g * _v0.z)
 	v_out.set_v(fd * _r0.x + gd * _v0.x, fd * _r0.y + gd * _v0.y, fd * _r0.z + gd * _v0.z)
-	return is_finite(r_out.x) and is_finite(v_out.x)
+	return is_finite(r_out.x) and is_finite(r_out.y) and is_finite(r_out.z) \
+		and is_finite(v_out.x) and is_finite(v_out.y) and is_finite(v_out.z)
 
 # classical elements
 static var _h := DVec3.new()
