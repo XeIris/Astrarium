@@ -889,11 +889,11 @@ How the numbers were set, on the lone Milky Way over 600 Myr:
 
 | | here | their N-body |
 |---|---|---|
-| M31's first pericentre | 35.5 kpc at 4.12 Gyr | 35.0 kpc at 3.97 Gyr |
+| M31's first pericentre | 36.1 kpc at 4.12 Gyr | 35.0 kpc at 3.97 Gyr |
 | merged (within 5 kpc for 1 Gyr) | 6.15 Gyr | 6.29 Gyr |
-| remnant, log Σ at R^1/4 = 1, 1.5, 2, 2.38 | 3.60, 2.62, 1.61, 0.70 | 3.6, 2.5, 1.6, 0.8 |
-| M31's first apocentre (not judged) | 145.4 kpc at 4.78 Gyr | 171.9 kpc at 4.79 Gyr |
-| M33's closest to the Milky Way (not judged) | 30.9 kpc at 3.93 Gyr | 97.3 kpc at 3.83 Gyr |
+| remnant, log Σ at R^1/4 = 1, 1.5, 2, 2.38 | 3.54, 2.63, 1.62, 0.72 | 3.6, 2.5, 1.6, 0.8 |
+| M31's first apocentre (not judged) | 145.9 kpc at 4.75 Gyr | 171.9 kpc at 4.79 Gyr |
+| M33's closest to the Milky Way (not judged) | 30.4 kpc at 3.93 Gyr | 97.3 kpc at 3.83 Gyr |
 
 Their profile values are read off their Fig. 7 to about ±0.05 dex. Both remnants follow
 de Vaucouleurs' law with R_e ≈ 7 kpc: an elliptical.
