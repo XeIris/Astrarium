@@ -667,53 +667,127 @@ const VDM_CANONICAL := [
 
 ## Their galaxies' stars (van der Marel et al. 2012b, Tables 1–2): disc mass and exponential
 ## scale length, bulge mass and R^1/4 effective radius (a Hernquist sphere of a = R_e/1.8153
-## here), and spin in the Galactocentric frame (§3.2: the Milky Way (0, 0, −1), M31
-## (−0.412, −0.767, −0.492)). The halo is M_vir less disc and bulge, as their N-body haloes
-## are. The discs are Miyamoto–Nagai of the exponential's half-mass radius (a = 0.9688 R_d),
-## 0.1 R_d thick: a choice. M33's spin is not given, so it has no disc here.
+## here), and spin in the Galactocentric frame: the Milky Way's (0, 0, −1) and M31's
+## (−0.412, −0.767, −0.492) as their §3.2 states them, M33's from its Table 1 geometry
+## (VDM_M33_GEOMETRY, disc_spin). The halo is M_vir less disc and bulge, as their N-body haloes
+## are. A disc's rigid potential is Miyamoto–Nagai of the exponential's half-mass radius
+## (a = 0.9688 R_d), 0.1 R_d thick, and its stars sech² of the same scale: a choice.
 const VDM_STARS := {
 	"Milky Way": [7.5e10, 3.0, 1.0e10, 0.6, [0.0, 0.0, -1.0]],
 	"M31": [1.2e11, 5.0, 1.9e10, 1.0, [-0.412, -0.767, -0.492]],
+	"M33": [9.0e9, 1.3, 0.0, 0.0, []],
 }
+## M33's disc on the sky (their Table 1: inclination and line of nodes from Corbelli &
+## Schneider 1997, near side from Corbelli & Walterbos 2007), at LOCAL_GROUP's position.
+const VDM_M33_GEOMETRY := {"i": 52.9, "pa": 4.0, "near": "W", "approaching": "N"}
+## Particles once live: stars of one mass and haloes of another (M☉), and their Plummer
+## softenings (kpc). docs/physics/galaxies.md#live says how they were set.
+const LIVE_STAR_MASS := 4.0e6
+const LIVE_HALO_MASS := 4.0e7
+const LIVE_STAR_EPS := 0.1
+const LIVE_HALO_EPS := 1.0
+## The separation of the Milky Way and M31 (kpc) at which the encounter goes live.
+const VDM_LIVE_AT := 250.0
 
-## The canonical encounter with its discs, `per` stars each.
-static func vdm_encounter(per: int, seed := 1) -> GalEncounter:
-	var o := encounter(VDM_CANONICAL)
-	var e := GalEncounter.new(o)
-	for i in VDM_CANONICAL.size():
-		var row: Array = VDM_CANONICAL[i]
-		if not VDM_STARS.has(row[0]): continue
-		var st: Array = VDM_STARS[row[0]]
-		var halo := GalOrbits.hernquist_halo(float(row[1]) - float(st[0]) - float(st[2]), float(row[2]))
-		var sp: Array = st[4]
-		e.set_galaxy(i, [halo[0], halo[1]], [st[0], 0.9688 * float(st[1]), 0.1 * float(st[1])], [st[2], float(st[3]) / 1.8153], Vector3(sp[0], sp[1], sp[2]))
-		e.seed_disc(i, per, float(st[1]), 0.1 * float(st[1]), 0.05, seed + i)
+## The spin of a disc seen on the sky at (ra, dec) (degrees, J2000) with inclination and line of
+## nodes (PA east of north), its near side and approaching side as compass points, in the
+## Galactocentric frame (x toward the Galactic centre, z to the north Galactic pole). The
+## galactic axes come from the pole and centre sim/sky.gd states.
+static func disc_spin(ra: float, dec: float, inc: float, pa: float, near: String, approaching: String) -> Vector3:
+	var zg := _radec(192.85948, 27.12825)
+	var xg := _radec(266.40500, -28.93617)
+	xg = (xg - zg * xg.dot(zg)).normalized()
+	var yg := zg.cross(xg)
+	var s := _radec(ra, dec)
+	var a := deg_to_rad(ra)
+	var d := deg_to_rad(dec)
+	var north := Vector3(-sin(d) * cos(a), -sin(d) * sin(a), cos(d))
+	var east := Vector3(-sin(a), cos(a), 0.0)
+	var compass := {"N": north, "S": -north, "E": east, "W": -east}
+	var m := north * cos(deg_to_rad(pa)) + east * sin(deg_to_rad(pa))
+	var nr := Vector3.ZERO
+	for c in near: nr += compass[c]
+	var p := (nr - m * nr.dot(m)).normalized()
+	var i := deg_to_rad(inc)
+	# The disc's minor axis runs toward the near side and toward us.
+	var minor := p * cos(i) - s * sin(i)
+	var spin := m.cross(minor).normalized()
+	var ap := Vector3.ZERO
+	for c in approaching: ap += compass[c]
+	var side := m if ap.dot(m) > 0.0 else -m
+	if spin.cross(side).dot(s) > 0.0: spin = -spin
+	return Vector3(spin.dot(xg), spin.dot(yg), spin.dot(zg))
+
+static func _radec(ra: float, dec: float) -> Vector3:
+	var a := deg_to_rad(ra)
+	var d := deg_to_rad(dec)
+	return Vector3(cos(d) * cos(a), cos(d) * sin(a), sin(d))
+
+static func vdm_spin(name: String) -> Vector3:
+	var sp: Array = VDM_STARS[name][4]
+	if not sp.is_empty(): return Vector3(sp[0], sp[1], sp[2])
+	var g: Dictionary = LOCAL_GROUP["m33"]
+	var m: Dictionary = VDM_M33_GEOMETRY
+	return disc_spin(float(g.ra), float(g.dec), float(m.i), float(m.pa), String(m.near), String(m.approaching))
+
+## The canonical encounter, its particle counts scaled by `scale` (1 for the scene).
+static func vdm_encounter(scale := 1.0, seed := 1) -> GalEncounter:
+	var e := GalEncounter.new(encounter(VDM_CANONICAL))
+	for i in VDM_CANONICAL.size(): vdm_galaxy(e, i, VDM_CANONICAL[i], scale, seed)
+	e.live_at = VDM_LIVE_AT
 	return e
 
-## The light an encounter draws, per galaxy: [its disc's visible light per channel (all its
-## stars), a blob σ of one star spacing at R_d, a bulge-only model for the glow or {}]. Mass
-## becomes light through the population model, visible share VISIBLE_BULGE, as type_galaxy's.
+## Galaxy i of an encounter, row as VDM_CANONICAL's, as van der Marel et al. built theirs: its
+## rigid potential, its disc and bulge stars and its halo particles in waiting.
+static func vdm_galaxy(e: GalEncounter, i: int, row: Array, scale: float, seed: int) -> void:
+	var g := GalUnits.G / GalUnits.MASS_UNIT_SUN
+	var st: Array = VDM_STARS[row[0]]
+	var md := float(st[0])
+	var rd := float(st[1])
+	var mb := float(st[2])
+	var ab := float(st[3]) / 1.8153
+	var halo := GalOrbits.hernquist_halo(float(row[1]) - md - mb, float(row[2]))
+	e.set_galaxy(i, [halo[0], halo[1]], [md, 0.9688 * rd, 0.1 * rd], [mb, ab if mb > 0.0 else 1.0], vdm_spin(String(row[0])))
+	var pot := [["hernquist", g * float(halo[0]), float(halo[1])], ["disc", g * md, rd]]
+	if mb > 0.0: pot.append(["hernquist", g * mb, ab])
+	e.seed_disc(i, maxi(int(md / LIVE_STAR_MASS * scale), 1), md, rd, 0.1 * rd, LIVE_STAR_EPS, seed * 16 + i)
+	if mb > 0.0:
+		var bulge := GalEddington.new(g * mb, ab, 50.0 * ab, pot)
+		e.seed_bulge(i, maxi(int(mb / LIVE_STAR_MASS * scale), 1), mb, bulge, LIVE_STAR_EPS, seed * 16 + 4 + i)
+	# The halo is cut at its virial radius, where the Hernquist mass matches the NFW's.
+	var rvir := float(halo[2])
+	var mh := float(halo[0]) * pow(rvir / (rvir + float(halo[1])), 2.0)
+	var hs := GalEddington.new(g * float(halo[0]), float(halo[1]), rvir, pot)
+	e.seed_halo(i, maxi(int(mh / LIVE_HALO_MASS * scale), 1), mh, hs, LIVE_HALO_EPS, seed * 16 + 8 + i)
+
+## The light an encounter draws, per draw tag (GalEncounter.tag: galaxy, + BULGE_TAG for a
+## bulge): [that population's visible light per channel, all its stars together (Color,
+## Sun-luminances), and a blob σ of one star spacing where it is dense (kpc)]. Mass becomes
+## light through the population model, visible share VISIBLE_BULGE, as type_galaxy's: a disc
+## formed stars evenly for 10 Gyr, a bulge in one burst 10 Gyr ago.
 static func vdm_lights(e: GalEncounter) -> Array:
 	var out := []
+	out.resize(2 * GalEncounter.BULGE_TAG)
 	var disc_pop := GalPopulation.build({"kind": "constant", "gyr": 10.0})
-	for i in VDM_CANONICAL.size():
-		var row: Array = VDM_CANONICAL[i]
-		if not VDM_STARS.has(row[0]):
-			out.append([Color(0, 0, 0), 1.0, {}])
-			continue
-		var st: Array = VDM_STARS[row[0]]
-		var l_bol := float(st[0]) * VISIBLE_BULGE * disc_pop.mean_l / disc_pop.mean_mass
-		var count := 0
-		for k in e.n:
-			if e.owner[k] == i: count += 1
-		var rd := float(st[1])
-		# Stars per kpc² at R_d of an exponential disc: N e^(−1)/(2π R_d²).
-		var spacing := 1.0 / sqrt(float(count) * exp(-1.0) / (TAU * rd * rd))
-		var pot := GalPotential.new()
-		pot.add(GalPotential.hernquist("bulge", float(st[3]) / 1.8153, GalUnits.G * float(st[2]) / GalUnits.MASS_UNIT_SUN))
-		var bm := {"key": "%s bulge" % row[0], "name": row[0], "potential": pot, "sense": 1.0, "extent": 10.0,
-			"light": [{"part": "bulge", "visible": VISIBLE_BULGE}]}
-		out.append([disc_pop.color * l_bol, spacing, bm])
+	var bulge_pop := GalPopulation.build({"kind": "burst", "gyr": 10.0})
+	var counts := PackedInt32Array()
+	counts.resize(out.size())
+	for k in e.n: counts[e.tag[k]] += 1
+	for t in out.size():
+		out[t] = [Color(0, 0, 0), 1.0]
+		var gi := t % GalEncounter.BULGE_TAG
+		if gi >= VDM_CANONICAL.size() or counts[t] == 0: continue
+		var st: Array = VDM_STARS[VDM_CANONICAL[gi][0]]
+		if t < GalEncounter.BULGE_TAG:
+			var rd := float(st[1])
+			# Stars per kpc² at R_d of an exponential disc: N e^(−1)/(2π R_d²).
+			var spacing := 1.0 / sqrt(float(counts[t]) * exp(-1.0) / (TAU * rd * rd))
+			out[t] = [disc_pop.color * (float(st[0]) * VISIBLE_BULGE * disc_pop.mean_l / disc_pop.mean_mass), spacing]
+		else:
+			var ab := float(st[3]) / 1.8153
+			# A Hernquist sphere's stars per kpc³ at r = a: N / (16π a³).
+			var spacing := pow(16.0 * PI * ab * ab * ab / float(counts[t]), 1.0 / 3.0)
+			out[t] = [bulge_pop.color * (float(st[2]) * VISIBLE_BULGE * bulge_pop.mean_l / bulge_pop.mean_mass), spacing]
 	return out
 
 ## An encounter's orbits from its table (VDM_CANONICAL's form).

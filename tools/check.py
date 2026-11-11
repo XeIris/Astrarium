@@ -28,7 +28,7 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "start_screen")
+                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "encounter", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
@@ -48,7 +48,7 @@ PARITY_FRAMES = 13000
 CHANGED_RULES = (
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
-     ("galaxycheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
+     ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
       "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck")),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
@@ -130,7 +130,7 @@ CHANGED_RULES = (
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
       "tools/build_neighbourhood.py"),
-     ("galaxycheck", "encountercheck", "galaxylookcheck", "_soak_check-galaxy", "hud*")),
+     ("galaxycheck", "encountercheck", "encounterlivecheck", "galaxylookcheck", "_soak_check-galaxy", "_soak_check-encounter", "hud*")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     # Any other tool (fxlab, harnesses): at least it must still parse.
     (("tools/*",), ("import",)),
@@ -255,6 +255,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("galaxycheck", r"^GALAXYCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$", timeout=300)
         # Galaxy encounters: the orbits against van der Marel et al. (2012b).
         yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
+        # ~6 min on an M5: the canonical encounter live for 10 Gyr against their N-body run.
+        yield script("encounterlivecheck", r"^ENCOUNTERLIVECHECK DONE checks=[1-9]\d* failures=0$", timeout=1200)
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")
@@ -381,13 +383,13 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "m5-budget":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=15 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
     elif suite == "m5-medium":
-        medium = scene("perfcheck", r"^PERFCHECK DONE cases=15 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
+        medium = scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
         yield ("perfcheck-m5-medium", *medium[1:])
     elif suite == "perf":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=15 failures=0$", f"report={output / 'render-profile.json'}")
-        abba = scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", f"report={output / 'render-profile.json'}")
+        abba = scene("perfcheck", r"^PERFCHECK DONE cases=19 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
         yield ("studio-abba", *abba[1:])
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         for _ in range(repeat):

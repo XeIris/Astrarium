@@ -1,36 +1,89 @@
 class_name GalEncounter
 extends RefCounted
 
-# Galaxies meeting: their centres move as GalOrbits has them, and each galaxy's disc is massless
-# stars in every galaxy's potential about its moving centre, a restricted N-body encounter as
-# Toomre & Toomre (1972) drew tidal tails. Each potential is rigid: a Hernquist halo, a
-# Miyamoto–Nagai disc about the galaxy's spin axis and a Hernquist bulge. Stars take drift–kick–
-# drift steps of DT with the centres at mid-step. native/astrarium_native.c (run_encounter) is
-# the C twin and must stay bit-identical: its forces use only sqrt, which every platform rounds
-# the same. docs/physics/galaxies.md#encounters.
+# Galaxies meeting, in two regimes. Far apart, each galaxy is a rigid potential (a Hernquist
+# halo, a Miyamoto–Nagai disc about its spin and a Hernquist bulge) whose centre moves as
+# GalOrbits has it, and its disc and bulge stars are massless test particles in every galaxy's
+# potential: cheap, and exact while the galaxies barely touch. Once the two leading galaxies
+# come within `live_at`, every galaxy becomes particles (GalLive): its halo, drawn when the
+# encounter was built, joins its stars, the stars take their masses, and from then on all of
+# them move under each other's gravity, which is what tidal tails and a merger need. The
+# restricted kernel's C twin is run_encounter in native/astrarium_native.c; it must stay
+# bit-identical (only sqrt). docs/physics/galaxies.md#encounters-phase-4.
 
 ## Myr. The innermost disc stars, 1 kpc out in a 220 km/s disc, orbit in ~30 Myr: ~60 steps.
 const DT := 0.5
-## Per galaxy in the kernel: halo G M and a, disc G M, a, b, bulge G M and a, then its local
-## axes x, y (the spin), z in the encounter's frame.
+## Per galaxy in the restricted kernel: halo G M and a, disc G M, a, b, bulge G M and a, then
+## its local axes x, y (the spin), z in the encounter's frame.
 const G_STRIDE := 16
+## The live step (Myr) and opening angle. docs/physics/galaxies.md#live says how they were set.
+const LIVE_DT := 1.0
+const THETA := 0.7
+## Toomre's Q of a disc at the reference radius, Hernquist's (1993) normalisation, there the
+## Sun's radius in units of the Milky Way's scale length (8.29 / 3.0, van der Marel et al.).
+const Q_REF := 1.5
+const R_REF := 8.29 / 3.0
+## Luminous particles nearest each centre when it goes live, whose mean is its centre after.
+const CORE := 64
+## The draw tag: galaxy + 4 for a bulge star.
+const BULGE_TAG := 4
 
 var orbits: GalOrbits
 ## Per galaxy: [halo gm, a, disc gm, a, b, bulge gm, a] and its axes (Basis, y the spin).
 var params: Array = []
 var axes: Array = []
-## Stars: positions and velocities, 3 each (kpc, kpc/Myr), and which galaxy each began in.
+## Per galaxy disc: {gm, rd, z0, sigma_ref} (gm in kpc³ Myr⁻²), or {}.
+var discs: Array = []
+## Stars: positions and velocities, 3 each (kpc, kpc/Myr), their galaxy and draw tag.
 var pos := PackedFloat64Array()
 var vel := PackedFloat64Array()
 var owner := PackedByteArray()
+var tag := PackedByteArray()
+## Each star's mass and softening once live (10¹⁰ M☉, kpc).
+var star_mass := PackedFloat64Array()
+var star_eps := PackedFloat64Array()
 var n := 0
 var steps := 0
-## False forces the GDScript kernel (encountercheck compares the two).
+## Per galaxy, its halo as particles about its centre: [positions, velocities, mass each,
+## softening], or [].
+var haloes: Array = []
+## Separation of galaxies 0 and 1 (kpc) at which the encounter goes live; 0 never.
+var live_at := 0.0
+var live: GalLive = null
+var t_live := 0.0
+var cores: Array = []
+## False forces the GDScript kernels (encountercheck compares them).
 var use_native := true
+## Each star's float32 (x, y, z, tag), 16 bytes, for the drawing.
+var draw_bytes := PackedByteArray()
+var _tag_block := PackedFloat64Array()
 static var _native := -1
 
 func _init(o: GalOrbits) -> void:
 	orbits = o
+
+## Myr since the encounter began.
+func time() -> float:
+	return t_live + live.t if live != null else orbits.t
+
+## The current step (Myr).
+func dt() -> float:
+	return LIVE_DT if live != null else DT
+
+func is_live() -> bool:
+	return live != null
+
+## Galaxy i's centre (kpc): its moving potential's, then the mean of its core stars.
+func centre(i: int) -> Vector3:
+	if live == null: return orbits.position(i)
+	var core: PackedInt32Array = cores[i]
+	if core.is_empty(): return Vector3.ZERO
+	var s := Vector3.ZERO
+	for j in core: s += live.position(j)
+	return s / core.size()
+
+func count() -> int:
+	return orbits.count()
 
 ## A galaxy's potential for its stars, for galaxy i of the orbits: the halo (M☉, kpc), the disc
 ## (M☉, a, b) and the bulge (M☉, a), spinning about `spin` (unit, the encounter's frame).
@@ -38,6 +91,9 @@ func set_galaxy(i: int, halo: Array, disc: Array, bulge: Array, spin: Vector3) -
 	while params.size() <= i:
 		params.append([])
 		axes.append(Basis())
+		discs.append({})
+		haloes.append([])
+		cores.append(PackedInt32Array())
 	var g := GalUnits.G / GalUnits.MASS_UNIT_SUN
 	params[i] = [g * float(halo[0]), float(halo[1]), g * float(disc[0]), float(disc[1]), float(disc[2]), g * float(bulge[0]), float(bulge[1])]
 	var y := spin.normalized()
@@ -94,15 +150,56 @@ func circular_speed(i: int, R: float) -> float:
 	_accel(i, p.x, p.y, p.z, 0.0, 0.0, 0.0, acc)
 	return sqrt(maxf(-(acc[0] * B.x.x + acc[1] * B.x.y + acc[2] * B.x.z) * R, 0.0))
 
-## Galaxy i's disc as `count` stars: exponential in radius with scale rd out to 6 rd, sech² in
-## height with z0, on circular orbits with a dispersion of `sigma_frac` of the circular speed
-## in each direction (a cold disc: the tails Toomre & Toomre drew come from it).
-func seed_disc(i: int, count: int, rd: float, z0: float, sigma_frac: float, seed: int) -> void:
+## Galaxy i's disc surface density at R (G Σ, kpc Myr⁻²).
+func _g_sigma(i: int, R: float) -> float:
+	var d: Dictionary = discs[i]
+	return float(d.gm) / (TAU * float(d.rd) * float(d.rd)) * exp(-R / float(d.rd))
+
+## The disc's mean rotation and dispersions at R for a circular speed vc(R) (a Callable of R):
+## σ_R² ∝ e^(−R/R_d) normalised to Q_REF at R_REF R_d (Hernquist 1993), σ_φ from the epicycle,
+## σ_z from an isothermal sheet of scale z0 (σ_z² = π G Σ z0), and the mean rotation the Jeans
+## equation leaves after asymmetric drift. Returns [v̄_φ, σ_R, σ_φ, σ_z] (kpc/Myr).
+func disc_kinematics(i: int, R: float, vc: Callable) -> Array:
+	var d: Dictionary = discs[i]
+	var rd := float(d.rd)
+	var v2 := pow(float(vc.call(R)), 2.0)
+	var h := 0.02 * rd
+	var dv2 := (pow(float(vc.call(R + h)), 2.0) - pow(float(vc.call(maxf(R - h, 1e-3))), 2.0)) / (R + h - maxf(R - h, 1e-3))
+	var omega2 := v2 / (R * R)
+	var kappa2 := maxf(dv2 / R + 2.0 * omega2, 1e-12)
+	var sr := float(d.sigma_ref) * exp(-(R - R_REF * rd) / (2.0 * rd))
+	var sp := sr * sqrt(kappa2 / (4.0 * omega2))
+	var sz := sqrt(PI * _g_sigma(i, R) * float(d.z0))
+	var vphi2 := v2 + sr * sr * (1.0 - kappa2 / (4.0 * omega2) - 2.0 * R / rd)
+	return [sqrt(maxf(vphi2, 0.0)), sr, sp, sz]
+
+## Toomre's Q of galaxy i's disc at R for the circular speed vc(R).
+func toomre_q(i: int, R: float, vc: Callable) -> float:
+	var k := disc_kinematics(i, R, vc)
+	var h := 0.02 * float(discs[i].rd)
+	var v2 := pow(float(vc.call(R)), 2.0)
+	var dv2 := (pow(float(vc.call(R + h)), 2.0) - pow(float(vc.call(R - h)), 2.0)) / (2.0 * h)
+	var kappa := sqrt(maxf(dv2 / R + 2.0 * v2 / (R * R), 1e-12))
+	return float(k[1]) * kappa / (3.36 * _g_sigma(i, R))
+
+## Galaxy i's disc as `count` stars of md_sun in all (M☉): exponential in radius with scale rd
+## out to 6 rd, sech² in height with z0, warm as disc_kinematics has it in the rigid potential.
+func seed_disc(i: int, count: int, md_sun: float, rd: float, z0: float, eps: float, seed: int) -> void:
+	discs[i] = {"gm": GalUnits.G * md_sun / GalUnits.MASS_UNIT_SUN, "rd": rd, "z0": z0, "sigma_ref": 0.0}
+	var vc := func(R: float) -> float: return circular_speed(i, R)
+	# σ_R at the reference radius for Q there: Q = σ_R κ / (3.36 G Σ).
+	var rr := R_REF * rd
+	var h := 0.02 * rd
+	var v2 := pow(circular_speed(i, rr), 2.0)
+	var dv2 := (pow(circular_speed(i, rr + h), 2.0) - pow(circular_speed(i, rr - h), 2.0)) / (2.0 * h)
+	var kappa := sqrt(dv2 / rr + 2.0 * v2 / (rr * rr))
+	discs[i].sigma_ref = Q_REF * 3.36 * _g_sigma(i, rr) / kappa
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var B: Basis = axes[i]
 	var c := orbits.position(i)
 	var v0 := orbits.velocity(i)
+	var m := md_sun / GalUnits.MASS_UNIT_SUN / count
 	for k in count:
 		# Σ ∝ e^(−R/rd) gives R e^(−R/rd) dR: a Gamma(2) radius.
 		var R := 6.0 * rd
@@ -111,24 +208,56 @@ func seed_disc(i: int, count: int, rd: float, z0: float, sigma_frac: float, seed
 		var z := z0 * atanh(2.0 * rng.randf() - 1.0)
 		var e_r := B.x * cos(phi) + B.z * sin(phi)
 		var e_t := B.y.cross(e_r)
-		var vc := circular_speed(i, R)
-		var s := sigma_frac * vc
+		var kin := disc_kinematics(i, R, vc)
 		var p := c + e_r * R + B.y * z
-		var v := v0 + e_t * vc + (e_r * rng.randfn() + e_t * rng.randfn() + B.y * rng.randfn()) * s
-		pos.append_array([p.x, p.y, p.z])
-		vel.append_array([v.x, v.y, v.z])
-		owner.append(i)
-		n += 1
+		var v := v0 + e_t * (float(kin[0]) + float(kin[2]) * rng.randfn()) + e_r * (float(kin[1]) * rng.randfn()) + B.y * (float(kin[3]) * rng.randfn())
+		_add_star(i, i, p, v, m, eps)
+
+## Galaxy i's bulge as `count` stars of mb_sun in all, from the bulge's equilibrium sampler.
+func seed_bulge(i: int, count: int, mb_sun: float, sampler: GalEddington, eps: float, seed: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var s := sampler.sample(rng, count)
+	var c := orbits.position(i)
+	var v0 := orbits.velocity(i)
+	var m := mb_sun / GalUnits.MASS_UNIT_SUN / count
+	var p: PackedFloat64Array = s[0]
+	var v: PackedFloat64Array = s[1]
+	for k in count:
+		_add_star(i, i + BULGE_TAG, c + Vector3(p[3 * k], p[3 * k + 1], p[3 * k + 2]), v0 + Vector3(v[3 * k], v[3 * k + 1], v[3 * k + 2]), m, eps)
+
+## Galaxy i's halo, `count` particles of mh_sun in all, from its sampler; it waits, about the
+## galaxy's centre, until the encounter goes live.
+func seed_halo(i: int, count: int, mh_sun: float, sampler: GalEddington, eps: float, seed: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var s := sampler.sample(rng, count)
+	haloes[i] = [s[0], s[1], mh_sun / GalUnits.MASS_UNIT_SUN / count, eps]
+
+func _add_star(g: int, t: int, p: Vector3, v: Vector3, m: float, eps: float) -> void:
+	pos.append_array([p.x, p.y, p.z])
+	vel.append_array([v.x, v.y, v.z])
+	owner.append(g)
+	tag.append(t)
+	star_mass.append(m)
+	star_eps.append(eps)
+	n += 1
 
 static func native_available() -> bool:
 	if _native < 0:
 		_native = 1 if ClassDB.class_exists("NBodyKernel") and ClassDB.class_has_method("NBodyKernel", "encounter") else 0
 	return _native == 1
 
-## k steps of DT: the centres by GalOrbits (Runge–Kutta), then every star through them at
-## mid-step.
+## k steps of the current step; the encounter goes live first if the leading pair is near.
 func step(k: int) -> void:
 	if k <= 0: return
+	if live == null and live_at > 0.0 and orbits.count() > 1 and orbits.separation(0, 1) < live_at:
+		go_live()
+	if live != null:
+		live.step(k)
+		draw_bytes = live.draw_bytes
+		steps += k
+		return
 	var ng := orbits.count()
 	var mids := PackedFloat64Array()
 	mids.resize(k * ng * 3)
@@ -150,9 +279,127 @@ func step(k: int) -> void:
 			f[4 * i] = pos[3 * i]
 			f[4 * i + 1] = pos[3 * i + 1]
 			f[4 * i + 2] = pos[3 * i + 2]
-			f[4 * i + 3] = float(owner[i])
+			f[4 * i + 3] = float(tag[i])
 		draw_bytes = f.to_byte_array()
 	steps += k
+
+## Every galaxy becomes particles: the stars keep their places and take their masses, each
+## halo is placed about its galaxy's centre at its velocity, and each disc's mean rotation is
+## re-set from the pull of its own galaxy's particles, which differs a little from the rigid
+## potential's (an exponential disc is not a Miyamoto–Nagai one).
+func go_live() -> void:
+	var ng := orbits.count()
+	var nh := 0
+	for i in ng:
+		var h: Array = haloes[i] if i < haloes.size() else []
+		if not h.is_empty(): nh += (h[0] as PackedFloat64Array).size() / 3
+	for i in ng:
+		if i < discs.size() and not (discs[i] as Dictionary).is_empty(): _remap_disc(i)
+	var L := GalLive.new(n + nh, n, LIVE_DT, THETA)
+	L.use_native = use_native
+	for j in n:
+		L.set_particle(j, [pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]], [vel[3 * j], vel[3 * j + 1], vel[3 * j + 2]], star_mass[j], star_eps[j], float(tag[j]))
+	var o := n
+	for i in ng:
+		var h: Array = haloes[i] if i < haloes.size() else []
+		if h.is_empty(): continue
+		var c := orbits.position(i)
+		var v := orbits.velocity(i)
+		var hp: PackedFloat64Array = h[0]
+		var hv: PackedFloat64Array = h[1]
+		for q in hp.size() / 3:
+			L.set_particle(o, [c.x + hp[3 * q], c.y + hp[3 * q + 1], c.z + hp[3 * q + 2]], [v.x + hv[3 * q], v.y + hv[3 * q + 1], v.z + hv[3 * q + 2]], float(h[2]), float(h[3]))
+			o += 1
+	for i in ng: cores[i] = _core(i)
+	t_live = orbits.t
+	live = L
+
+## The CORE stars of galaxy i nearest its centre.
+func _core(i: int) -> PackedInt32Array:
+	var c := orbits.position(i)
+	var near := []
+	for j in n:
+		if owner[j] != i: continue
+		near.append([Vector3(pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]).distance_squared_to(c), j])
+	near.sort_custom(func(a, b): return a[0] < b[0])
+	var out := PackedInt32Array()
+	for q in mini(CORE, near.size()): out.append(int(near[q][1]))
+	return out
+
+## Galaxy i alone as particles about the origin, its stars where they are now.
+func _galaxy_alone(i: int) -> GalLive:
+	var c := orbits.position(i)
+	var h: Array = haloes[i]
+	var idx := PackedInt32Array()
+	for j in n: if owner[j] == i: idx.append(j)
+	var hp: PackedFloat64Array = h[0] if not h.is_empty() else PackedFloat64Array()
+	var nh := hp.size() / 3
+	var L := GalLive.new(idx.size() + nh, 0, LIVE_DT, THETA)
+	L.use_native = use_native
+	for q in idx.size():
+		var j := idx[q]
+		L.set_particle(q, [pos[3 * j] - c.x, pos[3 * j + 1] - c.y, pos[3 * j + 2] - c.z], [0, 0, 0], star_mass[j], star_eps[j])
+	for q in nh:
+		L.set_particle(idx.size() + q, [hp[3 * q], hp[3 * q + 1], hp[3 * q + 2]], [0, 0, 0], float(h[2]), float(h[3]))
+	return L
+
+## Galaxy i's circular speed in its plane from its own particles, in rings of R_d / 4 out to
+## 6 R_d: [ring radii, v_c] (kpc, kpc/Myr).
+func live_rotation(i: int) -> Array:
+	var L := _galaxy_alone(i)
+	L.accelerate()
+	var B: Basis = axes[i]
+	var rd := float(discs[i].rd)
+	var bins := 24
+	var sum := PackedFloat64Array()
+	var cnt := PackedFloat64Array()
+	sum.resize(bins)
+	cnt.resize(bins)
+	var q := 0
+	for j in n:
+		if owner[j] != i: continue
+		if tag[j] == i:
+			var p := L.position(q)
+			var e := p - B.y * p.dot(B.y)
+			var R := e.length()
+			var b := int(R / (0.25 * rd))
+			if b < bins and R > 0.0:
+				var a := Vector3(L.buf[GalLive.HDR + GalLive.STRIDE * q + GalLive.AX], L.buf[GalLive.HDR + GalLive.STRIDE * q + GalLive.AX + 1], L.buf[GalLive.HDR + GalLive.STRIDE * q + GalLive.AX + 2])
+				sum[b] += -a.dot(e / R) * R
+				cnt[b] += 1.0
+		q += 1
+	var rr := PackedFloat64Array()
+	var vc := PackedFloat64Array()
+	for b in bins:
+		if cnt[b] < 20.0: continue
+		rr.append((b + 0.5) * 0.25 * rd)
+		vc.append(sqrt(maxf(sum[b] / cnt[b], 0.0)))
+	return [rr, vc]
+
+static func _interp(xs: PackedFloat64Array, ys: PackedFloat64Array, x: float) -> float:
+	if xs.is_empty(): return 0.0
+	if x <= xs[0]: return ys[0] * x / xs[0]
+	for k in range(1, xs.size()):
+		if x <= xs[k]: return lerpf(ys[k - 1], ys[k], (x - xs[k - 1]) / (xs[k] - xs[k - 1]))
+	return ys[ys.size() - 1]
+
+func _remap_disc(i: int) -> void:
+	var rot := live_rotation(i)
+	var xs: PackedFloat64Array = rot[0]
+	var ys: PackedFloat64Array = rot[1]
+	var live_vc := func(R: float) -> float: return _interp(xs, ys, R)
+	var rigid_vc := func(R: float) -> float: return circular_speed(i, R)
+	var B: Basis = axes[i]
+	var c := orbits.position(i)
+	for j in n:
+		if tag[j] != i: continue
+		var p := Vector3(pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]) - c
+		var e := p - B.y * p.dot(B.y)
+		var R := e.length()
+		if R <= 0.0: continue
+		var e_t := B.y.cross(e / R)
+		var dv := float(disc_kinematics(i, R, live_vc)[0]) - float(disc_kinematics(i, R, rigid_vc)[0])
+		for k in 3: vel[3 * j + k] += e_t[k] * dv
 
 ## The kernel's buffer: [0] length, [1] n, [2] k, [3] dt, [4] galaxies, G_STRIDE per galaxy, the
 ## mid-step centres (k × galaxies × 3), positions, velocities.
@@ -170,19 +417,15 @@ func pack(k: int, mids: PackedFloat64Array) -> PackedFloat64Array:
 	b[0] = float(b.size())
 	return b
 
-## 2n doubles holding each star's float32 (x, y, z, galaxy): the kernel writes x, y, z and keeps
-## the galaxy, which never changes.
+## 2n doubles holding each star's float32 (x, y, z, tag): the kernel writes x, y, z and keeps
+## the tag, which never changes.
 func _draw_block() -> PackedFloat64Array:
-	if _owner_block.size() != 2 * n:
+	if _tag_block.size() != 2 * n:
 		var f := PackedFloat32Array()
 		f.resize(4 * n)
-		for i in n: f[4 * i + 3] = float(owner[i])
-		_owner_block = f.to_byte_array().to_float64_array()
-	return _owner_block
-
-var _owner_block := PackedFloat64Array()
-## Each star's float32 (x, y, z, galaxy), 16 bytes, for the drawing's texture.
-var draw_bytes := PackedByteArray()
+		for i in n: f[4 * i + 3] = float(tag[i])
+		_tag_block = f.to_byte_array().to_float64_array()
+	return _tag_block
 
 func _step_gd(k: int, mids: PackedFloat64Array) -> void:
 	var ng := orbits.count()

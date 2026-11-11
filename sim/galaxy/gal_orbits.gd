@@ -7,7 +7,7 @@ extends RefCounted
 # galaxy i on galaxy j is −G M_i/(r + a_i)², as if j's mass sat at its centre, softened to a
 # constant density inside SOFT. A galaxy is slowed by Chandrasekhar's friction in another
 # at least FRICTION_RATIO times its mass, or in one of comparable mass. Units: kpc, Myr,
-# 10¹⁰ M☉. docs/physics/galaxies.md#encounters.
+# 10¹⁰ M☉. docs/physics/galaxies.md#encounters-phase-4.
 
 ## Constant-density softening at each centre, kpc (their §2.2).
 const SOFT := 2.0

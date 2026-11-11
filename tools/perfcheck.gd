@@ -356,6 +356,20 @@ func _ready() -> void:
 	stage.jump_cam_radius(8.0)
 	await measure("galaxy-m51-near")
 	if stage.galaxy.visual.hii == null: failures += 1
+	# The MW–M31 encounter gone live, its clock running: the tree kernel works on every core
+	# on a worker while the frame draws its last batch's stars.
+	stage.load_preset("gal_mw_m31")
+	stage.galaxy.wait_tracers()
+	stage.galaxy.encounter.go_live()
+	stage.state.paused = false
+	stage.galaxy.set_rate(100.0)
+	stage.galaxy.frame("whole")
+	stage.jump_cam_radius(250.0)
+	var live_steps := stage.galaxy.encounter.live.steps
+	await measure("galaxy-encounter-live")
+	if stage.galaxy.encounter.live.steps <= live_steps: failures += 1
+	stage.state.paused = true
+	stage.galaxy.wait_encounter()
 	CraftAssets.craft_models_ready(["saturnv"])
 	stage.show_model("saturnv")
 	if not stage.model_view.craft.authored: failures += 1
