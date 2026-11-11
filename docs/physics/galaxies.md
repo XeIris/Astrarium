@@ -503,6 +503,22 @@ Way's exposure.
   - The neighbours hold their places from t = 0.
   - Which side of each disc is near is not modelled.
   - They have no arms or dust.
+- **M33's arms** are the two inner arms Smercina et al. (2023, PHATTER) find in resolved stars of
+  every age.
+  - **Geometry:** log spirals of pitch 23.78° through R0 0.90 kpc, 157.5° apart (their
+    155–160°: the arms are not symmetric), traced to 3.2 kpc (Javadi et al. 2017). They wind
+    counterclockwise outward on the sky, and their phase was set by laying them over ESO's
+    image. Their width (σ 0.3 kpc), start and fade are set by eye.
+  - **Light:** M33's disc is split at one star formation rate into its last 100 Myr and the rest,
+    the whole at its measured V. The rate this implies, 0.37 M☉/yr, is reported and not imposed;
+    Verley et al. (2007) find 0.2 M☉/yr for the inner disc alone.
+  - **Strength:** the young light is gathered into the arms (90 % of it) so its normalised m = 2
+    amplitude over 1–3.2 kpc is 0.6, the middle of the 0.4–0.8 M33 shows in Hα and dust
+    (Combes et al. 2012). The old disc stays smooth.
+  - **Checked:** the drawn young light's amplitude is 0.600; the glow matches the CPU integral to
+    0.2 %.
+  - **Missing:** M33 is flocculent, with many arm fragments and bright H II regions between the
+    two main arms; here it is a clean two-armed spiral.
 - **The LMC's bar** is Rathore et al.'s (2024) measurement from completeness-corrected Gaia DR3
   red clump stars.
   - **Measured:** axis ratio 0.54, PA 121.26° on the sky, a peak bi-symmetric amplitude A2 of

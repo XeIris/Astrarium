@@ -62,8 +62,15 @@ const LOCAL_GROUP := {
 	# Corbelli et al. (2014): stars 4.8 × 10⁹ M☉, an exponential disc of 1.8 kpc, no bulge,
 	# 100 pc half-thick at the centre; McConnachie (2012): 809 kpc, PA 23°, ellipticity 0.41,
 	# so i = acos(1 − 0.41) for a thin disc.
+	# Its two inner arms (Smercina et al. 2023, PHATTER, from resolved stars of every age): log
+	# spirals of pitch 23.78° through R0 0.90 kpc, 155–160° apart in phase (157.5° here), traced
+	# to 3.2 kpc (Javadi et al. 2017); they wind counterclockwise outward on the sky, and their
+	# phase was set by laying them over ESO's image (eso1424a). Their width (σ 0.3 kpc), start
+	# and fade past 3.2 kpc are set by eye. M33_LIGHT gives them their light.
 	"m33": {"name": "Triangulum (M33)", "ra": 23.46204167, "dec": 30.66022222, "d": 809.0, "i": 53.84, "pa": 23.0,
-		"disc": [4.8e9, 1.744, 0.1], "extent": 15.0, "mv": -18.8},
+		"disc": [4.8e9, 1.744, 0.1], "extent": 15.0, "mv": -18.8,
+		"arms": [["South", 0.90, 0.0, 23.78, 23.78, 0.3, -165.7, 0.0, false], ["North", 0.90, 157.5, 23.78, 23.78, 0.3, 157.5 - 165.7, 157.5, false]],
+		"armR": [0.3, 12.0], "armTurns": 1, "armWidthGrowth": 0.0, "armRise": [0.6, 0.6], "armEndFade": 0.6},
 	# van der Marel, Kallivayalil & Besla (2009): stars 2.7 × 10⁹ M☉; van der Marel (2001):
 	# exponential, scale length 1.3–1.5 kpc (1.4 here); Pietrzyński et al. (2019): 49.59 kpc.
 	# i 25.86°, line of nodes 149.23° (Choi et al. 2018a), the frame its bar was measured in.
@@ -107,6 +114,7 @@ static func neighbour(key: String, from_mass := false) -> Dictionary:
 	if spec.has("mv") and not from_mass:
 		var k := pow(10.0, -0.4 * (float(spec.mv) - 4.83)) / visible_luminosity(model)
 		for l in light: l.visible = float(l.visible) * k
+	if spec.has("arms") and not from_mass: _m33_light(model, spec)
 	if spec.has("bar"):
 		# The disc in the map as the exponential it stands in for, with its bar (GalaxyVisual).
 		var pop := GalPopulation.build({"kind": "constant", "gyr": 10.0})
@@ -115,6 +123,40 @@ static func neighbour(key: String, from_mass := false) -> Dictionary:
 		model.discMap = {"exp": spec.disc[1] / 0.9688, "z": spec.disc[2], "bol": 1.0 / yd,
 			"bar": [b[0], b[1], bar_angle(spec, float(b[2])), b[3]]}
 	return model
+
+# M33's light split at one star formation rate into the stars of the last 100 Myr and the rest,
+# the whole at its measured V: the rate this implies is reported, not imposed (estimates span
+# 0.2 to over 0.5 M☉/yr with the tracer). The young light is gathered into the arms so its
+# normalised m = 2 amplitude over 1–3.2 kpc is 0.6, the middle of the 0.4–0.8 M33 shows in Hα
+# and dust (Combes et al. 2012, HERM33ES); old and young both as exponentials of the disc's
+# scale length, 0.1 kpc thick.
+const M33_LIGHT := {"a2": 0.6, "a2R": [1.0, 3.2], "youngGyr": 0.1}
+
+static func _m33_light(model: Dictionary, spec: Dictionary) -> void:
+	var tg := float(M33_LIGHT.youngGyr)
+	var old_spec := {"kind": "constant", "gyr": 10.0, "fromGyr": tg}
+	var old := GalPopulation.build(old_spec)
+	var young := GalPopulation.build({"kind": "constant", "gyr": tg})
+	var yo := 0.2126 * old.color.r + 0.7152 * old.color.g + 0.0722 * old.color.b
+	var yy := 0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b
+	var lv := pow(10.0, -0.4 * (float(spec.mv) - 4.83))
+	# Light at one rate: light per mass formed times the mass formed in each span.
+	var sfr := lv / (old.light_per_formed * (10.0 - tg) * 1e9 * yo + young.light_per_formed * tg * 1e9 * yy)
+	var l_old := sfr * (10.0 - tg) * 1e9 * old.light_per_formed
+	var d: Dictionary = (model.potential as GalPotential).part("disc")
+	var m_disc := float(d.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN
+	for l in model.light:
+		if l.part == "disc": l.visible = l_old / (m_disc * old.mean_l / old.mean_mass)
+	model.discPop = old_spec
+	model.armLight = sfr * tg * 1e9 * young.light_per_formed
+	model.sfr = sfr
+	for k in ["arms", "armR", "armTurns", "armWidthGrowth", "armRise", "armEndFade"]: model[k] = spec[k]
+	model.youngGyr = tg
+	model.envelope = [1e9, 0.0]
+	var h := float(spec.disc[1]) / 0.9688
+	model.armH = float(spec.disc[2])
+	model.discMap = {"exp": h, "z": float(spec.disc[2]), "bol": 1.0 / yo}
+	model.thinMap = {"exp": h, "z": float(spec.disc[2]), "bol": 1.0 / yy, "a2": M33_LIGHT.a2, "a2R": M33_LIGHT.a2R}
 
 ## The angle (rad) in a disc's plane, from its line of nodes, of a direction seen at position
 ## angle `pa_deg` on the sky: deprojected through the disc's own axes (GalLandmarks.sky_basis).

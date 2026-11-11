@@ -971,6 +971,9 @@ func _gather_light(img: Image) -> void:
 			sum[k] += a
 			cnt[k] += 1.0
 			top[k] = maxf(top[k], a)
+	var share := float(thin_map.get("share", 1.0))
+	if thin_map.has("a2"): share = _share_for_a2(img, sum, cnt, px)
+	young_share = share
 	for j in ARM_N:
 		for i in ARM_N:
 			var x := -ARM_HALF + (float(i) + 0.5) * px
@@ -981,10 +984,10 @@ func _gather_light(img: Image) -> void:
 			var c := img.get_pixel(i, j)
 			var rel := c.r / mean if mean > 1e-12 else 0.0
 			var pres := _arm_presence(R)
-			var t: float = GalModels.inman_surface(thin_map.discs, float(thin_map.outerH), R) * float(thin_map.bol)
-			var fy := float(thin_map.share) * pres if mean > 1e-12 else 0.0
+			var t := _thin_surface(R)
+			var fy := share * pres if mean > 1e-12 else 0.0
 			c.r = t * ((1.0 - fy) + fy * rel)
-			if not disc_map.is_empty():
+			if disc_map.has("contrast"):
 				# Peak to valley C = 1 + f·(max/mean)/(1 − f) for a ring whose arms vanish between.
 				var cc := _contrast(R) - 1.0
 				var peak := top[k] / mean if mean > 1e-12 else 0.0
@@ -1000,6 +1003,44 @@ func _contrast(R: float) -> float:
 		if R <= float(t[k][0]):
 			return lerpf(float(t[k - 1][1]), float(t[k][1]), (R - float(t[k - 1][0])) / (float(t[k][0]) - float(t[k - 1][0])))
 	return float(t[t.size() - 1][1])
+
+## The young disc's share gathered into its arms (after the bake).
+var young_share := 0.0
+
+## The young disc's bolometric surface luminosity at R: Inman et al.'s discs or an exponential.
+func _thin_surface(R: float) -> float:
+	if thin_map.has("exp"): return exp(-R / float(thin_map.exp)) * float(thin_map.bol)
+	return GalModels.inman_surface(thin_map.discs, float(thin_map.outerH), R) * float(thin_map.bol)
+
+## The share that gives the young light a mean normalised m = 2 amplitude thin_map.a2 over the
+## rings in thin_map.a2R: each ring's A2 is the share times its arm presence times the arms'
+## own |Σ (A/⟨A⟩) e^{2iφ}| / N, the even part adding nothing.
+func _share_for_a2(img: Image, sum: PackedFloat64Array, cnt: PackedFloat64Array, px: float) -> float:
+	var nb := sum.size()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	cr.resize(nb)
+	ci.resize(nb)
+	for j in ARM_N:
+		for i in ARM_N:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / px)
+			var mean := sum[k] / maxf(cnt[k], 1.0)
+			if mean <= 1e-12: continue
+			var rel := img.get_pixel(i, j).r / mean
+			var phi := atan2(z, x)
+			cr[k] += rel * cos(2.0 * phi)
+			ci[k] += rel * sin(2.0 * phi)
+	var lim: Array = thin_map.a2R
+	var acc := 0.0
+	var m := 0
+	for k in nb:
+		var R := (float(k) + 0.5) * px
+		if R < float(lim[0]) or R > float(lim[1]) or cnt[k] <= 0.0: continue
+		acc += _arm_presence(R) * sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / cnt[k]
+		m += 1
+	return clampf(float(thin_map.a2) / (acc / float(maxi(m, 1))), 0.0, 1.0)
 
 ## How fully the arms are there at R: the strongest arm's weight past its measured span, times
 ## their rise.

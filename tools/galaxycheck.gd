@@ -765,6 +765,45 @@ func neighbours() -> void:
 
 # Galaxies of their own scenes (GalModels.TYPES): drawn at their measured total light, and
 # M104's dust, integrated back to a mass, De Looze et al.'s (2012) ring and inner disc.
+## M33's arms in its drawn map: the young light's normalised m = 2 amplitude over 1–3.2 kpc
+## (HERM33ES's 0.4–0.8 for Hα and dust, 0.6 aimed at), and the star formation rate its light
+## implies against what is measured.
+func m33_arms() -> void:
+	var m := GalModels.neighbour("m33")
+	var v := GalaxyVisual.new(m)
+	var img: Image = v.arm_img
+	var n := img.get_width()
+	var px := 2.0 * GalaxyVisual.ARM_HALF / float(n)
+	var nb := int(3.3 / px) + 1
+	var a0 := PackedFloat64Array()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	for arr in [a0, cr, ci]: arr.resize(nb)
+	for j in n:
+		for i in n:
+			var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+			var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / px)
+			if k >= nb: continue
+			var r := img.get_pixel(i, j).r
+			var phi := atan2(z, x)
+			a0[k] += r
+			cr[k] += r * cos(2.0 * phi)
+			ci[k] += r * sin(2.0 * phi)
+	var acc := 0.0
+	var cnt := 0
+	for k in nb:
+		var R := (float(k) + 0.5) * px
+		if R < 1.0 or R > 3.2: continue
+		acc += sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0[k]
+		cnt += 1
+	var a2 := acc / float(cnt)
+	print("     M33: %s of its young light in the arms; star formation %s M☉/yr implied by its V" % [String.num(v.young_share, 3), String.num(float(m.sfr), 3)])
+	ok(absf(a2 - 0.6) < 0.01, "M33's young light has m = 2 amplitude %s over 1–3.2 kpc (HERM33ES 0.4–0.8 in Hα and dust)" % String.num(a2, 3))
+	# Verley et al. (2007) find 0.2 M☉/yr in the inner disc alone, from the infrared and Hα.
+	ok(float(m.sfr) > 0.2 and float(m.sfr) < 0.7, "M33's light implies %s M☉/yr of star formation (inner disc alone 0.2, Verley et al. 2007)" % String.num(float(m.sfr), 3))
+	v.dispose()
+
 ## The LMC's bar measured back out of its drawn map as Rathore et al. (2024) measured the real
 ## one: A2 and the m = 2 phase in 0.1 kpc annuli; the bar's end where A2 falls to half its
 ## peak; its phase seen on the sky.
@@ -1117,6 +1156,7 @@ func types() -> void:
 	m51()
 	m87()
 	lmc_bar()
+	m33_arms()
 	var m51 := GalModels.type_galaxy("m51")
 	# NGC 5195 against M51: 4.41′ apart on the sky (NED), 35 kpc behind.
 	var cf := GalLandmarks.companion_frame(m51, "ngc5195")

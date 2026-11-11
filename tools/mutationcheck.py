@@ -116,6 +116,8 @@ MUTATIONS = {
                          GALAXYCHECK, "the LMC's bar given no light"),
     "lmc-bar-sky-angle": ("sim/galaxy/gal_models.gd", "	return best", "	return deg_to_rad(float(spec.pa) - pa_deg)",
                           GALAXYCHECK, "the LMC's bar angle taken from the sky without deprojecting"),
+    "m33-arms-smooth": ("sim/galaxy/gal_visual.gd", "	if thin_map.has(\"a2\"): share = _share_for_a2(img, sum, cnt, px)", "	if thin_map.has(\"a2\"): share = 0.0",
+                        GALAXYCHECK, "M33's young light not gathered into its arms"),
     "companion-in-front": ("sim/galaxy/gal_landmarks.gd", "var rel := (cs[0] as Vector3) * float(spec.d) - (hs[0] as Vector3) * float(host.d)",
                            "var rel := (cs[0] as Vector3) * (2.0 * float(host.d) - float(spec.d)) - (hs[0] as Vector3) * float(host.d)",
                            GALAXYCHECK, "NGC 5195 placed in front of M51 rather than behind"),
