@@ -214,7 +214,7 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	_model_for_uniforms = model
 	_build_glow(model)
 	_build_stars(model)
-	if not defer_arms and young_pop != null: apply_arms(bake_arms())
+	if not defer_arms and (young_pop != null or not disc_map.is_empty()): apply_arms(bake_arms())
 	has_sun = String(model.key) == "milky_way" and GalNeighbourhood.available()
 	if has_sun:
 		sun_r0 = float(model.get("r0", 8.0))
@@ -662,7 +662,8 @@ func bake_arms() -> Dictionary:
 			var b := _disc_surface(R) if not disc_map.is_empty() else _spiral_plane(R, phi)
 			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), g, b))
 	if not thin_map.is_empty(): _gather_light(img)
-	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2)}
+	if disc_map.has("bar"): bar_share = _add_bar(img)
+	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": bar_share}
 	if not hii_spec.is_empty(): out.hii = GalHII.build(hii_spec, hii_d, img, ARM_HALF, _l_young, young_h, 51)
 	_cache_mutex.lock()
 	_arm_cache[_model_key] = out
@@ -800,7 +801,7 @@ func apply_arms(baked: Dictionary) -> void:
 	arm_img = baked.img
 	arm_tex = ImageTexture.create_from_image(arm_img)
 	if baked.has("hii") and hii == null: _apply_hii(baked.hii)
-	young_k = _l_young / float(baked.integral)
+	young_k = _l_young / float(baked.integral) if float(baked.integral) > 0.0 else 0.0
 	if not disc_map.is_empty():
 		disc_k = _l_disc / float(baked.disc)
 		for mat in [glow_mat, star_mat]:
@@ -860,9 +861,83 @@ func _dust_arm(R: float, phi: float) -> float:
 			best = maxf(best, at[2] * exp(-d * d / (w * w)))
 	return cut * best
 
-## The old disc's bolometric surface luminosity at R (L☉ kpc⁻²).
+## The old disc's bolometric surface luminosity at R (L☉ kpc⁻²): Inman et al.'s discs, or an
+## exponential of scale `exp` (its scale on the map comes from disc_k).
 func _disc_surface(R: float) -> float:
+	if disc_map.has("exp"): return exp(-R / float(disc_map.exp)) * float(disc_map.bol)
 	return GalModels.inman_surface(disc_map.discs, float(disc_map.outerH), R) * float(disc_map.bol)
+
+## The bar's share of the disc's light, after _add_bar.
+var bar_share := 0.0
+## Rathore et al.'s (2024) annuli for A2, kpc.
+const BAR_ANNULUS := 0.1
+
+## A Ferrers (1 − m²)² bar of semi-major axis a, axis ratio q, at angle ψ from the line of
+## nodes, gathered from the disc's light in b: its share f is solved so the map's peak
+## bi-symmetric amplitude A2 = |Σ Σ e^{2iφ}| / Σ Σ over BAR_ANNULUS annuli is the measured one.
+## The disc alone has no m = 2 term, so each annulus's A2 is f|c_bar| / ((1 − f)A0_disc + f A0_bar).
+func _add_bar(img: Image) -> float:
+	var bar: Array = disc_map.bar
+	var a: float = bar[0]
+	var q: float = bar[1]
+	var c := cos(float(bar[2]))
+	var sn := sin(float(bar[2]))
+	var n := img.get_width()
+	var px := 2.0 * ARM_HALF / float(n)
+	var shape := PackedFloat64Array()
+	shape.resize(n * n)
+	var tot_d := 0.0
+	var tot_b := 0.0
+	for j in n:
+		for i in n:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var u := x * c + z * sn
+			var v := -x * sn + z * c
+			var m2 := (u / a) * (u / a) + (v / (q * a)) * (v / (q * a))
+			shape[j * n + i] = pow(1.0 - m2, 2.0) if m2 < 1.0 else 0.0
+			tot_b += shape[j * n + i]
+			tot_d += img.get_pixel(i, j).b
+	# Per annulus: the disc's and bar's A0, the bar's |c₂|, each per unit of its whole.
+	var nb := int(ceil(2.0 * a / BAR_ANNULUS)) + 1
+	var a0d := PackedFloat64Array()
+	var a0b := PackedFloat64Array()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	for arr in [a0d, a0b, cr, ci]: arr.resize(nb)
+	for j in n:
+		for i in n:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / BAR_ANNULUS)
+			if k >= nb: continue
+			var phi := atan2(z, x)
+			var sb := shape[j * n + i] / tot_b
+			a0d[k] += img.get_pixel(i, j).b / tot_d
+			a0b[k] += sb
+			cr[k] += sb * cos(2.0 * phi)
+			ci[k] += sb * sin(2.0 * phi)
+	var want: float = bar[3]
+	var lo := 0.0
+	var hi := 1.0
+	for it in 60:
+		var f := 0.5 * (lo + hi)
+		if _peak_a2(f, a0d, a0b, cr, ci) < want: lo = f
+		else: hi = f
+	var f := 0.5 * (lo + hi)
+	for j in n:
+		for i in n:
+			var col := img.get_pixel(i, j)
+			col.b = (1.0 - f) * col.b + f * tot_d * shape[j * n + i] / tot_b
+			img.set_pixel(i, j, col)
+	return f
+
+static func _peak_a2(f: float, a0d: PackedFloat64Array, a0b: PackedFloat64Array, cr: PackedFloat64Array, ci: PackedFloat64Array) -> float:
+	var peak := 0.0
+	for k in a0d.size():
+		var a0 := (1.0 - f) * a0d[k] + f * a0b[k]
+		if a0 > 0.0: peak = maxf(peak, f * sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0)
+	return peak
 
 ## ∫∫ of a map channel over the plane, as the shader reads it.
 func _map_integral(img: Image, ch: int) -> float:

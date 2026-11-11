@@ -765,6 +765,65 @@ func neighbours() -> void:
 
 # Galaxies of their own scenes (GalModels.TYPES): drawn at their measured total light, and
 # M104's dust, integrated back to a mass, De Looze et al.'s (2012) ring and inner disc.
+## The LMC's bar measured back out of its drawn map as Rathore et al. (2024) measured the real
+## one: A2 and the m = 2 phase in 0.1 kpc annuli; the bar's end where A2 falls to half its
+## peak; its phase seen on the sky.
+func lmc_bar() -> void:
+	var m := GalModels.neighbour("lmc")
+	var v := GalaxyVisual.new(m)
+	var img: Image = v.arm_img
+	var n := img.get_width()
+	var px := 2.0 * GalaxyVisual.ARM_HALF / float(n)
+	var nb := 60
+	var a0 := PackedFloat64Array()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	for arr in [a0, cr, ci]: arr.resize(nb)
+	for j in n:
+		for i in n:
+			var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+			var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / 0.1)
+			if k >= nb: continue
+			var b := img.get_pixel(i, j).b
+			var phi := atan2(z, x)
+			a0[k] += b
+			cr[k] += b * cos(2.0 * phi)
+			ci[k] += b * sin(2.0 * phi)
+	var peak := 0.0
+	var kp := 0
+	for k in nb:
+		var a2 := sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0[k]
+		if a2 > peak:
+			peak = a2
+			kp = k
+	var r_end := 0.0
+	for k in range(kp, nb):
+		if sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0[k] < 0.5 * peak:
+			r_end = (float(k) + 0.5) * 0.1
+			break
+	# The bar's direction in the plane from the phase inside it, then on the sky.
+	var sr := 0.0
+	var si := 0.0
+	for k in range(5, 20):
+		sr += cr[k]
+		si += ci[k]
+	var psi := 0.5 * atan2(si, sr)
+	var spec: Dictionary = GalModels.LOCAL_GROUP.lmc
+	var sk := GalLandmarks.sky_basis(float(spec.ra), float(spec.dec), float(spec.i), float(spec.pa))
+	var w: Vector3 = (sk[1] as Basis).x * cos(psi) + (sk[1] as Basis).z * sin(psi)
+	var e := 0.5
+	var north := (GalLandmarks.sky_direction(float(spec.ra), float(spec.dec) + e) - GalLandmarks.sky_direction(float(spec.ra), float(spec.dec) - e)).normalized()
+	var east := (GalLandmarks.sky_direction(float(spec.ra) + e / cos(deg_to_rad(float(spec.dec))), float(spec.dec)) - GalLandmarks.sky_direction(float(spec.ra) - e / cos(deg_to_rad(float(spec.dec))), float(spec.dec))).normalized()
+	var pa := fposmod(rad_to_deg(atan2(w.dot(east), w.dot(north))), 180.0)
+	print("     LMC bar: %s of the disc's light, A2 peak %s at %s kpc, half at %s kpc, sky PA %s°" % [
+		String.num(v.bar_share, 3), String.num(peak, 3), String.num((float(kp) + 0.5) * 0.1, 2), String.num(r_end, 2), String.num(pa, 2)])
+	ok(absf(peak - 0.27) < 0.005, "the LMC's drawn bar has Rathore et al.'s peak A2 (%s, want 0.27)" % String.num(peak, 4))
+	ok(absf(pa - 121.26) < 1.0, "the LMC's drawn bar lies at PA %s° on the sky (Rathore et al. 121.26°)" % String.num(pa, 2))
+	# Their AM1 radius, A2 at half its peak: 2.58 (+0.04 −0.05) kpc, binned in 0.1 kpc annuli.
+	ok(absf(r_end - 2.58) < 0.1, "the LMC's drawn bar's A2 halves at %s kpc (Rathore et al. 2.58)" % String.num(r_end, 2))
+	v.dispose()
+
 ## M87 drawn from Kormendy et al.'s (2009) measured profile: the drawn galaxy, projected along
 ## parallel rays, against each measured point inside half the profile's reach, and its light
 ## against their M_VT.
@@ -1057,6 +1116,7 @@ func types() -> void:
 	ok(worst < 1e-6, "%d galaxies of their own scenes are drawn at their measured absolute V (worst %s mag)" % [GalModels.TYPES.size() - 2, U.expo(worst, 1)])
 	m51()
 	m87()
+	lmc_bar()
 	var m51 := GalModels.type_galaxy("m51")
 	# NGC 5195 against M51: 4.41′ apart on the sky (NED), 35 kpc behind.
 	var cf := GalLandmarks.companion_frame(m51, "ngc5195")

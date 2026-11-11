@@ -65,11 +65,17 @@ const LOCAL_GROUP := {
 	"m33": {"name": "Triangulum (M33)", "ra": 23.46204167, "dec": 30.66022222, "d": 809.0, "i": 53.84, "pa": 23.0,
 		"disc": [4.8e9, 1.744, 0.1], "extent": 15.0, "mv": -18.8},
 	# van der Marel, Kallivayalil & Besla (2009): stars 2.7 × 10⁹ M☉; van der Marel (2001):
-	# exponential, scale length 1.3–1.5 kpc (1.4 here); van der Marel & Cioni (2001): i 34.7°,
-	# PA 122.5°; Pietrzyński et al. (2019): 49.59 kpc. Its thickness, b = 0.2 a, is a rendering
-	# choice: van der Marel et al. (2002) find a thick disc, V/σ ≈ 2.9.
-	"lmc": {"name": "Large Magellanic Cloud", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "i": 34.7, "pa": 122.5,
-		"disc": [2.7e9, 1.356, 0.27], "extent": 12.0, "mv": -18.1},
+	# exponential, scale length 1.3–1.5 kpc (1.4 here); Pietrzyński et al. (2019): 49.59 kpc.
+	# i 25.86°, line of nodes 149.23° (Choi et al. 2018a), the frame its bar was measured in.
+	# The bar (Rathore et al. 2024, completeness-corrected Gaia DR3 red clump): axis ratio 0.54,
+	# PA 121.26° on the sky, peak bi-symmetric amplitude A2 0.27, and A2 falling to half its peak
+	# at 2.58 kpc (their AM1 radius; 2.13 kpc by the m = 2 phase, which a straight model bar
+	# cannot show). Drawn as a Ferrers (1 − m²)² bar: its share of the disc's light is solved so
+	# the map's peak A2 is 0.27, and its 3.25 kpc length set so A2 halves at 2.58 kpc. Its 0.76
+	# kpc offset from the disc's centre, and the lopsided arm on its western end, are not drawn. Its thickness,
+	# b = 0.2 a, is a rendering choice: van der Marel et al. (2002) find a thick disc, V/σ ≈ 2.9.
+	"lmc": {"name": "Large Magellanic Cloud", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "i": 25.86, "pa": 149.23,
+		"disc": [2.7e9, 1.356, 0.27], "extent": 12.0, "mv": -18.1, "bar": [3.25, 0.54, 121.26, 0.27]},
 	# Stars 3.1 × 10⁸ M☉ (van der Marel et al. 2009, from Stanimirović et al. 2004); the old
 	# stars a spheroid (ibid.), exponential with scale length 1.25 kpc (Gonidakis et al. 2009),
 	# so R_e = 2.10 kpc; Graczyk et al. (2020): 62.44 kpc. Drawn round: Crowl et al. (2001)
@@ -101,7 +107,38 @@ static func neighbour(key: String, from_mass := false) -> Dictionary:
 	if spec.has("mv") and not from_mass:
 		var k := pow(10.0, -0.4 * (float(spec.mv) - 4.83)) / visible_luminosity(model)
 		for l in light: l.visible = float(l.visible) * k
+	if spec.has("bar"):
+		# The disc in the map as the exponential it stands in for, with its bar (GalaxyVisual).
+		var pop := GalPopulation.build({"kind": "constant", "gyr": 10.0})
+		var yd := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
+		var b: Array = spec.bar
+		model.discMap = {"exp": spec.disc[1] / 0.9688, "z": spec.disc[2], "bol": 1.0 / yd,
+			"bar": [b[0], b[1], bar_angle(spec, float(b[2])), b[3]]}
 	return model
+
+## The angle (rad) in a disc's plane, from its line of nodes, of a direction seen at position
+## angle `pa_deg` on the sky: deprojected through the disc's own axes (GalLandmarks.sky_basis).
+static func bar_angle(spec: Dictionary, pa_deg: float) -> float:
+	var sk := GalLandmarks.sky_basis(float(spec.ra), float(spec.dec), float(spec.i), float(spec.pa))
+	var basis: Basis = sk[1]
+	# North and east as sky_basis takes them.
+	var e := 0.5
+	var ra := float(spec.ra)
+	var dec := float(spec.dec)
+	var north := (GalLandmarks.sky_direction(ra, dec + e) - GalLandmarks.sky_direction(ra, dec - e)).normalized()
+	var east := (GalLandmarks.sky_direction(ra + e / cos(deg_to_rad(dec)), dec) - GalLandmarks.sky_direction(ra - e / cos(deg_to_rad(dec)), dec)).normalized()
+	var best := 0.0
+	var err := INF
+	for k in 36000:
+		var psi := TAU * float(k) / 36000.0
+		var w := basis.x * cos(psi) + basis.z * sin(psi)
+		# A bar is a line: its position angle is taken modulo 180°.
+		var pa := fposmod(rad_to_deg(atan2(w.dot(east), w.dot(north))), 180.0)
+		var d := absf(fposmod(pa - pa_deg + 90.0, 180.0) - 90.0)
+		if d < err:
+			err = d
+			best = psi
+	return best
 
 ## A model's total visible luminosity (Sun-luminances): each part's stellar mass, visible
 ## share, its population's L/M and that light's luminance.

@@ -476,7 +476,7 @@ Way's exposure.
 |---|---|---|---|
 | M31 | Hernquist bulge 3.4 × 10¹⁰ M☉, a = 0.7 kpc; Miyamoto–Nagai disc 6.9 × 10¹⁰ M☉, a = 6.5, b = 0.26 kpc (Kafle et al. 2018, from five earlier studies) | as given | i 77.5° (Tamm et al. 2012), PA 38° (Corbelli et al. 2010), 783 kpc (McConnachie 2012) |
 | M33 | 4.8 × 10⁹ M☉, no bulge (Corbelli et al. 2014) | exponential, 1.8 kpc; 100 pc half-thick | PA 23°, ellipticity 0.41, so i = 53.8°; 809 kpc (McConnachie 2012) |
-| LMC | 2.7 × 10⁹ M☉ (van der Marel et al. 2009) | exponential, 1.3–1.5 kpc (van der Marel 2001; 1.4 here) | i 34.7°, PA 122.5° (van der Marel & Cioni 2001); 49.59 kpc |
+| LMC | 2.7 × 10⁹ M☉ (van der Marel et al. 2009) | exponential, 1.3–1.5 kpc (van der Marel 2001; 1.4 here), with a bar (below) | i 25.86°, line of nodes 149.23° (Choi et al. 2018a, the frame its bar was measured in); 49.59 kpc |
 | SMC | 3.1 × 10⁸ M☉ (ibid., from Stanimirović et al. 2004) | an old spheroid (ibid.), exponential with scale length 1.25 kpc (Gonidakis et al. 2009) | 62.44 kpc |
 
 - **Stand-ins.** An exponential disc is drawn as a Miyamoto–Nagai disc of the same mass
@@ -502,7 +502,23 @@ Way's exposure.
   - Light only: the halos wait for encounters (phase 4).
   - The neighbours hold their places from t = 0.
   - Which side of each disc is near is not modelled.
-  - They have no arms, bars or dust: the LMC's bar is missing.
+  - They have no arms or dust.
+- **The LMC's bar** is Rathore et al.'s (2024) measurement from completeness-corrected Gaia DR3
+  red clump stars.
+  - **Measured:** axis ratio 0.54, PA 121.26° on the sky, a peak bi-symmetric amplitude A2 of
+    0.27, and A2 falling to half its peak at 2.58 kpc (their AM1 radius). Their preferred
+    2.13 kpc comes from where the m = 2 phase turns, which a straight model bar cannot show.
+  - **Drawn** as a Ferrers (1 − m²)² bar in the disc's map:
+    - its share of the disc's light (0.33) is solved so the map's own peak A2, in their 0.1 kpc
+      annuli, is 0.27;
+    - its length (3.25 kpc) is set so A2 halves at 2.58 kpc;
+    - its angle in the disc's plane is the sky PA deprojected through the disc's axes: 30.55°
+      from the line of nodes, the ~30° misalignment they note.
+  - **Not drawn:** the bar's 0.76 kpc offset from the disc's centre (its direction is only
+    shown in a figure), its tilt out of the plane, and the arm on its western end.
+  - **Checked:** measured back out of the drawn map, the peak A2 is 0.27, A2 halves at 2.65 kpc
+    (0.1 kpc bins), and the bar lies at PA 121.16° on the sky. The LMC's glow matches the CPU
+    integral in its frame to 0.1 %.
   - The eye adapts to the Milky Way, so seen close up they are overexposed.
 
 ## Galaxy types (phase 3c)
