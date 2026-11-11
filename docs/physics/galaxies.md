@@ -544,46 +544,160 @@ through the population model. They have no tracers.
   - M104's ring spans the same share of the field as Hubble's dust lane, at the same tilt.
   - M87's size and colour match ESO's VLT image.
   - Missing: M87's jet and globular clusters, and the mottled texture of M104's lane.
-- **M51, the Whirlpool,** with its companion NGC 5195 (preset `gal_m51`).
-  - **Light.** Drawn at M_V = −21.53: RC3's V_T⁰ = 8.14 at McQuinn et al.'s (2016)
-    8.58 Mpc. Marchuk et al. (2024) decompose it in the g band with each spiral arm as
-    its own component (rescaled from 8.9 Mpc):
-    - bulge 8 % (r_eff 16.1″), a Hernquist sphere;
-    - disc 56 % (h 70.0″);
-    - two arms of 19 % and 17 %. Their pitches are 11.0° and 14.1°. Their radial FWHMs
-      are 47.0″ and 45.8″, so σ across the arm = FWHM/2.355 × cos pitch. Their light
-      falls outward with h_s 51.0″ and 62.4″, and their width does not grow with radius.
-  - **Orientation:** i = 46.2°, PA = 24.4°. The literature spans 20° to over 50°;
-    Marchuk et al.'s arms were measured at theirs.
-  - **The arms** go through the Milky Way's arm machinery, generalised: per-arm decay,
-    no width growth, their own radius span and windings, and a mirror flag (unused here:
-    the winding already matches).
-  - **Rendering choices, set to Hubble's image by eye:** the arms' phase; their span
-    (1.5–10.5 kpc); their light rising over the first 2 kpc and fading over 0.6 rad past
-    their ends; the arms' and disc's thicknesses. Marchuk et al.'s own arm start and
-    maximum were not read.
-  - **No dust.**
-  - **The arms' light** is the measured 36 % of the total, as the young population's
-    colour. Calzetti et al.'s (2005) 3.4 M☉/yr over 100 Myr would give only 0.36 of it:
-    the g-band arm light also holds older stars gathered in the arms.
+- **M51, the Whirlpool,** with its companion NGC 5195 (preset `gal_m51`): see
+  [M51](#m51) below.
 - **NGC 5195:**
   - drawn at RC3's V_T⁰ = 9.58, a Hernquist sphere of RC3's effective aperture
     (r_e = 57.15″);
   - placed from NED's positions (4.41′ apart) and 35 kpc behind M51, inside the 20–50 kpc
-    Dobbs et al. (2010) and Salo & Laurikainen (2000) give (via Marchuk et al.);
+    Dobbs et al. (2010) and Salo & Laurikainen (2000) give (via Marchuk et al. 2024);
   - drawn round, though Wei et al. (2020) give i 43°.
-- **Checked:**
-  - all four drawn at their measured magnitudes;
-  - the arms' drawn light equal to the measured;
-  - each arm's light along its ridge falling with its measured h_s (within 2.5 %);
-  - NGC 5195's offset (4.413′, 35.0 kpc);
-  - M51's glow against the CPU integral across its middle.
-- **Against Hubble** (heic0506a, rotated to its north 91.9° right of vertical):
-  - the arms wind the same way and NGC 5195 sits where it does;
-  - the model looks more inclined than the image, and has none of the dust lanes, H II
-    regions or blue colour of the real arms.
 - **The glow box** now holds the spheroid's whole march radius. A ray that misses the
   box has no fragment, so a taller spheroid was cut off flat.
+
+## M51
+
+M51 is drawn from one radiative-transfer model of its stars and dust together, so its dust dims
+light the model says is there, not light already dimmed. Everything below is at McQuinn et al.'s
+(2016) 8.58 Mpc; values from other distances are rescaled.
+
+### Where its arms are
+
+- **Orientation and pitches** from Egusa et al.'s (2017) stellar mass map: i 24°, PA 169°; the
+  arms' pitch is 19.3° and 23.4° inside 150″ (6.24 kpc), 37.4° and 32.4° beyond, measured
+  over 30″–220″. Arm 2 is the one joined to NGC 5195.
+- **Widths:** σ across the arm 0.815 and 0.785 kpc, Marchuk et al.'s (2024) radial FWHM.
+- **Phase, by overlay.** The arms wind clockwise outward on the sky. Their phase was set by
+  laying the ridges over Hubble's image (heic0506a). The image's scale and north were taken
+  from the two nuclei rather than its caption: 588 px for NED's 4.41′, north 92.2° clockwise
+  from up. Their start (rising over 1.5–3.5 kpc) and their fade past the measured span are
+  set by eye.
+
+### Its stars
+
+Inman et al. (2023) fit M51 from the ultraviolet to the submillimetre (Tables 3, 5, A1, A3).
+- **Components:**
+  - a Sérsic n = 4 bulge of R_e 0.35 kpc, drawn as a Hernquist sphere;
+  - an inner and a main old disc and an inner and a main young (thin) disc. Each is zero
+    inside R_tin, linear from χ to 1 up to R_in, then exponential to R_t (their eq. 1), and
+    exp(−|z|/z) in height: z 0.19 kpc old, 0.09 young.
+- **V band.** Their L_ν at 4719 and 6185 Å give V at 5476 Å, log-linear in L_ν and in scale
+  length, and L☉ from the Sun's 4.80 AB (Willmer 2018).
+- **Beyond their fit.** Their fit ends at 6.8 kpc, where the disc stops being axisymmetric.
+  Past it the main discs carry on at their outer disc's scale lengths (2.0 kpc old, 1.45
+  young): an extrapolation.
+- **Gathered into the arms**, each ring keeping its mean:
+  - the old disc to the K-band arm/interarm contrast Rix & Rieke (1993, §4.2) measure: 1.8
+    at 70″, 3 at 125″, 2 at 150″;
+  - 91 % of the young light, the arms' share of M51's H II Hα (Lee, Hwang & Lee 2011, §5.2:
+    10^41.1 erg/s in the arms against 10^40.1 between).
+- **In the map.** Both discs sit in the arm map, b and r, as bolometric surface luminosity.
+- **Intrinsic light.** Their stars give M_V −21.94 before the dust.
+
+### Its dust
+
+- **Discs.** Inman et al.'s inner and main dust discs, in the same form: τ_B 5.33 and 2.62
+  face-on at R_in 0.8 and 2.7 kpc, scale lengths 5.0 and 6.0 kpc, z 0.16 kpc. τ_V = τ_B/1.324
+  (Rieke & Lebofsky 1985), and mass through Draine's κ_V.
+- **Lanes.** PAWS puts 66.5 % of the CO outside the centre in the arms (Colombo et al. 2014,
+  Table 2), so that share of each ring's dust lies in lanes, the ring's mean kept.
+  - A lane follows its gas arm's pitch: 19.9° and 18.8° inside 150″, 27.8° and 27.6° beyond.
+  - It has the gas arm's azimuthal FWHM, 30° inside and 5° beyond (Egusa et al. 2017).
+  - It is anchored upstream of the young stars by ΔΘ = Ω_p t_SF (R_CR/R − 1) at 4 kpc:
+    Egusa et al.'s (2009) arm-1 fit, Ω_p t_SF = 0.225 rad and R_CR 2.9′, with a flat
+    rotation curve. That is 10.4°.
+- **Mass:**
+  - 4.22 × 10⁷ M☉ inside 6.8 kpc, 1.13 times Inman et al.'s 3.74 × 10⁷: Draine's V opacity
+    against their Weingartner & Draine B-band model;
+  - 8.3 × 10⁷ M☉ with the extrapolated outer disc, 0.93 of Mentuch Cooper et al.'s (2012)
+    whole-galaxy Herschel mass.
+
+### H II regions
+
+Drawn by `GalHII` and `shaders/galaxy/galaxy_hii.gdshader`.
+- **Hα.** The star formation rate's Hα, log SFR = log L(Hα) − 41.27 (Kennicutt & Evans 2012,
+  Kroupa IMF), at Inman et al.'s 4.11 M☉/yr: 7.7 × 10⁴¹ erg/s. Of it, 45 % is in diffuse gas
+  (Thilker, Braun & Walterbos 2000) and is added to the arms' smooth light; the rest lies in
+  regions.
+- **Brightness and size.**
+  - Brightness follows Lee et al.'s (2011) luminosity function: L^−2.25 above 10^37.1 erg/s,
+    L^−1.42 below, 10^35.5 to 10^39.0 at 9.9 Mpc.
+  - Sizes follow L ∝ D^3.04, anchored at 8 pc for 10^35.5. A region is a Gaussian of
+    σ = D/4.
+- **Lines.** Hα, [N II] at half the Hα (Bresolin et al. 2004, via Lee et al.) and Hβ at Hα/2.86
+  (case B). They are coloured through the CIE functions per unit power, as the populations'
+  light is (`GalPopulation.visible_line`).
+- **Stars.** Each region holds a point cluster with its share of the light of all stars
+  under 10 Myr (where 90 % of the Hα comes from). The regions as a whole hold 55 %, taken
+  from the young disc's light.
+- **Drawn.** 28 272 regions are drawn one by one. Those under 10^36.5 erg/s, 72 % of them with
+  14 % of the regions' light, stay in the arms' smooth light, lines and all.
+- **Clustering.** Regions stand in complexes along the young light. Each is a hierarchy
+  (Soneira & Peebles 1978) with a Poisson number of children per halving of scale, three on
+  average: a fractal of dimension log 3/log 2 = 1.585, against Grasha et al.'s (2019) D₂ =
+  2 + α = 1.60.
+  - Its top scale, 220 pc, is set so the regions' two-point correlation over 100–3000 pc has
+    Grasha et al.'s slope, −0.40 ± 0.05 for clusters under 10 Myr. Clustering fades to
+    random by 700–900 pc, their "few hundred parsec".
+- **Dimming.** Each region is dimmed by the model's dust between it and the camera: 16 steps
+  through the dust layer.
+
+### Checked
+
+`galaxycheck`:
+- **Map.** Each band of radius keeps Inman et al.'s profiles (old, young, dust: under 1 %).
+  The dust map holds its profile's mass (0.1 %).
+- **Arms.** The lanes stand 10.44° upstream at 4 kpc. The old disc peaks 3.03× its valley at
+  5.2 kpc. At 4 kpc, every texel of young light matches 91 % gathered into the arms.
+- **M_V.** The rays add back to the stars' light without dust (0.000 mag). Through its dust,
+  M51 shows **M_V −21.27, 0.26 mag fainter than RC3's −21.53**. Our dust extinguishes and
+  never scatters, while Inman et al.'s model, with scattering, absorbs 38 % even
+  bolometrically; ours takes 45 % of V.
+- **H II regions:**
+  - their Hα (exact) and the bright slope of the luminosity function recovered from the
+    catalogue (0.569 against 0.574);
+  - their sizes;
+  - the young light kept between the smooth arms and the clusters (1e-7);
+  - their clustering slope (−0.36 with 1031 regions; within 2σ of the estimator).
+- **Lee et al.'s catalogue.** It holds 0.5 dex less Hα than the star formation rate gives. It
+  misses faint and blended regions, and its 3.1 mag extinction correction is a mean.
+
+`galaxylookcheck`:
+- **Glow.** M51's glow, with its maps and dust, against the CPU integral across it: 0.4 %.
+- **H II regions.** The 28 272 regions' drawn light against the CPU's sum, each dimmed as the
+  shader marches the dust: 0.73 %.
+
+### Against Hubble
+
+Set side by side at matched field and north, judged by eye:
+- **What agrees:** the arms' layout, their dust lanes on the inner edges, and the knots along
+  them.
+- **The knots' colour.** Hubble's palette records Hα more strongly than the eye. Hα at 656 nm
+  sits on the tail of the eye's red response, so the regions here are bluish-white with a
+  pink cast, not Hubble's pink.
+- **NGC 5195's place.** The comparison is rendered from 316 kpc, since Godot's field of view
+  stops at 1°. From there NGC 5195, 35 kpc behind M51, sits 10 % nearer to it on the sky
+  than it does from the Sun.
+
+### Cost
+
+`m5-budget` measures M51 framed whole and from 8 kpc, where the glow fills the frame.
+- A Hernquist spheroid's glow is marched out to where what lies beyond is 0.5 % of its
+  galaxy's light, or to its extent. M51's bulge, 2 % of its light, ends at 1.18 kpc; the
+  others are still bounded by their extents.
+- A galaxy with nothing in its disc's layer (NGC 5195, M87) skips that march.
+- The resolved-star lattice runs only with the camera inside its galaxy's disc, not merely
+  in its plane.
+- The H II regions' quads span ±2σ, with each blob scaled to keep all its light.
+
+### Missing
+
+- **Scattering.** Dust only extinguishes.
+- **Fine structure:**
+  - the fine dust filaments and feathers between the arms;
+  - the 10–100 Myr clusters that make Hubble's arms grainy and blue;
+  - the outer arm's link to NGC 5195;
+  - NGC 5195's own dust and shape.
 
 ## Limits (phase 1)
 

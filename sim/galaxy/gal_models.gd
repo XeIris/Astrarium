@@ -119,6 +119,9 @@ static func visible_luminosity(model: Dictionary) -> float:
 		lv += float(model.armLight) * (0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b)
 	return lv
 
+# 150″ at 8.58 Mpc, where Egusa et al. (2017) split M51's arms into inner and outer pitches.
+const M51_ARM_BREAK := 6.240
+
 ## Galaxies of other kinds, each a scene of its own (too far for the Milky Way's): drawn
 ## at their measured total light (V_T⁰ or M_VT), shared among parts as their published
 ## decompositions find it; each part's stellar mass follows through the population
@@ -134,17 +137,21 @@ const TYPES := {
 	# and halo 52 % (exponential, r_e 6.0 kpc, ellipticity 0.28) as one Hernquist sphere of
 	# their joint half-light radius, 4.68 kpc; disc 35 %, scale length 1.89 kpc, height 0.78.
 	# Inclination 84° (Emsellem et al. 1996, via ibid.).
-	# The Whirlpool. McQuinn et al. (2016): 8.58 Mpc; RC3 V_T⁰ 8.14, so M_V −21.53. Marchuk et al.
-	# (2024, g band, bulge + disc + spirals; at 8.9 Mpc, rescaled): i 46.2°, PA 24.4°; bulge 8 %
-	# (r_eff 16.1″), disc 56 % (h 70.0″), and two arms of 19 and 17 % of the light, pitch 11.0°
-	# and 14.1°, radial FWHM 47.0″ and 45.8″ (σ across the arm = FWHM/2.355 · cos pitch), light
-	# falling with h_s 51.0″ and 62.4″, no width growth. Their phase, their span (1.5–10.5 kpc),
-	# their light rising over their first 2 kpc and fading over 0.6 rad past their ends are set
-	# to Hubble's image by eye, as are the disc's thickness (0.3 kpc) and the arms' (0.1). No dust.
-	"m51": {"name": "Whirlpool (M51)", "ra": 202.4696258, "dec": 47.19520736, "d": 8580.0, "mv": -21.53, "i": 46.2, "pa": 24.4,
-		"parts": {"bulge": [0.08, 0.369], "disc": [0.56, 2.821, 0.3]}, "extent": 25.0,
-		"arms": [["Arm 1", 4.000, 0.0, 11.0, 11.0, 0.815, -284.5, 289.1, false], ["Arm 2", 4.000, 180.0, 14.1, 14.1, 0.785, -40.1, 403.7, false]], "armShare": 0.36, "armDecay": [2.121, 2.596], "armR": [0.5, 20.0], "armTurns": 2, "armH": 0.1,
-		"armWidthGrowth": 0.0, "armRise": [1.5, 2.0], "armEndFade": 0.6, "companions": ["ngc5195"]},
+	# The Whirlpool, 8.58 Mpc (McQuinn et al. 2016). Its light is M51_LIGHT: the measured V_T (RC3
+	# V_T⁰ 8.14, M_V −21.53) is what the dust leaves of it, and is checked, not imposed.
+	# Orientation i 24°, PA 169°, and the arms' pitches in that frame, from the stellar mass map:
+	# 19.3° and 23.4° inside 150″, 37.4° and 32.4° beyond, measured over 30″–220″ (Egusa et al.
+	# 2017, Tables 1–2; arm 2 is the one joined to NGC 5195). They wind clockwise outward on the
+	# sky (mirrored here). Their widths across, σ 0.815 and 0.785 kpc, are Marchuk et al.'s
+	# (2024) radial FWHM of 47.0″ and 45.8″. Their phase was set by laying the ridges over
+	# Hubble's image, scaled and turned by the two nuclei; their start (rising over 1.5–3.5 kpc)
+	# and their fade over 0.6 rad past the measured span are set by eye. Dust: M51_DUST.
+	"m51": {"name": "Whirlpool (M51)", "ra": 202.4696258, "dec": 47.19520736, "d": 8580.0, "mv": -21.53, "i": 24.0, "pa": 169.0,
+		"light": "m51", "extent": 25.0,
+		"arms": [["Arm 1", M51_ARM_BREAK, -135.0, 37.4, 19.3, 0.815, -135.0 - 28.7, -135.0 + 263.0, false],
+			["Arm 2", M51_ARM_BREAK, 59.0, 32.4, 23.4, 0.785, 59.0 - 34.6, 59.0 + 212.9, false]], "armMirror": true,
+		"armR": [0.5, 20.0], "armTurns": 2, "armWidthGrowth": 0.0, "armRise": [1.5, 2.0], "armEndFade": 0.6,
+		"companions": ["ngc5195"], "dustMap": "m51"},
 	# NGC 5195, M51's companion: RC3 V_T⁰ 9.58 and effective aperture 114.3″ (r_e 57.15″); 20–50
 	# kpc behind M51 (Dobbs et al. 2010; Salo & Laurikainen 2000, via Marchuk et al. 2024), 35 here;
 	# i 43°, PA 91° (Spillar et al. 1992, via Wei et al. 2020); old (12 Gyr, ibid.). Drawn round.
@@ -154,6 +161,100 @@ const TYPES := {
 		"parts": {"bulge": [0.65, 2.577], "disc": [0.35, 1.834, 0.785]}, "bulgeAxes": [1.0, 0.72], "extent": 30.0,
 		"dust": "m104"},
 }
+
+# M51's dust, face-on, from Inman et al.'s (2023) radiative-transfer model (Tables 3, A2, A3; i
+# 20.3°, 8.58 Mpc): an inner and a main disc, each [R_tin, R_in, R_t, h_d, χ_d, τ_B at R_in] in
+# their eq. 1, zero inside R_tin, rising linearly from χ_d to 1 up to R_in, then exp(−R/h_d) to
+# R_t, exp(−|z|/z_d) above the plane with z_d 0.16 kpc; τ_B face-on through the whole disc.
+# Their fit ends at 6.8 kpc because the disc stops being axisymmetric there, not the dust; past
+# it the main disc carries on at their outer disc's 3.6 kpc scale length (Table 5), an
+# extrapolation. τ_V = τ_B/1.324 (Rieke & Lebofsky 1985, as EXTINCTION_RGB).
+# Lanes: PAWS finds 66.5 % of the CO outside the centre in the spiral arms (Colombo et al.
+# 2014, Table 2: 43.44 of 43.44 + 21.88 × 10⁷ K km s⁻¹ pc²), so that share of each ring's dust
+# lies in lanes, the ring's mean kept. A lane follows its gas arm's pitch (Egusa et al. 2017,
+# Table 2: 19.9° and 18.8° inside 150″, 27.8° and 27.6° beyond) with its azimuthal FWHM (≃ 30°
+# inside, ≃ 5° beyond, §3.2), upstream of the young stars by ΔΘ = Ω_p t_SF (R_CR/R − 1) at
+# 4 kpc, the middle of the 2.5–6 kpc fitted: Egusa et al.'s (2009) arm-1 fit, Ω_p 31 km/s/kpc,
+# t_SF 7.1 Myr (0.225 rad together, distance-free), R_CR 2.9′, with a flat rotation curve.
+const M51_DUST := {"discs": [[0.0, 0.8, 1.9, 5.0, 0.45, 5.33], [1.8, 2.7, 6.8, 6.0, 1.0, 2.62]],
+	"z": 0.16, "outerH": 3.6, "share": 0.665, "pitchIn": [19.9, 18.8], "pitchOut": [27.8, 27.6],
+	"fwhmIn": 30.0, "fwhmOut": 5.0, "omegaT": 0.225, "rCRArcmin": 2.9, "anchor": 4.0}
+const A_B_PER_A_V := 1.324
+# M51's stars before the dust, from the same model (Inman et al. 2023, Tables 3, 5, A1, A3): a
+# Sérsic n = 4 bulge of R_e 0.35 kpc (a Hernquist sphere of a = R_e/1.8153 here), and old and
+# young (thin) discs, inner and main, each [R_tin, R_in, R_t, χ_s, h_s in g, h_s in r, z_s,
+# L_ν at 4719 Å, at 6185 Å (W Hz⁻¹)] in the form of M51_DUST's discs. Past 6.8 kpc the main
+# discs carry on at their outer disc's scale lengths (2.0 kpc old, 1.45 young), an
+# extrapolation as for the dust. V is taken between g and r, at Johnson V's 5476 Å, log-linear
+# in L_ν and in scale length; the Sun's V is 4.80 AB (Willmer 2018).
+# Of the young light outside the nucleus, 91 % is in the arms: the Hα of M51's H II regions,
+# 10^41.1 erg/s in the arms against 10^40.1 between them (Lee, Hwang & Lee 2011, §5.2).
+# The old disc is gathered into the same arms to its measured peak-to-valley contrast in K,
+# where dust hardly dims it: 1.8 at 70″, 3 at 125″, 2 at 150″ (Rix & Rieke 1993, §4.2), linear
+# between and held beyond; each ring keeps its mean.
+const M51_LIGHT := {"bulge": [0.35, 4.16e20, 6.05e20],
+	"disc": [[0.0, 0.0, 1.9, 0.0, 0.74, 0.73, 0.19, 4.36e21, 6.26e21], [1.8, 2.7, 6.8, 1.5, 3.8, 3.5, 0.19, 8.20e21, 1.21e22]],
+	"thin": [[0.0, 0.7, 1.9, 0.1, 0.6, 0.6, 0.09, 1.87e21, 1.96e21], [1.8, 2.7, 6.8, -0.7, 4.3, 4.3, 0.09, 3.39e21, 2.95e21]],
+	"outerH": [2.0, 1.45], "armShare": 0.91, "armContrast": [[70.0, 1.8], [125.0, 3.0], [150.0, 2.0]]}
+# M51's H II regions. Their Hα is the star formation rate's, log SFR = log L(Hα) − 41.27
+# (Kennicutt & Evans 2012, Table 1, Kroupa IMF; 90 % of it from stars under 10 Myr), at
+# Inman et al.'s 4.11 M☉/yr, less the 45 % in diffuse gas (Thilker, Braun & Walterbos 2000).
+# They share it as Lee, Hwang & Lee (2011) measure, at 9.9 Mpc (rescaled): dN/dL ∝ L^−2.25
+# above 10^37.1 erg/s and L^−1.42 below, 10^35.5 to 10^39.0; diameter 8 pc at 10^35.5 growing
+# as L ∝ D^3.04 (their §5.3, §6.4; the anchor is their size range's lower end). [N II]
+# λλ6583, 6548 add half the Hα (Bresolin et al. 2004, via Lee et al.), 3 : 1; Hβ is Hα/2.86
+# (case B, 10⁴ K; Osterbrock & Ferland 2006). Each region also holds the light of its stars
+# under 10 Myr, the same 55 % of all such light, taken from the young disc's. Regions fainter
+# than 10^36.5 erg/s (at 9.9 Mpc; three quarters of them, 14 % of their light) stay in the
+# smooth young light, lines and all: a rendering choice.
+const M51_HII := {"sfr": 4.11, "logC": 41.27, "dig": 0.45, "tGyr": 0.01, "alpha": [-2.25, -1.42],
+	"logL": [35.5, 37.1, 39.0], "d": 9.9, "size": [8.0, 3.04], "nii": 0.5, "hahb": 2.86, "drawLogL": 36.5, "levels": 5, "top": 0.22}
+const LAMBDA_V := 5476.0
+const SUN_V_AB := 4.80
+
+## L_ν (W Hz⁻¹) in L☉ of V: an AB magnitude at 10 pc against the Sun's.
+static func lnu_to_lv(lnu: float) -> float:
+	var pc10_cm := 10.0 * GalUnits.AU_PER_PC * Rocketry.AU_M * 100.0
+	var m_ab := -2.5 * log(lnu * 1e7 / (4.0 * PI * pc10_cm * pc10_cm)) / log(10.0) - 48.6
+	return pow(10.0, -0.4 * (m_ab - SUN_V_AB))
+
+## A disc in Inman et al.'s form at V: [R_tin, R_in, R_t, χ, h, z, L_V (L☉), amplitude at R_in
+## (L☉ kpc⁻²)], the amplitude from L_V over the profile's area.
+static func inman_disc_v(c: Array) -> Array:
+	var f := log(LAMBDA_V / 4719.0) / log(6185.0 / 4719.0)
+	var h: float = exp(lerpf(log(float(c[4])), log(float(c[5])), f))
+	var lv := lnu_to_lv(exp(lerpf(log(float(c[7])), log(float(c[8])), f)))
+	var d := [c[0], c[1], c[2], c[3], h, c[6], lv, 1.0]
+	var area := 0.0
+	var n := 4000
+	var dr: float = float(c[2]) / float(n)
+	for k in n:
+		var R := (float(k) + 0.5) * dr
+		area += inman_shape(d, R) * TAU * R * dr
+	d[7] = lv / area
+	return d
+
+## The profile's shape, 1 at R_in (zero outside R_tin..R_t).
+static func inman_shape(d: Array, R: float) -> float:
+	if R < float(d[0]) or R > float(d[2]): return 0.0
+	if R < float(d[1]): return R / float(d[1]) * (1.0 - float(d[3])) + float(d[3])
+	return exp(-(R - float(d[1])) / float(d[4]))
+
+## Surface luminosity (L☉ kpc⁻²) of a set of such discs at R; past the last one's R_t it
+## carries on at outer_h.
+static func inman_surface(discs: Array, outer_h: float, R: float) -> float:
+	var s := 0.0
+	for k in discs.size():
+		var d: Array = discs[k]
+		if R <= float(d[2]) or k < discs.size() - 1: s += float(d[7]) * inman_shape(d, R)
+		else: s += float(d[7]) * inman_shape(d, float(d[2])) * exp(-(R - float(d[2])) / outer_h)
+	return s
+
+## The light past the last disc's R_t, as inman_surface continues it.
+static func inman_beyond(discs: Array, outer_h: float) -> float:
+	var d: Array = discs[discs.size() - 1]
+	var rt: float = d[2]
+	return TAU * float(d[7]) * inman_shape(d, rt) * outer_h * (rt + outer_h)
 
 ## Dust as extinction per mass: Draine (2003, Table 4), R_V = 3.1 Milky Way dust, C_ext(V) =
 ## 4.89 × 10⁻²² cm² per H with M_H/M_dust = 90, so 2.63 × 10⁴ cm²/g, in kpc²/M☉.
@@ -195,8 +296,9 @@ static func type_galaxy(key: String) -> Dictionary:
 	var light := []
 	var model := {"key": key, "name": spec.name, "potential": pot, "sense": 1.0, "extent": spec.extent, "light": light,
 		"sky": spec, "bulgeAxes": spec.get("bulgeAxes", [1.0, 1.0])}
+	if spec.get("light", "") == "m51": _m51_light(model)
 	var lv := pow(10.0, -0.4 * (float(spec.mv) - 4.83))
-	for part in spec.parts:
+	for part in spec.get("parts", {}):
 		var pp: Array = spec.parts[part]
 		var pop := GalPopulation.build({"kind": "burst", "gyr": 10.0} if part == "bulge" else {"kind": "constant", "gyr": 10.0})
 		var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
@@ -212,15 +314,64 @@ static func type_galaxy(key: String) -> Dictionary:
 		var yy := 0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b
 		for k in ["arms", "armDecay", "armR", "armTurns", "armH", "armWidthGrowth", "armRise", "armEndFade", "armMirror"]:
 			if spec.has(k): model[k] = spec[k]
-		model.armLight = float(spec.armShare) * lv / yy
+		if spec.has("armShare"): model.armLight = float(spec.armShare) * lv / yy
 		model.envelope = [1e9, 0.0]
 	if spec.has("companions"): model.companions = spec.companions
+	if spec.get("dustMap", "") == "m51":
+		var dm := M51_DUST.duplicate(true)
+		dm.kappa = DUST_KAPPA_V
+		dm.rCR = deg_to_rad(float(M51_DUST.rCRArcmin) / 60.0) * float(spec.d)
+		dm.rBreak = M51_ARM_BREAK
+		model.dustMap = dm
 	if spec.get("dust", "") == "m104":
 		var d := m104_dust()
 		model.dustRing = d[0]
 		model.dustRingH = M104_DUST_H
 		model.dust = d[1]
 	return model
+
+## M51's stars as M51_LIGHT has them: the bulge and old discs' masses through the population
+## model (the discs as one Miyamoto–Nagai disc of the main disc's half-mass radius in the
+## potential), the young discs' light as the arms', and both discs' profiles for the map.
+static func _m51_light(model: Dictionary) -> void:
+	var pot: GalPotential = model.potential
+	var light: Array = model.light
+	var bulge_pop := GalPopulation.build({"kind": "burst", "gyr": 10.0})
+	var disc_spec := {"kind": "constant", "gyr": 10.0, "fromGyr": MW_YOUNG_GYR}
+	var disc_pop := GalPopulation.build(disc_spec)
+	var young := GalPopulation.build({"kind": "constant", "gyr": MW_YOUNG_GYR})
+	var ys := 0.2126 * bulge_pop.color.r + 0.7152 * bulge_pop.color.g + 0.0722 * bulge_pop.color.b
+	var yd := 0.2126 * disc_pop.color.r + 0.7152 * disc_pop.color.g + 0.0722 * disc_pop.color.b
+	var yy := 0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b
+	var f := log(LAMBDA_V / 4719.0) / log(6185.0 / 4719.0)
+	var b: Array = M51_LIGHT.bulge
+	var lb := lnu_to_lv(exp(lerpf(log(float(b[1])), log(float(b[2])), f)))
+	var mb := lb / (VISIBLE_BULGE * bulge_pop.mean_l / bulge_pop.mean_mass * ys)
+	pot.add(GalPotential.hernquist("bulge", float(b[0]) / 1.8153, GalUnits.G * mb / GalUnits.MASS_UNIT_SUN))
+	light.append({"part": "bulge", "visible": VISIBLE_BULGE})
+	var discs := []
+	var thins := []
+	for c in M51_LIGHT.disc: discs.append(inman_disc_v(c))
+	for c in M51_LIGHT.thin: thins.append(inman_disc_v(c))
+	var oh: Array = M51_LIGHT.outerH
+	var ld := inman_beyond(discs, float(oh[0]))
+	for d in discs: ld += float(d[6])
+	var ly := inman_beyond(thins, float(oh[1]))
+	for d in thins: ly += float(d[6])
+	var md := ld / (VISIBLE_BULGE * disc_pop.mean_l / disc_pop.mean_mass * yd)
+	var main: Array = discs[1]
+	pot.add(GalPotential.miyamoto_nagai("disc", 0.9688 * float(main[4]), float(main[5]), GalUnits.G * md / GalUnits.MASS_UNIT_SUN))
+	light.append({"part": "disc", "visible": VISIBLE_BULGE})
+	model.discPop = disc_spec
+	# Bolometric: the map holds V surface luminosity divided by each population's V per L☉.
+	var contrast := []
+	for c in M51_LIGHT.armContrast: contrast.append([deg_to_rad(float(c[0]) / 3600.0) * float(TYPES.m51.d), c[1]])
+	model.discMap = {"discs": discs, "outerH": float(oh[0]), "z": float(main[5]), "bol": 1.0 / yd, "contrast": contrast}
+	model.thinMap = {"discs": thins, "outerH": float(oh[1]), "z": float((thins[1] as Array)[5]), "bol": 1.0 / yy,
+		"share": float(M51_LIGHT.armShare)}
+	model.armLight = ly / yy
+	model.armH = float((thins[1] as Array)[5])
+	model.hii = M51_HII
 
 static func milky_way_potential() -> GalPotential:
 	return GalPotential.new() \

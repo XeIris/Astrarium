@@ -11,6 +11,9 @@ uniform float uEdge = 30.0;
 // into arms with zero mean: (K = visible·(L/M)·ρ0, r0, Rs, H); its in-plane factor is in
 // the arm map, as it turns with them.
 uniform vec4 uSpiral = vec4(0.0, 8.0, 7.0, 0.18);
+// The disc's light as the arm map's b instead (L☉ kpc⁻²): (scale, z), exp(−|y|/z)/2z above
+// the plane; 0 for the Miyamoto–Nagai disc above.
+uniform vec2 uDiscMap = vec2(0.0, 1.0);
 // Spheroid: (kind, K, p1, p2). kind 0, a power law with a cutoff: K·r^−α·exp(−r²/rc²),
 // p1 = α, p2 = rc. kind 1, Hernquist: K·a/(2π r (r + a)³), p1 = a.
 uniform vec4 uSphere = vec4(0.0, 0.0, 1.8, 1.9);
@@ -27,6 +30,9 @@ uniform vec2 uEnvelope = vec2(2.26, 4.0);
 uniform vec4 uDust = vec4(0.0, 2.26, 0.1344, 0.0148);
 uniform vec4 uDustArm = vec4(0.0, 6.71, 2.07, 0.0641);
 uniform vec4 uDustB = vec4(4.4, 0.08, 5.48, 0.0146);
+// Dust as a face-on surface density map instead (M☉ kpc⁻², the arm map's g): (V opacity in
+// kpc² M☉⁻¹, z) with exp(−|y|/z)/2z above the plane; 0 for none.
+uniform vec2 uDustMap = vec2(0.0, 1.0);
 
 
 // Young stars along spiral arms: (K, scale height, pattern turn, arm count). The arms
@@ -78,6 +84,7 @@ float gal_disc_j(vec3 p) {
 	float s = a + zb;
 	float q = R2 + s * s;
 	float j = uDisc.x * (a * R2 + (a + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb);
+	if (uDiscMap.x > 0.0) j = uDiscMap.x * gal_arm_map3(p).b * exp(-abs(p.y) / uDiscMap.y) / (2.0 * uDiscMap.y);
 	if (uSpiral.x > 0.0) {
 		// The in-plane factor e^{−(R−r0)/Rs} cos γ turns with the arms: the map's b.
 		j += uSpiral.x * gal_arm_map3(p).b * gal_sech2(p.y / uSpiral.w);
@@ -115,8 +122,11 @@ float gal_young_j(vec3 p) {
 
 
 float gal_dust(vec3 p) {
-	if (uDust.x <= 0.0) return 0.0;
 	float R = length(p.xz);
+	if (uDustMap.x > 0.0) {
+		return uDustMap.x * gal_arm_map(p).g * exp(-abs(p.y) / uDustMap.y) / (2.0 * uDustMap.y) + gal_rings(R, p.y);
+	}
+	if (uDust.x <= 0.0) return 0.0;
 	float hd = uDust.z + (R > uDustB.x ? uDust.w * (R - uDustB.x) : 0.0);
 	float tau = uDust.x * gal_envelope(R) * gal_sech2(p.y / hd);
 	if (uDustArm.x > 0.0) {
@@ -139,11 +149,13 @@ void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau) {
 	float s = a + zb;
 	float q = R2 + s * s;
 	jd = uDisc.x * (a * R2 + (a + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb);
+	if (uDiscMap.x > 0.0) jd = uDiscMap.x * m.b * exp(-abs(p.y) / uDiscMap.y) / (2.0 * uDiscMap.y);
 	if (uSpiral.x > 0.0) jd += uSpiral.x * m.b * gal_sech2(p.y / uSpiral.w);
 	jd = max(jd, 0.0) * smoothstep(uEdge, 0.8 * uEdge, R);
 	float env = gal_envelope(R);
 	jy = uYoung.x > 0.0 ? uYoung.x * env * m.r * exp(-abs(p.y) / uYoung.y) / (2.0 * uYoung.y) : 0.0;
 	dtau = 0.0;
+	if (uDustMap.x > 0.0) dtau = uDustMap.x * m.g * exp(-abs(p.y) / uDustMap.y) / (2.0 * uDustMap.y);
 	if (uDust.x > 0.0) {
 		float hd = uDust.z + (R > uDustB.x ? uDust.w * (R - uDustB.x) : 0.0);
 		dtau = uDust.x * env * gal_sech2(p.y / hd);

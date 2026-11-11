@@ -163,7 +163,10 @@ void fragment() {
 	vec4 arc = vec4(0.0, 1.0, 0.0, 1.0);
 	vec2 tbx = box_hit(o, d, uBox);
 	tbx.x = max(tbx.x, 0.0);
-	if (tbx.y > tbx.x) {
+	// A spheroid alone (NGC 5195, M87) has nothing in the disc's layer to march.
+	bool disc_on = uDisc.x > 0.0 || uDiscMap.x > 0.0 || uYoung.x > 0.0 || uSpiral.x > 0.0
+		|| uDust.x > 0.0 || uDustMap.x > 0.0 || uRing[0].z > 0.0;
+	if (disc_on && tbx.y > tbx.x) {
 		// Sampled on the thinner of the disc's light and its dust layer, so a 20 pc dust
 		// lane is not stepped over.
 		float sc = max(min(uDisc.z, uThin), 0.005) / max(abs(d.y), 1e-4);
