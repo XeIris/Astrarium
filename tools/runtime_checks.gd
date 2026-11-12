@@ -416,6 +416,22 @@ func _soak_check() -> void:
 					await _drawn_frame()
 			stage.load_preset("solar")
 			if g.active or g.visual != null: failures.append("galaxy: the scene outlived the switch to solar"),
+		"encounter": func():
+			# The MW–M31 encounter built, gone live and stepped on its worker while frames draw,
+			# then left mid-batch.
+			stage.load_preset("gal_mw_m31")
+			var g: GalaxyScene = stage.galaxy
+			g.wait_tracers()
+			g.encounter.go_live()
+			stage._on_galaxy_action("rate", 100.0)
+			for i in 8:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			g.wait_encounter()
+			if g.encounter == null or g.encounter.live.steps == 0: failures.append("encounter: the live galaxies did not step")
+			stage.animate(1.0 / 60.0)
+			stage.load_preset("solar")
+			if g.active or g.encounter != null or g.enc_visual != null: failures.append("encounter: the scene outlived the switch to solar"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),

@@ -788,6 +788,185 @@ Set side by side at matched field and north, judged by eye:
   - the outer arm's link to NGC 5195;
   - NGC 5195's own dust and shape.
 
+## Encounters (phase 4)
+
+The preset "Milky Way meets M31" starts the Milky Way, M31 and M33 from van der Marel
+et al.'s (2012b) canonical model. Their present positions and velocities are those
+paper's Table 2: M31's from Hubble's proper motion, M_vir 1.5 × 10¹² M☉ each for the
+two large galaxies and 1.5 × 10¹¹ for M33. The model runs in two regimes. While the
+galaxies are far apart, it is cheap and exact enough. Near each other, everything
+moves under everything else's gravity.
+
+### The orbits (GalOrbits)
+
+The galaxies' centres follow van der Marel et al.'s semi-analytic method (their §2.2
+and Appendix A):
+
+- **Haloes.** Each halo is a Hernquist sphere. Its mass and scale match the NFW
+  halo's density as r → 0 and its mass within r₂₀₀; this is their paper II's
+  Appendix A, with h 0.7, Ω_m 0.27 and Δ_vir 360.
+- **Gravity.** Galaxy j pulls on galaxy i with −G M_j/(r + a_j)², softened to a
+  constant density inside 2 kpc.
+- **Friction.** Chandrasekhar's formula, with Hernquist's isotropic dispersion and
+  their fitted Coulomb logarithm ln Λ = max(L, α ln(r/(C a))). The constants (α, C, L)
+  are (0.15, 0.17, 0.02) for galaxies within 1.5× in mass and (1.0, 1.22, 0) for a
+  satellite.
+- **Frame.** The system's mean acceleration is taken out, as theirs is.
+- **Integrator.** Classical Runge–Kutta at 1 Myr.
+
+`encountercheck` holds the method to their numbers:
+
+- M33 passes M31 at 79.6 kpc after 0.916 Gyr. Their semi-analytic orbit gives
+  80.3 kpc at 0.93 Gyr, and their N-body run 79.6 kpc at 0.92 Gyr.
+- M31 reaches its first pericentre at 4.14 Gyr. Their N-body run has it at 3.97 Gyr.
+
+### Far apart: restricted stars
+
+Each galaxy is first a rigid potential riding its centre:
+- its Hernquist halo (M_vir less disc and bulge, as their N-body haloes are);
+- a Miyamoto–Nagai disc about its spin, with a = 0.9688 R_d and b = 0.1 R_d;
+- a Hernquist bulge, with a = R_e / 1.8153.
+
+The disc and bulge stars are test particles moving in every galaxy's potential. They
+take drift–kick–drift steps of 0.5 Myr, with the centres at mid-step. The C kernel
+(`run_encounter`) and the GDScript one agree bit for bit.
+
+The galaxies are built from their Table 1:
+- the Milky Way: disc 7.5 × 10¹⁰ M☉, R_d 3 kpc; bulge 10¹⁰, R_e 0.6;
+- M31: disc 1.2 × 10¹¹, R_d 5; bulge 1.9 × 10¹⁰, R_e 1.0;
+- M33: disc 9 × 10⁹, R_d 1.3; no bulge.
+
+The spins of the Milky Way and M31 are the ones their §3.2 states. M33's is derived
+from its Table 1 geometry (inclination 52.9°, line of nodes 4°, near side W, approaching
+side N) by `GalModels.disc_spin`. The same derivation from M31's geometry lands 0.86°
+from their stated vector. Our spin–orbit angles, 32.5° for the Milky Way and 76.1° for
+M31, match their 32.6° and 76.2°.
+
+Discs are warm, set up following Hernquist (1993):
+- σ_R² ∝ e^(−R/R_d), normalised to Toomre's Q = 1.5 at 2.76 R_d (the Sun's radius in
+  the Milky Way's scale lengths);
+- σ_φ from the epicycle approximation;
+- σ_z from an isothermal sheet (σ_z² = π G Σ z₀, z₀ = 0.1 R_d);
+- the mean rotation from the Jeans equation with asymmetric drift:
+  v̄_φ² = v_c² + σ_R² (1 − κ²/4Ω² − 2R/R_d).
+
+Q stays above 1.47 from 0.5 to 6 R_d in all three discs. Bulge stars are drawn from the
+bulge's distribution function (below).
+
+### Live
+
+With test particles alone the encounter is wrong. Set beside van der Marel et al.'s
+Fig. 5, the restricted run showed:
+- The discs barely respond. At 4.47 Gyr only 0.13 % of the Milky Way's stars lie beyond
+  30 kpc.
+- The merger leaves two overlapping discs ±25 kpc across, where van der Marel et al.'s
+  remnant is an elliptical.
+
+Rigid potentials have no disc self-gravity to amplify a tidal response, and nothing to
+take up the orbit's energy. Changing the pericentre does not help: scaling M31's
+transverse velocity to bring it to 25 kpc still leaves the Milky Way's disc intact.
+
+So when the Milky Way and M31 come within 250 kpc (at about 3.5 Gyr), every galaxy becomes
+particles:
+- The stars keep their places and take their masses: 4 × 10⁶ M☉ each, Plummer softening
+  0.1 kpc.
+- Each halo arrives about its galaxy's centre, at its galaxy's velocity. It was drawn
+  when the encounter was built: particles of 4 × 10⁷ M☉, softened by 1 kpc, cut at the
+  virial radius.
+- Each disc's mean rotation is re-set from the pull its own galaxy's particles exert
+  in rings of R_d/4, because an exponential disc is not a Miyamoto–Nagai one.
+- From then on every particle pulls on every other.
+
+The haloes and bulges are in equilibrium (`GalEddington`):
+- Their Hernquist density is sampled with the distribution function that Eddington's
+  formula gives in the galaxy's whole spherical potential: halo, bulge and the disc's
+  enclosed mass taken as a sphere.
+- dρ/dΨ is held constant across each step of a 600-point grid, and the square root
+  integrated exactly across it.
+- Speeds come from per-radius cumulative tables.
+- Particles come in mirrored pairs, (x, v) and (−x, −v), so a halo sits exactly on its
+  centre at rest.
+
+The sampler is checked on a lone Hernquist sphere (`encountercheck`):
+- f(E) has Hernquist's (1990) closed form's shape to 2 × 10⁻³;
+- the dispersion matches his at 0.1–10 a within the sampling noise;
+- the sample is virialised, 2K/|W| = 1.01, with his W to 1 %.
+
+The kernel is a Barnes–Hut octree (Barnes & Hut 1986):
+- leaves of 8 particles, monopole cells;
+- a cell is opened when nearer than side/θ plus its centre of mass's offset from the
+  cube's centre, with θ = 0.7;
+- a group walk (Barnes 1990): one interaction list for every ≤ 32-particle node;
+- pairs softened by the larger of the two softenings;
+- kick–drift–kick at 1 Myr.
+
+The C kernel (`run_live`) uses every core. Each particle's force is summed by one thread
+in a fixed order, so the bits are the same on one thread as on ten, and the same as the
+GDScript twin's. Against direct summation, the accelerations err by 0.3 % at the median
+and 2.4 % at the 99th percentile.
+
+Left alone for 300 Myr, a live Milky Way:
+- keeps its energy to 10⁻³;
+- keeps its halo's 10 % and half-mass radii to 1 %;
+- thickens its disc at 6–10 kpc from 0.27 to 0.42 kpc rms. The heating is
+  mostly the disc's own spirals: halo particles a quarter as heavy heat it barely
+  less.
+
+How the numbers were set, on the lone Milky Way over 600 Myr:
+- **Halo particles.** At 10⁷ M☉, σ_z at 6–10 kpc rose from 21 to 26 km/s; at
+  4 × 10⁷ M☉, to 28 km/s, at 38 % of the cost per step. So the cheaper mass was taken.
+- **Halo softening.** 1 kpc heated the disc less than 0.3 kpc did (28 against 30 km/s).
+- **Step and opening angle.** A 1 Myr step and θ 0.7 hold the energy to 10⁻³ and the
+  forces to the accuracy above.
+- **The switch.** At 250 kpc the discs go live about 0.6 Gyr before first passage:
+  enough for the haloes to settle, and short enough to limit the heating.
+
+### Against van der Marel et al.'s N-body run
+
+`encounterlivecheck` runs the scene's encounter to 10 Gyr. Their N-body run used
+1.4 million luminous and 1.05 million dark particles.
+
+| | here | their N-body |
+|---|---|---|
+| M31's first pericentre | 35.5 kpc at 4.12 Gyr | 35.0 kpc at 3.97 Gyr |
+| merged (within 5 kpc for 1 Gyr) | 6.15 Gyr | 6.29 Gyr |
+| remnant, log Σ at R^1/4 = 1, 1.5, 2, 2.38 | 3.60, 2.62, 1.61, 0.70 | 3.6, 2.5, 1.6, 0.8 |
+| M31's first apocentre (not judged) | 145.4 kpc at 4.78 Gyr | 171.9 kpc at 4.79 Gyr |
+| M33's closest to the Milky Way (not judged) | 30.9 kpc at 3.93 Gyr | 97.3 kpc at 3.83 Gyr |
+
+Their profile values are read off their Fig. 7 to about ±0.05 dex. Both remnants follow
+de Vaucouleurs' law with R_e ≈ 7 kpc: an elliptical.
+
+M31's first apocentre falls short of theirs, and the cause is upstream. Before the
+switch, M33's orbit is semi-analytic, a method they found inadequate for M33 (their
+Appendix A). Here M33 dives through the Milky Way's halo before M31 arrives, where in
+their N-body run it passed at 97 kpc. Without M33, the live run's apocentre is 145 kpc
+against the semi-analytic 124. The live haloes take less of the orbit's energy at first
+passage than the fitted friction does.
+
+### Cost
+
+- The scene steps the encounter on a worker, a batch at a time, while the frame draws
+  the last batch's stars.
+- A live step of 127 000 particles takes about 44 ms on an M5, so the clock reaches
+  about 20 Myr/s and the HUD reports "limited" beyond that.
+- The restricted phase runs at hundreds of Myr/s.
+- `perfcheck` measures the frame rate with the live kernel running (`galaxy-encounter-live`).
+
+### Limits (phase 4)
+
+- **Particle counts.** About 50 000 luminous particles where their run had
+  1.4 million. Tails are there, but thin.
+- **Halo mass resolution.** Halo particles of 4 × 10⁷ M☉ heat the discs over Gyr. The
+  discs go live 0.6 Gyr before first passage to limit it.
+- **Gas.** None: no starbursts, no gas tails.
+- **M33 before the switch.** Its orbit is semi-analytic, with the weakness above.
+  Its orbit is uncertain in any case: with M31's measured proper motion, Patel, Besla
+  & Sohn (2017) find a recent close passage of M33 by M31 improbable.
+- **Today's odds.** Recent measurements put the chance of a Milky Way–M31 merger within
+  10 Gyr at about even (Sawala et al. 2025). The preset follows van der Marel et al.'s
+  canonical start, one realisation.
+
 ## Limits (phase 1)
 
 - Phase 1 was axisymmetric and dust-free; phase 2a above adds the bar, the arms and

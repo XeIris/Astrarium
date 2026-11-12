@@ -250,7 +250,9 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
   how the sky looks: `tools/observatorylookcheck.tscn`
 - the galactic scene (`sim/galaxy/`): `tools/galaxycheck.gd` for its physics,
-  `tools/galaxylookcheck.tscn` for how it draws
+  `tools/galaxylookcheck.tscn` for how it draws; encounters and the live tree
+  (`native/` too): `tools/encountercheck.gd`, and `tools/encounterlivecheck.gd` against
+  van der Marel et al.'s N-body run
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - what lights a vehicle (the Sun, the fill, a low Sun's colour): `tools/flightlightcheck.tscn`

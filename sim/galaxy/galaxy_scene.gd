@@ -13,7 +13,7 @@ const MAX_RADIUS := 2000.0
 ## Leapfrog steps per frame at most; past it the clock runs slower than asked, and
 ## the HUD says so.
 const STEP_BUDGET := 6
-const RATES := [0.0, 0.1, 1.0, 5.0, 20.0]
+const RATES := [0.0, 0.1, 1.0, 5.0, 20.0, 100.0, 1000.0]
 
 var stage
 var active := false
@@ -48,6 +48,23 @@ var landmark := ""
 var _lm_layer: Control = null
 var _lm_labels := {}
 var _nb_baked := {}
+## An encounter (GalEncounter) instead of one galaxy: its particles, its drawing and its build
+## on a worker. It steps on a worker too, a batch at a time, while the frame draws the last
+## batch's snapshot (its stars, time and centre); a batch is sized to ENCOUNTER_BATCH_MS at the
+## measured cost of a step (ms), and a clock asking for more runs slower and says so.
+var encounter: GalEncounter = null
+var enc_visual: GalEncounterVisual = null
+var _enc_built: Array = []
+var _enc_task := -1
+var _enc_step_ms := 1.0
+var _enc_batch := 0
+var _enc_t0 := 0
+var _enc_bytes := PackedByteArray()
+var _enc_centre := DVec3.new()
+var _enc_live_n := 0
+const ENCOUNTER_BATCH_MS := 33.0
+## Particle counts of an encounter relative to GalModels' (1).
+const ENCOUNTER_SCALE := 1.0
 ## The neighbours' maps, in the order of `neighbours`.
 var _nbs_baked := []
 
@@ -67,6 +84,9 @@ func enter(k: String) -> void:
 	_adapted = false
 	rate = float(preset.get("rateMyrS", 5.0))
 	_pending = 0.0
+	if model.has("encounter"):
+		_enter_encounter()
+		return
 	visual = GalaxyVisual.new(model, true)
 	stage.pipe.world_root.add_child(visual.group)
 	_build_neighbours()
@@ -104,16 +124,82 @@ func enter(k: String) -> void:
 	_build_landmarks()
 	sync_hud()
 
+## An encounter's scene: its stars seeded on a worker, drawn once they exist.
+func _enter_encounter() -> void:
+	_enc_built = []
+	var seed := int(model.get("seed", 1))
+	_task = WorkerThreadPool.add_task(func():
+		var e := GalModels.vdm_encounter(ENCOUNTER_SCALE, seed)
+		var lights := GalModels.vdm_lights(e)
+		_mutex.lock()
+		_enc_built = [e, lights]
+		_mutex.unlock(), false, "galaxy encounter")
+	frame("whole")
+	_build_landmarks()
+	sync_hud()
+
+func _adopt_encounter() -> void:
+	_mutex.lock()
+	var b := _enc_built
+	_enc_built = []
+	_mutex.unlock()
+	if b.is_empty(): return
+	encounter = b[0]
+	_enc_snapshot()
+	enc_visual = GalEncounterVisual.new(encounter.tag, b[1])
+	enc_visual.exposure = float(preset.get("exposure", 1.0))
+	stage.pipe.world_root.add_child(enc_visual.group)
+	frame("whole")
+
+## The encounter's mass centre (kpc), where the camera looks: its galaxies' centres weighted by
+## their masses, as of the last snapshot.
+func encounter_centre() -> DVec3:
+	return _enc_centre
+
+## What the frame draws of the encounter, taken while no batch runs.
+func _enc_snapshot() -> void:
+	var e := encounter
+	var c := DVec3.new()
+	var m := 0.0
+	for i in e.count():
+		c.add_scaled_in(DVec3.from_v3(e.centre(i)), e.orbits.gm[i])
+		m += e.orbits.gm[i]
+	_enc_centre = c.scale_in(1.0 / m)
+	_enc_bytes = e.draw_bytes
+	_enc_live_n = e.live.n if e.is_live() else 0
+	t_myr = e.time()
+
+func _enc_particles() -> String:
+	if encounter == null: return "drawing…"
+	return str(_enc_live_n) if _enc_live_n > 0 else str(encounter.n)
+
+## How the encounter's galaxies are moving now, for the HUD.
+func _enc_state() -> String:
+	if encounter == null: return "Setting out the galaxies…"
+	if _enc_live_n > 0:
+		return "Live: every star and dark-matter particle pulls on every other (%d in all), so the discs answer the tides with their own gravity and the haloes take up the orbit's energy." % _enc_live_n
+	return "Far apart: each galaxy is a rigid potential moving on its orbit, its stars test particles in it. They go live once the Milky Way and M31 are within %d kpc." % int(encounter.live_at)
+
+## Block until a running batch of the encounter is done (leaving, checks).
+func wait_encounter() -> void:
+	if _enc_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_enc_task)
+		_enc_task = -1
+		if encounter != null: _enc_snapshot()
+
 ## Block until the tracers exist (checks, screenshots).
 func wait_tracers() -> void:
 	if _task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 	_adopt()
+	_adopt_encounter()
+	wait_encounter()
 	if _arm_task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_arm_task)
 		_arm_task = -1
 	_adopt_arms()
+	_adopt_encounter()
 
 func _adopt_arms() -> void:
 	_mutex.lock()
@@ -158,6 +244,11 @@ func leave() -> void:
 	_clear_landmarks()
 	for nb in neighbours: nb.visual.dispose()
 	neighbours = []
+	wait_encounter()
+	if enc_visual != null: enc_visual.dispose()
+	enc_visual = null
+	encounter = null
+	_enc_built = []
 	active = false
 	if visual != null: visual.dispose()
 	visual = null
@@ -193,6 +284,8 @@ func _advance(dt: float) -> float:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 		_adopt()
+		_adopt_encounter()
+	if model.has("encounter"): return _advance_encounter(dt)
 	if _arm_task >= 0 and WorkerThreadPool.is_task_completed(_arm_task):
 		WorkerThreadPool.wait_for_task_completion(_arm_task)
 		_arm_task = -1
@@ -204,14 +297,14 @@ func _advance(dt: float) -> float:
 	var want := rate * dt
 	_pending += want
 	var k := int(floor(_pending / GalTracers.DT))
-	limited = k > STEP_BUDGET
+	var capped := k > STEP_BUDGET
 	k = mini(k, STEP_BUDGET)
 	var accepted := 0.0
 	if tracers != null:
 		tracers.step(k)
 		_pending -= float(k) * GalTracers.DT
 		# A clock held back by the budget drops what it could not do.
-		if limited: _pending = 0.0
+		if capped: _pending = 0.0
 		accepted = float(k) * GalTracers.DT
 		t_myr = tracers.t + _pending
 	elif model.has("populations"):
@@ -223,10 +316,69 @@ func _advance(dt: float) -> float:
 		_pending = 0.0
 		accepted = want
 	achieved = lerpf(achieved, accepted / maxf(dt, 1e-6), 0.1)
+	_note_limited(capped)
+	return accepted
+
+## The readout's "limited": set when a frame or batch was cut to its budget, cleared once
+## the clock achieves the rate asked, so it does not flicker between cut and uncut frames.
+func _note_limited(capped: bool) -> void:
+	if capped: limited = true
+	elif achieved >= 0.95 * rate: limited = false
+
+## Live at any rate: each batch is as many steps as the rate asks for, as long as it fits
+## ENCOUNTER_BATCH_MS at the measured cost of a step; past it the clock runs slower than asked
+## and the HUD says so, and what could not be done is dropped, not owed.
+func _advance_encounter(dt: float) -> float:
+	if encounter == null: return 0.0
+	var before := t_myr
+	if _enc_task >= 0 and WorkerThreadPool.is_task_completed(_enc_task):
+		WorkerThreadPool.wait_for_task_completion(_enc_task)
+		_enc_task = -1
+		var ms := float(Time.get_ticks_usec() - _enc_t0) / 1000.0 / float(maxi(_enc_batch, 1))
+		# A live step costs far more than a restricted one: after going live (batch 0) the
+		# next batch is one step, which measures it.
+		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.3) if _enc_batch > 0 else ENCOUNTER_BATCH_MS
+		_enc_snapshot()
+	if stage.state.paused or rate <= 0.0:
+		achieved = 0.0
+		limited = false
+		_pending = 0.0
+	else:
+		_pending += rate * dt
+		if _enc_task < 0 and encounter.due_live():
+			# Going live is a batch of its own, so the steps after it are sized in live steps.
+			_enc_batch = 0
+			_enc_t0 = Time.get_ticks_usec()
+			var e := encounter
+			_enc_task = WorkerThreadPool.add_task(func(): e.go_live(), false, "galaxy encounter live")
+		elif _enc_task < 0:
+			var step := encounter.dt()
+			var k := int(floor(_pending / step))
+			var cap := maxi(int(ENCOUNTER_BATCH_MS / maxf(_enc_step_ms, 1e-3)), 1)
+			var capped := k > cap
+			k = mini(k, cap)
+			_pending -= float(k) * step
+			if capped: _pending = 0.0
+			_note_limited(capped)
+			if k > 0:
+				_enc_batch = k
+				_enc_t0 = Time.get_ticks_usec()
+				var e := encounter
+				_enc_task = WorkerThreadPool.add_task(func(): e.step(k), false, "galaxy encounter step")
+	var accepted := t_myr - before
+	achieved = lerpf(achieved, accepted / maxf(dt, 1e-6), 0.1)
+	stage.cam.target.set_v(_enc_centre.x, _enc_centre.y, _enc_centre.z)
 	return accepted
 
 ## Per frame, after the camera: place and update the drawing.
 func update(dt: float) -> void:
+	if active and enc_visual != null:
+		enc_visual.update(_enc_bytes, stage.cam_pos, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain())
+		_hud_acc += dt
+		if _hud_acc >= 0.25:
+			_hud_acc = 0.0
+			sync_hud()
+		return
 	if not active or visual == null: return
 	var cam_pos: DVec3 = stage.cam_pos
 	visual.group.position = DVec3.new().rel_v3(cam_pos)
@@ -267,6 +419,9 @@ func frame(kind: String) -> void:
 	match kind:
 		"whole":
 			cam.target.set_v(0, 0, 0)
+			if model.has("encounter"):
+				var ec := encounter_centre()
+				cam.target.set_v(ec.x, ec.y, ec.z)
 			cam.theta = float(preset.get("camTheta", 0.95))
 			cam.phi = PI / 2.0
 			# A galaxy with a measured orientation is first seen as we see it.
@@ -348,6 +503,7 @@ func _build_landmarks() -> void:
 var _objects: MeshInstance3D = null
 var _objects_mat: ShaderMaterial = null
 func _build_objects() -> void:
+	if visual == null: return
 	var pos := PackedVector3Array()
 	var custom := PackedFloat32Array()
 	var sets := PackedFloat32Array()
@@ -483,12 +639,17 @@ func sync_hud() -> void:
 	hud.set_text("galTime", "%s Myr" % U.fixed(t_myr, 1))
 	var asked := rate if not stage.state.paused else 0.0
 	hud.set_text("galRate", ("%s Myr/s" % U.fixed(achieved, 1)) + (" (limited)" if limited else ""))
-	hud.set_text("galTracers", str(tracers.n) if tracers != null else "drawing…")
+	hud.set_text("galTracers", str(tracers.n) if tracers != null else (_enc_particles() if model.has("encounter") else "—"))
 	# The drift and the curve walk every tracer: about 9 ms between them, so once a second
 	# and the curve only while its chart is on screen.
 	_measure_tick += 1
 	var measure := _measure_tick % MEASURE_EVERY == 0
 	if measure: hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null else "—")
+	var enc := model.has("encounter")
+	hud.set_shown("galCurveBox", not enc)
+	hud.set_shown("galLayers", not enc)
+	hud.set_shown("galEncounter", enc)
+	if enc: hud.set_prose("galEncounter", _enc_state())
 	hud.set_text("galDist", fmt_kpc(stage.cam.radius))
 	for r in RATES:
 		hud.set_active("[data-gal-rate=%s]" % str(r), absf(asked - float(r)) < 1e-9 or (float(r) == 0.0 and stage.state.paused))

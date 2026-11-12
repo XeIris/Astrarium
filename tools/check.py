@@ -20,7 +20,7 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("dev", "fast", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("dev", "fast", "encounters", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
 # themselves (clean), read the previous step's output (export), or need exact object
@@ -28,7 +28,7 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "start_screen")
+                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "encounter", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
@@ -48,7 +48,7 @@ PARITY_FRAMES = 13000
 CHANGED_RULES = (
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
-     ("galaxycheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
+     ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
       "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck")),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
@@ -130,8 +130,12 @@ CHANGED_RULES = (
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
       "tools/build_neighbourhood.py"),
-     ("galaxycheck", "galaxylookcheck", "_soak_check-galaxy", "hud*")),
+     ("galaxycheck", "encountercheck", "galaxylookcheck", "_soak_check-galaxy", "_soak_check-encounter", "hud*")),
+    # The live encounters' six-minute replay: only what moves their particles.
+    (("sim/galaxy/gal_encounter.gd", "sim/galaxy/gal_live.gd", "sim/galaxy/gal_orbits.gd", "sim/galaxy/gal_eddington.gd",
+      "sim/galaxy/gal_models.gd", "native/*", "tools/encounterlivecheck.gd"), ("encounterlivecheck",)),
     (("tools/galaxycheck.gd",), ("galaxycheck",)),
+    (("tools/encountercheck.gd",), ("encountercheck",)),
     # galaxycheck also reads the Solar System sky's catalogues and its galactic frame.
     (("assets/sky/bsc5.bin", "assets/sky/gaia_g8.bin", "sim/brightstars.gd", "sim/sky.gd",
       "tools/build_gaia.py", "tools/build_starcat.py"), ("galaxycheck",)),
@@ -258,6 +262,15 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("plasmacheck", r"^PLASMACHECK DONE checks=[1-9]\d* failures=0$")
         # ~30 s: a Gyr of 6000 tracers in MWPotential2014.
         yield script("galaxycheck", r"^GALAXYCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$", timeout=300)
+        # Galaxy encounters: the orbits against van der Marel et al. (2012b).
+        # ~50 s on an M5's ten cores, several times that on CI's two or three. Alone: its live
+        # tree uses every core, and on CI that starved the checks beside it past their timeouts.
+        yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)._replace(alone=True)
+    elif suite == "encounters":
+        # ~6 min on an M5's ten cores, past CI's limits on two or three: the canonical encounter
+        # live for 10 Gyr against their N-body run. Kept out of "fast" (and so out of clean);
+        # --changed selects it when the galaxy code changes.
+        yield script("encounterlivecheck", r"^ENCOUNTERLIVECHECK DONE checks=[1-9]\d* failures=0$", timeout=1800)
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")
@@ -384,13 +397,13 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "m5-budget":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=15 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
     elif suite == "m5-medium":
-        medium = scene("perfcheck", r"^PERFCHECK DONE cases=15 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
+        medium = scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
         yield ("perfcheck-m5-medium", *medium[1:])
     elif suite == "perf":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=15 failures=0$", f"report={output / 'render-profile.json'}")
-        abba = scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", f"report={output / 'render-profile.json'}")
+        abba = scene("perfcheck", r"^PERFCHECK DONE cases=19 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
         yield ("studio-abba", *abba[1:])
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         for _ in range(repeat):
@@ -924,7 +937,7 @@ def main():
     options = parser.parse_args()
     if options.watch or options.status:
         return watch(once=options.status)
-    options.suites = options.suites or (["dev", "fast", "native", "flight", "rendered", "assets", "procedural", "lifecycle"]
+    options.suites = options.suites or (["dev", "fast", "encounters", "native", "flight", "rendered", "assets", "procedural", "lifecycle"]
                                         if options.changed else ["fast"])
     if any(suite not in SUITES for suite in options.suites):
         parser.error("unknown suite; choose from " + ", ".join(SUITES))

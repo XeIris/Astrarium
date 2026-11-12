@@ -17,7 +17,7 @@ case "$(uname -s)" in
       *) echo "Unsupported Linux architecture" >&2; exit 1 ;;
     esac
     OUTPUT="$HERE/bin/libastrarium_native.linux.$ARCH.so"
-    set -- -shared -fPIC
+    set -- -shared -fPIC -pthread
     ;;
   MINGW*|MSYS*)
     case "$(uname -m)" in

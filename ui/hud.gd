@@ -1216,9 +1216,12 @@ func _build_galaxy(b: Node) -> void:
 	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 10.0)
 	for kv in [["clock", "galRate"], ["camera", "galDist"], ["tracers", "galTracers"], ["worst |Δ(E−W)/E|", "galDrift"]]:
 		_stat(sg, kv[0], kv[1])
+	# An encounter says how its galaxies are being moved (GalEncounter: restricted or live).
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galEncounter", true), 0.0, 8.0)
 	var rg := grid(s, [1.0, 1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
 	for r in [[0.0, "Pause", "Stop the clock"], [0.1, "0.1", "0.1 Myr per second"], [1.0, "1", "1 Myr per second"],
-			[5.0, "5", "5 Myr per second: the Sun's 230 Myr orbit in under a minute"], [20.0, "20", "20 Myr per second, as far as the integrator keeps up"]]:
+			[5.0, "5", "5 Myr per second: the Sun's 230 Myr orbit in under a minute"], [20.0, "20", "20 Myr per second, as far as the integrator keeps up"],
+			[100.0, "100", "100 Myr per second: galaxies meeting over billions of years"], [1000.0, "1000", "1000 Myr per second, as far as the integrator keeps up; the clock says when it cannot"]]:
 		B(rg, "Toggle", r[1], "[data-gal-rate=%s]" % str(r[0]), r[2]).pressed.connect(func(): galaxy_action.emit("rate", r[0]))
 	m(L(s, "View", ROW_LABEL), 0.0, 4.0)
 	var vg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
@@ -1232,15 +1235,18 @@ func _build_galaxy(b: Node) -> void:
 	reg("galLandmarks", lmg)
 	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galCard", true), 0.0, 8.0)
 	var lg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	reg("galLayers", lg)
 	B(lg, "Toggle", "Tracers", "galShowTracers", "The test stars (amber) and cold-gas clouds (blue) whose orbits are integrated, and from which the rotation curve is measured").pressed.connect(func(): galaxy_action.emit("layer", "tracers"))
 	B(lg, "Toggle", "Stars", "galShowStars", "Stars near the camera, drawn one by one from the model's own density").pressed.connect(func(): galaxy_action.emit("layer", "stars"))
 	B(lg, "Toggle", "Glow", "galShowGlow", "The unresolved light of the disc and bulge").pressed.connect(func(): galaxy_action.emit("layer", "glow"))
 	_row(s, "galExposure", "Exposure", "A photographer's exposure: brightness only, as a factor of the sky's calibration", -1, 2, 0, 0.05, "1×")
-	m(L(s, "Rotation curve", ROW_LABEL), 4.0, 4.0)
+	var cs := stack(s)
+	reg("galCurveBox", cs)
+	m(L(cs, "Rotation curve", ROW_LABEL), 4.0, 4.0)
 	var chart := GalCurveChart.new()
 	reg("galCurve", chart)
-	s.add_child(chart)
-	_rnote(s, "[color=#ffffff]—[/color] model  [color=#40bfff]●[/color] gas clouds  [color=#ff9e47]●[/color] stars  [color=#ff9e47]○[/color] stars, Jeans-corrected  [color=#dddddd]■[/color] measured, Eilers et al. 2019. Dashed: bulge, disc and dark halo alone.")
+	cs.add_child(chart)
+	_rnote(cs, "[color=#ffffff]—[/color] model  [color=#40bfff]●[/color] gas clouds  [color=#ff9e47]●[/color] stars  [color=#ff9e47]○[/color] stars, Jeans-corrected  [color=#dddddd]■[/color] measured, Eilers et al. 2019. Dashed: bulge, disc and dark halo alone.")
 
 # The Observatory: site, date, clock, accuracy badge and overlays (sim/observatory/).
 func _build_observatory(b: Node) -> void:
