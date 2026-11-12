@@ -86,6 +86,10 @@ MUTATIONS = {
                                "	pass", GALAXYLOOK, "a flight that never reaches its landmark"),
     "landmark-arm-static": ("sim/galaxy/gal_landmarks.gd", "if p.kind == GalPattern.Kind.SPIRAL: turn = GalPattern.angle(p, t_myr) - float(p.angle0)",
                             "if p.kind == GalPattern.Kind.SPIRAL: turn = 0.0", GALAXYCHECK, "the arm's landmark left behind as the pattern turns"),
+    "neighbour-camera-unturned": ("sim/galaxy/galaxy_scene.gd", "		var cl := b.inverse() * -rel", "		var cl := -rel",
+                                  GALAXYLOOK, "a neighbour's camera not turned into its own frame"),
+    "neighbour-light-from-mass": ("sim/galaxy/gal_models.gd", "		for l in light: l.visible = float(l.visible) * k", "		pass",
+                                  GALAXYCHECK, "a neighbour drawn from its stellar mass where its luminosity was measured"),
 }
 KNOWN_MISSES = {
     # For σR/vc ≈ 0.16 the radial period changes by a few per cent across the energies

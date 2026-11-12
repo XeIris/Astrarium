@@ -460,19 +460,79 @@ HUD); pressing either flies there.
 | ω Centauri | RA, Dec, 5.43 kpc; drawn as a point of V = 3.50 | Baumgardt's catalogue (Baumgardt & Vasiliev 2021) |
 | Large Magellanic Cloud | NED's position, 49.59 kpc | Pietrzyński et al. 2019; Erkal et al. 2019; Kallivayalil et al. 2013 |
 | Small Magellanic Cloud | NED's position, 62.44 kpc | Graczyk et al. 2020; Zivick et al. 2018 |
+| Triangulum (M33) | NED's position, 809 kpc | McConnachie 2012; Corbelli et al. 2014 |
+| Andromeda (M31) | NED's position, 783 kpc | McConnachie 2012; Kafle et al. 2018; Tamm et al. 2012 |
 
 - **Placing things on the sky.** A sky landmark is placed from the Sun at t = 0 through
   the app's galactic frame (`SkyModel.galactic_frame_j2000`). `galaxycheck` holds that
   frame to ESA's own (l, b) for eight Gaia DR3 stars, to 0.03″.
 - **Flying.** A flight is a glide that then tracks the landmark exactly
   (`OrreryCamera.track_point`, the follow camera's rule for a point), so the Perseus
-  Arm's landmark stays on the crest as the pattern turns. The Magellanic Clouds are not
-  modelled yet, so their flights stand at the Cloud and look back at the Milky Way.
+  Arm's landmark stays on the crest as the pattern turns. A flight to something on the
+  sky arrives from the Sun's side, so it is seen as we see it.
 - **Limits.**
   - The satellites, ω Cen and the Clouds hold their places from t = 0: their own
     orbits are not followed.
   - ω Cen's point takes the old spheroid's colour, and its light is also in the model's
     spheroid (a small double count).
+
+## The Local Group (phase 3b)
+
+The Milky Way's four largest neighbours are drawn from their stars (`GalModels.LOCAL_GROUP`),
+each by its own `GalaxyVisual`, placed where it is and tilted as measured, at the Milky
+Way's exposure.
+
+| | stars | shape | tilt and distance |
+|---|---|---|---|
+| M31 | Hernquist bulge 3.4 × 10¹⁰ M☉, a = 0.7 kpc; Miyamoto–Nagai disc 6.9 × 10¹⁰ M☉, a = 6.5, b = 0.26 kpc (Kafle et al. 2018, from five earlier studies) | as given | i 77.5° (Tamm et al. 2012), PA 38° (Corbelli et al. 2010), 783 kpc (McConnachie 2012) |
+| M33 | 4.8 × 10⁹ M☉, no bulge (Corbelli et al. 2014) | exponential, 1.8 kpc; 100 pc half-thick | PA 23°, ellipticity 0.41, so i = 53.8°; 809 kpc (McConnachie 2012) |
+| LMC | 2.7 × 10⁹ M☉ (van der Marel et al. 2009) | exponential, 1.3–1.5 kpc (van der Marel 2001; 1.4 here) | i 34.7°, PA 122.5° (van der Marel & Cioni 2001); 49.59 kpc |
+| SMC | 3.1 × 10⁸ M☉ (ibid., from Stanimirović et al. 2004) | an old spheroid (ibid.), exponential with scale length 1.25 kpc (Gonidakis et al. 2009) | 62.44 kpc |
+
+- **Stand-ins.** An exponential disc is drawn as a Miyamoto–Nagai disc of the same mass
+  and half-mass radius (a = 1.678 R_d/√3). The SMC is a Hernquist sphere of the same
+  projected half-light radius (a = R_e/1.8153). Crowl et al. (2001) find it elongated
+  along our line of sight, so drawing it round is a simplification. The LMC's thickness
+  (b = 0.2 a) is a rendering choice; van der Marel et al. (2002) find its disc thick.
+- **Measured beats modelled.**
+  - The masses through the population model give the LMC −18.96 and M33 −19.59.
+    McConnachie (2012, Table 3) measures −18.1 and −18.8: the literature's masses imply
+    M/L_V ≈ 1.8, the population model's is ≈ 0.8.
+  - The SMC agrees within 0.2 mag.
+  - So where an absolute V is measured, the light is scaled to it. M31 has none in hand,
+    and is drawn from its masses.
+  - The scale counts only the light the glow draws (below), so what is drawn, not the
+    model's total, is the measured magnitude.
+  - `galaxycheck` marches the drawn glow through each galaxy and holds it to the measured
+    within 0.005 mag, and the mass-based prediction within 1 mag.
+- <a id="the-light-a-neighbour-draws"></a>**The light a neighbour draws.** The glow
+  is drawn on a box of half-height h, 4 kpc or the spheroid's sphere if taller (a ray
+  that misses the box has no fragment). It marches a disc through the box, its light tapering to zero over
+  the last fifth of the galaxy's extent e, and a spheroid through a sphere of radius r_s
+  (`GalModels.sphere_reach`). Left out, the lost light is 0.15 mag for M33 and the LMC
+  and 0.3 mag for the SMC.
+  - A Hernquist sphere holds (r_s/(r_s + a))² of its light within r_s. Flattened to axes
+    b and c, its light is round in r' = (u, y/c, v/b), the sphere's edge lies at r' = r_s q(n)
+    along a direction n, and the share is ∫ q⁻³ (r_s q/(r_s q + a))² dΩ / (4π b c).
+  - A Miyamoto–Nagai disc's mass in a cylinder of radius R and half-height h is the
+    gravitational flux out of it over 4πG. Through the side, with ζ = √(z² + b²):
+    M_side/M = R² ∫₀ʰ dz / (R² + (a + ζ)²)^{3/2}.
+  - Through the two caps, each integral over R' closed: M_caps/M = (h/ζ_h)(1 − s/√(R² + s²)),
+    with s = a + ζ_h. For b = 0 and h → ∞ the sum is the Kuzmin disc's 1 − a/√(R² + a²).
+  - The taper w(R) = smoothstep(e, 0.8e, R) weights the cumulative mass by parts:
+    drawn/M = ∫ M(R)/M · (−dw/dR) dR over 0.8e to e, where −dw/dR = 6t(1 − t)/(0.2e) and
+    t = (e − R)/(0.2e).
+- **Checked:**
+  - Each neighbour's frame tilts by its stated inclination and lays its line of nodes
+    at its stated position angle, to 0.01°.
+  - M33's drawn glow matches the CPU integral along the same rays, turned into its
+    frame, to 0.1 %.
+- **Limits.**
+  - Light only: the halos wait for encounters (phase 4).
+  - The neighbours hold their places from t = 0.
+  - Which side of each disc is near is not modelled.
+  - They have no arms, bars or dust: the LMC's bar is missing.
+  - The eye adapts to the Milky Way, so seen close up they are overexposed.
 
 ## Limits (phase 1)
 

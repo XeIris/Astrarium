@@ -15,9 +15,8 @@ extends RefCounted
 # - "sky": RA, Dec (ICRS degrees, from NED unless noted) and distance from the Sun (kpc),
 #   placed from the Sun at t = 0 through the app's own galactic frame. Their own orbits
 #   are not followed.
-# `view`: the camera's distance from it (kpc) and its polar angle (rad, 0 = face-on).
-# `from`: the flight stands at the landmark and looks back at the galaxy's centre, for a
-# place not drawn itself (the Magellanic Clouds, until they are modelled).
+# `view`: the camera's distance from it (kpc) and its polar angle (rad, 0 = face-on). A
+# sky landmark is seen from the Sun's side instead, as we see it.
 # `v`: an apparent V magnitude from the Sun, for a compact object drawn as a point of that
 # integrated light.
 
@@ -43,12 +42,20 @@ const MILKY_WAY := [
 		"card": "The Galaxy's most massive globular cluster: 3.94 million solar masses within a half-light radius of 7.6 pc, 5.43 kpc from the Sun (Baumgardt's catalogue; Baumgardt & Vasiliev 2021). Drawn as one point of its measured light, V = 3.5 from the Sun.",
 	},
 	{
-		"id": "lmc", "name": "Large Magellanic Cloud", "short": "LMC", "at": "sky", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "from": true, "view": [49.59, 1.0],
-		"card": "The largest of the Milky Way's satellites: 49.6 kpc away, to 1 % (Pietrzyński et al. 2019), and 1.4 × 10¹¹ solar masses in all, measured by how it bends the Orphan stream (Erkal et al. 2019). It moves at 321 km/s about the Galaxy (Kallivayalil et al. 2013). Seen from there: the Milky Way. The Clouds themselves are not modelled yet.",
+		"id": "lmc", "name": "Large Magellanic Cloud", "short": "LMC", "at": "sky", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "view": [25.0, 1.0],
+		"card": "The largest of the Milky Way's satellites: 49.6 kpc away, to 1 % (Pietrzyński et al. 2019), and 1.4 × 10¹¹ solar masses in all, measured by how it bends the Orphan stream (Erkal et al. 2019). It moves at 321 km/s about the Galaxy (Kallivayalil et al. 2013). Drawn from its stars: 2.7 × 10⁹ solar masses in a disc tilted 34.7° to our line of sight (van der Marel et al. 2009; van der Marel & Cioni 2001).",
 	},
 	{
-		"id": "smc", "name": "Small Magellanic Cloud", "short": "SMC", "at": "sky", "ra": 13.18666667, "dec": -72.82861111, "d": 62.44, "from": true, "view": [62.44, 1.0],
-		"card": "62.4 kpc away (Graczyk et al. 2020). It passed within about 7.5 kpc of the LMC some 150 Myr ago, and its stars' motions show it being torn apart (Zivick et al. 2018). Seen from there: the Milky Way.",
+		"id": "smc", "name": "Small Magellanic Cloud", "short": "SMC", "at": "sky", "ra": 13.18666667, "dec": -72.82861111, "d": 62.44, "view": [20.0, 1.0],
+		"card": "62.4 kpc away (Graczyk et al. 2020). It passed within about 7.5 kpc of the LMC some 150 Myr ago, and its stars' motions show it being torn apart (Zivick et al. 2018). Drawn from its old stars, a spheroid of 3.1 × 10⁸ solar masses (van der Marel et al. 2009; Gonidakis et al. 2009).",
+	},
+	{
+		"id": "m33", "name": "Triangulum Galaxy (M33)", "short": "M33", "at": "sky", "ra": 23.46204167, "dec": 30.66022222, "d": 809.0, "view": [40.0, 1.0],
+		"card": "The Local Group's third spiral, 809 kpc away (McConnachie 2012): a disc of 4.8 × 10⁹ solar masses of stars with no bulge (Corbelli et al. 2014), tilted 54° to our line of sight.",
+	},
+	{
+		"id": "m31", "name": "Andromeda Galaxy (M31)", "short": "M31", "at": "sky", "ra": 10.68479292, "dec": 41.269065, "d": 783.0, "view": [90.0, 1.0],
+		"card": "The nearest large galaxy, 783 kpc away and closing at 300 km/s (McConnachie 2012). A bulge of 3.4 and a disc of 6.9 × 10¹⁰ solar masses of stars (Kafle et al. 2018), tilted 77.5° to our line of sight (Tamm et al. 2012).",
 	},
 ]
 
@@ -70,6 +77,30 @@ static func sky_direction(ra: float, dec: float) -> Vector3:
 	var c := DVec3.from_v3(gal[1])
 	var y := DVec3.from_v3(gal[2])
 	return Vector3(u.dot(c), u.dot(n), -u.dot(y))
+
+## A neighbour's centre and axes (galaxy-local): x along its line of nodes, y its disc's
+## normal, tilted by its inclination from the line of sight. North and east on the sky are
+## differences of directions half a degree apart. Which side of the disc is near is not
+## modelled.
+static func neighbour_frame(spec: Dictionary, model: Dictionary) -> Array:
+	var r0: float = model.get("r0", 8.0)
+	var pot: GalPotential = model.potential
+	var f: Array = GalNeighbourhood.sun_frame(r0, float(model.get("sense", 1.0)) * pot.vc(r0) / r0, 0.0)
+	var sb: Basis = f[1]
+	var ra := float(spec.ra)
+	var dec := float(spec.dec)
+	var e := 0.5
+	var u := sky_direction(ra, dec)
+	var north := (sky_direction(ra, dec + e) - sky_direction(ra, dec - e)).normalized()
+	var east := (sky_direction(ra + e / cos(deg_to_rad(dec)), dec) - sky_direction(ra - e / cos(deg_to_rad(dec)), dec)).normalized()
+	var pa := deg_to_rad(float(spec.pa))
+	var inc := deg_to_rad(float(spec.i))
+	var nodes := north * cos(pa) + east * sin(pa)
+	var across := -north * sin(pa) + east * cos(pa)
+	var normal := -u * cos(inc) + across * sin(inc)
+	var ex := sb * nodes
+	var ey := sb * normal
+	return [(f[0] as Vector3) + sb * (u * float(spec.d)), Basis(ex, ey, ex.cross(ey)).orthonormalized()]
 
 ## Where its label goes: on the landmark, or along the bar for the bar.
 static func label_position(lm: Dictionary, model: Dictionary, t_myr: float) -> Vector3:

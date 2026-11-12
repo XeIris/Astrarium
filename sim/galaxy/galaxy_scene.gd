@@ -41,6 +41,9 @@ var follow_sun := false
 ## The model's landmarks (GalLandmarks), their labels on screen behind the HUD, and the
 ## one last flown to.
 var landmarks: Array = []
+## The Milky Way's neighbours (GalModels.LOCAL_GROUP), each {key, visual, centre (DVec3),
+## basis, extent}, drawn at the main visual's exposure; `hide` leaves one's glow out (checks).
+var neighbours: Array = []
 var landmark := ""
 var _lm_layer: Control = null
 var _lm_labels := {}
@@ -86,6 +89,7 @@ func enter(k: String) -> void:
 		_mutex.lock()
 		_built = t
 		_mutex.unlock(), false, "galaxy tracers")
+	_build_neighbours()
 	frame("whole")
 	_build_landmarks()
 	sync_hud()
@@ -137,6 +141,8 @@ func leave() -> void:
 	_nb_baked = {}
 	follow_sun = false
 	_clear_landmarks()
+	for nb in neighbours: nb.visual.dispose()
+	neighbours = []
 	active = false
 	if visual != null: visual.dispose()
 	visual = null
@@ -165,9 +171,6 @@ func _track_landmark(dt: float) -> void:
 	if follow_sun or landmark == "": return
 	var lm := GalLandmarks.find(String(model.get("key", "")), landmark)
 	if lm.is_empty() or lm.at == "sun": return
-	if lm.get("from", false):
-		stage.cam.track_point(DVec3.new(), dt)
-		return
 	stage.cam.track_point(DVec3.from_v3(GalLandmarks.position(lm, model, t_myr)), dt)
 
 func _advance(dt: float) -> float:
@@ -223,6 +226,7 @@ func update(dt: float) -> void:
 	visual.adapt(rays, cam_pos.to_v3(), SkyModel.star_gain(), dt if _adapted else 0.0)
 	_adapted = true
 	visual.update(cam_pos, t_myr, tracers, ahead, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain(), stage.cam.radius)
+	_update_neighbours(cam_pos)
 	if _objects_mat != null:
 		_objects.visible = visual.show_stars and visual.show_catalogue
 		_objects_mat.set_shader_parameter("uSunRel", DVec3.new().rel_v3(cam_pos))
@@ -279,16 +283,6 @@ func fly(id: String) -> void:
 	if lm.is_empty(): return
 	if lm.at == "sun":
 		frame("sun")
-	elif lm.get("from", false):
-		# Stand there and look back at the centre.
-		follow_sun = false
-		stage.state.follow_id = null
-		_adapted = false
-		var q := GalLandmarks.position(lm, model, t_myr)
-		stage.glide_target_to(DVec3.new())
-		stage.jump_cam_radius(q.length())
-		stage.cam.theta = acos(clampf(q.y / q.length(), -1.0, 1.0))
-		stage.cam.phi = atan2(q.z, q.x)
 	else:
 		follow_sun = false
 		stage.state.follow_id = null
@@ -297,6 +291,11 @@ func fly(id: String) -> void:
 		stage.glide_target_to(DVec3.from_v3(p))
 		stage.jump_cam_radius(float(lm.view[0]))
 		stage.cam.theta = float(lm.view[1])
+		if lm.at == "sky":
+			# From the Sun's side, as we see it.
+			var back := (GalLandmarks.position(GalLandmarks.MILKY_WAY[0], model, 0.0) - p).normalized()
+			stage.cam.theta = acos(clampf(back.y, -1.0, 1.0))
+			stage.cam.phi = atan2(back.z, back.x)
 	landmark = id
 	stage.hud.set_prose("galCard", String(lm.card))
 	sync_hud()
@@ -361,6 +360,35 @@ func _build_objects() -> void:
 	_objects.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_objects.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
 	visual.group.add_child(_objects)
+
+func _build_neighbours() -> void:
+	neighbours = []
+	if String(model.get("key", "")) != "milky_way": return
+	for k in GalModels.LOCAL_GROUP:
+		var m := GalModels.neighbour(k)
+		var f := GalLandmarks.neighbour_frame(m.sky, model)
+		var v := GalaxyVisual.new(m)
+		v.adapt_enabled = false
+		stage.pipe.world_root.add_child(v.group)
+		var c: Vector3 = f[0]
+		neighbours.append({"key": k, "visual": v, "centre": DVec3.new(c.x, c.y, c.z), "basis": f[1], "extent": float(m.extent)})
+
+## Each neighbour where it is relative to the camera, tilted, at the Milky Way's exposure.
+## Its star lattice runs only with the camera inside its box.
+func _update_neighbours(cam_pos: DVec3) -> void:
+	for nb in neighbours:
+		var v: GalaxyVisual = nb.visual
+		var rel: Vector3 = (nb.centre as DVec3).rel_v3(cam_pos)
+		var b: Basis = nb.basis
+		v.group.position = rel
+		v.group.basis = b
+		var cl := b.inverse() * -rel
+		v.exposure = visual.exposure
+		v.adaptation = visual.adaptation
+		v.show_glow = visual.show_glow and not nb.get("hide", false)
+		v.show_stars = visual.show_stars
+		v.res_override = -1.0 if cl.length() < float(nb.extent) else 0.0
+		v.update(DVec3.new(cl.x, cl.y, cl.z), t_myr, null, 0.0, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain(), stage.cam.radius)
 
 func _clear_landmarks() -> void:
 	if is_instance_valid(_lm_layer): _lm_layer.queue_free()

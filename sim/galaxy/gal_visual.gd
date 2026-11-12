@@ -112,8 +112,8 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	# With arms, stars under 100 Myr are theirs and the disc's start at that age.
 	var arms: Array = model.get("arms", [])
 	var young_gyr := GalModels.MW_YOUNG_GYR if not arms.is_empty() else 0.0
-	disc_pop = GalPopulation.build({"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr})
-	sphere_pop = GalPopulation.build({"kind": "burst", "gyr": 10.0})
+	disc_pop = GalPopulation.build(model.get("discPop", {"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr}))
+	sphere_pop = GalPopulation.build(model.get("spherePop", {"kind": "burst", "gyr": 10.0}))
 	var axes: Array = model.get("bulgeAxes", [1.0, 1.0])
 	bulge_axes = Vector2(axes[0], axes[1])
 	dust = (model.get("dust", {}) as Dictionary).duplicate()
@@ -184,17 +184,14 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 
 func _build_glow(model: Dictionary) -> void:
 	var ext: float = model.get("extent", 30.0)
-	var h := 4.0
+	var h := GalModels.glow_half_height(model)
 	var box := BoxMesh.new()
 	box.size = Vector3(ext, h, ext) * 2.0
 	glow_mat = ShaderMaterial.new()
 	glow_mat.shader = GLOW_SHADER
 	_light_uniforms(model, glow_mat)
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
-	# The bulge's light is below 1e-3 of its peak past three cutoff radii.
-	var bl: Dictionary = pot.part("bulge")
-	var sphere_r: float = 3.0 * float(bl.rc) if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF else 8.0
-	glow_mat.set_shader_parameter("uSphereR", sphere_r)
+	glow_mat.set_shader_parameter("uSphereR", GalModels.sphere_reach(model))
 	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
 	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
 	glow_mat.set_shader_parameter("uFaint", Vector2(disc_pop.faint_light, sphere_pop.faint_light))
@@ -317,16 +314,29 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 	var e: Array = GalModels.EXTINCTION_RGB
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var box: Vector3 = glow_mat.get_shader_parameter("uBox")
+	var reach: float = glow_mat.get_shader_parameter("uSphereR")
+	var sv: Vector4 = glow_mat.get_shader_parameter("uSphere")
+	# As the shader marches them: the disc and its dust within the box, the spheroid
+	# within its sphere; one march spans both.
 	var t1 := INF
 	var t0 := 0.0
 	for a in 3:
 		if absf(d[a]) < 1e-12:
-			if absf(o[a]) > box[a]: return 0.0
+			if absf(o[a]) > box[a]: t1 = -INF
 			continue
 		var ta := (-box[a] - o[a]) / d[a]
 		var tb := (box[a] - o[a]) / d[a]
 		t0 = maxf(t0, minf(ta, tb))
 		t1 = minf(t1, maxf(ta, tb))
+	if t1 <= t0:
+		t0 = INF
+		t1 = -INF
+	if sv.y > 0.0:
+		var hb := o.dot(d)
+		var hh := hb * hb - (o.dot(o) - reach * reach)
+		if hh > 0.0 and -hb + sqrt(hh) > 0.0:
+			t0 = minf(t0, maxf(-hb - sqrt(hh), 0.0))
+			t1 = maxf(t1, -hb + sqrt(hh))
 	if t1 <= t0: return 0.0
 	var acc := [0.0, 0.0, 0.0]
 	var tau := 0.0
@@ -342,7 +352,12 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 		var p := o + d * t
 		var ds := sc * cosh(u) * du
 		var j := light_density(p, r_floor)
-		var k := dust_density(p.x, p.y, p.z) * ds
+		var in_box := absf(p.x) <= box.x and absf(p.y) <= box.y and absf(p.z) <= box.z
+		if not in_box:
+			j[0] = 0.0
+			j[2] = 0.0
+		if p.length_squared() > reach * reach: j[1] = 0.0
+		var k := dust_density(p.x, p.y, p.z) * ds if in_box else 0.0
 		for ch in 3:
 			var kc := k * float(e[ch])
 			var within := (1.0 - exp(-kc)) / kc if kc > 1e-4 else 1.0 - 0.5 * kc

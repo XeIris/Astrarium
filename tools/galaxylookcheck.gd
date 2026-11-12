@@ -31,6 +31,8 @@ const DUST_TOL := {"edge": 0.04, "sun": 0.08}
 ## stars, the glow given up) against the CPU.
 const JOIN_EXPOSURE := 1.0
 const JOIN_TOL := 0.03
+## A neighbour's glow against its CPU integral, at an exposure that keeps it unclipped.
+const NEIGHBOUR_EXPOSURE := 0.05
 
 var logger := Catch.new()
 var stage: Node
@@ -134,6 +136,7 @@ func _ready() -> void:
 		await through_dust(v, "sun")
 		await join(v)
 		await landmarks()
+		await neighbour_profile("m33")
 		await handover(v)
 	for error in logger.take():
 		failures += 1
@@ -324,8 +327,8 @@ func join(v: GalaxyVisual) -> void:
 	v.res_override = -1.0
 	v.show_tracers = true
 
-# Flying to each landmark: after two seconds the camera is there (or, for a place looked
-# back from, stands at it), its card is shown, and its own label is hidden up close.
+# Flying to each landmark: after two seconds the camera is there, its card is shown, and
+# its own label is hidden up close.
 func landmarks() -> void:
 	var g = stage.galaxy
 	var lms: Array = g.landmarks
@@ -335,10 +338,7 @@ func landmarks() -> void:
 		await settle(120)
 		var p := GalLandmarks.position(lm, g.model, g.t_myr)
 		var err := 0.0
-		if lm.get("from", false):
-			err = (stage.cam.position.to_v3() - p).length() / p.length()
-		else:
-			err = (stage.cam.target.to_v3() - p).length() / float(lm.view[0])
+		err = (stage.cam.target.to_v3() - p).length() / float(lm.view[0])
 		var card: String = stage.hud.ids.galCard.said()
 		var label: Control = g._lm_labels.get(lm.id)
 		if err > 1e-3 or card != String(lm.card) or label == null or label.visible:
@@ -346,6 +346,54 @@ func landmarks() -> void:
 				"hidden" if label != null and not label.visible else "shown"])
 	check("flying to each of %d landmarks arrives, shows its card and hides its own label%s" % [lms.size(), "" if bad.is_empty() else ": " + ", ".join(bad)],
 		lms.size() > 0 and bad.is_empty())
+	g.frame("whole")
+
+# A neighbour drawn where it is and as it is tilted: its glow (its own alone, against the
+# frame without it) against the CPU's integral along the same rays turned into its frame.
+func neighbour_profile(key: String) -> void:
+	var g = stage.galaxy
+	var nb := {}
+	for n in g.neighbours:
+		if n.key == key: nb = n
+	if nb.is_empty():
+		check("%s is drawn" % key, false)
+		return
+	g.fly(key)
+	await settle(120)
+	var v: GalaxyVisual = nb.visual
+	pin(g.visual, NEIGHBOUR_EXPOSURE)
+	g.visual.show_tracers = false
+	g.visual.show_stars = false
+	var img := await hdr()
+	save(img, "neighbour-" + key)
+	nb.hide = true
+	var without := await hdr()
+	nb.hide = false
+	var basis: Basis = stage.cam_basis
+	var cam: Vector3 = stage.cam_pos.to_v3()
+	var size := Vector2(img.get_width(), img.get_height())
+	var tan_h := tan(deg_to_rad(stage.cam_fov) * 0.5)
+	var nbb: Basis = nb.basis
+	var o: Vector3 = nbb.inverse() * (cam - (nb.centre as DVec3).to_v3())
+	var gain := GalaxyVisual.K * SkyModel.star_gain() * v.exposure * v.adaptation
+	var worst := 0.0
+	for rpx in [10, 30, 60, 100, 150]:
+		var drawn := 0.0
+		var want := 0.0
+		for k in 48:
+			var px := size * 0.5 + Vector2.from_angle(TAU * float(k) / 48.0) * float(rpx)
+			var ix := int(px.x)
+			var iy := int(px.y)
+			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
+			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
+			drawn += luma(img.get_pixel(ix, iy)) - luma(without.get_pixel(ix, iy))
+			want += v.ray_luminance(o, nbb.inverse() * d, 1e-3, 1200) * gain
+		var err := absf(drawn / want - 1.0)
+		print("     %s ring %d px: drawn %s, integral %s" % [key, rpx, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
+		worst = maxf(worst, err)
+	check("%s drawn where it is and tilted as it is: its glow = the CPU integral in its frame (worst %s %%, < %s)" % [key, U.fixed(worst * 100.0, 1), U.fixed(PROFILE_TOL * 100.0, 0)], worst < PROFILE_TOL)
+	g.visual.show_tracers = true
+	g.visual.show_stars = true
 	g.frame("whole")
 
 ## Luminance summed over every pixel: a point's drawn pixels sum to its flux.
