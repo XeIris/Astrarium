@@ -10,10 +10,23 @@ const Catch = preload("res://tools/coursecheck.gd").Catch
 
 ## Views of the solar neighbourhood averaged for the hand-over, each a fresh draw of
 ## the lattice; and the shell measured, so that the nearest star cannot dominate.
-const HANDOVER_VIEWS := 24
+const HANDOVER_VIEWS := 48
 const INNER := 0.005
 const HANDOVER_TOL := 0.06
 const PROFILE_TOL := 0.04
+## Rows across the dust lane, as offsets from the frame's centre row: edge-on from
+## outside, and from the Sun, where the lane sits ~210 px above the centre and in-plane
+## steps are optically thick. Columns spread over ±EDGE_HALF_PX; the CPU marches
+## EDGE_SAMPLES (an in-plane ray's asinh spacing is otherwise ~0.4 kpc).
+const DUST_ROWS := {"edge": [-24, -8, -3, 0, 3, 8, 24], "sun": [-280, -240, -215, -205, -190, -160, -100, 0]}
+const EDGE_COLUMNS := 48
+const EDGE_HALF_PX := 320
+const EDGE_SAMPLES := 3000
+const EDGE_EXPOSURE := 0.05
+## From the Sun the glow's 28 steps cross ~30 kpc of arm dust in the plane: that
+## quadrature reads 5.3 % bright in the lane against a converged CPU march (12000
+## samples agree with 3000). A step attenuated at its midpoint reads 14 %.
+const DUST_TOL := {"edge": 0.04, "sun": 0.08}
 
 var logger := Catch.new()
 var stage: Node
@@ -113,6 +126,8 @@ func _ready() -> void:
 	if v != null:
 		await views(v)
 		await profile(v)
+		await through_dust(v, "edge")
+		await through_dust(v, "sun")
 		await handover(v)
 	for error in logger.take():
 		failures += 1
@@ -171,6 +186,45 @@ func profile(v: GalaxyVisual) -> void:
 		worst = maxf(worst, err)
 		rings += 1
 	check("face-on glow = CPU integral of the model's light in %d rings (worst %s %%, < %s)" % [rings, U.fixed(worst * 100.0, 1), U.fixed(PROFILE_TOL * 100.0, 0)], worst < PROFILE_TOL)
+	v.show_tracers = true
+	v.show_stars = true
+
+# Through the dust lane: rows of pixels across it against the CPU's integral, so the
+# glow's absorption (its in-step mean, and the spheroid reading the disc march's
+# optical depth) is held where it is thick. Pixel centres exactly: the lane is a few
+# pixels high edge-on.
+func through_dust(v: GalaxyVisual, framing: String) -> void:
+	stage.galaxy.frame(framing)
+	v.show_tracers = false
+	v.show_stars = false
+	pin(v, EDGE_EXPOSURE)
+	var img := await hdr()
+	save(img, "dust-" + framing)
+	v.show_glow = false
+	var sky := await hdr()
+	v.show_glow = true
+	var basis: Basis = stage.cam_basis
+	var cam: Vector3 = stage.cam_pos.to_v3()
+	var size := Vector2(img.get_width(), img.get_height())
+	var tan_h := tan(deg_to_rad(stage.cam_fov) * 0.5)
+	var gain := GalaxyVisual.K * SkyModel.star_gain() * v.exposure * v.adaptation
+	var worst := 0.0
+	var rows := 0
+	for dy in DUST_ROWS[framing]:
+		var drawn := 0.0
+		var want := 0.0
+		for k in EDGE_COLUMNS:
+			var ix := int(size.x * 0.5) + int((float(k) / float(EDGE_COLUMNS - 1) * 2.0 - 1.0) * EDGE_HALF_PX)
+			var iy := int(size.y * 0.5) + int(dy)
+			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
+			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
+			drawn += luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
+			want += v.ray_luminance(cam, d, 1e-3, EDGE_SAMPLES) * gain
+		var err := absf(drawn / want - 1.0)
+		print("     row %+d px: drawn %s, integral %s" % [int(dy), U.expo(drawn / EDGE_COLUMNS, 3), U.expo(want / EDGE_COLUMNS, 3)])
+		worst = maxf(worst, err)
+		rows += 1
+	check("%s: glow through the dust = CPU integral in %d rows (worst %s %%, < %s)" % [framing, rows, U.fixed(worst * 100.0, 1), U.fixed(DUST_TOL[framing] * 100.0, 0)], worst < DUST_TOL[framing])
 	v.show_tracers = true
 	v.show_stars = true
 

@@ -493,7 +493,221 @@ static void run(double *A) {
 }
 
 /* ============================================================================
- * GDExtension plumbing — one abstract class with one static method.
+ * Galactic tracers (sim/galaxy/gal_tracers.gd is the GDScript twin; the two
+ * must stay bit-identical, so every expression keeps its order there).
+ * Massless particles in a static axisymmetric potential plus rotating patterns,
+ * drift–kick–drift at a fixed step, each tracer taking all k steps in turn.
+ * Buffer: [0] length, [1] n, [2] k, [3] dt, [4] t_start, [5] patterns, [6] table
+ * size, [7] steps taken so far, [8..20] the axisymmetric kernel (GalPotential.Kernel),
+ * then 12 per pattern,
+ * the bulge table and its derivative, positions, velocities and work, n each ×3,
+ * ×3 and ×1. Work accumulates ∫∂Φ/∂t dt, so E − W is each tracer's invariant.
+ * ========================================================================== */
+#define TR_AXIS 8
+#define TR_PAT 21
+#define TR_PSTRIDE 12
+
+static double log_cosh(double x) {
+	double a = fabs(x);
+	return a + log(1.0 + exp(-2.0 * a)) - log(2.0);
+}
+
+/* Dehnen's (2000) growth factor and its rate. */
+static double tr_growth(const double *P, double t) {
+	double t0 = P[4], tg = P[5];
+	if (t <= t0) return 0.0;
+	if (t >= t0 + tg) return 1.0;
+	double xi = 2.0 * (t - t0) / tg - 1.0;
+	return 3.0 / 16.0 * pow(xi, 5.0) - 5.0 / 8.0 * pow(xi, 3.0) + 15.0 / 16.0 * xi + 0.5;
+}
+
+static double tr_growth_rate(const double *P, double t) {
+	double t0 = P[4], tg = P[5];
+	if (t <= t0 || t >= t0 + tg) return 0.0;
+	double xi = 2.0 * (t - t0) / tg - 1.0;
+	return (15.0 / 16.0 * pow(xi, 4.0) - 15.0 / 8.0 * xi * xi + 15.0 / 16.0) * 2.0 / tg;
+}
+
+static void run_tracers(double *A) {
+	int n = (int)A[1], k = (int)A[2], np = (int)A[5], tn = (int)A[6];
+	/* The buffer is exactly its header's counts long, or nothing is touched. */
+	long long need = TR_PAT + (long long)TR_PSTRIDE * np + 2LL * tn + 7LL * n;
+	if (n < 0 || k < 0 || np < 0 || tn < 0 || need != (long long)A[0]) return;
+	double dt = A[3], t_start = A[4], h = dt * 0.5;
+	/* A step's time from its index, so it does not depend on how steps are batched. */
+	double steps0 = A[7];
+	const double *X = A + TR_AXIS;
+	double mn_gm = X[0], mn_a = X[1], mn_b2 = X[2];
+	double s1_gm = X[3], s1_a = X[4], s2_gm = X[6], s2_a = X[7];
+	int s1_nfw = X[5] != 0.0, s2_nfw = X[8] != 0.0;
+	double th = X[9], tr0 = X[10], tgm = X[11], talpha = X[12];
+	const double *tb = A + TR_PAT + TR_PSTRIDE * np;
+	const double *td = tb + tn;
+	double *pos = (double *)(td + tn);
+	double *vel = pos + 3 * n;
+	double *work = vel + 3 * n;
+	int has_tab = tn > 0;
+	/* Per step and pattern: growth, its rate, and the pattern's angle terms. */
+	double *G = (double *)calloc((size_t)k * (size_t)np * 4 + 1, sizeof(double));
+	if (!G) return;
+	for (int s = 0; s < k; s++) {
+		double tm = t_start + (steps0 + (double)s + 0.5) * dt;
+		for (int j = 0; j < np; j++) {
+			const double *P = A + TR_PAT + TR_PSTRIDE * j;
+			double ang = P[2] + P[1] * tm;
+			double *g = G + (s * np + j) * 4;
+			g[0] = tr_growth(P, tm);
+			g[1] = tr_growth_rate(P, tm);
+			if (P[0] == 0.0) { g[2] = cos(2.0 * ang); g[3] = sin(2.0 * ang); }
+			else { g[2] = ang; g[3] = 0.0; }
+		}
+	}
+	for (int i = 0; i < n; i++) {
+		int c = i * 3;
+		double x = pos[c], y = pos[c + 1], z = pos[c + 2];
+		double vx = vel[c], vy = vel[c + 1], vz = vel[c + 2];
+		double w = work[i];
+		for (int s = 0; s < k; s++) {
+			x += vx * h; y += vy * h; z += vz * h;
+			double ax = 0.0, ay = 0.0, az = 0.0;
+			if (mn_gm != 0.0) {
+				double zb = sqrt(y * y + mn_b2);
+				double sa = mn_a + zb;
+				double d = x * x + z * z + sa * sa;
+				double f = -mn_gm / (d * sqrt(d));
+				ax += f * x; ay += f * y * sa / zb; az += f * z;
+			}
+			double r2 = x * x + y * y + z * z;
+			double r = sqrt(r2);
+			double m = 0.0;
+			if (s1_gm != 0.0) {
+				double q = r / s1_a;
+				if (s1_nfw) m += q > 1e-4 ? s1_gm * (log(1.0 + q) - q / (1.0 + q)) : s1_gm * q * q * (0.5 - q * 2.0 / 3.0);
+				else m += s1_gm * r2 / ((r + s1_a) * (r + s1_a));
+			}
+			if (s2_gm != 0.0) {
+				double q = r / s2_a;
+				if (s2_nfw) m += q > 1e-4 ? s2_gm * (log(1.0 + q) - q / (1.0 + q)) : s2_gm * q * q * (0.5 - q * 2.0 / 3.0);
+				else m += s2_gm * r2 / ((r + s2_a) * (r + s2_a));
+			}
+			if (has_tab) {
+				if (r <= tr0) {
+					m += tb[0] * pow(r / tr0, 3.0 - talpha);
+				} else {
+					double u = log(r / tr0) / th;
+					int j = (int)u;
+					if (j >= tn - 1) {
+						m += tgm;
+					} else {
+						double ww = u - (double)j;
+						double w2 = ww * ww;
+						double w3 = w2 * ww;
+						m += (2.0 * w3 - 3.0 * w2 + 1.0) * tb[j] + (w3 - 2.0 * w2 + ww) * th * td[j]
+							+ (-2.0 * w3 + 3.0 * w2) * tb[j + 1] + (w3 - w2) * th * td[j + 1];
+					}
+				}
+			}
+			if (r > 0.0) {
+				double g = -m / (r2 * r);
+				ax += g * x; ay += g * y; az += g * z;
+			}
+			double dphidt = 0.0;
+			for (int j = 0; j < np; j++) {
+				const double *P = A + TR_PAT + TR_PSTRIDE * j;
+				const double *gg = G + (s * np + j) * 4;
+				double gs = gg[0];
+				if (gs == 0.0 && gg[1] == 0.0) continue;
+				double R2 = x * x + z * z;
+				double R = sqrt(R2);
+				if (P[0] == 0.0) {
+					/* Dehnen bar: Φ = A Q h(r), Q = (x² − z²) cos 2φb + 2xz sin 2φb, h = g(r)/r². */
+					if (r < 1e-9) continue;
+					double rb = P[6], rb3 = rb * rb * rb, c2 = gg[2], s2 = gg[3];
+					double Q = (x * x - z * z) * c2 + 2.0 * x * z * s2;
+					double hh, dh;
+					if (r >= rb) { hh = -rb3 / (r2 * r2 * r); dh = 5.0 * rb3 / (r2 * r2 * r2); }
+					else { hh = r / rb3 - 2.0 / r2; dh = 1.0 / rb3 + 4.0 / (r2 * r); }
+					double Ab = gs * P[3];
+					double radial = Ab * Q * dh / r;
+					ax -= Ab * hh * (2.0 * x * c2 + 2.0 * z * s2) + radial * x;
+					ay -= radial * y;
+					az -= Ab * hh * (-2.0 * z * c2 + 2.0 * x * s2) + radial * z;
+					double full = P[3] * Q * hh;
+					double dfull = P[3] * hh * -2.0 * (2.0 * x * z * c2 - (x * x - z * z) * s2);
+					dphidt += gg[1] * full - gs * P[1] * dfull;
+				} else {
+					/* Cox & Gómez spiral, one term. */
+					if (R < 1e-6) continue;
+					double nn = P[6], sa = sin(P[7]), ta = tan(P[7]), r0 = P[8], rs = P[9], H = P[10];
+					double K = nn / (R * sa);
+					double dK = -K / R;
+					double q = K * H;
+					double dq = dK * H;
+					double B = q * (1.0 + 0.4 * q);
+					double dB = dq * (1.0 + 0.8 * q);
+					double den = 1.0 + 0.3 * q;
+					double D = (1.0 + q + 0.3 * q * q) / den;
+					double dD = ((1.0 + 0.6 * q) * den - 0.3 * (1.0 + q + 0.3 * q * q)) / (den * den) * dq;
+					double gam = nn * (atan2(z, x) - gg[2] + log(R / r0) / ta);
+					double xx = K * y / B;
+					double lc = log_cosh(xx);
+					double thx = tanh(xx);
+					double S = exp(-B * lc);
+					double f = exp(-(R - r0) / rs) / (K * D);
+					double As = gs * P[3];
+					double cg = cos(gam), sg = sin(gam);
+					double df_f = -1.0 / rs - dK / K - dD / D;
+					double dS_S = -dB * lc - thx * y * (dK - K * dB / B);
+					double g_R = nn / (R * ta);
+					double dPhi_dR = -As * f * S * (df_f * cg - g_R * sg + dS_S * cg);
+					double dPhi_dphi = As * f * nn * sg * S;
+					double dPhi_dy = As * f * cg * S * K * thx;
+					ax -= dPhi_dR * x / R - dPhi_dphi * z / R2;
+					ay -= dPhi_dy;
+					az -= dPhi_dR * z / R + dPhi_dphi * x / R2;
+					double full = -P[3] * f * cg * S;
+					double dfull = P[3] * f * nn * sg * S;
+					dphidt += gg[1] * full - gs * P[1] * dfull;
+				}
+			}
+			w += dphidt * dt;
+			vx += ax * dt; vy += ay * dt; vz += az * dt;
+			x += vx * h; y += vy * h; z += vz * h;
+		}
+		pos[c] = x; pos[c + 1] = y; pos[c + 2] = z;
+		vel[c] = vx; vel[c + 1] = vy; vel[c + 2] = vz;
+		work[i] = w;
+	}
+	free(G);
+}
+
+/* The library's own libm on probe arguments, for galaxycheck: the tracer kernel can be
+ * bit-identical to GDScript only where both call the same libm (MinGW's differs from
+ * the engine's on Windows). Records of (function, a, b, result) after A[0] = length:
+ * 0 sin, 1 cos, 2 tan, 3 exp, 4 log, 5 atan2(a, b), 6 tanh, 7 pow(a, b), 8 sqrt. */
+static void run_libm(double *A) {
+	int len = (int)A[0];
+	for (int i = 1; i + 3 < len; i += 4) {
+		double a = A[i + 1], b = A[i + 2], r;
+		switch ((int)A[i]) {
+		case 0: r = sin(a); break;
+		case 1: r = cos(a); break;
+		case 2: r = tan(a); break;
+		case 3: r = exp(a); break;
+		case 4: r = log(a); break;
+		case 5: r = atan2(a, b); break;
+		case 6: r = tanh(a); break;
+		case 7: r = pow(a, b); break;
+		case 8: r = sqrt(a); break;
+		default: r = 0.0; break;
+		}
+		A[i + 3] = r;
+	}
+}
+
+/* ============================================================================
+ * GDExtension plumbing — one abstract class with static methods: step2 (the N-body
+ * kernel), tracers (the galactic tracers) and libm (run_libm).
  * ========================================================================== */
 static GDExtensionInterfaceGetProcAddress gp;
 static GDExtensionClassLibraryPtr lib;
@@ -510,34 +724,46 @@ typedef struct { _Alignas(8) unsigned char b[8]; } SName;
 
 /* Copy `in` into `out` (constructed here), run, write back through the
  * copy-on-write accessor so the caller's array is untouched. */
-static void step_into(GDExtensionConstTypePtr in, GDExtensionUninitializedTypePtr out) {
+typedef void (*Runner)(double *);
+
+static void step_into(GDExtensionConstTypePtr in, GDExtensionUninitializedTypePtr out, Runner fn, int min_len) {
 	const GDExtensionConstTypePtr args[1] = { in };
 	pf64_copy(out, args);
 	const double *src = pf64_idx_c(in, 0);
 	if (!src) return;
 	int len = (int)src[0];
-	if (len < HDR) return;
+	if (len < min_len) return;
 	double *buf = (double *)malloc(sizeof(double) * (size_t)len);
 	for (int i = 0; i < len; i++) buf[i] = *pf64_idx_c(in, i);
-	run(buf);
+	fn(buf);
 	double *dst = pf64_idx((GDExtensionTypePtr)out, 0);
 	if (dst) memcpy(dst, buf, sizeof(double) * (size_t)len);
 	free(buf);
 }
 
+static int tracer_tag = 1;
+static int libm_tag = 2;
+
+/* Method userdata selects the kernel: NULL is step2, then the tracers and libm. */
+static void dispatch(void *ud, GDExtensionConstTypePtr in, GDExtensionUninitializedTypePtr out) {
+	if (ud == &tracer_tag) step_into(in, out, run_tracers, TR_PAT);
+	else if (ud == &libm_tag) step_into(in, out, run_libm, 5);
+	else step_into(in, out, run, HDR);
+}
+
 static void m_ptrcall(void *ud, GDExtensionClassInstancePtr inst, const GDExtensionConstTypePtr *args, GDExtensionTypePtr r_ret) {
-	(void)ud; (void)inst;
+	(void)inst;
 	/* r_ret holds a constructed (empty) array: release it, then build in place. */
 	pf64_dtor(r_ret);
-	step_into(args[0], r_ret);
+	dispatch(ud, args[0], r_ret);
 }
 
 static void m_call(void *ud, GDExtensionClassInstancePtr inst, const GDExtensionConstVariantPtr *args, GDExtensionInt argc, GDExtensionVariantPtr r_ret, GDExtensionCallError *err) {
-	(void)ud; (void)inst;
+	(void)inst;
 	if (argc < 1) { err->error = GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS; err->expected = 1; return; }
 	PF64 in, out;
 	pf64_from_variant(&in, (GDExtensionVariantPtr)args[0]);
-	step_into(&in, &out);
+	dispatch(ud, &in, &out);
 	variant_from_pf64(r_ret, &out);
 	pf64_dtor(&in);
 	pf64_dtor(&out);
@@ -546,7 +772,7 @@ static void m_call(void *ud, GDExtensionClassInstancePtr inst, const GDExtension
 
 static void free_instance(void *ud, GDExtensionClassInstancePtr inst) { (void)ud; (void)inst; }
 
-static SName sn_class, sn_parent, sn_method, sn_arg, sn_empty;
+static SName sn_class, sn_parent, sn_method, sn_tracers, sn_libm, sn_arg, sn_empty;
 
 static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	(void)ud;
@@ -569,6 +795,8 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	sn_new(&sn_class, "NBodyKernel", 1);
 	sn_new(&sn_parent, "Object", 1);
 	sn_new(&sn_method, "step2", 1);
+	sn_new(&sn_tracers, "tracers", 1);
+	sn_new(&sn_libm, "libm", 1);
 	sn_new(&sn_arg, "state", 1);
 	sn_new(&sn_empty, "", 1);
 
@@ -597,6 +825,12 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	mi.argument_count = 1;
 	mi.arguments_info = &arg;
 	mi.arguments_metadata = &meta;
+	reg_method(lib, &sn_class, &mi);
+	mi.name = &sn_tracers;
+	mi.method_userdata = &tracer_tag;
+	reg_method(lib, &sn_class, &mi);
+	mi.name = &sn_libm;
+	mi.method_userdata = &libm_tag;
 	reg_method(lib, &sn_class, &mi);
 }
 

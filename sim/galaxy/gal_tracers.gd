@@ -1,10 +1,14 @@
 class_name GalTracers
 extends RefCounted
 
-# Massless test particles in a static potential: the stars and gas clouds whose
-# motion the galactic scene shows and measures. Drift–kick–drift is symplectic, so
-# each tracer's energy error stays bounded, and in an axisymmetric potential the
-# kicks have no azimuthal part, so L about the axis is kept to rounding.
+# Massless test particles: the stars and gas clouds whose motion the galactic scene
+# shows and measures, in a static axisymmetric potential plus rotating patterns (a
+# bar, spiral arms: GalPattern). Drift–kick–drift is symplectic. Turning patterns do
+# work on a tracer, so its invariant is E − W with W = ∫∂Φ/∂t dt, tallied at each
+# kick; without patterns W = 0 and Lz is kept to rounding as well.
+#
+# native/astrarium_native.c (NBodyKernel.tracers) runs the same arithmetic in C
+# and must stay bit-identical to _step_fused; galaxycheck compares them.
 
 ## Fixed step, Myr. A circular orbit at 2 kpc takes ~60 Myr, so ~600 steps.
 const DT := 0.1
@@ -18,10 +22,17 @@ var acc := PackedFloat64Array()
 var pop := PackedByteArray()
 var populations: Array = []
 var sense := 1.0
+var patterns: Array = []
+## Myr; the clock starts at the model's tStart.
 var t := 0.0
+var t_start := 0.0
 var steps := 0
-## Each tracer's energy at the start, for the drift diagnostic.
+## Each tracer's energy at the start, and the work the patterns have done on it since.
 var e0 := PackedFloat64Array()
+var work := PackedFloat64Array()
+## False forces the GDScript kernel (galaxycheck compares the two).
+var use_native := true
+static var _native := -1
 
 func _init(model: Dictionary) -> void:
 	pot = model.potential
@@ -34,8 +45,12 @@ func _init(model: Dictionary) -> void:
 		match p.kind:
 			"gas": _seed_gas(p, i, rng)
 			"disc": _seed_disc(p, i, rng)
+	patterns = model.get("patterns", [])
+	t_start = float(model.get("tStart", 0.0))
+	t = t_start
 	acc.resize(n * 3)
-	pot.accel_into(pos, acc, n)
+	work.resize(n)
+	work.fill(0.0)
 	e0 = energies()
 
 func _append(i: int, R: float, phi: float, y: float, vr: float, vphi: float, vy: float) -> void:
@@ -267,25 +282,89 @@ static func draw_height(tab: Dictionary, R: float, rng: RandomNumberGenerator) -
 
 # integration
 
+static func native_available() -> bool:
+	if _native < 0:
+		_native = 1 if ClassDB.class_exists("NBodyKernel") and ClassDB.class_has_method("NBodyKernel", "tracers") else 0
+	return _native == 1
+
 ## `k` drift–kick–drift steps of DT. Test particles don't feel each other, so each
 ## tracer takes all k steps in turn with the potential inlined (GalPotential.Kernel).
 func step(k: int) -> void:
 	if k <= 0: return
 	var kn := pot.kernel()
 	if kn == null:
-		for s in k: _step_generic()
+		for s in k: _step_generic(steps + s)
+	elif use_native and GalTracers.native_available():
+		_step_native(kn, k)
 	else:
 		_step_fused(kn, k)
 	steps += k
-	t = float(steps) * DT
+	t = t_start + float(steps) * DT
 
-func _step_generic() -> void:
+func _step_generic(index: int) -> void:
 	var h := DT * 0.5
 	for i in n * 3: pos[i] += vel[i] * h
 	pot.accel_into(pos, acc, n)
+	var tm := t_start + (float(index) + 0.5) * DT
+	for i in n:
+		var c := i * 3
+		var dp := 0.0
+		for p in patterns:
+			GalPattern.add_accel(p, pos[c], pos[c + 1], pos[c + 2], tm, acc, c)
+			dp += GalPattern.dphi_dt(p, pos[c], pos[c + 1], pos[c + 2], tm)
+		work[i] += dp * DT
 	for i in n * 3:
 		vel[i] += acc[i] * DT
 		pos[i] += vel[i] * h
+
+## The kernel's buffer (layout in native/astrarium_native.c, run_tracers).
+func _pack(kn: GalPotential.Kernel, k: int) -> PackedFloat64Array:
+	var b := PackedFloat64Array([0.0, float(n), float(k), DT, t_start, float(patterns.size()), float(kn.tab_n), float(steps),
+		kn.mn_gm, kn.mn_a, kn.mn_b2, kn.s1_gm, kn.s1_a, 1.0 if kn.s1_nfw else 0.0,
+		kn.s2_gm, kn.s2_a, 1.0 if kn.s2_nfw else 0.0, kn.tab_h, kn.tab_r0, kn.tab_gm, kn.tab_alpha])
+	for p in patterns:
+		if p.kind == GalPattern.Kind.BAR:
+			b.append_array([0.0, p.omega, p.angle0, p.amp, p.tForm, p.tGrow, p.rb, 0.0, 0.0, 0.0, 0.0, 0.0])
+		else:
+			b.append_array([1.0, p.omega, p.angle0, p.amp, p.tForm, p.tGrow, p.n, p.pitch, p.r0, p.rs, p.h, 0.0])
+	if kn.tab_n > 0:
+		b.append_array(kn.tab)
+		b.append_array(kn.dtab)
+	b.append_array(pos)
+	b.append_array(vel)
+	b.append_array(work)
+	b[0] = float(b.size())
+	return b
+
+func _step_native(kn: GalPotential.Kernel, k: int) -> void:
+	var b: PackedFloat64Array = ClassDB.class_call_static("NBodyKernel", "tracers", _pack(kn, k))
+	var o := 21 + 12 * patterns.size() + 2 * kn.tab_n
+	pos = b.slice(o, o + 3 * n)
+	vel = b.slice(o + 3 * n, o + 6 * n)
+	work = b.slice(o + 6 * n, o + 7 * n)
+
+## Per step and pattern: growth, its rate, and the angle terms (cos and sin of 2φb for
+## a bar, φp for a spiral); the C kernel's G array.
+func _pattern_table(k: int) -> PackedFloat64Array:
+	var np := patterns.size()
+	var g := PackedFloat64Array()
+	g.resize(k * np * 4 + 1)
+	for s in k:
+		# From the step's index: the same time however the steps are batched.
+		var tm := t_start + (float(steps + s) + 0.5) * DT
+		for j in np:
+			var p: Dictionary = patterns[j]
+			var ang: float = p.angle0 + p.omega * tm
+			var o := (s * np + j) * 4
+			g[o] = GalPattern.growth(p, tm)
+			g[o + 1] = GalPattern.growth_rate(p, tm)
+			if p.kind == GalPattern.Kind.BAR:
+				g[o + 2] = cos(2.0 * ang)
+				g[o + 3] = sin(2.0 * ang)
+			else:
+				g[o + 2] = ang
+				g[o + 3] = 0.0
+	return g
 
 func _step_fused(kn: GalPotential.Kernel, k: int) -> void:
 	var h := DT * 0.5
@@ -307,10 +386,20 @@ func _step_fused(kn: GalPotential.Kernel, k: int) -> void:
 	var tgm := kn.tab_gm
 	var talpha := kn.tab_alpha
 	var has_tab := tn > 0
+	var np := patterns.size()
+	var G := _pattern_table(k)
+	# Each pattern's constants, as the C kernel reads them from the buffer.
+	var P := []
+	for p in patterns:
+		if p.kind == GalPattern.Kind.BAR:
+			P.append([0.0, p.omega, p.angle0, p.amp, p.tForm, p.tGrow, p.rb, 0.0, 0.0, 0.0, 0.0])
+		else:
+			P.append([1.0, p.omega, p.angle0, p.amp, p.tForm, p.tGrow, p.n, p.pitch, p.r0, p.rs, p.h])
 	for i in n:
 		var c := i * 3
 		var x := pos[c]; var y := pos[c + 1]; var z := pos[c + 2]
 		var vx := vel[c]; var vy := vel[c + 1]; var vz := vel[c + 2]
+		var w := work[i]
 		for s in k:
 			x += vx * h; y += vy * h; z += vz * h
 			var ax := 0.0; var ay := 0.0; var az := 0.0
@@ -344,18 +433,89 @@ func _step_fused(kn: GalPotential.Kernel, k: int) -> void:
 					if j >= tn - 1:
 						m += tgm
 					else:
-						var w := u - float(j)
-						var w2 := w * w
-						var w3 := w2 * w
-						m += (2.0 * w3 - 3.0 * w2 + 1.0) * tb[j] + (w3 - 2.0 * w2 + w) * th * td[j] \
+						var ww := u - float(j)
+						var w2 := ww * ww
+						var w3 := w2 * ww
+						m += (2.0 * w3 - 3.0 * w2 + 1.0) * tb[j] + (w3 - 2.0 * w2 + ww) * th * td[j] \
 							+ (-2.0 * w3 + 3.0 * w2) * tb[j + 1] + (w3 - w2) * th * td[j + 1]
 			if r > 0.0:
 				var g := -m / (r2 * r)
 				ax += g * x; ay += g * y; az += g * z
+			var dphidt := 0.0
+			for jp in np:
+				var pp: Array = P[jp]
+				var o := (s * np + jp) * 4
+				var gs := G[o]
+				if gs == 0.0 and G[o + 1] == 0.0: continue
+				var R2 := x * x + z * z
+				var R := sqrt(R2)
+				if pp[0] == 0.0:
+					if r < 1e-9: continue
+					var rb: float = pp[6]
+					var rb3 := rb * rb * rb
+					var c2 := G[o + 2]
+					var s2 := G[o + 3]
+					var Q := (x * x - z * z) * c2 + 2.0 * x * z * s2
+					var hh: float
+					var dh: float
+					if r >= rb:
+						hh = -rb3 / (r2 * r2 * r)
+						dh = 5.0 * rb3 / (r2 * r2 * r2)
+					else:
+						hh = r / rb3 - 2.0 / r2
+						dh = 1.0 / rb3 + 4.0 / (r2 * r)
+					var Ab: float = gs * pp[3]
+					var radial := Ab * Q * dh / r
+					ax -= Ab * hh * (2.0 * x * c2 + 2.0 * z * s2) + radial * x
+					ay -= radial * y
+					az -= Ab * hh * (-2.0 * z * c2 + 2.0 * x * s2) + radial * z
+					var full: float = pp[3] * Q * hh
+					var dfull: float = pp[3] * hh * -2.0 * (2.0 * x * z * c2 - (x * x - z * z) * s2)
+					dphidt += G[o + 1] * full - gs * pp[1] * dfull
+				else:
+					if R < 1e-6: continue
+					var nn: float = pp[6]
+					var sap := sin(float(pp[7]))
+					var tap := tan(float(pp[7]))
+					var r0: float = pp[8]
+					var rs: float = pp[9]
+					var H: float = pp[10]
+					var K := nn / (R * sap)
+					var dK := -K / R
+					var q := K * H
+					var dq := dK * H
+					var B := q * (1.0 + 0.4 * q)
+					var dB := dq * (1.0 + 0.8 * q)
+					var den := 1.0 + 0.3 * q
+					var D := (1.0 + q + 0.3 * q * q) / den
+					var dD := ((1.0 + 0.6 * q) * den - 0.3 * (1.0 + q + 0.3 * q * q)) / (den * den) * dq
+					var gam := nn * (atan2(z, x) - G[o + 2] + log(R / r0) / tap)
+					var xx := K * y / B
+					var lc := GalPattern.log_cosh(xx)
+					var thx := tanh(xx)
+					var S := exp(-B * lc)
+					var f := exp(-(R - r0) / rs) / (K * D)
+					var As: float = gs * pp[3]
+					var cg := cos(gam)
+					var sg := sin(gam)
+					var df_f := -1.0 / rs - dK / K - dD / D
+					var dS_S := -dB * lc - thx * y * (dK - K * dB / B)
+					var g_R := nn / (R * tap)
+					var dPhi_dR := -As * f * S * (df_f * cg - g_R * sg + dS_S * cg)
+					var dPhi_dphi := As * f * nn * sg * S
+					var dPhi_dy := As * f * cg * S * K * thx
+					ax -= dPhi_dR * x / R - dPhi_dphi * z / R2
+					ay -= dPhi_dy
+					az -= dPhi_dR * z / R + dPhi_dphi * x / R2
+					var full: float = -pp[3] * f * cg * S
+					var dfull: float = pp[3] * f * nn * sg * S
+					dphidt += G[o + 1] * full - gs * pp[1] * dfull
+			w += dphidt * dt
 			vx += ax * dt; vy += ay * dt; vz += az * dt
 			x += vx * h; y += vy * h; z += vz * h
 		pos[c] = x; pos[c + 1] = y; pos[c + 2] = z
 		vel[c] = vx; vel[c + 1] = vy; vel[c + 2] = vz
+		work[i] = w
 
 # diagnostics
 
@@ -366,22 +526,27 @@ func energies() -> PackedFloat64Array:
 	for i in n:
 		var k := i * 3
 		var v2 := vel[k] * vel[k] + vel[k + 1] * vel[k + 1] + vel[k + 2] * vel[k + 2]
-		out[i] = 0.5 * v2 + pot.phi(pos[k], pos[k + 1], pos[k + 2])
+		out[i] = 0.5 * v2 + _phi(pos[k], pos[k + 1], pos[k + 2])
 	return out
+
+func _phi(x: float, y: float, z: float) -> float:
+	var s := pot.phi(x, y, z)
+	for p in patterns: s += GalPattern.phi(p, x, y, z, t)
+	return s
 
 ## Angular momentum about the symmetry axis, in the rotation's sense.
 func lz(i: int) -> float:
 	var k := i * 3
 	return (pos[k] * vel[k + 2] - pos[k + 2] * vel[k]) * sense
 
-## Largest |ΔE/E| since the start over every `stride`-th tracer (Φ of the bulge costs
-## incomplete gamma functions, so the HUD samples).
+## Largest |Δ(E − W)/E| since the start over every `stride`-th tracer (Φ of the
+## bulge costs incomplete gamma functions, so the HUD samples).
 func energy_drift(stride := 1) -> float:
 	var worst := 0.0
 	for i in range(0, n, maxi(stride, 1)):
 		var k := i * 3
 		var v2 := vel[k] * vel[k] + vel[k + 1] * vel[k + 1] + vel[k + 2] * vel[k + 2]
-		var e := 0.5 * v2 + pot.phi(pos[k], pos[k + 1], pos[k + 2])
+		var e := 0.5 * v2 + _phi(pos[k], pos[k + 1], pos[k + 2]) - work[i]
 		worst = maxf(worst, absf((e - e0[i]) / e0[i]))
 	return worst
 

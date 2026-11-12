@@ -1214,7 +1214,7 @@ func _build_galaxy(b: Node) -> void:
 	m(L(s, "—", {"fs": 12.0, "c": T.ACCENT, "ls": 1.2}, "galName"), 0.0, 6.0)
 	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galBlurb", true), 0.0, 8.0)
 	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 10.0)
-	for kv in [["clock", "galRate"], ["camera", "galDist"], ["tracers", "galTracers"], ["worst |ΔE/E|", "galDrift"]]:
+	for kv in [["clock", "galRate"], ["camera", "galDist"], ["tracers", "galTracers"], ["worst |Δ(E−W)/E|", "galDrift"]]:
 		_stat(sg, kv[0], kv[1])
 	var rg := grid(s, [1.0, 1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
 	for r in [[0.0, "Pause", "Stop the clock"], [0.1, "0.1", "0.1 Myr per second"], [1.0, "1", "1 Myr per second"],
