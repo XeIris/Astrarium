@@ -6,7 +6,7 @@ extends RefCounted
 # docs/physics/galaxies.md; nothing here is tuned to look right.
 
 ## The scenarios of the galactic scene, in the order the list shows them.
-const ORDER := ["gal_milkyway", "gal_m51", "gal_m104", "gal_m87", "gal_mw_m31"]
+const ORDER := ["gal_milkyway", "gal_m51", "gal_m104", "gal_m87", "gal_mw_m31", "gal_antennae"]
 
 const PRESETS := {
 	"gal_milkyway": {
@@ -16,6 +16,11 @@ const PRESETS := {
 		"camRadius": 60.0,
 		"camTheta": 0.95,
 		"rateMyrS": 5.0,
+	},
+	"gal_antennae": {
+		"name": "The Antennae",
+		"blurb": "NGC 4038 and 4039 in Corvus, as Privon et al. (2013) reconstructed them from their tails' shapes and H I velocities: two equal spirals on a parabolic orbit, both turning the way they move. They pass about 6 kpc apart 150 Myr in and throw out two long tails. Privon's model sees them as they are today at 408 Myr, around their second pass, as they merge.",
+		"model": "antennae", "camRadius": 160.0, "camTheta": 1.5707963, "rateMyrS": 20.0,
 	},
 	"gal_mw_m31": {
 		"name": "Milky Way meets M31",
@@ -858,12 +863,134 @@ static func vdm_galaxy(e: GalEncounter, i: int, row: Array, scale: float, seed: 
 	var hs := GalEddington.new(g * float(halo[0]), float(halo[1]), rvir, pot)
 	e.seed_halo(i, maxi(int(mh / LIVE_HALO_MASS * scale), 1), mh, hs, LIVE_HALO_EPS, seed * 16 + 8 + i)
 
+## The Antennae (NGC 4038/4039) as Privon et al. (2013, Table 2) matched them: two equal
+## galaxies on a parabolic orbit (e 1) of pericentre p 0.25, disc spins (i, ω) (65°, 345°) for
+## NGC 4038 and (70°, 95°) for NGC 4039, seen at t 5.62 after starting at 0 with the idealised
+## pericentre at 2, scaled by L 19.7 kpc and V 265 km/s (G = 1). Each galaxy is Barnes &
+## Hibbard's (2009, eq. B14) model, which Privon et al. used: a Hernquist bulge, an exponential
+## disc and a tapered NFW halo of masses 0.0625, 0.1875 and 1.0.
+const ANTENNAE := {"L": 19.7, "V": 265.0, "p": 0.25, "t_peri": 2.0, "t_now": 5.62,
+	"discs": [["NGC 4038", 65.0, 345.0], ["NGC 4039", 70.0, 95.0]], "view": [-20.0, 283.0, -5.0]}
+const BH09 := {"mb": 0.0625, "ab": 0.02, "bb": 4.0, "md": 0.1875, "ad": 1.0 / 12.0, "zd": 0.0075,
+	"mh_a": 0.16, "ah": 0.25, "bh": 0.98015, "eps": 0.0075, "q_sigma": 0.075}
+## Privon et al.'s self-consistent runs: 8k bulge, 24k disc and 32k halo particles a galaxy.
+const ANTENNAE_COUNTS := [8192, 24576, 32768]
+## Their models' step, 1/256 of a time unit (BH09 App. B), here ~0.28 Myr: the bulges are
+## small and dense.
+const ANTENNAE_DT := 0.25
+
+## The parabolic relative orbit of two galaxies of G M_total = mu, pericentre p, t after
+## pericentre (Barker's equation): [position, velocity] of 2 relative to 1, three doubles each, the pericentre on x
+## and the angular momentum on z.
+static func parabolic(mu: float, p: float, t: float) -> Array:
+	var k := sqrt(mu / (2.0 * p * p * p))
+	# D + D³/3 = k t; Newton from D = cbrt(3 k t).
+	var w := k * t
+	var d := signf(w) * pow(absf(3.0 * w), 1.0 / 3.0)
+	for i in 60: d -= (d + d * d * d / 3.0 - w) / (1.0 + d * d)
+	var dd := k / (1.0 + d * d)
+	return [PackedFloat64Array([p * (1.0 - d * d), 2.0 * p * d, 0.0]), PackedFloat64Array([-2.0 * p * d * dd, 2.0 * p * dd, 0.0])]
+
+## v turned by q, in double: q's entries are single precision, the products and sums are not.
+static func turned(q: Basis, v: PackedFloat64Array) -> PackedFloat64Array:
+	return PackedFloat64Array([q.x.x * v[0] + q.y.x * v[1] + q.z.x * v[2], q.x.y * v[0] + q.y.y * v[1] + q.z.y * v[2],
+		q.x.z * v[0] + q.y.z * v[1] + q.z.z * v[2]])
+
+## A disc's spin from its inclination to the orbit and argument of periapsis (Barnes 2011,
+## Identikit 2 §1), in the orbit's frame (angular momentum on z): the ascending node lies ω
+## behind the direction to the companion at periapsis, and the spin tilts by i from z about it.
+## Their papers do not spell out the signs; this reading, with the view below, is the one that
+## reproduces Privon et al.'s Fig. 6: both tails' places on the sky and the signs of their
+## line-of-sight velocities. docs/physics/galaxies.md#the-antennae.
+static func identikit_spin(inc: float, omega: float, to_companion: Vector3) -> Vector3:
+	var z := Vector3(0, 0, 1)
+	var node := to_companion.rotated(z, -deg_to_rad(omega))
+	var i := deg_to_rad(inc)
+	return z * cos(i) + z.cross(node) * sin(i)
+
+## Privon et al.'s view: the orbit's frame turned by R_x(θX) R_y(θY) R_z(θZ) onto the sky's
+## (X east, Y north, Z away from us), then onto the scene's, where the default camera looks
+## down −Z with north up and east on the left: a half turn about Y. Of the Euler orders tried,
+## this one puts the tails nearest the particles of their Fig. 6a.
+static func antennae_frame() -> Basis:
+	var v: Array = ANTENNAE.view
+	var m := Basis(Vector3(1, 0, 0), deg_to_rad(v[0])) * Basis(Vector3(0, 1, 0), deg_to_rad(v[1])) * Basis(Vector3(0, 0, 1), deg_to_rad(v[2]))
+	return Basis(Vector3(0, 1, 0), PI) * m
+
+## The Antennae encounter as seen from the Sun (antennae_frame), particle counts scaled by
+## `scale`.
+static func antennae(scale := 1.0, seed := 1) -> GalEncounter:
+	var A: Dictionary = ANTENNAE
+	var g: Dictionary = BH09
+	var lu := float(A.L)
+	var vu := float(A.V) * GalUnits.KMS
+	# G = 1 in their units: G M_unit = V² L, and a time unit is L / V.
+	var gm_unit := vu * vu * lu
+	var m_unit_sun := gm_unit / GalUnits.G * GalUnits.MASS_UNIT_SUN
+	var m_gal := float(g.mb) + float(g.md) + 1.0
+	var orb := parabolic(2.0 * m_gal, float(A.p), -float(A.t_peri))
+	var q := antennae_frame()
+	var rel := turned(q, orb[0])
+	var vrel := turned(q, orb[1])
+	var o := GalOrbits.new()
+	o.friction = false
+	var half := func(a: PackedFloat64Array, k: float) -> Array: return [a[0] * k, a[1] * k, a[2] * k]
+	o.add("NGC 4038", m_gal * m_unit_sun, float(g.ah) * lu, half.call(rel, -0.5 * lu), half.call(vrel, -0.5 * vu))
+	o.add("NGC 4039", m_gal * m_unit_sun, float(g.ah) * lu, half.call(rel, 0.5 * lu), half.call(vrel, 0.5 * vu))
+	var e := GalEncounter.new(o)
+	e.live_dt = ANTENNAE_DT
+	for i in 2:
+		var d: Array = A.discs[i]
+		var to_companion := Vector3(1, 0, 0) * (1.0 if i == 0 else -1.0)
+		var spin := q * identikit_spin(float(d[1]), float(d[2]), to_companion)
+		var ab := float(g.ab) * lu
+		var ad := float(g.ad) * lu
+		var ah := float(g.ah) * lu
+		var bh := float(g.bh) * lu
+		var mb := float(g.mb) * m_unit_sun
+		var md := float(g.md) * m_unit_sun
+		var gm_ha := float(g.mh_a) * gm_unit
+		# The rigid halo seeds the disc before it goes live, at once: a Hernquist sphere of the
+		# halo's mass and scale stands in.
+		e.set_galaxy(i, [m_unit_sun, ah], [md, 0.9688 * ad, float(g.zd) * lu], [mb, ab], spin)
+		var pot := [["nfw", gm_ha, ah, bh], ["hernquist", float(g.mb) * gm_unit, ab], ["disc", float(g.md) * gm_unit, ad]]
+		var eps := float(g.eps) * lu
+		var counts: Array = ANTENNAE_COUNTS
+		e.seed_disc(i, maxi(int(counts[1] * scale), 1), md, ad, float(g.zd) * lu, eps, seed * 16 + i, float(g.q_sigma) * lu)
+		var bulge := GalEddington.new(float(g.mb) * gm_unit, ab, float(g.bb) * lu, pot)
+		e.seed_bulge(i, maxi(int(counts[0] * scale), 1), mb, bulge, eps, seed * 16 + 4 + i)
+		# The taper falls by e every a_h beyond b_h: ten scale lengths out it holds nothing.
+		var cut := bh + 10.0 * ah
+		var shape := GalEddington.nfw_shape(ah, bh)
+		var mh := float(g.mh_a) * shape.at(cut).x * m_unit_sun
+		var hs := GalEddington.new(gm_ha, ah, cut, pot, bh)
+		e.seed_halo(i, maxi(int(counts[2] * scale), 1), mh, hs, eps, seed * 16 + 8 + i)
+	e.live_at = INF
+	return e
+
 ## The light an encounter draws, per draw tag (GalEncounter.tag: galaxy, + BULGE_TAG for a
 ## bulge): [that population's visible light per channel, all its stars together (Color,
 ## Sun-luminances), and a blob σ of one star spacing where it is dense (kpc)]. Mass becomes
 ## light through the population model, visible share VISIBLE_BULGE, as type_galaxy's: a disc
 ## formed stars evenly for 10 Gyr, a bulge in one burst 10 Gyr ago.
 static func vdm_lights(e: GalEncounter) -> Array:
+	var stars := []
+	for row in VDM_CANONICAL:
+		var st: Array = VDM_STARS[row[0]]
+		stars.append([float(st[0]), float(st[1]), float(st[2]), float(st[3]) / 1.8153])
+	return encounter_lights(e, stars)
+
+## The Antennae's light: both galaxies Barnes & Hibbard's model in Privon et al.'s units.
+static func antennae_lights(e: GalEncounter) -> Array:
+	var lu := float(ANTENNAE.L)
+	var vu := float(ANTENNAE.V) * GalUnits.KMS
+	var m_unit_sun := vu * vu * lu / GalUnits.G * GalUnits.MASS_UNIT_SUN
+	var g: Dictionary = BH09
+	var one := [float(g.md) * m_unit_sun, float(g.ad) * lu, float(g.mb) * m_unit_sun, float(g.ab) * lu]
+	return encounter_lights(e, [one, one])
+
+## Per galaxy `stars` [disc mass (M☉), R_d, bulge mass, bulge Hernquist a (kpc)].
+static func encounter_lights(e: GalEncounter, stars: Array) -> Array:
 	var out := []
 	out.resize(2 * GalEncounter.BULGE_TAG)
 	var disc_pop := GalPopulation.build({"kind": "constant", "gyr": 10.0})
@@ -874,15 +1001,15 @@ static func vdm_lights(e: GalEncounter) -> Array:
 	for t in out.size():
 		out[t] = [Color(0, 0, 0), 1.0]
 		var gi := t % GalEncounter.BULGE_TAG
-		if gi >= VDM_CANONICAL.size() or counts[t] == 0: continue
-		var st: Array = VDM_STARS[VDM_CANONICAL[gi][0]]
+		if gi >= stars.size() or counts[t] == 0: continue
+		var st: Array = stars[gi]
 		if t < GalEncounter.BULGE_TAG:
 			var rd := float(st[1])
 			# Stars per kpc² at R_d of an exponential disc: N e^(−1)/(2π R_d²).
 			var spacing := 1.0 / sqrt(float(counts[t]) * exp(-1.0) / (TAU * rd * rd))
 			out[t] = [disc_pop.color * (float(st[0]) * VISIBLE_BULGE * disc_pop.mean_l / disc_pop.mean_mass), spacing]
 		else:
-			var ab := float(st[3]) / 1.8153
+			var ab := float(st[3])
 			# A Hernquist sphere's stars per kpc³ at r = a: N / (16π a³).
 			var spacing := pow(16.0 * PI * ab * ab * ab / float(counts[t]), 1.0 / 3.0)
 			out[t] = [bulge_pop.color * (float(st[2]) * VISIBLE_BULGE * bulge_pop.mean_l / bulge_pop.mean_mass), spacing]
@@ -1009,6 +1136,7 @@ static func mw_patterns() -> Array:
 static func build(key: String, seed := 1, patterns := true) -> Dictionary:
 	if TYPES.has(key): return type_galaxy(key)
 	if key == "vdm_canonical": return {"key": key, "name": "Milky Way meets M31", "encounter": "vdm", "seed": seed, "extent": 1000.0}
+	if key == "antennae": return {"key": key, "name": "The Antennae", "encounter": "antennae", "seed": seed, "extent": 150.0}
 	match key:
 		"milky_way":
 			return {

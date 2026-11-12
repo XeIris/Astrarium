@@ -32,13 +32,17 @@ var orbits: GalOrbits
 ## Per galaxy: [halo gm, a, disc gm, a, b, bulge gm, a] and its axes (Basis, y the spin).
 var params: Array = []
 var axes: Array = []
-## Per galaxy disc: {gm, rd, z0, sigma_ref} (gm in kpc³ Myr⁻²), or {}.
+## Per galaxy disc: {gm, rd, z0, sigma_ref, q_sigma} (gm in kpc³ Myr⁻²), or {}. With q_sigma > 0
+## the radial dispersion follows Barnes & Hibbard's (2009) ratio to the vertical instead of Q.
 var discs: Array = []
 ## Stars: positions and velocities, 3 each (kpc, kpc/Myr), their galaxy and draw tag.
 var pos := PackedFloat64Array()
 var vel := PackedFloat64Array()
 var owner := PackedByteArray()
 var tag := PackedByteArray()
+## Each disc star's three unit normal draws (radial, azimuthal, vertical), kept so its velocity
+## can be drawn again from the live potential; zeros for a bulge star.
+var draws := PackedFloat64Array()
 ## Each star's mass and softening once live (10¹⁰ M☉, kpc).
 var star_mass := PackedFloat64Array()
 var star_eps := PackedFloat64Array()
@@ -50,6 +54,8 @@ var haloes: Array = []
 ## Separation of galaxies 0 and 1 (kpc) at which the encounter goes live; 0 never.
 var live_at := 0.0
 var live: GalLive = null
+## The live step (Myr): LIVE_DT unless an encounter's galaxies need a finer one.
+var live_dt := LIVE_DT
 var t_live := 0.0
 var cores: Array = []
 ## False forces the GDScript kernels (encountercheck compares them).
@@ -68,7 +74,7 @@ func time() -> float:
 
 ## The current step (Myr).
 func dt() -> float:
-	return LIVE_DT if live != null else DT
+	return live_dt if live != null else DT
 
 func is_live() -> bool:
 	return live != null
@@ -157,22 +163,34 @@ func _g_sigma(i: int, R: float) -> float:
 	var d: Dictionary = discs[i]
 	return float(d.gm) / (TAU * float(d.rd) * float(d.rd)) * exp(-R / float(d.rd))
 
-## The disc's mean rotation and dispersions at R for a circular speed vc(R) (a Callable of R):
-## σ_R² ∝ e^(−R/R_d) normalised to Q_REF at R_REF R_d (Hernquist 1993), σ_φ from the epicycle,
-## σ_z from an isothermal sheet of scale z0 (σ_z² = π G Σ z0), and the mean rotation the Jeans
-## equation leaves after asymmetric drift. Returns [v̄_φ, σ_R, σ_φ, σ_z] (kpc/Myr).
+## The disc's mean rotation and dispersions at R for a circular speed vc(R) (a Callable of R).
+## σ_z is an isothermal sheet's of scale z0 (σ_z² = π G Σ z0) and σ_φ the epicycle's. σ_R is
+## either ∝ e^(−R/2R_d), normalised to Q_REF at R_REF R_d (Hernquist 1993), or Barnes &
+## Hibbard's (2009, eq. B11) (1 + R/(R + q_σ)) σ_z. The mean rotation is what the Jeans
+## equation leaves after asymmetric drift: v̄² = v_c² − σ_φ² + σ_R² + (R/ν) d(ν σ_R²)/dR, with
+## ν ∝ e^(−R/R_d) (their eq. B13). Returns [v̄_φ, σ_R, σ_φ, σ_z] (kpc/Myr).
 func disc_kinematics(i: int, R: float, vc: Callable) -> Array:
 	var d: Dictionary = discs[i]
 	var rd := float(d.rd)
 	var v2 := pow(float(vc.call(R)), 2.0)
 	var h := 0.02 * rd
 	var dv2 := (pow(float(vc.call(R + h)), 2.0) - pow(float(vc.call(maxf(R - h, 1e-3))), 2.0)) / (R + h - maxf(R - h, 1e-3))
-	var omega2 := v2 / (R * R)
+	var omega2 := maxf(v2 / (R * R), 1e-12)
 	var kappa2 := maxf(dv2 / R + 2.0 * omega2, 1e-12)
-	var sr := float(d.sigma_ref) * exp(-(R - R_REF * rd) / (2.0 * rd))
-	var sp := sr * sqrt(kappa2 / (4.0 * omega2))
 	var sz := sqrt(PI * _g_sigma(i, R) * float(d.z0))
-	var vphi2 := v2 + sr * sr * (1.0 - kappa2 / (4.0 * omega2) - 2.0 * R / rd)
+	var qs := float(d.get("q_sigma", 0.0))
+	var sr := 0.0
+	var drift := 0.0
+	if qs > 0.0:
+		var mu := 1.0 + R / (R + qs)
+		sr = mu * sz
+		# ν σ_R² = ν μ² σ_z², σ_z² ∝ e^(−R/R_d): its log-derivative is −2R/R_d + R dμ²/dR / μ².
+		drift = sr * sr * (-2.0 * R / rd) + sz * sz * R * 2.0 * mu * qs / pow(R + qs, 2.0)
+	else:
+		sr = float(d.sigma_ref) * exp(-(R - R_REF * rd) / (2.0 * rd))
+		drift = sr * sr * (-2.0 * R / rd)
+	var sp := sr * sqrt(kappa2 / (4.0 * omega2))
+	var vphi2 := v2 - sp * sp + sr * sr + drift
 	return [sqrt(maxf(vphi2, 0.0)), sr, sp, sz]
 
 ## Toomre's Q of galaxy i's disc at R for the circular speed vc(R).
@@ -186,8 +204,8 @@ func toomre_q(i: int, R: float, vc: Callable) -> float:
 
 ## Galaxy i's disc as `count` stars of md_sun in all (M☉): exponential in radius with scale rd
 ## out to 6 rd, sech² in height with z0, warm as disc_kinematics has it in the rigid potential.
-func seed_disc(i: int, count: int, md_sun: float, rd: float, z0: float, eps: float, seed: int) -> void:
-	discs[i] = {"gm": GalUnits.G * md_sun / GalUnits.MASS_UNIT_SUN, "rd": rd, "z0": z0, "sigma_ref": 0.0}
+func seed_disc(i: int, count: int, md_sun: float, rd: float, z0: float, eps: float, seed: int, q_sigma := 0.0) -> void:
+	discs[i] = {"gm": GalUnits.G * md_sun / GalUnits.MASS_UNIT_SUN, "rd": rd, "z0": z0, "sigma_ref": 0.0, "q_sigma": q_sigma}
 	var vc := func(R: float) -> float: return circular_speed(i, R)
 	# σ_R at the reference radius for Q there: Q = σ_R κ / (3.36 G Σ).
 	var rr := R_REF * rd
@@ -215,16 +233,21 @@ func seed_disc(i: int, count: int, md_sun: float, rd: float, z0: float, eps: flo
 		var er := [B.x.x * cp + B.z.x * sp, B.x.y * cp + B.z.y * sp, B.x.z * cp + B.z.z * sp]
 		var et := [by[1] * er[2] - by[2] * er[1], by[2] * er[0] - by[0] * er[2], by[0] * er[1] - by[1] * er[0]]
 		var kin := disc_kinematics(i, R, vc)
-		# The draws in the order they always took: along the rotation, outward, up.
-		var vt := float(kin[0]) + float(kin[2]) * rng.randfn()
-		var vr := float(kin[1]) * rng.randfn()
-		var vz := float(kin[3]) * rng.randfn()
+		var gr := rng.randfn()
+		var gt := rng.randfn()
+		var gz := rng.randfn()
+		var vt := float(kin[0]) + float(kin[2]) * gt
+		var vr := float(kin[1]) * gr
+		var vz := float(kin[3]) * gz
 		var p := PackedFloat64Array()
 		var v := PackedFloat64Array()
 		for a in 3:
 			p.append(c[a] + float(er[a]) * R + float(by[a]) * z)
 			v.append(v0[a] + float(et[a]) * vt + float(er[a]) * vr + float(by[a]) * vz)
 		_add_star(i, i, p, v, m, eps)
+		draws[draws.size() - 3] = gr
+		draws[draws.size() - 2] = gt
+		draws[draws.size() - 1] = gz
 
 ## Galaxy i's bulge as `count` stars of mb_sun in all, from the bulge's equilibrium sampler.
 func seed_bulge(i: int, count: int, mb_sun: float, sampler: GalEddington, eps: float, seed: int) -> void:
@@ -255,9 +278,22 @@ func _add_star(g: int, t: int, p: PackedFloat64Array, v: PackedFloat64Array, m: 
 	vel.append_array(v)
 	owner.append(g)
 	tag.append(t)
+	draws.append_array([0.0, 0.0, 0.0])
 	star_mass.append(m)
 	star_eps.append(eps)
 	n += 1
+
+## The draw block from the stars as they are, before any step has written one.
+func initial_draw() -> void:
+	if not draw_bytes.is_empty(): return
+	var f := PackedFloat32Array()
+	f.resize(4 * n)
+	for i in n:
+		f[4 * i] = pos[3 * i]
+		f[4 * i + 1] = pos[3 * i + 1]
+		f[4 * i + 2] = pos[3 * i + 2]
+		f[4 * i + 3] = float(tag[i])
+	draw_bytes = f.to_byte_array()
 
 static func native_available() -> bool:
 	if _native < 0:
@@ -304,9 +340,11 @@ func step(k: int) -> void:
 	steps += k
 
 ## Every galaxy becomes particles: the stars keep their places and take their masses, each
-## halo is placed about its galaxy's centre at its velocity, and each disc's mean rotation is
+## halo is placed about its galaxy's centre at its velocity, and each disc's kinematics are
 ## re-set from the pull of its own galaxy's particles, which differs a little from the rigid
-## potential's (an exponential disc is not a Miyamoto–Nagai one).
+## potential's (an exponential disc is not a Miyamoto–Nagai one). Stars that have not moved yet
+## are drawn again in full; stars the restricted phase has carried keep their own motions and
+## only their mean rotation changes.
 func go_live() -> void:
 	var ng := orbits.count()
 	var nh := 0
@@ -315,7 +353,7 @@ func go_live() -> void:
 		if not h.is_empty(): nh += (h[0] as PackedFloat64Array).size() / 3
 	for i in ng:
 		if i < discs.size() and not (discs[i] as Dictionary).is_empty(): _remap_disc(i)
-	var L := GalLive.new(n + nh, n, LIVE_DT, THETA)
+	var L := GalLive.new(n + nh, n, live_dt, THETA)
 	L.use_native = use_native
 	for j in n:
 		L.set_particle(j, [pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]], [vel[3 * j], vel[3 * j + 1], vel[3 * j + 2]], star_mass[j], star_eps[j], float(tag[j]))
@@ -410,11 +448,14 @@ func _remap_disc(i: int) -> void:
 	var rot := live_rotation(i)
 	var xs: PackedFloat64Array = rot[0]
 	var ys: PackedFloat64Array = rot[1]
-	var live_vc := func(R: float) -> float: return _interp(xs, ys, R)
 	var rigid_vc := func(R: float) -> float: return circular_speed(i, R)
+	# Too few stars to measure rings (a scaled-down check): the rigid potential's speed stands.
+	var live_vc: Callable = rigid_vc if xs.size() < 4 else func(R: float) -> float: return _interp(xs, ys, R)
 	var B: Basis = axes[i]
 	var c := orbits.pos.slice(3 * i, 3 * i + 3)
+	var v0 := orbits.vel.slice(3 * i, 3 * i + 3)
 	var by := [B.y.x, B.y.y, B.y.z]
+	var fresh := orbits.t == 0.0
 	for j in n:
 		if tag[j] != i: continue
 		var p := [pos[3 * j] - c[0], pos[3 * j + 1] - c[1], pos[3 * j + 2] - c[2]]
@@ -422,9 +463,17 @@ func _remap_disc(i: int) -> void:
 		var e := [p[0] - by[0] * up, p[1] - by[1] * up, p[2] - by[2] * up]
 		var R := sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2])
 		if R <= 0.0: continue
-		var e_t := [(by[1] * e[2] - by[2] * e[1]) / R, (by[2] * e[0] - by[0] * e[2]) / R, (by[0] * e[1] - by[1] * e[0]) / R]
-		var dv := float(disc_kinematics(i, R, live_vc)[0]) - float(disc_kinematics(i, R, rigid_vc)[0])
-		for k in 3: vel[3 * j + k] += e_t[k] * dv
+		var e_r := [e[0] / R, e[1] / R, e[2] / R]
+		var e_t := [by[1] * e_r[2] - by[2] * e_r[1], by[2] * e_r[0] - by[0] * e_r[2], by[0] * e_r[1] - by[1] * e_r[0]]
+		var kin := disc_kinematics(i, R, live_vc)
+		if fresh:
+			var vt := float(kin[0]) + float(kin[2]) * draws[3 * j + 1]
+			var vr := float(kin[1]) * draws[3 * j]
+			var vz := float(kin[3]) * draws[3 * j + 2]
+			for k in 3: vel[3 * j + k] = v0[k] + float(e_t[k]) * vt + float(e_r[k]) * vr + float(by[k]) * vz
+		else:
+			var dv := float(kin[0]) - float(disc_kinematics(i, R, rigid_vc)[0])
+			for k in 3: vel[3 * j + k] += float(e_t[k]) * dv
 
 ## The kernel's buffer: [0] length, [1] n, [2] k, [3] dt, [4] galaxies, G_STRIDE per galaxy, the
 ## mid-step centres (k × galaxies × 3), positions, velocities.

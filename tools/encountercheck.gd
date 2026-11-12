@@ -25,6 +25,7 @@ func _init() -> void:
 	live_accuracy()
 	live_alone()
 	switch()
+	antennae()
 	print("ENCOUNTERCHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -130,7 +131,7 @@ func isolated() -> void:
 	o.add("Milky Way", float(halo[0]), float(halo[1]), [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
 	var e := GalEncounter.new(o)
 	e.set_galaxy(0, [halo[0], halo[1]], [st[0], 0.9688 * float(st[1]), 0.1 * float(st[1])], [st[2], float(st[3]) / 1.8153], Vector3(0, 0, -1))
-	e.seed_disc(0, 1000, float(st[0]), float(st[1]), 0.3, 0.1, 7)
+	e.seed_disc(0, 5000, float(st[0]), float(st[1]), 0.3, 0.1, 7)
 	var spin: Vector3 = (e.axes[0] as Basis).y
 	var e0 := _star_energies(e)
 	var l0 := _star_lz(e, spin)
@@ -155,9 +156,13 @@ func isolated() -> void:
 		else: kept.append(absf(e1[i] / e0[i] - 1.0))
 	kept.sort()
 	var worst: float = kept[kept.size() - 1]
+	var p99: float = kept[int(0.99 * kept.size())]
 	var dr := absf(_median_r(e) / r0 - 1.0)
-	ok(worst < 1e-3 and dl < 1e-9 and dr < 0.02 and dived < e.n / 10, "a lone Milky Way's stars keep their energy (worst %s, the %d of %d that dive within 0.5 kpc of the centre aside), all their angular momentum (%s), the disc its size (%s), over 1 Gyr" % [
-		U.expo(worst, 1), dived, e.n, U.expo(dl, 1), U.expo(dr, 1)])
+	# A leapfrog's energy error is bounded at ~(Ω DT)², ~1e-3 for an orbit 1 kpc out, which the
+	# rest of a hot inner disc still visits: the bulk must hold to that, the worst to 1e-2. The
+	# median of 5000 stars on epicycles of ~1 kpc wanders by ~0.5 %.
+	ok(p99 < 1e-3 and worst < 1e-2 and dl < 1e-9 and dr < 0.02 and dived < e.n / 10, "a lone Milky Way's stars keep their energy (99th percentile %s, worst %s, the %d of %d that dive within 0.5 kpc of the centre aside), all their angular momentum (%s), the disc its size (%s), over 1 Gyr" % [
+		U.expo(p99, 1), U.expo(worst, 1), dived, e.n, U.expo(dl, 1), U.expo(dr, 1)])
 
 func _star_energies(e: GalEncounter) -> PackedFloat64Array:
 	var out := PackedFloat64Array()
@@ -425,3 +430,97 @@ func switch() -> void:
 	# zero only to their noise, σ/√N: ~1 km/s for a few thousand.
 	var dv := (p1 / m1 - p0 / m0).length() / GalUnits.KMS
 	ok(moved == 0.0 and absf(m1 / m0 - 1.0) < 1e-9 and dv < 2.0, "going live moves no star (%s kpc) and keeps the mass and its mean motion (%s km/s)" % [U.expo(moved, 1), U.fixed(dv, 2)])
+
+## The Antennae (Privon et al. 2013 on Barnes & Hibbard's 2009 model): the halo's taper holds
+## the mass they set it to, the parabolic orbit starts where Barker's equation puts it, and the
+## live run keeps their timeline and the tails' velocity signs (their Fig. 1 and 6).
+func antennae() -> void:
+	var g: Dictionary = GalModels.BH09
+	var shape := GalEddington.nfw_shape(float(g.ah), float(g.bh))
+	var mh := float(g.mh_a) * shape.total
+	ok(absf(mh - 1.0) < 1e-3, "Barnes & Hibbard's tapered halo holds %s of their unit mass (b_h 0.98015 was set for 1)" % U.fixed(mh, 5))
+	# A parabola: at pericentre the separation is p and v² = 2μ/p; energy is zero throughout.
+	var o: Array = GalModels.parabolic(2.5, 0.25, 0.0)
+	var o2: Array = GalModels.parabolic(2.5, 0.25, -2.0)
+	var len2 := func(a: PackedFloat64Array) -> float: return a[0] * a[0] + a[1] * a[1] + a[2] * a[2]
+	var r0 := sqrt(float(len2.call(o[0])))
+	var s0 := float(len2.call(o[1]))
+	var e2 := 0.5 * float(len2.call(o2[1])) - 2.5 / sqrt(float(len2.call(o2[0])))
+	ok(absf(r0 - 0.25) < 1e-12 and absf(s0 / 20.0 - 1.0) < 1e-12 and absf(e2) < 1e-12,
+		"the parabolic orbit: pericentre %s at speed² %s (0.25, 20), zero energy 2 units before (%s)" % [U.fixed(r0, 4), U.fixed(s0, 4), U.expo(e2, 1)])
+	var tu: float = GalModels.ANTENNAE.L / (GalModels.ANTENNAE.V * GalUnits.KMS)
+	var t_now: float = GalModels.ANTENNAE.t_now * tu
+	var e := GalModels.antennae(0.25, 1)
+	# Their galaxy (BH09 App. B; Privon et al. §3.4): the disc's circular speed at 3 R_d is 1.26
+	# velocity units (330 km/s for the Antennae), measured here from its particles; σ_R/σ_z is
+	# ≈ 2 in the disc's body and → 1 at its centre.
+	var rot := e.live_rotation(0)
+	var ad := float(GalModels.BH09.ad) * float(GalModels.ANTENNAE.L)
+	var vc3 := GalEncounter._interp(rot[0], rot[1], 3.0 * ad) / GalUnits.KMS / float(GalModels.ANTENNAE.V)
+	var vcf := func(R: float) -> float: return GalEncounter._interp(rot[0], rot[1], R)
+	var k3 := e.disc_kinematics(0, 3.0 * ad, vcf)
+	var k0 := e.disc_kinematics(0, 0.05 * ad, vcf)
+	var ratio3 := float(k3[1]) / float(k3[3])
+	var ratio0 := float(k0[1]) / float(k0[3])
+	ok(absf(vc3 / 1.26 - 1.0) < 0.04 and ratio3 > 1.6 and ratio3 < 2.0 and ratio0 < 1.2,
+		"Barnes & Hibbard's galaxy: v_c at 3 R_d %s units (theirs 1.26), σ_R/σ_z %s there and %s at the centre (≈2 and → 1)" % [U.fixed(vc3, 3), U.fixed(ratio3, 2), U.fixed(ratio0, 2)])
+	var sep := []
+	while e.time() < t_now - 1e-6:
+		e.step(maxi(int(round(minf(2.5, t_now - e.time()) / e.dt())), 1))
+		sep.append([e.time(), e.centre(0).distance_to(e.centre(1))])
+	var first := [0.0, INF]
+	for k in range(1, sep.size() - 1):
+		if sep[k][1] < sep[k - 1][1] and sep[k][1] <= sep[k + 1][1]:
+			first = sep[k]
+			break
+	var nearest := INF
+	for row in sep:
+		if float(row[0]) > float(first[0]) + 100.0: nearest = minf(nearest, float(row[1]))
+	# Their Table 2: seen 260 Myr after a first passage about 5 kpc wide (§4.3), near the second.
+	ok(absf((t_now - float(first[0])) - 260.0) < 30.0 and float(first[1]) > 3.0 and float(first[1]) < 9.0 and nearest < 3.0,
+		"the Antennae pass %s kpc apart %s Myr before now (Privon et al.: about 5 kpc, 260 Myr) and come back within %s kpc by now" % [
+		U.fixed(float(first[1]), 1), U.fixed(t_now - float(first[0]), 0), U.fixed(nearest, 1)])
+	var com := (e.centre(0) + e.centre(1)) * 0.5
+	var vcom := Vector3.ZERO
+	var mt := 0.0
+	for j in e.live.n:
+		vcom += e.live.velocity(j) * e.live.mass(j)
+		mt += e.live.mass(j)
+	vcom /= mt
+	# The scene's camera is on +Z with north up and east on the left: west is +X, receding −Z.
+	var south := [0.0, 0.0, 0]
+	var north := [0.0, 0.0, 0]
+	for j in e.n:
+		var r := e.live.position(j) - com
+		var vr := -(e.live.velocity(j) - vcom).z / GalUnits.KMS
+		if e.tag[j] == 0 and r.y < -25.0:
+			south[0] += vr
+			south[1] += r.x
+			south[2] += 1
+		if e.tag[j] == 1 and r.y > 25.0:
+			north[0] += vr
+			north[1] += r.x
+			north[2] += 1
+	# Where the tails end: the mean of each one's stars beyond 30 kpc, as a position angle east
+	# of north, against their Fig. 6a's particles measured the same way (194° and 37°; most of
+	# their southern tail's dots lie under the H I contours, so 21 dots set the first).
+	var ends := [Vector2.ZERO, Vector2.ZERO]
+	var cnt := [0, 0]
+	for j in e.n:
+		var t := e.tag[j]
+		if t > 1: continue
+		var r := e.live.position(j) - com
+		if Vector2(r.x, r.y).length() > 30.0:
+			ends[t] += Vector2(r.x, r.y)
+			cnt[t] += 1
+	var pas := []
+	for t in 2:
+		var m: Vector2 = ends[t] / maxf(float(cnt[t]), 1.0)
+		pas.append(fposmod(rad_to_deg(atan2(-m.x, m.y)), 360.0))
+	var off := [absf(angle_difference(deg_to_rad(pas[0]), deg_to_rad(194.0))), absf(angle_difference(deg_to_rad(pas[1]), deg_to_rad(37.0)))]
+	ok(rad_to_deg(off[0]) < 20.0 and rad_to_deg(off[1]) < 20.0, "the tails end at position angles %s° and %s° (their model's 194° and 37°)" % [U.fixed(pas[0], 0), U.fixed(pas[1], 0)])
+	var ns := maxf(float(south[2]), 1.0)
+	var nn := maxf(float(north[2]), 1.0)
+	ok(south[2] > 20 and north[2] > 20 and south[0] / ns > 30.0 and north[0] / nn < -30.0 and south[1] / ns > 5.0 and north[1] / nn < -5.0,
+		"NGC 4038's tail runs south and west and recedes (%s kpc west, %s km/s); NGC 4039's runs north and east and approaches (%s kpc east, %s km/s), as in their Fig. 6 and the sky" % [
+		U.fixed(south[1] / ns, 1), U.fixed(south[0] / ns, 0), U.fixed(-north[1] / nn, 1), U.fixed(north[0] / nn, 0)])

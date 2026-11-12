@@ -129,8 +129,9 @@ func _enter_encounter() -> void:
 	_enc_built = []
 	var seed := int(model.get("seed", 1))
 	_task = WorkerThreadPool.add_task(func():
-		var e := GalModels.vdm_encounter(ENCOUNTER_SCALE, seed)
-		var lights := GalModels.vdm_lights(e)
+		var antennae := String(model.encounter) == "antennae"
+		var e := GalModels.antennae(ENCOUNTER_SCALE, seed) if antennae else GalModels.vdm_encounter(ENCOUNTER_SCALE, seed)
+		var lights := GalModels.antennae_lights(e) if antennae else GalModels.vdm_lights(e)
 		_mutex.lock()
 		_enc_built = [e, lights]
 		_mutex.unlock(), false, "galaxy encounter")
@@ -145,6 +146,7 @@ func _adopt_encounter() -> void:
 	_mutex.unlock()
 	if b.is_empty(): return
 	encounter = b[0]
+	encounter.initial_draw()
 	_enc_snapshot()
 	enc_visual = GalEncounterVisual.new(encounter.tag, b[1])
 	enc_visual.exposure = float(preset.get("exposure", 1.0))
@@ -178,6 +180,7 @@ func _enc_state() -> String:
 	if encounter == null: return "Setting out the galaxies…"
 	if _enc_live_n > 0:
 		return "Live: every star and dark-matter particle pulls on every other (%d in all), so the discs answer the tides with their own gravity and the haloes take up the orbit's energy." % _enc_live_n
+	if is_inf(encounter.live_at): return "Live from the start: every star and dark-matter particle pulls on every other."
 	return "Far apart: each galaxy is a rigid potential moving on its orbit, its stars test particles in it. They go live once the Milky Way and M31 are within %d kpc." % int(encounter.live_at)
 
 ## Block until a running batch of the encounter is done (leaving, checks).
