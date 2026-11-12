@@ -113,6 +113,9 @@ func enter(k: String) -> void:
 	# The real stars around the Sun load and bake their light map on the same worker.
 	_nb_baked = {}
 	_arm_task = WorkerThreadPool.add_task(func():
+		GalISM.field()
+		for gv in [v] + others:
+			if not gv.has_map() and gv.ism_applies: gv.ism_norm = gv.plane_ism_norms()
 		var b := v.bake_arms() if v.has_map() else {}
 		var nb := GalNeighbourhood.bake() if v.has_sun else {}
 		var ob := []
@@ -233,6 +236,8 @@ func _adopt_arms() -> void:
 	if not nb.is_empty() and visual != null: visual.apply_neighbourhood(nb)
 	for i in mini(ob.size(), neighbours.size()):
 		if not (ob[i] as Dictionary).is_empty(): (neighbours[i].visual as GalaxyVisual).apply_arms(ob[i])
+	if visual != null: visual.apply_ism()
+	for nbv in neighbours: (nbv.visual as GalaxyVisual).apply_ism()
 
 func _adopt() -> void:
 	_mutex.lock()

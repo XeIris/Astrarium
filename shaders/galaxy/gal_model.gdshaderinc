@@ -149,6 +149,66 @@ float gal_dust(vec3 p) {
 	return tau + gal_rings(R, p.y);
 }
 
+// The interstellar medium below the map (sim/galaxy/gal_ism.gd): octaves of a periodic
+// Gaussian field in the plane, each sheared by the rotation curve over its eddy's lifetime;
+// the dust gathered into sheets at the field's zeros, the young light log-normal. uISMOct[o] is octave o's
+// sheet contrast (0: none), uISMYoung its young log-amplitude, uISMLam its longest wavelength
+// (kpc), uISMM its turn and scale into the field (two columns) and uISMOff its offset;
+// uISMTurn's row o is its turn back (rad) on 64 radii from 0 to uISMTurnR, read by hand.
+uniform sampler2D uISM : filter_linear, repeat_enable;
+uniform sampler2D uISMTurn : filter_nearest, repeat_disable;
+uniform float uISMOct[9];
+uniform float uISMYoung[9];
+uniform float uISMLam[9];
+uniform vec2 uISMM[18];
+uniform vec2 uISMOff[9];
+uniform float uISMTurnR = 30.0;
+// The dust's structured share, and the height (kpc) beyond which a camera is outside the layer
+// and sees the medium.
+uniform vec2 uISMLayer = vec2(0.5, 1.0);
+// Each multiplier's realised mean over this galaxy at footprints 0.1, 0.2 and 0.4 kpc
+// (GalISM.norms), divided out, linear in log₂ of the footprint between them.
+uniform vec2 uISMNorm[3];
+
+// The dust's and the young light's multipliers at p's place in the plane for a footprint of
+// `foot` kpc, each of mean one: octaves finer than the footprint fade out and take their
+// contrast with them.
+vec2 gal_ism(vec3 p, float foot) {
+	if (uISMOct[0] <= 0.0) return vec2(1.0);
+	float c = cos(uYoung.z);
+	float sn = sin(uYoung.z);
+	vec3 q = vec3(p.x * c + p.z * sn, p.y, p.z * c - p.x * sn);
+	float x = clamp(length(q.xz) / uISMTurnR, 0.0, 1.0) * 63.0;
+	int i = min(int(x), 62);
+	float f = x - float(i);
+	float ld = 0.0;
+	float ly = 0.0;
+	for (int o = 0; o < 9; o++) {
+		float l = uISMLam[o];
+		float w = clamp((0.5 * l - foot) / (0.25 * l), 0.0, 1.0);
+		if (w <= 0.0) break;
+		float b = uISMOct[o] * w;
+		float a = uISMYoung[o] * w;
+		// Where this gas was an eddy lifetime ago.
+		float ang = -mix(texelFetch(uISMTurn, ivec2(i, o), 0).r, texelFetch(uISMTurn, ivec2(i + 1, o), 0).r, f);
+		float ca = cos(ang);
+		float sa = sin(ang);
+		vec2 h = vec2(q.x * ca - q.z * sa, q.x * sa + q.z * ca);
+		vec2 n = texture(uISM, mat2(uISMM[2 * o], uISMM[2 * o + 1]) * h + uISMOff[o]).rg;
+		// A sheet where the field crosses zero, exp(−βn²) over its mean (1 + 2β)^(−1/2).
+		ld += -b * n.x * n.x + 0.5 * log(1.0 + 2.0 * b);
+		ly += a * n.y - 0.5 * a * a;
+	}
+	float xn = clamp(log2(foot / 0.1), 0.0, 2.0 - 1e-6);
+	int in_ = int(xn);
+	return vec2(exp(ld), exp(ly)) / mix(uISMNorm[in_], uISMNorm[in_ + 1], xn - float(in_));
+}
+
+// The dust's multiplier from the field's D: its compact share is structured.
+float gal_ism_dust(float m) {
+	return 1.0 + uISMLayer.x * (m - 1.0);
+}
+
 // Disc light, young light and V optical depth per kpc at p, from one map lookup (the
 // glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart).
 void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau) {

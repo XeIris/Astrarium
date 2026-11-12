@@ -25,6 +25,8 @@ uniform float uRes = 0.0;
 uniform vec2 uFaint = vec2(1.0);
 // Pixel value per L☉ kpc⁻² sr⁻¹ (the sky's star calibration, sim/galaxy/gal_visual.gd).
 uniform float uGain = 1.0;
+// One pixel's angle (rad): the interstellar medium's finest drawn octave.
+uniform float uPix = 1e-3;
 uniform vec3 uDiscCol = vec3(1.0);
 uniform vec3 uSphereCol = vec3(1.0);
 uniform vec3 uYoungCol = vec3(1.0);
@@ -87,7 +89,7 @@ const int N_TAU = N_DISC + 1;
 // u0, du) for the spheroid's march, which inverts them rather than storing boundaries.
 const int N_NEAR = 4;
 vec3 march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float jit, float faint,
-		inout float tv[N_TAU], out vec4 leg, out vec4 arc) {
+		vec2 ism, inout float tv[N_TAU], out vec4 leg, out vec4 arc) {
 	vec3 acc = vec3(0.0);
 	float tau = 0.0;
 	vec3 trans = vec3(1.0);
@@ -117,6 +119,8 @@ vec3 march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float ji
 		float jy;
 		float dk;
 		gal_disc_sample(p, jd, jy, dk);
+		dk *= gal_ism_dust(ism.x);
+		jy *= ism.y;
 		// Within a step of optical depth k the light is attenuated by its mean,
 		// (T − T e^{−k})/k, exactly for a uniform step: long steps through dense dust
 		// then neither overshoot nor flicker with the jitter. T carries over, one exp a step.
@@ -188,7 +192,10 @@ void fragment() {
 		// lane is not stepped over.
 		float sc = max(min(uDisc.z, uThin), 0.005) / max(abs(d.y), 1e-4);
 		float tc = clamp(-o.y / (abs(d.y) > 1e-6 ? d.y : 1e-6), tbx.x, tbx.y);
-		disc = march_disc(o, d, tbx.x, tbx.y, tc, sc, jit, uFaint.x, tv, leg, arc);
+		// The medium below the map, seen from outside its layer, where the ray crosses the
+		// plane: a tilted thick layer does not smear it and the march adds no grain.
+		vec2 ism = abs(o.y) > uISMLayer.y ? gal_ism(o + d * tc, tc * uPix) : vec2(1.0);
+		disc = march_disc(o, d, tbx.x, tbx.y, tc, sc, jit, uFaint.x, ism, tv, leg, arc);
 	}
 	vec3 sph = vec3(0.0);
 	vec2 ts = sphere_hit(o, d, uSphereR);

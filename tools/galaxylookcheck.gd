@@ -35,6 +35,8 @@ const JOIN_TOL := 0.03
 const NEIGHBOUR_EXPOSURE := 0.05
 ## M104 seen 6° from edge-on through a 20 pc dust ring: as the Milky Way's lane from the Sun.
 const TYPE_DUST_TOL := 0.08
+## The medium below the map (GalISM), pixel by pixel: the glow's jitter and float sampling.
+const ISM_PIXEL_TOL := 0.10
 
 var logger := Catch.new()
 var stage: Node
@@ -196,7 +198,7 @@ func profile(v: GalaxyVisual) -> void:
 			var ndc := Vector2(px.x / size.x * 2.0 - 1.0, 1.0 - px.y / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
 			drawn += luma(img.get_pixel(int(px.x), int(px.y))) - luma(sky.get_pixel(int(px.x), int(px.y)))
-			want += v.ray_luminance(cam, d) * gain
+			want += v.ray_luminance(cam, d, 1e-3, 160, 2.0 * tan_h / size.y) * gain
 		var err := absf(drawn / want - 1.0)
 		print("     ring %d px: drawn %s, integral %s" % [rpx, U.expo(drawn / n, 3), U.expo(want / n, 3)])
 		worst = maxf(worst, err)
@@ -235,7 +237,7 @@ func through_dust(v: GalaxyVisual, framing: String) -> void:
 			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
 			drawn += luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
-			want += v.ray_luminance(cam, d, 1e-3, EDGE_SAMPLES) * gain
+			want += v.ray_luminance(cam, d, 1e-3, EDGE_SAMPLES, 2.0 * tan_h / size.y) * gain
 		var err := absf(drawn / want - 1.0)
 		print("     row %+d px: drawn %s, integral %s" % [int(dy), U.expo(drawn / EDGE_COLUMNS, 3), U.expo(want / EDGE_COLUMNS, 3)])
 		worst = maxf(worst, err)
@@ -394,7 +396,7 @@ func neighbour_profile(key: String) -> void:
 			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
 			drawn += luma(img.get_pixel(ix, iy)) - luma(without.get_pixel(ix, iy))
-			want += v.ray_luminance(o, nbb.inverse() * d, 1e-3, 1200) * gain
+			want += v.ray_luminance(o, nbb.inverse() * d, 1e-3, 1200, 2.0 * tan_h / size.y) * gain
 		var err := absf(drawn / want - 1.0)
 		print("     %s ring %d px: drawn %s, integral %s" % [key, rpx, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, err)
@@ -428,6 +430,12 @@ func type_dust(preset: String) -> void:
 	var tan_h := tan(deg_to_rad(stage.cam_fov) * 0.5)
 	var gain := GalaxyVisual.K * SkyModel.star_gain() * v.exposure * v.adaptation
 	var worst := 0.0
+	var pix := 2.0 * tan_h / size.y
+	# Pixel by pixel too, against the CPU with the medium below the map and without it: the GPU
+	# must draw the same medium where the CPU puts it, not just its mean.
+	var dev_on := 0.0
+	var dev_off := 0.0
+	var npx := 0
 	for dy in [-60, -20, -8, 0, 8, 20, 60]:
 		var drawn := 0.0
 		var want := 0.0
@@ -436,11 +444,23 @@ func type_dust(preset: String) -> void:
 			var iy: int = int(size.y * 0.5) + int(dy)
 			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
-			drawn += luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
-			want += v.ray_luminance(cam, d, 1e-3, 4000) * gain
+			var dp := luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
+			var wp := v.ray_luminance(cam, d, 1e-3, 4000, pix) * gain
+			drawn += dp
+			want += wp
+			if v.ism_ready and wp > 0.0:
+				var w0 := v.ray_luminance(cam, d, 1e-3, 4000) * gain
+				dev_on += pow(dp / wp - 1.0, 2.0)
+				dev_off += pow(dp / w0 - 1.0, 2.0)
+				npx += 1
 		print("     %s row %+d: drawn %s, integral %s" % [preset, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, absf(drawn / want - 1.0))
 	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	if npx > 0:
+		var on := sqrt(dev_on / npx)
+		var off := sqrt(dev_off / npx)
+		check("%s: the medium below the map drawn pixel by pixel as the CPU has it: rms %s %% (< %s), %s %% against the smooth model" % [
+			preset, U.fixed(on * 100.0, 1), U.fixed(ISM_PIXEL_TOL * 100.0, 0), U.fixed(off * 100.0, 1)], on < ISM_PIXEL_TOL and off > 2.0 * on)
 	v.show_hii = true
 	if v.hii != null: await hii_flux(v, gain)
 	for n in g.neighbours: n.hide = false

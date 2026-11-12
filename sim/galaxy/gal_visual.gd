@@ -148,6 +148,17 @@ var far_w := 0.0
 ## solid angle of the last update, for checks.
 var last_gain := 0.0
 var last_pix_sr := 1e-6
+## The interstellar medium below the map (GalISM): whether this galaxy has dust or young
+## light for it to clump, whether its field is on the materials, and checks' switch.
+var ism_applies := false
+var ism_ready := false
+var ism_enabled := true
+var ism_turns := PackedFloat32Array()
+## The dust's and the young light's layer thicknesses (kpc): twice the thinnest dust layer's
+## scale height, twice the young layer's.
+var ism_layers := Vector2(0.2, 0.2)
+## The multipliers' realised means over this galaxy's map (GalISM.norms), from the bake.
+var ism_norm := PackedVector2Array()
 
 ## `defer_arms`: leave the arms' map to bake_arms() on a worker and apply_arms() after
 ## (the scene); otherwise it is baked here (checks).
@@ -213,9 +224,15 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 		if not dust_map.is_empty(): _build_lanes()
 	_model_key = String(model.key)
 	_model_for_uniforms = model
+	ism_applies = not dust.is_empty() or not dust_map.is_empty() or not rings.is_empty() or young_pop != null
+	if ism_applies: ism_turns = GalISM.turn_table(pot, edge, sense)
+	ism_layers = Vector2(2.0 * minf(thin, 1.0), 2.0 * (young_h if young_pop != null else minf(thin, 1.0)))
 	_build_glow(model)
 	_build_stars(model)
 	if not defer_arms and has_map(): apply_arms(bake_arms())
+	if not defer_arms:
+		if not has_map() and ism_applies: ism_norm = plane_ism_norms()
+		apply_ism()
 	has_sun = String(model.key) == "milky_way" and GalNeighbourhood.available()
 	if has_sun:
 		sun_r0 = float(model.get("r0", 8.0))
@@ -414,6 +431,7 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	if res_override >= 0.0: res = res_override
 	glow_mat.set_shader_parameter("uCamLocal", cl)
 	glow_mat.set_shader_parameter("uGain", gain / (4.0 * PI))
+	glow_mat.set_shader_parameter("uPix", pix)
 	if hii != null:
 		hii.visible = show_hii and (show_glow or not hii_with_glow)
 		hii_mat.set_shader_parameter("uCamLocal", cl)
@@ -436,7 +454,9 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 ## The glow's luminance (Sun-luminance kpc⁻² sr⁻¹) along a ray from `o` in local
 ## direction `d`, integrated as the shader does but in double: what the eye adapts to.
 ## The spheroid's cusp is cut at `r_floor`, so a patch, not one pixel, sets the level.
-func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
+## `pix` > 0 adds the interstellar medium as a pixel of that angle (rad) draws it; the eye
+## adapts to its mean, one.
+func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0) -> float:
 	var cols := [disc_pop.color, sphere_pop.color, young_col if young_pop != null else Color(0, 0, 0)]
 	var e: Array = GalModels.EXTINCTION_RGB
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
@@ -458,6 +478,11 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 	if t1 <= t0:
 		t0 = INF
 		t1 = -INF
+	# The medium, from outside its layer, where the ray crosses the plane on the box's chord.
+	var ism_m := Vector2.ONE
+	if pix > 0.0 and ism_ready and ism_enabled and t1 > t0 and GalISM.outside(o.y):
+		var tc0 := clampf(-o.y / (d.y if absf(d.y) > 1e-6 else 1e-6), t0, t1)
+		ism_m = GalISM.multipliers(GalISM.field(), o + d * tc0, tc0 * pix, ism_turns, edge, arm_turn, ism_layers, ism_norm)
 	if sv.y > 0.0:
 		var hb := o.dot(d)
 		var hh := hb * hb - (o.dot(o) - reach * reach)
@@ -484,6 +509,8 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 			j[0] = 0.0
 			j[2] = 0.0
 		var k := dust_density(p.x, p.y, p.z) * ds if in_box else 0.0
+		k *= GalISM.dust(ism_m.x)
+		j[2] *= ism_m.y
 		for ch in 3:
 			var kc := k * float(e[ch])
 			var within := (1.0 - exp(-kc)) / kc if kc > 1e-4 else 1.0 - 0.5 * kc
@@ -667,6 +694,7 @@ func bake_arms() -> Dictionary:
 	var share := _add_bar(img) if disc_map.has("bar") else 0.0
 	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": share}
 	if not hii_spec.is_empty(): out.hii = GalHII.build(hii_spec, hii_d, img, ARM_HALF, _l_young, young_h, 51)
+	if ism_applies: out.ism_norm = GalISM.norms(img, ARM_HALF, _envelope, ism_turns, edge, ism_layers)
 	_cache_mutex.lock()
 	_arm_cache[_model_key] = out
 	_cache_mutex.unlock()
@@ -795,6 +823,7 @@ func _apply_hii(cat: Dictionary) -> void:
 	_light_uniforms(_model_for_uniforms, hii_mat)
 	var e: Array = GalModels.EXTINCTION_RGB
 	hii_mat.set_shader_parameter("uExt", Vector3(e[0], e[1], e[2]))
+	if ism_ready and ism_enabled: GalISM.set_uniforms(hii_mat, ism_turns, edge, ism_layers, ism_norm)
 	hii = MeshInstance3D.new()
 	hii.name = "HII"
 	hii.mesh = mesh
@@ -803,11 +832,43 @@ func _apply_hii(cat: Dictionary) -> void:
 	hii.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
 	group.add_child(hii)
 
+## On the main thread, once GalISM.field() is built (a worker builds it in the scene).
+func apply_ism() -> void:
+	if not ism_applies: return
+	ism_ready = true
+	set_ism(ism_enabled)
+
+## The medium's realised means for a galaxy without a map, weighted by its dust in the plane:
+## pure data, safe on a worker thread.
+func plane_ism_norms() -> PackedVector2Array:
+	var n := 192
+	var half := minf(edge, ARM_HALF)
+	var px := 2.0 * half / float(n)
+	var img := Image.create_empty(n, n, false, Image.FORMAT_RGF)
+	for j in n:
+		for i in n:
+			img.set_pixel(i, j, Color(0.0, dust_density(-half + (float(i) + 0.5) * px, 0.0, -half + (float(j) + 0.5) * px), 0.0))
+	return GalISM.norms(img, half, func(_r: float) -> float: return 0.0, ism_turns, edge, ism_layers)
+
+## Checks draw with and without the interstellar medium.
+func set_ism(on: bool) -> void:
+	ism_enabled = on
+	if not ism_ready: return
+	for mat in [glow_mat, hii_mat]:
+		if mat == null: continue
+		if on: GalISM.set_uniforms(mat, ism_turns, edge, ism_layers, ism_norm)
+		else:
+			var zero := PackedFloat32Array()
+			zero.resize(GalISM.OCTAVES)
+			mat.set_shader_parameter("uISMOct", zero)
+
 ## On the main thread: the map's texture, and the young arms' scale from its integral.
 func apply_arms(baked: Dictionary) -> void:
 	if baked.is_empty(): return
 	arm_img = baked.img
 	bar_share = float(baked.get("bar", 0.0))
+	ism_norm = baked.get("ism_norm", PackedVector2Array())
+	if ism_ready: set_ism(ism_enabled)
 	arm_tex = ImageTexture.create_from_image(arm_img)
 	if baked.has("hii") and hii == null: _apply_hii(baked.hii)
 	young_k = _l_young / float(baked.integral) if float(baked.integral) > 0.0 else 0.0

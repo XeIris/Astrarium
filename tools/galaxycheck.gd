@@ -1234,6 +1234,7 @@ func types() -> void:
 		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
 	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size() - 2, U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
 	m51()
+	ism()
 	m87()
 	lmc_bar()
 	m33_arms()
@@ -1279,3 +1280,76 @@ func types() -> void:
 	ok(er < 0.02 and ed < 0.02, "M104's dust integrates back to De Looze et al.'s ring (%s M☉, %s off) and inner disc (%s M☉, %s off)" % [
 		U.expo(ring, 2), U.fixed(er * 100.0, 2) + " %", U.expo(disc, 2), U.fixed(ed * 100.0, 2) + " %"])
 	v.dispose()
+
+# The medium below the map (GalISM): its field, that its multipliers keep the dust's mass and
+# the young light (mean one, at every footprint), that its shear stays within one shear time,
+# and what it does to M51 seen through its dust. docs/physics/galaxies.md#the-medium-below-the-map.
+## At the normalising footprint exact; finer and coarser ones move it by what their own eddies
+## do not average out.
+const ISM_MEAN_TOL := Vector2(0.01, 0.03)
+const ISM_SEEN_TOL := 0.10
+func ism() -> void:
+	var f := GalISM.field()
+	var n := GalISM.N * GalISM.N
+	var worst := 0.0
+	for c in 2:
+		var mean := 0.0
+		var v := 0.0
+		for i in n: mean += f[2 * i + c]
+		mean /= n
+		for i in n: v += (f[2 * i + c] - mean) * (f[2 * i + c] - mean)
+		worst = maxf(worst, maxf(absf(mean), absf(v / n - 1.0)))
+	var cross := 0.0
+	for i in n: cross += f[2 * i] * f[2 * i + 1]
+	ok(worst < 2e-3 and absf(cross / n) < 0.1, "the medium's field: two unit Gaussian channels (worst %s), uncorrelated (%s)" % [U.expo(worst, 1), String.num(cross / n, 3)])
+	var m := GalModels.type_galaxy("m51")
+	var vis := GalaxyVisual.new(m)
+	# Every octave's turn back grows by at most SHEAR_MAX per e-fold of radius.
+	var t := vis.ism_turns
+	var slope := 0.0
+	for o in GalISM.OCTAVES:
+		for i in range(1, GalISM.TURN_N - 1):
+			var r0 := maxf(vis.edge * float(i) / float(GalISM.TURN_N - 1), 0.02)
+			var r1 := vis.edge * float(i + 1) / float(GalISM.TURN_N - 1)
+			slope = maxf(slope, absf(t[o * GalISM.TURN_N + i + 1] - t[o * GalISM.TURN_N + i]) / log(r1 / r0))
+	ok(slope <= GalISM.SHEAR_MAX * (1.0 + 1e-5), "the medium's shear stays within one shear time: strain %s ≤ %s" % [String.num(slope, 4), GalISM.SHEAR_MAX])
+	# Mean one, weighted as the galaxy weighs it: the dust map's mass and the young light, over
+	# the arm map's texels, at a fine and a coarse footprint.
+	var img := vis.arm_img
+	var px := 2.0 * GalaxyVisual.ARM_HALF / float(GalaxyVisual.ARM_N)
+	var errs := Vector2.ZERO
+	for foot in [0.005, 0.02, 0.1, 0.15, 0.3, 0.6]:
+		var acc := Vector4.ZERO
+		for j in range(0, GalaxyVisual.ARM_N, 2):
+			for i in range(0, GalaxyVisual.ARM_N, 2):
+				var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+				var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+				var c := img.get_pixel(i, j)
+				var y := c.r * vis._envelope(sqrt(x * x + z * z))
+				if c.g <= 0.0 and y <= 0.0: continue
+				var mm := GalISM.multipliers(f, Vector3(x, 0.0, z), foot, vis.ism_turns, vis.edge, 0.0, vis.ism_layers, vis.ism_norm)
+				acc += Vector4(c.g * GalISM.dust(mm.x), c.g, y * mm.y, y)
+		errs = Vector2(maxf(errs.x, absf(acc.x / acc.y - 1.0)), maxf(errs.y, absf(acc.z / acc.w - 1.0)))
+	ok(errs.x < ISM_MEAN_TOL.x and errs.y < ISM_MEAN_TOL.y, "M51's medium keeps its dust's mass (%s %%, < %s) and its young light (%s %%, < %s) at footprints 5–600 pc" % [
+		U.fixed(errs.x * 100.0, 2), U.fixed(ISM_MEAN_TOL.x * 100.0, 0), U.fixed(errs.y * 100.0, 2), U.fixed(ISM_MEAN_TOL.y * 100.0, 0)])
+	# Seen from the Sun through its own dust, with the medium as a 0.2″ pixel draws it: clumped
+	# dust lets more light through than the smooth model's (Witt & Gordon 1996).
+	var side := GalLandmarks.sun_side(m)
+	var d := -side
+	var e1 := d.cross(Vector3.UP).normalized()
+	var e2 := d.cross(e1).normalized()
+	var pix := deg_to_rad(0.2 / 3600.0) * float(GalModels.TYPES.m51.d) / 200.0
+	var seen := [0.0, 0.0]
+	for pass_i in 2:
+		var acc := 0.0
+		var a := -24.0 + 0.25
+		while a < 24.0:
+			var b := -24.0 + 0.25
+			while b < 24.0:
+				acc += vis.ray_luminance(side * 200.0 + e1 * a + e2 * b, d, 1e-3, 96, pix if pass_i == 0 else 0.0) * 0.25
+				b += 0.5
+			a += 0.5
+		seen[pass_i] = acc
+	var shift := -2.5 * log(seen[0] / seen[1]) / log(10.0)
+	ok(absf(shift) < ISM_SEEN_TOL, "M51 through its dust with the medium: %s mag from the smooth model's (< %s)" % [U.fixed(shift, 3), ISM_SEEN_TOL])
+	vis.dispose()
