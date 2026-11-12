@@ -241,10 +241,13 @@ The exposure slider multiplies that.
   Sun–centre line today (Bland-Hawthorn & Gerhard 2016). Its strength is galpy's
   default α = 0.01, after Dehnen (2000).
 - **The spiral** is Cox & Gómez's (2002) potential of a two-armed stellar density
-  wave: ρ = ρ0 e^{−(R−r0)/Rs} sech²(z/H) cos γ, with ρ0 = 1 amu cm⁻³, r0 = 8, Rs = 7
+  wave: ρ = ρ0 e^{−(R−r0)/Rs} sech²(z/H) cos γ, with ρ0 = (14/11) m_H n0 = 1.283 amu cm⁻³
+  (their n0 = 1 cm⁻³, with helium), r0 = 8, Rs = 7
   and H = 0.18 kpc, and γ = N(φ − φp + ln(R/r0)/tan α), so its arms trail. It turns at
   28.2 ± 2.1 km/s/kpc (Dias et al. 2019). Its 12° pitch is the mean of the two major
-  arms' measured pitches, and its crest lies on Perseus today (Reid et al. 2019).
+  arms' measured pitches, and its crest lies on Perseus today (Reid et al. 2019). Reid
+  et al.'s arm radii are for R0 = 8.15 kpc; they are scaled by 8.0/8.15 to the model's R0, so
+  each arm keeps its place relative to the Sun.
 
 Both grow by Dehnen's quintic over one bar period from t = −320 Myr and run a further
 period before today, so the tracers have responded when the scene opens. The
