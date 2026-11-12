@@ -151,13 +151,12 @@ func encounter_centre() -> DVec3:
 ## What the frame draws of the encounter, taken while no batch runs.
 func _enc_snapshot() -> void:
 	var e := encounter
-	var c := Vector3.ZERO
+	var c := DVec3.new()
 	var m := 0.0
 	for i in e.count():
-		c += e.centre(i) * e.orbits.gm[i]
+		c.add_scaled_in(DVec3.from_v3(e.centre(i)), e.orbits.gm[i])
 		m += e.orbits.gm[i]
-	c /= m
-	_enc_centre = DVec3.new(c.x, c.y, c.z)
+	_enc_centre = c.scale_in(1.0 / m)
 	_enc_bytes = e.draw_bytes
 	_enc_live_n = e.live.n if e.is_live() else 0
 	t_myr = e.time()
@@ -285,14 +284,14 @@ func _advance(dt: float) -> float:
 	var want := rate * dt
 	_pending += want
 	var k := int(floor(_pending / GalTracers.DT))
-	limited = k > STEP_BUDGET
+	var capped := k > STEP_BUDGET
 	k = mini(k, STEP_BUDGET)
 	var accepted := 0.0
 	if tracers != null:
 		tracers.step(k)
 		_pending -= float(k) * GalTracers.DT
 		# A clock held back by the budget drops what it could not do.
-		if limited: _pending = 0.0
+		if capped: _pending = 0.0
 		accepted = float(k) * GalTracers.DT
 		t_myr = tracers.t + _pending
 	else:
@@ -300,7 +299,14 @@ func _advance(dt: float) -> float:
 		_pending = 0.0
 		accepted = want
 	achieved = lerpf(achieved, accepted / maxf(dt, 1e-6), 0.1)
+	_note_limited(capped)
 	return accepted
+
+## The readout's "limited": set when a frame or batch was cut to its budget, cleared once
+## the clock achieves the rate asked, so it does not flicker between cut and uncut frames.
+func _note_limited(capped: bool) -> void:
+	if capped: limited = true
+	elif achieved >= 0.95 * rate: limited = false
 
 ## Live at any rate: each batch is as many steps as the rate asks for, as long as it fits
 ## ENCOUNTER_BATCH_MS at the measured cost of a step; past it the clock runs slower than asked
@@ -312,7 +318,9 @@ func _advance_encounter(dt: float) -> float:
 		WorkerThreadPool.wait_for_task_completion(_enc_task)
 		_enc_task = -1
 		var ms := float(Time.get_ticks_usec() - _enc_t0) / 1000.0 / float(maxi(_enc_batch, 1))
-		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.3)
+		# A live step costs far more than a restricted one: after going live (batch 0) the
+		# next batch is one step, which measures it.
+		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.3) if _enc_batch > 0 else ENCOUNTER_BATCH_MS
 		_enc_snapshot()
 	if stage.state.paused or rate <= 0.0:
 		achieved = 0.0
@@ -320,14 +328,21 @@ func _advance_encounter(dt: float) -> float:
 		_pending = 0.0
 	else:
 		_pending += rate * dt
-		if _enc_task < 0:
+		if _enc_task < 0 and encounter.due_live():
+			# Going live is a batch of its own, so the steps after it are sized in live steps.
+			_enc_batch = 0
+			_enc_t0 = Time.get_ticks_usec()
+			var e := encounter
+			_enc_task = WorkerThreadPool.add_task(func(): e.go_live(), false, "galaxy encounter live")
+		elif _enc_task < 0:
 			var step := encounter.dt()
 			var k := int(floor(_pending / step))
 			var cap := maxi(int(ENCOUNTER_BATCH_MS / maxf(_enc_step_ms, 1e-3)), 1)
-			limited = k > cap
+			var capped := k > cap
 			k = mini(k, cap)
 			_pending -= float(k) * step
-			if limited: _pending = 0.0
+			if capped: _pending = 0.0
+			_note_limited(capped)
 			if k > 0:
 				_enc_batch = k
 				_enc_t0 = Time.get_ticks_usec()

@@ -46,8 +46,8 @@ func halos() -> void:
 func kepler() -> void:
 	var o := GalOrbits.new()
 	o.friction = false
-	o.add("A", 1e11, 1e-5, Vector3(-100.0, 0.0, 0.0), Vector3.ZERO)
-	o.add("B", 1e11, 1e-5, Vector3(100.0, 0.0, 0.0), Vector3.ZERO)
+	o.add("A", 1e11, 1e-5, [-100.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+	o.add("B", 1e11, 1e-5, [100.0, 0.0, 0.0], [0.0, 0.0, 0.0])
 	var mu := o.gm[0] + o.gm[1]
 	# Each at half of 0.7 times the circular relative speed, opposite: an ellipse from apocentre.
 	var v := sqrt(mu / 200.0) * 0.7 * 0.5
@@ -127,7 +127,7 @@ func isolated() -> void:
 	var row: Array = GalModels.VDM_CANONICAL[0]
 	var st: Array = GalModels.VDM_STARS["Milky Way"]
 	var halo := GalOrbits.hernquist_halo(float(row[1]) - float(st[0]) - float(st[2]), float(row[2]))
-	o.add("Milky Way", float(halo[0]), float(halo[1]), Vector3.ZERO, Vector3.ZERO)
+	o.add("Milky Way", float(halo[0]), float(halo[1]), [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
 	var e := GalEncounter.new(o)
 	e.set_galaxy(0, [halo[0], halo[1]], [st[0], 0.9688 * float(st[1]), 0.1 * float(st[1])], [st[2], float(st[3]) / 1.8153], Vector3(0, 0, -1))
 	e.seed_disc(0, 1000, float(st[0]), float(st[1]), 0.3, 0.1, 7)

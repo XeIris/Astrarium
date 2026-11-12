@@ -45,13 +45,13 @@ static func hernquist_halo(mvir: float, c: float) -> Array:
 static func _f(x: float) -> float:
 	return log(1.0 + x) - x / (1.0 + x)
 
-## Adds a galaxy of mass m_sun at p (kpc) moving at v (kpc/Myr).
-func add(name: String, m_sun: float, scale: float, p: Vector3, v: Vector3) -> void:
+## Adds a galaxy of mass m_sun at p (kpc) moving at v (kpc/Myr), three doubles each.
+func add(name: String, m_sun: float, scale: float, p: Array, v: Array) -> void:
 	names.append(name)
 	gm.append(GalUnits.G * m_sun / GalUnits.MASS_UNIT_SUN)
 	a.append(scale)
-	pos.append_array([p.x, p.y, p.z])
-	vel.append_array([v.x, v.y, v.z])
+	pos.append_array([float(p[0]), float(p[1]), float(p[2])])
+	vel.append_array([float(v[0]), float(v[1]), float(v[2])])
 
 func count() -> int:
 	return gm.size()

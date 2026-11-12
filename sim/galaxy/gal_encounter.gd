@@ -78,9 +78,11 @@ func centre(i: int) -> Vector3:
 	if live == null: return orbits.position(i)
 	var core: PackedInt32Array = cores[i]
 	if core.is_empty(): return Vector3.ZERO
-	var s := Vector3.ZERO
-	for j in core: s += live.position(j)
-	return s / core.size()
+	var s := [0.0, 0.0, 0.0]
+	for j in core:
+		var o := GalLive.HDR + GalLive.STRIDE * j
+		for c in 3: s[c] += live.buf[o + c]
+	return Vector3(s[0], s[1], s[2]) / core.size()
 
 func count() -> int:
 	return orbits.count()
@@ -197,8 +199,9 @@ func seed_disc(i: int, count: int, md_sun: float, rd: float, z0: float, eps: flo
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var B: Basis = axes[i]
-	var c := orbits.position(i)
-	var v0 := orbits.velocity(i)
+	var c := orbits.pos.slice(3 * i, 3 * i + 3)
+	var v0 := orbits.vel.slice(3 * i, 3 * i + 3)
+	var by := [B.y.x, B.y.y, B.y.z]
 	var m := md_sun / GalUnits.MASS_UNIT_SUN / count
 	for k in count:
 		# Σ ∝ e^(−R/rd) gives R e^(−R/rd) dR: a Gamma(2) radius.
@@ -206,11 +209,21 @@ func seed_disc(i: int, count: int, md_sun: float, rd: float, z0: float, eps: flo
 		while R >= 6.0 * rd: R = -rd * log(maxf(rng.randf(), 1e-12) * maxf(rng.randf(), 1e-12))
 		var phi := rng.randf() * TAU
 		var z := z0 * atanh(2.0 * rng.randf() - 1.0)
-		var e_r := B.x * cos(phi) + B.z * sin(phi)
-		var e_t := B.y.cross(e_r)
+		# In double throughout: the basis's components, then every product and sum.
+		var cp := cos(phi)
+		var sp := sin(phi)
+		var er := [B.x.x * cp + B.z.x * sp, B.x.y * cp + B.z.y * sp, B.x.z * cp + B.z.z * sp]
+		var et := [by[1] * er[2] - by[2] * er[1], by[2] * er[0] - by[0] * er[2], by[0] * er[1] - by[1] * er[0]]
 		var kin := disc_kinematics(i, R, vc)
-		var p := c + e_r * R + B.y * z
-		var v := v0 + e_t * (float(kin[0]) + float(kin[2]) * rng.randfn()) + e_r * (float(kin[1]) * rng.randfn()) + B.y * (float(kin[3]) * rng.randfn())
+		# The draws in the order they always took: along the rotation, outward, up.
+		var vt := float(kin[0]) + float(kin[2]) * rng.randfn()
+		var vr := float(kin[1]) * rng.randfn()
+		var vz := float(kin[3]) * rng.randfn()
+		var p := PackedFloat64Array()
+		var v := PackedFloat64Array()
+		for a in 3:
+			p.append(c[a] + float(er[a]) * R + float(by[a]) * z)
+			v.append(v0[a] + float(et[a]) * vt + float(er[a]) * vr + float(by[a]) * vz)
 		_add_star(i, i, p, v, m, eps)
 
 ## Galaxy i's bulge as `count` stars of mb_sun in all, from the bulge's equilibrium sampler.
@@ -218,13 +231,15 @@ func seed_bulge(i: int, count: int, mb_sun: float, sampler: GalEddington, eps: f
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var s := sampler.sample(rng, count)
-	var c := orbits.position(i)
-	var v0 := orbits.velocity(i)
+	var c := orbits.pos.slice(3 * i, 3 * i + 3)
+	var v0 := orbits.vel.slice(3 * i, 3 * i + 3)
 	var m := mb_sun / GalUnits.MASS_UNIT_SUN / count
 	var p: PackedFloat64Array = s[0]
 	var v: PackedFloat64Array = s[1]
 	for k in count:
-		_add_star(i, i + BULGE_TAG, c + Vector3(p[3 * k], p[3 * k + 1], p[3 * k + 2]), v0 + Vector3(v[3 * k], v[3 * k + 1], v[3 * k + 2]), m, eps)
+		var q := 3 * k
+		_add_star(i, i + BULGE_TAG, PackedFloat64Array([c[0] + p[q], c[1] + p[q + 1], c[2] + p[q + 2]]),
+			PackedFloat64Array([v0[0] + v[q], v0[1] + v[q + 1], v0[2] + v[q + 2]]), m, eps)
 
 ## Galaxy i's halo, `count` particles of mh_sun in all, from its sampler; it waits, about the
 ## galaxy's centre, until the encounter goes live.
@@ -234,9 +249,10 @@ func seed_halo(i: int, count: int, mh_sun: float, sampler: GalEddington, eps: fl
 	var s := sampler.sample(rng, count)
 	haloes[i] = [s[0], s[1], mh_sun / GalUnits.MASS_UNIT_SUN / count, eps]
 
-func _add_star(g: int, t: int, p: Vector3, v: Vector3, m: float, eps: float) -> void:
-	pos.append_array([p.x, p.y, p.z])
-	vel.append_array([v.x, v.y, v.z])
+## Position (kpc) and velocity (kpc/Myr), three doubles each.
+func _add_star(g: int, t: int, p: PackedFloat64Array, v: PackedFloat64Array, m: float, eps: float) -> void:
+	pos.append_array(p)
+	vel.append_array(v)
 	owner.append(g)
 	tag.append(t)
 	star_mass.append(m)
@@ -248,11 +264,15 @@ static func native_available() -> bool:
 		_native = 1 if ClassDB.class_exists("NBodyKernel") and ClassDB.class_has_method("NBodyKernel", "encounter") else 0
 	return _native == 1
 
-## k steps of the current step; the encounter goes live first if the leading pair is near.
+## Whether the leading pair has come within live_at and the encounter is still restricted.
+func due_live() -> bool:
+	return live == null and live_at > 0.0 and orbits.count() > 1 and orbits.separation(0, 1) < live_at
+
+## k steps of the current step; the encounter goes live first if due, after which a step is
+## LIVE_DT: a caller sizing k in time asks due_live() first.
 func step(k: int) -> void:
 	if k <= 0: return
-	if live == null and live_at > 0.0 and orbits.count() > 1 and orbits.separation(0, 1) < live_at:
-		go_live()
+	if due_live(): go_live()
 	if live != null:
 		live.step(k)
 		draw_bytes = live.draw_bytes
@@ -303,12 +323,12 @@ func go_live() -> void:
 	for i in ng:
 		var h: Array = haloes[i] if i < haloes.size() else []
 		if h.is_empty(): continue
-		var c := orbits.position(i)
-		var v := orbits.velocity(i)
+		var c := orbits.pos.slice(3 * i, 3 * i + 3)
+		var v := orbits.vel.slice(3 * i, 3 * i + 3)
 		var hp: PackedFloat64Array = h[0]
 		var hv: PackedFloat64Array = h[1]
 		for q in hp.size() / 3:
-			L.set_particle(o, [c.x + hp[3 * q], c.y + hp[3 * q + 1], c.z + hp[3 * q + 2]], [v.x + hv[3 * q], v.y + hv[3 * q + 1], v.z + hv[3 * q + 2]], float(h[2]), float(h[3]))
+			L.set_particle(o, [c[0] + hp[3 * q], c[1] + hp[3 * q + 1], c[2] + hp[3 * q + 2]], [v[0] + hv[3 * q], v[1] + hv[3 * q + 1], v[2] + hv[3 * q + 2]], float(h[2]), float(h[3]))
 			o += 1
 	for i in ng: cores[i] = _core(i)
 	t_live = orbits.t
@@ -316,11 +336,14 @@ func go_live() -> void:
 
 ## The CORE stars of galaxy i nearest its centre.
 func _core(i: int) -> PackedInt32Array:
-	var c := orbits.position(i)
+	var c := orbits.pos.slice(3 * i, 3 * i + 3)
 	var near := []
 	for j in n:
 		if owner[j] != i: continue
-		near.append([Vector3(pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]).distance_squared_to(c), j])
+		var dx := pos[3 * j] - c[0]
+		var dy := pos[3 * j + 1] - c[1]
+		var dz := pos[3 * j + 2] - c[2]
+		near.append([dx * dx + dy * dy + dz * dz, j])
 	near.sort_custom(func(a, b): return a[0] < b[0])
 	var out := PackedInt32Array()
 	for q in mini(CORE, near.size()): out.append(int(near[q][1]))
@@ -328,7 +351,7 @@ func _core(i: int) -> PackedInt32Array:
 
 ## Galaxy i alone as particles about the origin, its stars where they are now.
 func _galaxy_alone(i: int) -> GalLive:
-	var c := orbits.position(i)
+	var c := orbits.pos.slice(3 * i, 3 * i + 3)
 	var h: Array = haloes[i]
 	var idx := PackedInt32Array()
 	for j in n: if owner[j] == i: idx.append(j)
@@ -338,7 +361,7 @@ func _galaxy_alone(i: int) -> GalLive:
 	L.use_native = use_native
 	for q in idx.size():
 		var j := idx[q]
-		L.set_particle(q, [pos[3 * j] - c.x, pos[3 * j + 1] - c.y, pos[3 * j + 2] - c.z], [0, 0, 0], star_mass[j], star_eps[j])
+		L.set_particle(q, [pos[3 * j] - c[0], pos[3 * j + 1] - c[1], pos[3 * j + 2] - c[2]], [0, 0, 0], star_mass[j], star_eps[j])
 	for q in nh:
 		L.set_particle(idx.size() + q, [hp[3 * q], hp[3 * q + 1], hp[3 * q + 2]], [0, 0, 0], float(h[2]), float(h[3]))
 	return L
@@ -390,14 +413,16 @@ func _remap_disc(i: int) -> void:
 	var live_vc := func(R: float) -> float: return _interp(xs, ys, R)
 	var rigid_vc := func(R: float) -> float: return circular_speed(i, R)
 	var B: Basis = axes[i]
-	var c := orbits.position(i)
+	var c := orbits.pos.slice(3 * i, 3 * i + 3)
+	var by := [B.y.x, B.y.y, B.y.z]
 	for j in n:
 		if tag[j] != i: continue
-		var p := Vector3(pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]) - c
-		var e := p - B.y * p.dot(B.y)
-		var R := e.length()
+		var p := [pos[3 * j] - c[0], pos[3 * j + 1] - c[1], pos[3 * j + 2] - c[2]]
+		var up: float = p[0] * by[0] + p[1] * by[1] + p[2] * by[2]
+		var e := [p[0] - by[0] * up, p[1] - by[1] * up, p[2] - by[2] * up]
+		var R := sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2])
 		if R <= 0.0: continue
-		var e_t := B.y.cross(e / R)
+		var e_t := [(by[1] * e[2] - by[2] * e[1]) / R, (by[2] * e[0] - by[0] * e[2]) / R, (by[0] * e[1] - by[1] * e[0]) / R]
 		var dv := float(disc_kinematics(i, R, live_vc)[0]) - float(disc_kinematics(i, R, rigid_vc)[0])
 		for k in 3: vel[3 * j + k] += e_t[k] * dv
 

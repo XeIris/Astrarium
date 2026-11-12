@@ -797,7 +797,7 @@ static func encounter(rows: Array) -> GalOrbits:
 		var h := GalOrbits.hernquist_halo(float(r[1]), float(r[2]))
 		var p: Array = r[3]
 		var v: Array = r[4]
-		o.add(String(r[0]), float(h[0]), float(h[1]), Vector3(p[0], p[1], p[2]), Vector3(v[0], v[1], v[2]) * GalUnits.KMS)
+		o.add(String(r[0]), float(h[0]), float(h[1]), p, [float(v[0]) * GalUnits.KMS, float(v[1]) * GalUnits.KMS, float(v[2]) * GalUnits.KMS])
 	return o
 
 static func milky_way_potential() -> GalPotential:
