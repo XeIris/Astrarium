@@ -273,33 +273,14 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("uRingH", ring_h)
 	mat.set_shader_parameter("uThin", thin)
 
-## The share of a galaxy's light a Hernquist spheroid may leave beyond its marched sphere.
-const SPHERE_LEFT := 0.005
-## The spheroid's marched radius (kpc): no spheroid light beyond it, here or in the shader.
+## The spheroid's marched radius (kpc, GalModels.sphere_reach): no spheroid light beyond it,
+## here or in the shader.
 var sphere_r := 8.0
-
-## The spheroid's share of the galaxy's visible light.
-func _sphere_share(model: Dictionary) -> float:
-	if not model.has("light"): return 1.0
-	var b: Dictionary = pot.part("bulge")
-	var y := 0.2126 * sphere_pop.color.r + 0.7152 * sphere_pop.color.g + 0.0722 * sphere_pop.color.b
-	var lb := _visible(model, "bulge") * float(b.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * sphere_pop.mean_l / sphere_pop.mean_mass * y
-	return lb / GalModels.visible_luminosity(model)
 
 func _build_glow(model: Dictionary) -> void:
 	var ext: float = model.get("extent", 30.0)
-	# The bulge's light is below 1e-3 of its peak past three cutoff radii. A Hernquist sphere
-	# holds (r/(r + a))² of its light within r: it is marched out to where what lies beyond
-	# is SPHERE_LEFT of the galaxy's light, or to its extent.
-	var bl: Dictionary = pot.part("bulge")
-	sphere_r = 8.0
-	if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF: sphere_r = 3.0 * float(bl.rc)
-	elif not bl.is_empty() and bl.kind == GalPotential.Kind.HERNQUIST:
-		var x := sqrt(maxf(1.0 - SPHERE_LEFT / maxf(_sphere_share(model), SPHERE_LEFT), 0.0))
-		sphere_r = minf(ext, float(bl.a) * x / maxf(1.0 - x, 1e-9))
-	# The glow is drawn on this box, so it must hold the spheroid's sphere: a ray that misses
-	# the box has no fragment to carry its light.
-	var h := maxf(4.0, sphere_r)
+	sphere_r = GalModels.sphere_reach(model)
+	var h := GalModels.glow_half_height(model)
 	var box := BoxMesh.new()
 	box.size = Vector3(ext, h, ext) * 2.0
 	glow_mat = ShaderMaterial.new()
@@ -436,16 +417,29 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 	var e: Array = GalModels.EXTINCTION_RGB
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var box: Vector3 = glow_mat.get_shader_parameter("uBox")
+	var reach: float = glow_mat.get_shader_parameter("uSphereR")
+	var sv: Vector4 = glow_mat.get_shader_parameter("uSphere")
+	# As the shader marches them: the disc and its dust within the box, the spheroid
+	# within its sphere; one march spans both.
 	var t1 := INF
 	var t0 := 0.0
 	for a in 3:
 		if absf(d[a]) < 1e-12:
-			if absf(o[a]) > box[a]: return 0.0
+			if absf(o[a]) > box[a]: t1 = -INF
 			continue
 		var ta := (-box[a] - o[a]) / d[a]
 		var tb := (box[a] - o[a]) / d[a]
 		t0 = maxf(t0, minf(ta, tb))
 		t1 = minf(t1, maxf(ta, tb))
+	if t1 <= t0:
+		t0 = INF
+		t1 = -INF
+	if sv.y > 0.0:
+		var hb := o.dot(d)
+		var hh := hb * hb - (o.dot(o) - reach * reach)
+		if hh > 0.0 and -hb + sqrt(hh) > 0.0:
+			t0 = minf(t0, maxf(-hb - sqrt(hh), 0.0))
+			t1 = maxf(t1, -hb + sqrt(hh))
 	if t1 <= t0: return 0.0
 	var acc := [0.0, 0.0, 0.0]
 	var tau := 0.0
@@ -461,7 +455,11 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 		var p := o + d * t
 		var ds := sc * cosh(u) * du
 		var j := light_density(p, r_floor)
-		var k := dust_density(p.x, p.y, p.z) * ds
+		var in_box := absf(p.x) <= box.x and absf(p.y) <= box.y and absf(p.z) <= box.z
+		if not in_box:
+			j[0] = 0.0
+			j[2] = 0.0
+		var k := dust_density(p.x, p.y, p.z) * ds if in_box else 0.0
 		for ch in 3:
 			var kc := k * float(e[ch])
 			var within := (1.0 - exp(-kc)) / kc if kc > 1e-4 else 1.0 - 0.5 * kc
