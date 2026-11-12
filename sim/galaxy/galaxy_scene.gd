@@ -602,7 +602,33 @@ func set_rate(r: float) -> void:
 
 func clamp_radius() -> void:
 	var cam = stage.cam
-	cam.radius = clampf(cam.radius, MIN_RADIUS, MAX_RADIUS)
+	cam.radius = clampf(cam.radius, JOIN_KPC if follow_sun else MIN_RADIUS, MAX_RADIUS)
+
+## Where the Sun's frame and the Solar System meet (kpc): the Solar System scene's widest
+## view, 20 000 scene units of 1 AU each. Zooming in past it at the Sun hands the view to the
+## Solar System, and zooming out of that hands it back here (main._wheel).
+const JOIN_KPC := OrreryCamera.MAX_REQUEST_RADIUS / GalUnits.AU_PER_KPC
+
+## Is the camera at the Sun, as close as this scene comes?
+func at_join(radius: float) -> bool:
+	return active and follow_sun and radius <= JOIN_KPC * (1.0 + 1e-9)
+
+## The Sun's axes in this galaxy now (+x the centre, +y the north galactic pole, +z toward
+## l = 270°), or the identity outside the Milky Way.
+func sun_basis() -> Basis:
+	if visual == null or not visual.has_sun: return Basis()
+	return GalNeighbourhood.sun_frame(visual.sun_r0, visual.sun_omega, t_myr)[1]
+
+## A direction in the Solar System scene's frame as the same direction here, through the
+## galactic frame both scenes share (SkyModel.galactic_frame_j2000, GalLandmarks).
+static func solar_to_galaxy(d: Vector3, sun: Basis) -> Vector3:
+	var gal := SkyModel.galactic_frame_j2000()
+	return sun * Vector3(d.dot(gal[1]), d.dot(gal[0]), -d.dot(gal[2]))
+
+static func galaxy_to_solar(g: Vector3, sun: Basis) -> Vector3:
+	var gal := SkyModel.galactic_frame_j2000()
+	var s := sun.inverse() * g
+	return (gal[1] as Vector3) * s.x + (gal[0] as Vector3) * s.y - (gal[2] as Vector3) * s.z
 
 ## The radius distance readout: pc below a kpc, kpc below a Mpc.
 static func fmt_kpc(d: float) -> String:

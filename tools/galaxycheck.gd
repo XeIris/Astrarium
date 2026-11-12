@@ -332,6 +332,17 @@ func tracers() -> void:
 			v2 += c[k].y * c[k].y
 		if is_finite(worst_sum): worst_sum = maxf(worst_sum, absf(sqrt(v2) - chart.model[k].y))
 	chart.free()
+	# The Solar System and the Galaxy share one sky (GalaxyScene's join): Betelgeuse
+	# (J2000 88.79294, +7.40706) lands at its galactic (l, b) = (199.787, −8.959) on the Sun's
+	# axes, and a direction survives the trip there and back.
+	var l := deg_to_rad(199.787)
+	var b := deg_to_rad(-8.959)
+	var bet := SkyModel.radec_to_scene(88.79294, 7.40706).to_v3()
+	var on_sun := GalaxyScene.solar_to_galaxy(bet, Basis())
+	var off := rad_to_deg(on_sun.angle_to(Vector3(cos(b) * cos(l), sin(b), -cos(b) * sin(l))))
+	var sun_b: Basis = GalNeighbourhood.sun_frame(8.122, 0.027, 140.0)[1]
+	var back := GalaxyScene.galaxy_to_solar(GalaxyScene.solar_to_galaxy(bet, sun_b), sun_b)
+	ok(off < 0.01 and back.angle_to(bet) < 1e-5, "the join's sky: Betelgeuse %s° from its galactic (l, b), %s° off after the round trip" % [U.fixed(off, 4), U.expo(rad_to_deg(back.angle_to(bet)), 1)])
 	# Each part's v_c comes from its own force, summed in a different order: rounding only.
 	ok(worst_sum < 1e-3, "the rotation chart's parts add to its model curve (%s km/s)" % U.expo(worst_sum, 1))
 	eilers(p)
