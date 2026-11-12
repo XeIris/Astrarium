@@ -38,6 +38,7 @@ func _init() -> void:
 		patterns()
 		light()
 		neighbourhood()
+		landmarks()
 	_done()
 
 func _done() -> void:
@@ -665,3 +666,68 @@ func neighbourhood() -> void:
 	ok(absf(turn - 2.75) < 1e-5 and b1.x.dot(-(f1[0] as Vector3) * Vector3(1, 0, 1)) > 0.0 and absf(b1.determinant() - 1.0) < 1e-6
 		and b1.z.dot(Vector3(-sin(PI + 2.75), 0.0, cos(PI + 2.75))) < -0.999,
 		"the Sun turns at Ω(R0) with its axes: +x to the centre, +z against the rotation")
+
+
+# Landmarks (GalLandmarks): the galactic frame they are placed through against ESA's own
+# (l, b) for eight Gaia DR3 stars (gaiadr3.gaia_source ra, dec, l, b, queried 2026-11-11),
+# every card sourced, sky landmarks at their distances, and the Perseus arm's landmark on
+# the spiral's crest as it turns.
+const GAIA_LB := [
+	[76.62890153390961, 41.23417207468237, 165.35410348349683, 0.2715901914842562],
+	[100.77044199727958, 44.524315844628944, 171.18152308769763, 17.254190036602797],
+	[228.87612720122996, 33.31433528392251, 53.11146055142921, 58.43086994075083],
+	[310.86462803135805, 15.074387647430187, 60.13532371539176, -16.554395381590524],
+	[285.00347297566384, 32.14555499144238, 62.90558467639902, 12.381797375622167],
+	[3.6599461564529565, -18.933189798652894, 75.105843142222, -78.22610066408402],
+	[91.43981189014927, -24.19562687012799, 230.46147536032308, -20.341731140987942],
+	[203.67206658148982, -0.5956181019830046, 325.24373419802896, 60.38898664872216],
+]
+
+func landmarks() -> void:
+	var worst := 0.0
+	for r in GAIA_LB:
+		var d := GalLandmarks.sky_direction(float(r[0]), float(r[1]))
+		var lb := GalNeighbourhood.galactic(d)
+		var want := Vector3(cos(deg_to_rad(r[3])) * cos(deg_to_rad(r[2])), sin(deg_to_rad(r[3])), -cos(deg_to_rad(r[3])) * sin(deg_to_rad(r[2])))
+		var got := Vector3(cos(lb.y) * cos(lb.x), sin(lb.y), -cos(lb.y) * sin(lb.x))
+		worst = maxf(worst, rad_to_deg(want.cross(got).length()) * 3600.0)
+	ok(worst < 1.0, "the landmarks' galactic frame against ESA's (l, b) for 8 Gaia stars: worst %s″ (< 1)" % String.num(worst, 3))
+	var model := GalModels.build("milky_way", 1)
+	var lms := GalLandmarks.of("milky_way")
+	var ids := {}
+	var complete := true
+	for lm in lms:
+		if ids.has(lm.id) or String(lm.name).is_empty() or (lm.view as Array).size() != 2 or float(lm.view[0]) <= 0.0:
+			complete = false
+		ids[lm.id] = true
+		var src := RegEx.create_from_string("\\([^)]*\\d{4}\\)")
+		if src.search(String(lm.card)) == null: complete = false
+		for t in [0.0, 100.0]:
+			var p := GalLandmarks.position(lm, model, t)
+			if not (is_finite(p.x) and is_finite(p.y) and is_finite(p.z)): complete = false
+	ok(lms.size() >= 6 and complete, "%d Milky Way landmarks, each with a name, a view, a finite place and a dated source in its card" % lms.size())
+	var sun := GalLandmarks.position(lms[0], model, 0.0)
+	var worst_d := 0.0
+	for lm in lms:
+		if lm.at == "sky": worst_d = maxf(worst_d, absf((GalLandmarks.position(lm, model, 0.0) - sun).length() / float(lm.d) - 1.0))
+	ok(worst_d < 1e-5, "sky landmarks stand at their measured distances from the Sun (worst %s)" % U.expo(worst_d, 1))
+	# The Perseus landmark on the crest (Φ's minimum along its radius) now and 100 Myr on.
+	var per := GalLandmarks.find("milky_way", "perseus")
+	var sp: Dictionary = {}
+	for p in model.patterns:
+		if p.kind == GalPattern.Kind.SPIRAL: sp = p
+	var worst_c := 0.0
+	for t in [0.0, 100.0]:
+		var q := GalLandmarks.position(per, model, t)
+		var R := Vector2(q.x, q.z).length()
+		var best := INF
+		var at := 0.0
+		for k in 7200:
+			var ph := TAU * float(k) / 7200.0
+			var v := GalPattern._full(sp, R * cos(ph), 0.0, R * sin(ph), t)[0]
+			if v < best:
+				best = v
+				at = ph
+		var off := absf(wrapf(atan2(q.z, q.x) - at, -PI / 2.0, PI / 2.0))
+		worst_c = maxf(worst_c, rad_to_deg(off))
+	ok(worst_c < 0.2, "the Perseus Arm's landmark stays on the spiral's crest as it turns (worst %s° over 100 Myr)" % String.num(worst_c, 2))

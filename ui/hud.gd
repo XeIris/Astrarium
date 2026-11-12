@@ -1225,6 +1225,12 @@ func _build_galaxy(b: Node) -> void:
 	for f in [["whole", "Whole", "The galaxy from 60 kpc"], ["face", "Face-on", "From above the north galactic pole"], ["edge", "Edge-on", "In the plane"],
 			["sun", "The Sun", "From the Sun, following it round the Galaxy: the real stars of our sky, measured by Gaia and Hipparcos, joined to the model"], ["centre", "Centre", "The inner galaxy and the bulge"]]:
 		B(vg, "Toggle", f[1], "[data-gal-frame=%s]" % f[0], f[2]).pressed.connect(func(): galaxy_action.emit("frame", f[0]))
+	# Filled by GalaxyScene with its model's landmarks; a pressed one flies there and
+	# shows its card below.
+	m(L(s, "Landmarks", ROW_LABEL), 0.0, 4.0)
+	var lmg := grid(s, [1.0, 1.0], 4.0, 4.0, 0.0, 4.0)
+	reg("galLandmarks", lmg)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galCard", true), 0.0, 8.0)
 	var lg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
 	B(lg, "Toggle", "Tracers", "galShowTracers", "The test stars (amber) and cold-gas clouds (blue) whose orbits are integrated, and from which the rotation curve is measured").pressed.connect(func(): galaxy_action.emit("layer", "tracers"))
 	B(lg, "Toggle", "Stars", "galShowStars", "Stars near the camera, drawn one by one from the model's own density").pressed.connect(func(): galaxy_action.emit("layer", "stars"))

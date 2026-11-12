@@ -133,6 +133,7 @@ func _ready() -> void:
 		await through_dust(v, "edge")
 		await through_dust(v, "sun")
 		await join(v)
+		await landmarks()
 		await handover(v)
 	for error in logger.take():
 		failures += 1
@@ -322,6 +323,30 @@ func join(v: GalaxyVisual) -> void:
 	v.show_catalogue = true
 	v.res_override = -1.0
 	v.show_tracers = true
+
+# Flying to each landmark: after two seconds the camera is there (or, for a place looked
+# back from, stands at it), its card is shown, and its own label is hidden up close.
+func landmarks() -> void:
+	var g = stage.galaxy
+	var lms: Array = g.landmarks
+	var bad := []
+	for lm in lms:
+		g.fly(String(lm.id))
+		await settle(120)
+		var p := GalLandmarks.position(lm, g.model, g.t_myr)
+		var err := 0.0
+		if lm.get("from", false):
+			err = (stage.cam.position.to_v3() - p).length() / p.length()
+		else:
+			err = (stage.cam.target.to_v3() - p).length() / float(lm.view[0])
+		var card: String = stage.hud.ids.galCard.said()
+		var label: Control = g._lm_labels.get(lm.id)
+		if err > 1e-3 or card != String(lm.card) or label == null or label.visible:
+			bad.append("%s (off by %s of its view, card %s, label %s)" % [lm.id, U.expo(err, 1), "ok" if card == String(lm.card) else "wrong",
+				"hidden" if label != null and not label.visible else "shown"])
+	check("flying to each of %d landmarks arrives, shows its card and hides its own label%s" % [lms.size(), "" if bad.is_empty() else ": " + ", ".join(bad)],
+		lms.size() > 0 and bad.is_empty())
+	g.frame("whole")
 
 ## Luminance summed over every pixel: a point's drawn pixels sum to its flux.
 func pixel_sum(img: Image) -> float:
