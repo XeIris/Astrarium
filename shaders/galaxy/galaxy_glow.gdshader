@@ -53,6 +53,8 @@ vec3 cat_map(vec2 uv) {
 }
 uniform mat3 uSunBasis = mat3(1.0);
 uniform float uCatGain = 0.0;
+// The thinnest dust layer's scale height (kpc); large where there is none thinner.
+uniform float uThin = 1e9;
 
 const int N_DISC = 32;
 const int N_SPHERE = 16;
@@ -178,7 +180,9 @@ void fragment() {
 	vec2 tbx = box_hit(o, d, uBox);
 	tbx.x = max(tbx.x, 0.0);
 	if (tbx.y > tbx.x) {
-		float sc = max(uDisc.z, 0.05) / max(abs(d.y), 1e-4);
+		// Sampled on the thinner of the disc's light and its dust layer, so a 20 pc dust
+		// lane is not stepped over.
+		float sc = max(min(uDisc.z, uThin), 0.005) / max(abs(d.y), 1e-4);
 		float tc = clamp(-o.y / (abs(d.y) > 1e-6 ? d.y : 1e-6), tbx.x, tbx.y);
 		disc = march_disc(o, d, tbx.x, tbx.y, tc, sc, jit, uFaint.x, tv, leg, arc);
 	}

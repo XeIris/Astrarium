@@ -83,12 +83,14 @@ func enter(k: String) -> void:
 	# a model with a bar and arms then runs from its tStart, while they grow, to today.
 	_built = null
 	var m := model
-	_task = WorkerThreadPool.add_task(func():
-		var t := GalTracers.new(m)
-		t.step(int(round(-t.t / GalTracers.DT)))
-		_mutex.lock()
-		_built = t
-		_mutex.unlock(), false, "galaxy tracers")
+	# A galaxy drawn from its light alone (GalModels.TYPES) has no tracers.
+	if model.has("populations"):
+		_task = WorkerThreadPool.add_task(func():
+			var t := GalTracers.new(m)
+			t.step(int(round(-t.t / GalTracers.DT)))
+			_mutex.lock()
+			_built = t
+			_mutex.unlock(), false, "galaxy tracers")
 	_build_neighbours()
 	frame("whole")
 	_build_landmarks()
@@ -247,12 +249,18 @@ func frame(kind: String) -> void:
 	stage.state.follow_id = null
 	cam.offset.set_v(0, 0, 0)
 	follow_sun = kind == "sun" and visual != null and visual.has_sun
+	if kind == "sun" and not follow_sun: kind = "whole"
 	landmark = ""
 	match kind:
 		"whole":
 			cam.target.set_v(0, 0, 0)
 			cam.theta = float(preset.get("camTheta", 0.95))
 			cam.phi = PI / 2.0
+			# A galaxy with a measured orientation is first seen as we see it.
+			var side := GalLandmarks.sun_side(model)
+			if side != Vector3.ZERO:
+				cam.theta = acos(clampf(side.y, -1.0, 1.0))
+				cam.phi = atan2(side.z, side.x)
 			stage.jump_cam_radius(float(preset.get("camRadius", 60.0)))
 		"face":
 			cam.target.set_v(0, 0, 0)
@@ -363,6 +371,15 @@ func _build_objects() -> void:
 
 func _build_neighbours() -> void:
 	neighbours = []
+	# A galaxy of its own scene draws its companions in its own frame.
+	for k in model.get("companions", []):
+		var cm := GalModels.type_galaxy(k)
+		var cf := GalLandmarks.companion_frame(model, k)
+		var cv := GalaxyVisual.new(cm)
+		cv.adapt_enabled = false
+		stage.pipe.world_root.add_child(cv.group)
+		var cc: Vector3 = cf[0]
+		neighbours.append({"key": k, "visual": cv, "centre": DVec3.new(cc.x, cc.y, cc.z), "basis": cf[1], "extent": float(cm.extent)})
 	if String(model.get("key", "")) != "milky_way": return
 	for k in GalModels.LOCAL_GROUP:
 		var m := GalModels.neighbour(k)

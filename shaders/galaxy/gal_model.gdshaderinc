@@ -28,6 +28,7 @@ uniform vec4 uDust = vec4(0.0, 2.26, 0.1344, 0.0148);
 uniform vec4 uDustArm = vec4(0.0, 6.71, 2.07, 0.0641);
 uniform vec4 uDustB = vec4(4.4, 0.08, 5.48, 0.0146);
 
+
 // Young stars along spiral arms: (K, scale height, pattern turn, arm count). The arms
 // turn rigidly, so in their own frame they are a fixed map (GalaxyVisual bakes it from
 // Reid et al.'s loci): r = Σ exp(−d²/2w²) of the young arms, g = Drimmel & Spergel's
@@ -53,6 +54,20 @@ vec2 gal_arm_map(vec3 p) {
 float gal_sech2(float x) {
 	float e = exp(-2.0 * abs(x));
 	return 4.0 * e / ((1.0 + e) * (1.0 + e));
+}
+
+// Dust rings (De Looze et al. 2012's form for M104): each (R, σ, V optical depth per kpc
+// at its peak, 0), Gaussian in R, sech² in height with scale uRingH; peak 0 for none.
+uniform vec4 uRing[4];
+uniform float uRingH = 0.01;
+float gal_rings(float R, float y) {
+	if (uRing[0].z <= 0.0) return 0.0;
+	float t = 0.0;
+	for (int i = 0; i < 4; i++) {
+		float x = (R - uRing[i].x) / max(uRing[i].y, 1e-6);
+		t += uRing[i].z * exp(-0.5 * x * x);
+	}
+	return t * gal_sech2(y / uRingH);
 }
 
 float gal_disc_j(vec3 p) {
@@ -109,7 +124,7 @@ float gal_dust(vec3 p) {
 		float ha = uDustB.y + (R > uDustB.z ? uDustB.w * (R - uDustB.z) * (R - uDustB.z) : 0.0);
 		tau += uDustArm.x * gal_arm_map(p).g * exp(-p.y * p.y / (ha * ha));
 	}
-	return tau;
+	return tau + gal_rings(R, p.y);
 }
 
 // Disc light, young light and V optical depth per kpc at p, from one map lookup (the
@@ -137,4 +152,5 @@ void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau) {
 			dtau += uDustArm.x * m.g * exp(-p.y * p.y / (ha * ha));
 		}
 	}
+	dtau += gal_rings(R, p.y);
 }

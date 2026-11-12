@@ -40,6 +40,7 @@ func _init() -> void:
 		neighbourhood()
 		landmarks()
 		neighbours()
+		types()
 	_done()
 
 func _done() -> void:
@@ -750,7 +751,7 @@ const DRAWN_MV_TOL := 0.005
 ## What a galaxy's visual actually draws, as an absolute V: its glow's luminance marched
 ## along the normal in rings over the drawn box and sphere, four azimuths a ring
 ## (bars and arms are not round), Σ = 4π × the ray's radiance.
-static func drawn_mv(model: Dictionary, rings := 120) -> float:
+static func drawn_mv(model: Dictionary, rings := 120, azimuths := 4) -> float:
 	var v := GalaxyVisual.new(model)
 	var box: Vector3 = v.glow_mat.get_shader_parameter("uBox")
 	var reach: float = v.glow_mat.get_shader_parameter("uSphereR")
@@ -763,9 +764,9 @@ static func drawn_mv(model: Dictionary, rings := 120) -> float:
 		var rb := rmax * pow(float(k + 1) / rings, 2.0)
 		var rc := 0.5 * (ra + rb)
 		var sig := 0.0
-		for a in 4:
-			var ph := TAU * (float(a) + 0.5) / 4.0
-			sig += v.ray_luminance(Vector3(rc * cos(ph), top, rc * sin(ph)), Vector3(0, -1, 0)) * 4.0 * PI / 4.0
+		for a in azimuths:
+			var ph := TAU * (float(a) + 0.5) / azimuths
+			sig += v.ray_luminance(Vector3(rc * cos(ph), top, rc * sin(ph)), Vector3(0, -1, 0)) * 4.0 * PI / azimuths
 		l += sig * PI * (rb * rb - ra * ra)
 	v.dispose()
 	return 4.83 - 2.5 * log(l) / log(10.0)
@@ -803,3 +804,85 @@ func neighbours() -> void:
 	ok(worst_i < 0.05 and worst_pa < 0.1, "the neighbours tilt and lie as measured: inclination within %s°, line of nodes within %s°" % [String.num(worst_i, 3), String.num(worst_pa, 3)])
 	# Kafle et al.'s M31 (from five studies) beside Tamm et al.'s (2012) independent map.
 	print("     M31 stars, 10¹⁰ M☉: bulge 3.4 here, 3.1–4.4 Tamm et al. (2012); disc 6.9 here, 5.7 (8.6 at most) there")
+
+
+# Galaxies of their own scenes (GalModels.TYPES): drawn at their measured total light, and
+# M104's dust, integrated back to a mass, De Looze et al.'s (2012) ring and inner disc.
+func types() -> void:
+	var worst := 0.0
+	# RC3's V_T⁰ and Kormendy et al.'s M_VT are corrected for the galaxy's own dust, so the
+	# glow is marched without it; seen face-on, the dust then takes what it takes.
+	for k in GalModels.TYPES:
+		var m := GalModels.type_galaxy(k)
+		var dusty := m.has("dust") or m.has("dustRing")
+		var seen := drawn_mv(m) if dusty else 0.0
+		for d in ["dust", "dustRing"]: m.erase(d)
+		var mv := drawn_mv(m, 120, 16 if m.has("arms") else 4)
+		print("     %s: drawn at M_V %s, measured %s%s" % [k, String.num(mv, 3), String.num(float(GalModels.TYPES[k].mv), 2),
+			(", %s through its dust face-on" % String.num(seen, 3)) if dusty else ""])
+		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
+	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size(), U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
+	# M51's arms: the light the young term draws against the measured 36 %, and beside the
+	# light Calzetti et al.'s (2005) 3.4 M☉/yr would give over 100 Myr.
+	var m51 := GalModels.type_galaxy("m51")
+	var va := GalaxyVisual.new(m51)
+	var drawn_arms := va.young_k * va._arm_integral(va.arm_img)
+	var young := GalPopulation.build({"kind": "constant", "gyr": GalModels.MW_YOUNG_GYR})
+	var from_sfr := 3.4 * GalModels.MW_YOUNG_GYR * 1e9 * young.light_per_formed
+	print("     M51's arms: %s L☉ drawn (36 %% of its V light), %s L☉ from its star formation rate (×%s)" % [
+		U.expo(drawn_arms, 3), U.expo(from_sfr, 3), String.num(from_sfr / drawn_arms, 2)])
+	ok(absf(drawn_arms / float(m51.armLight) - 1.0) < 1e-6, "M51's arms draw the light measured in them (%s)" % String.num(drawn_arms / float(m51.armLight), 6))
+	# On each arm's ridge, past its rise, its light falls as exp(−R/h_s) (Marchuk et al. 2024).
+	var worst_h := 0.0
+	for i in (m51.arms as Array).size():
+		var row: Array = m51.arms[i]
+		var vals := []
+		for R in [4.5, 8.0]:
+			# The ridge's azimuth at R: β = βk − ln(R/Rk)/tan ψ, φ = π + β.
+			var beta := deg_to_rad(float(row[2])) - log(R / float(row[1])) / tan(deg_to_rad(float(row[3])))
+			vals.append(va._arms(R, PI + beta, 0.0))
+		var want := exp(-(8.0 - 4.5) / float(m51.armDecay[i]))
+		worst_h = maxf(worst_h, absf(float(vals[1]) / float(vals[0]) / want - 1.0))
+	ok(worst_h < 0.05, "M51's arms fade along their ridges with their measured h_s (worst %s %%)" % U.fixed(worst_h * 100.0, 1))
+	va.dispose()
+	# NGC 5195 against M51: 4.41′ apart on the sky (NED), 35 kpc behind.
+	var cf := GalLandmarks.companion_frame(m51, "ngc5195")
+	var off: Vector3 = cf[0]
+	var side := GalLandmarks.sun_side(m51)
+	var along := -off.dot(side)
+	var across := (off + side * along).length()
+	var sep := rad_to_deg(atan2(across, float(GalModels.TYPES.m51.d) + along)) * 60.0
+	ok(absf(sep - 4.41) < 0.02 and absf(along - 35.0) < 0.2, "NGC 5195 stands %s′ from M51 on the sky (NED 4.41′) and %s kpc behind it (35)" % [String.num(sep, 3), String.num(along, 2)])
+	# The dust's V opacity from Draine's (2003, Table 4) two numbers: C_ext(V) = 4.89 × 10⁻²²
+	# cm² per H and M_H/M_dust = 90; m_H 1.6735575 × 10⁻²⁷ kg (CODATA), M☉ = GM☉/G (G =
+	# 6.67430 × 10⁻¹¹, CODATA 2018), in kpc²/M☉.
+	var kappa_si := 4.89e-26 * 90.0 / 1.6735575e-27
+	var kappa := kappa_si * (Rocketry.GM_SUN / 6.67430e-11) / (GalUnits.KPC_M * GalUnits.KPC_M)
+	ok(absf(GalModels.DUST_KAPPA_V / kappa - 1.0) < 1e-3, "the dust's V opacity is Draine's (2003): %s cm²/g, %s kpc²/M☉" % [String.num(kappa_si * 10.0, 0), U.expo(kappa, 4)])
+	var v := GalaxyVisual.new(GalModels.type_galaxy("m104"))
+	# Ring and disc apart: the disc dust is the envelope term, the rings the rest.
+	var ring := 0.0
+	var disc := 0.0
+	var dR := 0.01
+	var dz := 0.0005
+	var R := dR * 0.5
+	while R < 14.0:
+		var z := -0.08 + dz * 0.5
+		var col_r := 0.0
+		var col_d := 0.0
+		while z < 0.08:
+			var d_all := v.dust_density(R, z, 0.0)
+			var d_disc: float = v.dust.kappa * v.dust.rhoDisc * exp(-R / float(v.dust.hr)) * GalaxyVisual._sech2(z / float(v.dust.h0))
+			col_d += d_disc * dz
+			col_r += (d_all - d_disc) * dz
+			z += dz
+		ring += TAU * R * dR * col_r
+		disc += TAU * R * dR * col_d
+		R += dR
+	ring /= GalModels.DUST_KAPPA_V
+	disc /= GalModels.DUST_KAPPA_V
+	var er := absf(ring / GalModels.M104_RING_MASS - 1.0)
+	var ed := absf(disc / GalModels.M104_DISC_DUST - 1.0)
+	ok(er < 0.02 and ed < 0.02, "M104's dust integrates back to De Looze et al.'s ring (%s M☉, %s off) and inner disc (%s M☉, %s off)" % [
+		U.expo(ring, 2), U.fixed(er * 100.0, 2) + " %", U.expo(disc, 2), U.fixed(ed * 100.0, 2) + " %"])
+	v.dispose()
