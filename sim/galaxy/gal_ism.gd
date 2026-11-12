@@ -40,16 +40,20 @@ const COMPACT := 0.5
 ## each ray takes it where it crosses the plane. From within, a jittered march samples the
 ## field along the ray finer than its step and draws grain, so the medium is not drawn there.
 const OUTSIDE := 1.0
-const WIDTH_REF := 0.235
+## The young light's log-normal width (dex) at 40 pc, set on Hubble's image of M51 with AMP:
+## M51's band power of log brightness at 36–289 pc then comes within 30 % of Hubble's
+## (galaxies.md has the table). Grasha et al. (2019) find M51's clusters' 1 + ω(θ) ∝ θ^−0.28
+## against the molecular clouds' θ^−0.09; a log-normal raised to n steepens ln(1 + ξ) by n², so
+## against Hughes et al.'s (2013) CO widths that would be √(0.28/0.09) × 0.235 = 0.41 dex,
+## which draws more band power than Hubble's image holds.
+const YOUNG_WIDTH := 0.24
+## A 40 pc beam resolves waves longer than 80 pc, which weight() passes at a 20 pc footprint.
+const WIDTH_FOOT := 0.02
 ## Checks and the fidelity measurement vary it; the constant otherwise.
 static var amp := AMP
 
-## Young light ∝ column^YOUNG_N: Grasha et al. (2019) find M51's young clusters'
-## 1 + ω(θ) ∝ θ^−0.28 against the molecular clouds' θ^−0.09, and a log-normal raised to n
-## steepens ln(1 + ξ) by n², so n = √(0.28/0.09). The young light is that log-normal, its
-## width at 40 pc n times the gas column's, in its own realization: Grasha et al. find most
+## The young light is a log-normal in its own realization: Grasha et al. (2019) find most
 ## clusters have left their gas by ~6 Myr, and the young light is dominated by older ones.
-const YOUNG_N := 1.7638
 ## Larson's size–linewidth relation, δv = 0.90 km/s (ℓ/pc)^0.56 (Heyer & Brunt 2004), held
 ## below a disc's gas velocity dispersion, ~10 km/s (Tamburro et al. 2009): an octave's eddies
 ## live ℓ/δv, and are sheared that long, but no longer than the shear time |dΩ/dln R|⁻¹ that
@@ -97,12 +101,12 @@ static func count(layers: Vector2) -> int:
 		if amplitude(o, layers.x) >= MIN_AMP.x or young_amplitude(o, layers.y) >= MIN_AMP.y: n = o + 1
 	return n
 
-## The young light's log-amplitude of octave o in a layer `layer` kpc thick: n times the gas
-## column's 40 pc width, shared over the octaves a 40 pc footprint resolves.
+## The young light's log-amplitude of octave o in a layer `layer` kpc thick: YOUNG_WIDTH at
+## 40 pc, shared over the octaves a 40 pc beam resolves.
 static func young_amplitude(o: int, layer: float) -> float:
 	var s := 0.0
-	for k in OCTAVES: s += pow(weight(k, 0.04) * shape(k, layer), 2.0)
-	return YOUNG_N * WIDTH_REF * log(10.0) / sqrt(s) * shape(o, layer)
+	for k in OCTAVES: s += pow(weight(k, WIDTH_FOOT) * shape(k, layer), 2.0)
+	return YOUNG_WIDTH * log(10.0) / sqrt(s) * shape(o, layer)
 
 ## An octave's eddy lifetime (Myr).
 static func lifetime(o: int) -> float:
