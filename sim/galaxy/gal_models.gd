@@ -116,10 +116,6 @@ static func neighbour(key: String, from_mass := false) -> Dictionary:
 		"spherePop": {"kind": "constant", "gyr": 10.0} if spec.get("young", false) else {"kind": "burst", "gyr": 10.0},
 		"sky": spec,
 	}
-	if spec.has("mv") and not from_mass:
-		var k := pow(10.0, -0.4 * (float(spec.mv) - 4.83)) / visible_luminosity(model)
-		for l in light: l.visible = float(l.visible) * k
-	if spec.has("arms") and not from_mass: _m33_light(model, spec)
 	if spec.has("bar"):
 		# The disc in the map as the exponential it stands in for, with its bar (GalaxyVisual).
 		var pop := GalPopulation.build({"kind": "constant", "gyr": 10.0})
@@ -127,6 +123,11 @@ static func neighbour(key: String, from_mass := false) -> Dictionary:
 		var b: Array = spec.bar
 		model.discMap = {"exp": spec.disc[1] / 0.9688, "z": spec.disc[2], "bol": 1.0 / yd,
 			"bar": [b[0], b[1], bar_angle(spec, float(b[2])), b[3]]}
+	# After the map: a disc drawn from it is drawn whole (drawn_share).
+	if spec.has("mv") and not from_mass:
+		var k := pow(10.0, -0.4 * (float(spec.mv) - 4.83)) / visible_luminosity(model, true)
+		for l in light: l.visible = float(l.visible) * k
+	if spec.has("arms") and not from_mass: _m33_light(model, spec)
 	return model
 
 # M33's light split at one star formation rate into the stars of the last 100 Myr and the rest,
@@ -150,8 +151,6 @@ static func _m33_light(model: Dictionary, spec: Dictionary) -> void:
 	var l_old := sfr * (10.0 - tg) * 1e9 * old.light_per_formed
 	var d: Dictionary = (model.potential as GalPotential).part("disc")
 	var m_disc := float(d.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN
-	for l in model.light:
-		if l.part == "disc": l.visible = l_old / (m_disc * old.mean_l / old.mean_mass)
 	model.discPop = old_spec
 	model.armLight = sfr * tg * 1e9 * young.light_per_formed
 	model.sfr = sfr
@@ -162,6 +161,9 @@ static func _m33_light(model: Dictionary, spec: Dictionary) -> void:
 	model.armH = float(spec.disc[2])
 	model.discMap = {"exp": h, "z": float(spec.disc[2]), "bol": 1.0 / yo}
 	model.thinMap = {"exp": h, "z": float(spec.disc[2]), "bol": 1.0 / yy, "a2": M33_LIGHT.a2, "a2R": M33_LIGHT.a2R}
+	# Of the light drawn (drawn_share): the map's edge takes its tail.
+	for l in model.light:
+		if l.part == "disc": l.visible = l_old / (m_disc * old.mean_l / old.mean_mass) / drawn_share(model, d)
 
 ## The angle (rad) in a disc's plane, from its line of nodes, of a direction seen at position
 ## angle `pa_deg` on the sky: deprojected through the disc's own axes (GalLandmarks.sky_basis).
@@ -174,22 +176,17 @@ static func bar_angle(spec: Dictionary, pa_deg: float) -> float:
 	var dec := float(spec.dec)
 	var north := (GalLandmarks.sky_direction(ra, dec + e) - GalLandmarks.sky_direction(ra, dec - e)).normalized()
 	var east := (GalLandmarks.sky_direction(ra + e / cos(deg_to_rad(dec)), dec) - GalLandmarks.sky_direction(ra - e / cos(deg_to_rad(dec)), dec)).normalized()
-	var best := 0.0
-	var err := INF
-	for k in 36000:
-		var psi := TAU * float(k) / 36000.0
-		var w := basis.x * cos(psi) + basis.z * sin(psi)
-		# A bar is a line: its position angle is taken modulo 180°.
-		var pa := fposmod(rad_to_deg(atan2(w.dot(east), w.dot(north))), 180.0)
-		var d := absf(fposmod(pa - pa_deg + 90.0, 180.0) - 90.0)
-		if d < err:
-			err = d
-			best = psi
-	return best
+	# w(ψ) = x cos ψ + z sin ψ lies at position angle P where its east and north parts
+	# satisfy (w·e) cos P = (w·n) sin P; a bar is a line, so ψ is taken modulo π.
+	var p := deg_to_rad(pa_deg)
+	var ca := basis.x.dot(east) * cos(p) - basis.x.dot(north) * sin(p)
+	var cb := basis.z.dot(east) * cos(p) - basis.z.dot(north) * sin(p)
+	return fposmod(atan2(-ca, cb), PI)
 
-## A model's total visible luminosity (Sun-luminances): each part's stellar mass, visible
-## share, its population's L/M and that light's luminance.
-static func visible_luminosity(model: Dictionary) -> float:
+## A model's visible luminosity (Sun-luminances): each part's stellar mass, visible
+## share, its population's L/M and that light's luminance; with `drawn`, only the light
+## its visual draws (drawn_share).
+static func visible_luminosity(model: Dictionary, drawn := false) -> float:
 	var pop_d := GalPopulation.build(model.get("discPop", {"kind": "constant", "gyr": 10.0}))
 	var pop_s := GalPopulation.build(model.get("spherePop", {"kind": "burst", "gyr": 10.0}))
 	var lv := 0.0
@@ -197,7 +194,8 @@ static func visible_luminosity(model: Dictionary) -> float:
 		var part: Dictionary = (model.potential as GalPotential).part(l.part)
 		var pop: GalPopulation = pop_d if l.part == "disc" else pop_s
 		var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
-		lv += float(l.visible) * float(part.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * pop.mean_l / pop.mean_mass * y
+		var share := drawn_share(model, part) if drawn else 1.0
+		lv += float(l.visible) * float(part.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * pop.mean_l / pop.mean_mass * y * share
 	if model.has("armLight"):
 		var young := GalPopulation.build({"kind": "constant", "gyr": MW_YOUNG_GYR})
 		lv += float(model.armLight) * (0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b)
@@ -205,6 +203,98 @@ static func visible_luminosity(model: Dictionary) -> float:
 
 # 150″ at 8.58 Mpc, where Egusa et al. (2017) split M51's arms into inner and outer pitches.
 const M51_ARM_BREAK := 6.240
+
+## Half-height of the box the glow is drawn on and marches a disc through (kpc): it must
+## hold the spheroid's sphere, as a ray that misses the box has no fragment to carry its light.
+static func glow_half_height(model: Dictionary) -> float:
+	return maxf(4.0, sphere_reach(model))
+
+## The share of a galaxy's light a Hernquist spheroid may leave beyond its marched sphere.
+const SPHERE_LEFT := 0.005
+
+## Radius of the sphere the glow marches a spheroid through (kpc). A power law with a
+## cutoff is below 1e-3 of its peak past three cutoff radii. A Hernquist sphere holds
+## (r/(r + a))² of its light within r: it is marched out to where what lies beyond is
+## SPHERE_LEFT of the galaxy's light, or to its extent.
+static func sphere_reach(model: Dictionary) -> float:
+	var bl: Dictionary = (model.potential as GalPotential).part("bulge")
+	if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF: return 3.0 * float(bl.rc)
+	# A measured profile is drawn to the end of its table.
+	var tab: Dictionary = model.get("sphereTable", {})
+	if not tab.is_empty(): return minf(float(model.get("extent", 30.0)), float(tab.rmax))
+	if not bl.is_empty() and bl.kind == GalPotential.Kind.HERNQUIST:
+		var x := sqrt(maxf(1.0 - SPHERE_LEFT / maxf(_sphere_share(model), SPHERE_LEFT), 0.0))
+		return minf(float(model.get("extent", 30.0)), float(bl.a) * x / maxf(1.0 - x, 1e-9))
+	return 8.0
+
+## The spheroid's share of a galaxy's visible light.
+static func _sphere_share(model: Dictionary) -> float:
+	if not model.has("light"): return 1.0
+	var total := visible_luminosity(model)
+	var only := model.duplicate()
+	only.light = (model.light as Array).filter(func(l): return l.part == "bulge")
+	only.erase("armLight")
+	return visible_luminosity(only) / total if total > 0.0 else 1.0
+
+## The share of a part's light the glow draws: a Hernquist spheroid's within sphere_reach;
+## a Miyamoto–Nagai disc's within the glow box's height and the light's edge, tapered over its
+## last fifth (gal_model.gdshaderinc), or, drawn from a map, within the taper. Mass in a cylinder is the gravitational flux out of
+## it (docs/physics/galaxies.md#the-light-a-neighbour-draws). Other parts: all of it.
+static func drawn_share(model: Dictionary, part: Dictionary) -> float:
+	if part.kind == GalPotential.Kind.HERNQUIST:
+		# Its light is round in r' = (u, y/c, v/b): along a direction n the sphere's edge
+		# is at r' = r q(n), so the share is ∫ q⁻³ (r q/(r q + a))² dΩ / 4π b c.
+		var r := sphere_reach(model)
+		var ax: Array = model.get("bulgeAxes", [1.0, 1.0])
+		var bx := float(ax[0])
+		var cy := float(ax[1])
+		var n := 48
+		var share := 0.0
+		for i in n:
+			var ny := (float(i) + 0.5) / n
+			var st := sqrt(1.0 - ny * ny)
+			for j in n:
+				var ph := (float(j) + 0.5) / n * PI * 0.5
+				var q := sqrt(pow(st * cos(ph), 2.0) + pow(ny / cy, 2.0) + pow(st * sin(ph) / bx, 2.0))
+				share += pow(r * q / (r * q + float(part.a)), 2.0) / (q * q * q)
+		return share * (1.0 / n) * (PI * 0.5 / n) * 8.0 / (4.0 * PI * bx * cy)
+	if part.kind != GalPotential.Kind.MIYAMOTO_NAGAI: return 1.0
+	var e := float(model.get("extent", 30.0))
+	# A disc drawn from a baked map holds its light there (GalaxyVisual.apply_arms), and only
+	# the taper cuts it: an exponential holds 1 − (1 + x) e^(−x) within x = R/h.
+	var dm: Dictionary = model.get("discMap", {})
+	if dm.has("exp"):
+		var hx := float(dm.exp)
+		var cut := 0.0
+		for i in 64:
+			var tt := (float(i) + 0.5) / 64.0
+			var x := e * (1.0 - 0.2 * tt) / hx
+			cut += (1.0 - (1.0 + x) * exp(-x)) * 6.0 * tt * (1.0 - tt) / 64.0
+		return cut
+	if not dm.is_empty(): return 1.0
+	var a := float(part.a)
+	var b := float(part.b)
+	var h := glow_half_height(model)
+	var zh := sqrt(h * h + b * b)
+	var nr := 32
+	var nz := 256
+	var umax := asinh(h / b)
+	var share := 0.0
+	for i in nr:
+		# t from 0 at the edge to 1 at 0.8 edge: the smoothstep's weight 6t(1 − t) dt.
+		var t := (float(i) + 0.5) / nr
+		var rr := e * (1.0 - 0.2 * t)
+		var side := 0.0
+		for j in nz:
+			var u := (float(j) + 0.5) / nz * umax
+			var z := b * sinh(u)
+			var s := a + sqrt(z * z + b * b)
+			side += b * cosh(u) / pow(rr * rr + s * s, 1.5)
+		side *= rr * rr * umax / nz
+		var sh := a + zh
+		var caps := h / zh * (1.0 - sh / sqrt(rr * rr + sh * sh))
+		share += (side + caps) * 6.0 * t * (1.0 - t) / nr
+	return share
 
 ## Galaxies of other kinds, each a scene of its own (too far for the Milky Way's): drawn
 ## at their measured total light (V_T⁰ or M_VT), shared among parts as their published
@@ -494,9 +584,12 @@ static func type_galaxy(key: String) -> Dictionary:
 	if spec.get("light", "") == "m51": _m51_light(model)
 	if spec.get("light", "") == "m87": _m87_light(model)
 	var lv := pow(10.0, -0.4 * (float(spec.mv) - 4.83))
+	# With arms, stars under 100 Myr are theirs, so the disc's own population starts there,
+	# as GalaxyVisual draws it.
+	if spec.has("arms") and not model.has("discPop"): model.discPop = {"kind": "constant", "gyr": 10.0, "fromGyr": MW_YOUNG_GYR}
 	for part in spec.get("parts", {}):
 		var pp: Array = spec.parts[part]
-		var pop := GalPopulation.build({"kind": "burst", "gyr": 10.0} if part == "bulge" else {"kind": "constant", "gyr": 10.0})
+		var pop := GalPopulation.build({"kind": "burst", "gyr": 10.0} if part == "bulge" else model.get("discPop", {"kind": "constant", "gyr": 10.0}))
 		var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
 		# The stellar mass whose visible stars give this part its share of the light.
 		var mass := float(pp[0]) * lv / (VISIBLE_BULGE * pop.mean_l / pop.mean_mass * y)
@@ -504,6 +597,11 @@ static func type_galaxy(key: String) -> Dictionary:
 		if part == "bulge": pot.add(GalPotential.hernquist("bulge", float(pp[1]), gm))
 		else: pot.add(GalPotential.miyamoto_nagai("disc", float(pp[1]), float(pp[2]), gm))
 		light.append({"part": part, "visible": VISIBLE_BULGE})
+	# Each part's share is of the light drawn: what the glow's bounds leave out is made up.
+	# M51's light is its own model (_m51_light), drawn from maps.
+	if spec.has("parts"):
+		var shares := light.map(func(l): return drawn_share(model, pot.part(l.part)))
+		for i in light.size(): light[i].visible = float(light[i].visible) / float(shares[i])
 	if spec.has("arms"):
 		# The arms' measured share of the light, as the young population's bolometric light.
 		var young := GalPopulation.build({"kind": "constant", "gyr": MW_YOUNG_GYR})
@@ -817,7 +915,8 @@ const MW_BAR_RB := 5.0
 const MW_BAR_ANGLE_DEG := 27.0
 const MW_BAR_ALPHA := 0.01
 # The spiral (Cox & Gómez 2002): two arms with their N = 2, Rs = 7 kpc, H = 0.18 kpc and
-# a density amplitude of one atomic mass per cm³ at 8 kpc. Pattern speed 28.2 ± 2.1
+# their density amplitude at 8 kpc, ρ0 = (14/11) m_H n0 with n0 = 1 cm⁻³: the mass per
+# hydrogen nucleus with helium at a tenth of it by number, 1.283 amu cm⁻³. Pattern speed 28.2 ± 2.1
 # km/s/kpc from Gaia DR2 open clusters (Dias et al. 2019). Pitch 12°, the mean of the
 # two major arms' pitches measured from maser parallaxes, Perseus (10.3°, 8.7°) and
 # Scutum–Centaurus (14.1°, 12.1°) (Reid et al. 2019, Table 2), whose Perseus crest it
@@ -825,6 +924,12 @@ const MW_BAR_ALPHA := 0.01
 const MW_SPIRAL_OMEGA_KMS_KPC := 28.2
 const MW_SPIRAL_PITCH_DEG := 12.0
 const MW_SPIRAL_ANCHOR := [8.87, 40.0]
+## Reid et al. (2019) give their arms for R0 = 8.15 kpc; the model's Sun is at MW_R0. Their
+## radii are scaled by MW_R0 / REID_R0 so each arm keeps its place relative to the Sun
+## (reid_arms, spiral_anchor).
+const REID_R0 := 8.15
+## The hydrogen atom's mass in atomic mass units (CODATA 2018).
+const M_H_AMU := 1.00782503
 # 1.66054e-24 g cm⁻³ in M☉ pc⁻³, with M☉ = GM☉/G = 1.98841e33 g and the IAU parsec.
 const AMU_CM3_MSUN_PC3 := 0.0245355
 # Both grow over one bar period from tStart and run another before today (t = 0), so
@@ -870,17 +975,31 @@ const MW_BULGE_AXES := [0.63, 0.26]
 
 ## The Sun's azimuth in the scene: it sits at (−R0, 0, 0). A Galactocentric azimuth β
 ## measured from the Sun toward the rotation (Reid et al.) is φ = π + β.
+## Reid et al.'s arms with their radii scaled to the model's R0 (REID_R0).
+static func reid_arms() -> Array:
+	var out := []
+	for a in REID_2019_ARMS:
+		var row: Array = (a as Array).duplicate()
+		row[1] = float(row[1]) * MW_R0 / REID_R0
+		out.append(row)
+	return out
+
+## The spiral's crest today: Perseus where Reid et al. put it, at the model's R0.
+static func spiral_anchor() -> Array:
+	return [float(MW_SPIRAL_ANCHOR[0]) * MW_R0 / REID_R0, float(MW_SPIRAL_ANCHOR[1])]
+
 static func mw_patterns() -> Array:
 	var v0 := MW_V0_KMS * GalUnits.KMS
 	var af := MW_BAR_ALPHA * v0 * v0 * pow(MW_R0 / MW_BAR_RB, 3.0) / 3.0
 	var bar := GalPattern.bar(MW_BAR_OMEGA_KMS_KPC * GalUnits.KMS, PI + deg_to_rad(MW_BAR_ANGLE_DEG),
 		MW_BAR_RB, af, MW_T_START, MW_T_GROW)
 	var pitch := deg_to_rad(MW_SPIRAL_PITCH_DEG)
-	var rho0 := AMU_CM3_MSUN_PC3 * 1e9 / GalUnits.MASS_UNIT_SUN
+	var rho0 := 14.0 / 11.0 * M_H_AMU * AMU_CM3_MSUN_PC3 * 1e9 / GalUnits.MASS_UNIT_SUN
 	var amp := 4.0 * PI * GalUnits.G * 0.18 * rho0
 	# γ = 0 at the anchor: φp = φ + ln(R/r0)/tan α.
-	var anchor_phi: float = PI + deg_to_rad(float(MW_SPIRAL_ANCHOR[1]))
-	var angle0: float = anchor_phi + log(float(MW_SPIRAL_ANCHOR[0]) / MW_R0) / tan(pitch)
+	var anchor: Array = spiral_anchor()
+	var anchor_phi: float = PI + deg_to_rad(float(anchor[1]))
+	var angle0: float = anchor_phi + log(float(anchor[0]) / MW_R0) / tan(pitch)
 	var spiral := GalPattern.spiral(MW_SPIRAL_OMEGA_KMS_KPC * GalUnits.KMS, angle0, 2, pitch, MW_R0, 7.0, 0.18,
 		amp, MW_T_START, MW_T_GROW)
 	return [bar, spiral]
@@ -920,7 +1039,7 @@ static func build(key: String, seed := 1, patterns := true) -> Dictionary:
 					{"part": "disc", "visible": VISIBLE_DISC},
 					{"part": "bulge", "visible": VISIBLE_BULGE},
 				],
-				"arms": REID_2019_ARMS if patterns else [],
+				"arms": reid_arms() if patterns else [],
 				"sfr": MW_SFR if patterns else 0.0,
 				"dust": MW_DUST if patterns else {},
 				"bulgeAxes": MW_BULGE_AXES if patterns else [1.0, 1.0],
