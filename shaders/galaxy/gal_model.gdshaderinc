@@ -172,6 +172,63 @@ uniform vec2 uISMLayer = vec2(0.5, 1.0);
 // (GalISM.norms), divided out, linear in log₂ of the footprint between them.
 uniform vec2 uISMNorm[5];
 
+// Feathers off the lanes (GalISM.feather): uFeather (amplitude, spacing per R, angle to the
+// arm at emergence (rad), width per spacing), uFeatherR (break and corotation radii (kpc),
+// mirrored), uLane[k] lane k's (R₀, β₀, tan p in, tan p out) and uLaneSpan[k] its arm's span.
+uniform vec4 uFeather = vec4(0.0);
+uniform vec3 uFeatherR = vec3(1.0);
+uniform vec4 uLane[2];
+uniform vec2 uLaneSpan[2];
+float gal_feather(vec2 q, float foot) {
+	if (uFeather.x <= 0.0) return 1.0;
+	float R = length(q);
+	float rcr = uFeatherR.y;
+	if (R < 0.05 || R > 0.9 * rcr) return 1.0;
+	float beta = atan(q.y, q.x) - 3.14159265;
+	if (uFeatherR.z > 0.5) beta = -beta;
+	float u = 1e9;
+	float fade = 0.0;
+	float tp = 0.0;
+	for (int k = 0; k < 2; k++) {
+		vec4 ln = uLane[k];
+		vec2 span = uLaneSpan[k];
+		float rb = uFeatherR.x;
+		float lb = R <= rb ? ln.y - log(R / ln.x) / ln.z : ln.y - log(rb / ln.x) / ln.z - log(R / rb) / ln.w;
+		float uk = mod(beta - lb, 6.28318531);
+		if (uk < u) {
+			u = uk;
+			tp = R <= rb ? ln.z : ln.w;
+			fade = smoothstep(span.x, span.x + 0.5, R) * smoothstep(span.y, span.y - 0.5, R);
+		}
+	}
+	fade *= smoothstep(0.9 * rcr, 0.7 * rcr, R);
+	if (fade <= 0.0) return 1.0;
+	float p = atan(tp);
+	float aa = 1.0 / tp - 1.0 / tan(min(p + uFeather.z, radians(85.0)));
+	float kk = 1.0 / (1.0 - R / rcr);
+	float left = 1.0 - kk * u / aa;
+	if (left <= 0.0) return 1.0;
+	float chi = (log(R) + log(left) / kk) / (uFeather.y * sin(p));
+	float a = uFeather.x * fade * left;
+	float fs = foot / (0.77 * uFeather.y * R);
+	float sig = sqrt(uFeather.w * uFeather.w + fs * fs);
+	if (sig >= 0.35) return 1.0;
+	int n0 = int(floor(chi));
+	float g = 0.0;
+	for (int m = n0 - 1; m < n0 + 3; m++) {
+		uint h = uint(m * 1973 + 26699);
+		h = (h ^ (h >> 16u)) * 2246822519u;
+		h = (h ^ (h >> 13u)) * 3266489917u;
+		h ^= h >> 16u;
+		float jx = float(h & 65535u) / 65536.0;
+		float jy = float(h >> 16u) / 65536.0;
+		float x = chi - float(m) - 0.3 * (2.0 * jx - 1.0);
+		g += -log(1.0 - 0.999 * jy) * exp(-0.5 * x * x / (sig * sig));
+	}
+	g /= sig * 2.50662827;
+	return 1.0 + a * smoothstep(0.35, 0.21, sig) * (g - 1.0);
+}
+
 // The dust's and the young light's multipliers at p's place in the plane for a footprint of
 // `foot` kpc, each of mean one: octaves finer than the footprint fade out and take their
 // contrast with them.
@@ -203,13 +260,14 @@ vec2 gal_ism(vec3 p, float foot) {
 	}
 	float xn = clamp(log2(foot / 0.0125), 0.0, 4.0 - 1e-6);
 	int in_ = int(xn);
-	return vec2(exp(ld), exp(ly)) / mix(uISMNorm[in_], uISMNorm[in_ + 1], xn - float(in_));
+	return vec2(exp(ld) * gal_feather(q.xz, foot), exp(ly)) / mix(uISMNorm[in_], uISMNorm[in_ + 1], xn - float(in_));
 }
 
 // The dust's multiplier from the field's D: its compact share is structured.
 float gal_ism_dust(float m) {
 	return 1.0 + uISMLayer.x * (m - 1.0);
 }
+
 
 // Disc light, young light and V optical depth per kpc at p, from one map lookup (the
 // glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart).

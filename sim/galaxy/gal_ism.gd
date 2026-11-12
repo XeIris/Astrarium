@@ -40,13 +40,13 @@ const COMPACT := 0.5
 ## each ray takes it where it crosses the plane. From within, a jittered march samples the
 ## field along the ray finer than its step and draws grain, so the medium is not drawn there.
 const OUTSIDE := 1.0
-## The young light's log-normal width (dex) at 40 pc, set on Hubble's image of M51 with AMP:
-## M51's band power of log brightness at 36–289 pc then comes within 30 % of Hubble's
-## (galaxies.md has the table). Grasha et al. (2019) find M51's clusters' 1 + ω(θ) ∝ θ^−0.28
+## The young light's log-normal width (dex) at 40 pc, set on Hubble's image of M51 with AMP and
+## FEATHER_AMP: M51's band power of log brightness at 36–289 pc then comes within 30 % of
+## Hubble's (galaxies.md has the table). Grasha et al. (2019) find M51's clusters' 1 + ω(θ) ∝ θ^−0.28
 ## against the molecular clouds' θ^−0.09; a log-normal raised to n steepens ln(1 + ξ) by n², so
 ## against Hughes et al.'s (2013) CO widths that would be √(0.28/0.09) × 0.235 = 0.41 dex,
 ## which draws more band power than Hubble's image holds.
-const YOUNG_WIDTH := 0.24
+const YOUNG_WIDTH := 0.15
 ## A 40 pc beam resolves waves longer than 80 pc, which weight() passes at a 20 pc footprint.
 const WIDTH_FOOT := 0.02
 ## Checks and the fidelity measurement vary it; the constant otherwise.
@@ -284,7 +284,8 @@ static func turn_at(t: PackedFloat32Array, o: int, r_max: float, R: float) -> fl
 ## the field turns with the arms by `turn`) for a footprint `foot` kpc, each of mean one.
 ## `layers`: the dust's and the young light's layer thicknesses (kpc).
 ## `norms` (norms()) divides each by its realised mean over the galaxy at this footprint.
-static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: PackedFloat32Array, r_max: float, turn: float, layers: Vector2, norms := PackedVector2Array()) -> Vector2:
+## `fth` (feather_frame) gathers the dust's structured share into feathers off its lanes.
+static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: PackedFloat32Array, r_max: float, turn: float, layers: Vector2, norms := PackedVector2Array(), fth := {}) -> Vector2:
 	var ct := cos(turn)
 	var st := sin(turn)
 	var q0 := Vector3(p.x * ct + p.z * st, p.y, p.z * ct - p.x * st)
@@ -307,7 +308,91 @@ static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: P
 		ld += -b * n.x * n.x + 0.5 * log(1.0 + 2.0 * b)
 		ly += a * n.y - 0.5 * a * a
 	var nm := norm_at(norms, foot)
-	return Vector2(exp(ld) / nm.x, exp(ly) / nm.y)
+	return Vector2(exp(ld) * feather(fth, Vector2(q0.x, q0.z), foot) / nm.x, exp(ly) / nm.y)
+
+## Feathers (La Vigne et al. 2006): thin dust lanes that leave a spiral arm's primary dust lane
+## at regular spacings, cross the luminous arm and wind into the interarm. M51's are spaced
+## ~200 pc in the inner disc and 500–1000 pc in the outer, with the gas's Jeans length: about
+## FEATHER_SPACING of R along the lane. Spurs and feathers leave the arm at ~50° (Elmegreen
+## 1980, via La Vigne et al.). Downstream each is a material line in the gas's shear: with a flat
+## rotation curve, a parcel u rad downstream of the lane in the arms' frame left it Ω u/(Ω − Ω_p)
+## ago, so the line's pitch goes as cot i = cot i₀ + k u, k = 1/(1 − R/R_CR). Followed outward
+## from where it left the lane (x = ln R/R_e), u' = cot p − cot i, so u = (a/k)(1 − e^(−kx)),
+## a = cot p − cot i₀: it crosses the arm and winds until it lies along it at u = a/k, merging
+## as La Vigne et al. see them reach the next arm's lane; its contrast falls to nothing there.
+## They are quasi-regular and come in groups (La Vigne et al.): each is moved by up to
+## FEATHER_JITTER of the spacing and given an exponentially distributed share of the dust,
+## seeded by its index along the lane. Its profile is a Gaussian FEATHER_WIDTH of the spacing,
+## widened to the footprint; past FEATHER_BLUR the feathers are drawn as their mean, one. How
+## much of the structured dust they gather, FEATHER_AMP, and their width are not measured: they
+## are set with YOUNG_WIDTH on Hubble's image (at 1, M51's bands at 36–72 pc reach twice Hubble's).
+const FEATHER_SPACING := 0.125
+## 50° (rad).
+const FEATHER_ANGLE := 0.8727
+const FEATHER_WIDTH := 0.15
+const FEATHER_AMP := 0.5
+const FEATHER_JITTER := 0.3
+const FEATHER_BLUR := 0.35
+static var feather_amp := FEATHER_AMP
+
+## A galaxy's lanes as feather() reads them: each Vector4(R₀, β₀, tan p in, tan p out) of
+## GalaxyVisual._lane_beta with its arm's span [R_min, R_max] (kpc), the break and corotation radii (kpc),
+## and whether the arms are mirrored.
+static func feather_frame(lanes: Array, spans: Array, r_break: float, r_cr: float, mirror: bool) -> Dictionary:
+	return {"lanes": lanes, "spans": spans, "rb": r_break, "rcr": r_cr, "mirror": mirror}
+
+## The feathers' multiplier of the dust's structured share at q (the arms' frame, kpc) for a
+## footprint `foot` kpc.
+static func feather(fth: Dictionary, q: Vector2, foot: float) -> float:
+	if fth.is_empty() or feather_amp <= 0.0: return 1.0
+	var R := q.length()
+	var rcr: float = fth.rcr
+	if R < 0.05 or R > 0.9 * rcr: return 1.0
+	var beta := atan2(q.y, q.x) - PI
+	if fth.mirror: beta = -beta
+	var lanes: Array = fth.lanes
+	var u := INF
+	var fade := 0.0
+	var tp := 0.0
+	for k in lanes.size():
+		var ln: Vector4 = lanes[k]
+		var span: Vector2 = fth.spans[k]
+		var rb: float = fth.rb
+		var lb := ln.y - log(R / ln.x) / ln.z if R <= rb else ln.y - log(rb / ln.x) / ln.z - log(R / rb) / ln.w
+		var uk := fposmod(beta - lb, TAU)
+		if uk < u:
+			u = uk
+			tp = ln.z if R <= rb else ln.w
+			fade = smoothstep(span.x, span.x + 0.5, R) * smoothstep(span.y, span.y - 0.5, R)
+	fade *= smoothstep(0.9 * rcr, 0.7 * rcr, R)
+	if fade <= 0.0: return 1.0
+	var p := atan(tp)
+	var aa := 1.0 / tp - 1.0 / tan(minf(p + FEATHER_ANGLE, deg_to_rad(85.0)))
+	var kk := 1.0 / (1.0 - R / rcr)
+	var left := 1.0 - kk * u / aa
+	if left <= 0.0: return 1.0
+	# Where along the lane this line left it, in ln R: emergences FEATHER_SPACING·R apart along
+	# a lane of pitch p are FEATHER_SPACING·sin p apart in ln R.
+	var chi := (log(R) + log(left) / kk) / (FEATHER_SPACING * sin(p))
+	var a := feather_amp * fade * left
+	var sig := sqrt(FEATHER_WIDTH * FEATHER_WIDTH + pow(foot / (0.77 * FEATHER_SPACING * R), 2.0))
+	if sig >= FEATHER_BLUR: return 1.0
+	var n0 := int(floor(chi))
+	var g := 0.0
+	for m in range(n0 - 1, n0 + 3):
+		var h := feather_hash(m)
+		var x := chi - float(m) - FEATHER_JITTER * (2.0 * h.x - 1.0)
+		g += -log(1.0 - 0.999 * h.y) * exp(-0.5 * x * x / (sig * sig))
+	g /= sig * sqrt(TAU)
+	return 1.0 + a * smoothstep(FEATHER_BLUR, 0.6 * FEATHER_BLUR, sig) * (g - 1.0)
+
+## Two uniform numbers in [0, 1) for feather n: an integer hash, as the shader's.
+static func feather_hash(n: int) -> Vector2:
+	var h := (n * 1973 + 26699) & 0xffffffff
+	h = ((h ^ (h >> 16)) * 2246822519) & 0xffffffff
+	h = ((h ^ (h >> 13)) * 3266489917) & 0xffffffff
+	h ^= h >> 16
+	return Vector2(float(h & 0xffff) / 65536.0, float(h >> 16) / 65536.0)
 
 ## The realised means at a footprint: linear in log₂ between NORM_FEET, held beyond them.
 static func norm_at(norms: PackedVector2Array, foot: float) -> Vector2:
@@ -323,7 +408,7 @@ static func norm_at(norms: PackedVector2Array, foot: float) -> Vector2:
 ## finer than 12.5 pc the eddies added average out.
 const NORM_FEET := [0.0125, 0.025, 0.05, 0.1, 0.2]
 
-static func norms(img: Image, half: float, envelope: Callable, turns: PackedFloat32Array, r_max: float, layers: Vector2) -> PackedVector2Array:
+static func norms(img: Image, half: float, envelope: Callable, turns: PackedFloat32Array, r_max: float, layers: Vector2, fth := {}) -> PackedVector2Array:
 	var f := field()
 	var n := img.get_width()
 	var px := 2.0 * half / float(n)
@@ -337,7 +422,7 @@ static func norms(img: Image, half: float, envelope: Callable, turns: PackedFloa
 				var c := img.get_pixel(i, j)
 				var y: float = c.r * envelope.call(sqrt(x * x + z * z))
 				if c.g <= 0.0 and y <= 0.0: continue
-				var m := multipliers(f, Vector3(x, 0.0, z), foot, turns, r_max, 0.0, layers)
+				var m := multipliers(f, Vector3(x, 0.0, z), foot, turns, r_max, 0.0, layers, PackedVector2Array(), fth)
 				acc += Vector4(c.g * m.x, c.g, y * m.y, y)
 		out.append(Vector2(acc.x / acc.y if acc.y > 0.0 else 1.0, acc.z / acc.w if acc.w > 0.0 else 1.0))
 	return out
@@ -357,7 +442,7 @@ static func octave_matrix(o: int) -> Transform2D:
 	return Transform2D(Vector2(cos(a), sin(a)) * k, Vector2(-sin(a), cos(a)) * k, Vector2.ZERO)
 
 ## The uniforms gal_ism reads.
-static func set_uniforms(mat: ShaderMaterial, turns: PackedFloat32Array, r_max: float, layers: Vector2, norms: PackedVector2Array) -> void:
+static func set_uniforms(mat: ShaderMaterial, turns: PackedFloat32Array, r_max: float, layers: Vector2, norms: PackedVector2Array, fth := {}) -> void:
 	var oct := PackedFloat32Array()
 	var young := PackedFloat32Array()
 	var lam := PackedFloat32Array()
@@ -377,6 +462,16 @@ static func set_uniforms(mat: ShaderMaterial, turns: PackedFloat32Array, r_max: 
 	mat.set_shader_parameter("uISMOff", off)
 	mat.set_shader_parameter("uISMYoung", young)
 	mat.set_shader_parameter("uISMLayer", Vector2(COMPACT, OUTSIDE))
+	var lanes := []
+	var spans := []
+	for k in 2:
+		var on: bool = not fth.is_empty() and k < (fth.lanes as Array).size()
+		lanes.append(fth.lanes[k] if on else Vector4(1, 0, 1, 1))
+		spans.append(fth.spans[k] if on else Vector2(0, 0))
+	mat.set_shader_parameter("uFeather", Vector4(feather_amp if not fth.is_empty() else 0.0, FEATHER_SPACING, FEATHER_ANGLE, FEATHER_WIDTH))
+	mat.set_shader_parameter("uFeatherR", Vector3(fth.get("rb", 1.0), fth.get("rcr", 1.0), 1.0 if fth.get("mirror", false) else 0.0))
+	mat.set_shader_parameter("uLane", PackedVector4Array(lanes))
+	mat.set_shader_parameter("uLaneSpan", PackedVector2Array(spans))
 	mat.set_shader_parameter("uISMCount", count(layers))
 	var nm := norms
 	if nm.size() != NORM_FEET.size():

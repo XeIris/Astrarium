@@ -164,6 +164,8 @@ var ism_turns := PackedFloat32Array()
 var ism_layers := Vector2(0.2, 0.2)
 ## The multipliers' realised means over this galaxy's map (GalISM.norms), from the bake.
 var ism_norm := PackedVector2Array()
+## The lanes' feathers as GalISM.feather reads them; empty without measured lanes.
+var ism_feathers := {}
 
 ## `defer_arms`: leave the arms' map to bake_arms() on a worker and apply_arms() after
 ## (the scene); otherwise it is baked here (checks).
@@ -236,6 +238,7 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	ism_applies = not dust.is_empty() or not dust_map.is_empty() or not rings.is_empty() or young_pop != null
 	if ism_applies: ism_turns = GalISM.turn_table(pot, edge, sense)
 	ism_layers = Vector2(2.0 * minf(thin, 1.0), 2.0 * (young_h if young_pop != null else minf(thin, 1.0)))
+	if ism_applies and not lanes.is_empty(): ism_feathers = _feather_frame()
 	_build_glow(model)
 	_build_stars(model)
 	if not defer_arms and has_map(): apply_arms(bake_arms())
@@ -491,7 +494,7 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 	var ism_m := Vector2.ONE
 	if pix > 0.0 and ism_ready and ism_enabled and t1 > t0 and GalISM.outside(o.y):
 		var tc0 := clampf(-o.y / (d.y if absf(d.y) > 1e-6 else 1e-6), t0, t1)
-		ism_m = GalISM.multipliers(GalISM.field(), o + d * tc0, tc0 * pix, ism_turns, edge, arm_turn, ism_layers, ism_norm)
+		ism_m = GalISM.multipliers(GalISM.field(), o + d * tc0, tc0 * pix, ism_turns, edge, arm_turn, ism_layers, ism_norm, ism_feathers)
 	if sv.y > 0.0:
 		var hb := o.dot(d)
 		var hh := hb * hb - (o.dot(o) - reach * reach)
@@ -703,7 +706,7 @@ func bake_arms() -> Dictionary:
 	var share := _add_bar(img) if disc_map.has("bar") else 0.0
 	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": share}
 	if not hii_spec.is_empty(): out.hii = GalHII.build(hii_spec, hii_d, img, ARM_HALF, _l_young, young_h, 51)
-	if ism_applies: out.ism_norm = GalISM.norms(img, ARM_HALF, _envelope, ism_turns, edge, ism_layers)
+	if ism_applies: out.ism_norm = GalISM.norms(img, ARM_HALF, _envelope, ism_turns, edge, ism_layers, ism_feathers)
 	_cache_mutex.lock()
 	_arm_cache[_model_key] = out
 	_cache_mutex.unlock()
@@ -832,7 +835,7 @@ func _apply_hii(cat: Dictionary) -> void:
 	_light_uniforms(_model_for_uniforms, hii_mat)
 	var e: Array = GalModels.EXTINCTION_RGB
 	hii_mat.set_shader_parameter("uExt", Vector3(e[0], e[1], e[2]))
-	if ism_ready and ism_enabled: GalISM.set_uniforms(hii_mat, ism_turns, edge, ism_layers, ism_norm)
+	if ism_ready and ism_enabled: GalISM.set_uniforms(hii_mat, ism_turns, edge, ism_layers, ism_norm, ism_feathers)
 	hii = MeshInstance3D.new()
 	hii.name = "HII"
 	hii.mesh = mesh
@@ -865,7 +868,7 @@ func set_ism(on: bool) -> void:
 	if not ism_ready: return
 	for mat in [glow_mat, hii_mat]:
 		if mat == null: continue
-		if on: GalISM.set_uniforms(mat, ism_turns, edge, ism_layers, ism_norm)
+		if on: GalISM.set_uniforms(mat, ism_turns, edge, ism_layers, ism_norm, ism_feathers)
 		else:
 			var zero := PackedFloat32Array()
 			zero.resize(GalISM.OCTAVES)
@@ -1147,6 +1150,25 @@ func _build_lanes() -> void:
 	for i in arm_a.size():
 		var beta := _arm_beta(i, ra)[0] - dtheta
 		lanes.append([ra, beta, tan(deg_to_rad(float(dust_map.pitchIn[i]))), tan(deg_to_rad(float(dust_map.pitchOut[i])))])
+
+## The lanes for GalISM.feather: each lane's parameters and its arm's span, where the arm's
+## weight passes one half.
+func _feather_frame() -> Dictionary:
+	var ls := []
+	var spans := []
+	for i in lanes.size():
+		var ln: Array = lanes[i]
+		ls.append(Vector4(ln[0], ln[1], ln[2], ln[3]))
+		var lo := INF
+		var hi := 0.0
+		var R := 0.1
+		while R < edge:
+			if _arm_beta(i, R)[1] > 0.5:
+				lo = minf(lo, R)
+				hi = R
+			R += 0.05
+		spans.append(Vector2(lo, hi) if hi > 0.0 else Vector2.ZERO)
+	return GalISM.feather_frame(ls, spans, float(dust_map.rBreak), float(dust_map.rCR), arm_mirror)
 
 ## Lane i's azimuth at R: its inner pitch out to the break, its outer pitch beyond.
 func _lane_beta(i: int, R: float) -> float:

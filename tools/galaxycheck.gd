@@ -1343,7 +1343,7 @@ func ism() -> void:
 				var c := img.get_pixel(i, j)
 				var y := c.r * vis._envelope(sqrt(x * x + z * z))
 				if c.g <= 0.0 and y <= 0.0: continue
-				var mm := GalISM.multipliers(f, Vector3(x, 0.0, z), foot, vis.ism_turns, vis.edge, 0.0, vis.ism_layers, vis.ism_norm)
+				var mm := GalISM.multipliers(f, Vector3(x, 0.0, z), foot, vis.ism_turns, vis.edge, 0.0, vis.ism_layers, vis.ism_norm, vis.ism_feathers)
 				acc += Vector4(c.g * GalISM.dust(mm.x), c.g, y * mm.y, y)
 		errs = Vector2(maxf(errs.x, absf(acc.x / acc.y - 1.0)), maxf(errs.y, absf(acc.z / acc.w - 1.0)))
 	ok(errs.x < ISM_MEAN_TOL.x and errs.y < ISM_MEAN_TOL.y, "M51's medium keeps its dust's mass (%s %%, < %s) and its young light (%s %%, < %s) at footprints 5–600 pc" % [
