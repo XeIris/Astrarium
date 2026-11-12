@@ -118,7 +118,8 @@ const MW_BAR_RB := 5.0
 const MW_BAR_ANGLE_DEG := 27.0
 const MW_BAR_ALPHA := 0.01
 # The spiral (Cox & Gómez 2002): two arms with their N = 2, Rs = 7 kpc, H = 0.18 kpc and
-# a density amplitude of one atomic mass per cm³ at 8 kpc. Pattern speed 28.2 ± 2.1
+# their density amplitude at 8 kpc, ρ0 = (14/11) m_H n0 with n0 = 1 cm⁻³: the mass per
+# hydrogen nucleus with helium at a tenth of it by number, 1.283 amu cm⁻³. Pattern speed 28.2 ± 2.1
 # km/s/kpc from Gaia DR2 open clusters (Dias et al. 2019). Pitch 12°, the mean of the
 # two major arms' pitches measured from maser parallaxes, Perseus (10.3°, 8.7°) and
 # Scutum–Centaurus (14.1°, 12.1°) (Reid et al. 2019, Table 2), whose Perseus crest it
@@ -126,6 +127,12 @@ const MW_BAR_ALPHA := 0.01
 const MW_SPIRAL_OMEGA_KMS_KPC := 28.2
 const MW_SPIRAL_PITCH_DEG := 12.0
 const MW_SPIRAL_ANCHOR := [8.87, 40.0]
+## Reid et al. (2019) give their arms for R0 = 8.15 kpc; the model's Sun is at MW_R0. Their
+## radii are scaled by MW_R0 / REID_R0 so each arm keeps its place relative to the Sun
+## (reid_arms, spiral_anchor).
+const REID_R0 := 8.15
+## The hydrogen atom's mass in atomic mass units (CODATA 2018).
+const M_H_AMU := 1.00782503
 # 1.66054e-24 g cm⁻³ in M☉ pc⁻³, with M☉ = GM☉/G = 1.98841e33 g and the IAU parsec.
 const AMU_CM3_MSUN_PC3 := 0.0245355
 # Both grow over one bar period from tStart and run another before today (t = 0), so
@@ -171,17 +178,31 @@ const MW_BULGE_AXES := [0.63, 0.26]
 
 ## The Sun's azimuth in the scene: it sits at (−R0, 0, 0). A Galactocentric azimuth β
 ## measured from the Sun toward the rotation (Reid et al.) is φ = π + β.
+## Reid et al.'s arms with their radii scaled to the model's R0 (REID_R0).
+static func reid_arms() -> Array:
+	var out := []
+	for a in REID_2019_ARMS:
+		var row: Array = (a as Array).duplicate()
+		row[1] = float(row[1]) * MW_R0 / REID_R0
+		out.append(row)
+	return out
+
+## The spiral's crest today: Perseus where Reid et al. put it, at the model's R0.
+static func spiral_anchor() -> Array:
+	return [float(MW_SPIRAL_ANCHOR[0]) * MW_R0 / REID_R0, float(MW_SPIRAL_ANCHOR[1])]
+
 static func mw_patterns() -> Array:
 	var v0 := MW_V0_KMS * GalUnits.KMS
 	var af := MW_BAR_ALPHA * v0 * v0 * pow(MW_R0 / MW_BAR_RB, 3.0) / 3.0
 	var bar := GalPattern.bar(MW_BAR_OMEGA_KMS_KPC * GalUnits.KMS, PI + deg_to_rad(MW_BAR_ANGLE_DEG),
 		MW_BAR_RB, af, MW_T_START, MW_T_GROW)
 	var pitch := deg_to_rad(MW_SPIRAL_PITCH_DEG)
-	var rho0 := AMU_CM3_MSUN_PC3 * 1e9 / GalUnits.MASS_UNIT_SUN
+	var rho0 := 14.0 / 11.0 * M_H_AMU * AMU_CM3_MSUN_PC3 * 1e9 / GalUnits.MASS_UNIT_SUN
 	var amp := 4.0 * PI * GalUnits.G * 0.18 * rho0
 	# γ = 0 at the anchor: φp = φ + ln(R/r0)/tan α.
-	var anchor_phi: float = PI + deg_to_rad(float(MW_SPIRAL_ANCHOR[1]))
-	var angle0: float = anchor_phi + log(float(MW_SPIRAL_ANCHOR[0]) / MW_R0) / tan(pitch)
+	var anchor: Array = spiral_anchor()
+	var anchor_phi: float = PI + deg_to_rad(float(anchor[1]))
+	var angle0: float = anchor_phi + log(float(anchor[0]) / MW_R0) / tan(pitch)
 	var spiral := GalPattern.spiral(MW_SPIRAL_OMEGA_KMS_KPC * GalUnits.KMS, angle0, 2, pitch, MW_R0, 7.0, 0.18,
 		amp, MW_T_START, MW_T_GROW)
 	return [bar, spiral]
@@ -219,7 +240,7 @@ static func build(key: String, seed := 1, patterns := true) -> Dictionary:
 					{"part": "disc", "visible": VISIBLE_DISC},
 					{"part": "bulge", "visible": VISIBLE_BULGE},
 				],
-				"arms": REID_2019_ARMS if patterns else [],
+				"arms": reid_arms() if patterns else [],
 				"sfr": MW_SFR if patterns else 0.0,
 				"dust": MW_DUST if patterns else {},
 				"bulgeAxes": MW_BULGE_AXES if patterns else [1.0, 1.0],
