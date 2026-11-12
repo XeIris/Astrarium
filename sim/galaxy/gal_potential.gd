@@ -62,7 +62,7 @@ static func _scale(p: Dictionary, k: float) -> void:
 	else:
 		p.gm *= k
 
-# ---- per-part fields
+# per-part fields
 
 ## G·M(<r) for a spherical part; NaN for the disc.
 static func gm_within(p: Dictionary, r: float) -> float:
@@ -140,7 +140,7 @@ static func gm_total(p: Dictionary) -> float:
 		Kind.NFW: return INF
 	return p.gm
 
-# ---- the composite
+# the composite
 
 ## The parts flattened for an inlined loop: at most one disc, two analytic spheres
 ## (NFW or Hernquist) and one tabulated sphere. Null when the parts don't fit.
@@ -319,7 +319,7 @@ static func _tabulate(p: Dictionary) -> void:
 	var s: float = 1.5 - 0.5 * p.alpha
 	p.gm_total = TAU * p.amp * pow(p.rc, 3.0 - p.alpha) * exp(gammln(s))
 
-# ---- special functions (Numerical Recipes, 3rd ed., §6.1–6.2)
+# special functions (Numerical Recipes, 3rd ed., §6.1–6.2)
 
 static func gammln(xx: float) -> float:
 	const COF := [57.1562356658629235, -59.5979603554754912, 14.1360979747417471,
