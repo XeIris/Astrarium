@@ -500,13 +500,14 @@ static void run(double *A) {
  * must stay bit-identical, so every expression keeps its order there).
  * Massless particles in a static axisymmetric potential plus rotating patterns,
  * drift–kick–drift at a fixed step, each tracer taking all k steps in turn.
- * Buffer: [0] length, [1] n, [2] k, [3] dt, [4] t0, [5] patterns, [6] table size,
- * [7..19] the axisymmetric kernel (GalPotential.Kernel), then 12 per pattern,
+ * Buffer: [0] length, [1] n, [2] k, [3] dt, [4] t_start, [5] patterns, [6] table
+ * size, [7] steps taken so far, [8..20] the axisymmetric kernel (GalPotential.Kernel),
+ * then 12 per pattern,
  * the bulge table and its derivative, positions, velocities and work, n each ×3,
  * ×3 and ×1. Work accumulates ∫∂Φ/∂t dt, so E − W is each tracer's invariant.
  * ========================================================================== */
-#define TR_AXIS 7
-#define TR_PAT 20
+#define TR_AXIS 8
+#define TR_PAT 21
 #define TR_PSTRIDE 12
 
 static double log_cosh(double x) {
@@ -532,7 +533,12 @@ static double tr_growth_rate(const double *P, double t) {
 
 static void run_tracers(double *A) {
 	int n = (int)A[1], k = (int)A[2], np = (int)A[5], tn = (int)A[6];
-	double dt = A[3], t0 = A[4], h = dt * 0.5;
+	/* The buffer is exactly its header's counts long, or nothing is touched. */
+	long long need = TR_PAT + (long long)TR_PSTRIDE * np + 2LL * tn + 7LL * n;
+	if (n < 0 || k < 0 || np < 0 || tn < 0 || need != (long long)A[0]) return;
+	double dt = A[3], t_start = A[4], h = dt * 0.5;
+	/* A step's time from its index, so it does not depend on how steps are batched. */
+	double steps0 = A[7];
 	const double *X = A + TR_AXIS;
 	double mn_gm = X[0], mn_a = X[1], mn_b2 = X[2];
 	double s1_gm = X[3], s1_a = X[4], s2_gm = X[6], s2_a = X[7];
@@ -545,9 +551,10 @@ static void run_tracers(double *A) {
 	double *work = vel + 3 * n;
 	int has_tab = tn > 0;
 	/* Per step and pattern: growth, its rate, and the pattern's angle terms. */
-	double *G = (double *)calloc((size_t)(k * np * 4 + 1), sizeof(double));
+	double *G = (double *)calloc((size_t)k * (size_t)np * 4 + 1, sizeof(double));
+	if (!G) return;
 	for (int s = 0; s < k; s++) {
-		double tm = t0 + ((double)s + 0.5) * dt;
+		double tm = t_start + (steps0 + (double)s + 0.5) * dt;
 		for (int j = 0; j < np; j++) {
 			const double *P = A + TR_PAT + TR_PSTRIDE * j;
 			double ang = P[2] + P[1] * tm;
@@ -723,6 +730,8 @@ static void en_accel(const double *P, double px, double py, double pz, double cx
 
 static void run_encounter(double *A) {
 	int n = (int)A[1], k = (int)A[2], ng = (int)A[4];
+	long long need = EN_HDR + (long long)EN_STRIDE * ng + 3LL * k * ng + 8LL * n;
+	if (n < 0 || k < 0 || ng < 0 || need != (long long)A[0]) return;
 	double dt = A[3], h = dt * 0.5;
 	const double *G = A + EN_HDR;
 	const double *mids = G + EN_STRIDE * ng;
@@ -763,7 +772,8 @@ static void run_encounter(double *A) {
  * not depend on how many threads ran.
  * Buffer: [0] length [1] n [2] k steps [3] dt [4] θ [5] G [6] accelerations valid
  * (in/out) [7] potentials wanted [8] luminous count nl [9] threads (in: 0 for all
- * cores; out: used), then LV_STRIDE per particle: x y z vx vy vz ax ay az m ε φ, then
+ * cores; out: used, or −1 when a step could not allocate its tree and the run stopped
+ * there, with [2] the steps completed), then LV_STRIDE per particle: x y z vx vy vz ax ay az m ε φ, then
  * 2·nl doubles holding the first nl particles' float32 (x, y, z, tag) for drawing.
  * ========================================================================== */
 #define LV_HDR 10
@@ -771,8 +781,8 @@ static void run_encounter(double *A) {
 #define LV_LEAF 8
 #define LV_DEPTH 48
 #define LV_GROUP 32
-/* IEEE sqrt is correctly rounded, so the instruction gives libm's (and GDScript's) bits;
- * -fno-builtin would otherwise make it a call the force loop cannot vectorise around. */
+/* IEEE sqrt is correctly rounded, so the instruction gives libm's (and GDScript's) bits,
+ * and the force loop vectorises around it. */
 #define LV_SQRT __builtin_sqrt
 
 #ifdef _WIN32
@@ -794,12 +804,17 @@ typedef struct {
 	int *idx, *tmp;
 	const double *P;
 	double theta;
+	int failed;
 } LvTree;
 
+/* A new node's index, or −1 (and T->failed) when the nodes cannot grow. */
 static int lv_node(LvTree *T) {
 	if (T->nn == T->cap) {
-		T->cap = T->cap ? 2 * T->cap : 1024;
-		T->nodes = (LvNode *)realloc(T->nodes, sizeof(LvNode) * (size_t)T->cap);
+		int cap = T->cap ? 2 * T->cap : 1024;
+		LvNode *grown = (LvNode *)realloc(T->nodes, sizeof(LvNode) * (size_t)cap);
+		if (!grown) { T->failed = 1; return -1; }
+		T->nodes = grown;
+		T->cap = cap;
 	}
 	memset(&T->nodes[T->nn], 0, sizeof(LvNode));
 	return T->nn++;
@@ -833,7 +848,7 @@ static void lv_fill(LvTree *T, int nd, int lo, int hi, double x0, double y0, dou
 		}
 		memcpy(T->idx + lo, T->tmp + lo, sizeof(int) * (size_t)(hi - lo));
 		int first = T->nn;
-		for (int c = 0; c < kids; c++) lv_node(T);
+		for (int c = 0; c < kids; c++) if (lv_node(T) < 0) return;
 		T->nodes[nd].first = first;
 		T->nodes[nd].count = kids;
 		double h = 0.5 * half;
@@ -841,6 +856,7 @@ static void lv_fill(LvTree *T, int nd, int lo, int hi, double x0, double y0, dou
 		for (int c = 0; c < 8; c++) {
 			if (!cnt[c]) continue;
 			lv_fill(T, first + k, a, a + cnt[c], x0 + ((c & 1) ? h : -h), y0 + ((c & 2) ? h : -h), z0 + ((c & 4) ? h : -h), h, depth + 1);
+			if (T->failed) return;
 			a += cnt[c];
 			k++;
 		}
@@ -867,6 +883,7 @@ static void lv_build(LvTree *T, const double *P, int n, double theta) {
 	T->nn = 0;
 	T->idx = (int *)malloc(sizeof(int) * (size_t)n);
 	T->tmp = (int *)malloc(sizeof(int) * (size_t)n);
+	if (!T->idx || !T->tmp) { T->failed = 1; return; }
 	double lo[3] = {P[0], P[1], P[2]}, hi[3] = {P[0], P[1], P[2]};
 	for (int i = 0; i < n; i++) {
 		T->idx[i] = i;
@@ -880,6 +897,7 @@ static void lv_build(LvTree *T, const double *P, int n, double theta) {
 	for (int c = 0; c < 3; c++) if (0.5 * (hi[c] - lo[c]) > half) half = 0.5 * (hi[c] - lo[c]);
 	if (half <= 0.0) half = 1.0;
 	int root = lv_node(T);
+	if (root < 0) return;
 	lv_fill(T, root, 0, n, 0.5 * (lo[0] + hi[0]), 0.5 * (lo[1] + hi[1]), 0.5 * (lo[2] + hi[2]), half, 0);
 }
 
@@ -895,6 +913,7 @@ typedef struct {
 	const int *groups;
 	int ngroups, want_phi;
 	atomic_int next;
+	atomic_int failed;
 } LvForces;
 
 /* The groups: the highest nodes holding at most LV_GROUP particles, in tree order. Each
@@ -911,17 +930,25 @@ static double lv_gap(double c, double lo, double hi) {
 
 /* An interaction list, gathered: each source's position, mass, softening and particle
  * index (−1 for a cell). */
-typedef struct { double *x, *y, *z, *m, *e; int *j; int len, cap; } LvList;
+typedef struct { double *x, *y, *z, *m, *e; int *j; int len, cap, failed; } LvList;
 
+static int lv_grow(void **p, size_t bytes) {
+	void *q = realloc(*p, bytes);
+	if (!q) return 0;
+	*p = q;
+	return 1;
+}
+
+/* A failed allocation keeps the list as it was and marks it failed. */
 static void lv_push(LvList *L, double x, double y, double z, double m, double e, int j) {
+	if (L->failed) return;
 	if (L->len == L->cap) {
-		L->cap = L->cap ? 2 * L->cap : 4096;
-		L->x = (double *)realloc(L->x, sizeof(double) * (size_t)L->cap);
-		L->y = (double *)realloc(L->y, sizeof(double) * (size_t)L->cap);
-		L->z = (double *)realloc(L->z, sizeof(double) * (size_t)L->cap);
-		L->m = (double *)realloc(L->m, sizeof(double) * (size_t)L->cap);
-		L->e = (double *)realloc(L->e, sizeof(double) * (size_t)L->cap);
-		L->j = (int *)realloc(L->j, sizeof(int) * (size_t)L->cap);
+		int cap = L->cap ? 2 * L->cap : 4096;
+		size_t d = sizeof(double) * (size_t)cap;
+		int ok = lv_grow((void **)&L->x, d) & lv_grow((void **)&L->y, d) & lv_grow((void **)&L->z, d)
+			& lv_grow((void **)&L->m, d) & lv_grow((void **)&L->e, d) & lv_grow((void **)&L->j, sizeof(int) * (size_t)cap);
+		if (!ok) { L->failed = 1; return; }
+		L->cap = cap;
 	}
 	L->x[L->len] = x; L->y[L->len] = y; L->z[L->len] = z;
 	L->m[L->len] = m; L->e[L->len] = e; L->j[L->len] = j;
@@ -1014,6 +1041,7 @@ static void lv_worker_body(LvForces *F) {
 		int g = atomic_fetch_add(&F->next, 1);
 		if (g >= F->ngroups) break;
 		lv_list(F->T, F->P, F->groups[g], &L);
+		if (L.failed) { atomic_store(&F->failed, 1); break; }
 		lv_group(F->T, F->P, F->groups[g], &L, F->G, F->want_phi);
 	}
 	free(L.x); free(L.y); free(L.z); free(L.m); free(L.e); free(L.j);
@@ -1036,17 +1064,20 @@ static int lv_cores(void) {
 #endif
 }
 
-/* Forces on every particle from a fresh tree; returns the threads used. */
+/* Forces on every particle from a fresh tree; returns the threads used, or 0 when an
+ * allocation failed and the forces are incomplete. */
 static int lv_forces(double *P, int n, double theta, double G, int want_phi, int threads) {
 	LvTree T;
 	memset(&T, 0, sizeof T);
 	lv_build(&T, P, n, theta);
-	int *groups = (int *)malloc(sizeof(int) * (size_t)T.nn);
+	int *groups = T.failed ? NULL : (int *)malloc(sizeof(int) * (size_t)T.nn);
+	if (!groups) { lv_free(&T); return 0; }
 	int ng = 0;
 	lv_groups(&T, 0, groups, &ng);
 	LvForces F;
 	F.T = &T; F.P = P; F.G = G; F.groups = groups; F.ngroups = ng; F.want_phi = want_phi;
 	atomic_init(&F.next, 0);
+	atomic_init(&F.failed, 0);
 	int nt = threads > 0 ? threads : lv_cores();
 	if (nt > 64) nt = 64;
 	if (nt > ng) nt = ng;
@@ -1065,7 +1096,7 @@ static int lv_forces(double *P, int n, double theta, double G, int want_phi, int
 #endif
 	free(groups);
 	lv_free(&T);
-	return nt;
+	return atomic_load(&F.failed) ? 0 : nt;
 }
 
 static void run_live(double *A) {
@@ -1073,9 +1104,14 @@ static void run_live(double *A) {
 	double dt = A[3], theta = A[4], G = A[5], h = 0.5 * dt;
 	int want_phi = A[7] != 0.0, threads = (int)A[9];
 	double *P = A + LV_HDR;
-	if (n <= 0) return;
+	long long need = LV_HDR + (long long)LV_STRIDE * n + 2LL * nl;
+	if (n <= 0 || k < 0 || nl < 0 || nl > n || need != (long long)A[0]) return;
 	int used = 1;
-	if (A[6] == 0.0) { used = lv_forces(P, n, theta, G, want_phi, threads); A[6] = 1.0; }
+	if (A[6] == 0.0) {
+		used = lv_forces(P, n, theta, G, want_phi, threads);
+		if (!used) { A[2] = 0.0; A[9] = -1.0; return; }
+		A[6] = 1.0;
+	}
 	for (int s = 0; s < k; s++) {
 		for (int i = 0; i < n; i++) {
 			double *p = P + LV_STRIDE * i;
@@ -1083,6 +1119,7 @@ static void run_live(double *A) {
 			p[0] += p[3] * dt; p[1] += p[4] * dt; p[2] += p[5] * dt;
 		}
 		used = lv_forces(P, n, theta, G, want_phi, threads);
+		if (!used) { A[2] = (double)s; A[6] = 0.0; A[9] = -1.0; return; }
 		for (int i = 0; i < n; i++) {
 			double *p = P + LV_STRIDE * i;
 			p[3] += p[6] * h; p[4] += p[7] * h; p[5] += p[8] * h;

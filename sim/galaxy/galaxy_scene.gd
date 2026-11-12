@@ -65,6 +65,8 @@ var _enc_live_n := 0
 const ENCOUNTER_BATCH_MS := 33.0
 ## Particle counts of an encounter relative to GalModels' (1).
 const ENCOUNTER_SCALE := 1.0
+## The neighbours' maps, in the order of `neighbours`.
+var _nbs_baked := []
 
 func _init(main) -> void:
 	stage = main
@@ -87,17 +89,24 @@ func enter(k: String) -> void:
 		return
 	visual = GalaxyVisual.new(model, true)
 	stage.pipe.world_root.add_child(visual.group)
-	# The arms' map bakes on a worker too; they light up when it is done.
+	_build_neighbours()
+	# The arms' and discs' maps bake on a worker too, the neighbours' with them; they light
+	# up when it is done.
 	_arms_baked = {}
+	_nbs_baked = []
 	var v := visual
+	var others: Array = neighbours.map(func(nb): return nb.visual)
 	# The real stars around the Sun load and bake their light map on the same worker.
 	_nb_baked = {}
 	_arm_task = WorkerThreadPool.add_task(func():
-		var b := v.bake_arms()
+		var b := v.bake_arms() if v.has_map() else {}
 		var nb := GalNeighbourhood.bake() if v.has_sun else {}
+		var ob := []
+		for o in others: ob.append(o.bake_arms() if o.has_map() else {})
 		_mutex.lock()
 		_arms_baked = b
 		_nb_baked = nb
+		_nbs_baked = ob
 		_mutex.unlock(), false, "galaxy arms")
 	# Built off the main thread: drawing the Shu distribution takes about a second, and
 	# a model with a bar and arms then runs from its tStart, while they grow, to today.
@@ -111,7 +120,6 @@ func enter(k: String) -> void:
 			_mutex.lock()
 			_built = t
 			_mutex.unlock(), false, "galaxy tracers")
-	_build_neighbours()
 	frame("whole")
 	_build_landmarks()
 	sync_hud()
@@ -153,13 +161,12 @@ func encounter_centre() -> DVec3:
 ## What the frame draws of the encounter, taken while no batch runs.
 func _enc_snapshot() -> void:
 	var e := encounter
-	var c := Vector3.ZERO
+	var c := DVec3.new()
 	var m := 0.0
 	for i in e.count():
-		c += e.centre(i) * e.orbits.gm[i]
+		c.add_scaled_in(DVec3.from_v3(e.centre(i)), e.orbits.gm[i])
 		m += e.orbits.gm[i]
-	c /= m
-	_enc_centre = DVec3.new(c.x, c.y, c.z)
+	_enc_centre = c.scale_in(1.0 / m)
 	_enc_bytes = e.draw_bytes
 	_enc_live_n = e.live.n if e.is_live() else 0
 	t_myr = e.time()
@@ -201,11 +208,15 @@ func _adopt_arms() -> void:
 	_mutex.lock()
 	var b := _arms_baked
 	var nb := _nb_baked
+	var ob := _nbs_baked
 	_arms_baked = {}
 	_nb_baked = {}
+	_nbs_baked = []
 	_mutex.unlock()
 	if not b.is_empty() and visual != null: visual.apply_arms(b)
 	if not nb.is_empty() and visual != null: visual.apply_neighbourhood(nb)
+	for i in mini(ob.size(), neighbours.size()):
+		if not (ob[i] as Dictionary).is_empty(): (neighbours[i].visual as GalaxyVisual).apply_arms(ob[i])
 
 func _adopt() -> void:
 	_mutex.lock()
@@ -231,6 +242,7 @@ func leave() -> void:
 	_built = null
 	_arms_baked = {}
 	_nb_baked = {}
+	_nbs_baked = []
 	follow_sun = false
 	_clear_landmarks()
 	for nb in neighbours: nb.visual.dispose()
@@ -288,22 +300,33 @@ func _advance(dt: float) -> float:
 	var want := rate * dt
 	_pending += want
 	var k := int(floor(_pending / GalTracers.DT))
-	limited = k > STEP_BUDGET
+	var capped := k > STEP_BUDGET
 	k = mini(k, STEP_BUDGET)
 	var accepted := 0.0
 	if tracers != null:
 		tracers.step(k)
 		_pending -= float(k) * GalTracers.DT
 		# A clock held back by the budget drops what it could not do.
-		if limited: _pending = 0.0
+		if capped: _pending = 0.0
 		accepted = float(k) * GalTracers.DT
 		t_myr = tracers.t + _pending
+	elif model.has("populations"):
+		# The tracers are still being built: the clock waits for them rather than run ahead
+		# and jump back when they arrive.
+		_pending = 0.0
 	else:
 		t_myr += want
 		_pending = 0.0
 		accepted = want
 	achieved = lerpf(achieved, accepted / maxf(dt, 1e-6), 0.1)
+	_note_limited(capped)
 	return accepted
+
+## The readout's "limited": set when a frame or batch was cut to its budget, cleared once
+## the clock achieves the rate asked, so it does not flicker between cut and uncut frames.
+func _note_limited(capped: bool) -> void:
+	if capped: limited = true
+	elif achieved >= 0.95 * rate: limited = false
 
 ## Live at any rate: each batch is as many steps as the rate asks for, as long as it fits
 ## ENCOUNTER_BATCH_MS at the measured cost of a step; past it the clock runs slower than asked
@@ -315,7 +338,9 @@ func _advance_encounter(dt: float) -> float:
 		WorkerThreadPool.wait_for_task_completion(_enc_task)
 		_enc_task = -1
 		var ms := float(Time.get_ticks_usec() - _enc_t0) / 1000.0 / float(maxi(_enc_batch, 1))
-		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.3)
+		# A live step costs far more than a restricted one: after going live (batch 0) the
+		# next batch is one step, which measures it.
+		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.3) if _enc_batch > 0 else ENCOUNTER_BATCH_MS
 		_enc_snapshot()
 	if stage.state.paused or rate <= 0.0:
 		achieved = 0.0
@@ -323,14 +348,21 @@ func _advance_encounter(dt: float) -> float:
 		_pending = 0.0
 	else:
 		_pending += rate * dt
-		if _enc_task < 0:
+		if _enc_task < 0 and encounter.due_live():
+			# Going live is a batch of its own, so the steps after it are sized in live steps.
+			_enc_batch = 0
+			_enc_t0 = Time.get_ticks_usec()
+			var e := encounter
+			_enc_task = WorkerThreadPool.add_task(func(): e.go_live(), false, "galaxy encounter live")
+		elif _enc_task < 0:
 			var step := encounter.dt()
 			var k := int(floor(_pending / step))
 			var cap := maxi(int(ENCOUNTER_BATCH_MS / maxf(_enc_step_ms, 1e-3)), 1)
-			limited = k > cap
+			var capped := k > cap
 			k = mini(k, cap)
 			_pending -= float(k) * step
-			if limited: _pending = 0.0
+			if capped: _pending = 0.0
+			_note_limited(capped)
 			if k > 0:
 				_enc_batch = k
 				_enc_t0 = Time.get_ticks_usec()
@@ -515,7 +547,7 @@ func _build_neighbours() -> void:
 	for k in model.get("companions", []):
 		var cm := GalModels.type_galaxy(k)
 		var cf := GalLandmarks.companion_frame(model, k)
-		var cv := GalaxyVisual.new(cm)
+		var cv := GalaxyVisual.new(cm, true)
 		cv.adapt_enabled = false
 		stage.pipe.world_root.add_child(cv.group)
 		var cc: Vector3 = cf[0]
@@ -524,7 +556,7 @@ func _build_neighbours() -> void:
 	for k in GalModels.LOCAL_GROUP:
 		var m := GalModels.neighbour(k)
 		var f := GalLandmarks.neighbour_frame(m.sky, model)
-		var v := GalaxyVisual.new(m)
+		var v := GalaxyVisual.new(m, true)
 		v.adapt_enabled = false
 		stage.pipe.world_root.add_child(v.group)
 		var c: Vector3 = f[0]
@@ -553,6 +585,7 @@ func _clear_landmarks() -> void:
 	_objects_mat = null
 	_lm_layer = null
 	_lm_labels = {}
+	landmarks = []
 	landmark = ""
 	var grid: Control = stage.hud.mount("galLandmarks") if stage.hud != null else null
 	if grid != null:
@@ -595,18 +628,26 @@ static func fmt_kpc(d: float) -> String:
 	if d < 1000.0: return "%s kpc" % U.fixed(d, 1 if d < 100.0 else 0)
 	return "%s Mpc" % U.fixed(d / 1000.0, 2)
 
+## sync_hud runs four times a second; the tracer measurements every MEASURE_EVERY-th of them.
+const MEASURE_EVERY := 4
+var _measure_tick := -1
+
 func sync_hud() -> void:
 	var hud = stage.hud
+	if hud == null or not active: return
 	for lm in landmarks:
 		hud.set_active("[data-gal-lm=%s]" % lm.id, lm.id == landmark)
-	if hud == null or not active: return
 	hud.set_text("galName", String(preset.get("name", "")))
 	hud.set_prose("galBlurb", String(preset.get("blurb", "")))
 	hud.set_text("galTime", "%s Myr" % U.fixed(t_myr, 1))
 	var asked := rate if not stage.state.paused else 0.0
 	hud.set_text("galRate", ("%s Myr/s" % U.fixed(achieved, 1)) + (" (limited)" if limited else ""))
 	hud.set_text("galTracers", str(tracers.n) if tracers != null else (_enc_particles() if model.has("encounter") else "—"))
-	hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null else "—")
+	# The drift and the curve walk every tracer: about 9 ms between them, so once a second
+	# and the curve only while its chart is on screen.
+	_measure_tick += 1
+	var measure := _measure_tick % MEASURE_EVERY == 0
+	if measure: hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null else "—")
 	var enc := model.has("encounter")
 	hud.set_shown("galCurveBox", not enc)
 	hud.set_shown("galLayers", not enc)
@@ -619,4 +660,5 @@ func sync_hud() -> void:
 		hud.set_active("galShowTracers", visual.show_tracers)
 		hud.set_active("galShowStars", visual.show_stars)
 		hud.set_active("galShowGlow", visual.show_glow)
-	if curve_chart != null and tracers != null: curve_chart.measure(tracers, model.potential)
+	if measure and curve_chart != null and tracers != null and curve_chart.is_visible_in_tree():
+		curve_chart.measure(tracers, model.potential)

@@ -135,7 +135,7 @@ MUTATIONS = {
                         ENCOUNTERCHECK, "the GDScript live kernel kicking a whole step each half"),
     "disc-no-drift": ("sim/galaxy/gal_encounter.gd", "	var vphi2 := v2 - sp * sp + sr * sr + drift", "	var vphi2 := v2",
                       ENCOUNTERCHECK, "a warm disc rotating at the circular speed, without asymmetric drift"),
-    "switch-halo-at-rest": ("sim/galaxy/gal_encounter.gd", "[v.x + hv[3 * q], v.y + hv[3 * q + 1], v.z + hv[3 * q + 2]]", "[hv[3 * q], hv[3 * q + 1], hv[3 * q + 2]]",
+    "switch-halo-at-rest": ("sim/galaxy/gal_encounter.gd", "[v[0] + hv[3 * q], v[1] + hv[3 * q + 1], v[2] + hv[3 * q + 2]]", "[hv[3 * q], hv[3 * q + 1], hv[3 * q + 2]]",
                             ENCOUNTERCHECK, "haloes going live at rest instead of with their galaxies"),
     "identikit-omega-ahead": ("sim/galaxy/gal_models.gd", "	var node := to_companion.rotated(z, -deg_to_rad(omega))", "	var node := to_companion.rotated(z, deg_to_rad(omega))",
                               ENCOUNTERCHECK, "the Antennae's discs turned with ω ahead of the companion instead of behind"),

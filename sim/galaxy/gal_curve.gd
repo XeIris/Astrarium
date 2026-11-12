@@ -4,7 +4,7 @@ extends RefCounted
 # A rotation curve measured from the live tracers, the way surveys measure one:
 # binned mean azimuthal speeds, and for a warm stellar population the circular
 # speed recovered with the Jeans equation as Eilers et al. (2019, ApJ 871, 120,
-# their eq. 3) did, assuming exponential profiles for ν and ⟨vR²⟩.
+# their eq. 4) did, assuming exponential profiles for ν and ⟨vR²⟩.
 
 const BIN := 1.0          # kpc
 
