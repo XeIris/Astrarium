@@ -172,7 +172,7 @@ static func _build_vehicles() -> Dictionary:
 	"endurance": {
 		"id":"endurance", "name":"Expedition Ring (Endurance-inspired)", "role":"cruiser", "launchFrom":"Earth",
 		"era":"Interstellar · inspired design", "aerobrake":false, "orbitAltitude":1000e3,
-		"blurb":"Twelve connected modules, three pressure spokes and an axial docking hub. The 65 m envelope is judged from the 1:15 shooting miniature. A 30.5 m floor at 5 rpm gives 0.85 g; spin is prescribed and its angular momentum is not coupled to the hull. Estimated high-power plasma propulsion: twelve 25 kN outlets at 2 000 s Isp. The developer scenarios include Ranger spin matching and a kinematic Kerr orbit.",
+		"blurb":"Twelve connected modules and an axial docking hub linked to the ring by one pressure tunnel. The 65 m envelope is judged from the 1:15 shooting miniature. A 30.5 m floor at 5 rpm gives 0.85 g; spin is prescribed and its angular momentum is not coupled to the hull. Estimated high-power plasma propulsion: twelve 25 kN outlets at 2 000 s Isp. The developer scenarios include Ranger spin matching and a kinematic Kerr orbit.",
 		"limits":{"maxQ":1.0,"maxG":2.0,"qAlpha":1.0,"heatLoad":0.0},
 		"stages":[stage({"key":"expedition","name":"Expedition Ring","dry":100000.0,"prop":50000.0,
 			"engine":{"name":"Plasma drive (estimate)","prop":"Plasma propellant","thrustVac":25000.0,
@@ -181,7 +181,7 @@ static func _build_vehicles() -> Dictionary:
 			"rcs":{"thrust":1200.0,"isp":300.0,"prop":1600.0,"count":24},
 			"centrifuge":{"radius":30.5,"rpm":5.0,"walkSpeed":1.4,"at":[0.0,17.0,0.0]},
 			"look":{"skin":"white","endurance":true,"rotors":1,"hubLength":33.0,"hubRadius":1.64,"axialAdapter":.90,
-				"landerBerth":[-5.40,4.65,0.0],
+				"landerBerth":[-2.60,4.65,0.0],
 				"ring":{"at":17.0,"centerRadius":27.0,"moduleSize":[10.4,7.6,8.3]}}})],
 	},
 	"discovery": {
@@ -200,6 +200,7 @@ static func _build_vehicles() -> Dictionary:
 			"rcs":{"thrust":3000.0,"isp":300.0,"prop":1600.0,"count":16},
 			"centrifuge":{"radius":4.6,"rpm":8.0,"walkSpeed":1.4,"at":[0.0,95.6,0.0]},
 			"look":{"skin":"white","discovery":true,"doors":3,"doorSwing":2.09439510239,"spineModules":11,"rotors":1,
+				"reactorAft":8.7,"reactorFore":24.0,"antennaAt":34.0,
 				"noseSealAllowance":.05,"bayRadius":1.45,"baySpacing":3.07,"bayZ":-1.65}})],
 	},
 	"ranger": {
@@ -210,7 +211,7 @@ static func _build_vehicles() -> Dictionary:
 		"interior": {"asset": "res://assets/craft/ranger_interior.glb", "stage": "ranger",
 			"eye": [-0.72, 7.15, 1.27], "forward": [0.0, 1.0, 0.0],
 			"up": [0.0, 0.0, 1.0], "pitch": 0.0,
-			"lighting": {"color": [0.83, 0.90, 1.0], "energy": 0.65, "range": 4.0,
+			"lighting": {"color": [1.0, 0.94, 0.84], "energy": 0.65, "range": 4.0,
 				"fill": [-0.1, 7.7, 0.8], "fillEnergy": 0.18, "fillRange": 3.8}},
 		"stages": [stage({"key": "ranger", "name": "Survey Shuttle", "dry": 14500.0, "prop": 6000.0,
 			"engine": {"name": "Survey OMS (estimate)", "prop": "Methalox",

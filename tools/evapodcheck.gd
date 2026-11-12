@@ -139,8 +139,8 @@ func material_probes(node: Node, required: Array) -> void:
 		var mat: StandardMaterial3D = materials.get(name_)
 		expect(mat != null, "authored finish " + name_)
 		if mat == null: continue
-		expect(mat.normal_enabled and mat.normal_texture != null and mat.roughness_texture != null,
-			name_ + " retains embedded normal and roughness maps")
+		expect(mat.albedo_texture != null and mat.normal_enabled and mat.normal_texture != null and mat.roughness_texture != null,
+			name_ + " retains embedded colour, normal and roughness maps")
 		expect(mat.metallic <= 0.4, name_ + " remains readable without reflected environment")
 
 func collect_materials(node: Node, materials: Dictionary) -> void:

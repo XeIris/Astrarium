@@ -23,7 +23,11 @@ func run() -> void:
 	if st.parts.legs.size()!=3:
 		craft.group.free(); CraftAssets.clear(); quit(1); return
 	var bounds:=CraftModel.measure(craft.group)
-	expect(absf(bounds.size.y-17.9)<.02 and absf(bounds.position.y)<.02,"shared nose and engine-exit datums")
+	expect(absf(bounds.size.y-17.9)<.02 and absf(bounds.position.y)<.02,"shared nose and engine-exit datums: %s"%bounds)
+	var nose_half_width:=0.0
+	for point: Vector3 in points(craft.group,craft.group):
+		if point.y>=float(st.spec.L)-.015:nose_half_width=maxf(nose_half_width,absf(point.x))
+	expect(absf(2.0*nose_half_width-.55*float(st.spec.D))<.03,"Ranger keeps its broad, blunt foredeck (%.3f m)"%(2.0*nose_half_width))
 	for i in range(41):
 		var t:=i/40.0
 		st.gear=t
@@ -122,6 +126,7 @@ func collect_finishes(node: Node, found: Dictionary) -> void:
 			found[mat.resource_name.get_slice(".",0)]=mat
 			if mat.normal_enabled:
 				var a: Array=node.mesh.surface_get_arrays(s)
-				expect(mat.normal_texture!=null and mat.roughness_texture!=null,"embedded finish maps survive import")
+				expect(mat.albedo_texture!=null and mat.normal_texture!=null and mat.roughness_texture!=null,
+					"embedded colour, relief and roughness maps survive import")
 				expect(a[Mesh.ARRAY_TEX_UV]!=null and a[Mesh.ARRAY_TANGENT]!=null,"mapped finish has UVs and tangent frames")
 	for child in node.get_children(): collect_finishes(child,found)

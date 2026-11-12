@@ -12,9 +12,11 @@ Controls to open scenarios, or pass `scenario=<vehicle>:<id>` on the command lin
 
 ## Ranger reconstruction
 
-Four Blender design passes were inspected from front, rear, side, plan and below,
-then through the production flight renderer. Overall length 17.9 m and
-span 9.7 m are reconstruction choices, not studio CAD measurements. `vehicles.gd`
+The Blender model was inspected from front, rear, side, plan and below, then
+through the production flight renderer. The 17.9 m length and 9.7 m span are
+reconstruction estimates. The Ranger has a long blunt
+foredeck, dark swept chines, a raised aft shoulder and a single radiator belt
+ahead of the recessed axial docking port. `vehicles.gd`
 owns these dimensions, mass, propulsion and camera datums. `RangerCraft.geometry`
 exports the same apertured skin to Blender and the procedural fallback. Blender
 adds gaskets, blanket seams, radiator ribs, nozzle walls and cabin fittings.
@@ -34,8 +36,10 @@ The cockpit detail pass adds a roof-mounted instrument spine, handholds, a
 multi-display centre stack and distinct flight, propulsion and cabin screens.
 The inset pressure liner shares the exterior aperture vertices. Moulded seals
 connect the liner to the hull, with brushed frames and small-scale quilted fabric
-between the windows. Paired ceiling strips sit in dark housings. The mounts fit
-the existing hull and both port canopy sightlines were checked from the pilot eye.
+between the windows. Paired ceiling strips illuminate bolted instrument frames,
+labelled rotary selectors, a ribbed aisle and webbed equipment lockers around
+the aft pressure hatch. The mounts fit the hull and both port canopy sightlines
+were checked from the pilot eye.
 
 The headless return check flew a 250 km orbit through a paid deorbit burn,
 atmospheric entry, banking reversals, glide, preflare and rollout. Touchdown was
@@ -54,8 +58,10 @@ Observation sources:
   practical cockpit photographs, two-seat layout, centre stack, overhead windows,
   graphite instrument cabinets and pale structural framing. Our display graphics
   are newly drawn static schematics, not copied film graphics or live instruments.
-- [Exhibited film props, photographed by Hollywood Movie Costumes and Props](https://hollywoodmoviecostumesandprops.blogspot.com/2017/08/tars-robot-and-space-shuttle-models.html):
-  long deck, crown glazing, chine fences and thermal blanket boundaries.
+- The two exhibited miniatures show distinct planforms. The Ranger has one
+  tapered lifting body and the Lander carries two large faceted cargo pods.
+  [Exhibit photographs](https://hollywoodmoviecostumesandprops.blogspot.com/2017/08/tars-robot-and-space-shuttle-models.html)
+  [Smithsonian Ranger photograph](https://airandspace.si.edu/multimedia-gallery/image/9568hjpg)
 - [Moebius kit from several angles](https://thegreatcanadianmodelbuilderswebpage.blogspot.com/2015/08/ranger-from-intersteller.html):
   supplementary rear and planform observation; a model is secondary evidence.
 
@@ -77,9 +83,13 @@ bay seals in its overall length datum.
 Three EVA pods sit behind independently driven curved covers. The covers follow
 idealised circumferential tracks. The bay furniture was trimmed against the
 spherical shell, and the common berth and opening datums were revised after
-checking the stowed pod's full translation through each aperture. The nose slit,
-long service truss, three antenna dishes and twin-outlet drive housings follow
-the published studio and supplementary aft-model photos.
+checking the stowed pod's full translation through each aperture. Equipment
+panels, drawers and work lights sit behind the docking cradles. All three
+reflectors point aft in the default pose. Each 4.38 m flared drive housing
+joins its fixed corrugated duct at the gimbal coupling. The reconstructed
+reactor starts 8.7 m forward of the exhaust plane. The studio and supplementary
+aft-model photographs inform the proportions of the three drive assemblies.
+[Studio photographs](https://starshipmodeler.com/2001/2001ref.htm)
 
 `evapod:pod_berth` flies a live RCS approach from 12 m off the empty middle berth.
 The scenario and played replays both captured at about 0.034 m/s after 53.15 s,
@@ -119,11 +129,12 @@ remained in their expected orbital bands. Use `discovery:departure` and
 Endurance's 65 m ring diameter is judged from the 14 ft miniature built at 1:15
 scale. The separate 51.7 m axial envelope includes the berthed Ranger. Twelve
 bevelled modules alternate insulated service panels and ribbed radiator banks.
-Three pressure spokes join the axial hub, with a rounded intermodule junction
-between each pair of modules. Revised axial and transverse adapters carry the
-same original Ranger and Lander models used in the hangar. The adapters keep
-the hub clear of the Ranger's nozzle cluster and seat the Lander aft and outward
-of the pressure spokes. Both model paths share the berth, spoke and brace datums.
+One stepped pressure tunnel joins the axial hub to the ring. Rounded
+intermodule junctions connect the modules. Axial and transverse adapters carry
+the same original Ranger and Lander models used in the hangar. The axial adapter
+meets the Ranger's recessed docking port while leaving clearance at its nozzles.
+The transverse adapter seats the Lander on the opposite side of the hub from the
+tunnel. Both model paths share the berth and tunnel datums.
 [New Deal Studios miniature photographs and scale](https://www.fxguide.com/fxfeatured/real-and-raw-the-miniature-fx-behind-interstellar/)
 
 The separate 21.4 × 18.6 m Lander uses the Ranger scale as a reconstruction
@@ -148,6 +159,17 @@ solar mass black hole with spin 0.998. At 3.5 GM/c², the prescribed equatorial
 orbit has a coordinate period of about 6 h 29 min and a clock ratio to infinity
 of 1.722. The [Kerr demonstration](physics/kerr-demonstration.md) specifies the
 orbit, clocks and rendering assumptions.
+
+## Surface finishes
+
+Blender generates tileable colour, roughness and tangent-space normal maps for
+the thermal blankets, ceramic tiles, painted panels, brushed fittings, vinyl
+and woven straps. The maps share seam, pore and wear patterns at metre-scaled
+UVs and are embedded in the authored GLBs. The Ranger uses pale quilted
+insulation and a dark porous underside. The Lander uses warmer blankets over
+the faceted cargo pods. Endurance has alternating blanket-clad modules and
+matte blue-grey radiator panels. Discovery's enamel has fine paint grain and
+the ducts and fittings use directionally brushed metal.
 
 ## Inspection and verification
 

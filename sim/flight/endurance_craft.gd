@@ -15,15 +15,9 @@ static func berths(spec: Dictionary) -> Array:
 
 static func spokes(spec: Dictionary) -> Array:
 	var y:=float(spec.look.ring.at)
-	var members:=[]
-	for i in 3:
-		var angle:=TAU*i/3.0
-		var radial:=Vector3(cos(angle),0,sin(angle))
-		var outer:=radial*21.9+Vector3.UP*y
-		members.append({"start":radial*1.25+Vector3.UP*y,"end":outer,"radius":.90})
-		for side in [-1,1]:
-			members.append({"start":radial*1.30+Vector3.UP*(y+side*3.0),"end":outer,"radius":.075})
-	return members
+	var ring: Dictionary=spec.look.ring
+	var inner_edge:=float(ring.centerRadius)-float(ring.moduleSize[0])*.5
+	return [{"start":Vector3(1.27,y,0),"end":Vector3(inner_edge+.20,y,0),"radius":1.18,"flangeRadius":1.31}]
 
 static func build(spec: Dictionary,parts: Dictionary) -> Dictionary:
 	var root:=Node3D.new()
@@ -50,8 +44,9 @@ static func build(spec: Dictionary,parts: Dictionary) -> Dictionary:
 				pivot.position=Vector3(radius+point.x,-float(size_[1])*.5-.275,point.y)
 				var bell:=CraftModel._mesh(CraftModel._cylinder(.40,.95,1.08,32),m.nozzle)
 				bell.position.y=.56;pivot.add_child(bell)
+	var support:=Node3D.new();support.name="inspection_spokes";rotor.add_child(support)
 	for spoke: Dictionary in spokes(spec):
-		rod(rotor,spoke.start,spoke.end,spoke.radius,m.white if spoke.radius>.5 else m.steel)
+		rod(support,spoke.start,spoke.end,spoke.radius,m.white)
 	var hub_length:=float(spec.look.hubLength)
 	var hub_radius:=float(spec.look.hubRadius)
 	var hub:=CraftModel._mesh(CraftModel._cylinder(hub_radius,hub_radius,hub_length,48),m.white)

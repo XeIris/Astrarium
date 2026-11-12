@@ -25,8 +25,11 @@ func _init() -> void:
 				row["berths"]=EnduranceCraft.berths(spec)
 				row["spokes"]=EnduranceCraft.spokes(spec).map(func(member: Dictionary) -> Dictionary:
 					var a: Vector3=member.start;var b: Vector3=member.end
-					return {"start":[a.x,a.y,a.z],"end":[b.x,b.y,b.z],"radius":member.radius})
-			if spec.get("look", {}).get("discovery", false):row["berths"]=DiscoveryCraft.berths(spec)
+					return {"start":[a.x,a.y,a.z],"end":[b.x,b.y,b.z],"radius":member.radius,
+						"flangeRadius":member.flangeRadius})
+			if spec.get("look", {}).get("discovery", false):
+				row["berths"]=DiscoveryCraft.berths(spec)
+				row["dishes"]=DiscoveryCraft.dishes(spec)
 			row["gimbalLimits"] = CraftAssets.gimbal_limits(spec, vehicle)
 			stages[spec.key] = row
 		vehicles[id] = stages

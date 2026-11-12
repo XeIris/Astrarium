@@ -5,16 +5,16 @@ extends RefCounted
 # fraction, belly, chine and crown heights, crown half-width fraction. Heights
 # scale with length; the catalogue owns overall dimensions and flight datums.
 const SECTIONS := [
-	[0.0, .88, -.037, .005, .055, .48],
-	[.10, 1.0, -.039, .017, .092, .53],
-	[.20, .94, -.038, .019, .103, .52],
-	[.31, .84, -.035, .018, .106, .49],
-	[.43, .73, -.031, .016, .095, .45],
-	[.52, .65, -.027, .014, .068, .39],
-	[.61, .56, -.023, .012, .025, .35],
-	[.78, .38, -.018, .009, .019, .25],
-	[.95, .18, -.011, .004, .010, .12],
-	[1.0, .10, -.006, .0, .002, .08],
+	[0.0, .52, -.039, -.006, .065, .34],
+	[.10, .82, -.039, .014, .092, .49],
+	[.20, 1.0, -.038, .021, .103, .53],
+	[.31, .92, -.035, .021, .106, .49],
+	[.43, .83, -.031, .017, .095, .46],
+	[.52, .75, -.027, .014, .068, .43],
+	[.61, .69, -.023, .011, .025, .45],
+	[.78, .63, -.017, .006, .018, .49],
+	[.95, .60, -.012, .001, .011, .52],
+	[1.0, .55, -.009, -.004, .004, .48],
 ]
 
 static func section(spec: Dictionary, i: int) -> Array[Vector3]:
@@ -42,10 +42,11 @@ static func _face(out: Array, p: Array, mat: String, name_: String) -> void:
 	if distinct.size()<3: return
 	out.append({"vertices": distinct.map(func(v: Vector3): return [v.x,v.y,v.z]), "material": mat, "name": name_})
 
-static func _hole(q: Array, u0: float, u1: float, v0: float, v1: float) -> Array:
+static func _hole(q: Array, u0: float, u1: float, v0: float, v1: float, skew:=0.0) -> Array:
 	var cu := (u1-u0)*.13; var cv := (v1-v0)*.13
-	return [_point(q,u0,v0+cv),_point(q,u0+cu,v0),_point(q,u1-cu,v0),_point(q,u1,v0+cv),
-		_point(q,u1,v1-cv),_point(q,u1-cu,v1),_point(q,u0+cu,v1),_point(q,u0,v1-cv)]
+	var corners:=[Vector2(u0,v0+cv),Vector2(u0+cu,v0),Vector2(u1-cu,v0),Vector2(u1,v0+cv),
+		Vector2(u1,v1-cv),Vector2(u1-cu,v1),Vector2(u0+cu,v1),Vector2(u0,v1-cv)]
+	return corners.map(func(uv: Vector2) -> Vector3: return _point(q,uv.x+skew*(uv.y-.5),uv.y))
 
 static func _frame(faces: Array, panel: Array, hole: Array) -> void:
 	var outside := [panel[0],panel[0],panel[1],panel[1],panel[2],panel[2],panel[3],panel[3]]
@@ -101,7 +102,7 @@ static func geometry(spec: Dictionary) -> Dictionary:
 			elif edge==3 and i==5:
 				for k in 4: cells.append([k*.25,(k+1)*.25,.0,1.0])
 			if cells.is_empty():
-				_face(faces,q,"thermal" if edge>0 else "tps","skin_%d_%d"%[i,edge])
+				_face(faces,q,"tps" if edge in [1,5] else "thermal","skin_%d_%d"%[i,edge])
 			else:
 				for k in cells.size():
 					var c: Array = cells[k]
@@ -109,11 +110,18 @@ static func geometry(spec: Dictionary) -> Dictionary:
 					if edge==3 and i in [2,3,4] and k==2:
 						_face(faces,panel,"thermal","crown_spine"); continue
 					var margin := .30 if i==2 else .22 if i==3 else .08 if i==4 else .16
-					var hole := _hole(panel,.15,.85,margin,1.0-margin)
+					var skew:=(-.18 if k<2 else .18) if edge==3 else .10
+					var hole := _hole(panel,.15,.85,margin,1.0-margin,skew)
 					_frame(faces,panel,hole)
 					_face(windows,hole,"glass","window_%d"%windows.size())
 	_belly(spec,faces)
-	_face(faces,section(spec,0).duplicate(),"tps","aft")
+	var aft:=section(spec,0)
+	var center:=Vector3(0,0,.15)
+	for i in aft.size():
+		for j in 8:
+			var a:=aft[i].lerp(aft[(i+1)%aft.size()],float(j)/8)
+			var b:=aft[i].lerp(aft[(i+1)%aft.size()],float(j+1)/8)
+			_face(faces,[a,b,center+(b-center).normalized()*.68,center+(a-center).normalized()*.68],"tps","aft")
 	var nose := section(spec,SECTIONS.size()-1); nose.reverse()
 	_face(faces,nose,"tps","nose")
 	return {"faces":faces,"windows":windows,"sections":SECTIONS}
@@ -135,6 +143,11 @@ static func build(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	for row: Dictionary in data.faces: _poly(root,row,mats.tiles if row.material=="tps" else mats.white)
 	var shade := Node3D.new(); shade.name="window_shade"; root.add_child(shade)
 	for row: Dictionary in data.windows: _poly(shade,row,mats.glass)
+	var socket:=CraftModel._mesh(CraftModel._lathe(PackedVector2Array([
+		Vector2(.68,.008),Vector2(.66,.11),Vector2(.49,.15),Vector2(.47,.27),Vector2(0,.27)]),40),mats.black)
+	socket.position.z=.15;root.add_child(socket)
+	var flange:=CraftModel._mesh(CraftModel._torus(.575,.043,8,40),mats.steel)
+	flange.position=Vector3(0,.055,.15);flange.rotation.x=PI*.5;root.add_child(flange)
 	for side in [-1,1]:
 		var pivot := Node3D.new(); pivot.name="gimbal_ranger_%d"%parts.gimbals.size()
 		pivot.position=Vector3(side*1.45,0,0); root.add_child(pivot); parts.gimbals.append(pivot)

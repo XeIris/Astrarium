@@ -20,6 +20,7 @@ func run() -> void:
 	expect(st.parts.rotors.size()==1 and st.parts.doors.size()==3 and st.parts.gimbals.size()==3,"complete rotor, bay and drive rig")
 	var b:=CraftModel.measure(craft.group)
 	expect(absf(b.position.y)<.02 and absf(b.end.y-float(st.spec.L))<.02,"common engine exit and bow datums: %s"%b)
+	check_stern(craft.group,st)
 	expect(craft.group.find_children("dock_pod_*","Node3D",true,false).size()==3,"three berthed EVA pods")
 	var center:=Vector3(0,float(st.spec.L)-float(st.spec.D)*.5-float(st.spec.look.noseSealAllowance),0)
 	var radius:=float(st.spec.D)*.5
@@ -111,6 +112,35 @@ func run() -> void:
 	craft.group.free();CraftAssets.clear();await process_frame
 	print("DISCOVERYCHECK DONE checks=%d failures=%d"%[checks,failures])
 	quit(1 if failures else 0)
+
+func check_stern(group: Node3D,st) -> void:
+	for i in 3:
+		var dish:=group.find_child("inspection_antenna_%d"%i,true,false) as Node3D
+		var feed:=group.find_child("inspection_feed_%d"%i,true,false) as Node3D
+		expect(dish!=null and feed!=null,"dish %d has a reflector and feed"%i)
+		if dish!=null and feed!=null:
+			var axis:=group.to_local(feed.global_position)-group.to_local(dish.global_position)
+			expect(axis.normalized().dot(Vector3.DOWN)>.999,"dish %d faces aft"%i)
+		var neck:=group.find_child("inspection_drive_neck_%d"%i,true,false)
+		expect(neck!=null,"drive %d has a fixed reactor duct"%i)
+		if neck==null or i>=st.parts.gimbals.size(): continue
+		var near_end:=INF
+		var far_end:=-INF
+		for point: Vector3 in points(neck,group):
+			near_end=minf(near_end,point.y)
+			far_end=maxf(far_end,point.y)
+		expect(absf(near_end-4.20)<.03 and far_end>float(st.spec.look.reactorAft),
+			"drive %d duct joins the bell and reactor (%.2f–%.2f m)"%[i,near_end,far_end])
+		var bell: Node3D=st.parts.gimbals[i]
+		var rest:=bell.quaternion
+		var limit:=deg_to_rad(float(bell.get_meta("gimbal_deg",0.0)))
+		for axis: Vector3 in [Vector3.RIGHT,Vector3.BACK]:
+			for sign_: float in [-1.0,1.0]:
+				bell.quaternion=rest*Quaternion(axis,sign_*limit)
+				var reach:=-INF
+				for point: Vector3 in points(bell,group):reach=maxf(reach,point.y)
+				expect(reach>near_end+.10,"drive %d still overlaps its duct at full gimbal"%i)
+		bell.quaternion=rest
 
 func points(node: Node,relative: Node3D,finish_name:="") -> Array[Vector3]:
 	var out: Array[Vector3]=[]

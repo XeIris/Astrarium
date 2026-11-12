@@ -9,8 +9,7 @@ from math import pi, sin, cos
 from mathutils import Vector, Matrix, Quaternion
 from lib import empty, box, strut, ball, revolve, ring_on, finish, smooth
 from common import build, stage, vehicle_stages
-from movie_materials import palette, assign_uvs
-from evapod_materials import finish as surface_finish, DENSITY
+from movie_materials import palette, assign_uvs, surface
 
 S = vehicle_stages('endurance')['expedition']
 C = Matrix(((1, 0, 0), (0, 0, -1), (0, 1, 0)))
@@ -72,10 +71,12 @@ def module(index, parent, m):
         elif index % 2 == 0:
             for column in range(3):
                 z = (column-1)*(width-1.2)/3
-                block('radiator face', (radius, face+side*.065, z), (radial-1.20, .10, (width-1.3)/3-.14), m['panel'], mount, .05)
+                block('radiator face', (radius, face+side*.065, z), (radial-1.20, .10, (width-1.3)/3-.14), m['radiator'], mount, .05)
                 for k in range(22):
                     x = radius-radial*.40+k*(radial*.80)/21
-                    block('radiator fin', (x, face+side*.13, z), (.035, .045, (width-1.3)/3-.20), m['alloy'], mount, .006)
+                    block('radiator fin', (x, face+side*.13, z), (.058, .045, (width-1.3)/3-.20), m['radiator'], mount, .006)
+                for x in [radius-radial*.33,radius+radial*.33]:
+                    block('radiator end manifold',(x,face+side*.13,z),(.15,.074,(width-1.3)/3-.10),m['alloy'],mount,.025)
         else:
             for k in range(3):
                 x = radius+(k-1)*(radial-.95)/3
@@ -114,13 +115,13 @@ def hub(parent, m):
     spokes = empty('inspection_spokes', (0,0,0), parent)
     for member in S['spokes']:
         start, end = Vector(member['start']), Vector(member['end'])
-        if member['radius'] < .5:
-            rod('spoke tension brace', start, end, member['radius'], m['alloy'], spokes)
-            continue
-        rod('radial pressure spoke', start, end, member['radius'], m['enamel'], spokes)
+        tube = member['radius']
+        rod('radial pressure tunnel', start, end, tube, m['enamel'], spokes)
         along = (end-start).normalized()
-        for k in range(1, 7):
-            collar('spoke pressure joint', start.lerp(end, k/7), along, .94, m['alloy'], spokes, .055)
+        for fraction in [.12, .33, .54, .75, .94]:
+            at = start.lerp(end, fraction)
+            rod('pressure tunnel coupling', at-along*.17, at+along*.17, tube+.07, m['panel'], spokes)
+            collar('pressure flange', at+along*.16, along, member['flangeRadius']-.052, m['alloy'], spokes, .052)
     for y in [.14, length-.14]:
         collar('axial docking gasket', (0, y, 0), (0, 1, 0), 1.18, m['rubber'], axis, .14)
         for j in range(8):
@@ -142,8 +143,8 @@ def make(_shared):
     m = palette()
     # The Endurance's light blankets lack the Ranger's strong tiled colour
     # variation; stitched relief belongs mainly in the normal/roughness maps.
-    m['blanket'] = surface_finish('expeditionBlanket', 0xd8dbd5, .82, .015, 'quilt')
-    DENSITY['expeditionBlanket'] = .5
+    m['blanket'] = surface('expeditionBlanket', 0xd0cec1, .82, .015, 'blanket', .49)
+    m['radiator'] = surface('expeditionRadiator', 0x606b72, .64, .24, 'alloy', .76)
     root = stage('expedition')
     rotor = empty('rotor_expedition_0', (0, 0, 0), root)
     for i in range(12):

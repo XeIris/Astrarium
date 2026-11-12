@@ -46,6 +46,8 @@ func run() -> void:
 	var spoke_gap:=INF
 	var hub_length:=float(st.spec.look.hubLength)
 	var members:=EnduranceCraft.spokes(st.spec)
+	var support:=rotation.find_child("inspection_spokes",true,false)
+	expect(members.size()==1 and support!=null,"one radial pressure tunnel rotates with the ring")
 	for node in craft.group.find_children("*","MeshInstance3D",true,false):
 		var on_cargo: bool=cargo!=null and cargo.is_ancestor_of(node)
 		var on_shuttle: bool=shuttle!=null and shuttle.is_ancestor_of(node)
@@ -63,7 +65,7 @@ func run() -> void:
 					cargo_gap=minf(cargo_gap,radial-float(st.spec.look.hubRadius))
 				if on_shuttle:shuttle_gap=minf(shuttle_gap,point.y-hub_length)
 	expect(is_finite(cargo_gap) and cargo_gap>.12,"Lander hull clears the axial hub and its pressure flanges (%.3f m)"%cargo_gap)
-	expect(is_finite(spoke_gap) and spoke_gap>.04,"Lander clears the rotating pressure spokes and braces (%.3f m)"%spoke_gap)
+	expect(is_finite(spoke_gap) and spoke_gap>.04,"Lander clears the radial pressure tunnel (%.3f m)"%spoke_gap)
 	expect(is_finite(shuttle_gap) and shuttle_gap>.70,"Ranger outlets clear the axial hub (%.3f m)"%shuttle_gap)
 	expect(low>=-.02 and high<=float(vehicle.stages[0].L)+.02,"all attached geometry respects the axial envelope")
 	expect(extent<=float(vehicle.stages[0].D)*.5+.02,"modules and details stay inside the 65 m envelope")
@@ -78,7 +80,7 @@ func member_clearance(arrays: Array,xf: Transform3D,members: Array) -> float:
 	var closest:=INF
 	for member: Dictionary in members:
 		var a: Vector3=member.start;var b: Vector3=member.end
-		var radius:=1.0 if float(member.radius)>.5 else float(member.radius)
+		var radius:=float(member.flangeRadius)
 		for i in range(0,indices.size(),3):
 			var p:=vertices[indices[i]];var q:=vertices[indices[i+1]];var r:=vertices[indices[i+2]]
 			if Geometry3D.segment_intersects_triangle(a,b,p,q,r)!=null:return -radius

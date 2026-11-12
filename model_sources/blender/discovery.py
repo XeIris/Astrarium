@@ -9,7 +9,7 @@ from math import pi, sin, cos, sqrt
 from mathutils import Vector, Matrix, Quaternion
 from lib import empty, box, ball, cyl, revolve, strut, ring_on, finish, smooth, _obj
 from common import build, stage, vehicle_stages, srgb
-from movie_materials import palette, assign_uvs
+from movie_materials import palette, assign_uvs, surface
 
 S=vehicle_stages('discovery')['explorer']
 L,D=S['L'],S['D']; R=D/2; CY=L-R-S['look']['noseSealAllowance']
@@ -109,7 +109,7 @@ def hull(m,root):
         smooth(cap,55)
         floor_y=y-2.15
         furniture=empty(f'inspection_berth_{i}',(0,0,0),root)
-        floor=block('pod berth floor',(x,floor_y,-2.88),(2.70,2.6,.12),m['panel'],furniture)
+        floor=block('pod berth floor',(x,floor_y,-2.88),(2.70,2.6,.12),m['bay_floor'],furniture)
         bpy.ops.mesh.primitive_cylinder_add(vertices=96,radius=BAY_RADIUS-.04,depth=4.0,location=p((x,floor_y,z)))
         cutter=bpy.context.object
         bpy.context.view_layer.objects.active=floor
@@ -121,14 +121,27 @@ def hull(m,root):
             fit_berth(track)
         wall=block('berth rear wall',(x,floor_y-1.3,-1.6),(2.7,.08,2.6),m['liner'],furniture)
         fit_berth(wall)
+        for side in [-1,1]:
+            x_rack=x+side*1.02
+            rack=block('berth wall service strip',(x_rack,floor_y-1.255,-1.68),(.31,.16,1.83),m['panel'],furniture,.022)
+            fit_berth(rack)
+            for zz in [-2.37,-1.71,-1.05]:
+                plate=block('berth service cover',(x_rack,floor_y-1.16,zz),(.28,.09,.39),m['alloy'],furniture,.016)
+                fit_berth(plate)
+        lamp=block('berth work light recess',(x,floor_y-1.23,-.52),(.76,.18,.13),m['panel'],furniture,.017)
+        fit_berth(lamp)
+        lens=block('berth opal strip',(x,floor_y-1.135,-.52),(.68,.025,.085),m['lamp'],furniture,.010)
+        fit_berth(lens)
 
 
 def spine(m,root):
     # The narrow load path remains continuous through every equipment module.
-    block('central structural spine',(0,(20+CY-R)*.5,0),(.72,CY-R-20,.72),m['alloy'],root)
+    fore=S['look']['reactorFore']
+    block('central structural spine',(0,(fore+CY-R)*.5,0),(.72,CY-R-fore+.16,.72),m['alloy'],root)
     count=int(S['look']['spineModules'])
     for i in range(count):
-        y=24+(CY-R-3-24)*i/(count-1)
+        start=fore+3.5
+        y=start+(CY-R-3-start)*i/(count-1)
         for j in range(4):
             a=j*pi/2
             mount=empty('module orientation',p((0,y,0)),root);mount.rotation_euler=(0,0,-a)
@@ -139,52 +152,61 @@ def spine(m,root):
                 block('service connector',(2.40,(k-1)*.7,.23),(.15,.26,.25),m['panel'],mount,.025)
             for direction in [-1,1]:
                 rod('module diagonal',(direction*.32,-1.8,.35),(1.25,-1.6,.9),.04,m['alloy'],mount)
-    # Three-dish antenna group, all faces radiating away from the spine.
-    at=40.0
+    at=S['look']['antennaAt']
     block('antenna base',(0,at,1.8),(2.3,3.6,.9),m['enamel'],root)
-    rod('antenna mast',(0,at,2),(0,at,5.6),.22,m['alloy'],root)
-    for x,r in [(0,2.3),(-3.0,.85),(3.0,.85)]:
-        mount=empty('antenna orientation',p((x,at,5.9)),root)
-        # Blender +Z points forward along the vessel; tilt the dish toward +Yb.
-        mount.rotation_euler=(pi/2,0,0)
+    rod('antenna mast',(0,at,2),(0,at,5.93),.22,m['alloy'],root)
+    for y,z,sz in [(at,2.55,.45),(at,4.35,.38),(at,5.60,.43)]:
+        block('antenna mast joint',(0,y,z),(.62,.65,sz),m['enamel'],root,.06)
+    for index, spec in enumerate(S['dishes']):
+        x,y,z=spec['at'];r=spec['radius']
+        mount=empty(f'inspection_antenna_{index}',p((x,y,z)),root)
+        # The feed follows the reflector's local +Z, which is ship aft here.
+        mount.rotation_euler=(pi,0,0)
         dish=revolve('communications reflector',[(r*k/16,r*.20*(k/16)**2) for k in range(17)],m['enamel'],seg=64,parent=mount)
         smooth(dish,45)
+        skin=dish.modifiers.new('reflector shell','SOLIDIFY');skin.thickness=.023
         ring_on((0,0,r*.20),(0,0,1),r,.035,m['alloy'],'reflector rim',seg=64,parent=mount)
         strut('antenna feed boom',(0,0,0),(0,0,r*.5),.035,m['alloy'],parent=mount)
+        empty(f'inspection_feed_{index}',(0,0,r*.5),mount)
         for j in range(3):
             a=j*2*pi/3
             strut('reflector feed support',(r*.9*cos(a),r*.9*sin(a),r*.20*.9**2),(0,0,r*.5),.025,m['alloy'],parent=mount)
-        if x:rod('antenna cross member',(0,at,5.5),(x,at,5.9),.10,m['alloy'],root)
+        if x:rod('antenna cross member',(0,at+.045,5.65),(x,at+.045,z),.10,m['alloy'],root)
 
 
 def stern(m,root):
+    aft=S['look']['reactorAft'];fore=S['look']['reactorFore']
     outline=[(-4,-2),(-2.9,-3.1),(2.9,-3.1),(4,-2),(4,2),(2.9,3.1),(-2.9,3.1),(-4,2)]
-    vertices=[p((x,y,z)) for y,f in [(3.0,1),(17.8,1),(20,.30)] for x,z in [(x*f,z*f) for x,z in outline]]
-    faces=[tuple(range(7,-1,-1)),tuple(range(16,24))]
-    for row in range(2):
+    stations=[(aft,.82),(aft+2.1,1),(fore-5.0,1),(fore-1.8,.72),(fore,.25)]
+    vertices=[p((x*f,y,z*f)) for y,f in stations for x,z in outline]
+    faces=[tuple(range(7,-1,-1)),tuple(range(len(vertices)-8,len(vertices)))]
+    for row in range(len(stations)-1):
         for j in range(8):faces.append((row*8+j,row*8+(j+1)%8,(row+1)*8+(j+1)%8,(row+1)*8+j))
     case=_obj('octagonal reactor case',vertices,faces,m['enamel'],root)
     import bmesh
     bm=bmesh.new();bm.from_mesh(case.data);bmesh.ops.recalc_face_normals(bm,faces=bm.faces);bm.to_mesh(case.data);bm.free()
     finish(case,.13,3,45)
     for side in [-1,1]:
-        for y in [3.5,7.5,11.5,15.5]:
-            block('reactor side box',(side*4.03,y,0),(.24,3.0,3.8),m['enamel'],root,.10)
-            for z in [-1.3,-.7,0,.7,1.3]:
-                block('heat exchanger channel',(side*4.18,y,z),(.10,2.8,.16),m['alloy'],root,.02)
-        for k in range(12):
-            y=3.0+k*1.3
-            block('reactor top detail',(side*1.35,y,3.16),(.90,.75,.20),m['panel'] if k%4==0 else m['enamel'],root,.04)
+        for y in [aft+3.35,aft+5.75,aft+8.15]:
+            block('reactor service hatch',(side*4.025,y,0),(.17,2.1,3.6),m['alloy'],root,.07)
+            block('inset reactor hatch cover',(side*4.11,y,.21),(.10,1.88,2.92),m['enamel'],root,.04)
+            for z in [-1.28,-.69,-.10,.49,1.08]:
+                block('recessed exchanger channel',(side*4.16,y,z),(.08,1.70,.115),m['panel'],root,.015)
+        for k in range(7):
+            y=aft+2.7+k*1.11
+            block('reactor roof access plate',(side*1.4,y,3.113),(2.50,.93,.08),m['enamel'],root,.024)
+            for x in [.40,2.40]:
+                block('captive roof latch',(side*x,y,3.16),(.11,.30,.044),m['alloy'],root,.014)
     for i in range(3):
         x=(i-1)*2.65
         pivot=empty(f'gimbal_explorer_{i}',p((x,0,0)),root)
-        housing=revolve('hexagonal drive housing',[(1.05,.02),(1.18,.13),(1.18,1.8),(.53,2.5)],m['enamel'],seg=6,parent=pivot)
+        housing=revolve('flared hexagonal drive housing',[(1.05,.02),(1.18,.13),(1.17,1.25),(.87,3.20),(.53,4.38)],m['enamel'],seg=6,parent=pivot)
         finish(housing,.035,2,40)
         plate=revolve('drive face',[(0,.035),(1.07,.035),(1.07,.14),(0,.14)],m['enamel'],seg=6,parent=pivot)
         for z in [-.48,.48]:
             bpy.ops.mesh.primitive_cylinder_add(vertices=48,radius=.40,depth=.8,location=p((x,0,z)))
             cut(plate,bpy.context.object)
-            bell=revolve('paired nuclear outlet',[(.39,.025),(.36,.22),(.22,.9),(.14,1.55)],m['nozzle'],seg=48,parent=pivot)
+            bell=revolve('paired nuclear outlet',[(.39,.025),(.36,.36),(.24,1.52),(.14,2.45)],m['nozzle'],seg=48,parent=pivot)
             bell.location=p((0,0,z));smooth(bell,45)
             ring_on(p((0,.03,z)),p((0,1,0)),.40,.027,m['alloy'],'outlet rim',seg=48,parent=pivot)
             for dx in [-.10,.10]:rod('outlet protective grille',(dx,.012,z-.34),(dx,.012,z+.34),.018,m['alloy'],pivot)
@@ -193,10 +215,18 @@ def stern(m,root):
                 bpy.ops.mesh.primitive_cylinder_add(vertices=24,radius=.12,depth=.8,location=p((x+dx,0,z)))
                 cut(plate,bpy.context.object)
                 ring_on(p((dx,.03,z)),p((0,1,0)),.12,.018,m['alloy'],'auxiliary outlet lip',seg=24,parent=pivot)
-        neck=revolve('drive neck',[(.47,2.0),(.47,3.6)],m['alloy'],seg=48,parent=pivot)
-        for y in [2.05,2.3,2.55,2.8,3.05,3.3]:
-            ring_on((0,0,y),(0,0,1),.49,.045,m['enamel'],'drive neck flange',seg=40,parent=pivot)
-        block('engine mounting block',(x,3.5,0),(2.12,1.1,2.3),m['enamel'],root,.15)
+        neck=empty(f'inspection_drive_neck_{i}',p((x,4.20,0)),root)
+        length=aft-4.20
+        shell=revolve('fixed drive duct',[(.57,0),(.52,.31),(.48,.70),(.48,length-.46),(.59,length+.25)],m['alloy'],seg=48,parent=neck)
+        smooth(shell,45)
+        for k in range(13):
+            y=.36+k*(length-.75)/12
+            ring_on((0,0,y),(0,0,1),.51,.049,m['enamel'],'duct bellows corrugation',seg=36,parent=neck)
+        block('drive service flange',(x,aft-.012,0),(1.39,.12,1.54),m['enamel'],root,.052)
+        for dx in [-.54,.54]:
+            for z in [-.60,.60]:
+                rod('captive mounting bolt',(x+dx,aft-.102,z),(x+dx,aft-.063,z),.061,m['alloy'],root)
+        block('engine mounting saddle',(x,aft+.18,0),(1.60,1.25,1.82),m['enamel'],root,.13)
 
 
 def rotor(m,root):
@@ -208,14 +238,21 @@ def rotor(m,root):
         a=j*2*pi/24
         pos=(radius*cos(a),0,radius*sin(a))
         mount=empty('habitat segment',p(pos),node);mount.rotation_euler=(0,0,-a)
-        block('centrifuge floor',(0,0,0),(.10,1.7,1.15),m['liner'],mount,.02)
+        block('centrifuge floor',(0,0,0),(.10,1.7,1.15),m['bay_floor'],mount,.02)
+        for y in [-.71,.71]:
+            block('floor edge channel',(-.051,y,0),(.045,.12,1.15),m['alloy'],mount,.012)
         if j%3==0:
-            block('habitat cabinet',(-.40,0,0),(.7,.8,.70),m['enamel'],mount,.08)
+            block('habitat cabinet',(-.38,0,0),(.72,.89,.79),m['liner'],mount,.065)
+            for dz in [-.235,0,.235]:
+                block('habitat drawer bezel',(-.742,0,dz),(.034,.75,.20),m['alloy'],mount,.023)
+                block('inset drawer grip',(-.764,0,dz),(.025,.28,.054),m['panel'],mount,.013)
             rod('centrifuge spoke',(0,-.95,0),(radius*cos(a),-.95,radius*sin(a)),.045,m['alloy'],node)
 
 
 def make(_shared):
     m=palette();root=stage('explorer')
+    m['liner']=surface('explorerBayPaint',0xa3a69b,.65,.045,'paint',3.0)
+    m['bay_floor']=surface('explorerBayFloor',0x595e54,.79,.04,'rubber',4.1)
     hull(m,root);spine(m,root);stern(m,root);rotor(m,root)
     docked_pods(root)
     assign_uvs()

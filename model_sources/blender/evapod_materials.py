@@ -1,4 +1,4 @@
-"""Self-contained pod finishes: deterministic, tileable roughness/normal maps.
+"""Self-contained pod finishes with tileable colour, roughness and normal maps.
 Maps are embedded in the GLB; no external texture download or shader is required.
 """
 import bpy
@@ -16,17 +16,17 @@ DENSITY = {
 }
 
 
-def image(name, data):
+def image(name, data, color_space='Non-Color'):
     size = data.shape[0]
     im = bpy.data.images.new(name, size, size, alpha=True)
-    im.colorspace_settings.name = 'Non-Color'
+    im.colorspace_settings.name = color_space
     im.pixels.foreach_set(data.astype(np.float32).ravel())
     im.update()
     im.pack()
     return im
 
 
-def maps(name, kind, rough):
+def maps(name, kind, rough, color):
     n = 256
     y, x = np.mgrid[0:n, 0:n] * (2*np.pi/n)
     rng = np.random.default_rng(2001)
@@ -71,7 +71,11 @@ def maps(name, kind, rough):
     rgba = np.ones((n,n,4)); rgba[:,:,:3]=normals*.5+.5
     normal = image(name+' micro normal',rgba)
     rgba[:,:,:3]=np.clip(rough+variation,.05,.98)[:,:,None]
-    return normal, image(name+' roughness',rgba)
+    roughness = image(name+' roughness',rgba)
+    pigment = np.array([(color >> shift & 255)/255 for shift in (16, 8, 0)])
+    wear = .020*noise(18,11) - .70*variation + .018*height
+    rgba[:,:,:3] = np.clip((1.0+wear[:,:,None])*pigment,0,1)
+    return normal, roughness, image(name+' colour',rgba,'sRGB')
 
 
 def finish(name, color, rough, metal, kind, coat=0.0):
@@ -79,7 +83,9 @@ def finish(name, color, rough, metal, kind, coat=0.0):
     bsdf = mat.node_tree.nodes['Principled BSDF']
     bsdf.inputs['Coat Weight'].default_value = coat
     bsdf.inputs['Coat Roughness'].default_value = .25
-    normal, roughness = maps(name,kind,rough)
+    normal, roughness, albedo = maps(name,kind,rough,color)
+    tex = mat.node_tree.nodes.new('ShaderNodeTexImage'); tex.image = albedo
+    mat.node_tree.links.new(tex.outputs['Color'],bsdf.inputs['Base Color'])
     tex = mat.node_tree.nodes.new('ShaderNodeTexImage'); tex.image = roughness
     mat.node_tree.links.new(tex.outputs['Color'],bsdf.inputs['Roughness'])
     tex = mat.node_tree.nodes.new('ShaderNodeTexImage'); tex.image = normal

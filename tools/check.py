@@ -53,6 +53,7 @@ CHANGED_RULES = (
     (("sim/flight/mission.gd",), ("missionguidancecheck",)),
     (("sim/flight/lander_craft.gd", "model_sources/blender/lander.py"), ("craft-*", "assetcheck")),
     (("sim/flight/endurance_craft.gd", "model_sources/blender/endurance.py"), ("endurancecheck-*", "craft-*", "assetcheck")),
+    (("model_sources/blender/movie_materials.py",), ("endurancecheck-*", "discoverycheck-*", "craft-*", "assetcheck")),
     (("sim/flight/vessel.gd",), ("soicheck", "discoveryflightcheck")),
     (("sim/flight/kerr_circular.gd",), ("kerrcircularcheck",)),
     (("sim/flight/finite_burn.gd",), ("finiteburncheck", "discoveryflightcheck", "flightphysicscheck")),

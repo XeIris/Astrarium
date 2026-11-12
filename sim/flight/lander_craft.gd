@@ -40,24 +40,31 @@ static func geometry(spec: Dictionary) -> Dictionary:
 	RangerCraft._face(faces,bow,"thermal","bow closure")
 	for side in [-1,1]:
 		var rows: Array=[
-			[.02,.19,-.12,.015,.045,.16],
+			[.02,.17,-.12,.015,.045,.14],
 			[.12,.21,-.18,.024,.066,.16],
 			[.25,.20,-.18,.023,.064,.15],
-			[.34,.15,-.13,.020,.051,.13],
-			[.46,.15,-.12,.021,.051,.13],
+			[.34,.13,-.13,.020,.051,.10],
+			[.46,.14,-.12,.021,.051,.11],
 			[.54,.20,-.16,.027,.070,.16],
 			[.63,.21,-.16,.023,.065,.16],
-			[.73,.15,-.09,.014,.035,.12],
+			[.73,.12,-.09,.014,.035,.085],
 		]
 		var offset: float=side*float(spec.D)*.395
+		var toe_in: Array[float]=[.02,0,.005,.016,.012,.003,0,.028]
 		for i in rows.size()-1:
-			var a:=section(spec,rows[i],offset);var b:=section(spec,rows[i+1],offset)
+			var a:=section(spec,rows[i],offset-side*toe_in[i]*float(spec.D))
+			var b:=section(spec,rows[i+1],offset-side*toe_in[i+1]*float(spec.D))
 			for edge in 6:
 				var j: int=(edge+1)%6
-				var lower := edge in [0,1,5]
-				RangerCraft._face(faces,[a[j],a[edge],b[edge],b[j]],"tps" if lower else "thermal","cargo pod skin")
-		RangerCraft._face(faces,section(spec,rows[0],offset),"panel","pod aft")
-		var front:=section(spec,rows.back(),offset);front.reverse()
+				if edge in [1,5]:
+					var f:=.40 if edge==5 else .60
+					var ac:=a[j].lerp(a[edge],f);var bc:=b[j].lerp(b[edge],f)
+					RangerCraft._face(faces,[a[j],ac,bc,b[j]],"tps" if edge==5 else "thermal","cargo pod skin")
+					RangerCraft._face(faces,[ac,a[edge],b[edge],bc],"thermal" if edge==5 else "tps","cargo pod skin")
+				else:
+					RangerCraft._face(faces,[a[j],a[edge],b[edge],b[j]],"tps" if edge==0 else "thermal","cargo pod skin")
+		RangerCraft._face(faces,section(spec,rows[0],offset-side*toe_in[0]*float(spec.D)),"panel","pod aft")
+		var front:=section(spec,rows.back(),offset-side*toe_in.back()*float(spec.D));front.reverse()
 		RangerCraft._face(faces,front,"thermal","pod front")
 	return {"faces":faces,"windows":windows}
 
@@ -85,7 +92,7 @@ static func build(spec: Dictionary,parts: Dictionary) -> Dictionary:
 	var collar:=CraftModel._mesh(CraftModel._torus(float(port.radius),.12,10,40),mats.steel)
 	collar.position=Vector3(port.at[0],port.at[1],port.at[2])
 	var normal:=Vector3(port.normal[0],port.normal[1],port.normal[2]).normalized()
-	collar.quaternion=Quaternion(Vector3.UP,normal)
+	collar.quaternion=Quaternion(Vector3.BACK,normal)
 	root.add_child(collar)
 	for at: Vector3 in engines(spec):
 		var pivot:=Node3D.new();root.add_child(pivot);pivot.position=at;parts.gimbals.append(pivot)

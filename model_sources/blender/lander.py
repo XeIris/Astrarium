@@ -7,8 +7,7 @@ from math import pi
 from mathutils import Vector, Matrix
 from lib import empty, box, strut, revolve, ring_on, finish, smooth, _obj
 from common import build, stage, vehicle_stages
-from movie_materials import palette, assign_uvs
-from evapod_materials import finish as surface_finish, DENSITY
+from movie_materials import palette, assign_uvs, surface
 
 S = vehicle_stages('lander')['cargo']
 C = Matrix(((1, 0, 0), (0, 0, -1), (0, 1, 0)))
@@ -65,8 +64,8 @@ def cargo_panels(points, normal, m, parent):
 
 def make(_shared):
     m = palette()
-    m['blanket'] = surface_finish('cargoBlanket', 0xcdd0c9, .84, .015, 'quilt')
-    DENSITY['cargoBlanket'] = .65
+    m['blanket'] = surface('cargoBlanket', 0xb8b1a1, .82, .02, 'blanket', .67)
+    m['tps'] = surface('cargoCeramic', 0x494440, .86, .025, 'tile', .97)
     root = stage('cargo')
     length, beam = S['L'], S['D']
     for row in S['geometry']['faces']:

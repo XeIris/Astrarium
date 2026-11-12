@@ -66,7 +66,7 @@ orrery's distant-world pass in place.
 
 ## Surface finishes
 
-`evapod_materials.py` generates deterministic, tileable normal and roughness maps
+`evapod_materials.py` generates deterministic, tileable colour, normal and roughness maps
 for warm enamel, maroon painted fibreglass, satin panel laminate, fine-grain
 leatherette, woven harnesses, rubber and brushed aluminium/steel. They are embedded
 in the GLBs and retained on lower quality presets. Godot extracts generated PNG

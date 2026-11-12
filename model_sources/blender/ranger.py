@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy
 from math import atan2, pi, sin, cos
 from mathutils import Vector, Matrix
-from lib import empty, box, strut, ring_on, finish, material, reset_scene
+from lib import empty, box, strut, ring_on, revolve, finish, reset_scene
 from common import stage, optimise, export, out_path, validate_vehicle
 from vehicle_data import vehicle_stages
 from movie_materials import palette, assign_uvs
@@ -89,15 +89,27 @@ def exterior(m):
         inner=[center+(v-center)*.96 for v in points]
         for j in range(len(points)):
             poly('window gasket',[points[j],points[(j+1)%len(points)],inner[(j+1)%len(points)],inner[j]],m['rubber'],root,.003)
-    # A slim carbon leading-edge rail, attached to the chine along the deck.
+    # Wide carbon chines trace the shoulder and taper into the blunt foredeck.
     for side in [-1,1]:
-        points=[(side*w,y,z+.01) for y in [17.5,14.5,10.5,5.3,1.8,.35]
-                for w,z,_roof,_crown in [section_at(y)]]
-        for a,b in zip(points,points[1:]):
-            rod('chine rail',a,b,.055,m['tps'],root)
-        # Raised fences follow the wing sweep rather than floating over the roof.
-        for a,b in zip(points[1:-1],points[2:]):
-            poly('leading edge fence',[a,b,Vector(b)+Vector((0,0,.30)),Vector(a)+Vector((0,0,.30))],m['tps'],root)
+        edge=[];inner=[]
+        for row in S['geometry']['sections']:
+            y=row[0]*S['L'];w,z,_,crown=section_at(y)
+            width=min((w-crown)*.84,.22+.47*sin(pi*row[0])**.7)
+            edge.append(Vector((side*w,y,z+.012)))
+            inner.append(Vector((side*(w-width),y,roof_at(side*(w-width),y)+.012)))
+        for i in range(len(edge)-1):
+            poly('carbon chine cap',[edge[i],edge[i+1],inner[i+1],inner[i]],m['tps'],root)
+            a,b=edge[i],edge[i+1]
+            along=(b-a).normalized()
+            start=a+along*.075 if i==0 else a
+            end=b-along*.075 if i==len(edge)-2 else b
+            rod('chine edge bead',start,end,.028,m['tps'],root)
+    socket=mounted('aft docking recess',(0,0,.15),root)
+    revolve('dock pressure recess',[(.68,.008),(.66,.11),(.49,.15),(.47,.27),(0,.27)],m['rubber'],seg=64,parent=socket)
+    ring_on((0,0,.055),(0,0,1),.575,.043,m['alloy'],'docking capture flange',seg=64,parent=socket)
+    for i in range(12):
+        a=2*pi*i/12
+        block('docking latch lug',(.57*cos(a),.055,.57*sin(a)),(.075,.062,.075),m['alloy'],socket,.014)
     # Blanket seams on the long nose deck, and small replaceable panel patches.
     for y,w in [(11.5,2.0),(13.0,1.75),(14.5,1.4),(16.0,.94)]:
         z=section_at(y)[2]+.012
@@ -105,25 +117,37 @@ def exterior(m):
     for x in [-.7,.7]:
         for ya,yb in zip([11.1,12.7,14.5,16.0],[12.7,14.5,16.0,16.7]):
             rod('nose blanket seam',(x,ya,section_at(ya)[2]+.012),(x,yb,section_at(yb)[2]+.012),.009,m['alloy'],root)
-    # Rear shoulder thermal radiators, with physically separated ribs.
+    # One full-width, skin-conforming radiator band across the aft shoulder.
+    ymin,ymax=1.42,2.24
+    stations=[ymin,.10*S['L'],ymax]
+    for a,b in zip(stations,stations[1:]):
+        wa,_,_,ca=section_at(a);wb,_,_,cb=section_at(b)
+        left=[-.92*wa,-ca,ca,.92*wa]
+        right=[-.92*wb,-cb,cb,.92*wb]
+        for j in range(3):
+            points=[(x,y,roof_at(x,y)+.025) for x,y in [(left[j],a),(left[j+1],a),(right[j+1],b),(right[j],b)]]
+            poly('radiator band backing',points,m['panel'],root)
+    for i in range(57):
+        fraction=(i-28)*.032
+        for a,b in zip([ymin+.035,stations[1]],[stations[1],ymax-.035]):
+            wa,_,_,_=section_at(a);wb,_,_,_=section_at(b)
+            x0,x1=fraction*wa,fraction*wb
+            rod('radiator plate rib',(x0,a,roof_at(x0,a)+.034),
+                (x1,b,roof_at(x1,b)+.034),.014,m['tps'],root)
     for side in [-1,1]:
-        block('radiator backing',(side*2.5,1.5,1.46),(3.7,1.1,.12),m['tps'],root)
-        for k in range(25):
-            block('radiator fin',(side*2.5+(k-12)*.135,1.5,1.535),(.035,1.04,.035),m['panel'],root,.006)
         # Twin rectangular outlets are mounted on independent gimbals at the exit.
         piv=mounted(f'gimbal_ranger_{0 if side<0 else 1}',(side*1.45,0,0),root)
         # A short open box nozzle, with a recessed throat and continuous walls.
         for x in [-.36,.36]: block('nozzle side',(x,.24,0),(.035,.48,.58),m['alloy'],piv,.009)
         for z in [-.29,.29]: block('nozzle lip',(0,.24,z),(.72,.48,.035),m['alloy'],piv,.009)
         block('nozzle throat',(0,.45,0),(.65,.025,.50),m['tps'],piv,.0)
-        for y in [2.6,9.0]:
-            at=(side*(3.85 if y<5 else 2.7),y,.56)
-            block('RCS manifold',at,(.32,.74,.16),m['alloy'],root)
-            for n in range(3): block('RCS socket',(at[0],y+(n-1)*.22,.655),(.13,.13,.045),m['rubber'],root,.035)
-    # Docking collar has a closed central hatch; no loose ring behind the ship.
-    for radius,tube in [(.58,.09),(.48,.035)]:
-        ring_on(p((0,.10,.13)),p((0,1,0)),radius,tube,m['alloy'],'docking collar',parent=root)
-    block('aft hatch',(0,.10,.13),(.84,.14,.84),m['panel'],root,.1)
+        for y,x in [(2.65,3.29),(10.75,2.98),(16.8,2.43)]:
+            for n in [-1,0,1]:
+                yy=y+n*.18
+                at=Vector((side*x,yy,roof_at(side*x,yy)))
+                ring_on(p(at),p((0,0,1)),.077,.019,m['alloy'],'recessed RCS rim',seg=20,parent=root)
+                block('RCS throat',at-Vector((0,0,.014)),(.116,.116,.045),m['rubber'],root,.026)
+    block('recessed aft pressure hatch',(0,.234,.15),(.65,.072,.65),m['panel'],root,.07)
     for i in range(3):
         at=(0 if i==0 else (-2.8 if i==1 else 2.8),13.8 if i==0 else 3.7,-.47)
         mount=mounted(f'gear mount {i}',at,root)
@@ -232,7 +256,7 @@ def interior(m):
             poly('window reveal',[vs[j]-normal*.004,vs[k]-normal*.004,seal[k],seal[j]],m['rubber'],root)
             poly('window seal',[seal[j],seal[k],inner[k],inner[j]],m['rubber'],root,-.004)
             rod('window inner frame',seal[j]-normal*.012,seal[k]-normal*.012,.019,m['alloy'],root)
-    block('flight deck',(0,6.0,-.37),(4.8,6.3,.075),m['panel'],root)
+    block('flight deck',(0,6.0,-.37),(4.8,6.3,.075),m['deck'],root)
     for y in [3.30,4.10,4.90,5.70,6.50,7.30,8.10]:
         block('inset aisle tread',(0,y,-.330),(.55,.76,.018),m['rubber'],root,.006)
         for side in [-1,1]:
@@ -240,12 +264,32 @@ def interior(m):
         for dy in [-.27,-.135,0,.135,.27]:
             block('anti-slip ridge',(0,y+dy,-.317),(.47,.026,.013),m['tps'],root,.003)
     block('aft pressure bulkhead',(0,2.65,.56),(4.5,.10,2.1),m['liner'],root)
-    block('crew passage',(0,2.71,.48),(.95,.04,1.75),m['rubber'],root)
+    block('crew passage seal',(0,2.712,.48),(1.04,.049,1.78),m['rubber'],root,.025)
+    block('recessed pressure hatch',(0,2.739,.48),(.93,.035,1.65),m['panel'],root,.036)
+    for side in [-1,1]:
+        x=side*.39
+        rod('hatch handle post',(x,2.748,.53),(x,2.84,.53),.021,m['alloy'],root)
+        rod('hatch handle post',(x,2.748,.77),(x,2.84,.77),.021,m['alloy'],root)
+        rod('hatch grab handle',(x,2.84,.53),(x,2.84,.77),.023,m['rubber'],root)
+        block('aft blanket locker',(side*1.46,2.765,.52),(.63,.20,1.21),m['cabin_quilt'],root,.046)
+        for dx in [-.21,.21]:
+            block('locker retention webbing',(side*1.46+dx,2.868,.52),(.044,.020,1.12),m['webbing'],root,.005)
+            block('locker strap buckle',(side*1.46+dx,2.887,.70),(.061,.027,.077),m['alloy'],root,.012)
+        for y in [5.56,7.70]:
+            w,_,_,crown=section_at(y)
+            a=Vector((side*.20,y,roof_at(.20,y)-.071))
+            b=Vector((side*crown,y,roof_at(crown,y)-.071))
+            c=Vector((side*min(w-.13,crown+.78),y,roof_at(crown+.78,y)-.070))
+            rod('canopy frame crown web',a,b,.027,m['alloy'],root)
+            rod('canopy frame shoulder web',b,c,.027,m['alloy'],root)
     for x in [-.72,.72]:
         block('seat pedestal',(x,7.0,-.18),(.45,.65,.4),m['alloy'],root)
         block('seat cushion',(x,7.05,.06),(.64,.72,.19),m['seat'],root,.09)
         block('seat back',(x,6.72,.51),(.64,.18,.88),m['seat'],root,.08)
         block('headrest',(x,6.71,1.04),(.47,.20,.25),m['seat'],root,.07)
+        block('backrest centre insert',(x,6.803,.54),(.36,.040,.72),m['seat'],root,.025)
+        for z in [.30,.47,.64,.81]:
+            rod('seat insert seam',(x-.145,6.825,z),(x+.145,6.825,z),.0028,m['webbing'],root)
         for dx in [-.22,.22]:
             block('harness',(x+dx,6.817,.54),(.065,.025,.79),m['webbing'],root,.007)
             block('armrest',(x+dx*1.65,7.05,.37),(.12,.66,.12),m['seat'],root)
@@ -267,10 +311,23 @@ def interior(m):
         block('console floor plinth',(x,8.98,-.27),(1.0,.40,.14),m['alloy'],root)
         height=.90 if x else 1.36
         block('console cabinet',(x,8.965,height*.5-.20),(1.10,.47,height),m['panel'],root)
+        for side in [-1,1]:
+            block('console frame rail',(x+side*.517,8.718,height*.5-.20),(.038,.043,height-.055),m['alloy'],root,.008)
+            for z in [-.13,height-.26]:
+                ring_on(p((x+side*.517,8.694,z)),p((0,1,0)),.009,.0027,m['rubber'],
+                        'captive console screw',seg=12,minor=6,parent=root)
         if x<0:
             display('FLIGHT DIRECTOR',(x,8.78,.61),.84,.43,m,root)
         elif x>0:
             display('PROPULSION',(x,8.78,.61),.84,.43,m,root,[('FEED A',.83),('FEED B',.74),('CHAMB',.61),('RCS',.52)])
+        if x:
+            block('recessed switch plate',(x,8.721,.218),(.94,.043,.247),m['rubber'],root,.013)
+            label('switch plate legend','NAV / ATTITUDE' if x<0 else 'FEED / REACTION CONTROL',
+                  (x,8.696,.325),.022,root,m['legend'])
+            for dx in [-.41,.41]:
+                rod('rotary selector shaft',(x+dx,8.72,.062),(x+dx,8.659,.062),.034,m['alloy'],root)
+                rod('rotary selector grip',(x+dx,8.69,.062),(x+dx,8.643,.062),.030,m['rubber'],root)
+                block('selector position mark',(x+dx,8.641,.078),(.009,.004,.024),m['legend'],root,.002)
         for k in range(21 if x else 28):
             sx=x+(k%7-3)*.115 if x else [-.46,-.34,.34,.46][k%4]
             sz=.13+(k//7)*.085 if x else -.1+(k//4)*.2
@@ -305,6 +362,9 @@ def interior(m):
             block('equipment rack',(side*1.88,y,.17),(.5,.96,1.0),m['panel'],root)
             for z in [-.05,.25,.55]:
                 block('equipment drawer',(side*1.6,y,z),(.07,.75,.22),m['alloy'],root)
+                block('drawer recessed pull',(side*1.556,y,z+.018),(.027,.32,.058),m['rubber'],root,.012)
+                for dy in [-.27,.27]:
+                    block('drawer captive fastener',(side*1.56,y+dy,z),(.022,.043,.052),m['panel'],root,.008)
         for y in [3.1,4.8,6.6,8.4]:
             rod('cabin rail',(side*2.05,y,-.35),(side*2.05,y,roof_at(side*2.05,y)-.055),.028,m['alloy'],root)
     label('own identification','SURVEY / FLIGHT DECK',(0,2.72,1.34),.10,root,m['legend'])
