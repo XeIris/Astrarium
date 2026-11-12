@@ -390,6 +390,11 @@ func _soak_check() -> void:
 				for i in 4: stage.animate(1.0 / 60.0)
 			stage._on_slider("galExposure", 0.5)
 			stage._on_slider("galExposure", 0.0)
+			# Every landmark flown to and framed.
+			for lm in GalLandmarks.of("milky_way"):
+				stage._on_galaxy_action("landmark", String(lm.id))
+				for i in 3: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
 			# Reset view and sky inside the scene, which has no orrery preset to read.
 			stage._on_reset_view()
 			stage._on_sky_reset()

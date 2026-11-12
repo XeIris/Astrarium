@@ -368,6 +368,7 @@ func _clear_landmarks() -> void:
 	_objects_mat = null
 	_lm_layer = null
 	_lm_labels = {}
+	landmarks = []
 	landmark = ""
 	var grid: Control = stage.hud.mount("galLandmarks") if stage.hud != null else null
 	if grid != null:
@@ -416,9 +417,9 @@ var _measure_tick := -1
 
 func sync_hud() -> void:
 	var hud = stage.hud
+	if hud == null or not active: return
 	for lm in landmarks:
 		hud.set_active("[data-gal-lm=%s]" % lm.id, lm.id == landmark)
-	if hud == null or not active: return
 	hud.set_text("galName", String(preset.get("name", "")))
 	hud.set_prose("galBlurb", String(preset.get("blurb", "")))
 	hud.set_text("galTime", "%s Myr" % U.fixed(t_myr, 1))
