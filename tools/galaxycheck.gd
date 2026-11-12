@@ -224,8 +224,8 @@ const PARITY_TOL := 1e-12
 # the measured differences, which docs/physics/galaxies.md reports.
 ## Real stars within 40 pc against the model's resolved ones: number and visible light
 ## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit).
-const NEAR_COUNT_PIN := 0.61
-const NEAR_LIGHT_PIN := 2.25
+const NEAR_COUNT_PIN := 0.62
+const NEAR_LIGHT_PIN := 2.33
 const BOVY_2017_DN_DMV := {1: 3.8, 2: 5.4, 3: 9.9, 4: 22.6, 5: 24.8, 6: 24.3}
 
 func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
