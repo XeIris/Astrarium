@@ -782,11 +782,68 @@ Set side by side at matched field and north, judged by eye:
 ### Missing
 
 - **Scattering.** Dust only extinguishes.
-- **Fine structure:**
-  - the fine dust filaments and feathers between the arms;
+- **Fine structure:** the medium below the map ([below](#the-medium-below-the-map)) draws
+  turbulent dust and clumped young light, but not:
+  - feathers anchored on the lanes (La Vigne et al. 2006 find M51's spaced 200 pc inside to
+    500–1000 pc outside); the medium's filaments trail by shear but are not tied to the arms;
   - the 10–100 Myr clusters that make Hubble's arms grainy and blue;
   - the outer arm's link to NGC 5195;
   - NGC 5195's own dust and shape.
+
+## The medium below the map
+
+`sim/galaxy/gal_ism.gd`, drawn by `gal_ism` in `gal_model.gdshaderinc`. The arm map holds a
+galaxy's dust and young light at 104 pc texels; below that they were smooth. The medium adds
+the turbulent structure beneath, as two multipliers of mean one: one on the dust, one on the
+young light. The dust's mass and the young light are unchanged.
+
+**The field.** A 512² periodic Gaussian field, two independent channels, each band-limited to
+16–32 texels per wave so bilinear filtering draws it smoothly. A 64³ volume at 4–8 voxels per
+wave drew trilinear facets: in the band powers below they showed as excess power at 25–50 pc.
+It is sampled in octaves from 800 pc to 3 pc, each turned and offset so no two line up.
+
+**Kolmogorov, through a layer.** Each octave's amplitude grows as λ^(1/3), Kolmogorov's
+variance per octave ∝ λ^(2/3). Through a layer of thickness H, a column averages H/λ eddies
+of the finer ones, so their amplitude falls by √(λ/H). That is the break Elmegreen et al.
+(2001) find in the LMC's HI at ~100 pc and Combes et al. (2012) in M33's dust at 100–350 pc.
+H is twice the galaxy's thinnest dust scale height for the dust (M51 320 pc, the Sombrero's
+ring 20 pc) and twice the young layer's for the young light.
+
+**Shear.** Each octave is drawn where its gas was an eddy lifetime ago, turned back by the
+rotation curve. The lifetime comes from Larson's relation, ℓ/δv with δv = 0.90 km/s (ℓ/pc)^0.56
+(Heyer & Brunt 2004), held below a disc's ~10 km/s dispersion. It is capped at one shear time,
+|dΩ/d ln R|⁻¹, since clouds do not outlive it (Meidt et al. 2015 find M51's live 20–30 Myr).
+Large eddies trail as flocculent filaments; small ones stay round. Without the cap, the
+800 pc octaves wind into rings about the centre.
+
+**Dust.** Half of M51's molecular gas is a smooth disc ~200 pc thick and half is compact
+(Pety et al. 2013), so half the dust is structured: D = 1 + ½(m − 1). Supersonic turbulence
+gathers gas into shock-compressed sheets, so m is exp(−βn²) over its mean, (1 + 2β)^(−1/2),
+dense where the field crosses zero. A log-normal instead gives blobs, and with half the dust
+smooth it cannot reach Hughes et al.'s widths: it peaks near 0.21 dex.
+
+**Young light.** A log-normal in its own realization. Grasha et al. (2019) find M51's young
+clusters' 1 + ω(θ) ∝ θ^−0.28 against the molecular clouds' θ^−0.09. A log-normal raised to n
+steepens ln(1 + ξ) by n², so the young light's 40 pc width is n = √(0.28/0.09) = 1.76 times
+the gas column's. It is independent of the dust because most clusters have left their gas by
+~6 Myr (Grasha et al.), and the 100 Myr of young light is dominated by older ones.
+
+**Where it is drawn.** From outside the layer (1 kpc off the plane), each ray takes the
+medium where it crosses the plane, band-limited to its pixel there. A tilted thick layer then
+does not smear it, and the march adds no grain. From inside, a jittered 28-step march samples
+a field finer than its step and draws grain, so the medium is not drawn there: from the Sun the
+glow stays smooth.
+
+**Mean one.** The largest eddies do not average out over one galaxy: M51's young light came
+out 6 % high. Each galaxy's realised means over its own map, weighted by its dust and young
+light (or by its dust in the plane where it has no map), are divided out at footprints of 0.1,
+0.2 and 0.4 kpc, interpolated in log₂. Finer footprints add eddies that do average out.
+
+**Its strength.** Hughes et al.'s (2013) CO widths at PAWS's 40 pc are 0.22–0.25 dex between
+the arms. Fitting the dust column to them (β = 0.98) draws M51 with 3.6–4.8 times Hubble's band
+power at 36–72 pc, near-black blotches in the inner disc. CO traces only the dense phase. The
+drawn strength is set on Hubble's image instead (below): β = 0.1 at 100 pc, which gives a dust
+column 0.12 dex wide between the arms at 40 pc.
 
 ## Encounters (phase 4)
 

@@ -86,6 +86,17 @@ static func shape(o: int, layer: float) -> float:
 static func amplitude(o: int, layer: float) -> float:
 	return amp * shape(o, layer)
 
+## Octaves whose dust contrast and young log-amplitude are both below these are not drawn: a
+## few per cent of a pixel's brightness at most, and the fine end of a thick layer's spectrum.
+const MIN_AMP := Vector2(0.01, 0.03)
+
+## How many octaves, from the largest, a galaxy with these layers draws.
+static func count(layers: Vector2) -> int:
+	var n := 0
+	for o in OCTAVES:
+		if amplitude(o, layers.x) >= MIN_AMP.x or young_amplitude(o, layers.y) >= MIN_AMP.y: n = o + 1
+	return n
+
 ## The young light's log-amplitude of octave o in a layer `layer` kpc thick: n times the gas
 ## column's 40 pc width, shared over the octaves a 40 pc footprint resolves.
 static func young_amplitude(o: int, layer: float) -> float:
@@ -99,11 +110,12 @@ static func lifetime(o: int) -> float:
 	var dv := minf(LARSON_KMS * pow(l * 1000.0, LARSON_EXP), SIGMA_GAS_KMS) * GalUnits.KMS
 	return l / dv
 
-## How much of octave o a footprint of `foot` kpc resolves: all of it below a quarter of its
-## longest wavelength, none past half.
+## How much of octave o a footprint of `foot` kpc resolves: all of it below an eighth of its
+## longest wavelength, none past a quarter, where a pixel steps half its shortest wave (8 of the
+## field's 16 texels): finer, the octave would alias and miss the texture cache.
 static func weight(o: int, foot: float) -> float:
 	var l := wavelength(o)
-	return clampf((0.5 * l - foot) / (0.25 * l), 0.0, 1.0)
+	return clampf((0.25 * l - foot) / (0.125 * l), 0.0, 1.0)
 
 const SEED := 25
 
@@ -275,7 +287,7 @@ static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: P
 	var R := sqrt(q0.x * q0.x + q0.z * q0.z)
 	var ld := 0.0
 	var ly := 0.0
-	for o in OCTAVES:
+	for o in count(layers):
 		var w := weight(o, foot)
 		if w <= 0.0: break
 		var b := amplitude(o, layers.x) * w
@@ -303,8 +315,9 @@ static func norm_at(norms: PackedVector2Array, foot: float) -> Vector2:
 ## The multipliers' realised means over a galaxy's map (`img`, the arm map: dust in g, young
 ## light in r times `envelope`) at each of NORM_FEET (kpc): its few largest eddies do not average
 ## out over one galaxy (M51's young light by 6 %), so each galaxy's are divided by their own and
-## its dust's mass and young light stay exact. Finer than 100 pc the eddies added average out.
-const NORM_FEET := [0.1, 0.2, 0.4]
+## its dust's mass and young light stay exact. The footprints are where octaves fade in, λ_o/8;
+## finer than 12.5 pc the eddies added average out.
+const NORM_FEET := [0.0125, 0.025, 0.05, 0.1, 0.2]
 
 static func norms(img: Image, half: float, envelope: Callable, turns: PackedFloat32Array, r_max: float, layers: Vector2) -> PackedVector2Array:
 	var f := field()
@@ -360,7 +373,11 @@ static func set_uniforms(mat: ShaderMaterial, turns: PackedFloat32Array, r_max: 
 	mat.set_shader_parameter("uISMOff", off)
 	mat.set_shader_parameter("uISMYoung", young)
 	mat.set_shader_parameter("uISMLayer", Vector2(COMPACT, OUTSIDE))
-	var nm := norms if norms.size() == NORM_FEET.size() else PackedVector2Array([Vector2.ONE, Vector2.ONE, Vector2.ONE])
+	mat.set_shader_parameter("uISMCount", count(layers))
+	var nm := norms
+	if nm.size() != NORM_FEET.size():
+		nm = PackedVector2Array()
+		for k in NORM_FEET.size(): nm.append(Vector2.ONE)
 	mat.set_shader_parameter("uISMNorm", nm)
 	mat.set_shader_parameter("uISMTurn", ImageTexture.create_from_image(Image.create_from_data(TURN_N, OCTAVES, false, Image.FORMAT_RF, turns.to_byte_array())))
 	mat.set_shader_parameter("uISMTurnR", r_max)

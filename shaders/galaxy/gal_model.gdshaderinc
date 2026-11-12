@@ -163,12 +163,14 @@ uniform float uISMLam[9];
 uniform vec2 uISMM[18];
 uniform vec2 uISMOff[9];
 uniform float uISMTurnR = 30.0;
+// Octaves drawn, from the largest (GalISM.count): the rest are too faint to show.
+uniform int uISMCount = 9;
 // The dust's structured share, and the height (kpc) beyond which a camera is outside the layer
 // and sees the medium.
 uniform vec2 uISMLayer = vec2(0.5, 1.0);
-// Each multiplier's realised mean over this galaxy at footprints 0.1, 0.2 and 0.4 kpc
+// Each multiplier's realised mean over this galaxy at footprints of 12.5 pc doubling to 200 pc
 // (GalISM.norms), divided out, linear in log₂ of the footprint between them.
-uniform vec2 uISMNorm[3];
+uniform vec2 uISMNorm[5];
 
 // The dust's and the young light's multipliers at p's place in the plane for a footprint of
 // `foot` kpc, each of mean one: octaves finer than the footprint fade out and take their
@@ -183,9 +185,9 @@ vec2 gal_ism(vec3 p, float foot) {
 	float f = x - float(i);
 	float ld = 0.0;
 	float ly = 0.0;
-	for (int o = 0; o < 9; o++) {
+	for (int o = 0; o < uISMCount; o++) {
 		float l = uISMLam[o];
-		float w = clamp((0.5 * l - foot) / (0.25 * l), 0.0, 1.0);
+		float w = clamp((0.25 * l - foot) / (0.125 * l), 0.0, 1.0);
 		if (w <= 0.0) break;
 		float b = uISMOct[o] * w;
 		float a = uISMYoung[o] * w;
@@ -199,7 +201,7 @@ vec2 gal_ism(vec3 p, float foot) {
 		ld += -b * n.x * n.x + 0.5 * log(1.0 + 2.0 * b);
 		ly += a * n.y - 0.5 * a * a;
 	}
-	float xn = clamp(log2(foot / 0.1), 0.0, 2.0 - 1e-6);
+	float xn = clamp(log2(foot / 0.0125), 0.0, 4.0 - 1e-6);
 	int in_ = int(xn);
 	return vec2(exp(ld), exp(ly)) / mix(uISMNorm[in_], uISMNorm[in_ + 1], xn - float(in_));
 }
