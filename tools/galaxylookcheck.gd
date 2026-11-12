@@ -25,8 +25,9 @@ const EDGE_SAMPLES := 3000
 const EDGE_EXPOSURE := 0.05
 ## From the Sun the glow's steps gather about the camera, where the arm dust in the plane
 ## changes most: 0.3 % against a converged CPU march (12000 samples agree with 3000). Spread
-## evenly over the box's chord they read 7 % bright in the lane.
-const DUST_TOL := {"edge": 0.04, "sun": 0.03}
+## evenly over the box's chord they read 7 % bright in the lane. That leaves the lane rows
+## sensitive to how a step attenuates: lit at its midpoint instead of by its mean they read 1 %.
+const DUST_TOL := {"edge": 0.04, "sun": 0.006}
 ## The join: four views from the Sun at a night-sky exposure, each half of it (the drawn
 ## stars, the glow given up) against the CPU.
 const JOIN_EXPOSURE := 1.0
@@ -249,7 +250,7 @@ func through_dust(v: GalaxyVisual, framing: String) -> void:
 		print("     row %+d px: drawn %s, integral %s" % [int(dy), U.expo(drawn / EDGE_COLUMNS, 3), U.expo(want / EDGE_COLUMNS, 3)])
 		worst = maxf(worst, err)
 		rows += 1
-	check("%s: glow through the dust = CPU integral in %d rows (worst %s %%, < %s)" % [framing, rows, U.fixed(worst * 100.0, 1), U.fixed(DUST_TOL[framing] * 100.0, 0)], worst < DUST_TOL[framing])
+	check("%s: glow through the dust = CPU integral in %d rows (worst %s %%, < %s)" % [framing, rows, U.fixed(worst * 100.0, 1), U.fixed(DUST_TOL[framing] * 100.0, 1)], worst < DUST_TOL[framing])
 	v.show_tracers = true
 	v.show_stars = true
 
