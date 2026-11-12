@@ -1059,6 +1059,48 @@ The chart's parts had never drawn, in the HUD either: each was appended through 
 packed array. They are now built whole, and `galaxycheck` holds them to sum in quadrature to
 the model's curve.
 
+## The zoom (phase 6)
+
+The issue asked for three things:
+
+- **Log zoom.** Both scenes' wheel zoom multiplies the camera's radius (`OrreryCamera.zoom_orbit`), so
+  each tick crosses the same fraction of a decade at any scale. Landmarks fly by
+  `GalaxyScene.fly` (phase 3a), through `jump_cam_radius` and `glide_target_to`.
+- **Nested frames.** The camera is the floating origin: nodes are placed at `rel_v3(cam_pos)`
+  from double positions, so render space stays in float32's range at any scale without
+  re-centring on landmarks. The near plane follows the radius (5 % of it) and the far plane
+  stays within 10⁷ of it.
+- **Joining the Solar System.**
+
+**The join.** The Solar System scene ("solar", 1 scene unit = 1 AU) and the galactic scene meet
+at the Sun, 20 000 AU from it: the orbit camera's widest view (`OrreryCamera.MAX_REQUEST_RADIUS`),
+which is `GalaxyScene.JOIN_KPC` = 9.70 × 10⁻⁵ kpc. In the Solar System, following the Sun at that
+radius, zooming out loads the Milky Way in its Sun framing at the same radius. In the Galaxy's Sun
+framing, which now comes in that far, zooming in loads the Solar System following the Sun.
+
+The view keeps its direction through the galactic frame both scenes share: the Solar System's
+sky through `SkyModel.galactic_frame_j2000`, the Galaxy's through the Sun's axes
+(`GalNeighbourhood.sun_frame`), as `GalLandmarks.sky_direction` already used. Each scene's
+camera keeps its own up (ecliptic and galactic north), so the view arrives turned about its line
+of sight. `OrreryCamera.roll` turns it back to match exactly, and the roll eases away over about a
+second, like the follow camera's glide.
+
+The galactic scene's catalogue holds every star but ours. The Sun is now added as one point at
+the origin of its axes, M_V 4.83 (the orrery's value) and B−V 0.653 (Ramírez et al. 2012), so it
+does not vanish at the join.
+
+Checked:
+- Betelgeuse's direction mapped from the Solar System's sky lands 0.0005° from its galactic
+  (l, b), and a direction comes back from the round trip within 4 × 10⁻⁶° (`galaxycheck`).
+- The `join` soak feature crosses both ways at the Sun looking through Orion: Betelgeuse holds
+  its place on screen at each step (to 10⁻⁵ rad), and the object counts stay flat.
+- Removing the roll match is a caught mutation.
+- By eye, at the instant of the join the bright stars of Orion and the Hyades sit on the same
+  pixels in both scenes. Each scene still exposes its own way: the Sun is fainter in the galactic
+  scene, and the Milky Way's band is each scene's own.
+
+Not done: a join anywhere but the Sun, and a join from presets other than "solar".
+
 ## Limits (phase 1)
 
 - Phase 1 was axisymmetric and dust-free; phase 2a above adds the bar, the arms and
@@ -1096,7 +1138,8 @@ the Shu sampling reshapes only the eccentric tail of a disc this cool, below the
 stationarity test's noise. The hand-over test resolves about 6 %, so a smaller
 defect in the star counts (one extra star in each cell, say) also passes it.
 
-Phase 4's thirteen are all caught by `encountercheck`, and phase 5's three by `galaxycheck`
+Phase 4's thirteen are all caught by `encountercheck`, phase 6's one (the join without its
+roll) by the `join` soak, and phase 5's three by `galaxycheck`
 (the chart's parts), `coursecheck` (a misspelt landmark) and `encountercheck` (the retrograde
 disc spinning with the orbit):
 - the orbits: no dynamical friction, and the Coulomb logarithm read as a power;

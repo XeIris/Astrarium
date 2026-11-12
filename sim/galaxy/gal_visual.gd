@@ -135,6 +135,7 @@ var neighbourhood := {}
 var catalogue: MeshInstance3D = null
 var catalogue_mat: ShaderMaterial = null
 var has_sun := false
+const SUN_BV := 0.653
 var sun_r0 := 8.0
 var sun_omega := 0.0
 ## This frame: the Sun (galaxy-local kpc), its axes, the camera's distance from it (kpc)
@@ -675,7 +676,10 @@ func bake_arms() -> Dictionary:
 func apply_neighbourhood(baked: Dictionary) -> void:
 	if baked.is_empty() or not has_sun or catalogue != null: return
 	neighbourhood = baked
-	var n: int = int(baked.n_near) + int(baked.n_far)
+	# The catalogue has every star but our own: the Sun goes last, at the origin of its own
+	# axes, M_V 4.83 as the orrery draws it and B−V 0.653 (Ramírez et al. 2012), so a camera
+	# leaving the Solar System sees it shrink to a star.
+	var n: int = int(baked.n_near) + int(baked.n_far) + 1
 	# Colour per unit luminance exceeds 1 in a channel for blue and red stars, and vertex
 	# COLOR is 8-bit unorm: it goes in floats, (r, g, b, luminosity), and the set apart.
 	var custom := PackedFloat32Array()
@@ -683,15 +687,18 @@ func apply_neighbourhood(baked: Dictionary) -> void:
 	custom.resize(4 * n)
 	sets.resize(4 * n)
 	for i in n:
-		var c := GalNeighbourhood.colour(baked.bv[i])
+		var sun := i == n - 1
+		var c := GalNeighbourhood.colour(SUN_BV if sun else baked.bv[i])
 		custom[4 * i] = c.r
 		custom[4 * i + 1] = c.g
 		custom[4 * i + 2] = c.b
-		custom[4 * i + 3] = GalNeighbourhood.l_vis(baked.mv[i])
-		sets[4 * i] = 0.0 if i < int(baked.n_near) else 1.0
+		custom[4 * i + 3] = GalNeighbourhood.l_vis(Marker.M_SUN_ABS_V if sun else baked.mv[i])
+		sets[4 * i] = 0.0 if i < int(baked.n_near) or sun else 1.0
+	var verts: PackedVector3Array = (baked.pos as PackedVector3Array).duplicate()
+	verts.append(Vector3.ZERO)
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = baked.pos
+	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_CUSTOM0] = custom
 	arr[Mesh.ARRAY_CUSTOM1] = sets
 	var mesh := ArrayMesh.new()

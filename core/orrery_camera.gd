@@ -82,7 +82,23 @@ func glide_target_to(destination: DVec3) -> void:
 func update_orbit(current_basis := Basis()) -> Basis:
 	position.set_v(radius * sin(theta) * cos(phi), radius * cos(theta), radius * sin(theta) * sin(phi)).add_in(target)
 	var direction := target.rel_v3(position)
-	return Basis.looking_at(direction.normalized(), Vector3.UP) if direction.length_squared() > 0.0 else current_basis
+	if direction.length_squared() <= 0.0: return current_basis
+	var b := Basis.looking_at(direction.normalized(), Vector3.UP)
+	return Basis(direction.normalized(), roll) * b if roll != 0.0 else b
+
+## A turn about the line of sight (radians) that eases to none: what carries a view across
+## into a scene whose "up" differs (main.join_galaxy), without a jump.
+var roll := 0.0
+
+func ease_roll(dt: float) -> void:
+	roll *= exp(-dt * 1.2)
+	if absf(roll) < 1e-4: roll = 0.0
+
+## The roll that turns a view built with this scene's up onto `up` (a world direction).
+static func roll_onto(b: Basis, up: Vector3) -> float:
+	var forward := -b.z
+	var u := (up - forward * up.dot(forward)).normalized()
+	return atan2(b.y.cross(u).dot(forward), b.y.dot(u))
 
 func drag_orbit(dx: float, dy: float) -> void:
 	phi -= dx * 0.005

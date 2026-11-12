@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GALAXYCHECK = ["--headless", "--script", "res://tools/galaxycheck.gd", "--", "quick=1"]
 ENCOUNTERCHECK = ["--headless", "--script", "res://tools/encountercheck.gd"]
 GALAXYLOOK = ["--always-on-top", "--resolution", "1280x720", "res://tools/galaxylookcheck.tscn"]
+SOAK_JOIN = ["--always-on-top", "--resolution", "1280x720", "--", "eval=_soak_check", "soak=join", "rounds=3"]
 COURSECHECK = ["--always-on-top", "--resolution", "1280x720", "res://tools/coursecheck.tscn", "--", "only=galaxies/localgroup"]
 
 # name: (file, text, replacement, check arguments, what it breaks). KNOWN_MISSES are
@@ -154,6 +155,8 @@ MUTATIONS = {
                              COURSECHECK, "a lesson flying to a landmark the galaxy does not have"),
     "pro-retro-same-spin": ("sim/galaxy/gal_models.gd", '["Retrograde", 180.0, 0.0]', '["Retrograde", 0.0, 0.0]',
                             ENCOUNTERCHECK, "the retrograde disc spinning with the orbit after all"),
+    "join-no-roll": ("main.gd", "	cam.roll = OrreryCamera.roll_onto(cam_basis, up)", "	cam.roll = 0.0",
+                     SOAK_JOIN, "the Galaxy entered from the Solar System with its own up, the sky turned"),
     "companion-in-front": ("sim/galaxy/gal_landmarks.gd", "var rel := (cs[0] as Vector3) * float(spec.d) - (hs[0] as Vector3) * float(host.d)",
                            "var rel := (cs[0] as Vector3) * (2.0 * float(host.d) - float(spec.d)) - (hs[0] as Vector3) * float(host.d)",
                            GALAXYCHECK, "NGC 5195 placed in front of M51 rather than behind"),
@@ -202,8 +205,10 @@ def main():
             f.write_bytes(original)
         assert f.read_bytes() == original
         out = r.stdout + r.stderr
-        # A passing run prints "failures=0", or for the course "COURSE …L …S 0E".
-        passed = " failures=0" in out or re.search(r"^COURSE \d+L \d+S 0E$", out, re.MULTILINE) is not None
+        # A passing run prints "failures=0", for the course "COURSE …L …S 0E", for the soak an
+        # empty failure list.
+        passed = (" failures=0" in out or re.search(r"^COURSE \d+L \d+S 0E$", out, re.MULTILINE) is not None
+                  or re.search(r"^SOAK FAILURES \[\]$", out, re.MULTILINE) is not None)
         failed = r.returncode != 0 or not passed
         fails = [l for l in out.splitlines() if l.startswith("FAIL") or "ERROR" in l][:3]
         known = name in KNOWN_MISSES

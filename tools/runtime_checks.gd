@@ -443,6 +443,49 @@ func _soak_check() -> void:
 			if g.encounter == null or not g.encounter.is_live(): failures.append("encounter: the Antennae did not go live")
 			stage.load_preset("solar")
 			if g.active or g.encounter != null: failures.append("encounter: the Antennae outlived the switch to solar"),
+		"join": func():
+			# From the Solar System's widest view of the Sun out into the Galaxy and back, the
+			# view the same at the instant of each step (main.join_galaxy, join_solar).
+			stage.load_preset("solar")
+			var sun: Body = state.body_named("Sun")
+			stage.set_follow(sun)
+			var orion := SkyModel.radec_to_scene(84.0534, -1.2019).to_v3()
+			stage._look_from(-orion)
+			stage.jump_cam_radius(OrreryCamera.MAX_REQUEST_RADIUS)
+			stage.update_orbit_cam()
+			var bet := SkyModel.radec_to_scene(88.79294, 7.40706).to_v3()
+			var px0v: Vector3 = (stage.cam_basis as Basis).inverse() * bet
+			stage._wheel(120.0)
+			var g: GalaxyScene = stage.galaxy
+			g.wait_tracers()
+			var w := GalaxyScene.solar_to_galaxy(bet, g.sun_basis())
+			var px1v: Vector3 = (stage.cam_basis as Basis).inverse() * w
+			if not g.active or not g.follow_sun or absf(stage.cam.radius / GalaxyScene.JOIN_KPC - 1.0) > 1e-9:
+				failures.append("join: zooming out of the Solar System did not reach the Galaxy at the Sun")
+			elif px0v.angle_to(px1v) > 1e-5:
+				failures.append("join: Betelgeuse moved %s° on screen going out" % rad_to_deg(px0v.angle_to(px1v)))
+			for i in 4:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			# The Sun's axes have turned with the Galaxy while its clock ran.
+			w = GalaxyScene.solar_to_galaxy(bet, g.sun_basis())
+			var cam_in: Basis = stage.cam_basis
+			stage._wheel(-120.0)
+			if g.active or state.preset_key != "solar" or absf(stage.cam.radius - OrreryCamera.MAX_REQUEST_RADIUS) > 1e-6:
+				failures.append("join: zooming in at the Sun did not return to the Solar System")
+			elif (cam_in.inverse() * w).angle_to((stage.cam_basis as Basis).inverse() * bet) > 1e-5:
+				failures.append("join: Betelgeuse moved %s° on screen coming back" % rad_to_deg((cam_in.inverse() * w).angle_to((stage.cam_basis as Basis).inverse() * bet)))
+			for i in 4:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			# Never over someone's work: after an edit the widest view stays the widest view.
+			sun = state.body_named("Sun")
+			stage.set_follow(sun)
+			stage.edit_body(sun, {"mass": float(sun.mass) * 1.01})
+			stage.jump_cam_radius(OrreryCamera.MAX_REQUEST_RADIUS)
+			stage._wheel(120.0)
+			if g.active or state.preset_key != "solar": failures.append("join: an edited Solar System was replaced by the Galaxy")
+			stage.load_preset("solar"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),

@@ -448,10 +448,14 @@ func spawn_body(spec: Dictionary) -> Body:
 
 	state.bodies.append(b)
 	if not _climates_deferred: _sync_climate(b)
+	_preset_clean = false
 	return b
 
 # A preset's worlds draw from the light they start in, so they wait for all its stars.
 var _climates_deferred := false
+# The scene is the preset as loaded: no body spawned, edited or removed since (time may have
+# run). Only then may a zoom-out replace it with the Galaxy (_at_galaxy_join).
+var _preset_clean := false
 
 # A rocky or ocean world has a climate and nothing else does; called wherever a type can change.
 func _sync_climate(b: Body) -> void:
@@ -474,6 +478,7 @@ func remove_body(id) -> void:
 		live_editor.sync(null)
 		open_cross_section(false)
 	b.alive = false
+	_preset_clean = false
 	detach_visual(b)
 	if b.trail != null:
 		b.trail.node.queue_free()
@@ -563,6 +568,7 @@ func edit_body(b: Body, patch: Dictionary):
 	if patch.has("type") and (not patch.type is String or patch.type != b.type):
 		_reject_body_input("Type changes are structural events; edits must keep the body's current type.", b)
 		return null
+	_preset_clean = false
 	var spec := U.merged(b.spec, patch)
 	spec.type = b.type
 	spec.mass = U.nz(patch.get("mass"), b.mass)
@@ -1273,8 +1279,18 @@ func _wheel(delta_y: float) -> void:
 	if model_open: model_view.wheel(delta_y)
 	elif state.cam_mode == "flight": flight.wheel(delta_y)
 	elif state.cam_mode == "orbit":
+		var before := cam.radius
 		cam.zoom_orbit(delta_y)
-		if galaxy.active: galaxy.clamp_radius()
+		# The Solar System and the Galaxy meet at the Sun (GalaxyScene.JOIN_KPC): zooming past
+		# either scene's limit there carries on in the other, looking the same way.
+		if galaxy.active:
+			if delta_y < 0.0 and galaxy.at_join(before):
+				join_solar()
+				return
+			galaxy.clamp_radius()
+		elif delta_y > 0.0 and _at_galaxy_join(before):
+			join_galaxy()
+			return
 		update_orbit_cam()
 	elif state.cam_mode == "surface": observer.zoom(1.0 + delta_y * 0.0012)
 	else: cam.free_speed = maxf(0.5, cam.free_speed * (1.0 - delta_y * 0.001))
@@ -1366,6 +1382,7 @@ func aim_at_brightest_sun() -> void:
 
 # PRESET LOADING
 func load_preset(key: String) -> bool:
+	cam.roll = 0.0
 	if GalaxyScene.has_preset(key): return enter_galaxy(key)
 	if not Presets.PRESETS.has(key): return false
 	return load_preset_spec(key, Presets.PRESETS[key])
@@ -1452,6 +1469,7 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 
 	for b in state.bodies: _sync_climate(b)
 	update_suns()
+	_preset_clean = true
 
 	# Camera reset. In a hierarchical system the total barycentre is nowhere near
 	# the stars, so presets with a home world start the camera following it.
@@ -2927,6 +2945,60 @@ func _stage_set_mesh(on) -> void: toggle_mesh(bool(on))
 func _stage_set_paused(p) -> void: state.paused = bool(p)
 func _stage_set_control(id: String, value) -> void: hud.drive_slider(id, float(value))
 
+## At the Solar System's widest view of the Sun, about to zoom out of it?
+## Only from the Solar System as loaded, and not under a lesson card: the join replaces the
+## scene, so it never takes someone's spawns or edits, or the stage a lesson is using.
+func _at_galaxy_join(radius: float) -> bool:
+	if state.preset_key != "solar" or not _preset_clean or (lessons != null and lessons.active): return false
+	if radius < OrreryCamera.MAX_REQUEST_RADIUS * (1.0 - 1e-9): return false
+	var sun := state.body_named("Sun")
+	return sun != null and state.follow_id == sun.id and absf(state.scene_scale - 1.0) < 1e-12
+
+## The camera's direction from its target, in the current scene's frame.
+func _view_direction() -> Vector3:
+	return Vector3(sin(cam.theta) * cos(cam.phi), cos(cam.theta), sin(cam.theta) * sin(cam.phi))
+
+func _look_from(d: Vector3) -> void:
+	var u := d.normalized()
+	cam.theta = acos(clampf(u.y, -1.0, 1.0))
+	cam.phi = atan2(u.z, u.x)
+
+## Out of the Solar System into the Galaxy at the Sun: the same direction, the same 20 000 AU.
+func join_galaxy() -> void:
+	var d := _view_direction()
+	var up := cam_basis.y
+	if not load_preset("gal_milkyway"): return
+	galaxy.frame("sun")
+	if not galaxy.follow_sun: return
+	var sun := galaxy.sun_basis()
+	_look_from(GalaxyScene.solar_to_galaxy(d, sun))
+	jump_cam_radius(GalaxyScene.JOIN_KPC)
+	_match_roll(GalaxyScene.solar_to_galaxy(up, sun))
+
+## From the Sun in the Galaxy into the Solar System, following the Sun from its widest view.
+func join_solar() -> void:
+	var d := GalaxyScene.galaxy_to_solar(_view_direction(), galaxy.sun_basis())
+	var up := GalaxyScene.galaxy_to_solar(cam_basis.y, galaxy.sun_basis())
+	if not load_preset("solar"): return
+	var sun := state.body_named("Sun")
+	if sun == null: return
+	state.follow_id = sun.id
+	state.focus_id = sun.id
+	cam.target.set_v(sun.scene_pos.x, sun.scene_pos.y, sun.scene_pos.z)
+	cam.offset.set_v(0, 0, 0)
+	_look_from(d)
+	jump_cam_radius(OrreryCamera.MAX_REQUEST_RADIUS)
+	_match_roll(up)
+	refresh_ui()
+
+## The new scene's view turned about its line of sight to keep the old one's up, the turn
+## then easing away (OrreryCamera.roll).
+func _match_roll(up: Vector3) -> void:
+	cam.roll = 0.0
+	update_orbit_cam()
+	cam.roll = OrreryCamera.roll_onto(cam_basis, up)
+	update_orbit_cam()
+
 func _stage_set_focus(n: String) -> void:
 	var b := state.body_named(n)
 	if b: set_follow(b)
@@ -3260,6 +3332,7 @@ func animate(dt: float) -> void:
 			var fb := state.body_by_id(state.follow_id)
 			if fb: cam.track_follow(fb, dt)
 		cam.ease_radius(dt)
+		cam.ease_roll(dt)
 		update_orbit_cam()
 
 	if state.cam_mode != "surface" and state.cam_mode != "flight" and not reel_cam:
