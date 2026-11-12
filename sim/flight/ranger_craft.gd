@@ -17,6 +17,22 @@ const SECTIONS := [
 	[1.0, .55, -.009, -.004, .004, .48],
 ]
 
+# Filming miniature: the raised chines run forward from the radiator and
+# separate from the foredeck at their tips. Offsets from the skin are in metres.
+const CHINE_STATIONS := [
+	[.082, -.36, .01, .31],
+	[.10, -.35, .04, .37],
+	[.20, -.16, .0, .48],
+	[.31, -.14, .12, .46],
+	[.43, -.13, .18, .42],
+	[.52, -.13, .21, .40],
+	[.61, -.26, .22, .39],
+	[.78, -.21, .27, .38],
+	[.865, .09, .33, .43],
+	[.935, .22, .35, .40],
+	[.973, .29, .35, .29],
+]
+
 static func section(spec: Dictionary, i: int) -> Array[Vector3]:
 	var s: Array = SECTIONS[i]
 	var y := float(s[0]) * float(spec.L)
@@ -61,6 +77,41 @@ static func at(spec: Dictionary, y: float) -> Array[Vector3]:
 			for j in 6: out.append(a[j].lerp(b[j],t))
 			return out
 	return section(spec,SECTIONS.size()-1)
+
+static func _chines(spec: Dictionary) -> Array:
+	var chines := []
+	for side: int in [-1,1]:
+		var vertices := []
+		var faces := [[0,1,2,3,4]]
+		for station: Array in CHINE_STATIONS:
+			var y := float(station[0])*float(spec.L)
+			var hull := at(spec,y)
+			var chine := hull[2]
+			var crown := hull[3]
+			var inner := chine.x+float(station[1])
+			var outer := minf(chine.x+float(station[2]),float(spec.D)*.5)
+			var rise := float(station[3])
+			var bevel := minf(.045,(outer-inner)*.25)
+			var deck := lerpf(chine.z,crown.z,clampf((chine.x-inner)/(chine.x-crown.x),0.0,1.0))
+			vertices.append_array([
+				[side*inner,y,deck-.10],
+				[side*outer,y,chine.z-.075],
+				[side*outer,y,chine.z+rise*.42],
+				[side*(outer-bevel),y,chine.z+rise],
+				[side*(inner+bevel),y,maxf(deck+.035,chine.z+rise*.27)],
+			])
+		for i in CHINE_STATIONS.size()-1:
+			for j in 5:
+				var a := i*5+j
+				var b := i*5+(j+1)%5
+				faces.append([b,a,a+5,b+5])
+		var last := vertices.size()-1
+		faces.append([last,last-1,last-2,last-3,last-4])
+		if side<0:
+			for face: Array in faces: face.reverse()
+		chines.append({"name":"inspection_chine_port" if side<0 else "inspection_chine_starboard",
+			"vertices":vertices,"faces":faces})
+	return chines
 
 # The gear folds forward into three real openings, not through an opaque belly.
 static func _belly(spec: Dictionary, faces: Array) -> void:
@@ -124,23 +175,35 @@ static func geometry(spec: Dictionary) -> Dictionary:
 			_face(faces,[a,b,center+(b-center).normalized()*.68,center+(a-center).normalized()*.68],"tps","aft")
 	var nose := section(spec,SECTIONS.size()-1); nose.reverse()
 	_face(faces,nose,"tps","nose")
-	return {"faces":faces,"windows":windows,"sections":SECTIONS}
+	return {"faces":faces,"windows":windows,"sections":SECTIONS,"chines":_chines(spec)}
 
-static func _poly(parent: Node3D, row: Dictionary, mat: Material, inset := 0.0) -> void:
+static func _append_polygon(g: CraftModel.Geo, vertices: Array, inset: float) -> void:
 	var ps := PackedVector3Array()
-	for p: Array in row.vertices: ps.append(Vector3(p[0],p[1],p[2]))
+	for p: Array in vertices: ps.append(Vector3(p[0],p[1],p[2]))
 	var normal := (ps[1]-ps[0]).cross(ps[2]-ps[0]).normalized()
-	var g := CraftModel.Geo.new()
+	var first := g.pos.size()
 	for p in ps:
 		g.pos.append(p+normal*inset); g.nrm.append(normal)
-	for i in range(1,ps.size()-1): g.idx.append_array(PackedInt32Array([0,i,i+1]))
-	var mesh := CraftModel._mesh(g,mat); parent.add_child(mesh)
+	for i in range(1,ps.size()-1):
+		g.idx.append_array(PackedInt32Array([first,first+i,first+i+1]))
+
+static func _poly(parent: Node3D, row: Dictionary, mat: Material, inset := 0.0) -> void:
+	var g := CraftModel.Geo.new()
+	_append_polygon(g,row.vertices,inset)
+	parent.add_child(CraftModel._mesh(g,mat))
 
 static func build(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var root := Node3D.new()
 	var mats := CraftModel.craft_materials()
 	var data := geometry(spec)
 	for row: Dictionary in data.faces: _poly(root,row,mats.tiles if row.material=="tps" else mats.white)
+	for chine: Dictionary in data.chines:
+		var surface := CraftModel.Geo.new()
+		for face: Array in chine.faces:
+			_append_polygon(surface,face.map(func(i: int): return chine.vertices[i]),0.0)
+		var mesh := CraftModel._mesh(surface,mats.tiles)
+		mesh.name=chine.name
+		root.add_child(mesh)
 	var shade := Node3D.new(); shade.name="window_shade"; root.add_child(shade)
 	for row: Dictionary in data.windows: _poly(shade,row,mats.glass)
 	var socket:=CraftModel._mesh(CraftModel._lathe(PackedVector2Array([

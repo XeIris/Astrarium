@@ -28,6 +28,15 @@ func run() -> void:
 	for point: Vector3 in points(craft.group,craft.group):
 		if point.y>=float(st.spec.L)-.015:nose_half_width=maxf(nose_half_width,absf(point.x))
 	expect(absf(2.0*nose_half_width-.55*float(st.spec.D))<.03,"Ranger keeps its broad, blunt foredeck (%.3f m)"%(2.0*nose_half_width))
+	var chines: Array[Node3D]=[]
+	var chine_poses: Array[Transform3D]=[]
+	for side: String in ["port","starboard"]:
+		var chine:=st.group.find_child("inspection_chine_"+side,true,false) as Node3D
+		expect(chine!=null,"raised "+side+" chine is present")
+		if chine==null: continue
+		check_chine(chine,st.group,st.spec)
+		chines.append(chine)
+		chine_poses.append(chine.global_transform)
 	for i in range(41):
 		var t:=i/40.0
 		st.gear=t
@@ -46,6 +55,8 @@ func run() -> void:
 				var min_z:=INF
 				for point: Vector3 in points(leg,craft.group): min_z=minf(min_z,point.z)
 				expect(absf(min_z-float(st.spec.gear.point[2]))<.015,"tyre contact matches the physics ground point")
+	for i in chines.size():
+		expect(chines[i].global_transform.is_equal_approx(chine_poses[i]),"chine stays fixed through gear and flap motion")
 	var cabin:=CraftInterior.new()
 	var e: Array=vehicle.interior.eye
 	var eye:=Vector3(e[0],e[1],e[2])
@@ -92,6 +103,26 @@ func run() -> void:
 	craft.group.free(); CraftAssets.clear(); await process_frame
 	print("RANGERCHECK DONE checks=%d failures=%d"%[checks,failures])
 	quit(1 if failures else 0)
+
+func check_chine(chine: Node3D,stage: Node3D,spec: Dictionary) -> void:
+	var length:=float(spec.L)
+	var seated:=false
+	var tip_gap:=INF
+	var tip_rise:=0.0
+	for point: Vector3 in points(chine,stage):
+		var hull:=RangerCraft.at(spec,point.y)
+		var edge:=hull[2]
+		var crown:=hull[3]
+		var x:=absf(point.x)
+		if point.y>.93*length:
+			tip_gap=minf(tip_gap,x-edge.x)
+			tip_rise=maxf(tip_rise,point.z-edge.z)
+		if point.y<.31*length and x>crown.x and x<edge.x-.08:
+			var deck:=lerpf(edge.z,crown.z,(edge.x-x)/(edge.x-crown.x))
+			seated=seated or (point.z<deck-.05 and point.z>hull[0].z)
+	expect(seated,"%s overlaps its hull seat"%chine.name)
+	expect(is_finite(tip_gap) and tip_gap>.17 and tip_rise>.25,
+		"%s tip rises above the deck with an open gap (%.3f m, %.3f m)"%[chine.name,tip_rise,tip_gap])
 
 func points(node: Node, relative: Node3D) -> Array[Vector3]:
 	var out: Array[Vector3]=[]

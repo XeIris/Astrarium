@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy
 from math import atan2, pi, sin, cos
 from mathutils import Vector, Matrix
-from lib import empty, box, strut, ring_on, revolve, finish, reset_scene
+from lib import _obj, empty, box, strut, ring_on, revolve, finish, reset_scene
 from common import stage, optimise, export, out_path, validate_vehicle
 from vehicle_data import vehicle_stages
 from movie_materials import palette, assign_uvs
@@ -89,21 +89,10 @@ def exterior(m):
         inner=[center+(v-center)*.96 for v in points]
         for j in range(len(points)):
             poly('window gasket',[points[j],points[(j+1)%len(points)],inner[(j+1)%len(points)],inner[j]],m['rubber'],root,.003)
-    # Wide carbon chines trace the shoulder and taper into the blunt foredeck.
-    for side in [-1,1]:
-        edge=[];inner=[]
-        for row in S['geometry']['sections']:
-            y=row[0]*S['L'];w,z,_,crown=section_at(y)
-            width=min((w-crown)*.84,.22+.47*sin(pi*row[0])**.7)
-            edge.append(Vector((side*w,y,z+.012)))
-            inner.append(Vector((side*(w-width),y,roof_at(side*(w-width),y)+.012)))
-        for i in range(len(edge)-1):
-            poly('carbon chine cap',[edge[i],edge[i+1],inner[i+1],inner[i]],m['tps'],root)
-            a,b=edge[i],edge[i+1]
-            along=(b-a).normalized()
-            start=a+along*.075 if i==0 else a
-            end=b-along*.075 if i==len(edge)-2 else b
-            rod('chine edge bead',start,end,.028,m['tps'],root)
+    for chine in S['geometry']['chines']:
+        mount = empty(chine['name'], (0,0,0), root)
+        shell = _obj('raised chine', [p(v) for v in chine['vertices']], chine['faces'], m['tps'], mount)
+        finish(shell, .012, 2, 40)
     socket=mounted('aft docking recess',(0,0,.15),root)
     revolve('dock pressure recess',[(.68,.008),(.66,.11),(.49,.15),(.47,.27),(0,.27)],m['rubber'],seg=64,parent=socket)
     ring_on((0,0,.055),(0,0,1),.575,.043,m['alloy'],'docking capture flange',seg=64,parent=socket)

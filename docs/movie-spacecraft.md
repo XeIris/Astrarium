@@ -14,10 +14,12 @@ Controls to open scenarios, or pass `scenario=<vehicle>:<id>` on the command lin
 
 The Blender model was inspected from front, rear, side, plan and below, then
 through the production flight renderer. The 17.9 m length and 9.7 m span are
-reconstruction estimates. The Ranger has a long blunt
-foredeck, dark swept chines, a raised aft shoulder and a single radiator belt
-ahead of the recessed axial docking port. `vehicles.gd`
-owns these dimensions, mass, propulsion and camera datums. `RangerCraft.geometry`
+reconstruction estimates. The Ranger has a long blunt foredeck, raised swept
+chines with free tips beside the bow, and a radiator belt ahead of the recessed
+axial docking port. The fixed chines share geometry between the authored and
+procedural models. [New Deal Studios filming miniature](https://www.fxguide.com/wp-content/uploads/2014/12/IMG_3278_LARGE.jpg)
+
+`vehicles.gd` owns these dimensions, mass, propulsion and camera datums. `RangerCraft.geometry`
 exports the same apertured skin to Blender and the procedural fallback. Blender
 adds gaskets, blanket seams, radiator ribs, nozzle walls and cabin fittings.
 
