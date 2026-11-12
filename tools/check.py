@@ -20,7 +20,7 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("dev", "fast", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("dev", "fast", "encounters", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
 # themselves (clean), read the previous step's output (export), or need exact object
@@ -254,9 +254,13 @@ def checks(suite, godot, output, repeat, export_preset):
         # ~30 s: a Gyr of 6000 tracers in MWPotential2014.
         yield script("galaxycheck", r"^GALAXYCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$", timeout=300)
         # Galaxy encounters: the orbits against van der Marel et al. (2012b).
-        yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
-        # ~6 min on an M5: the canonical encounter live for 10 Gyr against their N-body run.
-        yield script("encounterlivecheck", r"^ENCOUNTERLIVECHECK DONE checks=[1-9]\d* failures=0$", timeout=1200)
+        # ~50 s on an M5's ten cores; its live parts take several times that on CI's two or three.
+        yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
+    elif suite == "encounters":
+        # ~6 min on an M5's ten cores, past CI's limits on two or three: the canonical encounter
+        # live for 10 Gyr against their N-body run. Kept out of "fast" (and so out of clean);
+        # --changed selects it when the galaxy code changes.
+        yield script("encounterlivecheck", r"^ENCOUNTERLIVECHECK DONE checks=[1-9]\d* failures=0$", timeout=1800)
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")
@@ -923,7 +927,7 @@ def main():
     options = parser.parse_args()
     if options.watch or options.status:
         return watch(once=options.status)
-    options.suites = options.suites or (["dev", "fast", "native", "flight", "rendered", "assets", "procedural", "lifecycle"]
+    options.suites = options.suites or (["dev", "fast", "encounters", "native", "flight", "rendered", "assets", "procedural", "lifecycle"]
                                         if options.changed else ["fast"])
     if any(suite not in SUITES for suite in options.suites):
         parser.error("unknown suite; choose from " + ", ".join(SUITES))
