@@ -41,6 +41,9 @@ var buf := PackedFloat64Array()
 var steps := 0
 var t := 0.0
 var use_native := true
+## The native kernel could not allocate a step's tree: the run stopped there, and steps
+## no further.
+var failed := false
 ## Threads for the native kernel: 0 for every core.
 var threads := 0
 ## Each luminous particle's float32 (x, y, z, tag), 16 bytes, for the drawing.
@@ -97,10 +100,10 @@ static func native_available() -> bool:
 
 ## k steps of DT.
 func step(k: int) -> void:
-	if k <= 0 or n == 0: return
-	_run(k, false)
-	steps += k
-	t += k * dt()
+	if k <= 0 or n == 0 or failed: return
+	var done := _run(k, false)
+	steps += done
+	t += done * dt()
 
 ## Accelerations now, without stepping.
 func accelerate() -> void:
@@ -119,7 +122,8 @@ func energy() -> Array:
 		pot += 0.5 * m * buf[o + PHI]
 	return [kin, pot]
 
-func _run(k: int, phi: bool) -> void:
+## Returns the steps taken: k, or fewer when the native kernel failed.
+func _run(k: int, phi: bool) -> int:
 	buf[H_K] = float(k)
 	buf[H_PHI] = 1.0 if phi else 0.0
 	buf[H_THREADS] = float(threads)
@@ -129,6 +133,10 @@ func _run(k: int, phi: bool) -> void:
 		buf = ClassDB.class_call_static("NBodyKernel", "live", buf)
 		var o := HDR + STRIDE * n
 		draw_bytes = buf.slice(o, o + 2 * nl).to_byte_array()
+		if buf[H_THREADS] < 0.0:
+			failed = true
+			push_error("GalLive: the native kernel could not allocate its tree after %d of %d steps; the run stops" % [int(buf[H_K]), k])
+			return int(buf[H_K])
 	else:
 		_run_gd(k, phi)
 		var f := PackedFloat32Array()
@@ -140,6 +148,7 @@ func _run(k: int, phi: bool) -> void:
 			f[4 * i + 2] = buf[o + 2]
 			f[4 * i + 3] = _tags[i] if i < _tags.size() else 0.0
 		draw_bytes = f.to_byte_array()
+	return k
 
 ## The draw block's tags, written once: the kernel writes only x, y, z.
 var _tags_written := false

@@ -130,7 +130,16 @@ CHANGED_RULES = (
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
       "tools/build_neighbourhood.py"),
-     ("galaxycheck", "encountercheck", "encounterlivecheck", "galaxylookcheck", "coursecheck", "_soak_check-galaxy", "_soak_check-encounter", "_soak_check-join", "hud*")),
+     ("galaxycheck", "encountercheck", "galaxylookcheck", "coursecheck", "_soak_check-galaxy", "_soak_check-encounter", "_soak_check-join", "hud*")),
+    # The live encounters' six-minute replay: only what moves their particles.
+    (("sim/galaxy/gal_encounter.gd", "sim/galaxy/gal_live.gd", "sim/galaxy/gal_orbits.gd", "sim/galaxy/gal_eddington.gd",
+      "sim/galaxy/gal_models.gd", "native/*", "tools/encounterlivecheck.gd"), ("encounterlivecheck",)),
+    (("tools/galaxycheck.gd",), ("galaxycheck",)),
+    (("tools/encountercheck.gd",), ("encountercheck",)),
+    # galaxycheck also reads the Solar System sky's catalogues and its galactic frame.
+    (("assets/sky/bsc5.bin", "assets/sky/gaia_g8.bin", "sim/brightstars.gd", "sim/sky.gd",
+      "tools/build_gaia.py", "tools/build_starcat.py"), ("galaxycheck",)),
+    (("tools/galaxylookcheck.gd", "tools/galaxylookcheck.tscn"), ("galaxylookcheck",)),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     # Any other tool (fxlab, harnesses): at least it must still parse.
     (("tools/*",), ("import",)),

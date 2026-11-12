@@ -1312,8 +1312,11 @@ func _key(e: InputEventKey) -> void:
 				sync_warp_label()
 				return
 	if controls.matches("reset_view", e):
-		cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
-		cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
+		# The galactic scene has no orrery preset (state.preset is null there): its own framing.
+		if galaxy.active: galaxy.frame("whole")
+		else:
+			cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
+			cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 		if state.cam_mode == "orbit": update_orbit_cam()
 	if controls.matches("pause", e):
 		state.paused = not state.paused
@@ -2229,6 +2232,11 @@ func restate_solar(tdb_jd: float) -> void:
 
 func _on_reset_view() -> void:
 	set_follow(null)
+	if galaxy.active:
+		set_cam_mode("orbit")
+		galaxy.frame("whole")
+		update_orbit_cam()
+		return
 	cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
 	cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 	set_cam_mode("orbit"); update_orbit_cam()
@@ -2237,7 +2245,9 @@ func _on_sky_solo(n: String) -> void:
 	set_sky(U.merged(state.sky, {"env": {n: 1.0}}))
 
 func _on_sky_reset() -> void:
-	set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
+	# Inside a galaxy the scene's own sky is the one enter_galaxy set.
+	if galaxy.active: set_sky(preset_sky({"env": "intergalactic"}))
+	else: set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
 	toast("Sky reset to the scenario’s own")
 
 func _on_sky_adv_clear() -> void:

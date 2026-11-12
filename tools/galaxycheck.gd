@@ -118,9 +118,6 @@ func consistency(p: GalPotential) -> void:
 	ok(worst_f < 1e-5, "acceleration = −∇Φ at 64 points (worst %s)" % U.expo(worst_f, 2))
 	ok(worst_rho < 1e-3, "density = ∇²Φ/4πG at 64 points (worst %s)" % U.expo(worst_rho, 2))
 
-# The Milky Way's light: the disc's and bulge's populations weighted by their visible
-# luminosity give an integrated colour to set beside the measured one, Licquia,
-# Newman & Brinchmann (2015): rest-frame B−V = 0.744 +0.068 −0.054. Never tuned to it.
 ## The libm functions the tracer kernel calls whose results the native library and the
 ## engine disagree on, at 64 fixed arguments each in the ranges the kernel uses.
 func libm_differences() -> PackedStringArray:
@@ -166,6 +163,9 @@ func libm_differences() -> PackedStringArray:
 				break
 	return out
 
+# The Milky Way's light: the disc's and bulge's populations weighted by their visible
+# luminosity give an integrated colour to set beside the measured one, Licquia,
+# Newman & Brinchmann (2015): rest-frame B−V = 0.744 +0.068 −0.054. Never tuned to it.
 func colour(p: GalPotential) -> void:
 	# The model's three populations: the disc's stars aged 0.1–10 Gyr, the arms' younger
 	# ones at the measured star formation rate, and the old bulge. Unreddened: the
@@ -218,20 +218,21 @@ func colour(p: GalPotential) -> void:
 	luminosity_function(p, disc)
 	ok(disc.post_ms_light > 0.3 and bulge.post_ms_light > disc.post_ms_light, "giants: %s %% of the disc's light, %s %% of the old bulge's" % [String.num(100.0 * disc.post_ms_light, 0), String.num(100.0 * bulge.post_ms_light, 0)])
 
+## Native against GDScript where their libms differ: kpc, (kpc/Myr)/0.2 and relative work.
+## MinGW's libm and the engine's differ by an ulp or so, which 300 steps carry to ~1e-13.
+const PARITY_TOL := 1e-12
 # Main-sequence stars per magnitude at the Sun against Bovy (2017, MNRAS 470, 1360)
 # Table 1, measured with Gaia TGAS and 2MASS: dn/dM_V per subtype, averaged over the
 # subtypes whose M_V falls in each bin (10⁻⁴ pc⁻³ mag⁻¹). Not fitted; the bounds pin
 # the measured differences, which docs/physics/galaxies.md reports.
-## Native against GDScript where their libms differ: kpc, (kpc/Myr)/0.2 and relative work.
 ## Real stars within 40 pc against the model's resolved ones: number and visible light
 ## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit).
+const NEAR_COUNT_PIN := 0.62
+const NEAR_LIGHT_PIN := 2.33
 ## The neighbours' absolute V from their stellar masses against McConnachie (2012): the
 ## LMC's and M33's come out 0.8–0.9 mag bright (their literature masses imply M/L_V ≈ 1.8,
 ## the population model's is ≈ 0.8); a pin that a change shows, not a fit.
 const NEIGHBOUR_MV_TOL := 1.0
-const NEAR_COUNT_PIN := 0.61
-const NEAR_LIGHT_PIN := 2.25
-const PARITY_TOL := 1e-9
 const BOVY_2017_DN_DMV := {1: 3.8, 2: 5.4, 3: 9.9, 4: 22.6, 5: 24.8, 6: 24.3}
 
 func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
@@ -395,9 +396,10 @@ func patterns() -> void:
 				best = v
 				at = ph
 		return at
-	var want := PI + deg_to_rad(float(GalModels.MW_SPIRAL_ANCHOR[1]))
-	var off := absf(wrapf(crest.call(float(GalModels.MW_SPIRAL_ANCHOR[0])) - want, -PI / 2.0, PI / 2.0))
-	ok(off < deg_to_rad(0.2), "spiral crest on Perseus (8.87 kpc, β = 40°) today, within %s°" % String.num(rad_to_deg(off), 2))
+	var anchor := GalModels.spiral_anchor()
+	var want := PI + deg_to_rad(float(anchor[1]))
+	var off := absf(wrapf(crest.call(float(anchor[0])) - want, -PI / 2.0, PI / 2.0))
+	ok(off < deg_to_rad(0.2), "spiral crest on Perseus (%s kpc at the model's R0, β = 40°) today, within %s°" % [String.num(float(anchor[0]), 2), String.num(rad_to_deg(off), 2)])
 	# Two arms repeat every 180°, so the step is kept short: −ln(7.5/7)/tan 12° = −18.6°.
 	var drift := wrapf(crest.call(7.5) - crest.call(7.0), -PI / 2.0, PI / 2.0)
 	ok(drift < 0.0 and absf(rad_to_deg(drift) + 18.6) < 0.3, "the arms trail: the crest falls %s° behind the rotation from 7 to 7.5 kpc (−18.6°)" % String.num(rad_to_deg(drift), 1))
@@ -429,6 +431,16 @@ func patterns() -> void:
 				U.expo(worst, 2), U.expo(PARITY_TOL, 0), ", ".join(differ)])
 	else:
 		print("     native kernel unavailable: the GDScript kernel alone runs")
+	# A step's pattern time comes from its index, so batching cannot change a trajectory:
+	# 40 steps a call against 2000 in one, through the patterns' growth and grown in.
+	var by40 := GalTracers.new(GalModels.build("milky_way", 4))
+	var whole := GalTracers.new(GalModels.build("milky_way", 4))
+	var n_steps := int(round((0.0 - by40.t) / GalTracers.DT)) + 400
+	n_steps -= n_steps % 40
+	for s in n_steps / 40: by40.step(40)
+	whole.step(n_steps)
+	ok(by40.pos == whole.pos and by40.vel == whole.vel and by40.work == whole.work,
+		"%d steps in batches of 40 and in one give the same bits, through the patterns' growth to t = %s Myr" % [n_steps, String.num(whole.t, 0)])
 	a.step(int(round((0.0 - a.t) / GalTracers.DT)) + (500 if not quick else 0))
 	var dw := a.energy_drift()
 	ok(dw < 2e-5, "with the bar and spiral grown in: worst |Δ(E − W)/E| %s < 2e-5 at t = %s Myr" % [U.expo(dw, 2), String.num(a.t, 0)])
@@ -474,8 +486,9 @@ func light() -> void:
 		var f := (float(i) + 0.5) / float(n)
 		tau += v.dust_density(-8.0 * (1.0 - f), 0.0208 * (1.0 - f), 0.0) * 8.0 / float(n)
 	# Drimmel & Spergel's arms are cut off outside r_m = 6.71 kpc (their eq. 16): the
-	# arm dust on Scutum–Centaurus (4.91 kpc, inside) is full and on Perseus (8.87 kpc)
-	# down by exp(−((8.87 − 6.71)/2.07)²) = 0.34. Each is the crest's dust less the disc's.
+	# arm dust on Scutum–Centaurus (inside) is full and on Perseus down by
+	# exp(−((R − 6.71)/2.07)²), R its crest at the model's R0. Each is the crest's dust
+	# less the disc's.
 	var arm_dust := func(R: float, beta_deg: float) -> float:
 		var ph := PI + deg_to_rad(beta_deg)
 		var on := v.dust_density(R * cos(ph), 0.0, R * sin(ph))
@@ -484,8 +497,12 @@ func light() -> void:
 		var off := v.dust_density(R * cos(ph), 0.0, R * sin(ph))
 		v.dust.rhoArm = save
 		return on - off
-	var ratio: float = arm_dust.call(8.87, 40.0) / arm_dust.call(4.91, 23.0)
-	ok(absf(ratio - exp(-pow((8.87 - 6.71) / 2.07, 2.0))) < 0.02, "arm dust cut off outside 6.71 kpc: Perseus / Scutum–Centaurus %s (0.34)" % String.num(ratio, 3))
+	var arms := GalModels.reid_arms()
+	var r_per: float = arms[4][1]
+	var r_sct: float = arms[1][1]
+	var ratio: float = arm_dust.call(r_per, 40.0) / arm_dust.call(r_sct, 23.0)
+	var cut := exp(-pow((r_per - 6.71) / 2.07, 2.0))
+	ok(absf(ratio - cut) < 0.02, "arm dust cut off outside 6.71 kpc: Perseus / Scutum–Centaurus %s (%s)" % [String.num(ratio, 3), String.num(cut, 3)])
 	var av := 1.0857 * tau
 	ok(av > 15.0 and av < 28.0, "A_V from the Sun to the centre %s against ≈ 21.6 from Fritz et al. 2011 (15–28)" % String.num(av, 1))
 	v.group.free()
@@ -755,6 +772,32 @@ func landmarks() -> void:
 # measured, which the masses were not taken from; and each one's tilt and line of nodes
 # as drawn against the inclination and position angle stated.
 const MEASURED_MV := {"lmc": -18.1, "smc": -16.8, "m33": -18.8}
+# The rings' and the march's quadrature; light lost to the disc's edge or the glow's
+# bounds is 0.1–0.3 mag.
+const DRAWN_MV_TOL := 0.005
+
+## What a galaxy's visual actually draws, as an absolute V: its glow's luminance marched
+## along the normal in rings over the drawn box and sphere, four azimuths a ring
+## (bars and arms are not round), Σ = 4π × the ray's radiance.
+static func drawn_mv(model: Dictionary, rings := 120, azimuths := 4) -> float:
+	var v := GalaxyVisual.new(model)
+	var box: Vector3 = v.glow_mat.get_shader_parameter("uBox")
+	var reach: float = v.glow_mat.get_shader_parameter("uSphereR")
+	var rmax := maxf(minf(box.x, box.z), reach)
+	var top := maxf(box.y, reach) * 1.01
+	var l := 0.0
+	for k in rings:
+		# Rings evenly spaced in √R, so the dense centre gets its share.
+		var ra := rmax * pow(float(k) / rings, 2.0)
+		var rb := rmax * pow(float(k + 1) / rings, 2.0)
+		var rc := 0.5 * (ra + rb)
+		var sig := 0.0
+		for a in azimuths:
+			var ph := TAU * (float(a) + 0.5) / azimuths
+			sig += v.ray_luminance(Vector3(rc * cos(ph), top, rc * sin(ph)), Vector3(0, -1, 0)) * 4.0 * PI / azimuths
+		l += sig * PI * (rb * rb - ra * ra)
+	v.dispose()
+	return 4.83 - 2.5 * log(l) / log(10.0)
 
 func neighbours() -> void:
 	var mw := GalModels.build("milky_way", 1, false)
@@ -763,11 +806,13 @@ func neighbours() -> void:
 	for k in MEASURED_MV:
 		var lv := GalModels.visible_luminosity(GalModels.neighbour(k, true))
 		var mv := 4.83 - 2.5 * log(lv) / log(10.0)
-		var shown := 4.83 - 2.5 * log(GalModels.visible_luminosity(GalModels.neighbour(k))) / log(10.0)
+		var nm := GalModels.neighbour(k)
+		# A bar or arms in the map: enough azimuths that their harmonics average out.
+		var shown := drawn_mv(nm, 120, 16 if nm.has("discMap") else 4)
 		print("     %s: M_V %s from its stellar mass and the population's M/L, %s measured; drawn at %s" % [k, String.num(mv, 2), String.num(MEASURED_MV[k], 1), String.num(shown, 3)])
 		worst = maxf(worst, absf(mv - float(MEASURED_MV[k])))
 		drawn = maxf(drawn, absf(shown - float(MEASURED_MV[k])))
-	ok(drawn < 1e-6, "the neighbours are drawn at McConnachie's (2012) measured absolute V (worst %s mag)" % U.expo(drawn, 1))
+	ok(drawn < DRAWN_MV_TOL, "the neighbours' glow, marched as drawn, gives McConnachie's (2012) measured absolute V (worst %s mag < %s)" % [U.expo(drawn, 1), String.num(DRAWN_MV_TOL, 3)])
 	ok(worst < NEIGHBOUR_MV_TOL, "their stellar masses alone would give within %s mag of it (< %s): the literature's masses imply M/L_V near 1.8, the population model 0.8" % [String.num(worst, 2), String.num(NEIGHBOUR_MV_TOL, 1)])
 	# Tilt and line of nodes, from the frame drawn: the normal against the line of sight,
 	# and the nodes projected on the sky against north and east.
@@ -1175,12 +1220,19 @@ func types() -> void:
 	# M51's light is its stars before the dust (Inman et al. 2023); what it shows through the dust
 	# is checked against RC3 in m51() instead.
 	var worst := 0.0
+	# RC3's V_T⁰ and Kormendy et al.'s M_VT are corrected for the galaxy's own dust, so the
+	# glow is marched without it; seen face-on, the dust then takes what it takes.
 	for k in GalModels.TYPES:
 		if GalModels.TYPES[k].has("light"): continue
 		var m := GalModels.type_galaxy(k)
-		var mv := 4.83 - 2.5 * log(GalModels.visible_luminosity(m)) / log(10.0)
+		var dusty := m.has("dust") or m.has("dustRing")
+		var seen := drawn_mv(m) if dusty else 0.0
+		for d in ["dust", "dustRing"]: m.erase(d)
+		var mv := drawn_mv(m, 120, 16 if m.has("arms") else 4)
+		print("     %s: drawn at M_V %s, measured %s%s" % [k, String.num(mv, 3), String.num(float(GalModels.TYPES[k].mv), 2),
+			(", %s through its dust face-on" % String.num(seen, 3)) if dusty else ""])
 		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
-	ok(worst < 1e-6, "%d galaxies of their own scenes are drawn at their measured absolute V (worst %s mag)" % [GalModels.TYPES.size() - 2, U.expo(worst, 1)])
+	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size() - 2, U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
 	m51()
 	m87()
 	lmc_bar()
