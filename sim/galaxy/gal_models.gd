@@ -103,8 +103,10 @@ static func visible_luminosity(model: Dictionary, drawn := false) -> float:
 		lv += float(l.visible) * float(part.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * pop.mean_l / pop.mean_mass * y * share
 	return lv
 
-## Half-height of the box the glow marches a disc through (kpc).
-const GLOW_HALF_HEIGHT := 4.0
+## Half-height of the box the glow is drawn on and marches a disc through (kpc): it must
+## hold the spheroid's sphere, as a ray that misses the box has no fragment to carry its light.
+static func glow_half_height(model: Dictionary) -> float:
+	return maxf(4.0, sphere_reach(model))
 
 ## Radius of the sphere the glow marches a spheroid through (kpc). A power law with a
 ## cutoff is below 1e-3 of its peak past three cutoff radii; a Hernquist sphere holds
@@ -116,7 +118,7 @@ static func sphere_reach(model: Dictionary) -> float:
 	return 8.0
 
 ## The share of a part's light the glow draws: a Hernquist spheroid's within sphere_reach;
-## a Miyamoto–Nagai disc's within the box's height and the light's edge, tapered over its
+## a Miyamoto–Nagai disc's within the glow box's height and the light's edge, tapered over its
 ## last fifth (gal_model.gdshaderinc). Mass in a cylinder is the gravitational flux out of
 ## it (docs/physics/galaxies.md#the-light-a-neighbour-draws). Other parts: all of it.
 static func drawn_share(model: Dictionary, part: Dictionary) -> float:
@@ -141,7 +143,7 @@ static func drawn_share(model: Dictionary, part: Dictionary) -> float:
 	var a := float(part.a)
 	var b := float(part.b)
 	var e := float(model.get("extent", 30.0))
-	var h := GLOW_HALF_HEIGHT
+	var h := glow_half_height(model)
 	var zh := sqrt(h * h + b * b)
 	var nr := 32
 	var nz := 256

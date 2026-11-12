@@ -506,7 +506,8 @@ Way's exposure.
   - `galaxycheck` marches the drawn glow through each galaxy and holds it to the measured
     within 0.005 mag, and the mass-based prediction within 1 mag.
 - <a id="the-light-a-neighbour-draws"></a>**The light a neighbour draws.** The glow
-  marches a disc through a box of half-height h = 4 kpc, its light tapering to zero over
+  is drawn on a box of half-height h, 4 kpc or the spheroid's sphere if taller (a ray
+  that misses the box has no fragment). It marches a disc through the box, its light tapering to zero over
   the last fifth of the galaxy's extent e, and a spheroid through a sphere of radius r_s
   (`GalModels.sphere_reach`). Left out, the lost light is 0.15 mag for M33 and the LMC
   and 0.3 mag for the SMC.

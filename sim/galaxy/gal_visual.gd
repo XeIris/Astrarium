@@ -184,7 +184,7 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 
 func _build_glow(model: Dictionary) -> void:
 	var ext: float = model.get("extent", 30.0)
-	var h := GalModels.GLOW_HALF_HEIGHT
+	var h := GalModels.glow_half_height(model)
 	var box := BoxMesh.new()
 	box.size = Vector3(ext, h, ext) * 2.0
 	glow_mat = ShaderMaterial.new()
