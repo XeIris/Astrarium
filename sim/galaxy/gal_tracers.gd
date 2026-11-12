@@ -47,7 +47,7 @@ func _append(i: int, R: float, phi: float, y: float, vr: float, vphi: float, vy:
 	pop.append(i)
 	n += 1
 
-# ---- populations
+# populations
 #
 # Both populations are drawn from Shu's (1969) distribution function in the plane,
 #   f(E, Lz) ∝ F(Rg) / σR²(Rg) · exp(−(E − Ec(Rg)) / σR²(Rg)),
@@ -265,7 +265,7 @@ static func draw_height(tab: Dictionary, R: float, rng: RandomNumberGenerator) -
 	var y := lerpf(a, b, wr)
 	return y if rng.randf() < 0.5 else -y
 
-# ---- integration
+# integration
 
 ## `k` drift–kick–drift steps of DT. Test particles don't feel each other, so each
 ## tracer takes all k steps in turn with the potential inlined (GalPotential.Kernel).
@@ -357,7 +357,7 @@ func _step_fused(kn: GalPotential.Kernel, k: int) -> void:
 		pos[c] = x; pos[c + 1] = y; pos[c + 2] = z
 		vel[c] = vx; vel[c + 1] = vy; vel[c + 2] = vz
 
-# ---- diagnostics
+# diagnostics
 
 ## Specific energy of each tracer, kpc² Myr⁻².
 func energies() -> PackedFloat64Array:

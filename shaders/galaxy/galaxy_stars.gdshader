@@ -105,9 +105,11 @@ void vertex() {
 	int ip = cell / (uSpan * uSpan);
 	int ring = uRingBase + ir;
 	int hgt = uHeightBase + iy;
-	if (ring >= 0 && ip < uSpan) {
+	// A ring has nphi cells; on the innermost rings that is fewer than the span's slots, which
+	// would otherwise draw a cell more than once.
+	int nphi = max(int(6.2831853 * (float(max(ring, 0)) + 0.5)), 1);
+	if (ring >= 0 && ip < uSpan && ip < nphi) {
 		float rc = (float(ring) + 0.5) * uCell;
-		int nphi = max(int(6.2831853 * (float(ring) + 0.5)), 1);
 		int j = int(mod(uRingFirst[ir] + float(ip), float(nphi)));
 		uint h = pcg(uint(ring) * 73856093u ^ uint(hgt + 1048576) * 19349663u ^ uint(j) * 83492791u ^ uSeed);
 		vec3 centre = vec3(rc, (float(hgt) + 0.5) * uCell, 0.0);

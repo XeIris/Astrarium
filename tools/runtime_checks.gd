@@ -390,6 +390,10 @@ func _soak_check() -> void:
 				for i in 4: stage.animate(1.0 / 60.0)
 			stage._on_slider("galExposure", 0.5)
 			stage._on_slider("galExposure", 0.0)
+			# Reset view and sky inside the scene, which has no orrery preset to read.
+			stage._on_reset_view()
+			stage._on_sky_reset()
+			stage.animate(1.0 / 60.0)
 			await _drawn_frame()
 			if g.tracers == null or g.tracers.steps == 0: failures.append("galaxy: the tracers did not step")
 			stage.load_preset("solar")
