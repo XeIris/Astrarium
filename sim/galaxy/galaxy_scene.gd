@@ -48,6 +48,8 @@ var landmark := ""
 var _lm_layer: Control = null
 var _lm_labels := {}
 var _nb_baked := {}
+## The neighbours' maps, in the order of `neighbours`.
+var _nbs_baked := []
 
 func _init(main) -> void:
 	stage = main
@@ -67,17 +69,24 @@ func enter(k: String) -> void:
 	_pending = 0.0
 	visual = GalaxyVisual.new(model, true)
 	stage.pipe.world_root.add_child(visual.group)
-	# The arms' map bakes on a worker too; they light up when it is done.
+	_build_neighbours()
+	# The arms' and discs' maps bake on a worker too, the neighbours' with them; they light
+	# up when it is done.
 	_arms_baked = {}
+	_nbs_baked = []
 	var v := visual
+	var others: Array = neighbours.map(func(nb): return nb.visual)
 	# The real stars around the Sun load and bake their light map on the same worker.
 	_nb_baked = {}
 	_arm_task = WorkerThreadPool.add_task(func():
-		var b := v.bake_arms()
+		var b := v.bake_arms() if v.has_map() else {}
 		var nb := GalNeighbourhood.bake() if v.has_sun else {}
+		var ob := []
+		for o in others: ob.append(o.bake_arms() if o.has_map() else {})
 		_mutex.lock()
 		_arms_baked = b
 		_nb_baked = nb
+		_nbs_baked = ob
 		_mutex.unlock(), false, "galaxy arms")
 	# Built off the main thread: drawing the Shu distribution takes about a second, and
 	# a model with a bar and arms then runs from its tStart, while they grow, to today.
@@ -91,7 +100,6 @@ func enter(k: String) -> void:
 			_mutex.lock()
 			_built = t
 			_mutex.unlock(), false, "galaxy tracers")
-	_build_neighbours()
 	frame("whole")
 	_build_landmarks()
 	sync_hud()
@@ -111,11 +119,15 @@ func _adopt_arms() -> void:
 	_mutex.lock()
 	var b := _arms_baked
 	var nb := _nb_baked
+	var ob := _nbs_baked
 	_arms_baked = {}
 	_nb_baked = {}
+	_nbs_baked = []
 	_mutex.unlock()
 	if not b.is_empty() and visual != null: visual.apply_arms(b)
 	if not nb.is_empty() and visual != null: visual.apply_neighbourhood(nb)
+	for i in mini(ob.size(), neighbours.size()):
+		if not (ob[i] as Dictionary).is_empty(): (neighbours[i].visual as GalaxyVisual).apply_arms(ob[i])
 
 func _adopt() -> void:
 	_mutex.lock()
@@ -141,6 +153,7 @@ func leave() -> void:
 	_built = null
 	_arms_baked = {}
 	_nb_baked = {}
+	_nbs_baked = []
 	follow_sun = false
 	_clear_landmarks()
 	for nb in neighbours: nb.visual.dispose()
@@ -371,7 +384,7 @@ func _build_neighbours() -> void:
 	for k in model.get("companions", []):
 		var cm := GalModels.type_galaxy(k)
 		var cf := GalLandmarks.companion_frame(model, k)
-		var cv := GalaxyVisual.new(cm)
+		var cv := GalaxyVisual.new(cm, true)
 		cv.adapt_enabled = false
 		stage.pipe.world_root.add_child(cv.group)
 		var cc: Vector3 = cf[0]
@@ -380,7 +393,7 @@ func _build_neighbours() -> void:
 	for k in GalModels.LOCAL_GROUP:
 		var m := GalModels.neighbour(k)
 		var f := GalLandmarks.neighbour_frame(m.sky, model)
-		var v := GalaxyVisual.new(m)
+		var v := GalaxyVisual.new(m, true)
 		v.adapt_enabled = false
 		stage.pipe.world_root.add_child(v.group)
 		var c: Vector3 = f[0]

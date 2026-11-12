@@ -209,12 +209,12 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 			arm_b.append(Vector4(a[5], deg_to_rad(a[6]), deg_to_rad(a[7]), ext if a[8] else 0.0))
 		# A measured light along the arms wins over the star formation rate's.
 		_l_young = float(model.armLight) if model.has("armLight") else float(model.sfr) * young_gyr * 1e9 * young_pop.light_per_formed
-		_model_key = String(model.key)
 		if not dust_map.is_empty(): _build_lanes()
+	_model_key = String(model.key)
 	_model_for_uniforms = model
 	_build_glow(model)
 	_build_stars(model)
-	if not defer_arms and (young_pop != null or not disc_map.is_empty()): apply_arms(bake_arms())
+	if not defer_arms and has_map(): apply_arms(bake_arms())
 	has_sun = String(model.key) == "milky_way" and GalNeighbourhood.available()
 	if has_sun:
 		sun_r0 = float(model.get("r0", 8.0))
@@ -644,6 +644,10 @@ func _arm_integral(img: Image) -> float:
 			s += _envelope(sqrt(x * x + z * z)) * img.get_pixel(i, j).r
 	return s * px * px
 
+## Whether the visual draws from a baked map (bake_arms), arms or a disc's.
+func has_map() -> bool:
+	return young_pop != null or not disc_map.is_empty()
+
 ## The arms' map and its integral: pure data, safe on a worker thread, cached per model.
 func bake_arms() -> Dictionary:
 	_cache_mutex.lock()
@@ -662,8 +666,8 @@ func bake_arms() -> Dictionary:
 			var b := _disc_surface(R) if not disc_map.is_empty() else _spiral_plane(R, phi)
 			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), g, b))
 	if not thin_map.is_empty(): _gather_light(img)
-	if disc_map.has("bar"): bar_share = _add_bar(img)
-	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": bar_share}
+	var share := _add_bar(img) if disc_map.has("bar") else 0.0
+	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": share}
 	if not hii_spec.is_empty(): out.hii = GalHII.build(hii_spec, hii_d, img, ARM_HALF, _l_young, young_h, 51)
 	_cache_mutex.lock()
 	_arm_cache[_model_key] = out
@@ -799,6 +803,7 @@ func _apply_hii(cat: Dictionary) -> void:
 func apply_arms(baked: Dictionary) -> void:
 	if baked.is_empty(): return
 	arm_img = baked.img
+	bar_share = float(baked.get("bar", 0.0))
 	arm_tex = ImageTexture.create_from_image(arm_img)
 	if baked.has("hii") and hii == null: _apply_hii(baked.hii)
 	young_k = _l_young / float(baked.integral) if float(baked.integral) > 0.0 else 0.0
@@ -867,7 +872,7 @@ func _disc_surface(R: float) -> float:
 	if disc_map.has("exp"): return exp(-R / float(disc_map.exp)) * float(disc_map.bol)
 	return GalModels.inman_surface(disc_map.discs, float(disc_map.outerH), R) * float(disc_map.bol)
 
-## The bar's share of the disc's light, after _add_bar.
+## The bar's share of the disc's light, from the applied map (_add_bar).
 var bar_share := 0.0
 ## Rathore et al.'s (2024) annuli for A2, kpc.
 const BAR_ANNULUS := 0.1

@@ -169,18 +169,12 @@ static func bar_angle(spec: Dictionary, pa_deg: float) -> float:
 	var dec := float(spec.dec)
 	var north := (GalLandmarks.sky_direction(ra, dec + e) - GalLandmarks.sky_direction(ra, dec - e)).normalized()
 	var east := (GalLandmarks.sky_direction(ra + e / cos(deg_to_rad(dec)), dec) - GalLandmarks.sky_direction(ra - e / cos(deg_to_rad(dec)), dec)).normalized()
-	var best := 0.0
-	var err := INF
-	for k in 36000:
-		var psi := TAU * float(k) / 36000.0
-		var w := basis.x * cos(psi) + basis.z * sin(psi)
-		# A bar is a line: its position angle is taken modulo 180°.
-		var pa := fposmod(rad_to_deg(atan2(w.dot(east), w.dot(north))), 180.0)
-		var d := absf(fposmod(pa - pa_deg + 90.0, 180.0) - 90.0)
-		if d < err:
-			err = d
-			best = psi
-	return best
+	# w(ψ) = x cos ψ + z sin ψ lies at position angle P where its east and north parts
+	# satisfy (w·e) cos P = (w·n) sin P; a bar is a line, so ψ is taken modulo π.
+	var p := deg_to_rad(pa_deg)
+	var ca := basis.x.dot(east) * cos(p) - basis.x.dot(north) * sin(p)
+	var cb := basis.z.dot(east) * cos(p) - basis.z.dot(north) * sin(p)
+	return fposmod(atan2(-ca, cb), PI)
 
 ## A model's total visible luminosity (Sun-luminances): each part's stellar mass, visible
 ## share, its population's L/M and that light's luminance.

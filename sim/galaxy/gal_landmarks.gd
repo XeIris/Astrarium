@@ -43,7 +43,7 @@ const MILKY_WAY := [
 	},
 	{
 		"id": "lmc", "name": "Large Magellanic Cloud", "short": "LMC", "at": "sky", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "view": [25.0, 1.0],
-		"card": "The largest of the Milky Way's satellites: 49.6 kpc away, to 1 % (Pietrzyński et al. 2019), and 1.4 × 10¹¹ solar masses in all, measured by how it bends the Orphan stream (Erkal et al. 2019). It moves at 321 km/s about the Galaxy (Kallivayalil et al. 2013). Drawn from its stars: 2.7 × 10⁹ solar masses in a disc tilted 34.7° to our line of sight (van der Marel et al. 2009; van der Marel & Cioni 2001).",
+		"card": "The largest of the Milky Way's satellites: 49.6 kpc away, to 1 % (Pietrzyński et al. 2019), and 1.4 × 10¹¹ solar masses in all, measured by how it bends the Orphan stream (Erkal et al. 2019). It moves at 321 km/s about the Galaxy (Kallivayalil et al. 2013). Drawn from its stars: 2.7 × 10⁹ solar masses in a disc tilted 25.9° to our line of sight (van der Marel et al. 2009; Choi et al. 2018).",
 	},
 	{
 		"id": "smc", "name": "Small Magellanic Cloud", "short": "SMC", "at": "sky", "ra": 13.18666667, "dec": -72.82861111, "d": 62.44, "view": [20.0, 1.0],

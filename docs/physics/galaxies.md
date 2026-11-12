@@ -502,7 +502,8 @@ Way's exposure.
   - Light only: the halos wait for encounters (phase 4).
   - The neighbours hold their places from t = 0.
   - Which side of each disc is near is not modelled.
-  - They have no arms or dust.
+  - M33 has its two inner arms and the LMC its bar (below); the SMC has neither. None
+    has dust.
 - **M33's arms** are the two inner arms Smercina et al. (2023, PHATTER) find in resolved stars of
   every age.
   - **Geometry:** log spirals of pitch 23.78° through R0 0.90 kpc, 157.5° apart (their
