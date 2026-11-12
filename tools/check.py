@@ -254,8 +254,9 @@ def checks(suite, godot, output, repeat, export_preset):
         # ~30 s: a Gyr of 6000 tracers in MWPotential2014.
         yield script("galaxycheck", r"^GALAXYCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$", timeout=300)
         # Galaxy encounters: the orbits against van der Marel et al. (2012b).
-        # ~50 s on an M5's ten cores; its live parts take several times that on CI's two or three.
-        yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
+        # ~50 s on an M5's ten cores, several times that on CI's two or three. Alone: its live
+        # tree uses every core, and on CI that starved the checks beside it past their timeouts.
+        yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)._replace(alone=True)
     elif suite == "encounters":
         # ~6 min on an M5's ten cores, past CI's limits on two or three: the canonical encounter
         # live for 10 Gyr against their N-body run. Kept out of "fast" (and so out of clean);
