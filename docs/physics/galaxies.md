@@ -836,14 +836,85 @@ glow stays smooth.
 
 **Mean one.** The largest eddies do not average out over one galaxy: M51's young light came
 out 6 % high. Each galaxy's realised means over its own map, weighted by its dust and young
-light (or by its dust in the plane where it has no map), are divided out at footprints of 0.1,
-0.2 and 0.4 kpc, interpolated in log₂. Finer footprints add eddies that do average out.
+light (or by its dust in the plane where it has no map), are divided out at footprints of 12.5,
+25, 50, 100 and 200 pc, where octaves fade in, interpolated in log₂. Finer footprints add
+eddies that do average out.
 
 **Its strength.** Hughes et al.'s (2013) CO widths at PAWS's 40 pc are 0.22–0.25 dex between
 the arms. Fitting the dust column to them (β = 0.98) draws M51 with 3.6–4.8 times Hubble's band
 power at 36–72 pc, near-black blotches in the inner disc. CO traces only the dense phase. The
-drawn strength is set on Hubble's image instead (below): β = 0.1 at 100 pc, which gives a dust
-column 0.12 dex wide between the arms at 40 pc.
+drawn strength is set on Hubble's image instead (below): β = 0.1 for a 100 pc octave before the
+layer thins it, which gives a dust column 0.12 dex wide between the arms at 40 pc and 0.14 dex
+in them.
+
+### Against Hubble, measured
+
+`tools/galaxyfidelity.gd` registers a render against a telescope image and measures both. The
+render is turned to the photo's north, cut to its field and resampled with the nucleus on the
+photo's. It is then rank-matched to the photo's luminance inside the disc's ellipse, so a
+processed photograph's stretch does not enter. The measures:
+- **Band power:** the variance of log(L + L₂₀) between one resampling scale and the next (a
+  Δ-variance-like band pass, Stutzki et al. 1998).
+- **Clumpiness:** Conselice (2003).
+- **Arm–interarm contrast:** the 90th/10th percentile per elliptical annulus.
+- **Colour:** the median log₁₀(B/R) per annulus.
+
+The photographs are not in the repository:
+
+| Image | Credit and licence | Download |
+|---|---|---|
+| M51, heic0506a | NASA, ESA, S. Beckwith (STScI) and the Hubble Heritage Team (STScI/AURA), CC BY 4.0 | https://esahubble.org/images/heic0506a/ (large, 11477 × 7965) |
+| M104, opo0328a | NASA/ESA and the Hubble Heritage Team (STScI/AURA), CC BY 4.0 | https://esahubble.org/images/opo0328a/ |
+| M33, eso1424a | ESO, CC BY 4.0 | https://www.eso.org/public/images/eso1424a/ (halved: Godot reads at most 2²⁸ pixels) |
+
+```
+Godot --headless --path . -s tools/galaxyfidelity.gd -- ours=/abs/m51.png \
+  north=-101.0 fov=0.110667 photo=/abs/heic0506a.jpg pnorth=-91.9 field=9.56x6.64 \
+  nucleus=4447,3845 pc=41.6 ellipse=3.2,2.9,0 out=/abs/m51
+```
+
+The renders are 3024 × 1964 at Hubble's field, measured at half scale.
+
+**M51**, band power ours ÷ Hubble's (one is a match):
+
+| Scale | 36 pc | 72 pc | 145 pc | 289 pc | 579 pc |
+|---|---|---|---|---|---|
+| Without the medium | 1.24 | 0.39 | 0.28 | 1.10 | 2.60 |
+| With it | 2.58 | 2.02 | 1.60 | 1.30 | 2.26 |
+
+- **Band power:** 36–289 pc moves from 0.35 dex rms off Hubble's to 0.28 dex. The 72–145 pc
+  gap, where the smooth map had a third to a quarter of Hubble's structure, is filled; the
+  finest band is now twice Hubble's. The 18 pc band, at the render's pixel, is about ten times
+  Hubble's either way: it is the render's grain and Hubble's noise floor, not structure.
+- **Clumpiness:** 0.070 → 0.087 (Hubble 0.053).
+- **Arm–interarm contrast:** 2.11 → 2.20 (Hubble 1.85).
+- **Colour:** flat, log B/R −0.21 to −0.18 from centre out, both with and without the medium.
+  Hubble's runs −0.13 → +0.08: its outer arms are bluer.
+
+**M104:** the 33 pc band 2.09 → 2.08, the rest within 4 %. The lane is visibly mottled, but it
+is a small share of the disc's ellipse and carries little of the image's variance.
+
+**M33 and M31 are unchanged.** M33's young light is in its map, not a young population, and
+M31 has neither dust nor young light, so the medium has nothing to act on.
+
+**Cost** on the M5 at native resolution (`m5-budget`), the medium off → on:
+
+| View | Off | On |
+|---|---|---|
+| M51 from 8 kpc | 34.3 fps, p95 29.3 ms | 31.9 fps, p95 31.4 ms |
+| M51 whole | 40.9 fps | 38.8 fps |
+| The Milky Way whole | 44.8 fps | 43.7 fps |
+| From the Sun | 35.1 fps | 35.1 fps |
+
+Each octave fades out as its wavelength falls from eight to four of a pixel's footprints, so
+a distant galaxy draws few of them.
+
+**Not drawn:**
+- Feathers anchored on the lanes.
+- The outer arms' blue.
+- Hubble's pink H II.
+- The medium from inside the disc.
+- Fine structure in M33 and M31.
 
 ## Encounters (phase 4)
 
