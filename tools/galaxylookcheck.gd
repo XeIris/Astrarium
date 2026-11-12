@@ -27,6 +27,10 @@ const EDGE_EXPOSURE := 0.05
 ## quadrature reads 5.3 % bright in the lane against a converged CPU march (12000
 ## samples agree with 3000). A step attenuated at its midpoint reads 14 %.
 const DUST_TOL := {"edge": 0.04, "sun": 0.08}
+## The join: four views from the Sun at a night-sky exposure, each half of it (the drawn
+## stars, the glow given up) against the CPU.
+const JOIN_EXPOSURE := 1.0
+const JOIN_TOL := 0.03
 
 var logger := Catch.new()
 var stage: Node
@@ -128,6 +132,7 @@ func _ready() -> void:
 		await profile(v)
 		await through_dust(v, "edge")
 		await through_dust(v, "sun")
+		await join(v)
 		await handover(v)
 	for error in logger.take():
 		failures += 1
@@ -228,11 +233,131 @@ func through_dust(v: GalaxyVisual, framing: String) -> void:
 	v.show_tracers = true
 	v.show_stars = true
 
+# From the Sun the real stars join the model: the far set's light drawn as stars equals
+# what the glow gives up (both seen whole in four views), and inside the real stars'
+# sphere the lattice draws nothing.
+func join(v: GalaxyVisual) -> void:
+	if not v.has_sun:
+		check("the real stars around the Sun are loaded (assets/sky/neighbourhood.bin)", false)
+		return
+	stage.galaxy.frame("sun")
+	v.show_tracers = false
+	pin(v, JOIN_EXPOSURE)
+	v.res_override = 0.0
+	var nb: Dictionary = v.neighbourhood
+	var worst_s := 0.0
+	var worst_g := 0.0
+	var given := 0.0
+	for phi in [PI, 0.0, PI / 2.0, 3.0 * PI / 2.0]:
+		stage.cam.phi = phi
+		stage.cam.theta = PI / 2.0
+		stage.update_orbit_cam()
+		var a := await hdr()
+		v.show_catalogue = false
+		var b := await hdr()
+		v.join_enabled = false
+		var c := await hdr()
+		v.join_enabled = true
+		v.show_catalogue = true
+		save(a, "join-%d" % int(rad_to_deg(phi)))
+		var size := Vector2(a.get_width(), a.get_height())
+		var basis: Basis = stage.cam_basis
+		var tan_h := tan(deg_to_rad(stage.cam_fov) * 0.5)
+		var aspect := size.x / size.y
+		# The stars: every pixel, against each star projected with the point rule.
+		var drawn := pixel_sum(a) - pixel_sum(b)
+		var want := 0.0
+		var cam_v: Vector3 = stage.cam_pos.to_v3()
+		var sun_rel := v.sun_pos - cam_v
+		for i in range(int(nb.n_near), int(nb.n_near) + int(nb.n_far)):
+			var rel: Vector3 = sun_rel + v.sun_basis * (nb.pos[i] as Vector3)
+			var q := basis.inverse() * rel
+			if q.z >= 0.0: continue
+			var x := q.x / -q.z / (tan_h * aspect)
+			var y := q.y / -q.z / tan_h
+			# Wholly inside: a 5 px quad's half-width in from the edges.
+			if absf(x) > 1.0 - 6.0 / size.x or absf(y) > 1.0 - 6.0 / size.y: continue
+			var f := GalNeighbourhood.l_vis(nb.mv[i]) / (4.0 * PI * rel.length_squared())
+			var pf := point_flux(f / v.last_pix_sr * v.last_gain)
+			if pf / BrightStars.PROFILE_PX2 >= 2e-4: want += pf
+		# The glow: what it gave up against the map at the same pixels.
+		var gave := frame_flux(c, true) - frame_flux(b, true)
+		var expect := 0.0
+		var t := tan(deg_to_rad(stage.cam_fov) * 0.5)
+		for py in range(0, int(size.y), 2):
+			var ty := (1.0 - (float(py) + 0.5) / size.y * 2.0) * t
+			for px in range(0, int(size.x), 2):
+				var tx := ((float(px) + 0.5) / size.x * 2.0 - 1.0) * t * aspect
+				var d := (basis * Vector3(tx, ty, -1.0)).normalized()
+				var k := pow(1.0 + tx * tx + ty * ty, -1.5)
+				expect += map_luma(v, d) * v.last_gain * k
+		expect *= 4.0
+		var es := absf(drawn / want - 1.0)
+		var eg := absf(gave / expect - 1.0)
+		print("     toward φ = %d°: stars drawn %s, by the point rule %s; glow gave %s, the map %s; %s %% of the view's glow" % [
+			int(rad_to_deg(phi)), U.expo(drawn, 3), U.expo(want, 3), U.expo(gave, 3), U.expo(expect, 3), U.fixed(100.0 * gave / frame_flux(c, true), 1)])
+		worst_s = maxf(worst_s, es)
+		worst_g = maxf(worst_g, eg)
+		given += gave / frame_flux(c, true)
+	check("from the Sun, the real stars are drawn as the point rule says (worst %s %% in 4 views, < %s)" % [U.fixed(worst_s * 100.0, 1), U.fixed(JOIN_TOL * 100.0, 0)], worst_s < JOIN_TOL)
+	check("from the Sun, the glow gives up the real stars' light map (worst %s %%, < %s; %s %% of the glow)" % [
+		U.fixed(worst_g * 100.0, 1), U.fixed(JOIN_TOL * 100.0, 0), U.fixed(given / 4.0 * 100.0, 1)], worst_g < JOIN_TOL and given > 0.05)
+	# The camera's resolved sphere inside the real stars' one: no procedural star. The
+	# background sky's own points are measured apart and taken off both.
+	v.res_override = 0.035
+	v.show_glow = false
+	v.show_catalogue = false
+	v.show_stars = false
+	var bg := frame_flux(await hdr(), false)
+	v.show_stars = true
+	var himg := await hdr()
+	save(himg, "join-hole")
+	var holed := frame_flux(himg, false) - bg
+	v.join_enabled = false
+	var lattice := frame_flux(await hdr(), false) - bg
+	v.join_enabled = true
+	check("inside the real stars' sphere the lattice draws nothing (%s of its light without the join)" % U.expo(holed / maxf(lattice, 1e-30), 2),
+		lattice > 0.0 and absf(holed) < 1e-3 * lattice)
+	v.show_glow = true
+	v.show_catalogue = true
+	v.res_override = -1.0
+	v.show_tracers = true
+
+## Luminance summed over every pixel: a point's drawn pixels sum to its flux.
+func pixel_sum(img: Image) -> float:
+	var s := 0.0
+	for y in img.get_height():
+		for x in img.get_width():
+			s += luma(img.get_pixel(x, y))
+	return s
+
+## shaders/common/point_source.gdshaderinc's mapping, on the CPU.
+static func point_flux(f: float) -> float:
+	return f if f <= 1000.0 else 1000.0 * (1.0 + log(f / 1000.0))
+
+## The far set's light map at a galaxy-local direction, bilinear as the GPU reads it.
+func map_luma(v: GalaxyVisual, d: Vector3) -> float:
+	var img: Image = v.neighbourhood.map
+	var lb := GalNeighbourhood.galactic(v.sun_basis.inverse() * d)
+	var fx := lb.x / TAU * GalNeighbourhood.MAP_W - 0.5
+	var fy := clampf((0.5 - lb.y / PI) * GalNeighbourhood.MAP_H - 0.5, 0.0, GalNeighbourhood.MAP_H - 1.0)
+	var x0 := int(floor(fx))
+	var y0 := int(floor(fy))
+	var wx := fx - float(x0)
+	var wy := fy - float(y0)
+	var y1 := mini(y0 + 1, GalNeighbourhood.MAP_H - 1)
+	var c := img.get_pixel(posmod(x0, GalNeighbourhood.MAP_W), y0).lerp(img.get_pixel(posmod(x0 + 1, GalNeighbourhood.MAP_W), y0), wx).lerp(
+		img.get_pixel(posmod(x0, GalNeighbourhood.MAP_W), y1).lerp(img.get_pixel(posmod(x0 + 1, GalNeighbourhood.MAP_W), y1), wx), wy)
+	return luma(c)
+
 # The stars drawn one by one carry the light the glow gives up to them. Every star is
 # white with the mean luminosity of its population, so the light in the shell from
 # INNER to the resolved radius is n·L either way; only the stars' Poisson draw differs.
 func handover(v: GalaxyVisual) -> void:
 	stage.galaxy.frame("sun")
+	# The model against itself: no real stars, and the camera free to leave the Sun.
+	stage.galaxy.follow_sun = false
+	v.join_enabled = false
 	v.show_tracers = false
 	pin(v, 0.02)
 	var white := Vector3(1, 1, 1)
@@ -281,3 +406,4 @@ func handover(v: GalaxyVisual) -> void:
 	v.star_mat.set_shader_parameter("uFixL", 0.0)
 	v.show_stars = true
 	v.show_tracers = true
+	v.join_enabled = true

@@ -36,6 +36,9 @@ var _mutex := Mutex.new()
 var _hud_acc := 0.0
 var _adapted := false
 var curve_chart = null      # GalCurveChart, owned by the HUD
+## The "sun" framing keeps the camera's target on the Sun as it orbits, exactly.
+var follow_sun := false
+var _nb_baked := {}
 
 func _init(main) -> void:
 	stage = main
@@ -58,10 +61,14 @@ func enter(k: String) -> void:
 	# The arms' map bakes on a worker too; they light up when it is done.
 	_arms_baked = {}
 	var v := visual
+	# The real stars around the Sun load and bake their light map on the same worker.
+	_nb_baked = {}
 	_arm_task = WorkerThreadPool.add_task(func():
 		var b := v.bake_arms()
+		var nb := GalNeighbourhood.bake() if v.has_sun else {}
 		_mutex.lock()
 		_arms_baked = b
+		_nb_baked = nb
 		_mutex.unlock(), false, "galaxy arms")
 	# Built off the main thread: drawing the Shu distribution takes about a second, and
 	# a model with a bar and arms then runs from its tStart, while they grow, to today.
@@ -90,9 +97,12 @@ func wait_tracers() -> void:
 func _adopt_arms() -> void:
 	_mutex.lock()
 	var b := _arms_baked
+	var nb := _nb_baked
 	_arms_baked = {}
+	_nb_baked = {}
 	_mutex.unlock()
 	if not b.is_empty() and visual != null: visual.apply_arms(b)
+	if not nb.is_empty() and visual != null: visual.apply_neighbourhood(nb)
 
 func _adopt() -> void:
 	_mutex.lock()
@@ -117,6 +127,8 @@ func leave() -> void:
 		_arm_task = -1
 	_built = null
 	_arms_baked = {}
+	_nb_baked = {}
+	follow_sun = false
 	active = false
 	if visual != null: visual.dispose()
 	visual = null
@@ -126,9 +138,20 @@ func leave() -> void:
 	key = ""
 
 ## One frame of the scene's physics: the tracers advance by rate × dt within the
-## step budget. Returns the Myr accepted.
+## step budget. Returns the Myr accepted. Runs before the camera, so a followed Sun
+## is where the camera looks this frame.
 func step(dt: float) -> float:
 	if not active: return 0.0
+	var accepted := _advance(dt)
+	_track_sun()
+	return accepted
+
+func _track_sun() -> void:
+	if not follow_sun or visual == null or not visual.has_sun: return
+	var p: Vector3 = GalNeighbourhood.sun_frame(visual.sun_r0, visual.sun_omega, t_myr)[0]
+	stage.cam.target.set_v(p.x, p.y, p.z)
+
+func _advance(dt: float) -> float:
 	if _task >= 0 and WorkerThreadPool.is_task_completed(_task):
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
@@ -193,6 +216,7 @@ func frame(kind: String) -> void:
 	_adapted = false
 	stage.state.follow_id = null
 	cam.offset.set_v(0, 0, 0)
+	follow_sun = kind == "sun" and visual != null and visual.has_sun
 	match kind:
 		"whole":
 			cam.target.set_v(0, 0, 0)
@@ -208,11 +232,13 @@ func frame(kind: String) -> void:
 			cam.theta = PI / 2.0 - 0.02
 			stage.jump_cam_radius(float(preset.get("camRadius", 60.0)))
 		"sun":
-			# The solar neighbourhood (Bennett & Bovy 2019: 20.8 pc above the plane).
-			cam.target.set_v(-r0, 0.0208, 0.0)
+			# From the Sun itself, toward the centre, the camera on the Sun as it orbits
+			# (Bennett & Bovy 2019: 20.8 pc above the plane).
+			cam.target.set_v(-r0, GalNeighbourhood.SUN_HEIGHT, 0.0)
+			_track_sun()
 			cam.theta = PI / 2.0 - 0.25
 			cam.phi = PI
-			stage.jump_cam_radius(0.03)
+			stage.jump_cam_radius(MIN_RADIUS)
 		"centre":
 			cam.target.set_v(0, 0, 0)
 			cam.theta = PI / 2.0 - 0.3

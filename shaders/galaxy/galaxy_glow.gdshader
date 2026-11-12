@@ -31,6 +31,28 @@ uniform vec3 uYoungCol = vec3(1.0);
 uniform vec3 uExt = vec3(0.748, 1.0, 1.324);
 // galaxylookcheck only: no light nearer than this.
 uniform float uInner = 0.0;
+// The real far stars' light seen from the Sun (sim/galaxy/gal_neighbourhood.gd), given up
+// by the glow: radiance on galactic (l, b), the Sun's axes, and pixel value per radiance
+// times the set's weight (0: none).
+// Read by hand (cat_map): wrapped in longitude, clamped in latitude, so a pole never
+// borrows the other pole's light as a wrapping sampler would.
+uniform sampler2D uCatMap : filter_nearest, repeat_disable;
+
+vec3 cat_map(vec2 uv) {
+	ivec2 size = textureSize(uCatMap, 0);
+	vec2 p = uv * vec2(size) - 0.5;
+	vec2 f = p - floor(p);
+	int x0 = int(floor(p.x));
+	x0 = ((x0 % size.x) + size.x) % size.x;
+	int x1 = (x0 + 1) % size.x;
+	int y0 = clamp(int(floor(p.y)), 0, size.y - 1);
+	int y1 = clamp(int(floor(p.y)) + 1, 0, size.y - 1);
+	vec3 a = mix(texelFetch(uCatMap, ivec2(x0, y0), 0).rgb, texelFetch(uCatMap, ivec2(x1, y0), 0).rgb, f.x);
+	vec3 b = mix(texelFetch(uCatMap, ivec2(x0, y1), 0).rgb, texelFetch(uCatMap, ivec2(x1, y1), 0).rgb, f.x);
+	return mix(a, b, f.y);
+}
+uniform mat3 uSunBasis = mat3(1.0);
+uniform float uCatGain = 0.0;
 
 const int N_DISC = 32;
 const int N_SPHERE = 16;
@@ -168,5 +190,11 @@ void fragment() {
 		float tc = clamp(-dot(o, d), ts.x, ts.y);
 		sph = march_sphere(o, d, ts.x, ts.y, tc, sc, jit, uFaint.y, tv, leg, arc);
 	}
-	ALBEDO = (disc + sph * uSphereCol) * uGain;
+	vec3 col = (disc + sph * uSphereCol) * uGain;
+	if (uCatGain > 0.0) {
+		vec3 s = transpose(uSunBasis) * d;
+		vec2 uv = vec2(fract(atan(-s.z, s.x) / 6.2831853), 0.5 - asin(clamp(s.y, -1.0, 1.0)) / 3.1415927);
+		col = max(col - uCatGain * cat_map(uv), vec3(0.0));
+	}
+	ALBEDO = col;
 }

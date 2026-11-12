@@ -312,7 +312,9 @@ the Planck colour of Ballesteros's (2012) B−V temperature. The procedural sky 
 all six of its tiers (to its V ≈ 8 floor) when both files are present, and its four
 brightest (to V ≈ 6) with BSC5 alone; without BSC5 it stays whole. Gaia's data are
 ESA's, processed by the Gaia Data Processing and Analysis Consortium (DPAC), under
-CC BY-SA 3.0 IGO; `gaia_g8.bin` is a derivative under the same licence. The catalogue is visible-band only. It is neither lensed nor aberrated, so
+[CC BY-NC 3.0 IGO](https://creativecommons.org/licenses/by-nc/3.0/igo/) (Credit: ESA/Gaia/DPAC).
+`gaia_g8.bin` is derived data, built by `tools/build_gaia.py`. It stays non-commercial whatever
+the project's MIT licence says; commercial use needs ESA's permission. The catalogue is visible-band only. It is neither lensed nor aberrated, so
 a relativistic flight's sky warps only the procedural stars. Moving the plane-tilt
 or roll slider returns the scene to the hand-placed procedural frame.
 
