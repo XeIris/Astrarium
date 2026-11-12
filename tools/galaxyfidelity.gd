@@ -36,6 +36,10 @@ func _initialize() -> void:
 			return
 	var scale := float(args.get("scale", "0.5"))
 	var ours := Image.load_from_file(args.ours)
+	if ours == null or ours.is_empty():
+		push_error("galaxyfidelity: cannot read %s" % args.ours)
+		quit(1)
+		return
 	ours.convert(Image.FORMAT_RGB8)
 	var W := ours.get_width()
 	var H := ours.get_height()
@@ -57,6 +61,10 @@ func _initialize() -> void:
 			reg.set_pixel(x, y, bilinear(ours, sx - 0.5, sy - 0.5))
 	# The photo: its whole frame is the field; the nucleus moves to the centre.
 	var photo := Image.load_from_file(args.photo)
+	if photo == null or photo.is_empty():
+		push_error("galaxyfidelity: cannot read %s (Godot holds at most 2^28 pixels)" % args.photo)
+		quit(1)
+		return
 	photo.convert(Image.FORMAT_RGB8)
 	var nuc := String(args.nucleus).split(",")
 	var k := float(cw) / float(photo.get_width())
