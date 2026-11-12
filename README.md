@@ -269,6 +269,8 @@ missions only when the change can alter flight:
 `perf` need a working graphical renderer. `flight` runs the four full launches (one process each), the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit), the missions, one process per descent and per mission, and every developer
 scenario (`scenariocheck`); `scenario-replay` compares each scenario with the same
 flight played at 60 fps (about half an hour). `native` includes the numerical boundary checks.
+`encounters` runs the Milky Way–M31 encounter live for 10 Gyr (`encounterlivecheck`, ~6 min
+on an M5): `--changed` selects it for galaxy changes, but it stays out of `fast` and so out of CI.
 `stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
 three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
