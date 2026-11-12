@@ -23,10 +23,10 @@ const EDGE_COLUMNS := 48
 const EDGE_HALF_PX := 320
 const EDGE_SAMPLES := 3000
 const EDGE_EXPOSURE := 0.05
-## From the Sun the glow's 28 steps cross ~30 kpc of arm dust in the plane: that
-## quadrature reads 5.3 % bright in the lane against a converged CPU march (12000
-## samples agree with 3000). A step attenuated at its midpoint reads 14 %.
-const DUST_TOL := {"edge": 0.04, "sun": 0.08}
+## From the Sun the glow's steps gather about the camera, where the arm dust in the plane
+## changes most: 0.3 % against a converged CPU march (12000 samples agree with 3000). Spread
+## evenly over the box's chord they read 7 % bright in the lane.
+const DUST_TOL := {"edge": 0.04, "sun": 0.03}
 ## The join: four views from the Sun at a night-sky exposure, each half of it (the drawn
 ## stars, the glow given up) against the CPU.
 const JOIN_EXPOSURE := 1.0
@@ -35,8 +35,15 @@ const JOIN_TOL := 0.03
 const NEIGHBOUR_EXPOSURE := 0.05
 ## M104 seen 6° from edge-on through a 20 pc dust ring: as the Milky Way's lane from the Sun.
 const TYPE_DUST_TOL := 0.08
-## The medium below the map (GalISM), pixel by pixel: the glow's jitter and float sampling.
-const ISM_PIXEL_TOL := 0.10
+## The medium below the map (GalISM), pixel by pixel: the glow's jitter and float sampling
+## (M51 0.2 %, M104 1.4 %).
+const ISM_PIXEL_TOL := 0.05
+## M51's colour in linear light against SDSS (Muñoz-Mateos et al. 2009, J/ApJ/703/1569 table
+## 3, NGC 5194): g − r at 18″ to 198″ along the major axis. Drawn from the populations' colours
+## it was 0.087 mag rms off and 0.075 too red; from Inman et al.'s measured spectra, 0.05.
+const M51_SDSS_GR := [[18, 0.63], [36, 0.59], [54, 0.65], [72, 0.61], [90, 0.53], [108, 0.48],
+	[126, 0.50], [144, 0.43], [162, 0.41], [180, 0.38], [198, 0.43]]
+const M51_COLOUR_TOL := 0.07
 
 var logger := Catch.new()
 var stage: Node
@@ -456,6 +463,7 @@ func type_dust(preset: String) -> void:
 		print("     %s row %+d: drawn %s, integral %s" % [preset, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, absf(drawn / want - 1.0))
 	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	if preset == "gal_m51": m51_colour(v, img, sky, cam, basis, tan_h)
 	if npx > 0:
 		var on := sqrt(dev_on / npx)
 		var off := sqrt(dev_off / npx)
@@ -467,6 +475,72 @@ func type_dust(preset: String) -> void:
 	stage.load_preset("gal_milkyway")
 	stage.galaxy.wait_tracers()
 	stage.state.paused = true
+
+## M51's drawn colour in rings of the disc (each pixel's ray met with its plane) against SDSS's
+## g − r: linear B/R turned into g − r through M51's own spectra, Inman et al.'s old and young
+## light mixed in steps, so a palette's slope does not enter.
+func m51_colour(v: GalaxyVisual, img: Image, sky: Image, cam: Vector3, basis: Basis, tan_h: float) -> void:
+	var size := Vector2(img.get_width(), img.get_height())
+	var asec_per_kpc := 206264.8 / float(GalModels.TYPES.m51.d)
+	var sb := PackedFloat64Array()
+	var sr := PackedFloat64Array()
+	sb.resize(M51_SDSS_GR.size())
+	sr.resize(M51_SDSS_GR.size())
+	for iy in range(0, int(size.y), 2):
+		for ix in range(0, int(size.x), 2):
+			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
+			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
+			if absf(d.y) < 1e-3: continue
+			var t := -cam.y / d.y
+			if t <= 0.0: continue
+			var p := cam + d * t
+			var a := Vector2(p.x, p.z).length() * asec_per_kpc
+			var k := int(round(a / 18.0)) - 1
+			if k < 0 or k >= M51_SDSS_GR.size() or absf(a - 18.0 * float(k + 1)) > 9.0: continue
+			var c := img.get_pixel(ix, iy) - sky.get_pixel(ix, iy)
+			sb[k] += c.b
+			sr[k] += c.r
+	var ui: Dictionary = GalModels.M51_LIGHT.ui
+	var old := [0.0, 0.0, 0.0, 0.0]
+	var yng := [0.0, 0.0, 0.0, 0.0]
+	for j in 2:
+		var cd: Array = GalModels.M51_LIGHT.disc[j]
+		var ct: Array = GalModels.M51_LIGHT.thin[j]
+		var lo := [ui.disc[j][0], cd[7], cd[8], ui.disc[j][1]]
+		var ly := [ui.thin[j][0], ct[7], ct[8], ui.thin[j][1]]
+		for q in 4:
+			old[q] += float(lo[q])
+			yng[q] += float(ly[q])
+	var xs := PackedFloat64Array()
+	var ys := PackedFloat64Array()
+	for f in [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]:
+		var l := []
+		for q in 4: l.append(old[q] * (1.0 - f) + yng[q] * f * old[1] / yng[1])
+		var col := GalModels.sed_colour(l, 1.0)
+		xs.append(-2.5 * log(float(l[1]) / float(l[2])) / log(10.0))
+		ys.append(log(col.b / col.r) / log(10.0))
+	var mx := 0.0
+	var my := 0.0
+	for i in xs.size():
+		mx += xs[i] / xs.size()
+		my += ys[i] / xs.size()
+	var sxy := 0.0
+	var sxx := 0.0
+	for i in xs.size():
+		sxy += (xs[i] - mx) * (ys[i] - my)
+		sxx += (xs[i] - mx) * (xs[i] - mx)
+	var slope := sxy / sxx
+	var icpt := my - slope * mx
+	var s2 := 0.0
+	var line := ""
+	for k in M51_SDSS_GR.size():
+		var gr := (log(sb[k] / sr[k]) / log(10.0) - icpt) / slope
+		var want: float = M51_SDSS_GR[k][1]
+		s2 += (gr - want) * (gr - want)
+		line += " %d″ %s/%s" % [M51_SDSS_GR[k][0], U.fixed(gr, 2), U.fixed(want, 2)]
+	var rms := sqrt(s2 / M51_SDSS_GR.size())
+	print("     M51 g − r drawn/SDSS:" + line)
+	check("gal_m51: its colour in linear light follows SDSS's g − r from 18″ to 198″ (rms %s mag, < %s)" % [U.fixed(rms, 3), M51_COLOUR_TOL], rms < M51_COLOUR_TOL)
 
 ## The H II regions alone against the CPU: each drawn blob's pixels sum to its light, dimmed by
 ## the dust between it and the camera as the shader marches it, over 4π, the pixel's area and

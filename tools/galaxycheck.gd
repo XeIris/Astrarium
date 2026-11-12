@@ -1144,7 +1144,9 @@ func hii_checks(m: Dictionary, v: GalaxyVisual) -> void:
 			y += 0.005
 		tr += float(c.lum[i]) * exp(-tau * float(GalModels.EXTINCTION_RGB[0]))
 		tl += float(c.lum[i])
-	var shown := float(c.ha_regions) * tr / tl * GalHII.line_transmission(spec).r
+	# What the catalogue's lines keep of the Hα they were drawn from, beyond the disc's dust.
+	var kept: float = (c.lines[0] as Color).r / (GalHII._line_colour(spec).r * float(c.lum[0]) / GalHII.ERG_LSUN)
+	var shown := float(c.ha_regions) * tr / tl * kept
 	ok(absf(log(shown / lee) / log(10.0)) < 0.05, "M51's H II regions show %s erg/s of Hα face-on through the dust, Lee et al. observe %s (%s dex)" % [
 		U.expo(shown, 3), U.expo(lee, 3), U.fixed(log(shown / lee) / log(10.0), 3)])
 	# The luminosity function's bright slope recovered from the catalogue: dN/dlog L ∝ L^(α+1).
@@ -1300,9 +1302,12 @@ func types() -> void:
 # The medium below the map (GalISM): its field, that its multipliers keep the dust's mass and
 # the young light (mean one, at every footprint), that its shear stays within one shear time,
 # and what it does to M51 seen through its dust. docs/physics/galaxies.md#the-medium-below-the-map.
-## At the normalising footprint exact; finer and coarser ones move it by what their own eddies
-## do not average out.
-const ISM_MEAN_TOL := Vector2(0.01, 0.03)
+## At the normalising footprints exact; between and beyond them, what their own eddies do not
+## average out. Without each galaxy's realised means divided out: 0.6 % and 1.3 %.
+const ISM_MEAN_TOL := Vector2(0.004, 0.006)
+## Those realised means themselves: the largest eddies' few per cent over one galaxy (M51's
+## young light 1.4 %). A medium or feathers not of mean one stand out past it.
+const ISM_NORM_TOL := 0.03
 const ISM_SEEN_TOL := 0.10
 func ism() -> void:
 	var f := GalISM.field()
@@ -1347,7 +1352,11 @@ func ism() -> void:
 				acc += Vector4(c.g * GalISM.dust(mm.x), c.g, y * mm.y, y)
 		errs = Vector2(maxf(errs.x, absf(acc.x / acc.y - 1.0)), maxf(errs.y, absf(acc.z / acc.w - 1.0)))
 	ok(errs.x < ISM_MEAN_TOL.x and errs.y < ISM_MEAN_TOL.y, "M51's medium keeps its dust's mass (%s %%, < %s) and its young light (%s %%, < %s) at footprints 5–600 pc" % [
-		U.fixed(errs.x * 100.0, 2), U.fixed(ISM_MEAN_TOL.x * 100.0, 0), U.fixed(errs.y * 100.0, 2), U.fixed(ISM_MEAN_TOL.y * 100.0, 0)])
+		U.fixed(errs.x * 100.0, 2), U.fixed(ISM_MEAN_TOL.x * 100.0, 1), U.fixed(errs.y * 100.0, 2), U.fixed(ISM_MEAN_TOL.y * 100.0, 1)])
+	var nworst := 0.0
+	for nm in vis.ism_norm: nworst = maxf(nworst, maxf(absf(nm.x - 1.0), absf(nm.y - 1.0)))
+	ok(vis.ism_norm.size() == GalISM.NORM_FEET.size() and nworst < ISM_NORM_TOL, "M51's medium and feathers average to one over the galaxy before its realised means are divided out (worst %s %%, < %s)" % [
+		U.fixed(nworst * 100.0, 2), U.fixed(ISM_NORM_TOL * 100.0, 0)])
 	# Seen from the Sun through its own dust, with the medium as a 0.2″ pixel draws it: clumped
 	# dust lets more light through than the smooth model's (Witt & Gordon 1996).
 	var side := GalLandmarks.sun_side(m)
