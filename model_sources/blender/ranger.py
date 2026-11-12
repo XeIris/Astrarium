@@ -14,6 +14,7 @@ from movie_materials import palette, assign_uvs
 
 S = vehicle_stages('ranger')['ranger']
 C = Matrix(((1,0,0),(0,0,-1),(0,1,0)))
+CABIN_DECK = -.255
 
 
 def p(v):
@@ -57,7 +58,7 @@ def mounted(name,at,parent):
 
 
 def section_at(y):
-    rows=S['geometry']['sections']; length=S['L']; half=S['D']/2
+    rows=S['geometry']['sections']; length=S['L']; half=S['look']['hullSpan']/2
     for a,b in zip(rows,rows[1:]):
         if y<=b[0]*length:
             t=max(0,min(1,(y/length-a[0])/(b[0]-a[0])))
@@ -101,6 +102,7 @@ def exterior(m):
         block('docking latch lug',(.57*cos(a),.055,.57*sin(a)),(.075,.062,.075),m['alloy'],socket,.014)
     # Blanket seams on the long nose deck, and small replaceable panel patches.
     for y,w in [(11.5,2.0),(13.0,1.75),(14.5,1.4),(16.0,.94)]:
+        w=min(w,section_at(y)[3]-.05)
         z=section_at(y)[2]+.012
         rod('blanket cross seam',(-w,y,z),(w,y,z),.012,m['alloy'],root)
     for x in [-.7,.7]:
@@ -159,12 +161,12 @@ def exterior(m):
             ring_on(p((arm,y,0)),p((0,1,0)),tyre_radius-.07,.07,m['rubber'],'tyre',parent=leg)
             rod('wheel hub',(arm,y-.061,0),(arm,y+.061,0),tyre_radius-.113,m['alloy'],leg)
     # Seven independent trailing control surfaces share Shuttle control ordering.
-    for i in range(7):
-        mount=mounted(f'flap mount {i}',((i-3)*.95,.9,.1),root)
+    for i,at in enumerate(S['geometry']['flaps']):
+        mount=mounted(f'flap mount {i}',at,root)
         basis=Matrix(((0,0,1),(1,0,0),(0,1,0)))
         mount.rotation_euler=(C@basis@C.inverted()).to_euler()
         flap=empty(f'flap_ranger_{i}',(0,0,0),mount)
-        block('trailing flap',(-.36,0,0),(.70,.08,.85),m['tps'],flap,.012)
+        block('trailing flap',(-.36,0,0),(.70,.08,S['geometry']['flapWidth']),m['tps'],flap,.012)
 
 
 def display(title, at, w, h, m, parent, traces=None):
@@ -218,7 +220,7 @@ def overhead(m, root):
         a,b=roof_at(0,y0),roof_at(0,y1)
         base=block('crown raceway',(0,(y0+y1)/2,(a+b)/2-.083),(.31,y1-y0+.012,.045),m['panel'],crown,.008)
         base.rotation_euler.x=atan2(b-a,y1-y0)
-    for y,title,levels in [(7.85,'BUS', [('A',.81),('B',.76),('AUX',.57)]),
+    for y,title,levels in [(7.42,'BUS', [('A',.81),('B',.76),('AUX',.57)]),
                            (8.42,'ENV', [('PRES',.73),('O2',.88),('TEMP',.46)])]:
         z=roof_at(0,y)-.20
         bracket=block('crown instrument bracket',(0,y+.036,roof_at(0,y+.036)-.127),
@@ -233,6 +235,13 @@ def overhead(m, root):
             for dy in [-.11,.12]:
                 rod('overhead handle foot',(x,y+dy,roof_at(0,y+dy)-.083),(x,y+dy,z+.037),.015,m['alloy'],crown)
             rod('overhead handhold',(x,y-.11,z+.037),(x,y+.12,z+.037),.016,m['rubber'],crown)
+
+
+def fitted_furnishings(name, parent, scale, y=0):
+    # The feet of the seat tracks and console cabinets share the deck datum.
+    mount=mounted(name,(0,y,CABIN_DECK+.33*scale),parent)
+    mount.scale.y=scale
+    return mount
 
 
 def interior(m):
@@ -254,16 +263,22 @@ def interior(m):
             poly('window reveal',[vs[j]-normal*.004,vs[k]-normal*.004,seal[k],seal[j]],m['rubber'],root)
             poly('window seal',[seal[j],seal[k],inner[k],inner[j]],m['rubber'],root,-.004)
             rod('window inner frame',seal[j]-normal*.012,seal[k]-normal*.012,.019,m['alloy'],root)
-    block('flight deck',(0,6.0,-.37),(4.8,6.3,.075),m['deck'],root)
+    seating=fitted_furnishings('flight deck fittings',root,.78)
+    block('flight deck',(0,6.0,-.37),(3.50,6.3,.075),m['deck'],seating)
     for y in [3.30,4.10,4.90,5.70,6.50,7.30,8.10]:
-        block('inset aisle tread',(0,y,-.330),(.55,.76,.018),m['rubber'],root,.006)
+        block('inset aisle tread',(0,y,-.330),(.55,.76,.018),m['rubber'],seating,.006)
         for side in [-1,1]:
-            block('tread retainer',(side*.278,y,-.323),(.026,.76,.027),m['alloy'],root,.003)
+            block('tread retainer',(side*.278,y,-.323),(.026,.76,.027),m['alloy'],seating,.003)
         for dy in [-.27,-.135,0,.135,.27]:
-            block('anti-slip ridge',(0,y+dy,-.317),(.47,.026,.013),m['tps'],root,.003)
-    aft=mounted('aft pressure fittings',(0,0,-.33*.16),root)
-    aft.scale.y=.84
-    block('aft pressure bulkhead',(0,2.65,.56),(4.5,.10,2.1),m['liner'],aft)
+            block('anti-slip ridge',(0,y+dy,-.317),(.47,.026,.013),m['tps'],seating,.003)
+    aft=fitted_furnishings('aft pressure fittings',root,.70)
+    y=2.711
+    width,_,roof,crown=section_at(y)
+    edge=width*.86
+    bulkhead=poly('aft pressure bulkhead',[(edge,y,CABIN_DECK-.045),(-edge,y,CABIN_DECK-.045),
+        (-edge,y,roof_at(edge,y)-.04),(-crown,y,roof-.04),(crown,y,roof-.04),
+        (edge,y,roof_at(edge,y)-.04)],m['liner'],root)
+    bulkhead.modifiers.new('pressure panel thickness','SOLIDIFY').thickness=.037
     block('crew passage seal',(0,2.712,.48),(1.04,.049,1.78),m['rubber'],aft,.025)
     block('recessed pressure hatch',(0,2.739,.48),(.93,.035,1.65),m['panel'],aft,.036)
     for side in [-1,1]:
@@ -283,32 +298,31 @@ def interior(m):
             rod('canopy frame crown web',a,b,.027,m['alloy'],root)
             rod('canopy frame shoulder web',b,c,.027,m['alloy'],root)
     for x in [-.72,.72]:
-        block('seat pedestal',(x,7.0,-.18),(.45,.65,.4),m['alloy'],root)
-        block('seat cushion',(x,7.05,.06),(.64,.72,.19),m['seat'],root,.09)
-        block('seat back',(x,6.72,.51),(.64,.18,.88),m['seat'],root,.08)
-        block('headrest',(x,6.71,1.04),(.47,.20,.25),m['seat'],root,.07)
-        block('backrest centre insert',(x,6.803,.54),(.36,.040,.72),m['seat'],root,.025)
+        block('seat pedestal',(x,7.0,-.18),(.45,.65,.4),m['alloy'],seating)
+        block('seat cushion',(x,7.05,.06),(.64,.72,.19),m['seat'],seating,.09)
+        block('seat back',(x,6.72,.51),(.64,.18,.88),m['seat'],seating,.08)
+        block('headrest',(x,6.71,1.04),(.47,.20,.25),m['seat'],seating,.07)
+        block('backrest centre insert',(x,6.803,.54),(.36,.040,.72),m['seat'],seating,.025)
         for z in [.30,.47,.64,.81]:
-            rod('seat insert seam',(x-.145,6.825,z),(x+.145,6.825,z),.0028,m['webbing'],root)
+            rod('seat insert seam',(x-.145,6.825,z),(x+.145,6.825,z),.0028,m['webbing'],seating)
         for dx in [-.22,.22]:
-            block('harness',(x+dx,6.817,.54),(.065,.025,.79),m['webbing'],root,.007)
-            block('armrest',(x+dx*1.65,7.05,.37),(.12,.66,.12),m['seat'],root)
-            block('seat track',(x+dx,7.0,-.319),(.081,1.12,.061),m['rubber'],root,.008)
-            block('seat track cap',(x+dx,7.0,-.286),(.048,1.06,.028),m['alloy'],root,.004)
-            block('rear seatback rail',(x+dx,6.626,.49),(.048,.039,.82),m['alloy'],root,.006)
-        block('rear seatback crossbar',(x,6.608,.28),(.48,.043,.09),m['panel'],root,.010)
-        block('lap harness',(x,6.818,.18),(.49,.023,.058),m['webbing'],root,.006)
-        block('harness buckle',(x,6.836,.18),(.12,.025,.082),m['alloy'],root,.009)
-        rod('control stalk',(x,7.58,.1),(x,7.58,.49),.025,m['alloy'],root)
-        block('controller pedestal',(x,7.58,-.10),(.25,.28,.46),m['panel'],root)
-        block('hand controller',(x,7.58,.55),(.12,.11,.20),m['rubber'],root,.035)
-        block('controller trigger',(x+.065,7.57,.60),(.025,.06,.06),m['amber'],root,.008)
+            block('harness',(x+dx,6.817,.54),(.065,.025,.79),m['webbing'],seating,.007)
+            block('armrest',(x+dx*1.65,7.05,.37),(.12,.66,.12),m['seat'],seating)
+            block('seat track',(x+dx,7.0,-.319),(.081,1.12,.061),m['rubber'],seating,.008)
+            block('seat track cap',(x+dx,7.0,-.286),(.048,1.06,.028),m['alloy'],seating,.004)
+            block('rear seatback rail',(x+dx,6.626,.49),(.048,.039,.82),m['alloy'],seating,.006)
+        block('rear seatback crossbar',(x,6.608,.28),(.48,.043,.09),m['panel'],seating,.010)
+        block('lap harness',(x,6.818,.18),(.49,.023,.058),m['webbing'],seating,.006)
+        block('harness buckle',(x,6.836,.18),(.12,.025,.082),m['alloy'],seating,.009)
+        rod('control stalk',(x,7.58,.1),(x,7.58,.49),.025,m['alloy'],seating)
+        block('controller pedestal',(x,7.58,-.10),(.25,.28,.46),m['panel'],seating)
+        block('hand controller',(x,7.58,.55),(.12,.11,.20),m['rubber'],seating,.035)
+        block('controller trigger',(x+.065,7.57,.60),(.025,.06,.06),m['amber'],seating,.008)
         for dx in [-.16,.16]:
-            block('rudder pedal',(x+dx,8.0,-.14),(.2,.30,.07),m['rubber'],root)
-            rod('pedal support',(x+dx,8.05,-.33),(x+dx,8.0,-.16),.025,m['alloy'],root)
+            block('rudder pedal',(x+dx,8.0,-.14),(.2,.30,.07),m['rubber'],seating)
+            rod('pedal support',(x+dx,8.05,-.33),(x+dx,8.0,-.16),.025,m['alloy'],seating)
     # The console feet stay on the deck under the lower forward canopy.
-    instruments=mounted('forward instrument consoles',(0,-.23,-.33*.22),root)
-    instruments.scale.y=.78
+    instruments=fitted_furnishings('forward instrument consoles',root,.63,-.23)
     for x in [-1.20,0,1.20]:
         block('console floor plinth',(x,8.98,-.27),(1.0,.40,.14),m['alloy'],instruments)
         height=.90 if x else 1.36
@@ -344,7 +358,7 @@ def interior(m):
     annunciators((0,8.71,.115),.53,('ARM','RCS','OMS'),m,instruments)
     overhead(m,root)
     for side in [-1,1]:
-        sideboard=mounted('side instruments',(side*1.45,7.65,.58),root)
+        sideboard=mounted('side instruments',(side*1.40,7.65,.58),seating)
         sideboard.rotation_euler=(0,-side*.30,0)
         block('side cabinet',(0,.065,-.14),(.71,.25,.82),m['panel'],sideboard,.025)
         rod('side cabinet floor support',(side*.18,.11,-.43),(side*.18,.11,-.93),.034,m['alloy'],sideboard)
@@ -363,14 +377,14 @@ def interior(m):
             mounted(f'interior_light_{i*2+(0 if side<0 else 1)}',(0,0,-.10),fixture)
     for side in [-1,1]:
         for y in [3.7,5.0]:
-            block('equipment rack',(side*1.88,y,.17),(.5,.96,1.0),m['panel'],root)
+            block('equipment rack',(side*1.47,y,.17),(.5,.96,1.0),m['panel'],seating)
             for z in [-.05,.25,.55]:
-                block('equipment drawer',(side*1.6,y,z),(.07,.75,.22),m['alloy'],root)
-                block('drawer recessed pull',(side*1.556,y,z+.018),(.027,.32,.058),m['rubber'],root,.012)
+                block('equipment drawer',(side*1.19,y,z),(.07,.75,.22),m['alloy'],seating)
+                block('drawer recessed pull',(side*1.146,y,z+.018),(.027,.32,.058),m['rubber'],seating,.012)
                 for dy in [-.27,.27]:
-                    block('drawer captive fastener',(side*1.56,y+dy,z),(.022,.043,.052),m['panel'],root,.008)
+                    block('drawer captive fastener',(side*1.15,y+dy,z),(.022,.043,.052),m['panel'],seating,.008)
         for y in [3.1,4.8,6.6,8.4]:
-            rod('cabin rail',(side*2.05,y,-.35),(side*2.05,y,roof_at(side*2.05,y)-.055),.028,m['alloy'],root)
+            rod('cabin rail',(side*1.72,y,CABIN_DECK-.02),(side*1.72,y,roof_at(side*1.72,y)-.055),.028,m['alloy'],root)
     label('own identification','SURVEY / FLIGHT DECK',(0,2.72,1.34),.10,aft,m['legend'])
 
 

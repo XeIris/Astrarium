@@ -34,9 +34,18 @@ func run() -> void:
 		if absf(point.x)>half_span:
 			half_span=absf(point.x)
 			shoulder_at=point.y/float(st.spec.L)
-	expect(absf(2.0*nose_half_width-.46*float(st.spec.D))<.03,"Ranger has its narrow clipped bow (%.3f m)"%(2.0*nose_half_width))
-	expect(crown_height/float(st.spec.L)<.086 and shoulder_at>.29 and shoulder_at<.34,
-		"traced low crown and swept shoulder (z %.3f m, station %.3f)"%[crown_height,shoulder_at])
+	var span:=RangerCraft.hull_span(st.spec)
+	expect(absf(2.0*nose_half_width-.423*span)<.03,"Ranger has its narrow clipped bow (%.3f m)"%(2.0*nose_half_width))
+	expect(absf(2.0*half_span-span)<.025 and shoulder_at>.29 and shoulder_at<.34,
+		"narrow swept shoulder (span %.3f m, station %.3f)"%[2.0*half_span,shoulder_at])
+	expect(bounds.size.z/float(st.spec.L)<.10 and crown_height/float(st.spec.L)<.068,
+		"the shallow body stays under a tenth of its length (%.3f m)"%bounds.size.z)
+	for flap: Node3D in st.parts.flaps:
+		var hinge: Vector3=st.group.to_local(flap.global_position)
+		var skin:=RangerCraft.at(st.spec,hinge.y)
+		var side:=lerpf(skin[1].x,skin[2].x,inverse_lerp(skin[1].z,skin[2].z,hinge.z))
+		expect(hinge.z>skin[1].z and hinge.z<skin[2].z and absf(hinge.x)<side-.12,
+			"trailing flap hinge sits inside the narrowed tail")
 	var chines: Array[Node3D]=[]
 	var chine_poses: Array[Transform3D]=[]
 	for side: String in ["port","starboard"]:

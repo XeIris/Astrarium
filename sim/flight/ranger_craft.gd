@@ -4,32 +4,32 @@ extends RefCounted
 # Stations from the exhibit plan and profile traces, aft to bow. Widths are
 # fractions of half-span and heights are fractions of length.
 const SECTIONS := [
-	[0.0, .51, -.035, -.004, .049, .34],
-	[.10, .77, -.033, .008, .069, .47],
-	[.20, .855, -.033, .014, .081, .49],
-	[.31, .94, -.032, .014, .083, .52],
-	[.43, .851, -.027, .009, .073, .49],
-	[.52, .784, -.024, .004, .043, .44],
-	[.61, .717, -.019, .003, .025, .43],
-	[.78, .590, -.014, -.002, .015, .43],
-	[.95, .483, -.010, -.005, .008, .42],
-	[1.0, .46, -.009, -.005, .006, .41],
+	[0.0, .49, -.0305, -.006, .0485, .32],
+	[.10, .75, -.027, -.001, .054, .405],
+	[.20, .853, -.0255, .0005, .0615, .44],
+	[.31, .94, -.025, .002, .0665, .48],
+	[.43, .846, -.0215, 0, .0585, .435],
+	[.52, .760, -.0185, -.002, .036, .398],
+	[.61, .678, -.015, -.003, .0205, .39],
+	[.78, .554, -.012, -.0045, .013, .387],
+	[.95, .440, -.009, -.006, .0075, .365],
+	[1.0, .423, -.0075, -.006, .0055, .35],
 ]
 
 # Filming miniature: the raised chines run forward from the radiator and
 # separate from the foredeck at their tips. Offsets from the skin are in metres.
 const CHINE_STATIONS := [
-	[.082, -.37, .10, .25],
-	[.10, -.35, .13, .28],
-	[.20, -.27, .22, .32],
-	[.31, -.25, .291, .30],
-	[.43, -.20, .29, .28],
-	[.52, -.21, .28, .26],
-	[.61, -.26, .28, .25],
-	[.78, -.21, .28, .26],
-	[.865, .07, .32, .35],
-	[.935, .21, .35, .34],
-	[.973, .29, .35, .24],
+	[.082, -.32, .09, .13],
+	[.10, -.31, .11, .15],
+	[.20, -.25, .18, .18],
+	[.31, -.22, .26, .18],
+	[.43, -.19, .24, .16],
+	[.52, -.19, .23, .15],
+	[.61, -.22, .24, .14],
+	[.78, -.20, .25, .16],
+	[.865, .07, .28, .26],
+	[.935, .20, .31, .29],
+	[.973, .25, .31, .21],
 ]
 
 # Chamfered aperture contours traced on the miniature, in local panel UVs.
@@ -44,16 +44,20 @@ const SIDE_AFT := [[.18,.37],[.26,.21],[.70,.16],[.80,.27],[.73,.71],[.59,.82],[
 const SIDE_FORWARD := [[.26,.29],[.37,.16],[.70,.23],[.78,.37],[.73,.77],[.57,.85],[.30,.74],[.23,.57]]
 
 const WELL_HALF_WIDTH := .48
+const FLAP_WIDTH := .66
+
+static func hull_span(spec: Dictionary) -> float:
+	return float(spec.look.get("hullSpan",spec.D))
 
 static func section(spec: Dictionary, i: int) -> Array[Vector3]:
 	var s: Array = SECTIONS[i]
 	var y := float(s[0]) * float(spec.L)
-	var w := float(s[1]) * float(spec.D) * .5
-	var c := float(s[5]) * float(spec.D) * .5
+	var w := float(s[1]) * hull_span(spec) * .5
+	var c := float(s[5]) * hull_span(spec) * .5
 	var z0 := float(s[2]) * float(spec.L)
 	var z1 := float(s[3]) * float(spec.L)
 	var z2 := float(s[4]) * float(spec.L)
-	return [Vector3(-w*.84,y,z0), Vector3(w*.84,y,z0), Vector3(w,y,z1),
+	return [Vector3(-w*.80,y,z0), Vector3(w*.80,y,z0), Vector3(w,y,z1),
 		Vector3(c,y,z2), Vector3(-c,y,z2), Vector3(-w,y,z1)]
 
 static func _point(q: Array, u: float, v: float) -> Vector3:
@@ -109,13 +113,13 @@ static func _chines(spec: Dictionary) -> Array:
 			var chine := hull[2]
 			var crown := hull[3]
 			var inner := chine.x+float(station[1])
-			var outer := minf(chine.x+float(station[2]),float(spec.D)*.5)
+			var outer := minf(chine.x+float(station[2]),hull_span(spec)*.5)
 			var rise := float(station[3])
 			var bevel := minf(.045,(outer-inner)*.25)
 			var deck := lerpf(chine.z,crown.z,clampf((chine.x-inner)/(chine.x-crown.x),0.0,1.0))
 			vertices.append_array([
-				[side*inner,y,deck-.10],
-				[side*outer,y,chine.z-.075],
+				[side*inner,y,deck-.075],
+				[side*outer,y,chine.z-.045],
 				[side*outer,y,chine.z+rise*.42],
 				[side*(outer-bevel),y,chine.z+rise],
 				[side*(inner+bevel),y,maxf(deck+.035,chine.z+rise*.27)],
@@ -140,12 +144,12 @@ static func gear_mounts(spec: Dictionary) -> Array:
 		var nose := i==0
 		var contact: Array = spec.gear.nose if nose else spec.gear.point
 		var y := float(contact[1])
-		var z := -.02 if nose else -.34
+		var z := -.02 if nose else -.21
 		var arm := z-float(contact[2])-radius
-		var x := 0.0 if nose else -2.8 if i==1 else 2.8
+		var x := 0.0 if nose else -2.25 if i==1 else 2.25
 		mounts.append({"at":[x,y,z],"arm":arm,"tyreOffset":.085 if nose else .15,
 			"rear":y-.36,"front":y+arm+radius+.08,"halfWidth":WELL_HALF_WIDTH,
-			"ceiling":.153 if nose else -.09})
+			"ceiling":.148 if nose else .04})
 	return mounts
 
 static func _belly(spec: Dictionary, faces: Array, mounts: Array) -> void:
@@ -207,6 +211,15 @@ static func _well_faces(spec: Dictionary, mounts: Array) -> Array:
 			Vector3(x0,front,roof),Vector3(x0,front,z1)],"panel","gear well front")
 	return faces
 
+static func _flap_mounts(spec: Dictionary) -> Array:
+	var mounts := []
+	var y := .9
+	var z := at(spec,y)[2].z-.16
+	var count := int(spec.look.flaps)
+	for i in count:
+		mounts.append([(i-(count-1)*.5)*.73,y,z])
+	return mounts
+
 ## Identical low-resolution skin and window apertures for Blender and fallback.
 static func geometry(spec: Dictionary) -> Dictionary:
 	var faces := []; var windows := []
@@ -250,7 +263,7 @@ static func geometry(spec: Dictionary) -> Dictionary:
 	var nose := section(spec,SECTIONS.size()-1); nose.reverse()
 	_face(faces,nose,"tps","nose")
 	return {"faces":faces,"windows":windows,"sections":SECTIONS,"chines":_chines(spec),
-		"gear":mounts,"wells":_well_faces(spec,mounts)}
+		"gear":mounts,"wells":_well_faces(spec,mounts),"flaps":_flap_mounts(spec),"flapWidth":FLAP_WIDTH}
 
 static func _append_polygon(g: CraftModel.Geo, vertices: Array, inset: float) -> void:
 	var ps := PackedVector3Array()
@@ -305,12 +318,12 @@ static func build(spec: Dictionary, parts: Dictionary) -> Dictionary:
 			var tyre:=CraftModel._mesh(CraftModel._cylinder(tyre_radius,tyre_radius,.14,24),mats.black)
 			tyre.position=Vector3(arm,side*float(gear.tyreOffset),0)
 			leg.add_child(tyre)
-	for i in 7:
+	for at_: Array in data.flaps:
 		var mount := Node3D.new(); root.add_child(mount)
-		mount.position=Vector3((i-3)*.95,.9,.1)
+		mount.position=Vector3(at_[0],at_[1],at_[2])
 		mount.basis=Basis(Vector3.UP,Vector3.BACK,Vector3.RIGHT)
 		var flap := Node3D.new(); mount.add_child(flap); parts.flaps.append(flap)
-		EvaPod._box(flap,Vector3(-.36,0,0),Vector3(.70,.08,.85),mats.tiles)
+		EvaPod._box(flap,Vector3(-.36,0,0),Vector3(.70,.08,FLAP_WIDTH),mats.tiles)
 	return {"group":root,"parts":parts}
 
 static func cabin(spec: Dictionary) -> Node3D:
@@ -321,7 +334,7 @@ static func cabin(spec: Dictionary) -> Node3D:
 		_poly(root,row,m,-.06)
 	var dark := CraftModel._mat("surveySeat",0x23292c,.83,.02)
 	for x in [-.72,.72]:
-		EvaPod._box(root,Vector3(x,7.2,.03),Vector3(.65,.65,.18),dark)
-		EvaPod._box(root,Vector3(x,6.96,.48),Vector3(.65,.15,1.0),dark)
-	EvaPod._box(root,Vector3(0,8.9,.4),Vector3(3.0,.3,.5),dark)
+		EvaPod._box(root,Vector3(x,7.2,.025),Vector3(.65,.65,.14),dark)
+		EvaPod._box(root,Vector3(x,6.96,.39),Vector3(.65,.15,.79),dark)
+	EvaPod._box(root,Vector3(0,8.67,.23),Vector3(3.0,.3,.4),dark)
 	return root

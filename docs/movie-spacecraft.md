@@ -13,14 +13,15 @@ Controls to open scenarios, or pass `scenario=<vehicle>:<id>` on the command lin
 ## Ranger reconstruction
 
 The Blender model was inspected from front, rear, side, plan and below, then
-through the production flight renderer. The 17.9 m length and 9.7 m span are
-reconstruction estimates. The photographed plan and side profile inform the
-low canopy, clipped triangular foredeck and broad shoulder break about a third
-of the length forward of the stern. The swept chines end in free tips beside
-the bow. A radiator belt crosses the deck ahead of the recessed axial port.
+through the production flight renderer. The 17.9 m long, 8.35 m wide hull is a
+visual reconstruction. The photographed plan and side profile inform the low
+canopy, tapered foredeck and shoulder break about a third of the length forward
+of the stern. The thin swept chines end in upturned tips beside the bow. A
+radiator belt crosses the deck ahead of the recessed axial port.
 The filming miniature supplies the uneven groups of chamfered canopy apertures.
 [Exhibited prop](https://hollywoodmoviecostumesandprops.blogspot.com/2017/08/tars-robot-and-space-shuttle-models.html)
 [New Deal Studios filming miniature](https://www.fxguide.com/wp-content/uploads/2014/12/IMG_3278_LARGE.jpg)
+[Full-size prop photographs](https://nasawatch.com/2014/11/07/visiting-interstellars-spacecraft/)
 
 `vehicles.gd` owns these dimensions, mass, propulsion and camera datums. `RangerCraft.geometry`
 exports the same skin, apertures, chines and wheel wells to Blender and the
@@ -28,9 +29,9 @@ procedural fallback. Blender adds gaskets, blanket seams, radiator ribs, nozzle
 walls and cabin fittings.
 
 The chemical OMS estimate is two 45 kN engines at 360 s vacuum Isp, 6 t main
-propellant and 14.5 t dry mass. Aerodynamics reuse the Shuttle coefficient family
-on an estimated 85 m² lifting area. This is an orbit-to-ground shuttle model;
-the film's extraordinary single-stage ascent is not represented.
+propellant and 14.5 t dry mass. The orbit-to-ground flight model uses Shuttle
+aerodynamic coefficients with an estimated 85 m² lifting area and 9.7 m
+reference span.
 
 The cockpit loads only on entry. Its up direction is +Z in the stage frame,
 separate from the +Y thrust axis; camera yaw uses that cabin vertical. G lowers
