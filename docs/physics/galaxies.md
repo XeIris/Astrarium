@@ -783,10 +783,9 @@ Set side by side at matched field and north, judged by eye:
 
 - **Scattering.** Dust only extinguishes.
 - **Fine structure:** the medium below the map ([below](#the-medium-below-the-map)) draws
-  turbulent dust and clumped young light, but not:
-  - feathers anchored on the lanes (La Vigne et al. 2006 find M51's spaced 200 pc inside to
-    500–1000 pc outside); the medium's filaments trail by shear but are not tied to the arms;
-  - the 10–100 Myr clusters that make Hubble's arms grainy and blue;
+  turbulent dust, clumped young light and feathers off the lanes, but not:
+  - lanes as thin as Hubble's: Egusa et al.'s 30° gas arms draw a lane about 1 kpc wide;
+  - the 10–100 Myr clusters that make Hubble's arms grainy;
   - the outer arm's link to NGC 5195;
   - NGC 5195's own dust and shape.
 
@@ -822,17 +821,41 @@ gathers gas into shock-compressed sheets, so m is exp(−βn²) over its mean, (
 dense where the field crosses zero. A log-normal instead gives blobs, and with half the dust
 smooth it cannot reach Hughes et al.'s widths: it peaks near 0.21 dex.
 
-**Young light.** A log-normal in its own realization. Grasha et al. (2019) find M51's young
-clusters' 1 + ω(θ) ∝ θ^−0.28 against the molecular clouds' θ^−0.09. A log-normal raised to n
-steepens ln(1 + ξ) by n², so the young light's 40 pc width is n = √(0.28/0.09) = 1.76 times
-the gas column's. It is independent of the dust because most clusters have left their gas by
-~6 Myr (Grasha et al.), and the 100 Myr of young light is dominated by older ones.
+**Young light.** A log-normal in its own realization, independent of the dust because most
+clusters have left their gas by ~6 Myr (Grasha et al. 2019), and the 100 Myr of young light is
+dominated by older ones. Its width at 40 pc, 0.15 dex, is set on Hubble's image (below).
+Grasha et al.'s clusters cluster as 1 + ω(θ) ∝ θ^−0.28 against the molecular clouds' θ^−0.09,
+and a log-normal raised to n steepens ln(1 + ξ) by n². Against Hughes et al.'s CO widths that
+would make it √(0.28/0.09) × 0.235 = 0.41 dex, which alone draws more structure at 36–145 pc
+than Hubble's image holds. Weighting each age's clusters by its light gives n = 1.74 again.
+
+**Feathers.** La Vigne et al. (2006) find M51's feathers spaced ~200 pc inside to 500–1000 pc
+outside, about 0.125 R along the lane. They leave the primary dust lane at ~50° (Elmegreen
+1980), cross the arm and wind into the interarm. Each is drawn as a material line in the gas's
+shear (`GalISM.feather`):
+- With a flat rotation curve, gas u rad downstream of the lane in the arms' frame left it
+  Ω u/(Ω − Ω_p) ago. The line's pitch then goes as cot i = cot i₀ + u/(1 − R/R_CR), with
+  Egusa et al.'s corotation.
+- Followed outward from where it left the lane, it reaches u = (a/k)(1 − e^(−k ln R/R_e)),
+  with a = cot p − cot i₀ and k = 1/(1 − R/R_CR). It winds until it lies along the arm,
+  merging as La Vigne et al. see the longest reach the next lane, and its contrast falls to
+  nothing there.
+- They are quasi-regular: each is moved by up to 0.3 of the spacing and given an exponentially
+  distributed share of the dust, seeded by its index along the lane (an integer hash, the
+  same on CPU and GPU).
+- They gather the dust's structured share and keep its mean at every u. The shader computes
+  them from the lanes' own parameters, so no texel smears the lane.
+
+How much they gather (0.5) and their width (0.15 of the spacing) are not measured; they are set
+with the young light's width.
 
 **Where it is drawn.** From outside the layer (1 kpc off the plane), each ray takes the
 medium where it crosses the plane, band-limited to its pixel there. A tilted thick layer then
 does not smear it, and the march adds no grain. From inside, a jittered 28-step march samples
-a field finer than its step and draws grain, so the medium is not drawn there: from the Sun the
-glow stays smooth.
+a field finer than its step and draws grain, so the medium is not drawn there. The field is the
+same through the layer's height, so from within the plane its eddies would stand as pillars:
+shells of it at fixed distances along each ray drew vertical streaks. From the Sun the glow
+stays smooth.
 
 **Mean one.** The largest eddies do not average out over one galaxy: M51's young light came
 out 6 % high. Each galaxy's realised means over its own map, weighted by its dust and young
@@ -873,48 +896,94 @@ Godot --headless --path . -s tools/galaxyfidelity.gd -- ours=/abs/m51.png \
   nucleus=4447,3845 pc=41.6 ellipse=3.2,2.9,0 out=/abs/m51
 ```
 
-The renders are 3024 × 1964 at Hubble's field, measured at half scale.
+The renders are 3024 × 1964 at Hubble's field, measured at half scale, with the postfx sensor
+grain and vignette off: the photographs have neither, and at 0.02 the grain alone fills M51's
+18 pc band to ten times Hubble's.
 
 **M51**, band power ours ÷ Hubble's (one is a match):
 
-| Scale | 36 pc | 72 pc | 145 pc | 289 pc | 579 pc |
-|---|---|---|---|---|---|
-| Without the medium | 1.24 | 0.39 | 0.28 | 1.10 | 2.60 |
-| With it | 2.58 | 2.02 | 1.60 | 1.30 | 2.26 |
+| | 36 pc | 72 pc | 145 pc | 289 pc | 579 pc | Clumpiness | Contrast |
+|---|---|---|---|---|---|---|---|
+| Without the medium | 0.34 | 0.23 | 0.27 | 1.20 | 2.68 | 0.048 | 2.06 |
+| With it | 1.05 | 1.19 | 0.97 | 1.27 | 2.50 | 0.056 | 1.99 |
+| Hubble | 1 | 1 | 1 | 1 | 1 | 0.053 | 1.85 |
 
-- **Band power:** 36–289 pc moves from 0.35 dex rms off Hubble's to 0.28 dex. The 72–145 pc
-  gap, where the smooth map had a third to a quarter of Hubble's structure, is filled; the
-  finest band is now twice Hubble's. The 18 pc band, at the render's pixel, is about ten times
-  Hubble's either way: it is the render's grain and Hubble's noise floor, not structure.
-- **Clumpiness:** 0.070 → 0.087 (Hubble 0.053).
-- **Arm–interarm contrast:** 2.11 → 2.20 (Hubble 1.85).
-- **Colour:** flat, log B/R −0.21 to −0.18 from centre out, both with and without the medium.
-  Hubble's runs −0.13 → +0.08: its outer arms are bluer.
+- **Where it came from.** Turning each part off apportions the band power at 36 / 72 / 145 pc:
+  the smooth map with its H II regions 0.34 / 0.23 / 0.27, the dust medium 0.36 / 0.38 / 0.25
+  more, and the young light at 0.41 dex 1.06 / 1.34 / 1.15 more. The young light's width and
+  the feathers' strength are the two numbers set on this image. At full strength the feathers
+  bring 36–72 pc to twice Hubble's.
+- **At 579 pc** the excess is the map's: Egusa et al.'s 30° gas arms draw a lane about 1 kpc
+  wide, where Hubble's are thin.
 
-**M104:** the 33 pc band 2.09 → 2.08, the rest within 4 %. The lane is visibly mottled, but it
-is a small share of the disc's ellipse and carries little of the image's variance.
+**Colour.** M51's bulge, disc and young disc take their colours from Inman et al.'s fitted u, g,
+r and i luminosities (Table A1, `GalModels.m51_colours`), at each population's luminance, so V
+is unchanged. The population model had drawn them 0.15 (disc) to 0.3 mag (bulge) redder in
+g − r. In linear light, B/R turns into g − r through M51's own spectra, Inman et al.'s old and
+young light mixed in steps. On that scale the drawn profile follows SDSS's (Muñoz-Mateos et al.
+2009, J/ApJ/703/1569, table 3):
 
-**M33 and M31 are unchanged.** M33's young light is in its map, not a young population, and
-M31 has neither dust nor young light, so the medium has nothing to act on.
+| g − r | 18″ | 54″ | 90″ | 126″ | 162″ | 198″ | rms |
+|---|---|---|---|---|---|---|---|
+| SDSS | 0.63 | 0.65 | 0.53 | 0.50 | 0.41 | 0.43 | |
+| In the populations' colours | 0.74 | 0.66 | 0.58 | 0.55 | 0.50 | 0.50 | 0.087 |
+| In the measured colours | 0.63 | 0.57 | 0.47 | 0.44 | 0.39 | 0.41 | 0.051 |
 
-**Cost** on the M5 at native resolution (`m5-budget`), the medium off → on:
+`galaxylookcheck` holds it below 0.07 in its own framing. Hubble's palette is not the eye's: its
+red channel is F814W and Hα (F658N), so its log B/R rises 0.21 dex across the disc where an
+eye-coloured image's barely does.
 
-| View | Off | On |
+**H II regions.** Their lines pass through their own clouds' dust, A_V 0.75, beyond the disc's.
+Face-on their Hα had been 1.9 times what Lee et al. (2011) observe; `galaxycheck` now finds it
+within 0.05 dex. The total, 2.0 mag, is van der Hulst et al.'s (1988) "about 2" for the
+brightest regions; Scoville et al.'s (2001) 3.1 from Paα probes deeper. Their stars are not
+dimmed, since Inman et al. fit the young stars' escaping light. The knots stay pinkish white,
+not Hubble's pink. A region's continuum gives an Hα equivalent width of 810 Å, plausible under
+10 Myr, but the eye's red channel is broad (about 330 nm for a flat spectrum), so the lines add
+only about 30 % to it.
+
+**From the Sun, against ESO's panorama.** The panorama is eso0932a (ESO/S. Brunier, CC BY 4.0,
+https://www.eso.org/public/images/eso0932a/; 6000 × 3000, equirectangular in l and b). Each
+pixel of a 70° frame toward the centre is taken to (l, b). Band power is measured in
+|b| < 8°, |l| < 45°, as above:
+
+| | 0.08° | 0.15° | 0.31° | 0.61° | 1.22° | 2.44° | 4.89° |
+|---|---|---|---|---|---|---|---|
+| Ours ÷ ESO's | 0.67 | 0.73 | 0.58 | 0.41 | 0.50 | 0.59 | 2.36 |
+
+There are two smooth dark lanes where ESO shows clouds at every scale. The glow's samples from
+inside the disc gather about the camera; spread over the box's chord they had read 7 % bright in
+the lane against the CPU (now 0.3 %).
+
+**M104.** Before the medium its smooth model already holds 1.80 / 1.92 / 2.06 times Hubble's
+power at 33 / 65 / 130 pc, and the medium leaves it there (1.77 / 1.84 / 1.99). The ring is De
+Looze et al.'s four Gaussians, 20 pc thick. Seen 6° from edge-on they draw thin, regular
+striations, where Hubble's lane is one clumpy band.
+
+**M33 and M31.** The medium acts on M33's young light, but at its 18 pc pixels and 0.15 dex
+it is lost in the measures. M31 has neither dust nor young light.
+
+**Cost** on the M5 at native resolution (`m5-budget`):
+
+| View | Without the medium | With it |
 |---|---|---|
-| M51 from 8 kpc | 34.3 fps, p95 29.3 ms | 31.9 fps, p95 31.4 ms |
-| M51 whole | 40.9 fps | 38.8 fps |
-| The Milky Way whole | 44.8 fps | 43.7 fps |
-| From the Sun | 35.1 fps | 35.1 fps |
+| M51 from 8 kpc | 34.3 fps, p95 29.3 ms | 32.1 fps, p95 31.4 ms |
+| M51 whole | 40.9 fps | 40.2 fps |
+| The Milky Way whole | 44.8 fps | 45.7 fps |
+| From the Sun | 35.1 fps | 36.5 fps |
 
 Each octave fades out as its wavelength falls from eight to four of a pixel's footprints, so
-a distant galaxy draws few of them.
+a distant galaxy draws few of them. Feathers add a few lane evaluations per pixel of M51.
 
 **Not drawn:**
-- Feathers anchored on the lanes.
-- The outer arms' blue.
-- Hubble's pink H II.
-- The medium from inside the disc.
-- Fine structure in M33 and M31.
+- Lanes as thin as Hubble's.
+- Dust structure seen through the dust. The views that look through it, the Milky Way from the
+  Sun and the Sombrero's lane, want several times the strength M51's face-on image allows:
+  drawn on shells along each ray, the band from the Sun came near ESO's only at ten times it.
+  Clouds from inside need a medium that varies with height, or the measured 3D dust near the
+  Sun.
+- Hubble's pink H II and its blue arms, which are its palette.
+- Fine structure in M31, which has no dust or young light to structure.
 
 ## Encounters (phase 4)
 
