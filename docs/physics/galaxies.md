@@ -241,10 +241,13 @@ The exposure slider multiplies that.
   Sun–centre line today (Bland-Hawthorn & Gerhard 2016). Its strength is galpy's
   default α = 0.01, after Dehnen (2000).
 - **The spiral** is Cox & Gómez's (2002) potential of a two-armed stellar density
-  wave: ρ = ρ0 e^{−(R−r0)/Rs} sech²(z/H) cos γ, with ρ0 = 1 amu cm⁻³, r0 = 8, Rs = 7
+  wave: ρ = ρ0 e^{−(R−r0)/Rs} sech²(z/H) cos γ, with ρ0 = (14/11) m_H n0 = 1.283 amu cm⁻³
+  (their n0 = 1 cm⁻³, with helium), r0 = 8, Rs = 7
   and H = 0.18 kpc, and γ = N(φ − φp + ln(R/r0)/tan α), so its arms trail. It turns at
   28.2 ± 2.1 km/s/kpc (Dias et al. 2019). Its 12° pitch is the mean of the two major
-  arms' measured pitches, and its crest lies on Perseus today (Reid et al. 2019).
+  arms' measured pitches, and its crest lies on Perseus today (Reid et al. 2019). Reid
+  et al.'s arm radii are for R0 = 8.15 kpc; they are scaled by 8.0/8.15 to the model's R0, so
+  each arm keeps its place relative to the Sun.
 
 Both grow by Dehnen's quintic over one bar period from t = −320 Myr and run a further
 period before today, so the tracers have responded when the scene opens. The
@@ -367,15 +370,22 @@ by `tools/build_neighbourhood.py`).
 
 - **Two sets.**
   - Near: every star within 40 pc brighter than M_V = 8.54, which is the model's own
-    resolved limit (its 0.5 M☉ star). There are 4058, from Gaia DR3 with BSC5 for the
+    resolved limit (its 0.5 M☉ star). There are 4081, from Gaia DR3 with BSC5 for the
     stars too bright for Gaia.
-  - Far: the rest of the Solar System sky, BSC5 and Gaia from G = 6.5 to 8: 57 099
+  - Far: the rest of the Solar System sky, BSC5 and Gaia from G = 6.5 to 8: 57 076
     stars with the same V and B−V the `solar` sky draws.
 - **Distances,** in order of preference:
-  - Gaia DR3 at parallax/error ≥ 10 (57 616 stars);
-  - Hipparcos (van Leeuwen 2007) at ≥ 5 (834; the brightest, which Gaia saturates on);
-  - Gaia at ≥ 5 (256);
+  - Gaia DR3 at parallax/error ≥ 10 where its astrometry is sound: RUWE ≤ 1.4
+    (Lindegren et al. 2021) and G ≥ 5, below which Gaia saturates (45 702 stars);
+  - Hipparcos (van Leeuwen 2007) at ≥ 5 (9049);
+  - Gaia at ≥ 5, whatever its RUWE or G (3955);
   - BSC5's own parallax (53).
+
+  Gaia's parallax zero-point (about −0.02 mas; Lindegren et al. 2021) is not applied: it
+  moves a near star by under 0.1 %, and a far star's distance shows only within 30 pc of
+  the Sun, where its own parallax is a few mas at least. The asset is
+  sha256 `30472e8fe5cd978ffb3837d8d5f55292876036f2fbc4b33da4bab9a957f6fffa`, from queries
+  run on 2026-11-12.
 
   293 have none and stand at 1 kpc in their direction. Against Hipparcos, Gaia's
   parallaxes for the BSC5 stars agree to −1.3 % (median), 16–84 % within −10 to +5 %.
@@ -407,17 +417,17 @@ resolved stars, per magnitude:
 
 | M_V | real | model |
 |---|---|---|
-| −2 to 0 | 18 | 0 |
-| 0 to 2 | 147 | 42 |
-| 2 to 4 | 570 | 426 |
-| 4 to 6 | 1346 | 2000 |
-| 6 to 8.54 | 1977 | 4188 |
-| total | 4058 | 6655 |
+| −2 to 0 | 19 | 0 |
+| 0 to 2 | 152 | 41 |
+| 2 to 4 | 579 | 422 |
+| 4 to 6 | 1355 | 1979 |
+| 6 to 8.54 | 1976 | 4144 |
+| total | 4081 | 6586 |
 
-The model has 1.6–2.3 times too many K and early-M dwarfs and too few A stars and
+The model has 1.5–2.1 times too many K and early-M dwarfs and too few A stars and
 giants. That is the same pattern the comparison with Bovy (2017) shows, now in an
-independent sample. In visible light the real stars give 2.25 times the model's
-(11 752 against 5217 L☉), because a few A stars and giants dominate: Sirius, Vega,
+independent sample. In visible light the real stars give 2.33 times the model's
+(12 026 against 5163 L☉), because a few A stars and giants dominate: Sirius, Vega,
 Arcturus and Capella. The model holds giants in its glow and draws none. `galaxycheck`
 pins both ratios, so a change to the population shows.
 
@@ -491,8 +501,27 @@ Way's exposure.
   - The SMC agrees within 0.2 mag.
   - So where an absolute V is measured, the light is scaled to it. M31 has none in hand,
     and is drawn from its masses.
-  - `galaxycheck` holds the drawn light to the measured, and the mass-based prediction
-    within 1 mag.
+  - The scale counts only the light the glow draws (below), so what is drawn, not the
+    model's total, is the measured magnitude.
+  - `galaxycheck` marches the drawn glow through each galaxy and holds it to the measured
+    within 0.005 mag, and the mass-based prediction within 1 mag.
+- <a id="the-light-a-neighbour-draws"></a>**The light a neighbour draws.** The glow
+  is drawn on a box of half-height h, 4 kpc or the spheroid's sphere if taller (a ray
+  that misses the box has no fragment). It marches a disc through the box, its light tapering to zero over
+  the last fifth of the galaxy's extent e, and a spheroid through a sphere of radius r_s
+  (`GalModels.sphere_reach`). Left out, the lost light is 0.15 mag for M33 and the LMC
+  and 0.3 mag for the SMC.
+  - A Hernquist sphere holds (r_s/(r_s + a))² of its light within r_s. Flattened to axes
+    b and c, its light is round in r' = (u, y/c, v/b), the sphere's edge lies at r' = r_s q(n)
+    along a direction n, and the share is ∫ q⁻³ (r_s q/(r_s q + a))² dΩ / (4π b c).
+  - A Miyamoto–Nagai disc's mass in a cylinder of radius R and half-height h is the
+    gravitational flux out of it over 4πG. Through the side, with ζ = √(z² + b²):
+    M_side/M = R² ∫₀ʰ dz / (R² + (a + ζ)²)^{3/2}.
+  - Through the two caps, each integral over R' closed: M_caps/M = (h/ζ_h)(1 − s/√(R² + s²)),
+    with s = a + ζ_h. For b = 0 and h → ∞ the sum is the Kuzmin disc's 1 − a/√(R² + a²).
+  - The taper w(R) = smoothstep(e, 0.8e, R) weights the cumulative mass by parts:
+    drawn/M = ∫ M(R)/M · (−dw/dR) dR over 0.8e to e, where −dw/dR = 6t(1 − t)/(0.2e) and
+    t = (e − R)/(0.2e).
 - **Checked:**
   - Each neighbour's frame tilts by its stated inclination and lays its line of nodes
     at its stated position angle, to 0.01°.
@@ -511,6 +540,13 @@ Galaxies too far for the Milky Way's scene are scenes of their own (`GalModels.T
 presets `gal_m87`, `gal_m104`), drawn from their measured total light. Each part takes
 its share of that light from a published decomposition, and its stellar mass follows
 through the population model. They have no tracers.
+
+The share is of the light drawn, so what the glow's bounds leave out is made up, as for
+the neighbours ([the light a neighbour draws](#the-light-a-neighbour-draws)); with arms, the
+disc's population starts at 100 Myr, as drawn, since the arms hold the younger stars.
+`galaxycheck` marches each glow without its dust, since RC3's V_T⁰ and Kormendy et al.'s
+M_VT are corrected for the galaxy's own, and holds it within 0.005 mag of the measured.
+Seen face-on, M104's dust then takes 0.03 mag.
 
 - **M87.** A Hernquist sphere of the 16.2 kpc half-light radius Kormendy et al. (2009,
   Table 1, from the 2-D profile) measure, drawn at their M_VT = −22.95 (D = 17.22 Mpc).
