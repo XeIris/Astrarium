@@ -114,7 +114,7 @@ MUTATIONS = {
                      GALAXYCHECK, "M87's halo cut off at its last measured point"),
     "lmc-bar-unsolved": ("sim/galaxy/gal_visual.gd", "	var f := 0.5 * (lo + hi)\n	for j in n:", "	var f := 0.0\n	for j in n:",
                          GALAXYCHECK, "the LMC's bar given no light"),
-    "lmc-bar-sky-angle": ("sim/galaxy/gal_models.gd", "	return best", "	return deg_to_rad(float(spec.pa) - pa_deg)",
+    "lmc-bar-sky-angle": ("sim/galaxy/gal_models.gd", "	return fposmod(atan2(-ca, cb), PI)", "	return deg_to_rad(float(spec.pa) - pa_deg)",
                           GALAXYCHECK, "the LMC's bar angle taken from the sky without deprojecting"),
     "m33-arms-smooth": ("sim/galaxy/gal_visual.gd", "	if thin_map.has(\"a2\"): share = _share_for_a2(img, sum, cnt, px)", "	if thin_map.has(\"a2\"): share = 0.0",
                         GALAXYCHECK, "M33's young light not gathered into its arms"),
