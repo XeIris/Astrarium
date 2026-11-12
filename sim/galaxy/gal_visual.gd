@@ -11,6 +11,7 @@ const GLOW_SHADER := preload("res://shaders/galaxy/galaxy_glow.gdshader")
 const STAR_SHADER := preload("res://shaders/galaxy/galaxy_stars.gdshader")
 const TRACER_SHADER := preload("res://shaders/galaxy/galaxy_tracers.gdshader")
 const CATALOGUE_SHADER := preload("res://shaders/galaxy/galaxy_catalogue.gdshader")
+const HII_SHADER := preload("res://shaders/galaxy/galaxy_hii.gdshader")
 
 ## The sky's star calibration (SkyModel.STAR_FLUX is a V = 2.5 star) applied to a star
 ## of L L☉ at d kpc, taking the Sun's absolute V as 4.83: sky flux = K·L/(4πd²).
@@ -62,6 +63,33 @@ var env_hr := 2.26
 var env_hole := 4.0
 var bulge_axes := Vector2(1.0, 1.0)
 var dust := {}
+## Dust as a face-on surface density (M☉ kpc⁻², the arm map's g), exp(−|y|/z) above the plane:
+## a measured axisymmetric profile with a share gathered into lanes (GalModels.M51_DUST).
+var dust_map := {}
+## Each lane: [anchor R, β there, tan pitch inside and beyond the break], from its arm.
+var lanes: Array = []
+## The old disc's and young disc's light as measured profiles in the map (GalModels.M51_LIGHT):
+## b the old disc's bolometric surface luminosity, axisymmetric; r the young's, a share of each
+## ring gathered into the arms; exp(−|y|/z)/2z above the plane. The old disc's scale on the
+## map (≈ 1: the map holds L☉ kpc⁻²).
+var disc_map := {}
+var thin_map := {}
+var disc_k := 0.0
+var _l_disc := 0.0
+## H II regions (GalHII), drawn as blobs; their catalogue after apply_arms, for checks.
+var hii_spec := {}
+var hii_d := 0.0
+var hii: MeshInstance3D = null
+var hii_mat: ShaderMaterial = null
+var hii_cat := {}
+## Checks hide the H II regions while comparing the glow with its CPU integral, and show them
+## alone (hii_with_glow false) to compare theirs; the user's glow toggle hides them too.
+var show_hii := true
+var hii_with_glow := true
+## The smooth young light's colour (visible per bolometric L☉): the young population's, less
+## what the H II regions take and with the diffuse gas's lines.
+var young_col := Color(1, 1, 1)
+var _model_for_uniforms := {}
 ## Dust rings: each [R, σ, peak V optical depth per kpc], sech² in height with ring_h (kpc);
 ## and the thinnest dust layer, which sets the glow's sampling about the plane.
 var rings: Array = []
@@ -142,11 +170,22 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	ring_h = float(model.get("dustRingH", 0.01))
 	if not rings.is_empty(): thin = ring_h
 	if not dust.is_empty() and float(dust.h0) < 0.05: thin = minf(thin, float(dust.h0))
+	dust_map = model.get("dustMap", {})
+	disc_map = model.get("discMap", {})
+	thin_map = model.get("thinMap", {})
+	if not disc_map.is_empty():
+		var dd: Dictionary = pot.part("disc")
+		_l_disc = float(dd.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN * _visible(model, "disc") * disc_pop.mean_l / disc_pop.mean_mass
+	if not thin_map.is_empty(): thin = minf(thin, float(thin_map.z))
+	hii_spec = model.get("hii", {})
+	if not hii_spec.is_empty(): hii_d = float(model.sky.d)
+	if not dust_map.is_empty(): thin = minf(thin, float(dust_map.z))
 	var env: Array = [dust.hr, dust.hole] if not dust.is_empty() else model.get("envelope", [2.26, 4.0])
 	env_hr = float(env[0])
 	env_hole = float(env[1])
 	if not arms.is_empty():
 		young_pop = GalPopulation.build({"kind": "constant", "gyr": young_gyr})
+		young_col = young_pop.color
 		young_h = float(model.get("armH", GalModels.MW_YOUNG_H))
 		arm_growth = float(model.get("armWidthGrowth", 0.042))
 		arm_decay = PackedFloat64Array(model.get("armDecay", []))
@@ -166,6 +205,8 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 		# A measured light along the arms wins over the star formation rate's.
 		_l_young = float(model.armLight) if model.has("armLight") else float(model.sfr) * young_gyr * 1e9 * young_pop.light_per_formed
 		_model_key = String(model.key)
+		if not dust_map.is_empty(): _build_lanes()
+	_model_for_uniforms = model
 	_build_glow(model)
 	_build_stars(model)
 	if not defer_arms and young_pop != null: apply_arms(bake_arms())
@@ -185,7 +226,9 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	var d: Dictionary = pot.part("disc")
 	var l_m_disc := disc_pop.mean_l / disc_pop.mean_mass
 	var l_m_sph := sphere_pop.mean_l / sphere_pop.mean_mass
-	if not d.is_empty():
+	if not d.is_empty() and not disc_map.is_empty():
+		mat.set_shader_parameter("uDisc", Vector3(0.0, d.a, float(disc_map.z)))
+	elif not d.is_empty():
 		var m_sun: float = d.gm / g * GalUnits.MASS_UNIT_SUN
 		mat.set_shader_parameter("uDisc", Vector3(_visible(model, "disc") * l_m_disc * m_sun * d.b * d.b / (4.0 * PI), d.a, d.b))
 	else:
@@ -220,6 +263,8 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	else:
 		mat.set_shader_parameter("uDust", Vector4(0.0, 1.0, 1.0, 0.0))
 		mat.set_shader_parameter("uDustArm", Vector4(0.0, 1.0, 1.0, 0.0))
+	mat.set_shader_parameter("uDustMap", Vector2(float(dust_map.kappa), float(dust_map.z)) if not dust_map.is_empty() else Vector2(0.0, 1.0))
+	mat.set_shader_parameter("uDiscMap", Vector2(disc_k, float(disc_map.z)) if not disc_map.is_empty() else Vector2(0.0, 1.0))
 	var ring_u := PackedVector4Array()
 	for i in 4:
 		var r: Array = rings[i] if i < rings.size() else [0.0, 1.0, 0.0]
@@ -228,8 +273,13 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("uRingH", ring_h)
 	mat.set_shader_parameter("uThin", thin)
 
+## The spheroid's marched radius (kpc, GalModels.sphere_reach): no spheroid light beyond it,
+## here or in the shader.
+var sphere_r := 8.0
+
 func _build_glow(model: Dictionary) -> void:
 	var ext: float = model.get("extent", 30.0)
+	sphere_r = GalModels.sphere_reach(model)
 	var h := GalModels.glow_half_height(model)
 	var box := BoxMesh.new()
 	box.size = Vector3(ext, h, ext) * 2.0
@@ -237,12 +287,12 @@ func _build_glow(model: Dictionary) -> void:
 	glow_mat.shader = GLOW_SHADER
 	_light_uniforms(model, glow_mat)
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
-	glow_mat.set_shader_parameter("uSphereR", GalModels.sphere_reach(model))
+	glow_mat.set_shader_parameter("uSphereR", sphere_r)
 	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
 	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
 	glow_mat.set_shader_parameter("uFaint", Vector2(disc_pop.faint_light, sphere_pop.faint_light))
 	if young_pop != null:
-		glow_mat.set_shader_parameter("uYoungCol", Vector3(young_pop.color.r, young_pop.color.g, young_pop.color.b))
+		glow_mat.set_shader_parameter("uYoungCol", Vector3(young_col.r, young_col.g, young_col.b))
 	var e: Array = GalModels.EXTINCTION_RGB
 	glow_mat.set_shader_parameter("uExt", Vector3(e[0], e[1], e[2]))
 	glow = MeshInstance3D.new()
@@ -332,12 +382,19 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	glow.visible = show_glow
 	stars.visible = show_stars
 	# The resolved sphere shrinks with the camera's height off the plane, where there
-	# are no stars to resolve, so the glow alone draws the galaxy from outside.
-	res = RES_MAX if absf(cam_local.y) < 2.0 else 0.0
+	# are no stars to resolve, so the glow alone draws the galaxy from outside: above it, or
+	# in its plane but past its edge (a neighbour seen from inside another galaxy).
+	var in_disc := absf(cam_local.y) < 2.0 and Vector2(cam_local.x, cam_local.z).length() < edge
+	res = RES_MAX if in_disc else 0.0
 	if not show_stars: res = 0.0
 	if res_override >= 0.0: res = res_override
 	glow_mat.set_shader_parameter("uCamLocal", cl)
 	glow_mat.set_shader_parameter("uGain", gain / (4.0 * PI))
+	if hii != null:
+		hii.visible = show_hii and (show_glow or not hii_with_glow)
+		hii_mat.set_shader_parameter("uCamLocal", cl)
+		hii_mat.set_shader_parameter("uGain", gain / (4.0 * PI))
+		hii_mat.set_shader_parameter("uPix", pix)
 	glow_mat.set_shader_parameter("uRes", res)
 	if show_stars and res > 0.0: _place_lattice(cam_local, t_myr, gain, pix_sr)
 	stars.visible = show_stars and res > 0.0
@@ -356,7 +413,7 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 ## direction `d`, integrated as the shader does but in double: what the eye adapts to.
 ## The spheroid's cusp is cut at `r_floor`, so a patch, not one pixel, sets the level.
 func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
-	var cols := [disc_pop.color, sphere_pop.color, young_pop.color if young_pop != null else Color(0, 0, 0)]
+	var cols := [disc_pop.color, sphere_pop.color, young_col if young_pop != null else Color(0, 0, 0)]
 	var e: Array = GalModels.EXTINCTION_RGB
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var box: Vector3 = glow_mat.get_shader_parameter("uBox")
@@ -402,7 +459,6 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 		if not in_box:
 			j[0] = 0.0
 			j[2] = 0.0
-		if p.length_squared() > reach * reach: j[1] = 0.0
 		var k := dust_density(p.x, p.y, p.z) * ds if in_box else 0.0
 		for ch in 3:
 			var kc := k * float(e[ch])
@@ -425,6 +481,9 @@ func light_density(p: Vector3, r_floor := 1e-3) -> PackedFloat64Array:
 	var s := dv.y + zb
 	var q := R2 + s * s
 	var jd := dv.x * (dv.y * R2 + (dv.y + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb)
+	if disc_k > 0.0:
+		var zs: float = disc_map.z
+		jd = disc_k * _arm_sample(x, z)[2] * exp(-absf(y) / zs) / (2.0 * zs)
 	if spiral_k > 0.0 and arm_img != null:
 		jd += spiral_k * _arm_sample(x, z)[2] * GalaxyVisual._sech2(y / float(spiral.h))
 	jd = maxf(jd, 0.0) * smoothstep(edge, 0.8 * edge, sqrt(R2))
@@ -435,7 +494,7 @@ func light_density(p: Vector3, r_floor := 1e-3) -> PackedFloat64Array:
 	var r := maxf(sqrt(u * u + (y / bulge_axes.y) * (y / bulge_axes.y) + (v / bulge_axes.x) * (v / bulge_axes.x)), r_floor)
 	var k := 1.0 / (bulge_axes.x * bulge_axes.y)
 	var js := 0.0
-	if sv.y > 0.0:
+	if sv.y > 0.0 and p.length() <= sphere_r:
 		js = k * (sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0)))
 	var jy := 0.0
 	if young_k > 0.0:
@@ -572,8 +631,12 @@ func bake_arms() -> Dictionary:
 			var z := -ARM_HALF + (float(j) + 0.5) * px
 			var R := sqrt(x * x + z * z)
 			var phi := atan2(z, x)
-			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), _dust_arm(R, phi), _spiral_plane(R, phi)))
-	var out := {"img": img, "integral": _arm_integral(img)}
+			var g := _dust_surface(R, phi) if not dust_map.is_empty() else _dust_arm(R, phi)
+			var b := _disc_surface(R) if not disc_map.is_empty() else _spiral_plane(R, phi)
+			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), g, b))
+	if not thin_map.is_empty(): _gather_light(img)
+	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2)}
+	if not hii_spec.is_empty(): out.hii = GalHII.build(hii_spec, hii_d, img, ARM_HALF, _l_young, young_h, 51)
 	_cache_mutex.lock()
 	_arm_cache[_model_key] = out
 	_cache_mutex.unlock()
@@ -642,13 +705,81 @@ func _place_neighbourhood(cam_local: DVec3, t_myr: float, gain: float, pix_sr: f
 	glow_mat.set_shader_parameter("uSunBasis", sun_basis)
 	glow_mat.set_shader_parameter("uCatGain", gain * far_w if show_stars else 0.0)
 
+## The H II regions on the main thread: the smooth young light gives up their stars' light and
+## gains the diffuse gas's lines, and each region becomes a quad of four corners.
+func _apply_hii(cat: Dictionary) -> void:
+	hii_cat = cat
+	var cont: float = cat.cont_bol
+	var dig: float = cat.dig_bol
+	var vis: Color = young_pop.color * _l_young - (cat.cont_col as Color) * cont + (cat.dig_vis as Color)
+	_l_young += dig - cont
+	young_col = vis / _l_young
+	glow_mat.set_shader_parameter("uYoungCol", Vector3(young_col.r, young_col.g, young_col.b))
+	var n: int = cat.n
+	var verts := PackedVector3Array()
+	var c0 := PackedFloat32Array()
+	var c1 := PackedFloat32Array()
+	var c2 := PackedFloat32Array()
+	var idx := PackedInt32Array()
+	verts.resize(4 * n)
+	c0.resize(16 * n)
+	c1.resize(16 * n)
+	c2.resize(16 * n)
+	idx.resize(6 * n)
+	var corners := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
+	for i in n:
+		var st: Color = cat.stars[i]
+		var ln: Color = cat.lines[i]
+		for k in 4:
+			var v := 4 * i + k
+			verts[v] = cat.pos[i]
+			c0[4 * v] = st.r
+			c0[4 * v + 1] = st.g
+			c0[4 * v + 2] = st.b
+			c1[4 * v] = (corners[k] as Vector2).x
+			c1[4 * v + 1] = (corners[k] as Vector2).y
+			c1[4 * v + 2] = cat.sigma[i]
+			c2[4 * v] = ln.r
+			c2[4 * v + 1] = ln.g
+			c2[4 * v + 2] = ln.b
+		for k in 6: idx[6 * i + k] = 4 * i + [0, 1, 2, 0, 2, 3][k]
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_CUSTOM0] = c0
+	arr[Mesh.ARRAY_CUSTOM1] = c1
+	arr[Mesh.ARRAY_CUSTOM2] = c2
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	var fmt := (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) | (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT) \
+		| (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM2_SHIFT)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr, [], {}, fmt)
+	hii_mat = ShaderMaterial.new()
+	hii_mat.shader = HII_SHADER
+	_light_uniforms(_model_for_uniforms, hii_mat)
+	var e: Array = GalModels.EXTINCTION_RGB
+	hii_mat.set_shader_parameter("uExt", Vector3(e[0], e[1], e[2]))
+	hii = MeshInstance3D.new()
+	hii.name = "HII"
+	hii.mesh = mesh
+	hii.material_override = hii_mat
+	hii.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hii.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
+	group.add_child(hii)
+
 ## On the main thread: the map's texture, and the young arms' scale from its integral.
 func apply_arms(baked: Dictionary) -> void:
 	if baked.is_empty(): return
 	arm_img = baked.img
 	arm_tex = ImageTexture.create_from_image(arm_img)
+	if baked.has("hii") and hii == null: _apply_hii(baked.hii)
 	young_k = _l_young / float(baked.integral)
-	for mat in [glow_mat, star_mat]:
+	if not disc_map.is_empty():
+		disc_k = _l_disc / float(baked.disc)
+		for mat in [glow_mat, star_mat]:
+			mat.set_shader_parameter("uDiscMap", Vector2(disc_k, float(disc_map.z)))
+	for mat in [glow_mat, star_mat, hii_mat]:
+		if mat == null: continue
 		mat.set_shader_parameter("uArmMap", arm_tex)
 		mat.set_shader_parameter("uArmHalf", ARM_HALF)
 		mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, arm_turn, 1.0))
@@ -702,12 +833,156 @@ func _dust_arm(R: float, phi: float) -> float:
 			best = maxf(best, at[2] * exp(-d * d / (w * w)))
 	return cut * best
 
+## The old disc's bolometric surface luminosity at R (L☉ kpc⁻²).
+func _disc_surface(R: float) -> float:
+	return GalModels.inman_surface(disc_map.discs, float(disc_map.outerH), R) * float(disc_map.bol)
+
+## ∫∫ of a map channel over the plane, as the shader reads it.
+func _map_integral(img: Image, ch: int) -> float:
+	var s := 0.0
+	var px := 2.0 * ARM_HALF / float(ARM_N)
+	for j in ARM_N:
+		for i in ARM_N:
+			s += img.get_pixel(i, j)[ch]
+	return s * px * px
+
+## The discs' light into the map, from the arms' profile in r: each ring keeps its measured
+## mean (the young disc's in r, the old disc's in b). Of the young light, thin_map.share is
+## gathered as the arms' profile has it where the arms are; the old disc is gathered to the
+## peak-to-valley contrast disc_map.contrast. Rings are the map's texels binned by radius, so
+## the means hold to the texel.
+func _gather_light(img: Image) -> void:
+	var px := 2.0 * ARM_HALF / float(ARM_N)
+	var nb := int(ceil(ARM_HALF * sqrt(2.0) / px)) + 1
+	var sum := PackedFloat64Array()
+	var cnt := PackedFloat64Array()
+	var top := PackedFloat64Array()
+	sum.resize(nb)
+	cnt.resize(nb)
+	top.resize(nb)
+	for j in ARM_N:
+		for i in ARM_N:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / px)
+			var a := img.get_pixel(i, j).r
+			sum[k] += a
+			cnt[k] += 1.0
+			top[k] = maxf(top[k], a)
+	for j in ARM_N:
+		for i in ARM_N:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var R := sqrt(x * x + z * z)
+			var k := int(R / px)
+			var mean := sum[k] / maxf(cnt[k], 1.0)
+			var c := img.get_pixel(i, j)
+			var rel := c.r / mean if mean > 1e-12 else 0.0
+			var pres := _arm_presence(R)
+			var t: float = GalModels.inman_surface(thin_map.discs, float(thin_map.outerH), R) * float(thin_map.bol)
+			var fy := float(thin_map.share) * pres if mean > 1e-12 else 0.0
+			c.r = t * ((1.0 - fy) + fy * rel)
+			if not disc_map.is_empty():
+				# Peak to valley C = 1 + f·(max/mean)/(1 − f) for a ring whose arms vanish between.
+				var cc := _contrast(R) - 1.0
+				var peak := top[k] / mean if mean > 1e-12 else 0.0
+				var fo := cc / (cc + peak) * pres if peak > 0.0 else 0.0
+				c.b *= (1.0 - fo) + fo * rel
+			img.set_pixel(i, j, c)
+
+## The old disc's arm/interarm contrast at R, linear between the measured radii, held beyond.
+func _contrast(R: float) -> float:
+	var t: Array = disc_map.contrast
+	if R <= float(t[0][0]): return float(t[0][1])
+	for k in range(1, t.size()):
+		if R <= float(t[k][0]):
+			return lerpf(float(t[k - 1][1]), float(t[k][1]), (R - float(t[k - 1][0])) / (float(t[k][0]) - float(t[k - 1][0])))
+	return float(t[t.size() - 1][1])
+
+## How fully the arms are there at R: the strongest arm's weight past its measured span, times
+## their rise.
+func _arm_presence(R: float) -> float:
+	var w := 0.0
+	for i in arm_a.size(): w = maxf(w, _arm_beta(i, R)[1])
+	return w * smoothstep(arm_rise.x, arm_rise.x + arm_rise.y, R)
+
+## An arm's azimuth β at radius R, inverting its log spiral (Reid et al.'s form with a kink),
+## and its weight there: 1 within the measured azimuths, fading past them as _arm_radius
+## does. Arms that fade rather than extend (w = 0 in the table) only.
+func _arm_beta(i: int, R: float) -> PackedFloat64Array:
+	var A := arm_a[i]
+	var B := arm_b[i]
+	var beta := A.y - log(R / A.x) / (A.z if R >= A.x else A.w)
+	var b := clampf(beta, B.y, B.z)
+	var weight := exp(-0.5 * pow((beta - b) / arm_fade, 2.0))
+	return PackedFloat64Array([beta, weight])
+
+## The lanes from their arms: each anchored dust_map.anchor kpc out, ΔΘ upstream of its arm's
+## ridge (against the rotation, toward lower β).
+func _build_lanes() -> void:
+	var ra: float = dust_map.anchor
+	var dtheta: float = float(dust_map.omegaT) * (float(dust_map.rCR) / ra - 1.0)
+	for i in arm_a.size():
+		var beta := _arm_beta(i, ra)[0] - dtheta
+		lanes.append([ra, beta, tan(deg_to_rad(float(dust_map.pitchIn[i]))), tan(deg_to_rad(float(dust_map.pitchOut[i])))])
+
+## Lane i's azimuth at R: its inner pitch out to the break, its outer pitch beyond.
+func _lane_beta(i: int, R: float) -> float:
+	var ln: Array = lanes[i]
+	var rb: float = dust_map.rBreak
+	if R <= rb: return float(ln[1]) - log(R / float(ln[0])) / float(ln[2])
+	return float(ln[1]) - log(rb / float(ln[0])) / float(ln[2]) - log(R / rb) / float(ln[3])
+
+## The measured axisymmetric dust at R, M☉ kpc⁻² (Inman et al.'s eq. 1 per disc).
+func _dust_axisym(R: float) -> float:
+	var s := 0.0
+	var discs: Array = dust_map.discs
+	for k in discs.size():
+		var c: Array = discs[k]
+		var sigma0: float = float(c[5]) / GalModels.A_B_PER_A_V / float(dust_map.kappa)
+		var rt: float = c[2]
+		if R < float(c[0]): continue
+		if R < float(c[1]): s += sigma0 * (R / float(c[1]) * (1.0 - float(c[4])) + float(c[4]))
+		elif R <= rt: s += sigma0 * exp(-(R - float(c[1])) / float(c[3]))
+		elif k == discs.size() - 1:
+			s += sigma0 * exp(-(rt - float(c[1])) / float(c[3])) * exp(-(R - rt) / float(dust_map.outerH))
+	return s
+
+## Face-on dust surface density at (R, φ) in the arms' frame: each ring keeps its measured
+## mean, a share of it gathered into Gaussian lanes in azimuth.
+func _dust_surface(R: float, phi: float) -> float:
+	var ax := _dust_axisym(R)
+	if lanes.is_empty() or R < 1e-3: return ax
+	var beta := phi - PI
+	if arm_mirror: beta = -beta
+	var fwhm: float = dust_map.fwhmIn if R <= float(dust_map.rBreak) else dust_map.fwhmOut
+	var sig := deg_to_rad(fwhm) / 2.3548
+	var rise := smoothstep(arm_rise.x, arm_rise.x + arm_rise.y, R)
+	var acc := 0.0
+	var mean := 0.0
+	var wmax := 0.0
+	for i in lanes.size():
+		var w := _arm_beta(i, R)[1] * rise
+		if w <= 0.0: continue
+		var d := beta - _lane_beta(i, R)
+		d -= TAU * floor((d + PI) / TAU)
+		acc += w * exp(-0.5 * d * d / (sig * sig))
+		# A Gaussian's mean over the circle, σ√(2π)/2π.
+		mean += w * sig / sqrt(TAU)
+		wmax = maxf(wmax, w)
+	if mean <= 1e-12: return ax
+	var f: float = float(dust_map.share) * wmax
+	return ax * ((1.0 - f) + f * acc / mean)
+
 static func _sech2(x: float) -> float:
 	var e := exp(-2.0 * absf(x))
 	return 4.0 * e / ((1.0 + e) * (1.0 + e))
 
 ## V optical depth per kpc at a local point.
 func dust_density(x: float, y: float, z: float) -> float:
+	if not dust_map.is_empty():
+		var zd: float = dust_map.z
+		return float(dust_map.kappa) * _arm_sample(x, z)[1] * exp(-absf(y) / zd) / (2.0 * zd)
 	if dust.is_empty(): return 0.0
 	var R := sqrt(x * x + z * z)
 	var hd: float = dust.h0 + (dust.h1 * (R - dust.rf) if R > dust.rf else 0.0)

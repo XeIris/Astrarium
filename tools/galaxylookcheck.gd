@@ -410,8 +410,9 @@ func type_dust(preset: String) -> void:
 	var g = stage.galaxy
 	var v: GalaxyVisual = g.visual
 	g.frame("whole")
-	# The galaxy alone: its companions are not in the CPU's integral.
+	# The galaxy's glow alone: its companions and H II regions are not in the CPU's integral.
 	for n in g.neighbours: n.hide = true
+	v.show_hii = false
 	await settle(20)
 	pin(v, 0.3)
 	var img := await hdr()
@@ -437,11 +438,52 @@ func type_dust(preset: String) -> void:
 			want += v.ray_luminance(cam, d, 1e-3, 4000) * gain
 		print("     %s row %+d: drawn %s, integral %s" % [preset, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, absf(drawn / want - 1.0))
-	for n in g.neighbours: n.hide = false
 	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	v.show_hii = true
+	if v.hii != null: await hii_flux(v, gain)
+	for n in g.neighbours: n.hide = false
 	stage.load_preset("gal_milkyway")
 	stage.galaxy.wait_tracers()
 	stage.state.paused = true
+
+## The H II regions alone against the CPU: each drawn blob's pixels sum to its light, dimmed by
+## the dust between it and the camera as the shader marches it, over 4π, the pixel's area and
+## the gain.
+const HII_TOL := 0.03
+func hii_flux(v: GalaxyVisual, gain: float) -> void:
+	v.show_glow = false
+	v.hii_with_glow = false
+	await settle(4)
+	var img := await hdr()
+	v.show_hii = false
+	await settle(4)
+	var sky := await hdr()
+	v.show_hii = true
+	v.show_glow = true
+	v.hii_with_glow = true
+	var drawn := pixel_sum(img) - pixel_sum(sky)
+	var cam := v.glow_mat.get_shader_parameter("uCamLocal") as Vector3
+	var pix := float(v.hii_mat.get_shader_parameter("uPix"))
+	var e: Array = GalModels.EXTINCTION_RGB
+	var want := 0.0
+	var cat: Dictionary = v.hii_cat
+	var zl := 8.0 * maxf(float(v.dust_map.z), 0.01)
+	for i in cat.n:
+		var p: Vector3 = cat.pos[i]
+		var rel := p - cam
+		var dist := rel.length()
+		var dir := -rel / dist
+		var t1 := dist
+		if absf(dir.y) > 1e-6: t1 = minf(t1, maxf((signf(dir.y) * zl - p.y) / dir.y, 0.0))
+		var tau := 0.0
+		for k in 16:
+			var q := p + dir * ((float(k) + 0.5) * t1 / 16.0)
+			tau += v.dust_density(q.x, q.y, q.z) * t1 / 16.0
+		var c: Color = (cat.stars[i] as Color) + (cat.lines[i] as Color)
+		var att := Color(c.r * exp(-tau * float(e[0])), c.g * exp(-tau * float(e[1])), c.b * exp(-tau * float(e[2])))
+		want += luma(att) * gain / (4.0 * PI * pix * pix * dist * dist)
+	var err := absf(drawn / want - 1.0)
+	check("%d H II regions: drawn %s, CPU %s (%s %%, < %s)" % [cat.n, U.expo(drawn, 4), U.expo(want, 4), U.fixed(err * 100.0, 2), U.fixed(HII_TOL * 100.0, 0)], err < HII_TOL)
 
 ## Luminance summed over every pixel: a point's drawn pixels sum to its flux.
 func pixel_sum(img: Image) -> float:

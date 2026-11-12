@@ -92,6 +92,19 @@ static func visible(T: float) -> Color:
 	var i := mini(int(f), VIS_N - 2)
 	return (_vis_table[i] as Color).lerp(_vis_table[i + 1], f - float(i))
 
+## An emission line's light as the eye takes it, per L☉ of the line's power, in visible()'s
+## units (the Sun's light has luminance 1 per L☉): its colour-matching value over the Sun's
+## luminance per unit power, Σ ȳ B_λ Δλ / ∫B_λ dλ on visible()'s grid. Unclipped: a line
+## outside the sRGB gamut (Hα) has a negative channel, to be summed with what shines beside it.
+static func visible_line(nm: float) -> Color:
+	var sun := _visible_raw(5772.0)
+	var y_sun := 0.2126 * sun.r + 0.7152 * sun.g + 0.0722 * sun.b
+	# ∫ λ⁻⁵/(e^(hc/λkT) − 1) dλ = (kT/hc)⁴ π⁴/15, in the raw sum's units (λ in m, 5 nm steps).
+	var total := pow(5772.0 / 0.0143877688, 4.0) * pow(PI, 4.0) / 15.0
+	var c := PlasmaSpectrum.xyz_to_rgb(PlasmaSpectrum.cmf(nm))
+	var k := total / (5e-9 * y_sun)
+	return Color(c.r * k, c.g * k, c.b * k)
+
 const VIS_N := 1024
 const VIS_T0 := 1000.0
 const VIS_T1 := 60000.0

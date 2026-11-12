@@ -808,11 +808,254 @@ func neighbours() -> void:
 
 # Galaxies of their own scenes (GalModels.TYPES): drawn at their measured total light, and
 # M104's dust, integrated back to a mass, De Looze et al.'s (2012) ring and inner disc.
+## M51 (GalModels.M51_LIGHT, M51_DUST, M51_HII): each measured input drawn back out of the map
+## and catalogue, and the whole against independent measurements.
+const M51_SEEN_TOL := 0.35
+func m51() -> void:
+	var m := GalModels.type_galaxy("m51")
+	var v := GalaxyVisual.new(m)
+	var img: Image = v.arm_img
+	var n := GalaxyVisual.ARM_N
+	var px := 2.0 * GalaxyVisual.ARM_HALF / float(n)
+	# Rings of texels, as _gather_light bins them: mean and extremes of each channel.
+	var nb := int(ceil(GalaxyVisual.ARM_HALF * sqrt(2.0) / px)) + 1
+	var mean := []
+	var lo := []
+	var hi := []
+	var cnt := PackedFloat64Array()
+	cnt.resize(nb)
+	for c in 3:
+		var a := PackedFloat64Array(); a.resize(nb); mean.append(a)
+		var b := PackedFloat64Array(); b.resize(nb); b.fill(1e300); lo.append(b)
+		var e := PackedFloat64Array(); e.resize(nb); hi.append(e)
+	var dust_in := 0.0
+	var dust_all := 0.0
+	for j in n:
+		for i in n:
+			var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+			var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+			var R := sqrt(x * x + z * z)
+			var k := int(R / px)
+			var p := img.get_pixel(i, j)
+			cnt[k] += 1.0
+			for c in 3:
+				mean[c][k] += p[c]
+				lo[c][k] = minf(lo[c][k], p[c])
+				hi[c][k] = maxf(hi[c][k], p[c])
+			dust_all += p.g * px * px
+			if R < 6.8: dust_in += p.g * px * px
+	# Each band of radius keeps the measured profile: the dust's (lanes gathered), the old and
+	# young discs'. Bands of ±0.5 kpc, not single rings of texels: a ring samples a 5° lane on
+	# the square grid too coarsely to hold its mean to a per cent.
+	var worst := [0.0, 0.0, 0.0]
+	for R in [1.0, 2.5, 4.0, 6.0, 8.0]:
+		var got := [0.0, 0.0, 0.0]
+		var want := [0.0, 0.0, 0.0]
+		for j in n:
+			for i in n:
+				var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+				var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+				var rr := sqrt(x * x + z * z)
+				if absf(rr - R) > 0.5: continue
+				var p := img.get_pixel(i, j)
+				for c in 3: got[c] += p[c]
+				want[0] += GalModels.inman_surface(m.thinMap.discs, float(m.thinMap.outerH), rr) * float(m.thinMap.bol)
+				want[1] += v._dust_axisym(rr)
+				want[2] += GalModels.inman_surface(m.discMap.discs, float(m.discMap.outerH), rr) * float(m.discMap.bol)
+		for c in 3: worst[c] = maxf(worst[c], absf(float(got[c]) / float(want[c]) - 1.0))
+	ok(worst[0] < 0.01 and worst[1] < 0.01 and worst[2] < 0.01, "M51's rings keep Inman et al.'s profiles: young %s, dust %s, old %s %%" % [
+		U.fixed(worst[0] * 100.0, 2), U.fixed(worst[1] * 100.0, 2), U.fixed(worst[2] * 100.0, 2)])
+	# Dust: the map against the profile's own integral, Inman et al.'s mass and Mentuch Cooper et
+	# al.'s (2012, Table 2: 1.19e8 M☉ at 9.9 Mpc, another dust model).
+	var analytic := 0.0
+	var dr := 0.001
+	var r := dr * 0.5
+	while r < 6.8:
+		analytic += v._dust_axisym(r) * TAU * r * dr
+		r += dr
+	var mc := 1.19e8 * pow(8.58 / 9.9, 2.0)
+	print("     M51's dust: %s M☉ inside 6.8 kpc (Inman et al. 3.74e7), %s M☉ in all (Mentuch Cooper et al. %s)" % [
+		U.expo(dust_in, 3), U.expo(dust_all, 3), U.expo(mc, 3)])
+	ok(absf(dust_in / analytic - 1.0) < 0.01, "M51's dust map holds its profile's mass inside 6.8 kpc (%s)" % String.num(dust_in / analytic, 4))
+	ok(dust_in / 3.74e7 > 1.05 and dust_in / 3.74e7 < 1.2 and absf(dust_all / mc - 1.0) < 0.2,
+		"M51's dust mass: %s of Inman et al.'s (Draine's V opacity against their B model), %s of Mentuch Cooper et al.'s" % [
+		String.num(dust_in / 3.74e7, 3), String.num(dust_all / mc, 3)])
+	# Lanes upstream of their arms by Egusa et al.'s (2009) ΔΘ at the anchor.
+	var dtheta: float = float(m.dustMap.omegaT) * (float(m.dustMap.rCR) / float(m.dustMap.anchor) - 1.0)
+	var wl := 0.0
+	for i in v.lanes.size():
+		wl = maxf(wl, absf(v._arm_beta(i, float(m.dustMap.anchor))[0] - v._lane_beta(i, float(m.dustMap.anchor)) - dtheta))
+	ok(dtheta > 0.0 and wl < 1e-9, "M51's dust lanes stand %s° upstream of their arms at %s kpc (Egusa et al. 2009)" % [
+		String.num(rad_to_deg(dtheta), 2), m.dustMap.anchor])
+	# The old disc's peak to valley at 125″ (5.2 kpc), Rix & Rieke's 3; the young light's share
+	# between the arms, 1 − 0.91.
+	var k5 := int(5.2 / px)
+	var con: float = hi[2][k5] / lo[2][k5]
+	ok(absf(con - 3.0) < 0.15, "M51's old disc peaks %s× its valley at 5.2 kpc (Rix & Rieke 3)" % String.num(con, 2))
+	# The young light at 4 kpc, texel by texel: the ring's light with 91 % (Lee et al.) gathered as
+	# the arms' profile has it, the rest even.
+	var k4 := int(4.0 / px)
+	var ring := []
+	var a_sum := 0.0
+	for j in n:
+		for i in n:
+			var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+			var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+			var rr := sqrt(x * x + z * z)
+			if int(rr / px) != k4: continue
+			var a := v._arms(rr, atan2(z, x), 0.0)
+			ring.append([rr, a, img.get_pixel(i, j).r])
+			a_sum += a
+	var wy := 0.0
+	for e in ring:
+		var t: float = GalModels.inman_surface(m.thinMap.discs, float(m.thinMap.outerH), e[0]) * float(m.thinMap.bol)
+		var f: float = 0.91 * v._arm_presence(e[0])
+		wy = maxf(wy, absf(float(e[2]) / (t * ((1.0 - f) + f * float(e[1]) / (a_sum / float(ring.size())))) - 1.0))
+	ok(wy < 1e-5, "M51's young light at 4 kpc: 91 %% of each ring in the arms' profile, the rest even (worst %s)" % U.expo(wy, 1))
+	# The light, all of it: the map's old and young discs and the bulge, each its model's.
+	var disc_drawn: float = v.disc_k * v._map_integral(img, 2)
+	ok(absf(disc_drawn / v._l_disc - 1.0) < 1e-6 and absf(v.young_k * v._arm_integral(img) / v._l_young - 1.0) < 1e-6,
+		"M51's discs draw their model's light (old %s, young %s)" % [String.num(disc_drawn / v._l_disc, 6), String.num(v.young_k * v._arm_integral(img) / v._l_young, 6)])
+	# Seen from the Sun through its own dust, against RC3's V_T⁰ (−21.53): parallel rays across it.
+	var side := GalLandmarks.sun_side(m)
+	var d := -side
+	var e1 := d.cross(Vector3.UP).normalized()
+	var e2 := d.cross(e1).normalized()
+	var seen := [0.0, 0.0]
+	var keep: Dictionary = v.dust_map
+	for pass_i in 2:
+		v.dust_map = keep if pass_i == 0 else {}
+		var acc := 0.0
+		var a := -24.0 + 0.25
+		while a < 24.0:
+			var b := -24.0 + 0.25
+			while b < 24.0:
+				acc += v.ray_luminance(side * 200.0 + e1 * a + e2 * b, d, 1e-3, 96) * 0.25
+				b += 0.5
+			a += 0.5
+		seen[pass_i] = acc * 4.0 * PI
+	v.dust_map = keep
+	var hii_l := 0.0
+	for i in v.hii_cat.n:
+		var c: Color = (v.hii_cat.stars[i] as Color) + (v.hii_cat.lines[i] as Color)
+		hii_l += 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+	var intrinsic := GalModels.visible_luminosity(m)
+	var mv_free := 4.83 - 2.5 * log(seen[1] + hii_l) / log(10.0)
+	var mv_seen := 4.83 - 2.5 * log(seen[0] + hii_l * seen[0] / seen[1]) / log(10.0)
+	print("     M51 from the Sun: M_V %s through its dust, %s without (its stars %s), RC3 −21.53" % [
+		U.fixed(mv_seen, 2), U.fixed(mv_free, 2), U.fixed(4.83 - 2.5 * log(intrinsic) / log(10.0), 2)])
+	ok(absf(mv_free - (4.83 - 2.5 * log(intrinsic) / log(10.0))) < 0.02, "M51's rays add up to its stars' light without dust (%s mag)" % U.fixed(mv_free - (4.83 - 2.5 * log(intrinsic) / log(10.0)), 3))
+	ok(absf(mv_seen - float(GalModels.TYPES.m51.mv)) < M51_SEEN_TOL, "M51 shows M_V %s through its dust, %s mag from RC3's −21.53 (no scattering: < %s)" % [
+		U.fixed(mv_seen, 2), U.fixed(mv_seen - float(GalModels.TYPES.m51.mv), 2), M51_SEEN_TOL])
+	hii_checks(m, v)
+	v.dispose()
+
+## M51's H II regions against what they were drawn from.
+func hii_checks(m: Dictionary, v: GalaxyVisual) -> void:
+	var c: Dictionary = v.hii_cat
+	var spec: Dictionary = m.hii
+	var want: float = pow(10.0, log(float(spec.sfr)) / log(10.0) + float(spec.logC)) * (1.0 - float(spec.dig))
+	var drawn := 0.0
+	for l in c.lum: drawn += l
+	ok(absf(float(c.ha_regions) / want - 1.0) < 1e-9 and absf(drawn / float(c.ha_drawn) - 1.0) < 1e-9,
+		"M51's H II regions hold the star formation rate's Hα less the diffuse 45 %% (%s erg/s; %s of it drawn in %d regions of %d)" % [
+		U.expo(want, 3), String.num(drawn / want, 3), c.n, c.n_all])
+	# Lee et al.'s own regions: 10^41.1 + 10^40.6 + 10^40.1 erg/s at 9.9 Mpc (their §5.2).
+	var lee := (pow(10.0, 41.1) + pow(10.0, 40.6) + pow(10.0, 40.1)) * pow(8.58 / 9.9, 2.0)
+	print("     M51's H II regions: %s erg/s in Hα; Lee et al. catalogue %s (%s dex)" % [U.expo(want, 3), U.expo(lee, 3), U.fixed(log(lee / want) / log(10.0), 2)])
+	# The luminosity function's bright slope recovered from the catalogue: dN/dlog L ∝ L^(α+1).
+	var lb := pow(10.0, float(spec.logL[1])) * pow(8.58 / float(spec.d), 2.0)
+	var hi := pow(10.0, float(spec.logL[2])) * pow(8.58 / float(spec.d), 2.0)
+	var counts := [0.0, 0.0]
+	var mid := sqrt(lb * hi) / 4.0
+	for l in c.lum:
+		if l >= lb and l < mid: counts[0] += 1.0
+		elif l >= mid and l < hi: counts[1] += 1.0
+	# ∫ L^α dL over each half against their ratio.
+	var r_want := GalHII._power_int(mid / lb, hi / lb, float(spec.alpha[0])) / GalHII._power_int(1.0, mid / lb, float(spec.alpha[0]))
+	var r_got: float = counts[1] / counts[0]
+	ok(absf(r_got / r_want - 1.0) < 0.1, "M51's H II regions above the break follow Lee et al.'s L^−2.25 (bright/faint %s, want %s)" % [String.num(r_got, 3), String.num(r_want, 3)])
+	# Sizes on L ∝ D^3.04 through the anchor.
+	var l0 := pow(10.0, float(spec.logL[0])) * pow(8.58 / float(spec.d), 2.0)
+	var d0 := float(spec.size[0]) * 8.58 / float(spec.d) * 1e-3
+	var ws := 0.0
+	for i in mini(c.n, 500):
+		ws = maxf(ws, absf(float(c.sigma[i]) / (GalHII.SIGMA_PER_D * d0 * pow(float(c.lum[i]) / l0, 1.0 / float(spec.size[1]))) - 1.0))
+	ok(ws < 1e-5, "M51's H II regions are as large as L ∝ D^3.04 makes them")
+	# The young light kept: the smooth arms' plus the regions' clusters, against the young
+	# population's light; the lines on top.
+	var y0: Color = v.young_pop.color * float(m.armLight)
+	var smooth: Color = v.young_col * v._l_young - (c.dig_vis as Color)
+	var stars := Color(0, 0, 0)
+	for s in c.stars: stars += s
+	var lum0 := 0.2126 * y0.r + 0.7152 * y0.g + 0.0722 * y0.b
+	var lum1 := 0.2126 * (smooth.r + stars.r) + 0.7152 * (smooth.g + stars.g) + 0.0722 * (smooth.b + stars.b)
+	ok(absf(lum1 / lum0 - 1.0) < 1e-6, "M51's young stars keep their light between the arms' glow and the regions' clusters (%s)" % String.num(lum1 / lum0, 7))
+	# Clustering: 1 + ω(r) over 100–3000 pc, Landy & Szalay, against Grasha et al.'s (2019,
+	# Table 2) −0.40 ± 0.05 for M51's clusters under 10 Myr. 1031 regions, as they had clusters.
+	var slope := hii_clustering(v, c)
+	# With 1031 points the estimator itself scatters by about Grasha et al.'s ±0.05: within 2σ.
+	ok(absf(slope + 0.40) < 0.1, "M51's H II regions cluster with 1 + ω ∝ r^%s over 100–3000 pc (Grasha et al. −0.40 ± 0.05)" % String.num(slope, 3))
+
+func hii_clustering(v: GalaxyVisual, c: Dictionary) -> float:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	var nd := 1031
+	var d := []
+	for k in nd: d.append(c.pos[rng.randi_range(0, int(c.n) - 1)])
+	var sp: Dictionary = GalModels.M51_HII.duplicate()
+	sp.levels = 0
+	var rcat := GalHII.build(sp, 8580.0, v.arm_img, GalaxyVisual.ARM_HALF, 1e10, 0.09, 11)
+	var r := []
+	for k in 4 * nd: r.append(rcat.pos[rng.randi_range(0, int(rcat.n) - 1)])
+	var edges := []
+	for b in 11: edges.append(0.1 * pow(30.0, float(b) / 10.0))
+	var dd := _pairs(d, d, edges, true)
+	var drp := _pairs(d, r, edges, false)
+	var rr := _pairs(r, r, edges, true)
+	var na := float(d.size())
+	var nr := float(r.size())
+	var xs := []
+	var ys := []
+	for b in 10:
+		var w: float = (dd[b] / (na * (na - 1.0) / 2.0) - 2.0 * drp[b] / (na * nr) + rr[b] / (nr * (nr - 1.0) / 2.0)) / (rr[b] / (nr * (nr - 1.0) / 2.0))
+		xs.append(log(sqrt(float(edges[b]) * float(edges[b + 1]))))
+		ys.append(log(1.0 + w))
+	var mx := 0.0
+	var my := 0.0
+	for i in 10:
+		mx += float(xs[i]) / 10.0
+		my += float(ys[i]) / 10.0
+	var sxy := 0.0
+	var sxx := 0.0
+	for i in 10:
+		sxy += (float(xs[i]) - mx) * (float(ys[i]) - my)
+		sxx += (float(xs[i]) - mx) * (float(xs[i]) - mx)
+	return sxy / sxx
+
+func _pairs(a: Array, b: Array, edges: Array, same: bool) -> PackedFloat64Array:
+	var out := PackedFloat64Array()
+	out.resize(edges.size() - 1)
+	var lo: float = edges[0]
+	var l0 := log(lo)
+	var hi: float = edges[edges.size() - 1]
+	var step := (log(hi) - l0) / float(edges.size() - 1)
+	for i in a.size():
+		var p: Vector3 = a[i]
+		for j in (range(i + 1, b.size()) if same else range(b.size())):
+			var q: Vector3 = b[j]
+			var s := Vector2(p.x - q.x, p.z - q.z).length()
+			if s >= lo and s < hi: out[int((log(s) - l0) / step)] += 1.0
+	return out
+
 func types() -> void:
+	# M51's light is its stars before the dust (Inman et al. 2023); what it shows through the dust
+	# is checked against RC3 in m51() instead.
 	var worst := 0.0
 	# RC3's V_T⁰ and Kormendy et al.'s M_VT are corrected for the galaxy's own dust, so the
 	# glow is marched without it; seen face-on, the dust then takes what it takes.
 	for k in GalModels.TYPES:
+		if GalModels.TYPES[k].get("light", "") == "m51": continue
 		var m := GalModels.type_galaxy(k)
 		var dusty := m.has("dust") or m.has("dustRing")
 		var seen := drawn_mv(m) if dusty else 0.0
@@ -821,30 +1064,9 @@ func types() -> void:
 		print("     %s: drawn at M_V %s, measured %s%s" % [k, String.num(mv, 3), String.num(float(GalModels.TYPES[k].mv), 2),
 			(", %s through its dust face-on" % String.num(seen, 3)) if dusty else ""])
 		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
-	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size(), U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
-	# M51's arms: the light the young term draws against the measured 36 %, and beside the
-	# light Calzetti et al.'s (2005) 3.4 M☉/yr would give over 100 Myr.
+	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size() - 1, U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
+	m51()
 	var m51 := GalModels.type_galaxy("m51")
-	var va := GalaxyVisual.new(m51)
-	var drawn_arms := va.young_k * va._arm_integral(va.arm_img)
-	var young := GalPopulation.build({"kind": "constant", "gyr": GalModels.MW_YOUNG_GYR})
-	var from_sfr := 3.4 * GalModels.MW_YOUNG_GYR * 1e9 * young.light_per_formed
-	print("     M51's arms: %s L☉ drawn (36 %% of its V light), %s L☉ from its star formation rate (×%s)" % [
-		U.expo(drawn_arms, 3), U.expo(from_sfr, 3), String.num(from_sfr / drawn_arms, 2)])
-	ok(absf(drawn_arms / float(m51.armLight) - 1.0) < 1e-6, "M51's arms draw the light measured in them (%s)" % String.num(drawn_arms / float(m51.armLight), 6))
-	# On each arm's ridge, past its rise, its light falls as exp(−R/h_s) (Marchuk et al. 2024).
-	var worst_h := 0.0
-	for i in (m51.arms as Array).size():
-		var row: Array = m51.arms[i]
-		var vals := []
-		for R in [4.5, 8.0]:
-			# The ridge's azimuth at R: β = βk − ln(R/Rk)/tan ψ, φ = π + β.
-			var beta := deg_to_rad(float(row[2])) - log(R / float(row[1])) / tan(deg_to_rad(float(row[3])))
-			vals.append(va._arms(R, PI + beta, 0.0))
-		var want := exp(-(8.0 - 4.5) / float(m51.armDecay[i]))
-		worst_h = maxf(worst_h, absf(float(vals[1]) / float(vals[0]) / want - 1.0))
-	ok(worst_h < 0.05, "M51's arms fade along their ridges with their measured h_s (worst %s %%)" % U.fixed(worst_h * 100.0, 1))
-	va.dispose()
 	# NGC 5195 against M51: 4.41′ apart on the sky (NED), 35 kpc behind.
 	var cf := GalLandmarks.companion_frame(m51, "ngc5195")
 	var off: Vector3 = cf[0]

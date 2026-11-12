@@ -347,6 +347,15 @@ func _ready() -> void:
 	await measure("galaxy-sun")
 	if stage.galaxy.tracers == null or stage.galaxy.tracers.steps == 0: failures += 1
 	stage.state.paused = true
+	# M51: its maps, dust and H II regions, whole and from 8 kpc, where the regions' quads are
+	# large on screen.
+	stage.load_preset("gal_m51")
+	stage.galaxy.wait_tracers()
+	stage.galaxy.frame("whole")
+	await measure("galaxy-m51")
+	stage.jump_cam_radius(8.0)
+	await measure("galaxy-m51-near")
+	if stage.galaxy.visual.hii == null: failures += 1
 	CraftAssets.craft_models_ready(["saturnv"])
 	stage.show_model("saturnv")
 	if not stage.model_view.craft.authored: failures += 1
