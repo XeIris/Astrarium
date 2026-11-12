@@ -60,6 +60,8 @@ uniform float uCatGain = 0.0;
 uniform float uThin = 1e9;
 
 const int N_DISC = 32;
+// The asinh scale (kpc) about the camera for rays from inside the disc's layer.
+const float SC_INSIDE = 0.5;
 const int N_SPHERE = 16;
 
 vec2 box_hit(vec3 o, vec3 d, vec3 b) {
@@ -194,7 +196,15 @@ void fragment() {
 		float tc = clamp(-o.y / (abs(d.y) > 1e-6 ? d.y : 1e-6), tbx.x, tbx.y);
 		// The medium below the map, seen from outside its layer, where the ray crosses the
 		// plane: a tilted thick layer does not smear it and the march adds no grain.
-		vec2 ism = abs(o.y) > uISMLayer.y ? gal_ism(o + d * tc, tc * uPix) : vec2(1.0);
+		bool outside = abs(o.y) > uISMLayer.y;
+		// From inside, a ray along the plane crosses it far off or not at all: the samples
+		// gather about the camera instead, where its dust and light change most (32 samples
+		// spread evenly over the box's chord missed the near dust by up to 11 %).
+		if (!outside) {
+			sc = min(sc, SC_INSIDE);
+			tc = tbx.x;
+		}
+		vec2 ism = outside ? gal_ism(o + d * tc, tc * uPix) : vec2(1.0);
 		disc = march_disc(o, d, tbx.x, tbx.y, tc, sc, jit, uFaint.x, ism, tv, leg, arc);
 	}
 	vec3 sph = vec3(0.0);
