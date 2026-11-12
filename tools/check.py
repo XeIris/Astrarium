@@ -130,7 +130,7 @@ CHANGED_RULES = (
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
       "tools/build_neighbourhood.py"),
-     ("galaxycheck", "encountercheck", "galaxylookcheck", "_soak_check-galaxy", "_soak_check-encounter", "hud*")),
+     ("galaxycheck", "encountercheck", "galaxylookcheck", "coursecheck", "_soak_check-galaxy", "_soak_check-encounter", "hud*")),
     # The live encounters' six-minute replay: only what moves their particles.
     (("sim/galaxy/gal_encounter.gd", "sim/galaxy/gal_live.gd", "sim/galaxy/gal_orbits.gd", "sim/galaxy/gal_eddington.gd",
       "sim/galaxy/gal_models.gd", "native/*", "tools/encounterlivecheck.gd"), ("encounterlivecheck",)),
@@ -326,7 +326,7 @@ def checks(suite, godot, output, repeat, export_preset):
         # The galactic scene's glow against its CPU integral, and the star/glow hand-over's flux.
         yield scene("galaxylookcheck", r"^GALAXYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
-        yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
+        yield scene("coursecheck", r"^COURSE 40L 125S 0E$")
         pin_gpu = scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$", "gpu=1")
         yield ("pincheck-gpu", *pin_gpu[1:])
         for quality in ("medium", "low", "high"):

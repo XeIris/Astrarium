@@ -26,6 +26,7 @@ func _init() -> void:
 	live_alone()
 	switch()
 	antennae()
+	pro_retro()
 	print("ENCOUNTERCHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -524,3 +525,20 @@ func antennae() -> void:
 	ok(south[2] > 20 and north[2] > 20 and south[0] / ns > 30.0 and north[0] / nn < -30.0 and south[1] / ns > 5.0 and north[1] / nn < -5.0,
 		"NGC 4038's tail runs south and west and recedes (%s kpc west, %s km/s); NGC 4039's runs north and east and approaches (%s kpc east, %s km/s), as in their Fig. 6 and the sky" % [
 		U.fixed(south[1] / ns, 1), U.fixed(south[0] / ns, 0), U.fixed(-north[1] / nn, 1), U.fixed(north[0] / nn, 0)])
+
+## Toomre & Toomre's (1972) demonstration: on the same orbit, a disc spinning with it is torn
+## into a tail and a disc spinning against it barely notices. 100 Myr after the passage.
+func pro_retro() -> void:
+	var e := GalModels.identikit(GalModels.PRO_RETRO, 0.25, 1)
+	while e.time() < 250.0 - 1e-6: e.step(maxi(int(round(minf(10.0, 250.0 - e.time()) / e.dt())), 1))
+	var far := [0, 0]
+	var tot := [0, 0]
+	for j in e.n:
+		var g: int = e.tag[j]
+		if g > 1: continue
+		tot[g] += 1
+		if e.live.position(j).distance_to(e.centre(g)) > 20.0: far[g] += 1
+	var fp: float = float(far[0]) / float(tot[0])
+	var fr: float = float(far[1]) / float(tot[1])
+	ok(fp > 0.1 and fp > 10.0 * fr, "100 Myr after their passage %s of the prograde disc's stars and %s of the retrograde one's lie beyond 20 kpc" % [
+		(U.fixed(100.0 * fp, 1) + " %"), (U.fixed(100.0 * fr, 1) + " %")])

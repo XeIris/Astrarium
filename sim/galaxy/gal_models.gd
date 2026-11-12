@@ -6,7 +6,7 @@ extends RefCounted
 # docs/physics/galaxies.md; nothing here is tuned to look right.
 
 ## The scenarios of the galactic scene, in the order the list shows them.
-const ORDER := ["gal_milkyway", "gal_m51", "gal_m104", "gal_m87", "gal_mw_m31", "gal_antennae"]
+const ORDER := ["gal_milkyway", "gal_m51", "gal_m104", "gal_m87", "gal_mw_m31", "gal_antennae", "gal_pro_retro"]
 
 const PRESETS := {
 	"gal_milkyway": {
@@ -21,6 +21,11 @@ const PRESETS := {
 		"name": "The Antennae",
 		"blurb": "NGC 4038 and 4039 in Corvus, as Privon et al. (2013) reconstructed them from their tails' shapes and H I velocities: two equal spirals on a parabolic orbit, both turning the way they move. They pass about 6 kpc apart 150 Myr in and throw out two long tails. Privon's model sees them as they are today at 408 Myr, around their second pass, as they merge.",
 		"model": "antennae", "camRadius": 160.0, "camTheta": 1.5707963, "rateMyrS": 20.0,
+	},
+	"gal_pro_retro": {
+		"name": "Prograde and retrograde",
+		"blurb": "Two identical spirals on the same parabolic orbit, seen from above it. One spins the way the orbit turns, the other against it. Toomre & Toomre (1972) showed what follows: the prograde disc, whose stars keep pace with the passing companion, is torn into a long tail and a bridge; the retrograde one barely notices.",
+		"model": "pro_retro", "camRadius": 140.0, "camTheta": 1.5707963, "rateMyrS": 20.0,
 	},
 	"gal_mw_m31": {
 		"name": "Milky Way meets M31",
@@ -871,6 +876,12 @@ static func vdm_galaxy(e: GalEncounter, i: int, row: Array, scale: float, seed: 
 ## disc and a tapered NFW halo of masses 0.0625, 0.1875 and 1.0.
 const ANTENNAE := {"L": 19.7, "V": 265.0, "p": 0.25, "t_peri": 2.0, "t_now": 5.62,
 	"discs": [["NGC 4038", 65.0, 345.0], ["NGC 4039", 70.0, 95.0]], "view": [-20.0, 283.0, -5.0]}
+## Toomre & Toomre's (1972) demonstration on the same galaxies and orbit: one disc spinning
+## with the orbit in its plane (i 0, prograde) and one against it (i 180, retrograde), seen
+## down the orbit's axis. Half Privon's particles, so it runs twice as fast.
+const PRO_RETRO := {"L": 19.7, "V": 265.0, "p": 0.25, "t_peri": 2.0,
+	"discs": [["Prograde", 0.0, 0.0], ["Retrograde", 180.0, 0.0]], "view": [0.0, 0.0, 0.0], "scale": 0.5}
+const IDENTIKIT := {"antennae": ANTENNAE, "pro_retro": PRO_RETRO}
 const BH09 := {"mb": 0.0625, "ab": 0.02, "bb": 4.0, "md": 0.1875, "ad": 1.0 / 12.0, "zd": 0.0075,
 	"mh_a": 0.16, "ah": 0.25, "bh": 0.98015, "eps": 0.0075, "q_sigma": 0.075}
 ## Privon et al.'s self-consistent runs: 8k bulge, 24k disc and 32k halo particles a galaxy.
@@ -912,15 +923,20 @@ static func identikit_spin(inc: float, omega: float, to_companion: Vector3) -> V
 ## (X east, Y north, Z away from us), then onto the scene's, where the default camera looks
 ## down −Z with north up and east on the left: a half turn about Y. Of the Euler orders tried,
 ## this one puts the tails nearest the particles of their Fig. 6a.
-static func antennae_frame() -> Basis:
-	var v: Array = ANTENNAE.view
+static func antennae_frame(spec: Dictionary = ANTENNAE) -> Basis:
+	var v: Array = spec.view
 	var m := Basis(Vector3(1, 0, 0), deg_to_rad(v[0])) * Basis(Vector3(0, 1, 0), deg_to_rad(v[1])) * Basis(Vector3(0, 0, 1), deg_to_rad(v[2]))
 	return Basis(Vector3(0, 1, 0), PI) * m
 
 ## The Antennae encounter as seen from the Sun (antennae_frame), particle counts scaled by
 ## `scale`.
 static func antennae(scale := 1.0, seed := 1) -> GalEncounter:
-	var A: Dictionary = ANTENNAE
+	return identikit(ANTENNAE, scale, seed)
+
+## An encounter of two of Barnes & Hibbard's galaxies as an Identikit spec sets it out (spec as
+## ANTENNAE), seen as its view puts it.
+static func identikit(spec: Dictionary, scale := 1.0, seed := 1) -> GalEncounter:
+	var A: Dictionary = spec
 	var g: Dictionary = BH09
 	var lu := float(A.L)
 	var vu := float(A.V) * GalUnits.KMS
@@ -929,14 +945,14 @@ static func antennae(scale := 1.0, seed := 1) -> GalEncounter:
 	var m_unit_sun := gm_unit / GalUnits.G * GalUnits.MASS_UNIT_SUN
 	var m_gal := float(g.mb) + float(g.md) + 1.0
 	var orb := parabolic(2.0 * m_gal, float(A.p), -float(A.t_peri))
-	var q := antennae_frame()
+	var q := antennae_frame(spec)
 	var rel := turned(q, orb[0])
 	var vrel := turned(q, orb[1])
 	var o := GalOrbits.new()
 	o.friction = false
 	var half := func(a: PackedFloat64Array, k: float) -> Array: return [a[0] * k, a[1] * k, a[2] * k]
-	o.add("NGC 4038", m_gal * m_unit_sun, float(g.ah) * lu, half.call(rel, -0.5 * lu), half.call(vrel, -0.5 * vu))
-	o.add("NGC 4039", m_gal * m_unit_sun, float(g.ah) * lu, half.call(rel, 0.5 * lu), half.call(vrel, 0.5 * vu))
+	o.add(String(A.discs[0][0]), m_gal * m_unit_sun, float(g.ah) * lu, half.call(rel, -0.5 * lu), half.call(vrel, -0.5 * vu))
+	o.add(String(A.discs[1][0]), m_gal * m_unit_sun, float(g.ah) * lu, half.call(rel, 0.5 * lu), half.call(vrel, 0.5 * vu))
 	var e := GalEncounter.new(o)
 	e.live_dt = ANTENNAE_DT
 	for i in 2:
@@ -980,7 +996,7 @@ static func vdm_lights(e: GalEncounter) -> Array:
 		stars.append([float(st[0]), float(st[1]), float(st[2]), float(st[3]) / 1.8153])
 	return encounter_lights(e, stars)
 
-## The Antennae's light: both galaxies Barnes & Hibbard's model in Privon et al.'s units.
+## An Identikit pair's light: both galaxies Barnes & Hibbard's model in Privon et al.'s units.
 static func antennae_lights(e: GalEncounter) -> Array:
 	var lu := float(ANTENNAE.L)
 	var vu := float(ANTENNAE.V) * GalUnits.KMS
@@ -1136,7 +1152,7 @@ static func mw_patterns() -> Array:
 static func build(key: String, seed := 1, patterns := true) -> Dictionary:
 	if TYPES.has(key): return type_galaxy(key)
 	if key == "vdm_canonical": return {"key": key, "name": "Milky Way meets M31", "encounter": "vdm", "seed": seed, "extent": 1000.0}
-	if key == "antennae": return {"key": key, "name": "The Antennae", "encounter": "antennae", "seed": seed, "extent": 150.0}
+	if IDENTIKIT.has(key): return {"key": key, "name": String(PRESETS.get("gal_" + key, {}).get("name", key)), "encounter": "identikit", "spec": key, "seed": seed, "extent": 150.0}
 	match key:
 		"milky_way":
 			return {

@@ -2898,9 +2898,25 @@ func _build_stage() -> void:
 		"cam_pos": _stage_cam_pos,
 		"main": self,
 		"toast": toast,
+		"galaxy": _stage_galaxy,
+		"galaxy_curve": _stage_galaxy_curve,
 	}
 
-func _stage_has_preset(k: String) -> bool: return Presets.PRESETS.has(k)
+func _stage_has_preset(k: String) -> bool: return Presets.PRESETS.has(k) or GalaxyScene.has_preset(k)
+
+## A lesson's request of the galactic scene (GalaxyScene.request_error validates it): a
+## framing, a landmark to fly to, and a clock rate (0 pauses).
+func _stage_galaxy(req: Dictionary) -> void:
+	if not galaxy.active or not GalaxyScene.request_error(req, galaxy.model).is_empty(): return
+	if req.has("frame"): galaxy.frame(String(req.frame))
+	if req.has("landmark"): galaxy.fly(String(req.landmark))
+	if req.has("rate"): _on_galaxy_action("rate", float(req.rate))
+
+## What a rotation-curve instrument measures: the live tracers and the model's potential, or
+## null outside a galaxy that has them.
+func _stage_galaxy_curve():
+	if not galaxy.active or galaxy.tracers == null or not galaxy.model.has("potential"): return null
+	return [galaxy.tracers, galaxy.model.potential]
 func _stage_current_preset() -> String: return state.preset_key
 func _stage_bodies() -> Array: return state.bodies
 func _stage_focus_body(): return state.body_by_id(state.focus_id)

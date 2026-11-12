@@ -318,6 +318,23 @@ func tracers() -> void:
 		worst_j = maxf(worst_j, absf(jv[i] - want))
 	ok(lag > 8.0 and lag < 35.0, "asymmetric drift at R0: stars lag vc by %s km/s" % String.num(lag, 1))
 	ok(st.R.size() >= 10 and worst_j < 8.0, "Jeans-corrected stellar curve within %s km/s of vc over 6–18 kpc" % String.num(worst_j, 1))
+	# The rotation-curve instrument (HUD and lesson) holds each part's curve, which add up in
+	# quadrature to the model's.
+	var chart := GalCurveChart.new()
+	chart.measure(tr, p)
+	var worst_sum := INF if chart.parts.size() != p.parts.size() else 0.0
+	for k in chart.model.size():
+		var v2 := 0.0
+		for name in chart.parts:
+			var c: PackedVector2Array = chart.parts[name]
+			if c.size() != chart.model.size():
+				worst_sum = INF
+				break
+			v2 += c[k].y * c[k].y
+		if is_finite(worst_sum): worst_sum = maxf(worst_sum, absf(sqrt(v2) - chart.model[k].y))
+	chart.free()
+	# Each part's v_c comes from its own force, summed in a different order: rounding only.
+	ok(worst_sum < 1e-3, "the rotation chart's parts add to its model curve (%s km/s)" % U.expo(worst_sum, 1))
 	eilers(p)
 
 # The bar and the spiral (GalPattern): force and ∂Φ/∂t from the potential, the native

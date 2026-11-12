@@ -29,11 +29,15 @@ func _init() -> void:
 func measure(tr: GalTracers, pot: GalPotential) -> void:
 	if model.is_empty():
 		for i in 104:
-			var R := 0.25 * float(i + 1)
-			model.append(Vector2(R, GalUnits.kms(pot.vc(R))))
-			for p in pot.parts:
-				if not parts.has(p.name): parts[p.name] = PackedVector2Array()
-				(parts[p.name] as PackedVector2Array).append(Vector2(R, GalUnits.kms(pot.vc_of(String(p.name), R))))
+			model.append(Vector2(0.25 * float(i + 1), GalUnits.kms(pot.vc(0.25 * float(i + 1)))))
+		# Each part's curve is built whole and then stored: a packed array in a dictionary is a
+		# value, so appending to it there would change a copy.
+		for p in pot.parts:
+			var curve := PackedVector2Array()
+			for i in 104:
+				var R := 0.25 * float(i + 1)
+				curve.append(Vector2(R, GalUnits.kms(pot.vc_of(String(p.name), R))))
+			parts[p.name] = curve
 	var gi := tr.population_index("gas")
 	var si := tr.population_index("thin disc")
 	# Bins inside a population's guiding-centre range: nearer its edges a ring holds
