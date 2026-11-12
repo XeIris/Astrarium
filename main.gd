@@ -31,6 +31,7 @@ var painter = null                # Painter
 var observer = null               # SurfaceObserver
 var observatory: Observatory = null
 var showcase: Showcase = null
+var galaxy: GalaxyScene = null
 var sky_pass = null               # SkyPass
 var flight = null                 # Spaceflight
 var model_view = null             # ModelViewer
@@ -142,6 +143,8 @@ func _ready() -> void:
 		_preset_group("sandboxes", "Sandboxes", ["blank", "sandbox"]),
 		_preset_group("real-stars", "Real stars", ["stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder"]),
 		_preset_group("stellar-systems", "Stellar system scenarios", ["solar", "threebody", "binarystar"]),
+		# The galactic scene's own scenarios: a different world, not orrery presets.
+		{"id": "galaxies", "label": "Galaxies", "keys": GalModels.ORDER.duplicate()},
 	]
 
 	pipe = RenderPipeline.new()
@@ -166,6 +169,7 @@ func _ready() -> void:
 	sky_pass = SkyView.create_sky_pass()
 	observatory = Observatory.new(self)
 	showcase = Showcase.new(self)
+	galaxy = GalaxyScene.new(self)
 	# Under the HUD, over the frame: the overlay is drawn in screen space.
 	var sky_ui := CanvasLayer.new()
 	sky_ui.layer = 0
@@ -262,7 +266,7 @@ func _ready() -> void:
 		else: hud.set_title_veil(0.0)
 	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
 		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory", "showcase"] else "sandbox")
-		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
+		load_preset(k if Presets.PRESETS.has(k) or GalaxyScene.has_preset(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")), true)
 	else:
@@ -1120,7 +1124,7 @@ func _view_size() -> Vector2:
 	return Vector2(pipe.view_size)
 
 func handle_pick(pos: Vector2) -> void:
-	if state.cam_mode == "flight": return
+	if state.cam_mode == "flight" or galaxy.active: return
 	if observatory.active and state.cam_mode == "surface":
 		if not observatory.picking: observatory.sky_click(pos, _view_size())
 		return
@@ -1131,6 +1135,7 @@ func handle_pick(pos: Vector2) -> void:
 func _exit_tree() -> void:
 	# A frame on a worker reads the stage's statics; nothing may go while it runs.
 	if observatory != null: observatory.desk.finish()
+	if galaxy != null: galaxy.leave()
 	if flight != null: flight.release()
 	if model_view != null: model_view.dispose()
 	clear_bodies()
@@ -1269,6 +1274,7 @@ func _wheel(delta_y: float) -> void:
 	elif state.cam_mode == "flight": flight.wheel(delta_y)
 	elif state.cam_mode == "orbit":
 		cam.zoom_orbit(delta_y)
+		if galaxy.active: galaxy.clamp_radius()
 		update_orbit_cam()
 	elif state.cam_mode == "surface": observer.zoom(1.0 + delta_y * 0.0012)
 	else: cam.free_speed = maxf(0.5, cam.free_speed * (1.0 - delta_y * 0.001))
@@ -1290,8 +1296,11 @@ func _key(e: InputEventKey) -> void:
 				sync_warp_label()
 				return
 	if controls.matches("reset_view", e):
-		cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
-		cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
+		# The galactic scene has no orrery preset (state.preset is null there): its own framing.
+		if galaxy.active: galaxy.frame("whole")
+		else:
+			cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
+			cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 		if state.cam_mode == "orbit": update_orbit_cam()
 	if controls.matches("pause", e):
 		state.paused = not state.paused
@@ -1357,6 +1366,7 @@ func aim_at_brightest_sun() -> void:
 
 # PRESET LOADING
 func load_preset(key: String) -> bool:
+	if GalaxyScene.has_preset(key): return enter_galaxy(key)
 	if not Presets.PRESETS.has(key): return false
 	return load_preset_spec(key, Presets.PRESETS[key])
 
@@ -1398,6 +1408,7 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 	# The Observatory is the solar preset on a date: another scenario ends the mode, so its
 	# clock and observer never outlive the bodies they read.
 	if observatory.active or showcase.active: set_app_mode("sandbox")
+	if galaxy.active: leave_galaxy()
 	clear_bodies()          # bodies, painted swarms and any flash still burning
 
 	state.preset = p
@@ -1563,7 +1574,7 @@ func paint_cloud_on(b: Body) -> void:
 # UI — everything the Hud shows is pushed from here; everything it does comes
 # back as a signal (see _bind_hud).
 func render_preset_groups() -> void:
-	hud.render_preset_groups(PRESET_GROUPS, Presets.PRESETS, state.preset_key)
+	hud.render_preset_groups(PRESET_GROUPS, U.merged(Presets.PRESETS, GalModels.PRESETS), state.preset_key)
 
 func refresh_ui() -> void:
 	if hud == null: return
@@ -1663,6 +1674,8 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		observatory.leave()
 		if state.cam_mode == "surface": set_cam_mode("orbit")
 	if mode != "showcase" and showcase.active: showcase.leave()
+	# Flight, the Observatory and the showcase need the orrery's Solar System.
+	if mode in ["flight", "observatory", "showcase"] and galaxy.active: leave_galaxy()
 	if mode == "observatory":
 		close_model_viewer()
 		if flight.active: end_flight()
@@ -1715,7 +1728,7 @@ func _start(m: String, direct := false) -> void:
 	if at_start and title_reel.running:
 		title_reel.stop()
 		reset_stage()
-	if at_start and state.preset == null:
+	if at_start and state.preset == null and not galaxy.active:
 		load_preset("solar" if m in ["flight", "observatory"] else "sandbox")
 	at_start = false
 	hud.dismiss_start()
@@ -1739,6 +1752,7 @@ func quit_to_start() -> void:
 ## Back to an empty universe with the default camera and sky.
 func reset_stage() -> void:
 	if showcase.active: showcase.leave()
+	if galaxy.active: leave_galaxy()
 	close_map()
 	if flight.active: end_flight()
 	close_model_viewer()
@@ -2055,6 +2069,8 @@ func _bind_hud() -> void:
 	hud.slider.connect(_on_slider)
 	hud.obs_site.connect(_on_obs_site)
 	hud.obs_action.connect(_on_obs_action)
+	hud.galaxy_action.connect(_on_galaxy_action)
+	galaxy.curve_chart = hud.get_el("galCurve")
 	hud.render_quality_chosen.connect(set_render_quality)
 	hud.lighting_quality_chosen.connect(set_lighting_quality)
 	hud.lighting_effect_chosen.connect(_toggle_lighting_effect)
@@ -2198,6 +2214,11 @@ func restate_solar(tdb_jd: float) -> void:
 
 func _on_reset_view() -> void:
 	set_follow(null)
+	if galaxy.active:
+		set_cam_mode("orbit")
+		galaxy.frame("whole")
+		update_orbit_cam()
+		return
 	cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
 	cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 	set_cam_mode("orbit"); update_orbit_cam()
@@ -2206,7 +2227,9 @@ func _on_sky_solo(n: String) -> void:
 	set_sky(U.merged(state.sky, {"env": {n: 1.0}}))
 
 func _on_sky_reset() -> void:
-	set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
+	# Inside a galaxy the scene's own sky is the one enter_galaxy set.
+	if galaxy.active: set_sky(preset_sky({"env": "intergalactic"}))
+	else: set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
 	toast("Sky reset to the scenario’s own")
 
 func _on_sky_adv_clear() -> void:
@@ -2244,6 +2267,61 @@ func _on_showcase_action(kind: String) -> void:
 			hud.set_active("pinOnFocusToggle", state.pin_on_focus)
 			hud.set_button_text("pinOnFocusToggle", ("☑" if state.pin_on_focus else "☐") + " Drop a pin on focus")
 			showcase.sync_hud()
+
+# THE GALACTIC SCENE (sim/galaxy/): its own world in kpc and Myr. The orrery's bodies
+# are cleared on the way in; leaving restores the default sky and an empty stage.
+func enter_galaxy(key: String) -> bool:
+	if observatory.active or showcase.active: set_app_mode("sandbox")
+	close_map()
+	if flight.active: end_flight()
+	close_model_viewer()
+	clear_bodies()
+	state.preset = null
+	state.preset_key = key
+	state.home_id = null
+	state.focus_id = null
+	state.follow_id = null
+	state.suns.clear()
+	state.show_lens = false
+	state.lensing = false
+	state.show_mesh = false
+	spacetime_mesh.node.visible = false
+	set_cam_mode("orbit")
+	cam_fov = 50.0
+	# Between galaxies: no Milky Way in the background; the scene draws its own.
+	set_sky(preset_sky({"env": "intergalactic"}))
+	set_band(Spectrum.VISIBLE_BAND)
+	galaxy.enter(key)
+	hud.set_galaxy_scene(true)
+	hud.set_text("presetName", String(galaxy.preset.name))
+	hud.set_text("blurb", String(galaxy.preset.get("blurb", "")))
+	hud.set_slider("galExposure", 0.0, "1×")
+	render_preset_groups()
+	refresh_ui()
+	return true
+
+func leave_galaxy() -> void:
+	galaxy.leave()
+	hud.set_galaxy_scene(false)
+	state.preset_key = ""
+	set_sky(SimState.new().sky)
+
+func _on_galaxy_action(action: String, arg) -> void:
+	if not galaxy.active: return
+	match action:
+		"rate":
+			state.paused = float(arg) <= 0.0
+			if float(arg) > 0.0: galaxy.set_rate(float(arg))
+			galaxy.sync_hud()
+		"frame": galaxy.frame(String(arg))
+		"layer":
+			var v := galaxy.visual
+			if v == null: return
+			match String(arg):
+				"tracers": v.show_tracers = not v.show_tracers
+				"stars": v.show_stars = not v.show_stars
+				"glow": v.show_glow = not v.show_glow
+			galaxy.sync_hud()
 
 func _on_climate_reset() -> void:
 	var world := climate_world()
@@ -2389,6 +2467,10 @@ func _on_model_fly() -> void:
 	if k: launch_craft(k)
 
 func _on_slider(id: String, v: float) -> void:
+	if id == "galExposure":
+		if galaxy.visual != null: galaxy.visual.exposure = pow(10.0, v)
+		hud.set_text("galExposure-val", "%s×" % U.fixed(pow(10.0, v), 2 if v < 0.0 else 1))
+		return
 	if id.begins_with("obs"):
 		_on_obs_slider(id, v)
 		return
@@ -3007,6 +3089,15 @@ func _shot_tick() -> void:
 			flight.pad_orbit(deg_to_rad(float(_cmd.get("padaz", "0"))),
 				float(_cmd.get("padel", "0")), 1.0)
 		if _cmd.has("timescale"): set_time_scale(float(_cmd.timescale))
+		# The galactic scene: `galframe=whole|face|edge|sun|centre`, `galt=<Myr>` steps its
+		# tracers that far first (undrawn), `galrate=<Myr/s>`.
+		if galaxy.active:
+			galaxy.wait_tracers()
+			if _cmd.has("galframe"): galaxy.frame(String(_cmd.galframe))
+			if _cmd.has("galrate"): galaxy.set_rate(float(_cmd.galrate))
+			if _cmd.has("galt") and galaxy.tracers != null:
+				galaxy.tracers.step(int(round(float(_cmd.galt) / GalTracers.DT)))
+				galaxy.t_myr = galaxy.tracers.t
 		if _cmd.get("paused", "0") == "1": state.paused = true
 		# Through the stage's panel verb, so `panel=xsecPanel` opens on the focused body.
 		if _cmd.has("panel"):
@@ -3114,6 +3205,9 @@ func animate(dt: float) -> void:
 		var coordinate_seconds := step_flight(dt)
 		sim_stepped = coordinate_seconds / Rocketry.YR_S
 		flight.finish_frame(dt, coordinate_seconds)
+	elif galaxy.active:
+		# Its own clock in Myr; the orrery's years do not move.
+		galaxy.step(dt)
 	else:
 		sim_stepped = step_physics(sim_dt)
 	run_pending_collapse()
@@ -3274,6 +3368,7 @@ func animate(dt: float) -> void:
 
 	observatory.update(dt)
 	showcase.update(dt, sim_stepped)
+	galaxy.update(dt)
 	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass() or showcase.local_pass()
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
 	pipe.prepare_frame(lens_params, state.time)
