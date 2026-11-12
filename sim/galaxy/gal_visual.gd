@@ -38,6 +38,11 @@ var sense := 1.0
 var disc_pop: GalPopulation
 var sphere_pop: GalPopulation
 var young_pop: GalPopulation = null
+## The colours drawn (visible per bolometric L☉): the populations', unless the model states
+## measured ones (GalModels.m51_colours) of the same luminance.
+var disc_col := Color(1, 1, 1)
+var sphere_col := Color(1, 1, 1)
+var young_col0 := Color(1, 1, 1)
 var patterns: Array = []
 ## The arms (uArmA, uArmB as gal_model.gdshaderinc reads them), the young stars'
 ## luminosity-density scale and layer height, the bulge's light axes, and the dust.
@@ -175,6 +180,9 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	var young_gyr: float = float(model.get("youngGyr", GalModels.MW_YOUNG_GYR)) if not arms.is_empty() else 0.0
 	disc_pop = GalPopulation.build(model.get("discPop", {"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr}))
 	sphere_pop = GalPopulation.build(model.get("spherePop", {"kind": "burst", "gyr": 10.0}))
+	var measured: Dictionary = model.get("colours", {})
+	disc_col = measured.get("disc", disc_pop.color)
+	sphere_col = measured.get("sphere", sphere_pop.color)
 	var axes: Array = model.get("bulgeAxes", [1.0, 1.0])
 	bulge_axes = Vector2(axes[0], axes[1])
 	dust = (model.get("dust", {}) as Dictionary).duplicate()
@@ -202,7 +210,8 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	env_hole = float(env[1])
 	if not arms.is_empty():
 		young_pop = GalPopulation.build({"kind": "constant", "gyr": young_gyr})
-		young_col = young_pop.color
+		young_col0 = measured.get("young", young_pop.color)
+		young_col = young_col0
 		young_h = float(model.get("armH", GalModels.MW_YOUNG_H))
 		arm_growth = float(model.get("armWidthGrowth", 0.042))
 		arm_decay = PackedFloat64Array(model.get("armDecay", []))
@@ -329,8 +338,8 @@ func _build_glow(model: Dictionary) -> void:
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
 	glow_mat.set_shader_parameter("uSphereR", sphere_r)
 	glow_mat.set_shader_parameter("uSphereCore", SPHERE_CORE)
-	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
-	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
+	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_col.r, disc_col.g, disc_col.b))
+	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_col.r, sphere_col.g, sphere_col.b))
 	glow_mat.set_shader_parameter("uFaint", Vector2(disc_pop.faint_light, sphere_pop.faint_light))
 	if young_pop != null:
 		glow_mat.set_shader_parameter("uYoungCol", Vector3(young_col.r, young_col.g, young_col.b))
@@ -457,7 +466,7 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 ## `pix` > 0 adds the interstellar medium as a pixel of that angle (rad) draws it; the eye
 ## adapts to its mean, one.
 func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0) -> float:
-	var cols := [disc_pop.color, sphere_pop.color, young_col if young_pop != null else Color(0, 0, 0)]
+	var cols := [disc_col, sphere_col, young_col if young_pop != null else Color(0, 0, 0)]
 	var e: Array = GalModels.EXTINCTION_RGB
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var box: Vector3 = glow_mat.get_shader_parameter("uBox")
@@ -775,7 +784,7 @@ func _apply_hii(cat: Dictionary) -> void:
 	hii_cat = cat
 	var cont: float = cat.cont_bol
 	var dig: float = cat.dig_bol
-	var vis: Color = young_pop.color * _l_young - (cat.cont_col as Color) * cont + (cat.dig_vis as Color)
+	var vis: Color = young_col0 * _l_young - (cat.cont_col as Color) * cont + (cat.dig_vis as Color)
 	_l_young += dig - cont
 	young_col = vis / _l_young
 	glow_mat.set_shader_parameter("uYoungCol", Vector3(young_col.r, young_col.g, young_col.b))

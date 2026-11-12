@@ -70,6 +70,7 @@ static func build(spec: Dictionary, d_kpc: float, img: Image, half: float, young
 	var share := (1.0 - float(spec.dig)) * newborn.light_per_formed * float(spec.tGyr) / (young.light_per_formed * GalModels.MW_YOUNG_GYR)
 	var cont := share * young_l
 	var line := _line_colour(spec)
+	var seen := line * line_transmission(spec)
 	var l0 := pow(10.0, float(spec.logL[0])) * f2
 	var d0 := float(spec.size[0]) * fd * 1e-3
 	var sigma := PackedFloat32Array()
@@ -81,12 +82,19 @@ static func build(spec: Dictionary, d_kpc: float, img: Image, half: float, young
 	for i in nd:
 		stars[i] = newborn.color * (cont * drawn[i] / l_regions)
 		# Unclipped: Hα lies outside sRGB, so the shader clips the sum per pixel.
-		lines[i] = line * (drawn[i] / ERG_LSUN)
+		lines[i] = seen * (drawn[i] / ERG_LSUN)
 		sigma[i] = SIGMA_PER_D * d0 * pow(drawn[i] / l0, 1.0 / float(spec.size[1]))
 	var diffuse := (l_all * float(spec.dig) + folded) / ERG_LSUN
+	var dig_vis := line * (l_all * float(spec.dig) / ERG_LSUN) + seen * (folded / ERG_LSUN)
 	return {"pos": pos, "sigma": sigma, "stars": stars, "lines": lines, "lum": drawn, "n": nd, "n_all": n, "ha_regions": l_regions,
 		"ha_drawn": l_regions - folded, "ha_all": l_all, "cont_bol": cont * (l_regions - folded) / l_regions,
-		"cont_col": newborn.color, "dig_bol": diffuse * (1.0 + float(spec.nii) + 1.0 / float(spec.hahb)), "dig_vis": line * diffuse}
+		"cont_col": newborn.color, "dig_bol": diffuse * (1.0 + float(spec.nii) + 1.0 / float(spec.hahb)), "dig_vis": dig_vis}
+
+## What of the regions' lines leaves their own clouds, per channel (spec "avLines", V mag).
+static func line_transmission(spec: Dictionary) -> Color:
+	var e: Array = GalModels.EXTINCTION_RGB
+	var av := float(spec.get("avLines", 0.0))
+	return Color(pow(10.0, -0.4 * av * float(e[0])), pow(10.0, -0.4 * av * float(e[1])), pow(10.0, -0.4 * av * float(e[2])))
 
 ## The lines' light per unit Hα power (visible()'s units): Hα, [N II] in 3 : 1, Hβ.
 static func _line_colour(spec: Dictionary) -> Color:

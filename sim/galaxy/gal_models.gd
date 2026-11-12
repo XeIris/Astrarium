@@ -379,7 +379,10 @@ const A_B_PER_A_V := 1.324
 const M51_LIGHT := {"bulge": [0.35, 4.16e20, 6.05e20],
 	"disc": [[0.0, 0.0, 1.9, 0.0, 0.74, 0.73, 0.19, 4.36e21, 6.26e21], [1.8, 2.7, 6.8, 1.5, 3.8, 3.5, 0.19, 8.20e21, 1.21e22]],
 	"thin": [[0.0, 0.7, 1.9, 0.1, 0.6, 0.6, 0.09, 1.87e21, 1.96e21], [1.8, 2.7, 6.8, -0.7, 4.3, 4.3, 0.09, 3.39e21, 2.95e21]],
-	"outerH": [2.0, 1.45], "armShare": 0.91, "armContrast": [[70.0, 1.8], [125.0, 3.0], [150.0, 2.0]]}
+	"outerH": [2.0, 1.45], "armShare": 0.91, "armContrast": [[70.0, 1.8], [125.0, 3.0], [150.0, 2.0]],
+	"ui": {"bulge": [8.31e19, 6.64e20], "disc": [[7.42e20, 6.08e21], [1.48e21, 1.24e22]], "thin": [[1.75e21, 1.66e21], [3.42e21, 2.26e21]]}}
+## The wavelengths (nm) of Inman et al.'s u, g, r and i luminosities.
+const M51_SED_NM := [356.2, 471.9, 618.5, 750.0]
 # M51's H II regions. Their Hα is the star formation rate's, log SFR = log L(Hα) − 41.27
 # (Kennicutt & Evans 2012, Table 1, Kroupa IMF; 90 % of it from stars under 10 Myr), at
 # Inman et al.'s 4.11 M☉/yr, less the 45 % in diffuse gas (Thilker, Braun & Walterbos 2000).
@@ -390,9 +393,14 @@ const M51_LIGHT := {"bulge": [0.35, 4.16e20, 6.05e20],
 # (case B, 10⁴ K; Osterbrock & Ferland 2006). Each region also holds the light of its stars
 # under 10 Myr, the same 55 % of all such light, taken from the young disc's. Regions fainter
 # than 10^36.5 erg/s (at 9.9 Mpc; three quarters of them, 14 % of their light) stay in the
-# smooth young light, lines and all: a rendering choice.
+# smooth young light, lines and all: a rendering choice. The regions' lines are dimmed by their
+# own clouds' dust, A_V 0.75 ("avLines"), beyond the disc's: their Hα then shows through both
+# what Lee et al. observe (galaxycheck), and the total, 2.0 mag, is van der Hulst et al.'s
+# (1988) "about 2" for M51's brightest regions. Their stars are not: Inman et al. fit the young
+# stars' escaping light to M51's u–i images, with the clouds' share (F = 0.125) taken out.
 const M51_HII := {"sfr": 4.11, "logC": 41.27, "dig": 0.45, "tGyr": 0.01, "alpha": [-2.25, -1.42],
-	"logL": [35.5, 37.1, 39.0], "d": 9.9, "size": [8.0, 3.04], "nii": 0.5, "hahb": 2.86, "drawLogL": 36.5, "levels": 5, "top": 0.22}
+	"logL": [35.5, 37.1, 39.0], "d": 9.9, "size": [8.0, 3.04], "nii": 0.5, "hahb": 2.86, "drawLogL": 36.5, "levels": 5, "top": 0.22,
+	"avLines": 0.75}
 # M87's measured V surface brightness (Kormendy et al. 2009, Table 3: composite photometry
 # along the major axis): [r (″), μ_V (mag arcsec⁻²), ellipticity]; no ellipticity is given at
 # the first point. The table is not corrected for the Galaxy's A_V = 0.072 (their Table 1),
@@ -675,7 +683,40 @@ static func _m51_light(model: Dictionary) -> void:
 		"share": float(M51_LIGHT.armShare)}
 	model.armLight = ly / yy
 	model.armH = float((thins[1] as Array)[5])
+	model.colours = m51_colours(ys, yd, yy)
 	model.hii = M51_HII
+
+## M51's components in their own measured colours: Inman et al.'s u, g, r and i luminosities
+## (M51_LIGHT, "ui") as a spectrum through the eye, each at its population's luminance (`ys`,
+## `yd`, `yy`), so V and every map are unchanged. The populations' colours are 0.15 (disc) to
+## 0.3 mag (bulge) redder in g − r than these, and M51 drew redder than SDSS measures it.
+static func m51_colours(ys: float, yd: float, yy: float) -> Dictionary:
+	var ui: Dictionary = M51_LIGHT.ui
+	var b: Array = M51_LIGHT.bulge
+	var out := {"sphere": sed_colour([ui.bulge[0], b[1], b[2], ui.bulge[1]], ys)}
+	for part in [["disc", "disc", yd], ["thin", "young", yy]]:
+		var sum := [0.0, 0.0, 0.0, 0.0]
+		for k in 2:
+			var c: Array = M51_LIGHT[part[0]][k]
+			var u: Array = ui[part[0]][k]
+			var l := [u[0], c[7], c[8], u[1]]
+			for j in 4: sum[j] += float(l[j])
+		out[part[1]] = sed_colour(sum, part[2])
+	return out
+
+## The colour of a spectrum given as L_ν at M51_SED_NM, log-linear in λ between them and carried
+## on past the ends, through the eye's colour matching, scaled to luminance `y`.
+static func sed_colour(lnu: Array, y: float) -> Color:
+	var acc := Color(0, 0, 0)
+	for i in 81:
+		var nm := 380.0 + 5.0 * float(i)
+		var k := 0
+		while k < 2 and nm > float(M51_SED_NM[k + 1]): k += 1
+		var t := log(nm / float(M51_SED_NM[k])) / log(float(M51_SED_NM[k + 1]) / float(M51_SED_NM[k]))
+		var l_nu := exp(lerpf(log(float(lnu[k])), log(float(lnu[k + 1])), t))
+		acc += PlasmaSpectrum.xyz_to_rgb(PlasmaSpectrum.cmf(nm)) * (l_nu / (nm * nm))
+	var lum := 0.2126 * acc.r + 0.7152 * acc.g + 0.0722 * acc.b
+	return Color(acc.r * y / lum, acc.g * y / lum, acc.b * y / lum)
 
 ## M87's light as M87_PROFILE has it: ln j (bolometric L☉ kpc⁻³) on SPHERE_TAB_N radii even in
 ## ln r out to 3 times the last point; its mass through the population model, held in the potential as a

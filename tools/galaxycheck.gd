@@ -1131,6 +1131,22 @@ func hii_checks(m: Dictionary, v: GalaxyVisual) -> void:
 	# Lee et al.'s own regions: 10^41.1 + 10^40.6 + 10^40.1 erg/s at 9.9 Mpc (their §5.2).
 	var lee := (pow(10.0, 41.1) + pow(10.0, 40.6) + pow(10.0, 40.1)) * pow(8.58 / 9.9, 2.0)
 	print("     M51's H II regions: %s erg/s in Hα; Lee et al. catalogue %s (%s dex)" % [U.expo(want, 3), U.expo(lee, 3), U.fixed(log(lee / want) / log(10.0), 2)])
+	# Seen face-on through the disc's dust and their own clouds', as Lee et al. saw them; the
+	# regions left in the smooth light are taken as dimmed as the drawn ones.
+	var tr := 0.0
+	var tl := 0.0
+	for i in range(0, c.n, 7):
+		var p: Vector3 = c.pos[i]
+		var tau := 0.0
+		var y := p.y
+		while y < 2.0:
+			tau += v.dust_density(p.x, y + 0.0025, p.z) * 0.005
+			y += 0.005
+		tr += float(c.lum[i]) * exp(-tau * float(GalModels.EXTINCTION_RGB[0]))
+		tl += float(c.lum[i])
+	var shown := float(c.ha_regions) * tr / tl * GalHII.line_transmission(spec).r
+	ok(absf(log(shown / lee) / log(10.0)) < 0.05, "M51's H II regions show %s erg/s of Hα face-on through the dust, Lee et al. observe %s (%s dex)" % [
+		U.expo(shown, 3), U.expo(lee, 3), U.fixed(log(shown / lee) / log(10.0), 3)])
 	# The luminosity function's bright slope recovered from the catalogue: dN/dlog L ∝ L^(α+1).
 	var lb := pow(10.0, float(spec.logL[1])) * pow(8.58 / float(spec.d), 2.0)
 	var hi := pow(10.0, float(spec.logL[2])) * pow(8.58 / float(spec.d), 2.0)
@@ -1152,7 +1168,7 @@ func hii_checks(m: Dictionary, v: GalaxyVisual) -> void:
 	ok(ws < 1e-5, "M51's H II regions are as large as L ∝ D^3.04 makes them")
 	# The young light kept: the smooth arms' plus the regions' clusters, against the young
 	# population's light; the lines on top.
-	var y0: Color = v.young_pop.color * float(m.armLight)
+	var y0: Color = v.young_col0 * float(m.armLight)
 	var smooth: Color = v.young_col * v._l_young - (c.dig_vis as Color)
 	var stars := Color(0, 0, 0)
 	for s in c.stars: stars += s
