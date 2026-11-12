@@ -390,8 +390,30 @@ func _soak_check() -> void:
 				for i in 4: stage.animate(1.0 / 60.0)
 			stage._on_slider("galExposure", 0.5)
 			stage._on_slider("galExposure", 0.0)
+			# Every landmark flown to and framed.
+			for lm in GalLandmarks.of("milky_way"):
+				stage._on_galaxy_action("landmark", String(lm.id))
+				for i in 3: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			# Reset view and sky inside the scene, which has no orrery preset to read.
+			stage._on_reset_view()
+			stage._on_sky_reset()
+			stage.animate(1.0 / 60.0)
 			await _drawn_frame()
 			if g.tracers == null or g.tracers.steps == 0: failures.append("galaxy: the tracers did not step")
+			# The galaxies of their own scenes: each framed, flown to its landmarks, and left.
+			for k in ["gal_m51", "gal_m87", "gal_m104"]:
+				stage.load_preset(k)
+				g.wait_tracers()
+				if not g.active or g.visual == null: failures.append("galaxy: %s did not open" % k)
+				for f in ["whole", "face", "edge"]:
+					stage._on_galaxy_action("frame", f)
+					for i in 3: stage.animate(1.0 / 60.0)
+					await _drawn_frame()
+				for lm in GalLandmarks.of(String(g.model.key)):
+					stage._on_galaxy_action("landmark", String(lm.id))
+					for i in 3: stage.animate(1.0 / 60.0)
+					await _drawn_frame()
 			stage.load_preset("solar")
 			if g.active or g.visual != null: failures.append("galaxy: the scene outlived the switch to solar"),
 		"start_screen": func():

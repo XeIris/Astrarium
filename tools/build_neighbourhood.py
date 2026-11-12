@@ -22,7 +22,7 @@ asynchronous, FORMAT=csv, MAXREC=200000):
 - GAIA_BRIGHT: SELECT source_id, ra, dec, parallax, parallax_error, phot_g_mean_mag, bp_rp,
   pmra, pmdec, ruwe FROM gaiadr3.gaia_source WHERE phot_g_mean_mag <= 6.5
 - GAIA_G8: SELECT source_id, ra, dec, parallax, parallax_error, phot_g_mean_mag, bp_rp, pmra,
-  pmdec FROM gaiadr3.gaia_source WHERE phot_g_mean_mag > 6.5 AND phot_g_mean_mag <= 8.0
+  pmdec, ruwe FROM gaiadr3.gaia_source WHERE phot_g_mean_mag > 6.5 AND phot_g_mean_mag <= 8.0
   (extra columns are ignored)
 - GAIA_40PC: the same columns WHERE parallax > 25 AND parallax_over_error > 10 AND
   phot_g_mean_mag + 5*LOG10(parallax/100.0) < 10.5
@@ -30,9 +30,16 @@ asynchronous, FORMAT=csv, MAXREC=200000):
   public.hipparcos_newreduction (van Leeuwen 2007)
 and BSC5P.tdat.gz from HEASARC (tools/build_starcat.py).
 
-A star's distance, in order: its Gaia DR3 parallax at parallax/error ≥ 10; Hipparcos's at
-≥ 5 (the brightest stars, which Gaia saturates on); Gaia's at ≥ 5; BSC5's own parallax
-(BSC5 stars only); otherwise FALLBACK_PC, flagged. Matches are within 10″ (positions carried to J2000 by
+A star's distance, in order: its Gaia DR3 parallax at parallax/error ≥ 10, where Gaia's
+astrometry is sound (RUWE ≤ 1.4, Lindegren et al. 2021's threshold, and G ≥ 5, below which
+Gaia saturates); Hipparcos's at ≥ 5; Gaia's at ≥ 5 (now whatever its RUWE or G); BSC5's own
+parallax (BSC5 stars only); otherwise FALLBACK_PC, flagged.
+
+Gaia's parallax zero-point (Lindegren et al. 2021, about −0.02 mas for these stars) is not
+applied. It moves a near star (parallax ≥ 25 mas) by under 0.1 %, and the far set's distances
+show only as parallax while the camera is within 30 pc of the Sun (FAR_FADE), where a far
+star's own parallax is a few mas at least: under 1 %. The reference implementation is a
+downloaded package, which this build does not run. Matches are within 10″ (positions carried to J2000 by
 their proper motions) and a magnitude.
 
 Output, little-endian: b"ASNB", then int32 version, near count, far count; then float32
@@ -142,7 +149,8 @@ def gaia_rows(path):
         ra, dec = to_j2000(ra0, dec0, pma, pmd, 2016.0)
         yield {"id": r["source_id"], "ra0": ra0, "dec0": dec0, "ra": ra, "dec": dec, "u": unit(ra, dec),
                "g": g, "c": c, "v": build_gaia.v_of(g, c), "bv": build_gaia.bv_of(min(max(c, -0.2), 2.5)),
-               "plx": number(r.get("parallax")), "err": number(r.get("parallax_error")), "pm": (pma, pmd)}
+               "plx": number(r.get("parallax")), "err": number(r.get("parallax_error")), "pm": (pma, pmd),
+               "ruwe": number(r.get("ruwe")) if "ruwe" in r else None}
 
 
 def hip_rows(path):
@@ -157,6 +165,21 @@ def hip_rows(path):
 
 def good(plx, err, snr):
     return not math.isnan(plx) and not math.isnan(err) and plx > 0.0 and err > 0.0 and plx / err >= snr
+
+
+# Gaia's astrometry is preferred only where it is sound: RUWE ≤ 1.4 (Lindegren et al. 2021,
+# their recommended threshold for a well-behaved single-star solution) and G ≥ 5, below which
+# Gaia saturates (Lindegren et al. 2021 §2). Otherwise Hipparcos goes first.
+RUWE_MAX = 1.4
+G_SATURATED = 5.0
+
+
+def gaia_sound(s):
+    ruwe = s.get("ruwe")
+    if ruwe is None:
+        sys.exit("build_neighbourhood: a Gaia file has no ruwe column; rerun its query with ruwe")
+    # A two-parameter solution has no parallax and no RUWE: never sound.
+    return not math.isnan(ruwe) and ruwe <= RUWE_MAX and s["g"] >= G_SATURATED
 
 
 def main():
@@ -177,7 +200,7 @@ def main():
         bv = build_starcat.number(r.get("bv_color"))
         g = gaia_all.best(ra, dec, v, "v")
         h = hip.best(ra, dec, v, "hp") if hip else None
-        if g and good(g["plx"], g["err"], 10.0):
+        if g and gaia_sound(g) and good(g["plx"], g["err"], 10.0):
             d, src = 1000.0 / g["plx"], 0
             tally["gaia"] += 1
         elif h and good(h["plx"], h["err"], 5.0):
@@ -210,7 +233,7 @@ def main():
             dropped += 1
             continue
         h = hip.best(s["ra"], s["dec"], s["v"], "hp") if hip else None
-        if good(s["plx"], s["err"], 10.0):
+        if gaia_sound(s) and good(s["plx"], s["err"], 10.0):
             d, src = 1000.0 / s["plx"], 0
             tally["gaia"] += 1
         elif h and good(h["plx"], h["err"], 5.0):

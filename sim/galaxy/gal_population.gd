@@ -74,12 +74,20 @@ static func main_sequence() -> PackedVector4Array:
 ## Tabulated on VIS_N points in ln T over 1000–60 000 K (linear between, within 1e-4 of
 ## the integral), since a population build asks for it thousands of times.
 static func visible(T: float) -> Color:
-	if _vis_table.is_empty():
-		var sun := _visible_raw(5772.0)
-		var y_sun := 0.2126 * sun.r + 0.7152 * sun.g + 0.0722 * sun.b
-		for i in VIS_N:
-			var c := _visible_raw(exp(lerpf(log(VIS_T0), log(VIS_T1), float(i) / float(VIS_N - 1))))
-			_vis_table.append(Color(c.r / y_sun, c.g / y_sun, c.b / y_sun))
+	if _vis_ready.is_empty():
+		# Built once, under the lock: workers bake populations in parallel. Published whole,
+		# so a reader never sees a half-built table.
+		_vis_mutex.lock()
+		if _vis_table.is_empty():
+			var sun := _visible_raw(5772.0)
+			var y_sun := 0.2126 * sun.r + 0.7152 * sun.g + 0.0722 * sun.b
+			var table := []
+			for i in VIS_N:
+				var c := _visible_raw(exp(lerpf(log(VIS_T0), log(VIS_T1), float(i) / float(VIS_N - 1))))
+				table.append(Color(c.r / y_sun, c.g / y_sun, c.b / y_sun))
+			_vis_table = table
+		_vis_ready = _vis_table
+		_vis_mutex.unlock()
 	var f := clampf((log(T) - log(VIS_T0)) / (log(VIS_T1) - log(VIS_T0)), 0.0, 1.0) * float(VIS_N - 1)
 	var i := mini(int(f), VIS_N - 2)
 	return (_vis_table[i] as Color).lerp(_vis_table[i + 1], f - float(i))
@@ -101,6 +109,8 @@ const VIS_N := 1024
 const VIS_T0 := 1000.0
 const VIS_T1 := 60000.0
 static var _vis_table: Array = []
+static var _vis_ready: Array = []
+static var _vis_mutex := Mutex.new()
 static var _built := {}
 static var _built_mutex := Mutex.new()
 

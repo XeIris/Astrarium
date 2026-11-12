@@ -497,13 +497,14 @@ static void run(double *A) {
  * must stay bit-identical, so every expression keeps its order there).
  * Massless particles in a static axisymmetric potential plus rotating patterns,
  * drift–kick–drift at a fixed step, each tracer taking all k steps in turn.
- * Buffer: [0] length, [1] n, [2] k, [3] dt, [4] t0, [5] patterns, [6] table size,
- * [7..19] the axisymmetric kernel (GalPotential.Kernel), then 12 per pattern,
+ * Buffer: [0] length, [1] n, [2] k, [3] dt, [4] t_start, [5] patterns, [6] table
+ * size, [7] steps taken so far, [8..20] the axisymmetric kernel (GalPotential.Kernel),
+ * then 12 per pattern,
  * the bulge table and its derivative, positions, velocities and work, n each ×3,
  * ×3 and ×1. Work accumulates ∫∂Φ/∂t dt, so E − W is each tracer's invariant.
  * ========================================================================== */
-#define TR_AXIS 7
-#define TR_PAT 20
+#define TR_AXIS 8
+#define TR_PAT 21
 #define TR_PSTRIDE 12
 
 static double log_cosh(double x) {
@@ -529,7 +530,12 @@ static double tr_growth_rate(const double *P, double t) {
 
 static void run_tracers(double *A) {
 	int n = (int)A[1], k = (int)A[2], np = (int)A[5], tn = (int)A[6];
-	double dt = A[3], t0 = A[4], h = dt * 0.5;
+	/* The buffer is exactly its header's counts long, or nothing is touched. */
+	long long need = TR_PAT + (long long)TR_PSTRIDE * np + 2LL * tn + 7LL * n;
+	if (n < 0 || k < 0 || np < 0 || tn < 0 || need != (long long)A[0]) return;
+	double dt = A[3], t_start = A[4], h = dt * 0.5;
+	/* A step's time from its index, so it does not depend on how steps are batched. */
+	double steps0 = A[7];
 	const double *X = A + TR_AXIS;
 	double mn_gm = X[0], mn_a = X[1], mn_b2 = X[2];
 	double s1_gm = X[3], s1_a = X[4], s2_gm = X[6], s2_a = X[7];
@@ -542,9 +548,10 @@ static void run_tracers(double *A) {
 	double *work = vel + 3 * n;
 	int has_tab = tn > 0;
 	/* Per step and pattern: growth, its rate, and the pattern's angle terms. */
-	double *G = (double *)calloc((size_t)(k * np * 4 + 1), sizeof(double));
+	double *G = (double *)calloc((size_t)k * (size_t)np * 4 + 1, sizeof(double));
+	if (!G) return;
 	for (int s = 0; s < k; s++) {
-		double tm = t0 + ((double)s + 0.5) * dt;
+		double tm = t_start + (steps0 + (double)s + 0.5) * dt;
 		for (int j = 0; j < np; j++) {
 			const double *P = A + TR_PAT + TR_PSTRIDE * j;
 			double ang = P[2] + P[1] * tm;
