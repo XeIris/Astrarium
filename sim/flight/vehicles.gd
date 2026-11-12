@@ -209,7 +209,7 @@ static func _build_vehicles() -> Dictionary:
 		"blurb": "A flattened lifting-body shuttle with a stepped 22-window canopy and two-seat flight deck. Reference-judged 17.9 × 9.7 m reconstruction. Estimated chemical propulsion and Shuttle-derived aerodynamics support orbital manoeuvres and a gliding runway return; the film's single-stage ascent is not claimed. C enters the cockpit; G lowers the gear.",
 		"limits": {"maxQ": 35e3, "maxG": 4.0, "qAlpha": 1e12, "heatLoad": 1.2e9},
 		"interior": {"asset": "res://assets/craft/ranger_interior.glb", "stage": "ranger",
-			"eye": [-0.72, 7.15, 1.27], "forward": [0.0, 1.0, 0.0],
+			"eye": [-0.72, 7.15, 1.10], "forward": [0.0, 1.0, 0.0],
 			"up": [0.0, 0.0, 1.0], "pitch": 0.0,
 			"lighting": {"color": [1.0, 0.94, 0.84], "energy": 0.65, "range": 4.0,
 				"fill": [-0.1, 7.7, 0.8], "fillEnergy": 0.18, "fillRange": 3.8}},

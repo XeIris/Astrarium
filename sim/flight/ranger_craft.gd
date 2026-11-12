@@ -1,37 +1,49 @@
 class_name RangerCraft
 extends RefCounted
 
-# Reference-judged cross sections, aft to nose: length fraction, half-span
-# fraction, belly, chine and crown heights, crown half-width fraction. Heights
-# scale with length; the catalogue owns overall dimensions and flight datums.
+# Stations from the exhibit plan and profile traces, aft to bow. Widths are
+# fractions of half-span and heights are fractions of length.
 const SECTIONS := [
-	[0.0, .52, -.039, -.006, .065, .34],
-	[.10, .82, -.039, .014, .092, .49],
-	[.20, 1.0, -.038, .021, .103, .53],
-	[.31, .92, -.035, .021, .106, .49],
-	[.43, .83, -.031, .017, .095, .46],
-	[.52, .75, -.027, .014, .068, .43],
-	[.61, .69, -.023, .011, .025, .45],
-	[.78, .63, -.017, .006, .018, .49],
-	[.95, .60, -.012, .001, .011, .52],
-	[1.0, .55, -.009, -.004, .004, .48],
+	[0.0, .51, -.035, -.004, .049, .34],
+	[.10, .77, -.033, .008, .069, .47],
+	[.20, .855, -.033, .014, .081, .49],
+	[.31, .94, -.032, .014, .083, .52],
+	[.43, .851, -.027, .009, .073, .49],
+	[.52, .784, -.024, .004, .043, .44],
+	[.61, .717, -.019, .003, .025, .43],
+	[.78, .590, -.014, -.002, .015, .43],
+	[.95, .483, -.010, -.005, .008, .42],
+	[1.0, .46, -.009, -.005, .006, .41],
 ]
 
 # Filming miniature: the raised chines run forward from the radiator and
 # separate from the foredeck at their tips. Offsets from the skin are in metres.
 const CHINE_STATIONS := [
-	[.082, -.36, .01, .31],
-	[.10, -.35, .04, .37],
-	[.20, -.16, .0, .48],
-	[.31, -.14, .12, .46],
-	[.43, -.13, .18, .42],
-	[.52, -.13, .21, .40],
-	[.61, -.26, .22, .39],
-	[.78, -.21, .27, .38],
-	[.865, .09, .33, .43],
-	[.935, .22, .35, .40],
-	[.973, .29, .35, .29],
+	[.082, -.37, .10, .25],
+	[.10, -.35, .13, .28],
+	[.20, -.27, .22, .32],
+	[.31, -.25, .291, .30],
+	[.43, -.20, .29, .28],
+	[.52, -.21, .28, .26],
+	[.61, -.26, .28, .25],
+	[.78, -.21, .28, .26],
+	[.865, .07, .32, .35],
+	[.935, .21, .35, .34],
+	[.973, .29, .35, .24],
 ]
+
+# Chamfered aperture contours traced on the miniature, in local panel UVs.
+const AFT_SMALL := [[.46,.26],[.51,.15],[.80,.16],[.84,.29],[.81,.66],[.72,.77],[.49,.70],[.44,.56]]
+const AFT_LONG := [[.30,.27],[.44,.15],[.75,.10],[.82,.19],[.77,.73],[.66,.88],[.39,.81],[.27,.65]]
+const MID_PENTAGON := [[.23,.29],[.39,.14],[.82,.17],[.91,.30],[.86,.76],[.70,.85],[.28,.78],[.17,.59]]
+const MID_SLANTED := [[.28,.34],[.48,.16],[.82,.12],[.91,.23],[.87,.68],[.72,.80],[.35,.84],[.24,.69]]
+const MID_SLIM := [[.42,.32],[.58,.15],[.86,.14],[.93,.24],[.88,.62],[.68,.77],[.37,.80],[.35,.66]]
+const PILOT := [[.17,.23],[.32,.13],[.90,.11],[.96,.24],[.91,.85],[.81,.93],[.25,.84],[.12,.70]]
+const PILOT_SLIVER := [[.14,.29],[.30,.18],[.79,.19],[.88,.29],[.85,.81],[.66,.89],[.27,.82],[.15,.70]]
+const SIDE_AFT := [[.18,.37],[.26,.21],[.70,.16],[.80,.27],[.73,.71],[.59,.82],[.23,.73],[.14,.55]]
+const SIDE_FORWARD := [[.26,.29],[.37,.16],[.70,.23],[.78,.37],[.73,.77],[.57,.85],[.30,.74],[.23,.57]]
+
+const WELL_HALF_WIDTH := .48
 
 static func section(spec: Dictionary, i: int) -> Array[Vector3]:
 	var s: Array = SECTIONS[i]
@@ -67,6 +79,14 @@ static func _hole(q: Array, u0: float, u1: float, v0: float, v1: float, skew:=0.
 static func _frame(faces: Array, panel: Array, hole: Array) -> void:
 	var outside := [panel[0],panel[0],panel[1],panel[1],panel[2],panel[2],panel[3],panel[3]]
 	for n in 8: _face(faces,[outside[n],outside[(n+1)%8],hole[(n+1)%8],hole[n]],"thermal","window_frame")
+
+static func _aperture(faces: Array, windows: Array, panel: Array, outline: Array, mirrored: bool, label: String) -> void:
+	var hole := []
+	for j in 8:
+		var uv: Array = outline[posmod(3-j,8) if mirrored else j]
+		hole.append(_point(panel,1.0-float(uv[0]) if mirrored else float(uv[0]),float(uv[1])))
+	_frame(faces,panel,hole)
+	_face(windows,hole,"glass",label)
 
 static func at(spec: Dictionary, y: float) -> Array[Vector3]:
 	for i in SECTIONS.size()-1:
@@ -113,29 +133,79 @@ static func _chines(spec: Dictionary) -> Array:
 			"vertices":vertices,"faces":faces})
 	return chines
 
-# The gear folds forward into three real openings, not through an opaque belly.
-static func _belly(spec: Dictionary, faces: Array) -> void:
-	var rows := [0.0,3.35,5.05,13.45,15.15,float(spec.L)]
+static func gear_mounts(spec: Dictionary) -> Array:
+	var mounts := []
+	var radius := float(spec.rollout.tyreR)
+	for i in 3:
+		var nose := i==0
+		var contact: Array = spec.gear.nose if nose else spec.gear.point
+		var y := float(contact[1])
+		var z := -.02 if nose else -.34
+		var arm := z-float(contact[2])-radius
+		var x := 0.0 if nose else -2.8 if i==1 else 2.8
+		mounts.append({"at":[x,y,z],"arm":arm,"tyreOffset":.085 if nose else .15,
+			"rear":y-.36,"front":y+arm+radius+.08,"halfWidth":WELL_HALF_WIDTH,
+			"ceiling":.153 if nose else -.09})
+	return mounts
+
+static func _belly(spec: Dictionary, faces: Array, mounts: Array) -> void:
+	var rows := []
 	for row: Array in SECTIONS: rows.append(float(row[0])*float(spec.L))
+	for mount: Dictionary in mounts: rows.append_array([mount.rear,mount.front])
 	rows.sort()
 	for i in rows.size()-1:
 		var y0: float=rows[i]; var y1: float=rows[i+1]
 		if y1-y0<1e-6: continue
 		var a:=at(spec,y0); var b:=at(spec,y1)
 		var mid: float=(y0+y1)*.5
-		var bays: Array = [-2.8,2.8] if mid>3.35 and mid<5.05 else [0.0] if mid>13.45 and mid<15.15 else []
+		var bays := []
+		for mount: Dictionary in mounts:
+			if mid>float(mount.rear) and mid<float(mount.front): bays.append(mount.at[0])
 		# Constant x cuts make rectangular bays within a tapering outer edge.
 		if bays.is_empty():
 			_face(faces,[a[1],a[0],b[0],b[1]],"tps","belly")
 			continue
 		# Build each solid span directly; leave the bay intervals open.
-		var endpoints := [Vector2(-INF, float(bays[0])-.48)]
-		if bays.size()==2: endpoints.append(Vector2(float(bays[0])+.48,float(bays[1])-.48))
-		endpoints.append(Vector2(float(bays.back())+.48,INF))
+		var endpoints := [Vector2(-INF,float(bays[0])-WELL_HALF_WIDTH)]
+		if bays.size()==2:
+			endpoints.append(Vector2(float(bays[0])+WELL_HALF_WIDTH,float(bays[1])-WELL_HALF_WIDTH))
+		endpoints.append(Vector2(float(bays.back())+WELL_HALF_WIDTH,INF))
 		for span: Vector2 in endpoints:
 			var x0a:=maxf(span.x,a[0].x); var x1a:=minf(span.y,a[1].x)
 			var x0b:=maxf(span.x,b[0].x); var x1b:=minf(span.y,b[1].x)
 			_face(faces,[Vector3(x1a,y0,a[0].z),Vector3(x0a,y0,a[0].z),Vector3(x0b,y1,b[0].z),Vector3(x1b,y1,b[0].z)],"tps","gear_bay_edge")
+
+static func _well_faces(spec: Dictionary, mounts: Array) -> Array:
+	var faces := []
+	for mount: Dictionary in mounts:
+		var x0 := float(mount.at[0])-WELL_HALF_WIDTH
+		var x1 := float(mount.at[0])+WELL_HALF_WIDTH
+		var rear := float(mount.rear)
+		var front := float(mount.front)
+		var roof := float(mount.ceiling)
+		_face(faces,[Vector3(x1,rear,roof),Vector3(x0,rear,roof),
+			Vector3(x0,front,roof),Vector3(x1,front,roof)],"panel","gear well roof")
+		var rows := [rear]
+		for row: Array in SECTIONS:
+			var y := float(row[0])*float(spec.L)
+			if y>rear and y<front: rows.append(y)
+		rows.append(front)
+		for i in rows.size()-1:
+			var y0: float=rows[i]
+			var y1: float=rows[i+1]
+			var z0:=at(spec,y0)[0].z
+			var z1:=at(spec,y1)[0].z
+			_face(faces,[Vector3(x0,y0,z0),Vector3(x0,y1,z1),
+				Vector3(x0,y1,roof),Vector3(x0,y0,roof)],"panel","gear well wall")
+			_face(faces,[Vector3(x1,y1,z1),Vector3(x1,y0,z0),
+				Vector3(x1,y0,roof),Vector3(x1,y1,roof)],"panel","gear well wall")
+		var z0:=at(spec,rear)[0].z
+		var z1:=at(spec,front)[0].z
+		_face(faces,[Vector3(x0,rear,z0),Vector3(x0,rear,roof),
+			Vector3(x1,rear,roof),Vector3(x1,rear,z0)],"panel","gear well rear")
+		_face(faces,[Vector3(x1,front,z1),Vector3(x1,front,roof),
+			Vector3(x0,front,roof),Vector3(x0,front,z1)],"panel","gear well front")
+	return faces
 
 ## Identical low-resolution skin and window apertures for Blender and fallback.
 static func geometry(spec: Dictionary) -> Dictionary:
@@ -146,26 +216,30 @@ static func geometry(spec: Dictionary) -> Dictionary:
 			if edge==0: continue
 			var j := (edge+1)%6
 			var q := [a[j],a[edge],b[edge],b[j]]
-			var cells := []
-			if edge==3 and i in [2,3,4]:
-				for ends: Vector2 in [Vector2(0,.20),Vector2(.20,.46),Vector2(.46,.54),Vector2(.54,.80),Vector2(.80,1)]: cells.append([ends.x,ends.y,.0,1.0])
-			elif edge in [2,4] and i in [2,3,4]: cells.append([.0,1.0,.0,1.0])
-			elif edge==3 and i==5:
-				for k in 4: cells.append([k*.25,(k+1)*.25,.0,1.0])
-			if cells.is_empty():
-				_face(faces,q,"tps" if edge in [1,5] else "thermal","skin_%d_%d"%[i,edge])
+			if edge==3 and i==4:
+				_aperture(faces,windows,_cell(q,0,.415,0,1),PILOT,false,"windshield_port")
+				_aperture(faces,windows,_cell(q,.415,.479,0,1),PILOT_SLIVER,false,"windshield_inset_port")
+				_face(faces,_cell(q,.479,.521,0,1),"thermal","crown_spine")
+				_aperture(faces,windows,_cell(q,.521,.585,0,1),PILOT_SLIVER,true,"windshield_inset_starboard")
+				_aperture(faces,windows,_cell(q,.585,1,0,1),PILOT,true,"windshield_starboard")
+			elif edge==3 and i in [2,3]:
+				var profiles := [AFT_SMALL,AFT_LONG] if i==2 else [MID_PENTAGON,MID_SLANTED,MID_SLIM]
+				var rows := [0.0,.37,1.0] if i==2 else [0.0,.42,.74,1.0]
+				for side in 2:
+					for k in profiles.size():
+						var panel := _cell(q,side*.5,(side+1)*.5,rows[k],rows[k+1])
+						_aperture(faces,windows,panel,profiles[k],side==1,"window_%d"%windows.size())
+			elif edge in [2,4] and i in [3,4]:
+				_aperture(faces,windows,_cell(q,0,1,0,.51),SIDE_AFT,edge==4,"window_%d"%windows.size())
+				_aperture(faces,windows,_cell(q,0,1,.51,1),SIDE_FORWARD,edge==4,"window_%d"%windows.size())
+			elif edge in [2,3,4] and i==6:
+				_face(faces,_cell(q,0,1,0,.71),"thermal","foredeck aft")
+				_face(faces,_cell(q,0,1,.71,.735),"tps","foredeck seam")
+				_face(faces,_cell(q,0,1,.735,1),"thermal","foredeck forward")
 			else:
-				for k in cells.size():
-					var c: Array = cells[k]
-					var panel := _cell(q,c[0],c[1],c[2],c[3])
-					if edge==3 and i in [2,3,4] and k==2:
-						_face(faces,panel,"thermal","crown_spine"); continue
-					var margin := .30 if i==2 else .22 if i==3 else .08 if i==4 else .16
-					var skew:=(-.18 if k<2 else .18) if edge==3 else .10
-					var hole := _hole(panel,.15,.85,margin,1.0-margin,skew)
-					_frame(faces,panel,hole)
-					_face(windows,hole,"glass","window_%d"%windows.size())
-	_belly(spec,faces)
+				_face(faces,q,"tps" if edge in [1,5] else "thermal","skin_%d_%d"%[i,edge])
+	var mounts := gear_mounts(spec)
+	_belly(spec,faces,mounts)
 	var aft:=section(spec,0)
 	var center:=Vector3(0,0,.15)
 	for i in aft.size():
@@ -175,7 +249,8 @@ static func geometry(spec: Dictionary) -> Dictionary:
 			_face(faces,[a,b,center+(b-center).normalized()*.68,center+(a-center).normalized()*.68],"tps","aft")
 	var nose := section(spec,SECTIONS.size()-1); nose.reverse()
 	_face(faces,nose,"tps","nose")
-	return {"faces":faces,"windows":windows,"sections":SECTIONS,"chines":_chines(spec)}
+	return {"faces":faces,"windows":windows,"sections":SECTIONS,"chines":_chines(spec),
+		"gear":mounts,"wells":_well_faces(spec,mounts)}
 
 static func _append_polygon(g: CraftModel.Geo, vertices: Array, inset: float) -> void:
 	var ps := PackedVector3Array()
@@ -197,6 +272,7 @@ static func build(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var mats := CraftModel.craft_materials()
 	var data := geometry(spec)
 	for row: Dictionary in data.faces: _poly(root,row,mats.tiles if row.material=="tps" else mats.white)
+	for row: Dictionary in data.wells: _poly(root,row,mats.dirty)
 	for chine: Dictionary in data.chines:
 		var surface := CraftModel.Geo.new()
 		for face: Array in chine.faces:
@@ -215,13 +291,20 @@ static func build(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		var pivot := Node3D.new(); pivot.name="gimbal_ranger_%d"%parts.gimbals.size()
 		pivot.position=Vector3(side*1.45,0,0); root.add_child(pivot); parts.gimbals.append(pivot)
 		EvaPod._box(pivot,Vector3(0,.23,0),Vector3(.72,.46,.6),mats.nozzle)
-	for i in 3:
+	var tyre_radius := float(spec.rollout.tyreR)
+	for gear: Dictionary in data.gear:
 		var mount := Node3D.new(); root.add_child(mount)
-		mount.position=Vector3(0 if i==0 else (-2.8 if i==1 else 2.8),13.8 if i==0 else 3.7,-.47)
+		mount.position=Vector3(gear.at[0],gear.at[1],gear.at[2])
 		mount.basis=Basis(Vector3.UP,Vector3.BACK,Vector3.RIGHT)
+		var height := float(gear.ceiling)-mount.position.z
+		EvaPod._box(root,mount.position+Vector3.BACK*height*.5,Vector3(.29,.22,height+.06),mats.steel)
 		var leg := Node3D.new(); mount.add_child(leg); parts.legs.append(leg)
-		EvaPod._box(leg,Vector3(.5,0,0),Vector3(1.0,.13,.13),mats.steel)
-		EvaPod._box(leg,Vector3(.98,0,0),Vector3(.64,.18,.64),mats.black)
+		var arm := float(gear.arm)
+		EvaPod._box(leg,Vector3(arm*.5,0,0),Vector3(arm,.12,.12),mats.steel)
+		for side in [-1,1]:
+			var tyre:=CraftModel._mesh(CraftModel._cylinder(tyre_radius,tyre_radius,.14,24),mats.black)
+			tyre.position=Vector3(arm,side*float(gear.tyreOffset),0)
+			leg.add_child(tyre)
 	for i in 7:
 		var mount := Node3D.new(); root.add_child(mount)
 		mount.position=Vector3((i-3)*.95,.9,.1)

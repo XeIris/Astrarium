@@ -70,8 +70,8 @@ func _ready() -> void:
 	f.drag(-240,90); await settle(10); await shot("cabin-port")
 	if not output.is_empty():
 		f.camera_override=func(camera,pos,_site,_dt):
-			camera.pos.copy_from(pos).add_in(DVec3.from_v3(basis_*Vector3(0,4.5,1.38)))
-			camera.look_at(pos.clone().add_in(DVec3.from_v3(basis_*Vector3(0,9,.89))),basis_*Vector3.BACK)
+			camera.pos.copy_from(pos).add_in(DVec3.from_v3(basis_*Vector3(0,4.5,1.22)))
+			camera.look_at(pos.clone().add_in(DVec3.from_v3(basis_*Vector3(0,9,.78))),basis_*Vector3.BACK)
 			camera.near=.01
 		await settle(); await shot("cabin-aisle")
 		f.camera_override=Callable()

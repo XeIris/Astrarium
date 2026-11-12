@@ -107,7 +107,7 @@ def exterior(m):
         for ya,yb in zip([11.1,12.7,14.5,16.0],[12.7,14.5,16.0,16.7]):
             rod('nose blanket seam',(x,ya,section_at(ya)[2]+.012),(x,yb,section_at(yb)[2]+.012),.009,m['alloy'],root)
     # One full-width, skin-conforming radiator band across the aft shoulder.
-    ymin,ymax=1.42,2.24
+    ymin,ymax=1.02,2.42
     stations=[ymin,.10*S['L'],ymax]
     for a,b in zip(stations,stations[1:]):
         wa,_,_,ca=section_at(a);wb,_,_,cb=section_at(b)
@@ -130,25 +130,34 @@ def exterior(m):
         for x in [-.36,.36]: block('nozzle side',(x,.24,0),(.035,.48,.58),m['alloy'],piv,.009)
         for z in [-.29,.29]: block('nozzle lip',(0,.24,z),(.72,.48,.035),m['alloy'],piv,.009)
         block('nozzle throat',(0,.45,0),(.65,.025,.50),m['tps'],piv,.0)
-        for y,x in [(2.65,3.29),(10.75,2.98),(16.8,2.43)]:
+        for y,inboard in [(2.65,.65),(10.75,.43),(16.8,.24)]:
             for n in [-1,0,1]:
                 yy=y+n*.18
+                x=section_at(yy)[0]-inboard
                 at=Vector((side*x,yy,roof_at(side*x,yy)))
                 ring_on(p(at),p((0,0,1)),.077,.019,m['alloy'],'recessed RCS rim',seg=20,parent=root)
                 block('RCS throat',at-Vector((0,0,.014)),(.116,.116,.045),m['rubber'],root,.026)
     block('recessed aft pressure hatch',(0,.234,.15),(.65,.072,.65),m['panel'],root,.07)
-    for i in range(3):
-        at=(0 if i==0 else (-2.8 if i==1 else 2.8),13.8 if i==0 else 3.7,-.47)
-        mount=mounted(f'gear mount {i}',at,root)
+    for well in S['geometry']['wells']:
+        poly(well['name'],well['vertices'],m['panel'],root)
+    tyre_radius=S['rollout']['tyreR']
+    for i,gear in enumerate(S['geometry']['gear']):
+        x,y,z=gear['at']
+        height=gear['ceiling']-z
+        block('gear hinge carrier',(x,y,z+height*.5),(.29,.22,height+.06),m['alloy'],root,.024)
+        rod('hinge pin',(x-.17,y,z),(x+.17,y,z),.042,m['alloy'],root)
+        mount=mounted(f'gear mount {i}',(x,y,z),root)
         basis=Matrix(((0,0,1),(1,0,0),(0,1,0)))
         mount.rotation_euler=(C@basis@C.inverted()).to_euler()
         leg=empty(f'leg_ranger_{i}',(0,0,0),mount)
-        block('oleo',(.48,0,0),(.96,.12,.12),m['alloy'],leg)
-        for j in [-1,1]:
-            ring_on(p((.98,j*.15,0)),p((0,1,0)),.25,.07,m['rubber'],'tyre',parent=leg)
-        block('gear well ceiling',(at[0],at[1]+.52,-.10),(.96,1.7,.07),m['tps'],root)
+        arm=gear['arm']
+        offset=gear['tyreOffset']
+        block('oleo',(.5*arm,0,0),(arm,.12,.12),m['alloy'],leg)
+        rod('wheel axle',(arm,-offset-.045,0),(arm,offset+.045,0),.06,m['alloy'],leg)
         for side in [-1,1]:
-            block('gear well side',(at[0]+side*.48,at[1]+.52,-.38),(.025,1.7,.54),m['alloy'],root,.006)
+            y=side*offset
+            ring_on(p((arm,y,0)),p((0,1,0)),tyre_radius-.07,.07,m['rubber'],'tyre',parent=leg)
+            rod('wheel hub',(arm,y-.061,0),(arm,y+.061,0),tyre_radius-.113,m['alloy'],leg)
     # Seven independent trailing control surfaces share Shuttle control ordering.
     for i in range(7):
         mount=mounted(f'flap mount {i}',((i-3)*.95,.9,.1),root)
@@ -252,18 +261,20 @@ def interior(m):
             block('tread retainer',(side*.278,y,-.323),(.026,.76,.027),m['alloy'],root,.003)
         for dy in [-.27,-.135,0,.135,.27]:
             block('anti-slip ridge',(0,y+dy,-.317),(.47,.026,.013),m['tps'],root,.003)
-    block('aft pressure bulkhead',(0,2.65,.56),(4.5,.10,2.1),m['liner'],root)
-    block('crew passage seal',(0,2.712,.48),(1.04,.049,1.78),m['rubber'],root,.025)
-    block('recessed pressure hatch',(0,2.739,.48),(.93,.035,1.65),m['panel'],root,.036)
+    aft=mounted('aft pressure fittings',(0,0,-.33*.16),root)
+    aft.scale.y=.84
+    block('aft pressure bulkhead',(0,2.65,.56),(4.5,.10,2.1),m['liner'],aft)
+    block('crew passage seal',(0,2.712,.48),(1.04,.049,1.78),m['rubber'],aft,.025)
+    block('recessed pressure hatch',(0,2.739,.48),(.93,.035,1.65),m['panel'],aft,.036)
     for side in [-1,1]:
         x=side*.39
-        rod('hatch handle post',(x,2.748,.53),(x,2.84,.53),.021,m['alloy'],root)
-        rod('hatch handle post',(x,2.748,.77),(x,2.84,.77),.021,m['alloy'],root)
-        rod('hatch grab handle',(x,2.84,.53),(x,2.84,.77),.023,m['rubber'],root)
-        block('aft blanket locker',(side*1.46,2.765,.52),(.63,.20,1.21),m['cabin_quilt'],root,.046)
+        rod('hatch handle post',(x,2.748,.53),(x,2.84,.53),.021,m['alloy'],aft)
+        rod('hatch handle post',(x,2.748,.77),(x,2.84,.77),.021,m['alloy'],aft)
+        rod('hatch grab handle',(x,2.84,.53),(x,2.84,.77),.023,m['rubber'],aft)
+        block('aft blanket locker',(side*1.46,2.765,.52),(.63,.20,1.21),m['cabin_quilt'],aft,.046)
         for dx in [-.21,.21]:
-            block('locker retention webbing',(side*1.46+dx,2.868,.52),(.044,.020,1.12),m['webbing'],root,.005)
-            block('locker strap buckle',(side*1.46+dx,2.887,.70),(.061,.027,.077),m['alloy'],root,.012)
+            block('locker retention webbing',(side*1.46+dx,2.868,.52),(.044,.020,1.12),m['webbing'],aft,.005)
+            block('locker strap buckle',(side*1.46+dx,2.887,.70),(.061,.027,.077),m['alloy'],aft,.012)
         for y in [5.56,7.70]:
             w,_,_,crown=section_at(y)
             a=Vector((side*.20,y,roof_at(.20,y)-.071))
@@ -295,40 +306,42 @@ def interior(m):
         for dx in [-.16,.16]:
             block('rudder pedal',(x+dx,8.0,-.14),(.2,.30,.07),m['rubber'],root)
             rod('pedal support',(x+dx,8.05,-.33),(x+dx,8.0,-.16),.025,m['alloy'],root)
-    # Low forward consoles preserve a view through the four sloped windshields.
+    # The console feet stay on the deck under the lower forward canopy.
+    instruments=mounted('forward instrument consoles',(0,-.23,-.33*.22),root)
+    instruments.scale.y=.78
     for x in [-1.20,0,1.20]:
-        block('console floor plinth',(x,8.98,-.27),(1.0,.40,.14),m['alloy'],root)
+        block('console floor plinth',(x,8.98,-.27),(1.0,.40,.14),m['alloy'],instruments)
         height=.90 if x else 1.36
-        block('console cabinet',(x,8.965,height*.5-.20),(1.10,.47,height),m['panel'],root)
+        block('console cabinet',(x,8.965,height*.5-.20),(1.10,.47,height),m['panel'],instruments)
         for side in [-1,1]:
-            block('console frame rail',(x+side*.517,8.718,height*.5-.20),(.038,.043,height-.055),m['alloy'],root,.008)
+            block('console frame rail',(x+side*.517,8.718,height*.5-.20),(.038,.043,height-.055),m['alloy'],instruments,.008)
             for z in [-.13,height-.26]:
                 ring_on(p((x+side*.517,8.694,z)),p((0,1,0)),.009,.0027,m['rubber'],
-                        'captive console screw',seg=12,minor=6,parent=root)
+                        'captive console screw',seg=12,minor=6,parent=instruments)
         if x<0:
-            display('FLIGHT DIRECTOR',(x,8.78,.61),.84,.43,m,root)
+            display('FLIGHT DIRECTOR',(x,8.78,.61),.84,.43,m,instruments)
         elif x>0:
-            display('PROPULSION',(x,8.78,.61),.84,.43,m,root,[('FEED A',.83),('FEED B',.74),('CHAMB',.61),('RCS',.52)])
+            display('PROPULSION',(x,8.78,.61),.84,.43,m,instruments,[('FEED A',.83),('FEED B',.74),('CHAMB',.61),('RCS',.52)])
         if x:
-            block('recessed switch plate',(x,8.721,.218),(.94,.043,.247),m['rubber'],root,.013)
+            block('recessed switch plate',(x,8.721,.218),(.94,.043,.247),m['rubber'],instruments,.013)
             label('switch plate legend','NAV / ATTITUDE' if x<0 else 'FEED / REACTION CONTROL',
-                  (x,8.696,.325),.022,root,m['legend'])
+                  (x,8.696,.325),.022,instruments,m['legend'])
             for dx in [-.41,.41]:
-                rod('rotary selector shaft',(x+dx,8.72,.062),(x+dx,8.659,.062),.034,m['alloy'],root)
-                rod('rotary selector grip',(x+dx,8.69,.062),(x+dx,8.643,.062),.030,m['rubber'],root)
-                block('selector position mark',(x+dx,8.641,.078),(.009,.004,.024),m['legend'],root,.002)
+                rod('rotary selector shaft',(x+dx,8.72,.062),(x+dx,8.659,.062),.034,m['alloy'],instruments)
+                rod('rotary selector grip',(x+dx,8.69,.062),(x+dx,8.643,.062),.030,m['rubber'],instruments)
+                block('selector position mark',(x+dx,8.641,.078),(.009,.004,.024),m['legend'],instruments,.002)
         for k in range(21 if x else 28):
             sx=x+(k%7-3)*.115 if x else [-.46,-.34,.34,.46][k%4]
             sz=.13+(k//7)*.085 if x else -.1+(k//4)*.2
-            block('switch plinth',(sx,8.72,sz),(.045,.025,.045),m['alloy'],root,.005)
-            rod('toggle lever',(sx,8.70,sz),(sx,8.655,sz+.015),.008,m['legend'],root)
-        annunciators((x,8.71,-.075),.63,('PWR','WARN','AUX','TEST'),m,root)
-    display('FLIGHT SYSTEMS',(0,8.72,1.045),.49,.29,m,root)
-    display('DISTRIBUTION',(-.145,8.72,.69),.26,.27,m,root,[('BUS A',.81),('BUS B',.76),('BAT',.58)])
-    display('CABIN',(.145,8.72,.69),.26,.27,m,root,[('O2',.88),('PRES',.75),('CO2',.20)])
-    display('ATTITUDE',(-.145,8.72,.35),.26,.27,m,root)
-    display('THERMAL',(.145,8.72,.35),.26,.27,m,root,[('LOOP A',.67),('LOOP B',.57),('OIL',.41)])
-    annunciators((0,8.71,.115),.53,('ARM','RCS','OMS'),m,root)
+            block('switch plinth',(sx,8.72,sz),(.045,.025,.045),m['alloy'],instruments,.005)
+            rod('toggle lever',(sx,8.70,sz),(sx,8.655,sz+.015),.008,m['legend'],instruments)
+        annunciators((x,8.71,-.075),.63,('PWR','WARN','AUX','TEST'),m,instruments)
+    display('FLIGHT SYSTEMS',(0,8.72,1.045),.49,.29,m,instruments)
+    display('DISTRIBUTION',(-.145,8.72,.69),.26,.27,m,instruments,[('BUS A',.81),('BUS B',.76),('BAT',.58)])
+    display('CABIN',(.145,8.72,.69),.26,.27,m,instruments,[('O2',.88),('PRES',.75),('CO2',.20)])
+    display('ATTITUDE',(-.145,8.72,.35),.26,.27,m,instruments)
+    display('THERMAL',(.145,8.72,.35),.26,.27,m,instruments,[('LOOP A',.67),('LOOP B',.57),('OIL',.41)])
+    annunciators((0,8.71,.115),.53,('ARM','RCS','OMS'),m,instruments)
     overhead(m,root)
     for side in [-1,1]:
         sideboard=mounted('side instruments',(side*1.45,7.65,.58),root)
@@ -339,13 +352,15 @@ def interior(m):
                 [('UHF',.65),('S BAND',.92),('LINK',.73)] if side<0 else [('LOOP A',.71),('LOOP B',.64),('FAN',.82)])
         for k in range(9):
             block('side switches',((k%3-1)*.16,-.06,-.40+(k//3)*.07),(.06,.035,.035),m['legend'],sideboard,.005)
-    for i,y in enumerate([4.0,6.2,7.8]):
+    for i,y in enumerate([4.0,6.2,7.34]):
         for side in [-1,1]:
-            at=(side*1.50,y,roof_at(side*1.50,y)-.09)
-            block('ceiling light housing',at,(.27,.65,.051),m['rubber'],root,.02)
+            x=side*1.50
+            fixture=mounted('ceiling strip mount',(x,y,roof_at(x,y)-.09),root)
+            fixture.rotation_euler.x=atan2(roof_at(x,y+.325)-roof_at(x,y-.325),.65)
+            block('ceiling light housing',(0,0,0),(.27,.65,.051),m['rubber'],fixture,.02)
             for dx in [-.065,.065]:
-                block('recessed strip lamp',Vector(at)+Vector((dx,0,-.021)),(.052,.56,.023),m['lamp'],root,.009)
-            mounted(f'interior_light_{i*2+(0 if side<0 else 1)}',Vector(at)-Vector((0,0,.10)),root)
+                block('recessed strip lamp',(dx,0,-.021),(.052,.56,.023),m['lamp'],fixture,.009)
+            mounted(f'interior_light_{i*2+(0 if side<0 else 1)}',(0,0,-.10),fixture)
     for side in [-1,1]:
         for y in [3.7,5.0]:
             block('equipment rack',(side*1.88,y,.17),(.5,.96,1.0),m['panel'],root)
@@ -356,7 +371,7 @@ def interior(m):
                     block('drawer captive fastener',(side*1.56,y+dy,z),(.022,.043,.052),m['panel'],root,.008)
         for y in [3.1,4.8,6.6,8.4]:
             rod('cabin rail',(side*2.05,y,-.35),(side*2.05,y,roof_at(side*2.05,y)-.055),.028,m['alloy'],root)
-    label('own identification','SURVEY / FLIGHT DECK',(0,2.72,1.34),.10,root,m['legend'])
+    label('own identification','SURVEY / FLIGHT DECK',(0,2.72,1.34),.10,aft,m['legend'])
 
 
 def main():

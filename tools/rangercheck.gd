@@ -25,9 +25,18 @@ func run() -> void:
 	var bounds:=CraftModel.measure(craft.group)
 	expect(absf(bounds.size.y-17.9)<.02 and absf(bounds.position.y)<.02,"shared nose and engine-exit datums: %s"%bounds)
 	var nose_half_width:=0.0
+	var crown_height:=0.0
+	var half_span:=0.0
+	var shoulder_at:=0.0
 	for point: Vector3 in points(craft.group,craft.group):
 		if point.y>=float(st.spec.L)-.015:nose_half_width=maxf(nose_half_width,absf(point.x))
-	expect(absf(2.0*nose_half_width-.55*float(st.spec.D))<.03,"Ranger keeps its broad, blunt foredeck (%.3f m)"%(2.0*nose_half_width))
+		crown_height=maxf(crown_height,point.z)
+		if absf(point.x)>half_span:
+			half_span=absf(point.x)
+			shoulder_at=point.y/float(st.spec.L)
+	expect(absf(2.0*nose_half_width-.46*float(st.spec.D))<.03,"Ranger has its narrow clipped bow (%.3f m)"%(2.0*nose_half_width))
+	expect(crown_height/float(st.spec.L)<.086 and shoulder_at>.29 and shoulder_at<.34,
+		"traced low crown and swept shoulder (z %.3f m, station %.3f)"%[crown_height,shoulder_at])
 	var chines: Array[Node3D]=[]
 	var chine_poses: Array[Transform3D]=[]
 	for side: String in ["port","starboard"]:
@@ -37,23 +46,32 @@ func run() -> void:
 		check_chine(chine,st.group,st.spec)
 		chines.append(chine)
 		chine_poses.append(chine.global_transform)
+	var gear_mounts:=RangerCraft.gear_mounts(st.spec)
 	for i in range(41):
 		var t:=i/40.0
 		st.gear=t
 		craft.update({"dt":0.0,"gear":{"ranger":t},"flap":[.1,-.1,.2,-.2,.1,-.15,.15]})
 		for j in 3:
 			var leg: Node3D=st.parts.legs[j]
-			var tip: Vector3=craft.group.to_local(leg.to_global(Vector3(.98,0,0)))
+			var well: Dictionary=gear_mounts[j]
+			var arm:=float(well.arm)
+			var tip: Vector3=craft.group.to_local(leg.to_global(Vector3(arm,0,0)))
 			var pivot: Vector3=craft.group.to_local(leg.global_position)
-			expect(absf(tip.distance_to(pivot)-.98)<1e-4,"gear strut stays attached through full sweep")
-			var expected:=pivot+Vector3(0,.98*cos(t*PI/2),-.98*sin(t*PI/2))
+			expect(absf(tip.distance_to(pivot)-arm)<1e-4,"gear strut stays attached through full sweep")
+			var expected:=pivot+Vector3(0,arm*cos(t*PI/2),-arm*sin(t*PI/2))
 			expect(tip.distance_to(expected)<.001,"gear follows the intended local hinge axis")
+			var min_z:=INF
+			var stow_gap:=INF
 			for point: Vector3 in points(leg,craft.group):
-				if point.z<-.2 and point.z>-.8:
-					expect(absf(point.x-pivot.x)<.48 and point.y>pivot.y-.35 and point.y<pivot.y+1.35,"gear crosses skin only inside its own bay")
+				var belly:=RangerCraft.at(st.spec,point.y)[0].z
+				min_z=minf(min_z,point.z)
+				stow_gap=minf(stow_gap,minf(point.z-belly,float(well.ceiling)-point.z))
+				if absf(point.z-belly)<.04:
+					expect(absf(point.x-pivot.x)<float(well.halfWidth) and point.y>float(well.rear) and point.y<float(well.front),
+						"gear crosses skin only inside its own bay")
+			if i==0:
+				expect(stow_gap>.008,"stowed gear fits between the belly and its well roof (%.3f m)"%stow_gap)
 			if i==40:
-				var min_z:=INF
-				for point: Vector3 in points(leg,craft.group): min_z=minf(min_z,point.z)
 				expect(absf(min_z-float(st.spec.gear.point[2]))<.015,"tyre contact matches the physics ground point")
 	for i in chines.size():
 		expect(chines[i].global_transform.is_equal_approx(chine_poses[i]),"chine stays fixed through gear and flap motion")
@@ -78,12 +96,14 @@ func run() -> void:
 					gap=minf(gap,RangerCraft.at(st.spec,point.y)[3].z-point.z)
 				expect(gap>=.04 and gap<=.083,"crown mounts reach the liner and stay below the outer skin (%.3f m)"%gap)
 			var openings: Array=RangerCraft.geometry(st.spec).windows
-			for index in [13,14]:
+			expect(openings.size()==22,"the traced canopy has all 22 apertures")
+			for opening: Dictionary in openings:
+				if opening.name not in ["windshield_port","windshield_starboard"]: continue
 				var center:=Vector3.ZERO
-				for v: Array in openings[index].vertices: center+=Vector3(v[0],v[1],v[2])
-				center/=openings[index].vertices.size()
+				for v: Array in opening.vertices: center+=Vector3(v[0],v[1],v[2])
+				center/=opening.vertices.size()
 				var ray:=center-eye
-				expect(not blocked(craft.group,eye,ray.normalized(),ray.length()+.06),"pilot sightline clears port canopy aperture %d"%index)
+				expect(not blocked(craft.group,eye,ray.normalized(),ray.length()+.06),"pilot sightline clears "+opening.name)
 			var finishes: Dictionary={}
 			collect_finishes(craft.group,finishes)
 			for key in ["surveyThermal","surveyCarbon","surveyLiner","surveyCabinQuilt","surveyWebbing","surveySeat"]:
@@ -121,7 +141,7 @@ func check_chine(chine: Node3D,stage: Node3D,spec: Dictionary) -> void:
 			var deck:=lerpf(edge.z,crown.z,(edge.x-x)/(edge.x-crown.x))
 			seated=seated or (point.z<deck-.05 and point.z>hull[0].z)
 	expect(seated,"%s overlaps its hull seat"%chine.name)
-	expect(is_finite(tip_gap) and tip_gap>.17 and tip_rise>.25,
+	expect(is_finite(tip_gap) and tip_gap>.16 and tip_rise>.22,
 		"%s tip rises above the deck with an open gap (%.3f m, %.3f m)"%[chine.name,tip_rise,tip_gap])
 
 func points(node: Node, relative: Node3D) -> Array[Vector3]:
