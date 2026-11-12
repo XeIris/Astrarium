@@ -154,6 +154,10 @@ func step(dt: float) -> float:
 		if limited: _pending = 0.0
 		accepted = float(k) * GalTracers.DT
 		t_myr = tracers.t + _pending
+	elif model.has("populations"):
+		# The tracers are still being built: the clock waits for them rather than run ahead
+		# and jump back when they arrive.
+		_pending = 0.0
 	else:
 		t_myr += want
 		_pending = 0.0
@@ -231,6 +235,10 @@ static func fmt_kpc(d: float) -> String:
 	if d < 1000.0: return "%s kpc" % U.fixed(d, 1 if d < 100.0 else 0)
 	return "%s Mpc" % U.fixed(d / 1000.0, 2)
 
+## sync_hud runs four times a second; the tracer measurements every MEASURE_EVERY-th of them.
+const MEASURE_EVERY := 4
+var _measure_tick := -1
+
 func sync_hud() -> void:
 	var hud = stage.hud
 	if hud == null or not active: return
@@ -240,7 +248,11 @@ func sync_hud() -> void:
 	var asked := rate if not stage.state.paused else 0.0
 	hud.set_text("galRate", ("%s Myr/s" % U.fixed(achieved, 1)) + (" (limited)" if limited else ""))
 	hud.set_text("galTracers", str(tracers.n) if tracers != null else "drawing…")
-	hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null else "—")
+	# The drift and the curve walk every tracer: about 9 ms between them, so once a second
+	# and the curve only while its chart is on screen.
+	_measure_tick += 1
+	var measure := _measure_tick % MEASURE_EVERY == 0
+	if measure: hud.set_text("galDrift", U.expo(tracers.energy_drift(20), 1) if tracers != null else "—")
 	hud.set_text("galDist", fmt_kpc(stage.cam.radius))
 	for r in RATES:
 		hud.set_active("[data-gal-rate=%s]" % str(r), absf(asked - float(r)) < 1e-9 or (float(r) == 0.0 and stage.state.paused))
@@ -248,4 +260,5 @@ func sync_hud() -> void:
 		hud.set_active("galShowTracers", visual.show_tracers)
 		hud.set_active("galShowStars", visual.show_stars)
 		hud.set_active("galShowGlow", visual.show_glow)
-	if curve_chart != null and tracers != null: curve_chart.measure(tracers, model.potential)
+	if measure and curve_chart != null and tracers != null and curve_chart.is_visible_in_tree():
+		curve_chart.measure(tracers, model.potential)

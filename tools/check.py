@@ -130,6 +130,8 @@ CHANGED_RULES = (
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd"),
      ("galaxycheck", "galaxylookcheck", "_soak_check-galaxy", "hud*")),
+    (("tools/galaxycheck.gd",), ("galaxycheck",)),
+    (("tools/galaxylookcheck.gd", "tools/galaxylookcheck.tscn"), ("galaxylookcheck",)),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     # Any other tool (fxlab, harnesses): at least it must still parse.
     (("tools/*",), ("import",)),
