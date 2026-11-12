@@ -448,10 +448,14 @@ func spawn_body(spec: Dictionary) -> Body:
 
 	state.bodies.append(b)
 	if not _climates_deferred: _sync_climate(b)
+	_preset_clean = false
 	return b
 
 # A preset's worlds draw from the light they start in, so they wait for all its stars.
 var _climates_deferred := false
+# The scene is the preset as loaded: no body spawned, edited or removed since (time may have
+# run). Only then may a zoom-out replace it with the Galaxy (_at_galaxy_join).
+var _preset_clean := false
 
 # A rocky or ocean world has a climate and nothing else does; called wherever a type can change.
 func _sync_climate(b: Body) -> void:
@@ -474,6 +478,7 @@ func remove_body(id) -> void:
 		live_editor.sync(null)
 		open_cross_section(false)
 	b.alive = false
+	_preset_clean = false
 	detach_visual(b)
 	if b.trail != null:
 		b.trail.node.queue_free()
@@ -563,6 +568,7 @@ func edit_body(b: Body, patch: Dictionary):
 	if patch.has("type") and (not patch.type is String or patch.type != b.type):
 		_reject_body_input("Type changes are structural events; edits must keep the body's current type.", b)
 		return null
+	_preset_clean = false
 	var spec := U.merged(b.spec, patch)
 	spec.type = b.type
 	spec.mass = U.nz(patch.get("mass"), b.mass)
@@ -1460,6 +1466,7 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 
 	for b in state.bodies: _sync_climate(b)
 	update_suns()
+	_preset_clean = true
 
 	# Camera reset. In a hierarchical system the total barycentre is nowhere near
 	# the stars, so presets with a home world start the camera following it.
@@ -2929,8 +2936,11 @@ func _stage_set_paused(p) -> void: state.paused = bool(p)
 func _stage_set_control(id: String, value) -> void: hud.drive_slider(id, float(value))
 
 ## At the Solar System's widest view of the Sun, about to zoom out of it?
+## Only from the Solar System as loaded, and not under a lesson card: the join replaces the
+## scene, so it never takes someone's spawns or edits, or the stage a lesson is using.
 func _at_galaxy_join(radius: float) -> bool:
-	if state.preset_key != "solar" or radius < OrreryCamera.MAX_REQUEST_RADIUS * (1.0 - 1e-9): return false
+	if state.preset_key != "solar" or not _preset_clean or (lessons != null and lessons.active): return false
+	if radius < OrreryCamera.MAX_REQUEST_RADIUS * (1.0 - 1e-9): return false
 	var sun := state.body_named("Sun")
 	return sun != null and state.follow_id == sun.id and absf(state.scene_scale - 1.0) < 1e-12
 

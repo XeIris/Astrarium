@@ -455,7 +455,15 @@ func _soak_check() -> void:
 				failures.append("join: Betelgeuse moved %s° on screen coming back" % rad_to_deg((cam_in.inverse() * w).angle_to((stage.cam_basis as Basis).inverse() * bet)))
 			for i in 4:
 				stage.animate(1.0 / 60.0)
-				await _drawn_frame(),
+				await _drawn_frame()
+			# Never over someone's work: after an edit the widest view stays the widest view.
+			sun = state.body_named("Sun")
+			stage.set_follow(sun)
+			stage.edit_body(sun, {"mass": float(sun.mass) * 1.01})
+			stage.jump_cam_radius(OrreryCamera.MAX_REQUEST_RADIUS)
+			stage._wheel(120.0)
+			if g.active or state.preset_key != "solar": failures.append("join: an edited Solar System was replaced by the Galaxy")
+			stage.load_preset("solar"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),
