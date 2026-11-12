@@ -293,7 +293,7 @@ func step(k: int) -> void:
 	if k <= 0: return
 	var kn := pot.kernel()
 	if kn == null:
-		for s in k: _step_generic(t_start + float(steps + s) * DT)
+		for s in k: _step_generic(steps + s)
 	elif use_native and GalTracers.native_available():
 		_step_native(kn, k)
 	else:
@@ -301,11 +301,11 @@ func step(k: int) -> void:
 	steps += k
 	t = t_start + float(steps) * DT
 
-func _step_generic(t0: float) -> void:
+func _step_generic(index: int) -> void:
 	var h := DT * 0.5
 	for i in n * 3: pos[i] += vel[i] * h
 	pot.accel_into(pos, acc, n)
-	var tm := t0 + h
+	var tm := t_start + (float(index) + 0.5) * DT
 	for i in n:
 		var c := i * 3
 		var dp := 0.0
@@ -319,7 +319,7 @@ func _step_generic(t0: float) -> void:
 
 ## The kernel's buffer (layout in native/astrarium_native.c, run_tracers).
 func _pack(kn: GalPotential.Kernel, k: int) -> PackedFloat64Array:
-	var b := PackedFloat64Array([0.0, float(n), float(k), DT, t, float(patterns.size()), float(kn.tab_n),
+	var b := PackedFloat64Array([0.0, float(n), float(k), DT, t_start, float(patterns.size()), float(kn.tab_n), float(steps),
 		kn.mn_gm, kn.mn_a, kn.mn_b2, kn.s1_gm, kn.s1_a, 1.0 if kn.s1_nfw else 0.0,
 		kn.s2_gm, kn.s2_a, 1.0 if kn.s2_nfw else 0.0, kn.tab_h, kn.tab_r0, kn.tab_gm, kn.tab_alpha])
 	for p in patterns:
@@ -338,7 +338,7 @@ func _pack(kn: GalPotential.Kernel, k: int) -> PackedFloat64Array:
 
 func _step_native(kn: GalPotential.Kernel, k: int) -> void:
 	var b: PackedFloat64Array = ClassDB.class_call_static("NBodyKernel", "tracers", _pack(kn, k))
-	var o := 20 + 12 * patterns.size() + 2 * kn.tab_n
+	var o := 21 + 12 * patterns.size() + 2 * kn.tab_n
 	pos = b.slice(o, o + 3 * n)
 	vel = b.slice(o + 3 * n, o + 6 * n)
 	work = b.slice(o + 6 * n, o + 7 * n)
@@ -350,7 +350,8 @@ func _pattern_table(k: int) -> PackedFloat64Array:
 	var g := PackedFloat64Array()
 	g.resize(k * np * 4 + 1)
 	for s in k:
-		var tm := t + (float(s) + 0.5) * DT
+		# From the step's index: the same time however the steps are batched.
+		var tm := t_start + (float(steps + s) + 0.5) * DT
 		for j in np:
 			var p: Dictionary = patterns[j]
 			var ang: float = p.angle0 + p.omega * tm
