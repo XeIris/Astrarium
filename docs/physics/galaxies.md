@@ -501,8 +501,26 @@ Way's exposure.
   - The SMC agrees within 0.2 mag.
   - So where an absolute V is measured, the light is scaled to it. M31 has none in hand,
     and is drawn from its masses.
-  - `galaxycheck` holds the drawn light to the measured, and the mass-based prediction
-    within 1 mag.
+  - The scale counts only the light the glow draws (below), so what is drawn, not the
+    model's total, is the measured magnitude.
+  - `galaxycheck` marches the drawn glow through each galaxy and holds it to the measured
+    within 0.005 mag, and the mass-based prediction within 1 mag.
+- <a id="the-light-a-neighbour-draws"></a>**The light a neighbour draws.** The glow
+  marches a disc through a box of half-height h = 4 kpc, its light tapering to zero over
+  the last fifth of the galaxy's extent e, and a spheroid through a sphere of radius r_s
+  (`GalModels.sphere_reach`). Left out, the lost light is 0.15 mag for M33 and the LMC
+  and 0.3 mag for the SMC.
+  - A Hernquist sphere holds (r_s/(r_s + a))² of its light within r_s. Flattened to axes
+    b and c, its light is round in r' = (u, y/c, v/b), the sphere's edge lies at r' = r_s q(n)
+    along a direction n, and the share is ∫ q⁻³ (r_s q/(r_s q + a))² dΩ / (4π b c).
+  - A Miyamoto–Nagai disc's mass in a cylinder of radius R and half-height h is the
+    gravitational flux out of it over 4πG. Through the side, with ζ = √(z² + b²):
+    M_side/M = R² ∫₀ʰ dz / (R² + (a + ζ)²)^{3/2}.
+  - Through the two caps, each integral over R' closed: M_caps/M = (h/ζ_h)(1 − s/√(R² + s²)),
+    with s = a + ζ_h. For b = 0 and h → ∞ the sum is the Kuzmin disc's 1 − a/√(R² + a²).
+  - The taper w(R) = smoothstep(e, 0.8e, R) weights the cumulative mass by parts:
+    drawn/M = ∫ M(R)/M · (−dw/dR) dR over 0.8e to e, where −dw/dR = 6t(1 − t)/(0.2e) and
+    t = (e − R)/(0.2e).
 - **Checked:**
   - Each neighbour's frame tilts by its stated inclination and lays its line of nodes
     at its stated position angle, to 0.01°.
