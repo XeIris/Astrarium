@@ -19,6 +19,7 @@ render_mode unshaded, blend_add, depth_draw_never, depth_test_disabled, cull_fro
 uniform vec3 uCamLocal = vec3(0.0, 0.0, 60.0);
 uniform vec3 uBox = vec3(30.0, 4.0, 30.0);
 uniform float uSphereR = 8.0;
+uniform float uSphereCore = 0.5;
 uniform float uRes = 0.0;
 // Share of each population's light in stars too faint to resolve: (disc, spheroid).
 uniform vec2 uFaint = vec2(1.0);
@@ -193,7 +194,9 @@ void fragment() {
 	vec2 ts = sphere_hit(o, d, uSphereR);
 	ts.x = max(ts.x, 0.0);
 	if (ts.y > ts.x && uSphere.y > 0.0) {
-		float sc = max(uSphere.x < 0.5 ? uSphere.w * 0.3 : uSphere.z * 0.5, 0.02);
+		// About each spheroid's core: 0.3 cutoff radii, half a Hernquist scale, or for a measured
+		// profile uSphereCore.
+		float sc = max(uSphere.x < 0.5 ? uSphere.w * 0.3 : (uSphere.x < 1.5 ? uSphere.z * 0.5 : uSphereCore), 0.02);
 		float tc = clamp(-dot(o, d), ts.x, ts.y);
 		sph = march_sphere(o, d, ts.x, ts.y, tc, sc, jit, uFaint.y, tv, leg, arc);
 	}

@@ -15,8 +15,11 @@ uniform vec4 uSpiral = vec4(0.0, 8.0, 7.0, 0.18);
 // the plane; 0 for the Miyamoto–Nagai disc above.
 uniform vec2 uDiscMap = vec2(0.0, 1.0);
 // Spheroid: (kind, K, p1, p2). kind 0, a power law with a cutoff: K·r^−α·exp(−r²/rc²),
-// p1 = α, p2 = rc. kind 1, Hernquist: K·a/(2π r (r + a)³), p1 = a.
+// p1 = α, p2 = rc. kind 1, Hernquist: K·a/(2π r (r + a)³), p1 = a. kind 2, a measured profile:
+// K·exp(ln j), ln j in uSphereTab on texels even in ln r from p1 = ln r₀ by p2, held at r₀ and
+// zero past the last texel; linear between texels, read by texelFetch so the CPU's matches.
 uniform vec4 uSphere = vec4(0.0, 0.0, 1.8, 1.9);
+uniform sampler2D uSphereTab : filter_nearest, repeat_disable;
 // The bar's frame for the spheroid's light: (cos θb, sin θb, b/a, c/a); b/a = c/a = 1
 // keeps it round. Light is conserved: j(r_e)/(b/a · c/a).
 uniform vec4 uBar = vec4(1.0, 0.0, 1.0, 1.0);
@@ -101,6 +104,15 @@ float gal_sphere_j(vec3 p) {
 	float k = 1.0 / (uBar.z * uBar.w);
 	if (uSphere.x < 0.5) {
 		return k * uSphere.y * pow(r, -uSphere.z) * exp(-r * r / (uSphere.w * uSphere.w));
+	}
+	if (uSphere.x > 1.5) {
+		int n = textureSize(uSphereTab, 0).x;
+		float x = max((log(r) - uSphere.z) / uSphere.w, 0.0);
+		if (x >= float(n - 1)) return 0.0;
+		int i = int(x);
+		float f = x - float(i);
+		float lj = mix(texelFetch(uSphereTab, ivec2(i, 0), 0).r, texelFetch(uSphereTab, ivec2(i + 1, 0), 0).r, f);
+		return k * uSphere.y * exp(lj);
 	}
 	float a = uSphere.z;
 	return k * uSphere.y * a / (6.2831853 * r * pow(r + a, 3.0));

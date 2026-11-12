@@ -171,6 +171,11 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	if not rings.is_empty(): thin = ring_h
 	if not dust.is_empty() and float(dust.h0) < 0.05: thin = minf(thin, float(dust.h0))
 	dust_map = model.get("dustMap", {})
+	sphere_tab = model.get("sphereTable", {})
+	if not sphere_tab.is_empty():
+		var lnj: PackedFloat32Array = sphere_tab.lnj
+		var img := Image.create_from_data(lnj.size(), 1, false, Image.FORMAT_RF, lnj.to_byte_array())
+		_sphere_tex = ImageTexture.create_from_image(img)
 	disc_map = model.get("discMap", {})
 	thin_map = model.get("thinMap", {})
 	if not disc_map.is_empty():
@@ -204,12 +209,12 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 			arm_b.append(Vector4(a[5], deg_to_rad(a[6]), deg_to_rad(a[7]), ext if a[8] else 0.0))
 		# A measured light along the arms wins over the star formation rate's.
 		_l_young = float(model.armLight) if model.has("armLight") else float(model.sfr) * young_gyr * 1e9 * young_pop.light_per_formed
-		_model_key = String(model.key)
 		if not dust_map.is_empty(): _build_lanes()
+	_model_key = String(model.key)
 	_model_for_uniforms = model
 	_build_glow(model)
 	_build_stars(model)
-	if not defer_arms and young_pop != null: apply_arms(bake_arms())
+	if not defer_arms and has_map(): apply_arms(bake_arms())
 	has_sun = String(model.key) == "milky_way" and GalNeighbourhood.available()
 	if has_sun:
 		sun_r0 = float(model.get("r0", 8.0))
@@ -234,7 +239,10 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	else:
 		mat.set_shader_parameter("uDisc", Vector3(0.0, 1.0, 1.0))
 	var b: Dictionary = pot.part("bulge")
-	if not b.is_empty() and b.kind == GalPotential.Kind.POWER_CUTOFF:
+	if not sphere_tab.is_empty():
+		mat.set_shader_parameter("uSphere", Vector4(2.0, 1.0, float(sphere_tab.lnr0), float(sphere_tab.dlnr)))
+		mat.set_shader_parameter("uSphereTab", _sphere_tex)
+	elif not b.is_empty() and b.kind == GalPotential.Kind.POWER_CUTOFF:
 		mat.set_shader_parameter("uSphere", Vector4(0.0, _visible(model, "bulge") * l_m_sph * b.amp / g * GalUnits.MASS_UNIT_SUN, b.alpha, b.rc))
 	elif not b.is_empty():
 		mat.set_shader_parameter("uSphere", Vector4(1.0, _visible(model, "bulge") * l_m_sph * b.gm / g * GalUnits.MASS_UNIT_SUN, b.a, 0.0))
@@ -273,9 +281,23 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("uRingH", ring_h)
 	mat.set_shader_parameter("uThin", thin)
 
+## A measured spheroid's j at r, as gal_sphere_j reads its table.
+func _sphere_table(r: float) -> float:
+	var lnj: PackedFloat32Array = sphere_tab.lnj
+	var n := lnj.size()
+	var x := maxf((log(r) - float(sphere_tab.lnr0)) / float(sphere_tab.dlnr), 0.0)
+	if x >= float(n - 1): return 0.0
+	var i := int(x)
+	return exp(lerpf(lnj[i], lnj[i + 1], x - float(i)))
+
 ## The spheroid's marched radius (kpc, GalModels.sphere_reach): no spheroid light beyond it,
 ## here or in the shader.
 var sphere_r := 8.0
+## A measured spheroid (GalModels.sphereTable): ln j on radii even in ln r, as a 1-row texture.
+var sphere_tab := {}
+var _sphere_tex: ImageTexture = null
+## The core scale the glow samples a measured spheroid about (kpc).
+const SPHERE_CORE := 0.5
 
 func _build_glow(model: Dictionary) -> void:
 	var ext: float = model.get("extent", 30.0)
@@ -288,6 +310,7 @@ func _build_glow(model: Dictionary) -> void:
 	_light_uniforms(model, glow_mat)
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
 	glow_mat.set_shader_parameter("uSphereR", sphere_r)
+	glow_mat.set_shader_parameter("uSphereCore", SPHERE_CORE)
 	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
 	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
 	glow_mat.set_shader_parameter("uFaint", Vector2(disc_pop.faint_light, sphere_pop.faint_light))
@@ -495,7 +518,8 @@ func light_density(p: Vector3, r_floor := 1e-3) -> PackedFloat64Array:
 	var k := 1.0 / (bulge_axes.x * bulge_axes.y)
 	var js := 0.0
 	if sv.y > 0.0 and p.length() <= sphere_r:
-		js = k * (sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0)))
+		if sv.x > 1.5: js = k * sv.y * _sphere_table(r)
+		else: js = k * (sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0)))
 	var jy := 0.0
 	if young_k > 0.0:
 		var R := sqrt(R2)
@@ -617,6 +641,10 @@ func _arm_integral(img: Image) -> float:
 			s += _envelope(sqrt(x * x + z * z)) * img.get_pixel(i, j).r
 	return s * px * px
 
+## Whether the visual draws from a baked map (bake_arms), arms or a disc's.
+func has_map() -> bool:
+	return young_pop != null or not disc_map.is_empty()
+
 ## The arms' map and its integral: pure data, safe on a worker thread, cached per model.
 func bake_arms() -> Dictionary:
 	_cache_mutex.lock()
@@ -635,7 +663,8 @@ func bake_arms() -> Dictionary:
 			var b := _disc_surface(R) if not disc_map.is_empty() else _spiral_plane(R, phi)
 			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), g, b))
 	if not thin_map.is_empty(): _gather_light(img)
-	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2)}
+	var share := _add_bar(img) if disc_map.has("bar") else 0.0
+	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": share}
 	if not hii_spec.is_empty(): out.hii = GalHII.build(hii_spec, hii_d, img, ARM_HALF, _l_young, young_h, 51)
 	_cache_mutex.lock()
 	_arm_cache[_model_key] = out
@@ -771,9 +800,10 @@ func _apply_hii(cat: Dictionary) -> void:
 func apply_arms(baked: Dictionary) -> void:
 	if baked.is_empty(): return
 	arm_img = baked.img
+	bar_share = float(baked.get("bar", 0.0))
 	arm_tex = ImageTexture.create_from_image(arm_img)
 	if baked.has("hii") and hii == null: _apply_hii(baked.hii)
-	young_k = _l_young / float(baked.integral)
+	young_k = _l_young / float(baked.integral) if float(baked.integral) > 0.0 else 0.0
 	if not disc_map.is_empty():
 		disc_k = _l_disc / float(baked.disc)
 		for mat in [glow_mat, star_mat]:
@@ -833,9 +863,83 @@ func _dust_arm(R: float, phi: float) -> float:
 			best = maxf(best, at[2] * exp(-d * d / (w * w)))
 	return cut * best
 
-## The old disc's bolometric surface luminosity at R (L☉ kpc⁻²).
+## The old disc's bolometric surface luminosity at R (L☉ kpc⁻²): Inman et al.'s discs, or an
+## exponential of scale `exp` (its scale on the map comes from disc_k).
 func _disc_surface(R: float) -> float:
+	if disc_map.has("exp"): return exp(-R / float(disc_map.exp)) * float(disc_map.bol)
 	return GalModels.inman_surface(disc_map.discs, float(disc_map.outerH), R) * float(disc_map.bol)
+
+## The bar's share of the disc's light, from the applied map (_add_bar).
+var bar_share := 0.0
+## Rathore et al.'s (2024) annuli for A2, kpc.
+const BAR_ANNULUS := 0.1
+
+## A Ferrers (1 − m²)² bar of semi-major axis a, axis ratio q, at angle ψ from the line of
+## nodes, gathered from the disc's light in b: its share f is solved so the map's peak
+## bi-symmetric amplitude A2 = |Σ Σ e^{2iφ}| / Σ Σ over BAR_ANNULUS annuli is the measured one.
+## The disc alone has no m = 2 term, so each annulus's A2 is f|c_bar| / ((1 − f)A0_disc + f A0_bar).
+func _add_bar(img: Image) -> float:
+	var bar: Array = disc_map.bar
+	var a: float = bar[0]
+	var q: float = bar[1]
+	var c := cos(float(bar[2]))
+	var sn := sin(float(bar[2]))
+	var n := img.get_width()
+	var px := 2.0 * ARM_HALF / float(n)
+	var shape := PackedFloat64Array()
+	shape.resize(n * n)
+	var tot_d := 0.0
+	var tot_b := 0.0
+	for j in n:
+		for i in n:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var u := x * c + z * sn
+			var v := -x * sn + z * c
+			var m2 := (u / a) * (u / a) + (v / (q * a)) * (v / (q * a))
+			shape[j * n + i] = pow(1.0 - m2, 2.0) if m2 < 1.0 else 0.0
+			tot_b += shape[j * n + i]
+			tot_d += img.get_pixel(i, j).b
+	# Per annulus: the disc's and bar's A0, the bar's |c₂|, each per unit of its whole.
+	var nb := int(ceil(2.0 * a / BAR_ANNULUS)) + 1
+	var a0d := PackedFloat64Array()
+	var a0b := PackedFloat64Array()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	for arr in [a0d, a0b, cr, ci]: arr.resize(nb)
+	for j in n:
+		for i in n:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / BAR_ANNULUS)
+			if k >= nb: continue
+			var phi := atan2(z, x)
+			var sb := shape[j * n + i] / tot_b
+			a0d[k] += img.get_pixel(i, j).b / tot_d
+			a0b[k] += sb
+			cr[k] += sb * cos(2.0 * phi)
+			ci[k] += sb * sin(2.0 * phi)
+	var want: float = bar[3]
+	var lo := 0.0
+	var hi := 1.0
+	for it in 60:
+		var f := 0.5 * (lo + hi)
+		if _peak_a2(f, a0d, a0b, cr, ci) < want: lo = f
+		else: hi = f
+	var f := 0.5 * (lo + hi)
+	for j in n:
+		for i in n:
+			var col := img.get_pixel(i, j)
+			col.b = (1.0 - f) * col.b + f * tot_d * shape[j * n + i] / tot_b
+			img.set_pixel(i, j, col)
+	return f
+
+static func _peak_a2(f: float, a0d: PackedFloat64Array, a0b: PackedFloat64Array, cr: PackedFloat64Array, ci: PackedFloat64Array) -> float:
+	var peak := 0.0
+	for k in a0d.size():
+		var a0 := (1.0 - f) * a0d[k] + f * a0b[k]
+		if a0 > 0.0: peak = maxf(peak, f * sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0)
+	return peak
 
 ## ∫∫ of a map channel over the plane, as the shader reads it.
 func _map_integral(img: Image, ch: int) -> float:
@@ -869,6 +973,9 @@ func _gather_light(img: Image) -> void:
 			sum[k] += a
 			cnt[k] += 1.0
 			top[k] = maxf(top[k], a)
+	var share := float(thin_map.get("share", 1.0))
+	if thin_map.has("a2"): share = _share_for_a2(img, sum, cnt, px)
+	young_share = share
 	for j in ARM_N:
 		for i in ARM_N:
 			var x := -ARM_HALF + (float(i) + 0.5) * px
@@ -879,10 +986,10 @@ func _gather_light(img: Image) -> void:
 			var c := img.get_pixel(i, j)
 			var rel := c.r / mean if mean > 1e-12 else 0.0
 			var pres := _arm_presence(R)
-			var t: float = GalModels.inman_surface(thin_map.discs, float(thin_map.outerH), R) * float(thin_map.bol)
-			var fy := float(thin_map.share) * pres if mean > 1e-12 else 0.0
+			var t := _thin_surface(R)
+			var fy := share * pres if mean > 1e-12 else 0.0
 			c.r = t * ((1.0 - fy) + fy * rel)
-			if not disc_map.is_empty():
+			if disc_map.has("contrast"):
 				# Peak to valley C = 1 + f·(max/mean)/(1 − f) for a ring whose arms vanish between.
 				var cc := _contrast(R) - 1.0
 				var peak := top[k] / mean if mean > 1e-12 else 0.0
@@ -898,6 +1005,44 @@ func _contrast(R: float) -> float:
 		if R <= float(t[k][0]):
 			return lerpf(float(t[k - 1][1]), float(t[k][1]), (R - float(t[k - 1][0])) / (float(t[k][0]) - float(t[k - 1][0])))
 	return float(t[t.size() - 1][1])
+
+## The young disc's share gathered into its arms (after the bake).
+var young_share := 0.0
+
+## The young disc's bolometric surface luminosity at R: Inman et al.'s discs or an exponential.
+func _thin_surface(R: float) -> float:
+	if thin_map.has("exp"): return exp(-R / float(thin_map.exp)) * float(thin_map.bol)
+	return GalModels.inman_surface(thin_map.discs, float(thin_map.outerH), R) * float(thin_map.bol)
+
+## The share that gives the young light a mean normalised m = 2 amplitude thin_map.a2 over the
+## rings in thin_map.a2R: each ring's A2 is the share times its arm presence times the arms'
+## own |Σ (A/⟨A⟩) e^{2iφ}| / N, the even part adding nothing.
+func _share_for_a2(img: Image, sum: PackedFloat64Array, cnt: PackedFloat64Array, px: float) -> float:
+	var nb := sum.size()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	cr.resize(nb)
+	ci.resize(nb)
+	for j in ARM_N:
+		for i in ARM_N:
+			var x := -ARM_HALF + (float(i) + 0.5) * px
+			var z := -ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / px)
+			var mean := sum[k] / maxf(cnt[k], 1.0)
+			if mean <= 1e-12: continue
+			var rel := img.get_pixel(i, j).r / mean
+			var phi := atan2(z, x)
+			cr[k] += rel * cos(2.0 * phi)
+			ci[k] += rel * sin(2.0 * phi)
+	var lim: Array = thin_map.a2R
+	var acc := 0.0
+	var m := 0
+	for k in nb:
+		var R := (float(k) + 0.5) * px
+		if R < float(lim[0]) or R > float(lim[1]) or cnt[k] <= 0.0: continue
+		acc += _arm_presence(R) * sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / cnt[k]
+		m += 1
+	return clampf(float(thin_map.a2) / (acc / float(maxi(m, 1))), 0.0, 1.0)
 
 ## How fully the arms are there at R: the strongest arm's weight past its measured span, times
 ## their rise.

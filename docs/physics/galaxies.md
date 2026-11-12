@@ -486,7 +486,7 @@ Way's exposure.
 |---|---|---|---|
 | M31 | Hernquist bulge 3.4 × 10¹⁰ M☉, a = 0.7 kpc; Miyamoto–Nagai disc 6.9 × 10¹⁰ M☉, a = 6.5, b = 0.26 kpc (Kafle et al. 2018, from five earlier studies) | as given | i 77.5° (Tamm et al. 2012), PA 38° (Corbelli et al. 2010), 783 kpc (McConnachie 2012) |
 | M33 | 4.8 × 10⁹ M☉, no bulge (Corbelli et al. 2014) | exponential, 1.8 kpc; 100 pc half-thick | PA 23°, ellipticity 0.41, so i = 53.8°; 809 kpc (McConnachie 2012) |
-| LMC | 2.7 × 10⁹ M☉ (van der Marel et al. 2009) | exponential, 1.3–1.5 kpc (van der Marel 2001; 1.4 here) | i 34.7°, PA 122.5° (van der Marel & Cioni 2001); 49.59 kpc |
+| LMC | 2.7 × 10⁹ M☉ (van der Marel et al. 2009) | exponential, 1.3–1.5 kpc (van der Marel 2001; 1.4 here), with a bar (below) | i 25.86°, line of nodes 149.23° (Choi et al. 2018a, the frame its bar was measured in); 49.59 kpc |
 | SMC | 3.1 × 10⁸ M☉ (ibid., from Stanimirović et al. 2004) | an old spheroid (ibid.), exponential with scale length 1.25 kpc (Gonidakis et al. 2009) | 62.44 kpc |
 
 - **Stand-ins.** An exponential disc is drawn as a Miyamoto–Nagai disc of the same mass
@@ -519,6 +519,8 @@ Way's exposure.
     M_side/M = R² ∫₀ʰ dz / (R² + (a + ζ)²)^{3/2}.
   - Through the two caps, each integral over R' closed: M_caps/M = (h/ζ_h)(1 − s/√(R² + s²)),
     with s = a + ζ_h. For b = 0 and h → ∞ the sum is the Kuzmin disc's 1 − a/√(R² + a²).
+  - A disc drawn from a baked map (M33, the LMC) holds all its light in the map, and only
+    the taper cuts it: an exponential of scale h holds 1 − (1 + x) e^(−x) within x = R/h.
   - The taper w(R) = smoothstep(e, 0.8e, R) weights the cumulative mass by parts:
     drawn/M = ∫ M(R)/M · (−dw/dR) dR over 0.8e to e, where −dw/dR = 6t(1 − t)/(0.2e) and
     t = (e − R)/(0.2e).
@@ -531,7 +533,40 @@ Way's exposure.
   - Light only: the halos wait for encounters (phase 4).
   - The neighbours hold their places from t = 0.
   - Which side of each disc is near is not modelled.
-  - They have no arms, bars or dust: the LMC's bar is missing.
+  - M33 has its two inner arms and the LMC its bar (below); the SMC has neither. None
+    has dust.
+- **M33's arms** are the two inner arms Smercina et al. (2023, PHATTER) find in resolved stars of
+  every age.
+  - **Geometry:** log spirals of pitch 23.78° through R0 0.90 kpc, 157.5° apart (their
+    155–160°: the arms are not symmetric), traced to 3.2 kpc (Javadi et al. 2017). They wind
+    counterclockwise outward on the sky, and their phase was set by laying them over ESO's
+    image. Their width (σ 0.3 kpc), start and fade are set by eye.
+  - **Light:** M33's disc is split at one star formation rate into its last 100 Myr and the rest,
+    the whole at its measured V. The rate this implies, 0.37 M☉/yr, is reported and not imposed;
+    Verley et al. (2007) find 0.2 M☉/yr for the inner disc alone.
+  - **Strength:** the young light is gathered into the arms (90 % of it) so its normalised m = 2
+    amplitude over 1–3.2 kpc is 0.6, the middle of the 0.4–0.8 M33 shows in Hα and dust
+    (Combes et al. 2012). The old disc stays smooth.
+  - **Checked:** the drawn young light's amplitude is 0.600; the glow matches the CPU integral to
+    0.2 %.
+  - **Missing:** M33 is flocculent, with many arm fragments and bright H II regions between the
+    two main arms; here it is a clean two-armed spiral.
+- **The LMC's bar** is Rathore et al.'s (2024) measurement from completeness-corrected Gaia DR3
+  red clump stars.
+  - **Measured:** axis ratio 0.54, PA 121.26° on the sky, a peak bi-symmetric amplitude A2 of
+    0.27, and A2 falling to half its peak at 2.58 kpc (their AM1 radius). Their preferred
+    2.13 kpc comes from where the m = 2 phase turns, which a straight model bar cannot show.
+  - **Drawn** as a Ferrers (1 − m²)² bar in the disc's map:
+    - its share of the disc's light (0.33) is solved so the map's own peak A2, in their 0.1 kpc
+      annuli, is 0.27;
+    - its length (3.25 kpc) is set so A2 halves at 2.58 kpc;
+    - its angle in the disc's plane is the sky PA deprojected through the disc's axes: 30.55°
+      from the line of nodes, the ~30° misalignment they note.
+  - **Not drawn:** the bar's 0.76 kpc offset from the disc's centre (its direction is only
+    shown in a figure), its tilt out of the plane, and the arm on its western end.
+  - **Checked:** measured back out of the drawn map, the peak A2 is 0.27, A2 halves at 2.65 kpc
+    (0.1 kpc bins), and the bar lies at PA 121.16° on the sky. The LMC's glow matches the CPU
+    integral in its frame to 0.1 %.
   - The eye adapts to the Milky Way, so seen close up they are overexposed.
 
 ## Galaxy types (phase 3c)
@@ -544,14 +579,32 @@ through the population model. They have no tracers.
 The share is of the light drawn, so what the glow's bounds leave out is made up, as for
 the neighbours ([the light a neighbour draws](#the-light-a-neighbour-draws)); with arms, the
 disc's population starts at 100 Myr, as drawn, since the arms hold the younger stars.
-`galaxycheck` marches each glow without its dust, since RC3's V_T⁰ and Kormendy et al.'s
-M_VT are corrected for the galaxy's own, and holds it within 0.005 mag of the measured.
+`galaxycheck` marches each glow drawn from parts without its dust, since RC3's V_T⁰ is
+corrected for the galaxy's own, and holds it within 0.005 mag of the measured.
 Seen face-on, M104's dust then takes 0.03 mag.
 
-- **M87.** A Hernquist sphere of the 16.2 kpc half-light radius Kormendy et al. (2009,
-  Table 1, from the 2-D profile) measure, drawn at their M_VT = −22.95 (D = 17.22 Mpc).
-  Its landmark is M87*: 6.5 × 10⁹ M☉ (EHT Collaboration 2019). Kormendy et al. fit
-  n ≈ 12 to its cD halo; a Hernquist sphere is n ≈ 4, so the far halo is too faint.
+- **M87,** drawn from its measured light, not a fitted shape. Its landmark is M87*:
+  6.5 × 10⁹ M☉ (EHT Collaboration 2019).
+  - **The profile.** Kormendy et al.'s (2009) Table 3 is M87's V surface brightness along its
+    major axis, 98 points from 0.017″ to 2444″ (D = 17.22 Mpc).
+    - It is corrected for the Galaxy's A_V = 0.072 (their Table 1): it was not, and then
+      integrates to M_VT within 0.01 mag.
+    - Radii are circularised by √(1 − ε), and M87 is drawn round.
+  - **The density.** Abel inversion turns the profile into the luminosity density whose
+    projection it is (`GalModels.abel`), tabulated as ln j on 256 radii even in ln r. The
+    glow reads the table (spheroid kind 2).
+  - **Past the last point** (155 kpc circularised), the profile carries on as Kormendy et
+    al.'s Sérsic fit does (n 11.84, r_e 704″, with Ciotti & Bertin's 1999 b_n), joined
+    there. It runs out to 20 times in the inversion and is drawn to 3 times, 465 kpc. The
+    last measured segment itself falls only as R^−1.3 near the sky limit, and carrying
+    that on would add light nobody measured.
+  - **Mass.** Held in the potential as a Hernquist sphere of the same mass and half-mass
+    radius.
+  - **Checked:**
+    - Projected back along parallel rays, the drawn galaxy matches all 92 measured points
+      inside 78 kpc to 0.039 mag; the worst is the very centre.
+    - Its light within the last point's circle is M_V −22.94 (Kormendy et al.: −22.95).
+    - Its glow matches the CPU integral to 0.3 %.
 - **M104, the Sombrero.**
   - Drawn at M_V = −22.35: RC3's V_T⁰ = 7.55 at McQuinn et al.'s (2016) 9.55 Mpc.
   - Light split as in Gadotti & Sánchez-Janssen's (2012) bulge + disc + halo

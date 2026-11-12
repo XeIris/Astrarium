@@ -778,7 +778,9 @@ func neighbours() -> void:
 	for k in MEASURED_MV:
 		var lv := GalModels.visible_luminosity(GalModels.neighbour(k, true))
 		var mv := 4.83 - 2.5 * log(lv) / log(10.0)
-		var shown := drawn_mv(GalModels.neighbour(k))
+		var nm := GalModels.neighbour(k)
+		# A bar or arms in the map: enough azimuths that their harmonics average out.
+		var shown := drawn_mv(nm, 120, 16 if nm.has("discMap") else 4)
 		print("     %s: M_V %s from its stellar mass and the population's M/L, %s measured; drawn at %s" % [k, String.num(mv, 2), String.num(MEASURED_MV[k], 1), String.num(shown, 3)])
 		worst = maxf(worst, absf(mv - float(MEASURED_MV[k])))
 		drawn = maxf(drawn, absf(shown - float(MEASURED_MV[k])))
@@ -808,6 +810,144 @@ func neighbours() -> void:
 
 # Galaxies of their own scenes (GalModels.TYPES): drawn at their measured total light, and
 # M104's dust, integrated back to a mass, De Looze et al.'s (2012) ring and inner disc.
+## M33's arms in its drawn map: the young light's normalised m = 2 amplitude over 1–3.2 kpc
+## (HERM33ES's 0.4–0.8 for Hα and dust, 0.6 aimed at), and the star formation rate its light
+## implies against what is measured.
+func m33_arms() -> void:
+	var m := GalModels.neighbour("m33")
+	var v := GalaxyVisual.new(m)
+	var img: Image = v.arm_img
+	var n := img.get_width()
+	var px := 2.0 * GalaxyVisual.ARM_HALF / float(n)
+	var nb := int(3.3 / px) + 1
+	var a0 := PackedFloat64Array()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	for arr in [a0, cr, ci]: arr.resize(nb)
+	for j in n:
+		for i in n:
+			var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+			var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / px)
+			if k >= nb: continue
+			var r := img.get_pixel(i, j).r
+			var phi := atan2(z, x)
+			a0[k] += r
+			cr[k] += r * cos(2.0 * phi)
+			ci[k] += r * sin(2.0 * phi)
+	var acc := 0.0
+	var cnt := 0
+	for k in nb:
+		var R := (float(k) + 0.5) * px
+		if R < 1.0 or R > 3.2: continue
+		acc += sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0[k]
+		cnt += 1
+	var a2 := acc / float(cnt)
+	print("     M33: %s of its young light in the arms; star formation %s M☉/yr implied by its V" % [String.num(v.young_share, 3), String.num(float(m.sfr), 3)])
+	ok(absf(a2 - 0.6) < 0.01, "M33's young light has m = 2 amplitude %s over 1–3.2 kpc (HERM33ES 0.4–0.8 in Hα and dust)" % String.num(a2, 3))
+	# Verley et al. (2007) find 0.2 M☉/yr in the inner disc alone, from the infrared and Hα.
+	ok(float(m.sfr) > 0.2 and float(m.sfr) < 0.7, "M33's light implies %s M☉/yr of star formation (inner disc alone 0.2, Verley et al. 2007)" % String.num(float(m.sfr), 3))
+	v.dispose()
+
+## The LMC's bar measured back out of its drawn map as Rathore et al. (2024) measured the real
+## one: A2 and the m = 2 phase in 0.1 kpc annuli; the bar's end where A2 falls to half its
+## peak; its phase seen on the sky.
+func lmc_bar() -> void:
+	var m := GalModels.neighbour("lmc")
+	var v := GalaxyVisual.new(m)
+	var img: Image = v.arm_img
+	var n := img.get_width()
+	var px := 2.0 * GalaxyVisual.ARM_HALF / float(n)
+	var nb := 60
+	var a0 := PackedFloat64Array()
+	var cr := PackedFloat64Array()
+	var ci := PackedFloat64Array()
+	for arr in [a0, cr, ci]: arr.resize(nb)
+	for j in n:
+		for i in n:
+			var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+			var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+			var k := int(sqrt(x * x + z * z) / 0.1)
+			if k >= nb: continue
+			var b := img.get_pixel(i, j).b
+			var phi := atan2(z, x)
+			a0[k] += b
+			cr[k] += b * cos(2.0 * phi)
+			ci[k] += b * sin(2.0 * phi)
+	var peak := 0.0
+	var kp := 0
+	for k in nb:
+		var a2 := sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0[k]
+		if a2 > peak:
+			peak = a2
+			kp = k
+	var r_end := 0.0
+	for k in range(kp, nb):
+		if sqrt(cr[k] * cr[k] + ci[k] * ci[k]) / a0[k] < 0.5 * peak:
+			r_end = (float(k) + 0.5) * 0.1
+			break
+	# The bar's direction in the plane from the phase inside it, then on the sky.
+	var sr := 0.0
+	var si := 0.0
+	for k in range(5, 20):
+		sr += cr[k]
+		si += ci[k]
+	var psi := 0.5 * atan2(si, sr)
+	var spec: Dictionary = GalModels.LOCAL_GROUP.lmc
+	var sk := GalLandmarks.sky_basis(float(spec.ra), float(spec.dec), float(spec.i), float(spec.pa))
+	var w: Vector3 = (sk[1] as Basis).x * cos(psi) + (sk[1] as Basis).z * sin(psi)
+	var e := 0.5
+	var north := (GalLandmarks.sky_direction(float(spec.ra), float(spec.dec) + e) - GalLandmarks.sky_direction(float(spec.ra), float(spec.dec) - e)).normalized()
+	var east := (GalLandmarks.sky_direction(float(spec.ra) + e / cos(deg_to_rad(float(spec.dec))), float(spec.dec)) - GalLandmarks.sky_direction(float(spec.ra) - e / cos(deg_to_rad(float(spec.dec))), float(spec.dec))).normalized()
+	var pa := fposmod(rad_to_deg(atan2(w.dot(east), w.dot(north))), 180.0)
+	print("     LMC bar: %s of the disc's light, A2 peak %s at %s kpc, half at %s kpc, sky PA %s°" % [
+		String.num(v.bar_share, 3), String.num(peak, 3), String.num((float(kp) + 0.5) * 0.1, 2), String.num(r_end, 2), String.num(pa, 2)])
+	ok(absf(peak - 0.27) < 0.005, "the LMC's drawn bar has Rathore et al.'s peak A2 (%s, want 0.27)" % String.num(peak, 4))
+	ok(absf(pa - 121.26) < 1.0, "the LMC's drawn bar lies at PA %s° on the sky (Rathore et al. 121.26°)" % String.num(pa, 2))
+	# Their AM1 radius, A2 at half its peak: 2.58 (+0.04 −0.05) kpc, binned in 0.1 kpc annuli.
+	ok(absf(r_end - 2.58) < 0.1, "the LMC's drawn bar's A2 halves at %s kpc (Rathore et al. 2.58)" % String.num(r_end, 2))
+	v.dispose()
+
+## M87 drawn from Kormendy et al.'s (2009) measured profile: the drawn galaxy, projected along
+## parallel rays, against each measured point inside half the profile's reach, and its light
+## against their M_VT.
+const M87_PROFILE_TOL := 0.05
+func m87() -> void:
+	var m := GalModels.type_galaxy("m87")
+	var v := GalaxyVisual.new(m)
+	var prof := GalModels.m87_surface(float(m.sky.d))
+	var R: PackedFloat64Array = prof[0]
+	var lnI: PackedFloat64Array = prof[1]
+	var rmax := R[R.size() - 1]
+	var d := Vector3(0.0, -1.0, 0.0)
+	var worst := 0.0
+	var worst_r := 0.0
+	var n := 0
+	for i in R.size():
+		if R[i] > 0.5 * rmax: continue
+		var sigma := v.ray_luminance(Vector3(R[i], 600.0, 0.0), d, 1e-4, 3000) * 4.0 * PI
+		var dm := 2.5 * (lnI[i] - log(sigma)) / log(10.0)
+		if absf(dm) > absf(worst):
+			worst = dm
+			worst_r = R[i]
+		n += 1
+	ok(absf(worst) < M87_PROFILE_TOL, "M87 projects back onto Kormendy et al.'s %d measured points inside %s kpc (worst %s mag at %s kpc)" % [
+		n, U.fixed(0.5 * rmax, 0), U.fixed(worst, 3), U.fixed(worst_r, 2)])
+	# Its light within the last point's circle on the sky, as photometry adds it up.
+	var lc := 0.0
+	var steps := 60
+	var r0 := log(0.01)
+	var dl := (log(R[R.size() - 1]) - r0) / float(steps)
+	for k in steps:
+		var ra := exp(r0 + float(k) * dl)
+		var rb := exp(r0 + float(k + 1) * dl)
+		var rc := sqrt(ra * rb)
+		lc += v.ray_luminance(Vector3(rc, 600.0, 0.0), d, 1e-4, 3000) * 4.0 * PI * PI * (rb * rb - ra * ra)
+	lc += v.ray_luminance(Vector3(0.005, 600.0, 0.0), d, 1e-4, 3000) * 4.0 * PI * PI * 1e-4
+	var mv := 4.83 - 2.5 * log(lc) / log(10.0)
+	ok(absf(mv - float(GalModels.TYPES.m87.mv)) < 0.05, "M87 drawn holds M_V %s within its last measured point's circle (Kormendy et al. M_VT −22.95)" % U.fixed(mv, 3))
+	v.dispose()
+
 ## M51 (GalModels.M51_LIGHT, M51_DUST, M51_HII): each measured input drawn back out of the map
 ## and catalogue, and the whole against independent measurements.
 const M51_SEEN_TOL := 0.35
@@ -1055,7 +1195,7 @@ func types() -> void:
 	# RC3's V_T⁰ and Kormendy et al.'s M_VT are corrected for the galaxy's own dust, so the
 	# glow is marched without it; seen face-on, the dust then takes what it takes.
 	for k in GalModels.TYPES:
-		if GalModels.TYPES[k].get("light", "") == "m51": continue
+		if GalModels.TYPES[k].has("light"): continue
 		var m := GalModels.type_galaxy(k)
 		var dusty := m.has("dust") or m.has("dustRing")
 		var seen := drawn_mv(m) if dusty else 0.0
@@ -1064,8 +1204,11 @@ func types() -> void:
 		print("     %s: drawn at M_V %s, measured %s%s" % [k, String.num(mv, 3), String.num(float(GalModels.TYPES[k].mv), 2),
 			(", %s through its dust face-on" % String.num(seen, 3)) if dusty else ""])
 		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
-	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size() - 1, U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
+	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size() - 2, U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
 	m51()
+	m87()
+	lmc_bar()
+	m33_arms()
 	var m51 := GalModels.type_galaxy("m51")
 	# NGC 5195 against M51: 4.41′ apart on the sky (NED), 35 kpc behind.
 	var cf := GalLandmarks.companion_frame(m51, "ngc5195")

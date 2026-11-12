@@ -62,14 +62,27 @@ const LOCAL_GROUP := {
 	# Corbelli et al. (2014): stars 4.8 × 10⁹ M☉, an exponential disc of 1.8 kpc, no bulge,
 	# 100 pc half-thick at the centre; McConnachie (2012): 809 kpc, PA 23°, ellipticity 0.41,
 	# so i = acos(1 − 0.41) for a thin disc.
+	# Its two inner arms (Smercina et al. 2023, PHATTER, from resolved stars of every age): log
+	# spirals of pitch 23.78° through R0 0.90 kpc, 155–160° apart in phase (157.5° here), traced
+	# to 3.2 kpc (Javadi et al. 2017); they wind counterclockwise outward on the sky, and their
+	# phase was set by laying them over ESO's image (eso1424a). Their width (σ 0.3 kpc), start
+	# and fade past 3.2 kpc are set by eye. M33_LIGHT gives them their light.
 	"m33": {"name": "Triangulum (M33)", "ra": 23.46204167, "dec": 30.66022222, "d": 809.0, "i": 53.84, "pa": 23.0,
-		"disc": [4.8e9, 1.744, 0.1], "extent": 15.0, "mv": -18.8},
+		"disc": [4.8e9, 1.744, 0.1], "extent": 15.0, "mv": -18.8,
+		"arms": [["South", 0.90, 0.0, 23.78, 23.78, 0.3, -165.7, 0.0, false], ["North", 0.90, 157.5, 23.78, 23.78, 0.3, 157.5 - 165.7, 157.5, false]],
+		"armR": [0.3, 12.0], "armTurns": 1, "armWidthGrowth": 0.0, "armRise": [0.6, 0.6], "armEndFade": 0.6},
 	# van der Marel, Kallivayalil & Besla (2009): stars 2.7 × 10⁹ M☉; van der Marel (2001):
-	# exponential, scale length 1.3–1.5 kpc (1.4 here); van der Marel & Cioni (2001): i 34.7°,
-	# PA 122.5°; Pietrzyński et al. (2019): 49.59 kpc. Its thickness, b = 0.2 a, is a rendering
-	# choice: van der Marel et al. (2002) find a thick disc, V/σ ≈ 2.9.
-	"lmc": {"name": "Large Magellanic Cloud", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "i": 34.7, "pa": 122.5,
-		"disc": [2.7e9, 1.356, 0.27], "extent": 12.0, "mv": -18.1},
+	# exponential, scale length 1.3–1.5 kpc (1.4 here); Pietrzyński et al. (2019): 49.59 kpc.
+	# i 25.86°, line of nodes 149.23° (Choi et al. 2018a), the frame its bar was measured in.
+	# The bar (Rathore et al. 2024, completeness-corrected Gaia DR3 red clump): axis ratio 0.54,
+	# PA 121.26° on the sky, peak bi-symmetric amplitude A2 0.27, and A2 falling to half its peak
+	# at 2.58 kpc (their AM1 radius; 2.13 kpc by the m = 2 phase, which a straight model bar
+	# cannot show). Drawn as a Ferrers (1 − m²)² bar: its share of the disc's light is solved so
+	# the map's peak A2 is 0.27, and its 3.25 kpc length set so A2 halves at 2.58 kpc. Its 0.76
+	# kpc offset from the disc's centre, and the lopsided arm on its western end, are not drawn. Its thickness,
+	# b = 0.2 a, is a rendering choice: van der Marel et al. (2002) find a thick disc, V/σ ≈ 2.9.
+	"lmc": {"name": "Large Magellanic Cloud", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "i": 25.86, "pa": 149.23,
+		"disc": [2.7e9, 1.356, 0.27], "extent": 12.0, "mv": -18.1, "bar": [3.25, 0.54, 121.26, 0.27]},
 	# Stars 3.1 × 10⁸ M☉ (van der Marel et al. 2009, from Stanimirović et al. 2004); the old
 	# stars a spheroid (ibid.), exponential with scale length 1.25 kpc (Gonidakis et al. 2009),
 	# so R_e = 2.10 kpc; Graczyk et al. (2020): 62.44 kpc. Drawn round: Crowl et al. (2001)
@@ -98,10 +111,72 @@ static func neighbour(key: String, from_mass := false) -> Dictionary:
 		"spherePop": {"kind": "constant", "gyr": 10.0} if spec.get("young", false) else {"kind": "burst", "gyr": 10.0},
 		"sky": spec,
 	}
+	if spec.has("bar"):
+		# The disc in the map as the exponential it stands in for, with its bar (GalaxyVisual).
+		var pop := GalPopulation.build({"kind": "constant", "gyr": 10.0})
+		var yd := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
+		var b: Array = spec.bar
+		model.discMap = {"exp": spec.disc[1] / 0.9688, "z": spec.disc[2], "bol": 1.0 / yd,
+			"bar": [b[0], b[1], bar_angle(spec, float(b[2])), b[3]]}
+	# After the map: a disc drawn from it is drawn whole (drawn_share).
 	if spec.has("mv") and not from_mass:
 		var k := pow(10.0, -0.4 * (float(spec.mv) - 4.83)) / visible_luminosity(model, true)
 		for l in light: l.visible = float(l.visible) * k
+	if spec.has("arms") and not from_mass: _m33_light(model, spec)
 	return model
+
+# M33's light split at one star formation rate into the stars of the last 100 Myr and the rest,
+# the whole at its measured V: the rate this implies is reported, not imposed (estimates span
+# 0.2 to over 0.5 M☉/yr with the tracer). The young light is gathered into the arms so its
+# normalised m = 2 amplitude over 1–3.2 kpc is 0.6, the middle of the 0.4–0.8 M33 shows in Hα
+# and dust (Combes et al. 2012, HERM33ES); old and young both as exponentials of the disc's
+# scale length, 0.1 kpc thick.
+const M33_LIGHT := {"a2": 0.6, "a2R": [1.0, 3.2], "youngGyr": 0.1}
+
+static func _m33_light(model: Dictionary, spec: Dictionary) -> void:
+	var tg := float(M33_LIGHT.youngGyr)
+	var old_spec := {"kind": "constant", "gyr": 10.0, "fromGyr": tg}
+	var old := GalPopulation.build(old_spec)
+	var young := GalPopulation.build({"kind": "constant", "gyr": tg})
+	var yo := 0.2126 * old.color.r + 0.7152 * old.color.g + 0.0722 * old.color.b
+	var yy := 0.2126 * young.color.r + 0.7152 * young.color.g + 0.0722 * young.color.b
+	var lv := pow(10.0, -0.4 * (float(spec.mv) - 4.83))
+	# Light at one rate: light per mass formed times the mass formed in each span.
+	var sfr := lv / (old.light_per_formed * (10.0 - tg) * 1e9 * yo + young.light_per_formed * tg * 1e9 * yy)
+	var l_old := sfr * (10.0 - tg) * 1e9 * old.light_per_formed
+	var d: Dictionary = (model.potential as GalPotential).part("disc")
+	var m_disc := float(d.gm) / GalUnits.G * GalUnits.MASS_UNIT_SUN
+	model.discPop = old_spec
+	model.armLight = sfr * tg * 1e9 * young.light_per_formed
+	model.sfr = sfr
+	for k in ["arms", "armR", "armTurns", "armWidthGrowth", "armRise", "armEndFade"]: model[k] = spec[k]
+	model.youngGyr = tg
+	model.envelope = [1e9, 0.0]
+	var h := float(spec.disc[1]) / 0.9688
+	model.armH = float(spec.disc[2])
+	model.discMap = {"exp": h, "z": float(spec.disc[2]), "bol": 1.0 / yo}
+	model.thinMap = {"exp": h, "z": float(spec.disc[2]), "bol": 1.0 / yy, "a2": M33_LIGHT.a2, "a2R": M33_LIGHT.a2R}
+	# Of the light drawn (drawn_share): the map's edge takes its tail.
+	for l in model.light:
+		if l.part == "disc": l.visible = l_old / (m_disc * old.mean_l / old.mean_mass) / drawn_share(model, d)
+
+## The angle (rad) in a disc's plane, from its line of nodes, of a direction seen at position
+## angle `pa_deg` on the sky: deprojected through the disc's own axes (GalLandmarks.sky_basis).
+static func bar_angle(spec: Dictionary, pa_deg: float) -> float:
+	var sk := GalLandmarks.sky_basis(float(spec.ra), float(spec.dec), float(spec.i), float(spec.pa))
+	var basis: Basis = sk[1]
+	# North and east as sky_basis takes them.
+	var e := 0.5
+	var ra := float(spec.ra)
+	var dec := float(spec.dec)
+	var north := (GalLandmarks.sky_direction(ra, dec + e) - GalLandmarks.sky_direction(ra, dec - e)).normalized()
+	var east := (GalLandmarks.sky_direction(ra + e / cos(deg_to_rad(dec)), dec) - GalLandmarks.sky_direction(ra - e / cos(deg_to_rad(dec)), dec)).normalized()
+	# w(ψ) = x cos ψ + z sin ψ lies at position angle P where its east and north parts
+	# satisfy (w·e) cos P = (w·n) sin P; a bar is a line, so ψ is taken modulo π.
+	var p := deg_to_rad(pa_deg)
+	var ca := basis.x.dot(east) * cos(p) - basis.x.dot(north) * sin(p)
+	var cb := basis.z.dot(east) * cos(p) - basis.z.dot(north) * sin(p)
+	return fposmod(atan2(-ca, cb), PI)
 
 ## A model's visible luminosity (Sun-luminances): each part's stellar mass, visible
 ## share, its population's L/M and that light's luminance; with `drawn`, only the light
@@ -139,6 +214,9 @@ const SPHERE_LEFT := 0.005
 static func sphere_reach(model: Dictionary) -> float:
 	var bl: Dictionary = (model.potential as GalPotential).part("bulge")
 	if not bl.is_empty() and bl.kind == GalPotential.Kind.POWER_CUTOFF: return 3.0 * float(bl.rc)
+	# A measured profile is drawn to the end of its table.
+	var tab: Dictionary = model.get("sphereTable", {})
+	if not tab.is_empty(): return minf(float(model.get("extent", 30.0)), float(tab.rmax))
 	if not bl.is_empty() and bl.kind == GalPotential.Kind.HERNQUIST:
 		var x := sqrt(maxf(1.0 - SPHERE_LEFT / maxf(_sphere_share(model), SPHERE_LEFT), 0.0))
 		return minf(float(model.get("extent", 30.0)), float(bl.a) * x / maxf(1.0 - x, 1e-9))
@@ -155,7 +233,7 @@ static func _sphere_share(model: Dictionary) -> float:
 
 ## The share of a part's light the glow draws: a Hernquist spheroid's within sphere_reach;
 ## a Miyamoto–Nagai disc's within the glow box's height and the light's edge, tapered over its
-## last fifth (gal_model.gdshaderinc). Mass in a cylinder is the gravitational flux out of
+## last fifth (gal_model.gdshaderinc), or, drawn from a map, within the taper. Mass in a cylinder is the gravitational flux out of
 ## it (docs/physics/galaxies.md#the-light-a-neighbour-draws). Other parts: all of it.
 static func drawn_share(model: Dictionary, part: Dictionary) -> float:
 	if part.kind == GalPotential.Kind.HERNQUIST:
@@ -176,9 +254,21 @@ static func drawn_share(model: Dictionary, part: Dictionary) -> float:
 				share += pow(r * q / (r * q + float(part.a)), 2.0) / (q * q * q)
 		return share * (1.0 / n) * (PI * 0.5 / n) * 8.0 / (4.0 * PI * bx * cy)
 	if part.kind != GalPotential.Kind.MIYAMOTO_NAGAI: return 1.0
+	var e := float(model.get("extent", 30.0))
+	# A disc drawn from a baked map holds its light there (GalaxyVisual.apply_arms), and only
+	# the taper cuts it: an exponential holds 1 − (1 + x) e^(−x) within x = R/h.
+	var dm: Dictionary = model.get("discMap", {})
+	if dm.has("exp"):
+		var hx := float(dm.exp)
+		var cut := 0.0
+		for i in 64:
+			var tt := (float(i) + 0.5) / 64.0
+			var x := e * (1.0 - 0.2 * tt) / hx
+			cut += (1.0 - (1.0 + x) * exp(-x)) * 6.0 * tt * (1.0 - tt) / 64.0
+		return cut
+	if not dm.is_empty(): return 1.0
 	var a := float(part.a)
 	var b := float(part.b)
-	var e := float(model.get("extent", 30.0))
 	var h := glow_half_height(model)
 	var zh := sqrt(h * h + b * b)
 	var nr := 32
@@ -207,10 +297,10 @@ static func drawn_share(model: Dictionary, part: Dictionary) -> float:
 ## model. Light only. docs/physics/galaxies.md#galaxy-types.
 ## `parts`: name → [share of the light, scale (kpc), (disc height, kpc)].
 const TYPES := {
-	# Kormendy et al. (2009, Table 1): D 17.22 Mpc, M_VT −22.95, r_e 16.2 kpc from the 2-D
-	# profile (194.4″); E1, drawn round. A Hernquist sphere of that half-light radius.
+	# M87 (Kormendy et al. 2009): D 17.22 Mpc, M_VT −22.95; its light is M87_PROFILE. E1, drawn
+	# round.
 	"m87": {"name": "M87", "ra": 187.7059308, "dec": 12.39112326, "d": 17220.0, "mv": -22.95,
-		"parts": {"bulge": [1.0, 8.93]}, "extent": 150.0},
+		"light": "m87", "extent": 470.0},
 	# McQuinn et al. (2016): 9.55 Mpc; RC3 V_T⁰ 7.55, so M_V −22.35. Gadotti &
 	# Sánchez-Janssen (2012, model bdh, at 9.1 Mpc, rescaled): bulge 13 % (n 1.9, r_e 0.46 kpc)
 	# and halo 52 % (exponential, r_e 6.0 kpc, ellipticity 0.28) as one Hernquist sphere of
@@ -288,6 +378,117 @@ const M51_LIGHT := {"bulge": [0.35, 4.16e20, 6.05e20],
 # smooth young light, lines and all: a rendering choice.
 const M51_HII := {"sfr": 4.11, "logC": 41.27, "dig": 0.45, "tGyr": 0.01, "alpha": [-2.25, -1.42],
 	"logL": [35.5, 37.1, 39.0], "d": 9.9, "size": [8.0, 3.04], "nii": 0.5, "hahb": 2.86, "drawLogL": 36.5, "levels": 5, "top": 0.22}
+# M87's measured V surface brightness (Kormendy et al. 2009, Table 3: composite photometry
+# along the major axis): [r (″), μ_V (mag arcsec⁻²), ellipticity]; no ellipticity is given at
+# the first point. The table is not corrected for the Galaxy's A_V = 0.072 (their Table 1),
+# which it integrates to M_VT within 0.01 mag once it is. Drawn round on the circularised
+# radius r √(1 − ε), as the light density whose projection it is (an Abel inversion). Past the
+# last point (155 kpc) it carries on as their Sérsic fit does (n 11.84, r_e 703.91″ on the major
+# axis, circularised with the last point's ε), joined there: in the inversion to 20 times,
+# drawn to 3 times, so a sight line through the outer halo holds its light. The last segment's
+# own slope, I ∝ R^−1.3 at μ_V ≈ 28, is too shallow to carry on.
+const M87_AV := 0.072
+const M87_SERSIC := [11.84, 703.91]
+const M87_PROFILE := [
+	[0.017, 16.266, 0.0],
+	[0.044, 16.358, 0.16],
+	[0.088, 16.511, 0.161],
+	[0.176, 16.589, 0.161],
+	[0.22, 16.646, 0.161],
+	[0.264, 16.7, 0.162],
+	[0.308, 16.746, 0.162],
+	[0.352, 16.788, 0.162],
+	[0.396, 16.838, 0.138],
+	[0.44, 16.889, 0.131],
+	[0.484, 16.927, 0.118],
+	[0.548, 16.953, 0.109],
+	[0.604, 16.966, 0.097],
+	[0.66, 16.996, 0.094],
+	[0.727, 17.031, 0.084],
+	[0.795, 17.062, 0.09],
+	[0.867, 17.091, 0.087],
+	[0.95, 17.114, 0.079],
+	[1.038, 17.134, 0.075],
+	[1.147, 17.165, 0.071],
+	[1.254, 17.195, 0.072],
+	[1.365, 17.21, 0.049],
+	[1.515, 17.241, 0.03],
+	[1.669, 17.27, 0.023],
+	[1.825, 17.29, 0.015],
+	[1.998, 17.318, 0.007],
+	[2.196, 17.346, 0.018],
+	[2.419, 17.371, 0.015],
+	[2.64, 17.399, 0.012],
+	[2.835, 17.418, 0.008],
+	[3.218, 17.47, 0.005],
+	[3.823, 17.538, 0.012],
+	[4.546, 17.613, 0.01],
+	[5.413, 17.715, 0.017],
+	[6.092, 17.79, 0.021],
+	[7.118, 17.913, 0.028],
+	[7.78, 17.991, 0.023],
+	[8.61, 18.086, 0.028],
+	[9.441, 18.183, 0.02],
+	[10.304, 18.277, 0.026],
+	[11.552, 18.409, 0.03],
+	[12.322, 18.489, 0.026],
+	[13.715, 18.622, 0.03],
+	[15.109, 18.749, 0.03],
+	[16.615, 18.879, 0.032],
+	[18.249, 19.009, 0.036],
+	[19.971, 19.143, 0.036],
+	[21.945, 19.284, 0.04],
+	[23.961, 19.415, 0.043],
+	[26.318, 19.56, 0.05],
+	[29.04, 19.716, 0.051],
+	[31.75, 19.86, 0.052],
+	[35.015, 20.016, 0.059],
+	[38.371, 20.161, 0.064],
+	[42.073, 20.318, 0.072],
+	[45.779, 20.455, 0.076],
+	[50.855, 20.631, 0.078],
+	[56.04, 20.794, 0.082],
+	[61.094, 20.936, 0.086],
+	[67.531, 21.097, 0.096],
+	[72.277, 21.217, 0.1],
+	[77.179, 21.331, 0.099],
+	[84.918, 21.499, 0.109],
+	[93.972, 21.693, 0.114],
+	[104.954, 21.912, 0.128],
+	[116.011, 22.116, 0.139],
+	[127.938, 22.317, 0.153],
+	[139.798, 22.515, 0.157],
+	[154.17, 22.714, 0.171],
+	[166.341, 22.87, 0.185],
+	[180.926, 23.019, 0.206],
+	[200.909, 23.22, 0.222],
+	[222.587, 23.42, 0.237],
+	[242.103, 23.573, 0.254],
+	[265.053, 23.742, 0.275],
+	[293.99, 23.934, 0.293],
+	[321.366, 24.096, 0.303],
+	[346.737, 24.257, 0.313],
+	[381.651, 24.441, 0.329],
+	[419.276, 24.658, 0.337],
+	[462.914, 24.82, 0.348],
+	[502.343, 25.011, 0.37],
+	[541.377, 25.09, 0.381],
+	[593.608, 25.288, 0.388],
+	[653.131, 25.486, 0.398],
+	[719.449, 25.697, 0.427],
+	[794.328, 25.917, 0.447],
+	[878.348, 26.1, 0.454],
+	[946.237, 26.328, 0.447],
+	[1046.325, 26.62, 0.457],
+	[1145.513, 26.848, 0.464],
+	[1230.269, 26.995, 0.454],
+	[1336.595, 27.18, 0.443],
+	[1479.109, 27.305, 0.439],
+	[1621.81, 27.535, 0.436],
+	[1778.279, 27.715, 0.433],
+	[1995.262, 27.755, 0.429],
+	[2443.7, 28.045, 0.422],
+]
 const LAMBDA_V := 5476.0
 const SUN_V_AB := 4.80
 
@@ -376,6 +577,7 @@ static func type_galaxy(key: String) -> Dictionary:
 	var model := {"key": key, "name": spec.name, "potential": pot, "sense": 1.0, "extent": spec.extent, "light": light,
 		"sky": spec, "bulgeAxes": spec.get("bulgeAxes", [1.0, 1.0])}
 	if spec.get("light", "") == "m51": _m51_light(model)
+	if spec.get("light", "") == "m87": _m87_light(model)
 	var lv := pow(10.0, -0.4 * (float(spec.mv) - 4.83))
 	# With arms, stars under 100 Myr are theirs, so the disc's own population starts there,
 	# as GalaxyVisual draws it.
@@ -459,6 +661,88 @@ static func _m51_light(model: Dictionary) -> void:
 	model.armLight = ly / yy
 	model.armH = float((thins[1] as Array)[5])
 	model.hii = M51_HII
+
+## M87's light as M87_PROFILE has it: ln j (bolometric L☉ kpc⁻³) on SPHERE_TAB_N radii even in
+## ln r out to 3 times the last point; its mass through the population model, held in the potential as a
+## Hernquist sphere of the same mass and half-mass radius (a = r_half/(1 + √2)).
+const SPHERE_TAB_N := 256
+const SPHERE_TAB_R0 := 1e-3
+static func _m87_light(model: Dictionary) -> void:
+	var spec: Dictionary = model.sky
+	var prof := m87_surface(float(spec.d))
+	var R: PackedFloat64Array = prof[0]
+	var lnI: PackedFloat64Array = prof[1]
+	var rmax := 3.0 * R[R.size() - 1]
+	var pop := GalPopulation.build({"kind": "burst", "gyr": 10.0})
+	var y := 0.2126 * pop.color.r + 0.7152 * pop.color.g + 0.0722 * pop.color.b
+	var d := log(rmax / SPHERE_TAB_R0) / float(SPHERE_TAB_N - 1)
+	var lnj := PackedFloat32Array()
+	lnj.resize(SPHERE_TAB_N)
+	for k in SPHERE_TAB_N:
+		var r := SPHERE_TAB_R0 * exp(float(k) * d)
+		lnj[k] = log(maxf(abel(R, lnI, r, prof[2]) / y, 1e-30))
+	# Light and mass within each radius, from the table as drawn.
+	var lb := 0.0
+	var cum := PackedFloat64Array()
+	cum.resize(SPHERE_TAB_N)
+	for k in range(1, SPHERE_TAB_N):
+		var r0 := SPHERE_TAB_R0 * exp(float(k - 1) * d)
+		var r1 := SPHERE_TAB_R0 * exp(float(k) * d)
+		lb += 0.5 * (exp(lnj[k - 1]) * r0 * r0 + exp(lnj[k]) * r1 * r1) * 4.0 * PI * (r1 - r0)
+		cum[k] = lb
+	var r_half := rmax
+	for k in SPHERE_TAB_N:
+		if cum[k] >= 0.5 * lb:
+			r_half = SPHERE_TAB_R0 * exp(float(k) * d)
+			break
+	var mass := lb / (VISIBLE_BULGE * pop.mean_l / pop.mean_mass)
+	(model.potential as GalPotential).add(GalPotential.hernquist("bulge", r_half / (1.0 + sqrt(2.0)), GalUnits.G * mass / GalUnits.MASS_UNIT_SUN))
+	model.light.append({"part": "bulge", "visible": VISIBLE_BULGE})
+	model.sphereTable = {"lnr0": log(SPHERE_TAB_R0), "dlnr": d, "lnj": lnj, "rmax": rmax}
+
+## M87_PROFILE as V surface luminosity (L☉ kpc⁻²) on circularised radius (kpc): [R, ln I].
+static func m87_surface(d_kpc: float) -> Array:
+	var kpc_as := d_kpc * PI / (180.0 * 3600.0)
+	var R := PackedFloat64Array()
+	var lnI := PackedFloat64Array()
+	for row in M87_PROFILE:
+		R.append(float(row[0]) * kpc_as * sqrt(1.0 - float(row[2])))
+		# μ = M☉ + 21.572 − 2.5 log₁₀(I in L☉ pc⁻²); 21.572 = 5 log₁₀(206265″/10 pc).
+		lnI.append(-0.4 * (float(row[1]) - M87_AV - 4.83 - 21.572) * log(10.0) + log(1e6))
+	# Ciotti & Bertin's (1999) b_n, to 1/n².
+	var n := float(M87_SERSIC[0])
+	var b := 2.0 * n - 1.0 / 3.0 + 4.0 / (405.0 * n) + 46.0 / (25515.0 * n * n)
+	var last: Array = M87_PROFILE[M87_PROFILE.size() - 1]
+	var re := float(M87_SERSIC[1]) * kpc_as * sqrt(1.0 - float(last[2]))
+	return [R, lnI, [n, b, re]]
+
+## ln I at R, linear in ln R between points; beyond, the Sérsic profile `sersic` = [n, b_n, r_e]
+## joined at the last point, or without one the last slope.
+static func lnI_at(R: PackedFloat64Array, lnI: PackedFloat64Array, x: float, sersic := []) -> float:
+	var lx := log(x)
+	if x <= R[0]: return lnI[0]
+	var n := R.size()
+	var k := R.bsearch(x)
+	if k < n:
+		var t := (lx - log(R[k - 1])) / (log(R[k]) - log(R[k - 1]))
+		return lerpf(lnI[k - 1], lnI[k], t)
+	if not sersic.is_empty():
+		var sn: float = sersic[0]
+		return lnI[n - 1] - float(sersic[1]) * (pow(x / float(sersic[2]), 1.0 / sn) - pow(R[n - 1] / float(sersic[2]), 1.0 / sn))
+	return lnI[n - 1] + (lnI[n - 1] - lnI[n - 2]) / (log(R[n - 1]) - log(R[n - 2])) * (lx - log(R[n - 1]))
+
+## The light density whose projection is I(R): j(r) = −(1/π) ∫_r^∞ I′(R) dR / √(R² − r²), with
+## R = r cosh u, out to 20 times the last point, I beyond it as lnI_at continues it.
+static func abel(R: PackedFloat64Array, lnI: PackedFloat64Array, r: float, sersic := []) -> float:
+	var umax := acosh(20.0 * R[R.size() - 1] / r)
+	var n := 600
+	var s := 0.0
+	for k in n:
+		var u := (float(k) + 0.5) * umax / float(n)
+		var x := r * cosh(u)
+		var h := x * 1e-4
+		s += (exp(lnI_at(R, lnI, x + h, sersic)) - exp(lnI_at(R, lnI, x - h, sersic))) / (2.0 * h) * umax / float(n)
+	return -s / PI
 
 static func milky_way_potential() -> GalPotential:
 	return GalPotential.new() \
