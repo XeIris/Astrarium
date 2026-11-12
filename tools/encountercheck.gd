@@ -48,8 +48,8 @@ func halos() -> void:
 func kepler() -> void:
 	var o := GalOrbits.new()
 	o.friction = false
-	o.add("A", 1e11, 1e-5, Vector3(-100.0, 0.0, 0.0), Vector3.ZERO)
-	o.add("B", 1e11, 1e-5, Vector3(100.0, 0.0, 0.0), Vector3.ZERO)
+	o.add("A", 1e11, 1e-5, [-100.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+	o.add("B", 1e11, 1e-5, [100.0, 0.0, 0.0], [0.0, 0.0, 0.0])
 	var mu := o.gm[0] + o.gm[1]
 	# Each at half of 0.7 times the circular relative speed, opposite: an ellipse from apocentre.
 	var v := sqrt(mu / 200.0) * 0.7 * 0.5
@@ -129,7 +129,7 @@ func isolated() -> void:
 	var row: Array = GalModels.VDM_CANONICAL[0]
 	var st: Array = GalModels.VDM_STARS["Milky Way"]
 	var halo := GalOrbits.hernquist_halo(float(row[1]) - float(st[0]) - float(st[2]), float(row[2]))
-	o.add("Milky Way", float(halo[0]), float(halo[1]), Vector3.ZERO, Vector3.ZERO)
+	o.add("Milky Way", float(halo[0]), float(halo[1]), [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
 	var e := GalEncounter.new(o)
 	e.set_galaxy(0, [halo[0], halo[1]], [st[0], 0.9688 * float(st[1]), 0.1 * float(st[1])], [st[2], float(st[3]) / 1.8153], Vector3(0, 0, -1))
 	e.seed_disc(0, 5000, float(st[0]), float(st[1]), 0.3, 0.1, 7)
@@ -443,10 +443,12 @@ func antennae() -> void:
 	# A parabola: at pericentre the separation is p and v² = 2μ/p; energy is zero throughout.
 	var o: Array = GalModels.parabolic(2.5, 0.25, 0.0)
 	var o2: Array = GalModels.parabolic(2.5, 0.25, -2.0)
-	var e2 := 0.5 * (o2[1] as Vector3).length_squared() - 2.5 / (o2[0] as Vector3).length()
-	# Vector3 is single precision: the energy of a start 3.5 units out is zero to ~1e-7 of 2μ/r.
-	ok(absf((o[0] as Vector3).length() - 0.25) < 1e-6 and absf((o[1] as Vector3).length_squared() / 20.0 - 1.0) < 1e-6 and absf(e2) < 1e-6,
-		"the parabolic orbit: pericentre %s at speed² %s (0.25, 20), zero energy 2 units before (%s)" % [U.fixed((o[0] as Vector3).length(), 4), U.fixed((o[1] as Vector3).length_squared(), 4), U.expo(e2, 1)])
+	var len2 := func(a: PackedFloat64Array) -> float: return a[0] * a[0] + a[1] * a[1] + a[2] * a[2]
+	var r0 := sqrt(float(len2.call(o[0])))
+	var s0 := float(len2.call(o[1]))
+	var e2 := 0.5 * float(len2.call(o2[1])) - 2.5 / sqrt(float(len2.call(o2[0])))
+	ok(absf(r0 - 0.25) < 1e-12 and absf(s0 / 20.0 - 1.0) < 1e-12 and absf(e2) < 1e-12,
+		"the parabolic orbit: pericentre %s at speed² %s (0.25, 20), zero energy 2 units before (%s)" % [U.fixed(r0, 4), U.fixed(s0, 4), U.expo(e2, 1)])
 	var tu: float = GalModels.ANTENNAE.L / (GalModels.ANTENNAE.V * GalUnits.KMS)
 	var t_now: float = GalModels.ANTENNAE.t_now * tu
 	var e := GalModels.antennae(0.25, 1)

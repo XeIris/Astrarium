@@ -31,7 +31,7 @@ const MILKY_WAY := [
 	},
 	{
 		"id": "bar", "name": "The bar", "short": "Bar", "at": "bar", "label_r": 3.0, "view": [16.0, 0.03],
-		"card": "A bar of old stars 5 kpc long, its near end 27° ahead of the Sun–centre line (Bland-Hawthorn & Gerhard 2016), turning once in about 160 Myr, at 39 km/s/kpc (Portail et al. 2017). Here it is gravity first: its light is lost in the bright bulge.",
+		"card": "A bar of old stars reaching 5 kpc from the centre either way, its near end 27° ahead of the Sun–centre line (Bland-Hawthorn & Gerhard 2016), turning once in about 160 Myr, at 39 km/s/kpc (Portail et al. 2017). Here it is gravity first: its light is lost in the bright bulge.",
 	},
 	{
 		"id": "perseus", "name": "Perseus Arm", "short": "Perseus Arm", "at": "spiral", "r": 8.87, "beta": 40.0, "view": [5.0, 0.35],
@@ -43,7 +43,7 @@ const MILKY_WAY := [
 	},
 	{
 		"id": "lmc", "name": "Large Magellanic Cloud", "short": "LMC", "at": "sky", "ra": 80.89416667, "dec": -69.75611111, "d": 49.59, "view": [25.0, 1.0],
-		"card": "The largest of the Milky Way's satellites: 49.6 kpc away, to 1 % (Pietrzyński et al. 2019), and 1.4 × 10¹¹ solar masses in all, measured by how it bends the Orphan stream (Erkal et al. 2019). It moves at 321 km/s about the Galaxy (Kallivayalil et al. 2013). Drawn from its stars: 2.7 × 10⁹ solar masses in a disc tilted 34.7° to our line of sight (van der Marel et al. 2009; van der Marel & Cioni 2001).",
+		"card": "The largest of the Milky Way's satellites: 49.6 kpc away, to 1 % (Pietrzyński et al. 2019), and 1.4 × 10¹¹ solar masses in all, measured by how it bends the Orphan stream (Erkal et al. 2019). It moves at 321 km/s about the Galaxy (Kallivayalil et al. 2013). Drawn from its stars: 2.7 × 10⁹ solar masses in a disc tilted 25.9° to our line of sight (van der Marel et al. 2009; Choi et al. 2018).",
 	},
 	{
 		"id": "smc", "name": "Small Magellanic Cloud", "short": "SMC", "at": "sky", "ra": 13.18666667, "dec": -72.82861111, "d": 62.44, "view": [20.0, 1.0],
@@ -179,7 +179,9 @@ static func position(lm: Dictionary, model: Dictionary, t_myr: float) -> Vector3
 			for p in model.get("patterns", []):
 				if p.kind == GalPattern.Kind.SPIRAL: turn = GalPattern.angle(p, t_myr) - float(p.angle0)
 			var phi := PI + deg_to_rad(float(lm.beta)) + turn
-			return Vector3(float(lm.r) * cos(phi), 0.0, float(lm.r) * sin(phi))
+			# Reid et al.'s radius, for their R0, at the model's (GalModels.reid_arms).
+			var r := float(lm.r) * GalModels.MW_R0 / GalModels.REID_R0
+			return Vector3(r * cos(phi), 0.0, r * sin(phi))
 		"sky":
 			var f: Array = GalNeighbourhood.sun_frame(r0, omega, 0.0)
 			var b: Basis = f[1]
