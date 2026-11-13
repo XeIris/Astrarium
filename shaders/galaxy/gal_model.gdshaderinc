@@ -167,7 +167,7 @@ uniform vec3 uLDSize = vec3(1.0);
 
 // A galaxy-local direction's texel coordinates (l, sin b) on the map.
 vec2 gal_ld_uv(vec3 dir) {
-	vec3 sd = transpose(uLDBasis) * dir;
+	vec3 sd = dir * uLDBasis;
 	return vec2((fract(atan(-sd.z, sd.x) / 6.2831853) * (uLDSize.x - 2.0) + 1.0) / uLDSize.x, 0.5 - 0.5 * clamp(sd.y, -1.0, 1.0));
 }
 
@@ -196,19 +196,21 @@ uniform vec2 uLD3Cell = vec2(1.0);
 float gal_ld3(vec3 p, float foot, out float w) {
 	w = 0.0;
 	if (uLD3P.w <= 0.0) return 0.0;
-	vec3 s = transpose(uLDBasis) * (p - uLD3Sun);
+	vec3 s = (p - uLD3Sun) * uLDBasis;
 	float r = length(s);
 	if (r >= uLD3Blend.y) return 0.0;
 	w = uLD3P.w * (1.0 - smoothstep(uLD3Blend.x, uLD3Blend.y, r));
 	vec3 uvw = s / (2.0 * uLD3P.xyz) + 0.5;
 	if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) return 0.0;
-	float rho = textureLod(uLD3, uvw, max(log2(foot / uLD3Cell.x), 0.0)).r;
+	// Each level is read only where it has a share: inside the finer level's margin, that alone.
+	float t = 0.0;
 	if (uLD3IP.w > 0.0) {
 		vec3 e = uLD3IP.xyz - abs(s);
-		float t = clamp(min(min(e.x, e.y), e.z) / uLD3IP.w, 0.0, 1.0);
-		if (t > 0.0) rho = mix(rho, textureLod(uLD3In, s / (2.0 * uLD3IP.xyz) + 0.5, max(log2(foot / uLD3Cell.y), 0.0)).r, t);
+		t = clamp(min(min(e.x, e.y), e.z) / uLD3IP.w, 0.0, 1.0);
 	}
-	return rho;
+	float rho_in = t > 0.0 ? textureLod(uLD3In, s / (2.0 * uLD3IP.xyz) + 0.5, max(log2(foot / uLD3Cell.y), 0.0)).r : 0.0;
+	if (t >= 1.0) return rho_in;
+	return mix(textureLod(uLD3, uvw, max(log2(foot / uLD3Cell.x), 0.0)).r, rho_in, t);
 }
 
 // The model's dust and the measured dust along a sight line of length `dist` from the camera in

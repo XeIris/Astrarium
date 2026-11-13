@@ -1113,9 +1113,11 @@ without it and 31.7 fps (p95 31.8 ms) with it; M51 from 8 kpc 30.7 and 30.3 fps 
 only within 30 pc of the Sun. With the grid and the march's step trimmed (`perfcheck`
 galaxy-near: 300 pc from the Sun, every ray through it): 30.8 fps, p95 32.6 ms; from the Sun
 31.8, p95 31.7; the Milky Way whole 40.8; M51 from 8 kpc 31.2, p95 32.2, and whole 38.6 (one
-run). Switched off part by part, the medium below the map costs M51 from 8 kpc about 2 ms; the
-march itself the rest. Late in a long run, as the machine warms, M51 from 8 kpc has read p95
-33.8 ms: the gate holds there with little room.
+run). Switched off part by part, the medium below the map costs M51 from 8 kpc about 2 ms, the
+measured dust's grid the view 300 pc from the Sun about 3 ms, the march itself the rest. With the
+machine warm (three runs back to back) the two read p95 32.5–33.1 and 31.8–32.9 ms, against the
+gate's 33.3: under it, but by less than a millisecond, and one warm run has read 33.8 ms for M51,
+which fails it. Cool, the same views read 29–30 ms.
 
 **Not drawn:**
 - Lanes as thin as Hubble's.
