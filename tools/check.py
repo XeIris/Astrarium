@@ -129,7 +129,7 @@ CHANGED_RULES = (
     (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
-      "tools/build_neighbourhood.py"),
+      "tools/build_neighbourhood.py", "assets/galaxy/*", "tools/build_local_dust.py"),
      ("galaxycheck", "encountercheck", "galaxylookcheck", "coursecheck", "_soak_check-galaxy", "_soak_check-encounter", "_soak_check-join", "hud*")),
     # The live encounters' six-minute replay: only what moves their particles.
     (("sim/galaxy/gal_encounter.gd", "sim/galaxy/gal_live.gd", "sim/galaxy/gal_orbits.gd", "sim/galaxy/gal_eddington.gd",
