@@ -1560,6 +1560,9 @@ const ISM_MEAN_TOL := Vector2(0.004, 0.006)
 ## young light 1.4 %). A medium or feathers not of mean one stand out past it.
 const ISM_NORM_TOL := 0.03
 const ISM_SEEN_TOL := 0.10
+## M51 seen through the medium gains 2.2e-4 mag; a quarter of that is far above the sums'
+## rounding, which a medium doing nothing leaves at exactly zero.
+const ISM_SEEN_MIN := 5e-5
 func ism() -> void:
 	var f := GalISM.field()
 	var n := GalISM.N * GalISM.N
@@ -1627,5 +1630,9 @@ func ism() -> void:
 			a += 0.5
 		seen[pass_i] = acc
 	var shift := -2.5 * log(seen[0] / seen[1]) / log(10.0)
-	ok(absf(shift) < ISM_SEEN_TOL, "M51 through its dust with the medium: %s mag from the smooth model's (< %s)" % [U.fixed(shift, 3), ISM_SEEN_TOL])
+	# The medium keeps the dust's mass (its means are divided out), so only the clumped dust's
+	# second-order gain is left: small for M51 seen near face-on, but brighter, never fainter, and
+	# not nothing, which is what a medium that changes nothing would read.
+	ok(shift < -ISM_SEEN_MIN and shift > -ISM_SEEN_TOL, "M51 through its dust with the medium: %s mag from the smooth model's, brighter (between −%s and −%s)" % [
+		String.num(shift, 5), ISM_SEEN_TOL, ISM_SEEN_MIN])
 	vis.dispose()
