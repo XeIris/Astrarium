@@ -519,6 +519,7 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 	# The measured dust as the shader draws it: shell k from r[k − 1] to r[k] out from the camera,
 	# its density toward this direction from the Sun.
 	var ld_f := local_dust_fade(o)
+	var ld3 := 0.0 if local_dust.is_empty() or not local_dust_enabled or (local_dust.get("grid", {}) as Dictionary).is_empty() else 1.0 - ld_f
 	var ld_rate := PackedFloat32Array()
 	if ld_f > 0.0:
 		var ud := (sun_basis.transposed() * d).normalized()
@@ -529,6 +530,12 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 	var u0 := asinh((t0 - tc) / sc)
 	var u1 := asinh((t1 - tc) / sc)
 	var du := (u1 - u0) / float(n)
+	# The glow reads the grid averaged over the step its asinh leg would take at each t over the
+	# whole chord (galaxy_glow.gdshaderinc march_disc), gathered about the camera from inside the
+	# medium's layer; integrated here as drawn.
+	var g_sc := sc if GalISM.outside(o.y) else minf(sc, GLOW_SC_INSIDE)
+	var g_tc := tc if GalISM.outside(o.y) else t0
+	var g_du := (asinh((t1 - g_tc) / g_sc) - asinh((t0 - g_tc) / g_sc)) / float(GLOW_DISC - 4)
 	for i in n:
 		var u := u0 + (float(i) + 0.5) * du
 		var t := tc + sc * sinh(u)
@@ -541,6 +548,11 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 			j[2] = 0.0
 		var k := _model_dust(p.x, p.y, p.z) * ds if in_box else 0.0
 		k *= GalISM.dust(ism_m.x)
+		if ld3 > 0.0 and in_box:
+			var s3 := sun_basis.transposed() * (p - sun_pos)
+			var foot := sqrt(g_sc * g_sc + (t - g_tc) * (t - g_tc)) * g_du
+			var w3 := ld3 * GalLocalDust.grid_weight(s3.length(), foot)
+			if w3 > 0.0: k = (1.0 - w3) * k + w3 * GalLocalDust.grid_density(local_dust, s3, foot) * ds
 		if ld_f > 0.0 and in_box:
 			var sh := GalLocalDust.shell(local_dust, t)
 			if sh >= 0:
@@ -785,6 +797,7 @@ func apply_local_dust(m: Dictionary) -> void:
 	if m.is_empty() or not has_sun or not local_dust.is_empty(): return
 	local_dust = m
 	var tex := GalLocalDust.texture(m)
+	var grid := GalLocalDust.grid_textures(m)
 	var r := PackedFloat32Array(m.r)
 	var wt := PackedFloat32Array(m.wt)
 	r.resize(LD_MAX)
@@ -795,10 +808,19 @@ func apply_local_dust(m: Dictionary) -> void:
 		mat.set_shader_parameter("uLDW", wt)
 		mat.set_shader_parameter("uLDEnc", m.enc)
 		mat.set_shader_parameter("uLDSize", Vector3(int(m.w) + 2, int(m.h), int(m.k)))
+		mat.set_shader_parameter("uLD3Blend", GalLocalDust.BLEND)
+		if grid.size() > 0: mat.set_shader_parameter("uLD3", grid[0])
+		if grid.size() > 1: mat.set_shader_parameter("uLD3In", grid[1])
+		var levels: Array = (m.get("grid", {}) as Dictionary).get("levels", [])
+		mat.set_shader_parameter("uLD3Cell", Vector2(levels[0].cell if levels.size() > 0 else 1.0, levels[1].cell if levels.size() > 1 else 1.0))
 	_place_local_dust()
 
 ## The shaders' LD_MAX: the most shells the map may have.
 const LD_MAX := 17
+## The glow's steps through a disc, and their scale from inside the medium's layer
+## (galaxy_glow.gdshaderinc N_DISC, SC_INSIDE).
+const GLOW_DISC := 32
+const GLOW_SC_INSIDE := 0.5
 
 ## The measured dust's share for a camera at `cam`: drawn as seen from the Sun, it fades with
 ## the far stars.
@@ -812,10 +834,16 @@ func _place_local_dust() -> void:
 	# Where the map has faded out the glow drops its code too: it costs registers even unused.
 	var want: Shader = GLOW_LOCAL_SHADER if f > 0.0 else GLOW_SHADER
 	if glow_mat.shader != want: glow_mat.shader = want
+	var levels: Array = (local_dust.get("grid", {}) as Dictionary).get("levels", []) if on else []
+	var half: Vector3 = levels[0].half if levels.size() > 0 else Vector3.ONE
+	var half_in: Vector3 = levels[1].half if levels.size() > 1 else Vector3.ZERO
 	for mat in [glow_mat, star_mat]:
 		mat.set_shader_parameter("uLDK", int(local_dust.k) if on else 0)
 		mat.set_shader_parameter("uLDFade", f)
 		mat.set_shader_parameter("uLDBasis", sun_basis)
+		mat.set_shader_parameter("uLD3P", Vector4(half.x, half.y, half.z, 0.0 if levels.is_empty() else 1.0 - f))
+		mat.set_shader_parameter("uLD3IP", Vector4(half_in.x, half_in.y, half_in.z, GalLocalDust.GRID_MARGIN if levels.size() > 1 else 0.0))
+		mat.set_shader_parameter("uLD3Sun", sun_pos)
 
 ## The Sun and the real stars this frame: where they are, the lattice's hole, and how much
 ## of the far set (and its light in the glow) is shown.

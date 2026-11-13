@@ -144,7 +144,7 @@ void vertex() {
 				POINT_SIZE = QUAD_PX;
 				// Dimmed by the dust between: the model's at the sight line's midpoint, which
 				// varies little over the resolved radius, and the measured dust's shells.
-				float tau = gal_dust_joined(uCamLocal + rel * 0.5, rel / max(d, 1e-12), d) * d;
+				float tau = gal_dust_joined(uCamLocal + rel * 0.5, rel / max(d, 1e-12), d, 0.0) * d;
 				vCol = ms.rgb / Y * v * exp(-tau * uExt);
 			}
 		}

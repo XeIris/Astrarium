@@ -176,11 +176,49 @@ float gal_ld_at(vec2 uv, int k) {
 	return exp(uLDEnc.x + uLDEnc.y * texture(uLD, vec3(uv, float(k))).r);
 }
 
+// The same map on a 3D grid in the Sun's galactic frame, for cameras away from the Sun, as linear
+// τ_V kpc⁻¹: uLD3P its half extents (kpc) and its share (1 − uLDFade; 0 for none), uLD3Sun the
+// Sun (galaxy-local), uLD3Blend the radii over which it gives way to the model's dust, as the
+// shells do.
+uniform sampler3D uLD3 : filter_linear_mipmap, repeat_disable;
+uniform vec4 uLD3P = vec4(0.0);
+uniform vec3 uLD3Sun = vec3(0.0);
+uniform vec2 uLD3Blend = vec2(1.0, 1.25);
+// Its finer level about the Sun: uLD3IP the half extents (kpc) and the margin over which it gives
+// way to the outer one (0 for none).
+uniform sampler3D uLD3In : filter_linear_mipmap, repeat_disable;
+uniform vec4 uLD3IP = vec4(0.0);
+// The levels' cube sides (kpc): a read of length `foot` takes the mip whose cubes are that long.
+uniform vec2 uLD3Cell = vec2(1.0);
+
+// The grid's density (τ_V kpc⁻¹) at p, averaged over cubes about `foot` kpc long, and, in w, its
+// weight against the model's dust there.
+float gal_ld3(vec3 p, float foot, out float w) {
+	w = 0.0;
+	if (uLD3P.w <= 0.0) return 0.0;
+	vec3 s = transpose(uLDBasis) * (p - uLD3Sun);
+	float r = length(s);
+	if (r >= uLD3Blend.y) return 0.0;
+	w = uLD3P.w * (1.0 - smoothstep(uLD3Blend.x, uLD3Blend.y, r));
+	vec3 uvw = s / (2.0 * uLD3P.xyz) + 0.5;
+	if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) return 0.0;
+	float rho = textureLod(uLD3, uvw, max(log2(foot / uLD3Cell.x), 0.0)).r;
+	if (uLD3IP.w > 0.0) {
+		vec3 e = uLD3IP.xyz - abs(s);
+		float t = clamp(min(min(e.x, e.y), e.z) / uLD3IP.w, 0.0, 1.0);
+		if (t > 0.0) rho = mix(rho, textureLod(uLD3In, s / (2.0 * uLD3IP.xyz) + 0.5, max(log2(foot / uLD3Cell.y), 0.0)).r, t);
+	}
+	return rho;
+}
+
 // The model's dust and the measured dust along a sight line of length `dist` from the camera in
 // the unit direction `dir` (galaxy-local), as a mean density: the map's shells as seen from the
-// Sun, the model's dust (sampled at `mid`) for the rest.
-float gal_dust_joined(vec3 mid, vec3 dir, float dist) {
+// Sun, its grid read over at least `foot`, the model's dust (sampled at `mid`) for the rest.
+float gal_dust_joined(vec3 mid, vec3 dir, float dist, float foot) {
 	float m = gal_dust(mid);
+	float w3;
+	float g = gal_ld3(mid, max(dist, foot), w3);
+	m = (1.0 - w3) * m + w3 * g;
 	if (uLDK == 0 || uLDFade <= 0.0 || dist <= 0.0) return m;
 	vec2 uv = gal_ld_uv(dir);
 	float tau = 0.0;
@@ -316,8 +354,10 @@ float gal_ism_dust(float m) {
 
 // Disc light, young light and V optical depth per kpc at p, from one map lookup (the
 // glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart). With `dust` false the
-// optical depth is left at zero, for a step whose dust is the measured map's alone.
-void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau, bool dust) {
+// optical depth is left at zero, for a step whose dust is the measured map's alone. dgrid is the
+// measured grid's share, read over the step's length `foot`, which the medium below the map
+// leaves alone; dtau the model's rest.
+void gal_disc_sample(vec3 p, float foot, out float jd, out float jy, out float dtau, out float dgrid, bool dust) {
 	vec3 m = gal_arm_map3(p);
 	float a = uDisc.y;
 	float b2 = uDisc.z * uDisc.z;
@@ -333,6 +373,7 @@ void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau, bool du
 	float env = gal_envelope(R);
 	jy = uYoung.x > 0.0 ? uYoung.x * env * m.r * exp(-abs(p.y) / uYoung.y) / (2.0 * uYoung.y) : 0.0;
 	dtau = 0.0;
+	dgrid = 0.0;
 	if (!dust) return;
 	if (uDustMap.x > 0.0) dtau = uDustMap.x * m.g * exp(-abs(p.y) / uDustMap.y) / (2.0 * uDustMap.y);
 	if (uDust.x > 0.0) {
@@ -344,4 +385,8 @@ void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau, bool du
 		}
 	}
 	dtau += gal_rings(R, p.y);
+	float w3;
+	float g = gal_ld3(p, foot, w3);
+	dtau *= 1.0 - w3;
+	dgrid = w3 * g;
 }

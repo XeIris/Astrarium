@@ -494,11 +494,34 @@ From the Sun the model's dust drew two smooth lanes where ESO's panorama shows c
   within the map.
 - **Drawn as seen from the Sun.** Like the far stars it is drawn as seen from the Sun: along each
   pixel's direction, shell k from r_{k−1} to r_k out from the camera. It fades with them as the
-  camera goes from 10 to 30 pc from the Sun, and the glow then drops its code. Elsewhere the
-  model's dust is drawn, as before. The Sun views stand 1 pc from the Sun, where the difference
-  from the true geometry is a parallax under 0.3° at 140 pc. A walk through every piece of every
-  shell along each pixel's ray, exact from anywhere, held the view from the Sun to 22 fps on the
-  M5 (35 without the map).
+  camera goes from 10 to 30 pc from the Sun, and the glow then drops its code. The Sun views
+  stand 1 pc from the Sun, where the difference from the true geometry is a parallax under 0.3°
+  at 140 pc. A walk through every piece of every shell along each pixel's ray, exact from
+  anywhere, held the view from the Sun to 22 fps on the M5 (35 without the map).
+- **Away from the Sun, on a grid.** As the shells fade the same map takes over on a 3D grid in
+  the Sun's galactic frame (`assets/galaxy/local_dust_grid.bin`, built by
+  `tools/build_local_dust_grid.py`): 12.5 pc cubes over a box 2.5 kpc square and 1 kpc thick,
+  and 2.5 pc cubes within 200 pc of the Sun (100 pc vertically), where the nearest cores are a
+  few pc across. 3.0 MB. Its weight against the model's dust is the shells' blend by radius,
+  times 1 − the shells' fade, so the three always sum to one.
+  - **What it holds.** The box holds 94.5 % of the map's dust; the rest lies more than 500 pc
+    from the plane, where the grid reads empty rather than the model's (which had 3.5 times the
+    measured extinction at b = −40°). Within the box its columns from the Sun are 1.009 of the
+    shells' over the sky, within 1.5× of theirs toward Lynds' darkest clouds (`galaxycheck`).
+  - **Read linearly.** The file keeps ln ρ bytes, but the grid is decoded to half floats on
+    loading: interpolated in ln ρ, the steep contrasts between cubes lost 5 % of the dust.
+  - **Read over each step.** The glow's 32 steps cannot resolve 2.5 pc structure: read at a
+    point, its jittered steps drew a 300 pc view 12 % bright. Each step reads the grid's mipmap
+    (box averages of the density) at the length the asinh leg's step has there over the whole
+    chord, whatever the near leg and the shells take. Read at the steps actually taken, the
+    dust beyond the resolved radius moved with it, and the hand-over read 0.84. From inside the
+    disc's layer that length is about 80 pc near the camera: a cloud core is drawn averaged over
+    it. The CPU's march (`ray_luminance`) reads the same mipmaps, so `galaxylookcheck` compares
+    like with like: from 300 pc the GPU is within 0.5 % of it, edge-on 0.9 %, and the
+    hand-over is 0.988. A star's extinction reads the grid at its midpoint over its distance.
+  - **Its blend, on average.** The glow takes the grid's weight at each jittered point; the CPU
+    takes it widened by the step, which is what those points give on average. Taken at a point
+    on the CPU too, the edge-on view read 4.1 %.
 - **Through the clouds.** From the Sun the glow's march takes one step per shell, each even in
   dust, read at its middle without jitter, then the asinh steps beyond the map. Each step's
   transmission is then exact. The march had first split its asinh steps at the shell boundaries
@@ -1078,15 +1101,17 @@ The measured dust around the Sun, timed back to back with the code before it (th
 about 5 % slower that hour than for the table above): from the Sun 34.1 fps (p95 29.5 ms)
 without it and 31.7 fps (p95 31.8 ms) with it; M51 from 8 kpc 30.7 and 30.3 fps (p95 32.7 and
 33.0 ms); the Milky Way whole 41.8 fps either way. Only the Milky Way's glow compiles it in, and
-only within 30 pc of the Sun.
+only within 30 pc of the Sun. With the grid (`perfcheck` galaxy-near: 300 pc from the Sun, every
+ray through it): 30.6 fps, p95 32.8 ms; from the Sun 32.6, p95 31.0; M51 from 8 kpc 30.7, p95
+32.7 (the same run).
 
 **Not drawn:**
 - Lanes as thin as Hubble's.
 - Dust structure seen through the dust, below the measured map: finer than its 14′ from the
   Sun, and in the Sombrero's lane, which wants several times the strength M51's face-on image
   allows.
-- The measured dust from anywhere but near the Sun: beyond 30 pc from it the model's dust is
-  drawn.
+- The measured dust finer than the glow's step away from the Sun: about 80 pc near a camera
+  inside the disc's layer, so a cloud core seen from 50 pc is drawn averaged over it.
 - Hubble's pink H II and its blue arms, which are its palette.
 - Fine structure in M31, which has no dust or young light to structure.
 

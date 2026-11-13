@@ -345,6 +345,9 @@ func _ready() -> void:
 	await measure("galaxy-whole")
 	stage.galaxy.frame("sun")
 	await measure("galaxy-sun")
+	# 300 pc from the Sun, every ray through the measured dust's grid.
+	stage.jump_cam_radius(0.3)
+	await measure("galaxy-near")
 	if stage.galaxy.tracers == null or stage.galaxy.tracers.steps == 0: failures += 1
 	stage.state.paused = true
 	# M51: its maps, dust and H II regions, whole and from 8 kpc, where the regions' quads are

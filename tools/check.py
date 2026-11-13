@@ -129,7 +129,7 @@ CHANGED_RULES = (
     (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
-      "tools/build_neighbourhood.py", "assets/galaxy/*", "tools/build_local_dust.py"),
+      "tools/build_neighbourhood.py", "assets/galaxy/*", "tools/build_local_dust.py", "tools/build_local_dust_grid.py"),
      ("galaxycheck", "encountercheck", "galaxylookcheck", "coursecheck", "_soak_check-galaxy", "_soak_check-encounter", "_soak_check-join", "hud*")),
     # The live encounters' six-minute replay: only what moves their particles.
     (("sim/galaxy/gal_encounter.gd", "sim/galaxy/gal_live.gd", "sim/galaxy/gal_orbits.gd", "sim/galaxy/gal_eddington.gd",
@@ -397,12 +397,12 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "m5-budget":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=17 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
     elif suite == "m5-medium":
-        medium = scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
+        medium = scene("perfcheck", r"^PERFCHECK DONE cases=17 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
         yield ("perfcheck-m5-medium", *medium[1:])
     elif suite == "perf":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", f"report={output / 'render-profile.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=17 failures=0$", f"report={output / 'render-profile.json'}")
         abba = scene("perfcheck", r"^PERFCHECK DONE cases=19 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
         yield ("studio-abba", *abba[1:])
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)

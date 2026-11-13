@@ -20,7 +20,10 @@ const PROFILE_TOL := 0.04
 ## EDGE_SAMPLES (an in-plane ray's asinh spacing is otherwise ~0.4 kpc), and through the
 ## measured dust around the Sun four times as many: its clouds at a few hundred pc move the
 ## lane rows 0.8 % between 3000 and 12000.
-const DUST_ROWS := {"edge": [-24, -8, -3, 0, 3, 8, 24], "sun": [-280, -240, -215, -205, -190, -160, -100, 0]}
+const DUST_ROWS := {"edge": [-24, -8, -3, 0, 3, 8, 24], "sun": [-280, -240, -215, -205, -190, -160, -100, 0],
+	"near": [-240, -120, -60, -20, 0, 20, 60, 120, 240]}
+## "near" looks back at the Sun from NEAR_KPC away, through the measured dust on its grid.
+const NEAR_KPC := 0.3
 const EDGE_COLUMNS := 48
 const EDGE_HALF_PX := 320
 const EDGE_SAMPLES := 3000
@@ -155,7 +158,9 @@ func _ready() -> void:
 		v.local_dust_enabled = false
 		await through_dust(v, "sun")
 		v.local_dust_enabled = true
-		if not v.local_dust.is_empty(): await through_dust(v, "sun", true)
+		if not v.local_dust.is_empty():
+			await through_dust(v, "sun", true)
+			await through_dust(v, "near", true)
 		await join(v)
 		await landmarks()
 		await neighbour_profile("m33")
@@ -233,7 +238,12 @@ func profile(v: GalaxyVisual) -> void:
 # optical depth) is held where it is thick. Pixel centres exactly: the lane is a few
 # pixels high edge-on.
 func through_dust(v: GalaxyVisual, framing: String, measured := false) -> void:
-	stage.galaxy.frame(framing)
+	if framing == "near":
+		stage.galaxy.frame("sun")
+		stage.jump_cam_radius(NEAR_KPC)
+		stage.update_orbit_cam()
+	else:
+		stage.galaxy.frame(framing)
 	v.show_tracers = false
 	v.show_stars = false
 	pin(v, EDGE_EXPOSURE)

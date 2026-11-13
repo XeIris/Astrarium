@@ -570,6 +570,12 @@ const LYNDS_DARKEST := [[171.37, -17.40], [6.59, 20.58], [26.84, 8.36], [4.92, 1
 const LOCAL_DUST_MEAN_E := 0.14771
 const LOCAL_DUST_MEAN_TOL := 0.02
 
+## The grid against the shells from the Sun within its box: over the sky the same dust, to the
+## averaging and the bytes; toward a compact core its cubes (2.5 pc to 200 pc, 12.5 pc beyond)
+## and the shells' 15′ cells average it differently, which only the sky's mean is tight on.
+const GRID_SKY_TOL := 0.03
+const GRID_CLOUD_TOL := 2.0
+
 func local_dust() -> void:
 	if not GalLocalDust.available():
 		ok(false, "the measured dust around the Sun is there (%s)" % GalLocalDust.DATA)
@@ -626,19 +632,52 @@ func local_dust() -> void:
 	var out_model := v._model_dust(p_out.x, p_out.y, p_out.z)
 	ok(in0 == in1 and out_joined == out_model and in0 > 0.0,
 		"within the map the model's dust is replaced, not added (unchanged with the model's doubled); past it the model's alone")
-	# Drawn as seen from the Sun, it fades with the far stars: from 1 pc a view toward Ophiuchus
-	# is the map's, from 50 pc the model's exactly.
-	var toward := v.sun_basis * Vector3(cos(deg_to_rad(17.0)) * cos(deg_to_rad(353.0)), sin(deg_to_rad(17.0)), -cos(deg_to_rad(17.0)) * sin(deg_to_rad(353.0)))
+	# Drawn as seen from the Sun near it: from 1 pc toward ρ Oph's core, 140 pc away (Ortiz-León et
+	# al. 2018), the map's. As the camera leaves, the same map on its 3D grid, read over the
+	# glow's ~80 pc steps: from 50 pc along the plane toward l = 30°, still the map's.
+	var oph := v.sun_basis * (Vector3(cos(deg_to_rad(17.0)) * cos(deg_to_rad(353.0)), sin(deg_to_rad(17.0)), -cos(deg_to_rad(17.0)) * sin(deg_to_rad(353.0))))
+	var l30 := v.sun_basis * Vector3(cos(deg_to_rad(30.0)), 0.0, -sin(deg_to_rad(30.0)))
 	var seen := []
-	for gap in [0.001, 0.05]:
-		var cam := v.sun_pos + v.sun_basis * Vector3(-gap, 0.0, 0.0)
+	for view in [[0.001, oph], [0.05, l30]]:
+		var cam: Vector3 = v.sun_pos + v.sun_basis * Vector3(-float(view[0]), 0.0, 0.0)
 		v.local_dust_enabled = true
-		var with := v.ray_luminance(cam, toward, 1e-3, 2000)
+		var with := v.ray_luminance(cam, view[1], 1e-3, 2000)
 		v.local_dust_enabled = false
-		var without := v.ray_luminance(cam, toward, 1e-3, 2000)
+		var without := v.ray_luminance(cam, view[1], 1e-3, 2000)
 		v.local_dust_enabled = true
 		seen.append(with / without)
-	ok(absf(seen[0] - 1.0) > 0.05 and seen[1] == 1.0, "the map is drawn from the Sun and gone 50 pc from it: toward Ophiuchus %s and %s of the model's light" % [String.num(seen[0], 3), String.num(seen[1], 3)])
+	ok(absf(seen[0] - 1.0) > 0.05 and absf(seen[1] - 1.0) > 0.05, "the map is drawn from the Sun and on its grid 50 pc away: toward ρ Oph %s, from 50 pc toward l = 30° %s of the model's light" % [String.num(seen[0], 3), String.num(seen[1], 3)])
+	# The grid holds the shells' dust: from the Sun to 1.25 kpc its columns over the sky, and
+	# toward Lynds' darkest clouds, against the shells'.
+	var gl := (m.get("grid", {}) as Dictionary).get("levels", []) as Array
+	ok(gl.size() == 2 and absf((gl[0] as Dictionary).cell - 0.0125) < 1e-6 and absf((gl[1] as Dictionary).cell - 0.0025) < 1e-6,
+		"the measured dust's grid is read: %d levels" % gl.size())
+	if gl.size() == 2:
+		var half: Vector3 = (gl[0] as Dictionary).half
+		var col := func(u: Vector3, grid: bool) -> float:
+			var t := 0.0
+			for i in 500:
+				var p := u * ((i + 0.5) * 0.0025)
+				if absf(p.y) > half.y: break
+				t += (GalLocalDust.grid_density(m, p) if grid else GalLocalDust.density(m, p)) * 0.0025
+			return t
+		var sg := 0.0
+		var ss := 0.0
+		for jb in 24:
+			var b := asin(-1.0 + (2.0 * jb + 1.0) / 24.0)
+			for il in 48:
+				var l := TAU * (il + 0.5) / 48.0
+				var u := Vector3(cos(b) * cos(l), sin(b), -cos(b) * sin(l))
+				sg += col.call(u, true)
+				ss += col.call(u, false)
+		var worst := 0.0
+		for c in LYNDS_DARKEST:
+			var u := Vector3(cos(deg_to_rad(c[1])) * cos(deg_to_rad(c[0])), sin(deg_to_rad(c[1])), -cos(deg_to_rad(c[1])) * sin(deg_to_rad(c[0])))
+			worst = maxf(worst, absf(log(float(col.call(u, true)) / float(col.call(u, false)))))
+		# Within its box: beyond it, more than 500 pc from the plane, lies 5.5 % of the map.
+		ok(absf(sg / ss - 1.0) < GRID_SKY_TOL and worst < log(GRID_CLOUD_TOL),
+			"from the Sun the grid's columns to 1.25 kpc within its box are %s of the shells' over the sky (within %s %%), toward Lynds' darkest clouds within %s× (worst %s×)" % [
+			String.num(sg / ss, 3), String.num(GRID_SKY_TOL * 100.0, 0), String.num(GRID_CLOUD_TOL, 2), String.num(exp(worst), 2)])
 	v.group.free()
 
 # Pioneer 10's background starlight from beyond the zodiacal light: Toller (1981), as Leinert et

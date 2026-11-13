@@ -117,6 +117,9 @@ vec3 march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float ji
 	}
 	float u0 = asinh((tx - tc) / sc);
 	float u1 = asinh((t1 - tc) / sc);
+	// The grid's read length at t: the step the asinh leg would take there over the whole chord,
+	// whatever the near leg and the shells take, so the drawn dust does not move with them.
+	float du_ref = (u1 - asinh((t0 - tc) / sc)) / float(N_DISC - N_NEAR);
 	float du = (u1 - u0) / float(N_DISC - N_NEAR - n_sh);
 	leg = vec4(t0, dn, tm, t1);
 	arc = vec4(tc, sc, u0, du);
@@ -161,8 +164,9 @@ vec3 march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float ji
 		float jd;
 		float jy;
 		float dk;
-		gal_disc_sample(o + d * t, jd, jy, dk, dust);
-		float kk = keep * dk * gal_ism_dust(ism.x) + rate;
+		float dg;
+		gal_disc_sample(o + d * t, sqrt(sc * sc + (t - tc) * (t - tc)) * du_ref, jd, jy, dk, dg, dust);
+		float kk = keep * (dk * gal_ism_dust(ism.x) + dg) + rate;
 		float near = (t < uRes ? faint : 1.0) * step(uInner, t);
 		vec3 att = even_step(kk * ds * uExt, 1.0, trans);
 		acc += (jd * near * uDiscCol + jy * ism.y * step(uInner, t) * uYoungCol) * ds * att;
