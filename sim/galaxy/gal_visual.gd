@@ -830,7 +830,7 @@ func apply_local_dust(m: Dictionary) -> void:
 	_place_local_dust()
 
 ## The shaders' LD_MAX: the most shells the map may have.
-const LD_MAX := 17
+const LD_MAX := GalLocalDust.MAX_SHELLS
 ## The glow's steps through a disc, and their scale from inside the medium's layer
 ## (galaxy_glow.gdshaderinc N_DISC, SC_INSIDE).
 const GLOW_DISC := 32

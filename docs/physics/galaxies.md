@@ -487,7 +487,8 @@ From the Sun the model's dust drew two smooth lanes where ESO's panorama shows c
   map's 14′), eight shells between the map's own boundaries nearest an even split in ln r (43 %
   deep), each keeping its integral, and one byte per density in ln ρ (steps of 4.9 %): 1.9 MB.
   The sky's mean E to the edge is 0.14771 in the published file and in ours; the worst cell
-  moves 2.7 %. The build is pure Python, runs nothing downloaded and reproduces to the byte.
+  moves 2.7 %. The build is pure Python, checks the file's md5, runs nothing downloaded and
+  reproduces its content to the byte (the file too, with the same zlib).
 - **Joined without counting twice.** Within the map its density replaces the model's, shell by
   shell. Over its last shell (0.87–1.25 kpc) the two share, 0.87 the map's, and past it the
   model's dust is all there is. `galaxycheck` doubles the model's dust and finds nothing change

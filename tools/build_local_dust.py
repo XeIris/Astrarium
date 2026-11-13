@@ -8,7 +8,7 @@ Input: Edenhofer et al. (2024, A&A 685, A82), "A parsec-scale Galactic 3D dust m
 1.25 kpc from the Sun", the posterior mean on HEALPix spheres (Zenodo 10.5281/zenodo.10658339,
 v1.0.2, mean_and_std_healpix.fits, 3 252 715 200 bytes, md5 10c823a5fcf81b47b6e15530bcdf54dc;
 CC BY 4.0). The file holds the differential extinction in E of Zhang, Green & Rix (2023) per
-pc on NSIDE 256 NESTED galactic pixels at 516 radii from 69 to 1250 pc, the radii's
+pc on NSIDE 256 NESTED galactic pixels at 516 radii from 68.6 to 1248.1 pc, the radii's
 boundaries, and the extinction integrated within the inner 69 pc, which the map leaves out.
 
 Output: the same density, averaged
@@ -21,16 +21,16 @@ plus an innermost shell from 0 to 69 pc holding the inner integral spread evenly
 Integrated extinction to every kept boundary is therefore unchanged by the averaging in
 distance; the build prints how far the averaging in angle moves it.
 
-Encoding: a cell's density ρ (E pc⁻¹) as a byte q = round(255 ln(ρ/RHO_MIN)/LN_RANGE), held
-at 0 below RHO_MIN, and read back as RHO_MIN·exp(LN_RANGE·q/255): steps of 4.9 %, about
+Encoding: a cell's density ρ (E pc⁻¹) as a byte q = round(255 ln(ρ/RHO_MIN)/LN_RANGE), 0 at
+or below RHO_MIN, and read back as RHO_MIN·exp(LN_RANGE·q/255), byte 0 too: steps of 4.9 %, about
 2.5 % at worst. RHO_MIN integrates to 1.3e-3 E (3e-3 mag in V) over the whole map.
 
 Format, little-endian: b"ASLD", int32 version, W, H, LAYERS + 1; float32 the shells' outer
 radii (pc), ln RHO_MIN, LN_RANGE; then the bytes, shell by shell, row by row from sin b = 1,
 each row from l = 0 eastward, deflate-compressed (zlib) as one stream.
 
-Pure Python on purpose: nothing downloaded is run, and the build needs no packages. It reads
-the 1.6 GB mean once, a row of radii at a time, and takes a few minutes.
+Pure Python on purpose: nothing downloaded is run, and the build needs no packages. It checks
+the file's md5, then reads the 1.6 GB mean once, a row of radii at a time, and takes a few minutes.
 """
 import array
 import math
@@ -172,11 +172,21 @@ def pix2ang_nest(nside, p):
     return z, phi
 
 
+def check_source(src):
+    """The published file, by size and md5, read once in 16 MB pieces before anything uses it."""
+    import hashlib
+    if src.stat().st_size != SIZE: raise SystemExit("BUILD FAIL: %s is not the published file's size" % src)
+    h = hashlib.md5()
+    with open(src, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 24), b""): h.update(chunk)
+    if h.hexdigest() != MD5: raise SystemExit("BUILD FAIL: %s is not the published file (md5 %s)" % (src, h.hexdigest()))
+
+
 def main():
     if len(sys.argv) < 2: raise SystemExit(__doc__)
     src = Path(sys.argv[1])
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else OUT
-    if src.stat().st_size != SIZE: raise SystemExit("BUILD FAIL: %s is not the published file's size" % src)
+    check_source(src)
     ext = hdus(src)
     mean = next((h, o) for h, o in ext if h.get("EXTNAME", "").strip().upper() == "MEAN")
     mh, moff = mean
@@ -252,6 +262,7 @@ def main():
     print("BUILD lookup ready", flush=True)
 
     data = bytearray(W * H * (LAYERS + 1))
+    clipped = 0
     n2 = SUB * SUB
     worst = 0.0
     total_src = total_out = 0.0
@@ -268,7 +279,9 @@ def main():
                 e = s / n2
                 tot_cells[j * W + i] += e
                 rho = e / widths[k]
-                q = 0 if rho <= RHO_MIN else min(255, int(round(255.0 * math.log(rho / RHO_MIN) / LN_RANGE)))
+                q = 0 if rho <= RHO_MIN else int(round(255.0 * math.log(rho / RHO_MIN) / LN_RANGE))
+                if q > 255: clipped += 1
+                q = min(q, 255)
                 data[base + j * W + i] = q
         total_src += sum(sheet) / npix
     # The whole-sky mean of extinction to the edge, before and after the averaging in angle
@@ -280,7 +293,8 @@ def main():
             s = 0.0
             for k in range(LAYERS + 1):
                 q = data[k * W * H + j * W + i]
-                s += (RHO_MIN * math.exp(LN_RANGE * q / 255.0) if q > 0 else 0.0) * widths[k]
+                # Byte 0 reads back as RHO_MIN, as the shaders decode it.
+                s += RHO_MIN * math.exp(LN_RANGE * q / 255.0) * widths[k]
             enc += s
             worst = max(worst, abs(s - tot_cells[j * W + i]) / max(tot_cells[j * W + i], 1e-3))
     enc /= W * H
@@ -293,8 +307,10 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(blob)
     import hashlib
-    print("BUILD wrote %s: %d bytes, sha256 %s; shells to %s pc" % (
-        out, len(blob), hashlib.sha256(blob).hexdigest(), ", ".join("%.1f" % r for r in radii)))
+    print("BUILD %d cells clipped at the top byte" % clipped)
+    # The deflate stream depends on the zlib that wrote it; the header and payload do not.
+    print("BUILD wrote %s: %d bytes, sha256 %s (with this zlib); content sha256 %s; shells to %s pc" % (
+        out, len(blob), hashlib.sha256(blob).hexdigest(), hashlib.sha256(head + bytes(data)).hexdigest(), ", ".join("%.1f" % r for r in radii)))
 
 
 if __name__ == "__main__":

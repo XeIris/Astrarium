@@ -23,7 +23,14 @@ const TAU_PER_E := 2.67 / 1.0857 * 1000.0
 ## (kpc): its last fifth, where Edenhofer et al. trust it less, gives way to the model's.
 const BLEND := Vector2(1.0, 1.25)
 
+## The most shells the shaders hold (gal_model.gdshaderinc LD_MAX), and bounds on what a file
+## may ask to be decompressed.
+const MAX_SHELLS := 17
+const MAX_CELLS := 1 << 26
+const MAX_GRID_LEVELS := 2
+
 static var _cache := {}
+static var _tried := false
 static var _cache_mutex := Mutex.new()
 
 static func available() -> bool:
@@ -35,12 +42,14 @@ static func available() -> bool:
 static func bake() -> Dictionary:
 	_cache_mutex.lock()
 	var hit: Dictionary = _cache
+	var tried := _tried
 	_cache_mutex.unlock()
-	if not hit.is_empty(): return hit
+	# A missing or malformed file is read once, not again on every visit.
+	if tried: return hit
 	var out := _read()
-	if out.is_empty(): return out
 	_cache_mutex.lock()
 	_cache = out
+	_tried = true
 	_cache_mutex.unlock()
 	return out
 
@@ -52,7 +61,7 @@ static func _read() -> Dictionary:
 	var w := f.get_32()
 	var h := f.get_32()
 	var k := f.get_32()
-	if w <= 0 or h <= 0 or k <= 0 or k > 32: return {}
+	if w <= 0 or h <= 0 or k <= 0 or k > MAX_SHELLS or w > 16384 or h > 16384 or w * h * k > MAX_CELLS: return {}
 	var r := PackedFloat32Array()
 	for i in k: r.append(f.get_float() * 1e-3)
 	var lnmin := f.get_float() + log(TAU_PER_E)
@@ -82,22 +91,23 @@ static func _read_grid() -> Dictionary:
 	if f == null or f.get_length() < 32 or f.get_buffer(4).get_string_from_ascii() != "ASLG": return {}
 	if f.get_32() != GRID_VERSION: return {}
 	var nl := f.get_32()
-	if nl <= 0 or nl > 4: return {}
+	if nl <= 0 or nl > MAX_GRID_LEVELS: return {}
 	var levels := []
 	var size := 0
 	for i in nl:
 		var n := Vector3i(f.get_32(), f.get_32(), f.get_32())
 		var cell := f.get_float() * 1e-3
-		if n.x <= 0 or n.y <= 0 or n.z <= 0 or cell <= 0.0: return {}
+		if n.x <= 0 or n.y <= 0 or n.z <= 0 or n.x > 4096 or n.y > 4096 or n.z > 4096 or not (cell > 0.0): return {}
 		levels.append({"n": n, "cell": cell, "half": Vector3(n) * cell * 0.5, "at": size})
 		size += n.x * n.y * n.z
+		if size > MAX_CELLS: return {}
 	var lnmin := f.get_float() + log(TAU_PER_E)
 	var lnrange := f.get_float()
 	var raw := f.get_buffer(f.get_length() - f.get_position()).decompress(size, FileAccess.COMPRESSION_DEFLATE)
 	if raw.size() != size: return {}
+	# Byte 0 is the least density, as the shells' bytes decode.
 	var lut := PackedFloat32Array()
-	lut.append(0.0)
-	for q in range(1, 256): lut.append(exp(lnmin + lnrange * q / 255.0))
+	for q in 256: lut.append(exp(lnmin + lnrange * q / 255.0))
 	for lv in levels:
 		var n: Vector3i = lv.n
 		var rho := PackedFloat32Array()

@@ -15,14 +15,16 @@ inside the map's first boundary (69 pc) a point takes the inner integral spread 
 shells do, and beyond 1.25 kpc it is empty. The build prints the share of the map's dust the
 box holds.
 
-Encoding as local_dust.bin's: a byte q = round(255 ln(ρ/RHO_MIN)/LN_RANGE), 0 below RHO_MIN.
+Encoding as local_dust.bin's: a byte q = round(255 ln(ρ/RHO_MIN)/LN_RANGE), 0 at or below RHO_MIN,
+read back as RHO_MIN·exp(LN_RANGE·q/255).
 
 Format, little-endian: b"ASLG", int32 version, the number of levels; per level int32 NX, NY,
 NZ and float32 its cube's side (pc); float32 ln RHO_MIN, LN_RANGE; then each level's bytes in
 turn, z slab by slab, each y row by row from the south, x fastest, deflate-compressed (zlib) as
 one stream.
 
-Pure Python on purpose: nothing downloaded is run. It reads the 1.6 GB mean once.
+Pure Python on purpose: nothing downloaded is run. It checks the file's md5, then reads the
+1.6 GB mean once.
 """
 import array
 import hashlib
@@ -33,21 +35,20 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_local_dust import RHO_MIN, LN_RANGE, SIZE, hdus, table_column, ang2pix_nest  # noqa: E402
+from build_local_dust import RHO_MIN, LN_RANGE, hdus, table_column, ang2pix_nest, check_source  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "assets" / "galaxy" / "local_dust_grid.bin"
 VERSION = 1
 # (NX, NY, NZ, cube side in pc): the whole map's box, then the Sun's surroundings.
 LEVELS = [(200, 80, 200, 12.5), (160, 80, 160, 2.5)]
 SUB = 2
-R_MAX = 1250.0
 
 
 def main():
     if len(sys.argv) < 2: raise SystemExit(__doc__)
     src = Path(sys.argv[1])
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else OUT
-    if src.stat().st_size != SIZE: raise SystemExit("BUILD FAIL: %s is not the published file's size" % src)
+    check_source(src)
     ext = hdus(src)
     mh, moff = next((h, o) for h, o in ext if h.get("EXTNAME", "").strip().upper() == "MEAN")
     nside = int(mh["NSIDE"])
@@ -65,6 +66,7 @@ def main():
     if bounds is None or inner is None: raise SystemExit("BUILD FAIL: no radial table or inner map")
     col, rep = bounds
     edges = col if rep == 1 and len(col) == nrad + 1 else [col[2 * i] for i in range(nrad)] + [col[-1]]
+    if len(edges) != nrad + 1: raise SystemExit("BUILD FAIL: %d boundaries for %d radii" % (len(edges), nrad))
     ih, ioff = inner
     ctype = ih.get("CTYPE", ih.get("CTYPE1", "")).lower()
     r0 = float(ctype.split("within")[1].replace("pc", "").strip())
@@ -121,17 +123,22 @@ def main():
     head = b"ASLG" + struct.pack("<2i", VERSION, len(LEVELS))
     for lv, (NX, NY, NZ, CELL) in enumerate(LEVELS):
         held = 0.0
+        clipped = 0
         for c in range(starts[lv], starts[lv] + NX * NY * NZ):
             rho = acc[c] / n3
             held += rho * CELL ** 3
-            data[c] = 0 if rho <= RHO_MIN else min(255, int(round(255.0 * math.log(rho / RHO_MIN) / LN_RANGE)))
-        print("BUILD level %.1f pc (%d × %d × %d) holds %.4f of the map's dust" % (CELL, NX, NY, NZ, held / total))
+            q = 0 if rho <= RHO_MIN else int(round(255.0 * math.log(rho / RHO_MIN) / LN_RANGE))
+            if q > 255: clipped += 1
+            data[c] = min(q, 255)
+        print("BUILD level %.1f pc (%d × %d × %d) holds %.4f of the map's dust; %d cubes clipped at the top byte" % (CELL, NX, NY, NZ, held / total, clipped))
         head += struct.pack("<3if", NX, NY, NZ, CELL)
     head += struct.pack("<2f", math.log(RHO_MIN), LN_RANGE)
     blob = head + zlib.compress(bytes(data), 9)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(blob)
-    print("BUILD wrote %s: %d bytes, sha256 %s" % (out, len(blob), hashlib.sha256(blob).hexdigest()))
+    # The deflate stream depends on the zlib that wrote it; the header and payload do not.
+    print("BUILD wrote %s: %d bytes, sha256 %s (with this zlib); content sha256 %s" % (
+        out, len(blob), hashlib.sha256(blob).hexdigest(), hashlib.sha256(head + bytes(data)).hexdigest()))
 
 
 if __name__ == "__main__":
