@@ -300,6 +300,7 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	if not spiral.is_empty():
 		mat.set_shader_parameter("uSpiral", Vector4(spiral_k, spiral.r0, spiral.rs, spiral.h))
 	mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, 0.0, 1.0 if arm_tex != null else 0.0))
+	mat.set_shader_parameter("uArmRot", Vector2(1.0, 0.0))
 	if arm_tex != null:
 		mat.set_shader_parameter("uArmMap", arm_tex)
 		mat.set_shader_parameter("uArmHalf", ARM_HALF)
@@ -660,6 +661,7 @@ func _turn_patterns(t_myr: float) -> void:
 	for mat in [glow_mat, star_mat]:
 		mat.set_shader_parameter("uBar", bar)
 		mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, arm_turn, 1.0 if arm_tex != null else 0.0))
+		mat.set_shader_parameter("uArmRot", Vector2(cos(arm_turn), sin(arm_turn)))
 
 # ---- the CPU's copy of gal_model.gdshaderinc, in double
 
@@ -983,6 +985,7 @@ func apply_arms(baked: Dictionary) -> void:
 		mat.set_shader_parameter("uArmMap", arm_tex)
 		mat.set_shader_parameter("uArmHalf", ARM_HALF)
 		mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, arm_turn, 1.0))
+		mat.set_shader_parameter("uArmRot", Vector2(cos(arm_turn), sin(arm_turn)))
 
 ## The map at a point, as the GPU samples it: turned into the arms' frame, bilinear
 ## between texel centres, zero outside.

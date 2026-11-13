@@ -44,14 +44,14 @@ uniform vec2 uDustMap = vec2(0.0, 1.0);
 // arm dust factor (cutoff · exp(−(d/w)²)), b = the stellar spiral's e^{−(R−r0)/Rs} cos γ,
 // over ±uArmHalf kpc.
 uniform vec4 uYoung = vec4(0.0, 0.05, 0.0, 0.0);
+// cos and sin of uYoung.z, the arm map's turn, so a step need not take them.
+uniform vec2 uArmRot = vec2(1.0, 0.0);
 uniform sampler2D uArmMap : filter_linear, repeat_disable;
 uniform float uArmHalf = 20.0;
 // The arm map at a point, turned back into the arms' frame.
 vec3 gal_arm_map3(vec3 p) {
 	if (uYoung.w < 0.5) return vec3(0.0);
-	float c = cos(uYoung.z);
-	float sn = sin(uYoung.z);
-	vec2 q = vec2(p.x * c + p.z * sn, p.z * c - p.x * sn) / (2.0 * uArmHalf) + 0.5;
+	vec2 q = vec2(p.x * uArmRot.x + p.z * uArmRot.y, p.z * uArmRot.x - p.x * uArmRot.y) / (2.0 * uArmHalf) + 0.5;
 	if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return vec3(0.0);
 	return texture(uArmMap, q).rgb;
 }
@@ -359,15 +359,17 @@ float gal_ism_dust(float m) {
 // leaves alone; dtau the model's rest.
 void gal_disc_sample(vec3 p, float foot, out float jd, out float jy, out float dtau, out float dgrid, bool dust) {
 	vec3 m = gal_arm_map3(p);
-	float a = uDisc.y;
-	float b2 = uDisc.z * uDisc.z;
 	float R2 = p.x * p.x + p.z * p.z;
 	float R = sqrt(R2);
-	float zb = sqrt(p.y * p.y + b2);
-	float s = a + zb;
-	float q = R2 + s * s;
-	jd = uDisc.x * (a * R2 + (a + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb);
-	if (uDiscMap.x > 0.0) jd = uDiscMap.x * m.b * exp(-abs(p.y) / uDiscMap.y) / (2.0 * uDiscMap.y);
+	if (uDiscMap.x > 0.0) {
+		jd = uDiscMap.x * m.b * exp(-abs(p.y) / uDiscMap.y) / (2.0 * uDiscMap.y);
+	} else {
+		float a = uDisc.y;
+		float zb = sqrt(p.y * p.y + uDisc.z * uDisc.z);
+		float s = a + zb;
+		float q = R2 + s * s;
+		jd = uDisc.x * (a * R2 + (a + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb);
+	}
 	if (uSpiral.x > 0.0) jd += uSpiral.x * m.b * gal_sech2(p.y / uSpiral.w);
 	jd = max(jd, 0.0) * smoothstep(uEdge, 0.8 * uEdge, R);
 	float env = gal_envelope(R);
