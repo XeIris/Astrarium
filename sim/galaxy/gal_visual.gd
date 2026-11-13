@@ -8,6 +8,8 @@ extends RefCounted
 # places `group` at the galaxy's centre relative to the camera (floating origin).
 
 const GLOW_SHADER := preload("res://shaders/galaxy/galaxy_glow.gdshader")
+## The Milky Way's, with the measured dust around the Sun compiled in.
+const GLOW_LOCAL_SHADER := preload("res://shaders/galaxy/galaxy_glow_local.gdshader")
 const STAR_SHADER := preload("res://shaders/galaxy/galaxy_stars.gdshader")
 const TRACER_SHADER := preload("res://shaders/galaxy/galaxy_tracers.gdshader")
 const CATALOGUE_SHADER := preload("res://shaders/galaxy/galaxy_catalogue.gdshader")
@@ -38,6 +40,11 @@ var sense := 1.0
 var disc_pop: GalPopulation
 var sphere_pop: GalPopulation
 var young_pop: GalPopulation = null
+## The colours drawn (visible per bolometric L☉): the populations', unless the model states
+## measured ones (GalModels.m51_colours) of the same luminance.
+var disc_col := Color(1, 1, 1)
+var sphere_col := Color(1, 1, 1)
+var young_col0 := Color(1, 1, 1)
 var patterns: Array = []
 ## The arms (uArmA, uArmB as gal_model.gdshaderinc reads them), the young stars'
 ## luminosity-density scale and layer height, the bulge's light axes, and the dust.
@@ -105,6 +112,8 @@ const ARM_HALF := 20.0
 ## past its measured ends, continuing at its own pitch; a rendering choice, not a measurement.
 const SPUR_FADE := 0.15
 static var _arm_cache := {}
+## ism_norms() per model, as bake_arms() caches the maps.
+static var _norm_cache := {}
 static var _cache_mutex := Mutex.new()
 var _l_young := 0.0
 var _model_key := ""
@@ -132,6 +141,10 @@ var join_enabled := true
 ## Checks hide the drawn real stars while the glow still gives up their light.
 var show_catalogue := true
 var neighbourhood := {}
+## The measured dust around the Sun (GalLocalDust), for the Milky Way when the asset is there;
+## `local_dust_enabled` false leaves the model's dust alone everywhere (checks).
+var local_dust := {}
+var local_dust_enabled := true
 var catalogue: MeshInstance3D = null
 var catalogue_mat: ShaderMaterial = null
 var has_sun := false
@@ -148,6 +161,19 @@ var far_w := 0.0
 ## solid angle of the last update, for checks.
 var last_gain := 0.0
 var last_pix_sr := 1e-6
+## The interstellar medium below the map (GalISM): whether this galaxy has dust or young
+## light for it to clump, whether its field is on the materials, and checks' switch.
+var ism_applies := false
+var ism_ready := false
+var ism_enabled := true
+var ism_turns := PackedFloat32Array()
+## The dust's and the young light's layer thicknesses (kpc): twice the thinnest dust layer's
+## scale height, twice the young layer's.
+var ism_layers := Vector2(0.2, 0.2)
+## The multipliers' realised means over this galaxy's map (GalISM.norms), from the bake.
+var ism_norm := PackedVector2Array()
+## The lanes' feathers as GalISM.feather reads them; empty without measured lanes.
+var ism_feathers := {}
 
 ## `defer_arms`: leave the arms' map to bake_arms() on a worker and apply_arms() after
 ## (the scene); otherwise it is baked here (checks).
@@ -164,6 +190,9 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	var young_gyr: float = float(model.get("youngGyr", GalModels.MW_YOUNG_GYR)) if not arms.is_empty() else 0.0
 	disc_pop = GalPopulation.build(model.get("discPop", {"kind": "constant", "gyr": 10.0, "fromGyr": young_gyr}))
 	sphere_pop = GalPopulation.build(model.get("spherePop", {"kind": "burst", "gyr": 10.0}))
+	var measured: Dictionary = model.get("colours", {})
+	disc_col = measured.get("disc", disc_pop.color)
+	sphere_col = measured.get("sphere", sphere_pop.color)
 	var axes: Array = model.get("bulgeAxes", [1.0, 1.0])
 	bulge_axes = Vector2(axes[0], axes[1])
 	dust = (model.get("dust", {}) as Dictionary).duplicate()
@@ -191,7 +220,8 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	env_hole = float(env[1])
 	if not arms.is_empty():
 		young_pop = GalPopulation.build({"kind": "constant", "gyr": young_gyr})
-		young_col = young_pop.color
+		young_col0 = measured.get("young", young_pop.color)
+		young_col = young_col0
 		young_h = float(model.get("armH", GalModels.MW_YOUNG_H))
 		arm_growth = float(model.get("armWidthGrowth", 0.042))
 		arm_decay = PackedFloat64Array(model.get("armDecay", []))
@@ -213,14 +243,26 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 		if not dust_map.is_empty(): _build_lanes()
 	_model_key = String(model.key)
 	_model_for_uniforms = model
+	ism_applies = not dust.is_empty() or not dust_map.is_empty() or not rings.is_empty() or young_pop != null
+	if ism_applies: ism_turns = GalISM.turn_table(pot, edge, sense)
+	ism_layers = Vector2(2.0 * minf(thin, 1.0), 2.0 * (young_h if young_pop != null else minf(thin, 1.0)))
+	if ism_applies and not lanes.is_empty(): ism_feathers = _feather_frame()
 	_build_glow(model)
 	_build_stars(model)
 	if not defer_arms and has_map(): apply_arms(bake_arms())
+	if not defer_arms:
+		if ism_applies: ism_norm = ism_norms()
+		apply_ism()
 	has_sun = String(model.key) == "milky_way" and GalNeighbourhood.available()
 	if has_sun:
 		sun_r0 = float(model.get("r0", 8.0))
 		sun_omega = sense * pot.vc(sun_r0) / sun_r0
-		if not defer_arms: apply_neighbourhood(GalNeighbourhood.bake())
+		var f := GalNeighbourhood.sun_frame(sun_r0, sun_omega, 0.0)
+		sun_pos = f[0]
+		sun_basis = f[1]
+		if not defer_arms:
+			apply_neighbourhood(GalNeighbourhood.bake())
+			apply_local_dust(GalLocalDust.bake())
 
 func _visible(model: Dictionary, part: String) -> float:
 	for l in model.light:
@@ -260,6 +302,7 @@ func _light_uniforms(model: Dictionary, mat: ShaderMaterial) -> void:
 	if not spiral.is_empty():
 		mat.set_shader_parameter("uSpiral", Vector4(spiral_k, spiral.r0, spiral.rs, spiral.h))
 	mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, 0.0, 1.0 if arm_tex != null else 0.0))
+	mat.set_shader_parameter("uArmRot", Vector2(1.0, 0.0))
 	if arm_tex != null:
 		mat.set_shader_parameter("uArmMap", arm_tex)
 		mat.set_shader_parameter("uArmHalf", ARM_HALF)
@@ -307,13 +350,14 @@ func _build_glow(model: Dictionary) -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3(ext, h, ext) * 2.0
 	glow_mat = ShaderMaterial.new()
-	glow_mat.shader = GLOW_SHADER
+	var local := String(model.key) == "milky_way" and GalNeighbourhood.available() and GalLocalDust.available()
+	glow_mat.shader = GLOW_LOCAL_SHADER if local else GLOW_SHADER
 	_light_uniforms(model, glow_mat)
 	glow_mat.set_shader_parameter("uBox", Vector3(ext, h, ext))
 	glow_mat.set_shader_parameter("uSphereR", sphere_r)
 	glow_mat.set_shader_parameter("uSphereCore", SPHERE_CORE)
-	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_pop.color.r, disc_pop.color.g, disc_pop.color.b))
-	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_pop.color.r, sphere_pop.color.g, sphere_pop.color.b))
+	glow_mat.set_shader_parameter("uDiscCol", Vector3(disc_col.r, disc_col.g, disc_col.b))
+	glow_mat.set_shader_parameter("uSphereCol", Vector3(sphere_col.r, sphere_col.g, sphere_col.b))
 	glow_mat.set_shader_parameter("uFaint", Vector2(disc_pop.faint_light, sphere_pop.faint_light))
 	if young_pop != null:
 		glow_mat.set_shader_parameter("uYoungCol", Vector3(young_col.r, young_col.g, young_col.b))
@@ -414,6 +458,7 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	if res_override >= 0.0: res = res_override
 	glow_mat.set_shader_parameter("uCamLocal", cl)
 	glow_mat.set_shader_parameter("uGain", gain / (4.0 * PI))
+	glow_mat.set_shader_parameter("uPix", pix)
 	if hii != null:
 		hii.visible = show_hii and (show_glow or not hii_with_glow)
 		hii_mat.set_shader_parameter("uCamLocal", cl)
@@ -436,8 +481,10 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 ## The glow's luminance (Sun-luminance kpc⁻² sr⁻¹) along a ray from `o` in local
 ## direction `d`, integrated as the shader does but in double: what the eye adapts to.
 ## The spheroid's cusp is cut at `r_floor`, so a patch, not one pixel, sets the level.
-func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
-	var cols := [disc_pop.color, sphere_pop.color, young_col if young_pop != null else Color(0, 0, 0)]
+## `pix` > 0 adds the interstellar medium as a pixel of that angle (rad) draws it; the eye
+## adapts to its mean, one.
+func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0) -> float:
+	var cols := [disc_col, sphere_col, young_col if young_pop != null else Color(0, 0, 0)]
 	var e: Array = GalModels.EXTINCTION_RGB
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var box: Vector3 = glow_mat.get_shader_parameter("uBox")
@@ -458,6 +505,12 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 	if t1 <= t0:
 		t0 = INF
 		t1 = -INF
+	# The medium, from outside its layer, where the ray crosses the plane on the box's chord.
+	var ism_m := Vector2.ONE
+	var outside := GalISM.outside(o.y) or absf(o.x) > box.x or absf(o.y) > box.y or absf(o.z) > box.z
+	if pix > 0.0 and ism_ready and ism_enabled and t1 > t0 and outside:
+		var tc0 := clampf(-o.y / (d.y if absf(d.y) > 1e-6 else 1e-6), t0, t1)
+		ism_m = GalISM.multipliers(GalISM.field(), o + d * tc0, tc0 * pix, ism_turns, edge, arm_turn, ism_layers, ism_norm, ism_feathers)
 	if sv.y > 0.0:
 		var hb := o.dot(d)
 		var hh := hb * hb - (o.dot(o) - reach * reach)
@@ -467,12 +520,28 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 	if t1 <= t0: return 0.0
 	var acc := [0.0, 0.0, 0.0]
 	var tau := 0.0
+	# The measured dust as the shader draws it: shell k from r[k − 1] to r[k] out from the camera,
+	# its density toward this direction from the Sun.
+	var ld_f := local_dust_fade(o)
+	var ld3 := 0.0 if local_dust.is_empty() or not local_dust_enabled or (local_dust.get("grid", {}) as Dictionary).is_empty() else 1.0 - ld_f
+	var ld_rate := PackedFloat32Array()
+	if ld_f > 0.0:
+		var ud := (sun_basis.transposed() * d).normalized()
+		for k in int(local_dust.k): ld_rate.append(GalLocalDust.density_toward(local_dust, ud, k))
 	# Uniform in asinh about the plane crossing, as the shader samples the disc.
 	var sc := maxf(minf(dv.z, thin), 0.005) / maxf(absf(d.y), 1e-4)
 	var tc := clampf(-o.y / d.y if absf(d.y) > 1e-9 else t0, t0, t1)
 	var u0 := asinh((t0 - tc) / sc)
 	var u1 := asinh((t1 - tc) / sc)
 	var du := (u1 - u0) / float(n)
+	# The glow reads the grid averaged over the step its asinh leg would take at each t over the
+	# whole chord (galaxy_glow.gdshaderinc march_disc), gathered about the camera from inside the
+	# medium's layer; integrated here as drawn.
+	var g_sc := sc if outside else minf(sc, GLOW_SC_INSIDE)
+	var g_tc := tc if outside else t0
+	var g_du := (asinh((t1 - g_tc) / g_sc) - asinh((t0 - g_tc) / g_sc)) / float(GLOW_DISC - 4)
+	var g_tm := clampf(res, t0, t1)
+	var g_rs: PackedFloat32Array = local_dust.get("r", PackedFloat32Array())
 	for i in n:
 		var u := u0 + (float(i) + 0.5) * du
 		var t := tc + sc * sinh(u)
@@ -483,7 +552,28 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160) -> float:
 		if not in_box:
 			j[0] = 0.0
 			j[2] = 0.0
-		var k := dust_density(p.x, p.y, p.z) * ds if in_box else 0.0
+		var k := 0.0
+		if in_box:
+			var foot := sqrt(g_sc * g_sc + (t - g_tc) * (t - g_tc)) * g_du
+			# Within the shells' steps the glow takes the shares and the grid once, at the step's
+			# middle and without jitter (the grid over the step's length), as it reads the shells.
+			var at := p
+			var shk := GalLocalDust.shell(local_dust, t) if ld_f > 0.0 and t >= g_tm else -1
+			var sh3: Vector3
+			if shk >= 0:
+				var ta := maxf(g_tm, g_rs[shk - 1] if shk > 0 else 0.0)
+				var te := minf(g_rs[shk], t1)
+				foot = te - ta
+				at = o + d * (0.5 * (ta + te))
+				sh3 = dust_shares(o, 0.5 * (ta + te), at)
+			else:
+				sh3 = dust_shares(o, t, p, foot)
+			var shell_k := 0.0
+			if sh3.y > 0.0: shell_k = ld_rate[GalLocalDust.shell(local_dust, t)]
+			var grid_k := 0.0
+			if sh3.z > 0.0: grid_k = GalLocalDust.grid_density(local_dust, sun_basis.transposed() * (at - sun_pos), foot)
+			k = (sh3.x * _model_dust(p.x, p.y, p.z) * GalISM.dust(ism_m.x) + sh3.y * shell_k + sh3.z * grid_k) * ds
+		j[2] *= ism_m.y
 		for ch in 3:
 			var kc := k * float(e[ch])
 			var within := (1.0 - exp(-kc)) / kc if kc > 1e-4 else 1.0 - 0.5 * kc
@@ -585,6 +675,7 @@ func _turn_patterns(t_myr: float) -> void:
 	for mat in [glow_mat, star_mat]:
 		mat.set_shader_parameter("uBar", bar)
 		mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, arm_turn, 1.0 if arm_tex != null else 0.0))
+		mat.set_shader_parameter("uArmRot", Vector2(cos(arm_turn), sin(arm_turn)))
 
 # ---- the CPU's copy of gal_model.gdshaderinc, in double
 
@@ -647,7 +738,7 @@ func has_map() -> bool:
 	return young_pop != null or not disc_map.is_empty()
 
 ## The arms' map and its integral: pure data, safe on a worker thread, cached per model.
-func bake_arms() -> Dictionary:
+func bake_arms(stop := [false]) -> Dictionary:
 	_cache_mutex.lock()
 	var hit: Dictionary = _arm_cache.get(_model_key, {})
 	_cache_mutex.unlock()
@@ -655,6 +746,8 @@ func bake_arms() -> Dictionary:
 	var img := Image.create_empty(ARM_N, ARM_N, false, Image.FORMAT_RGBF)
 	var px := 2.0 * ARM_HALF / float(ARM_N)
 	for j in ARM_N:
+		# Stopped (its scene left), a half-drawn map is neither returned nor cached.
+		if j % 16 == 0 and stop[0]: return {}
 		for i in ARM_N:
 			var x := -ARM_HALF + (float(i) + 0.5) * px
 			var z := -ARM_HALF + (float(j) + 0.5) * px
@@ -716,6 +809,59 @@ func apply_neighbourhood(baked: Dictionary) -> void:
 	group.add_child(catalogue)
 	glow_mat.set_shader_parameter("uCatMap", ImageTexture.create_from_image(baked.map))
 
+## On the main thread: the measured dust around the Sun on the glow's and the stars' materials.
+func apply_local_dust(m: Dictionary) -> void:
+	if m.is_empty() or not has_sun or not local_dust.is_empty(): return
+	local_dust = m
+	var tex := GalLocalDust.texture(m)
+	var grid := GalLocalDust.grid_textures(m)
+	var r := PackedFloat32Array(m.r)
+	var wt := PackedFloat32Array(m.wt)
+	r.resize(LD_MAX)
+	wt.resize(LD_MAX)
+	for mat in [glow_mat, star_mat]:
+		mat.set_shader_parameter("uLD", tex)
+		mat.set_shader_parameter("uLDR", r)
+		mat.set_shader_parameter("uLDW", wt)
+		mat.set_shader_parameter("uLDEnc", m.enc)
+		mat.set_shader_parameter("uLDSize", Vector3(int(m.w) + 2, int(m.h), int(m.k)))
+		mat.set_shader_parameter("uLD3Blend", GalLocalDust.BLEND)
+		if grid.size() > 0: mat.set_shader_parameter("uLD3", grid[0])
+		if grid.size() > 1: mat.set_shader_parameter("uLD3In", grid[1])
+		var levels: Array = (m.get("grid", {}) as Dictionary).get("levels", [])
+		mat.set_shader_parameter("uLD3Cell", Vector2(levels[0].cell if levels.size() > 0 else 1.0, levels[1].cell if levels.size() > 1 else 1.0))
+	_place_local_dust()
+
+## The shaders' LD_MAX: the most shells the map may have.
+const LD_MAX := GalLocalDust.MAX_SHELLS
+## The glow's steps through a disc, and their scale from inside the medium's layer
+## (galaxy_glow.gdshaderinc N_DISC, SC_INSIDE).
+const GLOW_DISC := 32
+const GLOW_SC_INSIDE := 0.5
+
+## The measured dust's share for a camera at `cam`: drawn as seen from the Sun, it fades with
+## the far stars.
+func local_dust_fade(cam: Vector3) -> float:
+	if local_dust.is_empty() or not local_dust_enabled: return 0.0
+	return GalLocalDust.fade(cam.distance_to(sun_pos))
+
+func _place_local_dust() -> void:
+	var on := not local_dust.is_empty() and local_dust_enabled
+	var f := GalLocalDust.fade(sun_dist) if on else 0.0
+	# Where the map has faded out the glow drops its code too: it costs registers even unused.
+	var want: Shader = GLOW_LOCAL_SHADER if f > 0.0 else GLOW_SHADER
+	if glow_mat.shader != want: glow_mat.shader = want
+	var levels: Array = (local_dust.get("grid", {}) as Dictionary).get("levels", []) if on else []
+	var half: Vector3 = levels[0].half if levels.size() > 0 else Vector3.ONE
+	var half_in: Vector3 = levels[1].half if levels.size() > 1 else Vector3.ZERO
+	for mat in [glow_mat, star_mat]:
+		mat.set_shader_parameter("uLDK", int(local_dust.k) if on else 0)
+		mat.set_shader_parameter("uLDFade", f)
+		mat.set_shader_parameter("uLDBasis", sun_basis)
+		mat.set_shader_parameter("uLD3P", Vector4(half.x, half.y, half.z, 0.0 if levels.is_empty() else 1.0 - f))
+		mat.set_shader_parameter("uLD3IP", Vector4(half_in.x, half_in.y, half_in.z, GalLocalDust.GRID_MARGIN if levels.size() > 1 else 0.0))
+		mat.set_shader_parameter("uLD3Sun", sun_pos)
+
 ## The Sun and the real stars this frame: where they are, the lattice's hole, and how much
 ## of the far set (and its light in the glow) is shown.
 func _place_neighbourhood(cam_local: DVec3, t_myr: float, gain: float, pix_sr: float) -> void:
@@ -725,6 +871,7 @@ func _place_neighbourhood(cam_local: DVec3, t_myr: float, gain: float, pix_sr: f
 	var sun := DVec3.new(sun_pos.x, sun_pos.y, sun_pos.z)
 	var rel := sun.rel_v3(cam_local)
 	sun_dist = rel.length()
+	_place_local_dust()
 	var on := join_enabled and catalogue != null
 	far_w = 1.0 - smoothstep(GalNeighbourhood.FAR_FADE.x, GalNeighbourhood.FAR_FADE.y, sun_dist) if on else 0.0
 	var near := on and res > 0.0 and sun_dist < res + GalNeighbourhood.NEAR_KPC
@@ -747,7 +894,7 @@ func _apply_hii(cat: Dictionary) -> void:
 	hii_cat = cat
 	var cont: float = cat.cont_bol
 	var dig: float = cat.dig_bol
-	var vis: Color = young_pop.color * _l_young - (cat.cont_col as Color) * cont + (cat.dig_vis as Color)
+	var vis: Color = young_col0 * _l_young - (cat.cont_col as Color) * cont + (cat.dig_vis as Color)
 	_l_young += dig - cont
 	young_col = vis / _l_young
 	glow_mat.set_shader_parameter("uYoungCol", Vector3(young_col.r, young_col.g, young_col.b))
@@ -795,6 +942,7 @@ func _apply_hii(cat: Dictionary) -> void:
 	_light_uniforms(_model_for_uniforms, hii_mat)
 	var e: Array = GalModels.EXTINCTION_RGB
 	hii_mat.set_shader_parameter("uExt", Vector3(e[0], e[1], e[2]))
+	if ism_ready and ism_enabled: GalISM.set_uniforms(hii_mat, ism_turns, edge, ism_layers, ism_norm, ism_feathers)
 	hii = MeshInstance3D.new()
 	hii.name = "HII"
 	hii.mesh = mesh
@@ -803,11 +951,64 @@ func _apply_hii(cat: Dictionary) -> void:
 	hii.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
 	group.add_child(hii)
 
+## On the main thread, once GalISM.field() is built (a worker builds it in the scene).
+func apply_ism() -> void:
+	if not ism_applies: return
+	ism_ready = true
+	set_ism(ism_enabled)
+
+## The medium's realised means for a galaxy without a map, weighted by its dust in the plane:
+## pure data, safe on a worker thread.
+## The medium's realised means for this galaxy, which apply_ism() divides out: over its arm map
+## (bake_arms() first), or over its dust in the plane without one. Pure data, safe on a worker,
+## computed once per model.
+func ism_norms(stop := [false]) -> PackedVector2Array:
+	_cache_mutex.lock()
+	var hit: PackedVector2Array = _norm_cache.get(_model_key, PackedVector2Array())
+	_cache_mutex.unlock()
+	if not hit.is_empty(): return hit
+	var out := PackedVector2Array()
+	if has_map():
+		var arms := bake_arms(stop)
+		if arms.is_empty(): return out
+		out = GalISM.norms(arms.img, ARM_HALF, _envelope, ism_turns, edge, ism_layers, ism_feathers, stop)
+	else:
+		out = plane_ism_norms(stop)
+	if out.size() != GalISM.NORM_FEET.size(): return PackedVector2Array()
+	_cache_mutex.lock()
+	_norm_cache[_model_key] = out
+	_cache_mutex.unlock()
+	return out
+
+## Over the galaxy's dust in the plane, for a galaxy without a map.
+func plane_ism_norms(stop := [false]) -> PackedVector2Array:
+	var n := 192
+	var half := minf(edge, ARM_HALF)
+	var px := 2.0 * half / float(n)
+	var img := Image.create_empty(n, n, false, Image.FORMAT_RGF)
+	for j in n:
+		for i in n:
+			img.set_pixel(i, j, Color(0.0, dust_density(-half + (float(i) + 0.5) * px, 0.0, -half + (float(j) + 0.5) * px), 0.0))
+	return GalISM.norms(img, half, func(_r: float) -> float: return 0.0, ism_turns, edge, ism_layers, {}, stop)
+
+## Checks draw with and without the interstellar medium.
+func set_ism(on: bool) -> void:
+	ism_enabled = on
+	if not ism_ready: return
+	for mat in [glow_mat, hii_mat]:
+		if mat == null: continue
+		if on: GalISM.set_uniforms(mat, ism_turns, edge, ism_layers, ism_norm, ism_feathers)
+		else:
+			var zero := PackedFloat32Array()
+			zero.resize(GalISM.OCTAVES)
+			mat.set_shader_parameter("uISMOct", zero)
+
 ## On the main thread: the map's texture, and the young arms' scale from its integral.
 func apply_arms(baked: Dictionary) -> void:
 	if baked.is_empty(): return
 	arm_img = baked.img
 	bar_share = float(baked.get("bar", 0.0))
+	if ism_ready: set_ism(ism_enabled)
 	arm_tex = ImageTexture.create_from_image(arm_img)
 	if baked.has("hii") and hii == null: _apply_hii(baked.hii)
 	young_k = _l_young / float(baked.integral) if float(baked.integral) > 0.0 else 0.0
@@ -820,6 +1021,7 @@ func apply_arms(baked: Dictionary) -> void:
 		mat.set_shader_parameter("uArmMap", arm_tex)
 		mat.set_shader_parameter("uArmHalf", ARM_HALF)
 		mat.set_shader_parameter("uYoung", Vector4(young_k, young_h, arm_turn, 1.0))
+		mat.set_shader_parameter("uArmRot", Vector2(cos(arm_turn), sin(arm_turn)))
 
 ## The map at a point, as the GPU samples it: turned into the arms' frame, bilinear
 ## between texel centres, zero outside.
@@ -1078,6 +1280,25 @@ func _build_lanes() -> void:
 		var beta := _arm_beta(i, ra)[0] - dtheta
 		lanes.append([ra, beta, tan(deg_to_rad(float(dust_map.pitchIn[i]))), tan(deg_to_rad(float(dust_map.pitchOut[i])))])
 
+## The lanes for GalISM.feather: each lane's parameters and its arm's span, where the arm's
+## weight passes one half.
+func _feather_frame() -> Dictionary:
+	var ls := []
+	var spans := []
+	for i in lanes.size():
+		var ln: Array = lanes[i]
+		ls.append(Vector4(ln[0], ln[1], ln[2], ln[3]))
+		var lo := INF
+		var hi := 0.0
+		var R := 0.1
+		while R < edge:
+			if _arm_beta(i, R)[1] > 0.5:
+				lo = minf(lo, R)
+				hi = R
+			R += 0.05
+		spans.append(Vector2(lo, hi) if hi > 0.0 else Vector2.ZERO)
+	return GalISM.feather_frame(ls, spans, float(dust_map.rBreak), float(dust_map.rCR), arm_mirror)
+
 ## Lane i's azimuth at R: its inner pitch out to the break, its outer pitch beyond.
 func _lane_beta(i: int, R: float) -> float:
 	var ln: Array = lanes[i]
@@ -1130,8 +1351,35 @@ static func _sech2(x: float) -> float:
 	var e := exp(-2.0 * absf(x))
 	return 4.0 * e / ((1.0 + e) * (1.0 + e))
 
-## V optical depth per kpc at a local point.
+## The dust's shares (model, shells, grid) at `p`, `t` kpc along a ray from a camera at `cam`,
+## for a glow step `foot` kpc long: the shells as seen from the Sun while they show, the grid as
+## they fade, the model's dust what they leave (GalLocalDust.shares).
+func dust_shares(cam: Vector3, t: float, p: Vector3, foot := 0.0) -> Vector3:
+	if local_dust.is_empty() or not local_dust_enabled: return Vector3(1.0, 0.0, 0.0)
+	var f := local_dust_fade(cam)
+	var w_sh := 0.0
+	if f > 0.0:
+		var sh := GalLocalDust.shell(local_dust, t)
+		if sh >= 0: w_sh = f * (local_dust.wt as PackedFloat32Array)[sh]
+	var w3 := 0.0
+	if not (local_dust.get("grid", {}) as Dictionary).is_empty():
+		w3 = (1.0 - f) * GalLocalDust.grid_weight((sun_basis.transposed() * (p - sun_pos)).length(), foot)
+	return GalLocalDust.shares(w_sh, w3)
+
+## V optical depth per kpc at a local point: the model's dust, joined to the measured dust's
+## shells around the Sun in their true 3D places. Checks read it as the map's geometry; the
+## drawing's join (dust_shares, gal_dust_joined) takes the grid too as the shells fade, and agrees
+## with this only as seen from the Sun.
 func dust_density(x: float, y: float, z: float) -> float:
+	var m := _model_dust(x, y, z)
+	if local_dust.is_empty() or not local_dust_enabled: return m
+	var s := sun_basis.transposed() * (Vector3(x, y, z) - sun_pos)
+	var k := GalLocalDust.shell(local_dust, s.length())
+	if k < 0: return m
+	var w: float = (local_dust.wt as PackedFloat32Array)[k]
+	return (1.0 - w) * m + w * GalLocalDust.density(local_dust, s)
+
+func _model_dust(x: float, y: float, z: float) -> float:
 	if not dust_map.is_empty():
 		var zd: float = dust_map.z
 		return float(dust_map.kappa) * _arm_sample(x, z)[1] * exp(-absf(y) / zd) / (2.0 * zd)

@@ -345,6 +345,13 @@ func _ready() -> void:
 	await measure("galaxy-whole")
 	stage.galaxy.frame("sun")
 	await measure("galaxy-sun")
+	# 300 pc from the Sun, every ray through the measured dust's grid: a failure unless it is.
+	stage.jump_cam_radius(0.3)
+	var gv: GalaxyVisual = stage.galaxy.visual
+	await measure("galaxy-near")
+	if absf(gv.sun_dist - 0.3) > 0.01 or (gv.local_dust.get("grid", {}) as Dictionary).is_empty() or GalLocalDust.fade(gv.sun_dist) > 0.0:
+		failures += 1
+		print("PERFCHECK galaxy-near is not 300 pc from the Sun with the grid drawn (%s kpc)" % gv.sun_dist)
 	if stage.galaxy.tracers == null or stage.galaxy.tracers.steps == 0: failures += 1
 	stage.state.paused = true
 	# M51: its maps, dust and H II regions, whole and from 8 kpc, where the regions' quads are

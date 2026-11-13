@@ -17,16 +17,31 @@ const PROFILE_TOL := 0.04
 ## Rows across the dust lane, as offsets from the frame's centre row: edge-on from
 ## outside, and from the Sun, where the lane sits ~210 px above the centre and in-plane
 ## steps are optically thick. Columns spread over ±EDGE_HALF_PX; the CPU marches
-## EDGE_SAMPLES (an in-plane ray's asinh spacing is otherwise ~0.4 kpc).
-const DUST_ROWS := {"edge": [-24, -8, -3, 0, 3, 8, 24], "sun": [-280, -240, -215, -205, -190, -160, -100, 0]}
+## EDGE_SAMPLES (an in-plane ray's asinh spacing is otherwise ~0.4 kpc), and through the
+## measured dust around the Sun four times as many: its clouds at a few hundred pc move the
+## lane rows 0.8 % between 3000 and 12000.
+const DUST_ROWS := {"edge": [-24, -8, -3, 0, 3, 8, 24], "sun": [-280, -240, -215, -205, -190, -160, -100, 0],
+	"near": [-240, -120, -60, -20, 0, 20, 60, 120, 240], "fade": [-280, -240, -215, -190, -160, -100, 0]}
+## "near" looks back at the Sun from NEAR_KPC away, through the measured dust on its grid; "fade"
+## from FADE_KPC, where the shells and the grid share it.
+const NEAR_KPC := 0.3
+const FADE_KPC := 0.02
 const EDGE_COLUMNS := 48
 const EDGE_HALF_PX := 320
 const EDGE_SAMPLES := 3000
+const LOCAL_DUST_SAMPLES := 12000
 const EDGE_EXPOSURE := 0.05
-## From the Sun the glow's 28 steps cross ~30 kpc of arm dust in the plane: that
-## quadrature reads 5.3 % bright in the lane against a converged CPU march (12000
-## samples agree with 3000). A step attenuated at its midpoint reads 14 %.
-const DUST_TOL := {"edge": 0.04, "sun": 0.08}
+## From the Sun the glow's steps gather about the camera, where the arm dust in the plane
+## changes most: 0.3 % against a converged CPU march (12000 samples agree with 3000). Spread
+## evenly over the box's chord they read 7 % bright in the lane. That leaves the lane rows
+## sensitive to how a step attenuates: lit at its midpoint instead of by its mean they read 1 %.
+## Those hold for the model's dust alone. Through the measured dust ("sun+map") the march takes
+## a step per shell, each even, read at its middle: 0.8 %. Keeping the model's dust in the
+## shells reads 29 %, each shell's density from the next shell out 16 %.
+const DUST_TOL := {"edge": 0.04, "sun": 0.006}
+## Through the measured dust: the CPU's 12000 samples agree with 24000 to 0.1 %, and the GPU's
+## shell steps are not jittered, so its 0.8 % is the same from run to run, not noise.
+const LOCAL_DUST_TOL := 0.01
 ## The join: four views from the Sun at a night-sky exposure, each half of it (the drawn
 ## stars, the glow given up) against the CPU.
 const JOIN_EXPOSURE := 1.0
@@ -35,6 +50,15 @@ const JOIN_TOL := 0.03
 const NEIGHBOUR_EXPOSURE := 0.05
 ## M104 seen 6° from edge-on through a 20 pc dust ring: as the Milky Way's lane from the Sun.
 const TYPE_DUST_TOL := 0.08
+## The medium below the map (GalISM), pixel by pixel: the glow's jitter and float sampling
+## (M51 0.2 %, M104 1.4 %).
+const ISM_PIXEL_TOL := 0.05
+## M51's colour in linear light against SDSS (Muñoz-Mateos et al. 2009, J/ApJ/703/1569 table
+## 3, NGC 5194): g − r at 18″ to 198″ along the major axis. In Inman et al.'s measured colours
+## the drawing is 0.05 mag rms off; in the populations' own it would be 0.087, 0.075 too red.
+const M51_SDSS_GR := [[18, 0.63], [36, 0.59], [54, 0.65], [72, 0.61], [90, 0.53], [108, 0.48],
+	[126, 0.50], [144, 0.43], [162, 0.41], [180, 0.38], [198, 0.43]]
+const M51_COLOUR_TOL := 0.07
 
 var logger := Catch.new()
 var stage: Node
@@ -135,7 +159,14 @@ func _ready() -> void:
 		await views(v)
 		await profile(v)
 		await through_dust(v, "edge")
+		v.local_dust_enabled = false
 		await through_dust(v, "sun")
+		v.local_dust_enabled = true
+		check("the measured dust around the Sun is loaded", not v.local_dust.is_empty() and not (v.local_dust.get("grid", {}) as Dictionary).is_empty())
+		if not v.local_dust.is_empty():
+			await through_dust(v, "sun", true)
+			await through_dust(v, "near", true)
+			await through_dust(v, "fade", true)
 		await join(v)
 		await landmarks()
 		await neighbour_profile("m33")
@@ -143,6 +174,8 @@ func _ready() -> void:
 		await handover(v)
 		# Last: it loads another scene, so nothing after it may hold the Milky Way's visual.
 		await type_dust("gal_m104")
+		# Edge-on from 0.9 kpc off the plane: within the medium's layer, outside the galaxy's box.
+		await type_dust("gal_m104", "edge")
 		await type_dust("gal_m51")
 		await type_dust("gal_m87")
 	for error in logger.take():
@@ -171,6 +204,8 @@ func profile(v: GalaxyVisual) -> void:
 	stage.galaxy.frame("face")
 	v.show_tracers = false
 	v.show_stars = false
+	# The neighbours' glows are not the Milky Way's: the LMC's falls on the outer ring.
+	for nb in stage.galaxy.neighbours: nb.hide = true
 	pin(v, 0.05)
 	var img := await hdr()
 	save(img, "profile-face")
@@ -196,12 +231,13 @@ func profile(v: GalaxyVisual) -> void:
 			var ndc := Vector2(px.x / size.x * 2.0 - 1.0, 1.0 - px.y / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
 			drawn += luma(img.get_pixel(int(px.x), int(px.y))) - luma(sky.get_pixel(int(px.x), int(px.y)))
-			want += v.ray_luminance(cam, d) * gain
+			want += v.ray_luminance(cam, d, 1e-3, 160, 2.0 * tan_h / size.y) * gain
 		var err := absf(drawn / want - 1.0)
 		print("     ring %d px: drawn %s, integral %s" % [rpx, U.expo(drawn / n, 3), U.expo(want / n, 3)])
 		worst = maxf(worst, err)
 		rings += 1
 	check("face-on glow = CPU integral of the model's light in %d rings (worst %s %%, < %s)" % [rings, U.fixed(worst * 100.0, 1), U.fixed(PROFILE_TOL * 100.0, 0)], worst < PROFILE_TOL)
+	for nb in stage.galaxy.neighbours: nb.erase("hide")
 	v.show_tracers = true
 	v.show_stars = true
 
@@ -209,13 +245,21 @@ func profile(v: GalaxyVisual) -> void:
 # glow's absorption (its in-step mean, and the spheroid reading the disc march's
 # optical depth) is held where it is thick. Pixel centres exactly: the lane is a few
 # pixels high edge-on.
-func through_dust(v: GalaxyVisual, framing: String) -> void:
-	stage.galaxy.frame(framing)
+func through_dust(v: GalaxyVisual, framing: String, measured := false) -> void:
+	if framing == "near" or framing == "fade":
+		stage.galaxy.frame("sun")
+		stage.jump_cam_radius(NEAR_KPC if framing == "near" else FADE_KPC)
+		stage.update_orbit_cam()
+	else:
+		stage.galaxy.frame(framing)
 	v.show_tracers = false
 	v.show_stars = false
 	pin(v, EDGE_EXPOSURE)
+	var label := framing + ("+map" if measured else "")
+	var samples := LOCAL_DUST_SAMPLES if measured else EDGE_SAMPLES
+	var tol: float = LOCAL_DUST_TOL if measured else DUST_TOL[framing]
 	var img := await hdr()
-	save(img, "dust-" + framing)
+	save(img, "dust-" + label)
 	v.show_glow = false
 	var sky := await hdr()
 	v.show_glow = true
@@ -235,12 +279,12 @@ func through_dust(v: GalaxyVisual, framing: String) -> void:
 			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
 			drawn += luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
-			want += v.ray_luminance(cam, d, 1e-3, EDGE_SAMPLES) * gain
+			want += v.ray_luminance(cam, d, 1e-3, samples, 2.0 * tan_h / size.y) * gain
 		var err := absf(drawn / want - 1.0)
 		print("     row %+d px: drawn %s, integral %s" % [int(dy), U.expo(drawn / EDGE_COLUMNS, 3), U.expo(want / EDGE_COLUMNS, 3)])
 		worst = maxf(worst, err)
 		rows += 1
-	check("%s: glow through the dust = CPU integral in %d rows (worst %s %%, < %s)" % [framing, rows, U.fixed(worst * 100.0, 1), U.fixed(DUST_TOL[framing] * 100.0, 0)], worst < DUST_TOL[framing])
+	check("%s: glow through the dust = CPU integral in %d rows (worst %s %%, < %s)" % [label, rows, U.fixed(worst * 100.0, 1), U.fixed(tol * 100.0, 1)], worst < tol)
 	v.show_tracers = true
 	v.show_stars = true
 
@@ -394,7 +438,7 @@ func neighbour_profile(key: String) -> void:
 			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
 			drawn += luma(img.get_pixel(ix, iy)) - luma(without.get_pixel(ix, iy))
-			want += v.ray_luminance(o, nbb.inverse() * d, 1e-3, 1200) * gain
+			want += v.ray_luminance(o, nbb.inverse() * d, 1e-3, 1200, 2.0 * tan_h / size.y) * gain
 		var err := absf(drawn / want - 1.0)
 		print("     %s ring %d px: drawn %s, integral %s" % [key, rpx, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, err)
@@ -405,20 +449,21 @@ func neighbour_profile(key: String) -> void:
 
 # A galaxy of its own scene, in rows across its middle against the CPU's integral: M104
 # through its 20 pc dust ring (the thin sampling), M51 across its arms (the arm map).
-func type_dust(preset: String) -> void:
+func type_dust(preset: String, framing := "whole") -> void:
 	stage.load_preset(preset)
 	stage.galaxy.wait_tracers()
 	stage.state.paused = true
 	var g = stage.galaxy
 	var v: GalaxyVisual = g.visual
-	g.frame("whole")
+	g.frame(framing)
+	var label := preset if framing == "whole" else preset + " " + framing
 	# The galaxy's glow alone: its companions and H II regions are not in the CPU's integral.
 	for n in g.neighbours: n.hide = true
 	v.show_hii = false
 	await settle(20)
 	pin(v, 0.3)
 	var img := await hdr()
-	save(img, "type-" + preset)
+	save(img, "type-" + label)
 	v.show_glow = false
 	var sky := await hdr()
 	v.show_glow = true
@@ -428,6 +473,12 @@ func type_dust(preset: String) -> void:
 	var tan_h := tan(deg_to_rad(stage.cam_fov) * 0.5)
 	var gain := GalaxyVisual.K * SkyModel.star_gain() * v.exposure * v.adaptation
 	var worst := 0.0
+	var pix := 2.0 * tan_h / size.y
+	# Pixel by pixel too, against the CPU with the medium below the map and without it: the GPU
+	# must draw the same medium where the CPU puts it, not just its mean.
+	var dev_on := 0.0
+	var dev_off := 0.0
+	var npx := 0
 	for dy in [-60, -20, -8, 0, 8, 20, 60]:
 		var drawn := 0.0
 		var want := 0.0
@@ -436,17 +487,100 @@ func type_dust(preset: String) -> void:
 			var iy: int = int(size.y * 0.5) + int(dy)
 			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
-			drawn += luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
-			want += v.ray_luminance(cam, d, 1e-3, 4000) * gain
-		print("     %s row %+d: drawn %s, integral %s" % [preset, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
+			var dp := luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
+			var wp := v.ray_luminance(cam, d, 1e-3, 4000, pix) * gain
+			drawn += dp
+			want += wp
+			if v.ism_ready and wp > 0.0:
+				var w0 := v.ray_luminance(cam, d, 1e-3, 4000) * gain
+				dev_on += pow(dp / wp - 1.0, 2.0)
+				dev_off += pow(dp / w0 - 1.0, 2.0)
+				npx += 1
+		print("     %s row %+d: drawn %s, integral %s" % [label, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, absf(drawn / want - 1.0))
-	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [label, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	if framing != "whole":
+		for n in g.neighbours: n.hide = false
+		v.show_hii = true
+		return
+	if preset == "gal_m51": m51_colour(v, img, sky, cam, basis, tan_h)
+	if npx > 0:
+		var on := sqrt(dev_on / npx)
+		var off := sqrt(dev_off / npx)
+		check("%s: the medium below the map drawn pixel by pixel as the CPU has it: rms %s %% (< %s), %s %% against the smooth model" % [
+			preset, U.fixed(on * 100.0, 1), U.fixed(ISM_PIXEL_TOL * 100.0, 0), U.fixed(off * 100.0, 1)], on < ISM_PIXEL_TOL and off > 2.0 * on)
 	v.show_hii = true
 	if v.hii != null: await hii_flux(v, gain)
 	for n in g.neighbours: n.hide = false
 	stage.load_preset("gal_milkyway")
 	stage.galaxy.wait_tracers()
 	stage.state.paused = true
+
+## M51's drawn colour in rings of the disc (each pixel's ray met with its plane) against SDSS's
+## g − r: linear B/R turned into g − r through M51's own spectra, Inman et al.'s old and young
+## light mixed in steps, so a palette's slope does not enter.
+func m51_colour(v: GalaxyVisual, img: Image, sky: Image, cam: Vector3, basis: Basis, tan_h: float) -> void:
+	var size := Vector2(img.get_width(), img.get_height())
+	var asec_per_kpc := 206264.8 / float(GalModels.TYPES.m51.d)
+	var sb := PackedFloat64Array()
+	var sr := PackedFloat64Array()
+	sb.resize(M51_SDSS_GR.size())
+	sr.resize(M51_SDSS_GR.size())
+	for iy in range(0, int(size.y), 2):
+		for ix in range(0, int(size.x), 2):
+			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
+			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
+			if absf(d.y) < 1e-3: continue
+			var t := -cam.y / d.y
+			if t <= 0.0: continue
+			var p := cam + d * t
+			var a := Vector2(p.x, p.z).length() * asec_per_kpc
+			var k := int(round(a / 18.0)) - 1
+			if k < 0 or k >= M51_SDSS_GR.size() or absf(a - 18.0 * float(k + 1)) > 9.0: continue
+			var c := img.get_pixel(ix, iy) - sky.get_pixel(ix, iy)
+			sb[k] += c.b
+			sr[k] += c.r
+	var ui: Dictionary = GalModels.M51_LIGHT.ui
+	var old := [0.0, 0.0, 0.0, 0.0]
+	var yng := [0.0, 0.0, 0.0, 0.0]
+	for j in 2:
+		var cd: Array = GalModels.M51_LIGHT.disc[j]
+		var ct: Array = GalModels.M51_LIGHT.thin[j]
+		var lo := [ui.disc[j][0], cd[7], cd[8], ui.disc[j][1]]
+		var ly := [ui.thin[j][0], ct[7], ct[8], ui.thin[j][1]]
+		for q in 4:
+			old[q] += float(lo[q])
+			yng[q] += float(ly[q])
+	var xs := PackedFloat64Array()
+	var ys := PackedFloat64Array()
+	for f in [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]:
+		var l := []
+		for q in 4: l.append(old[q] * (1.0 - f) + yng[q] * f * old[1] / yng[1])
+		var col := GalModels.sed_colour(l, 1.0)
+		xs.append(-2.5 * log(float(l[1]) / float(l[2])) / log(10.0))
+		ys.append(log(col.b / col.r) / log(10.0))
+	var mx := 0.0
+	var my := 0.0
+	for i in xs.size():
+		mx += xs[i] / xs.size()
+		my += ys[i] / xs.size()
+	var sxy := 0.0
+	var sxx := 0.0
+	for i in xs.size():
+		sxy += (xs[i] - mx) * (ys[i] - my)
+		sxx += (xs[i] - mx) * (xs[i] - mx)
+	var slope := sxy / sxx
+	var icpt := my - slope * mx
+	var s2 := 0.0
+	var line := ""
+	for k in M51_SDSS_GR.size():
+		var gr := (log(sb[k] / sr[k]) / log(10.0) - icpt) / slope
+		var want: float = M51_SDSS_GR[k][1]
+		s2 += (gr - want) * (gr - want)
+		line += " %d″ %s/%s" % [M51_SDSS_GR[k][0], U.fixed(gr, 2), U.fixed(want, 2)]
+	var rms := sqrt(s2 / M51_SDSS_GR.size())
+	print("     M51 g − r drawn/SDSS:" + line)
+	check("gal_m51: its colour in linear light follows SDSS's g − r from 18″ to 198″ (rms %s mag, < %s)" % [U.fixed(rms, 3), M51_COLOUR_TOL], rms < M51_COLOUR_TOL)
 
 ## The H II regions alone against the CPU: each drawn blob's pixels sum to its light, dimmed by
 ## the dust between it and the camera as the shader marches it, over 4π, the pixel's area and
@@ -477,10 +611,15 @@ func hii_flux(v: GalaxyVisual, gain: float) -> void:
 		var dir := -rel / dist
 		var t1 := dist
 		if absf(dir.y) > 1e-6: t1 = minf(t1, maxf((signf(dir.y) * zl - p.y) / dir.y, 0.0))
+		# The medium where the line of sight crosses the plane, as galaxy_hii.gdshader takes it.
+		var mm := 1.0
+		if v.ism_ready and v.ism_enabled and GalISM.outside(cam.y) and absf(dir.y) > 1e-4:
+			mm = GalISM.dust(GalISM.multipliers(GalISM.field(), p - dir * (p.y / dir.y), dist * pix, v.ism_turns, v.edge, v.arm_turn,
+				v.ism_layers, v.ism_norm, v.ism_feathers).x)
 		var tau := 0.0
 		for k in 16:
 			var q := p + dir * ((float(k) + 0.5) * t1 / 16.0)
-			tau += v.dust_density(q.x, q.y, q.z) * t1 / 16.0
+			tau += v.dust_density(q.x, q.y, q.z) * mm * t1 / 16.0
 		var c: Color = (cat.stars[i] as Color) + (cat.lines[i] as Color)
 		var att := Color(c.r * exp(-tau * float(e[0])), c.g * exp(-tau * float(e[1])), c.b * exp(-tau * float(e[2])))
 		want += luma(att) * gain / (4.0 * PI * pix * pix * dist * dist)

@@ -34,13 +34,19 @@ var work := PackedFloat64Array()
 var use_native := true
 static var _native := -1
 
-func _init(model: Dictionary) -> void:
+var _stop := [false]
+
+## `stop`, when given, is a flag a worker's owner may set: drawing then ends early and the
+## half-drawn tracers are for discarding.
+func _init(model: Dictionary, stop := [false]) -> void:
+	_stop = stop
 	pot = model.potential
 	sense = float(model.get("sense", 1.0))
 	populations = model.populations
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(model.get("seed", 1))
 	for i in populations.size():
+		if _stop[0]: return
 		var p: Dictionary = populations[i]
 		match p.kind:
 			"gas": _seed_gas(p, i, rng)
@@ -97,7 +103,10 @@ func _seed_shu(p: Dictionary, idx: int, rng: RandomNumberGenerator, surface: Cal
 	var plane := _plane
 	var guides := _radii(rng, int(p.count), float(p.rmin), float(p.rmax), surface)
 	var heights := GalTracers.isothermal_heights(pot, float(p.rmin) * 0.25, float(p.rmax) * 2.0, sigma_z)
+	var drawn := 0
 	for rg in guides:
+		drawn += 1
+		if drawn % 256 == 0 and _stop[0]: return
 		var s2: float = pow(float(sigma_r.call(rg)), 2.0)
 		var vc := plane.vc(rg)
 		var lz := rg * vc

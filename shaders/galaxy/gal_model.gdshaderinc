@@ -44,14 +44,14 @@ uniform vec2 uDustMap = vec2(0.0, 1.0);
 // arm dust factor (cutoff · exp(−(d/w)²)), b = the stellar spiral's e^{−(R−r0)/Rs} cos γ,
 // over ±uArmHalf kpc.
 uniform vec4 uYoung = vec4(0.0, 0.05, 0.0, 0.0);
+// cos and sin of uYoung.z, the arm map's turn, so a step need not take them.
+uniform vec2 uArmRot = vec2(1.0, 0.0);
 uniform sampler2D uArmMap : filter_linear, repeat_disable;
 uniform float uArmHalf = 20.0;
 // The arm map at a point, turned back into the arms' frame.
 vec3 gal_arm_map3(vec3 p) {
 	if (uYoung.w < 0.5) return vec3(0.0);
-	float c = cos(uYoung.z);
-	float sn = sin(uYoung.z);
-	vec2 q = vec2(p.x * c + p.z * sn, p.z * c - p.x * sn) / (2.0 * uArmHalf) + 0.5;
+	vec2 q = vec2(p.x * uArmRot.x + p.z * uArmRot.y, p.z * uArmRot.x - p.x * uArmRot.y) / (2.0 * uArmHalf) + 0.5;
 	if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return vec3(0.0);
 	return texture(uArmMap, q).rgb;
 }
@@ -149,24 +149,237 @@ float gal_dust(vec3 p) {
 	return tau + gal_rings(R, p.y);
 }
 
+// The measured dust around the Sun (sim/galaxy/gal_local_dust.gd), drawn as seen from the Sun as
+// the far stars are: R8 shells even in the Sun's galactic l and sin b, a column wrapped onto each
+// side; uLDR the shells' outer radii (kpc) out from the camera, uLDW the map's weight in each
+// against the model's dust, uLDEnc its decoding (ln of the least τ_V kpc⁻¹, range), uLDFade its
+// share as the camera leaves the Sun (GalNeighbourhood.FAR_FADE); uLDK shells, 0 for none.
+const int LD_MAX = 17;
+uniform sampler2DArray uLD : filter_linear, repeat_disable;
+uniform float uLDR[LD_MAX];
+uniform float uLDW[LD_MAX];
+uniform vec2 uLDEnc = vec2(0.0);
+uniform int uLDK = 0;
+uniform float uLDFade = 0.0;
+uniform mat3 uLDBasis = mat3(1.0);
+// The texture's columns (with the two wrapped ones), rows and shells.
+uniform vec3 uLDSize = vec3(1.0);
+
+// A galaxy-local direction's texel coordinates (l, sin b) on the map.
+vec2 gal_ld_uv(vec3 dir) {
+	vec3 sd = dir * uLDBasis;
+	return vec2((fract(atan(-sd.z, sd.x) / 6.2831853) * (uLDSize.x - 2.0) + 1.0) / uLDSize.x, 0.5 - 0.5 * clamp(sd.y, -1.0, 1.0));
+}
+
+// Shell k's density (τ_V kpc⁻¹) at texel coordinates uv, filtered in l and sin b only.
+float gal_ld_at(vec2 uv, int k) {
+	return exp(uLDEnc.x + uLDEnc.y * texture(uLD, vec3(uv, float(k))).r);
+}
+
+// The same map on a 3D grid in the Sun's galactic frame, for cameras away from the Sun, as linear
+// τ_V kpc⁻¹: uLD3P its half extents (kpc) and its share (1 − uLDFade; 0 for none), uLD3Sun the
+// Sun (galaxy-local), uLD3Blend the radii over which it gives way to the model's dust, as the
+// shells do.
+uniform sampler3D uLD3 : filter_linear_mipmap, repeat_disable;
+uniform vec4 uLD3P = vec4(0.0);
+uniform vec3 uLD3Sun = vec3(0.0);
+uniform vec2 uLD3Blend = vec2(1.0, 1.25);
+// Its finer level about the Sun: uLD3IP the half extents (kpc) and the margin over which it gives
+// way to the outer one (0 for none).
+uniform sampler3D uLD3In : filter_linear_mipmap, repeat_disable;
+uniform vec4 uLD3IP = vec4(0.0);
+// The levels' cube sides (kpc): a read of length `foot` takes the mip whose cubes are that long.
+uniform vec2 uLD3Cell = vec2(1.0);
+
+// The grid's density (τ_V kpc⁻¹) at p, averaged over cubes about `foot` kpc long, and, in w, its
+// weight against the model's dust there.
+float gal_ld3(vec3 p, float foot, out float w) {
+	w = 0.0;
+	if (uLD3P.w <= 0.0) return 0.0;
+	vec3 s = (p - uLD3Sun) * uLDBasis;
+	float r = length(s);
+	if (r >= uLD3Blend.y) return 0.0;
+	w = uLD3P.w * (1.0 - smoothstep(uLD3Blend.x, uLD3Blend.y, r));
+	vec3 uvw = s / (2.0 * uLD3P.xyz) + 0.5;
+	if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) return 0.0;
+	// Each level is read only where it has a share: inside the finer level's margin, that alone.
+	float t = 0.0;
+	if (uLD3IP.w > 0.0) {
+		vec3 e = uLD3IP.xyz - abs(s);
+		t = clamp(min(min(e.x, e.y), e.z) / uLD3IP.w, 0.0, 1.0);
+	}
+	float rho_in = t > 0.0 ? textureLod(uLD3In, s / (2.0 * uLD3IP.xyz) + 0.5, max(log2(foot / uLD3Cell.y), 0.0)).r : 0.0;
+	if (t >= 1.0) return rho_in;
+	return mix(textureLod(uLD3, uvw, max(log2(foot / uLD3Cell.x), 0.0)).r, rho_in, t);
+}
+
+// The model's dust and the measured dust along a sight line of length `dist` from the camera in
+// the unit direction `dir` (galaxy-local), as a mean density: the map's shells as seen from the
+// Sun, its grid read over at least `foot`, the model's dust (sampled at `mid`) for the rest.
+float gal_dust_joined(vec3 mid, vec3 dir, float dist, float foot) {
+	float m = gal_dust(mid);
+	float w3;
+	float g = gal_ld3(mid, max(dist, foot), w3);
+	// Shares as the glow's: the shells f W, the grid (1 − f) W_r, the model what is left.
+	if (uLDK == 0 || uLDFade <= 0.0 || dist <= 0.0) return (1.0 - w3) * m + w3 * g;
+	vec2 uv = gal_ld_uv(dir);
+	float tau = 0.0;
+	float r0 = 0.0;
+	for (int k = 0; k < LD_MAX; k++) {
+		if (k >= uLDK || r0 >= dist) break;
+		float w = uLDFade * uLDW[k];
+		tau += (w * gal_ld_at(uv, k) + w3 * g + max(1.0 - w - w3, 0.0) * m) * (min(dist, uLDR[k]) - r0);
+		r0 = uLDR[k];
+	}
+	return (tau + max(dist - r0, 0.0) * ((1.0 - w3) * m + w3 * g)) / dist;
+}
+
+// The interstellar medium below the map (sim/galaxy/gal_ism.gd): octaves of a periodic
+// Gaussian field in the plane, each sheared by the rotation curve over its eddy's lifetime;
+// the dust gathered into sheets at the field's zeros, the young light log-normal. uISMOct[o] is octave o's
+// sheet contrast (0: none), uISMYoung its young log-amplitude, uISMLam its longest wavelength
+// (kpc), uISMM its turn and scale into the field (two columns) and uISMOff its offset;
+// uISMTurn's row o is its turn back (rad) on 64 radii from 0 to uISMTurnR, read by hand.
+uniform sampler2D uISM : filter_linear, repeat_enable;
+uniform sampler2D uISMTurn : filter_nearest, repeat_disable;
+uniform float uISMOct[9];
+uniform float uISMYoung[9];
+uniform float uISMLam[9];
+uniform vec2 uISMM[18];
+uniform vec2 uISMOff[9];
+uniform float uISMTurnR = 30.0;
+// Octaves drawn, from the largest (GalISM.count): the rest are too faint to show.
+uniform int uISMCount = 9;
+// The dust's structured share, and the height (kpc) beyond which a camera is outside the layer
+// and sees the medium.
+uniform vec2 uISMLayer = vec2(0.5, 1.0);
+// Each multiplier's realised mean over this galaxy at footprints of 12.5 pc doubling to 200 pc
+// (GalISM.norms), divided out, linear in log₂ of the footprint between them.
+uniform vec2 uISMNorm[5];
+
+// Feathers off the lanes (GalISM.feather): uFeather (amplitude, spacing per R, angle to the
+// arm at emergence (rad), width per spacing), uFeatherR (break and corotation radii (kpc),
+// mirrored), uLane[k] lane k's (R₀, β₀, tan p in, tan p out) and uLaneSpan[k] its arm's span.
+uniform vec4 uFeather = vec4(0.0);
+uniform vec3 uFeatherR = vec3(1.0);
+uniform vec4 uLane[2];
+uniform vec2 uLaneSpan[2];
+float gal_feather(vec2 q, float foot) {
+	if (uFeather.x <= 0.0) return 1.0;
+	float R = length(q);
+	float rcr = uFeatherR.y;
+	if (R < 0.05 || R > 0.9 * rcr) return 1.0;
+	float beta = atan(q.y, q.x) - 3.14159265;
+	if (uFeatherR.z > 0.5) beta = -beta;
+	float u = 1e9;
+	float fade = 0.0;
+	float tp = 0.0;
+	for (int k = 0; k < 2; k++) {
+		vec4 ln = uLane[k];
+		vec2 span = uLaneSpan[k];
+		float rb = uFeatherR.x;
+		float lb = R <= rb ? ln.y - log(R / ln.x) / ln.z : ln.y - log(rb / ln.x) / ln.z - log(R / rb) / ln.w;
+		float uk = mod(beta - lb, 6.28318531);
+		if (uk < u) {
+			u = uk;
+			tp = R <= rb ? ln.z : ln.w;
+			fade = smoothstep(span.x, span.x + 0.5, R) * smoothstep(span.y, span.y - 0.5, R);
+		}
+	}
+	fade *= smoothstep(0.9 * rcr, 0.7 * rcr, R);
+	if (fade <= 0.0) return 1.0;
+	float p = atan(tp);
+	float aa = 1.0 / tp - 1.0 / tan(min(p + uFeather.z, radians(85.0)));
+	float kk = 1.0 / (1.0 - R / rcr);
+	float left = 1.0 - kk * u / aa;
+	if (left <= 0.0) return 1.0;
+	float chi = (log(R) + log(left) / kk) / (uFeather.y * sin(p));
+	float a = uFeather.x * fade * left;
+	float fs = foot / (0.77 * uFeather.y * R);
+	float sig = sqrt(uFeather.w * uFeather.w + fs * fs);
+	if (sig >= 0.35) return 1.0;
+	int n0 = int(floor(chi));
+	float g = 0.0;
+	for (int m = n0 - 1; m < n0 + 3; m++) {
+		uint h = uint(m * 1973 + 26699);
+		h = (h ^ (h >> 16u)) * 2246822519u;
+		h = (h ^ (h >> 13u)) * 3266489917u;
+		h ^= h >> 16u;
+		float jx = float(h & 65535u) / 65536.0;
+		float jy = float(h >> 16u) / 65536.0;
+		float x = chi - float(m) - 0.3 * (2.0 * jx - 1.0);
+		g += -log(1.0 - 0.999 * jy) * exp(-0.5 * x * x / (sig * sig));
+	}
+	g /= sig * 2.50662827;
+	return 1.0 + a * smoothstep(0.35, 0.21, sig) * (g - 1.0);
+}
+
+// The dust's and the young light's multipliers at p's place in the plane for a footprint of
+// `foot` kpc, each of mean one: octaves finer than the footprint fade out and take their
+// contrast with them.
+vec2 gal_ism(vec3 p, float foot) {
+	if (uISMOct[0] <= 0.0) return vec2(1.0);
+	float c = cos(uYoung.z);
+	float sn = sin(uYoung.z);
+	vec3 q = vec3(p.x * c + p.z * sn, p.y, p.z * c - p.x * sn);
+	float x = clamp(length(q.xz) / uISMTurnR, 0.0, 1.0) * 63.0;
+	int i = min(int(x), 62);
+	float f = x - float(i);
+	float ld = 0.0;
+	float ly = 0.0;
+	for (int o = 0; o < uISMCount; o++) {
+		float l = uISMLam[o];
+		float w = clamp((0.25 * l - foot) / (0.125 * l), 0.0, 1.0);
+		if (w <= 0.0) break;
+		float b = uISMOct[o] * w;
+		float a = uISMYoung[o] * w;
+		// Where this gas was an eddy lifetime ago.
+		float ang = -mix(texelFetch(uISMTurn, ivec2(i, o), 0).r, texelFetch(uISMTurn, ivec2(i + 1, o), 0).r, f);
+		float ca = cos(ang);
+		float sa = sin(ang);
+		vec2 h = vec2(q.x * ca - q.z * sa, q.x * sa + q.z * ca);
+		vec2 n = texture(uISM, mat2(uISMM[2 * o], uISMM[2 * o + 1]) * h + uISMOff[o]).rg;
+		// A sheet where the field crosses zero, exp(−βn²) over its mean (1 + 2β)^(−1/2).
+		ld += -b * n.x * n.x + 0.5 * log(1.0 + 2.0 * b);
+		ly += a * n.y - 0.5 * a * a;
+	}
+	float xn = clamp(log2(foot / 0.0125), 0.0, 4.0 - 1e-6);
+	int in_ = int(xn);
+	return vec2(exp(ld) * gal_feather(q.xz, foot), exp(ly)) / mix(uISMNorm[in_], uISMNorm[in_ + 1], xn - float(in_));
+}
+
+// The dust's multiplier from the field's D: its compact share is structured.
+float gal_ism_dust(float m) {
+	return 1.0 + uISMLayer.x * (m - 1.0);
+}
+
+
 // Disc light, young light and V optical depth per kpc at p, from one map lookup (the
-// glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart).
-void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau) {
+// glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart). With `dust` false the
+// optical depth is left at zero, for a step whose dust is the measured map's alone. dtau is the
+// model's dust, whole; dgrid the measured grid's, read over the step's length `foot` and already
+// times its weight wgrid, which the caller takes from the model's share.
+void gal_disc_sample(vec3 p, float foot, out float jd, out float jy, out float dtau, out float dgrid, out float wgrid, bool dust) {
 	vec3 m = gal_arm_map3(p);
-	float a = uDisc.y;
-	float b2 = uDisc.z * uDisc.z;
 	float R2 = p.x * p.x + p.z * p.z;
 	float R = sqrt(R2);
-	float zb = sqrt(p.y * p.y + b2);
-	float s = a + zb;
-	float q = R2 + s * s;
-	jd = uDisc.x * (a * R2 + (a + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb);
-	if (uDiscMap.x > 0.0) jd = uDiscMap.x * m.b * exp(-abs(p.y) / uDiscMap.y) / (2.0 * uDiscMap.y);
+	if (uDiscMap.x > 0.0) {
+		jd = uDiscMap.x * m.b * exp(-abs(p.y) / uDiscMap.y) / (2.0 * uDiscMap.y);
+	} else {
+		float a = uDisc.y;
+		float zb = sqrt(p.y * p.y + uDisc.z * uDisc.z);
+		float s = a + zb;
+		float q = R2 + s * s;
+		jd = uDisc.x * (a * R2 + (a + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb);
+	}
 	if (uSpiral.x > 0.0) jd += uSpiral.x * m.b * gal_sech2(p.y / uSpiral.w);
 	jd = max(jd, 0.0) * smoothstep(uEdge, 0.8 * uEdge, R);
 	float env = gal_envelope(R);
 	jy = uYoung.x > 0.0 ? uYoung.x * env * m.r * exp(-abs(p.y) / uYoung.y) / (2.0 * uYoung.y) : 0.0;
 	dtau = 0.0;
+	dgrid = 0.0;
+	wgrid = 0.0;
+	if (!dust) return;
 	if (uDustMap.x > 0.0) dtau = uDustMap.x * m.g * exp(-abs(p.y) / uDustMap.y) / (2.0 * uDustMap.y);
 	if (uDust.x > 0.0) {
 		float hd = uDust.z + (R > uDustB.x ? uDust.w * (R - uDustB.x) : 0.0);
@@ -177,4 +390,6 @@ void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau) {
 		}
 	}
 	dtau += gal_rings(R, p.y);
+	float g = gal_ld3(p, foot, wgrid);
+	dgrid = g * wgrid;
 }

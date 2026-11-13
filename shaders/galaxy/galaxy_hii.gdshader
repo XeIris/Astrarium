@@ -47,8 +47,10 @@ float dust_to_camera(vec3 p, vec3 dir, float dist) {
 	}
 	float dt = t1 / float(N_DUST);
 	float tau = 0.0;
+	// The medium where the line of sight crosses the plane, as the glow draws it.
+	float m = abs(uCamLocal.y) > uISMLayer.y && abs(dir.y) > 1e-4 ? gal_ism_dust(gal_ism(p - dir * (p.y / dir.y), dist * uPix).x) : 1.0;
 	for (int i = 0; i < N_DUST; i++) {
-		tau += gal_dust(p + dir * ((float(i) + 0.5) * dt)) * dt;
+		tau += gal_dust(p + dir * ((float(i) + 0.5) * dt)) * m * dt;
 	}
 	return tau;
 }

@@ -31,7 +31,12 @@ var _pending := 0.0
 var _task := -1
 var _built: GalTracers = null
 var _arm_task := -1
-var _arms_baked := {}
+## What the arms' worker has published and the main thread not yet lit, and its stop flag.
+var _pieces := {}
+var _arm_cancel := [false]
+## The tracers' worker's stop flag, and the steps it takes between looking at it.
+var _task_cancel := [false]
+const TRACER_CHUNK := 64
 var _mutex := Mutex.new()
 var _hud_acc := 0.0
 var _adapted := false
@@ -47,7 +52,6 @@ var neighbours: Array = []
 var landmark := ""
 var _lm_layer: Control = null
 var _lm_labels := {}
-var _nb_baked := {}
 ## An encounter (GalEncounter) instead of one galaxy: its particles, its drawing and its build
 ## on a worker. It steps on a worker too, a batch at a time, while the frame draws the last
 ## batch's snapshot (its stars, time and centre); a batch is sized to ENCOUNTER_BATCH_MS at the
@@ -65,8 +69,6 @@ var _enc_live_n := 0
 const ENCOUNTER_BATCH_MS := 33.0
 ## Particle counts of an encounter relative to GalModels' (1).
 const ENCOUNTER_SCALE := 1.0
-## The neighbours' maps, in the order of `neighbours`.
-var _nbs_baked := []
 
 func _init(main) -> void:
 	stage = main
@@ -104,33 +106,52 @@ func enter(k: String) -> void:
 	visual = GalaxyVisual.new(model, true)
 	stage.pipe.world_root.add_child(visual.group)
 	_build_neighbours()
-	# The arms' and discs' maps bake on a worker too, the neighbours' with them; they light
-	# up when it is done.
-	_arms_baked = {}
-	_nbs_baked = []
+	# The arms' and discs' maps bake on a worker too, the neighbours' with them. Each piece is
+	# published as it is done and lit the frame after, the galaxy's own map first; leaving asks the
+	# worker to stop, so it waits for one piece at most, not the whole bake.
+	_pieces = {}
+	var cancel := [false]
+	_arm_cancel = cancel
 	var v := visual
 	var others: Array = neighbours.map(func(nb): return nb.visual)
-	# The real stars around the Sun load and bake their light map on the same worker.
-	_nb_baked = {}
 	_arm_task = WorkerThreadPool.add_task(func():
-		var b := v.bake_arms() if v.has_map() else {}
-		var nb := GalNeighbourhood.bake() if v.has_sun else {}
-		var ob := []
-		for o in others: ob.append(o.bake_arms() if o.has_map() else {})
-		_mutex.lock()
-		_arms_baked = b
-		_nb_baked = nb
-		_nbs_baked = ob
-		_mutex.unlock(), false, "galaxy arms")
+		var arms := v.bake_arms(cancel) if v.has_map() else {}
+		if cancel[0]: return
+		_publish("arms", arms)
+		var norms := v.ism_norms(cancel) if v.ism_applies else PackedVector2Array()
+		if cancel[0]: return
+		_publish("ism", norms)
+		if cancel[0]: return
+		if v.has_sun:
+			_publish("nb", GalNeighbourhood.bake())
+			if cancel[0]: return
+			GalLocalDust.bake()
+			_publish("dust", true)
+		for i in others.size():
+			if cancel[0]: return
+			var o: GalaxyVisual = others[i]
+			var o_arms := o.bake_arms(cancel) if o.has_map() else {}
+			if cancel[0]: return
+			var o_norms := o.ism_norms(cancel) if o.ism_applies else PackedVector2Array()
+			if cancel[0]: return
+			_publish("nb_%d" % i, [o_arms, o_norms]), false, "galaxy arms")
 	# Built off the main thread: drawing the Shu distribution takes about a second, and
 	# a model with a bar and arms then runs from its tStart, while they grow, to today.
 	_built = null
 	var m := model
 	# A galaxy drawn from its light alone (GalModels.TYPES) has no tracers.
 	if model.has("populations"):
+		var stop := [false]
+		_task_cancel = stop
 		_task = WorkerThreadPool.add_task(func():
-			var t := GalTracers.new(m)
-			t.step(int(round(-t.t / GalTracers.DT)))
+			var t := GalTracers.new(m, stop)
+			# Run to today in pieces, so leaving waits for one of them, not the whole run.
+			var left := int(round(-t.t / GalTracers.DT))
+			while left > 0:
+				if stop[0]: return
+				var chunk := mini(left, TRACER_CHUNK)
+				t.step(chunk)
+				left -= chunk
 			_mutex.lock()
 			_built = t
 			_mutex.unlock(), false, "galaxy tracers")
@@ -220,19 +241,31 @@ func wait_tracers() -> void:
 	_adopt_arms()
 	_adopt_encounter()
 
+func _publish(key: String, value: Variant) -> void:
+	_mutex.lock()
+	_pieces[key] = value
+	_mutex.unlock()
+
+## On the main thread: whatever the worker has published since, each piece once.
 func _adopt_arms() -> void:
 	_mutex.lock()
-	var b := _arms_baked
-	var nb := _nb_baked
-	var ob := _nbs_baked
-	_arms_baked = {}
-	_nb_baked = {}
-	_nbs_baked = []
+	var got := _pieces
+	_pieces = {}
 	_mutex.unlock()
-	if not b.is_empty() and visual != null: visual.apply_arms(b)
-	if not nb.is_empty() and visual != null: visual.apply_neighbourhood(nb)
-	for i in mini(ob.size(), neighbours.size()):
-		if not (ob[i] as Dictionary).is_empty(): (neighbours[i].visual as GalaxyVisual).apply_arms(ob[i])
+	if visual == null: return
+	if got.has("arms") and not (got.arms as Dictionary).is_empty(): visual.apply_arms(got.arms)
+	if got.has("ism"):
+		visual.ism_norm = got.ism
+		visual.apply_ism()
+	if got.has("nb") and not (got.nb as Dictionary).is_empty(): visual.apply_neighbourhood(got.nb)
+	if got.has("dust") and visual.has_sun: visual.apply_local_dust(GalLocalDust.bake())
+	for i in neighbours.size():
+		var key := "nb_%d" % i
+		if not got.has(key): continue
+		var nbv: GalaxyVisual = neighbours[i].visual
+		if not (got[key][0] as Dictionary).is_empty(): nbv.apply_arms(got[key][0])
+		nbv.ism_norm = got[key][1]
+		nbv.apply_ism()
 
 func _adopt() -> void:
 	_mutex.lock()
@@ -250,15 +283,15 @@ func _adopt() -> void:
 func leave() -> void:
 	if not active: return
 	if _task >= 0:
+		_task_cancel[0] = true
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 	if _arm_task >= 0:
+		_arm_cancel[0] = true
 		WorkerThreadPool.wait_for_task_completion(_arm_task)
 		_arm_task = -1
 	_built = null
-	_arms_baked = {}
-	_nb_baked = {}
-	_nbs_baked = []
+	_pieces = {}
 	follow_sun = false
 	_clear_landmarks()
 	for nb in neighbours: nb.visual.dispose()
@@ -305,9 +338,10 @@ func _advance(dt: float) -> float:
 		_adopt()
 		_adopt_encounter()
 	if model.has("encounter"): return _advance_encounter(dt)
-	if _arm_task >= 0 and WorkerThreadPool.is_task_completed(_arm_task):
-		WorkerThreadPool.wait_for_task_completion(_arm_task)
-		_arm_task = -1
+	if _arm_task >= 0:
+		if WorkerThreadPool.is_task_completed(_arm_task):
+			WorkerThreadPool.wait_for_task_completion(_arm_task)
+			_arm_task = -1
 		_adopt_arms()
 	if stage.state.paused or rate <= 0.0:
 		achieved = 0.0

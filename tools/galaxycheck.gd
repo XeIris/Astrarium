@@ -38,6 +38,8 @@ func _init() -> void:
 		patterns()
 		light()
 		neighbourhood()
+		local_dust()
+		local_light()
 		landmarks()
 		neighbours()
 		types()
@@ -174,7 +176,7 @@ func colour(p: GalPotential) -> void:
 	var young := GalPopulation.build({"kind": "constant", "gyr": GalModels.MW_YOUNG_GYR})
 	var bulge := GalPopulation.build({"kind": "burst", "gyr": 10.0})
 	var g := GalUnits.G
-	var ld: float = GalModels.VISIBLE_DISC * p.part("disc").gm / g * GalUnits.MASS_UNIT_SUN * disc.mean_l / disc.mean_mass
+	var ld: float = GalModels.MW_VISIBLE_DISC * p.part("disc").gm / g * GalUnits.MASS_UNIT_SUN * disc.mean_l / disc.mean_mass
 	var ly: float = GalModels.MW_SFR * GalModels.MW_YOUNG_GYR * 1e9 * young.light_per_formed
 	var lb: float = GalModels.VISIBLE_BULGE * GalPotential.gm_total(p.part("bulge")) / g * GalUnits.MASS_UNIT_SUN * bulge.mean_l / bulge.mean_mass
 	var c := (disc.color * ld + young.color * ly + bulge.color * lb) / (ld + ly + lb)
@@ -226,9 +228,10 @@ const PARITY_TOL := 1e-12
 # subtypes whose M_V falls in each bin (10⁻⁴ pc⁻³ mag⁻¹). Not fitted; the bounds pin
 # the measured differences, which docs/physics/galaxies.md reports.
 ## Real stars within 40 pc against the model's resolved ones: number and visible light
-## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit).
-const NEAR_COUNT_PIN := 0.62
-const NEAR_LIGHT_PIN := 2.33
+## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit). The
+## light is the real giants' and A stars', which the model's resolved dwarfs lack.
+const NEAR_COUNT_PIN := 1.04
+const NEAR_LIGHT_PIN := 3.91
 ## The neighbours' absolute V from their stellar masses against McConnachie (2012): the
 ## LMC's and M33's come out 0.8–0.9 mag bright (their literature masses imply M/L_V ≈ 1.8,
 ## the population model's is ≈ 0.8); a pin that a change shows, not a fit.
@@ -239,7 +242,7 @@ func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
 	var d: Dictionary = p.part("disc")
 	# The model disc's mass density at the Sun (M☉ pc⁻³), and its main-sequence stars.
 	var rho := GalPotential.density_of(d, 8.0, 0.0208) * GalUnits.MASS_UNIT_SUN * 1e-9
-	var n_ms := GalModels.VISIBLE_DISC * rho / pop.mean_mass
+	var n_ms := GalModels.MW_VISIBLE_DISC * rho / pop.mean_mass
 	var bins := {}
 	var tot := 0.0
 	var dl := (GalPopulation.LM_MAX - GalPopulation.LM_MIN) / 2400.0
@@ -259,10 +262,15 @@ func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
 		ratios[b] = model / float(BOVY_2017_DN_DMV[b])
 		line += "  M_V %d–%d: %s" % [b, b + 1, String.num(ratios[b], 2)]
 	print("     model / Bovy (2017) stars per magnitude:" + line)
-	ok(ratios[2] > 0.75 and ratios[2] < 1.33 and ratios[1] > 0.35 and ratios[1] < 1.0,
-		"A and early-F dwarfs: model %s and %s of Gaia's counts (A0–A5 0.35–1, A6–F1 0.75–1.33)" % [String.num(ratios[1], 2), String.num(ratios[2], 2)])
-	ok(ratios[5] > 1.5 and ratios[5] < 3.5 and ratios[6] > 1.5 and ratios[6] < 4.0,
-		"G and K dwarfs: model %s and %s of Gaia's counts, the known excess (1.5–3.5, 1.5–4)" % [String.num(ratios[5], 2), String.num(ratios[6], 2)])
+	# With the disc's visible stars at the measured column the late F to K dwarfs come near
+	# Gaia's counts, and the A dwarfs, young, fall short: the steady 10 Gyr of star formation
+	# makes too few of them for the old ones.
+	ok(ratios[2] > 0.4 and ratios[2] < 0.8 and ratios[1] > 0.2 and ratios[1] < 0.45,
+		"A and early-F dwarfs: model %s and %s of Gaia's counts, the known shortfall (A0–A5 0.2–0.45, A6–F1 0.4–0.8)" % [String.num(ratios[1], 2), String.num(ratios[2], 2)])
+	ok(ratios[3] > 0.7 and ratios[3] < 1.3 and ratios[4] > 0.7 and ratios[4] < 1.3,
+		"late F and G dwarfs: model %s and %s of Gaia's counts (0.7–1.3)" % [String.num(ratios[3], 2), String.num(ratios[4], 2)])
+	ok(ratios[5] > 1.0 and ratios[5] < 2.0 and ratios[6] > 1.2 and ratios[6] < 2.4,
+		"late G and K dwarfs: model %s and %s of Gaia's counts, the known excess (1–2, 1.2–2.4)" % [String.num(ratios[5], 2), String.num(ratios[6], 2)])
 
 # A Myr-scale run of the Milky Way's tracers: deterministic, conservative, and in a
 # steady state whose rotation curve is the model's.
@@ -552,6 +560,249 @@ func eilers(p: GalPotential) -> void:
 # Solar System sky's stars in the same directions and brightnesses, on the same flux
 # scale; the far set's light map holding their flux; and the near set against the
 # model's resolved stars, the Gaia comparison issue 25 asks for (a pin, not a fit).
+# The measured dust around the Sun (GalLocalDust): read whole, the right way round on the sky,
+# in the map's own units, and joined to the model's dust without counting either twice.
+# Lynds (1962)'s eight largest clouds of opacity class 6 at |b| ≥ 3° (VizieR VII/7A): (l, b).
+const LYNDS_DARKEST := [[171.37, -17.40], [6.59, 20.58], [26.84, 8.36], [4.92, 19.06],
+	[204.53, -11.67], [174.87, -15.66], [48.35, -5.72], [177.91, -9.74]]
+## tools/build_local_dust.py's sky mean of E to the map's edge, from the published file, and
+## the most its averaging in angle and its byte encoding move it.
+const LOCAL_DUST_MEAN_E := 0.14771
+const LOCAL_DUST_MEAN_TOL := 0.02
+
+## The grid against the shells from the Sun within its box: over the sky the same dust, to the
+## averaging and the bytes; toward a compact core its cubes (2.5 pc to 200 pc, 12.5 pc beyond)
+## and the shells' 15′ cells average it differently, which only the sky's mean is tight on.
+const GRID_SKY_TOL := 0.03
+const GRID_CLOUD_TOL := 2.0
+
+func local_dust() -> void:
+	if not GalLocalDust.available():
+		ok(false, "the measured dust around the Sun is there (%s)" % GalLocalDust.DATA)
+		return
+	var v := GalaxyVisual.new(GalModels.build("milky_way", 1))
+	var m: Dictionary = v.local_dust
+	var rs: PackedFloat32Array = m.get("r", PackedFloat32Array())
+	ok(not m.is_empty() and rs.size() == int(m.k) and absf(rs[0] - 0.0688) < 1e-4 and absf(rs[rs.size() - 1] - 1.2481) < 1e-4,
+		"the measured dust around the Sun is read: %d shells from %s to %s kpc on %d × %d cells" % [int(m.get("k", 0)), String.num(rs[0], 4) if rs.size() > 0 else "-", String.num(rs[rs.size() - 1], 4) if rs.size() > 0 else "-", int(m.get("w", 0)), int(m.get("h", 0))])
+	# A_V from the Sun to the map's edge toward galactic (l, b), through the joined dust.
+	var av := func(l_deg: float, b_deg: float) -> float:
+		var l := deg_to_rad(l_deg)
+		var b := deg_to_rad(b_deg)
+		var dir := v.sun_basis * Vector3(cos(b) * cos(l), sin(b), -cos(b) * sin(l))
+		var tau := 0.0
+		var n := 2500
+		for i in n:
+			var p := v.sun_pos + dir * (1.25 * (float(i) + 0.5) / float(n))
+			tau += v.dust_density(p.x, p.y, p.z) * 1.25 / float(n)
+		return 1.0857 * tau
+	var on := 0.0
+	var off := 0.0
+	for c in LYNDS_DARKEST:
+		on += av.call(c[0], c[1])
+		off += av.call(360.0 - float(c[0]), c[1])
+	ok(on > 2.0 * off, "Lynds' eight darkest clouds are dark in the map: A_V %s to 1.25 kpc, %s at their mirror images in l (> 2×)" % [String.num(on / 8.0, 2), String.num(off / 8.0, 2)])
+	# The sky's mean A_V to the edge, the map alone shell by shell (exact for its even shells),
+	# as the map's own E times ZGR23's A_V/E: the units and the lookup's orientation in b.
+	var sum := 0.0
+	var wsum := 0.0
+	for jb in 90:
+		var b := deg_to_rad(-89.0 + 2.0 * float(jb))
+		for il in 180:
+			var l := deg_to_rad(1.0 + 2.0 * float(il))
+			var u := Vector3(cos(b) * cos(l), sin(b), -cos(b) * sin(l))
+			var tau := 0.0
+			var r_in := 0.0
+			for k in rs.size():
+				tau += GalLocalDust.density(m, u * (0.5 * (r_in + rs[k]))) * (rs[k] - r_in)
+				r_in = rs[k]
+			sum += 1.0857 * tau * cos(b)
+			wsum += cos(b)
+	var want := 2.67 * LOCAL_DUST_MEAN_E
+	ok(absf(sum / wsum / want - 1.0) < LOCAL_DUST_MEAN_TOL, "the sky's mean A_V to 1.25 kpc %s = 2.67 × the map's mean E %s (within %s %%)" % [String.num(sum / wsum, 4), String.num(LOCAL_DUST_MEAN_E, 5), String.num(LOCAL_DUST_MEAN_TOL * 100.0, 1)])
+	# Inside the map the model's dust is gone; past its edge it is all there is.
+	var p_in := v.sun_pos + v.sun_basis * Vector3(0.3, 0.02, 0.2)
+	var p_out := v.sun_pos + v.sun_basis * Vector3(1.4, 0.0, 0.3)
+	var in0 := v.dust_density(p_in.x, p_in.y, p_in.z)
+	var save: float = v.dust.rhoDisc
+	v.dust.rhoDisc = save * 2.0
+	var in1 := v.dust_density(p_in.x, p_in.y, p_in.z)
+	v.dust.rhoDisc = save
+	var out_joined := v.dust_density(p_out.x, p_out.y, p_out.z)
+	var out_model := v._model_dust(p_out.x, p_out.y, p_out.z)
+	ok(in0 == in1 and out_joined == out_model and in0 > 0.0,
+		"within the map the model's dust is replaced, not added (unchanged with the model's doubled); past it the model's alone")
+	# Drawn as seen from the Sun near it: from 1 pc toward ρ Oph's core, 140 pc away (Ortiz-León et
+	# al. 2018), the map's. As the camera leaves, the same map on its 3D grid, read over the
+	# glow's ~80 pc steps: from 50 pc along the plane toward l = 30°, still the map's.
+	var oph := v.sun_basis * (Vector3(cos(deg_to_rad(17.0)) * cos(deg_to_rad(353.0)), sin(deg_to_rad(17.0)), -cos(deg_to_rad(17.0)) * sin(deg_to_rad(353.0))))
+	var l30 := v.sun_basis * Vector3(cos(deg_to_rad(30.0)), 0.0, -sin(deg_to_rad(30.0)))
+	var seen := []
+	for view in [[0.001, oph], [0.05, l30]]:
+		var cam: Vector3 = v.sun_pos + v.sun_basis * Vector3(-float(view[0]), 0.0, 0.0)
+		v.local_dust_enabled = true
+		var with := v.ray_luminance(cam, view[1], 1e-3, 2000)
+		v.local_dust_enabled = false
+		var without := v.ray_luminance(cam, view[1], 1e-3, 2000)
+		v.local_dust_enabled = true
+		seen.append(with / without)
+	ok(absf(seen[0] - 1.0) > 0.05 and absf(seen[1] - 1.0) > 0.05, "the map is drawn from the Sun and on its grid 50 pc away: toward ρ Oph %s, from 50 pc toward l = 30° %s of the model's light" % [String.num(seen[0], 3), String.num(seen[1], 3)])
+	# As the shells fade and the grid takes over, the measured dust has to itself every point where
+	# both give it full weight: inside the last shell (which shares, as its middle lies past 1 kpc)
+	# the model's share is zero from 10, 20 and 30 pc from the Sun.
+	var rs_in: float = (m.r as PackedFloat32Array)[int(m.k) - 2]
+	var worst_model := 0.0
+	var worst_sum := 0.0
+	for gap in [0.01, 0.02, 0.03]:
+		var cam: Vector3 = v.sun_pos + v.sun_basis * Vector3(-float(gap), 0.0, 0.0)
+		for j in 24:
+			var u := Vector3(cos(TAU * j / 24.0), 0.1 * sin(3.0 * j), sin(TAU * j / 24.0)).normalized()
+			for t in [0.05, 0.2, 0.5, 0.85]:
+				if t >= rs_in: continue
+				var sh3 := v.dust_shares(cam, t, cam + u * t)
+				worst_model = maxf(worst_model, sh3.x)
+				worst_sum = maxf(worst_sum, absf(sh3.x + sh3.y + sh3.z - 1.0))
+	ok(worst_model < 1e-6 and worst_sum < 1e-6, "while the shells fade the measured dust covers the map: the model's share there is %s at most, the shares sum to one within %s" % [
+		U.expo(worst_model, 1), U.expo(worst_sum, 1)])
+	# The grid holds the shells' dust: from the Sun to 1.25 kpc its columns over the sky, and
+	# toward Lynds' darkest clouds, against the shells'.
+	var gl := (m.get("grid", {}) as Dictionary).get("levels", []) as Array
+	ok(gl.size() == 2 and absf((gl[0] as Dictionary).cell - 0.0125) < 1e-6 and absf((gl[1] as Dictionary).cell - 0.0025) < 1e-6,
+		"the measured dust's grid is read: %d levels" % gl.size())
+	if gl.size() == 2:
+		var half: Vector3 = (gl[0] as Dictionary).half
+		var col := func(u: Vector3, grid: bool) -> float:
+			var t := 0.0
+			for i in 500:
+				var p := u * ((i + 0.5) * 0.0025)
+				if absf(p.y) > half.y: break
+				t += (GalLocalDust.grid_density(m, p) if grid else GalLocalDust.density(m, p)) * 0.0025
+			return t
+		var sg := 0.0
+		var ss := 0.0
+		for jb in 24:
+			var b := asin(-1.0 + (2.0 * jb + 1.0) / 24.0)
+			for il in 48:
+				var l := TAU * (il + 0.5) / 48.0
+				var u := Vector3(cos(b) * cos(l), sin(b), -cos(b) * sin(l))
+				sg += col.call(u, true)
+				ss += col.call(u, false)
+		var worst := 0.0
+		for c in LYNDS_DARKEST:
+			var u := Vector3(cos(deg_to_rad(c[1])) * cos(deg_to_rad(c[0])), sin(deg_to_rad(c[1])), -cos(deg_to_rad(c[1])) * sin(deg_to_rad(c[0])))
+			worst = maxf(worst, absf(log(float(col.call(u, true)) / float(col.call(u, false)))))
+		# Within its box: beyond it, more than 500 pc from the plane, lies 5.5 % of the map.
+		ok(absf(sg / ss - 1.0) < GRID_SKY_TOL and worst < log(GRID_CLOUD_TOL),
+			"from the Sun the grid's columns to 1.25 kpc within its box are %s of the shells' over the sky (within %s %%), toward Lynds' darkest clouds within %s× (worst %s×)" % [
+			String.num(sg / ss, 3), String.num(GRID_SKY_TOL * 100.0, 0), String.num(GRID_CLOUD_TOL, 2), String.num(exp(worst), 2)])
+	v.group.free()
+
+# Pioneer 10's background starlight from beyond the zodiacal light: Toller (1981), as Leinert et
+# al. (1998, A&AS 127, 1) Tables 35 and 36 give it, at 440 and 640 nm in S10☉ (one V = 10 solar-type
+# star per deg²), stars brighter than V ≈ 6.5 removed. Each row's mean over l at 10° steps, without
+# the cells the tables leave out (PIONEER_GAPS, l by b).
+const PIONEER_B := [-80, -70, -60, -50, -40, -30, -24, -20, -16, -12, -8, -4, 0, 4, 8, 12, 16, 20, 24, 30, 40, 50, 60, 70, 80]
+const PIONEER_BLUE := [29.06, 31.22, 36.86, 42.72, 53.06, 75.0, 90.5, 107.83, 132.69, 171.94, 223.08, 255.06, 243.11, 211.67, 174.0, 145.56, 117.15, 95.94, 81.94, 65.8, 49.29, 43.48, 39.11, 33.94, 29.61]
+const PIONEER_RED := [38.75, 41.58, 45.53, 53.61, 66.47, 93.06, 112.5, 134.22, 169.53, 226.44, 306.75, 387.58, 350.58, 315.86, 249.81, 200.19, 157.7, 124.28, 107.29, 83.17, 62.84, 54.23, 47.78, 43.69, 35.92]
+const PIONEER_GAPS := {16: [220, 230, 240], 20: [210, 220, 230, 240], 24: [200, 210, 220, 230, 240], 30: [190, 200, 210, 220, 230, 240], 40: [190, 200, 210, 220, 230], 50: [180, 190, 200, 210, 220]}
+## Diffuse galactic light over line-of-sight starlight at 440 nm by |b| (Leinert et al. Table 39,
+## from Toller's Selected Areas), with the upper |b| of each range. At 640 nm the extended red
+## emission adds about as much again (Gordon 1997, ibid.).
+const PIONEER_DGL := [[5.0, 0.21], [10.0, 0.34], [15.0, 0.31], [20.0, 0.19], [30.0, 0.25], [40.0, 0.17], [60.0, 0.17], [90.0, 0.12]]
+const FLYNN_RHO_V := 0.056
+
+# The Milky Way's light at the Sun: its column against Flynn et al. (2006), which sets it
+# (GalModels.MW_DISC_LIGHT), and the sky it gives from the Sun against Pioneer 10's, which does not.
+func local_light() -> void:
+	var vis := GalaxyVisual.new(GalModels.build("milky_way", 1))
+	var cols := [vis.disc_col, vis.sphere_col, vis.young_col if vis.young_pop != null else Color(0, 0, 0)]
+	var ys := []
+	for c: Color in cols: ys.append(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)
+	var sig := 0.0
+	var sig_disc := 0.0
+	var rho := 0.0
+	var dz := 0.002
+	for i in range(-2000, 2001):
+		var j := vis.light_density(Vector3(-8.0, i * dz, 0.0))
+		var v := 0.0
+		for c in 3: v += j[c] * float(ys[c])
+		sig += v * dz
+		sig_disc += j[0] * float(ys[0]) * dz
+		if i == 0: rho = v
+	sig *= 1e-6
+	sig_disc *= 1e-6
+	rho *= 1e-9
+	# GalModels.MW_DISC_LIGHT is pinned because the lattice needs it before the arm map that sets
+	# the column bakes: here, the value the column asks for, which it must stay within 1 % of.
+	var want := GalModels.MW_DISC_LIGHT * (GalModels.MW_SIGMA_V - (sig - sig_disc)) / sig_disc
+	ok(absf(want / GalModels.MW_DISC_LIGHT - 1.0) < 0.01, "the column at the Sun gives %s L☉ pc⁻² in V, Flynn et al.'s (2006) %s, for MW_DISC_LIGHT %s (it asks %s); its mid-plane %s L☉ pc⁻³ against their %s" % [
+		String.num(sig, 2), String.num(GalModels.MW_SIGMA_V, 1), String.num(GalModels.MW_DISC_LIGHT, 3), String.num(want, 4), String.num(rho, 3), String.num(FLYNN_RHO_V, 3)])
+	# The sky from the Sun as drawn, through the measured dust, against Pioneer's stars: their
+	# diffuse light taken out, the real stars it removed (V < 6.5) put back over each row's band.
+	var nb := GalNeighbourhood.bake()
+	var s10 := GalNeighbourhood.l_vis(10.0) / (4.0 * PI * 1e-4) * pow(180.0 / PI, 2.0)
+	var nrow := PIONEER_B.size()
+	var bright := PackedFloat64Array()
+	bright.resize(nrow)
+	var lo := PackedFloat64Array()
+	var hi := PackedFloat64Array()
+	for k in nrow:
+		lo.append(-90.0 if k == 0 else 0.5 * float(PIONEER_B[k - 1] + PIONEER_B[k]))
+		hi.append(90.0 if k == nrow - 1 else 0.5 * float(PIONEER_B[k] + PIONEER_B[k + 1]))
+	for i in (nb.pos as PackedVector3Array).size():
+		var p: Vector3 = nb.pos[i]
+		var r := p.length()
+		if r <= 0.0 or float(nb.mv[i]) + 5.0 * log(r / 0.01) / log(10.0) >= 6.5: continue
+		var bd := rad_to_deg(GalNeighbourhood.galactic(p).y)
+		for k in nrow:
+			if bd >= lo[k] and bd < hi[k]: bright[k] += GalNeighbourhood.l_vis(nb.mv[i]) / (4.0 * PI * r * r)
+	var sun := Vector3(-8.0, GalNeighbourhood.SUN_HEIGHT, 0.0)
+	var lsum := 0.0
+	var l2 := 0.0
+	var worst := 0.0
+	var rows := ""
+	for k in nrow:
+		var b := deg_to_rad(float(PIONEER_B[k]))
+		var gaps: Array = PIONEER_GAPS.get(PIONEER_B[k], [])
+		var ours := 0.0
+		var n := 0
+		for li in 36:
+			if gaps.has(li * 10): continue
+			var l := deg_to_rad(li * 10.0)
+			# Pioneer's grid is read from maps at about 2°: a disc of that width.
+			var m := 1 if quick else 7
+			var s := 0.0
+			for j in m:
+				var rr := 0.0 if j == 0 else deg_to_rad(0.8)
+				var a := TAU * j / 6.0
+				var lb := Vector2(l + rr * cos(a) / maxf(cos(b), 0.2), b + rr * sin(a))
+				s += vis.ray_luminance(sun, Vector3(cos(lb.y) * cos(lb.x), sin(lb.y), -cos(lb.y) * sin(lb.x)), 1e-3, 300)
+			ours += s / m
+			n += 1
+		ours /= n * s10
+		var dgl := 0.0
+		for e: Array in PIONEER_DGL:
+			if absf(PIONEER_B[k]) <= float(e[0]):
+				dgl = float(e[1])
+				break
+		var sb := float(PIONEER_BLUE[k]) / (1.0 + dgl)
+		var sr := float(PIONEER_RED[k]) / (1.0 + 2.0 * dgl)
+		# V at 551 nm, between the two bands in log intensity.
+		var sv := exp(log(sb) + (551.0 - 440.0) / 200.0 * (log(sr) - log(sb)))
+		var omega := TAU * (sin(deg_to_rad(hi[k])) - sin(deg_to_rad(lo[k])))
+		var ratio := ours / (sv + bright[k] / omega / s10)
+		lsum += log(ratio)
+		l2 += log(ratio) * log(ratio)
+		worst = maxf(worst, absf(log(ratio)))
+		rows += " %d°:%s" % [PIONEER_B[k], String.num(ratio, 2)]
+	vis.dispose()
+	print("     ours ÷ Pioneer 10's stars by latitude:" + rows)
+	var mean := exp(lsum / nrow)
+	var rms := sqrt(l2 / nrow) / log(10.0)
+	# Through the model's dust alone the band reads 0.56–0.64 and the mean 0.78 (rms 0.14 dex).
+	ok(absf(log(mean)) < log(1.1) and rms < 0.08, "from the Sun the sky gives Pioneer 10's starlight: %s of it on average over %d latitudes, rms %s dex (< 0.08), worst %s dex" % [
+		String.num(mean, 3), nrow, String.num(rms, 3), String.num(worst / log(10.0), 2)])
+
 func neighbourhood() -> void:
 	var nb := GalNeighbourhood.bake()
 	ok(not nb.is_empty() and int(nb.n_near) > 3000 and int(nb.n_far) > 50000,
@@ -623,30 +874,35 @@ func neighbourhood() -> void:
 	var mf := GalNeighbourhood.map_flux(nb.map)
 	var ml := 0.2126 * mf.r + 0.7152 * mf.g + 0.0722 * mf.b
 	ok(absf(ml / ff - 1.0) < 1e-4, "the far stars' light map integrates to their flux (%s)" % String.num(ml / ff, 6))
-	# Where the catalogue outshines the model's own glow the glow can give up no more.
+	# Where the catalogue outshines the model's own glow the glow can give up no more. Through the
+	# measured dust the sky is brighter and gives way more easily, so the model's dust alone (drawn
+	# when the map is absent) is the case that binds.
 	var vis := GalaxyVisual.new(GalModels.build("milky_way", 1))
 	var sun := Vector3(-8.0, GalNeighbourhood.SUN_HEIGHT, 0.0)
 	var N := 600 if quick else 1500
-	var tot := 0.0
-	var cat := 0.0
-	var lost := 0.0
 	var img: Image = nb.map
-	for k in N:
-		var zz := 1.0 - (2.0 * k + 1.0) / N
-		var rr := sqrt(1.0 - zz * zz)
-		var ph := PI * (3.0 - sqrt(5.0)) * k
-		var d := Vector3(rr * cos(ph), zz, rr * sin(ph))
-		var lb := GalNeighbourhood.galactic(d)
-		var col := img.get_pixel(clampi(int(lb.x / TAU * GalNeighbourhood.MAP_W), 0, GalNeighbourhood.MAP_W - 1),
-			clampi(int((0.5 - lb.y / PI) * GalNeighbourhood.MAP_H), 0, GalNeighbourhood.MAP_H - 1))
-		var m := 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b
-		var I := vis.ray_luminance(sun, d, 1e-3, 300)
-		tot += I
-		cat += m
-		lost += maxf(m - I, 0.0)
-	# Smoothed too narrowly (4°: 0.8 %) the map outruns the glow around Orion, which goes dark.
-	ok(lost / cat < 0.002 and cat / tot > 0.1 and cat / tot < 0.4, "from the Sun the far stars carry %s %% of the model's sky; %s %% of theirs exceeds the glow it replaces (< 0.2)" % [
-		U.fixed(100.0 * cat / tot, 1), U.fixed(100.0 * lost / cat, 2)])
+	for measured in [true, false]:
+		vis.local_dust_enabled = measured
+		var tot := 0.0
+		var cat := 0.0
+		var lost := 0.0
+		for k in N:
+			var zz := 1.0 - (2.0 * k + 1.0) / N
+			var rr := sqrt(1.0 - zz * zz)
+			var ph := PI * (3.0 - sqrt(5.0)) * k
+			var d := Vector3(rr * cos(ph), zz, rr * sin(ph))
+			var lb := GalNeighbourhood.galactic(d)
+			var col := img.get_pixel(clampi(int(lb.x / TAU * GalNeighbourhood.MAP_W), 0, GalNeighbourhood.MAP_W - 1),
+				clampi(int((0.5 - lb.y / PI) * GalNeighbourhood.MAP_H), 0, GalNeighbourhood.MAP_H - 1))
+			var m := 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b
+			var I := vis.ray_luminance(sun, d, 1e-3, 300)
+			tot += I
+			cat += m
+			lost += maxf(m - I, 0.0)
+		# Smoothed too narrowly (4°: 0.8 % through the model's dust) the map outruns the glow around Orion, which goes dark.
+		ok(lost / cat < 0.002 and cat / tot > 0.1 and cat / tot < 0.4, "from the Sun%s the far stars carry %s %% of the model's sky; %s %% of theirs exceeds the glow it replaces (< 0.2)" % [
+			" through the measured dust" if measured else ", the model's dust alone,", U.fixed(100.0 * cat / tot, 1), U.fixed(100.0 * lost / cat, 2)])
+	vis.local_dust_enabled = true
 	vis.dispose()
 	# The near set against the model's resolved stars within 40 pc.
 	var R := GalNeighbourhood.NEAR_KPC
@@ -1131,6 +1387,24 @@ func hii_checks(m: Dictionary, v: GalaxyVisual) -> void:
 	# Lee et al.'s own regions: 10^41.1 + 10^40.6 + 10^40.1 erg/s at 9.9 Mpc (their §5.2).
 	var lee := (pow(10.0, 41.1) + pow(10.0, 40.6) + pow(10.0, 40.1)) * pow(8.58 / 9.9, 2.0)
 	print("     M51's H II regions: %s erg/s in Hα; Lee et al. catalogue %s (%s dex)" % [U.expo(want, 3), U.expo(lee, 3), U.fixed(log(lee / want) / log(10.0), 2)])
+	# Seen face-on through the disc's dust and their own clouds', as Lee et al. saw them; the
+	# regions left in the smooth light are taken as dimmed as the drawn ones.
+	var tr := 0.0
+	var tl := 0.0
+	for i in range(0, c.n, 7):
+		var p: Vector3 = c.pos[i]
+		var tau := 0.0
+		var y := p.y
+		while y < 2.0:
+			tau += v.dust_density(p.x, y + 0.0025, p.z) * 0.005
+			y += 0.005
+		tr += float(c.lum[i]) * exp(-tau * float(GalModels.EXTINCTION_RGB[0]))
+		tl += float(c.lum[i])
+	# What the catalogue's lines keep of the Hα they were drawn from, beyond the disc's dust.
+	var kept: float = (c.lines[0] as Color).r / (GalHII._line_colour(spec).r * float(c.lum[0]) / GalHII.ERG_LSUN)
+	var shown := float(c.ha_regions) * tr / tl * kept
+	ok(absf(log(shown / lee) / log(10.0)) < 0.05, "M51's H II regions show %s erg/s of Hα face-on through the dust, Lee et al. observe %s (%s dex)" % [
+		U.expo(shown, 3), U.expo(lee, 3), U.fixed(log(shown / lee) / log(10.0), 3)])
 	# The luminosity function's bright slope recovered from the catalogue: dN/dlog L ∝ L^(α+1).
 	var lb := pow(10.0, float(spec.logL[1])) * pow(8.58 / float(spec.d), 2.0)
 	var hi := pow(10.0, float(spec.logL[2])) * pow(8.58 / float(spec.d), 2.0)
@@ -1152,7 +1426,7 @@ func hii_checks(m: Dictionary, v: GalaxyVisual) -> void:
 	ok(ws < 1e-5, "M51's H II regions are as large as L ∝ D^3.04 makes them")
 	# The young light kept: the smooth arms' plus the regions' clusters, against the young
 	# population's light; the lines on top.
-	var y0: Color = v.young_pop.color * float(m.armLight)
+	var y0: Color = v.young_col0 * float(m.armLight)
 	var smooth: Color = v.young_col * v._l_young - (c.dig_vis as Color)
 	var stars := Color(0, 0, 0)
 	for s in c.stars: stars += s
@@ -1234,6 +1508,7 @@ func types() -> void:
 		worst = maxf(worst, absf(mv - float(GalModels.TYPES[k].mv)))
 	ok(worst < DRAWN_MV_TOL, "%d galaxies of their own scenes, their glow marched as drawn, give their measured absolute V (worst %s mag < %s)" % [GalModels.TYPES.size() - 2, U.expo(worst, 1), String.num(DRAWN_MV_TOL, 3)])
 	m51()
+	ism()
 	m87()
 	lmc_bar()
 	m33_arms()
@@ -1279,3 +1554,90 @@ func types() -> void:
 	ok(er < 0.02 and ed < 0.02, "M104's dust integrates back to De Looze et al.'s ring (%s M☉, %s off) and inner disc (%s M☉, %s off)" % [
 		U.expo(ring, 2), U.fixed(er * 100.0, 2) + " %", U.expo(disc, 2), U.fixed(ed * 100.0, 2) + " %"])
 	v.dispose()
+
+# The medium below the map (GalISM): its field, that its multipliers keep the dust's mass and
+# the young light (mean one, at every footprint), that its shear stays within one shear time,
+# and what it does to M51 seen through its dust. docs/physics/galaxies.md#the-medium-below-the-map.
+## At the normalising footprints exact; between and beyond them, what their own eddies do not
+## average out. Without each galaxy's realised means divided out: 0.6 % and 1.3 %.
+const ISM_MEAN_TOL := Vector2(0.004, 0.006)
+## Those realised means themselves: the largest eddies' few per cent over one galaxy (M51's
+## young light 1.4 %). A medium or feathers not of mean one stand out past it.
+const ISM_NORM_TOL := 0.03
+const ISM_SEEN_TOL := 0.10
+## M51 seen through the medium gains 2.2e-4 mag; a quarter of that is far above the sums'
+## rounding, which a medium doing nothing leaves at exactly zero.
+const ISM_SEEN_MIN := 5e-5
+func ism() -> void:
+	var f := GalISM.field()
+	var n := GalISM.N * GalISM.N
+	var worst := 0.0
+	for c in 2:
+		var mean := 0.0
+		var v := 0.0
+		for i in n: mean += f[2 * i + c]
+		mean /= n
+		for i in n: v += (f[2 * i + c] - mean) * (f[2 * i + c] - mean)
+		worst = maxf(worst, maxf(absf(mean), absf(v / n - 1.0)))
+	var cross := 0.0
+	for i in n: cross += f[2 * i] * f[2 * i + 1]
+	ok(worst < 2e-3 and absf(cross / n) < 0.1, "the medium's field: two unit Gaussian channels (worst %s), uncorrelated (%s)" % [U.expo(worst, 1), String.num(cross / n, 3)])
+	var m := GalModels.type_galaxy("m51")
+	var vis := GalaxyVisual.new(m)
+	# Every octave's turn back grows by at most SHEAR_MAX per e-fold of radius.
+	var t := vis.ism_turns
+	var slope := 0.0
+	for o in GalISM.OCTAVES:
+		for i in range(1, GalISM.TURN_N - 1):
+			var r0 := maxf(vis.edge * float(i) / float(GalISM.TURN_N - 1), 0.02)
+			var r1 := vis.edge * float(i + 1) / float(GalISM.TURN_N - 1)
+			slope = maxf(slope, absf(t[o * GalISM.TURN_N + i + 1] - t[o * GalISM.TURN_N + i]) / log(r1 / r0))
+	ok(slope <= GalISM.SHEAR_MAX * (1.0 + 1e-5), "the medium's shear stays within one shear time: strain %s ≤ %s" % [String.num(slope, 4), GalISM.SHEAR_MAX])
+	# Mean one, weighted as the galaxy weighs it: the dust map's mass and the young light, over
+	# the arm map's texels, at a fine and a coarse footprint.
+	var img := vis.arm_img
+	var px := 2.0 * GalaxyVisual.ARM_HALF / float(GalaxyVisual.ARM_N)
+	var errs := Vector2.ZERO
+	for foot in [0.005, 0.02, 0.1, 0.15, 0.3, 0.6]:
+		var acc := Vector4.ZERO
+		for j in range(0, GalaxyVisual.ARM_N, 2):
+			for i in range(0, GalaxyVisual.ARM_N, 2):
+				var x := -GalaxyVisual.ARM_HALF + (float(i) + 0.5) * px
+				var z := -GalaxyVisual.ARM_HALF + (float(j) + 0.5) * px
+				var c := img.get_pixel(i, j)
+				var y := c.r * vis._envelope(sqrt(x * x + z * z))
+				if c.g <= 0.0 and y <= 0.0: continue
+				var mm := GalISM.multipliers(f, Vector3(x, 0.0, z), foot, vis.ism_turns, vis.edge, 0.0, vis.ism_layers, vis.ism_norm, vis.ism_feathers)
+				acc += Vector4(c.g * GalISM.dust(mm.x), c.g, y * mm.y, y)
+		errs = Vector2(maxf(errs.x, absf(acc.x / acc.y - 1.0)), maxf(errs.y, absf(acc.z / acc.w - 1.0)))
+	ok(errs.x < ISM_MEAN_TOL.x and errs.y < ISM_MEAN_TOL.y, "M51's medium keeps its dust's mass (%s %%, < %s) and its young light (%s %%, < %s) at footprints 5–600 pc" % [
+		U.fixed(errs.x * 100.0, 2), U.fixed(ISM_MEAN_TOL.x * 100.0, 1), U.fixed(errs.y * 100.0, 2), U.fixed(ISM_MEAN_TOL.y * 100.0, 1)])
+	var nworst := 0.0
+	for nm in vis.ism_norm: nworst = maxf(nworst, maxf(absf(nm.x - 1.0), absf(nm.y - 1.0)))
+	ok(vis.ism_norm.size() == GalISM.NORM_FEET.size() and nworst < ISM_NORM_TOL, "M51's medium and feathers average to one over the galaxy before its realised means are divided out (worst %s %%, < %s)" % [
+		U.fixed(nworst * 100.0, 2), U.fixed(ISM_NORM_TOL * 100.0, 0)])
+	# Seen from the Sun through its own dust, with the medium as a 0.2″ pixel draws it: clumped
+	# dust lets more light through than the smooth model's (Witt & Gordon 1996).
+	var side := GalLandmarks.sun_side(m)
+	var d := -side
+	var e1 := d.cross(Vector3.UP).normalized()
+	var e2 := d.cross(e1).normalized()
+	var pix := deg_to_rad(0.2 / 3600.0) * float(GalModels.TYPES.m51.d) / 200.0
+	var seen := [0.0, 0.0]
+	for pass_i in 2:
+		var acc := 0.0
+		var a := -24.0 + 0.25
+		while a < 24.0:
+			var b := -24.0 + 0.25
+			while b < 24.0:
+				acc += vis.ray_luminance(side * 200.0 + e1 * a + e2 * b, d, 1e-3, 96, pix if pass_i == 0 else 0.0) * 0.25
+				b += 0.5
+			a += 0.5
+		seen[pass_i] = acc
+	var shift := -2.5 * log(seen[0] / seen[1]) / log(10.0)
+	# The medium keeps the dust's mass (its means are divided out), so only the clumped dust's
+	# second-order gain is left: small for M51 seen near face-on, but brighter, never fainter, and
+	# not nothing, which is what a medium that changes nothing would read.
+	ok(shift < -ISM_SEEN_MIN and shift > -ISM_SEEN_TOL, "M51 through its dust with the medium: %s mag from the smooth model's, brighter (between −%s and −%s)" % [
+		String.num(shift, 5), ISM_SEEN_TOL, ISM_SEEN_MIN])
+	vis.dispose()
