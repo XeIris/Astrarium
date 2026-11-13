@@ -247,11 +247,12 @@ void fragment() {
 		float sc = max(min(uDisc.z, uThin), 0.005) / max(abs(d.y), 1e-4);
 		float tc = clamp(-o.y / (abs(d.y) > 1e-6 ? d.y : 1e-6), tbx.x, tbx.y);
 		// The medium below the map, seen from outside its layer, where the ray crosses the
-		// plane: a tilted thick layer does not smear it and the march adds no grain.
-		bool outside = abs(o.y) > uISMLayer.y;
+		// plane: a tilted thick layer does not smear it and the march adds no grain. Inside means
+		// within the layer and inside the galaxy's box: a camera beside the box, however near the
+		// plane, sees the disc from outside.
+		bool outside = abs(o.y) > uISMLayer.y || any(greaterThan(abs(o), uBox));
 		// From inside, a ray along the plane crosses it far off or not at all: the samples
-		// gather about the camera instead, where its dust and light change most (32 samples
-		// spread evenly over the box's chord missed the near dust by up to 11 %).
+		// gather about the camera instead, where its dust and light change most.
 		if (!outside) {
 			sc = min(sc, SC_INSIDE);
 			tc = tbx.x;

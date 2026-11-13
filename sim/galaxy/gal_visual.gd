@@ -505,7 +505,8 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 		t1 = -INF
 	# The medium, from outside its layer, where the ray crosses the plane on the box's chord.
 	var ism_m := Vector2.ONE
-	if pix > 0.0 and ism_ready and ism_enabled and t1 > t0 and GalISM.outside(o.y):
+	var outside := GalISM.outside(o.y) or absf(o.x) > box.x or absf(o.y) > box.y or absf(o.z) > box.z
+	if pix > 0.0 and ism_ready and ism_enabled and t1 > t0 and outside:
 		var tc0 := clampf(-o.y / (d.y if absf(d.y) > 1e-6 else 1e-6), t0, t1)
 		ism_m = GalISM.multipliers(GalISM.field(), o + d * tc0, tc0 * pix, ism_turns, edge, arm_turn, ism_layers, ism_norm, ism_feathers)
 	if sv.y > 0.0:
@@ -534,8 +535,8 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 	# The glow reads the grid averaged over the step its asinh leg would take at each t over the
 	# whole chord (galaxy_glow.gdshaderinc march_disc), gathered about the camera from inside the
 	# medium's layer; integrated here as drawn.
-	var g_sc := sc if GalISM.outside(o.y) else minf(sc, GLOW_SC_INSIDE)
-	var g_tc := tc if GalISM.outside(o.y) else t0
+	var g_sc := sc if outside else minf(sc, GLOW_SC_INSIDE)
+	var g_tc := tc if outside else t0
 	var g_du := (asinh((t1 - g_tc) / g_sc) - asinh((t0 - g_tc) / g_sc)) / float(GLOW_DISC - 4)
 	var g_tm := clampf(res, t0, t1)
 	var g_rs: PackedFloat32Array = local_dust.get("r", PackedFloat32Array())

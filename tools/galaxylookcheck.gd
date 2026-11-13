@@ -171,6 +171,8 @@ func _ready() -> void:
 		await handover(v)
 		# Last: it loads another scene, so nothing after it may hold the Milky Way's visual.
 		await type_dust("gal_m104")
+		# Edge-on from 0.9 kpc off the plane: within the medium's layer, outside the galaxy's box.
+		await type_dust("gal_m104", "edge")
 		await type_dust("gal_m51")
 		await type_dust("gal_m87")
 	for error in logger.take():
@@ -444,20 +446,21 @@ func neighbour_profile(key: String) -> void:
 
 # A galaxy of its own scene, in rows across its middle against the CPU's integral: M104
 # through its 20 pc dust ring (the thin sampling), M51 across its arms (the arm map).
-func type_dust(preset: String) -> void:
+func type_dust(preset: String, framing := "whole") -> void:
 	stage.load_preset(preset)
 	stage.galaxy.wait_tracers()
 	stage.state.paused = true
 	var g = stage.galaxy
 	var v: GalaxyVisual = g.visual
-	g.frame("whole")
+	g.frame(framing)
+	var label := preset if framing == "whole" else preset + " " + framing
 	# The galaxy's glow alone: its companions and H II regions are not in the CPU's integral.
 	for n in g.neighbours: n.hide = true
 	v.show_hii = false
 	await settle(20)
 	pin(v, 0.3)
 	var img := await hdr()
-	save(img, "type-" + preset)
+	save(img, "type-" + label)
 	v.show_glow = false
 	var sky := await hdr()
 	v.show_glow = true
@@ -490,9 +493,13 @@ func type_dust(preset: String) -> void:
 				dev_on += pow(dp / wp - 1.0, 2.0)
 				dev_off += pow(dp / w0 - 1.0, 2.0)
 				npx += 1
-		print("     %s row %+d: drawn %s, integral %s" % [preset, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
+		print("     %s row %+d: drawn %s, integral %s" % [label, dy, U.expo(drawn / 48.0, 3), U.expo(want / 48.0, 3)])
 		worst = maxf(worst, absf(drawn / want - 1.0))
-	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [preset, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	check("%s: glow = CPU integral in 7 rows across it (worst %s %%, < %s)" % [label, U.fixed(worst * 100.0, 1), U.fixed(TYPE_DUST_TOL * 100.0, 0)], worst < TYPE_DUST_TOL)
+	if framing != "whole":
+		for n in g.neighbours: n.hide = false
+		v.show_hii = true
+		return
 	if preset == "gal_m51": m51_colour(v, img, sky, cam, basis, tan_h)
 	if npx > 0:
 		var on := sqrt(dev_on / npx)
