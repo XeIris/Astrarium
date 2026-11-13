@@ -160,7 +160,7 @@ MUTATIONS = {
     "local-grid-mirrored": ("sim/galaxy/gal_local_dust.gd", "	var u := (s / (2.0 * half) + Vector3(0.5, 0.5, 0.5)) * Vector3(n) - Vector3(0.5, 0.5, 0.5)",
                             "	var u := (Vector3(s.x, s.y, -s.z) / (2.0 * half) + Vector3(0.5, 0.5, 0.5)) * Vector3(n) - Vector3(0.5, 0.5, 0.5)",
                             GALAXYCHECK, "the measured dust's grid read mirrored across the Galactic centre's line"),
-    "local-grid-point-read": ("shaders/galaxy/galaxy_glow.gdshaderinc", "gal_disc_sample(o + d * t, sqrt(sc * sc + (t - tc) * (t - tc)) * du_ref,",
+    "local-grid-point-read": ("shaders/galaxy/galaxy_glow.gdshaderinc", "gal_disc_sample(o + d * t, foot,",
                               "gal_disc_sample(o + d * t, 0.0,", GALAXYLOOK, "the grid read at a point where a step stands for tens of pc"),
     "local-grid-weight-sharp": ("sim/galaxy/gal_local_dust.gd", "	return 1.0 - smoothstep(BLEND.x - 0.5 * foot, BLEND.y + 0.5 * foot, r)",
                                 "	return 1.0 - smoothstep(BLEND.x, BLEND.y, r)", GALAXYLOOK,
