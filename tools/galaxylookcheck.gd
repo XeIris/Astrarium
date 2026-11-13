@@ -39,6 +39,8 @@ const EDGE_EXPOSURE := 0.05
 ## a step per shell, each even, read at its middle: 0.8 %. Keeping the model's dust in the
 ## shells reads 29 %, each shell's density from the next shell out 16 %.
 const DUST_TOL := {"edge": 0.04, "sun": 0.006}
+## Through the measured dust: the CPU's 12000 samples agree with 24000 to 0.1 %, and the GPU's
+## shell steps are not jittered, so its 0.8 % is the same from run to run, not noise.
 const LOCAL_DUST_TOL := 0.01
 ## The join: four views from the Sun at a night-sky exposure, each half of it (the drawn
 ## stars, the glow given up) against the CPU.
@@ -52,8 +54,8 @@ const TYPE_DUST_TOL := 0.08
 ## (M51 0.2 %, M104 1.4 %).
 const ISM_PIXEL_TOL := 0.05
 ## M51's colour in linear light against SDSS (Muñoz-Mateos et al. 2009, J/ApJ/703/1569 table
-## 3, NGC 5194): g − r at 18″ to 198″ along the major axis. Drawn from the populations' colours
-## it was 0.087 mag rms off and 0.075 too red; from Inman et al.'s measured spectra, 0.05.
+## 3, NGC 5194): g − r at 18″ to 198″ along the major axis. In Inman et al.'s measured colours
+## the drawing is 0.05 mag rms off; in the populations' own it would be 0.087, 0.075 too red.
 const M51_SDSS_GR := [[18, 0.63], [36, 0.59], [54, 0.65], [72, 0.61], [90, 0.53], [108, 0.48],
 	[126, 0.50], [144, 0.43], [162, 0.41], [180, 0.38], [198, 0.43]]
 const M51_COLOUR_TOL := 0.07
@@ -160,6 +162,7 @@ func _ready() -> void:
 		v.local_dust_enabled = false
 		await through_dust(v, "sun")
 		v.local_dust_enabled = true
+		check("the measured dust around the Sun is loaded", not v.local_dust.is_empty() and not (v.local_dust.get("grid", {}) as Dictionary).is_empty())
 		if not v.local_dust.is_empty():
 			await through_dust(v, "sun", true)
 			await through_dust(v, "near", true)
@@ -608,10 +611,15 @@ func hii_flux(v: GalaxyVisual, gain: float) -> void:
 		var dir := -rel / dist
 		var t1 := dist
 		if absf(dir.y) > 1e-6: t1 = minf(t1, maxf((signf(dir.y) * zl - p.y) / dir.y, 0.0))
+		# The medium where the line of sight crosses the plane, as galaxy_hii.gdshader takes it.
+		var mm := 1.0
+		if v.ism_ready and v.ism_enabled and GalISM.outside(cam.y) and absf(dir.y) > 1e-4:
+			mm = GalISM.dust(GalISM.multipliers(GalISM.field(), p - dir * (p.y / dir.y), dist * pix, v.ism_turns, v.edge, v.arm_turn,
+				v.ism_layers, v.ism_norm, v.ism_feathers).x)
 		var tau := 0.0
 		for k in 16:
 			var q := p + dir * ((float(k) + 0.5) * t1 / 16.0)
-			tau += v.dust_density(q.x, q.y, q.z) * t1 / 16.0
+			tau += v.dust_density(q.x, q.y, q.z) * mm * t1 / 16.0
 		var c: Color = (cat.stars[i] as Color) + (cat.lines[i] as Color)
 		var att := Color(c.r * exp(-tau * float(e[0])), c.g * exp(-tau * float(e[1])), c.b * exp(-tau * float(e[2])))
 		want += luma(att) * gain / (4.0 * PI * pix * pix * dist * dist)

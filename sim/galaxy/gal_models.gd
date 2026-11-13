@@ -63,8 +63,9 @@ const VISIBLE_BULGE := 27.0 / 33.4
 ## Measured beats modelled: the Milky Way's disc light is scaled so that the column at the
 ## Sun, with the arms' young light, gives Flynn et al.'s (2006) 24.4 L☉ pc⁻² in V (both sides,
 ## ±10 %). The population model's M/L_V is 0.66; the local column's is 1.5 ± 0.2. Its visible
-## stars scale with it: within 40 pc the real ones had numbered 0.62 of the model's.
-## galaxycheck holds the drawn column to it.
+## stars scale with it, as the census within 40 pc bears out. Pinned, not derived: the lattice
+## needs it before the arm map that sets the column bakes; galaxycheck reports the value the
+## column asks for and holds this within 1 % of it.
 const MW_SIGMA_V := 24.4
 const MW_DISC_LIGHT := 0.596
 const MW_VISIBLE_DISC := VISIBLE_DISC * MW_DISC_LIGHT

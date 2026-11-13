@@ -15,7 +15,7 @@ extends SceneTree
 # to ours' pixels with its nucleus on ours'. Ours is then rank-matched to the photo's luminance
 # inside the ellipse, so a processed photograph's unknown stretch does not enter the structure
 # measures:
-#  - band power of log(L + L₂₀), L₂₀ the 20th percentile (dither in near-black lanes would
+#  - band power of log(L + L₂₀ + 1/255), L₂₀ the 20th percentile (dither in near-black lanes would
 #    otherwise rule the log): the variance of L_f − L_2f, L_f resampled down by f and back up,
 #    a Δ-variance-like band pass (Stutzki et al. 1998), reported at the band's scale in pc;
 #  - clumpiness (Conselice 2003): Σ(I − I_s)⁺ / ΣI, I_s at a tenth of the ellipse;
@@ -75,12 +75,18 @@ func _initialize() -> void:
 	for y in ch:
 		for x in cw:
 			pr.set_pixel(x, y, bilinear(photo, float(x) + nx - cw * 0.5, float(y) + ny - ch * 0.5))
-	reg.save_png(args.out + "_ours.png")
-	pr.save_png(args.out + "_photo.png")
+	if reg.save_png(args.out + "_ours.png") != OK or pr.save_png(args.out + "_photo.png") != OK:
+		printerr("GALAXYFIDELITY FAIL: cannot write %s_*.png" % args.out)
+		quit(1)
+		return
 	var el := String(args.ellipse).split(",")
 	var px_arcmin := float(cw) / fw
 	var res := measure(reg, pr, float(args.pc) * 60.0 / px_arcmin, float(el[0]) * px_arcmin, float(el[1]) * px_arcmin, deg_to_rad(float(el[2])))
 	var fa := FileAccess.open(args.out + ".json", FileAccess.WRITE)
+	if fa == null:
+		printerr("GALAXYFIDELITY FAIL: cannot write %s.json" % args.out)
+		quit(1)
+		return
 	fa.store_string(JSON.stringify(res, " "))
 	print("GALAXYFIDELITY DONE")
 	quit()

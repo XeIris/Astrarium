@@ -1366,9 +1366,10 @@ func dust_shares(cam: Vector3, t: float, p: Vector3, foot := 0.0) -> Vector3:
 		w3 = (1.0 - f) * GalLocalDust.grid_weight((sun_basis.transposed() * (p - sun_pos)).length(), foot)
 	return GalLocalDust.shares(w_sh, w3)
 
-## V optical depth per kpc at a local point.
-## V optical depth per kpc at a local point: the model's dust, joined to the measured dust
-## around the Sun where there is any (gal_dust_joined).
+## V optical depth per kpc at a local point: the model's dust, joined to the measured dust's
+## shells around the Sun in their true 3D places. Checks read it as the map's geometry; the
+## drawing's join (dust_shares, gal_dust_joined) takes the grid too as the shells fade, and agrees
+## with this only as seen from the Sun.
 func dust_density(x: float, y: float, z: float) -> float:
 	var m := _model_dust(x, y, z)
 	if local_dust.is_empty() or not local_dust_enabled: return m

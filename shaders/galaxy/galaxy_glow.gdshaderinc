@@ -1,6 +1,7 @@
 // The glow's body (galaxy_glow.gdshader). Compiled with LOCAL_DUST for the Milky Way, whose
-// glow draws the measured dust around the Sun (galaxy_glow_local.gdshader); without it every
-// branch of that dust folds away and the other galaxies pay nothing for it.
+// glow draws the measured dust's shells around the Sun (galaxy_glow_local.gdshader); without it
+// the shells' branches fold away. The grid's lookup (gal_ld3) is in every galaxy's glow and stars
+// and returns at once where uLD3P.w is 0.
 #include "res://shaders/common/temp_pass.gdshaderinc"
 #include "res://shaders/galaxy/gal_model.gdshaderinc"
 

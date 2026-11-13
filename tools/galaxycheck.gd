@@ -719,6 +719,7 @@ func local_light() -> void:
 	var ys := []
 	for c: Color in cols: ys.append(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)
 	var sig := 0.0
+	var sig_disc := 0.0
 	var rho := 0.0
 	var dz := 0.002
 	for i in range(-2000, 2001):
@@ -726,11 +727,16 @@ func local_light() -> void:
 		var v := 0.0
 		for c in 3: v += j[c] * float(ys[c])
 		sig += v * dz
+		sig_disc += j[0] * float(ys[0]) * dz
 		if i == 0: rho = v
 	sig *= 1e-6
+	sig_disc *= 1e-6
 	rho *= 1e-9
-	ok(absf(sig / GalModels.MW_SIGMA_V - 1.0) < 0.03, "the column at the Sun gives %s L☉ pc⁻² in V, Flynn et al.'s (2006) %s; its mid-plane %s L☉ pc⁻³ against their %s" % [
-		String.num(sig, 2), String.num(GalModels.MW_SIGMA_V, 1), String.num(rho, 3), String.num(FLYNN_RHO_V, 3)])
+	# GalModels.MW_DISC_LIGHT is pinned because the lattice needs it before the arm map that sets
+	# the column bakes: here, the value the column asks for, which it must stay within 1 % of.
+	var want := GalModels.MW_DISC_LIGHT * (GalModels.MW_SIGMA_V - (sig - sig_disc)) / sig_disc
+	ok(absf(want / GalModels.MW_DISC_LIGHT - 1.0) < 0.01, "the column at the Sun gives %s L☉ pc⁻² in V, Flynn et al.'s (2006) %s, for MW_DISC_LIGHT %s (it asks %s); its mid-plane %s L☉ pc⁻³ against their %s" % [
+		String.num(sig, 2), String.num(GalModels.MW_SIGMA_V, 1), String.num(GalModels.MW_DISC_LIGHT, 3), String.num(want, 4), String.num(rho, 3), String.num(FLYNN_RHO_V, 3)])
 	# The sky from the Sun as drawn, through the measured dust, against Pioneer's stars: their
 	# diffuse light taken out, the real stars it removed (V < 6.5) put back over each row's band.
 	var nb := GalNeighbourhood.bake()
@@ -793,8 +799,7 @@ func local_light() -> void:
 	print("     ours ÷ Pioneer 10's stars by latitude:" + rows)
 	var mean := exp(lsum / nrow)
 	var rms := sqrt(l2 / nrow) / log(10.0)
-	# Through the model's dust the band read 0.56–0.64 and the mean 0.78 (rms 0.14 dex); before
-	# the column was measured, 1.4–2.3 at high latitude.
+	# Through the model's dust alone the band reads 0.56–0.64 and the mean 0.78 (rms 0.14 dex).
 	ok(absf(log(mean)) < log(1.1) and rms < 0.08, "from the Sun the sky gives Pioneer 10's starlight: %s of it on average over %d latitudes, rms %s dex (< 0.08), worst %s dex" % [
 		String.num(mean, 3), nrow, String.num(rms, 3), String.num(worst / log(10.0), 2)])
 

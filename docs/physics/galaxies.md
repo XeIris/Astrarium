@@ -972,7 +972,7 @@ in them.
 render is turned to the photo's north, cut to its field and resampled with the nucleus on the
 photo's. It is then rank-matched to the photo's luminance inside the disc's ellipse, so a
 processed photograph's stretch does not enter. The measures:
-- **Band power:** the variance of log(L + L₂₀) between one resampling scale and the next (a
+- **Band power:** the variance of log(L + L₂₀ + 1/255) between one resampling scale and the next (a
   Δ-variance-like band pass, Stutzki et al. 1998).
 - **Clumpiness:** Conselice (2003).
 - **Arm–interarm contrast:** the 90th/10th percentile per elliptical annulus.
@@ -1464,7 +1464,7 @@ Not done: a join anywhere but the Sun, and a join from presets other than "solar
 ## Do the checks catch defects?
 
 `tools/mutationcheck.py` breaks the code in place, one defect at a time, runs the
-check that should catch it, and restores the file. Twenty-one defects are caught. Phase
+check that should catch it, and restores the file. Phase
 2a's seven are the spiral's radial force, the bar's force in the GDScript kernel alone
 (which the native kernel then disagrees with), the work tally's sign, dust arms cut
 off on the wrong side of r_m, doubled young light, a step's light attenuated at its
@@ -1478,6 +1478,21 @@ the drawn stars' light. One is a known miss: dropping the radial-period weight f
 the Shu sampling reshapes only the eccentric tail of a disc this cool, below the
 stationarity test's noise. The hand-over test resolves about 6 %, so a smaller
 defect in the star counts (one extra star in each cell, say) also passes it.
+
+The fidelity passes add twenty-six, all caught: by `galaxycheck` and `galaxylookcheck`,
+- the medium below the map: drawn unsheared, its realised means kept or not divided out, its
+  shear unbounded, off on the GPU, never applied to the CPU's march;
+- M51's feathers off on the GPU or not of mean one; M51 back in its populations' colours; its
+  H II lines undimmed;
+- a camera beside a galaxy's box, near its plane, marched as if inside it, and from inside, the
+  steps spread over the chord;
+- the Milky Way's light from its mass, not its measured column;
+- the measured dust's shells added to the model's dust (on the CPU and on the GPU), read
+  mirrored in l, in the wrong units, each from the next shell out, or never applied;
+- its grid off the GPU, read mirrored, read at a point where a step stands for tens of pc,
+  losing the 6 % a read in ln ρ loses, and its weight taken at a point on the CPU;
+- the shells' share taken from the grid's too, on either side, so the model's dust comes back
+  while they fade.
 
 Phase 4's thirteen are all caught by `encountercheck`, phase 6's one (the join without its
 roll) by the `join` soak, and phase 5's three by `galaxycheck`
