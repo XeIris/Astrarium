@@ -514,7 +514,7 @@ From the Sun the model's dust drew two smooth lanes where ESO's panorama shows c
     point, its jittered steps drew a 300 pc view 12 % bright. Each step reads the grid's mipmap
     (box averages of the density) at the length the asinh leg's step has there over the whole
     chord, whatever the near leg and the shells take. Read at the steps actually taken, the
-    dust beyond the resolved radius moved with it, and the hand-over read 0.84. From inside the
+    dust beyond the resolved radius moved with it, and the hand-over read 0.84–0.88. From inside the
     disc's layer that length is about 80 pc near the camera: a cloud core is drawn averaged over
     it. The CPU's march (`ray_luminance`) reads the same mipmaps, so `galaxylookcheck` compares
     like with like: from 300 pc the GPU is within 0.5 % of it, edge-on 0.9 %, and the
@@ -1049,14 +1049,17 @@ of ours with the photo's over the same pixels: where the structure is, not only 
 
 | | 0.07° | 0.14° | 0.29° | 0.57° | 1.14° | 2.28° | 4.56° |
 |---|---|---|---|---|---|---|---|
-| Band power ÷ ESO's, the model's dust | 0.70 | 0.71 | 0.56 | 0.41 | 0.62 | 0.84 | 1.72 |
-| Band power ÷ ESO's, measured dust | 0.32 | 0.35 | 0.41 | 0.71 | 1.00 | 1.09 | 1.57 |
-| Correlation with ESO's, the model's dust | 0.01 | 0.03 | 0.08 | 0.10 | −0.01 | 0.26 | 0.58 |
-| Correlation with ESO's, measured dust | 0.01 | 0.03 | 0.21 | 0.46 | 0.69 | 0.79 | 0.90 |
+| Band power ÷ ESO's, the model's dust | 0.87 | 0.85 | 0.67 | 0.52 | 0.91 | 0.92 | 1.43 |
+| Band power ÷ ESO's, measured dust | 0.43 | 0.48 | 0.51 | 0.77 | 1.10 | 1.09 | 1.38 |
+| Correlation with ESO's, the model's dust | 0.01 | 0.03 | 0.08 | 0.09 | 0.00 | 0.19 | 0.57 |
+| Correlation with ESO's, measured dust | 0.01 | 0.03 | 0.21 | 0.46 | 0.69 | 0.80 | 0.91 |
 
-- **Without the stars** (both images through a 5-pixel median), measured dust over model: 0.27
-  over 0.37, 0.15 over 0.18, 0.24 over 0.17, 0.57 over 0.30, 0.83 over 0.53, 0.95 over 0.77 and
-  1.40 over 1.61 of ESO's.
+Measured with the Milky Way's light at its measured column (see the light at the Sun). Before
+it, the measured dust's power was 0.32 / 0.35 / 0.41 / 0.71 / 1.00 / 1.09 / 1.57 of ESO's, with
+the same correlations: the sky off the band, now a third fainter, had widened the 4.56° band.
+- **Without the stars** (both images through a 5-pixel median), measured dust over model: 0.16
+  over 0.59, 0.11 over 0.28, 0.25 over 0.24, 0.62 over 0.43, 0.94 over 0.84, 0.97 over 0.92 and
+  1.27 over 1.40 of ESO's.
 - **Below 0.3°** the map adds nothing: its cells are 14′. The model's power there did not
   correlate with ESO's, and ESO's is mostly its stars, far fainter than the V = 8 we draw.
 - **Bayestar19 was tried there and left out.** Green et al. (2019) resolve 3.4′ within 10° of
@@ -1070,8 +1073,8 @@ of ours with the photo's over the same pixels: where the structure is, not only 
 - **Known clouds.** The 20 clouds of Lynds (1962) of opacity class 5 or 6 and at least 0.1 deg²
   in the frame (VizieR VII/7A). For each, the median brightness within √(area/π) is compared with
   that 2–3 radii out, in magnitudes, ours rank-matched to the photo's. ESO's darken by 0.33 mag
-  on average. With the model's dust ours darkened by 0.02, uncorrelated (0.01); with the map they
-  darken by 0.46, correlating 0.65 with ESO's cloud by cloud.
+  on average. With the model's dust ours do not darken (0.00, uncorrelated); with the map they
+  darken by 0.47, correlating 0.64 with ESO's cloud by cloud.
 
 **M104.** Before the medium its smooth model already holds 1.34 / 1.44 / 2.06 times Hubble's
 power at 30 / 61 / 121 pc, and the medium leaves it there (1.32 / 1.41 / 1.99). The ring is De
@@ -1101,9 +1104,12 @@ The measured dust around the Sun, timed back to back with the code before it (th
 about 5 % slower that hour than for the table above): from the Sun 34.1 fps (p95 29.5 ms)
 without it and 31.7 fps (p95 31.8 ms) with it; M51 from 8 kpc 30.7 and 30.3 fps (p95 32.7 and
 33.0 ms); the Milky Way whole 41.8 fps either way. Only the Milky Way's glow compiles it in, and
-only within 30 pc of the Sun. With the grid (`perfcheck` galaxy-near: 300 pc from the Sun, every
-ray through it): 30.6 fps, p95 32.8 ms; from the Sun 32.6, p95 31.0; M51 from 8 kpc 30.7, p95
-32.7 (the same run).
+only within 30 pc of the Sun. With the grid and the march's step trimmed (`perfcheck`
+galaxy-near: 300 pc from the Sun, every ray through it): 30.8 fps, p95 32.6 ms; from the Sun
+31.8, p95 31.7; the Milky Way whole 40.8; M51 from 8 kpc 31.2, p95 32.2, and whole 38.6 (one
+run). Switched off part by part, the medium below the map costs M51 from 8 kpc about 2 ms; the
+march itself the rest. Late in a long run, as the machine warms, M51 from 8 kpc has read p95
+33.8 ms: the gate holds there with little room.
 
 **Not drawn:**
 - Lanes as thin as Hubble's.
