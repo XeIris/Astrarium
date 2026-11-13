@@ -150,24 +150,49 @@ functions (`PlasmaSpectrum.cmf`) into linear sRGB, divided by σT⁴, scaled so 
 luminance is 1. A hot star emits mostly ultraviolet, so it contributes less visible
 light per L☉ than the Sun; without this, O and B stars would turn a whole disc blue.
 
+**The light at the Sun, measured.** The population model gives the disc M/L_V = 0.66, where
+Flynn et al. (2006) measure 1.5 ± 0.2 for the local column. Measured beats modelled: the
+Milky Way's disc light is scaled (`GalModels.MW_DISC_LIGHT`, 0.596) so that the column at
+the Sun, with the arms' young light, is their 24.4 L☉ pc⁻² in V (both sides, ±10 %). Its
+visible stars scale with it, since the glow and the star lattice share one density. Three
+measurements the scale was not set on now agree with it:
+- **The census.** Within 40 pc the real stars brighter than M_V 8.54 had numbered 0.62 of
+  the model's. They now number 1.04 of it.
+- **The total.** The Galaxy's M_V goes from −22.1 to −21.6. Licquia, Newman & Brinchmann
+  (2015) measure M_r − 5 log h = −21.00 ± 0.38 and g − r = 0.682, which is M_V ≈ −21.5 for
+  h = 0.7 (Jester et al.'s 2005 transformation).
+- **The sky.** Pioneer 10 photographed the sky from beyond the zodiacal light. Toller's
+  (1981) maps, at 440 and 640 nm with stars brighter than V ≈ 6.5 removed, are tabulated
+  every 10° of l by Leinert et al. (1998, A&AS 127, 1, Tables 35 and 36). Their diffuse
+  galactic light is taken out (Table 39; at 640 nm the extended red emission doubles it,
+  Gordon 1997), the real stars brighter than V 6.5 are put back, and each latitude row is
+  averaged over l. From the Sun, through the measured dust, the drawn sky gives 0.995 of
+  Pioneer's on average over its 25 rows, rms 0.05 dex, worst 0.13 dex (`galaxycheck`). Through
+  the model's dust it gave 0.78 (rms 0.14 dex; 0.56–0.64 along the band), and before the
+  column was measured, 1.4–2.3 times Pioneer's at high latitude.
+
+The mid-plane is still 0.078 L☉ pc⁻³ against Flynn et al.'s 0.056. The arms' young light
+(Licquia & Newman's star formation rate, in a 49 pc layer) gives 0.045 of it.
+
 **Against the measured Galaxy.** Weighting the disc and bulge populations by their
 visible light gives an integrated colour; through the blackbody whose blue-to-red
-ratio matches it and Ballesteros' (2012) blackbody relation, B−V = 0.719 (disc 0.711,
-bulge 0.99). Licquia, Newman & Brinchmann (2015) measure the Milky Way's rest-frame
-B−V as 0.744 +0.068 −0.054. Nothing was tuned to it; `galaxycheck` holds it within
-2σ, and holds a 5772 K blackbody to the Sun's 0.65. The bulge gives only 2 % of the
-light, less than the 10–30 % usually quoted, because MWPotential2014's bulge is light
-(0.45 × 10¹⁰ M☉) and old.
+ratio matches it and Ballesteros' (2012) blackbody relation, B−V = 0.78 (disc 0.81,
+young 0.30, bulge 0.99). Licquia, Newman & Brinchmann (2015) measure the Milky Way's
+rest-frame B−V as 0.744 +0.068 −0.054. Nothing was tuned to it; `galaxycheck` holds it
+within 2σ, and holds a 5772 K blackbody to the Sun's 0.65. The bulge gives 5 % of the
+bolometric light, less than the 10–30 % usually quoted, because MWPotential2014's bulge is
+light (0.45 × 10¹⁰ M☉) and old.
 
 **Against Gaia's star counts.** Bovy (2017, MNRAS 470, 1360) measured the solar
 neighbourhood's main-sequence stars per magnitude with Gaia TGAS and 2MASS (his
-Table 1). Per magnitude of M_V the model has, against his counts: 0.48 for A0–A5, 0.98
-for A6–F1, 1.5 for later F, 1.6–2.2 for G and 2.8 for early K. The bright end that
-dominates the drawn sky is right; the model has too many G and K dwarfs. Its local
-number density of main-sequence stars, 0.17 pc⁻³, comes from the Miyamoto–Nagai
-disc's mid-plane density times McKee's visible fraction, which is a ratio of
-surface densities: gas sits in a thinner layer than stars, so at the mid-plane the
-stellar share is smaller than that ratio. `galaxycheck` pins these ratios.
+Table 1). Per magnitude of M_V the model has, against his counts: 0.29 for A0–A5, 0.58
+for A6–F1, 0.9 for later F, 0.97–1.3 for G and 1.65 for early K. With the column measured,
+the F to G dwarfs are right. The A dwarfs fall short, because 10 Gyr of steady star formation
+makes too few young stars for its old ones, and the K dwarfs still exceed his counts. The
+local number density of main-sequence stars comes from the Miyamoto–Nagai disc's mid-plane
+density times the visible share, which is a ratio of surface densities. Gas sits in a
+thinner layer than stars, so at the mid-plane the stellar share is smaller than that ratio.
+`galaxycheck` pins these ratios.
 
 The star lattice draws masses from a table of the resolved stars' log m at
 cumulative fractions u = 1 − 10^(−7k/64): a few per cent of resolved stars span 2 to
@@ -177,7 +202,8 @@ reads it and holds the drawn stars' mean luminosity (0.996) and their share abov
 8 M☉ (1.00) to the population.
 
 The visible fraction of the disc's mass is McKee, Parravano & Hollenbach's (2015)
-27.0 of 47.1 M☉ pc⁻² over the solar circle; the bulge's is 27.0/33.4 (no gas).
+27.0 of 47.1 M☉ pc⁻² over the solar circle; the bulge's is 27.0/33.4 (no gas). The Milky
+Way's disc takes 0.596 of it, its light at the Sun's measured column.
 
 ### Three levels
 
@@ -481,7 +507,8 @@ From the Sun the model's dust drew two smooth lanes where ESO's panorama shows c
   from the Sun to the CPU's march (12 000 samples, the same convention) within 1 %; it reads
   0.8 %.
 - **What it changes.** The model had 3.5 times the measured extinction toward b = −40° (A_V 0.45
-  against 0.13), so the sky away from the band brightens by a quarter. Toward Ophiuchus the
+  against 0.13), so the sky away from the band brightens by a quarter, which Pioneer 10's
+  photometry bears out (see the light at the Sun). Toward Ophiuchus the
   Sun now sees 0.35 of the model's light. To the Galactic centre A_V is 20.4, within the range
   of Fritz et al. (2011).
 

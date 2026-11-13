@@ -191,6 +191,8 @@ func profile(v: GalaxyVisual) -> void:
 	stage.galaxy.frame("face")
 	v.show_tracers = false
 	v.show_stars = false
+	# The neighbours' glows are not the Milky Way's: the LMC's falls on the outer ring.
+	for nb in stage.galaxy.neighbours: nb.hide = true
 	pin(v, 0.05)
 	var img := await hdr()
 	save(img, "profile-face")
@@ -222,6 +224,7 @@ func profile(v: GalaxyVisual) -> void:
 		worst = maxf(worst, err)
 		rings += 1
 	check("face-on glow = CPU integral of the model's light in %d rings (worst %s %%, < %s)" % [rings, U.fixed(worst * 100.0, 1), U.fixed(PROFILE_TOL * 100.0, 0)], worst < PROFILE_TOL)
+	for nb in stage.galaxy.neighbours: nb.erase("hide")
 	v.show_tracers = true
 	v.show_stars = true
 

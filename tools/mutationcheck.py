@@ -82,6 +82,8 @@ MUTATIONS = {
                            GALAXYCHECK, "the real stars cut at a limit other than the model's resolved one"),
     "far-map-leaks": ("sim/galaxy/gal_neighbourhood.gd", "out[yy * MAP_W + x] += v * kb[k]", "out[yy * MAP_W + x] += v * kb[k] * 1.01",
                       GALAXYCHECK, "the far stars' light map not holding their flux"),
+    "mw-light-from-mass": ("sim/galaxy/gal_models.gd", "const MW_DISC_LIGHT := 0.596", "const MW_DISC_LIGHT := 1.0",
+                           GALAXYCHECK, "the Milky Way's light from its mass and the population's M/L, not its measured column"),
     "far-map-narrow": ("sim/galaxy/gal_neighbourhood.gd", "const SMOOTH_DEG := 12.0", "const SMOOTH_DEG := 4.0",
                        GALAXYCHECK, "the far stars' light smoothed too narrowly, darkening the sky around bright groups"),
     "landmark-frame-mirrored": ("sim/galaxy/gal_landmarks.gd", "return Vector3(u.dot(c), u.dot(n), -u.dot(y))",

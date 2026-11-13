@@ -60,6 +60,15 @@ const MW_V0_KMS := 220.0
 const VISIBLE_DISC := 27.0 / 47.1
 const VISIBLE_BULGE := 27.0 / 33.4
 
+## Measured beats modelled: the Milky Way's disc light is scaled so that the column at the
+## Sun, with the arms' young light, gives Flynn et al.'s (2006) 24.4 L☉ pc⁻² in V (both sides,
+## ±10 %). The population model's M/L_V is 0.66; the local column's is 1.5 ± 0.2. Its visible
+## stars scale with it: within 40 pc the real ones had numbered 0.62 of the model's.
+## galaxycheck holds the drawn column to it.
+const MW_SIGMA_V := 24.4
+const MW_DISC_LIGHT := 0.596
+const MW_VISIBLE_DISC := VISIBLE_DISC * MW_DISC_LIGHT
+
 ## The Milky Way's neighbours, drawn from their stars: placed where they are, tilted as
 ## measured. Light only: their halos wait for encounters (phase 4), which need them.
 ## Exponential discs stand in as Miyamoto–Nagai discs of the same mass and half-mass
@@ -1221,7 +1230,7 @@ static func build(key: String, seed := 1, patterns := true) -> Dictionary:
 						"sigmaRKms": 35.0, "sigmaZKms": 25.0, "rSigma": 5.2, "rRef": 8.2},
 				],
 				"light": [
-					{"part": "disc", "visible": VISIBLE_DISC},
+					{"part": "disc", "visible": MW_VISIBLE_DISC},
 					{"part": "bulge", "visible": VISIBLE_BULGE},
 				],
 				"arms": reid_arms() if patterns else [],

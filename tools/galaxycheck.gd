@@ -39,6 +39,7 @@ func _init() -> void:
 		light()
 		neighbourhood()
 		local_dust()
+		local_light()
 		landmarks()
 		neighbours()
 		types()
@@ -175,7 +176,7 @@ func colour(p: GalPotential) -> void:
 	var young := GalPopulation.build({"kind": "constant", "gyr": GalModels.MW_YOUNG_GYR})
 	var bulge := GalPopulation.build({"kind": "burst", "gyr": 10.0})
 	var g := GalUnits.G
-	var ld: float = GalModels.VISIBLE_DISC * p.part("disc").gm / g * GalUnits.MASS_UNIT_SUN * disc.mean_l / disc.mean_mass
+	var ld: float = GalModels.MW_VISIBLE_DISC * p.part("disc").gm / g * GalUnits.MASS_UNIT_SUN * disc.mean_l / disc.mean_mass
 	var ly: float = GalModels.MW_SFR * GalModels.MW_YOUNG_GYR * 1e9 * young.light_per_formed
 	var lb: float = GalModels.VISIBLE_BULGE * GalPotential.gm_total(p.part("bulge")) / g * GalUnits.MASS_UNIT_SUN * bulge.mean_l / bulge.mean_mass
 	var c := (disc.color * ld + young.color * ly + bulge.color * lb) / (ld + ly + lb)
@@ -227,9 +228,10 @@ const PARITY_TOL := 1e-12
 # subtypes whose M_V falls in each bin (10⁻⁴ pc⁻³ mag⁻¹). Not fitted; the bounds pin
 # the measured differences, which docs/physics/galaxies.md reports.
 ## Real stars within 40 pc against the model's resolved ones: number and visible light
-## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit).
-const NEAR_COUNT_PIN := 0.62
-const NEAR_LIGHT_PIN := 2.33
+## (galaxycheck's neighbourhood(); a comparison pinned so a change shows, not a fit). The
+## light is the real giants' and A stars', which the model's resolved dwarfs lack.
+const NEAR_COUNT_PIN := 1.04
+const NEAR_LIGHT_PIN := 3.91
 ## The neighbours' absolute V from their stellar masses against McConnachie (2012): the
 ## LMC's and M33's come out 0.8–0.9 mag bright (their literature masses imply M/L_V ≈ 1.8,
 ## the population model's is ≈ 0.8); a pin that a change shows, not a fit.
@@ -240,7 +242,7 @@ func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
 	var d: Dictionary = p.part("disc")
 	# The model disc's mass density at the Sun (M☉ pc⁻³), and its main-sequence stars.
 	var rho := GalPotential.density_of(d, 8.0, 0.0208) * GalUnits.MASS_UNIT_SUN * 1e-9
-	var n_ms := GalModels.VISIBLE_DISC * rho / pop.mean_mass
+	var n_ms := GalModels.MW_VISIBLE_DISC * rho / pop.mean_mass
 	var bins := {}
 	var tot := 0.0
 	var dl := (GalPopulation.LM_MAX - GalPopulation.LM_MIN) / 2400.0
@@ -260,10 +262,15 @@ func luminosity_function(p: GalPotential, pop: GalPopulation) -> void:
 		ratios[b] = model / float(BOVY_2017_DN_DMV[b])
 		line += "  M_V %d–%d: %s" % [b, b + 1, String.num(ratios[b], 2)]
 	print("     model / Bovy (2017) stars per magnitude:" + line)
-	ok(ratios[2] > 0.75 and ratios[2] < 1.33 and ratios[1] > 0.35 and ratios[1] < 1.0,
-		"A and early-F dwarfs: model %s and %s of Gaia's counts (A0–A5 0.35–1, A6–F1 0.75–1.33)" % [String.num(ratios[1], 2), String.num(ratios[2], 2)])
-	ok(ratios[5] > 1.5 and ratios[5] < 3.5 and ratios[6] > 1.5 and ratios[6] < 4.0,
-		"G and K dwarfs: model %s and %s of Gaia's counts, the known excess (1.5–3.5, 1.5–4)" % [String.num(ratios[5], 2), String.num(ratios[6], 2)])
+	# With the disc's visible stars at the measured column the late F to K dwarfs come near
+	# Gaia's counts, and the A dwarfs, young, fall short: the steady 10 Gyr of star formation
+	# makes too few of them for the old ones.
+	ok(ratios[2] > 0.4 and ratios[2] < 0.8 and ratios[1] > 0.2 and ratios[1] < 0.45,
+		"A and early-F dwarfs: model %s and %s of Gaia's counts, the known shortfall (A0–A5 0.2–0.45, A6–F1 0.4–0.8)" % [String.num(ratios[1], 2), String.num(ratios[2], 2)])
+	ok(ratios[3] > 0.7 and ratios[3] < 1.3 and ratios[4] > 0.7 and ratios[4] < 1.3,
+		"late F and G dwarfs: model %s and %s of Gaia's counts (0.7–1.3)" % [String.num(ratios[3], 2), String.num(ratios[4], 2)])
+	ok(ratios[5] > 1.0 and ratios[5] < 2.0 and ratios[6] > 1.2 and ratios[6] < 2.4,
+		"late G and K dwarfs: model %s and %s of Gaia's counts, the known excess (1–2, 1.2–2.4)" % [String.num(ratios[5], 2), String.num(ratios[6], 2)])
 
 # A Myr-scale run of the Milky Way's tracers: deterministic, conservative, and in a
 # steady state whose rotation curve is the model's.
@@ -633,6 +640,107 @@ func local_dust() -> void:
 		seen.append(with / without)
 	ok(absf(seen[0] - 1.0) > 0.05 and seen[1] == 1.0, "the map is drawn from the Sun and gone 50 pc from it: toward Ophiuchus %s and %s of the model's light" % [String.num(seen[0], 3), String.num(seen[1], 3)])
 	v.group.free()
+
+# Pioneer 10's background starlight from beyond the zodiacal light: Toller (1981), as Leinert et
+# al. (1998, A&AS 127, 1) Tables 35 and 36 give it, at 440 and 640 nm in S10☉ (one V = 10 solar-type
+# star per deg²), stars brighter than V ≈ 6.5 removed. Each row's mean over l at 10° steps, without
+# the cells the tables leave out (PIONEER_GAPS, l by b).
+const PIONEER_B := [-80, -70, -60, -50, -40, -30, -24, -20, -16, -12, -8, -4, 0, 4, 8, 12, 16, 20, 24, 30, 40, 50, 60, 70, 80]
+const PIONEER_BLUE := [29.06, 31.22, 36.86, 42.72, 53.06, 75.0, 90.5, 107.83, 132.69, 171.94, 223.08, 255.06, 243.11, 211.67, 174.0, 145.56, 117.15, 95.94, 81.94, 65.8, 49.29, 43.48, 39.11, 33.94, 29.61]
+const PIONEER_RED := [38.75, 41.58, 45.53, 53.61, 66.47, 93.06, 112.5, 134.22, 169.53, 226.44, 306.75, 387.58, 350.58, 315.86, 249.81, 200.19, 157.7, 124.28, 107.29, 83.17, 62.84, 54.23, 47.78, 43.69, 35.92]
+const PIONEER_GAPS := {16: [220, 230, 240], 20: [210, 220, 230, 240], 24: [200, 210, 220, 230, 240], 30: [190, 200, 210, 220, 230, 240], 40: [190, 200, 210, 220, 230], 50: [180, 190, 200, 210, 220]}
+## Diffuse galactic light over line-of-sight starlight at 440 nm by |b| (Leinert et al. Table 39,
+## from Toller's Selected Areas), with the upper |b| of each range. At 640 nm the extended red
+## emission adds about as much again (Gordon 1997, ibid.).
+const PIONEER_DGL := [[5.0, 0.21], [10.0, 0.34], [15.0, 0.31], [20.0, 0.19], [30.0, 0.25], [40.0, 0.17], [60.0, 0.17], [90.0, 0.12]]
+const FLYNN_RHO_V := 0.056
+
+# The Milky Way's light at the Sun: its column against Flynn et al. (2006), which sets it
+# (GalModels.MW_DISC_LIGHT), and the sky it gives from the Sun against Pioneer 10's, which does not.
+func local_light() -> void:
+	var vis := GalaxyVisual.new(GalModels.build("milky_way", 1))
+	var cols := [vis.disc_col, vis.sphere_col, vis.young_col if vis.young_pop != null else Color(0, 0, 0)]
+	var ys := []
+	for c: Color in cols: ys.append(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)
+	var sig := 0.0
+	var rho := 0.0
+	var dz := 0.002
+	for i in range(-2000, 2001):
+		var j := vis.light_density(Vector3(-8.0, i * dz, 0.0))
+		var v := 0.0
+		for c in 3: v += j[c] * float(ys[c])
+		sig += v * dz
+		if i == 0: rho = v
+	sig *= 1e-6
+	rho *= 1e-9
+	ok(absf(sig / GalModels.MW_SIGMA_V - 1.0) < 0.03, "the column at the Sun gives %s L☉ pc⁻² in V, Flynn et al.'s (2006) %s; its mid-plane %s L☉ pc⁻³ against their %s" % [
+		String.num(sig, 2), String.num(GalModels.MW_SIGMA_V, 1), String.num(rho, 3), String.num(FLYNN_RHO_V, 3)])
+	# The sky from the Sun as drawn, through the measured dust, against Pioneer's stars: their
+	# diffuse light taken out, the real stars it removed (V < 6.5) put back over each row's band.
+	var nb := GalNeighbourhood.bake()
+	var s10 := GalNeighbourhood.l_vis(10.0) / (4.0 * PI * 1e-4) * pow(180.0 / PI, 2.0)
+	var nrow := PIONEER_B.size()
+	var bright := PackedFloat64Array()
+	bright.resize(nrow)
+	var lo := PackedFloat64Array()
+	var hi := PackedFloat64Array()
+	for k in nrow:
+		lo.append(-90.0 if k == 0 else 0.5 * float(PIONEER_B[k - 1] + PIONEER_B[k]))
+		hi.append(90.0 if k == nrow - 1 else 0.5 * float(PIONEER_B[k] + PIONEER_B[k + 1]))
+	for i in (nb.pos as PackedVector3Array).size():
+		var p: Vector3 = nb.pos[i]
+		var r := p.length()
+		if r <= 0.0 or float(nb.mv[i]) + 5.0 * log(r / 0.01) / log(10.0) >= 6.5: continue
+		var bd := rad_to_deg(GalNeighbourhood.galactic(p).y)
+		for k in nrow:
+			if bd >= lo[k] and bd < hi[k]: bright[k] += GalNeighbourhood.l_vis(nb.mv[i]) / (4.0 * PI * r * r)
+	var sun := Vector3(-8.0, GalNeighbourhood.SUN_HEIGHT, 0.0)
+	var lsum := 0.0
+	var l2 := 0.0
+	var worst := 0.0
+	var rows := ""
+	for k in nrow:
+		var b := deg_to_rad(float(PIONEER_B[k]))
+		var gaps: Array = PIONEER_GAPS.get(PIONEER_B[k], [])
+		var ours := 0.0
+		var n := 0
+		for li in 36:
+			if gaps.has(li * 10): continue
+			var l := deg_to_rad(li * 10.0)
+			# Pioneer's grid is read from maps at about 2°: a disc of that width.
+			var m := 1 if quick else 7
+			var s := 0.0
+			for j in m:
+				var rr := 0.0 if j == 0 else deg_to_rad(0.8)
+				var a := TAU * j / 6.0
+				var lb := Vector2(l + rr * cos(a) / maxf(cos(b), 0.2), b + rr * sin(a))
+				s += vis.ray_luminance(sun, Vector3(cos(lb.y) * cos(lb.x), sin(lb.y), -cos(lb.y) * sin(lb.x)), 1e-3, 300)
+			ours += s / m
+			n += 1
+		ours /= n * s10
+		var dgl := 0.0
+		for e: Array in PIONEER_DGL:
+			if absf(PIONEER_B[k]) <= float(e[0]):
+				dgl = float(e[1])
+				break
+		var sb := float(PIONEER_BLUE[k]) / (1.0 + dgl)
+		var sr := float(PIONEER_RED[k]) / (1.0 + 2.0 * dgl)
+		# V at 551 nm, between the two bands in log intensity.
+		var sv := exp(log(sb) + (551.0 - 440.0) / 200.0 * (log(sr) - log(sb)))
+		var omega := TAU * (sin(deg_to_rad(hi[k])) - sin(deg_to_rad(lo[k])))
+		var ratio := ours / (sv + bright[k] / omega / s10)
+		lsum += log(ratio)
+		l2 += log(ratio) * log(ratio)
+		worst = maxf(worst, absf(log(ratio)))
+		rows += " %d°:%s" % [PIONEER_B[k], String.num(ratio, 2)]
+	vis.dispose()
+	print("     ours ÷ Pioneer 10's stars by latitude:" + rows)
+	var mean := exp(lsum / nrow)
+	var rms := sqrt(l2 / nrow) / log(10.0)
+	# Through the model's dust the band read 0.56–0.64 and the mean 0.78 (rms 0.14 dex); before
+	# the column was measured, 1.4–2.3 at high latitude.
+	ok(absf(log(mean)) < log(1.1) and rms < 0.08, "from the Sun the sky gives Pioneer 10's starlight: %s of it on average over %d latitudes, rms %s dex (< 0.08), worst %s dex" % [
+		String.num(mean, 3), nrow, String.num(rms, 3), String.num(worst / log(10.0), 2)])
 
 func neighbourhood() -> void:
 	var nb := GalNeighbourhood.bake()
