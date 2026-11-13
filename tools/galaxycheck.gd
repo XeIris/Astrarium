@@ -38,6 +38,7 @@ func _init() -> void:
 		patterns()
 		light()
 		neighbourhood()
+		local_dust()
 		landmarks()
 		neighbours()
 		types()
@@ -552,6 +553,87 @@ func eilers(p: GalPotential) -> void:
 # Solar System sky's stars in the same directions and brightnesses, on the same flux
 # scale; the far set's light map holding their flux; and the near set against the
 # model's resolved stars, the Gaia comparison issue 25 asks for (a pin, not a fit).
+# The measured dust around the Sun (GalLocalDust): read whole, the right way round on the sky,
+# in the map's own units, and joined to the model's dust without counting either twice.
+# Lynds (1962)'s eight largest clouds of opacity class 6 at |b| ≥ 3° (VizieR VII/7A): (l, b).
+const LYNDS_DARKEST := [[171.37, -17.40], [6.59, 20.58], [26.84, 8.36], [4.92, 19.06],
+	[204.53, -11.67], [174.87, -15.66], [48.35, -5.72], [177.91, -9.74]]
+## tools/build_local_dust.py's sky mean of E to the map's edge, from the published file, and
+## the most its averaging in angle and its byte encoding move it.
+const LOCAL_DUST_MEAN_E := 0.14771
+const LOCAL_DUST_MEAN_TOL := 0.02
+
+func local_dust() -> void:
+	if not GalLocalDust.available():
+		ok(false, "the measured dust around the Sun is there (%s)" % GalLocalDust.DATA)
+		return
+	var v := GalaxyVisual.new(GalModels.build("milky_way", 1))
+	var m: Dictionary = v.local_dust
+	var rs: PackedFloat32Array = m.get("r", PackedFloat32Array())
+	ok(not m.is_empty() and rs.size() == int(m.k) and absf(rs[0] - 0.0688) < 1e-4 and absf(rs[rs.size() - 1] - 1.2481) < 1e-4,
+		"the measured dust around the Sun is read: %d shells from %s to %s kpc on %d × %d cells" % [int(m.get("k", 0)), String.num(rs[0], 4) if rs.size() > 0 else "-", String.num(rs[rs.size() - 1], 4) if rs.size() > 0 else "-", int(m.get("w", 0)), int(m.get("h", 0))])
+	# A_V from the Sun to the map's edge toward galactic (l, b), through the joined dust.
+	var av := func(l_deg: float, b_deg: float) -> float:
+		var l := deg_to_rad(l_deg)
+		var b := deg_to_rad(b_deg)
+		var dir := v.sun_basis * Vector3(cos(b) * cos(l), sin(b), -cos(b) * sin(l))
+		var tau := 0.0
+		var n := 2500
+		for i in n:
+			var p := v.sun_pos + dir * (1.25 * (float(i) + 0.5) / float(n))
+			tau += v.dust_density(p.x, p.y, p.z) * 1.25 / float(n)
+		return 1.0857 * tau
+	var on := 0.0
+	var off := 0.0
+	for c in LYNDS_DARKEST:
+		on += av.call(c[0], c[1])
+		off += av.call(360.0 - float(c[0]), c[1])
+	ok(on > 2.0 * off, "Lynds' eight darkest clouds are dark in the map: A_V %s to 1.25 kpc, %s at their mirror images in l (> 2×)" % [String.num(on / 8.0, 2), String.num(off / 8.0, 2)])
+	# The sky's mean A_V to the edge, the map alone shell by shell (exact for its even shells),
+	# as the map's own E times ZGR23's A_V/E: the units and the lookup's orientation in b.
+	var sum := 0.0
+	var wsum := 0.0
+	for jb in 90:
+		var b := deg_to_rad(-89.0 + 2.0 * float(jb))
+		for il in 180:
+			var l := deg_to_rad(1.0 + 2.0 * float(il))
+			var u := Vector3(cos(b) * cos(l), sin(b), -cos(b) * sin(l))
+			var tau := 0.0
+			var r_in := 0.0
+			for k in rs.size():
+				tau += GalLocalDust.density(m, u * (0.5 * (r_in + rs[k]))) * (rs[k] - r_in)
+				r_in = rs[k]
+			sum += 1.0857 * tau * cos(b)
+			wsum += cos(b)
+	var want := 2.67 * LOCAL_DUST_MEAN_E
+	ok(absf(sum / wsum / want - 1.0) < LOCAL_DUST_MEAN_TOL, "the sky's mean A_V to 1.25 kpc %s = 2.67 × the map's mean E %s (within %s %%)" % [String.num(sum / wsum, 4), String.num(LOCAL_DUST_MEAN_E, 5), String.num(LOCAL_DUST_MEAN_TOL * 100.0, 1)])
+	# Inside the map the model's dust is gone; past its edge it is all there is.
+	var p_in := v.sun_pos + v.sun_basis * Vector3(0.3, 0.02, 0.2)
+	var p_out := v.sun_pos + v.sun_basis * Vector3(1.4, 0.0, 0.3)
+	var in0 := v.dust_density(p_in.x, p_in.y, p_in.z)
+	var save: float = v.dust.rhoDisc
+	v.dust.rhoDisc = save * 2.0
+	var in1 := v.dust_density(p_in.x, p_in.y, p_in.z)
+	v.dust.rhoDisc = save
+	var out_joined := v.dust_density(p_out.x, p_out.y, p_out.z)
+	var out_model := v._model_dust(p_out.x, p_out.y, p_out.z)
+	ok(in0 == in1 and out_joined == out_model and in0 > 0.0,
+		"within the map the model's dust is replaced, not added (unchanged with the model's doubled); past it the model's alone")
+	# Drawn as seen from the Sun, it fades with the far stars: from 1 pc a view toward Ophiuchus
+	# is the map's, from 50 pc the model's exactly.
+	var toward := v.sun_basis * Vector3(cos(deg_to_rad(17.0)) * cos(deg_to_rad(353.0)), sin(deg_to_rad(17.0)), -cos(deg_to_rad(17.0)) * sin(deg_to_rad(353.0)))
+	var seen := []
+	for gap in [0.001, 0.05]:
+		var cam := v.sun_pos + v.sun_basis * Vector3(-gap, 0.0, 0.0)
+		v.local_dust_enabled = true
+		var with := v.ray_luminance(cam, toward, 1e-3, 2000)
+		v.local_dust_enabled = false
+		var without := v.ray_luminance(cam, toward, 1e-3, 2000)
+		v.local_dust_enabled = true
+		seen.append(with / without)
+	ok(absf(seen[0] - 1.0) > 0.05 and seen[1] == 1.0, "the map is drawn from the Sun and gone 50 pc from it: toward Ophiuchus %s and %s of the model's light" % [String.num(seen[0], 3), String.num(seen[1], 3)])
+	v.group.free()
+
 func neighbourhood() -> void:
 	var nb := GalNeighbourhood.bake()
 	ok(not nb.is_empty() and int(nb.n_near) > 3000 and int(nb.n_far) > 50000,

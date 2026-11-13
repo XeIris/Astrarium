@@ -17,17 +17,24 @@ const PROFILE_TOL := 0.04
 ## Rows across the dust lane, as offsets from the frame's centre row: edge-on from
 ## outside, and from the Sun, where the lane sits ~210 px above the centre and in-plane
 ## steps are optically thick. Columns spread over ±EDGE_HALF_PX; the CPU marches
-## EDGE_SAMPLES (an in-plane ray's asinh spacing is otherwise ~0.4 kpc).
+## EDGE_SAMPLES (an in-plane ray's asinh spacing is otherwise ~0.4 kpc), and through the
+## measured dust around the Sun four times as many: its clouds at a few hundred pc move the
+## lane rows 0.8 % between 3000 and 12000.
 const DUST_ROWS := {"edge": [-24, -8, -3, 0, 3, 8, 24], "sun": [-280, -240, -215, -205, -190, -160, -100, 0]}
 const EDGE_COLUMNS := 48
 const EDGE_HALF_PX := 320
 const EDGE_SAMPLES := 3000
+const LOCAL_DUST_SAMPLES := 12000
 const EDGE_EXPOSURE := 0.05
 ## From the Sun the glow's steps gather about the camera, where the arm dust in the plane
 ## changes most: 0.3 % against a converged CPU march (12000 samples agree with 3000). Spread
 ## evenly over the box's chord they read 7 % bright in the lane. That leaves the lane rows
 ## sensitive to how a step attenuates: lit at its midpoint instead of by its mean they read 1 %.
+## Those hold for the model's dust alone. Through the measured dust ("sun+map") the march takes
+## a step per shell, each even, read at its middle: 0.8 %. Keeping the model's dust in the
+## shells reads 29 %, each shell's density from the next shell out 16 %.
 const DUST_TOL := {"edge": 0.04, "sun": 0.006}
+const LOCAL_DUST_TOL := 0.01
 ## The join: four views from the Sun at a night-sky exposure, each half of it (the drawn
 ## stars, the glow given up) against the CPU.
 const JOIN_EXPOSURE := 1.0
@@ -145,7 +152,10 @@ func _ready() -> void:
 		await views(v)
 		await profile(v)
 		await through_dust(v, "edge")
+		v.local_dust_enabled = false
 		await through_dust(v, "sun")
+		v.local_dust_enabled = true
+		if not v.local_dust.is_empty(): await through_dust(v, "sun", true)
 		await join(v)
 		await landmarks()
 		await neighbour_profile("m33")
@@ -219,13 +229,16 @@ func profile(v: GalaxyVisual) -> void:
 # glow's absorption (its in-step mean, and the spheroid reading the disc march's
 # optical depth) is held where it is thick. Pixel centres exactly: the lane is a few
 # pixels high edge-on.
-func through_dust(v: GalaxyVisual, framing: String) -> void:
+func through_dust(v: GalaxyVisual, framing: String, measured := false) -> void:
 	stage.galaxy.frame(framing)
 	v.show_tracers = false
 	v.show_stars = false
 	pin(v, EDGE_EXPOSURE)
+	var label := framing + ("+map" if measured else "")
+	var samples := LOCAL_DUST_SAMPLES if measured else EDGE_SAMPLES
+	var tol: float = LOCAL_DUST_TOL if measured else DUST_TOL[framing]
 	var img := await hdr()
-	save(img, "dust-" + framing)
+	save(img, "dust-" + label)
 	v.show_glow = false
 	var sky := await hdr()
 	v.show_glow = true
@@ -245,12 +258,12 @@ func through_dust(v: GalaxyVisual, framing: String) -> void:
 			var ndc := Vector2((float(ix) + 0.5) / size.x * 2.0 - 1.0, 1.0 - (float(iy) + 0.5) / size.y * 2.0)
 			var d := (basis * Vector3(ndc.x * tan_h * size.x / size.y, ndc.y * tan_h, -1.0)).normalized()
 			drawn += luma(img.get_pixel(ix, iy)) - luma(sky.get_pixel(ix, iy))
-			want += v.ray_luminance(cam, d, 1e-3, EDGE_SAMPLES, 2.0 * tan_h / size.y) * gain
+			want += v.ray_luminance(cam, d, 1e-3, samples, 2.0 * tan_h / size.y) * gain
 		var err := absf(drawn / want - 1.0)
 		print("     row %+d px: drawn %s, integral %s" % [int(dy), U.expo(drawn / EDGE_COLUMNS, 3), U.expo(want / EDGE_COLUMNS, 3)])
 		worst = maxf(worst, err)
 		rows += 1
-	check("%s: glow through the dust = CPU integral in %d rows (worst %s %%, < %s)" % [framing, rows, U.fixed(worst * 100.0, 1), U.fixed(DUST_TOL[framing] * 100.0, 1)], worst < DUST_TOL[framing])
+	check("%s: glow through the dust = CPU integral in %d rows (worst %s %%, < %s)" % [label, rows, U.fixed(worst * 100.0, 1), U.fixed(tol * 100.0, 1)], worst < tol)
 	v.show_tracers = true
 	v.show_stars = true
 
