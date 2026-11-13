@@ -984,7 +984,10 @@ which had moved M51's bands by up to 0.1 and M104's 30–60 pc bands by 0.45.
   the feathers' strength are the two numbers set on this image. At full strength the feathers
   bring 36–72 pc to twice Hubble's.
 - **At 270 and 540 pc** the excess is the map's: Egusa et al.'s 30° gas arms draw a lane about
-  1 kpc wide, where Hubble's are thin.
+  1 kpc wide, where Hubble's are thin. Their widths are measured at 6″ (240 pc), which at 4 kpc
+  is 3.4° of azimuth, so 30° is the arm's own (29.8° deconvolved). Hubble's 0.5–2″ lanes
+  (Schinnerer et al. 2010, from its V image) are structure within that envelope, which no
+  measurement at that resolution places.
 
 **Colour.** M51's bulge, disc and young disc take their colours from Inman et al.'s fitted u, g,
 r and i luminosities (Table A1, `GalModels.m51_colours`), at each population's luminance, so V
@@ -1033,6 +1036,14 @@ of ours with the photo's over the same pixels: where the structure is, not only 
   1.40 over 1.61 of ESO's.
 - **Below 0.3°** the map adds nothing: its cells are 14′. The model's power there did not
   correlate with ESO's, and ESO's is mostly its stars, far fainter than the V = 8 we draw.
+- **Bayestar19 was tried there and left out.** Green et al. (2019) resolve 3.4′ within 10° of
+  the plane, north of declination −30°. Their column to 1.25 kpc, as a modulation of each 15′
+  cell that keeps its extinction, doubled our starless power at 0.07–0.14° (0.16 to 0.30 of
+  ESO's). Correlation did not follow. In the covered half of the frame, with a 3-pixel opening
+  removing stars and the best local shift allowed (0.2–0.3°, ESO's registration error), ESO's
+  0.07–0.28° band correlates 0.17 with Bayestar's own columns (to 1.25, 2.5, 4 or 6 kpc
+  alike), and 0.13 with our render with or without them. Drawn, the per-pixel noise of its
+  thin columns reads as dark speckle.
 - **Known clouds.** The 20 clouds of Lynds (1962) of opacity class 5 or 6 and at least 0.1 deg²
   in the frame (VizieR VII/7A). For each, the median brightness within √(area/π) is compared with
   that 2–3 radii out, in magnitudes, ours rank-matched to the photo's. ESO's darken by 0.33 mag
@@ -1042,7 +1053,11 @@ of ours with the photo's over the same pixels: where the structure is, not only 
 **M104.** Before the medium its smooth model already holds 1.34 / 1.44 / 2.06 times Hubble's
 power at 30 / 61 / 121 pc, and the medium leaves it there (1.32 / 1.41 / 1.99). The ring is De
 Looze et al.'s four Gaussians, 20 pc thick. Seen 6° from edge-on they draw thin, regular
-striations, where Hubble's lane is one clumpy band.
+striations, where Hubble's lane is one clumpy band. That is their model as fitted: the radii
+from Emsellem (1995) and Knapen et al. (1991), the widths fitted to the minor-axis extinction
+profiles in V and R, the slab from Emsellem. Their far-infrared needs three quarters of the
+dust in further quiescent clumps, at a size not used here. No measurement found sets the
+ring's clumps or blurs its Gaussians, so the excess stays.
 
 **M33 and M31.** The medium acts on M33's young light, but at its 18 pc pixels and 0.15 dex
 it is lost in the measures. M31 has neither dust nor young light.
