@@ -705,30 +705,35 @@ func neighbourhood() -> void:
 	var mf := GalNeighbourhood.map_flux(nb.map)
 	var ml := 0.2126 * mf.r + 0.7152 * mf.g + 0.0722 * mf.b
 	ok(absf(ml / ff - 1.0) < 1e-4, "the far stars' light map integrates to their flux (%s)" % String.num(ml / ff, 6))
-	# Where the catalogue outshines the model's own glow the glow can give up no more.
+	# Where the catalogue outshines the model's own glow the glow can give up no more. Through the
+	# measured dust the sky is brighter and gives way more easily, so the model's dust alone (drawn
+	# when the map is absent) is the case that binds.
 	var vis := GalaxyVisual.new(GalModels.build("milky_way", 1))
 	var sun := Vector3(-8.0, GalNeighbourhood.SUN_HEIGHT, 0.0)
 	var N := 600 if quick else 1500
-	var tot := 0.0
-	var cat := 0.0
-	var lost := 0.0
 	var img: Image = nb.map
-	for k in N:
-		var zz := 1.0 - (2.0 * k + 1.0) / N
-		var rr := sqrt(1.0 - zz * zz)
-		var ph := PI * (3.0 - sqrt(5.0)) * k
-		var d := Vector3(rr * cos(ph), zz, rr * sin(ph))
-		var lb := GalNeighbourhood.galactic(d)
-		var col := img.get_pixel(clampi(int(lb.x / TAU * GalNeighbourhood.MAP_W), 0, GalNeighbourhood.MAP_W - 1),
-			clampi(int((0.5 - lb.y / PI) * GalNeighbourhood.MAP_H), 0, GalNeighbourhood.MAP_H - 1))
-		var m := 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b
-		var I := vis.ray_luminance(sun, d, 1e-3, 300)
-		tot += I
-		cat += m
-		lost += maxf(m - I, 0.0)
-	# Smoothed too narrowly (4°: 0.8 %) the map outruns the glow around Orion, which goes dark.
-	ok(lost / cat < 0.002 and cat / tot > 0.1 and cat / tot < 0.4, "from the Sun the far stars carry %s %% of the model's sky; %s %% of theirs exceeds the glow it replaces (< 0.2)" % [
-		U.fixed(100.0 * cat / tot, 1), U.fixed(100.0 * lost / cat, 2)])
+	for measured in [true, false]:
+		vis.local_dust_enabled = measured
+		var tot := 0.0
+		var cat := 0.0
+		var lost := 0.0
+		for k in N:
+			var zz := 1.0 - (2.0 * k + 1.0) / N
+			var rr := sqrt(1.0 - zz * zz)
+			var ph := PI * (3.0 - sqrt(5.0)) * k
+			var d := Vector3(rr * cos(ph), zz, rr * sin(ph))
+			var lb := GalNeighbourhood.galactic(d)
+			var col := img.get_pixel(clampi(int(lb.x / TAU * GalNeighbourhood.MAP_W), 0, GalNeighbourhood.MAP_W - 1),
+				clampi(int((0.5 - lb.y / PI) * GalNeighbourhood.MAP_H), 0, GalNeighbourhood.MAP_H - 1))
+			var m := 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b
+			var I := vis.ray_luminance(sun, d, 1e-3, 300)
+			tot += I
+			cat += m
+			lost += maxf(m - I, 0.0)
+		# Smoothed too narrowly (4°: 0.8 % through the model's dust) the map outruns the glow around Orion, which goes dark.
+		ok(lost / cat < 0.002 and cat / tot > 0.1 and cat / tot < 0.4, "from the Sun%s the far stars carry %s %% of the model's sky; %s %% of theirs exceeds the glow it replaces (< 0.2)" % [
+			" through the measured dust" if measured else ", the model's dust alone,", U.fixed(100.0 * cat / tot, 1), U.fixed(100.0 * lost / cat, 2)])
+	vis.local_dust_enabled = true
 	vis.dispose()
 	# The near set against the model's resolved stars within 40 pc.
 	var R := GalNeighbourhood.NEAR_KPC
