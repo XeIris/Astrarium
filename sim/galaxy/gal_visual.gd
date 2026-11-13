@@ -112,6 +112,8 @@ const ARM_HALF := 20.0
 ## past its measured ends, continuing at its own pitch; a rendering choice, not a measurement.
 const SPUR_FADE := 0.15
 static var _arm_cache := {}
+## ism_norms() per model, as bake_arms() caches the maps.
+static var _norm_cache := {}
 static var _cache_mutex := Mutex.new()
 var _l_young := 0.0
 var _model_key := ""
@@ -249,7 +251,7 @@ func _init(model: Dictionary, defer_arms := false) -> void:
 	_build_stars(model)
 	if not defer_arms and has_map(): apply_arms(bake_arms())
 	if not defer_arms:
-		if not has_map() and ism_applies: ism_norm = plane_ism_norms()
+		if ism_applies: ism_norm = ism_norms()
 		apply_ism()
 	has_sun = String(model.key) == "milky_way" and GalNeighbourhood.available()
 	if has_sun:
@@ -736,7 +738,7 @@ func has_map() -> bool:
 	return young_pop != null or not disc_map.is_empty()
 
 ## The arms' map and its integral: pure data, safe on a worker thread, cached per model.
-func bake_arms() -> Dictionary:
+func bake_arms(stop := [false]) -> Dictionary:
 	_cache_mutex.lock()
 	var hit: Dictionary = _arm_cache.get(_model_key, {})
 	_cache_mutex.unlock()
@@ -744,6 +746,8 @@ func bake_arms() -> Dictionary:
 	var img := Image.create_empty(ARM_N, ARM_N, false, Image.FORMAT_RGBF)
 	var px := 2.0 * ARM_HALF / float(ARM_N)
 	for j in ARM_N:
+		# Stopped (its scene left), a half-drawn map is neither returned nor cached.
+		if j % 16 == 0 and stop[0]: return {}
 		for i in ARM_N:
 			var x := -ARM_HALF + (float(i) + 0.5) * px
 			var z := -ARM_HALF + (float(j) + 0.5) * px
@@ -756,7 +760,6 @@ func bake_arms() -> Dictionary:
 	var share := _add_bar(img) if disc_map.has("bar") else 0.0
 	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": share}
 	if not hii_spec.is_empty(): out.hii = GalHII.build(hii_spec, hii_d, img, ARM_HALF, _l_young, young_h, 51)
-	if ism_applies: out.ism_norm = GalISM.norms(img, ARM_HALF, _envelope, ism_turns, edge, ism_layers, ism_feathers)
 	_cache_mutex.lock()
 	_arm_cache[_model_key] = out
 	_cache_mutex.unlock()
@@ -956,7 +959,29 @@ func apply_ism() -> void:
 
 ## The medium's realised means for a galaxy without a map, weighted by its dust in the plane:
 ## pure data, safe on a worker thread.
-func plane_ism_norms() -> PackedVector2Array:
+## The medium's realised means for this galaxy, which apply_ism() divides out: over its arm map
+## (bake_arms() first), or over its dust in the plane without one. Pure data, safe on a worker,
+## computed once per model.
+func ism_norms(stop := [false]) -> PackedVector2Array:
+	_cache_mutex.lock()
+	var hit: PackedVector2Array = _norm_cache.get(_model_key, PackedVector2Array())
+	_cache_mutex.unlock()
+	if not hit.is_empty(): return hit
+	var out := PackedVector2Array()
+	if has_map():
+		var arms := bake_arms(stop)
+		if arms.is_empty(): return out
+		out = GalISM.norms(arms.img, ARM_HALF, _envelope, ism_turns, edge, ism_layers, ism_feathers, stop)
+	else:
+		out = plane_ism_norms(stop)
+	if out.size() != GalISM.NORM_FEET.size(): return PackedVector2Array()
+	_cache_mutex.lock()
+	_norm_cache[_model_key] = out
+	_cache_mutex.unlock()
+	return out
+
+## Over the galaxy's dust in the plane, for a galaxy without a map.
+func plane_ism_norms(stop := [false]) -> PackedVector2Array:
 	var n := 192
 	var half := minf(edge, ARM_HALF)
 	var px := 2.0 * half / float(n)
@@ -964,7 +989,7 @@ func plane_ism_norms() -> PackedVector2Array:
 	for j in n:
 		for i in n:
 			img.set_pixel(i, j, Color(0.0, dust_density(-half + (float(i) + 0.5) * px, 0.0, -half + (float(j) + 0.5) * px), 0.0))
-	return GalISM.norms(img, half, func(_r: float) -> float: return 0.0, ism_turns, edge, ism_layers)
+	return GalISM.norms(img, half, func(_r: float) -> float: return 0.0, ism_turns, edge, ism_layers, {}, stop)
 
 ## Checks draw with and without the interstellar medium.
 func set_ism(on: bool) -> void:
@@ -983,7 +1008,6 @@ func apply_arms(baked: Dictionary) -> void:
 	if baked.is_empty(): return
 	arm_img = baked.img
 	bar_share = float(baked.get("bar", 0.0))
-	ism_norm = baked.get("ism_norm", PackedVector2Array())
 	if ism_ready: set_ism(ism_enabled)
 	arm_tex = ImageTexture.create_from_image(arm_img)
 	if baked.has("hii") and hii == null: _apply_hii(baked.hii)

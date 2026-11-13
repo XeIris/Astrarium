@@ -49,8 +49,6 @@ const OUTSIDE := 1.0
 const YOUNG_WIDTH := 0.15
 ## A 40 pc beam resolves waves longer than 80 pc, which weight() passes at a 20 pc footprint.
 const WIDTH_FOOT := 0.02
-## Checks and the fidelity measurement vary it; the constant otherwise.
-static var amp := AMP
 
 ## The young light is a log-normal in its own realization: Grasha et al. (2019) find most
 ## clusters have left their gas by ~6 Myr, and the young light is dominated by older ones.
@@ -88,7 +86,7 @@ static func shape(o: int, layer: float) -> float:
 
 ## The dust's sheet contrast β of octave o in a dust layer `layer` kpc thick.
 static func amplitude(o: int, layer: float) -> float:
-	return amp * shape(o, layer)
+	return AMP * shape(o, layer)
 
 ## Octaves whose dust contrast and young log-amplitude are both below these are not drawn: a
 ## few per cent of a pixel's brightness at most, and the fine end of a thick layer's spectrum.
@@ -285,6 +283,28 @@ static func turn_at(t: PackedFloat32Array, o: int, r_max: float, R: float) -> fl
 ## `layers`: the dust's and the young light's layer thicknesses (kpc).
 ## `norms` (norms()) divides each by its realised mean over the galaxy at this footprint.
 ## `fth` (feather_frame) gathers the dust's structured share into feathers off its lanes.
+## A galaxy's octaves as multipliers() draws them, which depend on its layers alone: how many,
+## and each one's dust contrast and young log-amplitude. Computed once per layers.
+static var _octaves := {}
+static var _octaves_mutex := Mutex.new()
+
+static func octaves(layers: Vector2) -> Array:
+	_octaves_mutex.lock()
+	var hit: Array = _octaves.get(layers, [])
+	_octaves_mutex.unlock()
+	if not hit.is_empty(): return hit
+	var n := count(layers)
+	var b := PackedFloat64Array()
+	var a := PackedFloat64Array()
+	for o in n:
+		b.append(amplitude(o, layers.x))
+		a.append(young_amplitude(o, layers.y))
+	var out := [n, b, a]
+	_octaves_mutex.lock()
+	_octaves[layers] = out
+	_octaves_mutex.unlock()
+	return out
+
 static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: PackedFloat32Array, r_max: float, turn: float, layers: Vector2, norms := PackedVector2Array(), fth := {}) -> Vector2:
 	var ct := cos(turn)
 	var st := sin(turn)
@@ -292,11 +312,14 @@ static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: P
 	var R := sqrt(q0.x * q0.x + q0.z * q0.z)
 	var ld := 0.0
 	var ly := 0.0
-	for o in count(layers):
+	var octs := octaves(layers)
+	var bs: PackedFloat64Array = octs[1]
+	var ys: PackedFloat64Array = octs[2]
+	for o in int(octs[0]):
 		var w := weight(o, foot)
 		if w <= 0.0: break
-		var b := amplitude(o, layers.x) * w
-		var a := young_amplitude(o, layers.y) * w
+		var b := bs[o] * w
+		var a := ys[o] * w
 		# Where this gas was an eddy lifetime ago.
 		var ang := -turn_at(turns, o, r_max, R)
 		var c := cos(ang)
@@ -333,7 +356,6 @@ const FEATHER_WIDTH := 0.15
 const FEATHER_AMP := 0.5
 const FEATHER_JITTER := 0.3
 const FEATHER_BLUR := 0.35
-static var feather_amp := FEATHER_AMP
 
 ## A galaxy's lanes as feather() reads them: each Vector4(R₀, β₀, tan p in, tan p out) of
 ## GalaxyVisual._lane_beta with its arm's span [R_min, R_max] (kpc), the break and corotation radii (kpc),
@@ -344,7 +366,7 @@ static func feather_frame(lanes: Array, spans: Array, r_break: float, r_cr: floa
 ## The feathers' multiplier of the dust's structured share at q (the arms' frame, kpc) for a
 ## footprint `foot` kpc.
 static func feather(fth: Dictionary, q: Vector2, foot: float) -> float:
-	if fth.is_empty() or feather_amp <= 0.0: return 1.0
+	if fth.is_empty(): return 1.0
 	var R := q.length()
 	var rcr: float = fth.rcr
 	if R < 0.05 or R > 0.9 * rcr: return 1.0
@@ -374,7 +396,7 @@ static func feather(fth: Dictionary, q: Vector2, foot: float) -> float:
 	# Where along the lane this line left it, in ln R: emergences FEATHER_SPACING·R apart along
 	# a lane of pitch p are FEATHER_SPACING·sin p apart in ln R.
 	var chi := (log(R) + log(left) / kk) / (FEATHER_SPACING * sin(p))
-	var a := feather_amp * fade * left
+	var a := FEATHER_AMP * fade * left
 	var sig := sqrt(FEATHER_WIDTH * FEATHER_WIDTH + pow(foot / (0.77 * FEATHER_SPACING * R), 2.0))
 	if sig >= FEATHER_BLUR: return 1.0
 	var n0 := int(floor(chi))
@@ -408,12 +430,14 @@ static func norm_at(norms: PackedVector2Array, foot: float) -> Vector2:
 ## finer than 12.5 pc the eddies added average out.
 const NORM_FEET := [0.0125, 0.025, 0.05, 0.1, 0.2]
 
-static func norms(img: Image, half: float, envelope: Callable, turns: PackedFloat32Array, r_max: float, layers: Vector2, fth := {}) -> PackedVector2Array:
+## Stopped part way (`stop`), it returns fewer than NORM_FEET's means, for discarding.
+static func norms(img: Image, half: float, envelope: Callable, turns: PackedFloat32Array, r_max: float, layers: Vector2, fth := {}, stop := [false]) -> PackedVector2Array:
 	var f := field()
 	var n := img.get_width()
 	var px := 2.0 * half / float(n)
 	var out := PackedVector2Array()
 	for foot in NORM_FEET:
+		if stop[0]: return out
 		var acc := Vector4.ZERO
 		for j in range(0, n, 2):
 			for i in range(0, n, 2):
@@ -468,7 +492,7 @@ static func set_uniforms(mat: ShaderMaterial, turns: PackedFloat32Array, r_max: 
 		var on: bool = not fth.is_empty() and k < (fth.lanes as Array).size()
 		lanes.append(fth.lanes[k] if on else Vector4(1, 0, 1, 1))
 		spans.append(fth.spans[k] if on else Vector2(0, 0))
-	mat.set_shader_parameter("uFeather", Vector4(feather_amp if not fth.is_empty() else 0.0, FEATHER_SPACING, FEATHER_ANGLE, FEATHER_WIDTH))
+	mat.set_shader_parameter("uFeather", Vector4(FEATHER_AMP if not fth.is_empty() else 0.0, FEATHER_SPACING, FEATHER_ANGLE, FEATHER_WIDTH))
 	mat.set_shader_parameter("uFeatherR", Vector3(fth.get("rb", 1.0), fth.get("rcr", 1.0), 1.0 if fth.get("mirror", false) else 0.0))
 	mat.set_shader_parameter("uLane", PackedVector4Array(lanes))
 	mat.set_shader_parameter("uLaneSpan", PackedVector2Array(spans))
