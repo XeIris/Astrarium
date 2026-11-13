@@ -149,6 +149,51 @@ float gal_dust(vec3 p) {
 	return tau + gal_rings(R, p.y);
 }
 
+// The measured dust around the Sun (sim/galaxy/gal_local_dust.gd), drawn as seen from the Sun as
+// the far stars are: R8 shells even in the Sun's galactic l and sin b, a column wrapped onto each
+// side; uLDR the shells' outer radii (kpc) out from the camera, uLDW the map's weight in each
+// against the model's dust, uLDEnc its decoding (ln of the least τ_V kpc⁻¹, range), uLDFade its
+// share as the camera leaves the Sun (GalNeighbourhood.FAR_FADE); uLDK shells, 0 for none.
+const int LD_MAX = 17;
+uniform sampler2DArray uLD : filter_linear, repeat_disable;
+uniform float uLDR[LD_MAX];
+uniform float uLDW[LD_MAX];
+uniform vec2 uLDEnc = vec2(0.0);
+uniform int uLDK = 0;
+uniform float uLDFade = 0.0;
+uniform mat3 uLDBasis = mat3(1.0);
+// The texture's columns (with the two wrapped ones), rows and shells.
+uniform vec3 uLDSize = vec3(1.0);
+
+// A galaxy-local direction's texel coordinates (l, sin b) on the map.
+vec2 gal_ld_uv(vec3 dir) {
+	vec3 sd = transpose(uLDBasis) * dir;
+	return vec2((fract(atan(-sd.z, sd.x) / 6.2831853) * (uLDSize.x - 2.0) + 1.0) / uLDSize.x, 0.5 - 0.5 * clamp(sd.y, -1.0, 1.0));
+}
+
+// Shell k's density (τ_V kpc⁻¹) at texel coordinates uv, filtered in l and sin b only.
+float gal_ld_at(vec2 uv, int k) {
+	return exp(uLDEnc.x + uLDEnc.y * texture(uLD, vec3(uv, float(k))).r);
+}
+
+// The model's dust and the measured dust along a sight line of length `dist` from the camera in
+// the unit direction `dir` (galaxy-local), as a mean density: the map's shells as seen from the
+// Sun, the model's dust (sampled at `mid`) for the rest.
+float gal_dust_joined(vec3 mid, vec3 dir, float dist) {
+	float m = gal_dust(mid);
+	if (uLDK == 0 || uLDFade <= 0.0 || dist <= 0.0) return m;
+	vec2 uv = gal_ld_uv(dir);
+	float tau = 0.0;
+	float r0 = 0.0;
+	for (int k = 0; k < LD_MAX; k++) {
+		if (k >= uLDK || r0 >= dist) break;
+		float w = uLDFade * uLDW[k];
+		tau += (w * gal_ld_at(uv, k) + (1.0 - w) * m) * (min(dist, uLDR[k]) - r0);
+		r0 = uLDR[k];
+	}
+	return (tau + max(dist - r0, 0.0) * m) / dist;
+}
+
 // The interstellar medium below the map (sim/galaxy/gal_ism.gd): octaves of a periodic
 // Gaussian field in the plane, each sheared by the rotation curve over its eddy's lifetime;
 // the dust gathered into sheets at the field's zeros, the young light log-normal. uISMOct[o] is octave o's
@@ -270,8 +315,9 @@ float gal_ism_dust(float m) {
 
 
 // Disc light, young light and V optical depth per kpc at p, from one map lookup (the
-// glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart).
-void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau) {
+// glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart). With `dust` false the
+// optical depth is left at zero, for a step whose dust is the measured map's alone.
+void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau, bool dust) {
 	vec3 m = gal_arm_map3(p);
 	float a = uDisc.y;
 	float b2 = uDisc.z * uDisc.z;
@@ -287,6 +333,7 @@ void gal_disc_sample(vec3 p, out float jd, out float jy, out float dtau) {
 	float env = gal_envelope(R);
 	jy = uYoung.x > 0.0 ? uYoung.x * env * m.r * exp(-abs(p.y) / uYoung.y) / (2.0 * uYoung.y) : 0.0;
 	dtau = 0.0;
+	if (!dust) return;
 	if (uDustMap.x > 0.0) dtau = uDustMap.x * m.g * exp(-abs(p.y) / uDustMap.y) / (2.0 * uDustMap.y);
 	if (uDust.x > 0.0) {
 		float hd = uDust.z + (R > uDustB.x ? uDust.w * (R - uDustB.x) : 0.0);

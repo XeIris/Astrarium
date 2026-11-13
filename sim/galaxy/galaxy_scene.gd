@@ -118,6 +118,7 @@ func enter(k: String) -> void:
 			if not gv.has_map() and gv.ism_applies: gv.ism_norm = gv.plane_ism_norms()
 		var b := v.bake_arms() if v.has_map() else {}
 		var nb := GalNeighbourhood.bake() if v.has_sun else {}
+		if v.has_sun: GalLocalDust.bake()
 		var ob := []
 		for o in others: ob.append(o.bake_arms() if o.has_map() else {})
 		_mutex.lock()
@@ -234,6 +235,7 @@ func _adopt_arms() -> void:
 	_mutex.unlock()
 	if not b.is_empty() and visual != null: visual.apply_arms(b)
 	if not nb.is_empty() and visual != null: visual.apply_neighbourhood(nb)
+	if visual != null and visual.has_sun: visual.apply_local_dust(GalLocalDust.bake())
 	for i in mini(ob.size(), neighbours.size()):
 		if not (ob[i] as Dictionary).is_empty(): (neighbours[i].visual as GalaxyVisual).apply_arms(ob[i])
 	if visual != null: visual.apply_ism()

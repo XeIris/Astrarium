@@ -142,9 +142,9 @@ void vertex() {
 				vec3 world = mat3(MODEL_MATRIX) * rel;
 				VERTEX = (VIEW_MATRIX * vec4(world, 1.0)).xyz;
 				POINT_SIZE = QUAD_PX;
-				// Dimmed by the dust between: its density at the sight line's midpoint, which
-				// varies little over the resolved radius.
-				float tau = gal_dust(uCamLocal + rel * 0.5) * d;
+				// Dimmed by the dust between: the model's at the sight line's midpoint, which
+				// varies little over the resolved radius, and the measured dust's shells.
+				float tau = gal_dust_joined(uCamLocal + rel * 0.5, rel / max(d, 1e-12), d) * d;
 				vCol = ms.rgb / Y * v * exp(-tau * uExt);
 			}
 		}
