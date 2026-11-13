@@ -445,6 +445,46 @@ pins both ratios, so a change to the population shows.
 - **The far set is fixed to the Sun's view.** Its smoothed map is correct only at the
   Sun, and the 293 stars with no distance are placed at 1 kpc.
 
+## The measured dust around the Sun
+
+From the Sun the model's dust drew two smooth lanes where ESO's panorama shows clouds. Within
+1.25 kpc the dust is now Edenhofer et al.'s (2024) 3D map (`sim/galaxy/gal_local_dust.gd`,
+`assets/galaxy/local_dust.bin`, built by `tools/build_local_dust.py`; terms in
+[THIRD_PARTY.md](../../THIRD_PARTY.md)).
+
+- **The data.** The posterior mean of differential extinction on NSIDE 256 HEALPix spheres at
+  516 radii from 69 to 1248 pc (Zenodo 10.5281/zenodo.10658339 v1.0.2,
+  `mean_and_std_healpix.fits`, CC BY 4.0), in E of Zhang, Green & Rix (2023), whose extinction
+  curve gives A_V = 2.67 E at 551 nm (Zenodo 7811871). The map leaves out the inner 69 pc; its
+  own integral there becomes an innermost shell, even along each sight line.
+- **Kept small.** 1440 × 458 cells even in l and in sin b (15′ square in the plane, against the
+  map's 14′), eight shells between the map's own boundaries nearest an even split in ln r (43 %
+  deep), each keeping its integral, and one byte per density in ln ρ (steps of 4.9 %): 1.9 MB.
+  The sky's mean E to the edge is 0.14771 in the published file and in ours; the worst cell
+  moves 2.7 %. The build is pure Python, runs nothing downloaded and reproduces to the byte.
+- **Joined without counting twice.** Within the map its density replaces the model's, shell by
+  shell. Over its last shell (0.87–1.25 kpc) the two share, 0.87 the map's, and past it the
+  model's dust is all there is. `galaxycheck` doubles the model's dust and finds nothing change
+  within the map.
+- **Drawn as seen from the Sun.** Like the far stars it is drawn as seen from the Sun: along each
+  pixel's direction, shell k from r_{k−1} to r_k out from the camera. It fades with them as the
+  camera goes from 10 to 30 pc from the Sun, and the glow then drops its code. Elsewhere the
+  model's dust is drawn, as before. The Sun views stand 1 pc from the Sun, where the difference
+  from the true geometry is a parallax under 0.3° at 140 pc. A walk through every piece of every
+  shell along each pixel's ray, exact from anywhere, held the view from the Sun to 22 fps on the
+  M5 (35 without the map).
+- **Through the clouds.** From the Sun the glow's march takes one step per shell, each even in
+  dust, read at its middle without jitter, then the asinh steps beyond the map. Each step's
+  transmission is then exact. The march had first split its asinh steps at the shell boundaries
+  inside them, and read the model's dust there at a jittered point, which put each step across
+  the map's edge all in or all out of it from pixel to pixel. `galaxylookcheck` holds the view
+  from the Sun to the CPU's march (12 000 samples, the same convention) within 1 %; it reads
+  0.8 %.
+- **What it changes.** The model had 3.5 times the measured extinction toward b = −40° (A_V 0.45
+  against 0.13), so the sky away from the band brightens by a quarter. Toward Ophiuchus the
+  Sun now sees 0.35 of the model's light. To the Galactic centre A_V is 20.4, within the range
+  of Fritz et al. (2011).
+
 ## Landmarks (phase 3a)
 
 `sim/galaxy/gal_landmarks.gd` lists the places worth flying to, each with a card and its
@@ -898,23 +938,26 @@ Godot --headless --path . -s tools/galaxyfidelity.gd -- ours=/abs/m51.png \
 
 The renders are 3024 × 1964 at Hubble's field, measured at half scale, with the postfx sensor
 grain and vignette off: the photographs have neither, and at 0.02 the grain alone fills M51's
-18 pc band to ten times Hubble's.
+18 pc band to ten times Hubble's. A window shorter than the screen (1832 rows on the M5) holds
+the frame squeezed into its height, and its screenshot is stretched back to 1964 rows before it
+is measured. The tables below are measured that way; squeezed, a frame is 7 % too coarse across,
+which had moved M51's bands by up to 0.1 and M104's 30–60 pc bands by 0.45.
 
 **M51**, band power ours ÷ Hubble's (one is a match):
 
-| | 36 pc | 72 pc | 145 pc | 289 pc | 579 pc | Clumpiness | Contrast |
+| | 34 pc | 68 pc | 135 pc | 270 pc | 540 pc | Clumpiness | Contrast |
 |---|---|---|---|---|---|---|---|
-| Without the medium | 0.34 | 0.23 | 0.27 | 1.20 | 2.68 | 0.048 | 2.06 |
-| With it | 1.05 | 1.19 | 0.97 | 1.27 | 2.50 | 0.056 | 1.99 |
-| Hubble | 1 | 1 | 1 | 1 | 1 | 0.053 | 1.85 |
+| Without the medium | 0.32 | 0.22 | 0.30 | 1.24 | 2.86 | 0.049 | 2.12 |
+| With it | 0.96 | 1.12 | 1.02 | 1.36 | 2.67 | 0.056 | 2.05 |
+| Hubble | 1 | 1 | 1 | 1 | 1 | 0.053 | 1.86 |
 
 - **Where it came from.** Turning each part off apportions the band power at 36 / 72 / 145 pc:
   the smooth map with its H II regions 0.34 / 0.23 / 0.27, the dust medium 0.36 / 0.38 / 0.25
   more, and the young light at 0.41 dex 1.06 / 1.34 / 1.15 more. The young light's width and
   the feathers' strength are the two numbers set on this image. At full strength the feathers
   bring 36–72 pc to twice Hubble's.
-- **At 579 pc** the excess is the map's: Egusa et al.'s 30° gas arms draw a lane about 1 kpc
-  wide, where Hubble's are thin.
+- **At 270 and 540 pc** the excess is the map's: Egusa et al.'s 30° gas arms draw a lane about
+  1 kpc wide, where Hubble's are thin.
 
 **Colour.** M51's bulge, disc and young disc take their colours from Inman et al.'s fitted u, g,
 r and i luminosities (Table A1, `GalModels.m51_colours`), at each population's luminance, so V
@@ -943,20 +986,34 @@ not Hubble's pink. A region's continuum gives an Hα equivalent width of 810 Å,
 only about 30 % to it.
 
 **From the Sun, against ESO's panorama.** The panorama is eso0932a (ESO/S. Brunier, CC BY 4.0,
-https://www.eso.org/public/images/eso0932a/; 6000 × 3000, equirectangular in l and b). Each
-pixel of a 70° frame toward the centre is taken to (l, b). Band power is measured in
-|b| < 8°, |l| < 45°, as above:
+https://www.eso.org/public/images/eso0932a/; 6000 × 3000). Read as plain equirectangular (l, b)
+it stands 3.2° off in l and 1.8° in b, turned about 1°. Correlating its dust structure with ours
+in ten tiles fits l′ = −3.21 + 1.005 l + 0.012 b, b′ = 1.83 − 0.018 l + 0.980 b (rms 0.3°), and
+the photo is registered through that. Our own stars, placed from Gaia and held to 1″ by
+`galaxycheck`, fix our side. Each pixel of a 70° frame toward the centre is taken to (l, b), and
+band power is measured in |b| < 8°, |l| < 45°, as above. Correlation is each band's correlation
+of ours with the photo's over the same pixels: where the structure is, not only how much.
 
-| | 0.08° | 0.15° | 0.31° | 0.61° | 1.22° | 2.44° | 4.89° |
+| | 0.07° | 0.14° | 0.29° | 0.57° | 1.14° | 2.28° | 4.56° |
 |---|---|---|---|---|---|---|---|
-| Ours ÷ ESO's | 0.67 | 0.73 | 0.58 | 0.41 | 0.50 | 0.59 | 2.36 |
+| Band power ÷ ESO's, the model's dust | 0.70 | 0.71 | 0.56 | 0.41 | 0.62 | 0.84 | 1.72 |
+| Band power ÷ ESO's, measured dust | 0.32 | 0.35 | 0.41 | 0.71 | 1.00 | 1.09 | 1.57 |
+| Correlation with ESO's, the model's dust | 0.01 | 0.03 | 0.08 | 0.10 | −0.01 | 0.26 | 0.58 |
+| Correlation with ESO's, measured dust | 0.01 | 0.03 | 0.21 | 0.46 | 0.69 | 0.79 | 0.90 |
 
-There are two smooth dark lanes where ESO shows clouds at every scale. The glow's samples from
-inside the disc gather about the camera; spread over the box's chord they had read 7 % bright in
-the lane against the CPU (now 0.3 %).
+- **Without the stars** (both images through a 5-pixel median), measured dust over model: 0.27
+  over 0.37, 0.15 over 0.18, 0.24 over 0.17, 0.57 over 0.30, 0.83 over 0.53, 0.95 over 0.77 and
+  1.40 over 1.61 of ESO's.
+- **Below 0.3°** the map adds nothing: its cells are 14′. The model's power there did not
+  correlate with ESO's, and ESO's is mostly its stars, far fainter than the V = 8 we draw.
+- **Known clouds.** The 20 clouds of Lynds (1962) of opacity class 5 or 6 and at least 0.1 deg²
+  in the frame (VizieR VII/7A). For each, the median brightness within √(area/π) is compared with
+  that 2–3 radii out, in magnitudes, ours rank-matched to the photo's. ESO's darken by 0.33 mag
+  on average. With the model's dust ours darkened by 0.02, uncorrelated (0.01); with the map they
+  darken by 0.46, correlating 0.65 with ESO's cloud by cloud.
 
-**M104.** Before the medium its smooth model already holds 1.80 / 1.92 / 2.06 times Hubble's
-power at 33 / 65 / 130 pc, and the medium leaves it there (1.77 / 1.84 / 1.99). The ring is De
+**M104.** Before the medium its smooth model already holds 1.34 / 1.44 / 2.06 times Hubble's
+power at 30 / 61 / 121 pc, and the medium leaves it there (1.32 / 1.41 / 1.99). The ring is De
 Looze et al.'s four Gaussians, 20 pc thick. Seen 6° from edge-on they draw thin, regular
 striations, where Hubble's lane is one clumpy band.
 
@@ -975,13 +1032,19 @@ it is lost in the measures. M31 has neither dust nor young light.
 Each octave fades out as its wavelength falls from eight to four of a pixel's footprints, so
 a distant galaxy draws few of them. Feathers add a few lane evaluations per pixel of M51.
 
+The measured dust around the Sun, timed back to back with the code before it (the machine ran
+about 5 % slower that hour than for the table above): from the Sun 34.1 fps (p95 29.5 ms)
+without it and 31.7 fps (p95 31.8 ms) with it; M51 from 8 kpc 30.7 and 30.3 fps (p95 32.7 and
+33.0 ms); the Milky Way whole 41.8 fps either way. Only the Milky Way's glow compiles it in, and
+only within 30 pc of the Sun.
+
 **Not drawn:**
 - Lanes as thin as Hubble's.
-- Dust structure seen through the dust. The views that look through it, the Milky Way from the
-  Sun and the Sombrero's lane, want several times the strength M51's face-on image allows:
-  drawn on shells along each ray, the band from the Sun came near ESO's only at ten times it.
-  Clouds from inside need a medium that varies with height, or the measured 3D dust near the
-  Sun.
+- Dust structure seen through the dust, below the measured map: finer than its 14′ from the
+  Sun, and in the Sombrero's lane, which wants several times the strength M51's face-on image
+  allows.
+- The measured dust from anywhere but near the Sun: beyond 30 pc from it the model's dust is
+  drawn.
 - Hubble's pink H II and its blue arms, which are its palette.
 - Fine structure in M31, which has no dust or young light to structure.
 
