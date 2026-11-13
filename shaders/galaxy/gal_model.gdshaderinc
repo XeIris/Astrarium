@@ -218,18 +218,18 @@ float gal_dust_joined(vec3 mid, vec3 dir, float dist, float foot) {
 	float m = gal_dust(mid);
 	float w3;
 	float g = gal_ld3(mid, max(dist, foot), w3);
-	m = (1.0 - w3) * m + w3 * g;
-	if (uLDK == 0 || uLDFade <= 0.0 || dist <= 0.0) return m;
+	// Shares as the glow's: the shells f W, the grid (1 − f) W_r, the model what is left.
+	if (uLDK == 0 || uLDFade <= 0.0 || dist <= 0.0) return (1.0 - w3) * m + w3 * g;
 	vec2 uv = gal_ld_uv(dir);
 	float tau = 0.0;
 	float r0 = 0.0;
 	for (int k = 0; k < LD_MAX; k++) {
 		if (k >= uLDK || r0 >= dist) break;
 		float w = uLDFade * uLDW[k];
-		tau += (w * gal_ld_at(uv, k) + (1.0 - w) * m) * (min(dist, uLDR[k]) - r0);
+		tau += (w * gal_ld_at(uv, k) + w3 * g + max(1.0 - w - w3, 0.0) * m) * (min(dist, uLDR[k]) - r0);
 		r0 = uLDR[k];
 	}
-	return (tau + max(dist - r0, 0.0) * m) / dist;
+	return (tau + max(dist - r0, 0.0) * ((1.0 - w3) * m + w3 * g)) / dist;
 }
 
 // The interstellar medium below the map (sim/galaxy/gal_ism.gd): octaves of a periodic
@@ -354,10 +354,10 @@ float gal_ism_dust(float m) {
 
 // Disc light, young light and V optical depth per kpc at p, from one map lookup (the
 // glow's march; gal_disc_j, gal_young_j and gal_dust give the same apart). With `dust` false the
-// optical depth is left at zero, for a step whose dust is the measured map's alone. dgrid is the
-// measured grid's share, read over the step's length `foot`, which the medium below the map
-// leaves alone; dtau the model's rest.
-void gal_disc_sample(vec3 p, float foot, out float jd, out float jy, out float dtau, out float dgrid, bool dust) {
+// optical depth is left at zero, for a step whose dust is the measured map's alone. dtau is the
+// model's dust, whole; dgrid the measured grid's, read over the step's length `foot` and already
+// times its weight wgrid, which the caller takes from the model's share.
+void gal_disc_sample(vec3 p, float foot, out float jd, out float jy, out float dtau, out float dgrid, out float wgrid, bool dust) {
 	vec3 m = gal_arm_map3(p);
 	float R2 = p.x * p.x + p.z * p.z;
 	float R = sqrt(R2);
@@ -376,6 +376,7 @@ void gal_disc_sample(vec3 p, float foot, out float jd, out float jy, out float d
 	jy = uYoung.x > 0.0 ? uYoung.x * env * m.r * exp(-abs(p.y) / uYoung.y) / (2.0 * uYoung.y) : 0.0;
 	dtau = 0.0;
 	dgrid = 0.0;
+	wgrid = 0.0;
 	if (!dust) return;
 	if (uDustMap.x > 0.0) dtau = uDustMap.x * m.g * exp(-abs(p.y) / uDustMap.y) / (2.0 * uDustMap.y);
 	if (uDust.x > 0.0) {
@@ -387,8 +388,6 @@ void gal_disc_sample(vec3 p, float foot, out float jd, out float jy, out float d
 		}
 	}
 	dtau += gal_rings(R, p.y);
-	float w3;
-	float g = gal_ld3(p, foot, w3);
-	dtau *= 1.0 - w3;
-	dgrid = w3 * g;
+	float g = gal_ld3(p, foot, wgrid);
+	dgrid = g * wgrid;
 }

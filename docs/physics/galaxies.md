@@ -502,8 +502,13 @@ From the Sun the model's dust drew two smooth lanes where ESO's panorama shows c
   the Sun's galactic frame (`assets/galaxy/local_dust_grid.bin`, built by
   `tools/build_local_dust_grid.py`): 12.5 pc cubes over a box 2.5 kpc square and 1 kpc thick,
   and 2.5 pc cubes within 200 pc of the Sun (100 pc vertically), where the nearest cores are a
-  few pc across. 3.0 MB. Its weight against the model's dust is the shells' blend by radius,
-  times 1 − the shells' fade, so the three always sum to one.
+  few pc across. 3.0 MB. Its weight is the shells' blend by radius times 1 − the shells' fade;
+  the shells keep theirs (the fade times their blend), and the model's dust has what the two
+  leave (`GalLocalDust.shares`), so the three always sum to one. Where both give the map full
+  weight the model has none: `galaxycheck` holds that from 10, 20 and 30 pc, and
+  `galaxylookcheck` a view from 20 pc, mid-fade, to the CPU within 0.5 %. Within the shells'
+  steps the glow reads the grid once, at the step's middle and over its length, as it reads the
+  shells, and the CPU's march integrates that.
   - **What it holds.** The box holds 94.5 % of the map's dust; the rest lies more than 500 pc
     from the plane, where the grid reads empty rather than the model's (which had 3.5 times the
     measured extinction at b = −40°). Within the box its columns from the Sun are 1.009 of the

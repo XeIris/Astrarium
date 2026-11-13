@@ -165,8 +165,12 @@ vec3 march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float ji
 		float jy;
 		float dk;
 		float dg;
-		gal_disc_sample(o + d * t, sqrt(sc * sc + (t - tc) * (t - tc)) * du_ref, jd, jy, dk, dg, dust);
-		float kk = keep * (dk * gal_ism_dust(ism.x) + dg) + rate;
+		float wg;
+		// The grid over the step's length where the shells set it, else the asinh leg's there.
+		float foot = in_shell ? ds : sqrt(sc * sc + (t - tc) * (t - tc)) * du_ref;
+		gal_disc_sample(o + d * t, foot, jd, jy, dk, dg, wg, dust);
+		// The shells' share is 1 − keep, the grid's wg; the model's dust has what they leave.
+		float kk = max(keep - wg, 0.0) * dk * gal_ism_dust(ism.x) + dg + rate;
 		float near = (t < uRes ? faint : 1.0) * step(uInner, t);
 		vec3 att = even_step(kk * ds * uExt, 1.0, trans);
 		acc += (jd * near * uDiscCol + jy * ism.y * step(uInner, t) * uYoungCol) * ds * att;

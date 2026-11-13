@@ -537,6 +537,8 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 	var g_sc := sc if GalISM.outside(o.y) else minf(sc, GLOW_SC_INSIDE)
 	var g_tc := tc if GalISM.outside(o.y) else t0
 	var g_du := (asinh((t1 - g_tc) / g_sc) - asinh((t0 - g_tc) / g_sc)) / float(GLOW_DISC - 4)
+	var g_tm := clampf(res, t0, t1)
+	var g_rs: PackedFloat32Array = local_dust.get("r", PackedFloat32Array())
 	for i in n:
 		var u := u0 + (float(i) + 0.5) * du
 		var t := tc + sc * sinh(u)
@@ -547,18 +549,27 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 		if not in_box:
 			j[0] = 0.0
 			j[2] = 0.0
-		var k := _model_dust(p.x, p.y, p.z) * ds if in_box else 0.0
-		k *= GalISM.dust(ism_m.x)
-		if ld3 > 0.0 and in_box:
-			var s3 := sun_basis.transposed() * (p - sun_pos)
+		var k := 0.0
+		if in_box:
 			var foot := sqrt(g_sc * g_sc + (t - g_tc) * (t - g_tc)) * g_du
-			var w3 := ld3 * GalLocalDust.grid_weight(s3.length(), foot)
-			if w3 > 0.0: k = (1.0 - w3) * k + w3 * GalLocalDust.grid_density(local_dust, s3, foot) * ds
-		if ld_f > 0.0 and in_box:
-			var sh := GalLocalDust.shell(local_dust, t)
-			if sh >= 0:
-				var w: float = ld_f * (local_dust.wt as PackedFloat32Array)[sh]
-				k = (1.0 - w) * k + w * ld_rate[sh] * ds
+			# Within the shells' steps the glow takes the shares and the grid once, at the step's
+			# middle and without jitter (the grid over the step's length), as it reads the shells.
+			var at := p
+			var shk := GalLocalDust.shell(local_dust, t) if ld_f > 0.0 and t >= g_tm else -1
+			var sh3: Vector3
+			if shk >= 0:
+				var ta := maxf(g_tm, g_rs[shk - 1] if shk > 0 else 0.0)
+				var te := minf(g_rs[shk], t1)
+				foot = te - ta
+				at = o + d * (0.5 * (ta + te))
+				sh3 = dust_shares(o, 0.5 * (ta + te), at)
+			else:
+				sh3 = dust_shares(o, t, p, foot)
+			var shell_k := 0.0
+			if sh3.y > 0.0: shell_k = ld_rate[GalLocalDust.shell(local_dust, t)]
+			var grid_k := 0.0
+			if sh3.z > 0.0: grid_k = GalLocalDust.grid_density(local_dust, sun_basis.transposed() * (at - sun_pos), foot)
+			k = (sh3.x * _model_dust(p.x, p.y, p.z) * GalISM.dust(ism_m.x) + sh3.y * shell_k + sh3.z * grid_k) * ds
 		j[2] *= ism_m.y
 		for ch in 3:
 			var kc := k * float(e[ch])
@@ -1314,6 +1325,21 @@ func _dust_surface(R: float, phi: float) -> float:
 static func _sech2(x: float) -> float:
 	var e := exp(-2.0 * absf(x))
 	return 4.0 * e / ((1.0 + e) * (1.0 + e))
+
+## The dust's shares (model, shells, grid) at `p`, `t` kpc along a ray from a camera at `cam`,
+## for a glow step `foot` kpc long: the shells as seen from the Sun while they show, the grid as
+## they fade, the model's dust what they leave (GalLocalDust.shares).
+func dust_shares(cam: Vector3, t: float, p: Vector3, foot := 0.0) -> Vector3:
+	if local_dust.is_empty() or not local_dust_enabled: return Vector3(1.0, 0.0, 0.0)
+	var f := local_dust_fade(cam)
+	var w_sh := 0.0
+	if f > 0.0:
+		var sh := GalLocalDust.shell(local_dust, t)
+		if sh >= 0: w_sh = f * (local_dust.wt as PackedFloat32Array)[sh]
+	var w3 := 0.0
+	if not (local_dust.get("grid", {}) as Dictionary).is_empty():
+		w3 = (1.0 - f) * GalLocalDust.grid_weight((sun_basis.transposed() * (p - sun_pos)).length(), foot)
+	return GalLocalDust.shares(w_sh, w3)
 
 ## V optical depth per kpc at a local point.
 ## V optical depth per kpc at a local point: the model's dust, joined to the measured dust

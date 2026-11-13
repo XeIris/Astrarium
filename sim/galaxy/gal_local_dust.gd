@@ -221,6 +221,12 @@ static func _grid_at(lv: Dictionary, half: Vector3, s: Vector3) -> float:
 		v += (fr.x if dx else 1.0 - fr.x) * (fr.y if dy else 1.0 - fr.y) * (fr.z if dz else 1.0 - fr.z) * float(q[(iz * n.y + iy) * n.x + ix])
 	return v
 
+## The dust's shares at a point (model, shells, grid) from the shells' weight there (f W) and the
+## grid's ((1 − f) W_r): the measured dust takes its own, and the model's has what is left, so no
+## point counts any twice. The glow's march and gal_dust_joined compose the same way.
+static func shares(w_shell: float, w_grid: float) -> Vector3:
+	return Vector3(maxf(1.0 - w_shell - w_grid, 0.0), w_shell, w_grid)
+
 ## The map's share at a camera `dist` kpc from the Sun: the far stars' fade.
 static func fade(dist: float) -> float:
 	return 1.0 - smoothstep(GalNeighbourhood.FAR_FADE.x, GalNeighbourhood.FAR_FADE.y, dist)

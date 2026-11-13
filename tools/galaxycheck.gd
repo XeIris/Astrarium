@@ -647,6 +647,23 @@ func local_dust() -> void:
 		v.local_dust_enabled = true
 		seen.append(with / without)
 	ok(absf(seen[0] - 1.0) > 0.05 and absf(seen[1] - 1.0) > 0.05, "the map is drawn from the Sun and on its grid 50 pc away: toward ρ Oph %s, from 50 pc toward l = 30° %s of the model's light" % [String.num(seen[0], 3), String.num(seen[1], 3)])
+	# As the shells fade and the grid takes over, the measured dust has to itself every point where
+	# both give it full weight: inside the last shell (which shares, as its middle lies past 1 kpc)
+	# the model's share is zero from 10, 20 and 30 pc from the Sun.
+	var rs_in: float = (m.r as PackedFloat32Array)[int(m.k) - 2]
+	var worst_model := 0.0
+	var worst_sum := 0.0
+	for gap in [0.01, 0.02, 0.03]:
+		var cam: Vector3 = v.sun_pos + v.sun_basis * Vector3(-float(gap), 0.0, 0.0)
+		for j in 24:
+			var u := Vector3(cos(TAU * j / 24.0), 0.1 * sin(3.0 * j), sin(TAU * j / 24.0)).normalized()
+			for t in [0.05, 0.2, 0.5, 0.85]:
+				if t >= rs_in: continue
+				var sh3 := v.dust_shares(cam, t, cam + u * t)
+				worst_model = maxf(worst_model, sh3.x)
+				worst_sum = maxf(worst_sum, absf(sh3.x + sh3.y + sh3.z - 1.0))
+	ok(worst_model < 1e-6 and worst_sum < 1e-6, "while the shells fade the measured dust covers the map: the model's share there is %s at most, the shares sum to one within %s" % [
+		U.expo(worst_model, 1), U.expo(worst_sum, 1)])
 	# The grid holds the shells' dust: from the Sun to 1.25 kpc its columns over the sky, and
 	# toward Lynds' darkest clouds, against the shells'.
 	var gl := (m.get("grid", {}) as Dictionary).get("levels", []) as Array
