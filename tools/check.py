@@ -13,6 +13,7 @@ import queue
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -635,29 +636,77 @@ def worktree_tree():
         return None
 
 
-def surroundings(godot):
+def git_paths(*args):
+    listed = subprocess.run(["git", "ls-files", "-z", *args], cwd=ROOT, capture_output=True, check=True, timeout=30)
+    return {Path(os.fsdecode(path)) for path in listed.stdout.split(b"\0") if path}
+
+
+def ignored_inputs():
+    return {path for path in git_paths("--others", "--ignored", "--exclude-standard", "--", "assets", "native")
+            if path.suffix != ".import"}
+
+
+def surroundings(godot, ignored):
     """What a pass depends on outside the tree: the engine, the platform and the files
     git ignores that a check loads (authored models, a locally built kernel). Their
     .import files follow from them and carry per-checkout ids."""
-    digest = hashlib.sha256(json.dumps([metadata([godot, "--version"]), platform.system(), platform.machine()]).encode())
-    listed = subprocess.run(["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--", "assets", "native"],
-                            cwd=ROOT, capture_output=True, text=True, timeout=30)
-    for path in sorted(listed.stdout.splitlines()):
-        if path.endswith(".import"):
-            continue
-        digest.update(path.encode())
-        with contextlib.suppress(OSError):
-            digest.update(hashlib.sha256((ROOT / path).read_bytes()).digest())
+    version = subprocess.run([godot, "--version"], cwd=ROOT, capture_output=True, check=True, timeout=15).stdout.strip()
+    digest = hashlib.sha256(version + json.dumps([platform.system(), platform.machine()]).encode())
+    for path in sorted(ignored):
+        digest.update(os.fsencode(path) + b"\0")
+        digest.update(hashlib.sha256((ROOT / path).read_bytes()).digest())
     return digest.hexdigest()[:16]
 
 
-def pass_key(check, output, godot, around):
+def input_stamps(godot, ignored):
+    """POSIX change times catch in-place rewrites even when bytes and mtime are
+    restored. Directory stamps also catch temporary entries and rename cycles."""
+    paths = {Path(godot), Path(godot).parent, ROOT}
+    for path in git_paths("--cached", "--others", "--exclude-standard") | ignored:
+        paths.add(ROOT / path)
+        paths.update(ROOT / parent for parent in path.parents)
+    stamps = {}
+    for path in paths:
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            stamps[path] = None  # a tracked path may be deleted in the worktree
+            continue
+        if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+            return None  # a symlink can introduce inputs outside the monitored paths
+        stamps[path] = (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    return stamps
+
+
+class PassInputs(NamedTuple):
+    tree: str
+    around: str
+    stamps: dict
+
+
+def pass_inputs(godot):
+    # Windows stat reports creation time rather than POSIX change time.
+    if os.name != "posix":
+        return None
+    try:
+        ignored = ignored_inputs()
+        stamps = input_stamps(godot, ignored)
+        if stamps is not None and (tree := worktree_tree()):
+            around = surroundings(godot, ignored)
+            if stamps == input_stamps(godot, ignored_inputs()):
+                return PassInputs(tree, around, stamps)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def pass_key(check, output, godot, around, allow_macos_ca_error):
     """Names a check as run: its command with this run's own paths taken out, its
-    markers and its surroundings. A pass under one key says nothing about another."""
+    markers, error policy and surroundings."""
     def plain(part):
         part = str(part).replace(str(output), "<out>").replace(str(ROOT), "<root>")
         return "<godot>" if part == godot else "<python>" if part == sys.executable else part
-    stated = json.dumps([[plain(part) for part in check.command], check.markers, around], default=str)
+    stated = json.dumps([[plain(part) for part in check.command], check.markers, around, allow_macos_ca_error], default=str)
     return f"{check.name}#{hashlib.sha256(stated.encode()).hexdigest()[:16]}"
 
 
@@ -1135,13 +1184,13 @@ def main():
         report["changed"] = {"ref": options.changed, "files": files, "unmapped": unmapped}
         print(f"CHANGED {len(files)} files since {options.changed}; {len(plan)} checks"
               + (f"; unmapped (dev suite): {', '.join(unmapped)}" if unmapped else ""), flush=True)
-    tree = report["tree"] = worktree_tree()
+    inputs = pass_inputs(options.godot) if plan else None
     keys = []
-    if tree:
-        around = surroundings(options.godot)
-        keys = [pass_key(check, output, options.godot, around) for check in plan]
-    if options.changed and tree and not options.fresh:
-        hits = passed_unchanged(plan, keys, dev, read_passes(runs_dir()), tree)
+    if inputs:
+        report["tree"] = inputs.tree
+        keys = [pass_key(check, output, options.godot, inputs.around, options.allow_macos_ca_error) for check in plan]
+    if options.changed and inputs and not options.fresh:
+        hits = passed_unchanged(plan, keys, dev, read_passes(runs_dir()), inputs.tree)
         # The import alone verifies nothing: it runs for the checks that read its cache.
         if hits and all(index in hits or check.name == "import" for index, check in enumerate(plan)):
             hits.update({index: None for index, check in enumerate(plan) if check.name == "import"})
@@ -1180,10 +1229,12 @@ def main():
         return 0
     finally:
         report["wall_seconds"] = round(time.monotonic() - started, 1)
-        # A pass counts for the tree it ran on: one edited meanwhile is neither tree.
         passed = [result["key"] for result in report["results"] if result["problem"] is None and result.get("key")]
-        if tree and passed and worktree_tree() == tree:
-            record_passes(runs_dir(), tree, passed)
+        if inputs and passed:
+            if pass_inputs(options.godot) == inputs:
+                record_passes(runs_dir(), inputs.tree, passed)
+            else:
+                print("CACHE pass records skipped because check inputs changed or could not be read", flush=True)
         path = output / "report.json"
         path.write_text(json.dumps(report, indent=2) + "\n")
         print_times(report, options.compare)

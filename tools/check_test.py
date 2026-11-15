@@ -2,7 +2,9 @@
 """Scheduling and pass-record tests for check.py; no engine or renderer required."""
 from contextlib import redirect_stdout
 import io
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -89,13 +91,58 @@ class CheckTests(unittest.TestCase):
         self.assertEqual([(r["name"], r["problem"]) for r in results], [("fails", "child exited 3"), ("later", None)])
 
     def test_pass_key_ignores_where_it_ran(self):
-        def key(output, marker="^DONE$", around="a"):
+        def key(output, marker="^DONE$", around="a", allow_macos_ca_error=False):
             command = ["godot", "--path", str(check.ROOT), f"out={output / 'x.json'}"]
-            return check.pass_key(Check("x", command, marker, 60), output, "godot", around)
+            return check.pass_key(Check("x", command, marker, 60), output, "godot", around, allow_macos_ca_error)
         self.assertEqual(key(self.output / "one"), key(self.output / "two"))
         self.assertNotIn(str(check.ROOT), key(self.output))
         self.assertNotEqual(key(self.output), key(self.output, marker="^OTHER$"))
         self.assertNotEqual(key(self.output), key(self.output, around="b"))
+        self.assertNotEqual(key(self.output), key(self.output, allow_macos_ca_error=True))
+
+    @unittest.skipUnless(os.name == "posix", "pass recording uses POSIX change times")
+    def test_only_stable_inputs_are_recorded(self):
+        root = self.output / "project"
+        root.mkdir()
+        (root / "native").mkdir()
+        (root / ".gitignore").write_text("/native/*.so\n")
+        source, library = root / "check.gd", root / "native/kernel.so"
+        source.write_text("first")
+        library.write_bytes(b"first")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "check.gd"], cwd=root, check=True)
+        godot = str(Path(sys.executable).resolve())
+        plan = [Check("probe", ["probe"], None, 30)]
+
+        def run(change):
+            def finish(plan, output, options, guard, report, keys):
+                change()
+                report["results"].append({"name": "probe", "problem": None, "key": keys[0]})
+                return True
+
+            with patch.object(sys, "argv", ["check.py", "--godot", godot, "--log-dir", str(self.output)]), \
+                 patch.object(check, "run_plan", side_effect=finish), patch.object(check, "record_passes") as record, \
+                 patch.object(check, "print_times"), redirect_stdout(io.StringIO()):
+                self.assertEqual(check.main(), 0)
+            return record.call_args.args if record.called else None
+
+        def rewrite_and_restore(path):
+            original = path.read_bytes()
+            info = path.stat()
+            path.write_bytes(b"intermediate")
+            path.write_bytes(original)
+            os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+
+        with patch.object(check, "ROOT", root), patch.object(check, "checks", return_value=plan):
+            first = run(lambda: None)
+            self.assertIsNotNone(first)
+            self.assertIsNone(run(lambda: rewrite_and_restore(source)))
+            self.assertIsNone(run(lambda: rewrite_and_restore(library)))
+            self.assertIsNone(run(lambda: library.write_bytes(b"second")))
+            second = run(lambda: None)
+            self.assertIsNotNone(second)
+            self.assertEqual(first[1], second[1])  # same Git tree
+            self.assertNotEqual(first[2], second[2])  # different pass keys
 
     def test_passes_are_kept_newest_first(self):
         folder = self.output / "passes"

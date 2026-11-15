@@ -260,9 +260,10 @@ missions only when the change can alter flight:
   `CHANGED_RULES` in `tools/check.py`. Documentation selects nothing; a path no
   rule covers selects `dev`. Add suites to narrow it (`--changed flight`). A run
   that selects nothing exits 1, since nothing was verified.
-- `--changed` does not rerun a check that has already passed on the same inputs.
-  Every pass is recorded against the working tree it ran on (uncommitted files
-  included), the check's command, the engine and the generated models. A selected
+- On POSIX systems, `--changed` can reuse a check that already passed on the same
+  inputs. The runner records passes when the worktree (including uncommitted files),
+  engine and generated assets stay stable during the run. Passes also depend on the
+  check's command and whether the macOS system-CA diagnostic is allowed. A selected
   check is skipped, with a `CACHED` line naming that tree, when nothing
   `CHANGED_RULES` maps to it differs from a tree it passed on: after a fix only
   the checks the fix touches run again, and a merge whose result is the tree
