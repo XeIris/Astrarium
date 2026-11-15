@@ -31,6 +31,8 @@ layout(set = 0, binding = 2, std140) uniform Params {
 
 // The common one-hole scene can compile away the second hole's ray and disc paths.
 layout(constant_id = 0) const bool SINGLE_HOLE = false;
+// A scene without spin can compile away the rotating metric from every step.
+layout(constant_id = 1) const bool NON_ROTATING = false;
 #define holeCount (SINGLE_HOLE ? 1 : int(P.misc1.z + 0.5))
 #define camPos P.camPosFov.xyz
 #define fov P.camPosFov.w
@@ -198,7 +200,7 @@ vec3 discSource(int k, float rM, float g, float dens, out float Tphys){
 // where r solves (X² + Y²)/(r² + a²) + Z²/r² = 1. Units of M. Returns r, f, the
 // spatial k, ∇f and ∇(k·P) for a spatial covector P (∇k contracted, never formed).
 void kerrSchild(vec3 X, float a, vec3 P, out float r, out float f, out vec3 k, out vec3 df, out vec3 dkP){
-	if(a == 0.0){
+	if(NON_ROTATING || a == 0.0){
 		// Schwarzschild in Eddington–Finkelstein form: r = |X|, k = X/r, f = 2/r.
 		r = max(length(X), 1e-6);
 		k = X / r;
@@ -214,14 +216,18 @@ void kerrSchild(vec3 X, float a, vec3 P, out float r, out float f, out vec3 k, o
 	float r2 = max(w >= 0.0 ? 0.5 * w + s : a2 * z2 / max(s - 0.5 * w, 1e-30), 1e-12);
 	r = sqrt(r2);
 	float q = r2 * r2 + a2 * z2;
-	vec3 gr = vec3(X.x * r, X.y * r, X.z * (r2 + a2) / r) * (r2 / q);
-	f = 2.0 * r * r2 / q;
-	df = (6.0 * r2 * gr - f * (4.0 * r2 * r * gr + vec3(0.0, 0.0, 2.0 * a2 * X.z))) / q;
+	float inv_r = 1.0 / r;
+	float inv_q = 1.0 / q;
 	float S = r2 + a2;
-	k = vec3((r * X.x + a * X.y) / S, (r * X.y - a * X.x) / S, X.z / r);
+	float inv_s = 1.0 / S;
+	vec3 gr = vec3(X.xy * r, X.z * S * inv_r) * (r2 * inv_q);
+	f = 2.0 * r * r2 * inv_q;
+	df = gr * ((6.0 * r2 - f * (4.0 * r2 * r)) * inv_q);
+	df.z -= f * (2.0 * a2 * X.z) * inv_q;
+	k = vec3((r * X.x + a * X.y) * inv_s, (r * X.y - a * X.x) * inv_s, X.z * inv_r);
 	// ∂ᵢkₓ = (∂ᵢr·(X − 2r kₓ) + rδᵢₓ + aδᵢᵧ)/S, ∂ᵢkᵧ alike, ∂ᵢk_z = δᵢ_z/r − Z∂ᵢr/r².
-	float c = (dot(X.xy, P.xy) - 2.0 * r * dot(k.xy, P.xy)) / S - X.z * P.z / r2;
-	dkP = gr * c + vec3((r * P.x - a * P.y) / S, (a * P.x + r * P.y) / S, P.z / r);
+	float c = (dot(X.xy, P.xy) - 2.0 * r * dot(k.xy, P.xy)) * inv_s - X.z * P.z / r2;
+	dkP = gr * c + vec3((r * P.x - a * P.y) * inv_s, (a * P.x + r * P.y) * inv_s, P.z * inv_r);
 }
 
 // Scene → Kerr–Schild axes: the spin (KS +Z) points along scene −y, the disc's

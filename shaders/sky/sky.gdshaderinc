@@ -664,6 +664,8 @@ vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 		// would move the acceptance threshold and add or remove individual stars.
 		vec2 clus = sky_clusterField(dir, face, g);
 		float density = uStarDensity * (1.0 + uPlaneConc * sky_bandProfile(dir) + clus.x);
+		// The equiangular cell weight peaks at the face centre. Leave room for fp32 rounding.
+		float maxAccept = density * 0.62 * 1.000001;
 		for (int t = 0; t < SKY_TIERS; t++) {
 			if (t < uFirstTier) continue;
 			float tier  = float(t);
@@ -690,8 +692,9 @@ vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
 						if (cc.x < 0.0 || cc.y < 0.0 || cc.x >= cells || cc.y >= cells) continue;
 
 						vec3 key = vec3(cc + 0.5, face * 64.0 + tier * 7.31);
-						vec3 h   = sky_hash33(key);
 						vec3 h2  = sky_hash33(key + 19.73);
+					if (h2.x > maxAccept) continue;
+					vec3 h   = sky_hash33(key);
 
 						vec2 sg  = (cc + h.xy) / cells * 2.0 - 1.0;   // grid coords of the star
 						vec2 sfc = sky_fromGrid(sg);

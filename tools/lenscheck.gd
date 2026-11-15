@@ -164,9 +164,15 @@ func hole_count_checks() -> void:
 	var right := {"pos": Vector3(5, 0, -25), "rs": 1.0}
 	var one: Array = await march([left], Basis.IDENTITY, fov)
 	var two: Array = await march([left, right], Basis.IDENTITY, fov)
+	var spinning := U.merged(right, {"spin": 0.9})
+	var mixed: Array = await march([left, spinning], Basis.IDENTITY, fov)
+	var stopped: Array = await march([left, right], Basis.IDENTITY, fov)
 	var again: Array = await march([left], Basis.IDENTITY, fov)
 	var offset := roundi(256.0 * 5.0 / (25.0 * tan(fov * 0.5)))
 	check("two holes cast separate shadows", two[0].get_pixel(256 - offset, 256).a == 0.0 and two[0].get_pixel(256 + offset, 256).a == 0.0)
+	check("spinning up a member of the binary bends rays differently", mixed[1].get_data() != two[1].get_data())
+	check("zero spin restores the original binary field", stopped[0].get_data() == two[0].get_data()
+		and stopped[1].get_data() == two[1].get_data())
 	check("switching back to a single hole removes the second shadow", one[0].get_pixel(256 + offset, 256).a == 1.0 and again[0].get_data() == one[0].get_data())
 
 func kerr_checks() -> void:

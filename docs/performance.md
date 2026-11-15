@@ -599,6 +599,47 @@ each axis. At 2.8 km on the Falcon 9 ascent it took the 2560×1440 frame from
 on scale transitions kept the prototype out of the game. The captures and
 timing logs are in `/tmp/astrarium-spectral-cloud/`.
 
+## Lens arithmetic, visible stars and flight terrain
+
+The lens uses a dedicated pipeline when every packed spin is zero. Rotating
+metrics share reciprocals and factor the radial part of the field gradient.
+Pipeline variants are compiled on first use and reused until the lens is freed.
+In SkyModel's shader, the upper bound of the equiangular cell weight rejects
+ordinary star candidates before evaluating their position hash and projection.
+The flight ground shader runs its fallback only where the planet map is
+unavailable and skips mapped detail at scales whose weights are zero.
+
+Apple M5, Medium, Metal, MetalFX Off, 2560×1440 scene target. Times are the mean
+of two block medians per variant. Cameras pan in the lens and sky trials.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Wide X-ray, zero-spin lens pipeline | 21.85 ms | 21.27 ms |
+| Focused visible, zero-spin lens pipeline | 22.07 ms | 21.51 ms |
+| Visible spinning binary, lens arithmetic | 27.86 ms | 26.03 ms |
+| Wide visible, star acceptance bound | 21.74 ms | 21.27 ms |
+| Wide infrared, star acceptance bound | 33.85 ms | 33.08 ms |
+| Falcon 9 on pad, flight ground shader | 20.51 ms | 19.91 ms |
+| Falcon 9 at 2.8 km, flight ground shader | 31.10 ms | 28.92 ms |
+| Falcon 9 at 11 km, flight ground shader | 27.78 ms | 25.83 ms |
+
+A 1280×720 Vulkan trace measures the march separately. It went from 1.91 to
+1.50 ms in the non-rotating binary and from 6.11 to 5.67 ms in the spinning
+binary. Frame pacing varied between the non-rotating binary's Metal blocks.
+The analytic lens checks passed on both backends, including a transition from
+zero spin to mixed spin and back. In eight Metal frames with matched lens
+inputs, at most 0.008% of RGB channels differed by more than ten 8-bit levels.
+Final RGB pixels matched exactly in all nine `skycachecheck` scenes against
+the previous sky shader.
+
+Paired ground-only viewports matched exactly on the mapped pad. With the map
+disabled the largest RGB difference was 1/255. Across the two ascent poses,
+at most 46 of 11,059,200 RGB channels differed by more than 2/255 per frame.
+
+Hoisting cloud scattering terms and sharing the galaxy glow's hyperbolic
+exponentials showed no repeatable gain. Reports and captures are in
+`/tmp/astrarium-render-hunt/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`
