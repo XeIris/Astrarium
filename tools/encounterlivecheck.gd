@@ -4,6 +4,8 @@ extends SceneTree
 # the same start: M31's first pericentre (35.0 kpc at 3.97 Gyr, §3.3), the merger (6.29 Gyr, by
 # their footnote 3's rule) and the remnant's projected profile at 10 Gyr (their Fig. 7, read off
 # at R^1/4 = 1.0, 1.5, 2.0, 2.38: log Σ 3.6, 2.5, 1.6, 0.8 M☉ pc⁻²). ~6 minutes on an M5.
+#   Godot --headless --path . --script res://tools/encounterlivecheck.gd -- [threads=N]
+# `threads=N` runs the live tree on N threads, not every core; the forces are the same.
 
 var checks := 0
 var failures := 0
@@ -14,6 +16,9 @@ func ok(cond: bool, what: String) -> void:
 	print(("ok   " if cond else "FAIL ") + what)
 
 func _init() -> void:
+	var threads := 0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("threads="): threads = maxi(int(a.substr(8)), 0)
 	var e := GalModels.vdm_encounter(1.0, 1)
 	var sep := PackedFloat64Array()
 	var m33_mw := PackedFloat64Array()
@@ -22,6 +27,7 @@ func _init() -> void:
 	while e.time() < 10000.0 - 1e-6:
 		e.step(int(round(10.0 / e.dt())))
 		if t_live < 0.0 and e.is_live(): t_live = e.time()
+		if e.is_live(): e.live.threads = threads
 		sep.append(e.centre(0).distance_to(e.centre(1)))
 		m33_mw.append(e.centre(0).distance_to(e.centre(2)))
 	if not e.is_live():
