@@ -19,6 +19,7 @@ var _march0 := RID()
 var _march1 := RID()
 var _ubo := RID()
 var _kernel: RDU.Kernel
+var _single_pipeline := RID()
 var _marched_params := PackedByteArray()
 ## Texture2DRDs the background sky shaders sample. Their RIDs are swapped in
 ## place on resize, so a material holding them never needs re-pointing.
@@ -33,6 +34,11 @@ func _init() -> void:
 
 func _init_rt() -> void:
 	_kernel = RDU.Kernel.new("res://shaders/lens/lens_march.glsl")
+	if _kernel.valid():
+		var single := RDPipelineSpecializationConstant.new()
+		single.constant_id = 0
+		single.value = true
+		_single_pipeline = RDU.rd().compute_pipeline_create(_kernel.shader, [single])
 	var zero := PackedFloat32Array(); zero.resize(UBO_FLOATS)
 	if RDU.available():
 		_ubo = RDU.rd().uniform_buffer_create(UBO_FLOATS * 4, zero.to_byte_array())
@@ -120,9 +126,9 @@ func dispatch(p: Dictionary) -> void:
 	f[o + 16] = p.aspect; f[o + 17] = p.time; f[o + 18] = p.disc_intensity; f[o + 19] = p.disc_temp
 	f[o + 20] = p.disc_tpeak_phys; f[o + 21] = p.disc_outer; f[o + 22] = float(mini(holes.size(), MAX_HOLES))
 	var bytes := f.to_byte_array()
-	RenderingServer.call_on_render_thread(_dispatch_rt.bind(bytes))
+	RenderingServer.call_on_render_thread(_dispatch_rt.bind(bytes, holes.size() == 1))
 
-func _dispatch_rt(bytes: PackedByteArray) -> void:
+func _dispatch_rt(bytes: PackedByteArray, single: bool) -> void:
 	if _kernel == null or not _kernel.valid() or not _march0.is_valid() or not _march1.is_valid():
 		return
 	# Both textures depend only on this uniform block and their dimensions.
@@ -130,7 +136,8 @@ func _dispatch_rt(bytes: PackedByteArray) -> void:
 		return
 	var dev := RDU.rd()
 	dev.buffer_update(_ubo, 0, bytes.size(), bytes)
-	RDU.dispatch(_kernel, [RDU.u_image(0, _march0), RDU.u_image(1, _march1), RDU.u_ubo(2, _ubo)], _mw, _mh)
+	RDU.dispatch(_kernel, [RDU.u_image(0, _march0), RDU.u_image(1, _march1), RDU.u_ubo(2, _ubo)], _mw, _mh,
+		PackedByteArray(), _single_pipeline if single else RID())
 	_marched_params = bytes
 
 func release() -> void:
@@ -138,4 +145,5 @@ func release() -> void:
 		# empty the wrappers first: see PostFX._resize_rt
 		tex0.texture_rd_rid = RID(); tex1.texture_rd_rid = RID()
 		RDU.free_rid(_march0); RDU.free_rid(_march1); RDU.free_rid(_ubo)
+		RDU.free_rid(_single_pipeline)
 		if _kernel: _kernel.release())

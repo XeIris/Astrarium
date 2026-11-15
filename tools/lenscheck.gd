@@ -126,6 +126,7 @@ func _ready() -> void:
 		print("LENSCHECK WEAK rs=%s measured_rad=%s expected_rad=%s" % [rs, measured, expected])
 	await kerr_checks()
 	await cache_checks()
+	await hole_count_checks()
 	lens.release()
 	await RenderingServer.frame_post_draw
 	var errors := logger.take()
@@ -148,6 +149,17 @@ func cache_checks() -> void:
 	check("replacement textures are marched even with identical inputs", resized[0].get_data() == initial[0].get_data() and resized[1].get_data() == initial[1].get_data())
 	var advanced := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 1.0)
 	check("advancing disc time refreshes the lens field", advanced[0].get_data() != resized[0].get_data())
+
+func hole_count_checks() -> void:
+	var fov := deg_to_rad(60.0)
+	var left := {"pos": Vector3(-5, 0, -25), "rs": 1.0}
+	var right := {"pos": Vector3(5, 0, -25), "rs": 1.0}
+	var one: Array = await march([left], Basis.IDENTITY, fov)
+	var two: Array = await march([left, right], Basis.IDENTITY, fov)
+	var again: Array = await march([left], Basis.IDENTITY, fov)
+	var offset := roundi(256.0 * 5.0 / (25.0 * tan(fov * 0.5)))
+	check("two holes cast separate shadows", two[0].get_pixel(256 - offset, 256).a == 0.0 and two[0].get_pixel(256 + offset, 256).a == 0.0)
+	check("switching back to a single hole removes the second shadow", one[0].get_pixel(256 + offset, 256).a == 1.0 and again[0].get_data() == one[0].get_data())
 
 func kerr_checks() -> void:
 	# A distant static observer in the disc plane (M = 0.5 scene units, R = 4000 M):

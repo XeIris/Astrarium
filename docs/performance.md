@@ -380,6 +380,49 @@ double-precision force loop.
 Evidence from the survey is in `/tmp/astrarium-nov-perf/` and the local probes
 are under ignored `tools/evidence/nov-frame-time/`.
 
+### Single-hole lens pipeline and resolution prototypes
+
+Production lensing selects a specialized compute pipeline for one black hole.
+The compiler can remove the second hole's field and disc paths while the lens
+field keeps the same resolution and solver. At 2560×1440 on M5 Metal, an ABBA
+comparison with the disc clock advancing and a fixed camera averaged 25.60 ms
+versus 23.49 ms in block medians. The compared images differ by more than ten
+8-bit levels in 0.013% of RGB channels. `lenscheck` exercises the analytic
+shadow, weak-field bend, Kerr limits, and switching between one and two holes.
+
+At 3024×1964 Medium, moving focused lensing measured 30.14 mean FPS and
+33.39 ms p95, down from 37.55 ms p95 in the previous run. The 33.33 ms gate
+still failed there and in ascent (35.95 ms p95).
+
+Two prototypes tested independent resolution on the same 2560×1440 output:
+
+| Scene and change | Original median | Prototype median |
+|---|---:|---:|
+| Milky Way from the Sun, ⅔-resolution glow | 17.60 ms | 9.64 ms |
+| M51 from 8 kpc, ⅔-resolution glow | 13.35 ms | 8.18 ms |
+| Falcon 9 pad, 80% local viewport scale | 20.85 ms | 15.64 ms |
+| Falcon 9 at 301 m, 80% local viewport scale | 22.47 ms | 16.79 ms |
+
+The galaxy prototype composites only the diffuse pass before bloom. Separate
+full-resolution glow adds about 0.5 ms and matches the original within one
+8-bit level. At ⅔ scale, the fixed Sun-facing capture differs by more than two
+levels in 6.1% of RGB channels. A production comparison needs camera motion and
+thin dust lanes. Flight's built-in viewport scaler covers the local 3D scene,
+including fine tower geometry. A cloud-only pass needs the opaque scene depth
+and a resolve that preserves the silhouette of vehicles and terrain.
+
+In the live encounter's native kernel, tree setup cost 4.3–4.6 ms of wall time
+and the worker phase 37–40 ms per step. Instrumented worker CPU time (summed
+over threads) split about 40% to building interaction lists and 60% to
+evaluating them. Moving the octree's build-only moments off its nodes reduced
+nodes from 88 to 64 bytes and saved about 0.9 ms per step in two ABBA cycles.
+Sorting a duplicate source buffer by tree order, padding SIMD lanes, and
+pre-squaring softening showed no consistent gain. The compared candidate
+buffers were byte-identical after stepping the same 126,781-particle fixture.
+
+Reports and captures: `/tmp/astrarium-batch2/`. The graphics probes are in the
+ignored `tools/evidence/frame-batch2/` directory.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`

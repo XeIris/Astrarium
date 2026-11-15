@@ -25,7 +25,9 @@ layout(set = 0, binding = 2, std140) uniform Params {
 	vec4 misc1;                  // discTpeakPhys, discOuter, holeCount, _
 } P;
 
-#define holeCount int(P.misc1.z + 0.5)
+// The common one-hole scene can compile away the second hole's ray and disc paths.
+layout(constant_id = 0) const bool SINGLE_HOLE = false;
+#define holeCount (SINGLE_HOLE ? 1 : int(P.misc1.z + 0.5))
 #define camPos P.camPosFov.xyz
 #define fov P.camPosFov.w
 #define aspect P.misc0.x
