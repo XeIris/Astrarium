@@ -131,7 +131,9 @@ func _free_rt() -> void:
 	k_composite = null
 
 ## Run the chain. Render thread only. `inputs`: scene, temp, local (RD RIDs; may be
-## invalid), mode (0/1/2), use_temp, surface (dispatch(src, dst, w, h) or null),
+## invalid), local_coverage (optional pre-upscale alpha), glow (optional diffuse
+## galaxy viewport), mode (0/1/2), use_temp,
+## surface (dispatch(src, dst, w, h) or null),
 ## time (for grain).
 func render_rt(inputs: Dictionary) -> void:
 	if k_composite == null or not _final.is_valid():
@@ -141,7 +143,11 @@ func render_rt(inputs: Dictionary) -> void:
 		return
 	var temp: RID = inputs.get("temp", RID())
 	var local: RID = inputs.get("local", RID())
+	var coverage: RID = inputs.get("local_coverage", RID())
+	var glow: RID = inputs.get("glow", RID())
 	if not temp.is_valid(): temp = scene
+	if coverage.is_valid(): temp = coverage
+	if glow.is_valid(): local = glow
 	if not local.is_valid(): local = scene
 	var surface = inputs.get("surface", null)
 	var use_spectral := band != Spectrum.VISIBLE_BAND
@@ -151,7 +157,7 @@ func render_rt(inputs: Dictionary) -> void:
 	RDU.dispatch(k_compose, [
 		RDU.u_sampled(0, _sampler, scene), RDU.u_sampled(1, _sampler, temp),
 		RDU.u_sampled(2, _sampler, local), RDU.u_image(3, _hdr)],
-		_w, _h, RDU.pack([inputs.mode, 1.0 if inputs.use_temp else 0.0]))
+		_w, _h, RDU.pack([inputs.mode, 1.0 if inputs.use_temp else 0.0, 1.0 if glow.is_valid() else 0.0, 1.0 if coverage.is_valid() else 0.0]))
 	var src := _hdr
 
 	# 0b. the surface view's atmosphere composites over the scene it was given

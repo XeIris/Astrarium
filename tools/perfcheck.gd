@@ -16,6 +16,7 @@ var m5_native := false
 ## Empty: the named Low-based custom configuration below. Otherwise a whole render
 ## preset ("low", "medium", "high"), applied exactly as Settings applies it.
 var m5_preset := ""
+var metalfx := "off"
 const PRESET_MSAA := {"low": Viewport.MSAA_DISABLED, "medium": Viewport.MSAA_2X, "high": Viewport.MSAA_4X}
 var native_screen := -1
 var native_window_pixels := Vector2i.ZERO
@@ -168,6 +169,10 @@ func measure(label: String, action := Callable()) -> void:
 		await RenderingServer.frame_post_draw
 	var lens_time: float = stage._lens_time
 	var galaxy_time: float = stage.galaxy.t_myr
+	var viewports := [get_viewport(), stage.pipe.hook_vp, stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp]
+	if stage.pipe._glow_vp != null:
+		viewports.append(stage.pipe._glow_vp)
+		RenderingServer.viewport_set_measure_render_time(stage.pipe._glow_vp.get_viewport_rid(), true)
 	var animate_ms := []
 	var action_ms := []
 	var render_cpu_ms := []
@@ -193,7 +198,7 @@ func measure(label: String, action := Callable()) -> void:
 		var cpu := RenderingServer.get_frame_setup_time_cpu()
 		var gpu := 0.0
 		var triangles := 0
-		for vp in [get_viewport(), stage.pipe.hook_vp, stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp]:
+		for vp in viewports:
 			if vp is SubViewport and vp.render_target_update_mode == SubViewport.UPDATE_DISABLED: continue
 			var rid: RID = vp.get_viewport_rid()
 			cpu += RenderingServer.viewport_get_measured_render_time_cpu(rid)
@@ -217,6 +222,7 @@ func measure(label: String, action := Callable()) -> void:
 		if m5_preset.is_empty() else stage.pipe.lens.get_scale() == float(stage.RENDER_QUALITY[m5_preset].lens)
 	if m5_native and (stage.render_quality != quality or stage.flight.local.render_quality != quality \
 			or stage.lighting_quality != "low" or stage.pipe.render_scale != 2.0 or not lens_ok \
+			or stage.pipe.metalfx != metalfx \
 			or stage.pipe.local_vp.msaa_3d != PRESET_MSAA[quality] or stage.pipe.model_vp.msaa_3d != PRESET_MSAA[quality] \
 			or [stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp].any(func(vp: SubViewport): return vp.size != M5_PIXELS)):
 		failures += 1
@@ -232,8 +238,10 @@ func measure(label: String, action := Callable()) -> void:
 		if label in ["lens-wide", "lens-focus"] and row.lens.advanced_years <= 0.0: failures += 1
 		if label == "lens-focus-paused" and row.lens.advanced_years != 0.0: failures += 1
 	if stage.galaxy.active:
+		var glow_size: Vector2i = stage.pipe.galaxy_glow_size()
 		row["galaxy"] = {"advanced_myr": stage.galaxy.t_myr - galaxy_time,
-			"target_myr_per_simulated_second": 0.0 if stage.state.paused else stage.galaxy.rate}
+			"target_myr_per_simulated_second": 0.0 if stage.state.paused else stage.galaxy.rate,
+			"glow_pixels": [glow_size.x, glow_size.y] if stage.galaxy.visual != null else null}
 	if label.begins_with("flight-"):
 		row["flight"] = {"phase": stage.flight.vessel.phase, "met_s": stage.flight.vessel.met,
 			"altitude_m": stage.flight.vessel.altitude()}
@@ -253,6 +261,7 @@ func _ready() -> void:
 		elif arg.begins_with("samples="): samples = int(arg.trim_prefix("samples="))
 		elif arg == "studio_abba=1": studio_abba = true
 		elif arg == "m5_native=1": m5_native = true
+		elif arg.begins_with("metalfx=") and RenderPipeline.METALFX_SCALES.has(arg.trim_prefix("metalfx=")): metalfx = arg.trim_prefix("metalfx=")
 		elif arg.begins_with("m5_preset=") and PRESET_MSAA.has(arg.trim_prefix("m5_preset=")): m5_preset = arg.trim_prefix("m5_preset=")
 		else: failures += 1
 	if not m5_preset.is_empty() and not m5_native:
@@ -267,6 +276,10 @@ func _ready() -> void:
 		printerr("PERFCHECK M5 native gate requires Metal, Apple M5, >=180 samples and scenarios")
 		get_tree().quit(1)
 		return
+	if metalfx != "off" and not RenderPipeline.metalfx_available():
+		printerr("PERFCHECK needs a rendering device with MetalFX spatial support")
+		get_tree().quit(1)
+		return
 	OS.add_logger(logger)
 	get_tree().create_timer(240.0).timeout.connect(func():
 		printerr("PERFCHECK timed out before completion")
@@ -274,6 +287,7 @@ func _ready() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	RDU.profiling = not studio_abba
 	stage = load("res://main.tscn").instantiate()
+	stage._cmd["metalfx"] = metalfx
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)
@@ -434,6 +448,7 @@ func finish_report() -> void:
 		"root_logical_resolution": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
 		"lens_scale": stage.pipe.lens.get_scale(), "lens_field_pixels": [stage.pipe.lens.march_size().x, stage.pipe.lens.march_size().y], "msaa": stage.pipe.local_vp.msaa_3d,
 		"render_quality": stage.render_quality, "m5_preset": m5_preset if m5_native else null, "lighting_quality": stage.lighting_quality,
+		"metalfx": stage.pipe.metalfx,
 		"frame_budget_ms": FRAME_BUDGET_MS if m5_native else null, "target_fps": 30 if m5_native else null,
 		"simulation_dt": "elapsed process delta" if m5_native else "fixed 1/60 s", "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft != null and stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
 	if not report.is_empty():

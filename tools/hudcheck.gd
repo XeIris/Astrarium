@@ -27,7 +27,7 @@ func _ready() -> void:
 	var requested_size := get_window().size
 	if args.get("assets", "1") == "0":
 		for id in CraftAssets.CRAFT_ASSETS: CraftAssets.CACHE[id] = null
-	# The app icon and the developer switch are saved here, never in the user's file.
+	# Isolate saved application settings from the real user's file.
 	app_file = _temp_dir().path_join("astrarium-hudcheck-app-%d.json" % OS.get_process_id())
 	AppIcon.file_path = app_file
 	main = load("res://main.tscn").instantiate()
@@ -359,6 +359,35 @@ func _move(p: Vector2, rel := Vector2.ZERO, held := true) -> void:
 	_push(m)
 	await get_tree().process_frame
 
+func _check_metalfx_settings() -> void:
+	var available := RenderPipeline.metalfx_available()
+	var settings: Control = hud.get_el("metalFX")
+	check("MetalFX controls follow renderer support", settings.is_visible_in_tree() == available)
+	if not available: return
+	var pipe: RenderPipeline = main.pipe
+	var size := pipe.render_size
+	var saved_band: int = pipe.postfx.band
+	main.set_band(Spectrum.VISIBLE_BAND)
+	for preset in ["quality", "performance", "balanced"]:
+		await _click(_find("[data-metalfx=%s]" % preset))
+		var scale: float = RenderPipeline.METALFX_SCALES[preset]
+		var match_scale := [pipe.scene_vp, pipe.local_vp, pipe.model_vp].all(func(vp: SubViewport) -> bool:
+			return vp.scaling_3d_mode == Viewport.SCALING_3D_MODE_METALFX_SPATIAL \
+				and is_equal_approx(vp.scaling_3d_scale, scale) and vp.get_texture().get_size() == Vector2(size))
+		check("MetalFX %s keeps the framebuffer and MSAA" % preset,
+			match_scale and pipe.metalfx == preset and pipe.render_size == size and pipe.local_vp.msaa_3d == Viewport.MSAA_2X)
+	main.set_band(Spectrum.VISIBLE_BAND + 1)
+	check("MetalFX preserves per-pixel spectral inputs", pipe.scene_vp.scaling_3d_scale == 1.0
+		and pipe.local_vp.scaling_3d_scale == 1.0 and pipe.temp_vp.scaling_3d_scale == 1.0
+		and pipe.model_vp.scaling_3d_scale < 1.0)
+	main.set_band(saved_band)
+	main.set_metalfx("off", false)
+	main._init_render_settings()
+	check("MetalFX reloads the saved preset", pipe.metalfx == "balanced")
+	main.set_render_quality("medium")
+	await _click(_find("[data-metalfx=off]"))
+	check("MetalFX Off restores the original raster", pipe.metalfx == "off" and pipe.scene_vp.scaling_3d_scale == 1.0)
+
 func _click(c: Control) -> bool:
 	if c == null or not c.is_visible_in_tree():
 		if args.get("hverbose", "0") == "1":
@@ -584,6 +613,7 @@ func _interaction_walk() -> void:
 	check("Low disables flight/studio MSAA and flight cloud mode", main.render_quality == "low" and main.flight.local.render_quality == "low" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_DISABLED and main.pipe.model_vp.msaa_3d == Viewport.MSAA_DISABLED)
 	await _click(_find("[data-render-quality=medium]"))
 	check("selecting Medium matches startup MSAA and flight detail", main.render_quality == "medium" and main.flight.local.render_quality == "medium" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_2X and main.pipe.model_vp.msaa_3d == Viewport.MSAA_2X and main.flight.local.cloud_shape != null)
+	await _check_metalfx_settings()
 	await _click(_find("[data-set=controls]"))
 	var bb: Control = hud.binding_buttons.get("pause")
 	await _click(bb)

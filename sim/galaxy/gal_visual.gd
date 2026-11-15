@@ -367,6 +367,8 @@ func _build_glow(model: Dictionary) -> void:
 	glow.name = "Glow"
 	glow.mesh = box
 	glow.material_override = glow_mat
+	# The narrow dust rings can change contrast within a single output pixel.
+	if rings.is_empty(): glow.layers = RenderPipeline.GALAXY_GLOW_LAYER
 	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# Drawn from inside too: never culled by its own box.
 	glow.extra_cull_margin = 16384.0
@@ -439,7 +441,8 @@ func set_tracers(tr: GalTracers) -> void:
 ## scene's time; `tr`: the tracers, drawn `ahead` Myr past their last step.
 ## `view_r`: the camera's distance from what it looks at; the tracer overlay fades
 ## out below half a kpc, where it would be dots in the sky rather than a map.
-func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_rad: float, viewport_h: float, star_gain: float, view_r := 60.0) -> void:
+func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_rad: float,
+		viewport_h: float, star_gain: float, view_r := 60.0, glow_h := 0.0) -> void:
 	var pix := 2.0 * tan(fov_rad * 0.5) / maxf(viewport_h, 1.0)
 	var pix_sr := pix * pix
 	var gain := K * star_gain * exposure * adaptation
@@ -458,7 +461,8 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	if res_override >= 0.0: res = res_override
 	glow_mat.set_shader_parameter("uCamLocal", cl)
 	glow_mat.set_shader_parameter("uGain", gain / (4.0 * PI))
-	glow_mat.set_shader_parameter("uPix", pix)
+	var sampled_h := glow_h if glow_h > 0.0 and glow.layers == RenderPipeline.GALAXY_GLOW_LAYER else viewport_h
+	glow_mat.set_shader_parameter("uPix", 2.0 * tan(fov_rad * 0.5) / maxf(sampled_h, 1.0))
 	if hii != null:
 		hii.visible = show_hii and (show_glow or not hii_with_glow)
 		hii_mat.set_shader_parameter("uCamLocal", cl)

@@ -158,6 +158,7 @@ and its `SIM` console handle:
 | `sunview=1` | aim the final flight screenshot directly at the sun |
 | `seed=7` | make the scenario's random choices reproducible |
 | `quality=low\|medium\|high`, `lighting=low\|medium\|high` | rendering and local lighting presets |
+| `metalfx=off\|quality\|balanced\|performance` | override the saved MetalFX setting for one run on supported Metal devices |
 | `band=5` | imaging band 0–6 |
 | `focus=Earth`, `truescale=1`, `cammode=surface`, `localtime=noon` | camera and view |
 | `frames=60 dt=0.0166 out=/abs/shot.png [hud=0] [shot3d=1]` | run N fixed steps, save a screenshot, quit |

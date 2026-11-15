@@ -142,6 +142,8 @@ CHANGED_RULES = (
     (("assets/sky/bsc5.bin", "assets/sky/gaia_g8.bin", "sim/brightstars.gd", "sim/sky.gd",
       "tools/build_gaia.py", "tools/build_starcat.py"), ("galaxycheck",)),
     (("tools/galaxylookcheck.gd", "tools/galaxylookcheck.tscn"), ("galaxylookcheck",)),
+    (("render/pipeline.gd", "render/postfx.gd", "shaders/post/compose.glsl", "shaders/post/local_coverage.glsl"),
+     ("galaxylookcheck", "flightlightcheck")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     (("tools/check.py",), ("check-selfcheck",)),
     # Any other tool (fxlab, harnesses): at least it must still parse.

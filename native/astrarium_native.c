@@ -802,7 +802,7 @@ static void run_encounter(double *A) {
 #include <stdatomic.h>
 
 typedef struct {
-	double m, sx, sy, sz, cx, cy, cz, ropen2, eps;
+	double m, cx, cy, cz, ropen2, eps;
 	int first, count, lo, hi;
 } LvNode;
 
@@ -828,8 +828,10 @@ static int lv_node(LvTree *T) {
 	return T->nn++;
 }
 
-/* Node `nd` holds idx[lo, hi) in the cube about (x0, y0, z0) of half-side `half`. */
-static void lv_fill(LvTree *T, int nd, int lo, int hi, double x0, double y0, double z0, double half, int depth) {
+/* First moments are needed only by the parent during the build. Keep them off
+ * the nodes walked by the force workers and sum children in octant order. */
+static void lv_fill(LvTree *T, int nd, int lo, int hi, double x0, double y0, double z0,
+		double half, int depth, double moment[3]) {
 	const double *P = T->P;
 	double m = 0.0, sx = 0.0, sy = 0.0, sz = 0.0, eps = 0.0;
 	T->nodes[nd].lo = lo;
@@ -863,20 +865,21 @@ static void lv_fill(LvTree *T, int nd, int lo, int hi, double x0, double y0, dou
 		int k = 0, a = lo;
 		for (int c = 0; c < 8; c++) {
 			if (!cnt[c]) continue;
-			lv_fill(T, first + k, a, a + cnt[c], x0 + ((c & 1) ? h : -h), y0 + ((c & 2) ? h : -h), z0 + ((c & 4) ? h : -h), h, depth + 1);
+			double child_moment[3];
+			lv_fill(T, first + k, a, a + cnt[c], x0 + ((c & 1) ? h : -h),
+				y0 + ((c & 2) ? h : -h), z0 + ((c & 4) ? h : -h), h, depth + 1, child_moment);
 			if (T->failed) return;
+			const LvNode *C = &T->nodes[first + k];
+			m += C->m;
+			sx += child_moment[0]; sy += child_moment[1]; sz += child_moment[2];
+			if (C->eps > eps) eps = C->eps;
 			a += cnt[c];
 			k++;
 		}
-		for (int c = 0; c < kids; c++) {
-			const LvNode *C = &T->nodes[first + c];
-			m += C->m;
-			sx += C->sx; sy += C->sy; sz += C->sz;
-			if (C->eps > eps) eps = C->eps;
-		}
 	}
 	LvNode *N = &T->nodes[nd];
-	N->m = m; N->sx = sx; N->sy = sy; N->sz = sz; N->eps = eps;
+	N->m = m; N->eps = eps;
+	moment[0] = sx; moment[1] = sy; moment[2] = sz;
 	N->cx = sx / m; N->cy = sy / m; N->cz = sz / m;
 	double dx = N->cx - x0, dy = N->cy - y0, dz = N->cz - z0;
 	/* Opened when nearer than side/θ plus the centre of mass's offset from the cube's
@@ -906,7 +909,8 @@ static void lv_build(LvTree *T, const double *P, int n, double theta) {
 	if (half <= 0.0) half = 1.0;
 	int root = lv_node(T);
 	if (root < 0) return;
-	lv_fill(T, root, 0, n, 0.5 * (lo[0] + hi[0]), 0.5 * (lo[1] + hi[1]), 0.5 * (lo[2] + hi[2]), half, 0);
+	double moment[3];
+	lv_fill(T, root, 0, n, 0.5 * (lo[0] + hi[0]), 0.5 * (lo[1] + hi[1]), 0.5 * (lo[2] + hi[2]), half, 0, moment);
 }
 
 static void lv_free(LvTree *T) {

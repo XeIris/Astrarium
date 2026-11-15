@@ -66,6 +66,7 @@ tools/         harness.gd, per-module harness scenes, checks
 hook_vp (compositor callback = the post chain)
  ├─ scene_vp   the orrery world; background = sky shader (sky or lens resolve)
  │   └─ temp_vp   same world, second camera: the temperature pass
+ ├─ GalaxyGlow   optional reduced-resolution diffuse galaxy pass, same world
  ├─ local_vp   spaceflight's metre-scale world, transparent background
  └─ model_vp   the model viewer's studio
 display (TextureRect) ← 8-bit composite (PostFX.final_tex)
@@ -79,6 +80,10 @@ display (TextureRect) ← 8-bit composite (PostFX.final_tex)
 - The sky is `shaders/sky/background.gdshader` including `sky.gdshaderinc`. With a
   hole present it resolves the lens marcher (`render/lens_pass.gd` +
   `shaders/lens/lens_march.glsl`).
+- The galaxy glow camera draws its own layer on black. `compose.glsl` adds its
+  radiance before bloom. The main camera draws resolved stars and catalogue
+  objects at display resolution. Galaxies with narrow dust rings keep their
+  full-resolution glow in the main camera.
 - Fullscreen passes are GLSL 450 compute shaders (`#[compute]`, imported as
   `RDShaderFile`), dispatched on the render thread through `RDU`
   (`render/rd_util.gd`). Use `RDU` rather than hand-rolled RD code.

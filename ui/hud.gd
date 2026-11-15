@@ -33,6 +33,7 @@ signal sky_reset()
 signal sky_adv_clear()
 signal fx_reset()
 signal render_quality_chosen(quality: String)
+signal metalfx_chosen(preset: String)
 signal lighting_quality_chosen(quality: String)
 signal lighting_effect_chosen(effect: String)
 signal sim_reset()
@@ -532,6 +533,14 @@ func _build_settings() -> void:
 	var quality_choices := grid(ren, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
 	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]]:
 		B(quality_choices, "Toggle", q[1], "[data-render-quality=%s]" % q[0]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
+	var metalfx := stack(ren)
+	reg("metalFX", metalfx)
+	_h3(metalfx, "MetalFX upscaling")
+	var metalfx_choices := grid(metalfx, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 6.0)
+	for preset: String in RenderPipeline.METALFX_SCALES:
+		var btn := B(metalfx_choices, "Toggle", preset.capitalize(), "[data-metalfx=%s]" % preset)
+		btn.pressed.connect(metalfx_chosen.emit.bind(preset))
+	_note(metalfx, "Quality 67%, Balanced 59%, Performance 50% per dimension. Galaxy and spectral views bypass MetalFX.")
 	var advanced_btn := B(ren, "Toggle", "☐ Advanced rendering controls", "renderAdvancedToggle")
 	advanced_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var advanced := stack(ren, 10.0)

@@ -36,6 +36,7 @@ explicitly reported as `gpu_available: false`; zero is not interpreted as free
 rendering. Headless execution, engine errors and incomplete runs fail.
 
 The viewport sum includes enabled viewports and root HUD, plus CPU frame setup.
+Galaxy rows record the active diffuse glow dimensions.
 The lens dispatch precedes viewport rendering; its compute timing is reported
 separately. Compute measurements overlap the compositor's viewport measurements,
 so adding both would double-count. The action cost includes editor/inspector
@@ -422,6 +423,67 @@ buffers were byte-identical after stepping the same 126,781-particle fixture.
 
 Reports and captures: `/tmp/astrarium-batch2/`. The graphics probes are in the
 ignored `tools/evidence/frame-batch2/` directory.
+
+### Reduced galaxy glow and compact live octree
+
+Low and Medium render diffuse glow at ⅔ linear resolution with a 720-pixel
+height floor. High and Ultra use the full scene target. Resolved stars, the
+catalogue, and H II objects use the full target on every tier. At 2560×1440,
+the composed production path measured 18.06 → 10.03 ms from the Sun,
+17.31 → 9.52 ms at 300 pc, and 13.71 → 8.29 ms for M51 from 8 kpc. Each
+value averages two 120-frame block medians with a fixed camera.
+
+The moving M104 probe showed differences up to 26% of the peak stripe
+luminance in individual rows when resampled. The production pass therefore
+keeps narrow dust rings at full resolution. `galaxylookcheck` compares three
+camera poses in each path and verifies the point-source footprint and removal
+of the auxiliary viewport when diffuse glow is hidden.
+
+The opaque flight map skips the hidden lens and HDR passes. Explicit captures
+can still request the post chain. The integrated Low preset passed all 18 cases
+on the Apple M5 at 3024×1964 with Metal. Focused lensing had the highest p95
+(25.27 ms), followed by ascent (21.43 ms). The Sun view reached 14.78 ms p95.
+Metal viewport GPU timestamps were unavailable, so these are frame times.
+
+The native live tree uses the 64-byte nodes from the compact prototype. First
+moments stay on the build stack, with the same octant order and force walk.
+The renderer and native evidence are in `/tmp/astrarium-batch3/`.
+
+### MetalFX upscaling on Apple M5
+
+Settings › Render offers the MetalFX spatial upscaler when the rendering
+device supports it. Off is the default. Quality, Balanced and Performance
+render at 67%, 59% and 50% per dimension, following the
+[FSR preset ratios](https://gpuopen.com/manuals/fsr_sdk/samples/super-resolution/).
+The percentages apply to the 3D framebuffer selected by Render scale. The
+HDR post chain and HUD retain their output sizes, and Lens detail still
+controls the separate geodesic march. Galaxy scenes preserve their point-source
+sampling and narrow dust lanes. Spectral bands preserve the pixel alignment
+of the colour and temperature passes.
+Flight saves its resolved alpha at the MetalFX input size before the upscaler
+replaces alpha with opaque coverage. HDR compositing uses that saved coverage.
+
+The production path at 2560×1440 produced these frame times on the Apple M5.
+Each value averages two 120-frame block medians. The camera poses follow the
+same pan in each block.
+
+| Scene | Off | Quality | Balanced | Performance |
+| --- | ---: | ---: | ---: | ---: |
+| Falcon 9 at 50 m | 22.38 ms | 12.77 ms | 10.93 ms | 8.97 ms |
+| Focused lens, panning | 22.62 ms | 19.02 ms | 18.10 ms | 17.47 ms |
+
+In the fixed-camera probe, 50% bilinear scaling was about 0.7 ms faster than
+spatial MetalFX and softened craft silhouettes more. A spatial trial in the
+Milky Way near the Sun ran at about 10 ms across the three presets and spread
+light out from its point sources, leading to the galaxy bypass. A temporal
+trial stopped producing frames after Godot reported it was disabling MSAA.
+
+The Low-based native M5 run at 3024×1964 passed all 18 cases with MetalFX
+Quality. Focused lensing had the highest p95 at 19.83 ms. Ascent was 13.90 ms.
+
+`tools/perfcheck.tscn` accepts `metalfx=quality|balanced|performance` for explicit
+comparisons. The default perf configuration forces Off. Probe reports and
+captures are in `/tmp/astrarium-metalfx/`.
 
 ## Check suite time
 
