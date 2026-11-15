@@ -1456,6 +1456,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	_place_falls(east, up, north, R_loc)
 	if not history:
 		_pad_view_lost(alt)
+		return
 	if fast_forward > 0:
 		_history(dt, alt)
 		return
