@@ -640,6 +640,29 @@ Hoisting cloud scattering terms and sharing the galaxy glow's hyperbolic
 exponentials showed no repeatable gain. Reports and captures are in
 `/tmp/astrarium-render-hunt/`.
 
+## Transfer planner and encounter setup latency
+
+On the M5, eight paired 600-cell Earth–Mars transfer searches had identical
+cost grids and winning departure vectors. Reusing the Stumpff values and
+stopping once the double-precision interval can no longer shrink took the
+median solve from 45.39 to 26.17 ms. The map submits the Lambert grid and then
+the aerobraking estimate on a worker. In the no-heat-shield fixture, a complete
+route took about 337 ms to become available, including the aerobraking estimate.
+The median main-thread submission was 0.08 ms and the median of each run's
+slowest main-thread follow-up was 0.33 ms. The map reprices completed arcs at
+the current parking radius and reports the route as pending until both jobs
+have finished.
+
+The galaxy equilibrium sampler builds its integration and speed tables in C,
+with the GDScript path available as a fallback. It finds a sample's quantile
+with a lower-bound search and initializes live particles directly from their
+components. On the full Milky Way, M31 and M33 fixture, medians across two
+four-run groups per build fell from 457 to 367 ms for seeding and from 399 to
+340 ms for the initial live handoff (126,781 particles, the fixture at t = 0).
+Seeded positions and velocities, the packed live state and the sampled core
+indices matched byte for byte. The isolated probes are in
+`/tmp/astrarium-latency/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`

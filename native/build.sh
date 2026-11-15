@@ -30,6 +30,8 @@ case "$(uname -s)" in
   *) echo "Unsupported build platform: $(uname -s)" >&2; exit 1 ;;
 esac
 "${CC:-cc}" -O2 -ffp-contract=off -fno-fast-math -fno-builtin-sin -fno-builtin-cos -std=c11 -Wall -Wextra -Wno-unused-parameter \
-   "$@" -I"$HERE" "$HERE/astrarium_native.c" -lm -o "$OUTPUT"
+   -fvisibility=hidden "$@" -I"$HERE" "$HERE/astrarium_native.c" \
+   "$HERE/nbody.c" "$HERE/galaxy_tracers.c" "$HERE/galaxy_encounter.c" \
+   "$HERE/galaxy_live.c" "$HERE/galaxy_eddington.c" "$HERE/flight_zonal.c" -lm -o "$OUTPUT"
 if [ "$(uname -s)" = Darwin ]; then codesign --force -s - "$OUTPUT"; fi
 echo "built $OUTPUT"

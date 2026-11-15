@@ -56,6 +56,7 @@ static var _native := -1
 func _init(count: int, luminous: int, dt: float, theta: float) -> void:
 	n = count
 	nl = luminous
+	_tags.resize(nl)
 	buf.resize(HDR + STRIDE * n + 2 * nl)
 	buf[H_N] = float(n)
 	buf[H_DT] = dt
@@ -70,17 +71,18 @@ func dt() -> float:
 ## Particle i: position (kpc), velocity (kpc/Myr), mass (10¹⁰ M☉), softening (kpc), and for a
 ## drawn particle the tag the drawing reads.
 func set_particle(i: int, p: Array, v: Array, m: float, eps: float, tag := 0.0) -> void:
+	set_particle_components(i, float(p[0]), float(p[1]), float(p[2]), float(v[0]), float(v[1]), float(v[2]), m, eps, tag)
+
+func set_particle_components(i: int, x: float, y: float, z: float,
+		vx: float, vy: float, vz: float, m: float, eps: float, tag := 0.0) -> void:
 	var o := HDR + STRIDE * i
-	for c in 3:
-		buf[o + X + c] = float(p[c])
-		buf[o + VX + c] = float(v[c])
+	buf[o + X] = x; buf[o + X + 1] = y; buf[o + X + 2] = z
+	buf[o + VX] = vx; buf[o + VX + 1] = vy; buf[o + VX + 2] = vz
 	assert(eps > 0.0, "a live particle needs a softening: it meets itself at zero separation")
 	buf[o + M] = m
 	buf[o + EPS] = eps
 	buf[H_ACC] = 0.0
-	if i < nl:
-		if _tags.size() != nl: _tags.resize(nl)
-		_tags[i] = tag
+	if i < nl: _tags[i] = tag
 
 func position(i: int) -> Vector3:
 	var o := HDR + STRIDE * i

@@ -277,6 +277,12 @@ func discs() -> void:
 ## stars his dispersion (eq. 10) at each radius, and the whole is in virial equilibrium.
 func eddington() -> void:
 	var s := GalEddington.new(1.0, 1.0, 1000.0, [["hernquist", 1.0, 1.0]])
+	if ClassDB.class_exists("NBodyKernel") and ClassDB.class_has_method("NBodyKernel", "galaxy_eddington"):
+		var native_f := s.f.to_byte_array()
+		var native_cdf := s.cdf.to_byte_array()
+		s._tabulate(false)
+		ok(native_f == s.f.to_byte_array() and native_cdf == s.cdf.to_byte_array(),
+			"native equilibrium and speed tables match the script tables byte for byte")
 	var ratios := []
 	for q: float in [0.1, 0.3, 0.5, 0.7, 0.9]:
 		var x := sqrt(q)

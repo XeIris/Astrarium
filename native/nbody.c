@@ -1,0 +1,489 @@
+/* Native N-body loop; sim/physics.gd and sim/derive.gd remain the fallback.
+ * Preserve arithmetic order and -ffp-contract=off for tools/nbodycheck.gd parity.
+ * Buffer contract (sim/nbody.gd builds and reads it):
+ *   step(state: PackedFloat64Array) -> PackedFloat64Array (same layout)
+ *   header  [0] length   [1] n bodies   [2] remaining sim dt (yr, in/out)
+ *           [3] max step [4] gw boost   [5] guard (sub-steps so far, in/out)
+ *           [6] accepted call time (in/out)  [7] merger events (out)
+ *           [8] resolution limited (out) [9] requested call time (in)
+ *           [10] secular evolution on (in) [11] spare
+ *   body k at NB_HDR + k·STRIDE:
+ *           px py pz vx vy vz mass rs is_bh softening radius contact_au
+ *           emits_gw alive post_newtonian, then the secular terms:
+ *           wind Ṁ (M☉/yr) k2 time-lag (yr) spin Ω (rad/yr, in/out) I/M (AU²)
+ *           donor, mass gained and mass given by Roche-lobe overflow (M☉, out), spare
+ *   events at NB_HDR + n·STRIDE: (survivor k, absorbed k, separation) × up to n
+ * It integrates until the time is used up, the 8000-step guard trips, or a
+ * sub-step produced a merger, then returns so the orchestrator can run
+ * handle_merger (which changes horizons and types and removes bodies) and call
+ * again with what remains. */
+#include <math.h>
+#include <float.h>
+#include <stdlib.h>
+#include <string.h>
+#include "kernels.h"
+
+#define STRIDE 24
+#define STEP_GUARD 8000
+
+enum { PX, PY, PZ, VX, VY, VZ, MASS, RS, ISBH, SOFT, RADIUS, CONTACT, EMITSGW, ALIVE, PN,
+       MDOT, K2, LAG, SPIN, IOM, DONOR, GAINED, SHED };
+
+static const double G = 4.0 * 3.141592653589793 * 3.141592653589793;   /* 4π², as (4·π)·π */
+/* Rocketry.C_MS · Rocketry.YR_S / Rocketry.AU_M, in the same order as Physics.C. */
+static const double C_LIGHT = 299792458.0 * 31558196.01824108 / 1.495978707e11;
+
+/* `a || b` over numbers: 0 and NaN are falsy. */
+static double jor(double a, double b) { return (a != 0.0 && !isnan(a)) ? a : b; }
+
+typedef struct { double ax, ay, az, px, py, pz, old_pos[3], old_vel[3], w[3]; } Scratch;
+
+static double distance_xyz(double x, double y, double z) {
+	double squared = x * x + y * y + z * z;
+	if (isfinite(squared) && squared >= DBL_MIN) return sqrt(squared);
+	double scale = jmax(fabs(x), jmax(fabs(y), fabs(z)));
+	if (scale == 0.0 || !isfinite(scale)) return scale;
+	x /= scale; y /= scale; z /= scale;
+	return scale * sqrt(x * x + y * y + z * z);
+}
+
+static double scaled_acceleration(double mass, double dist, double softened) {
+	double factors[] = {G, mass, dist, softened, softened, softened};
+	double mantissa = 1.0;
+	int exponent = 0;
+	for (int i = 0; i < 6; i++) {
+		if (!isfinite(factors[i]) || factors[i] <= 0.0) return NAN;
+		int shift;
+		double value = frexp(factors[i], &shift) * 2.0;
+		shift--;
+		if (i < 3) { mantissa *= value; exponent += shift; }
+		else { mantissa /= value; exponent -= shift; }
+	}
+	while (mantissa < 1.0) { mantissa *= 2.0; exponent--; }
+	while (mantissa >= 2.0) { mantissa *= 0.5; exponent++; }
+	double result = scalbn(mantissa, exponent);
+	return isfinite(result) ? result : NAN;
+}
+
+static int finite_state(const double *B, int n) {
+	for (int k = 0; k < n; k++) {
+		const double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		if (!isfinite(b[MASS]) || b[MASS] <= 0.0) return 0;
+		for (int c = PX; c <= VZ; c++) if (!isfinite(b[c])) return 0;
+	}
+	return 1;
+}
+
+static void restore_step(double *B, int n, const Scratch *S) {
+	for (int k = 0; k < n; k++) {
+		double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		for (int c = 0; c < 3; c++) { b[PX+c] = S[k].old_pos[c]; b[VX+c] = S[k].old_vel[c]; }
+	}
+}
+
+/* Physics._pn_set and Physics._eih, operation for operation: the EIH 1PN terms on top
+ * of the Newtonian accelerations in S. Buffers grow and are kept between calls. */
+static const double PN_LIMIT = 0.1;
+static unsigned char *pn_ok = NULL;
+static double *pn_phi = NULL, *pn_aN = NULL;
+static int pn_cap = 0;
+
+/* `reuse`: pn_ok and pn_phi already hold this position's set (the substep's second pass). */
+static void eih(const double *B, int n, Scratch *S, int reuse) {
+	if (!reuse) {
+	if (n > pn_cap) {
+		free(pn_ok); free(pn_phi); free(pn_aN);
+		pn_ok = (unsigned char *)malloc((size_t)n);
+		pn_phi = (double *)malloc((size_t)n * sizeof(double));
+		pn_aN = (double *)malloc((size_t)n * 3 * sizeof(double));
+		if (!pn_ok || !pn_phi || !pn_aN) { pn_cap = 0; return; }
+		pn_cap = n;
+	}
+	for (int k = 0; k < n; k++) {
+		const double *b = B + k * STRIDE;
+		pn_ok[k] = (b[ALIVE] != 0.0 && b[PN] != 0.0 && (b[ISBH] != 0.0 || b[SOFT] == 0.0)) ? 1 : 0;
+	}
+	double limit = PN_LIMIT * C_LIGHT * C_LIGHT;
+	for (int i = 0; i < n; i++) {
+		for (int j = i + 1; j < n; j++) {
+			if (pn_ok[i] == 0 || pn_ok[j] == 0) continue;
+			const double *a = B + i * STRIDE, *b = B + j * STRIDE;
+			double r = distance_xyz(b[PX] - a[PX], b[PY] - a[PY], b[PZ] - a[PZ]);
+			if (!(G * (a[MASS] + b[MASS]) / r < limit)) { pn_ok[i] = 0; pn_ok[j] = 0; }
+		}
+	}
+	for (int i = 0; i < n; i++) {
+		pn_phi[i] = 0.0;
+		if (pn_ok[i] == 0) continue;
+		const double *a = B + i * STRIDE;
+		double sum = 0.0;
+		for (int l = 0; l < n; l++) {
+			if (l == i || pn_ok[l] == 0) continue;
+			const double *b = B + l * STRIDE;
+			sum += G * b[MASS] / distance_xyz(b[PX] - a[PX], b[PY] - a[PY], b[PZ] - a[PZ]);
+		}
+		pn_phi[i] = sum;
+	}
+	}
+	if (pn_cap < n) return;
+	for (int k = 0; k < n; k++) { pn_aN[k * 3] = S[k].ax; pn_aN[k * 3 + 1] = S[k].ay; pn_aN[k * 3 + 2] = S[k].az; }
+	double c2 = C_LIGHT * C_LIGHT;
+	for (int i = 0; i < n; i++) {
+		if (pn_ok[i] == 0) continue;
+		const double *a = B + i * STRIDE;
+		double vi2 = a[VX] * a[VX] + a[VY] * a[VY] + a[VZ] * a[VZ];
+		double cx = 0.0, cy = 0.0, cz = 0.0;
+		for (int j = 0; j < n; j++) {
+			if (j == i || pn_ok[j] == 0) continue;
+			const double *b = B + j * STRIDE;
+			double dx = b[PX] - a[PX], dy = b[PY] - a[PY], dz = b[PZ] - a[PZ];
+			double r = distance_xyz(dx, dy, dz);
+			double mu = G * b[MASS];
+			double inv_r3 = 1.0 / (r * r * r);
+			double ajx = pn_aN[j * 3], ajy = pn_aN[j * 3 + 1], ajz = pn_aN[j * 3 + 2];
+			double vj2 = b[VX] * b[VX] + b[VY] * b[VY] + b[VZ] * b[VZ];
+			double vivj = a[VX] * b[VX] + a[VY] * b[VY] + a[VZ] * b[VZ];
+			double nvj = -(dx * b[VX] + dy * b[VY] + dz * b[VZ]) / r;
+			double xa = dx * ajx + dy * ajy + dz * ajz;
+			double coef = -4.0 * pn_phi[i] - pn_phi[j] + vi2 + 2.0 * vj2 - 4.0 * vivj - 1.5 * nvj * nvj + 0.5 * xa;
+			double t1 = mu * inv_r3 * coef;
+			double s = -(dx * (4.0 * a[VX] - 3.0 * b[VX]) + dy * (4.0 * a[VY] - 3.0 * b[VY]) + dz * (4.0 * a[VZ] - 3.0 * b[VZ]));
+			double t2 = mu * inv_r3 * s;
+			double t3 = 3.5 * mu / r;
+			cx += t1 * dx + t2 * (a[VX] - b[VX]) + t3 * ajx;
+			cy += t1 * dy + t2 * (a[VY] - b[VY]) + t3 * ajy;
+			cz += t1 * dz + t2 * (a[VZ] - b[VZ]) + t3 * ajz;
+		}
+		cx /= c2; cy /= c2; cz /= c2;
+		if (isfinite(cx) && isfinite(cy) && isfinite(cz)) { S[i].ax += cx; S[i].ay += cy; S[i].az += cz; }
+	}
+}
+
+/* Physics.compute_newtonian. */
+static int compute_newtonian(double *B, int n, Scratch *S) {
+	for (int k = 0; k < n; k++) { S[k].ax = 0.0; S[k].ay = 0.0; S[k].az = 0.0; }
+	for (int i = 0; i < n; i++) {
+		double *a = B + i * STRIDE;
+		if (a[ALIVE] == 0.0) continue;
+		for (int j = i + 1; j < n; j++) {
+			double *b = B + j * STRIDE;
+			if (b[ALIVE] == 0.0) continue;
+			double rx = b[PX] - a[PX], ry = b[PY] - a[PY], rz = b[PZ] - a[PZ];
+			double dist = distance_xyz(rx, ry, rz);
+			if (dist == 0.0) continue;
+			if (!isfinite(dist)) return 0;
+			double inv = 1.0 / dist;
+			double kernel, denominator, sa = 0.0, sb = 0.0;
+			if (a[ISBH] != 0.0 || b[ISBH] != 0.0) {
+				/* Weak-field point masses; horizons determine contact only. */
+				denominator = dist * dist;
+				kernel = G / denominator;
+			} else {
+				sa = a[SOFT];
+				sb = b[SOFT];
+				double d2 = dist * dist + 0.5 * (sa * sa + sb * sb);
+				denominator = d2 * sqrt(d2);
+				kernel = G * dist / denominator;
+			}
+			double fA = kernel * b[MASS], fB = kernel * a[MASS];
+			if (!isfinite(fA) || !isfinite(fB) || fA == 0.0 || fB == 0.0 || (kernel > 0.0 && kernel < DBL_MIN) || denominator < DBL_MIN || !isfinite(inv)) {
+				double softened = dist;
+				if (a[ISBH] == 0.0 && b[ISBH] == 0.0) {
+					double scale = jmax(dist, jmax(fabs(sa), fabs(sb)));
+					double r = dist / scale, s1 = sa / scale, s2 = sb / scale;
+					softened = scale * sqrt(r * r + 0.5 * (s1 * s1 + s2 * s2));
+				}
+				fA = scaled_acceleration(b[MASS], dist, softened);
+				fB = scaled_acceleration(a[MASS], dist, softened);
+				if (!isfinite(fA) || !isfinite(fB)) return 0;
+				rx /= dist; ry /= dist; rz /= dist;
+			} else {
+				rx *= inv; ry *= inv; rz *= inv;          /* unit vector a→b */
+			}
+			S[i].ax += rx * fA; S[i].ay += ry * fA; S[i].az += rz * fA;
+			S[j].ax += rx * -fB; S[j].ay += ry * -fB; S[j].az += rz * -fB;
+		}
+	}
+	for (int k = 0; k < n; k++) if (!isfinite(S[k].ax) || !isfinite(S[k].ay) || !isfinite(S[k].az)) return 0;
+	return 1;
+}
+
+/* Smallest resolved-needs timescale among bodies (Derive.dynamic_step). */
+static double dynamic_step(const double *B, int n, double max_step) {
+	double t_min = max_step;
+	for (int i = 0; i < n; i++) {
+		const double *a = B + i * STRIDE;
+		if (a[ALIVE] == 0.0) continue;
+		for (int j = i + 1; j < n; j++) {
+			const double *b = B + j * STRIDE;
+			if (b[ALIVE] == 0.0) continue;
+			double dx = a[PX] - b[PX], dy = a[PY] - b[PY], dz = a[PZ] - b[PZ];
+			double sep = distance_xyz(dx, dy, dz);
+			double mu = G * (a[MASS] + b[MASS]);
+			if (!isfinite(sep) || !isfinite(mu) || mu <= 0.0) return NAN;
+			double fall_squared = (sep * sep * sep) / mu;
+			double t_fall = sqrt(fall_squared);
+			if (sep > 0.0 && (fall_squared == 0.0 || !isfinite(fall_squared))) t_fall = (sqrt(sep) / sqrt(mu)) * sep;
+			double ux = a[VX] - b[VX], uy = a[VY] - b[VY], uz = a[VZ] - b[VZ];
+			double vrel = distance_xyz(ux, uy, uz);
+			if (!isfinite(vrel)) return NAN;
+			double t_fly = vrel > 0.0 ? sep / vrel : INFINITY;
+			t_min = jmin(t_min, jmin(0.05 * t_fall, 0.08 * t_fly));
+		}
+	}
+	return t_min;
+}
+
+/* Physics.YOSHIDA_W1 / W0: fourth-order composition of leapfrog substeps. */
+static const double YOSHIDA_W1 = 1.3512071919596578;
+static const double YOSHIDA_W0 = 1.0 - 2.0 * 1.3512071919596578;
+
+/* Physics._leapfrog_substep: drift–kick–drift, the kick's 1PN term at the mean velocity. */
+static int leapfrog_substep(double *B, int n, double dt, Scratch *S, int pn) {
+	double half = 0.5 * dt;
+	for (int k = 0; k < n; k++) {
+		double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		b[PX] += b[VX] * half; b[PY] += b[VY] * half; b[PZ] += b[VZ] * half;
+	}
+	if (!finite_state(B, n) || !compute_newtonian(B, n, S)) return 0;
+	if (pn) {
+		for (int k = 0; k < n; k++) {
+			double *b = B + k * STRIDE;
+			if (b[ALIVE] == 0.0) continue;
+			S[k].px = S[k].ax; S[k].py = S[k].ay; S[k].pz = S[k].az;
+			S[k].w[0] = b[VX]; S[k].w[1] = b[VY]; S[k].w[2] = b[VZ];
+		}
+		eih(B, n, S, 0);
+		for (int k = 0; k < n; k++) {
+			double *b = B + k * STRIDE;
+			if (b[ALIVE] == 0.0) continue;
+			b[VX] = S[k].w[0] + S[k].ax * half; b[VY] = S[k].w[1] + S[k].ay * half; b[VZ] = S[k].w[2] + S[k].az * half;
+			S[k].ax = S[k].px; S[k].ay = S[k].py; S[k].az = S[k].pz;
+		}
+		eih(B, n, S, 1);
+		for (int k = 0; k < n; k++) {
+			double *b = B + k * STRIDE;
+			if (b[ALIVE] == 0.0) continue;
+			b[VX] = S[k].w[0]; b[VY] = S[k].w[1]; b[VZ] = S[k].w[2];
+		}
+	}
+	for (int k = 0; k < n; k++) {
+		double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		b[VX] += S[k].ax * dt; b[VY] += S[k].ay * dt; b[VZ] += S[k].az * dt;
+		b[PX] += b[VX] * half; b[PY] += b[VY] * half; b[PZ] += b[VZ] * half;
+	}
+	return finite_state(B, n);
+}
+
+static int integrate(double *B, int n, double dt, Scratch *S) {
+	int pn = 0;
+	for (int k = 0; k < n; k++) {
+		const double *b = B + k * STRIDE;
+		if (b[ALIVE] != 0.0 && b[PN] != 0.0) pn = 1;
+	}
+	for (int k = 0; k < n; k++) for (int c = 0; c < 3; c++) {
+		S[k].old_pos[c] = B[k*STRIDE+PX+c]; S[k].old_vel[c] = B[k*STRIDE+VX+c];
+	}
+	const double w[3] = { YOSHIDA_W1, YOSHIDA_W0, YOSHIDA_W1 };
+	for (int s = 0; s < 3; s++)
+		if (!leapfrog_substep(B, n, w[s] * dt, S, pn)) { restore_step(B, n, S); return 0; }
+	for (int k = 0; k < n; k++) {
+		const double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0) continue;
+		/* Accept no time when a force-free mover's entire drift disappears. */
+		if (S[k].ax == 0.0 && S[k].ay == 0.0 && S[k].az == 0.0 &&
+			(S[k].old_vel[0] != 0.0 || S[k].old_vel[1] != 0.0 || S[k].old_vel[2] != 0.0) &&
+			b[PX] == S[k].old_pos[0] && b[PY] == S[k].old_pos[1] && b[PZ] == S[k].old_pos[2]) {
+			restore_step(B, n, S); return 0;
+		}
+	}
+	return 1;
+}
+
+/* Illustrative quadrupole-power drag; window, boost and kick cap alter rates. */
+static void apply_gw(double *B, int n, double dt, double boost) {
+	static double G3 = 0.0, C5 = 0.0;
+	if (G3 == 0.0) { G3 = pow(G, 3.0); C5 = pow(C_LIGHT, 5.0); }
+	for (int i = 0; i < n; i++) {
+		double *a = B + i * STRIDE;
+		if (a[ALIVE] == 0.0 || a[EMITSGW] == 0.0) continue;
+		for (int j = i + 1; j < n; j++) {
+			double *b = B + j * STRIDE;
+			if (b[ALIVE] == 0.0 || b[EMITSGW] == 0.0) continue;
+			double rx = b[PX] - a[PX], ry = b[PY] - a[PY], rz = b[PZ] - a[PZ];
+			double r = distance_xyz(rx, ry, rz);
+			double cSum = jor(jor(a[CONTACT], a[RADIUS]), a[RS]) + jor(jor(b[CONTACT], b[RADIUS]), b[RS]);
+			if (r > 400.0 * cSum || r < cSum * 0.5) continue;
+			double vx = b[VX] - a[VX], vy = b[VY] - a[VY], vz = b[VZ] - a[VZ];
+			double m1 = a[MASS], m2 = b[MASS], M = m1 + m2, mu = m1 * m2 / M;
+			/* Physics.apply_gw_reaction: Peters & Mathews instantaneous power. */
+			double v2 = vx * vx + vy * vy + vz * vz;
+			double rdot = (rx * vx + ry * vy + rz * vz) / r;
+			double dEdt = (8.0 / 15.0) * G3 * m1 * m1 * m2 * m2 * (12.0 * v2 - 11.0 * rdot * rdot) / (C5 * pow(r, 4.0)) * boost;
+			double vrelMag = jmax(sqrt(vx * vx + vy * vy + vz * vz), 1e-6);
+			double dragAcc = dEdt / (mu * vrelMag);
+			double maxKick = 0.0025 * vrelMag;
+			if (dragAcc * dt > maxKick) dragAcc = maxKick / dt;
+			double s = 1.0 / vrelMag;
+			vx *= s; vy *= s; vz *= s;
+			double ka = dragAcc * (mu / m1) * dt;
+			double kb = -dragAcc * (mu / m2) * dt;
+			a[VX] += vx * ka; a[VY] += vy * ka; a[VZ] += vz * ka;
+			b[VX] += vx * kb; b[VY] += vy * kb; b[VZ] += vz * kb;
+		}
+	}
+}
+
+/* Physics.apply_secular, operation for operation: winds, Hut's tides, Roche-lobe
+ * overflow. Derivations: docs/physics/secular.md. */
+static const double TIDE_REACH = 200.0;
+static void apply_secular(double *B, int n, double dt) {
+	for (int k = 0; k < n; k++) {
+		double *b = B + k * STRIDE;
+		if (b[ALIVE] == 0.0 || !(b[MDOT] > 0.0)) continue;
+		double dm = jmin(b[MDOT] * dt, 0.001 * b[MASS]);
+		b[MASS] -= dm;
+	}
+	for (int i = 0; i < n; i++) {
+		double *a = B + i * STRIDE;
+		if (a[ALIVE] == 0.0 || !(a[K2] > 0.0) || !(a[LAG] > 0.0) || !(a[RADIUS] > 0.0) || !(a[IOM] > 0.0)) continue;
+		for (int j = 0; j < n; j++) {
+			double *b = B + j * STRIDE;
+			if (j == i || b[ALIVE] == 0.0) continue;
+			double rx = b[PX] - a[PX], ry = b[PY] - a[PY], rz = b[PZ] - a[PZ];
+			double r = distance_xyz(rx, ry, rz);
+			double R = a[RADIUS];
+			if (!(r > R) || r > TIDE_REACH * R) continue;
+			double vx = b[VX] - a[VX], vy = b[VY] - a[VY], vz = b[VZ] - a[VZ];
+			double ux = rx / r, uy = ry / r, uz = rz / r;
+			double rdot = ux * vx + uy * vy + uz * vz;
+			double hx = ry * vz - rz * vy, hy = rz * vx - rx * vz, hz = rx * vy - ry * vx;
+			double h = distance_xyz(hx, hy, hz);
+			double mi = a[MASS], mj = b[MASS];
+			double A = 1.5 * a[K2] * G * mj * mj * pow(R, 5.0) * a[LAG] / pow(r, 7.0);
+			double inv_mu = 1.0 / mi + 1.0 / mj;
+			double fr = -3.0 * A * rdot / r;
+			if (fabs(fr * inv_mu * dt) > 0.5 * fabs(rdot)) fr = -0.5 * rdot / (inv_mu * dt);
+			double tx = 0.0, ty = 0.0, tz = 0.0, ft = 0.0;
+			if (h > 0.0) {
+				double w = a[SPIN] - h / (r * r);
+				ft = A * w;
+				double dW = (r * ft * dt / (mi * a[IOM]) + ft * inv_mu * dt / r);
+				if (fabs(dW) > 0.5 * fabs(w)) ft *= 0.5 * fabs(w) / fabs(dW);
+				/* θ̂ = ĥ × r̂, the direction of orbital motion */
+				tx = (hy * uz - hz * uy) / h; ty = (hz * ux - hx * uz) / h; tz = (hx * uy - hy * ux) / h;
+			}
+			double fx = fr * ux + ft * tx, fy = fr * uy + ft * ty, fz = fr * uz + ft * tz;
+			double kb = dt / mj, ka = dt / mi;
+			b[VX] += fx * kb; b[VY] += fy * kb; b[VZ] += fz * kb;
+			a[VX] -= fx * ka; a[VY] -= fy * ka; a[VZ] -= fz * ka;
+			a[SPIN] -= r * ft * dt / (mi * a[IOM]);
+		}
+	}
+	for (int d = 0; d < n; d++) {
+		double *b = B + d * STRIDE;
+		if (b[ALIVE] == 0.0 || b[DONOR] == 0.0 || !(b[RADIUS] > 0.0)) continue;
+		int best = -1;
+		double pull = 0.0, sep = 0.0;
+		for (int k = 0; k < n; k++) {
+			double *o = B + k * STRIDE;
+			if (k == d || o[ALIVE] == 0.0) continue;
+			double r = distance_xyz(o[PX] - b[PX], o[PY] - b[PY], o[PZ] - b[PZ]);
+			if (!(r > 0.0)) continue;
+			double t = o[MASS] / (r * r * r);
+			if (t > pull) { pull = t; best = k; sep = r; }
+		}
+		if (best < 0) continue;
+		double *a = B + best * STRIDE;
+		/* Eggleton (1983) */
+		double q = b[MASS] / a[MASS];
+		double q13 = pow(q, 1.0 / 3.0), q23 = q13 * q13;
+		double RL = sep * 0.49 * q23 / (0.6 * q23 + log(1.0 + q13));
+		if (!(b[RADIUS] > RL)) continue;
+		/* Hurley, Tout & Pols (2002) eq. 58 */
+		double x = log(b[RADIUS] / RL), mm = jmin(b[MASS], 5.0);
+		double dm = jmin(3e-6 * mm * mm * x * x * x * dt, 0.001 * b[MASS]);
+		double ma = a[MASS] + dm;
+		a[VX] = (a[MASS] * a[VX] + dm * b[VX]) / ma;
+		a[VY] = (a[MASS] * a[VY] + dm * b[VY]) / ma;
+		a[VZ] = (a[MASS] * a[VZ] + dm * b[VZ]) / ma;
+		a[MASS] = ma;
+		b[MASS] -= dm;
+		a[GAINED] += dm;
+		b[SHED] += dm;
+	}
+}
+
+/* Collision / accretion resolution (Physics collisions). */
+static int resolve_collisions(double *B, int n, double *ev, int *limited) {
+	int count = 0;
+	for (int i = 0; i < n; i++) {
+		double *a = B + i * STRIDE;
+		if (a[ALIVE] == 0.0) continue;
+		for (int j = i + 1; j < n; j++) {
+			double *b = B + j * STRIDE;
+			if (b[ALIVE] == 0.0) continue;
+			double dx = b[PX] - a[PX], dy = b[PY] - a[PY], dz = b[PZ] - a[PZ];
+			double d = distance_xyz(dx, dy, dz);
+			double ca = a[ISBH] != 0.0 ? a[RS] : jor(a[CONTACT], a[RADIUS]);
+			double cb = b[ISBH] != 0.0 ? b[RS] : jor(b[CONTACT], b[RADIUS]);
+			if (!isfinite(d) || !isfinite(ca + cb)) { *limited = 1; return count; }
+			if (d > ca + cb) continue;
+			int big = a[MASS] >= b[MASS] ? i : j;
+			int small = big == i ? j : i;
+			double *g = B + big * STRIDE, *s = B + small * STRIDE;
+			double M = g[MASS] + s[MASS];
+			double invM = 1.0 / M, pos[3], vel[3];
+			if (!isfinite(M) || M <= 0.0) { *limited = 1; return count; }
+			for (int c = 0; c < 3; c++) {
+				vel[c] = (g[VX + c] * g[MASS] + s[VX + c] * s[MASS]) * invM;
+				pos[c] = (g[PX + c] * g[MASS] + s[PX + c] * s[MASS]) * invM;
+				if (!isfinite(vel[c]) || !isfinite(pos[c])) { *limited = 1; return count; }
+			}
+			for (int c = 0; c < 3; c++) { g[PX+c] = pos[c]; g[VX+c] = vel[c]; }
+			g[MASS] = M;
+			s[ALIVE] = 0.0;
+			if (count < n) {
+				ev[count * 3 + 0] = (double)big;
+				ev[count * 3 + 1] = (double)small;
+				ev[count * 3 + 2] = d;
+			}
+			count++;
+			if (a[ALIVE] == 0.0) break;
+		}
+	}
+	return count;
+}
+
+void astrarium_nbody(double *A) {
+	int n = (int)A[1];
+	double remaining = A[2], requested = A[9], max_step = A[3], gw = A[4];
+	int secular = A[10] != 0.0;
+	int guard = (int)A[5];
+	double stepped = A[6];
+	int events = 0;
+	double *B = A + NB_HDR;
+	double *ev = A + NB_HDR + n * STRIDE;
+	Scratch *S = (Scratch *)calloc((size_t)(n > 0 ? n : 1), sizeof(Scratch));
+	int limited = 0;
+	if (!isfinite(remaining) || !isfinite(requested) || !isfinite(stepped) || !isfinite(max_step) || !isfinite(gw) || max_step <= 0.0 || !finite_state(B, n)) limited = 1;
+	if (!limited && remaining > 0.0 && guard < STEP_GUARD) events = resolve_collisions(B, n, ev, &limited);
+	while (!limited && events == 0 && remaining > 0.0 && guard < STEP_GUARD) {
+		double h = jmin(jmin(remaining, requested - stepped), dynamic_step(B, n, max_step));
+		if (!isfinite(h) || h <= 0.0 || !isfinite(stepped + h) || stepped + h <= stepped) { limited = 1; break; }
+		if (!integrate(B, n, h, S)) { limited = 1; break; }
+		if (gw != 0.0) apply_gw(B, n, h, gw);
+		if (!finite_state(B, n)) { restore_step(B, n, S); limited = 1; break; }
+		if (secular) apply_secular(B, n, h);
+		guard++;
+		stepped += h;
+		remaining = jmin(remaining - h, requested - stepped);
+		events = resolve_collisions(B, n, ev, &limited);
+	}
+	free(S);
+	A[2] = remaining; A[5] = (double)guard; A[6] = stepped; A[7] = (double)events; A[8] = (double)limited;
+}

@@ -52,6 +52,32 @@ func zonal_native_parity() -> void:
 				samples += 1
 	check("native and script zonal predictions agree byte for byte (%d cases)" % samples, matched)
 
+func transfer_worker(p_e: DVec3, v_e: DVec3, p_m: DVec3, v_m: DVec3) -> void:
+	var sun := body("Sun", 1.0, 695700.0)
+	var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0, p_e, v_e)
+	var mars := body("Mars", 3.227e-7, 3389.5, p_m, v_m)
+	var v := vessel_at(earth, [sun, earth, mars])
+	var search := Mission.TransferSearch.new()
+	var rp := Mission.park_radius(earth)
+	var ra := Mission.park_radius(mars)
+	var pending := Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
+	check("a cold transfer returns pending to the caller", pending.get("pending", false))
+	var ready := false
+	var deadline := Time.get_ticks_msec() + 5000
+	while not ready and Time.get_ticks_msec() < deadline:
+		OS.delay_msec(1)
+		ready = search.poll()
+	check("the transfer worker publishes the completed window", ready)
+	if not ready:
+		search.finish()
+		return
+	var priced := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra, 40, 15, search)
+	Mission._pork_cache.clear()
+	var direct := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra)
+	check("a changed parking radius reprices the worker's arcs and matches the synchronous grid",
+		not priced.is_empty() and not direct.is_empty() and not priced.get("pending", false)
+		and priced.grid == direct.grid and priced.t_dep == direct.t_dep and priced.v_dep.distance_to(direct.v_dep) == 0.0)
+
 func _init() -> void:
 	zonal_native_parity()
 	# Zonal acceleration is minus the gradient of the zonal potential.
@@ -223,6 +249,7 @@ func _init() -> void:
 	var v_me := DVec3.new(-sin(th0), 0.0, cos(th0)).scale_in(sqrt(mu_s * (1.0 + e_m) / rp))
 	var pce := Orbit.porkchop(p_e, v_e, mu_s, p_me, v_me, mu_s, mu_s, deps, tofs, func(a: float, b: float) -> float: return a + b)
 	check("an eccentric Mars moves the best window by days (%.1f d)" % ((pce.best.t_dep - pc.best.t_dep) / 86400.0), absf(pce.best.t_dep - pc.best.t_dep) > 2.0 * 86400.0)
+	transfer_worker(p_e, v_e, p_me, v_me)
 
 	azimuths()
 	aerocapture()

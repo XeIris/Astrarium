@@ -87,52 +87,131 @@ static func window_wait(phase_now: float, want: float, n_dep: float, n_tgt: floa
 	if t < 0.0: t += period
 	return t
 
-# Porkchop results by departure/arrival pair, reused until the clock moves a
-# fiftieth of a synodic period (the planner reprices twice a second).
+# Geometry is valid for a fiftieth of a synodic period. Parking radii affect
+# the ranking only, so a changing vessel orbit can use the same search.
+const TRANSFER_CACHE_LIMIT := 16
 static var _pork_cache := {}
+static var _last_braking: BrakeEstimate
 
-## The cheapest departure in the next synodic period (plus a tenth) from `Pc` to `Dc`
-## about `C`, over flight times from 0.6 to 1.4 Hohmann. With a parking radius at
-## either end, the cost is the burn there (Oberth); otherwise v∞. Returns the
-## porkchop's best cell with t_dep counted from now, plus grid, t_deps and tofs, or {}.
-static func porkchop_window(v: Vessel, Pc: Body, Dc: Body, C: Body, r_park_dep: float, r_park_arr: float,
-		n_dep: int = 40, n_tof: int = 15) -> Dictionary:
-	var muC := _mu(C)
-	var rP := _rel_pos(Pc, C).length()
-	var rD := _rel_pos(Dc, C).length()
-	var h := Orbit.hohmann(muC, rP, rD)
-	var now: float = v.coord
-	var key := "%d:%d:%d" % [Pc.get_instance_id(), Dc.get_instance_id(), C.get_instance_id()]
-	var hit = _pork_cache.get(key)
-	if hit != null and absf(now - float(hit.now)) < float(h.synodic) / 50.0 and hit.rp == r_park_dep and hit.ra == r_park_arr:
-		var shifted: Dictionary = hit.result.duplicate()
-		if not shifted.is_empty(): shifted.t_dep = maxf(float(shifted.t_dep) - (now - float(hit.now)), 0.0)
-		return shifted
+class BrakeEstimate:
+	var inputs: Array
+	var ballistic_coefficient: float
+	var seconds: float
+
+	func solve() -> void:
+		seconds = Mission._aerobrake_time(inputs[0], ballistic_coefficient, inputs[1], inputs[2])
+
+class TransferWindow:
+	var key: String
+	var now: float
+	var mu_dep: float
+	var mu_arr: float
+	var h: Dictionary
 	var t_deps: Array = []
-	var span := float(h.synodic) * 1.1
-	for i in n_dep: t_deps.append(span * float(i) / float(n_dep - 1))
 	var tofs: Array = []
-	for j in n_tof: tofs.append(float(h.tof) * lerpf(0.6, 1.4, float(j) / float(n_tof - 1)))
+	var arcs: PackedFloat64Array
+	var calculate: Callable
+	var priced: Dictionary
+
+	func solve() -> void:
+		arcs = calculate.call()
+		calculate = Callable()
+
+	func price(rp: float, ra: float, coord: float) -> Dictionary:
+		if priced.is_empty() or rp != priced.rp or ra != priced.ra:
+			var cost := func(vd: float, va: float) -> float:
+				var dep := Mission.escape_dv(mu_dep, rp, vd) if rp > 0.0 else vd
+				var arr := Mission.escape_dv(mu_arr, ra, va) if ra > 0.0 else va
+				return dep + arr
+			var pc := Orbit.rank_transfers(arcs, t_deps, tofs, cost)
+			var result: Dictionary = pc.best
+			if not result.is_empty():
+				result.grid = pc.grid; result.t_deps = t_deps; result.tofs = tofs
+				result.hohmann = h
+			priced = {"rp": rp, "ra": ra, "result": result}
+		var shifted: Dictionary = priced.result.duplicate()
+		if not shifted.is_empty(): shifted.t_dep = maxf(float(shifted.t_dep) - (coord - now), 0.0)
+		return shifted
+
+## One map search at a time. Only immutable orbital inputs and the job's own
+## result cross threads. Cache publication and route pricing stay on the caller.
+class TransferSearch:
+	var _id := -1
+	var _job: TransferWindow
+	var _previous: TransferWindow
+	var _braking: BrakeEstimate
+
+	func poll() -> bool:
+		if _id < 0 or not WorkerThreadPool.is_task_completed(_id): return false
+		WorkerThreadPool.wait_for_task_completion(_id)
+		if _job != null and Mission._pork_cache.get(_job.key) == _previous: Mission._store_transfer(_job)
+		if _braking != null: Mission._last_braking = _braking
+		_id = -1
+		_job = null
+		_previous = null
+		_braking = null
+		return true
+
+	func submit(job: TransferWindow, previous: TransferWindow) -> void:
+		if _id >= 0: return
+		_job = job
+		_previous = previous
+		_id = WorkerThreadPool.add_task(job.solve, false, "flight transfer window")
+
+	func submit_braking(job: BrakeEstimate) -> void:
+		if _id >= 0: return
+		_braking = job
+		_id = WorkerThreadPool.add_task(job.solve, false, "flight aerobraking estimate")
+
+	func finish() -> void:
+		if _id < 0: return
+		WorkerThreadPool.wait_for_task_completion(_id)
+		_id = -1
+		_job = null
+		_previous = null
+		_braking = null
+
+static func _store_transfer(job: TransferWindow) -> void:
+	_pork_cache[job.key] = job
+	if _pork_cache.size() > TRANSFER_CACHE_LIMIT: _pork_cache.erase(_pork_cache.keys()[0])
+
+## With a search, a cache miss returns a pending window while the worker solves
+## the grid. Synchronous mission callers receive a completed window.
+static func porkchop_window(v: Vessel, Pc: Body, Dc: Body, C: Body, r_park_dep: float, r_park_arr: float,
+		n_dep: int = 40, n_tof: int = 15, search: TransferSearch = null) -> Dictionary:
+	var muC := _mu(C)
 	var mu_p := _mu(Pc); var mu_d := _mu(Dc)
-	var cost := func(vd: float, va: float) -> float:
-		var cd := escape_dv(mu_p, r_park_dep, vd) if r_park_dep > 0.0 else vd
-		var ca := escape_dv(mu_d, r_park_arr, va) if r_park_arr > 0.0 else va
-		return cd + ca
-	var pc := Orbit.porkchop(_rel_pos(Pc, C), _rel_vel(Pc, C), muC + mu_p, _rel_pos(Dc, C), _rel_vel(Dc, C), muC + mu_d,
-		muC, t_deps, tofs, cost)
-	var result := {}
-	if not pc.best.is_empty():
-		result = pc.best.duplicate()
-		result.grid = pc.grid; result.t_deps = t_deps; result.tofs = tofs
-		result.hohmann = h
-	_pork_cache[key] = {"now": now, "rp": r_park_dep, "ra": r_park_arr, "result": result}
-	return result
+	var now := v.coord
+	var key := "%d:%d:%d:%d:%d" % [Pc.get_instance_id(), Dc.get_instance_id(), C.get_instance_id(), n_dep, n_tof]
+	var hit: TransferWindow = _pork_cache.get(key)
+	if hit != null and absf(now - hit.now) < float(hit.h.synodic) / 50.0:
+		if search != null or hit.priced.is_empty() or (hit.priced.rp == r_park_dep and hit.priced.ra == r_park_arr):
+			return hit.price(r_park_dep, r_park_arr, now)
+
+	var r1 := _rel_pos(Pc, C); var v1 := _rel_vel(Pc, C)
+	var r2 := _rel_pos(Dc, C); var v2 := _rel_vel(Dc, C)
+	var job := TransferWindow.new()
+	job.key = key
+	job.now = now
+	job.mu_dep = mu_p; job.mu_arr = mu_d
+	job.h = Orbit.hohmann(muC, r1.length(), r2.length())
+	var span := float(job.h.synodic) * 1.1
+	for i in n_dep: job.t_deps.append(span * float(i) / float(n_dep - 1))
+	for j in n_tof: job.tofs.append(float(job.h.tof) * lerpf(0.6, 1.4, float(j) / float(n_tof - 1)))
+	job.calculate = Orbit.transfer_arcs.bind(r1, v1, muC + mu_p, r2, v2, muC + mu_d, muC, job.t_deps, job.tofs)
+	if search != null:
+		search.submit(job, hit)
+		return {"pending": true}
+	job.solve()
+	_store_transfer(job)
+	return job.price(r_park_dep, r_park_arr, now)
 
 ## The route from where the vessel is to `dest`, with each leg's Δv and duration, the
 ## propellant it costs and whether the tanks hold it. Keys: ok, flyable, why, case,
 ## type, legs [{key, label, dv, t}], dv, dv_avail, prop, prop_avail, short, wait, tof,
 ## total, r_cap.
-static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dictionary:
+static func plan_route(v: Vessel, target: Body, want: String = "orbit",
+		search: TransferSearch = null, price_window := true) -> Dictionary:
 	var out := {"ok": false, "flyable": false, "why": "", "case": "", "type": "", "legs": [],
 		"dv": 0.0, "dv_avail": v.delta_v_remaining(0.0), "prop": 0.0, "prop_avail": 0.0,
 		"short": 0.0, "wait": 0.0, "tof": 0.0, "total": 0.0, "r_cap": 0.0, "goal": want}
@@ -228,7 +307,13 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		var tof: float = h.tof
 		# The real orbits are eccentric and inclined, so the window and its cost come
 		# from a porkchop of Lambert arcs; the circular Hohmann is the fallback.
-		var pc := porkchop_window(v, Pc, Dc, C, r0 if Pc == P else 0.0, r_cap if Dc == target else 0.0)
+		out.case = "planet" if (Pc == P and Dc == target) else "other"
+		out["primary"] = C
+		var pc := porkchop_window(v, Pc, Dc, C, r0 if Pc == P else 0.0, r_cap if Dc == target else 0.0,
+			40, 15, search) if price_window else {}
+		if pc.get("pending", false):
+			out["pending"] = true
+			return out
 		if not pc.is_empty():
 			v_inf_dep = pc.v_inf_dep; v_inf_arr = pc.v_inf_arr
 			wait = pc.t_dep; tof = pc.tof
@@ -241,7 +326,6 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 		var cap := escape_dv(mu_d, r_cap, v_inf_arr)
 		if Dc != target:
 			cap = escape_dv(_mu(Dc), _rel_pos(target, Dc).length(), v_inf_arr) + escape_dv(mu_d, r_cap, 0.0) * 0.3
-		out.case = "planet" if (Pc == P and Dc == target) else "other"
 		var kind := "Lambert transfer" if out.has("porkchop") else "Hohmann transfer"
 		out.type = "Interplanetary %s" % kind.to_lower() if C.type == "star" else "%s about %s" % [kind, C.name]
 		legs.append({"key": "escape", "label": "Departure burn (escape %s)" % P.name, "dv": dep, "t": wait})
@@ -259,15 +343,17 @@ static func plan_route(v: Vessel, target: Body, want: String = "orbit") -> Dicti
 			# apoapsis down pass by pass, as Magellan, MGS and MRO did.
 			var ra_c := AEROBRAKE_RA * r_cap
 			var cap_e := sqrt(v_inf_arr * v_inf_arr + 2.0 * mu_d / r_cap) - sqrt(mu_d * 2.0 * ra_c / (r_cap * (r_cap + ra_c)))
+			var brake_time := _estimate_braking(dest_env, ballistic(v), r_cap, ra_c, search) if price_window else 0.0
+			if brake_time < 0.0:
+				out["pending"] = true
+				return out
 			legs.append({"key": "capture", "label": "Capture onto a long ellipse", "dv": cap_e, "t": 3600.0})
-			legs.append({"key": "aerobrake", "label": "Aerobrake, then raise the periapsis", "dv": 30.0,
-				"t": aerobrake_estimate(v, target, r_cap, ra_c)})
+			legs.append({"key": "aerobrake", "label": "Aerobrake, then raise the periapsis", "dv": 30.0, "t": brake_time})
 			out["ra_cap"] = ra_c
 			out["aero"] = true
 		else:
 			legs.append({"key": "capture", "label": "Capture into orbit", "dv": cap, "t": 3600.0})
 		out.wait = wait; out.tof = tof
-		out["primary"] = C
 	if want == "land":
 		if dest_env.atm != null:
 			out.why = "Landing through an atmosphere isn't planned yet — the autopilot can take you to orbit"
@@ -739,14 +825,14 @@ const AEROBRAKE_Q := 0.4
 const AEROBRAKE_DONE := 1.15
 
 ## The periapsis radius (m) at which a pass of orbit (rp, ra) peaks at AEROBRAKE_Q.
-static func aerobrake_periapsis(env: Dictionary, ra: float, q := AEROBRAKE_Q) -> float:
+static func aerobrake_periapsis(env: Dictionary, ra: float, q := AEROBRAKE_Q, solar_flux := NAN) -> float:
 	var mu := float(env.mu)
 	var R := float(env.radius)
 	var lo := R; var hi := R + float(env.atm.get("exo", env.atm.top)) * 1.5
 	for i in 50:
 		var rp := 0.5 * (lo + hi)
 		var vp2 := mu * 2.0 * ra / (rp * (rp + ra))
-		if 0.5 * Rocketry.density(env.atm, rp - R) * vp2 > q: lo = rp
+		if 0.5 * Rocketry.density(env.atm, rp - R, solar_flux) * vp2 > q: lo = rp
 		else: hi = rp
 	return 0.5 * (lo + hi)
 
@@ -754,20 +840,40 @@ static func aerobrake_periapsis(env: Dictionary, ra: float, q := AEROBRAKE_Q) ->
 ## Δv = ρ_p·v_p·√(2π·r_p·H)/β at periapsis (an exponential atmosphere's drag integral),
 ## so it is closed form per pass; capped at 5000 passes.
 static func aerobrake_estimate(v: Vessel, b: Body, ra1: float, ra0: float) -> float:
-	var env := Rocketry.flight_env(b)
+	return _estimate_braking(Rocketry.flight_env(b), ballistic(v), ra1, ra0, null)
+
+static func _estimate_braking(env: Dictionary, bc: float, ra1: float, ra0: float, search: TransferSearch) -> float:
+	var physics := {"mu": env.mu, "radius": env.radius, "atm": env.atm, "solar_flux": Rocketry.f107}
+	var inputs := [physics, ra1, ra0]
+	if _last_braking != null and _last_braking.inputs == inputs:
+		var previous := _last_braking.ballistic_coefficient
+		# A preview can use the recent estimate while fuel mass changes between frames.
+		if previous == bc or (search != null and absf(previous - bc) <= 0.001 * bc):
+			return _last_braking.seconds
+	var job := BrakeEstimate.new()
+	job.inputs = [physics.duplicate(true), ra1, ra0]
+	job.ballistic_coefficient = bc
+	if search != null:
+		search.submit_braking(job)
+		return -1.0
+	job.solve()
+	_last_braking = job
+	return job.seconds
+
+static func _aerobrake_time(env: Dictionary, bc: float, ra1: float, ra0: float) -> float:
 	var mu := float(env.mu)
 	var R := float(env.radius)
-	var bc := ballistic(v)
+	var solar_flux := float(env.solar_flux)
 	var ra := ra0
 	var t := 0.0
 	for i in 5000:
 		if ra <= ra1 * AEROBRAKE_DONE: break
-		var rp := aerobrake_periapsis(env, ra)
+		var rp := aerobrake_periapsis(env, ra, AEROBRAKE_Q, solar_flux)
 		var a := 0.5 * (rp + ra)
 		t += TAU * sqrt(a * a * a / mu)
 		var vp := sqrt(mu * 2.0 * ra / (rp * (rp + ra)))
-		var H := Rocketry.scale_height(env.atm, rp - R)
-		var dv := Rocketry.density(env.atm, rp - R) * vp * sqrt(TAU * rp * H) / bc
+		var H := Rocketry.scale_height(env.atm, rp - R, solar_flux)
+		var dv := Rocketry.density(env.atm, rp - R, solar_flux) * vp * sqrt(TAU * rp * H) / bc
 		var e := 0.5 * pow(vp - dv, 2.0) - mu / rp
 		if e >= 0.0 or dv <= 0.0: break
 		ra = 2.0 * (-mu / (2.0 * e)) - rp

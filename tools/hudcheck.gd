@@ -684,6 +684,24 @@ func _interaction_walk() -> void:
 	await _click(main.flight.console.buttons["map"])
 	await _steps(2)
 	check("the console's Map opens the space map and stops the 3D frame", main.space_map.visible and main.pipe.map_open)
+	var map: SpaceMap = main.space_map
+	map._menu_body = main.state.body_named("Mars")
+	map._on_menu(SpaceMap.MENU_ORBIT)
+	check("a cold Mars route shows a pending transfer", map.plan.get("pending", false))
+	map._menu_body = main.state.body_named("Moon")
+	map._on_menu(SpaceMap.MENU_ORBIT)
+	var deadline := Time.get_ticks_msec() + 5000
+	while map._transfer_search._id >= 0 and Time.get_ticks_msec() < deadline:
+		await _steps(1)
+	check("the completed Mars search keeps the selected Moon route in view",
+		map._transfer_search._id < 0 and map.dest.name == "Moon" and map.plan.get("case", "") == "moon")
+	map._menu_body = main.state.body_named("Mars")
+	map._on_menu(SpaceMap.MENU_ORBIT)
+	deadline = Time.get_ticks_msec() + 5000
+	while map.plan.get("pending", false) and Time.get_ticks_msec() < deadline:
+		await _steps(1)
+	check("returning to Mars completes the Lambert route and its estimates",
+		map.plan.has("porkchop") and not map.plan.get("pending", false) and map.plan.get("ok", false))
 	main.close_map()
 	await _steps(1)
 	check("closing the map renders the frame again", not main.space_map.visible and not main.pipe.map_open)

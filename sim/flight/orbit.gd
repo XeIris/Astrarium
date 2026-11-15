@@ -25,21 +25,17 @@ static func stumpff_s(z: float) -> float:
 		return (sinh(s) - s) / (-z * s)
 	return 1.0 / 6.0 - z / 120.0 + z * z / 5040.0
 
-static var _r0 := DVec3.new()
-static var _v0 := DVec3.new()
-
 ## Advance (r, v) by dt on the conic about `mu`, into r_out/v_out (may alias).
 ## Returns false if it didn't converge; the caller then integrates.
 static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_out: DVec3) -> bool:
 	if dt == 0.0:
 		r_out.copy_from(r); v_out.copy_from(v)
 		return true
-	_r0.copy_from(r); _v0.copy_from(v)
-	var r0 := _r0.length()
-	var v0 := _v0.length()
+	var r0 := r.length()
+	var v0 := v.length()
 	if r0 < 1e-6 or not is_finite(r0): return false
 	var sqmu := sqrt(mu)
-	var rdotv := _r0.dot(_v0)
+	var rdotv := r.dot(v)
 	var alpha := 2.0 / r0 - v0 * v0 / mu               # = 1/a; negative ⇒ hyperbolic
 	# A rectilinear conic (h² = μp ≈ 0) runs through the centre: leave it to the integrator.
 	if r0 * r0 * v0 * v0 - rdotv * rdotv <= 1e-12 * mu * r0: return false
@@ -83,8 +79,15 @@ static func propagate(r: DVec3, v: DVec3, mu: float, dt: float, r_out: DVec3, v_
 	var gd := 1.0 - (x * x / r_mag) * C
 	var fd := (sqmu / (r0 * r_mag)) * x * (z * S - 1.0)
 
-	r_out.set_v(f * _r0.x + g * _v0.x, f * _r0.y + g * _v0.y, f * _r0.z + g * _v0.z)
-	v_out.set_v(fd * _r0.x + gd * _v0.x, fd * _r0.y + gd * _v0.y, fd * _r0.z + gd * _v0.z)
+	# Calculate both outputs before writing either, since the arguments can alias.
+	var rx := f * r.x + g * v.x
+	var ry := f * r.y + g * v.y
+	var rz := f * r.z + g * v.z
+	var vx := fd * r.x + gd * v.x
+	var vy := fd * r.y + gd * v.y
+	var vz := fd * r.z + gd * v.z
+	r_out.set_v(rx, ry, rz)
+	v_out.set_v(vx, vy, vz)
 	return is_finite(r_out.x) and is_finite(v_out.x)
 
 # classical elements
@@ -220,32 +223,57 @@ static func time_to_periapsis_any(el: Dictionary, mu: float) -> float:
 ## grid: [[cost or INF per tof] per departure]}.
 static func porkchop(r_dep: DVec3, v_dep: DVec3, mu_dep: float, r_arr: DVec3, v_arr: DVec3, mu_arr: float,
 		mu: float, t_deps: Array, tofs: Array, cost: Callable) -> Dictionary:
-	var grid: Array = []
-	var best := {}
-	var best_cost := INF
+	return rank_transfers(transfer_arcs(r_dep, v_dep, mu_dep, r_arr, v_arr, mu_arr, mu, t_deps, tofs), t_deps, tofs, cost)
+
+const ARC_STRIDE := 5
+
+## Each grid cell holds departure v∞ (xyz and norm), then arrival |v∞|. A failed
+## solve has infinite norms. The worker only needs its orbital snapshot.
+static func transfer_arcs(r_dep: DVec3, v_dep: DVec3, mu_dep: float, r_arr: DVec3, v_arr: DVec3, mu_arr: float,
+		mu: float, t_deps: Array, tofs: Array) -> PackedFloat64Array:
+	var arcs := PackedFloat64Array()
+	arcs.resize(t_deps.size() * tofs.size() * ARC_STRIDE)
+	arcs.fill(INF)
 	var rd := DVec3.new(); var vd := DVec3.new()
 	var ra := DVec3.new(); var va := DVec3.new()
 	var a1 := DVec3.new(); var a2 := DVec3.new()
 	var nrm := DVec3.new()
-	for td in t_deps:
+	for i in t_deps.size():
+		var td := float(t_deps[i])
+		if not propagate(r_dep, v_dep, mu_dep, td, rd, vd): continue
+		nrm.cross_vectors(rd, vd)
+		for j in tofs.size():
+			var tof := float(tofs[j])
+			if not propagate(r_arr, v_arr, mu_arr, td + tof, ra, va): continue
+			if rd.dot(ra) / (rd.length() * ra.length()) < -0.9994: continue
+			if not lambert(rd, ra, tof, mu, nrm, a1, a2): continue
+			var o := (i * tofs.size() + j) * ARC_STRIDE
+			a1.sub_in(vd)
+			arcs[o] = a1.x; arcs[o + 1] = a1.y; arcs[o + 2] = a1.z
+			arcs[o + 3] = a1.length()
+			arcs[o + 4] = a2.sub_in(va).length()
+	return arcs
+
+## Rank cached arcs again if the current parking orbit changes the price.
+static func rank_transfers(arcs: PackedFloat64Array, t_deps: Array, tofs: Array, cost: Callable) -> Dictionary:
+	var grid: Array = []
+	var best := {}
+	var best_cost := INF
+	for i in t_deps.size():
 		var row := PackedFloat64Array()
 		row.resize(tofs.size())
 		row.fill(INF)
-		if propagate(r_dep, v_dep, mu_dep, float(td), rd, vd):
-			nrm.cross_vectors(rd, vd)
-			for j in tofs.size():
-				var tof := float(tofs[j])
-				if not propagate(r_arr, v_arr, mu_arr, float(td) + tof, ra, va): continue
-				if rd.dot(ra) / (rd.length() * ra.length()) < -0.9994: continue
-				if not lambert(rd, ra, tof, mu, nrm, a1, a2): continue
-				var vi_d := a1.clone().sub_in(vd)
-				var vi_a := a2.clone().sub_in(va).length()
-				var c: float = cost.call(vi_d.length(), vi_a)
-				row[j] = c
-				if c < best_cost:
-					best_cost = c
-					best = {"t_dep": float(td), "tof": tof, "v_inf_dep": vi_d.length(), "v_inf_arr": vi_a,
-						"v_dep": vi_d, "cost": c}
+		for j in tofs.size():
+			var o := (i * tofs.size() + j) * ARC_STRIDE
+			var vd := arcs[o + 3]
+			if is_inf(vd): continue
+			var va := arcs[o + 4]
+			var c: float = cost.call(vd, va)
+			row[j] = c
+			if c < best_cost:
+				best_cost = c
+				best = {"t_dep": float(t_deps[i]), "tof": float(tofs[j]), "v_inf_dep": vd, "v_inf_arr": va,
+					"v_dep": DVec3.new(arcs[o], arcs[o + 1], arcs[o + 2]), "cost": c}
 		grid.append(row)
 	return {"best": best, "grid": grid}
 
@@ -348,8 +376,6 @@ static func _zonal_coast_gd(r: DVec3, v: DVec3, mu: float, zonal, span: float, r
 	r_out.set_v(s[0], s[1], s[2]); v_out.set_v(s[3], s[4], s[5])
 	return t if r_stop <= 0.0 else INF
 
-static var _l1 := DVec3.new()
-
 ## Lambert's problem, one revolution: the velocities at r1 and r2 of the conic about
 ## `mu` that joins them in `dt` seconds, turning the way `normal` points (r × v).
 ## Universal variables (Bate, Mueller & White §5.3), solved by bisection on z, since
@@ -360,7 +386,7 @@ static func lambert(r1: DVec3, r2: DVec3, dt: float, mu: float, normal: DVec3, v
 	if R1 <= 0.0 or R2 <= 0.0 or dt <= 0.0: return false
 	var cos_th := DQuat.jclamp(r1.dot(r2) / (R1 * R2), -1.0, 1.0)
 	var th := acos(cos_th)
-	if _l1.cross_vectors(r1, r2).dot(normal) < 0.0: th = 2.0 * PI - th
+	if r1.cross(r2).dot(normal) < 0.0: th = 2.0 * PI - th
 	if absf(1.0 - cos_th) < 1e-12: return false
 	var A := sin(th) * sqrt(R1 * R2 / (1.0 - cos_th))
 	if absf(A) < 1e-9: return false
@@ -368,16 +394,18 @@ static func lambert(r1: DVec3, r2: DVec3, dt: float, mu: float, normal: DVec3, v
 	var y_of := func(z: float) -> float:
 		return R1 + R2 + A * (z * stumpff_s(z) - 1.0) / sqrt(stumpff_c(z))
 	var f_of := func(z: float) -> float:
-		var y: float = y_of.call(z)
-		if y < 0.0: return -INF
 		var C := stumpff_c(z)
-		return pow(y / C, 1.5) * stumpff_s(z) + A * sqrt(y) - sq_mu * dt
+		var S := stumpff_s(z)
+		var y := R1 + R2 + A * (z * S - 1.0) / sqrt(C)
+		if y < 0.0: return -INF
+		return pow(y / C, 1.5) * S + A * sqrt(y) - sq_mu * dt
 	var lo := -4.0 * PI * PI
 	while float(y_of.call(lo)) < 0.0 and lo < 4.0 * PI * PI: lo += 0.25
 	var hi := 4.0 * PI * PI - 1e-6
 	if float(f_of.call(lo)) > 0.0 or float(f_of.call(hi)) < 0.0: return false
 	for i in 90:
 		var mid := (lo + hi) * 0.5
+		if mid == lo or mid == hi: break
 		if float(f_of.call(mid)) < 0.0: lo = mid
 		else: hi = mid
 	var z := (lo + hi) * 0.5

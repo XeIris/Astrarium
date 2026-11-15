@@ -286,7 +286,7 @@ the Jacobi integral E − Ωb Lz holds to 2 × 10⁻⁶, which does not use the 
 
 ### A native kernel
 
-`NBodyKernel.tracers` (`native/astrarium_native.c`) runs the same arithmetic as
+`NBodyKernel.tracers` (`native/galaxy_tracers.c`) runs the same arithmetic as
 `GalTracers._step_fused`, expression for expression, and `galaxycheck` requires the two
 to be bit-identical at every step (an ulp in the work tally can round away again, so
 the end state alone can agree by luck). That needs `-fno-builtin` in

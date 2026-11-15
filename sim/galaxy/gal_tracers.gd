@@ -7,7 +7,7 @@ extends RefCounted
 # work on a tracer, so its invariant is E − W with W = ∫∂Φ/∂t dt, tallied at each
 # kick; without patterns W = 0 and Lz is kept to rounding as well.
 #
-# native/astrarium_native.c (NBodyKernel.tracers) runs the same arithmetic in C
+# native/galaxy_tracers.c (NBodyKernel.tracers) runs the same arithmetic in C
 # and must stay bit-identical to _step_fused; galaxycheck compares them.
 
 ## Fixed step, Myr. A circular orbit at 2 kpc takes ~60 Myr, so ~600 steps.

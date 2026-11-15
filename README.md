@@ -187,16 +187,18 @@ exporting, or the app uses procedural fallbacks.
 ## The native physics kernel
 
 `native/` holds one small GDExtension, written in plain C against Godot's own
-`gdextension_interface.h`. It runs the N-body sub-step loop, the galaxy
-tracers and live encounters, and the flight autopilot's zonal coast predictions.
+`gdextension_interface.h`. It runs the N-body sub-step loop, galaxy tracers and
+encounters, the equilibrium sampler's distribution and speed tables, and the
+flight autopilot's zonal coast predictions.
 Each path has a GDScript fallback. GDScript runs the N-body loop
 ~50–125× slower than the browser's JIT does, and the `solar` scenario needed
 38 ms of physics per frame; the kernel did it in 0.1 ms in that local benchmark.
 `tools/nbodycheck.gd` checks both implementations with strict numerical
 tolerances; timings depend on the scenario and hardware. The universal `.dylib` is **committed
 prebuilt**, so nothing needs compiling to run or export. If it is missing, the
-same GDScript loop runs instead — identical results, just slower. Rebuild after
-editing `astrarium_native.c`:
+same GDScript loop runs instead — identical results, just slower.
+`native/astrarium_native.c` registers the extension. The numerical kernels live
+in separate C files by subsystem. Rebuild after editing a native source:
 ```sh
 native/build.sh                    # needs only Xcode's command line tools
 ```

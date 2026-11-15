@@ -158,11 +158,12 @@ static func thermosphere(th: Dictionary, h: float, t_inf: float, g0: float) -> A
 	return [rho, T]
 
 ## Walk the layer stack to `h`, returning [rho, T].
-static func profile(atm, h: float) -> Array:
+static func profile(atm, h: float, solar_flux := NAN) -> Array:
 	if atm == null: return [0.0, 3.0]
 	if h >= float(atm.get("exo", atm.top)): return [0.0, atm.T0 * 0.55]
-	if f107 > 0.0 and atm.has("thermo") and h >= float(atm.thermo.base):
-		return thermosphere(atm.thermo, h, exospheric_temp(f107, float(atm.thermo.Tref)), float(atm.get("g", G0)))
+	var flux := f107 if is_nan(solar_flux) else solar_flux
+	if flux > 0.0 and atm.has("thermo") and h >= float(atm.thermo.base):
+		return thermosphere(atm.thermo, h, exospheric_temp(flux, float(atm.thermo.Tref)), float(atm.get("g", G0)))
 	var hh := maxf(h, 0.0)
 	var g: float = atm.get("g", G0)
 	var R: float = atm.get("R", INF)
@@ -206,7 +207,7 @@ static func _table_at(rows: Array, h: float) -> Array:
 	var last: Array = rows[rows.size() - 1]
 	return [last[1], last[2]]
 
-static func density(atm, h: float) -> float:     return profile(atm, h)[0]
+static func density(atm, h: float, solar_flux := NAN) -> float: return profile(atm, h, solar_flux)[0]
 static func temperature(atm, h: float) -> float: return profile(atm, h)[1]
 
 ## p = ρRT/M — the ideal gas law, with both inputs coming from the same walk, so
@@ -217,7 +218,7 @@ static func pressure(atm, h: float) -> float:
 	return p[0] * R_GAS * p[1] / atm.molar
 
 ## Local density scale height, m: the natural step size in air.
-static func scale_height(atm, h: float) -> float:
+static func scale_height(atm, h: float, solar_flux := NAN) -> float:
 	if atm == null: return INF
 	var L = null
 	for l in atm.layers:
@@ -228,7 +229,7 @@ static func scale_height(atm, h: float) -> float:
 		var a := _table_at(L.table, h)
 		var b := _table_at(L.table, h + 1000.0)
 		return 1000.0 / maxf(log(a[0] / b[0]), 1e-9)
-	return R_GAS * temperature(atm, h) / (atm.molar * float(atm.get("g", G0)))
+	return R_GAS * float(profile(atm, h, solar_flux)[1]) / (atm.molar * float(atm.get("g", G0)))
 
 static func speed_of_sound(atm, h: float) -> float:
 	if atm == null: return 1e9                          # no medium ⇒ no Mach number

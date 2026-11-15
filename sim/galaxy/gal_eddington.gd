@@ -145,7 +145,7 @@ func _drho_dr(x: float) -> float:
 	if taper > 0.0: return nfw_shape(a, taper).drho_dr(x)
 	return -_rho(x) * (1.0 / x + 3.0 / (x + a))
 
-func _tabulate() -> void:
+func _tabulate(use_native := true) -> void:
 	var scale := maxf(a, taper)
 	for p in parts: scale = maxf(scale, float(p[2]) if p[0] != "nfw" else float(p[3]) + 10.0 * float(p[2]))
 	var lo := log(1e-4 * a)
@@ -161,6 +161,35 @@ func _tabulate() -> void:
 		var drho_dr := _drho_dr(x)
 		var dpsi_dr := -gm_within(x) / (x * x)
 		drho_dpsi[k] = drho_dr / dpsi_dr
+	var row_psi := PackedFloat64Array()
+	row_r.resize(ROWS)
+	row_psi.resize(ROWS)
+	var rlo := log(1e-3 * a)
+	var rhi := log(rmax)
+	for j in ROWS:
+		var x := exp(rlo + (rhi - rlo) * j / (ROWS - 1))
+		row_r[j] = x
+		row_psi[j] = psi_at(x)
+	if use_native and _build_native(drho_dpsi, row_psi): return
+	_build_distribution(drho_dpsi, row_psi)
+
+func _build_native(drho_dpsi: PackedFloat64Array, row_psi: PackedFloat64Array) -> bool:
+	if not ClassDB.class_exists("NBodyKernel") or not ClassDB.class_has_method("NBodyKernel", "galaxy_eddington"):
+		return false
+	var data := PackedFloat64Array([0.0, GRID, ROWS, Q_STEPS])
+	data.append_array(psi)
+	data.append_array(drho_dpsi)
+	data.append_array(row_psi)
+	var output := data.size()
+	data.resize(output + GRID + ROWS * Q_STEPS)
+	data[0] = float(data.size())
+	data = ClassDB.class_call_static("NBodyKernel", "galaxy_eddington", data)
+	if data[0] != 0.0: return false
+	f = data.slice(output, output + GRID)
+	cdf = data.slice(output + GRID)
+	return true
+
+func _build_distribution(drho_dpsi: PackedFloat64Array, row_psi: PackedFloat64Array) -> void:
 	# F(ℰ) = ∫₀^ℰ dρ/dΨ dΨ / √(ℰ − Ψ), dρ/dΨ constant on each interval of the grid and the
 	# square root integrated exactly across it; f(ℰ) ∝ dF/dℰ.
 	var big_f := PackedFloat64Array()
@@ -178,14 +207,9 @@ func _tabulate() -> void:
 		var k1 := mini(k + 1, GRID - 1)
 		f[k] = maxf((big_f[k0] - big_f[k1]) / (psi[k0] - psi[k1]), 0.0)
 	# Speeds: p(q) ∝ q² f(Ψ (1 − q²)) for q = v / v_esc, at ROWS radii out to rmax.
-	row_r.resize(ROWS)
 	cdf.resize(ROWS * Q_STEPS)
-	var rlo := log(1e-3 * a)
-	var rhi := log(rmax)
 	for j in ROWS:
-		var x := exp(rlo + (rhi - rlo) * j / (ROWS - 1))
-		row_r[j] = x
-		var ps := psi_at(x)
+		var ps := row_psi[j]
 		var acc := 0.0
 		var prev := 0.0
 		cdf[j * Q_STEPS] = 0.0
@@ -259,12 +283,16 @@ static func _nfw_radius(shape: NFWShape, m: float) -> float:
 
 func _invert(j: int, u: float) -> float:
 	var o := j * Q_STEPS
-	for q in range(1, Q_STEPS):
-		if cdf[o + q] >= u:
-			var c0 := cdf[o + q - 1]
-			var t := (u - c0) / maxf(cdf[o + q] - c0, 1e-300)
-			return (q - 1 + t) / (Q_STEPS - 1)
-	return 1.0
+	var lo := 1
+	var hi := Q_STEPS
+	while lo < hi:
+		var mid := (lo + hi) >> 1
+		if cdf[o + mid] >= u: hi = mid
+		else: lo = mid + 1
+	if lo == Q_STEPS: return 1.0
+	var c0 := cdf[o + lo - 1]
+	var t := (u - c0) / maxf(cdf[o + lo] - c0, 1e-300)
+	return (lo - 1 + t) / (Q_STEPS - 1)
 
 static func _direction(rng: RandomNumberGenerator) -> Vector3:
 	var z := 2.0 * rng.randf() - 1.0
