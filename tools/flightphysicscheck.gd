@@ -25,7 +25,35 @@ static func node_of(r: DVec3, v: DVec3) -> float:
 	var h := DVec3.new().cross_vectors(r, v)
 	return atan2(h.x, -h.z)
 
+func zonal_native_parity() -> void:
+	if not Orbit.native_zonal_available(): return
+	var samples := 0
+	var matched := true
+	for field in [["Earth", 3.986e14], ["Moon", 4.903e12], ["Mars", 4.283e13], ["Jupiter", 1.267e17]]:
+		var zonal: Dictionary = Rocketry.ZONAL[field[0]]
+		var mu: float = field[1]
+		var r := DVec3.new(1.04 * float(zonal.R), 0.03 * float(zonal.R), 0.01 * float(zonal.R))
+		var speed := sqrt(mu / r.length())
+		var v := DVec3.new(-0.021 * speed, 0.6 * speed, 0.77 * speed)
+		for model in [null, zonal]:
+			for peak in [false, true]:
+				var native := Orbit.zonal_extremes(r, v, mu, model, 4600.25, peak, 7.0)
+				var fallback := Orbit._zonal_extremes_gd(r, v, mu, model, 4600.25, peak, 7.0)
+				matched = matched and native.to_byte_array() == fallback.to_byte_array()
+				samples += 1
+			for target in [0.0, 1.025 * float(zonal.R), 0.1 * float(zonal.R)]:
+				var nr := r.clone(); var nv := v.clone()
+				var gr := r.clone(); var gv := v.clone()
+				var native := Orbit.zonal_coast(nr, nv, mu, model, 3600.125, nr, nv, target, 10.0)
+				var fallback := Orbit._zonal_coast_gd(gr, gv, mu, model, 3600.125, gr, gv, target, 10.0)
+				var n := PackedFloat64Array([native, nr.x, nr.y, nr.z, nv.x, nv.y, nv.z])
+				var g := PackedFloat64Array([fallback, gr.x, gr.y, gr.z, gv.x, gv.y, gv.z])
+				matched = matched and n.to_byte_array() == g.to_byte_array()
+				samples += 1
+	check("native and script zonal predictions agree byte for byte (%d cases)" % samples, matched)
+
 func _init() -> void:
+	zonal_native_parity()
 	# Zonal acceleration is minus the gradient of the zonal potential.
 	for name in ["Earth", "Mars", "Moon"]:
 		var z: Dictionary = Rocketry.ZONAL[name]

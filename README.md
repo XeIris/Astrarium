@@ -187,7 +187,9 @@ exporting, or the app uses procedural fallbacks.
 ## The native physics kernel
 
 `native/` holds one small GDExtension, written in plain C against Godot's own
-`gdextension_interface.h`: the N-body sub-step loop. GDScript runs that loop
+`gdextension_interface.h`. It runs the N-body sub-step loop, the galaxy
+tracers and live encounters, and the flight autopilot's zonal coast predictions.
+Each path has a GDScript fallback. GDScript runs the N-body loop
 ~50–125× slower than the browser's JIT does, and the `solar` scenario needed
 38 ms of physics per frame; the kernel did it in 0.1 ms in that local benchmark.
 `tools/nbodycheck.gd` checks both implementations with strict numerical

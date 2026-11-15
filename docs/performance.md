@@ -524,6 +524,46 @@ Focused lensing was 26.20 ms p95 and Falcon 9 ascent was 20.65 ms p95.
 
 Reports and captures are in `/tmp/astrarium-next-perf/`.
 
+### Native prediction and the remaining render hotspots
+
+On the M5, Medium at 2560×1440 with MetalFX Off, toggling one effect at a time
+gave these whole-frame medians. Each value averages two blocks of 120 draws.
+The X-ray toggle covers the complete lens path, including the spectral sky.
+
+| Scene and effect | Effect present | Hidden |
+| --- | ---: | ---: |
+| Panning X-ray view, lensing | 39.25 ms | 13.50 ms |
+| Falcon 9 at 2.8 km, cloud volume | 29.84 ms | 18.33 ms |
+| Milky Way from the Sun, diffuse light | 9.65 ms | 5.48 ms |
+
+The original CPU probe measured 1.15 ms for an undrawn Falcon 9 ascent frame
+and 2.22 ms for 500 native N-body sub-steps in the eleven-body solar scene.
+CPU-heavy events have different costs. The ascent cutoff and Shuttle deorbit
+planner ask for hundreds of zonal RK4 steps per prediction, so the extension
+now takes a complete prediction in one call. The GDScript path is still used
+where the method is unavailable. The same states and burn solution matched
+byte for byte in paired runs.
+
+| Headless workload | Before | After |
+| --- | ---: | ---: |
+| Apoapsis prediction | 4.95 ms | 0.054 ms |
+| Coast to entry interface | 1.11 ms | 0.013 ms |
+| Shuttle deorbit burn refinement | 127.28 ms | 1.81 ms |
+| Native live encounter, 126,781 particles | 40.87 ms/step | 35.49 ms/step |
+
+Live force groups now accumulate accepted sources during the shared tree walk.
+Potential diagnostics and oversized leaves keep the interaction-list path.
+The native fixture used the same initial state in both directions of an ABBA
+comparison, with all ten cores and 60 timed steps per block. All 63-step
+particle and draw buffers matched exactly. This improves simulation throughput
+on the worker. Frame time in the three rendered cases remains dominated by
+the effects above.
+
+The 10 Gyr encounter replay passed all three gates. Forty coast cases and both
+complete mission replays (Saturn V launch to orbit and Shuttle return to its
+launch site) matched the fallback byte for byte. The evidence is in
+`/tmp/astrarium-native-hunt/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`

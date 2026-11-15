@@ -251,12 +251,31 @@ static func porkchop(r_dep: DVec3, v_dep: DVec3, mu_dep: float, r_arr: DVec3, v_
 
 static var _zr := DVec3.new()
 static var _za := DVec3.new()
+static var _native_zonal := -1
+enum ZonalRequest { EXTREMES, PEAK, COAST }
+
+static func native_zonal_available() -> bool:
+	if _native_zonal < 0:
+		_native_zonal = 1 if ClassDB.class_exists("NBodyKernel") and ClassDB.class_has_method("NBodyKernel", "flight_zonal") else 0
+	return _native_zonal == 1
+
+static func _predict_zonal(r: DVec3, v: DVec3, mu: float, zonal, span: float, h: float, target: float, mode: ZonalRequest) -> PackedFloat64Array:
+	var coefficients: Array = zonal.J if zonal != null else [0.0, 0.0, 0.0, 0.0, 0.0]
+	return ClassDB.class_call_static("NBodyKernel", "flight_zonal", PackedFloat64Array([
+		18.0, mode, mu, float(zonal.R) if zonal != null else 0.0, coefficients[2], coefficients[3], coefficients[4],
+		span, h, target, r.x, r.y, r.z, v.x, v.y, v.z, 0.0, 0.0]))
 
 ## The lowest and highest radius flown, m, over `span` s from (r, v) about `mu` with the
 ## zonal terms `zonal` (a Rocketry.ZONAL entry), by RK4 at `h` s. With `to_peak` it
 ## stops once a rising radius starts to fall: the coming apoapsis. [lo, hi]. Conic elements
 ## miss J2's short-period terms, several km in low orbit.
 static func zonal_extremes(r: DVec3, v: DVec3, mu: float, zonal, span: float, to_peak := false, h := 5.0) -> PackedFloat64Array:
+	if native_zonal_available() and h > 0.0 and is_finite(span):
+		var result := _predict_zonal(r, v, mu, zonal, span, h, 0.0, ZonalRequest.PEAK if to_peak else ZonalRequest.EXTREMES)
+		return result.slice(16)
+	return _zonal_extremes_gd(r, v, mu, zonal, span, to_peak, h)
+
+static func _zonal_extremes_gd(r: DVec3, v: DVec3, mu: float, zonal, span: float, to_peak: bool, h: float) -> PackedFloat64Array:
 	var s := PackedFloat64Array([r.x, r.y, r.z, v.x, v.y, v.z])
 	var k := PackedFloat64Array(); k.resize(24)
 	var tmp := PackedFloat64Array(); tmp.resize(6)
@@ -293,6 +312,14 @@ static func _zonal_step(s: PackedFloat64Array, k: PackedFloat64Array, tmp: Packe
 ## than `h` s, into r_out and v_out. With `r_stop` > 0 it stops where the radius falls
 ## through r_stop instead. Returns the time flown, s; INF if r_stop isn't reached.
 static func zonal_coast(r: DVec3, v: DVec3, mu: float, zonal, span: float, r_out: DVec3, v_out: DVec3, r_stop := 0.0, h := 10.0) -> float:
+	if native_zonal_available() and h > 0.0 and is_finite(span):
+		var result := _predict_zonal(r, v, mu, zonal, span, h, r_stop, ZonalRequest.COAST)
+		r_out.set_v(result[10], result[11], result[12])
+		v_out.set_v(result[13], result[14], result[15])
+		return result[16]
+	return _zonal_coast_gd(r, v, mu, zonal, span, r_out, v_out, r_stop, h)
+
+static func _zonal_coast_gd(r: DVec3, v: DVec3, mu: float, zonal, span: float, r_out: DVec3, v_out: DVec3, r_stop: float, h: float) -> float:
 	var s := PackedFloat64Array([r.x, r.y, r.z, v.x, v.y, v.z])
 	var k := PackedFloat64Array(); k.resize(24)
 	var tmp := PackedFloat64Array(); tmp.resize(6)

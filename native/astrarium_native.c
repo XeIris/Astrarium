@@ -967,14 +967,35 @@ static void lv_push(LvList *L, double x, double y, double z, double m, double e,
 	L->len++;
 }
 
-/* Group g's interaction list: a cell is taken whole when the group's bounding box lies
- * outside its opening sphere, so it would be for every particle in the group. */
-static void lv_list(const LvTree *T, const double *P, int g, LvList *L) {
+typedef struct {
+	double x[LV_GROUP], y[LV_GROUP], z[LV_GROUP], e[LV_GROUP];
+	double ax[LV_GROUP], ay[LV_GROUP], az[LV_GROUP];
+} LvTargets;
+
+static inline void lv_accumulate(LvTargets *B, int k, double cx, double cy, double cz, double gm, double eq) {
+	for (int a = 0; a < k; a++) {
+		double s = B->e[a] > eq ? B->e[a] : eq;
+		double dx = cx - B->x[a], dy = cy - B->y[a], dz = cz - B->z[a];
+		double r2 = dx * dx + dy * dy + dz * dz + s * s;
+		double r = LV_SQRT(r2);
+		double f = gm / (r2 * r);
+		B->ax[a] += f * dx; B->ay[a] += f * dy; B->az[a] += f * dz;
+	}
+}
+
+/* Accept a cell when its opening sphere misses the whole group's box. The order
+ * of accepted sources is also the summation order, with or without a list. */
+static void lv_walk(const LvTree *T, const double *P, int g, LvList *list, LvTargets *targets, double G) {
 	const LvNode *Gn = &T->nodes[g];
 	const double *p0 = P + LV_STRIDE * T->idx[Gn->lo];
 	double lx = p0[0], ly = p0[1], lz = p0[2], hx = p0[0], hy = p0[1], hz = p0[2];
 	for (int q = Gn->lo; q < Gn->hi; q++) {
 		const double *p = P + LV_STRIDE * T->idx[q];
+		if (targets) {
+			int a = q - Gn->lo;
+			targets->x[a] = p[0]; targets->y[a] = p[1]; targets->z[a] = p[2]; targets->e[a] = p[10];
+			targets->ax[a] = 0.0; targets->ay[a] = 0.0; targets->az[a] = 0.0;
+		}
 		if (p[0] < lx) lx = p[0];
 		if (p[0] > hx) hx = p[0];
 		if (p[1] < ly) ly = p[1];
@@ -985,17 +1006,20 @@ static void lv_list(const LvTree *T, const double *P, int g, LvList *L) {
 	int stack[LV_DEPTH * 8 + 8];
 	int sp = 0;
 	stack[sp++] = 0;
-	L->len = 0;
+	int count = Gn->hi - Gn->lo;
+	if (list) list->len = 0;
 	while (sp > 0) {
 		const LvNode *N = &T->nodes[stack[--sp]];
 		double gx = lv_gap(N->cx, lx, hx), gy = lv_gap(N->cy, ly, hy), gz = lv_gap(N->cz, lz, hz);
 		if (gx * gx + gy * gy + gz * gz > N->ropen2) {
-			lv_push(L, N->cx, N->cy, N->cz, N->m, N->eps, -1);
+			if (targets) lv_accumulate(targets, count, N->cx, N->cy, N->cz, G * N->m, N->eps);
+			else lv_push(list, N->cx, N->cy, N->cz, N->m, N->eps, -1);
 		} else if (N->count == 0) {
 			for (int q = N->lo; q < N->hi; q++) {
 				int j = T->idx[q];
 				const double *pj = P + LV_STRIDE * j;
-				lv_push(L, pj[0], pj[1], pj[2], pj[9], pj[10], j);
+				if (targets) lv_accumulate(targets, count, pj[0], pj[1], pj[2], G * pj[9], pj[10]);
+				else lv_push(list, pj[0], pj[1], pj[2], pj[9], pj[10], j);
 			}
 		} else {
 			for (int c = N->count - 1; c >= 0; c--) stack[sp++] = N->first + c;
@@ -1052,9 +1076,23 @@ static void lv_worker_body(LvForces *F) {
 	for (;;) {
 		int g = atomic_fetch_add(&F->next, 1);
 		if (g >= F->ngroups) break;
-		lv_list(F->T, F->P, F->groups[g], &L);
-		if (L.failed) { atomic_store(&F->failed, 1); break; }
-		lv_group(F->T, F->P, F->groups[g], &L, F->G, F->want_phi);
+		int node = F->groups[g];
+		const LvNode *group = &F->T->nodes[node];
+		/* Keep the list for potential diagnostics or a depth-capped leaf that
+		 * needs multiple blocks of targets. Ordinary force groups stream it. */
+		if (!F->want_phi && group->hi - group->lo <= LV_GROUP) {
+			LvTargets targets;
+			lv_walk(F->T, F->P, node, NULL, &targets, F->G);
+			for (int q = group->lo; q < group->hi; q++) {
+				double *p = F->P + LV_STRIDE * F->T->idx[q];
+				int a = q - group->lo;
+				p[6] = targets.ax[a]; p[7] = targets.ay[a]; p[8] = targets.az[a];
+			}
+		} else {
+			lv_walk(F->T, F->P, node, &L, NULL, F->G);
+			if (L.failed) { atomic_store(&F->failed, 1); break; }
+			lv_group(F->T, F->P, node, &L, F->G, F->want_phi);
+		}
 	}
 	free(L.x); free(L.y); free(L.z); free(L.m); free(L.e); free(L.j);
 }
@@ -1205,10 +1243,107 @@ static void step_into(GDExtensionConstTypePtr in, GDExtensionUninitializedTypePt
 	if (dst) fn(dst);
 }
 
+/* Flight prediction, in metres and seconds. Keep operation order with Orbit._zonal_step
+ * and Rocketry.zonal_accel. Guidance makes a whole prediction per call, over hundreds
+ * of RK4 steps, so no per-stage state crosses the extension boundary. */
+enum { FZ_SIZE = 18, FZ_EXTREMES = 0, FZ_PEAK = 1, FZ_COAST = 2 };
+
+static double fz_radius(const double p[3]) {
+	return sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+}
+
+static void fz_accel(const double p[3], double mu, const double field[4], double a[3]) {
+	double r2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+	double g = -mu / (r2 * sqrt(r2));
+	for (int i = 0; i < 3; ++i) a[i] = p[i] * g;
+	if (field[0] == 0.0) return;
+	double x = p[0], y = p[2], z = -p[1];
+	r2 = x * x + y * y + z * z;
+	if (r2 < 1.0) return;
+	double r = sqrt(r2), s = z / r, s2 = s * s;
+	double re_r = field[0] / r;
+	g = mu / r2;
+	double j2 = field[1] * re_r * re_r;
+	double j3 = field[2] * re_r * re_r * re_r;
+	double j4 = field[3] * re_r * re_r * re_r * re_r;
+	double fxy = -g * (1.5 * j2 * (1.0 - 5.0 * s2) + 2.5 * j3 * (3.0 * s - 7.0 * s2 * s)
+		- 1.875 * j4 * (1.0 - 14.0 * s2 + 21.0 * s2 * s2));
+	double fz = -g * (1.5 * j2 * (3.0 - 5.0 * s2) * s + 2.5 * j3 * (6.0 * s2 - 7.0 * s2 * s2 - 0.6)
+		- 1.875 * j4 * s * (5.0 - 70.0 / 3.0 * s2 + 21.0 * s2 * s2));
+	a[0] += fxy * x / r;
+	a[2] += fxy * y / r;
+	a[1] -= fz;
+}
+
+static void fz_step(double s[6], double mu, const double field[4], double h) {
+	double k[4][6];
+	for (int stage = 0; stage < 4; ++stage) {
+		double tmp[6];
+		double f = stage < 3 ? 0.5 : 1.0;
+		for (int i = 0; i < 6; ++i)
+			tmp[i] = s[i] + (stage > 0 ? k[stage - 1][i] * h * f : 0.0);
+		for (int i = 0; i < 3; ++i) k[stage][i] = tmp[i + 3];
+		fz_accel(tmp, mu, field, k[stage] + 3);
+	}
+	for (int i = 0; i < 6; ++i)
+		s[i] += h / 6.0 * (k[0][i] + 2.0 * k[1][i] + 2.0 * k[2][i] + k[3][i]);
+}
+
+/* [length, request, μ, R, J2..4, span, step, stop radius, r xyz, v xyz,
+ * result (time or lowest radius), highest radius]. A zero reference radius
+ * selects a point mass. The coast writes its final state back to the r/v slots. */
+static void run_flight_zonal(double *A) {
+	if (A[0] != FZ_SIZE || !(A[8] > 0.0) || !isfinite(A[7])) return;
+	double mu = A[2], span = A[7], h = A[8], target = A[9];
+	const double *field = A + 3;
+	double *s = A + 10;
+	if (A[1] == FZ_EXTREMES || A[1] == FZ_PEAK) {
+		double prev = fz_radius(s), lo = prev, hi = prev;
+		int rising = 0;
+		for (double steps = ceil(span / h); steps > 0.0; --steps) {
+			fz_step(s, mu, field, h);
+			double radius = fz_radius(s);
+			if (A[1] == FZ_PEAK && rising && radius < prev) break;
+			rising = rising || radius > prev;
+			prev = radius;
+			lo = jmin(lo, radius); hi = jmax(hi, radius);
+		}
+		A[16] = lo; A[17] = hi;
+	} else if (A[1] == FZ_COAST) {
+		double t = 0.0;
+		while (t < span) {
+			double dt = jmin(h, span - t), prev[6];
+			if (target > 0.0) memcpy(prev, s, sizeof prev);
+			fz_step(s, mu, field, dt);
+			if (target > 0.0) {
+				double r1 = fz_radius(s);
+				if (r1 < target) {
+					double r0 = fz_radius(prev);
+					double t1 = dt * (r0 - target) / jmax(r0 - r1, 1e-9);
+					fz_step(prev, mu, field, t1);
+					double rr = fz_radius(prev);
+					double rate = (prev[0] * prev[3] + prev[1] * prev[4] + prev[2] * prev[5]) / rr;
+					if (rate < 0.0) {
+						double t2 = (rr - target) / -rate;
+						fz_step(prev, mu, field, t2);
+						t1 += t2;
+					}
+					memcpy(s, prev, sizeof prev);
+					A[16] = t + t1;
+					return;
+				}
+			}
+			t += dt;
+		}
+		A[16] = target <= 0.0 ? t : INFINITY;
+	}
+}
+
 static int tracer_tag = 1;
 static int libm_tag = 2;
 static int encounter_tag = 3;
 static int live_tag = 4;
+static int flight_zonal_tag = 5;
 
 /* Method userdata selects the kernel: NULL is step2, then the tracers and libm. */
 static void dispatch(void *ud, GDExtensionConstTypePtr in, GDExtensionUninitializedTypePtr out) {
@@ -1216,6 +1351,10 @@ static void dispatch(void *ud, GDExtensionConstTypePtr in, GDExtensionUninitiali
 	else if (ud == &libm_tag) step_into(in, out, run_libm, 5);
 	else if (ud == &encounter_tag) step_into(in, out, run_encounter, EN_HDR);
 	else if (ud == &live_tag) step_into(in, out, run_live, LV_HDR);
+	else if (ud == &flight_zonal_tag) {
+		if (pf64_idx_c(in, FZ_SIZE - 1)) step_into(in, out, run_flight_zonal, FZ_SIZE);
+		else { const GDExtensionConstTypePtr args[1] = { in }; pf64_copy(out, args); }
+	}
 	else step_into(in, out, run, HDR);
 }
 
@@ -1240,7 +1379,7 @@ static void m_call(void *ud, GDExtensionClassInstancePtr inst, const GDExtension
 
 static void free_instance(void *ud, GDExtensionClassInstancePtr inst) { (void)ud; (void)inst; }
 
-static SName sn_class, sn_parent, sn_method, sn_tracers, sn_libm, sn_encounter, sn_live, sn_arg, sn_empty;
+static SName sn_class, sn_parent, sn_method, sn_tracers, sn_libm, sn_encounter, sn_live, sn_flight_zonal, sn_arg, sn_empty;
 
 static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	(void)ud;
@@ -1267,6 +1406,7 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	sn_new(&sn_libm, "libm", 1);
 	sn_new(&sn_encounter, "encounter", 1);
 	sn_new(&sn_live, "live", 1);
+	sn_new(&sn_flight_zonal, "flight_zonal", 1);
 	sn_new(&sn_arg, "state", 1);
 	sn_new(&sn_empty, "", 1);
 
@@ -1307,6 +1447,9 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	reg_method(lib, &sn_class, &mi);
 	mi.name = &sn_live;
 	mi.method_userdata = &live_tag;
+	reg_method(lib, &sn_class, &mi);
+	mi.name = &sn_flight_zonal;
+	mi.method_userdata = &flight_zonal_tag;
 	reg_method(lib, &sn_class, &mi);
 }
 
