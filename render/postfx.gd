@@ -84,15 +84,15 @@ func size() -> Vector2i:
 ## Rebind before freeing: freeing an RD texture a Texture2DRD still wraps frees the
 ## engine's views too ("Attempted to free invalid ID" on every resize).
 func _resize_rt() -> void:
-	# The surface and remap targets are allocated only when those modes are used
-	# (16 bytes per pixel otherwise).
+	# Keep intermediate targets lazy until a pass needs them.
+	var had_hdr := _hdr.is_valid()
 	var had_hdr2 := _hdr2.is_valid()
 	var had_banded := _banded.is_valid()
 	var old: Array[RID] = [_hdr, _final]
 	if had_hdr2: old.append(_hdr2)
 	if had_banded: old.append(_banded)
 	old.append_array(_down); old.append_array(_up)
-	_hdr = RDU.make_tex(_w, _h)
+	_hdr = RDU.make_tex(_w, _h) if had_hdr else RID()
 	_hdr2 = RDU.make_tex(_w, _h) if had_hdr2 else RID()
 	_banded = RDU.make_tex(_w, _h) if had_banded else RID()
 	_final = RDU.make_tex(_w, _h, RDU.RGBA8)
@@ -133,7 +133,7 @@ func _free_rt() -> void:
 ## Run the chain. Render thread only. `inputs`: scene, temp, local (RD RIDs; may be
 ## invalid), local_coverage (optional pre-upscale alpha), glow (optional diffuse
 ## galaxy viewport), mode (0/1/2), use_temp,
-## surface (dispatch(src, dst, w, h) or null),
+## surface (dispatch(src, dst, w, h) or null), capture_hdr (raw composed readback),
 ## time (for grain).
 func render_rt(inputs: Dictionary) -> void:
 	if k_composite == null or not _final.is_valid():
@@ -153,12 +153,16 @@ func render_rt(inputs: Dictionary) -> void:
 	var use_spectral := band != Spectrum.VISIBLE_BAND
 	_ensure_optional_targets(surface != null, use_spectral)
 
-	# 0. compose the HDR buffer (+ temperature in alpha)
-	RDU.dispatch(k_compose, [
-		RDU.u_sampled(0, _sampler, scene), RDU.u_sampled(1, _sampler, temp),
-		RDU.u_sampled(2, _sampler, local), RDU.u_image(3, _hdr)],
-		_w, _h, RDU.pack([inputs.mode, 1.0 if inputs.use_temp else 0.0, 1.0 if glow.is_valid() else 0.0, 1.0 if coverage.is_valid() else 0.0]))
-	var src := _hdr
+	# Bloom and tone mapping only read RGB. A single visible viewport can feed
+	# them directly unless a consumer needs the composed alpha contract.
+	var src := scene
+	if use_spectral or surface != null or glow.is_valid() or int(inputs.mode) == 1 or inputs.capture_hdr:
+		if not _hdr.is_valid(): _hdr = RDU.make_tex(_w, _h)
+		RDU.dispatch(k_compose, [
+			RDU.u_sampled(0, _sampler, scene), RDU.u_sampled(1, _sampler, temp),
+			RDU.u_sampled(2, _sampler, local), RDU.u_image(3, _hdr)],
+			_w, _h, RDU.pack([inputs.mode, 1.0 if inputs.use_temp else 0.0, 1.0 if glow.is_valid() else 0.0, 1.0 if coverage.is_valid() else 0.0]))
+		src = _hdr
 
 	# 0b. the surface view's atmosphere composites over the scene it was given
 	if surface != null:
@@ -200,7 +204,7 @@ func read_final_rt() -> Image:
 	var data := RDU.rd().texture_get_data(_final, 0)
 	return Image.create_from_data(_w, _h, false, Image.FORMAT_RGBA8, data)
 
-## Read the HDR buffer (debug/art checks).
+## Read the composed HDR buffer after a capture_hdr request (debug/art checks).
 func read_hdr_rt() -> Image:
 	var data := RDU.rd().texture_get_data(_hdr, 0)
 	return Image.create_from_data(_w, _h, false, Image.FORMAT_RGBAH, data)

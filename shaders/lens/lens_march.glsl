@@ -10,6 +10,10 @@ layout(local_size_x = 8, local_size_y = 8) in;
 //             log of the disc's luminance-weighted mean temperature (a)
 layout(rgba16f, set = 0, binding = 0) uniform restrict writeonly image2D gMarch0;
 layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D gMarch1;
+layout(r8, set = 0, binding = 3) uniform restrict image2D gDiscMask;
+layout(push_constant, std430) uniform Update { vec4 disc; } update;
+const float BUILD_MASK = 1.0;
+const float REUSE_MASK = 2.0;
 
 #define MAX_HOLES 2
 layout(set = 0, binding = 2, std140) uniform Params {
@@ -125,9 +129,7 @@ float ptTemp(int k, float rM){
 }
 
 // Turbulent density in the co-rotating frame — the strands.
-float discDensity(vec3 p, float rs, float r, float H, float rin){
-	float y = p.y / H;
-	if(abs(y) > 2.6) return 0.0;
+float discDensity(vec3 p, float rs, float r, float y, float rin){
 	float vert = exp(-0.5 * y * y);
 
 	float lr  = log(r / rs);
@@ -251,6 +253,7 @@ void main(){
 	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
 	ivec2 sz = imageSize(gMarch0);
 	if(px.x >= sz.x || px.y >= sz.y) return;
+	if(update.disc.x == REUSE_MASK && imageLoad(gDiscMask, px).r == 0.0) return;
 	// Image row zero and SCREEN_UV are top-down; NDC points up.
 	vec2 vUv = vec2((float(px.x) + 0.5) / float(sz.x), 1.0 - (float(px.y) + 0.5) / float(sz.y));
 	vec2 ndc = vUv * 2.0 - 1.0;
@@ -306,6 +309,7 @@ void main(){
 	vec3 dP = vec3(0.0);
 	vec3 color = vec3(0.0);
 	float trans = 1.0;
+	bool entersDisc = false;
 	float tSum = 0.0, tWeight = 0.0;      // luminance-weighted mean disc temperature
 
 	float maxDiscH[MAX_HOLES];
@@ -381,7 +385,11 @@ void main(){
 			float rin = P.holeSpin[k].y;
 			if(r < rin * rs || r > discOuter * rs) continue;
 			float H = scaleHeight(r, rs);
-			float dens = discDensity(pl, rs, r, H, rin);
+			float y = pl.y / H;
+			if(abs(y) > 2.6) continue;
+			// Time changes turbulence, so even an empty sample can emit later.
+			entersDisc = true;
+			float dens = discDensity(pl, rs, r, y, rin);
 			if(dens <= 0.0015) continue;
 
 			// Redshift from the conserved E = −pₜ and L = p_φ: the gas is on a prograde
@@ -422,4 +430,5 @@ void main(){
 
 	imageStore(gMarch0, px, vec4(color, tr));
 	imageStore(gMarch1, px, vec4(d - rd, Tmean > 1.0 ? log(Tmean) : 0.0));
+	if(update.disc.x == BUILD_MASK) imageStore(gDiscMask, px, vec4(entersDisc ? 1.0 : 0.0));
 }

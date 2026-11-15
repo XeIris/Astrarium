@@ -42,8 +42,8 @@ float cloud_remap(float v, float lo, float hi, float a, float b) {
 }
 
 // The layer's height fraction, 0 at the base and 1 at the top.
-float cloud_hfrac(vec3 pp) {
-	return (length(pp) - uPlanetR - uCloudBase) / (uCloudTop - uCloudBase);
+float cloud_hfrac(float radius) {
+	return (radius - uPlanetR - uCloudBase) / (uCloudTop - uCloudBase);
 }
 
 // Mip level from the pixel footprint `fp` (m) against the texel, since march samples
@@ -55,12 +55,12 @@ float cloud_lod(float fp, float tile, float texels) {
 // COVERAGE at a planet-fixed point (climatology, weather and synoptic systems,
 // thinned over the pad). Split out because it varies over tens of km, so a march
 // from above can reuse it (uCovReuse).
-float cloud_coverage(vec3 pp, float fp) {
+float cloud_coverage(vec3 pp, float radius, float fp) {
 	vec3 q = pp + uCloudWind;
 	// The weather below spreads opaque fraction over the knob as Φ((b − 0.245)/0.246)
 	// (measured by tools/cloudcheck.gd), so b comes from the local probit.
 	// Planet-fixed north is −Y.
-	float phi = asin(clamp(-pp.y / length(pp), -1.0, 1.0));
+	float phi = asin(clamp(-pp.y / radius, -1.0, 1.0));
 	float b = 0.245 + 0.246 * (uCloudZ + cloud_zonal_z(phi, uCloudItcz));
 	// WEATHER: 40 km cells of more and less cloud round the local mean,
 	// so the sky is not the same everywhere you look.
@@ -80,9 +80,7 @@ float cloud_coverage(vec3 pp, float fp) {
 
 // Density (extinction, 1/m) given the coverage. `detail` (0..1) weights the
 // erosion; `fp` is the footprint in metres, for the mip level.
-float cloud_density_cov(vec3 pp, float detail, float fp, float cov) {
-	float hf = cloud_hfrac(pp);
-	if (hf <= 0.0 || hf >= 1.0 || uCloudCoverage <= 0.0) return 0.0;
+float cloud_density_cov(vec3 pp, float hf, float detail, float fp, float cov) {
 	vec3 q = pp + uCloudWind;
 	// PROFILE: flat base in the first 6%, a top rounding off over the upper half; squat
 	// where the weather is thin, towering where it isn't.
@@ -112,9 +110,10 @@ float cloud_density_cov(vec3 pp, float detail, float fp, float cov) {
 }
 
 float cloud_density_fp(vec3 pp, float detail, float fp) {
-	float hf = cloud_hfrac(pp);
+	float radius = length(pp);
+	float hf = cloud_hfrac(radius);
 	if (hf <= 0.0 || hf >= 1.0 || uCloudCoverage <= 0.0) return 0.0;
-	return cloud_density_cov(pp, detail, fp, cloud_coverage(pp, fp));
+	return cloud_density_cov(pp, hf, detail, fp, cloud_coverage(pp, radius, fp));
 }
 
 float cloud_density_pp(vec3 pp, bool detail) {
@@ -129,13 +128,19 @@ float cloud_density(vec3 local, bool detail) {
 // metres. `fp` is the pixel's footprint. `cov` < 0 reads coverage per sample,
 // otherwise it is used throughout.
 float cloud_optical_depth_fp(vec3 local, vec3 dir, int n, float first, float fp, float cov) {
+	if (uCloudCoverage <= 0.0) return 0.0;
 	float od = 0.0;
 	float t = 0.0;
 	float ds = first;
 	for (int i = 0; i < n; i++) {
 		t += ds * 0.5;
 		vec3 pp = cloud_planet(local + dir * t);
-		od += (cov < 0.0 ? cloud_density_fp(pp, 0.0, fp) : cloud_density_cov(pp, 0.0, fp, cov)) * ds;
+		float radius = length(pp);
+		float hf = cloud_hfrac(radius);
+		if (hf > 0.0 && hf < 1.0) {
+			float local_cov = cov < 0.0 ? cloud_coverage(pp, radius, fp) : cov;
+			od += cloud_density_cov(pp, hf, 0.0, fp, local_cov) * ds;
+		}
 		t += ds * 0.5;
 		ds *= 2.0;
 	}

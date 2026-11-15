@@ -149,6 +149,14 @@ func cache_checks() -> void:
 	check("replacement textures are marched even with identical inputs", resized[0].get_data() == initial[0].get_data() and resized[1].get_data() == initial[1].get_data())
 	var advanced := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 1.0)
 	check("advancing disc time refreshes the lens field", advanced[0].get_data() != resized[0].get_data())
+	var selective := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 2.0)
+	check("a disc-only frame reuses the mask and still animates", lens._disc_mask_ready and selective[0].get_data() != advanced[0].get_data())
+	var moved := Basis(Vector3.UP, 0.17)
+	var turned := await march(holes, moved, fov, 1.0, 15.0, 2.0)
+	check("moving the camera invalidates disc coverage", not lens._disc_mask_ready and turned[1].get_data() != selective[1].get_data())
+	var full := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 2.0)
+	check("selective and full updates produce identical fields", full[0].get_data() == selective[0].get_data()
+		and full[1].get_data() == selective[1].get_data())
 
 func hole_count_checks() -> void:
 	var fov := deg_to_rad(60.0)

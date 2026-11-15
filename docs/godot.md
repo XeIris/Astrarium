@@ -84,6 +84,8 @@ display (TextureRect) ← 8-bit composite (PostFX.final_tex)
   radiance before bloom. The main camera draws resolved stars and catalogue
   objects at display resolution. Galaxies with narrow dust rings keep their
   full-resolution glow in the main camera.
+- A single visible viewport feeds bloom and tone mapping directly. Spectral
+  remapping, layered views and HDR captures use the composed buffer.
 - Fullscreen passes are GLSL 450 compute shaders (`#[compute]`, imported as
   `RDShaderFile`), dispatched on the render thread through `RDU`
   (`render/rd_util.gd`). Use `RDU` rather than hand-rolled RD code.

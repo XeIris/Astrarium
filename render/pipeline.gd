@@ -383,6 +383,7 @@ func _post_rt() -> void:
 		"mode": float(mode),
 		"use_temp": use_temp,
 		"surface": surface_pass if mode == Mode.ORRERY else null,
+		"capture_hdr": _pending_capture.any(func(request: Array): return request[1]),
 		"time": time,
 	})
 	if not _pending_capture.is_empty():

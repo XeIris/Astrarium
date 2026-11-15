@@ -9,6 +9,7 @@ const MAX_HOLES := 2
 
 ## Half resolution dispatches one quarter of the display pixels.
 const DEFAULT_LENS_SCALE := 0.5
+enum DiscUpdate { FULL, BUILD_MASK, REUSE_MASK }
 
 var scale := DEFAULT_LENS_SCALE
 var _vw := 1
@@ -17,16 +18,20 @@ var _mw := 1
 var _mh := 1
 var _march0 := RID()
 var _march1 := RID()
+var _disc_mask := RID()
 var _ubo := RID()
 var _kernel: RDU.Kernel
 var _single_pipeline := RID()
 var _marched_params := PackedByteArray()
+var _ray_params := PackedByteArray()
+var _disc_mask_ready := false
 ## Texture2DRDs the background sky shaders sample. Their RIDs are swapped in
 ## place on resize, so a material holding them never needs re-pointing.
 var tex0 := Texture2DRD.new()
 var tex1 := Texture2DRD.new()
 
 const UBO_FLOATS := 4 * (MAX_HOLES * 4 + 6)
+const DISC_TIME_INDEX := MAX_HOLES * 16 + 17
 static var _pt_cache := {}
 
 func _init() -> void:
@@ -65,8 +70,12 @@ func _resize_rt() -> void:
 	if w == _mw and h == _mh and _march0.is_valid():
 		return
 	_marched_params = PackedByteArray()
+	_ray_params = PackedByteArray()
+	_disc_mask_ready = false
 	_mw = w; _mh = h
 	var old0 := _march0; var old1 := _march1
+	RDU.free_rid(_disc_mask)
+	_disc_mask = RID()
 	_march0 = RDU.make_tex(w, h)
 	_march1 = RDU.make_tex(w, h)
 	tex0.texture_rd_rid = _march0
@@ -123,7 +132,7 @@ func dispatch(p: Dictionary) -> void:
 	f[o + 8] = b.z.x; f[o + 9] = b.z.y; f[o + 10] = b.z.z
 	# camPos is zero: the floating origin puts the camera at the origin.
 	f[o + 15] = p.fov
-	f[o + 16] = p.aspect; f[o + 17] = p.time; f[o + 18] = p.disc_intensity; f[o + 19] = p.disc_temp
+	f[o + 16] = p.aspect; f[DISC_TIME_INDEX] = p.time; f[o + 18] = p.disc_intensity; f[o + 19] = p.disc_temp
 	f[o + 20] = p.disc_tpeak_phys; f[o + 21] = p.disc_outer; f[o + 22] = float(mini(holes.size(), MAX_HOLES))
 	var bytes := f.to_byte_array()
 	RenderingServer.call_on_render_thread(_dispatch_rt.bind(bytes, holes.size() == 1))
@@ -134,16 +143,27 @@ func _dispatch_rt(bytes: PackedByteArray, single: bool) -> void:
 	# Both textures depend only on this uniform block and their dimensions.
 	if bytes == _marched_params:
 		return
+	if not _disc_mask.is_valid(): _disc_mask = RDU.make_tex(_mw, _mh, RenderingDevice.DATA_FORMAT_R8_UNORM)
+	# Build the footprint on the first disc-only update after the view settles.
+	# Rays outside it depend on every packed input except time.
+	var rays := bytes.duplicate()
+	rays.encode_u32(DISC_TIME_INDEX * 4, 0)
+	var stationary := rays == _ray_params
+	var disc_mode := DiscUpdate.FULL
+	if stationary: disc_mode = DiscUpdate.REUSE_MASK if _disc_mask_ready else DiscUpdate.BUILD_MASK
 	var dev := RDU.rd()
 	dev.buffer_update(_ubo, 0, bytes.size(), bytes)
-	RDU.dispatch(_kernel, [RDU.u_image(0, _march0), RDU.u_image(1, _march1), RDU.u_ubo(2, _ubo)], _mw, _mh,
-		PackedByteArray(), _single_pipeline if single else RID())
+	RDU.dispatch(_kernel, [RDU.u_image(0, _march0), RDU.u_image(1, _march1), RDU.u_ubo(2, _ubo),
+		RDU.u_image(3, _disc_mask)], _mw, _mh, RDU.pack([disc_mode]), _single_pipeline if single else RID())
 	_marched_params = bytes
+	_ray_params = rays
+	_disc_mask_ready = stationary
 
 func release() -> void:
 	RenderingServer.call_on_render_thread(func():
 		# empty the wrappers first: see PostFX._resize_rt
 		tex0.texture_rd_rid = RID(); tex1.texture_rd_rid = RID()
 		RDU.free_rid(_march0); RDU.free_rid(_march1); RDU.free_rid(_ubo)
+		RDU.free_rid(_disc_mask)
 		RDU.free_rid(_single_pipeline)
 		if _kernel: _kernel.release())

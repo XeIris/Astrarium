@@ -485,6 +485,45 @@ Quality. Focused lensing had the highest p95 at 19.83 ms. Ascent was 13.90 ms.
 comparisons. The default perf configuration forces Off. Probe reports and
 captures are in `/tmp/astrarium-metalfx/`.
 
+### Reusing the lens field and avoiding redundant render work
+
+When only disc time changes, the lens reuses rays whose paths stayed outside
+every emitting slab. It builds the coverage mask at the first disc-only
+update after the view settles, and invalidates it when any other packed input
+or the field size changes. About 33% of rays were reused in the focused view.
+Both RGBA16F outputs matched a full march byte for byte. The temperature pass
+evaluates sky radiance only where it can compete with disc emission, with the
+neighbouring derivative lanes included at the disc edge. The temperature
+buffers matched the full calculation byte for byte in 16 same-frame views,
+covering X-ray and infrared at two distances during a pan.
+
+The ordinary visible scene and the craft studio feed their HDR textures
+directly into bloom and tone mapping. Captures of the solar scene, the studio,
+and paused lensing were byte-identical with and without the compose copy.
+The cloud marcher shares the planet radius and height fraction between
+coverage and density. The frozen surface, pad, and in-cloud captures all
+matched exactly. A prototype that advanced the geometric march with repeated
+multiplication changed isolated cloud pixels and was discarded.
+
+The Apple M5 trials used 2560×1440 output, Medium quality and MetalFX Off.
+Numbers average two block medians in each configuration.
+
+| Change and scene | Before | After |
+| --- | ---: | ---: |
+| Temperature pass, wide infrared | 40.77 ms | 37.41 ms |
+| Temperature pass, wide X-ray pan | 42.65 ms | 39.53 ms |
+| Temperature pass, focused X-ray | 39.24 ms | 36.92 ms |
+| Disc-only update, focused black hole | 21.61 ms | 20.61 ms |
+| Disc-only update, wider black hole | 21.43 ms | 20.75 ms |
+| Direct HDR input, craft studio | 5.90 ms | 4.21 ms |
+| Direct HDR input, visible Solar System | 5.62 ms | 5.49 ms |
+| Shared sampling geometry inside clouds | 30.87 ms | 30.60 ms |
+
+Medium with MetalFX Quality passed the 18-case Metal gate at 3024×1964.
+Focused lensing was 26.20 ms p95 and Falcon 9 ascent was 20.65 ms p95.
+
+Reports and captures are in `/tmp/astrarium-next-perf/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`

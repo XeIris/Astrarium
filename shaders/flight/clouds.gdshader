@@ -47,9 +47,10 @@ float hg(float c, float g) {
 // and of the sky reach there: x the direct sun, cut by the planet's shadow (the sun is
 // up to √(2h/R) below the horizon at height h); y the twilight sky, as the dome's.
 vec3 cloud_daylight(vec3 p) {
-	vec3 up = normalize(vec3(p.x, p.y + uPlanetR, p.z));
-	float mu = dot(up, uSunDir);
-	float h = max(length(vec3(p.x, p.y + uPlanetR, p.z)) - uPlanetR, 0.0);
+	vec3 from_center = vec3(p.x, p.y + uPlanetR, p.z);
+	float radius = length(from_center);
+	float mu = dot(from_center / radius, uSunDir);
+	float h = max(radius - uPlanetR, 0.0);
 	float dip = sqrt(2.0 * h / uPlanetR);
 	return vec3(smoothstep(-dip - 0.015, -dip + 0.03, mu), clamp(mu * 2.0 + 0.25, 0.0, 1.0), mu);
 }
@@ -74,12 +75,13 @@ float seg_end(int i, float j, float t0, float base, float lr, float n, float t1)
 // itself when a segment isn't refined.
 float probe(vec3 ro, vec3 rd, float t, out float cov) {
 	vec3 pp = cloud_planet(ro + rd * t);
-	float hf = cloud_hfrac(pp);
+	float radius = length(pp);
+	float hf = cloud_hfrac(radius);
 	cov = 0.0;
 	if (hf <= 0.0 || hf >= 1.0) return 0.0;
 	float fp = t * uPixAngle;
-	cov = cloud_coverage(pp, fp);
-	return cloud_density_cov(pp, uDetail, fp, cov);
+	cov = cloud_coverage(pp, radius, fp);
+	return cloud_density_cov(pp, hf, uDetail, fp, cov);
 }
 
 void fragment() {
@@ -159,7 +161,7 @@ void fragment() {
 			vec3 p = ro + rd * ts;
 			vec3 pp = cloud_planet(p);
 			float fp = ts * uPixAngle;
-			float hf = cloud_hfrac(pp);
+			float hf = cloud_hfrac(length(pp));
 			if (hf <= 0.0 || hf >= 1.0) continue;
 			float sigma;
 			float cov = c_cur;
@@ -167,7 +169,7 @@ void fragment() {
 			else {
 				// the coverage varies over tens of km: a refined segment's
 				// sub-steps share the probe's
-				sigma = cloud_density_cov(pp, uDetail, fp, cov);
+				sigma = cloud_density_cov(pp, hf, uDetail, fp, cov);
 			}
 			if (sigma <= 0.0) continue;
 			// light: optical depth toward the sun, single scattering, one octave and the
