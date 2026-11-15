@@ -559,10 +559,10 @@ particle and draw buffers matched exactly. This improves simulation throughput
 on the worker. Frame time in the three rendered cases remains dominated by
 the effects above.
 
-The 10 Gyr encounter replay passed all three gates. Forty coast cases and both
-complete mission replays (Saturn V launch to orbit and Shuttle return to its
-launch site) matched the fallback byte for byte. The evidence is in
-`/tmp/astrarium-native-hunt/`.
+The 10 Gyr encounter replay passed all three gates. Forty zonal predictions
+matched the fallback byte for byte. The full Saturn V launch and Shuttle
+return had the same end-state digests and frame counts on both paths. The
+evidence is in `/tmp/astrarium-native-hunt/`.
 
 ## Check suite time
 
