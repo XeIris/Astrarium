@@ -88,6 +88,8 @@ float cloud_density_cov(vec3 pp, float detail, float fp, float cov) {
 	// where the weather is thin, towering where it isn't.
 	float top = mix(0.45, 1.0, clamp(cov * 1.3 - 0.1, 0.0, 1.0));
 	float profile = smoothstep(0.0, 0.06, hf) * (1.0 - smoothstep(top * 0.55, top, hf));
+	// The normalized shape can only lower the profile before the coverage threshold.
+	if (profile <= 1.0 - cov) return 0.0;
 	// SHAPE: Perlin lifted by big inverted-Worley cells into turrets, turned against the
 	// weather grid so the tilings don't align.
 	vec3 s = CLOUD_TURN * q * (1.0 / 6200.0);

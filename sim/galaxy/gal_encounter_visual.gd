@@ -66,23 +66,25 @@ func _init(tags: PackedByteArray, lights: Array) -> void:
 	stars.custom_aabb = AABB(Vector3(-1e6, -1e6, -1e6), Vector3(2e6, 2e6, 2e6))
 	group.add_child(stars)
 
-## Per frame: the stars' texture from a float32 (x, y, z, tag) block, the camera, the gain.
-func update(bytes: PackedByteArray, cam: DVec3, fov_rad: float, viewport_h: float, star_gain: float) -> void:
+## Publish the completed worker batch's float32 (x, y, z, tag) block.
+func upload_snapshot(bytes: PackedByteArray) -> void:
+	if count == 0 or bytes.size() != 16 * count: return
+	var rows := ceili(float(count) / float(TEX_W))
+	var b := bytes
+	if b.size() < 16 * TEX_W * rows:
+		b = b.duplicate()
+		b.resize(16 * TEX_W * rows)
+	var img := Image.create_from_data(TEX_W, rows, false, Image.FORMAT_RGBAF, b)
+	if tex == null:
+		tex = ImageTexture.create_from_image(img)
+		mat.set_shader_parameter("uPos", tex)
+	else:
+		tex.update(img)
+
+func update(cam: DVec3, fov_rad: float, viewport_h: float, star_gain: float) -> void:
 	var pix := 2.0 * tan(fov_rad * 0.5) / maxf(viewport_h, 1.0)
 	var gain := GalaxyVisual.K * star_gain * exposure
 	last_gain = gain
-	if bytes.size() == 16 * count and count > 0:
-		var rows := int(ceil(float(count) / float(TEX_W)))
-		var b := bytes
-		if b.size() < 16 * TEX_W * rows:
-			b = b.duplicate()
-			b.resize(16 * TEX_W * rows)
-		var img := Image.create_from_data(TEX_W, rows, false, Image.FORMAT_RGBAF, b)
-		if tex == null or tex.get_height() != rows:
-			tex = ImageTexture.create_from_image(img)
-			mat.set_shader_parameter("uPos", tex)
-		else:
-			tex.update(img)
 	stars.visible = show_stars and tex != null
 	mat.set_shader_parameter("uCam", Vector3(cam.x, cam.y, cam.z))
 	mat.set_shader_parameter("uGain", gain / (4.0 * PI))

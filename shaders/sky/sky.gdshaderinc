@@ -597,6 +597,9 @@ vec2 sky_cacheUV(float face, vec2 g){
 //            solid angle, and the pair carries the anisotropy
 //   D        the observer's Doppler factor (sky_doppler), 1.0 with no boost
 vec3 skyRadianceD(vec3 dir, vec3 ddx_in, vec3 ddy_in, float D){
+	// The intergalactic environment leaves visible emission to the scene's galaxies.
+	if (uVisibleBand > 0.5 && uStarDensity == 0.0 && uGlow == 0.0 && uBulge == 0.0
+	    && uHii == 0.0 && uRefl == 0.0 && uGalaxies == 0.0) return vec3(0.0);
 	vec3 total = vec3(0.0);
 	vec3 ddx = ddx_in;
 	vec3 ddy = ddy_in;

@@ -166,6 +166,8 @@ func measure(label: String, action := Callable()) -> void:
 	for i in 90:
 		stage.animate(get_process_delta_time() if m5_native else 1.0 / 60.0)
 		await RenderingServer.frame_post_draw
+	var lens_time: float = stage._lens_time
+	var galaxy_time: float = stage.galaxy.t_myr
 	var animate_ms := []
 	var action_ms := []
 	var render_cpu_ms := []
@@ -224,8 +226,14 @@ func measure(label: String, action := Callable()) -> void:
 		printerr("PERFCHECK frame budget exceeded: ", label)
 	if label.begins_with("lens-"):
 		var hole: Body = stage.state.bodies.filter(func(b: Body): return b.type == "bh")[0]
-		row["lens"] = {"camera_radius_scene": stage.cam.radius, "horizon_scene": hole.rs_scene, "following": stage.state.follow_id == hole.id}
-		if label == "lens-focus" and (stage.state.follow_id != hole.id or stage.cam.radius > 8.0 * hole.rs_scene): failures += 1
+		row["lens"] = {"camera_radius_scene": stage.cam.radius, "horizon_scene": hole.rs_scene,
+			"following": stage.state.follow_id == hole.id, "advanced_years": stage._lens_time - lens_time}
+		if label.begins_with("lens-focus") and (stage.state.follow_id != hole.id or stage.cam.radius > 8.0 * hole.rs_scene): failures += 1
+		if label in ["lens-wide", "lens-focus"] and row.lens.advanced_years <= 0.0: failures += 1
+		if label == "lens-focus-paused" and row.lens.advanced_years != 0.0: failures += 1
+	if stage.galaxy.active:
+		row["galaxy"] = {"advanced_myr": stage.galaxy.t_myr - galaxy_time,
+			"target_myr_per_simulated_second": 0.0 if stage.state.paused else stage.galaxy.rate}
 	if label.begins_with("flight-"):
 		row["flight"] = {"phase": stage.flight.vessel.phase, "met_s": stage.flight.vessel.met,
 			"altitude_m": stage.flight.vessel.altitude()}
@@ -330,11 +338,14 @@ func _ready() -> void:
 	stage.set_panel_open("xsecPanel", false)
 	stage.load_preset("sandbox")
 	if not stage.state.bodies.any(func(b: Body): return b.type == "bh"): failures += 1
+	stage.state.paused = false
 	await measure("lens-wide")
 	var hole: Body = stage.state.bodies.filter(func(b: Body): return b.type == "bh")[0]
 	stage.set_follow(hole)
 	await measure("lens-focus")
 	if m5_native and not report.is_empty(): await capture_frame("native-lens-focus")
+	stage.state.paused = true
+	await measure("lens-focus-paused")
 	# The galactic scene, its clock running: the tracers step every frame while the glow
 	# is marched over the whole frame, from outside and from the solar neighbourhood.
 	stage.load_preset("gal_milkyway")

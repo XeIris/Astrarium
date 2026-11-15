@@ -550,19 +550,27 @@ static void run_tracers(double *A) {
 	double *vel = pos + 3 * n;
 	double *work = vel + 3 * n;
 	int has_tab = tn > 0;
-	/* Per step and pattern: growth, its rate, and the pattern's angle terms. */
-	double *G = (double *)calloc((size_t)k * (size_t)np * 4 + 1, sizeof(double));
+	/* Share the pattern's phase, growth and shape terms across all tracers. */
+	const int terms = 6;
+	double *G = (double *)calloc((size_t)k * (size_t)np * (size_t)terms + 1, sizeof(double));
 	if (!G) return;
 	for (int s = 0; s < k; s++) {
 		double tm = t_start + (steps0 + (double)s + 0.5) * dt;
 		for (int j = 0; j < np; j++) {
 			const double *P = A + TR_PAT + TR_PSTRIDE * j;
 			double ang = P[2] + P[1] * tm;
-			double *g = G + (s * np + j) * 4;
+			double *g = G + (s * np + j) * terms;
 			g[0] = tr_growth(P, tm);
 			g[1] = tr_growth_rate(P, tm);
-			if (P[0] == 0.0) { g[2] = cos(2.0 * ang); g[3] = sin(2.0 * ang); }
-			else { g[2] = ang; g[3] = 0.0; }
+			if (P[0] == 0.0) {
+				g[2] = cos(2.0 * ang);
+				g[3] = sin(2.0 * ang);
+				g[4] = P[6] * P[6] * P[6];
+			} else {
+				g[2] = ang;
+				g[4] = sin(P[7]);
+				g[5] = tan(P[7]);
+			}
 		}
 	}
 	for (int i = 0; i < n; i++) {
@@ -617,7 +625,7 @@ static void run_tracers(double *A) {
 			double dphidt = 0.0;
 			for (int j = 0; j < np; j++) {
 				const double *P = A + TR_PAT + TR_PSTRIDE * j;
-				const double *gg = G + (s * np + j) * 4;
+				const double *gg = G + (s * np + j) * terms;
 				double gs = gg[0];
 				if (gs == 0.0 && gg[1] == 0.0) continue;
 				double R2 = x * x + z * z;
@@ -625,7 +633,7 @@ static void run_tracers(double *A) {
 				if (P[0] == 0.0) {
 					/* Dehnen bar: Φ = A Q h(r), Q = (x² − z²) cos 2φb + 2xz sin 2φb, h = g(r)/r². */
 					if (r < 1e-9) continue;
-					double rb = P[6], rb3 = rb * rb * rb, c2 = gg[2], s2 = gg[3];
+					double rb = P[6], rb3 = gg[4], c2 = gg[2], s2 = gg[3];
 					double Q = (x * x - z * z) * c2 + 2.0 * x * z * s2;
 					double hh, dh;
 					if (r >= rb) { hh = -rb3 / (r2 * r2 * r); dh = 5.0 * rb3 / (r2 * r2 * r2); }
@@ -641,7 +649,7 @@ static void run_tracers(double *A) {
 				} else {
 					/* Cox & Gómez spiral, one term. */
 					if (R < 1e-6) continue;
-					double nn = P[6], sa = sin(P[7]), ta = tan(P[7]), r0 = P[8], rs = P[9], H = P[10];
+					double nn = P[6], sa = gg[4], ta = gg[5], r0 = P[8], rs = P[9], H = P[10];
 					double K = nn / (R * sa);
 					double dK = -K / R;
 					double q = K * H;

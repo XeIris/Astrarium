@@ -6,8 +6,10 @@ settles for 90 rendered frames before collecting 180 samples. It records median,
 p95 and maximum for the stage call, any edit action, viewport rendering CPU/GPU
 times and visible primitives. Render-thread timestamps measure each compute
 shader dispatch separately, including repeated bloom mip passes.
-Cases cover the solar system, idle/continuous editing, lensing, two studio
-distances with two LOD biases, and an authored Falcon 9 on the pad and in ascent.
+Cases cover the solar system, idle/continuous editing, running and paused lensing,
+five galaxy views and a live encounter, two studio distances with two LOD biases,
+and an authored Falcon 9 on the pad and in ascent. Lens and galaxy rows record
+how far their simulation clocks advanced during sampling.
 Flight rows record phase, elapsed mission seconds and altitude; prelaunch,
 landed and destroyed phases cannot pass the ascent case. Reports identify the actual
 rendering driver and method, including command-line overrides.
@@ -315,6 +317,68 @@ alternating before/after twice, 35.22, 35.40 / 32.36, 31.90 ms before and 35.26,
 33.80 / 31.70, 32.17 ms after. No difference beyond the run-to-run spread. Evidence:
 `tools/evidence/gaps/perf/` in that worktree. Repeat on an idle machine before
 reading these against the budget.
+
+## Frame-time survey
+
+Godot 4.7.2 Forward+, Apple M5 on AC, Medium quality and a 2560×1440 scene target.
+Each row uses 90 warmup and 120 sampled draws with VSync off. Metal reports wall
+intervals between draws and main-thread `animate` time. It reports zero GPU
+timestamps. The separate 1280×720 Vulkan run provides GPU timings through
+MoltenVK and emitted a pipeline-cache serialization diagnostic.
+
+| Scene | Baseline median / p95 | Optimized median / p95 |
+|---|---:|---:|
+| Focused lens, paused | 24.59 / 26.54 ms | 10.87 / 11.43 ms |
+| Focused lens, running | 24.50 / 31.82 ms | 24.55 / 32.09 ms |
+| Focused lens, paused X-ray | 43.32 / 44.73 ms | 29.93 / 30.49 ms |
+| Milky Way, whole | 14.29 / 14.53 ms | 9.06 / 9.45 ms |
+| Milky Way, from the Sun | 21.32 / 21.51 ms | 17.83 / 18.13 ms |
+| Milky Way, 300 pc from the Sun | 21.35 / 21.48 ms | 17.30 / 17.67 ms |
+| M51, whole | 14.01 / 14.48 ms | 9.20 / 9.57 ms |
+| M51, viewed from 8 kpc | 18.45 / 18.60 ms | 13.61 / 14.03 ms |
+
+The lens reuses its output for identical packed inputs, including disc time.
+The visible intergalactic background has zero emission. Its fast path skips
+the point-source and diffuse sky evaluation, including occasional spurious
+point sources from zero-valued hashes at zero density. At 300 pc, hiding the galaxy glow
+in the baseline lowered the median from 21.35 to 7.01 ms. Resolved stars made
+little difference in that view. The remaining cost is the per-pixel glow march.
+
+The broad survey also measured Earth surface 24.75 ms, Falcon 9 ascent 22.50 ms,
+Observatory 11.34 ms and the running solar preset 5.64 ms. A separate ground
+probe attributed roughly 8 ms to drawing clouds at the surface and on the pad.
+The cloud shader now rejects samples whose vertical profile is too low to hold
+cloud even at maximum shape density. In same-process ABBA blocks of 150 draws,
+the two block medians averaged 18.47 → 16.10 ms on the Earth surface and
+21.85 → 20.43 ms on the Falcon 9 pad. The surface captures matched exactly.
+
+Headless, 6,000 Milky Way tracers took 0.438 → 0.396 ms for one native step and
+2.359 → 2.206 ms for a six-step batch after sharing pattern constants. The live
+126,781-particle encounter took 43–46 ms per 1 Myr step on all ten cores, versus
+58–59 ms with six threads and 72 ms with four. Its worker controls simulation
+throughput separately from frame cadence. The renderer uploads each completed
+snapshot once (about 0.9 MiB for 58,250 luminous particles).
+
+The 3024×1964 Low-based native gate passed all 18 cases, with a worst p95 of
+27.32 ms in moving focused lensing. At the same resolution, Medium missed the
+33.33 ms budget in moving focused lensing (37.55 ms p95) and Falcon 9 ascent
+(36.27 ms p95). The revised harness explicitly advances the lens clock in its
+running cases. Both native runs drew the live encounter above 240 mean FPS
+while its simulation advanced at about 18 Myr per wall second against a request
+of 100. Their captured timestamp labels show lens dispatches for the running
+cases and none after paused warmup.
+
+For the next renderer experiment, isolate diffuse galaxy glow and clouds into
+scalable targets. Compare depth-aware upsampling at horizons, thin dust lanes
+and in motion. Keep lens field scale independent of the output sky so the arcs
+retain their analytic point sources. For faster live evolution, profile tree
+construction and interaction-list evaluation separately before changing their
+data layout. Preserve the current forces, timestep and summation order in any
+native comparison. The current Apple Silicon compiler already vectorizes the
+double-precision force loop.
+
+Evidence from the survey is in `/tmp/astrarium-nov-perf/` and the local probes
+are under ignored `tools/evidence/nov-frame-time/`.
 
 ## Check suite time
 

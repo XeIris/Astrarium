@@ -36,8 +36,8 @@ func shadow_edge(img: Image, dx: int, dy: int) -> float:
 	return INF
 
 # outer = 0 leaves no disc: with spin, the ISCO falls inside 3 r_s.
-func march(holes: Array, basis: Basis, fov: float, intensity := 0.0, outer := 0.0) -> Array:
-	lens.dispatch({"holes": holes, "basis": basis, "fov": fov, "aspect": 1.0, "time": 0.0,
+func march(holes: Array, basis: Basis, fov: float, intensity := 0.0, outer := 0.0, time := 0.0) -> Array:
+	lens.dispatch({"holes": holes, "basis": basis, "fov": fov, "aspect": 1.0, "time": time,
 		"disc_intensity": intensity, "disc_temp": 0.5, "disc_tpeak_phys": 1e7, "disc_outer": outer})
 	await RenderingServer.frame_post_draw
 	RenderingServer.call_on_render_thread(read_pixels)
@@ -125,6 +125,7 @@ func _ready() -> void:
 		check("horizon %s far ray escapes" % rs, images[0].get_pixel(384, 256).a == 1.0)
 		print("LENSCHECK WEAK rs=%s measured_rad=%s expected_rad=%s" % [rs, measured, expected])
 	await kerr_checks()
+	await cache_checks()
 	lens.release()
 	await RenderingServer.frame_post_draw
 	var errors := logger.take()
@@ -133,6 +134,20 @@ func _ready() -> void:
 	OS.remove_logger(logger)
 	print("LENSCHECK DONE checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(1 if failures else 0)
+
+func cache_checks() -> void:
+	var holes := [{"pos": Vector3(0, 0, -7), "rs": 1.0, "spin": 0.5}]
+	var fov := deg_to_rad(60.0)
+	var initial := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0)
+	var steady := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0)
+	check("identical inputs retain both lens fields", steady[0].get_data() == initial[0].get_data() and steady[1].get_data() == initial[1].get_data())
+	lens.set_size(256, 256)
+	await RenderingServer.frame_post_draw
+	lens.set_size(512, 512)
+	var resized := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0)
+	check("replacement textures are marched even with identical inputs", resized[0].get_data() == initial[0].get_data() and resized[1].get_data() == initial[1].get_data())
+	var advanced := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 1.0)
+	check("advancing disc time refreshes the lens field", advanced[0].get_data() != resized[0].get_data())
 
 func kerr_checks() -> void:
 	# A distant static observer in the disc plane (M = 0.5 scene units, R = 4000 M):

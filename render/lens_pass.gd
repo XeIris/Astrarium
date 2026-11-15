@@ -19,6 +19,7 @@ var _march0 := RID()
 var _march1 := RID()
 var _ubo := RID()
 var _kernel: RDU.Kernel
+var _marched_params := PackedByteArray()
 ## Texture2DRDs the background sky shaders sample. Their RIDs are swapped in
 ## place on resize, so a material holding them never needs re-pointing.
 var tex0 := Texture2DRD.new()
@@ -57,6 +58,7 @@ func _resize_rt() -> void:
 	var h := maxi(1, int(round(_vh * scale)))
 	if w == _mw and h == _mh and _march0.is_valid():
 		return
+	_marched_params = PackedByteArray()
 	_mw = w; _mh = h
 	var old0 := _march0; var old1 := _march1
 	_march0 = RDU.make_tex(w, h)
@@ -121,11 +123,15 @@ func dispatch(p: Dictionary) -> void:
 	RenderingServer.call_on_render_thread(_dispatch_rt.bind(bytes))
 
 func _dispatch_rt(bytes: PackedByteArray) -> void:
-	if _kernel == null or not _kernel.valid():
+	if _kernel == null or not _kernel.valid() or not _march0.is_valid() or not _march1.is_valid():
+		return
+	# Both textures depend only on this uniform block and their dimensions.
+	if bytes == _marched_params:
 		return
 	var dev := RDU.rd()
 	dev.buffer_update(_ubo, 0, bytes.size(), bytes)
 	RDU.dispatch(_kernel, [RDU.u_image(0, _march0), RDU.u_image(1, _march1), RDU.u_ubo(2, _ubo)], _mw, _mh)
+	_marched_params = bytes
 
 func release() -> void:
 	RenderingServer.call_on_render_thread(func():

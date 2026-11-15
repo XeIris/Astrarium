@@ -63,7 +63,7 @@ var _enc_task := -1
 var _enc_step_ms := 1.0
 var _enc_batch := 0
 var _enc_t0 := 0
-var _enc_bytes := PackedByteArray()
+var _enc_pending_draw := PackedByteArray()
 var _enc_centre := DVec3.new()
 var _enc_live_n := 0
 const ENCOUNTER_BATCH_MS := 33.0
@@ -204,7 +204,7 @@ func _enc_snapshot() -> void:
 		c.add_scaled_in(DVec3.from_v3(e.centre(i)), e.orbits.gm[i])
 		m += e.orbits.gm[i]
 	_enc_centre = c.scale_in(1.0 / m)
-	_enc_bytes = e.draw_bytes
+	_enc_pending_draw = e.draw_bytes
 	_enc_live_n = e.live.n if e.is_live() else 0
 	t_myr = e.time()
 
@@ -297,6 +297,7 @@ func leave() -> void:
 	for nb in neighbours: nb.visual.dispose()
 	neighbours = []
 	wait_encounter()
+	_enc_pending_draw = PackedByteArray()
 	if enc_visual != null: enc_visual.dispose()
 	enc_visual = null
 	encounter = null
@@ -426,7 +427,10 @@ func _advance_encounter(dt: float) -> float:
 ## Per frame, after the camera: place and update the drawing.
 func update(dt: float) -> void:
 	if active and enc_visual != null:
-		enc_visual.update(_enc_bytes, stage.cam_pos, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain())
+		if not _enc_pending_draw.is_empty():
+			enc_visual.upload_snapshot(_enc_pending_draw)
+			_enc_pending_draw = PackedByteArray()
+		enc_visual.update(stage.cam_pos, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain())
 		_hud_acc += dt
 		if _hud_acc >= 0.25:
 			_hud_acc = 0.0
