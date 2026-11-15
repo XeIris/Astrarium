@@ -219,16 +219,23 @@ screen, and don't minimize them or leave their Space. The fullscreen M5 gates
 reject `--background`. Select additional suites,
 for example `python3 tools/check.py fast native assets rendered lifecycle export`.
 The runner retains child logs and a JSON report, rejects errors, timeouts and
-missing completion markers, and starts nothing new after the first failure.
+missing completion markers, and starts nothing new after the first failure
+(`--keep-going` runs the rest and still exits 1).
 Use `--godot` to select an engine and `--log-dir` to retain results at a chosen location.
 Every check reports its wall and CPU seconds; the run ends with a table, slowest
 first, and `--compare /abs/old/report.json` flags any check over 1.25× and 5 s
 slower than in that report. `--list` prints the plan without running it.
 `--jobs N` runs up to N independent checks at once (default: the performance-core
-count; `--jobs 1` runs them one after another). Each keeps its own log and timeout,
-the longest start first, and results print and enter the report in suite order.
-Nothing runs beside the `fast` import, a windowed check in `rendered` (they make
-each other's Metal fences time out) or any check in `perf`, `m5-*`, `stability*`,
+count; `--jobs 1` runs them one after another). Each keeps its own log and timeout.
+Checks that usually take under ten seconds start first, so a broken precondition
+(a worktree without its authored models) fails in the first moments; then the
+longest. Results print and enter the report in suite order, the import first.
+The windowed checks in `rendered` take turns, one window at a time (they make
+each other's Metal fences time out), while headless checks run beside them; the
+window is one process more than `--jobs`, since it mostly waits on the GPU.
+`encounterlivecheck` would take every core; beside other checks it is told to use
+the ones `--jobs` leaves (`threads=`), which does not change its forces.
+Nothing runs beside the `fast` import or any check in `perf`, `m5-*`, `stability*`,
 `export` and `clean`; the `lifecycle` checks (one process per soak feature, plus
 the leak and shutdown checks) run beside each other only. Other checks' logged
 timings are taken under concurrent load. Separate `check.py` runs do not
@@ -253,6 +260,15 @@ missions only when the change can alter flight:
   `CHANGED_RULES` in `tools/check.py`. Documentation selects nothing; a path no
   rule covers selects `dev`. Add suites to narrow it (`--changed flight`). A run
   that selects nothing exits 1, since nothing was verified.
+- `--changed` does not rerun a check that has already passed on the same inputs.
+  Every pass is recorded against the working tree it ran on (uncommitted files
+  included), the check's command, the engine and the generated models. A selected
+  check is skipped, with a `CACHED` line naming that tree, when nothing
+  `CHANGED_RULES` maps to it differs from a tree it passed on: after a fix only
+  the checks the fix touches run again, and a merge whose result is the tree
+  already checked reruns nothing. The records are shared by every worktree of the
+  clone. `--fresh` runs every selected check; naming suites without `--changed`
+  always runs them.
 - Missions are judged on their flown state, so they run headless and undrawn:
   `main.set_drawn(false, false)` steps physics, structural events and what physics
   reads, and skips body visuals, markers, trails, the HUD, plumes, smoke and the

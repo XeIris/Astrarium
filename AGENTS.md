@@ -211,7 +211,9 @@ Checks and the `tools/check.py` suite runner are listed in
 [README.md](README.md#verifying). Run the ones that cover your change, by
 default through the fast path: `python3 tools/check.py --changed` (its mapping
 is `CHANGED_RULES`; update it when you add a check or subsystem), or `dev`
-(under a minute) while iterating. Replay whole missions (`flight`) only when the
+(under a minute) while iterating. `--changed` skips a check that already passed
+on inputs the mapping calls unchanged and prints it as `CACHED`; that is a pass.
+Use `--fresh` only when a result depends on something outside the tree. Replay whole missions (`flight`) only when the
 change can alter flight physics, guidance, staging or dropped stages. For a
 visual before/after, fast-forward to the moment (`ff=alt:…|t:…|event:…`) or
 shoot a whole fxlab matrix in one process instead of flying in real time.

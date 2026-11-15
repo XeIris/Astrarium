@@ -347,6 +347,39 @@ headless keeps them off the GPU when checks run in parallel. Beside another
 process's windowed checks, skycachecheck hit Metal fence timeouts or hung in both
 builds; alone it passed five of five runs in each.
 
+Every suite a change can select (`assets procedural dev fast encounters native flight
+rendered lifecycle`, 110 checks, Apple M5 on AC, 4 jobs, `--background`):
+
+| | wall | check CPU |
+|---|---|---|
+| windowed checks alone in the run, as `--changed origin/main` ran 10–13 November | 33–35 min | not kept |
+| windowed checks in a lane beside the headless ones, undrawn flights without presentation | 22.4 min | 7518 s |
+| and `encounterlivecheck` on the cores the jobs leave, `observatorylookcheck` drawing only a settle's last frames | 19.8 min | 7294 s |
+
+The windowed lane used 0.6 of a core on average, so it runs as one process more than
+`--jobs`. An undrawn flight that skips the plumes, smoke and cameras flies about a
+third faster (launch_orbit 142 → 107 s, lunar_landing 116 → 103 s beside three other
+jobs).
+
+`encounterlivecheck` on every core ran 500 s (3485 s of CPU) and the three checks
+beside it got half a core each (orbiter_home 789 s wall for 449 s of CPU, orbiter_return
+588 for 251, scenariocheck 628 for 290). On the six cores four jobs leave it runs 603 s
+and its neighbours keep theirs (orbiter_home 554 s for 517 s, some of it on efficiency
+cores); its readings are the same to the last digit. A change outside `sim/galaxy/`
+does not select it.
+
+`observatorylookcheck` drew 600 frames before each of twenty captures so the sky's
+gains could ease; they ease on the stage's clock, so it now steps the stage and draws
+the last 30 frames: 238 → 36 s in the run, every reading unchanged. The other long
+windowed checks do not wait on frames: `galaxylookcheck` (194 s) and `hud-layout`
+(47 s) are CPU-bound, and the look checks wait on `ClimateLook`'s real-time ease.
+
+The headless queue now ends after the lane (the lane 633 s, the queue 850 s), so
+what is left is the missions' own cost.
+
+Low Power Mode (the default on battery) about doubles a CPU-bound check:
+launch_orbit alone took 267 s in it against 142 s on AC beside three other jobs.
+
 Why `rendered` draws one window at a time and floats it (`2fb0a0a`, Apple M5, 4 jobs).
 Two separate failures, each of which a run can hit:
 
