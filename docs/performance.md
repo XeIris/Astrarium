@@ -564,6 +564,41 @@ matched the fallback byte for byte. The full Saturn V launch and Shuttle
 return had the same end-state digests and frame counts on both paths. The
 evidence is in `/tmp/astrarium-native-hunt/`.
 
+## Spectral sky redraws
+
+Ordinary procedural stars in X-ray and gamma contribute below HDR precision
+at the supported spectral settings and typical Doppler factors. Both sky
+draws skip their cluster and point-source calculations there. The compact
+sources and supernova remnants now reject impossible hash candidates before
+projecting their directions.
+
+Panning past the Sandbox black hole at 15 rendered horizon radii on Apple M5,
+Medium, Metal, MetalFX Off, and a 2560×1440 scene target. Each entry is the mean
+of two 90-frame block medians, alternating the original and revised shaders
+in ABBA order.
+
+| Band | Before | After |
+| --- | ---: | ---: |
+| X-ray | 39.42 ms | 21.83 ms |
+| Gamma | 38.73 ms | 21.21 ms |
+| Infrared | 37.77 ms | 33.90 ms |
+| Visible | 21.71 ms | 21.81 ms |
+
+At a 3024×1964 scene target, X-ray went from 59.94 to 33.58 ms with the same
+setup. These are wall-clock frame times. GPU timestamps in a separate
+1280×720 Vulkan run put the X-ray colour viewport at 4.37 → 1.29 ms, the
+temperature viewport at 4.16 → 1.56 ms, and the ray march at 2.95 → 2.92 ms.
+
+Final RGB pixels matched the previous shader exactly in nine `skycachecheck`
+scenes. A same-frame comparison of the temperature buffers also matched byte
+for byte across X-ray, gamma and infrared, at two distances and four poses each.
+
+A depth-aware prototype rendered flight clouds at two-thirds resolution on
+each axis. At 2.8 km on the Falcon 9 ascent it took the 2560×1440 frame from
+30.59 to 24.05 ms. Visible sampling bands and Metal texture binding errors
+on scale transitions kept the prototype out of the game. The captures and
+timing logs are in `/tmp/astrarium-spectral-cloud/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`
