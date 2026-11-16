@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include "kernels.h"
+#include "workers.h"
 
 /* Galactic tracers (sim/galaxy/gal_tracers.gd is the GDScript twin; the two
  * must stay bit-identical, so every expression keeps its order there).
@@ -12,6 +13,9 @@
  * ×3 and ×1. Work accumulates ∫∂Φ/∂t dt, so E − W is each tracer's invariant. */
 #define TR_AXIS 8
 #define TR_PSTRIDE 12
+#define TR_TERMS 6
+#define TR_WORKERS 4
+#define TR_PARALLEL_MIN 24000
 
 static double log_cosh(double x) {
 	double a = fabs(x);
@@ -34,14 +38,17 @@ static double tr_growth_rate(const double *P, double t) {
 	return (15.0 / 16.0 * pow(xi, 4.0) - 15.0 / 8.0 * xi * xi + 15.0 / 16.0) * 2.0 / tg;
 }
 
-void astrarium_galaxy_tracers(double *A) {
+typedef struct {
+	double *data;
+	const double *growth;
+	int start, end;
+} TracerBatch;
+
+static void tr_integrate(const TracerBatch *batch) {
+	double *A = batch->data;
+	const double *G = batch->growth;
 	int n = (int)A[1], k = (int)A[2], np = (int)A[5], tn = (int)A[6];
-	/* The buffer is exactly its header's counts long, or nothing is touched. */
-	long long need = TR_PAT + (long long)TR_PSTRIDE * np + 2LL * tn + 7LL * n;
-	if (n < 0 || k < 0 || np < 0 || tn < 0 || need != (long long)A[0]) return;
-	double dt = A[3], t_start = A[4], h = dt * 0.5;
-	/* A step's time from its index, so it does not depend on how steps are batched. */
-	double steps0 = A[7];
+	double dt = A[3], h = dt * 0.5;
 	const double *X = A + TR_AXIS;
 	double mn_gm = X[0], mn_a = X[1], mn_b2 = X[2];
 	double s1_gm = X[3], s1_a = X[4], s2_gm = X[6], s2_a = X[7];
@@ -53,30 +60,7 @@ void astrarium_galaxy_tracers(double *A) {
 	double *vel = pos + 3 * n;
 	double *work = vel + 3 * n;
 	int has_tab = tn > 0;
-	/* Share the pattern's phase, growth and shape terms across all tracers. */
-	const int terms = 6;
-	double *G = (double *)calloc((size_t)k * (size_t)np * (size_t)terms + 1, sizeof(double));
-	if (!G) return;
-	for (int s = 0; s < k; s++) {
-		double tm = t_start + (steps0 + (double)s + 0.5) * dt;
-		for (int j = 0; j < np; j++) {
-			const double *P = A + TR_PAT + TR_PSTRIDE * j;
-			double ang = P[2] + P[1] * tm;
-			double *g = G + (s * np + j) * terms;
-			g[0] = tr_growth(P, tm);
-			g[1] = tr_growth_rate(P, tm);
-			if (P[0] == 0.0) {
-				g[2] = cos(2.0 * ang);
-				g[3] = sin(2.0 * ang);
-				g[4] = P[6] * P[6] * P[6];
-			} else {
-				g[2] = ang;
-				g[4] = sin(P[7]);
-				g[5] = tan(P[7]);
-			}
-		}
-	}
-	for (int i = 0; i < n; i++) {
+	for (int i = batch->start; i < batch->end; i++) {
 		int c = i * 3;
 		double x = pos[c], y = pos[c + 1], z = pos[c + 2];
 		double vx = vel[c], vy = vel[c + 1], vz = vel[c + 2];
@@ -128,7 +112,7 @@ void astrarium_galaxy_tracers(double *A) {
 			double dphidt = 0.0;
 			for (int j = 0; j < np; j++) {
 				const double *P = A + TR_PAT + TR_PSTRIDE * j;
-				const double *gg = G + (s * np + j) * terms;
+				const double *gg = G + (s * np + j) * TR_TERMS;
 				double gs = gg[0];
 				if (gs == 0.0 && gg[1] == 0.0) continue;
 				double R2 = x * x + z * z;
@@ -191,6 +175,65 @@ void astrarium_galaxy_tracers(double *A) {
 		pos[c] = x; pos[c + 1] = y; pos[c + 2] = z;
 		vel[c] = vx; vel[c + 1] = vy; vel[c + 2] = vz;
 		work[i] = w;
+	}
+}
+
+static WORKER_RETURN tr_worker(void *arg) {
+	tr_integrate((const TracerBatch *)arg);
+	return WORKER_DONE;
+}
+
+void astrarium_galaxy_tracers(double *A) {
+	int n = (int)A[1], k = (int)A[2], np = (int)A[5], tn = (int)A[6];
+	/* The buffer is exactly its header's counts long, or nothing is touched. */
+	long long need = TR_PAT + (long long)TR_PSTRIDE * np + 2LL * tn + 7LL * n;
+	if (n < 0 || k < 0 || np < 0 || tn < 0 || need != (long long)A[0]) return;
+	double dt = A[3], t_start = A[4];
+	/* A step's time from its index, so it does not depend on how steps are batched. */
+	double steps0 = A[7];
+	/* Share the pattern's phase, growth and shape terms across all tracers. */
+	double *G = (double *)calloc((size_t)k * (size_t)np * (size_t)TR_TERMS + 1, sizeof(double));
+	if (!G) return;
+	for (int s = 0; s < k; s++) {
+		double tm = t_start + (steps0 + (double)s + 0.5) * dt;
+		for (int j = 0; j < np; j++) {
+			const double *P = A + TR_PAT + TR_PSTRIDE * j;
+			double ang = P[2] + P[1] * tm;
+			double *g = G + (s * np + j) * TR_TERMS;
+			g[0] = tr_growth(P, tm);
+			g[1] = tr_growth_rate(P, tm);
+			if (P[0] == 0.0) {
+				g[2] = cos(2.0 * ang);
+				g[3] = sin(2.0 * ang);
+				g[4] = P[6] * P[6] * P[6];
+			} else {
+				g[2] = ang;
+				g[4] = sin(P[7]);
+				g[5] = tan(P[7]);
+			}
+		}
+	}
+	/* One tracer owns its state for the entire batch. Use spare cores when
+	 * that work can pay for creating workers, including its pattern forces. */
+	int threads = 1;
+	if (n >= 64 && (double)n * k * (np + 1.0) >= TR_PARALLEL_MIN) {
+		threads = worker_cores();
+		if (threads > TR_WORKERS) threads = TR_WORKERS;
+	}
+	TracerBatch slices[TR_WORKERS];
+	WorkerThread workers[TR_WORKERS - 1];
+	int started[TR_WORKERS - 1];
+	for (int i = 0; i < threads; i++) {
+		slices[i] = (TracerBatch){A, G, (int)((long long)i * n / threads),
+			(int)((long long)(i + 1) * n / threads)};
+	}
+	for (int i = 0; i < threads - 1; i++) {
+		started[i] = worker_start(&workers[i], tr_worker, &slices[i]);
+	}
+	tr_integrate(&slices[threads - 1]);
+	for (int i = 0; i < threads - 1; i++) {
+		if (started[i]) worker_join(workers[i]);
+		else tr_integrate(&slices[i]);
 	}
 	free(G);
 }

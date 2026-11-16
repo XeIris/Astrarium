@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "kernels.h"
+#include "workers.h"
 
 /* Live galaxies: every particle pulls on every other through a Barnes–Hut octree of
  * monopole cells with Plummer softening, kick–drift–kick at a fixed step.
@@ -20,12 +21,6 @@
  * and the force loop vectorises around it. */
 #define LV_SQRT __builtin_sqrt
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <pthread.h>
-#include <unistd.h>
-#endif
 #include <stdatomic.h>
 
 typedef struct {
@@ -150,7 +145,7 @@ typedef struct {
 	double *P;
 	double G;
 	const int *groups;
-	int ngroups, want_phi;
+	int ngroups, want_phi, claim;
 	atomic_int next;
 	atomic_int failed;
 } LvForces;
@@ -163,8 +158,11 @@ static void lv_groups(const LvTree *T, int nd, int *out, int *count) {
 	for (int c = 0; c < N->count; c++) lv_groups(T, N->first + c, out, count);
 }
 
+/* Distance from a source coordinate to the group's interval. */
 static double lv_gap(double c, double lo, double hi) {
-	return c < lo ? lo - c : (c > hi ? c - hi : 0.0);
+	double left = lo - c, right = c - hi;
+	double gap = left > right ? left : right;
+	return gap > 0.0 ? gap : 0.0;
 }
 
 /* An interaction list, gathered: each source's position, mass, softening and particle
@@ -301,44 +299,37 @@ static void lv_worker_body(LvForces *F) {
 	LvList L;
 	memset(&L, 0, sizeof L);
 	for (;;) {
-		int g = atomic_fetch_add(&F->next, 1);
-		if (g >= F->ngroups) break;
-		int node = F->groups[g];
-		const LvNode *group = &F->T->nodes[node];
-		/* Keep the list for potential diagnostics or a depth-capped leaf that
-		 * needs multiple blocks of targets. Ordinary force groups stream it. */
-		if (!F->want_phi && group->hi - group->lo <= LV_GROUP) {
-			LvTargets targets;
-			lv_walk(F->T, F->P, node, NULL, &targets, F->G);
-			for (int q = group->lo; q < group->hi; q++) {
-				double *p = F->P + LV_STRIDE * F->T->idx[q];
-				int a = q - group->lo;
-				p[6] = targets.ax[a]; p[7] = targets.ay[a]; p[8] = targets.az[a];
+		int begin = atomic_fetch_add_explicit(&F->next, F->claim, memory_order_relaxed);
+		if (begin >= F->ngroups) break;
+		int end = begin + F->claim;
+		if (end > F->ngroups) end = F->ngroups;
+		for (int g = begin; g < end; g++) {
+			int node = F->groups[g];
+			const LvNode *group = &F->T->nodes[node];
+			/* Keep the list for potential diagnostics or a depth-capped leaf that
+			 * needs multiple blocks of targets. Ordinary force groups stream it. */
+			if (!F->want_phi && group->hi - group->lo <= LV_GROUP) {
+				LvTargets targets;
+				lv_walk(F->T, F->P, node, NULL, &targets, F->G);
+				for (int q = group->lo; q < group->hi; q++) {
+					double *p = F->P + LV_STRIDE * F->T->idx[q];
+					int a = q - group->lo;
+					p[6] = targets.ax[a]; p[7] = targets.ay[a]; p[8] = targets.az[a];
+				}
+			} else {
+				lv_walk(F->T, F->P, node, &L, NULL, F->G);
+				if (L.failed) { atomic_store(&F->failed, 1); goto done; }
+				lv_group(F->T, F->P, node, &L, F->G, F->want_phi);
 			}
-		} else {
-			lv_walk(F->T, F->P, node, &L, NULL, F->G);
-			if (L.failed) { atomic_store(&F->failed, 1); break; }
-			lv_group(F->T, F->P, node, &L, F->G, F->want_phi);
 		}
 	}
+done:
 	free(L.x); free(L.y); free(L.z); free(L.m); free(L.e); free(L.j);
 }
 
-#ifdef _WIN32
-static DWORD WINAPI lv_worker(LPVOID arg) { lv_worker_body((LvForces *)arg); return 0; }
-#else
-static void *lv_worker(void *arg) { lv_worker_body((LvForces *)arg); return NULL; }
-#endif
-
-static int lv_cores(void) {
-#ifdef _WIN32
-	SYSTEM_INFO si;
-	GetSystemInfo(&si);
-	return (int)si.dwNumberOfProcessors;
-#else
-	long c = sysconf(_SC_NPROCESSORS_ONLN);
-	return c > 0 ? (int)c : 1;
-#endif
+static WORKER_RETURN lv_worker(void *arg) {
+	lv_worker_body((LvForces *)arg);
+	return WORKER_DONE;
 }
 
 /* Forces on every particle from a fresh tree; returns the threads used, or 0 when an
@@ -355,22 +346,18 @@ static int lv_forces(double *P, int n, double theta, double G, int want_phi, int
 	F.T = &T; F.P = P; F.G = G; F.groups = groups; F.ngroups = ng; F.want_phi = want_phi;
 	atomic_init(&F.next, 0);
 	atomic_init(&F.failed, 0);
-	int nt = threads > 0 ? threads : lv_cores();
+	int nt = threads > 0 ? threads : worker_cores();
 	if (nt > 64) nt = 64;
 	if (nt > ng) nt = ng;
 	if (nt < 1) nt = 1;
-#ifdef _WIN32
-	HANDLE th[64];
-	for (int t = 1; t < nt; t++) th[t] = CreateThread(NULL, 0, lv_worker, &F, 0, NULL);
-	lv_worker_body(&F);
-	for (int t = 1; t < nt; t++) { WaitForSingleObject(th[t], INFINITE); CloseHandle(th[t]); }
-#else
-	pthread_t th[64];
+	/* Reserve adjacent groups together for locality when each worker can
+	 * still have several chances to claim more work. */
+	F.claim = ng >= 32 * nt ? 8 : 1;
+	WorkerThread workers[64];
 	int started[64] = {0};
-	for (int t = 1; t < nt; t++) started[t] = pthread_create(&th[t], NULL, lv_worker, &F) == 0;
+	for (int t = 1; t < nt; t++) started[t] = worker_start(&workers[t], lv_worker, &F);
 	lv_worker_body(&F);
-	for (int t = 1; t < nt; t++) if (started[t]) pthread_join(th[t], NULL);
-#endif
+	for (int t = 1; t < nt; t++) if (started[t]) worker_join(workers[t]);
 	free(groups);
 	lv_free(&T);
 	return atomic_load(&F.failed) ? 0 : nt;

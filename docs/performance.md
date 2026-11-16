@@ -689,6 +689,36 @@ before the material and textures are ready. Probe logs and images are in
 `/tmp/astrarium-cloud-reconstruction/`. The main game and `perfcheck` both
 accept `flightclouds=full|fast`; `perfcheck` defaults to Full resolution.
 
+## Galaxy work at high time warp
+
+Large native tracer batches share their pattern table across up to four
+workers. A worker advances its own contiguous set of stars for the entire
+batch, preserving each star's drift, force and work order. Small batches stay
+on the calling thread. The live encounter also gives workers adjacent force
+groups in sets of eight when the tree has enough groups to keep work balanced.
+The box distance used to accept an octree cell uses two comparisons per axis.
+
+Measurements on the Apple M5 used 6,000 Milky Way tracers, with the bar and
+spiral active. The standalone kernel values average two block medians. The
+rendered comparison used the Sun view, Medium, 2560×1440, MetalFX Off and the
+maximum time-warp request. All four runs accepted the full six steps per
+frame for 180 timed frames.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Six tracer steps, kernel median | 2.19 ms | 0.66 ms |
+| Rendered time warp, stage CPU median | 3.16 ms | 1.33 ms |
+| Rendered time warp, whole-frame median | 8.55 ms | 8.49 ms |
+| Rendered time warp, whole-frame p95 | 9.25 ms | 9.04 ms |
+| Live encounter, 126,781 particles, median step | 38.77 ms | 37.66 ms |
+
+Tracer positions, velocities and work matched byte for byte at the end of
+each paired block. The live benchmark used four 60-step blocks per build
+after three warm-up steps and produced identical particle and drawing buffers.
+Its stackless traversal trial moved the median by about 0.2 ms. The captured
+measurements are in `/tmp/astrarium-tracer-parallel/` and
+`/tmp/astrarium-stackless/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`
