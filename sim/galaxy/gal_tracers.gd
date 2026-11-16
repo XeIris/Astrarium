@@ -326,7 +326,7 @@ func _step_generic(index: int) -> void:
 		vel[i] += acc[i] * DT
 		pos[i] += vel[i] * h
 
-## The kernel's buffer (layout in native/astrarium_native.c, run_tracers).
+## The kernel's buffer (layout in native/galaxy_tracers.c).
 func _pack(kn: GalPotential.Kernel, k: int) -> PackedFloat64Array:
 	var b := PackedFloat64Array([0.0, float(n), float(k), DT, t_start, float(patterns.size()), float(kn.tab_n), float(steps),
 		kn.mn_gm, kn.mn_a, kn.mn_b2, kn.s1_gm, kn.s1_a, 1.0 if kn.s1_nfw else 0.0,
@@ -347,6 +347,12 @@ func _pack(kn: GalPotential.Kernel, k: int) -> PackedFloat64Array:
 
 func _step_native(kn: GalPotential.Kernel, k: int) -> void:
 	var b: PackedFloat64Array = ClassDB.class_call_static("NBodyKernel", "tracers", _pack(kn, k))
+	if b[2] < 0.0:
+		# The native pattern table failed to allocate before any tracer moved.
+		# A one-step table bounds the peak allocation.
+		for i in k:
+			_step_fused(kn, 1, steps + i)
+		return
 	var o := 21 + 12 * patterns.size() + 2 * kn.tab_n
 	pos = b.slice(o, o + 3 * n)
 	vel = b.slice(o + 3 * n, o + 6 * n)
@@ -354,13 +360,13 @@ func _step_native(kn: GalPotential.Kernel, k: int) -> void:
 
 ## Per step and pattern: growth, its rate, and the angle terms (cos and sin of 2φb for
 ## a bar, φp for a spiral); the C kernel's G array.
-func _pattern_table(k: int) -> PackedFloat64Array:
+func _pattern_table(k: int, first_step: int) -> PackedFloat64Array:
 	var np := patterns.size()
 	var g := PackedFloat64Array()
 	g.resize(k * np * 4 + 1)
 	for s in k:
 		# From the step's index: the same time however the steps are batched.
-		var tm := t_start + (float(steps + s) + 0.5) * DT
+		var tm := t_start + (float(first_step + s) + 0.5) * DT
 		for j in np:
 			var p: Dictionary = patterns[j]
 			var ang: float = p.angle0 + p.omega * tm
@@ -375,7 +381,7 @@ func _pattern_table(k: int) -> PackedFloat64Array:
 				g[o + 3] = 0.0
 	return g
 
-func _step_fused(kn: GalPotential.Kernel, k: int) -> void:
+func _step_fused(kn: GalPotential.Kernel, k: int, first_step := -1) -> void:
 	var h := DT * 0.5
 	var dt := DT
 	var mn_gm := kn.mn_gm
@@ -396,7 +402,7 @@ func _step_fused(kn: GalPotential.Kernel, k: int) -> void:
 	var talpha := kn.tab_alpha
 	var has_tab := tn > 0
 	var np := patterns.size()
-	var G := _pattern_table(k)
+	var G := _pattern_table(k, steps if first_step < 0 else first_step)
 	# Each pattern's constants, as the C kernel reads them from the buffer.
 	var P := []
 	for p in patterns:

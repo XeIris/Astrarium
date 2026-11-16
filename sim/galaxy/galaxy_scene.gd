@@ -394,7 +394,11 @@ func _advance_encounter(dt: float) -> float:
 		# next batch is one step, which measures it.
 		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.3) if _enc_batch > 0 else ENCOUNTER_BATCH_MS
 		_enc_snapshot()
-	if stage.state.paused or rate <= 0.0:
+	if _enc_task < 0 and encounter.live != null and encounter.live.failed:
+		achieved = 0.0
+		limited = true
+		_pending = 0.0
+	elif stage.state.paused or rate <= 0.0:
 		achieved = 0.0
 		limited = false
 		_pending = 0.0

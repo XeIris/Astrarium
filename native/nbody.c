@@ -91,14 +91,14 @@ static double *pn_phi = NULL, *pn_aN = NULL;
 static int pn_cap = 0;
 
 /* `reuse`: pn_ok and pn_phi already hold this position's set (the substep's second pass). */
-static void eih(const double *B, int n, Scratch *S, int reuse) {
+static int eih(const double *B, int n, Scratch *S, int reuse) {
 	if (!reuse) {
 	if (n > pn_cap) {
 		free(pn_ok); free(pn_phi); free(pn_aN);
 		pn_ok = (unsigned char *)malloc((size_t)n);
 		pn_phi = (double *)malloc((size_t)n * sizeof(double));
 		pn_aN = (double *)malloc((size_t)n * 3 * sizeof(double));
-		if (!pn_ok || !pn_phi || !pn_aN) { pn_cap = 0; return; }
+		if (!pn_ok || !pn_phi || !pn_aN) { pn_cap = 0; return 0; }
 		pn_cap = n;
 	}
 	for (int k = 0; k < n; k++) {
@@ -127,7 +127,7 @@ static void eih(const double *B, int n, Scratch *S, int reuse) {
 		pn_phi[i] = sum;
 	}
 	}
-	if (pn_cap < n) return;
+	if (pn_cap < n) return 0;
 	for (int k = 0; k < n; k++) { pn_aN[k * 3] = S[k].ax; pn_aN[k * 3 + 1] = S[k].ay; pn_aN[k * 3 + 2] = S[k].az; }
 	double c2 = C_LIGHT * C_LIGHT;
 	for (int i = 0; i < n; i++) {
@@ -159,6 +159,7 @@ static void eih(const double *B, int n, Scratch *S, int reuse) {
 		cx /= c2; cy /= c2; cz /= c2;
 		if (isfinite(cx) && isfinite(cy) && isfinite(cz)) { S[i].ax += cx; S[i].ay += cy; S[i].az += cz; }
 	}
+	return 1;
 }
 
 /* Physics.compute_newtonian. */
@@ -256,14 +257,14 @@ static int leapfrog_substep(double *B, int n, double dt, Scratch *S, int pn) {
 			S[k].px = S[k].ax; S[k].py = S[k].ay; S[k].pz = S[k].az;
 			S[k].w[0] = b[VX]; S[k].w[1] = b[VY]; S[k].w[2] = b[VZ];
 		}
-		eih(B, n, S, 0);
+		if (!eih(B, n, S, 0)) return 0;
 		for (int k = 0; k < n; k++) {
 			double *b = B + k * STRIDE;
 			if (b[ALIVE] == 0.0) continue;
 			b[VX] = S[k].w[0] + S[k].ax * half; b[VY] = S[k].w[1] + S[k].ay * half; b[VZ] = S[k].w[2] + S[k].az * half;
 			S[k].ax = S[k].px; S[k].ay = S[k].py; S[k].az = S[k].pz;
 		}
-		eih(B, n, S, 1);
+		if (!eih(B, n, S, 1)) return 0;
 		for (int k = 0; k < n; k++) {
 			double *b = B + k * STRIDE;
 			if (b[ALIVE] == 0.0) continue;
@@ -460,7 +461,9 @@ static int resolve_collisions(double *B, int n, double *ev, int *limited) {
 }
 
 void astrarium_nbody(double *A) {
+	if (!kernel_count(A[1]) || !kernel_count(A[5])) return;
 	int n = (int)A[1];
+	if (NB_HDR + (STRIDE + 3LL) * n != A[0]) return;
 	double remaining = A[2], requested = A[9], max_step = A[3], gw = A[4];
 	int secular = A[10] != 0.0;
 	int guard = (int)A[5];
@@ -469,7 +472,7 @@ void astrarium_nbody(double *A) {
 	double *B = A + NB_HDR;
 	double *ev = A + NB_HDR + n * STRIDE;
 	Scratch *S = (Scratch *)calloc((size_t)(n > 0 ? n : 1), sizeof(Scratch));
-	int limited = 0;
+	int limited = S == NULL;
 	if (!isfinite(remaining) || !isfinite(requested) || !isfinite(stepped) || !isfinite(max_step) || !isfinite(gw) || max_step <= 0.0 || !finite_state(B, n)) limited = 1;
 	if (!limited && remaining > 0.0 && guard < STEP_GUARD) events = resolve_collisions(B, n, ev, &limited);
 	while (!limited && events == 0 && remaining > 0.0 && guard < STEP_GUARD) {

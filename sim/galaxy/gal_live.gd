@@ -5,7 +5,7 @@ extends RefCounted
 # Barnes–Hut octree (Barnes & Hut 1986) of monopole cells, with Plummer softening, stepped
 # kick–drift–kick at a fixed DT. This is what a merger needs and a rigid potential cannot
 # give: the discs' own gravity and the haloes taking up the orbit's energy. The native kernel
-# (run_live in native/astrarium_native.c) is the twin and must stay bit-identical: same tree,
+# (native/galaxy_live.c) is the twin and must stay bit-identical: same tree,
 # same traversal order, only sqrt. Units kpc, Myr, 10¹⁰ M☉. docs/physics/galaxies.md#live.
 
 const HDR := 10
@@ -41,8 +41,7 @@ var buf := PackedFloat64Array()
 var steps := 0
 var t := 0.0
 var use_native := true
-## The native kernel could not allocate a step's tree: the run stopped there, and steps
-## no further.
+## A native force allocation failed. The last published batch is retained and stepping stops.
 var failed := false
 ## Threads for the native kernel: 0 for every core.
 var threads := 0
@@ -109,12 +108,14 @@ func step(k: int) -> void:
 
 ## Accelerations now, without stepping.
 func accelerate() -> void:
+	if failed: return
 	buf[H_ACC] = 0.0
 	_run(0, false)
 
-## Kinetic and potential energy now (10¹⁰ M☉ kpc² Myr⁻²), from one force pass.
+## Kinetic and potential energy now (10¹⁰ M☉ kpc² Myr⁻²), or [NAN, NAN] after failure.
 func energy() -> Array:
-	_run(0, true)
+	if not failed: _run(0, true)
+	if failed: return [NAN, NAN]
 	var kin := 0.0
 	var pot := 0.0
 	for i in n:
@@ -124,7 +125,8 @@ func energy() -> Array:
 		pot += 0.5 * m * buf[o + PHI]
 	return [kin, pot]
 
-## Returns the steps taken: k, or fewer when the native kernel failed.
+## The extension runs on a detached copy. Publish only a completed batch so
+## a failed allocation cannot leave the time and particle state out of sync.
 func _run(k: int, phi: bool) -> int:
 	buf[H_K] = float(k)
 	buf[H_PHI] = 1.0 if phi else 0.0
@@ -132,13 +134,14 @@ func _run(k: int, phi: bool) -> int:
 	if phi: buf[H_ACC] = 0.0
 	_fill_tags()
 	if use_native and GalLive.native_available():
-		buf = ClassDB.class_call_static("NBodyKernel", "live", buf)
+		var result: PackedFloat64Array = ClassDB.class_call_static("NBodyKernel", "live", buf)
+		if result[H_THREADS] < 0.0:
+			failed = true
+			push_error("GalLive: native force allocation failed after %d of %d steps. The batch was discarded." % [int(result[H_K]), k])
+			return 0
+		buf = result
 		var o := HDR + STRIDE * n
 		draw_bytes = buf.slice(o, o + 2 * nl).to_byte_array()
-		if buf[H_THREADS] < 0.0:
-			failed = true
-			push_error("GalLive: the native kernel could not allocate its tree after %d of %d steps; the run stops" % [int(buf[H_K]), k])
-			return int(buf[H_K])
 	else:
 		_run_gd(k, phi)
 		var f := PackedFloat32Array()

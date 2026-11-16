@@ -51,8 +51,13 @@ static void fz_step(double s[6], double mu, const double field[4], double h) {
  * result (time or lowest radius), highest radius]. A zero reference radius
  * selects a point mass. The coast writes its final state back to the r/v slots. */
 void astrarium_flight_zonal(double *A) {
-	if (A[0] != FZ_SIZE || !(A[8] > 0.0) || !isfinite(A[7])) return;
+	if (A[0] != FZ_SIZE) return;
 	double mu = A[2], span = A[7], h = A[8], target = A[9];
+	if (!(h > 0.0) || !isfinite(span) || (span > 0.0 && !(span / h < 0x1p53))) {
+		A[16] = A[1] == FZ_COAST ? INFINITY : NAN;
+		A[17] = NAN;
+		return;
+	}
 	const double *field = A + 3;
 	double *s = A + 10;
 	if (A[1] == FZ_EXTREMES || A[1] == FZ_PEAK) {

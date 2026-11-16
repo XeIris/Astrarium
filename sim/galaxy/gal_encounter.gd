@@ -310,9 +310,10 @@ func step(k: int) -> void:
 	if k <= 0: return
 	if due_live(): go_live()
 	if live != null:
+		var before := live.steps
 		live.step(k)
 		draw_bytes = live.draw_bytes
-		steps += k
+		steps += live.steps - before
 		return
 	var ng := orbits.count()
 	var mids := PackedFloat64Array()
@@ -418,6 +419,7 @@ func _galaxy_alone(i: int) -> GalLive:
 func live_rotation(i: int) -> Array:
 	var L := _galaxy_alone(i)
 	L.accelerate()
+	if L.failed: return [PackedFloat64Array(), PackedFloat64Array()]
 	var B: Basis = axes[i]
 	var rd := float(discs[i].rd)
 	var bins := 24

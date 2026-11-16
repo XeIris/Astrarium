@@ -636,6 +636,8 @@ func edit_body(b: Body, patch: Dictionary):
 	# A verdict the sim only prints is a bug.
 	b.m_check = null
 	check_structural_limits(b)
+	if moved or accelerated or b.mass != old_mass:
+		Mission.invalidate_transfers()
 	if moved or accelerated or b.mass != old_mass or b.softening != old_softening or b.type != old_type:
 		# Reclassification can change the pair potential.
 		state.energy0 = null

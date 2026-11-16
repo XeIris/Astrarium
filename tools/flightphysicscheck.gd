@@ -52,6 +52,26 @@ func zonal_native_parity() -> void:
 				samples += 1
 	check("native and script zonal predictions agree byte for byte (%d cases)" % samples, matched)
 
+func zonal_unresolved() -> void:
+	var r := DVec3.new(7e6, 0.0, 0.0)
+	var v := DVec3.new(0.0, 0.0, 7500.0)
+	var r_out := DVec3.new()
+	var v_out := DVec3.new()
+	var mu := 3.986e14
+	for h in [0.0, 1e-20]:
+		var limits := Orbit.zonal_extremes(r, v, mu, null, 100.0, false, h)
+		var t := Orbit.zonal_coast(r, v, mu, null, 100.0, r_out, v_out, 0.0, h)
+		check("unresolvable zonal step returns no prediction", is_nan(limits[0]) and is_nan(limits[1])
+			and t == INF and r_out.distance_to(r) == 0.0 and v_out.distance_to(v) == 0.0, h)
+
+func wait_transfer(search: Mission.TransferSearch) -> bool:
+	var deadline := Time.get_ticks_msec() + 5000
+	while Time.get_ticks_msec() < deadline:
+		if search.poll(): return true
+		OS.delay_msec(1)
+	search.finish()
+	return false
+
 func transfer_worker(p_e: DVec3, v_e: DVec3, p_m: DVec3, v_m: DVec3) -> void:
 	var sun := body("Sun", 1.0, 695700.0)
 	var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0, p_e, v_e)
@@ -62,24 +82,29 @@ func transfer_worker(p_e: DVec3, v_e: DVec3, p_m: DVec3, v_m: DVec3) -> void:
 	var ra := Mission.park_radius(mars)
 	var pending := Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
 	check("a cold transfer returns pending to the caller", pending.get("pending", false))
-	var ready := false
-	var deadline := Time.get_ticks_msec() + 5000
-	while not ready and Time.get_ticks_msec() < deadline:
-		OS.delay_msec(1)
-		ready = search.poll()
+	var ready := wait_transfer(search)
 	check("the transfer worker publishes the completed window", ready)
-	if not ready:
-		search.finish()
-		return
+	if not ready: return
 	var priced := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra, 40, 15, search)
 	Mission._pork_cache.clear()
 	var direct := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra)
 	check("a changed parking radius reprices the worker's arcs and matches the synchronous grid",
 		not priced.is_empty() and not direct.is_empty() and not priced.get("pending", false)
 		and priced.grid == direct.grid and priced.t_dep == direct.t_dep and priced.v_dep.distance_to(direct.v_dep) == 0.0)
+	var new_v := vessel_at(earth, [sun, earth, mars])
+	var cold := Mission.porkchop_window(new_v, earth, mars, sun, rp, ra, 40, 15, search)
+	check("a new vessel starts with a fresh transfer window", cold.get("pending", false) and wait_transfer(search))
+	sun.mass *= 1.1
+	cold = Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
+	check("a changed primary mass starts a fresh transfer window", cold.get("pending", false))
+	Mission.invalidate_transfers()
+	var finished := wait_transfer(search)
+	check("an invalidated worker cannot repopulate the transfer cache", finished and Mission._pork_cache.is_empty())
+	search.finish()
 
 func _init() -> void:
 	zonal_native_parity()
+	zonal_unresolved()
 	# Zonal acceleration is minus the gradient of the zonal potential.
 	for name in ["Earth", "Mars", "Moon"]:
 		var z: Dictionary = Rocketry.ZONAL[name]

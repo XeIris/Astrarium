@@ -91,6 +91,7 @@ static func window_wait(phase_now: float, want: float, n_dep: float, n_tgt: floa
 # the ranking only, so a changing vessel orbit can use the same search.
 const TRANSFER_CACHE_LIMIT := 16
 static var _pork_cache := {}
+static var _transfer_revision := 0
 static var _last_braking: BrakeEstimate
 
 class BrakeEstimate:
@@ -103,7 +104,9 @@ class BrakeEstimate:
 
 class TransferWindow:
 	var key: String
+	var revision: int
 	var now: float
+	var mu_center: float
 	var mu_dep: float
 	var mu_arr: float
 	var h: Dictionary
@@ -144,7 +147,8 @@ class TransferSearch:
 	func poll() -> bool:
 		if _id < 0 or not WorkerThreadPool.is_task_completed(_id): return false
 		WorkerThreadPool.wait_for_task_completion(_id)
-		if _job != null and Mission._pork_cache.get(_job.key) == _previous: Mission._store_transfer(_job)
+		if _job != null and _job.revision == Mission._transfer_revision and Mission._pork_cache.get(_job.key) == _previous:
+			Mission._store_transfer(_job)
 		if _braking != null: Mission._last_braking = _braking
 		_id = -1
 		_job = null
@@ -171,6 +175,11 @@ class TransferSearch:
 		_previous = null
 		_braking = null
 
+## An authored orbit edit can happen without advancing the vessel's clock.
+static func invalidate_transfers() -> void:
+	_transfer_revision += 1
+	_pork_cache.clear()
+
 static func _store_transfer(job: TransferWindow) -> void:
 	_pork_cache[job.key] = job
 	if _pork_cache.size() > TRANSFER_CACHE_LIMIT: _pork_cache.erase(_pork_cache.keys()[0])
@@ -182,9 +191,11 @@ static func porkchop_window(v: Vessel, Pc: Body, Dc: Body, C: Body, r_park_dep: 
 	var muC := _mu(C)
 	var mu_p := _mu(Pc); var mu_d := _mu(Dc)
 	var now := v.coord
-	var key := "%d:%d:%d:%d:%d" % [Pc.get_instance_id(), Dc.get_instance_id(), C.get_instance_id(), n_dep, n_tof]
+	var key := "%d:%d:%d:%d:%d:%d" % [
+		v.get_instance_id(), Pc.get_instance_id(), Dc.get_instance_id(), C.get_instance_id(), n_dep, n_tof]
 	var hit: TransferWindow = _pork_cache.get(key)
-	if hit != null and absf(now - hit.now) < float(hit.h.synodic) / 50.0:
+	if hit != null and hit.mu_center == muC and hit.mu_dep == mu_p and hit.mu_arr == mu_d \
+			and absf(now - hit.now) < float(hit.h.synodic) / 50.0:
 		if search != null or hit.priced.is_empty() or (hit.priced.rp == r_park_dep and hit.priced.ra == r_park_arr):
 			return hit.price(r_park_dep, r_park_arr, now)
 
@@ -192,7 +203,9 @@ static func porkchop_window(v: Vessel, Pc: Body, Dc: Body, C: Body, r_park_dep: 
 	var r2 := _rel_pos(Dc, C); var v2 := _rel_vel(Dc, C)
 	var job := TransferWindow.new()
 	job.key = key
+	job.revision = _transfer_revision
 	job.now = now
+	job.mu_center = muC
 	job.mu_dep = mu_p; job.mu_arr = mu_d
 	job.h = Orbit.hohmann(muC, r1.length(), r2.length())
 	var span := float(job.h.synodic) * 1.1

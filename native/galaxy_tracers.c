@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include "kernels.h"
 #include "workers.h"
@@ -112,7 +113,7 @@ static void tr_integrate(const TracerBatch *batch) {
 			double dphidt = 0.0;
 			for (int j = 0; j < np; j++) {
 				const double *P = A + TR_PAT + TR_PSTRIDE * j;
-				const double *gg = G + (s * np + j) * TR_TERMS;
+				const double *gg = G + ((size_t)s * np + j) * TR_TERMS;
 				double gs = gg[0];
 				if (gs == 0.0 && gg[1] == 0.0) continue;
 				double R2 = x * x + z * z;
@@ -184,22 +185,28 @@ static WORKER_RETURN tr_worker(void *arg) {
 }
 
 void astrarium_galaxy_tracers(double *A) {
+	if (!kernel_count(A[1]) || !kernel_count(A[2]) || !kernel_count(A[5]) || !kernel_count(A[6])) return;
 	int n = (int)A[1], k = (int)A[2], np = (int)A[5], tn = (int)A[6];
 	/* The buffer is exactly its header's counts long, or nothing is touched. */
 	long long need = TR_PAT + (long long)TR_PSTRIDE * np + 2LL * tn + 7LL * n;
-	if (n < 0 || k < 0 || np < 0 || tn < 0 || need != (long long)A[0]) return;
+	if (need != A[0]) return;
 	double dt = A[3], t_start = A[4];
 	/* A step's time from its index, so it does not depend on how steps are batched. */
 	double steps0 = A[7];
 	/* Share the pattern's phase, growth and shape terms across all tracers. */
-	double *G = (double *)calloc((size_t)k * (size_t)np * (size_t)TR_TERMS + 1, sizeof(double));
-	if (!G) return;
+	size_t per_step = (size_t)np * TR_TERMS;
+	if (per_step != 0 && (size_t)k > (SIZE_MAX / sizeof(double) - 1) / per_step) {
+		A[2] = -1.0;
+		return;
+	}
+	double *G = (double *)calloc((size_t)k * per_step + 1, sizeof(double));
+	if (!G) { A[2] = -1.0; return; }
 	for (int s = 0; s < k; s++) {
 		double tm = t_start + (steps0 + (double)s + 0.5) * dt;
 		for (int j = 0; j < np; j++) {
 			const double *P = A + TR_PAT + TR_PSTRIDE * j;
 			double ang = P[2] + P[1] * tm;
-			double *g = G + (s * np + j) * TR_TERMS;
+			double *g = G + ((size_t)s * np + j) * TR_TERMS;
 			g[0] = tr_growth(P, tm);
 			g[1] = tr_growth_rate(P, tm);
 			if (P[0] == 0.0) {

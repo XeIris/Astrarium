@@ -11,7 +11,8 @@
  * Buffer: [0] length [1] n [2] k steps [3] dt [4] θ [5] G [6] accelerations valid
  * (in/out) [7] potentials wanted [8] luminous count nl [9] threads (in: 0 for all
  * cores; out: used, or −1 when a step could not allocate its tree and the run stopped
- * there, with [2] the steps completed), then LV_STRIDE per particle: x y z vx vy vz ax ay az m ε φ, then
+ * there, with [2] the steps completed before the failed attempt. The caller
+ * discards the output on failure), then LV_STRIDE per particle: x y z vx vy vz ax ay az m ε φ, then
  * 2·nl doubles holding the first nl particles' float32 (x, y, z, tag) for drawing. */
 #define LV_STRIDE 12
 #define LV_LEAF 8
@@ -364,12 +365,13 @@ static int lv_forces(double *P, int n, double theta, double G, int want_phi, int
 }
 
 void astrarium_galaxy_live(double *A) {
+	if (!kernel_count(A[1]) || !kernel_count(A[2]) || !kernel_count(A[8]) || !kernel_count(A[9])) return;
 	int n = (int)A[1], k = (int)A[2], nl = (int)A[8];
 	double dt = A[3], theta = A[4], G = A[5], h = 0.5 * dt;
 	int want_phi = A[7] != 0.0, threads = (int)A[9];
 	double *P = A + LV_HDR;
 	long long need = LV_HDR + (long long)LV_STRIDE * n + 2LL * nl;
-	if (n <= 0 || k < 0 || nl < 0 || nl > n || need != (long long)A[0]) return;
+	if (n <= 0 || nl > n || need != A[0]) return;
 	int used = 1;
 	if (A[6] == 0.0) {
 		used = lv_forces(P, n, theta, G, want_phi, threads);
@@ -390,10 +392,9 @@ void astrarium_galaxy_live(double *A) {
 		}
 	}
 	A[9] = (double)used;
-	float *draw = (float *)(P + LV_STRIDE * n);
-	for (int i = 0; i < nl && i < n; i++) {
-		draw[4 * i] = (float)P[LV_STRIDE * i];
-		draw[4 * i + 1] = (float)P[LV_STRIDE * i + 1];
-		draw[4 * i + 2] = (float)P[LV_STRIDE * i + 2];
+	unsigned char *draw = (unsigned char *)(P + LV_STRIDE * n);
+	for (int i = 0; i < nl; i++) {
+		float xyz[3] = {(float)P[LV_STRIDE * i], (float)P[LV_STRIDE * i + 1], (float)P[LV_STRIDE * i + 2]};
+		memcpy(draw + 4 * sizeof(float) * i, xyz, sizeof xyz);
 	}
 }

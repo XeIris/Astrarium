@@ -1,3 +1,4 @@
+#include <string.h>
 #include "kernels.h"
 
 /* Galaxy encounters (sim/galaxy/gal_encounter.gd is the GDScript twin; the two must
@@ -42,9 +43,11 @@ static void en_accel(const double *P, double px, double py, double pz, double cx
 }
 
 void astrarium_galaxy_encounter(double *A) {
+	if (!kernel_count(A[1]) || !kernel_count(A[2]) || !kernel_count(A[4])) return;
 	int n = (int)A[1], k = (int)A[2], ng = (int)A[4];
-	long long need = EN_HDR + (long long)EN_STRIDE * ng + 3LL * k * ng + 8LL * n;
-	if (n < 0 || k < 0 || ng < 0 || need != (long long)A[0]) return;
+	long long fixed = EN_HDR + (long long)EN_STRIDE * ng + 8LL * n;
+	if (fixed > A[0] || (ng > 0 && k > (A[0] - fixed) / (3LL * ng))) return;
+	if (fixed + 3LL * k * ng != A[0]) return;
 	double dt = A[3], h = dt * 0.5;
 	const double *G = A + EN_HDR;
 	const double *mids = G + EN_STRIDE * ng;
@@ -69,10 +72,9 @@ void astrarium_galaxy_encounter(double *A) {
 		pos[c] = x; pos[c + 1] = y; pos[c + 2] = z;
 		vel[c] = vx; vel[c + 1] = vy; vel[c + 2] = vz;
 	}
-	float *draw = (float *)(vel + 3 * n);
+	unsigned char *draw = (unsigned char *)(vel + 3 * n);
 	for (int i = 0; i < n; i++) {
-		draw[4 * i] = (float)pos[3 * i];
-		draw[4 * i + 1] = (float)pos[3 * i + 1];
-		draw[4 * i + 2] = (float)pos[3 * i + 2];
+		float xyz[3] = {(float)pos[3 * i], (float)pos[3 * i + 1], (float)pos[3 * i + 2]};
+		memcpy(draw + 4 * sizeof(float) * i, xyz, sizeof xyz);
 	}
 }
