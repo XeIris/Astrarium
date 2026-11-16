@@ -38,9 +38,7 @@ func _init() -> void:
 	enabled = false
 
 func prepare(mat: ShaderMaterial, viewport: SubViewport, camera: Camera3D) -> void:
-	# Match RendererViewport's float multiplication and truncation for MetalFX.
-	var input := Vector2i(Vector2(viewport.size) * viewport.scaling_3d_scale).clamp(
-		Vector2i.ONE, Vector2i(16384, 16384))
+	var input := RenderPipeline.render_extent(viewport)
 	mat.set_shader_parameter("uCloudInputSize", input)
 	var values := PackedFloat32Array()
 	for param in PARAMS:

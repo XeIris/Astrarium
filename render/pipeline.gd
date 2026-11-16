@@ -282,6 +282,11 @@ func _sync_3d_scale() -> void:
 		RenderingServer.call_on_render_thread(_local_coverage.clear_rt)
 	_local_coverage.enabled = visible_scale < 1.0
 
+## The size a viewport's 3D pass renders at under its 3D scale, with
+## RendererViewport's float multiplication and truncation.
+static func render_extent(vp: SubViewport) -> Vector2i:
+	return Vector2i(Vector2(vp.size) * vp.scaling_3d_scale).clamp(Vector2i.ONE, Vector2i(16384, 16384))
+
 static func _set_3d_scale(vp: SubViewport, scale: float) -> void:
 	if is_equal_approx(vp.scaling_3d_scale, scale): return
 	vp.scaling_3d_scale = scale
