@@ -719,6 +719,28 @@ Its stackless traversal trial moved the median by about 0.2 ms. The captured
 measurements are in `/tmp/astrarium-tracer-parallel/` and
 `/tmp/astrarium-stackless/`.
 
+## Galaxy presentation CPU work
+
+The tracer markers reuse their mesh data until the integrated step or the
+interpolation offset changes. The exposure estimate reads the disc and
+spheroid uniforms once per ray and uses one arm-map sample per point for
+stellar light and dust. The spheroid calculation runs inside its support.
+
+Apple M5, Medium, MetalFX Off, 2560×1440 with a panning camera. Each
+measurement averages two 100-frame blocks.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Paused Milky Way, whole view, median stage CPU | 1.72 ms | 0.24 ms |
+| Paused Milky Way, whole view, p95 stage CPU | 4.97 ms | 1.91 ms |
+| Milky Way at max time warp, whole view, p95 stage CPU | 4.99 ms | 4.16 ms |
+| M51 from 8 kpc, p95 stage CPU | 1.56 ms | 1.05 ms |
+
+Whole-frame timing varied between blocks, including a higher p95 in one
+running Milky Way block. Twenty captures across the paused and running
+Milky Way, its Sun view, and M51 matched pixel for pixel. Reports and
+captures are in `/tmp/astrarium-next-hotspots/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`
