@@ -4,7 +4,7 @@ Settings › Sim › Secular evolution (on by default, `secular=0` on the comman
 turns it off). Four slow processes act on the orrery's bodies: tides, stellar winds,
 Roche-lobe overflow and stellar ageing. The first three change positions, velocities
 and masses, so they run inside the N-body kernel, after each accepted sub-step, in
-`Physics.apply_secular` and its copy in `native/astrarium_native.c`. The two copies
+`Physics.apply_secular` and its copy in `native/nbody.c`. The two copies
 perform the same operations in the same order, and `tools/nbodycheck.gd`'s
 `secular` case compares them. Ageing changes only a star's structure, so it runs once
 per frame in `main._step_secular`. `tools/secularcheck.gd` checks the physics and

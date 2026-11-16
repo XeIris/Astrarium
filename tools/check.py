@@ -51,7 +51,7 @@ CHANGED_RULES = (
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
      ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
-      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck")),
+      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck", "flightphysicscheck")),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
@@ -92,8 +92,8 @@ CHANGED_RULES = (
       "missioncheck-*", "scenariocheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
-    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc", "sim/terrain.gd",
-      "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck",)),
+    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
+      "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck", "flightlightcheck", "surfacepixelcheck*")),
     # What lights a vehicle, as drawn.
     (("sim/flight/localview.gd", "sim/flight/spaceflight.gd", "shaders/flight/ground.gdshader"), ("flightlightcheck",)),
     # Any other flight file is presentation: the parity flight shows it cannot move physics.
@@ -142,6 +142,8 @@ CHANGED_RULES = (
     (("assets/sky/bsc5.bin", "assets/sky/gaia_g8.bin", "sim/brightstars.gd", "sim/sky.gd",
       "tools/build_gaia.py", "tools/build_starcat.py"), ("galaxycheck",)),
     (("tools/galaxylookcheck.gd", "tools/galaxylookcheck.tscn"), ("galaxylookcheck",)),
+    (("render/pipeline.gd", "render/postfx.gd", "shaders/post/compose.glsl", "shaders/post/local_coverage.glsl"),
+     ("galaxylookcheck", "flightlightcheck")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
     (("tools/check.py",), ("check-selfcheck",)),
     # Any other tool (fxlab, harnesses): at least it must still parse.
@@ -406,12 +408,12 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "m5-budget":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=17 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
     elif suite == "m5-medium":
-        medium = scene("perfcheck", r"^PERFCHECK DONE cases=17 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
+        medium = scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
         yield ("perfcheck-m5-medium", *medium[1:])
     elif suite == "perf":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=17 failures=0$", f"report={output / 'render-profile.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", f"report={output / 'render-profile.json'}")
         abba = scene("perfcheck", r"^PERFCHECK DONE cases=19 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
         yield ("studio-abba", *abba[1:])
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)

@@ -162,6 +162,8 @@ vec3 march_disc(vec3 o, vec3 d, float t0, float t1, float tc, float sc, float ji
 			t = tc + sc * sinh(u);
 			ds = sc * cosh(u) * du;
 		}
+		// An empty leg (for example uRes = 0) leaves both light and depth alone.
+		if (ds == 0.0) continue;
 		float jd;
 		float jy;
 		float dk;

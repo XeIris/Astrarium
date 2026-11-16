@@ -310,9 +310,10 @@ func step(k: int) -> void:
 	if k <= 0: return
 	if due_live(): go_live()
 	if live != null:
+		var before := live.steps
 		live.step(k)
 		draw_bytes = live.draw_bytes
-		steps += k
+		steps += live.steps - before
 		return
 	var ng := orbits.count()
 	var mids := PackedFloat64Array()
@@ -356,7 +357,9 @@ func go_live() -> void:
 	var L := GalLive.new(n + nh, n, live_dt, THETA)
 	L.use_native = use_native
 	for j in n:
-		L.set_particle(j, [pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]], [vel[3 * j], vel[3 * j + 1], vel[3 * j + 2]], star_mass[j], star_eps[j], float(tag[j]))
+		var w := 3 * j
+		L.set_particle_components(j, pos[w], pos[w + 1], pos[w + 2], vel[w], vel[w + 1], vel[w + 2],
+			star_mass[j], star_eps[j], float(tag[j]))
 	var o := n
 	for i in ng:
 		var h: Array = haloes[i] if i < haloes.size() else []
@@ -365,8 +368,12 @@ func go_live() -> void:
 		var v := orbits.vel.slice(3 * i, 3 * i + 3)
 		var hp: PackedFloat64Array = h[0]
 		var hv: PackedFloat64Array = h[1]
+		var mass := float(h[2])
+		var eps := float(h[3])
 		for q in hp.size() / 3:
-			L.set_particle(o, [c[0] + hp[3 * q], c[1] + hp[3 * q + 1], c[2] + hp[3 * q + 2]], [v[0] + hv[3 * q], v[1] + hv[3 * q + 1], v[2] + hv[3 * q + 2]], float(h[2]), float(h[3]))
+			var w := 3 * q
+			L.set_particle_components(o, c[0] + hp[w], c[1] + hp[w + 1], c[2] + hp[w + 2],
+				v[0] + hv[w], v[1] + hv[w + 1], v[2] + hv[w + 2], mass, eps)
 			o += 1
 	for i in ng: cores[i] = _core(i)
 	t_live = orbits.t
@@ -399,9 +406,12 @@ func _galaxy_alone(i: int) -> GalLive:
 	L.use_native = use_native
 	for q in idx.size():
 		var j := idx[q]
-		L.set_particle(q, [pos[3 * j] - c[0], pos[3 * j + 1] - c[1], pos[3 * j + 2] - c[2]], [0, 0, 0], star_mass[j], star_eps[j])
+		var w := 3 * j
+		L.set_particle_components(q, pos[w] - c[0], pos[w + 1] - c[1], pos[w + 2] - c[2],
+			0.0, 0.0, 0.0, star_mass[j], star_eps[j])
 	for q in nh:
-		L.set_particle(idx.size() + q, [hp[3 * q], hp[3 * q + 1], hp[3 * q + 2]], [0, 0, 0], float(h[2]), float(h[3]))
+		var w := 3 * q
+		L.set_particle_components(idx.size() + q, hp[w], hp[w + 1], hp[w + 2], 0.0, 0.0, 0.0, float(h[2]), float(h[3]))
 	return L
 
 ## Galaxy i's circular speed in its plane from its own particles, in rings of R_d / 4 out to
@@ -409,6 +419,7 @@ func _galaxy_alone(i: int) -> GalLive:
 func live_rotation(i: int) -> Array:
 	var L := _galaxy_alone(i)
 	L.accelerate()
+	if L.failed: return [PackedFloat64Array(), PackedFloat64Array()]
 	var B: Basis = axes[i]
 	var rd := float(discs[i].rd)
 	var bins := 24

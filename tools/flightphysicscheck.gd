@@ -25,7 +25,116 @@ static func node_of(r: DVec3, v: DVec3) -> float:
 	var h := DVec3.new().cross_vectors(r, v)
 	return atan2(h.x, -h.z)
 
+func zonal_native_parity() -> void:
+	if not Orbit.native_zonal_available(): return
+	var samples := 0
+	var matched := true
+	for field in [["Earth", 3.986e14], ["Moon", 4.903e12], ["Mars", 4.283e13], ["Jupiter", 1.267e17]]:
+		var zonal: Dictionary = Rocketry.ZONAL[field[0]]
+		var mu: float = field[1]
+		var r := DVec3.new(1.04 * float(zonal.R), 0.03 * float(zonal.R), 0.01 * float(zonal.R))
+		var speed := sqrt(mu / r.length())
+		var v := DVec3.new(-0.021 * speed, 0.6 * speed, 0.77 * speed)
+		for model in [null, zonal]:
+			for peak in [false, true]:
+				var native := Orbit.zonal_extremes(r, v, mu, model, 4600.25, peak, 7.0)
+				var fallback := Orbit._zonal_extremes_gd(r, v, mu, model, 4600.25, peak, 7.0)
+				matched = matched and native.to_byte_array() == fallback.to_byte_array()
+				samples += 1
+			for target in [0.0, 1.025 * float(zonal.R), 0.1 * float(zonal.R)]:
+				var nr := r.clone(); var nv := v.clone()
+				var gr := r.clone(); var gv := v.clone()
+				var native := Orbit.zonal_coast(nr, nv, mu, model, 3600.125, nr, nv, target, 10.0)
+				var fallback := Orbit._zonal_coast_gd(gr, gv, mu, model, 3600.125, gr, gv, target, 10.0)
+				var n := PackedFloat64Array([native, nr.x, nr.y, nr.z, nv.x, nv.y, nv.z])
+				var g := PackedFloat64Array([fallback, gr.x, gr.y, gr.z, gv.x, gv.y, gv.z])
+				matched = matched and n.to_byte_array() == g.to_byte_array()
+				samples += 1
+	check("native and script zonal predictions agree byte for byte (%d cases)" % samples, matched)
+
+func zonal_unresolved() -> void:
+	var r := DVec3.new(7e6, 0.0, 0.0)
+	var v := DVec3.new(0.0, 0.0, 7500.0)
+	var r_out := DVec3.new()
+	var v_out := DVec3.new()
+	var mu := 3.986e14
+	for h in [0.0, 1e-20]:
+		var limits := Orbit.zonal_extremes(r, v, mu, null, 100.0, false, h)
+		var t := Orbit.zonal_coast(r, v, mu, null, 100.0, r_out, v_out, 0.0, h)
+		check("unresolvable zonal step returns no prediction", is_nan(limits[0]) and is_nan(limits[1])
+			and t == INF and r_out.distance_to(r) == 0.0 and v_out.distance_to(v) == 0.0, h)
+
+func wait_transfer(search: Mission.TransferSearch) -> bool:
+	var deadline := Time.get_ticks_msec() + 5000
+	while Time.get_ticks_msec() < deadline:
+		if search.poll(): return true
+		OS.delay_msec(1)
+	search.finish()
+	return false
+
+## The largest relative difference across two priced windows' grids, best cost and
+## departure v∞; INF if either is missing or the grids' shapes or failed cells differ.
+static func window_drift(a: Dictionary, b: Dictionary) -> float:
+	if a.is_empty() or b.is_empty() or a.get("pending", false) or b.get("pending", false): return INF
+	if a.grid.size() != b.grid.size(): return INF
+	var worst := maxf(absf(a.cost - b.cost) / absf(b.cost), a.v_dep.distance_to(b.v_dep) / b.v_dep.length())
+	for i in a.grid.size():
+		var ra: PackedFloat64Array = a.grid[i]
+		var rb: PackedFloat64Array = b.grid[i]
+		if ra.size() != rb.size(): return INF
+		for j in ra.size():
+			if is_inf(ra[j]) or is_inf(rb[j]):
+				if ra[j] != rb[j]: return INF
+				continue
+			worst = maxf(worst, absf(ra[j] - rb[j]) / absf(rb[j]))
+			if is_nan(worst): return INF
+	return worst if not is_nan(worst) else INF
+
+func transfer_worker(p_e: DVec3, v_e: DVec3, p_m: DVec3, v_m: DVec3) -> void:
+	var sun := body("Sun", 1.0, 695700.0)
+	var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0, p_e, v_e)
+	var mars := body("Mars", 3.227e-7, 3389.5, p_m, v_m)
+	var v := vessel_at(earth, [sun, earth, mars])
+	var search := Mission.TransferSearch.new()
+	var rp := Mission.park_radius(earth)
+	var ra := Mission.park_radius(mars)
+	var pending := Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
+	check("a cold transfer returns pending to the caller", pending.get("pending", false))
+	var ready := wait_transfer(search)
+	check("the transfer worker publishes the completed window", ready)
+	if not ready: return
+	# Inside the cache's lifetime, the clock can pass the cached winner's departure.
+	var window: Mission.TransferWindow = Mission._pork_cache.values()[0]
+	var first := window.price(rp, ra, window.now)
+	var later := window.price(rp, ra, window.now + float(first.t_dep) + 86400.0)
+	check("a departure that has passed cannot remain the cached best transfer",
+		not later.is_empty() and float(later.t_dep) > 0.0, "next departure in %.1f d" % (float(later.get("t_dep", 0.0)) / 86400.0))
+	var stale := Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
+	var priced := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra, 40, 15, search)
+	Mission._pork_cache.clear()
+	var direct := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra)
+	# Bit-identical on macOS and Linux. On Windows the worker's libm results can
+	# differ from the main thread's in the last bits, so compare to 1e-12. The stale
+	# price at the old radius differs by ~1e-2.
+	var drift := window_drift(priced, direct)
+	var moved := window_drift(stale, direct)
+	check("a changed parking radius reprices the worker's arcs and matches the synchronous grid",
+		drift <= 1e-12 and moved > 1e-6 and priced.t_dep == direct.t_dep and priced.tof == direct.tof,
+		"relative drift %s, stale price %s" % [String.num_scientific(drift), String.num_scientific(moved)])
+	var new_v := vessel_at(earth, [sun, earth, mars])
+	var cold := Mission.porkchop_window(new_v, earth, mars, sun, rp, ra, 40, 15, search)
+	check("a new vessel starts with a fresh transfer window", cold.get("pending", false) and wait_transfer(search))
+	sun.mass *= 1.1
+	cold = Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
+	check("a changed primary mass starts a fresh transfer window", cold.get("pending", false))
+	Mission.invalidate_transfers()
+	var finished := wait_transfer(search)
+	check("an invalidated worker cannot repopulate the transfer cache", finished and Mission._pork_cache.is_empty())
+	search.finish()
+
 func _init() -> void:
+	zonal_native_parity()
+	zonal_unresolved()
 	# Zonal acceleration is minus the gradient of the zonal potential.
 	for name in ["Earth", "Mars", "Moon"]:
 		var z: Dictionary = Rocketry.ZONAL[name]
@@ -195,6 +304,7 @@ func _init() -> void:
 	var v_me := DVec3.new(-sin(th0), 0.0, cos(th0)).scale_in(sqrt(mu_s * (1.0 + e_m) / rp))
 	var pce := Orbit.porkchop(p_e, v_e, mu_s, p_me, v_me, mu_s, mu_s, deps, tofs, func(a: float, b: float) -> float: return a + b)
 	check("an eccentric Mars moves the best window by days (%.1f d)" % ((pce.best.t_dep - pc.best.t_dep) / 86400.0), absf(pce.best.t_dep - pc.best.t_dep) > 2.0 * 86400.0)
+	transfer_worker(p_e, v_e, p_me, v_me)
 
 	azimuths()
 	aerocapture()

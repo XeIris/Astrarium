@@ -35,6 +35,8 @@ var tracers: MeshInstance3D = null
 var tracer_mat: ShaderMaterial
 var _tracer_mesh: ArrayMesh = null
 var _tracer_xyz := PackedVector3Array()
+var _tracer_uploaded_step := -1
+var _tracer_uploaded_ahead := 0.0
 var pot: GalPotential
 var sense := 1.0
 var disc_pop: GalPopulation
@@ -367,6 +369,8 @@ func _build_glow(model: Dictionary) -> void:
 	glow.name = "Glow"
 	glow.mesh = box
 	glow.material_override = glow_mat
+	# The narrow dust rings can change contrast within a single output pixel.
+	if rings.is_empty(): glow.layers = RenderPipeline.GALAXY_GLOW_LAYER
 	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# Drawn from inside too: never culled by its own box.
 	glow.extra_cull_margin = 16384.0
@@ -412,6 +416,8 @@ func set_tracers(tr: GalTracers) -> void:
 		tracers.queue_free()
 		tracers = null
 	if tr == null or tr.n == 0: return
+	_tracer_uploaded_step = tr.steps
+	_tracer_uploaded_ahead = 0.0
 	_tracer_xyz.resize(tr.n)
 	var cols := PackedColorArray()
 	cols.resize(tr.n)
@@ -439,7 +445,8 @@ func set_tracers(tr: GalTracers) -> void:
 ## scene's time; `tr`: the tracers, drawn `ahead` Myr past their last step.
 ## `view_r`: the camera's distance from what it looks at; the tracer overlay fades
 ## out below half a kpc, where it would be dots in the sky rather than a map.
-func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_rad: float, viewport_h: float, star_gain: float, view_r := 60.0) -> void:
+func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_rad: float,
+		viewport_h: float, star_gain: float, view_r := 60.0, glow_h := 0.0) -> void:
 	var pix := 2.0 * tan(fov_rad * 0.5) / maxf(viewport_h, 1.0)
 	var pix_sr := pix * pix
 	var gain := K * star_gain * exposure * adaptation
@@ -458,7 +465,8 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 	if res_override >= 0.0: res = res_override
 	glow_mat.set_shader_parameter("uCamLocal", cl)
 	glow_mat.set_shader_parameter("uGain", gain / (4.0 * PI))
-	glow_mat.set_shader_parameter("uPix", pix)
+	var sampled_h := glow_h if glow_h > 0.0 and glow.layers == RenderPipeline.GALAXY_GLOW_LAYER else viewport_h
+	glow_mat.set_shader_parameter("uPix", 2.0 * tan(fov_rad * 0.5) / maxf(sampled_h, 1.0))
 	if hii != null:
 		hii.visible = show_hii and (show_glow or not hii_with_glow)
 		hii_mat.set_shader_parameter("uCamLocal", cl)
@@ -472,7 +480,11 @@ func update(cam_local: DVec3, t_myr: float, tr: GalTracers, ahead: float, fov_ra
 		var fade := clampf((view_r - 0.5) / 1.5, 0.0, 1.0)
 		tracers.visible = show_tracers and fade > 0.0
 		tracer_mat.set_shader_parameter("uOpacity", fade)
-		if tracers.visible and tr != null:
+		# Panning the camera leaves the galaxy-local marker positions unchanged.
+		if tracers.visible and tr != null and (
+				tr.steps != _tracer_uploaded_step or ahead != _tracer_uploaded_ahead):
+			_tracer_uploaded_step = tr.steps
+			_tracer_uploaded_ahead = ahead
 			for i in tr.n:
 				var c := i * 3
 				_tracer_xyz[i] = Vector3(tr.pos[c] + tr.vel[c] * ahead, tr.pos[c + 1] + tr.vel[c + 1] * ahead, tr.pos[c + 2] + tr.vel[c + 2] * ahead)
@@ -520,10 +532,10 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 	if t1 <= t0: return 0.0
 	var acc := [0.0, 0.0, 0.0]
 	var tau := 0.0
+	var ism_dust := GalISM.dust(ism_m.x)
 	# The measured dust as the shader draws it: shell k from r[k − 1] to r[k] out from the camera,
 	# its density toward this direction from the Sun.
 	var ld_f := local_dust_fade(o)
-	var ld3 := 0.0 if local_dust.is_empty() or not local_dust_enabled or (local_dust.get("grid", {}) as Dictionary).is_empty() else 1.0 - ld_f
 	var ld_rate := PackedFloat32Array()
 	if ld_f > 0.0:
 		var ud := (sun_basis.transposed() * d).normalized()
@@ -547,7 +559,8 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 		var t := tc + sc * sinh(u)
 		var p := o + d * t
 		var ds := sc * cosh(u) * du
-		var j := light_density(p, r_floor)
+		var arm := _arm_sample(p.x, p.z)
+		var j := _light_density(p, r_floor, dv, sv, arm)
 		var in_box := absf(p.x) <= box.x and absf(p.y) <= box.y and absf(p.z) <= box.z
 		if not in_box:
 			j[0] = 0.0
@@ -565,14 +578,14 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 				var te := minf(g_rs[shk], t1)
 				foot = te - ta
 				at = o + d * (0.5 * (ta + te))
-				sh3 = dust_shares(o, 0.5 * (ta + te), at)
+				sh3 = _dust_shares(ld_f, 0.5 * (ta + te), at, 0.0)
 			else:
-				sh3 = dust_shares(o, t, p, foot)
+				sh3 = _dust_shares(ld_f, t, p, foot)
 			var shell_k := 0.0
 			if sh3.y > 0.0: shell_k = ld_rate[GalLocalDust.shell(local_dust, t)]
 			var grid_k := 0.0
 			if sh3.z > 0.0: grid_k = GalLocalDust.grid_density(local_dust, sun_basis.transposed() * (at - sun_pos), foot)
-			k = (sh3.x * _model_dust(p.x, p.y, p.z) * GalISM.dust(ism_m.x) + sh3.y * shell_k + sh3.z * grid_k) * ds
+			k = (sh3.x * _model_dust_with_arm(p.x, p.y, p.z, arm.g) * ism_dust + sh3.y * shell_k + sh3.z * grid_k) * ds
 		j[2] *= ism_m.y
 		for ch in 3:
 			var kc := k * float(e[ch])
@@ -587,6 +600,9 @@ func ray_luminance(o: Vector3, d: Vector3, r_floor := 1e-3, n := 160, pix := 0.0
 func light_density(p: Vector3, r_floor := 1e-3) -> PackedFloat64Array:
 	var dv: Vector3 = glow_mat.get_shader_parameter("uDisc")
 	var sv: Vector4 = glow_mat.get_shader_parameter("uSphere")
+	return _light_density(p, r_floor, dv, sv, _arm_sample(p.x, p.z))
+
+func _light_density(p: Vector3, r_floor: float, dv: Vector3, sv: Vector4, arm: Color) -> PackedFloat64Array:
 	var x: float = p.x
 	var y: float = p.y
 	var z: float = p.z
@@ -597,24 +613,24 @@ func light_density(p: Vector3, r_floor := 1e-3) -> PackedFloat64Array:
 	var jd := dv.x * (dv.y * R2 + (dv.y + 3.0 * zb) * s * s) / (q * q * sqrt(q) * zb * zb * zb)
 	if disc_k > 0.0:
 		var zs: float = disc_map.z
-		jd = disc_k * _arm_sample(x, z)[2] * exp(-absf(y) / zs) / (2.0 * zs)
+		jd = disc_k * arm.b * exp(-absf(y) / zs) / (2.0 * zs)
 	if spiral_k > 0.0 and arm_img != null:
-		jd += spiral_k * _arm_sample(x, z)[2] * GalaxyVisual._sech2(y / float(spiral.h))
-	jd = maxf(jd, 0.0) * smoothstep(edge, 0.8 * edge, sqrt(R2))
-	var cb := cos(bar_angle)
-	var sb := sin(bar_angle)
-	var u := x * cb + z * sb
-	var v := -x * sb + z * cb
-	var r := maxf(sqrt(u * u + (y / bulge_axes.y) * (y / bulge_axes.y) + (v / bulge_axes.x) * (v / bulge_axes.x)), r_floor)
-	var k := 1.0 / (bulge_axes.x * bulge_axes.y)
+		jd += spiral_k * arm.b * GalaxyVisual._sech2(y / float(spiral.h))
+	var R := sqrt(R2)
+	jd = maxf(jd, 0.0) * smoothstep(edge, 0.8 * edge, R)
 	var js := 0.0
 	if sv.y > 0.0 and p.length() <= sphere_r:
+		var cb := cos(bar_angle)
+		var sb := sin(bar_angle)
+		var u := x * cb + z * sb
+		var v := -x * sb + z * cb
+		var r := maxf(sqrt(u * u + (y / bulge_axes.y) * (y / bulge_axes.y) + (v / bulge_axes.x) * (v / bulge_axes.x)), r_floor)
+		var k := 1.0 / (bulge_axes.x * bulge_axes.y)
 		if sv.x > 1.5: js = k * sv.y * _sphere_table(r)
 		else: js = k * (sv.y * pow(r, -sv.z) * exp(-r * r / (sv.w * sv.w)) if sv.x < 0.5 else sv.y * sv.z / (TAU * r * pow(r + sv.z, 3.0)))
 	var jy := 0.0
 	if young_k > 0.0:
-		var R := sqrt(R2)
-		jy = young_k * _envelope(R) * _arm_sample(x, z)[0] * exp(-absf(y) / young_h) / (2.0 * young_h)
+		jy = young_k * _envelope(R) * arm.r * exp(-absf(y) / young_h) / (2.0 * young_h)
 	return PackedFloat64Array([jd, js, jy])
 
 ## The spheroid's share of the resolved stars at a local point.
@@ -695,11 +711,15 @@ func _arm_radius(i: int, beta: float) -> PackedFloat64Array:
 	return PackedFloat64Array([R, t, weight])
 
 ## Σ over arms of exp(−d²/2w²) at (R, φ) with the arms turned by `turn`, w Reid's.
-func _arms(R: float, phi: float, turn: float) -> float:
+## A caller baking aligned analytic dust supplies one slot for its dust value.
+func _arms(R: float, phi: float, turn: float, aligned_dust: Array[float] = []) -> float:
+	var sample_dust := not aligned_dust.is_empty()
 	var beta := phi - PI - turn
 	if arm_mirror: beta = -beta
 	beta = beta - TAU * floor((beta + PI) / TAU)
 	var acc := 0.0
+	var dust_peak := 0.0
+	var dust_width := float(dust.ca) * maxf(R, 1.0) if sample_dust else 1.0
 	for i in arm_a.size():
 		var w := maxf(arm_b[i].x + arm_growth * (R - arm_a[i].x), 0.05)
 		var best := 0.0
@@ -708,10 +728,15 @@ func _arms(R: float, phi: float, turn: float) -> float:
 			if at[0] < arm_rmin or at[0] > arm_rmax: continue
 			var d := absf(R - at[0]) * cos(atan(at[1]))
 			best = maxf(best, at[2] * exp(-0.5 * d * d / (w * w)))
+			if sample_dust:
+				dust_peak = maxf(dust_peak, at[2] * exp(-d * d / (dust_width * dust_width)))
 		# An arm's own light rising from its start and then falling outward (Marchuk et
 		# al. 2024's h_s), where measured.
 		if i < arm_decay.size(): best *= exp(-R / arm_decay[i]) * smoothstep(arm_rise.x, arm_rise.x + arm_rise.y, R)
 		acc += best
+	if sample_dust:
+		var cut: float = exp(-pow((R - dust.rm) / dust.ra, 2.0)) if R > dust.rm else 1.0
+		aligned_dust[0] = cut * dust_peak
 	return acc
 
 func _envelope(R: float) -> float:
@@ -745,6 +770,10 @@ func bake_arms(stop := [false]) -> Dictionary:
 	if not hit.is_empty(): return hit
 	var img := Image.create_empty(ARM_N, ARM_N, false, Image.FORMAT_RGBF)
 	var px := 2.0 * ARM_HALF / float(ARM_N)
+	var shared_dust := not arm_mirror and dust_map.is_empty() and not dust.is_empty()
+	# Where both profiles use the same azimuth convention, share their plane distances.
+	var aligned_dust: Array[float] = []
+	if shared_dust: aligned_dust.append(0.0)
 	for j in ARM_N:
 		# Stopped (its scene left), a half-drawn map is neither returned nor cached.
 		if j % 16 == 0 and stop[0]: return {}
@@ -753,9 +782,10 @@ func bake_arms(stop := [false]) -> Dictionary:
 			var z := -ARM_HALF + (float(j) + 0.5) * px
 			var R := sqrt(x * x + z * z)
 			var phi := atan2(z, x)
-			var g := _dust_surface(R, phi) if not dust_map.is_empty() else _dust_arm(R, phi)
+			var young := _arms(R, phi, 0.0, aligned_dust)
+			var g := aligned_dust[0] if shared_dust else (_dust_surface(R, phi) if not dust_map.is_empty() else _dust_arm(R, phi))
 			var b := _disc_surface(R) if not disc_map.is_empty() else _spiral_plane(R, phi)
-			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), g, b))
+			img.set_pixel(i, j, Color(young, g, b))
 	if not thin_map.is_empty(): _gather_light(img)
 	var share := _add_bar(img) if disc_map.has("bar") else 0.0
 	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": share}
@@ -1025,13 +1055,13 @@ func apply_arms(baked: Dictionary) -> void:
 
 ## The map at a point, as the GPU samples it: turned into the arms' frame, bilinear
 ## between texel centres, zero outside.
-func _arm_sample(x: float, z: float) -> PackedFloat64Array:
-	if arm_img == null: return PackedFloat64Array([0.0, 0.0, 0.0])
+func _arm_sample(x: float, z: float) -> Color:
+	if arm_img == null: return Color.BLACK
 	var c := cos(arm_turn)
 	var sn := sin(arm_turn)
 	var qx := (x * c + z * sn) / (2.0 * ARM_HALF) + 0.5
 	var qz := (z * c - x * sn) / (2.0 * ARM_HALF) + 0.5
-	if qx <= 0.0 or qz <= 0.0 or qx >= 1.0 or qz >= 1.0: return PackedFloat64Array([0.0, 0.0, 0.0])
+	if qx <= 0.0 or qz <= 0.0 or qx >= 1.0 or qz >= 1.0: return Color.BLACK
 	var fx := qx * float(ARM_N) - 0.5
 	var fz := qz * float(ARM_N) - 0.5
 	var i0 := clampi(int(floor(fx)), 0, ARM_N - 1)
@@ -1042,8 +1072,7 @@ func _arm_sample(x: float, z: float) -> PackedFloat64Array:
 	var wz := clampf(fz - float(j0), 0.0, 1.0)
 	var a := arm_img.get_pixel(i0, j0).lerp(arm_img.get_pixel(i1, j0), wx)
 	var b := arm_img.get_pixel(i0, j1).lerp(arm_img.get_pixel(i1, j1), wx)
-	var v := a.lerp(b, wz)
-	return PackedFloat64Array([v.r, v.g, v.b])
+	return a.lerp(b, wz)
 
 ## The stellar spiral's in-plane factor e^{−(R−r0)/Rs} cos γ at (R, φ) in the arms'
 ## frame: its angle at t = 0, as the map turns with it by Ωp t from there. The factor is
@@ -1355,8 +1384,10 @@ static func _sech2(x: float) -> float:
 ## for a glow step `foot` kpc long: the shells as seen from the Sun while they show, the grid as
 ## they fade, the model's dust what they leave (GalLocalDust.shares).
 func dust_shares(cam: Vector3, t: float, p: Vector3, foot := 0.0) -> Vector3:
+	return _dust_shares(local_dust_fade(cam), t, p, foot)
+
+func _dust_shares(f: float, t: float, p: Vector3, foot: float) -> Vector3:
 	if local_dust.is_empty() or not local_dust_enabled: return Vector3(1.0, 0.0, 0.0)
-	var f := local_dust_fade(cam)
 	var w_sh := 0.0
 	if f > 0.0:
 		var sh := GalLocalDust.shell(local_dust, t)
@@ -1380,15 +1411,19 @@ func dust_density(x: float, y: float, z: float) -> float:
 	return (1.0 - w) * m + w * GalLocalDust.density(local_dust, s)
 
 func _model_dust(x: float, y: float, z: float) -> float:
+	if dust_map.is_empty() and dust.is_empty(): return 0.0
+	return _model_dust_with_arm(x, y, z, _arm_sample(x, z).g)
+
+func _model_dust_with_arm(x: float, y: float, z: float, arm_g: float) -> float:
 	if not dust_map.is_empty():
 		var zd: float = dust_map.z
-		return float(dust_map.kappa) * _arm_sample(x, z)[1] * exp(-absf(y) / zd) / (2.0 * zd)
+		return float(dust_map.kappa) * arm_g * exp(-absf(y) / zd) / (2.0 * zd)
 	if dust.is_empty(): return 0.0
 	var R := sqrt(x * x + z * z)
 	var hd: float = dust.h0 + (dust.h1 * (R - dust.rf) if R > dust.rf else 0.0)
 	var tau: float = dust.kappa * dust.rhoDisc * _envelope(R) * GalaxyVisual._sech2(y / hd)
 	var ha: float = dust.h0a + (dust.h1a * (R - dust.rfa) * (R - dust.rfa) if R > dust.rfa else 0.0)
-	tau += dust.kappa * dust.rhoArm * _arm_sample(x, z)[1] * exp(-y * y / (ha * ha))
+	tau += dust.kappa * dust.rhoArm * arm_g * exp(-y * y / (ha * ha))
 	for r in rings:
 		var u: float = (R - float(r[0])) / float(r[1])
 		tau += float(r[2]) * exp(-0.5 * u * u) * GalaxyVisual._sech2(y / ring_h)

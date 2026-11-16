@@ -14,6 +14,7 @@ const STEP_GUARD := 8000
 const TRAIL_MAX := 600
 const MESH_Y := -6.0
 const Bindings = preload("res://ui/control_bindings.gd")
+const JsonFile = preload("res://core/json_file.gd")
 
 var state := SimState.new()
 var pipe: RenderPipeline
@@ -635,6 +636,8 @@ func edit_body(b: Body, patch: Dictionary):
 	# A verdict the sim only prints is a bug.
 	b.m_check = null
 	check_structural_limits(b)
+	if moved or accelerated or b.mass != old_mass:
+		Mission.invalidate_transfers()
 	if moved or accelerated or b.mass != old_mass or b.softening != old_softening or b.type != old_type:
 		# Reclassification can change the pair potential.
 		state.energy0 = null
@@ -1872,6 +1875,43 @@ func _init_render_settings() -> void:
 	var requested_quality := String(_cmd.get("quality", render_quality))
 	set_render_quality(requested_quality if RENDER_QUALITY.has(requested_quality) else render_quality)
 	set_lighting_quality(String(_cmd.get("lighting", lighting_quality)))
+	var metalfx_available := RenderPipeline.metalfx_available()
+	var clouds_available := FlightCloudPass.available()
+	hud.set_shown("metalFX", metalfx_available)
+	hud.set_shown("flightClouds", clouds_available)
+	if not metalfx_available and not clouds_available: return
+	var saved := JsonFile.read_dict(AppIcon.file_path)
+	var data: Dictionary = saved.data if saved.error == OK else {}
+	if metalfx_available:
+		var requested := str(_cmd.get("metalfx", data.get("metalfx", "off")))
+		set_metalfx(requested if RenderPipeline.METALFX_SCALES.has(requested) else "off", false)
+	if clouds_available:
+		var requested := str(_cmd.get("flightclouds", data.get("flight_clouds", "full")))
+		set_flight_clouds(requested == "fast", false)
+
+func set_metalfx(preset: String, persist := true) -> void:
+	if not RenderPipeline.METALFX_SCALES.has(preset) or not RenderPipeline.metalfx_available(): return
+	pipe.set_metalfx(preset)
+	for key in RenderPipeline.METALFX_SCALES:
+		hud.set_active("[data-metalfx=%s]" % key, key == pipe.metalfx)
+	if persist: _save_render_option("metalfx", preset, "MetalFX")
+
+func set_flight_clouds(fast: bool, persist := true) -> void:
+	if not FlightCloudPass.available(): return
+	pipe.fast_clouds = fast
+	hud.set_active("[data-flight-clouds=full]", not fast)
+	hud.set_active("[data-flight-clouds=fast]", fast)
+	if persist: _save_render_option("flight_clouds", "fast" if fast else "full", "Flight clouds")
+
+func _save_render_option(key: String, value: String, label: String) -> void:
+	var saved := JsonFile.read_dict(AppIcon.file_path)
+	if saved.pending or saved.error not in [OK, ERR_FILE_NOT_FOUND]:
+		toast(label + " could not be saved. " + saved.message)
+		return
+	var data: Dictionary = saved.data if saved.error == OK else {}
+	data[key] = value
+	var result := JsonFile.write_dict(AppIcon.file_path, data)
+	if result.error != OK: toast(label + " could not be saved. " + result.message)
 
 func _sync_render_quality() -> void:
 	for q in RENDER_QUALITY:
@@ -1885,6 +1925,7 @@ func set_render_quality(q: String) -> void:
 	var aa: int = {"low": Viewport.MSAA_DISABLED, "medium": Viewport.MSAA_2X, "high": Viewport.MSAA_4X, "ultra": Viewport.MSAA_4X}[q]
 	pipe.local_vp.msaa_3d = aa
 	pipe.model_vp.msaa_3d = aa
+	pipe.set_galaxy_glow_quality(q in ["low", "medium"])
 	var settings: Dictionary = RENDER_QUALITY[q]
 	var eff := pipe.set_render_scale(settings.render)
 	resize()
@@ -2090,6 +2131,8 @@ func _bind_hud() -> void:
 	hud.galaxy_action.connect(_on_galaxy_action)
 	galaxy.curve_chart = hud.get_el("galCurve")
 	hud.render_quality_chosen.connect(set_render_quality)
+	hud.metalfx_chosen.connect(set_metalfx)
+	hud.flight_clouds_chosen.connect(set_flight_clouds)
 	hud.lighting_quality_chosen.connect(set_lighting_quality)
 	hud.lighting_effect_chosen.connect(_toggle_lighting_effect)
 	hud.sky_solo.connect(_on_sky_solo)
@@ -2255,6 +2298,8 @@ func _on_sky_adv_clear() -> void:
 
 func _on_fx_reset() -> void:
 	set_render_quality("medium")
+	set_metalfx("off")
+	set_flight_clouds(false)
 	set_lighting_quality("low")
 	set_mesh_style("lines")
 
@@ -2310,6 +2355,7 @@ func enter_galaxy(key: String) -> bool:
 	set_sky(preset_sky({"env": "intergalactic"}))
 	set_band(Spectrum.VISIBLE_BAND)
 	galaxy.enter(key)
+	pipe.set_galaxy_view(true)
 	hud.set_galaxy_scene(true)
 	hud.set_text("presetName", String(galaxy.preset.name))
 	hud.set_text("blurb", String(galaxy.preset.get("blurb", "")))
@@ -2320,6 +2366,7 @@ func enter_galaxy(key: String) -> bool:
 
 func leave_galaxy() -> void:
 	galaxy.leave()
+	pipe.set_galaxy_view(false)
 	hud.set_galaxy_scene(false)
 	state.preset_key = ""
 	set_sky(SimState.new().sky)
@@ -3463,9 +3510,9 @@ func animate(dt: float) -> void:
 
 	observatory.update(dt)
 	showcase.update(dt, sim_stepped)
-	galaxy.update(dt)
 	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass() or showcase.local_pass()
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
+	galaxy.update(dt)
 	pipe.prepare_frame(lens_params, state.time)
 	update_hud(dt)
 

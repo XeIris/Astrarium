@@ -171,24 +171,9 @@ static func _channel(seed: int) -> PackedFloat64Array:
 	return re
 
 static func _fft2(re: PackedFloat64Array, im: PackedFloat64Array, inverse: bool) -> void:
-	var lr := PackedFloat64Array()
-	var li := PackedFloat64Array()
-	lr.resize(N)
-	li.resize(N)
-	for axis in 2:
-		var stride := 1 if axis == 0 else N
-		for a in N:
-			var base := a * N if axis == 0 else a
-			for i in N:
-				lr[i] = re[base + i * stride]
-				li[i] = im[base + i * stride]
-			_fft1(lr, li, inverse)
-			for i in N:
-				re[base + i * stride] = lr[i]
-				im[base + i * stride] = li[i]
-
-## Radix 2 in place; the inverse is unnormalised (the channel is normalised after).
-static func _fft1(re: PackedFloat64Array, im: PackedFloat64Array, inverse: bool) -> void:
+	# Both axes use the same radix-2 permutation and roots. Keeping a stride
+	# lets each line transform directly in the field arrays.
+	var swaps := PackedInt32Array()
 	var j := 0
 	for i in range(1, N):
 		var bit := N >> 1
@@ -196,23 +181,44 @@ static func _fft1(re: PackedFloat64Array, im: PackedFloat64Array, inverse: bool)
 			j ^= bit
 			bit >>= 1
 		j |= bit
-		if i < j:
-			var t := re[i]
-			re[i] = re[j]
-			re[j] = t
-			t = im[i]
-			im[i] = im[j]
-			im[j] = t
+		if i < j: swaps.append_array([i, j])
+	var real_roots := PackedFloat64Array()
+	var imag_roots := PackedFloat64Array()
+	var sign := 1.0 if inverse else -1.0
 	var size := 2
-	var sgn := 1.0 if inverse else -1.0
+	while size <= N:
+		for k in size / 2:
+			var angle := TAU * float(k) / float(size)
+			real_roots.append(cos(angle))
+			imag_roots.append(sign * sin(angle))
+		size *= 2
+	for axis in 2:
+		var stride := 1 if axis == 0 else N
+		for i in N:
+			var base := i * N if axis == 0 else i
+			_fft1(re, im, base, stride, swaps, real_roots, imag_roots)
+
+## Radix 2 in place; the inverse is unnormalised (the channel is normalised after).
+static func _fft1(re: PackedFloat64Array, im: PackedFloat64Array, base: int, stride: int,
+		swaps: PackedInt32Array, real_roots: PackedFloat64Array, imag_roots: PackedFloat64Array) -> void:
+	for i in range(0, swaps.size(), 2):
+		var a := base + swaps[i] * stride
+		var b := base + swaps[i + 1] * stride
+		var t := re[a]
+		re[a] = re[b]
+		re[b] = t
+		t = im[a]
+		im[a] = im[b]
+		im[b] = t
+	var size := 2
 	while size <= N:
 		var half := size / 2
+		var distance := half * stride
 		for k in half:
-			var c := cos(TAU * float(k) / float(size))
-			var s := sgn * sin(TAU * float(k) / float(size))
-			for start in range(0, N, size):
-				var a := start + k
-				var b := a + half
+			var c := real_roots[half - 1 + k]
+			var s := imag_roots[half - 1 + k]
+			for a in range(base + k * stride, base + N * stride, size * stride):
+				var b := a + distance
 				var tr := re[b] * c - im[b] * s
 				var ti := re[b] * s + im[b] * c
 				re[b] = re[a] - tr
@@ -305,6 +311,13 @@ static func octaves(layers: Vector2) -> Array:
 	_octaves_mutex.unlock()
 	return out
 
+static func _octave_sample(f: PackedFloat32Array, p: Vector2, ang: float, plane: Transform2D, offset: Vector2) -> Vector2:
+	var c := cos(ang)
+	var s := sin(ang)
+	var qx := p.x * c - p.y * s
+	var qz := p.x * s + p.y * c
+	return sample(f, plane * Vector2(qx, qz) + offset)
+
 static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: PackedFloat32Array, r_max: float, turn: float, layers: Vector2, norms := PackedVector2Array(), fth := {}) -> Vector2:
 	var ct := cos(turn)
 	var st := sin(turn)
@@ -322,11 +335,7 @@ static func multipliers(f: PackedFloat32Array, p: Vector3, foot: float, turns: P
 		var a := ys[o] * w
 		# Where this gas was an eddy lifetime ago.
 		var ang := -turn_at(turns, o, r_max, R)
-		var c := cos(ang)
-		var s := sin(ang)
-		var qx := q0.x * c - q0.z * s
-		var qz := q0.x * s + q0.z * c
-		var n := sample(f, octave_matrix(o) * Vector2(qx, qz) + octave_offset(o))
+		var n := _octave_sample(f, Vector2(q0.x, q0.z), ang, octave_matrix(o), octave_offset(o))
 		# A sheet where the field crosses zero, exp(−βn²) over its mean (1 + 2β)^(−1/2).
 		ld += -b * n.x * n.x + 0.5 * log(1.0 + 2.0 * b)
 		ly += a * n.y - 0.5 * a * a
@@ -430,24 +439,64 @@ static func norm_at(norms: PackedVector2Array, foot: float) -> Vector2:
 ## finer than 12.5 pc the eddies added average out.
 const NORM_FEET := [0.0125, 0.025, 0.05, 0.1, 0.2]
 
-## Stopped part way (`stop`), it returns fewer than NORM_FEET's means, for discarding.
+## Returns an empty array when the caller stops the bake.
 static func norms(img: Image, half: float, envelope: Callable, turns: PackedFloat32Array, r_max: float, layers: Vector2, fth := {}, stop := [false]) -> PackedVector2Array:
+	if stop[0]: return PackedVector2Array()
 	var f := field()
 	var n := img.get_width()
 	var px := 2.0 * half / float(n)
-	var out := PackedVector2Array()
+	var accum: Array[Vector4] = []
+	accum.resize(NORM_FEET.size())
+	accum.fill(Vector4.ZERO)
+	var octs := octaves(layers)
+	var bs: PackedFloat64Array = octs[1]
+	var ys: PackedFloat64Array = octs[2]
+	# Footprints differ in how much of an octave they retain. Its field sample
+	# is shared, and each footprint still accumulates in texel order.
+	var weights: Array[PackedFloat64Array] = []
+	var matrices: Array[Transform2D] = []
+	var offsets: Array[Vector2] = []
+	for o in int(octs[0]):
+		matrices.append(octave_matrix(o))
+		offsets.append(octave_offset(o))
 	for foot in NORM_FEET:
-		if stop[0]: return out
-		var acc := Vector4.ZERO
-		for j in range(0, n, 2):
-			for i in range(0, n, 2):
-				var x := -half + (float(i) + 0.5) * px
-				var z := -half + (float(j) + 0.5) * px
-				var c := img.get_pixel(i, j)
-				var y: float = c.r * envelope.call(sqrt(x * x + z * z))
-				if c.g <= 0.0 and y <= 0.0: continue
-				var m := multipliers(f, Vector3(x, 0.0, z), foot, turns, r_max, 0.0, layers, PackedVector2Array(), fth)
-				acc += Vector4(c.g * m.x, c.g, y * m.y, y)
+		var c := PackedFloat64Array()
+		for o in matrices.size():
+			var w := weight(o, foot)
+			if w <= 0.0: break
+			var b := bs[o] * w
+			var y := ys[o] * w
+			c.append_array([b, y, 0.5 * log(1.0 + 2.0 * b)])
+		weights.append(c)
+	# The finest footprint retains every octave used by the other footprints.
+	var samples := PackedVector2Array()
+	samples.resize(weights[0].size() / 3)
+	for j in range(0, n, 2):
+		if stop[0]: return PackedVector2Array()
+		var z := -half + (float(j) + 0.5) * px
+		for i in range(0, n, 2):
+			var x := -half + (float(i) + 0.5) * px
+			var c := img.get_pixel(i, j)
+			var y: float = c.r * envelope.call(sqrt(x * x + z * z))
+			if c.g <= 0.0 and y <= 0.0: continue
+			var p := Vector2(x, z)
+			var r := sqrt(p.x * p.x + p.y * p.y)
+			for o in samples.size():
+				samples[o] = _octave_sample(f, p, -turn_at(turns, o, r_max, r), matrices[o], offsets[o])
+			for k in NORM_FEET.size():
+				var coeff := weights[k]
+				var ld := 0.0
+				var ly := 0.0
+				for o in coeff.size() / 3:
+					var at := o * 3
+					var v := samples[o]
+					var a := coeff[at + 1]
+					ld += -coeff[at] * v.x * v.x + coeff[at + 2]
+					ly += a * v.y - 0.5 * a * a
+				var m := Vector2(exp(ld) * feather(fth, p, NORM_FEET[k]), exp(ly))
+				accum[k] += Vector4(c.g * m.x, c.g, y * m.y, y)
+	var out := PackedVector2Array()
+	for acc in accum:
 		out.append(Vector2(acc.x / acc.y if acc.y > 0.0 else 1.0, acc.z / acc.w if acc.w > 0.0 else 1.0))
 	return out
 

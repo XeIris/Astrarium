@@ -65,6 +65,7 @@ var stage: Node
 var failures := 0
 var checks := 0
 var dump := ""
+signal hdr_ready(img: Image)
 
 func check(label: String, ok: bool) -> void:
 	checks += 1
@@ -79,6 +80,9 @@ func settle(frames := 4) -> void:
 ## The scene's linear HDR frame, before the post chain.
 func hdr() -> Image:
 	await settle()
+	if stage.pipe.galaxy_glow_size() != stage.pipe.render_size:
+		stage.pipe.capture_next(func(img: Image): hdr_ready.emit.call_deferred(img), true)
+		return await hdr_ready
 	return stage.pipe.scene_vp.get_texture().get_image()
 
 func luma(c: Color) -> float:
@@ -172,10 +176,12 @@ func _ready() -> void:
 		await neighbour_profile("m33")
 		await neighbour_profile("lmc")
 		await handover(v)
+		await glow_resolution("sun", true)
 		# Last: it loads another scene, so nothing after it may hold the Milky Way's visual.
 		await type_dust("gal_m104")
 		# Edge-on from 0.9 kpc off the plane: within the medium's layer, outside the galaxy's box.
 		await type_dust("gal_m104", "edge")
+		await glow_resolution("edge", false)
 		await type_dust("gal_m51")
 		await type_dust("gal_m87")
 	for error in logger.take():
@@ -184,6 +190,52 @@ func _ready() -> void:
 	OS.remove_logger(logger)
 	print("GALAXYLOOKCHECK DONE checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(1 if failures > 0 else 0)
+
+## Compare the moving camera's diffuse layer with the same pose drawn at full resolution.
+func glow_resolution(framing: String, reduced: bool) -> void:
+	var pipe: RenderPipeline = stage.pipe
+	var prior_size := pipe.view_size
+	pipe.set_view_size(Vector2i(1920, 1080))
+	stage.galaxy.frame(framing)
+	var v: GalaxyVisual = stage.galaxy.visual
+	pin(v, EDGE_EXPOSURE)
+	var matched := true
+	var worst := 0.0
+	for i in 3:
+		stage.cam.theta += float(i) * 0.004
+		stage.cam.phi += float(i) * 0.017
+		pipe.set_galaxy_glow_quality(false)
+		var original := await hdr()
+		var pixel_angle := v.last_pix_sr
+		pipe.set_galaxy_glow_quality(true)
+		var composite := await hdr()
+		var expected := Vector2i(1280, 720) if reduced else pipe.render_size
+		matched = matched and pipe.galaxy_glow_size() == expected and v.last_pix_sr == pixel_angle
+		matched = matched and original.get_size() == pipe.render_size and composite.get_size() == pipe.render_size
+		if not matched: break
+		if reduced:
+			worst = maxf(worst, glow_error(original, composite))
+		else:
+			matched = original.get_data() == composite.get_data()
+		save(composite, "%s-glow-pose-%d" % [framing, i])
+	check("%s: glow resolution and point-source footprint at three camera poses" % framing, matched)
+	if reduced:
+		check("%s: reduced glow luminance error %.2f%% < 3%%" % [framing, worst * 100.0], worst < 0.03)
+	v.show_glow = false
+	await settle()
+	check("%s: hiding glow drops its auxiliary viewport" % framing, pipe.galaxy_glow_size() == pipe.render_size)
+	v.show_glow = true
+	pipe.set_view_size(prior_size)
+
+func glow_error(original: Image, composite: Image) -> float:
+	var light := 0.0
+	var diff := 0.0
+	for y in range(0, original.get_height(), 4):
+		for x in range(0, original.get_width(), 4):
+			var base := luma(original.get_pixel(x, y))
+			light += base
+			diff += absf(luma(composite.get_pixel(x, y)) - base)
+	return diff / light if light > 0.0 else INF
 
 # Every framing draws something, brighter at the galaxy than off it.
 func views(v: GalaxyVisual) -> void:

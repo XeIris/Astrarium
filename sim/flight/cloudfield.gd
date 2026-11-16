@@ -86,6 +86,8 @@ func density(pp: Vector3) -> float:
 		cov *= lerpf(0.2, 1.0, U.smooth(pp.distance_to(clear_at), clear_r * 0.35, clear_r * 1.4))
 	var tp := lerpf(0.45, 1.0, clampf(cov * 1.3 - 0.1, 0.0, 1.0))
 	var profile := U.smooth(hf, 0.0, 0.06) * (1.0 - U.smooth(hf, tp * 0.55, tp))
+	# Shape is at most one, so even the densest texel fails this threshold.
+	if profile <= 1.0 - cov: return 0.0
 	var s := TURN * q / 6200.0
 	var perlin := _sample(_vol[0], s)
 	var worley := _sample(_vol[1], s * 0.9 + Vector3(0.5, 0.2, 0.7))

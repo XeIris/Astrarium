@@ -243,7 +243,7 @@ func _init(p: RenderPipeline) -> void:
 	# cloud layer: a sphere round the camera marching the field per pixel and
 	# stopping at the depth buffer.
 	cloud_mat = ShaderMaterial.new()
-	cloud_mat.shader = load("res://shaders/flight/clouds.gdshader")
+	cloud_mat.shader = RenderPipeline.FULL_CLOUD_SHADER
 	cloud_mat.render_priority = ORDER.clouds
 	clouds = MeshInstance3D.new()
 	clouds.name = "clouds"
@@ -385,6 +385,7 @@ func apply_origin(basis: Basis) -> void:
 	clouds.position = Vector3.ZERO
 	var cl := cam_pos.to_v3()
 	for m in [cloud_mat, ground_mat, sun_mat]: m.set_shader_parameter("uCamLocal", cl)
+	pipe.prepare_clouds(cloud_mat, clouds.visible)
 	# The sky column and ground haze run from the camera's height, not the vehicle's
 	# (zero on the pad, which left rays below the horizontal with no path).
 	var gy := 0.0
@@ -730,8 +731,9 @@ func _update_clouds(o: Dictionary, env: Dictionary, atm, h: float, sh: float, su
 	var sun_col := Vector3(_sun_rgb.x * T.x, _sun_rgb.y * T.y, _sun_rgb.z * T.z) * flux
 	cloud_mat.set_shader_parameter("uSunDir", sun_l)
 	cloud_mat.set_shader_parameter("uSunColor", sun_col)
+	# MetalFX renders fewer rows than the viewport has; filter against those.
 	cloud_mat.set_shader_parameter("uPixAngle",
-		2.0 * tan(deg_to_rad(camera.fov * 0.5)) / maxf(float(pipe.local_vp.size.y), 1.0))
+		2.0 * tan(deg_to_rad(camera.fov * 0.5)) / float(RenderPipeline.render_extent(pipe.local_vp).y))
 	# Skylight on the upper faces (the dome's own tint, at the brightness of a
 	# clear sky) and the ground's bounce on the lower ones.
 	var tint := _v3(int(atm.tint))

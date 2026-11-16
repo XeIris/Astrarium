@@ -36,8 +36,8 @@ func shadow_edge(img: Image, dx: int, dy: int) -> float:
 	return INF
 
 # outer = 0 leaves no disc: with spin, the ISCO falls inside 3 r_s.
-func march(holes: Array, basis: Basis, fov: float, intensity := 0.0, outer := 0.0) -> Array:
-	lens.dispatch({"holes": holes, "basis": basis, "fov": fov, "aspect": 1.0, "time": 0.0,
+func march(holes: Array, basis: Basis, fov: float, intensity := 0.0, outer := 0.0, time := 0.0) -> Array:
+	lens.dispatch({"holes": holes, "basis": basis, "fov": fov, "aspect": 1.0, "time": time,
 		"disc_intensity": intensity, "disc_temp": 0.5, "disc_tpeak_phys": 1e7, "disc_outer": outer})
 	await RenderingServer.frame_post_draw
 	RenderingServer.call_on_render_thread(read_pixels)
@@ -125,6 +125,8 @@ func _ready() -> void:
 		check("horizon %s far ray escapes" % rs, images[0].get_pixel(384, 256).a == 1.0)
 		print("LENSCHECK WEAK rs=%s measured_rad=%s expected_rad=%s" % [rs, measured, expected])
 	await kerr_checks()
+	await cache_checks()
+	await hole_count_checks()
 	lens.release()
 	await RenderingServer.frame_post_draw
 	var errors := logger.take()
@@ -133,6 +135,45 @@ func _ready() -> void:
 	OS.remove_logger(logger)
 	print("LENSCHECK DONE checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(1 if failures else 0)
+
+func cache_checks() -> void:
+	var holes := [{"pos": Vector3(0, 0, -7), "rs": 1.0, "spin": 0.5}]
+	var fov := deg_to_rad(60.0)
+	var initial := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0)
+	var steady := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0)
+	check("identical inputs retain both lens fields", steady[0].get_data() == initial[0].get_data() and steady[1].get_data() == initial[1].get_data())
+	lens.set_size(256, 256)
+	await RenderingServer.frame_post_draw
+	lens.set_size(512, 512)
+	var resized := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0)
+	check("replacement textures are marched even with identical inputs", resized[0].get_data() == initial[0].get_data() and resized[1].get_data() == initial[1].get_data())
+	var advanced := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 1.0)
+	check("advancing disc time refreshes the lens field", advanced[0].get_data() != resized[0].get_data())
+	var selective := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 2.0)
+	check("a disc-only frame reuses the mask and still animates", lens._disc_mask_ready and selective[0].get_data() != advanced[0].get_data())
+	var moved := Basis(Vector3.UP, 0.17)
+	var turned := await march(holes, moved, fov, 1.0, 15.0, 2.0)
+	check("moving the camera invalidates disc coverage", not lens._disc_mask_ready and turned[1].get_data() != selective[1].get_data())
+	var full := await march(holes, Basis.IDENTITY, fov, 1.0, 15.0, 2.0)
+	check("selective and full updates produce identical fields", full[0].get_data() == selective[0].get_data()
+		and full[1].get_data() == selective[1].get_data())
+
+func hole_count_checks() -> void:
+	var fov := deg_to_rad(60.0)
+	var left := {"pos": Vector3(-5, 0, -25), "rs": 1.0}
+	var right := {"pos": Vector3(5, 0, -25), "rs": 1.0}
+	var one: Array = await march([left], Basis.IDENTITY, fov)
+	var two: Array = await march([left, right], Basis.IDENTITY, fov)
+	var spinning := U.merged(right, {"spin": 0.9})
+	var mixed: Array = await march([left, spinning], Basis.IDENTITY, fov)
+	var stopped: Array = await march([left, right], Basis.IDENTITY, fov)
+	var again: Array = await march([left], Basis.IDENTITY, fov)
+	var offset := roundi(256.0 * 5.0 / (25.0 * tan(fov * 0.5)))
+	check("two holes cast separate shadows", two[0].get_pixel(256 - offset, 256).a == 0.0 and two[0].get_pixel(256 + offset, 256).a == 0.0)
+	check("spinning up a member of the binary bends rays differently", mixed[1].get_data() != two[1].get_data())
+	check("zero spin restores the original binary field", stopped[0].get_data() == two[0].get_data()
+		and stopped[1].get_data() == two[1].get_data())
+	check("switching back to a single hole removes the second shadow", one[0].get_pixel(256 + offset, 256).a == 1.0 and again[0].get_data() == one[0].get_data())
 
 func kerr_checks() -> void:
 	# A distant static observer in the disc plane (M = 0.5 scene units, R = 4000 M):

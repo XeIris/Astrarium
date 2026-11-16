@@ -63,7 +63,7 @@ var _enc_task := -1
 var _enc_step_ms := 1.0
 var _enc_batch := 0
 var _enc_t0 := 0
-var _enc_bytes := PackedByteArray()
+var _enc_pending_draw := PackedByteArray()
 var _enc_centre := DVec3.new()
 var _enc_live_n := 0
 const ENCOUNTER_BATCH_MS := 33.0
@@ -204,7 +204,7 @@ func _enc_snapshot() -> void:
 		c.add_scaled_in(DVec3.from_v3(e.centre(i)), e.orbits.gm[i])
 		m += e.orbits.gm[i]
 	_enc_centre = c.scale_in(1.0 / m)
-	_enc_bytes = e.draw_bytes
+	_enc_pending_draw = e.draw_bytes
 	_enc_live_n = e.live.n if e.is_live() else 0
 	t_myr = e.time()
 
@@ -282,6 +282,7 @@ func _adopt() -> void:
 
 func leave() -> void:
 	if not active: return
+	stage.pipe.set_galaxy_glow(false)
 	if _task >= 0:
 		_task_cancel[0] = true
 		WorkerThreadPool.wait_for_task_completion(_task)
@@ -297,6 +298,7 @@ func leave() -> void:
 	for nb in neighbours: nb.visual.dispose()
 	neighbours = []
 	wait_encounter()
+	_enc_pending_draw = PackedByteArray()
 	if enc_visual != null: enc_visual.dispose()
 	enc_visual = null
 	encounter = null
@@ -392,7 +394,11 @@ func _advance_encounter(dt: float) -> float:
 		# next batch is one step, which measures it.
 		_enc_step_ms = lerpf(_enc_step_ms, ms, 0.3) if _enc_batch > 0 else ENCOUNTER_BATCH_MS
 		_enc_snapshot()
-	if stage.state.paused or rate <= 0.0:
+	if _enc_task < 0 and encounter.live != null and encounter.live.failed:
+		achieved = 0.0
+		limited = true
+		_pending = 0.0
+	elif stage.state.paused or rate <= 0.0:
 		achieved = 0.0
 		limited = false
 		_pending = 0.0
@@ -426,13 +432,19 @@ func _advance_encounter(dt: float) -> float:
 ## Per frame, after the camera: place and update the drawing.
 func update(dt: float) -> void:
 	if active and enc_visual != null:
-		enc_visual.update(_enc_bytes, stage.cam_pos, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain())
+		if not _enc_pending_draw.is_empty():
+			enc_visual.upload_snapshot(_enc_pending_draw)
+			_enc_pending_draw = PackedByteArray()
+		enc_visual.update(stage.cam_pos, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain())
 		_hud_acc += dt
 		if _hud_acc >= 0.25:
 			_hud_acc = 0.0
 			sync_hud()
 		return
 	if not active or visual == null: return
+	var pipe: RenderPipeline = stage.pipe
+	pipe.set_galaxy_glow(visual.show_glow and visual.glow.layers == RenderPipeline.GALAXY_GLOW_LAYER)
+	var glow_h := float(pipe.galaxy_glow_size().y)
 	var cam_pos: DVec3 = stage.cam_pos
 	visual.group.position = DVec3.new().rel_v3(cam_pos)
 	visual.group.basis = Basis()
@@ -445,8 +457,8 @@ func update(dt: float) -> void:
 		rays.append(to_centre.normalized())
 	visual.adapt(rays, cam_pos.to_v3(), SkyModel.star_gain(), dt if _adapted else 0.0)
 	_adapted = true
-	visual.update(cam_pos, t_myr, tracers, ahead, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain(), stage.cam.radius)
-	_update_neighbours(cam_pos)
+	visual.update(cam_pos, t_myr, tracers, ahead, deg_to_rad(stage.cam_fov), float(pipe.render_size.y), SkyModel.star_gain(), stage.cam.radius, glow_h)
+	_update_neighbours(cam_pos, glow_h)
 	if _objects_mat != null:
 		_objects.visible = visual.show_stars and visual.show_catalogue
 		_objects_mat.set_shader_parameter("uSunRel", DVec3.new().rel_v3(cam_pos))
@@ -614,7 +626,7 @@ func _build_neighbours() -> void:
 
 ## Each neighbour where it is relative to the camera, tilted, at the Milky Way's exposure.
 ## Its star lattice runs only with the camera inside its box.
-func _update_neighbours(cam_pos: DVec3) -> void:
+func _update_neighbours(cam_pos: DVec3, glow_h: float) -> void:
 	for nb in neighbours:
 		var v: GalaxyVisual = nb.visual
 		var rel: Vector3 = (nb.centre as DVec3).rel_v3(cam_pos)
@@ -627,7 +639,7 @@ func _update_neighbours(cam_pos: DVec3) -> void:
 		v.show_glow = visual.show_glow and not nb.get("hide", false)
 		v.show_stars = visual.show_stars
 		v.res_override = -1.0 if cl.length() < float(nb.extent) else 0.0
-		v.update(DVec3.new(cl.x, cl.y, cl.z), t_myr, null, 0.0, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain(), stage.cam.radius)
+		v.update(DVec3.new(cl.x, cl.y, cl.z), t_myr, null, 0.0, deg_to_rad(stage.cam_fov), float(stage.pipe.render_size.y), SkyModel.star_gain(), stage.cam.radius, glow_h)
 
 func _clear_landmarks() -> void:
 	if is_instance_valid(_lm_layer): _lm_layer.queue_free()

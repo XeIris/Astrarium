@@ -6,8 +6,10 @@ settles for 90 rendered frames before collecting 180 samples. It records median,
 p95 and maximum for the stage call, any edit action, viewport rendering CPU/GPU
 times and visible primitives. Render-thread timestamps measure each compute
 shader dispatch separately, including repeated bloom mip passes.
-Cases cover the solar system, idle/continuous editing, lensing, two studio
-distances with two LOD biases, and an authored Falcon 9 on the pad and in ascent.
+Cases cover the solar system, idle/continuous editing, running and paused lensing,
+five galaxy views and a live encounter, two studio distances with two LOD biases,
+and an authored Falcon 9 on the pad and in ascent. Lens and galaxy rows record
+how far their simulation clocks advanced during sampling.
 Flight rows record phase, elapsed mission seconds and altitude; prelaunch,
 landed and destroyed phases cannot pass the ascent case. Reports identify the actual
 rendering driver and method, including command-line overrides.
@@ -34,6 +36,7 @@ explicitly reported as `gpu_available: false`; zero is not interpreted as free
 rendering. Headless execution, engine errors and incomplete runs fail.
 
 The viewport sum includes enabled viewports and root HUD, plus CPU frame setup.
+Galaxy rows record the active diffuse glow dimensions.
 The lens dispatch precedes viewport rendering; its compute timing is reported
 separately. Compute measurements overlap the compositor's viewport measurements,
 so adding both would double-count. The action cost includes editor/inspector
@@ -315,6 +318,454 @@ alternating before/after twice, 35.22, 35.40 / 32.36, 31.90 ms before and 35.26,
 33.80 / 31.70, 32.17 ms after. No difference beyond the run-to-run spread. Evidence:
 `tools/evidence/gaps/perf/` in that worktree. Repeat on an idle machine before
 reading these against the budget.
+
+## Frame-time survey
+
+Godot 4.7.2 Forward+, Apple M5 on AC, Medium quality and a 2560×1440 scene target.
+Each row uses 90 warmup and 120 sampled draws with VSync off. Metal reports wall
+intervals between draws and main-thread `animate` time. It reports zero GPU
+timestamps. The separate 1280×720 Vulkan run provides GPU timings through
+MoltenVK and emitted a pipeline-cache serialization diagnostic.
+
+| Scene | Baseline median / p95 | Optimized median / p95 |
+|---|---:|---:|
+| Focused lens, paused | 24.59 / 26.54 ms | 10.87 / 11.43 ms |
+| Focused lens, running | 24.50 / 31.82 ms | 24.55 / 32.09 ms |
+| Focused lens, paused X-ray | 43.32 / 44.73 ms | 29.93 / 30.49 ms |
+| Milky Way, whole | 14.29 / 14.53 ms | 9.06 / 9.45 ms |
+| Milky Way, from the Sun | 21.32 / 21.51 ms | 17.83 / 18.13 ms |
+| Milky Way, 300 pc from the Sun | 21.35 / 21.48 ms | 17.30 / 17.67 ms |
+| M51, whole | 14.01 / 14.48 ms | 9.20 / 9.57 ms |
+| M51, viewed from 8 kpc | 18.45 / 18.60 ms | 13.61 / 14.03 ms |
+
+The lens reuses its output for identical packed inputs, including disc time.
+The visible intergalactic background has zero emission. Its fast path skips
+the point-source and diffuse sky evaluation, including occasional spurious
+point sources from zero-valued hashes at zero density. At 300 pc, hiding the galaxy glow
+in the baseline lowered the median from 21.35 to 7.01 ms. Resolved stars made
+little difference in that view. The remaining cost is the per-pixel glow march.
+
+The broad survey also measured Earth surface 24.75 ms, Falcon 9 ascent 22.50 ms,
+Observatory 11.34 ms and the running solar preset 5.64 ms. A separate ground
+probe attributed roughly 8 ms to drawing clouds at the surface and on the pad.
+The cloud shader now rejects samples whose vertical profile is too low to hold
+cloud even at maximum shape density. In same-process ABBA blocks of 150 draws,
+the two block medians averaged 18.47 → 16.10 ms on the Earth surface and
+21.85 → 20.43 ms on the Falcon 9 pad. The surface captures matched exactly.
+
+Headless, 6,000 Milky Way tracers took 0.438 → 0.396 ms for one native step and
+2.359 → 2.206 ms for a six-step batch after sharing pattern constants. The live
+126,781-particle encounter took 43–46 ms per 1 Myr step on all ten cores, versus
+58–59 ms with six threads and 72 ms with four. Its worker controls simulation
+throughput separately from frame cadence. The renderer uploads each completed
+snapshot once (about 0.9 MiB for 58,250 luminous particles).
+
+The 3024×1964 Low-based native gate passed all 18 cases, with a worst p95 of
+27.32 ms in moving focused lensing. At the same resolution, Medium missed the
+33.33 ms budget in moving focused lensing (37.55 ms p95) and Falcon 9 ascent
+(36.27 ms p95). The revised harness explicitly advances the lens clock in its
+running cases. Both native runs drew the live encounter above 240 mean FPS
+while its simulation advanced at about 18 Myr per wall second against a request
+of 100. Their captured timestamp labels show lens dispatches for the running
+cases and none after paused warmup.
+
+For the next renderer experiment, isolate diffuse galaxy glow and clouds into
+scalable targets. Compare depth-aware upsampling at horizons, thin dust lanes
+and in motion. Keep lens field scale independent of the output sky so the arcs
+retain their analytic point sources. For faster live evolution, profile tree
+construction and interaction-list evaluation separately before changing their
+data layout. Preserve the current forces, timestep and summation order in any
+native comparison. The current Apple Silicon compiler already vectorizes the
+double-precision force loop.
+
+Evidence from the survey is in `/tmp/astrarium-nov-perf/` and the local probes
+are under ignored `tools/evidence/nov-frame-time/`.
+
+### Single-hole lens pipeline and resolution prototypes
+
+Production lensing selects a specialized compute pipeline for one black hole.
+The compiler can remove the second hole's field and disc paths while the lens
+field keeps the same resolution and solver. At 2560×1440 on M5 Metal, an ABBA
+comparison with the disc clock advancing and a fixed camera averaged 25.60 ms
+versus 23.49 ms in block medians. The compared images differ by more than ten
+8-bit levels in 0.013% of RGB channels. `lenscheck` exercises the analytic
+shadow, weak-field bend, Kerr limits, and switching between one and two holes.
+
+At 3024×1964 Medium, moving focused lensing measured 30.14 mean FPS and
+33.39 ms p95, down from 37.55 ms p95 in the previous run. The 33.33 ms gate
+still failed there and in ascent (35.95 ms p95).
+
+Two prototypes tested independent resolution on the same 2560×1440 output:
+
+| Scene and change | Original median | Prototype median |
+|---|---:|---:|
+| Milky Way from the Sun, ⅔-resolution glow | 17.60 ms | 9.64 ms |
+| M51 from 8 kpc, ⅔-resolution glow | 13.35 ms | 8.18 ms |
+| Falcon 9 pad, 80% local viewport scale | 20.85 ms | 15.64 ms |
+| Falcon 9 at 301 m, 80% local viewport scale | 22.47 ms | 16.79 ms |
+
+The galaxy prototype composites only the diffuse pass before bloom. Separate
+full-resolution glow adds about 0.5 ms and matches the original within one
+8-bit level. At ⅔ scale, the fixed Sun-facing capture differs by more than two
+levels in 6.1% of RGB channels. A production comparison needs camera motion and
+thin dust lanes. Flight's built-in viewport scaler covers the local 3D scene,
+including fine tower geometry. A cloud-only pass needs the opaque scene depth
+and a resolve that preserves the silhouette of vehicles and terrain.
+
+In the live encounter's native kernel, tree setup cost 4.3–4.6 ms of wall time
+and the worker phase 37–40 ms per step. Instrumented worker CPU time (summed
+over threads) split about 40% to building interaction lists and 60% to
+evaluating them. Moving the octree's build-only moments off its nodes reduced
+nodes from 88 to 64 bytes and saved about 0.9 ms per step in two ABBA cycles.
+Sorting a duplicate source buffer by tree order, padding SIMD lanes, and
+pre-squaring softening showed no consistent gain. The compared candidate
+buffers were byte-identical after stepping the same 126,781-particle fixture.
+
+Reports and captures: `/tmp/astrarium-batch2/`. The graphics probes are in the
+ignored `tools/evidence/frame-batch2/` directory.
+
+### Reduced galaxy glow and compact live octree
+
+Low and Medium render diffuse glow at ⅔ linear resolution with a 720-pixel
+height floor. High and Ultra use the full scene target. Resolved stars, the
+catalogue, and H II objects use the full target on every tier. At 2560×1440,
+the composed production path measured 18.06 → 10.03 ms from the Sun,
+17.31 → 9.52 ms at 300 pc, and 13.71 → 8.29 ms for M51 from 8 kpc. Each
+value averages two 120-frame block medians with a fixed camera.
+
+The moving M104 probe showed differences up to 26% of the peak stripe
+luminance in individual rows when resampled. The production pass therefore
+keeps narrow dust rings at full resolution. `galaxylookcheck` compares three
+camera poses in each path and verifies the point-source footprint and removal
+of the auxiliary viewport when diffuse glow is hidden.
+
+The opaque flight map skips the hidden lens and HDR passes. Explicit captures
+can still request the post chain. The integrated Low preset passed all 18 cases
+on the Apple M5 at 3024×1964 with Metal. Focused lensing had the highest p95
+(25.27 ms), followed by ascent (21.43 ms). The Sun view reached 14.78 ms p95.
+Metal viewport GPU timestamps were unavailable, so these are frame times.
+
+The native live tree uses the 64-byte nodes from the compact prototype. First
+moments stay on the build stack, with the same octant order and force walk.
+The renderer and native evidence are in `/tmp/astrarium-batch3/`.
+
+### MetalFX upscaling on Apple M5
+
+Settings › Render offers the MetalFX spatial upscaler when the rendering
+device supports it. Off is the default. Quality, Balanced and Performance
+render at 67%, 59% and 50% per dimension, following the
+[FSR preset ratios](https://gpuopen.com/manuals/fsr_sdk/samples/super-resolution/).
+The percentages apply to the 3D framebuffer selected by Render scale. The
+HDR post chain and HUD retain their output sizes, and Lens detail still
+controls the separate geodesic march. Galaxy scenes preserve their point-source
+sampling and narrow dust lanes. Spectral bands preserve the pixel alignment
+of the colour and temperature passes.
+Flight saves its resolved alpha at the MetalFX input size before the upscaler
+replaces alpha with opaque coverage. HDR compositing uses that saved coverage.
+
+The production path at 2560×1440 produced these frame times on the Apple M5.
+Each value averages two 120-frame block medians. The camera poses follow the
+same pan in each block.
+
+| Scene | Off | Quality | Balanced | Performance |
+| --- | ---: | ---: | ---: | ---: |
+| Falcon 9 at 50 m | 22.38 ms | 12.77 ms | 10.93 ms | 8.97 ms |
+| Focused lens, panning | 22.62 ms | 19.02 ms | 18.10 ms | 17.47 ms |
+
+In the fixed-camera probe, 50% bilinear scaling was about 0.7 ms faster than
+spatial MetalFX and softened craft silhouettes more. A spatial trial in the
+Milky Way near the Sun ran at about 10 ms across the three presets and spread
+light out from its point sources, leading to the galaxy bypass. A temporal
+trial stopped producing frames after Godot reported it was disabling MSAA.
+
+The Low-based native M5 run at 3024×1964 passed all 18 cases with MetalFX
+Quality. Focused lensing had the highest p95 at 19.83 ms. Ascent was 13.90 ms.
+
+`tools/perfcheck.tscn` accepts `metalfx=quality|balanced|performance` for explicit
+comparisons. The default perf configuration forces Off. Probe reports and
+captures are in `/tmp/astrarium-metalfx/`.
+
+### Reusing the lens field and avoiding redundant render work
+
+When only disc time changes, the lens reuses rays whose paths stayed outside
+every emitting slab. It builds the coverage mask at the first disc-only
+update after the view settles, and invalidates it when any other packed input
+or the field size changes. About 33% of rays were reused in the focused view.
+Both RGBA16F outputs matched a full march byte for byte. The temperature pass
+evaluates sky radiance only where it can compete with disc emission, with the
+neighbouring derivative lanes included at the disc edge. The temperature
+buffers matched the full calculation byte for byte in 16 same-frame views,
+covering X-ray and infrared at two distances during a pan.
+
+The ordinary visible scene and the craft studio feed their HDR textures
+directly into bloom and tone mapping. Captures of the solar scene, the studio,
+and paused lensing were byte-identical with and without the compose copy.
+The cloud marcher shares the planet radius and height fraction between
+coverage and density. The frozen surface, pad, and in-cloud captures all
+matched exactly. A prototype that advanced the geometric march with repeated
+multiplication changed isolated cloud pixels and was discarded.
+
+The Apple M5 trials used 2560×1440 output, Medium quality and MetalFX Off.
+Numbers average two block medians in each configuration.
+
+| Change and scene | Before | After |
+| --- | ---: | ---: |
+| Temperature pass, wide infrared | 40.77 ms | 37.41 ms |
+| Temperature pass, wide X-ray pan | 42.65 ms | 39.53 ms |
+| Temperature pass, focused X-ray | 39.24 ms | 36.92 ms |
+| Disc-only update, focused black hole | 21.61 ms | 20.61 ms |
+| Disc-only update, wider black hole | 21.43 ms | 20.75 ms |
+| Direct HDR input, craft studio | 5.90 ms | 4.21 ms |
+| Direct HDR input, visible Solar System | 5.62 ms | 5.49 ms |
+| Shared sampling geometry inside clouds | 30.87 ms | 30.60 ms |
+
+Medium with MetalFX Quality passed the 18-case Metal gate at 3024×1964.
+Focused lensing was 26.20 ms p95 and Falcon 9 ascent was 20.65 ms p95.
+
+Reports and captures are in `/tmp/astrarium-next-perf/`.
+
+### Native prediction and the remaining render hotspots
+
+On the M5, Medium at 2560×1440 with MetalFX Off, toggling one effect at a time
+gave these whole-frame medians. Each value averages two blocks of 120 draws.
+The X-ray toggle covers the complete lens path, including the spectral sky.
+
+| Scene and effect | Effect present | Hidden |
+| --- | ---: | ---: |
+| Panning X-ray view, lensing | 39.25 ms | 13.50 ms |
+| Falcon 9 at 2.8 km, cloud volume | 29.84 ms | 18.33 ms |
+| Milky Way from the Sun, diffuse light | 9.65 ms | 5.48 ms |
+
+The original CPU probe measured 1.15 ms for an undrawn Falcon 9 ascent frame
+and 2.22 ms for 500 native N-body sub-steps in the eleven-body solar scene.
+CPU-heavy events have different costs. The ascent cutoff and Shuttle deorbit
+planner ask for hundreds of zonal RK4 steps per prediction, so the extension
+now takes a complete prediction in one call. The GDScript path is still used
+where the method is unavailable. The same states and burn solution matched
+byte for byte in paired runs.
+
+| Headless workload | Before | After |
+| --- | ---: | ---: |
+| Apoapsis prediction | 4.95 ms | 0.054 ms |
+| Coast to entry interface | 1.11 ms | 0.013 ms |
+| Shuttle deorbit burn refinement | 127.28 ms | 1.81 ms |
+| Native live encounter, 126,781 particles | 40.87 ms/step | 35.49 ms/step |
+
+Live force groups now accumulate accepted sources during the shared tree walk.
+Potential diagnostics and oversized leaves keep the interaction-list path.
+The native fixture used the same initial state in both directions of an ABBA
+comparison, with all ten cores and 60 timed steps per block. All 63-step
+particle and draw buffers matched exactly. This improves simulation throughput
+on the worker. Frame time in the three rendered cases remains dominated by
+the effects above.
+
+The 10 Gyr encounter replay passed all three gates. Forty zonal predictions
+matched the fallback byte for byte. The full Saturn V launch and Shuttle
+return had the same end-state digests and frame counts on both paths. The
+evidence is in `/tmp/astrarium-native-hunt/`.
+
+## Spectral sky redraws
+
+Ordinary procedural stars in X-ray and gamma contribute below HDR precision
+at the supported spectral settings and typical Doppler factors. Both sky
+draws skip their cluster and point-source calculations there. The compact
+sources and supernova remnants now reject impossible hash candidates before
+projecting their directions.
+
+Panning past the Sandbox black hole at 15 rendered horizon radii on Apple M5,
+Medium, Metal, MetalFX Off, and a 2560×1440 scene target. Each entry is the mean
+of two 90-frame block medians, alternating the original and revised shaders
+in ABBA order.
+
+| Band | Before | After |
+| --- | ---: | ---: |
+| X-ray | 39.42 ms | 21.83 ms |
+| Gamma | 38.73 ms | 21.21 ms |
+| Infrared | 37.77 ms | 33.90 ms |
+| Visible | 21.71 ms | 21.81 ms |
+
+At a 3024×1964 scene target, X-ray went from 59.94 to 33.58 ms with the same
+setup. These are wall-clock frame times. GPU timestamps in a separate
+1280×720 Vulkan run put the X-ray colour viewport at 4.37 → 1.29 ms, the
+temperature viewport at 4.16 → 1.56 ms, and the ray march at 2.95 → 2.92 ms.
+
+Final RGB pixels matched the previous shader exactly in nine `skycachecheck`
+scenes. A same-frame comparison of the temperature buffers also matched byte
+for byte across X-ray, gamma and infrared, at two distances and four poses each.
+
+A depth-aware prototype rendered flight clouds at two-thirds resolution on
+each axis. At 2.8 km on the Falcon 9 ascent it took the 2560×1440 frame from
+30.59 to 24.05 ms. Visible sampling bands and Metal texture binding errors
+on scale transitions kept the prototype out of the game. The captures and
+timing logs are in `/tmp/astrarium-spectral-cloud/`.
+
+## Lens arithmetic, visible stars and flight terrain
+
+The lens uses a dedicated pipeline when every packed spin is zero. Rotating
+metrics share reciprocals and factor the radial part of the field gradient.
+Pipeline variants are compiled on first use and reused until the lens is freed.
+In SkyModel's shader, the upper bound of the equiangular cell weight rejects
+ordinary star candidates before evaluating their position hash and projection.
+The flight ground shader runs its fallback only where the planet map is
+unavailable and skips mapped detail at scales whose weights are zero.
+
+Apple M5, Medium, Metal, MetalFX Off, 2560×1440 scene target. Times are the mean
+of two block medians per variant. Cameras pan in the lens and sky trials.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Wide X-ray, zero-spin lens pipeline | 21.85 ms | 21.27 ms |
+| Focused visible, zero-spin lens pipeline | 22.07 ms | 21.51 ms |
+| Visible spinning binary, lens arithmetic | 27.86 ms | 26.03 ms |
+| Wide visible, star acceptance bound | 21.74 ms | 21.27 ms |
+| Wide infrared, star acceptance bound | 33.85 ms | 33.08 ms |
+| Falcon 9 on pad, flight ground shader | 20.51 ms | 19.91 ms |
+| Falcon 9 at 2.8 km, flight ground shader | 31.10 ms | 28.92 ms |
+| Falcon 9 at 11 km, flight ground shader | 27.78 ms | 25.83 ms |
+
+A 1280×720 Vulkan trace measures the march separately. It went from 1.91 to
+1.50 ms in the non-rotating binary and from 6.11 to 5.67 ms in the spinning
+binary. Frame pacing varied between the non-rotating binary's Metal blocks.
+The analytic lens checks passed on both backends, including a transition from
+zero spin to mixed spin and back. In eight Metal frames with matched lens
+inputs, at most 0.008% of RGB channels differed by more than ten 8-bit levels.
+Final RGB pixels matched exactly in all nine `skycachecheck` scenes against
+the previous sky shader.
+
+Paired ground-only viewports matched exactly on the mapped pad. With the map
+disabled the largest RGB difference was 1/255. Across the two ascent poses,
+at most 46 of 11,059,200 RGB channels differed by more than 2/255 per frame.
+
+Hoisting cloud scattering terms and sharing the galaxy glow's hyperbolic
+exponentials showed no repeatable gain. Reports and captures are in
+`/tmp/astrarium-render-hunt/`.
+
+## Transfer planner and encounter setup latency
+
+On the M5, eight paired 600-cell Earth–Mars transfer searches had identical
+cost grids and winning departure vectors. Reusing the Stumpff values and
+stopping once the double-precision interval can no longer shrink took the
+median solve from 45.39 to 26.17 ms. The map submits the Lambert grid and then
+the aerobraking estimate on a worker. In the no-heat-shield fixture, a complete
+route took about 337 ms to become available, including the aerobraking estimate.
+The median main-thread submission was 0.08 ms and the median of each run's
+slowest main-thread follow-up was 0.33 ms. The map reprices completed arcs at
+the current parking radius and reports the route as pending until both jobs
+have finished.
+
+The galaxy equilibrium sampler builds its integration and speed tables in C,
+with the GDScript path available as a fallback. It finds a sample's quantile
+with a lower-bound search and initializes live particles directly from their
+components. On the full Milky Way, M31 and M33 fixture, medians across two
+four-run groups per build fell from 457 to 367 ms for seeding and from 399 to
+340 ms for the initial live handoff (126,781 particles, the fixture at t = 0).
+Seeded positions and velocities, the packed live state and the sampled core
+indices matched byte for byte. The isolated probes are in
+`/tmp/astrarium-latency/`.
+
+## Local cloud Performance setting
+
+Settings › Rendering › Local clouds defaults to Full resolution. Performance
+marches one pixel per 2×2 block before transparent rendering. Its draw
+reconstructs the neighbouring rays from the coarse colour and checks the
+opaque depth and colour spread before accepting them. Pixels near a detected
+discontinuity can still take the full march, and the transparent draw order
+stays the same. Performance can show grain at cloud edges.
+
+Apple M5, Medium, 2560×1440 scene target, MetalFX Off, paired panning cameras.
+Each entry is the mean of two block medians of 86 whole frames.
+
+| Falcon 9 view | Full resolution | Performance |
+| --- | ---: | ---: |
+| Launch pad, Metal | 20.03 ms | 16.89 ms |
+| Inside clouds at 2.8 km, Metal | 28.68 ms | 23.69 ms |
+| Above clouds at 11 km, Metal | 25.89 ms | 23.50 ms |
+| Inside clouds at 2.8 km, Vulkan | 28.26 ms | 23.28 ms |
+
+The Metal run switched viewport sizes and cycled MetalFX Quality, Balanced,
+Performance and Off without texture binding errors. The code checks the
+actual render extent before dispatch, since a frame can observe a new size
+before the material and textures are ready. Probe logs and images are in
+`/tmp/astrarium-cloud-reconstruction/`. The main game and `perfcheck` both
+accept `flightclouds=full|fast`; `perfcheck` defaults to Full resolution.
+
+## Galaxy work at high time warp
+
+Large native tracer batches share their pattern table across up to four
+workers. A worker advances its own contiguous set of stars for the entire
+batch, preserving each star's drift, force and work order. Small batches stay
+on the calling thread. The live encounter also gives workers adjacent force
+groups in sets of eight when the tree has enough groups to keep work balanced.
+The box distance used to accept an octree cell uses two comparisons per axis.
+
+Measurements on the Apple M5 used 6,000 Milky Way tracers, with the bar and
+spiral active. The standalone kernel values average two block medians. The
+rendered comparison used the Sun view, Medium, 2560×1440, MetalFX Off and the
+maximum time-warp request. All four runs accepted the full six steps per
+frame for 180 timed frames.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Six tracer steps, kernel median | 2.19 ms | 0.66 ms |
+| Rendered time warp, stage CPU median | 3.16 ms | 1.33 ms |
+| Rendered time warp, whole-frame median | 8.55 ms | 8.49 ms |
+| Rendered time warp, whole-frame p95 | 9.25 ms | 9.04 ms |
+| Live encounter, 126,781 particles, median step | 38.77 ms | 37.66 ms |
+
+Tracer positions, velocities and work matched byte for byte at the end of
+each paired block. The live benchmark used four 60-step blocks per build
+after three warm-up steps and produced identical particle and drawing buffers.
+Its stackless traversal trial moved the median by about 0.2 ms. The captured
+measurements are in `/tmp/astrarium-tracer-parallel/` and
+`/tmp/astrarium-stackless/`.
+
+## Galaxy presentation CPU work
+
+The tracer markers reuse their mesh data until the integrated step or the
+interpolation offset changes. The exposure estimate reads the disc and
+spheroid uniforms once per ray and uses one arm-map sample per point for
+stellar light and dust. The spheroid calculation runs inside its support.
+
+Apple M5, Medium, MetalFX Off, 2560×1440 with a panning camera. Each
+measurement averages two 100-frame blocks.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Paused Milky Way, whole view, median stage CPU | 1.72 ms | 0.24 ms |
+| Paused Milky Way, whole view, p95 stage CPU | 4.97 ms | 1.91 ms |
+| Milky Way at max time warp, whole view, p95 stage CPU | 4.99 ms | 4.16 ms |
+| M51 from 8 kpc, p95 stage CPU | 1.56 ms | 1.05 ms |
+
+Whole-frame timing varied between blocks, including a higher p95 in one
+running Milky Way block. Twenty captures across the paused and running
+Milky Way, its Sun view, and M51 matched pixel for pixel. Reports and
+captures are in `/tmp/astrarium-next-hotspots/`.
+
+## Cold galaxy startup
+
+The Milky Way's arm bake shares spiral distances between young light and
+analytic dust. The interstellar medium's normalization reuses each noise
+sample across its five footprints, accumulating each footprint in the
+same texel order. The two FFT axes transform strided lines in place and
+share their permutation and roots within each transform.
+
+Apple M5, mean of two cold-process runs per variant in ABBA order.
+The rendered measurements use Metal at 1280×720, Medium and MetalFX Off,
+timed from the preset request through the first draw after each asset was applied.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Milky Way arm map bake | 2.34 s | 1.31 s |
+| Interstellar noise field bake | 1.38 s | 1.12 s |
+| Milky Way normalization | 602 ms | 171 ms |
+| M51 normalization | 632 ms | 194 ms |
+| Milky Way first frame with arms | 2.98 s | 1.88 s |
+| Milky Way first frame with interstellar detail | 5.00 s | 3.20 s |
+| Milky Way neighbourhood catalogue ready | 5.83 s | 4.02 s |
+
+The noise field, baked maps, map metadata and normalization arrays matched
+byte for byte on the paired fixtures. The isolated phase timings and scene
+startup reports are in `/tmp/astrarium-galaxy-bake/`.
 
 ## Check suite time
 

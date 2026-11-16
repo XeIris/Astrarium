@@ -93,7 +93,7 @@ vec3 land_cover(vec2 gp, float fp, float from_pad, out float relief, out float w
 	// the pixel footprint.
 	float k1 = 1.0 - smoothstep(1.5, 6.0, fp);
 	float k2 = 1.0 - smoothstep(12.0, 50.0, fp);
-	float tuft = fbm(gp * 0.7) - 0.5;
+	float tuft = k1 > 0.0 ? fbm(gp * 0.7) - 0.5 : 0.0;
 	float crown = fbm(gp * 0.12 + 40.0) - 0.5;
 	float stripe = (step(0.5, fract(dot(gp, vec2(0.6, 0.8)) / 9.0)) - 0.5) * (1.0 - scrub) * (1.0 - sand);
 	col *= 1.0 + tuft * 0.35 * k1 + crown * mix(0.25, 0.7, scrub) * k2 + stripe * 0.06 * k2;
@@ -110,26 +110,9 @@ float bayer4(vec2 c) {
 }
 
 void fragment() {
-	// Two rock tones and a fine grain that fades past a few km.
 	vec2 gp = vWorld.xz - uAnchor;     // planet-fixed: see the header
-	float big = fbm(gp * 0.00008);
-	// Raise the land under the pad: pads are on coasts (range safety), water a few km out.
-	big += 0.40 * exp(-length(gp) / 7000.0) * uHasPad;
-	// Three detail scales, each fading where it would alias. The mid octave is what the
-	// eye reads the climb rate against.
-	float mid = fbm(gp * 0.0011);
-	float fine = fbm(gp * 0.02);
-	float midK = exp(-vDist / 9000.0);
-	float fineK = exp(-vDist / 900.0);
-	vec3 col = mix(uRock, uGround, clamp(big * 1.5 - 0.15, 0.0, 1.0));
-	col *= 0.72 + 0.30 * mix(0.5, mid, midK) + 0.34 * mix(0.5, fine, fineK);
-	// Procedural seas only where there is no map.
+	vec3 col;
 	float water_frac = 0.0;
-	if (uGeoReady < 0.5 && uOceans > 0.5 && big < uSeaLevel) {
-		float dep = smoothstep(uSeaLevel, uSeaLevel - 0.18, big);
-		col = mix(col, uSea, dep * 0.92);
-		water_frac = dep;
-	}
 	float relief = 0.0;
 	if (uGeoReady > 0.5) {
 		// The ground patch is a tangent sheet. Convert each point back to a
@@ -158,11 +141,11 @@ void fragment() {
 		float k2 = 1.0 - smoothstep(350.0, 1600.0, fp);
 		float k3 = 1.0 - smoothstep(40.0, 220.0, fp);
 		float d1 = fbm(gp * (1.0 / 9000.0) + vec2(5.3, 2.9));
-		float d2 = fbm(gp * (1.0 / 1300.0) + vec2(1.7, 8.1));
-		float d3 = fbm(gp * (1.0 / 170.0) + vec2(6.6, 4.4));
+		float d2 = k2 > 0.0 ? fbm(gp * (1.0 / 1300.0) + vec2(1.7, 8.1)) : 0.5;
+		float d3 = k3 > 0.0 ? fbm(gp * (1.0 / 170.0) + vec2(6.6, 4.4)) : 0.5;
 		float lum = 1.0 + 0.30 * (d1 - 0.5) + 0.42 * (d2 - 0.5) * k2 + 0.30 * (d3 - 0.5) * k3;
 		float dry = smoothstep(0.52, 0.74, fbm(gp * (1.0 / 3800.0) + vec2(12.0, 3.0)));
-		float wood = smoothstep(0.50, 0.72, fbm(gp * (1.0 / 1900.0) + vec2(2.0, 19.0))) * k2;
+		float wood = k2 > 0.0 ? smoothstep(0.50, 0.72, fbm(gp * (1.0 / 1900.0) + vec2(2.0, 19.0))) * k2 : 0.0;
 		vec3 landCol = mapped * lum;
 		landCol = mix(landCol, landCol * vec3(1.18, 1.06, 0.80) + vec3(0.015, 0.012, 0.0), dry * 0.55);
 		landCol = mix(landCol, landCol * vec3(0.72, 0.84, 0.66), wood * 0.6);
@@ -181,6 +164,23 @@ void fragment() {
 		vec3 water = max(mapped * 0.8, uSea * 0.8) * (0.92 + 0.16 * d1);
 		col = mix(water, landCol, land);
 		water_frac = 1.0 - land;
+	} else {
+		float big = fbm(gp * 0.00008);
+		// Raise the land under the pad: pads are on coasts (range safety), water a few km out.
+		big += 0.40 * exp(-length(gp) / 7000.0) * uHasPad;
+		// Three detail scales, each fading where it would alias. The mid octave is what the
+		// eye reads the climb rate against.
+		float mid = fbm(gp * 0.0011);
+		float fine = fbm(gp * 0.02);
+		float midK = exp(-vDist / 9000.0);
+		float fineK = exp(-vDist / 900.0);
+		col = mix(uRock, uGround, clamp(big * 1.5 - 0.15, 0.0, 1.0));
+		col *= 0.72 + 0.30 * mix(0.5, mid, midK) + 0.34 * mix(0.5, fine, fineK);
+		if (uGeoReady < 0.5 && uOceans > 0.5 && big < uSeaLevel) {
+			float dep = smoothstep(uSeaLevel, uSeaLevel - 0.18, big);
+			col = mix(col, uSea, dep * 0.92);
+			water_frac = dep;
+		}
 	}
 
 	// Lambert with the vehicle's 1/π; uSkyI is the diffuse skylight (the only light on
