@@ -72,6 +72,24 @@ func wait_transfer(search: Mission.TransferSearch) -> bool:
 	search.finish()
 	return false
 
+## The largest relative difference across two priced windows' grids, best cost and
+## departure v∞; INF if either is missing or the grids' shapes or failed cells differ.
+static func window_drift(a: Dictionary, b: Dictionary) -> float:
+	if a.is_empty() or b.is_empty() or a.get("pending", false) or b.get("pending", false): return INF
+	if a.grid.size() != b.grid.size(): return INF
+	var worst := maxf(absf(a.cost - b.cost) / absf(b.cost), a.v_dep.distance_to(b.v_dep) / b.v_dep.length())
+	for i in a.grid.size():
+		var ra: PackedFloat64Array = a.grid[i]
+		var rb: PackedFloat64Array = b.grid[i]
+		if ra.size() != rb.size(): return INF
+		for j in ra.size():
+			if is_inf(ra[j]) or is_inf(rb[j]):
+				if ra[j] != rb[j]: return INF
+				continue
+			worst = maxf(worst, absf(ra[j] - rb[j]) / absf(rb[j]))
+			if is_nan(worst): return INF
+	return worst if not is_nan(worst) else INF
+
 func transfer_worker(p_e: DVec3, v_e: DVec3, p_m: DVec3, v_m: DVec3) -> void:
 	var sun := body("Sun", 1.0, 695700.0)
 	var earth := body("Earth", Rocketry.M_EARTH_SUN, 6371.0, p_e, v_e)
@@ -85,12 +103,18 @@ func transfer_worker(p_e: DVec3, v_e: DVec3, p_m: DVec3, v_m: DVec3) -> void:
 	var ready := wait_transfer(search)
 	check("the transfer worker publishes the completed window", ready)
 	if not ready: return
+	var stale := Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
 	var priced := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra, 40, 15, search)
 	Mission._pork_cache.clear()
 	var direct := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra)
+	# Bit-identical on macOS and Linux. On Windows the worker's libm results can
+	# differ from the main thread's in the last bits, so compare to 1e-12. The stale
+	# price at the old radius differs by ~1e-2.
+	var drift := window_drift(priced, direct)
+	var moved := window_drift(stale, direct)
 	check("a changed parking radius reprices the worker's arcs and matches the synchronous grid",
-		not priced.is_empty() and not direct.is_empty() and not priced.get("pending", false)
-		and priced.grid == direct.grid and priced.t_dep == direct.t_dep and priced.v_dep.distance_to(direct.v_dep) == 0.0)
+		drift <= 1e-12 and moved > 1e-6 and priced.t_dep == direct.t_dep and priced.tof == direct.tof,
+		"relative drift %s, stale price %s" % [String.num_scientific(drift), String.num_scientific(moved)])
 	var new_v := vessel_at(earth, [sun, earth, mars])
 	var cold := Mission.porkchop_window(new_v, earth, mars, sun, rp, ra, 40, 15, search)
 	check("a new vessel starts with a fresh transfer window", cold.get("pending", false) and wait_transfer(search))
