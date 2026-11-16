@@ -254,8 +254,9 @@ static func transfer_arcs(r_dep: DVec3, v_dep: DVec3, mu_dep: float, r_arr: DVec
 			arcs[o + 4] = a2.sub_in(va).length()
 	return arcs
 
-## Rank cached arcs again if the current parking orbit changes the price.
-static func rank_transfers(arcs: PackedFloat64Array, t_deps: Array, tofs: Array, cost: Callable) -> Dictionary:
+## Rank cached arcs again if the current parking orbit changes the price. Departures
+## before index `first` have passed: they stay in the grid but cannot be the best.
+static func rank_transfers(arcs: PackedFloat64Array, t_deps: Array, tofs: Array, cost: Callable, first := 0) -> Dictionary:
 	var grid: Array = []
 	var best := {}
 	var best_cost := INF
@@ -270,7 +271,7 @@ static func rank_transfers(arcs: PackedFloat64Array, t_deps: Array, tofs: Array,
 			var va := arcs[o + 4]
 			var c: float = cost.call(vd, va)
 			row[j] = c
-			if c < best_cost:
+			if i >= first and c < best_cost:
 				best_cost = c
 				best = {"t_dep": float(t_deps[i]), "tof": float(tofs[j]), "v_inf_dep": vd, "v_inf_arr": va,
 					"v_dep": DVec3.new(arcs[o], arcs[o + 1], arcs[o + 2]), "cost": c}

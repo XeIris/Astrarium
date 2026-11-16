@@ -103,6 +103,12 @@ func transfer_worker(p_e: DVec3, v_e: DVec3, p_m: DVec3, v_m: DVec3) -> void:
 	var ready := wait_transfer(search)
 	check("the transfer worker publishes the completed window", ready)
 	if not ready: return
+	# Inside the cache's lifetime, the clock can pass the cached winner's departure.
+	var window: Mission.TransferWindow = Mission._pork_cache.values()[0]
+	var first := window.price(rp, ra, window.now)
+	var later := window.price(rp, ra, window.now + float(first.t_dep) + 86400.0)
+	check("a departure that has passed cannot remain the cached best transfer",
+		not later.is_empty() and float(later.t_dep) > 0.0, "next departure in %.1f d" % (float(later.get("t_dep", 0.0)) / 86400.0))
 	var stale := Mission.porkchop_window(v, earth, mars, sun, rp, ra, 40, 15, search)
 	var priced := Mission.porkchop_window(v, earth, mars, sun, rp + 100000.0, ra, 40, 15, search)
 	Mission._pork_cache.clear()

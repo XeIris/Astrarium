@@ -121,17 +121,19 @@ class TransferWindow:
 		calculate = Callable()
 
 	func price(rp: float, ra: float, coord: float) -> Dictionary:
-		if priced.is_empty() or rp != priced.rp or ra != priced.ra:
+		# An arc whose departure has passed no longer starts from where the vessel is.
+		var first := t_deps.bsearch(coord - now)
+		if priced.is_empty() or rp != priced.rp or ra != priced.ra or first != priced.first:
 			var cost := func(vd: float, va: float) -> float:
 				var dep := Mission.escape_dv(mu_dep, rp, vd) if rp > 0.0 else vd
 				var arr := Mission.escape_dv(mu_arr, ra, va) if ra > 0.0 else va
 				return dep + arr
-			var pc := Orbit.rank_transfers(arcs, t_deps, tofs, cost)
+			var pc := Orbit.rank_transfers(arcs, t_deps, tofs, cost, first)
 			var result: Dictionary = pc.best
 			if not result.is_empty():
 				result.grid = pc.grid; result.t_deps = t_deps; result.tofs = tofs
 				result.hohmann = h
-			priced = {"rp": rp, "ra": ra, "result": result}
+			priced = {"rp": rp, "ra": ra, "first": first, "result": result}
 		var shifted: Dictionary = priced.result.duplicate()
 		if not shifted.is_empty(): shifted.t_dep = maxf(float(shifted.t_dep) - (coord - now), 0.0)
 		return shifted
