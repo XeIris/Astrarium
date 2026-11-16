@@ -711,11 +711,15 @@ func _arm_radius(i: int, beta: float) -> PackedFloat64Array:
 	return PackedFloat64Array([R, t, weight])
 
 ## Σ over arms of exp(−d²/2w²) at (R, φ) with the arms turned by `turn`, w Reid's.
-func _arms(R: float, phi: float, turn: float) -> float:
+## A caller baking aligned analytic dust supplies one slot for its dust value.
+func _arms(R: float, phi: float, turn: float, aligned_dust: Array[float] = []) -> float:
+	var sample_dust := not aligned_dust.is_empty()
 	var beta := phi - PI - turn
 	if arm_mirror: beta = -beta
 	beta = beta - TAU * floor((beta + PI) / TAU)
 	var acc := 0.0
+	var dust_peak := 0.0
+	var dust_width := float(dust.ca) * maxf(R, 1.0) if sample_dust else 1.0
 	for i in arm_a.size():
 		var w := maxf(arm_b[i].x + arm_growth * (R - arm_a[i].x), 0.05)
 		var best := 0.0
@@ -724,10 +728,15 @@ func _arms(R: float, phi: float, turn: float) -> float:
 			if at[0] < arm_rmin or at[0] > arm_rmax: continue
 			var d := absf(R - at[0]) * cos(atan(at[1]))
 			best = maxf(best, at[2] * exp(-0.5 * d * d / (w * w)))
+			if sample_dust:
+				dust_peak = maxf(dust_peak, at[2] * exp(-d * d / (dust_width * dust_width)))
 		# An arm's own light rising from its start and then falling outward (Marchuk et
 		# al. 2024's h_s), where measured.
 		if i < arm_decay.size(): best *= exp(-R / arm_decay[i]) * smoothstep(arm_rise.x, arm_rise.x + arm_rise.y, R)
 		acc += best
+	if sample_dust:
+		var cut: float = exp(-pow((R - dust.rm) / dust.ra, 2.0)) if R > dust.rm else 1.0
+		aligned_dust[0] = cut * dust_peak
 	return acc
 
 func _envelope(R: float) -> float:
@@ -761,6 +770,10 @@ func bake_arms(stop := [false]) -> Dictionary:
 	if not hit.is_empty(): return hit
 	var img := Image.create_empty(ARM_N, ARM_N, false, Image.FORMAT_RGBF)
 	var px := 2.0 * ARM_HALF / float(ARM_N)
+	var shared_dust := not arm_mirror and dust_map.is_empty() and not dust.is_empty()
+	# Where both profiles use the same azimuth convention, share their plane distances.
+	var aligned_dust: Array[float] = []
+	if shared_dust: aligned_dust.append(0.0)
 	for j in ARM_N:
 		# Stopped (its scene left), a half-drawn map is neither returned nor cached.
 		if j % 16 == 0 and stop[0]: return {}
@@ -769,9 +782,10 @@ func bake_arms(stop := [false]) -> Dictionary:
 			var z := -ARM_HALF + (float(j) + 0.5) * px
 			var R := sqrt(x * x + z * z)
 			var phi := atan2(z, x)
-			var g := _dust_surface(R, phi) if not dust_map.is_empty() else _dust_arm(R, phi)
+			var young := _arms(R, phi, 0.0, aligned_dust)
+			var g := aligned_dust[0] if shared_dust else (_dust_surface(R, phi) if not dust_map.is_empty() else _dust_arm(R, phi))
 			var b := _disc_surface(R) if not disc_map.is_empty() else _spiral_plane(R, phi)
-			img.set_pixel(i, j, Color(_arms(R, phi, 0.0), g, b))
+			img.set_pixel(i, j, Color(young, g, b))
 	if not thin_map.is_empty(): _gather_light(img)
 	var share := _add_bar(img) if disc_map.has("bar") else 0.0
 	var out := {"img": img, "integral": _arm_integral(img), "disc": _map_integral(img, 2), "bar": share}

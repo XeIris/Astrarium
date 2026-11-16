@@ -741,6 +741,32 @@ running Milky Way block. Twenty captures across the paused and running
 Milky Way, its Sun view, and M51 matched pixel for pixel. Reports and
 captures are in `/tmp/astrarium-next-hotspots/`.
 
+## Cold galaxy startup
+
+The Milky Way's arm bake shares spiral distances between young light and
+analytic dust. The interstellar medium's normalization reuses each noise
+sample across its five footprints, accumulating each footprint in the
+same texel order. The two FFT axes transform strided lines in place and
+share their permutation and roots within each transform.
+
+Apple M5, mean of two cold-process runs per variant in ABBA order.
+The rendered measurements use Metal at 1280×720, Medium and MetalFX Off,
+timed from the preset request through the first draw after each asset was applied.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Milky Way arm map bake | 2.34 s | 1.31 s |
+| Interstellar noise field bake | 1.38 s | 1.12 s |
+| Milky Way normalization | 602 ms | 171 ms |
+| M51 normalization | 632 ms | 194 ms |
+| Milky Way first frame with arms | 2.98 s | 1.88 s |
+| Milky Way first frame with interstellar detail | 5.00 s | 3.20 s |
+| Milky Way neighbourhood catalogue ready | 5.83 s | 4.02 s |
+
+The noise field, baked maps, map metadata and normalization arrays matched
+byte for byte on the paired fixtures. The isolated phase timings and scene
+startup reports are in `/tmp/astrarium-galaxy-bake/`.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`
