@@ -27,6 +27,8 @@ var f := PackedFloat64Array()
 ## The speed CDF at ROWS radii: Q_STEPS values of v/v_esc per row.
 var row_r := PackedFloat64Array()
 var cdf := PackedFloat64Array()
+## Whether the native kernel built f and cdf; false after the script fallback.
+var built_native := false
 
 func _init(comp_gm: float, comp_a: float, cut: float, potential: Array, nfw_taper := 0.0) -> void:
 	gm = comp_gm
@@ -170,7 +172,8 @@ func _tabulate(use_native := true) -> void:
 		var x := exp(rlo + (rhi - rlo) * j / (ROWS - 1))
 		row_r[j] = x
 		row_psi[j] = psi_at(x)
-	if use_native and _build_native(drho_dpsi, row_psi): return
+	built_native = use_native and _build_native(drho_dpsi, row_psi)
+	if built_native: return
 	_build_distribution(drho_dpsi, row_psi)
 
 func _build_native(drho_dpsi: PackedFloat64Array, row_psi: PackedFloat64Array) -> bool:

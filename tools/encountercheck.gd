@@ -278,6 +278,7 @@ func discs() -> void:
 func eddington() -> void:
 	var s := GalEddington.new(1.0, 1.0, 1000.0, [["hernquist", 1.0, 1.0]])
 	if ClassDB.class_exists("NBodyKernel") and ClassDB.class_has_method("NBodyKernel", "galaxy_eddington"):
+		ok(s.built_native, "the native kernel built the equilibrium and speed tables")
 		var native_f := s.f.to_byte_array()
 		var native_cdf := s.cdf.to_byte_array()
 		s._tabulate(false)
