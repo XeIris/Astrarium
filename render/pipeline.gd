@@ -58,6 +58,10 @@ var use_lens := false
 var surface_pass = null
 var render_scale := 1.0
 var metalfx := "off"
+var fast_clouds := false
+var _cloud_pass: FlightCloudPass
+const FULL_CLOUD_SHADER := preload("res://shaders/flight/clouds.gdshader")
+const FAST_CLOUD_SHADER := preload("res://shaders/flight/clouds_fast.gdshader")
 var view_size := Vector2i(1, 1)     # logical (CSS-equivalent) pixels
 var render_size := Vector2i(1, 1)   # device pixels actually rendered
 var time := 0.0
@@ -245,6 +249,23 @@ func set_metalfx(preset: String) -> void:
 	metalfx = preset if metalfx_available() else "off"
 	_sync_3d_scale()
 
+func prepare_clouds(mat: ShaderMaterial, visible_now: bool) -> void:
+	if not fast_clouds or not visible_now:
+		if _cloud_pass != null: _cloud_pass.enabled = false
+		if mat.shader != FULL_CLOUD_SHADER: mat.shader = FULL_CLOUD_SHADER
+		return
+	if _cloud_pass == null:
+		_cloud_pass = FlightCloudPass.new()
+		var effects := local_cam.compositor.compositor_effects
+		effects.append(_cloud_pass)
+		local_cam.compositor.compositor_effects = effects
+	if mat.shader != FAST_CLOUD_SHADER:
+		mat.shader = FAST_CLOUD_SHADER
+		mat.set_shader_parameter("uReduced", _cloud_pass.color)
+		mat.set_shader_parameter("uReducedClip", _cloud_pass.clip)
+	_cloud_pass.prepare(mat, local_vp, local_cam)
+	_cloud_pass.enabled = true
+
 func set_galaxy_view(active: bool) -> void:
 	_galaxy_view = active
 	_sync_3d_scale()
@@ -401,6 +422,9 @@ func capture_next(cb: Callable, hdr := false) -> void:
 	_pending_capture.append([cb, hdr])
 
 func _exit_tree() -> void:
+	if _cloud_pass != null:
+		_cloud_pass.enabled = false
+		RenderingServer.call_on_render_thread(_cloud_pass.release_rt)
 	if _local_coverage != null:
 		RenderingServer.call_on_render_thread(_local_coverage.release_rt)
 

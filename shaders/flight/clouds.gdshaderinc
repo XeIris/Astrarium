@@ -10,6 +10,7 @@
 // is |p| − R, so the layer curves over the horizon. sim/flight/cloudfield.gd must
 // match this sample for sample. Rendering: docs/physics/clouds.md.
 
+#ifndef CLOUD_COMPUTE
 #include "res://shaders/common/cloud_climate.gdshaderinc"
 
 uniform sampler3D uCloudShape : filter_linear_mipmap, repeat_enable;    // Perlin fbm
@@ -26,6 +27,7 @@ uniform float uPlanetR = 6.371e6;         // radius of the altitude datum, m
 uniform vec3 uCloudWind = vec3(0.0);      // planet-fixed displacement of the air, m
 uniform vec3 uClearAt = vec3(0.0);        // planet-fixed: the launch site
 uniform float uClearR = 0.0;              // how far round it the sky is thinned, m
+#endif
 
 // A fixed 40° turn about (1, 1, 1): the turret noise is sampled in a frame
 // rotated against the weather's, so their tile boundaries never coincide.

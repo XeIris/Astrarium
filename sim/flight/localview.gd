@@ -243,7 +243,7 @@ func _init(p: RenderPipeline) -> void:
 	# cloud layer: a sphere round the camera marching the field per pixel and
 	# stopping at the depth buffer.
 	cloud_mat = ShaderMaterial.new()
-	cloud_mat.shader = load("res://shaders/flight/clouds.gdshader")
+	cloud_mat.shader = RenderPipeline.FULL_CLOUD_SHADER
 	cloud_mat.render_priority = ORDER.clouds
 	clouds = MeshInstance3D.new()
 	clouds.name = "clouds"
@@ -385,6 +385,7 @@ func apply_origin(basis: Basis) -> void:
 	clouds.position = Vector3.ZERO
 	var cl := cam_pos.to_v3()
 	for m in [cloud_mat, ground_mat, sun_mat]: m.set_shader_parameter("uCamLocal", cl)
+	pipe.prepare_clouds(cloud_mat, clouds.visible)
 	# The sky column and ground haze run from the camera's height, not the vehicle's
 	# (zero on the pad, which left rays below the horizontal with no path).
 	var gy := 0.0

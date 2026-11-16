@@ -17,6 +17,7 @@ var m5_native := false
 ## preset ("low", "medium", "high"), applied exactly as Settings applies it.
 var m5_preset := ""
 var metalfx := "off"
+var flightclouds := "full"
 const PRESET_MSAA := {"low": Viewport.MSAA_DISABLED, "medium": Viewport.MSAA_2X, "high": Viewport.MSAA_4X}
 var native_screen := -1
 var native_window_pixels := Vector2i.ZERO
@@ -222,7 +223,7 @@ func measure(label: String, action := Callable()) -> void:
 		if m5_preset.is_empty() else stage.pipe.lens.get_scale() == float(stage.RENDER_QUALITY[m5_preset].lens)
 	if m5_native and (stage.render_quality != quality or stage.flight.local.render_quality != quality \
 			or stage.lighting_quality != "low" or stage.pipe.render_scale != 2.0 or not lens_ok \
-			or stage.pipe.metalfx != metalfx \
+			or stage.pipe.metalfx != metalfx or stage.pipe.fast_clouds != (flightclouds == "fast") \
 			or stage.pipe.local_vp.msaa_3d != PRESET_MSAA[quality] or stage.pipe.model_vp.msaa_3d != PRESET_MSAA[quality] \
 			or [stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp].any(func(vp: SubViewport): return vp.size != M5_PIXELS)):
 		failures += 1
@@ -262,6 +263,7 @@ func _ready() -> void:
 		elif arg == "studio_abba=1": studio_abba = true
 		elif arg == "m5_native=1": m5_native = true
 		elif arg.begins_with("metalfx=") and RenderPipeline.METALFX_SCALES.has(arg.trim_prefix("metalfx=")): metalfx = arg.trim_prefix("metalfx=")
+		elif arg in ["flightclouds=full", "flightclouds=fast"]: flightclouds = arg.trim_prefix("flightclouds=")
 		elif arg.begins_with("m5_preset=") and PRESET_MSAA.has(arg.trim_prefix("m5_preset=")): m5_preset = arg.trim_prefix("m5_preset=")
 		else: failures += 1
 	if not m5_preset.is_empty() and not m5_native:
@@ -280,6 +282,10 @@ func _ready() -> void:
 		printerr("PERFCHECK needs a rendering device with MetalFX spatial support")
 		get_tree().quit(1)
 		return
+	if flightclouds == "fast" and not FlightCloudPass.available():
+		printerr("PERFCHECK needs Forward+ for performance clouds")
+		get_tree().quit(1)
+		return
 	OS.add_logger(logger)
 	get_tree().create_timer(240.0).timeout.connect(func():
 		printerr("PERFCHECK timed out before completion")
@@ -288,6 +294,7 @@ func _ready() -> void:
 	RDU.profiling = not studio_abba
 	stage = load("res://main.tscn").instantiate()
 	stage._cmd["metalfx"] = metalfx
+	stage._cmd["flightclouds"] = flightclouds
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)
@@ -448,7 +455,7 @@ func finish_report() -> void:
 		"root_logical_resolution": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
 		"lens_scale": stage.pipe.lens.get_scale(), "lens_field_pixels": [stage.pipe.lens.march_size().x, stage.pipe.lens.march_size().y], "msaa": stage.pipe.local_vp.msaa_3d,
 		"render_quality": stage.render_quality, "m5_preset": m5_preset if m5_native else null, "lighting_quality": stage.lighting_quality,
-		"metalfx": stage.pipe.metalfx,
+		"metalfx": stage.pipe.metalfx, "flightclouds": "fast" if stage.pipe.fast_clouds else "full",
 		"frame_budget_ms": FRAME_BUDGET_MS if m5_native else null, "target_fps": 30 if m5_native else null,
 		"simulation_dt": "elapsed process delta" if m5_native else "fixed 1/60 s", "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft != null and stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
 	if not report.is_empty():

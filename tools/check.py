@@ -92,7 +92,7 @@ CHANGED_RULES = (
       "missioncheck-*", "scenariocheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
-    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc", "sim/terrain.gd",
+    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
       "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck", "flightlightcheck", "surfacepixelcheck*")),
     # What lights a vehicle, as drawn.
     (("sim/flight/localview.gd", "sim/flight/spaceflight.gd", "shaders/flight/ground.gdshader"), ("flightlightcheck",)),

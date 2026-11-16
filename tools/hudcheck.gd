@@ -388,6 +388,19 @@ func _check_metalfx_settings() -> void:
 	await _click(_find("[data-metalfx=off]"))
 	check("MetalFX Off restores the original raster", pipe.metalfx == "off" and pipe.scene_vp.scaling_3d_scale == 1.0)
 
+func _check_flight_cloud_settings() -> void:
+	var available := FlightCloudPass.available()
+	var settings: Control = hud.get_el("flightClouds")
+	check("Local cloud controls follow renderer support", settings.is_visible_in_tree() == available)
+	if not available: return
+	await _click(_find("[data-flight-clouds=fast]"))
+	check("Performance clouds selected", main.pipe.fast_clouds)
+	main.set_flight_clouds(false, false)
+	main._init_render_settings()
+	check("Local clouds reload the saved option", main.pipe.fast_clouds)
+	await _click(_find("[data-flight-clouds=full]"))
+	check("Full-resolution clouds restored", not main.pipe.fast_clouds)
+
 func _click(c: Control) -> bool:
 	if c == null or not c.is_visible_in_tree():
 		if args.get("hverbose", "0") == "1":
@@ -614,6 +627,7 @@ func _interaction_walk() -> void:
 	await _click(_find("[data-render-quality=medium]"))
 	check("selecting Medium matches startup MSAA and flight detail", main.render_quality == "medium" and main.flight.local.render_quality == "medium" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_2X and main.pipe.model_vp.msaa_3d == Viewport.MSAA_2X and main.flight.local.cloud_shape != null)
 	await _check_metalfx_settings()
+	await _check_flight_cloud_settings()
 	await _click(_find("[data-set=controls]"))
 	var bb: Control = hud.binding_buttons.get("pause")
 	await _click(bb)

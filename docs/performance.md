@@ -663,6 +663,32 @@ Seeded positions and velocities, the packed live state and the sampled core
 indices matched byte for byte. The isolated probes are in
 `/tmp/astrarium-latency/`.
 
+## Local cloud Performance setting
+
+Settings › Rendering › Local clouds defaults to Full resolution. Performance
+marches one pixel per 2×2 block before transparent rendering. Its draw
+reconstructs the neighbouring rays from the coarse colour and checks the
+opaque depth and colour spread before accepting them. Pixels near a detected
+discontinuity can still take the full march, and the transparent draw order
+stays the same. Performance can show grain at cloud edges.
+
+Apple M5, Medium, 2560×1440 scene target, MetalFX Off, paired panning cameras.
+Each entry is the mean of two block medians of 86 whole frames.
+
+| Falcon 9 view | Full resolution | Performance |
+| --- | ---: | ---: |
+| Launch pad, Metal | 20.03 ms | 16.89 ms |
+| Inside clouds at 2.8 km, Metal | 28.68 ms | 23.69 ms |
+| Above clouds at 11 km, Metal | 25.89 ms | 23.50 ms |
+| Inside clouds at 2.8 km, Vulkan | 28.26 ms | 23.28 ms |
+
+The Metal run switched viewport sizes and cycled MetalFX Quality, Balanced,
+Performance and Off without texture binding errors. The code checks the
+actual render extent before dispatch, since a frame can observe a new size
+before the material and textures are ready. Probe logs and images are in
+`/tmp/astrarium-cloud-reconstruction/`. The main game and `perfcheck` both
+accept `flightclouds=full|fast`; `perfcheck` defaults to Full resolution.
+
 ## Check suite time
 
 `python3 tools/check.py fast flight assets procedural lifecycle --jobs 4 --background`
