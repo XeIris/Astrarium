@@ -76,6 +76,22 @@ static func blackbody_color(kelvin: float) -> Color:
 static func corona_color(kelvin: float) -> Color:
 	return blackbody_color(kelvin).lerp(Color(1, 1, 1), 0.35)
 
+## Surface gravity log₁₀(g / cm s⁻²) from mass (M☉) and radius (R☉); the Sun is 4.44.
+static func log_g(mass_sun: float, radius_sun_: float) -> float:
+	return 4.438 + log(maxf(mass_sun, 1e-6) / pow(maxf(radius_sun_, 1e-6), 2.0)) / log(10.0)
+
+## RMS continuum contrast of granulation in the visible: ~16% for the Sun before
+## instrumental smearing, rising with Teff and falling with log g, and gone with the
+## convective envelope. A fit to the trends in docs/physics/stellar-surfaces.md.
+static func granulation_contrast(teff: float, logg: float) -> float:
+	var c := 0.16 * pow(clampf(teff, 2500.0, 7000.0) / 5772.0, 2.0) * pow(10.0, 0.1 * clampf(4.44 - logg, -1.0, 5.0))
+	return clampf(c, 0.03, 0.30) * Structure.envelope_convection(teff)
+
+## How much cooler a starspot's umbra is than the photosphere, in K: ~1850 K on the
+## Sun, only a few hundred on an M dwarf (Berdyugina 2005, Living Rev. Sol. Phys. 2, 8).
+static func spot_temperature_drop(teff: float) -> float:
+	return 1850.0 * clampf((teff - 3200.0) / 2572.0, 0.12, 1.2)
+
 # Rotation in rad/yr. Below the Kraft break (~1.3 M☉, Teff ≈ 6200 K) a convective
 # envelope's magnetised wind spins a star down (the Sun: ~25 d); above it, without
 # one, A and B stars keep ~150 km/s at the equator, a period of about a day (Kraft

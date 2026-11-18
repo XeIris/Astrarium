@@ -255,7 +255,8 @@ model at X_c ≈ 0.38 (T_c = 1.571e7 K, P_c = 2.34e16 Pa, ρ_c/ρ̄ = 115).
 A convection cell is about a pressure scale height wide:
 H_p/R = kTR/(μ m_H GM). The Sun gets 4.2e-4 (~2400 cells across); Betelgeuse
 gets 0.012, a handful of huge cells (Schwarzschild 1975; Chiavassa et al.; VLTI
-and ALMA images).
+and ALMA images). How the cells, spots and chromosphere are drawn:
+[stellar surfaces](stellar-surfaces.md).
 
 ## Drawn surface brightness
 

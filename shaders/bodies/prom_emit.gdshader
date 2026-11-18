@@ -10,11 +10,12 @@ void fragment() {
 	vec3 col; float fp; float onDisc;
 	float a = arcade_weight(col, fp, onDisc);
 	// Publish the temperature on the disc as well as off it: flare and active-region
-	// loops are the brightest things on the star in X-ray wherever they are, and cool
-	// filament material in front of the disc is dark there. Written, not accumulated,
-	// or it would corrupt the photosphere's own value.
+	// loops are the brightest things on the star in X-ray wherever they are. Cool
+	// prominence material in front of the disc absorbs rather than outshines it, so there
+	// it leaves the photosphere's value. Written, not accumulated, or it would corrupt the
+	// photosphere's own value.
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
-		if (a < 0.08) discard;
+		if (a < 0.08 || (uPlasmaT < 1.0e5 && onDisc > 0.5)) discard;
 		ALBEDO = vec3(temp_code(uPlasmaT), 0.0, 0.0);
 		ALPHA = 1.0;
 	} else {

@@ -85,6 +85,18 @@ See [the ray contract](../docs/physics/lensing.md#ray-coordinates-and-numerical-
 - The mesh rotates at the interior (System III) rate, and everything visible
   moves over it. Nothing cloud-related goes in the mesh transform.
 
+## Stellar surfaces (`star_photo`, `star_corona`, `star_noise`)
+
+Models and sources: [docs/physics/stellar-surfaces.md](../docs/physics/stellar-surfaces.md).
+
+- A photospheric feature is a local temperature drawn through `sn_planck_ratio` and
+  published in the temperature pass; never paint a feature's colour.
+- The chromosphere's weight (`StarVisual.CHROMO_GAIN`, `CHROMO_VEIL`) is the one
+  display exaggeration. It exists only with a convective envelope, and on giants
+  their convection cells carry the disc instead.
+- The corona billboard's limb is the spheroid's projected outline (`uFlat`), not the
+  equatorial radius. Check: `tools/sunlab.tscn` with `star=vega`.
+
 ## Stellar eruptions (`prominence.gd`, `prom_*`, `star_cme`)
 
 - Plasma lives on field lines: an eruption is an arcade of separate threads
@@ -93,10 +105,11 @@ See [the ray contract](../docs/physics/lensing.md#ray-coordinates-and-numerical-
 - The rope is strongly sheared and relaxes toward square as the event proceeds;
   the shear is the free energy.
 - A prominence and a filament are one object, drawn twice from one buffer:
-  emitting off the limb and absorbing against the disc (tested in view space
-  against the star's centre).
+  emitting off the limb and absorbing against the disc (tested by the sight
+  line's closest approach to the star's centre, exact at any camera distance).
 - The arcade buffer carries only thread index, arc parameter and side; the shape
-  is all in the vertex shader. One buffer serves every star and is never freed.
+  is all in the vertex shader (`uKind`: loops across the neutral line, a flux rope
+  wound along it, a hedgerow curtain). One buffer serves every star and is never freed.
 - A CME shell is weighted by path length through it (bright at the rim). The
   front, cavity and core are two additive shells with a gap.
 - Joy's law: a bipole lies near east-west, tilted by about half its latitude, so
@@ -104,9 +117,9 @@ See [the ray contract](../docs/physics/lensing.md#ray-coordinates-and-numerical-
 - Every spot group carries hot coronal loops between flares: nearly invisible in
   white light (`uGlow`), bright in X-ray. Hot loops don't absorb; only cool
   prominence material draws the filament pass.
-- Arcade threads publish their temperature on the disc as well as off it; the
-  colour is what is limited to off the limb. Check: `tools/sunlab.tscn` with
-  `band=5`, `at=top`.
+- Hot arcade threads publish their temperature on the disc as well as off it; the
+  colour is what is limited to off the limb. Cool (< 10⁵ K) material on the disc
+  leaves the photosphere's value. Check: `tools/sunlab.tscn` with `band=5`, `at=top`.
 - The corona billboard leaves the temperature underneath, except its 10⁴ K spicule
   fringe. Its glow is too faint to be the band remap's coverage, and replacing the
   sky's code blacks the sky out.

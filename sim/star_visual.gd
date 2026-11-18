@@ -7,6 +7,21 @@ extends RefCounted
 
 const MAX_SPOTS := 8
 const MAX_FLARES := 4
+const MAX_QUIESCENT := 3
+
+## The continuum's display level: under 1, so ACES keeps the disc's colour, limb
+## darkening and spots instead of rolling them into white; bloom carries the glare. A
+## disc that carries a chromosphere is drawn lower, because the chromosphere adds.
+const DISC_LEVEL := 0.42
+const DISC_LEVEL_BARE := 0.8
+## The chromosphere's line emission is ~10⁻⁴ of the continuum in broadband light; it is
+## drawn at this weight relative to the disc so the layer narrowband imagers see (H-α,
+## He II 304 Å) is legible, the way bodies are drawn magnified.
+const CHROMO_GAIN := 0.5
+## The fraction of the continuum the chromosphere hides when it is drawn.
+const CHROMO_VEIL := 0.45
+## H-α (656 nm) blended with He I D3 and the Ca II lines, as linear sRGB.
+const CHROMO_COLOR := Color(1.0, 0.30, 0.09)
 
 const PHOTO_SHADER := preload("res://shaders/bodies/star_photo.gdshader")
 const CORONA_SHADER := preload("res://shaders/bodies/star_corona.gdshader")
@@ -104,6 +119,12 @@ class StarViz:
 	var loops: Array = []             # [{holder, arcade}], one per active region
 	var corona_t := 2.0e6             # K, of the active-region loops
 	var cmes: Array = []              # [{holder, front, core, front_mat, core_mat, seed, time}]
+	var quiescent: Array = []         # [{holder, arcade, lat, lon, tilt, len, height}]
+	## 1 with a convective envelope, 0 without; the chromosphere's display weight.
+	var conv := 1.0
+	var chromo_w := 0.0
+	## 1 on a dwarf, 0 on a giant (by log g).
+	var dwarf := 1.0
 
 
 	## Spin edits change shader deformation and colours; the flare pools retain their lifetime.
@@ -117,6 +138,7 @@ class StarViz:
 		mat.set_shader_parameter("uColEq", StarVisual._v3(Stellar.blackbody_color(temps.tEq)))
 		var flattening := float(body.structure.get("flattening", 0.0))
 		corona_mat.set_shader_parameter("uSize", core.mesh.radius * 4.0 / (1.0 - flattening))
+		corona_mat.set_shader_parameter("uFlat", flattening)
 
 	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
@@ -136,6 +158,16 @@ class StarViz:
 		# Disc brightness from Stefan–Boltzmann (0.15 to 200 across the sim's stars), carried
 		# in HDR and rolled off once.
 		mat.set_shader_parameter("uGain", Structure.surface_brightness(teff))
+		# No convective envelope, no granules, spots or chromosphere: an A or B star is a
+		# smooth limb-darkened disc.
+		conv = Structure.envelope_convection(teff)
+		mat.set_shader_parameter("uConv", conv)
+		var logg := Stellar.log_g(b.mass, rad_sun)
+		mat.set_shader_parameter("uGranContrast", Stellar.granulation_contrast(teff, logg))
+		# A giant's disc is its few vast convection cells; the network belongs to dwarfs.
+		dwarf = StarVisual.smoothstep01(1.5, 3.5, logg)
+		mat.set_shader_parameter("uSpotDT", Stellar.spot_temperature_drop(teff))
+		mat.set_shader_parameter("uChromoCol", StarVisual._v3(StarVisual.CHROMO_COLOR))
 		core = MeshInstance3D.new()
 		core.name = "Photosphere"
 		core.mesh = StarVisual._sphere(R, 64, 48)
@@ -167,9 +199,9 @@ class StarViz:
 
 		# Prominence pool, two arcades per concurrent flare (sim/prominence.gd): the erupting
 		# flux rope, which rises and fades, and the post-flare arcade, which stays, grows and
-		# cools. H-α is the same red-orange on any star; only the footpoints take the star's
-		# colour.
-		var chromo := U.lin(0xff6a44)
+		# cools. Chromospheric plasma is the same colour on any star; only the footpoints take
+		# the star's colour.
+		var chromo := StarVisual.CHROMO_COLOR
 		var foot := hot.lerp(U.lin(0xffffff), 0.55)
 		for i in StarVisual.MAX_FLARES:
 			var holder := Node3D.new()
@@ -184,7 +216,7 @@ class StarViz:
 		# Active-region loops, one arcade per spot group: the hot (1–3 MK) closed field
 		# over every bipole, there between flares too. Nearly invisible in white light,
 		# they are what an X-ray or EUV image of the star is made of (TRACE, SDO 171 Å).
-		var loop_col := hot.lerp(U.lin(0xffd9a0), 0.5)
+		var loop_col := StarVisual.CHROMO_COLOR.lerp(U.lin(0xffd9a0), 0.6)
 		for i in StarVisual.MAX_SPOTS:
 			var holder := Node3D.new()
 			var arc := Prominence.create_arcade(loop_col, U.lin(0xffffff))
@@ -226,6 +258,40 @@ class StarViz:
 			activity.regions.clear()
 			activity.next = INF
 		b.activity = activity
+		# Spots grow with activity: the Sun's largest groups span a few hundredths of a
+		# radius, an active M dwarf's much of a hemisphere (Berdyugina 2005).
+		var act_rel: float = activity.activity / Stellar.activity_level(1.0)
+		mat.set_shader_parameter("uSpotSize", clampf(0.045 * pow(act_rel, 0.6), 0.02, 0.14))
+		chromo_w = 0.0 if opts.quiet else StarVisual.CHROMO_GAIN * conv * clampf(sqrt(act_rel), 0.5, 2.0)
+		var carried := dwarf if chromo_w > 0.0 else 0.0
+		mat.set_shader_parameter("uChromo", chromo_w * (0.3 + 0.7 * dwarf))
+		mat.set_shader_parameter("uVeil", StarVisual.CHROMO_VEIL * carried)
+		# Under ACES a dim orange reads as brown, so a bare disc gives back part of the
+		# surface-brightness compression; the order of the stars' brightness is kept.
+		var bare := StarVisual.DISC_LEVEL_BARE / pow(maxf(Structure.surface_brightness(teff), 0.05), 0.7)
+		mat.set_shader_parameter("uDisc", lerpf(bare, StarVisual.DISC_LEVEL, carried))
+		corona_mat.set_shader_parameter("uChromoW", chromo_w)
+		corona_mat.set_shader_parameter("uChromo", StarVisual._v3(StarVisual.CHROMO_COLOR))
+
+		# Quiescent prominences: long-lived hedgerows over the filament channels decayed
+		# regions leave behind, and the polar crown at high latitude. Against the disc they
+		# are filaments. Only a star with a chromosphere has them.
+		if chromo_w > 0.0:
+			var rng := RandomNumberGenerator.new()
+			rng.seed = hash(b.id) ^ 0x51f15e
+			for i in StarVisual.MAX_QUIESCENT:
+				var holder := Node3D.new()
+				var arc := Prominence.create_arcade(StarVisual.CHROMO_COLOR, foot)
+				holder.add_child(arc.group)
+				holder.visible = false
+				group.add_child(holder)
+				var polar := i == 0
+				var hemi := 1.0 if rng.randf() < 0.5 else -1.0
+				quiescent.append({"holder": holder, "arcade": arc,
+					"lat": hemi * (rng.randf_range(0.9, 1.1) if polar else rng.randf_range(0.25, 0.65)),
+					"lon": rng.randf() * TAU, "tilt": 0.0 if polar else rng.randf_range(-0.8, 0.8),
+					"len": rng.randf_range(0.40, 0.60) if polar else rng.randf_range(0.20, 0.34),
+					"height": rng.randf_range(0.08, 0.15)})
 
 		base_r = R
 		r = R
@@ -289,7 +355,8 @@ class StarViz:
 			var s: float = reg.strength * pow(sin(minf(age, 1.0) * PI), 0.5)
 			var L: Dictionary = loops[li]
 			var lh: Node3D = L.holder
-			lh.visible = s > 0.02
+			# A radiative envelope has no dynamo, and no loops over its regions.
+			lh.visible = s > 0.02 and conv > 0.01
 			if lh.visible:
 				lh.transform = Transform3D(_bipole(reg, t), _region_up(reg, t) * R)
 				var arc: Prominence.Arcade = L.arcade
@@ -297,8 +364,8 @@ class StarViz:
 				var span := 0.035 + 0.05 * float(reg.strength)
 				arc.set_params({
 					"R": R, "span": span, "len": span * 1.6, "height": span * 1.1,
-					"shear": 0.18, "twist": 0.15, "erupt": 0.0, "width": 0.003,
-					"amp": minf(0.35 + s, 1.0), "plasmaT": corona_t, "apex": 1.0, "glow": 0.18, "dt": dt,
+					"shear": 0.18, "twist": 0.15, "erupt": 0.0, "width": 0.005,
+					"amp": minf(0.35 + s, 1.0) * conv, "plasmaT": corona_t, "apex": 1.0, "glow": 0.035, "dt": dt,
 				})
 			li += 1
 		for i in range(li, loops.size()): loops[i].holder.visible = false
@@ -340,7 +407,8 @@ class StarViz:
 			rope.set_params({
 				"R": R, "span": 0.075 * scl, "len": 0.30 * scl, "height": 0.17 * scl,
 				"shear": 0.95 - 0.55 * x, "twist": 0.8 + 1.1 * rise, "erupt": rise,
-				"width": 0.009, "amp": rope_amp, "plasmaT": 1.2e4 + 2e6 * rise, "dt": dt,
+				"width": 0.0055, "amp": rope_amp, "plasmaT": 1.2e4 + 2e6 * rise, "dt": dt,
+				"kind": Prominence.ROPE, "flow": 0.25 + 0.5 * rise,
 			})
 
 			# The post-flare arcade forms under the rope, rises with the reconnection point, and
@@ -352,12 +420,30 @@ class StarViz:
 				"R": R, "span": (0.045 + 0.055 * minf(x * 2.0, 1.0)) * scl, "len": 0.34 * scl,
 				"height": (0.040 + 0.095 * minf(x * 2.0, 1.0)) * scl,
 				"shear": 0.30 * (1.0 - x), "twist": 0.22, "erupt": 0.0,
-				"width": 0.0055, "amp": arc_amp, "plasmaT": 1.5e7 * exp(-x * 1.6) + 3e5, "dt": dt,
+				"width": 0.0075, "amp": arc_amp, "plasmaT": 1.5e7 * exp(-x * 1.6) + 3e5, "dt": dt,
 				# Post-flare loops fill from the feet up (chromospheric evaporation), so the
 				# tops brighten as the event goes on.
 				"apex": minf(x * 2.5, 0.8),
 			})
 			fc += 1
+		# --- quiescent prominences, carried round by the differential rotation
+		for q in quiescent:
+			var v := _region_up(q, t)
+			var east := Vector3.UP.cross(v)
+			if east.length_squared() < 1e-8: east = Vector3(1, 0, 0)
+			east = east.normalized()
+			var nl := (east * cos(q.tilt) + v.cross(east).normalized() * sin(q.tilt)).normalized()
+			var qh: Node3D = q.holder
+			qh.visible = true
+			qh.transform = Transform3D(Basis(nl, v, nl.cross(v)), v * R)
+			var qa: Prominence.Arcade = q.arcade
+			qa.group.visible = true
+			qa.set_params({
+				"R": R, "span": 0.012, "len": q.len, "height": q.height, "shear": 0.0, "twist": 0.0,
+				"erupt": 0.0, "width": 0.0026, "amp": 1.0, "plasmaT": 8000.0, "dt": dt,
+				"kind": Prominence.HEDGEROW, "flow": 0.10, "glow": 0.9,
+			})
+
 		mat.set_shader_parameter("uFlares", fu)
 		mat.set_shader_parameter("uFlareAxis", fa)
 		mat.set_shader_parameter("uFlareCount", fc)
@@ -389,6 +475,7 @@ class StarViz:
 		# --- brightness: slow pulsation + flare contribution
 		var pulse := 1.0 + sin(ctx.time * 0.6 + body.id) * 0.02
 		core.scale = Vector3.ONE * pulse
+		corona_mat.set_shader_parameter("uRScale", pulse)
 		mat.set_shader_parameter("uPulse", activity.flux)
 		# The corona billboard carries only streamers and the inner aureole; bloom makes the
 		# soft halo.

@@ -5,8 +5,14 @@ extends RefCounted
 # Emission off the limb and absorption on the disc require separate draws.
 # See shaders/AGENTS.md for the shared geometry and temperature contract.
 
-const THREADS := 36     # flux tubes across the arcade
-const SEGS := 44        # samples along each
+const THREADS := 64     # flux tubes across the arcade
+const SEGS := 64        # samples along each
+
+## Field geometries (uKind): loops across the neutral line, a flux rope along it, and a
+## quiescent hedgerow curtain.
+const ARCADE := 0
+const ROPE := 1
+const HEDGEROW := 2
 
 const EMIT_SHADER := preload("res://shaders/bodies/prom_emit.gdshader")
 const ABSORB_SHADER := preload("res://shaders/bodies/prom_absorb.gdshader")
@@ -106,7 +112,8 @@ class Arcade:
 		abs_mesh.visible = on
 
 	## p = { R, span, len, height, shear, twist, erupt, width, amp, plasmaT, dt },
-	## optionally apex (0 feet-bright … 1 top-bright) and glow (visible-light gain).
+	## optionally apex (0 feet-bright … 1 top-bright), glow (visible-light gain), kind
+	## (ARCADE, ROPE, HEDGEROW) and flow (thread lengths per second).
 	func set_params(p: Dictionary) -> void:
 		time += float(p.dt)
 		for m in [emit_mat, abs_mat]:
@@ -122,6 +129,8 @@ class Arcade:
 			m.set_shader_parameter("uPlasmaT", p.plasmaT)
 			m.set_shader_parameter("uApex", p.get("apex", 0.0))
 			m.set_shader_parameter("uGlow", p.get("glow", 1.0))
+			m.set_shader_parameter("uKind", float(p.get("kind", Prominence.ARCADE)))
+			m.set_shader_parameter("uFlow", p.get("flow", 0.35))
 			m.set_shader_parameter("uTime", time)
 
 	## the geometry is shared and outlives this arcade; only the nodes go
