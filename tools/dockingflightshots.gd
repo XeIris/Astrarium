@@ -45,6 +45,27 @@ func fly_case(key: String, id: String, offset: Vector3, aim: Vector3, fov: float
 		camera.look_at(pos.clone().add_in(DVec3.from_v3(basis_ * aim)), basis_ * Vector3.BACK)
 		camera.near = .04
 	await shot(id + "-approach")
+	if output != "":
+		var orbit_camera := f.camera_override
+		var flight_attitude := f.vessel.q.clone()
+		var port: DVec3 = dock.port_pose().r
+		var forward := port.sub(f.vessel.r).normalized()
+		var roof := DQuat.rotate(DVec3.new(0,0,1),dock.carrier.q)
+		f.camera_override = Callable()
+		f.set_camera_mode("interior")
+		if key == "evapod":
+			var side := roof.cross(forward).normalized()
+			f.vessel.q.set_from_basis_columns(side,forward.cross(side),forward)
+			f.fly_cam.state.interiorPitch=.21
+		else:
+			var side := forward.cross(roof).normalized()
+			f.vessel.q.set_from_basis_columns(side,forward,side.cross(forward))
+			f.fly_cam.state.interiorYaw=-.15
+			f.fly_cam.state.interiorPitch=.20
+		await shot(id + "-workstation")
+		f.vessel.q.copy_from(flight_attitude)
+		f.set_camera_mode("orbit")
+		f.camera_override = orbit_camera
 	stage.state.paused = false
 	stage.set_drawn(false, false)
 	for i in 4800:

@@ -74,6 +74,12 @@ func _ready() -> void:
 			camera.look_at(pos.clone().add_in(DVec3.from_v3(basis_*Vector3(0,9,.64))),basis_*Vector3.BACK)
 			camera.near=.01
 		await settle(); await shot("cabin-aisle")
+		f.fly_cam.state.fov=62.0
+		f.camera_override=func(camera,pos,_site,_dt):
+			camera.pos.copy_from(pos).add_in(DVec3.from_v3(basis_*Vector3(-.15,6.61,.68)))
+			camera.look_at(pos.clone().add_in(DVec3.from_v3(basis_*Vector3(.23,8.54,.42))),basis_*Vector3.BACK)
+			camera.near=.01
+		await settle(); await shot("instrument-deck")
 		f.camera_override=Callable()
 	f.set_camera_mode("orbit"); await settle(3)
 	check(f.interior.group==null,"exterior mode disposes cockpit")

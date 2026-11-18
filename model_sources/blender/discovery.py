@@ -5,7 +5,7 @@ import os
 import sys
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import bpy
-from math import pi, sin, cos, sqrt
+from math import pi, sin, cos, sqrt, atan2, asin
 from mathutils import Vector, Matrix, Quaternion
 from lib import empty, box, ball, cyl, revolve, strut, ring_on, finish, smooth, _obj
 from common import build, stage, vehicle_stages, srgb
@@ -53,7 +53,7 @@ def fit_berth(ob):
 
 def hull(m,root):
     outer=empty('inspection_command_hull',(0,0,0),root)
-    ob=sphere('command sphere',(0,CY,0),R,m['enamel'],outer)
+    ob=sphere('command sphere',(0,CY,0),R,m['plating'],outer)
     thickness=ob.modifiers.new('pressure skin','SOLIDIFY');thickness.thickness=.10
     bpy.context.view_layer.objects.active=ob;bpy.ops.object.modifier_apply(modifier=thickness.name)
     visor=block('visor cutter',(0,CY+R-.6,R*.29),(R*1.23,4.0,.50),m['panel'],None,.0)
@@ -104,7 +104,7 @@ def hull(m,root):
                 a=1+band*64+j;b=1+band*64+(j+1)%64
                 faces.append((a,b,b+64,a+64))
         mesh=bpy.data.meshes.new('curved hatch');mesh.from_pydata(points,[],faces);mesh.update()
-        cap=bpy.data.objects.new('pod bay cover',mesh);bpy.context.collection.objects.link(cap);cap.parent=door;mesh.materials.append(m['enamel'])
+        cap=bpy.data.objects.new('pod bay cover',mesh);bpy.context.collection.objects.link(cap);cap.parent=door;mesh.materials.append(m['plating'])
         solid=cap.modifiers.new('hatch thickness','SOLIDIFY');solid.thickness=.015
         smooth(cap,55)
         floor_y=y-2.15
@@ -249,13 +249,32 @@ def rotor(m,root):
             rod('centrifuge spoke',(0,-.95,0),(radius*cos(a),-.95,radius*sin(a)),.045,m['alloy'],node)
 
 
+def shell_uvs(mat):
+    # Use one pressure-sphere datum for hull and covers while the hatches are closed.
+    center=p((0,CY,0))
+    for ob in bpy.context.scene.objects:
+        if ob.type!='MESH' or not ob.data.materials or ob.data.materials[0]!=mat: continue
+        uv=ob.data.uv_layers.active
+        coords=[]
+        for v in ob.data.vertices:
+            d=(C.transposed() @ (ob.matrix_world @ v.co-center)).normalized()
+            coords.append((atan2(d.x,d.y)/(2*pi)+.5, asin(max(-1,min(1,d.z)))/pi+.5))
+        for face in ob.data.polygons:
+            patch=[coords[ob.data.loops[i].vertex_index] for i in face.loop_indices]
+            wrap=max(u for u,_ in patch)-min(u for u,_ in patch)>.5
+            for i,(u,v) in zip(face.loop_indices,patch):
+                uv.data[i].uv=(u+1 if wrap and u<.5 else u,v)
+
+
 def make(_shared):
     m=palette();root=stage('explorer')
     m['liner']=surface('explorerBayPaint',0xa3a69b,.65,.045,'paint',3.0)
     m['bay_floor']=surface('explorerBayFloor',0x595e54,.79,.04,'rubber',4.1)
+    m['plating']=surface('explorerCommandPlating',0xd1cec6,.57,.055,'plating',1)
     hull(m,root);spine(m,root);stern(m,root);rotor(m,root)
     docked_pods(root)
     assign_uvs()
+    shell_uvs(m['plating'])
 
 
 def docked_pods(root):

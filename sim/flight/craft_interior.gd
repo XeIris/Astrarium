@@ -8,6 +8,9 @@ var authored := false
 var shade: Node3D
 var reveal: Node3D
 var reveal_was_visible := true
+var window_sun: DirectionalLight3D
+var shadow_view: SubViewport
+var previous_atlas_size := 0
 
 func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 	if not enabled:
@@ -38,21 +41,41 @@ func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 			reveal_was_visible = reveal.visible
 			reveal.visible = false
 	var fixtures := group.find_children("interior_light_*", "Node3D", true, false)
-	var positions: Array[Vector3] = []
 	var inverse := CraftModel.world_xform(group).affine_inverse()
 	var lighting: Dictionary = spec.get("lighting", {})
+	var keys: Array = lighting.get("keys", [])
+	if not fixtures.is_empty():
+		shadow_view = group.get_viewport() as SubViewport
+		if shadow_view != null:
+			previous_atlas_size = shadow_view.positional_shadow_atlas_size
+			shadow_view.positional_shadow_atlas_size = maxi(previous_atlas_size, 2048)
 	for fixture: Node3D in fixtures:
-		positions.append(inverse * CraftModel.world_xform(fixture).origin)
-	if positions.is_empty(): positions = [Vector3(-0.55, 1.5, 0.0), Vector3(0.55, 1.5, 0.0)]
-	for pos in positions:
+		var is_key := keys.has(str(fixture.name).trim_prefix("interior_light_").to_int())
+		var color_: Array = lighting.keyColor if is_key else lighting.color
 		var light := OmniLight3D.new()
-		light.position = pos
-		var color_: Array = lighting.get("color", [1.0, 0.13, 0.07])
+		light.position = inverse * CraftModel.world_xform(fixture).origin
 		light.light_color = Color(color_[0], color_[1], color_[2])
-		light.light_energy = float(lighting.get("energy", 0.28))
-		light.omni_range = float(lighting.get("range", 1.65))
+		light.light_energy = float(lighting.keyEnergy if is_key else lighting.energy)
+		light.omni_range = float(lighting.range)
+		light.light_size = float(lighting.sourceRadius)
 		light.light_cull_mask = LAYER
+		# Millimetre-scale bezels and canopy seals cast onto the cabin alone.
+		light.shadow_enabled = is_key
+		light.shadow_caster_mask = LAYER
+		light.shadow_bias = 0.018
+		light.shadow_normal_bias = 0.12
 		group.add_child(light)
+	if fixtures.is_empty():
+		# Procedural cabins have no authored ceiling sockets.
+		for side in [-1.0, 1.0]:
+			var lamp := OmniLight3D.new()
+			var center: Array = spec.eye
+			lamp.position = Vector3(center[0] + side * 0.55, center[1], center[2])
+			lamp.light_color = Color(1.0, 0.85, 0.72)
+			lamp.light_energy = 0.3
+			lamp.omni_range = float(lighting.range)
+			lamp.light_cull_mask = LAYER
+			group.add_child(lamp)
 	var fill := OmniLight3D.new()
 	var fill_at: Array = lighting.get("fill", [0.0, 1.45, 0.1])
 	fill.position = Vector3(fill_at[0], fill_at[1], fill_at[2])
@@ -62,7 +85,31 @@ func set_enabled(enabled: bool, craft, vehicle: Dictionary) -> void:
 	fill.light_cull_mask = LAYER
 	group.add_child(fill)
 
+## The near shadow frustum resolves the canopy bars at the seated eye.
+func light_windows(primary: DirectionalLight3D, secondary: DirectionalLight3D) -> void:
+	if not authored: return
+	if window_sun == null:
+		window_sun = DirectionalLight3D.new()
+		window_sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
+		window_sun.light_cull_mask = LAYER
+		window_sun.shadow_caster_mask = LAYER
+		window_sun.shadow_enabled = true
+		window_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+		window_sun.directional_shadow_max_distance = 10.0
+		window_sun.shadow_bias = 0.015
+		window_sun.shadow_normal_bias = 0.12
+		group.add_child(window_sun)
+	var star := secondary if secondary.visible and secondary.light_energy > primary.light_energy else primary
+	window_sun.global_basis = star.global_basis
+	window_sun.light_color = star.light_color
+	window_sun.light_energy = star.light_energy
+	window_sun.visible = star.visible and star.light_energy > 0.0
+
 func dispose() -> void:
+	window_sun = null
+	if is_instance_valid(shadow_view):
+		shadow_view.positional_shadow_atlas_size = previous_atlas_size
+	shadow_view = null
 	if is_instance_valid(shade): shade.visible = true
 	shade = null
 	if is_instance_valid(reveal): reveal.visible = reveal_was_visible

@@ -56,11 +56,11 @@ camera eye exported by `craftspec.gd`, so the runtime catalogue owns that datum.
 
 `CraftInterior` loads the separate cockpit PackedScene only on entry, attaches
 it to the live stage, hides the exterior's window shade, and creates lights at
-five authored fixture anchors. A low neutral fill keeps legends readable. The
-lights are scoped to the interior layer; exterior suns and bounce lights exclude
-that layer because the local renderer does not cast hull shadows. Leaving the
-mode or ending the flight removes it and restores the shade. Missing authored assets use a simple shell, seat and
-console. The interior camera rides the vessel's double-precision position and
+five authored fixture anchors. Two fixtures cast shadows across the controls.
+A cool fill near the display rack lights the underside of the window lip.
+The brighter visible star casts through the open porthole using a cabin-only
+shadow frustum. Leaving the mode or ending the flight releases the cockpit and
+restores the shade. Missing authored assets use a simple shell, seat and console. The interior camera rides the vessel's double-precision position and
 attitude, uses a 1 cm near plane and a 100 km local far plane, and leaves the
 orrery's distant-world pass in place.
 
@@ -86,8 +86,9 @@ exterior surround only while the authored cockpit is loaded. Exit restores the
 surround's previous visibility. The acrylic keys have separate pigmented sides,
 illuminated faces and satin metal mounting flanges; larger cream and amber keys
 separate power and safety functions from the blue manipulator groups. Four lamp
-lenses sit above each round service plate's paddle switches. The displays have
-rounded CRT faces recessed below their glare lips. The five red cabin practicals
+lenses sit above each round service plate's paddle switches. The displays carry original phosphor artwork on crowned glass below their glare lips.
+Pulled vinyl wall pads have an edge welt, and removable switch cassettes sit in a dished
+overhead bezel. The blue and amber emergency keys occupy separate columns. The five red cabin practicals
 use opal acrylic rims around the lit diffusers. The cylindrical controllers sit
 on a low supported apron.
 

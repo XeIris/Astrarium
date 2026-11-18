@@ -46,8 +46,10 @@ The inset pressure liner shares the exterior aperture vertices. Moulded seals
 connect the liner to the hull, with brushed frames and small-scale quilted fabric
 between the windows. Paired ceiling strips illuminate bolted instrument frames,
 labelled rotary selectors, a ribbed aisle and webbed equipment lockers around
-the aft pressure hatch. The mounts fit the hull and both port canopy sightlines
-were checked from the pilot eye.
+the aft pressure hatch. The three-screen instrument wings sit over open pedal wells on diagonal supports.
+A six-display sloping pedestal continues into the aisle. The glass faces share an original
+atlas of eight static instrument pages. Two ceiling practicals cast local shadows, and the
+brighter visible star illuminates the cabin through the canopy openings.
 
 The headless return check flew a 250 km orbit through a paid deorbit burn,
 atmospheric entry, banking reversals, glide, preflare and rollout. Touchdown was
@@ -176,8 +178,10 @@ and woven straps. The maps share seam, pore and wear patterns at metre-scaled
 UVs and are embedded in the authored GLBs. The Ranger uses pale quilted
 insulation and a dark porous underside. The Lander uses warmer blankets over
 the faceted cargo pods. Endurance has alternating blanket-clad modules and
-matte blue-grey radiator panels. Discovery's enamel has fine paint grain and
-the ducts and fittings use directionally brushed metal.
+matte blue-grey radiator panels. Bellows and protected umbilicals span the joints.
+The Lander's access covers have hinge knuckles and captive cams. Discovery's command
+sphere and its doors share a spherical plating pattern in their closed pose. Its ducts
+and fittings use directionally brushed metal.
 
 ## Inspection and verification
 

@@ -175,8 +175,19 @@ def exterior(_):
             dx=sqrt(max(.03,1-(dy/.29)**2-(dz/.29)**2))*.21
             normal=Vector((side*dx/.21**2,dy/.29**2,dz/.29**2)).normalized()
             p=Vector((side*(1.14+dx),.13+dy,1.03+dz))
-            disk('RCS port rim',tuple(p),.052,.027,'podWhite',root,tuple(normal))
-            disk('RCS black port',tuple(p+normal*.015),.043,.007,'podSeal',root,tuple(normal))
+            # Bore the dome along the local surface normal so the oblique jets have a throat.
+            bore=revolve('jet socket cutter',[(0,-.060),(.047,-.060),(.047,.060),(0,.060)],
+                         M['podSeal'],seg=32)
+            bore.location=p*S; bore.scale=(S,S,S)
+            bore.rotation_mode='QUATERNION'
+            bore.rotation_quaternion=Vector((0,0,1)).rotation_difference(normal)
+            boolean(cap,bore)
+            liner=revolve('ceramic jet socket',[(0,-.047),(.028,-.047),(.035,-.022),
+                          (.043,.009),(.049,.010),(.053,.003)],M['podNozzle'],seg=32,parent=root)
+            liner.location=p*S; liner.scale=(S,S,S)
+            liner.rotation_mode='QUATERNION'
+            liner.rotation_quaternion=Vector((0,0,1)).rotation_difference(normal)
+            smooth(liner,40)
         for j in range(4):
             a=pi/4+j*pi/2
             disk('Fine RCS ring',(side*1.154,.13+.37*cos(a),1.03+.37*sin(a)),.033,.014,'alu',root,(side,0,0))

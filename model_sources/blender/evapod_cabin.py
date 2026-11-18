@@ -1,8 +1,9 @@
 """A fitted, faceted cockpit from the film reference study in docs/eva-pod.md."""
-from math import pi, sin, cos, sqrt
+from math import pi, sin, cos, sqrt, exp
 import bpy
 import bmesh
 from mathutils import Vector, Matrix
+from cabin_displays import instrument_atlas, glass
 from lib import box, empty, revolve, strut, finish, smooth, _obj
 
 M = {}
@@ -84,8 +85,7 @@ def panel(name, pos, width, height, parent, heading, shape=None):
     slab(name+' enclosure',pts,-.020,.009,'podSeal',ob,.005)
     slab(name+' laminate',[(x*.975,z*.975) for x,z in pts],-.026,-.019,'podPanel',ob,.0015)
     text(ob,heading,(0,-.028,height/2-.023),.009)
-    for x in [-width/2+.013,width/2-.013]:
-        for z in [-height/2+.013,height/2-.013]: screw(ob,x,z)
+    for x,z in pts: screw(ob,x*.90,z*.90)
     return ob
 
 
@@ -95,7 +95,7 @@ def key(parent, x, z, label, color='podBlue', width=.027, height=.021):
     body='podKeyAmber' if color=='podAmber' else ('podKeyIvory' if color=='podWarm' else 'podKeyBlue')
     block('Moulded acrylic button',(x,-.038,z),(width,.013,height),body,parent,.002)
     block('Backlit button face',(x,-.044,z),(width-.003,.002,height-.003),color,parent,.0015)
-    text(parent,label,(x,-.0452,z),.0037,'podInk')
+    if label: text(parent,label,(x,-.0452,z),.0037,'podInk')
 
 
 def grid(parent, rows, x=0, z=0, pitch=.043, gap=.037):
@@ -114,8 +114,18 @@ def toggle(parent,x,z,label,up=True):
 
 def round_controls(parent, side):
     ob=mount('Circular service controls',(side*.53,-.20,1.37),parent)
+    cowl = revolve('Rolled service instrument socket', [(.136,.012),(.136,-.008),(.140,-.015),
+        (.146,-.012),(.155,-.005),(.170,.015),(.175,.052),(.136,.052),(.136,.012)],M['podRed'],seg=64,parent=ob)
+    cowl.scale=(S,S,S)
+    cowl.rotation_euler.x=-pi/2
+    smooth(cowl,45)
     disk('Round recessed bezel',(0,0,0),.141,.026,'podSeal',ob)
     disk('Round control plate',(0,-.018,0),.129,.010,'podPanel',ob)
+    for col in range(3):
+        x=(col-1)*.053
+        block('Inset service strip',(x,-.025,.016),(.044,.004,.091),'podSeal',ob,.004)
+        rule(ob,x,.017,.040,.082,'podKeyRim',-.028)
+    text(ob,'CIRCUIT    SELECT',(0,-.027,-.044),.0055)
     text(ob,'D.C. POWER' if side>0 else 'RCS FEED',(0,-.025,.097),.008)
     for row in range(1 if side>0 else 2):
         for col in range(3):
@@ -131,37 +141,22 @@ def round_controls(parent, side):
 
 
 def displays(parent):
-    rack=panel('Dished forward display rack',(0,-.62,.83),.72,.25,parent,'FLIGHT / SYSTEM MONITOR',
+    rack=panel('Dished forward display rack',(0,-.48,.82),.72,.25,parent,'FLIGHT / SYSTEM MONITOR',
                [(-.36,-.102),(-.29,-.143),(.29,-.143),(.36,-.102),(.35,.125),(-.35,.125)])
     for side in [-1,1]:
         ob=empty('Inward canted display',(side*.174*S,-.026*S,-.013*S),rack)
         ob.rotation_euler.z=side*.11
         block('Display gasket',(0,0,0),(.309,.026,.181),'podSeal',ob,.012)
         block('Anodised display frame',(0,-.013,0),(.292,.009,.163),'podKeyRim',ob,.006)
-        block('Moulded CRT face',(0,-.020,0),(.282,.010,.153),'podScreen',ob,.008)
-        rule(ob,0,0,.268,.139,'podKeyOff',-.026)
-        text(ob,'ATTITUDE' if side<0 else 'VEHICLE SYSTEMS',(0,-.028,.059),.008,'podScreenInk')
-        if side<0:
-            for x in [-.07,0,.07]:
-                tube('Display grid',(x,-.027,-.047),(x,-.027,.041),.0006,'podKeyOff',ob,5)
-            for z in [-.033,0,.033]:
-                tube('Display grid',(-.126,-.027,z),(.126,-.027,z),.0006,'podKeyOff',ob,5)
-            for a,b in [((-.06,-.028,-.027),(0,-.028,.023)),((0,-.028,.023),(.06,-.028,-.027)),
-                        ((-.06,-.028,-.027),(.06,-.028,-.027)),((0,-.028,-.04),(0,-.028,.039))]:
-                tube('Attitude schematic',a,b,.0011,'podScreenInk',ob,6)
-            text(ob,'ROLL       PITCH       YAW',(0,-.028,-.061),.006,'podScreenInk')
-        else:
-            for i,label in enumerate(['RCS','CABIN','BUS','FUEL']):
-                z=.030-i*.023
-                text(ob,label,(-.086,-.028,z),.007,'podScreenInk')
-                rule(ob,.040,z,.139,.011,'podKeyOff',-.027)
-                block('System status trace',(.018-i*.005,-.028,z),(.094-i*.010,.001,.003),'podScreenInk',ob,.0001)
+        block('Glass bedding gasket',(0,-.019,0),(.283,.012,.155),'podSeal',ob,.006)
+        glass('Domed monitor glass',0 if side<0 else 3,.272,.146,.004,
+              lambda x,z,d:(x*S,(-.026-d)*S,z*S),M['phosphor'],ob)
         for x in [-.158,.158]:screw(ob,x,.072,-.018)
         for x in [-.138,.138]:
             tube('Display hood side',(x,-.020,.078),(x,-.039,.083),.0025,'podSeal',ob)
         block('Display glare lip',(0,-.029,.084),(.278,.024,.008),'podSeal',ob,.002)
     for side in [-1,1]:
-        bracket=mount('Display rack support',(side*.27,-.55,.66),parent)
+        bracket=mount('Display rack support',(side*.27,-.47,.66),parent)
         block('Rack lower bracket',(0,0,0),(.065,.105,.11),'podRed',bracket,.008)
     return rack
 
@@ -169,7 +164,7 @@ def displays(parent):
 def consoles(parent):
     for side in [-1,1]:
         shape=[(-.21,-.17),(.21,-.17),(.18,.17),(-.16,.17)]
-        ob=panel('Polygonal manipulator console',(side*.425,-.33,.78),.42,.34,parent,
+        ob=panel('Polygonal manipulator console',(side*.463,-.33,.78),.42,.34,parent,
                  'PORT MANIPULATOR' if side>0 else 'STBD MANIPULATOR',shape)
         rows=[['LOCK','EXT','RET','HOLD','TEST'],
               ['YAW L','YAW R','UP','DOWN','IN'],
@@ -177,7 +172,10 @@ def consoles(parent):
         grid(ob,rows,x=-.031,z=.008,pitch=.052,gap=.043)
         for z,label,col in [(.061,'POWER','podWarm'),(.008,'ENABLE','podWarm'),(-.045,'SAFE','podAmber')]:
             key(ob,.150,z,label,col,.031,.033)
-        rule(ob,0,.008,.358,.145)
+        for col in range(5):
+            x=-.031+(col-2)*.052
+            rule(ob,x,.008,.046,.132,'podKeyRim')
+        rule(ob,.150,.008,.052,.158)
         text(ob,'ATTITUDE / TRANSLATION',(0,-.028,-.091),.007)
         grid(ob,[[('OFF','podKeyOff'),'PRO','RET','NML','RAD',('ARM','podWarm')]],z=-.123,pitch=.054)
         # The lower switch rows mount through the face; cap backs overlap the bezels.
@@ -191,13 +189,22 @@ def side_banks(parent):
     for side in [-1,1]:
         ob=panel('Side services console',(side*.685,.045,1.16),.28,.37,parent,
                  'LIFE SUPPORT' if side>0 else 'POWER / COMMS')
-        services=[[('ON','podWarm'),'AUTO','OFF'],['O2','CO2','VENT'],['PUMP','HEAT','FAN']]
-        power=[[('ON','podWarm'),'AUTO','OFF'],['BUS A','BUS B','AUX'],['TX','RX','MUTE']]
-        grid(ob,services if side>0 else power,z=.048,pitch=.061)
-        rule(ob,0,.048,.207,.127)
-        text(ob,'CABIN SERVICES' if side>0 else 'BUS DISTRIBUTION',(0,-.028,-.045),.007)
-        grid(ob,[['PRI','SEC','TIE'],[('TEST','podWarm'),'RESET',('ISOL','podAmber')]],z=-.102,pitch=.061)
-        rule(ob,0,-.102,.207,.090)
+        # Independent switch cassettes slot under the brow, as in the aft-facing set still.
+        labels=('O2','REG','PUMP','VENT','HEAT','FAN') if side>0 else ('TX','BUS A','TIE','RX','BUS B','AUX')
+        for col in range(2):
+            x=-.073+col*.072
+            block('Cassette tray',(x,-.030,-.008),(.068,.008,.244),'podSeal',ob,.003)
+            rule(ob,x,-.008,.064,.238,'podKeyRim',-.035)
+            for j in range(3):
+                z=.078-j*.064
+                key(ob,x,z,labels[col*3+j],'podBlue' if j!=1 else 'podKeyOff',.042,.026)
+                text(ob,'SELECT' if j==0 else 'MAN', (x,-.036,z-.023),.0045)
+        for j,(label_,color) in enumerate([('POWER','podWarm'),('ARM','podAmber'),('SAFE','podWarm')]):
+            key(ob,.080,.075-j*.073,label_,color,.050,.037)
+        block('Card cage top return',(0,-.047,.138),(.257,.052,.012),'podKeyRim',ob,.002)
+        for i in range(11):
+            x=(i-5)*.019
+            block('Louvred vent',(x,-.030,-.152),(.011,.005,.022),'podSeal',ob,.002)
         aft=panel('Rear electrical panel',(side*.44,.55,1.24),.27,.32,parent,
                   'PRESSURIZATION' if side>0 else 'COMMUNICATIONS')
         grid(aft,[['MAIN','RES','REG'],['ON','AUTO','OFF']],z=.066,pitch=.064)
@@ -209,6 +216,27 @@ def side_banks(parent):
             disk('Bus indicator lens',((i-1.5)*.052,-.034,-.062),.0035,.003,'podGreen',aft)
 
 
+def cushion(parent, width, height, phase):
+    # Pulled vinyl crowns between the welt and the fixing rail. Short gathers die out inboard.
+    verts=[]; faces=[]
+    for row in range(19):
+        v=row/9-1
+        for col in range(25):
+            u=col/12-1
+            crown=max(0,(1-u**4)*(1-v**4))**.62
+            gather=.003*cos(26*v+4*u+phase)*exp(-((abs(u)-.83)/.14)**2)
+            verts.append((u*width*.5*S,-(.018+crown*.040+gather*crown)*S,
+                          v*height*.5*(1-.045*abs(u)**6)*S))
+            if row and col:
+                j=len(verts)-1
+                faces.append((j-26,j-25,j,j-1))
+    pad=_obj('Tensioned vinyl cushion',verts,faces,M['podPad'],parent)
+    for face in pad.data.polygons: face.use_smooth=True
+    for u in [-1,1]:
+        tube('Pressed edge welt',(u*width*.49,-.019,-height*.46),
+             (u*width*.49,-.019,height*.46),.0026,'podSeam',parent)
+
+
 def upholstery(parent):
     # Leave the centre aft sector open for the pressure hatch and its controls.
     for a in [pi*.46,pi*.65,pi*.82,pi*1.18,pi*1.35,pi*1.54]:
@@ -216,8 +244,7 @@ def upholstery(parent):
             radius=sqrt(max(.08,.945**2-(abs(z-1.03)+.16)**2))
             ob=mount('Leatherette cushion mount',(radius*sin(a),-radius*cos(a),z),parent,(0,0,z))
             block('Upholstery backing',(0,0,0),(.325,.028,.302),'podSeal',ob,.012)
-            block('Foam padded leatherette',(0,-.023,0),(.311,.048,.288),'podPad',ob,.028)
-            rule(ob,0,0,.270,.247,'podSeam',-.048)
+            cushion(ob,.311,.288,a*4+z*3)
             for x in [-.145,.145]:
                 for dz in [-.126,.126]:disk('Upholstery fixing',(x,-.037,dz),.0025,.0015,'podSeal',ob)
     parent=empty('interior_seat',(0,0,0),parent)
@@ -258,6 +285,10 @@ def hand_controls(parent):
         tube('Waldo hand grip',(-.025,-.138,.034),(.025,-.138,.034),.008,'podSeal',ob)
         block('Controller trigger',(0,-.095,.008),(.013,.021,.013),'podWarning',ob,.003)
         tube('Controller support',(0,.015,-.02),(0,.04,-.14),.014,'alu',ob)
+        for j in range(16):
+            a=j*2*pi/16
+            x=.046*cos(a); z=.046*sin(a)
+            tube('Knurled controller sleeve',(x,-.056,z),(x,.004,z),.0013,'podKeyRim',ob,6)
         for y in [.01,.035,.060]:disk('Controller collar',(0,y,0),.047,.004,'steel',ob)
         # Cable strain relief terminates in a supported loom below the console.
         tube('Controller cable',(0,.072,0),(0,.15,-.10),.007,'podSeal',ob)
@@ -277,6 +308,8 @@ def fixtures(parent):
         block('Lamp recess',(0,0,0),(.155,.033,.064),'podSeal',ob,.009)
         block('Frosted opal diffuser edge',(0,-.018,0),(.135,.010,.047),'podKeyIvory',ob,.005)
         block('Red-lit acrylic diffuser',(0,-.024,0),(.126,.010,.040),'podCabinLamp',ob,.005)
+        for j in range(9):
+            block('Prismatic lens flute',((j-4)*.0135,-.030,0),(.0015,.002,.034),'podCabinLamp',ob,.0004)
         for x in [-.070,.070]:screw(ob,x,0,-.018)
         normal=ob.rotation_quaternion@Vector((0,-1,0))
         p=Vector(pos)*S+normal*.045*S
@@ -284,12 +317,19 @@ def fixtures(parent):
 
 
 def ceiling_and_door(parent):
-    roof=panel('Overhead switchboard',(0,.12,1.815),.47,.28,parent,'EMERGENCY / SYSTEM CONTROL')
-    grid(roof,[[('POWER','podAmber'),'BUS A','BUS B','AUX','TEST','OFF'],
-               ['VALVE','PURGE','VENT','LOCK','OPEN',('SAFE','podWarm')]],z=.013,pitch=.065,gap=.055)
-    rule(roof,0,.013,.414,.118)
-    text(roof,'MANUAL OVERRIDE',(0,-.028,-.092),.008)
-    for x in [-.12,.12]:toggle(roof,x,-.095,'ARM',False)
+    roof=mount('Overhead emergency switch recess',(0,.12,1.815),parent)
+    outline=[(.26*cos(i*pi/32),.158*sin(i*pi/32)) for i in range(64)]
+    slab('Moulded roof escutcheon',outline,-.020,.026,'podRed',roof,.005)
+    slab('Recessed oval switch well',[(x*.91,z*.85) for x,z in outline],-.025,-.018,'podSeal',roof)
+    for col,pair in enumerate([('BUS A','BUS B'),('PURGE','VENT'),('LOCK','OPEN')]):
+        x=(col-1)*.124
+        block('Switch cassette',(x,-.029,0),(.115,.011,.157),'podPanel',roof,.003)
+        rule(roof,x,0,.109,.149,'podKeyRim',-.036)
+        for row,legend in enumerate(pair):
+            z=.044-row*.087
+            key(roof,x+.014,z,legend,'podAmber',.065,.037)
+            for dz in [-.010,.010]:
+                key(roof,x-.036,z+dz,'','podBlue',.014,.009)
     block('Switchboard roof support',(0,.12,1.90),(.32,.21,.16),'podRed',parent,.018)
     door=mount('interior_hatch',(0,.755,1.12),parent,(0,-1,1.12))
     pts=[(-.27,-.48),(.27,-.48),(.29,-.34),(.24,.42),(.16,.49),(-.16,.49),(-.24,.42),(-.29,-.34)]
@@ -367,13 +407,27 @@ def shell_services(parent):
 def window_surround(parent):
     # The shooting set used painted fibreglass inside the reveal, rather than the exterior ribs.
     n=128; verts=[]
-    for rx,rz,mode in [(.438,.508,0),(.350,.411,1),(.319,.374,2)]:
+    # The rolled inner lip turns back into a broad, dished face around the porthole.
+    profiles=[(.438,.508,None),(.414,.488,-.57),(.360,.428,-.425),
+              (.327,.385,-.377),(.319,.374,-.364),(.321,.377,-.352),
+              (.334,.389,-.347),(.353,.408,-.354),(.385,.445,-.383)]
+    for rx,rz,depth in profiles:
         for i in range(n):
             a=i*2*pi/n; x=rx*cos(a); z=1.42+rz*sin(a)
-            y=-sqrt(max(.01,1.030**2-x*x-(z-1.03)**2))+.004 if mode==0 else (-.390 if mode==1 else -.368)
+            y=-sqrt(max(.01,1.030**2-x*x-(z-1.03)**2))+.004 if depth is None else depth
             verts.append((x*S,y*S,z*S))
-    faces=[(j*n+i,j*n+(i+1)%n,(j+1)*n+(i+1)%n,(j+1)*n+i) for j in range(2) for i in range(n)]
-    ob=_obj('Moulded interior window reveal',verts,faces,M['podRed'],parent);smooth(ob,60)
+    for t in [.16,.40,.70,1.0]:
+        for i in range(n):
+            a=i*2*pi/n
+            x=(.385*(1-t)+.82*t)*cos(a)
+            z=1.42-.12*t+(.445*(1-t)+.65*t)*sin(a)
+            shell=-sqrt(max(.02,.958**2-x*x-(z-1.03)**2))
+            y=-.383+(shell+.383)*t+.045*sin(pi*t)
+            verts.append((x*S,y*S,z*S))
+    faces=[(j*n+i,j*n+(i+1)%n,(j+1)*n+(i+1)%n,(j+1)*n+i)
+           for j in range(len(verts)//n-1) for i in range(n)]
+    ob=_obj('Moulded interior window reveal',verts,faces,M['podRed'],parent)
+    for face in ob.data.polygons: face.use_smooth=True
     def edge(t):
         x=.438*cos(t);z=1.42+.508*sin(t)
         return (x,-sqrt(max(.01,1.03**2-x*x-(z-1.03)**2))+.004,z)
@@ -388,6 +442,7 @@ def build(parent, mats, scale, eye):
     global M,S,EYE
     M=mats;S=scale
     EYE=Vector((eye[0],-eye[2],eye[1]))/S
+    M['phosphor']=instrument_atlas('Pod CRT',[(.70,.90,.94),(.31,.64,.75),(.10,.27,.32),(.94,.67,.29)])
     window_surround(bpy.data.objects['window_liner'])
     upholstery(parent)
     consoles(parent)

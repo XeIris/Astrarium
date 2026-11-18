@@ -28,9 +28,33 @@ def _fields(name, kind, size):
     grain = noise(.84, .84)
     fine = noise(.43, .43)
     cloud = noise(size / 12, size / 16)
+    if kind == 'plating':
+        # Unequally sized courses wrap around the command sphere and across its moving doors.
+        shade=np.ones_like(x); spread=.020*grain; relief=.022*grain
+        for row in range(26):
+            cols=(40,48,32,56,48)[row%5]
+            offset=rng.random()
+            u=(x*cols+offset)%1
+            v=(y*26)%1
+            slot=((x*cols+offset).astype(int))%cols
+            edge=np.minimum(np.minimum(u,1-u),np.minimum(v,1-v)*.75)
+            joint=np.exp(-(edge/.018)**2)
+            marker=(u>.10)&(u<.35)&(v>.17)&(v<.24)&(slot%7==row%7)
+            # A few dark access plates break up a much paler field of painted skin.
+            coat=rng.uniform(.934,1.015,cols)[slot]
+            bay=((slot+row*3)%11==0)&(u>.19)&(u<.82)&(v>.22)&(v<.77)
+            latch=((slot+row)%8==0)&(((u-.22)**2+(v-.72)**2)<.003)
+            band=yy*26//size==row
+            shade[band]=(coat-.085*joint-.17*marker-.094*bay-.18*latch+.008*cloud)[band]
+            spread[band]+=(.10*joint+.25*(1-coat))[band]
+            relief[band]-=(.14*joint+.04*bay)[band]
+        return shade,spread,relief
     if kind in ('blanket', 'quilt'):
         across, along = (4, 6) if kind == 'blanket' else (5, 5)
-        u, v = (x * across) % 1, (y * along) % 1
+        # Quilting pulls the cloth diagonally from each stitch run. Distort the
+        # weave and the seams together to keep the fold and the pigment registered.
+        buckle = .013*np.sin(2*np.pi*(y*along+x))+.006*cloud
+        u, v = (x * across+buckle) % 1, (y * along+.012*np.sin(2*np.pi*x*across)) % 1
         edge = np.minimum(np.minimum(u, 1-u), np.minimum(v, 1-v))
         seam = np.exp(-(edge / .027)**2)
         thread = np.exp(-((edge - .045) / .012)**2)
@@ -38,9 +62,11 @@ def _fields(name, kind, size):
         cloth = np.sin(2*np.pi*120*x) * np.sin(2*np.pi*112*y)
         fold = np.sin(np.pi*u) * np.sin(np.pi*v)
         tint = rng.uniform(-.038, .030, (along, across))[yy*along//size, xx*across//size]
-        return (1+tint+.008*cloud-.12*seam+.055*thread+.008*cloth,
+        gathers = (np.cos(2*np.pi*(v*3-u*2)+.5*cloud)*np.exp(-u*5)
+                   +np.cos(2*np.pi*(u*3+v*2)+.4*cloud)*np.exp(-v*5))*fold
+        return (1+tint+.028*cloud-.15*seam+.055*thread+.008*cloth+.045*gathers,
                 .035*cloud+.071*seam-.062*thread+.025*grain,
-                .21*fold-.16*seam+.105*thread+.035*cloth+.016*grain)
+                .36*fold-.22*seam+.105*thread+.035*cloth+.016*grain+.42*gathers)
     if kind == 'tile':
         across, along = 6, 8
         row = yy*along//size
@@ -83,7 +109,7 @@ def _fields(name, kind, size):
 
 
 def surface(name, color, roughness, metalness, kind, density):
-    size = 512 if kind in ('blanket', 'tile') else 256
+    size = 1024 if kind == 'plating' else (512 if kind in ('blanket', 'quilt', 'tile') else 256)
     shade, spread, height = _fields(name, kind, size)
     mat = material(name, srgb(color), roughness, metalness)
     bsdf = mat.node_tree.nodes['Principled BSDF']
@@ -125,9 +151,9 @@ def palette(cabin=False):
     ]
     if cabin:
         rows.extend([
-            ('liner', 'surveyLiner', 0x85847b, .72, .025, 'paint', 4),
-            ('cabin_quilt', 'surveyCabinQuilt', 0x8c8b80, .80, .02, 'quilt', 2.6),
-            ('seat', 'surveySeat', 0x394147, .69, .015, 'vinyl', 8),
+            ('liner', 'surveyLiner', 0xa9a69b, .55, .025, 'paint', 4),
+            ('cabin_quilt', 'surveyCabinQuilt', 0xb2afa3, .70, .02, 'quilt', 1.65),
+            ('seat', 'surveySeat', 0x30353b, .46, .015, 'vinyl', 8),
             ('webbing', 'surveyWebbing', 0x92918a, .86, .01, 'weave', 9),
             ('deck', 'surveyDeck', 0x4b5153, .80, .05, 'rubber', 5),
         ])

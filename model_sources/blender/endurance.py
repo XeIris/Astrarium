@@ -50,6 +50,14 @@ def module(index, parent, m):
     mid = (Vector(a)+Vector(b))*.5
     node = ball('rounded intermodule junction', 1.55, p(mid), m['enamel'], seg=32, rings=20, parent=mount)
     smooth(node, 45)
+    tangent=(Vector(b)-Vector(a)).normalized()
+    for sign in [-1,1]:
+        for j in range(4):
+            center=mid+tangent*sign*(1.22+.17*j)
+            collar('flexible tunnel bellows',center,tangent,1.065,m['panel'],mount,.049)
+        for y in [-.62,.62]:
+            q=mid+Vector((0,y,.85))
+            rod('external tunnel umbilical',q+tangent*sign, q+tangent*sign*2.28,.075,m['alloy'],mount)
     for direction in [-1, 1]:
         collar('connector inspection hatch rim', mid+Vector((0, direction*1.28, 0)), (0, 1, 0), .76, m['alloy'], mount)
         # Closed hatch, with a recessed dark face rather than an open tunnel.

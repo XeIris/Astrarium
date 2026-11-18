@@ -1671,6 +1671,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	local.camera.near = maxf(fly_cam.near, local.camera.far * 1.0e-7)
 	local.camera.fov = float(fly_cam.state.fov)
 	local.apply_origin(fly_cam.basis)
+	if drawn and interior.authored: interior.light_windows(local.sun, local.sun2)
 	# Back to front for this frame's camera, now that it is placed.
 	if drawn: smoke.draw(local.camera, site.steam if site != null else null)
 

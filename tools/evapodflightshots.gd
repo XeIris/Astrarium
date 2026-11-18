@@ -89,6 +89,7 @@ func _ready() -> void:
 	check(f.craft.stages[0].deploy>.99,"flight command extends arms")
 	await shot("flight-arms")
 	f.camera_override=Callable()
+	var exterior_atlas: int = stage.pipe.local_vp.positional_shadow_atlas_size
 	f.set_camera_mode("interior")
 	f.fly_cam.state.interiorPitch=.18
 	await settle(20)
@@ -96,6 +97,15 @@ func _ready() -> void:
 	for light in [f.local.sun,f.local.sun2]+f.local.hemi:
 		check((light.light_cull_mask & CraftInterior.LAYER)==0,"exterior lighting excludes enclosed cockpit")
 	if authored:
+		check(stage.pipe.local_vp.positional_shadow_atlas_size >= 2048,"local viewport supplies fixture shadows")
+		var keys := 0
+		for lamp in f.interior.group.get_children():
+			if lamp is OmniLight3D and lamp.shadow_enabled and lamp.shadow_caster_mask==CraftInterior.LAYER:
+				keys+=1
+		check(keys==2,"two shadow-casting practicals are scoped to the cabin")
+		var shaft := f.interior.window_sun
+		check(shaft!=null and shaft.shadow_enabled and shaft.light_cull_mask==CraftInterior.LAYER
+			and shaft.shadow_caster_mask==CraftInterior.LAYER,"sunlight reaches cabin through the hull apertures")
 		var fixtures := f.interior.group.find_children("interior_light_*","Node3D",true,false)
 		check(fixtures.size()==5,"five authored fixture anchors")
 		for fixture: Node3D in fixtures:
@@ -119,7 +129,7 @@ func _ready() -> void:
 	check(absf(float(f.fly_cam.state.interiorYaw))<=PI,"interior look wraps through a full turn")
 	f.set_camera_mode("orbit")
 	await settle(3)
-	check(f.interior.group==null,"camera exit releases cockpit")
+	check(f.interior.group==null and stage.pipe.local_vp.positional_shadow_atlas_size==exterior_atlas,"camera exit releases cockpit and local shadow atlas")
 	stage.end_flight()
 	for i in 3: await get_tree().process_frame
 	for error in logger.take():

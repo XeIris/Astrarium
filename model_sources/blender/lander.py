@@ -60,6 +60,16 @@ def cargo_panels(points, normal, m, parent):
         a = at(.29, v)+normal*.027
         b = at(.37, v)+normal*.027
         rod('cargo cover latch', a, b, .034, m['alloy'], parent)
+        for u in [.20,.78]:
+            center=at(u,v)+normal*.028
+            rod('recessed quarter-turn socket',center,center+normal*.009,.054,m['rubber'],parent)
+            rod('captive cam',center+normal*.009,center+normal*.015,.033,m['alloy'],parent)
+    for u in [.25,.69]:
+        a=at(u,.875)+normal*.045
+        b=at(u+.12,.875)+normal*.045
+        rod('access door hinge barrel',a,b,.039,m['alloy'],parent)
+        for start in [0,.72]:
+            rod('hinge knuckle',a.lerp(b,start),a.lerp(b,start+.26),.049,m['panel'],parent)
 
 
 def make(_shared):

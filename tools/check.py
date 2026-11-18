@@ -60,6 +60,7 @@ CHANGED_RULES = (
     (("sim/flight/orbit.gd",), ("orbitcheck", "flightphysicscheck", "flighttimecheck", "missioncheck-*", "discoveryflightcheck")),
     (("sim/flight/discovery_craft.gd", "sim/flight/centrifuge.gd", "sim/jovian_moons.gd", "model_sources/blender/discovery.py"),
      ("discoverycheck-*", "discoveryflightcheck", "discoveryflightshots", "craft-*", "assetcheck", "hudcheck", "_soak_check-discovery")),
+    (("model_sources/blender/cabin_displays.py",), ("rangercheck-*", "rangerflightshots", "evapodcheck*", "evapodflightshots")),
     (("sim/flight/ranger_craft.gd", "model_sources/blender/ranger.py", "model_sources/blender/movie_materials.py",
       "sim/flight/craft_interior.gd", "sim/flight/localview.gd", "sim/flight/vehicles.gd", "tools/craftspec.gd"),
      ("rangercheck-*", "rangerflightcheck", "rangerflightshots", "_soak_check-ranger", "scenariocheck")),
