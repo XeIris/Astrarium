@@ -49,6 +49,8 @@ var suns: Array = []           # live star light sources, brightest first
 var band: int = 3              # imaging band index (see sim/spectrum.gd)
 var hud_hidden: bool = false
 var app_mode: String = "sandbox"
+# A world in full focus drops a pin by itself (Showcase).
+var pin_on_focus := true
 
 # The live sky spec (what's on screen), in apply_sky_environment's shape. A preset
 # seeds it, the settings panel edits it; `env` is a weight map, one slider per

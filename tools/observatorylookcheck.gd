@@ -10,6 +10,9 @@ extends Node
 const Catch = preload("res://tools/coursecheck.gd").Catch
 
 const VIEWS := [Vector2i(1800, 1200), Vector2i(900, 600)]
+## Frames drawn at the end of a settle. High's ambient follows the sky over drawn frames:
+## with 8 one site reading moved in its third place, with 30 none does.
+const DRAWN := 30
 ## A real 15% crescent is faint against the blue: its limb adds about a tenth to the sky.
 const DAY_LIMB_MIN := 1.05
 const DAY_LIMB_MAX := 1.25
@@ -37,10 +40,12 @@ func check(label: String, ok: bool) -> void:
 	if not ok: failures += 1
 	print("%s %s" % ["ok" if ok else "FAIL", label])
 
+## The sky's gains ease on the stage's own clock, so a long settle steps the stage and
+## draws only its last frames.
 func settle(frames := 6) -> void:
 	for i in frames:
 		stage.animate(1.0 / 60.0)
-		await RenderingServer.frame_post_draw
+		if i >= frames - DRAWN: await RenderingServer.frame_post_draw
 
 ## The 3D frame alone. The stars' and Moon's gain takes about eight seconds to follow the sky,
 ## and a day Moon measured sooner is several times too bright.

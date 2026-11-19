@@ -26,6 +26,14 @@ def check(path: Path) -> int:
         for site in ("jodrell", "maunakea", "paranal"):
             if f"assets/sites/{site}.terrain" not in names:
                 failures.append(f"missing site terrain: assets/sites/{site}.terrain")
+        if "assets/sky/neighbourhood.bin" not in names:
+            failures.append("missing the stars around the Sun: assets/sky/neighbourhood.bin")
+        for dust in ("local_dust.bin", "local_dust_grid.bin"):
+            if f"assets/galaxy/{dust}" not in names:
+                failures.append(f"missing the measured dust around the Sun: assets/galaxy/{dust}")
+        for world in ("earth", "mars", "moon"):
+            if f"assets/planet-relief/{world}.elev" not in names:
+                failures.append(f"missing measured relief: assets/planet-relief/{world}.elev")
     for failure in failures:
         print(f"EXPORTCHECK FAIL {failure}", file=sys.stderr)
     print(f"EXPORTCHECK {'FAIL' if failures else 'PASS'}: {len(names)} entries, "

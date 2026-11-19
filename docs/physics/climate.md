@@ -149,15 +149,13 @@ The gases together may not pass 200 bar. Stating `oceans: true` with `land: 1` o
 
 A stated value wins, and an edit is a stated value; setting one to null returns to the
 draw. An edit naming only these fields keeps the body's visual and structure, so a
-slider cannot disturb a tracked spin. `albedo`, `land` and `oceanDepth` also draw the
-surface, so they rebuild it; a stated value reaches the look, a drawn one not yet.
+slider cannot disturb a tracked spin. `land` and `oceanDepth` also draw the surface, and
+reach it as uniforms; `albedo` draws its colours and rebuilds them.
 
 `greenhouse`, the single ε this model used to take, is gone: a preset's `climate` block
 naming it is rejected as an unknown input, and it does nothing on a body's spec.
 
-A rendered `planet` works out its own surface temperature from `albedo`, its star and the
-emissivity its climate's column has at the moment, so a CO₂ edit moves its ice line. The
-rest of what it draws is the later look phase. A `world`'s surface follows its own `b.climate`.
+A world draws what its climate says ([the look follows](#the-look-follows)).
 
 The home world draws nothing. It keeps `Climate.HOME_INPUTS`, today's Earth: NSSDC's air, the
 3.7 km sea and albedo 0.306. A preset's `climate` block is merged into its spec (`realismcheck`
@@ -299,6 +297,50 @@ Land thermal inertia differing from ocean on one world, live CO₂ cycling and C
 cold world's air stays in the air), tidal locking and internal heat, so an ice shell's ocean
 is only an inventory. A dry world has no ice line, even one with CO₂ caps like Mars's.
 
+### What the editor shows
+
+The Foundry and the live editor share one set of controls (`CompositionEditor`): a mix, the
+pie, a row per gas, the sea and the surface, and what the model expects. `Composition` holds
+the mixes. The expectation is `Climate` itself on a scratch `Body`, built by the same
+`ClimateInputs.build` a spawn runs and stepped with the stars where they are, so there is no second
+formula and nothing on the stage is written.
+
+- **The horizon.** 28 geometric steps from 0.02 years to 100 years, or six radiative times if the
+  column is slower. Fixed steps keep its cost fixed: about 3 ms. `compositioncheck` runs the real
+  stage for the same 100 years on a real orbit for an Earth, a dry rock, a global ocean, an ice shell,
+  Mars's and Venus's air, a seeded draw and a 0.012 M⊕ world (largest gap 0.4 K). The preview holds a
+  world where it spawns; the stage flies it on an orbit the other planets perturb (one at 1 AU shares
+  Earth's, and its sunlight wanders by up to 3%), and a world with little heat to store ends at the
+  sunlight it has then. So the check allows 1.5 K plus T·ΔS/4S, the largest stray in sunlight on the
+  way taken through T ∝ S^¼, and fixes the generator's seed so every run flies the same orbits. A
+  2.5 K error in the preview fails it.
+- **A live world.** It forks the world's climate, temperature, ice and water included, so a
+  snowball's hysteresis is the world's own. Applying an edit is immediate; the panel says where it is heading.
+- **Where it would go.** A spawn's bearing, spread and seed are decided before the preview, and
+  `place_spawn` is given them, so the sunlight it reports is the sunlight it gets. The Orbit row
+  sets the distance; spawning at rest uses the point in front of the camera.
+- **Limits.** A patch goes through `Structure.input_error` first. One outside the domain shows its
+  reason in the panel and changes nothing, slider or typed.
+
+The no-air balance is `278.6·(S(1 − α))^¼` with the present albedo, ice included, and greenhouse is
+the surface less that. A world under the [cosmic shoreline](#the-draw) with air gets a note, not a
+rejection: the model holds its gases fixed (see [not modelled](#not-modelled-yet)).
+
+#### The pie
+
+A pie is linear and these pressures are not: Earth's CO₂ is 0.042 % of its air, about 0.15° of pie,
+and its CH₄ under 2 ppm. So:
+
+- Every gas has a legend row with its pressure and share, and under it a bar on a log scale from
+  10⁻⁹ bar to the 200 bar limit.
+- A slice thinner than a pixel on the rim (1.15° at 50 px) is a tick rather than a slice.
+- The inner ring shows the gases under 1% among themselves, so CO₂ against CH₄ is still a shape.
+- Water is hatched, because it is not an input: its share follows the temperature through
+  Clausius–Clapeyron, against the world's inventory (`Climate.vapour_bar`), with steam on top.
+- A legend's filled square is a stated gas and a hollow one was drawn from the seed.
+
+The strip under it is the globe: land, open sea and ice.
+
 ## An atmosphere with composition
 
 `Atmosphere` (`sim/atmosphere.gd`) takes partial pressures and the world's gravity and returns
@@ -405,6 +447,40 @@ that column at its present temperature, isothermal, with γ and M from the mixtu
 by the limb's and the sky dome's `uThick` from τ (Earth's column is 1.0; the grey path previously read ρ₀).
 This replaces the Jeans-test guess for any world with a climate, so its drag changes too. A
 catalogued atmosphere is measured and stays, whatever is edited on the body.
+
+## The look follows
+
+`ClimateLook` turns a `Climate` and its spec into uniforms, and `Binder` eases them on (time
+constant 0.6 s, written only when they move). Both visuals take the same values. A value a preset
+states wins, since a preset states what cannot be derived. Visual updates read the climate and
+never write it, or mass, position or velocity.
+
+| What | From | Source, or what kind of choice |
+| --- | --- | --- |
+| Ice caps | `cl.ice`, the larger of the 0-D ramp and the latitude model | Draws within 1° of the model's ice line at today's Earth (71.4°, 71.8°) |
+| Cloud cover | `cl.clouds`, the humidity rule; a deck over any air with SO₂; steam | The rule stays visual ([Clouds](#clouds)). The deck's optical depth of ~30 at Venus's column is an estimate from its opaque deck |
+| Sea level | `ocean`, falling from the datum towards the abyssal plain as water leaves | Mass balance, linear in depth (a choice); none once the climate reads dry |
+| Land and depth | `cl.land`, `cl.ocean_depth` | A wet world's own. A dry world keeps the crust it was built with |
+| Desert | `uArid`, what the sea cannot supply, or heat | `√(sea share / 0.71)` is an estimate. The heat rule is the old one |
+| Vegetation | `uBiota`, Miami NPP at the world's temperature and land rain, against today's | Lieth 1975, coefficients as tabulated by [Adams et al. 2004](https://bio-math10.biology.kyushu-u.ac.jp/~ben/adams_et_al_2004.pdf). The heat limit (323–348 K) is an estimate |
+| Frost | fresh water's 273 K on a wet world, whatever the sea's salt (snow is fresh); CO₂ `3182.48/(23.3494 − ln p_mbar)` (James et al. 1992, as used by [Greve et al. 2010](https://arxiv.org/abs/0903.2688)), held at its triple point (5.185 bar) above it, where the solid forms on the steep melting curve; else N₂ by Clausius–Clapeyron from its triple point (63.15 K, 0.1252 bar) | Nothing to frost on an airless world. N₂'s vaporisation heat (5.57 kJ/mol) gives 78.7 K at 1 atm against the measured 77.4; below the triple point an effective 6.8 kJ/mol is chosen so that Pluto's 11.5 µbar stands over 37 K ice |
+| Lapse | `uLapse`: 0.66 g/c_p on a wet world and 0.4 g/c_p on a dry one; none without air | 0.66 is Earth's 6.5 K/km over its 9.8 K/km dry adiabat; 0.4 is an estimate from Mars's stability. The site's weather uses the same rate |
+| Sky and limb | `cl.sky`, Rayleigh from the column | [What the column looks like](#what-the-column-looks-like) |
+| Haze | `0.45 × uThick` up to 1.3 | Earth's old constant; the slope is a choice |
+| Craters | fade between 1 mbar and 0.1 bar of air | Estimates |
+
+Rain, which sets vegetation, is `990 mm × min(e^(0.02ΔT), e^(0.07ΔT)) × supply`, capped at what the
+sunlight can evaporate (`L·P ≤ (1 − α)S/4`). Near today's Earth precipitation follows the energy
+budget at 2 %/K while vapour goes at 7 %/K ([Held & Soden 2006](https://doi.org/10.1175/JCLI3990.1),
+[Allan et al. 2014](https://doi.org/10.1007/s10712-012-9213-z)), so 2 %/K warming, and vapour's
+7 %/K below today, where it binds. The 990 mm and land's 715 mm are Wikipedia's global means;
+L·P there comes to 71 W/m², inside the 65–80 W/m² energy budgets give, and that is not fitted.
+
+`lookcheck` also tests Miami against [Whittaker & Likens's ranges](https://www.taylorfrancis.com/chapters/mono/10.4324/9780203392843-13/soils-nutrient-limitation-tropical-ecosystems-martin-kellman-rosanne-tackaberry)
+(tropical forest 1000–3500, temperate 600–2500 g/m²/yr) and CO₂'s frost point at 1 atm (dry ice, 194.7 K).
+
+**Not done.** Mapped worlds keep their map's coast. A dry world has no ice line of its own and no dust.
+Ocean colour does not read chlorophyll. There is no CO₂ cap on a dry world but its seasonal frost.
 
 ## Water
 

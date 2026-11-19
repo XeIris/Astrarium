@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import datetime
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import queue
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,7 +22,7 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("dev", "fast", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("dev", "fast", "encounters", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
 # themselves (clean), read the previous step's output (export), or need exact object
@@ -29,7 +31,7 @@ ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clea
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
                  "lessons", "model_viewer", "eva_pod", "ranger", "discovery", "docking", "kerr",
-                 "flight_stage", "flight_catch", "scenario", "observatory", "start_screen")
+                 "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "encounter", "join", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
@@ -71,12 +73,28 @@ CHANGED_RULES = (
      ("evapodcheck*", "evapodflightshots", "_soak_check-eva_pod")),
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
-     ("invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
-      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck")),
+     ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
+      "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck", "flightphysicscheck")),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
+    # What runs on the ground, and the proof it runs nowhere else.
+    (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
+      "sim/planet_elevation.gd", "assets/planet-relief/*", "sim/flight/localview.gd", "sim/observatory/site_scene.gd"),
+     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface")),
+    # The CPU's crust is held to the shader's; the pin and the showcase read it.
+    (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
+      "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
+      "sim/rocky_visual.gd", "sim/planetmaps.gd", "tools/terrain_probe.gdshader", "sim/planet_elevation.gd",
+      "assets/planet-relief/*", "tools/build_planet_relief.py"),
+     ("pincheck", "pincheck-gpu", "hud*", "_soak_check-showcase")),
+    # How a world looks: the derived values headless, and the frames with pixels=1.
+    (("sim/climate_look.gd", "sim/rocky_visual.gd", "sim/world.gd", "sim/terrain.gd", "sim/climate.gd", "sim/atmosphere.gd",
+      "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/terrain.gdshaderinc", "shaders/bodies/cloud_deck.gdshader"),
+     ("lookcheck", "lookpixelcheck*")),
+    (("sim/composition.gd", "ui/composition_editor.gd", "ui/widgets/composition_pie.gd", "sim/foundry.gd", "sim/climate.gd",
+      "sim/climate_inputs.gd", "sim/atmosphere.gd"), ("compositioncheck", "hud*", "editorcheck", "realismcheck")),
     (("sim/lessons.gd", "sim/lessonui.gd", "sim/lightcurve.gd", "sim/gwdetector.gd", "sim/hrdiagram.gd",
       "sim/instrument_canvas.gd", "sim/masscurve.gd", "sim/crosssection.gd", "sim/cutaway.gd", "sim/foundry.gd",
       "sim/perihelion.gd"),
@@ -97,8 +115,8 @@ CHANGED_RULES = (
       "missioncheck-*", "scenariocheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
-    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds.gdshaderinc", "sim/terrain.gd",
-      "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck",)),
+    (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
+      "shaders/common/cloud_climate.gdshaderinc"), ("cloudcheck", "flightlightcheck", "surfacepixelcheck*")),
     # What lights a vehicle, as drawn.
     (("sim/flight/localview.gd", "sim/flight/spaceflight.gd", "shaders/flight/ground.gdshader"), ("flightlightcheck",)),
     # Any other flight file is presentation: the parity flight shows it cannot move physics.
@@ -133,8 +151,24 @@ CHANGED_RULES = (
     # How large a point source is drawn: the rule, its three users, and the bloom that spreads them.
     (("shaders/common/point_source.gdshaderinc", "shaders/sky/*", "shaders/bodies/marker_point.gdshader", "shaders/post/*",
       "sim/marker.gd", "sim/brightstars.gd", "sim/sky.gd", "render/postfx.gd"), ("glowcheck",)),
-    (("ui/*",), ("hud*", "editorcheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
+    (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
+    # The galactic scene: its physics headless, how it looks windowed, and the soak.
+    (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
+      "tools/build_neighbourhood.py", "assets/galaxy/*", "tools/build_local_dust.py", "tools/build_local_dust_grid.py"),
+     ("galaxycheck", "encountercheck", "galaxylookcheck", "coursecheck", "_soak_check-galaxy", "_soak_check-encounter", "_soak_check-join", "hud*")),
+    # The live encounters' six-minute replay: only what moves their particles.
+    (("sim/galaxy/gal_encounter.gd", "sim/galaxy/gal_live.gd", "sim/galaxy/gal_orbits.gd", "sim/galaxy/gal_eddington.gd",
+      "sim/galaxy/gal_models.gd", "native/*", "tools/encounterlivecheck.gd"), ("encounterlivecheck",)),
+    (("tools/galaxycheck.gd",), ("galaxycheck",)),
+    (("tools/encountercheck.gd",), ("encountercheck",)),
+    # galaxycheck also reads the Solar System sky's catalogues and its galactic frame.
+    (("assets/sky/bsc5.bin", "assets/sky/gaia_g8.bin", "sim/brightstars.gd", "sim/sky.gd",
+      "tools/build_gaia.py", "tools/build_starcat.py"), ("galaxycheck",)),
+    (("tools/galaxylookcheck.gd", "tools/galaxylookcheck.tscn"), ("galaxylookcheck",)),
+    (("render/pipeline.gd", "render/postfx.gd", "shaders/post/compose.glsl", "shaders/post/local_coverage.glsl"),
+     ("galaxylookcheck", "flightlightcheck")),
     (("tools/runtime_checks.gd",), ("_soak_check-*", "_leak_check", "_shutdown_check", "presetcheck")),
+    (("tools/check.py",), ("check-selfcheck",)),
     # Any other tool (fxlab, harnesses): at least it must still parse.
     (("tools/*",), ("import",)),
 )
@@ -148,8 +182,10 @@ class Check(NamedTuple):
     command: list
     markers: object  # None, or a regex (or tuple of them) that must each match exactly one line
     timeout: float
-    cost: float = 0  # rough idle seconds; --jobs launches the longest first
+    cost: float = 0  # rough idle seconds, until a run has measured it
     alone: object = False  # True: nothing beside it; a string: only beside checks with the same string
+    lane: str = ""  # checks sharing a lane run one at a time, beside the checks that have none
+    cores: str = ""  # an argument stem ("threads="): the check takes every core unless told how many
 
 
 def changed_files(ref):
@@ -206,10 +242,11 @@ def checks(suite, godot, output, repeat, export_preset):
 
     # Windowed: only for checks that judge a rendered frame, read a GPU result or must
     # see SHADER ERRORs (printed on first render). The dummy renderer has none of these.
-    # Alone: beside other windowed checks Metal reports fence timeouts, and saturated CPUs
-    # do not cause them (measurements in docs/performance.md).
+    # One window at a time: beside other windowed checks Metal reports fence timeouts.
+    # Saturated CPUs do not cause them, so headless checks run beside the window
+    # (measurements in docs/performance.md).
     def scene(name, marker, *args, timeout=300):
-        return Check(name, window + ["--resolution", "1280x720", f"res://tools/{name}.tscn", "--", *args], marker, timeout, alone=True)
+        return Check(name, window + ["--resolution", "1280x720", f"res://tools/{name}.tscn", "--", *args], marker, timeout, lane="window")
 
     # Headless: the scene tree, visual nodes and their updates all run, nothing is drawn.
     def headless_scene(name, marker, *args, timeout=300):
@@ -239,6 +276,7 @@ def checks(suite, godot, output, repeat, export_preset):
         yield Check("import", base + ["--headless", "--import", "--quit"], None, 180, alone=True)
         yield ("reference-shots-selfcheck", [sys.executable, str(ROOT / "tools/reference_shots_test.py")],
                r"^REFERENCE SHOTS SELF-CHECK PASS$", 30)
+        yield ("check-selfcheck", [sys.executable, str(ROOT / "tools/check_test.py")], r"^CHECK SELF-CHECK PASS$", 60)
         yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")
@@ -259,6 +297,19 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("observatorystagecheck", r"^OBSERVATORYSTAGECHECK DONE checks=[1-9]\d* failures=0$")
         yield script("cloudcheck", r"^CLOUDCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("plasmacheck", r"^PLASMACHECK DONE checks=[1-9]\d* failures=0$")
+        # ~30 s: a Gyr of 6000 tracers in MWPotential2014.
+        yield script("galaxycheck", r"^GALAXYCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$", timeout=300)
+        # Galaxy encounters: the orbits against van der Marel et al. (2012b).
+        # ~50 s on an M5's ten cores, several times that on CI's two or three. Alone: its live
+        # tree uses every core, and on CI that starved the checks beside it past their timeouts.
+        yield script("encountercheck", r"^ENCOUNTERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)._replace(alone=True)
+    elif suite == "encounters":
+        # ~6 min on an M5's ten cores, past CI's limits on two or three: the canonical encounter
+        # live for 10 Gyr against their N-body run. Kept out of "fast" (and so out of clean);
+        # --changed selects it when the galaxy code changes.
+        # With neighbours it is told how many cores they leave it: on all of them it took
+        # half of each mission's (docs/performance.md).
+        yield script("encounterlivecheck", r"^ENCOUNTERLIVECHECK DONE checks=[1-9]\d* failures=0$", timeout=1800)._replace(cores="threads=")
     elif suite == "native":
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         yield script("numericalcheck", r"^NUMERICALCHECK DONE checks=[1-9]\d* failures=0$")
@@ -319,6 +370,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("skycachecheck", r"^SKYCACHECHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("glowcheck", r"^GLOWCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("observatorylookcheck", r"^OBSERVATORYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        # The galactic scene's glow against its CPU integral, and the star/glow hand-over's flux.
+        yield scene("galaxylookcheck", r"^GALAXYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         # Actual cockpit depth, lighting and production camera/arm controls require a GPU.
         yield scene("evapodflightshots", r"^EVAPODFLIGHT DONE failures=0$")
@@ -327,7 +380,15 @@ def checks(suite, godot, output, repeat, export_preset):
         # These runs inspect the visible docking attachment and the Kerr backdrop.
         yield scene("dockingflightshots", r"^DOCKINGFLIGHTSHOTS DONE checks=[1-9]\d* failures=0$")
         yield scene("kerrflightcheck", r"^KERRFLIGHTCHECK DONE checks=[1-9]\d* failures=0$", "render=1")._replace(name="kerrflightshots")
-        yield scene("coursecheck", r"^COURSE 36L 111S 0E$")
+        yield scene("coursecheck", r"^COURSE 40L 125S 0E$")
+        pin_gpu = scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$", "gpu=1")
+        yield ("pincheck-gpu", *pin_gpu[1:])
+        for quality in ("medium", "low", "high"):
+            site = scene("surfacecheck", r"^SURFACECHECK DONE checks=[1-9]\d* failures=0$", "pixels=1", f"quality={quality}")
+            yield (f"surfacepixelcheck-{quality}", *site[1:])
+        for quality in ("medium", "low", "high"):
+            pixels = scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$", "pixels=1", f"quality={quality}")
+            yield (f"lookpixelcheck-{quality}", *pixels[1:])
         yield scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1")
         startup_low = scene("hudcheck", r"^HUDCHECK TEST [1-9]\d* passed, 0 failed$", "hstate=sandbox", "htest=1", "quality=low")
         yield ("hud-low-startup", *startup_low[1:])
@@ -337,12 +398,16 @@ def checks(suite, godot, output, repeat, export_preset):
         yield headless_scene("transitioncheck", r"^TRANSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("compositioncheck", r"^COMPOSITIONCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("surfacecheck", r"^SURFACECHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield headless_scene("realismcheck", r"^REALISMCHECK DONE checks=[1-9]\d* failures=0$")
         yield scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$")
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
         yield Check("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log"), *window[len(base):]],
-                    r"^PRESETCHECK DONE 38$", 300, alone=True)  # windowed, like scene()
+                    r"^PRESETCHECK DONE 38$", 300, lane="window")  # windowed, like scene()
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
@@ -390,13 +455,13 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
         yield ("physcheck", ["sh", str(ROOT / "tools/physcheck.sh"), str(output / "physics-reference")], r"^PHYSCHECK COMPLETE:", 300)
     elif suite == "m5-budget":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=11 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", "m5_native=1", f"report={output / 'm5-native.json'}")
     elif suite == "m5-medium":
-        medium = scene("perfcheck", r"^PERFCHECK DONE cases=11 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
+        medium = scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", "m5_native=1", "m5_preset=medium", f"report={output / 'm5-medium.json'}")
         yield ("perfcheck-m5-medium", *medium[1:])
     elif suite == "perf":
-        yield scene("perfcheck", r"^PERFCHECK DONE cases=11 failures=0$", f"report={output / 'render-profile.json'}")
-        abba = scene("perfcheck", r"^PERFCHECK DONE cases=16 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
+        yield scene("perfcheck", r"^PERFCHECK DONE cases=18 failures=0$", f"report={output / 'render-profile.json'}")
+        abba = scene("perfcheck", r"^PERFCHECK DONE cases=19 failures=0$", "studio_abba=1", f"report={output / 'studio-abba.json'}")
         yield ("studio-abba", *abba[1:])
         yield script("nbodycheck", r"^NBODYCHECK DONE [1-9]\d* presets, 0 failed \(", timeout=600)
         for _ in range(repeat):
@@ -584,6 +649,179 @@ def read_times(folder):
     return history if isinstance(history, dict) else {}
 
 
+QUICK = 10  # seconds: a check this short starts first, so a broken precondition fails at once
+PASS_KEEP = 6  # earlier passes remembered per check: worktrees of one clone share them
+PASS_DAYS = 30
+
+
+def launch_order(segment, expected, jobs):
+    """Quick checks first, shortest first, so a cheap failure stops the run before the
+    long ones are paid for; then the unmeasured; then the rest, longest first where
+    they share the jobs."""
+    quick = sorted((i for i in segment if expected[i] is not None and expected[i] <= QUICK), key=lambda i: expected[i])
+    unmeasured = [i for i in segment if expected[i] is None]
+    rest = [i for i in segment if expected[i] is not None and expected[i] > QUICK]
+    if jobs > 1:
+        rest.sort(key=lambda i: -expected[i])
+    return quick + unmeasured + rest
+
+
+def worktree_tree():
+    """The working tree as a git tree object: tracked, staged, unstaged and untracked
+    files, written through a scratch index so the real one is untouched. None when git
+    cannot say."""
+    try:
+        index = subprocess.run(["git", "rev-parse", "--git-path", "index"], cwd=ROOT, capture_output=True, text=True,
+                               check=True, timeout=15).stdout.strip()
+        with tempfile.TemporaryDirectory(prefix="astrarium-index-") as folder:
+            scratch = Path(folder) / "index"
+            if (ROOT / index).is_file():
+                shutil.copyfile(ROOT / index, scratch)
+            env = {**os.environ, "GIT_INDEX_FILE": str(scratch)}
+            subprocess.run(["git", "add", "-A"], cwd=ROOT, env=env, capture_output=True, check=True, timeout=120)
+            return subprocess.run(["git", "write-tree"], cwd=ROOT, env=env, capture_output=True, text=True,
+                                  check=True, timeout=60).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def git_paths(*args):
+    listed = subprocess.run(["git", "ls-files", "-z", *args], cwd=ROOT, capture_output=True, check=True, timeout=30)
+    return {Path(os.fsdecode(path)) for path in listed.stdout.split(b"\0") if path}
+
+
+def ignored_inputs():
+    return {path for path in git_paths("--others", "--ignored", "--exclude-standard", "--", "assets", "native")
+            if path.suffix != ".import"}
+
+
+def surroundings(godot, ignored):
+    """What a pass depends on outside the tree: the engine, the platform and the files
+    git ignores that a check loads (authored models, a locally built kernel). Their
+    .import files follow from them and carry per-checkout ids."""
+    version = subprocess.run([godot, "--version"], cwd=ROOT, capture_output=True, check=True, timeout=15).stdout.strip()
+    digest = hashlib.sha256(version + json.dumps([platform.system(), platform.machine()]).encode())
+    for path in sorted(ignored):
+        digest.update(os.fsencode(path) + b"\0")
+        digest.update(hashlib.sha256((ROOT / path).read_bytes()).digest())
+    return digest.hexdigest()[:16]
+
+
+def input_stamps(godot, ignored):
+    """POSIX change times catch in-place rewrites even when bytes and mtime are
+    restored. Directory stamps also catch temporary entries and rename cycles."""
+    paths = {Path(godot), Path(godot).parent, ROOT}
+    for path in git_paths("--cached", "--others", "--exclude-standard") | ignored:
+        paths.add(ROOT / path)
+        paths.update(ROOT / parent for parent in path.parents)
+    stamps = {}
+    for path in paths:
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            stamps[path] = None  # a tracked path may be deleted in the worktree
+            continue
+        if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+            return None  # a symlink can introduce inputs outside the monitored paths
+        stamps[path] = (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    return stamps
+
+
+class PassInputs(NamedTuple):
+    tree: str
+    around: str
+    stamps: dict
+
+
+def pass_inputs(godot):
+    # Windows stat reports creation time rather than POSIX change time.
+    if os.name != "posix":
+        return None
+    try:
+        ignored = ignored_inputs()
+        stamps = input_stamps(godot, ignored)
+        if stamps is not None and (tree := worktree_tree()):
+            around = surroundings(godot, ignored)
+            if stamps == input_stamps(godot, ignored_inputs()):
+                return PassInputs(tree, around, stamps)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def pass_key(check, output, godot, around, allow_macos_ca_error):
+    """Names a check as run: its command with this run's own paths taken out, its
+    markers, error policy and surroundings."""
+    def plain(part):
+        part = str(part).replace(str(output), "<out>").replace(str(ROOT), "<root>")
+        return "<godot>" if part == godot else "<python>" if part == sys.executable else part
+    stated = json.dumps([[plain(part) for part in check.command], check.markers, around, allow_macos_ca_error], default=str)
+    return f"{check.name}#{hashlib.sha256(stated.encode()).hexdigest()[:16]}"
+
+
+def read_passes(folder):
+    """{pass key: [{tree, utc}, newest first]}, or {} when missing or malformed."""
+    try:
+        passes = json.loads((folder / "passes.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return passes if isinstance(passes, dict) else {}
+
+
+def record_passes(folder, tree, keys):
+    """Remember that the checks named by `keys` passed on `tree`."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    oldest = (now - datetime.timedelta(days=PASS_DAYS)).isoformat()
+    with contextlib.suppress(OSError):
+        folder.mkdir(parents=True, exist_ok=True)
+        passes = read_passes(folder)
+        for key in keys:
+            earlier = [r for r in passes.get(key, []) if isinstance(r, dict) and r.get("tree") != tree]
+            passes[key] = [{"tree": tree, "utc": now.isoformat()}, *earlier][:PASS_KEEP]
+        passes = {key: kept for key, records in passes.items()
+                  if (kept := [r for r in records if isinstance(r, dict) and str(r.get("utc", "")) >= oldest])}
+        temporary = folder / f"passes.{os.getpid()}.tmp"
+        temporary.write_text(json.dumps(passes, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.replace(folder / "passes.json")
+
+
+def tree_changes(earlier, tree):
+    """Paths that differ between two trees, or None when git cannot compare them (an
+    unreferenced tree is pruned in time)."""
+    listed = subprocess.run(["git", "diff", "--name-only", "--no-renames", earlier, tree],
+                            cwd=ROOT, capture_output=True, text=True, timeout=60)
+    if listed.returncode != 0:
+        return None
+    return sorted({path.removesuffix(".uid") for path in listed.stdout.splitlines() if path})
+
+
+def passed_unchanged(plan, keys, dev, passes, tree, changes=tree_changes):
+    """{plan index: record} for each check that passed on an earlier tree from which
+    nothing CHANGED_RULES maps to it has changed. --changed trusts those rules to choose
+    the checks; this trusts them the same way, from the check's last pass instead of
+    from a branch point. Never the import: it prepares this checkout's own cache."""
+    selected = {}
+
+    def touched(earlier):
+        if earlier not in selected:
+            files = changes(earlier, tree)
+            selected[earlier] = None if files is None else {check.name for check in changed_plan(plan, files, dev)[0]}
+        return selected[earlier]
+
+    hits = {}
+    for index, check in enumerate(plan):
+        if check.name == "import":
+            continue
+        for record in passes.get(keys[index], []):
+            if not isinstance(record, dict) or not isinstance(record.get("tree"), str):
+                continue
+            names = touched(record["tree"])
+            if names is not None and check.name not in names:
+                hits[index] = record
+                break
+    return hits
+
+
 class Progress:
     """What a person needs while checks run: how many are left, what is running and
     for how long, and which look stuck. A terminal gets a redrawn status line; piped
@@ -642,16 +880,19 @@ class Progress:
             running.append({"name": self.plan[index].name, "log": str(self.output / f"{index:02d}-{self.plan[index].name}.log"), "seconds": round(elapsed), "expected": expected and round(expected),
                             "timeout": timeout, "quiet": round(quiet), "flag": flag})
         waiting = [i for i in range(len(self.plan)) if i not in self.done and i not in self.running]
-        # Parallel work shares the jobs; alone checks run end to end.
+        # Parallel work shares the jobs; a lane's checks queue behind each other; alone
+        # checks run end to end.
         left = [max((self.expected[i] or 0) - (now - began), 0) for i, began in self.running.items()]
         shared = sum(left) + sum(self.expected[i] or 0 for i in waiting if self.plan[i].alone is not True)
         alone = sum(self.expected[i] or 0 for i in waiting if self.plan[i].alone is True)
+        lane = (sum(max((self.expected[i] or 0) - (now - began), 0) for i, began in self.running.items() if self.plan[i].lane)
+                + sum(self.expected[i] or 0 for i in waiting if self.plan[i].lane and self.plan[i].alone is not True))
         unknown = sum(1 for i in [*self.running, *waiting] if not self.expected[i])
         return {"pid": os.getpid(), "root": str(ROOT), "args": self.argv, "log_dir": str(self.output),
                 "started_utc": self.started_utc, "updated": time.time(), "elapsed": round(now - self.started),
                 "total": len(self.plan), "passed": sum(self.done.values()), "failed": [self.plan[i].name for i, ok in self.done.items() if not ok],
                 "stopping": self.stopping, "running": running, "waiting": [self.plan[i].name for i in waiting],
-                "eta": None if self.stopping else round(max([*left, 0]) if not waiting and not running else max(max(left, default=0), shared / self.jobs) + alone),
+                "eta": None if self.stopping else round(max([*left, 0]) if not waiting and not running else max(max(left, default=0), shared / self.jobs, lane) + alone),
                 "eta_unknown": unknown, "finished": None}
 
     @staticmethod
@@ -810,19 +1051,22 @@ def print_times(report, compare):
         print(f"  {result['name']:<44} {result['seconds']:>8.1f} {cpu if cpu is not None else float('nan'):>8.1f}"
               + (f" {was:>8.1f}{flag}" if was is not None else ""), flush=True)
     cpu = sum(r.get("cpu_seconds") or 0.0 for r in report["results"])
-    print(f"TOTAL wall {report['wall_seconds']}s, check cpu {round(cpu, 1)}s, {len(report['results'])} checks", flush=True)
+    print(f"TOTAL wall {report['wall_seconds']}s, check cpu {round(cpu, 1)}s, {len(report['results'])} checks"
+          + (f", {len(report['cached'])} not rerun" if report.get("cached") else ""), flush=True)
 
 
-def run_plan(plan, output, options, guard, report):
+def run_plan(plan, output, options, guard, report, keys=None):
     """Run checks up to options.jobs at a time. A check marked alone waits for the
-    running ones and runs by itself. After a failure nothing new starts; running
-    checks finish. Results print and enter the report in plan order."""
+    running ones and runs by itself; checks in one lane take turns beside the rest.
+    After a failure nothing new starts (unless options.keep_going); running checks
+    finish. Results print and enter the report in plan order, each with its pass key."""
     done = queue.Queue()
     progress = Progress(plan, output, options)
     complete = False
     live = {}
     finished = {}
     stopped = False
+    failed = False
     printed = 0
 
     def worker(index):
@@ -838,6 +1082,7 @@ def run_plan(plan, output, options, guard, report):
                 result, lines = finished.pop(printed)
                 for line in lines:
                     progress.say(line)
+                result["key"] = keys[printed] if keys else None
                 report["results"].append(result)
             printed += 1
 
@@ -850,12 +1095,22 @@ def run_plan(plan, output, options, guard, report):
         segments[-1].append(index)
     try:
         for segment in segments:
-            if options.jobs > 1:
-                segment = sorted(segment, key=lambda index: -plan[index].cost)
-            waiting, running = list(segment), 0
+            waiting, running, lanes = launch_order(segment, progress.expected, options.jobs), 0, set()
+            # A lane's check waits on the GPU more than it computes (the windowed ones
+            # averaged 0.6 of a core), so beside other jobs it takes none of their places.
+            extra = options.jobs > 1
             while waiting or running:
-                while waiting and not stopped and running < options.jobs:
-                    index = waiting.pop(0)
+                while not stopped:
+                    # A free lane first: its checks cannot overlap, so they set the pace.
+                    room = running - (len(lanes) if extra else 0) < options.jobs
+                    index = next((i for i in waiting if plan[i].lane and plan[i].lane not in lanes), None) if extra or room else None
+                    if index is None and room:
+                        index = next((i for i in waiting if not plan[i].lane), None)
+                    if index is None:
+                        break
+                    waiting.remove(index)
+                    if plan[index].lane:
+                        lanes.add(plan[index].lane)
                     progress.say(f"RUN {plan[index].name}")
                     progress.start(index)
                     threading.Thread(target=worker, args=(index,), daemon=True).start()
@@ -871,13 +1126,15 @@ def run_plan(plan, output, options, guard, report):
                 if error is not None:
                     raise error
                 finished[index] = outcome
+                lanes.discard(plan[index].lane)
                 progress.finish(index, outcome[0]["problem"] is None, outcome[0]["seconds"])
-                stopped = stopped or outcome[0]["problem"] is not None
+                failed = failed or outcome[0]["problem"] is not None
+                stopped = failed and not getattr(options, "keep_going", False)
                 progress.stopping = stopped
                 flush()
             if stopped:
                 break
-        complete = not stopped
+        complete = not failed
         return complete
     finally:
         for process in list(live.values()):
@@ -920,7 +1177,10 @@ def main():
     parser.add_argument("--repeat", type=int, default=3, help="performance repetitions (default 3)")
     parser.add_argument("--changed", nargs="?", const="HEAD", metavar="REF",
                         help="run only the checks covering files changed since REF's merge base (default HEAD: "
-                             "uncommitted work), from the selected suites or else dev..lifecycle")
+                             "uncommitted work), from the selected suites or else every suite a change can select; "
+                             "a check that already passed on inputs its rules call unchanged is not run again")
+    parser.add_argument("--fresh", action="store_true", help="with --changed: run every selected check, whatever passed before")
+    parser.add_argument("--keep-going", action="store_true", help="after a failure, still run the remaining checks")
     parser.add_argument("--list", action="store_true", help="print the planned checks and exit")
     parser.add_argument("--watch", action="store_true",
                         help="show the check runs in progress in any worktree of this clone (e.g. an agent's), live")
@@ -930,7 +1190,8 @@ def main():
     options = parser.parse_args()
     if options.watch or options.status:
         return watch(once=options.status)
-    options.suites = options.suites or (["dev", "fast", "native", "flight", "rendered", "assets", "procedural", "lifecycle"]
+    # The asset suites come first: they take seconds, and fail when a worktree has no authored models.
+    options.suites = options.suites or (["assets", "procedural", "dev", "fast", "encounters", "native", "flight", "rendered", "lifecycle"]
                                         if options.changed else ["fast"])
     if any(suite not in SUITES for suite in options.suites):
         parser.error("unknown suite; choose from " + ", ".join(SUITES))
@@ -945,7 +1206,7 @@ def main():
               "platform": platform.platform(), "machine": platform.machine(), "processor": platform.processor(),
               "godot": metadata([options.godot, "--version"]), "commit": metadata(["git", "rev-parse", "HEAD"]),
               "working_tree": metadata(["git", "status", "--short"]), "suites": options.suites,
-              "background": options.background, "jobs": options.jobs,
+              "background": options.background, "jobs": options.jobs, "keep_going": options.keep_going,
               "performance": ({"resolution": "1280x720", "rendered_craft": "authored Saturn V/Falcon 9 (required)",
                                "cpu_flight_craft": "procedural (asserted by each harness)",
                                "studio_abba": "frozen stage; two ABBA cycles per distance; distinct model viewport timestamp batches",
@@ -953,7 +1214,7 @@ def main():
                                "hud": "fixed 1/60s frames; wall time across rendered frames; vsync disabled",
                                "repetitions": options.repeat, "limitations": "local baseline; GPU availability recorded separately, no portable budget gate"}
                               if "perf" in options.suites else None),
-              "complete": False, "results": []}
+              "complete": False, "tree": None, "cached": [], "results": []}
     plan = [check._replace(alone=check.alone or suite in ALONE)
             for suite in options.suites
             for check in map(lambda c: Check(*c), checks(suite, options.godot, output, options.repeat, options.export_preset))]
@@ -961,31 +1222,68 @@ def main():
     seen = set()
     plan = [check for check in plan if (check.name, tuple(map(str, check.command))) not in seen
             and not seen.add((check.name, tuple(map(str, check.command))))]
+    # Everything reads the import cache, whichever suite was named first.
+    plan.sort(key=lambda check: check.name != "import")
+    selected = len(plan)
     if options.changed:
         files = changed_files(options.changed)
         dev = [Check(*c) for c in checks("dev", options.godot, output, options.repeat, options.export_preset)]
         plan, unmapped = changed_plan(plan, files, dev)
+        selected = len(plan)
         report["changed"] = {"ref": options.changed, "files": files, "unmapped": unmapped}
         print(f"CHANGED {len(files)} files since {options.changed}; {len(plan)} checks"
               + (f"; unmapped (dev suite): {', '.join(unmapped)}" if unmapped else ""), flush=True)
+    inputs = pass_inputs(options.godot) if plan else None
+    keys = []
+    if inputs:
+        report["tree"] = inputs.tree
+        keys = [pass_key(check, output, options.godot, inputs.around, options.allow_macos_ca_error) for check in plan]
+    if options.changed and inputs and not options.fresh:
+        hits = passed_unchanged(plan, keys, dev, read_passes(runs_dir()), inputs.tree)
+        # The import alone verifies nothing: it runs for the checks that read its cache.
+        if hits and all(index in hits or check.name == "import" for index, check in enumerate(plan)):
+            hits.update({index: None for index, check in enumerate(plan) if check.name == "import"})
+        report["cached"] = [{"name": plan[index].name, "key": keys[index], "tree": record["tree"], "passed_utc": record.get("utc")}
+                            for index, record in sorted(hits.items()) if record]
+        for entry in report["cached"]:
+            print(f"CACHED {entry['name']}: passed {str(entry['passed_utc'])[:16]}Z on tree {entry['tree'][:10]}", flush=True)
+        if hits:
+            print(f"CACHED {len(report['cached'])} of {selected} checks passed earlier on inputs their rules call unchanged; "
+                  "--fresh runs them again", flush=True)
+        plan = [check for index, check in enumerate(plan) if index not in hits]
+        keys = [key for index, key in enumerate(keys) if index not in hits]
+    # After the keys: a pass does not depend on how many threads summed the forces.
+    spare = max(2, (os.cpu_count() or 2) - options.jobs)
+    plan = [check._replace(command=[*check.command, f"{check.cores}{spare}"]) if check.cores and len(plan) > 1 and check.alone is not True
+            else check for check in plan]
     if options.list:
         for check in plan:
             print(f"{check.name}{'' if not check.alone else ' (alone)' if check.alone is True else f' ({check.alone})'}"
+                  f"{f' (one {check.lane} at a time)' if check.lane and check.alone is not True else ''}"
                   f"{' headless' if '--headless' in check.command else ' windowed' if check.command[0] == options.godot else ''}")
         return 0
     started = time.monotonic()
     try:
         if options.changed and not plan:
+            if report["cached"]:
+                report["complete"] = True
+                return 0
             # Nothing ran, so nothing is verified: not a pass, even for a docs-only change.
             print("CHANGED no checks selected; name a suite to run one", flush=True)
             return 1
         with FocusGuard() if options.background else contextlib.nullcontext() as guard:
-            if not run_plan(plan, output, options, guard, report):
+            if not run_plan(plan, output, options, guard, report, keys):
                 return 1
         report["complete"] = True
         return 0
     finally:
         report["wall_seconds"] = round(time.monotonic() - started, 1)
+        passed = [result["key"] for result in report["results"] if result["problem"] is None and result.get("key")]
+        if inputs and passed:
+            if pass_inputs(options.godot) == inputs:
+                record_passes(runs_dir(), inputs.tree, passed)
+            else:
+                print("CACHE pass records skipped because check inputs changed or could not be read", flush=True)
         path = output / "report.json"
         path.write_text(json.dumps(report, indent=2) + "\n")
         print_times(report, options.compare)

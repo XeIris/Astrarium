@@ -154,6 +154,7 @@ and its `SIM` console handle:
 |---|---|
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
 | `mode=sandbox\|learn\|flight\|observatory` | skip the start screen and load that mode |
+| `mode=showcase`, `body=Earth`, `pin=3`, `stand=1` | a world in full focus, starting at that pin of its sequence (`seed=` moves the sequence), and optionally standing there |
 | `site=jodrell\|maunakea\|paranal`, `date=2026-12-21T00:00`, `look=180,30`, `rate=pause\|1x\|60x\|3600x`, `view=lines,names,bounds\|none`, `point=Jupiter`, `picker=1 orbit=0.3` | with `mode=observatory`: the site, the UTC date and time, the compass azimuth and altitude to face (degrees), the clock rate, the overlays shown, the body to follow at its true size, and opening on the picker at a point in its film |
 | `inst=fors2\|deimos\|omegacam\|lovell_l`, `target=Saturn`, `exposure=30`, `seeing=0.7`, `field=pixels\|wide\|full`, `nd=0\|5\|10`, `expose=1` | with `mode=observatory`: the instrument desk. `target` is a body, a bright star, a radio source or coordinates; `expose=1` takes a frame |
 | `title=hole\|launch\|jupiter` | hold the title on one reel shot (for screenshots); `title=0` shows it over the bare sky |
@@ -165,6 +166,8 @@ and its `SIM` console handle:
 | `sunview=1` | aim the final flight screenshot directly at the sun |
 | `seed=7` | make the scenario's random choices reproducible |
 | `quality=low\|medium\|high`, `lighting=low\|medium\|high` | rendering and local lighting presets |
+| `metalfx=off\|quality\|balanced\|performance` | override the saved MetalFX setting for one run on supported Metal devices |
+| `flightclouds=full\|fast` | override Settings › Rendering › Local clouds for one run on Forward+. Performance halves cloud sampling on each axis in flight and on foot. |
 | `band=5` | imaging band 0–6 |
 | `focus=Earth`, `truescale=1`, `cammode=surface`, `localtime=noon` | camera and view |
 | `frames=60 dt=0.0166 out=/abs/shot.png [hud=0] [shot3d=1]` | run N fixed steps, save a screenshot, quit |
@@ -193,14 +196,18 @@ exporting, or the app uses procedural fallbacks.
 ## The native physics kernel
 
 `native/` holds one small GDExtension, written in plain C against Godot's own
-`gdextension_interface.h`: the N-body sub-step loop. GDScript runs that loop
+`gdextension_interface.h`. It runs the N-body sub-step loop, galaxy tracers and
+encounters, the equilibrium sampler's distribution and speed tables, and the
+flight autopilot's zonal coast predictions.
+Each path has a GDScript fallback. GDScript runs the N-body loop
 ~50–125× slower than the browser's JIT does, and the `solar` scenario needed
 38 ms of physics per frame; the kernel did it in 0.1 ms in that local benchmark.
 `tools/nbodycheck.gd` checks both implementations with strict numerical
 tolerances; timings depend on the scenario and hardware. The universal `.dylib` is **committed
 prebuilt**, so nothing needs compiling to run or export. If it is missing, the
-same GDScript loop runs instead — identical results, just slower. Rebuild after
-editing `astrarium_native.c`:
+same GDScript loop runs instead — identical results, just slower.
+`native/astrarium_native.c` registers the extension. The numerical kernels live
+in separate C files by subsystem. Rebuild after editing a native source:
 ```sh
 native/build.sh                    # needs only Xcode's command line tools
 ```
@@ -226,16 +233,23 @@ screen, and don't minimize them or leave their Space. The fullscreen M5 gates
 reject `--background`. Select additional suites,
 for example `python3 tools/check.py fast native assets rendered lifecycle export`.
 The runner retains child logs and a JSON report, rejects errors, timeouts and
-missing completion markers, and starts nothing new after the first failure.
+missing completion markers, and starts nothing new after the first failure
+(`--keep-going` runs the rest and still exits 1).
 Use `--godot` to select an engine and `--log-dir` to retain results at a chosen location.
 Every check reports its wall and CPU seconds; the run ends with a table, slowest
 first, and `--compare /abs/old/report.json` flags any check over 1.25× and 5 s
 slower than in that report. `--list` prints the plan without running it.
 `--jobs N` runs up to N independent checks at once (default: the performance-core
-count; `--jobs 1` runs them one after another). Each keeps its own log and timeout,
-the longest start first, and results print and enter the report in suite order.
-Nothing runs beside the `fast` import, a windowed check in `rendered` (they make
-each other's Metal fences time out) or any check in `perf`, `m5-*`, `stability*`,
+count; `--jobs 1` runs them one after another). Each keeps its own log and timeout.
+Checks that usually take under ten seconds start first, so a broken precondition
+(a worktree without its authored models) fails in the first moments; then the
+longest. Results print and enter the report in suite order, the import first.
+The windowed checks in `rendered` take turns, one window at a time (they make
+each other's Metal fences time out), while headless checks run beside them; the
+window is one process more than `--jobs`, since it mostly waits on the GPU.
+`encounterlivecheck` would take every core; beside other checks it is told to use
+the ones `--jobs` leaves (`threads=`), which does not change its forces.
+Nothing runs beside the `fast` import or any check in `perf`, `m5-*`, `stability*`,
 `export` and `clean`; the `lifecycle` checks (one process per soak feature, plus
 the leak and shutdown checks) run beside each other only. Other checks' logged
 timings are taken under concurrent load. Separate `check.py` runs do not
@@ -260,6 +274,16 @@ missions only when the change can alter flight:
   `CHANGED_RULES` in `tools/check.py`. Documentation selects nothing; a path no
   rule covers selects `dev`. Add suites to narrow it (`--changed flight`). A run
   that selects nothing exits 1, since nothing was verified.
+- On POSIX systems, `--changed` can reuse a check that already passed on the same
+  inputs. The runner records passes when the worktree (including uncommitted files),
+  engine and generated assets stay stable during the run. Passes also depend on the
+  check's command and whether the macOS system-CA diagnostic is allowed. A selected
+  check is skipped, with a `CACHED` line naming that tree, when nothing
+  `CHANGED_RULES` maps to it differs from a tree it passed on: after a fix only
+  the checks the fix touches run again, and a merge whose result is the tree
+  already checked reruns nothing. The records are shared by every worktree of the
+  clone. `--fresh` runs every selected check; naming suites without `--changed`
+  always runs them.
 - Missions are judged on their flown state, so they run headless and undrawn:
   `main.set_drawn(false, false)` steps physics, structural events and what physics
   reads, and skips body visuals, markers, trails, the HUD, plumes, smoke and the
@@ -276,6 +300,8 @@ missions only when the change can alter flight:
 `perf` need a working graphical renderer. `flight` runs the four full launches (one process each), the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit), the missions, one process per descent and per mission, and every developer
 scenario (`scenariocheck`); `scenario-replay` compares each scenario with the same
 flight played at 60 fps (about half an hour). `native` includes the numerical boundary checks.
+`encounters` runs the Milky Way–M31 encounter live for 10 Gyr (`encounterlivecheck`, ~6 min
+on an M5): `--changed` selects it for galaxy changes, but it stays out of `fast` and so out of CI.
 `stability` runs the strict 60,000-year Trisolaris check. `stability-study` adds
 three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
@@ -352,6 +378,9 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/observatorystagecheck.gd` | the Observatory on the real stage (headless): the scenario list and view keys, what leaving restores, star epochs on re-entry, and the Moon staying on its theory over 30 days at the clock ([observatory.md](docs/physics/observatory.md#checks)) |
 | `tools/observatory_demo.tscn` | a scripted tour of the Observatory for video: `--write-movie /abs/demo.avi --fixed-fps 30` records it |
 | `tools/build_site_terrain.py` | packs `assets/sites/<site>.terrain` from Copernicus GLO-30 tiles |
+| `tools/build_planet_relief.py` | packs `assets/planet-relief/<world>.elev`, Earth's, Mars's and the Moon's measured height, from ETOPO 2022, MOLA and LOLA |
+| `tools/build_local_dust.py` | packs `assets/galaxy/local_dust.bin`, the dust within 1.25 kpc of the Sun, from Edenhofer et al.'s (2024) 3D map (`mean_and_std_healpix.fits`, Zenodo 10658339); pure Python, checks the source's md5, reproducible to the byte (content always, the file with the same zlib), and prints how far its averaging moves the sky's mean extinction |
+| `tools/build_local_dust_grid.py` | packs `assets/galaxy/local_dust_grid.bin`, the same map on a 3D grid (12.5 pc, and 2.5 pc within 200 pc of the Sun) for views away from the Sun; pure Python, checks the source's md5, reproducible as `build_local_dust.py` is, and prints the share of the map's dust each level holds |
 | `tools/build_constellations.py` | builds `assets/sky/constellations.json` from this project's stick figures (chains of Bayer, Flamsteed or HR designations resolved in BSC5) and the IAU boundaries of CDS VI/49 |
 | `tools/spinframecheck.gd` | the flight frame's orientation: Earth's is J2000 equatorial (RA/Dec equal a site's longitude/latitude), the subsolar latitude follows the declination through the year, the Moon stays 18–29° from Earth's equator over a nodal cycle, and a rebase between poles keeps position and pointing |
 | `tools/plasmacheck.gd` | the re-entry shock layer's spectrum: colorimetry, the band systems that dominate slow, Shuttle and lunar-return entries and Mars/Titan, the CO₂ and N₂–CH₄ jump's conservation, and the shader's Boltzmann shift (headless) |
@@ -362,6 +391,10 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/sciencecheck.gd` | independent physical GW separation/SI values and live transit/RV/convergence checks, plus frozen photometry/pair selection; `-- compatibility=web` enforces obsolete contact-scaled GW readings and live trajectories, currently failing four intentional differences |
 | `tools/skycachecheck.tscn` | rendered sky: the point-source cull must match an exhaustive walk pixel for pixel; the diffuse cache must stay within its stated error of live evaluation across bands, aberration and lensing. `timing=1` prints native-size frame medians, `reference=/abs/sky.gdshaderinc` requires the live sky to match another revision (e.g. from `git show`), `dump=/abs/dir` saves live/cached images and the cache atlas |
 | `tools/glowcheck.tscn` | how large a point source is drawn, measured in the final frame: markers, catalogue stars and procedural stars across zooms and magnitudes (the Sun out to 10000 AU) must stay inside a stated fraction of frame height, stay linear under the knee and stay ordered by brightness above it. `dump=/abs/dir` saves each frame |
+| `tools/galaxycheck.gd` | the galactic scene's physics (headless): its G against IAU constants, MWPotential2014 against the values Bovy (2015) tabulates, force and density against the potential, 6000 tracers over a Gyr (energy, Lz, determinism), the cold gas's measured curve against the model, the thin disc's steady state and its Jeans-corrected curve, and the model's known offset from Eilers et al. (2019) ([galaxies.md](docs/physics/galaxies.md)) |
+| `tools/galaxylookcheck.tscn` | the galactic scene in the frame: every framing drawn, the glow against the CPU's integral along the same rays (face-on, and through the dust lane edge-on and from the Sun), and the flux of the drawn stars against the glow they replace. `dump=/abs/dir` saves each frame |
+| `tools/encountercheck.gd` | galaxy encounters (headless): van der Marel et al.'s (2012b) semi-analytic orbits against their numbers and Kepler, the restricted stars, M33's spin from its sky geometry, warm discs' Q, the Eddington sampler against Hernquist's closed forms, the live tree against its GDScript twin, one thread and direct summation, a live Milky Way left alone, and going live ([galaxies.md](docs/physics/galaxies.md#encounters-phase-4)) |
+| `tools/encounterlivecheck.gd` | the Milky Way–M31 encounter as the scene runs it, 10 Gyr live, against van der Marel et al.'s N-body pericentre, merger time and remnant profile (~6 min) |
 | `tools/observatorylookcheck.tscn` | the Observatory's sky measured in the final frame: a crescent Moon by day and at a 70° field, a bright starless sky at sunrise, Saturn's disc at 1°, the constellation figures behind the buildings, and the buildings darkening with the sky at Medium and High. `dump=/abs/dir` saves each frame |
 | `tools/flightlightcheck.tscn` | a vehicle's light measured in the final frame at Medium and High: lit by day and past the local horizontal while the Sun is over the limb, reddening at sunset, going out steadily through twilight, and a dim shape at night and in eclipse. As numbers: no air's colour above the atmosphere, the Sun lit around a star parent and with no star, and a second star's share of the fill. `dump=/abs/dir` saves each frame |
 | `tools/skycost.tscn` | frame cost of each sky component (point tiers, dust, clusters, galaxies, nebulae, cache, constant sky) by editing the shader source; a renamed component fails. Options `preset=`, `band=`, `view=WxH`, `scale=`, `samples=` |
@@ -398,6 +431,10 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/scenariocheck.tscn` | headless: jumps to every flight scenario and requires its declared altitude, speed, program, state and stages at the hand-over and a second of flight after it (`only=shuttle:taem,lm`); `replay=1` also flies each one as played at 60 fps from its base and requires agreement within the documented tolerance ([flight scenarios](docs/flight-scenarios.md)); `inject_bad=1` must fail |
 | `tools/hudcheck.tscn` | the HUD: `hstate=<state> hout=/abs/x.png` screenshots a named state through fixed steps (`hcraft=<id>` picks the hangar's vehicle; `settings_dev`, `settings_dev_shuttle` and `scenario hscenario=<vehicle>:<id>` show the Developer page and a jump); `htest=1` clicks, drags, types and scrolls through the controls with real input events and checks the orchestrator's state follows; `hperf=1` times frames with the HUD shown and hidden |
 | `tools/realismcheck.tscn` | the review's additions against independent numbers: the Page–Thorne disc (peak radius, efficiencies, far-field flux), tidal disruption radii and events (a star round a 10⁴ M☉ hole in fine and single steps, a moon becoming a ring, a neutron star fed past TOV), natal-kick statistics and Blaauw unbinding, the Budyko–Sellers ice line, snowball and hysteresis, overflow feeding a white dwarf, a nova, an accretion-driven Type Ia and a star's end by age, the runaway greenhouse's latent-heat ocean and Kopparapu's habitable zone, a world's air against Myhre's forcing, Kopparapu's line-by-line fluxes and NSSDC's columns, its Rayleigh depth and look, its water inventory, salinity and states, and that no preset loads with a body inside a disruption radius (headless) |
+| `tools/surfacecheck.tscn` | terrain, sea and weather against outside numbers (Hack's law, slope–area, Beaufort, Apel's tides, Hadley widths, storm wavenumbers), real visits at the model's extremes, and the proof that outside a visit it allocates and computes nothing; with `pixels=1`, the frames |
+| `tools/pincheck.tscn` | the seeded pin, what it reads, and the showcase's manners (leaving restores everything); with `gpu=1`, the CPU's crust against the shader's height and the pin in the frame |
+| `tools/lookcheck.tscn` | a world's look from its climate against outside numbers (rain, productivity, frost points), the ease, no rebuild and no physics touched; with `pixels=1 [quality=low\|high]`, contrasting worlds judged in the frame |
+| `tools/compositioncheck.tscn` | the composition editor through its controls: mix, preview, spawn, edit, leave, return, remove; the preview against the stage at the domain's extremes; the pie's rows; rejected requests change nothing |
 | `tools/editorcheck.tscn` | canonical inspector and graph invalidation, measured/tiny bodies, structural threshold crossings, and delayed edits across selection/removal/reused IDs |
 | `tools/padcheck.gd` | rejects pad structure inside its vehicle at rest, an arm that touches it through the terminal count and liftoff (an arm carried by another, as the GOX vent hood is, moves with both), and anything (wires included) left in its ascent column; `padmodels=0` / `assets=0` select fallback pads / craft; `inject_intrusion=1`, `inject_fixed_arm=1` and `inject_late_arm=1` must fail |
 | `python3 tools/exportcheck.py /abs/game.zip` | checks a `Godot --headless --path . --export-pack macOS /abs/game.zip` resource archive for development files, missing boot files, missing site terrain and broken import/remap targets; native libraries and rendering still need an exported-app smoke run |
@@ -415,7 +452,9 @@ tree; `tools/ref/` now keeps the manifest and retention note.
 ## License
 
 Astrarium is under the [MIT License](LICENSE): use, change and share it freely.
-Some bundled data keeps its own terms. The Gaia star file is CC BY-SA 3.0 IGO,
-the NASA maps and catalogues are public domain with credits, and exported builds
+Some bundled data keeps its own terms. The two star files derived from ESA's Gaia and
+Hipparcos catalogues are [CC BY-NC 3.0 IGO](https://creativecommons.org/licenses/by-nc/3.0/igo/):
+they stay non-commercial whatever the MIT licence says, and commercial use needs ESA's permission.
+The NASA maps and catalogues are public domain with credits, and exported builds
 contain Godot, whose notice must ship with them. [THIRD_PARTY.md](THIRD_PARTY.md)
 lists each source.

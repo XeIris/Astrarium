@@ -16,6 +16,8 @@ var m5_native := false
 ## Empty: the named Low-based custom configuration below. Otherwise a whole render
 ## preset ("low", "medium", "high"), applied exactly as Settings applies it.
 var m5_preset := ""
+var metalfx := "off"
+var flightclouds := "full"
 const PRESET_MSAA := {"low": Viewport.MSAA_DISABLED, "medium": Viewport.MSAA_2X, "high": Viewport.MSAA_4X}
 var native_screen := -1
 var native_window_pixels := Vector2i.ZERO
@@ -166,6 +168,12 @@ func measure(label: String, action := Callable()) -> void:
 	for i in 90:
 		stage.animate(get_process_delta_time() if m5_native else 1.0 / 60.0)
 		await RenderingServer.frame_post_draw
+	var lens_time: float = stage._lens_time
+	var galaxy_time: float = stage.galaxy.t_myr
+	var viewports := [get_viewport(), stage.pipe.hook_vp, stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp]
+	if stage.pipe._glow_vp != null:
+		viewports.append(stage.pipe._glow_vp)
+		RenderingServer.viewport_set_measure_render_time(stage.pipe._glow_vp.get_viewport_rid(), true)
 	var animate_ms := []
 	var action_ms := []
 	var render_cpu_ms := []
@@ -191,7 +199,7 @@ func measure(label: String, action := Callable()) -> void:
 		var cpu := RenderingServer.get_frame_setup_time_cpu()
 		var gpu := 0.0
 		var triangles := 0
-		for vp in [get_viewport(), stage.pipe.hook_vp, stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp]:
+		for vp in viewports:
 			if vp is SubViewport and vp.render_target_update_mode == SubViewport.UPDATE_DISABLED: continue
 			var rid: RID = vp.get_viewport_rid()
 			cpu += RenderingServer.viewport_get_measured_render_time_cpu(rid)
@@ -215,6 +223,7 @@ func measure(label: String, action := Callable()) -> void:
 		if m5_preset.is_empty() else stage.pipe.lens.get_scale() == float(stage.RENDER_QUALITY[m5_preset].lens)
 	if m5_native and (stage.render_quality != quality or stage.flight.local.render_quality != quality \
 			or stage.lighting_quality != "low" or stage.pipe.render_scale != 2.0 or not lens_ok \
+			or stage.pipe.metalfx != metalfx or stage.pipe.fast_clouds != (flightclouds == "fast") \
 			or stage.pipe.local_vp.msaa_3d != PRESET_MSAA[quality] or stage.pipe.model_vp.msaa_3d != PRESET_MSAA[quality] \
 			or [stage.pipe.scene_vp, stage.pipe.temp_vp, stage.pipe.local_vp, stage.pipe.model_vp].any(func(vp: SubViewport): return vp.size != M5_PIXELS)):
 		failures += 1
@@ -224,8 +233,16 @@ func measure(label: String, action := Callable()) -> void:
 		printerr("PERFCHECK frame budget exceeded: ", label)
 	if label.begins_with("lens-"):
 		var hole: Body = stage.state.bodies.filter(func(b: Body): return b.type == "bh")[0]
-		row["lens"] = {"camera_radius_scene": stage.cam.radius, "horizon_scene": hole.rs_scene, "following": stage.state.follow_id == hole.id}
-		if label == "lens-focus" and (stage.state.follow_id != hole.id or stage.cam.radius > 8.0 * hole.rs_scene): failures += 1
+		row["lens"] = {"camera_radius_scene": stage.cam.radius, "horizon_scene": hole.rs_scene,
+			"following": stage.state.follow_id == hole.id, "advanced_years": stage._lens_time - lens_time}
+		if label.begins_with("lens-focus") and (stage.state.follow_id != hole.id or stage.cam.radius > 8.0 * hole.rs_scene): failures += 1
+		if label in ["lens-wide", "lens-focus"] and row.lens.advanced_years <= 0.0: failures += 1
+		if label == "lens-focus-paused" and row.lens.advanced_years != 0.0: failures += 1
+	if stage.galaxy.active:
+		var glow_size: Vector2i = stage.pipe.galaxy_glow_size()
+		row["galaxy"] = {"advanced_myr": stage.galaxy.t_myr - galaxy_time,
+			"target_myr_per_simulated_second": 0.0 if stage.state.paused else stage.galaxy.rate,
+			"glow_pixels": [glow_size.x, glow_size.y] if stage.galaxy.visual != null else null}
 	if label.begins_with("flight-"):
 		row["flight"] = {"phase": stage.flight.vessel.phase, "met_s": stage.flight.vessel.met,
 			"altitude_m": stage.flight.vessel.altitude()}
@@ -245,6 +262,8 @@ func _ready() -> void:
 		elif arg.begins_with("samples="): samples = int(arg.trim_prefix("samples="))
 		elif arg == "studio_abba=1": studio_abba = true
 		elif arg == "m5_native=1": m5_native = true
+		elif arg.begins_with("metalfx=") and RenderPipeline.METALFX_SCALES.has(arg.trim_prefix("metalfx=")): metalfx = arg.trim_prefix("metalfx=")
+		elif arg in ["flightclouds=full", "flightclouds=fast"]: flightclouds = arg.trim_prefix("flightclouds=")
 		elif arg.begins_with("m5_preset=") and PRESET_MSAA.has(arg.trim_prefix("m5_preset=")): m5_preset = arg.trim_prefix("m5_preset=")
 		else: failures += 1
 	if not m5_preset.is_empty() and not m5_native:
@@ -259,6 +278,14 @@ func _ready() -> void:
 		printerr("PERFCHECK M5 native gate requires Metal, Apple M5, >=180 samples and scenarios")
 		get_tree().quit(1)
 		return
+	if metalfx != "off" and not RenderPipeline.metalfx_available():
+		printerr("PERFCHECK needs a rendering device with MetalFX spatial support")
+		get_tree().quit(1)
+		return
+	if flightclouds == "fast" and not FlightCloudPass.available():
+		printerr("PERFCHECK needs Forward+ for performance clouds")
+		get_tree().quit(1)
+		return
 	OS.add_logger(logger)
 	get_tree().create_timer(240.0).timeout.connect(func():
 		printerr("PERFCHECK timed out before completion")
@@ -266,6 +293,8 @@ func _ready() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	RDU.profiling = not studio_abba
 	stage = load("res://main.tscn").instantiate()
+	stage._cmd["metalfx"] = metalfx
+	stage._cmd["flightclouds"] = flightclouds
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)
@@ -330,11 +359,56 @@ func _ready() -> void:
 	stage.set_panel_open("xsecPanel", false)
 	stage.load_preset("sandbox")
 	if not stage.state.bodies.any(func(b: Body): return b.type == "bh"): failures += 1
+	stage.state.paused = false
 	await measure("lens-wide")
 	var hole: Body = stage.state.bodies.filter(func(b: Body): return b.type == "bh")[0]
 	stage.set_follow(hole)
 	await measure("lens-focus")
 	if m5_native and not report.is_empty(): await capture_frame("native-lens-focus")
+	stage.state.paused = true
+	await measure("lens-focus-paused")
+	# The galactic scene, its clock running: the tracers step every frame while the glow
+	# is marched over the whole frame, from outside and from the solar neighbourhood.
+	stage.load_preset("gal_milkyway")
+	stage.galaxy.wait_tracers()
+	stage.state.paused = false
+	stage.galaxy.set_rate(5.0)
+	stage.galaxy.frame("whole")
+	await measure("galaxy-whole")
+	stage.galaxy.frame("sun")
+	await measure("galaxy-sun")
+	# 300 pc from the Sun, every ray through the measured dust's grid: a failure unless it is.
+	stage.jump_cam_radius(0.3)
+	var gv: GalaxyVisual = stage.galaxy.visual
+	await measure("galaxy-near")
+	if absf(gv.sun_dist - 0.3) > 0.01 or (gv.local_dust.get("grid", {}) as Dictionary).is_empty() or GalLocalDust.fade(gv.sun_dist) > 0.0:
+		failures += 1
+		print("PERFCHECK galaxy-near is not 300 pc from the Sun with the grid drawn (%s kpc)" % gv.sun_dist)
+	if stage.galaxy.tracers == null or stage.galaxy.tracers.steps == 0: failures += 1
+	stage.state.paused = true
+	# M51: its maps, dust and H II regions, whole and from 8 kpc, where the regions' quads are
+	# large on screen.
+	stage.load_preset("gal_m51")
+	stage.galaxy.wait_tracers()
+	stage.galaxy.frame("whole")
+	await measure("galaxy-m51")
+	stage.jump_cam_radius(8.0)
+	await measure("galaxy-m51-near")
+	if stage.galaxy.visual.hii == null: failures += 1
+	# The MW–M31 encounter gone live, its clock running: the tree kernel works on every core
+	# on a worker while the frame draws its last batch's stars.
+	stage.load_preset("gal_mw_m31")
+	stage.galaxy.wait_tracers()
+	stage.galaxy.encounter.go_live()
+	stage.state.paused = false
+	stage.galaxy.set_rate(100.0)
+	stage.galaxy.frame("whole")
+	stage.jump_cam_radius(250.0)
+	var live_steps: int = stage.galaxy.encounter.live.steps
+	await measure("galaxy-encounter-live")
+	if stage.galaxy.encounter.live.steps <= live_steps: failures += 1
+	stage.state.paused = true
+	stage.galaxy.wait_encounter()
 	CraftAssets.craft_models_ready(["saturnv"])
 	stage.show_model("saturnv")
 	if not stage.model_view.craft.authored: failures += 1
@@ -381,6 +455,7 @@ func finish_report() -> void:
 		"root_logical_resolution": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
 		"lens_scale": stage.pipe.lens.get_scale(), "lens_field_pixels": [stage.pipe.lens.march_size().x, stage.pipe.lens.march_size().y], "msaa": stage.pipe.local_vp.msaa_3d,
 		"render_quality": stage.render_quality, "m5_preset": m5_preset if m5_native else null, "lighting_quality": stage.lighting_quality,
+		"metalfx": stage.pipe.metalfx, "flightclouds": "fast" if stage.pipe.fast_clouds else "full",
 		"frame_budget_ms": FRAME_BUDGET_MS if m5_native else null, "target_fps": 30 if m5_native else null,
 		"simulation_dt": "elapsed process delta" if m5_native else "fixed 1/60 s", "gpu_available": gpu_available, "uniform_cache": RDU.cache_uniforms, "authored_craft": stage.model_view.craft != null and stage.model_view.craft.authored, "results": results, "compute": profiles, "failures": failures}
 	if not report.is_empty():

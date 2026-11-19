@@ -33,6 +33,7 @@ var failures := 0
 var checks := 0
 var dump := ""
 signal captured(img: Image)
+signal coverage_captured(img: Image)
 
 func check(label: String, ok: bool) -> void:
 	checks += 1
@@ -304,6 +305,39 @@ func orbit(quality: String) -> void:
 				seen[alt] < WALL_DARK_MAX and seen[alt] > WALL_DARK_MIN)
 			check("%s: and smoke is not sunlit: %.3f" % [quality, Plume.daylight], Plume.daylight < SMOKE_DARK_MAX)
 
+func read_coverage_rt() -> void:
+	var coverage: RenderPipeline.LocalCoverage = stage.pipe._local_coverage
+	var image: Image
+	if coverage.texture.is_valid():
+		var bytes := RDU.rd().texture_get_data(coverage.texture, 0)
+		image = Image.create_from_data(coverage.size.x, coverage.size.y, false, Image.FORMAT_RH, bytes)
+	coverage_captured.emit.call_deferred(image)
+
+func metalfx_coverage() -> void:
+	if not RenderPipeline.metalfx_available(): return
+	stage.state.paused = true
+	f.fly_cam.state.userAimed = true
+	stage.set_metalfx("off", false)
+	await settle(5)
+	var native: Image = stage.pipe.local_vp.get_texture().get_image()
+	stage.set_metalfx("performance", false)
+	await settle(5)
+	RenderingServer.call_on_render_thread(read_coverage_rt)
+	var upscaled: Image = await coverage_captured
+	check("MetalFX captures flight coverage at the input resolution", upscaled != null
+		and upscaled.get_size() == native.get_size() / 2)
+	if upscaled == null: return
+	upscaled.resize(native.get_width(), native.get_height(), Image.INTERPOLATE_BILINEAR)
+	var mixed := 0
+	var error := 0.0
+	for y in range(8, native.get_height(), 16):
+		for x in range(8, native.get_width(), 16):
+			var alpha := native.get_pixel(x, y).a
+			if alpha > 0.005 and alpha < 0.95:
+				mixed += 1
+				error += absf(alpha - upscaled.get_pixel(x, y).r)
+	check("MetalFX preserves mixed orbit coverage (%d samples)" % mixed, mixed > 40 and error / maxi(mixed, 1) < 0.03)
+
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("dump="): dump = a.substr(5)
@@ -330,6 +364,7 @@ func _ready() -> void:
 	for q in ["medium", "high"]:
 		await pad(q)
 		await orbit(q)
+	await metalfx_coverage()
 	for error in logger.take():
 		failures += 1
 		printerr("FLIGHTLIGHTCHECK ENGINE ", error)

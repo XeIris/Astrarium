@@ -181,11 +181,26 @@ func _soak_check() -> void:
 					await stage.get_tree().process_frame
 				stage.edit_body(body, {"name": "Edited", "pos": [1.0, 2.0, 3.0], "vel": [0.1, 0.0, 0.0]})
 				stage.edit_body(body, {"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0]})
+				if body.climate != null:
+					var comp: CompositionEditor = stage.live_editor.comp
+					comp._on_mix("venus")
+					stage.live_editor._flush()
+					stage.live_editor.sync(body)
+					comp._on_remove("pSO2")
+					comp._on_mix("earth")
+					stage.live_editor._flush()
+					stage.live_editor.sync(body)
+					await stage.get_tree().process_frame
 				stage.live_editor._last_apply = Time.get_ticks_msec()
 				stage.live_editor.queue({"spinFrac": 0.3})
 				stage.remove_body(body.id)
 				if stage.live_editor.pending != null or stage.live_editor.body != null:
-					failures.append("editor: removed body retained pending work"),
+					failures.append("editor: removed body retained pending work")
+			for mix in ["earth", "venus", "bare", Composition.DRAWN]:
+				stage.foundry.set_type("planet")
+				stage.foundry.comp._on_mix(mix)
+				stage.foundry.update()
+				await stage.get_tree().process_frame,
 		"paint": func():
 			var b: Body = stage.get_stars()[0] if not stage.get_stars().is_empty() else state.bodies[0]
 			state.focus_id = b.id
@@ -370,6 +385,27 @@ func _soak_check() -> void:
 					printerr("SOAK FAILED: scenario notification did not settle")
 					stage.get_tree().quit(1)
 					return,
+		"showcase": func():
+			for name in ["Earth", "Mars"]:
+				stage.set_app_mode("showcase", {"body": name})
+				for i in 30: stage.animate(1.0 / 60.0)
+				for pins in 3:
+					stage.showcase.drop_pin()
+					for i in 5: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+				stage.set_app_mode("sandbox")
+				for i in 5: stage.animate(1.0 / 60.0),
+		"surface": func():
+			for name in ["Earth", "Mars"]:
+				stage.set_app_mode("showcase", {"body": name})
+				stage.showcase.drop_pin()
+				stage.showcase.stand()
+				stage.showcase.visit.site.finish_now()
+				for i in 20: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+				stage.showcase.leave_surface()
+				stage.set_app_mode("sandbox")
+				for i in 5: stage.animate(1.0 / 60.0),
 		"observatory": func():
 			# Enter, every site, dates at both ends of the range and past it, the overlays,
 			# a running clock, and back out.
@@ -413,6 +449,120 @@ func _soak_check() -> void:
 			await _drawn_frame()
 			o.desk.release_hold()
 			stage.set_app_mode("sandbox"),
+		"galaxy": func():
+			# In from the orrery, every framing, layer and rate, the tracers stepping, and
+			# out again through an orrery scenario.
+			stage.load_preset("gal_milkyway")
+			var g: GalaxyScene = stage.galaxy
+			g.wait_tracers()
+			for f in ["whole", "face", "edge", "sun", "centre"]:
+				stage._on_galaxy_action("frame", f)
+				for i in 6: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			for l in ["tracers", "stars", "glow", "tracers", "stars", "glow"]:
+				stage._on_galaxy_action("layer", l)
+				stage.animate(1.0 / 60.0)
+			for r in [20.0, 0.0, 5.0]:
+				stage._on_galaxy_action("rate", r)
+				for i in 4: stage.animate(1.0 / 60.0)
+			stage._on_slider("galExposure", 0.5)
+			stage._on_slider("galExposure", 0.0)
+			# Every landmark flown to and framed.
+			for lm in GalLandmarks.of("milky_way"):
+				stage._on_galaxy_action("landmark", String(lm.id))
+				for i in 3: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			# Reset view and sky inside the scene, which has no orrery preset to read.
+			stage._on_reset_view()
+			stage._on_sky_reset()
+			stage.animate(1.0 / 60.0)
+			await _drawn_frame()
+			if g.tracers == null or g.tracers.steps == 0: failures.append("galaxy: the tracers did not step")
+			# The galaxies of their own scenes: each framed, flown to its landmarks, and left.
+			for k in ["gal_m51", "gal_m87", "gal_m104"]:
+				stage.load_preset(k)
+				g.wait_tracers()
+				if not g.active or g.visual == null: failures.append("galaxy: %s did not open" % k)
+				for f in ["whole", "face", "edge"]:
+					stage._on_galaxy_action("frame", f)
+					for i in 3: stage.animate(1.0 / 60.0)
+					await _drawn_frame()
+				for lm in GalLandmarks.of(String(g.model.key)):
+					stage._on_galaxy_action("landmark", String(lm.id))
+					for i in 3: stage.animate(1.0 / 60.0)
+					await _drawn_frame()
+			stage.load_preset("solar")
+			if g.active or g.visual != null: failures.append("galaxy: the scene outlived the switch to solar"),
+		"encounter": func():
+			# The MW–M31 encounter built, gone live and stepped on its worker while frames draw,
+			# then left mid-batch.
+			stage.load_preset("gal_mw_m31")
+			var g: GalaxyScene = stage.galaxy
+			g.wait_tracers()
+			g.encounter.go_live()
+			stage._on_galaxy_action("rate", 100.0)
+			for i in 8:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			g.wait_encounter()
+			if g.encounter == null or g.encounter.live.steps == 0: failures.append("encounter: the live galaxies did not step")
+			stage.animate(1.0 / 60.0)
+			stage.load_preset("solar")
+			if g.active or g.encounter != null or g.enc_visual != null: failures.append("encounter: the scene outlived the switch to solar")
+			# The Antennae, live from their first step.
+			stage.load_preset("gal_antennae")
+			g.wait_tracers()
+			stage._on_galaxy_action("rate", 20.0)
+			for i in 4:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			g.wait_encounter()
+			if g.encounter == null or not g.encounter.is_live(): failures.append("encounter: the Antennae did not go live")
+			stage.load_preset("solar")
+			if g.active or g.encounter != null: failures.append("encounter: the Antennae outlived the switch to solar"),
+		"join": func():
+			# From the Solar System's widest view of the Sun out into the Galaxy and back, the
+			# view the same at the instant of each step (main.join_galaxy, join_solar).
+			stage.load_preset("solar")
+			var sun: Body = state.body_named("Sun")
+			stage.set_follow(sun)
+			var orion := SkyModel.radec_to_scene(84.0534, -1.2019).to_v3()
+			stage._look_from(-orion)
+			stage.jump_cam_radius(OrreryCamera.MAX_REQUEST_RADIUS)
+			stage.update_orbit_cam()
+			var bet := SkyModel.radec_to_scene(88.79294, 7.40706).to_v3()
+			var px0v: Vector3 = (stage.cam_basis as Basis).inverse() * bet
+			stage._wheel(120.0)
+			var g: GalaxyScene = stage.galaxy
+			g.wait_tracers()
+			var w := GalaxyScene.solar_to_galaxy(bet, g.sun_basis())
+			var px1v: Vector3 = (stage.cam_basis as Basis).inverse() * w
+			if not g.active or not g.follow_sun or absf(stage.cam.radius / GalaxyScene.JOIN_KPC - 1.0) > 1e-9:
+				failures.append("join: zooming out of the Solar System did not reach the Galaxy at the Sun")
+			elif px0v.angle_to(px1v) > 1e-5:
+				failures.append("join: Betelgeuse moved %s° on screen going out" % rad_to_deg(px0v.angle_to(px1v)))
+			for i in 4:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			# The Sun's axes have turned with the Galaxy while its clock ran.
+			w = GalaxyScene.solar_to_galaxy(bet, g.sun_basis())
+			var cam_in: Basis = stage.cam_basis
+			stage._wheel(-120.0)
+			if g.active or state.preset_key != "solar" or absf(stage.cam.radius - OrreryCamera.MAX_REQUEST_RADIUS) > 1e-6:
+				failures.append("join: zooming in at the Sun did not return to the Solar System")
+			elif (cam_in.inverse() * w).angle_to((stage.cam_basis as Basis).inverse() * bet) > 1e-5:
+				failures.append("join: Betelgeuse moved %s° on screen coming back" % rad_to_deg((cam_in.inverse() * w).angle_to((stage.cam_basis as Basis).inverse() * bet)))
+			for i in 4:
+				stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+			# Never over someone's work: after an edit the widest view stays the widest view.
+			sun = state.body_named("Sun")
+			stage.set_follow(sun)
+			stage.edit_body(sun, {"mass": float(sun.mass) * 1.01})
+			stage.jump_cam_radius(OrreryCamera.MAX_REQUEST_RADIUS)
+			stage._wheel(120.0)
+			if g.active or state.preset_key != "solar": failures.append("join: an edited Solar System was replaced by the Galaxy")
+			stage.load_preset("solar"),
 		"start_screen": func():
 			stage.quit_to_start(); await stage.get_tree().process_frame
 			stage._start("sandbox"); stage.load_preset("solar"); stage.set_process(false),

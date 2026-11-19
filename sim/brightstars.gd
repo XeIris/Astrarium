@@ -3,7 +3,7 @@ extends RefCounted
 
 # The real sky of a Solar System scene: the Yale Bright Star Catalogue to V ≈ 6.5
 # (assets/sky/bsc5.bin, tools/build_starcat.py) and Gaia DR3 from G = 6.5 to 8
-# (assets/sky/gaia_g8.bin, tools/build_gaia.py; ESA/Gaia/DPAC, CC BY-SA 3.0 IGO).
+# (assets/sky/gaia_g8.bin, tools/build_gaia.py; Credit: ESA/Gaia/DPAC, CC BY-NC 3.0 IGO).
 # Each star at its catalogue direction, its V on the sky's flux scale and its colour
 # from B−V. The procedural sky keeps everything fainter (catalogue_tiers). Absent
 # BSC5, nothing is drawn and the procedural sky stays whole. Records are float32

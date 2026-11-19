@@ -87,7 +87,8 @@ design.
   Chandrasekhar mass detonates). Unsupported equilibrium requests are rejected
   before spawn/edit/preset mutation by `Structure.input_error`; near-limit
   warnings are not destruction commands. See [the model domain](docs/physics/structure.md#supported-requests-and-physical-events).
-- Appearance is a consequence. A planet derives its insolation from where it is
+- Appearance is a consequence. `ClimateLook` turns a world's climate into uniforms that ease in
+  without a rebuild; a stated spec value wins. A planet derives its insolation from where it is
   and which stars light it (`insolation_at`), then its temperature, ice line and
   biomes. A preset states a value only when it can't be derived (Venus's 737 K is
   stated; Mercury's temperature is not).
@@ -96,6 +97,9 @@ design.
   drawn once, seeded from the body and `seed=`, and does not move with later edits. The
   home world keeps `Climate.HOME_INPUTS` instead of a draw. See
   [a climate per world](docs/physics/climate.md#a-climate-per-world).
+- The composition editor's expectation is the model on a scratch body (`Composition`), never a
+  second formula, and it writes nothing on the stage. A new gas also reaches its row through
+  `Atmosphere.GASES`.
 - Outgoing longwave comes from the gas column (`Atmosphere`), and water from that
   world's inventory and gravity, never Earth's. A new gas is a row in `Atmosphere.GASES`
   and a domain in `ClimateInputs.DOMAIN`. Earth, Mars and Venus calibrate the fits, so
@@ -120,6 +124,21 @@ design.
   a glide already in progress drags the view back.
 - Following a body is exact tracking plus a decaying offset (`track_follow`,
   `glide_target_to`), never a lerp toward it: a first-order lag rubber-bands.
+
+## The crust
+
+`sim/planet_relief.gd` is `shaders/bodies/terrain.gdshaderinc` on the CPU, hash included, so what a pin reads is
+what the planet draws. Change both together; `pincheck gpu=1` compares them. A rocky surface's noise
+uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and rings keep theirs.
+
+## The surface
+
+`sim/surface/` runs only while someone stands on a world (`Showcase.stand`). Nothing of it is created, and it
+computes nothing, in the orrery, flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them
+and the object counts flat after a visit. It reads the world's gravity, air, water and temperature, and writes
+nothing back: not to `Climate`, not to any body. Its scales come from the world, never from Earth's constants.
+On Earth, Mars and the Moon the height at a pin and under its far grid is measured (`PlanetElevation`,
+built by `tools/build_planet_relief.py`); the map's coast still decides land or sea.
 
 ## Body visuals
 
@@ -192,7 +211,9 @@ Checks and the `tools/check.py` suite runner are listed in
 [README.md](README.md#verifying). Run the ones that cover your change, by
 default through the fast path: `python3 tools/check.py --changed` (its mapping
 is `CHANGED_RULES`; update it when you add a check or subsystem), or `dev`
-(under a minute) while iterating. Replay whole missions (`flight`) only when the
+(under a minute) while iterating. `--changed` skips a check that already passed
+on inputs the mapping calls unchanged and prints it as `CACHED`; that is a pass.
+Use `--fresh` only when a result depends on something outside the tree. Replay whole missions (`flight`) only when the
 change can alter flight physics, guidance, staging or dropped stages. For a
 visual before/after, fast-forward to the moment (`ff=alt:…|t:…|event:…`) or
 shoot a whole fxlab matrix in one process instead of flying in real time.
@@ -220,10 +241,20 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
+- the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
+- the ground, sea and weather at a pin, and that they run nowhere else: `tools/surfacecheck.tscn`, and with
+  `pixels=1 [quality=low|high]` the frames
+- the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
+  shader's height against the CPU's
+- how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
   how the sky looks: `tools/observatorylookcheck.tscn`
+- the galactic scene (`sim/galaxy/`): `tools/galaxycheck.gd` for its physics,
+  `tools/galaxylookcheck.tscn` for how it draws; encounters and the live tree
+  (`native/` too): `tools/encountercheck.gd`, and `tools/encounterlivecheck.gd` against
+  van der Marel et al.'s N-body run
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - what lights a vehicle (the Sun, the fill, a low Sun's colour): `tools/flightlightcheck.tscn`

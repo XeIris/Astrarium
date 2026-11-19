@@ -12,6 +12,7 @@ signal bindings_reset()
 signal app_icon_chosen(key: String)
 signal mesh_style_chosen(style: String)
 signal mode_chosen(mode: String)
+signal showcase_action(kind: String)
 signal preset_chosen(key: String)
 signal body_focus(id: int)
 signal body_remove(id: int)
@@ -32,6 +33,8 @@ signal sky_reset()
 signal sky_adv_clear()
 signal fx_reset()
 signal render_quality_chosen(quality: String)
+signal metalfx_chosen(preset: String)
+signal flight_clouds_chosen(fast: bool)
 signal lighting_quality_chosen(quality: String)
 signal lighting_effect_chosen(effect: String)
 signal sim_reset()
@@ -60,6 +63,9 @@ signal lesson_close()
 ## "face") with its argument; its sliders arrive through `slider` as "obs*" ids.
 signal obs_site(key: String)
 signal obs_action(action: String, arg)
+## The galactic scene: "rate", "frame", "layer", "chart" with their argument; its
+## exposure slider arrives through `slider` as "galExposure".
+signal galaxy_action(action: String, arg)
 
 const T = preload("res://ui/theme.gd")
 
@@ -69,7 +75,8 @@ const SECTION_MODE := {
 	"Imaging Band": "sandbox", "View & Camera": "sandbox", "Time": "sandbox",
 	"Focused Object": "sandbox", "Object Foundry": "sandbox", "Painter": "sandbox",
 	"Spaceflight": "flight", "Quick Spawn": "sandbox", "Bodies": "sandbox",
-	"Observatory": "observatory",
+	"Observatory": "observatory", "Showcase": "showcase",
+	"Galaxy": "galaxy",
 }
 const OPEN_BY_DEFAULT := {
 	"sandbox": ["Suns", "Imaging Band", "View & Camera", "Bodies"],
@@ -78,6 +85,8 @@ const OPEN_BY_DEFAULT := {
 	"learn": ["Imaging Band", "View & Camera"],
 	"flight": ["Spaceflight"],
 	"observatory": ["Observatory"],
+	"showcase": ["Showcase"],
+	"galaxy": ["Galaxy"],
 }
 # the climate badge's colours per era
 const ERA := {
@@ -107,6 +116,8 @@ var sections: Array = [] # {title, head, wrap, host, arrow, label, open}
 var tabs := {}           # panel id → its tab
 var hidden_flags := {}   # Control → {reason: hidden}
 var app_mode := "sandbox"
+## The galactic scene replaces the orrery's sections in the sandbox and the course.
+var galaxy_scene := false
 
 var hud_hidden := false
 var _mounts := {}
@@ -523,6 +534,22 @@ func _build_settings() -> void:
 	var quality_choices := grid(ren, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 10.0)
 	for q in [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]]:
 		B(quality_choices, "Toggle", q[1], "[data-render-quality=%s]" % q[0]).pressed.connect(func(): render_quality_chosen.emit(q[0]))
+	var metalfx := stack(ren)
+	reg("metalFX", metalfx)
+	_h3(metalfx, "MetalFX upscaling")
+	var metalfx_choices := grid(metalfx, [1.0, 1.0, 1.0, 1.0], 6.0, 0.0, 0.0, 6.0)
+	for preset: String in RenderPipeline.METALFX_SCALES:
+		var btn := B(metalfx_choices, "Toggle", preset.capitalize(), "[data-metalfx=%s]" % preset)
+		btn.pressed.connect(metalfx_chosen.emit.bind(preset))
+	_note(metalfx, "Quality 67%, Balanced 59%, Performance 50% per dimension. Galaxy and spectral views bypass MetalFX.")
+	var flight_clouds := stack(ren)
+	reg("flightClouds", flight_clouds)
+	_h3(flight_clouds, "Local clouds")
+	var cloud_choices := grid(flight_clouds, [1.0, 1.0], 6.0, 0.0, 0.0, 6.0)
+	for choice in [["full", "Full resolution"], ["fast", "Performance"]]:
+		var btn := B(cloud_choices, "Toggle", choice[1], "[data-flight-clouds=%s]" % choice[0])
+		btn.pressed.connect(flight_clouds_chosen.emit.bind(choice[0] == "fast"))
+	_note(flight_clouds, "Performance reduces cloud sampling in flight and on the ground. Cloud edges may look grainier.")
 	var advanced_btn := B(ren, "Toggle", "☐ Advanced rendering controls", "renderAdvancedToggle")
 	advanced_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var advanced := stack(ren, 10.0)
@@ -582,6 +609,11 @@ func _build_settings() -> void:
 		Physics.secular = not Physics.secular
 		sec_btn.set_label("☑ Secular evolution" if Physics.secular else "☐ Secular evolution")
 		set_active("secularToggle", Physics.secular))
+	_h3(sim, "Showcase")
+	_note(sim, "A world in full focus can drop a pin by itself. Where it lands comes from the world's seed and the run's, not from this setting.")
+	var pin_btn := B(sim, "Toggle", "☑ Drop a pin on focus", "pinOnFocusToggle")
+	pin_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(pin_btn, 0.0, 10.0).pressed.connect(func(): showcase_action.emit("auto"))
 	_h3(sim, "Relativity")
 	_note(sim, "Einstein–Infeld–Hoffmann 1PN terms between the bodies: they advance Mercury's perihelion by 43″ a century and a compact binary's periastron by degrees a year. Off is Newton.")
 	var pn_btn := B(sim, "Toggle", "", "pnToggle")
@@ -983,6 +1015,8 @@ func apply_section_modes(mode: String) -> void:
 	# Learn mode gets the sandbox's sections (lessons send you to them); only the
 	# defaults differ.
 	var effective := "sandbox" if mode == "learn" else mode
+	if galaxy_scene and effective == "sandbox": effective = "galaxy"
+	var opened: Array = OPEN_BY_DEFAULT.get("galaxy" if effective == "galaxy" else mode, [])
 	for sec in sections:
 		var want: String = SECTION_MODE.get(sec.title, "both")
 		var show := want == "both" or want == effective
@@ -991,7 +1025,7 @@ func apply_section_modes(mode: String) -> void:
 		if not sec.host:
 			_hide(sec.wrap, "mode", not show)
 		if show:
-			set_section_open(sec, (OPEN_BY_DEFAULT.get(mode, []) as Array).has(sec.title))
+			set_section_open(sec, opened.has(sec.title))
 
 func _build_control_panel() -> void:
 	var p := _panel("controlPanel")
@@ -1106,12 +1140,13 @@ func _build_control_panel() -> void:
 	m(sections[-1].head, 0.0, 8.0)
 	m(L(s, "—", {"fs": 11.0, "c": T.TEXT, "ls": 0.55}, "focusName"), 0.0, 8.0)
 	m(B(s, "Ghost", "Cross-section & edit ▸", "xsecOpen"), 0.0, 10.0).pressed.connect(func(): xsec_open.emit())
+	m(B(s, "Ghost", "Showcase this world ▸", "showcaseOpen", "Put this world in full focus, with a pin dropped on it from the seed."), 0.0, 10.0).pressed.connect(func(): showcase_action.emit("open"))
 	B(s, "Action", "Delete Object", "delFocus").pressed.connect(func(): delete_focus.emit())
 	_hide(fp, "inline", true)
 
 	# Object Foundry
 	s = _section(b, "Object Foundry")
-	_note(s, "Four inputs, no menu of outcomes. Everything below — the size, the colour, the shape, the verdict — is derived from mass, spin, composition and age by the same interior model the rest of the sim runs on.")
+	_note(s, "No menu of outcomes. Everything below — the size, the colour, the shape, the verdict, the climate — is derived from mass, spin, composition, age, air and water by the same models the rest of the sim runs on.")
 	reg("foundry", stack(s))
 
 	# Painter
@@ -1136,6 +1171,8 @@ func _build_control_panel() -> void:
 	_hide(fr, "inline", true)
 
 	_build_observatory(b)
+	_build_showcase(b)
+	_build_galaxy(b)
 
 	# Quick Spawn
 	s = _section(b, "Quick Spawn")
@@ -1156,6 +1193,78 @@ func _build_control_panel() -> void:
 	s.add_child(frame(list, {"bc": T.BORDER}))
 	reg("bodyList", list.content)
 	render_body_list([], -1)
+
+# One world in full focus, its pin, and the way onto its surface (sim/showcase.gd).
+func _build_showcase(b: Node) -> void:
+	var s := _section(b, "Showcase")
+	m(L(s, "—", {"fs": 12.0, "c": T.ACCENT, "ls": 1.2}, "scWorld"), 0.0, 6.0)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "scEra", true), 0.0, 8.0)
+	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 12.0)
+	for kv in [["surface", "scTemp"], ["air", "scAir"], ["gravity", "scGravity"], ["sea", "scSea"]]:
+		_stat(sg, kv[0], kv[1])
+	m(L(s, "No pin yet", {"fs": 10.0, "ls": 1.4, "up": true, "c": T.ACCENT_2}, "scPinNo"), 0.0, 4.0)
+	m(L(s, "—", {"fs": 11.0, "c": T.TEXT}, "scPinAt"), 0.0, 4.0)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "scPinGround", true), 0.0, 10.0)
+	var row := grid(s, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	B(row, "Toggle", "Drop a pin", "scPinDrop", "The next pin in this world's sequence. The world's seed, the run's seed and the pin's number decide where it lands, so it lands there every time.").pressed.connect(func(): showcase_action.emit("pin"))
+	B(row, "Toggle", "On focus", "scPinAuto", "Drop a pin by itself once a world is in full focus. The same setting is in Settings › Sim.").pressed.connect(func(): showcase_action.emit("auto"))
+	m(B(s, "Action", "Stand here", "scStand", "Go down to the pin. The ground, the sea and the weather are worked out for this world now, and go when you leave."), 0.0, 8.0).pressed.connect(func(): showcase_action.emit("stand"))
+	var on_foot := stack(s)
+	reg("scFoot", on_foot)
+	m(L(on_foot, "", {"fs": 10.0, "c": T.ACCENT_2}, "scSurvey", true), 0.0, 6.0)
+	var fg := grid(on_foot, [1.0, 1.0], 10.0, 5.0, 0.0, 10.0)
+	for kv in [["here", "ssTemp"], ["air", "ssPressure"], ["height", "ssHeight"], ["cloud", "ssCloud"], ["wind", "ssWind"], ["falling", "ssRain"], ["waves", "ssWaves"], ["tide", "ssTide"],
+			["nearest storm", "ssStorm"], ["Hadley edge", "ssHadley"], ["Rossby radius", "ssRossby"], ["storm's life", "ssLife"]]:
+		var cell := _stat(fg, kv[0], kv[1])
+		# Only a sea has waves and a tide to read.
+		if kv[1] in ["ssWaves", "ssTide"]: reg(kv[1] + "Row", cell)
+	var fr := grid(on_foot, [1.0, 1.0], 6.0, 6.0, 0.0, 8.0)
+	B(fr, "Toggle", "To daylight", "scDaylight", "Turn the world until the Sun is up here. A display shift: nothing physical moves.").pressed.connect(func(): showcase_action.emit("day"))
+	B(fr, "Toggle", "Back to orbit", "scBack").pressed.connect(func(): showcase_action.emit("back"))
+	_hide(on_foot, "inline", true)
+	m(B(s, "Ghost", "Leave showcase", "scLeave"), 0.0, 10.0).pressed.connect(func(): showcase_action.emit("leave"))
+
+# The galactic scene (sim/galaxy/): what is modelled, its clock, framings, the layers
+# drawn and the rotation curve measured from its tracers.
+func _build_galaxy(b: Node) -> void:
+	var clock := L(null, "", {"fs": 10.0, "c": T.ACCENT_2, "ls": 0.5}, "galTime")
+	var s := _section(b, "Galaxy", [clock])
+	m(L(s, "—", {"fs": 12.0, "c": T.ACCENT, "ls": 1.2}, "galName"), 0.0, 6.0)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galBlurb", true), 0.0, 8.0)
+	var sg := grid(s, [1.0, 1.0], 10.0, 5.0, 0.0, 10.0)
+	for kv in [["clock", "galRate"], ["camera", "galDist"], ["tracers", "galTracers"], ["worst |Δ(E−W)/E|", "galDrift"]]:
+		_stat(sg, kv[0], kv[1])
+	# An encounter says how its galaxies are being moved (GalEncounter: restricted or live).
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galEncounter", true), 0.0, 8.0)
+	var rg := grid(s, [1.0, 1.0, 1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	for r in [[0.0, "Pause", "Stop the clock"], [0.1, "0.1", "0.1 Myr per second"], [1.0, "1", "1 Myr per second"],
+			[5.0, "5", "5 Myr per second: the Sun's 230 Myr orbit in under a minute"], [20.0, "20", "20 Myr per second, as far as the integrator keeps up"],
+			[100.0, "100", "100 Myr per second: galaxies meeting over billions of years"], [1000.0, "1000", "1000 Myr per second, as far as the integrator keeps up; the clock says when it cannot"]]:
+		B(rg, "Toggle", r[1], "[data-gal-rate=%s]" % str(r[0]), r[2]).pressed.connect(func(): galaxy_action.emit("rate", r[0]))
+	m(L(s, "View", ROW_LABEL), 0.0, 4.0)
+	var vg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	for f in [["whole", "Whole", "The galaxy from 60 kpc"], ["face", "Face-on", "From above the north galactic pole"], ["edge", "Edge-on", "In the plane"],
+			["sun", "The Sun", "From the Sun, following it round the Galaxy: the real stars of our sky, measured by Gaia and Hipparcos, joined to the model"], ["centre", "Centre", "The inner galaxy and the bulge"]]:
+		B(vg, "Toggle", f[1], "[data-gal-frame=%s]" % f[0], f[2]).pressed.connect(func(): galaxy_action.emit("frame", f[0]))
+	# Filled by GalaxyScene with its model's landmarks; a pressed one flies there and
+	# shows its card below.
+	m(L(s, "Landmarks", ROW_LABEL), 0.0, 4.0)
+	var lmg := grid(s, [1.0, 1.0], 4.0, 4.0, 0.0, 4.0)
+	reg("galLandmarks", lmg)
+	m(L(s, "", {"fs": 10.0, "c": T.TEXT_DIM, "lh": 1.5}, "galCard", true), 0.0, 8.0)
+	var lg := grid(s, [1.0, 1.0, 1.0], 4.0, 4.0, 0.0, 8.0)
+	reg("galLayers", lg)
+	B(lg, "Toggle", "Tracers", "galShowTracers", "The test stars (amber) and cold-gas clouds (blue) whose orbits are integrated, and from which the rotation curve is measured").pressed.connect(func(): galaxy_action.emit("layer", "tracers"))
+	B(lg, "Toggle", "Stars", "galShowStars", "Stars near the camera, drawn one by one from the model's own density").pressed.connect(func(): galaxy_action.emit("layer", "stars"))
+	B(lg, "Toggle", "Glow", "galShowGlow", "The unresolved light of the disc and bulge").pressed.connect(func(): galaxy_action.emit("layer", "glow"))
+	_row(s, "galExposure", "Exposure", "A photographer's exposure: brightness only, as a factor of the sky's calibration", -1, 2, 0, 0.05, "1×")
+	var cs := stack(s)
+	reg("galCurveBox", cs)
+	m(L(cs, "Rotation curve", ROW_LABEL), 4.0, 4.0)
+	var chart := GalCurveChart.new()
+	reg("galCurve", chart)
+	cs.add_child(chart)
+	_rnote(cs, "[color=#ffffff]—[/color] model  [color=#40bfff]●[/color] gas clouds  [color=#ff9e47]●[/color] stars  [color=#ff9e47]○[/color] stars, Jeans-corrected  [color=#dddddd]■[/color] measured, Eilers et al. 2019. Dashed: bulge, disc and dark halo alone.")
 
 # The Observatory: site, date, clock, accuracy badge and overlays (sim/observatory/).
 func _build_observatory(b: Node) -> void:
@@ -1622,6 +1731,12 @@ func set_app_mode(mode: String) -> void:
 	_set_body("observatory-mode", mode == "observatory")
 	_apply_body_classes()
 
+func set_galaxy_scene(on: bool) -> void:
+	if galaxy_scene == on: return
+	galaxy_scene = on
+	apply_section_modes(app_mode)
+	_queue_layout()
+
 ## The Observatory's site picker takes the frame, as the studio does.
 func set_obs_picking(on: bool) -> void:
 	_set_body("obs-picking", on)
@@ -1641,6 +1756,22 @@ func set_hud_hidden(hidden: bool) -> void:
 
 func mount(n: String) -> Control:
 	return _mounts.get(n, ids.get(n))
+
+## On foot, the surface's own readouts replace the pin's buttons.
+func set_surface_shown(on: bool) -> void:
+	_hide(ids.scFoot, "inline", not on)
+	_hide(ids.scStand, "inline", on)
+	_hide(ids.scPinDrop, "inline", on)
+	if not on: set_text("scSurvey", "")
+
+## While the ground is still being surveyed; `progress` 0..1.
+func set_surface_veil(on: bool, progress: float = 0.0) -> void:
+	set_prose("scSurvey", "Surveying the ground and running its rivers… %d%%" % int(progress * 100.0) if on else "")
+
+## Wrapping text set by id: `say`, or it breaks a word early.
+func set_prose(id: String, text: String) -> void:
+	var el = ids.get(id)
+	if el is Prose: (el as Prose).say(text)
 
 func get_el(id: String) -> Control:
 	return ids.get(id)

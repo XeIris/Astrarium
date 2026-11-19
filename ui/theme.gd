@@ -275,6 +275,10 @@ static var KINDS := {
 	# `.toggle-btn.on` has no rule: the model viewer's toggles look the same either way
 	"ToggleFlat": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 8, 7, 8], "fs": 10.0, "ls": 1.0, "up": true},
 		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {}},
+	# A landmark's name on the galactic scene's sky (GalaxyScene): a faint dark backing
+	# keeps it legible over the bright bulge without boxing it in.
+	"Landmark": {"base": {"c": ACCENT_2, "bg": Color(BG, 0.55), "bw": 0, "pad": [1, 5, 1, 5], "fs": 9.5, "ls": 0.6},
+		"hover": {"c": ACCENT, "bg": LIT_HOVER}, "on": {"c": ACCENT}},
 	"Band": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [7, 2, 7, 2], "fs": 9.0, "ls": 0.8},
 		"hover": {"c": TEXT, "bc": BORDER_STRONG}, "on": {"bg": Color(ACCENT_2, 0.16), "c": ACCENT, "bc": Color(ACCENT_2, 0.5)}},
 	"TimeBtn": {"base": {"c": TEXT_DIM, "bc": BORDER, "pad": [6, 2, 6, 2], "fs": 9.5, "ls": 0.57},
@@ -446,6 +450,13 @@ static func theme() -> Theme:
 	for s in ["normal", "read_only"]:
 		t.set_stylebox(s, "LineEdit", field)
 	t.set_stylebox("focus", "LineEdit", _ring(focus))
+	# A value typed into a row: as tall as the row's slider and label, not a form field.
+	t.set_type_variation("RowField", "LineEdit")
+	var row_field := stylebox({"bg": rgba(0, 0, 0, 0.3), "bc": BORDER, "pad": [1, 4, 1, 4]})
+	for s in ["normal", "read_only"]:
+		t.set_stylebox(s, "RowField", row_field)
+	t.set_stylebox("focus", "RowField", _ring(focus))
+	t.set_font_size("font_size", "RowField", 10)
 	t.set_color("font_color", "LineEdit", TEXT)
 	t.set_color("font_placeholder_color", "LineEdit", Color(TEXT_DIM, 0.85))
 	t.set_color("caret_color", "LineEdit", TEXT)

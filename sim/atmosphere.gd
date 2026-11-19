@@ -7,14 +7,16 @@ extends RefCounted
 # Partial pressures in bar. m kg/mol; cp J mol⁻¹ K⁻¹; rayleigh m² per molecule at 550 nm,
 # from He et al. (2021) Table 1's refractive indices and King factors. Ar is not in that
 # table and SO₂ is a trace, so each takes the nearest gas's value (assumed).
+# label, colour and foot (log₁₀ bar at the foot of its slider) are how the composition editor
+# shows the gas, so a new row here reaches the HUD; its upper limit is ClimateInputs.DOMAIN's.
 const GASES := {
-	"pN2":  { "m": 0.0280134, "cp": 29.1, "rayleigh": 4.631e-31 },
-	"pO2":  { "m": 0.0319988, "cp": 29.4, "rayleigh": 4.049e-31 },
-	"pAr":  { "m": 0.039948,  "cp": 20.8, "rayleigh": 4.631e-31 },
+	"pN2":  { "m": 0.0280134, "cp": 29.1, "rayleigh": 4.631e-31, "label": "N₂", "color": 0x6f93c4, "foot": -5.0 },
+	"pO2":  { "m": 0.0319988, "cp": 29.4, "rayleigh": 4.049e-31, "label": "O₂", "color": 0x63d0c4, "foot": -5.0 },
+	"pAr":  { "m": 0.039948,  "cp": 20.8, "rayleigh": 4.631e-31, "label": "Ar", "color": 0xb49ae0, "foot": -6.0 },
 	# cp is the value at about 400 K: R/c_p runs from 0.24 at 250 K to 0.16 at 735 K.
-	"pCO2": { "m": 0.0440095, "cp": 41.6, "rayleigh": 1.164e-30 },
-	"pCH4": { "m": 0.016043,  "cp": 35.7, "rayleigh": 9.905e-31 },
-	"pSO2": { "m": 0.064066,  "cp": 40.0, "rayleigh": 1.164e-30 },
+	"pCO2": { "m": 0.0440095, "cp": 41.6, "rayleigh": 1.164e-30, "label": "CO₂", "color": 0xe8935a, "foot": -6.0 },
+	"pCH4": { "m": 0.016043,  "cp": 35.7, "rayleigh": 9.905e-31, "label": "CH₄", "color": 0x8fd46e, "foot": -9.0 },
+	"pSO2": { "m": 0.064066,  "cp": 40.0, "rayleigh": 1.164e-30, "label": "SO₂", "color": 0xe8d25a, "foot": -8.0 },
 }
 # Water vapour's cross section: Kopparapu et al. (2013) give 2.6e-27 cm² at 600 nm.
 const RAYLEIGH_H2O := 3.68e-31

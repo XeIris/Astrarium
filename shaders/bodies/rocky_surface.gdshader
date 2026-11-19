@@ -7,6 +7,7 @@ render_mode unshaded, cull_back, depth_draw_opaque;
 
 #include "res://shaders/common/suns.gdshaderinc"
 #include "res://shaders/common/temp_pass.gdshaderinc"
+#define TERRAIN_EXACT
 #include "res://shaders/bodies/terrain.gdshaderinc"
 
 uniform float uSeed = 0.0;
@@ -21,6 +22,8 @@ uniform float uBiota = 0.0;
 uniform float uCrater = 0.0;
 uniform vec3 uRegolith = vec3(0.258, 0.216, 0.176);
 uniform float uHaze = 0.0;
+// The sky's colour against Earth's, from its gas column (Atmosphere.limb).
+uniform vec3 uAirTint = vec3(1.0);
 uniform vec3 uAmbient = vec3(0.0021, 0.0033, 0.0070);
 uniform float uTime = 0.0;
 // Exposure — see rocky_visual.gd: a constant, shared by every body, so two
@@ -65,8 +68,8 @@ void fragment() {
 		hKm = mix(hKm, hKm * 0.30 + ch, clamp(uCrater, 0.0, 1.0));
 		rug = mix(rug, clamp(abs(ch) * 0.8, 0.0, 1.0), clamp(uCrater, 0.0, 1.0));
 	}
-	// uSeaKm is a level, not an offset: altitude is from the geoid, or a dry world's
-	// −60 km sea would read as 60 km of altitude for the lapse rate.
+	// uSeaKm is a level, not an offset: altitude is from the sea where there is one, else
+	// from the datum, or a dry world's −60 km sea would read as 60 km of altitude.
 	float sinLat = clamp(p.y, -1.0, 1.0);
 	float lat = asin(sinLat);
 	float a = abs(lat);
@@ -75,7 +78,8 @@ void fragment() {
 		sea = texture(uLandMask, vMapUv).r < 0.5 && uSeaKm > -2.0;
 
 	// --- temperature, and therefore everything else
-	float T = surfaceTemp(sinLat, max(hKm, 0.0), uS2) + uSeason * sinLat * uDecl;
+	float alt = sea ? 0.0 : hKm - (uSeaKm > -30.0 ? uSeaKm : 0.0);
+	float T = surfaceTemp(sinLat, alt, uS2) + uSeason * sinLat * uDecl;
 
 	// --- how wet. Interiors are dry (rain fell on the way in), lee slopes are dry. The
 	// upwind probe is coarse crust only, and the wind reverses near 30°. Both sides of
@@ -193,7 +197,7 @@ void fragment() {
 	// Rounding can put the dot of two unit vectors just past 1; pow of a negative is
 	// NaN, and glow spreads one NaN pixel into a black square over the disc.
 	float limb = pow(max(1.0 - abs(dot(N, V)), 0.0), 2.2);
-	lit = mix(lit, lit * 0.75 + skylight * vec3(0.20, 0.34, 0.62) * 0.45, uHaze * limb);
+	lit = mix(lit, lit * 0.75 + skylight * vec3(0.20, 0.34, 0.62) * uAirTint * 0.45, uHaze * limb);
 
 	// --- incandescent once it is truly scorching
 	lit += vec3(1.0, 0.28, 0.06) * pow(uScorch, 2.0) * 0.9;

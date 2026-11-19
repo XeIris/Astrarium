@@ -1423,8 +1423,9 @@ const MODULES := [
           the blue stars are the ones that die before they can drift out of the arm they were born in.
           Ellipticals are old, gas-poor, and full of red stars; they are mostly the result of galaxies
           having merged.</p>
-          <p>The Milky Way is a barred spiral. Andromeda is heading toward us at 110 km/s and in about four
-          billion years the two will merge into an elliptical.</p>""",
+          <p>The Milky Way is a barred spiral. Andromeda is falling toward us at 109 km/s; in about four
+          billion years the two pass each other, and they may then merge into an elliptical (the lesson
+          "When galaxies meet" runs it).</p>""",
 			},
 			{
 				"title": "And most of the mass is invisible",
@@ -1435,6 +1436,167 @@ const MODULES := [
           <p>Either gravity is wrong on large scales, or there is five times more mass than there is light.
           The second option is called dark matter and, as of now, it fits a great deal of other evidence
           that the first one does not.</p>""",
+			},
+		],
+	},
+
+	{
+		"id": "weighing",
+		"title": "Weighing a galaxy",
+		"mins": 6,
+		"goal": "Measure the Milky Way's rotation from its own stars, and find the mass you cannot see.",
+		"steps": [
+			{
+				"title": "Stars on orbits",
+				"do": {"preset": "gal_milkyway", "galaxy": {"frame": "face", "rate": 5}},
+				"instrument": "rotation",
+				"body": """<p>This is the Milky Way as a model fitted to its measured motions (Bovy's MWPotential2014): a
+          bulge, a disc and a dark halo. The amber and blue points are thousands of test stars and gas clouds,
+          each on an orbit worked out step by step as you watch.</p>
+          <p>The chart measures them now: in each ring of radius, how fast the stars and clouds actually go
+          round. Nothing on it is a table.</p>""",
+				"look": "The amber and blue points on the chart move as the orbits do. The white line is what the model's gravity says a circular orbit needs.",
+			},
+			{
+				"title": "What Kepler predicts",
+				"do": {"preset": "gal_milkyway", "galaxy": {"frame": "face", "rate": 5}},
+				"instrument": "rotation",
+				"body": """<p>The dashed lines are the speeds each part of the galaxy would give on its own. Most of the
+          light is in the bulge and the disc, and beyond about 10 kpc their pull fades: an orbit out there,
+          held by them alone, would slow with distance, as the outer planets do.</p>
+          <p>The measured speeds do not slow. They stay near 200 km/s out to the edge of the chart, which is
+          what Eilers et al. (2019) found from 23 000 red giants measured by Gaia and APOGEE (the grey
+          squares).</p>""",
+			},
+			{
+				"title": "The halo does the holding",
+				"do": {"preset": "gal_milkyway", "galaxy": {"frame": "whole", "rate": 5}},
+				"instrument": "rotation",
+				"body": """<p>In this model the dark halo supplies 35 % of the pull at the Sun's distance and 61 % at
+          20 kpc. Take it away and an orbit 20 kpc out would need only 124 km/s, not 198.</p>
+          <p>The halo gives off no light. Its mass shows only in these speeds, in how galaxies bend light, and in
+          how they move in clusters. A mass with no light is what "dark matter" means.</p>""",
+			},
+		],
+	},
+
+	{
+		"id": "localgroup",
+		"title": "Our neighbours",
+		"mins": 5,
+		"goal": "The Local Group: the satellites that orbit us, and the two other spirals.",
+		"steps": [
+			{
+				"title": "The Large Magellanic Cloud",
+				"do": {"preset": "gal_milkyway", "galaxy": {"landmark": "lmc", "rate": 0}},
+				"body": """<p>The largest of the Milky Way's satellites, 49.6 kpc away (Pietrzyński et al. 2019). It
+          is drawn from its own stars, with the bar that Gaia measured across its middle (Rathore et al.
+          2024).</p>
+          <p>It is not small. Its total mass, about 1.4 × 10¹¹ solar masses, was weighed by the way it bends a
+          stream of stars in our halo (Erkal et al. 2019): a tenth of the Milky Way's.</p>""",
+				"look": "Its companion, the Small Magellanic Cloud, passed within about 7.5 kpc of it some 150 Myr ago (Zivick et al. 2018), and is being torn apart.",
+			},
+			{
+				"title": "Andromeda",
+				"do": {"preset": "gal_milkyway", "galaxy": {"landmark": "m31"}},
+				"body": """<p>783 kpc away and closing at 300 km/s (McConnachie 2012): a spiral with more stars than ours,
+          seen 77.5° from face-on.</p>
+          <p>Most of that 300 km/s is the Sun's own motion round the Galaxy. With it taken out, Andromeda falls
+          toward the Milky Way at 109 km/s, on an orbit close to head-on (van der Marel et al. 2012).</p>""",
+			},
+			{
+				"title": "Triangulum",
+				"do": {"preset": "gal_milkyway", "galaxy": {"landmark": "m33"}},
+				"body": """<p>M33, the Local Group's third spiral, 809 kpc away: a disc with no bulge, its arms drawn
+          from the Hubble survey that mapped them star by star (Smercina et al. 2023).</p>
+          <p>Whether it has ever passed close to Andromeda is disputed. With Andromeda's measured motion it
+          probably has not: it may be falling in for the first time (Patel, Besla &amp; Sohn 2017).</p>""",
+			},
+		],
+	},
+
+	{
+		"id": "kinds",
+		"title": "The kinds of galaxies",
+		"mins": 5,
+		"goal": "Spirals, a barred spiral, a disc seen edge-on, a giant elliptical and an irregular, each a real galaxy.",
+		"steps": [
+			{
+				"title": "A grand-design spiral",
+				"do": {"preset": "gal_m51", "galaxy": {"frame": "whole"}},
+				"body": """<p>M51, the Whirlpool: two arms of young blue stars and pink star-forming clouds, with dust lanes
+          on their inner edges. The arms are waves of density that the stars pass through; the companion,
+          NGC 5195, raised these two as it went by.</p>""",
+			},
+			{
+				"title": "A disc from the side",
+				"do": {"preset": "gal_m104", "galaxy": {"frame": "whole"}},
+				"body": """<p>The Sombrero, M104, seen 6° from edge-on. A disc's dust lies in a thin plane, so from the side
+          it cuts the light in two. Its huge bulge of old stars is why it looks like a hat.</p>""",
+			},
+			{
+				"title": "A giant elliptical",
+				"do": {"preset": "gal_m87", "galaxy": {"frame": "whole"}},
+				"body": """<p>M87, at the heart of the Virgo cluster: no disc, no arms, no dust lanes, a ball of old red
+          stars five times the Milky Way's light. Its light is drawn from its measured profile, which goes on
+          and on: ellipticals have no edge.</p>
+          <p>Galaxies like this are made by mergers, which is the next lesson.</p>""",
+			},
+			{
+				"title": "An irregular",
+				"do": {"preset": "gal_milkyway", "galaxy": {"landmark": "lmc"}},
+				"body": """<p>The Large Magellanic Cloud again: neither a tidy spiral nor an elliptical, but a lopsided disc
+          with an off-centre bar, pulled about by the Milky Way and the Small Cloud. Small galaxies are mostly
+          like this.</p>""",
+			},
+		],
+	},
+
+	{
+		"id": "collisions",
+		"title": "When galaxies meet",
+		"mins": 8,
+		"goal": "Why some discs are torn into tails and others shrug a passage off, and what will happen to the Milky Way.",
+		"steps": [
+			{
+				"title": "Prograde and retrograde",
+				"do": {"preset": "gal_pro_retro", "galaxy": {"rate": 20}},
+				"body": """<p>Two identical spirals on the same orbit. One spins the way the orbit turns, the other against
+          it. Every star in both is pulled by every other, and by the dark matter of both haloes.</p>
+          <p>Watch the passage at about 150 Myr. In the prograde disc the stars on the near side keep pace with
+          the companion for a while, and its pull has time to fling them out: a long tail, and a bridge. In
+          the retrograde disc they rush past in the other direction and are barely disturbed. Toomre &amp;
+          Toomre (1972) first showed this with test particles.</p>""",
+				"look": "The clock is limited by the work: every step computes the pull on 65 000 particles.",
+			},
+			{
+				"title": "The Antennae",
+				"do": {"preset": "gal_antennae", "galaxy": {"rate": 20}},
+				"body": """<p>NGC 4038 and 4039, set out as Privon et al. (2013) reconstructed them from the shapes of their
+          tails and the speeds of the gas in them: two equal spirals, both turning with their orbit.</p>
+          <p>They first pass about 6 kpc apart at 150 Myr, and the two long tails that give them their name grow
+          out of the far sides. The real pair is seen around 408 Myr, as they come together a second time.</p>""",
+			},
+			{
+				"title": "The Milky Way and Andromeda",
+				"do": {"preset": "gal_mw_m31", "galaxy": {"rate": 100}},
+				"body": """<p>The Milky Way, Andromeda and M33 from today, where van der Marel et al. (2012) set them out from
+          Hubble's measurement of Andromeda's sideways motion. In their model Andromeda passes about 35 kpc
+          from us in 4 billion years, swings out, falls back, and the two merge in a little over 6.</p>
+          <p>The measurement has moved since. With Gaia's proper motions too, the first passage comes later and
+          wider, around 4.5 billion years and 130 kpc, or later still with the LMC and M33 included (van der
+          Marel et al. 2019). Allowing for every uncertainty, Sawala et al. (2025) put a merger within 10
+          billion years at about even odds. This run is one possible future.</p>""",
+				"look": "Far apart the galaxies move as rigid bodies; once they are within 250 kpc every star and dark-matter particle becomes live, and the clock slows.",
+			},
+			{
+				"title": "What is left",
+				"do": {"preset": "gal_mw_m31", "galaxy": {"rate": 100}},
+				"body": """<p>If they do merge, the discs do not survive. Each star's orbit is scrambled by the changing pull of
+          the other galaxy, and the energy of the orbit goes into the stars. What settles is a smooth, round
+          pile of old stars: an elliptical.</p>
+          <p>Run this preset to the end and the remnant's brightness falls off with radius the way M87's does.
+          Measured, it matches van der Marel et al.'s own simulation to within 0.15 in log brightness.</p>""",
 			},
 		],
 	},

@@ -22,8 +22,11 @@ void sky() {
 		float tr = m0.a;
 		vec3 d = normalize(normalize(EYEDIR) + m1.xyz);
 		vec3 ddx = dFdx(d), ddy = dFdy(d);
+		// Keep the neighbouring lanes participating at the disc edge so the sky
+		// evaluation has its screen derivatives there.
+		float discQuad = m1.a + fwidth(m1.a);
 		vec3 skyCol = vec3(0.0);
-		if (tr > 0.001) skyCol = tr * skyRadiance(d, ddx, ddy);
+		if (tr > 0.001 && discQuad > 0.0) skyCol = tr * skyRadiance(d, ddx, ddy);
 		float tWeight = dot(m0.rgb, vec3(0.2126, 0.7152, 0.0722));
 		float skyLum  = dot(skyCol, vec3(0.2126, 0.7152, 0.0722));
 		bool discWins = m1.a > 0.0 && tWeight > skyLum;

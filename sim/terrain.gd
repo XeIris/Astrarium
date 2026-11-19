@@ -43,6 +43,25 @@ static func terrain_uniforms(opts: VisualOpts) -> Dictionary:
 		"uArid": float(U.nz(opts.arid, 0.0)),
 	}
 
+# cloud_global_z is 3600 terms and a world's cover moves most frames, so a look that eases reads
+# this table. Probit z runs off to ±8 at 0 and 1 but is nearly linear in the logit of cover.
+const _COVER_N := 128
+const _COVER_LOGIT := 9.0
+static var _cover_z := PackedFloat32Array()
+
+## cloud_global_z from a table. 0 and 1 stay exact: they draw nothing and everything.
+static func cloud_z_table(cover: float) -> float:
+	if cover <= 0.0: return -8.0
+	if cover >= 1.0: return 8.0
+	if _cover_z.is_empty():
+		_cover_z.resize(_COVER_N + 1)
+		for i in _COVER_N + 1:
+			var logit: float = -_COVER_LOGIT + 2.0 * _COVER_LOGIT * i / _COVER_N
+			_cover_z[i] = cloud_global_z(1.0 / (1.0 + exp(-logit)))
+	var x: float = (clampf(log(cover / (1.0 - cover)), -_COVER_LOGIT, _COVER_LOGIT) + _COVER_LOGIT) / (2.0 * _COVER_LOGIT) * _COVER_N
+	var i := mini(int(x), _COVER_N - 1)
+	return lerpf(_cover_z[i], _cover_z[i + 1], x - i)
+
 ## shaders/common/cloud_climate.gdshaderinc's cloud_zonal_z: phi is latitude, itcz the
 ## ITCZ's latitude (rad).
 static func cloud_zonal_z(phi: float, itcz := 0.0) -> float:

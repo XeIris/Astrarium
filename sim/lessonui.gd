@@ -12,7 +12,7 @@ const STORE := "user://bh.course.v1.json"
 const EM_COL := "e6ecf6"
 const PROSE := {"ff": "disp", "fs": 13.5, "lh": 1.62}
 # Authored requests are checked separately from optional runtime stage support.
-const DO_KEYS := ["preset", "mesh", "sky", "trueScale", "paused", "focus", "cam",
+const DO_KEYS := ["preset", "galaxy", "mesh", "sky", "trueScale", "paused", "focus", "cam",
 	"timeScale", "band", "control", "localTime", "panel", "flare", "collapse", "postNewtonian"]
 
 static func create_lessons(opts: Dictionary) -> Course:
@@ -536,6 +536,18 @@ class Course extends RefCounted:
 		elif instrument == "hr":
 			built.hr = HRDiagram.create_hr_diagram({"canvas": cv.plot, "width": W, "height": H})
 			note.say("the band is sampled from the interior model, not drawn")
+		elif instrument == "rotation":
+			# The galactic scene's chart, measuring this galaxy's tracers live.
+			cv.queue_free()
+			# As wide as the other instruments and flatter than in the HUD, to fit a short card;
+			# the chart stretches its drawing to its frame.
+			var chart := GalCurveChart.new()
+			chart.set_aspect(0.5)
+			chart.set_meta("maxw", W)
+			wrap.add_child(chart)
+			wrap.move_child(chart, 0)
+			built.rotation = chart
+			note.say("measured now: amber stars, blue gas · white the model, dashed its parts · grey Eilers et al. 2019")
 		media_note = note
 
 	# EXECUTING A STEP
@@ -544,6 +556,8 @@ class Course extends RefCounted:
 		# Order matters: loading resets the camera and focus, and following a body reframes
 		# the view, so an explicit radius comes after both.
 		if d.get("preset") and _st("current_preset") != d.preset: _st("load_preset", [d.preset])
+		# The galactic scene's own framing, landmark and clock, once its preset is in.
+		if d.get("galaxy"): _st("galaxy", [d.galaxy])
 		# The curvature grid is off in the course unless a lesson asks for it.
 		_st("set_mesh", [bool(d.get("mesh", false))])
 		if d.get("sky"): _st("set_sky", [d.sky])
@@ -671,6 +685,7 @@ class Course extends RefCounted:
 	var lesson_key:
 		get: return key
 
+	var _rot_acc := 1.0
 	# THE FRAME HOOK — the instruments are live, and have to be
 	func update(_dt: float) -> void:
 		if instrument == null or card_hidden(): return
@@ -709,6 +724,12 @@ class Course extends RefCounted:
 				(media_note as Prose).say(("%s″ per century over %s yr" % [U.fixed(r, 1), U.fixed(pm.span_years(), 0)]) if is_finite(r) else "measuring…")
 		elif instrument == "hr" and built.has("hr"):
 			built.hr.draw(bodies)
+		elif instrument == "rotation" and built.has("rotation"):
+			_rot_acc += _dt
+			if _rot_acc >= 0.25:
+				_rot_acc = 0.0
+				var c = _st("galaxy_curve") if _has("galaxy_curve") else null
+				if c is Array: built.rotation.measure(c[0], c[1])
 		elif instrument == "cutaway" and built.has("cutaway") and is_instance_valid(built.cutaway):
 			var b = _st("focus_body") if _has("focus_body") else null
 			if b == null:

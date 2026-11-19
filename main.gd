@@ -14,6 +14,7 @@ const STEP_GUARD := 8000
 const TRAIL_MAX := 600
 const MESH_Y := -6.0
 const Bindings = preload("res://ui/control_bindings.gd")
+const JsonFile = preload("res://core/json_file.gd")
 
 var state := SimState.new()
 var pipe: RenderPipeline
@@ -30,6 +31,8 @@ var bright_stars: BrightStars = null
 var painter = null                # Painter
 var observer = null               # SurfaceObserver
 var observatory: Observatory = null
+var showcase: Showcase = null
+var galaxy: GalaxyScene = null
 var sky_pass = null               # SkyPass
 var flight = null                 # Spaceflight
 var model_view = null             # ModelViewer
@@ -141,6 +144,8 @@ func _ready() -> void:
 		_preset_group("sandboxes", "Sandboxes", ["blank", "sandbox"]),
 		_preset_group("real-stars", "Real stars", ["stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder"]),
 		_preset_group("stellar-systems", "Stellar system scenarios", ["solar", "threebody", "binarystar"]),
+		# The galactic scene's own scenarios: a different world, not orrery presets.
+		{"id": "galaxies", "label": "Galaxies", "keys": GalModels.ORDER.duplicate()},
 	]
 
 	pipe = RenderPipeline.new()
@@ -164,6 +169,8 @@ func _ready() -> void:
 	observer = SkyView.SurfaceObserver.new()
 	sky_pass = SkyView.create_sky_pass()
 	observatory = Observatory.new(self)
+	showcase = Showcase.new(self)
+	galaxy = GalaxyScene.new(self)
 	# Under the HUD, over the frame: the overlay is drawn in screen space.
 	var sky_ui := CanvasLayer.new()
 	sky_ui.layer = 0
@@ -259,8 +266,8 @@ func _ready() -> void:
 		if _cmd.title != "0": title_reel.begin(String(_cmd.title))
 		else: hud.set_title_veil(0.0)
 	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
-		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory"] else "sandbox")
-		load_preset(k if Presets.PRESETS.has(k) else "sandbox")
+		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory", "showcase"] else "sandbox")
+		load_preset(k if Presets.PRESETS.has(k) or GalaxyScene.has_preset(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")), true)
 	else:
@@ -442,15 +449,23 @@ func spawn_body(spec: Dictionary) -> Body:
 
 	state.bodies.append(b)
 	if not _climates_deferred: _sync_climate(b)
+	_preset_clean = false
 	return b
 
 # A preset's worlds draw from the light they start in, so they wait for all its stars.
 var _climates_deferred := false
+# The scene is the preset as loaded: no body spawned, edited or removed since (time may have
+# run). Only then may a zoom-out replace it with the Galaxy (_at_galaxy_join).
+var _preset_clean := false
 
 # A rocky or ocean world has a climate and nothing else does; called wherever a type can change.
 func _sync_climate(b: Body) -> void:
 	if not ClimateInputs.applies(b.type): b.climate = null
-	elif b.climate == null: b.climate = ClimateInputs.build(b, get_stars(), int(_cmd.get("seed", 0)))
+	elif b.climate == null:
+		b.climate = ClimateInputs.build(b, get_stars(), int(_cmd.get("seed", 0)))
+		# Its visual was built before it had a climate, and an undrawn stage never updates it.
+		var v = b.viz.inner if b.viz is Bodies.AccretionWrap else b.viz
+		if v != null and v.has_method("snap_climate"): v.snap_climate()
 
 func remove_body(id) -> void:
 	var idx := -1
@@ -464,6 +479,7 @@ func remove_body(id) -> void:
 		live_editor.sync(null)
 		open_cross_section(false)
 	b.alive = false
+	_preset_clean = false
 	detach_visual(b)
 	if b.trail != null:
 		b.trail.node.queue_free()
@@ -488,7 +504,7 @@ func clear_bodies() -> void:
 # add a body orbiting the dominant mass (used by Spawn buttons)
 func spawn_orbiting(type: String) -> void:
 	var palette = ["jupiter", "saturn", "ice"][randi() % 3] if type == "gas-giant" else null
-	spawn_body(place_spawn({"type": type, "palette": palette, "atmosphere": type == "planet", "seed": randi() % 1000000000}))
+	spawn_body(place_spawn({"type": type, "palette": palette, "seed": randi() % 1000000000}))
 	refresh_ui()
 
 func _dominant() -> Body:
@@ -498,15 +514,17 @@ func _dominant() -> Body:
 	return c
 
 # A circular orbit about the dominant mass, shared by quick spawn and the Foundry.
-func orbit_spec_around_dominant(spec: Dictionary) -> Dictionary:
+## `plan` holds a bearing `ang`, a spread `off` and a chosen `a_au`, for a spawn previewed first.
+func orbit_spec_around_dominant(spec: Dictionary, plan: Dictionary = {}) -> Dictionary:
 	var center := _dominant()
 	var Mc := maxf(center.mass, 1e-6) if center else 1.0
 	var cpos := center.pos if center else DVec3.new()
 	# Stay clear of whatever we are orbiting: outside its rendered disc, and
 	# outside its horizon by a wide margin if it is a hole.
 	var clear_au := maxf(maxf(center.radius_scene / state.scene_scale, center.rs * 8.0), center.radius) if center else 0.0
-	var a_au := clear_au * 2.5 + (5.0 + randf() * 9.0) / state.scene_scale
-	var ang := randf() * TAU
+	var a_au := clear_au * 2.5 + (5.0 + float(plan.get("off", randf())) * 9.0) / state.scene_scale
+	if plan.get("a_au") != null: a_au = maxf(float(plan.a_au), clear_au * 1.05)
+	var ang: float = plan.get("ang", randf() * TAU)
 	var pos := cpos.add(DVec3.new(cos(ang), 0.0, sin(ang)).scaled(a_au))
 	var v := Physics.circular_speed(Mc + float(U.nz(spec.get("mass"), 0.0)), a_au)
 	var tang := DVec3.new(-sin(ang), 0.0, cos(ang)).scaled(v)
@@ -518,7 +536,7 @@ func orbit_spec_around_dominant(spec: Dictionary) -> Dictionary:
 
 # Place a spec at exactly zero velocity in front of the camera, offset so
 # successive spawns don't overlap.
-func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
+func rest_spec_at_rest(spec: Dictionary, advance := true) -> Dictionary:
 	var centre := DVec3.new()
 	var reach: float
 	if state.cam_mode == "free":
@@ -529,10 +547,11 @@ func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
 		centre.copy_from(cam.target)
 		reach = cam.radius
 	# Fan successive spawns around the look-at point instead of stacking them.
-	rest_spawn_angle += 2.399963                       # golden angle, so they spread
+	var angle := rest_spawn_angle + 2.399963           # golden angle, so they spread
+	if advance: rest_spawn_angle = angle
 	var off := reach * 0.32
-	centre.x += cos(rest_spawn_angle) * off
-	centre.z += sin(rest_spawn_angle) * off
+	centre.x += cos(angle) * off
+	centre.z += sin(angle) * off
 	var pos_au := centre.scaled(1.0 / state.scene_scale)
 	var out := spec.duplicate()
 	out.pos = pos_au.to_array()
@@ -540,8 +559,9 @@ func rest_spec_at_rest(spec: Dictionary) -> Dictionary:
 	return out
 
 # At rest on the workbench, in orbit elsewhere; an empty scene is always at rest.
-func place_spawn(spec: Dictionary) -> Dictionary:
-	return rest_spec_at_rest(spec) if (state.spawn_at_rest or state.bodies.is_empty()) else orbit_spec_around_dominant(spec)
+func place_spawn(spec: Dictionary, plan: Dictionary = {}) -> Dictionary:
+	if state.spawn_at_rest or state.bodies.is_empty(): return rest_spec_at_rest(spec, plan.is_empty())
+	return orbit_spec_around_dominant(spec, plan)
 
 # Validate the complete request before changing live state or scene resources.
 func edit_body(b: Body, patch: Dictionary):
@@ -549,6 +569,7 @@ func edit_body(b: Body, patch: Dictionary):
 	if patch.has("type") and (not patch.type is String or patch.type != b.type):
 		_reject_body_input("Type changes are structural events; edits must keep the body's current type.", b)
 		return null
+	_preset_clean = false
 	var spec := U.merged(b.spec, patch)
 	spec.type = b.type
 	spec.mass = U.nz(patch.get("mass"), b.mass)
@@ -568,6 +589,8 @@ func edit_body(b: Body, patch: Dictionary):
 	if b.climate != null and ClimateInputs.climate_only(patch):
 		b.spec = spec
 		b.climate.apply_inputs(ClimateInputs.stated(spec))
+		# So its era, cloud and ice answer while the clock is stopped.
+		b.climate.step(1e-6, b, get_stars())
 		refresh_ui()
 		return b
 	var old_mass := b.mass
@@ -591,7 +614,9 @@ func edit_body(b: Body, patch: Dictionary):
 	if rotation_only: b.viz.refresh_rotation()
 	else: attach_visual(b)
 	_sync_climate(b)
-	if b.climate != null: b.climate.apply_inputs(ClimateInputs.stated(b.spec))
+	if b.climate != null:
+		b.climate.apply_inputs(ClimateInputs.stated(b.spec))
+		b.climate.step(1e-6, b, get_stars())
 	if moved and b.trail != null:
 		# A teleport must not draw an orbit segment connecting unrelated positions.
 		b.trail_head = 0
@@ -611,6 +636,8 @@ func edit_body(b: Body, patch: Dictionary):
 	# A verdict the sim only prints is a bug.
 	b.m_check = null
 	check_structural_limits(b)
+	if moved or accelerated or b.mass != old_mass:
+		Mission.invalidate_transfers()
 	if moved or accelerated or b.mass != old_mass or b.softening != old_softening or b.type != old_type:
 		# Reclassification can change the pair potential.
 		state.energy0 = null
@@ -961,7 +988,7 @@ var _climate_frame := 0
 func _step_climate(stepped: float) -> void:
 	if not stepped > 0.0: return
 	var stars := get_stars()
-	var home := get_home()
+	var home := climate_home()
 	var shown := climate_world()
 	var waiting := 0
 	for b in state.bodies:
@@ -983,8 +1010,17 @@ func _step_climate(stepped: float) -> void:
 func climate_world() -> Body:
 	var focused := state.body_by_id(state.focus_id)
 	if focused != null and focused.climate != null: return focused
-	var home := get_home()
+	var home := climate_home()
 	return home if home != null and home.climate != null else null
+
+## The home world as the climates know it. A visit lends home_id to the world it stands on, for the
+## sky; which worlds step exactly every frame must not follow it, or the climates step differently.
+func climate_home() -> Body:
+	var v: SurfaceVisit = showcase.visit if showcase != null else null
+	if v != null and v.ready:
+		var before = v.home_before()
+		return state.body_by_id(before) if before != null else null
+	return get_home()
 
 # The panel follows climate_world(): shown or not, and sliders on that world's inputs.
 func _sync_climate_panel() -> void:
@@ -1097,7 +1133,7 @@ func _view_size() -> Vector2:
 	return Vector2(pipe.view_size)
 
 func handle_pick(pos: Vector2) -> void:
-	if state.cam_mode == "flight": return
+	if state.cam_mode == "flight" or galaxy.active: return
 	if observatory.active and state.cam_mode == "surface":
 		if not observatory.picking: observatory.sky_click(pos, _view_size())
 		return
@@ -1108,6 +1144,7 @@ func handle_pick(pos: Vector2) -> void:
 func _exit_tree() -> void:
 	# A frame on a worker reads the stage's statics; nothing may go while it runs.
 	if observatory != null: observatory.desk.finish()
+	if galaxy != null: galaxy.leave()
 	if flight != null: flight.release()
 	if model_view != null: model_view.dispose()
 	clear_bodies()
@@ -1245,7 +1282,18 @@ func _wheel(delta_y: float) -> void:
 	if model_open: model_view.wheel(delta_y)
 	elif state.cam_mode == "flight": flight.wheel(delta_y)
 	elif state.cam_mode == "orbit":
+		var before := cam.radius
 		cam.zoom_orbit(delta_y)
+		# The Solar System and the Galaxy meet at the Sun (GalaxyScene.JOIN_KPC): zooming past
+		# either scene's limit there carries on in the other, looking the same way.
+		if galaxy.active:
+			if delta_y < 0.0 and galaxy.at_join(before):
+				join_solar()
+				return
+			galaxy.clamp_radius()
+		elif delta_y > 0.0 and _at_galaxy_join(before):
+			join_galaxy()
+			return
 		update_orbit_cam()
 	elif state.cam_mode == "surface": observer.zoom(1.0 + delta_y * 0.0012)
 	else: cam.free_speed = maxf(0.5, cam.free_speed * (1.0 - delta_y * 0.001))
@@ -1267,8 +1315,11 @@ func _key(e: InputEventKey) -> void:
 				sync_warp_label()
 				return
 	if controls.matches("reset_view", e):
-		cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
-		cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
+		# The galactic scene has no orrery preset (state.preset is null there): its own framing.
+		if galaxy.active: galaxy.frame("whole")
+		else:
+			cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
+			cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 		if state.cam_mode == "orbit": update_orbit_cam()
 	if controls.matches("pause", e):
 		state.paused = not state.paused
@@ -1298,7 +1349,7 @@ func set_cam_mode(mode: String) -> void:
 		cam_near = 0.002
 		# At system speeds the planet spins tens of times a second and the sky is a
 		# blur, so entering the surface view drops to a pace where a day is watchable.
-		if not was_surface and not observatory.active: apply_regime("day")
+		if not was_surface and not observatory.active and showcase.visit == null: apply_regime("day")
 		aim_at_brightest_sun()
 	elif was_surface:
 		cam_near = 0.01
@@ -1334,6 +1385,8 @@ func aim_at_brightest_sun() -> void:
 
 # PRESET LOADING
 func load_preset(key: String) -> bool:
+	cam.roll = 0.0
+	if GalaxyScene.has_preset(key): return enter_galaxy(key)
 	if not Presets.PRESETS.has(key): return false
 	return load_preset_spec(key, Presets.PRESETS[key])
 
@@ -1374,7 +1427,8 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 		specs.append(spec)
 	# The Observatory is the solar preset on a date: another scenario ends the mode, so its
 	# clock and observer never outlive the bodies they read.
-	if observatory.active: set_app_mode("sandbox")
+	if observatory.active or showcase.active: set_app_mode("sandbox")
+	if galaxy.active: leave_galaxy()
 	clear_bodies()          # bodies, painted swarms and any flash still burning
 
 	state.preset = p
@@ -1418,6 +1472,7 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 
 	for b in state.bodies: _sync_climate(b)
 	update_suns()
+	_preset_clean = true
 
 	# Camera reset. In a hierarchical system the total barycentre is nowhere near
 	# the stars, so presets with a home world start the camera following it.
@@ -1540,7 +1595,7 @@ func paint_cloud_on(b: Body) -> void:
 # UI — everything the Hud shows is pushed from here; everything it does comes
 # back as a signal (see _bind_hud).
 func render_preset_groups() -> void:
-	hud.render_preset_groups(PRESET_GROUPS, Presets.PRESETS, state.preset_key)
+	hud.render_preset_groups(PRESET_GROUPS, U.merged(Presets.PRESETS, GalModels.PRESETS), state.preset_key)
 
 func refresh_ui() -> void:
 	if hud == null: return
@@ -1559,6 +1614,7 @@ func refresh_ui() -> void:
 	var fb := state.body_by_id(state.focus_id)
 	if fb:
 		hud.set_shown("focusPanel", true)
+		_sync_showcase_open()
 		hud.set_text("focusName", "%s · %s M☉" % [fb.name, U.expo(fb.mass, 2) if fb.mass < 0.01 else U.fixed(fb.mass, 2)])
 	else:
 		hud.set_shown("focusPanel", false)
@@ -1579,6 +1635,7 @@ func update_hud(dt: float) -> void:
 	hud.set_text("simClock", fmt_years(state.sim_years) if is_nan(state.epoch_jd) \
 		else TimeScales.readout(state.epoch_jd, state.sim_years).get_slice(" ", 0))
 
+	if foundry != null and not at_start and not state.hud_hidden: foundry.tick()
 	# Keep the open editor and diagram synchronized after physical events and edits.
 	if xsec_open and not state.hud_hidden and not hud.is_collapsed("xsecPanel"):
 		var fb := state.body_by_id(state.focus_id)
@@ -1629,12 +1686,17 @@ func set_hud_hidden(hidden: bool) -> void:
 # APP MODE — the mode is a filter, not a separate application: the physics,
 # the scene and the bodies are the same either way, and switching costs nothing.
 func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
+	var was: String = state.app_mode
 	state.app_mode = mode
 	hud.set_app_mode(mode)
+	_sync_showcase_open()
 	if mode != "learn" and lessons: lessons.close()
 	if mode != "observatory" and observatory.active:
 		observatory.leave()
 		if state.cam_mode == "surface": set_cam_mode("orbit")
+	if mode != "showcase" and showcase.active: showcase.leave()
+	# Flight, the Observatory and the showcase need the orrery's Solar System.
+	if mode in ["flight", "observatory", "showcase"] and galaxy.active: leave_galaxy()
 	if mode == "observatory":
 		close_model_viewer()
 		if flight.active: end_flight()
@@ -1642,6 +1704,20 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		var ob := _observatory_cli()
 		ob.picker = not opts.get("direct", false) or _cmd.get("picker", "0") == "1"
 		observatory.enter(ob)
+	elif mode == "showcase":
+		close_model_viewer()
+		if flight.active: end_flight()
+		var world: Body = showcase.pick_world(String(opts.get("body", _cmd.get("body", ""))))
+		if world == null:
+			toast("A showcase needs a rocky world, and this scenario has none.", 3500)
+			set_app_mode("sandbox")
+			return
+		set_panel_open("scenarioPanel", false)
+		set_panel_open("xsecPanel", false)
+		xsec_open = false
+		set_panel_open("controlPanel", true)
+		if not showcase.active: showcase.came_from = was
+		showcase.enter(world)
 	elif mode == "sandbox":
 		close_model_viewer()
 		if flight.active: end_flight()
@@ -1673,7 +1749,7 @@ func _start(m: String, direct := false) -> void:
 	if at_start and title_reel.running:
 		title_reel.stop()
 		reset_stage()
-	if at_start and state.preset == null:
+	if at_start and state.preset == null and not galaxy.active:
 		load_preset("solar" if m in ["flight", "observatory"] else "sandbox")
 	at_start = false
 	hud.dismiss_start()
@@ -1684,6 +1760,7 @@ func _start(m: String, direct := false) -> void:
 
 func quit_to_start() -> void:
 	if observatory.active: observatory.leave()
+	if showcase.active: showcase.leave()
 	close_map()
 	close_hangar()
 	hud.set_settings_open(false)
@@ -1695,6 +1772,8 @@ func quit_to_start() -> void:
 
 ## Back to an empty universe with the default camera and sky.
 func reset_stage() -> void:
+	if showcase.active: showcase.leave()
+	if galaxy.active: leave_galaxy()
 	close_map()
 	if flight.active: end_flight()
 	close_model_viewer()
@@ -1796,6 +1875,43 @@ func _init_render_settings() -> void:
 	var requested_quality := String(_cmd.get("quality", render_quality))
 	set_render_quality(requested_quality if RENDER_QUALITY.has(requested_quality) else render_quality)
 	set_lighting_quality(String(_cmd.get("lighting", lighting_quality)))
+	var metalfx_available := RenderPipeline.metalfx_available()
+	var clouds_available := FlightCloudPass.available()
+	hud.set_shown("metalFX", metalfx_available)
+	hud.set_shown("flightClouds", clouds_available)
+	if not metalfx_available and not clouds_available: return
+	var saved := JsonFile.read_dict(AppIcon.file_path)
+	var data: Dictionary = saved.data if saved.error == OK else {}
+	if metalfx_available:
+		var requested := str(_cmd.get("metalfx", data.get("metalfx", "off")))
+		set_metalfx(requested if RenderPipeline.METALFX_SCALES.has(requested) else "off", false)
+	if clouds_available:
+		var requested := str(_cmd.get("flightclouds", data.get("flight_clouds", "full")))
+		set_flight_clouds(requested == "fast", false)
+
+func set_metalfx(preset: String, persist := true) -> void:
+	if not RenderPipeline.METALFX_SCALES.has(preset) or not RenderPipeline.metalfx_available(): return
+	pipe.set_metalfx(preset)
+	for key in RenderPipeline.METALFX_SCALES:
+		hud.set_active("[data-metalfx=%s]" % key, key == pipe.metalfx)
+	if persist: _save_render_option("metalfx", preset, "MetalFX")
+
+func set_flight_clouds(fast: bool, persist := true) -> void:
+	if not FlightCloudPass.available(): return
+	pipe.fast_clouds = fast
+	hud.set_active("[data-flight-clouds=full]", not fast)
+	hud.set_active("[data-flight-clouds=fast]", fast)
+	if persist: _save_render_option("flight_clouds", "fast" if fast else "full", "Flight clouds")
+
+func _save_render_option(key: String, value: String, label: String) -> void:
+	var saved := JsonFile.read_dict(AppIcon.file_path)
+	if saved.pending or saved.error not in [OK, ERR_FILE_NOT_FOUND]:
+		toast(label + " could not be saved. " + saved.message)
+		return
+	var data: Dictionary = saved.data if saved.error == OK else {}
+	data[key] = value
+	var result := JsonFile.write_dict(AppIcon.file_path, data)
+	if result.error != OK: toast(label + " could not be saved. " + result.message)
 
 func _sync_render_quality() -> void:
 	for q in RENDER_QUALITY:
@@ -1809,6 +1925,7 @@ func set_render_quality(q: String) -> void:
 	var aa: int = {"low": Viewport.MSAA_DISABLED, "medium": Viewport.MSAA_2X, "high": Viewport.MSAA_4X, "ultra": Viewport.MSAA_4X}[q]
 	pipe.local_vp.msaa_3d = aa
 	pipe.model_vp.msaa_3d = aa
+	pipe.set_galaxy_glow_quality(q in ["low", "medium"])
 	var settings: Dictionary = RENDER_QUALITY[q]
 	var eff := pipe.set_render_scale(settings.render)
 	resize()
@@ -1993,6 +2110,7 @@ func _bind_hud() -> void:
 			hud.update_binding_labels(controls.bindings))
 	hud.mesh_style_chosen.connect(set_mesh_style)
 	hud.mode_chosen.connect(set_app_mode)
+	hud.showcase_action.connect(_on_showcase_action)
 	hud.preset_chosen.connect(load_preset)
 	hud.body_focus.connect(_on_body_focus)
 	hud.body_remove.connect(remove_body)
@@ -2010,7 +2128,11 @@ func _bind_hud() -> void:
 	hud.slider.connect(_on_slider)
 	hud.obs_site.connect(_on_obs_site)
 	hud.obs_action.connect(_on_obs_action)
+	hud.galaxy_action.connect(_on_galaxy_action)
+	galaxy.curve_chart = hud.get_el("galCurve")
 	hud.render_quality_chosen.connect(set_render_quality)
+	hud.metalfx_chosen.connect(set_metalfx)
+	hud.flight_clouds_chosen.connect(set_flight_clouds)
 	hud.lighting_quality_chosen.connect(set_lighting_quality)
 	hud.lighting_effect_chosen.connect(_toggle_lighting_effect)
 	hud.sky_solo.connect(_on_sky_solo)
@@ -2153,6 +2275,11 @@ func restate_solar(tdb_jd: float) -> void:
 
 func _on_reset_view() -> void:
 	set_follow(null)
+	if galaxy.active:
+		set_cam_mode("orbit")
+		galaxy.frame("whole")
+		update_orbit_cam()
+		return
 	cam.target.set_v(0, 0, 0); cam.offset.set_v(0, 0, 0); jump_cam_radius(float(state.preset.camRadius))
 	cam.theta = PI / 2.0 - 0.35; cam.phi = PI / 2.0
 	set_cam_mode("orbit"); update_orbit_cam()
@@ -2161,7 +2288,9 @@ func _on_sky_solo(n: String) -> void:
 	set_sky(U.merged(state.sky, {"env": {n: 1.0}}))
 
 func _on_sky_reset() -> void:
-	set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
+	# Inside a galaxy the scene's own sky is the one enter_galaxy set.
+	if galaxy.active: set_sky(preset_sky({"env": "intergalactic"}))
+	else: set_sky(preset_sky(state.preset.get("sky", {}) if state.preset else {}))
 	toast("Sky reset to the scenario’s own")
 
 func _on_sky_adv_clear() -> void:
@@ -2169,6 +2298,8 @@ func _on_sky_adv_clear() -> void:
 
 func _on_fx_reset() -> void:
 	set_render_quality("medium")
+	set_metalfx("off")
+	set_flight_clouds(false)
 	set_lighting_quality("low")
 	set_mesh_style("lines")
 
@@ -2179,6 +2310,84 @@ func _on_sim_reset() -> void:
 	state.disc_intensity = float(p.get("discIntensity", 0.9))
 	hud.set_slider("disc", state.disc_intensity, U.fixed(state.disc_intensity, 2))
 	sync_sim_controls()
+
+# A lesson owns the stage while it runs: a showcase opened from its focus panel would end it.
+func _sync_showcase_open() -> void:
+	var fb := state.body_by_id(state.focus_id)
+	hud.set_shown("showcaseOpen", fb != null and fb.climate != null and state.app_mode != "learn")
+
+func _on_showcase_action(kind: String) -> void:
+	match kind:
+		"open": set_app_mode("showcase", {"body": ""})
+		"leave": set_app_mode(showcase.came_from if showcase.came_from in ["sandbox", "learn", "observatory"] else "sandbox")
+		"pin": showcase.drop_pin()
+		"stand": showcase.stand()
+		"back": showcase.leave_surface()
+		"day":
+			if showcase.visit != null: showcase.visit.turn_to_noon(0.65)
+		"auto":
+			state.pin_on_focus = not state.pin_on_focus
+			hud.set_active("pinOnFocusToggle", state.pin_on_focus)
+			hud.set_button_text("pinOnFocusToggle", ("☑" if state.pin_on_focus else "☐") + " Drop a pin on focus")
+			showcase.sync_hud()
+
+# THE GALACTIC SCENE (sim/galaxy/): its own world in kpc and Myr. The orrery's bodies
+# are cleared on the way in; leaving restores the default sky and an empty stage.
+func enter_galaxy(key: String) -> bool:
+	if observatory.active or showcase.active: set_app_mode("sandbox")
+	close_map()
+	if flight.active: end_flight()
+	close_model_viewer()
+	clear_bodies()
+	state.preset = null
+	state.preset_key = key
+	state.home_id = null
+	state.focus_id = null
+	state.follow_id = null
+	state.suns.clear()
+	state.show_lens = false
+	state.lensing = false
+	state.show_mesh = false
+	spacetime_mesh.node.visible = false
+	set_cam_mode("orbit")
+	cam_fov = 50.0
+	# Between galaxies: no Milky Way in the background; the scene draws its own.
+	set_sky(preset_sky({"env": "intergalactic"}))
+	set_band(Spectrum.VISIBLE_BAND)
+	galaxy.enter(key)
+	pipe.set_galaxy_view(true)
+	hud.set_galaxy_scene(true)
+	hud.set_text("presetName", String(galaxy.preset.name))
+	hud.set_text("blurb", String(galaxy.preset.get("blurb", "")))
+	hud.set_slider("galExposure", 0.0, "1×")
+	render_preset_groups()
+	refresh_ui()
+	return true
+
+func leave_galaxy() -> void:
+	galaxy.leave()
+	pipe.set_galaxy_view(false)
+	hud.set_galaxy_scene(false)
+	state.preset_key = ""
+	set_sky(SimState.new().sky)
+
+func _on_galaxy_action(action: String, arg) -> void:
+	if not galaxy.active: return
+	match action:
+		"rate":
+			state.paused = float(arg) <= 0.0
+			if float(arg) > 0.0: galaxy.set_rate(float(arg))
+			galaxy.sync_hud()
+		"frame": galaxy.frame(String(arg))
+		"landmark": galaxy.fly(String(arg))
+		"layer":
+			var v := galaxy.visual
+			if v == null: return
+			match String(arg):
+				"tracers": v.show_tracers = not v.show_tracers
+				"stars": v.show_stars = not v.show_stars
+				"glow": v.show_glow = not v.show_glow
+			galaxy.sync_hud()
 
 func _on_climate_reset() -> void:
 	var world := climate_world()
@@ -2355,6 +2564,10 @@ func _on_model_fly() -> void:
 	if k: launch_craft(k)
 
 func _on_slider(id: String, v: float) -> void:
+	if id == "galExposure":
+		if galaxy.visual != null: galaxy.visual.exposure = pow(10.0, v)
+		hud.set_text("galExposure-val", "%s×" % U.fixed(pow(10.0, v), 2 if v < 0.0 else 1))
+		return
 	if id.begins_with("obs"):
 		_on_obs_slider(id, v)
 		return
@@ -2650,14 +2863,23 @@ const FXLAB := "res://tools/fxlab.tscn"
 
 # OBJECT FOUNDRY + CROSS-SECTION
 func _build_foundry() -> void:
-	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": _on_foundry_spawn})
+	foundry = Foundry.create_foundry({"mount": hud.mount("foundry"), "on_spawn": _on_foundry_spawn, "site": place_spawn, "context": _foundry_context})
 	inspector = Foundry.create_inspector({"mount": hud.mount("xsecCanvas")})
 	# The live editor shares the cross-section panel.
-	live_editor = Foundry.create_live_editor({"mount": hud.mount("liveEdit"), "on_edit": _on_live_edit})
+	live_editor = Foundry.create_live_editor({"mount": hud.mount("liveEdit"), "on_edit": _on_live_edit, "context": _foundry_context})
 
-func _on_foundry_spawn(spec: Dictionary, structure) -> void:
-	var b := spawn_body(place_spawn(U.merged(spec, {"seed": randi() % 1000000000, "atmosphere": spec.type == "planet"})))
+## What the composition editor's preview reads of the stage: never anything it writes.
+func _foundry_context() -> Dictionary:
+	var ctx := {"stars": get_stars(), "run_seed": int(_cmd.get("seed", 0)),
+		"at_rest": state.spawn_at_rest or state.bodies.is_empty()}
+	var center := _dominant()
+	if center != null: ctx.dominant = center.pos
+	return ctx
+
+func _on_foundry_spawn(spec: Dictionary, structure, plan: Dictionary = {}) -> void:
+	var b := spawn_body(place_spawn(U.merged({"seed": randi() % 1000000000}, spec), plan))
 	if b == null: return
+	if not plan.is_empty(): rest_spawn_angle += 2.399963
 	set_follow(b)
 	# A star built at the end of its life collapses shortly after it is placed.
 	if spec.type == "star" and float(spec.get("phase", 0.0)) >= 1.93:
@@ -2776,9 +2998,25 @@ func _build_stage() -> void:
 		"cam_pos": _stage_cam_pos,
 		"main": self,
 		"toast": toast,
+		"galaxy": _stage_galaxy,
+		"galaxy_curve": _stage_galaxy_curve,
 	}
 
-func _stage_has_preset(k: String) -> bool: return Presets.PRESETS.has(k)
+func _stage_has_preset(k: String) -> bool: return Presets.PRESETS.has(k) or GalaxyScene.has_preset(k)
+
+## A lesson's request of the galactic scene (GalaxyScene.request_error validates it): a
+## framing, a landmark to fly to, and a clock rate (0 pauses).
+func _stage_galaxy(req: Dictionary) -> void:
+	if not galaxy.active or not GalaxyScene.request_error(req, galaxy.model).is_empty(): return
+	if req.has("frame"): galaxy.frame(String(req.frame))
+	if req.has("landmark"): galaxy.fly(String(req.landmark))
+	if req.has("rate"): _on_galaxy_action("rate", float(req.rate))
+
+## What a rotation-curve instrument measures: the live tracers and the model's potential, or
+## null outside a galaxy that has them.
+func _stage_galaxy_curve():
+	if not galaxy.active or galaxy.tracers == null or not galaxy.model.has("potential"): return null
+	return [galaxy.tracers, galaxy.model.potential]
 func _stage_current_preset() -> String: return state.preset_key
 func _stage_bodies() -> Array: return state.bodies
 func _stage_focus_body(): return state.body_by_id(state.focus_id)
@@ -2788,6 +3026,60 @@ func _stage_cam_pos() -> DVec3: return cam_pos
 func _stage_set_mesh(on) -> void: toggle_mesh(bool(on))
 func _stage_set_paused(p) -> void: state.paused = bool(p)
 func _stage_set_control(id: String, value) -> void: hud.drive_slider(id, float(value))
+
+## At the Solar System's widest view of the Sun, about to zoom out of it?
+## Only from the Solar System as loaded, and not under a lesson card: the join replaces the
+## scene, so it never takes someone's spawns or edits, or the stage a lesson is using.
+func _at_galaxy_join(radius: float) -> bool:
+	if state.preset_key != "solar" or not _preset_clean or (lessons != null and lessons.active): return false
+	if radius < OrreryCamera.MAX_REQUEST_RADIUS * (1.0 - 1e-9): return false
+	var sun := state.body_named("Sun")
+	return sun != null and state.follow_id == sun.id and absf(state.scene_scale - 1.0) < 1e-12
+
+## The camera's direction from its target, in the current scene's frame.
+func _view_direction() -> Vector3:
+	return Vector3(sin(cam.theta) * cos(cam.phi), cos(cam.theta), sin(cam.theta) * sin(cam.phi))
+
+func _look_from(d: Vector3) -> void:
+	var u := d.normalized()
+	cam.theta = acos(clampf(u.y, -1.0, 1.0))
+	cam.phi = atan2(u.z, u.x)
+
+## Out of the Solar System into the Galaxy at the Sun: the same direction, the same 20 000 AU.
+func join_galaxy() -> void:
+	var d := _view_direction()
+	var up := cam_basis.y
+	if not load_preset("gal_milkyway"): return
+	galaxy.frame("sun")
+	if not galaxy.follow_sun: return
+	var sun := galaxy.sun_basis()
+	_look_from(GalaxyScene.solar_to_galaxy(d, sun))
+	jump_cam_radius(GalaxyScene.JOIN_KPC)
+	_match_roll(GalaxyScene.solar_to_galaxy(up, sun))
+
+## From the Sun in the Galaxy into the Solar System, following the Sun from its widest view.
+func join_solar() -> void:
+	var d := GalaxyScene.galaxy_to_solar(_view_direction(), galaxy.sun_basis())
+	var up := GalaxyScene.galaxy_to_solar(cam_basis.y, galaxy.sun_basis())
+	if not load_preset("solar"): return
+	var sun := state.body_named("Sun")
+	if sun == null: return
+	state.follow_id = sun.id
+	state.focus_id = sun.id
+	cam.target.set_v(sun.scene_pos.x, sun.scene_pos.y, sun.scene_pos.z)
+	cam.offset.set_v(0, 0, 0)
+	_look_from(d)
+	jump_cam_radius(OrreryCamera.MAX_REQUEST_RADIUS)
+	_match_roll(up)
+	refresh_ui()
+
+## The new scene's view turned about its line of sight to keep the old one's up, the turn
+## then easing away (OrreryCamera.roll).
+func _match_roll(up: Vector3) -> void:
+	cam.roll = 0.0
+	update_orbit_cam()
+	cam.roll = OrreryCamera.roll_onto(cam_basis, up)
+	update_orbit_cam()
 
 func _stage_set_focus(n: String) -> void:
 	var b := state.body_named(n)
@@ -2968,6 +3260,20 @@ func _shot_tick() -> void:
 			flight.pad_orbit(deg_to_rad(float(_cmd.get("padaz", "0"))),
 				float(_cmd.get("padel", "0")), 1.0)
 		if _cmd.has("timescale"): set_time_scale(float(_cmd.timescale))
+		# The galactic scene: `galframe=whole|face|edge|sun|centre`, `galt=<Myr>` steps its
+		# tracers that far first (undrawn), `galrate=<Myr/s>`, `galhide=<layers>`, `galexposure=<factor>`.
+		if galaxy.active:
+			galaxy.wait_tracers()
+			if _cmd.has("galframe"): galaxy.frame(String(_cmd.galframe))
+			# `gallandmark=<id>` flies to a landmark (GalLandmarks) and shows its card.
+			if _cmd.has("gallandmark"): galaxy.fly(String(_cmd.gallandmark))
+			if _cmd.has("galrate"): galaxy.set_rate(float(_cmd.galrate))
+			# `galhide=tracers,stars,glow` leaves layers out of an evidence frame.
+			for l in String(_cmd.get("galhide", "")).split(",", false): _on_galaxy_action("layer", l)
+			if _cmd.has("galexposure"): _on_slider("galExposure", U.log10(float(_cmd.galexposure)))
+			if _cmd.has("galt") and galaxy.tracers != null:
+				galaxy.tracers.step(int(round(float(_cmd.galt) / GalTracers.DT)))
+				galaxy.t_myr = galaxy.tracers.t
 		if _cmd.get("paused", "0") == "1": state.paused = true
 		# Through the stage's panel verb, so `panel=xsecPanel` opens on the focused body.
 		if _cmd.has("panel"):
@@ -3075,6 +3381,9 @@ func animate(dt: float) -> void:
 		var coordinate_seconds := step_flight(dt)
 		sim_stepped = coordinate_seconds / Rocketry.YR_S
 		flight.finish_frame(dt, coordinate_seconds)
+	elif galaxy.active:
+		# Its own clock in Myr; the orrery's years do not move.
+		galaxy.step(dt)
 	else:
 		sim_stepped = step_physics(sim_dt)
 	run_pending_collapse()
@@ -3105,6 +3414,7 @@ func animate(dt: float) -> void:
 			var fb := state.body_by_id(state.follow_id)
 			if fb: cam.track_follow(fb, dt)
 		cam.ease_radius(dt)
+		cam.ease_roll(dt)
 		update_orbit_cam()
 
 	if state.cam_mode != "surface" and state.cam_mode != "flight" and not reel_cam:
@@ -3155,7 +3465,7 @@ func animate(dt: float) -> void:
 		if b.marker == null or not drawn: continue
 		# The Observatory keeps the planets' markers: at true scale they are points. The Moon
 		# never is, and a point would hide its phase.
-		if state.cam_mode == "surface" and not (observatory.active and b != home and b.type != "star" and b.name != "Moon"):
+		if state.cam_mode == "surface" and not ((observatory.active or showcase.visit != null) and b != home and b.type != "star" and b.name != "Moon"):
 			b.marker.mesh.visible = false
 			continue
 		# The observer in AU: the camera's offset from the body, unscaled.
@@ -3222,7 +3532,7 @@ func animate(dt: float) -> void:
 	# ---- surface view: the sky composite runs over the scene, the home world is
 	# hidden (we are standing on it) and so is the spacetime slab
 	if state.cam_mode == "surface" and home:
-		if observatory.local_pass(): pipe.surface_pass = null
+		if observatory.local_pass() or showcase.local_pass(): pipe.surface_pass = null
 		else:
 			_surface_frame(home, dt)
 			pipe.surface_pass = sky_pass
@@ -3231,11 +3541,13 @@ func animate(dt: float) -> void:
 	else:
 		pipe.surface_pass = null
 		if home and home.viz: home.viz.group.visible = true
-		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active)
+		spacetime_mesh.node.visible = state.show_mesh and not (state.cam_mode == "flight" and flight.active) and not showcase.active
 
 	observatory.update(dt)
-	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass()
+	showcase.update(dt, sim_stepped)
+	var local_pass: bool = (state.cam_mode == "flight" and flight.active) or (at_start and title_reel.local_overlay) or observatory.local_pass() or showcase.local_pass()
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if local_pass else RenderPipeline.Mode.ORRERY)
+	galaxy.update(dt)
 	pipe.prepare_frame(lens_params, state.time)
 	update_hud(dt)
 
@@ -3270,6 +3582,7 @@ func _surface_frame(_home: Body, dt: float) -> void:
 ## near plane, and its eye (a DVec3) becomes the floating origin.
 func _observe(home: Body) -> void:
 	if observatory.active: observatory.place(observer, home, pipe.scene_cam)
+	elif showcase.visit != null: showcase.visit.place(observer, home, pipe.scene_cam)
 	else: observer.update(home, pipe.scene_cam)
 	cam_pos.copy_from(observer.eye)
 	cam_basis = pipe.scene_cam.transform.basis

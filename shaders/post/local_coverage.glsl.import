@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://nwbb6gi8r47h"
+path="res://.godot/imported/local_coverage.glsl-c8800f9e2cc953977ff78920d90e60c9.res"
+
+[deps]
+
+source_file="res://shaders/post/local_coverage.glsl"
+dest_files=["res://.godot/imported/local_coverage.glsl-c8800f9e2cc953977ff78920d90e60c9.res"]
+
+[params]
+

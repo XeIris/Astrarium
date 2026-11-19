@@ -174,12 +174,14 @@ func _ready() -> void:
 	stage._start("sandbox")
 	stage.lessons.store = ""
 	await run_case("solar visible", preset("solar"))
+	await run_case("solar infrared", preset("solar", 2))
 	await run_case("solar x-ray", preset("solar", 5))
 	await run_case("solar radio", preset("solar", 0))
 	await run_case("solar boosted", preset("solar", Spectrum.VISIBLE_BAND, false, Vector3(0.0, 0.0, -0.6)))
 	await run_case("sandbox lensed", preset("sandbox", Spectrum.VISIBLE_BAND, true))
 	await run_case("bhmerger lensed", preset("bhmerger", Spectrum.VISIBLE_BAND, true))
 	await run_case("bhmerger lensed x-ray", preset("bhmerger", 5, true))
+	await run_case("sandbox lensed gamma", preset("sandbox", 6, true))
 	if not dump.is_empty():
 		var atlas: Image = stage.pipe.sky_cache.viewport.get_texture().get_image()
 		atlas.convert(Image.FORMAT_RGBA8)

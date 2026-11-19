@@ -108,15 +108,17 @@ static func pack(vals: Array) -> PackedByteArray:
 	return f.to_byte_array()
 
 ## Dispatch `k` over a w×h grid in 8×8 groups (every kernel here declares
-## local_size 8×8). Godot invalidates cached uniform sets when their dependent RIDs are freed.
-static func dispatch(k: Kernel, uniforms: Array[RDUniform], w: int, h: int, push := PackedByteArray()) -> void:
+## local_size 8×8). `specialized` is an optional pipeline for the same shader.
+## Godot invalidates cached uniform sets when their dependent RIDs are freed.
+static func dispatch(k: Kernel, uniforms: Array[RDUniform], w: int, h: int,
+		push := PackedByteArray(), specialized := RID()) -> void:
 	if not k.valid():
 		return
 	var dev := rd()
 	if profiling: dev.capture_timestamp("astrarium:start:" + k.path)
 	var us := UniformSetCacheRD.get_cache(k.shader, 0, uniforms) if cache_uniforms else dev.uniform_set_create(uniforms, k.shader, 0)
 	var cl := dev.compute_list_begin()
-	dev.compute_list_bind_compute_pipeline(cl, k.pipeline)
+	dev.compute_list_bind_compute_pipeline(cl, specialized if specialized.is_valid() else k.pipeline)
 	dev.compute_list_bind_uniform_set(cl, us, 0)
 	if push.size() > 0:
 		dev.compute_list_set_push_constant(cl, push, push.size())

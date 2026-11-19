@@ -35,6 +35,7 @@ var dest: Body = null
 var goal := "orbit"
 var plan := {}
 var _plan_age := 99.0
+var _transfer_search := Mission.TransferSearch.new()
 var hover: Body = null
 var _press := Vector2.ZERO
 var _dragging := false
@@ -83,6 +84,7 @@ func open(f) -> void:
 	if flight.mission != null and dest == null:
 		dest = flight.mission.dest
 		goal = flight.mission.goal
+	plan = {}
 	_plan_age = 99.0
 	_card_key = ""
 
@@ -165,6 +167,7 @@ func _frame_on(b: Body, instant := false) -> void:
 # FRAME
 
 func _process(dt: float) -> void:
+	var transfer_ready := _transfer_search.poll()
 	if not visible or flight == null or flight.vessel == null: return
 	k = exp(lerpf(log(k), log(_k_goal), 1.0 - exp(-dt * 10.0)))
 	if follow != null and follow.alive:
@@ -172,11 +175,13 @@ func _process(dt: float) -> void:
 	elif follow_ship:
 		center.copy_from(ship_pos())
 	_plan_age += dt
-	if dest != null and _plan_age > 0.5:
-		_plan_age = 0.0
-		plan = Mission.plan_route(flight.vessel, dest, goal) if dest.alive else {}
+	if dest != null and (transfer_ready or _plan_age > 0.5): _refresh_plan()
 	_update_card()
 	queue_redraw()
+
+func _refresh_plan() -> void:
+	_plan_age = 0.0
+	plan = Mission.plan_route(flight.vessel, dest, goal, _transfer_search) if dest.alive else {}
 
 func _draw() -> void:
 	if flight == null or flight.vessel == null: return
@@ -388,16 +393,16 @@ func _dashed(pts: PackedVector2Array, col: Color, w: float, on: float, off: floa
 func frame_route() -> void:
 	if dest == null or flight.vessel == null: return
 	var v: Vessel = flight.vessel
-	var p := Mission.plan_route(v, dest, goal)
-	match str(p.get("case", "")):
+	_refresh_plan()
+	match str(plan.get("case", "")):
 		"planet", "other":
-			var C: Body = p.get("primary", v.parent)
+			var C: Body = plan.get("primary", v.parent)
 			follow = C
 			follow_ship = false
 			var reach := maxf(C.pos.distance_to(dest.pos), C.pos.distance_to(v.parent.pos)) * 1.3
 			_k_goal = clampf(minf(size.x, size.y) * 0.45 / reach, ZOOM_MIN, ZOOM_MAX)
 		"moon", "parent":
-			var C2: Body = v.parent if p.case == "moon" else dest
+			var C2: Body = v.parent if plan.case == "moon" else dest
 			_frame_on(C2)
 
 func _draw_scale() -> void:
@@ -506,8 +511,9 @@ func _open_menu(b: Body, at: Vector2) -> void:
 	_menu_body = b
 	if b != null:
 		_menu.add_item("Orbit %s" % b.name, MENU_ORBIT)
-		var land := Mission.plan_route(flight.vessel, b, "land")
 		if b.type != "star":
+			# Landing eligibility depends on the vehicle and destination, not the window.
+			var land := Mission.plan_route(flight.vessel, b, "land", null, false)
 			_menu.add_item("Land on %s" % b.name, MENU_LAND)
 			_menu.set_item_disabled(_menu.get_item_index(MENU_LAND), not land.ok or land.why != "")
 			if land.why != "": _menu.set_item_tooltip(_menu.get_item_index(MENU_LAND), str(land.why))
@@ -528,9 +534,9 @@ func _on_menu(id: int) -> void:
 		MENU_ORBIT, MENU_LAND:
 			dest = _menu_body
 			goal = "land" if id == MENU_LAND else "orbit"
-			_plan_age = 99.0
 			_card_key = ""
 			frame_route()
+			_update_card()
 		MENU_FOCUS: if _menu_body != null: _frame_on(_menu_body)
 		MENU_SHIP:
 			follow = null; follow_ship = true
@@ -544,6 +550,7 @@ func _on_menu(id: int) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED: _place_card()
 	elif what == NOTIFICATION_PREDELETE:
+		_transfer_search.finish()
 		for job in _halo_busy.values(): WorkerThreadPool.wait_for_task_completion(int(job.id))
 		_halo_busy.clear()
 
@@ -560,7 +567,7 @@ func _update_card() -> void:
 	if not card.visible: return
 	var key := ""
 	if running: key = "run|%s|%d|%s" % [m.title(), m.leg, m.status]
-	else: key = JSON.stringify([dest.name if dest else "", goal, int(float(plan.get("dv", 0.0)) / 50.0), int(float(plan.get("wait", 0.0)) / 86400.0), plan.get("why", ""), plan.get("flyable", false)])
+	else: key = JSON.stringify([dest.name if dest else "", goal, int(float(plan.get("dv", 0.0)) / 50.0), int(float(plan.get("wait", 0.0)) / 86400.0), plan.get("why", ""), plan.get("flyable", false), plan.get("pending", false)])
 	if key == _card_key: return
 	_card_key = key
 	Hud._clear(card.body)
@@ -576,6 +583,9 @@ const ROW_V := {"fs": 9.5, "c": HudTheme.TEXT}
 func _card_route() -> void:
 	var body := card.body
 	Hud.label(body, ("Land on %s" if goal == "land" else "To %s") % dest.name, H_BIG)
+	if plan.get("pending", false):
+		Hud.m(Hud.label(body, "Calculating transfer…", H_SUB), 4.0, 0.0)
+		return
 	Hud.m(Hud.label(body, str(plan.type) if plan.type != "" else "—", H_SUB), 4.0, 14.0)
 	var ok: bool = plan.flyable
 	var spare: float = float(plan.dv_avail) - float(plan.dv)

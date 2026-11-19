@@ -74,6 +74,9 @@ func _walk() -> void:
 				var step: Dictionary = steps[i]
 				var where := "%s#%d \"%s\"" % [key, i + 1, step.title]
 				if i > 0: L.next()
+				# The galactic scene builds its tracers and stars on a worker; a learner sees
+				# them a moment later, the walk waits for them.
+				if main.galaxy.active: main.galaxy.wait_tracers()
 				main.animate(DT)
 				main.animate(DT)
 				report.steps += 1
@@ -146,5 +149,12 @@ func _check(where: String, step: Dictionary) -> void:
 	if d.get("panel") is Dictionary:
 		for id in d.panel:
 			if hud.get_el(id) == null: report.errors.append("%s: no panel \"%s\"" % [where, id])
-	if d.get("preset") and not (d.preset in ["edu_galaxy", "edu_cluster", "blank"]) and state.bodies.is_empty():
+	if d.has("galaxy"):
+		if not main.galaxy.active: report.errors.append("%s: a galaxy request outside the galactic scene" % where)
+		else:
+			var galaxy_error := GalaxyScene.request_error(d.galaxy, main.galaxy.model)
+			if not galaxy_error.is_empty(): report.errors.append("%s: %s" % [where, galaxy_error])
+	if step.get("instrument") == "rotation" and main._stage_galaxy_curve() == null:
+		report.errors.append("%s: a rotation curve with no galaxy tracers to measure" % where)
+	if d.get("preset") and not (d.preset in ["edu_galaxy", "edu_cluster", "blank"]) and not GalaxyScene.has_preset(d.preset) and state.bodies.is_empty():
 		report.errors.append("%s: scenario \"%s\" built no bodies" % [where, d.preset])

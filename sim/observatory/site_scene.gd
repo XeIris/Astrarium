@@ -60,7 +60,7 @@ func build(site_key: String) -> void:
 	_mat.set_shader_parameter("uFields", g[5])
 	_load_grids(key, d.flats)
 	for grid_i in _grids.size():
-		group.add_child(_terrain_mesh(grid_i))
+		group.add_child(terrain_mesh(_grids, grid_i, patch_y, Rocketry.FIGURES.Earth.a, _mat))
 	if not force_fallback and ResourceLoader.exists(LIBRARY):
 		var packed := load(LIBRARY) as PackedScene
 		if packed != null:
@@ -156,19 +156,20 @@ static func sample(grids: Array, e: float, n: float) -> float:
 		return lerpf(lerpf(h[j * w + i], h[j * w + i + 1], tx), lerpf(h[(j + 1) * w + i], h[(j + 1) * w + i + 1], tx), ty)
 	return 0.0
 
-func _terrain_mesh(gi: int) -> MeshInstance3D:
-	var g: Dictionary = _grids[gi]
+## A grid as a mesh: x west, y up, z north, the planet curving away by `R`. With `sea`, cells at sea
+## level tuck under the sea; `channel` (log₁₀ drainage area per cell) rides in UV2.y for rivers.
+static func terrain_mesh(grids: Array, gi: int, patch_y: float, R: float, mat: Material, sea := true, channel := PackedFloat32Array()) -> MeshInstance3D:
+	var g: Dictionary = grids[gi]
 	var n: int = g.n
 	var half: float = g.half
 	var h: PackedFloat32Array = g.h
 	var step := 2.0 * half / float(n - 1)
 	var far := gi > 0
-	var near_half: float = _grids[0].half
+	var near_half: float = grids[0].half
 	var verts := PackedVector3Array(); verts.resize(n * n)
 	var norms := PackedVector3Array(); norms.resize(n * n)
 	var uv := PackedVector2Array(); uv.resize(n * n)
 	var uv2 := PackedVector2Array(); uv2.resize(n * n)
-	var R: float = Rocketry.FIGURES.Earth.a
 	for j in n:
 		var dn := -half + j * step
 		for i in n:
@@ -177,13 +178,13 @@ func _terrain_mesh(gi: int) -> MeshInstance3D:
 			var idx := j * n + i
 			var drawn := y
 			# The sea belongs to the planet's patch, and the far grid tucks under the near.
-			if y <= 0.5: drawn = -40.0
+			if sea and y <= 0.5: drawn = -40.0
 			elif far and absf(de) < near_half and absf(dn) < near_half: drawn = y - 6.0
 			# The far grid's rim drops to the patch rather than ending in a step.
 			if far and (i == 0 or j == 0 or i == n - 1 or j == n - 1): drawn = minf(drawn, patch_y - 30.0)
 			verts[idx] = Vector3(-de, drawn - (de * de + dn * dn) / (2.0 * R), dn)
 			uv[idx] = Vector2(de, dn)
-			uv2[idx] = Vector2(y, 0.0)
+			uv2[idx] = Vector2(y, channel[idx] if not channel.is_empty() else 0.0)
 			var ix0 := maxi(i - 1, 0); var ix1 := mini(i + 1, n - 1)
 			var jy0 := maxi(j - 1, 0); var jy1 := mini(j + 1, n - 1)
 			var dhde := (h[j * n + ix1] - h[j * n + ix0]) / ((ix1 - ix0) * step)
@@ -218,7 +219,7 @@ func _terrain_mesh(gi: int) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = "terrain_%d" % gi
 	mi.mesh = mesh
-	mi.material_override = _mat
+	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.custom_aabb = AABB(Vector3(-1e5, -1e4, -1e5), Vector3(2e5, 2e4, 2e5))
 	return mi

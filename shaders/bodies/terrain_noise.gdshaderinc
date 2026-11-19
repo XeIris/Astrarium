@@ -12,12 +12,26 @@ float sstep(float e0, float e1, float x) {
 	return t * t * (3.0 - 2.0 * t);
 }
 
+#ifdef TERRAIN_EXACT
+// PCG3D (Jarzynski & Olano 2020) on the lattice cell. Integers are exact on the CPU too, so the
+// crust can be read off a pin (sim/planet_relief.gd), where a GPU's sin cannot be reproduced.
+uvec3 pcg3d(uvec3 v) {
+	v = v * 1664525u + 1013904223u;
+	v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+	v ^= v >> uvec3(16u);
+	v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+	return v;
+}
+float hash(vec3 p) { return float(pcg3d(uvec3(ivec3(floor(p)))).x >> 8u) / 16777216.0; }
+vec3 hash33(vec3 p) { return vec3(pcg3d(uvec3(ivec3(floor(p)))) >> uvec3(8u)) / 16777216.0; }
+#else
 float hash(vec3 p) { return fract(sin(dot(p, vec3(17.1, 113.5, 7.9))) * 43758.5453); }
 vec3 hash33(vec3 p) {
 	return fract(sin(vec3(dot(p, vec3(127.1, 311.7, 74.7)),
 	                      dot(p, vec3(269.5, 183.3, 246.1)),
 	                      dot(p, vec3(113.5, 271.9, 124.6)))) * 43758.5453);
 }
+#endif
 float noise(vec3 p) {
 	vec3 i = floor(p);
 	vec3 f = fract(p);

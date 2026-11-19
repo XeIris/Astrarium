@@ -27,7 +27,7 @@ func _ready() -> void:
 	var requested_size := get_window().size
 	if args.get("assets", "1") == "0":
 		for id in CraftAssets.CRAFT_ASSETS: CraftAssets.CACHE[id] = null
-	# The app icon and the developer switch are saved here, never in the user's file.
+	# Isolate saved application settings from the real user's file.
 	app_file = _temp_dir().path_join("astrarium-hudcheck-app-%d.json" % OS.get_process_id())
 	AppIcon.file_path = app_file
 	main = load("res://main.tscn").instantiate()
@@ -62,6 +62,8 @@ func _ready() -> void:
 	if args.get("htest", "0") == "1":
 		await _interaction_walk()
 		await _climate_walk()
+		await _composition_walk()
+		await _showcase_walk()
 		print("HUDCHECK TEST %d passed, %d failed" % [passes, fails])
 	if args.get("hlayout", "0") == "1":
 		await _layout_walk()
@@ -156,6 +158,39 @@ func _setup(s: String) -> void:
 			hud.set_section_open(hud.section("Object Foundry"), true)
 			await _steps(2)
 			_reveal(hud.mount("foundry"))
+		"foundry_comp", "foundry_ice", "foundry_venus", "foundry_mars":
+			await _start("sandbox")
+			main.load_preset("solar")
+			main.state.paused = true
+			hud.set_section_open(hud.section("Object Foundry"), true)
+			main.foundry.set_type("planet")
+			main.foundry.plan.a_au = 1.0
+			main.foundry.orbit.set_v(0.0)
+			main.foundry._orbit_set = true
+			var mix: String = {"foundry_comp": "earth", "foundry_ice": "ocean", "foundry_venus": "venus", "foundry_mars": "mars"}[s]
+			if s == "foundry_ice": main.foundry.plan.a_au = 2.5
+			if s == "foundry_venus": main.foundry.plan.a_au = 0.72
+			if s == "foundry_mars": main.foundry.plan.a_au = 1.52
+			main.foundry.comp._on_mix(mix)
+			await _steps(2)
+			_reveal(main.foundry.comp.note_el)
+			_reveal(main.foundry.comp.pie)
+			await _steps(2)
+		"showcase":
+			await _start("sandbox")
+			main.load_preset("solar")
+			main.set_app_mode("showcase", {"body": "Earth"})
+			for i in 300: main.animate(1.0 / 60.0)
+			await _steps(3)
+		"xsec_comp":
+			await _start("sandbox")
+			main.load_preset("solar")
+			main.state.paused = true
+			main._stage_set_focus("Earth")
+			main.open_cross_section(true)
+			await _steps(2)
+			_reveal(main.live_editor.comp.note_el)
+			await _steps(2)
 		"xsec", "xsec_focus", "xsec_measured", "xsec_tiny":
 			await _start("sandbox")
 			if s in ["xsec_measured", "xsec_tiny"]:
@@ -323,6 +358,48 @@ func _move(p: Vector2, rel := Vector2.ZERO, held := true) -> void:
 	m.button_mask = MOUSE_BUTTON_MASK_LEFT if held else 0
 	_push(m)
 	await get_tree().process_frame
+
+func _check_metalfx_settings() -> void:
+	var available := RenderPipeline.metalfx_available()
+	var settings: Control = hud.get_el("metalFX")
+	check("MetalFX controls follow renderer support", settings.is_visible_in_tree() == available)
+	if not available: return
+	var pipe: RenderPipeline = main.pipe
+	var size := pipe.render_size
+	var saved_band: int = pipe.postfx.band
+	main.set_band(Spectrum.VISIBLE_BAND)
+	for preset in ["quality", "performance", "balanced"]:
+		await _click(_find("[data-metalfx=%s]" % preset))
+		var scale: float = RenderPipeline.METALFX_SCALES[preset]
+		var match_scale := [pipe.scene_vp, pipe.local_vp, pipe.model_vp].all(func(vp: SubViewport) -> bool:
+			return vp.scaling_3d_mode == Viewport.SCALING_3D_MODE_METALFX_SPATIAL \
+				and is_equal_approx(vp.scaling_3d_scale, scale) and vp.get_texture().get_size() == Vector2(size))
+		check("MetalFX %s keeps the framebuffer and MSAA" % preset,
+			match_scale and pipe.metalfx == preset and pipe.render_size == size and pipe.local_vp.msaa_3d == Viewport.MSAA_2X)
+	main.set_band(Spectrum.VISIBLE_BAND + 1)
+	check("MetalFX preserves per-pixel spectral inputs", pipe.scene_vp.scaling_3d_scale == 1.0
+		and pipe.local_vp.scaling_3d_scale == 1.0 and pipe.temp_vp.scaling_3d_scale == 1.0
+		and pipe.model_vp.scaling_3d_scale < 1.0)
+	main.set_band(saved_band)
+	main.set_metalfx("off", false)
+	main._init_render_settings()
+	check("MetalFX reloads the saved preset", pipe.metalfx == "balanced")
+	main.set_render_quality("medium")
+	await _click(_find("[data-metalfx=off]"))
+	check("MetalFX Off restores the original raster", pipe.metalfx == "off" and pipe.scene_vp.scaling_3d_scale == 1.0)
+
+func _check_flight_cloud_settings() -> void:
+	var available := FlightCloudPass.available()
+	var settings: Control = hud.get_el("flightClouds")
+	check("Local cloud controls follow renderer support", settings.is_visible_in_tree() == available)
+	if not available: return
+	await _click(_find("[data-flight-clouds=fast]"))
+	check("Performance clouds selected", main.pipe.fast_clouds)
+	main.set_flight_clouds(false, false)
+	main._init_render_settings()
+	check("Local clouds reload the saved option", main.pipe.fast_clouds)
+	await _click(_find("[data-flight-clouds=full]"))
+	check("Full-resolution clouds restored", not main.pipe.fast_clouds)
 
 func _click(c: Control) -> bool:
 	if c == null or not c.is_visible_in_tree():
@@ -549,6 +626,8 @@ func _interaction_walk() -> void:
 	check("Low disables flight/studio MSAA and flight cloud mode", main.render_quality == "low" and main.flight.local.render_quality == "low" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_DISABLED and main.pipe.model_vp.msaa_3d == Viewport.MSAA_DISABLED)
 	await _click(_find("[data-render-quality=medium]"))
 	check("selecting Medium matches startup MSAA and flight detail", main.render_quality == "medium" and main.flight.local.render_quality == "medium" and main.pipe.local_vp.msaa_3d == Viewport.MSAA_2X and main.pipe.model_vp.msaa_3d == Viewport.MSAA_2X and main.flight.local.cloud_shape != null)
+	await _check_metalfx_settings()
+	await _check_flight_cloud_settings()
 	await _click(_find("[data-set=controls]"))
 	var bb: Control = hud.binding_buttons.get("pause")
 	await _click(bb)
@@ -619,6 +698,24 @@ func _interaction_walk() -> void:
 	await _click(main.flight.console.buttons["map"])
 	await _steps(2)
 	check("the console's Map opens the space map and stops the 3D frame", main.space_map.visible and main.pipe.map_open)
+	var map: SpaceMap = main.space_map
+	map._menu_body = main.state.body_named("Mars")
+	map._on_menu(SpaceMap.MENU_ORBIT)
+	check("a cold Mars route shows a pending transfer", map.plan.get("pending", false))
+	map._menu_body = main.state.body_named("Moon")
+	map._on_menu(SpaceMap.MENU_ORBIT)
+	var deadline := Time.get_ticks_msec() + 5000
+	while map._transfer_search._id >= 0 and Time.get_ticks_msec() < deadline:
+		await _steps(1)
+	check("the completed Mars search keeps the selected Moon route in view",
+		map._transfer_search._id < 0 and map.dest.name == "Moon" and map.plan.get("case", "") == "moon")
+	map._menu_body = main.state.body_named("Mars")
+	map._on_menu(SpaceMap.MENU_ORBIT)
+	deadline = Time.get_ticks_msec() + 5000
+	while map.plan.get("pending", false) and Time.get_ticks_msec() < deadline:
+		await _steps(1)
+	check("returning to Mars completes the Lambert route and its estimates",
+		map.plan.has("porkchop") and not map.plan.get("pending", false) and map.plan.get("ok", false))
 	main.close_map()
 	await _steps(1)
 	check("closing the map renders the frame again", not main.space_map.visible and not main.pipe.map_open)
@@ -939,6 +1036,119 @@ func _climate_walk() -> void:
 	await _steps(4)
 	check("a star with no home world hides the panel", not hud.ids.climatePanel.is_visible_in_tree())
 	check("hiding it leaves the column on screen", screen.encloses(hud.control_panel.get_global_rect().grow(-0.5)))
+
+# The composition editor by real input: a mix, a drag, a typed value, Spawn; then the same
+# controls on the live world, and the panel's layout as it grows and shrinks.
+func _composition_walk() -> void:
+	await _setup("foundry_comp")
+	var fp = main.foundry
+	var comp: CompositionEditor = fp.comp
+	var rects_ok := func() -> bool:
+		var panel: Rect2 = hud.control_panel.get_global_rect().grow(0.5)
+		for c in comp.find_children("*", "Control", true, false):
+			if (c as Control).is_visible_in_tree() and (c as Control).size.x > 0.0:
+				var r := (c as Control).get_global_rect()
+				if r.position.x < panel.position.x or r.end.x > panel.end.x: return false
+		return true
+	check("the editor's controls stay inside the panel", rects_ok.call())
+	var ys := []
+	for c in comp.get_children():
+		if c is Control and (c as Control).is_visible_in_tree(): ys.append((c as Control).get_global_rect())
+	var overlap := false
+	for i in range(1, ys.size()):
+		if ys[i].position.y < ys[i - 1].end.y - 0.5: overlap = true
+	check("its rows stack without overlapping", not overlap)
+	var co2: HudSlider = comp.gases.pCO2.slider
+	var before: float = float(fp.preview.inputs.pressures.pCO2)
+	await _drag(co2, 0.3, 0.8)
+	check("dragging CO₂ moves the draft", fp.inputs.has("pCO2") and float(fp.inputs.pCO2) != before)
+	check("and the preview follows it", float(fp.preview.inputs.pressures.pCO2) == float(fp.inputs.pCO2))
+	check("the mix reads custom", comp.mix.value == Composition.CUSTOM)
+	check("the slider is not fought after release", absf(co2.value - U.log10(float(fp.inputs.pCO2))) < 0.011)
+	var field: LineEdit = comp.gases.pCO2.field
+	await _click(field)
+	field.select_all()
+	await _type("1000")
+	await _key(KEY_ENTER)
+	await _steps(1)
+	check("typing past the domain shows the limit", comp.limit_el.is_visible_in_tree())
+	check("the limit row is laid out, not clipped", comp.limit_el.get_global_rect().size.y >= 10.0)
+	await _click(field)
+	field.select_all()
+	await _type("0.01")
+	await _key(KEY_ENTER)
+	await _steps(1)
+	check("a good value clears it", not comp.limit_el.is_visible_in_tree() and is_equal_approx(float(fp.inputs.pCO2), 0.01))
+	var count: int = main.state.bodies.size()
+	await _click(fp.spawn_btn)
+	await _steps(2)
+	check("Spawn makes the previewed world", main.state.bodies.size() == count + 1)
+	var world: Body = main.state.bodies[-1]
+	check("with the typed CO₂", is_equal_approx(float(world.climate.pressures.pCO2), 0.01))
+	main.state.focus_id = world.id
+	main.open_cross_section(true)
+	await _steps(3)
+	var live: CompositionEditor = main.live_editor.comp
+	_reveal(live.pie)
+	await _steps(2)
+	check("the same controls appear on the live world", live.is_visible_in_tree() and live.pie.is_visible_in_tree())
+	await _drag(live.gases.pCO2.slider, 0.2, 0.7)
+	await _steps(3)
+	check("dragging on the live world edits it", float(world.climate.pressures.pCO2) != 0.01)
+	await _click(live.gases.pCO2.row.get_child(3))
+	await _steps(3)
+	check("the × takes the gas out of its air", float(world.climate.pressures.pCO2) == 0.0)
+	check("and its row goes", not live.gases.pCO2.row.is_visible_in_tree())
+	main.open_cross_section(false)
+	main.remove_body(world.id)
+	await _steps(2)
+
+# The showcase by real clicks: from a focused world, through its pin, and back.
+func _showcase_walk() -> void:
+	await _start("sandbox")
+	main.load_preset("solar")
+	main._stage_set_focus("Earth")
+	await _steps(3)
+	hud.set_section_open(hud.section("Focused Object"), true)
+	await _steps(2)
+	var open_btn: Control = hud.ids.showcaseOpen
+	check("a focused world offers a showcase", open_btn.is_visible_in_tree())
+	await _click(open_btn)
+	await _steps(3)
+	check("the click opens it", main.showcase.active and main.state.app_mode == "showcase")
+	var screen := Rect2(Vector2.ZERO, hud.size)
+	check("the column stays on screen", screen.encloses(hud.control_panel.get_global_rect().grow(-0.5)))
+	check("the orrery's sections give way", not hud.ids.focusPanel.is_visible_in_tree())
+	check("its own section is shown", _find("scWorld").is_visible_in_tree() and _find("scWorld").text == "Earth")
+	await _click(hud.ids.scPinDrop)
+	await _steps(2)
+	var n: int = main.showcase.pin.n if main.showcase.pin != null else 0
+	check("Drop a pin drops one", n >= 1)
+	check("its place is read out", _find("scPinAt").text != "—")
+	check("its ground wraps inside the panel", hud.control_panel.get_global_rect().grow(0.5).encloses(_find("scPinGround").get_global_rect()))
+	await _click(hud.ids.scPinDrop)
+	await _steps(2)
+	check("the next pin is the next number", main.showcase.pin.n == n + 1)
+	# Stand there, and come back.
+	await _click(hud.ids.scStand)
+	await _steps(2)
+	check("Stand here starts a survey and keeps the view", main.showcase.visit != null and main.state.cam_mode == "orbit")
+	check("and says how it is going", hud.ids.scFoot.is_visible_in_tree() and _find("scSurvey").is_visible_in_tree())
+	main.showcase.visit.site.finish_now()
+	await _steps(4)
+	check("then goes down to the ground", main.state.cam_mode == "surface" and main.showcase.visit.ready)
+	for i in 30: main.animate(1.0 / 60.0)
+	await _steps(2)
+	check("the panel reads the ground", _find("ssTemp").text.ends_with("°C") and _find("ssWind").text != "")
+	check("its column stays on screen", screen.encloses(hud.control_panel.get_global_rect().grow(-0.5)))
+	check("the buttons change places", not hud.ids.scStand.is_visible_in_tree() and hud.ids.scBack.is_visible_in_tree())
+	await _click(hud.ids.scBack)
+	await _steps(3)
+	check("Back to orbit comes back", main.showcase.visit == null and main.state.cam_mode == "orbit" and hud.ids.scStand.is_visible_in_tree())
+	await _click(hud.ids.scLeave)
+	await _steps(3)
+	check("Leave goes back to the orrery", not main.showcase.active and main.state.app_mode == "sandbox")
+	check("and the orrery's column is back", hud.ids.focusPanel.is_visible_in_tree())
 
 func _layout_walk() -> void:
 	check("automatic scale fits a smaller usable display", is_equal_approx(main.fitted_window_scale(2.0, Vector2i(1280, 720)), 1.2))

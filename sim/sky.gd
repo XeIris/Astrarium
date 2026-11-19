@@ -119,6 +119,15 @@ const SKY_ENVIRONMENTS := {
 		"hii": 4.20, "reflection": 2.6, "galaxies": 0.9,
 		"bandScaleH": 0.045, "bulgeSize": 0.26,
 	},
+	# Outside any galaxy: no stars, no band and no procedural galaxies. The galactic
+	# scene draws its galaxies itself (sim/galaxy/), and a made-up one beside them
+	# would read as real.
+	"intergalactic": {
+		"starDensity": 0.0, "planeConcentration": 0.0,
+		"glow": 0.0, "bulge": 0.0, "dust": 0.0,
+		"hii": 0.0, "reflection": 0.0, "galaxies": 0.0,
+		"bandScaleH": 0.05, "bulgeSize": 0.2,
+	},
 }
 
 ## Defaults of the uniform block every sky.gdshaderinc material carries. The
