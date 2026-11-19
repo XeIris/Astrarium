@@ -32,6 +32,15 @@ The continuum is drawn at `DISC_LEVEL` when a chromosphere is drawn over it and 
 as brown, so a bare disc gives back part of that compression; the stars keep their
 order of brightness.
 
+That keeps a hot star's disc under ACES's shoulder, where it keeps its colour and limb,
+but leaves bloom almost nothing above its threshold: a 30 000 K disc is drawn only a
+few times brighter than the Sun's, where σT⁴ says ~700. So a star brighter than the Sun, the exposure's
+reference, draws the rest as glare off its limb (`StarVisual.glare_of`): a 1/θ² wing
+whose peak grows with b − 1 and saturates under the bare disc's limb, so the disc stays
+the brightest thing drawn, and whose width (40 px as it appears, growing as √(1 + excess))
+is in pixels, as a PSF's is. A disc smaller than the wing gets a halo its own size. The
+glare is visible light only: in another band the band image's bloom is the PSF.
+
 ## The photosphere
 
 Every feature is a local temperature T, drawn through the Planck ratio

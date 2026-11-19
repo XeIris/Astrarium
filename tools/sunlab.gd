@@ -140,4 +140,5 @@ func _step(step: float) -> void:
 	ctx.sim_dt = 0.0
 	ctx.bodies = [body]
 	ctx.viewport_h = float(pipe.render_size.y)
+	ctx.visible_band = pipe.postfx.band == Spectrum.VISIBLE_BAND
 	viz.update(step, ctx)

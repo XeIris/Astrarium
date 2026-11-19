@@ -3493,6 +3493,7 @@ func animate(dt: float) -> void:
 	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
 	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
 	ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
+	ctx.visible_band = state.band == Spectrum.VISIBLE_BAND
 	var vis_dt := 0.0 if state.paused else dt
 	if not drawn: _held_dt += vis_dt
 	else:

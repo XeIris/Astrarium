@@ -25,6 +25,13 @@ uniform float uChromoW = 0.0;
 // spin its Roche surface is drawn from.
 uniform float uFlat = 0.0;
 uniform float uSpin = 0.0;
+// Glare at the limb, its colour (linear) and its 1/θ² wing's width in pixels on a large
+// disc (StarVisual.glare_of). It is a display PSF, so it is sized on the screen.
+uniform float uGlare = 0.0;
+uniform float uGlareW = 40.0;
+uniform vec3 uGlareCol = vec3(1.0);
+// How far past the limb, in wing widths, the quad reaches when 4 R is too little room.
+const float GLARE_REACH = 4.0;
 
 varying vec2 vP;
 varying vec3 vView;
@@ -32,14 +39,30 @@ varying vec3 vCentre;
 varying vec2 vAxis;
 varying float vScale;
 varying flat vec3 vAx3;
+// The quad's growth over its 4 R span, so the glare has its reach on a small disc.
+varying flat float vGrow;
+// The disc's radius and the glare wing's width, in pixels.
+varying flat float vRpx;
+varying flat float vGlareW;
 
 void vertex() {
-	vP = VERTEX.xy;
 	// The orchestrator's group scale is in MODELVIEW; the billboard offset is not.
 	vScale = length(MODELVIEW_MATRIX[0].xyz);
 	float size = uSize * vScale;
 	vec4 centre = MODELVIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0);
 	vCentre = centre.xyz;
+	vGrow = 1.0;
+	vRpx = 0.0;
+	vGlareW = 0.0;
+	if (uGlare > 0.0) {
+		float per_px = 2.0 * max(-centre.z, 1e-12) / (abs(PROJECTION_MATRIX[1][1]) * VIEWPORT_SIZE.y);
+		vRpx = uCore * size / per_px;
+		// A disc smaller than the wing gets a halo of its own size, not a fixed blob round it.
+		vGlareW = uGlareW * vRpx / (vRpx + uGlareW);
+		vGrow = max(1.0, (uCore * size + GLARE_REACH * vGlareW * per_px) / size);
+	}
+	VERTEX.xy *= vGrow;
+	vP = VERTEX.xy;
 	vView = centre.xyz + vec3(VERTEX.xy * size, 0.0);
 	// The spin axis on the billboard, which streamers and plumes are arranged about.
 	vec3 ax = (MODELVIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz;
@@ -65,7 +88,7 @@ float over_surface(vec3 w, vec3 axis, float Rp) {
 
 void fragment() {
 	float r = length(vP);
-	if (r > 1.0) discard;
+	if (r > vGrow) discard;
 	vec2 d2 = vP / max(r, 1e-6);
 
 	// The view ray's closest approach to the star's centre, in stellar radii past the
@@ -136,6 +159,20 @@ void fragment() {
 	spic *= onLimb;
 	tr *= onLimb;
 	corona *= smoothstep(-0.01, 0.0, x);
+	if (r > 1.0) { corona = 0.0; spic = 0.0; tr = 0.0; }
+
+	// --- GLARE: the disc is held under the tone curve's shoulder to keep its colour, so the
+	// part of a hot star's brightness it cannot carry is spread round it as the display's
+	// PSF would. It starts at the limb (a short antialiasing ramp inside) and is not drawn
+	// over the disc, which stays legible.
+	float glare = 0.0;
+	if (uGlare > 0.0 && x < 1e2) {
+		float dpx = x * vRpx;
+		glare = dpx >= 0.0
+			? pow(1.0 + dpx / max(vGlareW, 1e-3), -2.0)
+			: exp(dpx / 1.2);
+		glare *= uGlare * (1.0 - smoothstep(0.7 * vGrow, vGrow, r));
+	}
 
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
 		// The spicules are 10⁴ K chromosphere, dark outside the visible. The corona's own
@@ -147,7 +184,8 @@ void fragment() {
 		ALBEDO = vec3(temp_code(1.0e4), 0.0, 0.0);
 		ALPHA = 1.0;
 	} else {
-		ALBEDO = uColor * corona * 0.45 + uChromo * (uChromoW * (spic * 7.0 + tr * 2.2));
+		ALBEDO = uColor * corona * 0.45 + uChromo * (uChromoW * (spic * 7.0 + tr * 2.2))
+			+ uGlareCol * glare;
 		ALPHA = 0.0;
 	}
 }
