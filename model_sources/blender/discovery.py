@@ -109,15 +109,17 @@ def hull(m,root):
         smooth(cap,55)
         floor_y=y-2.15
         furniture=empty(f'inspection_berth_{i}',(0,0,0),root)
-        floor=block('pod berth floor',(x,floor_y,-2.88),(2.70,2.6,.12),m['bay_floor'],furniture)
+        # Rails sit under the two cradle feet. Leave the flush central nozzle clear.
+        sole=S['berths'][i]['at'][2]
+        floor=block('pod berth floor',(x,floor_y,sole-.18),(2.70,2.6,.12),m['bay_floor'],furniture)
         bpy.ops.mesh.primitive_cylinder_add(vertices=96,radius=BAY_RADIUS-.04,depth=4.0,location=p((x,floor_y,z)))
         cutter=bpy.context.object
         bpy.context.view_layer.objects.active=floor
         trim=floor.modifiers.new('floor fits circular aperture','BOOLEAN');trim.operation='INTERSECT';trim.object=cutter
         bpy.ops.object.modifier_apply(modifier=trim.name);bpy.data.objects.remove(cutter,do_unlink=True)
         fit_berth(floor)
-        for rail in [-.52,.52]:
-            track=block('pod rail',(x+rail,floor_y,-2.78),(.08,2.4,.10),m['alloy'],furniture)
+        for rail in [-.43,.43]:
+            track=block('pod rail',(x+rail,floor_y,sole-.056),(.08,2.4,.10),m['alloy'],furniture)
             fit_berth(track)
         wall=block('berth rear wall',(x,floor_y-1.3,-1.6),(2.7,.08,2.6),m['liner'],furniture)
         fit_berth(wall)

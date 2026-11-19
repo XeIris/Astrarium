@@ -180,7 +180,7 @@ static func _build_vehicles() -> Dictionary:
 			"count":12,"L":51.7,"D":65.0,"sep":"none",
 			"rcs":{"thrust":1200.0,"isp":300.0,"prop":1600.0,"count":24},
 			"centrifuge":{"radius":30.5,"rpm":5.0,"walkSpeed":1.4,"at":[0.0,17.0,0.0]},
-			"look":{"skin":"white","endurance":true,"rotors":1,"hubLength":33.0,"hubRadius":1.64,"axialAdapter":.90,
+			"look":{"skin":"white","endurance":true,"rotors":1,"hubLength":33.0,"hubRadius":1.64,"axialAdapter":.80,
 				"landerBerth":[-2.60,4.65,0.0],
 				"ring":{"at":17.0,"centerRadius":27.0,"moduleSize":[10.4,7.6,8.3]}}})],
 	},

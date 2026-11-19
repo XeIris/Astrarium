@@ -10,8 +10,36 @@ static func berths(spec: Dictionary) -> Array:
 	var point:=DVec3.new(cargo.at[0],cargo.at[1],cargo.at[2])
 	var berth: Array=spec.look.landerBerth
 	var offset:=DVec3.new(berth[0],berth[1],berth[2]).sub_in(DQuat.rotate(point,rotation))
-	return [{"vehicle":"ranger","node":"dock_ranger_0","at":[0.0,hub+float(spec.look.axialAdapter)-.10,-.13],"q":[0.0,0.0,0.0,1.0]},
+	return [{"vehicle":"ranger","node":"dock_ranger_0","at":[0.0,hub+float(spec.look.axialAdapter)+.002,-.15],"q":[0.0,0.0,0.0,1.0]},
 		{"vehicle":"lander","node":"dock_lander_0","at":offset.to_array(),"q":[rotation.x,rotation.y,rotation.z,rotation.w]}]
+
+const RECOVERY_GASKET := .08
+const LANDER_TUBE := .12
+
+## The recovery mission uses the forward adapter with its visiting Ranger absent.
+static func axial_lander(spec: Dictionary, lander: Dictionary) -> Dictionary:
+	var collar := LanderCraft.dock(lander)
+	var normal := Vector3(collar.normal[0], collar.normal[1], collar.normal[2]).normalized()
+	var rotation := Quaternion(normal, Vector3.DOWN)
+	var tip := Vector3(0, float(spec.look.hubLength) + float(spec.look.axialAdapter), 0)
+	var at := tip + Vector3.UP * (RECOVERY_GASKET + LANDER_TUBE) - rotation * Vector3(collar.at[0], collar.at[1], collar.at[2])
+	return {"vehicle":"lander", "node":"dock_ranger_0", "at":[at.x, at.y, at.z],
+		"collar":DVec3.new(collar.at[0], collar.at[1], collar.at[2]),
+		"q":[rotation.x, rotation.y, rotation.z, rotation.w]}
+
+static func fit_recovery_adapter(rotor: Node3D, spec: Dictionary, lander: Dictionary) -> void:
+	var mount := Node3D.new()
+	mount.name = "recovery_adapter"
+	mount.position.y = float(spec.look.hubLength) + float(spec.look.axialAdapter)
+	rotor.add_child(mount)
+	var radius := float(LanderCraft.dock(lander).radius)
+	var materials := CraftModel.craft_materials()
+	var reducer := CraftModel._mesh(CraftModel._cylinder(radius, .58, .24, 64), materials.steel)
+	reducer.position.y = -.12
+	mount.add_child(reducer)
+	var seal := CraftModel._mesh(CraftModel._torus(radius, RECOVERY_GASKET, 12, 64), materials.black)
+	seal.rotation.x = PI / 2.0
+	mount.add_child(seal)
 
 static func spokes(spec: Dictionary) -> Array:
 	var y:=float(spec.look.ring.at)

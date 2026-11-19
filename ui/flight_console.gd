@@ -22,6 +22,11 @@ var route: Route
 var mission_l: Label
 var status_l: Label
 var warp_l: Label
+var warp_controls: Control
+var stage_caption: Label
+var instruments: Control
+var scope: PortScope
+var spin_cell: Array
 var prop_bar: PropBar
 var cells := {}
 var buttons := {}
@@ -55,6 +60,10 @@ func _init() -> void:
 
 	# The ball, scaled into the strip, between its two tapes.
 	var mid := Hud.hbox(row, 8.0)
+	instruments = mid
+	scope = PortScope.new()
+	row.add_child(scope)
+	scope.hide()
 	thr = FlightUI.Tape.new("THR", false)
 	thr.custom_minimum_size = Vector2(14, 124)
 	thr.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -77,12 +86,13 @@ func _init() -> void:
 	cells["dv"] = _cell(right, "Δv left")
 	cells["met"] = _cell(right, "Mission time")
 	var pcell := Hud.stack(right)
-	Hud.label(pcell, "Stage", KEY)
+	stage_caption = Hud.label(pcell, "Stage", KEY)
 	cells["stage"] = Hud.label(pcell, "—", {"fs": 11.0, "c": HudTheme.TEXT})
 	(cells["stage"] as Label).clip_text = true
 	prop_bar = PropBar.new()
 	pcell.add_child(Hud.m(prop_bar, 4.0))
 	var wcell := Hud.stack(right)
+	warp_controls = wcell
 	Hud.label(wcell, "Time warp", KEY)
 	var wr := Hud.hbox(wcell, 4.0, 2.0)
 	var wd := _btn(wr, "◂", "warp-", "Slow time (,)")
@@ -92,11 +102,13 @@ func _init() -> void:
 	warp_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var wu := _btn(wr, "▸", "warp+", "Speed time (.)")
 	wu.custom_minimum_size = Vector2(20, 18)
+	spin_cell = _cell(right,"Spin mismatch")
+	spin_cell[0].get_parent().hide()
 	row.add_child(_spring())
 
 	var foot := Hud.hbox(col, 6.0, 10.0)
 	foot.add_child(_spring())
-	for b in [["map", "Map  ·  M", "The space map: pick a destination and fly there"],
+	for b in [["dock_command", "Clear approach", "Authorize closure or ask the jets to arrest closure"], ["dock_retreat", "Back away", "Return to the initial stand-off range under jet power"], ["map", "Map  ·  M", "The space map: pick a destination and fly there"],
 			["systems", "Systems", "Telemetry, stages, autopilot programs and the flight log"],
 			["camera", "Camera  ·  C", "Cycle the flight camera"],
 			["autowarp", "Auto warp", "Let the mission choose the time warp"],
@@ -120,9 +132,9 @@ func _btn(parent: Node, text: String, id: String, tip: String, kind := "Warp") -
 
 func _cell(parent: Node, key: String) -> Array:
 	var st := Hud.stack(parent)
-	Hud.label(st, key, KEY)
+	var caption := Hud.label(st, key, KEY)
 	var v := Hud.label(st, "—", VALUE)
-	return [v]
+	return [v, caption, key]
 
 func _put(k: String, t: String) -> void:
 	var l: Label = cells[k][0] if cells[k] is Array else cells[k]
@@ -139,6 +151,21 @@ func _notification(what: int) -> void:
 func update(s: Dictionary) -> void:
 	var t: Dictionary = s.telemetry
 	var v: Vessel = s.vessel
+	var dock: DockingSession = s.get("docking")
+	buttons.map.visible = dock == null
+	buttons.systems.visible = dock == null
+	warp_controls.visible = dock == null
+	instruments.visible = dock == null
+	scope.visible = dock != null
+	spin_cell[0].get_parent().visible = dock != null
+	buttons.dock_retreat.visible = dock != null and dock.cleared_once and not dock.latched and dock.failure == "" and not dock.retreating
+	buttons.dock_command.visible = dock != null and not dock.latched and dock.failure == ""
+	if dock != null:
+		_update_docking(dock,s)
+		return
+	for field in ["alt","speed","apo","peri","dv"]:
+		_say(cells[field][1], cells[field][2])
+	_say(stage_caption,"Stage")
 	nav.draw_ball(v.q.to_quaternion(), s.up, s.north, s.markers, {"roll": s.get("roll")})
 	thr.set_frac(float(U.jround(v.throttle * 100.0)) / 100.0)
 	var vsv := clampf(float(U.nz(t.get("vertical"), 0.0)) / 400.0, -1.0, 1.0)
@@ -170,13 +197,63 @@ func update(s: Dictionary) -> void:
 	buttons.abort.visible = flying
 	buttons.autowarp.visible = flying and not m.auto_warp
 	if m == null:
-		_say(mission_l, str(kerr.label) if not kerr.is_empty() else ("Docking guidance" if s.get("docking",false) else "Manual flight · %s" % str(s.parentName)))
+		_say(mission_l, str(kerr.label) if not kerr.is_empty() else "Manual flight · %s" % str(s.parentName))
 		route.set_legs([], -1)
 		_say(status_l, str(s.status))
 	else:
 		_say(mission_l, ("Mission · " + m.title()) if m.failed == "" else "Mission ended")
 		route.set_legs(m.legs(), m.leg if not m.done else m.legs().size())
 		_say(status_l, m.failed if m.failed != "" else (m.status if m.status != "" else str(s.status)))
+
+func _update_docking(dock: DockingSession, s: Dictionary) -> void:
+	var d := dock.capture if dock.latched else dock.readout
+	var values := [
+		["alt", "Port range", "%.2f m" % d.gap], ["speed", "Relative speed", "%.3f m/s" % d.speed],
+		["apo", "Lateral error", "%.1f cm" % (100.0*d.cross)], ["peri", "Attitude error", "%.1f°" % rad_to_deg(d.angle)],
+		["dv", "RCS used", "%.2f kg" % d.rcsUsed]]
+	for field in values:
+		_say(cells[field[0]][1], field[1])
+		_put(field[0], field[2])
+	scope.offset = d.offset
+	scope.secured = dock.latched
+	scope.queue_redraw()
+	buttons.abort.hide()
+	buttons.autowarp.hide()
+	_say(stage_caption,"RCS remaining")
+	var remaining := maxf(0.0,dock.initial_rcs - d.rcsUsed)
+	_put("stage","%.1f kg" % remaining)
+	prop_bar.set_frac(remaining/maxf(dock.initial_rcs,.001))
+	_say(spin_cell[0],"%.3f rpm" % (float(d.rate)*60.0/TAU))
+	_put("met",Guidance.fmt_dur(s.vessel.met))
+	var cmd := "Hold position"
+	if dock.holding: cmd = "Resume approach" if dock.cleared_once else "Clear approach"
+	buttons.dock_command.set_label("%s  ·  %s" % [cmd,s.dockKey])
+	buttons.dock_retreat.set_label("Back away  ·  %s" % s.retreatKey)
+	_say(mission_l, dock.mission_title if dock.mission_title != "" else "Docking guidance")
+	_say(status_l, dock.failure if dock.failure != "" else "%s  ·  %.1f rpm" % ["Docked · capture readings" if dock.latched else dock.status, d.rpm])
+	route.set_legs([{"label":"Clearance"},{"label":"Approach"},{"label":"Capture"}], 3 if dock.latched else (0 if dock.holding else 1))
+
+class PortScope extends Control:
+	var offset := Vector2.ZERO
+	var secured := false
+	func _init() -> void:
+		custom_minimum_size = Vector2(135,124)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var center := Vector2(size.x * .5, size.y * .5 - 6.0)
+		var radius := 39.0
+		var scale_color := Color(.55,.68,.73,.64)
+		var signal_color := Color(.63,1,.81) if secured else Color(.96,.79,.46)
+		for fraction in [.5,1.0]:
+			draw_arc(center,radius*fraction,0,TAU,64,scale_color,1,true)
+		for axis in [Vector2.UP,Vector2.DOWN,Vector2.LEFT,Vector2.RIGHT]:
+			draw_line(center+axis*5,center+axis*(radius+4),scale_color,1,true)
+		draw_circle(center,2,HudTheme.ACCENT)
+		var mark := center + Vector2(offset.x,-offset.y).limit_length(.5) * (radius/.5)
+		draw_arc(mark,5.0,0,TAU,20,signal_color,2,true)
+		draw_string(ThemeDB.fallback_font,Vector2(0,center.y+radius+17),"PORT  ±50 cm",
+			HORIZONTAL_ALIGNMENT_CENTER,size.x,10,scale_color)
 
 func _say(l: Label, t: String) -> void:
 	if l.text != t: l.text = t

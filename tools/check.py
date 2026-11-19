@@ -47,7 +47,8 @@ PARITY_FRAMES = 13000
 # names it. Documentation selects nothing; any other unmapped path selects `dev`.
 # Keep this in step with AGENTS.md "Checks" when a check or a subsystem is added.
 CHANGED_RULES = (
-    (("sim/flight/docking_session.gd",), ("dockingscenarios", "dockingflightshots", "_soak_check-docking")),
+    (("sim/flight/docking_session.gd", "tools/dockingmissioncheck.*", "tools/dockingclearance.gd", "ui/hangar.gd", "ui/flight_console.gd",
+      "ui/control_bindings.gd", "sim/flight/scenarios.gd", "sim/flight/endurance_craft.gd"), ("dockingmissioncheck*", "dockingscenarios", "dockingflightshots", "_soak_check-docking")),
     (("sim/flight/kerr_circular.gd", "sim/flight/spaceflight.gd", "sim/presets.gd"),
      ("kerrflightcheck", "kerrflightshots", "lenscheck", "_soak_check-kerr")),
     (("sim/flight/mission.gd",), ("missionguidancecheck",)),
@@ -276,8 +277,11 @@ def checks(suite, godot, output, repeat, export_preset):
                            "years=60000", option, f"report={output / (label + '.json')}", timeout=900)
             yield ("stability-" + label, *probe[1:])
     elif suite == "flight":
-        yield headless_scene("scenariocheck", r"^SCENARIOCHECK DONE scenarios=2 failures=0$",
-                             "only=evapod:pod_berth,ranger:spin_match", "replay=1", timeout=240)._replace(name="dockingscenarios", cost=60)
+        yield headless_scene("scenariocheck", r"^SCENARIOCHECK DONE scenarios=3 failures=0$",
+                             "only=evapod:pod_berth,ranger:spin_match,lander:axial_recovery", "replay=1", timeout=240)._replace(name="dockingscenarios", cost=60)
+        yield headless_scene("dockingmissioncheck", r"^DOCKINGMISSIONS DONE missions=3 failures=0$", timeout=240)
+        yield headless_scene("dockingmissioncheck", r"^DOCKINGMISSIONS DONE missions=3 failures=0$", "assets=0",
+                             timeout=240)._replace(name="dockingmissioncheck-fallback")
         yield script("finiteburncheck", r"^FINITEBURNCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)._replace(cost=160)
         yield headless_scene("rangerflightcheck", r"^RANGERFLIGHT DONE failures=0$", timeout=900)
         yield headless_scene("discoveryflightcheck", r"^DISCOVERYFLIGHT DONE failures=0$", timeout=1800)

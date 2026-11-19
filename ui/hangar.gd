@@ -27,6 +27,7 @@ const MISSIONS := [
 ]
 
 var shade: TextureRect
+var list_scroll: ScrollContainer
 var list: VBoxContainer
 var kicker: Label
 var items := {}
@@ -55,7 +56,11 @@ func _init() -> void:
 	kicker = Hud.label(self, "Spaceflight · Hangar", KICK)
 	list = VBoxContainer.new()
 	list.add_theme_constant_override("separation", 2)
-	add_child(list)
+	list_scroll = ScrollContainer.new()
+	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	list_scroll.follow_focus = true
+	add_child(list_scroll)
+	list_scroll.add_child(list)
 	var back_b := TitleItem.new("Back")
 	back_b.set_meta("back", true)
 	back_b.pressed.connect(func(): back.emit())
@@ -73,7 +78,7 @@ func set_crafts(rows: Array) -> void:
 	for r in rows:
 		var it := TitleItem.new(str(r.name))
 		var k: String = r.key
-		it.pressed.connect(func(): select(k); pick.emit(k))
+		it.pressed.connect(func(): pick.emit(k))
 		list.add_child(it)
 		items[k] = it
 
@@ -89,6 +94,7 @@ func select(key: String) -> void:
 	# Keep the chosen mission if this craft can fly it; otherwise its first.
 	mission = 0
 	_build_card()
+	if items.has(key): list_scroll.ensure_control_visible.call_deferred(items[key])
 
 func _build_card() -> void:
 	Hud._clear(card.body)
@@ -108,7 +114,8 @@ func _build_card() -> void:
 	var chips := Hud.grid(body, [1.0, 1.0], 6.0, 6.0, 8.0, 6.0)
 	for i in ms.size():
 		var mi: Dictionary = ms[i]
-		var b := HudButton.new("Chip", str(mi.label), str(mi.why) if not mi.ok else ("Δv %s" % FlightUI.fmt_speed(float(mi.dv)) if float(mi.dv) > 0.0 else "Fly it yourself; the autopilot programs are under Systems"))
+		var b := HudButton.new("Chip", str(mi.label), str(mi.brief) if mi.has("brief") else str(mi.why) if not mi.ok else ("Δv %s" % FlightUI.fmt_speed(float(mi.dv)) if float(mi.dv) > 0.0 else "Fly it yourself; the autopilot programs are under Systems"))
+		b.focus_mode = Control.FOCUS_ALL if mi.ok else Control.FOCUS_NONE
 		chips.add_child(b)
 		b.set_active(i == mission)
 		if not mi.ok: b.modulate.a = 0.38
@@ -120,11 +127,13 @@ func _build_card() -> void:
 	var cur: Dictionary = ms[mission] if mission < ms.size() else {}
 	var note := ""
 	if not cur.is_empty():
-		if cur.dest == "": note = "On the pad (or in orbit, for a lander), with every control yours. The map (M) can still plan a trip."
+		if cur.has("brief"): note = cur.brief
+		elif cur.dest == "": note = "On the pad (or in orbit, for a lander), with every control yours. The map (M) can still plan a trip."
 		else: note = "The autopilot flies the whole mission — launch, transfer, course corrections, capture%s — and chooses the time warp. Δv needed %s of %s on board." % [
 			", landing" if cur.goal == "land" else "", FlightUI.fmt_speed(float(cur.dv)), FlightUI.fmt_speed(float(d.dv))]
 	Hud.m(Hud.label(body, note, {"fs": 9.0, "c": HudTheme.TEXT_DIM, "lh": 1.5}, true), 4.0, 16.0)
 	var go := HudButton.new("Primary", "Start mission")
+	go.focus_mode = Control.FOCUS_ALL
 	body.add_child(go)
 	var k := selected
 	go.pressed.connect(func():
@@ -147,8 +156,10 @@ func _layout() -> void:
 	for it in list.get_children():
 		(it as TitleItem).set_font_size(fs)
 	list.add_theme_constant_override("separation", int(H * 0.012))
-	list.position = Vector2(left, roundf(H * 0.08) + 34.0)
-	list.size = list.get_combined_minimum_size()
+	list_scroll.position = Vector2(left, roundf(H * 0.08) + 34.0)
+	var list_bottom := H-roundf(H*.08)-48.0
+	list_scroll.size = Vector2(minf(list.get_combined_minimum_size().x+18,W*.42),
+		maxf(0.0,list_bottom-list_scroll.position.y))
 	for c in get_children():
 		if c is TitleItem and c.has_meta("back"):
 			(c as TitleItem).set_font_size(int(fs * 0.8))
@@ -160,5 +171,5 @@ func _layout() -> void:
 	# A short window scrolls the card rather than pushing it off the frame.
 	card.size = Vector2(cw, minf(card.natural_height(), H - 2.0 * margin))
 	card.position = Vector2(W - cw - roundf(W * 0.035), H - card.size.y - margin)
-	var menu_r := list.position.x + list.size.x
+	var menu_r := list_scroll.position.x + list_scroll.size.x
 	stage_moved.emit(clampf((menu_r + card.position.x) * 0.5 / W, 0.35, 0.65))

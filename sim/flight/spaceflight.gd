@@ -46,6 +46,8 @@ var subject: Fall = null
 var entry = null                  # Plume.EntryGlow
 var cruise = null                 # Relativity.Cruise
 var kerr_demo: Dictionary={}
+var berth_pan := Vector2.ZERO
+var berth_zoom := 1.0
 var docking: DockingSession
 ## What the cruise flies between, so the line moves with its end bodies: {parent,
 ## parent0, target, target0, stage, name, arrived}. Null outside cruise.
@@ -179,7 +181,7 @@ func _init(ctx: Dictionary) -> void:
 		hud = FlightUI.create_flight_hud(panel, {
 			"console": console,
 			"setMode": func(m: String) -> void:
-				if autopilot != null:
+				if autopilot != null and docking == null:
 					autopilot.program = null; autopilot.mode = m; autopilot.say("Manual control"),
 			"runProgram": run_program,
 			"setTarget": set_target,
@@ -435,8 +437,12 @@ func _step_kerr(requested: float,advance_world: Callable) -> float:
 
 func begin_docking(carrier: String,slot: String,gap: float) -> bool:
 	if vessel==null or vessel.phase!=Vessel.PHASE.ORBIT or docking!=null or not kerr_demo.is_empty():return false
+	berth_pan = Vector2.ZERO
+	berth_zoom = 1.0
 	docking=DockingSession.create(vessel,carrier,slot,gap)
 	if docking==null:return false
+	arms_out = false
+	for st in vessel.stages: st.gear_out = false
 	autopilot.mode=Guidance.MODE.OFF
 	local.root.add_child(docking.craft.group)
 	local.place(docking.craft.group,docking.render_pos)
@@ -1072,6 +1078,8 @@ func set_camera_mode(m: String) -> void:
 		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
 
 func camera_modes() -> Array:
+	if docking != null:
+		return ["berth", "orbit", "interior"] if vessel.vehicle.has("interior") else ["berth", "orbit"]
 	var modes := ["chase", "orbit", "cockpit", "pad"]
 	if vessel != null and vessel.vehicle.has("interior") and subject == null:
 		modes.insert(3, "interior")
@@ -1664,6 +1672,16 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
 			"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
 			"dt": dt, "sunLocal": sun_l, "interior": vessel.vehicle.get("interior", {})})
+	if docking != null and fly_cam.state.mode == "berth":
+		var pod := vessel.vehicle_key == "evapod"
+		var offset := Vector3(-13, 8, -9) if pod else Vector3(-52, 40, -38)
+		var aim := Vector3(0, -5, -1.5) if pod else Vector3(0, -14, -7)
+		var basis_ := docking.craft.group.basis
+		var boom := (offset-aim).rotated(Vector3.BACK,berth_pan.x)
+		boom = boom.rotated(boom.cross(Vector3.BACK).normalized(),berth_pan.y)
+		fly_cam.pos.copy_from(craft_pos).add_in(DVec3.from_v3(basis_ * (aim+boom*berth_zoom)))
+		fly_cam.look_at(craft_pos.clone().add_in(DVec3.from_v3(basis_ * aim)), basis_ * Vector3.BACK)
+		fly_cam.near = .05
 	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
 	local.cam_pos.copy_from(fly_cam.pos)
 	# The cockpit needs centimetre depth; distant bodies remain in the orrery pass.
@@ -1899,7 +1917,9 @@ func update_hud() -> void:
 		"plan": plan_data,
 		"cruise": cruise != null,
 		"mission": mission,
-		"docking":docking!=null,
+		"docking":docking,
+		"retreatKey":main.hud.binding_label(main.controls.bindings.throttle_cut) if docking != null and main != null else "",
+		"dockKey":main.hud.binding_label(main.controls.bindings.dock_command) if docking != null and main != null else "",
 		"skip": skip != null,
 	})
 
@@ -1928,7 +1948,14 @@ func nav_point_readout():
 ## flight action. Returns true when the active vessel accepted it.
 func key_action(action: String) -> bool:
 	if not active or vessel == null: return false
-	if docking!=null and action not in ["warp_down","warp_up","flight_camera"]:return false
+	if docking != null:
+		if action == "throttle_cut":
+			docking.back_away()
+			return true
+		if action == "dock_command":
+			docking.command_hold()
+			return true
+		if action != "flight_camera": return false
 	if not kerr_demo.is_empty() and action not in ["warp_down","warp_up","flight_camera"]:return false
 	match action:
 		"warp_down":
@@ -1980,6 +2007,9 @@ func pad_orbit(d_az: float, d_el: float, scale: float) -> void:
 ## deltaY as a browser reports it (a wheel notch is ~100).
 func wheel(delta_y: float) -> bool:
 	if not active: return false
+	if fly_cam.state.mode == "berth":
+		berth_zoom = clampf(berth_zoom * (1.0 + delta_y*.001),.75,2.4)
+		return true
 	if fly_cam.state.mode == "pad" and site != null:
 		pad_orbit(0.0, 0.0, 1.0 + delta_y * 0.001)
 		return true
@@ -1988,6 +2018,9 @@ func wheel(delta_y: float) -> bool:
 
 func drag(dx: float, dy: float) -> bool:
 	if not active: return false
+	if fly_cam.state.mode == "berth":
+		berth_pan = (berth_pan - Vector2(dx,dy)*.004).clamp(Vector2(-.65,-.42),Vector2(.65,.42))
+		return true
 	if fly_cam.state.mode == "interior":
 		fly_cam.state.interiorYaw = wrapf(fly_cam.state.interiorYaw - dx * 0.004, -PI, PI)
 		fly_cam.state.interiorPitch = clampf(fly_cam.state.interiorPitch - dy * 0.004, -1.05, 1.05)

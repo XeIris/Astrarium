@@ -13,6 +13,9 @@ func _ready() -> void:
 		printerr("MOVIECRAFTSHOTS requires a GPU and dump=/absolute/directory")
 		get_tree().quit(1); return
 	DirAccess.make_dir_recursive_absolute(output)
+	if OS.get_cmdline_user_args().has("tour"):
+		await record_tour()
+		return
 	get_window().size=Vector2i(1280,960)
 	CraftAssets.craft_models_ready([id])
 	var fr: Array=CT.make_frame(self,1280,960,0x161e29)
@@ -76,4 +79,101 @@ func _ready() -> void:
 	cabin.dispose(); craft.group.queue_free(); CraftAssets.clear()
 	await get_tree().process_frame
 	print("MOVIECRAFTSHOTS DONE")
+	get_tree().quit()
+
+## 24 fps frames in catalogue metres. Each shot moves the camera in model space.
+func record_tour() -> void:
+	get_window().size = Vector2i(1280,720)
+	var frames := CT.make_frame(self,1280,720,0x121820)
+	var world: SubViewport = frames[0]
+	var composite: SubViewport = frames[1]
+	CT.add_rig(world,1.7,0x475569,.5)
+	var lights := world.find_children("*","DirectionalLight3D",true,false)
+	for light in lights: light.light_cull_mask &= ~CraftInterior.LAYER
+	lights[0].shadow_enabled = true
+	var display := TextureRect.new()
+	display.texture = composite.get_texture()
+	display.size = Vector2(1280,720)
+	add_child(display)
+	var cam := Camera3D.new()
+	world.add_child(cam)
+	cam.current = true
+	cam.near = .01
+	cam.far = 1600
+	var number := 0
+	for key in ["discovery","evapod","endurance","ranger","lander"]:
+		await CraftAssets.craft_models_ready([key])
+		var vehicle: Dictionary = Vehicles.get_vehicle(key)
+		var craft := CraftModel.build_craft(vehicle)
+		world.add_child(craft.group)
+		var length := float(vehicle.stages[0].L)
+		var radius := float(vehicle.stages[0].D) * .5
+		lights[0].directional_shadow_max_distance = maxf(14.0,length*2.5)
+		var shots: Array
+		match key:
+			"discovery":
+				shots = [[Vector3(0,length*.5,0),Vector3(.96,.32,.55)*length,.64,38.0],
+					[Vector3(0,length-radius,0),Vector3(-1.3,2.35,.72)*radius,.34,48.0]]
+			"evapod":
+				shots = [[Vector3(0,1.04,0),Vector3(2.7,1.0,4.25),.80,38.0],["cabin"],["detail"]]
+			"endurance":
+				shots = [[Vector3(0,17,0),Vector3(38,65,47),.50,47.0],
+					[Vector3(0,21,0),Vector3(19,29,15),.52,48.0]]
+			"ranger":
+				shots = [[Vector3(0,length*.47,0),Vector3(.80,.83,.45)*length,.80,39.0],["cabin"],["detail"]]
+			"lander":
+				shots = [[Vector3(0,length*.46,0),Vector3(24,24,13),.65,46.0],
+					[Vector3(0,2,-.5),Vector3(13,-18,9),.50,44.0],
+					[Vector3(0,4.3,1.4),Vector3(4,-3,6),.48,46.0]]
+		for shot: Array in shots:
+			var inside := shot.size() == 1
+			var count := 144 if inside else 96
+			if inside:
+				cabin.set_enabled(true,craft,vehicle)
+				cabin.light_windows(lights[0],lights[1])
+			for i in count:
+				var u := smoothstep(0,1,float(i)/(count-1))
+				var time := float(number)/24
+				var pod: bool = key == "evapod"
+				var up := Vector3.UP if pod else Vector3.BACK
+				var deploy_key := str(vehicle.stages[0].key)
+				craft.update({"dt":1.0/24,"properTime":time, "deploy":{deploy_key:u if pod else 1.0}})
+				if inside:
+					if shot[0] == "detail":
+						if pod:
+							cam.position = Vector3(.04,1.36,-.25)
+							cam.look_at(Vector3(-.70+.38*u,.90,.53),up)
+						else:
+							cam.position = Vector3(-.28+.23*u,6.64,.73)
+							cam.look_at(Vector3(.20,8.54,.42),up)
+						cam.fov = 62
+					elif pod:
+						cam.position = Vector3(0,1.34,-.30)
+						cam.look_at(cam.position+Vector3(-.72+.98*u,-.18,.85),up)
+						cam.fov = 82
+					else:
+						cam.position = Vector3(-.20-.47*u,5.8+1.22*u,.97)
+						cam.look_at(Vector3(.28,9.8,.62),up)
+						cam.fov = 78
+				else:
+					var target: Vector3 = shot[0]
+					var offset: Vector3 = shot[1]
+					var orbit_axis := Vector3.UP if key in ["evapod","endurance"] else Vector3.BACK
+					cam.position = target+offset.rotated(orbit_axis,float(shot[2])*(u-.5))
+					cam.look_at(target,up)
+					cam.fov = shot[3]
+				if i == 0:
+					for settle in 4: await RenderingServer.frame_post_draw
+				await RenderingServer.frame_post_draw
+				var path := output.path_join("%05d.jpg" % number)
+				if composite.get_texture().get_image().save_jpg(path,.94) != OK:
+					printerr("MOVIECRAFTSHOTS could not save ",path)
+					get_tree().quit(1)
+					return
+				number += 1
+			cabin.dispose()
+		craft.group.queue_free()
+		await get_tree().process_frame
+	CraftAssets.clear()
+	print("MOVIECRAFTSHOTS TOUR DONE frames=",number)
 	get_tree().quit()

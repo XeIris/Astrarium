@@ -21,10 +21,10 @@ extends RefCounted
 const DT := 0.05
 const MAX_FRAMES := 400000
 
-const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "evapod", "ranger", "discovery", "endurance"]
+const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "evapod", "ranger", "discovery", "endurance", "lander"]
 const NAMES := {"saturnv": "Saturn V", "falcon9": "Falcon 9", "shuttle": "Shuttle", "starship": "Starship",
 	"lm": "Lunar Module", "skycrane": "Sky crane", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
-	"endurance":"Expedition Ring","evapod":"EVA Pod"}
+	"lander":"Cargo Lander","endurance":"Expedition Ring","evapod":"EVA Pod"}
 
 static var _list := {}
 
@@ -69,7 +69,15 @@ static func _build_list() -> Dictionary:
 		_sc("evapod","pod_berth","Approach the Explorer pod bay","Orbit",
 			{"kind":"dock","carrier":"discovery","slot":"dock_pod_1","gap":12.0},{"docked":true},
 			{"docked":true,"dockGap":[-.025,.025],"dockCross":[0.0,.025],"dockSpeed":[0.0,.035],
-				"dockAngle":[0.0,.035],"dockRate":[0.0,.035],"dockRcs":[.01,5.0],"dockRpm":[0.0,0.0]}),
+				"dockAngle":[0.0,.035],"dockRate":[0.0,.035],"dockRcs":[.01,5.0],"dockRpm":[0.0,0.0]}).merged({
+			"brief": "Return from the AE-35 antenna inspection in 2001. Clear the pod to approach the open centre bay. The jets handle braking and alignment."}),
+	]
+	out.lander = [
+		_sc("lander", "axial_recovery", "Recover the spinning ring", "Orbit",
+			{"kind":"dock", "carrier":"endurance", "slot":"axial_recovery", "gap":16.0}, {"docked":true},
+			{"docked":true, "dockGap":[-.025,.025], "dockCross":[0,.025], "dockSpeed":[0,.035],
+				"dockAngle":[0,.035], "dockRate":[0,.035], "dockRcs":[.1,100], "dockRpm":[.999,1.001]}).merged({
+			"brief": "Rehearse Cooper’s Lander recovery from Interstellar. This training ring turns at 1 rpm. Clear the approach and watch the dorsal collar meet the axial adapter."}),
 	]
 	out.endurance=[
 		_sc("endurance","kerr_orbit","Kinematic Kerr circular orbit","Orbit",
@@ -87,7 +95,8 @@ static func _build_list() -> Dictionary:
 		_sc("ranger","spin_match","Match the Expedition Ring and dock","Orbit",
 			{"kind":"dock","carrier":"endurance","slot":"dock_ranger_0","gap":16.0},{"docked":true},
 			{"docked":true,"dockGap":[-.025,.025],"dockCross":[0.0,.025],"dockSpeed":[0.0,.035],
-				"dockAngle":[0.0,.035],"dockRate":[0.0,.035],"dockRcs":[.1,40.0],"dockRpm":[4.99,5.01]}),
+				"dockAngle":[0.0,.035],"dockRate":[0.0,.035],"dockRcs":[.1,40.0],"dockRpm":[4.99,5.01]}).merged({
+			"brief": "Fly a Ranger rendezvous from Interstellar. The axial adapter turns at 5 rpm. Clear the approach and monitor spin match before capture."}),
 		_sc("ranger","orbit","Survey Shuttle in orbit","Orbit",{"kind":"orbit","alt":250e3,"inc":28.5}, {},
 			{"alt":[249e3,251e3],"phase":"orbit","attached":["ranger"]}),
 		_sc("ranger","entry_interface","Entry interface, 122 km","Return",survey,{"alt_below":122e3},
@@ -276,7 +285,10 @@ static func build(main, sc: Dictionary) -> String:
 	match str(b.kind):
 		"dock":
 			v=f.begin(key,{"mode":"orbit","alt":1000e3,"phase":0.0})
-			return "" if v!=null and f.begin_docking(str(b.carrier),str(b.slot),float(b.gap)) else "invalid docking approach base"
+			if v == null: return "docking visitor could not enter orbit"
+			# Put the work face of the carrier in sunlight for the visual approach.
+			v.q.set_from_unit_vectors(DVec3.new(-.78,.55,.30).normalized(), f.sun_direction(DVec3.new()))
+			return "" if f.begin_docking(str(b.carrier),str(b.slot),float(b.gap)) else "invalid docking approach base"
 		"kerr":
 			return "" if f.begin_kerr(key,str(b.body),float(b.radiusRg),float(b.get("phase",0.0))) else "invalid Kerr demonstration base"
 		"pad":

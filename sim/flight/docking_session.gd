@@ -20,12 +20,26 @@ var capture: Dictionary={}
 var readout: Dictionary={}
 var proper_rate:=1.0
 var initial_rcs:=0.0
-var start_coord:=0.0
+var braking := false
+var holding := false
+var hold_gap := 0.0
+var entry_gap := 0.0
+var retreating := false
+var cleared_once := false
+var approach_seconds := 0.0
+var mission_title := ""
 var _before: Dictionary={}
 
 static func create(v: Vessel,carrier_key: String,slot: String,gap: float) -> DockingSession:
 	var vehicle: Dictionary=Vehicles.get_vehicle(carrier_key)
+	# The transverse mount is occupied. Flying its rotating radial corridor needs a separate approach law.
+	if carrier_key == "endurance" and slot == "dock_lander_0": return null
 	if vehicle.is_empty() or not is_finite(gap) or gap<6.0 or gap>40.0:return null
+	var recovery := carrier_key == "endurance" and slot == "axial_recovery" and v.vehicle_key == "lander"
+	if recovery:
+		# At five rpm the off-axis Lander datum requires more acceleration than its jets supply.
+		vehicle = vehicle.duplicate(true)
+		vehicle.stages[0].centrifuge.rpm = 1.0
 	var spec: Dictionary=vehicle.stages[0]
 	var slots: Array
 	match carrier_key:
@@ -35,19 +49,22 @@ static func create(v: Vessel,carrier_key: String,slot: String,gap: float) -> Doc
 	var selected: Dictionary={}
 	for entry: Dictionary in slots:
 		if str(entry.node)==slot and str(entry.vehicle)==v.vehicle_key:selected=entry
+	if recovery: selected = EnduranceCraft.axial_lander(spec, v.stages[0].spec)
 	if selected.is_empty():return null
 	var out:=DockingSession.new();out.berth=selected
+	out.entry_gap = gap
 	out.carrier=Vessel.new({"vehicle":vehicle,"parent":v.parent,"bodies":v.bodies})
 	out.carrier.vehicle_key=carrier_key
 	out.carrier.r.copy_from(v.r);out.carrier.v.copy_from(v.v);out.carrier.q.copy_from(v.q)
 	out.carrier.met=v.met;out.carrier.coord=v.coord;out.carrier.phase=Vessel.PHASE.ORBIT
-	out.start_coord=v.coord
 	out.craft=CraftModel.build_craft(vehicle)
-	var occupied:=out.craft.group.find_child(slot,true,false) as Node3D
+	var occupied:=out.craft.group.find_child(str(selected.node),true,false) as Node3D
 	if occupied==null:
 		out.craft.group.free()
 		return null
 	occupied.visible=false
+	if recovery:
+		EnduranceCraft.fit_recovery_adapter(out.craft.stages[0].parts.rotors[0], spec, v.stages[0].spec)
 	out.draw_pose(4.0)
 	var port:=out.port_pose()
 	var lateral:=DQuat.rotate(DVec3.new(.65,0,0),out.carrier.q)
@@ -61,6 +78,27 @@ static func create(v: Vessel,carrier_key: String,slot: String,gap: float) -> Doc
 	v.log_event("Docking approach — %s"%str(vehicle.name))
 	return out
 
+func command_hold() -> void:
+	if latched or failure != "": return
+	holding = not holding
+	retreating = false
+	braking = holding
+	if holding:
+		# The jets establish the hold point when closure has actually stopped.
+		hold_gap = float(readout.gap)
+		status = "Holding station"
+	else:
+		cleared_once = true
+		approach_seconds = 0.0
+		status = "Approach cleared"
+
+func back_away() -> void:
+	if latched or failure != "": return
+	retreating = true
+	holding = false
+	braking = false
+	status = "Backing away"
+
 func port_pose() -> Dictionary:
 	var rotating: bool=carrier.vehicle_key=="endurance"
 	var spin:=Centrifuge.state(carrier.stages[0].spec.centrifuge,carrier.met) if rotating else {"angle":0.0,"omega":0.0}
@@ -68,11 +106,11 @@ func port_pose() -> Dictionary:
 	var frame:=carrier.q.clone().multiply(DQuat.new().set_from_axis_angle(Vessel.BODY_FWD,float(spin.angle)))
 	var offset:=DQuat.rotate(DVec3.new(berth.at[0],berth.at[1],berth.at[2]),frame)
 	var omega:=carrier.omega.clone().add_scaled_in(axis,float(spin.omega)*proper_rate)
-	var q:=frame.multiply(DQuat.new(berth.q[0],berth.q[1],berth.q[2],berth.q[3])).normalize_in()
+	var q:=frame.clone().multiply(DQuat.new(berth.q[0],berth.q[1],berth.q[2],berth.q[3])).normalize_in()
 	var tangent:=omega.cross(offset)
 	var radial:=offset.clone().add_scaled_in(axis,-offset.dot(axis)) if rotating else DVec3.new()
 	return {"r":carrier.r.clone().add_in(offset),"v":carrier.v.clone().add_in(tangent),
-		"q":q,"omega":omega,"axis":axis,"rpm":float(spin.omega)*60.0/TAU,
+		"frame":frame,"q":q,"omega":omega,"axis":axis,"rpm":float(spin.omega)*60.0/TAU,
 		"radial":radial,"tangent":tangent,"accel":omega.cross(tangent)}
 
 func advance(seconds: float,bodies: Array,advance_world: Callable) -> float:
@@ -96,9 +134,17 @@ func attitude_error(v: Vessel,port: Dictionary) -> DVec3:
 
 func measure(v: Vessel,port: Dictionary) -> Dictionary:
 	var delta:=v.r.clone().sub_in(port.r)
+	var relative_velocity := v.v.sub(port.v)
+	if berth.has("collar"):
+		var arm_body: DVec3 = berth.collar
+		var arm := DQuat.rotate(arm_body.clone(), v.q)
+		var target_arm := DQuat.rotate(arm_body.clone(), port.q)
+		delta.add_in(arm).sub_in(target_arm)
+		relative_velocity.add_in(v.omega.cross(arm)).sub_in(port.omega.cross(target_arm))
 	var gap:=delta.dot(port.axis)
+	var local_delta := DQuat.rotate(delta.clone(),port.frame.clone().invert())
 	return {"gap":gap,"cross":delta.add_scaled_in(port.axis,-gap).length(),
-		"speed":v.v.distance_to(port.v),"angle":attitude_error(v,port).length(),
+		"offset":Vector2(local_delta.x, local_delta.z), "speed":relative_velocity.length(),"angle":attitude_error(v,port).length(),
 		"rate":v.omega.distance_to(port.omega),"rpm":port.rpm,
 		"rcsUsed":initial_rcs-float(v._first_attached().rcs_prop)}
 
@@ -118,9 +164,15 @@ func steer(v: Vessel,dt: float) -> void:
 	var error:=attitude_error(v,_before)
 	var angle:=error.length()
 	var demand: DVec3=(_before.omega as DVec3).clone().sub_in(v.omega)
-	if angle>1e-9:demand.add_scaled_in(error,minf(angle*1.5,.60)/angle)
+	# Reserve the impulse needed to track an eccentric port while spinning up.
+	var maintain := minf(available, _before.accel.length() * v.mass * dt)
+	var turn_budget := maxf(0.0, available - maintain)
+	var alpha := turn_budget * arm / (dt * maxf(inertia.pitch, inertia.roll))
+	if angle > 1e-9:
+		var slew := minf(angle * 1.5, sqrt(alpha * angle))
+		demand.add_scaled_in(error, minf(slew, .60) / angle)
 	var angular:=demand.scaled(float(inertia.pitch)).add_scaled_in(fwd,demand.dot(fwd)*(float(inertia.roll)-float(inertia.pitch)))
-	var turn_impulse:=minf(angular.length(),available*arm)
+	var turn_impulse:=minf(angular.length(),turn_budget*arm)
 	if angular.length_sq()>1e-16:angular.scale_in(turn_impulse/angular.length())
 	v.omega.add_scaled_in(angular,1.0/float(inertia.pitch)).add_scaled_in(fwd,
 		angular.dot(fwd)*(1.0/float(inertia.roll)-1.0/float(inertia.pitch)))
@@ -133,15 +185,32 @@ func steer(v: Vessel,dt: float) -> void:
 	var t:=clampf((gap-2.0)/4.0,0.0,1.0)
 	var blend:=1.0-t*t*(3.0-2.0*t)
 	var blend_rate: float=-1.5*t*(1.0-t)*v.v.clone().sub_in(_before.v).dot(axis)
+	if v.vehicle_key == "lander":
+		# Follow the eccentric mating datum throughout, including its tangential velocity.
+		blend = 1.0
+		blend_rate = 0.0
 	side.add_scaled_in(_before.radial,1.0-blend)
 	var aligned:=side.length()<.12 and angle<ANGLE_GATE and v.omega.distance_to(_before.omega)<.045
 	var hold:=0.0 if aligned else 6.0
+	if retreating:
+		hold = entry_gap
+		if absf(gap-entry_gap)<.025 and absf(v.v.sub(_before.v).dot(axis))<.01:
+			retreating = false
+			holding = true
+			hold_gap = entry_gap
+	if holding:
+		if braking:
+			hold_gap = maxf(gap, .15)
+			braking = absf(v.v.sub(_before.v).dot(axis)) > .006
+		hold = hold_gap
 	var distance:=hold-gap
 	# Slow before the stopping distance of the available jets, leaving thrust
 	# for lateral station keeping as the measured gap approaches the latch.
 	var brake:=sqrt(2.0*.50*maxf(available,0.0)*absf(distance)/(dt*v.mass))
 	var speed:=signf(distance)*minf(.30,minf(brake,.65*absf(distance)))
-	var want: DVec3=(_before.v as DVec3).clone().add_scaled_in(axis,speed).add_scaled_in(side,-.6) \
+	var lateral_speed := minf(.6 * side.length(), sqrt(maxf(force / v.mass - _before.accel.length(), 0.0) * side.length()))
+	var lateral_gain := lateral_speed / maxf(side.length(), 1e-9)
+	var want: DVec3=(_before.v as DVec3).clone().add_scaled_in(axis,speed).add_scaled_in(side,-lateral_gain) \
 		.add_scaled_in(_before.tangent,blend-1.0).add_scaled_in(_before.radial,blend_rate)
 	# The port's small offset from the spin axis needs continuous centripetal
 	# acceleration; position feedback alone would leave a steady capture error.
@@ -149,11 +218,18 @@ func steer(v: Vessel,dt: float) -> void:
 	var used:=minf(impulse.length(),maxf(available,0.0))
 	if impulse.length_sq()>1e-16:v.v.add_scaled_in(impulse,used/(impulse.length()*v.mass))
 	tank.rcs_prop=maxf(tank.rcs_prop-(used+turn_impulse/arm)/ve,0.0)
+	if holding:
+		status = "Braking to hold" if braking else "Holding station"
+		return
+	if retreating:
+		status = "Backing away"
+		return
+	approach_seconds += dt
 	status="Final approach" if aligned else ("Matching spin and alignment" if float(_before.rpm)!=0.0 else "Aligning with bay")
 
 func after_step(v: Vessel) -> void:
 	if failure!="" or latched:return
-	if v.coord-start_coord>240.0:
+	if approach_seconds > 240.0:
 		failure="Approach did not converge (gap %.3f m, lateral %.3f m, rate %.3f rad/s)"%[readout.gap,readout.cross,readout.rate]
 		return
 	if carrier.parent!=v.parent:
@@ -161,7 +237,7 @@ func after_step(v: Vessel) -> void:
 		return
 	var pose:=port_pose()
 	readout=measure(v,pose)
-	if absf(readout.gap)<=DISTANCE_GATE and readout.cross<=DISTANCE_GATE and readout.speed<=SPEED_GATE \
+	if not holding and not retreating and absf(readout.gap)<=DISTANCE_GATE and readout.cross<=DISTANCE_GATE and readout.speed<=SPEED_GATE \
 		and readout.angle<=ANGLE_GATE and readout.rate<=RATE_GATE:
 		capture=readout.duplicate();latched=true;status="Docked"
 		_attach(v,pose)

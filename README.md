@@ -53,6 +53,14 @@ autopilot then flies every leg (launch, transfer, course corrections, capture,
 landing) and chooses the time warp, so the whole mission can be watched. Change
 the warp yourself and auto warp stops until you turn it back on.
 
+The EVA Pod, Survey Shuttle and Cargo Lander also offer docking missions in
+the hangar. **Start mission** places the visitor on station. Click **Clear
+approach** or press **K** to close. The same control brakes to a hold or
+resumes the approach. **Back away** (**X** by default) returns to the starting
+range and holds there. **Space** pauses both craft. Drag or scroll to inspect
+the berth, or press **C** to change cameras. The port scope shows lateral
+offset, with the outer ring at 50 cm. Capture readings stay on the console.
+
 Flying shows a console along the bottom: the attitude ball between its
 throttle and climb tapes, altitude, speed, the orbit, Δv, the live stage's
 propellant, time warp, and the mission's legs as a route. **Systems** opens the
@@ -370,6 +378,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/discoverycheck.gd` | Discovery cover sweep, berth furniture and rotor clearance, proper-time phase, gravity/Coriolis telemetry and Galilean-moon initial conditions in both build paths |
 | `tools/discoveryflightcheck.tscn` | production Earth–Jupiter flight, paid burns and fully propulsive capture; rejects exhausted attitude control and incomplete missions |
 | `tools/endurancecheck.gd` | ring phase, mounted shuttle clearances, outlet attachment and artificial gravity in both build paths |
+| `tools/dockingmissioncheck.tscn` | three hangar missions, mapped input, station keeping, capture, sampled mesh interference and rigid attachment. Use `-- only=lander movie=/absolute/directory` with a GPU to record 24 fps frames |
 | `tools/dockingflightshots.tscn` | rendered EVA berth and Ranger spin match through production flight; checks capture, aligned render datums and teardown |
 | `tools/orbitcheck.gd` | conic propagation against independent RK4, reversibility and energy across elliptic, near-parabolic and hyperbolic cases |
 | `tools/finiteburncheck.gd` | finite escape prediction convergence, mass/fuel response, long-coast attitude fuel and live guidance cutoff/asymptote |

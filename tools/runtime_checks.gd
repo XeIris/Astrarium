@@ -283,7 +283,7 @@ func _soak_check() -> void:
 			for i in 5:await stage.get_tree().process_frame
 			hud.toast("",1),
 		"docking": func():
-			for id in ["evapod:pod_berth", "ranger:spin_match"]:
+			for id in ["evapod:pod_berth", "ranger:spin_match", "lander:axial_recovery"]:
 				var error: String = await stage.jump_scenario(id)
 				if error != "" or flight.docking == null or not flight.docking.latched:
 					failures.append("docking: " + id + " failed to capture " + error)

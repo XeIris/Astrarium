@@ -21,7 +21,7 @@ const GROUPS := [
 	["Spaceflight", [["warp_down", "Slow time"], ["warp_up", "Speed time"],
 		["throttle_cut", "Cut throttle"], ["throttle_full", "Full throttle"],
 		["throttle_up", "Increase throttle"], ["throttle_down", "Decrease throttle"],
-		["stage", "Separate stage"], ["gear", "Toggle gear"],
+		["dock_command", "Clear approach / hold position"], ["stage", "Separate stage"], ["gear", "Toggle gear"],
 		["flight_camera", "Cycle flight camera"], ["flight_follow", "Follow a dropped stage"],
 		["space_map", "Space map"]]],
 	["Observatory", [["site_previous", "Previous site"], ["site_next", "Next site"],
@@ -56,6 +56,7 @@ const DEFAULTS := {
 	"throttle_full": [KEY_Z, false, false, false],
 	"throttle_up": [KEY_SHIFT, false, false, false],
 	"throttle_down": [KEY_CTRL, false, false, false],
+	"dock_command": [KEY_K, false, false, false],
 	"stage": [KEY_SPACE, true, false, false],
 	"gear": [KEY_G, false, false, false],
 	"flight_camera": [KEY_C, false, false, false],
@@ -164,7 +165,7 @@ func _valid_saved_bindings(data: Dictionary) -> bool:
 
 ## Actions added after controls.json first shipped. A file written before them cannot
 ## hold them, so their defaults give way to its keys rather than reject it.
-const ADDED := ["space_map", "flight_follow", "site_previous", "site_next", "site_observe"]
+const ADDED := ["dock_command", "space_map", "flight_follow", "site_previous", "site_next", "site_observe"]
 
 ## A saved file's bindings, with defaults for what it leaves out. An ADDED action it
 ## lacks keeps its default key unless the file already uses it in the same context;
@@ -226,7 +227,7 @@ func _same_context(a: String, b: String) -> bool:
 
 func _is_flight(action: String) -> bool:
 	return ["warp_down", "warp_up", "throttle_cut", "throttle_full", "throttle_up",
-		"throttle_down", "stage", "gear", "flight_camera", "flight_follow"].has(action)
+		"throttle_down", "dock_command", "stage", "gear", "flight_camera", "flight_follow"].has(action)
 
 func matches(action: String, event: InputEventKey) -> bool:
 	var b: Array = bindings[action]

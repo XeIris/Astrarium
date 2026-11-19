@@ -1186,7 +1186,7 @@ func _input(e: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if key.pressed and not key.echo and controls.matches("space_map", key) and not hud.settings_open \
-			and flight != null and flight.active and not at_start:
+			and flight != null and flight.active and flight.docking == null and not at_start:
 		open_map()
 		get_viewport().set_input_as_handled()
 		return
@@ -1260,7 +1260,7 @@ func _key(e: InputEventKey) -> void:
 	# Flight takes the keys it needs first; everything it does not claim falls
 	# through to the orrery's own bindings.
 	if state.cam_mode == "flight":
-		for action in ["stage", "warp_down", "warp_up", "throttle_cut", "throttle_full",
+		for action in ["dock_command", "stage", "warp_down", "warp_up", "throttle_cut", "throttle_full",
 			"throttle_up", "throttle_down", "gear", "flight_camera", "flight_follow"]:
 			if controls.matches(action, e) and flight.key_action(action):
 				get_viewport().set_input_as_handled()
@@ -2201,6 +2201,8 @@ func _on_warp_step(d: int) -> void:
 
 func _on_console_action(a: String) -> void:
 	match a:
+		"dock_command": flight.key_action("dock_command")
+		"dock_retreat": flight.key_action("throttle_cut")
 		"map": open_map()
 		"systems":
 			set_panel_open("flightPanel", hud.is_collapsed("flightPanel"))
@@ -2215,6 +2217,7 @@ func _on_console_action(a: String) -> void:
 
 func open_map() -> void:
 	if not flight.active or flight.vessel == null: return
+	if flight.docking != null: return
 	if not flight.kerr_demo.is_empty():
 		toast("The ordinary conic map is unavailable in the Kerr demonstration")
 		return
@@ -2255,13 +2258,13 @@ func close_hangar() -> void:
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if (flight and flight.active) else RenderPipeline.Mode.ORRERY)
 
 func _select_hangar(key: String) -> void:
+	hangar.select(key)
 	await CraftAssets.craft_models_ready([key])
-	if not hangar_open: return
+	if not hangar_open or hangar.selected != key: return
 	model_view.load_vehicle(key)
 	model_open = true
 	last_craft = key
 	hangar.set_info(key, _hangar_info(key))
-	hangar.select(key)
 
 ## A craft's numbers and the hangar's missions, each priced from its launch site by
 ## the same planner the map uses.
@@ -2291,6 +2294,10 @@ func _hangar_info(key: String) -> Dictionary:
 		v = Vessel.new({"vehicle": veh, "parent": home, "bodies": flight.bodies(), "payload": pay})
 		if veh.role == "launch": v.place_on_pad(28.5, 0.0)
 		else: v.place_in_orbit(15000.0 if veh.role == "lander" else 250000.0)
+	for sc: Dictionary in FlightScenarios.list(key):
+		if sc.base.kind == "dock" and sc.has("brief"):
+			missions.append({"label":sc.title, "dest":sc.id, "goal":"dock", "ok":true,
+				"brief":sc.brief, "why":"", "dv":0.0})
 	for m in Hangar.MISSIONS:
 		if m[1] == "":
 			missions.append({"label": m[0], "dest": "", "goal": "", "ok": true, "why": "", "dv": 0.0})
@@ -2307,6 +2314,27 @@ func _hangar_info(key: String) -> Dictionary:
 
 ## Start mission: onto the pad (or into orbit), and the autopilot takes the mission.
 func hangar_start(key: String, dest: String, goal: String) -> void:
+	if goal == "dock":
+		var sc = FlightScenarios.find(key, dest)
+		if sc == null or sc.base.kind != "dock" or not sc.has("brief"): return
+		await CraftAssets.craft_models_ready([key, sc.base.carrier])
+		if not hangar_open or hangar.selected != key: return
+		close_hangar()
+		scenario_world()
+		var error := FlightScenarios.build(self, sc)
+		if error != "":
+			open_hangar()
+			toast(error)
+			return
+		flight.docking.mission_title = sc.title
+		flight.docking.command_hold()
+		state.paused = false
+		set_cam_mode("flight")
+		flight.set_camera_mode("berth")
+		set_panel_open("flightPanel", false)
+		hud.set_shown("flightRow", true)
+		sync_warp_label()
+		return
 	close_hangar()
 	await launch_craft(key)
 	if dest != "" and flight.active: flight.start_mission(dest, goal)

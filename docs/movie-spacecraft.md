@@ -102,8 +102,7 @@ aft-model photographs inform the proportions of the three drive assemblies.
 [Studio photographs](https://starshipmodeler.com/2001/2001ref.htm)
 
 `evapod:pod_berth` flies a live RCS approach from 12 m off the empty middle berth.
-The scenario and played replays both captured at about 0.034 m/s after 53.15 s,
-using 0.694 kg of reaction-control propellant. Capture couples the pod rigidly to
+Capture couples the pod rigidly to
 the carrier after position, orientation, speed and rate gates. Docking contact
 compliance and recoil are omitted.
 
@@ -161,8 +160,19 @@ estimate. At 5 rpm the 30.5 m floor produces about 0.85 g, with a Coriolis to
 floor-gravity ratio of about 0.18 at 1.4 m/s. The spin follows accepted proper
 time, with angular momentum exchange omitted. `ranger:spin_match` starts 16 m off the
 axial berth and uses the approaching Ranger's RCS to match the ring's pose and
-spin. The scenario captured after 76.90 s at 0.0341 m/s and 5.00 rpm, using
-37.383 kg of RCS propellant. A played 60 fps replay also passed the gates.
+spin. The controller reserves the centripetal impulse for the offset port while it turns.
+The distance and speed gates are 2.5 cm and 3.5 cm/s. The angular and angular-rate
+gates are 0.035 rad and 0.035 rad/s.
+
+The hangar offers these approaches before clearance. The EVA Pod returns from
+the AE-35 inspection and the Ranger visits the rotating axial berth. The third
+mission, `lander:axial_recovery`, adapts Cooper’s recovery of Endurance after
+Mann’s failed Ranger docking. A reducer mates the Lander’s inclined dorsal
+collar to the axial adapter. The exercise uses an intact ring at 1 rpm. The
+film’s damaged-ring spin exceeds the modelled Lander jets’ ability to follow
+the eccentric port. In all three exercises the pilot clears, holds or resumes
+the approach while the RCS controller handles pointing and translation.
+[Production crew on the docking sequences](https://www.fxguide.com/fxfeatured/real-and-raw-the-miniature-fx-behind-interstellar/)
 
 `endurance:kerr_orbit` uses the isolated `gargantua_demo` preset, a 100 million
 solar mass black hole with spin 0.998. At 3.5 GM/c², the prescribed equatorial
@@ -192,6 +202,14 @@ cover sweep, pod aperture clearance, rotor fit and Jovian initial conditions.
 Endurance's check covers rotor phase, its mounted craft clearances and outlet
 attachment. `tools/dockingflightshots.tscn` exercises both captures and checks
 the rendered attachment against the parked craft datum after a second of flight.
+The hangar check `tools/dockingmissioncheck.tscn` flies the three approaches
+through clearance, wave-off, hold and capture. It checks visible triangles at
+28 approach stations and at latch, including each 10 cm of the final two metres.
+Use `-- assets=0` to exercise the procedural models. With a GPU, `-- profile=1`
+measures frame intervals and `-- only=lander movie=/absolute/directory` saves
+a complete 24 fps flight. `tools/moviecraftshots.tscn -- tour dump=/absolute/directory`
+records all five models and both fitted interiors.
+
 `eval=_soak_check` exercises each mode repeatedly through launch and teardown.
 Reference comparisons, successive views and local check logs live in ignored
 `tools/evidence/movie-craft/`.

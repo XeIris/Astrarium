@@ -653,6 +653,11 @@ func update(s: Dictionary) -> void:
 
 	_update_stages(v)
 
+	var docking: bool = s.get("docking") != null
+	if target_sel.disabled != docking:
+		target_sel.disabled = docking
+		for button: HudButton in mode_btns.values() + prog_btns.values():
+			button.set_enabled(not docking)
 	for k in mode_btns: (mode_btns[k] as HudButton).set_active(k == s.get("mode"))
 	for k in prog_btns: (prog_btns[k] as HudButton).set_active(k == s.get("program"))
 
