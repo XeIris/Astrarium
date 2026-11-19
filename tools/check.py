@@ -30,7 +30,7 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "eva_pod", "ranger", "discovery", "docking", "kerr",
+                 "lessons", "voyager", "model_viewer", "eva_pod", "ranger", "discovery", "docking", "kerr",
                  "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "encounter", "join", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
@@ -49,6 +49,9 @@ PARITY_FRAMES = 13000
 # names it. Documentation selects nothing; any other unmapped path selects `dev`.
 # Keep this in step with AGENTS.md "Checks" when a check or a subsystem is added.
 CHANGED_RULES = (
+    (("sim/voyager/*", "ui/voyager_*.gd", "assets/voyager/*", "model_sources/voyager.py",
+      "tools/build_voyager.py", "tools/voyagercheck.*", "sim/flight/modelviewer.gd", "ui/hangar.gd"),
+     ("voyagercheck", "_soak_check-voyager")),
     (("sim/flight/docking_session.gd", "tools/dockingmissioncheck.*", "tools/dockingclearance.gd", "ui/hangar.gd", "ui/flight_console.gd",
       "ui/control_bindings.gd", "sim/flight/scenarios.gd", "sim/flight/endurance_craft.gd"), ("dockingmissioncheck*", "dockingscenarios", "dockingflightshots", "_soak_check-docking")),
     (("sim/flight/kerr_circular.gd", "sim/flight/spaceflight.gd", "sim/presets.gd"),
@@ -278,6 +281,7 @@ def checks(suite, godot, output, repeat, export_preset):
                r"^REFERENCE SHOTS SELF-CHECK PASS$", 30)
         yield ("check-selfcheck", [sys.executable, str(ROOT / "tools/check_test.py")], r"^CHECK SELF-CHECK PASS$", 60)
         yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("voyagercheck", r"^VOYAGER DONE failures=0$", "title=0")
         yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$")

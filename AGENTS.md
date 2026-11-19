@@ -258,6 +258,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - the HUD: `tools/hudcheck.tscn` (`htest=1`, and screenshots of the states it
   touches)
 - what lights a vehicle (the Sun, the fill, a low Sun's colour): `tools/flightlightcheck.tscn`
+- Voyager mission history, trajectory data or model framing: `tools/voyagercheck.tscn` (and `-- title=0 shots=/absolute/directory` for pixels)
 - flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`
   (`-- replay=1` for the comparison with a played flight)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without

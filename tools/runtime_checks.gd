@@ -238,6 +238,19 @@ func _soak_check() -> void:
 					for i in 2: stage.animate(1.0 / 60.0)
 				await stage.get_tree().process_frame
 			stage.set_app_mode("sandbox"),
+		"voyager": func():
+			stage.open_hangar("voyager2")
+			stage.hangar_start("voyager2", "", "voyager")
+			var replay: VoyagerReplay = stage.voyager_replay
+			replay.jump(5)
+			stage.animate(0.0)
+			await _drawn_frame()
+			replay.set_view(true)
+			stage.animate(0.0)
+			await _drawn_frame()
+			replay.closed.emit()
+			stage.close_hangar()
+			for i in 5: await stage.get_tree().process_frame,
 		"model_viewer": func():
 			CraftAssets.craft_models_ready(Vehicles.VEHICLES.keys())
 			for k in Vehicles.VEHICLES:

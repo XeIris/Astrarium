@@ -175,6 +175,52 @@ func _build_rule(H: float) -> void:
 	rule_group.add_child(mi)
 	rule_group.set_meta("step", step)
 
+## Both Voyagers use the same deployed VTAD spacecraft. The asymmetrical boom
+## makes the bus a better inspection pivot than the centre of its bounding box.
+func load_voyager() -> void:
+	if craft != null and vehicle == null:
+		voyager_pose("Full span")
+		return
+	_clear_craft()
+	_waiting = ""
+	vehicle = null
+	craft = CM.Craft.new()
+	craft.group = (load("res://assets/voyager/voyager.glb") as PackedScene).instantiate()
+	root.add_child(craft.group)
+	var studio := pipe.env_model.duplicate() as Environment
+	studio.background_color = Color("#45505a")
+	studio.ambient_light_color = Color("#f1f4f8")
+	studio.ambient_light_energy = 0.31
+	camera.environment = studio
+	figure.hide()
+	rule_group.hide()
+	grid.hide()
+	voyager_pose("Full span")
+
+func release_voyager() -> void:
+	if craft != null and vehicle == null:
+		_clear_craft()
+		camera.environment = pipe.env_model
+		cam.held = false
+
+func voyager_pose(view: String) -> void:
+	var pose: Array = VoyagerSpacecraft.VIEWS[view]
+	craft.group.position = -pose[0]
+	mid_y = 0.0
+	span = float(pose[3]) / 2.0
+	cam.yaw = pose[1]
+	cam.pitch = pose[2]
+	cam.dist = 2.0
+	cam.held = true
+	cam.explode = 0.0
+	cam.want_explode = 0.0
+
+func _clear_craft() -> void:
+	if craft != null:
+		root.remove_child(craft.group)
+		craft.group.queue_free()
+		craft = null
+
 ## Put a vehicle on the turntable; returns {key, ...spec} or null. The first build
 ## may be the procedural fallback; update() rebuilds once the threaded load settles,
 ## once per vehicle (a .glb with no `stage_` node would otherwise retry forever).
@@ -185,10 +231,11 @@ func load_vehicle(vehicle_key: String):
 		return null
 	CraftAssets.preload_craft(vehicle_key)
 	_waiting = vehicle_key
-	if craft != null:
-		root.remove_child(craft.group)
-		craft.group.queue_free()
-		craft = null
+	if craft != null and vehicle == null: cam.held = false
+	camera.environment = pipe.env_model
+	_clear_craft()
+	grid.show()
+	rule_group.show()
 	vehicle = (veh as Dictionary).duplicate()
 	vehicle["key"] = vehicle_key
 	craft = CM.build_craft(veh)

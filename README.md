@@ -53,6 +53,12 @@ autopilot then flies every leg (launch, transfer, course corrections, capture,
 landing) and chooses the time warp, so the whole mission can be watched. Change
 the warp yourself and auto warp stops until you turn it back on.
 
+Choose **Voyager 1** or **Voyager 2** and **Start mission** for the historical replay.
+Scrub from launch through 19 November 2026 or choose a landmark to follow a
+planetary assist or moon flyby. Switch probes to compare them at the same UTC
+instant. **Spacecraft** opens the deployed model beside NASA’s reference images.
+Both missions work offline. [Trajectory and model sources](docs/voyager.md)
+
 The EVA Pod, Survey Shuttle and Cargo Lander also offer docking missions in
 the hangar. **Start mission** places the visitor on station. Click **Clear
 approach** or press **K** to close. The same control brakes to a hold or
@@ -411,6 +417,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/discoverycheck.gd` | Discovery cover sweep, berth furniture and rotor clearance, proper-time phase, gravity/Coriolis telemetry and Galilean-moon initial conditions in both build paths |
 | `tools/discoveryflightcheck.tscn` | production Earth–Jupiter flight, paid burns and fully propulsive capture; rejects exhausted attitude control and incomplete missions |
 | `tools/endurancecheck.gd` | ring phase, mounted shuttle clearances, outlet attachment and artificial gravity in both build paths |
+| `tools/voyagercheck.tscn` | both historical missions through the hangar, time jumps, Horizons vectors, encounter frames and the one-light-day range. Pass `-- title=0 shots=/absolute/directory` with a GPU for reference comparisons |
 | `tools/dockingmissioncheck.tscn` | three hangar missions, mapped input, station keeping, capture, sampled mesh interference and rigid attachment. Use `-- only=lander movie=/absolute/directory` with a GPU to record 24 fps frames |
 | `tools/dockingflightshots.tscn` | rendered EVA Pod, Ranger and Lander approaches through production flight, including axial capture with three ferries still aboard |
 | `tools/orbitcheck.gd` | conic propagation against independent RK4, reversibility and energy across elliptic, near-parabolic and hyperbolic cases |
