@@ -231,6 +231,9 @@ A check must reject defects and incomplete runs with a nonzero exit;
 printing a comparison alone is insufficient. Intentional differences from the
 frozen numeric reference must be explained, never hidden by wider tolerances.
 
+- a new physical term or constant: give its likeliest mistake a mutation in
+  `tools/mutationcheck.py` (`CORE`; a `-twin` when both kernels carry it) and run
+  `python3 tools/mutationcheck.py --only core`; `check.py mutation` runs every group
 - presets, structure or contact radii: `tools/presetcheck.sh`
 - ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`,
   `tools/nbodycheck.gd` and `tools/numericalcheck.gd`; the secular terms:

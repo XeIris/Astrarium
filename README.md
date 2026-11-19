@@ -313,6 +313,12 @@ three timestep refinements and five orientation probes. Both remain explicit
 suites because of their runtime; the redesigned scenario passes the tested bounds
 (see [scenario limits and results](docs/scenarios.md#trisolaris-hierarchical-initial-conditions)).
 `compatibility` keeps the known strict frozen-reference differences failing.
+`mutation` plants plausible mistakes one at a time (`tools/mutationcheck.py`): a
+constant off, a sign or a power wrong, or the same mistake in both kernels, where
+parity cannot see it. It fails unless the checks named for each one reject it.
+`core` covers the orrery's physics in minutes; `galaxy` takes about an hour and a
+half. It rewrites files in place, so it runs alone, the worktree must be left alone
+meanwhile, and a run that includes it records no passes for `--changed`.
 Body motion uses conservative Newtonian pair gravity; relativistic visuals and
 the illustrative tight-pair drag have separate limits described in
 [the compact-dynamics model](docs/physics/compact-dynamics.md).

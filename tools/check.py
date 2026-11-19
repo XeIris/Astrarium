@@ -22,12 +22,13 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("dev", "fast", "encounters", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("dev", "fast", "encounters", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study", "mutation")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
-# themselves (clean), read the previous step's output (export), or need exact object
-# counts (lifecycle; its checks run beside each other only, see `alone`).
-ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
+# themselves (clean), read the previous step's output (export), need exact object
+# counts (lifecycle; its checks run beside each other only, see `alone`), or break the
+# tree in place (mutation).
+ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle", "mutation"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
                  "lessons", "voyager", "model_viewer", "eva_pod", "ranger", "discovery", "docking", "kerr",
@@ -454,6 +455,14 @@ def checks(suite, godot, output, repeat, export_preset):
         yield ("package-native", [sys.executable, str(ROOT / "tools/package_native.py"), str(archive), export_preset],
                r"^NATIVEPACKAGE DONE .+$", 30)
         yield ("exportcheck", [sys.executable, str(ROOT / "tools/exportcheck.py"), str(archive)], r"^EXPORTCHECK PASS:.* 0 failures$", 30)
+    elif suite == "mutation":
+        # Plausible mistakes planted one at a time; the checks named for each must reject it.
+        # core (the orrery's physics, rebuilding native/ for its twins) takes minutes; galaxy
+        # about an hour and a half, most of it in galaxylookcheck's window.
+        for group, timeout in (("core", 1800), ("galaxy", 10800)):
+            yield (f"mutationcheck-{group}", [sys.executable, str(ROOT / "tools/mutationcheck.py"), "--godot", godot, "--only", group,
+                                              "--log-dir", str(output / f"mutation-{group}")],
+                   r"^MUTATIONCHECK DONE as-expected=(\d+)/\1 ", timeout)
     elif suite == "compatibility":
         # Known strict trajectory differences remain failures; no widened tolerances or expected-failure masking.
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")

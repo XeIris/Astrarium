@@ -1,20 +1,37 @@
 #!/usr/bin/env python3
-"""Show that a check rejects broken code: apply each mutation in place, run the check
-that should catch it, require a failure, and restore the file. A mutation the check
-passes is a hole in the check. Run on a clean tree; files are restored byte for byte
-even on an interrupt.
+"""Show that the checks reject broken code: apply each mutation in place, run the checks
+that should catch it, require every one to fail, and restore the files. A mutation a
+check passes is a hole in that check. First every check named must pass the unchanged
+tree, or it would catch everything. Files are restored byte for byte, on an interrupt
+too, and a run killed outright (check.py's timeout) leaves a journal that the next run
+restores first.
 
-    python3 tools/mutationcheck.py [--godot PATH] [--only NAME[,NAME]] [--list]
+    python3 tools/mutationcheck.py [--godot PATH] [--only NAME|core|galaxy[,...]] [--checks NAME[,...]] [--list]
+
+A mutation that edits native/ rebuilds the library with native/build.sh, then puts
+native/bin back; the unchanged tree is then checked with a rebuilt library too, so that
+a compiler differing from the committed build's cannot be what catches them.
+--checks runs the named check.py checks against every selected mutation instead of
+its own and reports each, to find what catches a new mutation.
 """
 import argparse
+import base64
+import json
 import os
-import re
 from pathlib import Path
-import shutil
+import re
+import signal
 import subprocess
 import sys
+import tempfile
+import threading
+import types
+
+import check as runner
 
 ROOT = Path(__file__).resolve().parent.parent
+JOURNAL = ROOT / "tools/evidence/mutationcheck-journal.json"
+NATIVE_BIN = "native/bin"
 
 GALAXYCHECK = ["--headless", "--script", "res://tools/galaxycheck.gd", "--", "quick=1"]
 ENCOUNTERCHECK = ["--headless", "--script", "res://tools/encountercheck.gd"]
@@ -22,10 +39,13 @@ GALAXYLOOK = ["--always-on-top", "--resolution", "1280x720", "res://tools/galaxy
 SOAK_JOIN = ["--always-on-top", "--resolution", "1280x720", "--", "eval=_soak_check", "soak=join", "rounds=3"]
 COURSECHECK = ["--always-on-top", "--resolution", "1280x720", "res://tools/coursecheck.tscn", "--", "only=galaxies/localgroup"]
 
-# name: (file, text, replacement, check arguments, what it breaks). KNOWN_MISSES are
-# defects no check resolves yet; they are run and reported, and must stay missed or
-# move into the table proper.
-MUTATIONS = {
+# Two shapes. One edit: name: (file, text, replacement, Godot arguments, what it breaks).
+# Several: name: ([(file, text, replacement), ...], [checks], what it breaks[, assertions]),
+# where a check is a check.py name or Godot arguments; every check must fail, and each
+# assertion must appear in one of their FAIL lines. KNOWN_MISSES are defects no check
+# resolves yet; they are run and reported, and must stay missed or move into the table
+# proper.
+GALAXY = {
     "units-julian-year": ("sim/galaxy/gal_units.gd", "const KMS := 1000.0 * Rocketry.YR_S", "const KMS := 1000.0 * 31557600.0",
                           GALAXYCHECK, "km/s converted with a Julian year, not the one G is exact for"),
     "normalise-disc": ("sim/galaxy/gal_models.gd", "[0.05, 0.6, 0.35]", "[0.05, 0.65, 0.35]",
@@ -53,8 +73,12 @@ MUTATIONS = {
                            GALAXYCHECK, "the bar's force in the GDScript kernel only (the native one disagrees)"),
     "work-sign": ("sim/galaxy/gal_tracers.gd", "work[i] = w\n", "work[i] = -w\n",
                   GALAXYCHECK, "the work tally's sign"),
-    "dust-arm-cutoff": ("sim/galaxy/gal_visual.gd", "if R > dust.rm else 1.0", "if R < dust.rm else 1.0",
-                        GALAXYCHECK, "the dust arms cut off inside r_m rather than outside"),
+    # Both of the CPU's copies: the fused arm sampler's and _dust_arm's.
+    "dust-arm-cutoff": ([("sim/galaxy/gal_visual.gd", "\t\tvar cut: float = exp(-pow((R - dust.rm) / dust.ra, 2.0)) if R > dust.rm else 1.0",
+                          "\t\tvar cut: float = exp(-pow((R - dust.rm) / dust.ra, 2.0)) if R < dust.rm else 1.0"),
+                         ("sim/galaxy/gal_visual.gd", "\n\tvar cut: float = exp(-pow((R - dust.rm) / dust.ra, 2.0)) if R > dust.rm else 1.0",
+                          "\n\tvar cut: float = exp(-pow((R - dust.rm) / dust.ra, 2.0)) if R < dust.rm else 1.0")],
+                        [GALAXYCHECK], "the dust arms cut off inside r_m rather than outside"),
     "young-normalisation": ("sim/galaxy/gal_visual.gd", "	young_k = _l_young / float(baked.integral)", "	young_k = _l_young / float(baked.integral) * 2.0",
                             GALAXYCHECK, "the young arms' brightness"),
     "glow-gain": ("shaders/galaxy/galaxy_glow.gdshaderinc", "vec3 col = (disc + sph * uSphereCol) * uGain;",
@@ -197,7 +221,7 @@ MUTATIONS = {
                         ENCOUNTERCHECK, "the GDScript live kernel kicking a whole step each half"),
     "disc-no-drift": ("sim/galaxy/gal_encounter.gd", "	var vphi2 := v2 - sp * sp + sr * sr + drift", "	var vphi2 := v2",
                       ENCOUNTERCHECK, "a warm disc rotating at the circular speed, without asymmetric drift"),
-    "switch-halo-at-rest": ("sim/galaxy/gal_encounter.gd", "[v[0] + hv[3 * q], v[1] + hv[3 * q + 1], v[2] + hv[3 * q + 2]]", "[hv[3 * q], hv[3 * q + 1], hv[3 * q + 2]]",
+    "switch-halo-at-rest": ("sim/galaxy/gal_encounter.gd", "v[0] + hv[w], v[1] + hv[w + 1], v[2] + hv[w + 2], mass", "hv[w], hv[w + 1], hv[w + 2], mass",
                             ENCOUNTERCHECK, "haloes going live at rest instead of with their galaxies"),
     "identikit-omega-ahead": ("sim/galaxy/gal_models.gd", "	var node := to_companion.rotated(z, -deg_to_rad(omega))", "	var node := to_companion.rotated(z, deg_to_rad(omega))",
                               ENCOUNTERCHECK, "the Antennae's discs turned with ω ahead of the companion instead of behind"),
@@ -228,55 +252,279 @@ KNOWN_MISSES = {
                              GALAXYCHECK, "the radial-period weight of Shu's distribution"),
 }
 
+PHYSICS = "sim/physics.gd"
+NBODY = "native/nbody.c"
 
-def godot_path(value):
-    for c in [value, shutil.which("godot"), "/Applications/Godot.app/Contents/MacOS/Godot"]:
-        if c and Path(c).is_file():
-            return c
-    sys.exit("MUTATIONCHECK FAIL: no Godot; pass --godot")
+
+def twin(edits, native):
+    """The same mistake in both kernels, so parity cannot catch it; only physics can."""
+    return edits + native
+
+
+T3 = [(PHYSICS, "var t3 := 3.5 * mu / r", "var t3 := -3.5 * mu / r")]
+COEF = [(PHYSICS, "var coef := -4.0 * phi[i]", "var coef := -3.0 * phi[i]")]
+KERNEL = [(PHYSICS, "\t\t\t\t\tkernel = G * dist / denominator", "\t\t\t\t\tkernel = G / denominator")]
+YOSHIDA = [(PHYSICS, "const YOSHIDA_W1 := 1.3512071919596578", "const YOSHIDA_W1 := 1.35")]
+TIDE_POWER = [(PHYSICS, "/ pow(r, 7.0)", "/ pow(r, 6.0)")]
+TIDE_SIGN = [(PHYSICS, "var fr := -3.0 * A * rdot / r", "var fr := 3.0 * A * rdot / r")]
+WIND = [(PHYSICS, "var dm := minf(b.wind_mdot * dt, 0.001 * b.mass)\n\t\tb.mass -= dm", "var dm := minf(b.wind_mdot * dt, 0.001 * b.mass)\n\t\tb.mass += dm")]
+MERGER = [(PHYSICS, ".add_scaled_in(small.vel, small.mass)", "")]
+
+# The orrery's physics. A "-twin" makes the same mistake in native/nbody.c as well.
+CORE = {
+    "g-one-percent": ([(PHYSICS, "const G := 4.0 * PI * PI", "const G := 4.0 * PI * PI * 1.01")], ["invariantcheck"],
+                      "G a per cent off 4π², so it no longer carries GM☉ in the orrery's year", ["orrery G is GM☉"]),
+    "softened-inverse-cube": (KERNEL, ["invariantcheck"], "softened pairs pulling as 1/r³ in the GDScript kernel",
+                              ["force matches energy gradient"]),
+    "softened-inverse-cube-twin": (twin(KERNEL, [(NBODY, "kernel = G * dist / denominator;", "kernel = G / denominator;")]),
+                                   ["invariantcheck"], "softened pairs pulling as 1/r³ in both kernels",
+                                   ["force matches energy gradient", "PSR B1913+16 periastron"]),
+    "pn-response-sign": (T3, ["invariantcheck"], "the 1PN term in the other body's acceleration reversed, GDScript kernel",
+                         ["force antisymmetry", "PSR B1913+16 gd 1PN energy"]),
+    "pn-response-sign-twin": (twin(T3, [(NBODY, "double t3 = 3.5 * mu / r;", "double t3 = -3.5 * mu / r;")]), ["invariantcheck"],
+                              "the 1PN term in the other body's acceleration reversed in both kernels",
+                              ["force antisymmetry", "PSR B1913+16 periastron", "PSR B1913+16 native 1PN energy"]),
+    "pn-potential-coefficient": (COEF, ["invariantcheck"], "the 1PN 4Φ term weighted 3, GDScript kernel",
+                                 ["force antisymmetry", "PSR B1913+16 gd 1PN energy"]),
+    "pn-potential-coefficient-twin": (twin(COEF, [(NBODY, "double coef = -4.0 * pn_phi[i]", "double coef = -3.0 * pn_phi[i]")]),
+                                      ["invariantcheck", "sciencecheck"], "the 1PN 4Φ term weighted 3 in both kernels",
+                                      ["Mercury's perihelion advances", "PSR B1913+16 periastron", "edu_mercury over 300 yr with 1PN on"]),
+    "yoshida-weight": (YOSHIDA, ["numericalcheck"], "a Yoshida weight rounded to 1.35, so the step falls to second order, GDScript kernel",
+                       ["phase converges with halved step"]),
+    "yoshida-weight-twin": (twin(YOSHIDA, [(NBODY, "static const double YOSHIDA_W1 = 1.3512071919596578;", "static const double YOSHIDA_W1 = 1.35;"),
+                                           (NBODY, "static const double YOSHIDA_W0 = 1.0 - 2.0 * 1.3512071919596578;",
+                                            "static const double YOSHIDA_W0 = 1.0 - 2.0 * 1.35;")]),
+                            ["numericalcheck", "sciencecheck"], "a Yoshida weight rounded to 1.35 in both kernels",
+                            ["phase converges with halved step", "edu_mercury over 300 yr with 1PN off"]),
+    "tide-power": (TIDE_POWER, ["secularcheck"], "the tidal force falling as r⁻⁶, GDScript kernel", ["against Hut's"]),
+    "tide-power-twin": (twin(TIDE_POWER, [(NBODY, "/ pow(r, 7.0)", "/ pow(r, 6.0)")]), ["secularcheck"],
+                        "the tidal force falling as r⁻⁶ in both kernels", ["against Hut's"]),
+    "tide-radial-sign": (TIDE_SIGN, ["secularcheck"], "the tide's radial drag pushing, GDScript kernel", ["against Hut's"]),
+    "tide-radial-sign-twin": (twin(TIDE_SIGN, [(NBODY, "double fr = -3.0 * A * rdot / r;", "double fr = 3.0 * A * rdot / r;")]),
+                              ["secularcheck"], "the tide's radial drag pushing in both kernels", ["against Hut's"]),
+    "wind-adds-mass": (WIND, ["secularcheck"], "a wind that adds mass, GDScript kernel", ["the wind took"]),
+    "wind-adds-mass-twin": (twin(WIND, [(NBODY, "double dm = jmin(b[MDOT] * dt, 0.001 * b[MASS]);\n\t\tb[MASS] -= dm;",
+                                         "double dm = jmin(b[MDOT] * dt, 0.001 * b[MASS]);\n\t\tb[MASS] += dm;")]),
+                            ["secularcheck"], "a wind that adds mass in both kernels", ["the wind took"]),
+    "merger-drops-momentum": (MERGER, ["invariantcheck"], "a merger keeping only the larger body's momentum, GDScript kernel",
+                              ["direct collision", "gd collision"]),
+    "merger-drops-momentum-twin": (twin(MERGER, [(NBODY, "vel[c] = (g[VX + c] * g[MASS] + s[VX + c] * s[MASS]) * invM;",
+                                                  "vel[c] = (g[VX + c] * g[MASS]) * invM;")]),
+                                   ["invariantcheck"], "a merger keeping only the larger body's momentum in both kernels",
+                                   ["native collision"]),
+    "schwarzschild-without-two": ([(PHYSICS, "return 2.0 * G * mass_sun / (C * C)", "return G * mass_sun / (C * C)")], ["invariantcheck"],
+                                  "the Schwarzschild radius GM/c², half the horizon", ["cannot change physical horizon"]),
+    "roche-coefficient": ([(PHYSICS, "return 2.44 * r_au * U.cbrt(rho_star / body_density)", "return 1.44 * r_au * U.cbrt(rho_star / body_density)")],
+                          ["invariantcheck"], "the fluid Roche limit's 2.44 as 1.44, letting a world pass closer to the Trisolaris suns",
+                          ["Roche limit of an Earth-density world", "contact is its Roche limit"]),
+    "chandrasekhar-mass": ([("sim/structure.gd", '"chandrasekhar": 1.44', '"chandrasekhar": 1.6')], ["structureinputcheck"],
+                           "white dwarfs supported past 1.44 M☉", ["Chandrasekhar event still detonates"]),
+    "tov-mass": ([("sim/structure.gd", '"tov": 2.20', '"tov": 1.20')], ["sciencecheck"], "neutron stars collapsing at 1.2 M☉",
+                 ["neutron star inside NICER's"]),
+    "flight-gm-sun": ([("sim/flight/rocketry.gd", "const GM_SUN := 1.32712440018e20", "const GM_SUN := 1.32712440018e19")],
+                      ["invariantcheck"], "flight's GM☉ a tenth of the orrery's", ["orrery G is GM☉"]),
+}
+GROUPS = {"core": list(CORE), "galaxy": list(GALAXY) + list(KNOWN_MISSES)}
+TABLE = {**CORE, **GALAXY, **KNOWN_MISSES}
+OPTIONS = types.SimpleNamespace(godot=None, timeout=None, allow_macos_ca_error=False)  # what check.run_child reads
+
+
+def normal(entry):
+    """(edits, checks, what, assertions), whichever table the entry is from."""
+    if isinstance(entry[0], str):
+        path, old, new, args, what = entry
+        return [(path, old, new)], [args], what, ()
+    edits, checks, what, *assertions = entry
+    return edits, checks, what, tuple(assertions[0]) if assertions else ()
+
+
+def put(path, data, mode=None):
+    """Replace, never rewrite in place: macOS can kill a process that loads a signed
+    library overwritten in place."""
+    tmp = path.with_name(path.name + ".mutationcheck")
+    tmp.write_bytes(data)
+    os.chmod(tmp, mode if mode is not None else path.stat().st_mode)
+    os.replace(tmp, path)
+
+
+def snapshot(paths, native):
+    files = {p: (ROOT / p).read_bytes() for p in paths}
+    if native:
+        files.update({f"{NATIVE_BIN}/{f.name}": f.read_bytes() for f in (ROOT / NATIVE_BIN).iterdir() if f.is_file()})
+    return {p: (data, (ROOT / p).stat().st_mode) for p, data in files.items()}
+
+
+def restore(saved, native):
+    for p, (data, mode) in saved.items():
+        f = ROOT / p
+        if not f.is_file() or f.read_bytes() != data:
+            put(f, data, mode)
+    if native:
+        for f in (ROOT / NATIVE_BIN).iterdir():
+            if f.is_file() and f"{NATIVE_BIN}/{f.name}" not in saved:
+                f.unlink()
+    assert all((ROOT / p).read_bytes() == data for p, (data, _) in saved.items())
+
+
+def write_journal(saved, native):
+    JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+    body = {"native": native, "files": {p: [base64.b64encode(data).decode(), mode] for p, (data, mode) in saved.items()}}
+    tmp = JOURNAL.with_suffix(".tmp")
+    tmp.write_text(json.dumps(body))
+    os.replace(tmp, JOURNAL)
+
+
+def recover():
+    """Put back what a run killed mid-mutation left behind."""
+    if not JOURNAL.exists():
+        return
+    body = json.loads(JOURNAL.read_text())
+    restore({p: (base64.b64decode(data), mode) for p, (data, mode) in body["files"].items()}, body["native"])
+    JOURNAL.unlink()
+    print(f"MUTATIONCHECK RESTORED {', '.join(body['files'])}, left mutated by an interrupted run", flush=True)
+
+
+def interrupted(signum, frame):
+    raise KeyboardInterrupt
+
+
+FAILURE = re.compile(r"^\s*(?:\w+ )?FAIL\b|^\s*(?:SCRIPT |SHADER )?ERROR:")
+
+
+def run_named(check, folder, index):
+    """check.py's own run and verdict, in a thread so an interrupt here can still kill
+    the child it started in its own session. Returns (rejected, failing lines)."""
+    live, out = {}, []
+    worker = threading.Thread(target=lambda: out.append(runner.run_child(check, folder, index, OPTIONS, None, live)), daemon=True)
+    worker.start()
+    try:
+        while worker.is_alive():
+            worker.join(0.2)
+    finally:
+        for process in list(live.values()):
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+    if not out:
+        raise RuntimeError(f"check.py could not run {check.name}")
+    result = out[0][0]
+    text = Path(result["log"]).read_text(errors="replace")
+    return result["problem"] is not None, [l.strip() for l in text.splitlines() if FAILURE.match(l)] or [result["problem"] or ""]
+
+
+def run_raw(godot, args):
+    r = subprocess.run([godot, "--path", str(ROOT), *args], cwd=ROOT, capture_output=True, text=True, timeout=900)
+    out = r.stdout + r.stderr
+    # A passing run prints "failures=0", for the course "COURSE …L …S 0E", for the soak an
+    # empty failure list.
+    passed = (" failures=0" in out or re.search(r"^COURSE \d+L \d+S 0E$", out, re.MULTILINE) is not None
+              or re.search(r"^SOAK FAILURES \[\]$", out, re.MULTILINE) is not None)
+    return r.returncode != 0 or not passed, [l.strip() for l in out.splitlines() if l.startswith("FAIL") or "ERROR" in l]
+
+
+def trial(edits, checks, folder, godot, named, native=False):
+    """Apply `edits`, rebuild native/ if they touch it (or `native`), run `checks` and
+    restore. Returns [(check, rejected, failing lines)], or why nothing could run."""
+    paths = list(dict.fromkeys(p for p, _, _ in edits))
+    native = native or any(p.startswith("native/") for p in paths)
+    saved = snapshot(paths, native)
+    texts = {p: saved[p][0].decode() for p in paths}
+    for p, old, new in edits:
+        if texts[p].count(old) != 1:
+            return f"STALE: the text to break is not in {p} exactly once"
+        texts[p] = texts[p].replace(old, new)
+    folder.mkdir(parents=True, exist_ok=True)
+    write_journal(saved, native)
+    try:
+        for p in paths:
+            put(ROOT / p, texts[p].encode())
+        if native:
+            build = subprocess.run(["sh", str(ROOT / "native/build.sh")], cwd=ROOT, capture_output=True, text=True, timeout=600)
+            if build.returncode != 0:
+                said = (build.stdout + build.stderr).strip().splitlines() or [f"exit {build.returncode}"]
+                return "BUILD FAILED: " + next((l for l in said if "error" in l), said[-1])
+        return [(c, *(run_named(named[c], folder, i) if isinstance(c, str) else run_raw(godot, c))) for i, c in enumerate(checks)]
+    finally:
+        restore(saved, native)
+        JOURNAL.unlink()
+
+
+def quoted(line):
+    """A child's line, echoed. check.py would read its "ERROR:" as this run's own."""
+    return line.replace("ERROR:", "ERROR")
+
+
+def label(c):
+    return c if isinstance(c, str) else next((a for a in c if a.startswith("res://")), " ".join(a for a in c if "=" in a))
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--godot", default=os.environ.get("GODOT"))
-    ap.add_argument("--only")
+    ap.add_argument("--only", help="mutations or groups (core, galaxy), comma-separated")
+    ap.add_argument("--checks", help="check.py checks to run against every selected mutation instead of its own")
+    ap.add_argument("--log-dir", type=Path, help="where the named checks' logs go (default: a temporary folder)")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
-    table = {**MUTATIONS, **KNOWN_MISSES}
-    names = list(table) if not a.only else a.only.split(",")
+    signal.signal(signal.SIGTERM, interrupted)
+    recover()
+    names = [n for part in (a.only.split(",") if a.only else list(GROUPS)) for n in GROUPS.get(part, [part])]
+    unknown = [n for n in names if n not in TABLE]
+    if unknown:
+        sys.exit(f"MUTATIONCHECK FAIL: unknown mutation {', '.join(unknown)}")
     if a.list:
-        for n in names: print(n, "-", table[n][4], "(known miss)" if n in KNOWN_MISSES else "")
+        for n in names: print(n, "-", normal(TABLE[n])[2], "(known miss)" if n in KNOWN_MISSES else "")
         return 0
-    godot = godot_path(a.godot)
-    caught = 0
-    for name in names:
-        path, old, new, args, what = table[name]
-        f = ROOT / path
-        original = f.read_bytes()
-        text = original.decode()
-        if text.count(old) != 1:
-            print(f"MUTATION {name} STALE: the text to break is not in {path} exactly once")
-            continue
-        try:
-            f.write_text(text.replace(old, new))
-            r = subprocess.run([godot, "--path", str(ROOT), *args], cwd=ROOT, capture_output=True, text=True, timeout=900)
-        finally:
-            f.write_bytes(original)
-        assert f.read_bytes() == original
-        out = r.stdout + r.stderr
-        # A passing run prints "failures=0", for the course "COURSE …L …S 0E", for the soak an
-        # empty failure list.
-        passed = (" failures=0" in out or re.search(r"^COURSE \d+L \d+S 0E$", out, re.MULTILINE) is not None
-                  or re.search(r"^SOAK FAILURES \[\]$", out, re.MULTILINE) is not None)
-        failed = r.returncode != 0 or not passed
-        fails = [l for l in out.splitlines() if l.startswith("FAIL") or "ERROR" in l][:3]
+    try:
+        godot = runner.godot_path(a.godot)
+    except ValueError:
+        sys.exit("MUTATIONCHECK FAIL: no Godot; pass --godot")
+    OPTIONS.godot = godot
+    output = a.log_dir.resolve() if a.log_dir else Path(tempfile.mkdtemp(prefix="astrarium-mutation-"))
+    named = {}
+    (output / "suite").mkdir(parents=True, exist_ok=True)
+    for suite in ("fast", "native", "rendered", "flight"):
+        for c in map(lambda c: runner.Check(*c), runner.checks(suite, godot, output / "suite", 1, "macOS")):
+            named.setdefault(c.name, c)
+    survey = a.checks.split(",") if a.checks else None
+    plan = {n: normal(TABLE[n]) for n in names}
+    for n, (_, checks, _, _) in plan.items():
+        missing = [c for c in survey or checks if isinstance(c, str) and c not in named]
+        if missing:
+            sys.exit(f"MUTATIONCHECK FAIL: {n} names {', '.join(missing)}, which check.py does not have")
+    distinct = []
+    for _, checks, _, _ in plan.values():
+        distinct += [c for c in survey or checks if c not in distinct]
+    native = any(p.startswith("native/") for edits, _, _, _ in plan.values() for p, _, _ in edits)
+    control = trial([], distinct, output / "control", godot, named, native)
+    rejected = [label(c) for c, failed, _ in control if failed] if not isinstance(control, str) else [control]
+    if rejected:
+        sys.exit(f"MUTATIONCHECK FAIL: the unchanged tree{' with native/ rebuilt' if native else ''} already fails {', '.join(rejected)}")
+    print(f"CONTROL the unchanged tree{' with native/ rebuilt' if native else ''} passes {', '.join(map(label, distinct))}", flush=True)
+    good = 0
+    for name, (edits, checks, what, assertions) in plan.items():
+        results = trial(edits, survey or checks, output / name, godot, named)
         known = name in KNOWN_MISSES
-        print(f"MUTATION {name} {'caught' if failed else ('missed (known)' if known else 'MISSED')}: {what}")
-        for l in fails: print("    " + l.strip())
-        caught += failed == (not known)
-    print(f"MUTATIONCHECK DONE as-expected={caught}/{len(names)} known-misses={len([n for n in names if n in KNOWN_MISSES])}")
-    return 0 if caught == len(names) else 1
+        if isinstance(results, str):
+            print(f"MUTATION {name} {results}", flush=True)
+            continue
+        lines = [l for _, failed, fails in results if failed for l in fails]
+        broken = [l for l in lines if any(s in l for s in ("Parse Error", "Compile Error", "SHADER ERROR"))]
+        if broken:
+            print(f"MUTATION {name} BROKEN: the mutated code does not compile, so it tests nothing\n        {quoted(broken[0])}", flush=True)
+            continue
+        caught = any(failed for _, failed, _ in results) if survey else all(failed for _, failed, _ in results)
+        absent = [s for s in assertions if not any(s in l for l in lines if FAILURE.match(l))] if caught and not survey else []
+        verdict = ("caught" if not absent else "caught, but not by " + "; ".join(absent)) if caught else ("missed (known)" if known else "MISSED")
+        print(f"MUTATION {name} {verdict}: {what}")
+        for c, failed, fails in results:
+            print(f"    {label(c)} {'rejects' if failed else 'passes'}" + "".join(f"\n        {quoted(l)}" for l in fails[:3] if failed), flush=True)
+        good += (caught and not absent) == (not known)
+    print(f"MUTATIONCHECK DONE as-expected={good}/{len(plan)} known-misses={len([n for n in plan if n in KNOWN_MISSES])} logs={output}")
+    return 0 if good == len(plan) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit("MUTATIONCHECK INTERRUPTED; every file is restored")
