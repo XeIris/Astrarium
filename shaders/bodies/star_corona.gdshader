@@ -37,6 +37,8 @@ uniform float uViewH = 0.0;
 uniform sampler2D uDepth : hint_depth_texture, filter_nearest, repeat_disable;
 // How far past the limb, in wing widths, the quad reaches when 4 R is too little room.
 const float GLARE_REACH = 4.0;
+// The photosphere mesh's largest excursion past the analytic limb, in radii.
+const float GLARE_BULGE = 0.03;
 
 varying vec2 vP;
 varying vec3 vView;
@@ -179,10 +181,12 @@ void fragment() {
 			: exp(dpx / 1.2);
 		glare *= uGlare * (1.0 - smoothstep(0.7 * vGrow, vGrow, r));
 		// Opaque geometry nearer than the star along this ray hides it: off the limb that is
-		// the ray's closest approach, on the disc the photosphere. The margin is wider than a
-		// grazing ray's chord through the mesh, which bulges past the analytic limb.
+		// the ray's closest approach, on the disc the photosphere. The photosphere is taken
+		// GLARE_BULGE larger, the most its mesh stands past the analytic limb, so a grazing
+		// ray's chord through the mesh is not an occluder.
 		float bR = max(1.0 + x, 0.0);
-		float tStar = tca - R * (sqrt(max(1.0 - bR * bR, 0.0)) + 0.3);
+		float rB = 1.0 + GLARE_BULGE;
+		float tStar = tca - R * (sqrt(max(rB * rB - bR * bR, 0.0)) + 0.01);
 		vec4 vv = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, texture(uDepth, SCREEN_UV).r, 1.0);
 		if (glare > 0.0 && length(vv.xyz / vv.w) < tStar) glare = 0.0;
 	}
