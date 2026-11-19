@@ -46,6 +46,16 @@ static func smoothstep01(a: float, b: float, x: float) -> float:
 	var t := clampf((x - a) / (b - a), 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)
 
+## A puff's column through its centre relative to its launch, at width `sg` and distance
+## `r`, holding its mass fixed. star_envelope.gdshader's density is n₀ exp(−d²) with a
+## centre column τ = 1.77 σ n₀, transverse width σ, width σ ahead and s_l = σ + 0.7(r − 1)
+## behind, where it also falls to 0.45 by one s_l. Its mass is then ∝ τ σ (0.886 σ +
+## 0.636 s_l), the second being ∫₀^∞ e^−u² (1 − 0.55 min(u, 1)) du.
+static func puff_column(sg: float, r: float) -> float:
+	const SG0 := 0.18
+	var sl := sg + 0.7 * (r - 1.0)
+	return SG0 * SG0 * (0.886 + 0.636) / (sg * (0.886 * sg + 0.636 * sl))
+
 static func _v3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
 
@@ -159,6 +169,7 @@ class StarViz:
 		var flattening := float(body.structure.get("flattening", 0.0))
 		corona_mat.set_shader_parameter("uSize", core.mesh.radius * 4.0 / (1.0 - flattening))
 		corona_mat.set_shader_parameter("uFlat", flattening)
+		corona_mat.set_shader_parameter("uSpin", clampf(body.spin_frac, 0.0, 1.0))
 
 	func _init(b: Body, opts: VisualOpts) -> void:
 		body = b
@@ -367,7 +378,7 @@ class StarViz:
 		return p
 
 	## Puffs ride the sim clock, like the flares: they rise, spread, keep their mass
-	## (the column across them falls as 1/σ²) and turn to dust past the condensation radius.
+	## (puff_column) and turn to dust past the condensation radius.
 	func _update_envelope(sim_dt: float) -> void:
 		var reach: float = env_mat.get_shader_parameter("uEnv")
 		eject_next -= sim_dt
@@ -384,10 +395,13 @@ class StarViz:
 			# A puff's gas is denser than the wind's and condenses hotter, so closer in
 			# (r ∝ T_c^−5/2: ~0.6 of the wind's radius for 1600 K against 1300 K). Once it
 			# has, its opacity is the grains', several times the molecules': the Great
-			# Dimming of Betelgeuse (Montargès et al. 2021).
-			var rc: float = float(env.dustR) * StarVisual.PUFF_CONDENSE if float(env.dustR) > 0.0 else INF
-			var dusty := StarVisual.smoothstep01(0.8 * rc, 1.1 * rc, float(p.r))
-			var tau := float(p.tau) * pow(0.18 / sg, 2.0) * lerpf(1.0, StarVisual.DUST_BOOST, dusty)
+			# Dimming of Betelgeuse (Montargès et al. 2021). No grains form without a
+			# condensation radius.
+			var dusty := 0.0
+			if float(env.dustR) > 0.0:
+				var rc: float = float(env.dustR) * StarVisual.PUFF_CONDENSE
+				dusty = StarVisual.smoothstep01(0.8 * rc, 1.1 * rc, float(p.r))
+			var tau := float(p.tau) * StarVisual.puff_column(sg, float(p.r)) * lerpf(1.0, StarVisual.DUST_BOOST, dusty)
 			if p.r > reach or tau < 0.02:
 				ejecta.remove_at(i)
 				continue
@@ -520,9 +534,12 @@ class StarViz:
 			var arcade: Prominence.Arcade = E2.arcade
 			arcade.group.visible = arc_amp > 0.01
 			# Post-flare loops are filled at ~10⁷ K, invisible in white light, and appear in
-			# H-α and He II only as they cool; the coolest condense into rain, which absorbs.
-			var arc_t: float = 1.5e7 * exp(-x * 1.6) + 3e5
+			# H-α and He II only as they cool. Below ~2 MK they go thermally unstable and
+			# strands condense into 10⁴ K rain (Antolin 2020): only that cool fraction
+			# absorbs, while the loops' own plasma stays hot and transparent.
+			var arc_t: float = 1.5e7 * exp(-x * 2.6) + 4e5
 			var cooled := StarVisual.smoothstep01(6e6, 1.5e6, arc_t)
+			var rain := StarVisual.smoothstep01(2.5e6, 1.5e6, arc_t)
 			arcade.set_params({
 				"R": R, "span": (0.045 + 0.055 * minf(x * 2.0, 1.0)) * scl, "len": 0.34 * scl,
 				"height": (0.040 + 0.095 * minf(x * 2.0, 1.0)) * scl,
@@ -531,7 +548,7 @@ class StarViz:
 				# Post-flare loops fill from the feet up (chromospheric evaporation), so the
 				# tops brighten as the event goes on.
 				"apex": minf(x * 2.5, 0.8), "glow": lerpf(0.25, 1.0, cooled), "cooled": cooled,
-				"opacity": 0.35 * cooled,
+				"opacity": 0.35 * rain,
 			})
 			fc += 1
 		# --- quiescent prominences, carried round by the differential rotation

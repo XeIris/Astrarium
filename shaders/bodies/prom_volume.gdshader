@@ -125,7 +125,8 @@ float arcade(vec3 f, bool full, float soft, out float s, out float fp, out float
 	float h = max(f.y, 0.0);
 	float zw = f.z / W, hh = h / H;
 	float rho = length(vec2(zw, hh));
-	float th = atan(hh, -zw);
+	// atan(0, 0) is undefined; on the surface h is clamped to 0, and f.z can be too.
+	float th = atan(max(hh, 1e-6), -zw);
 	s = th / PI;
 	lit = 1.0;
 	fp = exp(-s * 5.5) + exp(-(1.0 - s) * 5.5);
@@ -165,7 +166,7 @@ float rope(vec3 f, bool full, float soft, out float s, out float fp, out float l
 	float Lh = uGeo.x, H = uGeo.y, A = uGeo.z;
 	float h = max(f.y, 0.0);
 	vec2 e = vec2(f.x / Lh, h / H);
-	float th = atan(e.y, -e.x);
+	float th = atan(max(e.y, 1e-6), -e.x);
 	s = th / PI;
 	lit = 1.0;
 	fp = exp(-s * 6.0) + exp(-(1.0 - s) * 6.0);
@@ -277,7 +278,7 @@ void fragment() {
 	// Even steps a fraction of a strand apart (no finer than a pixel), as many as the chord
 	// needs up to a cap; the envelope test is cheap, so density is only read inside it.
 	// The temperature pass needs only the coverage, so it takes long steps.
-	float dtf = max(feature * 0.4 * uR, 0.6 * pxA * 0.5 * (t0 + t1));
+	float dtf = max(feature * 0.4 * uR, pxA * 0.5 * (t0 + t1));
 	int N = temp ? 24 : clamp(int(ceil((t1 - t0) / dtf)), 24, 112);
 	float dt = (t1 - t0) / float(N);
 	float ds = dt / uR;

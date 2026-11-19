@@ -109,7 +109,8 @@ Models and sources: [docs/physics/stellar-surfaces.md](../docs/physics/stellar-s
 - Filament and prominence are one volume: blend_premul_alpha, emission over the
   transmitted background. Cool material hides only `LINE_SHARE` of the disc (thick in the
   lines, thin in the continuum), and its emission against the disc is the disc's light
-  scattered, below it. Hot loops have no opacity.
+  scattered, below it. Hot loops have no opacity; a cooling arcade's only opacity is its
+  rain, the strands that condense to 10⁴ K once the loops fall below ~2 MK.
 - Steps are even, a fraction of a strand apart and no finer than a pixel; the cheap
   envelope test (`full = false`) skips the density outside the structure. A two-level
   march that backs up after a long step ping-pongs on a widened envelope and drops

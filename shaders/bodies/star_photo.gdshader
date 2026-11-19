@@ -99,7 +99,8 @@ vec3 rotY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x -
 // One sunspot in its group's plane (q in units of the leading spot's penumbral radius,
 // r its own radius). Returns (umbra, penumbra, filament brightness 0..1). The umbra is
 // sampled through the Wilson depression: displaced toward the disc centre near the limb.
-vec3 spot_shade(vec2 q, float r, vec2 wil, float seed, float rag) {
+// fq: one pixel in q's units, for fading filaments the pixel cannot resolve.
+vec3 spot_shade(vec2 q, float r, vec2 wil, float seed, float rag, float fq) {
 	float d = length(q) / r;
 	if (d > 1.4) return vec3(0.0);
 	float ang = atan(q.y, q.x);
@@ -113,8 +114,12 @@ vec3 spot_shade(vec2 q, float r, vec2 wil, float seed, float rag) {
 	// Penumbral filaments: the near-horizontal field combs the gas into radial threads
 	// (integer angular frequencies keep atan's seam invisible), with Evershed grains
 	// streaming outward along them.
-	float f1 = 0.5 + 0.5 * sin(ang * 47.0 + 2.6 * sn_noise(vec3(ca * 4.0, seed + dp * 1.5)));
-	float f2 = 0.5 + 0.5 * sin(ang * 113.0 + 4.0 * sn_noise(vec3(ca * 9.0, seed + 5.0)));
+	// Each set fades to its mean where its cycles fall below a pixel.
+	float cyc = fq / (6.2831853 * max(length(q), 1e-3));
+	float f1 = mix(0.5, 0.5 + 0.5 * sin(ang * 47.0 + 2.6 * sn_noise(vec3(ca * 4.0, seed + dp * 1.5))),
+		1.0 - smoothstep(0.3, 0.7, 47.0 * cyc));
+	float f2 = mix(0.5, 0.5 + 0.5 * sin(ang * 113.0 + 4.0 * sn_noise(vec3(ca * 9.0, seed + 5.0))),
+		1.0 - smoothstep(0.3, 0.7, 113.0 * cyc));
 	float fil = f1 * 0.6 + f2 * 0.4;
 	fil *= 0.72 + 0.28 * sin(dp * 34.0 - uTime * 1.3 + f2 * 5.0);
 	return vec3(umb, pen, fil);
@@ -122,6 +127,8 @@ vec3 spot_shade(vec2 q, float r, vec2 wil, float seed, float rag) {
 
 void fragment() {
 	vec3 p = normalize(vObj);
+	// One pixel on the unit surface, taken here where derivatives are defined.
+	float pfw = length(fwidth(p));
 
 	// The surface pattern turns at one rate. Granules and the network live far shorter
 	// than the differential rotation takes to shear them, and at the display's rotation
@@ -192,8 +199,8 @@ void fragment() {
 		float muc = max(dot(vd, c), 0.15);
 		vec2 wil = vec2(dot(vd, ax), dot(vd, perp)) * min(0.10 / muc, 0.45);
 
-		vec3 L = spot_shade(q - vec2(1.05, 0.08), 1.0, wil, seed, 0.12);
-		vec3 F = spot_shade(q + vec2(1.30, -0.10), 0.45 + 0.30 * S, wil, seed + 3.1, 0.38);
+		vec3 L = spot_shade(q - vec2(1.05, 0.08), 1.0, wil, seed, 0.12, pfw / rP);
+		vec3 F = spot_shade(q + vec2(1.30, -0.10), 0.45 + 0.30 * S, wil, seed + 3.1, 0.38, pfw / rP);
 		float pA = max(L.y, F.y);
 		umb = max(umb, max(L.x, F.x) * S);
 		pen = max(pen, pA * min(S * 2.0, 1.0));
@@ -227,14 +234,23 @@ void fragment() {
 	T = mix(T, Tm - uSpotDT * (1.0 - 0.45 * udot), umb);
 	// Faculae are hot walls seen obliquely, so they show toward the limb.
 	T += Tm * (0.055 * fac + 0.025 * plage) * pow(limb, 1.3);
-	// Granulation does not show through the chromosphere's line emission.
-	float Igr = max(1.0 + uGranContrast * g * (1.0 - pen) * (1.0 - pore) * (1.0 - 1.4 * uVeil * conv), 0.0);
-	vec3 base = surfCol * (uGain * uDisc * uPulse * gFlux * Igr) * sn_planck_ratio(T, Tm);
+	// A granule is a temperature too. Its measured contrast is the continuum's near 600 nm,
+	// where d ln B / d ln T = x / (1 − e^−x), x = hc/λkT, so that intensity is a
+	// temperature, and the bluer bands show it more, as they do. Granulation does not show
+	// through the chromosphere's line emission.
+	float x6 = 23510.0 / Tm;
+	float gI = uGranContrast * g * (1.0 - pen) * (1.0 - pore) * (1.0 - 1.4 * uVeil * conv);
+	T *= 1.0 + max(gI, -0.9) * (1.0 - exp(-x6)) / x6;
+	vec3 base = surfCol * (uGain * uDisc * uPulse * gFlux) * sn_planck_ratio(T, Tm);
 
 	// --- limb darkening: I(μ)/I(1) = 1 − a(1 − μ) − b(1 − μ)², μ = cos(view angle)
 	base *= max(vec3(1.0) - uLimbA * limb - uLimbB * limb * limb, vec3(0.0));
 
-	// --- the two flare ribbons straddling a sheared, meandering neutral line
+	// --- the two flare ribbons straddling a sheared, meandering neutral line. They are
+	// 10⁴ K continuum, coloured by its Planck ratio to the photosphere (normalised in red,
+	// where the drawn strength is set), so a flare is bluer than the star it is on.
+	vec3 ribT = sn_planck_ratio(1.0e4, Tm);
+	ribT /= ribT.r;
 	vec3 flareGlow = vec3(0.0);
 	float ribbon = 0.0;
 	for (int i = 0; i < 4; i++) {
@@ -260,7 +276,7 @@ void fragment() {
 		float rib = exp(-ra * ra) * mA * kA + exp(-rb * rb) * mB * kB;
 		float hx = across / (sep * 1.7 + 0.03);
 		float halo = exp(-hx * hx) * (1.0 - smoothstep(0.06, 0.32, abs(along)));
-		flareGlow += vec3(1.0, 0.92, 0.84) * (rib * 3.4 + halo * 0.35) * fl.w;
+		flareGlow += surfCol * ribT * (rib * 3.4 + halo * 0.35) * fl.w;
 		ribbon = max(ribbon, rib * fl.w);
 	}
 	base += flareGlow * uGain;
@@ -304,8 +320,7 @@ void fragment() {
 	// Publish the local temperature: spots are cool and ribbons hot outside the visible,
 	// and a fast rotator's pole is ~1500 K hotter in UV.
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {
-		float tPub = T * (1.0 + 0.22 * uGranContrast * g);
-		tPub = mix(tPub, 1.0e4, clamp(ribbon, 0.0, 1.0));
+		float tPub = mix(T, 1.0e4, clamp(ribbon, 0.0, 1.0));
 		ALBEDO = vec3(temp_code(tPub), 0.0, 0.0);
 	} else {
 		ALBEDO = base;

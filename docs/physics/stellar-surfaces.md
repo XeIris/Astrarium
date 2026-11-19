@@ -39,7 +39,8 @@ B_λ(T)/B_λ(T̄) at the sRGB primaries' effective wavelengths (612, 549, 465 nm
 spot's colour and contrast are therefore consequences of its temperature, and the
 temperature pass publishes the same T, so a spot is dark and a ribbon bright in UV.
 
-- **Granulation.** Rms continuum contrast ≈ 16% for the Sun before instrumental
+- **Granulation.** A granule is drawn as the temperature its measured continuum
+  contrast implies at ~600 nm, so the bluer bands show it more. Rms continuum contrast ≈ 16% for the Sun before instrumental
   smearing; Hinode/SP measures 7% at 630 nm and MURaM gives 14–15% until the
   telescope's PSF is applied (Danilovic et al. 2008, A&A 484, L17). Contrast rises
   with Teff and falls with log g (Magic & Asplund 2014, Stagger-grid VI, arXiv:1405.7628),
@@ -109,8 +110,9 @@ Three geometries:
   smaller at the line's ends. Successive reconnection builds a post-flare arcade in
   generations, so its density is in shells, each threaded with strands. It forms at
   ~10⁷ K, invisible in white light, and appears in H-α and He II only as it cools
-  (`cooled`, from the plasma temperature); its coolest material condenses into rain,
-  which falls down both legs (Antolin 2020; Scullion et al. 2016) and absorbs.
+  (`cooled`, from the plasma temperature). Below ~2 MK its loops go thermally unstable
+  and strands condense into 10⁴ K rain, which falls down both legs (Antolin 2020;
+  Scullion et al. 2016); only that cool fraction absorbs.
 - **The flux rope** runs along the neutral line, its threads wound about an arched
   axis. Its cool material lies in the dips of the twisted field, below the axis, and
   the cavity above is nearly empty. As it erupts its twist turns into writhe and the
@@ -129,7 +131,8 @@ the same material glows off the limb and is a dark filament against the disc.
 
 The flare ribbons on the disc straddle a sheared, meandering neutral line, offset along
 it by the shear and lumpy with kernels, and they separate as reconnection climbs. They
-publish ~10⁴ K, the white-light flare continuum.
+are ~10⁴ K, the white-light flare continuum, drawn by its Planck ratio to the
+photosphere and published at that temperature, so a flare is bluer than its star.
 
 ## Puffed-up and shedding stars
 

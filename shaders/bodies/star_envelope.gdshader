@@ -53,6 +53,8 @@ const int STEPS = 40;
 // red; small grains extinguish ∝ 1/λ.
 const vec3 TIO = vec3(0.62, 1.05, 1.33);
 const vec3 DUST = vec3(0.80, 1.00, 1.25);
+// Grains radiate near the temperature they survive at, below condensation.
+const float DUST_K = 1000.0;
 
 void vertex() {
 	vObj = VERTEX;
@@ -90,11 +92,15 @@ void fragment() {
 	float half_ = sqrt(Re * Re - b * b);
 	float t0 = max(tca - half_, 0.0);
 	float t1 = tca + half_;
-	bool hits = b < uR && tca > 0.0;
-	if (b < uR) t1 = min(t1, tca - sqrt(uR * uR - b * b));
+	float tStar = b < uR ? tca - sqrt(uR * uR - b * b) : 1e30;
+	t1 = min(t1, tStar);
 	float d = texture(uDepth, SCREEN_UV).r;
 	vec4 vv = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, d, 1.0);
-	t1 = min(t1, length(vv.xyz / vv.w) / max(vScale, 1e-12));
+	float tScene = length(vv.xyz / vv.w) / max(vScale, 1e-12);
+	t1 = min(t1, tScene);
+	// The photosphere is behind this ray only if nothing opaque stands in front of it (the
+	// mesh lies inside the analytic sphere, so with no occluder the depth reaches it).
+	bool hits = b < uR && tStar > 0.0 && tScene >= tStar - 0.01 * uR;
 	if (t1 <= t0) discard;
 
 	// March evenly in the angle the sample subtends at the star's centre: the samples
@@ -111,6 +117,7 @@ void fragment() {
 	vec3 T = vec3(1.0);
 	vec3 col = vec3(0.0);
 	vec3 wT = vec3(0.0);      // what each component hid: layer, dust, wind
+	float wTK = 0.0;          // the same, weighted by the temperature each is drawn at
 	for (int i = 0; i < STEPS; i++) {
 		float ph = ph0 + (float(i) + jit) * dph;
 		float c = cos(ph);
@@ -134,6 +141,7 @@ void fragment() {
 			dtau += dt;
 			src += uSurf * sn_planck_ratio(TL, uTeff) * dt;
 			wT.x += dt.g;
+			wTK += dt.g * TL;
 		}
 		// Dust past the condensation radius, in clumps (Freytag & Höfner 2023).
 		if (uDustTau > 0.0 && r > uDustR * 0.75) {
@@ -143,6 +151,7 @@ void fragment() {
 			dtau += dt;
 			src += uSurf * (uDustGain * 0.5 * dilution(r) * hg(dot(dir, -rd), 0.55)) * dt;
 			wT.y += dt.g;
+			wTK += dt.g * DUST_K;
 		}
 		// A hot star's wind: dense at its base, thrown out in radial clumps.
 		if (uWindTau > 0.0) {
@@ -154,6 +163,7 @@ void fragment() {
 			// Scattered starlight and the wind's own line emission, both diluted outward.
 			src += uSurf * ((1.0 + uWindGain) * 2.0 * dilution(r)) * dt;
 			wT.z += dt;
+			wTK += dt * uTeff;
 		}
 		// Puffs: warm gas while inside the condensation radius, dust past it.
 		for (int k = 0; k < 4; k++) {
@@ -178,6 +188,7 @@ void fragment() {
 				uSurf * (uDustGain * 0.5 * dilution(r) * hg(dot(dir, -rd), 0.55)), dusty);
 			wT.x += dt * (1.0 - dusty);
 			wT.y += dt * dusty;
+			wTK += dt * mix(uTeff * 0.95, DUST_K, dusty);
 		}
 		if (dtau.g <= 0.0) continue;
 		// Each colour's source over its own optical depth, attenuated by what lies nearer.
@@ -192,7 +203,7 @@ void fragment() {
 		// temperature of what hides the sky: layer, dust or wind.
 		float cover = 1.0 - T.g;
 		if (hits || cover < 0.3) discard;
-		float temp = (wT.x * uTeff * 0.8 + wT.y * 1000.0 + wT.z * uTeff) / max(wT.x + wT.y + wT.z, 1e-6);
+		float temp = wTK / max(wT.x + wT.y + wT.z, 1e-6);
 		ALBEDO = vec3(temp_code(temp), 0.0, 0.0);
 		ALPHA = 1.0;
 	} else {

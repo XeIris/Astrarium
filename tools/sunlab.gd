@@ -3,7 +3,7 @@ extends Harness
 # hand, for pictures of the photosphere, loops and eruptions at a chosen moment.
 #   Godot --path . res://tools/sunlab.tscn -- out=/abs/x.png frames=20 [x=0.3]
 #     [at=limb|top|disc] [energy=2] [band=5] [cam=r,theta,phi] [regions=3] [teff=5772]
-#     [star=sun|proxima|betelgeuse|vega|…]
+#     [star=sun|proxima|betelgeuse|vega|siriusB|… (stars and white dwarfs)]
 #     [close=1] [xto=0.9] [orbit=0.6] [seq=/abs/prefix every=2] [qlon=0 qlat=0.5 qtilt=1.57] [spin=0.1] [probe=1]
 #     [puff=1.6,-0.4,1.57 puffto=4]
 # x is the flare's progress through its event (0..1); no flare without it. `at` puts
@@ -26,11 +26,16 @@ var puff_r := Vector2.ZERO
 
 func _setup() -> void:
 	var spec := Starcat.star_spec(str(args.get("star", "sun")), {"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0]})
+	# The lab draws photospheres: stars and white dwarfs. A neutron star has its own visual.
+	if spec.is_empty() or not (str(spec.type) in ["star", "white-dwarf"]):
+		push_error("sunlab: star=%s is not a star or white dwarf" % str(args.get("star", "sun")))
+		get_tree().quit(1)
+		return
 	# The catalogue's measured Teff wins inside star_spec, so an override goes on after it.
 	if args.has("teff"): spec.teff = float(args.teff)
 	var teff := float(spec.teff)
 	body = Body.new()
-	body.type = "star"
+	body.type = str(spec.type)
 	body.mass = float(spec.mass); body.mass0 = body.mass
 	Derive.derive_body(body, spec)
 	var opts := VisualOpts.new()
@@ -107,6 +112,7 @@ func _setup() -> void:
 	phi0 = cam_phi
 
 func _step(step: float) -> void:
+	if body == null: return      # rejected in _setup; the quit lands next frame
 	# probe=1: wall-clock frame time over the second half of the run, VSync off.
 	if args.has("probe"):
 		if frame == 1: DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -120,7 +126,10 @@ func _step(step: float) -> void:
 	if args.has("orbit"): cam_phi = phi0 + float(args.orbit) * u
 	if puff != null: puff.r = lerpf(puff_r.x, puff_r.y, u)
 	var every := maxi(int(args.get("every", "1")), 1)
-	if args.has("seq") and frame % every == 0:
+	# Captures stop at `frames`; without out= nothing else ends the run, so quit once the
+	# last one has been taken.
+	if args.has("seq") and not args.has("out") and frame >= frames + 2: get_tree().quit()
+	if args.has("seq") and frame % every == 0 and frame < frames:
 		var path := "%s_%04d.png" % [str(args.seq), frame / every]
 		pipe.capture_next(func(img: Image): img.save_png(path))
 	var ctx := VisualCtx.new()

@@ -21,15 +21,17 @@ uniform float uRScale = 1.0;
 // a star without a convective envelope, which has neither spicules nor a transition region.
 uniform vec3 uChromo = vec3(1.0, 0.30, 0.09);
 uniform float uChromoW = 0.0;
-// The photosphere's flattening 1 − R_pole/R_eq; uSize is sized to the equator.
+// The photosphere's flattening 1 − R_pole/R_eq (uSize is sized to the equator), and the
+// spin its Roche surface is drawn from.
 uniform float uFlat = 0.0;
+uniform float uSpin = 0.0;
 
 varying vec2 vP;
 varying vec3 vView;
 varying vec3 vCentre;
 varying vec2 vAxis;
 varying float vScale;
-varying float vMinor;
+varying flat vec3 vAx3;
 
 void vertex() {
 	vP = VERTEX.xy;
@@ -42,12 +44,23 @@ void vertex() {
 	// The spin axis on the billboard, which streamers and plumes are arranged about.
 	vec3 ax = (MODELVIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz;
 	vAxis = length(ax.xy) > 1e-6 * vScale ? normalize(ax.xy) : vec2(0.0, 1.0);
-	// A spheroid's outline is an ellipse: the equator across the projected axis, and
-	// along it the pole foreshortened by the axis's tilt out of the sky.
-	float sinI = clamp(length(ax.xy) / max(length(ax), 1e-12), 0.0, 1.0);
-	float q = 1.0 - uFlat;
-	vMinor = sqrt(q * q * sinI * sinI + (1.0 - sinI * sinI));
+	vAx3 = ax / max(length(ax), 1e-12);
 	POSITION = PROJECTION_MATRIX * (centre + vec4(VERTEX.xy * size, 0.0, 0.0));
+}
+
+// The photosphere's Roche surface, as star_photo.gdshader draws it: radius R_pole·X(u) at
+// u = spin·sin(colatitude).
+float rocheShape(float u0) {
+	float u = clamp(u0, 0.0, 1.0);
+	if (u < 1e-3) return 1.0 + 0.148148 * u * u;
+	return (3.0 / u) * cos((3.14159265 + acos(u)) / 3.0);
+}
+
+// A point's distance from the centre over the surface's radius in its direction.
+float over_surface(vec3 w, vec3 axis, float Rp) {
+	float r = length(w);
+	float ct = dot(w, axis) / max(r, 1e-12);
+	return r / (Rp * rocheShape(uSpin * sqrt(max(1.0 - ct * ct, 0.0))));
 }
 
 void fragment() {
@@ -60,9 +73,22 @@ void fragment() {
 	vec3 d = normalize(vView);
 	float R = uCore * uSize * vScale * uRScale;
 	float ca = dot(d2, vAxis);
-	float limbR = vMinor / sqrt(vMinor * vMinor * (1.0 - ca * ca) + ca * ca);
-	float x = (length(vCentre - d * dot(vCentre, d)) / R - limbR) / limbR;
-	if (dot(vCentre, d) < 0.0) x = 1e3;
+	// Height above the limb: the least, along this view ray, of distance over the surface's
+	// radius in that direction. A sphere has it in closed form; a rotating star's Roche
+	// surface is searched for it, so the halo starts at the drawn limb under perspective.
+	float tca = dot(vCentre, d);
+	float x = length(vCentre - d * tca) / R - 1.0;
+	if (uSpin > 0.02) {
+		float Rp = R * (1.0 - uFlat);
+		float lo = tca - 1.6 * R, hi = tca + 1.6 * R;
+		for (int k = 0; k < 14; k++) {
+			float m1 = mix(lo, hi, 0.382), m2 = mix(lo, hi, 0.618);
+			if (over_surface(d * m1 - vCentre, vAx3, Rp) < over_surface(d * m2 - vCentre, vAx3, Rp)) hi = m2;
+			else lo = m1;
+		}
+		x = over_surface(d * (0.5 * (lo + hi)) - vCentre, vAx3, Rp) - 1.0;
+	}
+	if (tca < 0.0) x = 1e3;
 	float h = max(x, 0.0);
 	// Latitude of the limb point behind this pixel (exact when the axis is in the sky).
 	float lat = asin(clamp(ca, -1.0, 1.0));
