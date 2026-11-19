@@ -167,6 +167,9 @@ func _ready() -> void:
 		printerr("SKYCACHECHECK timed out")
 		get_tree().quit(1))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	# Compare at the native raster, not with a MetalFX preset saved in Settings: its
+	# upscaler turns the cache's small sky differences into large ones at the stars.
+	AppIcon.file_path = OS.get_temp_dir().path_join("astrarium-skycachecheck-app-%d.json" % OS.get_process_id())
 	stage = load("res://main.tscn").instantiate()
 	add_child(stage)
 	await get_tree().process_frame
