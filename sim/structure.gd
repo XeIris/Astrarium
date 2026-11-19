@@ -344,6 +344,12 @@ static func rotational_shape(mass_sun: float, radius_au: float, omega: float, ki
 		"periodSec": 2.0 * PI / omega if omega > 0.0 else INF,
 	}
 
+## How much of a convective envelope a star of `teff` has, 1 below the ~7000 K edge and
+## 0 above it, eased across 6600–7400 K for what is drawn from it (granules, spots, a
+## chromosphere).
+static func envelope_convection(teff: float) -> float:
+	return 1.0 - smoothstep(6600.0, 7400.0, teff)
+
 # Gravity darkening: T_eff ∝ g_eff^β, β = ¼ radiative (von Zeipel 1924), ≈ 0.08
 # convective below ~7000 K (Lucy 1967), reduced at high spin (Espinosa Lara &
 # Rieutord 2011).
