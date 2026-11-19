@@ -5,7 +5,7 @@ G=${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 LOG=${1:-/tmp/presetcheck.log}
 [ $# -gt 0 ] && shift
-"$G" --path "$HERE" --resolution 960x540 "$@" -- mode=sandbox eval=_preset_check >"$LOG" 2>&1
+"$G" --path "$HERE" --resolution 960x540 "$@" -- mode=sandbox settings=default eval=_preset_check >"$LOG" 2>&1
 status=$?
 awk '
   /PRESETCHECK BEGIN/ {k=$3; begins++; if(active) bad=1; active=k}

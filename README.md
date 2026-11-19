@@ -174,6 +174,7 @@ and its `SIM` console handle:
 | `quality=low\|medium\|high`, `lighting=low\|medium\|high` | rendering and local lighting presets |
 | `metalfx=off\|quality\|balanced\|performance` | override the saved MetalFX setting for one run on supported Metal devices |
 | `flightclouds=full\|fast` | override Settings › Rendering › Local clouds for one run on Forward+. Performance halves cloud sampling on each axis in flight and on foot. |
+| `settings=default` | ignore the Settings and key bindings saved in `user://` and save none there (checks use it); `metalfx=` and `flightclouds=` still apply |
 | `band=5` | imaging band 0–6 |
 | `focus=Earth`, `truescale=1`, `cammode=surface`, `localtime=noon` | camera and view |
 | `frames=60 dt=0.0166 out=/abs/shot.png [hud=0] [shot3d=1]` | run N fixed steps, save a screenshot, quit |

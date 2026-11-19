@@ -110,6 +110,7 @@ func _ready() -> void:
 	PlanetMaps.synchronous = true
 	get_viewport().set_disable_input(true)
 	stage = load("res://main.tscn").instantiate()
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	stage.set_process(false)
 	for i in 4: await get_tree().process_frame

@@ -180,6 +180,7 @@ func _ready() -> void:
 	print("ACCRETIONCHECK CONFIG native=%s inject_mutation=%s" % [NBody.native_available(), inject_mutation])
 	OS.add_logger(catcher)
 	stage = load("res://main.tscn").instantiate()
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	stage.set_process(false)
 	stage.set_process_input(false)

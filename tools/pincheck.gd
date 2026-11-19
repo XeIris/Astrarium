@@ -614,6 +614,7 @@ func _ready() -> void:
 		var kv := a.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
 	stage = load("res://main.tscn").instantiate()
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	for i in 2: await get_tree().process_frame
 	stage._start("sandbox")

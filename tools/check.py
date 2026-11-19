@@ -442,7 +442,7 @@ def checks(suite, godot, output, repeat, export_preset):
         # rounds are compared only with its own first round.
         def lifecycle(name, method, marker, *args):
             return Check(name, window + ["--verbose", "--resolution", "1280x720", "--", "mode=sandbox", "preset=solar", "rounds=5",
-                                       f"eval={method}", *args], marker, 900, cost=40, alone="lifecycle")
+                                       "settings=default", f"eval={method}", *args], marker, 900, cost=40, alone="lifecycle")
         for feature in SOAK_FEATURES:
             yield lifecycle(f"_soak_check-{feature}", "_soak_check",
                             (rf"^SOAK FEATURES {','.join(SOAK_FEATURES)}$", rf"^SOAK {feature} +\d", r"^SOAK DONE$"), f"soak={feature}")

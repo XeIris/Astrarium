@@ -42,6 +42,7 @@ func _ready() -> void:
 		args[kv[0]] = kv[1] if kv.size() > 1 else ""
 	OS.add_logger(catch)
 	main = load("res://main.tscn").instantiate()
+	main._cmd["settings"] = "default"
 	add_child(main)
 	await get_tree().process_frame
 	await get_tree().process_frame

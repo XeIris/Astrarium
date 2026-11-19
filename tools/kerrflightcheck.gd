@@ -39,7 +39,7 @@ func _ready() -> void:
 	var logger:=Catch.new();OS.add_logger(logger)
 	get_tree().create_timer(120).timeout.connect(func():get_tree().quit(1))
 	PlanetMaps.synchronous=true;get_viewport().set_disable_input(true)
-	stage=load("res://main.tscn").instantiate();add_child(stage);stage.set_process(false)
+	stage=load("res://main.tscn").instantiate();stage._cmd["settings"]="default";add_child(stage);stage.set_process(false)
 	for i in 4:await get_tree().process_frame
 	stage._start("flight",true)
 	var result: String=await stage.jump_scenario("endurance:kerr_orbit")

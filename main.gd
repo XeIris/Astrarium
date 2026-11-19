@@ -110,6 +110,11 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
 		_cmd[kv[0]] = kv[1] if kv.size() > 1 else ""
+	# For checks: what they measure must not depend on what Settings last saved, and they
+	# must not save over it. The temporary file exists only if the run saves a setting.
+	if String(_cmd.get("settings", "")) == "default":
+		AppIcon.file_path = OS.get_temp_dir().path_join("astrarium-settings-%d.json" % OS.get_process_id())
+		controls = Bindings.new("")
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
 	if _cmd.has("winds"): Rocketry.winds_enabled = String(_cmd.winds) != "0"
 	if _cmd.has("secular"): Physics.secular = String(_cmd.secular) != "0"

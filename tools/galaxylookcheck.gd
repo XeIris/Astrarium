@@ -148,6 +148,7 @@ func _ready() -> void:
 		get_tree().quit(1))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	stage = load("res://main.tscn").instantiate()
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)

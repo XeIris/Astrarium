@@ -37,6 +37,7 @@ func _ready() -> void:
 	get_tree().create_timer(120).timeout.connect(func(): get_tree().quit(1))
 	PlanetMaps.synchronous=true
 	stage=load("res://main.tscn").instantiate()
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)

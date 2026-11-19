@@ -311,10 +311,10 @@ func _ready() -> void:
 		printerr("OBSERVATORYLOOKCHECK timed out")
 		get_tree().quit(1))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	stage = load("res://main.tscn").instantiate()
 	# Measure at the native raster, not with a MetalFX preset saved in Settings: its
 	# upscaler makes the local viewport's alpha, the buildings' mask here, opaque.
-	AppIcon.file_path = OS.get_temp_dir().path_join("astrarium-observatorylookcheck-app-%d.json" % OS.get_process_id())
-	stage = load("res://main.tscn").instantiate()
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)
