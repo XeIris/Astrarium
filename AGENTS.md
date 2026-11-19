@@ -218,6 +218,14 @@ change can alter flight physics, guidance, staging or dropped stages. For a
 visual before/after, fast-forward to the moment (`ff=alt:…|t:…|event:…`) or
 shoot a whole fxlab matrix in one process instead of flying in real time.
 
+- Run Godot through the runner, not bare: `python3 tools/check.py --only NAME` for a
+  check, `python3 tools/check.py --timeout S --run <Godot args>` for anything else (a
+  screenshot, an `eval=`, a probe script). It stops a child that errors and then idles
+  or sits silent and idle (`--stall`), kills its process tree on a timeout or when the
+  runner is signalled, and prints the failing lines. Godot exits 0 after many
+  `SCRIPT ERROR`s; trust the runner's verdict, not the exit code. Give `--budget` a
+  value under your shell tool's own limit so the report still prints, and run longer
+  suites in the background (`--status --json` shows every run in the clone).
 - A check that judges state or numbers runs `--headless`; open a window only to
   judge pixels, read a GPU result or catch `SHADER ERROR`s, and say why in
   `check.py`. Headless has no RenderingDevice: guard GPU paths with
@@ -231,6 +239,8 @@ A check must reject defects and incomplete runs with a nonzero exit;
 printing a comparison alone is insufficient. Intentional differences from the
 frozen numeric reference must be explained, never hidden by wider tolerances.
 
+- a rule in this file that a pattern can state: add it to `tools/rulecheck.py`
+  (in `fast`), with a bad and a good sample
 - presets, structure or contact radii: `tools/presetcheck.sh`
 - ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`,
   `tools/nbodycheck.gd` and `tools/numericalcheck.gd`; the secular terms:

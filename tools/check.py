@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import datetime
+import difflib
 import fnmatch
 import hashlib
 import json
@@ -176,8 +177,29 @@ CHANGED_RULES = (
     (("tools/*",), ("import",)),
 )
 CHANGED_IGNORED = ("*.md", "docs/*", "web/*", "LICENSE*", ".github/*", "tools/evidence/*")
+# Selected beside CHANGED_RULES without covering the path: an unmapped file still selects `dev`.
+CHANGED_ALSO = ((("sim/*", "ui/*", "core/*", "render/*", "main.gd", "native/*"), ("rulecheck",)),)
 CA_ERROR = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: ""\n'
                       r'\s+at: get_system_ca_certificates \(platform/macos/os_macos\.mm:\d+\)\n?', re.MULTILINE)
+# The CA diagnostic's first line, read before its `at:` line was written.
+CA_PENDING = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: ""\n?\Z', re.MULTILINE)
+# A GDScript error ends the function it is in, so a check's quit() is often never reached
+# and Godot idles until the timeout (at under 1% of a core, measured).
+ERROR_QUIET = 10  # s: a child this long silent after an engine error is stopped; it has failed already
+STALL_CPU = 0.03  # share of one core under which a silent child counts as idle
+RUN_TIMEOUT = 300  # s: --run's limit unless --timeout gives one
+FAILURE_LINE = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):|\bFAIL|^Traceback|^\w*Error\b")
+EPILOG = """exit status: 0 every check passed; 1 a check failed (a timeout, a stall or an engine
+error included); 2 bad arguments; 3 incomplete without a failure (--budget ran out); 128+N
+stopped by signal N. Children are stopped with the runner, whatever stops it except SIGKILL;
+the next run stops what a killed runner left behind.
+
+examples:
+  check.py --changed --budget 540          what the change touches, inside a 10-minute tool limit
+  check.py --only invariantcheck,secular*  named checks (globs) from any suite
+  check.py --timeout 120 --run --headless --script res://tools/orbitcheck.gd
+                                           one Godot command, supervised like a check
+  check.py --monitor                       a window showing every run in this clone"""
 
 
 class Check(NamedTuple):
@@ -211,6 +233,9 @@ def changed_plan(plan, files, dev):
         for paths, selectors in CHANGED_RULES:
             if any(fnmatch.fnmatch(path, pattern) for pattern in paths):
                 hit = True
+                wanted.update(check.name for check in plan if any(fnmatch.fnmatch(check.name, s) for s in selectors))
+        for paths, selectors in CHANGED_ALSO:
+            if any(fnmatch.fnmatch(path, pattern) for pattern in paths):
                 wanted.update(check.name for check in plan if any(fnmatch.fnmatch(check.name, s) for s in selectors))
         if path.startswith("tools/"):
             stem = "tools/" + Path(path).stem + "."
@@ -279,7 +304,9 @@ def checks(suite, godot, output, repeat, export_preset):
         yield Check("import", base + ["--headless", "--import", "--quit"], None, 180, alone=True)
         yield ("reference-shots-selfcheck", [sys.executable, str(ROOT / "tools/reference_shots_test.py")],
                r"^REFERENCE SHOTS SELF-CHECK PASS$", 30)
-        yield ("check-selfcheck", [sys.executable, str(ROOT / "tools/check_test.py")], r"^CHECK SELF-CHECK PASS$", 60)
+        yield ("check-selfcheck", [sys.executable, str(ROOT / "tools/check_test.py")], r"^CHECK SELF-CHECK PASS$", 120)
+        # About a second: AGENTS.md's physics rules that a pattern can state (tools/rulecheck.py --list).
+        yield ("rulecheck", [sys.executable, str(ROOT / "tools/rulecheck.py")], r"^RULECHECK DONE rules=[1-9]\d* violations=0$", 60)
         yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("voyagercheck", r"^VOYAGER DONE failures=0$", "title=0")
         yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
@@ -542,6 +569,167 @@ class FocusGuard:
         self.thread.join()
 
 
+class Interrupted(BaseException):
+    """SIGTERM or SIGHUP, raised in the main thread so cleanup runs (an agent's tool
+    timeout sends SIGTERM; children in their own sessions would otherwise outlive it)."""
+    def __init__(self, signum):
+        super().__init__(signum)
+        self.signum = signum
+
+
+class Stopped(Exception):
+    """A running child stopped early; the message is the problem reported."""
+
+
+def clock_seconds(text):
+    """ps's TIME or ETIME, `[[dd-]hh:]mm:ss[.ss]`, in seconds."""
+    days, _, clock = text.strip().rpartition("-")
+    seconds = 0.0
+    for part in clock.split(":"):
+        seconds = seconds * 60 + float(part)
+    return seconds + 86400 * int(days or 0)
+
+
+def process_table():
+    """{pid: (ppid, CPU seconds, elapsed seconds)}, or None where ps is unavailable."""
+    if os.name != "posix":
+        return None
+    try:
+        listed = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,time=,etime="], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    table = {}
+    for line in listed.stdout.splitlines():
+        with contextlib.suppress(ValueError):
+            pid, ppid, cpu, elapsed = line.split()
+            table[int(pid)] = (int(ppid), clock_seconds(cpu), clock_seconds(elapsed))
+    return table or None
+
+
+def descendants(table, root):
+    """`root` and every process below it, by parent pid: nested runners start their
+    own sessions, so a process group alone misses them."""
+    children = {}
+    for pid, (ppid, *_rest) in table.items():
+        children.setdefault(ppid, []).append(pid)
+    found, stack = [], [root]
+    while stack:
+        pid = stack.pop()
+        if pid in table and pid not in found:
+            found.append(pid)
+            stack.extend(children.get(pid, []))
+    return found
+
+
+class Processes:
+    """One shared `ps` every few seconds for all running checks' stall tests."""
+    EVERY = 5
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.at = -1e9
+        self.table = None
+
+    def tree(self, root):
+        """(CPU seconds, pids) of `root`'s tree, or None when unknown."""
+        with self.lock:
+            if time.monotonic() - self.at >= self.EVERY:
+                self.table, self.at = process_table(), time.monotonic()
+            table = self.table
+        if not table or root not in table:
+            return None
+        pids = descendants(table, root)
+        return sum(table[pid][1] for pid in pids), frozenset(pids)
+
+
+PROCESSES = Processes()
+
+
+def stop_tree(pid):
+    """SIGKILL a child, its process group and every descendant."""
+    if os.name != "posix":
+        with contextlib.suppress(OSError):
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=30)
+        return
+    below = descendants(process_table() or {}, pid)
+    with contextlib.suppress(OSError):
+        os.killpg(pid, signal.SIGKILL)
+    for other in below:
+        with contextlib.suppress(OSError):
+            os.kill(other, signal.SIGKILL)
+
+
+class Watcher:
+    """Stops a child that can no longer pass: one still running ERROR_QUIET s after
+    its output stops (or `grace` s after) following an engine error, or one with no
+    output, no new processes and under STALL_CPU of a core for `stall` s (0: never)."""
+
+    def __init__(self, pid, paths, options):
+        self.pid, self.paths = pid, paths
+        self.grace = getattr(options, "error_grace", 60)
+        self.stall = getattr(options, "stall", 0)
+        self.allow_ca = options.allow_macos_ca_error
+        self.offsets = {path: 0 for path in paths}
+        self.heard = self.busy = time.monotonic()
+        self.error_at = None
+        self.sample = None  # (when, CPU seconds, pids) at the last sign of work
+
+    def engine_error(self):
+        """The full logs read the way run_child judges them."""
+        for path in self.paths:
+            with contextlib.suppress(OSError):
+                text = path.read_text(errors="replace")
+                if self.allow_ca:
+                    text = CA_ERROR.sub("", CA_PENDING.sub("", text))
+                if ENGINE_ERROR.search(text):
+                    return True
+        return False
+
+    def __call__(self):
+        now = time.monotonic()
+        candidate = False
+        for path in self.paths:
+            with contextlib.suppress(OSError):
+                with path.open("rb") as stream:
+                    stream.seek(self.offsets[path])
+                    new = stream.read()
+                if new:
+                    self.offsets[path] += len(new)
+                    self.heard = now
+                    candidate = candidate or ENGINE_ERROR.search(new.decode(errors="replace")) is not None
+        if self.error_at is None and candidate and self.engine_error():
+            self.error_at = now
+        if self.error_at is not None and (now - self.heard >= ERROR_QUIET or now - self.error_at >= self.grace):
+            return f"engine error; child still running {round(now - self.error_at)}s after it, stopped"
+        if self.stall:
+            tree = PROCESSES.tree(self.pid)
+            if tree is not None:
+                cpu, pids = tree
+                if self.sample is None or pids != self.sample[2] or cpu - self.sample[1] > STALL_CPU * (now - self.sample[0]):
+                    self.sample, self.busy = (now, cpu, pids), now
+                if now - max(self.heard, self.busy) >= self.stall:
+                    return f"stalled: no output and under {STALL_CPU:.0%} of a core for {round(now - max(self.heard, self.busy))}s"
+        return None
+
+
+def excerpt(text, errors=20, tail=8, width=300):
+    """What to read first in a failed check's log: each error or FAIL line with the
+    line after it (a GDScript backtrace's `at:`), then its last lines."""
+    lines = text.splitlines()
+    marked = [i for i, line in enumerate(lines) if FAILURE_LINE.search(line)]
+    chosen = sorted({j for i in marked[:errors] for j in (i, i + 1) if j < len(lines)}
+                    | set(range(max(len(lines) - tail, 0), len(lines))))
+    shown, last = [], -1
+    for i in chosen:
+        if i > last + 1:
+            shown.append(f"  | ... {i - last - 1} lines")
+        shown.append("  | " + lines[i][:width])
+        last = i
+    if len(marked) > errors:
+        shown.append(f"  | ({len(marked) - errors} more error/FAIL lines in the log)")
+    return shown
+
+
 def run_check(check, output, index, options):
     """Run one check now and print its result (also used by reference_shots.py)."""
     print(f"RUN {check[0]}", flush=True)
@@ -571,16 +759,20 @@ def run_child(check, output, index, options, guard, live):
         guarded = guard is not None and "--headless" not in command
         if guarded: guard.add(process.pid)
         cpu = None
+        limit = options.timeout or timeout
+        deadline = getattr(options, "deadline", None)
+        budget = deadline is not None and deadline - time.monotonic() < limit
+        if budget:
+            limit = max(deadline - time.monotonic(), 0.1)
+        watcher = Watcher(process.pid, [log, *([engine_log] if engine_log else [])], options)
         try:
-            code, cpu = wait_child(process, options.timeout or timeout)
+            code, cpu = wait_child(process, limit, watcher)
             problem = None if code == 0 else f"child exited {code}"
-        except subprocess.TimeoutExpired:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGKILL)
-            else:
-                process.kill()
+        except (subprocess.TimeoutExpired, Stopped) as stop:
+            stop_tree(process.pid)
             process.wait()
-            code, problem = 124, "timeout"
+            code = 124
+            problem = str(stop) if isinstance(stop, Stopped) else "budget: stopped when --budget ran out" if budget else "timeout"
         finally:
             restored = guard.remove(process.pid) if guarded else None
             live.pop(index, None)
@@ -606,6 +798,8 @@ def run_child(check, output, index, options, guard, live):
     cpu_text = f" cpu {cpu}s" if cpu is not None else ""
     lines.append(f"{'FAIL' if problem else 'PASS'} {name} {elapsed}s{cpu_text}" + (f": {problem}" if problem else ""))
     lines.append(f"  {log}")
+    if problem and getattr(options, "excerpt", True):
+        lines.extend(excerpt(text) if text.strip() else excerpt(engine_text))
     return {"name": name, "command": command, "exit_code": code, "problem": problem,
             "seconds": elapsed, "cpu_seconds": cpu, "log": str(log), "engine_log": str(engine_log) if engine_log else None,
             "allowed_ca_diagnostics": ignored, "focus_restored": restored,
@@ -613,19 +807,28 @@ def run_child(check, output, index, options, guard, live):
             "metrics": [line for line in raw.splitlines() if line.startswith(("SHARED TIME BENCH", "SHARED TIME CONFIG", "HUDCHECK PERF", "HUDCHECK CONFIG", "NBODYCHECK PASS", "STABILITYCHECK", "STABILITYDIAGNOSTIC"))]}, lines
 
 
-def wait_child(process, timeout):
+def wait_child(process, timeout, watch=None):
     """Wait for `process`; returns (exit code, CPU seconds of it and the children it
-    reaped, or None where wait4 is unavailable). Raises TimeoutExpired."""
-    if not hasattr(os, "wait4"):
-        return process.wait(timeout=timeout), None
+    reaped, or None where wait4 is unavailable). Raises TimeoutExpired, or Stopped
+    when `watch()`, called about once a second, names a problem."""
     deadline = time.monotonic() + timeout
+    watched = time.monotonic()
     while True:
-        pid, status, usage = os.wait4(process.pid, os.WNOHANG)
-        if pid:
-            process.returncode = os.waitstatus_to_exitcode(status)
-            return process.returncode, round(usage.ru_utime + usage.ru_stime, 3)
-        if time.monotonic() > deadline:
+        if hasattr(os, "wait4"):
+            pid, status, usage = os.wait4(process.pid, os.WNOHANG)
+            if pid:
+                process.returncode = os.waitstatus_to_exitcode(status)
+                return process.returncode, round(usage.ru_utime + usage.ru_stime, 3)
+        elif process.poll() is not None:
+            return process.returncode, None
+        now = time.monotonic()
+        if now > deadline:
             raise subprocess.TimeoutExpired(process.args, timeout)
+        if watch is not None and now - watched >= 1:
+            watched = now
+            reason = watch()
+            if reason:
+                raise Stopped(reason)
         time.sleep(0.05)
 
 
@@ -842,6 +1045,9 @@ class Progress:
         self.started_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.argv = sys.argv[1:]
         self.running, self.done, self.warned, self.learned = {}, {}, set(), {}
+        self.live, self.began = {}, {}  # live: run_plan's {index: Popen}, for reaping after a killed runner
+        self.budget_stops = {}  # index: True for a check --budget stopped
+        self.branch = metadata(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         self.stopping = False
         self.beat = self.started
         self.drawn = False
@@ -855,6 +1061,16 @@ class Progress:
 
     def start(self, index):
         self.running[index] = time.monotonic()
+        self.began[index] = time.time()
+
+    @staticmethod
+    def last_line(log):
+        """The log's last non-empty line: what a running check is doing now."""
+        with contextlib.suppress(OSError), log.open("rb") as stream:
+            stream.seek(max(stream.seek(0, os.SEEK_END) - 4096, 0))
+            lines = [line.strip() for line in stream.read().decode(errors="replace").splitlines() if line.strip()]
+            return lines[-1][:160] if lines else ""
+        return ""
 
     def finish(self, index, passed, seconds):
         self.running.pop(index, None)
@@ -881,8 +1097,11 @@ class Progress:
                     else "slower than usual" if expected and elapsed > 1.5 * expected and elapsed - expected > 30
                     # Long missions print little: silence matters once a check is past its usual time.
                     else f"no output {duration(quiet)}" if quiet > self.QUIET and not (expected and elapsed < expected) else None)
-            running.append({"name": self.plan[index].name, "log": str(self.output / f"{index:02d}-{self.plan[index].name}.log"), "seconds": round(elapsed), "expected": expected and round(expected),
-                            "timeout": timeout, "quiet": round(quiet), "flag": flag})
+            log = self.output / f"{index:02d}-{self.plan[index].name}.log"
+            process = self.live.get(index)
+            running.append({"name": self.plan[index].name, "log": str(log), "seconds": round(elapsed), "expected": expected and round(expected),
+                            "timeout": timeout, "quiet": round(quiet), "flag": flag, "last": self.last_line(log),
+                            "pid": process.pid if process else None, "began": self.began.get(index)})
         waiting = [i for i in range(len(self.plan)) if i not in self.done and i not in self.running]
         # Parallel work shares the jobs; a lane's checks queue behind each other; alone
         # checks run end to end.
@@ -892,18 +1111,22 @@ class Progress:
         lane = (sum(max((self.expected[i] or 0) - (now - began), 0) for i, began in self.running.items() if self.plan[i].lane)
                 + sum(self.expected[i] or 0 for i in waiting if self.plan[i].lane and self.plan[i].alone is not True))
         unknown = sum(1 for i in [*self.running, *waiting] if not self.expected[i])
-        return {"pid": os.getpid(), "root": str(ROOT), "args": self.argv, "log_dir": str(self.output),
+        return {"pid": os.getpid(), "root": str(ROOT), "branch": self.branch, "args": self.argv, "log_dir": str(self.output),
                 "started_utc": self.started_utc, "updated": time.time(), "elapsed": round(now - self.started),
                 "total": len(self.plan), "passed": sum(self.done.values()), "failed": [self.plan[i].name for i, ok in self.done.items() if not ok],
-                "stopping": self.stopping, "running": running, "waiting": [self.plan[i].name for i in waiting],
+                "stopping": self.stopping, "stopping_failure": any(not ok and not self.budget_stops.get(i) for i, ok in self.done.items()),
+                "running": running, "waiting": [self.plan[i].name for i in waiting],
                 "eta": None if self.stopping else round(max([*left, 0]) if not waiting and not running else max(max(left, default=0), shared / self.jobs, lane) + alone),
                 "eta_unknown": unknown, "finished": None}
 
     @staticmethod
-    def render(state, width=None):
-        """One summary line plus a line per running check."""
+    def render(state, width=None, detail=False):
+        """One summary line plus a line per running check (and its last log line, with `detail`)."""
         done = state["passed"] + len(state["failed"])
         head = f"[{done}/{state['total']}] {len(state['running'])} running, {len(state['waiting'])} waiting, {duration(state['elapsed'])} elapsed"
+        if detail:
+            filled = round(20 * done / max(state["total"], 1))
+            head = f"[{'#' * filled}{'.' * (20 - filled)}] " + head
         if state["failed"]:
             head += f", FAILED {', '.join(state['failed'])}"
         if state["stopping"]:
@@ -915,6 +1138,8 @@ class Progress:
             usual = f" (usually {duration(check['expected'])})" if check["expected"] else ""
             lines.append(f"  {check['name']}: {duration(check['seconds'])}{usual}, timeout {duration(check['timeout'])}"
                          + (f"  <- {check['flag']}" if check["flag"] else ""))
+            if detail and check.get("last"):
+                lines.append(f"      > {check['last']}")
         return [line[:width] for line in lines] if width else lines
 
     def write(self, state):
@@ -957,11 +1182,19 @@ class Progress:
             self.beat = time.monotonic()
             print("PROGRESS " + "\n".join(self.render(state)), flush=True)
 
-    def close(self, complete):
+    def close(self, complete, budget=False):
         self.clear()
         state = self.snapshot()
-        state["finished"] = "passed" if complete else "failed" if state["failed"] else "interrupted"
+        state["finished"] = ("passed" if complete else "budget" if budget and not state["stopping_failure"]
+                             else "failed" if state["failed"] else "interrupted")
         self.write(state)
+        with contextlib.suppress(OSError, ValueError):
+            path = self.dir / "last.json"
+            last = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            last[str(ROOT)] = {key: state[key] for key in ("finished", "failed", "updated", "args", "log_dir", "branch")}
+            temporary = path.with_suffix(f".{os.getpid()}.tmp")
+            temporary.write_text(json.dumps(last, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+            temporary.replace(path)
         if self.learned:
             # Concurrent runs can still drop each other's newest times (last writer wins);
             # the replace keeps readers from seeing a partial file.
@@ -997,42 +1230,105 @@ def process_alive(pid):
     return True
 
 
-def watch(once):
+def run_states(folder):
+    """[(path, state, alive)] for each run status file; a file from another version or
+    a partial write skips only that run."""
+    states = []
+    for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        if path.name in ("times.json", "passes.json", "last.json"):
+            continue
+        with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+            state = json.loads(path.read_text(encoding="utf-8"))
+            # Nothing else prunes runs nobody watched; last.json keeps each worktree's newest.
+            if state.get("finished") and time.time() - state.get("updated", 0) > 86400:
+                path.unlink(missing_ok=True)
+                continue
+            if isinstance(state, dict) and isinstance(state.get("pid"), int):
+                states.append((path, state, process_alive(state["pid"])))
+    return states
+
+
+def reap_orphans(folder):
+    """Stop the checks a runner left when it died unfinished (SIGKILL, a crash): nothing
+    else would time them out. A pid counts as the check only while its elapsed time
+    still matches the recorded start. Returns lines to print."""
+    lines, table = [], None
+    for path, state, alive in run_states(folder):
+        if state.get("finished") or alive:
+            continue
+        stopped = []
+        for entry in state.get("running") or []:
+            pid, began = entry.get("pid"), entry.get("began")
+            if not isinstance(pid, int) or not isinstance(began, (int, float)):
+                continue
+            table = table if table is not None else (process_table() or {})
+            if pid in table and abs(time.time() - table[pid][2] - began) <= 5:
+                stop_tree(pid)
+                stopped.append(entry.get("name", str(pid)))
+        state.update(finished="abandoned", reaped=stopped, updated=time.time())
+        with contextlib.suppress(OSError):
+            temporary = path.with_suffix(".reap.tmp")
+            temporary.write_text(json.dumps(state), encoding="utf-8")
+            temporary.replace(path)
+        if stopped:
+            lines.append(f"REAPED {', '.join(stopped)}: left running by runner pid {state['pid']} in {state.get('root')}, which died")
+    return lines
+
+
+COLOUR = {"PASS": "\x1b[32m", "FAIL": "\x1b[31m", "WARN": "\x1b[33m", "DIM": "\x1b[2m", "END": "\x1b[0m"}
+
+
+def watch(once, as_json=False):
     """Print the runs in progress in every worktree of this clone, redrawn each second.
     Finished runs stay listed for ten minutes; a runner that vanished is shown as such."""
     folder = runs_dir()
-    while True:
-        blocks = []
-        for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
-            if path.name == "times.json":
-                continue
-            # A state file from another version or a partial write skips only that run.
-            with contextlib.suppress(OSError, ValueError, KeyError, TypeError, AttributeError):
-                state = json.loads(path.read_text(encoding="utf-8"))
-                age = time.time() - state["updated"]
-                alive = process_alive(state["pid"])
-                if (state["finished"] or not alive) and age > 600:
-                    path.unlink(missing_ok=True)
-                    continue
-                where = state["root"].replace(str(Path.home()), "~")
-                title = f"pid {state['pid']} in {where}: check.py {' '.join(state['args'])}".rstrip()
-                if state["finished"]:
-                    title += f"  [{state['finished']} {duration(age)} ago]"
-                elif not alive:
-                    title += "  [runner exited without finishing]"
-                elif age > 10:
-                    title += f"  [no update for {duration(age)}; runner busy or stuck]"
-                blocks.append([title, *("  " + line for line in Progress.render(state)), f"  logs {state['log_dir']}"])
-        text = "\n\n".join("\n".join(block) for block in blocks) or "no check runs in progress"
-        if once:
-            print(text)
-            return 0
-        sys.stdout.write("\x1b[H\x1b[2J" + text + "\n\n(Ctrl-C to stop watching; the runs continue)\n")
-        sys.stdout.flush()
-        try:
+    colour = sys.stdout.isatty() and not once
+    paint = (lambda kind, text: COLOUR[kind] + text + COLOUR["END"]) if colour else (lambda kind, text: text)
+    if colour:
+        sys.stdout.write("\x1b[?1049h\x1b[?25l")  # the alternate screen, cursor hidden: no flicker or scrollback
+    try:
+        while True:
+            reaped = reap_orphans(folder)
+            blocks, listed = [], []
+            for path, state, alive in run_states(folder):
+                with contextlib.suppress(KeyError, TypeError, AttributeError, ValueError):
+                    age = time.time() - state["updated"]
+                    if (state["finished"] or not alive) and age > 600:
+                        path.unlink(missing_ok=True)
+                        continue
+                    listed.append({**state, "alive": alive, "age": round(age)})
+                    where = state["root"].replace(str(Path.home()), "~")
+                    branch = state.get("branch")
+                    title = f"{branch + ' ' if branch and branch != 'unavailable' else ''}({where}) pid {state['pid']}: check.py {' '.join(state['args'])}".rstrip()
+                    kind = None
+                    if state["finished"]:
+                        kind = "PASS" if state["finished"] == "passed" else "FAIL"
+                        title += f"  [{state['finished']} {duration(age)} ago]"
+                    elif not alive:
+                        kind, title = "FAIL", title + "  [runner exited without finishing]"
+                    elif age > 10:
+                        kind, title = "WARN", title + f"  [no update for {duration(age)}; runner busy or stuck]"
+                    body = []
+                    for line in Progress.render(state, detail=not state["finished"]):
+                        body.append("  " + (paint("WARN", line) if "<-" in line else paint("DIM", line) if line.lstrip().startswith(">") else line))
+                    blocks.append([paint(kind, title) if kind else title, *body, f"  logs {state['log_dir']}"])
+            if as_json:
+                print(json.dumps(listed, indent=1))
+                return 0
+            text = "\n\n".join("\n".join(block) for block in [*([reaped] if reaped else []), *blocks]) or "no check runs in progress"
+            if once:
+                print(text)
+                return 0
+            stamp = time.strftime("%H:%M:%S")
+            sys.stdout.write("\x1b[H\x1b[2J" + text + f"\n\n{stamp}  (Ctrl-C to stop watching; the runs continue)\n")
+            sys.stdout.flush()
             time.sleep(1)
-        except KeyboardInterrupt:
-            return 0
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        if colour:
+            sys.stdout.write("\x1b[?25h\x1b[?1049l")
+            sys.stdout.flush()
 
 
 def print_times(report, compare):
@@ -1067,8 +1363,10 @@ def run_plan(plan, output, options, guard, report, keys=None):
     done = queue.Queue()
     progress = Progress(plan, output, options)
     complete = False
-    live = {}
+    live = progress.live
     finished = {}
+    deadline = getattr(options, "deadline", None)
+    started = set()
     stopped = False
     failed = False
     printed = 0
@@ -1104,6 +1402,9 @@ def run_plan(plan, output, options, guard, report, keys=None):
             # averaged 0.6 of a core), so beside other jobs it takes none of their places.
             extra = options.jobs > 1
             while waiting or running:
+                if deadline is not None and time.monotonic() >= deadline and not stopped:
+                    stopped = progress.stopping = True
+                    report["budget_reached"] = True
                 while not stopped:
                     # A free lane first: its checks cannot overlap, so they set the pace.
                     room = running - (len(lanes) if extra else 0) < options.jobs
@@ -1117,6 +1418,7 @@ def run_plan(plan, output, options, guard, report, keys=None):
                         lanes.add(plan[index].lane)
                     progress.say(f"RUN {plan[index].name}")
                     progress.start(index)
+                    started.add(index)
                     threading.Thread(target=worker, args=(index,), daemon=True).start()
                     running += 1
                 if running == 0:
@@ -1132,23 +1434,30 @@ def run_plan(plan, output, options, guard, report, keys=None):
                 finished[index] = outcome
                 lanes.discard(plan[index].lane)
                 progress.finish(index, outcome[0]["problem"] is None, outcome[0]["seconds"])
+                progress.budget_stops[index] = str(outcome[0]["problem"]).startswith("budget:")
                 failed = failed or outcome[0]["problem"] is not None
-                stopped = failed and not getattr(options, "keep_going", False)
+                stopped = stopped or (failed and not getattr(options, "keep_going", False))
                 progress.stopping = stopped
                 flush()
             if stopped:
                 break
-        complete = not failed
+        complete = not failed and not report.get("budget_reached")
         return complete
     finally:
         for process in list(live.values()):
             if process.poll() is None:
-                if os.name == "posix":
-                    os.killpg(process.pid, signal.SIGKILL)
-                else:
-                    process.kill()
+                stop_tree(process.pid)
         flush(final=True)
-        progress.close(complete)
+        for index in sorted(started - set(progress.done)):  # the run itself was stopped (a signal)
+            report["results"].append({"name": plan[index].name, "problem": "interrupted: the run was stopped first",
+                                      "seconds": round(time.monotonic() - progress.running.get(index, time.monotonic()), 3),
+                                      "log": str(output / f"{index:02d}-{plan[index].name}.log"), "key": None})
+        report["not_run"] = [plan[i].name for i in range(len(plan)) if i not in started]
+        budget = bool(report.get("budget_reached") or any(progress.budget_stops.values()))
+        if budget:
+            report["budget_reached"] = True
+            progress.say(f"BUDGET ran out; {len(report['not_run'])} checks not run" + (f": {', '.join(report['not_run'])}" if report["not_run"] else ""))
+        progress.close(complete, budget=budget)
 
 
 def default_jobs():
@@ -1167,12 +1476,81 @@ def metadata(command):
     return result.stdout.strip() if result.returncode == 0 else "unavailable"
 
 
+CHANGED_SUITES = ["assets", "procedural", "dev", "fast", "encounters", "native", "flight", "rendered", "lifecycle"]
+
+
+def run_command(args, godot, expect, timeout):
+    """--run: one Godot command as a check named after the script or scene it runs.
+    A leading Godot executable is taken as --godot; --path is added unless given."""
+    if args and not args[0].startswith("-") and not args[0].startswith("res://") and Path(args[0]).is_file():
+        godot, args = godot_path(args[0]), args[1:]
+    script = next((part for part in args if re.match(r"res://.+\.(?:gd|tscn)$", part)), None)
+    name = "run-" + (Path(script).stem if script else "godot")
+    return Check(name, [godot, *([] if "--path" in args else ["--path", str(ROOT)]), *args], expect, timeout), godot
+
+
+def show_output(path, head=20, tail=100, errors=20):
+    """--run: the child's output, its middle left out past head + tail lines (the error
+    lines in it are kept)."""
+    lines = Path(path).read_text(errors="replace").splitlines()
+    print(f"OUTPUT {len(lines)} lines, {path}", flush=True)
+    if len(lines) <= head + tail + errors:
+        shown = lines
+    else:
+        middle = [line for line in lines[head:-tail] if FAILURE_LINE.search(line)]
+        shown = [*lines[:head], f"... {len(lines) - head - tail} lines left out ({len(middle)} error/FAIL lines among them"
+                 + (f", the first {errors} follow" if len(middle) > errors else "") + ")", *middle[:errors], "...", *lines[-tail:]]
+    for line in shown:
+        print(line[:500], flush=True)
+    print("END OUTPUT", flush=True)
+
+
+def failure_status(report):
+    """3 when every problem is a --budget stop (an incomplete run), else 1."""
+    problems = [result["problem"] for result in report["results"] if result["problem"]]
+    return 3 if all(problem.startswith("budget:") for problem in problems) else 1
+
+
+def open_monitor():
+    """A window of its own running --watch. On macOS a .command file opens in Terminal
+    without asking for automation access."""
+    if platform.system() == "Darwin":
+        return subprocess.run(["open", "-a", "Terminal", str(ROOT / "tools/monitor.command")], timeout=30).returncode
+    print("--monitor opens a window on macOS only; watching here instead", flush=True)
+    return watch(False)
+
+
+def interrupted(signum, frame):
+    raise Interrupted(signum)
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    argv = sys.argv[1:]
+    run_args = None
+    if "--run" in argv:  # everything after it is Godot's, its own `--` included
+        at = argv.index("--run")
+        argv, run_args = argv[:at], argv[at + 1:]
+        run_args = run_args[1:] if run_args[:1] == ["--"] else run_args
+    parser = argparse.ArgumentParser(description=__doc__, epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("suites", nargs="*", metavar="SUITE", help=", ".join(SUITES) + " (default: fast)")
     parser.add_argument("--godot", default=os.environ.get("GODOT"))
     parser.add_argument("--log-dir", type=Path)
-    parser.add_argument("--timeout", type=float, help="override each child timeout in seconds")
+    parser.add_argument("--timeout", type=float, help=f"override each child timeout in seconds (--run: default {RUN_TIMEOUT})")
+    parser.add_argument("--budget", type=float, metavar="SECONDS",
+                        help="the whole run's limit: when it runs out, running checks are stopped, the rest are not started "
+                             "and the report is still written (exit 3 unless a check failed). Set it under the caller's own limit")
+    parser.add_argument("--only", action="append", metavar="CHECKS",
+                        help="only these checks: comma-separated names or globs, from the named suites or else every suite "
+                             "--changed can select (the import still runs first)")
+    parser.add_argument("--stall", type=float, default=90, metavar="SECONDS",
+                        help="stop a check with no output, no new processes and under 3%% of a core for SECONDS (default 90; 0: never)")
+    parser.add_argument("--error-grace", type=float, default=60, metavar="SECONDS",
+                        help=f"stop a check still running SECONDS after an engine error, or {ERROR_QUIET} s after its output stops "
+                             "(default 60); the error has failed it already")
+    parser.add_argument("--run", nargs="*", metavar="GODOT_ARG",
+                        help="run one Godot command supervised like a check (log, timeout, stall and error stops, report) and print "
+                             "its output; must come last, everything after it goes to Godot")
+    parser.add_argument("--expect", metavar="REGEX", help="with --run: a line that must appear exactly once")
     parser.add_argument("--allow-macos-ca-error", action="store_true", help="allow only Godot's get_system_ca_certificates diagnostic")
     parser.add_argument("--background", action="store_true",
                         help="macOS: hand focus back whenever a windowed check activates (not for the fullscreen M5 gates)")
@@ -1185,31 +1563,46 @@ def main():
                              "a check that already passed on inputs its rules call unchanged is not run again")
     parser.add_argument("--fresh", action="store_true", help="with --changed: run every selected check, whatever passed before")
     parser.add_argument("--keep-going", action="store_true", help="after a failure, still run the remaining checks")
-    parser.add_argument("--list", action="store_true", help="print the planned checks and exit")
+    parser.add_argument("--list", action="store_true", help="print the planned checks with their timeouts and usual times, and exit")
     parser.add_argument("--watch", action="store_true",
                         help="show the check runs in progress in any worktree of this clone (e.g. an agent's), live")
     parser.add_argument("--status", action="store_true", help="print the --watch view once and exit")
+    parser.add_argument("--json", action="store_true", help="with --status: the runs as JSON")
+    parser.add_argument("--monitor", action="store_true", help="open a separate window (Terminal on macOS) running --watch")
     parser.add_argument("--compare", type=Path, metavar="REPORT", help="show each check's time against an earlier report.json")
     parser.add_argument("--export-preset", default={"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}.get(platform.system(), "macOS"))
-    options = parser.parse_args()
+    options = parser.parse_args(argv)
+    options.run = run_args
+    if options.monitor:
+        return open_monitor()
     if options.watch or options.status:
-        return watch(once=options.status)
+        return watch(once=options.status, as_json=options.json)
+    if options.run is not None and (not options.run or options.suites or options.changed or options.only or options.list):
+        parser.error("--run needs Godot arguments, and takes no suites, --changed, --only or --list")
+    if options.expect and options.run is None:
+        parser.error("--expect goes with --run")
     # The asset suites come first: they take seconds, and fail when a worktree has no authored models.
-    options.suites = options.suites or (["assets", "procedural", "dev", "fast", "encounters", "native", "flight", "rendered", "lifecycle"]
-                                        if options.changed else ["fast"])
+    options.suites = options.suites or (CHANGED_SUITES if options.changed or options.only else ["fast"])
     if any(suite not in SUITES for suite in options.suites):
         parser.error("unknown suite; choose from " + ", ".join(SUITES))
-    if options.repeat < 1 or options.jobs < 1 or (options.timeout is not None and options.timeout <= 0):
-        parser.error("repeat, jobs and timeout must be positive")
+    if options.repeat < 1 or options.jobs < 1 or any(value is not None and value <= 0 for value in (options.timeout, options.budget)):
+        parser.error("repeat, jobs, timeout and budget must be positive")
+    if options.stall < 0 or options.error_grace < 0:
+        parser.error("stall and error grace must not be negative")
     if options.background and (platform.system() != "Darwin" or any(s.startswith("m5-") for s in options.suites)):
         parser.error("--background is macOS-only; the M5 gates need their fullscreen Space visible")
+    for name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), interrupted)
+    for line in reap_orphans(runs_dir()):
+        print(line, flush=True)
     options.godot = godot_path(options.godot)
     output = options.log_dir.resolve() if options.log_dir else Path(tempfile.mkdtemp(prefix="astrarium-check-"))
     output.mkdir(parents=True, exist_ok=True)
     report = {"started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "platform": platform.platform(), "machine": platform.machine(), "processor": platform.processor(),
               "godot": metadata([options.godot, "--version"]), "commit": metadata(["git", "rev-parse", "HEAD"]),
-              "working_tree": metadata(["git", "status", "--short"]), "suites": options.suites,
+              "working_tree": metadata(["git", "status", "--short"]), "suites": [] if options.run else options.suites,
               "background": options.background, "jobs": options.jobs, "keep_going": options.keep_going,
               "performance": ({"resolution": "1280x720", "rendered_craft": "authored Saturn V/Falcon 9 (required)",
                                "cpu_flight_craft": "procedural (asserted by each harness)",
@@ -1217,8 +1610,60 @@ def main():
                                "shared_time": "fixed 1/60s steps; CPU animate timing; native=0 and required native=1",
                                "hud": "fixed 1/60s frames; wall time across rendered frames; vsync disabled",
                                "repetitions": options.repeat, "limitations": "local baseline; GPU availability recorded separately, no portable budget gate"}
-                              if "perf" in options.suites else None),
+                              if "perf" in options.suites and not options.run else None),
               "complete": False, "tree": None, "cached": [], "results": []}
+    status = None
+    if options.run is not None:
+        command, options.godot = run_command(options.run, options.godot, options.expect, options.timeout or RUN_TIMEOUT)
+        plan, inputs, keys = [command], None, []
+        options.excerpt = False  # the output itself is printed
+        report["run"] = command.command
+    else:
+        plan, inputs, keys, status = plan_checks(parser, options, output, report)
+    if options.list:
+        history, seen = read_times(runs_dir()), {}
+        for check in plan:
+            seen[check.name] = seen.get(check.name, -1) + 1
+            usual = history.get(f"{check.name}#{seen[check.name]}") or check.cost
+            print(f"{check.name}{'' if not check.alone else ' (alone)' if check.alone is True else f' ({check.alone})'}"
+                  f"{f' (one {check.lane} at a time)' if check.lane and check.alone is not True else ''}"
+                  f"{' headless' if '--headless' in check.command else ' windowed' if check.command[0] == options.godot else ''}"
+                  f"  timeout {duration(options.timeout or check.timeout)}" + (f", usually {duration(usual)}" if usual else ""))
+        return 0
+    started = time.monotonic()
+    options.deadline = started + options.budget if options.budget else None
+    try:
+        if status is not None:
+            if status:
+                # Nothing ran, so nothing is verified: not a pass, even for a docs-only change.
+                print("CHANGED no checks selected; name a suite to run one", flush=True)
+            return status
+        with FocusGuard() if options.background else contextlib.nullcontext() as guard:
+            passed = run_plan(plan, output, options, guard, report, keys)
+        if options.run is not None and report["results"]:
+            show_output(report["results"][0]["log"])
+        if not passed:
+            return failure_status(report)
+        report["complete"] = True
+        return 0
+    finally:
+        report["wall_seconds"] = round(time.monotonic() - started, 1)
+        passed = [result["key"] for result in report["results"] if result["problem"] is None and result.get("key")]
+        if inputs and passed:
+            if pass_inputs(options.godot) == inputs:
+                record_passes(runs_dir(), inputs.tree, passed)
+            else:
+                print("CACHE pass records skipped because check inputs changed or could not be read", flush=True)
+        path = output / "report.json"
+        path.write_text(json.dumps(report, indent=2) + "\n")
+        print_times(report, options.compare)
+        print(f"REPORT {path}", flush=True)
+
+
+def plan_checks(parser, options, output, report):
+    """The checks the suites, --only and --changed select, minus passes --changed may
+    reuse. Returns (plan, pass inputs, pass keys, exit status or None): a status when
+    --changed leaves nothing to run."""
     plan = [check._replace(alone=check.alone or suite in ALONE)
             for suite in options.suites
             for check in map(lambda c: Check(*c), checks(suite, options.godot, output, options.repeat, options.export_preset))]
@@ -1228,7 +1673,19 @@ def main():
             and not seen.add((check.name, tuple(map(str, check.command))))]
     # Everything reads the import cache, whichever suite was named first.
     plan.sort(key=lambda check: check.name != "import")
+    if options.only:
+        patterns = [part.strip() for given in options.only for part in given.split(",") if part.strip()]
+        names = sorted({check.name for check in plan})
+        unknown = [pattern for pattern in patterns if not any(fnmatch.fnmatch(name, pattern) for name in names)]
+        if unknown:
+            close = sorted({match for pattern in unknown for match in difflib.get_close_matches(pattern, names, n=3, cutoff=0.6)})
+            parser.error(f"--only: no check named {', '.join(unknown)} in {' '.join(options.suites)}"
+                         + (f"; close: {', '.join(close)}" if close else "; --list prints the names"))
+        chosen = [check for check in plan if any(fnmatch.fnmatch(check.name, p) for p in patterns)]
+        engine = any(check.command[0] == options.godot for check in chosen)
+        plan = [check for check in plan if check in chosen or (check.name == "import" and engine)]
     selected = len(plan)
+    dev = []
     if options.changed:
         files = changed_files(options.changed)
         dev = [Check(*c) for c in checks("dev", options.godot, output, options.repeat, options.export_preset)]
@@ -1256,46 +1713,24 @@ def main():
                   "--fresh runs them again", flush=True)
         plan = [check for index, check in enumerate(plan) if index not in hits]
         keys = [key for index, key in enumerate(keys) if index not in hits]
+    status = None
+    if options.changed and not plan:
+        report["complete"] = bool(report["cached"])
+        status = 0 if report["cached"] else 1
     # After the keys: a pass does not depend on how many threads summed the forces.
     spare = max(2, (os.cpu_count() or 2) - options.jobs)
     plan = [check._replace(command=[*check.command, f"{check.cores}{spare}"]) if check.cores and len(plan) > 1 and check.alone is not True
             else check for check in plan]
-    if options.list:
-        for check in plan:
-            print(f"{check.name}{'' if not check.alone else ' (alone)' if check.alone is True else f' ({check.alone})'}"
-                  f"{f' (one {check.lane} at a time)' if check.lane and check.alone is not True else ''}"
-                  f"{' headless' if '--headless' in check.command else ' windowed' if check.command[0] == options.godot else ''}")
-        return 0
-    started = time.monotonic()
-    try:
-        if options.changed and not plan:
-            if report["cached"]:
-                report["complete"] = True
-                return 0
-            # Nothing ran, so nothing is verified: not a pass, even for a docs-only change.
-            print("CHANGED no checks selected; name a suite to run one", flush=True)
-            return 1
-        with FocusGuard() if options.background else contextlib.nullcontext() as guard:
-            if not run_plan(plan, output, options, guard, report, keys):
-                return 1
-        report["complete"] = True
-        return 0
-    finally:
-        report["wall_seconds"] = round(time.monotonic() - started, 1)
-        passed = [result["key"] for result in report["results"] if result["problem"] is None and result.get("key")]
-        if inputs and passed:
-            if pass_inputs(options.godot) == inputs:
-                record_passes(runs_dir(), inputs.tree, passed)
-            else:
-                print("CACHE pass records skipped because check inputs changed or could not be read", flush=True)
-        path = output / "report.json"
-        path.write_text(json.dumps(report, indent=2) + "\n")
-        print_times(report, options.compare)
-        print(f"REPORT {path}", flush=True)
+    return plan, inputs, keys, status
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
+    except Interrupted as stop:
+        print(f"CHECK STOPPED by signal {stop.signum}; running checks were stopped", file=sys.stderr, flush=True)
+        sys.exit(128 + stop.signum)
+    except KeyboardInterrupt:
+        sys.exit(130)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         sys.exit(f"CHECK FAILED: {error}")

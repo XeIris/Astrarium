@@ -38,12 +38,107 @@ class CheckTests(unittest.TestCase):
     def span(self, name):
         return [float(value) for value in (self.output / f"{name}.span").read_text().split()]
 
-    def run_plan(self, plan, jobs, keep_going=False):
-        options = SimpleNamespace(godot="unused", timeout=None, allow_macos_ca_error=False, jobs=jobs, keep_going=keep_going)
-        report = {"results": []}
+    def run_plan(self, plan, jobs, keep_going=False, report=None, **settings):
+        options = SimpleNamespace(godot="unused", timeout=None, allow_macos_ca_error=False, jobs=jobs, keep_going=keep_going, **settings)
+        report = {"results": []} if report is None else report
         with redirect_stdout(io.StringIO()):
             complete = check.run_plan(plan, self.output, options, None, report, [f"key-{c.name}" for c in plan])
         return complete, report["results"]
+
+    def script(self, name, source, timeout=30):
+        return Check(name, [sys.executable, "-c", source], None, timeout)
+
+    def test_engine_error_stops_a_child_that_does_not_exit(self):
+        # GDScript's error ends the function holding quit(); Godot then idles to the timeout.
+        plan = [self.script("errs", "import time; print('SCRIPT ERROR: x', flush=True); time.sleep(60)")]
+        with patch.object(check, "ERROR_QUIET", 1):
+            complete, results = self.run_plan(plan, jobs=1, error_grace=60)
+        self.assertFalse(complete)
+        self.assertTrue(results[0]["problem"].startswith("engine error; child still running"), results[0]["problem"])
+        self.assertLess(results[0]["seconds"], 15)
+
+    @unittest.skipUnless(os.name == "posix", "stall tests read ps")
+    def test_idle_silent_child_is_stopped_and_a_busy_one_is_not(self):
+        idle = self.script("idle", "import time; print('waiting', flush=True); time.sleep(60)")
+        busy = self.script("busy", "import time\nend = time.time() + 5\nwhile time.time() < end: pass\nprint('done')")
+        with patch.object(check.Processes, "EVERY", 0.5), patch.object(check, "PROCESSES", check.Processes()):
+            complete, results = self.run_plan([idle, busy], jobs=2, keep_going=True, stall=3)
+        self.assertFalse(complete)
+        problems = {r["name"]: r["problem"] for r in results}
+        self.assertTrue(str(problems["idle"]).startswith("stalled"), problems)
+        self.assertIsNone(problems["busy"], "a silent child using a core was stopped")
+        self.assertLess(next(r["seconds"] for r in results if r["name"] == "idle"), 15)
+
+    def test_budget_stops_the_run_as_incomplete(self):
+        plan = [self.child("quick", 0.1), self.child("long", 30), self.child("later", 0.1)]
+        report = {"results": []}
+        complete, results = self.run_plan(plan, jobs=1, report=report, deadline=check.time.monotonic() + 2)
+        self.assertFalse(complete)
+        self.assertEqual([(r["name"], (r["problem"] or "").split(":")[0]) for r in results], [("quick", ""), ("long", "budget")])
+        self.assertEqual(report["not_run"], ["later"])
+        self.assertTrue(report["budget_reached"])
+        self.assertEqual(check.failure_status(report), 3)
+        self.assertLess(results[1]["seconds"], 5)
+
+    @unittest.skipUnless(os.name == "posix", "signals")
+    def test_sigterm_stops_the_children_it_started(self):
+        # An agent's tool timeout sends SIGTERM; children in their own sessions outlived it.
+        pid_file = self.output / "child.pid"
+        sleeper = f"import os, time; open({str(pid_file)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
+        driver = ("import sys, signal\nfrom pathlib import Path\nfrom types import SimpleNamespace\n"
+                  f"sys.path.insert(0, {str(Path(check.__file__).parent)!r})\nimport check\n"
+                  f"check.runs_dir = lambda: Path({str(self.output / 'runs')!r})\n"
+                  "signal.signal(signal.SIGTERM, check.interrupted)\n"
+                  f"child = check.Check('sleeper', [sys.executable, '-c', {sleeper!r}], None, 120)\n"
+                  "options = SimpleNamespace(godot='unused', timeout=None, allow_macos_ca_error=False, jobs=1, keep_going=False)\n"
+                  "try:\n    check.run_plan([child], Path(sys.argv[1]), options, None, {'results': []})\n"
+                  "except check.Interrupted as stop:\n    sys.exit(128 + stop.signum)\n")
+        runner = subprocess.Popen([sys.executable, "-c", driver, str(self.output)], stdout=subprocess.DEVNULL)
+        for _ in range(200):
+            if pid_file.exists() and pid_file.read_text():
+                break
+            check.time.sleep(0.05)
+        child = int(pid_file.read_text())
+        runner.send_signal(check.signal.SIGTERM)
+        self.assertEqual(runner.wait(timeout=10), 128 + check.signal.SIGTERM)
+        check.time.sleep(0.2)
+        self.assertFalse(check.process_alive(child), "the child outlived its runner")
+
+    @unittest.skipUnless(os.name == "posix", "reaping reads ps")
+    def test_orphans_of_a_dead_runner_are_reaped_once(self):
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        orphan = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        self.addCleanup(lambda: [p.kill() for p in (orphan, stranger) if p.poll() is None])
+        check.time.sleep(1.2)
+        folder = self.output / "runs"
+        folder.mkdir()
+        now = check.time.time()
+        state = {"pid": dead.pid, "root": "/x", "finished": None, "updated": now, "running": [
+            {"name": "orphan", "pid": orphan.pid, "began": now - 1.2},
+            # A reused pid: its process started long after the recorded check did.
+            {"name": "stranger", "pid": stranger.pid, "began": now - 3600}]}
+        (folder / f"{dead.pid}.json").write_text(check.json.dumps(state))
+        lines = check.reap_orphans(folder)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("orphan", lines[0])
+        self.assertNotIn("stranger", lines[0])
+        self.assertEqual(orphan.wait(timeout=5), -check.signal.SIGKILL)
+        self.assertIsNone(stranger.poll())
+        self.assertEqual(check.json.loads((folder / f"{dead.pid}.json").read_text())["finished"], "abandoned")
+        self.assertEqual(check.reap_orphans(folder), [])
+
+    def test_excerpt_keeps_errors_with_their_next_line_and_the_end(self):
+        log = "\n".join([*(f"step {i}" for i in range(50)), "SCRIPT ERROR: bad", "   at: f (res://x.gd:3)",
+                         *(f"more {i}" for i in range(50)), "FAIL thing", "last"])
+        shown = check.excerpt(log, tail=2)
+        text = "\n".join(shown)
+        self.assertIn("SCRIPT ERROR: bad", text)
+        self.assertIn("at: f (res://x.gd:3)", text)
+        self.assertIn("FAIL thing", text)
+        self.assertTrue(shown[-1].endswith("last"))
+        self.assertLess(len(shown), 12)
 
     def test_launch_order(self):
         expected = [300.0, 2.0, None, 40.0, 0.5, 90.0]
