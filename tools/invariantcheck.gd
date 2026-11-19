@@ -309,45 +309,119 @@ func fidelity_cases() -> void:
 		# Jupiter's reflex into the relative orbit.
 		pair[1].pos.sub_in(sun.pos); pair[1].vel.sub_in(sun.vel)
 		sun.pos = DVec3.new(); sun.vel = DVec3.new()
-		var lrl := func() -> DVec3:
-			var rr := DVec3.new().sub_vectors(pair[1].pos, sun.pos)
-			var vv := DVec3.new().sub_vectors(pair[1].vel, sun.vel)
-			var h := DVec3.new().cross_vectors(rr, vv)
-			var mu: float = Physics.G * (sun.mass + pair[1].mass)
-			return DVec3.new().cross_vectors(vv, h).scale_in(1.0 / mu).sub_in(rr.clone().scale_in(1.0 / rr.length()))
-		var normal := DVec3.new().cross_vectors(DVec3.new().sub_vectors(pair[1].pos, sun.pos), DVec3.new().sub_vectors(pair[1].vel, sun.vel))
-		var e0: DVec3 = lrl.call()
-		# The slope of a least-squares fit to the perihelion longitude, sampled every 0.01
-		# yr: two endpoints alone carry the osculating terms, and a sampling interval near
-		# a multiple of the 0.24 yr orbit aliases them.
-		var years := 0.0
-		var ts := []; var angles := []
-		while years < 24.0:
-			var step := NBody.step_physics(pair, 0.01, max_step, 0.0)
-			if step.resolution_limited or step.stepped <= 0.0: break
-			years += step.stepped
-			var e1: DVec3 = lrl.call()
-			ts.append(years)
-			angles.append(atan2(DVec3.new().cross_vectors(e0, e1).dot(normal) / normal.length(), e0.dot(e1)))
-		var mean_t := 0.0; var mean_a := 0.0
-		for k in ts.size(): mean_t += ts[k]; mean_a += angles[k]
-		mean_t /= maxf(ts.size(), 1); mean_a /= maxf(ts.size(), 1)
-		var num := 0.0; var den := 0.0
-		for k in ts.size():
-			num += (ts[k] - mean_t) * (angles[k] - mean_a)
-			den += (ts[k] - mean_t) * (ts[k] - mean_t)
-		var arcsec := rad_to_deg(num / maxf(den, 1e-30)) * 3600.0 * 100.0
+		# Sampled every 0.01 yr, clear of a multiple of the 0.24 yr orbit.
+		var run := apsidal_rate(pair, 24.0, 0.01, max_step)
+		var years: float = run.years
+		var arcsec := rad_to_deg(run.rate) * 3600.0 * 100.0
 		if pn:
 			check("Mercury's perihelion advances GR's 42.98″/cy (%.2f″/cy over %.0f yr)" % [arcsec, years], years >= 24.0 and absf(arcsec - 42.98) < 1.0)
 		else:
 			check("Mercury's Newtonian perihelion holds within 1″/cy (%.2f″/cy over %.0f yr)" % [arcsec, years], years >= 24.0 and absf(arcsec) < 1.0)
 	Physics.post_newtonian = true
 
+# How fast the relative orbit's periapsis turns, rad/yr, over `years` (or until a step
+# stops): the slope of a least-squares fit to the Laplace–Runge–Lenz vector's angle,
+# sampled every `sample` years. Two endpoints alone carry the osculating terms, and a
+# sampling interval near a multiple of the period aliases them.
+func apsidal_rate(pair: Array, years: float, sample: float, max_step: float) -> Dictionary:
+	var a: Body = pair[0]
+	var b: Body = pair[1]
+	var mu: float = Physics.G * (a.mass + b.mass)
+	var lrl := func() -> DVec3:
+		var rr := DVec3.new().sub_vectors(b.pos, a.pos)
+		var vv := DVec3.new().sub_vectors(b.vel, a.vel)
+		var h := DVec3.new().cross_vectors(rr, vv)
+		return DVec3.new().cross_vectors(vv, h).scale_in(1.0 / mu).sub_in(rr.clone().scale_in(1.0 / rr.length()))
+	var normal := DVec3.new().cross_vectors(DVec3.new().sub_vectors(b.pos, a.pos), DVec3.new().sub_vectors(b.vel, a.vel))
+	var e0: DVec3 = lrl.call()
+	var t := 0.0
+	var ts := []; var angles := []
+	while t < years:
+		var step := NBody.step_physics(pair, sample, max_step, 0.0)
+		if step.resolution_limited or step.stepped <= 0.0: break
+		t += step.stepped
+		var e1: DVec3 = lrl.call()
+		ts.append(t)
+		angles.append(atan2(DVec3.new().cross_vectors(e0, e1).dot(normal) / normal.length(), e0.dot(e1)))
+	var mean_t := 0.0; var mean_a := 0.0
+	for k in ts.size(): mean_t += ts[k]; mean_a += angles[k]
+	mean_t /= maxf(ts.size(), 1); mean_a /= maxf(ts.size(), 1)
+	var num := 0.0; var den := 0.0
+	for k in ts.size():
+		num += (ts[k] - mean_t) * (angles[k] - mean_a)
+		den += (ts[k] - mean_t) * (ts[k] - mean_t)
+	return {"years": t, "rate": num / maxf(den, 1e-30)}
+
+# PSR B1913+16 (Weisberg & Huang 2016, ApJ 829, 55), starting at periastron. Its stars
+# are nearly equal in mass, so the 1PN terms Mercury's tiny mass hides (each body's
+# response to the other's acceleration) move this orbit, and its eccentricity turns any
+# 1PN force eih_energy does not account for into an energy swing.
+const PSR_PERIOD_DAYS := 0.322997448918
+const PSR_OMEGA_DOT := 4.226585  # °/Julian yr, measured
+
+func binary_pulsar() -> Array:
+	var m1 := 1.438; var m2 := 1.390; var e := 0.6171340
+	var M := m1 + m2
+	var period := PSR_PERIOD_DAYS * 86400.0 / Rocketry.YR_S
+	var rp := pow(M * period * period, 1.0 / 3.0) * (1.0 - e)  # a³ = M P² when G = 4π²
+	var vp := sqrt(Physics.G * M * (1.0 + e) / rp)
+	return [
+		Derive.new_body(1, {"type": "neutron", "mass": m1, "pos": [-rp * m2 / M, 0.0, 0.0], "vel": [0.0, 0.0, -vp * m2 / M]}),
+		Derive.new_body(2, {"type": "neutron", "mass": m2, "pos": [rp * m1 / M, 0.0, 0.0], "vel": [0.0, 0.0, vp * m1 / M]}),
+	]
+
+func binary_pulsar_cases() -> void:
+	var period := PSR_PERIOD_DAYS * 86400.0 / Rocketry.YR_S
+	# At the app's own step the integrator turns the orbit too (0.19°/yr); the Newtonian
+	# run measures that, and the difference is the 1PN advance.
+	var runs := []
+	for pn in [false, true]:
+		Physics.post_newtonian = pn
+		runs.append(apsidal_rate(binary_pulsar(), 200.0 * period, 0.137 * period, period))
+	Physics.post_newtonian = true
+	var advance := rad_to_deg(runs[1].rate - runs[0].rate) * 31557600.0 / Rocketry.YR_S
+	check("PSR B1913+16 periastron advances the measured %.4f°/yr (%.4f°/yr)" % [PSR_OMEGA_DOT, advance],
+		runs[0].years >= 200.0 * period and runs[1].years >= 200.0 * period and absf(advance / PSR_OMEGA_DOT - 1.0) < 0.005)
+	# At a two-thousandth of the orbit the integrator's own swing is 7e-9; the swing is
+	# largest at apastron, half an orbit in, which a sample lands on.
+	for kernel in ["gd", "native"]:
+		if kernel == "native" and not NBody.native_available(): continue
+		var pair := binary_pulsar()
+		var energy := Derive.total_energy(pair)
+		var swing := 0.0
+		var years := 0.0
+		for i in 80:
+			var step: Dictionary = (Derive.step_physics(pair, period / 40.0, period / 2000.0, 0.0) if kernel == "gd"
+				else NBody.step_physics(pair, period / 40.0, period / 2000.0, 0.0))
+			if step.resolution_limited: break
+			years += step.stepped
+			swing = maxf(swing, absf(Derive.total_energy(pair) / energy - 1.0))
+		check("PSR B1913+16 %s 1PN energy holds over two orbits (|ΔE/E| %s)" % [kernel, String.num_scientific(swing)],
+			absf(years / (2.0 * period) - 1.0) < 1e-9 and swing < 1e-7)
+
+# The fluid Roche limit 2.44 R*(ρ*/ρ)^⅓ is 2.44 (3M/4πρ)^⅓, so it is pinned from SI
+# constants past the stellar-radius model. It is the Trisolaris stars' contact distance,
+# which decides the close passes the world survives.
+func roche_cases() -> void:
+	var limit := func(mass: float) -> float:
+		return 2.44 * pow(3.0 * mass * Structure.M_SUN / (4.0 * PI * 5500.0), 1.0 / 3.0) / Rocketry.AU_M
+	for mass in [0.2, 1.0, 3.0]:
+		check("Roche limit of an Earth-density world, %s M☉" % mass, absf(Physics.roche_limit(mass) / limit.call(mass) - 1.0) < 1e-3)
+	var stars := 0
+	for spec in Presets.PRESETS.trisolaris_wander.build.call():
+		if spec.type != "star": continue
+		stars += 1
+		var b := Derive.new_body(stars, spec)
+		check("trisolaris_wander %s contact is its Roche limit" % spec.name, absf(b.contact_au / limit.call(b.mass) - 1.0) < 1e-3)
+	check("trisolaris_wander has three suns", stars == 3)
+
 func _init() -> void:
 	collision_cases()
 	force_and_energy()
 	compact_force_cases()
+	binary_pulsar_cases()
 	contact_cases()
+	roche_cases()
 	horizon_cases()
 	measured_structure_cases()
 	equivalent_kernels()

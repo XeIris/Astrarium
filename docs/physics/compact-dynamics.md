@@ -18,6 +18,10 @@ advance. It is skipped where GM/(rc²) ≥ 0.1, outside the weak field, and
 `Physics.post_newtonian` turns it off for checks of the potential itself.
 `Derive.total_energy` adds each pair's conserved 1PN energy, so with fixed
 mass/softening and no drag or mergers, drift still measures numerical error.
+`tools/invariantcheck.gd` checks both on PSR B1913+16, whose nearly equal masses
+exercise the terms Mercury's mass hides: its periastron advances the measured
+4.2266° per year, and over its eccentric orbit, where a 1PN force missing from that
+energy would swing it, the energy holds to 1e-7 in either kernel.
 
 Integration is Yoshida's (1990) fourth-order composition of three velocity-Verlet
 substeps (w₁ = 1/(2 − 2^⅓), w₀ = 1 − 2w₁). Each substep's forces see a predicted
