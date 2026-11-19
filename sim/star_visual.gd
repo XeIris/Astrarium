@@ -341,6 +341,11 @@ class StarViz:
 			return
 		var reach := 1.0 + 8.0 * float(env.layerH)
 		if dusty: reach = maxf(reach, float(env.dustR) * 2.0)
+		# A star that ejects puffs needs room for them to condense, even when its steady
+		# wind is too thin to draw dust: past where they finish turning (1.1 r_c).
+		var ejects: bool = float(env.layerH) > 0.02 and float(env.ejectYr) < INF
+		if ejects and float(env.dustR) > 0.0:
+			reach = maxf(reach, float(env.dustR) * StarVisual.PUFF_CONDENSE * 1.5)
 		if windy: reach = maxf(reach, 3.0)
 		reach = clampf(reach, 1.2, 10.0)
 		env_mat = ShaderMaterial.new()
@@ -365,7 +370,7 @@ class StarViz:
 		envelope.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		group.add_child(envelope)
 		env_rng.seed = hash(b.id) ^ 0x3e1f
-		if float(env.layerH) > 0.02 and float(env.ejectYr) < INF:
+		if ejects:
 			eject_next = float(env.ejectYr) * env_rng.randf_range(0.2, 1.0)
 
 	## Launch a puff of the envelope from direction `dir` (in the star's frame).
@@ -519,7 +524,8 @@ class StarViz:
 			var rise := StarVisual.smoothstep01(0.02, 0.5, x)
 			var rope_amp: float = minf(0.55 + f.amp * 0.9, 1.5) * (1.0 - StarVisual.smoothstep01(0.22, 0.62, x))
 			var rope: Prominence.Arcade = E2.rope
-			rope.group.visible = rope_amp > 0.01
+			# Past the dividing line there is no hot corona to hold a rope or fill an arcade.
+			rope.group.visible = rope_amp > 0.01 and hotc > 0.05
 			# An arcade runs many loop spans along its neutral line, or the loops pile into a ball.
 			rope.set_params({
 				"R": R, "span": 0.075 * scl, "len": 0.30 * scl, "height": 0.17 * scl,
@@ -532,7 +538,7 @@ class StarViz:
 			# cools. Square across the neutral line: the field has relaxed.
 			var arc_amp: float = StarVisual.smoothstep01(0.05, 0.15, x) * minf(f.amp * 1.3 + 0.15, 1.4)
 			var arcade: Prominence.Arcade = E2.arcade
-			arcade.group.visible = arc_amp > 0.01
+			arcade.group.visible = arc_amp > 0.01 and hotc > 0.05
 			# Post-flare loops are filled at ~10⁷ K, invisible in white light, and appear in
 			# H-α and He II only as they cool. Below ~2 MK they go thermally unstable and
 			# strands condense into 10⁴ K rain (Antolin 2020): only that cool fraction
@@ -605,7 +611,11 @@ class StarViz:
 		# The corona billboard carries only streamers and the inner aureole; bloom makes the
 		# soft halo.
 		corona_mat.set_shader_parameter("uFlux", (0.15 + (activity.flux - 1.0) * 0.8) * hotc)
-		if envelope != null: _update_envelope(ctx.sim_dt)
+		if envelope != null:
+			# The envelope's photosphere breathes with the drawn one, or the depth test
+			# that finds the star behind a ray misses it by the pulse.
+			env_mat.set_shader_parameter("uR", R * pulse)
+			_update_envelope(ctx.sim_dt)
 
 		if stream != null:
 			Bodies.update_accretion_stream(body, ctx, stream, dt)

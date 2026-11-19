@@ -80,13 +80,22 @@ void fragment() {
 	float x = length(vCentre - d * tca) / R - 1.0;
 	if (uSpin > 0.02) {
 		float Rp = R * (1.0 - uFlat);
+		// Golden section: the surviving inner sample is reused, one new one per step.
+		const float GS = 0.381966;
 		float lo = tca - 1.6 * R, hi = tca + 1.6 * R;
+		float m1 = mix(lo, hi, GS), m2 = mix(lo, hi, 1.0 - GS);
+		float f1 = over_surface(d * m1 - vCentre, vAx3, Rp);
+		float f2 = over_surface(d * m2 - vCentre, vAx3, Rp);
 		for (int k = 0; k < 14; k++) {
-			float m1 = mix(lo, hi, 0.382), m2 = mix(lo, hi, 0.618);
-			if (over_surface(d * m1 - vCentre, vAx3, Rp) < over_surface(d * m2 - vCentre, vAx3, Rp)) hi = m2;
-			else lo = m1;
+			if (f1 < f2) {
+				hi = m2; m2 = m1; f2 = f1;
+				m1 = mix(lo, hi, GS); f1 = over_surface(d * m1 - vCentre, vAx3, Rp);
+			} else {
+				lo = m1; m1 = m2; f1 = f2;
+				m2 = mix(lo, hi, 1.0 - GS); f2 = over_surface(d * m2 - vCentre, vAx3, Rp);
+			}
 		}
-		x = over_surface(d * (0.5 * (lo + hi)) - vCentre, vAx3, Rp) - 1.0;
+		x = min(f1, f2) - 1.0;
 	}
 	if (tca < 0.0) x = 1e3;
 	float h = max(x, 0.0);
