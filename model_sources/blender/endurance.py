@@ -113,9 +113,11 @@ def module(index, parent, m):
 
 
 def hub(parent, m):
-    length = float(S['look']['hubLength'])
+    base = float(S['look']['hubBase'])
+    top = float(S['look']['hubTop'])
+    length = top - base
     radius = float(S['look']['hubRadius'])
-    axis = empty('hub axis', p((0, 0, 0)), parent)
+    axis = empty('hub axis', p((0, base, 0)), parent)
     case = revolve('central docking spine', [(0, 0), (radius-.24, 0), (radius, .40), (radius, length-.4), (radius-.24, length), (0, length)], m['enamel'], seg=48, parent=axis)
     smooth(case, 45)
     for y in [length*f for f in [.0303, .1606, .3273, .4545, .5939, .7424, .8939, .9818]]:
@@ -138,13 +140,22 @@ def hub(parent, m):
     # The smaller adapters contact the shuttle hatches while keeping the
     # Ranger's outboard nozzles and the Lander's canopy clear of the hub skin.
     reach = float(S['look']['axialAdapter'])
-    rod('Ranger axial docking adapter', (0,length-.25,0), (0,length+reach,0), .58, m['alloy'], parent)
-    collar('Ranger coupling lip', (0,length+reach-.06,0), (0,1,0), .60, m['panel'], parent, .045)
-    cargo_port = Vector(S['look']['landerBerth'])
-    inner = Vector((-radius+.22, cargo_port.y, 0))
-    rod('Lander transverse docking adapter', inner, cargo_port+Vector((-.02,0,0)), 1.04, m['enamel'], parent)
-    for fraction in [.20,.46,.72,.94]:
-        collar('transverse adapter flange', inner.lerp(cargo_port,fraction), (1,0,0), 1.07, m['alloy'], parent, .06)
+    rod('Ranger axial docking adapter', (0,top-.25,0), (0,top+reach,0), .58, m['alloy'], parent)
+    collar('Ranger coupling lip', (0,top+reach-.06,0), (0,1,0), .60, m['panel'], parent, .045)
+    y = S['look']['ring']['at']
+    crosshead = Vector((S['look']['cargoCrosshead'], y, 0))
+    rod('aft crosshead tunnel', (0,y,0), crosshead, 1.16, m['enamel'], parent)
+    for fraction in [.30,.72]:
+        collar('crosshead joint', (crosshead.x*fraction,y,0), (1,0,0), 1.16, m['alloy'], parent)
+    block('four-way pressure junction',crosshead,(2.32,2.34,2.35),m['enamel'],parent,.30)
+    for berth in S['berths']:
+        start, end = Vector(berth['base']), Vector(berth['tip'])
+        cargo = berth['vehicle'] == 'lander'
+        r = 1.04 if cargo else .58
+        normal = (end-start).normalized()
+        rod('transport docking tunnel', start, end, r, m['enamel'], parent)
+        for fraction in [.22,.68,.92]:
+            collar('docking tunnel seam', start.lerp(end,fraction), normal, r, m['panel'], parent, .045)
 
 
 def make(_shared):

@@ -73,6 +73,13 @@ func fly(key: String) -> void:
 	var dock := f.docking
 	expect(dock != null and dock.holding and f.camera_mode() == "berth", key + " hands control over outside capture")
 	if dock == null: return
+	if dock.carrier.vehicle_key == "endurance":
+		var complement := dock.craft.group.find_children("dock_*","Node3D",true,false)
+		var visible_count := 0
+		for mounted in complement:
+			if mounted.visible: visible_count += 1
+		expect(complement.size()==4 and visible_count==3 and not dock.craft.group.find_child("dock_%s_0"%key,true,false).visible,
+			key + " visitor leaves its own cruise berth empty")
 	if fallback: expect(not f.craft.authored and not dock.craft.authored,key + " flies the fallback meshes")
 	var clock := f.vessel.coord
 	var prop := float(f.vessel._first_attached().rcs_prop)

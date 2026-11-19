@@ -136,15 +136,19 @@ remained in their expected orbital bands. Use `discovery:departure` and
 ## Endurance and Lander reconstruction
 
 Endurance's 65 m ring diameter is judged from the 14 ft miniature built at 1:15
-scale. The separate 51.7 m axial envelope includes the berthed Ranger. Twelve
-bevelled modules alternate insulated service panels and ribbed radiator banks.
-One stepped pressure tunnel joins the axial hub to the ring. Rounded
-intermodule junctions connect the modules. Axial and transverse adapters carry
-the same original Ranger and Lander models used in the hangar. The axial adapter
-meets the Ranger's recessed docking port while leaving clearance at its nozzles.
-The transverse adapter seats the Lander on the opposite side of the hub from the
-tunnel. Both model paths share the berth and tunnel datums.
-[New Deal Studios miniature photographs and scale](https://www.fxguide.com/fxfeatured/real-and-raw-the-miniature-fx-behind-interstellar/)
+scale. The assembled model spans 29.2 m along its spin axis. A single pressure
+tunnel connects the twelve-module wheel to the central hub.
+
+The cruise complement is **two Rangers and two Landers**. Viewed down the
+spin axis, the Rangers sit close together on paired rear-hatch connections,
+with their bows pointing out of the wheel and their tiled bellies facing each
+other. The Landers lie on either side of them, parallel to the ring plane.
+Opposed crosshead arms meet the inclined dorsal collars. The two craft types
+use the same meshes as their free-flying versions. The count and orientations
+follow the film illustration in chapter 20, figure 20.1 of Kip Thorne’s
+*The Science of Interstellar*. Collar offsets and tunnel lengths are fitted
+to the reconstructed hulls. [Steve Burg’s production designs](https://steveburg.artstation.com/projects/96GNQ)
+and [the miniature crew’s account](https://www.fxguide.com/fxfeatured/real-and-raw-the-miniature-fx-behind-interstellar/).
 
 The separate 21.4 × 18.6 m Lander uses the Ranger scale as a reconstruction
 reference. Three passes shaped the stepped 18-aperture canopy, waisted faceted
@@ -167,7 +171,9 @@ gates are 0.035 rad and 0.035 rad/s.
 The hangar offers these approaches before clearance. The EVA Pod returns from
 the AE-35 inspection and the Ranger visits the rotating axial berth. The third
 mission, `lander:axial_recovery`, adapts Cooper’s recovery of Endurance after
-Mann’s failed Ranger docking. A reducer mates the Lander’s inclined dorsal
+Mann’s failed Ranger docking. In either ring exercise the visitor leaves its own
+cruise mount vacant. The other three ships stay aboard while the visitor docks
+at the free spin-axis port. A reducer mates the Lander’s inclined dorsal
 collar to the axial adapter. The exercise uses an intact ring at 1 rpm. The
 film’s damaged-ring spin exceeds the modelled Lander jets’ ability to follow
 the eccentric port. In all three exercises the pilot clears, holds or resumes
@@ -200,8 +206,8 @@ studio angles. The authored and fallback builds run through audit, clearance,
 part counts and 28 authored parity poses. Discovery's check covers the full
 cover sweep, pod aperture clearance, rotor fit and Jovian initial conditions.
 Endurance's check covers rotor phase, its mounted craft clearances and outlet
-attachment. `tools/dockingflightshots.tscn` exercises both captures and checks
-the rendered attachment against the parked craft datum after a second of flight.
+attachment. `tools/dockingflightshots.tscn` exercises all three captures and checks
+the rendered attachment against its port after a second of flight.
 The hangar check `tools/dockingmissioncheck.tscn` flies the three approaches
 through clearance, wave-off, hold and capture. It checks visible triangles at
 28 approach stations and at latch, including each 10 cm of the final two metres.

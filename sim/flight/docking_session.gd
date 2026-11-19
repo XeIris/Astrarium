@@ -32,8 +32,6 @@ var _before: Dictionary={}
 
 static func create(v: Vessel,carrier_key: String,slot: String,gap: float) -> DockingSession:
 	var vehicle: Dictionary=Vehicles.get_vehicle(carrier_key)
-	# The transverse mount is occupied. Flying its rotating radial corridor needs a separate approach law.
-	if carrier_key == "endurance" and slot == "dock_lander_0": return null
 	if vehicle.is_empty() or not is_finite(gap) or gap<6.0 or gap>40.0:return null
 	var recovery := carrier_key == "endurance" and slot == "axial_recovery" and v.vehicle_key == "lander"
 	if recovery:
@@ -44,7 +42,7 @@ static func create(v: Vessel,carrier_key: String,slot: String,gap: float) -> Doc
 	var slots: Array
 	match carrier_key:
 		"discovery":slots=DiscoveryCraft.berths(spec)
-		"endurance":slots=EnduranceCraft.berths(spec)
+		"endurance":slots=[EnduranceCraft.axial_ranger(spec)]
 		_:return null
 	var selected: Dictionary={}
 	for entry: Dictionary in slots:
@@ -58,6 +56,8 @@ static func create(v: Vessel,carrier_key: String,slot: String,gap: float) -> Doc
 	out.carrier.r.copy_from(v.r);out.carrier.v.copy_from(v.v);out.carrier.q.copy_from(v.q)
 	out.carrier.met=v.met;out.carrier.coord=v.coord;out.carrier.phase=Vessel.PHASE.ORBIT
 	out.craft=CraftModel.build_craft(vehicle)
+	# The returning visitor leaves a transport mount vacant. Its capture pose
+	# can be on a different port, as on the ring's free spin axis.
 	var occupied:=out.craft.group.find_child(str(selected.node),true,false) as Node3D
 	if occupied==null:
 		out.craft.group.free()

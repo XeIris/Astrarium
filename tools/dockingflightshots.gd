@@ -34,7 +34,7 @@ func fly_case(key: String, id: String, offset: Vector3, aim: Vector3, fov: float
 	var f: Spaceflight = stage.flight
 	var dock := f.docking
 	var parked := dock.craft.group.find_child(str(dock.berth.node), true, false) as Node3D
-	expect(parked != null and not parked.visible, id + " has one craft at the target berth")
+	expect(parked != null and not parked.visible, id + " visitor has vacated its transport mount")
 	expect(f.craft.authored and dock.craft.authored, id + " renders both authored craft")
 	stage.state.paused = true
 	f.set_camera_mode("orbit")
@@ -45,7 +45,7 @@ func fly_case(key: String, id: String, offset: Vector3, aim: Vector3, fov: float
 		camera.look_at(pos.clone().add_in(DVec3.from_v3(basis_ * aim)), basis_ * Vector3.BACK)
 		camera.near = .04
 	await shot(id + "-approach")
-	if output != "":
+	if output != "" and f.camera_modes().has("interior"):
 		var orbit_camera := f.camera_override
 		var flight_attitude := f.vessel.q.clone()
 		var port: DVec3 = dock.port_pose().r
@@ -85,9 +85,13 @@ func fly_case(key: String, id: String, offset: Vector3, aim: Vector3, fov: float
 		var live := dock.measure(f.vessel, dock.port_pose())
 		expect(dock.carrier.met > frozen and absf(live.gap) < 1e-5 and live.cross < 1e-5 \
 			and live.speed < 1e-5 and live.angle < 1e-5, id + " follows the live berth after one second")
-		expect(parked != null and not parked.visible \
-			and f.craft.group.global_position.distance_to(parked.global_position) < .002,
-			id + " rendered craft aligns with the hidden stowed datum")
+		var expected := parked.global_position
+		if dock.carrier.vehicle_key == "endurance":
+			var rotor: Node3D = dock.craft.stages[0].parts.rotors[0]
+			var at: Array = dock.berth.at
+			expected = rotor.to_global(Vector3(at[0],at[1],at[2]))
+		expect(not parked.visible and f.craft.group.global_position.distance_to(expected)<.002,
+			id + " rendered craft reaches the capture datum")
 	stage.end_flight()
 	for i in 3: await get_tree().process_frame
 	expect(not is_instance_valid(parked) and f.docking == null, id + " releases its carrier on exit")
@@ -117,6 +121,7 @@ func _ready() -> void:
 	stage.set_hud_hidden(true)
 	await fly_case("evapod", "pod_berth", Vector3(-13, 8, -9), Vector3(0, -6, 0), 52.0)
 	await fly_case("ranger", "spin_match", Vector3(-68, 55, -45), Vector3(0, -26, 0), 48.0)
+	await fly_case("lander", "axial_recovery", Vector3(-48, 36, -38), Vector3(0, -16, 0), 48.0)
 	for error in logger.take():
 		failures += 1
 		printerr("DOCKINGFLIGHTSHOTS ENGINE ", error)

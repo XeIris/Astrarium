@@ -379,7 +379,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/discoveryflightcheck.tscn` | production Earth–Jupiter flight, paid burns and fully propulsive capture; rejects exhausted attitude control and incomplete missions |
 | `tools/endurancecheck.gd` | ring phase, mounted shuttle clearances, outlet attachment and artificial gravity in both build paths |
 | `tools/dockingmissioncheck.tscn` | three hangar missions, mapped input, station keeping, capture, sampled mesh interference and rigid attachment. Use `-- only=lander movie=/absolute/directory` with a GPU to record 24 fps frames |
-| `tools/dockingflightshots.tscn` | rendered EVA berth and Ranger spin match through production flight; checks capture, aligned render datums and teardown |
+| `tools/dockingflightshots.tscn` | rendered EVA Pod, Ranger and Lander approaches through production flight, including axial capture with three ferries still aboard |
 | `tools/orbitcheck.gd` | conic propagation against independent RK4, reversibility and energy across elliptic, near-parabolic and hyperbolic cases |
 | `tools/finiteburncheck.gd` | finite escape prediction convergence, mass/fuel response, long-coast attitude fuel and live guidance cutoff/asymptote |
 | `tools/kerrcircularcheck.gd` | analytic circular Kerr angular velocity and clock ratio against independent metric normalization and radial balance; stable-orbit and spin domain |

@@ -2,35 +2,58 @@ class_name EnduranceCraft
 extends RefCounted
 
 static func berths(spec: Dictionary) -> Array:
-	var hub:=float(spec.look.hubLength)
-	var cargo:=LanderCraft.dock(Vehicles.get_vehicle("lander").stages[0])
-	var slope: float=-float(cargo.normal[1])
-	var rotation:=DQuat.new().set_from_axis_angle(DVec3.new(0,0,1),atan(slope))
-	rotation.multiply(DQuat.new().set_from_axis_angle(DVec3.new(0,1,0),PI*.5))
-	var point:=DVec3.new(cargo.at[0],cargo.at[1],cargo.at[2])
-	var berth: Array=spec.look.landerBerth
-	var offset:=DVec3.new(berth[0],berth[1],berth[2]).sub_in(DQuat.rotate(point,rotation))
-	return [{"vehicle":"ranger","node":"dock_ranger_0","at":[0.0,hub+float(spec.look.axialAdapter)+.002,-.15],"q":[0.0,0.0,0.0,1.0]},
-		{"vehicle":"lander","node":"dock_lander_0","at":offset.to_array(),"q":[rotation.x,rotation.y,rotation.z,rotation.w]}]
+	var look: Dictionary = spec.look
+	var cargo := LanderCraft.dock(Vehicles.get_vehicle("lander").stages[0])
+	var collar := Vector3(cargo.at[0], cargo.at[1], cargo.at[2])
+	var normal := Vector3(cargo.normal[0], cargo.normal[1], cargo.normal[2]).normalized()
+	var ranger_length := float(Vehicles.get_vehicle("ranger").stages[0].L)
+	var y := float(look.ring.at)
+	var out := []
+	for i in 2:
+		var side := 1.0 if i == 0 else -1.0
+		# Both bows point out of the wheel. The tiled bellies face across the gap.
+		var roof := Vector3.RIGHT * side
+		var ranger := Basis(Vector3.DOWN.cross(roof), Vector3.DOWN, roof)
+		var shoulder := Vector3(side * float(look.rangerSpacing) * .5, y, 0)
+		var socket := Vector3(shoulder.x, ranger_length + .002, 0)
+		out.append(_mount("ranger", i, ranger, socket + Vector3.DOWN*.002 - ranger * Vector3(0,0,.15), shoulder, socket))
+
+		# Roll the cargo ships onto their sides, then seat the inclined dorsal seals.
+		var inward := Vector3.FORWARD * side
+		var axes := Basis(Vector3.RIGHT.cross(inward), Vector3.RIGHT, inward)
+		var lander := axes * Basis(Quaternion(normal, Vector3.BACK))
+		var crosshead := Vector3(float(look.cargoCrosshead), y, 0)
+		var seat := crosshead - inward * float(look.cargoReach)
+		out.append(_mount("lander", i, lander, seat - inward*(LANDER_TUBE+.002) - lander * collar, crosshead, seat))
+	return out
+
+static func _mount(kind: String, i: int, axes: Basis, origin: Vector3, base: Vector3, tip: Vector3) -> Dictionary:
+	var q := axes.get_rotation_quaternion()
+	return {"vehicle":kind, "node":"dock_%s_%d" % [kind,i], "q":[q.x,q.y,q.z,q.w],
+		"at":[origin.x,origin.y,origin.z], "base":[base.x,base.y,base.z], "tip":[tip.x,tip.y,tip.z]}
+
+static func axial_ranger(spec: Dictionary) -> Dictionary:
+	return {"vehicle":"ranger","node":"dock_ranger_0","q":[0,0,0,1],
+		"at":[0,float(spec.look.hubTop)+float(spec.look.axialAdapter)+.002,-.15]}
 
 const RECOVERY_GASKET := .08
 const LANDER_TUBE := .12
 
-## The recovery mission uses the forward adapter with its visiting Ranger absent.
+## Both visitors use the free spin-axis port after leaving their transport berths.
 static func axial_lander(spec: Dictionary, lander: Dictionary) -> Dictionary:
 	var collar := LanderCraft.dock(lander)
 	var normal := Vector3(collar.normal[0], collar.normal[1], collar.normal[2]).normalized()
 	var rotation := Quaternion(normal, Vector3.DOWN)
-	var tip := Vector3(0, float(spec.look.hubLength) + float(spec.look.axialAdapter), 0)
+	var tip := Vector3(0, float(spec.look.hubTop) + float(spec.look.axialAdapter), 0)
 	var at := tip + Vector3.UP * (RECOVERY_GASKET + LANDER_TUBE) - rotation * Vector3(collar.at[0], collar.at[1], collar.at[2])
-	return {"vehicle":"lander", "node":"dock_ranger_0", "at":[at.x, at.y, at.z],
+	return {"vehicle":"lander", "node":"dock_lander_0", "at":[at.x, at.y, at.z],
 		"collar":DVec3.new(collar.at[0], collar.at[1], collar.at[2]),
 		"q":[rotation.x, rotation.y, rotation.z, rotation.w]}
 
 static func fit_recovery_adapter(rotor: Node3D, spec: Dictionary, lander: Dictionary) -> void:
 	var mount := Node3D.new()
 	mount.name = "recovery_adapter"
-	mount.position.y = float(spec.look.hubLength) + float(spec.look.axialAdapter)
+	mount.position.y = float(spec.look.hubTop) + float(spec.look.axialAdapter)
 	rotor.add_child(mount)
 	var radius := float(LanderCraft.dock(lander).radius)
 	var materials := CraftModel.craft_materials()
@@ -75,14 +98,16 @@ static func build(spec: Dictionary,parts: Dictionary) -> Dictionary:
 	var support:=Node3D.new();support.name="inspection_spokes";rotor.add_child(support)
 	for spoke: Dictionary in spokes(spec):
 		rod(support,spoke.start,spoke.end,spoke.radius,m.white)
-	var hub_length:=float(spec.look.hubLength)
-	var hub_radius:=float(spec.look.hubRadius)
-	var hub:=CraftModel._mesh(CraftModel._cylinder(hub_radius,hub_radius,hub_length,48),m.white)
-	hub.position.y=hub_length*.5;rotor.add_child(hub)
-	rod(rotor,Vector3(0,hub_length-.25,0),Vector3(0,hub_length+float(spec.look.axialAdapter),0),.58,m.steel)
-	var lander: Array=spec.look.landerBerth
-	rod(rotor,Vector3(-hub_radius+.22,lander[1],0),Vector3(lander[0]-.02,lander[1],0),1.04,m.steel)
+	var top := float(spec.look.hubTop)
+	var base := float(spec.look.hubBase)
+	var y := float(spec.look.ring.at)
+	rod(rotor, Vector3(0,base,0), Vector3(0,top,0), float(spec.look.hubRadius), m.white)
+	rod(rotor, Vector3(0,top-.25,0), Vector3(0,top+float(spec.look.axialAdapter),0), .58, m.steel)
+	rod(rotor, Vector3(0,y,0), Vector3(float(spec.look.cargoCrosshead),y,0), 1.16, m.white)
 	for berth: Dictionary in berths(spec):
+		var start := Vector3(berth.base[0],berth.base[1],berth.base[2])
+		var tip := Vector3(berth.tip[0],berth.tip[1],berth.tip[2])
+		rod(rotor,start,tip,.58 if berth.vehicle=="ranger" else 1.04,m.steel)
 		var mount:=Node3D.new();mount.name=berth.node;rotor.add_child(mount)
 		mount.position=Vector3(berth.at[0],berth.at[1],berth.at[2])
 		mount.quaternion=Quaternion(berth.q[0],berth.q[1],berth.q[2],berth.q[3])

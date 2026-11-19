@@ -22,12 +22,17 @@ func _ready() -> void:
 	var vp: SubViewport=fr[0]; var frame: SubViewport=fr[1]
 	CT.add_rig(vp,1.5,0x475569,.5)
 	for light in vp.find_children("*","DirectionalLight3D",true,false): light.light_cull_mask &= ~CraftInterior.LAYER
+	if id == "endurance":
+		var lights := vp.find_children("*","DirectionalLight3D",true,false)
+		light_forward_face(lights)
+		lights[0].shadow_enabled = true
+		lights[0].directional_shadow_max_distance = 145
 	var show:=TextureRect.new(); show.texture=frame.get_texture(); show.size=Vector2(1280,960); add_child(show)
 	var vehicle: Dictionary=Vehicles.get_vehicle(id)
 	var craft=CraftModel.build_craft(vehicle); vp.add_child(craft.group)
 	var cam:=Camera3D.new(); cam.near=.01; cam.far=1000; cam.fov=38; vp.add_child(cam); cam.current=true
 	var shots: Array=["quarter","front","side","rear","top","under","gear","cockpit","port","aft","cutaway"] if vehicle.has("interior") else ["quarter","front","side","rear","top","under","command","hatches","rotor","stern"]
-	if id=="endurance":shots=["quarter","front","side","rear","top","under","hub","module"]
+	if id=="endurance":shots=["quarter","front","side","rear","top","under","hub","module","formation","bow"]
 	if id=="lander":shots=["quarter","front","side","rear","top","under","nose","drive"]
 	var length:=float(vehicle.stages[0].L)
 	var framing:=maxf(length,float(vehicle.stages[0].D))
@@ -49,6 +54,17 @@ func _ready() -> void:
 				if liner!=null: liner.visible=false
 				cam.position=Vector3(5,12,6); cam.look_at(Vector3(0,6.4,.4),Vector3.BACK); cam.fov=55
 			else: cam.look_at(targets[shot],Vector3.BACK)
+		elif shot in ["formation","bow"]:
+			craft.update({"dt":0.0,"properTime":0.0})
+			var axis := Vector3(0,float(vehicle.stages[0].look.ring.at),0)
+			if shot == "bow":
+				cam.position = axis + Vector3(0,-94,0)
+				cam.look_at(axis,Vector3.BACK)
+				cam.fov = 43
+			else:
+				cam.position = axis + Vector3(14,-55,-52)
+				cam.look_at(axis+Vector3(0,-4,0),Vector3.RIGHT)
+				cam.fov = 37
 		elif shot in ["hub","module","nose","drive"]:
 			var views: Dictionary={"hub":[Vector3(10,39,8),Vector3(0,20,0)],
 				"module":[Vector3(43,28,13),Vector3(27,17,0)],
@@ -81,6 +97,11 @@ func _ready() -> void:
 	print("MOVIECRAFTSHOTS DONE")
 	get_tree().quit()
 
+func light_forward_face(lights: Array) -> void:
+	lights[0].basis = CT.look_basis(Vector3(-.44,.68,.62))
+	lights[1].basis = CT.look_basis(Vector3(.68,.35,-.62))
+	lights[1].light_energy = .48
+
 ## 24 fps frames in catalogue metres. Each shot moves the camera in model space.
 func record_tour() -> void:
 	get_window().size = Vector2i(1280,720)
@@ -100,8 +121,14 @@ func record_tour() -> void:
 	cam.current = true
 	cam.near = .01
 	cam.far = 1600
+	var key_basis: Basis = lights[0].basis
+	var fill_basis: Basis = lights[1].basis
+	var fill_energy: float = lights[1].light_energy
 	var number := 0
-	for key in ["discovery","evapod","endurance","ranger","lander"]:
+	var lineup := ["discovery","evapod","endurance","ranger","lander"]
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("v=") and id in lineup: lineup = [id]
+	for key in lineup:
 		await CraftAssets.craft_models_ready([key])
 		var vehicle: Dictionary = Vehicles.get_vehicle(key)
 		var craft := CraftModel.build_craft(vehicle)
@@ -117,8 +144,10 @@ func record_tour() -> void:
 			"evapod":
 				shots = [[Vector3(0,1.04,0),Vector3(2.7,1.0,4.25),.80,38.0],["cabin"],["detail"]]
 			"endurance":
-				shots = [[Vector3(0,17,0),Vector3(38,65,47),.50,47.0],
-					[Vector3(0,21,0),Vector3(19,29,15),.52,48.0]]
+				light_forward_face(lights)
+				var hub := Vector3(0,float(vehicle.stages[0].look.ring.at),0)
+				shots = [[hub,Vector3(30,-76,-45),.40,45.0],
+					[hub+Vector3(0,-4,0),Vector3(17,-29,-33),.45,42.0]]
 			"ranger":
 				shots = [[Vector3(0,length*.47,0),Vector3(.80,.83,.45)*length,.80,39.0],["cabin"],["detail"]]
 			"lander":
@@ -173,6 +202,10 @@ func record_tour() -> void:
 				number += 1
 			cabin.dispose()
 		craft.group.queue_free()
+		if key == "endurance":
+			lights[0].basis = key_basis
+			lights[1].basis = fill_basis
+			lights[1].light_energy = fill_energy
 		await get_tree().process_frame
 	CraftAssets.clear()
 	print("MOVIECRAFTSHOTS TOUR DONE frames=",number)
