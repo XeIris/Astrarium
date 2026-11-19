@@ -30,6 +30,11 @@ uniform float uSpin = 0.0;
 uniform float uGlare = 0.0;
 uniform float uGlareW = 40.0;
 uniform vec3 uGlareCol = vec3(1.0);
+// The display's height in the pixels the wing is measured in (VisualCtx.viewport_h), so
+// render scale doesn't change its apparent width; 0 uses the render target's.
+uniform float uViewH = 0.0;
+// Opaque geometry in front of the star hides its glare.
+uniform sampler2D uDepth : hint_depth_texture, filter_nearest, repeat_disable;
 // How far past the limb, in wing widths, the quad reaches when 4 R is too little room.
 const float GLARE_REACH = 4.0;
 
@@ -55,7 +60,8 @@ void vertex() {
 	vRpx = 0.0;
 	vGlareW = 0.0;
 	if (uGlare > 0.0) {
-		float per_px = 2.0 * max(-centre.z, 1e-12) / (abs(PROJECTION_MATRIX[1][1]) * VIEWPORT_SIZE.y);
+		float view_h = uViewH > 0.0 ? uViewH : VIEWPORT_SIZE.y;
+		float per_px = 2.0 * max(-centre.z, 1e-12) / (abs(PROJECTION_MATRIX[1][1]) * view_h);
 		vRpx = uCore * size / per_px;
 		// A disc smaller than the wing gets a halo of its own size, not a fixed blob round it.
 		vGlareW = uGlareW * vRpx / (vRpx + uGlareW);
@@ -172,6 +178,13 @@ void fragment() {
 			? pow(1.0 + dpx / max(vGlareW, 1e-3), -2.0)
 			: exp(dpx / 1.2);
 		glare *= uGlare * (1.0 - smoothstep(0.7 * vGrow, vGrow, r));
+		// Opaque geometry nearer than the star along this ray hides it: off the limb that is
+		// the ray's closest approach, on the disc the photosphere. The margin is wider than a
+		// grazing ray's chord through the mesh, which bulges past the analytic limb.
+		float bR = max(1.0 + x, 0.0);
+		float tStar = tca - R * (sqrt(max(1.0 - bR * bR, 0.0)) + 0.3);
+		vec4 vv = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, texture(uDepth, SCREEN_UV).r, 1.0);
+		if (glare > 0.0 && length(vv.xyz / vv.w) < tStar) glare = 0.0;
 	}
 
 	if (is_temp_pass(CAMERA_VISIBLE_LAYERS)) {

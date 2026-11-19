@@ -1812,6 +1812,10 @@ func set_band(i: int) -> void:
 	hud.set_band(state.band, band)
 	# The sky composites itself per band (docs/physics/sky.md), not through the remap.
 	SkyModel.apply_sky_band(pipe.sky_materials, state.band)
+	# Before the next draw, which may be a capture before the next animate.
+	for b in state.bodies:
+		if b.viz != null and b.viz.has_method("set_band_visible"):
+			b.viz.set_band_visible(state.band == Spectrum.VISIBLE_BAND)
 
 # SETTINGS PANEL — the cross-cutting knobs, as against the scenario's own.
 ## A preset's `sky` as the live spec: `env: "disc"` widens to a weight map.

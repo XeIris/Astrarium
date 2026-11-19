@@ -157,8 +157,11 @@ class StarViz:
 	var chromo_w := 0.0
 	## 1 on a dwarf, 0 on a giant (by log g).
 	var dwarf := 1.0
-	## StarVisual.glare_of for this photosphere.
+	## StarVisual.glare_of for this photosphere, the temperature it was taken at, and
+	## whether the visible band is being imaged.
 	var glare := Vector2.ZERO
+	var glare_teff := NAN
+	var glare_on := true
 	## 1 with a hot corona, 0 past the Linsky–Haisch dividing line.
 	var hotc := 1.0
 	## Stellar.envelope_of, and the sphere it is marched through (null without one).
@@ -170,6 +173,19 @@ class StarViz:
 	var eject_next := INF
 	var env_rng := RandomNumberGenerator.new()
 
+
+	## Ageing moves Teff without a rebuild.
+	func _refresh_glare(teff: float) -> void:
+		glare_teff = teff
+		glare = StarVisual.glare_of(teff)
+		corona_mat.set_shader_parameter("uGlareW", glare.y)
+		set_band_visible(glare_on)
+
+	## Glare stands in for visible light the disc can't carry; in another band the band
+	## image's own bloom is the PSF.
+	func set_band_visible(on: bool) -> void:
+		glare_on = on
+		corona_mat.set_shader_parameter("uGlare", glare.x if on else 0.0)
 
 	## Spin edits change shader deformation and colours; the flare pools retain their lifetime.
 	func refresh_rotation() -> void:
@@ -239,8 +255,7 @@ class StarViz:
 		corona.custom_aabb = StarVisual.NO_CULL_AABB
 		corona.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		corona_mat.render_priority = -1
-		glare = StarVisual.glare_of(teff)
-		corona_mat.set_shader_parameter("uGlareW", glare.y)
+		_refresh_glare(teff)
 		corona_mat.set_shader_parameter("uGlareCol", StarVisual._v3(photo))
 		group.add_child(corona)
 		refresh_rotation()
@@ -628,9 +643,10 @@ class StarViz:
 		# The corona billboard carries only streamers and the inner aureole; bloom makes the
 		# soft halo.
 		corona_mat.set_shader_parameter("uFlux", (0.15 + (activity.flux - 1.0) * 0.8) * hotc)
-		# Glare stands in for visible light the disc can't carry; in another band the band
-		# image's own bloom is the PSF.
-		corona_mat.set_shader_parameter("uGlare", glare.x if ctx.visible_band else 0.0)
+		var teff_now := float(U.nz(body.teff, glare_teff))
+		if teff_now != glare_teff: _refresh_glare(teff_now)
+		if ctx.visible_band != glare_on: set_band_visible(ctx.visible_band)
+		corona_mat.set_shader_parameter("uViewH", ctx.viewport_h)
 		if envelope != null:
 			# The envelope's photosphere breathes with the drawn one, or the depth test
 			# that finds the star behind a ray misses it by the pulse.
