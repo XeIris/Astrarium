@@ -26,6 +26,16 @@ const CHROMO_COLOR := Color(1.0, 0.30, 0.09)
 const PHOTO_SHADER := preload("res://shaders/bodies/star_photo.gdshader")
 const CORONA_SHADER := preload("res://shaders/bodies/star_corona.gdshader")
 const CME_SHADER := preload("res://shaders/bodies/star_cme.gdshader")
+const ENVELOPE_SHADER := preload("res://shaders/bodies/star_envelope.gdshader")
+## Dust scatters ~10⁻³ of the starlight it intercepts toward an observer at a few
+## stellar radii; drawn at this gain so the shell around a dusty giant is legible.
+const DUST_GAIN := 2.5
+## A hot wind's line emission relative to the starlight it scatters, as drawn.
+const WIND_GAIN := 1.5
+const MAX_PUFFS := 4
+const PUFF_CONDENSE := 0.6
+## Grain opacity over the molecular opacity of the same gas, in the visible.
+const DUST_BOOST := 8.0
 
 ## The corona is a screen-space billboard; its quad carries no shape the
 ## culler could reason about.
@@ -125,6 +135,16 @@ class StarViz:
 	var chromo_w := 0.0
 	## 1 on a dwarf, 0 on a giant (by log g).
 	var dwarf := 1.0
+	## 1 with a hot corona, 0 past the Linsky–Haisch dividing line.
+	var hotc := 1.0
+	## Stellar.envelope_of, and the sphere it is marched through (null without one).
+	var env: Dictionary = {}
+	var envelope: MeshInstance3D = null
+	var env_mat: ShaderMaterial = null
+	## Ejected puffs: [{dir, r, speed (R/yr), tau, seed}]; the next one, in sim years.
+	var ejecta: Array = []
+	var eject_next := INF
+	var env_rng := RandomNumberGenerator.new()
 
 
 	## Spin edits change shader deformation and colours; the flare pools retain their lifetime.
@@ -270,13 +290,16 @@ class StarViz:
 		# surface-brightness compression; the order of the stars' brightness is kept.
 		var bare := StarVisual.DISC_LEVEL_BARE / pow(maxf(Structure.surface_brightness(teff), 0.05), 0.7)
 		mat.set_shader_parameter("uDisc", lerpf(bare, StarVisual.DISC_LEVEL, carried))
-		corona_mat.set_shader_parameter("uChromoW", chromo_w)
+		# Past the dividing line a giant has no hot corona, spicules or hot loops.
+		hotc = Stellar.hot_corona(teff, dwarf)
+		corona_mat.set_shader_parameter("uChromoW", chromo_w * hotc)
 		corona_mat.set_shader_parameter("uChromo", StarVisual._v3(StarVisual.CHROMO_COLOR))
+		_build_envelope(b, R, teff, photo, float(mat.get_shader_parameter("uDisc")))
 
 		# Quiescent prominences: long-lived hedgerows over the filament channels decayed
 		# regions leave behind, and the polar crown at high latitude. Against the disc they
 		# are filaments. Only a star with a chromosphere has them.
-		if chromo_w > 0.0:
+		if chromo_w > 0.0 and Stellar.hot_corona(teff, dwarf) > 0.5:
 			var rng := RandomNumberGenerator.new()
 			rng.seed = hash(b.id) ^ 0x51f15e
 			for i in StarVisual.MAX_QUIESCENT:
@@ -296,6 +319,86 @@ class StarViz:
 		base_r = R
 		r = R
 		color_hex = U.hex_of(photo)
+
+	## The envelope (Stellar.envelope_of): a sphere about the star marched by
+	## star_envelope.gdshader, when there is a layer, dust or a hot wind to draw.
+	func _build_envelope(b: Body, R: float, teff: float, photo: Color, disc: float) -> void:
+		env = Stellar.envelope_of(b.structure, b.wind_mdot)
+		var dusty: bool = float(env.dustTau) > 0.02
+		var windy: bool = float(env.windTau) > 0.05
+		if float(env.layerH) <= 0.0 and not dusty and not windy:
+			return
+		var reach := 1.0 + 8.0 * float(env.layerH)
+		if dusty: reach = maxf(reach, float(env.dustR) * 2.0)
+		if windy: reach = maxf(reach, 3.0)
+		reach = clampf(reach, 1.2, 10.0)
+		env_mat = ShaderMaterial.new()
+		env_mat.shader = StarVisual.ENVELOPE_SHADER
+		var ld := Stellar.limb_darkening(teff)
+		var surf := StarVisual._v3(photo) * (Structure.surface_brightness(teff) * disc)
+		for kv in [["uR", R], ["uEnv", reach], ["uTeff", teff], ["uSurf", surf],
+				["uLimbA", ld[0]], ["uLimbB", ld[1]], ["uLayerH", env.layerH], ["uLayerTau", env.layerTau],
+				["uCellK", mat.get_shader_parameter("uGranScale")], ["uDustR", env.dustR],
+				["uDustTau", env.dustTau if dusty else 0.0], ["uDustGain", StarVisual.DUST_GAIN],
+				["uWindTau", env.windTau if windy else 0.0], ["uWindGain", StarVisual.WIND_GAIN],
+				["uNoise", Prominence.plasma_noise()]]:
+			env_mat.set_shader_parameter(kv[0], kv[1])
+		var z4 := PackedVector4Array(); z4.resize(StarVisual.MAX_PUFFS)
+		env_mat.set_shader_parameter("uPuffA", z4)
+		env_mat.set_shader_parameter("uPuffB", z4)
+		envelope = MeshInstance3D.new()
+		envelope.name = "Envelope"
+		# Back faces of a sphere that circumscribes the envelope; the shader does the rest.
+		envelope.mesh = StarVisual._sphere(R * reach * 1.06, 32, 16)
+		envelope.material_override = env_mat
+		envelope.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		group.add_child(envelope)
+		env_rng.seed = hash(b.id) ^ 0x3e1f
+		if float(env.layerH) > 0.02 and float(env.ejectYr) < INF:
+			eject_next = float(env.ejectYr) * env_rng.randf_range(0.2, 1.0)
+
+	## Launch a puff of the envelope from direction `dir` (in the star's frame).
+	func eject(dir: Vector3) -> Dictionary:
+		var p := {"dir": dir.normalized(), "r": 1.0, "tau": 6.0, "seed": env_rng.randf() * 17.0,
+			# km/s → stellar radii per year
+			"speed": 45.4 * float(env.ejectKms) / maxf(float(body.structure.get("radiusSun", 1.0)), 1e-3) * env_rng.randf_range(0.6, 1.3)}
+		ejecta.append(p)
+		if ejecta.size() > StarVisual.MAX_PUFFS: ejecta.pop_front()
+		return p
+
+	## Puffs ride the sim clock, like the flares: they rise, spread, keep their mass
+	## (the column across them falls as 1/σ²) and turn to dust past the condensation radius.
+	func _update_envelope(sim_dt: float) -> void:
+		var reach: float = env_mat.get_shader_parameter("uEnv")
+		eject_next -= sim_dt
+		if eject_next <= 0.0:
+			eject_next = float(env.ejectYr) * env_rng.randf_range(0.5, 1.6)
+			eject(Vector3(env_rng.randfn(), env_rng.randfn(), env_rng.randfn()))
+		var pa := PackedVector4Array(); pa.resize(StarVisual.MAX_PUFFS)
+		var pb := PackedVector4Array(); pb.resize(StarVisual.MAX_PUFFS)
+		var n := 0
+		for i in range(ejecta.size() - 1, -1, -1):
+			var p: Dictionary = ejecta[i]
+			p.r = float(p.r) + float(p.speed) * sim_dt
+			var sg := 0.18 + 0.16 * (float(p.r) - 1.0)
+			# A puff's gas is denser than the wind's and condenses hotter, so closer in
+			# (r ∝ T_c^−5/2: ~0.6 of the wind's radius for 1600 K against 1300 K). Once it
+			# has, its opacity is the grains', several times the molecules': the Great
+			# Dimming of Betelgeuse (Montargès et al. 2021).
+			var rc: float = float(env.dustR) * StarVisual.PUFF_CONDENSE if float(env.dustR) > 0.0 else INF
+			var dusty := StarVisual.smoothstep01(0.8 * rc, 1.1 * rc, float(p.r))
+			var tau := float(p.tau) * pow(0.18 / sg, 2.0) * lerpf(1.0, StarVisual.DUST_BOOST, dusty)
+			if p.r > reach or tau < 0.02:
+				ejecta.remove_at(i)
+				continue
+			var d: Vector3 = p.dir
+			pa[n] = Vector4(d.x, d.y, d.z, p.r)
+			pb[n] = Vector4(sg, tau, dusty, p.seed)
+			n += 1
+		env_mat.set_shader_parameter("uPuffA", pa)
+		env_mat.set_shader_parameter("uPuffB", pb)
+		env_mat.set_shader_parameter("uPuffCount", n)
+		env_mat.set_shader_parameter("uTime", time)
 
 	## A region's local vertical at display time t, turning with the surface's
 	## differential rotation.
@@ -356,7 +459,7 @@ class StarViz:
 			var L: Dictionary = loops[li]
 			var lh: Node3D = L.holder
 			# A radiative envelope has no dynamo, and no loops over its regions.
-			lh.visible = s > 0.02 and conv > 0.01
+			lh.visible = s > 0.02 and conv > 0.01 and hotc > 0.05
 			if lh.visible:
 				lh.transform = Transform3D(_bipole(reg, t), _region_up(reg, t) * R)
 				var arc: Prominence.Arcade = L.arcade
@@ -416,14 +519,19 @@ class StarViz:
 			var arc_amp: float = StarVisual.smoothstep01(0.05, 0.15, x) * minf(f.amp * 1.3 + 0.15, 1.4)
 			var arcade: Prominence.Arcade = E2.arcade
 			arcade.group.visible = arc_amp > 0.01
+			# Post-flare loops are filled at ~10⁷ K, invisible in white light, and appear in
+			# H-α and He II only as they cool; the coolest condense into rain, which absorbs.
+			var arc_t: float = 1.5e7 * exp(-x * 1.6) + 3e5
+			var cooled := StarVisual.smoothstep01(6e6, 1.5e6, arc_t)
 			arcade.set_params({
 				"R": R, "span": (0.045 + 0.055 * minf(x * 2.0, 1.0)) * scl, "len": 0.34 * scl,
 				"height": (0.040 + 0.095 * minf(x * 2.0, 1.0)) * scl,
 				"shear": 0.30 * (1.0 - x), "twist": 0.22, "erupt": 0.0,
-				"width": 0.0075, "amp": arc_amp, "plasmaT": 1.5e7 * exp(-x * 1.6) + 3e5, "dt": dt,
+				"width": 0.0075, "amp": arc_amp, "plasmaT": arc_t, "dt": dt,
 				# Post-flare loops fill from the feet up (chromospheric evaporation), so the
 				# tops brighten as the event goes on.
-				"apex": minf(x * 2.5, 0.8),
+				"apex": minf(x * 2.5, 0.8), "glow": lerpf(0.25, 1.0, cooled), "cooled": cooled,
+				"opacity": 0.35 * cooled,
 			})
 			fc += 1
 		# --- quiescent prominences, carried round by the differential rotation
@@ -439,7 +547,7 @@ class StarViz:
 			var qa: Prominence.Arcade = q.arcade
 			qa.group.visible = true
 			qa.set_params({
-				"R": R, "span": 0.012, "len": q.len, "height": q.height, "shear": 0.0, "twist": 0.0,
+				"R": R, "span": 0.02, "len": q.len, "height": q.height, "shear": 0.0, "twist": 0.0,
 				"erupt": 0.0, "width": 0.0026, "amp": 1.0, "plasmaT": 8000.0, "dt": dt,
 				"kind": Prominence.HEDGEROW, "flow": 0.10, "glow": 0.9,
 			})
@@ -479,7 +587,8 @@ class StarViz:
 		mat.set_shader_parameter("uPulse", activity.flux)
 		# The corona billboard carries only streamers and the inner aureole; bloom makes the
 		# soft halo.
-		corona_mat.set_shader_parameter("uFlux", 0.15 + (activity.flux - 1.0) * 0.8)
+		corona_mat.set_shader_parameter("uFlux", (0.15 + (activity.flux - 1.0) * 0.8) * hotc)
+		if envelope != null: _update_envelope(ctx.sim_dt)
 
 		if stream != null:
 			Bodies.update_accretion_stream(body, ctx, stream, dt)

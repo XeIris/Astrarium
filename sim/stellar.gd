@@ -92,6 +92,81 @@ static func granulation_contrast(teff: float, logg: float) -> float:
 static func spot_temperature_drop(teff: float) -> float:
 	return 1850.0 * clampf((teff - 3200.0) / 2572.0, 0.12, 1.2)
 
+## Hot coronae on giants end at the Linsky–Haisch dividing line, near K2–K3 III: cooler
+## giants have cool massive winds instead (Haisch, Schmitt & Fabian 1992). 1 for a
+## dwarf or a warm giant, 0 past the line. `dwarf` is 1 on a dwarf, 0 on a giant.
+static func hot_corona(teff: float, dwarf: float) -> float:
+	return 1.0 - (1.0 - dwarf) * smoothstep(4600.0, 4100.0, teff)
+
+# THE ENVELOPE: what lies above a photosphere when it is more than a thin skin
+# (docs/physics/stellar-surfaces.md#puffed-up-and-shedding-stars).
+## Levitation of a cool giant's atmosphere by convection, shocks and pulsation, in
+## pressure scale heights: its molecular layer sits at 1.2–1.4 R on Betelgeuse and
+## Antares (Ohnaka et al. 2013, 2017) and near 2 R on a Mira.
+const LEVITATION := 6.0
+## Grain condensation temperature, between corundum (~1400 K) and silicates (~1100 K).
+const DUST_CONDENSATION_K := 1300.0
+## Visible extinction per gram of gas. An M star's silicates are iron-poor and nearly
+## transparent in the visible (Höfner 2008), so the shell dims a Mira by about a
+## magnitude and Betelgeuse by a few tenths, not the 10² cm²/g of dark grains.
+const DUST_KAPPA_CM2_G := 30.0
+## Electron scattering, cm²/g: hydrogen-rich, and a WR star's helium.
+const KAPPA_ES_H := 0.34
+const KAPPA_ES_HE := 0.20
+
+## Escape speed (km/s) from mass (M☉) at radius (R☉).
+static func escape_kms(mass_sun: float, radius_sun_: float) -> float:
+	return 617.7 * sqrt(maxf(mass_sun, 1e-6) / maxf(radius_sun_, 1e-6))
+
+## The envelope of a structure `s` with wind Ṁ (M☉/yr), all lengths in stellar radii:
+##   layerH, layerTau: the levitated molecular layer's scale height and radial optical
+##     depth in the visible (TiO bands grow strong below ~4000 K);
+##   dustR, dustTau: where grains condense, r_c/R = ½(T_eff/T_c)^{5/2} (Höfner 2007, with
+##     p = 1), and the radial optical depth beyond it, κ Ṁ / (4π v r_c), the wind leaving
+##     at half the escape speed from r_c;
+##   windTau: a hot star's wind in electron scattering at its base (β = 1 law cut at
+##     v = 0.01 v∞): optically thick for a Wolf–Rayet star, and an LBV's continuum-driven
+##     outflow near the Eddington limit (Owocki et al. 2017) thickens it;
+##   ejectKms: the speed of episodic surface mass ejections (Dupree et al. 2020 measure
+##     ~90 km/s for Betelgeuse's in 2019), and ejectYr the mean interval between them.
+static func envelope_of(s: Dictionary, mdot: float) -> Dictionary:
+	var out := {"layerH": 0.0, "layerTau": 0.0, "dustR": 0.0, "dustTau": 0.0, "windTau": 0.0,
+		"windKms": 0.0, "ejectKms": 0.0, "ejectYr": INF}
+	var T: float = float(s.get("teff", 0.0))
+	var R: float = float(s.get("radiusSun", 0.0))
+	var M: float = float(s.get("mass", 0.0))
+	if T <= 0.0 or R <= 0.0 or M <= 0.0: return out
+	var hp := Structure.pressure_scale_height_frac(T, R, M)
+	var vesc := escape_kms(M, R)
+	var g_cm := mdot * Structure.M_SUN * 1000.0 / Rocketry.YR_S       # Ṁ in g/s
+	var R_cm := R * Structure.R_SUN * 100.0
+	var cool := Structure.envelope_convection(T)
+	# Only a star whose layer reaches past a few hundredths of its radius is drawn with one.
+	var H := clampf(LEVITATION * hp, 0.0, 0.4) * cool
+	if H > 0.01:
+		out.layerH = H
+		out.layerTau = (0.15 + 0.9 * smoothstep(4300.0, 3200.0, T)) * smoothstep(0.01, 0.03, H)
+		# Mass leaves in episodes from the largest cells, about once per crossing of the
+		# layer at the ejection speed.
+		out.ejectKms = 0.6 * vesc
+		out.ejectYr = clampf(R / (45.4 * out.ejectKms) * 4.0, 0.05, 50.0)
+	if T < 4500.0 and mdot > 1e-9:
+		var rc := 0.5 * pow(T / DUST_CONDENSATION_K, 2.5)
+		var vw := maxf(0.5 * escape_kms(M, R * rc), 5.0) * 1e5
+		out.dustR = rc
+		out.dustTau = clampf(DUST_KAPPA_CM2_G * g_cm / (4.0 * PI * vw * rc * R_cm), 0.0, 6.0)
+	# A line-driven wind needs a hot star; near the Eddington limit the continuum drives
+	# one at any temperature, and an LBV's visible surface is formed in it.
+	var gamma: float = float(s.get("eddington", 0.0))
+	if (T > 10000.0 and mdot > 0.0) or gamma > 0.7:
+		var vinf := 2.6 * vesc
+		var k := KAPPA_ES_HE if bool(s.get("wolfRayet", false)) else KAPPA_ES_H
+		var tau := k * g_cm / (4.0 * PI * vinf * 1e5 * R_cm) * log(100.0)
+		tau += 4.0 * smoothstep(0.7, 1.0, gamma)
+		out.windTau = clampf(tau, 0.0, 8.0)
+		out.windKms = vinf
+	return out
+
 # Rotation in rad/yr. Below the Kraft break (~1.3 M☉, Teff ≈ 6200 K) a convective
 # envelope's magnetised wind spins a star down (the Sun: ~25 d); above it, without
 # one, A and B stars keep ~150 km/s at the equator, a period of about a day (Kraft

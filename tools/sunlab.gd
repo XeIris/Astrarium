@@ -5,6 +5,7 @@ extends Harness
 #     [at=limb|top|disc] [energy=2] [band=5] [cam=r,theta,phi] [regions=3] [teff=5772]
 #     [star=sun|proxima|betelgeuse|vega|…]
 #     [close=1] [xto=0.9] [orbit=0.6] [seq=/abs/prefix every=2] [qlon=0 qlat=0.5 qtilt=1.57] [spin=0.1] [probe=1]
+#     [puff=1.6,-0.4,1.57 puffto=4]
 # x is the flare's progress through its event (0..1); no flare without it. `at` puts
 # it on the east limb (a prominence against the sky, its loops along the line of
 # sight), on the north limb seen from below the equator (`top`: the loops side-on)
@@ -20,6 +21,8 @@ var x0 := -1.0
 var x1 := -1.0
 var phi0 := 0.0
 var probe_t0 := 0
+var puff = null
+var puff_r := Vector2.ZERO
 
 func _setup() -> void:
 	var spec := Starcat.star_spec(str(args.get("star", "sun")), {"pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0]})
@@ -86,6 +89,16 @@ func _setup() -> void:
 		viz.quiescent[0].lon = float(args.qlon)
 		if args.has("qlat"): viz.quiescent[0].lat = float(args.qlat)
 		if args.has("qtilt"): viz.quiescent[0].tilt = float(args.qtilt)
+	# puff=r[,lat,lon[,tau]]: an ejected puff of the envelope r stellar radii out (longitude 0
+	# is the east limb, π/2 faces the camera); puffto= carries it on over the run.
+	if args.has("puff") and viz.envelope != null:
+		var pv: PackedStringArray = str(args.puff).split(",")
+		var plat := float(pv[1]) if pv.size() > 1 else 0.3
+		var plon := float(pv[2]) if pv.size() > 2 else 0.0
+		puff = viz.eject(Vector3(cos(plat) * cos(plon), sin(plat), cos(plat) * sin(plon)))
+		puff.r = float(pv[0])
+		if pv.size() > 3: puff.tau = float(pv[3])
+		puff_r = Vector2(puff.r, float(args.get("puffto", pv[0])))
 	# close=1 centres the camera on the first region, 0.9 R away.
 	if args.get("close", "0") == "1":
 		var v: Vector3 = act.region_dir(act.regions[0])
@@ -105,6 +118,7 @@ func _step(step: float) -> void:
 	if x0 >= 0.0 and not act.flares.is_empty():
 		act.flares[0].t = lerpf(x0, x1, u) * float(act.flares[0].duration)
 	if args.has("orbit"): cam_phi = phi0 + float(args.orbit) * u
+	if puff != null: puff.r = lerpf(puff_r.x, puff_r.y, u)
 	var every := maxi(int(args.get("every", "1")), 1)
 	if args.has("seq") and frame % every == 0:
 		var path := "%s_%04d.png" % [str(args.seq), frame / every]

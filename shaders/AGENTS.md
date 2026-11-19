@@ -97,32 +97,52 @@ Models and sources: [docs/physics/stellar-surfaces.md](../docs/physics/stellar-s
 - The corona billboard's limb is the spheroid's projected outline (`uFlat`), not the
   equatorial radius. Check: `tools/sunlab.tscn` with `star=vega`.
 
-## Stellar eruptions (`prominence.gd`, `prom_*`, `star_cme`)
+## Stellar eruptions (`prominence.gd`, `prom_volume`, `star_cme`)
 
-- Plasma lives on field lines: an eruption is an arcade of separate threads
-  anchored in two ribbons, and the arcade's length along the neutral line is
-  several loop spans.
-- The rope is strongly sheared and relaxes toward square as the event proceeds;
-  the shear is the free energy.
-- A prominence and a filament are one object, drawn twice from one buffer:
-  emitting off the limb and absorbing against the disc (tested by the sight
-  line's closest approach to the star's centre, exact at any camera distance).
-- The arcade buffer carries only thread index, arc parameter and side; the shape
-  is all in the vertex shader (`uKind`: loops across the neutral line, a flux rope
-  wound along it, a hedgerow curtain). One buffer serves every star and is never freed.
+- Plasma lives on field lines, and a picture of it is a line-of-sight integral. Each
+  structure is a volume marched through a box (`Prominence.frame_bounds`), its density in
+  field-aligned coordinates; never draw a thread as a line or ribbon. `prominence.gd`
+  derives the geometry (`uGeo`) and the box from the same numbers.
+- Density is structure; excitation (`lit`: footpoint heating, the order loops light in)
+  multiplies the emission only. Thin emission goes as n², so a weight folded into n
+  is squared. A draining rope loses material, so its fade is in n.
+- Filament and prominence are one volume: blend_premul_alpha, emission over the
+  transmitted background. Cool material hides only `LINE_SHARE` of the disc (thick in the
+  lines, thin in the continuum), and its emission against the disc is the disc's light
+  scattered, below it. Hot loops have no opacity.
+- Steps are even, a fraction of a strand apart and no finer than a pixel; the cheap
+  envelope test (`full = false`) skips the density outside the structure. A two-level
+  march that backs up after a long step ping-pongs on a widened envelope and drops
+  structure; jitter with white noise, since an ordered dither cross-hatches thin strands.
+- An unwritten `out` parameter is undefined, not its caller's value: every structure
+  function writes `lit`.
+- The rope is strongly sheared and relaxes toward square as the event proceeds; the
+  shear is the free energy.
 - A CME shell is weighted by path length through it (bright at the rim). The
   front, cavity and core are two additive shells with a gap.
 - Joy's law: a bipole lies near east-west, tilted by about half its latitude, so
   every arcade in a hemisphere leans the same way.
 - Every spot group carries hot coronal loops between flares: nearly invisible in
-  white light (`uGlow`), bright in X-ray. Hot loops don't absorb; only cool
-  prominence material draws the filament pass.
-- Hot arcade threads publish their temperature on the disc as well as off it; the
-  colour is what is limited to off the limb. Cool (< 10⁵ K) material on the disc
-  leaves the photosphere's value. Check: `tools/sunlab.tscn` with `band=5`, `at=top`.
+  white light (`uGlow`), bright in X-ray. A post-flare arcade's colour, visibility and
+  opacity follow its cooling (`cooled`).
+- Hot plasma publishes its temperature on the disc as well as off it; cool (< 10⁵ K)
+  material on the disc leaves the photosphere's value. Check: `tools/sunlab.tscn` with
+  `band=5`, `at=top`.
 - The corona billboard leaves the temperature underneath, except its 10⁴ K spicule
   fringe. Its glow is too faint to be the band remap's coverage, and replacing the
-  sky's code blacks the sky out.
+  sky's code blacks the sky out. Past the Linsky–Haisch line (`Stellar.hot_corona`) a
+  giant has no hot corona, loops or quiescent prominences.
+
+## Envelopes (`star_envelope`)
+
+- A star whose atmosphere is not a thin skin (a levitated molecular layer, a dusty wind,
+  a hot star's thick wind) gets a sphere marched evenly in the angle about the star's
+  centre, which gathers samples at the closest approach and integrates a 1/r² wind
+  exactly. Its parameters come only from `Stellar.envelope_of`.
+- Extinction is per colour, blending has one alpha: the background goes out by its least
+  transmitted colour and the rest comes back from the photosphere it covers.
+- Ejected puffs ride the sim clock and conserve mass; their dust's opacity is the jump
+  that dims the star. Check: `tools/sunlab.tscn` with `star=mira cam=9 puff=3,-0.08,1.5`.
 
 ## gdshader traps
 
