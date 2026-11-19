@@ -332,6 +332,7 @@ func attach_visual(b: Body) -> void:
 	opts.plate_scale = spec.get("plateScale"); opts.land_relief = spec.get("landRelief"); opts.ocean_depth = spec.get("oceanDepth")
 	var viz = Bodies.create_body_visual(b, opts)
 	b.viz = viz
+	_gate_band(b)
 	var g: Node3D = viz.group
 	# Non-star flattening: scale the group into the spheroid (structure.gd conserves
 	# volume; Jupiter is 6.5% wider than tall). Star shaders deform their own mesh.
@@ -1812,6 +1813,13 @@ func set_band(i: int) -> void:
 	hud.set_band(state.band, band)
 	# The sky composites itself per band (docs/physics/sky.md), not through the remap.
 	SkyModel.apply_sky_band(pipe.sky_materials, state.band)
+	# Before the next draw, which may be a capture before the next animate.
+	for b in state.bodies: _gate_band(b)
+
+## A star's glare is visible light only; a new or rebuilt visual starts visible.
+func _gate_band(b: Body) -> void:
+	if b.viz != null and b.viz.has_method("set_band_visible"):
+		b.viz.set_band_visible(state.band == Spectrum.VISIBLE_BAND)
 
 # SETTINGS PANEL — the cross-cutting knobs, as against the scenario's own.
 ## A preset's `sky` as the live spec: `env: "disc"` widens to a weight map.
@@ -3493,6 +3501,7 @@ func animate(dt: float) -> void:
 	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
 	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
 	ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
+	ctx.visible_band = state.band == Spectrum.VISIBLE_BAND
 	var vis_dt := 0.0 if state.paused else dt
 	if not drawn: _held_dt += vis_dt
 	else:

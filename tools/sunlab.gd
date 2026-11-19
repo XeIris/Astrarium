@@ -5,7 +5,7 @@ extends Harness
 #     [at=limb|top|disc] [energy=2] [band=5] [cam=r,theta,phi] [regions=3] [teff=5772]
 #     [star=sun|proxima|betelgeuse|vega|siriusB|… (stars and white dwarfs)]
 #     [close=1] [xto=0.9] [orbit=0.6] [seq=/abs/prefix every=2] [qlon=0 qlat=0.5 qtilt=1.57] [spin=0.1] [probe=1]
-#     [puff=1.6,-0.4,1.57 puffto=4]
+#     [puff=1.6,-0.4,1.57 puffto=4] [occluder=x,y,z,r]
 # x is the flare's progress through its event (0..1); no flare without it. `at` puts
 # it on the east limb (a prominence against the sky, its loops along the line of
 # sight), on the north limb seen from below the equator (`top`: the loops side-on)
@@ -50,6 +50,20 @@ func _setup() -> void:
 	# Debugging switches: hide a part to see what it contributes.
 	if args.has("nocorona"): viz.corona.visible = false
 	if args.has("nocore"): viz.core.visible = false
+	# occluder=x,y,z,r: an opaque grey sphere (the default camera is on +Z), for what hides
+	# the star's glare.
+	if args.has("occluder"):
+		var o: PackedStringArray = str(args.occluder).split(",")
+		var ball := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = float(o[3]); sm.height = 2.0 * sm.radius
+		ball.mesh = sm
+		var om := StandardMaterial3D.new()
+		om.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		om.albedo_color = Color(0.08, 0.08, 0.08)
+		ball.material_override = om
+		pipe.world_root.add_child(ball)
+		place(ball, DVec3.new(float(o[0]), float(o[1]), float(o[2])))
 	# spin= scales the display rotation (the Sun turns every few seconds), for clips.
 	if args.has("spin"):
 		viz.omega *= float(args.spin)
@@ -140,4 +154,5 @@ func _step(step: float) -> void:
 	ctx.sim_dt = 0.0
 	ctx.bodies = [body]
 	ctx.viewport_h = float(pipe.render_size.y)
+	ctx.visible_band = pipe.postfx.band == Spectrum.VISIBLE_BAND
 	viz.update(step, ctx)

@@ -18,6 +18,13 @@ const DISC_LEVEL_BARE := 0.8
 ## drawn at this weight relative to the disc so the layer narrowband imagers see (H-α,
 ## He II 304 Å) is legible, the way bodies are drawn magnified.
 const CHROMO_GAIN := 0.5
+## Glare for a star brighter than the Sun, the exposure's reference (which has none). The
+## disc is held under ACES's shoulder to keep its colour, so what it cannot carry goes round
+## it as glare. Its peak stays under the bare disc's limb, so the disc is still the brightest
+## thing drawn, and a brighter star spreads its glare wider instead.
+const GLARE_GAIN := 0.35
+const GLARE_PEAK := 0.8
+const GLARE_WIDTH_PX := 40.0
 ## The fraction of the continuum the chromosphere hides when it is drawn.
 const CHROMO_VEIL := 0.45
 ## H-α (656 nm) blended with He I D3 and the Ca II lines, as linear sRGB.
@@ -55,6 +62,11 @@ static func puff_column(sg: float, r: float) -> float:
 	const SG0 := 0.18
 	var sl := sg + 0.7 * (r - 1.0)
 	return SG0 * SG0 * (0.886 + 0.636) / (sg * (0.886 * sg + 0.636 * sl))
+
+## A photosphere at `teff` (K): x the glare at its limb, y the wing's width in pixels.
+static func glare_of(teff: float) -> Vector2:
+	var excess := GLARE_GAIN * maxf(Structure.surface_brightness(teff) - 1.0, 0.0)
+	return Vector2(GLARE_PEAK * tanh(excess / GLARE_PEAK), GLARE_WIDTH_PX * sqrt(1.0 + excess))
 
 static func _v3(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
@@ -145,6 +157,11 @@ class StarViz:
 	var chromo_w := 0.0
 	## 1 on a dwarf, 0 on a giant (by log g).
 	var dwarf := 1.0
+	## StarVisual.glare_of for this photosphere, the temperature it was taken at, and
+	## whether the visible band is being imaged.
+	var glare := Vector2.ZERO
+	var glare_teff := NAN
+	var glare_on := true
 	## 1 with a hot corona, 0 past the Linsky–Haisch dividing line.
 	var hotc := 1.0
 	## Stellar.envelope_of, and the sphere it is marched through (null without one).
@@ -156,6 +173,19 @@ class StarViz:
 	var eject_next := INF
 	var env_rng := RandomNumberGenerator.new()
 
+
+	## Ageing moves Teff without a rebuild.
+	func _refresh_glare(teff: float) -> void:
+		glare_teff = teff
+		glare = StarVisual.glare_of(teff)
+		corona_mat.set_shader_parameter("uGlareW", glare.y)
+		set_band_visible(glare_on)
+
+	## Glare stands in for visible light the disc can't carry; in another band the band
+	## image's own bloom is the PSF.
+	func set_band_visible(on: bool) -> void:
+		glare_on = on
+		corona_mat.set_shader_parameter("uGlare", glare.x if on else 0.0)
 
 	## Spin edits change shader deformation and colours; the flare pools retain their lifetime.
 	func refresh_rotation() -> void:
@@ -225,6 +255,8 @@ class StarViz:
 		corona.custom_aabb = StarVisual.NO_CULL_AABB
 		corona.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		corona_mat.render_priority = -1
+		_refresh_glare(teff)
+		corona_mat.set_shader_parameter("uGlareCol", StarVisual._v3(photo))
 		group.add_child(corona)
 		refresh_rotation()
 
@@ -611,6 +643,10 @@ class StarViz:
 		# The corona billboard carries only streamers and the inner aureole; bloom makes the
 		# soft halo.
 		corona_mat.set_shader_parameter("uFlux", (0.15 + (activity.flux - 1.0) * 0.8) * hotc)
+		var teff_now := float(U.nz(body.teff, glare_teff))
+		if teff_now != glare_teff: _refresh_glare(teff_now)
+		if ctx.visible_band != glare_on: set_band_visible(ctx.visible_band)
+		corona_mat.set_shader_parameter("uViewH", ctx.viewport_h)
 		if envelope != null:
 			# The envelope's photosphere breathes with the drawn one, or the depth test
 			# that finds the star behind a ray misses it by the pulse.

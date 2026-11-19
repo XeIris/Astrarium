@@ -93,6 +93,8 @@ class AccretionWrap:
 	func update(dt: float, ctx: VisualCtx) -> void:
 		inner.update(dt, ctx)
 		Bodies.update_accretion_stream(body, ctx, stream, dt)
+	func set_band_visible(on: bool) -> void:
+		if inner.has_method("set_band_visible"): inner.set_band_visible(on)
 	func _get(property: StringName):
 		return inner.get(property) if inner != null else null
 	func _set(property: StringName, value) -> bool:

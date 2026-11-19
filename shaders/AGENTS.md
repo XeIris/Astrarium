@@ -96,6 +96,11 @@ Models and sources: [docs/physics/stellar-surfaces.md](../docs/physics/stellar-s
   their convection cells carry the disc instead.
 - The corona billboard's limb is the spheroid's projected outline (`uFlat`), not the
   equatorial radius. Check: `tools/sunlab.tscn` with `star=vega`.
+- A star brighter than the Sun carries its excess as glare on the corona billboard,
+  sized in display pixels (`uViewH`), hidden by opaque geometry nearer than the star, and
+  drawn only in visible light (`VisualCtx.visible_band`), so it never writes the
+  temperature pass. Check: `star=bellatrix`, far (`cam=60,1.57,0`), `band=5` and
+  `occluder=0.75,0,1.2,0.3`.
 
 ## Stellar eruptions (`prominence.gd`, `prom_volume`, `star_cme`)
 

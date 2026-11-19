@@ -43,3 +43,4 @@ var scene_scale: float = 1.0        # scene units per AU
 var sim_dt: float = 0.0             # years integrated this frame
 var bodies: Array = []              # every Body
 var viewport_h: float = 0.0         # logical viewport height, px
+var visible_band := true            # false while another band is imaged (display glare off)

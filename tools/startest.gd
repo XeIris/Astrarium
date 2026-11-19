@@ -154,6 +154,7 @@ func _step(_dt: float) -> void:
 	var ctx := VisualCtx.new()
 	ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = float(d.time)
 	ctx.scene_scale = float(d.sceneScale); ctx.viewport_h = viewport_h; ctx.bodies = bodies
+	ctx.visible_band = pipe.postfx.band == Spectrum.VISIBLE_BAND
 	for b in bodies:
 		if b.viz != null:
 			b.viz.update(0.0, ctx)
