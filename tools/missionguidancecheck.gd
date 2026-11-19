@@ -41,6 +41,25 @@ func run() -> void:
 	var reference: WeakRef=weakref(mission)
 	mission.release();mission=null
 	expect(reference.get_ref()==null,"ending flight releases a self-capturing scheduled burn")
+
+	var mars:=Body.new();mars.name="Mars";mars.mass=3.227e-7;mars.alive=true
+	var aero:=Mission.new();aero.flight=driver;aero.dest=mars;aero.auto_warp=false
+	aero.plan={"legs":[{"key":"aerocapture"}],"r_cap":1e9}
+	driver.autopilot.program=null;driver.autopilot.mode=Guidance.MODE.RETROGRADE
+	aero.update(.05)
+	expect(driver.autopilot.mode==Guidance.MODE.RETROGRADE,"an aerocapture keeps its heat-shield attitude without a program")
+	aero.release()
+
+	# Inbound, 1.6 h from periapsis, aimed far from the parking radius.
+	v.r.set_v(2e9,0,0);v.v.set_v(-200,11500,0);v.sample(0.0)
+	var late:=Mission.new();late.flight=driver;late.dest=jupiter;late.auto_warp=false
+	late.plan={"legs":[{"key":"approach"},{"key":"capture"}],"r_cap":1e9}
+	var t_late:=Orbit.time_to_periapsis_any(Orbit.elements(v.r,v.v,v.env.mu),v.env.mu)
+	late._stage="burn";late._burn={"at":v.coord,"label":"Arrival trim","skipped":true}
+	late._burn_engaged=true;late._fixes=1
+	late._leg_approach(v,driver.autopilot)
+	expect(t_late<Mission.TRIM_BEFORE_S and late.leg==1,"a second trim inside the last window hands over to capture")
+	late.release()
 	v.on_rebase=Callable();driver.autopilot=null
 	print("MISSIONGUIDANCECHECK DONE checks=%d failures=%d"%[checks,failures])
 	quit(1 if failures else 0)

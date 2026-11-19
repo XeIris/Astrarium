@@ -56,7 +56,7 @@ CHANGED_RULES = (
       "ui/control_bindings.gd", "sim/flight/scenarios.gd", "sim/flight/endurance_craft.gd"), ("dockingmissioncheck*", "dockingscenarios", "dockingflightshots", "_soak_check-docking")),
     (("sim/flight/kerr_circular.gd", "sim/flight/spaceflight.gd", "sim/presets.gd"),
      ("kerrflightcheck", "kerrflightshots", "lenscheck", "_soak_check-kerr")),
-    (("sim/flight/mission.gd",), ("missionguidancecheck",)),
+    (("sim/flight/mission.gd",), ("missionguidancecheck", "discoveryflightcheck")),
     (("sim/flight/lander_craft.gd", "model_sources/blender/lander.py"), ("craft-*", "assetcheck")),
     (("sim/flight/endurance_craft.gd", "model_sources/blender/endurance.py"), ("endurancecheck-*", "craft-*", "assetcheck")),
     (("model_sources/blender/movie_materials.py",), ("endurancecheck-*", "discoverycheck-*", "craft-*", "assetcheck")),

@@ -533,8 +533,9 @@ func update(dt: float) -> void:
 	_fly_burn(v, ap)
 	# A months-long window wait needs no pointing manoeuvre. Tracking the local
 	# prograde direction through every parking orbit can exhaust the RCS before
-	# departure; the next burn takes over attitude at its normal handover.
-	if ap.program == null: ap.mode = Guidance.MODE.OFF
+	# departure; the next burn takes over attitude at its normal handover. An
+	# aerocapture pass holds its heat-shield attitude without a program.
+	if ap.program == null and leg_key() != "aerocapture": ap.mode = Guidance.MODE.OFF
 	if auto_warp: _pace(v, ap)
 
 # The legs. Each sets `status`, schedules at most one burn, and calls _next() when
@@ -853,6 +854,11 @@ func _leg_approach(v: Vessel, ap) -> void:
 	status = _burn_status("Approach to %s" % dest.name)
 	if _stage == "burn" and _burn_done(ap):
 		_fixes += 1
+		# At most one trim inside the last window: an aim that a trim cannot reach
+		# would otherwise re-trim every minute, and past periapsis never be aimed.
+		var t_left := Orbit.time_to_periapsis_any(Orbit.elements(v.r, v.v, mu), mu)
+		if _fixes > 1 and not (is_finite(t_left) and t_left > TRIM_BEFORE_S):
+			_next(); return
 		_aim_radius=v.r.length()
 		_stage="coast"
 
